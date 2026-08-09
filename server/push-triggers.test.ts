@@ -16,9 +16,13 @@ mock.module("./push-service", () => ({
 
 const { maybeSendPush, configurePushTriggers } = await import("./push-triggers");
 
-// Resolver del nome topic iniettato (in prod è un lookup sul DB in
-// createAppContext). Qui finto: `tp1` → nome, resto → null.
-configurePushTriggers({ getTopicName: (id: string) => (id === "tp1" ? "Rifai la migration" : null) });
+// Resolver iniettati (in prod sono lookup sul DB in createAppContext). Qui
+// finti: `tp1` → nome, resto → null; `arch` è archiviato/mutato, cioè da
+// zittire.
+configurePushTriggers({
+  getTopicName: (id: string) => (id === "tp1" ? "Rifai la migration" : null),
+  isTopicSilenced: (id: string) => id === "arch",
+});
 
 describe("maybeSendPush — task:review-ready", () => {
   beforeEach(() => { pushCalls.length = 0; });
@@ -144,6 +148,16 @@ describe("maybeSendPush — fine risposta della chat", () => {
 
   test("MUTA senza topicId (non saprebbe DI COSA né DOVE mandarti)", () => {
     maybeSendPush({ type: "stream:end", sessionKey: "topic:tp1", messageId: "m1", completed: true });
+    expect(pushCalls).toHaveLength(0);
+  });
+
+  // Il cancello che questa superficie non aveva. Il banner in-app lo ha da
+  // sempre (`isTopicMuted` in useCompletionNotifier); la push no, e una chat
+  // ARCHIVIATA che chiude un turno — il dispatcher che pota, un reattach che
+  // finisce un giro — ti svegliava col nome di una conversazione che
+  // l'interfaccia non mostra più.
+  test("MUTA su un topic archiviato o mutato", () => {
+    maybeSendPush({ type: "stream:end", sessionKey: "topic:arch", topicId: "arch", messageId: "m1", completed: true });
     expect(pushCalls).toHaveLength(0);
   });
 });

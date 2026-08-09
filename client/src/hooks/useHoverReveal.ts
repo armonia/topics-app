@@ -24,4 +24,10 @@ export function useHoverReveal(
   return hoverRevealClass(hasHover, group, options);
 }
 
-export { hoverRevealClass, HOVER_REVEAL_HIDDEN, type HoverRevealGroup } from '../lib/hoverReveal';
+// Solo il tipo viaggia da qui. `hoverRevealClass` e `HOVER_REVEAL_HIDDEN`
+// erano ri-esportati anche da questo hook, ma nessuno li prendeva per di qua:
+// i due componenti che li usano fuori da React (`MessageBubble`, `BranchList`)
+// importano da `lib/hoverReveal`, che è dove stanno. Una seconda porta per la
+// stessa stanza è solo una porta in più da tenere allineata — e `check:deadcode`
+// la contava, giustamente, come codice morto.
+export type { HoverRevealGroup } from '../lib/hoverReveal';

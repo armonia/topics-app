@@ -21,8 +21,26 @@ hermetic(test);
 
 const PROJ = `/tmp/e2e-storia-${Date.now()}`;
 
+/**
+ * L'identita' viaggia CON il comando, non con la macchina.
+ *
+ * Un `git commit` senza `user.name`/`user.email` non fallisce sul portatile di
+ * chi scrive il test — lo salva la config globale — e fallisce sul runner, che
+ * non ne ha nessuna: «Author identity unknown. *** Please tell me who you are.»
+ * Questo file ne aveva gia' la prova a due passi di distanza (il repo VUOTO piu'
+ * sotto fa `git config user.email`), ma il repo principale no. Passandola con
+ * `-c` a ogni invocazione il test non dipende piu' da com'e' configurata la
+ * macchina che lo esegue. `commit.gpgsign=false` per la stessa ragione: una
+ * chiave di firma e' un'altra cosa che il runner non ha.
+ */
+const IDENTITA = [
+  "-c", "user.name=e2e",
+  "-c", "user.email=e2e@test",
+  "-c", "commit.gpgsign=false",
+];
+
 function git(args: string[]) {
-  execFileSync("git", args, { cwd: PROJ, stdio: "pipe" });
+  execFileSync("git", [...IDENTITA, ...args], { cwd: PROJ, stdio: "pipe" });
 }
 /**
  * Il popover della cronologia, aperto dal suo bottone nella riga d'intestazione.
@@ -215,13 +233,17 @@ test.describe("cronologia dei commit", () => {
     // Processi non sono colorate: il confronto e' con loro, non con un valore
     // scritto a mano.
     const colori = await win.evaluate((root: HTMLElement) => {
-      const iconaDi = (etichetta: string) => {
-        const riga = [...root.querySelectorAll("div")]
-          .find(d => d.className.includes("h-8") && (d.textContent || "").trim().startsWith(etichetta));
+      // PER TESTID, non per classe di layout. Cercava `className.includes("h-8")`,
+      // cioe' l'altezza che quelle intestazioni avevano: da quando sono card
+      // (`h-9 md:h-7`, vedi SECTION_CARD) quel filtro non trova piu' niente e
+      // il test e' andato rosso su un cambio di GEOMETRIA mentre credeva di
+      // parlare di COLORI. I testid ci sono gia' e non si muovono con lo stile.
+      const iconaDi = (testid: string) => {
+        const riga = root.querySelector(`[data-testid="project-sidebar-${testid}"]`);
         const svg = riga?.querySelector("svg");
         return svg ? getComputedStyle(svg).color : null;
       };
-      return { git: iconaDi("Git"), file: iconaDi("File"), processi: iconaDi("Processi") };
+      return { git: iconaDi("git"), file: iconaDi("files"), processi: iconaDi("processes") };
     });
     expect(colori.git).not.toBeNull();
     expect(colori.git).toBe(colori.file ?? colori.processi);
@@ -256,7 +278,9 @@ test.describe("cronologia dei commit", () => {
     const VUOTO = `/tmp/e2e-storia-vuota-${Date.now()}`;
     mkdirSync(VUOTO, { recursive: true });
     writeFileSync(`${VUOTO}/nuovo.txt`, "mai committato\n");
-    execFileSync("git", ["init", "-q", "."], { cwd: VUOTO, stdio: "pipe" });
+    // `-b main`: senza, il ramo iniziale lo decide `init.defaultBranch` della
+    // macchina — `main` dove qualcuno l'ha configurato, `master` sul runner.
+    execFileSync("git", ["init", "-q", "-b", "main", "."], { cwd: VUOTO, stdio: "pipe" });
     execFileSync("git", ["config", "user.email", "t@t"], { cwd: VUOTO, stdio: "pipe" });
     execFileSync("git", ["config", "user.name", "T"], { cwd: VUOTO, stdio: "pipe" });
 

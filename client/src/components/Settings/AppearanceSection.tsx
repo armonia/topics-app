@@ -257,7 +257,9 @@ export function AppearanceSection({ settings, themeMode, onThemeChange, onChange
         >
           <Keyboard size={14} className="flex-shrink-0 text-app-text-secondary" />
           <span className="text-[12.5px] text-app-text">Scorciatoie da tastiera</span>
-          <kbd className="kbd ml-auto">⌘?</kbd>
+          {/* Vedi `shared/shortcuts.ts`: la chord ne accetta due, e questa è
+              quella che si scrive uguale su ogni tastiera. */}
+          <kbd className="kbd ml-auto">⌘/</kbd>
           <ChevronRight size={13} className="flex-shrink-0 text-app-text-muted" />
         </button>
       )}

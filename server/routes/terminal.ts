@@ -15,7 +15,7 @@ import { resolveClaudeBin } from "../lib/claude-bin";
 import { discoverCodexSessionId, codexRolloutExists, codexRolloutPath } from "../lib/codex-session";
 import { deriveCodexSessionTitle } from "../lib/codex-transcript-title";
 import { discoverOpencodeSessionId, deriveOpencodeSessionTitle } from "../lib/opencode-session";
-import { classifyFrame, isInputEcho, isResizeRepaint } from "../lib/pty-activity";
+import { classifyFrame, countsAsActivity, isInputEcho, isResizeRepaint } from "../lib/pty-activity";
 import { createIdempotencyCache } from "../lib/idempotency-cache";
 import { registerFleetSocket, registerFleetSessionSource } from "../lib/fleet-usage";
 import { listSessionCliPids } from "../providers/session-pids";
@@ -310,6 +310,32 @@ const terminalActivity = new Map<string, TerminalActivity>();
 // (e.g. the animated "/goal active" statusline) so they don't count as pty
 // activity and pin a session "busy" forever. See lib/pty-activity.ts.
 const lastVisibleSig = new Map<string, string>();
+// Sessioni RIATTACCATE il cui prossimo frame pty va consumato come BASELINE.
+//
+// PERCHÉ. Un riavvio del server azzera `lastVisibleSig`, quindi il primo frame
+// di ogni pty sopravvissuto non ha un precedente con cui confrontarsi e
+// `classifyFrame` non può che dichiararlo NON cosmetico. Ma quel frame è il
+// ridisegno di uno schermo che esisteva già — la riattaccata stessa lo provoca —
+// non lavoro nuovo. Contarlo costa due cose, misurate entrambe il 2026-08-09
+// sullo stesso terminale: un `busy → finished` fasullo 1,5 s dopo (che sul
+// client diventa il banner «Lavoro completato» di un lavoro chiuso da giorni) e
+// una `reviveOnPtyActivity` che riaccende lo spinner su una sessione ferma da
+// mezz'ora (fase `running` alle 11:35 con il transcript fermo alle 11:05 e zero
+// byte da consumare: nessuna riga scritta, quindi nessun lavoro).
+//
+// Il guard di resize non copre questo caso: il ridisegno arriva senza che noi
+// abbiamo inoltrato un resize, o fuori dalla sua finestra. È la stessa dottrina
+// del «primo frame è solo baseline» che il notificatore ha già lato client
+// (isRealPhaseTransition): un frame che non si può attribuire non annuncia
+// niente. Vale solo per le riattaccate — uno spawn nuovo non ha uno schermo
+// precedente, e il suo primo frame è lavoro vero.
+const awaitingBaselineFrame = new Set<string>();
+
+/** La sessione `id` è stata riadottata da un roster preesistente (riavvio del
+ *  server / bridge): il suo prossimo frame è un ridisegno, non lavoro. */
+function noteTerminalReattached(id: string) {
+  awaitingBaselineFrame.add(id);
+}
 // Time (ms) of the last keystroke we forwarded to each session's pty. An output
 // frame arriving within INPUT_ECHO_WINDOW_MS of this is the user's input being
 // echoed/redrawn (typing, an autocomplete menu, prompt reflow) — NOT the
@@ -380,6 +406,7 @@ function clearTerminalActivity(id: string) {
   lastVisibleSig.delete(id);
   lastInputAt.delete(id);
   lastResizeAt.delete(id);
+  awaitingBaselineFrame.delete(id);
   // Tell clients to drop any loading state for this session (no `finished`:
   // an exit isn't a completed turn).
   if (a?.busy) _broadcastToAll?.({ type: 'terminal:activity', id, busy: false });
@@ -768,7 +795,14 @@ function handleBridgeMessage(msg: any) {
       const echo = isInputEcho(inAt !== undefined ? Date.now() - inAt : null);
       const rsAt = lastResizeAt.get(msg.id);
       const resizeEcho = isResizeRepaint(rsAt !== undefined ? Date.now() - rsAt : null);
-      if (!cosmetic && !echo && !resizeEcho) {
+      //   4. primo frame dopo una RIATTACCATA — il ridisegno dello schermo che
+      //      c'era già. `lastVisibleSig` è appena stato seminato qui sopra, che
+      //      è tutto ciò che serve; contarlo come attività produce un
+      //      `finished` fasullo e una revive fasulla. Vedi awaitingBaselineFrame.
+      // La somma delle quattro sta in `countsAsActivity` (lib/pty-activity.ts),
+      // pura e testata: qui restano solo i segnali.
+      const baseline = awaitingBaselineFrame.delete(msg.id);
+      if (countsAsActivity({ baseline, cosmetic, inputEcho: echo, resizeEcho })) {
         markTerminalActivity(msg.id);
         // Real output revives a session the reaper demoted to dormant while it
         // was merely silent (missed Stop hook), so the loading dots come back.
@@ -935,6 +969,7 @@ function restoreDbSessionsOptimistically(): void {
       parentSessionKey: row.parent_session_key || undefined,
     });
     sessionSockets.set(row.id, new Set());
+    noteTerminalReattached(row.id);
     if (row.claude_session_id && (row.type === 'claude-code' || row.type === 'claude-code-team')) {
       _tracker?.registerTerminalSession(row.claude_session_id, { cwd: row.cwd || undefined });
     }
@@ -1046,10 +1081,11 @@ async function reconcileSessions(attempt = 0): Promise<void> {
           parentSessionKey: row.parent_session_key || undefined,
         });
         sessionSockets.set(row.id, new Set());
+        noteTerminalReattached(row.id);
         // Re-register with the phase tracker (in-memory state was lost on
         // restart). The next hook OR the transcript tail (cwd-derived path)
-        // re-establishes the live phase; until then the client falls back to
-        // the pty heuristic.
+        // re-establishes the live phase; until then il client resta su una fase
+        // a RIPOSO (`dormant` per una riattaccata), non sull'euristica pty.
         if (row.claude_session_id && (row.type === 'claude-code' || row.type === 'claude-code-team')) {
           _tracker?.registerTerminalSession(row.claude_session_id, { cwd: row.cwd || undefined });
         }

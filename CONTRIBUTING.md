@@ -230,11 +230,22 @@ spawns the sidecar with `TOPICS_DISABLE_PTY_BRIDGE=1` and terminal endpoints ans
 crash). Chat, topics, projects, browser pane, and the dashboards work standalone.
 Terminals need a full local dev/OpenClaw setup.
 
-**Gatekeeper on macOS:** if the Apple signing secrets are absent the build is *unsigned*
-— testers double-clicking the download get "Topics can't be opened because Apple cannot
-check it for malicious software"; they must right-click → Open (or
-`xattr -dr com.apple.quarantine Topics.app`). A signed+notarized build removes the
-warning **and** is required for auto-update to verify the downloaded bundle.
+**Gatekeeper on macOS:** without notarization the download is refused on first launch
+with "Apple could not verify Topics is free of malware". Since macOS Sequoia the
+**Control-click → Open bypass no longer exists** — telling a tester to right-click is
+out of date and wastes their time. Give them this instead, verbatim:
+
+> System Settings → Privacy & Security → scroll to Security → **Open Anyway** →
+> authenticate → then **Open** in the dialog that follows.
+
+`xattr -dr com.apple.quarantine Topics.app` also works and is fine for a developer, but
+do not hand it to a tester: a command that strips a security attribute is not something
+to paste from a stranger. And never suggest `sudo spctl --master-disable` — it turns
+Gatekeeper off machine-wide to solve one app, and that is not a decision to make for
+someone else.
+
+A signed+notarized build removes the prompt entirely **and** is required for auto-update
+to verify the downloaded bundle.
 
 ### Electron (archived)
 

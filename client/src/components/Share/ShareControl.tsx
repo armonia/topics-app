@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { componiLink } from '../../../../shared/relay-crypto';
 import { Share2, X, UserPlus, Globe, Copy, Check } from 'lucide-react';
+import { useT } from '../../hooks/useT';
+import { chiaveErroreAuth } from '../../lib/authErrors';
 
 /**
  * Il gesto: dare a un ospite una scheda, o una chat.
@@ -14,9 +16,10 @@ import { Share2, X, UserPlus, Globe, Copy, Check } from 'lucide-react';
  * stessa critica che abbiamo già fatto due volte stasera, prima al pannello dei
  * dispositivi e poi alla revoca.
  *
- * Mostra la PROVENIENZA quando c'è: «da progetto X» invece di una riga muta.
- * Senza, alla domanda «perché costui vede questa cosa?» non c'è risposta, e un
- * permesso a cui non si sa rispondere è un permesso che non si toglie.
+ * Alla domanda «perché costui vede questa cosa?» risponde il SOGGETTO della
+ * riga — questo dispositivo, questa persona, questo team — che è l'unica
+ * provenienza che esiste: nessuna concessione è derivata da un contenitore
+ * (vedi `GrantRow` in server/lib/grants-query.ts).
  */
 type ResourceType = 'task' | 'topic';
 
@@ -48,14 +51,28 @@ interface Share {
   deviceId?: string;
   name: string;
   sharedAt: number;
-  via: { type: string; id: string | null } | null;
 }
 
 const ETICHETTA: Record<Subject['subjectType'], string> = {
-  device: 'dispositivo', person: 'persona', org: 'team',
+  device: 'device', person: 'person', org: 'team',
+};
+
+/** Il titolo dice COSA si sta condividendo. «Share with a guest» su una chat e
+ *  su una scheda è la stessa frase per due gesti diversi: chi la legge non sa
+ *  quale delle due cose sta per uscire di casa. */
+const TITOLO_BOTTONE: Record<ResourceType, string> = {
+  task: 'Share this card with a guest',
+  topic: 'Share this chat with a guest',
+};
+
+/** Cosa vedrà chi apre il link, detto per la risorsa giusta. */
+const OGGETTO_LINK: Record<ResourceType, string> = {
+  task: 'this card',
+  topic: 'this chat',
 };
 
 export function ShareControl({ resourceType, resourceId }: { resourceType: ResourceType; resourceId: string }) {
+  const t = useT();
   const [aperto, setAperto] = useState(false);
   const [shares, setShares] = useState<Share[]>([]);
   const [soggetti, setSoggetti] = useState<Subject[]>([]);
@@ -92,7 +109,7 @@ export function ShareControl({ resourceType, resourceId }: { resourceType: Resou
       setLinks((l.links ?? []).filter((x) => x.revokedAt === null && !x.scaduto));
       setErrore(null);
     } catch {
-      setErrore('Non riesco a leggere le condivisioni.');
+      setErrore('Could not load sharing.');
     }
   }, [resourceType, resourceId]);
 
@@ -110,7 +127,10 @@ export function ShareControl({ resourceType, resourceId }: { resourceType: Resou
           subjectType: sog.subjectType, subjectId: sog.subjectId,
         }),
       });
-      if (!r.ok) setErrore(((await r.json()) as { error?: string }).error ?? 'Non riuscito.');
+      // Il server manda un CODICE (`shared/auth-codes.ts`), non una frase: qui
+      // c'era `setErrore(body.error)`, che stampava la prosa italiana del
+      // server sotto un titolo inglese.
+      if (!r.ok) setErrore(t(chiaveErroreAuth(((await r.json()) as { error?: string }).error)));
       await carica();
     } finally { setInCorso(false); }
   };
@@ -132,7 +152,7 @@ export function ShareControl({ resourceType, resourceId }: { resourceType: Resou
         credentials: 'same-origin',
         body: JSON.stringify({ resourceType, resourceId }),
       });
-      if (!r.ok) { setErrore(((await r.json()) as { error?: string }).error ?? 'Non riuscito.'); return; }
+      if (!r.ok) { setErrore(t(chiaveErroreAuth(((await r.json()) as { error?: string }).error))); return; }
       const { ref, key } = await r.json() as { ref: string; key: string };
       setAppenaCreato(componiLink(relay.baseUrl, relay.installationId, ref, key));
       setCopiato(false);
@@ -171,10 +191,10 @@ export function ShareControl({ resourceType, resourceId }: { resourceType: Resou
         onClick={() => setAperto((v) => !v)}
         data-testid="share-control"
         className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] text-app-text-secondary hover:bg-app-hover hover:text-app-text"
-        title="Condividi con un ospite"
+        title={TITOLO_BOTTONE[resourceType]}
       >
         <Share2 size={12} />
-        {shares.length > 0 ? `Condiviso con ${shares.length}` : 'Condividi'}
+        {shares.length > 0 ? `Shared with ${shares.length}` : 'Share'}
       </button>
 
       {aperto && (
@@ -187,19 +207,17 @@ export function ShareControl({ resourceType, resourceId }: { resourceType: Resou
                 <li key={chiave(s.subjectType, s.subjectId)} className="flex items-center gap-2 rounded px-1.5 py-1 text-[12px]">
                   <span className="min-w-0 flex-1">
                     <span className="truncate text-app-text">{s.name}</span>
-                    {/* La provenienza: senza, «perché costui vede questa cosa?»
-                        non ha risposta, e un permesso a cui non si sa rispondere
-                        è un permesso che non si toglie. E si dice QUALE: «da
-                        progetto» senza dire quale non risponde alla domanda per
-                        cui la colonna esiste. */}
-                    {s.via && (
-                      <span className="ml-1 text-[10px] text-app-text-muted">
-                        da {s.via.type}{s.via.id ? ` ${s.via.id}` : ''}
-                      </span>
-                    )}
+                    {/* CHI, e di che natura: «Anna · person» e «Anna · device»
+                        sono due permessi diversi — il primo segue la persona su
+                        ogni suo dispositivo, il secondo muore con quel ferro.
+                        Il nome da solo non lo dice, e la revoca è la stessa
+                        riga per due significati diversi. */}
+                    <span className="ml-1 text-[10px] text-app-text-muted">
+                      {ETICHETTA[s.subjectType]}
+                    </span>
                   </span>
                   <button
-                    aria-label={`Togli l'accesso a ${s.name}`}
+                    aria-label={`Remove access for ${s.name}`}
                     disabled={inCorso}
                     onClick={() => void togli(s)}
                     className="rounded p-0.5 text-app-text-tertiary hover:bg-app-hover hover:text-red-500 disabled:opacity-50"
@@ -227,12 +245,12 @@ export function ShareControl({ resourceType, resourceId }: { resourceType: Resou
                       readOnly
                       value={appenaCreato}
                       onFocus={(e) => e.currentTarget.select()}
-                      aria-label="Link da condividere"
+                      aria-label="Link to share"
                       className="min-w-0 flex-1 rounded border border-app-border bg-app-bg px-1.5 py-1 font-mono text-[10px] text-app-text outline-none"
                     />
                     <button
                       onClick={() => { void navigator.clipboard?.writeText(appenaCreato); setCopiato(true); }}
-                      aria-label="Copia il link"
+                      aria-label="Copy link"
                       className="flex-shrink-0 rounded p-1 text-app-text-tertiary hover:bg-app-hover hover:text-app-text"
                     >
                       {copiato ? <Check size={12} className="text-green-500" /> : <Copy size={12} />}
@@ -241,9 +259,9 @@ export function ShareControl({ resourceType, resourceId }: { resourceType: Resou
                   {/* Le due cose che chi crea un link deve leggere ADESSO, non
                       scoprire dopo: che il link È la credenziale, e che scade. */}
                   <p className="mt-1.5 text-[10px] leading-snug text-app-text-muted">
-                    Chi ha questo link vede questa scheda, in sola lettura. Scade fra 7 giorni,
-                    e puoi toglierlo quando vuoi. Il contenuto viaggia cifrato: chi lo trasporta
-                    non può leggerlo.
+                    Anyone with this link can read {OGGETTO_LINK[resourceType]}. It expires in 7 days,
+                    and you can revoke it whenever you want. The content travels encrypted: whoever
+                    carries it cannot read it.
                   </p>
                 </>
               ) : (
@@ -254,12 +272,12 @@ export function ShareControl({ resourceType, resourceId }: { resourceType: Resou
                   className="flex w-full items-center gap-2 rounded px-1.5 py-1 text-left text-[12px] text-app-text hover:bg-app-hover disabled:opacity-50"
                 >
                   <Globe size={11} className="flex-shrink-0 text-app-text-tertiary" />
-                  <span className="flex-1">Crea un link per chi è fuori rete</span>
+                  <span className="flex-1">Create a link for someone off your network</span>
                   {/* Collegato o no: un link creato mentre il relay è giù è
                       valido lo stesso, ma non si apre finché non torna. Dirlo
                       prima è meglio che farlo scoprire a chi lo riceve. */}
                   {!relay.connected && (
-                    <span className="flex-shrink-0 text-[10px] text-amber-500">non collegato</span>
+                    <span className="flex-shrink-0 text-[10px] text-amber-500">not connected</span>
                   )}
                 </button>
               )}
@@ -269,11 +287,11 @@ export function ShareControl({ resourceType, resourceId }: { resourceType: Resou
                   {links.map((l) => (
                     <li key={l.ref} className="flex items-center gap-2 px-1.5 text-[11px] text-app-text-muted">
                       <span className="min-w-0 flex-1 truncate">
-                        link · scade {new Date(l.expiresAt).toLocaleDateString('it-IT')}
-                        {l.openedCount > 0 && ` · aperto ${l.openedCount}×`}
+                        link · expires {new Date(l.expiresAt).toLocaleDateString()}
+                        {l.openedCount > 0 && ` · opened ${l.openedCount}×`}
                       </span>
                       <button
-                        aria-label="Revoca questo link"
+                        aria-label="Revoke this link"
                         disabled={inCorso}
                         onClick={() => void revocaLink(l.ref)}
                         className="rounded p-0.5 text-app-text-tertiary hover:bg-app-hover hover:text-red-500 disabled:opacity-50"
@@ -289,7 +307,7 @@ export function ShareControl({ resourceType, resourceId }: { resourceType: Resou
 
           {disponibili.length > 0 ? (
             <>
-              <div className="mb-1 px-1.5 text-[10px] uppercase tracking-wide text-app-text-muted">Aggiungi</div>
+              <div className="mb-1 px-1.5 text-[10px] uppercase tracking-wide text-app-text-muted">Add</div>
               <ul className="space-y-0.5">
                 {disponibili.map((o) => (
                   <li key={chiave(o.subjectType, o.subjectId)}>
@@ -315,8 +333,8 @@ export function ShareControl({ resourceType, resourceId }: { resourceType: Resou
           ) : (
             <p className="px-1.5 py-1 text-[11px] leading-relaxed text-app-text-secondary">
               {soggetti.length === 0
-                ? 'Nessuno con cui condividere. Autorizza un dispositivo come ospite da Impostazioni → Account, e comparirà qui.'
-                : 'Già condiviso con tutti.'}
+                ? 'Nobody to share with yet. Approve a device as a guest from Settings → Account, and it will show up here.'
+                : 'Already shared with everyone.'}
             </p>
           )}
         </div>

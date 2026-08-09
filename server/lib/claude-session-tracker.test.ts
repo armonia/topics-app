@@ -351,9 +351,11 @@ describe('ClaudeSessionTracker — live JSONL tail (tailOnce)', () => {
     const trk = makeTracker(freshDb(), makeRecorder(), { homeDir: home });
     trk.registerTerminalSession('term-1', { cwd, now: T0 });
 
-    // Nothing new → the sweep must consume nothing and move nothing.
+    // Nothing new → the sweep must consume nothing and move nothing. La fase è
+    // `dormant`, non `starting`: un transcript già scritto dice che questa è
+    // una riattaccata, non una nascita (vedi il test dedicato più sotto).
     expect(await trk.tailOnce(T0 + 1_000)).toBe(0);
-    expect(trk.getSession('term-1')!.phase).toBe('starting');
+    expect(trk.getSession('term-1')!.phase).toBe('dormant');
 
     // A line appended AFTER registration is consumed from the snapped offset.
     writeFileSync(file, history + taskNotifLine(T0 + 2_000));
@@ -361,6 +363,66 @@ describe('ClaudeSessionTracker — live JSONL tail (tailOnce)', () => {
     const s = trk.getSession('term-1')!;
     expect(s.phase).toBe('running');
     expect(s.jsonlOffset).toBe(history.length + taskNotifLine(T0 + 2_000).length);
+  });
+
+  // ── La fase iniziale di una RIATTACCATA ────────────────────────────────────
+  // `starting` è l'unica fase che il client non classifica né attiva né a
+  // riposo, ed è la condizione che apre il fallback pty di useCompletionNotifier
+  // — il ramo grezzo per le sessioni SENZA hook, che al primo frame di repaint
+  // spara «Lavoro completato». Dare `starting` a una tab riattaccata dopo un
+  // riavvio del server significa quel banner su lavoro chiuso da giorni, e
+  // nessuno la tira fuori da lì (il reaper salta `starting` per i terminali,
+  // l'offset è già a EOF). Il transcript è l'indizio: se ha già contenuto, non
+  // è una nascita.
+  it('registrare su un transcript già scritto parte da dormant, non da starting', () => {
+    const home = mkdtempSync(join(tmpdir(), 'tracker-home-'));
+    const dir = join(home, '.claude', 'projects', '-Users-x-proj');
+    mkdirSync(dir, { recursive: true });
+    const file = join(dir, 'term-1.jsonl');
+    writeFileSync(file, userLine(T0 - 60_000) + assistantLine(T0 - 50_000));
+    utimesSync(file, (T0 - 50_000) / 1000, (T0 - 50_000) / 1000);
+
+    const trk = makeTracker(freshDb(), makeRecorder(), { homeDir: home });
+    trk.registerTerminalSession('term-1', { cwd: '/Users/x/proj', now: T0 });
+
+    expect(trk.getSession('term-1')!.phase).toBe('dormant');
+  });
+
+  it('una sessione appena nata (transcript assente o vuoto) resta starting', () => {
+    const home = mkdtempSync(join(tmpdir(), 'tracker-home-'));
+    const dir = join(home, '.claude', 'projects', '-Users-x-proj');
+    mkdirSync(dir, { recursive: true });
+
+    // Nessun file: Claude lo crea qualche istante dopo lo spawn.
+    const trk = makeTracker(freshDb(), makeRecorder(), { homeDir: home });
+    trk.registerTerminalSession('term-1', { cwd: '/Users/x/proj', now: T0 });
+    expect(trk.getSession('term-1')!.phase).toBe('starting');
+
+    // File creato ma ancora vuoto: stessa cosa — è la popolazione che il
+    // fallback pty serve davvero (sessioni senza hook).
+    writeFileSync(join(dir, 'term-2.jsonl'), '');
+    trk.registerTerminalSession('term-2', { cwd: '/Users/x/proj', now: T0 });
+    expect(trk.getSession('term-2')!.phase).toBe('starting');
+  });
+
+  // Il prezzo di `dormant` è che il pane non mostra lo spinner finché non
+  // arriva un segnale vero — ed è già pagato: il primo frame pty non cosmetico
+  // la riporta a `running` (reviveOnPtyActivity), che è la ragione per cui
+  // quella funzione esiste.
+  it('una riattaccata dormant torna running al primo frame pty', () => {
+    const home = mkdtempSync(join(tmpdir(), 'tracker-home-'));
+    const dir = join(home, '.claude', 'projects', '-Users-x-proj');
+    mkdirSync(dir, { recursive: true });
+    const file = join(dir, 'term-1.jsonl');
+    writeFileSync(file, userLine(T0 - 60_000));
+    utimesSync(file, (T0 - 60_000) / 1000, (T0 - 60_000) / 1000);
+
+    const trk = makeTracker(freshDb(), makeRecorder(), { homeDir: home });
+    trk.registerTerminalSession('term-1', { cwd: '/Users/x/proj', now: T0 });
+    expect(trk.getSession('term-1')!.phase).toBe('dormant');
+
+    expect(trk.notePtyActivity('term-1', T0 + 1_000)).toBe(true);
+    expect(trk.getSession('term-1')!.phase).toBe('running');
   });
 
   it('a stale assistant line read after a fresher Stop hook is gated out (Stop-race)', async () => {

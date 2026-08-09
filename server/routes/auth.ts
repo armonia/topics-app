@@ -8,17 +8,19 @@ import {
 import { isLoopbackAddress } from "../lib/auth-gate";
 import { isLocalTransport } from "../lib/tunnel";
 import { resolveIdentity } from "../lib/identity";
+import { resolvePrincipals } from "../lib/principals";
 import { isResourceType } from "../lib/grants";
 import { valutaQuota } from "../lib/pairing-quota";
 import { nuovaChiave } from "../../shared/relay-crypto";
 import {
-  grantedByType, subjectsOf, putGrant, dropGrant, deviceP, type SubjectKind,
+  grantedByType, subjectsOf, putGrant, dropGrant, type SubjectKind,
 } from "../lib/grants-query";
 import {
   installationOrgId, liveMemberCount, orgRole, canAdministerOrg, liveOwnerCount,
   actingPersonId, isOrgRole, orgAlive, type OrgRole,
 } from "../lib/orgs";
 import { consentito } from "../lib/licenza";
+import { subjectRejection, canReceive, livePersonMemberships } from "../lib/recipients";
 
 /**
  * Appaiamento e sessioni per dispositivo.
@@ -60,6 +62,11 @@ interface PendingPairing {
 
 const pending = new Map<string, PendingPairing>();
 
+/** I timer di scadenza, uno per richiesta. Vivono accanto alla mappa e non
+ *  dentro l'oggetto: `PendingPairing` è ciò che si consegna e si serializza,
+ *  e un handle di timer lì dentro sarebbe una cosa che non si può guardare. */
+const scadenze = new Map<string, ReturnType<typeof setTimeout>>();
+
 /**
  * Quante socket vive ha ciascun dispositivo, adesso. Un conteggio e non un
  * booleano perche' un dispositivo apre piu' socket (quella primaria, i
@@ -100,11 +107,40 @@ export function __resetLiveSocketsForTests(): void {
  */
 export function __resetPendingForTests(): void {
   pending.clear();
+  // I timer vanno spenti, non solo dimenticati: uno lasciato acceso spara in
+  // mezzo al test successivo e ne annuncia la scadenza di una richiesta che
+  // quel test non ha mai fatto.
+  for (const t of scadenze.values()) clearTimeout(t);
+  scadenze.clear();
 }
 
-function sweep(now: number): void {
+/** Invecchia una richiesta in attesa, per provare la scadenza senza aspettare
+ *  tre minuti veri. Tocca `createdAt` e basta: il tempo lo legge `sweep`, e un
+ *  test che spostasse l'orologio proverebbe un mondo diverso da quello vero. */
+export function __invecchiaPendingPerTests(id: string, di: number): void {
+  const p = pending.get(id);
+  if (p) p.createdAt -= di;
+}
+
+function scordaScadenza(id: string): void {
+  const t = scadenze.get(id);
+  if (t !== undefined) { clearTimeout(t); scadenze.delete(id); }
+}
+
+function sweep(now: number, avvisa?: (id: string) => void): void {
   for (const [id, p] of pending) {
-    if (now - p.createdAt > PAIRING_CODE_TTL_MS) pending.delete(id);
+    if (now - p.createdAt > PAIRING_CODE_TTL_MS) {
+      pending.delete(id); scordaScadenza(id);
+      scordaScadenza(id);
+      // Scomparire in silenzio non basta. Il cartello di approvazione compare
+      // per un broadcast (`auth:pair-requested`) e vive nella memoria del
+      // client: senza l'annuncio contrario resta sullo schermo per sempre, e
+      // chi lo clicca prende un 404 su una richiesta che il server ha
+      // dimenticato da un pezzo. Su un endpoint esposto a Internet è peggio
+      // che un fastidio: la richiesta di uno sconosciuto continua a invitare
+      // un clic molto dopo che avrebbe dovuto sparire.
+      avvisa?.(id);
+    }
   }
 }
 
@@ -159,40 +195,6 @@ function dispositiviDelSoggetto(
   } catch {
     // Schema più vecchio della 084: resta il solo caso che esisteva.
     return kind === "device" ? [id] : [];
-  }
-}
-
-/** Perché questo soggetto NON può ricevere una condivisione, se non può. */
-function motivoRifiutoSoggetto(
-  db: { query: (sql: string) => { get: (...a: unknown[]) => unknown } },
-  kind: SubjectKind,
-  id: string,
-): { msg: string; status: number } | null {
-  if (kind === "device") {
-    const d = db.query("SELECT role FROM devices WHERE id = ? AND revoked_at IS NULL").get(id) as { role?: string } | undefined;
-    if (!d) return { msg: "dispositivo sconosciuto o revocato", status: 404 };
-    if (d.role !== "guest") return { msg: "quel dispositivo vede già tutto: è un tuo dispositivo, non un ospite", status: 400 };
-    return null;
-  }
-  if (kind === "person") {
-    try {
-      const p = db.query("SELECT revoked_at FROM people WHERE id = ?").get(id) as { revoked_at: number | null } | undefined;
-      if (!p) return { msg: "persona sconosciuta", status: 404 };
-      if (p.revoked_at !== null) return { msg: "quella persona è stata revocata", status: 400 };
-      const owner = db.query("SELECT 1 FROM installation_owners WHERE person_id = ?").get(id);
-      if (owner) return { msg: "quella persona vede già tutto: è una proprietaria, non un'ospite", status: 400 };
-      return null;
-    } catch {
-      return { msg: "le persone non sono ancora disponibili su questo database", status: 400 };
-    }
-  }
-  try {
-    const o = db.query("SELECT revoked_at FROM orgs WHERE id = ?").get(id) as { revoked_at: number | null } | undefined;
-    if (!o) return { msg: "organizzazione sconosciuta", status: 404 };
-    if (o.revoked_at !== null) return { msg: "quell'organizzazione è stata revocata", status: 400 };
-    return null;
-  } catch {
-    return { msg: "le organizzazioni non sono ancora disponibili su questo database", status: 400 };
   }
 }
 
@@ -284,7 +286,7 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
   return async function authRouter(req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {
     if (!pathname.startsWith("/api/auth/")) return null;
     const now = Date.now();
-    sweep(now);
+    sweep(now, (id) => ctx.broadcast?.({ type: "auth:pair-resolved", requestId: id, approved: false }));
     const ip = ctx.requestIp?.(req) ?? null;
     // La stessa domanda del gate, e va posta con la stessa funzione: attraverso
     // il tunnel il peer È loopback, quindi `isLoopbackAddress(ip)` da solo
@@ -328,7 +330,7 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
       // di appaiare il proprio telefono — un dispetto che non fa entrare nessuno
       // ma impedisce a te di far entrare qualcuno.
       const esito = valutaQuota([...pending.values()], ip);
-      if (!esito.ok) return json({ error: "troppe richieste da questo dispositivo" }, 429);
+      if (!esito.ok) return json({ error: "too_many_requests" }, 429);
       if (esito.sfratta) pending.delete(esito.sfratta);
       const name = deviceNameFromUserAgent(req.headers.get("user-agent"));
       const id = crypto.randomUUID();
@@ -339,6 +341,26 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
         claim: crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, ""),
       };
       pending.set(id, entry);
+      // La scadenza si annuncia DA SOLA, senza aspettare che qualcuno bussi.
+      //
+      // `sweep` gira all'inizio di ogni richiesta `/api/auth/*`, e per la
+      // memoria del server basta. Ma il cartello vive nel client: se in quei
+      // tre minuti nessuno chiama nulla, nessuno spazza, nessuno annuncia, e
+      // la scheda resta sullo schermo. Il timer è ciò che rende la scadenza
+      // una cosa che ACCADE invece di una che si scopre.
+      //
+      // `unref` perché un appaiamento in attesa non deve tenere in piedi il
+      // processo: allo spegnimento la richiesta muore comunque, ed è l'esito
+      // giusto — una richiesta sopravvissuta a un riavvio è una richiesta che
+      // nessuno sta più guardando.
+      const t = setTimeout(() => {
+        if (!pending.has(id)) return;
+        pending.delete(id); scordaScadenza(id);
+        scadenze.delete(id);
+        ctx.broadcast?.({ type: "auth:pair-resolved", requestId: id, approved: false });
+      }, PAIRING_CODE_TTL_MS);
+      (t as unknown as { unref?: () => void }).unref?.();
+      scadenze.set(id, t);
       // Il frame porta il riferimento e il codice — servono al cartello di
       // approvazione — ma NON il `claim`, che è l'unica cosa capace di ritirare
       // il gettone. È la separazione che rende innocuo il resto.
@@ -360,7 +382,7 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
       if (entry.state !== "approved" || !entry.token) return json({ state: "pending" });
       // Consegna unica: il token esce dalla memoria appena tocca il filo.
       const token = entry.token;
-      pending.delete(id);
+      pending.delete(id); scordaScadenza(id);
       // `json()` non porta header extra: qui serve `Set-Cookie`, quindi la
       // Response si costruisce a mano.
       return new Response(JSON.stringify({ state: "approved", name: entry.name }), {
@@ -387,7 +409,7 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
         requestId?: string; role?: unknown; personId?: unknown; personName?: unknown;
       } | null;
       const entry = pending.get(body?.requestId ?? "");
-      if (!entry) return json({ error: "richiesta scaduta o inesistente" }, 404);
+      if (!entry) return json({ error: "pairing_expired" }, 404);
 
       if (pathname.endsWith("/deny")) {
         entry.state = "denied";
@@ -477,17 +499,17 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
       if ("personId" in (body ?? {})) {
         const pid = body?.personId;
         if (pid !== null && typeof pid !== "string") {
-          return json({ error: "personId deve essere una stringa o null" }, 400);
+          return json({ error: "bad_person_id" }, 400);
         }
         try {
           if (pid !== null) {
             const p = db.query("SELECT revoked_at FROM people WHERE id = ?").get(pid) as { revoked_at: number | null } | undefined;
-            if (!p) return json({ error: "persona sconosciuta" }, 404);
-            if (p.revoked_at !== null) return json({ error: "quella persona è stata revocata" }, 400);
+            if (!p) return json({ error: "unknown_person" }, 404);
+            if (p.revoked_at !== null) return json({ error: "person_revoked" }, 400);
           }
           db.query("UPDATE devices SET person_id = ? WHERE id = ?").run(pid, id);
         } catch {
-          return json({ error: "le persone non sono disponibili su questo database" }, 400);
+          return json({ error: "db_unavailable" }, 400);
         }
         // Il ruolo derivato può essere cambiato: le socket aperte portano
         // ancora quello di prima, timbrato all'upgrade e non più riletto.
@@ -497,7 +519,7 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
       }
 
       const name = typeof body?.name === "string" ? body.name.trim().slice(0, 60) : "";
-      if (!name) return json({ error: "nome vuoto" }, 400);
+      if (!name) return json({ error: "name_required" }, 400);
       db.query("UPDATE devices SET name = ? WHERE id = ?").run(name, id);
       return json({ ok: true, name });
     }
@@ -528,7 +550,19 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
       const ident = ctx.requestIdentity?.(req) ?? null;
       const subj = ident?.deviceId;
       if (!subj) return json({ tasks: [], topics: [] });
-      const { task: idTask, topic: idTopic } = grantedByType(db as never, deviceP(subj));
+      // TUTTI i principali, non il solo ferro: sé stesso, la sua persona, le
+      // organizzazioni vive di quella persona. È lo STESSO insieme con cui il
+      // cancello (`server.ts`) decide se lasciar passare `/api/topics/:id`, e
+      // deve esserlo — la domanda è una sola, e due risposte diverse alla stessa
+      // domanda sono un difetto per costruzione.
+      //
+      // Il verso della divergenza era quello cattivo: la rubrica di
+      // `/api/auth/subjects` offre la PERSONA quando il dispositivo ne ha una —
+      // che è sempre, perché «è di un'altra persona» è il gesto che crea un
+      // ospite — quindi ogni condivisione fatta dall'interfaccia atterrava su un
+      // soggetto che il cancello onorava e l'inventario non vedeva. La chat era
+      // leggibile per id e invisibile nell'unico elenco che un ospite ha.
+      const { task: idTask, topic: idTopic } = grantedByType(db as never, resolvePrincipals(db as never, subj).list);
       const segna = (n: number) => Array(n).fill("?").join(",");
       const tasks = idTask.length
         ? db.query(`SELECT id, text, status, project_id, preview_image FROM tasks WHERE id IN (${segna(idTask.length)})`).all(...idTask)
@@ -565,55 +599,47 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
         );
       } catch { /* schema più vecchio della 084 */ }
 
+      // ── AUTORIZZAZIONE e PRESENTAZIONE, e restano due cose.
+      //
+      // Chi PUÒ ricevere lo decide `subjectRejection` — la stessa funzione che
+      // usa `POST /api/auth/shares`, e non una seconda copia scritta qui: la
+      // copia che c'era si era già separata dal cancello su un caso (la persona
+      // tolta da ogni gruppo), e la rubrica la nascondeva mentre la POST la
+      // accettava.
+      //
+      // Questa rubrica può essere più STRETTA per ragioni di disegno — non
+      // offre un ospite che ha già una persona, né un gruppo da un membro solo
+      // — ma non più LARGA. Le due righe qui sotto sono quelle ragioni, e sono
+      // marcate come tali: unificarle dentro l'autorizzazione trasformerebbe
+      // una scelta di presentazione in un divieto.
       for (const d of listDevices()) {
-        if (d.revokedAt !== null || d.role !== "guest") continue;
-        if (conPersona.has(d.id)) continue;
+        if (!canReceive(db as never, "device", d.id)) continue;
+        if (conPersona.has(d.id)) continue; // presentazione: lo stesso umano due volte
         soggetti.push({ subjectType: "device", subjectId: d.id, name: d.name, devices: 1 });
       }
 
       try {
-        // Le persone che NON sono proprietarie: condividere con chi vede già
-        // tutto non vuol dire niente.
         const persone = db.query(`
           SELECT p.id, p.display_name,
                  (SELECT COUNT(*) FROM devices d WHERE d.person_id = p.id AND d.revoked_at IS NULL) AS n
             FROM people p
-           WHERE p.revoked_at IS NULL
-             AND p.id NOT IN (SELECT person_id FROM installation_owners)
-             -- Chi hai TOLTO non deve restare fra i destinatari. Il ramo delle
-             -- organizzazioni qui sotto guardava già local_blocked_at, questo
-             -- no: una persona aggiunta e poi tolta continuava a comparire per
-             -- sempre nella rubrica, e condividere con lei sarebbe riuscito.
-             --
-             -- «Nessuna appartenenza viva» e non «nessuna appartenenza»: chi
-             -- non è in nessun gruppo — per esempio una persona nata approvando
-             -- un dispositivo con «è di un'altra persona» — resta un
-             -- destinatario legittimo.
-             AND NOT EXISTS (
-               SELECT 1 FROM org_members bloccati
-                WHERE bloccati.person_id = p.id
-                  AND NOT EXISTS (
-                    SELECT 1 FROM org_members vivi
-                     WHERE vivi.person_id = p.id
-                       AND vivi.revoked_at IS NULL AND vivi.local_blocked_at IS NULL
-                  )
-             )
            ORDER BY p.display_name`).all() as Array<{ id: string; display_name: string; n: number }>;
         for (const p of persone) {
+          if (!canReceive(db as never, "person", p.id)) continue;
           soggetti.push({ subjectType: "person", subjectId: p.id, name: p.display_name, devices: Number(p.n) });
         }
 
-        const orgs = db.query(
-          "SELECT id, name FROM orgs WHERE revoked_at IS NULL ORDER BY name",
-        ).all() as Array<{ id: string; name: string }>;
+        const orgs = db.query("SELECT id, name FROM orgs ORDER BY name")
+          .all() as Array<{ id: string; name: string }>;
         for (const o of orgs) {
+          if (!canReceive(db as never, "org", o.id)) continue;
           // Lo STESSO conteggio di `/api/auth/me` e `/api/auth/orgs`, e non una
           // terza copia della definizione di «membro»: le prime due si erano
           // già separate su questa esatta riga.
           const n = liveMemberCount(db as never, o.id);
-          // Un'organizzazione da UNA persona non si nomina: il singolo è
-          // un'organizzazione di uno perché il codice abbia una strada sola,
-          // non perché il prodotto abbia due vocabolari.
+          // Presentazione: un'organizzazione da UNA persona non si nomina — il
+          // singolo è un'organizzazione di uno perché il codice abbia una
+          // strada sola, non perché il prodotto abbia due vocabolari.
           if (n <= 1) continue;
           soggetti.push({ subjectType: "org", subjectId: o.id, name: o.name, devices: n });
         }
@@ -720,8 +746,8 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
       if (method === "POST") {
         const body = await readJSON(req) as { name?: unknown } | null;
         const nome = typeof body?.name === "string" ? body.name.trim().slice(0, 80) : "";
-        if (!nome) return json({ error: "serve un nome" }, 400);
-        if (!io) return json({ error: "non c'è una persona a cui intestare il gruppo" }, 400);
+        if (!nome) return json({ error: "name_required" }, 400);
+        if (!io) return json({ error: "no_person_for_org" }, 400);
         try {
           const id = crypto.randomUUID().replace(/-/g, "");
           db.query(
@@ -735,7 +761,7 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
           ).run(id, io, now, now);
           return json({ ok: true, id, name: nome });
         } catch {
-          return json({ error: "le organizzazioni non sono disponibili su questo database" }, 400);
+          return json({ error: "db_unavailable" }, 400);
         }
       }
     }
@@ -757,14 +783,14 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
         // scritta a mano qui e una closure là dentro, cioè due copie in attesa
         // di separarsi.
         const viva = orgAlive(db as never, id);
-        if (viva === null) return json({ error: "non disponibile su questo database" }, 400);
-        if (!viva) return json({ error: "organizzazione sconosciuta" }, 404);
+        if (viva === null) return json({ error: "db_unavailable" }, 400);
+        if (!viva) return json({ error: "unknown_org" }, 404);
         if (id === installationOrgId(db as never)) {
-          return json({ error: "il gruppo di questa installazione non si cancella" }, 400);
+          return json({ error: "installation_org_undeletable" }, 400);
         }
         const io = actingPersonId(db as never, ctx.requestIdentity?.(req)?.deviceId ?? null);
         if (!canAdministerOrg(db as never, id, io)) {
-          return json({ error: "non amministri questo gruppo" }, 403);
+          return json({ error: "not_org_admin" }, 403);
         }
         // I dispositivi PRIMA della revoca: dopo, la JOIN su `org_members` non
         // li trova più e resterebbero con una socket aperta e i principali di
@@ -775,7 +801,67 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
         for (const d of dispositivi) ctx.closeDeviceSockets?.(d);
         return json({ ok: true });
       } catch {
-        return json({ error: "non disponibile su questo database" }, 400);
+        return json({ error: "db_unavailable" }, 400);
+      }
+    }
+
+    // ── CANCELLARE una persona dalla rubrica.
+    //
+    // `people.revoked_at` era LETTA in otto punti — la rubrica, il cancello
+    // delle condivisioni, l'elenco dei membri, l'appaiamento, l'aggancio di un
+    // account, `resolvePrincipals` in entrambi i salti — e SCRITTA in nessuno.
+    // La stessa forma che `orgs.revoked_at` aveva prima della sua DELETE, e la
+    // 084 lo dice di sé stessa: «una colonna che sembra un interruttore di
+    // sicurezza e non è cablata a niente è peggio della sua assenza».
+    //
+    // Il buco vero che lasciava aperto: una persona INVITATA per nome — creata
+    // da `POST /orgs/:id/members {name}` prima che collegasse qualcosa — e poi
+    // tolta restava una riga che nessun gesto poteva più toccare. Un errore di
+    // battitura era definitivo.
+    //
+    // È un gesto SEPARATO da «togli dal gruppo», e deve esserlo: fonderli
+    // renderebbe impossibile rimettere dentro qualcuno, che è il gesto
+    // immediatamente successivo più comune.
+    if (method === "DELETE" && /^\/api\/auth\/people\/[^/]+$/.test(pathname)) {
+      const id = decodeURIComponent(pathname.slice("/api/auth/people/".length));
+      try {
+        const p = db.query("SELECT revoked_at FROM people WHERE id = ?")
+          .get(id) as { revoked_at: number | null } | undefined;
+        // Già cancellata = sconosciuta, la stessa risposta che dà la DELETE dei
+        // gruppi: due letture della stessa riga non possono dire una «non c'è»
+        // e l'altra «fatto», o il secondo clic sembra riuscito.
+        if (!p || p.revoked_at !== null) return json({ error: "unknown_person" }, 404);
+        // Il proprietario dell'installazione non si cancella: sarebbe l'unico
+        // gesto capace di lasciare la macchina senza nessuno che la possieda.
+        if (db.query("SELECT 1 FROM installation_owners WHERE person_id = ?").get(id)) {
+          return json({ error: "cannot_remove_self" }, 400);
+        }
+        // Prima si toglie dai gruppi, poi si cancella. Non è cerimonia: la
+        // lapide fa ricadere il suo dispositivo su «solo il ferro»
+        // (`resolvePrincipals`), quindi cancellare una persona ancora dentro un
+        // gruppo le toglierebbe in silenzio ciò che a quel gruppo era stato
+        // condiviso — un effetto che il gesto non annuncia.
+        if (livePersonMemberships(db as never, id) > 0) {
+          return json({ error: "still_a_member" }, 409);
+        }
+        // Stessa ragione per i DISPOSITIVI: una persona con un telefono vivo è
+        // qualcuno che entra ancora da qui, e cancellarla dalla rubrica non è
+        // il modo di togliergli l'accesso — quello è revocare il dispositivo.
+        const conDispositivo = db.query(
+          "SELECT COUNT(*) AS n FROM devices WHERE person_id = ? AND revoked_at IS NULL",
+        ).get(id) as { n: number } | undefined;
+        if (Number(conDispositivo?.n ?? 0) > 0) return json({ error: "still_has_devices" }, 409);
+
+        // Nessuna socket da chiudere, e non è una dimenticanza: le due
+        // condizioni qui sopra hanno già stabilito che questa persona non ha
+        // nessun dispositivo vivo. La DELETE dei gruppi le chiude perché lì i
+        // dispositivi ci sono; qui la stessa riga sarebbe un giro su una lista
+        // sempre vuota, cioè un rito che sembra una precauzione.
+        db.query("UPDATE people SET revoked_at = ?, rev = rev + 1, updated_at = ? WHERE id = ? AND revoked_at IS NULL")
+          .run(now, now, id);
+        return json({ ok: true });
+      } catch {
+        return json({ error: "db_unavailable" }, 400);
       }
     }
 
@@ -794,7 +880,7 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
       // indirizzo messo per sbaglio.
       const email = body?.email === null ? null
         : typeof body?.email === "string" ? body.email.trim().slice(0, 200) : undefined;
-      if (name !== null && !name) return json({ error: "nome vuoto" }, 400);
+      if (name !== null && !name) return json({ error: "name_required" }, 400);
 
       // Rinominare un gruppo è amministrarlo, e passa dallo stesso ruolo che
       // decide gli inviti: due porte sullo stesso potere con due regole diverse
@@ -811,11 +897,11 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
         // ha un invalidamento via WS, quindi una seconda finestra che mostra
         // ancora un gruppo cancellato altrove rinominava un morto.
         const viva = orgAlive(db as never, id);
-        if (viva === null) return json({ error: "non disponibile su questo database" }, 400);
-        if (!viva) return json({ error: "organizzazione sconosciuta" }, 404);
+        if (viva === null) return json({ error: "db_unavailable" }, 400);
+        if (!viva) return json({ error: "unknown_org" }, 404);
         const io = actingPersonId(db as never, ctx.requestIdentity?.(req)?.deviceId ?? null);
         if (!canAdministerOrg(db as never, id, io)) {
-          return json({ error: "non amministri questo gruppo" }, 403);
+          return json({ error: "not_org_admin" }, 403);
         }
       }
 
@@ -828,7 +914,7 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
           db.query("UPDATE people SET email = ?, rev = rev + 1, updated_at = ? WHERE id = ?").run(email || null, now, id);
         }
       } catch {
-        return json({ error: "non disponibile su questo database" }, 400);
+        return json({ error: "db_unavailable" }, 400);
       }
       return json({ ok: true });
     }
@@ -869,7 +955,7 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
           // che risponde `{orgs: []}` invece di un errore. Le letture degradano,
           // le scritture rifiutano — ed è la stessa regola su entrambe le rotte.
           if (viva === null) return json({ members: [] });
-          if (!viva) return json({ error: "organizzazione sconosciuta" }, 404);
+          if (!viva) return json({ error: "unknown_org" }, 404);
           const righe = db.query(`
             SELECT p.id, p.display_name AS name, p.email, m.role, m.joined_at,
                    m.revoked_at, m.local_blocked_at,
@@ -899,10 +985,10 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
           // fanno con le stesse due righe: la seconda copia scritta a mano è
           // quella che un giorno dimentica una delle due revoche.
           const viva = orgViva();
-          if (viva === null) return json({ error: "le organizzazioni non sono disponibili su questo database" }, 400);
-          if (!viva) return json({ error: "organizzazione sconosciuta" }, 404);
+          if (viva === null) return json({ error: "db_unavailable" }, 400);
+          if (!viva) return json({ error: "unknown_org" }, 404);
           if (!canAdministerOrg(db as never, orgId, ioPersona)) {
-            return json({ error: "non amministri questo gruppo" }, 403);
+            return json({ error: "not_org_admin" }, 403);
           }
 
           // ── IL POSTO ────────────────────────────────────────────────────
@@ -947,12 +1033,12 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
           let pid: string;
           if (typeof body?.personId === "string" && body.personId) {
             const p = db.query("SELECT revoked_at FROM people WHERE id = ?").get(body.personId) as { revoked_at: number | null } | undefined;
-            if (!p) return json({ error: "persona sconosciuta" }, 404);
-            if (p.revoked_at !== null) return json({ error: "quella persona è stata revocata" }, 400);
+            if (!p) return json({ error: "unknown_person" }, 404);
+            if (p.revoked_at !== null) return json({ error: "person_revoked" }, 400);
             pid = body.personId;
           } else {
             const nome = typeof body?.name === "string" ? body.name.trim().slice(0, 80) : "";
-            if (!nome) return json({ error: "serve un nome" }, 400);
+            if (!nome) return json({ error: "name_required" }, 400);
             const email = typeof body?.email === "string" ? body.email.trim().slice(0, 200) : null;
             // Si crea la persona QUI, senza aspettare che appaia un suo
             // dispositivo: è il punto di ORG-04 — invitare qualcuno viene prima
@@ -986,7 +1072,7 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
           }
           return json({ ok: true, personId: pid });
         } catch {
-          return json({ error: "le organizzazioni non sono disponibili su questo database" }, 400);
+          return json({ error: "db_unavailable" }, 400);
         }
       }
 
@@ -994,26 +1080,30 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
         const pid = url.searchParams.get("personId") ?? "";
         try {
           const viva = orgViva();
-          if (viva === null) return json({ error: "non disponibile su questo database" }, 400);
-          if (!viva) return json({ error: "organizzazione sconosciuta" }, 404);
+          if (viva === null) return json({ error: "db_unavailable" }, 400);
+          if (!viva) return json({ error: "unknown_org" }, 404);
           if (!canAdministerOrg(db as never, orgId, ioPersona)) {
-            return json({ error: "non amministri questo gruppo" }, 403);
+            return json({ error: "not_org_admin" }, 403);
           }
           const owner = db.query("SELECT 1 FROM installation_owners WHERE person_id = ?").get(pid);
           // Il proprietario dell'installazione non si toglie dalla propria
           // organizzazione: sarebbe l'unico gesto capace di lasciare la
           // macchina senza nessuno che la possieda.
-          if (owner) return json({ error: "non puoi togliere te stesso" }, 400);
+          if (owner) return json({ error: "cannot_remove_self" }, 400);
           // `local_blocked_at`, non `revoked_at`: questa è una decisione presa
           // QUI, e deve sopravvivere al prossimo aggiornamento dal piano di
           // controllo. Scriverla nell'altra colonna vorrebbe dire vederla
           // annullare dal primo pull, in silenzio.
           db.query("UPDATE org_members SET local_blocked_at = ? WHERE org_id = ? AND person_id = ? AND local_blocked_at IS NULL")
             .run(now, orgId, pid);
+          // E NON la lapide della persona: togliere dal gruppo e cancellare
+          // dalla rubrica sono due gesti, e confonderli renderebbe impossibile
+          // RIMETTERE dentro qualcuno — che è il gesto immediatamente successivo
+          // più comune. La lapide si scrive da `DELETE /api/auth/people/:id`.
           for (const d of dispositiviDelSoggetto(db, "person", pid)) ctx.closeDeviceSockets?.(d);
           return json({ ok: true });
         } catch {
-          return json({ error: "non disponibile su questo database" }, 400);
+          return json({ error: "db_unavailable" }, 400);
         }
       }
 
@@ -1027,35 +1117,35 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
       if (method === "PATCH") {
         const body = await readJSON(req) as { personId?: unknown; role?: unknown } | null;
         const pid = typeof body?.personId === "string" ? body.personId : "";
-        if (!pid) return json({ error: "serve una persona" }, 400);
-        if (!isOrgRole(body?.role)) return json({ error: "ruolo sconosciuto" }, 400);
+        if (!pid) return json({ error: "person_required" }, 400);
+        if (!isOrgRole(body?.role)) return json({ error: "unknown_role" }, 400);
         const ruolo: OrgRole = body.role;
         try {
           const viva = orgViva();
-          if (viva === null) return json({ error: "non disponibile su questo database" }, 400);
-          if (!viva) return json({ error: "organizzazione sconosciuta" }, 404);
+          if (viva === null) return json({ error: "db_unavailable" }, 400);
+          if (!viva) return json({ error: "unknown_org" }, 404);
           if (!canAdministerOrg(db as never, orgId, ioPersona)) {
-            return json({ error: "non amministri questo gruppo" }, 403);
+            return json({ error: "not_org_admin" }, 403);
           }
           const attuale = orgRole(db as never, orgId, pid);
           // Chi è stato tolto o revocato non ha un ruolo da cambiare: si
           // riaggiunge, e quello è un altro gesto. Promuovere un assente
           // scriverebbe una riga viva senza passare da nessuna delle due
           // colonne di revoca.
-          if (!attuale) return json({ error: "quella persona non è un membro" }, 404);
+          if (!attuale) return json({ error: "not_a_member" }, 404);
           if (attuale === ruolo) return json({ ok: true, personId: pid, role: ruolo });
           // Zero proprietari vivi = gruppo immodificabile per chiunque, e
           // l'unico modo di uscirne sarebbe una UPDATE a mano nel database.
           // L'ULTIMO proprietario non si retrocede; il penultimo sì.
           if (attuale === "owner" && liveOwnerCount(db as never, orgId) <= 1) {
-            return json({ error: "serve almeno un proprietario del gruppo" }, 400);
+            return json({ error: "last_owner" }, 400);
           }
           db.query(`
             UPDATE org_members SET role = ?, rev = rev + 1, updated_at = ?
              WHERE org_id = ? AND person_id = ?`).run(ruolo, now, orgId, pid);
           return json({ ok: true, personId: pid, role: ruolo });
         } catch {
-          return json({ error: "non disponibile su questo database" }, 400);
+          return json({ error: "db_unavailable" }, 400);
         }
       }
     }
@@ -1075,7 +1165,7 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
       if (method === "GET") {
         const tipo = url.searchParams.get("resourceType") ?? "task";
         const id = url.searchParams.get("resourceId") ?? "";
-        if (!isResourceType(tipo)) return json({ error: "tipo di risorsa sconosciuto" }, 400);
+        if (!isResourceType(tipo)) return json({ error: "unknown_resource_type" }, 400);
         try {
           const righe = db.query(`
             SELECT ref, created_at, expires_at, revoked_at, opened_count, last_opened_at
@@ -1104,15 +1194,15 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
         // spento: chi ha appena spento è esattamente chi deve poter revocare
         // ciò che aveva già distribuito.
         if (!ctx.relayConfig?.()?.baseUrl) {
-          return json({ error: "la condivisione pubblica è spenta su questa installazione" }, 409);
+          return json({ error: "public_sharing_off" }, 409);
         }
         const body = await readJSON(req) as {
           resourceType?: string; resourceId?: string; giorni?: unknown;
         } | null;
         const tipo = body?.resourceType ?? "task";
         const risorsa = body?.resourceId;
-        if (!isResourceType(tipo)) return json({ error: "tipo di risorsa sconosciuto" }, 400);
-        if (!risorsa) return json({ error: "resourceId richiesto" }, 400);
+        if (!isResourceType(tipo)) return json({ error: "unknown_resource_type" }, 400);
+        if (!risorsa) return json({ error: "resource_id_required" }, 400);
 
         // La scadenza c'è sempre e ha un tetto: un link senza scadenza è un
         // link che qualcuno ritrova in una chat fra due anni e che funziona
@@ -1125,7 +1215,7 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
             "INSERT INTO share_links (ref, key, resource_type, resource_id, created_at, expires_at) VALUES (?,?,?,?,?,?)",
           ).run(ref, key, tipo, risorsa, now, now + g * 86_400_000);
         } catch {
-          return json({ error: "i link non sono disponibili su questo database" }, 400);
+          return json({ error: "db_unavailable" }, 400);
         }
         // La chiave esce SOLO qui. Chi chiama la mette nel frammento dell'URL e
         // poi la dimentica: il server non la ripropone mai più.
@@ -1148,7 +1238,7 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
       if (method === "GET") {
         const tipo = url.searchParams.get("resourceType") ?? "task";
         const id = url.searchParams.get("resourceId") ?? url.searchParams.get("taskId") ?? "";
-        if (!isResourceType(tipo)) return json({ error: "tipo di risorsa sconosciuto" }, 400);
+        if (!isResourceType(tipo)) return json({ error: "unknown_resource_type" }, 400);
         // I soggetti stanno in `grants` e il NOME sta altrove: prima li univa
         // una JOIN su `devices`, che assumeva che ogni soggetto fosse un
         // dispositivo. Ora il nome si risolve DOPO, per tipo di soggetto —
@@ -1187,8 +1277,6 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
                 ? nomeDispositivo.get(r.subjectId) ?? r.subjectId
                 : nomeSoggetto.get(`${r.subjectType}:${r.subjectId}`) ?? r.subjectId,
               sharedAt: r.grantedAt,
-              // La PROVENIENZA risponde a «perché costui vede questa cosa?».
-              via: r.viaType ? { type: r.viaType, id: r.viaId } : null,
             })),
         });
       }
@@ -1199,7 +1287,7 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
         } | null;
         const tipo = body?.resourceType ?? "task";
         const risorsa = body?.resourceId ?? body?.taskId;
-        if (!isResourceType(tipo)) return json({ error: "tipo di risorsa sconosciuto" }, 400);
+        if (!isResourceType(tipo)) return json({ error: "unknown_resource_type" }, 400);
 
         // `deviceId` resta accettato come alias legacy per una release: il
         // client vecchio continua a funzionare mentre quello nuovo passa a
@@ -1207,15 +1295,20 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
         // con `taskId` → `resourceId`.
         const sogTipo = body?.subjectType ?? (body?.deviceId ? "device" : undefined);
         const sogId = body?.subjectId ?? body?.deviceId;
-        if (!risorsa || !sogId || !sogTipo) return json({ error: "resourceId e subjectId richiesti" }, 400);
-        if (!isSubjectKind(sogTipo)) return json({ error: "tipo di soggetto sconosciuto" }, 400);
+        if (!risorsa || !sogId || !sogTipo) return json({ error: "subject_required" }, 400);
+        if (!isSubjectKind(sogTipo)) return json({ error: "unknown_subject_kind" }, 400);
 
         // Condividere con chi vede GIÀ tutto non vuol dire niente, e lasciarlo
         // fare darebbe l'idea che quella riga stia limitando qualcosa. La
         // domanda però non è più «che ruolo ha questo dispositivo?» ma «questo
         // soggetto è confinato?», che è la stessa cosa detta nel modello nuovo.
-        const rifiuto = motivoRifiutoSoggetto(db, sogTipo, sogId);
-        if (rifiuto) return json({ error: rifiuto.msg }, rifiuto.status);
+        //
+        // La stessa funzione con cui `GET /api/auth/subjects` FILTRA la
+        // rubrica: erano due implementazioni della stessa domanda, e su un caso
+        // non concordavano — la persona tolta da ogni gruppo spariva dal menu e
+        // questa POST sullo stesso id rispondeva `200`.
+        const rifiuto = subjectRejection(db as never, sogTipo, sogId);
+        if (rifiuto) return json({ error: rifiuto.codice }, rifiuto.status);
 
         putGrant(db as never, { kind: sogTipo, id: sogId }, tipo, risorsa, { grantedAt: now });
         // Senza questo, condividere qualcosa non si vedeva dall'altra parte
@@ -1231,8 +1324,8 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
         const risorsa = url.searchParams.get("resourceId") ?? url.searchParams.get("taskId") ?? "";
         const sogTipoRaw = url.searchParams.get("subjectType") ?? (url.searchParams.get("deviceId") ? "device" : "");
         const sogId = url.searchParams.get("subjectId") ?? url.searchParams.get("deviceId") ?? "";
-        if (!isResourceType(tipo)) return json({ error: "tipo di risorsa sconosciuto" }, 400);
-        if (!isSubjectKind(sogTipoRaw)) return json({ error: "tipo di soggetto sconosciuto" }, 400);
+        if (!isResourceType(tipo)) return json({ error: "unknown_resource_type" }, 400);
+        if (!isSubjectKind(sogTipoRaw)) return json({ error: "unknown_subject_kind" }, 400);
         // I dispositivi si prendono PRIMA di togliere la riga: dopo, se il
         // soggetto è un'organizzazione, non ci sarebbe più modo di sapere a chi
         // dirlo. Il frame va mandato comunque — proprio perché la concessione
