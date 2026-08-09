@@ -4,8 +4,6 @@ import {
   CHROME_ROW_ACTION_INSET_LEFT,
   CHROME_ROW_ACTION_RESERVE,
   CHROME_ROW_ACTION_RESERVE_LEFT,
-  CHROME_ROW_ACTION_BOX,
-  CHROME_ROW_ACTION_BOX_PX,
   CHROME_ROW_CONTENT_H,
   COLUMN_GAP,
   ROW_ACTION_BOX,
@@ -72,26 +70,35 @@ describe('la riga di chrome e il comando in coda', () => {
     expect(h).toEqual({ wide: ROW_ACTION_BOX_PX.desktop, compact: ROW_ACTION_BOX_PX.touch });
     // Quadrato: l'incasso vale su tre lati solo se lo è.
     expect(risolvi(ROW_ACTION_BOX, 'w')).toEqual(h);
-    // E il box della RIGA DI CHROME, che è un'altra cosa: là dentro non ci sta
-    // un bersaglio da dito, quindi il box è quello che la riga concede e il
-    // bersaglio lo proietta `tap-expand`. Quadrato e uguale sui due schermi,
-    // altrimenti l'aria attorno al comando non può essere quella della tab.
-    const c = risolvi(CHROME_ROW_ACTION_BOX, 'h');
-    expect(c).toEqual({ wide: CHROME_ROW_ACTION_BOX_PX, compact: CHROME_ROW_ACTION_BOX_PX });
-    expect(risolvi(CHROME_ROW_ACTION_BOX, 'w')).toEqual(c);
-    // L'aria che ne risulta è quella di una tab: (40 − 28)/2 = 6, cioè ROW_INSET.
-    expect(chromeRowInset(CHROME_ROW_ACTION_BOX_PX)).toBe(ROW_INSET);
   });
 
-  test("l'incasso a destra è quello che il comando ha sopra e sotto", () => {
+  test("il comando lascia alla riga la stessa aria della tab che gli sta accanto", () => {
+    // Il verticale non si sceglie: (40 − box)/2. Vale per il comando come per
+    // la tab, quindi i due respirano uguale SOLO se hanno la stessa misura sullo
+    // stesso breakpoint — che è il difetto vero dietro «il + e apri sidebar
+    // dovrebbero avere aria intorno uguale, anche rispetto alle tab» (Attilio,
+    // 09/08): il comando seguiva `md:` e la tab un `isTouch` in JS, quindi in
+    // una finestra stretta senza touch erano 36 e 28 nella stessa riga.
+    //
+    // `TAB_H` ricopia la classe della tab (PaneTabBar), che non è esportabile
+    // — sta dentro un template con dieci altre cose. È una copia, e il suo
+    // prezzo è dichiarato: se qualcuno cambia l'altezza della tab senza toccare
+    // qui, questo test resta verde su una bugia. Ciò che NON può più succedere
+    // in silenzio è il disaccordo di meccanismo, perché entrambe le stringhe
+    // ora si leggono con lo stesso risolutore di breakpoint.
+    const TAB_H = 'h-9 md:h-7';
+    expect(risolvi(TAB_H, 'h')).toEqual(risolvi(ROW_ACTION_BOX, 'h'));
+    const box = risolvi(ROW_ACTION_BOX, 'h');
+    expect(chromeRowInset(box.wide)).toBe(6);
+    expect(chromeRowInset(box.compact)).toBe(2);
+  });
+
+  test("l'incasso dal bordo è ROW_INSET, non il respiro verticale", () => {
+    // Era `chromeRowInset(box)`: col dito veniva 2, cioè il bottone incollato
+    // al bordo mentre la strip senza comando si ferma a 6. Il bordo è una
+    // domanda ORIZZONTALE e ha già il suo numero.
     const dx = risolvi(CHROME_ROW_ACTION_INSET, 'right');
-    expect(dx.wide).toBe(chromeRowInset(CHROME_ROW_ACTION_BOX_PX));
-    expect(dx.compact).toBe(chromeRowInset(CHROME_ROW_ACTION_BOX_PX));
-    // E lo spazio verticale, che è ciò a cui deve essere UGUALE: la riga meno
-    // il box, diviso due. Scritto qui per esteso perché è l'invariante, non un
-    // passaggio intermedio.
-    expect(dx.wide).toBe((CHROME_ROW_CONTENT_H - CHROME_ROW_ACTION_BOX_PX) / 2);
-    expect(dx.compact).toBe((CHROME_ROW_CONTENT_H - CHROME_ROW_ACTION_BOX_PX) / 2);
+    expect(dx).toEqual({ wide: ROW_INSET, compact: ROW_INSET });
   });
 
   test('il comando in testa alla riga ha lo stesso incasso di quello in coda', () => {
@@ -102,16 +109,20 @@ describe('la riga di chrome e il comando in coda', () => {
     );
   });
 
-  test('la riserva della strip è il box più il suo incasso', () => {
+  test('la riserva della strip è bordo + box + la stessa aria del bordo', () => {
+    // I tre pezzi ci sono tutti: 6 dal bordo, il box, e altri 6 prima della
+    // tab. Era `box + chromeRowInset(box)`, cioè senza il terzo: la strip
+    // finiva ESATTAMENTE sul bordo del bottone e la tab lo toccava.
+    const box = risolvi(ROW_ACTION_BOX, 'w');
     const pr = risolvi(CHROME_ROW_ACTION_RESERVE, 'pr');
-    expect(pr.wide).toBe(CHROME_ROW_ACTION_BOX_PX + chromeRowInset(CHROME_ROW_ACTION_BOX_PX));
-    expect(pr.compact).toBe(CHROME_ROW_ACTION_BOX_PX + chromeRowInset(CHROME_ROW_ACTION_BOX_PX));
+    expect(pr.wide).toBe(ROW_INSET + box.wide + ROW_INSET);
+    expect(pr.compact).toBe(ROW_INSET + box.compact + ROW_INSET);
   });
 
   test('la riserva a SINISTRA è la stessa, specchiata', () => {
     // Era un `paddingLeft: 30` in linea: fisso sui due breakpoint, quindi
-    // sbagliato su almeno uno dei due (34 col mouse, 38 col dito). I due capi
-    // della strip ospitano bottoni gemelli e devono riservare lo stesso spazio.
+    // sbagliato su almeno uno dei due. I due capi della strip ospitano bottoni
+    // gemelli e devono riservare lo stesso spazio.
     expect(risolvi(CHROME_ROW_ACTION_RESERVE_LEFT, 'pl')).toEqual(
       risolvi(CHROME_ROW_ACTION_RESERVE, 'pr'),
     );

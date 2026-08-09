@@ -1178,7 +1178,21 @@ function App() {
                 // 12 — 2px a sinistra dei nomi sotto, il near-miss che si legge
                 // peggio di una differenza netta. Con ROW_PX il titolo va a 14
                 // e il rialzo dell'hover resta a filo col bordo delle card.
-                className={`flex items-center ${isTauriMac ? 'gap-2' : 'gap-1'} ${ROW_PX} py-0.5 min-h-7 rounded-lg transition-colors cursor-pointer ${
+                // L'ALTEZZA LA DETTA LA RIGA, e la riga la dettano i suoi
+                // comandi: `h-14` col dito attorno a bottoni da 44, `h-10` col
+                // mouse attorno a bottoni da 28 (vedi il commento dell'header).
+                // Il titolo non seguiva né l'una né gli altri: `min-h-7` fisso,
+                // che col testo a 17px diventa 29,5 dentro una riga da 56 —
+                // misurato. Effetto: il suo rialzo finiva 13px sopra il fondo
+                // della riga mentre Cerca e «+», lì accanto, ci arrivano a 6.
+                // Da lontano legge come spazio in più sotto l'header, ed è metà
+                // della «doppia spaziatura» che si vedeva sul telefono. Di
+                // rimbalzo il bersaglio del menu passa da 29,5 a 44, cioè alla
+                // soglia che ogni altro comando di questa riga rispetta già.
+                // `isMobile` e non `md:`: nell'header decide quel predicato,
+                // e due meccanismi nella stessa riga divergono (è il difetto
+                // appena tolto dalla barra delle tab).
+                className={`flex items-center ${isTauriMac ? 'gap-2' : 'gap-1'} ${ROW_PX} py-0.5 ${isMobile ? 'min-h-11' : 'min-h-7'} rounded-lg transition-colors cursor-pointer ${
                   // Rialzo in ALPHA, non `bg-app-hover`: questo bottone sta sul
                   // chrome, e un opaco tarato su `--bg-surface` lì va nel verso
                   // sbagliato in tema chiaro. Vedi SIDEBAR_HOVER.

@@ -51,7 +51,7 @@ import { type PaneScope } from '../../state/pane/adapters';
 import { NO_DRAG_REGION } from '../../lib/shell/dragRegion';
 import { MODAL_BACKDROP, MODAL_PANEL, MODAL_LAYER } from '../../lib/modalStyles';
 import { POPOVER_ITEM, POPOVER_DIVIDER } from '../../lib/popoverStyles';
-import { CHROME_ROW_ACTION_BOX, GLYPH_KBD_PADDING, RAISED_CONTROL } from '../../lib/selectionStyles';
+import { GLYPH_KBD_PADDING, RAISED_CONTROL, ROW_ACTION_BOX } from '../../lib/selectionStyles';
 import { Menu } from './Menu';
 import { buildAddMenuItems, type AddMenuItem } from './addMenuItems';
 import { AddMenuIcon } from './AddMenuIcon';
@@ -268,7 +268,7 @@ const TRIGGER_CLASS_PILL =
   // NON sono un gradino di gerarchia: sono i due comandi principali della
   // colonna, l'unica cosa che si preme lassù. Un gradino sotto il testo pieno
   // ha senso per una didascalia, non per il comando che apre tutto.
-  `${CHROME_ROW_ACTION_BOX} edge-lit flex items-center justify-center rounded-lg ${RAISED_CONTROL} text-app-text transition-colors`;
+  `${ROW_ACTION_BOX} edge-lit flex items-center justify-center rounded-lg ${RAISED_CONTROL} text-app-text transition-colors`;
 
 export function PaneAddMenu({
   scope,
@@ -339,10 +339,8 @@ export function PaneAddMenu({
   // 16 e non 14, e il metro l'ha dato Attilio: «il +, confrontandolo con
   // quello di WhatsApp, mi sembra più piccolo». In una scatola da 28 un glifo
   // da 14 occupa metà larghezza e legge come mezzo comando; 16 la riempie
-  // senza toccarne i bordi. Col dito la scatola è 44, quindi il glifo sale a 20.
-  // La scatola ora è 28 su ogni schermo (CHROME_ROW_ACTION_BOX), quindi il
-  // glifo non ha più due misure: 20 era tarato su una scatola da 36.
-  const triggerIconSize = 16;
+  // senza toccarne i bordi. Col dito la scatola è 36, quindi il glifo sale a 20.
+  const triggerIconSize = isMobile ? 20 : 16;
 
   const menuItems = (
     <PaneAddMenuItems
