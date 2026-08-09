@@ -2303,6 +2303,40 @@ html.electron-mac .chrome-glass .chrome-glass {
   background-color: transparent !important;
 }
 
+/* LA BARRA DELLE TAB È L'ECCEZIONE, e non per gusto: è l'unico vetro che sta
+ * SOPRA del testo che scorre.
+ *
+ * La regola qui sopra dice «solo il vetro più esterno dipinge», e per le
+ * SUPERFICI è giusta: due tinte sovrapposte sullo stesso piano fanno un colore
+ * che nessuno ha scelto. Ma `.pane-chrome-bar` non è una superficie annidata in
+ * un'altra: è un OVERLAY (`position: absolute`) sopra la pane, e il suo velo
+ * serve a rendere leggibili i nomi delle tab mentre sotto passano i messaggi.
+ * Se il velo si azzera, quel testo resta soltanto sfocato.
+ *
+ * L'esenzione è anche ciò che rende UGUALI le due barre, che era il difetto
+ * segnalato («uniformare colore tabbar-sottotabbar», Attilio 09/08). Il motivo
+ * per cui divergevano è una posizione nel DOM, non una decisione: la barra di
+ * primo livello NON discende da un altro `.chrome-glass` — il guscio della pane
+ * le sta VISIVAMENTE sotto ma non è un suo antenato — quindi dipinge; quella
+ * dentro la finestra di progetto discende dal guscio della pane progetto,
+ * quindi la regola la spegneva. Due barre identiche, due esiti, per un
+ * accidente di annidamento.
+ *
+ * Misurato in shell mac simulata (`electron-mac` sul documento), campionando il
+ * pixel dipinto a metà di ciascuna riga:
+ *   chiaro  prima 236,239,243 contro 239,242,247  → dopo 0,0,0 di scarto
+ *   scuro   prima   9,11,17  contro  11,13,20     → dopo 0,0,0 di scarto
+ * Sul web non cambia niente: là questo blocco non si applica e le due barre
+ * erano già identiche (241,242,243 e 14,15,18).
+ *
+ * `var(--chrome-bg)` e non un colore nuovo: è la stessa tinta che
+ * `--chrome-overlay-bg` già assume sotto la shell (vedi il blocco della barra),
+ * riscritta qui solo perché serve un `!important` che batta quello della regola
+ * anti-doppio-strato. Stessa specificità (0,3,0), vince l'ordine di sorgente. */
+html.electron-mac .chrome-glass .pane-chrome-bar {
+  background-color: var(--chrome-bg) !important;
+}
+
 /* LA RIGA DELLE TAB È UN VETRO SOPRA IL CONTENUTO, NON UN RIPIANO SOPRA DI ESSO.
  *
  * Era un fratello nel flusso — barra, poi la pane sotto — separati da un
