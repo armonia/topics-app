@@ -457,6 +457,27 @@ export const CHROME_ROW_ACTION_INSET_LEFT = 'left-[2px] md:left-[6px]';
  *  a riposo — cioè prima ancora di scorrere — è il difetto che questa riserva
  *  esiste per non fare. Letterali per la stessa ragione di qui sopra. */
 export const CHROME_ROW_ACTION_RESERVE = 'pr-[38px] md:pr-[34px]';
+/**
+ * LO STESSO SPAZIO, SPECCHIATO — e prima non lo era.
+ *
+ * In testa alla strip sta il comando che riapre la colonna, in coda il «+»:
+ * due bottoni gemelli, stesso box e stesso incasso (`CHROME_ROW_ACTION_INSET`
+ * e il suo gemello sinistro lo dicono già). La riserva però era scritta con due
+ * grammatiche diverse: a destra questa costante, che segue il box; a sinistra
+ * un `paddingLeft: 30` inline in PaneTabBar — un numero fisso, uguale sui due
+ * breakpoint, che non seguiva niente.
+ *
+ * Misurato a schermo: strip `padding-left: 30px` contro `padding-right: 34px`
+ * col mouse, e 30 contro 38 col dito. Cioè la prima tab stava 4px (desktop) e
+ * 8px (touch) più vicina al suo comando di quanto l'ultima stesse al «+» —
+ * «dovrebbero avere aria intorno uguale, anche rispetto alle tab a inizio e
+ * fine scroll» (Attilio, 09/08).
+ *
+ * Letterali per la stessa ragione dell'altra: Tailwind legge il sorgente come
+ * testo. E come l'altra, `selectionStyles.test.ts` ricalcola i due numeri dal
+ * box e dall'incasso, così non possono più separarsi in silenzio.
+ */
+export const CHROME_ROW_ACTION_RESERVE_LEFT = 'pl-[38px] md:pl-[34px]';
 
 /**
  * LA RIGA DELLE TAB, UNA VOLTA SOLA — e ora che è un vetro conta il doppio.

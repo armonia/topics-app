@@ -27,7 +27,7 @@ import { SessionElapsed } from '../Shared/SessionActivity';
 import { useTabNotifications } from '../../hooks/useTabNotifications';
 import { useT } from '../../hooks/useT';
 import { useSpawnedBrowserMap } from '../../state/browserSpawner';
-import { SELECTED_SURFACE, SELECTED_SURFACE_SOFT, RESTING_SURFACE, ROW_PX, ROW_INSET, ROW_ACTION_GLYPH, CHROME_ROW_ACTION_INSET, CHROME_ROW_ACTION_RESERVE, attentionSurface, ON_FILL_TEXT_SOFT, TAB_LABEL } from '../../lib/selectionStyles';
+import { SELECTED_SURFACE, SELECTED_SURFACE_SOFT, RESTING_SURFACE, ROW_PX, ROW_ACTION_GLYPH, CHROME_ROW_ACTION_INSET, CHROME_ROW_ACTION_RESERVE, CHROME_ROW_ACTION_RESERVE_LEFT, attentionSurface, ON_FILL_TEXT_SOFT, TAB_LABEL } from '../../lib/selectionStyles';
 import { POPOVER_SURFACE, Z_CONTEXT_MENU, POPOVER_MARGIN } from '@/lib/popoverStyles';
 import { computeMenuPosition, type AnchorRect } from '@/lib/popoverPosition';
 import { ensurePaneUsageFresh, formatPaneUsageLine, subscribePaneUsage, getPaneUsageVersion } from '@/lib/paneUsage';
@@ -820,15 +820,28 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
         //
         // Senza «+» la strip si ferma a `ROW_INSET`, che è l'incasso con cui la
         // riga sta lontana dal bordo quando non c'è nessun comando a occuparlo.
+        // I DUE CAPI DELLA STRIP SI SCRIVONO ALLO STESSO MODO.
+        //
+        // A destra la riserva seguiva il box del comando
+        // (`CHROME_ROW_ACTION_RESERVE`), a sinistra c'era un `paddingLeft: 30`
+        // inline: un numero fisso, uguale sui due breakpoint, che non seguiva
+        // niente. Misurato: strip 30 a sinistra contro 34 a destra col mouse, e
+        // 30 contro 38 col dito — la prima tab più vicina al suo comando di
+        // quanto l'ultima stesse al «+», sullo stesso pezzo di barra.
+        //
+        // Ora sono la stessa cosa specchiata, e sono CLASSI entrambe: la
+        // riserva cambia col breakpoint (il box è 28 col mouse e 36 col dito) e
+        // uno stile in linea quel salto non sa farlo — era anche il motivo per
+        // cui quel 30 non poteva essere giusto su tutti e due.
+        //
+        // Senza comando la strip si ferma a `ROW_INSET`, l'incasso con cui la
+        // riga sta lontana dal bordo quando non c'è niente a occuparlo — lo
+        // stesso delle righe della colonna, così le due liste si allineano ai
+        // lati.
         className={`flex items-center gap-0.5 min-w-0 min-h-7 overflow-x-auto scrollbar-topbar ${
           hasMenuItems ? CHROME_ROW_ACTION_RESERVE : 'pr-1.5'
-        }`}
-        // Left inset = ROW_INSET, the SAME edge inset the sidebar rows use, so
-        // the tab list and the sidebar list line up at the sides (was 5px left
-        // + a stray 4px root `pl-1` = 9px on project group bars). The 30px
-        // override stays for when a floating sidebar-toggle overlays the
-        // leftmost bar.
-        style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x', paddingTop: 1, paddingBottom: 1, paddingLeft: hasLeftOverlay ? 30 : ROW_INSET }}
+        } ${hasLeftOverlay ? CHROME_ROW_ACTION_RESERVE_LEFT : 'pl-1.5'}`}
+        style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x', paddingTop: 1, paddingBottom: 1 }}
         onDragOver={(e) => {
           if (!e.dataTransfer.types.includes(DND_TYPES.PANE_TAB)) return;
           // Scope guard: ignore drags from another window/project entirely (no

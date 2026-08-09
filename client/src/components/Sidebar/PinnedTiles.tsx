@@ -631,7 +631,18 @@ export function PinnedTiles({
           ? { paddingTop: TILE_GAP, paddingBottom: TILE_GAP }
           : attiva
             ? undefined
-            : { height: trailing ? 0 : TILE_GAP }
+            // LA ZONA IN TESTA VALE MEZZO PASSO, non uno intero.
+            //
+            // Fra due righe di tessere questa zona e' l'UNICO separatore, quindi
+            // vale TILE_GAP pieno. Sopra la PRIMA riga no: li' sopra c'e' gia' il
+            // mezzo passo del contenitore che scorre (`paddingBlock: COLUMN_GAP/2`
+            // in TopicTree), e i due si sommavano — misurato 9px sotto l'header
+            // della colonna contro i 6 di ogni altro stacco. E' la «doppia
+            // spaziatura sotto la topbar» (Attilio, 09/08): non veniva dal bordo
+            // tolto, veniva da qui.
+            //
+            // In coda resta 0 perche' lo spazio sotto lo porta il filo.
+            : { height: trailing ? 0 : at === 0 ? TILE_GAP / 2 : TILE_GAP }
       }
     >
       {/* La riga nuova si vede per quello che sarà: la tessera vera, a tutta
