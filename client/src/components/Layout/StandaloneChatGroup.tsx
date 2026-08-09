@@ -768,7 +768,7 @@ export function StandaloneChatGroup({
             // rialzata, e `raised-control-overlay` perché anche questo sta
             // SOPRA la strip delle tab, che gli scorre sotto.
             <div className={`raised-control-overlay absolute ${CHROME_ROW_ACTION_INSET_LEFT} top-1/2 -translate-y-1/2 flex items-center app-no-drag z-10`} {...NO_DRAG_REGION}>
-              <SidebarToggleButton onClick={onToggleSidebar} size="action" className={`edge-lit ${RAISED_CONTROL} rounded-lg`} />
+              <SidebarToggleButton onClick={onToggleSidebar} size="chrome" className={`edge-lit ${RAISED_CONTROL} rounded-lg`} />
             </div>
           )}
         </div>
