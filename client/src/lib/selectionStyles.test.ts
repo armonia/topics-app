@@ -3,6 +3,7 @@ import {
   CHROME_ROW_ACTION_INSET,
   CHROME_ROW_ACTION_INSET_LEFT,
   CHROME_ROW_ACTION_RESERVE,
+  CHROME_ROW_ACTION_RESERVE_LEFT,
   CHROME_ROW_CONTENT_H,
   COLUMN_GAP,
   ROW_ACTION_BOX,
@@ -93,6 +94,15 @@ describe('la riga di chrome e il comando in coda', () => {
     const pr = risolvi(CHROME_ROW_ACTION_RESERVE, 'pr');
     expect(pr.wide).toBe(ROW_ACTION_BOX_PX.desktop + chromeRowInset(ROW_ACTION_BOX_PX.desktop));
     expect(pr.compact).toBe(ROW_ACTION_BOX_PX.touch + chromeRowInset(ROW_ACTION_BOX_PX.touch));
+  });
+
+  test('la riserva a SINISTRA è la stessa, specchiata', () => {
+    // Era un `paddingLeft: 30` in linea: fisso sui due breakpoint, quindi
+    // sbagliato su almeno uno dei due (34 col mouse, 38 col dito). I due capi
+    // della strip ospitano bottoni gemelli e devono riservare lo stesso spazio.
+    expect(risolvi(CHROME_ROW_ACTION_RESERVE_LEFT, 'pl')).toEqual(
+      risolvi(CHROME_ROW_ACTION_RESERVE, 'pr'),
+    );
   });
 
   test('il comando ci sta dentro la riga', () => {
