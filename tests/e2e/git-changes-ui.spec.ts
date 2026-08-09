@@ -26,6 +26,7 @@ import { test } from "./fixtures/file-explorer.fixture";
 import { resetPaneStore } from "./helpers/api-fixtures";
 import { seedFileProject, cleanupFileProject, type FileProject } from "./helpers/file-project";
 import { hermetic } from "./fixtures/hermetic";
+import { apriSezioneProgetto } from "./helpers/project-sections";
 
 hermetic(test);
 
@@ -36,17 +37,12 @@ hermetic(test);
  * cliccarla su una sezione gia' aperta la RICHIUDE.
  */
 async function apriGit(page: import("@playwright/test").Page) {
+  // Le tre sezioni sono una riga di chip sopra un pannello solo: il comando
+  // che apre Git non vive piu' DENTRO `git-changes` (che da chiusa non e'
+  // nemmeno montata), sta nel chip. Qui resta solo l'attesa del pannello.
+  await apriSezioneProgetto(page, "git");
   const gitChanges = page.locator('[data-testid="git-changes"]');
   await expect(gitChanges).toBeVisible({ timeout: 10000 });
-  const header = gitChanges.locator('[data-testid="project-sidebar-git"]');
-  await expect(header).toBeVisible({ timeout: 10000 });
-  // Si clicca l'ETICHETTA, non il centro della riga: al centro c'e' il nome
-  // del ramo, che e' un CONTROLLO — cliccarlo apre la tendina dei rami e la
-  // sezione resta chiusa (misurato: `elementFromPoint` al centro restituisce
-  // lo span del branch).
-  if ((await header.getAttribute("aria-expanded")) !== "true") {
-    await header.getByText("Git", { exact: true }).click();
-  }
   return gitChanges;
 }
 
@@ -73,6 +69,7 @@ test.describe("pannello delle modifiche git", () => {
     request,
   }) => {
     await fileExplorerPage.gotoProject(tmpDir, topicName);
+    await apriSezioneProgetto(page, "git");
     const gitChanges = await apriGit(page);
 
     const riga = gitChanges.locator('[data-git-file="src/index.ts"]');
@@ -102,6 +99,7 @@ test.describe("pannello delle modifiche git", () => {
     page,
   }) => {
     await fileExplorerPage.gotoProject(tmpDir, topicName);
+    await apriSezioneProgetto(page, "git");
     const gitChanges = await apriGit(page);
 
     const casella = gitChanges.locator('[data-testid="commit-message-input"]');
@@ -134,6 +132,7 @@ test.describe("pannello delle modifiche git", () => {
     page,
   }) => {
     await fileExplorerPage.gotoProject(tmpDir, topicName);
+    await apriSezioneProgetto(page, "git");
     const gitChanges = await apriGit(page);
 
     const riga = gitChanges.locator('[data-git-file="src/index.ts"]').first();

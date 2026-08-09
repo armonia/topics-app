@@ -7,6 +7,7 @@ import {
   type FileProject,
 } from "./helpers/file-project";
 import { hermetic } from "./fixtures/hermetic";
+import { apriSezioneProgetto } from "./helpers/project-sections";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
@@ -285,6 +286,7 @@ test.describe("File Explorer — breadcrumb e processi", () => {
     });
 
     await fileExplorerPage.gotoProject(tmpDir, topicName);
+
 
     // Navigate to Processes section
     const processesBtn = page.locator("button", { hasText: "Processi" });
