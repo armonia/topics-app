@@ -3,7 +3,6 @@ import { useT } from '../../hooks/useT';
 import { createPortal } from 'react-dom';
 import { ChevronRight, FolderTree, GitBranch, CirclePlay, RefreshCw, PanelLeftOpen, PanelLeftClose, FilePlus, FolderPlus, ChevronsDownUp } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { SidebarToggleButton } from '../Shared/SidebarToggleButton';
 import { NO_DRAG_REGION } from '../../lib/shell/dragRegion';
 import { RAISED_CONTROL, RESTING_SURFACE, ROW_ACTION_BOX, ROW_PX, TAB_GAP_CLASS, TAB_LABEL } from '../../lib/selectionStyles';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
@@ -47,10 +46,17 @@ interface ProjectSidebarProps {
    * volta sola (`document.createElement`) e `GroupLayout` lo aggancia dentro la
    * prima barra: esiste già al primo render, quindi il portale ha subito dove
    * scrivere e non c'è il fotogramma in cui la rail vecchia lampeggia prima di
-   * sparire. Assente (`undefined`) = nessun ospite: si torna alla rail
-   * verticale, che resta l'unico modo di riaprire la colonna.
+   * sparire.
+   *
+   * OBBLIGATORIO, e non e' pignoleria di tipi: finche' era opzionale restava in
+   * piedi una rail verticale «di ripiego» per l'ospite che non lo passasse.
+   * Di ospiti ce n'e' UNO (`ProjectWindow`) e lo passa sempre — quindi quel
+   * ramo non lo eseguiva nessuno, ed era la TERZA presentazione della stessa
+   * testata: `h-10 + border-b + bottone col solo glifo`, senza card e senza
+   * nome, cioe' l'ultima copia divergente. Il tipo la chiude: chi monta questa
+   * colonna deve dire dove va la sua forma chiusa.
    */
-  inlineSlot?: HTMLElement;
+  inlineSlot: HTMLElement;
 }
 
 type SectionId = 'files' | 'git' | 'processes';
@@ -138,12 +144,18 @@ function ProjectCard({
 }
 
 /**
- * Un'icona della rail collassata, con la sua pastiglia.
+ * Un comando della barra di progetto CHIUSA, con la sua pastiglia.
  *
- * La rail è larga 40px: qui non ci sta una parola, ci sta un numero. La regola
- * è che ogni bottone porti AL PIÙ un sovrapposto — pastiglia numerica oppure
- * punto, mai entrambi — e che tutto il resto (il ramo, il conteggio esteso, il
- * perché) viva nel `title`, che è l'unico posto in cui c'è spazio davvero.
+ * Su un bottone non ci sta una parola, ci sta un numero: la regola è che ne
+ * porti AL PIÙ uno — pastiglia numerica oppure punto, mai entrambi — e che tutto
+ * il resto (il ramo, il conteggio esteso, il perché) viva nel `title`, che è
+ * l'unico posto in cui c'è spazio davvero.
+ *
+ * IL BOX È QUELLO DELLA RIGA, non quello del dito: sta in fila con le tab,
+ * quindi la sua misura è quella della tab accanto ({@link ROW_ACTION_BOX}, 36
+ * col dito e 28 col mouse). C'è stata una seconda variante — `w-7 h-7` in una
+ * colonna verticale da 40px — finché la barra chiusa era una rail; non c'è più,
+ * e con la rail se n'è andato anche il ramo che la disegnava.
  */
 function RailButton({
   icon: Icon,
@@ -153,7 +165,6 @@ function RailButton({
   badge = null,
   tone = 'primary',
   dot = false,
-  inline = false,
 }: {
   icon: LucideIcon;
   active: boolean;
@@ -162,77 +173,31 @@ function RailButton({
   badge?: number | null;
   tone?: 'primary' | 'success' | 'danger';
   dot?: boolean;
-  /**
-   * IN FILA CON LE TAB, e allora il box lo detta la riga.
-   *
-   * Nella rail verticale il bottone stava in una colonna da 40 e `w-7 h-7`
-   * andava bene su ogni schermo. Dentro la barra delle tab no: là la misura è
-   * quella della tab che gli sta accanto ({@link ROW_ACTION_BOX}, 36 col dito e
-   * 28 col mouse), o il comando respira diverso dalla sua vicina — è
-   * esattamente il difetto appena tolto dal «+» e dal tasto che riapre la
-   * colonna. L'anello della pastiglia segue: `ring-app-chrome` sulla rail,
-   * dove il fondo è il chrome opaco; nella barra il fondo è il vetro, e
-   * l'anello prende il colore della card.
-   */
-  inline?: boolean;
 }) {
   const toneClass = tone === 'danger'
     ? 'bg-red-500 text-white'
     : tone === 'success'
       ? 'bg-emerald-500 text-white'
       : 'bg-primary text-white';
-  const ring = inline ? 'ring-app-bg-elevated' : 'ring-app-chrome';
-  if (inline) {
-    return (
-      <button
-        onClick={onClick}
-        title={title}
-        aria-label={title}
-        aria-expanded={active}
-        className={`relative ${ROW_ACTION_BOX} flex items-center justify-center rounded-lg edge-lit transition-colors flex-shrink-0 ${
-          active ? 'text-primary bg-primary/10' : `${RAISED_CONTROL} text-app-text`
-        }`}
-      >
-        <Icon size={16} />
-        {badge !== null && badge > 0 && (
-          <span className={`absolute -top-1 -right-1 min-w-[15px] h-[15px] px-[3px] flex items-center justify-center rounded-full text-[9px] font-bold leading-none tabular-nums ring-2 ${ring} ${toneClass}`}>
-            {badge > 99 ? '99+' : badge}
-          </span>
-        )}
-        {badge === null && dot && (
-          <span className={`absolute -top-0.5 -right-0.5 w-[7px] h-[7px] rounded-full ring-2 ${ring} ${toneClass}`} />
-        )}
-      </button>
-    );
-  }
+  const ring = 'ring-app-bg-elevated';
   return (
     <button
       onClick={onClick}
       title={title}
       aria-label={title}
-      // Acceso qui significa «questa sezione è APERTA»: è la stessa cosa che
-      // dice l'evidenziazione, e a barra chiusa è l'unica anteprima di cosa
-      // troverai riaprendola. Per questo restano accese anche tutte e tre.
       aria-expanded={active}
-      className={`relative w-7 h-7 flex items-center justify-center rounded transition-colors ${
-        active
-          ? 'text-primary bg-primary/10'
-          : 'text-app-text-muted hover:text-app-text-hover hover:bg-black/5 dark:hover:bg-white/5'
+      className={`relative ${ROW_ACTION_BOX} flex items-center justify-center rounded-lg edge-lit transition-colors flex-shrink-0 ${
+        active ? 'text-primary bg-primary/10' : `${RAISED_CONTROL} text-app-text`
       }`}
     >
       <Icon size={16} />
       {badge !== null && badge > 0 && (
-        // `ring` del colore della rail: senza, la pastiglia appoggiata
-        // sull'icona si confonde col tratto sottostante e il numero perde il
-        // bordo. Con l'anello resta leggibile anche sovrapposta.
-        <span
-          className={`absolute -top-1 -right-1 min-w-[15px] h-[15px] px-[3px] flex items-center justify-center rounded-full text-[9px] font-bold leading-none tabular-nums ring-2 ring-app-chrome ${toneClass}`}
-        >
+        <span className={`absolute -top-1 -right-1 min-w-[15px] h-[15px] px-[3px] flex items-center justify-center rounded-full text-[9px] font-bold leading-none tabular-nums ring-2 ${ring} ${toneClass}`}>
           {badge > 99 ? '99+' : badge}
         </span>
       )}
       {badge === null && dot && (
-        <span className={`absolute -top-0.5 -right-0.5 w-[7px] h-[7px] rounded-full ring-2 ring-app-chrome ${toneClass}`} />
+        <span className={`absolute -top-0.5 -right-0.5 w-[7px] h-[7px] rounded-full ring-2 ${ring} ${toneClass}`} />
       )}
     </button>
   );
@@ -497,20 +462,19 @@ export function ProjectSidebar({
       : runningCount > 0
         ? `${tr('project.sidebar.processes')}\n${plural('project.sidebar.processesRunning', runningCount)}`
         : tr('project.sidebar.processes');
-    // I TRE COMANDI, una volta sola: la rail verticale e la striscia in linea
-    // sono due presentazioni della stessa cosa, e ricopiarle vorrebbe dire due
-    // liste che divergono al primo badge aggiunto.
-    const comandi = (inline: boolean) => (
+    // I TRE COMANDI, in un posto solo. Sono nati come coppia — una lista per la
+    // rail verticale e una per la striscia in linea — e la rail non c'e' piu':
+    // resta la lista, che e' anche il motivo per cui non ne sono mai divergite
+    // due al primo badge aggiunto.
+    const comandi = () => (
       <>
         <RailButton
-          inline={inline}
           icon={FolderTree}
           active={expandedSections.files}
           onClick={open('files')}
           title={tr('project.sidebar.files')}
         />
         <RailButton
-          inline={inline}
           icon={GitBranch}
           active={expandedSections.git}
           onClick={open('git')}
@@ -527,7 +491,6 @@ export function ProjectSidebar({
           dot={!!git && git.fileCount === 0 && (git.ahead > 0 || git.behind > 0)}
         />
         <RailButton
-          inline={inline}
           icon={CirclePlay}
           active={expandedSections.processes}
           onClick={open('processes')}
@@ -548,8 +511,7 @@ export function ProjectSidebar({
     // telefono. Senza nome sono quattro box da 36 con 6 di aria — ~160px — e
     // «sulla versione mobile anche doveva essere aggiornata» (Attilio, 09/08)
     // diventa una cosa che ci sta.
-    if (inlineSlot) {
-      return createPortal(
+    return createPortal(
         <div
           data-testid="project-rail-inline"
           // In fila con le tab e con la loro grammatica: `gap-0.5` come fra due
@@ -576,25 +538,9 @@ export function ProjectSidebar({
             onToggle={onToggleCollapse}
             className="max-w-[180px] flex-shrink"
           />
-          {comandi(true)}
+          {comandi()}
         </div>,
         inlineSlot,
-      );
-    }
-
-    return (
-      <div data-testid="project-sidebar-rail" className="chrome-glass w-10 flex-shrink-0 border-r border-app-border bg-app-chrome flex flex-col overflow-hidden">
-        {/* Header — stessa riga di chrome della tab bar delle pane (h-10 +
-            border-b, vedi GroupLayout) e dell'header espanso qui sotto: il
-            bottone di espansione cade sulla STESSA linea mediana dei tab, e il
-            bordo attraversa tutta la rail invece di essere un trattino w-6. */}
-        <div data-testid="project-sidebar-rail-header" className="flex items-center justify-center h-10 border-b border-app-border flex-shrink-0">
-          <SidebarToggleButton onClick={onToggleCollapse} size="sm" title={tr('project.sidebar.expand')} icon={PanelLeftOpen} />
-        </div>
-        <div className="flex flex-col items-center py-2 gap-1">
-          {comandi(false)}
-        </div>
-      </div>
     );
   }
 
@@ -750,7 +696,7 @@ export function ProjectSidebar({
         onMouseDown={startWidthResize}
         onDoubleClick={resetWidth}
         title={tr('project.sidebar.resize')}
-        className="absolute inset-y-0 right-0 w-2 z-20 cursor-col-resize"
+        className="absolute top-10 bottom-0 right-0 w-2 z-20 cursor-col-resize"
       />
       {/* Header — height matches the pane tab bar (h-10) */}
       {/* LA STESSA CARD DELLA BARRA CHIUSA — vedi ProjectCard. Alta come la riga
