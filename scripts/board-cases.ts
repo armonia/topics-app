@@ -552,7 +552,12 @@ async function build(only?: string): Promise<void> {
         "needs_input («serve te»). (b) mcp__topics__ask_user_question NON è escluso " +
         "per gli agenti di dispatch: un agente può aprire il pannello IN CHAT a metà " +
         "turno — lì il turno resta vivo (isHumanHold disarma watchdog, reaper e tetto " +
-        "di vita) ma la card resta 'working' e non mostra niente.",
+        "di vita). Fino al 2026-08-09 la card restava 'working' e non mostrava niente; " +
+        "ora il dispatcher annuncia l'attesa con l'evento TRANSITORIO `task:awaiting-human` " +
+        "(server/lib/human-hold-events.ts). Transitorio e non un chip in DB: `needs_input` " +
+        "persistito faceva uscire il task dalla porta del recupero orfani e lo congelava " +
+        "dopo un riavvio. Resta 'workaround' perche' la RISPOSTA si da' comunque nel tab " +
+        "della sessione, non dalla card.",
       chat: "Il pannello a bottoni è nativo nel thread; il turno resta bloccato sulla risposta JSON-RPC del bridge.",
       gesture:
         "canale (a): 1 click sul bottone dell'opzione sulla card (→ POST /review reject+comment → reviewDecision + dispatcher.resume). " +
@@ -561,6 +566,7 @@ async function build(only?: string): Promise<void> {
       humanActionsChat: 1,
       verdict: "partial",
       subjects: [
+        "server/lib/human-hold-events.ts",
         "server/providers/ask-user-detector.ts",
         "server/lib/ask-user-bridge.ts",
         "server/lib/human-hold.ts",
@@ -652,10 +658,13 @@ async function build(only?: string): Promise<void> {
       id: "2",
       title: "Permesso richiesto (--permission-prompt-tool)",
       board:
-        "INVISIBILE sulla card. Il pannello lo dipinge la rotta " +
+        "SEGNALATA ma non decidibile dalla card. Il pannello lo dipinge la rotta " +
         "POST /api/sessions/:sk/permission sulla RIGA DI TOOL nella chat della " +
         "sessione, agganciata per sessionKey+tool_use_id; nessun componente della " +
-        "board legge permissionRequest/awaiting_permission. Il chip resta 'working'. " +
+        "board legge permissionRequest/awaiting_permission. Dal 2026-08-09 la card MOSTRA " +
+        "l'attesa (badge «aspetta te», dall'evento transitorio `task:awaiting-human`), ma " +
+        "mostrarla non e' deciderla: il pannello con allow/deny sta nel thread della " +
+        "sessione, quindi il gesto resta 'apri il tab'. " +
         "Il segnale c'è ma su un'ALTRA superficie: /api/topics/streaming dichiara la " +
         "sessione state='waiting' (via humanHoldAgeMs), cioè il tab dell'agente in " +
         "sidebar dice «aspetta te».",
@@ -665,6 +674,7 @@ async function build(only?: string): Promise<void> {
       humanActionsChat: 1,
       verdict: "gap",
       subjects: [
+        "server/lib/human-hold-events.ts",
         "server/lib/permission-bridge.ts",
         "server/lib/autonomy-mode.ts",
         "server/mcp/topics-mcp-server.ts",
@@ -1221,6 +1231,7 @@ async function build(only?: string): Promise<void> {
       humanActionsChat: 1,
       verdict: "covered",
       subjects: [
+        "scripts/server-reload-gate.sh",
         "server/services/task-dispatcher.ts",
         "server/providers/claude-code.ts",
       ],
@@ -1283,7 +1294,8 @@ async function build(only?: string): Promise<void> {
         "(a) DECIDERE UN PERMESSO — la card non lo mostra e non lo sa: serve aprire il " +
         "tab (caso 2). " +
         "(b) RISPONDERE A UN PANNELLO ask_user_question aperto a metà turno — stessa " +
-        "storia, la card resta 'working' (caso 1b). " +
+        "storia: la card lo SEGNALA (evento `task:awaiting-human`) ma non ci si puo' " +
+        "rispondere sopra (caso 1b). " +
         "(c) FERMARE senza distruggere — POST /stop parcheggia il task in backlog, lo " +
         "SLEGA dal topic e non lo rimette in coda; in chat un ESC interrompe il turno e " +
         "la sessione resta dov'è, pronta a ripartire. " +
@@ -1302,6 +1314,7 @@ async function build(only?: string): Promise<void> {
       humanActionsChat: 1,
       verdict: "gap",
       subjects: [
+        "server/lib/human-hold-events.ts",
         "server/mcp/topics-mcp-server.ts",
         "server/routes/tasks.ts",
       ],
