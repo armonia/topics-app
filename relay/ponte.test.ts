@@ -245,8 +245,36 @@ describe("ponte · una richiesta del browser attraversa il tubo", () => {
     });
     const r = await s.chiedi("/i/inst-1/api/entra");
     expect(r.headers.getSetCookie?.() ?? []).toEqual([
-      "a=1; Path=/; HttpOnly",
-      "b=2; Path=/; HttpOnly",
+      "a=1; Path=/i/inst-1/; HttpOnly",
+      "b=2; Path=/i/inst-1/; HttpOnly",
+    ]);
+  });
+
+  it("il cookie di una installazione non finisce addosso alle altre", async () => {
+    // Il difetto che questo tiene chiuso: la macchina emette la sessione con
+    // `Path=/` — e di là è giusto — ma qui TUTTE le installazioni stanno sulla
+    // stessa origine, separate solo dal tratto `/i/<id>`. Girato com'era, il
+    // browser lo rimanderebbe anche a `/i/<un'altra>/…`, cioè consegnerebbe il
+    // token della vittima alla macchina di chiunque altro sia collegato a
+    // questo relay. `SameSite=Lax` non ferma una navigazione in cima.
+    const s = scena({
+      servi: () => {
+        const h = new Headers();
+        h.append("set-cookie", "topics_session=t0k; HttpOnly; SameSite=Lax; Path=/; Max-Age=60");
+        // …e il verso opposto, che si rompe in silenzio: senza `Path` il
+        // browser userebbe la CARTELLA della richiesta (`/i/inst-1/api`), e il
+        // cookie non tornerebbe più su `/i/inst-1/altro`.
+        h.append("set-cookie", "senza=1; HttpOnly");
+        // Una strada già sua resta sua, solo traslata.
+        h.append("set-cookie", "stretto=2; Path=/api/media");
+        return new Response("ok", { headers: h });
+      },
+    });
+    const r = await s.chiedi("/i/inst-1/api/entra");
+    expect(r.headers.getSetCookie?.() ?? []).toEqual([
+      "topics_session=t0k; HttpOnly; SameSite=Lax; Path=/i/inst-1/; Max-Age=60",
+      "senza=1; HttpOnly; Path=/i/inst-1/",
+      "stretto=2; Path=/i/inst-1/api/media",
     ]);
   });
 
@@ -339,13 +367,48 @@ describe("ponte · un guasto si legge, e non resta appeso", () => {
     expect(await r.json()).toEqual({ error: "remote-access-not-configured" });
   });
 
-  it("una risposta che non arriva scade in 504 invece di restare appesa", async () => {
+  it("una risposta che non arriva scade in 504, e di là si rinuncia davvero", async () => {
     // Sul ponte nudo, senza Durable Object: è il solo modo di guardare la
     // scadenza senza aspettare mezzo minuto.
-    const p = creaPonte({ invia: () => { /* nessuno risponde, mai */ }, scadenzaMs: 5 });
+    const inviati: string[] = [];
+    const p = creaPonte({ invia: (x) => inviati.push(x), scadenzaMs: 5 });
     const r = await p.servi(new Request("https://x/api/y"), "/api/y", "/i/x");
     expect(r.status).toBe(504);
     expect(await r.text()).toContain("in time");
+    expect(p.inAttesa()).toBe(0);
+
+    // …e la rinuncia è stata DETTA, non solo pensata: senza l'ultimo frame la
+    // macchina continuerebbe a leggere e a mandare un corpo che non ha più
+    // dove andare, e la corsia resterebbe aperta su un capo che non c'è più.
+    const apertura = leggiFramePayload(inviati[0]!);
+    expect(apertura).not.toBeNull();
+    expect(leggiFramePayload(inviati[inviati.length - 1]!)).toEqual({
+      f: "reset", s: apertura!.s, motivo: "aborted",
+    });
+  });
+
+  it("la macchina RIFIUTA la corsia della richiesta: 502 subito, non mezzo minuto di clessidra", async () => {
+    // Non è un caso di laboratorio: la macchina resetta la corsia della
+    // RICHIESTA — senza aprirne nessuna di risposta, quindi non c'è nessun
+    // `re` da cui risalire — in tre punti veri di `relay-client.ts`: quando non
+    // ha un posto di sessione libero, quando la testa non si legge
+    // (`bad-frame`), e quando ha già troppe richieste in volo. Se qui non si
+    // svegliasse nessuno, la scheda del browser girerebbe fino alla scadenza
+    // per dire alla fine una cosa che si sapeva al primo frame.
+    const inviati: string[] = [];
+    // Scadenza LUNGA di proposito: così un 502 può arrivare solo dal risveglio,
+    // e non dalla clessidra che si è mangiata il caso.
+    const p = creaPonte({ invia: (x) => inviati.push(x), scadenzaMs: 60_000 });
+    const attesa = p.servi(new Request("https://x/api/y"), "/api/y", "/i/x");
+    await new Promise((res) => setTimeout(res, 0));
+
+    const apertura = leggiFramePayload(inviati[0]!);
+    expect(apertura).not.toBeNull();
+    p.ricevi(scriviFrame({ f: "reset", s: apertura!.s, motivo: "bad-frame" }));
+
+    const r = await attesa;
+    expect(r.status).toBe(502);
+    expect(await r.text()).toContain("could not serve");
     expect(p.inAttesa()).toBe(0);
   });
 
