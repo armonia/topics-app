@@ -2300,38 +2300,38 @@ html.electron-mac .chrome-glass .chrome-glass {
   background-color: transparent !important;
 }
 
-/* LA BARRA DELLE TAB È L'ECCEZIONE, e non per gusto: è l'unico vetro che sta
- * SOPRA del testo che scorre.
+/* LA BARRA DELLE TAB NON RIDIPINGE, E NEMMENO QUANDO È DI PRIMO LIVELLO.
  *
- * La regola qui sopra dice «solo il vetro più esterno dipinge», e per le
- * SUPERFICI è giusta: due tinte sovrapposte sullo stesso piano fanno un colore
- * che nessuno ha scelto. Ma `.pane-chrome-bar` non è una superficie annidata in
- * un'altra: è un OVERLAY (`position: absolute`) sopra la pane, e il suo velo
- * serve a rendere leggibili i nomi delle tab mentre sotto passano i messaggi.
- * Se il velo si azzera, quel testo resta soltanto sfocato.
+ * Qui c'era l'eccezione opposta: le due barre ridipingevano `--chrome-bg` anche
+ * annidate, per renderle UGUALI FRA LORO (divergevano per un accidente di
+ * annidamento, non per una scelta — vedi sotto). Funzionava per quel difetto e
+ * ne apriva un altro, più grande: erano uguali fra loro e diverse da TUTTO IL
+ * RESTO. Sotto la shell ogni superficie — `.pane-frost`, le celle, la colonna
+ * del progetto, la sidebar — è trasparente e mostra la stessa vibrancy; le
+ * barre erano le sole a stendere un quasi-nero al 55% sopra di essa, e uscivano
+ * 14 livelli più scure del contenuto che toccavano (#16181b contro #242527,
+ * misurato sulla finestra vera).
  *
- * L'esenzione è anche ciò che rende UGUALI le due barre, che era il difetto
- * segnalato («uniformare colore tabbar-sottotabbar», Attilio 09/08). Il motivo
- * per cui divergevano è una posizione nel DOM, non una decisione: la barra di
- * primo livello NON discende da un altro `.chrome-glass` — il guscio della pane
- * le sta VISIVAMENTE sotto ma non è un suo antenato — quindi dipinge; quella
- * dentro la finestra di progetto discende dal guscio della pane progetto,
- * quindi la regola la spegneva. Due barre identiche, due esiti, per un
- * accidente di annidamento.
+ * La cura è dalla stessa parte del difetto, non dall'altra: non «facciamo
+ * ridipingere anche la prima», ma «non ridipinge nessuna». Le due barre
+ * restano identiche fra loro — ora perché nessuna delle due ha un fondo — e in
+ * più stanno sullo stesso terreno del contenuto. Il vetro lo fa il blur, che è
+ * l'invariante «un solo strato» dichiarata qui sopra.
  *
- * Misurato in shell mac simulata (`electron-mac` sul documento), campionando il
- * pixel dipinto a metà di ciascuna riga:
- *   chiaro  prima 236,239,243 contro 239,242,247  → dopo 0,0,0 di scarto
- *   scuro   prima   9,11,17  contro  11,13,20     → dopo 0,0,0 di scarto
- * Sul web non cambia niente: là questo blocco non si applica e le due barre
- * erano già identiche (241,242,243 e 14,15,18).
+ * `!important` e i selettori sdoppiati per tema: servono a battere
+ * `html.electron-mac.dark .chrome-glass` (0,3,1), che una barra di primo
+ * livello matcha in pieno — `.pane-chrome-bar` porta anche `.chrome-glass`.
+ * Stessa specificità, vince l'ordine di sorgente, quindi questo blocco deve
+ * restare DOPO quello.
  *
- * `var(--chrome-bg)` e non un colore nuovo: è la stessa tinta che
- * `--chrome-overlay-bg` già assume sotto la shell (vedi il blocco della barra),
- * riscritta qui solo perché serve un `!important` che batta quello della regola
- * anti-doppio-strato. Stessa specificità (0,3,0), vince l'ordine di sorgente. */
-html.electron-mac .chrome-glass :is(.pane-chrome-bar, .chrome-row-solid) {
-  background-color: var(--chrome-bg) !important;
+ * Perché divergevano, per chi arriva qui dopo: la barra di primo livello NON
+ * discende da un altro `.chrome-glass` — il guscio della pane le sta
+ * VISIVAMENTE sotto ma non è un suo antenato — quindi dipingeva; quella dentro
+ * la finestra di progetto discende dal guscio della pane progetto, quindi la
+ * regola anti-doppio-strato la spegneva. Due barre identiche, due esiti. */
+html.electron-mac.dark :is(.pane-chrome-bar, .chrome-row-solid),
+html.electron-mac:not(.dark) :is(.pane-chrome-bar, .chrome-row-solid) {
+  background-color: transparent !important;
 }
 
 /* L'ALTRA RIGA DI CHROME: quella che sta NEL FLUSSO.
@@ -2390,9 +2390,43 @@ html.electron-mac .chrome-glass :is(.pane-chrome-bar, .chrome-row-solid) {
  * `@apply backdrop-blur-*` e non un `backdrop-filter` scritto a mano: Lightning
  * CSS collassa la coppia grezza sul solo `-webkit-`, che Blink ignora, e il
  * blur sparisce in silenzio (la stessa trappola documentata su `.glass-surface`). */
-:root { --chrome-overlay-bg: hsl(220 5.6% 93% / 0.72); }
-.dark { --chrome-overlay-bg: hsl(224 26% 4.5% / 0.72); }
-html.electron-mac { --chrome-overlay-bg: var(--chrome-bg); }
+/* IL VELO PORTA LA TINTA DELLA SUPERFICIE SU CUI GALLEGGIA, NON QUELLA DEL
+ * CHROME. È la differenza fra «la barra è la stessa superficie, translucida» —
+ * che è quello che il commento qui sopra dichiara — e «la barra è una lastra
+ * appoggiata sopra», che è quello che si vedeva.
+ *
+ * Il velo era la tinta del chrome (#080a0e in scuro, un quasi-nero), stesa su
+ * una superficie che è tutt'altra cosa (`--bg-surface`, #1b1c1d). Tinta ≠ base
+ * significa che il velo SPOSTA il colore, e lo scarto si legge come un gradino
+ * netto sul bordo basso della barra. Misurato campionando il pixel dipinto a
+ * y=0..73 (le due righe) contro y=74 (il contenuto), tutte e quattro le
+ * combinazioni:
+ *   scuro  web  #0e0f12 contro #1b1c1d  → 13
+ *   scuro  mac  #090b11 contro #0c0d12  →  3
+ *   chiaro web  #f1f2f3 contro #ffffff  → 14
+ *   chiaro mac  #eceff3 contro #f0f2f5  →  4
+ * e sulla finestra Tauri vera, dove sotto c'e la vibrancy vera invece del
+ * fondale di Chromium: #16181b contro #242527, cioe 14.
+ * («Dovrebbe esserci continuità di sfondi fra contenuto e tabbar», Attilio 09/08.)
+ *
+ * Con tinta = base l'errore è ZERO PER COSTRUZIONE, a qualunque alpha: stendere
+ * un colore su se stesso non lo sposta. L'alpha smette di essere un compromesso
+ * fra «si vede il gradino» e «si legge il testo sotto» e torna a fare una cosa
+ * sola — mascherare ciò che scorre — con il blur a fare il resto.
+ *
+ * `color-mix` e non il valore riscritto a mano: `--bg-surface` cambia con il
+ * tema, e una copia dei suoi canali qui diventerebbe una seconda verità che
+ * diverge al primo che tocca la prima. Lightning CSS non può risolverlo
+ * staticamente (dentro c'è una `var()`), quindi lo lascia passare intatto —
+ * la stessa ragione per cui la riga sopravvive alla compilazione. Un solo
+ * `:root`: la variante scura arriva da sé, perché arriva da `--bg-surface`. */
+:root { --chrome-overlay-bg: color-mix(in srgb, var(--bg-surface) 72%, transparent); }
+/* Sotto la shell mac NON c'è una superficie da imitare: `.pane-frost`, le celle
+ * e la colonna del progetto sono tutte trasparenti e mostrano la stessa
+ * vibrancy. Lì l'unica tinta che non sposta il fondo è NESSUNA tinta, e il
+ * vetro lo fa il blur — che è esattamente l'invariante «un solo strato di
+ * frost» dichiarata più su. */
+html.electron-mac { --chrome-overlay-bg: transparent; }
 .pane-chrome-bar {
   position: absolute;
   inset-inline: 0;
