@@ -621,7 +621,7 @@ export function ProjectSidebar({
         // essere tagliate dalla barra in cima, 09/08). Con tre soli pixel di
         // coda sbordavano dalla riga di uno; sei le contengono e sono anche il
         // passo pieno della colonna.
-        className={`flex items-center ${TAB_GAP_CLASS} pl-1.5 pb-[6px] flex-shrink-0 app-no-drag`}
+        className={`flex items-center ${TAB_GAP_CLASS} pl-1.5 pb-[6px] mt-[var(--chrome-bar-h,0px)] flex-shrink-0 app-no-drag`}
         {...NO_DRAG_REGION}
       >
         {comandi()}

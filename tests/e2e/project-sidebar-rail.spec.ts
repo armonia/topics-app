@@ -111,6 +111,17 @@ test.describe("sidebar progetto: la rail collassata", () => {
     //    «+» il 09/08, che qui rientrerebbe dalla porta di servizio.
     const riga = win.getByTestId("project-rail-row");
     await expect(riga, "i tre comandi stanno in una riga SOTTO il titolo").toBeVisible({ timeout: 10000 });
+    // SOTTO significa sotto: `toBeVisible()` non sa niente di occlusione, e la
+    // riga nasceva nel flusso della cella a y=0 — cioè esattamente dietro
+    // `.pane-chrome-bar`, che è `position:absolute; top:0`. Test verde, riga
+    // invisibile («ancora uguale, non vedi i tasti sotto il trigger», Attilio
+    // 09/08). Si misura il RAPPORTO fra le due scatole, non la visibilità.
+    const barraBox = (await win.locator(".pane-chrome-bar").first().boundingBox())!;
+    const rigaBox = (await riga.boundingBox())!;
+    expect(
+      rigaBox.y,
+      `la riga deve cominciare sotto la barra (barra finisce a ${barraBox.y + barraBox.height}, riga comincia a ${rigaBox.y})`,
+    ).toBeGreaterThanOrEqual(barraBox.y + barraBox.height - 1);
     const boxes = await strip.locator("button").evaluateAll((els) =>
       els.map((e) => Math.round(e.getBoundingClientRect().height)),
     );
