@@ -132,4 +132,63 @@ test.describe("la riga dei comandi del progetto e ciò che le sta sotto", () => 
       `fra il trigger e «File» passano ${varco.toFixed(1)}px, atteso ${COLUMN_GAP}`,
     ).toBeLessThanOrEqual(COLUMN_GAP + 1);
   });
+
+  test("RAILGAP-3: da APERTA il contenuto NON risale sotto la barra di vetro", async ({ page, request }) => {
+    // La contro-prova di RAILGAP-1, ed e' il difetto che la sua correzione ha
+    // introdotto: `CHROME_BAR_CONSUMED` azzera il rientro delle celle perche' la
+    // riga dei comandi ha gia' scavalcato la barra — ma quella riga esiste solo
+    // da sidebar CHIUSA, mentre il suo SLOT (un div in un `useMemo`) esiste
+    // sempre. Gatando sull'esistenza dello slot invece che sul suo contenuto, il
+    // reset scattava anche da aperta: il contenuto risaliva sotto la barra e ci
+    // si leggeva attraverso, sfocato. «Ora vedo uno sfondo blur sotto le
+    // tabbar» (Attilio, 10/08).
+    //
+    // Si misura la cosa vera: il primo pixel della pane non puo' stare piu' in
+    // alto del bordo basso della barra. E' l'unica formulazione che non dipende
+    // da COME lo spazio viene riservato.
+    await resetPaneStore(request, []);
+    await seedProjectPane(request, PROJ);
+    await waitForPaneStoreQuiet(request);
+
+    await goToApp(page);
+    await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
+
+    const win = page.locator(`[data-testid="project-window"][data-project-path="${PROJ}"]`);
+    await expect(win).toHaveCount(1, { timeout: 15000 });
+    await expect(win.locator('[data-testid="project-sidebar"]')).toBeVisible({ timeout: 10000 });
+    // Da aperta la riga dei comandi non deve proprio esserci.
+    await expect(win.locator('[data-testid="project-rail-row"]')).toHaveCount(0);
+
+    // Si misura la COSA CHE SI VEDE — niente inseguimento della cella o della
+    // variabile: ci ho provato con due selettori e nessuno dei due agganciava,
+    // e il test passava a vuoto finché non gli ho messo il controllo di
+    // esistenza. La proprietà vera è una sola e non dipende da COME lo spazio
+    // viene riservato: sotto la barra non dipinge niente.
+    const misura = await win.evaluate((root) => {
+      const barra = root.querySelector(".pane-chrome-bar") as HTMLElement;
+      const b = barra.getBoundingClientRect();
+      let primo: { top: number; tag: string } | null = null;
+      for (const el of Array.from(root.querySelectorAll<HTMLElement>("*"))) {
+        if (barra.contains(el) || el.contains(barra)) continue;
+        const r = el.getBoundingClientRect();
+        if (r.width < 40 || r.height < 8) continue;
+        // Solo ciò che sta nella colonna della PANE, a destra della sidebar:
+        // la sidebar di progetto comincia in cima per conto suo.
+        if (r.left < b.left + 8) continue;
+        if (r.top < b.top - 0.5) continue;
+        if (!primo || r.top < primo.top) {
+          primo = { top: r.top, tag: `${el.tagName}.${el.className?.toString().slice(0, 40)}` };
+        }
+      }
+      return { barraTop: b.top, barraBottom: b.bottom, primoTop: primo?.top ?? null, primoTag: primo?.tag ?? null };
+    });
+
+    expect(misura.primoTop, "niente di dipinto nella colonna della pane: la misura non regge").not.toBeNull();
+    expect(
+      misura.primoTop!,
+      `«${misura.primoTag}» comincia a ${misura.primoTop!.toFixed(1)}, ` +
+      `cioè SOTTO la barra che finisce a ${misura.barraBottom.toFixed(1)}: ` +
+      `il contenuto ci si legge attraverso, sfocato.`,
+    ).toBeGreaterThanOrEqual(misura.barraBottom - 1);
+  });
 });
