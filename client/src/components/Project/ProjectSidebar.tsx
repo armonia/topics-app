@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom';
 import { ChevronRight, FolderTree, GitBranch, CirclePlay, RefreshCw, PanelLeftOpen, PanelLeftClose, FilePlus, FolderPlus, ChevronsDownUp } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { NO_DRAG_REGION } from '../../lib/shell/dragRegion';
-import { RAISED_CONTROL, RESTING_SURFACE, ROW_ACTION_BOX, ROW_PX, TAB_GAP_CLASS, TAB_LABEL } from '../../lib/selectionStyles';
+import { RAISED_CONTROL, RESTING_SURFACE, ROW_ACTION_BOX, ROW_PX, SECTION_CARD, TAB_GAP_CLASS, TAB_LABEL } from '../../lib/selectionStyles';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { ScriptRunner } from './ScriptRunner';
 import { FileExplorer, type FileExplorerHandle } from './FileExplorer';
@@ -132,7 +132,13 @@ function ProjectCard({
           prodotto, vedi il suo file). Qui va bene così: senza icona la card è il
           nome, che è già l'informazione. */}
       <ProjectFavicon path={projectPath} size={14} width={18} />
-      <span className="truncate">{name}</span>
+      {/* Il nome prende lo spazio, il glifo sta a DESTRA. Senza `flex-1` il
+          nome si stringe sul suo testo e il glifo lo segue a ruota: da colonna
+          aperta, dove la card è larga quanto la barra, finiva a mezz'aria in
+          mezzo alla riga invece che sul bordo. «L'icona per richiudere la
+          sidebar sia allineata a destra sul tasto dove si trova anche il titolo
+          del progetto» (Attilio, 09/08). */}
+      <span className="truncate flex-1 text-left">{name}</span>
       {/* I due glifi veri, non uno ruotato: `PanelLeftOpen` girato di 180 gradi
           non e `PanelLeftClose` — ribalta anche il pannello, e il verso finisce
           per dire il contrario. */}
@@ -179,7 +185,6 @@ function RailButton({
     : tone === 'success'
       ? 'bg-emerald-500 text-white'
       : 'bg-primary text-white';
-  const ring = 'ring-app-bg-elevated';
   return (
     <button
       onClick={onClick}
@@ -191,13 +196,26 @@ function RailButton({
       }`}
     >
       <Icon size={16} />
+      {/* LA PASTIGLIA STA IN BASSO, e senza anello.
+          Stava a `-top-1`, cioè un pixel SOPRA il bottone. Finché la riga era
+          alta 40 e il bottone centrato, quel pixel cadeva dentro i 6 di aria; da
+          quando la riga subordinata è 34 con il contenuto a filo in cima (vedi
+          CHROME_BAR_SUB) cade a y=39 contro una scatola che comincia a 40, e
+          l'`overflow-hidden` della barra lo taglia. In basso invece c'è
+          l'incasso in coda: 68+4 = 72 dentro una scatola che finisce a 74.
+          «I contatori vengono tagliati dalla top bar; li potremmo mettere verso
+          il basso, e senza un bordo extra bianco intorno» (Attilio, 09/08).
+          L'anello serviva a staccare la pastiglia dal TRATTO dell'icona quando
+          le stava sopra: sull'angolo basso non ha più niente da attraversare, e
+          un cerchio chiaro attorno a un numero colorato è una terza cosa che non
+          dice niente. */}
       {badge !== null && badge > 0 && (
-        <span className={`absolute -top-1 -right-1 min-w-[15px] h-[15px] px-[3px] flex items-center justify-center rounded-full text-[9px] font-bold leading-none tabular-nums ring-2 ${ring} ${toneClass}`}>
+        <span className={`absolute -bottom-1 -right-1 min-w-[15px] h-[15px] px-[3px] flex items-center justify-center rounded-full text-[9px] font-bold leading-none tabular-nums ${toneClass}`}>
           {badge > 99 ? '99+' : badge}
         </span>
       )}
       {badge === null && dot && (
-        <span className={`absolute -top-0.5 -right-0.5 w-[7px] h-[7px] rounded-full ring-2 ${ring} ${toneClass}`} />
+        <span className={`absolute -bottom-0.5 -right-0.5 w-[7px] h-[7px] rounded-full ${toneClass}`} />
       )}
     </button>
   );
@@ -560,7 +578,7 @@ export function ProjectSidebar({
           // dei token del chrome in index.css — agganciata a QUESTO selettore —
           // valga anche sul telefono, dove il fondo è identico.
           data-testid="project-sidebar"
-          className="chrome-glass fixed inset-y-0 left-0 z-50 w-[280px] bg-app-chrome flex flex-col overflow-hidden shadow-lg border-r border-app-border"
+          className="chrome-glass fixed inset-y-0 left-0 z-50 w-[280px] bg-app-chrome flex flex-col overflow-hidden shadow-lg"
           // IL FONDO SI FERMA SOPRA L'HOME INDICATOR. Il pannello è
           // `inset-y-0`, quindi la sua ultima riga finiva sotto il trattino:
           // uno spazio da cui non si può toccare niente, occupato da qualcosa
@@ -589,7 +607,7 @@ export function ProjectSidebar({
                 data-testid="project-sidebar-files"
                 role="button"
                 aria-expanded={expandedSections.files}
-                className="w-full flex items-center gap-2 px-3 h-8 text-[12px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0 cursor-pointer select-none group/files"
+                className={`${SECTION_CARD} group/files`}
               >
                 <FolderTree size={14} className="flex-shrink-0" />
                 <span>{tr('project.sidebar.files')}</span>
@@ -609,13 +627,12 @@ export function ProjectSidebar({
                 </div>
               )}
             </div>
-            <div className="h-[1px] flex-shrink-0 bg-app-border" />
             <div
               className={`flex flex-col overflow-hidden ${expandedSections.git ? 'min-h-0' : 'flex-shrink-0'}`}
               style={expandedSections.git ? { height: bottomHeights.git } : undefined}
             >
               <Suspense fallback={
-                <div onClick={() => toggleSection('git')} className="w-full flex items-center h-8 px-3 text-[12px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0 cursor-pointer select-none">
+                <div onClick={() => toggleSection('git')} className={SECTION_CARD}>
                   <div className="flex items-center gap-2 flex-1 min-w-0">
                     <GitBranch size={14} className={`flex-shrink-0 ${git ? '' : 'text-app-text-muted'}`} />
                     <span>{tr('project.sidebar.gitChanges')}</span>
@@ -626,7 +643,6 @@ export function ProjectSidebar({
                 <GitChanges projectPath={projectPath} compact expanded={expandedSections.git} onToggle={() => toggleSection('git')} />
               </Suspense>
             </div>
-            <div className="h-[1px] flex-shrink-0 bg-app-border" />
             <div
               className={`flex flex-col overflow-hidden ${expandedSections.processes ? 'min-h-0' : 'flex-shrink-0'}`}
               style={expandedSections.processes ? { height: bottomHeights.processes } : undefined}
@@ -640,7 +656,7 @@ export function ProjectSidebar({
                 // gemello nella rail lo dichiara già (RailButton).
                 data-testid="project-sidebar-processes"
                 aria-expanded={expandedSections.processes}
-                className="w-full flex items-center gap-2 px-3 h-8 text-[12px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0"
+                className={SECTION_CARD}
               >
                 <CirclePlay size={14} className="flex-shrink-0" />
                 <span>{tr('project.sidebar.processes')}</span>
@@ -681,7 +697,7 @@ export function ProjectSidebar({
       // alla CLASSE (`.chrome-glass .chrome-glass { transparent !important }`),
       // e sotto la shell il `!important` di quelle regole batte comunque questa
       // utility. Qui si corregge il ramo che la shell non attraversa.
-      className="chrome-glass flex-shrink-0 border-r border-app-border bg-app-chrome flex flex-col overflow-hidden relative"
+      className="chrome-glass flex-shrink-0 bg-app-chrome flex flex-col overflow-hidden relative"
       style={{ width: sidebarWidth }}
     >
       {/* Maniglia sul bordo destro: invisibile, si annuncia col cursore.
@@ -740,9 +756,7 @@ export function ProjectSidebar({
             // `--text-secondary` (#5a5a5a) contro un `--border` di #e8e8e8:
             // la linea compariva quasi nera e ci metteva 150ms a schiarirsi.
             // Tenendo il colore sempre acceso non c'è più niente da animare.
-            className={`w-full flex items-center gap-2 px-3 h-8 text-[12px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0 cursor-pointer select-none group/files border-app-border ${
-              expandedSections.files ? '' : 'border-b'
-            }`}
+            className={`${SECTION_CARD} group/files`}
           >
             <FolderTree size={14} className="flex-shrink-0" />
             <span>{tr('project.sidebar.files')}</span>
@@ -769,7 +783,7 @@ export function ProjectSidebar({
           const active = !!firstBottom;
           return (
             <div
-              className={`h-[1px] flex-shrink-0 relative bg-app-border transition-colors z-10 ${active ? 'cursor-row-resize hover:bg-primary' : ''}`}
+              className={`h-[1px] flex-shrink-0 relative z-10 ${active ? 'cursor-row-resize' : ''}`}
               onMouseDown={active ? startBottomResize(firstBottom!) : undefined}
             >
               {active && <div className="absolute inset-x-0 -top-[3px] -bottom-[3px]" />}
@@ -785,7 +799,7 @@ export function ProjectSidebar({
           <Suspense fallback={
             <div
               onClick={() => toggleSection('git')}
-              className="w-full flex items-center h-8 px-3 text-[12px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0 cursor-pointer select-none"
+              className={SECTION_CARD}
             >
               <div className="flex items-center gap-2 flex-1 min-w-0">
                 <GitBranch size={14} className={`flex-shrink-0 ${git ? '' : 'text-app-text-muted'}`} />
@@ -833,7 +847,7 @@ export function ProjectSidebar({
           const active = expandedSections.git && expandedSections.processes;
           return (
             <div
-              className={`h-[1px] flex-shrink-0 relative bg-app-border transition-colors z-10 ${active ? 'cursor-row-resize hover:bg-primary' : ''}`}
+              className={`h-[1px] flex-shrink-0 relative z-10 ${active ? 'cursor-row-resize' : ''}`}
               onMouseDown={active ? startBottomResize('git', 'processes') : undefined}
             >
               {active && <div className="absolute inset-x-0 -top-[3px] -bottom-[3px]" />}
@@ -853,7 +867,7 @@ export function ProjectSidebar({
             // «quale controllo» e `aria-expanded` dice «è già aperto?».
             data-testid="project-sidebar-processes"
             aria-expanded={expandedSections.processes}
-            className="w-full flex items-center gap-2 px-3 h-8 text-[12px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0"
+            className={SECTION_CARD}
           >
             <CirclePlay size={14} className="flex-shrink-0" />
             <span>{tr('project.sidebar.processes')}</span>
