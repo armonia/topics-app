@@ -291,7 +291,32 @@ export function creaProxyTubo(deps: ProxyTuboDeps) {
   const apriSocketLocale = deps.apriSocketLocale ?? apriSocketLocaleVero;
   const sessioni = new Map<string, SessioneOspite>();
 
-  const manda = (sid: string, fr: FrameTubo) => deps.invia(sid, scriviFrame(fr));
+  /**
+   * Un frame verso una sessione.
+   *
+   * ── PERCHÉ UNA SESSIONE CHE SE N'È ANDATA NON RICEVE PIÙ NIENTE ───────────
+   * Non è un'economia: è che il nome di una sessione si può RIUSARE. Il ponte
+   * del relay ne ha uno FISSO (`SID_PONTE`), e ogni istanza nuova del Durable
+   * Object congeda la vecchia e ricomincia con lo stesso nome. Un frame in
+   * ritardo — il congedo di un socket che si stava chiudendo, la rinuncia di
+   * una richiesta interrotta — non cade quindi nel vuoto: arriva a CHI HA
+   * PRESO QUEL NOME DOPO.
+   *
+   * E lì fa un danno che non si vede: brucia un numero di stream che l'altro
+   * capo non ha ancora usato. Un riassemblatore rifiuta per sempre un numero
+   * già visto (`massimoVisto`), quindi da quell'istante ogni apertura più
+   * bassa cade — e la sessione nuova nasce già morta, senza che nessuno abbia
+   * sbagliato niente di visibile.
+   *
+   * L'unico frame che deve uscire per una sessione che NON esiste è il rifiuto
+   * a chi sta bussando adesso (`too-many-streams`): lì c'è qualcuno che sta
+   * ascoltando, ed è l'unico caso. Passa da `deps.invia` diretto, così questo
+   * cancello resta senza eccezioni.
+   */
+  const manda = (sid: string, fr: FrameTubo) => {
+    if (!sessioni.has(sid)) return;
+    deps.invia(sid, scriviFrame(fr));
+  };
 
   /**
    * C'è posto per un'altra sessione di questo ruolo?
@@ -722,7 +747,10 @@ export function creaProxyTubo(deps: ProxyTuboDeps) {
         // che si possa essere. Prendere il ruolo da chi non lo ha dichiarato
         // sarebbe il solo modo per promuoversi da soli.
         if (!cePosto("guest")) {
-          manda(sid, { f: "reset", s: fr.s, motivo: "too-many-streams" });
+          // `deps.invia` e non `manda`: qui la sessione non esiste APPOSTA — è
+          // il rifiuto a chi sta bussando adesso, l'unico caso in cui c'è
+          // qualcuno ad ascoltare senza una sessione dietro.
+          deps.invia(sid, scriviFrame({ f: "reset", s: fr.s, motivo: "too-many-streams" }));
           return;
         }
         sess = nuovaSessione("guest");

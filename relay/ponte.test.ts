@@ -550,10 +550,30 @@ describe("ponte · il confinamento regge anche da qui (RELAY-04)", () => {
     expect(s.arrivate).toHaveLength(1);
   });
 
-  it("un upgrade sulla porta del ponte si dichiara, invece di essere tradotto male", async () => {
-    const s = scena();
+  it("un upgrade sulla porta del ponte passa dallo STESSO cancello della macchina", async () => {
+    // Prima questo era un 501 dichiarato, perché il pezzo non c'era. Adesso
+    // c'è, e la prova che conta non è che si apra: è che l'apertura sia
+    // decisa DI LÀ, con le stesse regole delle richieste. Senza porta dedicata
+    // la macchina rifiuta con `503`, e quel numero arriva intatto a chi ha
+    // bussato invece di diventare un socket che si apre e muore.
+    //
+    // Qui la macchina non prova nemmeno ad aprire un socket vero — il cancello
+    // scatta prima — quindi questo test non tocca nessuna porta di questa
+    // macchina. Il resto del ponte-websocket sta in `ponte-ws.test.ts`, dove
+    // il socket locale è finto per lo stesso motivo.
+    const s = scena({ senzaPorta: true });
     const r = await s.chiedi("/i/inst-1/ws", { headers: { upgrade: "websocket" } });
-    expect(r.status).toBe(501);
+    expect(r.status).toBe(503);
+    const dallaMacchina = await r.text();
+
+    // Controllo POSITIVO del criterio: quando è il RELAY a non poter fare
+    // niente — la macchina non è collegata affatto — il rifiuto ha lo stesso
+    // numero ma un'altra frase. Se i due coincidessero, il test di sopra non
+    // saprebbe distinguere «lo ha deciso lei» da «non ci ho nemmeno provato».
+    const spenta = scena({ senzaMacchina: true });
+    const rs = await spenta.chiedi("/i/inst-1/ws", { headers: { upgrade: "websocket" } });
+    expect(rs.status).toBe(503);
+    expect(await rs.text()).not.toBe(dallaMacchina);
   });
 });
 

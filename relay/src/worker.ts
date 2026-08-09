@@ -16,6 +16,13 @@
  * un telefono potesse entrare, perché un telefono non ha modo di diventare un
  * client del protocollo prima di bussare.
  *
+ * Sulla quarta passano anche gli UPGRADE, e non è un caso a parte: l'ospite
+ * del ponte è il relay, che accetta la stretta di mano del browser, apre un
+ * canale nel tubo e fa da ponte nei due versi fino alla chiusura. Serve perché
+ * l'applicazione non è fatta di sole richieste — ne apre quattro di socket per
+ * pannello — e un sito che si carica ma non si aggiorna non è un sito che
+ * funziona.
+ *
  * Tutte finiscono nello stesso Durable Object, uno per installazione, che è il
  * punto d'incontro. La macchina non ascolta su nessuna porta: apre lei la
  * connessione. È il motivo per cui in questo prodotto la parola «tunnel» non
