@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Activity, BarChart3, BookOpen, ChevronRight, Clock, Cpu, Globe, Kanban, LayoutGrid, MessageSquare, TerminalSquare, Wrench, type LucideIcon } from 'lucide-react';
 import { sidebarItemPaneId, type SidebarItem } from '../../lib/buildSidebarItems';
 import type { AttentionTier } from '../../types';
-import { attentionSurface, RESTING_SURFACE, ROW_PX, SELECTED_SURFACE, TAB_LABEL } from '../../lib/selectionStyles';
+import { attentionSurface, RESTING_SURFACE, ROW_GAP, ROW_PX, SELECTED_SURFACE, TAB_LABEL } from '../../lib/selectionStyles';
 import { useMobile } from '../../hooks/useMobile';
 import { openContextMenuAt } from '../../hooks/useLongPress';
 import { useTouchDrag } from '../../hooks/useTouchDrag';
@@ -334,7 +334,13 @@ export function PinnedTile({
       onClick={() => { if (press.consumeClick()) return; onToggle(); }}
       onContextMenu={onContextMenu}
       className={[
-        'group/tile relative flex items-center gap-1',
+        // `ROW_GAP` e non `gap-1`: l'aria fra il glifo e il nome era 4 qui e 8
+        // su ogni riga della colonna, cioè nella STESSA colonna il nome di una
+        // tessera partiva quattro pixel prima di quello della riga sotto. È lo
+        // stesso difetto che il commento su `ROW_PX` qui sotto racconta per
+        // l'incasso, corretto a metà: allora era stato allineato il padding e
+        // lasciato indietro il gap.
+        `group/tile relative flex items-center ${ROW_GAP}`,
         // Con il nome accanto non c'è spazio libero da distribuire (il nome è
         // `flex-1`), quindi questo si vede SOLO quando il nome se n'è andato:
         // l'icona rimasta sola sta al centro, e sopra la soglia la tessera

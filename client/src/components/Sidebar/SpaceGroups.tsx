@@ -37,7 +37,7 @@ import { usePaneStore } from '../../state/pane/store';
 import { DEFAULT_SPACE_ID } from '../../state/pane/types';
 import { focusSpaceWindow, popOutSpace, closeSpaceWindow } from '../../lib/popOutSpace';
 import { DND_TYPES } from '../../lib/dndTypes';
-import { ROW_INSET, TIER_DONE_BG, TIER_INPUT_BG } from '../../lib/selectionStyles';
+import { ROW_GAP, ROW_GLYPH_SLOT, ROW_H, ROW_PX, TAB_LABEL_TYPE, TIER_DONE_BG, TIER_INPUT_BG } from '../../lib/selectionStyles';
 import { useMobile } from '../../hooks/useMobile';
 import { useLongPress, openContextMenuAt } from '../../hooks/useLongPress';
 import { POPOVER_SURFACE, POPOVER_ITEM, POPOVER_MARGIN, POPOVER_DIVIDER, Z_POPOVER } from '../../lib/popoverStyles';
@@ -165,7 +165,12 @@ export function SpaceGroupCard({ card, expanded, onToggle, children }: SpaceGrou
       // tutte 0.03. Una divergenza che si vede solo al buio e solo mettendo le
       // superfici affiancate, cioè come la sidebar si guarda sempre. Vale 0.06,
       // l'alpha che le altre due avevano già.
-      className={`mx-1.5 mb-1 flex-shrink-0 overflow-hidden rounded-lg border transition-colors ${
+      // `my-[3px]`, non `mb-1`. Erano QUATTRO pixel, tutti da un lato solo:
+      // ogni altra card della colonna porta mezzo passo per lato (`my-[3px]` =
+      // COLUMN_GAP/2), così che fra due vicine ne cadano sei e la prima non
+      // debba sapere chi ha sopra. Con l'aria tutta sotto, la distanza fra due
+      // gruppi era 4 e quella fra un gruppo e ciò che gli sta SOPRA era zero.
+      className={`mx-1.5 my-[3px] flex-shrink-0 overflow-hidden rounded-lg border transition-colors ${
         dropping
           ? 'border-primary bg-primary/10'
           : card.detachedLabel
@@ -193,24 +198,40 @@ export function SpaceGroupCard({ card, expanded, onToggle, children }: SpaceGrou
         // di solo `py-1`, e nessuna variante mobile — cioè l'intestazione che
         // governa un intero gruppo era il bersaglio più piccolo dello schermo,
         // 16px sotto il minimo di iOS. Ora è l'altezza di riga di tutte le
-        // altre: 44 su mobile (il minimo iOS), 34 su desktop (la misura che
-        // regge la subline). È lo stesso numero di `ROW_H` in TopicTree, scritto
-        // qui perché importarlo da lì chiuderebbe un ciclo — TopicTree importa
-        // già questo file. Il posto suo è `lib/selectionStyles`, accanto a
-        // ROW_PX e ROW_INSET.
-        className={`flex select-none items-center gap-1 h-11 md:h-[34px] text-[12px] ${
-          card.active ? 'font-medium text-app-text' : 'text-app-text-secondary'
+        // altre, e non più ricopiata a mano: `ROW_H` vive in
+        // `lib/selectionStyles` — il posto che questo commento indicava già.
+        //
+        // ANCHE IL PADDING VIENE DA LÌ, e prima era l'unico scritto come STILE
+        // IN LINEA: `paddingLeft: 4, paddingRight: 6`. Due difetti in due
+        // parole. Asimmetrico — 4 a sinistra contro 6 a destra, quando ogni
+        // altra riga della colonna sta a 8 e 8 — e inline, cioè irraggiungibile
+        // da qualunque media query e invisibile a Tailwind: nessun ramo `md:`
+        // avrebbe mai potuto toccarlo.
+        //
+        // E la TIPOGRAFIA: 12px fissi, peso pieno solo da attiva. Questa riga ha
+        // `role="tab"`, cioè è precisamente il caso che `TAB_LABEL` nomina per
+        // primo («ovunque una tab si presenti»), ed era l'unica con quel ruolo
+        // fuori dalla sua scala. Spegnere insieme peso E tono a riposo diceva
+        // due volte ciò che la superficie dice già — è la regola che
+        // `selectionStyles` dichiara e questa riga era rimasta a violarla.
+        className={`flex select-none items-center ${ROW_GAP} ${ROW_H} ${ROW_PX} ${TAB_LABEL_TYPE} ${
+          card.active ? 'text-app-text' : 'text-app-text-secondary'
         }`}
-        style={{ paddingLeft: 4, paddingRight: ROW_INSET }}
       >
         <button
           onClick={onToggle}
           aria-expanded={expanded}
           aria-label={expanded ? `Chiudi ${card.name}` : `Apri ${card.name}`}
-          // `tap-expand`: la freccia resta 20px — allargarne il BOX sfonderebbe
-          // la riga — e cresce solo l'area sensibile, ai 44px di iOS e solo su
+          // `tap-expand`: la freccia non allarga il BOX — sfonderebbe la riga —
+          // e cresce solo l'area sensibile, ai 44px di iOS e solo su
           // `pointer: coarse`.
-          className="tap-expand flex h-5 w-5 flex-shrink-0 items-center justify-center rounded text-app-text-tertiary transition-colors hover:bg-black/10 dark:hover:bg-white/10"
+          //
+          // Il box è `ROW_GLYPH_SLOT` (18) e non un `w-5` (20) scritto a mano:
+          // è lo stesso contenitore in cui board, terminali e browser mettono il
+          // loro glifo di testa, cioè ciò che fa partire tutti i nomi dalla
+          // STESSA x. Due pixel, ma sono due pixel per ogni riga di questo tipo
+          // e si leggono come una colonna storta.
+          className={`tap-expand ${ROW_GLYPH_SLOT} h-5 rounded text-app-text-tertiary transition-colors hover:bg-black/10 dark:hover:bg-white/10`}
         >
           <Chevron size={12} aria-hidden="true" />
         </button>
@@ -254,7 +275,12 @@ export function SpaceGroupCard({ card, expanded, onToggle, children }: SpaceGrou
           // parte, e il dispatch di zustand è sincrono: quando la riga apre, il
           // gruppo giusto è già quello.
           onClickCapture={card.active ? undefined : () => goToSpace(card.id)}
-          className="pb-1"
+          // Mezzo passo, non quattro pixel: le righe dentro portano già il loro
+          // `my-[3px]`, quindi 3 qui fanno 6 fra l'ultima riga e il bordo della
+          // card — la stessa aria che c'è fra due righe. È la regola della
+          // colonna («ognuno porta metà passo»), che questo contenitore era
+          // rimasto l'unico a non seguire.
+          className="pb-[3px]"
         >
           {children}
         </div>
