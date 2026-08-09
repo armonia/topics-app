@@ -1140,7 +1140,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
               return (
                 <>
                   {/* Inline commit row — input + AI + commit all in one line */}
-                  <div className="border-t border-app-border px-2 py-1 flex items-end gap-1 flex-shrink-0">
+                  <div className="border-t border-app-border mx-1.5 px-2 py-1 flex items-end gap-1 flex-shrink-0">
                     <textarea
                       ref={commitBoxRef}
                       data-testid="commit-message-input"
