@@ -30,6 +30,11 @@
  * niente in un campo**. Chi è ogni socket si ricava dai TAG che le si sono
  * attaccati all'accettazione, che sopravvivono all'ibernazione.
  *
+ * L'unico campo che c'è — il capo ospite del PONTE — non è un'eccezione a
+ * questa regola: non ci si ricorda niente sopra. Vive quanto una `fetch()` in
+ * volo, che è proprio ciò che impedisce lo sfratto, e ciò che lo sfratto
+ * porterebbe via lo si rifà da zero dichiarandolo. Il perché sta sul campo.
+ *
  * ── IL RELAY NON CAPISCE (RELAY-03) ─────────────────────────────────────────
  * `payload` è opaco: si guarda solo l'involucro per sapere dove consegnare. La
  * chiave sta nel frammento dell'URL, che il browser non manda mai al server —
@@ -39,6 +44,7 @@ import {
   leggiMessaggio, RELAY_PROTOCOL_VERSION,
   type MessaggioRelay, type Rifiutato, type RuoloSessione,
 } from "../../shared/relay-protocol";
+import { creaPonte, macchinaSpenta, PERCORSO_PONTE, SID_PONTE } from "./ponte";
 
 /** I tag identificano una socket DOPO l'ibernazione: sono l'unico stato che
  *  sopravvive allo sfratto dalla memoria. */
@@ -66,8 +72,82 @@ interface Stato {
 export class SessioneRelay {
   constructor(private state: Stato) {}
 
+  /**
+   * Il capo ospite del PONTE, uno per istanza.
+   *
+   * ── UN CAMPO, QUI, CON L'IBERNAZIONE DI MEZZO: PERCHÉ REGGE ───────────────
+   * La regola è che fra un messaggio e l'altro l'istanza può essere sfrattata,
+   * quindi un campo non si può usare come memoria. Qui non lo è. Ogni richiesta
+   * tradotta vive dentro una `fetch()` ancora in volo, e un oggetto con una
+   * richiesta in volo non viene sfrattato: chi ha chiesto e chi risponde stanno
+   * sempre nella stessa istanza, per costruzione.
+   *
+   * Ciò che lo sfratto porta via è solo la NUMERAZIONE degli stream, che
+   * ripartirebbe da capo mentre la macchina si ricorda fin dove era arrivata —
+   * e un numero già visto lei lo rifiuta, per sempre. Per questo la sessione
+   * del ponte si annuncia CHIUSA appena la si crea: la macchina butta quella
+   * vecchia, e l'istanza nuova riparte pulita invece di parlare a un
+   * interlocutore che la contraddice.
+   */
+  private ponte: ReturnType<typeof creaPonte> | null = null;
+
+  /** La macchina, o `null` se non è collegata. */
+  private macchina(): WebSocket | undefined {
+    return this.state.getWebSockets(TAG_MACCHINA)[0];
+  }
+
+  private ponteVivo(host: WebSocket): ReturnType<typeof creaPonte> {
+    if (this.ponte) return this.ponte;
+    // Prima parola dell'istanza nuova: la sessione di prima non esiste più.
+    // Vedi il commento sul campo — senza questo, una numerazione che riparte da
+    // capo si scontra con quella che la macchina ricorda.
+    host.send(JSON.stringify({ t: "guest-left", sessionId: SID_PONTE, ruolo: "guest" } satisfies MessaggioRelay));
+    this.ponte = creaPonte({
+      invia: (payload) => {
+        // Si rilegge la macchina a ogni frame invece di tenersela: fra una
+        // richiesta e l'altra può essere stata sostituita, e scrivere sulla
+        // socket di prima vorrebbe dire parlare a nessuno senza accorgersene.
+        this.macchina()?.send(JSON.stringify({ t: "to-guest", to: SID_PONTE, payload } satisfies MessaggioRelay));
+      },
+    });
+    return this.ponte;
+  }
+
+  /** La macchina se n'è andata o è stata sostituita: chi aspettava una risposta
+   *  non la aspetta più, e la sessione del ponte va rifatta da zero. */
+  private scollegaPonte(): void {
+    this.ponte?.abbandona();
+    this.ponte = null;
+  }
+
   async fetch(req: Request): Promise<Response> {
     const url = new URL(req.url);
+
+    // ── IL PONTE: una richiesta HTTPS normale, non un upgrade.
+    //
+    // Va guardato PRIMA del cancello dell'upgrade, che per le tre porte è
+    // giusto e qui sarebbe esattamente ciò che tiene fuori un browser.
+    const ponte = url.pathname.match(PERCORSO_PONTE);
+    if (ponte) {
+      if (req.headers.get("upgrade") === "websocket") {
+        // Un socket dal ponte è un altro pezzo: dirlo è meglio che tradurlo
+        // male, e molto meglio di un 404 che si legge come «non esiste».
+        return new Response("websocket over the http bridge is not served yet\n", {
+          status: 501, headers: { "content-type": "text/plain; charset=utf-8" },
+        });
+      }
+      const host = this.macchina();
+      if (!host) return macchinaSpenta();
+      // Il percorso che la macchina rigioca è ciò che resta DOPO
+      // l'installazione, con la query di chi ha chiesto attaccata intatta. Il
+      // tratto d'ingresso serve solo a rimettere in piedi i rimandi relativi.
+      return this.ponteVivo(host).servi(
+        req,
+        `${ponte[2] && ponte[2].length > 0 ? ponte[2] : "/"}${url.search}`,
+        `/i/${ponte[1]}`,
+      );
+    }
+
     const ruolo = url.searchParams.get("ruolo");
     if (req.headers.get("upgrade") !== "websocket") {
       return new Response("serve un upgrade websocket", { status: 426 });
@@ -83,6 +163,9 @@ export class SessioneRelay {
       for (const vecchia of this.state.getWebSockets(TAG_MACCHINA)) {
         try { vecchia.close(4000, "sostituita"); } catch { /* già chiusa */ }
       }
+      // La macchina di prima non risponderà più: chi stava aspettando lo deve
+      // sapere adesso, e la sessione del ponte va rifatta con quella nuova.
+      this.scollegaPonte();
       this.state.acceptWebSocket(mio, [TAG_MACCHINA]);
       mio.send(JSON.stringify({ t: "ready", v: RELAY_PROTOCOL_VERSION } satisfies MessaggioRelay));
     } else {
@@ -137,9 +220,18 @@ export class SessioneRelay {
 
     if ("host" in chi && m.t === "to-guest") {
       const dest = this.state.getWebSockets(tagSessione(m.to));
+      if (dest.length > 0) {
+        // Per una sessione con una socket dietro si inoltra e basta, byte per
+        // byte: il relay non guarda dentro ciò che non è suo.
+        dest[0]?.send(raw);
+        return;
+      }
+      // …la sola busta che è INDIRIZZATA al relay: quella della sessione del
+      // ponte, di cui il relay è il capo ospite. Se nessuno sta aspettando —
+      // istanza nuova, o ponte già abbandonato — cade come tutte le altre.
+      if (m.to === SID_PONTE) this.ponte?.ricevi(m.payload);
       // Una busta per un ospite che se n'è andato si lascia cadere in silenzio:
       // non è un errore della macchina, è il mondo che è cambiato.
-      dest[0]?.send(raw);
       return;
     }
 
@@ -160,6 +252,9 @@ export class SessioneRelay {
     if (!chi) return;
 
     if ("host" in chi) {
+      // Chi stava aspettando una risposta tradotta non l'avrà: meglio dirlo
+      // adesso che lasciare girare una scheda del browser fino alla scadenza.
+      this.scollegaPonte();
       // La macchina se n'è andata: gli ospiti devono saperlo, o restano a
       // guardare qualcosa che non si aggiorna più senza capire perché.
       for (const g of this.state.getWebSockets()) {
