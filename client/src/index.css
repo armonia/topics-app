@@ -2186,18 +2186,35 @@ html.electron-mac #root {
   overflow: hidden;
 }
 
-/* Chrome (sidebar / top bar / pane gutters use var(--bg)) → frosted glass.
- * Single translucent layer = clean frost, no compounding. */
+/* IL VELO UNICO DELLA FINESTRA È IL VELO DEL CHROME.
+ *
+ * Erano due mani: questa, stesa una volta dal guscio dell'app, e quella del
+ * chrome che le righe delle tab aggiungevano sopra. Il tono che ne usciva —
+ * #151519 — è quello che vale, ed era l'unico punto della finestra ad averlo:
+ * tutto il resto si fermava alla prima mano (#242426). Il gradino di quindici
+ * livelli sul bordo basso delle barre era esattamente la seconda mano.
+ * («Era meglio la versione più scura», Attilio 09/08, scegliendo il tono scuro
+ * PER TUTTO e non solo per le barre.)
+ *
+ * Quindi la seconda mano non si toglie e non si sposta: DIVENTA la prima. La
+ * tinta è quella del chrome, e l'alpha sale da 0,5 a 0,72 perché una mano sola
+ * deve arrivare dove due ne arrivavano insieme. Il conto, con la vibrancy
+ * misurata dietro la finestra (53,53,51):
+ *   due mani  0,55·(8,10,14) su [0,5·(19,21,27) su V] = 20,6 22,2 25,3
+ *   una mano  0,72·(8,10,14) su V                     = 20,6 22,0 24,4
+ * cioè lo stesso pixel, con la stessa vibrancy che continua a passare (28%
+ * contro il 22,5% di prima: la finestra non diventa opaca, cambia solo dove il
+ * velo sta).
+ *
+ * Il ramo chiaro ripete la tinta del suo chrome (hue 220, sat 16%, L 93%) con
+ * la stessa alpha: la convenzione di questo file è «stessa tinta, cambia solo
+ * il grado», e due tinte che si chiamano uguale sono la deriva che il commento
+ * precedente era già stato scritto per chiudere. */
 html.electron-mac.dark {
-  --bg: hsl(222 16% 9% / 0.5);
+  --bg: hsl(224 26% 4.5% / 0.72);
 }
 html.electron-mac:not(.dark) {
-  /* La stessa tinta di `:root` (hue 220, sat 16%, L 96%), come il ramo scuro qui
-   * sopra ripete quella del suo `.dark`: cambia solo l'alpha. Portava sat 24% e
-   * L 97% — un'altra tinta, non un altro grado di trasparenza — cioè la pagina
-   * del desktop e quella del web erano due colori diversi che si chiamavano
-   * uguale. */
-  --bg: hsl(220 16% 96% / 0.55);
+  --bg: hsl(220 16% 93% / 0.72);
 }
 
 /* The frosted backdrop is painted ONCE by the outer app wrapper (its `--bg` is
@@ -2273,64 +2290,35 @@ html.electron-mac:not(.dark) {
    * il chrome chiaro, una sul web e una sul desktop. */
   --chrome-bg: hsl(220 16% 93% / 0.55);
 }
-/* I due selettori restano SDOPPIATI per tema anche se il valore ora è un solo
-   token: scriverli come `html.electron-mac .chrome-glass` farebbe scendere la
-   specificità da (0,3,1) a (0,2,1), e a quel punto pareggerebbe con le quattro
-   regole `background-color: transparent !important` più sotto (pane terminale,
-   cella col browser nativo, `.pane-frost`, `[role="region"][aria-label$=" panel"]`),
-   che vincerebbero per ordine di sorgente. Oggi nessun nodo porta insieme
-   `.chrome-glass` e uno di quei selettori, quindi non si vedrebbe — ma è un
-   difetto latente che aspetta il primo che li fa incontrare. */
+/* NESSUNA SUPERFICIE DIPINGE, PERCHÉ IL VELO LO STENDE GIÀ LA FINESTRA.
+ *
+ * Qui ogni vetro di chrome — la sidebar dei topic, i gusci delle pane, la
+ * colonna del progetto — stendeva la sua mano di `--chrome-bg` sopra il velo
+ * del guscio. Con il velo della finestra portato al tono del chrome (blocco
+ * `--bg` più su) una seconda mano non è più «la tinta del chrome»: è la tinta
+ * del chrome DUE VOLTE, cioè una superficie più scura di tutte le altre. Il
+ * difetto che questo blocco produrrebbe è lo stesso che la regola
+ * anti-doppio-strato qui sotto esisteva per impedire — solo spostato di un
+ * livello.
+ *
+ * Quindi la regola annidata sparisce con la sua causa: non serve più spegnere
+ * il vetro DENTRO un altro vetro, perché non ne dipinge nessuno. Un velo, uno
+ * solo, steso una volta dal guscio dell'app; tutto il resto è trasparente e il
+ * vetro lo fa il `backdrop-filter`. Ciò che si guadagna non è un pixel: è che
+ * la tinta di una superficie non dipende più da DOVE sta nell'albero — che è
+ * stata la causa di ogni divergenza di questa famiglia (la barra di progetto
+ * contro quella di primo livello, il 09/08).
+ *
+ * I selettori restano sdoppiati per tema: `html.electron-mac .chrome-glass`
+ * scenderebbe da (0,3,1) a (0,2,1) e pareggerebbe con le quattro regole
+ * `transparent !important` più sotto (pane terminale, cella col browser nativo,
+ * `.pane-frost`, `[role="region"][aria-label$=" panel"]`), che vincerebbero per
+ * ordine di sorgente. Oggi dicono tutte la stessa cosa, quindi non si vedrebbe
+ * — ma è un difetto latente che aspetta il primo che le fa divergere. */
 html.electron-mac.dark [role="navigation"][aria-label="Topics sidebar"],
 html.electron-mac.dark .chrome-glass,
 html.electron-mac:not(.dark) [role="navigation"][aria-label="Topics sidebar"],
 html.electron-mac:not(.dark) .chrome-glass {
-  background-color: var(--chrome-bg) !important;
-}
-
-/* SINGLE translucent layer, always. A `.chrome-glass` nested inside another
- * `.chrome-glass` must NOT repaint its tint — only the OUTERMOST one in any
- * subtree paints. Otherwise the 0.55 alpha compounds (2 layers = darker than 1)
- * and surfaces drift apart: e.g. the project sidebar (sidebar + group-cell = 2)
- * vs a terminal (container + group-cell = 2) both ended up darker than intended,
- * and any deeper nesting darker still. Collapsing nested glass to transparent
- * makes every frosted chrome surface render exactly one identical tint over the
- * shared base frost. */
-html.electron-mac .chrome-glass .chrome-glass {
-  background-color: transparent !important;
-}
-
-/* LA BARRA DELLE TAB NON RIDIPINGE, E NEMMENO QUANDO È DI PRIMO LIVELLO.
- *
- * Qui c'era l'eccezione opposta: le due barre ridipingevano `--chrome-bg` anche
- * annidate, per renderle UGUALI FRA LORO (divergevano per un accidente di
- * annidamento, non per una scelta — vedi sotto). Funzionava per quel difetto e
- * ne apriva un altro, più grande: erano uguali fra loro e diverse da TUTTO IL
- * RESTO. Sotto la shell ogni superficie — `.pane-frost`, le celle, la colonna
- * del progetto, la sidebar — è trasparente e mostra la stessa vibrancy; le
- * barre erano le sole a stendere un quasi-nero al 55% sopra di essa, e uscivano
- * 14 livelli più scure del contenuto che toccavano (#16181b contro #242527,
- * misurato sulla finestra vera).
- *
- * La cura è dalla stessa parte del difetto, non dall'altra: non «facciamo
- * ridipingere anche la prima», ma «non ridipinge nessuna». Le due barre
- * restano identiche fra loro — ora perché nessuna delle due ha un fondo — e in
- * più stanno sullo stesso terreno del contenuto. Il vetro lo fa il blur, che è
- * l'invariante «un solo strato» dichiarata qui sopra.
- *
- * `!important` e i selettori sdoppiati per tema: servono a battere
- * `html.electron-mac.dark .chrome-glass` (0,3,1), che una barra di primo
- * livello matcha in pieno — `.pane-chrome-bar` porta anche `.chrome-glass`.
- * Stessa specificità, vince l'ordine di sorgente, quindi questo blocco deve
- * restare DOPO quello.
- *
- * Perché divergevano, per chi arriva qui dopo: la barra di primo livello NON
- * discende da un altro `.chrome-glass` — il guscio della pane le sta
- * VISIVAMENTE sotto ma non è un suo antenato — quindi dipingeva; quella dentro
- * la finestra di progetto discende dal guscio della pane progetto, quindi la
- * regola anti-doppio-strato la spegneva. Due barre identiche, due esiti. */
-html.electron-mac.dark :is(.pane-chrome-bar, .chrome-row-solid),
-html.electron-mac:not(.dark) :is(.pane-chrome-bar, .chrome-row-solid) {
   background-color: transparent !important;
 }
 

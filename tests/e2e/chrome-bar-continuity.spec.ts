@@ -140,4 +140,38 @@ test.describe("continuità: le righe di chrome e il contenuto", () => {
       ).toBe(0);
     }
   });
+
+  test("CONT-3: sotto la shell dipinge UNA superficie sola — il guscio della finestra", async ({ page }) => {
+    await page.evaluate(() => {
+      document.documentElement.classList.add("electron-mac");
+      document.documentElement.classList.add("dark");
+    });
+    await page.waitForTimeout(150);
+
+    // La tinta di una superficie non deve dipendere da DOVE sta nell'albero: è
+    // stata la causa di ogni divergenza di questa famiglia (la barra annidata
+    // contro quella di primo livello, la sidebar contro il contenuto). Con un
+    // solo pittore la domanda non si pone più — e questa è l'unica asserzione
+    // che se ne accorge quando qualcuno ne aggiunge un secondo, invece di
+    // scoprirlo misurando un pixel mesi dopo.
+    const pittori = await page.evaluate(() => {
+      const out: string[] = [];
+      const visita = (el: Element) => {
+        const bg = getComputedStyle(el).backgroundColor;
+        const m = bg.match(/rgba?\(([^)]+)\)/);
+        const p = m ? m[1].split(/[,\s/]+/).filter(Boolean).map(Number) : [0, 0, 0, 0];
+        const a = p.length > 3 ? p[3] : 1;
+        const r = el.getBoundingClientRect();
+        // Solo le SUPERFICI: una card o un bottone dipingono per mestiere.
+        if (a > 0 && r.width * r.height > 40000) {
+          out.push(`${el.tagName.toLowerCase()}.${(el.className || "").toString().trim().split(/\s+/).slice(0, 3).join(".")} ${bg} ${Math.round(r.width)}x${Math.round(r.height)}`);
+        }
+        for (const c of Array.from(el.children)) visita(c);
+      };
+      visita(document.documentElement);
+      return out;
+    });
+
+    expect(pittori, `superfici che dipingono sotto la shell:\n${pittori.join("\n")}`).toHaveLength(1);
+  });
 });
