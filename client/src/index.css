@@ -820,6 +820,39 @@ html {
   background-color: rgba(100, 116, 139, 0.2);
 }
 
+/* IL PRIMO ELEMENTO DELLA COLONNA NON PORTA IL SUO MEZZO PASSO.
+ *
+ * Il ritmo della colonna è «ognuno porta metà passo»: mezzo dal contenitore che
+ * scorre, mezzo dal margine dell'elemento, e la somma fa sempre COLUMN_GAP.
+ * Regge fra due elementi. NON regge in cima, perché sopra la lista non c'è un
+ * bordo: c'è l'header, che è alto 40 (`h-10`, il contratto della riga di chrome)
+ * attorno a un contenuto da 28 — quindi porta già SEI pixel suoi sotto il
+ * proprio inchiostro. Sommati ai sei della lista fanno dodici fra due cose
+ * DIPINTE, dove fra due card ce ne sono sei.
+ *
+ * È la «doppia spaziatura sotto la topbar della sidebar» (Attilio, 08 e 09/08,
+ * tre volte). La sua diagnosi era esatta: «derivante forse dal fatto che prima
+ * c'era il bordo sotto» — con il filo si leggeva «spazio, linea, spazio», cioè
+ * un separatore; tolto il filo restano due spazi in fila.
+ *
+ * Si toglie quello della LISTA, non quello dell'header: l'header non può
+ * cedere i suoi 6 senza rompere l'allineamento con la barra delle tab (stessa
+ * altezza, stesso incasso — vedi CHROME_ROW_CONTENT_H).
+ *
+ * DUE livelli, e servono entrambi: il primo figlio della colonna è a volte la
+ * card stessa (la riga della board), a volte un contenitore (`SidebarRowList`,
+ * la sezione dei fissati) la cui prima card porta il margine. Il terzo livello
+ * NON si aggiunge: da lì in giù ci sono glifi ed etichette, e azzerarne il
+ * margine vorrebbe dire toccare cose che con il ritmo della colonna non
+ * c'entrano. Che la regola arrivi davvero fin dove serve non è affidato a
+ * questo commento: lo misura `tests/e2e/sidebar-header-gap.spec.ts`, sul primo
+ * elemento dipinto, qualunque esso sia.
+ */
+.sidebar-column > :first-child,
+.sidebar-column > :first-child > :first-child {
+  margin-top: 0;
+}
+
 /* Resize handle styles */
 .resize-handle {
   background-color: var(--resize-handle);
