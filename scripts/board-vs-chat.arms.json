@@ -1,0 +1,586 @@
+{
+  "schema": "board-vs-chat/arms@1",
+  "generatedAt": "2026-08-09T19:24:12.583Z",
+  "baseCommit": "d760d7332c31ae717ff29f6ca1ed379aabd0125d",
+  "microTaskId": "token-live-json",
+  "microTaskSha256": "6eaa689221ad637f3bbe71a3c0de6c50a13914fa4f9db747184de5dd8402b5b9",
+  "microTaskText": "Aggiungi l'opzione `--json` a `scripts/token-live.ts`.\n\nCon `--json` lo script deve stampare su stdout UN SOLO oggetto JSON valido, e nient'altro:\nnessun colore ANSI, nessuna intestazione di tabella, nessuna riga di legenda. I dati sono\ngli STESSI che già stampa nella tabella — una voce per chat, con nome, fase, contesto\ndell'ultima chiamata, dimensione della finestra, token letti, costo in dollari, numero di\npreamboli e numero di chiamate. Senza `--json` il comportamento attuale non cambia.\n\nAggiungi un test in `scripts/token-live.test.ts` che verifica che `--json` produca un JSON\nparsabile con i campi attesi. Il test deve passare con `bun test scripts/token-live.test.ts`.\n\nNota: in questa working directory non c'è `data/topics.db`; lo script accetta `DATA_DIR`.",
+  "model": "claude-opus-5[1m]",
+  "effort": "medium",
+  "contextPreambleChars": 16940,
+  "contextPreambleSha256": "6a0fc67996e057c5e1d9ed1405a679cb77a4ce112363731926d79eabde5d156b",
+  "contextPreambleSource": "GET https://localhost:3333/api/topics/8d37839c-c4a7-4e52-aa28-ff2317b70122/context-preview?provider=claude-code — i systemBlocks abilitati, uniti come fa server/context/adapt.ts (`\\n\\n---\\n\\n`). Sola lettura.",
+  "arms": [
+    {
+      "arm": "cli",
+      "label": "CLI nuda (`claude -p`)",
+      "simulated": false,
+      "simulationGaps": [],
+      "mcp": "flotta MCP globale ereditata (~/.claude.json)",
+      "effort": "medium",
+      "model": "claude-opus-5[1m]",
+      "modelReported": "claude-opus-5",
+      "promptChars": 773,
+      "appendSystemPromptChars": 0,
+      "startedAt": "2026-08-09T18:43:50.372Z",
+      "wallClockMs": 197953,
+      "exitCode": 0,
+      "usage": {
+        "inputTokens": 41,
+        "outputTokens": 14246,
+        "cacheWriteTokens": 44466,
+        "cacheWrite1hTokens": 44466,
+        "cacheReadTokens": 1905281,
+        "workTokens": 58753
+      },
+      "costUsd": 1.7536555,
+      "apiCalls": 21,
+      "humanActions": 1,
+      "humanActionsUiHappyPath": 1,
+      "humanActionsBasis": "Un solo gesto: scrivere il prompt. Il ciclo di feedback (leggere, correggere, riapprovare) non è misurato qui — `-p` lo collassa a zero giri.",
+      "delivered": true,
+      "deliveryEvidence": {
+        "changedFiles": [
+          "scripts/token-live.test.ts",
+          "scripts/token-live.ts"
+        ],
+        "newTestFiles": [
+          "scripts/token-live.test.ts"
+        ],
+        "testCommand": "bun test scripts/token-live.test.ts",
+        "testExitCode": 0,
+        "testTail": "bun test v1.3.8 (b64edcb4)\n\n 3 pass\n 0 fail\n 26 expect() calls\nRan 3 tests across 1 file. [94.00ms]",
+        "jsonProbeCommand": "DATA_DIR=/Users/zorahrel/Projects/topics-app/data bun scripts/token-live.ts --json",
+        "jsonProbeExitCode": 0,
+        "jsonProbeParsed": true,
+        "jsonProbeTail": "{\"chats\":[{\"sessionKey\":\"topic:dec44329\",\"name\":\"Volo Salerno-Milano post Ferragosto\",\"phase\":\"completed\",\"model\":\"claude-opus-5\",\"contextTokens\":309386,\"contextWindowTokens\":200000,\"contextWindowKnown\":true,\"contextPercent\":154.7,\"readTokens\":925774,\"deltaReadTokens\":0,\"costUsd\":3.6631,\"preambles\":1,\"previousPreambles\":null,\"calls\":4},{\"sessionKey\":\"topic:8d37839c\",\"name\":\"L\",\"phase\":\"completed\","
+      },
+      "transcriptPath": "/Users/zorahrel/.claude/projects/-private-tmp-board-arms-run2-cli/76561519-ae85-449a-b030-84ab448fef1d.jsonl",
+      "sandboxDir": "/private/tmp/board-arms-run2/cli",
+      "sandboxTreeSha": "db608ba9502ff4f4d203a43dd282d2f4cbd4c371"
+    },
+    {
+      "arm": "chat",
+      "label": "Chat Topics (preambolo + bridge, senza dispatch)",
+      "simulated": true,
+      "simulationGaps": [
+        "Nessun topic creato sul server vivo: il preambolo `<context>` è quello REALE catturato da /api/topics/:id/context-preview, ma inserito a mano nel prompt.",
+        "Il bridge Topics è lo STUB con gli schemi reali (profilo chat): stesso costo di prefisso, nessun effetto.",
+        "`--effort medium` come la board; una chat Topics reale parte a xhigh (resolveClaudeEffort), quindi questo braccio SOTTOSTIMA la chat."
+      ],
+      "mcp": "flotta globale + bridge Topics (profilo chat, stub)",
+      "effort": "medium",
+      "model": "claude-opus-5[1m]",
+      "modelReported": "claude-opus-5",
+      "promptChars": 17736,
+      "appendSystemPromptChars": 0,
+      "startedAt": "2026-08-09T18:47:11.269Z",
+      "wallClockMs": 227149,
+      "exitCode": 0,
+      "usage": {
+        "inputTokens": 35,
+        "outputTokens": 13908,
+        "cacheWriteTokens": 121667,
+        "cacheWrite1hTokens": 121667,
+        "cacheReadTokens": 1852274,
+        "workTokens": 135610
+      },
+      "costUsd": 2.490682,
+      "apiCalls": 18,
+      "humanActions": 1,
+      "humanActionsUiHappyPath": 1,
+      "humanActionsBasis": "Un solo gesto: scrivere il messaggio in chat. Stessa avvertenza della CLI sul ciclo di feedback.",
+      "delivered": true,
+      "deliveryEvidence": {
+        "changedFiles": [
+          "scripts/token-live.test.ts",
+          "scripts/token-live.ts"
+        ],
+        "newTestFiles": [
+          "scripts/token-live.test.ts"
+        ],
+        "testCommand": "bun test scripts/token-live.test.ts",
+        "testExitCode": 0,
+        "testTail": "bun test v1.3.8 (b64edcb4)\n\n 2 pass\n 0 fail\n 19 expect() calls\nRan 2 tests across 1 file. [71.00ms]",
+        "jsonProbeCommand": "DATA_DIR=/Users/zorahrel/Projects/topics-app/data bun scripts/token-live.ts --json",
+        "jsonProbeExitCode": 0,
+        "jsonProbeParsed": true,
+        "jsonProbeTail": "{\"chats\":[{\"name\":\"Volo Salerno-Milano post Ferragosto\",\"phase\":\"completed\",\"contextTokens\":309386,\"contextWindow\":200000,\"contextWindowKnown\":true,\"readTokens\":925774,\"costUsd\":3.6631165,\"preambles\":1,\"calls\":4,\"deltaReadTokens\":0},{\"name\":\"L\",\"phase\":\"completed\",\"contextTokens\":576211,\"contextWindow\":200000,\"contextWindowKnown\":true,\"readTokens\":553429146,\"costUsd\":358.0575975,\"preambles\":9,\"cal"
+      },
+      "transcriptPath": "/Users/zorahrel/.claude/projects/-private-tmp-board-arms-run2-chat/0f066283-ba94-4ed8-a768-12cb2e4b80bc.jsonl",
+      "sandboxDir": "/private/tmp/board-arms-run2/chat",
+      "sandboxTreeSha": "db608ba9502ff4f4d203a43dd282d2f4cbd4c371"
+    },
+    {
+      "arm": "board-sim",
+      "label": "Board (dispatch SIMULATO)",
+      "simulated": true,
+      "simulationGaps": [
+        "Nessuna card creata sulla board vera: nessun claim, nessuna coda, nessuno slot max_agents, nessun retry/timeout del dispatcher.",
+        "I tool del bridge (update_task, comment_task, create_task, …) sono serviti da uno STUB stdio con gli schemi REALI di toolsForProfile('dispatch') ma handler che rispondono ok senza scrivere: il costo di prefisso è quello vero, l'effetto no.",
+        "Worktree: sandbox `git init` in /tmp con un solo commit, non un `git worktree` del repo vivo — quindi niente main da cui divergere, niente merge, niente reap.",
+        "Il role prompt viaggia in `--append-system-prompt` e come blocco del preambolo, mentre il dispatcher lo mette come system prompt del topic.",
+        "Il gate pre-review del server (review_needs_commit, reviewChecks) non gira: la board `topics-app-ar3jt5` non ha reviewChecks configurati, quindi l'envelope non ne parla, ma il rifiuto della review con worktree sporco qui non esiste.",
+        "Nessun classifier di modello: il modello è pinnato uguale nei tre bracci, mentre il dispatcher con dispatch_model=null lo farebbe scegliere al classifier."
+      ],
+      "mcp": "bridge-only (profilo dispatch, stub) con --strict-mcp-config",
+      "effort": "medium",
+      "model": "claude-opus-5[1m]",
+      "modelReported": "claude-opus-5",
+      "promptChars": 23719,
+      "appendSystemPromptChars": 230,
+      "startedAt": "2026-08-09T18:51:01.321Z",
+      "wallClockMs": 237980,
+      "exitCode": 0,
+      "usage": {
+        "inputTokens": 69,
+        "outputTokens": 15664,
+        "cacheWriteTokens": 99880,
+        "cacheWrite1hTokens": 99880,
+        "cacheReadTokens": 3039373,
+        "workTokens": 115613
+      },
+      "costUsd": 2.9104315,
+      "apiCalls": 36,
+      "humanActions": 1,
+      "humanActionsUiHappyPath": 3,
+      "humanActionsBasis": "Percorso reale in interfaccia, contato a mano (non misurato qui): creare la card, dispatchare (auto_dispatch=0 su questa board), approvare la review. Il landing su main è un quarto click, separato per protocollo.",
+      "delivered": true,
+      "deliveryEvidence": {
+        "changedFiles": [
+          "scripts/token-live.test.ts",
+          "scripts/token-live.ts"
+        ],
+        "newTestFiles": [
+          "scripts/token-live.test.ts"
+        ],
+        "testCommand": "bun test scripts/token-live.test.ts",
+        "testExitCode": 0,
+        "testTail": "bun test v1.3.8 (b64edcb4)\n\n 3 pass\n 0 fail\n 30 expect() calls\nRan 3 tests across 1 file. [92.00ms]",
+        "jsonProbeCommand": "DATA_DIR=/Users/zorahrel/Projects/topics-app/data bun scripts/token-live.ts --json",
+        "jsonProbeExitCode": 0,
+        "jsonProbeParsed": true,
+        "jsonProbeTail": "{\"filter\":null,\"count\":7,\"chats\":[{\"id\":\"dec44329-b901-4956-abbe-7ff2c1a44fad\",\"name\":\"Volo Salerno-Milano post Ferragosto\",\"sessionKey\":\"topic:dec44329\",\"phase\":\"completed\",\"model\":\"claude-opus-5\",\"lastContextTokens\":309386,\"contextWindowTokens\":200000,\"contextWindowKnown\":true,\"contextPct\":154.69299999999998,\"readTokens\":925774,\"costUsd\":3.6631165,\"preambles\":1,\"calls\":4},{\"id\":\"8d37839c-c4a7-4e"
+      },
+      "transcriptPath": "/Users/zorahrel/.claude/projects/-private-tmp-board-arms-run2-board-sim/0997c3a5-4c44-4370-94b5-fe5738ec41eb.jsonl",
+      "sandboxDir": "/private/tmp/board-arms-run2/board-sim",
+      "sandboxTreeSha": "db608ba9502ff4f4d203a43dd282d2f4cbd4c371"
+    }
+  ],
+  "replicates": [
+    {
+      "arm": "cli",
+      "label": "CLI nuda (`claude -p`)",
+      "simulated": false,
+      "simulationGaps": [],
+      "mcp": "flotta MCP globale ereditata (~/.claude.json)",
+      "effort": "medium",
+      "model": "claude-opus-5[1m]",
+      "modelReported": "claude-opus-5",
+      "promptChars": 773,
+      "appendSystemPromptChars": 0,
+      "startedAt": "2026-08-09T18:56:18.470Z",
+      "wallClockMs": 174333,
+      "exitCode": 0,
+      "usage": {
+        "inputTokens": 54,
+        "outputTokens": 11726,
+        "cacheWriteTokens": 39217,
+        "cacheWrite1hTokens": 39217,
+        "cacheReadTokens": 2473876,
+        "workTokens": 50997
+      },
+      "costUsd": 1.922528,
+      "apiCalls": 28,
+      "humanActions": 1,
+      "humanActionsUiHappyPath": 1,
+      "humanActionsBasis": "Un solo gesto: scrivere il prompt. Il ciclo di feedback (leggere, correggere, riapprovare) non è misurato qui — `-p` lo collassa a zero giri.",
+      "delivered": true,
+      "deliveryEvidence": {
+        "changedFiles": [
+          "scripts/token-live.test.ts",
+          "scripts/token-live.ts"
+        ],
+        "newTestFiles": [
+          "scripts/token-live.test.ts"
+        ],
+        "testCommand": "bun test scripts/token-live.test.ts",
+        "testExitCode": 0,
+        "testTail": "bun test v1.3.8 (b64edcb4)\n\n 2 pass\n 0 fail\n 19 expect() calls\nRan 2 tests across 1 file. [78.00ms]",
+        "jsonProbeCommand": "DATA_DIR=/Users/zorahrel/Projects/topics-app/data bun scripts/token-live.ts --json",
+        "jsonProbeExitCode": 0,
+        "jsonProbeParsed": true,
+        "jsonProbeTail": "{\"chats\":[{\"name\":\"Volo Salerno-Milano post Ferragosto\",\"phase\":\"completed\",\"lastContextTokens\":309386,\"contextWindowTokens\":200000,\"readTokens\":925774,\"costUsd\":3.6631165,\"preambles\":1,\"calls\":4},{\"name\":\"L\",\"phase\":\"completed\",\"lastContextTokens\":576211,\"contextWindowTokens\":200000,\"readTokens\":553429146,\"costUsd\":358.0575975,\"preambles\":9,\"calls\":1407},{\"name\":\"Ricerca su github librerie per\",\""
+      },
+      "transcriptPath": "/Users/zorahrel/.claude/projects/-private-tmp-board-arms-run3-cli/93c70854-2bf5-4974-8078-f21e7eb0df39.jsonl",
+      "sandboxDir": "/private/tmp/board-arms-run3/cli",
+      "sandboxTreeSha": "db608ba9502ff4f4d203a43dd282d2f4cbd4c371"
+    },
+    {
+      "arm": "chat",
+      "label": "Chat Topics (preambolo + bridge, senza dispatch)",
+      "simulated": true,
+      "simulationGaps": [
+        "Nessun topic creato sul server vivo: il preambolo `<context>` è quello REALE catturato da /api/topics/:id/context-preview, ma inserito a mano nel prompt.",
+        "Il bridge Topics è lo STUB con gli schemi reali (profilo chat): stesso costo di prefisso, nessun effetto.",
+        "`--effort medium` come la board; una chat Topics reale parte a xhigh (resolveClaudeEffort), quindi questo braccio SOTTOSTIMA la chat."
+      ],
+      "mcp": "flotta globale + bridge Topics (profilo chat, stub)",
+      "effort": "medium",
+      "model": "claude-opus-5[1m]",
+      "modelReported": "claude-opus-5",
+      "promptChars": 17736,
+      "appendSystemPromptChars": 0,
+      "startedAt": "2026-08-09T18:59:15.594Z",
+      "wallClockMs": 198503,
+      "exitCode": 0,
+      "usage": {
+        "inputTokens": 48,
+        "outputTokens": 14042,
+        "cacheWriteTokens": 47014,
+        "cacheWrite1hTokens": 47014,
+        "cacheReadTokens": 2710662,
+        "workTokens": 61104
+      },
+      "costUsd": 2.176761,
+      "apiCalls": 25,
+      "humanActions": 1,
+      "humanActionsUiHappyPath": 1,
+      "humanActionsBasis": "Un solo gesto: scrivere il messaggio in chat. Stessa avvertenza della CLI sul ciclo di feedback.",
+      "delivered": true,
+      "deliveryEvidence": {
+        "changedFiles": [
+          "scripts/token-live.test.ts",
+          "scripts/token-live.ts"
+        ],
+        "newTestFiles": [
+          "scripts/token-live.test.ts"
+        ],
+        "testCommand": "bun test scripts/token-live.test.ts",
+        "testExitCode": 0,
+        "testTail": "bun test v1.3.8 (b64edcb4)\n\n 4 pass\n 0 fail\n 21 expect() calls\nRan 4 tests across 1 file. [113.00ms]",
+        "jsonProbeCommand": "DATA_DIR=/Users/zorahrel/Projects/topics-app/data bun scripts/token-live.ts --json",
+        "jsonProbeExitCode": 0,
+        "jsonProbeParsed": true,
+        "jsonProbeTail": "{\"chats\":[{\"id\":\"dec44329-b901-4956-abbe-7ff2c1a44fad\",\"name\":\"Volo Salerno-Milano post Ferragosto\",\"sessionKey\":\"topic:dec44329\",\"phase\":\"completed\",\"model\":\"claude-opus-5\",\"contextTokens\":309386,\"windowTokens\":200000,\"windowKnown\":true,\"contextPercent\":154.7,\"readTokens\":925774,\"deltaTokens\":0,\"costUsd\":3.6631,\"preambles\":1,\"preamblesGrew\":false,\"calls\":4},{\"id\":\"8d37839c-c4a7-4e52-aa28-ff2317b7"
+      },
+      "transcriptPath": "/Users/zorahrel/.claude/projects/-private-tmp-board-arms-run3-chat/ac5b6ae7-7947-4553-a051-a64e72131f2d.jsonl",
+      "sandboxDir": "/private/tmp/board-arms-run3/chat",
+      "sandboxTreeSha": "db608ba9502ff4f4d203a43dd282d2f4cbd4c371"
+    },
+    {
+      "arm": "board-sim",
+      "label": "Board (dispatch SIMULATO)",
+      "simulated": true,
+      "simulationGaps": [
+        "Nessuna card creata sulla board vera: nessun claim, nessuna coda, nessuno slot max_agents, nessun retry/timeout del dispatcher.",
+        "I tool del bridge (update_task, comment_task, create_task, …) sono serviti da uno STUB stdio con gli schemi REALI di toolsForProfile('dispatch') ma handler che rispondono ok senza scrivere: il costo di prefisso è quello vero, l'effetto no.",
+        "Worktree: sandbox `git init` in /tmp con un solo commit, non un `git worktree` del repo vivo — quindi niente main da cui divergere, niente merge, niente reap.",
+        "Il role prompt viaggia in `--append-system-prompt` e come blocco del preambolo, mentre il dispatcher lo mette come system prompt del topic.",
+        "Il gate pre-review del server (review_needs_commit, reviewChecks) non gira: la board `topics-app-ar3jt5` non ha reviewChecks configurati, quindi l'envelope non ne parla, ma il rifiuto della review con worktree sporco qui non esiste.",
+        "Nessun classifier di modello: il modello è pinnato uguale nei tre bracci, mentre il dispatcher con dispatch_model=null lo farebbe scegliere al classifier."
+      ],
+      "mcp": "bridge-only (profilo dispatch, stub) con --strict-mcp-config",
+      "effort": "medium",
+      "model": "claude-opus-5[1m]",
+      "modelReported": "claude-opus-5",
+      "promptChars": 23719,
+      "appendSystemPromptChars": 230,
+      "startedAt": "2026-08-09T19:02:36.941Z",
+      "wallClockMs": 250927,
+      "exitCode": 0,
+      "usage": {
+        "inputTokens": 51,
+        "outputTokens": 19457,
+        "cacheWriteTokens": 55516,
+        "cacheWrite1hTokens": 55516,
+        "cacheReadTokens": 2325463,
+        "workTokens": 75024
+      },
+      "costUsd": 2.2045715,
+      "apiCalls": 27,
+      "humanActions": 1,
+      "humanActionsUiHappyPath": 3,
+      "humanActionsBasis": "Percorso reale in interfaccia, contato a mano (non misurato qui): creare la card, dispatchare (auto_dispatch=0 su questa board), approvare la review. Il landing su main è un quarto click, separato per protocollo.",
+      "delivered": true,
+      "deliveryEvidence": {
+        "changedFiles": [
+          "scripts/token-live.test.ts",
+          "scripts/token-live.ts"
+        ],
+        "newTestFiles": [
+          "scripts/token-live.test.ts"
+        ],
+        "testCommand": "bun test scripts/token-live.test.ts",
+        "testExitCode": 0,
+        "testTail": "bun test v1.3.8 (b64edcb4)\n\n 3 pass\n 0 fail\n 17 expect() calls\nRan 3 tests across 1 file. [120.00ms]",
+        "jsonProbeCommand": "DATA_DIR=/Users/zorahrel/Projects/topics-app/data bun scripts/token-live.ts --json",
+        "jsonProbeExitCode": 0,
+        "jsonProbeParsed": true,
+        "jsonProbeTail": "{\"chats\":[{\"name\":\"Volo Salerno-Milano post Ferragosto\",\"phase\":\"completed\",\"lastContextTokens\":309386,\"contextWindowTokens\":200000,\"contextWindowKnown\":true,\"readTokens\":925774,\"costUsd\":3.6631165,\"preambles\":1,\"calls\":4},{\"name\":\"L\",\"phase\":\"completed\",\"lastContextTokens\":576211,\"contextWindowTokens\":200000,\"contextWindowKnown\":true,\"readTokens\":553429146,\"costUsd\":358.0575975,\"preambles\":9,\"cal"
+      },
+      "transcriptPath": "/Users/zorahrel/.claude/projects/-private-tmp-board-arms-run3-board-sim/ccacff38-12c8-454d-bf61-92821e675c22.jsonl",
+      "sandboxDir": "/private/tmp/board-arms-run3/board-sim",
+      "sandboxTreeSha": "db608ba9502ff4f4d203a43dd282d2f4cbd4c371"
+    },
+    {
+      "arm": "cli",
+      "label": "CLI nuda (`claude -p`)",
+      "simulated": false,
+      "simulationGaps": [],
+      "mcp": "flotta MCP globale ereditata (~/.claude.json)",
+      "effort": "medium",
+      "model": "claude-opus-5[1m]",
+      "modelReported": "claude-opus-5",
+      "promptChars": 773,
+      "appendSystemPromptChars": 0,
+      "startedAt": "2026-08-09T19:06:50.804Z",
+      "wallClockMs": 208783,
+      "exitCode": 0,
+      "usage": {
+        "inputTokens": 44,
+        "outputTokens": 11203,
+        "cacheWriteTokens": 39253,
+        "cacheWrite1hTokens": 39253,
+        "cacheReadTokens": 1961993,
+        "workTokens": 50500
+      },
+      "costUsd": 1.6538215,
+      "apiCalls": 22,
+      "humanActions": 1,
+      "humanActionsUiHappyPath": 1,
+      "humanActionsBasis": "Un solo gesto: scrivere il prompt. Il ciclo di feedback (leggere, correggere, riapprovare) non è misurato qui — `-p` lo collassa a zero giri.",
+      "delivered": true,
+      "deliveryEvidence": {
+        "changedFiles": [
+          "scripts/token-live.test.ts",
+          "scripts/token-live.ts"
+        ],
+        "newTestFiles": [
+          "scripts/token-live.test.ts"
+        ],
+        "testCommand": "bun test scripts/token-live.test.ts",
+        "testExitCode": 0,
+        "testTail": "bun test v1.3.8 (b64edcb4)\n\n 3 pass\n 0 fail\n 19 expect() calls\nRan 3 tests across 1 file. [124.00ms]",
+        "jsonProbeCommand": "DATA_DIR=/Users/zorahrel/Projects/topics-app/data bun scripts/token-live.ts --json",
+        "jsonProbeExitCode": 0,
+        "jsonProbeParsed": true,
+        "jsonProbeTail": "{\"chats\":[{\"sessionKey\":\"topic:dec44329\",\"name\":\"Volo Salerno-Milano post Ferragosto\",\"phase\":\"completed\",\"model\":\"claude-opus-5\",\"contextTokens\":309386,\"contextWindow\":200000,\"contextWindowKnown\":true,\"contextPct\":154.69299999999998,\"readTokens\":925774,\"costUsd\":3.6631165,\"preambles\":1,\"calls\":4},{\"sessionKey\":\"topic:8d37839c\",\"name\":\"L\",\"phase\":\"completed\",\"model\":\"claude-opus-5\",\"contextTokens\""
+      },
+      "transcriptPath": "/Users/zorahrel/.claude/projects/-private-tmp-board-arms-run4-cli/3bfa9129-369f-4189-965c-405166bbd654.jsonl",
+      "sandboxDir": "/private/tmp/board-arms-run4/cli",
+      "sandboxTreeSha": "db608ba9502ff4f4d203a43dd282d2f4cbd4c371"
+    },
+    {
+      "arm": "chat",
+      "label": "Chat Topics (preambolo + bridge, senza dispatch)",
+      "simulated": true,
+      "simulationGaps": [
+        "Nessun topic creato sul server vivo: il preambolo `<context>` è quello REALE catturato da /api/topics/:id/context-preview, ma inserito a mano nel prompt.",
+        "Il bridge Topics è lo STUB con gli schemi reali (profilo chat): stesso costo di prefisso, nessun effetto.",
+        "`--effort medium` come la board; una chat Topics reale parte a xhigh (resolveClaudeEffort), quindi questo braccio SOTTOSTIMA la chat."
+      ],
+      "mcp": "flotta globale + bridge Topics (profilo chat, stub)",
+      "effort": "medium",
+      "model": "claude-opus-5[1m]",
+      "modelReported": "claude-opus-5",
+      "promptChars": 17736,
+      "appendSystemPromptChars": 0,
+      "startedAt": "2026-08-09T19:10:22.465Z",
+      "wallClockMs": 184384,
+      "exitCode": 0,
+      "usage": {
+        "inputTokens": 40,
+        "outputTokens": 12766,
+        "cacheWriteTokens": 47378,
+        "cacheWrite1hTokens": 47378,
+        "cacheReadTokens": 2110432,
+        "workTokens": 60184
+      },
+      "costUsd": 1.848346,
+      "apiCalls": 20,
+      "humanActions": 1,
+      "humanActionsUiHappyPath": 1,
+      "humanActionsBasis": "Un solo gesto: scrivere il messaggio in chat. Stessa avvertenza della CLI sul ciclo di feedback.",
+      "delivered": true,
+      "deliveryEvidence": {
+        "changedFiles": [
+          "scripts/token-live.test.ts",
+          "scripts/token-live.ts"
+        ],
+        "newTestFiles": [
+          "scripts/token-live.test.ts"
+        ],
+        "testCommand": "bun test scripts/token-live.test.ts",
+        "testExitCode": 0,
+        "testTail": "bun test v1.3.8 (b64edcb4)\n\n 4 pass\n 0 fail\n 17 expect() calls\nRan 4 tests across 1 file. [115.00ms]",
+        "jsonProbeCommand": "DATA_DIR=/Users/zorahrel/Projects/topics-app/data bun scripts/token-live.ts --json",
+        "jsonProbeExitCode": 0,
+        "jsonProbeParsed": true,
+        "jsonProbeTail": "{\"generatedAt\":\"2026-08-09T19:13:27.161Z\",\"filter\":null,\"chats\":[{\"name\":\"Volo Salerno-Milano post Ferragosto\",\"phase\":\"completed\",\"contextTokens\":309386,\"contextWindow\":200000,\"contextWindowKnown\":true,\"readTokens\":925774,\"costUsd\":3.6631165,\"preambles\":1,\"calls\":4},{\"name\":\"L\",\"phase\":\"completed\",\"contextTokens\":576211,\"contextWindow\":200000,\"contextWindowKnown\":true,\"readTokens\":553429146,\"cost"
+      },
+      "transcriptPath": "/Users/zorahrel/.claude/projects/-private-tmp-board-arms-run4-chat/a1bbb923-514b-475f-ac54-9cf5997712ec.jsonl",
+      "sandboxDir": "/private/tmp/board-arms-run4/chat",
+      "sandboxTreeSha": "db608ba9502ff4f4d203a43dd282d2f4cbd4c371"
+    },
+    {
+      "arm": "board-sim",
+      "label": "Board (dispatch SIMULATO)",
+      "simulated": true,
+      "simulationGaps": [
+        "Nessuna card creata sulla board vera: nessun claim, nessuna coda, nessuno slot max_agents, nessun retry/timeout del dispatcher.",
+        "I tool del bridge (update_task, comment_task, create_task, …) sono serviti da uno STUB stdio con gli schemi REALI di toolsForProfile('dispatch') ma handler che rispondono ok senza scrivere: il costo di prefisso è quello vero, l'effetto no.",
+        "Worktree: sandbox `git init` in /tmp con un solo commit, non un `git worktree` del repo vivo — quindi niente main da cui divergere, niente merge, niente reap.",
+        "Il role prompt viaggia in `--append-system-prompt` e come blocco del preambolo, mentre il dispatcher lo mette come system prompt del topic.",
+        "Il gate pre-review del server (review_needs_commit, reviewChecks) non gira: la board `topics-app-ar3jt5` non ha reviewChecks configurati, quindi l'envelope non ne parla, ma il rifiuto della review con worktree sporco qui non esiste.",
+        "Nessun classifier di modello: il modello è pinnato uguale nei tre bracci, mentre il dispatcher con dispatch_model=null lo farebbe scegliere al classifier."
+      ],
+      "mcp": "bridge-only (profilo dispatch, stub) con --strict-mcp-config",
+      "effort": "medium",
+      "model": "claude-opus-5[1m]",
+      "modelReported": "claude-opus-5",
+      "promptChars": 23719,
+      "appendSystemPromptChars": 230,
+      "startedAt": "2026-08-09T19:13:29.705Z",
+      "wallClockMs": 342129,
+      "exitCode": 0,
+      "usage": {
+        "inputTokens": 65,
+        "outputTokens": 25544,
+        "cacheWriteTokens": 64244,
+        "cacheWrite1hTokens": 64244,
+        "cacheReadTokens": 3129833,
+        "workTokens": 89853
+      },
+      "costUsd": 2.8462815,
+      "apiCalls": 34,
+      "humanActions": 1,
+      "humanActionsUiHappyPath": 3,
+      "humanActionsBasis": "Percorso reale in interfaccia, contato a mano (non misurato qui): creare la card, dispatchare (auto_dispatch=0 su questa board), approvare la review. Il landing su main è un quarto click, separato per protocollo.",
+      "delivered": true,
+      "deliveryEvidence": {
+        "changedFiles": [
+          "scripts/token-live.test.ts",
+          "scripts/token-live.ts"
+        ],
+        "newTestFiles": [
+          "scripts/token-live.test.ts"
+        ],
+        "testCommand": "bun test scripts/token-live.test.ts",
+        "testExitCode": 0,
+        "testTail": "bun test v1.3.8 (b64edcb4)\n\n 3 pass\n 0 fail\n 20 expect() calls\nRan 3 tests across 1 file. [96.00ms]",
+        "jsonProbeCommand": "DATA_DIR=/Users/zorahrel/Projects/topics-app/data bun scripts/token-live.ts --json",
+        "jsonProbeExitCode": 0,
+        "jsonProbeParsed": true,
+        "jsonProbeTail": "{\"generatedAt\":\"2026-08-09T19:19:12.007Z\",\"chats\":[{\"id\":\"dec44329-b901-4956-abbe-7ff2c1a44fad\",\"name\":\"Volo Salerno-Milano post Ferragosto\",\"phase\":\"completed\",\"model\":\"claude-opus-5\",\"lastContext\":309386,\"contextWindow\":200000,\"contextWindowEstimated\":false,\"contextPercent\":154.69299999999998,\"tokensRead\":925774,\"deltaRead\":0,\"costUsd\":3.6631165,\"preambles\":1,\"deltaPreambles\":0,\"calls\":4},{\"id\":"
+      },
+      "transcriptPath": "/Users/zorahrel/.claude/projects/-private-tmp-board-arms-run4-board-sim/b763dff2-bd6f-49cb-97e6-acfa7961d4ce.jsonl",
+      "sandboxDir": "/private/tmp/board-arms-run4/board-sim",
+      "sandboxTreeSha": "db608ba9502ff4f4d203a43dd282d2f4cbd4c371"
+    }
+  ],
+  "summary": [
+    {
+      "arm": "cli",
+      "runs": 3,
+      "delivered": 3,
+      "workTokens": {
+        "min": 50500,
+        "median": 50997,
+        "max": 58753
+      },
+      "cacheReadTokens": {
+        "min": 1905281,
+        "median": 1961993,
+        "max": 2473876
+      },
+      "costUsd": {
+        "min": 1.6538215,
+        "median": 1.7536555,
+        "max": 1.922528
+      },
+      "wallClockMs": {
+        "min": 174333,
+        "median": 197953,
+        "max": 208783
+      },
+      "apiCalls": {
+        "min": 21,
+        "median": 22,
+        "max": 28
+      }
+    },
+    {
+      "arm": "chat",
+      "runs": 3,
+      "delivered": 3,
+      "workTokens": {
+        "min": 60184,
+        "median": 61104,
+        "max": 135610
+      },
+      "cacheReadTokens": {
+        "min": 1852274,
+        "median": 2110432,
+        "max": 2710662
+      },
+      "costUsd": {
+        "min": 1.848346,
+        "median": 2.176761,
+        "max": 2.490682
+      },
+      "wallClockMs": {
+        "min": 184384,
+        "median": 198503,
+        "max": 227149
+      },
+      "apiCalls": {
+        "min": 18,
+        "median": 20,
+        "max": 25
+      }
+    },
+    {
+      "arm": "board-sim",
+      "runs": 3,
+      "delivered": 3,
+      "workTokens": {
+        "min": 75024,
+        "median": 89853,
+        "max": 115613
+      },
+      "cacheReadTokens": {
+        "min": 2325463,
+        "median": 3039373,
+        "max": 3129833
+      },
+      "costUsd": {
+        "min": 2.2045715,
+        "median": 2.8462815,
+        "max": 2.9104315
+      },
+      "wallClockMs": {
+        "min": 237980,
+        "median": 250927,
+        "max": 342129
+      },
+      "apiCalls": {
+        "min": 27,
+        "median": 34,
+        "max": 36
+      }
+    }
+  ],
+  "costOrderingPerTriple": [
+    "cli < chat < board-sim",
+    "cli < chat < board-sim",
+    "cli < chat < board-sim"
+  ],
+  "paired": true,
+  "pairingNotes": [
+    "Stesso albero di partenza (db608ba9502ff4f4d203a43dd282d2f4cbd4c371), stesso modello (claude-opus-5[1m]), stesso effort (medium), stesso testo del micro-task.",
+    "3 terne, 9 corse in tutto, eseguite in SEQUENZA (mai in parallelo: il wall-clock di corse concorrenti non è confrontabile).",
+    "baseTreeSha db608ba9502ff4f4d203a43dd282d2f4cbd4c371 è il tree delle SANDBOX, non un oggetto di questo repo: `git cat-file -t db608ba9502f` fallisce per costruzione, e `git rev-parse d760d733^{tree}` dà un numero diverso. La ricetta è `git archive <baseCommit> | tar -x` + `git init && git add -A && git commit`: il tree che ne esce è quello del repo ricostruito. Il CONTENUTO è quello di baseCommit — `verifyBaseCommit` rimaterializza l'archive con la stessa ricetta e pretende lo stesso numero — quindi `git checkout d760d733` restituisce l'albero misurato. Non è uno snapshot di working tree sporca."
+  ],
+  "baseTreeSha": "db608ba9502ff4f4d203a43dd282d2f4cbd4c371"
+}
