@@ -8,6 +8,35 @@
   "name": "topics-relay",
   "main": "src/worker.ts",
   "compatibility_date": "2026-01-01",
+
+  // `request.signal` è il solo modo che il Worker ha di sapere che chi aveva
+  // chiesto se n'è andato prima della risposta: la scheda chiusa, la pagina
+  // cambiata mentre un'immagine stava ancora arrivando. Il ponte lo ascolta per
+  // rinunciare anche dall'altra parte — senza, la macchina continua a servire
+  // per mezzo minuto una risposta che non ha più dove andare, e una corsia del
+  // tubo resta occupata da nessuno.
+  //
+  // Servono DUE bandiere, e la seconda è quella che si dimentica. La prima
+  // rende `request.signal` osservabile; la seconda lo fa ARRIVARE fin dove
+  // ascoltiamo. Il ponte non vive nel Worker: `worker.ts` gira la richiesta al
+  // Durable Object con `env.SESSIONE.get(id).fetch(req)`, che è una
+  // sottorichiesta come tutte le altre — e il segnale di chi ha bussato non
+  // attraversa una `fetch()` a meno che non sia dichiarato
+  // `request_signal_passthrough`. Non c'è nessuna esenzione per gli stub dei
+  // Durable Object: senza la seconda bandiera il `req.signal` che il ponte
+  // riceve è un segnale che non si interrompe mai, e tutto il percorso della
+  // rinuncia — il 499, il `reset` verso la macchina, l'upgrade che non apre un
+  // socket vero — diventa codice morto in produzione.
+  //
+  // Vanno SCRITTE entrambe. Sono le uniche bandiere che usiamo senza una data
+  // in cui si accendono da sole: alzare la `compatibility_date` non le porterà
+  // mai dentro. Toglierne una non romperebbe niente di visibile — il codice
+  // gira uguale, i test passano uguali — e per questo le presidia
+  // `relay-contract.test.ts`, che è l'UNICO guardiano del tratto Worker→DO: i
+  // test del ponte gli passano un segnale costruito a mano, quindi provano
+  // cosa fa il ponte quando la rinuncia arriva, non che arrivi.
+  "compatibility_flags": ["enable_request_signal", "request_signal_passthrough"],
+
   "observability": { "enabled": true },
 
   // Il dominio del relay. `custom_domain: true` crea anche il record DNS e il
