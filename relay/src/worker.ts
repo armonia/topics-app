@@ -1,10 +1,20 @@
 /**
  * Il relay di Topics: instrada, e non capisce.
  *
- * Tre porte sole:
+ * Tre porte per chi parla già il protocollo:
  *   `GET /agent/:installationId`  ← la MACCHINA, che chiama FUORI
  *   `GET /s/:installationId`      ← l'OSPITE, che apre un link
  *   `GET /d/:installationId`      ← il DISPOSITIVO appaiato, da un'altra rete
+ *
+ * …e una per chi non parla niente:
+ *   `*   /i/:installationId/…`    ← il BROWSER, che ha solo aperto un indirizzo
+ *
+ * Le prime tre sono agganci: chiedono un upgrade WebSocket e da lì in poi il
+ * tubo. La quarta è una traduzione — una richiesta HTTPS qualunque entra, esce
+ * come frame verso la macchina, e la sua risposta torna indietro come
+ * `Response`. Senza di lei il tubo esisteva ma non aveva nessuna porta da cui
+ * un telefono potesse entrare, perché un telefono non ha modo di diventare un
+ * client del protocollo prima di bussare.
  *
  * Tutte finiscono nello stesso Durable Object, uno per installazione, che è il
  * punto d'incontro. La macchina non ascolta su nessuna porta: apre lei la
@@ -28,6 +38,7 @@
  */
 export { SessioneRelay } from "./relay-do";
 import { PAGINA_OSPITE } from "./pagina-ospite";
+import { PERCORSO_PONTE } from "./ponte";
 
 interface Env {
   SESSIONE: DurableObjectNamespace;
@@ -54,6 +65,30 @@ export default {
           "referrer-policy": "no-referrer",
         },
       });
+    }
+
+    // ── LA PORTA DEL BROWSER: `/i/:installationId/<qualsiasi cosa>`
+    //
+    // Le altre tre chiedono tutte un upgrade WebSocket, ed è giusto: chi le usa
+    // parla già il protocollo. Questa no — chi arriva qui è un browser
+    // qualunque che ha aperto un indirizzo, e non ha modo di diventare
+    // qualcos'altro prima di bussare. Il Durable Object traduce la richiesta in
+    // frame del tubo e la risposta in una `Response`: da lì in poi è un sito
+    // web, e sul telefono non serve installare niente.
+    //
+    // La richiesta si gira INTERA e senza toccarla — è anche l'unico modo di
+    // portarsi dietro un corpo che arriva a pezzi — e il ruolo resta scritto
+    // nel PERCORSO, dove lo ha messo chi ha aperto il link. Non in un
+    // parametro, che finirebbe in ciò che la macchina rigioca, e non in
+    // un'intestazione, che chi bussa può scrivere da sé: `/d/:id` non deve
+    // poter essere letta come una traduzione perché qualcuno l'ha dichiarata.
+    // Il modello è UNO e sta accanto al ponte: due copie della stessa forma
+    // sono due cose che un giorno dicono percorsi diversi, e quel giorno chi
+    // instrada e chi traduce non parlano più dello stesso indirizzo.
+    const ponte = url.pathname.match(PERCORSO_PONTE);
+    if (ponte) {
+      const id = env.SESSIONE.idFromName(ponte[1] ?? "");
+      return env.SESSIONE.get(id).fetch(req);
     }
 
     const m = url.pathname.match(/^\/(agent|s|d)\/([A-Za-z0-9_-]{1,128})$/);
