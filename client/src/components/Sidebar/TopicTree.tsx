@@ -1587,26 +1587,31 @@ export function TopicTree({
 
   return (
     <div role="tree" aria-label={tr('sidebar.tree')} className="flex flex-col h-full min-h-0">
-      {/* IL PRIMO SPAZIO È UNO SPAZIO COME GLI ALTRI: metà passo qui, metà dal
-          margine della card (`my-[3px]` in `sidebarRowCard`), e fanno
-          COLUMN_GAP — la stessa distanza che c'è fra due card, e la stessa che
-          le tiene staccate dai bordi laterali (ROW_INSET).
+      {/* SOTTO NIENTE, SOPRA L'HEADER: il primo spazio non è come gli altri.
+          `sidebar-column` (index.css) azzera il mezzo passo del primo elemento;
+          qui si azzera l'altra metà, quella del contenitore. Sopra la lista non
+          c'è un bordo, c'è l'header: alto 40 attorno a un contenuto da 28,
+          quindi porta già SEI pixel suoi sotto il proprio inchiostro. La lista
+          che ne aggiungeva altri sei è la «doppia spaziatura sotto la topbar»
+          (Attilio, tre volte fra l'08 e il 09/08). Il perché per esteso — e
+          perché a cedere è la lista e non l'header — sta accanto alla regola in
+          index.css.
+
+          IN FONDO il mezzo passo resta: là sotto c'è davvero il bordo della
+          colonna, e vale la regola normale — metà qui, metà dal margine
+          dell'ultima card (`my-[3px]` in `sidebarRowCard`), che fa COLUMN_GAP.
 
           Era `ROW_INSET − 1`, cioè 5, e il commento diceva «+ il my-px della
           card = 6». Quel conto è scaduto quando il margine delle card è passato
-          da 1 a 3 (COLUMN_GAP/2, per dare a righe e tessere lo STESSO passo):
-          da allora sopra la prima card c'erano 8px dove ovunque altro ce ne
-          sono 6. Non si notava finché sotto l'header c'era un filo — la doppia
-          separazione mascherava il mezzo passo di troppo. Tolto il filo
-          (App.tsx), resta solo lo spazio, e lo spazio dev'essere quello giusto.
+          da 1 a 3 (COLUMN_GAP/2, per dare a righe e tessere lo STESSO passo).
 
           Derivato, non scritto: se COLUMN_GAP cambia, questo lo segue, e a
           tenere in riga la metà scritta in classe Tailwind (`my-[3px]`, che
           deve restare un letterale perché il JIT la trova nel sorgente) c'è
           `selectionStyles.test.ts`. */}
       <div
-        className="flex-1 min-h-0 overflow-y-auto sidebar-scroll"
-        style={{ paddingBlock: COLUMN_GAP / 2 }}
+        className="flex-1 min-h-0 overflow-y-auto sidebar-scroll sidebar-column"
+        style={{ paddingTop: 0, paddingBottom: COLUMN_GAP / 2 }}
         // IL GESTO INVERSO: una tessera lasciata sulla LISTA torna una riga.
         //
         // Sta qui, sul contenitore che scorre, e non su ogni vista: le viste

@@ -75,7 +75,15 @@ test.describe("sidebar progetto: la rail collassata", () => {
 
     // Allineamento con la tab bar accanto: stessa quota, si confrontano le
     // linee mediane.
-    const tabRow = win.locator(".chrome-glass.border-b").first();
+    //
+    // Era `.chrome-glass.border-b`, cioè «la riga di chrome che porta un filo
+    // sotto». Quel filo non c'è più: la barra delle tab è diventata un VETRO
+    // sopra la pane («rimuovere la linea sotto la tab bar … in modo da creare
+    // un effetto overlay», Attilio 08/08), e da allora questo test cercava un
+    // elemento che non esiste. Non era un difetto della rail: era un appiglio
+    // scaduto, e va detto — l'ho lasciato indietro io insieme all'overlay.
+    // Adesso l'appiglio è la classe che quella riga ha per definizione.
+    const tabRow = win.locator(".pane-chrome-bar").first();
     await expect(tabRow).toBeVisible();
     const tabBox = (await tabRow.boundingBox())!;
 
@@ -86,11 +94,14 @@ test.describe("sidebar progetto: la rail collassata", () => {
       `il bottone di espansione (centro ${btnCenter}) deve stare sulla mediana dei tab (${tabCenter})`,
     ).toBeLessThanOrEqual(1);
 
-    // I due bordi inferiori sulla stessa linea, o il taglio orizzontale della
-    // testata si vede spezzato.
+    // I due fondi sulla stessa linea, o il taglio orizzontale della testata si
+    // vede spezzato. Sono due righe di chrome alte 40 che partono dalla stessa
+    // quota: la rail il suo filo ce l'ha ancora, la barra delle tab no, e
+    // proprio per questo il confronto va fatto sulle SCATOLE — se una delle due
+    // scivolasse, il filo della rail finirebbe a mezz'aria accanto al nulla.
     expect(
       Math.abs((headerBox.y + headerBox.height) - (tabBox.y + tabBox.height)),
-      "il bordo della rail e quello della tab bar devono essere alla stessa quota",
+      "il fondo della rail e quello della tab bar devono essere alla stessa quota",
     ).toBeLessThanOrEqual(1);
 
     // La pastiglia git porta il numero delle modifiche.
