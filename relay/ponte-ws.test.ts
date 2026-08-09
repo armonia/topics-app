@@ -232,8 +232,13 @@ function scena(o: OpzioniScena = {}) {
   } as unknown as Parameters<typeof worker.fetch>[1];
 
   /** Un upgrade come lo manda un browser. Torna la risposta e, quando è
-   *  riuscito, la mezza socket che il ponte ha in mano. */
-  async function apri(percorso: string, intestazioni: Record<string, string> = {}) {
+   *  riuscito, la mezza socket che il ponte ha in mano. `segnale` è quello che
+   *  il runtime interrompe quando chi ha bussato se ne va prima della fine. */
+  async function apri(
+    percorso: string,
+    intestazioni: Record<string, string> = {},
+    segnale?: AbortSignal,
+  ) {
     const prima = meta.length;
     const res = await conPompa(worker.fetch(
       new Request(`https://relay.test${percorso}`, {
@@ -243,6 +248,7 @@ function scena(o: OpzioniScena = {}) {
           "sec-websocket-key": "chiave-del-browser",
           ...intestazioni,
         },
+        ...(segnale ? { signal: segnale } : {}),
       }),
       env,
     ));
@@ -610,6 +616,212 @@ describe("ponte-ws · quando il capo sparisce", () => {
     s.giu.grida("dopo lo sfratto");
     await s.finche(() => dopo.browser!.ricevuti.length === 1, "il messaggio al socket nuovo");
     expect(dopo.browser!.ricevuti).toEqual(["dopo lo sfratto"]);
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// LA VISITA DI UN BROWSER FINISCE, E FINISCE ANCHE DI LÀ
+// ───────────────────────────────────────────────────────────────────────────
+/**
+ * Una visita non è una richiesta: sono decine di richieste e più socket, tenuti
+ * insieme dalla stessa sessione del tubo verso la stessa macchina. Quindi ha
+ * anche una FINE, e la fine deve arrivare fino in fondo — nei due versi. Il
+ * caso che non si vede scrivendo il codice è quello in cui la fine capita
+ * mentre l'istanza è stata sfrattata dalla memoria: lì non c'è più nessun ponte
+ * a cui riferirla, e chi non la riceve resta acceso davanti a nessuno.
+ */
+describe("ponte-ws · la visita finisce, e la fine arriva fino in fondo", () => {
+  it("il browser se ne va dopo lo sfratto: di là il socket non resta acceso", async () => {
+    // Un terminale aperto da un telefono, il telefono che chiude la scheda, e
+    // in mezzo un'istanza sfrattata. La chiusura si dichiara sullo stream di
+    // quel filo, e quello stream se n'è andato con l'istanza: senza dire
+    // NIENT'ALTRO, di là resta un socket vero — un processo che scrive verso
+    // nessuno e che nessuno fermerà più.
+    const s = scena();
+    const { browser } = await s.apri("/i/inst-1/ws/terminal/t1");
+    await s.finche(() => s.giu.vivi() === 1, "la stretta di mano locale");
+
+    s.sfratta();
+    await s.chiudeIlBrowser(browser!, 1001, "scheda chiusa");
+
+    await s.finche(() => s.giu.vivi() === 0, "la chiusura fino all'ascoltatore");
+    expect(s.giu.vivi()).toBe(0);
+  });
+
+  it("una visita con DUE socket: se ne va il browser, non ne resta acceso nemmeno uno", async () => {
+    // Una visita non è un socket: sono l'applicazione, i terminali, i pannelli
+    // browser — tutti sulla stessa sessione del tubo. Il congedo di là li
+    // spegne tutti insieme, quindi di qua devono cadere tutti insieme: un
+    // socket che RICEVE e basta — un terminale che scrive da solo — non manda
+    // mai niente, e il controllo che chiude gli orfani che scrivono non lo
+    // toccherà mai. Resterebbe aperto e muto, che è il modo peggiore di
+    // guastarsi perché somiglia a funzionare.
+    const s = scena();
+    const a = await s.apri("/i/inst-1/ws/terminal/t1");
+    const b = await s.apri("/i/inst-1/ws/terminal/t2");
+    await s.finche(() => s.giu.vivi() === 2, "due strette di mano");
+
+    // Controllo POSITIVO del canale di osservazione: prima dello sfratto tutti
+    // e due sono socket veri e aperti, e la loro chiusura si vede da qui.
+    s.giu.grida("tutti e due");
+    await s.finche(
+      () => a.browser!.ricevuti.length === 1 && b.browser!.ricevuti.length === 1,
+      "il messaggio a tutti e due",
+    );
+    expect(a.browser!.chiusa).toBeNull();
+    expect(b.browser!.chiusa).toBeNull();
+
+    s.sfratta();
+    await s.chiudeIlBrowser(a.browser!, 1001, "scheda chiusa");
+    await s.finche(() => s.giu.vivi() === 0, "la chiusura fino all'ascoltatore");
+
+    // Di là il congedo ha spento tutti e due i fili. Di qua il FRATELLO deve
+    // saperlo, e con la stessa parola: chi sta davanti riapre invece di
+    // guardare qualcosa che non si aggiornerà mai più.
+    expect(b.browser!.chiusa).toEqual({ c: WS_PONTE_RIPARTITO, r: "relay bridge restarted" });
+  });
+
+  it("il socket NUOVO non muore per la chiusura tardiva di un orfano", async () => {
+    // L'istanza nuova nasce da un UPGRADE, senza nessuna richiesta in mezzo: la
+    // numerazione degli stream riparte da capo, quindi il socket nuovo prende
+    // lo stesso numero che l'orfano si porta addosso nel tag. Se il nome del
+    // filo non dice anche DA QUALE ponte viene, una chiusura vecchia arriva a
+    // un filo vivo e lo taglia.
+    const s = scena();
+    const vecchio = await s.apri("/i/inst-1/ws/terminal/t1");
+    await s.finche(() => s.giu.aperti.length === 1, "la prima stretta di mano");
+
+    s.sfratta();
+
+    const nuovo = await s.apri("/i/inst-1/ws/terminal/t2");
+    expect(nuovo.res.status).toBe(101);
+    await s.finche(() => s.giu.aperti.length === 2, "la stretta di mano del socket nuovo");
+    await s.finche(() => s.giu.vivi() === 1, "l'orfano spento e il nuovo vivo");
+
+    // …e solo ADESSO il runtime consegna la chiusura dell'orfano.
+    await s.chiudeIlBrowser(vecchio.browser!, 1006, "il filo era caduto");
+    for (let i = 0; i < 40; i++) await s.unGiro();
+
+    expect(s.giu.vivi()).toBe(1);
+    expect(nuovo.browser!.chiusa).toBeNull();
+
+    // Controllo POSITIVO: è ancora un socket vero, e porta nei due versi.
+    s.giu.grida("ancora vivo");
+    await s.finche(() => nuovo.browser!.ricevuti.length === 1, "il messaggio al socket nuovo");
+    expect(nuovo.browser!.ricevuti).toEqual(["ancora vivo"]);
+    await s.dalBrowser(nuovo.browser!, "e anche in su");
+    await s.finche(() => s.giu.ricevuti.includes("e anche in su"), "il messaggio verso l'alto");
+  });
+
+  it("il messaggio tardivo di un orfano non finisce sul socket nuovo", async () => {
+    // Il gemello del caso di sopra, dalla parte di chi SCRIVE: se il nome del
+    // filo non porta la generazione, un messaggio dell'orfano scende nel tubo
+    // sulla corsia del socket nuovo — cioè il terminale di prima che parla
+    // dentro il terminale di adesso.
+    const s = scena();
+    const vecchio = await s.apri("/i/inst-1/ws/terminal/t1");
+    await s.finche(() => s.giu.aperti.length === 1, "la prima stretta di mano");
+
+    s.sfratta();
+    const nuovo = await s.apri("/i/inst-1/ws/terminal/t2");
+    await s.finche(() => s.giu.aperti.length === 2, "la stretta di mano del socket nuovo");
+    await s.finche(() => s.giu.vivi() === 1, "l'orfano spento e il nuovo vivo");
+    const prima = s.giu.ricevuti.length;
+
+    await s.dalBrowser(vecchio.browser!, "roba di un'altra vita");
+    for (let i = 0; i < 40; i++) await s.unGiro();
+    expect(s.giu.ricevuti.length).toBe(prima);
+
+    // Controllo POSITIVO: dal socket NUOVO lo stesso giro arriva davvero, e
+    // quindi il silenzio di sopra non è il tubo che non porta niente.
+    await s.dalBrowser(nuovo.browser!, "questo invece sì");
+    await s.finche(() => s.giu.ricevuti.includes("questo invece sì"), "il messaggio del socket nuovo");
+  });
+
+  it("…e la visita DOPO riparte pulita", async () => {
+    // La contro-prova del congedo: dire alla macchina che la sessione del ponte
+    // è finita non deve rendere impossibile ricominciare. Senza questa, il
+    // rimedio potrebbe essere «chiudi tutto per sempre» e passerebbe lo stesso.
+    const s = scena();
+    const primo = await s.apri("/i/inst-1/ws/terminal/t1");
+    await s.finche(() => s.giu.vivi() === 1, "la prima stretta di mano");
+
+    s.sfratta();
+    await s.chiudeIlBrowser(primo.browser!, 1001, "scheda chiusa");
+    await s.finche(() => s.giu.vivi() === 0, "la chiusura fino all'ascoltatore");
+
+    const dopo = await s.apri("/i/inst-1/ws/terminal/t2");
+    expect(dopo.res.status).toBe(101);
+    await s.finche(() => s.giu.vivi() === 1, "la seconda stretta di mano");
+    s.giu.grida("dopo il congedo");
+    await s.finche(() => dopo.browser!.ricevuti.length === 1, "il messaggio al socket nuovo");
+    expect(dopo.browser!.ricevuti).toEqual(["dopo il congedo"]);
+  });
+
+  it("la macchina cade dopo lo sfratto: il browser non resta davanti a un filo morto", async () => {
+    // Il verso opposto, e lo stesso buco: quando la macchina se ne va, a
+    // chiudere i socket dei browser è il ponte — ma dopo uno sfratto il ponte
+    // non c'è, e nessuno li chiude. La scheda resta aperta su qualcosa che non
+    // si aggiornerà mai più, che è il modo peggiore di guastarsi perché
+    // somiglia a funzionare.
+    const s = scena();
+    const { browser } = await s.apri("/i/inst-1/ws");
+    await s.finche(() => s.giu.vivi() === 1, "la stretta di mano locale");
+
+    s.sfratta();
+    await s.chiudiMacchina();
+
+    expect(browser!.chiusa).toEqual({ c: WS_PONTE_GIU, r: "installation offline" });
+  });
+
+  it("la macchina viene SOSTITUITA dopo lo sfratto: i socket di prima non restano appesi a lei", async () => {
+    // Una macchina che si riaggancia — riavvio, rete che torna — sfratta quella
+    // di prima, e con lei se ne va la numerazione su cui vivevano questi
+    // socket: la macchina nuova ha un proxy pulito, che di loro non sa niente.
+    // È lo stesso buco della caduta, per una strada che nessuno chiude: qui il
+    // congedo della vecchia non passa nemmeno da `webSocketClose`.
+    const s = scena();
+    const { browser } = await s.apri("/i/inst-1/ws");
+    await s.finche(() => s.giu.vivi() === 1, "la stretta di mano locale");
+
+    s.sfratta();
+    const nuova = await s.apri("/agent/inst-1");
+    expect(nuova.res.status).toBe(101);
+
+    expect(browser!.chiusa).toEqual({ c: WS_PONTE_GIU, r: "installation offline" });
+  });
+
+  it("l'upgrade abbandonato non lascia un socket vero acceso di là", async () => {
+    // Chi ha bussato se n'è andato prima che la stretta di mano finisse. Senza
+    // dirlo, la macchina tiene aperto un socket vero fino alla scadenza —
+    // mezzo minuto di processo acceso per nessuno.
+    //
+    // Anche qui il segnale è costruito nel test e passato a mano: prova la
+    // reazione del ponte, non che la rinuncia lo raggiunga dopo il salto
+    // `env.SESSIONE.get(id).fetch(req)`. Quel tratto vive o muore su
+    // `request_signal_passthrough`, presidiato da `relay-contract.test.ts`.
+    const s = scena();
+
+    // Controllo POSITIVO: lo stesso percorso, senza rinuncia, apre davvero.
+    await s.apri("/i/inst-1/ws/terminal/t1");
+    await s.finche(() => s.giu.vivi() === 1, "la prima stretta di mano");
+
+    const andato = new AbortController();
+    andato.abort();
+    const { res } = await s.apri("/i/inst-1/ws/terminal/t2", {}, andato.signal);
+    expect(res.status).toBe(499);
+
+    // …e di là non se ne accende un secondo: quello vivo è ancora solo il
+    // primo, anche dopo aver lasciato scorrere il tubo.
+    for (let i = 0; i < 30; i++) await s.unGiro();
+    expect(s.giu.vivi()).toBe(1);
+    // I VIVI non bastano: contano anche le strette di mano AVVENUTE. Con la
+    // sola riga sopra, togliere la guardia in `ponte.ts` lasciava il test
+    // verde — perché a quel punto lo smontaggio aveva già chiuso il socket, e
+    // «uno vivo» tornava comunque. Ma di là una stretta di mano vera era
+    // partita per un browser che se n'era già andato: misurato, `aperti` va a
+    // 2. È la differenza fra aver pulito e non aver sporcato.
+    expect(s.giu.aperti.length, "nessuna stretta di mano per chi se n'è già andato").toBe(1);
   });
 });
 

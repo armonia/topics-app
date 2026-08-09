@@ -26,11 +26,23 @@ import {
   creaOspiteHttp, creaOspiteWs, creaRelayFinto,
   type AperturaWs, type RispostaTubo, type SocketOspite,
 } from "../../../shared/relay-fake";
-import { involucro, leggiMessaggio } from "../../../shared/relay-protocol";
+import { involucro, leggiFramePayload, leggiMessaggio, type FrameTubo } from "../../../shared/relay-protocol";
 import type { Intestazioni } from "../../../shared/relay-http";
 import { creaRelayClient } from "../../../server/services/relay-client";
+import {
+  creaPonte, macchinaSpenta, PERCORSO_PONTE, upgradeRifiutato, type SocketPonte,
+} from "../../../relay/src/ponte";
 
 const INSTALLAZIONE = "e2e-relay";
+
+/**
+ * L'origine su cui vive il relay in questi test.
+ *
+ * Serve perché il ponte parte da una `Request` VERA — quella che farebbe un
+ * telefono — e una `Request` senza origine non esiste. Il nome non risolve e
+ * non deve: nessuno lo apre davvero, il tubo lo prende da lì e basta.
+ */
+const ORIGINE_RELAY = "https://relay.esempio";
 
 /** Un filo che non è una rete: la stessa forma di `WebSocket` per i due soli
  *  versi che il client usa (mandare, e ricevere nel richiamo). */
@@ -61,6 +73,29 @@ export interface SocketRelay {
   attendi(p: (f: string) => boolean, ms?: number): Promise<boolean>;
 }
 
+/**
+ * Il socket di un BROWSER che è entrato dal ponte.
+ *
+ * È il capo che nel Worker vero il runtime regala a chi ha bussato: ciò che il
+ * ponte ci scrive sopra è ciò che la pagina riceve, e ciò che si manda di qui è
+ * ciò che la pagina invia.
+ */
+export interface SocketBrowser {
+  /** Lo stato della risposta all'upgrade: `101` quando è stato aperto, oppure
+   *  quello che il ponte fa leggere a chi ha bussato (`upgradeRifiutato`). */
+  stato: number;
+  /** I frame arrivati alla pagina, in ordine. */
+  frame: string[];
+  /** Un frame dalla pagina verso la macchina. `false` = questo socket qui non
+   *  esiste, che è ciò che nel Worker fa chiudere il filo. */
+  manda(dato: string | Uint8Array): boolean;
+  /** La pagina chiude. */
+  chiudi(codice?: number, motivo?: string): void;
+  /** Con che codice il ponte ha chiuso verso la pagina, quando l'ha fatto. */
+  chiusura: () => { c?: number; r?: string } | null;
+  attendi(p: (f: string) => boolean, ms?: number): Promise<boolean>;
+}
+
 export interface RelayE2E {
   /** Una richiesta HTTP che entra dal relay. */
   chiedi(
@@ -79,6 +114,28 @@ export interface RelayE2E {
   grezzi: string[];
   /** Quante sessioni ospiti tiene aperte la macchina. */
   sessioniHost: () => number;
+
+  // ── IL PONTE: dal browser, senza nessun client speciale ──────────────────
+  /** L'indirizzo di questa installazione sul relay: è quello che si scrive
+   *  nella barra. Da qui esce l'URL da cui parte una `Request` vera. */
+  indirizzo(percorso: string): string;
+  /**
+   * Una richiesta HTTPS normale, servita dal ponte.
+   *
+   * Entra una `Request` e esce una `Response` — nessuna delle due parla il
+   * protocollo del tubo, che è esattamente il punto: chi apre il link non ha
+   * niente di speciale in mano.
+   */
+  dalBrowser(req: Request): Promise<Response>;
+  /** Un upgrade WebSocket normale, servito dal ponte. */
+  socketDalBrowser(req: Request): Promise<SocketBrowser>;
+  /** I frame del TUBO passati sotto il ponte, nei due versi. Servono da
+   *  controllo positivo: senza, «il corpo è tornato intero» non direbbe se è
+   *  tornato in un pezzo solo o in dodici. */
+  framePonte: Array<{ verso: "chiede" | "risponde"; f: FrameTubo }>;
+  /** La macchina si scollega dal relay, come quando cade la rete di casa. */
+  spegniMacchina(): void;
+
   chiudi(): void;
 }
 
@@ -143,10 +200,130 @@ export function alzaRelayE2E(portaTunnel: number | null): RelayE2E {
     };
   }
 
+  // ── Il capo PONTE: quello del Worker, su questa sessione ──────────────────
+  //
+  // Uno solo per installazione, come in produzione: il ponte ha UN contatore di
+  // stream per HTTP e WebSocket insieme, quindi le due strade non si pestano i
+  // numeri e non serve una sessione a testa. È anche ciò che il Durable Object
+  // fa davvero (`ponteVivo()` in `relay-do.ts`), e tenerlo uguale è il motivo
+  // per cui questo test parla del prodotto e non di sé stesso.
+  const framePonte: Array<{ verso: "chiede" | "risponde"; f: FrameTubo }> = [];
+  let ponte: ReturnType<typeof creaPonte> | null = null;
+  let macchinaViva = true;
+
+  function ponteVivo(): ReturnType<typeof creaPonte> {
+    if (ponte) return ponte;
+    const versoHost = agganciaDispositivo((p) => {
+      const f = leggiFramePayload(p);
+      if (f) framePonte.push({ verso: "risponde", f });
+      ponte?.ricevi(p);
+    });
+    ponte = creaPonte({
+      invia: (p) => {
+        const f = leggiFramePayload(p);
+        if (f) framePonte.push({ verso: "chiede", f });
+        versoHost(p);
+      },
+    });
+    return ponte;
+  }
+
+  /**
+   * Da un URL al percorso che la macchina rigioca — le STESSE tre righe del
+   * Durable Object (`relay-do.ts`, ramo del ponte).
+   *
+   * Sono ricopiate e non importate perché lì stanno dentro `fetch()` di un
+   * oggetto che vuole il runtime di Cloudflare, e montarlo qui vorrebbe dire
+   * portarsi dietro `WebSocketPair` e l'ibernazione per provare una cosa che
+   * non le riguarda. Ciò che si sta provando sta sotto: il ponte, il tubo, la
+   * macchina e il server veri.
+   */
+  function instrada(url: string): { percorso: string; prefisso: string } | null {
+    const u = new URL(url);
+    const m = u.pathname.match(PERCORSO_PONTE);
+    if (!m) return null;
+    return {
+      percorso: `${m[2] && m[2].length > 0 ? m[2] : "/"}${u.search}`,
+      prefisso: `/i/${m[1]}`,
+    };
+  }
+
+  /** Il capo del browser, ridotto a ciò che il ponte gli fa. */
+  class CapoBrowser implements SocketPonte {
+    frame: string[] = [];
+    chiusa: { c?: number; r?: string } | null = null;
+    send(d: string | Uint8Array | ArrayBuffer): void {
+      if (this.chiusa) throw new Error("socket chiusa");
+      this.frame.push(typeof d === "string" ? d : new TextDecoder().decode(d as Uint8Array));
+    }
+    close(c?: number, r?: string): void { this.chiusa ??= { c, r }; }
+  }
+
   return {
     involucri,
     grezzi,
+    framePonte,
     sessioniHost: () => client.__sessioni(),
+
+    indirizzo: (percorso) => `${ORIGINE_RELAY}/i/${INSTALLAZIONE}${percorso}`,
+
+    async dalBrowser(req) {
+      const r = instrada(req.url);
+      // Un indirizzo che non è quello del ponte non è affar suo: nel Worker
+      // vero cade sulle altre porte, che vogliono tutte un upgrade.
+      if (!r) return new Response("upgrade websocket required\n", { status: 426 });
+      // Il cancello del Durable Object: senza macchina collegata non c'è
+      // niente a cui girare la domanda, e lo si DICE invece di aspettare che
+      // scada — mezzo minuto di scheda che gira per una cosa già nota.
+      if (!macchinaViva) return macchinaSpenta();
+      return ponteVivo().servi(req, r.percorso, r.prefisso);
+    },
+
+    async socketDalBrowser(req) {
+      const vuoto: SocketBrowser = {
+        stato: 426, frame: [],
+        manda: () => false, chiudi: () => {}, chiusura: () => null,
+        attendi: async () => false,
+      };
+      const r = instrada(req.url);
+      if (!r) return vuoto;
+      if (!macchinaViva) return { ...vuoto, stato: macchinaSpenta().status };
+
+      const p = ponteVivo();
+      const e = await p.apriWs(req, r.percorso);
+      if (!e.ok) return { ...vuoto, stato: upgradeRifiutato(e.stato).status };
+
+      const capo = new CapoBrowser();
+      p.collegaWs(e.sIn, capo);
+      daChiudere.push(() => p.chiudiWs(e.sIn, 1000, "fine del test"));
+
+      return {
+        stato: 101,
+        frame: capo.frame,
+        manda: (d) => p.messaggioWs(e.sIn, d),
+        chiudi: (c, m) => p.chiudiWs(e.sIn, c, m),
+        chiusura: () => capo.chiusa,
+        async attendi(pred, attesa = 10_000) {
+          const limite = Date.now() + attesa;
+          while (Date.now() < limite) {
+            if (capo.frame.some(pred)) return true;
+            await new Promise((res) => setTimeout(res, 25));
+          }
+          return capo.frame.some(pred);
+        },
+      };
+    },
+
+    spegniMacchina() {
+      if (!macchinaViva) return;
+      macchinaViva = false;
+      // Le stesse due mosse di `scollegaPonte()`: chi aspettava non aspetta
+      // più, e i socket vivi si chiudono dicendo perché. Senza, resterebbero
+      // aperti verso una macchina che non c'è — cioè somiglierebbero a
+      // funzionare.
+      ponte?.abbandona();
+      macchina.scollega();
+    },
 
     async chiedi(metodo, percorso, extra = {}) {
       let ospiteHttp: ReturnType<typeof creaOspiteHttp> | null = null;

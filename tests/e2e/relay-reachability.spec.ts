@@ -1,9 +1,11 @@
 import { test, expect } from "@playwright/test";
-import { E2E_BASE, E2E_WS_BASE, tunnelPortFor, E2E_PORT } from "./helpers/test-server";
+import { E2E_BASE, E2E_TUNNEL_BASE, E2E_WS_BASE, tunnelPortFor, E2E_PORT } from "./helpers/test-server";
 import { createTopic } from "./helpers/api-fixtures";
+import { seedMessage } from "./helpers/seed-messages";
 import { hermetic } from "./fixtures/hermetic";
 import { ospite, daOspite } from "./helpers/ospite";
 import { alzaRelayE2E, type RelayE2E } from "./helpers/relay-e2e";
+import { WS_PONTE_GIU } from "../../relay/src/ponte";
 import { SESSION_COOKIE } from "../../server/lib/device-auth";
 
 hermetic(test);
@@ -249,6 +251,262 @@ test.describe("Raggiungibilità dal relay · l'ospite resta l'ospite", () => {
     // …mentre chi non ha nulla in mano resta fuori — dallo stesso tubo.
     const senza = await relay.chiedi("GET", `/api/topics/${condivisa.id}/messages`);
     expect([401, 403]).toContain(senza.stato);
+  });
+});
+
+/**
+ * ── DAL BROWSER, SENZA NESSUN CLIENT SPECIALE ───────────────────────────────
+ *
+ * I quattro test qui sopra entrano nel tubo con un capo che il tubo lo sa
+ * parlare (`creaOspiteHttp`/`creaOspiteWs`). È la prova che il protocollo
+ * regge, e non è la prova che il prodotto sia RAGGIUNGIBILE: un telefono
+ * davanti a `relay.topics.armonia.io` non ha in mano nessun capo, ha una barra
+ * degli indirizzi. Finché la traduzione non esisteva, tutto ciò che è provato
+ * sopra non serviva a nessuno.
+ *
+ * Questi partono da una `Request` e finiscono in una `Response` — le due cose
+ * che un browser sa fare e le uniche che gli si possono chiedere. In mezzo c'è
+ * il PONTE del Worker (`relay/src/ponte.ts`), il relay finto che instrada e non
+ * capisce, il client della macchina che rigioca contro l'ascoltatore dedicato,
+ * e il server di test vero in fondo. Il Worker non si deploya: quello è un
+ * passo umano, separato.
+ */
+test.describe("Dal browser, per la porta d'ingresso", () => {
+  let relay: RelayE2E;
+
+  test.beforeEach(() => {
+    relay = alzaRelayE2E(tunnelPortFor(E2E_PORT));
+  });
+  test.afterEach(() => {
+    relay?.chiudi();
+  });
+
+  /** Una richiesta come la scriverebbe un telefono: un URL del relay, e basta. */
+  const dalTelefono = (percorso: string, extra: RequestInit = {}) =>
+    new Request(relay.indirizzo(percorso), extra);
+
+  test("RELAY-E2E-06: una GET normale torna 200 col corpo giusto, e l'ospite resta l'ospite", async ({ request }) => {
+    test.info().annotations.push({ type: "spec", description: "RELAY-E2E-06" });
+    const stamp = Date.now();
+    const condivisa = await createTopic(request, `E2E-Ponte-Vista-${stamp}`);
+    const nascosta = await createTopic(request, `E2E-Ponte-Nascosta-${stamp}`);
+    const { cookie, deviceId } = await ospite(request, `ponte-06-${stamp}`);
+    await request.post(`${E2E_BASE}/api/auth/shares`, {
+      data: { subjectType: "device", subjectId: deviceId, resourceType: "topic", resourceId: condivisa.id },
+    });
+
+    // 1. IL CONTROLLO POSITIVO, e insieme la cosa che mancava: una richiesta
+    //    HTTPS qualunque entra e ne esce una `Response` qualunque.
+    const res = await relay.dalBrowser(dalTelefono(`/api/topics/${condivisa.id}/messages`, {
+      headers: { cookie },
+    }));
+    expect(res.status, "una chat condivisa si legge dal ponte con una GET normale").toBe(200);
+
+    // 2. …e il corpo è QUELLO, non un corpo qualsiasi: si confronta con ciò che
+    //    lo stesso ospite otterrebbe bussando dritto alla porta del tunnel. È
+    //    la sola forma di «giusto» che non sia una ripetizione del codice.
+    const dritto = await request.get(`${E2E_TUNNEL_BASE}/api/topics/${condivisa.id}/messages`, {
+      headers: daOspite(cookie),
+    });
+    expect(dritto.status()).toBe(200);
+    const dalPonte = await res.text();
+    expect(dalPonte, "il corpo dal ponte deve essere identico a quello dalla porta").toBe(await dritto.text());
+    expect(() => JSON.parse(dalPonte) as unknown, "e deve restare JSON intero").not.toThrow();
+    expect(res.headers.get("content-type") ?? "", "anche le intestazioni tornano indietro").toContain("json");
+
+    // 3. E il CONFINAMENTO non cambia per essere passati dal ponte. Il peer che
+    //    la macchina vede è `127.0.0.1` — cioè questo è esattamente il caso in
+    //    cui un confine scritto male aprirebbe tutto.
+    const altrui = await relay.dalBrowser(dalTelefono(`/api/topics/${nascosta.id}/messages`, {
+      headers: { cookie },
+    }));
+    expect([403, 404], "una chat non condivisa resta chiusa anche dal ponte").toContain(altrui.status);
+
+    const lista = await relay.dalBrowser(dalTelefono("/api/topics", { headers: { cookie } }));
+    expect(lista.status, "dal ponte non si diventa il padrone di casa").toBe(403);
+
+    const nudo = await relay.dalBrowser(dalTelefono("/api/topics"));
+    expect(nudo.status, "senza identità, dal ponte, non si entra").toBe(401);
+
+    // 4. …e non si scrive. Il rifiuto va guardato anche dalla porta del
+    //    proprietario: un 403 su una scrittura già avvenuta sarebbe verde.
+    const patch = await relay.dalBrowser(dalTelefono(`/api/topics/${condivisa.id}`, {
+      method: "PATCH",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({ name: `E2E-Ponte-Rinominata-${stamp}` }),
+    }));
+    expect(patch.status, "PATCH dal ponte è rifiutata").toBe(403);
+
+    const creazione = await relay.dalBrowser(dalTelefono("/api/topics", {
+      method: "POST",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({ name: `E2E-Ponte-Abusiva-${stamp}` }),
+    }));
+    expect(creazione.status, "creare qualcosa di nuovo dal ponte è rifiutato").toBe(403);
+
+    const tutte = await request.get(`${E2E_BASE}/api/topics`);
+    const { topics } = (await tutte.json()) as { topics: Record<string, { name: string }> };
+    expect(topics[condivisa.id]?.name, "il nome della chat non deve essere cambiato").toBe(condivisa.name);
+    expect(
+      JSON.stringify(topics).includes(`E2E-Ponte-Abusiva-${stamp}`),
+      "e la chat che l'ospite ha provato a creare non deve esistere",
+    ).toBe(false);
+  });
+
+  test("RELAY-E2E-07: un corpo grande si spezza e torna intero", async ({ request }) => {
+    test.info().annotations.push({ type: "spec", description: "RELAY-E2E-07" });
+    const stamp = Date.now();
+    const condivisa = await createTopic(request, `E2E-Ponte-Grande-${stamp}`);
+    const { cookie, deviceId } = await ospite(request, `ponte-07-${stamp}`);
+    await request.post(`${E2E_BASE}/api/auth/shares`, {
+      data: { subjectType: "device", subjectId: deviceId, resourceType: "topic", resourceId: condivisa.id },
+    });
+
+    // La `sessionKey` è l'unico modo per seminare messaggi in quella chat, e
+    // si legge solo dalla porta del proprietario.
+    const elenco = await request.get(`${E2E_BASE}/api/topics`);
+    const { topics } = (await elenco.json()) as { topics: Record<string, { sessionKey?: string }> };
+    const sessionKey = topics[condivisa.id]?.sessionKey;
+    expect(sessionKey, "senza sessionKey non si può seminare il corpo grande").toBeTruthy();
+
+    // Un frame porta 96 KiB (`TUBO_BYTE_PER_FRAME`): tre messaggi da 120 KiB
+    // fanno un corpo che NON può tornare in un pezzo solo. I due estremi sono
+    // marcati, così «è tornato intero» non vuol dire «è tornato lungo uguale».
+    const PEZZA = "x".repeat(120 * 1024);
+    for (const dove of ["primo", "mezzo", "ultimo"]) {
+      await seedMessage(request, {
+        sessionKey: sessionKey!,
+        role: "assistant",
+        content: `[${dove}-${stamp}]${PEZZA}[fine-${dove}-${stamp}]`,
+      });
+    }
+
+    const res = await relay.dalBrowser(dalTelefono(`/api/topics/${condivisa.id}/messages`, {
+      headers: { cookie },
+    }));
+    expect(res.status).toBe(200);
+    const corpo = await res.text();
+
+    // CONTROLLO POSITIVO sul fatto che si sia DAVVERO spezzato. Senza, questo
+    // test resterebbe verde su un corpo da due righe e non proverebbe niente
+    // del riassemblaggio.
+    const pezzi = relay.framePonte.filter((x) => x.verso === "risponde" && x.f.f === "data");
+    expect(pezzi.length, "un corpo più grande di un frame deve arrivare a pezzi").toBeGreaterThan(1);
+
+    // …e rimesso insieme. Byte per byte con ciò che si ottiene dalla porta del
+    // tunnel: è l'unica definizione di «intero» che non ricopia il codice.
+    const dritto = await request.get(`${E2E_TUNNEL_BASE}/api/topics/${condivisa.id}/messages`, {
+      headers: daOspite(cookie),
+    });
+    expect(dritto.status()).toBe(200);
+    const atteso = await dritto.text();
+    expect(corpo.length, "la misura deve coincidere").toBe(atteso.length);
+    expect(corpo, "e il contenuto pure").toBe(atteso);
+    expect(corpo.includes(`[primo-${stamp}]`), "il primo pezzo deve esserci").toBe(true);
+    expect(corpo.includes(`[fine-ultimo-${stamp}]`), "e l'ultimo anche").toBe(true);
+    expect(corpo.length, "il corpo deve superare la misura di un frame").toBeGreaterThan(96 * 1024);
+  });
+
+  test("RELAY-E2E-08: un WebSocket aperto dal browser consegna nei due versi", async ({ request }) => {
+    test.info().annotations.push({ type: "spec", description: "RELAY-E2E-08" });
+    const stamp = Date.now();
+    const condivisa = await createTopic(request, `E2E-Ponte-WS-${stamp}`);
+    const nascosta = await createTopic(request, `E2E-Ponte-WS-Nascosta-${stamp}`);
+    const { cookie, deviceId } = await ospite(request, `ponte-08-${stamp}`);
+    await request.post(`${E2E_BASE}/api/auth/shares`, {
+      data: { subjectType: "device", subjectId: deviceId, resourceType: "topic", resourceId: condivisa.id },
+    });
+
+    const padrone = osservatorePadrone();
+    const sk = await relay.socketDalBrowser(dalTelefono("/ws", {
+      headers: { cookie, upgrade: "websocket", connection: "Upgrade" },
+    }));
+
+    try {
+      await padrone.pronto;
+
+      // 1. L'UPGRADE è andato a buon fine: `101` e non una pagina di guasto.
+      expect(sk.stato, "l'upgrade dal browser deve aprirsi").toBe(101);
+
+      // 2. MACCHINA → BROWSER. `welcome` è la stretta di mano dell'app, ed è
+      //    l'unico frame che arriva SEMPRE.
+      expect(
+        await sk.attendi((f) => f.includes('"welcome"')),
+        "un frame della macchina deve arrivare fino al browser",
+      ).toBe(true);
+
+      // 3. BROWSER → MACCHINA, e ritorno. `ping`/`pong` è il solo giro che
+      //    dipende da ciò che il browser manda e da nient'altro: se il verso
+      //    di andata non arrivasse, il `pong` non esisterebbe.
+      expect(sk.manda(JSON.stringify({ type: "ping" })), "il socket deve accettare il frame").toBe(true);
+      expect(
+        await sk.attendi((f) => f.includes('"pong"')),
+        "la risposta a ciò che il browser ha mandato deve tornare indietro",
+      ).toBe(true);
+
+      // 4. E il confinamento regge anche su questo socket: si muovono tutte e
+      //    due le chat, il proprietario da loopback DEVE vedere passare quella
+      //    nascosta (senza, il controllo dopo non prova niente) e il browser no.
+      for (const t of [condivisa, nascosta]) {
+        await request.patch(`${E2E_BASE}/api/topics/${t.id}`, { data: { name: `${t.name}-mossa` } });
+      }
+      expect(
+        await padrone.attendi((f) => f.includes(nascosta.id)),
+        "il proprietario da loopback deve vedere passare la chat nascosta",
+      ).toBe(true);
+      expect(
+        sk.frame.join("\n").includes(nascosta.id),
+        "l'id di una chat NON condivisa non deve comparire in nessun frame consegnato al browser",
+      ).toBe(false);
+    } finally {
+      padrone.chiudi();
+      sk.chiudi();
+    }
+  });
+
+  test("RELAY-E2E-09: senza macchina si risponde 503, non ci si appende", async ({ request }) => {
+    test.info().annotations.push({ type: "spec", description: "RELAY-E2E-09" });
+    const stamp = Date.now();
+    const condivisa = await createTopic(request, `E2E-Ponte-Spenta-${stamp}`);
+    const { cookie, deviceId } = await ospite(request, `ponte-09-${stamp}`);
+    await request.post(`${E2E_BASE}/api/auth/shares`, {
+      data: { subjectType: "device", subjectId: deviceId, resourceType: "topic", resourceId: condivisa.id },
+    });
+
+    // CONTROLLO POSITIVO: finché la macchina è collegata, la stessa identica
+    // richiesta torna 200. Senza, il 503 di dopo sarebbe indistinguibile da un
+    // ponte che non ha mai funzionato.
+    const prima = await relay.dalBrowser(dalTelefono(`/api/topics/${condivisa.id}/messages`, {
+      headers: { cookie },
+    }));
+    expect(prima.status, "con la macchina collegata si legge").toBe(200);
+
+    // …e un socket vivo, che dopo dovrà morire DICENDO perché.
+    const sk = await relay.socketDalBrowser(dalTelefono("/ws", {
+      headers: { cookie, upgrade: "websocket", connection: "Upgrade" },
+    }));
+    expect(sk.stato).toBe(101);
+    expect(await sk.attendi((f) => f.includes('"welcome"')), "il socket deve essere vivo davvero").toBe(true);
+    expect(sk.chiusura(), "e non ancora chiuso").toBeNull();
+
+    // Cade la rete di casa.
+    relay.spegniMacchina();
+
+    // 1. La richiesta nuova si RIFIUTA, e in fretta: la scadenza del ponte è
+    //    mezzo minuto, quindi «prima di cinque secondi» distingue una risposta
+    //    da un'attesa che finisce per scadenza.
+    const inizio = Date.now();
+    const dopo = await relay.dalBrowser(dalTelefono(`/api/topics/${condivisa.id}/messages`, {
+      headers: { cookie },
+    }));
+    expect(dopo.status, "senza macchina collegata si risponde 503").toBe(503);
+    expect(Date.now() - inizio, "e si risponde subito, invece di aspettare la scadenza").toBeLessThan(5_000);
+    expect(await dopo.text(), "con una frase che si legge, non con una pagina vuota").toContain("not connected");
+
+    // 2. …e il socket che era vivo si chiude DICENDO perché. Restare aperto
+    //    verso una macchina che non c'è più somiglia a funzionare, ed è il modo
+    //    peggiore di guastarsi.
+    expect(sk.chiusura()?.c, "il socket deve chiudersi col codice dell'installazione offline").toBe(WS_PONTE_GIU);
   });
 });
 
