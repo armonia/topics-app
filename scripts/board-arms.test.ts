@@ -76,6 +76,10 @@ describe("validazione del bundle", () => {
     baseTreeSha: "treesha-1",
     microTaskSha256: sha256(MICRO_TASK_TEXT),
     paired: true,
+    // Schema @2: l'effort e' per braccio, e `sameEffort` lo dichiara. Uno stub
+    // senza questi campi non e' "coerente": e' un bundle vecchio.
+    sameEffort: true,
+    effortByArm: { cli: "medium" },
     arms: [armStub()],
     replicates: [],
     summary: [{ arm: "cli", runs: 1 }],
