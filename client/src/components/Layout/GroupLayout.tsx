@@ -811,6 +811,19 @@ export function GroupLayout({
     return () => window.removeEventListener('topics:reset-split-layout', handler);
   }, [handleResetLayout]);
 
+  // CHI E' SUBORDINATO: TUTTA la prima riga, non solo il primo gruppo.
+  //
+  // La condizione era `rowIdx === 0 && gid === leadingGid`, cioe' la sola barra
+  // che ospita anche il blocco di testa. Sbagliata: in uno SPLIT i gruppi della
+  // prima riga stanno fianco a fianco alla STESSA quota, e una barra da 34
+  // accanto a una da 40 e' esattamente il disallineamento segnalato («in uno
+  // split progetto la seconda tabbar esce disallineata», Attilio 09/08).
+  // Lo slot di testa resta invece del solo primo gruppo: il progetto e' uno.
+  //
+  // Dalla riga 1 in giu' si torna a 40, e non e' un'eccezione: sopra quelle
+  // barre c'e' un DIVISORE, non una riga di chrome — l'aria in cima non l'ha
+  // messa nessuno, quindi va messa da loro.
+  //
   // La riga di chrome subordinata, e la variabile che la accompagna. Vanno
   // SEMPRE insieme: `--chrome-bar-h` alimenta il rientro delle celle e il varco
   // in cima alla conversazione, quindi una barra a 34 con la variabile a 40
@@ -907,14 +920,14 @@ export function GroupLayout({
     // (handleSplitGroup used to just console.warn).
     const groupCanSplit = canSplitPane({ surface: 'project', groupSize: group.paneIds.length });
     return (
-      <div data-split-card className={`relative flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden ${cardVar(rowIdx === 0 && gid === leadingGid).className}`} style={cardVar(rowIdx === 0 && gid === leadingGid).style}>
+      <div data-split-card className={`relative flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden ${cardVar(rowIdx === 0).className}`} style={cardVar(rowIdx === 0).style}>
         {/* Per-group tab bar — h-10 to match the project sidebar header
             and the StandaloneChatGroup header (consistent chrome row). */}
-        <div className={barraSub(rowIdx === 0 && gid === leadingGid)} onDragOverCapture={handleTabBarDragOver(gid)}>
+        <div className={barraSub(rowIdx === 0)} onDragOverCapture={handleTabBarDragOver(gid)}>
           {leadingSlot && gid === leadingGid && <LeadingSlot node={leadingSlot} />}
           <div className="flex-1 flex items-center min-w-0 overflow-hidden">
           <PaneTabBar
-            subordinate={subordinate && rowIdx === 0 && gid === leadingGid}
+            subordinate={subordinate && rowIdx === 0}
             panes={groupPanes}
             activePaneId={group.activePaneId}
             groupIsFocused={isFocusedGroup}

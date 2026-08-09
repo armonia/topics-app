@@ -171,6 +171,44 @@ test.describe("La riga di chrome subordinata", () => {
     expect(t.dallAppTab, "dalla tab dell'app alla tab del progetto passa un passo").toBe(PASSO);
   });
 
+  test("SUB-4: in uno SPLIT le barre della stessa riga sono allineate", async ({ page, request }) => {
+    // La condizione era «la prima riga E il primo gruppo», cioè la sola barra
+    // che ospita anche il blocco di testa. In uno split i gruppi della prima
+    // riga stanno fianco a fianco alla STESSA quota: una barra da 34 accanto a
+    // una da 40 è il disallineamento segnalato («in uno split progetto la
+    // seconda tabbar esce disallineata», Attilio 09/08). Misurato prima del
+    // rimedio: seconda barra h=40 e tab a y=46 contro h=34 e tab a y=40.
+    await page.setViewportSize({ width: 1500, height: 950 });
+    await apri(page, request, "-d");
+    const win = page.locator('[data-testid="project-window"]');
+
+    // Due pane, o non c'è niente da dividere.
+    for (let i = 0; i < 2; i++) {
+      await win.locator('[data-testid="pane-add-menu-trigger"]').last().click();
+      await page.getByRole("menuitem").filter({ hasText: /^Chat/ }).first().click();
+      await expect(win.locator(".pane-chrome-bar [data-pane-id]")).toHaveCount(i + 1, { timeout: 15000 });
+    }
+    await win.locator(".pane-chrome-bar [data-pane-id]").first().click({ button: "right" });
+    await page.getByText("Dividi a destra", { exact: true }).click();
+    await expect(win.locator(".pane-chrome-bar")).toHaveCount(2, { timeout: 15000 });
+
+    const barre = await win.locator(".pane-chrome-bar").evaluateAll((els) =>
+      els.map((b) => {
+        const r = b.getBoundingClientRect();
+        const t = b.querySelector("[data-pane-id]")?.getBoundingClientRect();
+        return { y: Math.round(r.y), h: Math.round(r.height), tabY: t ? Math.round(t.y) : null };
+      }),
+    );
+    // Si confrontano FRA LORO, non con 34: quello che conta è che siano
+    // uguali, qualunque numero il breakpoint imponga.
+    const prima = barre[0];
+    for (const b of barre.slice(1)) {
+      expect(b.h, `altezze delle barre affiancate: ${JSON.stringify(barre)}`).toBe(prima.h);
+      expect(b.y, "e partono dalla stessa quota").toBe(prima.y);
+      expect(b.tabY, "e le loro tab cadono sulla stessa riga").toBe(prima.tabY);
+    }
+  });
+
   test("SUB-3: col dito la riga NON si stringe, e il varco resta quello della riga", async ({ page, request }) => {
     // 36 (tab touch) non sta in 34, e là l'aria è già 2 per lato: non c'è niente
     // da togliere. Si verifica l'INVARIANTE, non il numero: il varco fra le due
