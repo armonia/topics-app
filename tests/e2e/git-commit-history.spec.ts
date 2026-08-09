@@ -233,13 +233,17 @@ test.describe("cronologia dei commit", () => {
     // Processi non sono colorate: il confronto e' con loro, non con un valore
     // scritto a mano.
     const colori = await win.evaluate((root: HTMLElement) => {
-      const iconaDi = (etichetta: string) => {
-        const riga = [...root.querySelectorAll("div")]
-          .find(d => d.className.includes("h-8") && (d.textContent || "").trim().startsWith(etichetta));
+      // PER TESTID, non per classe di layout. Cercava `className.includes("h-8")`,
+      // cioe' l'altezza che quelle intestazioni avevano: da quando sono card
+      // (`h-9 md:h-7`, vedi SECTION_CARD) quel filtro non trova piu' niente e
+      // il test e' andato rosso su un cambio di GEOMETRIA mentre credeva di
+      // parlare di COLORI. I testid ci sono gia' e non si muovono con lo stile.
+      const iconaDi = (testid: string) => {
+        const riga = root.querySelector(`[data-testid="project-sidebar-${testid}"]`);
         const svg = riga?.querySelector("svg");
         return svg ? getComputedStyle(svg).color : null;
       };
-      return { git: iconaDi("Git"), file: iconaDi("File"), processi: iconaDi("Processi") };
+      return { git: iconaDi("git"), file: iconaDi("files"), processi: iconaDi("processes") };
     });
     expect(colori.git).not.toBeNull();
     expect(colori.git).toBe(colori.file ?? colori.processi);

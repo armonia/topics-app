@@ -26,7 +26,7 @@ import { useLongPress, openContextMenuAt } from '../../hooks/useLongPress';
 import { useHoverReveal } from '../../hooks/useHoverReveal';
 import { useMobile } from '../../hooks/useMobile';
 import { ConfirmDialog } from '../Shared/ConfirmDialog';
-import { SELECTED_SURFACE, SELECTED_SURFACE_SOFT } from '@/lib/selectionStyles';
+import { SECTION_CARD, SELECTED_SURFACE, SELECTED_SURFACE_SOFT } from '@/lib/selectionStyles';
 import { Spinner } from '../Shared/Spinner';
 
 interface GitChangesProps {
@@ -916,7 +916,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
           data-testid="project-sidebar-git"
           role="button"
           aria-expanded={expanded}
-          className="w-full flex items-center h-8 px-3 text-[12px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0 cursor-pointer select-none group/git"
+          className={`${SECTION_CARD} group/git`}
         >
           {/* Left: icon + label + chevron.
               `min-w-0` e non `flex-shrink-0`: con tutt'e due i gruppi
@@ -1904,7 +1904,7 @@ function CompactFileList({
     switch (item.type) {
       case 'conflicted-header':
         return (
-          <div className="border-t border-app-border">
+          <div>
             <div className="flex items-center gap-1.5 px-3 py-1 select-none">
               <AlertCircle size={11} className="text-red-500 flex-shrink-0" />
               <span className="text-[11px] font-medium text-red-600 dark:text-red-400 uppercase tracking-wider">
@@ -1915,7 +1915,7 @@ function CompactFileList({
         );
       case 'staged-header':
         return (
-          <div className="border-t border-app-border">
+          <div>
             <div className="flex items-center justify-between px-3 py-1 group/hdr select-none">
               <button
                 onClick={onToggleStaged}
@@ -1936,7 +1936,7 @@ function CompactFileList({
         );
       case 'unstaged-header':
         return (
-          <div className="border-t border-app-border">
+          <div>
             <div className="flex items-center justify-between px-3 py-1 group/hdr select-none">
               <button
                 onClick={onToggleUnstaged}

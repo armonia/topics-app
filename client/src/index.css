@@ -500,8 +500,7 @@
  * stessi numeri, o il terziario e i capelli tornano sotto soglia esattamente
  * come erano tornati qui. */
 [role="navigation"][aria-label="Topics sidebar"],
-[data-testid="project-sidebar"],
-[data-testid="project-sidebar-rail"] {
+[data-testid="project-sidebar"] {
   --text-tertiary: hsl(220 2.8% 42%);
   --border: hsl(220 4.9% 84%);
   --border-subtle: hsl(220 4.9% 88%);
@@ -511,8 +510,7 @@
    scuro erediterebbe i valori CHIARI dentro la sidebar. I valori sono quelli
    di `.dark`, ripetuti solo per rivincere. */
 .dark [role="navigation"][aria-label="Topics sidebar"],
-.dark [data-testid="project-sidebar"],
-.dark [data-testid="project-sidebar-rail"] {
+.dark [data-testid="project-sidebar"] {
   --text-tertiary: #969ca6;
   --border: hsl(220 3.8% 18%);
   --border-subtle: hsl(220 4.2% 15%);
@@ -678,8 +676,7 @@
  * Solo la proprietà `color`: `bg-primary` resta #0066ff, perché lì il problema
  * è il bianco SOPRA e su un blu più scuro migliora, non peggiora. */
 html:not(.dark) [role="navigation"][aria-label="Topics sidebar"] .text-primary,
-html:not(.dark) [data-testid="project-sidebar"] .text-primary,
-html:not(.dark) [data-testid="project-sidebar-rail"] .text-primary {
+html:not(.dark) [data-testid="project-sidebar"] .text-primary {
   color: var(--primary-ink-chrome);
 }
 
