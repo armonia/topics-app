@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "generatedBy": "scripts/board-cases.ts --emit-cases",
-  "generatedAt": "2026-08-09T20:18:37.943Z",
+  "generatedAt": "2026-08-09T20:33:43.562Z",
   "humanActionDefinition": "un gesto discreto e indivisibile: un click, oppure un invio di testo (digitare + Invio = 1). Leggere e scorrere non contano; i gesti di NAVIGAZIONE necessari a raggiungere il controllo sì.",
   "fingerprint": {
     "algo": "sha256",
@@ -24,12 +24,12 @@
       "client/src/components/Board/useTaskBrowserGroupLayout.tsx": "5f268c60f0e812ce1495931b53caeb8278e6f6e7cbe791c7eb5944e9a916c16a",
       "scripts/board-cases.ts": "9bdcb3268d9688003637a7aee794e3e835cdb2daa328c44fd8bbfa19ea7694a9",
       "scripts/start-prod.sh": "f6ee8ecf842fad694127a4b3571c339f7ae7b6ee7a449caefb691520762541eb",
-      "server/lib/ask-user-bridge.ts": "281f74cf982506b14dffe65d977a076dd22f7c0b3939b4de29927c63f882d82b",
+      "server/lib/ask-user-bridge.ts": "ecd2323a1dd4620b2e44d9faa565fbc4160c733a7a4cb68c15259ec099462fbb",
       "server/lib/autonomy-mode.ts": "2a8fc2245ee2213bb3d3ec4cd2802ae25970b6332fd3262712ed36cca2b8816b",
       "server/lib/human-hold.test.ts": "fc30aa05aa64cf02c927a55f0eee4212b675e08baf605cc0550582218d43429b",
       "server/lib/human-hold.ts": "18e85ecaccc22b35d24798b1bef72923ac2b50faaf1d8634b9c9d75d886e5c5c",
       "server/lib/permission-bridge.test.ts": "79ed40f5cdb26d7e7f26012c9089b7db77cb8a6a8d316e2c229c8bc0c532ee8b",
-      "server/lib/permission-bridge.ts": "c4fa1241bce2d058b8c5f6f06d93ecc612fbddb2f24629001f8c23731aa611de",
+      "server/lib/permission-bridge.ts": "3ee1995647947abc1f8989982d7bbb8990d9f35300f0464ad62f7c7eaecab14c",
       "server/lib/plan-approval.test.ts": "f760c59fb5a65529b8420426a0cf8b5e77dfbd0ef4cbc120eac87c92a4ee78bc",
       "server/lib/plan-approval.ts": "6bd70d1d3b0675cbefc8e404625df99013355238a8e64acdbf120f0daab7bfdb",
       "server/lib/turn-deadline.ts": "659f98976a3784af3b19f3bcf30f96d80da51b53cd7ae907eb29598aa2fbfb0f",
@@ -46,8 +46,8 @@
       "server/routes/tasks.test.ts": "e7d0fe25108fb8ca0481ed2ba2dc582a023f21449c4d9b5e29fbcd3547c25bfa",
       "server/routes/tasks.ts": "eea8b7d4ce068a0bcdfee30498d9fcfb14af0de9c055bfe15e25b143acf5fcbd",
       "server/routes/topics.ts": "b1ac3f50145ce76af18bfde6c9c80f23692416d97faee4432efc2bf6ea4b855a",
-      "server/services/task-dispatcher.test.ts": "edbe34bd676a7d5d55cee3d30713a77f2eb329e4521466a48274f8942f9dce53",
-      "server/services/task-dispatcher.ts": "dce152a6c0d450b0f05cd7efbd40c7d83dc73c2d21a8b654a4d9c78b815187a3",
+      "server/services/task-dispatcher.test.ts": "e6b1585721786db8524269fe5e6c341c20784fab7ced33bef8faff48c63d68f8",
+      "server/services/task-dispatcher.ts": "0802d8c9c3e70f601cffbee6f3296df69e1526ebf6f4036bf1cd8b7952e2672b",
       "server/services/tasks.ts": "efe4db98c3eaec4d9d48651ef17bcca1cd19eeeb94902c6059ac3646ab980503",
       "server/services/transcript-usage.ts": "9ae1b6c15f7162f81eb4d12b23453a60e9ac22b5dd26173faedc093554aa38a8"
     }
@@ -162,7 +162,7 @@
         "cmd": "bun scripts/board-cases.ts --case 8",
         "exitCode": 0,
         "expectExit": 0,
-        "output": "7 prove eseguite (7 verdi, 0 rosse), 0 saltate\n✓ [bun-test] un riavvio NON è un fallimento: l'orfano si rimette sempre in coda, il tentativo si rimborsa — bun test server/services/task-dispatcher.test.ts -t \"ALWAYS requeues a restart orphan\" → 1 pass, 0 fail (exit 0)\n✓ [bun-test] l'orfano che stava lavorando RIPRENDE sulla sua sessione, senza requeue e senza bruciare un tentativo — bun test server/services/task-dispatcher.test.ts -t \"RESUMES a working restart-orphan on its own session\" → 1 pass, 0 fail (exit 0)\n✓ [bun-test] se una sessione del broker è sopravvissuta al riavvio, si RIATTACCA in place — bun test server/services/task-dispatcher.test.ts -t \"REATTACHES in place\" → 1 pass, 0 fail (exit 0)\n✓ [bun-test] sotto il poll il giro è idempotente: un turno ripreso non viene doppiato — bun test server/services/task-dispatcher.test.ts -t \"reconcile is idempotent under the poll\" → 1 pass, 0 fail (exit 0)\n✓ [bun-test] se il topic è morto durante il buio, si ri-dispaccia da capo — bun test server/services/task-dispatcher.test.ts -t \"whose topic died during the downtime\" → 1 pass, 0 fail (exit 0)\n✓ [probe] il cancello del reload esiste, è eseguibile e ADESSO dice verde sull'albero di HEAD — probe: scripts/server-reload-gate.sh (eseguito) → exit 0 in 37ms\n✓ [source] il watcher di produzione passa dal cancello prima di segare il server che sta lavorando — grep-assert scripts/start-prod.sh → scripts/server-reload-gate.sh precede kill -TERM \"$SP\""
+        "output": "7 prove eseguite (7 verdi, 0 rosse), 0 saltate\n✓ [bun-test] un riavvio NON è un fallimento: l'orfano si rimette sempre in coda, il tentativo si rimborsa — bun test server/services/task-dispatcher.test.ts -t \"ALWAYS requeues a restart orphan\" → 1 pass, 0 fail (exit 0)\n✓ [bun-test] l'orfano che stava lavorando RIPRENDE sulla sua sessione, senza requeue e senza bruciare un tentativo — bun test server/services/task-dispatcher.test.ts -t \"RESUMES a working restart-orphan on its own session\" → 1 pass, 0 fail (exit 0)\n✓ [bun-test] se una sessione del broker è sopravvissuta al riavvio, si RIATTACCA in place — bun test server/services/task-dispatcher.test.ts -t \"REATTACHES in place\" → 1 pass, 0 fail (exit 0)\n✓ [bun-test] sotto il poll il giro è idempotente: un turno ripreso non viene doppiato — bun test server/services/task-dispatcher.test.ts -t \"reconcile is idempotent under the poll\" → 1 pass, 0 fail (exit 0)\n✓ [bun-test] se il topic è morto durante il buio, si ri-dispaccia da capo — bun test server/services/task-dispatcher.test.ts -t \"whose topic died during the downtime\" → 1 pass, 0 fail (exit 0)\n✓ [probe] il cancello del reload esiste, è eseguibile e ADESSO dice verde sull'albero di HEAD — probe: scripts/server-reload-gate.sh (eseguito) → exit 0 in 33ms\n✓ [source] il watcher di produzione passa dal cancello prima di segare il server che sta lavorando — grep-assert scripts/start-prod.sh → scripts/server-reload-gate.sh precede kill -TERM \"$SP\""
       }
     },
     {

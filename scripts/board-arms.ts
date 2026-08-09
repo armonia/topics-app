@@ -720,9 +720,17 @@ function probeDelivery(sandbox: string, baseSha: string): DeliveryEvidence {
   };
 }
 
-function runArm(arm: ArmId, runDir: string, preamble: string): ArmMeasurement {
+/**
+ * `baseRef` esiste per un errore che ho fatto davvero: aggiungere un braccio a
+ * una campagna già fatta usando il default `HEAD`. Nel frattempo HEAD si era
+ * mosso di due commit, e la corsa nuova partiva da un albero DIVERSO da quello
+ * degli altri tre — un confronto nullo travestito da numero. L'ha beccato il
+ * validatore (`baseTreeSha dichiarato … ma 1 corse hanno un sandboxTreeSha
+ * diverso`), non io. Chi allunga una campagna deve poter dire da dove.
+ */
+function runArm(arm: ArmId, runDir: string, preamble: string, baseRef = "HEAD"): ArmMeasurement {
   const sandboxRoot = join(runDir, arm);
-  const { dir, treeSha, baseSha } = makeSandbox(sandboxRoot);
+  const { dir, treeSha, baseSha } = makeSandbox(sandboxRoot, baseRef);
   const plan = planFor(arm, runDir, preamble);
 
   const effort = effortFor(arm);
@@ -1073,7 +1081,7 @@ if (import.meta.main) {
     const runDir = resolve(flag("run-dir") ?? ".");
     const preamble = readFileSync(resolve(flag("preamble") ?? "preamble.txt"), "utf8");
     mkdirSync(runDir, { recursive: true });
-    const m = runArm(arm, runDir, preamble);
+    const m = runArm(arm, runDir, preamble, flag("base") ?? "HEAD");
     const out = resolve(flag("out") ?? join(runDir, `${arm}.json`));
     writeFileSync(out, JSON.stringify(m, null, 2) + "\n");
     console.log(`${arm}: work ${m.usage.workTokens} · cache-read ${m.usage.cacheReadTokens} · $${m.costUsd.toFixed(2)} · ${(m.wallClockMs / 1000).toFixed(0)}s · consegnato=${m.delivered} → ${out}`);

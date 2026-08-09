@@ -1,12 +1,18 @@
 {
-  "schema": "board-vs-chat/arms@1",
-  "generatedAt": "2026-08-09T19:24:12.583Z",
+  "schema": "board-vs-chat/arms@2",
+  "generatedAt": "2026-08-09T20:33:06.859Z",
   "baseCommit": "d760d7332c31ae717ff29f6ca1ed379aabd0125d",
+  "baseTreeSha": "db608ba9502ff4f4d203a43dd282d2f4cbd4c371",
   "microTaskId": "token-live-json",
   "microTaskSha256": "6eaa689221ad637f3bbe71a3c0de6c50a13914fa4f9db747184de5dd8402b5b9",
   "microTaskText": "Aggiungi l'opzione `--json` a `scripts/token-live.ts`.\n\nCon `--json` lo script deve stampare su stdout UN SOLO oggetto JSON valido, e nient'altro:\nnessun colore ANSI, nessuna intestazione di tabella, nessuna riga di legenda. I dati sono\ngli STESSI che già stampa nella tabella — una voce per chat, con nome, fase, contesto\ndell'ultima chiamata, dimensione della finestra, token letti, costo in dollari, numero di\npreamboli e numero di chiamate. Senza `--json` il comportamento attuale non cambia.\n\nAggiungi un test in `scripts/token-live.test.ts` che verifica che `--json` produca un JSON\nparsabile con i campi attesi. Il test deve passare con `bun test scripts/token-live.test.ts`.\n\nNota: in questa working directory non c'è `data/topics.db`; lo script accetta `DATA_DIR`.",
   "model": "claude-opus-5[1m]",
-  "effort": "medium",
+  "effortByArm": {
+    "cli": "medium",
+    "chat": "medium",
+    "board-sim": "medium"
+  },
+  "sameEffort": true,
   "contextPreambleChars": 16940,
   "contextPreambleSha256": "6a0fc67996e057c5e1d9ed1405a679cb77a4ce112363731926d79eabde5d156b",
   "contextPreambleSource": "GET https://localhost:3333/api/topics/8d37839c-c4a7-4e52-aa28-ff2317b70122/context-preview?provider=claude-code — i systemBlocks abilitati, uniti come fa server/context/adapt.ts (`\\n\\n---\\n\\n`). Sola lettura.",
@@ -578,9 +584,9 @@
   ],
   "paired": true,
   "pairingNotes": [
-    "Stesso albero di partenza (db608ba9502ff4f4d203a43dd282d2f4cbd4c371), stesso modello (claude-opus-5[1m]), stesso effort (medium), stesso testo del micro-task.",
-    "3 terne, 9 corse in tutto, eseguite in SEQUENZA (mai in parallelo: il wall-clock di corse concorrenti non è confrontabile).",
+    "Stesso albero di partenza (db608ba9502ff4f4d203a43dd282d2f4cbd4c371), stesso modello (claude-opus-5[1m]), stesso testo del micro-task.",
+    "3 tornate, 9 corse in tutto, eseguite in SEQUENZA (mai in parallelo: il wall-clock di corse concorrenti non è confrontabile).",
+    "HEAD del repo è a2c87b26 al momento della raccolta, ma le misure vengono da d760d733: su questo repo lavorano più sessioni e HEAD si è mosso durante la campagna. L'ancora del confronto è il tree sha, verificato rimaterializzando l'archive del commit.",
     "baseTreeSha db608ba9502ff4f4d203a43dd282d2f4cbd4c371 è il tree delle SANDBOX, non un oggetto di questo repo: `git cat-file -t db608ba9502f` fallisce per costruzione, e `git rev-parse d760d733^{tree}` dà un numero diverso. La ricetta è `git archive <baseCommit> | tar -x` + `git init && git add -A && git commit`: il tree che ne esce è quello del repo ricostruito. Il CONTENUTO è quello di baseCommit — `verifyBaseCommit` rimaterializza l'archive con la stessa ricetta e pretende lo stesso numero — quindi `git checkout d760d733` restituisce l'albero misurato. Non è uno snapshot di working tree sporca."
-  ],
-  "baseTreeSha": "db608ba9502ff4f4d203a43dd282d2f4cbd4c371"
+  ]
 }

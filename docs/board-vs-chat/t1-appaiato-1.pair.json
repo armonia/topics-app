@@ -5,7 +5,7 @@
   "replicatesTotal": 3,
   "armsBundle": "scripts/board-vs-chat.arms.json",
   "work": "t1 — Aggiungi l'opzione `--json` a `scripts/token-live.ts`.\n\nCon `--json` lo script deve stampare su stdout UN SOLO oggetto JSON valido, e nient'altro:\nnessun colore ANSI, nessuna intestazione di tabella, nessuna riga di legenda. I dati sono\ngli STESSI che già stampa nella tabella — una voce per chat, con nome, fase, contesto\ndell'ultima chiamata, dimensione della finestra, token letti, costo in dollari, numero di\npreamboli e numero di chiamate. Senza `--json` il comportamento attuale non cambia.\n\nAggiungi un test in `scripts/token-live.test.ts` che verifica che `--json` produca un JSON\nparsabile con i campi attesi. Il test deve passare con `bun test scripts/token-live.test.ts`.\n\nNota: in questa working directory non c'è `data/topics.db`; lo script accetta `DATA_DIR`.",
-  "generatedAt": "2026-08-09T19:24:12.583Z",
+  "generatedAt": "2026-08-09T20:33:06.859Z",
   "runs": [
     {
       "arm": "cli",
