@@ -2045,21 +2045,62 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   // SOLO se è ancora bianco: una parola scritta, un file allegato o
   // un'immagine incollata lo rendono tuo, e da quel momento non se ne va più
   // da solo (`state/draftPane.ts` è l'unico posto dove «vuota» è definita).
+  // «Ha perso il fuoco» non basta a dire che l'hai lasciata. Il fuoco di una
+  // pane appena nata RIMBALZA: React lo mette sulla bozza, il ponte
+  // store→React rimanda indietro quello vecchio dello store, e un istante dopo
+  // torna sulla bozza. Chiudere sul primo di quei fotogrammi vuol dire chiudere
+  // la chat che l'utente ha appena aperto — «mi si apre al volo ma poi mi si
+  // chiude subito». Due guardie, e nessuna delle due indovina:
+  //   • la chiusura è DIFFERITA: se il fuoco torna sulla bozza entro la
+  //     finestra, si annulla e non è successo niente;
+  //   • una bozza che non ha mai avuto il fuoco per almeno mezzo secondo non
+  //     è mai stata guardata, quindi non può essere stata lasciata.
+  const DRAFT_CLOSE_DELAY_MS = 400;
+  const DRAFT_MIN_LOOKED_AT_MS = 500;
   const prevFocusedForDraftRef = useRef<string | null>(focusedPanelId);
+  const draftFocusedAtRef = useRef<Map<string, number>>(new Map());
+  const pendingDraftCloseRef = useRef<{ id: string; timer: ReturnType<typeof setTimeout> } | null>(null);
   useEffect(() => {
     const prev = prevFocusedForDraftRef.current;
     prevFocusedForDraftRef.current = focusedPanelId;
+
+    if (focusedPanelId && isDraftPaneId(focusedPanelId) && !draftFocusedAtRef.current.has(focusedPanelId)) {
+      draftFocusedAtRef.current.set(focusedPanelId, Date.now());
+    }
+    // È tornata davanti mentre la chiusura era in volo: annullala.
+    const pending = pendingDraftCloseRef.current;
+    if (pending && pending.id === focusedPanelId) {
+      clearTimeout(pending.timer);
+      pendingDraftCloseRef.current = null;
+    }
+
     if (!prev || prev === focusedPanelId) return;
     if (!isDraftPaneId(prev)) return;
-    // Già promossa (l'id è cambiato sotto) o già chiusa: niente da fare.
-    if (!openPanelsRef.current.includes(prev)) return;
-    if (!isDraftPaneEmpty(prev)) return;
-    forgetDraft(prev);
-    // `silent`: la chiusura non l'hai chiesta tu, quindi non deve finire nella
-    // pila dell'annulla — ⌘Z deve disfare l'ultima cosa che hai FATTO, non
-    // riportare indietro un foglio bianco che avevi lasciato.
-    handleClosePanelRef.current(prev, { silent: true });
-  }, [focusedPanelId, openPanelsRef]);
+    if (pendingDraftCloseRef.current?.id === prev) return;
+    const since = draftFocusedAtRef.current.get(prev);
+    if (since === undefined || Date.now() - since < DRAFT_MIN_LOOKED_AT_MS) return;
+
+    const timer = setTimeout(() => {
+      pendingDraftCloseRef.current = null;
+      // Rileggere TUTTO allo scadere, non fidarsi della fotografia: nel
+      // frattempo la bozza può essere tornata davanti, essere stata promossa
+      // (l'id cambia sotto), chiusa a mano, o aver ricevuto del testo.
+      if (focusedPanelIdRef.current === prev) return;
+      if (!openPanelsRef.current.includes(prev)) return;
+      if (!isDraftPaneEmpty(prev)) return;
+      draftFocusedAtRef.current.delete(prev);
+      forgetDraft(prev);
+      // `silent`: la chiusura non l'hai chiesta tu, quindi non deve finire nella
+      // pila dell'annulla — ⌘Z deve disfare l'ultima cosa che hai FATTO, non
+      // riportare indietro un foglio bianco che avevi lasciato.
+      handleClosePanelRef.current(prev, { silent: true });
+    }, DRAFT_CLOSE_DELAY_MS);
+    pendingDraftCloseRef.current = { id: prev, timer };
+  }, [focusedPanelId, openPanelsRef, focusedPanelIdRef]);
+  // Nessun timer sopravvive allo smontaggio della finestra.
+  useEffect(() => () => {
+    if (pendingDraftCloseRef.current) clearTimeout(pendingDraftCloseRef.current.timer);
+  }, []);
 
   const promoteDraft = useCallback(async (draftId: string, firstMessage: string, options?: SendMessageOptions) => {
     const meta = draftMeta[draftId] || {};
