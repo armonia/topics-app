@@ -1568,19 +1568,18 @@ test.describe("Sidebar — le distanze attorno al «+»", () => {
     // coincidere passando per il verso sbagliato.
     expect(sopra).toBeGreaterThan(0);
 
-    // Il rientro DESTRO e' quello canonico di un comando in coda, e si legge
-    // dalla tessera invece di scriverlo: e' il suo stesso `padding-right`, cioe'
-    // `ROW_PX`. Con questo numero il bottone cade ESATTAMENTE sullo slot che il
-    // contenuto gli riserva; a 4 (il vecchio valore) ne lasciava scoperti 4 da
-    // una parte e ne sbordava 4 dall'altra.
-    const padding = await tiles(page).first().evaluate(
-      (el) => Math.round(parseFloat(getComputedStyle(el).paddingRight)),
-    );
-    expect(destra, `il «+» sta ${destra}px dal bordo, il contenuto ${padding}`).toBe(padding);
-
-    // E l'aria verticale e' quella che la RIGA lascia, non quella che il bottone
-    // chiede: (altezza − trigger) / 2. Scritta come aritmetica, cosi' se una
-    // delle due misure si muove il rosso dice quale.
+    // I TRE SPAZI COINCIDONO — ed e' il VERSO a essere cambiato, non la
+    // proprieta'. Prima l'uguaglianza c'era ma girava al contrario: era il
+    // rientro del bottone a decidere l'altezza della tessera (36 contro i 34 di
+    // una riga). Poi il rientro e' passato al canonico dei comandi in fila
+    // (`ROW_PX`, 8) e l'uguaglianza si e' rotta dall'altra parte: «sui pinned il
+    // + ha piu' spazio a destra che sopra e sotto» (Attilio, 10/08) — 8 contro
+    // 3, e su una tessera l'asimmetria si legge tutta perche' il bottone flotta
+    // su una superficie piccola.
+    //
+    // Adesso: l'aria verticale la lascia il centraggio, `(altezza − box) / 2`, e
+    // il rientro destro la COPIA. L'altezza la decide la riga, il rientro segue.
+    expect(destra, `il «+» sta ${destra}px dal bordo e ${sopra} sopra`).toBe(sopra);
     expect(sopra).toBe(Math.round((t.height - p.height) / 2));
   });
 });

@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import { ROW_ACTION_BOX, ROW_H, ROW_PX } from '../../lib/selectionStyles';
 import {
-  PINNED_TILE_ACTION_INSET,
+  PINNED_TILE_ACTION_INSET_CLASS,
+  PINNED_TILE_ACTION_INSET_PX,
   PINNED_TILE_ACTION_SLOT,
   PINNED_TILE_H,
   PINNED_TILE_PX,
@@ -42,7 +43,7 @@ const STEP_PX = 4;
  * giorno in cui la riga è diventata `md:h-[34px]` — perché il test morisse con
  * «nessuna misura leggibile» invece di dire che i due numeri non tornano.
  * Mescolare le due forme è proprio ciò che rende facile perderne una di vista. */
-function risolvi(classes: string, prop: 'h' | 'w' | 'px'): { wide: number; compact: number } {
+function risolvi(classes: string, prop: 'h' | 'w' | 'px' | 'right'): { wide: number; compact: number } {
   let nuda: number | null = null;
   let md: number | null = null;
   let maxMd: number | null = null;
@@ -97,18 +98,27 @@ describe('le misure della tessera fissata', () => {
     expect(risolvi(PINNED_TILE_H, 'h')).toEqual(risolvi(ROW_H, 'h'));
   });
 
-  test('il «+» cade ESATTAMENTE sul suo slot, non accanto', () => {
-    // Il conto, su una tessera larga W, coi figli al passo condiviso (ROW_GAP=8)
-    // e il padding di riga (ROW_PX=8):
-    //   · lo slot riservato sta a [W−8−box, W−8];
-    //   · il bottone, posizionato a `right: rientro`, sta a [W−rientro−box,
-    //     W−rientro].
-    // Coincidono solo se rientro === ROW_PX. A 4 il bottone sbordava di 4px nel
-    // padding e ne lasciava 4 scoperti dall'altra parte: uno slot esiste per
-    // essere occupato da chi lo ha chiesto.
-    const px = risolvi(ROW_PX, 'px');
-    expect(PINNED_TILE_ACTION_INSET).toBe(px.wide);
-    expect(PINNED_TILE_ACTION_INSET).toBe(px.compact);
+  test('il rientro del «+» è l\'aria che ha sopra e sotto', () => {
+    // TRE SPAZI UGUALI attorno a un comando che flotta su una card — ed è il
+    // verso a contare. L'aria verticale non si sceglie: la lascia il centraggio,
+    // `(altezza − box) / 2`. Il rientro destro la COPIA. Prima il conto girava
+    // al contrario (era il rientro a decidere l'altezza della tessera), e in
+    // mezzo c'è stato un giro a `ROW_PX`: coerente con le righe, ma su una
+    // tessera «il + ha più spazio a destra che sopra e sotto» — 8 contro 3.
+    for (const larghezza of ['wide', 'compact'] as const) {
+      const { tile, action } = PINNED_TILE_PX[larghezza];
+      // Il tipo e' il LETTERALE (3 | 4), perche' l'oggetto e' `as const`, e
+      // `toBe` pretenderebbe lo stesso letterale: qui si confrontano due misure
+      // in pixel, non due costanti.
+      const rientro: number = PINNED_TILE_ACTION_INSET_PX[larghezza];
+      expect(rientro).toBe((tile - action) / 2);
+    }
+    // …e la CLASSE dice gli stessi due numeri: Tailwind legge il sorgente, quindi
+    // la stringa è la sorgente e questi pixel sono solo la sua rilettura.
+    expect(risolvi(PINNED_TILE_ACTION_INSET_CLASS, 'right')).toEqual({
+      wide: PINNED_TILE_ACTION_INSET_PX.wide,
+      compact: PINNED_TILE_ACTION_INSET_PX.compact,
+    });
   });
 
   test("l'aria sopra e sotto il «+» non si sceglie: la lascia il centraggio", () => {
@@ -134,9 +144,10 @@ describe('le misure della tessera fissata', () => {
     });
   });
 
-  test('il rientro è uno solo, e positivo', () => {
+  test('il rientro è positivo su entrambi i rami', () => {
     // Un rientro a zero farebbe coincidere i tre spazi passando per il verso
     // sbagliato: bottone a filo della tessera, tre volte zero.
-    expect(PINNED_TILE_ACTION_INSET).toBeGreaterThan(0);
+    expect(PINNED_TILE_ACTION_INSET_PX.wide).toBeGreaterThan(0);
+    expect(PINNED_TILE_ACTION_INSET_PX.compact).toBeGreaterThan(0);
   });
 });

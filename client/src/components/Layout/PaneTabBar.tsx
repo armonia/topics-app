@@ -1411,7 +1411,10 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
           // (`chromeRowInset`): col dito veniva DUE, e il bottone stava
           // incollato al bordo mentre la strip senza comando si ferma a 6.
           // Il bordo è una domanda orizzontale e ha già il suo numero.
-          className={`raised-control-overlay absolute ${CHROME_ROW_ACTION_INSET} top-1/2 -translate-y-1/2 flex items-center app-no-drag z-10`}
+          // `bar-action-reveal`: col mouse esce al passaggio sulla barra, col
+          // dito resta acceso. Vedi index.css — lo spazio resta riservato in
+          // ogni caso, quindi l'ultima tab non balla quando compare.
+          className={`bar-action-reveal raised-control-overlay absolute ${CHROME_ROW_ACTION_INSET} top-1/2 -translate-y-1/2 flex items-center app-no-drag z-10`}
           {...NO_DRAG_REGION}
         >
           <PaneAddMenu
