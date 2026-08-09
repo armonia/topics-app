@@ -113,17 +113,47 @@ test.describe("sidebar progetto: la rail collassata", () => {
       : null;
     const attesa = tabH ?? 28;
     for (const h of boxes) {
-      // Il nome del progetto è una card-tab, i comandi sono box quadrati della
+      // La card del progetto è una tab, i comandi sono box quadrati della
       // stessa misura: una sola altezza per tutta la striscia.
       expect(h, `altezza di un elemento della striscia: ${boxes.join(", ")}`).toBe(attesa);
     }
 
-    // 5. NIENTE NOME DEL PROGETTO, ed è voluto: c'è stato per un giro e Attilio
-    //    l'ha tolto (09/08). La riga sopra porta già la tab del progetto col suo
-    //    nome, e ripeterlo un rigo sotto sono due card con la stessa parola a
-    //    40px di distanza. L'asserzione è negativa e resta: senza, il giorno che
-    //    qualcuno lo rimette nessuno se ne accorge finché non lo vede.
-    await expect(strip.getByTestId("project-rail-inline-name")).toHaveCount(0);
+    // 4-bis. E LA STESSA CARD ANCHE DA APERTA. «Tieni la stessa card per quando
+    //    si apre» (Attilio, 09/08): erano due cose diverse — un bottone col solo
+    //    glifo da chiusa, un `<span>` a 12px semibold più un bottone separato da
+    //    aperta. Si riapre e si misura, invece di fidarsi del fatto che il
+    //    componente sia lo stesso: quello che conta è che a schermo abbiano la
+    //    stessa altezza e lo stesso corpo.
+    const chiusaH = boxes[0];
+    const chiusoFont = await strip.getByTestId("project-card")
+      .evaluate((el) => getComputedStyle(el).font);
+    await strip.getByTestId("project-card").click();
+    const cardAperta = win.getByTestId("project-card");
+    await expect(cardAperta).toBeVisible({ timeout: 5000 });
+    const aperta = await cardAperta.evaluate((el) => ({
+      h: Math.round(el.getBoundingClientRect().height),
+      font: getComputedStyle(el).font,
+      label: el.getAttribute("aria-label"),
+    }));
+    expect(aperta.h, "la card aperta è alta come quella chiusa").toBe(chiusaH);
+    expect(aperta.font, "stesso corpo").toBe(chiusoFont);
+    expect(aperta.label, "da aperta il gesto si inverte").toBe("Nascondi la barra");
+    // E si richiude, o i controlli qui sotto misurerebbero l'altro stato.
+    await cardAperta.click();
+    await expect(strip).toBeVisible({ timeout: 5000 });
+
+    // 5. IL NOME DEL PROGETTO STA DENTRO L'APERTORE, non accanto a lui.
+    //    Tre forme in tre giri: nessun nome (tre icone identiche in ogni
+    //    finestra), poi una card col nome ACCANTO al bottone quadrato — «togli
+    //    il nome» —, e infine «metti il titolo del progetto nell'apertore»
+    //    (Attilio, 09/08). L'asserzione tiene tutte e tre: UNA card, che porta
+    //    il nome ED è il comando.
+    await expect(strip.getByTestId("project-card")).toHaveText(PROJ.split("/").pop()!);
+    expect(
+      await strip.getByTestId("project-card").evaluate((el) => el.getAttribute("aria-label")),
+      "la card È l'apertore: il suo nome accessibile è il gesto, non il titolo",
+    ).toBe("Espandi la barra");
+    await expect(strip.locator('[data-testid="project-rail-inline-name"]')).toHaveCount(0);
 
     // 6. La pastiglia git porta il numero delle modifiche.
     //    Il ramo arriva dallo store, quindi si aspetta invece di leggere subito:

@@ -5,7 +5,8 @@ import { ChevronRight, FolderTree, GitBranch, CirclePlay, RefreshCw, PanelLeftOp
 import type { LucideIcon } from 'lucide-react';
 import { SidebarToggleButton } from '../Shared/SidebarToggleButton';
 import { NO_DRAG_REGION } from '../../lib/shell/dragRegion';
-import { RAISED_CONTROL, ROW_ACTION_BOX, TAB_GAP_CLASS } from '../../lib/selectionStyles';
+import { RAISED_CONTROL, RESTING_SURFACE, ROW_ACTION_BOX, ROW_PX, TAB_GAP_CLASS, TAB_LABEL } from '../../lib/selectionStyles';
+import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { ScriptRunner } from './ScriptRunner';
 import { FileExplorer, type FileExplorerHandle } from './FileExplorer';
 import { useScripts } from '../../hooks/useScripts';
@@ -75,6 +76,66 @@ const MAX_SIDEBAR_W = 560;
  */
 const MIN_USEFUL_H: Record<'git' | 'processes', number> = { git: 160, processes: 96 };
 const DEFAULT_HEIGHTS: Record<'git' | 'processes', number> = { git: 200, processes: 150 };
+
+/**
+ * LA CARD DEL PROGETTO — una sola, per tutti e due gli stati della colonna.
+ *
+ * «Metti il titolo del progetto nell'apertore di sidebar progetto … e tieni la
+ * stessa card per quando si apre» (Attilio, 09/08).
+ *
+ * Erano due cose diverse per la stessa informazione: chiusa, un bottone quadrato
+ * col solo glifo (e il nome del progetto da nessuna parte); aperta, una riga a
+ * tutta larghezza con un `<span>` a 12px semibold più un bottone separato in
+ * coda. Due tipografie, due forme, due bersagli — per dire sempre «questo è il
+ * progetto, e di qui si apre e si chiude».
+ *
+ * Adesso è UNA card della famiglia delle tab: stesso fondo a riposo, stesso
+ * corpo, stesso incasso, stessa altezza, stesso raggio. Cambia solo il verso del
+ * glifo in coda, che è l'unica cosa che cambia davvero fra i due stati.
+ *
+ * Il nome accessibile resta «Espandi / Nascondi la barra» perché è il gesto che
+ * la card compie — ed è anche l'appiglio con cui le spec la trovano. Il nome del
+ * progetto vive nel testo, che è dove si legge.
+ */
+function ProjectCard({
+  projectPath,
+  name,
+  collapsed,
+  onToggle,
+  className = '',
+}: {
+  projectPath: string;
+  name: string;
+  collapsed: boolean;
+  onToggle: () => void;
+  className?: string;
+}) {
+  const tr = useT();
+  const etichetta = collapsed ? tr('project.sidebar.expand') : tr('project.sidebar.hide');
+  return (
+    <button
+      onClick={onToggle}
+      title={`${name} — ${etichetta}`}
+      aria-label={etichetta}
+      aria-expanded={!collapsed}
+      data-testid="project-card"
+      className={`group edge-lit flex items-center gap-1.5 ${ROW_PX} h-9 md:h-7 ${TAB_LABEL} ${RESTING_SURFACE} rounded-lg transition-colors cursor-pointer select-none min-w-0 ${className}`}
+    >
+      {/* L'icona c'è solo se il progetto ne spedisce una davvero: `ProjectFavicon`
+          senza `fallback` non rende NIENTE e non occupa larghezza (decisione di
+          prodotto, vedi il suo file). Qui va bene così: senza icona la card è il
+          nome, che è già l'informazione. */}
+      <ProjectFavicon path={projectPath} size={14} width={18} />
+      <span className="truncate">{name}</span>
+      {/* I due glifi veri, non uno ruotato: `PanelLeftOpen` girato di 180 gradi
+          non e `PanelLeftClose` — ribalta anche il pannello, e il verso finisce
+          per dire il contrario. */}
+      {collapsed
+        ? <PanelLeftOpen size={14} aria-hidden className="flex-shrink-0 text-app-text-tertiary" />
+        : <PanelLeftClose size={14} aria-hidden className="flex-shrink-0 text-app-text-tertiary" />}
+    </button>
+  );
+}
 
 /**
  * Un'icona della rail collassata, con la sua pastiglia.
@@ -503,19 +564,18 @@ export function ProjectSidebar({
           className={`flex items-center ${TAB_GAP_CLASS} pl-1.5 min-w-0 app-no-drag`}
           {...NO_DRAG_REGION}
         >
-          <SidebarToggleButton
-            onClick={onToggleCollapse}
-            size="action"
-            title={tr('project.sidebar.expand')}
-            icon={PanelLeftOpen}
-            className={`edge-lit ${RAISED_CONTROL} rounded-lg`}
+          {/* IL NOME STA DENTRO L'APERTORE, non accanto a lui.
+              C'è stato un giro con due card — un bottone quadrato per aprire e
+              una card col nome accanto — e Attilio ha tolto la seconda: due
+              card a 6px di distanza per dire la stessa cosa. La forma giusta
+              era una sola: il titolo È il bottone che apre. */}
+          <ProjectCard
+            projectPath={projectPath}
+            name={projectName}
+            collapsed
+            onToggle={onToggleCollapse}
+            className="max-w-[180px] flex-shrink"
           />
-          {/* NIENTE NOME DEL PROGETTO qui, ed è una rimozione voluta (Attilio,
-              09/08, subito dopo averlo visto): la riga sopra porta già la tab
-              del progetto col suo nome, e ripeterlo un rigo sotto vuol dire
-              scrivere due volte la stessa parola in due card diverse a 40px di
-              distanza. Chiusa, la barra deve dire cosa si può APRIRE, non dove
-              sei — quello lo dice già la tab che ti ha portato qui. */}
           {comandi(true)}
         </div>,
         inlineSlot,
@@ -566,9 +626,13 @@ export function ProjectSidebar({
           style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
         >
           {/* Header */}
-          <div className="flex items-center justify-between gap-2 px-3 h-10 border-b border-app-border flex-shrink-0">
-            <span className="text-[12px] font-semibold text-app-text truncate" title={projectName}>{projectName}</span>
-            <SidebarToggleButton onClick={onToggleCollapse} size="sm" title={tr('project.sidebar.hide')} icon={PanelLeftClose} />
+          {/* LA STESSA CARD DELLA BARRA CHIUSA. Era un `<span>` a 12px semibold
+              piu un bottone separato in coda: due elementi, due tipografie, per
+              dire cio che la card dice in uno. Niente `border-b`: sotto c'e la
+              card, e in questa colonna una linea ripete cio che fondo e
+              distanza dicono gia. L'incasso e ROW_INSET come ogni altra card. */}
+          <div className="flex items-center h-10 px-1.5 flex-shrink-0">
+            <ProjectCard projectPath={projectPath} name={projectName} collapsed={false} onToggle={onToggleCollapse} className="flex-1" />
           </div>
           {/* Sections — Files fills top, Git/Processes anchored at bottom */}
           <div className="flex-1 flex flex-col min-h-0">
@@ -689,9 +753,11 @@ export function ProjectSidebar({
         className="absolute inset-y-0 right-0 w-2 z-20 cursor-col-resize"
       />
       {/* Header — height matches the pane tab bar (h-10) */}
-      <div className="flex items-center justify-between gap-2 px-3 h-10 border-b border-app-border flex-shrink-0">
-        <span className="text-[12px] font-semibold text-app-text-secondary truncate" title={projectName}>{projectName}</span>
-        <SidebarToggleButton onClick={onToggleCollapse} size="sm" title={tr('project.sidebar.hide')} icon={PanelLeftClose} />
+      {/* LA STESSA CARD DELLA BARRA CHIUSA — vedi ProjectCard. Alta come la riga
+          di chrome (h-10) perche e la testata della colonna e deve stare in
+          linea con la barra delle tab accanto; dentro, la card e una tab. */}
+      <div className="flex items-center h-10 px-1.5 flex-shrink-0">
+        <ProjectCard projectPath={projectPath} name={projectName} collapsed={false} onToggle={onToggleCollapse} className="flex-1" />
       </div>
 
       {/* Sections — Files fills top (flex-1), Git/Processes anchored at bottom */}
