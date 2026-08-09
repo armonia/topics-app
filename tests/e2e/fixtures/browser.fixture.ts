@@ -285,15 +285,13 @@ export class BrowserProcessPage {
     // La barra di progetto può essere CHIUSA, e allora l'intestazione
     // «Processi» non è nel DOM: chiusa non è più una colonna, è una fila di card
     // IN LINEA nella riga delle tab (`project-rail-inline`). Prima la si riapre
-    // dal suo bottone, poi si procede come sopra. Il ripiego resta la vecchia
-    // rail verticale, che sopravvive per gli ospiti che non offrono lo slot.
-    const inline = this.page.locator('[data-testid="project-rail-inline"]');
-    const rail = this.page.locator('[data-testid="project-sidebar-rail"]');
-    if (await inline.count() > 0) {
-      await inline.locator("button").first().click();
-    } else if (await rail.count() > 0) {
-      await this.page.locator('[data-testid="project-sidebar-rail-header"] button').click();
-    }
+    // dalla card del progetto, poi si procede come sopra.
+    //
+    // Per TESTID e non `button.first()`: quella forma reggeva per ORDINE — la
+    // card è il primo bottone ed è il toggle — quindi chiunque infilasse un
+    // comando prima di lei avrebbe rotto in silenzio ogni spec che passa di qui.
+    const card = this.page.locator('[data-testid="project-rail-inline"] [data-testid="project-card"]');
+    if (await card.count() > 0) await card.first().click();
 
     // Apri la sezione Processi. Locator STRICT, senza `.first()`: due
     // ProjectSidebar montate insieme sono il guaio descritto in
