@@ -1529,11 +1529,21 @@ export function TopicTree({
             // `rounded-lg`), quindi la copia e l'originale potevano divergere —
             // e lo facevano.
             //
-            // `marginBottom: 0` sovrascrive il `my-px` della card, e non è un
-            // capriccio: lo spazio SOTTO appartiene a ciò che segue — il blocco
-            // dei fissati porta i suoi 6px (TILE_GAP) — e sommare i due margini
-            // fa 7px dove il ritmo ne vuole 6 (lo blocca `sidebar-pinned-tiles`
-            // TILE-14).
+            // NIENTE `marginBottom: 0`, e la ragione per cui c'era è decaduta.
+            //
+            // Serviva quando la zona in testa al blocco dei fissati valeva un
+            // passo INTERO: sommandoci il margine della card venivano 7px dove
+            // il ritmo ne vuole 6, e azzerarlo era il rimedio. Ma quella zona
+            // intera era essa stessa il difetto: quando sopra il blocco non
+            // c'era la board ma il contenitore che scorre — che porta il suo
+            // mezzo passo — si sommavano a 9, ed è la «doppia spaziatura sotto
+            // la topbar» (Attilio, 09/08).
+            //
+            // Ora la regola è UNA e non ha eccezioni: ognuno porta metà passo su
+            // ogni lato, e la somma fa sempre COLUMN_GAP. Il blocco dei fissati
+            // ne porta metà (`TILE_GAP / 2` sulla zona in testa, PinnedTiles),
+            // questa card l'altra metà — 3 + 3 = 6, che è quello che
+            // `sidebar-pinned-tiles` TILE-14 misura.
             // `gap-2` e non `gap-1.5`: è il passo che ogni altra riga con un
             // glifo usa fra l'icona e il nome, e sei px contro otto erano una
             // colonna del nome diversa da tutte le vicine.
@@ -1549,7 +1559,7 @@ export function TopicTree({
             className={`flex items-center gap-2 leading-none ${ROW_PX} ${ROW_H} select-none ${
               sidebarRowCard({ focused: boardOpen })
             }`}
-            style={{ width: `calc(100% - ${ROW_INSET * 2}px)`, marginBottom: 0 }}
+            style={{ width: `calc(100% - ${ROW_INSET * 2}px)` }}
           >
             {/* Glifo neutro come ogni altra riga: il verde faceva sembrare la
                 board un tipo a parte, e nella sidebar il colore è riservato a
@@ -1691,11 +1701,13 @@ export function TopicTree({
                     (ROW_INSET), gli stessi delle card dei gruppi sotto e delle
                     tessere sopra. A 12px era l'unico elemento su una colonna
                     sua, e il blocco dei fissati sembrava debordare.
-                    Anche il respiro è quel numero, sopra e sotto (`my-1.5`): è
+                    Anche il respiro è quel numero, sopra e sotto — ma diviso
+                    diversamente sui due lati (`mt-1.5 mb-[3px]`), perché sotto la
+                    prima card porta gia' la sua meta': è
                     lo stesso passo che separa la riga della board dalle tessere
                     e le righe di tessere fra loro, così i quattro spazi che
                     l'occhio legge in fila sono davvero uno. */}
-                <div data-testid="pinned-divider" className="h-px bg-app-border mx-1.5 my-1.5" />
+                <div data-testid="pinned-divider" className="h-px bg-app-border mx-1.5 mt-1.5 mb-[3px]" />
               </>
             )}
             {/* NIENTE separatori fra le card dei gruppi: quelle un bordo ce
@@ -1731,7 +1743,7 @@ export function TopicTree({
                 {renderPinnedTiles()}
                 {/* Hairline divider between the pinned block and the timeline
                     (same grammar as POPOVER_DIVIDER). */}
-                {unpinnedItems.length > 0 && <div data-testid="pinned-divider" className="h-px bg-app-border mx-1.5 my-1.5" />}
+                {unpinnedItems.length > 0 && <div data-testid="pinned-divider" className="h-px bg-app-border mx-1.5 mt-1.5 mb-[3px]" />}
               </>
             )}
             <SidebarRowList data-testid="sidebar-timeline">{withUnpinPreview(unpinnedItems)}</SidebarRowList>
@@ -1748,7 +1760,7 @@ export function TopicTree({
                 {renderPinnedTiles()}
                 {/* Stesso filo della vista a lista: i fissati si staccano da ciò
                     che c'è sotto allo stesso modo in ogni vista. */}
-                {unpinnedItems.length > 0 && <div data-testid="pinned-divider" className="h-px bg-app-border mx-1.5 my-1.5" />}
+                {unpinnedItems.length > 0 && <div data-testid="pinned-divider" className="h-px bg-app-border mx-1.5 mt-1.5 mb-[3px]" />}
               </>
             )}
             {/* «Il resto» ha senso solo come CONTRASTO: dice «tutto ciò che non
