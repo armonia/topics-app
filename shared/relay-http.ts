@@ -40,6 +40,23 @@ export interface TestaRichiesta {
    *  rigioca lo decide la macchina, non chi chiede. */
   p: string;
   h?: Intestazioni;
+  /**
+   * L'indirizzo VERO di chi ha bussato, messo dal RELAY.
+   *
+   * Sta nella testa e non in un'intestazione perché le intestazioni di
+   * inoltro (`x-forwarded-for`, `cf-connecting-ip`) le spoglia
+   * `VIETATE_RICHIESTA` a ragione: chi bussa può scriversele da sé. Il relay
+   * invece compone questa testa, e l'ospite non la tocca.
+   *
+   * Senza, l'unico indirizzo che la macchina vede è `127.0.0.1` — il suo
+   * stesso salto locale. Due conseguenze, entrambe viste in produzione: il
+   * tetto per-indirizzo dell'appaiamento diventa UN SOLO secchio per tutta
+   * Internet (tre richieste e non si appaia più nessuno, proprietario
+   * compreso), e il cartello di approvazione dichiara «viene dalla tua
+   * macchina» a una richiesta arrivata da fuori — che è la bugia più
+   * pericolosa possibile, perché rassicura.
+   */
+  ip?: string;
 }
 
 /** La testa di una risposta, dentro `h` dello stream `res`. */
@@ -181,6 +198,22 @@ function leggiIntestazioni(raw: unknown): Intestazioni | null {
  * la forma PRIMA e l'origine DOPO: la seconda da sola non basta, perché
  * `new URL` ne normalizza troppa di quella roba senza dire niente.
  */
+/**
+ * Un indirizzo che si può ACCETTARE da un altro processo.
+ *
+ * Stretto di proposito: questo valore finisce in un tetto e su un cartello che
+ * l'umano legge per decidere. Una stringa qualunque lì dentro è un modo di
+ * scrivere nell'interfaccia di chi approva.
+ */
+export function ipAccettabile(v: unknown): v is string {
+  if (typeof v !== "string" || v.length === 0 || v.length > 45) return false;
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(v)) {
+    return v.split(".").every((o) => Number(o) <= 255);
+  }
+  // IPv6, anche nella forma mappata `::ffff:1.2.3.4`.
+  return /^[0-9a-fA-F:]+(\.\d{1,3}){0,3}$/.test(v) && v.includes(":");
+}
+
 export function risolviUrlLocale(porta: number, p: string, tls = false): URL | null {
   if (!Number.isInteger(porta) || porta < 1 || porta > 65535) return null;
   if (typeof p !== "string" || p.length === 0 || p.length > 8 * 1024) return null;
@@ -223,7 +256,14 @@ export function leggiTestaRichiesta(raw: string | undefined): TestaRichiesta | n
   if (typeof m.p !== "string") return null;
   const h = "h" in m && m.h !== undefined ? leggiIntestazioni(m.h) : undefined;
   if (h === null) return null;
-  return { m: m.m, p: m.p, ...(h !== undefined ? { h } : {}) };
+  // Un `ip` che non è un indirizzo si SCARTA invece di far fallire tutta la
+  // testa: una richiesta valida non deve morire perché il relay ha mandato un
+  // campo storto, e un campo storto non deve entrare.
+  return {
+    m: m.m, p: m.p,
+    ...(h !== undefined ? { h } : {}),
+    ...(ipAccettabile(m.ip) ? { ip: m.ip } : {}),
+  };
 }
 
 /** La testa di una risposta, letta con la stessa severità: anche la macchina,

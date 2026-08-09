@@ -9,6 +9,7 @@
 import { describe, expect, it } from "bun:test";
 import {
   intestazioniRichiesta, intestazioniRisposta,
+  ipAccettabile,
   leggiTestaRichiesta, leggiTestaRisposta, risolviUrlLocale, scriviTesta,
 } from "./relay-http";
 
@@ -160,5 +161,57 @@ describe("url locale · lo schema segue l'ascoltatore", () => {
     for (const cattivo of ["//altrove", "/a b", "/a\\b", "senza-barra"]) {
       expect(`${cattivo}→${risolviUrlLocale(3334, cattivo, true)}`).toBe(`${cattivo}→null`);
     }
+  });
+});
+
+describe("indirizzo di chi bussa · il relay lo dice, la macchina lo controlla", () => {
+  // Il difetto, visto in produzione: la macchina leggeva `127.0.0.1` per
+  // richieste arrivate da Internet, perché l'unico indirizzo che vede è il
+  // proprio salto locale e le intestazioni di inoltro le spoglia apposta.
+  // Due danni: il tetto per-indirizzo dell'appaiamento diventava UN SOLO
+  // secchio per tutta Internet, e il cartello di approvazione dichiarava
+  // «viene dalla tua macchina» a chi arrivava da fuori.
+  it("un indirizzo buono passa, in v4 e in v6", () => {
+    for (const ip of ["203.0.113.7", "2001:db8::1", "::ffff:203.0.113.7"]) {
+      expect(`${ip}→${ipAccettabile(ip)}`).toBe(`${ip}→true`);
+    }
+  });
+
+  it("tutto ciò che non è un indirizzo viene rifiutato", () => {
+    // Questo valore finisce in un tetto e su un cartello che un umano legge
+    // per decidere: una stringa qualunque lì dentro è un modo di scrivere
+    // nell'interfaccia di chi approva.
+    for (const no of ["", "999.1.1.1", "1.2.3", "ciao", "1.2.3.4 <b>", "  ", "1.2.3.4\n", 42, null, undefined]) {
+      expect(`${String(no)}→${ipAccettabile(no)}`).toBe(`${String(no)}→false`);
+    }
+    expect(ipAccettabile("1".repeat(46))).toBe(false);
+  });
+
+  it("la testa porta l'indirizzo quando è buono", () => {
+    const t = leggiTestaRichiesta(JSON.stringify({ m: "GET", p: "/api/x", ip: "203.0.113.7" }));
+    expect(t?.ip).toBe("203.0.113.7");
+  });
+
+  it("un indirizzo storto si SCARTA, e la richiesta vive lo stesso", () => {
+    // Una richiesta valida non deve morire perché il relay ha mandato un campo
+    // storto; ma il campo storto non deve entrare.
+    const t = leggiTestaRichiesta(JSON.stringify({ m: "GET", p: "/api/x", ip: "<script>" }));
+    expect(t, "la richiesta resta valida").not.toBeNull();
+    expect(t?.p).toBe("/api/x");
+    expect(t?.ip, "l'indirizzo storto non entra").toBeUndefined();
+  });
+
+  it("le intestazioni di inoltro restano VIETATE: l'ospite non se le scrive", () => {
+    // È il motivo per cui l'indirizzo viaggia nella TESTA e non in
+    // un'intestazione: la testa la compone il relay, le intestazioni no.
+    const h = intestazioniRichiesta([
+      ["x-forwarded-for", "1.2.3.4"], ["cf-connecting-ip", "1.2.3.4"], ["cookie", "a=b"],
+    ]);
+    const n = new Headers(h);
+    expect(n.get("x-forwarded-for")).toBeNull();
+    expect(n.get("cf-connecting-ip")).toBeNull();
+    // Controllo positivo: qualcosa passa davvero, altrimenti questo test
+    // sarebbe verde anche su un filtro che butta via tutto.
+    expect(n.get("cookie")).toBe("a=b");
   });
 });

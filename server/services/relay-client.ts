@@ -445,9 +445,15 @@ export function creaProxyTubo(deps: ProxyTuboDeps) {
     sess.inVolo.set(s, ferma);
     try {
       const senzaCorpo = t.m === "GET" || t.m === "HEAD";
+      // L'indirizzo VERO torna nell'intestazione di inoltro, ma solo qui e
+      // solo dopo che `leggiTestaRichiesta` l'ha validato: `intestazioniRichiesta`
+      // ha appena spogliato quella che l'ospite poteva essersi scritto da sé,
+      // quindi ciò che passa di qua viene dal relay e da nessun altro.
+      const intestazioni = new Headers(intestazioniRichiesta(t.h));
+      if (t.ip) intestazioni.set("x-forwarded-for", t.ip);
       const res = await f(url, {
         method: t.m,
-        headers: new Headers(intestazioniRichiesta(t.h)),
+        headers: intestazioni,
         ...(senzaCorpo || corpo === undefined ? {} : { body: corpo as BodyInit }),
         redirect: "manual",
         signal: ferma.signal,
