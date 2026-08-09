@@ -31,7 +31,7 @@
  */
 
 import { findEmptyDraftPane, forgetDraft, isDraftPaneEmpty, draftTextKey } from '../state/draftPane';
-import { noteDraftRemoval, whoRemovedDraft } from '../state/draftWitness';
+import { announceDraftGone, noteDraftRemoval, whoRemovedDraft } from '../state/draftWitness';
 import {
   useCallback,
   useEffect,
@@ -2142,23 +2142,27 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     // La promozione NON è una sparizione: la bozza è diventata una chat vera e
     // l'id è cambiato sotto. Dirlo sarebbe rumore su un percorso sano.
     if (reason === 'promozione-a-topic') return;
-    const msg = `La chat nuova è stata chiusa da: ${reason}`;
-    console.warn('[bozza]', msg, gone);
-    // Un cartello nel DOM e non un toast: il toast dipende da un provider che
-    // potrebbe stare SOPRA questo hook (App.tsx lo dice), e un testimone che a
-    // volte non parla non è un testimone. Si toglie con la diagnostica.
-    try {
-      const el = document.createElement('div');
-      el.textContent = msg;
-      el.setAttribute('data-draft-witness', reason);
-      el.style.cssText =
-        'position:fixed;left:50%;top:12px;transform:translateX(-50%);z-index:2147483647;' +
-        'background:#b91c1c;color:#fff;padding:8px 14px;border-radius:10px;font:500 12px system-ui;' +
-        'box-shadow:0 6px 24px rgba(0,0,0,.35);max-width:90vw;text-align:center';
-      document.body.appendChild(el);
-      setTimeout(() => el.remove(), 12_000);
-    } catch { /* diagnostica: non deve poter rompere niente */ }
+    announceDraftGone('elenco pane', reason, gone);
   }, [openPanels]);
+
+  // …e lo strato che il primo testimone non vedeva: una bozza può restare
+  // nell'elenco delle pane e sparire lo stesso dalla vista, filtrata via
+  // perché il suo SPAZIO non è quello attivo. Da fuori è identico a una
+  // chiusura — la tab non c'è più — ma nessuno l'ha chiusa, e infatti nessuno
+  // firmava. È anche la spiegazione dell'altro sintomo: il «+» cerca la bozza
+  // vuota fra le pane VISIBILI, non la trova, e ne apre giustamente un'altra.
+  const prevVisibleForWitnessRef = useRef<string[]>(visiblePanels);
+  useEffect(() => {
+    const before = prevVisibleForWitnessRef.current;
+    prevVisibleForWitnessRef.current = visiblePanels;
+    const gone = before.filter(
+      (id) => isDraftPaneId(id) && !visiblePanels.includes(id) && openPanels.includes(id),
+    );
+    if (gone.length === 0) return;
+    const s = usePaneStore.getState();
+    const dove = gone.map((id) => resolvePaneSpace(s.panes[id], s.spaces)).join(',');
+    announceDraftGone('vista', `filtro-spazio (bozza in «${dove}», attivo «${s.activeSpaceId}»)`, gone);
+  }, [visiblePanels, openPanels]);
 
   const promoteDraft = useCallback(async (draftId: string, firstMessage: string, options?: SendMessageOptions) => {
     const meta = draftMeta[draftId] || {};
