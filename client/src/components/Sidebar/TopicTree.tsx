@@ -35,7 +35,7 @@ import { loadSettings, saveSettings } from '@/lib/settings';
 import { ContextMenuPortal } from '@/components/Shared/ContextMenuPortal';
 import { tauriInvoke } from '@/lib/shell/tauri';
 import { NotificationBadge } from '@/components/Shared/NotificationBadge';
-import { sidebarRowCard, ROW_PX, ROW_GAP, ROW_H, ROW_INSET, COLUMN_GAP, ROW_ACTION_BOX, ROW_ACTION_GLYPH, ROW_GLYPH, ROW_GLYPH_SLOT, ROW_CARD, ROW_TRAIL, ROW_ACTIONS, ARCHIVED_ROW, SIDEBAR_INDENT_STEP, ON_FILL_TEXT, ON_FILL_TEXT_SOFT, SIDEBAR_HOVER, TAB_LABEL, TAB_LABEL_TYPE } from '@/lib/selectionStyles';
+import { sidebarRowCard, ROW_PX, ROW_GAP, ROW_H, SECTION_H, ROW_INSET, COLUMN_GAP, ROW_ACTION_BOX, ROW_ACTION_GLYPH, ROW_GLYPH, ROW_GLYPH_SLOT, ROW_CARD, ROW_TRAIL, ROW_ACTIONS, ARCHIVED_ROW, SIDEBAR_INDENT_STEP, ON_FILL_TEXT, ON_FILL_TEXT_SOFT, SIDEBAR_HOVER, TAB_LABEL, TAB_LABEL_TYPE } from '@/lib/selectionStyles';
 import { spawnDragGhost } from '@/components/Layout/dragGhost';
 import { useLongPress, openContextMenuAt } from '@/hooks/useLongPress';
 import { SessionActivity } from '@/components/Shared/SessionActivity';
@@ -1212,12 +1212,25 @@ export function TopicTree({
             due px più a sinistra dei 6+8 delle righe con card, cioè un
             disallineamento troppo piccolo per vedersi e abbastanza grande per
             far sembrare storta la colonna. */}
-        <div className={`group flex items-center ${ROW_H} ${ROW_PX} ${sidebarRowCard({})}`}>
+        {/* `SECTION_H` e non `ROW_H`: un'intestazione alta quanto le righe che
+            introduce non si legge come un'intestazione. Le due intestazioni di
+            sezione dell'app — questa e quella della colonna di progetto — erano
+            34 e 28 col mouse: la stessa cosa, due misure, in due colonne che si
+            guardano affiancate. Col dito restano 44, il minimo iOS, perché qui
+            lo spazio c'è (vedi SECTION_H).
+
+            Il FONDO invece resta quello del riposo di una riga, e non
+            `RESTING_SURFACE` come nella colonna di progetto: là le sezioni sono
+            tre e non hanno righe-card attorno, qui un'intestazione DIPINTA in
+            mezzo a righe trasparenti si leggerebbe come una riga SELEZIONATA —
+            cioè l'ambiguità che tutto questo file esiste per togliere. A dire
+            «sono un'intestazione» ci pensa l'altezza. */}
+        <div className={`group flex items-center ${SECTION_H} ${ROW_PX} ${sidebarRowCard({})}`}>
           <button
             onClick={() => toggleSection(sectionKey)}
             aria-expanded={!isCollapsed}
             aria-label={`sezione ${label}`}
-            className="flex items-center gap-2 flex-1 min-w-0 h-full text-left"
+            className={`flex items-center ${ROW_GAP} flex-1 min-w-0 h-full text-left`}
           >
             <Icon size={14} className="text-app-text-secondary flex-shrink-0" />
             <span className={TAB_LABEL}>{label}</span>
