@@ -165,8 +165,28 @@ function boardSidebarItem(boardTaskCount: number, extra?: Partial<SidebarItem>):
  * perché è ancora il posto unico in cui impilare le righe di primo livello.
  */
 function SidebarRowList({ children, className = '', ...rest }: HTMLAttributes<HTMLDivElement>) {
+  // `flex flex-col`, e NON è cosmesi: è ciò che impedisce ai margini di
+  // COLLASSARE.
+  //
+  // Le card portano `my-[3px]` (mezzo COLUMN_GAP per lato, così due vicine ne
+  // fanno 6). Fra fratelli in flusso normale però i due margini adiacenti non
+  // si sommano: si collassano al maggiore. Risultato misurato a 390×844, riga
+  // contro riga: 3px. Nella stessa colonna le tessere fissate stavano a 6 veri
+  // (`gap: TILE_GAP`, PinnedTiles), quindi due ritmi a mezzo passo di distanza —
+  // «le spaziature non sono coerenti fra ogni tab e tipo tab» (Attilio, 09/08).
+  //
+  // I margini di un FLEX ITEM non collassano mai (CSS Box Model §8.3.1: il
+  // collasso vive solo nel block formatting context). Un `gap` avrebbe funzionato
+  // altrettanto, ma avrebbe spostato il numero dalla card al contenitore e
+  // lasciato `my-[3px]` a mentire in sei punti: così il valore resta uno solo,
+  // dichiarato dove la card lo dichiara, e qui si toglie solo ciò che glielo
+  // dimezzava.
+  //
+  // Il commento che stava qui diceva che questo contenitore «resta perché è
+  // ancora il posto unico in cui impilare le righe di primo livello». Appunto: è
+  // per questo che la correzione sta qui e vale per tutte e sei le viste.
   return (
-    <div className={className} {...rest}>
+    <div className={`flex flex-col ${className}`} {...rest}>
       {children}
     </div>
   );
