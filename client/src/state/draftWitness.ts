@@ -26,6 +26,28 @@ export type DraftRemovalReason =
   | 'promozione-a-topic'
   | 'chiusura-remota';
 
+/**
+ * Il cartello. Sta qui e non nell'hook perché ADESSO lo chiamano due strati
+ * diversi: l'elenco delle pane e l'elenco che disegna le tab. Una tab può
+ * sparire dal secondo restando nel primo — filtrata per spazio, o potata dal
+ * riordino — e in quel caso il testimone di prima non vedeva niente.
+ */
+export function announceDraftGone(where: string, reason: string, ids: string[]): void {
+  const msg = `Chat nuova sparita da «${where}» per: ${reason}`;
+  console.warn('[bozza]', msg, ids);
+  try {
+    const el = document.createElement('div');
+    el.textContent = msg;
+    el.setAttribute('data-draft-witness', `${where}:${reason}`);
+    el.style.cssText =
+      'position:fixed;left:50%;top:12px;transform:translateX(-50%);z-index:2147483647;' +
+      'background:#b91c1c;color:#fff;padding:8px 14px;border-radius:10px;font:500 12px system-ui;' +
+      'box-shadow:0 6px 24px rgba(0,0,0,.35);max-width:90vw;text-align:center';
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 12_000);
+  } catch { /* diagnostica: non deve poter rompere niente */ }
+}
+
 let lastReason: { reason: DraftRemovalReason; at: number } | null = null;
 
 /** Lascia il nome PRIMA di togliere la pane. */
