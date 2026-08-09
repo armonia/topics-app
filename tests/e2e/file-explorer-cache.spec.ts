@@ -167,32 +167,62 @@ test.describe("il bordo dell'accordion File non lampeggia", () => {
     await cleanupFileProject(request, project);
   });
 
-  test("il colore del bordo non cambia fra aperta e chiusa: solo la larghezza", async ({
+  test("l'intestazione è una CARD, e la sua superficie non cambia aprendo e chiudendo", async ({
     fileExplorerPage,
     page,
   }) => {
+    // ERA «il colore del bordo non cambia fra aperta e chiusa: solo la
+    // larghezza», e guardava un `border-b` che compariva solo da chiusa. Quel
+    // bordo non c'è più: «facciamo diventare gli accordion della sidebar
+    // progetto delle card, come le tab» (Attilio, 09/08), e fra card impilate
+    // questo repo vieta le linee — il fondo e la distanza dicono già dov'è il
+    // confine.
+    //
+    // Il difetto che quel test sorvegliava però esiste ancora, ed è più
+    // generale di un bordo: `transition-colors` anima QUALUNQUE colore che
+    // cambia fra i due stati, e il preflight di Tailwind v4 (`border: 0 solid`,
+    // senza colore) fa ricadere un bordo senza tinta su `currentColor`, cioè sul
+    // colore del TESTO. Quindi qui si misura la stessa cosa su ciò che è rimasto:
+    // la superficie della card non deve cambiare aprendo e chiudendo, e nessun
+    // capello deve prendere il colore del testo.
     await fileExplorerPage.gotoProject(tmpDir, topicName);
     const header = page.locator('[data-testid="project-sidebar-files"]');
     await expect(header).toBeVisible({ timeout: 15000 });
     if ((await header.getAttribute("aria-expanded")) !== "true") await header.click();
 
-    const bordo = () => header.evaluate((el: HTMLElement) => {
+    const stile = () => header.evaluate((el: HTMLElement) => {
       const cs = getComputedStyle(el);
-      return { colore: cs.borderBottomColor, larghezza: cs.borderBottomWidth };
+      return {
+        fondo: cs.backgroundColor,
+        raggio: cs.borderRadius,
+        testo: cs.color,
+        bordi: [cs.borderTopWidth, cs.borderBottomWidth, cs.borderLeftWidth, cs.borderRightWidth],
+        coloriBordo: [cs.borderTopColor, cs.borderBottomColor],
+        rientro: cs.marginLeft,
+      };
     });
 
-    const aperta = await bordo();
+    const aperta = await stile();
+    // È una card: fondo proprio, angoli, e rientrata dai lati come ogni altra.
+    expect(aperta.raggio, "l'intestazione è arrotondata come una tab").not.toBe("0px");
+    expect(aperta.fondo, "l'intestazione ha un fondo suo").not.toMatch(/rgba\(0, 0, 0, 0\)/);
+    expect(parseFloat(aperta.rientro), "ed è rientrata dai lati").toBeGreaterThan(0);
+
     await header.click();
     await expect(header).toHaveAttribute("aria-expanded", "false");
-    const chiusa = await bordo();
+    const chiusa = await stile();
 
-    // La larghezza cambia — e' il bordo che deve comparire.
-    expect(aperta.larghezza).toBe("0px");
-    expect(chiusa.larghezza).toBe("1px");
-    // Il COLORE no: e' l'unica cosa che `transition-colors` animerebbe.
-    expect(chiusa.colore).toBe(aperta.colore);
-    // E non e' il colore del testo, che era il valore di partenza sbagliato.
-    const testo = await header.evaluate((el: HTMLElement) => getComputedStyle(el).color);
-    expect(chiusa.colore).not.toBe(testo);
+    // Niente cambia fra i due stati: non c'è più un bordo che compare, e la
+    // superficie è la stessa. Se qualcuno rimettesse una linea condizionale,
+    // questa riga se ne accorge.
+    expect(chiusa.bordi, "nessun bordo compare chiudendo").toEqual(aperta.bordi);
+    expect(chiusa.fondo, "la superficie non cambia").toBe(aperta.fondo);
+    // E nessun capello prende il colore del testo — il valore di partenza
+    // sbagliato del preflight, che è il difetto vero dietro il vecchio test.
+    for (const c of [...aperta.coloriBordo, ...chiusa.coloriBordo]) {
+      if (parseFloat(chiusa.bordi[0]) > 0 || parseFloat(chiusa.bordi[1]) > 0) {
+        expect(c, "un bordo non può avere il colore del testo").not.toBe(chiusa.testo);
+      }
+    }
   });
 });

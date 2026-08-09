@@ -354,6 +354,29 @@ export const COLUMN_GAP = 6;
  * al primo che tocca uno dei due.
  */
 export const TAB_GAP_CLASS = 'gap-1.5';
+
+/**
+ * L'INTESTAZIONE DI UNA SEZIONE È UNA CARD, come tutto il resto.
+ *
+ * «Facciamo diventare gli accordion della sidebar progetto delle card, come le
+ * tab» (Attilio, 09/08). Erano tre righe a tutta larghezza — `h-8 px-3`, testo a
+ * 12px secondario, un `border-b` sotto quella chiusa e due `h-[1px]` fra le
+ * sezioni — cioè l'ULTIMA superficie dell'app rimasta fuori dalla grammatica
+ * delle card: rientrata da nessun lato, con la sua tipografia e i suoi fili.
+ *
+ * Adesso è la stessa card di una tab e di una riga della colonna: stesso fondo a
+ * riposo, stesso corpo, stesso incasso laterale (`mx-1.5` = ROW_INSET), stesso
+ * mezzo passo verticale (`my-[3px]` = COLUMN_GAP/2), stesso raggio. E i fili se
+ * ne vanno da soli: fra card impilate una linea ripete ciò che fondo e distanza
+ * dicono già — è la regola che questo file dichiara in testa a `sidebarRowCard`.
+ *
+ * Vive qui e non in `ProjectSidebar` perché le intestazioni sono TRE e stanno in
+ * DUE file (Git ha la sua dentro `GitChanges`): due copie della stessa
+ * grammatica divergono al primo che viene ritoccato da solo.
+ */
+export const SECTION_CARD =
+  `group edge-lit flex items-center gap-1.5 ${ROW_PX} h-9 md:h-7 ${TAB_LABEL} ${RESTING_SURFACE} ` +
+  'rounded-lg mx-1.5 my-[3px] transition-colors cursor-pointer select-none flex-shrink-0 overflow-hidden';
 /** Indent added per nesting level for sidebar child rows (px). */
 export const SIDEBAR_INDENT_STEP = 16;
 
