@@ -17,6 +17,7 @@ import {
   ROW_INSET,
   ROW_PX,
   SECTION_CARD,
+  SECTION_H,
   TAB_GAP_CLASS,
   TAB_LABEL,
   TAB_LABEL_TYPE,
@@ -263,8 +264,30 @@ describe('le due famiglie di altezza, e le tre misure interne', () => {
     // usavano `gap-2`: la costante era in minoranza rispetto ai suoi clienti.
     expect(risolvi(ROW_GAP, 'gap')).toEqual({ wide: 8, compact: 8 });
     expect(SECTION_CARD).toContain(ROW_GAP);
-    expect(SECTION_CARD).toContain(CARD_H);
+    expect(SECTION_CARD).toContain(SECTION_H);
     expect(SECTION_CARD).toContain(ROW_PX);
+  });
+
+  test("l'intestazione di sezione prende un numero da ciascuna famiglia", () => {
+    // E i due vengono da due VINCOLI diversi, non da due gusti (vedi SECTION_H):
+    //  · col mouse è una card a una riga sola → la misura di CARD_H;
+    //  · col dito è un bersaglio in una colonna → la misura di ROW_H, cioè i
+    //    44px del minimo iOS. `SECTION_CARD` stava a 36: otto sotto la soglia,
+    //    ed era l'unica cosa premibile in quella colonna a esserlo.
+    const sezione = risolvi(SECTION_H, 'h');
+    expect(sezione.wide).toBe(risolvi(CARD_H, 'h').wide);
+    expect(sezione.compact).toBe(risolvi(ROW_H, 'h').compact);
+    expect(sezione.compact).toBe(44);
+  });
+
+  test('la tab resta 36 col dito, e il soffitto lo dice il conto', () => {
+    // Perché CARD_H non sale a 44 come l'intestazione: la tab vive DENTRO la
+    // riga di chrome, e una tab più alta della riga che la contiene verrebbe
+    // tagliata. Non è prudenza, è aritmetica — se un giorno la riga cresce,
+    // questo test smette di giustificare il 36 e lo dice.
+    const tab = risolvi(CARD_H, 'h');
+    expect(tab.compact).toBeLessThanOrEqual(CHROME_ROW_CONTENT_H);
+    expect(chromeRowInset(tab.compact)).toBeGreaterThanOrEqual(0);
   });
 
   test("l'aria DENTRO non è quella FRA: due domande, due numeri", () => {
