@@ -28,7 +28,9 @@ import { join } from "node:path";
 
 import {
   createAuthRouter, __resetLiveSocketsForTests, __resetPendingForTests,
+  __invecchiaPendingPerTests,
 } from "../../server/routes/auth";
+import { PAIRING_CODE_TTL_MS } from "../../server/lib/device-auth";
 import { hashToken, readSessionCookie } from "../../server/lib/device-auth";
 
 const RADICE = join(import.meta.dir, "..", "..");
@@ -230,6 +232,41 @@ describe("rotte auth · dispositivi", () => {
     // dispositivo c'è stato e quando gli è stata tolta la fiducia.
     expect(r).toBeTruthy();
     expect(r.revoked_at).toBeGreaterThan(0);
+  });
+});
+
+describe("rotte auth · la scadenza si annuncia da sola", () => {
+  // Attilio l'ha visto per primo: «sono passati tre minuti ma sta ancora là».
+  // Il server la scadenza la applicava — `sweep` gira a ogni richiesta
+  // `/api/auth/*` — ma il cartello di approvazione vive nella memoria del
+  // CLIENT, messo lì da un broadcast. Senza l'annuncio contrario restava sullo
+  // schermo per sempre, e cliccarlo dava 404. Su un endpoint esposto a Internet
+  // è la richiesta di uno sconosciuto che continua a invitare un clic molto
+  // dopo che sarebbe dovuta sparire.
+  test("una richiesta scaduta viene ANNUNCIATA, non solo dimenticata", async () => {
+    const db = dbFresco();
+    const { ctx, inviati } = creaCtx(db);
+    const router = createAuthRouter(ctx);
+    const req = await (await chiama(router, "/api/auth/pair/request", "POST"))!.json() as { requestId: string };
+
+    // Il cartello è comparso: controllo positivo, altrimenti il resto non
+    // proverebbe niente.
+    expect(inviati.some((f) => (f as { type?: string }).type === "auth:pair-requested")).toBe(true);
+
+    // Si invecchia la richiesta oltre il tetto e si tocca una rotta qualunque.
+    __invecchiaPendingPerTests(req.requestId, PAIRING_CODE_TTL_MS + 1);
+    await chiama(router, "/api/auth/pair/pending");
+
+    const annuncio = inviati.find((f) => {
+      const x = f as { type?: string; requestId?: string; approved?: boolean };
+      return x.type === "auth:pair-resolved" && x.requestId === req.requestId;
+    }) as { approved?: boolean } | undefined;
+    expect(annuncio, "chi ha messo il cartello deve anche toglierlo").toBeTruthy();
+    expect(annuncio!.approved, "scaduta non è approvata").toBe(false);
+
+    // E non è più approvabile: la scadenza è un fatto, non una decorazione.
+    const tardi = await chiama(router, "/api/auth/pair/approve", "POST", { body: { requestId: req.requestId } });
+    expect(tardi?.status).toBe(404);
   });
 });
 
