@@ -24,6 +24,7 @@
  */
 import { LAND_ACTION_LABEL, UNASSIGNED_PROJECT_ID, type Task, type TaskService } from "./tasks";
 import { ZERO_USAGE, type SessionUsage } from "./transcript-usage";
+import { onHumanHoldChange } from "../lib/human-hold-events";
 import type { TaskAttemptStore } from "./task-attempts";
 import { attemptHasWork, formatFanoutComment } from "../../shared/task-attempt";
 import { MAX_FANOUT } from "../../shared/board";
@@ -560,6 +561,42 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   function endRun(taskId: string, runId: number): void {
     if (ownsRun(taskId, runId)) inFlight.delete(taskId);
   }
+
+  /**
+   * «Questo task aspetta te» ANCHE a metà turno.
+   *
+   * Il chip `needs_input` esisteva solo a fine turno, quando l'ultima parola
+   * dell'agente è un blocco ```question. Ma un agente ha un secondo modo di
+   * chiedere — `ask_user_question`, o una richiesta di permesso, aperti MENTRE
+   * il turno è vivo — e lì la card restava `working`: la board diceva «sto
+   * lavorando» sopra una sessione dove non lavorava nessuno, e l'unico modo di
+   * accorgersene era aprire il tab per caso. È il difetto più caro che questa
+   * campagna ha trovato, perché non urla: parcheggia in silenzio.
+   *
+   * Qui la board impara l'attesa dalla porta unica (`human-hold-events`), senza
+   * pollare e senza che i bridge sappiano cos'è un task. Nessun vocabolario
+   * nuovo: `needs_input` significa già «serve te», e sommato allo stato
+   * `in_progress` si legge «in corso, ma aspetta te» — che è esattamente il
+   * fatto.
+   */
+  function taskWaitingOnSession(sessionKey: string): string | null {
+    for (const [taskId, slot] of inFlight) if (slot.sessionKey === sessionKey) return taskId;
+    return null;
+  }
+  const unsubscribeHumanHold = onHumanHoldChange(({ sessionKey, phase }) => {
+    const taskId = taskWaitingOnSession(sessionKey);
+    if (!taskId) return; // una chat qualunque: non è roba della board
+    try {
+      const task = deps.svc.get(taskId)?.task;
+      // Solo mentre il turno è davvero in volo. A task consegnato il chip lo
+      // decide `onTurnEnd`, e sovrascriverlo da qui rimetterebbe «in corso» su
+      // una consegna finita.
+      if (!task || task.status !== "in_progress") return;
+      const state = phase === "held" ? CHIP_NEEDS_INPUT : CHIP_WORKING;
+      if (task.dispatchState === state) return;
+      emit(deps.svc.setDispatchState({ taskId, state }));
+    } catch { /* best-effort: un chip non aggiornato non deve uccidere un pannello */ }
+  });
   // Tasks already told "il repo è occupato da una sessione esterna" during the
   // CURRENT hold episode — cleared when the repo frees, so a later hold can
   // note again without spamming one comment per 10s reconcile poll.
@@ -2108,6 +2145,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     for (const t of graceTimers.values()) clearTimeout(t);
     graceTimers.clear();
     pendingResume.clear();
+    // Senza questa riga un dispatcher spento resterebbe iscritto e continuerebbe
+    // a scrivere chip su un DB che non è più il suo — e i test, che ne creano
+    // uno per caso, si passerebbero gli ascoltatori a vicenda.
+    unsubscribeHumanHold();
   }
 
   /**

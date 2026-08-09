@@ -3,6 +3,8 @@ import { Database } from "bun:sqlite";
 import { createTaskService, type TaskService } from "./tasks";
 import { createTaskDispatcher, type DispatcherDeps } from "./task-dispatcher";
 import { cancelled, type TurnEndInfo } from "../providers/stop-reason";
+import { beginAsk, endAsk } from "../lib/ask-user-bridge";
+import { beginPermission, endPermission } from "../lib/permission-bridge";
 
 // Self-contained schema (mirrors migrations 001 + 026 + 031, tasks-relevant
 // subset). PRAGMA foreign_keys + the assigned_topic_id FK are faithful to prod
@@ -148,6 +150,65 @@ describe("task-dispatcher", () => {
     expect(h.turns[0].sessionKey).toBe("topic:sk1");
     expect(h.turns[0].content).toContain("owner esclusivo del task");
     expect(h.dispatcher.isInFlight("t1")).toBe(true);
+  });
+
+  it("una domanda a META' TURNO porta il chip a needs_input, e il rilascio lo riporta a working", async () => {
+    // Il buco piu' caro trovato dal confronto board/chat: `ask_user_question`
+    // aperta mentre il turno e' vivo lasciava la card su `working`. La board
+    // diceva «sto lavorando» sopra una sessione ferma su una persona.
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 2 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    const sk = h.turns[0].sessionKey;
+    expect(h.task("t1")!.dispatchState).toBe("working");
+
+    beginAsk(sk);
+    await flush();
+    expect(h.task("t1")!.dispatchState).toBe("needs_input");
+
+    endAsk(sk);
+    await flush();
+    expect(h.task("t1")!.dispatchState).toBe("working");
+    h.dispatcher.shutdown();
+  });
+
+  it("lo stesso vale per un PERMESSO, ed e' lo stesso chip", async () => {
+    // Per chi guarda la board «domanda» e «permesso» sono lo stesso fatto:
+    // il turno aspetta una persona. Un secondo vocabolario sarebbe rumore.
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 2 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    const sk = h.turns[0].sessionKey;
+
+    beginPermission(sk, "tool-1");
+    await flush();
+    expect(h.task("t1")!.dispatchState).toBe("needs_input");
+
+    endPermission(sk, "tool-1");
+    await flush();
+    expect(h.task("t1")!.dispatchState).toBe("working");
+    h.dispatcher.shutdown();
+  });
+
+  it("l'attesa di una sessione ESTRANEA non tocca nessun chip", async () => {
+    // Le chat normali passano dalle stesse due porte: se il dispatcher
+    // reagisse a tutte, una domanda in una chat qualunque muoverebbe la card
+    // di un task che non c'entra niente.
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 2 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    beginAsk("topic:una-chat-qualunque");
+    await flush();
+    expect(h.task("t1")!.dispatchState).toBe("working");
+    endAsk("topic:una-chat-qualunque");
+    h.dispatcher.shutdown();
   });
 
   it("self-heals a DEAD binding: a todo bound to a reaped topic dispatches again", async () => {
