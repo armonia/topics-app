@@ -172,6 +172,46 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
           return { status: "nothing", branch };
         }
 
+        // ── Il branch porta SOLO il lavoro di questo task? ──────────────────
+        //
+        // Il worktree di una card nasce da `baseRef: "HEAD"` (server.ts), cioè
+        // dall'HEAD del checkout CONDIVISO — che quando qualcuno sta lavorando
+        // non è main ma il suo branch. Il branch del task eredita quindi tutti i
+        // commit di quella linea, e questo merge li porterebbe su main insieme
+        // ai suoi: «Landa su main» pubblicherebbe lavoro non finito di un'altra
+        // sessione, con un click che sembra innocuo.
+        //
+        // Successo davvero il 2026-08-09: card dispatchata con il checkout su
+        // `topics/gruppi-spazi-pulizia`, e il suo branch portava 13 commit che
+        // main non aveva, sei dei quali di un'altra sessione viva. Si è visto
+        // solo perché il merge è finito in conflitto — fortuna, non progetto.
+        //
+        // Il discrimine non ha bisogno di ricordare da dove il worktree è nato:
+        // un commit EREDITATO è raggiungibile anche da un ALTRO branch locale,
+        // uno fatto dentro questo worktree no. Quindi `--not <gli altri branch>`
+        // lascia esattamente i commit del task.
+        const refs = await runGit(repoPath, ["for-each-ref", "--format=%(refname)", "refs/heads/"]);
+        const others = refs.stdout.split("\n").map((r) => r.trim()).filter(
+          (r) => r && r !== `refs/heads/${branch}` && r !== `refs/heads/${defaultBranch}`,
+        );
+        if (others.length > 0) {
+          const own = await runGit(repoPath, ["rev-list", "--count", `${defaultBranch}..${branch}`, "--not", ...others]);
+          if (own.code === 0) {
+            const total = Number(ahead.stdout.trim());
+            const mine = Number(own.stdout.trim());
+            if (Number.isFinite(total) && Number.isFinite(mine) && total > mine) {
+              return {
+                status: "skipped",
+                reason:
+                  `il branch '${branch}' porterebbe su '${defaultBranch}' ${total} commit, ma solo ${mine} ${mine === 1 ? "è" : "sono"} di questo task: ` +
+                  `gli altri ${total - mine} arrivano dal branch su cui era il checkout quando la card è partita, e sono lavoro di qualcun altro. ` +
+                  `Non li pubblico. Prendi il lavoro del task con un cherry-pick (\`git log --oneline ${defaultBranch}..${branch} --not ${others.join(" ")}\`), ` +
+                  `oppure landa prima quel branch`,
+              };
+            }
+          }
+        }
+
         // Fast path: the shared checkout is ALREADY on main → merge in place, so a
         // hot-reload/rebuild makes the landing live immediately. Requires a clean
         // tree: never fold a concurrent session's WIP into the merge.
