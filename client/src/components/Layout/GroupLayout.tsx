@@ -8,7 +8,7 @@ import { spawnDragGhost } from './dragGhost';
 import { equalizeWidths, weightedWidths } from './gridWidths';
 import { DND_TYPES, dragMatchesScope, paneTabSoloSrcType } from '../../lib/dndTypes';
 import { paneCellBg, paneCellTopInset } from '../../lib/paneCellBg';
-import { CHROME_BAR, CHROME_BAR_H_VAR, CHROME_BAR_SUB, CHROME_BAR_SUB_H_CLASS } from '../../lib/selectionStyles';
+import { CHROME_BAR, CHROME_BAR_CONSUMED, CHROME_BAR_H_VAR, CHROME_BAR_SUB, CHROME_BAR_SUB_H_CLASS } from '../../lib/selectionStyles';
 import { PaneKeepAlive } from './PaneKeepAlive';
 import { usePaneResidency } from './hooks/usePaneResidency';
 import { usePaneAlive } from '../../state/paneLiveness';
@@ -1019,8 +1019,12 @@ export function GroupLayout({
         </div>
         {belowSlot && gid === leadingGid && <LeadingSlot node={belowSlot} />}
         {/* Active pane content */}
+        {/* La riga dei comandi ha già scavalcato la barra: da qui in giù non va
+            riservata una seconda volta. Vedi CHROME_BAR_CONSUMED — erano 38px
+            di fascia vuota, misurati. La condizione è la STESSA della riga qui
+            sopra, o si azzererebbe in gruppi che la riga non ce l'hanno. */}
         <div
-          className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden relative"
+          className={`flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden relative ${belowSlot && gid === leadingGid ? CHROME_BAR_CONSUMED : ''}`}
           onMouseDownCapture={() => {
             if (!isFocusedGroup && group.activePaneId) {
               onActivatePane(gid, group.activePaneId);
@@ -1242,7 +1246,8 @@ export function GroupLayout({
           </div>
         </div>
         {belowSlot && <LeadingSlot node={belowSlot} />}
-        <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden relative">
+        {/* Stessa cosa nella vista piatta: vedi CHROME_BAR_CONSUMED. */}
+        <div className={`flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden relative ${belowSlot ? CHROME_BAR_CONSUMED : ''}`}>
           {flatPanes
             .filter((p) => isResidentPane(p) || p.id === activePaneId)
             .map((pane) => {
