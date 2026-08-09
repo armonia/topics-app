@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Activity, BarChart3, BookOpen, ChevronRight, Clock, Cpu, Globe, Kanban, LayoutGrid, MessageSquare, TerminalSquare, Wrench, type LucideIcon } from 'lucide-react';
 import { sidebarItemPaneId, type SidebarItem } from '../../lib/buildSidebarItems';
 import type { AttentionTier } from '../../types';
-import { attentionSurface, RESTING_SURFACE, SELECTED_SURFACE, TAB_LABEL } from '../../lib/selectionStyles';
+import { attentionSurface, RESTING_SURFACE, ROW_PX, SELECTED_SURFACE, TAB_LABEL } from '../../lib/selectionStyles';
 import { useMobile } from '../../hooks/useMobile';
 import { openContextMenuAt } from '../../hooks/useLongPress';
 import { useTouchDrag } from '../../hooks/useTouchDrag';
@@ -343,7 +343,14 @@ export function PinnedTile({
         // e non quello del gruppo, chevron e conteggio ne escono — vedi
         // `pinned-tile-lead` / `pinned-tile-count` in `index.css`.
         'justify-center @min-[104px]/tile:justify-start',
-        `${PINNED_TILE_H} w-full min-w-0 rounded-lg px-1.5 select-none`,
+        // `ROW_PX`, non un `px-1.5` scritto a mano: quel file dichiara questo
+        // valore come «l'incasso orizzontale canonico di una riga di
+        // contenuto — una tab della barra E una riga della colonna — così che
+        // il rientro si legga identico sulle due superfici». La tessera è la
+        // terza faccia della stessa cosa e stava a 6 contro i loro 8: misurato
+        // a 390×844, nome della tessera e nome della riga partivano da due
+        // colonne diverse nella stessa colonna.
+        `${PINNED_TILE_H} w-full min-w-0 rounded-lg ${ROW_PX} select-none`,
         'transition-colors duration-100',
         // Il filo neutro resta SEMPRE: la cornice accesa gli si sovrappone da
         // selezionata, e a riposo la tessera torna sobria come una qualsiasi.
