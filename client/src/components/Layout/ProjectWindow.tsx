@@ -176,6 +176,22 @@ export function ProjectWindowPane({
   });
   const { panes, groups, rows, rowHeights, focusedGroupId, sidebarCollapsed } = layout.state;
 
+  /**
+   * IL POSTO DELLA BARRA CHIUSA, dentro la riga delle tab.
+   *
+   * Un nodo solo, creato qui e passato a due componenti: `GroupLayout` lo
+   * AGGANCIA in testa alla prima barra, `ProjectSidebar` ci SCRIVE dentro col
+   * suo portale quando è collassata. Chiusa, la barra di progetto smette di
+   * essere una colonna verticale con un filo laterale e diventa una fila di
+   * card in linea con le tab.
+   *
+   * Un `HTMLElement` e non uno stato con una ref: il nodo esiste già al primo
+   * render, quindi non c'è il fotogramma in cui la rail vecchia compare e poi
+   * sparisce. `useMemo` con dipendenze vuote e non `useRef` perché serve un
+   * valore stabile da PASSARE, non da leggere.
+   */
+  const railSlot = useMemo(() => document.createElement('div'), []);
+
   // Publish this project's internal split extent (leaf columns/rows) into the
   // module registry so the STANDALONE grid can weight this project's cell when
   // the user double-clicks an outer divider to equalize — see projectGridWeights.
@@ -491,6 +507,7 @@ export function ProjectWindowPane({
           onOpenFile={handleOpenFile}
           onWSMessage={onWSMessage}
           onOpenProcessLog={handleOpenProcessLog}
+          inlineSlot={railSlot}
         />
         <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
           <GroupLayout
@@ -542,6 +559,7 @@ export function ProjectWindowPane({
             // updatePane, not the global store, so we can't use the store helper).
             onRenameChat={(tid, name) => { void onUpdateTopic(tid, { name }); }}
             onRenameBrowser={(id, name) => updatePane(id, { title: name, titleSource: 'user' })}
+            leadingSlot={railSlot}
           />
         </div>
       </div>

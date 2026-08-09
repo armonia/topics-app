@@ -282,11 +282,16 @@ export class BrowserProcessPage {
     // Wait for project pane to appear (the ProjectSidebar with Processes section)
     await this.page.locator('[role="main"]').waitFor({ state: "visible", timeout: 10000 });
 
-    // La barra di progetto può essere CHIUSA: in quel modo (a3a2a614) è una rail
-    // di 40px con sole icone, e l'intestazione «Processi» non è nel DOM. Prima la
-    // si riapre dal suo unico bottone d'header, poi si procede come sopra.
+    // La barra di progetto può essere CHIUSA, e allora l'intestazione
+    // «Processi» non è nel DOM: chiusa non è più una colonna, è una fila di card
+    // IN LINEA nella riga delle tab (`project-rail-inline`). Prima la si riapre
+    // dal suo bottone, poi si procede come sopra. Il ripiego resta la vecchia
+    // rail verticale, che sopravvive per gli ospiti che non offrono lo slot.
+    const inline = this.page.locator('[data-testid="project-rail-inline"]');
     const rail = this.page.locator('[data-testid="project-sidebar-rail"]');
-    if (await rail.count() > 0) {
+    if (await inline.count() > 0) {
+      await inline.locator("button").first().click();
+    } else if (await rail.count() > 0) {
       await this.page.locator('[data-testid="project-sidebar-rail-header"] button').click();
     }
 
