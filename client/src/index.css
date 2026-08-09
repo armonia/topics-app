@@ -1354,6 +1354,81 @@ input[type="range"]::-webkit-slider-thumb {
   }
 }
 
+/* ── LA CODA DI UNA RIGA: il comando ci passa SOPRA, non in mezzo ────────────
+ *
+ * Attilio, 09/08: «il tasto chiusura deve essere sempre a fine tab, andando in
+ * hover sulle icone invece inutili». Sono due frasi, ed è la seconda a decidere
+ * la meccanica: il comando non CHIEDE un posto in fila, ci passa sopra, e ciò
+ * che copre in quel momento non serve.
+ *
+ * Cosa c'era prima, misurato su 8 superfici: sei su otto facevano CONTENDERE lo
+ * slot. Il caso peggiore è la riga chat — un solo `<span>` con QUATTRO occupanti
+ * («timestamp» `group-hover:hidden`, «archivia» `hidden group-hover:flex», il
+ * cerchio del conto alla rovescia, e lo spinner che sostituisce l'intero span) —
+ * e lo slot cambiava larghezza a ogni stato: l'inchiostro del timestamp, poi 36,
+ * poi 28. Cioè il tasto compariva ogni volta in una x diversa, dentro la stessa
+ * colonna. La riga di progetto faceva anche di peggio: il conto alla rovescia
+ * viveva dentro il ramo `group-hover`, quindi TOGLIENDO IL MOUSE il countdown
+ * spariva mentre continuava a scorrere.
+ *
+ * Adesso ci sono due elementi e un contratto:
+ *  · `.row-trail` — i segnali quieti in coda (ora, pin, badge, spunte di stato).
+ *    Restano dove sono, non si spostano MAI, e sbiadiscono sotto il comando.
+ *  · `.row-actions` — il binario dei comandi, fuori dal flusso, ancorato al
+ *    bordo destro. Stessa x su ogni superficie, per costruzione: non dipende più
+ *    da quanti segnali lo precedono. Dentro può starcene più d'uno (la riga di
+ *    progetto ha il «+» accanto al cerchio); quello che chiude è sempre
+ *    l'ULTIMO.
+ *
+ * IL CONTO ALLA ROVESCIA NON SI SPEGNE QUANDO ESCI DALLA RIGA (`data-pending`).
+ * È l'unico stato in cui il comando resta acceso senza il mouse sopra: un'azione
+ * che si può ancora annullare deve restare annullabile anche se sposti il
+ * puntatore, che era il difetto della riga di progetto.
+ *
+ * ── E SENZA HOVER TORNA IN FILA, che non è un'eccezione ─────────────────────
+ * Col dito non esiste un «passaggio»: un comando rivelato dall'hover sarebbe un
+ * comando che non esiste. Sotto `hover: none` `.row-actions` resta quindi un
+ * normale figlio flex — ultimo nel DOM, quindi sempre a fine riga, che è la
+ * stessa promessa — e `.row-trail` NON sbiadisce: sovrapporre per sempre il
+ * comando al badge vorrebbe dire spegnere il conteggio dei non letti sul
+ * telefono. La posizione è la stessa, cambia solo chi cede il posto: là il
+ * comando si prende la sua larghezza, qui la prende in prestito.
+ *
+ * `> .row-actions` è figlio DIRETTO: l'albero annida (un progetto contiene le sue
+ * chat), e senza il combinatore il passaggio su una riga figlia accenderebbe
+ * anche il comando del padre. */
+.row-actions { display: flex; align-items: center; justify-content: center; }
+@media (hover: hover) {
+  .row-actions {
+    position: absolute;
+    /* 8px = `ROW_PX`, cioè il bordo interno del contenuto: il comando finisce
+     * dove finiscono i segnali che copre. Il numero è ricalcolato da
+     * `selectionStyles.test.ts` a partire da ROW_PX — vedi ROW_ACTIONS_INSET_PX. */
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 20;
+    opacity: 0;
+    /* Invisibile E intoccabile: un box da 36 trasparente sopra il badge si
+     * mangerebbe i clic diretti al badge senza che si veda perché. */
+    pointer-events: none;
+    transition: opacity 100ms ease;
+  }
+  .row-trail { transition: opacity 100ms ease; }
+  .row-card:hover > .row-actions,
+  .row-card:focus-within > .row-actions,
+  .row-actions[data-pending='true'] {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .row-card:hover > .row-trail,
+  .row-card:focus-within > .row-trail,
+  .row-card:has(> .row-actions[data-pending='true']) > .row-trail {
+    opacity: 0;
+    pointer-events: none;
+  }
+}
+
 /* IL BORDO RIFLESSO — la luce che cade sul bordo alto di una card.
  *
  * Attilio, 07/08: «una sorta di bordo riflesso sulle card, molto minimo, non

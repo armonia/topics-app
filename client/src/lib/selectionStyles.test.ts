@@ -8,10 +8,18 @@ import {
   CHROME_ROW_CONTENT_H,
   CHROME_ROW_SUB_H,
   COLUMN_GAP,
+  CARD_H,
   ROW_ACTION_BOX,
   ROW_ACTION_BOX_PX,
+  ROW_ACTIONS_INSET_PX,
+  ROW_GAP,
+  ROW_H,
   ROW_INSET,
+  ROW_PX,
+  SECTION_CARD,
   TAB_GAP_CLASS,
+  TAB_LABEL,
+  TAB_LABEL_TYPE,
   chromeRowInset,
   sidebarRowCard,
 } from './selectionStyles';
@@ -83,14 +91,12 @@ describe('la riga di chrome e il comando in coda', () => {
     // 09/08): il comando seguiva `md:` e la tab un `isTouch` in JS, quindi in
     // una finestra stretta senza touch erano 36 e 28 nella stessa riga.
     //
-    // `TAB_H` ricopia la classe della tab (PaneTabBar), che non è esportabile
-    // — sta dentro un template con dieci altre cose. È una copia, e il suo
-    // prezzo è dichiarato: se qualcuno cambia l'altezza della tab senza toccare
-    // qui, questo test resta verde su una bugia. Ciò che NON può più succedere
-    // in silenzio è il disaccordo di meccanismo, perché entrambe le stringhe
-    // ora si leggono con lo stesso risolutore di breakpoint.
-    const TAB_H = 'h-9 md:h-7';
-    expect(risolvi(TAB_H, 'h')).toEqual(risolvi(ROW_ACTION_BOX, 'h'));
+    // QUI C'ERA UNA COPIA A MANO (`const TAB_H = 'h-9 md:h-7'`), col suo prezzo
+    // dichiarato in un commento: «se qualcuno cambia l'altezza della tab senza
+    // toccare qui, questo test resta verde su una bugia». Non serve più pagarlo:
+    // l'altezza della card compatta è {@link CARD_H}, e la tab la importa invece
+    // di riscriverla. Il test legge ora la STESSA stringa che la tab monta.
+    expect(risolvi(CARD_H, 'h')).toEqual(risolvi(ROW_ACTION_BOX, 'h'));
     const box = risolvi(ROW_ACTION_BOX, 'h');
     expect(chromeRowInset(box.wide)).toBe(6);
     expect(chromeRowInset(box.compact)).toBe(2);
@@ -211,5 +217,70 @@ describe('il passo verticale della colonna', () => {
     // Un COLUMN_GAP dispari darebbe mezzi pixel su entrambe le metà, e un bordo
     // a 2,5px si vede come una riga sfocata.
     expect(COLUMN_GAP % 2).toBe(0);
+  });
+});
+
+describe('il binario dei comandi in coda', () => {
+  test("l'incasso dell'overlay è ROW_PX, e il CSS lo scrive a mano", () => {
+    // `.row-actions { right: 8px }` sta in `index.css`: nessuna media query può
+    // leggere una costante TS, quindi il numero è per forza un letterale là.
+    // Qui si ricalcola dal padding della riga — che è ciò che quel numero
+    // PROMETTE di valere: il comando deve finire dove finiscono i segnali che
+    // copre. Se `ROW_PX` cambia, questo test indica il CSS invece di lasciare
+    // separare i due in silenzio.
+    const px = risolvi(ROW_PX, 'px');
+    expect(px.wide).toBe(ROW_ACTIONS_INSET_PX);
+    expect(px.compact).toBe(ROW_ACTIONS_INSET_PX);
+  });
+
+  test('il box del comando ha la stessa misura ovunque, sui due rami', () => {
+    // Il binario contiene sempre e solo box `ROW_ACTION_BOX`. Il test è qui e
+    // non nei chiamanti perché il difetto era proprio la varietà: quattro
+    // misure diverse nello stesso binario (28, 24, 24+mr-1, 24).
+    expect(risolvi(ROW_ACTION_BOX, 'w')).toEqual({
+      wide: ROW_ACTION_BOX_PX.desktop,
+      compact: ROW_ACTION_BOX_PX.touch,
+    });
+  });
+});
+
+describe('le due famiglie di altezza, e le tre misure interne', () => {
+  test('ROW_H e CARD_H sono due, e non si sovrappongono', () => {
+    // Due famiglie legittime — la riga porta una subline, la card compatta no —
+    // ma DEVONO restare due: sei altezze diverse era lo stato di partenza.
+    const riga = risolvi(ROW_H, 'h');
+    const card = risolvi(CARD_H, 'h');
+    expect(riga.compact).toBeGreaterThan(card.compact);
+    expect(riga.wide).toBeGreaterThan(card.wide);
+    // La riga regge il minimo di tap target di iOS sotto i 768px; la card
+    // compatta no, e non deve fingere di sì (là il bersaglio lo allarga
+    // `tap-expand-y`).
+    expect(riga.compact).toBe(44);
+  });
+
+  test("l'aria DENTRO una riga è una sola, e SECTION_CARD la usa", () => {
+    // `SECTION_CARD` stava a `gap-1.5` mentre otto superfici su quattordici
+    // usavano `gap-2`: la costante era in minoranza rispetto ai suoi clienti.
+    expect(risolvi(ROW_GAP, 'gap')).toEqual({ wide: 8, compact: 8 });
+    expect(SECTION_CARD).toContain(ROW_GAP);
+    expect(SECTION_CARD).toContain(CARD_H);
+    expect(SECTION_CARD).toContain(ROW_PX);
+  });
+
+  test("l'aria DENTRO non è quella FRA: due domande, due numeri", () => {
+    // Non è pignoleria: sono due assi diversi (dentro una card / fra due card) e
+    // il difetto era che ognuno aveva TRE valori. Averli distinti — e diversi —
+    // è il modo di accorgersi se qualcuno li fonde per sbaglio.
+    expect(risolvi(ROW_GAP, 'gap').wide).toBe(8);
+    expect(risolvi(TAB_GAP_CLASS, 'gap').wide).toBe(COLUMN_GAP);
+    expect(risolvi(ROW_GAP, 'gap').wide).not.toBe(COLUMN_GAP);
+  });
+
+  test('TAB_LABEL è TAB_LABEL_TYPE più il colore, e non una seconda scala', () => {
+    // I due assi vanno separati (chi calcola il proprio tono prende solo il
+    // tipo), ma la scala deve restare UNA: `TAB_LABEL` che diverge da
+    // `TAB_LABEL_TYPE` sarebbe esattamente la copia da cui veniamo.
+    expect(TAB_LABEL.startsWith(TAB_LABEL_TYPE)).toBe(true);
+    expect(TAB_LABEL_TYPE).not.toContain('text-app-text');
   });
 });
