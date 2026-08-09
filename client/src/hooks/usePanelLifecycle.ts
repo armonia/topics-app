@@ -31,6 +31,7 @@
  */
 
 import { findEmptyDraftPane, forgetDraft, isDraftPaneEmpty, draftTextKey } from '../state/draftPane';
+import { noteDraftRemoval, whoRemovedDraft } from '../state/draftWitness';
 import {
   useCallback,
   useEffect,
@@ -512,6 +513,9 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       storeSyncInternalRef.current = true;
       setOpenPanels(prev => {
         if (prev.length === storeOrder.length && prev.every((id, i) => id === storeOrder[i])) return prev;
+        if (prev.some((id) => isDraftPaneId(id) && !storeOrder.includes(id))) {
+          noteDraftRemoval('sincronizzazione-archivio');
+        }
         return storeOrder;
       });
       setFocusedPanelId(prev => {
@@ -712,6 +716,9 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       }
       const changed = validPanels.length !== openPanels.length || validPanels.some((v, i) => v !== openPanels[i]);
       if (changed) {
+        if (openPanels.some((id) => isDraftPaneId(id) && !validPanels.includes(id))) {
+          noteDraftRemoval('validazione-pane');
+        }
         prevOpenPanelsForValidation.current = validPanels;
         setOpenPanels(validPanels);
         // Register the project pane ENTITIES before Effect B dispatches
@@ -755,6 +762,9 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   useEffect(() => {
     setOpenPanels(prev => {
       const filtered = pruneStaleTerminalPanes(prev);
+      if (prev.some((id) => isDraftPaneId(id) && !filtered.includes(id))) {
+        noteDraftRemoval('potatura-terminali');
+      }
       return filtered === prev ? prev : filtered;
     });
   }, [terminalSessions, pruneStaleTerminalPanes]);
@@ -1605,6 +1615,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   // stays stable while .current always holds the latest closure; only invoked from
   // event handlers / undo, never read during render.
   handleClosePanelRef.current = (topicId: string, opts?: { silent?: boolean }) => {
+    if (isDraftPaneId(topicId)) noteDraftRemoval(opts?.silent ? 'congedo-bozza-vuota' : 'chiusura-manuale');
     // Dedup rapid double-invokes: a fast double-click on a tab's close button
     // fires two discrete click events, and React flushes the first close between
     // them. openPanelsRef is a render-time mirror, so by the second call topicId
@@ -2117,6 +2128,38 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     if (pendingDraftCloseRef.current) clearTimeout(pendingDraftCloseRef.current.timer);
   }, []);
 
+  // ── Il testimone (diagnostica, a tempo) ────────────────────────────────
+  // Una bozza sparita dall'elenco fa dire all'app CHI l'ha tolta, invece di
+  // farmelo indovinare una quarta volta. Si toglie appena il percorso ha un
+  // nome. Vedi `state/draftWitness.ts`.
+  const prevOpenForWitnessRef = useRef<string[]>(openPanels);
+  useEffect(() => {
+    const before = prevOpenForWitnessRef.current;
+    prevOpenForWitnessRef.current = openPanels;
+    const gone = before.filter((id) => isDraftPaneId(id) && !openPanels.includes(id));
+    if (gone.length === 0) return;
+    const reason = whoRemovedDraft();
+    // La promozione NON è una sparizione: la bozza è diventata una chat vera e
+    // l'id è cambiato sotto. Dirlo sarebbe rumore su un percorso sano.
+    if (reason === 'promozione-a-topic') return;
+    const msg = `La chat nuova è stata chiusa da: ${reason}`;
+    console.warn('[bozza]', msg, gone);
+    // Un cartello nel DOM e non un toast: il toast dipende da un provider che
+    // potrebbe stare SOPRA questo hook (App.tsx lo dice), e un testimone che a
+    // volte non parla non è un testimone. Si toglie con la diagnostica.
+    try {
+      const el = document.createElement('div');
+      el.textContent = msg;
+      el.setAttribute('data-draft-witness', reason);
+      el.style.cssText =
+        'position:fixed;left:50%;top:12px;transform:translateX(-50%);z-index:2147483647;' +
+        'background:#b91c1c;color:#fff;padding:8px 14px;border-radius:10px;font:500 12px system-ui;' +
+        'box-shadow:0 6px 24px rgba(0,0,0,.35);max-width:90vw;text-align:center';
+      document.body.appendChild(el);
+      setTimeout(() => el.remove(), 12_000);
+    } catch { /* diagnostica: non deve poter rompere niente */ }
+  }, [openPanels]);
+
   const promoteDraft = useCallback(async (draftId: string, firstMessage: string, options?: SendMessageOptions) => {
     const meta = draftMeta[draftId] || {};
     const topic = await createTopic({
@@ -2150,6 +2193,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
         return;
       }
     }
+    noteDraftRemoval('promozione-a-topic');
     setOpenPanels(prev => prev.map(id => id === draftId ? topic.id : id));
     // Split-layout remap: PanelGrid keys its solo split cells (and their grid
     // slots) by pane id. Announce the promotion so a draft living in a split
