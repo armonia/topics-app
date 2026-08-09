@@ -254,4 +254,60 @@ test.describe("Le tre facce di una tab, sullo schermo dove collassano in una", (
     // della colonna, non un rilievo: se cambia, cambia in `selectionStyles`.
     for (const g of gaps) expect(g, `passo fra righe adiacenti: ${gaps.join(",")}`).toBe(6);
   });
+
+  test("TAB-COERENZA-4: il filo dei fissati ha lo stesso spazio sopra e sotto", async ({ page, request }) => {
+    // Il filo dichiarava `my-1.5` — 6 per lato, simmetrico nel codice — ma sotto
+    // di lui la prima card porta il suo mezzo passo, e a schermo facevano 9
+    // contro 6. La simmetria che conta è quella VISTA, non quella scritta:
+    // sopra non c'è nessuno che aggiunge (il blocco fissati chiude a 0), sotto
+    // sì, quindi i due margini del filo NON possono essere uguali fra loro.
+    const stamp = Date.now();
+    const fissati: string[] = [];
+    for (let i = 0; i < 2; i++) {
+      const t = await createTopic(request, `E2E-Filo-Pin-${i}-${stamp}`);
+      creati.push(t.id); fissati.push(t.id);
+    }
+    for (let i = 0; i < 2; i++) {
+      const t = await createTopic(request, `E2E-Filo-Riga-${i}-${stamp}`);
+      creati.push(t.id);
+    }
+    await request.put(`${BASE}/api/ui-state/sidebar-state`, {
+      data: {
+        viewMode: "timeline", showArchived: false, expandedNodes: [],
+        pinnedItems: fissati, pinnedLayout: [fissati],
+      },
+    }).catch(() => {});
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await apriColonna(page);
+    await goToApp(page);
+    await expect(page.getByTestId("pinned-divider").first()).toBeVisible({ timeout: 15000 });
+
+    const spazi = await page.evaluate(() => {
+      const filo = document.querySelector('[data-testid="pinned-divider"]');
+      if (!filo) return null;
+      const fr = filo.getBoundingClientRect();
+      const prev = filo.previousElementSibling;
+      const next = filo.nextElementSibling;
+      // Sopra: l'ULTIMA tessera del blocco. Sotto: la PRIMA card della lista.
+      // Non i contenitori: fra due contenitori lo spazio può essere giusto
+      // mentre quello che si vede è sbagliato — è esattamente com'era.
+      const tessere = prev?.querySelectorAll('[data-testid="pinned-tile"]');
+      const ultima = tessere?.length ? tessere[tessere.length - 1] : null;
+      const prima = next?.querySelector('[role="treeitem"]') ?? null;
+      if (!ultima || !prima) return null;
+      const cs = getComputedStyle(filo);
+      return {
+        sopra: Math.round(fr.top - ultima.getBoundingClientRect().bottom),
+        sotto: Math.round(prima.getBoundingClientRect().top - fr.bottom),
+        catena: `filo mt=${cs.marginTop} mb=${cs.marginBottom} | next=${next?.tagName}.${(next?.getAttribute("class") ?? "").split(" ").slice(0,2).join(".")}[${next?.getAttribute("data-testid") ?? ""}] pt=${next ? getComputedStyle(next).paddingTop : "?"} | prima=${prima.tagName} mt=${getComputedStyle(prima).marginTop}`,
+      };
+    });
+
+    expect(spazi, "filo, tessere o righe non montate").not.toBeNull();
+    const { sopra, sotto, catena } = spazi as { sopra: number; sotto: number; catena: string };
+    expect(sotto, `il filo respira ${sopra} sopra e ${sotto} sotto — ${catena}`).toBe(sopra);
+    // E il valore è il passo della colonna, non un numero qualunque.
+    expect(sopra).toBe(6);
+  });
 });
