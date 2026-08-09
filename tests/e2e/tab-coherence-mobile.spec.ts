@@ -140,4 +140,65 @@ test.describe("Le tre facce di una tab, sullo schermo dove collassano in una", (
     // La forma della card.
     expect(tessera.borderRadius).toBe(riga.borderRadius);
   });
+
+  test("TAB-COERENZA-2: sul telefono la riga SELEZIONATA si stacca da una a riposo", async ({ page, request }) => {
+    // Il difetto che questo test esiste per fermare non è estetico: a 390px la
+    // riga selezionata, quella che ti aspetta in ambra e quella finita in blu
+    // si dipingevano TUTTE come una a riposo. Il fondo del riposo stava nel
+    // `base` di `sidebarRowCard`, e le utility `max-md:` — emesse in fondo al
+    // foglio — battevano il fill di stato a specificità pari.
+    const stamp = Date.now();
+    const scelta = await createTopic(request, `E2E-Sel-Scelta-${stamp}`);
+    creati.push(scelta.id);
+    for (let i = 0; i < 2; i++) {
+      const t = await createTopic(request, `E2E-Sel-Riposo-${i}-${stamp}`);
+      creati.push(t.id);
+    }
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await apriColonna(page);
+    await goToApp(page);
+
+    const colonna = page.getByTestId("sidebar-topic-list");
+    await expect(colonna).toBeVisible({ timeout: 15000 });
+    await expect
+      .poll(async () => (await colonna.boundingBox())?.width ?? 0, { timeout: 15000 })
+      .toBeGreaterThan(200);
+
+    // Aprire una chat sul telefono CHIUDE il cassetto (usePanelLifecycle): si
+    // riapre col comando in testa alla pane, che è l'unico modo che ha anche
+    // l'utente.
+    await page.getByText(`E2E-Sel-Scelta-${stamp}`).first().click({ timeout: 15000 });
+    await page.waitForTimeout(1200);
+    const riapri = page.getByRole("button", { name: /Toggle sidebar|Expand sidebar/i }).first();
+    await riapri.click({ timeout: 8000 });
+    await expect
+      .poll(async () => (await colonna.boundingBox())?.width ?? 0, { timeout: 15000 })
+      .toBeGreaterThan(200);
+
+    const fondi = await page.evaluate((nome) => {
+      const dipinto = (el: Element): string => {
+        const c = getComputedStyle(el).backgroundColor;
+        return c && c !== "rgba(0, 0, 0, 0)" && c !== "transparent" ? c : "—";
+      };
+      const root = document.querySelector('[data-testid="sidebar-topic-list"]');
+      if (!root) return null;
+      const righe = Array.from(root.querySelectorAll('[role="treeitem"]'))
+        .filter((e) => !e.closest('[data-testid^="pinned-tile"]'))
+        .filter((e) => e.getBoundingClientRect().width > 100);
+      const scelta = righe.find((e) => (e.textContent ?? "").includes(nome));
+      const riposo = righe.find((e) => !(e.textContent ?? "").includes(nome));
+      if (!scelta || !riposo) return null;
+      return { scelta: dipinto(scelta), riposo: dipinto(riposo) };
+    }, `E2E-Sel-Scelta-${stamp}`);
+
+    expect(fondi, "righe non montate dopo la riapertura del cassetto").not.toBeNull();
+    const { scelta: fSel, riposo: fRip } = fondi as { scelta: string; riposo: string };
+    // Entrambe DIPINGONO — se il riposo fosse trasparente il confronto sarebbe
+    // vuoto e passerebbe per il motivo sbagliato.
+    expect(fRip, "la riga a riposo deve avere un fondo sul telefono").not.toBe("—");
+    expect(fSel, "la riga selezionata deve avere un fondo").not.toBe("—");
+    // E sono DIVERSI: è tutto il punto.
+    expect(fSel, `selezionata e riposo hanno lo stesso fondo (${fSel})`).not.toBe(fRip);
+  });
 });
