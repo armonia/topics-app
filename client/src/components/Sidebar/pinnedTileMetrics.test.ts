@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { ROW_ACTION_BOX } from '../../lib/selectionStyles';
+import { ROW_ACTION_BOX, ROW_H, ROW_PX } from '../../lib/selectionStyles';
 import {
   PINNED_TILE_ACTION_INSET,
   PINNED_TILE_ACTION_SLOT,
@@ -35,14 +35,21 @@ const STEP_PX = 4;
  * c'è, altrimenti la nuda. È esattamente la cascata che il browser applicherà,
  * scritta una volta invece di essere dedotta a occhio da chi legge la stringa.
  */
-function risolvi(classes: string, prop: 'h' | 'w'): { wide: number; compact: number } {
+/* Legge anche i VALORI ARBITRARI (`h-[34px]`) e le proprietà di più di una
+ * lettera (`px-`), che è la stessa forma del risolutore in
+ * `selectionStyles.test.ts`. Prima accettava solo `[hw]-<numero>` della scala:
+ * bastava che una misura passasse a un valore arbitrario — ed è successo il
+ * giorno in cui la riga è diventata `md:h-[34px]` — perché il test morisse con
+ * «nessuna misura leggibile» invece di dire che i due numeri non tornano.
+ * Mescolare le due forme è proprio ciò che rende facile perderne una di vista. */
+function risolvi(classes: string, prop: 'h' | 'w' | 'px'): { wide: number; compact: number } {
   let nuda: number | null = null;
   let md: number | null = null;
   let maxMd: number | null = null;
   for (const cls of classes.split(/\s+/).filter(Boolean)) {
-    const m = /^(?:(md|max-md):)?([hw])-(\d+(?:\.\d+)?)$/.exec(cls);
-    if (!m || m[2] !== prop) continue;
-    const px = Number(m[3]) * STEP_PX;
+    const m = new RegExp(`^(?:(md|max-md):)?${prop}-(?:\\[(\\d+(?:\\.\\d+)?)px\\]|(\\d+(?:\\.\\d+)?))$`).exec(cls);
+    if (!m) continue;
+    const px = m[2] !== undefined ? Number(m[2]) : Number(m[3]) * STEP_PX;
     if (m[1] === 'md') md = px;
     else if (m[1] === 'max-md') maxMd = px;
     else nuda = px;
@@ -75,13 +82,45 @@ describe('le misure della tessera fissata', () => {
     expect(risolvi(ROW_ACTION_BOX, 'w')).toEqual(box);
   });
 
-  test("l'altezza è il trigger più due volte il rientro", () => {
-    // È QUESTO che fa coincidere i tre spazi attorno al «+» — e ciò che l'E2E
-    // TILE-20 misura sullo schermo. Qui costa un millisecondo invece di un giro
-    // di browser, quindi si rompe subito e non a fine suite.
+  test('una tessera è alta quanto una riga, sui due rami', () => {
+    // QUI C'ERA L'INVARIANTE «altezza = trigger + 2 × rientro», che teneva
+    // insieme l'aria VERTICALE attorno al «+» e il suo rientro ORIZZONTALE. È
+    // una regola che nessun'altra superficie dell'app segue — una riga della
+    // colonna è alta 34 con un comando da 28 a 8px dal bordo, cioè 3 e 8 — e
+    // decideva l'altezza della tessera a partire dal rientro del suo bottone.
+    // Il risultato osservabile: 36 contro i 34 di una riga, nella stessa
+    // colonna, con le due card una sopra l'altra.
+    //
+    // Adesso l'altezza è quella della riga, e basta. Le due misure restano
+    // agganciate — se `ROW_H` cambia, la tessera lo segue — perché la costante è
+    // la stessa, non una copia con lo stesso valore.
+    expect(risolvi(PINNED_TILE_H, 'h')).toEqual(risolvi(ROW_H, 'h'));
+  });
+
+  test('il «+» cade ESATTAMENTE sul suo slot, non accanto', () => {
+    // Il conto, su una tessera larga W, coi figli al passo condiviso (ROW_GAP=8)
+    // e il padding di riga (ROW_PX=8):
+    //   · lo slot riservato sta a [W−8−box, W−8];
+    //   · il bottone, posizionato a `right: rientro`, sta a [W−rientro−box,
+    //     W−rientro].
+    // Coincidono solo se rientro === ROW_PX. A 4 il bottone sbordava di 4px nel
+    // padding e ne lasciava 4 scoperti dall'altra parte: uno slot esiste per
+    // essere occupato da chi lo ha chiesto.
+    const px = risolvi(ROW_PX, 'px');
+    expect(PINNED_TILE_ACTION_INSET).toBe(px.wide);
+    expect(PINNED_TILE_ACTION_INSET).toBe(px.compact);
+  });
+
+  test("l'aria sopra e sotto il «+» non si sceglie: la lascia il centraggio", () => {
+    // Non è più un terzo uso del rientro — è (altezza − box)/2. Si controlla che
+    // sia un intero: un mezzo pixel sotto un bottone lo fa leggere fuori asse
+    // rispetto ai vicini, ed è il difetto che questo file ha già pagato una
+    // volta con un glifo da 13.
     for (const larghezza of ['wide', 'compact'] as const) {
       const { tile, action } = PINNED_TILE_PX[larghezza];
-      expect(tile).toBe(action + 2 * PINNED_TILE_ACTION_INSET);
+      const aria = (tile - action) / 2;
+      expect(aria).toBeGreaterThan(0);
+      expect(Number.isInteger(aria)).toBe(true);
     }
   });
 

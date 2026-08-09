@@ -434,6 +434,29 @@ export const ROW_H = 'h-11 md:h-[34px]';
 export const CARD_H = 'h-9 md:h-7';
 
 /**
+ * L'INTESTAZIONE DI UNA SEZIONE — e i due numeri vengono da due vincoli diversi,
+ * che è il motivo per cui non poteva prendere né l'una né l'altra famiglia.
+ *
+ *  · 28 col mouse, come {@link CARD_H}: una riga di testo sola, nessuna subline.
+ *    Un'intestazione alta quanto le righe che introduce non si legge come
+ *    un'intestazione — e le DUE intestazioni di sezione dell'app stavano a
+ *    34 (colonna principale, che usava `ROW_H`) e 28 (colonna di progetto, che
+ *    usa `SECTION_CARD`): la stessa cosa, due misure, in due colonne che si
+ *    guardano affiancate.
+ *  · 44 col dito, come {@link ROW_H}: è un bersaglio che si preme, e sta in una
+ *    colonna, dove i 44px del minimo iOS ci stanno. `SECTION_CARD` era a 36 —
+ *    otto sotto la soglia — e in quella colonna era l'unica cosa premibile a
+ *    esserlo.
+ *
+ * Perché {@link CARD_H} resta 36 col dito e non sale anche lei: la tab della
+ * barra vive DENTRO la riga di chrome, che è alta 40 ({@link CHROME_ROW_CONTENT_H}).
+ * Una tab da 44 non ci sta — la taglierebbe l'`overflow-hidden` della barra — e
+ * i 44 lì si recuperano con `tap-expand-y`, che proietta l'area senza toccare il
+ * box. Cioè: non sono due gusti, è che una delle due superfici ha un soffitto.
+ */
+export const SECTION_H = 'h-11 md:h-7';
+
+/**
  * L'INTESTAZIONE DI UNA SEZIONE È UNA CARD, come tutto il resto.
  *
  * «Facciamo diventare gli accordion della sidebar progetto delle card, come le
@@ -453,7 +476,7 @@ export const CARD_H = 'h-9 md:h-7';
  * grammatica divergono al primo che viene ritoccato da solo.
  */
 export const SECTION_CARD =
-  `group edge-lit flex items-center ${ROW_GAP} ${ROW_PX} ${CARD_H} ${TAB_LABEL} ${RESTING_SURFACE} ` +
+  `group edge-lit flex items-center ${ROW_GAP} ${ROW_PX} ${SECTION_H} ${TAB_LABEL} ${RESTING_SURFACE} ` +
   'rounded-lg mx-1.5 my-[3px] transition-colors cursor-pointer select-none flex-shrink-0 overflow-hidden';
 /** Indent added per nesting level for sidebar child rows (px). */
 export const SIDEBAR_INDENT_STEP = 16;

@@ -157,6 +157,39 @@ test("CODA-3: il comando è l'ULTIMO — nessun segnale gli sta a destra", async
   }
 });
 
+test("CODA-5: una tessera fissata è alta quanto una riga, e l'intestazione di sezione MENO", async ({ page }) => {
+  // Le due misure che erano rimaste fuori dal primo giro, misurate insieme
+  // perché sono la stessa domanda vista da due lati: cosa deve essere alto
+  // quanto una riga, e cosa no.
+  //
+  //  · la TESSERA è una riga presentata in griglia — 36 contro 34 col mouse
+  //    erano due pixel fra card impilate nella stessa colonna;
+  //  · l'INTESTAZIONE di sezione no: un'intestazione alta quanto le righe che
+  //    introduce non si legge come un'intestazione.
+  await openTopic(page, nomi[0]);
+  const riga = rigaDi(page, nomi[0]);
+  await expect(riga).toBeVisible();
+  await page.mouse.move(1200, 850);
+  await page.waitForTimeout(200);
+  const rr = await rett(riga, "riga");
+
+  // La sezione: la prima intestazione d'albero che la colonna monta.
+  const sezione = page.locator('button[aria-label^="sezione "]').first();
+  if (await sezione.count()) {
+    const rs = await rett(sezione, "intestazione di sezione");
+    expect(rs.h, `intestazione ${rs.h.toFixed(1)}px, riga ${rr.h.toFixed(1)}px: dovrebbe essere PIÙ BASSA`).toBeLessThan(rr.h - 1);
+  }
+
+  // La tessera: c'è solo se qualcosa è fissato, quindi il controllo è
+  // condizionale — un test che finge di aver misurato ciò che non c'era è
+  // peggio di uno che dichiara di aver saltato.
+  const tessera = page.locator('[data-testid="sidebar-pinned-section"] [role="treeitem"]').first();
+  if (await tessera.count()) {
+    const rt = await rett(tessera, "tessera fissata");
+    expect(Math.abs(rt.h - rr.h), `tessera ${rt.h.toFixed(1)}px contro riga ${rr.h.toFixed(1)}px`).toBeLessThanOrEqual(EPS);
+  }
+});
+
 test("CODA-4: fra due card adiacenti della colonna passa COLUMN_GAP", async ({ page }) => {
   await openTopic(page, nomi[0]);
   await openTopic(page, nomi[1]);
