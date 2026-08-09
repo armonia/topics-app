@@ -327,7 +327,7 @@ describe("origine · l'asse che da curl non si vede", () => {
   // il ramo che conta.
   const dal = (origin: string, ammesse: string[] = []) => evaluateAuth({
     method: "POST", pathname: "/api/auth/pair/request",
-    origin, host: "127.0.0.1:3334", allowedOrigins: ammesse,
+    origin, host: "127.0.0.1:3334", allowedOrigins: ammesse, authOff: false,
   });
 
   it("senza allowlist, un'origine che non combacia con l'host è bloccata", () => {
@@ -357,7 +357,7 @@ describe("origine · l'asse che da curl non si vede", () => {
     // casi sopra passerebbero per il motivo sbagliato.
     expect(evaluateAuth({
       method: "GET", pathname: "/api/topics",
-      origin: "https://cattivo.example", host: "127.0.0.1:3334", allowedOrigins: [],
+      origin: "https://cattivo.example", host: "127.0.0.1:3334", allowedOrigins: [], authOff: false,
     }).allow).toBe(true);
   });
 });
