@@ -126,13 +126,20 @@ describe('il passo verticale della colonna', () => {
     expect(Number(my![1])).toBe(COLUMN_GAP / 2);
   });
 
-  test('due card adiacenti distano esattamente COLUMN_GAP', () => {
-    // I margini verticali di due card che si toccano NON collassano: stanno in
-    // un contenitore che scorre (`overflow-y-auto`), che è un contesto di
-    // formattazione a sé. Quindi 3 + 3 = 6, non 3.
-    const my = Number(/my-\[(\d+)px\]/.exec(sidebarRowCard({}))![1]);
-    expect(my * 2).toBe(COLUMN_GAP);
-  });
+  // NIENTE «due card adiacenti distano COLUMN_GAP» QUI, e vale la pena dire
+  // perché: c'era, e non poteva fallire.
+  //
+  // Faceva `my * 2 === COLUMN_GAP` su una stringa — cioè riscriveva 3+3=6 in un
+  // altro modo — e si giustificava dicendo che i margini «NON collassano,
+  // perché stanno in un contenitore che scorre, che è un contesto di
+  // formattazione a sé». Sbagliato: un BFC impedisce ai margini dei FIGLI di
+  // sfuggire al contenitore, non il collasso FRA FRATELLI. A schermo le righe
+  // stavano a 3px (misurato: `3,3,3`) mentre questo test era verde.
+  //
+  // Una distanza renderizzata si misura dove viene renderizzata:
+  // `tests/e2e/tab-coherence-mobile.spec.ts` (TAB-COERENZA-3) legge i rettangoli
+  // di due righe adiacenti a 390×844. Qui resta solo ciò che è davvero
+  // verificabile da una stringa: che la classe dichiari mezzo passo.
 
   test('mezzo passo è un numero intero di pixel', () => {
     // Un COLUMN_GAP dispari darebbe mezzi pixel su entrambe le metà, e un bordo
