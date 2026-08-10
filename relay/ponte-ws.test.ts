@@ -29,6 +29,7 @@ import {
 } from "./src/ponte";
 import { creaProxyTubo } from "../server/services/relay-client";
 import { leggiFramePayload, scriviFrame, type FrameTubo } from "../shared/relay-protocol";
+import { derivaRelayId, INTESTAZIONE_SEGRETO } from "../shared/relay-identita";
 import {
   GENERE_WS_APERTO, GENERE_WS_CHIUSO, leggiChiusuraWs, leggiTestaWsChiuso,
   scriviTestaWs, WS_APERTO,
@@ -785,7 +786,13 @@ describe("ponte-ws · la visita finisce, e la fine arriva fino in fondo", () => 
     await s.finche(() => s.giu.vivi() === 1, "la stretta di mano locale");
 
     s.sfratta();
-    const nuova = await s.apri("/agent/inst-1");
+    // La porta della macchina chiede la preimmagine del proprio nome
+    // (`shared/relay-identita.ts`), quindi il riaggancio si scrive per intero:
+    // il nome derivato dal segreto, e il segreto nell'intestazione. In questa
+    // scena `get()` ignora il nome e torna sempre lo stesso oggetto, quindi
+    // resta il punto d'incontro di prima — cambia solo come ci si entra.
+    const segreto = "segreto-della-macchina-che-si-riaggancia";
+    const nuova = await s.apri(`/agent/${await derivaRelayId(segreto)}`, { [INTESTAZIONE_SEGRETO]: segreto });
     expect(nuova.res.status).toBe(101);
 
     expect(browser!.chiusa).toEqual({ c: WS_PONTE_GIU, r: "installation offline" });
