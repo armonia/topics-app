@@ -308,7 +308,7 @@ describe("task-dispatcher fan-out", () => {
 
     expect(h.turns.length).toBe(2);
     expect(h.rows("t1").length).toBe(2);
-    expect(h.comments("t1").join("\n")).toContain("Fan-out 3→2");
+    expect(h.comments("t1").join("\n")).toContain("Fan-out ridotto da 3 a 2");
   });
 
   it("senza worktree il fan-out non parte: un agente solo, in-place, con una nota", async () => {
@@ -322,7 +322,7 @@ describe("task-dispatcher fan-out", () => {
     expect(h.turns.length).toBe(1);
     expect(h.rows("t1").length).toBe(0);              // nessun tentativo: path storico
     expect(h.turns[0].content).toContain("owner esclusivo del task");
-    expect(h.comments("t1").join("\n")).toContain("board IN-PLACE");
+    expect(h.comments("t1").join("\n")).toContain("dispaccia IN-PLACE");
   });
 
   it("host senza store dei tentativi: fanOut resta 1, nessuno se ne accorge", async () => {
