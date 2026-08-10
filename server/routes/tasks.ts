@@ -338,10 +338,20 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       branchAfter: branchAfter ?? "gone",
       dirtAfter: dirtAfter ?? [],
     });
-    if (post.action === "keep") {
+    // `free-checkout` — liberare la cartella tenendo il branch — è una decisione
+    // che QUESTO percorso non esegue, di proposito. La passata periodica agisce
+    // su task chiusi che nessuno guarda; qui l'umano ha appena premuto «Landa su
+    // main» su una card ancora in review, e portargli via la cartella sotto le
+    // dita (con magari una shell aperta dentro) mentre legge perché il land non
+    // è passato non fa risparmiare spazio: fa perdere il filo. Il contratto è
+    // uno — `decidePostLandReap` — ma l'autorità di distruggere no.
+    if (post.action === "keep" || post.action === "free-checkout") {
+      const nota = post.action === "free-checkout"
+        ? " Il GC libererà la cartella (conservando il branch) quando il task sarà chiuso."
+        : "";
       svc.addComment({
         taskId, author: "system",
-        content: `⚠️ Worktree NON ripulito: ${post.reason}. Il branch del task è stato conservato — recupera il lavoro o cancellalo a mano.`,
+        content: `⚠️ Worktree NON ripulito: ${post.reason}. Il branch del task è stato conservato — recupera il lavoro o cancellalo a mano.${nota}`,
       });
       return;
     }
