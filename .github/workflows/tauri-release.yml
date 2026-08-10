@@ -131,6 +131,7 @@ jobs:
           workspaces: |
             desktop-tauri/src-tauri
             desktop-tauri/pty-bridge
+            desktop-tauri/webrtc-bridge
 
       - name: Linux WebKitGTK + tray build deps
         if: runner.os == 'Linux'
@@ -176,6 +177,25 @@ jobs:
       - name: Build PTY bridge sidecar (Linux)
         if: runner.os == 'Linux'
         run: ./scripts/build-pty-bridge.sh linux
+
+      # Build the standalone Rust WebRTC-bridge sidecar (binaries/webrtc-bridge-<triple>).
+      # WITHOUT this the browser pane on a virgin install has no shared-session video
+      # transport: server/webrtc-bridge.ts finds no binary, available() is false, every
+      # SDP offer is dropped and the pane degrades to the DOM fallback. See
+      # scripts/build-webrtc-bridge.sh + desktop-tauri lib.rs bundled_webrtc_bridge_bin().
+      # Must run BEFORE tauri build so the externalBin (tauri.conf.json) resolves.
+      # Windows compiles a no-op stub (the wire protocol is a Unix socket) just to
+      # satisfy the per-target externalBin bundle; lib.rs never advertises it there.
+      - name: Build WebRTC bridge sidecar (macOS universal)
+        if: runner.os == 'macOS'
+        run: ./scripts/build-webrtc-bridge.sh macos
+      - name: Build WebRTC bridge sidecar (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: ./scripts/build-webrtc-bridge.sh windows
+      - name: Build WebRTC bridge sidecar (Linux)
+        if: runner.os == 'Linux'
+        run: ./scripts/build-webrtc-bridge.sh linux
 
       - name: Build client (Vite → public/, the Tauri frontendDist)
         working-directory: client
