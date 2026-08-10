@@ -40,14 +40,16 @@ export function useTaskBrowserTabsSync(
     return onWSMessage((msg: WSMessage) => {
       // Server-fork OPEN — an agent's open_browser_pane on its dispatch topic.
       if (msg.type === 'browser:open-task-tab') {
-        const { taskId, contextId, url } = msg;
+        const { taskId, contextId, url, title } = msg;
         if (!taskId || !contextId) return;
         // Load the task's persisted tabs first so the upsert merges rather than
         // committing a lone tab over a populated ui-state record. ensureLoaded is
         // idempotent; the upsert both refreshes/creates the tab and activates it,
         // so a live drawer on this task surfaces the agent's browser immediately.
+        // `title` è il nome prescritto dall'agente: entra come `agent`, cioè
+        // pinnato contro il poll del titolo di pagina ma non contro una rinomina.
         void taskBrowserTabs.ensureLoaded(taskId).then(() => {
-          taskBrowserTabs.upsertTab(taskId, contextId, url ?? '');
+          taskBrowserTabs.upsertTab(taskId, contextId, url ?? '', title ?? '', title ? 'agent' : 'auto');
         });
         return;
       }
