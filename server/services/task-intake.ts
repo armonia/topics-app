@@ -1,3 +1,5 @@
+export type { LinkKind, LinkProposal } from "../../shared/board";
+import type { LinkKind, LinkProposal } from "../../shared/board";
 import type { TaskStatus } from "../../shared/board";
 
 /**
@@ -27,28 +29,7 @@ export interface IntakeCandidate {
   updatedAt: string;
 }
 
-export type LinkKind = "subtask" | "chain";
 
-export interface LinkProposal {
-  targetTaskId: string;
-  targetText: string;
-  targetStatus: TaskStatus;
-  /**
-   * Quale delle due primitive il motore consiglia. NON è una decisione: la UI
-   * evidenzia questa e lascia l'altra a un click di distanza.
-   * - `chain` quando la card sta ancora girando (in_progress/review): il testo
-   *   nuovo è un SEGUITO, e riparte dentro la conversazione del bloccante.
-   * - `subtask` quando la card non è ancora partita (backlog/todo): il testo
-   *   nuovo è un PEZZO di quel lavoro.
-   */
-  recommended: LinkKind;
-  /** 0..1 — copertura pesata dei termini del testo nuovo sulla card. */
-  score: number;
-  /** Le parole che hanno fatto il punteggio, dalla più rara alla più comune. */
-  sharedTerms: string[];
-  /** Frase leggibile: va sotto al composer E nel thread delle due card. */
-  reason: string;
-}
 
 export interface ProposeLinkInput {
   text: string;

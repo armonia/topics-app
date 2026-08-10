@@ -309,16 +309,11 @@ export interface CreateTaskBody {
  * PROPOSTA — finché non la si accetta non esiste nessun collegamento, e il
  * default (non fare niente) resta "task nuovo".
  */
-export interface LinkProposal {
-  targetTaskId: string;
-  targetText: string;
-  targetStatus: TaskStatus;
-  /** Quale primitiva consiglia il motore; l'altra resta a un click. */
-  recommended: 'subtask' | 'chain';
-  score: number;
-  sharedTerms: string[];
-  reason: string;
-}
+// Dichiarata in shared/: la calcola il server e la disegna il client, e due
+// copie libere di divergere sono esattamente ciò che il cancello sui doppioni
+// di tipo esiste per impedire.
+export type { LinkKind, LinkProposal } from '../../../shared/board';
+import type { LinkProposal } from '../../../shared/board';
 
 export interface UpdateTaskBody {
   status?: TaskStatus;
