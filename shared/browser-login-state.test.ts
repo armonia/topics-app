@@ -135,6 +135,46 @@ test('il localStorage si fonde per origine, chiave per chiave', () => {
   ]);
 });
 
+test('i campi che il tipo non nomina (IndexedDB) sopravvivono al merge', () => {
+  // La sessione condivisa si persiste con `storageState({ indexedDB: true })`
+  // (browser-service.ts:1049): un'origine porta più di quello che StorageOrigin
+  // dichiara. Un merge che ricostruisce `{origin, localStorage}` da zero
+  // cancella l'IndexedDB, cioè metà dei login moderni — e lo fa in silenzio.
+  const base = {
+    cookies: [],
+    origins: [
+      {
+        origin: 'https://example.com',
+        localStorage: [{ name: 'a', value: '1' }],
+        indexedDB: [{ name: 'firebaseLocalStorageDb', version: 1 }],
+      },
+    ],
+  } as unknown as StorageState;
+  const incoming: StorageState = {
+    cookies: [],
+    origins: [{ origin: 'https://example.com', localStorage: [{ name: 'b', value: '2' }] }],
+  };
+  const out = mergeStorageState(base, incoming) as unknown as {
+    origins: Array<{ origin: string; localStorage: unknown[]; indexedDB?: unknown[] }>;
+  };
+  expect(out.origins[0]!.indexedDB).toEqual([{ name: 'firebaseLocalStorageDb', version: 1 }]);
+  expect(out.origins[0]!.localStorage).toEqual([
+    { name: 'a', value: '1' },
+    { name: 'b', value: '2' },
+  ]);
+});
+
+test('un\'origine che sta SOLO nella base tiene i suoi campi in più', () => {
+  const base = {
+    cookies: [],
+    origins: [{ origin: 'https://solo-base.com', localStorage: [], indexedDB: [{ name: 'db' }] }],
+  } as unknown as StorageState;
+  const out = mergeStorageState(base, { cookies: [], origins: [] }) as unknown as {
+    origins: Array<{ indexedDB?: unknown[] }>;
+  };
+  expect(out.origins[0]!.indexedDB).toEqual([{ name: 'db' }]);
+});
+
 test('fondere con un arrivo vuoto non tocca la base', () => {
   const base: StorageState = {
     cookies: [{ name: 'sid', value: 's', domain: 'example.com', path: '/' }],
