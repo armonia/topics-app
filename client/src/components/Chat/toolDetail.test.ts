@@ -154,6 +154,20 @@ describe('il piano scritto su file È un piano, non una scrittura', () => {
     expect(buildToolDisplayLabel(d).name).toBe('Plan');
   });
 
+  test('la riga chiusa mostra il piano SENZA la sintassi markdown', () => {
+    // A card chiusa `# ` e `**` non strutturano niente: mangiano gli 80
+    // caratteri che si leggono davvero.
+    const d = deriveToolDetail('Write', {
+      file_path: '/Users/utente/.claude/plans/roba.md',
+      content: '# Piano\n\n1. **Primo passo** — leggere i file\n2. **Secondo passo** — scrivere',
+    });
+    const summary = buildToolDisplayLabel(d).summary!;
+    expect(summary.startsWith('Piano 1. Primo passo — leggere i file')).toBe(true);
+    expect(summary).not.toContain('#');
+    expect(summary).not.toContain('**');
+    expect(summary.length).toBeLessThanOrEqual(80);
+  });
+
   test('una Write normale resta una Write', () => {
     const d = deriveToolDetail('Write', { file_path: '/Users/x/Projects/app/README.md', content: '# Ciao' });
     expect(d.type).toBe('write');
