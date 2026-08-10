@@ -208,8 +208,14 @@ export const chatApi = {
     return response.body;
   },
 
-  async abort(sessionKey: string, clearMessages?: boolean): Promise<{ ok: boolean }> {
-    return request<{ ok: boolean }>('/chat/abort', {
+  /**
+   * Ferma il turno in volo. `clearMessages` è una PROPOSTA: la chat si butta
+   * solo se la risposta torna `cleared: true` — il server ricontrolla sul DB
+   * (vedi `shared/clear-messages-policy.ts`) e vede anche le righe fuori dal
+   * ramo attivo, che il client non ha.
+   */
+  async abort(sessionKey: string, clearMessages?: boolean): Promise<{ ok: boolean; cleared?: boolean }> {
+    return request<{ ok: boolean; cleared?: boolean }>('/chat/abort', {
       method: 'POST',
       body: JSON.stringify({ sessionKey, clearMessages }),
     });
