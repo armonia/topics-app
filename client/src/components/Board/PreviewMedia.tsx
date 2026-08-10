@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { Maximize2, PanelTop, X } from 'lucide-react';
 import { getMediaUrl } from '../../lib/api';
 import { isVideoPath } from '../../lib/mediaKind';
+import { MODAL_LAYER } from '../../lib/modalStyles';
 import { useModalDialog } from '../../hooks/useModalDialog';
 
 /** Full-window overlay (portal, over the app — NOT a separate OS window) showing
@@ -17,7 +18,10 @@ function Lightbox({ url, video, onClose }: { url: string; video: boolean; onClos
     <div
       ref={panelRef}
       onClick={onClose}
-      className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 p-6 backdrop-blur-sm anim-pop"
+      // `MODAL_LAYER` e non `z-[200]`: un lightbox a schermo intero è una
+      // superficie modale, e 200 lo lasciava sotto ogni popover (9999). Il
+      // piano si dichiara con la costante, non con un numero scelto a occhio.
+      className={`fixed inset-0 ${MODAL_LAYER} flex items-center justify-center bg-black/80 p-6 backdrop-blur-sm anim-pop`}
       data-testid="preview-lightbox"
       // `role="dialog"` non è solo ARIA: è il marcatore con cui il resto
       // dell'app riconosce che c'è un modale aperto (lib/modalSurface). Senza,
