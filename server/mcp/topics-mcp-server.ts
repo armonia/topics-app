@@ -603,6 +603,33 @@ const DISPATCH_EXCLUDED_TOOLS = new Set([
 ]);
 
 /**
+ * Il profilo della sessione-ORCHESTRATORE (`--profile=orchestrator`).
+ *
+ * Le mani della board le tiene tutte — è il suo mestiere. Quello che gli è
+ * TOLTO sono i tool di sotto-agente: spawn/send/read/list/stop. Non è una
+ * misura di prudenza generica, è il confine che gli dà senso — un orchestratore
+ * che fa partire agenti fuori dalla board è un SECONDO dispatcher, non
+ * governato: i suoi agenti non hanno una card, quindi non hanno né priorità, né
+ * coda, né tetto di concorrenza, né un posto dove consegnare. La board smette
+ * di essere il racconto vero di cosa sta girando, che è l'unica cosa che
+ * l'orchestratore esiste per proteggere.
+ *
+ * Via anche `import_chrome` (cookie di un browser reale: niente a che vedere con
+ * il coordinare card) e le navigazioni di topic/tab, che sposterebbero la
+ * superficie sotto l'umano mentre gli sta parlando.
+ */
+const ORCHESTRATOR_EXCLUDED_TOOLS = new Set([
+  "spawn_agent",
+  "send_to_agent",
+  "read_agent",
+  "list_agents",
+  "stop_agent",
+  "import_chrome",
+  "new_topic",
+  "switch_topic",
+]);
+
+/**
  * `approval_prompt` è pubblicato SEMPRE, e non è un'incoerenza: lo spawn passa
  * `--permission-prompt-tool` in ogni modalità, e la CLI toglie da sé il tool
  * designato dall'elenco che il modello vede (verificato sul filo, anche in
@@ -611,9 +638,18 @@ const DISPATCH_EXCLUDED_TOOLS = new Set([
  * esattamente il modo in cui la versione a due flag si rompeva:
  * «MCP tool mcp__topics__approval_prompt … not found» su ogni richiesta.
  */
+/** Cosa toglie ciascun profilo. Assente = profilo sconosciuto o interattivo:
+ *  toolset pieno, che è il default storico e il verso giusto in cui sbagliare. */
+function excludedForProfile(profile: string | undefined): Set<string> | null {
+  if (profile === "dispatch") return DISPATCH_EXCLUDED_TOOLS;
+  if (profile === "orchestrator") return ORCHESTRATOR_EXCLUDED_TOOLS;
+  return null;
+}
+
 export function toolsForProfile(profile: string | undefined): typeof TOOLS {
-  if (profile !== "dispatch") return TOOLS;
-  return TOOLS.filter((t) => !DISPATCH_EXCLUDED_TOOLS.has(t.name));
+  const excluded = excludedForProfile(profile);
+  if (!excluded) return TOOLS;
+  return TOOLS.filter((t) => !excluded.has(t.name));
 }
 
 export function isToolAllowedForProfile(profile: string | undefined, name: string): boolean {
@@ -621,7 +657,8 @@ export function isToolAllowedForProfile(profile: string | undefined, name: strin
   // chiama è la CLI, non il modello, e un `tools/list` che non lo elenca non
   // vuol dire che la CLI non lo designi. Rifiutarlo qui spegnerebbe il canale
   // proprio nelle sessioni che ne hanno bisogno.
-  return profile !== "dispatch" || !DISPATCH_EXCLUDED_TOOLS.has(name);
+  const excluded = excludedForProfile(profile);
+  return !excluded || !excluded.has(name);
 }
 
 export function parseArgs(argv: string[]): ParsedArgs {
