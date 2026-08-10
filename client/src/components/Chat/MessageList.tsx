@@ -1117,7 +1117,17 @@ export function MessageList({
     // `_currentStreaming` NON sta qui: lo legge `streamingRef`. Vedi il commento
     // sul ref — rimontare i listener a ogni transizione di stream faceva
     // ripartire l'osservazione iniziale del ResizeObserver, e con essa il pin.
-  }, [scrollerEl, topic.id, dispatchScroll, pinToBottom, OPEN_SETTLE_FRAMES]);
+    //
+    // `syncArrow` invece ci sta, e NON riapre quella porta: è un
+    // `useCallback(..., [])` che chiude solo su `arrowShownRef`, su
+    // `setIsScrolledUp` e su due `const` primitive — quindi la sua identità è
+    // costante per tutta la vita del componente e questa dipendenza non può
+    // rieseguire l'effetto nemmeno una volta. Elencarla è l'unico modo per far
+    // sì che, se un giorno le si desse una dipendenza vera, il difetto si
+    // presenti qui invece di restare una closure stantia che misura la freccia
+    // sulla geometria sbagliata. Se quel giorno arriva, la cura è stabilizzarla
+    // di nuovo (ref), non toglierla da questa lista.
+  }, [scrollerEl, topic.id, dispatchScroll, pinToBottom, OPEN_SETTLE_FRAMES, syncArrow]);
 
   // Auto-scroll to bottom when a NEW message is APPENDED while streaming is
   // NOT active — an inbound system message, or a peer's message in a shared
