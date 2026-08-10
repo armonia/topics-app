@@ -157,6 +157,28 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
       };
     }
 
+    /**
+     * Porta su `cwd` SOLO i commit della card, in ordine, con `cherry-pick`.
+     *
+     * Serve quando il branch del task e' nato dall'HEAD del checkout condiviso e
+     * porta anche il lavoro di chi ci stava lavorando: mergiare il branch
+     * pubblicherebbe roba di altri, rifiutarsi lascia la consegna in un limbo.
+     * Si prende la terza strada — i suoi commit e basta.
+     */
+    async function pickOwnCommits(cwd: string, own: { others: string[] }): Promise<{ ok: boolean; conflict: boolean }> {
+      const list = await runGit(cwd, ["rev-list", "--reverse", `${defaultBranch}..${branch}`, "--not", ...own.others]);
+      const shas = list.stdout.split("\n").map((x) => x.trim()).filter(Boolean);
+      if (list.code !== 0 || shas.length === 0) return { ok: false, conflict: false };
+      for (const sha of shas) {
+        const r = await runGit(cwd, ["cherry-pick", "--allow-empty", "--keep-redundant-commits", sha]);
+        if (r.code !== 0) {
+          await runGit(cwd, ["cherry-pick", "--abort"]).catch(() => undefined);
+          return { ok: false, conflict: true };
+        }
+      }
+      return { ok: true, conflict: false };
+    }
+
     return chain(repoPath, async (): Promise<AutoMergeResult> => {
       try {
         const head = await runGit(repoPath, ["symbolic-ref", "--short", "-q", "HEAD"]);
@@ -190,6 +212,8 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
         // un commit EREDITATO è raggiungibile anche da un ALTRO branch locale,
         // uno fatto dentro questo worktree no. Quindi `--not <gli altri branch>`
         // lascia esattamente i commit del task.
+        /** Quando il branch porta anche commit non suoi: si prendono solo i suoi. */
+        let onlyOwn: { total: number; mine: number; others: string[] } | null = null;
         const refs = await runGit(repoPath, ["for-each-ref", "--format=%(refname)", "refs/heads/"]);
         const others = refs.stdout.split("\n").map((r) => r.trim()).filter(
           (r) => r && r !== `refs/heads/${branch}` && r !== `refs/heads/${defaultBranch}`,
@@ -200,14 +224,21 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
             const total = Number(ahead.stdout.trim());
             const mine = Number(own.stdout.trim());
             if (Number.isFinite(total) && Number.isFinite(mine) && total > mine) {
-              return {
-                status: "skipped",
-                reason:
-                  `il branch '${branch}' porterebbe su '${defaultBranch}' ${total} commit, ma solo ${mine} ${mine === 1 ? "è" : "sono"} di questo task: ` +
-                  `gli altri ${total - mine} arrivano dal branch su cui era il checkout quando la card è partita, e sono lavoro di qualcun altro. ` +
-                  `Non li pubblico. Prendi il lavoro del task con un cherry-pick (\`git log --oneline ${defaultBranch}..${branch} --not ${others.join(" ")}\`), ` +
-                  `oppure landa prima quel branch`,
-              };
+              if (mine === 0) {
+                return {
+                  status: "skipped",
+                  reason:
+                    `il branch '${branch}' porterebbe ${total} commit su '${defaultBranch}' e NESSUNO è di questa card: ` +
+                    "non c'è niente da landare che sia suo",
+                };
+              }
+              // Solo i commit DELLA CARD. Rifiutarsi e basta — la prima versione —
+              // teneva main pulito e lasciava il lavoro in un limbo: misurato,
+              // 12 consegne accettate vivevano solo sul loro branch, fra cui uno
+              // scorporo da 800 righe e una rimozione da 21.775. «Accettata» deve
+              // voler dire «atterrata», altrimenti la board misura il lavoro fatto
+              // e non quello arrivato.
+              onlyOwn = { total, mine, others };
             }
           }
         }
@@ -219,6 +250,13 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
           const st = await runGit(repoPath, ["status", "--porcelain"]);
           if (st.stdout.trim() !== "") {
             return { status: "skipped", reason: `il checkout è su '${defaultBranch}' con WIP non committata — mergia a mano o pulisci il checkout` };
+          }
+          if (onlyOwn) {
+            const picked = await pickOwnCommits(repoPath, onlyOwn);
+            if (picked.ok) return finishMerged(repoPath, /*live*/ true, cur);
+            return picked.conflict
+              ? { status: "conflict", branch }
+              : { status: "skipped", reason: `non sono riuscito a isolare i ${onlyOwn.mine} commit di questa card su '${branch}'` };
           }
           // --no-ff keeps a merge commit so the landing is auditable even for a FF.
           const merge = await runGit(repoPath, ["merge", "--no-ff", "-m", mergeMsg, branch]);
@@ -240,9 +278,17 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
           return { status: "skipped", reason: `impossibile creare il worktree di land su '${defaultBranch}': ${(add.stderr || add.stdout).trim().slice(-200) || "git worktree add fallito"}` };
         }
         try {
+          if (onlyOwn) {
+            const picked = await pickOwnCommits(wtPath, onlyOwn);
+            if (picked.ok) return await finishMerged(wtPath, /*live*/ false, cur || "detached HEAD");
+            if (!picked.conflict) {
+              return { status: "skipped", reason: `non sono riuscito a isolare i ${onlyOwn.mine} commit di questa card su '${branch}'` };
+            }
+          } else {
           const merge = await runGit(wtPath, ["merge", "--no-ff", "-m", mergeMsg, branch]);
           if (merge.code === 0) return await finishMerged(wtPath, /*live*/ false, cur || "detached HEAD");
           await runGit(wtPath, ["merge", "--abort"]).catch(() => undefined);
+          }
           return { status: "conflict", branch };
         } finally {
           await runGit(repoPath, ["worktree", "remove", "--force", wtPath]).catch(() => undefined);
