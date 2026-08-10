@@ -1979,6 +1979,60 @@ export interface ParkSweepResult {
   skipped: Array<{ id: string; reason: string }>;
 }
 
+/**
+ * Il parcheggio di UNA sessione: raccoglie i fatti, chiede a `decidePark`, e se
+ * il permesso c'è uccide la PTY.
+ *
+ * Estratta perche' i chiamanti sono due — il giro di inattivita' e quello delle
+ * ORFANE (`motivo`) — e devono passare per gli STESSI cancelli. Un secondo
+ * percorso con la sua copia dei controlli e' esattamente il modo in cui, fra sei
+ * mesi, una condizione viene aggiunta da una parte sola.
+ */
+function tryParkSession(
+  id: string,
+  s: TerminalSession,
+  thresholdMs: number,
+  motivo: string,
+): { parked: true } | { parked: false; reason: ParkRefusal } {
+  const activity = terminalActivity.get(id);
+  const phase = s.claudeSessionId ? (_tracker?.getSession(s.claudeSessionId)?.phase ?? null) : null;
+  const decision = decidePark(
+    {
+      id,
+      type: s.type,
+      claudeSessionId: s.claudeSessionId,
+      busy: activity?.busy ?? false,
+      // Nessuna misura di attività = non lo sappiamo. `decidePark` rifiuta, ed
+      // è voluto: trattare "mai visto" come "ferma da sempre" è il modo
+      // classico di reapare qualcosa di vivo.
+      idleMs: activity?.lastAt ? Date.now() - activity.lastAt : null,
+      attachedClients: sessionSockets.get(id)?.size ?? 0,
+      hasTranscript:
+        !!s.claudeSessionId && fs.existsSync(claudeTranscriptPath(s.cwd, s.claudeSessionId)),
+      phase,
+    },
+    thresholdMs,
+  );
+  if (!decision.park) return { parked: false, reason: decision.reason };
+
+  // Un sotto-agente non si parcheggia da solo: lo governa il suo orchestratore
+  // (cascadeKillChildren), e farlo sparire da sotto cambierebbe il conteggio
+  // dei figli vivi senza che nessuno l'abbia chiesto.
+  if (s.parentSessionKey) return { parked: false, reason: "sub-agent" };
+
+  console.log(
+    `[Terminal] Parcheggio ${id} (${s.type}) — ${motivo}, ferma da ` +
+      `${Math.round((Date.now() - (activity?.lastAt ?? 0)) / 60_000)} min, nessun client attaccato. ` +
+      `Torna con --resume alla prossima apertura.`,
+  );
+  sendToBridge({ type: "kill", id });
+  // Il resto — riga a `dormant`, `noteDormant`, chiusura dei socket, broadcast
+  // — lo fa il percorso di uscita quando il bridge conferma la morte della
+  // PTY. Non lo si anticipa qui: due strade che scrivono lo stesso stato sono
+  // due strade che possono divergere.
+  return { parked: true };
+}
+
 export function parkIdleClaudeSessions(thresholdMs: number): ParkSweepResult {
   const parked: string[] = [];
   // `ParkRefusal` e non `string`: il motivo finisce in un log che lo traduce in
@@ -1986,48 +2040,9 @@ export function parkIdleClaudeSessions(thresholdMs: number): ParkSweepResult {
   // stamperebbe come `undefined` invece di rompere la compilazione.
   const skipped: Array<{ id: string; reason: ParkRefusal }> = [];
   for (const [id, s] of sessions) {
-    const activity = terminalActivity.get(id);
-    const phase = s.claudeSessionId ? (_tracker?.getSession(s.claudeSessionId)?.phase ?? null) : null;
-    const decision = decidePark(
-      {
-        id,
-        type: s.type,
-        claudeSessionId: s.claudeSessionId,
-        busy: activity?.busy ?? false,
-        // Nessuna misura di attività = non lo sappiamo. `decidePark` rifiuta, ed
-        // è voluto: trattare "mai visto" come "ferma da sempre" è il modo
-        // classico di reapare qualcosa di vivo.
-        idleMs: activity?.lastAt ? Date.now() - activity.lastAt : null,
-        attachedClients: sessionSockets.get(id)?.size ?? 0,
-        hasTranscript:
-          !!s.claudeSessionId && fs.existsSync(claudeTranscriptPath(s.cwd, s.claudeSessionId)),
-        phase,
-      },
-      thresholdMs,
-    );
-    if (!decision.park) {
-      skipped.push({ id, reason: decision.reason });
-      continue;
-    }
-
-    // Un sotto-agente non si parcheggia da solo: lo governa il suo orchestratore
-    // (cascadeKillChildren), e farlo sparire da sotto cambierebbe il conteggio
-    // dei figli vivi senza che nessuno l'abbia chiesto.
-    if (s.parentSessionKey) {
-      skipped.push({ id, reason: "sub-agent" });
-      continue;
-    }
-
-    console.log(
-      `[Terminal] Parcheggio ${id} (${s.type}) — ferma da ${Math.round((Date.now() - (activity?.lastAt ?? 0)) / 60_000)} min, ` +
-        `nessun client attaccato. Torna con --resume alla prossima apertura.`,
-    );
-    sendToBridge({ type: "kill", id });
-    parked.push(id);
-    // Il resto — riga a `dormant`, `noteDormant`, chiusura dei socket, broadcast
-    // — lo fa il percorso di uscita quando il bridge conferma la morte della
-    // PTY. Non lo si anticipa qui: due strade che scrivono lo stesso stato sono
-    // due strade che possono divergere.
+    const r = tryParkSession(id, s, thresholdMs, "nessuna attività");
+    if (r.parked) parked.push(id);
+    else skipped.push({ id, reason: r.reason });
   }
   // Una passata che non parcheggia niente deve dire PERCHE'. I motivi c'erano
   // gia' — raccolti in `skipped` e restituiti — ma vivevano solo come stringhe
@@ -2035,6 +2050,38 @@ export function parkIdleClaudeSessions(thresholdMs: number): ParkSweepResult {
   // e «non ha nemmeno guardato» erano la stessa cosa.
   if (skipped.length > 0) {
     console.log(`[Terminal] Passata di parcheggio: ${summarizeRefusals(skipped)}.`);
+  }
+  return { parked, skipped };
+}
+
+/**
+ * Parcheggia le sessioni che il censimento ha giudicato ORFANE — quelle che
+ * nessuna struttura di `ui_state` referenzia, cioè che nessuna finestra mostra e
+ * che quindi nessun gesto umano può chiudere.
+ *
+ * PASSA DAGLI STESSI CANCELLI del giro di inattività, e non è prudenza
+ * decorativa: «orfana» è un giudizio su ciò che è scritto in `ui_state`, e da
+ * solo non sa niente di un turno in corso, di una PTY che sta scrivendo adesso o
+ * di un transcript sparito dal disco. La soglia di inattività resta perché resta
+ * il suo motivo — una sessione che ha appena stampato qualcosa non è ferma,
+ * qualunque cosa dica il registro delle pane.
+ *
+ * Chi decide QUANDO si arriva qui (due censimenti consecutivi, `ui_state` non
+ * vuoto, interruttore acceso) è `lib/orphan-park-policy.ts`. Qui si esegue.
+ */
+export function parkOrphanSessions(ids: readonly string[], thresholdMs: number): ParkSweepResult {
+  const parked: string[] = [];
+  const skipped: Array<{ id: string; reason: ParkRefusal }> = [];
+  for (const id of ids) {
+    const s = sessions.get(id);
+    // Sparita fra il censimento e adesso: non c'è più niente da parcheggiare.
+    if (!s) continue;
+    const r = tryParkSession(id, s, thresholdMs, "nessuna interfaccia la mostra");
+    if (r.parked) parked.push(id);
+    else skipped.push({ id, reason: r.reason });
+  }
+  if (skipped.length > 0) {
+    console.log(`[Terminal] Orfane non parcheggiate: ${summarizeRefusals(skipped)}.`);
   }
   return { parked, skipped };
 }
