@@ -42,6 +42,7 @@
     "check:nul": "bun run scripts/check-nul-bytes.ts",
     "check:eslint-disable": "bun run scripts/check-eslint-disable.ts",
     "check:test-skips": "bun run scripts/check-test-skips.ts",
+    "check:migrations": "bun run scripts/check-migration-numbers.ts",
     "check:deadcode": "bunx --bun knip",
     "check:bundle": "bun run scripts/check-bundle-size.ts",
     "check:lockfile": "bun install --frozen-lockfile && cd client && bun install --frozen-lockfile && cd ../landing && bun install --frozen-lockfile",
