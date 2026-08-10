@@ -171,6 +171,42 @@ describe("tasks router (session-scoped)", () => {
     expect(got.children.map((c: any) => c.id)).toEqual([kid.id]);
   });
 
+  test("PATCH re-parents, refuses a cycle, and detaches with null", async () => {
+    const parent = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "epic" }))!.json();
+    const solo = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "orfano" }))!.json();
+    // Il buco: la PATCH rispondeva 200 senza spostare niente.
+    const moved = await (await call(router, "PATCH", `/api/boards/pX/tasks/${solo.id}`, { parentTaskId: parent.id }))!.json();
+    expect(moved.parentTaskId).toBe(parent.id);
+    const tree = await (await call(router, "GET", `/api/boards/pX/tasks/${parent.id}`))!.json();
+    expect(tree.children.map((c: any) => c.id)).toEqual([solo.id]);
+
+    // Anche col nome MCP (`parent_task_id`), che è quello che scrivono gli agenti.
+    const two = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "secondo" }))!.json();
+    const viaSnake = await (await call(router, "PATCH", `/api/boards/pX/tasks/${two.id}`, { parent_task_id: parent.id }))!.json();
+    expect(viaSnake.parentTaskId).toBe(parent.id);
+
+    // Ciclo: il padre sotto il proprio figlio farebbe sparire entrambi dalla board.
+    const cyc = (await call(router, "PATCH", `/api/boards/pX/tasks/${parent.id}`, { parentTaskId: solo.id }))!;
+    expect(cyc.status).toBe(400);
+    expect((await cyc.json()).code).toBe("invalid_input");
+    const self = (await call(router, "PATCH", `/api/boards/pX/tasks/${parent.id}`, { parentTaskId: parent.id }))!;
+    expect(self.status).toBe(400);
+
+    // Padre su un ALTRO progetto: 404, stessa forma dell'IDOR alla creazione.
+    const foreign = await (await call(router, "POST", "/api/sessions/s2/tasks", { text: "far" }))!.json();
+    const cross = (await call(router, "PATCH", `/api/boards/pX/tasks/${solo.id}`, { parentTaskId: foreign.id }))!;
+    expect(cross.status).toBe(404);
+
+    // Lavoro in volo: declassare lascerebbe l'agente a girare senza nessuno che guarda.
+    const live = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "in volo", status: "in_progress" }))!.json();
+    const busy = (await call(router, "PATCH", `/api/boards/pX/tasks/${live.id}`, { parentTaskId: parent.id }))!;
+    expect(busy.status).toBe(400);
+
+    // null stacca e la card torna a vivere da sola.
+    const back = await (await call(router, "PATCH", `/api/boards/pX/tasks/${solo.id}`, { parentTaskId: null }))!.json();
+    expect(back.parentTaskId).toBe(null);
+  });
+
   test("PATCH agent → review opens approval; agent → done is 409", async () => {
     const t = await (await call(router, "POST", "/api/sessions/s1/tasks", { text: "x" }))!.json();
     // A mute delivery bounces with coaching (409 review_needs_summary)…
