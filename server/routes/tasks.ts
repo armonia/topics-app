@@ -1396,6 +1396,19 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
                   : undefined,
                 reuseBlockerContext: typeof body?.reuseBlockerContext === "boolean" ? body.reuseBlockerContext : undefined,
                 planFirst: typeof body?.planFirst === "boolean" ? body.planFirst : undefined,
+                // Accetta anche `parent_task_id` (il nome MCP): la PATCH la
+                // chiamano sia il client sia gli agenti, e un nome scartato in
+                // silenzio qui risponde 200 senza aver spostato niente.
+                // La chiave si guarda per PRESENZA, non con `??`: `null` è il
+                // modo di staccare un sottotask, e `??` lo scambierebbe per
+                // "campo assente" — di nuovo un 200 che non sposta nulla.
+                parentTaskId: ((): string | null | undefined => {
+                  const raw = body?.parentTaskId !== undefined ? body.parentTaskId
+                    : body?.parent_task_id !== undefined ? body.parent_task_id
+                    : undefined;
+                  if (raw === undefined) return undefined;
+                  return typeof raw === "string" && raw ? raw : null;
+                })(),
               },
             });
             task = await captureDelivery(task, prevStatus);

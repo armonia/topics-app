@@ -216,6 +216,15 @@ export interface UpdateTaskPatch {
   reuseBlockerContext?: boolean;
   /** Toggle "plan first" after creation (agent delivers a plan to approve before implementing). */
   planFirst?: boolean;
+  /**
+   * Re-nest under another task; null detaches back to a root card. Unlike at
+   * creation, the id already exists and CAN be an ancestor of the new parent,
+   * so the chain is walked (see `assertParentValid`). Refused while the task
+   * has live work: a subtask is a step of the parent's checklist that the
+   * dispatcher never claims on its own, so demoting a running card would leave
+   * its agent turning with nobody watching it.
+   */
+  parentTaskId?: string | null;
 }
 
 export interface ListTasksInput {
@@ -722,6 +731,28 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     }
   }
 
+  // Re-parenting. At creation the walk is unnecessary (a fresh id can never be
+  // an ancestor of an existing row); MOVING an existing task can close a loop —
+  // nest A under its own child and the pair disappears from the board, because
+  // `rootsOnly` shows neither and the detail tree recurses forever.
+  function assertParentValid(taskId: string, parentId: string): void {
+    const self = getTaskRow(taskId);
+    const parent = getTaskRow(parentId);
+    if (!self) throw new TaskServiceError("not_found", `task ${taskId} not found`);
+    if (!parent || parent.project_id !== self.project_id || parent.archived) {
+      // Same not_found shape as the create-side guard: no cross-board probing.
+      throw new TaskServiceError("not_found", `parent task ${parentId} not found`);
+    }
+    if (parentId === taskId) {
+      throw new TaskServiceError("invalid_input", "a task cannot be its own parent");
+    }
+    let cur: string | null = parent.parent_task_id ?? null;
+    for (let hops = 0; cur && hops < 100; hops++) {
+      if (cur === taskId) throw new TaskServiceError("invalid_input", "parent chain would form a cycle");
+      cur = (getTaskRow(cur)?.parent_task_id ?? null) as string | null;
+    }
+  }
+
   return {
     create(input: CreateTaskInput): Task {
       const text = (input.text ?? "").trim();
@@ -955,6 +986,18 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (patch.blockedByTaskId !== undefined) {
         if (patch.blockedByTaskId) assertBlockerValid(taskId, patch.blockedByTaskId);
         put("blocked_by_task_id", patch.blockedByTaskId || null);
+      }
+      if (patch.parentTaskId !== undefined) {
+        if (patch.parentTaskId) {
+          assertParentValid(taskId, patch.parentTaskId);
+          if (isAgentWorking(row.dispatch_state) || row.status === "in_progress") {
+            throw new TaskServiceError(
+              "invalid_input",
+              "task has live work: a subtask is never dispatched on its own, so stop the agent before nesting it under a parent",
+            );
+          }
+        }
+        put("parent_task_id", patch.parentTaskId || null);
       }
       if (patch.reuseBlockerContext !== undefined) put("reuse_blocker_context", patch.reuseBlockerContext ? 1 : 0);
       if (patch.planFirst !== undefined) put("plan_first", patch.planFirst ? 1 : 0);
