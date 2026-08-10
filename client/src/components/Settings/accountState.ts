@@ -16,7 +16,14 @@
  * fallire chi ci riprova.
  */
 export { CODICI_ACCOUNT } from '../../../../shared/account';
-export type { StatoAccount, CodiceAccount } from '../../../../shared/account';
+// Si ri-esporta `StatoAccount` e non `CodiceAccount`, che qui non ha lettori e
+// non ne può avere: un codice che arriva dal filo NON è un `CodiceAccount`
+// finché non lo si è guardato — è una stringa che un server più nuovo di questa
+// interfaccia può aver inventato, ed è esattamente il caso che `chiaveErrore`
+// esiste per non lasciare muto. Tiparlo all'ingresso sarebbe dichiarare
+// impossibile la cosa da cui il modulo si difende. Chi domani volesse il tipo
+// stretto DOPO il controllo lo prende da `shared/account`, dove vive.
+export type { StatoAccount } from '../../../../shared/account';
 import { CODICI_ACCOUNT } from '../../../../shared/account';
 import type { StatoAccount } from '../../../../shared/account';
 
