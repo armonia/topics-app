@@ -61,7 +61,7 @@ import { armTurnDeadline, type TurnDeadline } from "../lib/turn-deadline";
 import { cancelled, classifyResultEvent } from "./stop-reason";
 import { warnThrottled } from "../lib/warn-throttled";
 import { clearSessionCliPid, setSessionCliPid } from "./session-pids";
-import { cachedClaudeModels, discoverClaudeModels, newestOfFamily, FALLBACK_MODELS } from "./claude-models";
+import { defaultChatModel, discoverClaudeModels } from "./claude-models";
 
 // ============ Config ============
 
@@ -74,27 +74,6 @@ export interface ClaudeCodeProviderConfig {
 
 // ============ Constants ============
 
-/**
- * Il modello di una CHAT quando nessuno ne ha scelto uno: né il topic, né il
- * picker, né le impostazioni. Era `claude-sonnet-5`, cioè ogni conversazione
- * aperta senza toccare il selettore partiva un gradino sotto lo standard
- * dichiarato ovunque nel repo («l'umano lavora normalmente su opus») — e in
- * silenzio, perché il picker mostra il modello scelto, non quello ripiegato.
- *
- * Opus più recente **con la finestra da 1M**, non da 200k: un id nudo è da 200k
- * anche sulla generazione 5, e il default deve essere la finestra grande (scelta
- * esplicita di Attilio, 3 agosto 2026). L'id non è scritto a mano — famiglia +
- * `preferLong` sulla lista che la CLI annuncia davvero, con `FALLBACK_MODELS`
- * solo a cache fredda.
- */
-function defaultChatModel(): string {
-  const available = cachedClaudeModels() ?? FALLBACK_MODELS;
-  return (
-    newestOfFamily("opus", available, { preferLong: true })
-    ?? newestOfFamily("opus", FALLBACK_MODELS, { preferLong: true })
-    ?? "claude-opus-5[1m]"
-  );
-}
 /** I one-shot (auto-titolo, digest, fallback SSE) NON sono lavoro d'agente e
  *  restano dov'erano: pagarli come una chat non serve a nessuno. */
 const DEFAULT_ONESHOT_MODEL = "claude-sonnet-5";

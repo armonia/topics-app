@@ -30,8 +30,9 @@
 import { Database } from "bun:sqlite";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { defaultChatModel } from "../server/providers/claude-models";
 import { createTranscriptUsageReader } from "../server/services/transcript-usage";
-import { contextWindowFor, windowModelFor } from "../server/usage/context-window";
+import { contextWindowFor, windowCoveringMeasure, windowModelFor } from "../server/usage/context-window";
 import { calculateCostWithCache } from "../server/usage/pricing";
 
 const args = process.argv.slice(2);
@@ -176,8 +177,19 @@ function measure(rows: Row[]): Entry[] {
     // solo nome del transcript rifà il bug che `windowModelFor` esiste per
     // chiudere — 359k su 200k invece che su 1M, cioè un anello rosso al 180%
     // mentre la sessione è al 36%. Il modello richiesto sta su `topics.model`.
-    const model = windowModelFor(scan.model, r.model) ?? "";
-    const win = contextWindowFor(model);
+    //
+    // E un pin VUOTO non è «non lo so»: una chat senza modello scelto non gira
+    // senza modello, gira sul default del provider, che è la variante a finestra
+    // lunga. Leggere `topics.model` grezzo faceva ricadere proprio quelle chat
+    // sul nome nudo del transcript: il 10 agosto 2026, 288% su una sessione al
+    // 58%. È la stessa risposta che dà il server (`currentModelOf` in
+    // routes/topics.ts, `/api/context/live`) — una sola verità, come promette la
+    // testata di questo file.
+    const requested = r.model ?? defaultChatModel();
+    const model = windowModelFor(scan.model, requested) ?? "";
+    // Ultima rete: se il contesto misurato non ci sta nella finestra risolta, la
+    // finestra è sbagliata — quella chiamata ha ricevuto risposta.
+    const win = windowCoveringMeasure(contextWindowFor(model), model, scan.lastCtx);
     const pct = win.tokens > 0 ? (scan.lastCtx / win.tokens) * 100 : 0;
 
     // Tutto ciò che il modello ha LETTO: fresco + scrittura + rilettura di cache.
