@@ -42,12 +42,40 @@ describe("decideWorktreeReap — safety contract", () => {
     expect(decideWorktreeReap({ ...base, mergedIntoMain: false }).action).toBe("land-then-reap");
   });
 
-  test("done + clean + UNMERGED + automerge OFF → keep (human decides)", () => {
-    expect(decideWorktreeReap({ ...base, mergedIntoMain: false, autoMergeEnabled: false }).action).toBe("keep");
+  // I COMMIT restano da decidere a mano; la CARTELLA no. Il branch li tiene
+  // raggiungibili, quindi il checkout è una copia — e 77 copie da ~400 MB sono
+  // i 33,9 GB che questa riga, dicendo `keep`, difendeva.
+  test("done + clean + UNMERGED + automerge OFF → free-checkout (branch conservato)", () => {
+    const d = decideWorktreeReap({ ...base, mergedIntoMain: false, autoMergeEnabled: false });
+    expect(d.action).toBe("free-checkout");
+    expect(d.reason).toContain("branch conservato");
+  });
+
+  test("done + clean + UNMERGED + branch SPARITO → keep (la cartella è l'unica copia)", () => {
+    expect(
+      decideWorktreeReap({ ...base, mergedIntoMain: false, autoMergeEnabled: false, branchGone: true }).action,
+    ).toBe("keep");
   });
 
   test("done + clean + UNMERGED + non-branch mode → keep (nothing to land)", () => {
     expect(decideWorktreeReap({ ...base, mergedIntoMain: false, mode: "reuse" }).action).toBe("keep");
+  });
+
+  test("detached: i commit vivono solo nell'HEAD della cartella → keep", () => {
+    expect(
+      decideWorktreeReap({ ...base, mergedIntoMain: false, autoMergeEnabled: false, mode: "detached" }).action,
+    ).toBe("keep");
+  });
+
+  test("free-checkout non distrugge MAI un branch: nessun input pulito+non-mergiato produce 'reap'", () => {
+    for (const mode of ["branch", "reuse", "detached"] as const) {
+      for (const autoMergeEnabled of [true, false]) {
+        for (const branchGone of [true, false]) {
+          const d = decideWorktreeReap({ ...base, mergedIntoMain: false, mode, autoMergeEnabled, branchGone });
+          expect(d.action).not.toBe("reap");
+        }
+      }
+    }
   });
 
   test("dirt beats merged: closed task with dirt is kept", () => {
@@ -67,15 +95,20 @@ describe("decidePostLandReap — verify before destroy", () => {
   });
 
   // THE REGRESSION. 2026-07-19: tryLand said "nothing", the branch was reaped,
-  // 139 lines survived only in the reflog.
-  test("land 'nothing' but branch still UNMERGED → keep, never reap", () => {
+  // 139 lines survived only in the reflog. Il branch resta intoccabile — è la
+  // CARTELLA che ora può andarsene, ed è una cosa diversa.
+  test("land 'nothing' but branch still UNMERGED → mai reap; cartella libera, branch salvo", () => {
     const d = decidePostLandReap({ ...base, outcome: "nothing", branchAfter: "unmerged" });
-    expect(d.action).toBe("keep");
+    expect(d.action).toBe("free-checkout");
+    expect(d.action).not.toBe("reap");
     expect(d.reason).toContain("NON risulta su main");
+    expect(d.reason).toContain("branch conservato");
   });
 
-  test("land 'landed' but branch still UNMERGED → keep (the claim was wrong)", () => {
-    expect(decidePostLandReap({ ...base, branchAfter: "unmerged" }).action).toBe("keep");
+  test("land 'landed' but branch still UNMERGED → mai reap (the claim was wrong)", () => {
+    const d = decidePostLandReap({ ...base, branchAfter: "unmerged" });
+    expect(d.action).toBe("free-checkout");
+    expect(d.action).not.toBe("reap");
   });
 
   test("uncommitted work in the tree beats a successful land → keep (task e8780726)", () => {
@@ -85,8 +118,23 @@ describe("decidePostLandReap — verify before destroy", () => {
   });
 
   for (const outcome of ["conflict", "skipped"] as const) {
-    test(`land '${outcome}' → keep even if the branch reads merged`, () => {
-      expect(decidePostLandReap({ ...base, outcome }).action).toBe("keep");
+    // Il land non è avvenuto: i commit vivono solo sul branch, che non si tocca.
+    // La cartella invece è ridondante, e da `03ca44c3` questo è il caso NORMALE
+    // (il land rifiuta ogni branch che porti commit di un'altra sessione).
+    test(`land '${outcome}' → free-checkout, mai reap`, () => {
+      const d = decidePostLandReap({ ...base, outcome });
+      expect(d.action).toBe("free-checkout");
+      expect(d.action).not.toBe("reap");
+    });
+
+    test(`land '${outcome}' con lavoro non committato → keep, la cartella è l'unica copia`, () => {
+      expect(decidePostLandReap({ ...base, outcome, dirtAfter: ["client/x.tsx"] }).action).toBe("keep");
+    });
+
+    test(`land '${outcome}' e branch sparito → keep, la cartella è l'ultimo appiglio`, () => {
+      const d = decidePostLandReap({ ...base, outcome, branchAfter: "gone" });
+      expect(d.action).toBe("keep");
+      expect(d.reason).toContain("unica copia");
     });
   }
 });
