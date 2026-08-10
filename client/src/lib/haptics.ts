@@ -98,7 +98,11 @@ let iosLabel: HTMLLabelElement | null = null;
 export function __resetHaptics(): void { iosSwitch = null; iosLabel = null; }
 
 function iosHapticSwitch(): HTMLLabelElement | null {
-  if (typeof document === 'undefined') return null;
+  // Capability, non esistenza: nei test `document` può essere uno stub
+  // parziale (solo querySelector) — l'esistenza non implica createElement. E
+  // `body` non è garantito nemmeno in un browser vero: uno script in `<head>`
+  // gira prima che esista, e lì l'appendChild qui sotto lancerebbe.
+  if (typeof document === 'undefined' || typeof document.createElement !== 'function' || !document.body) return null;
   if (iosLabel?.isConnected && iosSwitch?.isConnected) return iosLabel;
 
   const el = document.createElement('input');

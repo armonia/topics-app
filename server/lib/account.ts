@@ -83,8 +83,17 @@ type Db = Pick<Database, "query">;
  * e si ri-esportano da qui: sono ciò che viaggia sul filo, e due dichiarazioni
  * per la stessa cosa sono due dichiarazioni che un giorno divergono senza che
  * nessun compilatore se ne accorga (`tests/unit/no-type-mirrors.test.ts`).
+ *
+ * Ri-esportati sono i TIPI, che è ciò di cui questo lato ha bisogno: qui i
+ * codici si SCRIVONO — ogni rifiuto è un letterale che `CodiceAccount` vincola
+ * a uno dell'elenco — e non si validano mai, perché un codice non entra: esce.
+ * L'array `CODICI_ACCOUNT` serve a chi un codice lo RICEVE e deve riconoscerlo,
+ * cioè al client, che lo importa da `shared/account`
+ * (`client/src/components/Settings/accountState.ts`). Ri-esportarlo anche da
+ * qui era una porta senza nessuno che ci passasse; il giorno in cui il server
+ * dovesse validare un codice che gli arriva, la strada è la stessa del client —
+ * importarlo da `shared/`, non ricopiare l'elenco.
  */
-export { CODICI_ACCOUNT } from "../../shared/account";
 export type { CodiceAccount, StatoAccount } from "../../shared/account";
 import type { CodiceAccount, StatoAccount } from "../../shared/account";
 

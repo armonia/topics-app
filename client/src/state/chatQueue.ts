@@ -353,7 +353,9 @@ export function decideSend(input: { busy: boolean; queued: number }): SendDecisi
 let storageListenerInstalled = false;
 
 function ensureStorageListener(): void {
-  if (storageListenerInstalled || typeof window === 'undefined') return;
+  // Capability, non esistenza: un `window` finto e parziale (i test) passa
+  // l'`undefined` check ma non sa fare addEventListener.
+  if (storageListenerInstalled || typeof window === 'undefined' || typeof window.addEventListener !== 'function') return;
   storageListenerInstalled = true;
   window.addEventListener('storage', (e: StorageEvent) => {
     if (!e.key || !e.key.startsWith(QUEUE_PREFIX)) return;
