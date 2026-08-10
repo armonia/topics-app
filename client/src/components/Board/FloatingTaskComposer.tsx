@@ -18,13 +18,23 @@ import { POPOVER_ITEM } from '@/lib/popoverStyles';
  * and eases back on blur. The task is born in Todo (the dispatch signal);
  * title = first line, full text goes to the description, and the dispatched
  * agent polishes the wording (kickoff rule) — no model to pick, ever.
+ *
+ * Non si smonta MAI mentre la board è viva: il testo a metà, il cursore, i chip
+ * scelti e l'altezza del textarea vivono in questo componente, e la bozza dal
+ * server si ricarica in modo asincrono — un remount li fa sfarfallare o
+ * sparire. Quando serve toglierlo di mezzo (un campo che gli si sovrappone, il
+ * drawer a tutto schermo del telefono) lo si NASCONDE con `hidden`/`hiddenBelowLg`.
  */
-export function FloatingTaskComposer({ projectId, global, onCreated, onError }: {
+export function FloatingTaskComposer({ projectId, global, onCreated, onError, hidden, hiddenBelowLg }: {
   projectId: string;
   /** Cross-project mode: no implicit board — the project picker chip appears. */
   global: boolean;
   onCreated: () => void;
   onError: (e: string) => void;
+  /** Fuori dalla vista (ma vivo): un campo della board gli sta sopra. */
+  hidden?: boolean;
+  /** Nascosto solo sotto `lg`, dove il drawer del task è un overlay a tutto schermo. */
+  hiddenBelowLg?: boolean;
 }) {
   const [text, setText] = useState('');
   const [focused, setFocused] = useState(false);
@@ -269,7 +279,11 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError }: 
 
   return (
     <div
-      className="pointer-events-none absolute inset-x-0 bottom-6 z-10 flex justify-center px-4 transition-transform duration-150 ease-out"
+      // `hidden` batte il breakpoint: display è UNA proprietà, quindi le due
+      // classi non si sommano — vanno scelte, non concatenate.
+      className={`pointer-events-none absolute inset-x-0 bottom-6 z-10 justify-center px-4 transition-transform duration-150 ease-out ${
+        hidden ? 'hidden' : hiddenBelowLg ? 'hidden lg:flex' : 'flex'
+      }`}
       style={kbInset ? { transform: `translateY(-${kbInset}px)` } : undefined}
     >
       <div
