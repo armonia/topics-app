@@ -318,6 +318,35 @@ export function cachedClaudeModels(): string[] | null {
   return cache?.models ?? null;
 }
 
+/**
+ * Il modello di una CHAT quando nessuno ne ha scelto uno: né il topic, né il
+ * picker, né le impostazioni. Era `claude-sonnet-5`, cioè ogni conversazione
+ * aperta senza toccare il selettore partiva un gradino sotto lo standard
+ * dichiarato ovunque nel repo («l'umano lavora normalmente su opus») — e in
+ * silenzio, perché il picker mostra il modello scelto, non quello ripiegato.
+ *
+ * Opus più recente **con la finestra da 1M**, non da 200k: un id nudo è da 200k
+ * anche sulla generazione 5, e il default deve essere la finestra grande (scelta
+ * esplicita di Attilio, 3 agosto 2026). L'id non è scritto a mano — famiglia +
+ * `preferLong` sulla lista che la CLI annuncia davvero, con `FALLBACK_MODELS`
+ * solo a cache fredda.
+ *
+ * Vive QUI e non nel provider che la usa perché non ha più un solo lettore: un
+ * pin vuoto su `topics.model` non vuol dire «nessun modello», vuol dire QUESTO,
+ * e chiunque debba dimensionare la finestra di una chat senza pin deve poter
+ * fare la stessa domanda. Quando stava chiusa in `claude-code.ts`,
+ * `scripts/token-live.ts` leggeva il pin grezzo, cadeva sul nome nudo che la CLI
+ * scrive nel transcript e stampava 288% di riempimento.
+ */
+export function defaultChatModel(): string {
+  const available = cachedClaudeModels() ?? FALLBACK_MODELS;
+  return (
+    newestOfFamily("opus", available, { preferLong: true })
+    ?? newestOfFamily("opus", FALLBACK_MODELS, { preferLong: true })
+    ?? "claude-opus-5[1m]"
+  );
+}
+
 // Niente `resetClaudeModelCache()`: era nato come test seam e nessun test l'ha
 // mai chiamato (`claude-models.test.ts` costruisce il suo scenario e legge il
 // risultato). Un seam senza test non è un'interfaccia, è una funzione che

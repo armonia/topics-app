@@ -30,7 +30,13 @@
  */
 
 import type { ProviderUsage } from "../providers/types";
-import { classifyContext, contextWindowFor, windowModelFor, type ContextUsage } from "./context-window";
+import {
+  classifyContext,
+  contextWindowFor,
+  windowCoveringMeasure,
+  windowModelFor,
+  type ContextUsage,
+} from "./context-window";
 
 // Il blocco ACP e il suo costo stanno in `shared/types.ts`: è la forma che
 // arriva al client nel contatore di contesto, non un dettaglio del server.
@@ -99,9 +105,14 @@ export function buildContextUpdate(args: {
   // `windowModelFor` tiene il suffisso della richiesta quando a rispondere è
   // stato lo stesso modello, e lo lascia cadere quando la CLI è ripiegata su un
   // altro. Vedi context-window.ts.
+  const windowModel = windowModelFor(args.model, args.fallbackModel);
+  // …e quando anche quel nome sbaglia, resta la misura: un prompt che ha
+  // ricevuto risposta non può essere più grande della finestra che l'ha servito.
+  // Vale anche sul denominatore DICHIARATO — se il provider dice 200k e poi ne
+  // legge 576k, la dichiarazione che abbiamo in mano è vecchia, non la misura.
   const usage = classifyContext(
     args.tokens,
-    declared ?? contextWindowFor(windowModelFor(args.model, args.fallbackModel)),
+    windowCoveringMeasure(declared ?? contextWindowFor(windowModel), windowModel, args.tokens),
   );
   return {
     usage: {
