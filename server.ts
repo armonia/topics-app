@@ -862,8 +862,10 @@ const taskDispatcher = createTaskDispatcher({
       const availableModels = cc?.models ?? [];
       // No snapshot yet → can't classify, but opus-first means we still hand the
       // agent opus (the human's default + this host's primary), never a downgrade.
-      if (availableModels.length === 0) return { model: staticOpus };
-      const model = await pickTaskModel(task, {
+      // `weight: null` = leggero, cioè lo scheduler si comporta come prima: un
+      // giudice che non può parlare non deve poter fermare la coda della board.
+      if (availableModels.length === 0) return { model: staticOpus, weight: null };
+      return await pickTaskModel(task, {
         // Force the cheapest tier for the classification itself.
         complete: (prompt) =>
           provider.complete([{ role: "user", content: prompt }], { model: "claude-haiku-4-5" }).then((r) => r.content ?? ""),
@@ -871,9 +873,10 @@ const taskDispatcher = createTaskDispatcher({
         fallback: newestOfFamily("opus", availableModels, { preferLong: true }) ?? staticOpus,
         log: (m) => console.log(`[dispatcher] ${m}`),
       });
-      return { model };
     } catch {
-      return { model: staticOpus }; // any failure → opus-first, never a silent downgrade
+      // any failure → opus-first, never a silent downgrade; peso null per la
+      // stessa ragione: leggero, cioè niente cambia.
+      return { model: staticOpus, weight: null };
     }
   },
   // Auto concurrency cap: live machine capacity for boards on `maxAgentsAuto`.

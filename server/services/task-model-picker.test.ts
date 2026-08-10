@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { parseTier, tierToAvailableModel, pickTaskModel, floorTier } from "./task-model-picker";
+import { parseTier, tierToAvailableModel, pickTaskModel, floorTier, parseWeight } from "./task-model-picker";
 
 // La lista come la annuncia davvero la CLI: due generazioni per famiglia, e
 // accanto a ognuna la sua variante a finestra lunga. Il tier deve scegliere la
@@ -77,58 +77,106 @@ describe("tierToAvailableModel", () => {
 
 describe("pickTaskModel", () => {
   const base = { availableModels: ALL, fallback: "claude-sonnet-5" };
+  /** Il modello del piano: la maggior parte di questi test guarda solo quello. */
+  const modelFor = async (answer: string, over: Record<string, unknown> = {}) =>
+    (await pickTaskModel({ text: "x" }, { ...base, complete: async () => answer, ...over })).model;
 
   test("maps the classifier's tier to a concrete model", async () => {
-    const m = await pickTaskModel(
+    const p = await pickTaskModel(
       { text: "refactor del layout engine" },
       { ...base, complete: async () => "opus" },
     );
-    expect(m).toBe("claude-opus-5[1m]");
+    expect(p.model).toBe("claude-opus-5[1m]");
   });
 
   test("unparsable answer → fallback", async () => {
-    const m = await pickTaskModel({ text: "x" }, { ...base, complete: async () => "boh non so" });
-    expect(m).toBe("claude-sonnet-5");
+    expect(await modelFor("boh non so")).toBe("claude-sonnet-5");
   });
 
   test("classifier throwing → fallback (never blocks dispatch)", async () => {
-    const m = await pickTaskModel({ text: "x" }, {
-      ...base,
-      complete: async () => { throw new Error("provider down"); },
-    });
-    expect(m).toBe("claude-sonnet-5");
+    expect(await modelFor("", { complete: async () => { throw new Error("provider down"); } }))
+      .toBe("claude-sonnet-5");
   });
 
   test("tier valid but not available on host → fallback", async () => {
-    const m = await pickTaskModel({ text: "x" }, {
-      complete: async () => "fable",
-      availableModels: ["gpt-4o"], // no claude tier at all
-      fallback: "claude-sonnet-5",
-    });
-    expect(m).toBe("claude-sonnet-5");
+    expect(await modelFor("fable", { availableModels: ["gpt-4o"] })).toBe("claude-sonnet-5");
   });
 
   test("feeds title + description into the prompt", async () => {
     let seen = "";
     await pickTaskModel(
       { text: "Titolone", description: "Descrizione dettagliata" },
-      { ...base, complete: async (p) => { seen = p; return "sonnet"; } },
+      { ...base, complete: async (p) => { seen = p; return "sonnet light"; } },
     );
     expect(seen).toContain("Titolone");
     expect(seen).toContain("Descrizione dettagliata");
   });
 
   test("execution floor: a haiku pick is clamped UP to sonnet (haiku is judge-only)", async () => {
-    const m = await pickTaskModel({ text: "bump versione" }, { ...base, complete: async () => "haiku" });
-    expect(m).toBe("claude-sonnet-5[1m]");
+    expect(await modelFor("haiku")).toBe("claude-sonnet-5[1m]");
   });
 
   test("execution floor: haiku pick on a host without sonnet resolves to opus, NEVER haiku", async () => {
-    const m = await pickTaskModel(
+    const p = await pickTaskModel(
       { text: "typo" },
       { availableModels: ["claude-haiku-4-5", "claude-opus-5"], fallback: "claude-opus-5", complete: async () => "haiku" },
     );
-    expect(m).toBe("claude-opus-5");
+    expect(p.model).toBe("claude-opus-5");
+  });
+
+  // ── Il peso ───────────────────────────────────────────────────────────────
+
+  test("la seconda parola è il peso, e arriva nel piano", async () => {
+    const p = await pickTaskModel({ text: "ricompila tutto" }, { ...base, complete: async () => "opus heavy" });
+    expect(p.model).toBe("claude-opus-5[1m]");
+    expect(p.weight).toBe("heavy");
+  });
+
+  test("peso non letto → null, che ogni gate tratta come light", async () => {
+    // È il caso di ogni risposta a UNA parola, cioè come rispondeva il giudice
+    // prima che il peso esistesse: niente deve cambiare rispetto a prima.
+    const p = await pickTaskModel({ text: "x" }, { ...base, complete: async () => "opus" });
+    expect(p.model).toBe("claude-opus-5[1m]");
+    expect(p.weight).toBeNull();
+  });
+
+  test("un fallback di modello non porta con sé un peso: un giudice caduto non ferma la coda", async () => {
+    const p = await pickTaskModel({ text: "x" }, { ...base, complete: async () => "boh" });
+    expect(p.weight).toBeNull();
+    const crashed = await pickTaskModel({ text: "x" }, {
+      ...base, complete: async () => { throw new Error("provider down"); },
+    });
+    expect(crashed.weight).toBeNull();
+  });
+
+  test("il peso si legge DOPO il modello, e sopravvive a una risposta prolissa", async () => {
+    const p = await pickTaskModel({ text: "x" }, {
+      ...base, complete: async () => "opus — heavy, ricompila tutto il progetto",
+    });
+    expect(p.weight).toBe("heavy");
+  });
+
+  test("il prompt chiede due parole e spiega che il peso non è la difficoltà", async () => {
+    let seen = "";
+    await pickTaskModel({ text: "T" }, { ...base, complete: async (p) => { seen = p; return "opus light"; } });
+    expect(seen).toContain("DUE parole");
+    expect(seen).toContain("MORDE LA MACCHINA");
+    expect(seen).toContain("Nel dubbio light");
+  });
+});
+
+describe("parseWeight", () => {
+  test("legge il peso anche in una risposta prolissa, e vince il PRIMO", () => {
+    expect(parseWeight("heavy")).toBe("heavy");
+    expect(parseWeight("direi light, non heavy")).toBe("light");
+    expect(parseWeight("nessuna parola utile")).toBeNull();
+  });
+
+  test("nessuna parola di peso dentro un'altra parola", () => {
+    // «lightweight» o «heavyweight» sono parole intere diverse: senza i confini
+    // il gate scatterebbe su una risposta che non ha detto quello.
+    expect(parseWeight("lightweight")).toBeNull();
+    expect(parseWeight("heavyweight")).toBeNull();
   });
 });
 
