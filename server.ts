@@ -934,7 +934,35 @@ const taskDispatcher = createTaskDispatcher({
     }
   },
   createWorktree: async (projectStoreId) => {
-    const wt = await ctx.worktreeManager.create({ projectId: projectStoreId, mode: "branch", baseRef: "HEAD" });
+    // Il ramo di una card nasce da MAIN, non dall'HEAD del checkout condiviso.
+    //
+    // Con `HEAD` il worktree ereditava il ramo di chi stava lavorando lì — e
+    // l'11/08 quella sola riga ha prodotto, in una notte: rami di task con 147
+    // commit altrui (il land pubblicava lavoro di terzi finché non ha imparato a
+    // prendere solo i propri); consegne che poggiavano su commit mai landati
+    // («manca un pezzo sotto»); DUE collisioni di numeri di migration, perché
+    // l'agente contava da un albero fermo a 088 mentre main era a 089; un
+    // manifest rigenerato senza la migration di un altro; e un agente che ha
+    // «corretto» due test su main inseguendo un messaggio che esisteva solo su
+    // un ramo non landato — lasciando main rossa per un'ora.
+    //
+    // Nessuno aveva chiesto quell'eredità: era un effetto collaterale. Main è
+    // già il ramo d'integrazione dichiarato (`resolveTaskMerge`), quindi è anche
+    // la base giusta: l'agente parte da ciò che è pubblicato, non da ciò che
+    // qualcuno ha in mano.
+    //
+    // Ripiego su `HEAD` se il repo non ha `main`: meglio il vecchio difetto che
+    // un dispatch che non parte.
+    const repoPath = ctx.projectStore.get(projectStoreId)?.path;
+    let baseRef = "HEAD";
+    if (repoPath) {
+      try {
+        const p = Bun.spawn(["git", "rev-parse", "--verify", "--quiet", "refs/heads/main"], { cwd: repoPath, stdout: "pipe", stderr: "pipe" });
+        if ((await p.exited) === 0) baseRef = "main";
+        else console.warn(`[dispatch] ${repoPath}: nessun ramo 'main', il worktree parte da HEAD`);
+      } catch { /* ripiego su HEAD */ }
+    }
+    const wt = await ctx.worktreeManager.create({ projectId: projectStoreId, mode: "branch", baseRef });
     const ready = await ctx.worktreeManager.awaitMaterialisation(wt.id, 120_000);
     if (ready.status !== "ready") {
       throw new Error(`worktree ${wt.id}: ${ready.status}${ready.errorMessage ? " " + ready.errorMessage : ""}`);
