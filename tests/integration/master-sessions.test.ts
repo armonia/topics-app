@@ -52,10 +52,18 @@ describe("Master session control — read / write / close (shell sessions)", () 
       cwd: "/tmp",
     });
     expect(createResp).not.toBeNull();
-    if (createResp!.status === 502) {
-      // PTY bridge couldn't spawn in this environment — skip rather than
-      // false-fail. (node-pty needs a usable session; CI sandboxes may lack it.)
-      console.warn("[master-sessions] PTY bridge unavailable (502) — skipping live PTY assertions");
+    if (createResp!.status === 502 || createResp!.status === 503) {
+      // Nessun ponte PTY qui — si salta invece di fallire a vuoto. Due codici,
+      // due assenze diverse, stessa conclusione:
+      //   502 = il ponte non è riuscito a NASCERE (node-pty senza una sessione
+      //         usabile: le sandbox di CI spesso non ce l'hanno);
+      //   503 = il ponte è SPENTO per costruzione — «terminals not available in
+      //         standalone mode», cioè TOPICS_DISABLE_PTY_BRIDGE/TOPICS_EMBEDDED
+      //         (vedi `isPtyBridgeDisabled`). Nessuno dei due dice niente sul
+      //         codice in prova.
+      // Mancava il 503, e bastava un worktree senza bridge per tingere di rosso
+      // una suite sana: misurato l'11/08 su main, unico rosso di 7147 test.
+      console.warn(`[master-sessions] ponte PTY assente (${createResp!.status}) — salto le asserzioni sui PTY vivi`);
       return;
     }
     expect(createResp!.status).toBe(200);
