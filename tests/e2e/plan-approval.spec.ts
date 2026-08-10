@@ -92,6 +92,16 @@ test.describe.serial("Approvazione del piano", () => {
     // …e non nomina il file, che è un dettaglio di trasporto.
     await expect(row).not.toContainText("cozy-wilkes");
 
+    // Il piano si legge per come è SCRITTO: un titolo e due passi, non un
+    // blocco monospazio. Era un <pre>, cioè la forma che si scorre senza
+    // leggere — e questo è l'unico testo della chat su cui si decide.
+    const corpo = row.locator('[data-testid="plan-card-body"]');
+    await expect(corpo).toBeVisible();
+    await expect(corpo.locator("h1")).toHaveText("Piano");
+    await expect(corpo.locator("ol > li")).toHaveCount(2);
+    await expect(corpo.locator("li strong").first()).toHaveText("Primo passo");
+    await expect(corpo.locator("pre")).toHaveCount(0);
+
     // La domanda usa il pannello standard, con le due scelte.
     const form = page.locator(`[data-testid="tool-input-form-${toolCallId}"]`);
     await expect(form).toBeVisible();
@@ -100,6 +110,11 @@ test.describe.serial("Approvazione del piano", () => {
     // Approvare è consigliato ma non preselezionato: la scelta resta un gesto.
     await expect(form.getByTestId("ask-recommended")).toHaveCount(1);
     await expect(form.locator('input[type="radio"]:checked')).toHaveCount(0);
+    // Su un piano NON c'è «Altro»: la risposta la confrontiamo noi con due
+    // etichette esatte, quindi qualunque prosa varrebbe rifiuto e il testo
+    // scritto sparirebbe senza che nessuno lo legga.
+    await expect(form.getByTestId("ask-other-input-0")).toHaveCount(0);
+    await expect(form).not.toContainText("Scrivi la tua risposta");
     // E il cartello del turno a vuoto non c'è: qui qualcosa è stato prodotto.
     await expect(page.locator('[data-testid="chat-message"]', { hasText: "senza produrre niente" })).toHaveCount(0);
 
@@ -145,5 +160,56 @@ test.describe.serial("Approvazione del piano", () => {
     // Dopo: auto-apply. Senza questo passaggio il turno che esegue ripartirebbe
     // in plan mode — cioè di nuovo bloccato, e l'approvazione non varrebbe niente.
     await expect.poll(autonomia, { timeout: 10_000 }).toBe("auto-apply");
+  });
+
+  /**
+   * Il piano scritto SOLO in prosa.
+   *
+   * Il modello, in plan mode, non sempre scrive il file: il contesto gli chiede
+   * un formato preciso («## Plan» + passi numerati, `planModeContent()`) e a
+   * volte risponde e basta. Lì di riga di tool non ce n'è nessuna a cui
+   * appendere la domanda — e fino a ieri la decisione non esisteva proprio: la
+   * vecchia vista di prosa viveva solo nel ramo di render legacy, che per i
+   * messaggi con timeline `blocks` — cioè tutti quelli nuovi — non passa mai.
+   */
+  test("un piano scritto solo in prosa ha lo stesso cancello", async ({ page, request }) => {
+    // Topic SUO. I test qui sopra approvano, e approvare manda un messaggio:
+    // riusando la stessa chat l'ultimo messaggio non sarebbe più il piano, e il
+    // cancello — che guarda l'ultimo — direbbe giustamente di no.
+    const nome = "Piano prosa " + Date.now();
+    const t = await createTopic(request, nome);
+    const chiave = `topic:${t.id.slice(0, 8)}`;
+    await request.patch(`${E2E_BASE}/api/topics/${t.id}`, { data: { autonomyLevel: "ask" } });
+    const u = await seedMessage(request, {
+      sessionKey: chiave, role: "user", content: "aiutami a fare un'altra cosa",
+      timestamp: new Date(Date.now() - 5000).toISOString(),
+    });
+    await seedMessage(request, {
+      sessionKey: chiave, role: "assistant", parentId: u.id,
+      content: "## Plan\n\n1. **Primo passo** — leggere i file\n2. **Secondo passo** — scrivere il codice\n\n## Summary\nBreve riassunto.",
+      timestamp: new Date(Date.now() - 4000).toISOString(),
+    });
+
+    await goToApp(page);
+    await page.keyboard.press("Escape");
+    await openTopic(page, new RegExp(nome));
+
+    const bar = page.locator('[data-testid="plan-approval-bar"]');
+    await expect(bar).toBeVisible({ timeout: 15_000 });
+
+    const autonomia = async () => {
+      const all = await (await request.get(`${E2E_BASE}/api/topics`)).json();
+      return all?.topics?.[t.id]?.autonomyLevel;
+    };
+    expect(await autonomia()).toBe("ask");
+
+    // Approvare fa la STESSA cosa del piano-blocco: alza l'autonomia. Se qui
+    // divergesse, il turno che esegue ripartirebbe in plan mode.
+    await bar.getByTestId("plan-approve").click();
+    await expect.poll(autonomia, { timeout: 10_000 }).toBe("auto-apply");
+    // …e la barra sparisce: la palla non è più tua.
+    await expect(bar).toBeHidden({ timeout: 10_000 });
+
+    await deleteTopic(request, t.id);
   });
 });
