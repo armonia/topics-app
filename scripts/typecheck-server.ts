@@ -28,6 +28,30 @@ const out = `${res.stdout ?? ""}${res.stderr ?? ""}`.trim();
 const count = (out.match(/error TS\d+/g) ?? []).length;
 
 if (out) console.log(out);
+
+// A gate that never ran is not a green gate. If spawnSync could not launch the
+// binary (missing node_modules — i.e. ANY fresh worktree without `bun install`
+// in client/) it sets res.error and leaves status null, stdout/stderr empty:
+// the regex finds 0 errors and this script used to print "0 (baseline 0)" and
+// exit 0. Fail loudly instead.
+if (res.error || res.status === null) {
+  console.error(
+    `\n✗ tsc non trovato o non eseguibile in ${TSC}` +
+      `${res.error ? ` (${res.error.message})` : ""}.\n` +
+      `  Il typecheck NON è girato — esegui \`bun install\` in client/.`,
+  );
+  process.exit(1);
+}
+
+// tsc failed for a reason the regex cannot see (bad tsconfig, crash, OOM):
+// also a gate that did not measure what it claims to measure.
+if (res.status !== 0 && count === 0) {
+  console.error(
+    `\n✗ tsc è uscito ${res.status} senza stampare alcun 'error TSxxxx'. ` +
+      `Il conteggio non è attendibile: guarda l'output sopra.`,
+  );
+  process.exit(1);
+}
 console.log(`\nserver type errors: ${count} (baseline ${BASELINE})`);
 
 if (count > BASELINE) {
