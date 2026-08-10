@@ -19,8 +19,11 @@
  * marchio sopravviva — un remount lo cancellerebbe.
  */
 import { test } from "./fixtures/layout.fixture";
+import { projectRow } from "./helpers/project-row";
 import { expect, type Page, type Locator } from "@playwright/test";
-import { createTopic, deleteTopic, resetPaneStore, deleteTask } from "./helpers/api-fixtures";
+import {
+  createTopic, deleteTopic, resetPaneStore, resetProjectPanes, seedProjectPane, deleteTask,
+} from "./helpers/api-fixtures";
 import { mkdirSync, rmSync, writeFileSync } from "fs";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
@@ -53,6 +56,38 @@ async function openGlobalBoard(page: Page) {
   await page.getByTestId("pane-add-menu-trigger").first().click();
   await page.getByTestId("pane-add-menu-board").click();
   await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 15000 });
+}
+
+/**
+ * Apre la board di PROGETTO (l'unica con il «Aggiungi» in colonna) dal «+»
+ * della finestra di progetto. Più barre portano un trigger e il loro ordine nel
+ * DOM non è garantito: si prova finché non compare la voce Board.
+ */
+async function openProjectBoard(page: Page) {
+  const section = page.getByRole("button", { name: /sezione Progetti/ });
+  if ((await section.count()) > 0 && (await section.getAttribute("aria-expanded")) === "false") {
+    await section.click();
+  }
+  const row = projectRow(page, /e2e-composer-persist/);
+  await expect(row).toBeVisible({ timeout: 10000 });
+  await row.click();
+  await expect(page.getByTestId("project-window")).toBeVisible({ timeout: 10000 });
+
+  const triggers = page.getByTestId("pane-add-menu-trigger");
+  const item = page.getByTestId("pane-add-menu-kanban");
+  const count = await triggers.count();
+  for (let i = count - 1; i >= 0; i--) {
+    const t = triggers.nth(i);
+    if (!(await t.isVisible().catch(() => false))) continue;
+    if (!(await t.click({ timeout: 3000 }).then(() => true, () => false))) continue;
+    if (await item.waitFor({ state: "visible", timeout: 2000 }).then(() => true, () => false)) {
+      await item.click();
+      await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 10000 });
+      return;
+    }
+    await page.keyboard.press("Escape");
+  }
+  throw new Error("nessun menu «+» con la voce Board");
 }
 
 /**
@@ -99,6 +134,11 @@ test.describe.serial("Composer della board — non sparisce", () => {
 
   test.beforeEach(async ({ page }) => {
     await resetPaneStore(page.request, []);
+    // Il layout INTERNO della finestra di progetto è una chiave a sé sul
+    // server: senza azzerarlo, la board lasciata lì dal test prima fa sparire
+    // la voce «Board» dal «+» (i pane singleton già presenti sono filtrati).
+    await resetProjectPanes(page.request, PROJ);
+    await seedProjectPane(page.request, PROJ);
     // La bozza vive sul server: senza azzerarla il test dopo riparte col testo
     // del test prima e `toHaveValue` misurerebbe un residuo, non il fix.
     await page.request.delete(`${BASE}/api/ui-state/board-composer-draft`).catch(() => {});
@@ -157,6 +197,27 @@ test.describe.serial("Composer della board — non sparisce", () => {
     // E chiudendo il drawer non è successo niente di irreversibile.
     await page.keyboard.press("Escape");
     await expect(drawer).not.toBeVisible();
+    await expectSurvived(composer, draft);
+  });
+
+  test("COMPOSER-03: un campo DENTRO una colonna lo nasconde, non lo uccide", async ({ page }) => {
+    // Il rovescio del fix: la regola che serviva davvero resta. Il box «nuovo
+    // task» di una colonna si apre proprio sotto il composer, quindi il
+    // composer si toglie di mezzo — ma per CSS, restando vivo con il suo testo.
+    const draft = `Bozza da non perdere ${STAMP}`;
+    await page.goto("/");
+    await openProjectBoard(page);
+    const composer = await typeAndMark(page, draft);
+
+    const backlog = page.getByTestId("kanban-column-backlog");
+    await backlog.getByRole("button", { name: "Aggiungi" }).click();
+    await backlog.locator("textarea").fill("scrivo in colonna");
+    await expect(composer).not.toBeVisible();
+    await expect(composer).toHaveAttribute("data-e2e-mark", "vivo");
+
+    // Chiuso il box della colonna, il composer torna su con quello che c'era.
+    await backlog.locator("textarea").press("Escape");
+    await expect(composer).toBeVisible();
     await expectSurvived(composer, draft);
   });
 });
