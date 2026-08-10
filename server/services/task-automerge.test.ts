@@ -193,6 +193,55 @@ describe("task-automerge", () => {
     expect((await am.tryMerge("t1", "x")).status).toBe("conflict");
   });
 
+  test("due migration con lo STESSO numero: il land si ferma prima di rompere il DB in silenzio", async () => {
+    // `schema_migrations.version` e' chiave primaria intera e il runner fa
+    // `if (applied.has(version)) continue`: salta per NUMERO, senza dire niente.
+    // La seconda 089 non si applicherebbe MAI, mentre il codice che la presuppone
+    // atterra lo stesso — guasto invisibile al land, visibile in produzione.
+    // Misurato il 10/08: DUE collisioni in una sera, con N card in parallelo.
+    const calls: string[][] = [];
+    const run = async (_cwd: string, args: string[]) => {
+      calls.push(args);
+      const key = args.slice(0, 2).join(" ");
+      if (key === "symbolic-ref --short") return { code: 0, stdout: "main\n", stderr: "" };
+      if (key === "status --porcelain") return { code: 0, stdout: "", stderr: "" };
+      if (key === "rev-list --count") return { code: 0, stdout: "3\n", stderr: "" };
+      if (key === "ls-tree -r") {
+        const ref = args[3];
+        return ref === "main"
+          ? { code: 0, stdout: "server/db/migrations/089-retirements.sql\n", stderr: "" }
+          : { code: 0, stdout: "server/db/migrations/089-task-dispatch-weight.sql\n", stderr: "" };
+      }
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    const am = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: run });
+    const res = await am.tryMerge("t1", "x");
+    expect(res.status).toBe("skipped");
+    if (res.status === "skipped") {
+      expect(res.reason).toContain("089");
+      expect(res.reason).toContain("Rinumera");
+    }
+    // E si ferma PRIMA di toccare main.
+    expect(calls.some((c) => c[0] === "merge" || c[0] === "cherry-pick")).toBe(false);
+  });
+
+  test("stesso numero, stesso file: e' lo storico condiviso, non una collisione", async () => {
+    // Il controllo del test qui sopra: un ramo che eredita le migration di main
+    // senza aggiungerne deve passare, o il cancello bloccherebbe ogni land.
+    const run = async (_cwd: string, args: string[]) => {
+      const key = args.slice(0, 2).join(" ");
+      if (key === "symbolic-ref --short") return { code: 0, stdout: "main\n", stderr: "" };
+      if (key === "status --porcelain") return { code: 0, stdout: "", stderr: "" };
+      if (key === "rev-list --count") return { code: 0, stdout: "3\n", stderr: "" };
+      if (key === "ls-tree -r") return { code: 0, stdout: "server/db/migrations/089-retirements.sql\n", stderr: "" };
+      if (key === "merge --no-ff") return { code: 0, stdout: "", stderr: "" };
+      if (key === "rev-parse --short") return { code: 0, stdout: "abc1234\n", stderr: "" };
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    const am = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: run });
+    expect((await am.tryMerge("t1", "x")).status).toBe("merged");
+  });
+
   test("un branch che non porta NIENTE di suo resta rifiutato", async () => {
     // Il controllo del test qui sopra: raccogliere i propri commit non deve
     // diventare «landa comunque». Zero commit suoi = niente da landare.
