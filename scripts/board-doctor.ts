@@ -28,9 +28,11 @@
  *      muove). Il registro filtra il resto.
  *
  * ── I controlli: solo guasti GIA' SUCCESSI ───────────────────────────────────
- * Nessun controllo su un guasto immaginato. Ognuno dei sei e' capitato davvero
- * su questa board, e ognuno porta il modo di provarlo. Si aggiungono controlli
- * quando succede qualcosa di nuovo, non quando viene in mente qualcosa di nuovo.
+ * Nessun controllo su un guasto immaginato. Ognuno degli otto e' capitato
+ * davvero su questa board, e ognuno porta il modo di provarlo. Si aggiungono
+ * controlli quando succede qualcosa di nuovo, non quando viene in mente
+ * qualcosa di nuovo — gli ultimi due sono entrati il 2026-08-10, il giorno in
+ * cui i loro guasti sono stati trovati a mano.
  *
  * ── Il controllo piu' difficile: quando NON allarmare ────────────────────────
  * Un task fermo puo' essere un cambio di turno, non un fantasma. Due trappole,
@@ -136,13 +138,21 @@ export type CheckId =
   | "land-drags-foreign-commits"
   | "needs-input-unanswered"
   | "environmental-red"
-  | "cost-out-of-class";
+  | "cost-out-of-class"
+  | "documented-parameter-not-declared"
+  | "delivery-commit-not-own";
 
 // ── Il rilievo, e le regole che ne vietano uno inutile ───────────────────────
 
 export interface Finding {
   check: CheckId;
-  taskId: string;
+  /**
+   * La card, quando ce n'e' una. Due controlli guardano il REPOSITORY, non una
+   * card (un parametro documentato e mai dichiarato non appartiene a nessuno):
+   * li' resta vuoto e il soggetto e' `taskText`.
+   */
+  taskId?: string;
+  /** Il soggetto del rilievo: il titolo della card, o cosa si stava guardando. */
   taskText: string;
   /** Che cosa e' successo, in una riga. */
   what: string;
@@ -231,7 +241,7 @@ export function assertProofIsReadOnly(proof: string): void {
  * al primo test invece che davanti all'umano.
  */
 export function finding(f: Finding): Finding {
-  const missing = (["what", "proof", "action", "occurrence", "taskId"] as const)
+  const missing = (["what", "proof", "action", "occurrence", "taskText"] as const)
     .filter((k) => !String(f[k] ?? "").trim());
   if (missing.length) {
     throw new Error(`rilievo incompleto (${f.check}): manca ${missing.join(", ")}`);
@@ -355,6 +365,11 @@ export interface BranchFacts {
    * che il rapporto le mette in un blocco solo invece che in dieci.
    */
   foreignHead: string | null;
+  /**
+   * I commit che sono NATI in questo worktree, abbreviati. `null` = non
+   * elencabili, e allora di chi sia la consegna non si sa: nessun allarme.
+   */
+  ownShas: readonly string[] | null;
   /** Gli altri branch locali usati per la sottrazione: servono alla prova. */
   otherBranches: readonly string[];
 }
@@ -388,6 +403,8 @@ export interface DoctorInput {
   costBaseline: CostBaseline;
   /** I sondaggi accumulati nei giri precedenti, per task. */
   probes: Readonly<Record<string, readonly LivenessProbe[]>>;
+  /** Cio' che i documenti di protocollo insegnano a passare ai tool. */
+  documentedParams: readonly DocumentedParam[];
 }
 
 export interface DoctorCheck {
@@ -619,6 +636,91 @@ const checkCostOutOfClass: DoctorCheck = {
   },
 };
 
+// ── 7. Parametro documentato che lo schema non dichiara ──────────────────────
+
+/**
+ * Un argomento che lo schema del tool non dichiara NON viene rifiutato: viene
+ * buttato, e la chiamata torna 200. Chi obbedisce al documento scrive
+ * «anteprima allegata» su una card vuota e sembra un bugiardo.
+ *
+ * Il confronto e' sui nomi ESATTI, perche' e' cosi' che MCP li combacia:
+ * `previewImage` e `preview_image` sono due parametri diversi, e il primo
+ * sparisce in silenzio. La normalizzazione serve solo a dire QUALE dei due
+ * casi e' — nome storpiato o nome assente del tutto — perche' l'azione cambia.
+ */
+const normalizeParam = (s: string) => s.replace(/_/g, "").toLowerCase();
+
+/** Un parametro che un documento insegna a passare, e cio' che il tool dichiara. */
+export interface DocumentedParam {
+  /** Il documento che lo insegna (percorso, per la prova). */
+  doc: string;
+  tool: string;
+  param: string;
+  /** Le proprieta' dichiarate dallo schema di quel tool. */
+  declared: readonly string[];
+}
+
+const checkDocumentedParameterNotDeclared: DoctorCheck = {
+  id: "documented-parameter-not-declared",
+  bornFrom: "due volte in un giorno: `previewImage` e `parentTaskId` documentati, passati, scartati in silenzio con risposta 200",
+  run({ documentedParams, repoPath }) {
+    const out: Finding[] = [];
+    for (const d of documentedParams) {
+      if (d.declared.includes(d.param)) continue;
+      // Schema vuoto = non letto: non e' una prova che il parametro manchi.
+      if (d.declared.length === 0) continue;
+      const near = d.declared.find((p) => normalizeParam(p) === normalizeParam(d.param));
+      out.push(finding({
+        check: "documented-parameter-not-declared",
+        taskText: `${d.tool}(${d.param}=…)`,
+        what: near
+          ? `il protocollo insegna \`${d.param}\`, lo schema dichiara \`${near}\`: MCP combacia i nomi esatti, quindi l'argomento viene buttato e la chiamata torna 200`
+          : `il protocollo insegna \`${d.param}\`, che lo schema di \`${d.tool}\` non dichiara affatto: l'argomento viene buttato e la chiamata torna 200`,
+        proof: `grep -n ${shq(d.param)} ${shq(join(repoPath, d.doc))} && grep -n ${shq(near ?? d.param)} ${shq(join(repoPath, MCP_SERVER))}`,
+        action: near
+          ? `allinea le due grafie — o il documento a \`${near}\`, o lo schema a \`${d.param}\`. Finche' divergono, chi obbedisce al documento scrive «fatto» su una card che non e' cambiata`
+          : `aggiungi \`${d.param}\` allo schema di \`${d.tool}\` (e leggilo nell'handler), oppure toglilo dal documento`,
+        occurrence: `documented-parameter-not-declared:${d.tool}:${d.param}`,
+        group: `${d.doc} contro lo schema dei tool`,
+        brief: near ? `lo schema dice \`${near}\`` : "non dichiarato",
+      }));
+    }
+    return out;
+  },
+};
+
+// ── 8. Consegna che punta a un commit non suo ────────────────────────────────
+
+const checkDeliveryCommitNotOwn: DoctorCheck = {
+  id: "delivery-commit-not-own",
+  bornFrom: "una card con `deliveryCommit` che puntava a un commit di un'altra sessione, mentre lei non aveva committato niente",
+  run({ tasks, branches, repoPath }) {
+    const byTask = new Map(branches.map((b) => [b.taskId, b]));
+    const out: Finding[] = [];
+    for (const t of tasks) {
+      if (!t.deliveryCommit) continue;
+      const b = byTask.get(t.id);
+      // Senza i commit del branch non si sa di chi sia: nessuna prova, silenzio.
+      if (!b || b.ownShas === null) continue;
+      const sha = t.deliveryCommit;
+      const isOwn = b.ownShas.some((own) => sha.startsWith(own) || own.startsWith(sha));
+      if (isOwn) continue;
+      out.push(finding({
+        check: "delivery-commit-not-own",
+        taskId: t.id,
+        taskText: t.text,
+        what: b.ownCount === 0
+          ? `la consegna e' registrata su ${sha.slice(0, 8)}, ma questa card non ha committato niente: il commit e' di qualcun altro`
+          : `la consegna e' registrata su ${sha.slice(0, 8)}, che non e' fra i ${b.ownCount} commit di questa card`,
+        proof: `R=${shq(repoPath)}; git -C "$R" rev-list --abbrev-commit ${b.defaultBranch}..${b.branch} --not $(git -C "$R" for-each-ref --format='%(refname:short)' refs/heads/ | grep -vx -e ${b.branch} -e ${b.defaultBranch}); git -C "$R" show --oneline -s ${sha}`,
+        action: "non fidarti del diff mostrato in review: sta guardando il lavoro di un'altra sessione. Chiedi alla card quale commit e' suo, o rigettala",
+        occurrence: `delivery-commit-not-own:${t.id}:${sha}`,
+      }));
+    }
+    return out;
+  },
+};
+
 export const CHECKS: readonly DoctorCheck[] = Object.freeze([
   checkDeliveryCitesAbsentArtifact,
   checkBehaviourWithoutPreview,
@@ -626,6 +728,8 @@ export const CHECKS: readonly DoctorCheck[] = Object.freeze([
   checkNeedsInputUnanswered,
   checkEnvironmentalRed,
   checkCostOutOfClass,
+  checkDocumentedParameterNotDeclared,
+  checkDeliveryCommitNotOwn,
 ]);
 
 /**
@@ -692,6 +796,63 @@ export function saveState(state: DoctorState, path = statePath()): void {
 
 // ── Lettura del mondo: DB in sola lettura, git in sola lettura ───────────────
 
+/** Dove stanno le due verita' del controllo 7. Percorsi relativi alla repo. */
+export const MCP_SERVER = "server/mcp/topics-mcp-server.ts";
+export const PROTOCOL_DOCS = ["docs/board-protocol.md"] as const;
+
+/**
+ * Le chiavi di PRIMO livello di un oggetto letterale, contando le graffe.
+ *
+ * Una regex sul blocco intero sembrava bastare e non bastava: sconfinava nel
+ * tool successivo e attribuiva a `list_processes` (che di proprieta' non ne ha)
+ * i parametri di `read_process_output`. Erano tre falsi allarmi su quattro, il
+ * difetto esatto che questo file esiste per non avere.
+ */
+export function topLevelKeys(src: string, openIdx: number): string[] {
+  const keys: string[] = [];
+  let depth = 0;
+  for (let i = openIdx; i < src.length; i++) {
+    const ch = src[i];
+    if (ch === "{" || ch === "[") { depth++; continue; }
+    if (ch === "}" || ch === "]") { depth--; if (depth === 0) break; continue; }
+    if (depth !== 1) continue;
+    const m = src.slice(i, i + 80).match(/^([A-Za-z_][A-Za-z0-9_]*)\s*:/);
+    if (m?.[1] && /[{,\s]/.test(src[i - 1] ?? "")) { keys.push(m[1]); i += m[1].length; }
+  }
+  return keys;
+}
+
+/** tool → proprieta' dichiarate dal suo `inputSchema`. */
+export function declaredToolParams(mcpSource: string): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  const marks = [...mcpSource.matchAll(/\n\s*name:\s*"([a-z_0-9]+)",/g)];
+  for (let k = 0; k < marks.length; k++) {
+    const m = marks[k];
+    if (!m?.[1]) continue;
+    const slice = mcpSource.slice(m.index ?? 0, marks[k + 1]?.index ?? mcpSource.length);
+    const pi = slice.indexOf("properties:");
+    const open = pi < 0 ? -1 : slice.indexOf("{", pi);
+    out.set(m[1], open < 0 ? [] : topLevelKeys(slice, open));
+  }
+  return out;
+}
+
+/** Le chiamate che un documento insegna: `update_task(previewImage=…)`. */
+export function documentedCalls(doc: string, tools: ReadonlySet<string>): Array<{ tool: string; param: string }> {
+  const out: Array<{ tool: string; param: string }> = [];
+  const seen = new Set<string>();
+  for (const m of doc.matchAll(/\b([a-z_0-9]+)\(([^)]*)\)/g)) {
+    const tool = m[1] ?? "";
+    if (!tools.has(tool)) continue;
+    for (const p of (m[2] ?? "").matchAll(/([A-Za-z_][A-Za-z0-9_]*)\s*[=:]/g)) {
+      const param = p[1] ?? "";
+      const key = `${tool}:${param}`;
+      if (param && !seen.has(key)) { seen.add(key); out.push({ tool, param }); }
+    }
+  }
+  return out;
+}
+
 export function defaultDbPath(): string {
   return process.env.DATA_DIR
     ? join(process.env.DATA_DIR, "topics.db")
@@ -743,6 +904,8 @@ export interface CollectOptions {
   costBaseline?: CostBaseline;
   reds?: readonly RedObservation[];
   probes?: Readonly<Record<string, LivenessProbe[]>>;
+  /** I documenti di protocollo da confrontare con lo schema dei tool. */
+  protocolDocs?: readonly string[];
 }
 
 export interface Collected {
@@ -881,9 +1044,27 @@ export function collect(opts: CollectOptions = {}): Collected {
           aheadTotal: all.length,
           ownCount: mine.size,
           foreignHead: all.find((sha) => !mine.has(sha)) ?? null,
+          ownShas: [...mine],
           otherBranches: others,
         });
       }
+    }
+
+    // ── Controllo 7: il protocollo contro lo schema dei tool ────────────────
+    const documentedParams: DocumentedParam[] = [];
+    const mcpPath = join(repoPath, MCP_SERVER);
+    if (existsSync(mcpPath)) {
+      const declared = declaredToolParams(readFileSync(mcpPath, "utf8"));
+      const tools = new Set(declared.keys());
+      for (const doc of opts.protocolDocs ?? PROTOCOL_DOCS) {
+        const p = join(repoPath, doc);
+        if (!existsSync(p)) { skipped.push(`protocollo ${doc} assente — controllo sui parametri documentati saltato`); continue; }
+        for (const call of documentedCalls(readFileSync(p, "utf8"), tools)) {
+          documentedParams.push({ doc, tool: call.tool, param: call.param, declared: declared.get(call.tool) ?? [] });
+        }
+      }
+    } else {
+      skipped.push(`${MCP_SERVER} non trovato — controllo sui parametri documentati saltato`);
     }
 
     const costBaseline = opts.costBaseline ?? {};
@@ -900,6 +1081,7 @@ export function collect(opts: CollectOptions = {}): Collected {
         reds: opts.reds ?? [],
         costBaseline,
         probes: opts.probes ?? {},
+        documentedParams,
       },
       probeNow,
       skipped,
@@ -952,7 +1134,8 @@ export function costBaselineFromJson(raw: unknown): CostBaseline {
 
 // ── CLI ──────────────────────────────────────────────────────────────────────
 
-const card = (f: Finding) => `${short(f.taskText, 62)} \x1b[2m(${f.taskId.slice(0, 8)})\x1b[0m`;
+const card = (f: Finding) =>
+  `${short(f.taskText, 62)}${f.taskId ? ` \x1b[2m(${f.taskId.slice(0, 8)})\x1b[0m` : ""}`;
 
 /**
  * Rilievi con la stessa causa, un blocco solo. Il primo porta la prova e

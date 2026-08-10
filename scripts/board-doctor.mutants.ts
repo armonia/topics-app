@@ -51,6 +51,12 @@ const MUTATIONS: ReadonlyArray<readonly [string, string, string]> = [
   ["prova: lascia passare `git merge`", "      if (!GIT_READ_VERBS.has(verb)) return false;", "      if (false) return false;"],
   ["registro: non tace mai niente", "  for (const f of findings) (said[f.occurrence] ? suppressed : fresh).push(f);", "  for (const f of findings) fresh.push(f);"],
   ["stampa: non raggruppa piu' le cause comuni", "    if (!f.group) { blocks.push([f]); continue; }", "    if (true) { blocks.push([f]); continue; }"],
+  ["7 non guarda se il parametro e' dichiarato", "      if (d.declared.includes(d.param)) continue;", "      if (false) continue;"],
+  ["7 allarma anche su uno schema mai letto", "      if (d.declared.length === 0) continue;", "      if (d.declared.length < 0) continue;"],
+  ["7 confonde le due grafie", "      const near = d.declared.find((p) => normalizeParam(p) === normalizeParam(d.param));", "      const near = undefined as string | undefined;"],
+  ["8 non riconosce i commit propri", "      const isOwn = b.ownShas.some((own) => sha.startsWith(own) || own.startsWith(sha));", "      const isOwn = false;"],
+  ["8 parla anche senza sapere quali siano i commit propri", "      if (!b || b.ownShas === null) continue;", "      if (!b) continue;"],
+  ["schema: le graffe non contano piu' (sconfina nel tool dopo)", "    if (depth !== 1) continue;", "    if (depth < 1) continue;"],
 ];
 
 const dirty = spawnSync("git", ["status", "--porcelain", "--", FILE], { encoding: "utf8" }).stdout ?? "";
