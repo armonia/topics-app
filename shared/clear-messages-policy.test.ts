@@ -1,6 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import { shouldHonorClearMessages } from "./abortClearPolicy";
-import type { StoredMessage } from "../types";
+import { shouldHonorClearMessages } from "./clear-messages-policy";
+
+/** La forma minima su cui decide il predicato: è quella che hanno sia la riga
+ *  SQLite del server sia il `ChatMessage` del client. */
+interface StoredMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  timestamp: string;
+  toolCalls?: unknown[];
+}
 
 /** Riga utente, o riga assistente CON del testo (cioè che ha già risposto). */
 function msg(role: "user" | "assistant", id: string): StoredMessage {
