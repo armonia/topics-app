@@ -142,6 +142,57 @@ describe("task-automerge", () => {
     expect(calls.some((c) => c[0] === "cherry-pick" && c.includes("--quit"))).toBe(true);
   });
 
+  test("il pick fallisce perché MANCA un pezzo sotto: si dice quello, non «conflitto»", async () => {
+    // Il worktree della card nasce dall'HEAD del checkout condiviso, quindi il
+    // suo lavoro può poggiare su commit di un'altra sessione — che il pick
+    // selettivo esclude apposta, per non pubblicarli. Il pick allora fallisce su
+    // un file che su main non esiste ancora: non c'è niente da riconciliare, e
+    // rimandarlo all'agente come «conflitto» lo manda a cercare una cosa che non
+    // c'è. Misurato il 10/08 su 473da2db (02fd8bac modifica browserPaneFault.ts,
+    // creato da un commit di un'altra sessione mai landato).
+    const run = async (_cwd: string, args: string[]) => {
+      const key = args.slice(0, 2).join(" ");
+      if (key === "symbolic-ref --short") return { code: 0, stdout: "feature/x\n", stderr: "" };
+      if (key === "for-each-ref --format=%(refname)") {
+        return { code: 0, stdout: "refs/heads/main\nrefs/heads/topics/altra\nrefs/heads/topics/t1\n", stderr: "" };
+      }
+      if (key === "rev-list --count") return { code: 0, stdout: args.includes("--not") ? "2\n" : "9\n", stderr: "" };
+      if (key === "rev-list --reverse") return { code: 0, stdout: "aaa111\nbbb222\n", stderr: "" };
+      if (args[0] === "cherry-pick" && args[1] === "-n") return { code: 1, stdout: "", stderr: "CONFLICT (modify/delete): browserPaneFault.ts deleted in HEAD" };
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    const am = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: run });
+    const res = await am.tryMerge("t1", "x");
+    expect(res.status).toBe("skipped");
+    // 9 sul branch, 2 suoi → 7 sotto di lui che non sono su main.
+    if (res.status === "skipped") {
+      expect(res.reason).toContain("7 commit");
+      expect(res.reason).toContain("manca un pezzo sotto");
+    }
+  });
+
+  test("pick fallito SENZA dipendenze estranee resta un conflitto vero", async () => {
+    // Il controllo del test qui sopra: la diagnosi nuova non deve mangiarsi il
+    // caso normale, o un conflitto vero non tornerebbe più all'agente.
+    const run = async (_cwd: string, args: string[]) => {
+      const key = args.slice(0, 2).join(" ");
+      if (key === "symbolic-ref --short") return { code: 0, stdout: "feature/x\n", stderr: "" };
+      if (key === "for-each-ref --format=%(refname)") {
+        return { code: 0, stdout: "refs/heads/main\nrefs/heads/topics/altra\nrefs/heads/topics/t1\n", stderr: "" };
+      }
+      if (key === "rev-list --count") return { code: 0, stdout: args.includes("--not") ? "2\n" : "9\n", stderr: "" };
+      if (key === "rev-list --reverse") return { code: 0, stdout: "aaa111\nbbb222\n", stderr: "" };
+      // Stessi 7 commit estranei del test sopra, ma il fallimento e' di
+      // CONTENUTO: due modifiche che si pestano, non un file che manca.
+      if (args[0] === "cherry-pick" && args[1] === "-n") {
+        return { code: 1, stdout: "", stderr: "CONFLICT (content): Merge conflict in src/a.ts" };
+      }
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    const am = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: run });
+    expect((await am.tryMerge("t1", "x")).status).toBe("conflict");
+  });
+
   test("un branch che non porta NIENTE di suo resta rifiutato", async () => {
     // Il controllo del test qui sopra: raccogliere i propri commit non deve
     // diventare «landa comunque». Zero commit suoi = niente da landare.
