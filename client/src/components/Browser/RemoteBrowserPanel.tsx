@@ -386,8 +386,10 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
         onBack={browser.goBack}
         onForward={browser.goForward}
         onRefresh={browser.reload}
-        canGoBack={true}
-        canGoForward={true}
+        canGoBack={browser.canGoBack ?? true}
+        canGoForward={browser.canGoForward ?? true}
+        getNavEntries={browser.getNavEntries}
+        onGoToNavIndex={browser.goToNavIndex}
         loading={browser.loading}
         history={history}
         faviconUrl={browser.faviconUrl}
