@@ -1729,6 +1729,11 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // con 12 turni vivi su un tetto di 6 solo perché qualcuno ha rifiutato in
     // fila cinque card.
     if (inFlight.size >= currentCap()) {
+      // Il chip dice DOV'E': senza, la card resta `in_progress` con nessun turno
+      // vivo — il tempo non scorre e sembra piantata, che è esattamente come si
+      // vede dal di fuori una coda invisibile. `queued` è già lo stato «aspetta
+      // il suo turno», lo stesso dei dispatch.
+      try { emit(deps.svc.setDispatchState({ taskId, state: CHIP_QUEUED })); } catch { /* best-effort */ }
       if (!waitingForSlot.has(taskId)) {
         waitingForSlot.add(taskId);
         try {
