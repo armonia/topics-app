@@ -15,13 +15,13 @@ import { buildTaskLink } from '../../lib/openTaskLink';
 import { enqueueProjectBrowserNavigate } from '../../state/pane/adapters';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
 import { writeCursor, markActiveComposer, restoreCursor } from '../../lib/composerCursor';
-import { boardApi, STATUS_LABEL, TASK_STATUSES, isAgentWorking, parseQuestionBlock, isProjectlessId, boardDrafts, systemDeliveryNote, attemptHasWork, formatAttemptStat, type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch, type BoardProjectRef, type DiffBundle, type DiffNote, type ReviewCheck, type CheckRun, type TaskAttempt } from '../../lib/board';
+import { boardApi, STATUS_LABEL, TASK_STATUSES, isAgentWorking, parseQuestionBlock, isProjectlessId, boardDrafts, systemDeliveryNote, attemptHasWork, type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch, type BoardProjectRef, type DiffBundle, type DiffNote, type ReviewCheck, type CheckRun, type TaskAttempt } from '../../lib/board';
 import { PreviewMedia } from './PreviewMedia';
 import { UnifiedDiff } from './UnifiedDiff';
 import { collectTaskMediaPaths } from './taskMedia';
 import { formatReviewNotes } from './reviewNotes';
 import { COMPACT_MD_CLS, PLAN_MD_CLS, PRIORITY_DOT, PRIORITY_LABEL, PRIORITY_ORDER, DISPATCH_CHIP, EFFORTS, FANOUT_CHOICES, mediaPaneIdFor, type TaskSurface } from './constants';
-import { friendlyModelLabel, fmtModel, commentTime, fmtMs, fmtLive, fmtTok, fmtUpdatedAt, autoGrow } from './format';
+import { friendlyModelLabel, fmtModel, commentTime, fmtMs, fmtLive, fmtTok, fmtUpdatedAt, autoGrow, attemptStat } from './format';
 import { StatusIcon, DispatchChip } from './atoms';
 import { ProjectPickerBody } from './ProjectPicker';
 import { addBoardProject, projectNameFromId, useBoardProjects } from '../../lib/boardProjectsStore';
@@ -79,22 +79,30 @@ function ChecksSection({ task }: { task: BoardTask }) {
     return (
       <div className="flex items-center gap-1.5 rounded bg-white/5 px-2 py-1.5 text-[11px] text-app-text-heading">
         <Spinner size="sm" tone="current" className="shrink-0 text-app-text-secondary" />
-        Checks pre-review in corso…
+        {tr('board.task.checks.running')}
       </div>
     );
   }
 
   const runs = task.checks ?? [];
   const failed = runs.find((r) => !r.ok);
-  const short = (r: CheckRun) => r.spawnError ? 'non è partito' : r.timedOut ? 'oltre il tempo massimo' : `exit ${r.code}`;
+  const short = (r: CheckRun) =>
+    r.spawnError ? tr('board.task.checks.notStarted')
+      : r.timedOut ? tr('board.task.checks.timedOut')
+        : `exit ${r.code}`;
+  // L'ora resta in formato italiano perché `2-digit`/`2-digit` la rende `14:05`
+  // in ogni lingua che questa app parla: nessun testo, nessun 12h/24h da
+  // decidere. Il giorno in cui il drawer avrà date vere, il formato diventa una
+  // scelta di locale e va fatta in un posto solo (`format.ts`), non qui.
   const when = task.checksAt ? new Date(task.checksAt).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }) : null;
+  const at = when ? ` ${tr('board.task.checks.at', { t: when })}` : '';
 
   if (task.checksState === 'pass') {
     return (
       <div className="flex items-center gap-1.5 rounded bg-emerald-500/10 px-2 py-1.5 text-[11px] text-emerald-200">
         <Check className="h-3 w-3 shrink-0" />
         <span className="min-w-0 flex-1 truncate">
-          Checks verdi{when ? ` alle ${when}` : ''}{runs.length ? ` — ${runs.map((r) => r.name).join(', ')}` : ''}
+          {tr('board.task.checks.pass')}{at}{runs.length ? ` — ${runs.map((r) => r.name).join(', ')}` : ''}
         </span>
       </div>
     );
@@ -108,7 +116,7 @@ function ChecksSection({ task }: { task: BoardTask }) {
       >
         {open ? <ChevronDown className="h-3 w-3 shrink-0" /> : <ChevronRight className="h-3 w-3 shrink-0" />}
         <span className="min-w-0 flex-1 truncate">
-          Checks ROSSI{when ? ` alle ${when}` : ''}{failed ? ` — ${failed.name} (${short(failed)})` : ''}
+          {tr('board.task.checks.fail')}{at}{failed ? ` — ${failed.name} (${short(failed)})` : ''}
         </span>
       </button>
       {open && (
@@ -126,7 +134,7 @@ function ChecksSection({ task }: { task: BoardTask }) {
             </div>
           ))}
           <p className="text-app-text-secondary">
-            La strada normale è <b>{tr('board.task.reject')}</b>: l'agent riparte con questo output. Approvare qui significa accettarlo rosso.
+            {tr('board.task.checks.hintLead')} <b>{tr('board.task.reject')}</b>{tr('board.task.checks.hintTail')}
           </p>
         </div>
       )}
@@ -145,6 +153,7 @@ export function TaskChangesSection({ projectId, taskId, bump, onSent }: {
   /** Le note sono partite come commento: il thread ha una riga in più. */
   onSent?: () => void;
 }) {
+  const tr = useT();
   const [open, setOpen] = useState(false);
   const [state, setState] = useState<DiffBundle | 'loading' | 'error' | null>(null);
   const [notes, setNotes] = useState<DiffNote[]>([]);
@@ -200,7 +209,7 @@ export function TaskChangesSection({ projectId, taskId, bump, onSent }: {
       // Le note NON si svuotano: sono lavoro scritto a mano, e un invio fallito
       // in silenzio (barra ferma, nessun motivo) è il modo migliore per farle
       // scartare per sfinimento.
-      setNotesError(e instanceof Error ? e.message : 'invio fallito');
+      setNotesError(e instanceof Error ? e.message : tr('board.task.changes.sendFailed'));
     } finally { setSendingNotes(false); }
   };
 
@@ -213,10 +222,10 @@ export function TaskChangesSection({ projectId, taskId, bump, onSent }: {
     <div className="shrink-0 border-b border-app-border px-3 py-2">
       <button onClick={() => setOpen((s) => !s)} className="flex w-full items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-app-text-muted hover:text-app-text-heading">
         {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-        Modifiche <span className="normal-case tracking-normal text-app-text-faint">· {fileCount} file</span>
+        {tr('board.task.changes')} <span className="normal-case tracking-normal text-app-text-faint">· {tr(fileCount === 1 ? 'board.task.changes.files.one' : 'board.task.changes.files.many', { n: fileCount })}</span>
         {notes.length > 0 && (
           <span className="ml-1 rounded bg-indigo-500/20 px-1 text-[9px] normal-case tracking-normal text-indigo-300">
-            {notes.length} in sospeso
+            {tr('board.task.changes.pending', { n: notes.length })}
           </span>
         )}
       </button>
@@ -229,15 +238,15 @@ export function TaskChangesSection({ projectId, taskId, bump, onSent }: {
             <div className="mt-1.5 flex items-center gap-2 rounded border border-indigo-500/25 bg-indigo-500/5 px-2 py-1.5">
               <span className="min-w-0 flex-1 text-[11px] text-app-text-heading">
                 {notesError
-                  ? <span className="text-rose-300">Invio fallito: {notesError} — le note sono ancora qui, riprova.</span>
-                  : <>{notes.length} {notes.length === 1 ? 'commento' : 'commenti'} sul diff, non ancora inviati</>}
+                  ? <span className="text-rose-300">{tr('board.task.changes.sendFailedInline', { msg: notesError })}</span>
+                  : tr(notes.length === 1 ? 'board.task.changes.notes.one' : 'board.task.changes.notes.many', { n: notes.length })}
               </span>
               <button
                 onClick={() => setNotes([])}
                 disabled={sendingNotes}
                 className="rounded px-2 py-0.5 text-[11px] text-app-text-secondary hover:text-app-text disabled:opacity-40"
               >
-                Scarta
+                {tr('board.task.changes.discard')}
               </button>
               <button
                 onClick={sendNotes}
@@ -245,7 +254,7 @@ export function TaskChangesSection({ projectId, taskId, bump, onSent }: {
                 className="flex items-center gap-1 rounded bg-indigo-500/25 px-2 py-0.5 text-[11px] text-indigo-100 hover:bg-indigo-500/40 disabled:opacity-40"
               >
                 {sendingNotes ? <Spinner size="sm" tone="current" /> : <Send className="h-3 w-3" />}
-                Invia all'agente
+                {tr('board.task.changes.send')}
               </button>
             </div>
           )}
@@ -296,7 +305,7 @@ export function TaskAttemptsSection({ projectId, taskId, bump, onChanged, onOpen
       setOpenDiff(null);
       onChanged();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'scelta fallita');
+      setError(e instanceof Error ? e.message : tr('board.task.attempts.pickFailed'));
     } finally { setPicking(null); }
   };
 
@@ -307,16 +316,16 @@ export function TaskAttemptsSection({ projectId, taskId, bump, onChanged, onOpen
   return (
     <div className="shrink-0 border-b border-app-border px-3 py-2">
       <div className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-app-text-muted">
-        Tentativi <span className="normal-case tracking-normal text-app-text-faint">· {attempts.length} in parallelo</span>
+        {tr('board.task.attempts')} <span className="normal-case tracking-normal text-app-text-faint">· {tr('board.task.attempts.parallel', { n: attempts.length })}</span>
         {running > 0 && (
           <span className="ml-1 flex items-center gap-1 rounded bg-amber-500/15 px-1 text-[9px] normal-case tracking-normal text-amber-300">
-            <Spinner size="xs" tone="current" /> {running} in corso
+            <Spinner size="xs" tone="current" /> {tr('board.task.attempts.running', { n: running })}
           </span>
         )}
       </div>
       {!decided && running === 0 && (
         <p className="mt-1 text-[11px] text-app-text-secondary">
-          Scegline uno: il task prende il suo branch, gli altri (worktree e chat) vengono buttati.
+          {tr('board.task.attempts.pickHint')}
         </p>
       )}
       {error && <p className="mt-1 text-[11px] text-rose-300">{error}</p>}
@@ -334,10 +343,10 @@ export function TaskAttemptsSection({ projectId, taskId, bump, onChanged, onOpen
               }`}
             >
               <div className="flex items-center gap-1.5 text-[11px]">
-                <span className="font-medium text-app-text">Tentativo {a.idx}</span>
-                {won && <span className="rounded bg-emerald-500/25 px-1 text-[9px] text-emerald-200">scelto</span>}
-                {dead && <span className="rounded bg-white/10 px-1 text-[9px] text-app-text-secondary">scartato</span>}
-                <span className="text-app-text-muted">{formatAttemptStat(a)}</span>
+                <span className="font-medium text-app-text">{tr('board.task.attempt.n', { n: a.idx })}</span>
+                {won && <span className="rounded bg-emerald-500/25 px-1 text-[9px] text-emerald-200">{tr('board.task.attempt.selected')}</span>}
+                {dead && <span className="rounded bg-white/10 px-1 text-[9px] text-app-text-secondary">{tr('board.task.attempt.discarded')}</span>}
+                <span className="text-app-text-muted">{attemptStat(a, tr)}</span>
                 {a.branch && <span className="truncate font-mono text-[10px] text-app-text-faint">{a.branch}</span>}
               </div>
               {a.summary && (
@@ -348,7 +357,7 @@ export function TaskAttemptsSection({ projectId, taskId, bump, onChanged, onOpen
                   <button
                     onClick={() => setOpenDiff((cur) => (cur === a.id ? null : a.id))}
                     className="rounded bg-white/5 px-1.5 py-0.5 text-[11px] text-app-text-heading hover:bg-white/10"
-                  >{openDiff === a.id ? 'Chiudi il diff' : 'Vedi il diff'}</button>
+                  >{tr(openDiff === a.id ? 'board.task.attempt.closeDiff' : 'board.task.attempt.openDiff')}</button>
                 )}
                 {a.topicId && onOpenTopic && !dead && (
                   <button
@@ -361,10 +370,10 @@ export function TaskAttemptsSection({ projectId, taskId, bump, onChanged, onOpen
                     onClick={() => pick(a.id)}
                     disabled={!!picking}
                     data-testid="task-attempt-pick"
-                    title={work ? undefined : "Questo tentativo non ha modificato niente: tenerlo significa consegnare un branch vuoto."}
+                    title={work ? undefined : tr('board.task.attempt.emptyTitle')}
                     className="ml-auto flex items-center gap-1 rounded bg-emerald-500/80 px-2 py-0.5 text-[11px] font-medium text-white hover:bg-emerald-500 disabled:opacity-40"
                   >
-                    {picking === a.id && <Spinner size="sm" tone="current" />} Scegli questo
+                    {picking === a.id && <Spinner size="sm" tone="current" />} {tr('board.task.attempt.pick')}
                   </button>
                 )}
               </div>
