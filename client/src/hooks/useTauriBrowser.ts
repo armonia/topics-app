@@ -29,7 +29,7 @@ import { markBrowserViewLive, markBrowserViewDead } from '../lib/shell/nativeBro
 import { decideFreeze, liveSlotRect, onOcclusionChange } from '../lib/shell/browserOcclusion';
 import { serverWsBase } from '../lib/shell/net';
 import { executeNativeBrowserOp } from '../lib/shell/tauriBrowserOps';
-import { stepZoom, DEFAULT_ZOOM } from '../lib/shell/zoomScale';
+import { stepZoom, DEFAULT_ZOOM, zoomApplyJs, zoomDrifted } from '../lib/shell/zoomScale';
 import { parseBrowserWsMessage } from '../../../shared/browser-ws-messages';
 import {
   DESCRIBE_ELEMENT_FN,
@@ -40,7 +40,9 @@ import { cropToElement } from '../lib/imageCrop';
 import { deadLoopbackNotice, isLoopbackUrl, navErrorMessage } from '../components/Browser/navErrorMessage';
 import { loopbackAlive } from '../lib/loopbackAlive';
 import type { NativeBrowserHandle, DeviceMode, BrowserConsoleEntry } from '@/components/Browser/browserDevTypes';
-import { DEVICE_PRESETS } from '@/components/Browser/browserDevTypes';
+import { DEVICE_PRESETS, deviceModeFromUserAgent } from '@/components/Browser/browserDevTypes';
+import { buildReadJs, META_JS, parsePageState, isPageLoading } from '../lib/shell/browserPagePoll';
+import { NO_FAULT, recordPaneOk, recordPaneError, STRUCTURAL_COMMANDS, type FaultState } from '../lib/shell/browserPaneFault';
 
 /** Off-screen X for parking a hidden native view far outside any display — keeps
  *  the webview alive (no reload) while hidden. We park at the last REAL size (not
@@ -158,6 +160,10 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
   const id = contextId;
   const [ready, setReady] = useState(false);
   const [url, setUrl] = useState(initialUrl ?? '');
+  // Mirrors `url` so `recreate()` can reopen at the address the pane is actually
+  // showing without taking a dependency that re-creates the callback per keystroke.
+  const urlRef = useRef(url);
+  urlRef.current = url;
   const [title, setTitle] = useState('');
   const [faviconUrl, setFaviconUrl] = useState('');
   const [loading, setLoading] = useState(false);
@@ -179,6 +185,11 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
   const openViewRef = useRef<((url: string) => void) | null>(null);
   const [consoleEntries, setConsoleEntries] = useState<BrowserConsoleEntry[]>([]);
   const [deviceMode, setDeviceMode] = useState<DeviceMode>('desktop');
+  // Mirrors `deviceMode` for the UA reconcile below, which must read the current
+  // mode without listing it as a dependency (that would re-run the eval on every
+  // switch, to re-derive the mode the user just picked).
+  const deviceModeRef = useRef<DeviceMode>('desktop');
+  deviceModeRef.current = deviceMode;
   const [responsiveSize, setResponsiveSizeState] = useState<{ width: number; height: number } | null>(null);
   const [selectMode, setSelectMode] = useState(false);
   const [agentActive, setAgentActive] = useState(false);
@@ -188,6 +199,68 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
   const [zoom, setZoomState] = useState(DEFAULT_ZOOM);
   const zoomRef = useRef(DEFAULT_ZOOM);
   const consoleIdRef = useRef(0);
+
+  // ── Is this pane still alive? ─────────────────────────────────────────────
+  // Every native command used to end in `.catch(() => {})` — twenty-one of them
+  // in this file. A pane whose webview had stopped answering (the poisoned
+  // dispatcher mutex `no_abort` exists to survive, see browserPaneFault) went on
+  // looking exactly like a working one: the chrome renders from React state, so
+  // the address bar, the title and the favicon all stay put while every command
+  // underneath returns Err into a swallowing catch. Now the structural commands
+  // report, and a streak of failures becomes something the pane can SAY.
+  const [fault, setFault] = useState<FaultState>(NO_FAULT);
+  const faultRef = useRef<FaultState>(NO_FAULT);
+  const commitFault = useCallback((next: FaultState) => {
+    if (next === faultRef.current) return; // recordPaneOk returns the same object when nothing changed
+    faultRef.current = next;
+    setFault(next);
+  }, []);
+  /**
+   * Fire a native command and let it be counted. Resolves true when the shell
+   * accepted it, false when it didn't — so a caller can react instead of
+   * discarding the outcome, and nothing is thrown at a caller that has no
+   * meaningful recovery. Non-structural commands pass through uncounted.
+   */
+  const paneInvoke = useCallback(
+    (cmd: string, args: Record<string, unknown>): Promise<boolean> =>
+      tauriInvoke(cmd, args).then(
+        () => {
+          if (STRUCTURAL_COMMANDS.has(cmd)) commitFault(recordPaneOk(faultRef.current));
+          return true;
+        },
+        (e: unknown) => {
+          if (STRUCTURAL_COMMANDS.has(cmd)) {
+            const next = recordPaneError(faultRef.current, cmd);
+            if (next.faulted && !faultRef.current.faulted) {
+              console.warn(`[tauri-browser] pane ${id} looks dead: ${cmd} failed ${next.streak}×`, e);
+            }
+            commitFault(next);
+          }
+          return false;
+        },
+      ),
+    [commitFault, id],
+  );
+
+  /**
+   * Put the zoom back on a document that has lost it.
+   *
+   * Called from both polls with the inline zoom the page just reported. Zoom
+   * lives on the DOCUMENT, so every navigation hands the pane a fresh one at
+   * 100% while the toolbar goes on showing the percentage the user chose (see
+   * zoomScale). Re-asserting from the tick that already read the page costs no
+   * extra IPC on the common path — at 100% nothing has drifted, so nothing is
+   * sent — and it heals every way a document can be replaced, including the
+   * device switcher's deliberate reload and a link the user clicks in the page.
+   */
+  const reassertZoom = useCallback(
+    (reportedZoomStyle: string) => {
+      const want = zoomRef.current;
+      if (!zoomDrifted(want, reportedZoomStyle)) return;
+      void tauriInvoke('browser_exec_js', { id, js: zoomApplyJs(want) }).catch(() => {});
+    },
+    [id],
+  );
   const selectPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // Direction-B focus bridge: a click inside a native WKWebView pane never
   // reaches the React DOM, so the pane can't activate its own tab. The poll
@@ -296,15 +369,15 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     // trusted pointerdown that isn't a real click-in — suppress self-focus across
     // the move (only when actually showing; a hide/park can't be misread).
     if (!hide) suppressSelfFocus();
-    void tauriInvoke('browser_set_bounds', {
+    void paneInvoke('browser_set_bounds', {
       id,
       x: Math.round(rect.x),
       y: Math.round(rect.y),
       width: Math.round(rect.width),
       height: Math.round(rect.height),
       radius,
-    }).catch(() => {});
-  }, [id, suppressSelfFocus]);
+    });
+  }, [id, suppressSelfFocus, paneInvoke]);
 
   const setBounds = useCallback(
     (b: { x: number; y: number; width: number; height: number }) => {
@@ -316,13 +389,13 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
         // HTML overlay over it — native views composite above the DOM). Park it
         // off-screen at the last real size (NOT 1×1) so the page keeps its layout
         // and stays screenshot-able; the next real rect restores it on-screen.
-        void tauriInvoke('browser_set_bounds', {
+        void paneInvoke('browser_set_bounds', {
           id, x: -100000, y: 0,
           width: lastRealSizeRef.current.width, height: lastRealSizeRef.current.height,
-        }).catch(() => {});
+        });
       }
     },
-    [applyBounds, id],
+    [applyBounds, id, paneInvoke],
   );
 
   // Sidebar-slide handoff: commit the pane's FINAL slot in ONE IPC and let Core
@@ -357,7 +430,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
       // The animated move can slide the view under a resting cursor — same
       // trusted-pointerdown hazard as a plain reposition.
       suppressSelfFocus();
-      return tauriInvoke('browser_animate_bounds', {
+      return paneInvoke('browser_animate_bounds', {
         id,
         x: Math.round(rect.x),
         y: Math.round(rect.y),
@@ -367,9 +440,9 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
         durationMs,
         timing,
         radius,
-      }).then(() => true).catch(() => false);
+      });
     },
-    [id, suppressSelfFocus],
+    [id, suppressSelfFocus, paneInvoke],
   );
 
   // Capture a still, show it, then park the live view. Capturing FIRST (while the
@@ -409,12 +482,12 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
         // Park (even if the shot failed — the overlay must show through);
         // skip if a thaw already superseded this freeze. Park at the last real size
         // (off-screen), not 1×1, so the page layout survives behind the still.
-        if (freezeSeqRef.current === seq) void tauriInvoke('browser_set_bounds', {
+        if (freezeSeqRef.current === seq) void paneInvoke('browser_set_bounds', {
           id, x: -100000, y: 0,
           width: lastRealSizeRef.current.width, height: lastRealSizeRef.current.height,
-        }).catch(() => {});
+        });
       });
-  }, [id]);
+  }, [id, paneInvoke]);
 
   // Restore the live view at the real slot, then drop the still once the view is
   // surely back on top (it composites above the DOM, so an overlapping image
@@ -426,12 +499,32 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     // Re-attaching the live view can draw a trusted pointerdown that isn't a
     // click-in — don't let the thaw steal the tab.
     suppressSelfFocus();
+    // Bring the view back OURSELVES, now that `frozenRef` is false and
+    // applyBounds is no longer a no-op.
+    //
+    // This used to be the reflow-request alone, and that made the return of a
+    // parked view depend on a listener elsewhere in the tree scheduling two
+    // nested rAFs — while the still image is dropped 240ms later by a plain
+    // setTimeout, which has no such dependency. `freeze()` already knows rAF
+    // stalls in an occluded window (it races its park against a 350ms timeout
+    // for exactly that reason); `thaw()` did the opposite job with no such
+    // guard, so the two could come apart: still gone, live view still parked at
+    // x=-100000, an empty pane that stays empty until something unrelated
+    // happens to re-measure it.
+    //
+    // Also what finally lands the device switcher's letterbox: picking a preset
+    // from a MENU means an overlay is over the pane, so the `applyBounds()`
+    // inside `setDevice` is guaranteed to hit the frozen no-op. The pane's
+    // shape now settles when the menu closes, from the same call.
+    applyBounds();
+    // Second pass: `pendingRectRef` is the last rect the placeholder computed,
+    // and the layout may have moved while we were frozen. This corrects it.
     window.dispatchEvent(new CustomEvent('browser:reflow-request'));
     if (thawTimerRef.current) clearTimeout(thawTimerRef.current);
     thawTimerRef.current = setTimeout(() => {
       if (freezeSeqRef.current === seq) setFrozenImage(null);
     }, 240);
-  }, [suppressSelfFocus]);
+  }, [suppressSelfFocus, applyBounds]);
 
   // Overlay occlusion: freeze ONLY while an overlay actually intersects THIS pane's
   // slot (a menu elsewhere leaves it untouched), so the still shows through and the
@@ -494,9 +587,12 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
   const setNativeVisible = useCallback(async (visible: boolean): Promise<boolean> => {
     if (!openedRef.current || nativeVisibleRef.current === visible) return false;
     nativeVisibleRef.current = visible;
-    await tauriInvoke('browser_set_visible', { id, visible }).catch(() => {});
+    await paneInvoke('browser_set_visible', { id, visible });
     return true;
-  }, [id]);
+    // paneInvoke is useCallback([commitFault, id]) and commitFault is
+    // useCallback([]) — so this stays stable per contextId, which is what the
+    // socket effect below relies on to avoid re-subscribing.
+  }, [id, paneInvoke]);
 
   useEffect(() => {
     if (!ready) return;
@@ -598,6 +694,11 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
           setNavError({ message: 'Impossibile aprire il browser nativo. Riprova.', url: openUrl });
         });
     };
+    // Kept for EVERY pane, not just the loopback-gated ones: it is how a pane
+    // that has been declared dead gets rebuilt (`recreate` below), and how a
+    // parked tab opens late. It used to be set only inside the gated branch, so
+    // an ordinary https pane had no way back once its webview stopped answering.
+    openViewRef.current = (u: string) => { if (!cancelled) attemptOpen(0, u); };
     if (!gateLoopback) {
       attemptOpen(0, wantedUrl);
     } else {
@@ -608,7 +709,6 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
       // `browser_open` è idempotente e il suo ramo di riuso naviga. Costa un
       // giro su loopback, che su una porta rifiutata è immediato: il timeout da
       // 300ms riguarda una porta filtrata, cosa che in locale non capita.
-      openViewRef.current = (u: string) => { if (!cancelled) attemptOpen(0, u); };
       void loopbackAlive(wantedUrl).then((alive) => {
         if (cancelled) return;
         if (!alive) {
@@ -658,14 +758,16 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
       if (parked) {
         setParked(null);
         openViewRef.current?.(norm);
-        window.setTimeout(() => setLoading(false), 700);
         return;
       }
-      await tauriInvoke('browser_navigate', { id, url: norm }).catch(() => {});
-      // WKWebView load events aren't bridged yet — clear the spinner heuristically.
-      window.setTimeout(() => setLoading(false), 700);
+      // Only the page's own readyState clears the bar (see isPageLoading). This
+      // used to also arm a blind `setTimeout(…, 700)`, 100ms out of step with the
+      // 800ms poll that re-derived the same boolean from the page: the timer
+      // switched the bar off, the next tick found the page still loading and
+      // switched it back on, for as long as the load took. That was the flicker.
+      if (!(await paneInvoke('browser_navigate', { id, url: norm }))) setLoading(false);
     },
-    [id, parked],
+    [id, parked, paneInvoke],
   );
 
   /**
@@ -706,7 +808,6 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
       setParked(null);
       setLoading(true);
       openViewRef.current?.(target);
-      window.setTimeout(() => setLoading(false), 700);
     } finally {
       setParkedChecking(false);
     }
@@ -716,19 +817,19 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
 
   const reload = useCallback(async () => {
     setLoading(true);
-    await tauriInvoke('browser_reload', { id }).catch(() => {});
-  }, [id]);
+    if (!(await paneInvoke('browser_reload', { id }))) setLoading(false);
+  }, [id, paneInvoke]);
 
   // Real WKWebView history nav (browser_back/forward) — not the old re-navigate
   // hack. The state poll below reflects the resulting url/title back into the UI.
   const goBack = useCallback(async () => {
     setLoading(true);
-    await tauriInvoke('browser_back', { id }).catch(() => {});
-  }, [id]);
+    if (!(await paneInvoke('browser_back', { id }))) setLoading(false);
+  }, [id, paneInvoke]);
   const goForward = useCallback(async () => {
     setLoading(true);
-    await tauriInvoke('browser_forward', { id }).catch(() => {});
-  }, [id]);
+    if (!(await paneInvoke('browser_forward', { id }))) setLoading(false);
+  }, [id, paneInvoke]);
   const goHome = useCallback(async () => navigate(initialUrlRef.current ?? 'about:blank'), [navigate]);
 
   // ── Live state poll ──────────────────────────────────────────────────────
@@ -748,12 +849,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     if (!ready || !isVisible) return;
     let stop = false;
     let inFlight = false;
-    const READ =
-      "(function(){" + INSTALL_FOCUS_HOOK +
-      "return JSON.stringify({u:location.href,t:document.title,r:document.readyState," +
-      "f:(document.querySelector(\"link[rel~='icon']\")||{}).href||location.origin+'/favicon.ico'," +
-      "k:window.__topicsFocusBump||0," +
-      "c:(window.__topicsConsole?window.__topicsConsole.splice(0,window.__topicsConsole.length):[])})})()";
+    const READ = buildReadJs(INSTALL_FOCUS_HOOK);
     const tick = async () => {
       // Skip if the previous eval hasn't resolved — on a hung page browser_eval_js
       // can take up to its 8s timeout, and ungated ticks would pile up blocked
@@ -761,26 +857,23 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
       if (stop || inFlight || !docVisible()) return;
       inFlight = true;
       try {
-        const raw = await tauriInvoke<string>('browser_eval_js', { id, js: READ });
-        if (stop || !raw) return;
-        const s = JSON.parse(raw) as {
-          u: string; t: string; r: string; f: string; k?: number;
-          c?: { level: BrowserConsoleEntry['level']; text: string }[];
-        };
-        if (s.u && s.u !== 'about:blank') setUrl(s.u);
-        setTitle(s.t || '');
-        if (s.f) setFaviconUrl(s.f);
-        setLoading(s.r !== 'complete');
+        const s = parsePageState(await tauriInvoke<string>('browser_eval_js', { id, js: READ }));
+        if (stop || !s) return;
+        if (s.url) setUrl(s.url);
+        setTitle(s.title);
+        if (s.favicon) setFaviconUrl(s.favicon);
+        setLoading(isPageLoading(s.readyState));
+        reassertZoom(s.zoomStyle);
         // A growing pointerdown counter means the user clicked inside this native
         // pane — activate its tab (the click never reached React otherwise). First
         // read just baselines; the in-page hook only counts trusted+focused
         // clicks; and a bump seen inside the post-reflow suppression window is
         // re-baselined, never fired (a move/thaw drew the event, not the user).
-        maybeFireSelfFocus(typeof s.k === 'number' ? s.k : 0);
+        maybeFireSelfFocus(s.focusBump);
         // Drain any console entries buffered by the injected proxy (CONSOLE_PROXY_JS).
-        if (s.c && s.c.length) {
+        if (s.console.length) {
           setConsoleEntries((prev) => {
-            const add = s.c!.map((e) => ({ id: ++consoleIdRef.current, level: e.level, text: e.text }));
+            const add = s.console.map((e) => ({ id: ++consoleIdRef.current, level: e.level, text: e.text }));
             const next = prev.concat(add);
             return next.length > 500 ? next.slice(next.length - 500) : next;
           });
@@ -799,7 +892,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
       offVis();
       window.clearInterval(iv);
     };
-  }, [id, ready, isVisible, maybeFireSelfFocus]);
+  }, [id, ready, isVisible, maybeFireSelfFocus, reassertZoom]);
 
   // Background tab title/url/favicon. The fast poll above is gated on isVisible, so
   // a browser pane opened/navigated while it's NOT the foreground tab (agent-opened,
@@ -808,23 +901,28 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
   // tab still converges to a real label; foreground panes are covered by the fast
   // poll (this effect is off then — the two gates are complementary). No console
   // drain / focus bump here (those only matter for the visible pane).
+  //
+  // It DOES carry readyState and zoom (see browserPagePoll — both polls are built
+  // from the same fields). A background pane hasn't stopped navigating: it was the
+  // only poll that could clear `loading` for a pane sent to the background
+  // mid-load, and without the field it couldn't — the tab's spinner turned for the
+  // rest of the session and `useReportBrowserActivity` kept reporting the pane as
+  // busy into the project rollup.
   useEffect(() => {
     if (!ready || isVisible) return;
     let stop = false;
     let inFlight = false;
-    const META =
-      "(function(){try{return JSON.stringify({u:location.href,t:document.title," +
-      "f:(document.querySelector(\"link[rel~='icon']\")||{}).href||location.origin+'/favicon.ico'})}catch(e){return ''}})()";
     const tick = async () => {
       if (stop || inFlight || !docVisible()) return;
       inFlight = true;
       try {
-        const raw = await tauriInvoke<string>('browser_eval_js', { id, js: META });
-        if (stop || !raw) return;
-        const s = JSON.parse(raw) as { u: string; t: string; f: string };
-        if (s.u && s.u !== 'about:blank') setUrl(s.u);
-        if (s.t) setTitle(s.t);
-        if (s.f) setFaviconUrl(s.f);
+        const s = parsePageState(await tauriInvoke<string>('browser_eval_js', { id, js: META_JS }));
+        if (stop || !s) return;
+        if (s.url) setUrl(s.url);
+        if (s.title) setTitle(s.title);
+        if (s.favicon) setFaviconUrl(s.favicon);
+        setLoading(isPageLoading(s.readyState));
+        reassertZoom(s.zoomStyle);
       } catch { /* pane closing / eval timeout — next tick retries */ }
       finally { inFlight = false; }
     };
@@ -832,7 +930,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     const iv = window.setInterval(tick, 2500);
     const offVis = onDocumentVisible(() => { void tick(); });
     return () => { stop = true; offVis(); window.clearInterval(iv); };
-  }, [id, ready, isVisible]);
+  }, [id, ready, isVisible, reassertZoom]);
 
   // Navigation failures — drain the Rust did-fail queue (browser_take_nav_errors,
   // scoped to this pane, same contract as the download queue). A pure mutex
@@ -856,7 +954,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
           // server.» — muta su quale server, su cosa manca e sul fatto che
           // «Riprova» non può bastare.
           setNavError({ ...navErrorMessage(last), url: last.url });
-          setLoading(false); // the blind 700ms spinner must not outlive a known failure
+          setLoading(false); // a known failure outranks whatever the last tick read
         })
         .catch(() => {});
     }, 1000);
@@ -1096,10 +1194,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
       const next = delta === 'reset' ? DEFAULT_ZOOM : stepZoom(zoomRef.current, delta);
       zoomRef.current = next;
       setZoomState(next);
-      await tauriInvoke('browser_exec_js', {
-        id,
-        js: `document.documentElement.style.zoom='${next / 100}'`,
-      }).catch(() => {});
+      await tauriInvoke('browser_exec_js', { id, js: zoomApplyJs(next) }).catch(() => {});
       return next;
     },
     [id],
@@ -1150,8 +1245,14 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
   // reload so the custom UA takes effect (WKWebView applies it on next load). The
   // UA override also flips navigator.userAgent, so emulation is real, not just a
   // resize. desktop/auto reset both.
+  //
+  // The reload is why the zoom kept vanishing whenever anyone touched this
+  // control: it hands the pane a new document, and a document doesn't inherit an
+  // inline zoom. The polls now put it back (see `reassertZoom`), so switching
+  // device no longer silently drops the user back to 100% while the toolbar
+  // insists otherwise.
   const setDevice = useCallback(
-    (mode: DeviceMode, custom?: { width: number; height: number; deviceScaleFactor?: number }) => {
+    (mode: DeviceMode, custom?: { width: number; height: number }) => {
       setDeviceMode(mode);
       let dims: { width: number; height: number } | null = null;
       let ua = '';
@@ -1164,13 +1265,51 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
       }
       deviceDimsRef.current = dims;
       setResponsiveSizeState(mode === 'custom' ? dims : null);
-      void tauriInvoke('browser_set_user_agent', { id, ua })
-        .then(() => tauriInvoke('browser_reload', { id }))
-        .catch(() => {});
+      void paneInvoke('browser_set_user_agent', { id, ua })
+        .then((ok) => { if (ok) void paneInvoke('browser_reload', { id }); });
+      // A no-op whenever the preset was picked from the switcher's MENU — a menu
+      // is an overlay, an overlay over this pane means the pane is frozen, and
+      // applyBounds refuses to move a frozen view. Kept for the paths that
+      // aren't a menu (an agent, a shortcut); `thaw()` applies the letterbox
+      // when the menu closes.
       applyBounds();
     },
-    [id, applyBounds],
+    [id, applyBounds, paneInvoke],
   );
+
+  /**
+   * Read the device mode back off the page instead of assuming it.
+   *
+   * `deviceMode` is component state and the webview is not: `browser_open` reuses
+   * a live view, a background tab stays mounted, a ⌘R of the host UI doesn't tear
+   * the child webview down at all. Every one of those put the switcher back to
+   * Desktop over a view still serving an iPhone User-Agent — the menu claiming
+   * one thing and the site seeing another, with nothing on screen to say which.
+   * One cheap eval when the view becomes ready settles it from the only authority
+   * there is (see deviceModeFromUserAgent).
+   */
+  useEffect(() => {
+    if (!ready) return;
+    let stop = false;
+    // `browser_eval_js` stringifies through `[obj description]`, which for an
+    // NSString IS the string — the UA arrives raw, unquoted.
+    void tauriInvoke<string>('browser_eval_js', { id, js: 'navigator.userAgent' })
+      .then((ua) => {
+        if (stop || !ua) return;
+        const mode = deviceModeFromUserAgent(ua);
+        const prev = deviceModeRef.current;
+        // Only reconcile a DISAGREEMENT about emulation, and never overwrite
+        // `custom`: responsive resize sets no UA, so the page cannot report it
+        // and would read as `desktop` here.
+        if (prev === mode || prev === 'custom' || prev === 'auto') return;
+        const p = mode === 'desktop' ? null : DEVICE_PRESETS[mode];
+        deviceDimsRef.current = p?.width && p.height ? { width: p.width, height: p.height } : null;
+        setDeviceMode(mode);
+        applyBounds(); // the letterbox has to match what we just discovered
+      })
+      .catch(() => {});
+    return () => { stop = true; };
+  }, [id, ready, applyBounds]);
 
   const setResponsiveSize = useCallback(
     (width: number, height: number) => {
@@ -1204,8 +1343,27 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
   }, [id]);
 
   const goToNavIndex = useCallback(async (index: number) => {
-    await tauriInvoke('browser_go_to_index', { id, index }).catch(() => {});
-  }, [id]);
+    await paneInvoke('browser_go_to_index', { id, index });
+  }, [id, paneInvoke]);
+
+  /**
+   * Throw this pane's webview away and build a new one at the same address.
+   *
+   * The recovery `no_abort`'s doc comment already promised ("the pane self-heal
+   * path can recreate the webview") and that nothing on this side implemented.
+   * A poisoned dispatcher mutex is permanent for the view that owns it, so
+   * retrying the same command is pointless and only a fresh view can help.
+   *
+   * Closes DIRECTLY rather than through the deferred-close grace: that grace
+   * exists to survive React remount churn, and here we want the old view gone
+   * before the new one is asked for.
+   */
+  const recreate = useCallback(async () => {
+    setLoading(true);
+    commitFault(NO_FAULT); // give the new view a clean slate to fail from
+    await tauriInvoke('browser_close', { id }).catch(() => {});
+    openViewRef.current?.(urlRef.current || initialUrlRef.current || 'about:blank');
+  }, [id, commitFault]);
 
   const viewId = ready ? id : null;
 
@@ -1258,12 +1416,14 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     clearConsole,
     getNavEntries,
     goToNavIndex,
+    nativeFault: fault.faulted ? { command: fault.command ?? 'un comando nativo' } : null,
+    recreate,
   }), [
     url, title, loading, agentActive, agentAction, ready, viewId, faviconUrl, frozenImage,
     navError, clearNavError, retryNav, parked, parkedChecking, retryParked,
     navigate, goBack, goForward, reload, goHome, setBounds, animateBounds, toggleDevTools, findInPage, stopFind,
     setZoom, zoom, countMatches, inspectAt, selectMode, enterSelectMode, exitSelectMode,
     deviceMode, setDevice, responsiveSize, setResponsiveSize, consoleEntries, consoleSummary,
-    clearConsole, getNavEntries, goToNavIndex,
+    clearConsole, getNavEntries, goToNavIndex, fault, recreate,
   ]);
 }
