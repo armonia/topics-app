@@ -333,6 +333,10 @@ export interface TaskDispatcher {
  * esistesse, quindi un giudice muto lascia le cose esattamente come stavano
  * invece di spostarle di nascosto.
  */
+/** Quanti errori del provider di fila si perdonano prima di ricominciare a
+ *  pagare tentativi. Tre: una raffica si assorbe, un guasto cronico no. */
+const FREE_PROVIDER_ERRORS = 3;
+
 const DEFAULT_AUTO_EFFORT = "medium";
 
 const CHIP_QUEUED = "queued";
@@ -517,6 +521,23 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
 
   // Pending debounced launches, keyed by taskId (the grace window).
   const graceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  /**
+   * Errori del PROVIDER di fila su un task, per non fargli pagare i tentativi.
+   *
+   * `consumesAttempt` dice `true` per ogni `error`, e il tetto è 2: due
+   * singhiozzi del provider uccidono una card che non ha ancora scritto una
+   * riga. Misurato il 10/08: durante una raffica di dispatch paralleli, VENTI
+   * task sono finiti in review a mano vuote — «Errore del provider: riprovo tra
+   * 60s (tentativo 2/2)» e poi consegna forzata. Lavoro zero, review sporca, e
+   * i token dello spawn pagati due volte per niente.
+   *
+   * Non è gratis all'infinito, o un'interruzione lunga girerebbe per sempre: i
+   * primi `FREE_PROVIDER_ERRORS` non contano (col backoff che c'è già), dal
+   * successivo si torna a pagare. Il contatore si azzera al primo turno che NON
+   * muore per errore — è una raffica che si perdona, non un guasto cronico.
+   * Sta in memoria di proposito: un riavvio ri-pianifica comunque.
+   */
+  const providerErrors = new Map<string, number>();
   /**
    * One in-flight run: a turn being set up, running, or winding down.
    *
@@ -1524,7 +1545,22 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         // costa un tentativo (`consumesAttempt`): si riprende senza bruciare
         // budget. Il nostro tetto a orologio invece SÌ, o il freno contro un
         // task che gira in tondo non frenerebbe mai.
-        const free = !consumesAttempt(end);
+        // Un errore del provider non è un fallimento dell'agente: vedi
+        // `providerErrors`. Il contatore vive qui, non in `consumesAttempt`,
+        // perché quella è una funzione pura sul singolo turno e questa è una
+        // domanda sulla STORIA del task.
+        let free = !consumesAttempt(end);
+        // `process-died` arriva come `error` ma NON si perdona: è la rete di
+        // sicurezza sulla liveness, cioè l'unico freno contro una sessione
+        // fantasma. Perdonare anche quella significherebbe pagare un problema
+        // di costo con una guardia — e la guardia serve.
+        if (end.end === "error" && end.cause !== "process-died") {
+          const n = (providerErrors.get(taskId) ?? 0) + 1;
+          providerErrors.set(taskId, n);
+          if (n <= FREE_PROVIDER_ERRORS) free = true;
+        } else {
+          providerErrors.delete(taskId);
+        }
         try {
           bumped = free
             ? (deps.svc.get(taskId)?.task ?? null)
