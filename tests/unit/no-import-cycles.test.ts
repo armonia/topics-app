@@ -29,25 +29,19 @@ import { resolve, dirname, join } from "path";
  * fuori dall'inizializzazione. I file di test restano fuori: non sono nel grafo
  * del prodotto.
  *
- * L'ECCEZIONE È UNA E HA UN NOME. `MessageContent.tsx ↔ Chat/PlanView.tsx`
- * resta, e non per pigrizia: `markdownComponents` è una mappa di renderer
- * intrecciata agli helper di quel file (`highlightMentionsInChildren`,
- * `MarkdownBaseDirContext`, `MediaImage`, `MermaidBlock`, `CodeBlock`), e
- * l'`eslint-disable` a MessageContent.tsx:635 lo dichiara già per esteso.
- * Estrarla vorrebbe dire portare via anche quei cinque, altrimenti il ciclo si
- * riforma spostato di un file. Qui i due lati si scambiano COMPONENTI, cioè
- * riferimenti a funzione letti al render e mai all'inizializzazione: è la forma
- * benigna. Sta nell'elenco perché una deroga scritta si può discutere; una
- * taciuta diventa la regola.
+ * DEROGHE È VUOTO, e va tenuto così. L'unica che c'è stata —
+ * `MessageContent.tsx ↔ Chat/PlanView.tsx`, i due lati si scambiavano
+ * `markdownComponents` — è sparita insieme a `PlanView`, la vista che approvava
+ * i piani a fiuto sulla prosa (vedi `Chat/planDetection.ts`): tolta quella, il
+ * ciclo non c'era più da sciogliere. L'elenco resta perché una deroga scritta
+ * si può discutere; una taciuta diventa la regola.
  */
 
 const ROOT = resolve(import.meta.dir, "..", "..");
 const SCOPES = ["server", "client/src", "shared", "relay"];
 
 /** Cicli ammessi, come insieme di file (l'ordine di partenza non conta). */
-const DEROGHE: ReadonlyArray<readonly string[]> = [
-  ["client/src/components/MessageContent.tsx", "client/src/components/Chat/PlanView.tsx"],
-];
+const DEROGHE: ReadonlyArray<readonly string[]> = [];
 
 function sorgenti(dir: string, out: string[] = []): string[] {
   for (const e of readdirSync(dir)) {
