@@ -78,6 +78,82 @@ describe("maybeSendPush — task:review-ready", () => {
 });
 
 /**
+ * I TASTI della push. La regola sotto tutto: un tasto è la chiamata che fa la
+ * board, già composta, perché il service worker non può importare niente e non
+ * deve decidere niente — se dovesse ricomporre gli endpoint, la copia dentro
+ * sw.js sarebbe l'unica non coperta da un test.
+ */
+describe("maybeSendPush — i tasti di azione", () => {
+  beforeEach(() => { pushCalls.length = 0; });
+
+  const REVIEW = { type: "task:review-ready", projectId: "proj-x", taskId: "t9", taskTitle: "Rifai lo schema" };
+
+  test("la domanda dell'agente diventa i tasti, e la richiesta viaggia già composta", () => {
+    maybeSendPush({ ...REVIEW, question: { text: "Lando su main?", options: ["Landa su main", "Aspetta"] } });
+    const p = pushCalls[0] as any;
+    expect(p.actions.map((a: any) => a.title)).toEqual(["Landa su main", "Aspetta"]);
+    // Il corpo dice la DOMANDA: il titolo del task non è ciò che ti sta
+    // chiedendo, e con due tasti sotto sarebbe l'unica riga che non lo spiega.
+    expect(p.body).toBe("Lando su main?");
+    expect(p.title).toContain("chiedendo");
+    expect(p.requests[p.actions[0].id]).toEqual({
+      method: "POST",
+      path: "/api/boards/proj-x/tasks/t9/review",
+      body: { decision: "reject", comment: "Landa su main" },
+    });
+  });
+
+  test("consegna senza domanda → un solo tasto: Approva", () => {
+    maybeSendPush(REVIEW);
+    const p = pushCalls[0] as any;
+    expect(p.actions).toEqual([{ id: "approve", title: "Approva" }]);
+    expect(p.requests.approve).toEqual({
+      method: "POST",
+      path: "/api/boards/proj-x/tasks/t9/review",
+      body: { decision: "approve" },
+    });
+    expect(p.body).toBe("Rifai lo schema");
+  });
+
+  test("domanda con troppe opzioni → nessun tasto, ma la push parte lo stesso", () => {
+    maybeSendPush({ ...REVIEW, question: { text: "Quale?", options: ["a", "b", "c"] } });
+    const p = pushCalls[0] as any;
+    expect(p.actions).toBeUndefined();
+    expect(p.url).toBe("/task/t9"); // resta il click che apre il task
+  });
+
+  test("una `question` malformata NON diventa «nessuna domanda» (niente Approva)", () => {
+    // Il caso che conta: un campo storto che passasse per assente metterebbe un
+    // tasto "Approva" su un task che sta aspettando una risposta.
+    maybeSendPush({ ...REVIEW, question: { text: 42, options: "non un array" } });
+    expect((pushCalls[0] as any).actions).toBeUndefined();
+  });
+
+  test("parcheggiato → «Rimetti in coda», che è la PATCH dello stato", () => {
+    maybeSendPush({ type: "task:parked", projectId: "proj-x", taskId: "t4", taskTitle: "x", state: "failed" });
+    const p = pushCalls[0] as any;
+    expect(p.actions).toEqual([{ id: "requeue", title: "Rimetti in coda" }]);
+    expect(p.requests.requeue).toEqual({
+      method: "PATCH",
+      path: "/api/boards/proj-x/tasks/t4",
+      body: { status: "todo" },
+    });
+  });
+
+  test("senza taskId non si disegna nessun tasto (non saprebbe a chi parlare)", () => {
+    maybeSendPush({ type: "task:review-ready", projectId: "proj-x", taskTitle: "x" });
+    expect((pushCalls[0] as any).actions).toBeUndefined();
+    maybeSendPush({ type: "task:parked", taskId: "t4", taskTitle: "x", state: "failed" });
+    expect((pushCalls[1] as any).actions).toBeUndefined();
+  });
+
+  test("la push della chat resta senza tasti: non c'è un click che risponda", () => {
+    maybeSendPush({ type: "stream:end", topicId: "tp1", completed: true });
+    expect((pushCalls[0] as any).actions).toBeUndefined();
+  });
+});
+
+/**
  * Il gemello di fallimento. `task:review-ready` copre l'esito buono; il park
  * terminale (l'agente si è arreso / serve una mano) era muto ad app chiusa —
  * cioè proprio quando NON puoi accorgertene guardando la board. I due stati

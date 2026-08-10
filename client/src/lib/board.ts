@@ -11,7 +11,7 @@
 // Il contratto della board sta in `shared/board.ts`, dichiarato UNA volta e
 // letto dai due lati del filo: `export … from` ri-esporta ma non porta i nomi
 // in scope locale, e qui sotto servono, quindi l'import gemello non è ridondante.
-export { MAX_FANOUT, TASK_STATUSES, ACTIVE_DISPATCH_STATES, isAgentWorking, parseStatusEvent, hasPlanApproveOption } from '../../../shared/board';
+export { MAX_FANOUT, TASK_STATUSES, ACTIVE_DISPATCH_STATES, isAgentWorking, parseStatusEvent, hasPlanApproveOption, parseQuestionBlock } from '../../../shared/board';
 export type {
   TaskStatus, TaskComment, ReviewCheck, CheckRun, BoardSettings, BoardSettingsPatch, DispatchCapacity, BlockerRef,
 } from '../../../shared/board';
@@ -293,69 +293,6 @@ export function boardIdForPath(projectPath: string): string {
     hash |= 0;
   }
   return dirName + '-' + Math.abs(hash).toString(36).slice(0, 6);
-}
-
-/**
- * Parse a task comment for an agent "question block" — the human-decision
- * request the board renders as a quick-reply:
- *
- *   ```question
- *   Which auth approach?
- *   - JWT in an httpOnly cookie
- *   - Short-lived bearer token
- *   ```
- *
- * The canonical block is composed SERVER-side (tasks service `questionOptions`)
- * so this layout is guaranteed for new comments — but the parser stays
- * tolerant of hand-written LLM variants: `\r\n`, missing newlines around the
- * fences, options inlined on one line. Returns the question + the (possibly
- * empty) option list, or null when the text has no such block. Pure + exported
- * so the "Serve te" card and the detail drawer share it and a bun:test can pin
- * both the canonical and the degenerate forms.
- */
-export function parseQuestionBlock(text: string): { question: string; options: string[] } | null {
-  if (!text) return null;
-  // \s+ (not \s*\n): tolerate a block whose newlines were lost/normalized —
-  // '```question Question? - a - b```' still parses.
-  const m = text.replace(/\r\n/g, '\n').match(/```question\s+([\s\S]*?)```/);
-  if (!m) return null;
-  const body = m[1].trim();
-  if (!body) return null;
-  const options: string[] = [];
-  const qLines: string[] = [];
-  if (body.includes('\n')) {
-    for (const raw of body.split('\n')) {
-      const line = raw.trim();
-      if (!line) continue;
-      const opt = line.match(/^[-*]\s+(.*)$/);
-      if (opt) options.push(opt[1].trim());
-      else qLines.push(line);
-    }
-  } else {
-    // Degenerate single-line body: split on ' - ' option markers. The first
-    // segment is the question; a leading '- ' marks an option-only block.
-    const segments = body.split(/\s+-\s+/);
-    const first = segments.shift()?.trim() ?? '';
-    if (first.startsWith('- ')) segments.unshift(first.slice(2));
-    else if (first) qLines.push(first);
-    for (const s of segments) { const v = s.trim(); if (v) options.push(v); }
-  }
-  const question = qLines.join(' ').trim();
-  if (!question) return null;
-  return { question, options: filterReservedOptions(options) };
-}
-
-/**
- * "Landa e pubblica" (go online = merge + push + deploy) is NEVER a per-task
- * quick-reply: publishing is a SEPARATE, human-only board action (the "Pubblica"
- * control) with a diff preview to review before pushing. The dispatcher used to
- * make agents offer it at delivery; drop it from the rendered options so old
- * deliveries that still carry it don't show a one-click merge+push button.
- * "Landa su main" (local merge, no push) stays.
- */
-function filterReservedOptions(options: string[]): string[] {
-  const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
-  return options.filter((o) => norm(o) !== 'landa e pubblica');
 }
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {

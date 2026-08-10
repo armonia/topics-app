@@ -503,3 +503,96 @@ export interface LinkProposal {
   /** Frase leggibile: va sotto al composer E nel thread delle due card. */
   reason: string;
 }
+
+/**
+ * Parse a task comment for an agent "question block" — the human-decision
+ * request the board renders as a quick-reply:
+ *
+ *   ```question
+ *   Which auth approach?
+ *   - JWT in an httpOnly cookie
+ *   - Short-lived bearer token
+ *   ```
+ *
+ * The canonical block is composed SERVER-side (tasks service `questionOptions`)
+ * so this layout is guaranteed for new comments — but the parser stays
+ * tolerant of hand-written LLM variants: `\r\n`, missing newlines around the
+ * fences, options inlined on one line. Returns the question + the (possibly
+ * empty) option list, or null when the text has no such block.
+ *
+ * Sta in `shared/` e non più solo nel client perché ora ha un secondo lettore:
+ * il SERVER, che deve sapere se il task che entra in review porta una domanda
+ * per poterla mettere nei tasti della notifica (`emitReviewReadyEdge` →
+ * `push-triggers`). Due parser sarebbero due verità: un'opzione che la board
+ * mostra e il banner no è peggio di nessun banner.
+ */
+export function parseQuestionBlock(text: string): { question: string; options: string[] } | null {
+  if (!text) return null;
+  // \s+ (not \s*\n): tolerate a block whose newlines were lost/normalized —
+  // '```question Question? - a - b```' still parses.
+  const m = text.replace(/\r\n/g, '\n').match(/```question\s+([\s\S]*?)```/);
+  if (!m) return null;
+  const body = m[1].trim();
+  if (!body) return null;
+  const options: string[] = [];
+  const qLines: string[] = [];
+  if (body.includes('\n')) {
+    for (const raw of body.split('\n')) {
+      const line = raw.trim();
+      if (!line) continue;
+      const opt = line.match(/^[-*]\s+(.*)$/);
+      if (opt) options.push(opt[1].trim());
+      else qLines.push(line);
+    }
+  } else {
+    // Degenerate single-line body: split on ' - ' option markers. The first
+    // segment is the question; a leading '- ' marks an option-only block.
+    const segments = body.split(/\s+-\s+/);
+    const first = segments.shift()?.trim() ?? '';
+    if (first.startsWith('- ')) segments.unshift(first.slice(2));
+    else if (first) qLines.push(first);
+    for (const s of segments) { const v = s.trim(); if (v) options.push(v); }
+  }
+  const question = qLines.join(' ').trim();
+  if (!question) return null;
+  // "Landa e pubblica" (go online = merge + push + deploy) is NEVER a per-task
+  // quick-reply: publishing is a SEPARATE, human-only board action (the "Pubblica"
+  // control) with a diff preview to review before pushing. The dispatcher used to
+  // make agents offer it at delivery; drop it from the rendered options so old
+  // deliveries that still carry it don't show a one-click merge+push button.
+  // "Landa su main" (local merge, no push) stays.
+  const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
+  const filtered = options.filter((o) => norm(o) !== 'landa e pubblica');
+  return { question, options: filtered };
+}
+
+/** Il minimo che serve per riconoscere una domanda in coda al thread. */
+export type PendingQuestionComment = { content: string; kind?: string | null };
+
+/**
+ * La domanda pendente di un task: l'ULTIMA parola dell'agente, se è un blocco
+ * ```question.
+ *
+ * Stessa lettura della card e del drawer (`parseQuestionBlock` sull'ultimo
+ * commento, righe `kind: 'status'` escluse perché sono cronologia delle
+ * transizioni, non parole di nessuno). Se il banner mostrasse opzioni diverse
+ * da quelle della card, quale delle due superfici crede non sarebbe più una
+ * domanda con risposta.
+ *
+ * Due lettori su due lati del filo: il server, che mette la domanda nel fronte
+ * `task:review-ready`; e il client, che se la ricava da sé quando il fronte non
+ * la porta (server più vecchio del client).
+ */
+export function pendingQuestion(
+  comments: readonly PendingQuestionComment[] | null | undefined,
+): { text: string; options: string[] } | null {
+  if (!comments || comments.length === 0) return null;
+  const speech = comments.filter((c) => c && c.kind !== 'status');
+  const last = speech[speech.length - 1];
+  if (!last) return null;
+  const parsed = parseQuestionBlock(last.content ?? '');
+  // Una domanda senza opzioni non ha tasti da offrire, ma resta una domanda: la
+  // si dichiara comunque, così chi legge sa che il task ASPETTA una risposta e
+  // non è una consegna da approvare.
+  return parsed ? { text: parsed.question, options: parsed.options } : null;
+}

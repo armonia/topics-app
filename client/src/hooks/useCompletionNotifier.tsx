@@ -11,7 +11,9 @@ import { isAgentTurnNoise } from '../lib/notify/dispatchedTopic';
 import { isTopicMuted as isTopicMutedPure } from '../lib/notify/muteGate';
 import { bannerClaimKey, bannerClaimant, claimMessageBanner } from '../lib/notify/messageBannerClaim';
 import { decideMessageBanner } from '../lib/notify/messageBanner';
-import { isAgentWorking } from '../lib/board';
+import { buildNotifyActions, type NotifyAction } from '../../../shared/notify-actions';
+import { resolveReviewQuestion } from '../lib/notify/reviewQuestion';
+import { boardApi, isAgentWorking } from '../lib/board';
 import type { TopicTaskResolver } from './useTaskTopicIndex';
 
 interface CompletionNotifierProps {
@@ -185,6 +187,7 @@ export function useCompletionNotifier({
     sound: boolean,
     taskId?: string | null,
     tag?: string,
+    actions?: NotifyAction[],
   ) => {
     // Gate su Focus/Non disturbare. Se il sistema ci dice CON CERTEZZA che c'è un
     // Focus attivo, l'app tace del tutto — banner E suono. L'informazione non si
@@ -192,7 +195,7 @@ export function useCompletionNotifier({
     // solo il rumore. `isFocusSilencing()` è false su web e ovunque lo stato non
     // sia leggibile → di default si notifica normalmente (nessun falso silenzio).
     if (isFocusSilencing()) return;
-    notifyNative(title, body, { silent: true, taskId: taskId ?? undefined, tag });
+    notifyNative(title, body, { silent: true, taskId: taskId ?? undefined, tag, actions });
     if (sound) playCompletionTone();
   }, []);
 
@@ -245,7 +248,34 @@ export function useCompletionNotifier({
       if (now - last < 10_000) return;
       cooldownRef.current.set(key, now);
       const title = (msg.taskTitle || 'Task').slice(0, 140);
-      fire('ok', 'Task pronto per la review', title, cfg.notificationsSound, taskId);
+      // La consegna che È una domanda si annuncia come tale, e le sue opzioni
+      // diventano i TASTI del banner: rispondere costa un click, non "apri
+      // l'app, trova il task, leggi, premi".
+      //
+      // La domanda arriva nel fronte (server: emitReviewReadyEdge) e allora non
+      // costa niente; se il fronte NON la porta è un server più vecchio di
+      // questo client — caso normale, il guscio desktop si aggiorna per conto
+      // suo — e allora la si chiede, invece di dedurre «nessuna domanda» e
+      // offrire un "Approva" su un task che sta aspettando una risposta. Vedi
+      // lib/notify/reviewQuestion.ts.
+      void resolveReviewQuestion(msg, {
+        fetchComments: async (projectId, id) => (await boardApi.get(projectId, id)).comments,
+      }).then((resolved) => {
+        // 'unknown' = non si è potuto sapere: banner senza tasti, come prima.
+        const question = resolved === 'unknown' ? null : resolved;
+        const actions = resolved === 'unknown'
+          ? []
+          : buildNotifyActions({ kind: 'review-ready', question });
+        fire(
+          'ok',
+          question ? 'Serve una tua risposta' : 'Task pronto per la review',
+          question?.text ? `${title} — ${question.text}`.slice(0, 220) : title,
+          cfg.notificationsSound,
+          taskId,
+          undefined,
+          actions,
+        );
+      });
   });
 
   // ── Il gemello di FALLIMENTO ───────────────────────────────────────────
@@ -276,6 +306,10 @@ export function useCompletionNotifier({
         title,
         cfg.notificationsSound,
         taskId,
+        undefined,
+        // Un parcheggiato non riparte da solo: il tasto è la mossa che lo fa
+        // ripartire, cioè rimetterlo in Todo.
+        buildNotifyActions({ kind: 'parked' }),
       );
   });
 
