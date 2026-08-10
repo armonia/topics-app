@@ -6047,11 +6047,19 @@ fn install_shortcut_forwarder(app: &tauri::AppHandle) {
             // terminal eats the menu accelerator's key-equivalent, so ⌘R never
             // reloaded unless the main chrome itself held focus ("premo reload e
             // non succede nulla"). The NSEvent monitor sees the key first — so we
-            // handle it HERE, BEFORE the inside-UI gate below, and reload the
-            // event window's own UI webview directly, then swallow the original
-            // so neither the pane nor the terminal also acts on it. `location.
-            // reload()` re-fetches index.html + bundle = the app reload the user
-            // expects. (Only ⌘R without Ctrl — leaves ⌃R and page shortcuts alone.)
+            // handle it HERE, BEFORE the inside-UI gate below, riparte TUTTA la
+            // app (`reload_all_ui_windows`, la stessa logica di `app_reload_all`),
+            // poi ingoia l'originale così né la pane né il terminale agiscono
+            // anche loro. `location.reload()` re-fetches index.html + bundle = the
+            // app reload the user expects. (Only ⌘R without Ctrl — leaves ⌃R and
+            // page shortcuts alone.)
+            //
+            // TUTTE le finestre, non solo quella dell'evento: siccome qui si
+            // ingoia il keydown, `useKeyboardShortcuts` — che chiamava
+            // `reloadAllWindows` — non vede mai ⌘R, quindi questo ramo È il ⌘R
+            // del desktop. Ricaricarne una sola lasciava i gruppi staccati sul
+            // bundle vecchio, due versioni dello stesso client sullo stesso
+            // pane-store.
             //
             // E senza Shift: ⌘⇧R è "Record voice" (lo dicono il tooltip del
             // microfono e il pannello delle scorciatoie). Togliere l'acceleratore
@@ -6067,21 +6075,10 @@ fn install_shortcut_forwarder(app: &tauri::AppHandle) {
                 let chars_r_id: id = msg_send![event, charactersIgnoringModifiers];
                 let chars_r = ns_string_to_rust(chars_r_id).to_lowercase();
                 if cmd_r && !ctrl_r && !shift_r && chars_r == "r" {
-                    let mut done = false;
-                    for (label, w) in app.webview_windows() {
-                        if w.ns_window().map(|p| p as usize).ok() == Some(ev_window_ptr) {
-                            if let Some(wv) = app.get_webview(&label) {
-                                let _ = wv.eval(RELOAD_WITH_FLASH_JS);
-                                done = true;
-                            }
-                            break;
-                        }
-                    }
-                    if !done {
-                        if let Some(mw) = app.get_webview("main") {
-                            let _ = mw.eval(RELOAD_WITH_FLASH_JS);
-                        }
-                    }
+                    // no_abort: si sta girando dentro un blocco NSEvent, dove un
+                    // panic non ha nessuno che lo raccolga — sarebbe un abort
+                    // dell'intera app su una pressione di ⌘R.
+                    let _ = no_abort("cmd_r_reload_all", || Ok(reload_all_ui_windows(&app)));
                     return nil; // swallow — the pane/terminal must not also see ⌘R
                 }
             }
@@ -6699,20 +6696,31 @@ const RELOAD_WITH_FLASH_JS: &str =
 /// altre ferme sono due versioni dello stesso client che si parlano — e chi
 /// preme ⌘R non sta chiedendo "ricarica questa", sta chiedendo "riparti".
 /// Le pane native dei browser non si toccano: si ricarica il documento UI.
+///
+/// QUESTA è l'unica implementazione del gesto «riparti», e ci passano tutte e
+/// tre le porte: il monitor NSEvent che intercetta ⌘R su macOS, la voce Reload /
+/// Force Reload del menu, e il comando `app_reload_all` chiamato dal renderer.
+/// Prima erano tre: il monitor ingoia l'evento (`return nil`), quindi
+/// `useKeyboardShortcuts` non vedeva mai ⌘R e il ramo "ricarica tutto" era di
+/// fatto morto sul desktop — il nativo ricaricava la sola finestra dell'evento e
+/// i gruppi staccati restavano sul bundle vecchio. Una semantica sola, in un
+/// posto solo: se cambia, cambia per tutti e tre i gesti.
+fn reload_all_ui_windows(app: &tauri::AppHandle) -> usize {
+    use tauri::Manager;
+    let mut n = 0usize;
+    for (label, win) in app.webview_windows() {
+        // Le pane native del browser sono webview a sé: si saltano, o si
+        // ricaricherebbe la pagina che l'utente sta guardando.
+        if label.starts_with("browserpane-") { continue; }
+        if win.eval(RELOAD_WITH_FLASH_JS).is_ok() { n += 1; }
+    }
+    n
+}
+
+/// Il gesto «riparti» esposto al renderer. Vedi `reload_all_ui_windows`.
 #[tauri::command]
 fn app_reload_all(app: tauri::AppHandle) -> usize {
-    use tauri::Manager;
-    no_abort("app_reload_all", || {
-        let mut n = 0usize;
-        for (label, win) in app.webview_windows() {
-            // Le pane native del browser sono webview a sé: si saltano, o si
-            // ricaricherebbe la pagina che l'utente sta guardando.
-            if label.starts_with("browserpane-") { continue; }
-            if win.eval(RELOAD_WITH_FLASH_JS).is_ok() { n += 1; }
-        }
-        Ok(n)
-    })
-    .unwrap_or(0)
+    no_abort("app_reload_all", || Ok(reload_all_ui_windows(&app))).unwrap_or(0)
 }
 
 /// Chiude la finestra `label` (una finestra-gruppo, di solito): è il "riporta
@@ -7497,22 +7505,14 @@ pub fn run() {
             use tauri::Manager;
             match event.id().0.as_str() {
                 "reload" | "force-reload" => {
-                    // Ricarica la finestra FOCUSSATA, non sempre "main": con le
-                    // finestre progetto aperte il vecchio target fisso lasciava
-                    // quelle col bundle stantìo per sempre ("Cmd+R non va").
-                    // Stesso pattern di reset-split-layout qui sotto.
-                    let label = app
-                        .get_focused_window()
-                        .map(|w| w.label().to_string())
-                        .unwrap_or_else(|| "main".to_string());
-                    if let Some(win) = app
-                        .get_webview_window(&label)
-                        .or_else(|| app.get_webview_window("main"))
-                    {
-                        // Stesso segno del ⌘R nativo: il menu e la scorciatoia
-                        // sono lo stesso gesto, devono dare la stessa risposta.
-                        let _ = win.eval(RELOAD_WITH_FLASH_JS);
-                    }
+                    // Il menu e la scorciatoia sono lo stesso gesto, quindi
+                    // chiamano la stessa funzione: riparte TUTTA la app, non la
+                    // sola finestra focussata. Il bundle è uno; ricaricarne una
+                    // lasciava le altre (gruppi staccati, finestre progetto) su
+                    // quello vecchio, a parlarsi sullo stesso pane-store.
+                    // Non serve più risolvere la finestra focussata: le prende
+                    // tutte, quella inclusa.
+                    let _ = no_abort("menu_reload_all", || Ok(reload_all_ui_windows(app)));
                 }
                 "app-quit" => {
                     QUITTING.store(true, Ordering::Relaxed);
