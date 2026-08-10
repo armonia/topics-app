@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { GridLoader } from './Layout/StreamingIndicator';
+import { WaveLoader } from './Layout/StreamingIndicator';
 import { MessageMetaFooter } from './Chat/MessageMetaFooter';
 import { turnClock, formatTurnElapsed } from '../state/turnClock';
 import { phraseAt } from '../lib/thinkingPhrases';
@@ -237,7 +237,7 @@ export function TurnActivityIndicator({
       {state === 'slow' ? (
         <span className="turn-activity-dot inline-block w-1.5 h-1.5 rounded-full shrink-0 bg-amber-500" />
       ) : (
-        <GridLoader className="shrink-0" still={state === 'waiting'} />
+        <WaveLoader className="shrink-0" still={state === 'waiting'} />
       )}
       <span
         // `turn-activity-phrase` è lo shimmer del lavoro in corso: dipinge il

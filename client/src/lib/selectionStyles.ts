@@ -347,7 +347,22 @@ export const ROW_GAP = 'gap-2';
  * Quindi: chi ha un tono suo prende {@link TAB_LABEL}, chi lo calcola prende
  * questo. Un asse per volta.
  */
-export const TAB_LABEL_TYPE = 'text-[14px] md:text-[13px] font-medium';
+/**
+ * `leading-5` NON è cosmesi: è ciò che rende la centratura verticale un numero
+ * INTERO. Senza interlinea esplicita l'etichetta eredita quella del body (1.5),
+ * cioè 19,5px su un carattere da 13 — e in una tab alta 28 il conto è
+ * (28 − 19,5) / 2 = 4,25. La riga di testo nasce su un quarto di pixel: il
+ * rasterizzatore la spalma su due righe di sub-pixel e il testo si legge
+ * «leggermente più su» e più molle, che è esattamente il difetto riportato
+ * («il testo della tab non è ben centrato verticalmente», Attilio, 10/08).
+ * Con 20 il conto fa 4 tondi in una tab da 28, 8 in una da 36 e 7 nella riga di
+ * sidebar da 34 — le tre superfici che condividono questa classe.
+ *
+ * 20 e non meno: `truncate` porta `overflow:hidden`, e un'interlinea più stretta
+ * dell'altezza del carattere taglia le discendenti (già successo, vedi la nota
+ * su truncate + leading-none). 1,21em di Inter a 14px fanno 16,9 < 20.
+ */
+export const TAB_LABEL_TYPE = 'text-[14px] md:text-[13px] font-medium leading-5';
 export const TAB_LABEL = `${TAB_LABEL_TYPE} text-app-text`;
 
 /**
@@ -772,10 +787,14 @@ export const ROW_ACTION_GLYPH = 16;
 export const ROW_CARD = 'row-card';
 export const ROW_TRAIL = 'row-trail';
 export const ROW_ACTIONS = 'row-actions';
-/** L'incasso destro di {@link ROW_ACTIONS}, scritto in `index.css` come letterale
- *  (nessuna media query legge una costante TS). Vale {@link ROW_PX} risolto in
- *  pixel, e l'uguaglianza la ricalcola `selectionStyles.test.ts`: se il padding
- *  della riga cambia, il test indica il CSS invece di lasciarli separare. */
+/** L'incasso destro del GLIFO di {@link ROW_ACTIONS}, scritto in `index.css`
+ *  come letterale (nessuna media query legge una costante TS). Vale
+ *  {@link ROW_PX} risolto in pixel — il bordo interno del contenuto, dove si
+ *  fermano anche i segnali quieti che il comando copre — e il CSS ci sottrae
+ *  metà della differenza fra scatola e glifo, così è il cerchio disegnato ad
+ *  atterrare lì, non la sua scatola. L'uguaglianza la ricalcola
+ *  `selectionStyles.test.ts`: se il padding della riga cambia, il test indica il
+ *  CSS invece di lasciarli separare. */
 export const ROW_ACTIONS_INSET_PX = 8;
 
 /**

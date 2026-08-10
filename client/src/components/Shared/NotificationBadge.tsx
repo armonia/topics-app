@@ -39,7 +39,14 @@ export function NotificationBadge({ count, className = '', ariaLabel, title, var
     : 'bg-primary text-white';
   return (
     <span
-      className={`flex-shrink-0 ${tone} text-[11px] font-semibold rounded-full min-w-[16px] h-4 flex items-center justify-center px-1 leading-none ${className}`}
+      // `leading-4` e non `leading-none`, ed è la ragione per cui il numero non
+      // stava al centro del pallino: con `leading-none` la riga di testo è alta
+      // quanto il carattere (11px) dentro una pastiglia da 16, quindi nasce a
+      // (16 − 11) / 2 = 2,5px — mezzo pixel — e la cifra si posa mezza riga di
+      // sub-pixel più in basso del centro del cerchio (misurato: +0,62px).
+      // Con l'interlinea PARI all'altezza della pastiglia la riga non ha
+      // mezze-guide da scavalcare e il conto torna intero.
+      className={`flex-shrink-0 ${tone} text-[11px] font-semibold rounded-full min-w-[16px] h-4 flex items-center justify-center px-1 leading-4 tabular-nums ${className}`}
       aria-label={ariaLabel ?? `${count} unread`}
       title={title}
     >
