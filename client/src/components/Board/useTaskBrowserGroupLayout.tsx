@@ -64,6 +64,11 @@ export interface TaskDrawerLayoutInput {
 
 export interface TaskBrowserGroupLayout {
   liveCount: number;
+  /** L'url della tab viva in primo piano (o la prima viva se nessuna è attiva),
+   *  `null` senza tab vive. È IL risultato del task nel modello «tab + file»:
+   *  serve a «Apri nel workspace», che promuove QUESTA tab nella finestra del
+   *  progetto invece del solo `output_url` (che è solo il seme della prima). */
+  activeUrl: string | null;
   /** The soft-closed browser tabs for the closed-tab tray under the description. */
   parkedTabs: TaskBrowserTab[];
   /** Open a fresh browser tab (tray "+" / empty-state affordance). */
@@ -237,6 +242,7 @@ export function useTaskBrowserGroupLayout(taskId: string, input: TaskDrawerLayou
 
   return {
     liveCount: live.length,
+    activeUrl: (live.find((t) => t.contextId === tabsState.activeContextId) ?? live[0])?.url || null,
     parkedTabs: useMemo(() => tabsState.tabs.filter((t) => t.parked), [tabsState.tabs]),
     addBrowserTab,
     reopenTab,
