@@ -17,8 +17,8 @@ import {
 // (stesso pattern di claude-session-repo.test.ts: schema minimo in :memory:,
 // così il test dice quali colonne sono davvero il contratto).
 
-const PROJ = "/Users/zorahrel/Projects/topics-app";
-const OTHER_PROJ = "/Users/zorahrel/Projects/darkroom";
+const PROJ = "/Users/utente/Projects/topics-app";
+const OTHER_PROJ = "/Users/utente/Projects/darkroom";
 
 let db: Database;
 
@@ -321,7 +321,7 @@ describe("resolveTabRef — file e diff", () => {
   });
 
   test("un path di progetto con un PUNTO sopravvive al giro completo", () => {
-    const weird = "/Users/zorahrel/Projects/my.app";
+    const weird = "/Users/utente/Projects/my.app";
     const ref = buildTabPath({ kind: "file", key: "src/main.ts", projectPath: weird })!;
     expect(ref).not.toContain(".");
     const r = resolveTabRef(`http://127.0.0.1:3333${ref}`, deps())!;
@@ -429,7 +429,7 @@ describe("resolveTabRef — task", () => {
 describe("resolveTabRef — project/file esistono se la CARTELLA esiste", () => {
   // Una directory VERA, non un mock: il criterio è il filesystem, e un fake
   // proverebbe solo che il fake funziona. `mkdtemp` la rende indipendente
-  // dalla macchina (su CI `/Users/zorahrel/...` non esiste).
+  // dalla macchina (su CI `/Users/utente/...` non esiste).
   const scratch = mkdtempSync(join(tmpdir(), "tabresolve-"));
   afterAll(() => { rmSync(scratch, { recursive: true, force: true }); });
 

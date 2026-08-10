@@ -80,7 +80,7 @@ function estimateTokens(text: string): number {
  * guardando l'inizio del messaggio e qualunque preambolo davanti glieli nasconde.
  *
  * È un'ALLOWLIST, non «inizia per slash»: quel predicato prendeva anche un path
- * incollato — `/Users/zorahrel/…`, `/tmp da controllare` — e a quel messaggio
+ * incollato — `/Users/utente/…`, `/tmp da controllare` — e a quel messaggio
  * toglieva tutto il contesto. Su un primo turno o subito dopo una compattazione
  * significava un turno intero senza sapere in che progetto si sta lavorando.
  */
