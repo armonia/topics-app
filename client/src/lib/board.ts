@@ -293,6 +293,31 @@ export interface CreateTaskBody {
   blockedByTaskId?: string | null;
   /** When blocked, hand the new agent the blocker's session context. */
   reuseBlockerContext?: boolean;
+  /**
+   * Il link (parent o blocker) arriva da una proposta di intake ACCETTATA: il
+   * server scrive il perché nei thread di entrambe le card. Senza questo flag
+   * il link resta muto — che va bene per uno step aggiunto a mano dal drawer,
+   * mai per un collegamento che qualcuno ha solo confermato con un click.
+   */
+  intakeLink?: boolean;
+  /** Il motivo, in chiaro, così com'è stato mostrato prima del click. */
+  intakeReason?: string;
+}
+
+/**
+ * La proposta dell'intake: dove andrebbe il testo che stai scrivendo. È una
+ * PROPOSTA — finché non la si accetta non esiste nessun collegamento, e il
+ * default (non fare niente) resta "task nuovo".
+ */
+export interface LinkProposal {
+  targetTaskId: string;
+  targetText: string;
+  targetStatus: TaskStatus;
+  /** Quale primitiva consiglia il motore; l'altra resta a un click. */
+  recommended: 'subtask' | 'chain';
+  score: number;
+  sharedTerms: string[];
+  reason: string;
 }
 
 export interface UpdateTaskBody {
@@ -418,6 +443,11 @@ export const boardApi = {
     req<{ tasks: BoardTask[] }>(`/all-boards/tasks${status ? `?status=${status}` : ''}`).then(r => r.tasks),
   create: (projectId: string, body: CreateTaskBody) =>
     req<BoardTask>(`/boards/${enc(projectId)}/tasks`, { method: 'POST', body: JSON.stringify(body) }),
+  /** "Dove va questo testo?" — sola lettura, non tocca un solo task. */
+  suggestLink: (projectId: string, text: string, description?: string | null) =>
+    req<{ proposal: LinkProposal | null }>(`/boards/${enc(projectId)}/intake/suggest`, {
+      method: 'POST', body: JSON.stringify({ text, description }),
+    }).then(r => r.proposal),
   get: (projectId: string, taskId: string) =>
     req<TaskWithThread>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}`),
   update: (projectId: string, taskId: string, patch: UpdateTaskBody) =>
