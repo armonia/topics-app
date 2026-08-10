@@ -142,56 +142,9 @@ function updateSummaryIncremental(record: UsageRecord) {
   saveSummary(summary);
 }
 
-export function getUsageToday(): { records: UsageRecord[]; summary: DaySummary } {
-  const date = todayKey();
-  const records = loadDayRecords(date);
-  const summary: DaySummary = {
-    date,
-    totalTokens: 0,
-    inputTokens: 0,
-    outputTokens: 0,
-    costUsd: 0,
-    requestCount: records.length,
-  };
-  for (const r of records) {
-    summary.totalTokens += r.totalTokens;
-    summary.inputTokens += r.inputTokens;
-    summary.outputTokens += r.outputTokens;
-    summary.costUsd += r.costUsd;
-  }
-  return { records, summary };
-}
 
-export function getUsageSummary(): UsageSummary {
-  return loadSummary();
-}
 
-export function getUsageRange(from: string, to: string): UsageRecord[] {
-  const records: UsageRecord[] = [];
-  // List all day files in range
-  try {
-    const files = readdirSync(USAGE_DIR).filter(f => f.endsWith('.json') && f !== 'summary.json');
-    for (const f of files) {
-      const date = f.replace('.json', '');
-      if (date >= from && date <= to) {
-        records.push(...loadDayRecords(date));
-      }
-    }
-  } catch {}
-  return records.sort((a, b) => a.timestamp - b.timestamp);
-}
 
-export function getUsageForSession(sessionKey: string): UsageRecord[] {
-  const records: UsageRecord[] = [];
-  try {
-    const files = readdirSync(USAGE_DIR).filter(f => f.endsWith('.json') && f !== 'summary.json');
-    for (const f of files) {
-      const dayRecords = loadDayRecords(f.replace('.json', ''));
-      records.push(...dayRecords.filter(r => r.sessionKey === sessionKey));
-    }
-  } catch {}
-  return records.sort((a, b) => a.timestamp - b.timestamp);
-}
 
 // Rebuild summary from all daily files (called on server start)
 export function rebuildSummary() {
