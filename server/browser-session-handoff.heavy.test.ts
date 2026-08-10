@@ -38,7 +38,7 @@ process.env.DATA_DIR = join(DATA, "data");
 
 const { createBrowserService } = await import("./browser-service");
 const { seedSharedFromNative } = await import("./browser-session-handoff");
-const { createNativeDelegateRegistry } = await import("./browser-native-delegate");
+const { createNativeDelegateRegistry, nativeDelegateRegistry } = await import("./browser-native-delegate");
 type StorageState = import("../shared/browser-login-state").StorageState;
 
 /** Un sito che sa solo dire se ti riconosce. Il cookie `sid=BUONO` è il login. */
@@ -123,6 +123,28 @@ describeHeavy("passaggio di sessione nativa → condivisa (browser vero)", () =>
       const visto = await svc.evaluate(ctx, "document.cookie");
       expect(String(visto)).toContain("sid=BUONO");
     } finally {
+      await svc.destroyContext(ctx).catch(() => {});
+    }
+  }, 60_000);
+
+  test("createContext lo fa DA SÉ: basta una pane nativa viva sul contesto", async () => {
+    // Gli altri casi chiamano seedSharedFromNative a mano, quindi dimostrano la
+    // funzione ma NON che browser-service la chiami: togliendo la riga dal
+    // servizio resterebbero tutti verdi. Qui non la chiama nessuno — si
+    // registra la pane nativa sul registry di PRODUZIONE (quello che il
+    // servizio usa di suo) e si guarda solo se il contesto nasce loggato.
+    const ctx = "handoff-cablaggio";
+    nativeDelegateRegistry.register(ctx, (msg) => {
+      queueMicrotask(() =>
+        nativeDelegateRegistry.resolveOp({ opId: msg.opId, result: nativeJar() }),
+      );
+    });
+    try {
+      await svc.createContext(ctx);
+      const r = await svc.navigate(ctx, origin);
+      expect(r.title).toBe("DENTRO");
+    } finally {
+      nativeDelegateRegistry.unregister(ctx);
       await svc.destroyContext(ctx).catch(() => {});
     }
   }, 60_000);
