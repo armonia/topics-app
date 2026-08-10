@@ -107,6 +107,52 @@ describe("task-automerge", () => {
     expect(calls.some((c) => c[0] === "merge")).toBe(false);
   });
 
+  test("un commit già su main per CONTENUTO si salta invece di lasciare un commit vuoto", async () => {
+    // Rilandare la stessa card aggiungeva un commit VUOTO a main: `rev-list`
+    // guarda la discendenza, e il land ricopia invece di fondere — sha diverso,
+    // stesso contenuto, quindi il commit restava nel range. Misurato: main si è
+    // ritrovata «La tab È il risultato del task» due volte, la seconda a vuoto.
+    const calls: string[][] = [];
+    const run = async (_cwd: string, args: string[]) => {
+      calls.push(args);
+      const key = args.slice(0, 2).join(" ");
+      if (key === "symbolic-ref --short") return { code: 0, stdout: "feature/x\n", stderr: "" };
+      if (key === "for-each-ref --format=%(refname)") {
+        return { code: 0, stdout: "refs/heads/main\nrefs/heads/topics/altra\nrefs/heads/topics/t1\n", stderr: "" };
+      }
+      if (key === "rev-list --count") return { code: 0, stdout: args.includes("--not") ? "2\n" : "13\n", stderr: "" };
+      if (key === "rev-list --reverse") return { code: 0, stdout: "aaa111\nbbb222\n", stderr: "" };
+      // `git cherry`: '-' = già a monte per patch-id, '+' = ancora da portare.
+      if (args[0] === "cherry") return { code: 0, stdout: "- aaa111\n+ bbb222\n", stderr: "" };
+      if (key === "rev-parse --short") return { code: 0, stdout: "abc1234\n", stderr: "" };
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    const am = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: run });
+    const res = await am.tryMerge("t1", "x");
+    expect(res.status).toBe("merged");
+    expect(calls.some((c) => c[0] === "cherry-pick" && c.includes("bbb222"))).toBe(true);
+    expect(calls.some((c) => c[0] === "cherry-pick" && c.includes("aaa111"))).toBe(false);
+  });
+
+  test("tutto il lavoro è già su main per contenuto → landato, non 'non riesco a isolarlo'", async () => {
+    // Il controllo del test qui sopra: saltare i già-presenti non deve
+    // trasformare una consegna riuscita in un fallimento rimandato all'agente.
+    const run = async (_cwd: string, args: string[]) => {
+      const key = args.slice(0, 2).join(" ");
+      if (key === "symbolic-ref --short") return { code: 0, stdout: "feature/x\n", stderr: "" };
+      if (key === "for-each-ref --format=%(refname)") {
+        return { code: 0, stdout: "refs/heads/main\nrefs/heads/topics/altra\nrefs/heads/topics/t1\n", stderr: "" };
+      }
+      if (key === "rev-list --count") return { code: 0, stdout: args.includes("--not") ? "1\n" : "13\n", stderr: "" };
+      if (key === "rev-list --reverse") return { code: 0, stdout: "aaa111\n", stderr: "" };
+      if (args[0] === "cherry") return { code: 0, stdout: "- aaa111\n", stderr: "" };
+      if (key === "rev-parse --short") return { code: 0, stdout: "abc1234\n", stderr: "" };
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    const am = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: run });
+    expect((await am.tryMerge("t1", "x")).status).toBe("merged");
+  });
+
   test("un branch che non porta NIENTE di suo resta rifiutato", async () => {
     // Il controllo del test qui sopra: raccogliere i propri commit non deve
     // diventare «landa comunque». Zero commit suoi = niente da landare.
