@@ -223,6 +223,14 @@ test.describe("Chat Checkpoints (CHAT-05)", () => {
 
     // Hover over the middle checkpoint (idx 1: "Auth module done")
     const entries = page.locator('[data-testid="checkpoint-entry"]');
+    // ASPETTA CHE LA LISTA SIA COMPLETA prima di puntare a una voce. Il
+    // pannello si smonta INTERO su un `checkpoints` transitoriamente vuoto
+    // (`CheckpointTimeline` fa `if (checkpoints.length === 0) return null`),
+    // quindi fra l'apertura e il primo carico le voci possono comparire,
+    // sparire e ricomparire: Playwright lo riporta come «element is not
+    // stable» e poi «element was detached from the DOM». Contare prima di
+    // toccare è aspettare uno STATO, non un tempo.
+    await expect(entries).toHaveCount(MOCK_CHECKPOINTS.length);
     const middleEntry = entries.nth(1);
     await middleEntry.hover();
 
@@ -263,6 +271,14 @@ test.describe("Chat Checkpoints (CHAT-05)", () => {
 
     // Hover over the middle checkpoint
     const entries = page.locator('[data-testid="checkpoint-entry"]');
+    // ASPETTA CHE LA LISTA SIA COMPLETA prima di puntare a una voce. Il
+    // pannello si smonta INTERO su un `checkpoints` transitoriamente vuoto
+    // (`CheckpointTimeline` fa `if (checkpoints.length === 0) return null`),
+    // quindi fra l'apertura e il primo carico le voci possono comparire,
+    // sparire e ricomparire: Playwright lo riporta come «element is not
+    // stable» e poi «element was detached from the DOM». Contare prima di
+    // toccare è aspettare uno STATO, non un tempo.
+    await expect(entries).toHaveCount(MOCK_CHECKPOINTS.length);
     const middleEntry = entries.nth(1);
     await middleEntry.hover();
 
