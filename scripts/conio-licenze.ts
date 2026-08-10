@@ -223,6 +223,16 @@ export type EsitoScrittura =
   | { ok: false; codice: "upstream_error" | "unreachable" };
 
 /**
+ * Solo la firma di chiamata di `fetch`, non `typeof fetch`: quest'ultimo in Bun
+ * porta anche `preconnect`, che nessun doppio di test implementa — e un mock
+ * che non compila rendeva rosso `typecheck:server` senza dire nulla sul codice.
+ */
+export type FetchLike = (
+  input: URL | RequestInfo,
+  init?: RequestInit,
+) => Promise<Response>;
+
+/**
  * Attacca il gettone all'abbonamento.
  *
  * Si scrive SOLO `license_token`: i metadati di Stripe si fondono, quindi
@@ -240,7 +250,7 @@ export async function scriviGettone(o: {
   subscriptionId: string;
   gettone: string;
   eventId: string;
-  fetchImpl?: typeof fetch;
+  fetchImpl?: FetchLike;
 }): Promise<EsitoScrittura> {
   const corpo = new URLSearchParams({ "metadata[license_token]": o.gettone });
   const f = o.fetchImpl ?? fetch;
@@ -305,7 +315,7 @@ export function leggiConfigConio(env: Record<string, string | undefined>): Confi
 export function creaGestoreConio(deps: {
   config: () => ConfigConio;
   now?: () => number;
-  fetchImpl?: typeof fetch;
+  fetchImpl?: FetchLike;
   log?: (riga: string) => void;
 }): (req: Request) => Promise<Response> {
   const adesso = deps.now ?? (() => Date.now());
