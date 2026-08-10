@@ -19,6 +19,7 @@ import { getSessionContext } from "../db/session-context";
 import { classifyContext, windowForMeasure } from "../usage/context-window";
 import { contextUpdateFromUsage } from "../usage/usage-update";
 import { createTaskService } from "../services/tasks";
+import { persistAgentTaskTab } from "../services/task-tab-persist";
 import { matchProjectRefAll, type ProjectRefCandidate } from "../lib/project-ref";
 import { shouldHonorClearMessages } from "./abortClearPolicy";
 import { clearActionFor } from "./clearPolicy";
@@ -1766,6 +1767,13 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
           };
           saveSingleTopic(topic);
           browserNavigatedTopics.add(topic.id);
+          // Persisti PRIMA di broadcastare: la tab è il risultato del task e un
+          // dispatch gira spesso senza nessuna finestra Topics aperta. Finché
+          // l'unico scrittore del record era il client, "nessun client
+          // connesso" voleva dire tab persa. Ora il record c'è comunque; il
+          // client che riceve `browser:open-task-tab` fa lo stesso upsert
+          // idempotente e converge.
+          persistAgentTaskTab(ctx.db, broadcastToAll, taskCtx.taskId, taskCtx.contextId, url);
           broadcastToAll({ type: "browser:open-task-tab", taskId: taskCtx.taskId, contextId: taskCtx.contextId, url });
           return json({ url, title: "" });
         }
