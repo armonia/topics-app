@@ -1423,6 +1423,20 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               // Reaching done releases whatever was waiting on this task.
               if (task.status === "done") dispatcher.onBlockerDone(taskId);
             }
+            // `done` deve voler dire ATTERRATO. Il land era un'azione a parte, e
+            // chi trascinava una card in Done — il gesto più naturale che ci sia —
+            // chiudeva il lavoro lasciandolo sul suo ramo, in silenzio. Misurato
+            // il 10/08: 17 card chiuse in otto ore col contenuto NON su main,
+            // verificato applicando i loro commit e guardando se restava qualcosa.
+            //
+            // Nessuna decisione nuova: la board ha già detto `dispatchAutoMerge`,
+            // ed è esattamente questa. Se il land non riesce (conflitto, pezzo
+            // mancante) `landTask` lo scrive sulla card e la rimanda all'agente,
+            // che è meglio di una chiusura muta. Fire-and-forget: la PATCH non
+            // aspetta git, o trascinare una card bloccherebbe l'interfaccia.
+            if (prevStatus !== "done" && task.status === "done" && task.deliveryBranch) {
+              void landTask(projectId, taskId);
+            }
             return json(task);
           } catch (e) { return fail(e); }
         }
