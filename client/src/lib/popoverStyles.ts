@@ -132,6 +132,20 @@ export const POPOVER_ITEM =
 export const DANGER_TEXT = 'text-red-700 dark:text-red-400';
 export const WARNING_TEXT = 'text-amber-800 dark:text-amber-400';
 
+/**
+ * Il verde dello stato «tutto a posto», misurato come i suoi fratelli — ma sul
+ * fondo VERO, cioè col velo `/15` già steso sotto.
+ *
+ * Il velo è il punto. Un velo del 15% della stessa tinta sposta il fondo VERSO
+ * il testo, quindi misurare su bianco puro conta un contrasto che a video non
+ * c'è. Su questa scala la scelta ovvia sbaglia:
+ *   green-600 su green-500/15  2,81 · 7,79   → il valore in uso, sotto di quasi la metà
+ *   green-700 su green-500/15  4,32 · 7,79   → manca la soglia per un pelo
+ *   green-800 su green-500/15  6,20 · 7,79   → giusto in entrambi i temi
+ * Soglia 4,5:1: questi chip sono da 11px, cioè testo normale, non testo grande.
+ */
+export const SUCCESS_TEXT = 'text-green-800 dark:text-green-400';
+
 /** Destructive variant of POPOVER_ITEM (delete / clear / discard). Stesso ritmo
  *  verticale del suo fratello non distruttivo: se divergessero, un menu con una
  *  voce rossa avrebbe una riga più bassa delle altre. */
