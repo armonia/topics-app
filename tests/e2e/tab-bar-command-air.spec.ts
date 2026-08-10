@@ -115,8 +115,14 @@ for (const s of SCHERMI) {
       await page.setViewportSize({ width: s.w, height: s.h });
       // Il layout deve essersi FERMATO prima di leggerlo: una misura presa a
       // metà del riflusso è un numero vero di uno stato che non esiste.
+      // `?? Infinity` e non un `!`: subito dopo il cambio di viewport la barra
+      // si ri-dispone e `boundingBox()` puo' tornare NULL per un istante — non
+      // e' un errore, e' «non ancora». Dereferenziandolo il poll ESPLODEVA
+      // invece di riprovare, e il test moriva con «Cannot read properties of
+      // null» dentro il `beforeEach`, cioe' su un test a caso fra i quattro.
+      // Con un valore che non soddisfa mai la condizione, il poll aspetta.
       await expect
-        .poll(async () => (await page.locator(".pane-chrome-bar").first().boundingBox())!.width)
+        .poll(async () => (await page.locator(".pane-chrome-bar").first().boundingBox())?.width ?? Number.POSITIVE_INFINITY)
         .toBeLessThanOrEqual(s.w);
       await page.waitForTimeout(300);
       m = await misura(page);
