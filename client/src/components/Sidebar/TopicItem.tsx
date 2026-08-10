@@ -288,6 +288,8 @@ export const TopicItem = memo(function TopicItem({
       {hasChildren && (
         <button
           onClick={(e) => { e.stopPropagation(); onToggle(); }}
+          aria-label={isExpanded ? 'Comprimi' : 'Espandi'}
+          aria-expanded={isExpanded}
           className="flex items-center justify-center w-4 h-4 rounded hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0"
         >
           <ChevronRight

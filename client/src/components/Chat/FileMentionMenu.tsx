@@ -201,7 +201,7 @@ export function FilePill({ file, onRemove }: { file: MentionedFile; onRemove: ()
     <span className="inline-flex items-center gap-1 bg-blue-100/80 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded-md px-2 py-0.5 text-[11px] font-medium">
       <File size={12} className="flex-shrink-0" />
       <span className="truncate max-w-[120px]">{file.name}</span>
-      <button
+      <button aria-label="Rimuovi il file"
         onClick={(e) => { e.stopPropagation(); onRemove(); }}
         className="ml-0.5 text-blue-400 hover:text-blue-600 dark:hover:text-blue-200"
       >

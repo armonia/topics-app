@@ -178,7 +178,7 @@ export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMess
       <div className="flex flex-col h-full bg-surface border-l border-app-border">
         {/* Header */}
         <div className="flex items-center gap-2 px-3 py-2.5 border-b border-app-border flex-shrink-0">
-          <button
+          <button aria-label="Indietro"
             onClick={() => setBrowsingMemoryTree(false)}
             className="w-6 h-6 flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary"
           >
@@ -188,7 +188,7 @@ export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMess
             OpenClaw Memory Tree
           </span>
           <div className="flex-1" />
-          <button onClick={onClose} className="w-6 h-6 flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary">
+          <button aria-label="Chiudi l'ispettore del contesto" onClick={onClose} className="w-6 h-6 flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary">
             <X size={14} />
           </button>
         </div>
@@ -219,6 +219,7 @@ export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMess
         </button>
         <button
           onClick={onClose}
+          aria-label="Chiudi l'ispettore del contesto"
           className="w-6 h-6 flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary"
         >
           <X size={14} />
@@ -335,7 +336,7 @@ export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMess
                       <span className="text-[13px]">{'\u{1F4CE}'}</span>
                       <span className="text-[12px] text-app-text truncate flex-1">{source.label}</span>
                       <span className="text-[11px] text-app-text-muted tabular-nums">~{source.tokens > 1000 ? `${(source.tokens / 1000).toFixed(1)}K` : source.tokens} tok</span>
-                      <button
+                      <button aria-label="Rimuovi la sorgente dal contesto"
                         onClick={() => handleRemoveContextFile(source.id.replace('file:', ''))}
                         className="w-5 h-5 flex items-center justify-center rounded hover:bg-red-500/10 text-app-text-muted hover:text-red-500 transition-colors"
                       >
