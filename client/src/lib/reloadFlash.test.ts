@@ -79,12 +79,22 @@ describe("reloadFlash", () => {
     expect(js).toContain("window.location.reload()");
   });
 
-  test("i tre reload CHIESTI dall'utente passano dalla costante", () => {
+  test("i tre reload CHIESTI dall'utente passano dalla STESSA funzione", () => {
     const rs = readFileSync(LIB_RS, "utf8");
-    // ⌘R (monitor NSEvent, con il suo fallback su "main"), la voce Reload/Force
-    // Reload del menu, e app_reload_all: quattro usi, tre gesti.
+    // ⌘R intercettato dal monitor NSEvent, la voce Reload/Force Reload del menu,
+    // e il comando app_reload_all sono TRE PORTE SULLO STESSO GESTO: «riparti».
+    // Devono avere una semantica sola — ricaricare tutte le finestre UI — e il
+    // solo modo di garantirlo è che chiamino la stessa funzione. Quando erano
+    // tre implementazioni, il monitor ingoiava ⌘R (`return nil`) e ricaricava la
+    // sola finestra dell'evento: i gruppi staccati restavano sul bundle vecchio,
+    // due versioni dello stesso client sullo stesso pane-store.
+    expect(rs).toContain("fn reload_all_ui_windows(");
+    const calls = rs.match(/reload_all_ui_windows\(&?app\)/g) ?? [];
+    expect(calls.length).toBeGreaterThanOrEqual(3);
+    // …e il segno lo mette LEI, in un punto solo: una seconda `eval` della
+    // costante sarebbe una quarta semantica che rientra dalla finestra.
     const uses = rs.match(/eval\(RELOAD_WITH_FLASH_JS\)/g) ?? [];
-    expect(uses.length).toBeGreaterThanOrEqual(4);
+    expect(uses.length).toBe(1);
   });
 
   test("solo il nudge di cold-start ricarica in silenzio", () => {
