@@ -98,6 +98,9 @@ async function defaultRunGit(cwd: string, args: string[]): Promise<GitRunResult>
 /** La firma del «manca un pezzo sotto» nell'output di git. */
 const MISSING_BASE = /modify\/delete|deleted in|does not exist|no such file/i;
 
+/** Dove vivono le migration numerate (il gate qui sotto le confronta per NUMERO). */
+const MIGRATIONS_DIR = "server/db/migrations";
+
 const BUILD_TIMEOUT_MS = 5 * 60_000;
 
 async function defaultRunBuild(cwd: string): Promise<GitRunResult> {
@@ -193,6 +196,36 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
     }
 
     /**
+     * Un numero di migration presente su ENTRAMBI i rami ma con nomi diversi.
+     * Torna la ragione da mostrare, o null se non c'e' collisione.
+     */
+    async function migrationCollision(): Promise<string | null> {
+      const read = async (ref: string): Promise<Map<string, string>> => {
+        const r = await runGit(repoPath, ["ls-tree", "-r", "--name-only", ref, "--", MIGRATIONS_DIR]);
+        const out = new Map<string, string>();
+        if (r.code !== 0) return out;
+        for (const path of r.stdout.split("\n")) {
+          const file = path.trim().split("/").pop() ?? "";
+          const n = file.slice(0, 3);
+          if (/^\d{3}$/.test(n)) out.set(n, file);
+        }
+        return out;
+      };
+      const [base, mine] = await Promise.all([read(defaultBranch), read(branch)]);
+      const clash: string[] = [];
+      for (const [n, file] of mine) {
+        const other = base.get(n);
+        if (other && other !== file) clash.push(`${n}: '${defaultBranch}' ha ${other}, il ramo ha ${file}`);
+      }
+      if (clash.length === 0) return null;
+      return (
+        `collisione di numeri di migration (${clash.join(" · ")}). Il registro conta i NUMERI e il ` +
+        "runner salta in silenzio: la seconda non si applicherebbe mai, e il codice che la presuppone " +
+        "atterrerebbe lo stesso. Rinumera la migration del RAMO (mai quelle gia' applicate) e rigenera il manifest."
+      );
+    }
+
+    /**
      * Quanti commit sul branch NON sono di questa card e non sono ancora su
      * main. Sono le sue DIPENDENZE possibili: il worktree nasce dall'HEAD del
      * checkout condiviso, quindi il lavoro della card può poggiare su commit di
@@ -281,6 +314,22 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
         if (ahead.stdout.trim() === "0") {
           return { status: "nothing", branch };
         }
+
+        // ── Numeri di migration: due card in parallelo se li prendono uguali ──
+        //
+        // `schema_migrations.version` e' CHIAVE PRIMARIA INTERA e il runner fa
+        // `if (applied.has(version)) continue` (server/db.ts): salta per NUMERO e
+        // in silenzio. Due file `089-*.sql` diversi vogliono dire che il secondo
+        // non si applica MAI — nemmeno ai riavvii — mentre il codice che lo
+        // presuppone atterra lo stesso. Il guasto non si vede al land: si vede in
+        // produzione, come una query su colonne che non esistono.
+        //
+        // Misurato il 10/08: DUE collisioni in una sera. Con N card in parallelo
+        // e' l'esito normale di due migration scritte lo stesso giorno, non la
+        // sfortuna di qualcuno — quindi il posto giusto e' un cancello, non la
+        // memoria di chi rivede.
+        const collision = await migrationCollision();
+        if (collision) return { status: "skipped", reason: collision };
 
         // ── Il branch porta SOLO il lavoro di questo task? ──────────────────
         //
