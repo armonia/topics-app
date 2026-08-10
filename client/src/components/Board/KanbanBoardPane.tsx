@@ -900,22 +900,23 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
 
   const [activeId, setActiveId] = useState<string | null>(null);
   // Hide the floating "Descrivi un task" composer while the human is typing in
-  // ANY other field — a card's quick-reply / "Scrivi all'agent" box (which sit
-  // low on screen, right under the composer) or the drawer thread. Tracked from
-  // document focus so it covers every feedback input without wiring each one.
+  // a field that SITS ON IT: a card's quick-reply / "Scrivi all'agent" box,
+  // which opens low in a column, right under the composer.
+  //
+  // Il gate è ristretto alle COLONNE della board. Prima il listener era su
+  // `window` e il predicato «un campo qualsiasi ha il fuoco»: mettere il cursore
+  // nella chat di un'altra pane, in un terminale o in una ricerca faceva sparire
+  // il composer di qua — un focus-out dalla board non sovrappone proprio niente.
   const [typingElsewhere, setTypingElsewhere] = useState(false);
   useEffect(() => {
     const sync = () => {
       const el = document.activeElement as HTMLElement | null;
       const isField = !!el && (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT');
-      const inComposer = !!el?.closest('[data-testid="board-task-composer"]');
-      // Un campo dentro un MENU fluttuante non è «scrivere altrove»: il menu è
-      // portalato su <body>, quindi `closest` non lo riconduce mai al composer
-      // che lo ha aperto. Senza questa condizione, digitare nella ricerca del
-      // picker progetto smontava il composer — e con lui il menu stesso, che ne
-      // è figlio React: il popover spariva al primo carattere.
-      const inFloatingMenu = !!el?.closest('[data-popover]');
-      setTypingElsewhere(isField && !inComposer && !inFloatingMenu);
+      // Solo i campi DENTRO il carosello delle colonne si sovrappongono al
+      // composer. Il composer stesso e i menu portalati su <body> ne sono fuori
+      // per costruzione, quindi non serve escluderli a mano.
+      const inColumns = !!el && !!columnsScrollRef.current?.contains(el);
+      setTypingElsewhere(isField && inColumns);
     };
     window.addEventListener('focusin', sync);
     window.addEventListener('focusout', sync);
@@ -1176,17 +1177,20 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
             )}
           </DndContext>
           {/* New-task composer, anchored to the board AREA (centered on the
-              visible columns). Hidden while a task is open: the drawer is where
-              you review and write feedback, and the floating "Descrivi un task"
-              box otherwise sits on top of that input — reappears on close. */}
-          {!selected && !typingElsewhere && (
-            <FloatingTaskComposer
-              projectId={projectId}
-              global={mode === 'all'}
-              onCreated={refetch}
-              onError={setError}
-            />
-          )}
+              visible columns). SEMPRE montato: quello che ci hai scritto dentro
+              non deve evaporare perché hai guardato altrove o hai aperto un
+              task. Si nasconde soltanto quando qualcosa gli sta davvero sopra —
+              un campo aperto in una colonna, o (sotto lg) il drawer del task,
+              che lì è un overlay a tutto schermo. Su desktop il drawer è un
+              fratello in-flow accanto alle colonne: non lo copre, resta. */}
+          <FloatingTaskComposer
+            projectId={projectId}
+            global={mode === 'all'}
+            onCreated={refetch}
+            onError={setError}
+            hidden={typingElsewhere}
+            hiddenBelowLg={!!selected}
+          />
         </div>
         {selected && (
           <TaskDetail
