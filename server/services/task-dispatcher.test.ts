@@ -726,6 +726,31 @@ describe("task-dispatcher", () => {
     expect(h.turns.length).toBe(1);
   });
 
+  it("il tetto vale anche sul RESUME: un rifiuto non apre un agente in più", async () => {
+    // Il tetto viveva dentro tick(), quindi governava solo i dispatch: ogni
+    // rifiuto in review faceva ripartire un agente FUORI dal tetto. Misurato il
+    // 09/08: 12 task in corso col tetto a 6, e metà erano rifiuti in fila.
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    h.svc.setGlobalCap({ auto: false, max: 1 });
+    seedTask(h.db, { id: "t1", status: "todo", createdAt: "2020-01-01T00:00:00.000Z" });
+    seedTask(h.db, { id: "t2", status: "todo", createdAt: "2020-01-02T00:00:00.000Z" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.turns.length).toBe(1); // t1 occupa l'unico posto, t1 è ancora in volo
+
+    // t2 arriva in review e viene rifiutato: prima ripartiva subito, tetto o no.
+    h.svc.update({ taskId: "t2", actor: "human", by: "u", patch: { status: "in_progress" } });
+    h.db.run("INSERT OR IGNORE INTO topics (id) VALUES (?)", ["topic-2"]);
+    h.db.run("UPDATE tasks SET assigned_topic_id = ? WHERE id = ?", ["topic-2", "t2"]);
+    await h.dispatcher.resume("t2", "riprova");
+    await flush();
+
+    expect(h.turns.length).toBe(1); // nessun secondo turno: il posto è uno
+    // E non è perso in silenzio: la card lo dice.
+    expect(h.svc.get("t2")!.comments.some((c) => c.content.includes("In attesa di uno slot"))).toBe(true);
+  });
+
   it("parks (does not run in-place) when a worktree is required but unavailable", async () => {
     const h = harness({ resolveProject: () => ({ path: "/Users/x/Projects/alpha", projectStoreId: null }) });
     h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchUseWorktree: true });
