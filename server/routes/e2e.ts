@@ -21,6 +21,12 @@
  *                              chiuso, come il dispatcher a fine giro — così il
  *                              pannello "Tentativi" e la scelta del vincitore si
  *                              testano senza far girare N agenti veri.
+ *   POST /api/test/background-shell       registra/aggiorna una shell lasciata
+ *                              in background, come fa `routes/chat.ts` leggendo
+ *                              il risultato di una `Bash`. Senza un agente vero
+ *                              non c'è modo di popolare quel registro, e senza
+ *                              popolarlo non si può guardare la card della chat
+ *                              aggiornarsi.
  *   POST /api/test/terminal/park-idle     fa girare SUBITO lo sweep che
  *                              parcheggia le sessioni ferme. In produzione è un
  *                              timer al minuto con una soglia di mezz'ora:
@@ -56,6 +62,9 @@ import { restoreDb, snapshotDb, type DbSnapshot } from "../services/db-snapshot"
 import { createTaskService } from "../services/tasks";
 import { createTaskAttemptStore } from "../services/task-attempts";
 import { parkIdleClaudeSessions } from "./terminal";
+import { noteBackgroundShellOutput, registerBackgroundShell } from "./processes";
+import { shellProcessKey } from "../../shared/background-shell-registry";
+import { setSessionCliPid } from "../providers/session-pids";
 
 /** Attivo solo dove `start-test-server.sh` lo dichiara. */
 export function e2eRoutesEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
@@ -150,6 +159,53 @@ export function createE2eRouter(ctx: AppContext): RouteHandler {
       // `skipped` con il motivo: senza, un test che non vede il parcheggio non
       // sa distinguere «il gate ha fatto il suo lavoro» da «lo sweep e' rotto».
       return json({ ok: true, ...result });
+    }
+
+    // POST /api/test/background-shell — muove il registro delle shell come lo
+    // muoverebbe un turno vero.
+    //
+    // Una shell in background nasce SOLO dentro un turno dell'agente: la
+    // registra `routes/chat.ts` leggendo il risultato della `Bash`, e le
+    // attacca output a ogni `BashOutput` successivo. Senza un agente vero non
+    // c'è modo di arrivarci dalle API pubbliche — e senza arrivarci non si può
+    // guardare la card della chat crescere, che è tutto il punto.
+    //
+    // Chiama le STESSE funzioni del registro (`routes/processes.ts`), non una
+    // copia: quello che il test vede è il registro vero, letto dalla route vera.
+    if (method === "POST" && pathname === "/api/test/background-shell") {
+      const body = (await req.json().catch(() => null)) as {
+        sessionKey?: string; shellId?: string; command?: string; cwd?: string; topicId?: string | null;
+        output?: string; status?: "running" | "completed" | "failed" | "killed"; exitCode?: number;
+      } | null;
+      if (!body?.sessionKey || !body?.shellId) {
+        return json({ error: "sessionKey and shellId required" }, 400);
+      }
+      // `command` presente ⇒ è l'avvio; assente ⇒ è un aggiornamento su una
+      // shell già registrata (output nuovo e/o esito).
+      if (body.command) {
+        // Il CLI padre. Senza, lo sweep chiude la shell al primo giro (4s) —
+        // e ha ragione: «nessun CLI vivo ⇒ la shell è morta con lui» è la
+        // regola vera del registro, non un dettaglio da aggirare. Qui si
+        // dichiara un padre vivo (il server stesso) invece di disarmare lo
+        // sweep, così il test cammina sulla strada di produzione.
+        setSessionCliPid(body.sessionKey, process.pid);
+        registerBackgroundShell({
+          sessionKey: body.sessionKey,
+          topicId: body.topicId ?? null,
+          shellId: body.shellId,
+          command: body.command,
+          cwd: body.cwd || process.cwd(),
+          ownerPid: null,
+        });
+      }
+      if (body.output != null || body.status || body.exitCode != null) {
+        noteBackgroundShellOutput(body.sessionKey, body.shellId, {
+          ...(body.output != null ? { output: body.output } : {}),
+          ...(body.status ? { status: body.status } : {}),
+          ...(body.exitCode != null ? { exitCode: body.exitCode } : {}),
+        });
+      }
+      return json({ ok: true, processId: shellProcessKey(body.sessionKey, body.shellId) });
     }
 
     // POST /api/test/tasks/:taskId/bind-topic {topicId} — lega un task alla

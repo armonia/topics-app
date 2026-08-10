@@ -343,7 +343,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
               che si va a rileggere sei mesi dopo. */}
           {toolCall.permissionRequest && (isAwaitingPermission || toolCall.permissionOutcome) && sessionKey ? (
             <>
-            <ToolCardBody detail={detail} isError={isError} isRunning={false} />
+            <ToolCardBody detail={detail} isError={isError} isRunning={false} sessionKey={sessionKey} />
             <ToolPermissionRow
               request={toolCall.permissionRequest}
               outcome={toolCall.permissionOutcome}
@@ -353,7 +353,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
             </>
           ) : isWaiting && toolCall.userInputSchema && sessionKey ? (
             <>
-            {!askIsTheWholeCall && <ToolCardBody detail={detail} isError={isError} isRunning={false} />}
+            {!askIsTheWholeCall && <ToolCardBody detail={detail} isError={isError} isRunning={false} sessionKey={sessionKey} />}
             <ToolInputForm
               schema={toolCall.userInputSchema}
               toolCallId={toolCall.id}
@@ -376,7 +376,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
               The agent is asking for input but this view has no session context. Reload to answer.
             </div>
           ) : (
-            <ToolCardBody detail={detail} isError={isError} isRunning={isRunning} />
+            <ToolCardBody detail={detail} isError={isError} isRunning={isRunning} sessionKey={sessionKey} />
           )}
           {toolCall.userResponse && status !== 'waiting_for_input' && (
             <div className="mt-1.5 text-[11px] text-app-text-muted">
