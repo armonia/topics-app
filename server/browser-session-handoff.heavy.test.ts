@@ -68,7 +68,11 @@ describeHeavy("passaggio di sessione nativa → condivisa (browser vero)", () =>
   beforeAll(async () => {
     site = startSite();
     origin = `http://127.0.0.1:${site.port}`;
-    svc = await createBrowserService();
+    // Porta CDP DEDICATA. Il default (19222) è condiviso con ogni altro
+    // BrowserService: un Chromium rimasto in giro da un'altra corsa se la
+    // teneva e questo file andava in timeout a 60s dicendo «il passaggio è
+    // rotto» quando il fatto era «la porta era occupata».
+    svc = await createBrowserService({ cdpPort: 19871 });
   });
   afterAll(async () => {
     await svc?.close?.().catch?.(() => {});

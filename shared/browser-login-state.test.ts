@@ -19,24 +19,26 @@ test('un cookie che c\'è solo nella base sopravvive al merge', () => {
   expect(out.cookies.find((c) => c.name === 'phone_sid')?.value).toBe('p');
 });
 
-test('in conflitto vince chi arriva, e resta al posto che aveva nella base', () => {
+test('in conflitto vince la BASE: il nativo non puo\' sloggare la sessione condivisa', () => {
   const base: StorageState = {
     cookies: [
       { name: 'a', value: 'base-a', domain: 'example.com', path: '/' },
-      { name: 'sid', value: 'VECCHIO', domain: 'example.com', path: '/' },
+      { name: 'sid', value: 'FRESCO-DAL-TELEFONO', domain: 'example.com', path: '/' },
       { name: 'z', value: 'base-z', domain: 'example.com', path: '/' },
     ],
     origins: [],
   };
-  const incoming: StorageState = {
-    cookies: [{ name: 'sid', value: 'NUOVO', domain: 'example.com', path: '/' }],
+  // Il barattolo nativo puo\' contenere una sessione lasciata li\' mesi fa: non
+  // e\' scaduta, quindi arriva, ma non e\' piu\' buona. Se sostituisse, quel
+  // cookie morto butterebbe fuori il login appena fatto dal telefono — e il
+  // risultato si scrive su disco, quindi per sempre.
+  const extra: StorageState = {
+    cookies: [{ name: 'sid', value: 'VECCHIO-DAL-MAC', domain: 'example.com', path: '/' }],
     origins: [],
   };
-  const out = mergeStorageState(base, incoming);
+  const out = mergeStorageState(base, extra);
   expect(out.cookies).toHaveLength(3);
-  expect(out.cookies[1]).toEqual({ name: 'sid', value: 'NUOVO', domain: 'example.com', path: '/' });
-  // L'ordine è quello della base: senza sostituzione sul posto il file su disco
-  // cambierebbe a ogni giro anche a parità di contenuto.
+  expect(out.cookies[1]!.value).toBe('FRESCO-DAL-TELEFONO');
   expect(out.cookies.map((c) => c.name)).toEqual(['a', 'sid', 'z']);
 });
 
@@ -71,16 +73,16 @@ test('path assente vale "/" — lo stesso cookie non si sdoppia fra le due parti
   // dump di Playwright lo riporta esplicito: senza normalizzazione la stessa
   // sessione tornerebbe indietro come due cookie e uno dei due vincerebbe a caso.
   const base: StorageState = {
-    cookies: [{ name: 'sid', value: 'vecchio', domain: 'example.com', path: '/' }],
+    cookies: [{ name: 'sid', value: 'della-base', domain: 'example.com', path: '/' }],
     origins: [],
   };
-  const incoming: StorageState = {
-    cookies: [{ name: 'sid', value: 'nuovo', domain: 'example.com' }],
+  const extra: StorageState = {
+    cookies: [{ name: 'sid', value: 'del-nativo', domain: 'example.com' }],
     origins: [],
   };
-  const out = mergeStorageState(base, incoming);
+  const out = mergeStorageState(base, extra);
   expect(out.cookies).toHaveLength(1);
-  expect(out.cookies[0]!.value).toBe('nuovo');
+  expect(out.cookies[0]!.value).toBe('della-base');
 });
 
 test('il dominio è confrontato senza distinzione di maiuscole', () => {
@@ -95,7 +97,7 @@ test('il dominio è confrontato senza distinzione di maiuscole', () => {
   expect(mergeStorageState(base, incoming).cookies).toHaveLength(1);
 });
 
-test('il localStorage si fonde per origine, chiave per chiave', () => {
+test('il localStorage riempie i buchi per origine, senza sostituire', () => {
   const base: StorageState = {
     cookies: [],
     origins: [
@@ -124,9 +126,10 @@ test('il localStorage si fonde per origine, chiave per chiave', () => {
   const out = mergeStorageState(base, incoming);
   expect(out.origins).toHaveLength(2);
   const ex = out.origins.find((o) => o.origin === 'https://example.com')!;
+  // `token` c'era gia\': resta quello della base. `extra` mancava: entra.
   expect(ex.localStorage).toEqual([
     { name: 'theme', value: 'dark' },
-    { name: 'token', value: 'NUOVO' },
+    { name: 'token', value: 'VECCHIO' },
     { name: 'extra', value: 'e' },
   ]);
   // L'origine che l'arrivo non nomina resta intatta.
