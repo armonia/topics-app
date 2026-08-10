@@ -11,7 +11,19 @@ function marker(
   createdAt = '2026-01-01',
   tokens?: { preTokens?: number; postTokens?: number },
 ): CompactionMarker {
-  return { id, afterMessageId, trigger: 'auto', createdAt, ...tokens };
+  // `topicId` e `sessionKey` non li legge `partitionMarkers`, ma un marcatore
+  // senza di essi non esiste: il server li scrive sempre (sono le due chiavi
+  // con cui la riga viene letta indietro). Una fixture che li ometteva
+  // descriveva una riga che il sistema non produce.
+  return {
+    id,
+    topicId: 'topic-1',
+    sessionKey: 'topic-1:main',
+    afterMessageId,
+    trigger: 'auto',
+    createdAt,
+    ...tokens,
+  };
 }
 
 describe('partitionMarkers', () => {

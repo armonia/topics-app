@@ -1,6 +1,7 @@
 import { describe, test, expect } from "bun:test";
 import { paneReducer } from "./panes";
 import { selectLocalSnapshot, selectSyncableSnapshot } from "../selectors";
+import { overTheWire } from "../testSupport";
 import type { PaneState, Pane } from "../types";
 
 /**
@@ -33,7 +34,7 @@ const close = (s: PaneState, id: string) => {
 };
 
 const reload = (prev: PaneState): PaneState => {
-  const snap = selectLocalSnapshot(prev);
+  const snap = overTheWire(selectLocalSnapshot(prev));
   const fresh = blank(prev.activeSpaceId);
   paneReducer(fresh, {
     type: "HYDRATE_FROM_SNAPSHOT",
@@ -93,7 +94,7 @@ describe("multi-client union preserves spaceId AND the tombstone together", () =
     paneReducer(A, { type: "SPACE_UPSERT", payload: { space: { id: "space:work", name: "Work" } } });
     paneReducer(A, { type: "SET_ACTIVE_SPACE", payload: { id: "space:work" } });
     open(A, "browser:X");
-    const snapA = selectSyncableSnapshot(A);
+    const snapA = overTheWire(selectSyncableSnapshot(A));
     paneReducer(B, {
       type: "HYDRATE_FROM_SNAPSHOT",
       payload: { snapshot: { ...snapA, server_seq: 1, seq: 1 } },
@@ -105,7 +106,7 @@ describe("multi-client union preserves spaceId AND the tombstone together", () =
     close(B, "browser:X");
 
     // A (stale — still lists X, empty closedStack) PUTs again.
-    const snapA2 = selectSyncableSnapshot(A);
+    const snapA2 = overTheWire(selectSyncableSnapshot(A));
     paneReducer(B, {
       type: "HYDRATE_FROM_SNAPSHOT",
       payload: { snapshot: { ...snapA2, server_seq: 2, seq: 2 } },

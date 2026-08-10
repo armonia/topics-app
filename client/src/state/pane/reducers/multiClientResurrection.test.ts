@@ -1,6 +1,7 @@
 import { describe, test, expect } from "bun:test";
 import { paneReducer } from "./panes";
 import { selectSyncableSnapshot } from "../selectors";
+import { overTheWire } from "../testSupport";
 import type { PaneState, Pane } from "../types";
 
 /**
@@ -37,7 +38,7 @@ const close = (s: PaneState, id: string) => {
 let serverSeq = 0;
 // Emulate the server: A PUTs, the server bumps server_seq, B hydrates the PUT.
 const sync = (from: PaneState, to: PaneState) => {
-  const snap = selectSyncableSnapshot(from);
+  const snap = overTheWire(selectSyncableSnapshot(from));
   serverSeq += 1;
   paneReducer(to, {
     type: "HYDRATE_FROM_SNAPSHOT",
