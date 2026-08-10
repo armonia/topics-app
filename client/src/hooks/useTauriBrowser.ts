@@ -26,7 +26,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { tauriInvoke, currentWindowLabel } from '../lib/shell/tauri';
 import { markBrowserViewLive, markBrowserViewDead } from '../lib/shell/nativeBrowserRoster';
-import { decideFreeze, liveSlotRect, onOcclusionChange } from '../lib/shell/browserOcclusion';
+import { currentOverlays, decideFreeze, liveSlotRect, onOcclusionChange, type OverlayRect } from '../lib/shell/browserOcclusion';
 import { serverWsBase } from '../lib/shell/net';
 import { executeNativeBrowserOp } from '../lib/shell/tauriBrowserOps';
 import { stepZoom, DEFAULT_ZOOM } from '../lib/shell/zoomScale';
@@ -438,17 +438,25 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
   // overlay renders over it; thaw when nothing covers it anymore. Replaces the old
   // global off-screen park, whose 30ms-debounce vs per-frame-poll race left a
   // visible 20-50ms vanish — and which hid every pane for any overlay anywhere.
-  useEffect(() => {
-    return onOcclusionChange((rects) => {
-      if (!openedRef.current) return;
-      // Il rettangolo VIVO dal DOM, non quello chiesto l'ultima volta alla vista
-      // nativa: la cache non si aggiorna quando la vista si parcheggia, e basta
-      // uno split ridimensionato perché descriva un posto che non esiste più.
-      // La cache resta come ripiego finché lo slot non è nel DOM (montaggio).
-      const slot = liveSlotRect(id) ?? pendingRectRef.current;
-      if (decideFreeze(slot, rects)) freeze(); else thaw();
-    });
+  //
+  // UNA sola porta per la decisione, perché non la chiede solo l'arrivo di un
+  // overlay: anche la pane che si APRE mentre un modale è già aperto deve
+  // deciderlo, e in quel momento non sta cambiando niente — nessuna notifica
+  // arriverebbe mai, e la webview appena creata si disegnerebbe sopra il modale
+  // restandoci fino alla sua chiusura.
+  const evaluateOcclusion = useCallback((rects: readonly OverlayRect[] = currentOverlays()) => {
+    if (!openedRef.current) return;
+    // Il rettangolo VIVO dal DOM, non quello chiesto l'ultima volta alla vista
+    // nativa: la cache non si aggiorna quando la vista si parcheggia, e basta
+    // uno split ridimensionato perché descriva un posto che non esiste più.
+    // La cache resta come ripiego finché lo slot non è nel DOM (montaggio).
+    const slot = liveSlotRect(id) ?? pendingRectRef.current;
+    if (decideFreeze(slot, rects)) freeze(); else thaw();
   }, [freeze, thaw, id]);
+  const evaluateOcclusionRef = useRef(evaluateOcclusion);
+  evaluateOcclusionRef.current = evaluateOcclusion;
+
+  useEffect(() => onOcclusionChange((rects) => evaluateOcclusion(rects)), [evaluateOcclusion]);
 
   // NOTE: deliberately NO freeze-on-sidebar-animation. Hiding the live pane behind
   // a still just to survive the slide would be a kludge (same family as blanking
@@ -501,6 +509,11 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
   useEffect(() => {
     if (!ready) return;
     void setNativeVisible(isVisible || agentActive || agentOpsInFlightRef.current > 0);
+    // Una pane che TORNA visibile (cambio di scheda con una scorciatoia, un
+    // pannello che si riapre) rientra in scena senza che nessun overlay si sia
+    // mosso: stessa cecità dell'apertura, stesso rimedio — si guarda com'è il
+    // mondo adesso invece di aspettare un cambiamento che non arriverà.
+    if (isVisible) evaluateOcclusionRef.current();
   }, [ready, isVisible, agentActive, setNativeVisible]);
 
   // Create the native webview once per contextId; close on unmount. (Electron
@@ -576,6 +589,14 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
         // sapere quale porta non risponde.
         setUrl(wantedUrl === 'about:blank' ? '' : wantedUrl);
         if (pendingRectRef.current) setBounds(pendingRectRef.current);
+        // …e SUBITO dopo averla messa al suo posto, guardare se quel posto è
+        // già coperto. Fin qui l'occlusione la decideva soltanto l'arrivo di un
+        // overlay: una pane che si apre sotto un modale GIÀ aperto non riceveva
+        // mai quella notifica — non stava cambiando niente — e la webview
+        // nativa, che composita sopra il DOM, restava sopra il modale finché
+        // qualcuno non lo chiudeva. `openedRef` è appena diventato vero, quindi
+        // la valutazione (che si ferma sulle pane non aperte) ora conta.
+        evaluateOcclusionRef.current();
     };
     // browser_open used to fail silently: a transient IPC/shell hiccup left the
     // pane stuck on "Initializing native browser…" forever, with no signal to
