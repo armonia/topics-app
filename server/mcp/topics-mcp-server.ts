@@ -27,6 +27,7 @@ import {
   BRIDGED_BROWSER_ENDPOINTS,
   type McpToolAnnotations,
 } from "../browser-tool-spec";
+import { PREVIEW_RULE } from "../../shared/board";
 
 interface JsonRpcRequest {
   jsonrpc: "2.0";
@@ -278,6 +279,10 @@ const TOOLS = [
         output_url: { type: "string", description: "LEGACY — seeds the task's first browser tab; prefer open_browser_pane, which opens the tab directly. Empty string clears it." },
         text: { type: "string", description: "Rewrite the task title (clear + concise) — use it to polish a raw composer-born title." },
         description: { type: "string", description: "Rewrite/fill the task description." },
+        // La descrizione È `PREVIEW_RULE`, verbatim: lo schema del tool è uno
+        // dei posti in cui l'agente legge la regola, e finché era un riassunto
+        // scritto qui diceva due rami mentre il protocollo ne diceva tre.
+        preview_image: { type: "string", description: PREVIEW_RULE },
       },
       required: ["task_id"],
     },
@@ -1270,7 +1275,7 @@ export async function callListTasks(
 
 export async function callUpdateTask(
   args: ParsedArgs,
-  toolArgs: { task_id?: unknown; status?: unknown; priority?: unknown; assignee?: unknown; output_url?: unknown; text?: unknown; description?: unknown },
+  toolArgs: { task_id?: unknown; status?: unknown; priority?: unknown; assignee?: unknown; output_url?: unknown; text?: unknown; description?: unknown; preview_image?: unknown },
   fetchImpl: typeof fetch = fetch,
 ): Promise<string> {
   if (typeof toolArgs?.task_id !== "string" || !toolArgs.task_id) {
@@ -1286,8 +1291,18 @@ export async function callUpdateTask(
   if (typeof toolArgs.output_url === "string") patch.output_url = toolArgs.output_url;
   if (typeof toolArgs.text === "string" && toolArgs.text.trim()) patch.text = toolArgs.text;
   if (typeof toolArgs.description === "string") patch.description = toolArgs.description;
+  // L'ANTEPRIMA. Mancava, e il protocollo la documentava: `docs/board-protocol.md`
+  // dice `update_task(previewImage=…)` e l'envelope di dispatch porta quel testo a
+  // ogni agente — ma lo schema di questo tool non aveva il campo, quindi il
+  // parametro veniva scartato in SILENZIO. Tre consegne di fila hanno scritto
+  // «anteprima allegata» con la card vuota, e sembravano bugie: erano agenti che
+  // seguivano il protocollo mentre lo strumento buttava via il valore.
+  // La rotta REST lo accettava gia' (routes/tasks.ts) e lo passa per l'allowlist
+  // `filterMedia`, che resta l'unico cancello: qui non si valida il path, si
+  // smette solo di perderlo per strada.
+  if (typeof toolArgs.preview_image === "string") patch.previewImage = toolArgs.preview_image;
   if (Object.keys(patch).length === 0) {
-    throw new Error("update_task: provide at least one of 'status', 'priority', 'assignee', 'output_url', 'text', 'description'");
+    throw new Error("update_task: provide at least one of 'status', 'priority', 'assignee', 'output_url', 'text', 'description', 'preview_image'");
   }
   const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/tasks/${encodeURIComponent(toolArgs.task_id)}`;
   const body = await httpJson<UpdateTaskResp>(args, "PATCH", path, patch, fetchImpl);
