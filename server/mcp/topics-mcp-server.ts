@@ -278,6 +278,11 @@ const TOOLS = [
         output_url: { type: "string", description: "http(s) URL of the reviewable output, shown in the task's review panel. Empty string clears it." },
         text: { type: "string", description: "Rewrite the task title (clear + concise) — use it to polish a raw composer-born title." },
         description: { type: "string", description: "Rewrite/fill the task description." },
+        preview_image: {
+          type: "string",
+          description:
+            "Absolute path to the DURABLE preview shown on the card and in the drawer — a .png for static UI, a .webm/.mp4 for behaviour (a screenshot does not prove a behaviour). Must live under ~/.topics/media/ or the task workspace, or it is rejected. Empty string clears it.",
+        },
       },
       required: ["task_id"],
     },
@@ -1270,7 +1275,7 @@ export async function callListTasks(
 
 export async function callUpdateTask(
   args: ParsedArgs,
-  toolArgs: { task_id?: unknown; status?: unknown; priority?: unknown; assignee?: unknown; output_url?: unknown; text?: unknown; description?: unknown },
+  toolArgs: { task_id?: unknown; status?: unknown; priority?: unknown; assignee?: unknown; output_url?: unknown; text?: unknown; description?: unknown; preview_image?: unknown },
   fetchImpl: typeof fetch = fetch,
 ): Promise<string> {
   if (typeof toolArgs?.task_id !== "string" || !toolArgs.task_id) {
@@ -1286,8 +1291,18 @@ export async function callUpdateTask(
   if (typeof toolArgs.output_url === "string") patch.output_url = toolArgs.output_url;
   if (typeof toolArgs.text === "string" && toolArgs.text.trim()) patch.text = toolArgs.text;
   if (typeof toolArgs.description === "string") patch.description = toolArgs.description;
+  // L'ANTEPRIMA. Mancava, e il protocollo la documentava: `docs/board-protocol.md`
+  // dice `update_task(previewImage=…)` e l'envelope di dispatch porta quel testo a
+  // ogni agente — ma lo schema di questo tool non aveva il campo, quindi il
+  // parametro veniva scartato in SILENZIO. Tre consegne di fila hanno scritto
+  // «anteprima allegata» con la card vuota, e sembravano bugie: erano agenti che
+  // seguivano il protocollo mentre lo strumento buttava via il valore.
+  // La rotta REST lo accettava gia' (routes/tasks.ts) e lo passa per l'allowlist
+  // `filterMedia`, che resta l'unico cancello: qui non si valida il path, si
+  // smette solo di perderlo per strada.
+  if (typeof toolArgs.preview_image === "string") patch.previewImage = toolArgs.preview_image;
   if (Object.keys(patch).length === 0) {
-    throw new Error("update_task: provide at least one of 'status', 'priority', 'assignee', 'output_url', 'text', 'description'");
+    throw new Error("update_task: provide at least one of 'status', 'priority', 'assignee', 'output_url', 'text', 'description', 'preview_image'");
   }
   const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/tasks/${encodeURIComponent(toolArgs.task_id)}`;
   const body = await httpJson<UpdateTaskResp>(args, "PATCH", path, patch, fetchImpl);
