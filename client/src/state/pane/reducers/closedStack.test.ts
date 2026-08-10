@@ -1,7 +1,8 @@
 import { describe, test, expect } from "bun:test";
 import { paneReducer } from "./panes";
-import type { PaneState, ClosedPaneRecord, Pane } from "../types";
+import type { ClosedPaneRecord, Pane } from "../types";
 import { CLOSED_STACK_MAX } from "../types";
+import { blankPaneState as blankState } from "../testSupport";
 
 /**
  * Focused contract tests for the recently-closed-tab substrate that powers
@@ -15,16 +16,6 @@ import { CLOSED_STACK_MAX } from "../types";
  *   - PUSH_CLOSED_RECORD (project-inner closes) gets a reducer-assigned seq and
  *     respects the bound
  */
-
-const blankState = (): PaneState => ({
-  panes: {},
-  groups: {},
-  closedStack: [],
-  focusedPaneId: null,
-  groupOrder: [],
-  lastSeq: 0,
-  lastServerSeq: 0,
-});
 
 const chatPane = (id: string): Pane => ({ id, type: "chat", title: id, topicId: id });
 

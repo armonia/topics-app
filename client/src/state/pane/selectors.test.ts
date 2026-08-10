@@ -2,6 +2,7 @@ import { describe, test, expect } from "bun:test";
 import { selectSyncableSnapshot, selectLocalSnapshot, filterVisiblePaneIds, selectVisiblePaneIds, resolveBootFocus, hasVisiblePane } from "./selectors";
 import type { PaneState, Pane, ClosedPaneRecord, SpaceMeta } from "./types";
 import { DEFAULT_SPACE_ID } from "./types";
+import { blankPaneState as blankState } from "./testSupport";
 
 /**
  * Un registro di spazi VIVO, tipizzato.
@@ -15,14 +16,6 @@ const spaceRegistry = (id: string, name: string): Record<string, SpaceMeta> => (
   [id]: { id, name, order: 0, updatedAt: 1 },
 });
 
-const blankState = (): PaneState => ({
-  panes: {},
-  groups: {},
-  closedStack: [],
-  focusedPaneId: null,
-  groupOrder: [],
-  lastSeq: 0,
-});
 
 describe("selectSyncableSnapshot (PANE-02)", () => {
   test("strips BOTH outer and nested scrollOffset from closedStack records", () => {
@@ -77,7 +70,12 @@ describe("selectSyncableSnapshot (PANE-02)", () => {
 
     const snapshot = selectSyncableSnapshot(state);
 
-    expect(snapshot.panes["file:a"].scrollOffset).toBeUndefined();
+    // Il tipo di ritorno dichiara gia' `Omit<Pane, "scrollOffset">`, quindi la
+    // proprieta' non esiste in compilazione: qui si verifica che la STRIP
+    // avvenga davvero a runtime — una spread che ricopiasse la pane intera
+    // continuerebbe a soddisfare il tipo e a far viaggiare il campo.
+    const wirePane: Record<string, unknown> = snapshot.panes["file:a"];
+    expect(wirePane.scrollOffset).toBeUndefined();
     expect(snapshot.panes["file:a"].id).toBe("file:a");
   });
 });
