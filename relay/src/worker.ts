@@ -2,12 +2,18 @@
  * Il relay di Topics: instrada, e non capisce.
  *
  * Tre porte per chi parla già il protocollo:
- *   `GET /agent/:installationId`  ← la MACCHINA, che chiama FUORI
- *   `GET /s/:installationId`      ← l'OSPITE, che apre un link
- *   `GET /d/:installationId`      ← il DISPOSITIVO appaiato, da un'altra rete
+ *   `GET /agent/:relayId`  ← la MACCHINA, che chiama FUORI
+ *   `GET /s/:relayId`      ← l'OSPITE, che apre un link
+ *   `GET /d/:relayId`      ← il DISPOSITIVO appaiato, da un'altra rete
  *
  * …e una per chi non parla niente:
- *   `*   /i/:installationId/…`    ← il BROWSER, che ha solo aperto un indirizzo
+ *   `*   /i/:relayId/…`    ← il BROWSER, che ha solo aperto un indirizzo
+ *
+ * `relayId` è il nome del punto d'incontro, ed è il DIGEST di un segreto che
+ * non esce dalla macchina (`shared/relay-identita.ts`). Tre porte su quattro
+ * non chiedono altro — chi arriva con un link ha solo il nome, ed è giusto
+ * così. La prima chiede la preimmagine, perché non domanda una risorsa:
+ * dichiara di ESSERE la macchina.
  *
  * Le prime tre sono agganci: chiedono un upgrade WebSocket e da lì in poi il
  * tubo. La quarta è una traduzione — una richiesta HTTPS qualunque entra, esce
@@ -46,6 +52,7 @@
 export { SessioneRelay } from "./relay-do";
 import { PAGINA_OSPITE } from "./pagina-ospite";
 import { PERCORSO_PONTE } from "./ponte";
+import { INTESTAZIONE_SEGRETO, segretoCorrisponde } from "../../shared/relay-identita";
 
 /** Quale installazione sta guardando questo browser. */
 export const BISCOTTO_INSTALLAZIONE = "topics_inst";
@@ -184,6 +191,29 @@ export default {
     const [, ruolo, installationId] = m;
     if (req.headers.get("upgrade") !== "websocket") {
       return new Response("serve un upgrade websocket", { status: 426 });
+    }
+
+    // ── LA PORTA DELLA MACCHINA CHIEDE LA PREIMMAGINE ───────────────────────
+    //
+    // Le altre due porte non chiedono niente, ed è giusto: un ospite arriva con
+    // un link e ciò che può aprire lo decide la macchina, non il relay. Questa
+    // è diversa, perché non chiede una risorsa — dichiara di ESSERE la
+    // macchina. E il Durable Object, per non tenere due host insieme, sfratta
+    // quello di prima quando ne arriva uno nuovo: senza questo controllo, chi
+    // conosceva il nome (cioè chiunque avesse ricevuto un link, dove il nome
+    // sta scritto) poteva cacciare la macchina e prendersi tutto il traffico
+    // dei suoi ospiti.
+    //
+    // Il controllo è una funzione pura e basta a se stessa: il nome è il digest
+    // di un segreto, quindi chi presenta il segreto dimostra di aver creato il
+    // nome. Nessun registro, nessuno stato, nessun primo-che-arriva-vince — e
+    // il relay continua a non sapere CHI sei (RELAY-04), sa solo che quel nome
+    // potevi costruirlo tu.
+    if (ruolo === "agent") {
+      const ok = await segretoCorrisponde(req.headers.get(INTESTAZIONE_SEGRETO), installationId ?? "");
+      // Lo stesso corpo che darebbe un nome inesistente: a chi bussa senza
+      // segreto non si conferma che quel punto d'incontro esiste.
+      if (!ok) return new Response("not found", { status: 404 });
     }
 
     // `idFromName` dà lo STESSO oggetto per lo stesso nome, sempre: è ciò che
