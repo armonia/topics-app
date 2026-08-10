@@ -30,8 +30,29 @@
 /** Iniettata da server.ts appena il tracker esiste (nasce dopo il contesto). */
 let parkBySessionKey: ((sessionKey: string) => void) | null = null;
 
-export function configureSessionParking(fn: (sessionKey: string) => void): void {
+function configureSessionParking(fn: (sessionKey: string) => void): void {
   parkBySessionKey = fn;
+}
+
+/** Il pezzo di tracker che serve al parcheggio, e nient'altro. */
+interface ParkableTracker {
+  getSessionByKey(sessionKey: string): { claudeSessionId: string } | null;
+  noteDormant(claudeSessionId: string): boolean;
+}
+
+/**
+ * Il collegamento vero fra la porta e il tracker: `sessionKey` → sessione →
+ * `dormant`. Sta QUI e non inline in server.ts perché è l'anello che un test
+ * d'integrazione deve poter montare identico a produzione — se la traduzione
+ * chiave→sessione vive dentro server.ts, il test ne monta una COPIA e la
+ * regressione può tornare proprio lì (l'unico posto non coperto). Chiamata una
+ * volta al boot, subito dopo che il tracker esiste.
+ */
+export function configureSessionParkingForTracker(tracker: ParkableTracker): void {
+  configureSessionParking((sessionKey) => {
+    const st = tracker.getSessionByKey(sessionKey);
+    if (st?.claudeSessionId) tracker.noteDormant(st.claudeSessionId);
+  });
 }
 
 /**
