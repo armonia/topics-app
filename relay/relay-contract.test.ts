@@ -186,6 +186,30 @@ describe("relay · non decide chi sei (RELAY-04)", () => {
     expect(CODICE).toContain("topics_inst");
   });
 
+  it("l'unica cosa che il Worker VERIFICA è che un nome sia il digest di un segreto", () => {
+    // Questo caso esiste perché il controllo sulla porta della macchina è un
+    // allargamento di RELAY-04, e un allargamento va guardato invece che
+    // subìto.
+    //
+    // La distinzione: il relay non impara CHI sei né COSA puoi vedere — quelle
+    // restano domande dell'installazione. Impara solo che chi si dichiara la
+    // macchina di un certo punto d'incontro sa costruirne il nome. È
+    // instradamento, come il biscotto `topics_inst`: dice QUALE macchina, non
+    // CHI sei.
+    //
+    // E la forma della verifica è ciò che tiene ferma la distinzione: una
+    // funzione pura, importata da `shared/`, senza niente da consultare. Se un
+    // giorno comparisse un elenco di chiavi ammesse — in `env`, nello storage,
+    // ovunque — il relay avrebbe cominciato a tenere un registro di chi è
+    // autorizzato, cioè la seconda autorità sull'identità che RELAY-04 esiste
+    // per non avere.
+    expect(CODICE).toContain("segretoCorrisponde");
+    expect(CODICE).toContain("relay-identita");
+    // Nessuna chiave che arrivi dalla configurazione del Worker: un segreto
+    // condiviso fra tutte le installazioni sarebbe uno solo da rubare.
+    expect(CODICE).not.toMatch(/env\.[A-Z_]*(KEY|SECRET|SEGRETO|TOKEN)/);
+  });
+
   it("il payload non viene mai ispezionato", () => {
     // Se comparisse un `JSON.parse(m.payload)`, il relay avrebbe cominciato a
     // capire quello che inoltra — e la promessa cadrebbe in silenzio.

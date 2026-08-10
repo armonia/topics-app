@@ -262,9 +262,17 @@ export interface AppContext {
    *  filtrato: si usa quando il destinatario è noto e il frame non porta
    *  un'entità su cui filtrare (vedi `auth:shares-changed`). */
   sendToDevice: (deviceId: string, message: OutboundMessage) => void;
-  /** Dove vive il relay e come si chiama questa installazione. `null` = spento,
-   *  e allora il gesto «condividi fuori rete» non si offre affatto. */
-  relayConfig?: () => { baseUrl: string | null; installationId: string };
+  /**
+   * Dove vive il relay, e i due nomi di questa macchina. `baseUrl: null` =
+   * spento, e allora il gesto «condividi fuori rete» non si offre affatto.
+   *
+   * `relayId` è quello che va nei link; `installationId` è quello a cui è
+   * legata la licenza e non deve finire in un URL. Sono separati apposta:
+   * quando erano lo stesso valore, mostrarne uno regalava l'altro
+   * (`shared/relay-identita.ts`). Il SEGRETO non è qui, e non deve arrivarci —
+   * questo oggetto viene servito da `/api/auth/relay`.
+   */
+  relayConfig?: () => { baseUrl: string | null; installationId: string; relayId: string };
   /** Il relay è collegato ADESSO. Diverso da «configurato»: serve a dire a chi
    *  crea un link se quel link funzionerà subito o solo quando torna la rete. */
   relayConnected?: () => boolean;

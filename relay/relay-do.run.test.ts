@@ -27,6 +27,7 @@ import { describe, expect, it } from "bun:test";
 import { SessioneRelay } from "./src/relay-do";
 import worker from "./src/worker";
 import { creaRelayFinto } from "../shared/relay-fake";
+import { derivaRelayId, INTESTAZIONE_SEGRETO } from "../shared/relay-identita";
 import { leggiMessaggio, type MessaggioRelay } from "../shared/relay-protocol";
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -183,11 +184,15 @@ function scenaWorker() {
     },
   } as unknown as Parameters<typeof worker.fetch>[1];
 
-  async function chiedi(percorso: string, upgrade: boolean): Promise<Aggancio> {
+  async function chiedi(
+    percorso: string,
+    upgrade: boolean,
+    extra: Record<string, string> = {},
+  ): Promise<Aggancio> {
     ultimaCoppia = null;
     const res = await worker.fetch(new Request(
       `https://relay.test${percorso}`,
-      upgrade ? { headers: { upgrade: "websocket" } } : {},
+      { headers: { ...(upgrade ? { upgrade: "websocket" } : {}), ...extra } },
     ), env);
     const coppia = ultimaCoppia;
     return {
@@ -198,12 +203,35 @@ function scenaWorker() {
   }
 
   return {
-    /** Un aggancio WebSocket su un percorso. */
-    collega: (percorso: string) => chiedi(percorso, true),
+    /** Un aggancio WebSocket su un percorso, con le intestazioni che servono. */
+    collega: (percorso: string, extra: Record<string, string> = {}) => chiedi(percorso, true, extra),
+    /**
+     * L'aggancio della MACCHINA, con la preimmagine del nome.
+     *
+     * Esiste perché scrivere ogni volta l'intestazione a mano è il modo in cui
+     * un test finisce per provare il rifiuto invece della cosa che voleva
+     * provare — e quel rifiuto assomiglia molto a «funziona».
+     */
+    macchina: (p: PuntoDIncontro) => chiedi(`/agent/${p.id}`, true, { [INTESTAZIONE_SEGRETO]: p.segreto }),
     /** Una richiesta normale, senza upgrade. */
     semplice: (percorso: string) => chiedi(percorso, false),
     nodi,
   };
+}
+
+/** Un punto d'incontro: il segreto e il nome che ne discende. */
+interface PuntoDIncontro { segreto: string; id: string }
+
+/**
+ * Una coppia VERA, derivata con la stessa funzione che usa il Worker.
+ *
+ * Non una coppia inventata a mano: quella non corrisponderebbe, ogni aggancio
+ * verrebbe respinto, e mezza suite proverebbe il rifiuto credendo di provare
+ * l'inoltro.
+ */
+async function puntoDIncontro(seme: string): Promise<PuntoDIncontro> {
+  const segreto = `segreto-di-prova-${seme}-0123456789abcdef`;
+  return { segreto, id: await derivaRelayId(segreto) };
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -248,8 +276,9 @@ describe("worker eseguito · le tre porte", () => {
     // stesso Durable Object. Se `idFromName` non facesse incontrare i due, qui
     // il dispositivo troverebbe la macchina spenta.
     const w = scenaWorker();
-    const host = await w.collega("/agent/inst-1");
-    const disp = await w.collega("/d/inst-1");
+    const p = await puntoDIncontro("1");
+    const host = await w.macchina(p);
+    const disp = await w.collega(`/d/${p.id}`);
 
     expect(disp.res.status).toBe(101);
     expect(w.nodi.size).toBe(1);
@@ -258,14 +287,15 @@ describe("worker eseguito · le tre porte", () => {
 
   it("`/s/:id` resta la porta del LINK", async () => {
     const w = scenaWorker();
-    const host = await w.collega("/agent/inst-2");
-    await w.collega("/s/inst-2");
+    const p = await puntoDIncontro("2");
+    const host = await w.macchina(p);
+    await w.collega(`/s/${p.id}`);
     expect(host.mio.letti().at(-1)).toMatchObject({ t: "guest-joined", ruolo: "guest" });
   });
 
   it("`/agent/:id` è la macchina, e non è una sessione", async () => {
     const w = scenaWorker();
-    const host = await w.collega("/agent/inst-3");
+    const host = await w.macchina(await puntoDIncontro("3"));
     expect(host.res.status).toBe(101);
     // Nessun identificatore di sessione: la macchina non è un capo da servire.
     expect(host.mio.letti()[0]).toEqual({ t: "ready", v: 1 });
@@ -273,8 +303,10 @@ describe("worker eseguito · le tre porte", () => {
 
   it("due installazioni diverse non si incontrano", async () => {
     const w = scenaWorker();
-    await w.collega("/agent/inst-A");
-    const disp = await w.collega("/d/inst-B");
+    const a = await puntoDIncontro("A");
+    const b = await puntoDIncontro("B");
+    await w.macchina(a);
+    const disp = await w.collega(`/d/${b.id}`);
     // La macchina di A non è la macchina di B, e il dispositivo di B lo scopre
     // dicendoglielo — non con una pagina vuota.
     expect(disp.res.status).toBe(503);
@@ -302,12 +334,63 @@ describe("worker eseguito · le tre porte", () => {
     // diventerebbe un modo per farsi assegnare un ruolo che il percorso scritto
     // non nomina, e questo caso lo direbbe subito.
     const w = scenaWorker();
-    const host = await w.collega("/agent/inst-9");
-    const finto = await w.collega("/d/%2e%2e/agent/inst-9");
-    // È diventato un aggancio da MACCHINA — la seconda, che sfratta la prima —
-    // e non una sessione di dispositivo travestita.
-    expect(finto.mio.letti()[0]).toEqual({ t: "ready", v: 1 });
-    expect(host.suo.chiusa).toMatchObject({ code: 4000 });
+    const p = await puntoDIncontro("9");
+    const host = await w.macchina(p);
+    const finto = await w.collega(`/d/%2e%2e/agent/${p.id}`);
+    // La riduzione avviene: è letto come `/agent/:id`, non come una sessione di
+    // dispositivo travestita. E lì la porta chiede la preimmagine, che questo
+    // non ha — quindi non entra, e soprattutto NON sfratta chi c'era.
+    //
+    // Prima questo stesso caso finiva con la macchina vera cacciata da una
+    // richiesta che aveva solo indovinato un nome scritto in un link.
+    expect(finto.res.status).toBe(404);
+    expect(host.suo.chiusa).toBeNull();
+  });
+
+  it("il nome NON basta per dichiararsi la macchina", async () => {
+    // IL DIFETTO CHE QUESTO CHIUDE, e valeva la pena scriverlo per esteso.
+    //
+    // Il nome del punto d'incontro sta nei link condivisi: chiunque ne abbia
+    // ricevuto uno lo conosce. Prima era anche l'unica cosa che serviva per
+    // agganciarsi su `/agent/:id` — e siccome un host nuovo SFRATTA quello
+    // vecchio (`relay-do.ts`), chi aveva il link poteva cacciare la macchina e
+    // mettersi a ricevere il traffico dei suoi ospiti. La macchina si
+    // riconnetteva, il ladro pure, e chi vinceva era chi arrivava per ultimo.
+    const w = scenaWorker();
+    const p = await puntoDIncontro("assediato");
+    const vera = await w.macchina(p);
+    expect(vera.res.status, "controllo positivo: con la preimmagine si entra").toBe(101);
+
+    // Chi ha SOLO il nome — cioè chiunque abbia ricevuto un link.
+    const senza = await w.collega(`/agent/${p.id}`);
+    const sbagliato = await w.collega(`/agent/${p.id}`, { [INTESTAZIONE_SEGRETO]: "un-altro-segreto-lungo-abbastanza" });
+    // Vuoto e quasi-giusto contano come sbagliati: un digest di stringa vuota è
+    // comunque un digest, e senza il rifiuto anticipato verrebbe confrontato.
+    const vuoto = await w.collega(`/agent/${p.id}`, { [INTESTAZIONE_SEGRETO]: "" });
+    const troncato = await w.collega(`/agent/${p.id}`, { [INTESTAZIONE_SEGRETO]: p.segreto.slice(0, -1) });
+
+    for (const [nome, a] of [["senza", senza], ["sbagliato", sbagliato], ["vuoto", vuoto], ["troncato", troncato]] as const) {
+      // Lo stesso corpo di un nome che non esiste: a chi bussa senza la
+      // preimmagine non si conferma nemmeno che quel punto d'incontro ci sia.
+      expect(`${nome}→${a.res.status}`).toBe(`${nome}→404`);
+    }
+
+    // E la cosa che conta davvero: la macchina vera è ancora lì. Il rifiuto
+    // arriva PRIMA che il punto d'incontro venga svegliato, quindi nessuno
+    // sfratto — un 404 che passasse dopo l'aggancio avrebbe già fatto il danno.
+    expect(vera.suo.chiusa, "la macchina vera non è stata cacciata").toBeNull();
+    expect(w.nodi.size, "nessun punto d'incontro svegliato dai rifiutati").toBe(1);
+  });
+
+  it("le porte degli OSPITI non chiedono niente, ed è deliberato", async () => {
+    // Il controllo nuovo vale per una porta sola. Se scivolasse sulle altre due
+    // avremmo rotto la condivisione: un ospite arriva con un link e non ha —
+    // né deve avere — la preimmagine del nome.
+    const w = scenaWorker();
+    const p = await puntoDIncontro("ospiti");
+    await w.macchina(p);
+    expect((await w.collega(`/s/${p.id}`)).res.status).toBe(101);
+    expect((await w.collega(`/d/${p.id}`)).res.status).toBe(101);
   });
 
   it("la pagina dell'ospite resta servita, e non finisce in nessun indice", async () => {

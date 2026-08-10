@@ -17,7 +17,7 @@
 import { describe, expect, it } from "bun:test";
 import { creaProxyTubo, creaRelayClient, type ApriSocketLocale } from "./relay-client";
 import { leggiFramePayload, RELAY_PROTOCOL_VERSION, type FrameTubo } from "../../shared/relay-protocol";
-import { creaRelayFinto } from "../../shared/relay-fake";
+import { creaRelayFinto, SEGRETO_FINTO } from "../../shared/relay-fake";
 import { GENERE_WS, scriviTestaWs } from "../../shared/relay-ws";
 
 /** Il socket verso l'ascoltatore, ridotto a ciò che il proxy gli chiede. */
@@ -239,7 +239,8 @@ function macchina(opts: { avvia?: boolean } = {}): {
   const filo = new FiloFinto();
   const c = creaRelayClient({
     baseUrl: "http://relay.test",
-    installationId: "i1",
+    relayId: "i1",
+    segreto: SEGRETO_FINTO,
     trovaLink: () => null,
     serviRisorsa: async () => ({ status: 200, body: {} }),
     segnaApertura: () => {},
