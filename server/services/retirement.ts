@@ -34,13 +34,6 @@ import type { CascadeResult } from "./pane-retirement-cascade";
 
 export type RetirementKind = "pane" | "topic" | "terminal";
 
-export interface RetirementRow {
-  kind: RetirementKind;
-  refId: string;
-  retiredAt: string;
-  reason?: string;
-}
-
 /**
  * Timbra il ritiro. Ritorna `true` solo se la riga e' NUOVA — il valore su cui
  * un chiamante decide se fare anche le conseguenze (uccidere un PTY,
