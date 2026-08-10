@@ -1245,6 +1245,15 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 richiesta ogni N secondi (e la fetch è condivisa fra tutte le
                 tab bar, vedi `paneUsage.ts`). */}
             <span
+              // Ancora stabile per chi conta le tab da fuori. `.truncate.flex-1`
+              // non lo è: sono due utility di layout che oggi porta anche una
+              // riga dell'albero dei file e una riga di git — entrambe dentro
+              // `[role="main"]` — quindi un locator agganciato lì conta come
+              // «tab» cose che tab non sono. Il repo lo dichiara già altrove:
+              // «i locator dei test erano agganciati alle classi Tailwind, e
+              // rinominarne una li faceva passare a verde-vuoto senza che nulla
+              // fosse rotto. Un data-attribute è il vero appiglio».
+              data-testid="pane-tab-label"
               className={`truncate flex-1 min-w-0 ${pane.preview ? 'italic' : ''}`}
               onMouseEnter={ensurePaneUsageFresh}
               title={`${label}${formatPaneUsageLine(

@@ -131,8 +131,23 @@ export class FileExplorerPage {
     return this.page.locator('[data-testid="file-search"]');
   }
 
+  /**
+   * Apre la ricerca nel CONTENUTO.
+   *
+   * Era `Meta+Shift+f`, e quella scorciatoia non esiste più: oggi `⌘F` cerca
+   * dentro e `⌘P` cerca per nome (`useKeyboardShortcuts`, il commento «⌘P —
+   * apri un file per NOME» racconta il cambio). Nessuno ascoltava più
+   * `⌘⇧F`, quindi la modale non si apriva e i due test che la usano
+   * fallivano con «element(s) not found» — un rosso che era il TEST, non il
+   * prodotto.
+   *
+   * Il fuoco si toglie prima di premere: `⌘F` si rifiuta di rubare la find a un
+   * campo di testo (è l'unico ramo con quell'uscita, e ha una buona ragione),
+   * quindi con il compositore a fuoco il tasto non farebbe niente.
+   */
   async openFileSearch() {
-    await this.page.keyboard.press("Meta+Shift+f");
+    await this.page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await this.page.keyboard.press("Meta+f");
   }
 
   // --- Diff Viewer ---

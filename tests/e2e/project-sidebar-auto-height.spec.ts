@@ -25,16 +25,17 @@ const VECCHIA_ALTEZZA_PROCESSI = 150;
 
 /* PERCHÉ IL SOGGETTO È «PROCESSI» E NON «GIT».
  *
- * Git, in un progetto appena seminato, NON SI APRE: cinque clic con rilettura
- * dell'attributo in mezzo, e `aria-expanded` resta `false`. Misurato anche
- * contro il bundle di PRIMA di questa modifica — stesso esito, quindi è un
- * difetto preesistente e non una conseguenza dell'altezza automatica. Costruirci
- * sopra la prova dell'altezza vorrebbe dire legare un test verde a un bug
- * altrui: quando quello si risolve, questo comincerebbe a misurare un'altra
- * cosa senza dirlo.
+ * Non perché Git sia rotto — ci ero arrivato, e mi sbagliavo. Git si apre
+ * benissimo: quello che non funziona è il CLIC AL CENTRO, perché al centro
+ * della sua intestazione c'è il controllo del ramo, che apre il proprio menu e
+ * ferma la propagazione. Playwright, di default, clicca il centro. Lo
+ * documentava già `project-sidebar-sections-resize.spec.ts`, che infatti la
+ * apre premendo a `x: 24` — sull'etichetta.
  *
- * Processi si apre, e la differenza si legge lì con la stessa chiarezza:
- * misurato, il suo pannello valeva ESATTAMENTE 150px — cioè il numero fisso — e
+ * Il soggetto resta Processi per una ragione più noiosa e più solida: la sua
+ * intestazione non ha controlli dentro, quindi il test non dipende da DOVE
+ * atterra il clic. E la differenza si legge lì con la stessa chiarezza —
+ * misurato, il suo pannello valeva ESATTAMENTE 150px, cioè il numero fisso, e
  * adesso vale quanto il suo contenuto. */
 
 async function apri(page: import("@playwright/test").Page, request: import("@playwright/test").APIRequestContext, proj: string) {
