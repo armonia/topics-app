@@ -531,6 +531,19 @@ export const boardApi = {
       `/boards/${enc(projectId)}/tasks/${enc(taskId)}/attempts/${enc(attemptId)}/select`,
       { method: 'POST', body: JSON.stringify({}) },
     ),
+  /**
+   * La porta del composer verso l'ORCHESTRATORE — la sessione che ha questa
+   * board in contesto (`server/services/orchestrator.ts`).
+   *
+   * Non è una superficie nuova: risolve la STESSA sessione a cui si parla in
+   * chat, e la risposta arriva lì. Perciò qui non c'è nessuna regola — il
+   * client manda il testo e riceve dove è finito, niente altro.
+   */
+  askOrchestrator: (projectId: string, text: string) =>
+    req<{ topicId: string; sessionKey: string; created: boolean }>(
+      `/orchestrator/${enc(projectId)}/message`,
+      { method: 'POST', body: JSON.stringify({ text }) },
+    ),
   /** Scaffold a NEW workspace project (dir + CLAUDE.md); 409 on name collision. */
   createProject: (name: string) =>
     req<BoardProjectRef>('/all-boards/projects', { method: 'POST', body: JSON.stringify({ name }) }),
