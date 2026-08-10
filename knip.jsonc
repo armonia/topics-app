@@ -45,6 +45,11 @@
         // path in stringa: un riferimento che knip non può vedere.
         "scripts/licenza.ts!",
         "scripts/prefix-budget.ts!",      // diagnostica a mano: `bun run scripts/prefix-budget.ts [--probe]`
+        // Chi lo chiama: `scripts/check-occlusion.mjs` (`bun run check:occlusion`),
+        // che lo bundla con `bun build` per portare il modulo di occlusione VERO
+        // dentro un WebKit vero. Il riferimento è un path in stringa dentro un
+        // comando, non un import: knip non può vederlo.
+        "scripts/occlusion-probe-entry.ts!",
         "scripts/*.test.ts!",             // run by `bun test ./scripts` in test:unit
         // Everything else under scripts/ stays a PROJECT file only (see the
         // `project` list below). Listing the folder here — with or without `!` —
