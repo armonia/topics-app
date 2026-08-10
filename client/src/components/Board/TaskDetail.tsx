@@ -394,7 +394,7 @@ function AttemptDiff({ projectId, taskId, attemptId }: { projectId: string; task
       .catch(() => { if (alive) setState('error'); });
     return () => { alive = false; };
   }, [projectId, taskId, attemptId]);
-  if (state === 'loading') return <div className="mt-1.5 flex items-center gap-1 text-[11px] text-app-text-muted"><Spinner size="sm" tone="current" /> carico il diff…</div>;
+  if (state === 'loading') return <div className="mt-1.5 flex items-center gap-1 text-[11px] text-app-text-muted"><Spinner size="sm" tone="current" /> {tr('board.task.loadingDiff')}</div>;
   if (state === 'error') return <p className="mt-1.5 text-[11px] text-rose-300">{tr('board.task.diffUnreadable')}</p>;
   if (state.code === 'no_worktree' || state.stat.length === 0) return <p className="mt-1.5 text-[11px] text-app-text-muted">{tr('board.task.noChanges')}</p>;
   return (
@@ -988,7 +988,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                   <span key={d} className="h-1.5 w-1.5 animate-bounce rounded-full bg-sky-400/80" style={{ animationDelay: `${d}ms` }} />
                 ))}
                 <span className="ml-1.5 text-[11px] text-app-text-secondary">
-                  {task.dispatchState === 'queued' ? 'in coda…' : task.dispatchState === 'starting' ? 'avvio agent…' : 'agent al lavoro…'}
+                  {task.dispatchState === 'queued' ? tr('board.task.dispatch.queued') : task.dispatchState === 'starting' ? tr('board.task.dispatch.starting') : tr('board.task.dispatch.working')}
                   {task.inProgressAt && task.dispatchState === 'working' && (
                     <span className="text-app-text-muted"> <Ticker since={task.inProgressAt} /></span>
                   )}
@@ -996,9 +996,9 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               </div>
               <button
                 disabled={busy} onClick={stopAgent}
-                title="Ferma l'agent (il task torna in Backlog con il motivo)"
+                title={tr('board.task.stopAgentTitle')}
                 className="flex items-center gap-1 rounded bg-rose-500/15 px-2 py-1.5 text-[11px] text-rose-300 hover:bg-rose-500/25 disabled:opacity-50"
-              >{busy ? <Spinner size="sm" tone="current" /> : <Square className="h-3 w-3 fill-current" />} Ferma</button>
+              >{busy ? <Spinner size="sm" tone="current" /> : <Square className="h-3 w-3 fill-current" />} {tr('board.task.stopAgent')}</button>
             </div>
           </div>
         )}
@@ -1075,11 +1075,11 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
           ref={statusBtnRef}
           onClick={() => task && setStatusMenuOpen(true)}
           data-testid="task-status-chip"
-          title="Cambia lo stato del task"
+          title={tr('board.task.changeStatusTitle')}
           className="flex shrink-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-xs text-app-text-heading hover:bg-white/10"
         >
           {task ? <StatusIcon status={task.status} /> : <Spinner size="sm" tone="current" />}
-          {task ? STATUS_LABEL[task.status] : 'Carico…'}
+          {task ? STATUS_LABEL[task.status] : tr('board.task.loading')}
           <ChevronDown className="h-3 w-3 text-app-text-faint" />
         </button>
         {/* Condividere sta accanto allo STATO, non dentro un menù: è una
@@ -1109,7 +1109,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               ref={optionsBtnRef}
               onClick={() => setOptionsMenuOpen((o) => !o)}
               data-testid="task-options-menu"
-              title="Altre opzioni: piano prima, bloccato da, sottotask…"
+              title={tr('board.task.optionsTitle')}
               className="rounded p-1.5 text-app-text-secondary hover:bg-white/10"
             ><MoreHorizontal className="h-4 w-4" /></button>
           )}
@@ -1130,13 +1130,13 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 className={POPOVER_ITEM}
               >
                 <Lock className="h-3.5 w-3.5 shrink-0 text-app-text-secondary" />
-                <span className="min-w-0 flex-1 truncate">{blockerTask ? `Bloccato da: ${blockerTask.text}` : 'Bloccato da…'}</span>
+                <span className="min-w-0 flex-1 truncate">{blockerTask ? tr('board.task.blockedByText', { text: blockerTask.text }) : tr('board.task.blockedBy')}</span>
                 <ChevronRight className="h-3 w-3 shrink-0 text-app-text-muted" />
               </button>
               {task.blockedByTaskId && (
                 <button
                   role="menuitem" disabled={busy} onClick={toggleReuseContext}
-                  title="Quando parte, l'agent riceve il contesto della sessione del task bloccante invece di uno start a freddo"
+                  title={tr('board.task.reuseBlockerTitle')}
                   className={`${POPOVER_ITEM} disabled:opacity-40`}
                 >
                   <Bot className="h-3.5 w-3.5 shrink-0 text-app-text-secondary" />
@@ -1148,7 +1148,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               <button
                 role="menuitem" onClick={() => { setOptionsMenuOpen(false); setSubtasksOpen(true); setSubtaskComposerOpen(true); }}
                 className={POPOVER_ITEM}
-              ><Plus className="h-3.5 w-3.5 shrink-0 text-app-text-secondary" /> Aggiungi sottotask</button>
+              ><Plus className="h-3.5 w-3.5 shrink-0 text-app-text-secondary" /> {tr('board.task.addSubtask')}</button>
             </Menu>
           )}
           {task && (
@@ -1163,7 +1163,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             <button
               onClick={() => onOpenTopic(task.assignedTopicId!)}
               data-testid="task-open-session-tab"
-              title="Apri la tab dell'agent (chiuderla NON ferma la sessione)"
+              title={tr('board.task.openSessionTabTitle')}
               className="rounded p-1.5 text-app-text-secondary hover:bg-white/10"
             ><ArrowUpRight className="h-4 w-4" /></button>
           )}
@@ -1171,7 +1171,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             <button
               onClick={openInWorkspace}
               data-testid="task-open-in-workspace"
-              title="Apri il risultato come tab nel workspace del progetto"
+              title={tr('board.task.openResultWorkspaceTitle')}
               className="rounded p-1.5 text-app-text-secondary hover:bg-white/10"
             ><Globe className="h-4 w-4" /></button>
           )}
@@ -1182,13 +1182,13 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             title={wide ? 'Riduci il drawer (vedi la board)' : 'Allarga il drawer (più spazio per il tiling)'}
             className="hidden rounded p-1.5 text-app-text-secondary hover:bg-white/10 lg:block"
           >{wide ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}</button>
-          <button aria-label="Chiudi il dettaglio del task" onClick={onClose} className="rounded p-1.5 text-app-text-secondary hover:bg-white/10"><X className="h-4 w-4" /></button>
+          <button aria-label={tr('board.task.closeDetail')} onClick={onClose} className="rounded p-1.5 text-app-text-secondary hover:bg-white/10"><X className="h-4 w-4" /></button>
         </div>
       </div>
       {error && (
         <div className="flex shrink-0 items-start justify-between gap-2 border-b border-rose-500/20 bg-rose-500/10 px-3 py-1.5 text-[11px] text-rose-300">
           <span>{error}</span>
-          <button aria-label="Chiudi l'errore" onClick={() => setError(null)} className="shrink-0 rounded p-0.5 hover:bg-white/10"><X className="h-3 w-3" /></button>
+          <button aria-label={tr('board.task.closeError')} onClick={() => setError(null)} className="shrink-0 rounded p-0.5 hover:bg-white/10"><X className="h-3 w-3" /></button>
         </div>
       )}
       {/* Verdetto dell'audit di landing: un task chiuso il cui lavoro non è su
@@ -1221,7 +1221,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               <button
                 onClick={() => onOpenTask(task.parentTaskId!)}
                 className="mb-1.5 flex items-center gap-1 rounded bg-violet-500/15 px-1.5 py-0.5 text-[11px] text-violet-300 hover:bg-violet-500/25"
-              >⤴ Task padre</button>
+              >⤴ {tr('board.task.parentTask')}</button>
             )}
             {/* Project EYEBROW + PRIMARY STATE on one row — favicon + name on the
                 left, the dispatch chip aligned right (card's top-right slot). The
@@ -1232,7 +1232,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                   ref={projChipRef}
                   onClick={openProjMenu}
                   data-testid="task-project-chip"
-                  title={`Progetto: ${projectLabel} — sposta, apri o creane uno nuovo`}
+                  title={tr('board.task.projectChipTitle', { label: projectLabel })}
                   className="flex min-w-0 flex-1 items-center gap-1 text-[11px] text-app-text-secondary hover:text-app-text"
                 >
                   <ProjectFavicon path={currentProject?.path ?? ''} size={14} className="shrink-0" fallback={<span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400" />} />
@@ -1242,7 +1242,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 {(task.dispatchState && DISPATCH_CHIP[task.dispatchState]) ? (
                   <DispatchChip state={task.dispatchState} error={task.dispatchError} />
                 ) : (!task.dispatchState && task.dispatchError) ? (
-                  <span className="shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-[11px] text-rose-300" title={task.dispatchError}>fermato</span>
+                  <span className="shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-[11px] text-rose-300" title={task.dispatchError}>{tr('board.task.stopped')}</span>
                 ) : null}
               </div>
             )}
@@ -1260,16 +1260,16 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 onPick={doMove}
                 onCreate={doCreateProject}
                 busy={projBusy}
-                listLabel="Sposta su…"
+                listLabel={tr('board.task.moveProjectTo')}
                 headerNote={moveBlocked ? <p className="px-2.5 pb-1 text-[10px] leading-snug text-amber-300/90">{moveBlocked}</p> : undefined}
               />
               <div className={POPOVER_DIVIDER} />
               <button
                 role="menuitem" disabled={!currentProject}
                 onClick={doOpenProject}
-                title={currentProject ? `Apri la finestra di ${currentProject.name}` : 'Percorso del progetto non risolvibile'}
+                title={currentProject ? tr('board.task.openProjectWindow', { name: currentProject.name }) : tr('board.task.projectUnresolvable')}
                 className={`${POPOVER_ITEM} disabled:opacity-40`}
-              ><ArrowUpRight className="h-3.5 w-3.5" /> Apri progetto</button>
+              ><ArrowUpRight className="h-3.5 w-3.5" /> {tr('board.task.openProject')}</button>
             </Menu>
             {/* Title — FULL width (the dispatch state moved up to the project
                 eyebrow row, so nothing competes with it here). */}
@@ -1284,7 +1284,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             ) : (
               <p
                 onClick={() => { if (task) { setTitleDraft(task.text); setEditingTitle(true); } }}
-                title="Clicca per modificare il titolo"
+                title={tr('board.task.editTitleTitle')}
                 className="-mx-1.5 cursor-text rounded px-1.5 py-1 text-sm leading-5 text-app-text hover:bg-white/5"
               >{task?.text}</p>
             )}
@@ -1309,7 +1309,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                   }`}
                 >
                   <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${PRIORITY_DOT[task.priority] ?? PRIORITY_DOT[2]}`} />
-                  {task.priorityAuto ? 'Priorità auto' : PRIORITY_LABEL[task.priority] ?? 'Media'}
+                  {task.priorityAuto ? tr('board.task.priorityAuto') : PRIORITY_LABEL[task.priority] ?? 'Media'}
                   <ChevronDown className="h-3 w-3 shrink-0 text-app-text-faint" />
                 </button>
                 <Menu open={prioMenuOpen} anchorRef={prioBtnRef} onClose={() => setPrioMenuOpen(false)} minWidth={160} role="listbox">
@@ -1405,7 +1405,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 onChange={(e) => { setDescDraft(e.target.value); autoGrow(e.currentTarget); }}
                 onBlur={saveDesc}
                 onKeyDown={cancelKey}
-                placeholder="Descrizione…"
+                placeholder={tr('board.task.descPlaceholder')}
                 className="block w-full resize-none overflow-hidden rounded bg-white/5 px-1.5 py-0.5 text-sm leading-5 text-app-text-heading outline-none"
               />
             ) : task?.description ? (
@@ -1414,12 +1414,12 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                   onClick={toggleDescOpen}
                   className="flex w-full items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-app-text-muted hover:text-app-text-heading"
                 >
-                  {descOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />} Descrizione
+                  {descOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />} {tr('board.task.descLabel')}
                 </button>
                 {descOpen && (
                   <div
                     onClick={() => { setDescDraft(task.description ?? ''); setEditingDesc(true); }}
-                    title="Clicca per modificare la descrizione"
+                    title={tr('board.task.editDescTitle')}
                     className={`mt-1.5 cursor-text rounded px-1.5 py-0.5 text-sm leading-5 text-app-text-heading hover:bg-white/5 ${COMPACT_MD_CLS}`}
                   ><ChatMarkdown components={{}}>{task.description}</ChatMarkdown></div>
                 )}
@@ -1428,7 +1428,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               <button
                 onClick={() => { setDescDraft(''); setEditingDesc(true); }}
                 className="flex w-full items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-app-text-faint hover:text-app-text-secondary"
-              >+ descrizione…</button>
+              >{tr('board.task.addDesc')}</button>
             )}
             {/* Anteprima della consegna anche nel drawer (non solo sulla card):
                 intera, object-contain — il reviewer deve poter vedere TUTTO lo
@@ -1467,13 +1467,13 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                         <button
                           type="button"
                           onClick={() => browser.focusPane(mediaPaneIdFor(p))}
-                          title="Apri come tab nel workspace del task"
+                          title={tr('board.task.openAsTabTitle')}
                           className="min-w-0 flex-1 truncate text-left hover:text-white"
                         >{name}</button>
                         <a
                           href={getMediaUrl(p)}
                           download={name}
-                          title="Scarica il file"
+                          title={tr('board.task.downloadFileTitle')}
                           className="shrink-0 rounded p-1 text-app-text-secondary hover:bg-white/10 hover:text-white"
                         ><Download className="h-3.5 w-3.5" /></a>
                       </li>
@@ -1490,7 +1490,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
           {browser.parkedTabs.length > 0 && (
             <div className="flex shrink-0 items-center gap-1.5 overflow-x-auto border-b border-app-border px-3 py-2 scrollbar-topbar" data-testid="task-browser-previews">
               {browser.parkedTabs.map((t) => {
-                const label = t.title || hostLabel(t.url) || 'Nuova scheda';
+                const label = t.title || hostLabel(t.url) || tr('board.task.newTab');
                 return (
                   <div
                     key={t.contextId}
@@ -1498,16 +1498,16 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                   >
                     <button
                       onClick={() => browser.reopenTab(t.contextId)}
-                      title="Riapri questa scheda"
+                      title={tr('board.task.reopenTabTitle')}
                       className="flex items-center gap-1.5 px-2 py-1"
                     >
                       <Globe className="h-3 w-3 shrink-0" />
                       <span className="max-w-[10rem] truncate">{label}</span>
-                      <span className="text-[9px] uppercase tracking-wide text-app-text-faint">chiusa</span>
+                      <span className="text-[9px] uppercase tracking-wide text-app-text-faint">{tr('board.task.closedTab')}</span>
                     </button>
                     <button
                       onClick={(e) => { e.stopPropagation(); browser.removeTab(t.contextId); }}
-                      title="Rimuovi la scheda"
+                      title={tr('board.task.removeTabTitle')}
                       className="mr-1 rounded p-0.5 text-app-text-muted opacity-0 hover:bg-white/10 hover:text-app-text group-hover/prev:opacity-100"
                     ><X className="h-3 w-3" /></button>
                   </div>
@@ -1526,7 +1526,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               className="flex w-full items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-app-text-muted hover:text-app-text-heading"
             >
               {subtasksOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-              Sottotask{children.length > 0 ? ` · ${doneCount}/${children.length}` : ''}
+              {tr('board.task.subtasksLabel')}{children.length > 0 ? ` · ${doneCount}/${children.length}` : ''}
             </button>
             {subtasksOpen && (
               <div className="mt-1.5">
@@ -1539,7 +1539,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                     autoFocus={subtaskComposerOpen && children.length === 0}
                     onChange={(e) => setSubDraft(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addSubtask(); } }}
-                    placeholder="+ sottotask…"
+                    placeholder={tr('board.task.addSubtaskPlaceholder')}
                     className="w-full rounded bg-white/5 px-2 py-1 text-xs text-app-text outline-none placeholder:text-app-placeholder disabled:opacity-60"
                   />
                   {addingSub && <Spinner size="sm" tone="current" className="absolute right-1.5 top-1.5 text-app-text-secondary" />}
@@ -1568,7 +1568,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               className="flex w-full shrink-0 items-center gap-1 border-b border-app-border px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-app-text-muted hover:text-app-text-heading"
             >
               {workspaceOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-              Spazio di lavoro
+              {tr('board.task.workspaceLabel')}
             </button>
             {workspaceOpen && (
               <div className="flex min-h-0 flex-1 flex-col" data-testid="task-drawer-body">
@@ -1603,19 +1603,19 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                   <button
                     disabled={busy} onClick={() => decide('approve', { force: task.checksState === 'fail' })}
                     title={task.checksState === 'fail'
-                      ? "I checks pre-review sono rossi: approvando lo accetti comunque. La strada normale è Rifiuta, che rimanda l'output all'agent."
-                      : "Accetta e completa il task. NON fa il merge — per landare il branch su main usa 'Landa su main'."}
+                      ? tr('board.task.approveFailTitle')
+                      : tr('board.task.approveTitle')}
                     className={`flex flex-1 items-center justify-center gap-1.5 rounded px-2.5 py-1.5 text-xs font-medium text-white disabled:opacity-50 ${
                       task.checksState === 'fail'
                         ? 'bg-amber-600/80 hover:bg-amber-600'
                         : 'bg-emerald-500/80 hover:bg-emerald-500'
                     }`}
-                  >{busy ? <Spinner size="sm" tone="current" /> : <ShieldCheck className="h-3.5 w-3.5" />} {task.checksState === 'fail' ? 'Approva comunque' : 'Approva'}</button>
+                  >{busy ? <Spinner size="sm" tone="current" /> : <ShieldCheck className="h-3.5 w-3.5" />} {task.checksState === 'fail' ? tr('board.task.approveAnyway') : tr('board.task.approve')}</button>
                   <button
                     disabled={busy} onClick={() => decide('reject')}
-                    title={isAgentReview ? "Rifiuta (l'agent riparte senza indicazioni)" : 'Rifiuta'}
+                    title={isAgentReview ? tr('board.task.rejectTitle') : tr('board.task.reject')}
                     className="flex items-center gap-1.5 rounded bg-white/10 px-2.5 py-1.5 text-xs text-app-text hover:bg-white/20 disabled:opacity-50"
-                  ><ShieldX className="h-3.5 w-3.5" /> Rifiuta</button>
+                  ><ShieldX className="h-3.5 w-3.5" /> {tr('board.task.reject')}</button>
                 </div>
                 {/* Explicit landing — accept + merge the branch on main (local, no
                     push, build server-side). Separate from Approva by design: the
@@ -1623,9 +1623,9 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 {isAgentReview && (
                   <button
                     disabled={busy} onClick={doLand}
-                    title="Accetta e fai il merge del branch su main (locale, nessun push online). La build gira lato server; l'esito appare nel thread."
+                    title={tr('board.task.landTitle')}
                     className="flex w-full items-center justify-center gap-1.5 rounded bg-sky-500/80 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-sky-500 disabled:opacity-50"
-                  ><GitMerge className="h-3.5 w-3.5" /> Landa su main</button>
+                  ><GitMerge className="h-3.5 w-3.5" /> {tr('board.task.landOnMain')}</button>
                 )}
               </div>
             )}
@@ -1642,7 +1642,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                     )}
                     <button
                       onClick={() => setAttachments((prev) => prev.filter((p) => p.path !== a.path))}
-                      title="Rimuovi allegato"
+                      title={tr('board.task.removeAttachmentTitle')}
                       className="absolute -right-1.5 -top-1.5 hidden rounded-full bg-elevated p-0.5 text-app-text group-hover/att:block"
                     ><X className="h-2.5 w-2.5" /></button>
                   </span>
@@ -1656,7 +1656,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               />
               <button
                 onClick={() => fileInputRef.current?.click()} disabled={uploading || attachments.length >= 8}
-                title="Allega file (o incolla un'immagine nel campo)"
+                title={tr('board.task.attachFileTitle')}
                 className="rounded p-1.5 text-app-text-secondary hover:bg-white/10 disabled:opacity-40"
               >{uploading ? <Spinner size="md" tone="current" /> : <Paperclip className="h-4 w-4" />}</button>
               <textarea
@@ -1664,7 +1664,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 value={draft} onChange={(e) => { setDraft(e.target.value); saveCommentCursor(); }} rows={1}
                 onSelect={saveCommentCursor} onKeyUp={saveCommentCursor} onClick={saveCommentCursor}
                 onFocus={() => markActiveComposer(commentCursorKey)}
-                placeholder={isAgentReview ? 'Rispondi all\'agent…' : agentBusy ? 'Scrivi all\'agent mentre lavora — lo riceve al prossimo turno…' : 'Commenta…'}
+                placeholder={isAgentReview ? tr('board.task.replyPlaceholder') : agentBusy ? tr('board.task.steerPlaceholder') : tr('board.task.commentPlaceholder')}
                 onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
                 onPaste={(e) => {
                   const imgs = Array.from(e.clipboardData?.items ?? [])
@@ -1696,6 +1696,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
 export function SubtaskNode({ projectId, node, depth, onOpenTask }: {
   projectId: string; node: BoardTask; depth: number; onOpenTask?: (taskId: string) => void;
 }) {
+  const tr = useT();
   const [open, setOpen] = useState(false);
   const [kids, setKids] = useState<BoardTask[] | null>(null);
   const hasKids = node.subtaskCount > 0;
@@ -1724,7 +1725,7 @@ export function SubtaskNode({ projectId, node, depth, onOpenTask }: {
         {openable ? (
           <button
             onClick={() => onOpenTask?.(node.id)}
-            title="Apri il sottotask"
+            title={tr('board.task.openSubtaskTitle')}
             className={`min-w-0 flex-1 truncate text-left text-xs ${node.status === 'done' ? 'text-app-text-muted line-through' : 'text-app-text'}`}
           >{node.text}</button>
         ) : (
@@ -1791,7 +1792,7 @@ export function MediaViewer({ url, path }: { url: string; path: string }) {
     );
   }
   if (isPdf) {
-    return <iframe src={url} title="anteprima PDF" className="min-h-0 w-full flex-1 border-0 bg-white" />;
+    return <iframe src={url} title={tr('board.task.pdfPreviewTitle')} className="min-h-0 w-full flex-1 border-0 bg-white" />;
   }
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
@@ -1799,7 +1800,7 @@ export function MediaViewer({ url, path }: { url: string; path: string }) {
       <button
         onClick={() => openExternalOnce(url)}
         className="flex items-center gap-1 rounded bg-white/10 px-2.5 py-1.5 text-xs text-app-text hover:bg-white/20"
-      ><ExternalLink className="h-3.5 w-3.5" /> Apri nel browser</button>
+      ><ExternalLink className="h-3.5 w-3.5" /> {tr('board.task.openInBrowser')}</button>
     </div>
   );
 }
@@ -1895,6 +1896,7 @@ export function SessionSlice({ msgs, label, preview }: {
    *  session strip itself answers "come sta andando" at a glance. */
   preview?: string | null;
 }) {
+  const tr = useT();
   const [open, setOpen] = useState(false);
   // Only the AGENT's turns are "passaggi". Human/dispatcher turns injected into
   // the session (your steering, the kickoff envelope) are noise here: your side
@@ -1906,17 +1908,17 @@ export function SessionSlice({ msgs, label, preview }: {
     <div className="rounded-md border border-app-border-subtle bg-white/[0.02]">
       <button
         onClick={() => setOpen((o) => !o)}
-        title={open ? 'Comprimi' : 'Mostra i passaggi che la sessione ha fatto qui'}
+        title={open ? tr('board.task.collapse') : tr('board.task.showSteps')}
         className="flex w-full items-center gap-1.5 px-2 py-1 text-left text-[11px] text-app-text-muted hover:text-app-text-heading"
       >
         <Footprints className="h-3 w-3 shrink-0" />
-        <span>{label ?? 'Passaggi'}{steps.length > 0 && <span className="text-app-text-faint"> · {steps.length}</span>}</span>
+        <span>{label ?? tr('board.task.steps')}{steps.length > 0 && <span className="text-app-text-faint"> · {steps.length}</span>}</span>
         <ChevronDown className={`ml-auto h-3 w-3 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
       {!open && preview && (
         <p
           data-testid="task-stream-preview"
-          title="Anteprima live di ciò che sta streammando ora"
+          title={tr('board.task.streamPreviewTitle')}
           className="line-clamp-2 border-t border-app-border-subtle px-2.5 py-1.5 text-[11px] italic leading-snug text-app-text-muted"
         >…{preview}</p>
       )}
@@ -1946,6 +1948,7 @@ export function SessionSlice({ msgs, label, preview }: {
 }
 
 export function CommentBubble({ comment, onPreview }: { comment: TaskComment; onPreview?: (path: string) => void }) {
+  const tr = useT();
   // Machine-authored review evidence (live-preview screenshot from the verifier).
   // Distinct from human/agent speech: it never woke the agent, it just informs.
   if (comment.kind === 'review-note') {
@@ -1953,7 +1956,7 @@ export function CommentBubble({ comment, onPreview }: { comment: TaskComment; on
       <div className="pr-8">
         <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-2.5 py-1.5">
           <p className="mb-0.5 flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-emerald-400/80">
-            <Camera size={11} /> Anteprima
+            <Camera size={11} /> {tr('board.task.reviewPreview')}
           </p>
           <div className="text-sm text-app-text"><CommentBody content={comment.content} /></div>
           <MediaStrip media={comment.media} onPreview={onPreview} />
@@ -2037,19 +2040,19 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
     <div className="shrink-0 space-y-2 border-b border-app-border bg-app-inset px-3 py-2.5 text-xs text-app-text-heading">
       <div className="flex items-center justify-between">
         <span className="font-semibold text-app-text">{tr('board.settings.autoDispatch')}</span>
-        <button aria-label="Chiudi le impostazioni della board" onClick={onClose} className="rounded p-0.5 text-app-text-secondary hover:bg-white/10"><X className="h-3.5 w-3.5" /></button>
+        <button aria-label={tr('board.settings.close')} onClick={onClose} className="rounded p-0.5 text-app-text-secondary hover:bg-white/10"><X className="h-3.5 w-3.5" /></button>
       </div>
 
       <label
         className="flex cursor-pointer items-center justify-between gap-3"
-        title="Interruttore globale, vale per tutte le board. Il cap di agent in parallelo si imposta dal ▾ accanto al titolo della board."
+        title={tr('board.settings.dispatchOnTitle')}
       >
-        <span>Avvia un agent quando un task entra in <b>Todo</b></span>
+        <span>{tr('board.settings.dispatchOnPre')} <b>Todo</b></span>
         <input type="checkbox" checked={!!dispatchOn} onChange={onToggleDispatch} className="h-3.5 w-3.5 shrink-0 accent-emerald-500" />
       </label>
 
       <div className="flex items-center justify-between gap-2">
-        <span>Effort</span>
+        <span>{tr('board.settings.effort')}</span>
         <div className="flex gap-0.5">
           {EFFORTS.map((ef) => (
             <button
@@ -2060,14 +2063,14 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
         </div>
       </div>
 
-      <label className="flex items-center justify-between gap-2" title="Auto: un classificatore sceglie il modello per ogni task. Un modello fisso forza OGNI dispatch di questa board su quel modello (un task con modello esplicito vince comunque).">
-        <span>Modello</span>
+      <label className="flex items-center justify-between gap-2" title={tr('board.settings.modelTitle')}>
+        <span>{tr('board.settings.model')}</span>
         <select
           value={s.dispatchModel || 'auto'}
           onChange={(e) => patch({ dispatchModel: e.target.value })}
           className="max-w-[55%] rounded bg-black/5 dark:bg-white/5 px-1.5 py-0.5 text-app-text outline-none"
         >
-          <option value="auto">Auto (sceglie il classificatore)</option>
+          <option value="auto">{tr('board.settings.modelAuto')}</option>
           {models.map((m) => (
             <option key={m} value={m}>{friendlyModelLabel(m)}</option>
           ))}
@@ -2081,31 +2084,31 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
           globale non muove le board che l'avevano già letta. */}
       <label
         className="flex items-center justify-between gap-2"
-        title="In che lingua rispondono gli agent dispatchati su questa board. «Come le Impostazioni» segue la preferenza globale, la stessa di chat e terminale. Vale dal prossimo dispatch: la lingua entra nel prompt di sistema, e cambiarlo sotto una sessione viva è peggio del ritardo."
+        title={tr('board.settings.responseLanguageTitle')}
       >
-        <span>Lingua delle risposte</span>
+        <span>{tr('board.settings.responseLanguage')}</span>
         <select
           value={s.language || 'inherit'}
           onChange={(e) => patch({ language: e.target.value })}
           className="max-w-[55%] rounded bg-black/5 dark:bg-white/5 px-1.5 py-0.5 text-app-text outline-none"
           data-testid="board-language"
         >
-          <option value="inherit">Come le Impostazioni</option>
+          <option value="inherit">{tr('board.settings.langInherit')}</option>
           <option value="it">Italiano</option>
           <option value="en">English</option>
         </select>
       </label>
 
       <label className="flex cursor-pointer items-center justify-between">
-        <span>Isola ogni agent in un git worktree</span>
+        <span>{tr('board.settings.isolateWorktree')}</span>
         <input type="checkbox" checked={s.dispatchUseWorktree} onChange={(e) => patch({ dispatchUseWorktree: e.target.checked })} className="h-3.5 w-3.5 accent-emerald-500" />
       </label>
 
       <label
         className="flex items-center justify-between gap-2"
-        title="Quanti agent lavorano LO STESSO task in parallelo, ognuno nel suo worktree. A fine giro il task entra in review con il confronto dei tentativi e scegli tu quale tenere: gli altri (worktree, branch e chat) vengono buttati. Costa N volte: N agent veri, N slot del tetto di concorrenza. Richiede il worktree attivo."
+        title={tr('board.settings.fanoutTitle')}
       >
-        <span>Tentativi in parallelo <span className="text-app-text-muted">(fan-out)</span></span>
+        <span>{tr('board.settings.fanout')} <span className="text-app-text-muted">(fan-out)</span></span>
         <div className="flex gap-0.5">
           {FANOUT_CHOICES.map((n) => (
             <button
@@ -2121,7 +2124,7 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
       </label>
       {s.dispatchUseWorktree && (s.dispatchFanOut || 1) > 1 && (
         <p className="text-[11px] text-amber-300/80">
-          Ogni task in Todo parte {s.dispatchFanOut} volte e occupa {s.dispatchFanOut} slot del tetto: il conto dei token si moltiplica per {s.dispatchFanOut}.
+          {tr('board.settings.fanoutWarn', { n: s.dispatchFanOut ?? 1 })}
         </p>
       )}
 
@@ -2131,9 +2134,7 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
           era corretto e arrivava alla persona sbagliata. */}
       {s.dispatchUseWorktree && (s as { worktreeReady?: boolean }).worktreeReady === false && (
         <p className="text-[11px] leading-snug text-amber-300/90">
-          Questo progetto non è un repo git: con «worktree isolato» acceso ogni
-          task verrà bloccato. Spegnilo per eseguire in-place, oppure inizializza
-          un repo nella cartella del progetto.
+          {tr('board.settings.notRepoWarn')}
         </p>
       )}
 
@@ -2148,20 +2149,20 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
         onChange={patch}
       />
 
-      <label className="flex cursor-pointer items-center justify-between" title="Su Approva, mergia il branch del task in main nel checkout principale. Merge pulito → landa in locale (niente push); conflitto → rimanda all'agent del task; checkout sporco o non su main → salta con un commento. Richiede il worktree attivo.">
-        <span>Auto-merge su Approva</span>
+      <label className="flex cursor-pointer items-center justify-between" title={tr('board.settings.autoMergeTitle')}>
+        <span>{tr('board.settings.autoMerge')}</span>
         <input type="checkbox" checked={s.dispatchAutoMerge} disabled={!s.dispatchUseWorktree} onChange={(e) => patch({ dispatchAutoMerge: e.target.checked })} className="h-3.5 w-3.5 accent-emerald-500 disabled:opacity-40" />
       </label>
 
-      <label className="flex cursor-pointer items-center justify-between" title="Bridge only: l'agent ha solo i tool di Topics (task + browser) — meno token per turno. Fleet completa: eredita tutti gli MCP dell'utente (exa, gateway…), utile solo se i task usano quei tool.">
-        <span>Fleet MCP completa per gli agent</span>
+      <label className="flex cursor-pointer items-center justify-between" title={tr('board.settings.fullMcpTitle')}>
+        <span>{tr('board.settings.fullMcp')}</span>
         <input type="checkbox" checked={s.dispatchMcp === 'inherit'} onChange={(e) => patch({ dispatchMcp: e.target.checked ? 'inherit' : 'bridge-only' })} className="h-3.5 w-3.5 accent-emerald-500" />
       </label>
 
       <ReviewChecksField checks={s.reviewChecks} onSave={(reviewChecks) => patch({ reviewChecks })} />
 
       {dispatchOn && (
-        <p className="text-[11px] text-amber-300/80">Attivo: spostare un task in Todo avvierà un agent con permessi pieni.</p>
+        <p className="text-[11px] text-amber-300/80">{tr('board.settings.dispatchOnActive')}</p>
       )}
     </div>
   );
@@ -2177,6 +2178,7 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
  * un salvataggio a metà comando.
  */
 function ReviewChecksField({ checks, onSave }: { checks: ReviewCheck[]; onSave: (c: ReviewCheck[]) => void }) {
+  const tr = useT();
   const asText = (list: ReviewCheck[]) => list.map((c) => c.cmd).join('\n');
   const saved = asText(checks);
   // `null` = allineato al server, e il testo mostrato È quello salvato. Niente
@@ -2199,9 +2201,9 @@ function ReviewChecksField({ checks, onSave }: { checks: ReviewCheck[]; onSave: 
     <div className="space-y-1">
       <label
         className="flex items-center justify-between gap-2"
-        title="Eseguiti dal server nel worktree del task quando l'agent consegna. Uno rosso = review rifiutata, con l'output rimandato all'agent. Vuoto = nessun controllo. Tienili veloci: un gate da venti minuti lo spegni il primo giorno."
+        title={tr('board.settings.checksTitle')}
       >
-        <span>Checks pre-review <span className="text-app-text-muted">(un comando per riga)</span></span>
+        <span>{tr('board.settings.checks')} <span className="text-app-text-muted">(un comando per riga)</span></span>
         {checks.length > 0 && <span className="text-[10px] text-app-text-muted">{checks.length}/5</span>}
       </label>
       <textarea
