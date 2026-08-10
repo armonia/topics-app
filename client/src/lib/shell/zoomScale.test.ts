@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'bun:test';
-import { ZOOM_STEPS, DEFAULT_ZOOM, stepZoom } from './zoomScale';
+import {
+  ZOOM_STEPS, DEFAULT_ZOOM, stepZoom, zoomApplyJs, parseZoomStyle, zoomDrifted,
+} from './zoomScale';
 
 describe('zoomScale', () => {
   it('every step is a clean integer percentage', () => {
@@ -47,5 +49,70 @@ describe('zoomScale', () => {
     expect(stepZoom(33, 1)).toBe(50);
     // delta 0 just snaps
     expect(stepZoom(112, 0)).toBe(110);
+  });
+});
+
+describe('zoom survives a navigation', () => {
+  // The bug this guards: zoom is written as an inline style on the DOCUMENT, so
+  // every navigation (including the reload the device switcher fires on purpose)
+  // hands the pane a fresh document at 100% while the toolbar keeps showing the
+  // percentage the user picked. Drift detection is what lets the poll notice and
+  // put it back.
+
+  it('a fresh document reports no inline zoom, and that means 100%', () => {
+    // NOT "unknown": every navigated page reports '' here.
+    expect(parseZoomStyle('')).toBe(DEFAULT_ZOOM);
+    expect(parseZoomStyle(undefined)).toBe(DEFAULT_ZOOM);
+    expect(parseZoomStyle(null)).toBe(DEFAULT_ZOOM);
+  });
+
+  it('reads back both CSS zoom spellings', () => {
+    expect(parseZoomStyle('1.5')).toBe(150);
+    expect(parseZoomStyle('150%')).toBe(150);
+    expect(parseZoomStyle('0.5')).toBe(50);
+    expect(parseZoomStyle(' 1.25 ')).toBe(125);
+  });
+
+  it('treats an unparseable value as neutral rather than as a number', () => {
+    expect(parseZoomStyle('normal')).toBe(DEFAULT_ZOOM);
+    expect(parseZoomStyle('reset')).toBe(DEFAULT_ZOOM);
+  });
+
+  it('a page that lost the zoom has DRIFTED — this is the whole bug', () => {
+    expect(zoomDrifted(150, '')).toBe(true);
+    expect(zoomDrifted(50, '')).toBe(true);
+  });
+
+  it('a page that still carries it has not', () => {
+    expect(zoomDrifted(150, '1.5')).toBe(false);
+    expect(zoomDrifted(150, '150%')).toBe(false);
+  });
+
+  it('costs nothing on the common path: 100% over a fresh document is not drift', () => {
+    // Every navigation of every pane hits this. If it counted as drift, each one
+    // would spend an IPC re-applying a zoom that is already correct.
+    expect(zoomDrifted(DEFAULT_ZOOM, '')).toBe(false);
+  });
+
+  it('ignores float noise from the round-trip through a CSS string', () => {
+    expect(zoomDrifted(110, '1.1000000000000001')).toBe(false);
+    expect(zoomDrifted(110, '1.2')).toBe(true);
+  });
+
+  it('the applied JS round-trips through the parser for every step', () => {
+    // The writer and the reader must agree, or the poll would re-apply forever.
+    for (const step of ZOOM_STEPS) {
+      const js = zoomApplyJs(step);
+      const written = js.match(/zoom='([^']+)'/)?.[1];
+      expect(written).toBeDefined();
+      expect(zoomDrifted(step, written)).toBe(false);
+    }
+  });
+
+  it('the applied JS cannot throw into the caller', () => {
+    // It runs via browser_exec_js on an arbitrary page; a document that refuses
+    // the assignment must not reject the invoke.
+    expect(zoomApplyJs(150)).toContain('try{');
+    expect(zoomApplyJs(150)).toContain('catch(e){}');
   });
 });
