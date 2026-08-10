@@ -1299,7 +1299,13 @@ export function PanelGrid({
         void detachPaneToNewSpace(draggedId);
       }
     }
-  }, [draggingId, onClosePanel, windowId, sendWS]);
+    // `onClosePanel` NON è più una dipendenza: era il residuo del vecchio
+    // pop-out, che dopo aver aperto la finestra nuova chiudeva a mano la pane di
+    // partenza. Da quando fuori dalla finestra si va con `detachPaneToNewSpace`
+    // (vedi il commento sopra) questo corpo non lo legge più, quindi non c'è
+    // nessuna closure da tenere fresca — solo un'identità che cambiava a ogni
+    // render del padre e riarmava il callback per niente.
+  }, [draggingId, windowId, sendWS]);
 
   /* ---- Grid item drag & edge-drop ---- */
   const [draggingGridKey, setDraggingGridKey] = useState<string | null>(null);
