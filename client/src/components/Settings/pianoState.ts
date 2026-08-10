@@ -10,10 +10,16 @@
  * decide se il problema è suo o nostro.
  */
 
-/** I sette motivi, come li scrive `server/lib/licenza.ts`. */
-export type MotivoLicenza =
-  | 'no_token' | 'no_verification_key' | 'malformed'
-  | 'bad_signature' | 'other_installation' | 'expired' | 'valid';
+/**
+ * I sette motivi. La dichiarazione è UNA, in `shared/`: qui si ri-esporta.
+ *
+ * Ricopiarli qui sarebbe stato più comodo e sbagliato, e il cricchetto
+ * anti-specchio (`tests/unit/no-type-mirrors.test.ts`) lo ha detto al primo
+ * tentativo — due elenchi di sette voci sono due elenchi che un giorno ne
+ * hanno otto e sette, e a schermo diventa una chiave nuda in mezzo alla pagina.
+ */
+export type { MotivoLicenza } from '../../../../shared/licenza-motivi';
+import type { MotivoLicenza } from '../../../../shared/licenza-motivi';
 
 export interface StatoPiano {
   plan: 'free' | 'team';
