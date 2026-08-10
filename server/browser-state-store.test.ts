@@ -166,3 +166,15 @@ test("deleteStorageState also removes the persisted last url", async () => {
   await deleteStorageState(TEST_TOPIC);
   expect(loadLastUrl(TEST_TOPIC)).toBeNull();
 });
+
+test("storage.json non è leggibile dagli altri account della macchina", async () => {
+  // Contiene cookie di sessione IN CHIARO — e da quando esiste il passaggio
+  // nativa→condivisa (browser-session-handoff.ts) ci finiscono anche i login
+  // della WKWebView del Mac. Il file dei login sotto `_handles` è 0600 da
+  // sempre (browser-login-state.ts:117); questo era rimasto al default di
+  // umask, cioè leggibile da chiunque abbia un account su questa macchina.
+  const { statSync } = await import("fs");
+  await saveStorageState(TEST_TOPIC, FIXTURE_STATE);
+  const mode = statSync(join(TEST_DIR, "storage.json")).mode & 0o777;
+  expect(mode).toBe(0o600);
+});
