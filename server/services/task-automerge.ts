@@ -72,9 +72,7 @@ export interface AutoMergeDeps {
    */
   resolveTaskMerge: (taskId: string) => TaskMergeTarget | null;
   /** Injected for tests. Default: real `git` via Bun.spawn (never throws — returns the code). */
-  /** `stdin` serve a `git apply` (la patch arriva da `-`); le fake a due
-   *  parametri restano valide, un argomento in più non le disturba. */
-  runGit?: (cwd: string, args: string[], stdin?: string) => Promise<GitRunResult>;
+  runGit?: (cwd: string, args: string[]) => Promise<GitRunResult>;
   /**
    * Injected for tests. Default: `bun run build:client` via Bun.spawn with a
    * 5-minute kill switch (a wedged vite must never pin the approve queue).
@@ -83,14 +81,9 @@ export interface AutoMergeDeps {
   log?: (msg: string, err?: unknown) => void;
 }
 
-async function defaultRunGit(cwd: string, args: string[], stdin?: string): Promise<GitRunResult> {
+async function defaultRunGit(cwd: string, args: string[]): Promise<GitRunResult> {
   try {
-    const proc = Bun.spawn(["git", ...args], {
-      cwd,
-      stdout: "pipe",
-      stderr: "pipe",
-      ...(stdin === undefined ? {} : { stdin: new TextEncoder().encode(stdin) }),
-    });
+    const proc = Bun.spawn(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
     const [stdout, stderr] = await Promise.all([
       new Response(proc.stdout).text(),
       new Response(proc.stderr).text(),
@@ -176,43 +169,51 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
       const list = await runGit(cwd, ["rev-list", "--reverse", `${defaultBranch}..${branch}`, "--not", ...own.others]);
       const all = list.stdout.split("\n").map((x) => x.trim()).filter(Boolean);
       if (list.code !== 0 || all.length === 0) return { ok: false, conflict: false };
-      // Chi c'è già per CONTENUTO si salta. Un commit landato una volta resta
-      // nel range (`rev-list` guarda la discendenza, e il land ricopia invece di
-      // fondere: sha diverso, stesso contenuto), quindi rilandare la stessa card
-      // aggiungeva un commit VUOTO a main — successo apparente, e una storia che
-      // dice «landato due volte» quando è stato landato una volta.
-      // `git cherry` è esattamente questa domanda: '-' = già a monte per patch-id.
-      const cherry = await runGit(cwd, ["cherry", defaultBranch, branch]);
-      const already = new Set(
-        cherry.code === 0
-          ? cherry.stdout.split("\n").filter((l) => l.startsWith("-")).map((l) => l.slice(2).trim())
-          : [],
-      );
-      // `git cherry` non basta da solo: il land APPLICA il commit adattandolo al
+      // Un commit già landato resta nel range: `rev-list` guarda la discendenza,
+      // e il land RICOPIA invece di fondere, quindi la copia atterrata ha un altro
+      // sha. Rilandare la stessa card aggiungeva un commit VUOTO a main — successo
+      // apparente, e una storia che dice «landato due volte».
+      //
+      // Non si riconosce dal patch-id (`git cherry`): il pick ADATTA il commit al
       // main del momento, quindi la copia atterrata ha un patch-id diverso
-      // dall'originale e al giro dopo non viene riconosciuta. Misurato: lo stesso
-      // lavoro comparso TRE volte su main, le ultime due a vuoto.
-      // La prova che regge è l'altra: se la patch INVERSA si applica pulita, quel
-      // contenuto è già nell'albero — comunque sia arrivato.
-      const applied = async (sha: string): Promise<boolean> => {
-        if (already.has(sha)) return true;
-        const patch = await runGit(cwd, ["show", "--format=", "--patch", sha]);
-        if (patch.code !== 0 || !patch.stdout.trim()) return false;
-        const rev = await runGit(cwd, ["apply", "--reverse", "--check", "-"], patch.stdout);
-        return rev.code === 0;
-      };
-      const shas: string[] = [];
-      for (const sha of all) if (!(await applied(sha))) shas.push(sha);
-      // Tutto già a monte: il lavoro di questa card È su main. È una consegna
-      // riuscita, non un fallimento da rimandare all'agente.
-      if (shas.length === 0) return { ok: true, conflict: false };
-      for (const sha of shas) {
-        const r = await runGit(cwd, ["cherry-pick", "--allow-empty", "--keep-redundant-commits", sha]);
+      // dall'originale. Nemmeno dalla patch a rovescio: appena qualcun altro tocca
+      // quei file, le righe di contorno non combaciano più. Misurato il 10/08:
+      // entrambe le strade hanno lasciato passare lo stesso commit, comparso
+      // QUATTRO volte su main.
+      //
+      // La domanda giusta la sa rispondere solo il merge di git: si applica il
+      // commit SENZA committare e si guarda se resta qualcosa. Niente in stage =
+      // quel contenuto è già nell'albero, comunque ci sia arrivato.
+      let brought = 0;
+      for (const sha of all) {
+        const r = await runGit(cwd, ["cherry-pick", "-n", "--allow-empty", sha]);
         if (r.code !== 0) {
-          await runGit(cwd, ["cherry-pick", "--abort"]).catch(() => undefined);
+          // `--quit` lascia l'albero com'è, poi lo si riporta a HEAD: `--abort`
+          // da solo non basta dopo un `-n` andato male.
+          await runGit(cwd, ["cherry-pick", "--quit"]).catch(() => undefined);
+          await runGit(cwd, ["reset", "--hard", "HEAD"]).catch(() => undefined);
           return { ok: false, conflict: true };
         }
+        const staged = await runGit(cwd, ["diff", "--cached", "--quiet", "HEAD"]);
+        if (staged.code === 0) {
+          // Niente da portare: già applicato. Si pulisce e si passa oltre.
+          await runGit(cwd, ["cherry-pick", "--quit"]).catch(() => undefined);
+          await runGit(cwd, ["reset", "--hard", "HEAD"]).catch(() => undefined);
+          continue;
+        }
+        // `-C` tiene messaggio E autore dell'originale: il lavoro resta di chi
+        // l'ha fatto, non di chi ha premuto «landa».
+        const c = await runGit(cwd, ["commit", "--no-edit", "-C", sha]);
+        if (c.code !== 0) {
+          await runGit(cwd, ["cherry-pick", "--quit"]).catch(() => undefined);
+          await runGit(cwd, ["reset", "--hard", "HEAD"]).catch(() => undefined);
+          return { ok: false, conflict: true };
+        }
+        brought++;
       }
+      // Zero portati = era già tutto su main. È una consegna riuscita, non un
+      // fallimento da rimandare all'agente.
+      if (brought === 0) return { ok: true, conflict: false };
       return { ok: true, conflict: false };
     }
 
