@@ -32,6 +32,72 @@ export const MAX_FANOUT = 5;
 
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Anteprima di consegna — la regola, in UN posto solo.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * La card mostra l'anteprima in un riquadro `max-h-36` (144px) con
+ * `object-cover object-top` dentro una colonna da 268px: un'immagine più ALTA
+ * di questo rapporto non viene rimpicciolita, viene TAGLIATA in basso. È la
+ * soglia oltre la quale «ho messo l'anteprima» e «il reviewer vede la cosa»
+ * smettono di coincidere. Vive qui perché la stessa cifra la cita il testo del
+ * protocollo (`PREVIEW_RULE`) e la misura il gate di `promoteReviewPreview`.
+ * @see client/src/components/Board/PreviewMedia.tsx
+ */
+export const PREVIEW_CARD_MAX_RATIO = 144 / 268;
+
+/**
+ * Il gate di PROMOZIONE è più largo della soglia della card (0.7 contro 0.537):
+ * promuovere è un favore che il server fa a una consegna già valida, non un
+ * cancello di review, quindi taglia solo ciò che è palesemente illeggibile in
+ * una card — la pagina intera fotografata — e lascia passare il quasi-quadrato.
+ */
+export const PREVIEW_PROMOTE_MAX_RATIO = 0.7;
+
+/**
+ * Come si sceglie l'anteprima di una consegna. **Questa stringa è la copia
+ * canonica**: la citano l'envelope di kickoff, quello di resume, la descrizione
+ * di `preview_image` nello schema del tool MCP, il braccio `board-sim` del
+ * benchmark e §4 di `docs/board-protocol.md`.
+ *
+ * Prima erano cinque testi liberi di divergere, e divergevano: due soli rami,
+ * entrambi su UI («statica» → screenshot, «dinamica» → video). Una consegna che
+ * non ha nessuna superficie renderizzata — un piano, un'architettura, una
+ * migrazione — non sta in nessuno dei due, così cadeva nel ramo «statica» e
+ * l'agente FOTOGRAFAVA il documento: la card del piano-amicizia aveva come
+ * anteprima l'immagine dell'intero piano, illeggibile a 268px.
+ *
+ * Da qui i tre rami e, soprattutto, criteri che si possono MISURARE invece di
+ * aggettivi ("statica", "dinamica") su cui due agenti danno due risposte.
+ * `server/services/task-dispatcher.test.ts` verifica che le copie siano ancora
+ * la stessa stringa.
+ */
+export const PREVIEW_RULE = [
+  "EVIDENZA DI REVIEW = un'ANTEPRIMA durevole nel task — update_task(preview_image=<path assoluto sotto ~/.topics/media/ o nel workspace del task; stringa vuota = azzera>), che compare come card sulla board e nel drawer. Tre rami, e a scegliere è il criterio, non l'abitudine:",
+  `· SCREENSHOT .png — la consegna HA una superficie renderizzata che entra in una schermata. Catturala a viewport ≤1440×900 e con altezza/larghezza ≤ ${PREVIEW_CARD_MAX_RATIO.toFixed(3)} (=144/268: oltre quella soglia la card TAGLIA invece di rimpicciolire). Mai un full-page.`,
+  "· VIDEO .webm/.mp4 ≤20s — dimostrare la consegna richiede DUE O PIÙ STATI (appare, resta, sparisce; scroll, apri/chiudi, streaming, un flusso a più passi): uno screenshot statico non prova un comportamento. Clip Playwright breve (`recordVideo: { dir }` sul context) o, se il progetto ha spec-flow, il .webm dello scenario.",
+  "· DIAGRAMMA .svg — la consegna NON ha una superficie renderizzata (un piano, un'architettura, un protocollo, una migrazione): si disegna la STRUTTURA — riquadri, frecce, cinque parole per nodo — non si fotografa il documento.",
+  "Una TAB del task (open_browser_pane) NON sostituisce l'anteprima: la pagina viva muore col server che la serve, l'anteprima resta.",
+  "Cancello unico, e vale per tutti e tre: a 268px di larghezza (`sips -Z 268 <file>`) devi ancora saper dire cosa mostra.",
+].join("\n");
+
+/**
+ * Ritaglia il blocco `PREVIEW_RULE` da un envelope già composto, per STRUTTURA
+ * (prima riga «EVIDENZA DI REVIEW…», ultima «Cancello unico…») e non
+ * cercandovi la costante: un test che cerca la costante che ha appena
+ * interpolato non può fallire, e questo invece deve fallire il giorno in cui
+ * qualcuno riscrive il testo a mano dentro un envelope.
+ */
+export function extractPreviewRule(envelope: string): string | null {
+  const lines = envelope.split('\n');
+  const from = lines.findIndex((l) => l.startsWith('EVIDENZA DI REVIEW'));
+  if (from < 0) return null;
+  const to = lines.findIndex((l, i) => i >= from && l.startsWith('Cancello unico'));
+  if (to < 0) return null;
+  return lines.slice(from, to + 1).join('\n');
+}
+
 /**
  * Gli stati di `dispatch_state` in cui un agente sta LAVORANDO il task adesso:
  * è in coda per partire, sta partendo, o è dentro un turno. Fuori da questi tre
