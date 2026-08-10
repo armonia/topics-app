@@ -59,6 +59,29 @@ export type EffortTier = (typeof EFFORT_TIERS)[number];
  */
 export const MIN_EXECUTION_EFFORT: EffortTier = "medium";
 
+/**
+ * ⚠️ Il giudice NON è stabile, ed è una proprietà da conoscere prima di leggere
+ * un conto.
+ *
+ * Misurato il 2026-08-10 chiamandolo tre volte di fila sullo STESSO testo (il
+ * micro-task «token-live: opzione --json»): `opus medium`, `opus high`,
+ * `opus medium`. Il modello è stato lo stesso tutte e tre le volte; lo sforzo
+ * no, 2 su 3.
+ *
+ * Conseguenza pratica: lo stesso task dispatchato due volte può costare
+ * sensibilmente di più per un lancio di dado del router, non per il lavoro.
+ * Non è un guasto da correggere qui — un giudice one-shot su un testo
+ * ambiguo È incerto, e forzarlo a fingersi deterministico nasconderebbe
+ * l'incertezza invece di toglierla. Le strade vere sarebbero un voto di
+ * maggioranza (tre chiamate, costano) o memorizzare la scelta sul task al primo
+ * dispatch. Oggi la scelta resta comunque ferma DOPO il primo lancio, perché
+ * vive sul topic dell'agente (`topics.effort`) e un resume riusa quel topic:
+ * a ri-tirare il dado è solo un dispatch da zero.
+ *
+ * Se un giorno questa variabilità andrà tolta, va tolta con una misura in mano:
+ * quante volte su N il verdetto cambia, e quanto costa la differenza.
+ */
+
 /** Clamp an effort up to the floor (low → medium). */
 export function floorEffort(effort: EffortTier): EffortTier {
   return EFFORT_TIERS.indexOf(effort) < EFFORT_TIERS.indexOf(MIN_EXECUTION_EFFORT)
