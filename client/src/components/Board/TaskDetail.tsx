@@ -12,7 +12,9 @@ import { getMediaUrl } from '../../lib/api';
 import { isImagePath, isPdfPath, isVideoPath } from '../../lib/mediaKind';
 import { openExternalOnce } from '../../lib/openExternal';
 import { buildTaskLink } from '../../lib/openTaskLink';
-import { enqueueProjectBrowserNavigate } from '../../state/pane/adapters';
+import { enqueueProjectBrowserNavigate, isProjectWindowMounted } from '../../state/pane/adapters';
+import { useTaskBrowserTabs, liveTabs, workspaceTwinContextId } from '../../state/taskBrowserTabs';
+import { noteAutoOpenedPreview, releaseAutoOpenedPreview } from '../../state/taskWorkspacePreviews';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
 import { writeCursor, markActiveComposer, restoreCursor } from '../../lib/composerCursor';
 import { boardApi, STATUS_LABEL, TASK_STATUSES, isAgentWorking, parseQuestionBlock, isProjectlessId, boardDrafts, systemDeliveryNote, blockedByChip, attemptHasWork, type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch, type BoardProjectRef, type DiffBundle, type DiffNote, type ReviewCheck, type CheckRun, type TaskAttempt } from '../../lib/board';
@@ -415,7 +417,7 @@ function AttemptDiff({ projectId, taskId, attemptId }: { projectId: string; task
 
 // ── Detail: drawer by default, expandable review surface ────────────────────
 
-export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, onOpenTopic, focusPaneId }: {
+export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, onOpenTopic, focusPaneId, autoOpenInWorkspace = false }: {
   projectId: string; taskId: string; onClose: () => void; onChanged: () => void;
   /**
    * Change signal (the task's updatedAt from the board's live list): any WS
@@ -433,8 +435,28 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
    * sull'anteprima della card. Senza, si apre sul Thread come sempre.
    */
   focusPaneId?: string;
+  /**
+   * Aprire da sé il risultato del task come pane del workspace del progetto,
+   * all'apertura del task e senza click.
+   *
+   * Lo decide CHI OSPITA la board, non la board: acceso quando il drawer e il
+   * workspace sono due superfici distinte (la board globale accanto a una
+   * finestra di progetto), spento quando la board È una pane DENTRO quella
+   * finestra — lì l'apertura automatica si prenderebbe lo spazio del drawer che
+   * stai leggendo, e a ogni card cliccata rifarebbe lo split.
+   *
+   * Vale comunque solo se la finestra del progetto è già montata: nessuna
+   * apertura forzata. E ciò che si è aperto da solo si richiude da solo quando
+   * esci dal task (`state/taskWorkspacePreviews.ts`) — quello che apri A MANO
+   * col bottone resta.
+   */
+  autoOpenInWorkspace?: boolean;
 }) {
   const tr = useT();
+  // Le tab del task, lette QUI e non dalla `browser` più in basso: il manifesto
+  // serve a callback definiti molto prima di quel hook.
+  const taskTabsState = useTaskBrowserTabs(taskId);
+  const liveTaskTabs = useMemo(() => liveTabs(taskTabsState), [taskTabsState]);
   const [task, setTask] = useState<BoardTask | null>(null);
   const [comments, setComments] = useState<TaskComment[]>([]);
   const [children, setChildren] = useState<BoardTask[]>([]);
@@ -794,22 +816,103 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   };
   // "Apri nel workspace": open the delivered result as a REAL Topics browser tab
   // (managed pane — split/resize/close) in the task's project window, NOT the OS
-  // browser. If that window isn't mounted yet, park the navigate so it drains on
-  // mount; topics:open-project triggers the mount, the racing event loses it.
-  // `url` arriva dal chiamante (non da `task.outputUrl`) perché il risultato di
-  // un task sono le sue TAB: un task dispatchato apre la sua pagina con
-  // open_browser_pane e non tocca mai `output_url`, che è solo il SEME della
-  // prima tab. Promuovere «la tab in primo piano» copre entrambi i casi.
-  const openInWorkspace = useCallback((url: string) => {
+  // browser.
+  //
+  // Apre il MANIFESTO, non una pagina: il risultato di un task sono le sue TAB,
+  // e un task dispatchato può averne più d'una (`open_browser_pane({url, name})`).
+  // Senza tab vive resta `output_url`, che è solo il seme della prima — così il
+  // flusso manuale non perde niente.
+  //
+  // Ogni tab va nella sua pane, sotto il GEMELLO del suo contextId (`<ctx>_ws`,
+  // vedi shared/task-tab-context.ts): due viste della stessa consegna, ma con
+  // due webview native, perché una sola non può avere due genitori. Il gemello
+  // resta riconducibile alla tab, quindi eredita il suo login salvato.
+  //
+  // `topics:open-project` parte SOLO se la finestra non c'è già. Prima veniva
+  // sparato a ogni click: rialzava (o riapriva) la finestra del progetto anche
+  // quando eri dentro, e lasciava parcheggiata una navigazione che poteva
+  // ripresentarsi a un mount successivo. Il registro delle finestre montate è
+  // esattamente la consapevolezza che mancava.
+  const promoteToWorkspace = useCallback((entries: Array<{ url: string; contextId: string }>): string[] => {
     const projectPath = currentProject?.path;
-    if (!url || !projectPath) return;
-    // Deterministic contextId → same pane is reused on re-open and the agent can
-    // steer it later (login handoff, fase 2).
-    const contextId = task?.assignedTopicId || `task-${task?.id}`;
-    enqueueProjectBrowserNavigate(projectPath, { url, contextId });
-    window.dispatchEvent(new CustomEvent('topics:open-project', { detail: { projectPath } }));
-    window.dispatchEvent(new CustomEvent('browser:open-and-navigate', { detail: { projectPath, url, topicId: task?.assignedTopicId, contextId } }));
-  }, [currentProject?.path, task?.assignedTopicId, task?.id]);
+    if (!projectPath) return [];
+    const opened = entries.filter((e) => !!e.url);
+    if (opened.length === 0) return [];
+    const mounted = isProjectWindowMounted(projectPath);
+    for (const { url, contextId } of opened) {
+      // Il parcheggio serve solo alla finestra ancora da montare: con la
+      // finestra viva l'evento basta, e una copia parcheggiata riaprirebbe la
+      // pane a un remount futuro che nessuno ha chiesto.
+      if (!mounted) enqueueProjectBrowserNavigate(projectPath, { url, contextId });
+      window.dispatchEvent(new CustomEvent('browser:open-and-navigate', { detail: { projectPath, url, topicId: task?.assignedTopicId, contextId } }));
+    }
+    if (!mounted) window.dispatchEvent(new CustomEvent('topics:open-project', { detail: { projectPath } }));
+    return opened.map((e) => e.contextId);
+  }, [currentProject?.path, task?.assignedTopicId]);
+
+  // Le tab del task tradotte in pane del workspace. Senza tab vive: il seme.
+  // Le tab si leggono dallo store (non dalla `browser` più in basso) perché
+  // questo callback nasce prima di quella, e leggerla via ref darebbe il
+  // manifesto del render PRECEDENTE — cioè vuoto al primo click.
+  const workspaceManifest = useMemo(() => {
+    if (liveTaskTabs.length > 0) {
+      return liveTaskTabs
+        .filter((t) => !!t.url)
+        .map((t) => ({ url: t.url, contextId: workspaceTwinContextId(t.contextId) }));
+    }
+    const seed = task?.outputUrl;
+    return seed ? [{ url: seed, contextId: task?.assignedTopicId || `task-${task?.id}` }] : [];
+  }, [liveTaskTabs, task?.outputUrl, task?.assignedTopicId, task?.id]);
+
+  const openInWorkspace = useCallback(() => { promoteToWorkspace(workspaceManifest); }, [promoteToWorkspace, workspaceManifest]);
+
+  // Chiude una pane del workspace passando dalla porta normale: `browser:request-close`
+  // è la stessa richiesta che usa una pagina che fa `window.close()`, la raccoglie
+  // la finestra che POSSIEDE quella pane (e nessun'altra), e passa per la chiusura
+  // vera — animata, annullabile con ⌘Z. Niente scorciatoie distruttive.
+  const closeWorkspacePanes = useCallback((contextIds: string[]) => {
+    for (const contextId of contextIds) {
+      window.dispatchEvent(new CustomEvent('browser:request-close', { detail: { contextId } }));
+    }
+  }, []);
+
+  // AUTO-OPEN. Il risultato del task compare nel workspace all'APERTURA del
+  // task, senza click — ma solo dove ha senso: chi ospita la board lo consente
+  // (`autoOpenInWorkspace`) e la finestra del progetto è GIÀ montata. Se non
+  // c'è, non si apre niente: aprire una finestra a ogni card cliccata era
+  // esattamente il gesto invadente da evitare.
+  //
+  // Ri-parte quando cambia il manifesto (l'agente apre una tab nuova mentre
+  // guardi): `ensureBrowserPaneAndNavigate` riusa la pane dello stesso
+  // contextId, quindi ri-navigare non moltiplica niente.
+  const manifestKey = useMemo(
+    () => workspaceManifest.map((e) => `${e.contextId} ${e.url}`).join(''),
+    [workspaceManifest],
+  );
+  const promoteRef = useRef(promoteToWorkspace);
+  promoteRef.current = promoteToWorkspace;
+  const closeRef = useRef(closeWorkspacePanes);
+  closeRef.current = closeWorkspacePanes;
+  const manifestRef = useRef(workspaceManifest);
+  manifestRef.current = workspaceManifest;
+  const projectPath = currentProject?.path;
+  useEffect(() => {
+    if (!autoOpenInWorkspace || !projectPath || !manifestKey) return;
+    if (!isProjectWindowMounted(projectPath)) return;
+    const opened = promoteRef.current(manifestRef.current);
+    if (opened.length === 0) return;
+    // Il tetto: registrare un task in più sfratta il più vecchio, così due
+    // board aperte (o una finestra chiusa di colpo) non lasciano preview
+    // automatiche a vita.
+    closeRef.current(noteAutoOpenedPreview(taskId, projectPath, opened));
+  }, [autoOpenInWorkspace, projectPath, taskId, manifestKey]);
+
+  // ...e quando esci dal task, ciò che si era aperto DA SOLO si richiude da
+  // solo. Effetto separato, con `taskId` come sola dipendenza: se la cleanup
+  // stesse sull'effetto di sopra, ogni cambio di manifesto chiuderebbe le pane
+  // per riaprirle subito dopo. Quello che hai aperto A MANO col bottone non è
+  // mai stato registrato, quindi resta dov'è.
+  useEffect(() => () => { closeRef.current(releaseAutoOpenedPreview(taskId)); }, [taskId]);
   const doCreateProject = async (name: string) => {
     if (!name || projBusy || !task) return;
     setProjBusy(true);
@@ -1190,13 +1293,14 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               className="rounded p-1.5 text-app-text-secondary hover:bg-white/10"
             ><ArrowUpRight className="h-4 w-4" /></button>
           )}
-          {/* La tab in primo piano vince su `outputUrl`: su un task DISPATCHATO
-              il risultato è la tab che l'agente ha aperto con open_browser_pane,
-              e `outputUrl` (quando c'è) è solo il seme della prima. Senza tab
-              vive resta il seme, così il flusso manuale non perde nulla. */}
-          {(browser.activeUrl || task?.outputUrl) && (
+          {/* Le TAB vincono su `outputUrl`: su un task DISPATCHATO il risultato
+              sono le tab che l'agente ha aperto con open_browser_pane — anche
+              più d'una, col suo nome — e `outputUrl` (quando c'è) è solo il seme
+              della prima. Senza tab vive resta il seme, così il flusso manuale
+              non perde nulla. Il bottone le promuove TUTTE. */}
+          {workspaceManifest.length > 0 && (
             <button
-              onClick={() => openInWorkspace(browser.activeUrl || task!.outputUrl!)}
+              onClick={openInWorkspace}
               data-testid="task-open-in-workspace"
               title={tr('board.task.openResultWorkspaceTitle')}
               className="rounded p-1.5 text-app-text-secondary hover:bg-white/10"
