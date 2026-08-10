@@ -137,14 +137,19 @@ test("il flip che balla non cambia il seme a ogni oscillazione", async () => {
   expect(JSON.stringify(store.files.ctx)).toBe(dopoUno);
 });
 
-test("una sessione nativa più fresca sostituisce quella scaduta nel seme", async () => {
+test("il passaggio riempie i buchi e non sostituisce: non puo\' sloggare nessuno", async () => {
   const { registry } = scriptedRegistry({ result: NATIVE });
   const store = fakeStore({
-    ctx: { cookies: [{ name: "sid", value: "VECCHIO", domain: "example.com", path: "/" }], origins: [] },
+    ctx: { cookies: [{ name: "sid", value: "FRESCO-DAL-TELEFONO", domain: "example.com", path: "/" }], origins: [] },
   });
   await seedSharedFromNative("ctx", { registry, load: store.load, save: store.save });
+  // Il barattolo nativo ha lo STESSO cookie (name+domain+path): potrebbe essere
+  // una sessione lasciata li\' mesi fa, non scaduta ma morta. Sostituendola si
+  // butterebbe fuori il login appena fatto dal telefono, e su disco, per sempre.
   expect(store.files.ctx!.cookies).toHaveLength(1);
-  expect(store.files.ctx!.cookies[0]!.value).toBe("MAC");
+  expect(store.files.ctx!.cookies[0]!.value).toBe("FRESCO-DAL-TELEFONO");
+  // Ma cio\' che manca alla sessione condivisa arriva: e\' il punto del passaggio.
+  expect(store.files.ctx!.origins).toEqual(NATIVE.origins);
 });
 
 test("se lo store non si legge si riparte dal vuoto invece di far saltare la pane", async () => {
