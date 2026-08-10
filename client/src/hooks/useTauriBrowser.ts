@@ -43,6 +43,7 @@ import type { NativeBrowserHandle, DeviceMode, BrowserConsoleEntry } from '@/com
 import { DEVICE_PRESETS, deviceModeFromUserAgent } from '@/components/Browser/browserDevTypes';
 import { buildReadJs, META_JS, parsePageState, isPageLoading } from '../lib/shell/browserPagePoll';
 import { NO_FAULT, recordPaneOk, recordPaneError, STRUCTURAL_COMMANDS, type FaultState } from '../lib/shell/browserPaneFault';
+import { attemptNativeOpen } from '../lib/shell/nativeBrowserOpen';
 
 /** Off-screen X for parking a hidden native view far outside any display — keeps
  *  the webview alive (no reload) while hidden. We park at the last REAL size (not
@@ -677,30 +678,32 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     // pane stuck on "Initializing native browser…" forever, with no signal to
     // the user and no recovery. Do one bounded retry, then surface the failure
     // in the nav-error strip so the pane can offer a retry instead of hanging.
-    const attemptOpen = (attempt: number, openUrl: string): void => {
-      // windowLabel: la webview nativa deve nascere figlia della finestra che
-      // ospita QUESTA pane (pop-out inclusi), non sempre di `main` — vedi
-      // browser_open_inner in lib.rs. Fuori da Tauri currentWindowLabel() è null.
-      void tauriInvoke('browser_open', { id, url: openUrl, x: -100000, y: 0, width: 800, height: 600, isolate: true, windowLabel: currentWindowLabel() ?? 'main' })
-        .then(() => { if (!cancelled) applyOpened(); })
-        .catch((e) => {
-          if (cancelled) return;
-          if (attempt < 1) {
-            console.warn(`[tauri-browser] open failed (attempt ${attempt + 1}), retrying`, e);
-            window.setTimeout(() => { if (!cancelled) attemptOpen(attempt + 1, openUrl); }, 400);
-            return;
-          }
-          console.warn('[tauri-browser] open failed (giving up)', e);
+    const attemptOpen = (openUrl: string): void => {
+      attemptNativeOpen({
+        // windowLabel: la webview nativa deve nascere figlia della finestra che
+        // ospita QUESTA pane (pop-out inclusi), non sempre di `main` — vedi
+        // browser_open_inner in lib.rs. Fuori da Tauri currentWindowLabel() è null.
+        invoke: () => tauriInvoke('browser_open', { id, url: openUrl, x: -100000, y: 0, width: 800, height: 600, isolate: true, windowLabel: currentWindowLabel() ?? 'main' }),
+        isCancelled: () => cancelled,
+        onOpened: applyOpened,
+        onGaveUp: () => {
           setNavError({ message: 'Impossibile aprire il browser nativo. Riprova.', url: openUrl });
-        });
+          // Chi ha chiesto l'apertura ha acceso la barra e non riceve un esito
+          // (`openViewRef` non ne restituisce): se non la spegne questo ramo,
+          // resta accesa per sempre — nessuno dei punti che la spengono gira
+          // finché `ready` è falso — e il rollup di progetto conta la pane
+          // occupata a vita.
+          setLoading(false);
+        },
+      });
     };
     // Kept for EVERY pane, not just the loopback-gated ones: it is how a pane
     // that has been declared dead gets rebuilt (`recreate` below), and how a
     // parked tab opens late. It used to be set only inside the gated branch, so
     // an ordinary https pane had no way back once its webview stopped answering.
-    openViewRef.current = (u: string) => { if (!cancelled) attemptOpen(0, u); };
+    openViewRef.current = (u: string) => { if (!cancelled) attemptOpen(u); };
     if (!gateLoopback) {
-      attemptOpen(0, wantedUrl);
+      attemptOpen(wantedUrl);
     } else {
       // La sonda PRIMA dell'apertura, non dopo: aprire su about:blank e navigare
       // alla risposta farebbe lampeggiare bianca ogni pane su un server locale
@@ -718,7 +721,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
           setParked({ url: wantedUrl, checkedAt: Date.now() });
           return;
         }
-        attemptOpen(0, wantedUrl);
+        attemptOpen(wantedUrl);
       });
     }
     return () => {
@@ -746,6 +749,19 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-once per contextId; initialUrl is captured via ref so a persisted-url change never re-creates the view
   }, [id]);
 
+  /**
+   * Chiedere la webview a chi la sa costruire, con la barra già accesa.
+   *
+   * `openViewRef` è vivo solo fra il montaggio dell'effetto e il suo cleanup:
+   * fuori da lì la richiesta cade nel vuoto, e senza questo ramo la barra che
+   * il chiamante ha appena acceso non la spegnerebbe più nessuno.
+   */
+  const requestOpenView = useCallback((u: string): void => {
+    const open = openViewRef.current;
+    if (!open) { setLoading(false); return; }
+    open(u);
+  }, []);
+
   const navigate = useCallback(
     async (u: string) => {
       const norm = normalizeUrl(u);
@@ -757,7 +773,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
       // se la fa aprire adesso.
       if (parked) {
         setParked(null);
-        openViewRef.current?.(norm);
+        requestOpenView(norm);
         return;
       }
       // Only the page's own readyState clears the bar (see isPageLoading). This
@@ -767,7 +783,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
       // switched it back on, for as long as the load took. That was the flicker.
       if (!(await paneInvoke('browser_navigate', { id, url: norm }))) setLoading(false);
     },
-    [id, parked, paneInvoke],
+    [id, parked, paneInvoke, requestOpenView],
   );
 
   /**
@@ -807,11 +823,11 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
       if (!alive) { setParked({ url: target, checkedAt: Date.now() }); return; }
       setParked(null);
       setLoading(true);
-      openViewRef.current?.(target);
+      requestOpenView(target);
     } finally {
       setParkedChecking(false);
     }
-  }, [parked, parkedChecking]);
+  }, [parked, parkedChecking, requestOpenView]);
 
   const clearNavError = useCallback(() => setNavError(null), []);
 
@@ -1362,8 +1378,8 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     setLoading(true);
     commitFault(NO_FAULT); // give the new view a clean slate to fail from
     await tauriInvoke('browser_close', { id }).catch(() => {});
-    openViewRef.current?.(urlRef.current || initialUrlRef.current || 'about:blank');
-  }, [id, commitFault]);
+    requestOpenView(urlRef.current || initialUrlRef.current || 'about:blank');
+  }, [id, commitFault, requestOpenView]);
 
   const viewId = ready ? id : null;
 
