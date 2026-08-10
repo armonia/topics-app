@@ -1,5 +1,8 @@
 import { describe, test, expect } from "bun:test";
-import { parseTier, tierToAvailableModel, pickTaskPlan, floorTier, parseEffort, floorEffort } from "./task-model-picker";
+import {
+  parseTier, tierToAvailableModel, pickTaskPlan, floorTier, parseEffort, floorEffort,
+  medianTier, medianEffort, JUDGE_VOTES,
+} from "./task-model-picker";
 
 // La lista come la annuncia davvero la CLI: due generazioni per famiglia, e
 // accanto a ognuna la sua variante a finestra lunga. Il tier deve scegliere la
@@ -210,5 +213,130 @@ describe("floorTier", () => {
     expect(floorTier("sonnet")).toBe("sonnet");
     expect(floorTier("opus")).toBe("opus");
     expect(floorTier("fable")).toBe("fable");
+  });
+});
+
+describe("mediana dei voti", () => {
+  test("con una maggioranza, la mediana È la maggioranza", () => {
+    expect(medianEffort(["high", "medium", "medium"])).toBe("medium");
+    expect(medianEffort(["medium", "high", "high"])).toBe("high");
+    expect(medianTier(["sonnet", "opus", "opus"])).toBe("opus");
+  });
+
+  test("senza maggioranza vince quello di mezzo, mai un estremo", () => {
+    // Il caso in cui un «più frequente» dovrebbe inventarsi uno spareggio.
+    expect(medianEffort(["medium", "xhigh", "high"])).toBe("high");
+    expect(medianTier(["fable", "sonnet", "opus"])).toBe("opus");
+  });
+
+  test("l'ordine di arrivo dei voti non conta", () => {
+    expect(medianEffort(["high", "medium", "medium"])).toBe(medianEffort(["medium", "medium", "high"]));
+    expect(medianEffort(["medium", "xhigh", "high"])).toBe(medianEffort(["xhigh", "high", "medium"]));
+  });
+
+  test("su un numero pari si paga il meno caro dei due centrali", () => {
+    expect(medianEffort(["medium", "xhigh"])).toBe("medium");
+  });
+
+  test("nessun voto → null, cioè «non lo so» (mai un medium inventato)", () => {
+    expect(medianEffort([])).toBeNull();
+    expect(medianTier([])).toBeNull();
+  });
+});
+
+/**
+ * Il rimedio alla misura del 2026-08-10: il giudice one-shot, chiamato 20 volte
+ * sullo stesso identico testo, cambiava sforzo nel 33,7% delle coppie e piano
+ * (modello+sforzo) nel 54,2% — cioè lo stesso task poteva costare parecchio di
+ * più per un lancio di dado. Referti: `docs/effort-variance/`.
+ *
+ * Questi test diventano rossi se qualcuno rimette il voto singolo: con una sola
+ * chiamata vincerebbe la PRIMA risposta, e la minoranza qui è messa apposta per
+ * prima.
+ */
+describe("il giudice si vota, non si crede sulla parola", () => {
+  const ALL_MODELS = { availableModels: ALL, fallback: "claude-sonnet-5" };
+  /** Un giudice che risponde le cose scritte, una per chiamata, in quest'ordine. */
+  const scripted = (answers: string[]) => {
+    let i = 0;
+    return async () => answers[Math.min(i++, answers.length - 1)]!;
+  };
+
+  test("interroga il giudice JUDGE_VOTES volte, non una", async () => {
+    let calls = 0;
+    await pickTaskPlan({ text: "x" }, { ...ALL_MODELS, complete: async () => { calls++; return "opus high"; } });
+    expect(calls).toBe(JUDGE_VOTES);
+  });
+
+  test("la minoranza perde anche se parla per prima", async () => {
+    const p = await pickTaskPlan(
+      { text: "x" },
+      { ...ALL_MODELS, complete: scripted(["opus xhigh", "opus medium", "opus medium"]) },
+    );
+    expect(p.effort).toBe("medium");
+    expect(p.model).toBe("claude-opus-5[1m]");
+  });
+
+  test("il voto vale anche sul modello, non solo sullo sforzo", async () => {
+    const p = await pickTaskPlan(
+      { text: "x" },
+      { ...ALL_MODELS, complete: scripted(["fable high", "opus high", "opus high"]) },
+    );
+    expect(p.model).toBe("claude-opus-5[1m]");
+  });
+
+  test("tre voti tutti diversi → quello di mezzo, non il primo né il più caro", async () => {
+    const p = await pickTaskPlan(
+      { text: "x" },
+      { ...ALL_MODELS, complete: scripted(["opus max", "opus medium", "opus high"]) },
+    );
+    expect(p.effort).toBe("high");
+  });
+
+  test("un voto che esplode non porta giù la decisione: decidono gli altri", async () => {
+    let i = 0;
+    const p = await pickTaskPlan({ text: "x" }, {
+      ...ALL_MODELS,
+      complete: async () => {
+        if (i++ === 0) throw new Error("provider down");
+        return "opus high";
+      },
+    });
+    expect(p.model).toBe("claude-opus-5[1m]");
+    expect(p.effort).toBe("high");
+  });
+
+  test("un voto illeggibile non conta come astensione: decidono i leggibili", async () => {
+    const p = await pickTaskPlan(
+      { text: "x" },
+      { ...ALL_MODELS, complete: scripted(["boh non so", "opus xhigh", "opus xhigh"]) },
+    );
+    expect(p.effort).toBe("xhigh");
+  });
+
+  test("nessun voto leggibile → fallback, e nessuno sforzo inventato", async () => {
+    const p = await pickTaskPlan(
+      { text: "x" },
+      { ...ALL_MODELS, complete: scripted(["boh", "mah", "???"]) },
+    );
+    expect(p.model).toBe("claude-sonnet-5");
+    expect(p.effort).toBeNull();
+  });
+
+  test("i voti partono INSIEME: tre giudici in serie triplicherebbero l'attesa del dispatch", async () => {
+    // Nessun voto può rispondere finché non sono arrivati tutti: in serie il
+    // primo aspetterebbe per sempre e il test scadrebbe.
+    let arrived = 0;
+    let openTheGate: () => void = () => {};
+    const gate = new Promise<void>((r) => { openTheGate = r; });
+    const p = await pickTaskPlan({ text: "x" }, {
+      ...ALL_MODELS,
+      complete: async () => {
+        if (++arrived === JUDGE_VOTES) openTheGate();
+        await gate;
+        return "opus high";
+      },
+    });
+    expect(p.effort).toBe("high");
   });
 });

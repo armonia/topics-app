@@ -1,0 +1,277 @@
+{
+  "schema": "effort-variance@1",
+  "judge": "claude-haiku-4-5",
+  "n": 20,
+  "votesPerTrial": 1,
+  "calls": 20,
+  "wallClockMs": 73964,
+  "task": {
+    "text": "token-live: opzione --json",
+    "descriptionChars": 773
+  },
+  "rescoredFrom": "docs/effort-variance/baseline-n20.json",
+  "distribution": {
+    "model": {
+      "opus": 17,
+      "sonnet": 3
+    },
+    "effort": {
+      "medium": 16,
+      "high": 4
+    },
+    "plan": {
+      "opus medium": 13,
+      "opus high": 4,
+      "sonnet medium": 3
+    }
+  },
+  "disagreement": {
+    "model": 0.2684210526315789,
+    "effort": 0.33684210526315794,
+    "plan": 0.5421052631578948
+  },
+  "perVote": {
+    "distribution": {
+      "model": {
+        "opus": 17,
+        "sonnet": 3
+      },
+      "effort": {
+        "medium": 16,
+        "high": 4
+      },
+      "plan": {
+        "opus medium": 13,
+        "opus high": 4,
+        "sonnet medium": 3
+      }
+    },
+    "disagreement": {
+      "model": 0.2684210526315789,
+      "effort": 0.33684210526315794,
+      "plan": 0.5421052631578948
+    }
+  },
+  "trials": [
+    {
+      "model": "opus",
+      "effort": "medium",
+      "votes": [
+        {
+          "model": "opus",
+          "effort": "medium",
+          "raw": "opus medium"
+        }
+      ]
+    },
+    {
+      "model": "opus",
+      "effort": "medium",
+      "votes": [
+        {
+          "model": "opus",
+          "effort": "medium",
+          "raw": "opus medium"
+        }
+      ]
+    },
+    {
+      "model": "opus",
+      "effort": "high",
+      "votes": [
+        {
+          "model": "opus",
+          "effort": "high",
+          "raw": "opus high"
+        }
+      ]
+    },
+    {
+      "model": "opus",
+      "effort": "medium",
+      "votes": [
+        {
+          "model": "opus",
+          "effort": "medium",
+          "raw": "opus medium"
+        }
+      ]
+    },
+    {
+      "model": "opus",
+      "effort": "medium",
+      "votes": [
+        {
+          "model": "opus",
+          "effort": "medium",
+          "raw": "opus medium"
+        }
+      ]
+    },
+    {
+      "model": "opus",
+      "effort": "medium",
+      "votes": [
+        {
+          "model": "opus",
+          "effort": "medium",
+          "raw": "opus medium"
+        }
+      ]
+    },
+    {
+      "model": "opus",
+      "effort": "medium",
+      "votes": [
+        {
+          "model": "opus",
+          "effort": "medium",
+          "raw": "opus medium"
+        }
+      ]
+    },
+    {
+      "model": "sonnet",
+      "effort": "medium",
+      "votes": [
+        {
+          "model": "sonnet",
+          "effort": "medium",
+          "raw": "sonnet medium"
+        }
+      ]
+    },
+    {
+      "model": "opus",
+      "effort": "high",
+      "votes": [
+        {
+          "model": "opus",
+          "effort": "high",
+          "raw": "opus high"
+        }
+      ]
+    },
+    {
+      "model": "opus",
+      "effort": "high",
+      "votes": [
+        {
+          "model": "opus",
+          "effort": "high",
+          "raw": "opus high"
+        }
+      ]
+    },
+    {
+      "model": "opus",
+      "effort": "medium",
+      "votes": [
+        {
+          "model": "opus",
+          "effort": "medium",
+          "raw": "opus medium"
+        }
+      ]
+    },
+    {
+      "model": "opus",
+      "effort": "medium",
+      "votes": [
+        {
+          "model": "opus",
+          "effort": "medium",
+          "raw": "opus medium"
+        }
+      ]
+    },
+    {
+      "model": "sonnet",
+      "effort": "medium",
+      "votes": [
+        {
+          "model": "sonnet",
+          "effort": "medium",
+          "raw": "sonnet medium"
+        }
+      ]
+    },
+    {
+      "model": "opus",
+      "effort": "high",
+      "votes": [
+        {
+          "model": "opus",
+          "effort": "high",
+          "raw": "opus high"
+        }
+      ]
+    },
+    {
+      "model": "opus",
+      "effort": "medium",
+      "votes": [
+        {
+          "model": "opus",
+          "effort": "medium",
+          "raw": "opus medium"
+        }
+      ]
+    },
+    {
+      "model": "opus",
+      "effort": "medium",
+      "votes": [
+        {
+          "model": "opus",
+          "effort": "medium",
+          "raw": "opus medium"
+        }
+      ]
+    },
+    {
+      "model": "sonnet",
+      "effort": "medium",
+      "votes": [
+        {
+          "model": "sonnet",
+          "effort": "medium",
+          "raw": "sonnet medium"
+        }
+      ]
+    },
+    {
+      "model": "opus",
+      "effort": "medium",
+      "votes": [
+        {
+          "model": "opus",
+          "effort": "medium",
+          "raw": "opus medium"
+        }
+      ]
+    },
+    {
+      "model": "opus",
+      "effort": "medium",
+      "votes": [
+        {
+          "model": "opus",
+          "effort": "medium",
+          "raw": "opus medium"
+        }
+      ]
+    },
+    {
+      "model": "opus",
+      "effort": "medium",
+      "votes": [
+        {
+          "model": "opus",
+          "effort": "medium",
+          "raw": "opus medium"
+        }
+      ]
+    }
+  ]
+}
