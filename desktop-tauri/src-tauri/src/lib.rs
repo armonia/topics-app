@@ -3580,10 +3580,76 @@ fn wire_recompose_observers() {
 // command when a popover overlaps it (the Electron shell hides the view the same
 // way during resize / when chrome covers it).
 
+/// Prefisso di ogni etichetta di pane browser. Distintivo apposta: non deve
+/// collidere con la webview della UI ("main") né con nessuna etichetta di
+/// finestra presente o futura.
+const BROWSER_LABEL_PREFIX: &str = "browserpane-";
+
+/// Pane la cui etichetta è BRUCIATA: id → generazione (assente = 0).
+///
+/// Una WKWebView il cui dispatcher ha il mutex avvelenato non si può più
+/// chiudere — `Webview::close()` passa dallo stesso `window_id.lock().unwrap()`
+/// di tutto il resto e panica. La vista resta quindi REGISTRATA nel manager di
+/// tauri, e `browser_open` sullo stesso id ci ricadeva sopra col suo ramo di
+/// riuso: «Ricrea la scheda» riconsegnava la stessa vista morta, cioè non
+/// ricreava niente proprio nel caso per cui il pulsante esiste.
+///
+/// L'etichetta è l'unica cosa che si può cambiare: bruciata quella, la pane
+/// conserva il suo id (che è come la chiamano il client, gli agenti e ogni
+/// cache) e la prossima apertura nasce sotto un'etichetta nuova, quindi come
+/// webview NUOVA. La vecchia resta appesa al manager finché la finestra non
+/// muore: è già irrecuperabile, e non poterla nemmeno spostare è la ragione per
+/// cui non la si può salvare, non un effetto di questa scelta.
+static BURNED_PANE_LABELS: std::sync::OnceLock<
+    std::sync::Mutex<std::collections::HashMap<String, u32>>,
+> = std::sync::OnceLock::new();
+fn burned_pane_labels() -> &'static std::sync::Mutex<std::collections::HashMap<String, u32>> {
+    BURNED_PANE_LABELS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+/// Generazione corrente dell'etichetta di una pane. 0 = mai bruciata.
+fn pane_label_generation(id: &str) -> u32 {
+    let m = burned_pane_labels().lock().unwrap_or_else(|e| e.into_inner());
+    m.get(id).copied().unwrap_or(0)
+}
+
+/// Brucia l'etichetta corrente di una pane e restituisce la generazione nuova.
+/// Da qui in poi `browser_label(id)` indica un'etichetta LIBERA, quindi
+/// `browser_open` crea invece di riusare.
+fn burn_pane_label(id: &str) -> u32 {
+    let mut m = burned_pane_labels().lock().unwrap_or_else(|e| e.into_inner());
+    let next = m.get(id).copied().unwrap_or(0).saturating_add(1);
+    m.insert(id.to_string(), next);
+    next
+}
+
 /// Per-pane webview label. Keep the prefix distinctive so it never collides with
 /// the main UI webview ("main") or any future window label.
+///
+/// La generazione va in TESTA all'id e dentro il prefisso (`browserpane-~2~<id>`)
+/// per due motivi: `browser_list` filtra per prefisso, che così continua a
+/// vedere anche le pane rigenerate; e `~` non compare negli id (uuid/contextId),
+/// quindi l'inverso `pane_id_from_label` resta senza ambiguità.
 fn browser_label(id: &str) -> String {
-    format!("browserpane-{id}")
+    match pane_label_generation(id) {
+        0 => format!("{BROWSER_LABEL_PREFIX}{id}"),
+        gen => format!("{BROWSER_LABEL_PREFIX}~{gen}~{id}"),
+    }
+}
+
+/// Inverso di `browser_label`: dall'etichetta all'id della pane. `None` se
+/// l'etichetta non è di una pane browser.
+fn pane_id_from_label(label: &str) -> Option<&str> {
+    let rest = label.strip_prefix(BROWSER_LABEL_PREFIX)?;
+    let Some(after) = rest.strip_prefix('~') else {
+        return Some(rest);
+    };
+    // `~<gen>~<id>` — se il secondo `~` manca, l'etichetta non è nostra da
+    // interpretare: meglio restituire il resto così com'è che inventare un id.
+    match after.split_once('~') {
+        Some((gen, id)) if !gen.is_empty() && gen.chars().all(|c| c.is_ascii_digit()) => Some(id),
+        _ => Some(rest),
+    }
 }
 
 // ── Downloads ────────────────────────────────────────────────────────────────
@@ -4646,12 +4712,18 @@ fn browser_animate_bounds(
 fn browser_list(app: tauri::AppHandle) -> Result<Vec<String>, String> {
     no_abort("browser_list", move || {
         use tauri::Manager;
-        let prefix = browser_label("");
-        Ok(app
+        // Deduplicato: una pane la cui etichetta è stata BRUCIATA (vedi
+        // `burn_pane_label`) lascia dietro di sé una webview morta registrata
+        // sotto la generazione vecchia, e quella e la nuova risalgono allo
+        // stesso id. Elencarlo due volte direbbe «due pane» dove ce n'è una.
+        let mut ids: Vec<String> = app
             .webviews()
             .keys()
-            .filter_map(|label| label.strip_prefix(prefix.as_str()).map(str::to_string))
-            .collect())
+            .filter_map(|label| pane_id_from_label(label).map(str::to_string))
+            .collect();
+        ids.sort();
+        ids.dedup();
+        Ok(ids)
     })
 }
 
@@ -4661,9 +4733,24 @@ fn browser_close(app: tauri::AppHandle, id: String) -> Result<(), String> {
     no_abort("browser_close", move || browser_close_inner(app, id))
 }
 
+/// Chiude la vista di una pane e dice la VERITÀ su com'è andata.
+///
+/// Ogni passo che tocca il dispatcher di wry ha il suo `no_abort`, non uno
+/// solo attorno a tutto: col mutex avvelenato panicava già `navigate()` — la
+/// prima riga — e il `?` che seguiva portava fuori dalla funzione prima della
+/// chiusura E prima della pulizia delle cache. Isolati, un passo morto non si
+/// porta via i successivi.
+///
+/// L'esito è `Err` quando l'etichetta è ancora registrata alla fine, cioè
+/// quando la vista NON è morta: `Webview::close()` toglie l'etichetta dal
+/// manager in modo sincrono (è la distruzione dell'NSView a essere asincrona),
+/// quindi trovarla ancora lì significa che la chiusura non è mai atterrata. In
+/// quel caso l'etichetta si brucia, così la prossima `browser_open` sullo stesso
+/// id crea una vista nuova invece di riusare quella morta.
 fn browser_close_inner(app: tauri::AppHandle, id: String) -> Result<(), String> {
     use tauri::Manager;
-    if let Some(wv) = app.get_webview(&browser_label(&id)) {
+    let label = browser_label(&id);
+    if let Some(wv) = app.get_webview(&label) {
         // SVUOTA PRIMA DI CHIUDERE. `close()` non libera il processo WebContent:
         // wry non dealloca mai la WKWebView — `impl Drop for InnerWebView`
         // (wry 0.55.1, `src/wkwebview/mod.rs:1413`) chiama `self.webview.retain()`
@@ -4683,12 +4770,14 @@ fn browser_close_inner(app: tauri::AppHandle, id: String) -> Result<(), String> 
         // termine un caricamento anche su una view staccata dalla sua superview
         // (e' la stessa proprieta' su cui contavano le pane nascoste).
         if let Ok(blank) = "about:blank".parse::<tauri::Url>() {
-            let _ = wv.navigate(blank);
+            let _ = no_abort("browser_close/navigate", || {
+                wv.navigate(blank).map_err(|e| e.to_string())
+            });
         }
         // La pane non esiste più: l'appunto sulla sua URL nemmeno, o una pane
         // nuova con lo stesso id erediterebbe la posizione della vecchia.
-        forget_pane_url(&browser_label(&id));
-        wv.close().map_err(|e| e.to_string())?;
+        forget_pane_url(&label);
+        let _ = no_abort("browser_close/close", || wv.close().map_err(|e| e.to_string()));
     }
     // Drop the cache entries so a re-opened pane on the same id re-applies move + mask.
     if let Ok(mut g) = browser_bounds_cache().lock() {
@@ -4712,7 +4801,24 @@ fn browser_close_inner(app: tauri::AppHandle, id: String) -> Result<(), String> 
     if let Ok(mut v) = DOWNLOAD_EVENTS.lock() {
         v.retain(|e| e.pane_id != id);
     }
-    Ok(())
+    // La vista è ancora registrata? Allora non è morta.
+    close_verdict(&id, app.get_webview(&label).is_some())
+}
+
+/// Il verdetto della chiusura, separato dal guscio per poterlo provare.
+///
+/// `still_registered` è `app.get_webview(&browser_label(id)).is_some()` dopo il
+/// tentativo. Vero = la vista è sopravvissuta: si brucia la sua etichetta (così
+/// il ramo di riuso di `browser_open` non la ritrova più) e si dichiara il
+/// fallimento, invece di mentire con un `Ok` che manda il client a riaprire
+/// sopra un morto.
+fn close_verdict(id: &str, still_registered: bool) -> Result<(), String> {
+    if !still_registered {
+        return Ok(());
+    }
+    let gen = burn_pane_label(id);
+    eprintln!("[browser_close] {id}: la vista ha rifiutato di chiudersi, etichetta bruciata (gen {gen})");
+    Err(format!("browser_close: pane {id} refused to close"))
 }
 
 /// Purge a browser pane's PERSISTENT on-disk `WKWebsiteDataStore` — the cookie/
@@ -9402,5 +9508,124 @@ Content-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n{}",
             assert!(status.success(), "the window did not come back by itself");
             eprintln!("[demo] clip in {out_dir}");
         });
+    }
+}
+
+/// L'etichetta di una pane browser, e cosa succede quando la sua vista rifiuta
+/// di morire.
+///
+/// La catena che questi test chiudono: col mutex del dispatcher avvelenato
+/// `Webview::close()` panica, quindi `on_webview_close` non gira mai e
+/// l'etichetta resta REGISTRATA nel manager di tauri; `browser_open` sullo
+/// stesso id trovava quella webview e prendeva il ramo di RIUSO, riconsegnando
+/// la stessa vista morta. «Ricrea la scheda» non ricreava niente.
+#[cfg(test)]
+mod browser_label_tests {
+    use super::{browser_label, burn_pane_label, close_verdict, pane_id_from_label, pane_label_generation};
+    use std::collections::HashSet;
+
+    // Il registro delle bruciature è un globale di processo: ogni test usa un id
+    // suo, così l'ordine di esecuzione non conta.
+
+    #[test]
+    fn una_pane_sana_ha_l_etichetta_semplice() {
+        assert_eq!(pane_label_generation("sana"), 0);
+        assert_eq!(browser_label("sana"), "browserpane-sana");
+    }
+
+    /// Il cuore della cura: dopo la bruciatura l'etichetta è DIVERSA, quindi
+    /// `app.get_webview(&browser_label(id))` non trova più la vista morta e
+    /// `browser_open` cade nel ramo di CREAZIONE invece che in quello di riuso.
+    #[test]
+    fn bruciare_cambia_l_etichetta_cosi_open_non_puo_riusare() {
+        let id = "bruciata";
+        let prima = browser_label(id);
+        assert_eq!(burn_pane_label(id), 1);
+        let dopo = browser_label(id);
+        assert_ne!(prima, dopo, "l'etichetta bruciata non va riusata");
+        assert_eq!(dopo, "browserpane-~1~bruciata");
+    }
+
+    /// Una vista può morire due volte: la generazione sale, e ogni giro dà
+    /// un'etichetta ancora libera.
+    #[test]
+    fn bruciature_ripetute_salgono_di_generazione() {
+        let id = "due-volte";
+        assert_eq!(burn_pane_label(id), 1);
+        let g1 = browser_label(id);
+        assert_eq!(burn_pane_label(id), 2);
+        assert_eq!(pane_label_generation(id), 2);
+        assert_ne!(g1, browser_label(id));
+    }
+
+    /// L'id resta l'id: è come chiamano la pane il client, gli agenti e le cache
+    /// (bounds, corner, nav-error). Bruciare l'etichetta non deve rinominarla.
+    #[test]
+    fn l_id_sopravvive_alla_bruciatura() {
+        let id = "id-stabile";
+        assert_eq!(pane_id_from_label(&browser_label(id)), Some(id));
+        burn_pane_label(id);
+        assert_eq!(pane_id_from_label(&browser_label(id)), Some(id));
+    }
+
+    /// `browser_list` filtra per prefisso: una pane rigenerata deve restare
+    /// visibile, e la sua etichetta vecchia (webview morta ancora registrata)
+    /// deve risalire allo STESSO id — è così che la lista le collassa in una.
+    #[test]
+    fn vecchia_e_nuova_etichetta_danno_lo_stesso_id() {
+        assert!(browser_label("prefisso").starts_with("browserpane-"));
+        assert_eq!(pane_id_from_label("browserpane-x"), Some("x"));
+        assert_eq!(pane_id_from_label("browserpane-~3~x"), Some("x"));
+    }
+
+    /// Etichette che non sono di una pane browser non vanno interpretate.
+    #[test]
+    fn le_etichette_altrui_non_sono_pane() {
+        assert_eq!(pane_id_from_label("main"), None);
+        assert_eq!(pane_id_from_label("popout-1"), None);
+    }
+
+    /// Un id che comincia per `~` senza generazione valida non viene mutilato:
+    /// meglio restituire il resto così com'è che inventare un id.
+    #[test]
+    fn una_tilde_che_non_e_una_generazione_resta_nell_id() {
+        assert_eq!(pane_id_from_label("browserpane-~strano"), Some("~strano"));
+        assert_eq!(pane_id_from_label("browserpane-~~x"), Some("~~x"));
+    }
+
+    /// Una chiusura riuscita non brucia niente: l'etichetta è libera e la pane
+    /// riapre esattamente dov'era, che è il caso di gran lunga più comune.
+    #[test]
+    fn una_chiusura_riuscita_non_brucia_niente() {
+        let id = "chiusa-bene";
+        assert!(close_verdict(id, false).is_ok());
+        assert_eq!(pane_label_generation(id), 0);
+    }
+
+    /// LA CATENA, in miniatura. `manager` è il registro di tauri: `browser_open`
+    /// prende il ramo di riuso esattamente quando contiene `browser_label(id)`.
+    ///
+    /// Col mutex avvelenato `Webview::close()` panica prima di
+    /// `on_webview_close`, quindi l'etichetta resta dentro. Prima: la
+    /// riapertura la ritrovava e riconsegnava la vista morta — «Ricrea la
+    /// scheda» non ricreava niente. Adesso l'etichetta è bruciata e quel
+    /// `contains` è falso: `browser_open` CREA.
+    #[test]
+    fn una_vista_che_non_muore_brucia_l_etichetta_e_open_deve_creare() {
+        let id = "avvelenata";
+        let mut manager: HashSet<String> = HashSet::new();
+        manager.insert(browser_label(id)); // la vista viva, prima della chiusura
+
+        let verdict = close_verdict(id, manager.contains(&browser_label(id)));
+        assert!(verdict.is_err(), "una vista sopravvissuta non è una chiusura riuscita");
+
+        assert!(
+            !manager.contains(&browser_label(id)),
+            "browser_open deve CREARE una vista nuova, non riusare quella morta"
+        );
+        // La morta è ancora appesa al manager sotto l'etichetta vecchia — e
+        // risale allo stesso id, così `browser_list` non conta due pane per una.
+        let ids: Vec<&str> = manager.iter().filter_map(|l| pane_id_from_label(l)).collect();
+        assert_eq!(ids, vec![id]);
     }
 }
