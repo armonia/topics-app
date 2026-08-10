@@ -249,7 +249,16 @@ function parseChecksJson(raw: unknown): CheckRun[] | null {
   } catch { return null; }
 }
 
-const VALID_EFFORT = new Set<string>(EFFORT_TIERS);
+/**
+ * L'effort di board accetta anche `auto`, come il modello.
+ *
+ * Fissarlo per tutta una board significa pagare lo stesso sforzo su un typo e su
+ * un refactor — e non e' una differenza teorica: misurato il 2026-08-09 sullo
+ * stesso micro-task, `medium` costa 61,1k token di lavoro e `xhigh` 108,8k. Su
+ * `auto` lo sceglie il classificatore task per task (`task-model-picker.ts`),
+ * con pavimento a `medium` cosi' non puo' peggiorare niente in silenzio.
+ */
+const VALID_EFFORT = new Set<string>([...EFFORT_TIERS, "auto"]);
 const VALID_DISPATCH_MCP = new Set(["bridge-only", "inherit"]);
 const clampInt = (n: number, lo: number, hi: number) =>
   Math.max(lo, Math.min(hi, Math.trunc(Number.isFinite(n) ? n : lo)));

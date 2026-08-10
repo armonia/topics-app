@@ -132,7 +132,13 @@ export interface LiveUsage { turnStartedAt: number; baseMs: number; liveTokens: 
 // ── Board settings (auto-dispatch config) ───────────────────────────────────
 // La scala effort vive in `shared/effort.ts` (via lib/effortTiers): il
 // selettore del dispatch e lo slider della chat leggono la STESSA scala ordinata.
-export const EFFORTS = EFFORT_TIERS;
+//
+// `auto` sta in TESTA e non in coda perché è il default consigliato: fissare un
+// effort per tutta una board significa pagare lo stesso sforzo su un typo e su
+// un refactor, e la differenza non è teorica (stesso micro-task: `medium` 61,1k
+// token di lavoro, `xhigh` 108,8k). Su `auto` lo sceglie il classificatore task
+// per task, con pavimento `medium`.
+export const EFFORTS = ["auto", ...EFFORT_TIERS] as const;
 
 /** 1..MAX_FANOUT — le scelte del selettore fan-out, DERIVATE dal tetto condiviso
  *  (`shared/board.ts`): alzare il tetto allunga la fila da solo. */

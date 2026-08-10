@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { parseTier, tierToAvailableModel, pickTaskModel, floorTier } from "./task-model-picker";
+import { parseTier, tierToAvailableModel, pickTaskPlan, floorTier, parseEffort, floorEffort } from "./task-model-picker";
 
 // La lista come la annuncia davvero la CLI: due generazioni per famiglia, e
 // accanto a ognuna la sua variante a finestra lunga. Il tier deve scegliere la
@@ -75,60 +75,93 @@ describe("tierToAvailableModel", () => {
   });
 });
 
-describe("pickTaskModel", () => {
+describe("pickTaskPlan", () => {
   const base = { availableModels: ALL, fallback: "claude-sonnet-5" };
+  const model = async (answer: string, over: Record<string, unknown> = {}) =>
+    (await pickTaskPlan({ text: "x" }, { ...base, complete: async () => answer, ...over })).model;
 
   test("maps the classifier's tier to a concrete model", async () => {
-    const m = await pickTaskModel(
+    const p = await pickTaskPlan(
       { text: "refactor del layout engine" },
-      { ...base, complete: async () => "opus" },
+      { ...base, complete: async () => "opus high" },
     );
-    expect(m).toBe("claude-opus-5[1m]");
+    expect(p.model).toBe("claude-opus-5[1m]");
+    expect(p.effort).toBe("high");
   });
 
   test("unparsable answer → fallback", async () => {
-    const m = await pickTaskModel({ text: "x" }, { ...base, complete: async () => "boh non so" });
-    expect(m).toBe("claude-sonnet-5");
+    expect(await model("boh non so")).toBe("claude-sonnet-5");
   });
 
   test("classifier throwing → fallback (never blocks dispatch)", async () => {
-    const m = await pickTaskModel({ text: "x" }, {
-      ...base,
-      complete: async () => { throw new Error("provider down"); },
-    });
-    expect(m).toBe("claude-sonnet-5");
+    expect(await model("", { complete: async () => { throw new Error("provider down"); } })).toBe("claude-sonnet-5");
   });
 
   test("tier valid but not available on host → fallback", async () => {
-    const m = await pickTaskModel({ text: "x" }, {
-      complete: async () => "fable",
-      availableModels: ["gpt-4o"], // no claude tier at all
-      fallback: "claude-sonnet-5",
-    });
-    expect(m).toBe("claude-sonnet-5");
+    expect(await model("fable", { availableModels: ["gpt-4o"] })).toBe("claude-sonnet-5");
   });
 
   test("feeds title + description into the prompt", async () => {
     let seen = "";
-    await pickTaskModel(
+    await pickTaskPlan(
       { text: "Titolone", description: "Descrizione dettagliata" },
-      { ...base, complete: async (p) => { seen = p; return "sonnet"; } },
+      { ...base, complete: async (p) => { seen = p; return "sonnet medium"; } },
     );
     expect(seen).toContain("Titolone");
     expect(seen).toContain("Descrizione dettagliata");
   });
 
   test("execution floor: a haiku pick is clamped UP to sonnet (haiku is judge-only)", async () => {
-    const m = await pickTaskModel({ text: "bump versione" }, { ...base, complete: async () => "haiku" });
-    expect(m).toBe("claude-sonnet-5[1m]");
+    expect(await model("haiku medium")).toBe("claude-sonnet-5[1m]");
   });
 
   test("execution floor: haiku pick on a host without sonnet resolves to opus, NEVER haiku", async () => {
-    const m = await pickTaskModel(
+    const p = await pickTaskPlan(
       { text: "typo" },
-      { availableModels: ["claude-haiku-4-5", "claude-opus-5"], fallback: "claude-opus-5", complete: async () => "haiku" },
+      { availableModels: ["claude-haiku-4-5", "claude-opus-5"], fallback: "claude-opus-5", complete: async () => "haiku medium" },
     );
-    expect(m).toBe("claude-opus-5");
+    expect(p.model).toBe("claude-opus-5");
+  });
+
+  // ── L'effort ──────────────────────────────────────────────────────────────
+
+  test("un effort sotto il pavimento sale a medium, non scende", async () => {
+    // `low` non e' un target: il pavimento e' cio' che la board fa oggi, cosi'
+    // accendere l'auto non puo' peggiorare nessun task in silenzio.
+    const p = await pickTaskPlan({ text: "typo" }, { ...base, complete: async () => "sonnet low" });
+    expect(p.effort).toBe("medium");
+  });
+
+  test("effort illeggibile → null, cioè «decide la board» e non un medium inventato", async () => {
+    const p = await pickTaskPlan({ text: "x" }, { ...base, complete: async () => "opus" });
+    expect(p.model).toBe("claude-opus-5[1m]");
+    expect(p.effort).toBeNull();
+  });
+
+  test("un fallback di modello non porta con sé un effort", async () => {
+    // Se il giudice non si capisce, non si capisce nemmeno il suo sforzo:
+    // spacciarne uno sarebbe inventare una decisione che nessuno ha preso.
+    const p = await pickTaskPlan({ text: "x" }, { ...base, complete: async () => "boh" });
+    expect(p.effort).toBeNull();
+  });
+
+  test("xhigh non viene letto come high (il prefisso non deve vincere)", async () => {
+    const p = await pickTaskPlan({ text: "x" }, { ...base, complete: async () => "fable xhigh" });
+    expect(p.effort).toBe("xhigh");
+  });
+});
+
+describe("parseEffort / floorEffort", () => {
+  test("legge il tier anche in una risposta prolissa, e vince il PRIMO", () => {
+    expect(parseEffort("high")).toBe("high");
+    expect(parseEffort("direi max, non xhigh")).toBe("max");
+    expect(parseEffort("nessuna parola utile")).toBeNull();
+  });
+
+  test("il pavimento alza low e lascia stare il resto", () => {
+    expect(floorEffort("low")).toBe("medium");
+    expect(floorEffort("medium")).toBe("medium");
+    expect(floorEffort("max")).toBe("max");
   });
 });
 
