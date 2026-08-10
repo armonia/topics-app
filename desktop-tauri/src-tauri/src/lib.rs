@@ -5985,7 +5985,7 @@ fn install_shortcut_forwarder(app: &tauri::AppHandle) {
                     for (label, w) in app.webview_windows() {
                         if w.ns_window().map(|p| p as usize).ok() == Some(ev_window_ptr) {
                             if let Some(wv) = app.get_webview(&label) {
-                                let _ = wv.eval("window.location.reload()");
+                                let _ = wv.eval(RELOAD_WITH_FLASH_JS);
                                 done = true;
                             }
                             break;
@@ -5993,7 +5993,7 @@ fn install_shortcut_forwarder(app: &tauri::AppHandle) {
                     }
                     if !done {
                         if let Some(mw) = app.get_webview("main") {
-                            let _ = mw.eval("window.location.reload()");
+                            let _ = mw.eval(RELOAD_WITH_FLASH_JS);
                         }
                     }
                     return nil; // swallow — the pane/terminal must not also see ⌘R
@@ -6593,6 +6593,21 @@ fn window_focus_label(app: tauri::AppHandle, label: String) -> bool {
     .unwrap_or(false)
 }
 
+/// JS che ricarica il documento UI LASCIANDO UN SEGNO che il client mostra al
+/// boot successivo (`ReloadedFlash` → toast «Ricaricata»).
+///
+/// Un reload che rifà lo stesso contenuto è indistinguibile dal nulla: premi
+/// ⌘R, lo schermo torna identico, e l'unica conclusione possibile è «non va».
+/// È già successo. Il segno sta in `sessionStorage` perché è l'unico posto che
+/// sopravvive a `location.reload()` senza sopravvivere alla finestra: la
+/// prossima sessione non si porta dietro un toast fossile.
+///
+/// `try/catch` perché in un documento con storage negato `sessionStorage` LANCIA
+/// al solo accesso: senza guardia l'eccezione ucciderebbe la riga e il reload —
+/// cioè il feedback si mangerebbe la funzione che deve annunciare.
+const RELOAD_WITH_FLASH_JS: &str =
+    "try{sessionStorage.setItem('topics:reloaded','1')}catch(e){}window.location.reload()";
+
 /// Ricarica TUTTE le finestre della app (chrome inclusa), non solo quella che
 /// chiede. Il bundle è uno solo: dopo un build, una finestra ricaricata e le
 /// altre ferme sono due versioni dello stesso client che si parlano — e chi
@@ -6607,7 +6622,7 @@ fn app_reload_all(app: tauri::AppHandle) -> usize {
             // Le pane native del browser sono webview a sé: si saltano, o si
             // ricaricherebbe la pagina che l'utente sta guardando.
             if label.starts_with("browserpane-") { continue; }
-            if win.eval("location.reload()").is_ok() { n += 1; }
+            if win.eval(RELOAD_WITH_FLASH_JS).is_ok() { n += 1; }
         }
         Ok(n)
     })
@@ -7408,7 +7423,9 @@ pub fn run() {
                         .get_webview_window(&label)
                         .or_else(|| app.get_webview_window("main"))
                     {
-                        let _ = win.eval("window.location.reload()");
+                        // Stesso segno del ⌘R nativo: il menu e la scorciatoia
+                        // sono lo stesso gesto, devono dare la stessa risposta.
+                        let _ = win.eval(RELOAD_WITH_FLASH_JS);
                     }
                 }
                 "app-quit" => {
