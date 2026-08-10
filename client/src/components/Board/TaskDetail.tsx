@@ -787,9 +787,12 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   // (managed pane — split/resize/close) in the task's project window, NOT the OS
   // browser. If that window isn't mounted yet, park the navigate so it drains on
   // mount; topics:open-project triggers the mount, the racing event loses it.
-  const openInWorkspace = useCallback(() => {
+  // `url` arriva dal chiamante (non da `task.outputUrl`) perché il risultato di
+  // un task sono le sue TAB: un task dispatchato apre la sua pagina con
+  // open_browser_pane e non tocca mai `output_url`, che è solo il SEME della
+  // prima tab. Promuovere «la tab in primo piano» copre entrambi i casi.
+  const openInWorkspace = useCallback((url: string) => {
     const projectPath = currentProject?.path;
-    const url = task?.outputUrl;
     if (!url || !projectPath) return;
     // Deterministic contextId → same pane is reused on re-open and the agent can
     // steer it later (login handoff, fase 2).
@@ -797,7 +800,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
     enqueueProjectBrowserNavigate(projectPath, { url, contextId });
     window.dispatchEvent(new CustomEvent('topics:open-project', { detail: { projectPath } }));
     window.dispatchEvent(new CustomEvent('browser:open-and-navigate', { detail: { projectPath, url, topicId: task?.assignedTopicId, contextId } }));
-  }, [currentProject?.path, task?.outputUrl, task?.assignedTopicId, task?.id]);
+  }, [currentProject?.path, task?.assignedTopicId, task?.id]);
   const doCreateProject = async (name: string) => {
     if (!name || projBusy || !task) return;
     setProjBusy(true);
@@ -1167,9 +1170,13 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               className="rounded p-1.5 text-app-text-secondary hover:bg-white/10"
             ><ArrowUpRight className="h-4 w-4" /></button>
           )}
-          {task?.outputUrl && (
+          {/* La tab in primo piano vince su `outputUrl`: su un task DISPATCHATO
+              il risultato è la tab che l'agente ha aperto con open_browser_pane,
+              e `outputUrl` (quando c'è) è solo il seme della prima. Senza tab
+              vive resta il seme, così il flusso manuale non perde nulla. */}
+          {(browser.activeUrl || task?.outputUrl) && (
             <button
-              onClick={openInWorkspace}
+              onClick={() => openInWorkspace(browser.activeUrl || task!.outputUrl!)}
               data-testid="task-open-in-workspace"
               title={tr('board.task.openResultWorkspaceTitle')}
               className="rounded p-1.5 text-app-text-secondary hover:bg-white/10"

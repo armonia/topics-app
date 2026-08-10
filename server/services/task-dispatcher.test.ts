@@ -1078,7 +1078,7 @@ describe("task-dispatcher", () => {
     expect(h2.turns[0].content).not.toContain("PLAN FIRST");
   });
 
-  it("kickoff teaches the step checklist (nested subtasks, self-closable) and output_url", async () => {
+  it("kickoff teaches the step checklist (nested subtasks, self-closable) and the tab+file delivery model", async () => {
     const h = harness();
     h.svc.updateBoardSettings(PID, { autoDispatch: true });
     seedTask(h.db, { id: "t1", status: "todo" });
@@ -1088,7 +1088,12 @@ describe("task-dispatcher", () => {
     expect(kickoff).toContain('parent_task_id="t1"');
     expect(kickoff).toContain('status="done"'); // marca ogni step done
     expect(kickoff).toContain("TUTTI i tuoi step devono essere done");
-    expect(kickoff).toContain("output_url");
+    // Consegna = tab del task + file consegnati, niente concetto "Output":
+    // l'agente deve sapere che una pagina viva si apre come TAB, non si dichiara
+    // come url in un campo a parte.
+    expect(kickoff).toContain("open_browser_pane");
+    expect(kickoff).toContain("FILE CONSEGNATI");
+    expect(kickoff).not.toContain("output_url");
   });
 
   it("buffers a resume landing while the turn is in flight and delivers it on the same tab at turn end", async () => {
