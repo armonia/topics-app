@@ -246,6 +246,13 @@ export function FileSearch({ projectPaths, mode, onModeChange, onOpenFile, onClo
           <Search size={16} className="text-app-text-muted flex-shrink-0" />
           <input
             ref={inputRef}
+            // Ancora stabile per chi guarda da fuori. Il `placeholder` non lo è:
+            // è testo, e per giunta testo che cambia col MODO e con lo scope
+            // («Apri un file in X…» / «Cerca in X…»). Tre spec lo usavano come
+            // locator quando era ancora inglese — `input[placeholder*="Search"]`
+            // — e sono diventate rosse alla traduzione, dicendo «element(s) not
+            // found» su un input che c'era eccome.
+            data-testid="file-search-input"
             value={query}
             onChange={e => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
