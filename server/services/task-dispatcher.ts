@@ -1739,7 +1739,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         try {
           deps.svc.addComment({
             taskId, author: "system",
-            content: `In attesa di uno slot: il tetto di concorrenza (${currentCap()}) è pieno. Riprendo appena si libera — niente è andato perso.`,
+            content: `In coda: tetto di concorrenza pieno (${currentCap()}). Riprendo appena si libera.`,
           });
         } catch { /* best-effort */ }
       }
@@ -2027,7 +2027,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           try {
             deps.svc.addComment({
               taskId: t.id, author: "system",
-              content: `Fan-out ridotto da ${wantFanOut} a ${taskFanOut}: il tetto di concorrenza (${effectiveCap}) non lascia posto per tutti i tentativi.`,
+              content: `Fan-out ${wantFanOut}→${taskFanOut}: tetto di concorrenza ${effectiveCap}.`,
             });
           } catch { /* best-effort */ }
         }
@@ -2039,7 +2039,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         try {
           deps.svc.addComment({
             taskId: t.id, author: "system",
-            content: `Fan-out a ${wantFanOut} ignorato: questa board dispaccia IN-PLACE (isolamento worktree off) e ${wantFanOut} agenti nella stessa cartella si pesterebbero i piedi. Parte un agente solo.`,
+            content: `Fan-out ${wantFanOut} ignorato: board IN-PLACE (worktree off), ${wantFanOut} agenti nella stessa cartella si pesterebbero. Parte un agente solo.`,
           });
         } catch { /* best-effort */ }
       }
@@ -2257,7 +2257,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
             try {
               deps.svc.addComment({
                 taskId: t.id, author: "system",
-                content: "Ripreso in diretta dopo un riavvio del server: nessuna interruzione della sessione, nessun tentativo consumato.",
+                content: "Riavvio del server: ripreso in diretta, nessun tentativo consumato.",
               });
             } catch { /* dedupe/best-effort */ }
             void reattachTask(t.id);
@@ -2266,7 +2266,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           try {
             deps.svc.addComment({
               taskId: t.id, author: "system",
-              content: "Il server è ripartito mentre l'agent lavorava: riprendo la stessa sessione da dove era rimasta (nessun tentativo consumato).",
+              content: "Server ripartito a metà turno: riprendo la stessa sessione, nessun tentativo consumato.",
             });
           } catch { /* dedupe/best-effort */ }
           // Sets inFlight synchronously → the 10s poll can never double-fire.

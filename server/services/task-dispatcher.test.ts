@@ -748,7 +748,7 @@ describe("task-dispatcher", () => {
 
     expect(h.turns.length).toBe(1); // nessun secondo turno: il posto è uno
     // E non è perso in silenzio: la card lo dice, nel thread E nel chip.
-    expect(h.svc.get("t2")!.comments.some((c) => c.content.includes("In attesa di uno slot"))).toBe(true);
+    expect(h.svc.get("t2")!.comments.some((c) => c.content.includes("In coda: tetto di concorrenza"))).toBe(true);
     // Senza il chip la card resta `in_progress` senza turno vivo: il tempo non
     // scorre e sembra piantata — una coda invisibile.
     expect(h.task("t2")!.dispatchState).toBe("queued");
@@ -1025,7 +1025,7 @@ describe("task-dispatcher", () => {
     expect(h.turns.length).toBe(0);                 // NO resume/continuation turn
     expect(h.task("t1")!.dispatchAttempts).toBe(1); // a restart consumes nothing
     const comments = h.svc.get("t1")!.comments;
-    expect(comments.some((c) => c.author === "system" && c.content.includes("Ripreso in diretta"))).toBe(true);
+    expect(comments.some((c) => c.author === "system" && c.content.includes("ripreso in diretta"))).toBe(true);
   });
 
   it("reconcile is idempotent under the poll: a resumed turn is never doubled", async () => {
