@@ -18,6 +18,22 @@
  * Non è un mock: implementa il contratto per intero, compreso il fatto di NON
  * poter leggere ciò che inoltra.
  */
+
+/**
+ * Il segreto d'aggancio nei test che non fanno una stretta di mano vera.
+ *
+ * Questi test iniettano `apriSocket`, quindi il filo non esce dal processo e
+ * nessuno verifica niente: il valore serve solo a soddisfare la forma di
+ * `RelayDeps`. Sta QUI e non ripetuto in cinque file perché un segreto finto
+ * copiato cinque volte è un segreto finto che un giorno qualcuno cerca di
+ * cambiare in un posto solo.
+ *
+ * Chi invece prova il controllo vero — che il nome sia il digest della
+ * preimmagine — non usa questo: deriva il nome dal segreto con
+ * `derivaRelayId`, perché una coppia inventata a mano non corrisponderebbe e il
+ * test proverebbe solo il rifiuto.
+ */
+export const SEGRETO_FINTO = "segreto-finto-per-i-test-0123456789";
 import {
   RELAY_PROTOCOL_VERSION, leggiMessaggio, haContenutoOpaco,
   componiStream, creaCapoCanale, creaContatoreStream, creaRiassemblatore, leggiFramePayload,

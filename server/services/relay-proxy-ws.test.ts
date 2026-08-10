@@ -19,7 +19,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import type { ServerWebSocket } from "bun";
 import { creaProxyTubo, creaRelayClient } from "./relay-client";
-import { creaOspiteWs } from "../../shared/relay-fake";
+import { creaOspiteWs, SEGRETO_FINTO } from "../../shared/relay-fake";
 import {
   componiStream, costoMessaggio, creaRiassemblatore, leggiFramePayload, leggiMessaggio,
   scriviFrame, type FrameTubo,
@@ -107,7 +107,8 @@ function macchina(opts: { porta: number | null; credito?: number; arretratoMax?:
   const sock = new SocketFinta();
   const c = creaRelayClient({
     baseUrl: "http://relay.test",
-    installationId: "i1",
+    relayId: "i1",
+    segreto: SEGRETO_FINTO,
     trovaLink: () => null,
     serviRisorsa: async () => ({ status: 200, body: {} }),
     segnaApertura: () => {},
