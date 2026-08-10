@@ -43,6 +43,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { Replayer } from 'rrweb';
 import 'rrweb/dist/rrweb.min.css';
+import { BrowserPaneChip } from './BrowserPaneChip';
 
 /** Minimal shape of an rrweb event we rely on (Meta carries the recorded size). */
 type RrwebEvent = {
@@ -533,13 +534,12 @@ export default function DomCoBrowse({ registerDomSink, sendInput, agentActive }:
 
       {/* Local text-selection mode indicator (Option toggles it). While active the
           overlay yields to the interactive mirror so text is natively selectable. */}
+      {/* Era `bg-black/70 text-white`, l'unico dei quattro chip del pane che non
+          seguiva il tema: in chiaro restava una pastiglia nera. */}
       {selecting && !agentActive && (
-        <div
-          data-testid="browser-dom-select-mode"
-          className="absolute top-2 left-1/2 -translate-x-1/2 z-[3] px-2 py-0.5 rounded-full bg-black/70 text-white text-[11px] font-medium pointer-events-none select-none"
-        >
+        <BrowserPaneChip corner="top-center" tone="active" z={3} testId="browser-dom-select-mode">
           Selezione testo · ⌥ per tornare
-        </div>
+        </BrowserPaneChip>
       )}
 
       {/* Nothing reconstructed yet — say so instead of showing a white void. This

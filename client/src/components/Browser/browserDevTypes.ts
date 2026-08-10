@@ -8,14 +8,20 @@
 export type DeviceMode = 'desktop' | 'mobile' | 'tablet' | 'auto' | 'custom';
 
 /** A device preset's metrics + UA. `desktop`/`auto` carry no metrics (disable
- *  emulation / fit-the-pane respectively); mobile/tablet/custom carry a size. */
+ *  emulation / fit-the-pane respectively); mobile/tablet/custom carry a size.
+ *
+ *  There is no `deviceScaleFactor` and no `mobile` flag. Both used to be here,
+ *  set on the mobile and tablet presets, and NOTHING read either one: the native
+ *  pane emulates a device by overriding the User-Agent and letterboxing the view
+ *  to the preset's size, and WKWebView exposes no way to fake a backing-scale
+ *  factor or a touch pointer from outside the page. Carrying the fields anyway
+ *  described an emulation that wasn't happening — the sort of thing you only
+ *  discover by wondering why setting them changed nothing. */
 export interface DevicePreset {
   mode: DeviceMode;
   label: string;
   width?: number;
   height?: number;
-  deviceScaleFactor?: number;
-  mobile?: boolean;
   userAgent?: string;
 }
 
@@ -27,9 +33,31 @@ const IPAD_UA =
 export const DEVICE_PRESETS: Record<Exclude<DeviceMode, 'custom'>, DevicePreset> = {
   desktop: { mode: 'desktop', label: 'Desktop' },
   auto: { mode: 'auto', label: 'Auto' },
-  mobile: { mode: 'mobile', label: 'Mobile', width: 390, height: 844, deviceScaleFactor: 3, mobile: true, userAgent: IPHONE_UA },
-  tablet: { mode: 'tablet', label: 'Tablet', width: 820, height: 1180, deviceScaleFactor: 2, mobile: true, userAgent: IPAD_UA },
+  mobile: { mode: 'mobile', label: 'Mobile', width: 390, height: 844, userAgent: IPHONE_UA },
+  tablet: { mode: 'tablet', label: 'Tablet', width: 820, height: 1180, userAgent: IPAD_UA },
 };
+
+/**
+ * Which device the pane is ACTUALLY emulating, read back from the page.
+ *
+ * The webview outlives the React component that owns the toolbar. `browser_open`
+ * is idempotent and REUSES a live view, a background tab stays mounted, and a ⌘R
+ * of the host UI doesn't tear the child webview down at all. Meanwhile the
+ * toolbar's device mode was a plain `useState('desktop')`, so every one of those
+ * remounts put the control back to Desktop while the WKWebView carried on
+ * serving the iPhone User-Agent it had been given. The menu said one thing and
+ * the site saw another, with nothing on screen to suggest which was true.
+ *
+ * A custom User-Agent is the whole of what "emulating" means on this path, so
+ * the page's own `navigator.userAgent` is the authority — not a value the client
+ * remembers. `custom` (responsive resize) sets no UA and so cannot be recovered:
+ * it reads back as `desktop`, which is exactly what the view has reverted to.
+ */
+export function deviceModeFromUserAgent(ua: string): 'desktop' | 'mobile' | 'tablet' {
+  if (ua === IPHONE_UA) return 'mobile';
+  if (ua === IPAD_UA) return 'tablet';
+  return 'desktop';
+}
 
 /** A console entry forwarded from the native view (main.ts wc.on('console-message')). */
 export interface BrowserConsoleEntry {
@@ -93,6 +121,16 @@ export interface NativeBrowserHandle {
   parked?: { url: string; checkedAt: number } | null;
   /** Optional — una sonda del parcheggio è in corso. */
   parkedChecking?: boolean;
+  /** Optional — Tauri only. La webview nativa non risponde più: una raffica di
+   *  comandi strutturali di fila è stata rifiutata dalla shell (vedi
+   *  `lib/shell/browserPaneFault.ts`). Non è un errore della PAGINA — è il pane
+   *  che non c'è più, ed è l'unico stato in cui la chrome continuerebbe a
+   *  disegnare un browser perfettamente normale sopra una vista morta. */
+  nativeFault?: { command: string } | null;
+  /** Optional — Tauri only. Butta via la webview e ne costruisce una nuova allo
+   *  stesso indirizzo: l'unico rimedio a un mutex avvelenato, che per quella
+   *  vista è definitivo. */
+  recreate?(): Promise<void>;
   /** Optional — risonda la porta: se è tornata su, apre la view. */
   retryParked?(): Promise<void>;
   navigate(url: string): Promise<void>;
