@@ -136,9 +136,11 @@ scade         : ${new Date(carico.exp).toISOString().slice(0, 10)}
 
 ${gettone}
 
-Il cliente lo installa con:
+Il cliente lo installa da Impostazioni → Piano, incollandolo nel campo e
+premendo «Installa». Oppure, se preferisce il terminale (PUT, non POST: è
+la stessa rotta che l'interfaccia chiama):
 
-  curl -sk -X POST https://127.0.0.1:3333/api/license \\
+  curl -sk -X PUT https://127.0.0.1:3333/api/license \\
     -H 'Content-Type: application/json' \\
     -d '{"token":"${gettone.slice(0, 24)}…"}'
 
