@@ -245,7 +245,9 @@ function handleFrame(frame: unknown): void {
  * holds locally (so tombstones written while offline propagate on connect).
  */
 export function initTombstoneSync(): void {
-  if (wired || typeof window === 'undefined') return;
+  // Capability, non esistenza: un `window` finto e parziale (i test) passa
+  // l'`undefined` check ma non sa fare addEventListener.
+  if (wired || typeof window === 'undefined' || typeof window.addEventListener !== 'function') return;
   wired = true;
   setTombstoneChangeListener(publish);
   // pagehide fires on real unload AND on bfcache freeze; visibilitychange→hidden

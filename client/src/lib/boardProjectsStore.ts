@@ -34,8 +34,8 @@ const listeners = new Set<() => void>();
  * un progetto, e senza path non c'è icona (`ProjectFavicon` con `path` vuoto non
  * rende niente, per decisione). Prima, un errore scriveva `projects = []` — che
  * per chi legge è indistinguibile da «nessun progetto» — e da quel momento la
- * guardia `projects === null` non scattava più e `fetchOnce(force)` non era
- * chiamato da nessuna parte: l'indice era perso per la VITA DEL DOCUMENTO.
+ * guardia `projects === null` non scattava più, e non restava nessun'altra
+ * strada per ricostruirlo: l'indice era perso per la VITA DEL DOCUMENTO.
  *
  * Non è teorico e non è raro: misurato sul server di produzione, `…/tasks` fa
  * 88.936 richieste contro 318 di `…/projects`, cioè 280:1. I task si riprendono
@@ -57,8 +57,18 @@ function publish(): void {
 
 const byName = (a: BoardProjectRef, b: BoardProjectRef) => a.name.localeCompare(b.name);
 
-async function fetchOnce(force = false): Promise<BoardProjectRef[] | null> {
-  if (!force && projects !== null) return projects;
+/**
+ * L'indice, caricato UNA volta per vita del documento (single-flight).
+ *
+ * Non esiste un ricarico forzato, e non è una dimenticanza: l'unico modo di
+ * invalidare l'indice dall'interno dell'app è creare un progetto, e quella
+ * strada lo aggiorna sul posto (`addBoardProject`) invece di rifare il giro.
+ * Chi legge questo store lo fa per il `path` — cioè per l'icona — e un
+ * ricarico periodico costerebbe richieste a ogni risveglio senza cambiare
+ * niente: `armRecovery` infatti riprova solo quando l'indice NON c'è.
+ */
+async function fetchOnce(): Promise<BoardProjectRef[] | null> {
+  if (projects !== null) return projects;
   if (inflight) return inflight;
   inflight = (async () => {
     try {
@@ -118,11 +128,21 @@ export function useNewProjectDir(enabled = true): string | null {
  * montano al primo sottoscrittore e restano, perché sono globali per documento e
  * non per componente.
  *
- * Non fa niente quando l'indice c'è: `fetchOnce` senza `force` esce subito.
+ * Non fa niente quando l'indice c'è: `fetchOnce` esce subito.
  */
 let recoveryArmed = false;
 function armRecovery(): void {
-  if (recoveryArmed || typeof document === 'undefined') return;
+  // La guardia chiede le capacità che il corpo USA — e sono su DUE oggetti:
+  // il primo aggancio è su `document`, gli altri due su `window`. Controllare
+  // solo l'esistenza di `document` lasciava passare sia il caso "document
+  // parziale" (stub dei test) sia il caso "window assente".
+  if (
+    recoveryArmed ||
+    typeof document === 'undefined' ||
+    typeof document.addEventListener !== 'function' ||
+    typeof window === 'undefined' ||
+    typeof window.addEventListener !== 'function'
+  ) return;
   recoveryArmed = true;
   const recover = () => {
     if (document.hidden) return;
@@ -141,14 +161,6 @@ export function subscribeBoardProjects(cb: () => void): () => void {
   // primo tentativo fallisse perché nessun montaggio successivo provasse più.
   if (projects === null && !inflight && Date.now() - lastFailAt >= RETRY_AFTER_MS) void fetchOnce();
   return () => { listeners.delete(cb); };
-}
-
-/**
- * Ricostruisci l'indice ADESSO, buttando quello che c'è. Per chi sa di averlo
- * invalidato (una cartella aggiunta o rinominata fuori dall'app).
- */
-export function reloadBoardProjects(): void {
-  void fetchOnce(true);
 }
 
 /**

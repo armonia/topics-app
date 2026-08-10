@@ -74,7 +74,9 @@ function applyIncomingSnapshot(incoming: unknown): void {
 
 export function initCrossTabSync(): void {
   if (started) return;
-  if (typeof window === 'undefined') return;
+  // Capability, non esistenza: un `window` finto e parziale (i test) passa
+  // l'`undefined` check ma non sa fare addEventListener.
+  if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return;
   started = true;
 
   if (!tabId) tabId = makeTabId();
