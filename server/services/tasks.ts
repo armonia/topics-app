@@ -26,6 +26,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { parseReviewChecks, serializeReviewChecks, type CheckRun } from "./review-checks";
 import { imageShape } from "./image-shape";
+import { readGlobalCap } from "./dispatch-capacity";
 
 // Stati e forma del thread stanno in `shared/board.ts`: il client li legge
 // dalla stessa dichiarazione invece di riscriverli. `export type … from`
@@ -1692,11 +1693,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     },
 
     getGlobalCap(): { auto: boolean; max: number } {
-      const r = db.prepare("SELECT max_agents, max_agents_auto FROM board_settings WHERE project_id = ?").get(GLOBAL_SETTINGS_KEY) as any;
-      // Auto is the default until a manual number is explicitly picked (NULL = never
-      // set → auto), so a fresh install caps concurrency by capacity, not at nothing.
-      const auto = r?.max_agents_auto == null ? true : !!r.max_agents_auto;
-      return { auto, max: clampInt(r?.max_agents ?? 3, 1, 20) };
+      // Una lettura sola per due chiamanti: il tick del dispatcher e la quota di
+      // core dello spawn (`agent-job-quota.ts`) devono leggere lo STESSO tetto,
+      // NULL compreso — vedi `readGlobalCap`.
+      return readGlobalCap(db);
     },
 
     setGlobalCap(patch: { auto?: boolean; max?: number }): { auto: boolean; max: number } {

@@ -13,12 +13,48 @@
 // perfectly healthy 32 GB machine. Load average is the honest live signal.
 
 import os from "node:os";
+import type { Database } from "bun:sqlite";
 
 // La forma sta in `shared/board.ts` (la legge la UI delle impostazioni board).
 export type { DispatchCapacity } from "../../shared/board";
 import type { DispatchCapacity } from "../../shared/board";
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
+
+/** Riga riservata di `board_settings` che porta il tetto GLOBALE (una per macchina). */
+const GLOBAL_SETTINGS_KEY = "*";
+
+/**
+ * Il tetto di concorrenza globale come sta scritto: `auto` (dimensionato dalla
+ * capacità viva) oppure il numero fisso scelto nel menu.
+ *
+ * Sta qui e non in `tasks.ts` perché ora ha DUE lettori — il tick del
+ * dispatcher e la quota di core dello spawn (`agent-job-quota.ts`) — e due
+ * copie di «cosa vuol dire NULL in questa colonna» sono esattamente il modo in
+ * cui i default di questo repo sono già andati in deriva. `TaskService.getGlobalCap`
+ * delega qui.
+ */
+export function readGlobalCap(db: Database): { auto: boolean; max: number } {
+  const r = db
+    .prepare("SELECT max_agents, max_agents_auto FROM board_settings WHERE project_id = ?")
+    .get(GLOBAL_SETTINGS_KEY) as { max_agents?: number | null; max_agents_auto?: number | null } | undefined;
+  // Auto è il default finché non si sceglie un numero a mano (NULL = mai
+  // impostato → auto), così un'installazione nuova protegge la macchina da sé.
+  const auto = r?.max_agents_auto == null ? true : !!r.max_agents_auto;
+  return { auto, max: clamp(Math.floor(r?.max_agents ?? 3), 1, 20) };
+}
+
+/**
+ * Quanti agenti insieme, davvero, adesso: `auto` prende la raccomandazione
+ * viva della macchina, il resto prende il numero fisso. Mai sotto 1 — un tetto
+ * di zero non è una board prudente, è una board ferma.
+ *
+ * `recommended` a `null` significa «nessuna sonda»: si ricade sul numero fisso
+ * anche in auto, che è il comportamento dei test e degli host degradati.
+ */
+export function effectiveDispatchCap(cap: { auto: boolean; max: number }, recommended: number | null): number {
+  return cap.auto && recommended != null ? Math.max(1, recommended) : Math.max(1, cap.max);
+}
 
 /** Absolute ceiling — never auto-recommend more than this regardless of the box. */
 const MAX_AUTO_CAP = 8;
