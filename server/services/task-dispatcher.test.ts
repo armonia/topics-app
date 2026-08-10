@@ -747,8 +747,11 @@ describe("task-dispatcher", () => {
     await flush();
 
     expect(h.turns.length).toBe(1); // nessun secondo turno: il posto è uno
-    // E non è perso in silenzio: la card lo dice.
+    // E non è perso in silenzio: la card lo dice, nel thread E nel chip.
     expect(h.svc.get("t2")!.comments.some((c) => c.content.includes("In attesa di uno slot"))).toBe(true);
+    // Senza il chip la card resta `in_progress` senza turno vivo: il tempo non
+    // scorre e sembra piantata — una coda invisibile.
+    expect(h.task("t2")!.dispatchState).toBe("queued");
   });
 
   it("parks (does not run in-place) when a worktree is required but unavailable", async () => {
