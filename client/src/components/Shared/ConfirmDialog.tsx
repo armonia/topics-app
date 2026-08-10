@@ -1,5 +1,5 @@
 import { useRef, type ReactNode } from 'react';
-import { MODAL_PANEL } from '../../lib/modalStyles';
+import { MODAL_OVERLAY, MODAL_PANEL } from '../../lib/modalStyles';
 import { useModalDialog } from '../../hooks/useModalDialog';
 
 /**
@@ -53,8 +53,16 @@ export function ConfirmDialog({
   useModalDialog({ onClose: onCancel, panelRef, initialFocusRef: cancelRef });
 
   return (
+    // `MODAL_OVERLAY` e non `z-[100]` scritto a mano. Le classi sono le stesse
+    // riga per riga — velo, blur, centratura — TRANNE il piano, e il piano era
+    // sbagliato: 100 è esattamente la quota che `lib/popoverStyles.ts` chiama
+    // «l'ad-hoc chrome dell'app» e che la scala dei popover (9998–10000) è
+    // costruita apposta per SCAVALCARE. Un dialogo di conferma finiva quindi
+    // sotto ogni popover, sotto il velo del bottom-sheet (Z_POPOVER_SCRIM) e
+    // sotto la card di pairing che arriva da sola: la stessa forma del bug per
+    // cui ⌘N «apriva tutti i dropdown». Ora il piano lo dichiara la costante.
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/30 dark:bg-black/50 backdrop-blur-sm"
+      className={MODAL_OVERLAY}
       onClick={onCancel}
     >
       <div
