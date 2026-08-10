@@ -40,7 +40,12 @@ export async function countTabBars(page: Page): Promise<number> {
 
 /** Get the text of every visible tab label across all tab bars in the main area. */
 export async function getVisibleTabLabels(page: Page): Promise<string[]> {
-  const tabs = page.locator('[role="main"] .truncate.flex-1');
+  // `[data-testid="pane-tab-label"]` e non `.truncate.flex-1`: quelle due
+  // utility di layout le porta ora anche una riga dell'albero dei file e una
+  // riga di git, che vivono dentro `[role="main"]` — quindi il conteggio
+  // includeva cose che non sono tab e i test «no duplicate tabs» diventavano
+  // rossi su un'app corretta.
+  const tabs = page.locator('[role="main"] [data-testid="pane-tab-label"]');
   const count = await tabs.count();
   const labels: string[] = [];
   for (let i = 0; i < count; i++) {

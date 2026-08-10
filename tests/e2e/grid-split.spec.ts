@@ -76,7 +76,9 @@ async function openProject(page: Page, name: string | RegExp, projectPath = "/tm
   // caso "progetto senza tab" lo fa con le proprie expect (o skip), quindi qui
   // l'esito è volutamente ignorato: serve solo a non proseguire troppo presto.
   await page
-    .locator('[role="main"] .truncate.flex-1')
+    // Stesso appiglio stabile di `getVisibleTabLabels`: `.truncate.flex-1`
+    // sono due utility di layout che ora porta anche una riga di file o di git.
+    .locator('[role="main"] [data-testid="pane-tab-label"]')
     .first()
     .waitFor({ state: "visible", timeout: 5000 })
     .catch(() => {});
@@ -858,7 +860,7 @@ test.describe("Grid Split System", () => {
       // squatting as a STANDALONE tab (the PURGE_ORPHAN_PANE enforcement), so
       // page-wide label counts are not a valid oracle here.
       const projectTabLabels = async (): Promise<string[]> => {
-        const tabs = page.locator('[data-testid="project-window"] .truncate.flex-1');
+        const tabs = page.locator('[data-testid="project-window"] [data-testid="pane-tab-label"]');
         const n = await tabs.count();
         const out: string[] = [];
         for (let i = 0; i < n; i++) {
