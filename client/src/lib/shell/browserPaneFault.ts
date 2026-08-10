@@ -93,3 +93,45 @@ export function recordPaneError(state: FaultState, command: string): FaultState 
   if (streak < FAULT_STREAK) return { streak, faulted: false, command: state.command };
   return { streak, faulted: true, command };
 }
+
+/** I passi che «Ricrea la scheda» esegue, iniettati per poterli osservare. */
+export interface PaneRecreateSteps {
+  /** Chiude la vista. `false` = il guscio ha rifiutato: etichetta BRUCIATA. */
+  close(): Promise<boolean>;
+  /** Riapre. `true` = sotto questa pane c'è di nuovo una vista. */
+  open(): Promise<boolean>;
+  /** Un comando STRUTTURALE sulla vista nuova — è ciò che cancella il guasto. */
+  handshake(): void;
+  /** Diagnostica: la chiusura non è atterrata. */
+  onLabelBurned?(): void;
+}
+
+/**
+ * La cura, nell'ordine in cui deve andare.
+ *
+ * Tre cose che prima non erano vere, e per cui il pulsante non ricreava niente
+ * proprio nel caso per cui esiste — un dispatcher col mutex avvelenato:
+ *
+ *  1. l'esito della chiusura SI LEGGE. `Webview::close()` passa dallo stesso
+ *     `window_id.lock().unwrap()` di tutto il resto: avvelenato quello, la vista
+ *     non muore e resta registrata nel manager di tauri. Con un `.catch(() => {})`
+ *     sopra, la riapertura cadeva nel ramo di RIUSO di `browser_open` e
+ *     riconsegnava la stessa vista morta.
+ *  2. si riapre COMUNQUE, anche dopo una chiusura fallita: è il guscio a bruciare
+ *     l'etichetta quando la vista rifiuta di morire (`burn_pane_label` in
+ *     src-tauri/src/lib.rs), quindi la riapertura nasce sotto un'etichetta libera
+ *     e quindi come vista NUOVA. Rinunciare qui lascerebbe la pane com'era.
+ *  3. il guasto NON si azzera a mano. Azzerarlo faceva sparire la striscia
+ *     all'istante per farla tornare dopo altri tre fallimenti: «risolto» per un
+ *     attimo, e poi no. Lo cancella la vista nuova rispondendo al `handshake`,
+ *     via {@link recordPaneOk} — l'unica prova che qualcosa è cambiato davvero.
+ *
+ * Restituisce `true` se sotto la pane c'è di nuovo una vista.
+ */
+export async function recreatePane(steps: PaneRecreateSteps): Promise<boolean> {
+  const closed = await steps.close();
+  if (!closed) steps.onLabelBurned?.();
+  const reopened = await steps.open();
+  if (reopened) steps.handshake();
+  return reopened;
+}
