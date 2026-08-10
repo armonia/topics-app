@@ -17,7 +17,9 @@ import {
   CHECKS,
   citesSubtasks,
   costBaselineFromJson,
+  declaredToolParams,
   DOCTOR,
+  documentedCalls,
   EMPTY_STATE,
   filterUnsaid,
   finding,
@@ -72,6 +74,7 @@ function input(over: Partial<DoctorInput> = {}): DoctorInput {
     reds: [],
     costBaseline: {},
     probes: {},
+    documentedParams: [],
     ...over,
   };
 }
@@ -277,6 +280,7 @@ describe("land-drags-foreign-commits", () => {
     aheadTotal: 13,
     ownCount: 7,
     foreignHead: "cafe123",
+    ownShas: ["aaa1111", "bbb2222", "ccc3333", "ddd4444", "eee5555", "fff6666", "9997777"],
     otherBranches: ["topics/gruppi-spazi-pulizia"],
   };
 
@@ -442,6 +446,115 @@ describe("cost-out-of-class", () => {
   });
 });
 
+// ── 7. Parametro documentato che lo schema non dichiara ──────────────────────
+
+describe("documented-parameter-not-declared", () => {
+  // Il caso vero, quello di oggi: `docs/board-protocol.md` insegna
+  // `update_task(previewImage=…)`, lo schema del tool dichiara `preview_image`.
+  const storpiato = {
+    doc: "docs/board-protocol.md", tool: "update_task", param: "previewImage",
+    declared: ["task_id", "status", "preview_image"],
+  };
+
+  it("SCATTA: il documento dice previewImage, lo schema preview_image", () => {
+    const f = runChecks(input({ documentedParams: [storpiato] }), only("documented-parameter-not-declared"));
+    expect(f).toHaveLength(1);
+    expect(f[0]?.what).toContain("torna 200");
+    expect(f[0]?.what).toContain("preview_image");
+  });
+
+  it("SCATTA: parametro che lo schema non ha proprio", () => {
+    const assente = { ...storpiato, param: "parentTaskId", declared: ["task_id", "status"] };
+    const f = runChecks(input({ documentedParams: [assente] }), only("documented-parameter-not-declared"));
+    expect(f).toHaveLength(1);
+    expect(f[0]?.what).toContain("non dichiara affatto");
+  });
+
+  it("NON scatta quando la grafia combacia", () => {
+    const ok = { ...storpiato, param: "preview_image" };
+    expect(runChecks(input({ documentedParams: [ok] }), only("documented-parameter-not-declared"))).toHaveLength(0);
+  });
+
+  it("NON scatta se lo schema non e' stato letto: un elenco vuoto non prova niente", () => {
+    const cieco = { ...storpiato, declared: [] };
+    expect(runChecks(input({ documentedParams: [cieco] }), only("documented-parameter-not-declared"))).toHaveLength(0);
+  });
+
+  it("declaredToolParams conta le graffe, e non sconfina nel tool successivo", () => {
+    // Il primo tool NON ha proprieta'. Una regex sul blocco gli attribuiva
+    // quelle del secondo: tre falsi allarmi su quattro, misurati.
+    const src = `
+  {
+    name: "list_processes",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "read_process_output",
+    inputSchema: {
+      type: "object",
+      properties: {
+        process_id: { type: "string", description: "id" },
+        offset: { type: "number", description: "n" },
+      },
+      required: ["process_id"],
+    },
+  },`;
+    const got = declaredToolParams(src);
+    expect(got.get("list_processes")).toEqual([]);
+    expect(got.get("read_process_output")).toEqual(["process_id", "offset"]);
+  });
+
+  it("documentedCalls legge solo i tool che esistono", () => {
+    const doc = "usa update_task(previewImage=<path>) e poi update_task(status=\"review\"); non chiamare pippo(x=1)";
+    const got = documentedCalls(doc, new Set(["update_task"]));
+    expect(got).toEqual([
+      { tool: "update_task", param: "previewImage" },
+      { tool: "update_task", param: "status" },
+    ]);
+  });
+});
+
+// ── 8. Consegna registrata su un commit non suo ──────────────────────────────
+
+describe("delivery-commit-not-own", () => {
+  const facts = (over: Partial<BranchFacts> = {}): BranchFacts => ({
+    taskId: "t-1", branch: "topics/x", defaultBranch: "main", headSha: "head99",
+    aheadTotal: 8, ownCount: 0, foreignHead: "altrui1", ownShas: [], otherBranches: ["topics/y"], ...over,
+  });
+  const t = task({ id: "t-1", deliveryCommit: "altrui1abcdef" });
+
+  it("SCATTA: la card non ha committato niente e la consegna punta altrove", () => {
+    const f = runChecks(input({ tasks: [t], branches: [facts()] }), only("delivery-commit-not-own"));
+    expect(f).toHaveLength(1);
+    expect(f[0]?.what).toContain("non ha committato niente");
+  });
+
+  it("SCATTA: la card ha commit suoi, ma la consegna non e' fra quelli", () => {
+    const f = runChecks(input({ tasks: [t], branches: [facts({ ownCount: 2, ownShas: ["mio1111", "mio2222"] })] }), only("delivery-commit-not-own"));
+    expect(f).toHaveLength(1);
+    expect(f[0]?.what).toContain("non e' fra i 2 commit");
+  });
+
+  it("NON scatta: la consegna e' uno dei commit della card (sha abbreviato)", () => {
+    const own = facts({ ownCount: 1, ownShas: ["altrui1"] });
+    expect(runChecks(input({ tasks: [t], branches: [own] }), only("delivery-commit-not-own"))).toHaveLength(0);
+  });
+
+  it("NON scatta senza branch da confrontare: di chi sia non si sa", () => {
+    expect(runChecks(input({ tasks: [t], branches: [] }), only("delivery-commit-not-own"))).toHaveLength(0);
+  });
+
+  it("NON scatta se i commit propri non sono elencabili", () => {
+    const cieco = facts({ ownShas: null });
+    expect(runChecks(input({ tasks: [t], branches: [cieco] }), only("delivery-commit-not-own"))).toHaveLength(0);
+  });
+
+  it("NON scatta su una card senza consegna registrata", () => {
+    const senza = task({ id: "t-1", deliveryCommit: null });
+    expect(runChecks(input({ tasks: [senza], branches: [facts()] }), only("delivery-commit-not-own"))).toHaveLength(0);
+  });
+});
+
 // ── La disciplina, verificata su tutti i controlli insieme ───────────────────
 
 /** Una fixture per ogni controllo, quella che DEVE far scattare il rilievo. */
@@ -457,8 +570,13 @@ function everythingWrong(): DoctorInput {
       }),
       task({ id: "e" }),
       task({ id: "f", sizeClass: "medium", readTotalTokens: 90_000_000 }),
+      task({ id: "g", deliveryBranch: "topics/g", deliveryCommit: "nonmio1" }),
     ],
-    branches: [{ taskId: "c", branch: "topics/x", defaultBranch: "main", headSha: "abc", aheadTotal: 5, ownCount: 1, foreignHead: "f00d", otherBranches: ["topics/y"] }],
+    branches: [
+      { taskId: "c", branch: "topics/x", defaultBranch: "main", headSha: "abc", aheadTotal: 5, ownCount: 1, foreignHead: "f00d", ownShas: ["own1"], otherBranches: ["topics/y"] },
+      { taskId: "g", branch: "topics/g", defaultBranch: "main", headSha: "ggg", aheadTotal: 3, ownCount: 0, foreignHead: "alt1", ownShas: [], otherBranches: ["topics/y"] },
+    ],
+    documentedParams: [{ doc: "docs/board-protocol.md", tool: "update_task", param: "previewImage", declared: ["task_id", "preview_image"] }],
     reds: [{ taskId: "e", command: "bun run test:unit", worktreePath: "/wt", worktreeExit: 1, mainPath: "/main", mainExit: 0 }],
     costBaseline: { medium: { median: 5_649_737, n: 56 } },
     probes: { d: deadProbes() },
@@ -525,7 +643,7 @@ describe("disciplina", () => {
     // registro resta per card — sono dieci fatti — ma la STAMPA ne fa una.
     const facts = (id: string, foreignHead: string): BranchFacts => ({
       taskId: id, branch: `topics/${id}`, defaultBranch: "main", headSha: `h-${id}`,
-      aheadTotal: 9, ownCount: 1, foreignHead, otherBranches: ["topics/altro"],
+      aheadTotal: 9, ownCount: 1, foreignHead, ownShas: ["own1"], otherBranches: ["topics/altro"],
     });
     const same = runChecks(input({
       tasks: [task({ id: "a" }), task({ id: "b" }), task({ id: "c" })],
