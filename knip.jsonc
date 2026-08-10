@@ -29,6 +29,10 @@
         "scripts/e2e-shards-summary.ts!", // invoked by scripts/e2e-shards.sh:88
         "scripts/gen-migrations-manifest.ts!", // run by hand to regenerate migrations-embedded.ts
         "scripts/watch-board-tasks.ts!",  // CLI tool for the Monitor loop, run by hand
+        // La prova che i test del doctor sanno diventare rossi: si lancia a
+        // mano (`bun scripts/board-doctor.mutants.ts`), non lo importa nessuno
+        // e non deve — mentre gira riscrive il file che sta mutando.
+        "scripts/board-doctor.mutants.ts!",
         "scripts/disk-report.ts!",        // `bun run report:disk`
         "scripts/token-live.ts!",         // diagnostica a mano: `bun scripts/token-live.ts [filtro] [--watch]`
         // Il conio delle licenze. Non è un residuo: il servizio che firmerà i
