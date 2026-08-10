@@ -25,9 +25,10 @@ const session = (phase: ClaudeSessionPhase): ClaudeSessionState =>
 
 describe("AWAITING_FEEDBACK_PHASES", () => {
   test("is exactly the three 'stopped, waiting for you' phases (NOTABLE minus error)", () => {
-    expect([...AWAITING_FEEDBACK_PHASES].sort()).toEqual(
-      ["awaiting-approval", "awaiting-user", "paused"].sort(),
-    );
+    // Annotato, non lasciato a `string[]`: cosi' un nome che smette di essere
+    // una fase non compila piu' invece di fallire a runtime a lista cambiata.
+    const attese: ClaudeSessionPhase[] = ["awaiting-approval", "awaiting-user", "paused"];
+    expect([...AWAITING_FEEDBACK_PHASES].sort()).toEqual(attese.sort());
   });
 });
 
