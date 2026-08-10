@@ -59,16 +59,16 @@ const PID = "alpha-abc123";
 let seq = 0;
 function seedTask(
   db: Database,
-  o: { id?: string; status?: string; attempts?: number; assignedTopicId?: string | null; dispatchState?: string | null; createdAt?: string } = {},
+  o: { id?: string; status?: string; attempts?: number; assignedTopicId?: string | null; dispatchState?: string | null; createdAt?: string; parentTaskId?: string | null; text?: string } = {},
 ): string {
   const id = o.id ?? `t${++seq}`;
   const ts = o.createdAt ?? new Date(Date.now() + seq).toISOString();
   // FK: a seeded binding needs its topics row, like in prod.
   if (o.assignedTopicId) db.run("INSERT OR IGNORE INTO topics (id) VALUES (?)", [o.assignedTopicId]);
   db.run(
-    `INSERT INTO tasks (id, project_id, text, status, created_at, updated_at, dispatch_attempts, assigned_topic_id, dispatch_state)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [id, PID, "task " + id, o.status ?? "todo", ts, ts, o.attempts ?? 0, o.assignedTopicId ?? null, o.dispatchState ?? null],
+    `INSERT INTO tasks (id, project_id, text, status, created_at, updated_at, dispatch_attempts, assigned_topic_id, dispatch_state, parent_task_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, PID, o.text ?? ("task " + id), o.status ?? "todo", ts, ts, o.attempts ?? 0, o.assignedTopicId ?? null, o.dispatchState ?? null, o.parentTaskId ?? null],
   );
   return id;
 }
@@ -1133,6 +1133,22 @@ describe("task-dispatcher", () => {
     expect(kickoff).toContain('status="done"'); // marca ogni step done
     expect(kickoff).toContain("TUTTI i tuoi step devono essere done");
     expect(kickoff).toContain("output_url");
+  });
+
+  it("kickoff carries the OPEN subtasks already on the board (accorpare non fa sparire il lavoro)", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    seedTask(h.db, { id: "kid1", status: "todo", parentTaskId: "t1", text: "cassetto cookie al contrario" });
+    seedTask(h.db, { id: "kid2", status: "done", parentTaskId: "t1", text: "già chiuso" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    const kickoff = h.turns[0].content;
+    expect(kickoff).toContain("cassetto cookie al contrario");
+    expect(kickoff).toContain("[kid1]");
+    expect(kickoff).toContain("1 sottotask aperti");
+    // I figli chiusi sono storia: ripassarli invita a rifarli.
+    expect(kickoff).not.toContain("già chiuso");
   });
 
   it("buffers a resume landing while the turn is in flight and delivers it on the same tab at turn end", async () => {

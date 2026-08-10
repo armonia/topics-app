@@ -810,6 +810,29 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     parts.push(task.text);
     if (task.description && task.description.trim()) parts.push("", task.description.trim());
     parts.push("------------");
+    // I sottotask GIÀ sulla board sono lavoro di questo task, non contorno: un
+    // padre nasce anche accorpando card che esistevano da sole, e la loro
+    // sostanza vive nei figli, non nella descrizione del padre. Senza questo
+    // blocco l'agente del padre non li vede — accorpare, che dovrebbe
+    // concentrare il lavoro, lo farebbe sparire.
+    // Solo i figli APERTI: quelli done sono storia, e ripassarli invita a
+    // rifarli. Titolo + prima riga di descrizione: il resto lo legge da sé con
+    // get_task, e il preambolo si paga a ogni turno.
+    try {
+      // `childrenOf` esclude già gli archiviati: qui resta da togliere i chiusi.
+      const open = (deps.svc.get(task.id)?.children ?? []).filter((c) => c.status !== "done");
+      if (open.length) {
+        parts.push(
+          "",
+          `Questo task ha ${open.length} sottotask aperti: sono la SUA checklist, li lavori tu (nessuno li dispaccia da solo).`,
+          ...open.map((c) => {
+            const head = (c.description ?? "").trim().split("\n")[0]?.trim() ?? "";
+            return `- [${c.id}] ${c.text}${head ? ` — ${head.slice(0, 160)}` : ""}`;
+          }),
+          `Man mano che ne chiudi uno: update_task(task_id=<id sottotask>, status="done"). Il dettaglio di ognuno con get_task.`,
+        );
+      }
+    } catch { /* board senza albero: il task resta quello che è */ }
     return parts;
   }
 
