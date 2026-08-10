@@ -54,11 +54,18 @@ lo *stesso* materiale col rimedio:
 | piano | 62,3% | 46,8% |
 
 **Perché appaiato e non fra le due corse.** Fra la corsa baseline e questa —
-stesso testo, la stessa ora — la quota di `sonnet` è passata dal 15% al 28%. La
-distribuzione del giudice non sta ferma nemmeno nel tempo, quindi confrontare due
-corse separate misurerebbe anche quella deriva. Sull'unico asse in cui le due
-corse concordano — lo sforzo, `high` al 20% in entrambe — la misura del giudice
-nudo è replicata: 33,7% e 32,5%.
+stesso testo, la stessa ora — la quota di `sonnet` è passata dal 15% al 28%.
+Confrontare due corse separate misurerebbe anche quello scarto, quindi il
+paragone si fa dentro la stessa corsa. Sull'unico asse in cui le due corse
+concordano — lo sforzo, `high` al 20% in entrambe — la misura del giudice nudo è
+replicata: 33,7% e 32,5%.
+
+> **Corretto il 2026-08-10 (`prompt-ab.md`).** Quel 15% → 28% era letto qui come
+> *deriva nel tempo* del giudice. Non regge: una calibrazione a vuoto — due
+> prompt **identici**, stessa corsa, chiamate alternate — ha prodotto 50% contro
+> 30% sullo stesso testo *senza che passasse un secondo*. Lo scarto è il campione
+> da 20 che è troppo piccolo per una quota di quell'ordine, non un giudice che si
+> muove. Il paragone appaiato resta l'unico che vale; cambia il motivo.
 
 **Sullo sforzo il voto funziona:** 32,5% → 10,0%, e il conto teorico lo prevede
 (con `high` al 20%, la maggioranza di tre lo fa vincere nel 10,4% dei casi
@@ -70,6 +77,12 @@ giudice è genuinamente diviso vicino al 30/70, e nessun numero ragionevole di
 voti mette d'accordo chi non ha un'opinione. Il problema del modello è un altro —
 il giudice declassa a `sonnet` un task che il suo stesso prompt gli dice di
 tenere su `opus` — e si affronta sul prompt, non sull'aggregazione.
+
+→ **Fatto, e misurato: [`prompt-ab.md`](prompt-ab.md).** Il prompt aveva due
+righe che combaciavano con lo stesso task, e quella per `sonnet` premiava di
+fatto le descrizioni scritte bene. Riscritte, la quota di `sonnet` sul bersaglio
+va da 7/60 a **0/60** nella stessa corsa (Fisher p = 0,013), e i task che
+`sonnet` deve vincere restano `sonnet` 20/20.
 
 ## Le tarature
 

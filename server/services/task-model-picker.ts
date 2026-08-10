@@ -79,11 +79,22 @@ export const MIN_EXECUTION_EFFORT: EffortTier = "medium";
  * Due cose che restano vere e che il referto misura:
  * - Sul MODELLO il voto quasi non serve (41,3% → 39,5%): lì il giudice è diviso
  *   vicino al 30/70, e nessun numero di voti mette d'accordo chi non ha
- *   un'opinione. Quello si affronta sul prompt, non sull'aggregazione.
- * - La distribuzione del giudice non è ferma nemmeno nel tempo: a un'ora di
- *   distanza, stesso testo, la quota di `sonnet` è passata dal 15% al 28%. Per
- *   questo un confronto fra due corse separate non vale, e la sonda misura
- *   appaiato dentro la stessa corsa.
+ *   un'opinione. Quello si è affrontato sul PROMPT — vedi sotto.
+ * - Le quote del giudice ballano fra una corsa e l'altra molto più di quanto
+ *   sembri: due prompt IDENTICI, misurati nello stesso istante, hanno dato 50%
+ *   e 30% di `sonnet` sullo stesso testo. Non è deriva, è N=20 troppo piccolo.
+ *   Per questo il confronto è sempre appaiato dentro la stessa corsa, e le
+ *   quote si leggono con l'intervallo accanto.
+ *
+ * Il declassamento a `sonnet` (2026-08-10, `docs/effort-variance/prompt-ab.md`)
+ * NON era indecisione del giudice: erano due righe del prompt che combaciavano
+ * con lo stesso task, e quella per `sonnet` — «piccolo e pienamente specificato»
+ * — premiava di fatto i task scritti bene, che è una cosa che non dice niente su
+ * quanto è grosso il lavoro. Riscritte le tre righe qui sotto (spareggio
+ * eseguibile, la chiarezza esclusa a voce alta, `sonnet` definito per «non
+ * aggiunge niente di nuovo»), la quota di `sonnet` sul bersaglio passa da 7/60 a
+ * 0/60 nella stessa corsa (Fisher p = 0,013) senza spostare i task piccoli, che
+ * restano `sonnet` 20/20. La sonda è `scripts/prompt-ab.ts`.
  *
  * Attenuante che vale ancora: dopo il primo lancio la scelta resta ferma, perché
  * vive sul topic dell'agente (`topics.effort`) e un resume riusa quel topic; a
@@ -193,13 +204,15 @@ export interface PickModelDeps {
 export const CLASSIFIER_PROMPT = (title: string, description: string) =>
   [
     "Sei un router di task. Il modello DI DEFAULT è opus: l'umano lavora normalmente su opus.",
-    "Scendi a un modello più piccolo SOLO se il task è chiaramente più piccolo; nel dubbio scegli opus (mai declassare).",
+    "Scendi a un modello più piccolo SOLO se il task è chiaramente più piccolo.",
+    "Se il task combacia con più di una riga qui sotto, vince SEMPRE la più capace: le righe sono un pavimento, non un'alternativa.",
+    "Quanto il task è scritto BENE non conta: una descrizione dettagliata e senza ambiguità non è un motivo per scendere. Si scende per la DIMENSIONE del lavoro, mai per la chiarezza con cui è descritto.",
     "Rispondi con DUE parole separate da uno spazio: prima il modello, poi lo sforzo. Nient'altro, niente punteggiatura.",
     "",
-    "Modello (nel dubbio, il più capace — sonnet è il MINIMO, non esiste un modello più piccolo):",
-    "- opus: DEFAULT. Qualsiasi lavoro reale — feature, modifica UI, logica, debug, più file/sistemi, design, refactor. Se non è palesemente banale, è opus.",
+    "Modello (sonnet è il MINIMO, non esiste un modello più piccolo):",
+    "- opus: DEFAULT. Qualsiasi lavoro reale — feature, modifica UI, logica, debug, più file/sistemi, design, refactor. Se il task fa fare al programma qualcosa che prima non faceva (un'opzione, un campo, un formato, un endpoint, una schermata), è opus.",
     "- fable: massima difficoltà/ambiguità (ricerca, modellazione dati, algoritmi non ovvi, ragionamento profondo).",
-    "- sonnet: MINIMO assoluto — SOLO task piccolo e pienamente specificato in un punto solo (un fix circoscritto e ovvio, un test mirato, un ritocco isolato, un typo/rinomina/bump). Mai scendere sotto.",
+    "- sonnet: MINIMO assoluto, e SOLO per lavoro che non aggiunge niente di nuovo — un typo, una rinomina, un bump di versione, il cambio di una costante, un fix di una riga già diagnosticato, un test mirato su codice che esiste già. Mai scendere sotto.",
     "",
     "Sforzo (quanto deve RAGIONARE prima di agire — è una leva costosa: da medium a xhigh il costo quasi raddoppia, quindi si alza solo dove serve davvero):",
     "- medium: MINIMO. La strada è già scritta nel task: si sa dove mettere le mani e cosa scrivere.",
