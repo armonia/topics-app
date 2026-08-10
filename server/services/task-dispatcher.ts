@@ -27,7 +27,7 @@ import { ZERO_USAGE, type SessionUsage } from "./transcript-usage";
 import { onHumanHoldChange } from "../lib/human-hold-events";
 import type { TaskAttemptStore } from "./task-attempts";
 import { attemptHasWork, formatFanoutComment } from "../../shared/task-attempt";
-import { MAX_FANOUT } from "../../shared/board";
+import { MAX_FANOUT, PREVIEW_RULE } from "../../shared/board";
 import { decideNight, deadlineFrom } from "./night-mode";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import {
@@ -841,11 +841,14 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         "  · FILE CONSEGNATI — PDF, report, screenshot, clip: li alleghi con comment_task media[] e diventano la lista scaricabile del task (click sul nome = si apre come tab, l'icona = download). Il server accetta SOLO file sotto ~/.topics/media/ (o ~/.openclaw/media/) o il workspace: copia lì il file PRIMA di allegarlo, o il commento viene rifiutato.",
         "  · ANTEPRIMA — l'unica evidenza DUREVOLE (vedi sotto): una tab viva muore col server che la serve, uno screenshot o un video no.",
         "- CONSEGNA AUTOCONSISTENTE: il reviewer decide guardando SOLO il task — tutto ciò che serve alla decisione va nel thread: testi completi (es. la bozza di una mail va INCOLLATA nel commento, non descritta), artefatti come file consegnati, pagine e report come tab del task. Se chiedi 'confermi X?' l'umano deve poter vedere X.",
-        `- EVIDENZA DI REVIEW = anteprima nel task, scelta in base al tipo di lavoro. Impostala con update_task(task_id="${task.id}", previewImage=<path assoluto sotto ~/.topics/media/>) — compare come card sulla board e nel drawer (immagine cliccabile, oppure VIDEO coi controlli).`,
-        "  · UI STATICA (layout, un componente, una pagina) → uno SCREENSHOT (.png).",
-        "  · COMPORTAMENTO / UI DINAMICA (scroll, un box che si apre/chiude, streaming, una transizione, un flusso a più passi) → un VIDEO (.webm/.mp4): uno screenshot statico NON dimostra il comportamento. Registralo con Playwright — clip breve (login: in locale l'identity picker è a un click; poi naviga ed esegui l'azione) con `recordVideo: { dir }` sul context, copia il .webm sotto ~/.topics/media/ e mettilo in previewImage.",
-        "  · Se il progetto ha spec-flow: esegui lo SCENARIO relativo — Playwright registra già il .webm nel Living Doc; usa QUEL clip come evidenza (è anche la prova che l'acceptance test passa).",
-        "  · Una tab (open_browser_pane) NON sostituisce l'anteprima: il dev server dell'agente muore a fine sessione e la tab resta con una pagina morta. La prova che resta è lo screenshot/video; la tab è l'extra dal vivo.",
+        // La regola dell'anteprima NON si riscrive qui: è `PREVIEW_RULE`
+        // (shared/board.ts), la stessa stringa che leggono il resume, lo schema
+        // del tool MCP e §4 del protocollo. Riscriverla a mano è esattamente il
+        // modo in cui le cinque copie erano arrivate a dire cose diverse — ed è
+        // ciò che era appena successo qui: il blocco a due rami che stava in
+        // questo punto non conosceva il ramo del diagramma, e chiamava il campo
+        // `previewImage` mentre il tool MCP lo espone come `preview_image`.
+        PREVIEW_RULE,
         `- Alla consegna, PRIMA di spostare in review: UN commento di sintesi con comment_task (1-2 frasi: cosa hai fatto QUESTO turno, dove guardare). Il server rifiuta la review se in questo turno non hai ancora commentato.`,
         `- SE hai committato codice sul tuo branch (lavoro landabile), in quel commento di consegna offri SOLO l'opzione: comment_task(..., options=["${LAND_ACTION_LABEL}"]). Se l'umano la sceglie, il SISTEMA fa il merge LOCALE su main (nessun push). Tu NON fare mai git merge/push a mano. La pubblicazione online (push + deploy) è un passo SEPARATO, deciso ed eseguito dall'umano dal controllo "Pubblica" della board con anteprima del diff — NON proporla, non è un'opzione del task. NON offrire l'opzione senza codice committato (una domanda, un piano, lavoro solo-headless).`,
         `- Se devi ASPETTARE una condizione esterna (un servizio che torna su, il carico macchina che scende, una finestra oraria): NON dormire con un poller tenendo occupato lo slot. Dichiara l'attesa con wait_for_condition(task_id="${task.id}", reason=<cosa aspetti>, minutes=<quanto riprovare, default 15>): il task torna in coda con la nota, lo slot si libera per altri, e il sistema lo ri-dispaccia da solo quando scade la finestra. NON è una consegna: non mandarlo in review "vuoto".`,
@@ -1581,7 +1584,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // and hands back a mute review. This is the "altro da fare?" → review-without-
       // comment gap. Even "niente di nuovo" is a valid summary.
       `Prosegui il lavoro. Alla consegna, PRIMA di mettere in review scrivi SEMPRE un commento di sintesi di QUESTO turno con comment_task (1-2 frasi: cosa hai fatto ora, dove guardare — oppure "niente di nuovo" col perché). POI update_task(task_id="${task.id}", status="review"). Senza un commento di questo turno il server rifiuta la review.`,
-      `EVIDENZA: metti l'anteprima con update_task(previewImage=<path sotto ~/.topics/media/>). UI statica → screenshot .png; comportamento/UI dinamica (scroll, apri/chiudi, streaming) → un VIDEO .webm/.mp4 (clip Playwright breve, o lo scenario spec-flow se c'è) — uno screenshot statico non prova un comportamento.`,
+      // Stessa costante del kickoff, non un riassunto: il resume è l'unico
+      // messaggio davanti all'agente che riprende, e la versione «corta» che
+      // stava qui aveva già perso per strada il ramo del diagramma.
+      PREVIEW_RULE,
       `Se hai committato codice landabile, offri SOLO options=["${LAND_ACTION_LABEL}"] → il sistema fa il merge LOCALE su main (nessun push). Tu non fare mai git merge/push. La pubblicazione online è separata, la fa l'umano dal controllo "Pubblica" della board: NON proporla. Niente opzione se non c'è codice committato.`,
     ].join("\n");
   }

@@ -1,5 +1,9 @@
 import { describe, it, expect } from "bun:test";
 import { Database } from "bun:sqlite";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { PREVIEW_RULE, PREVIEW_CARD_MAX_RATIO, extractPreviewRule } from "../../shared/board";
+import { toolsForProfile } from "../mcp/topics-mcp-server";
 import { createTaskService, type TaskService } from "./tasks";
 import { createTaskDispatcher, type DispatcherDeps } from "./task-dispatcher";
 import { cancelled, type TurnEndInfo } from "../providers/stop-reason";
@@ -1597,5 +1601,85 @@ describe("task-dispatcher — rete di sicurezza sulla liveness", () => {
     expect(h.task("t1")!.status).toBe("review");
     expect(h.turns.length).toBe(1);                   // nessun turno in più: budget finito
     expect(h.dispatcher.isInFlight("t1")).toBe(false); // slot libero
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// La regola dell'anteprima vive in UN posto solo.
+//
+// Era scritta cinque volte — protocollo, kickoff, resume, schema del tool MCP,
+// commento del componente — e divergeva: gli envelope dicevano DUE rami
+// (UI statica → screenshot, UI dinamica → video), così una consegna senza
+// superficie renderizzata (un piano, un'architettura) cadeva nel ramo
+// «statica» e l'agente fotografava il documento. Ora la stringa è
+// `PREVIEW_RULE` in shared/board.ts e questi test sono ciò che impedisce alla
+// sesta copia di nascere.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("PREVIEW_RULE — una stringa sola, in tutti gli envelope", () => {
+  it("il kickoff porta la regola VERBATIM (tre rami, non due)", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    const kickoff = h.turns[0].content;
+    // Estratta per STRUTTURA (dalla riga «EVIDENZA DI REVIEW» a «Cancello
+    // unico»), non cercando la costante: un test che cerca la stringa che ha
+    // appena interpolato non può fallire.
+    const kickoffPreviewRule = extractPreviewRule(kickoff);
+    expect(kickoffPreviewRule).toBe(PREVIEW_RULE);
+    // E una sola volta: due blocchi nello stesso envelope sarebbero già la
+    // divergenza che ricomincia.
+    expect(kickoff.split(PREVIEW_RULE).length - 1).toBe(1);
+    expect(kickoff).toContain("· DIAGRAMMA");
+    expect(kickoff).not.toContain("UI STATICA"); // il vecchio ramo a due vie è sparito
+  });
+
+  it("il resume porta la STESSA regola, non un riassunto che perde un ramo", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "in_progress", assignedTopicId: "topic-42", attempts: 1 });
+
+    void h.dispatcher.resume("t1", "riprendi");
+    await flush();
+
+    const resumePreviewRule = extractPreviewRule(h.turns[0].content);
+    expect(resumePreviewRule).toBe(PREVIEW_RULE);
+  });
+
+  it("lo schema del tool MCP `update_task.preview_image` È la regola", () => {
+    const updateTask = toolsForProfile("dispatch").find((t) => t.name === "update_task");
+    const mcpToolSchema = updateTask!.inputSchema.properties as Record<string, { description: string }>;
+    expect(mcpToolSchema.preview_image.description).toBe(PREVIEW_RULE);
+  });
+
+  it("i criteri sono MISURABILI: la soglia della card esce dal numero, non da un aggettivo", () => {
+    // 144/268 = il riquadro `max-h-36 object-cover` della card. Se qualcuno
+    // cambia il layout e non la costante, la regola mente agli agenti.
+    expect(PREVIEW_CARD_MAX_RATIO).toBeCloseTo(0.537, 3);
+    expect(PREVIEW_RULE).toContain(PREVIEW_CARD_MAX_RATIO.toFixed(3));
+    expect(PREVIEW_RULE).toContain("≤20s");        // il tetto del video
+    expect(PREVIEW_RULE).toContain("DUE O PIÙ STATI"); // il criterio del ramo video
+  });
+
+  it("nessuna sesta copia: il testo dei rami esiste solo in shared/board.ts", () => {
+    // Il marcatore è una riga della costante. Chi riscrive la regola a mano in
+    // un altro file la ricopia quasi certamente da qui — e questo test lo vede.
+    const MARK = "· DIAGRAMMA .svg";
+    const roots = ["server", "scripts", "shared", "client/src"];
+    const repo = join(import.meta.dir, "..", "..");
+    const hits: string[] = [];
+    const walk = (dir: string) => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        if (e.name === "node_modules" || e.name.startsWith(".")) continue;
+        const p = join(dir, e.name);
+        if (e.isDirectory()) { walk(p); continue; }
+        if (!/\.(ts|tsx)$/.test(e.name)) continue;
+        if (readFileSync(p, "utf8").includes(MARK)) hits.push(p.slice(repo.length + 1));
+      }
+    };
+    for (const r of roots) walk(join(repo, r));
+    expect(hits.sort()).toEqual(["server/services/task-dispatcher.test.ts", "shared/board.ts"]);
   });
 });

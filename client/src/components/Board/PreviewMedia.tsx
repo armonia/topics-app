@@ -60,11 +60,15 @@ function Lightbox({ url, video, onClose }: { url: string; video: boolean; onClos
 }
 
 /**
- * A task's review-evidence preview — a screenshot (`<img>`) OR a video clip
- * (`<video>`), chosen by file extension. Behavioural/UI tasks (auto-scroll, a
- * box that opens/closes, a streaming answer) deliver a short Playwright /
- * spec-flow recording that a static image cannot convey; static UI delivers a
- * screenshot. Served by /api/media (Range-enabled for video seeking).
+ * A task's review-evidence preview — an image (`<img>`: screenshot .png or
+ * diagram .svg) OR a video clip (`<video>`), chosen by file extension. Served
+ * by /api/media (Range-enabled for video seeking).
+ *
+ * QUANDO ciascuno dei tre — la regola sta in `PREVIEW_RULE`
+ * (`shared/board.ts`), che è anche il testo letterale che leggono l'envelope
+ * di kickoff, quello di resume e lo schema del tool MCP. Qui NON si riassume:
+ * il riassunto che stava in questo commento diceva due rami mentre il
+ * protocollo ne dice tre, ed è esattamente la divergenza che si è chiusa.
  *
  * `card`   — compact living thumbnail: a video plays muted + looped inline (the
  *            motion IS the evidence); an image is static. Click bubbles up to
@@ -89,6 +93,10 @@ export function PreviewMedia({ path, variant, onOpenTab }: {
   const expandable = variant === 'drawer';
   const openLightbox = useCallback(() => setLightbox(true), []);
 
+  // `max-h-36` = 144px in una colonna da 268: è la misura da cui esce
+  // `PREVIEW_CARD_MAX_RATIO` (144/268), la soglia che il protocollo dà agli
+  // agenti. `object-cover` NON rimpicciolisce l'eccedenza, la TAGLIA — cambiare
+  // questo numero senza cambiare la costante fa mentire la regola.
   const mediaCls = variant === 'card'
     ? 'block w-full max-h-36 rounded border border-app-border object-cover object-top'
     : 'block w-full max-h-[50vh] rounded border border-app-border bg-black/20 object-contain';
