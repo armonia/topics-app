@@ -21,6 +21,7 @@ import {
   EMPTY_STATE,
   filterUnsaid,
   finding,
+  groupForRender,
   isProvablyDead,
   isReadOnlyProof,
   parseDbTimestamp,
@@ -275,6 +276,7 @@ describe("land-drags-foreign-commits", () => {
     headSha: "deadbee",
     aheadTotal: 13,
     ownCount: 7,
+    foreignHead: "cafe123",
     otherBranches: ["topics/gruppi-spazi-pulizia"],
   };
 
@@ -456,7 +458,7 @@ function everythingWrong(): DoctorInput {
       task({ id: "e" }),
       task({ id: "f", sizeClass: "medium", readTotalTokens: 90_000_000 }),
     ],
-    branches: [{ taskId: "c", branch: "topics/x", defaultBranch: "main", headSha: "abc", aheadTotal: 5, ownCount: 1, otherBranches: ["topics/y"] }],
+    branches: [{ taskId: "c", branch: "topics/x", defaultBranch: "main", headSha: "abc", aheadTotal: 5, ownCount: 1, foreignHead: "f00d", otherBranches: ["topics/y"] }],
     reds: [{ taskId: "e", command: "bun run test:unit", worktreePath: "/wt", worktreeExit: 1, mainPath: "/main", mainExit: 0 }],
     costBaseline: { medium: { median: 5_649_737, n: 56 } },
     probes: { d: deadProbes() },
@@ -516,6 +518,30 @@ describe("disciplina", () => {
     expect(fresh).toHaveLength(all.length - 2);
     // Secondo giro con tutto in registro: silenzio totale.
     expect(filterUnsaid(all, Object.fromEntries(all.map((f) => [f.occurrence, ago(H)]))).fresh).toHaveLength(0);
+  });
+
+  it("card colpite dalla stessa causa si leggono in un blocco solo", () => {
+    // Il 2026-08-10 erano dieci: dieci righe per una decisione sola. Il
+    // registro resta per card — sono dieci fatti — ma la STAMPA ne fa una.
+    const facts = (id: string, foreignHead: string): BranchFacts => ({
+      taskId: id, branch: `topics/${id}`, defaultBranch: "main", headSha: `h-${id}`,
+      aheadTotal: 9, ownCount: 1, foreignHead, otherBranches: ["topics/altro"],
+    });
+    const same = runChecks(input({
+      tasks: [task({ id: "a" }), task({ id: "b" }), task({ id: "c" })],
+      branches: [facts("a", "cafe1"), facts("b", "cafe1"), facts("c", "beef2")],
+    }), only("land-drags-foreign-commits"));
+
+    expect(same).toHaveLength(3); // tre fatti, tre occorrenze nel registro
+    const blocks = groupForRender(same);
+    expect(blocks.map((b) => b.length)).toEqual([2, 1]); // due blocchi da leggere
+    expect(new Set(same.map((f) => f.occurrence)).size).toBe(3);
+  });
+
+  it("senza causa condivisa non si raggruppa niente", () => {
+    const solo = runChecks(everythingWrong());
+    const grouped = groupForRender(solo);
+    expect(grouped).toHaveLength(solo.length);
   });
 
   it("il registro parte vuoto e non inventa niente", () => {
