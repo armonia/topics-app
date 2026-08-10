@@ -59,7 +59,6 @@ import { buildTerminalSessionBody, normalizeTerminalAgent, TERMINAL_AGENT_LABELS
 import { pushUndo } from '../../../contexts/UndoContext';
 import { enqueuePendingAction, tickPendingAction, cancelPendingAction } from '../../../contexts/PendingActionContext';
 import { useRefMirror } from '../../../hooks/useRefMirror';
-import { basename } from '../../../lib/path-utils';
 import { splitColumnWidths, appendColumnWidths } from '../gridWidths';
 import { notifyPaneReflow } from '../paneReflow';
 import {
@@ -72,7 +71,6 @@ import { clearBrowserSpawner } from '../../../state/browserSpawner';
 import { isTauri } from '../../../lib/shell';
 import { tauriInvoke } from '../../../lib/shell/tauri';
 import { MAX_COLS_PER_ROW, MAX_ROWS } from '../constants';
-import { shouldHandleOpenFile, shouldHandleOpenDiff } from '../fileOpenScope';
 import type { ChatReconciliation, PersistedSnapshot, PersistenceGateRefs } from './types';
 import { stripWrapperPaneId } from './projectPersistence';
 import {
@@ -81,6 +79,7 @@ import {
   paneTypeToGroupType,
 } from './groupOps';
 import { reconcileGroupsWithPanes } from './groupPaneReconcile';
+import { useProjectFileOpen } from './useProjectFileOpen';
 import { useProjectBrowserPanes } from './useProjectBrowserPanes';
 import { useProjectTerminalSync } from './useProjectTerminalSync';
 import { reconcileRowsWithGroups } from './rowLayoutReconcile';
@@ -1185,239 +1184,21 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
 
   // --- File-event handlers (refs-only — stable) ---
 
-  const handleOpenFile = useCallback((path: string) => {
-    const curPanes = panesRef.current;
-    const curGroups = groupsRef.current;
-    const curFocused = focusedGroupIdRef.current;
+  // --- File / diff / process-log opening ---
+  // Tre handler quasi identici + i loro listener globali stanno in
+  // `useProjectFileOpen`; la regola di collocazione è `planOpenPane` (puro).
+  const { openFile: handleOpenFile, openDiff: handleOpenDiff, openProcessLog: handleOpenProcessLog } =
+    useProjectFileOpen({
+      wrapperPaneId,
+      panesRef,
+      groupsRef,
+      focusedGroupIdRef,
+      focusedPanelIdRef,
+      setPanes,
+      setGroups,
+      setFocusedGroupId,
+    });
 
-    const existing = curPanes.find(p => p.type === 'file' && p.filePath === path);
-    if (existing) {
-      const g = curGroups.find(g => g.paneIds.includes(existing.id));
-      if (g) {
-        setFocusedGroupId(g.id);
-        setGroups(prev =>
-          prev.map(gg => (gg.id === g.id ? { ...gg, activePaneId: existing.id } : gg)),
-        );
-      }
-      return;
-    }
-
-    const filename = basename(path) || path;
-    const newPane: Pane = {
-      id: createPaneId('file'),
-      type: 'file',
-      filePath: path,
-      title: filename,
-      preview: true,
-    };
-
-    const targetGroup = (curFocused ? curGroups.find(g => g.id === curFocused) : null) || curGroups[0];
-    if (!targetGroup) {
-      setPanes(prev => [...prev, newPane]);
-      return;
-    }
-
-    const groupPanes = targetGroup.paneIds
-      .map(id => curPanes.find(p => p.id === id))
-      .filter((p): p is Pane => !!p);
-    const existingPreview = findPreviewPane(groupPanes.filter(p => p.type === 'file'), newPane.id);
-
-    if (existingPreview) {
-      setPanes(prev => prev.map(p => (p.id === existingPreview.id ? newPane : p)));
-      setGroups(prev =>
-        prev.map(g =>
-          g.id === targetGroup.id
-            ? {
-                ...g,
-                paneIds: replacePaneInGroup(g.paneIds, existingPreview.id, newPane.id),
-                activePaneId: newPane.id,
-              }
-            : g,
-        ),
-      );
-    } else {
-      setPanes(prev => [...prev, newPane]);
-      setGroups(prev =>
-        prev.map(g =>
-          g.id === targetGroup.id
-            ? { ...g, paneIds: [...g.paneIds, newPane.id], activePaneId: newPane.id }
-            : g,
-        ),
-      );
-    }
-    setFocusedGroupId(targetGroup.id);
-    // `[]` è il punto, non una dimenticanza: il corpo legge lo stato vivo dalle
-    // ref (`panesRef`/`groupsRef`/`focusedGroupIdRef`) e scrive solo con
-    // setState funzionale, quindi non chiude su niente che possa diventare
-    // stantio. In cambio l'identità dell'handler resta stabile — e questa passa
-    // a ogni pane dell'albero: farla cambiare a ogni modifica del layout
-    // vorrebbe dire ri-renderizzare tutto a ogni tab spostata.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const handleOpenProcessLog = useCallback((processId: string, scriptName: string) => {
-    const curPanes = panesRef.current;
-    const curGroups = groupsRef.current;
-    const curFocused = focusedGroupIdRef.current;
-
-    const paneKey = `process-log:${processId}`;
-    const existing = curPanes.find(p => p.id === paneKey);
-    if (existing) {
-      const g = curGroups.find(g => g.paneIds.includes(existing.id));
-      if (g) {
-        setFocusedGroupId(g.id);
-        setGroups(prev =>
-          prev.map(gg => (gg.id === g.id ? { ...gg, activePaneId: existing.id } : gg)),
-        );
-      }
-      return;
-    }
-
-    const newPane: Pane = {
-      id: paneKey,
-      type: 'process-log',
-      processId,
-      title: scriptName,
-    };
-
-    const targetGroup = (curFocused ? curGroups.find(g => g.id === curFocused) : null) || curGroups[0];
-    if (!targetGroup) {
-      setPanes(prev => [...prev, newPane]);
-      return;
-    }
-
-    setPanes(prev => [...prev, newPane]);
-    setGroups(prev =>
-      prev.map(g =>
-        g.id === targetGroup.id
-          ? { ...g, paneIds: [...g.paneIds, newPane.id], activePaneId: newPane.id }
-          : g,
-      ),
-    );
-    setFocusedGroupId(targetGroup.id);
-    // Refs-only, come `handleOpenFile`: stato vivo dalle ref, scritture con
-    // setState funzionale, identità stabile per non ri-renderizzare l'albero
-    // delle pane.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Rewritten to refs-only (matches handleOpenFile pattern). Per VERIFY Q4.
-  const handleOpenDiff = useCallback((filePath: string, diffProjectPath: string) => {
-    const curPanes = panesRef.current;
-    const curGroups = groupsRef.current;
-    const curFocused = focusedGroupIdRef.current;
-
-    const diffKey = `diff:${filePath}`;
-    const existing = curPanes.find(p => p.type === 'file' && p.id === diffKey);
-    if (existing) {
-      const g = curGroups.find(g => g.paneIds.includes(existing.id));
-      if (g) {
-        setFocusedGroupId(g.id);
-        setGroups(prev =>
-          prev.map(gg => (gg.id === g.id ? { ...gg, activePaneId: existing.id } : gg)),
-        );
-      }
-      return;
-    }
-
-    const filename = basename(filePath) || filePath;
-    const fullPath = `${diffProjectPath}/${filePath}`;
-    const newPane: Pane = {
-      id: diffKey,
-      type: 'file',
-      filePath: fullPath,
-      title: `${filename} (diff)`,
-      diff: true,
-      diffProjectPath,
-      preview: true,
-    };
-
-    const targetGroup = (curFocused ? curGroups.find(g => g.id === curFocused) : null) || curGroups[0];
-    if (!targetGroup) {
-      setPanes(prev => [...prev, newPane]);
-      return;
-    }
-
-    const groupPanes = targetGroup.paneIds
-      .map(id => curPanes.find(p => p.id === id))
-      .filter((p): p is Pane => !!p);
-    const existingPreview = findPreviewPane(groupPanes.filter(p => p.type === 'file'), newPane.id);
-
-    if (existingPreview) {
-      setPanes(prev => prev.map(p => (p.id === existingPreview.id ? newPane : p)));
-      setGroups(prev =>
-        prev.map(g =>
-          g.id === targetGroup.id
-            ? {
-                ...g,
-                paneIds: replacePaneInGroup(g.paneIds, existingPreview.id, newPane.id),
-                activePaneId: newPane.id,
-              }
-            : g,
-        ),
-      );
-    } else {
-      setPanes(prev => [...prev, newPane]);
-      setGroups(prev =>
-        prev.map(g =>
-          g.id === targetGroup.id
-            ? { ...g, paneIds: [...g.paneIds, newPane.id], activePaneId: newPane.id }
-            : g,
-        ),
-      );
-    }
-    setFocusedGroupId(targetGroup.id);
-    // Refs-only, come `handleOpenFile`: stato vivo dalle ref, scritture con
-    // setState funzionale, identità stabile per non ri-renderizzare l'albero
-    // delle pane.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // --- File-event listeners ---
-
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const detail = (e as CustomEvent).detail as { path?: string; topicId?: string };
-      if (!detail?.path) return;
-      // SCOPE to THIS project window. 'open-file' is a GLOBAL window event and
-      // every mounted project window's useProjectLayout subscribes to it — so
-      // with two projects in split view a single dispatch would open the file
-      // in BOTH ("file opens on all splits"). Routing rule extracted to the
-      // unit-tested `shouldHandleOpenFile`; mirrors the projectPath scoping the
-      // global-tab:focus-inner listener already uses.
-      if (!shouldHandleOpenFile(detail, wrapperPaneId, focusedPanelIdRef.current)) return;
-      handleOpenFile(detail.path);
-    };
-    window.addEventListener('open-file', handler);
-    return () => window.removeEventListener('open-file', handler);
-  }, [handleOpenFile, wrapperPaneId, focusedPanelIdRef]);
-
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const detail = (e as CustomEvent).detail as { filePath: string; projectPath: string };
-      if (!detail?.filePath) return;
-      // SCOPE a QUESTA finestra di progetto — la guardia che il gemello
-      // 'open-file' aveva e questo no. Senza, con due finestre affiancate un
-      // click nel pannello Git di B faceva comparire la tab diff anche in A, e
-      // quella tab portava il `diffProjectPath` di B pur essendo ospitata in A.
-      if (!shouldHandleOpenDiff(detail, wrapperPaneId, focusedPanelIdRef.current, p => createPaneId('project', p))) return;
-      handleOpenDiff(detail.filePath, detail.projectPath);
-    };
-    window.addEventListener('open-file-diff', handler);
-    return () => window.removeEventListener('open-file-diff', handler);
-  }, [handleOpenDiff, wrapperPaneId, focusedPanelIdRef]);
-
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const detail = (e as CustomEvent).detail as { path?: string };
-      const path = detail?.path;
-      setPanes(prev =>
-        prev.map(p => (p.type === 'file' && p.filePath === path ? { ...p, preview: false } : p)),
-      );
-    };
-    window.addEventListener('pin-file-pane', handler);
-    return () => window.removeEventListener('pin-file-pane', handler);
-  }, []);
 
   // --- Close replaced preview pane ---
   // Intentionally NO dependency array: this must run AFTER EVERY COMMIT to drain
