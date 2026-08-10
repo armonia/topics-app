@@ -222,7 +222,7 @@ test.describe("Chat Checkpoints (CHAT-05)", () => {
     await bar.click();
 
     // Hover over the middle checkpoint (idx 1: "Auth module done")
-    const entries = page.locator(".space-y-1 > div");
+    const entries = page.locator('[data-testid="checkpoint-entry"]');
     const middleEntry = entries.nth(1);
     await middleEntry.hover();
 
@@ -262,7 +262,7 @@ test.describe("Chat Checkpoints (CHAT-05)", () => {
     await bar.click();
 
     // Hover over the middle checkpoint
-    const entries = page.locator(".space-y-1 > div");
+    const entries = page.locator('[data-testid="checkpoint-entry"]');
     const middleEntry = entries.nth(1);
     await middleEntry.hover();
 
