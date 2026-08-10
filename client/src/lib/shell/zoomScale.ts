@@ -45,3 +45,58 @@ export function stepZoom(current: number, delta: number): number {
   else if (delta < 0) idx = Math.max(0, idx - 1);
   return ZOOM_STEPS[idx];
 }
+
+/* --------------------------------------------- keeping zoom on the page --- */
+
+/**
+ * Zoom is a property of the DOCUMENT, not of the pane.
+ *
+ * WKWebView has no zoom API we can reach, so the pane zooms by writing
+ * `document.documentElement.style.zoom`. That inline style dies with the
+ * document: a navigation, a reload, a back/forward, a link the user clicks —
+ * each one hands the pane a fresh document at 100%, while the host's idea of
+ * the zoom (and the percentage on the toolbar button) stays where the user left
+ * it. The control then reads 150% over a page that is plainly at 100%.
+ *
+ * It was worst exactly where it was most visible: switching device preset
+ * RELOADS the pane on purpose, to make the new User-Agent take effect. So
+ * "changing device silently resets zoom" and "zoom drifts from its label" were
+ * never two bugs — the second is just the first with a guaranteed trigger.
+ *
+ * The cure is to stop treating the injection as a one-off command and treat the
+ * zoom as something the host keeps TRUE: every poll tick already reads the page,
+ * so it reports the zoom the document actually carries and the host re-applies
+ * it whenever the document has lost it. Self-healing for every path that can
+ * replace a document, including the ones nobody has thought of yet.
+ */
+
+/** JS that pins `pct` on the current document. */
+export function zoomApplyJs(pct: number): string {
+  return `try{document.documentElement.style.zoom='${pct / 100}'}catch(e){}`;
+}
+
+/**
+ * Read an inline `style.zoom` back as a percentage.
+ *
+ * The empty string is what a document with no inline zoom reports — which is
+ * every freshly-navigated page — and it means 100%, not "unknown". CSS `zoom`
+ * accepts both a unitless factor (`1.5`) and a percentage (`150%`); WebKit
+ * normalises to the form it was given, so both are parsed. Anything else
+ * (`normal`, garbage) is read as neutral.
+ */
+export function parseZoomStyle(raw: string | null | undefined): number {
+  if (!raw) return DEFAULT_ZOOM;
+  const s = raw.trim();
+  const n = parseFloat(s);
+  if (!Number.isFinite(n)) return DEFAULT_ZOOM;
+  return s.endsWith('%') ? n : n * 100;
+}
+
+/**
+ * Has the document lost the zoom we want? The tolerance is half a percentage
+ * point: the ladder is made of integers, so anything closer is float noise from
+ * the round-trip through a CSS string, not a real difference.
+ */
+export function zoomDrifted(want: number, reported: string | null | undefined): boolean {
+  return Math.abs(parseZoomStyle(reported) - want) > 0.5;
+}
