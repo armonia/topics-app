@@ -537,6 +537,30 @@ describe("task-dispatcher", () => {
     expect(notes).toContain("non conteggiato");
   });
 
+  it("una raffica di errori del PROVIDER non brucia i tentativi (ma un guasto cronico sì)", async () => {
+    // Misurato il 10/08: durante una raffica di dispatch paralleli, VENTI task
+    // sono finiti in review a mano vuote — «Errore del provider: riprovo tra 60s
+    // (tentativo 2/2)» e poi consegna forzata. Con il tetto a 2, due singhiozzi
+    // del provider uccidono una card che non ha ancora scritto una riga: lavoro
+    // zero, review sporca, e i token dello spawn pagati per niente.
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchRetryCap: 2 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    for (let i = 0; i < 3; i++) {
+      h.finishTurnWith({ end: "error" } as TurnEndInfo);
+      await flush();
+      // Il backoff dell'outage rimanda il resume: qui lo si lascia scattare.
+      await flush();
+    }
+    const t = h.task("t1")!;
+    // Tre errori, tetto 2: senza il perdono la card sarebbe già in review vuota.
+    expect(t.status).toBe("in_progress");
+    expect(t.dispatchAttempts).toBe(1);
+    expect(h.svc.get("t1")!.comments.some((c) => c.content.includes("non conteggiato"))).toBe(true);
+  });
+
   it("…ma il TETTO A OROLOGIO sì, o il freno non frenerebbe mai", async () => {
     const h = harness();
     h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchRetryCap: 3 });
