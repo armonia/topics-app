@@ -42,7 +42,7 @@ import { loopbackAlive } from '../lib/loopbackAlive';
 import type { NativeBrowserHandle, DeviceMode, BrowserConsoleEntry } from '@/components/Browser/browserDevTypes';
 import { DEVICE_PRESETS, deviceModeFromUserAgent } from '@/components/Browser/browserDevTypes';
 import { buildReadJs, META_JS, parsePageState, isPageLoading } from '../lib/shell/browserPagePoll';
-import { NO_FAULT, recordPaneOk, recordPaneError, STRUCTURAL_COMMANDS, type FaultState } from '../lib/shell/browserPaneFault';
+import { NO_FAULT, recordPaneOk, recordPaneError, recreatePane, STRUCTURAL_COMMANDS, type FaultState } from '../lib/shell/browserPaneFault';
 import { attemptNativeOpen } from '../lib/shell/nativeBrowserOpen';
 
 /** Off-screen X for parking a hidden native view far outside any display — keeps
@@ -181,9 +181,11 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
    * lasciare a video, ha una schermata sua.
    */
   const [parked, setParked] = useState<{ url: string; checkedAt: number } | null>(null);
-  /** Apre (finalmente) la view per questa pane. Vive solo mentre l'effetto di
-   *  montaggio è attivo: serve a `retryParked`, che apre a scoppio ritardato. */
-  const openViewRef = useRef<((url: string) => void) | null>(null);
+  /** Apre (finalmente) la view per questa pane, e dice se ci è riuscita — chi
+   *  ricrea una scheda morta deve poter distinguere «vista nuova in piedi» da
+   *  «non è nato niente». Vive solo mentre l'effetto di montaggio è attivo:
+   *  serve a `retryParked`, che apre a scoppio ritardato. */
+  const openViewRef = useRef<((url: string) => Promise<boolean>) | null>(null);
   const [consoleEntries, setConsoleEntries] = useState<BrowserConsoleEntry[]>([]);
   const [deviceMode, setDeviceMode] = useState<DeviceMode>('desktop');
   // Mirrors `deviceMode` for the UA reconcile below, which must read the current
@@ -699,32 +701,41 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     // pane stuck on "Initializing native browser…" forever, with no signal to
     // the user and no recovery. Do one bounded retry, then surface the failure
     // in the nav-error strip so the pane can offer a retry instead of hanging.
-    const attemptOpen = (openUrl: string): void => {
-      attemptNativeOpen({
-        // windowLabel: la webview nativa deve nascere figlia della finestra che
-        // ospita QUESTA pane (pop-out inclusi), non sempre di `main` — vedi
-        // browser_open_inner in lib.rs. Fuori da Tauri currentWindowLabel() è null.
-        invoke: () => tauriInvoke('browser_open', { id, url: openUrl, x: -100000, y: 0, width: 800, height: 600, isolate: true, windowLabel: currentWindowLabel() ?? 'main' }),
-        isCancelled: () => cancelled,
-        onOpened: applyOpened,
-        onGaveUp: () => {
-          setNavError({ message: 'Impossibile aprire il browser nativo. Riprova.', url: openUrl });
-          // Chi ha chiesto l'apertura ha acceso la barra e non riceve un esito
-          // (`openViewRef` non ne restituisce): se non la spegne questo ramo,
-          // resta accesa per sempre — nessuno dei punti che la spengono gira
-          // finché `ready` è falso — e il rollup di progetto conta la pane
-          // occupata a vita.
-          setLoading(false);
-        },
+    // I due rami di `attemptNativeOpen` sono già tutto ciò che serve a rimettere
+    // a posto lo stato; questa promessa non li sposta, li ASCOLTA — perché chi
+    // RICREA una scheda morta è l'unico chiamante che deve sapere se sotto c'è
+    // di nuovo una vista, prima di lasciar cadere il guasto.
+    const attemptOpen = (openUrl: string): Promise<boolean> =>
+      new Promise<boolean>((resolve) => {
+        attemptNativeOpen({
+          // windowLabel: la webview nativa deve nascere figlia della finestra che
+          // ospita QUESTA pane (pop-out inclusi), non sempre di `main` — vedi
+          // browser_open_inner in lib.rs. Fuori da Tauri currentWindowLabel() è null.
+          invoke: () => tauriInvoke('browser_open', { id, url: openUrl, x: -100000, y: 0, width: 800, height: 600, isolate: true, windowLabel: currentWindowLabel() ?? 'main' }),
+          // È anche l'ultimo posto da cui si passa quando la pane viene smontata
+          // a metà apertura: chi aspetta l'esito riceve un `false` invece di
+          // restare appeso a una promessa che nessuno risolverà più.
+          isCancelled: () => { if (!cancelled) return false; resolve(false); return true; },
+          onOpened: () => { applyOpened(); resolve(true); },
+          onGaveUp: () => {
+            setNavError({ message: 'Impossibile aprire il browser nativo. Riprova.', url: openUrl });
+            // Chi ha chiesto l'apertura ha acceso la barra e non aspetta l'esito
+            // (`navigate` e «Riprova» del parcheggio non lo leggono): se non la
+            // spegne questo ramo, resta accesa per sempre — nessuno dei punti che
+            // la spengono gira finché `ready` è falso — e il rollup di progetto
+            // conta la pane occupata a vita.
+            setLoading(false);
+            resolve(false);
+          },
+        });
       });
-    };
     // Kept for EVERY pane, not just the loopback-gated ones: it is how a pane
     // that has been declared dead gets rebuilt (`recreate` below), and how a
     // parked tab opens late. It used to be set only inside the gated branch, so
     // an ordinary https pane had no way back once its webview stopped answering.
-    openViewRef.current = (u: string) => { if (!cancelled) attemptOpen(u); };
+    openViewRef.current = (u: string) => (cancelled ? Promise.resolve(false) : attemptOpen(u));
     if (!gateLoopback) {
-      attemptOpen(wantedUrl);
+      void attemptOpen(wantedUrl);
     } else {
       // La sonda PRIMA dell'apertura, non dopo: aprire su about:blank e navigare
       // alla risposta farebbe lampeggiare bianca ogni pane su un server locale
@@ -742,7 +753,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
           setParked({ url: wantedUrl, checkedAt: Date.now() });
           return;
         }
-        attemptOpen(wantedUrl);
+        void attemptOpen(wantedUrl);
       });
     }
     return () => {
@@ -776,11 +787,14 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
    * `openViewRef` è vivo solo fra il montaggio dell'effetto e il suo cleanup:
    * fuori da lì la richiesta cade nel vuoto, e senza questo ramo la barra che
    * il chiamante ha appena acceso non la spegnerebbe più nessuno.
+   *
+   * Restituisce l'esito per chi lo aspetta (`recreate`): una ref morta è un
+   * `false`, non un silenzio.
    */
-  const requestOpenView = useCallback((u: string): void => {
+  const requestOpenView = useCallback((u: string): Promise<boolean> => {
     const open = openViewRef.current;
-    if (!open) { setLoading(false); return; }
-    open(u);
+    if (!open) { setLoading(false); return Promise.resolve(false); }
+    return open(u);
   }, []);
 
   const navigate = useCallback(
@@ -794,7 +808,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
       // se la fa aprire adesso.
       if (parked) {
         setParked(null);
-        requestOpenView(norm);
+        void requestOpenView(norm);
         return;
       }
       // Only the page's own readyState clears the bar (see isPageLoading). This
@@ -844,7 +858,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
       if (!alive) { setParked({ url: target, checkedAt: Date.now() }); return; }
       setParked(null);
       setLoading(true);
-      requestOpenView(target);
+      void requestOpenView(target);
     } finally {
       setParkedChecking(false);
     }
@@ -1394,13 +1408,37 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
    * Closes DIRECTLY rather than through the deferred-close grace: that grace
    * exists to survive React remount churn, and here we want the old view gone
    * before the new one is asked for.
+   *
+   * L'ESITO DELLA CHIUSURA SI LEGGE. Col mutex avvelenato la vista non muore —
+   * `Webview::close()` passa dallo stesso lock di tutto il resto — e resta
+   * registrata nel manager: riaprire sullo stesso id cadeva nel ramo di RIUSO di
+   * `browser_open`, che riconsegnava la stessa vista morta. Il pulsante non
+   * ricreava niente proprio nel caso per cui esiste. Adesso il guscio se ne
+   * accorge (`browser_close` torna Err) e BRUCIA l'etichetta, quindi la
+   * riapertura che segue nasce comunque come vista nuova; qui si legge il
+   * fallimento per dirlo nel log invece di fingere che sia andata bene.
+   *
+   * E IL GUASTO NON SI AZZERA A MANO. Azzerarlo qui faceva sparire la striscia
+   * all'istante e ricomparire dopo altri tre fallimenti: l'utente vedeva
+   * «risolto» per un attimo, poi il guasto tornava. Lo cancella la vista NUOVA
+   * rispondendo a un comando strutturale (`recordPaneOk` su `browser_set_bounds`
+   * in `applyBounds`), che è l'unica prova che qualcosa è cambiato davvero.
    */
   const recreate = useCallback(async () => {
     setLoading(true);
-    commitFault(NO_FAULT); // give the new view a clean slate to fail from
-    await tauriInvoke('browser_close', { id }).catch(() => {});
-    requestOpenView(urlRef.current || initialUrlRef.current || 'about:blank');
-  }, [id, commitFault, requestOpenView]);
+    await recreatePane({
+      close: () => tauriInvoke('browser_close', { id }).then(() => true, () => false),
+      open: () => requestOpenView(urlRef.current || initialUrlRef.current || 'about:blank'),
+      // La stretta di mano è un `browser_set_bounds` sulla vista appena nata: se
+      // risponde, il guasto cade da sé (`recordPaneOk` dentro `paneInvoke`); se
+      // non risponde, la striscia resta — che è la verità. `applyOpened` lo fa
+      // già quando c'è un rect misurato, questo copre la ricreazione che arriva
+      // prima di ogni misura.
+      handshake: applyBounds,
+      onLabelBurned: () =>
+        console.warn(`[tauri-browser] pane ${id}: la vista ha rifiutato di chiudersi — etichetta bruciata, riapro come vista nuova`),
+    });
+  }, [id, applyBounds, requestOpenView]);
 
   const viewId = ready ? id : null;
 
