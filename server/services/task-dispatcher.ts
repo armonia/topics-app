@@ -27,7 +27,7 @@ import { ZERO_USAGE, type SessionUsage } from "./transcript-usage";
 import { onHumanHoldChange } from "../lib/human-hold-events";
 import type { TaskAttemptStore } from "./task-attempts";
 import { attemptHasWork, formatFanoutComment } from "../../shared/task-attempt";
-import { MAX_FANOUT, PREVIEW_RULE } from "../../shared/board";
+import { MAX_FANOUT, PREVIEW_RULE, readTaskWeight } from "../../shared/board";
 import { decideNight, deadlineFrom } from "./night-mode";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import {
@@ -114,7 +114,10 @@ export interface DispatcherDeps {
    * host without a classifier (tests / degraded); "auto" then keeps the default.
    * MUST resolve fast and never reject (the picker swallows its own errors).
    */
-  pickAutoModel?: (task: Task) => Promise<{ model: string | null }>;
+  /** Il giudice legge il task e sceglie modello E peso prima che l'agente nasca.
+   *  `weight` assente/null = leggero, cioè niente cambia (vedi `TASK_WEIGHTS` in
+   *  shared/board.ts e il gate del claim). */
+  pickAutoModel?: (task: Task) => Promise<{ model: string | null; weight?: string | null }>;
   /** Auto concurrency cap for a board on `maxAgentsAuto`: live machine capacity
    *  (CPU/load). Absent ⇒ auto falls back to the board's manual `maxAgents`. */
   recommendedCap?: () => number;
@@ -324,6 +327,19 @@ export interface TaskDispatcher {
    */
   busyCount(): number;
 }
+
+/**
+ * Sotto quale carico PER CORE la macchina è «scarica» abbastanza da far partire
+ * un task pesante.
+ *
+ * 1.0, cioè il punto in cui la coda del processore è ancora dentro il numero di
+ * core: sopra di lì i processi si aspettano già a vicenda, ed è esattamente lo
+ * stato in cui una compilazione fa male a tutti gli altri. È più severo dell'1,5
+ * della modalità notturna (`night-mode.ts`) di proposito: lì la domanda è «la
+ * persona sta lavorando?», qui è «c'è margine per un lavoro che si prende tutto?»
+ * — e la seconda vuole un margine vero, non l'assenza di un intralcio.
+ */
+const HEAVY_MAX_LOAD_PER_CORE = 1.0;
 
 const CHIP_QUEUED = "queued";
 const CHIP_WORKING = "working";
@@ -627,6 +643,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   // CURRENT hold episode — cleared when the repo frees, so a later hold can
   // note again without spamming one comment per 10s reconcile poll.
   const externallyHeldNoted = new Set<string>();
+  // Task a cui si è già detto "aspetti perché la macchina è impegnata da un
+  // task pesante / è troppo carica". Stessa disciplina dell'insieme qui sopra:
+  // una nota per EPISODIO, non una per poll — si svuota appena l'attesa finisce.
+  const heavyHeldNoted = new Set<string>();
   // Board a cui si è già detto "il fan-out qui non si applica" (worktree off).
   // È una configurazione, non un evento: ripeterlo a ogni dispatch sarebbe rumore.
   const fanOutBlockedNoted = new Set<string>();
@@ -639,6 +659,83 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   /** Broadcast the updated task so live boards move the chip. */
   function emit(task: Task): void {
     try { deps.broadcast({ type: "task:updated", projectId: task.projectId, task }); } catch { /* best-effort */ }
+  }
+
+  /**
+   * C'è margine per un task PESANTE adesso? (vedi `HEAVY_MAX_LOAD_PER_CORE`)
+   *
+   * `null` non è «no»: è «non lo so». Senza la sonda del carico il gate non si
+   * applica affatto — un host che non sa misurare non deve poter fermare la coda
+   * per sempre, che è il modo in cui una guardia diventa una trappola.
+   */
+  function heavyLoadGate(): { ok: boolean; load1: number; cores: number } | null {
+    if (!deps.capacity) return null;
+    try {
+      const { load1, cores } = deps.capacity();
+      const c = Math.max(1, cores);
+      return { ok: load1 < c * HEAVY_MAX_LOAD_PER_CORE, load1, cores: c };
+    } catch (err) {
+      log("sonda del carico caduta: il gate del peso resta aperto", err);
+      return null;
+    }
+  }
+
+  /**
+   * «Aspetti per via del peso», detto una volta per episodio: chip `queued` +
+   * una riga nel thread. Stessa disciplina della guardia sulle sessioni esterne
+   * — la nota si ripete solo dopo che l'attesa è finita davvero, altrimenti un
+   * poll ogni 10s riempirebbe il thread della stessa frase.
+   */
+  function noteHeavyHold(task: Task, why: string): void {
+    if (inFlight.has(task.id) || graceTimers.has(task.id)) return;
+    if (heavyHeldNoted.has(task.id)) return;
+    heavyHeldNoted.add(task.id);
+    try {
+      emit(deps.svc.setDispatchState({ taskId: task.id, state: CHIP_QUEUED }));
+      deps.svc.addComment({ taskId: task.id, author: "system", content: why });
+    } catch { /* il task può essersi mosso sotto i piedi */ }
+  }
+
+  /**
+   * Il peso appena letto dal classificatore, applicato al task — e la decisione
+   * che ne segue: si può proseguire, o questo lancio non doveva avvenire?
+   *
+   * Il classificatore parla al LANCIO; il gate del peso vive nel claim, che è
+   * già passato. Alla primissima corsa di un task, quindi, il claim ha deciso
+   * senza sapere: se scopre adesso di avere in mano un task pesante, l'unica cosa
+   * onesta è rimetterlo in coda e lasciare che sia il claim a decidere, stavolta
+   * col peso in mano — far partire l'agente comunque significherebbe metterlo
+   * accanto agli altri, che è precisamente ciò che il peso esiste per impedire.
+   *
+   * Il tentativo si RIMBORSA (`rollbackAttempt`): non è un fallimento, non ha
+   * prodotto niente e non ha nemmeno acceso un agente. Farlo pesare sul budget
+   * dei ritentativi vorrebbe dire che un task pesante arriva al parcheggio dopo
+   * due scoperte invece che dopo due fallimenti veri.
+   *
+   * Torna `true` se il lancio deve fermarsi. Il rientro in coda avviene UNA
+   * volta sola per scoperta: la seconda volta il peso è già sul task, quindi
+   * `wasHeavy` è vero e si prosegue — non c'è modo di girare in tondo.
+   */
+  function absorbWeight(task: Task, weight: string | null | undefined): boolean {
+    const read = readTaskWeight(weight);
+    const wasHeavy = task.dispatchWeight === "heavy";
+    if (read !== task.dispatchWeight) {
+      // Best-effort: il promemoria serve al PROSSIMO claim, e non riuscire a
+      // scriverlo non è una ragione per non far partire questo turno.
+      try { deps.svc.setDispatchWeight({ taskId: task.id, weight: read }); }
+      catch (err) { log(`peso non salvato per il task ${task.id}`, err); }
+    }
+    if (read !== "heavy" || wasHeavy) return false;
+    log(`task ${task.id}: pesante, scoperto al lancio → torna in coda prima di aprire l'agente`);
+    releaseAndEmit({
+      taskId: task.id,
+      requeue: true,
+      rollbackAttempt: true,
+      reason:
+        "Questo task è PESANTE (compila / gira la suite / macina): lo si è scoperto leggendolo, cioè dopo che era già partito. " +
+        "Torna in coda senza consumare un tentativo e riparte da solo appena la macchina è libera — un task così prende il turno da solo.",
+    });
+    return true;
   }
 
   /**
@@ -889,6 +986,42 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         try { reuseTopicId = deps.svc.get(task.blockedByTaskId)?.task?.assignedTopicId ?? null; } catch { /* fresh topic below */ }
       }
 
+      // Il classificatore PRIMA del worktree, e l'ordine è la parte che conta:
+      // fra le due cose che legge c'è il peso, e un peso scoperto adesso può
+      // rimandare in coda il task. Rimandarlo dopo aver aperto un worktree
+      // vorrebbe dire aprirlo e cancellarlo a ogni scoperta (o dimenticarselo
+      // dietro, che è il modo in cui si orfanano le cartelle). Qui non è ancora
+      // nato niente da disfare.
+      //
+      // Model selection. Explicit choice wins; "auto" (null) → classifier pick
+      // before spawn (never for a reused topic — it inherits the blocker's).
+      // The picker never rejects and returns fast; a null/absent result keeps
+      // the provider default, so dispatch is never blocked on this.
+      // Priority: explicit per-task model > board default (settings.model, when the
+      // board pins one instead of 'auto') > classifier pick. The board default skips
+      // the classifier entirely — a pinned board dispatches every task on that model.
+      let chosenModel: string | undefined = task.model ?? settings.model ?? undefined;
+      if (chosenModel && chosenModel !== task.model && !reuseTopicId) {
+        // Persist the board-default so the card shows the real model, not "auto".
+        deps.svc.setModel({ taskId, model: chosenModel });
+      }
+      if (!chosenModel && !reuseTopicId && deps.pickAutoModel) {
+        const picked = await deps.pickAutoModel(task);
+        // Il peso PRIMA di tutto il resto: se questo lancio non doveva avvenire,
+        // deve fermarsi qui — prima del worktree, prima del topic, prima
+        // dell'agente. (Il modello non si persiste in quel caso: al prossimo giro
+        // il giudice ripete la lettura, che costa un haiku, e in cambio modello e
+        // peso restano una decisione sola invece di due mezze decisioni salvate a
+        // metà.)
+        if (absorbWeight(task, picked.weight)) return;
+        chosenModel = picked.model ?? undefined;
+        // "auto" è solo lo stato INIZIALE: appena il classifier risolve un
+        // modello concreto lo persisto sul task, così la card mostra quello
+        // davvero usato (non più "auto"). Nessun emit qui: la setDispatchState
+        // subito sotto rilegge la riga e ne fa il broadcast.
+        if (chosenModel) deps.svc.setModel({ taskId, model: chosenModel });
+      }
+
       if (!reuseTopicId && settings.useWorktree) {
         if (!deps.createWorktree || !resolved.projectStoreId) {
           // Worktree required but impossible → park with a clear, actionable error
@@ -910,28 +1043,6 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       if (reuseTopicId) {
         kickoff =
           "Nuovo task nella STESSA sessione del task precedente: il contesto che hai costruito è condiviso di proposito, riusalo dove serve.\n\n" + kickoff;
-      }
-
-      // Model selection. Explicit choice wins; "auto" (null) → classifier pick
-      // before spawn (never for a reused topic — it inherits the blocker's).
-      // The picker never rejects and returns fast; a null/absent result keeps
-      // the provider default, so dispatch is never blocked on this.
-      // Priority: explicit per-task model > board default (settings.model, when the
-      // board pins one instead of 'auto') > classifier pick. The board default skips
-      // the classifier entirely — a pinned board dispatches every task on that model.
-      let chosenModel: string | undefined = task.model ?? settings.model ?? undefined;
-      if (chosenModel && chosenModel !== task.model && !reuseTopicId) {
-        // Persist the board-default so the card shows the real model, not "auto".
-        deps.svc.setModel({ taskId, model: chosenModel });
-      }
-      if (!chosenModel && !reuseTopicId && deps.pickAutoModel) {
-        const picked = await deps.pickAutoModel(task);
-        chosenModel = picked.model ?? undefined;
-        // "auto" è solo lo stato INIZIALE: appena il classifier risolve un
-        // modello concreto lo persisto sul task, così la card mostra quello
-        // davvero usato (non più "auto"). Nessun emit qui: la setDispatchState
-        // subito sotto rilegge la riga e ne fa il broadcast.
-        if (chosenModel) deps.svc.setModel({ taskId, model: chosenModel });
       }
 
       // Plan-first is opt-in only (the "piano prima" toggle). The dispatcher used
@@ -1297,6 +1408,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       if (chosenModel && chosenModel !== task.model) deps.svc.setModel({ taskId, model: chosenModel });
       if (!chosenModel && deps.pickAutoModel) {
         const picked = await deps.pickAutoModel(task);
+        // Vale a maggior ragione qui: un task pesante in fan-out sono N
+        // macinate in parallelo, cioè il caso peggiore che il peso esiste per
+        // evitare. Il `finally` restituisce gli slot prenotati.
+        if (absorbWeight(task, picked.weight)) return;
         chosenModel = picked.model ?? undefined;
         if (chosenModel) deps.svc.setModel({ taskId, model: chosenModel });
       }
@@ -1822,6 +1937,35 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // the episode so a FUTURE hold notes again instead of staying silent.
     for (const t of todos) externallyHeldNoted.delete(t.id);
 
+    // PESO — gli STESSI due predicati che il CAS di `claim` applica, letti qui
+    // una volta per tick. Il claim li fa valere in silenzio (torna `null`), e un
+    // silenzio lascerebbe le card ferme su `queued` senza che nessuno sappia
+    // perché: la regola sta nel claim perché lì è atomica, la spiegazione sta
+    // qui perché qui c'è il thread.
+    const heavyBusy = (() => {
+      try { return deps.svc.hasHeavyInFlight(); }
+      catch (err) { log("lettura dei task pesanti in volo fallita", err); return false; }
+    })();
+    const loadGate = heavyLoadGate();
+    const heldForLoad = (t: Task) => t.dispatchWeight === "heavy" && loadGate?.ok === false;
+    // Chi NON è più trattenuto dal peso dimentica l'episodio, così una prossima
+    // attesa lo dice di nuovo invece di restare muta.
+    if (!heavyBusy) for (const t of todos) { if (!heldForLoad(t)) heavyHeldNoted.delete(t.id); }
+    if (heavyBusy) {
+      // Un pesante in volo blocca OGNI claim, non solo gli altri pesanti: è il
+      // senso stesso del peso — quel task si prende la macchina da solo. Niente
+      // di questa board parte finché non ha finito, e la coda riparte da sé al
+      // reconcile successivo.
+      for (const t of todos) {
+        noteHeavyHold(
+          t,
+          "In coda: c'è un task PESANTE al lavoro e si prende la macchina da solo. " +
+            "Riparto appena ha finito — non devi fare nulla.",
+        );
+      }
+      return;
+    }
+
     // Effective concurrency cap for this tick: ONE machine-wide budget counted
     // across EVERY board (scope 'global'), so N boards can't multiply into N×cap
     // agents. 'auto' sizes it from live capacity (CPU/load); otherwise the fixed
@@ -1868,11 +2012,25 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // restano almeno N posti liberi.
       const claimCap = effectiveCap - reservedSlots - (taskFanOut - 1);
       if (claimCap < 1) break; // macchina piena: gli altri todo aspettano il prossimo tick
+      // Un pesante a macchina carica aspetta — e TIENE la testa della coda. Se
+      // cedesse il posto ai task leggeri dietro di lui, quelli partirebbero,
+      // alzerebbero il carico, e il momento in cui la macchina è scarica non
+      // arriverebbe mai: la guardia si trasformerebbe in un divieto permanente
+      // proprio per il task che deve girare da solo.
+      if (heldForLoad(t)) {
+        noteHeavyHold(
+          t,
+          `In coda: questo task è PESANTE e la macchina è carica (load ${loadGate!.load1.toFixed(1)} su ${loadGate!.cores} core). ` +
+            "Parte da solo appena si libera — un task così prende il turno da solo.",
+        );
+        break;
+      }
       const claimed = deps.svc.claim({
         taskId: t.id,
         cap: claimCap,
         maxAttempts: settings.dispatchRetryCap,
         scope: capScope,
+        machineIdle: loadGate?.ok,
       });
       if (!claimed) continue; // cap hit or lost the race
       clearGrace(t.id);

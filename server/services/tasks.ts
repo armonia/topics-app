@@ -33,9 +33,9 @@ import { imageShape } from "./image-shape";
 // l'import separato. Della lista `TASK_STATUSES` questo modulo non è una porta:
 // chi la vuole la prende da `shared/board`.
 export type { TaskStatus, TaskComment, BoardSettings, BoardSettingsPatch } from "../../shared/board";
-import { MAX_FANOUT, PREVIEW_PROMOTE_MAX_RATIO, TASK_STATUSES, isAgentWorking } from "../../shared/board";
+import { MAX_FANOUT, PREVIEW_PROMOTE_MAX_RATIO, TASK_STATUSES, isAgentWorking, readTaskWeight } from "../../shared/board";
 import { EFFORT_TIERS } from "../../shared/effort";
-import type { TaskStatus, TaskComment, BoardSettings, BoardSettingsPatch } from "../../shared/board";
+import type { TaskStatus, TaskComment, BoardSettings, BoardSettingsPatch, TaskWeight } from "../../shared/board";
 
 export type Actor = "human" | "agent";
 
@@ -105,6 +105,13 @@ export interface Task {
    *  future the task sits in `todo` (chip `waiting`) and is NOT dispatch-eligible;
    *  the tick re-claims it once the window passes. null = no wait. */
   dispatchDeferredUntil: string | null;
+  /**
+   * Quanto questo task morde la MACCHINA quando gira (migration 090), come
+   * l'ha letto il classificatore l'ultima volta che è stato dispacciato.
+   * `null` = mai classificato, e ogni gate lo tratta come `light` — cioè come
+   * si comportava il dispatcher prima che il peso esistesse.
+   */
+  dispatchWeight: TaskWeight | null;
   /** Parent task (nested subtask, unlimited depth). Set at creation only. */
   parentTaskId: string | null;
   /** Reviewable output (http/https URL) shown in the task's review panel. */
@@ -382,7 +389,26 @@ export interface TaskService {
    * `assigned_topic_id` has a FK to topics(id) (migration 026), so a
    * placeholder id can never be written there.
    */
-  claim(args: { taskId: string; cap: number; maxAttempts: number; agentId?: string | null; scope?: "board" | "global" }): Task | null;
+  claim(args: {
+    taskId: string; cap: number; maxAttempts: number; agentId?: string | null; scope?: "board" | "global";
+    /**
+     * La macchina è SCARICA adesso? Vale solo per un task `heavy`, che parte
+     * solo quando lo è (un task che compila su una macchina già piena è il caso
+     * che il peso esiste per evitare). Il carico lo misura il chiamante — questo
+     * modulo non deve leggere `os` — e `undefined` significa «nessuna sonda»:
+     * niente gate, cioè il comportamento che c'era prima del peso.
+     */
+    machineIdle?: boolean;
+  }): Task | null;
+  /**
+   * C'è un task `heavy` con un agente vivo su questa macchina adesso?
+   *
+   * Lo stesso predicato che il CAS di `claim` applica, esposto perché il filtro
+   * del dispatcher possa fermarsi PRIMA di provare (e dirlo sulla card) invece
+   * di scoprirlo da un `null` muto. Sempre globale: un task che compila si
+   * prende la macchina, non la board.
+   */
+  hasHeavyInFlight(): boolean;
   /**
    * Bump the attempt counter of a LIVE claim (in_progress + bound topic) —
    * the dispatcher's resume-continuation after a timed-out turn. Returns the
@@ -423,6 +449,13 @@ export interface TaskService {
   /** Persist the model actually resolved for a run (auto-pick → concrete id) so
    *  the card stops showing "auto" once the agent has run. */
   setModel(args: { taskId: string; model: string | null }): Task;
+  /**
+   * Ricorda il peso letto dal classificatore (migration 090). È il promemoria
+   * che permette al CLAIM di decidere: il giudice parla al lancio, il gate serve
+   * un passo prima, quindi la seconda volta il claim sa già con cosa ha a che
+   * fare. `null` cancella (torna a «mai classificato» = leggero).
+   */
+  setDispatchWeight(args: { taskId: string; weight: TaskWeight | null }): Task;
   /** Accumulate agent effort on the task (dispatcher, at each turn end). */
   recordAgentUsage(args: { taskId: string; addMs: number; addTokens: number; addCacheReadTokens?: number }): Task;
   /**
@@ -632,6 +665,15 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     return r ? !!r.auto_dispatch : false;
   };
 
+  // C'è un task pesante con un agente vivo ADESSO? Closure e non `this`, come
+  // sopra: il claim lo chiama, e il claim deve sopravvivere a essere destrutturato.
+  const heavyInFlight = (): boolean =>
+    !!db.prepare(
+      `SELECT 1 AS h FROM tasks
+        WHERE status = 'in_progress' AND dispatch_state IN ('starting','working')
+          AND archived = 0 AND dispatch_weight = 'heavy' LIMIT 1`,
+    ).get();
+
   // The model shown on a task must ALWAYS reflect what actually ran: task.model
   // may be null ("auto") even after dispatch, but the agent's TOPIC was created
   // with the resolved model — so fall back to it. try/catch guards test contexts
@@ -668,6 +710,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       dispatchAttempts: r.dispatch_attempts ?? 0,
       dispatchError: r.dispatch_error ?? null,
       dispatchDeferredUntil: r.dispatch_deferred_until ?? null,
+      dispatchWeight: readTaskWeight(r.dispatch_weight),
       parentTaskId: r.parent_task_id ?? null,
       outputUrl: r.output_url ?? null,
       previewImage: r.preview_image ?? null,
@@ -1318,9 +1361,29 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return rowToTask(getTaskRow(taskId));
     },
 
-    claim({ taskId, cap, maxAttempts, agentId, scope }): Task | null {
+    hasHeavyInFlight(): boolean {
+      return heavyInFlight();
+    },
+
+    claim({ taskId, cap, maxAttempts, agentId, scope, machineIdle }): Task | null {
       const row = getTaskRow(taskId);
       if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
+      // PESO — due regole, entrambe dentro il claim perché è l'unico punto in cui
+      // la decisione è atomica rispetto agli altri claim (bun:sqlite è sincrono e
+      // monoprocesso, quindi read-then-CAS qui non ha corse).
+      //
+      //  1. Un heavy in volo blocca OGNI altro claim, non solo gli altri heavy:
+      //     il senso del peso è che quel task si prenda la macchina da solo, e
+      //     tre task leggeri che gli partono accanto sono esattamente ciò che
+      //     rende lunga la compilazione. Vale a macchina intera, non per board.
+      //  2. Un heavy parte solo a macchina scarica. Il carico non lo legge questo
+      //     modulo (resta puro): lo passa il chiamante. `undefined` = nessuna
+      //     sonda ⇒ nessun gate, il comportamento storico.
+      //
+      // Entrambe si applicano PRIMA del conteggio degli slot: un no del peso non
+      // è «non c'è posto», è «non adesso», e il chiamante lo dice diversamente.
+      if (heavyInFlight()) return null;
+      if (readTaskWeight(row.dispatch_weight) === "heavy" && machineIdle === false) return null;
       // Concurrency cap: count tasks already claimed by a dispatch (in_progress
       // with a live dispatch chip). Per-board by default; scope 'global' counts
       // across EVERY board so a machine-wide cap holds no matter how many boards
@@ -1491,6 +1554,17 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
       db.prepare("UPDATE tasks SET model = ?, updated_at = ? WHERE id = ?")
         .run(model || null, now(), taskId);
+      return rowToTask(getTaskRow(taskId));
+    },
+
+    setDispatchWeight({ taskId, weight }): Task {
+      const row = getTaskRow(taskId);
+      if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
+      // `readTaskWeight` anche in scrittura: un valore che non è uno dei due
+      // noti entra come NULL, cioè leggero. Una stringa storta non deve poter
+      // diventare un `heavy` che ferma la coda della board.
+      db.prepare("UPDATE tasks SET dispatch_weight = ?, updated_at = ? WHERE id = ?")
+        .run(readTaskWeight(weight), now(), taskId);
       return rowToTask(getTaskRow(taskId));
     },
 

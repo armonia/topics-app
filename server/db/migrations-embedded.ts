@@ -94,6 +94,7 @@ import m085 from "./migrations/086-tool-grants.sql" with { type: "text" };
 import m086 from "./migrations/087-output-language.sql" with { type: "text" };
 import m087 from "./migrations/088-board-language.sql" with { type: "text" };
 import m088 from "./migrations/089-retirements.sql" with { type: "text" };
+import m089 from "./migrations/090-task-dispatch-weight.sql" with { type: "text" };
 
 export interface EmbeddedMigration {
   version: number;
@@ -192,4 +193,5 @@ export const EMBEDDED_MIGRATIONS: EmbeddedMigration[] = [
   { version: 87, name: "087-output-language.sql", sql: m086 },
   { version: 88, name: "088-board-language.sql", sql: m087 },
   { version: 89, name: "089-retirements.sql", sql: m088 },
+  { version: 90, name: "090-task-dispatch-weight.sql", sql: m089 },
 ];
