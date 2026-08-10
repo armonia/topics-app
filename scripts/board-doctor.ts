@@ -1148,7 +1148,7 @@ export function groupForRender(findings: readonly Finding[]): Finding[][] {
   const byKey = new Map<string, Finding[]>();
   for (const f of findings) {
     if (!f.group) { blocks.push([f]); continue; }
-    const key = `${f.check} ${f.group}`;
+    const key = `${f.check}\u0000${f.group}`;
     const hit = byKey.get(key);
     if (hit) { hit.push(f); continue; }
     const fresh = [f];
