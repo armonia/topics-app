@@ -31,6 +31,15 @@
         "scripts/watch-board-tasks.ts!",  // CLI tool for the Monitor loop, run by hand
         "scripts/disk-report.ts!",        // `bun run report:disk`
         "scripts/token-live.ts!",         // diagnostica a mano: `bun scripts/token-live.ts [filtro] [--watch]`
+        // Il conio delle licenze. Non è un residuo: il servizio che firmerà i
+        // gettoni non esiste ancora (`CHIAVI_INTEGRATE` è vuota, e il ramo
+        // Stripe `no_token_in_event` dice esplicitamente che «il gettone lo
+        // conia il servizio che ha la chiave privata»), quindi OGGI questo è
+        // l'unico modo di emetterne uno. Lo lancia anche
+        // `tests/integration/licenza-conio.test.ts`, ma con `spawnSync` su un
+        // path in stringa: un riferimento che knip non può vedere.
+        "scripts/licenza.ts!",
+        "scripts/prefix-budget.ts!",      // diagnostica a mano: `bun run scripts/prefix-budget.ts [--probe]`
         "scripts/*.test.ts!",             // run by `bun test ./scripts` in test:unit
         // Everything else under scripts/ stays a PROJECT file only (see the
         // `project` list below). Listing the folder here — with or without `!` —
@@ -81,6 +90,17 @@
   // sotto client/node_modules. `playwright`, `eslint` e `spec-flow` stavano qui
   // e non servivano più — knip li risolve da solo.
   "ignoreBinaries": ["pkill", "du", "tsc"],
+  // NON è un import: è il primo argomento di
+  // `spawnSync("bun", ["scripts/board-cases.ts", "--case", …], { cwd: ROOT })`
+  // in scripts/board-cases.ts:1624 — il rilancio di sé stesso che genera la
+  // prova ricopiabile di ogni caso. Knip legge gli argomenti di child_process
+  // come riferimenti a file e li risolve rispetto alla cartella del file
+  // chiamante, cioè `scripts/scripts/board-cases.ts`: da lì il "non risolto".
+  // Il percorso è relativo alla RADICE apposta, perché `cwd` è `ROOT` e perché
+  // dev'essere lo stesso che finisce in `cases.json` come comando da
+  // ricopiare. Renderlo assoluto zittirebbe knip ma cambierebbe l'impronta
+  // della matrice, che è calcolata anche sul contenuto di questo file.
+  "ignoreUnresolved": ["scripts/board-cases.ts"],
   // Components declared AND consumed inside their own file (a local card
   // registry, the sub-components of one screen) are exported only so the file
   // reads as a set of named units. Without this knip flags ~150 of them and
