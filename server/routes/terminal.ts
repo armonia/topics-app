@@ -22,6 +22,7 @@ import { listSessionCliPids } from "../providers/session-pids";
 import { decidePark, idleParkThresholdMs, summarizeRefusals } from "../lib/terminal-idle-park";
 import type { ParkRefusal } from "../lib/terminal-idle-park";
 import { decideOnRestart } from "../lib/terminal-restart-policy";
+import { recordRetirement } from "../services/retirement";
 import { renderScreen, screenToText } from "../lib/terminal-screen";
 import type { ClaudeSessionTracker } from "../lib/claude-session-tracker";
 import { writeMcpConfigForSession, cleanupMcpConfigForSession } from "../providers/claude-code";
@@ -1956,6 +1957,63 @@ function broadcastTerminalSessions() {
 }
 
 /**
+ * Il ritiro di una sessione di terminale, in un posto solo.
+ *
+ * PERCHE' NON E' PIU' DENTRO LA `DELETE`. Era il corpo del gestore HTTP, quindi
+ * l'unico modo di ritirare una sessione era che un client mandasse quella
+ * richiesta. Ma il ritiro nasce anche da altre due parti — la cascata di una tab
+ * chiusa (`services/pane-retirement-cascade.ts`) e il riconcilio al boot
+ * (`services/retirement.ts#reconcile`) — e ognuna che si scrivesse da sola le
+ * proprie pulizie e' esattamente il modo in cui questa sottoparte e' arrivata ad
+ * avere tre registri. Sette conseguenze, tutte necessarie, tutte facili da
+ * dimenticare: la PTY, i socket, la riga, la fase nel tracker, i timer di
+ * attivita', i sotto-agenti, il browser che quella sessione aveva aperto.
+ *
+ * Ritorna `false` se non c'era niente da ritirare (ne' in memoria ne' nel DB):
+ * al chiamante HTTP serve per il 404, agli altri due non cambia niente — su un
+ * id sconosciuto e' un no-op, che e' la proprieta' che rende sicuro rigirare il
+ * riconcilio.
+ */
+export function retireTerminalSession(id: string): boolean {
+  const session = sessions.get(id);
+  const db = getDatabase();
+  const dbRow = db.query("SELECT id, claude_session_id, type FROM terminal_sessions WHERE id = ?").get(id) as any;
+  if (!session && !dbRow) return false;
+  // L'id della sessione claude va preso PRIMA di cancellare riga e mappa,
+  // altrimenti la fase nel tracker resta appesa per la vita del server (la
+  // mappa `terminalStates` si svuota solo da qui).
+  const claudeSessionId: string | undefined = session?.claudeSessionId || dbRow?.claude_session_id || undefined;
+  const sessionType: string | undefined = session?.type || dbRow?.type;
+  if (session) {
+    sendToBridge({ type: "kill", id });
+    sessions.delete(id);
+    const sockets = sessionSockets.get(id);
+    if (sockets) {
+      for (const ws of sockets) {
+        try { ws.close(1000, "Session killed"); } catch {}
+      }
+    }
+    sessionSockets.delete(id);
+  }
+  try { db.run("DELETE FROM terminal_sessions WHERE id = ?", [id]); } catch {}
+  if (claudeSessionId && (sessionType === 'claude-code' || sessionType === 'claude-code-team')) {
+    _tracker?.dropTerminalSession(claudeSessionId);
+  }
+  // Il bookkeeping per-sessione (timer busy + lastVisibleSig + lastInputAt). Il
+  // percorso di uscita della PTY lo fa gia', ma un ritiro esplicito non ci
+  // passa: senza questa riga quelle mappe crescevano per la vita del server.
+  clearTerminalActivity(id);
+  // I sotto-agenti che questa sessione ha generato: nessuna PTY orfana e
+  // pilotabile resta dietro.
+  cascadeKillChildren(id);
+  // Il browser che questo terminale puo' aver aperto (contextId `term-<id>`).
+  // Best-effort: nessun contesto = no-op innocuo.
+  terminalBrowserCloser?.(`term-${id}`);
+  broadcastTerminalSessions();
+  return true;
+}
+
+/**
  * Parcheggia le sessioni Claude ferme da troppo: uccide la PTY, la riga resta.
  *
  * Le chat hanno un reaper di inattività (15 min) e un tetto di vita (2 ore); i
@@ -2320,45 +2378,12 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
 
     const deleteMatch = matchRoute(pathname, "/api/terminal/sessions/:id") || matchRoute(pathname, "/api/terminal/:id");
     if (method === "DELETE" && deleteMatch) {
-      const session = sessions.get(deleteMatch.id);
-      // Always try to clean up the DB row — the session may be dormant (PTY exited
-      // but row kept alive for Resume), in which case `session` is not in memory.
-      const db = getDatabase();
-      const dbRow = db.query("SELECT id, claude_session_id, type FROM terminal_sessions WHERE id = ?").get(deleteMatch.id) as any;
-      if (!session && !dbRow) return errorResponse(404, "Terminal session not found");
-      // Capture the claude session id BEFORE we delete the row/map entry so we
-      // can forget its tracker phase entry below. The tracker's in-memory
-      // `terminalStates` map is ONLY ever dropped here, so without this a deleted
-      // claude terminal session leaks its phase entry for the life of the server.
-      const claudeSessionId: string | undefined = session?.claudeSessionId || dbRow?.claude_session_id || undefined;
-      const sessionType: string | undefined = session?.type || dbRow?.type;
-      if (session) {
-        sendToBridge({ type: "kill", id: deleteMatch.id });
-        sessions.delete(deleteMatch.id);
-        const sockets = sessionSockets.get(deleteMatch.id);
-        if (sockets) {
-          for (const ws of sockets) {
-            try { ws.close(1000, "Session killed"); } catch {}
-          }
-        }
-        sessionSockets.delete(deleteMatch.id);
-      }
-      try { db.run("DELETE FROM terminal_sessions WHERE id = ?", [deleteMatch.id]); } catch {}
-      if (claudeSessionId && (sessionType === 'claude-code' || sessionType === 'claude-code-team')) {
-        _tracker?.dropTerminalSession(claudeSessionId);
-      }
-      // Drop the per-session activity bookkeeping (busy timer + lastVisibleSig +
-      // lastInputAt). The session-exit path (case "exit") already does this, but
-      // an explicit DELETE never hit it, so these Maps grew unbounded across the
-      // server's life. Safe (no-op) when there's no entry, e.g. a dormant row.
-      clearTerminalActivity(deleteMatch.id);
-      // Reap any sub-agents this session spawned (no orphaned drivable PTYs).
-      cascadeKillChildren(deleteMatch.id);
-      // Close the browser this terminal may have opened (contextId `term-<id>`).
-      // Best-effort: no such context (terminal never opened a browser) is a
-      // harmless no-op on the destroy side.
-      terminalBrowserCloser?.(`term-${deleteMatch.id}`);
-      broadcastTerminalSessions();
+      // Il fatto PRIMA delle conseguenze: se il processo muore a meta' ritiro,
+      // il riconcilio al boot sa che quella sessione andava ritirata e finisce
+      // il lavoro. Timbrare dopo avrebbe lasciato lo stato esattamente dove il
+      // guasto lo lasciava — riga viva, nessuno che sa perche'.
+      recordRetirement(getDatabase(), "terminal", deleteMatch.id, new Date().toISOString(), "tab-close");
+      if (!retireTerminalSession(deleteMatch.id)) return errorResponse(404, "Terminal session not found");
       return json({ ok: true });
     }
 

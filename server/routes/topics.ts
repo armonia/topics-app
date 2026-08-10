@@ -29,6 +29,7 @@ import { moveTerminalPaneToProject as relocateTerminalPaneToProject } from "../l
 import { bumpUnreadCount } from "../lib/unread-count";
 import { createSubagentWatcher } from "../lib/subagent-watch";
 import { archiveTopicFully } from "../services/archive-topic";
+import { clearRetirement, recordRetirement } from "../services/retirement";
 import { parkTopicSession } from "../lib/session-parking";
 import { timingSafeEqualStr } from "../utils";
 import { parseTranscriptToMessages } from "../lib/claude-transcript-import";
@@ -1514,6 +1515,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
             getTopicById, saveSingleTopic, loadUnread, saveUnread, broadcastToAll,
             purgeFromUiState: (id) => purgeTopicFromUiState(ctx.db, broadcastToAll, id),
             parkClaudeSession: parkTopicSession,
+            recordRetirement: (id, at) => recordRetirement(ctx.db, "topic", id, at, "archive"),
           }, params.id);
           // Bug #12: if the purge fails we return 500 — topic is archived but
           // ui_state is stale, so client-side reload will see a phantom id.
@@ -1530,6 +1532,10 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         saveSingleTopic(topic);
         broadcastToAll({ type: "topic:archived", topic });
         restoreTopicInUiState(ctx.db, broadcastToAll, params.id);
+        // Il fatto va ritrattato con gli altri due registri, o al riavvio
+        // successivo il riconcilio richiuderebbe la chat appena riaperta —
+        // con l'utente dentro.
+        clearRetirement(ctx.db, "topic", params.id);
         return json(topic);
       }
     }
@@ -1579,9 +1585,14 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
           if (!purgeResult.ok) {
             purgeFailures.push({ topicId: topic.id, error: purgeResult.error });
           }
+          // Il fatto, come nel percorso singolo. Un'archiviazione in blocco che
+          // non timbra e' esattamente la strada da cui sono usciti i topic
+          // «aperti» chiusi da settimane: il flag c'era, la data no.
+          recordRetirement(ctx.db, "topic", topic.id, now, "bulk-archive");
         } else {
           // Bulk UNarchive — same reopen symmetry as the single-topic DELETE.
           restoreTopicInUiState(ctx.db, broadcastToAll, topic.id);
+          clearRetirement(ctx.db, "topic", topic.id);
         }
       }
       // Bug #12: surface any purge failure in the response body (partial-fail
