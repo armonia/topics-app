@@ -337,6 +337,9 @@ export interface TaskDispatcher {
  *  pagare tentativi. Tre: una raffica si assorbe, un guasto cronico no. */
 const FREE_PROVIDER_ERRORS = 3;
 
+/** Ogni quanto un resume in attesa ricontrolla se si è liberato un posto. */
+const RESUME_SLOT_RETRY_MS = 5_000;
+
 const DEFAULT_AUTO_EFFORT = "medium";
 
 const CHIP_QUEUED = "queued";
@@ -538,6 +541,26 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * Sta in memoria di proposito: un riavvio ri-pianifica comunque.
    */
   const providerErrors = new Map<string, number>();
+  /** Chi ha già detto nel thread che sta aspettando uno slot: una volta basta. */
+  const waitingForSlot = new Set<string>();
+  let resumeStagger = 0;
+
+  /**
+   * Il tetto di concorrenza EFFETTIVO, adesso. Era calcolato dentro `tick()`,
+   * quindi valeva solo per i dispatch: il `resume` non lo guardava, e ogni
+   * rifiuto in review faceva ripartire un agente FUORI dal tetto. Misurato il
+   * 09/08: 12 task in corso con il tetto a 6, e metà erano miei rifiuti.
+   *
+   * Un budget solo per macchina (scope 'global'), così N board non si
+   * moltiplicano in N×tetto.
+   */
+  function currentCap(): number {
+    let gcap = { auto: true, max: 3 };
+    try { gcap = deps.svc.getGlobalCap(); } catch { /* defaults */ }
+    return gcap.auto && deps.recommendedCap
+      ? Math.max(1, deps.recommendedCap())
+      : Math.max(1, gcap.max);
+  }
   /**
    * One in-flight run: a turn being set up, running, or winding down.
    *
@@ -1701,6 +1724,27 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       pendingResume.set(taskId, [...(pendingResume.get(taskId) ?? []), humanMessage]);
       return;
     }
+    // Il tetto vale anche qui. Il messaggio NON si perde: si riprova quando un
+    // posto si libera, invece di aprire un agente in più — che è come si finisce
+    // con 12 turni vivi su un tetto di 6 solo perché qualcuno ha rifiutato in
+    // fila cinque card.
+    if (inFlight.size >= currentCap()) {
+      if (!waitingForSlot.has(taskId)) {
+        waitingForSlot.add(taskId);
+        try {
+          deps.svc.addComment({
+            taskId, author: "system",
+            content: `In attesa di uno slot: il tetto di concorrenza (${currentCap()}) è pieno. Riprendo appena si libera — niente è andato perso.`,
+          });
+        } catch { /* best-effort */ }
+      }
+      // Sfalsati, o venti resume in coda si sveglierebbero tutti insieme per
+      // riscoprire insieme che il posto è uno solo.
+      const delay = RESUME_SLOT_RETRY_MS + (resumeStagger++ % 8) * 250;
+      setTimeout(() => { void resume(taskId, humanMessage, opts); }, delay);
+      return;
+    }
+    waitingForSlot.delete(taskId);
     const sessionKey = "topic:" + t.assignedTopicId.slice(0, 8);
     const runId = beginRun(taskId, sessionKey);
     try {
@@ -1735,6 +1779,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     const t = deps.svc.get(taskId)?.task;
     if (!t || !t.assignedTopicId || t.status !== "in_progress") return;
     if (inFlight.has(taskId)) return;
+    // Nessun tetto qui, di proposito: il reattach ADOTTA un turno che sta già
+    // girando nel broker. Rifiutarlo non risparmierebbe niente — lo lascerebbe
+    // orfano, a bruciare token senza nessuno che ne raccolga il risultato.
     const sessionKey = "topic:" + t.assignedTopicId.slice(0, 8);
     const runId = beginRun(taskId, sessionKey);
     try {
@@ -1903,12 +1950,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // agents. 'auto' sizes it from live capacity (CPU/load); otherwise the fixed
     // number set in the global settings dropdown. Computed once so every claim in
     // this tick shares the same budget.
-    let gcap = { auto: true, max: 3 };
-    try { gcap = deps.svc.getGlobalCap(); } catch { /* defaults */ }
     const capScope: "board" | "global" = "global";
-    const effectiveCap = gcap.auto && deps.recommendedCap
-      ? Math.max(1, deps.recommendedCap())
-      : Math.max(1, gcap.max);
+    const effectiveCap = currentCap();
 
     // Fan-out richiesto dalla board, e cosa ne resta dopo la realtà. Due
     // condizioni non negoziabili, entrambe silenziose sarebbero una trappola:
