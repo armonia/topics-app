@@ -18,6 +18,9 @@ import {
 import { purgeOrphanTopicRefs } from "./server/services/ui-state-orphan-cleanup";
 import { createTopicsRouter, purgeTopicFromUiState } from "./server/routes/topics";
 import { archiveTopicFully } from "./server/services/archive-topic";
+import { applyPaneCascade, reconcile, recordRetirement, retiredIds, type ReconcileDeps } from "./server/services/retirement";
+import { computeCascade } from "./server/services/pane-retirement-cascade";
+import { createOpenRouter } from "./server/routes/open";
 import { configureSessionParking, parkTopicSession } from "./server/lib/session-parking";
 import { setUploadRootsProvider } from "./server/browser-tool-dispatcher";
 import { uploadAllowedRoots, parseExtraRoots } from "./server/lib/upload-allowlist";
@@ -29,7 +32,7 @@ import { createBrowserRouter } from "./server/routes/browser";
 import { createCronRouter } from "./server/routes/cron";
 import { createContextRouter } from "./server/routes/context";
 import { createOrphanCensusRunner } from "./server/services/orphan-census";
-import { createTerminalRouter, handleTerminalWebSocket, disconnectBridge, getClaudeSessionsForDetection, getClaudeSessionPtyIdleMs, setTerminalBrowserCloser, countAttachedTerminalSessions, listTerminalSessionSnapshot, parkOrphanSessions } from "./server/routes/terminal";
+import { createTerminalRouter, handleTerminalWebSocket, disconnectBridge, getClaudeSessionsForDetection, getClaudeSessionPtyIdleMs, setTerminalBrowserCloser, countAttachedTerminalSessions, listTerminalSessionSnapshot, parkOrphanSessions, retireTerminalSession } from "./server/routes/terminal";
 import { createStatusRouter } from "./server/routes/status";
 import { createMemoryRouter } from "./server/routes/memory";
 import { initUsageStore, rebuildSummary } from "./server/usage/store";
@@ -796,6 +799,35 @@ const externalSessions = createExternalSessionsService({
 // valore che può divergere da quello.
 const DISPATCH_AUTONOMY = DETACHED_TOPIC_AUTONOMY;
 
+/**
+ * Le conseguenze di un ritiro, legate una volta sola.
+ *
+ * Le usano tre chiamanti — la potatura dei topic dei tentativi (dispatcher), la
+ * cascata di una tab chiusa e il riconcilio al boot. Se ognuno se le ricablasse,
+ * saremmo di nuovo dove il task e' cominciato: tre posti che dicono cosa
+ * significa «chiuso», e nessuno d'accordo con gli altri due.
+ */
+const retirementConsequences: ReconcileDeps = {
+  archiveTopic: (topicId) => {
+    const res = archiveTopicFully({
+      getTopicById: ctx.getTopicById,
+      saveSingleTopic: ctx.saveSingleTopic,
+      loadUnread: ctx.loadUnread,
+      saveUnread: ctx.saveUnread,
+      broadcastToAll: ctx.broadcastToAll,
+      purgeFromUiState: (id) => purgeTopicFromUiState(ctx.db, ctx.broadcastToAll, id),
+      parkClaudeSession: parkTopicSession,
+      recordRetirement: (id, at) => recordRetirement(ctx.db, "topic", id, at, "archive"),
+    }, topicId);
+    // Nessuna risposta HTTP da restituire qui: la purge fallita si logga, non
+    // può fermare il ritiro (il task è finito comunque).
+    if (res.purgeError) {
+      console.error(`[archive] purge di ui_state fallita per topicId=${topicId}:`, res.purgeError);
+    }
+  },
+  retireTerminal: (sessionId) => { retireTerminalSession(sessionId); },
+};
+
 const taskDispatcher = createTaskDispatcher({
   svc: dispatcherSvc,
   // Self-heal dead bindings: a todo task linked to a topic that was reaped
@@ -917,22 +949,7 @@ const taskDispatcher = createTaskDispatcher({
   // non da una terza implementazione: qui si archiviava e basta, e ogni task
   // dispacciato lasciava dietro un badge di non letti su una conversazione non
   // più apribile e un id fantasma in `ui_state` che risuscitava al reload.
-  archiveTopic: (topicId) => {
-    const res = archiveTopicFully({
-      getTopicById: ctx.getTopicById,
-      saveSingleTopic: ctx.saveSingleTopic,
-      loadUnread: ctx.loadUnread,
-      saveUnread: ctx.saveUnread,
-      broadcastToAll: ctx.broadcastToAll,
-      purgeFromUiState: (id) => purgeTopicFromUiState(ctx.db, ctx.broadcastToAll, id),
-      parkClaudeSession: parkTopicSession,
-    }, topicId);
-    // Nessuna risposta HTTP da restituire qui: la purge fallita si logga, non
-    // può fermare la potatura (il task è finito comunque).
-    if (res.purgeError) {
-      console.error(`[archive] purge di ui_state fallita per topicId=${topicId}:`, res.purgeError);
-    }
-  },
+  archiveTopic: retirementConsequences.archiveTopic,
   createWorktree: async (projectStoreId) => {
     const wt = await ctx.worktreeManager.create({ projectId: projectStoreId, mode: "branch", baseRef: "HEAD" });
     const ready = await ctx.worktreeManager.awaitMaterialisation(wt.id, 120_000);
@@ -1253,7 +1270,27 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
 // etc.) into the Processes panel, attributing listening ports by PTY process tree.
 startProcessDetection(ctx, getClaudeSessionsForDetection);
 const pushRouter = createPushRouter(ctx);
-const uiStateRouter = createUiStateRouter(ctx);
+// Chiudere una tab E' il ritiro di cio' che contiene, deciso lato server.
+//
+// Il client gia' archivia la chat e chiude la sessione quando e' LUI a chiudere.
+// Questa e' la strada per tutte le volte in cui quelle chiamate non partono o
+// non arrivano — la tab chiusa su un altro dispositivo, la `keepalive` persa in
+// un `pagehide`, la finestra chiusa con la fetch in volo. Il tombstone, che e'
+// sincronizzato, arriva comunque: da qui in poi arrivano anche le conseguenze.
+// Vedi `services/pane-retirement-cascade.ts` per perche' il segnale e' il
+// tombstone e non «la pane non c'e' piu'».
+const uiStateRouter = createUiStateRouter(ctx, {
+  onPaneSnapshot: (prev, next) => {
+    const decision = computeCascade({ prev, next, alreadyRetired: retiredIds(ctx.db, "pane") });
+    if (decision.retire.length === 0 && decision.reopen.length === 0) return;
+    const applied = applyPaneCascade(ctx.db, retirementConsequences, decision);
+    if (applied.topics > 0 || applied.terminals > 0) {
+      console.log(`[retirement] tab chiuse: ${applied.panes} → ${applied.topics} chat archiviate, ${applied.terminals} sessioni ritirate`);
+    }
+  },
+});
+// `GET /api/open` — la query sola su «cosa è aperto». Sola lettura.
+const openRouter = createOpenRouter(ctx);
 const providersRouter = createProvidersRouter(ctx);
 const appSettingsRouter = createAppSettingsRouter(ctx);
 // Risoluzione dei permalink alle tab (`/tab/…`) — SOLA LETTURA.
@@ -1330,6 +1367,28 @@ function tickHeartbeat() {
 }
 tickHeartbeat();
 const heartbeatTimer = setInterval(tickHeartbeat, HEARTBEAT_INTERVAL_MS);
+
+// I registri d'accordo col fatto, a ogni avvio.
+//
+// È questo passo che rende vera la verifica del task: chiudi una tab, riavvia,
+// riapri — niente ricompare, niente processo resta. Una chiusura le cui
+// conseguenze si erano perse (la fetch morta col `pagehide`, l'altro
+// dispositivo) viene onorata qui, in ritardo ma una volta sola.
+//
+// Prima del ripristino del roster dei terminali: una sessione che il fatto sa
+// ritirata non va nemmeno rianimata, e a riga già cancellata `restoreSessions`
+// non ha niente da ricreare. Convergente — su uno stato pulito non scrive.
+try {
+  const rec = reconcile(ctx.db, retirementConsequences);
+  if (rec.examined > 0) {
+    console.log(
+      `[retirement] riconcilio: ${rec.examined} divergenze → ` +
+      `${rec.topicsArchived} chat chiuse, ${rec.terminalsRetired} sessioni ritirate, ${rec.topicsStamped} timbrate`,
+    );
+  }
+} catch (err) {
+  console.warn("[retirement] riconcilio al boot fallito:", err);
+}
 
 // Periodic ui_state backup — defence-in-depth against accidental wipes.
 // Snapshot once at startup so any pre-restart state is preserved on disk
@@ -2091,6 +2150,7 @@ const opzioniServer = {
         || await externalSessionsRouter(req, url, pathname, method)
         || await checkpointsRouter(req, url, pathname, method)
         || await goalsRouter(req, url, pathname, method)
+        || await openRouter(req, url, pathname, method)
         || (openclawContextRouter && await openclawContextRouter(req, url, pathname, method))
         || await contextPreviewRouter(req, url, pathname, method)
         || await authRouter(req, url, pathname, method)
