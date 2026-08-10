@@ -72,7 +72,9 @@ export interface AutoMergeDeps {
    */
   resolveTaskMerge: (taskId: string) => TaskMergeTarget | null;
   /** Injected for tests. Default: real `git` via Bun.spawn (never throws — returns the code). */
-  runGit?: (cwd: string, args: string[]) => Promise<GitRunResult>;
+  /** `stdin` serve a `git apply` (la patch arriva da `-`); le fake a due
+   *  parametri restano valide, un argomento in più non le disturba. */
+  runGit?: (cwd: string, args: string[], stdin?: string) => Promise<GitRunResult>;
   /**
    * Injected for tests. Default: `bun run build:client` via Bun.spawn with a
    * 5-minute kill switch (a wedged vite must never pin the approve queue).
@@ -81,9 +83,14 @@ export interface AutoMergeDeps {
   log?: (msg: string, err?: unknown) => void;
 }
 
-async function defaultRunGit(cwd: string, args: string[]): Promise<GitRunResult> {
+async function defaultRunGit(cwd: string, args: string[], stdin?: string): Promise<GitRunResult> {
   try {
-    const proc = Bun.spawn(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
+    const proc = Bun.spawn(["git", ...args], {
+      cwd,
+      stdout: "pipe",
+      stderr: "pipe",
+      ...(stdin === undefined ? {} : { stdin: new TextEncoder().encode(stdin) }),
+    });
     const [stdout, stderr] = await Promise.all([
       new Response(proc.stdout).text(),
       new Response(proc.stderr).text(),
@@ -181,7 +188,21 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
           ? cherry.stdout.split("\n").filter((l) => l.startsWith("-")).map((l) => l.slice(2).trim())
           : [],
       );
-      const shas = all.filter((s) => !already.has(s));
+      // `git cherry` non basta da solo: il land APPLICA il commit adattandolo al
+      // main del momento, quindi la copia atterrata ha un patch-id diverso
+      // dall'originale e al giro dopo non viene riconosciuta. Misurato: lo stesso
+      // lavoro comparso TRE volte su main, le ultime due a vuoto.
+      // La prova che regge è l'altra: se la patch INVERSA si applica pulita, quel
+      // contenuto è già nell'albero — comunque sia arrivato.
+      const applied = async (sha: string): Promise<boolean> => {
+        if (already.has(sha)) return true;
+        const patch = await runGit(cwd, ["show", "--format=", "--patch", sha]);
+        if (patch.code !== 0 || !patch.stdout.trim()) return false;
+        const rev = await runGit(cwd, ["apply", "--reverse", "--check", "-"], patch.stdout);
+        return rev.code === 0;
+      };
+      const shas: string[] = [];
+      for (const sha of all) if (!(await applied(sha))) shas.push(sha);
       // Tutto già a monte: il lavoro di questa card È su main. È una consegna
       // riuscita, non un fallimento da rimandare all'agente.
       if (shas.length === 0) return { ok: true, conflict: false };
