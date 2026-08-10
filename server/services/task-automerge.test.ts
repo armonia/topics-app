@@ -134,6 +134,57 @@ describe("task-automerge", () => {
     expect(calls.some((c) => c[0] === "cherry-pick" && c.includes("aaa111"))).toBe(false);
   });
 
+  test("commit già applicato ma con patch-id diverso (il land lo aveva adattato) → si salta lo stesso", async () => {
+    // `git cherry` da solo non basta: il land APPLICA il commit adattandolo al
+    // main del momento, quindi la copia atterrata ha un patch-id diverso
+    // dall'originale e al giro dopo non viene riconosciuta. Misurato: lo stesso
+    // lavoro comparso TRE volte su main, le ultime due a vuoto. La prova che
+    // regge è la patch INVERSA: se si applica pulita, il contenuto c'è già.
+    const calls: string[][] = [];
+    const run = async (_cwd: string, args: string[]) => {
+      calls.push(args);
+      const key = args.slice(0, 2).join(" ");
+      if (key === "symbolic-ref --short") return { code: 0, stdout: "feature/x\n", stderr: "" };
+      if (key === "for-each-ref --format=%(refname)") {
+        return { code: 0, stdout: "refs/heads/main\nrefs/heads/topics/altra\nrefs/heads/topics/t1\n", stderr: "" };
+      }
+      if (key === "rev-list --count") return { code: 0, stdout: args.includes("--not") ? "1\n" : "13\n", stderr: "" };
+      if (key === "rev-list --reverse") return { code: 0, stdout: "aaa111\n", stderr: "" };
+      if (args[0] === "cherry") return { code: 0, stdout: "+ aaa111\n", stderr: "" }; // NON riconosciuto
+      if (args[0] === "show") return { code: 0, stdout: "diff --git a/x b/x\n@@ -1 +1 @@\n-a\n+b\n", stderr: "" };
+      if (args[0] === "apply") return { code: 0, stdout: "", stderr: "" }; // la patch inversa passa
+      if (key === "rev-parse --short") return { code: 0, stdout: "abc1234\n", stderr: "" };
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    const am = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: run });
+    expect((await am.tryMerge("t1", "x")).status).toBe("merged");
+    expect(calls.some((c) => c[0] === "cherry-pick")).toBe(false);
+  });
+
+  test("commit NON ancora applicato (patch inversa rifiutata) → si porta davvero", async () => {
+    // Il controllo del test qui sopra: la prova a rovescio non deve diventare
+    // «salta sempre», o una consegna vera non atterrerebbe mai.
+    const calls: string[][] = [];
+    const run = async (_cwd: string, args: string[]) => {
+      calls.push(args);
+      const key = args.slice(0, 2).join(" ");
+      if (key === "symbolic-ref --short") return { code: 0, stdout: "feature/x\n", stderr: "" };
+      if (key === "for-each-ref --format=%(refname)") {
+        return { code: 0, stdout: "refs/heads/main\nrefs/heads/topics/altra\nrefs/heads/topics/t1\n", stderr: "" };
+      }
+      if (key === "rev-list --count") return { code: 0, stdout: args.includes("--not") ? "1\n" : "13\n", stderr: "" };
+      if (key === "rev-list --reverse") return { code: 0, stdout: "aaa111\n", stderr: "" };
+      if (args[0] === "cherry") return { code: 0, stdout: "+ aaa111\n", stderr: "" };
+      if (args[0] === "show") return { code: 0, stdout: "diff --git a/x b/x\n@@ -1 +1 @@\n-a\n+b\n", stderr: "" };
+      if (args[0] === "apply") return { code: 1, stdout: "", stderr: "does not apply" };
+      if (key === "rev-parse --short") return { code: 0, stdout: "abc1234\n", stderr: "" };
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    const am = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: run });
+    expect((await am.tryMerge("t1", "x")).status).toBe("merged");
+    expect(calls.some((c) => c[0] === "cherry-pick" && c.includes("aaa111"))).toBe(true);
+  });
+
   test("tutto il lavoro è già su main per contenuto → landato, non 'non riesco a isolarlo'", async () => {
     // Il controllo del test qui sopra: saltare i già-presenti non deve
     // trasformare una consegna riuscita in un fallimento rimandato all'agente.
