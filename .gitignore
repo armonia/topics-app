@@ -101,6 +101,14 @@ docs/*
 # nota del genere che vive solo sulla macchina di chi l'ha scritta non protegge
 # nessun altro.
 !docs/tunnel.md
+# board-vs-chat/ è il REGISTRO DELLE PROVE della barra `scripts/board-vs-chat.ts`:
+# `cases.json` è la matrice dei casi limite con l'output dei comandi eseguiti, e
+# lo script esce ROSSO se non la trova. Ignorata, su un checkout pulito il file
+# spariva e il terzo cancello si auto-disattivava — una prova che vive solo su una
+# macchina non prova niente a nessun altro.
+!docs/board-vs-chat/
+!docs/board-vs-chat/cases.json
+!docs/board-vs-chat/README.md
 
 # Reference repos (local only)
 .reference/
@@ -172,6 +180,14 @@ ui-state-backups/
 
 # graphify skill output (scratch)
 /graphify-out/
+
+# Stato della skill `jarvis-goal`: l'obiettivo e la BARRA del lavoro in corso,
+# scritti da `jarvis-goal set` e riletti da `jarvis-goal check`. È per-sessione
+# e per-macchina — chi lavora qui in quel momento — quindi committarlo
+# significherebbe imporre a chiunque la barra di qualcun altro. Vicino a
+# graphify-out/ perché è la stessa categoria: uscita di un attrezzo, non del
+# progetto.
+/.jarvis/
 
 # ai-bridge broker store (ephemeral NDJSON session buffers)
 ai-bridge/
