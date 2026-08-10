@@ -22,8 +22,10 @@
  * DB without booting the server.
  */
 import type { Database } from "bun:sqlite";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { parseReviewChecks, serializeReviewChecks, type CheckRun } from "./review-checks";
+import { imageShape } from "./image-shape";
 
 // Stati e forma del thread stanno in `shared/board.ts`: il client li legge
 // dalla stessa dichiarazione invece di riscriverli. `export type … from`
@@ -31,7 +33,7 @@ import { parseReviewChecks, serializeReviewChecks, type CheckRun } from "./revie
 // l'import separato. Della lista `TASK_STATUSES` questo modulo non è una porta:
 // chi la vuole la prende da `shared/board`.
 export type { TaskStatus, TaskComment, BoardSettings, BoardSettingsPatch } from "../../shared/board";
-import { MAX_FANOUT, TASK_STATUSES, isAgentWorking } from "../../shared/board";
+import { MAX_FANOUT, PREVIEW_PROMOTE_MAX_RATIO, TASK_STATUSES, isAgentWorking } from "../../shared/board";
 import { EFFORT_TIERS } from "../../shared/effort";
 import type { TaskStatus, TaskComment, BoardSettings, BoardSettingsPatch } from "../../shared/board";
 
@@ -480,7 +482,40 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
   // Idempotent and best-effort: an explicit previewImage always wins (we only
   // fill the empty case), and any failure just leaves the card without
   // preview — exactly the status quo.
-  const PREVIEWABLE_MEDIA = /\.(png|jpe?g|gif|webp|webm|mp4|mov)$/i;
+  //
+  // `svg` è in lista dal 10/08: il protocollo (`PREVIEW_RULE`) ha un terzo ramo
+  // — DIAGRAMMA — per le consegne senza superficie renderizzata (un piano,
+  // un'architettura, una migrazione), e senza l'estensione qui quel ramo
+  // nasceva morto: l'agente allegava il diagramma al commento di consegna e la
+  // promozione lo saltava, lasciando la card cieca.
+  const PREVIEWABLE_MEDIA = /\.(png|jpe?g|gif|webp|svg|webm|mp4|mov)$/i;
+  const VIDEO_MEDIA = /\.(webm|mp4|mov)$/i;
+
+  /**
+   * Gate di FORMA — non un quarto cancello di review.
+   *
+   * Un'immagine molto più alta che larga, dentro il riquadro `object-cover` da
+   * 268×144 della card, non si rimpicciolisce: si taglia. Promuoverla mette
+   * sulla board la fascia alta di un documento e fa sembrare consegnata
+   * un'evidenza che nessuno può leggere — è così che la card di un PIANO ha
+   * finito per mostrare la fotografia del piano stesso.
+   *
+   * Quindi la promozione si ferma e lascia una nota. Si FERMA LA PROMOZIONE,
+   * non la consegna: il task resta in review, l'allegato resta nel thread, e
+   * l'agente legge nella nota quale ramo del protocollo era quello giusto. Un
+   * rifiuto qui non deve mai costare un giro di dispatch.
+   *
+   * Soglia 0.7 e non 0.537 (quella della card): promuovere è un favore, taglia
+   * solo ciò che è palesemente illeggibile. Forma non misurabile (video,
+   * formato esotico, file illeggibile) ⇒ si promuove: vedi `imageShape`.
+   */
+  function tooTallForCard(path: string): { ratio: number; width: number; height: number } | null {
+    if (VIDEO_MEDIA.test(path)) return null;
+    const shape = imageShape(path);
+    if (!shape) return null;
+    return shape.ratio > PREVIEW_PROMOTE_MAX_RATIO ? shape : null;
+  }
+
   function promoteReviewPreview(taskId: string): void {
     try {
       const row = getTaskRow(taskId);
@@ -488,6 +523,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       const rows = db.prepare(
         "SELECT media FROM task_comments WHERE task_id = ? AND media IS NOT NULL ORDER BY created_at DESC LIMIT 10",
       ).all(taskId) as Array<{ media: string }>;
+      const rejected: Array<{ path: string; shape: { ratio: number; width: number; height: number } }> = [];
       for (const r of rows) {
         let files: unknown;
         try { files = JSON.parse(r.media); } catch { continue; }
@@ -495,11 +531,98 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         for (const f of files) {
           if (typeof f !== "string" || !f.startsWith("/") || !PREVIEWABLE_MEDIA.test(f)) continue;
           if (!fileExists(f)) continue;
+          const tall = tooTallForCard(f);
+          if (tall) { rejected.push({ path: f, shape: tall }); continue; }
           db.prepare("UPDATE tasks SET preview_image = ?, updated_at = ? WHERE id = ?").run(f, now(), taskId);
+          noteDuplicatePreview(taskId, f);
           return;
         }
       }
+      // Nessun candidato promosso ma qualcuno scartato per forma: la card
+      // resterebbe cieca senza che nessuno sappia perché.
+      if (rejected.length) {
+        const { path, shape } = rejected[0]!;
+        reviewNote(
+          taskId,
+          `Anteprima non promossa: \`${baseName(path)}\` è ${shape.width}×${shape.height}, altezza/larghezza ${shape.ratio.toFixed(2)} (soglia ${PREVIEW_PROMOTE_MAX_RATIO}). ` +
+            "In una card da 268px se ne vedrebbe solo la fascia alta. La consegna resta in review e l'allegato resta nel thread: " +
+            "se il lavoro non ha una superficie renderizzata il ramo giusto è un DIAGRAMMA `.svg` (la struttura, non la foto del documento); " +
+            "se è UI, ricattura a viewport ≤1440×900. Poi `update_task(preview_image=…)`.",
+        );
+      }
     } catch { /* best-effort — the card just stays without a preview */ }
+  }
+
+  /**
+   * SEGNALE, mai blocco: l'anteprima appena messa è byte per byte quella di un
+   * altro task.
+   *
+   * Nel rilievo che ha aperto questo lavoro c'erano 16 PNG identici da 10.191
+   * byte sparsi su altrettante card — lo stesso screenshot riciclato, cioè
+   * consegne senza evidenza propria. Ma alcuni di quei duplicati sono legittimi
+   * (due task sullo stesso pannello, uno stato vuoto che è davvero identico):
+   * un blocco farebbe strage di consegne buone. Quindi si scrive una nota e si
+   * lascia decidere a chi legge.
+   */
+  function noteDuplicatePreview(taskId: string, path: string): void {
+    try {
+      const mine = fileDigest(path);
+      if (!mine) return;
+      const others = db.prepare(
+        "SELECT id, text, preview_image FROM tasks WHERE preview_image IS NOT NULL AND preview_image != '' AND id != ? ORDER BY updated_at DESC LIMIT 200",
+      ).all(taskId) as Array<{ id: string; text: string; preview_image: string }>;
+      for (const o of others) {
+        if (o.preview_image === path) continue; // stesso file, non un duplicato di contenuto
+        if (fileDigest(o.preview_image) !== mine) continue;
+        reviewNote(
+          taskId,
+          `Anteprima IDENTICA (md5 \`${mine.slice(0, 8)}\`) a quella del task \`${o.id}\` — «${(o.text ?? "").slice(0, 60)}». ` +
+            "Non è un blocco: due task sullo stesso pannello possono avere davvero la stessa immagine. " +
+            "Ma se è una svista, questa consegna non ha ancora un'evidenza sua.",
+        );
+        return;
+      }
+    } catch { /* best-effort: il segnale è un extra, non un invariante */ }
+  }
+
+  /** md5 del file, con cache su (path, size, mtime): la scansione dei duplicati
+   *  rilegge le stesse anteprime a ogni consegna. `null` se non si può leggere. */
+  const digestCache = new Map<string, { key: string; md5: string }>();
+  function fileDigest(path: string): string | null {
+    try {
+      const st = statSync(path);
+      if (!st.isFile() || st.size === 0 || st.size > 16 * 1024 * 1024) return null;
+      const key = `${st.size}:${st.mtimeMs}`;
+      const hit = digestCache.get(path);
+      if (hit && hit.key === key) return hit.md5;
+      const md5 = createHash("md5").update(readFileSync(path)).digest("hex");
+      digestCache.set(path, { key, md5 });
+      return md5;
+    } catch { return null; }
+  }
+
+  function baseName(p: string): string { return p.slice(p.lastIndexOf("/") + 1); }
+
+  /**
+   * Una nota della MACCHINA nel thread (`kind: 'review-note'`): il canale che
+   * il client rende come annotazione di review e che NON sveglia l'agente —
+   * lo stesso che usa `preview-manager`. Inserimento diretto e non via
+   * `addComment`, che ri-chiamerebbe la promozione da cui questa nota nasce.
+   * Deduplicata sul contenuto: la promozione gira a ogni transizione in review
+   * e a ogni commento con allegati, e la stessa nota non va ripetuta.
+   */
+  function reviewNote(taskId: string, content: string): void {
+    try {
+      const dupe = db.prepare(
+        "SELECT id FROM task_comments WHERE task_id = ? AND kind = 'review-note' AND content = ? LIMIT 1",
+      ).get(taskId, content);
+      if (dupe) return;
+      const ts = now();
+      db.prepare(
+        "INSERT INTO task_comments (id, task_id, author, content, mentions, media, kind, created_at) VALUES (?, ?, ?, ?, NULL, NULL, 'review-note', ?)",
+      ).run(uuid(), taskId, "system", content, ts);
+      db.prepare("UPDATE tasks SET updated_at = ? WHERE id = ?").run(ts, taskId);
+    } catch { /* best-effort */ }
   }
 
   // The global start switch (row '*'). Closure helper — never `this` — so the
@@ -903,6 +1026,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         }
         put("output_url", url || null);
       }
+      let explicitPreview: string | null = null;
       if (patch.previewImage !== undefined) {
         const p = (patch.previewImage ?? "").trim();
         // Path assoluto su disco, mai un URL: il client lo rende via
@@ -911,6 +1035,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           throw new TaskServiceError("invalid_input", "preview_image must be an absolute file path");
         }
         put("preview_image", p || null);
+        explicitPreview = p || null;
       }
       if (patch.model !== undefined) {
         const m = (patch.model ?? "").trim();
@@ -986,6 +1111,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // Hand-off into review without an explicit preview: promote the
       // delivery comment's evidence (comment-first delivery order).
       if (patch.status === "review") promoteReviewPreview(taskId);
+      // Anteprima messa a mano: nessun gate (l'agente ha SCELTO quel file, e un
+      // rifiuto qui sarebbe il quarto cancello di review che non vogliamo) —
+      // ma il riciclo di un'evidenza altrui va almeno detto.
+      if (explicitPreview) noteDuplicatePreview(taskId, explicitPreview);
       return rowToTask(getTaskRow(taskId));
     },
 

@@ -27,6 +27,7 @@ import {
   BRIDGED_BROWSER_ENDPOINTS,
   type McpToolAnnotations,
 } from "../browser-tool-spec";
+import { PREVIEW_RULE } from "../../shared/board";
 
 interface JsonRpcRequest {
   jsonrpc: "2.0";
@@ -278,11 +279,10 @@ const TOOLS = [
         output_url: { type: "string", description: "LEGACY — seeds the task's first browser tab; prefer open_browser_pane, which opens the tab directly. Empty string clears it." },
         text: { type: "string", description: "Rewrite the task title (clear + concise) — use it to polish a raw composer-born title." },
         description: { type: "string", description: "Rewrite/fill the task description." },
-        preview_image: {
-          type: "string",
-          description:
-            "Absolute path to the DURABLE preview shown on the card and in the drawer — a .png for static UI, a .webm/.mp4 for behaviour (a screenshot does not prove a behaviour). Must live under ~/.topics/media/ or the task workspace, or it is rejected. Empty string clears it.",
-        },
+        // La descrizione È `PREVIEW_RULE`, verbatim: lo schema del tool è uno
+        // dei posti in cui l'agente legge la regola, e finché era un riassunto
+        // scritto qui diceva due rami mentre il protocollo ne diceva tre.
+        preview_image: { type: "string", description: PREVIEW_RULE },
       },
       required: ["task_id"],
     },
