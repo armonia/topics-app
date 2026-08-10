@@ -3499,6 +3499,20 @@ function taskIdleDays(taskId: string): number | null {
   }
 }
 
+/**
+ * Un preview server non può sopravvivere alla cartella da cui serve: sia il
+ * `reap` sia il `free-checkout` la portano via, quindi entrambi lo spengono
+ * prima. Best-effort — un preview ostinato non deve impedire di liberare spazio.
+ */
+async function teardownPreviewOfWorktree(worktreeId: string): Promise<void> {
+  try {
+    const topic = ctx.db.prepare("SELECT id FROM topics WHERE worktree_id = ? LIMIT 1").get(worktreeId) as { id?: string } | undefined;
+    if (!topic?.id) return;
+    const t = ctx.db.prepare("SELECT id FROM tasks WHERE assigned_topic_id = ? LIMIT 1").get(topic.id) as { id?: string } | undefined;
+    if (t?.id) await previewManager?.teardown(t.id);
+  } catch { /* best-effort */ }
+}
+
 function runWorktreeGc() {
   return sweepWorktrees({
     listWorktrees: () => ctx.worktreeStore.list({ status: "ready" }).map((w) => ({
@@ -3519,7 +3533,24 @@ function runWorktreeGc() {
       if (!repoPath) return Promise.resolve("gone" as const);
       return branchStatusFromRepo(repoPath, w.branchName);
     },
-    autoMergeEnabled: (projectId) => { try { return !!dispatcherSvc.getBoardSettings(projectId).dispatchAutoMerge; } catch { return false; } },
+    // DUE NAMESPACE, UNO SOLO GIUSTO. `wt.projectId` è l'uuid del projectStore
+    // (`75e5098a-…`); `board_settings` è chiavata sull'id di BOARD, cioè
+    // `projectIdForPath(path)` (`topics-app-ar3jt5`). Passare il primo dove va il
+    // secondo non solleva niente: `getBoardSettings` non trova la riga e
+    // restituisce i default, dove `dispatchAutoMerge` è `false`.
+    //
+    // Effetto misurato l'11/08: `dispatch_auto_merge = 1` su entrambe le board, e
+    // il GC che stampava «77× commit non mergiati, AUTOMERGE NON DISPONIBILE».
+    // Il ramo `land-then-reap` — quello che porta su main il lavoro di un task
+    // chiuso prima di liberarne la cartella — non è mai partito, nemmeno una
+    // volta, da quando esiste. Un id sbagliato non fallisce: mente in silenzio.
+    autoMergeEnabled: (projectId) => {
+      try {
+        const path = ctx.projectStore.get(projectId)?.path;
+        if (!path) return false;
+        return !!dispatcherSvc.getBoardSettings(projectIdForPath(path)).dispatchAutoMerge;
+      } catch { return false; }
+    },
     abandonAfterDays: WORKTREE_ABANDON_DAYS,
     idleDays: (taskId) => taskIdleDays(taskId),
     abandon: async (taskId, wt, reason) => {
@@ -3560,15 +3591,15 @@ function runWorktreeGc() {
       const res = await taskAutoMerge.tryMerge(taskId, text);
       return res.status === "merged" ? "landed" : res.status === "nothing" ? "nothing" : res.status === "conflict" ? "conflict" : "skipped";
     },
+    // Solo la cartella. `deleteBranch: false` è tutta la differenza con `reap`
+    // qui sotto: i commit restano raggiungibili dal ref, e il worktree smette di
+    // occupare ~400 MB per una copia di lavoro che nessuno riaprirà.
+    freeCheckout: async (worktreeId) => {
+      await teardownPreviewOfWorktree(worktreeId);
+      return ctx.worktreeManager.delete(worktreeId, { deleteBranch: false });
+    },
     reap: async (worktreeId) => {
-      // Reap-aware preview teardown: a GC'd worktree can't back a preview server.
-      try {
-        const topic = ctx.db.prepare("SELECT id FROM topics WHERE worktree_id = ? LIMIT 1").get(worktreeId) as { id?: string } | undefined;
-        if (topic?.id) {
-          const t = ctx.db.prepare("SELECT id FROM tasks WHERE assigned_topic_id = ? LIMIT 1").get(topic.id) as { id?: string } | undefined;
-          if (t?.id) await previewManager?.teardown(t.id);
-        }
-      } catch { /* best-effort */ }
+      await teardownPreviewOfWorktree(worktreeId);
       return ctx.worktreeManager.delete(worktreeId);
     },
     // A reap refused because the work isn't provably on main must be VISIBLE:
