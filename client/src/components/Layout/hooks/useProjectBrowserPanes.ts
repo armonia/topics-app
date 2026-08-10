@@ -32,6 +32,7 @@ import {
   createPaneId,
   getBrowserContextFromPaneId,
   drainProjectBrowserNavigates,
+  registerProjectWindow,
 } from '../../../state/pane/adapters';
 import { resolveBrowserNavigateUrl } from '../../../lib/browserNavUrl';
 import { setBrowserSpawner } from '../../../state/browserSpawner';
@@ -82,6 +83,11 @@ export function useProjectBrowserPanes({
   // effect so a board "Apri nel workspace" that raced this window's mount still
   // opens its pane once the layout exists.
   const ensureBrowserPaneAndNavigateRef = useRef<((url: string, targetGroupId?: string, spawnerKey?: string, contextId?: string) => void) | null>(null);
+
+  // Dichiara questa finestra al registro: chi vorrebbe promuovere qualcosa nel
+  // workspace (la board, con «Apri nel workspace») può così sapere se la
+  // finestra c'è GIÀ, invece di sparare `topics:open-project` a ogni click.
+  useEffect(() => registerProjectWindow(projectPath), [projectPath]);
 
   // --- Browser-navigate listener (parity with StandaloneChatGroup) -----------
   //

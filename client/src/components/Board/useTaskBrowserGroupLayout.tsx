@@ -19,7 +19,7 @@
 import { useCallback, useEffect, useMemo } from 'react';
 import type { Pane, PaneType, PaneGroupType, GroupLayoutRow, PaneGroup } from '../../types';
 import { RemoteBrowserPanel } from '../Browser/RemoteBrowserPanel';
-import { useTaskBrowserTabs, taskBrowserTabs, liveTabs, getTaskTabs, type TaskBrowserTab } from '../../state/taskBrowserTabs';
+import { useTaskBrowserTabs, taskBrowserTabs, liveTabs, getTaskTabs, isPinnedTitle, type TaskBrowserTab } from '../../state/taskBrowserTabs';
 import { mediaPaneIdFor } from './constants';
 import {
   usePersistedTaskLayout,
@@ -69,6 +69,9 @@ export interface TaskBrowserGroupLayout {
    *  serve a «Apri nel workspace», che promuove QUESTA tab nella finestra del
    *  progetto invece del solo `output_url` (che è solo il seme della prima). */
   activeUrl: string | null;
+  /** Le tab VIVE, nell'ordine in cui sono nate: È il manifesto della consegna.
+   *  Chi promuove il risultato nel workspace le apre TUTTE, non solo la prima. */
+  live: TaskBrowserTab[];
   /** The soft-closed browser tabs for the closed-tab tray under the description. */
   parkedTabs: TaskBrowserTab[];
   /** Open a fresh browser tab (tray "+" / empty-state affordance). */
@@ -235,13 +238,17 @@ export function useTaskBrowserGroupLayout(taskId: string, input: TaskDrawerLayou
     const live = liveTabs(getTaskTabs(taskId));
     if (live.length !== 1) return;
     const t = live[0];
-    if (t.titleSource === 'user') return;                       // reviewer pinned it
+    // Etichetta decisa da qualcuno: il reviewer l'ha rinominata, oppure è il
+    // NOME che l'agente le ha dato nel manifesto. In entrambi i casi non è il
+    // seme automatico dell'output_url, quindi non si ritira.
+    if (isPinnedTitle(t.titleSource)) return;
     if (opts?.loginWallOnly && !isLoginWall(t.url)) return;     // keep a legit live server
     taskBrowserTabs.closeTab(taskId, t.contextId);
   }, [taskId]);
 
   return {
     liveCount: live.length,
+    live,
     activeUrl: (live.find((t) => t.contextId === tabsState.activeContextId) ?? live[0])?.url || null,
     parkedTabs: useMemo(() => tabsState.tabs.filter((t) => t.parked), [tabsState.tabs]),
     addBrowserTab,
