@@ -137,6 +137,12 @@ React e il server Bun come sidecar. Consolidare il path web/PWA.
       ⚠️ CORS server committato ma **non applicato** (serve restart prod, da fare insieme).
 - [ ] T1.3 — Shell nativa: tray, global shortcut, powerMonitor, nativeTheme,
       **vibrancy per-region** (`window-vibrancy` + pezzo custom dello split).
+      · **fatto il pezzo `recomposeWindow`**: nel porting era passata solo la metà
+        "ri-ancora", senza il rimbalzo di 1px che è quello che ridisegna davvero, e
+        senza nessun ascoltatore che lo chiamasse. Ora `wire_recompose_observers`
+        aggancia `NSApplicationDidChangeScreenParameters` (centro di default) e
+        `NSWorkspaceDidWake` (centro di NSWorkspace, non quello di default: è il
+        no-op silenzioso classico) → `recompose_main_window`.
 - [ ] T1.4 — Terminale: pty via `portable-pty` (Rust nativo, **D2 risolto**); rispetta
       il contratto NDJSON + migra/bridge la session-layer di `routes/terminal.ts`.
 - [ ] T1.5 — **Browser pane nativo = CEF on-demand** (D1 risolto). Sotto-piano ~14 sett.:
