@@ -990,12 +990,21 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (patch.parentTaskId !== undefined) {
         if (patch.parentTaskId) {
           assertParentValid(taskId, patch.parentTaskId);
-          if (isAgentWorking(row.dispatch_state) || row.status === "in_progress") {
+          // NON `isAgentWorking`: quello include `queued`, che altrove ("zitto,
+          // sta lavorando") è la risposta giusta ma qui è la sbagliata. Una card
+          // in coda non ha ancora nessuna sessione — nidificarla la toglie
+          // semplicemente dalla coda, che è esattamente ciò che si vuole
+          // accorpando. Il rifiuto riguarda un turno che sta GIRANDO: quello sì
+          // resterebbe orfano, perché un sottotask non lo dispaccia più nessuno.
+          if (row.dispatch_state === "working" || row.dispatch_state === "starting" || row.status === "in_progress") {
             throw new TaskServiceError(
               "invalid_input",
               "task has live work: a subtask is never dispatched on its own, so stop the agent before nesting it under a parent",
             );
           }
+          // Un sottotask non è in coda per niente: il chip 'queued' resterebbe
+          // acceso su una card che il dispatcher non guarderà mai più.
+          if (row.dispatch_state === "queued") put("dispatch_state", null);
         }
         put("parent_task_id", patch.parentTaskId || null);
       }

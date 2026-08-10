@@ -202,6 +202,15 @@ describe("tasks router (session-scoped)", () => {
     const busy = (await call(router, "PATCH", `/api/boards/pX/tasks/${live.id}`, { parentTaskId: parent.id }))!;
     expect(busy.status).toBe(400);
 
+    // Una card in CODA invece si nidifica: nessuna sessione ancora accesa, e
+    // accorpare è proprio il modo di toglierla dalla coda. Il chip 'queued' si
+    // spegne, o resterebbe acceso su una card che nessuno dispaccerà più.
+    const queued = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "in coda", status: "todo" }))!.json();
+    db.run("UPDATE tasks SET dispatch_state = 'queued' WHERE id = ?", [queued.id]);
+    const nested = await (await call(router, "PATCH", `/api/boards/pX/tasks/${queued.id}`, { parentTaskId: parent.id }))!.json();
+    expect(nested.parentTaskId).toBe(parent.id);
+    expect(nested.dispatchState ?? null).toBe(null);
+
     // null stacca e la card torna a vivere da sola.
     const back = await (await call(router, "PATCH", `/api/boards/pX/tasks/${solo.id}`, { parentTaskId: null }))!.json();
     expect(back.parentTaskId).toBe(null);
