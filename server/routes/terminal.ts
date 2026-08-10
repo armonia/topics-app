@@ -471,13 +471,31 @@ function getSocketPath(): string {
   return `/tmp/topics-pty-bridge-${hash}.sock`;
 }
 
-const SOCKET_PATH = getSocketPath();
+let SOCKET_PATH = getSocketPath();
 
 // The bridge is detached and launchd-reparented, so no ppid walk from the server
 // can find it — nor the tree of `claude` CLIs, MCP servers and headless Chromes
 // underneath it, which is where most of Topics' RAM actually lives. Declaring the
 // socket lets /api/system/status resolve it by command line. See server/lib/fleet-usage.ts.
 registerFleetSocket("pty-bridge", SOCKET_PATH);
+
+/**
+ * Test seam — puntare il bridge a un altro socket DOPO l'import.
+ *
+ * Il path si calcola una volta sola, all'import, e in produzione è giusto così
+ * (né TOPICS_PTY_SOCKET né DATA_DIR cambiano dopo il boot). Ma sotto `bun test`
+ * tutti i file girano nello STESSO processo: il primo che importa questo modulo
+ * congela il socket per tutti gli altri, quindi un test con il suo bridge finto
+ * non potrebbe mai farsi ascoltare. Cambiare la const in una lettura viva
+ * risolveva il test e ne rompeva altri (i file che vengono prima si mettevano a
+ * spawnare bridge veri su path nuovi): questa porta la muove solo su richiesta
+ * esplicita, e in produzione nessuno la chiama — comportamento identico a prima.
+ * `null` ripristina il path derivato dall'ambiente corrente.
+ */
+export function _setPtyBridgeSocketPath(p: string | null): void {
+  SOCKET_PATH = p ?? getSocketPath();
+  registerFleetSocket("pty-bridge", SOCKET_PATH);
+}
 // Le sessioni vive col loro pid di testa, per l'attribuzione per-sessione.
 // Registrata come funzione, non come snapshot: l'insieme cambia a ogni
 // create/exit e va letto al momento del campionamento, non a import time.
