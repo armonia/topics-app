@@ -127,7 +127,7 @@ export interface UseProjectLayoutArgs {
   onOpenPanesChange?: (paneIds: string[]) => void;
   // Streaming:
   isSessionStreaming: (sk: string) => boolean;
-  stopSession: (sk: string) => boolean;
+  stopSession: (sk: string) => Promise<boolean>;
   // For settings modal hop-out:
   onOpenPaneSettings: (topicId: string) => void;
   // Cross-hook gates (read-only here):
@@ -346,17 +346,16 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
   const pendingTargetedChatRef = useRef<{ paneId: string } | null>(null);
 
   // --- Stop streaming (closes pane locally if first-message stop) ---
+  // Si toglie la pane solo se la chat è stata davvero buttata via, e a dirlo è
+  // il server (`stopSession` risolve sul suo `cleared`).
   const handleStopStreaming = useCallback((paneId: string) => {
     const pane = panes.find(p => p.id === paneId);
-    if (pane?.topicId) {
-      const topic = topics[pane.topicId];
-      if (topic) {
-        const isFirst = stopSession(topic.sessionKey);
-        if (isFirst) {
-          setPanes(prev => prev.filter(p => p.id !== paneId));
-        }
-      }
-    }
+    if (!pane?.topicId) return;
+    const topic = topics[pane.topicId];
+    if (!topic) return;
+    void stopSession(topic.sessionKey).then((discarded) => {
+      if (discarded) setPanes(prev => prev.filter(p => p.id !== paneId));
+    });
   }, [panes, topics, stopSession]);
 
   // --- Sync terminal panes: remove stale, auto-add active terminals ---

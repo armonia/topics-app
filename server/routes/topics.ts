@@ -22,7 +22,7 @@ import { contextUpdateFromUsage } from "../usage/usage-update";
 import { createTaskService } from "../services/tasks";
 import { persistAgentTaskTab } from "../services/task-tab-persist";
 import { matchProjectRefAll, type ProjectRefCandidate } from "../lib/project-ref";
-import { shouldHonorClearMessages } from "./abortClearPolicy";
+import { shouldHonorClearMessages } from "../../shared/clear-messages-policy";
 import { clearActionFor } from "./clearPolicy";
 import { switchTopicCore, createTopicCore } from "../lib/session-control-core";
 import { moveTerminalPaneToProject as relocateTerminalPaneToProject } from "../lib/relocate-pane";
@@ -2358,18 +2358,70 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       if (!sessionKey) return json({ error: "sessionKey required" }, 400);
 
       const stream = activeStreams.get(sessionKey);
-      if (!stream) return json({ ok: false, reason: "no_active_stream" });
-
-      // Abort the gateway request (HTTP fallback)
-      if (stream.abortController) {
-        try { stream.abortController.abort(); } catch {}
-      }
 
       // Resolve topic and provider for abort — O(1) UNIQUE-index lookup
       // instead of a full topics scan per /api/chat/abort hit.
       const abortTopic = getTopicBySessionKey(sessionKey);
       const topicId: string | undefined = abortTopic?.id;
       const abortProvider = resolveProvider(abortTopic);
+
+      // `clearMessages` è una PROPOSTA del client, non un ordine, e la risposta
+      // — il campo `cleared` — è ciò che autorizza il client a svuotare la
+      // pagina, chiudere la pane e archiviare il topic. Prima il client non la
+      // leggeva e decideva da solo: il 10 agosto 2026 una chat viva è sparita
+      // dalla vista mentre qui il wipe veniva rifiutato.
+      const decideClear = (): boolean => {
+        if (!body?.clearMessages) return false;
+        const stored = loadLocalMessages(sessionKey);
+        // Il conteggio della sessione INTERA, non del solo ramo attivo: è la
+        // cancellazione che colpisce tutta la session_key, quindi è su quella
+        // che si deve decidere.
+        const decision = shouldHonorClearMessages(stored, countMessagesBySession(sessionKey));
+        if (!decision.shouldWipe) {
+          console.warn(
+            `[Abort] Ignored clearMessages=true for ${sessionKey} — DB has ${decision.userCount} user / ${decision.assistantCount} assistant messages` +
+            (decision.assistantDidWork ? ", e il turno aveva già prodotto lavoro"
+             : decision.hiddenRows > 0 ? `, e la sessione ha ${decision.hiddenRows} righe fuori dal ramo attivo`
+             : ", not first-message")
+          );
+          return false;
+        }
+        // Si scrive PRIMA di cancellare, e sul ramo che cancella. Finora il
+        // log parlava solo quando RIFIUTAVA: la distruzione di una chat non
+        // lasciava una riga che la nominasse, e nell'incidente dell'8 agosto
+        // l'unica traccia era un `resetSession` a due righe di distanza.
+        console.log(
+          `[Abort] ${sessionKey}: chat cancellata su clearMessages=true — ${decision.userCount} utente / ${decision.assistantCount} assistente, nessun lavoro prodotto`
+        );
+        saveLocalMessages(sessionKey, []);
+        // Stesso taglio di `/clear`, per la stessa ragione: qui la chat viene
+        // buttata via INTERA (era il primo messaggio, fermato prima della
+        // risposta). Senza questo la riga `claude_code_sessions` resta, e la
+        // chat "nuova" che l'utente riapre riprende con `--resume` su una
+        // sessione che ricorda il messaggio appena annullato.
+        if (clearActionFor(abortProvider).kind === "reset") {
+          abortProvider.resetSession!(sessionKey).catch((err: any) =>
+            console.warn(`[Abort] resetSession failed:`, err),
+          );
+        }
+        return true;
+      };
+
+      if (!stream) {
+        // Niente da fermare: turno già finito, oppure una finestra che stava
+        // solo guardando quello di un'altra. Nessun effetto — né sul provider
+        // (un `abort` alla cieca taglierebbe un turno headless che questo
+        // server non ha in `activeStreams`) né sulle righe: `cleared: false`
+        // esplicito, così il client sa che non deve buttare via niente.
+        // Il prezzo è al più una chat usa-e-getta che resta aperta; il prezzo
+        // opposto sarebbe cancellare la domanda di un turno ancora vivo.
+        return json({ ok: false, reason: "no_active_stream", cleared: false });
+      }
+
+      // Abort the gateway request (HTTP fallback)
+      if (stream.abortController) {
+        try { stream.abortController.abort(); } catch {}
+      }
 
       // Also abort via provider if connected
       if (abortProvider.connected) {
@@ -2382,17 +2434,6 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       // turn tears down now instead of hanging on the 10-min ask timeout.
       releaseHumanHold(sessionKey, "turn aborted");
 
-      // `clearMessages` is the client's hint that this was a brand-new chat
-      // whose first message was canceled before the AI could reply, so the
-      // chat itself can be discarded. The client computes this from its own
-      // in-memory state — which is empty during initial load, after WS
-      // reconnect, and after a hot-reload race. Trusting the client here
-      // would let `saveLocalMessages([])` wipe entire conversation histories
-      // when the client guess is wrong. We re-derive the decision from the
-      // DB authoritative copy via `shouldHonorClearMessages` (see
-      // `abortClearPolicy.ts` for the rationale and the matching client-side
-      // guard in `stopSessionPolicy.ts`).
-      let clearedForReal = false;
       // Fermare un turno PRIMA che il modello dica qualcosa lasciava in chat il
       // segnaposto creato all'inizio dello stream, finalizzato vuoto: una bolla
       // senza niente dentro, che poi rientra nella history rimandata al modello
@@ -2411,47 +2452,10 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         discardedMessageId = discardIfEmptyTurn(sessionKey, finalized);
         if (discardedMessageId) console.log(`[Abort] ${sessionKey}: turno vuoto scartato (${discardedMessageId})`);
       };
-      if (body?.clearMessages) {
-        const stored = loadLocalMessages(sessionKey);
-        // Il conteggio della sessione INTERA, non del solo ramo attivo: è la
-        // cancellazione che colpisce tutta la session_key, quindi è su quella
-        // che si deve decidere.
-        const decision = shouldHonorClearMessages(stored, countMessagesBySession(sessionKey));
-        if (decision.shouldWipe) {
-          // Si scrive PRIMA di cancellare, e sul ramo che cancella. Finora il
-          // log parlava solo quando RIFIUTAVA: la distruzione di una chat non
-          // lasciava una riga che la nominasse, e nell'incidente dell'8 agosto
-          // l'unica traccia era un `resetSession` a due righe di distanza.
-          console.log(
-            `[Abort] ${sessionKey}: chat cancellata su clearMessages=true — ${decision.userCount} utente / ${decision.assistantCount} assistente, nessun lavoro prodotto`
-          );
-          saveLocalMessages(sessionKey, []);
-          clearedForReal = true;
-          // Stesso taglio di `/clear`, per la stessa ragione: qui la chat viene
-          // buttata via INTERA (era il primo messaggio, fermato prima della
-          // risposta). Senza questo la riga `claude_code_sessions` resta, e la
-          // chat "nuova" che l'utente riapre riprende con `--resume` su una
-          // sessione che ricorda il messaggio appena annullato.
-          if (clearActionFor(abortProvider).kind === "reset") {
-            abortProvider.resetSession!(sessionKey).catch((err: any) =>
-              console.warn(`[Abort] resetSession failed:`, err),
-            );
-          }
-        } else {
-          console.warn(
-            `[Abort] Ignored clearMessages=true for ${sessionKey} — DB has ${decision.userCount} user / ${decision.assistantCount} assistant messages` +
-            (decision.assistantDidWork ? ", e il turno aveva già prodotto lavoro"
-             : decision.hiddenRows > 0 ? `, e la sessione ha ${decision.hiddenRows} righe fuori dal ramo attivo`
-             : ", not first-message")
-          );
-          // Fall through to the normal finalize path so we don't lose the
-          // partial assistant content the user was about to abort.
-          finalizeAborted();
-        }
-      } else {
-        // Finalize whatever content we have
-        finalizeAborted();
-      }
+      const clearedForReal = decideClear();
+      // Rifiutata (o mai proposta): si passa dalla finalize normale, così non si
+      // perde il contenuto parziale che l'utente stava per fermare.
+      if (!clearedForReal) finalizeAborted();
 
       endStream(sessionKey);
       // user_abort: user explicitly clicked stop — they are present in the tab,
