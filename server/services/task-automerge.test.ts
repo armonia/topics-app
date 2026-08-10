@@ -81,10 +81,11 @@ describe("task-automerge", () => {
     expect(git.calls.some((c) => c[0] === "worktree" && c[1] === "remove")).toBe(true);
   });
 
-  test("il branch porta commit di UN'ALTRA sessione → skipped, nessun merge", async () => {
-    // Il worktree di una card nasce da `baseRef: "HEAD"`: se il checkout condiviso
-    // sta su un branch di lavoro, il branch del task eredita quei commit e il
-    // merge li porterebbe su main. Successo davvero (13 commit, 6 altrui).
+  test("il branch porta commit di UN'ALTRA sessione → landa SOLO i suoi, senza mergiare il branch", async () => {
+    // La prima versione si rifiutava e basta: main restava pulito e la consegna
+    // finiva in un limbo. Misurato: 12 consegne accettate vivevano solo sul loro
+    // branch, fra cui uno scorporo da 800 righe. «Accettata» deve voler dire
+    // «atterrata», quindi si prendono i suoi commit e si lascia il resto.
     const calls: string[][] = [];
     const run = async (_cwd: string, args: string[]) => {
       calls.push(args);
@@ -93,22 +94,38 @@ describe("task-automerge", () => {
       if (key === "for-each-ref --format=%(refname)") {
         return { code: 0, stdout: "refs/heads/main\nrefs/heads/topics/altra-sessione\nrefs/heads/topics/t1\n", stderr: "" };
       }
-      if (key === "rev-list --count") {
-        // Con `--not <altri branch>` restano SOLO i commit del task.
-        return { code: 0, stdout: args.includes("--not") ? "1\n" : "13\n", stderr: "" };
+      if (key === "rev-list --count") return { code: 0, stdout: args.includes("--not") ? "1\n" : "13\n", stderr: "" };
+      if (key === "rev-list --reverse") return { code: 0, stdout: "aaa111\n", stderr: "" };
+      if (key === "rev-parse --short") return { code: 0, stdout: "abc1234\n", stderr: "" };
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    const am = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: run });
+    const res = await am.tryMerge("t1", "x");
+    expect(res.status).toBe("merged");
+    // Il suo commit e' stato raccolto; il branch NON e' stato mergiato.
+    expect(calls.some((c) => c[0] === "cherry-pick" && c.includes("aaa111"))).toBe(true);
+    expect(calls.some((c) => c[0] === "merge")).toBe(false);
+  });
+
+  test("un branch che non porta NIENTE di suo resta rifiutato", async () => {
+    // Il controllo del test qui sopra: raccogliere i propri commit non deve
+    // diventare «landa comunque». Zero commit suoi = niente da landare.
+    const calls: string[][] = [];
+    const run = async (_cwd: string, args: string[]) => {
+      calls.push(args);
+      const key = args.slice(0, 2).join(" ");
+      if (key === "symbolic-ref --short") return { code: 0, stdout: "feature/x\n", stderr: "" };
+      if (key === "for-each-ref --format=%(refname)") {
+        return { code: 0, stdout: "refs/heads/main\nrefs/heads/topics/altra\nrefs/heads/topics/t1\n", stderr: "" };
       }
+      if (key === "rev-list --count") return { code: 0, stdout: args.includes("--not") ? "0\n" : "13\n", stderr: "" };
       return { code: 0, stdout: "", stderr: "" };
     };
     const am = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: run });
     const res = await am.tryMerge("t1", "x");
     expect(res.status).toBe("skipped");
-    if (res.status === "skipped") {
-      expect(res.reason).toContain("13 commit");
-      expect(res.reason).toContain("solo 1");
-    }
-    // Il punto: non deve aver toccato niente.
-    expect(calls.some((c) => c[0] === "merge")).toBe(false);
-    expect(calls.some((c) => c[0] === "worktree")).toBe(false);
+    if (res.status === "skipped") expect(res.reason).toContain("NESSUNO");
+    expect(calls.some((c) => c[0] === "cherry-pick" || c[0] === "merge")).toBe(false);
   });
 
   test("il branch porta SOLO i suoi commit → il cancello lascia passare", async () => {
