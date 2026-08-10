@@ -3660,10 +3660,12 @@ async function runLandingAudit() {
       try {
         dispatcherSvc.addComment({
           taskId: task.id, author: "system",
-          content:
-            `⚠️ Consegnato ma NON su main: il commit \`${task.deliveryCommit?.slice(0, 8)}\`` +
-            (task.deliveryBranch ? ` (branch \`${task.deliveryBranch}\`)` : "") +
-            " non risulta nel contenuto di main. Landa il branch, oppure recupera il commit prima che venga potato.",
+          // Una riga, non un paragrafo: lo STATO ha già una banda in cima al
+          // drawer e un badge sulla card (`landingState`), e questo commento
+          // serve solo a datare il momento in cui è successo. Ripeterci sopra
+          // l'intera spiegazione, a ogni oscillazione, era la parte brutta —
+          // 128 commenti su 97 card, uno lungo tre righe.
+          content: `Non è su main: \`${task.deliveryCommit?.slice(0, 8)}\`${task.deliveryBranch ? ` (${task.deliveryBranch})` : ""} — landa il ramo prima che venga potato.`,
         });
         const fresh = dispatcherSvc.get(task.id)?.task;
         if (fresh) broadcastToAll({ type: "task:updated", projectId: task.projectId, task: fresh });
