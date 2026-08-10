@@ -70,7 +70,7 @@ export function installNetShim(): void {
   shimInstalled = true;
   const base = serverHttpBase();
   const orig = window.fetch.bind(window);
-  window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
+  const rewriting = (input: RequestInfo | URL, init?: RequestInit) => {
     // Solo le chiamate col leading-'/' (dirette al server) vengono riscritte; un
     // URL assoluto verso un'altra origine passa intatto.
     if (typeof input === 'string' && input.startsWith('/')) {
@@ -81,6 +81,15 @@ export function installNetShim(): void {
     }
     return orig(input, init);
   };
+  // `Object.assign` e non un'assegnazione nuda: questo shim è un INVOLUCRO
+  // attorno a `fetch`, non un rimpiazzo. `fetch` può portarsi dietro proprietà
+  // statiche (in Bun c'è `fetch.preconnect`, e nulla vieta a una piattaforma di
+  // aggiungerne), e sostituirlo con una funzione nuda le cancellerebbe per tutta
+  // l'app — silenziosamente, perché nessuno le legge da qui. Copiarle è anche
+  // ciò che rende l'assegnazione vera per il tipo: senza, `window.fetch` (che
+  // dichiara quelle statiche) non accetta la funzione sola. Nel browser oggi
+  // `fetch` non ha proprietà proprie enumerabili, quindi a runtime è un no-op.
+  window.fetch = Object.assign(rewriting, window.fetch);
 
   // EventSource (SSE) ha lo stesso problema di URL relativo della fetch: sotto
   // Tauri un '/api/activity/stream' nudo risolverebbe contro tauri://localhost,

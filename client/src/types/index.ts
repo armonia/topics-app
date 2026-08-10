@@ -1357,13 +1357,6 @@ export interface PanelGridRow {
   cellStacks?: Record<string, PanelGridCellStack>;
 }
 
-// Discriminant for the topics-menu "expanded tool" popover. Only `'remote'`
-// is ever produced (the other former menu entries open as full pages via
-// handleOpenAsPage, not as an expanded tool), so the union is intentionally
-// a single literal — widening it back to the old 7-member set just creates
-// dead, untyped surface.
-export type SidebarTab = 'remote';
-
 /** Preferenze della UI. Omonimo ma NON parente dell'`AppSettings` di
  *  `server/services/app-settings.ts`, che è la config dei provider AI
  *  (modello, max tokens, effort) e non ha un campo in comune con questo. */
