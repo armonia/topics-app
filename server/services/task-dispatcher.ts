@@ -354,6 +354,9 @@ export interface TaskDispatcher {
  */
 const HEAVY_MAX_LOAD_PER_CORE = 1.0;
 
+/** Ogni quanto un resume in attesa ricontrolla se si è liberato un posto. */
+const RESUME_SLOT_RETRY_MS = 5_000;
+
 const CHIP_QUEUED = "queued";
 const CHIP_WORKING = "working";
 const CHIP_NEEDS_INPUT = "needs_input";
@@ -547,6 +550,28 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
 
   // Pending debounced launches, keyed by taskId (the grace window).
   const graceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  /** Chi ha già detto nel thread che sta aspettando uno slot: una volta basta. */
+  const waitingForSlot = new Set<string>();
+  let resumeStagger = 0;
+
+  /**
+   * Il tetto di concorrenza EFFETTIVO, adesso. Era calcolato dentro `tick()`,
+   * quindi valeva solo per i dispatch: il `resume` non lo guardava, e ogni
+   * rifiuto in review faceva ripartire un agente FUORI dal tetto. Misurato il
+   * 09/08: 12 task in corso con il tetto a 6, e metà erano miei rifiuti.
+   *
+   * Un budget solo per macchina (scope 'global'), così N board non si
+   * moltiplicano in N×tetto. È il numero REATTIVO al carico («quanti agenti
+   * nuovi ammetto adesso»): la quota di core dello spawn passa dalla stessa
+   * `effectiveDispatchCap` ma con il tetto STRUTTURALE, perché la sua domanda è
+   * un'altra e usare un freno vivo come divisore lo invertirebbe
+   * (`dispatch-capacity.ts`).
+   */
+  function currentCap(): number {
+    let gcap = { auto: true, max: 3 };
+    try { gcap = deps.svc.getGlobalCap(); } catch { /* defaults */ }
+    return effectiveDispatchCap(gcap, deps.recommendedCap ? deps.recommendedCap() : null);
+  }
   /**
    * One in-flight run: a turn being set up, running, or winding down.
    *
@@ -1784,6 +1809,27 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       pendingResume.set(taskId, [...(pendingResume.get(taskId) ?? []), humanMessage]);
       return;
     }
+    // Il tetto vale anche qui. Il messaggio NON si perde: si riprova quando un
+    // posto si libera, invece di aprire un agente in più — che è come si finisce
+    // con 12 turni vivi su un tetto di 6 solo perché qualcuno ha rifiutato in
+    // fila cinque card.
+    if (inFlight.size >= currentCap()) {
+      if (!waitingForSlot.has(taskId)) {
+        waitingForSlot.add(taskId);
+        try {
+          deps.svc.addComment({
+            taskId, author: "system",
+            content: `In attesa di uno slot: il tetto di concorrenza (${currentCap()}) è pieno. Riprendo appena si libera — niente è andato perso.`,
+          });
+        } catch { /* best-effort */ }
+      }
+      // Sfalsati, o venti resume in coda si sveglierebbero tutti insieme per
+      // riscoprire insieme che il posto è uno solo.
+      const delay = RESUME_SLOT_RETRY_MS + (resumeStagger++ % 8) * 250;
+      setTimeout(() => { void resume(taskId, humanMessage, opts); }, delay);
+      return;
+    }
+    waitingForSlot.delete(taskId);
     const sessionKey = "topic:" + t.assignedTopicId.slice(0, 8);
     const runId = beginRun(taskId, sessionKey);
     try {
@@ -1818,6 +1864,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     const t = deps.svc.get(taskId)?.task;
     if (!t || !t.assignedTopicId || t.status !== "in_progress") return;
     if (inFlight.has(taskId)) return;
+    // Nessun tetto qui, di proposito: il reattach ADOTTA un turno che sta già
+    // girando nel broker. Rifiutarlo non risparmierebbe niente — lo lascerebbe
+    // orfano, a bruciare token senza nessuno che ne raccolga il risultato.
     const sessionKey = "topic:" + t.assignedTopicId.slice(0, 8);
     const runId = beginRun(taskId, sessionKey);
     try {
@@ -2015,16 +2064,17 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // agents. 'auto' sizes it from live capacity (CPU/load); otherwise the fixed
     // number set in the global settings dropdown. Computed once so every claim in
     // this tick shares the same budget.
-    let gcap = { auto: true, max: 3 };
-    try { gcap = deps.svc.getGlobalCap(); } catch { /* defaults */ }
     const capScope: "board" | "global" = "global";
+    // Una porta sola per entrambe le strade (dispatch e resume): `currentCap()`
+    // legge il tetto globale e lo passa alla stessa funzione che usa la quota di
+    // core dello spawn (`agent-job-quota.ts`).
+    //
     // Attenzione a riusarlo altrove: questo numero risponde a «quanti agenti
     // NUOVI ammetto ADESSO», ed è apposta reattivo al carico. La quota di core
-    // (`agent-job-quota.ts`) chiede un'altra cosa — «quanti stanno compilando
-    // accanto a me» — e la prende dal ROSTER vivo, con il tetto STRUTTURALE
-    // come ripiego. Usare questo come divisore lo invertiva: macchina carica →
-    // raccomandazione 1 → «sono solo» → fetta intera.
-    const effectiveCap = effectiveDispatchCap(gcap, deps.recommendedCap ? deps.recommendedCap() : null);
+    // chiede un'altra cosa — «quanti stanno compilando accanto a me» — e la
+    // prende dal ROSTER vivo. Usare questo come divisore lo invertiva: macchina
+    // carica → raccomandazione 1 → «sono solo» → fetta intera.
+    const effectiveCap = currentCap();
 
     // Fan-out richiesto dalla board, e cosa ne resta dopo la realtà. Due
     // condizioni non negoziabili, entrambe silenziose sarebbero una trappola:
