@@ -28,6 +28,7 @@ import { SidechainTracker } from "./claude/sidechain-tracker";
 import { parseCompactBoundary } from "./claude/compaction";
 import { buildClaudeArgs, buildClaudeOneshotArgs } from "./claude/args";
 import { checkClaudeCliCompat, type ClaudeCliCompat } from "./claude/cli-compat";
+import { resolveJobQuotaEnv } from "../services/agent-job-quota";
 // La decodifica degli eventi `stream-json` — campi INTERNI della CLI, non
 // un'API pubblicata — vive in un modulo puro, provato su fixture registrate.
 import {
@@ -1909,6 +1910,31 @@ export class ClaudeCodeProvider implements AIProvider {
     );
 
     const env = buildSafeEnv();
+
+    // La QUOTA DI CORE, e solo per gli agenti dispatchati.
+    //
+    // È la cintura per i pesi che il classificatore non riconosce: un task
+    // «leggero» che però ricompila si prende comunque tutti i core, perché è il
+    // default di cargo, e quattro agenti così lasciano la macchina senza
+    // padrone. Qui ognuno parte con la sua fetta (core ÷ tetto di concorrenza),
+    // e un `heavy` — che lo scheduler tiene già solo — la allarga.
+    //
+    // Sta QUI e non in `buildSafeEnv()` di proposito: quello è l'ambiente di
+    // ogni sessione, chat interattive comprese, e recintare la build che
+    // l'umano lancia a mano nella sua chat è un rallentamento che nessuno ha
+    // chiesto. Il canale è lo stesso di effort/modello/policy MCP — la riga del
+    // topic — e `resolveJobQuotaEnv` torna `null` per una chat che non è la
+    // sessione di un task: in quel caso l'ambiente resta byte per byte quello
+    // di prima. Il numero si rilegge a ogni spawn, come le altre scelte
+    // per-topic.
+    try {
+      const quota = resolveJobQuotaEnv(getDatabase(), sessionKey);
+      if (quota) {
+        Object.assign(env, quota);
+        console.log(`[claude-code] job quota for dispatched ${sessionKey}: -j${quota.CARGO_BUILD_JOBS}`);
+      }
+    } catch { /* nessun recinto: la sessione parte comunque, com'è sempre stato */ }
+
     // Dispatch sessions: defer MCP tool schemas so caricano on-demand via
     // ToolSearch invece di viaggiare nel contesto di ogni chiamata.
     //
