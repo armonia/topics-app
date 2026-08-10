@@ -7,6 +7,7 @@ import { decideClientWipeOnStop } from './stopSessionPolicy';
 // vorrebbero dire bolla via da una parte e ancora lì dall'altra.
 import { isEmptyAssistantTurn } from '../../../shared/empty-turn';
 import { mergeCatchupIntoPartial } from './streamCatchupMerge';
+import { clearPartialForReattach } from './streamReattachReset';
 import { useRefMirror } from './useRefMirror';
 import { reconcileOrphanStreams } from '../state/signals';
 import { answerFromText, findPendingAsk } from '../state/pendingAsk';
@@ -1052,12 +1053,24 @@ export function useChat() {
       case 'stream:start':
         beginStreaming(sessionKey);
         resetStreamTimeout(sessionKey); // Start timeout watchdog
+        // Le delta del turno di PRIMA non devono atterrare dopo l'azzeramento:
+        // sono già dentro la bolla che stiamo per svuotare, e ricomparirebbero
+        // in testa al replay.
+        if (event.reattached) liveDeltaBufferRef.current.delete(sessionKey);
         // Only create assistant placeholder if there isn't already a partial one
         // (sendMessage creates one via SSE, so WS broadcast to OTHER windows only)
         setMessages(prev => {
           const sessionMessages = prev[sessionKey] || [];
           const lastMsg = sessionMessages[sessionMessages.length - 1];
           if (lastMsg?.role === 'assistant' && lastMsg.partial) {
+            // Riadozione dopo un riavvio del server: la bolla c'è già ed è
+            // PIENA di quello che il turno aveva scritto prima. Il replay sta
+            // per ridettarlo tutto in delta, che qui si appendono: senza questo
+            // azzeramento il turno uscirebbe doppio. Vedi streamReattachReset.ts.
+            if (event.reattached) {
+              const cleared = clearPartialForReattach(sessionMessages);
+              return cleared === sessionMessages ? prev : { ...prev, [sessionKey]: cleared };
+            }
             // Already have a partial assistant message — skip duplicate
             return prev;
           }

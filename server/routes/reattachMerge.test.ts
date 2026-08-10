@@ -122,3 +122,31 @@ describe("mergeReattachedRow — riattaccarsi non toglie", () => {
     expect(m.content).toBe("Ecco cosa ho fatto."); // il turno di prima resta intero
   });
 });
+
+describe("mergeReattachedRow — i salvataggi a metà replay non sottraggono", () => {
+  // La riga non viene più svuotata all'adozione, quindi durante il replay
+  // porta ancora il turno intero di prima. I salvataggi periodici (ogni 10
+  // chunk) ci scrivono sopra il replay MENTRE cresce: fino a quando non ha
+  // raggiunto il testo di prima, quella scrittura è una potatura — e diventa
+  // definitiva se proprio lì il server muore di nuovo.
+  test("replay a un terzo: in riga resta il testo intero di prima", () => {
+    const m = mergeReattachedRow(snap(), { content: "Ecco", trackedTools: 0, blocks: [] }, "progress");
+    expect(m.content).toBe("Ecco cosa ho fatto.");
+  });
+
+  test("replay che ha raggiunto e superato: vince il testo nuovo", () => {
+    const m = mergeReattachedRow(
+      snap(),
+      { content: "Ecco cosa ho fatto. E poi ho continuato.", trackedTools: 1, blocks: [] },
+      "progress",
+    );
+    expect(m.content).toBe("Ecco cosa ho fatto. E poi ho continuato.");
+  });
+
+  test("alla fine, invece, il verdetto del turno vince anche se è più corto", () => {
+    // `final` è l'ultima parola: il provider ha ri-consegnato solo il testo
+    // finale e quello è il turno, non un replay a metà.
+    const m = mergeReattachedRow(snap(), { content: "Fatto.", trackedTools: 0, blocks: [] }, "final");
+    expect(m.content).toBe("Fatto.");
+  });
+});

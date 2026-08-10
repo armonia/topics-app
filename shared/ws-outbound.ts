@@ -331,6 +331,17 @@ const streamStartSchema = z.looseObject({
   sessionKey: z.string(),
   topicId: z.optional(z.string()),
   messageId: z.string(),
+  /**
+   * Il turno non comincia: RIPRENDE. `messageId` punta a una bolla che il
+   * client ha già piena — quella di prima del riavvio — e il replay sta per
+   * ridettarla da capo. Chi la vede la svuota adesso, o le delta si sommano a
+   * quello che c'è e il testo esce doppio.
+   *
+   * Prima questo azzeramento si faceva cancellando il corpo della riga in DB, e
+   * bastava che la riadozione morisse prima di rimetterlo a posto per perderlo
+   * per sempre. La vista si può rifare; il record no.
+   */
+  reattached: z.optional(z.boolean()),
 });
 
 const streamContentChunkSchema = z.looseObject({
