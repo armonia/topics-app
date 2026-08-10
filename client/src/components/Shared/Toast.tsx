@@ -98,7 +98,7 @@ function ToastItem({ toast: t, onRemove }: { toast: Toast; onRemove: (id: string
           {t.action.label}
         </button>
       )}
-      <button onClick={() => onRemove(t.id)} className="flex-shrink-0 opacity-60 hover:opacity-100 transition-opacity">
+      <button aria-label="Chiudi la notifica" onClick={() => onRemove(t.id)} className="flex-shrink-0 opacity-60 hover:opacity-100 transition-opacity">
         <X size={12} />
       </button>
     </div>

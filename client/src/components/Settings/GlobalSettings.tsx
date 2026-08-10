@@ -103,7 +103,7 @@ export function GlobalSettings({ isOpen, onClose, settings, onSettingsChange, th
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-app-border">
           <h2 id="settings-title" className="text-[15px] font-semibold text-app-text">Settings</h2>
-          <button
+          <button aria-label="Chiudi le impostazioni"
             onClick={onClose}
             className="w-7 h-7 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 text-app-text-tertiary hover:text-app-text-secondary transition-colors"
           >

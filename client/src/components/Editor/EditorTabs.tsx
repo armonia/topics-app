@@ -260,6 +260,7 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
               {status === 'error' && <span className="text-[11px] text-red-500 flex-shrink-0">!</span>}
               <button
                 onClick={(e) => closeTab(i, e)}
+                aria-label={`Chiudi ${tab.name}`}
                 className={`ml-auto p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 flex-shrink-0 ${closeReveal}`}
               >
                 <X size={10} />

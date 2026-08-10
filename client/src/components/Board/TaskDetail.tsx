@@ -1182,13 +1182,13 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             title={wide ? 'Riduci il drawer (vedi la board)' : 'Allarga il drawer (più spazio per il tiling)'}
             className="hidden rounded p-1.5 text-app-text-secondary hover:bg-white/10 lg:block"
           >{wide ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}</button>
-          <button onClick={onClose} className="rounded p-1.5 text-app-text-secondary hover:bg-white/10"><X className="h-4 w-4" /></button>
+          <button aria-label="Chiudi il dettaglio del task" onClick={onClose} className="rounded p-1.5 text-app-text-secondary hover:bg-white/10"><X className="h-4 w-4" /></button>
         </div>
       </div>
       {error && (
         <div className="flex shrink-0 items-start justify-between gap-2 border-b border-rose-500/20 bg-rose-500/10 px-3 py-1.5 text-[11px] text-rose-300">
           <span>{error}</span>
-          <button onClick={() => setError(null)} className="shrink-0 rounded p-0.5 hover:bg-white/10"><X className="h-3 w-3" /></button>
+          <button aria-label="Chiudi l'errore" onClick={() => setError(null)} className="shrink-0 rounded p-0.5 hover:bg-white/10"><X className="h-3 w-3" /></button>
         </div>
       )}
       {/* Verdetto dell'audit di landing: un task chiuso il cui lavoro non è su
@@ -2037,7 +2037,7 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
     <div className="shrink-0 space-y-2 border-b border-app-border bg-app-inset px-3 py-2.5 text-xs text-app-text-heading">
       <div className="flex items-center justify-between">
         <span className="font-semibold text-app-text">{tr('board.settings.autoDispatch')}</span>
-        <button onClick={onClose} className="rounded p-0.5 text-app-text-secondary hover:bg-white/10"><X className="h-3.5 w-3.5" /></button>
+        <button aria-label="Chiudi le impostazioni della board" onClick={onClose} className="rounded p-0.5 text-app-text-secondary hover:bg-white/10"><X className="h-3.5 w-3.5" /></button>
       </div>
 
       <label
