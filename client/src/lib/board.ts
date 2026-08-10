@@ -19,7 +19,12 @@ import type {
   TaskStatus, TaskComment, CheckRun, BoardSettings, BoardSettingsPatch, DispatchCapacity,
 } from '../../../shared/board';
 // Il tentativo di un fan-out: stesso contratto del server, stessa cartella condivisa.
-export { attemptHasWork, formatAttemptStat } from '../../../shared/task-attempt';
+// Passa solo `attemptHasWork`, che è un predicato e non ha lingua. Il diffstat
+// (`formatAttemptStat`) NON passa più di qui: la UI lo vuole tradotto, e la sua
+// versione con dizionario vive in `components/Board/format.ts` (`attemptStat`).
+// Quella in `shared/` resta al server, che con essa scrive il confronto nel
+// thread del task.
+export { attemptHasWork } from '../../../shared/task-attempt';
 // Solo `TaskAttempt` passa di qui (la board lo importa da questo modulo).
 // `AttemptState` si prende da `shared/task-attempt`, dov'è dichiarato ed è già
 // da lì che lo importa chi lo usa (il servizio lato server).
