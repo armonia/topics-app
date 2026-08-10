@@ -64,7 +64,7 @@ Legenda: **OK** = presente e reso · **DEGRADA** = c'è ma peggio · **MANCA** =
 | Piano / plan mode | box "approvi il piano?" | `PlanCard` in markdown + pannello standard sulla riga, e la scelta sopra il composer | il tool non c'è: la domanda la pone l'app, e approvare alza l'autonomia | **OK** | `ToolCards.tsx:322`; `plan-approval.ts`; `PlanApprovalBar.tsx`; ripiego prosa `planDetection.ts` |
 | Diff di file | diff colorato | `EditCard`/`WriteCard`, unified o Before/After | — | **OK** | `ToolCards.tsx:106` |
 | Tool call in corso | spinner testuale | spinner + ring + timer + grouping ≥3 + indicatore turno con token/costo | superiore | **OK** | `ToolCallRow.tsx:146`, `toolGrouping.ts:38`, `MessageParts.tsx:26` |
-| Output shell background | stream live | `MonitorCard`/`BashOutputCard` statici | non si aggiorna da solo | **DEGRADA** (lieve) | `ToolCards.tsx:393` |
+| Output shell background | stream live | card agganciata al registro processi: pallino vivo, coda che cresce, codice d'uscita | resta il `Monitor`, che non ha un id di shell da agganciare | **OK** | `ToolCards.tsx` `LiveShellTail`, `useBackgroundShell.ts` |
 | Allegati / immagini | path/inline | `MediaImage` + lightbox, thumbnail input | superiore | **OK** | `MessageContent.tsx:236` |
 | Thinking | testo grigio | `ReasoningRow` collassabile, interlacciato | superiore | **OK** | `ReasoningRow.tsx:18` |
 
