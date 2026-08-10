@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'bun:test';
-import { resolveBrowserNavigateUrl } from './browserNavUrl';
+import { resolveBrowserNavigateUrl, normalizeUrl } from './browserNavUrl';
 
 // Stub the parts of `window` the resolver reads. Each case sets its own.
 function setWindow(opts: {
@@ -46,5 +46,36 @@ describe('resolveBrowserNavigateUrl', () => {
     setWindow({ hostname: '100.64.0.5' });
     expect(resolveBrowserNavigateUrl('about:blank')).toBe('about:blank');
     expect(resolveBrowserNavigateUrl('not a url')).toBe('not a url');
+  });
+});
+
+describe('normalizeUrl (address-bar omnibox)', () => {
+  it('passes full URLs through untouched', () => {
+    expect(normalizeUrl('https://example.com/page')).toBe('https://example.com/page');
+    expect(normalizeUrl('http://localhost:3000/')).toBe('http://localhost:3000/');
+    expect(normalizeUrl('  https://example.com  ')).toBe('https://example.com');
+    expect(normalizeUrl('file:///Users/me/x.html')).toBe('file:///Users/me/x.html');
+    expect(normalizeUrl('about:blank')).toBe('about:blank');
+  });
+
+  it('gives a bare host https:// (not http://, the old downgrade)', () => {
+    expect(normalizeUrl('github.com')).toBe('https://github.com');
+    expect(normalizeUrl('example.com/path?q=1')).toBe('https://example.com/path?q=1');
+    expect(normalizeUrl('sub.domain.co.uk')).toBe('https://sub.domain.co.uk');
+  });
+
+  it('searches anything that is not a URL (the bug: this used to become http://<query>)', () => {
+    expect(normalizeUrl('come fare la pasta')).toBe('https://www.google.com/search?q=come%20fare%20la%20pasta');
+    // A single word with no dot is a search, not a host.
+    expect(normalizeUrl('openai')).toBe('https://www.google.com/search?q=openai');
+    // A dotted phrase WITH spaces is still a search, not a host.
+    expect(normalizeUrl('weather tomorrow. rain?')).toBe(
+      'https://www.google.com/search?q=weather%20tomorrow.%20rain%3F',
+    );
+  });
+
+  it('maps empty/whitespace input to about:blank', () => {
+    expect(normalizeUrl('')).toBe('about:blank');
+    expect(normalizeUrl('   ')).toBe('about:blank');
   });
 });
