@@ -1,0 +1,179 @@
+import { test, expect } from 'bun:test';
+import { mergeStorageState, type StorageState } from './browser-login-state';
+
+const empty: StorageState = { cookies: [], origins: [] };
+
+test('un cookie che c\'è solo nella base sopravvive al merge', () => {
+  const base: StorageState = {
+    cookies: [{ name: 'phone_sid', value: 'p', domain: 'shared.example', path: '/' }],
+    origins: [],
+  };
+  const incoming: StorageState = {
+    cookies: [{ name: 'mac_sid', value: 'm', domain: 'native.example', path: '/' }],
+    origins: [],
+  };
+  const out = mergeStorageState(base, incoming);
+  // Il punto del merge: passare la sessione nativa NON deve sloggare chi si era
+  // loggato dal telefono sulla sessione condivisa.
+  expect(out.cookies.map((c) => c.name).sort()).toEqual(['mac_sid', 'phone_sid']);
+  expect(out.cookies.find((c) => c.name === 'phone_sid')?.value).toBe('p');
+});
+
+test('in conflitto vince chi arriva, e resta al posto che aveva nella base', () => {
+  const base: StorageState = {
+    cookies: [
+      { name: 'a', value: 'base-a', domain: 'example.com', path: '/' },
+      { name: 'sid', value: 'VECCHIO', domain: 'example.com', path: '/' },
+      { name: 'z', value: 'base-z', domain: 'example.com', path: '/' },
+    ],
+    origins: [],
+  };
+  const incoming: StorageState = {
+    cookies: [{ name: 'sid', value: 'NUOVO', domain: 'example.com', path: '/' }],
+    origins: [],
+  };
+  const out = mergeStorageState(base, incoming);
+  expect(out.cookies).toHaveLength(3);
+  expect(out.cookies[1]).toEqual({ name: 'sid', value: 'NUOVO', domain: 'example.com', path: '/' });
+  // L'ordine è quello della base: senza sostituzione sul posto il file su disco
+  // cambierebbe a ogni giro anche a parità di contenuto.
+  expect(out.cookies.map((c) => c.name)).toEqual(['a', 'sid', 'z']);
+});
+
+test('stesso nome su domini diversi sono DUE cookie, non un conflitto', () => {
+  const base: StorageState = {
+    cookies: [{ name: 'session', value: 'github', domain: 'github.com', path: '/' }],
+    origins: [],
+  };
+  const incoming: StorageState = {
+    cookies: [{ name: 'session', value: 'gitlab', domain: 'gitlab.com', path: '/' }],
+    origins: [],
+  };
+  const out = mergeStorageState(base, incoming);
+  expect(out.cookies).toHaveLength(2);
+  expect(out.cookies.map((c) => c.value).sort()).toEqual(['github', 'gitlab']);
+});
+
+test('stesso nome e dominio ma path diverso sono DUE cookie', () => {
+  const base: StorageState = {
+    cookies: [{ name: 'sid', value: 'root', domain: 'example.com', path: '/' }],
+    origins: [],
+  };
+  const incoming: StorageState = {
+    cookies: [{ name: 'sid', value: 'admin', domain: 'example.com', path: '/admin' }],
+    origins: [],
+  };
+  expect(mergeStorageState(base, incoming).cookies).toHaveLength(2);
+});
+
+test('path assente vale "/" — lo stesso cookie non si sdoppia fra le due parti', () => {
+  // Il pane nativo inietta con path "/" quando manca (cookies_set_blocking), il
+  // dump di Playwright lo riporta esplicito: senza normalizzazione la stessa
+  // sessione tornerebbe indietro come due cookie e uno dei due vincerebbe a caso.
+  const base: StorageState = {
+    cookies: [{ name: 'sid', value: 'vecchio', domain: 'example.com', path: '/' }],
+    origins: [],
+  };
+  const incoming: StorageState = {
+    cookies: [{ name: 'sid', value: 'nuovo', domain: 'example.com' }],
+    origins: [],
+  };
+  const out = mergeStorageState(base, incoming);
+  expect(out.cookies).toHaveLength(1);
+  expect(out.cookies[0]!.value).toBe('nuovo');
+});
+
+test('il dominio è confrontato senza distinzione di maiuscole', () => {
+  const base: StorageState = {
+    cookies: [{ name: 'sid', value: 'vecchio', domain: 'Example.COM', path: '/' }],
+    origins: [],
+  };
+  const incoming: StorageState = {
+    cookies: [{ name: 'sid', value: 'nuovo', domain: 'example.com', path: '/' }],
+    origins: [],
+  };
+  expect(mergeStorageState(base, incoming).cookies).toHaveLength(1);
+});
+
+test('il localStorage si fonde per origine, chiave per chiave', () => {
+  const base: StorageState = {
+    cookies: [],
+    origins: [
+      {
+        origin: 'https://example.com',
+        localStorage: [
+          { name: 'theme', value: 'dark' },
+          { name: 'token', value: 'VECCHIO' },
+        ],
+      },
+      { origin: 'https://altro.com', localStorage: [{ name: 'k', value: 'v' }] },
+    ],
+  };
+  const incoming: StorageState = {
+    cookies: [],
+    origins: [
+      {
+        origin: 'https://example.com',
+        localStorage: [
+          { name: 'token', value: 'NUOVO' },
+          { name: 'extra', value: 'e' },
+        ],
+      },
+    ],
+  };
+  const out = mergeStorageState(base, incoming);
+  expect(out.origins).toHaveLength(2);
+  const ex = out.origins.find((o) => o.origin === 'https://example.com')!;
+  expect(ex.localStorage).toEqual([
+    { name: 'theme', value: 'dark' },
+    { name: 'token', value: 'NUOVO' },
+    { name: 'extra', value: 'e' },
+  ]);
+  // L'origine che l'arrivo non nomina resta intatta.
+  expect(out.origins.find((o) => o.origin === 'https://altro.com')!.localStorage).toEqual([
+    { name: 'k', value: 'v' },
+  ]);
+});
+
+test('fondere con un arrivo vuoto non tocca la base', () => {
+  const base: StorageState = {
+    cookies: [{ name: 'sid', value: 's', domain: 'example.com', path: '/' }],
+    origins: [{ origin: 'https://example.com', localStorage: [{ name: 'k', value: 'v' }] }],
+  };
+  expect(mergeStorageState(base, empty)).toEqual(base);
+});
+
+test('il merge è idempotente: rifarlo non cambia il risultato', () => {
+  const base: StorageState = {
+    cookies: [{ name: 'a', value: '1', domain: 'x.com', path: '/' }],
+    origins: [{ origin: 'https://x.com', localStorage: [{ name: 'k', value: 'v' }] }],
+  };
+  const incoming: StorageState = {
+    cookies: [{ name: 'b', value: '2', domain: 'y.com', path: '/' }],
+    origins: [{ origin: 'https://y.com', localStorage: [{ name: 'j', value: 'w' }] }],
+  };
+  const once = mergeStorageState(base, incoming);
+  // Il flip può ballare (debounce 1200ms): lo stesso passaggio rifatto due volte
+  // deve dare lo stesso file, o il salvataggio su disco sbatte a vuoto ogni giro.
+  expect(mergeStorageState(once, incoming)).toEqual(once);
+});
+
+test('il merge non muta gli input', () => {
+  const base: StorageState = {
+    cookies: [{ name: 'a', value: '1', domain: 'x.com', path: '/' }],
+    origins: [{ origin: 'https://x.com', localStorage: [{ name: 'k', value: 'v' }] }],
+  };
+  const incoming: StorageState = {
+    cookies: [{ name: 'a', value: '2', domain: 'x.com', path: '/' }],
+    origins: [{ origin: 'https://x.com', localStorage: [{ name: 'k', value: 'w' }] }],
+  };
+  mergeStorageState(base, incoming);
+  expect(base.cookies[0]!.value).toBe('1');
+  expect(base.origins[0]!.localStorage).toEqual([{ name: 'k', value: 'v' }]);
+});
+
+test('voci malformate vengono scartate invece di finire nel barattolo', () => {
+  const base = { cookies: [null, { value: 'senza nome' }], origins: [{ origin: '' }, null] } as unknown as StorageState;
+  const out = mergeStorageState(base, empty);
+  expect(out).toEqual(empty);
+});
