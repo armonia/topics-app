@@ -1087,9 +1087,13 @@ const orchestratorRouter = createOrchestratorRouter(ctx, {
         projectPath: o.projectPath,
         systemPrompt: o.systemPrompt,
         mcpPolicy: o.mcpPolicy,
-        // `background`: la sessione non ruba una tab. Ci si arriva dal composer
-        // o aprendola dalla sidebar, come per ogni sessione d'agente.
-        background: true,
+        // NON `background`, a differenza di una sessione d'agente. Un agente di
+        // task lavora e consegna su una card: la sua chat è un dettaglio, e
+        // aprirla di prepotenza sarebbe furto di schermo. L'orchestratore è
+        // l'opposto — è una CONVERSAZIONE, e la sua risposta è tutto il
+        // risultato. Nascerla chiusa significa mandare dal composer e non
+        // vedere niente tornare indietro, cioè il muto che qui è vietato.
+        background: false,
         autonomyLevel: DISPATCH_AUTONOMY,
       },
       {
