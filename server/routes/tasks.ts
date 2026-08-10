@@ -24,7 +24,7 @@ import type { AppContext, RouteHandler } from "../types";
 import { grantedResourceIds } from "../lib/grants-query";
 import { resolvePrincipals } from "../lib/principals";
 import type { OutboundMessage } from "../../shared/ws-outbound";
-import { isAgentWorking } from "../../shared/board";
+import { isAgentWorking, pendingQuestion, type PendingQuestionComment } from "../../shared/board";
 import { isPreviewablePath } from "../../shared/media-kind";
 import { getTerminalSessionById } from "./terminal";
 import { AUTO_PROJECT_ID, createTaskService, isLandActionLabel, isPublishActionLabel, projectIdForPath, TaskServiceError, UNASSIGNED_PROJECT_ID, type Task } from "../services/tasks";
@@ -72,17 +72,46 @@ export function emitReviewReadyEdge(
   task: { id: string; text: string; status: string } | undefined | null,
   prevStatus: string | undefined,
   reason?: string,
+  /**
+   * Il thread del task, PIGRO: chiamato solo quando il fronte scatta davvero.
+   * Serve a sapere se l'ultima parola dell'agente è una domanda, perché le sue
+   * opzioni diventano i tasti del banner. Pigro e non un parametro già
+   * risolto perché questa funzione la chiama ogni PATCH del task — leggere il
+   * thread a ogni salvataggio di priorità per un fronte che scatta una volta
+   * sola sarebbe una query per niente.
+   */
+  resolveComments?: () => readonly PendingQuestionComment[] | null | undefined,
 ): void {
   if (task && task.status === "review" && prevStatus !== "review") {
+    let question: { text: string; options: string[] } | null = null;
+    // Best-effort: una lettura del thread che fallisce non deve mangiarsi il
+    // fronte (il banner senza tasti resta molto meglio di nessun banner).
+    try { question = pendingQuestion(resolveComments?.()); } catch { question = null; }
     broadcast({
       type: "task:review-ready",
       projectId,
       taskId: task.id,
       taskTitle: task.text || "Task",
       ...(reason ? { reason } : {}),
+      // SEMPRE presente, `null` compreso — ed è il punto. Il client decide da
+      // qui se il banner porta "Approva" o le risposte alla domanda, e i due
+      // lati del filo si aggiornano separatamente (il guscio desktop si porta
+      // dietro il suo client, il server è il demone). Con il campo OMESSO
+      // quando non c'è domanda, un client nuovo su un server vecchio leggerebbe
+      // "nessuna domanda" e metterebbe un tasto "Approva" su un task che sta
+      // aspettando una risposta: un click, e il task è chiuso invece di
+      // risposto. `null` esplicito rende distinguibile «non c'è» da «questo
+      // server non lo sa dire».
+      question,
     });
   }
 }
+
+// `pendingQuestion` vive in `shared/board.ts`: i lettori sono tre e stanno su
+// due lati del filo (questo emettitore, il ripiego del client su un server che
+// il campo non lo manda, e concettualmente la quick-reply della card).
+// Ri-esportato perché i test di questo modulo lo importano da qui, dov'era.
+export { pendingQuestion, type PendingQuestionComment };
 
 /**
  * Cap for AGENT-authored comments (the session surface only — humans are
@@ -1686,7 +1715,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             });
             task = await captureDelivery(task, prevStatus);
             broadcastToAll({ type: "task:updated", projectId, task });
-            emitReviewReadyEdge(broadcastToAll, projectId, task, prevStatus);
+            emitReviewReadyEdge(broadcastToAll, projectId, task, prevStatus, undefined,
+              () => svc.get(taskId)?.comments);
             // Auto-dispatch trigger: the human dragging a task INTO todo is the
             // "vai" signal; dragging it back OUT while still queued cancels it.
             // The dispatcher itself no-ops when auto_dispatch is off for the board.
@@ -1960,7 +1990,12 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           });
           task = await captureDelivery(task, prevStatus);
           broadcastToAll({ type: "task:updated", projectId: sess.projectId, task });
-          emitReviewReadyEdge(broadcastToAll, sess.projectId, task, prevStatus);
+          // È QUESTA la porta che conta per i tasti del banner: l'agente commenta
+          // la domanda con `options` e poi si sposta in review da qui (MCP
+          // update_task). Al momento del fronte la domanda è l'ultima riga del
+          // thread — esattamente ciò che la card mostra come quick-reply.
+          emitReviewReadyEdge(broadcastToAll, sess.projectId, task, prevStatus, undefined,
+            () => svc.get(task.id)?.comments);
           return json(task);
         } catch (e) { return fail(e); }
       }
