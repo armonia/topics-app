@@ -5,8 +5,11 @@
  *  • le soglie sono UNA sola scala, condivisa fra colore e preavviso.
  */
 import { describe, it, expect } from "bun:test";
+import { hasLongWindowMarker } from "../../shared/context-window";
+import { defaultChatModel } from "../providers/claude-models";
 import {
   contextWindowFor,
+  windowCoveringMeasure,
   windowModelFor,
   windowForMeasure,
   classifyContext,
@@ -132,11 +135,90 @@ describe("windowModelFor — il suffisso 1M sopravvive al nome nudo della CLI", 
   });
 });
 
+/**
+ * Il caso del 10 agosto 2026: `token-live --json` dava `contextPct` sopra 100 su
+ * quattro chat su sette, fino a **576.211 / 200.000 = 288,1%**. Sessione lanciata
+ * a `claude-opus-5[1m]`, transcript che riporta `claude-opus-5` nudo — e in mezzo
+ * un `topics.model` VUOTO, che è il pezzo che mancava a `windowModelFor`.
+ *
+ * Tre modi di arrivare alla stessa finestra, in ordine di autorevolezza. Il terzo
+ * non è un ripiego elegante: è la prova materiale, e da sola basta.
+ */
+describe("una sessione a 1M non può leggersi al 288%", () => {
+  const NUDO = "claude-opus-5"; // quel che la CLI scrive nel transcript
+  const MISURA = 576_211;       // quel che quella chiamata ha davvero letto
+
+  it("col pin sul topic: il suffisso perso dalla CLI lo rimette la richiesta", () => {
+    expect(contextWindowFor(windowModelFor(NUDO, "claude-opus-5[1m]")))
+      .toEqual({ tokens: 1_000_000, known: true });
+  });
+
+  it("senza pin: il default di chat è a finestra lunga, e vale come richiesta", () => {
+    // Un pin vuoto non vuol dire «senza modello»: vuol dire QUESTO. È lo stesso
+    // id che `spawnPersistentProcess` passa alla CLI.
+    expect(hasLongWindowMarker(defaultChatModel())).toBe(true);
+    expect(contextWindowFor(windowModelFor(NUDO, defaultChatModel())))
+      .toEqual({ tokens: 1_000_000, known: true });
+  });
+
+  it("e se anche la richiesta si perde, la misura è la prova: 576k non stanno in 200k", () => {
+    // Nessun modello richiesto, resta il nome nudo → 200k, cioè il 288%. Ma
+    // quella chiamata ha RICEVUTO RISPOSTA: su una finestra da 200k il provider
+    // l'avrebbe rifiutata con «Prompt is too long».
+    const senzaRichiesta = contextWindowFor(windowModelFor(NUDO, null));
+    expect(senzaRichiesta.tokens).toBe(200_000);
+    expect(windowCoveringMeasure(senzaRichiesta, NUDO, MISURA))
+      .toEqual({ tokens: 1_000_000, known: true });
+  });
+
+  it("nessuna delle tre strade produce un rapporto sopra il 100%", () => {
+    for (const requested of ["claude-opus-5[1m]", defaultChatModel(), null]) {
+      const model = windowModelFor(NUDO, requested) ?? "";
+      const win = windowCoveringMeasure(contextWindowFor(model), model, MISURA);
+      expect(MISURA / win.tokens).toBeLessThanOrEqual(1);
+    }
+  });
+});
+
+describe("windowCoveringMeasure — il numeratore è una prova sul denominatore", () => {
+  const w = (tokens: number, known = true) => ({ tokens, known });
+
+  it("una misura che ci sta non tocca niente", () => {
+    expect(windowCoveringMeasure(w(200_000), "claude-opus-5", 199_999)).toEqual(w(200_000));
+    expect(windowCoveringMeasure(w(200_000), "claude-opus-5", 200_000)).toEqual(w(200_000));
+    // Zero, NaN, misura assente: non è una prova di niente.
+    expect(windowCoveringMeasure(w(200_000), "claude-opus-5", 0)).toEqual(w(200_000));
+    expect(windowCoveringMeasure(w(200_000), "claude-opus-5", Number.NaN)).toEqual(w(200_000));
+  });
+
+  it("promuove alla finestra lunga solo le famiglie che il beta 1M serve", () => {
+    expect(windowCoveringMeasure(w(200_000), "claude-sonnet-5", 300_000)).toEqual(w(1_000_000));
+    // Haiku no: `claude-haiku-4-5[1m]` risponde 400. Se una sua misura sfonda i
+    // 200k la nostra tabella è sbagliata in un modo che non sappiamo nominare —
+    // e allora si dice, invece di inventare un milione.
+    expect(windowCoveringMeasure(w(200_000), "claude-haiku-4-5", 300_000)).toEqual(w(300_000, false));
+  });
+
+  it("oltre il milione non nomina più niente: dichiara la stima", () => {
+    expect(windowCoveringMeasure(w(200_000), "claude-opus-5", 1_400_000)).toEqual(w(1_400_000, false));
+  });
+
+  it("non promuove una finestra stimata a una certezza", () => {
+    // Il punto di partenza era un'ipotesi (`known: false`): la misura dice che è
+    // troppo bassa, non che adesso la conosciamo.
+    expect(windowCoveringMeasure(w(200_000, false), "claude-opus-5", 400_000))
+      .toEqual(w(1_000_000, false));
+  });
+});
+
 describe("windowForMeasure — il denominatore si ricalcola, il numeratore no", () => {
-  const measure = (over: Partial<{ model: string | null; windowTokens: number; estimated: boolean }> = {}) => ({
+  const measure = (
+    over: Partial<{ model: string | null; windowTokens: number; estimated: boolean; usedTokens: number }> = {},
+  ) => ({
     model: "claude-sonnet-5" as string | null,
     windowTokens: 200_000,
     estimated: false,
+    usedTokens: 1_000,
     ...over,
   });
 
