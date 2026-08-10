@@ -541,6 +541,18 @@ describe("moveToProject", () => {
     expect(() => s.moveToProject({ taskId: t.id, toProjectId: "pB" })).toThrow(/live agent/);
   });
 
+  test("a settled failed park does not travel to the target board", () => {
+    const root = s.create({ projectId: "pA", text: "root" });
+    const step = s.create({ projectId: "pA", text: "step", status: "backlog", parentTaskId: root.id });
+    db.prepare("UPDATE tasks SET dispatch_state = 'failed', dispatch_error = 'boom on pA' WHERE id IN (?, ?)")
+      .run(root.id, step.id);
+    const moved = s.moveToProject({ taskId: root.id, toProjectId: "pB" });
+    expect(moved.dispatchState).toBeNull();
+    expect(moved.dispatchError).toBeNull();
+    expect(s.get(step.id)!.task.dispatchState).toBeNull();
+    expect(s.get(step.id)!.task.dispatchError).toBeNull();
+  });
+
   test("same-board move is a no-op; projectId guard reports not_found", () => {
     const t = s.create({ projectId: "pA", text: "x" });
     expect(s.moveToProject({ taskId: t.id, toProjectId: "pA" }).projectId).toBe("pA");
