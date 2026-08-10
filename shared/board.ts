@@ -227,3 +227,33 @@ export interface DispatchCapacity {
   /** Spiegazione in una riga di come `recommended` è stato derivato. */
   reason: string;
 }
+
+/** Le due primitive di collegamento dell'intake. */
+export type LinkKind = "subtask" | "chain";
+
+/**
+ * La PROPOSTA dell'intake: dove andrebbe un testo nuovo.
+ * Vive qui perche' la calcola il server e la disegna il client — due copie
+ * libere di divergere erano esattamente cio' che il cancello sui doppioni
+ * di tipo esiste per impedire.
+ */
+export interface LinkProposal {
+  targetTaskId: string;
+  targetText: string;
+  targetStatus: TaskStatus;
+  /**
+   * Quale delle due primitive il motore consiglia. NON è una decisione: la UI
+   * evidenzia questa e lascia l'altra a un click di distanza.
+   * - `chain` quando la card sta ancora girando (in_progress/review): il testo
+   *   nuovo è un SEGUITO, e riparte dentro la conversazione del bloccante.
+   * - `subtask` quando la card non è ancora partita (backlog/todo): il testo
+   *   nuovo è un PEZZO di quel lavoro.
+   */
+  recommended: LinkKind;
+  /** 0..1 — copertura pesata dei termini del testo nuovo sulla card. */
+  score: number;
+  /** Le parole che hanno fatto il punteggio, dalla più rara alla più comune. */
+  sharedTerms: string[];
+  /** Frase leggibile: va sotto al composer E nel thread delle due card. */
+  reason: string;
+}
