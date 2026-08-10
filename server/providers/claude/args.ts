@@ -55,7 +55,53 @@ export interface ClaudeSpawnArgsOptions {
    * byte-identico (cache_read pieno). `--settings` invece scavalca.
    */
   toolSearch?: string | null;
+  /**
+   * Vieta a QUESTA sessione di tirare immagini e video dentro il contesto con
+   * `Read` (hook `PreToolUse`, exit 2 = rifiuto con la ragione al modello).
+   *
+   * Non è igiene, è la voce di spesa più grossa che abbiamo. Misurato il
+   * 10/08 sui transcript degli agenti dispacciati: il 95% del volume sono
+   * `tool_result`, di quelli il 97% è `Read`, e i `Read` grossi non sono
+   * sorgenti — sono SCREENSHOT, ~132 kB l'uno. Su 12 task grossi, 7 colpiti,
+   * il 25% del volume totale. E un'immagine letta non si paga una volta: sta
+   * nel prefisso, che ogni turno successivo rilegge.
+   *
+   * Il giro che la produce è il nostro: il protocollo chiede uno screenshot
+   * come prova di review, l'agente lo fa e poi lo RILEGGE per controllarlo.
+   * Ma per consegnare la prova basta il path — non serve averla aperta.
+   *
+   * Vive qui e non nel prompt perché il prompt lo dice GIÀ (per il browser) e
+   * gli agenti lo fanno lo stesso: un consiglio in mezzo a venti regole non è
+   * un cancello. `--settings` scavalca i settings file, quindi non c'è modo di
+   * disattivarlo dal disco per sbaglio.
+   */
+  blockImageReads?: boolean;
 }
+
+/**
+ * Il comando dell'hook. `bun` c'è per definizione (ci gira il server). Niente
+ * apostrofi nel messaggio: la stringa viaggia dentro apici singoli di shell.
+ */
+const IMAGE_READ_GUARD_CMD =
+  'bun -e \'const d=JSON.parse(await Bun.stdin.text());'
+  + 'const p=String(d?.tool_input?.file_path??"");'
+  + 'if(/\\.(png|jpe?g|gif|webp|bmp|tiff?|heic|mp4|webm|mov|avi)$/i.test(p)){'
+  + 'console.error("Rifiutato: non tirare immagini o video dentro il contesto. '
+  + 'Pesano ~mezzo mega ognuna e restano nel prefisso, che OGNI turno successivo '
+  + 'rilegge (misurato: il 25% del contesto dei task dispacciati). '
+  + 'Per la prova di review basta il PATH, non serve averla aperta: '
+  + 'update_task(preview_image=<path>) oppure comment_task(media=[<path>]). '
+  + 'Se devi sapere COSA mostra, usa uno strumento che risponde in testo.");'
+  + 'process.exit(2)}\'';
+
+/** Il blocco `hooks` da passare a `--settings` quando il cancello e attivo. */
+export const IMAGE_READ_GUARD_SETTINGS = {
+  hooks: {
+    PreToolUse: [
+      { matcher: "Read", hooks: [{ type: "command", command: IMAGE_READ_GUARD_CMD }] },
+    ],
+  },
+} as const;
 
 /** Ciò che serve per un completamento usa-e-getta (auto-titolo, digest, SSE). */
 export interface ClaudeOneshotArgsOptions {
@@ -106,7 +152,16 @@ export function buildClaudeArgs(opts: ClaudeSpawnArgsOptions): string[] {
     //     forzato a "1" ...............   36.167 token   (−90.906, −71,5%)
     // «auto» non deferiva NIENTE. E va imposto da qui, non dall'ambiente: vedi
     // `toolSearch` in `ClaudeSpawnArgsOptions` per il perché.
-    ...(opts.toolSearch ? ["--settings", JSON.stringify({ env: { ENABLE_TOOL_SEARCH: opts.toolSearch } })] : []),
+    // Un solo `--settings`: la CLI prende l'ULTIMO, quindi passarlo due volte
+    // farebbe sparire in silenzio il primo dei due (il deferral degli schemi
+    // vale −71,5% di prefisso: perderlo per un cancello sugli screenshot
+    // sarebbe uno scambio in perdita).
+    ...(opts.toolSearch || opts.blockImageReads
+      ? ["--settings", JSON.stringify({
+          ...(opts.toolSearch ? { env: { ENABLE_TOOL_SEARCH: opts.toolSearch } } : {}),
+          ...(opts.blockImageReads ? IMAGE_READ_GUARD_SETTINGS : {}),
+        })]
+      : []),
     "--append-system-prompt", opts.appendSystemPrompt,
     "--input-format", "stream-json",
     "--output-format", "stream-json",
