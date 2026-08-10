@@ -14,7 +14,48 @@ six `APPLE_*` secrets into `tauri-action`. `tauri-action` only attempts signing 
 ships unsigned exactly as before. Set the secrets and the next `tauri-vX.Y.Z` release
 signs + notarizes automatically — no workflow edit needed.
 
+## Step 0 — Enrolment ([cliente], as an **organization**)
+
+Everything below presumes a paid membership. We don't have one yet, and it is the only
+part of this document that **cannot be scripted**: creating the Apple Account, accepting
+the agreement that binds [cliente], and paying are legal and financial acts. Per
+[Apple's own rules](https://developer.apple.com/help/account/membership/program-enrollment/),
+they must be done by someone with **legal binding authority** for the company — for us,
+Attilio. Nobody else, and no tool.
+
+Enrol as an **organization**, not as an individual: only an organization membership puts
+`[cliente]` on the certificate (an individual one would sign as a natural person, and
+converting later requires Apple Support).
+
+What Apple checks, and what we have:
+
+| Requirement | Our value |
+|-------------|-----------|
+| Legal entity (no DBAs / trade names) | [cliente] |
+| D‑U‑N‑S Number | **[cliente]** (already obtained, free) |
+| Legal binding authority | Attilio Cianci, CTO — must be the one enrolling |
+| Work email on the company domain | an `@armonia.io` address, with 2FA on |
+| Public, functional website on that domain | <https://armonia.io> |
+
+Two things that bite:
+
+- **Use a fresh Apple Account** on the company domain, not a personal one. The account
+  becomes the *Account Holder*, and the Account Holder is the only role that can create a
+  Developer ID Application certificate — so it has to be an address that outlives any one
+  person's laptop. Two-factor authentication is mandatory before enrolment starts.
+- **Organizations pay last.** Individuals pay immediately; an organization submits the
+  enrolment, waits for Apple Developer Support to verify the D‑U‑N‑S and the binding
+  authority (they may ask for notarized business documents), and only then gets the email
+  that unlocks the 99 USD/year purchase. Budget days, not minutes.
+
+Enrol on the web at <https://developer.apple.com/programs/enroll/>. Once the membership is
+active, `scripts/apple-signing-setup.sh csr` takes over and drives steps 1–3 below
+(no secret ever passes as a command-line argument).
+
 ## One-time setup (requires an active Apple Developer Program membership)
+
+`scripts/apple-signing-setup.sh` automates all of it — `csr` → `importa` → `segreti` →
+`verifica`. The manual equivalent, for reference:
 
 Add all six under **repo → Settings → Secrets and variables → Actions**.
 
