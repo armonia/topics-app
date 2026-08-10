@@ -99,6 +99,39 @@ export function extractPreviewRule(envelope: string): string | null {
 }
 
 /**
+ * Il PESO di un task: quanto MORDE LA MACCHINA mentre gira, non quanto è
+ * difficile. Sono due assi diversi e vanno tenuti separati — un algoritmo
+ * ambiguo è `fable` e non consuma niente; un `bun run build` è banale da
+ * decidere e si prende tutti i core per due minuti. Il modello dice quanto
+ * l'agente deve PENSARE; il peso dice quanto l'esecuzione COSTA alla macchina
+ * su cui gira, che è la cosa che lo scheduler deve sapere.
+ *
+ * Due valori e non una scala: quello che serve allo scheduler è una domanda
+ * binaria («questo task può stare accanto ad altri, sì o no?»), e ogni gradino
+ * in mezzo sarebbe un valore che nessun gate legge.
+ *
+ * `light` è il DEFAULT in ogni senso: è il valore di ripiego quando il
+ * classificatore non risponde, ed è come si legge un `null` in colonna (vedi
+ * migration 090). Senza una risposta letta, niente cambia rispetto a prima.
+ */
+export const TASK_WEIGHTS = ['light', 'heavy'] as const;
+
+export type TaskWeight = (typeof TASK_WEIGHTS)[number];
+
+/**
+ * Legge il peso da una colonna/valore libero. Tutto ciò che non è uno dei due
+ * valori noti — `null`, stringa vuota, un valore vecchio o storto — torna
+ * `null`, cioè «mai classificato», che ogni gate tratta come `light`.
+ *
+ * `null` NON viene normalizzato a `'light'` di proposito: distinguere «non l'ho
+ * mai chiesto» da «ho chiesto e ha detto leggero» è l'unico modo per accorgersi
+ * che il classificatore ha smesso di rispondere.
+ */
+export function readTaskWeight(raw: unknown): TaskWeight | null {
+  return (TASK_WEIGHTS as readonly unknown[]).includes(raw) ? (raw as TaskWeight) : null;
+}
+
+/**
  * Gli stati di `dispatch_state` in cui un agente sta LAVORANDO il task adesso:
  * è in coda per partire, sta partendo, o è dentro un turno. Fuori da questi tre
  * il task è fermo (`null`, `waiting`, `delivered`, `needs_input`, `exhausted`).
