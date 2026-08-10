@@ -50,6 +50,7 @@ const MUTATIONS: ReadonlyArray<readonly [string, string, string]> = [
   ["prova: lascia passare un comando che scrive", "    if (SHELL_WRITERS.has(head)) return false;", "    if (false) return false;"],
   ["prova: lascia passare `git merge`", "      if (!GIT_READ_VERBS.has(verb)) return false;", "      if (false) return false;"],
   ["registro: non tace mai niente", "  for (const f of findings) (said[f.occurrence] ? suppressed : fresh).push(f);", "  for (const f of findings) fresh.push(f);"],
+  ["stampa: non raggruppa piu' le cause comuni", "    if (!f.group) { blocks.push([f]); continue; }", "    if (true) { blocks.push([f]); continue; }"],
 ];
 
 const dirty = spawnSync("git", ["status", "--porcelain", "--", FILE], { encoding: "utf8" }).stdout ?? "";

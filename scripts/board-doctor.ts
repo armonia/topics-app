@@ -45,15 +45,23 @@
  *     registro: il doctor non dorme mai in attesa di una seconda misura.
  *
  * ── Quanto rumore fa, misurato ───────────────────────────────────────────────
- * Sulla board vera del 2026-08-10 (37 card attive, mai sorvegliate prima):
- *   · primo giro: 7 rilievi su 6 card — 5 branch che al land trascinerebbero
- *     lavoro altrui, 2 costi oltre 3× la mediana della loro classe. E' il
- *     debito arretrato di una board mai guardata, non il ritmo;
+ * Sulla board vera del 2026-08-10 (42 card attive, mai sorvegliate prima):
+ *   · primo giro: 14 rilievi, che si LEGGONO come 8 blocchi — 10 branch che al
+ *     land trascinerebbero lavoro altrui (ma raggruppati in 4 cause, perche' la
+ *     linea ereditata e' la stessa) e 4 costi oltre 3× la mediana della loro
+ *     classe. E' l'arretrato di una board mai guardata, non il ritmo;
  *   · secondo giro e successivi, a parita' di fatti: ZERO. Nessuna riga.
- * La misura ha gia' prodotto una stretta: il controllo sul land parlava anche
- * delle card ancora in corso — 1 rilievo su 5 — e siccome l'occorrenza e' la
- * punta del branch avrebbe riparlato a ogni commit di una cosa che nessuno
- * stava per cliccare. Ora parla solo in `review`.
+ * La misura ha prodotto DUE strette, che e' il motivo per cui si misura:
+ *   1. il controllo sul land parlava anche delle card ancora in corso, e
+ *      siccome l'occorrenza e' la punta del branch avrebbe riparlato a ogni
+ *      commit di una cosa che nessuno stava per cliccare. Ora solo in `review`;
+ *   2. dieci card ereditavano gli STESSI commit dallo stesso checkout sporco:
+ *      dieci righe per una decisione sola. Ora si leggono in un blocco per
+ *      causa (il registro resta per card: sono dieci fatti distinti).
+ * Il ritmo, misurato su due ore di board viva, e' stato di 7 rilievi nuovi:
+ *   alto, e non e' un difetto del doctor — e' che questa board sta davvero
+ *   producendo branch contaminati, per un motivo solo (il checkout condiviso
+ *   parcheggiato su un branch di lavoro).
  *
  *   bun scripts/board-doctor.ts                  # i rilievi nuovi, o niente
  *   bun scripts/board-doctor.ts --json           # il rapporto completo
@@ -149,6 +157,20 @@ export interface Finding {
    * produce una nuova e torna a parlare.
    */
   occurrence: string;
+  /**
+   * La CAUSA condivisa, quando piu' card soffrono della stessa cosa.
+   *
+   * Misurato il 2026-08-10: dieci card in review avevano un branch che al land
+   * avrebbe trascinato gli STESSI tredici commit, ereditati dallo stesso
+   * checkout sporco. Dieci righe, dieci volte la stessa decisione da prendere.
+   * Ogni riga era vera e nessuna andava tolta — ma dieci rilievi per un'azione
+   * sola sono esattamente il rumore che fa disattivare un sorvegliante. Il
+   * registro resta per CARD (ognuna e' una decisione a se'); e' la stampa che
+   * li unisce in un blocco solo.
+   */
+  group?: string;
+  /** Il fatto di QUESTA card in poche parole, per quando finisce in un elenco. */
+  brief?: string;
 }
 
 /**
@@ -327,6 +349,12 @@ export interface BranchFacts {
   aheadTotal: number;
   /** Di quelli, quanti sono nati dentro questo worktree (`--not <altri branch>`). */
   ownCount: number;
+  /**
+   * Il piu' recente dei commit ESTRANEI. E' l'impronta della causa: due card
+   * che ereditano dalla stessa linea hanno lo stesso valore qui, ed e' cosi'
+   * che il rapporto le mette in un blocco solo invece che in dieci.
+   */
+  foreignHead: string | null;
   /** Gli altri branch locali usati per la sottrazione: servono alla prova. */
   otherBranches: readonly string[];
 }
@@ -488,6 +516,8 @@ const checkLandDragsForeignCommits: DoctorCheck = {
         proof: `R=${shq(repoPath)}; git -C "$R" rev-list --count ${b.defaultBranch}..${b.branch}; git -C "$R" rev-list --count ${b.defaultBranch}..${b.branch} --not ${others}`,
         action: `prendi solo il lavoro della card (\`git -C "$R" log --oneline ${b.defaultBranch}..${b.branch} --not ${others}\` e poi un cherry-pick), oppure landa prima quel branch. Il cancello dell'automerge rifiuterebbe comunque: qui lo sai prima di cliccare`,
         occurrence: `land-drags-foreign-commits:${t.id}:${b.headSha ?? b.aheadTotal}`,
+        group: b.foreignHead ? `stessa linea ereditata, punta ${b.foreignHead}` : undefined,
+        brief: `${b.aheadTotal} commit, ${b.ownCount} suo${b.ownCount === 1 ? "" : "i"}`,
       }));
     }
     return out;
@@ -827,24 +857,30 @@ export function collect(opts: CollectOptions = {}): Collected {
       };
 
       if (r.delivery_branch) {
-        const ahead = git(repoPath, ["rev-list", "--count", `${defaultBranch}..${r.delivery_branch}`]);
+        // Le liste, non i conteggi: dalla differenza esce anche QUALE commit
+        // estraneo e' il piu' recente, cioe' l'impronta della causa condivisa.
+        const ahead = git(repoPath, ["rev-list", "--abbrev-commit", `${defaultBranch}..${r.delivery_branch}`]);
         if (ahead.code !== 0) {
           skipped.push(`${r.id.slice(0, 8)}: branch ${r.delivery_branch} non confrontabile con ${defaultBranch} — controllo land saltato`);
           continue;
         }
         const others = allRefs.filter((b) => b !== r.delivery_branch && b !== defaultBranch);
         const own = others.length
-          ? git(repoPath, ["rev-list", "--count", `${defaultBranch}..${r.delivery_branch}`, "--not", ...others])
+          ? git(repoPath, ["rev-list", "--abbrev-commit", `${defaultBranch}..${r.delivery_branch}`, "--not", ...others])
           : ahead;
         if (own.code !== 0) continue;
+        const lines = (s: string) => s.split("\n").map((x) => x.trim()).filter(Boolean);
+        const all = lines(ahead.out);
+        const mine = new Set(lines(own.out));
         const head = git(repoPath, ["rev-parse", "--short", r.delivery_branch]);
         branches.push({
           taskId: r.id,
           branch: r.delivery_branch,
           defaultBranch,
           headSha: head.code === 0 ? head.out.trim() : null,
-          aheadTotal: Number(ahead.out.trim()) || 0,
-          ownCount: Number(own.out.trim()) || 0,
+          aheadTotal: all.length,
+          ownCount: mine.size,
+          foreignHead: all.find((sha) => !mine.has(sha)) ?? null,
           otherBranches: others,
         });
       }
@@ -916,12 +952,47 @@ export function costBaselineFromJson(raw: unknown): CostBaseline {
 
 // ── CLI ──────────────────────────────────────────────────────────────────────
 
-function renderFinding(f: Finding): string {
+const card = (f: Finding) => `${short(f.taskText, 62)} \x1b[2m(${f.taskId.slice(0, 8)})\x1b[0m`;
+
+/**
+ * Rilievi con la stessa causa, un blocco solo. Il primo porta la prova e
+ * l'azione — che per costruzione sono la stessa decisione — e gli altri
+ * restano come elenco delle card colpite. Nel JSON ci sono tutti, uno per card:
+ * qui si comprime cio' che l'umano LEGGE, non cio' che il doctor sa.
+ */
+export function groupForRender(findings: readonly Finding[]): Finding[][] {
+  const blocks: Finding[][] = [];
+  const byKey = new Map<string, Finding[]>();
+  for (const f of findings) {
+    if (!f.group) { blocks.push([f]); continue; }
+    const key = `${f.check} ${f.group}`;
+    const hit = byKey.get(key);
+    if (hit) { hit.push(f); continue; }
+    const fresh = [f];
+    byKey.set(key, fresh);
+    blocks.push(fresh);
+  }
+  return blocks;
+}
+
+function renderBlock(block: readonly Finding[]): string {
+  const first = block[0];
+  if (!first) return "";
+  if (block.length === 1) {
+    return [
+      `\x1b[1m${first.check}\x1b[0m — ${card(first)}`,
+      `  ${first.what}`,
+      `  \x1b[2mprova:\x1b[0m  ${first.proof}`,
+      `  \x1b[2mazione:\x1b[0m ${first.action}`,
+    ].join("\n");
+  }
+  // In un blocco il `what` della prima card mentirebbe sulle altre (i numeri
+  // sono i suoi): al suo posto va il fatto di ognuna, in poche parole.
   return [
-    `\x1b[1m${f.check}\x1b[0m — ${short(f.taskText, 62)} \x1b[2m(${f.taskId.slice(0, 8)})\x1b[0m`,
-    `  ${f.what}`,
-    `  \x1b[2mprova:\x1b[0m  ${f.proof}`,
-    `  \x1b[2mazione:\x1b[0m ${f.action}`,
+    `\x1b[1m${first.check}\x1b[0m — \x1b[1m${block.length} card\x1b[0m, \x1b[2m${first.group}\x1b[0m`,
+    ...block.map((f) => `  · ${card(f)}${f.brief ? ` \x1b[2m— ${f.brief}\x1b[0m` : ""}`),
+    `  \x1b[2mprova\x1b[0m (sulla prima)\x1b[2m:\x1b[0m ${first.proof}`,
+    `  \x1b[2mazione\x1b[0m (per ognuna)\x1b[2m:\x1b[0m ${first.action}`,
   ].join("\n");
 }
 
@@ -985,7 +1056,7 @@ async function main(): Promise<void> {
       }, null, 2));
     } else if (fresh.length) {
       // Regola 1: su una board sana questo blocco non stampa niente.
-      console.log(fresh.map(renderFinding).join("\n\n"));
+      console.log(groupForRender(fresh).map(renderBlock).join("\n\n"));
       if (suppressed.length) console.log(`\n\x1b[2m(${suppressed.length} gia' detti, taciuti)\x1b[0m`);
     }
 
