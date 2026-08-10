@@ -3,7 +3,7 @@
 ## Why
 
 **Una tab chiusa il 23 luglio è ancora aperta su un telefono.** Misurato il
-2026-08-06: la pane `project:/Users/zorahrel/Pictures/Japan` ha un tombstone sul
+2026-08-06: la pane `project:/Users/utente/Pictures/Japan` ha un tombstone sul
 server con `closedAt = 2026-07-23 20:22`, non è fra le pane aperte, non è in
 `group:default`. Il desktop non la mostra — correttamente. Il telefono sì.
 

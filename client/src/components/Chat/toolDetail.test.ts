@@ -146,7 +146,7 @@ describe('il piano scritto su file È un piano, non una scrittura', () => {
   // una cartella che nessuno apre.
   test('una Write in .claude/plans/ diventa detail plan col testo del piano', () => {
     const d = deriveToolDetail('Write', {
-      file_path: '/Users/zorahrel/.claude/plans/context-you-are-working-deep-locket.md',
+      file_path: '/Users/utente/.claude/plans/context-you-are-working-deep-locket.md',
       content: '# Piano\n\n1. Prima cosa\n2. Seconda cosa',
     });
     expect(d.type).toBe('plan');

@@ -8,8 +8,8 @@ describe('boardIdForPath', () => {
     expect(boardIdForPath('/x/proj')).toBe('proj-xwac8t');
   });
   test('basename prefix + deterministic', () => {
-    const a = boardIdForPath('/Users/zorahrel/Projects/topics-app');
-    expect(a).toBe(boardIdForPath('/Users/zorahrel/Projects/topics-app'));
+    const a = boardIdForPath('/Users/utente/Projects/topics-app');
+    expect(a).toBe(boardIdForPath('/Users/utente/Projects/topics-app'));
     expect(a.startsWith('topics-app-')).toBe(true);
   });
 });

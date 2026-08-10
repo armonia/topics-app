@@ -9,7 +9,7 @@
  * I numeri qui sotto NON sono inventati: sono il turno del topic `dec44329`
  * («trova volo fattibile da salerno...», una sola domanda da 118 caratteri),
  * letto dal transcript della CLI
- * `~/.claude/projects/-Users-zorahrel/4f635de1-....jsonl`.
+ * `~/.claude/projects/-Users-utente/4f635de1-....jsonl`.
  * 24 eventi `assistant` con usage, 4 `message.id` distinti, ripetuti 8+9+5+2.
  *
  * Senza la guardia il piede del messaggio mostrava **4.893.590** token per un

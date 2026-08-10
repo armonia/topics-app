@@ -83,8 +83,8 @@ const PID = "topics-app-abc123";
 
 describe("projectIdForPath", () => {
   test("basename + 6-char base36 hash, deterministic", () => {
-    const a = projectIdForPath("/Users/zorahrel/Projects/topics-app");
-    const b = projectIdForPath("/Users/zorahrel/Projects/topics-app");
+    const a = projectIdForPath("/Users/utente/Projects/topics-app");
+    const b = projectIdForPath("/Users/utente/Projects/topics-app");
     expect(a).toBe(b);
     expect(a.startsWith("topics-app-")).toBe(true);
     expect(a.slice("topics-app-".length)).toMatch(/^[0-9a-z]{1,6}$/);

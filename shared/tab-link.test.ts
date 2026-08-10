@@ -30,8 +30,8 @@ describe('encoding dei segmenti', () => {
 
   test('qualsiasi altra cosa diventa ~base64url: mai un punto, mai uno slash', () => {
     const paths = [
-      '/Users/zorahrel/Projects/my.app',
-      '/Users/zorahrel/Progetti/città',
+      '/Users/utente/Projects/my.app',
+      '/Users/utente/Progetti/città',
       '~/Projects/topics-app',
       'C:\\Users\\x\\repo',
       'src/components/Layout/PaneTabBar.tsx',
@@ -59,7 +59,7 @@ describe('round-trip build → parse', () => {
     expect(roundTrip({ kind: 'chat', key: UUID })).toEqual({ kind: 'chat', key: UUID });
     expect(roundTrip({ kind: 'terminal', key: 'sess-77' })).toEqual({ kind: 'terminal', key: 'sess-77' });
     expect(roundTrip({ kind: 'task', key: UUID })).toEqual({ kind: 'task', key: UUID });
-    const proj = '/Users/zorahrel/Projects/my.app';
+    const proj = '/Users/utente/Projects/my.app';
     expect(roundTrip({ kind: 'project', key: proj })).toEqual({ kind: 'project', key: proj });
   });
 
