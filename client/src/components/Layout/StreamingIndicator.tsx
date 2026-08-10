@@ -150,7 +150,30 @@ function LoaderSlot({ onStop, title, className = '', size = 16, waiting = false 
     return (
       <button
         onClick={(e) => { e.stopPropagation(); onStop(); }}
-        className={`group/stop flex-shrink-0 inline-flex items-center justify-center rounded hover:bg-black/10 dark:hover:bg-white/10 transition-colors cursor-pointer ${className}`}
+        // `relative z-30` — IL PIANO CHE IL CONTRATTO DICHIARAVA E NESSUNO AVEVA
+        // SCRITTO. `PaneTabBar` lo mette per esteso sul binario dei comandi: «lo
+        // spinner resta FUORI (SOPRA): fermare un turno e chiudere la tab sono
+        // due azioni diverse nello stesso istante». "Sopra" è una quota, e qui
+        // non c'era: `.row-actions` è `position:absolute; right:8px; z-index:20`
+        // e questo bottone stava nel flusso senza z-index, quindi quando la coda
+        // dei segnali è vuota — cioè proprio MENTRE un turno streama — il
+        // cerchio di chiusura gli finiva sopra. Misurato da Playwright, che
+        // rifiuta il clic dicendo «<span class="row-actions …"> subtree
+        // intercepts pointer events»: passi il mouse sulla tab per fermare il
+        // turno e sotto il dito trovi «chiudi».
+        //
+        // Perché il PIANO e non la geometria. Riservare in flusso la larghezza
+        // del binario sposterebbe il layout a ogni inizio e fine turno, e questo
+        // repo ha già la regola opposta («mai layout su stato asincrono»); farlo
+        // sempre costerebbe ~28px di etichetta a ogni tab, che è il conto che il
+        // commento di PaneTabBar aveva già rifiutato. Alzare la quota non muove
+        // un pixel: cambia solo CHI vince i pixel contesi, e li vince l'azione
+        // che esiste solo per pochi secondi ed è quella che stai cercando.
+        //
+        // Solo il ramo con `onStop`. L'altro è un glifo di sola lettura, cioè
+        // uno dei «segnali che il comando può coprire»: quello resta sotto,
+        // com'è giusto.
+        className={`group/stop relative z-30 flex-shrink-0 inline-flex items-center justify-center rounded hover:bg-black/10 dark:hover:bg-white/10 transition-colors cursor-pointer ${className}`}
         style={box}
         title={tip}
         aria-label={tip}
