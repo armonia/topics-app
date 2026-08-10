@@ -63,16 +63,13 @@ import { enqueuePendingAction, tickPendingAction, cancelPendingAction } from '..
 import { useRefMirror } from '../../../hooks/useRefMirror';
 import { basename } from '../../../lib/path-utils';
 import { resolveBrowserNavigateUrl } from '../../../lib/browserNavUrl';
-import { splitColumnWidths, appendColumnWidths, keepColumnWidths, chooseSplitOrientation } from '../gridWidths';
+import { splitColumnWidths, appendColumnWidths, chooseSplitOrientation } from '../gridWidths';
 import { notifyPaneReflow } from '../paneReflow';
 import {
   addGroupToColumnStack,
   allGroupIdsInRows,
   isColumnStackFull,
   locateGroup,
-  reconcileCellStacks,
-  pickCellStacks,
-  rowGroupIds,
 } from '../groupLayoutStacks';
 import { setBrowserSpawner, clearBrowserSpawner } from '../../../state/browserSpawner';
 import { isTauri } from '../../../lib/shell';
@@ -87,6 +84,8 @@ import {
   movePaneBetweenGroups,
   paneTypeToGroupType,
 } from './groupOps';
+import { reconcileGroupsWithPanes } from './groupPaneReconcile';
+import { reconcileRowsWithGroups } from './rowLayoutReconcile';
 import { popOutTopic } from '../../../lib/popOutTopic';
 
 // --- Module-local helpers (mirrors of ProjectWindow.tsx helpers) ---
@@ -755,121 +754,22 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
   }, [pendingBrowserSplit, panes, groups]);
 
   // --- Sync groups with panes (orphan-sync, immutable, no mutations) ---
+  // La regola sta in `reconcileGroupsWithPanes` (puro, testato); qui resta solo
+  // il ponte verso lo stato: leggere il fuoco dalla ref e parcheggiare la chat
+  // di anteprima sostituita per l'effetto che la chiude.
   useEffect(() => {
     setGroups(prev => {
-      const allPaneIds = new Set(panes.map(p => p.id));
-      let anyGroupChanged = false;
-      let updated = prev.map(g => {
-        const filtered = g.paneIds.filter(id => allPaneIds.has(id));
-        if (filtered.length === g.paneIds.length) return g;
-        anyGroupChanged = true;
-        const activePaneId = filtered.includes(g.activePaneId)
-          ? g.activePaneId
-          : filtered[0] || g.activePaneId;
-        return { ...g, paneIds: filtered, activePaneId };
-      });
-      const beforeFilterLen = updated.length;
-      updated = updated.filter(g => g.paneIds.length > 0);
-      if (updated.length !== beforeFilterLen) anyGroupChanged = true;
-
-      const paneToGroupIdx = new Map<string, number>();
-      for (let i = 0; i < updated.length; i++) {
-        for (const pid of updated[i].paneIds) {
-          paneToGroupIdx.set(pid, i);
-        }
-      }
-
-      // Skip the pane that reopenChatPane is about to place into an explicit
-      // target group — see pendingTargetedChatRef. Leaving it orphan for this
-      // tick prevents type-affinity from claiming it into a 'chat' group.
-      const targetedChatId = pendingTargetedChatRef.current?.paneId;
-      const orphanPanes = panes.filter(
-        p => !paneToGroupIdx.has(p.id) && p.id !== targetedChatId,
+      const { groups: next, previewCloseTopicId } = reconcileGroupsWithPanes(
+        prev,
+        panes,
+        focusedGroupIdRef.current,
+        // Skip the pane that reopenChatPane is about to place into an explicit
+        // target group — see pendingTargetedChatRef. Leaving it orphan for this
+        // tick prevents type-affinity from claiming it into a 'chat' group.
+        pendingTargetedChatRef.current?.paneId,
       );
-
-      if (!anyGroupChanged && orphanPanes.length === 0) return prev;
-
-      const orphansByType = new Map<PaneGroupType, Pane[]>();
-      for (const p of orphanPanes) {
-        const gt = paneTypeToGroupType(p.type);
-        if (!orphansByType.has(gt)) orphansByType.set(gt, []);
-        orphansByType.get(gt)!.push(p);
-      }
-
-      const groupIdToIdx = new Map<string, number>();
-      for (let i = 0; i < updated.length; i++) {
-        groupIdToIdx.set(updated[i].id, i);
-      }
-      const groupTypeToFirstIdx = new Map<PaneGroupType, number>();
-      for (let i = 0; i < updated.length; i++) {
-        if (!groupTypeToFirstIdx.has(updated[i].type)) {
-          groupTypeToFirstIdx.set(updated[i].type, i);
-        }
-      }
-
-      const curFocusedGroupId = focusedGroupIdRef.current;
-      const focusedIdx = curFocusedGroupId ? groupIdToIdx.get(curFocusedGroupId) : undefined;
-      const focusedGroup = focusedIdx !== undefined ? updated[focusedIdx] : null;
-
-      for (const [gt, orphans] of orphansByType) {
-        let targetIdx: number | undefined;
-        if (focusedGroup?.type === gt) {
-          targetIdx = focusedIdx;
-        }
-        if (targetIdx === undefined) {
-          targetIdx = groupTypeToFirstIdx.get(gt);
-        }
-        if (targetIdx === undefined && focusedIdx !== undefined) {
-          targetIdx = focusedIdx;
-        }
-        if (targetIdx === undefined && updated.length > 0) {
-          targetIdx = 0;
-        }
-
-        if (targetIdx !== undefined) {
-          const tIdx = targetIdx;
-          const previewOrphan = orphans.find(o => o.preview);
-          if (previewOrphan) {
-            const targetGroup = updated[tIdx];
-            const existingPreview = findPreviewPane(
-              targetGroup.paneIds
-                .map(id => panes.find(p => p.id === id))
-                .filter((p): p is Pane => !!p && paneTypeToGroupType(p.type) === gt),
-              previewOrphan.id,
-            );
-            if (existingPreview) {
-              const newPaneIds = replacePaneInGroup(targetGroup.paneIds, existingPreview.id, previewOrphan.id);
-              const otherOrphans = orphans.filter(o => o !== previewOrphan);
-              updated = updated.map((g, i) =>
-                i === tIdx
-                  ? {
-                      ...g,
-                      paneIds: otherOrphans.length > 0 ? [...newPaneIds, ...otherOrphans.map(p => p.id)] : newPaneIds,
-                      activePaneId: previewOrphan.id,
-                    }
-                  : g,
-              );
-              if (gt === 'chat' && existingPreview.topicId) {
-                pendingPreviewCloseRef.current = existingPreview.topicId;
-              }
-              continue;
-            }
-          }
-          updated = updated.map((g, i) =>
-            i === tIdx ? { ...g, paneIds: [...g.paneIds, ...orphans.map(p => p.id)] } : g,
-          );
-        } else {
-          const newGroup: PaneGroup = {
-            id: createGroupId(),
-            paneIds: orphans.map(p => p.id),
-            activePaneId: orphans[0].id,
-            type: gt,
-          };
-          updated = [...updated, newGroup];
-        }
-      }
-
-      return updated;
+      if (previewCloseTopicId) pendingPreviewCloseRef.current = previewCloseTopicId;
+      return next;
     });
   }, [panes, focusedGroupIdRef]);
 
@@ -877,104 +777,17 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
   // Restore-active-chat is owned by `useProjectChatSync` via
   // `applyChatReconciliation.activateInGroup` (Commit 4) — the layout-side
   // effect that used to live here was redundant and has been removed.
+  //
+  // La regola sta in `reconcileRowsWithGroups` (puro, testato). `rows` e
+  // `rowHeights` restano fuori dalle dipendenze perché sono l'OUTPUT di questa
+  // passata, non il suo input — ora la firma della funzione lo dice al posto di
+  // un commento, e i due `.current` sono i suoi argomenti.
   useEffect(() => {
-    const allGroupIds = new Set(groups.map(g => g.id));
-    // First reconcile per-column vertical stacks: drop dead stacked members,
-    // promote a survivor when a column's primary died, prune empty stacks. This
-    // runs BEFORE the column/row pruning below so a promoted primary is seen as
-    // live and a fully-dead column is left for the width-preserving filter to
-    // drop. `cellStacks` then rides through that filter via pickCellStacks.
-    const reconciled = reconcileCellStacks(rowsRef.current, allGroupIds);
-    const curRows = reconciled.rows;
-    let anyRowChanged = reconciled.changed;
-    let newRows = curRows.map(r => {
-      // Keep the indices of groups that still exist, in order.
-      const keepIdx: number[] = [];
-      for (let i = 0; i < r.groupIds.length; i++) {
-        if (allGroupIds.has(r.groupIds[i])) keepIdx.push(i);
-      }
-      if (keepIdx.length === r.groupIds.length) return r;
-      anyRowChanged = true;
-      const groupIds = keepIdx.map(i => r.groupIds[i]);
-      // Preserve the surviving columns' manual widths (renormalised) instead of
-      // flattening them to equal — dropping a group must not reset its siblings.
-      const widths = keepColumnWidths(r.widths, keepIdx);
-      // Keep the surviving columns' vertical stacks; drop entries keyed by a
-      // pruned primary (reconcile never leaves a dead primary heading a stack).
-      const cellStacks = pickCellStacks(r.cellStacks, groupIds);
-      return { groupIds, widths, ...(cellStacks ? { cellStacks } : {}) };
-    });
-    // Track which pre-filter row indices survive (== indices into rowHeights),
-    // so the surviving rows' manual heights can be preserved below instead of
-    // flattening to 1/n — the vertical twin of the width preservation above.
-    const keptRowIdx: number[] = [];
-    const beforeLen = newRows.length;
-    newRows = newRows.filter((r, i) => {
-      const keep = r.groupIds.length > 0;
-      if (keep) keptRowIdx.push(i);
-      return keep;
-    });
-    if (newRows.length !== beforeLen) anyRowChanged = true;
-
-    // Count BOTH column primaries and stacked members as "placed" — a stacked
-    // group must not also be re-added as a fresh top-level column (it would
-    // render twice). allGroupIdsInRows walks primaries + every cellStack.
-    const usedAfterClean = new Set(newRows.flatMap(rowGroupIds));
-    const newGroupIds = groups.filter(g => !usedAfterClean.has(g.id)).map(g => g.id);
-    if (newGroupIds.length > 0) {
-      anyRowChanged = true;
-      if (newRows.length === 0) {
-        newRows = [{ groupIds: newGroupIds, widths: newGroupIds.map(() => 1 / newGroupIds.length) }];
-      } else {
-        // Respect MAX_COLS_PER_ROW (handleSplitGroup enforces it; this
-        // additive path must not bypass it): fill the first row up to the
-        // cap, overflow into a fresh row below.
-        const firstRow = newRows[0];
-        const slots = Math.max(0, MAX_COLS_PER_ROW - firstRow.groupIds.length);
-        const toFirst = newGroupIds.slice(0, slots);
-        const overflow = newGroupIds.slice(slots);
-        let rebuilt = newRows;
-        if (toFirst.length > 0) {
-          const all = [...firstRow.groupIds, ...toFirst];
-          // Give the newly-appeared groups a fair share but keep the first
-          // row's existing columns in proportion (was `1/n` — reset on every
-          // add).
-          rebuilt = [{ ...firstRow, groupIds: all, widths: appendColumnWidths(firstRow.widths, toFirst.length) }, ...rebuilt.slice(1)];
-        }
-        if (overflow.length > 0) {
-          rebuilt = [...rebuilt, { groupIds: overflow, widths: overflow.map(() => 1 / overflow.length) }];
-        }
-        newRows = rebuilt;
-      }
-    }
-
-    if (newRows.length === 0 && groups.length > 0) {
-      anyRowChanged = true;
-      const gids = groups.map(g => g.id);
-      newRows = [{ groupIds: gids, widths: gids.map(() => 1 / gids.length) }];
-    }
-
-    if (anyRowChanged) {
-      setRows(newRows);
-      const curHeights = rowHeightsRef.current;
-      if (newRows.length !== curHeights.length) {
-        // When rows were purely removed (every survivor maps back to a height
-        // via keptRowIdx) preserve their manual heights in proportion; only
-        // fall back to an equal split when brand-new rows were created.
-        setRowHeights(
-          keptRowIdx.length === newRows.length && newRows.length > 0
-            ? keepColumnWidths(curHeights, keptRowIdx)
-            : newRows.map(() => 1 / newRows.length),
-        );
-      }
-    }
-    // `rows` e `rowHeights` si leggono dalle ref di proposito: sono l'OUTPUT di
-    // questo effetto, non il suo input. Metterli fra le dipendenze lo farebbe
-    // ripartire su ciò che ha appena scritto — un ciclo che si combatte da solo
-    // a ogni ridimensionamento. L'unico ingresso vero è `groups`: questa è la
-    // passata che riconcilia righe e altezze all'insieme dei gruppi vivi.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [groups]);
+    const next = reconcileRowsWithGroups(rowsRef.current, rowHeightsRef.current, groups);
+    if (!next) return;
+    setRows(next.rows);
+    if (next.rowHeights) setRowHeights(next.rowHeights);
+  }, [groups, rowsRef, rowHeightsRef]);
 
   // --- Migration: if no groups but we have panes, build defaults ---
   const migrated = useRef(false);
