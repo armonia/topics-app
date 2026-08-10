@@ -21,7 +21,7 @@ import { archiveTopicFully } from "./server/services/archive-topic";
 import { applyPaneCascade, reconcile, recordRetirement, retiredIds, type ReconcileDeps } from "./server/services/retirement";
 import { computeCascade } from "./server/services/pane-retirement-cascade";
 import { createOpenRouter } from "./server/routes/open";
-import { configureSessionParking, parkTopicSession } from "./server/lib/session-parking";
+import { configureSessionParkingForTracker, parkTopicSession } from "./server/lib/session-parking";
 import { setUploadRootsProvider } from "./server/browser-tool-dispatcher";
 import { uploadAllowedRoots, parseExtraRoots } from "./server/lib/upload-allowlist";
 import { createVoiceRouter } from "./server/routes/voice";
@@ -433,10 +433,7 @@ const claudeSessionTracker = createClaudeSessionTracker({ db: ctx.db, broadcast:
 // deve anche mettere a riposo la sua sessione, o la fase resta viva per sempre
 // su una chat che non ha più né riga né tab. Configurata qui perché il tracker
 // nasce DOPO il contesto; i tre percorsi di archiviazione la chiamano.
-configureSessionParking((sessionKey) => {
-  const st = claudeSessionTracker.getSessionByKey(sessionKey);
-  if (st?.claudeSessionId) claudeSessionTracker.noteDormant(st.claudeSessionId);
-});
+configureSessionParkingForTracker(claudeSessionTracker);
 
 // Shared-session WebRTC transport broker (spawns the Rust sidecar lazily on first
 // offer; no-op when its binary is missing → clients fall back to the JPEG stream).
