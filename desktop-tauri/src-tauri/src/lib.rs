@@ -1407,11 +1407,29 @@ async fn decide_upstream_and_spawn(app: tauri::AppHandle) {
         if healthy {
             let h = app_health.clone();
             let _ = app_health.run_on_main_thread(move || {
-                eval_in_main_webview(&h, "window.location.reload()");
+                eval_in_main_webview(&h, COLD_START_RELOAD_JS);
             });
         }
     });
 }
+
+/// L'UNICO reload SILENZIOSO e INCONDIZIONATO della app: parte senza che nessuno
+/// abbia premuto niente, non lascia segno, e ricarica quello che c'è sullo schermo
+/// qualunque cosa sia. Ha una sola licenza, ed è la finestra in cui viene sparato:
+/// il cold start. L'upstream è appena salito, il client si è collegato mentre il
+/// server ancora non rispondeva e ha in cache una fetch fallita — non c'è nessuna
+/// sessione viva da buttare via e nessun «hai premuto» da confermare.
+///
+/// Fuori da quella finestra un reload muto è un difetto, non una feature: lo
+/// schermo sbatte, il lavoro sparisce e l'utente conclude «è crashato». Gli altri
+/// tre reload del guscio sono di categorie diverse e restano legittimi:
+/// `RELOAD_WITH_FLASH_JS` è ANNUNCIATO (⌘R lascia il toast), `RELOAD_IF_BLANK_JS` e
+/// la pagina di `reconnect_page_response` sono AUTO-LIMITATI (ricaricano solo un
+/// documento che non ha niente da perdere). Un secondo membro di QUESTA categoria
+/// non si aggiunge: `reloadFlash.test.ts` conta i siti di reload uno per uno e
+/// diventa rosso — se ti serve davvero, cambia la guardia spiegando perché, non il
+/// numero.
+const COLD_START_RELOAD_JS: &str = "window.location.reload()";
 
 /// JS that reloads the main document ONLY IF it has nothing on screen. Sent by the
 /// upstream watchdog after the server comes back: a live app (mounted `#root`) is
