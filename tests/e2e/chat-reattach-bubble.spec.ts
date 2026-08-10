@@ -39,6 +39,16 @@ test.use({ video: "on" });
 const TESTO = "Ho letto le mail e trovato la pratica di voltura.";
 const MSG_ID = "reatt-bubble-0001";
 
+/**
+ * Le tre fasi qui succedono in un frame: sono frame WS, non azioni di
+ * Playwright, quindi lo `slowMo` di `E2E_EVIDENCE` non le tocca e la clip
+ * verrebbe illeggibile. Solo nella run di consegna ogni fase resta a schermo
+ * quanto basta a vederla; nella run normale non si aspetta niente.
+ */
+const EVIDENZA = process.env.E2E_EVIDENCE === "1";
+const posa = (page: import("@playwright/test").Page) =>
+  EVIDENZA ? page.waitForTimeout(1_600) : Promise.resolve();
+
 test.describe("Riadozione: la bolla si svuota, il record no", () => {
   let topicId: string;
   let topicName: string;
@@ -95,16 +105,19 @@ test.describe("Riadozione: la bolla si svuota, il record no", () => {
     send({ type: "stream:start", messageId: MSG_ID });
     await detta(send);
     await expect(bolla).toContainText(TESTO, { timeout: 10_000 });
+    await posa(page);
 
     // Il server riparte e riadotta QUESTO turno: stessa bolla, `reattached`.
     send({ type: "stream:start", messageId: MSG_ID, reattached: true });
     // La bolla si svuota: è l'azzeramento che prima si faceva cancellando la
     // riga in DB.
     await expect(bolla).not.toContainText("voltura", { timeout: 10_000 });
+    await posa(page);
 
     // Il provider ri-detta lo stesso turno da capo.
     await detta(send);
     send({ type: "stream:end", messageId: MSG_ID });
+    await posa(page);
 
     // Una volta sola. `toContainText` con una stringa passa anche su un testo
     // doppio: si contano le occorrenze.
@@ -125,10 +138,12 @@ test.describe("Riadozione: la bolla si svuota, il record no", () => {
     send({ type: "stream:start", messageId: MSG_ID });
     await detta(send);
     await expect(bolla).toContainText(TESTO, { timeout: 10_000 });
+    await posa(page);
 
     send({ type: "stream:start", messageId: MSG_ID });
     await detta(send);
     send({ type: "stream:end", messageId: MSG_ID });
+    await posa(page);
 
     await expect
       .poll(async () => ((await bolla.innerText()).match(/trovato la pratica di voltura/g) ?? []).length, { timeout: 10_000 })
