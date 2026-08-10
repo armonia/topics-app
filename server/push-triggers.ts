@@ -11,9 +11,9 @@ let resolveTopicSilenced: ((topicId: string) => boolean) | null = null;
 export function configurePushTriggers(opts: {
   getTopicName: (topicId: string) => string | null | undefined;
   /**
-   * Il topic è ARCHIVIATO o MUTATO? La push di fine risposta è l'unica che
-   * parte da un evento di chat, ed era l'unica superficie di notifica senza
-   * questo cancello: il banner in-app lo ha (`isTopicMuted` in
+   * Il topic è da zittire? La push di fine risposta è l'unica che parte da un
+   * evento di chat, ed era l'unica superficie di notifica senza questo
+   * cancello: il banner in-app lo ha (`isTopicMuted` in
    * useCompletionNotifier), la push no. Finché non esiste una subscription
    * attiva il buco non si vede — ed è esattamente il motivo per cui va chiuso
    * ora e non quando colleghi il telefono.
@@ -22,14 +22,58 @@ export function configurePushTriggers(opts: {
    * perdita in piedi in silenzio se un domani il cablaggio si perde. Il
    * chiamante di prod è uno solo (createAppContext) e il tipo lo costringe.
    *
-   * Copre `Topic.muted` (per-topic, migration 073) e `archived`. NON copre
-   * `AppSettings.mutedProjects`, che è una preferenza del client e il server
-   * non legge: un progetto mutato zittisce il banner, non ancora la push.
+   * La DECISIONE è `isTopicSilenced` qui sotto (pura, testata); questo hook
+   * porta solo i due dati che le servono e che vivono sul DB — la riga del
+   * topic e `mutedProjects` letto da `ui_state.settings`.
    */
   isTopicSilenced: (topicId: string) => boolean;
 }): void {
   resolveTopicName = opts.getTopicName;
   resolveTopicSilenced = opts.isTopicSilenced;
+}
+
+/**
+ * Il minimo che serve per decidere il silenzio. Forma STRUTTURALE, non
+ * `Topic`: un `Topic` intero la soddisfa (è come la chiama `createAppContext`)
+ * ma il modulo resta senza dipendenze sullo schema, e il test può montare tre
+ * campi invece di venti.
+ */
+export type SilenceableTopic = {
+  archived?: boolean | null;
+  muted?: boolean | null;
+  projectPath?: string | null;
+};
+
+/**
+ * Questo topic va zittito? Decisione PURA — tre sorgenti di mute indipendenti,
+ * una qualsiasi basta:
+ *   · `archived`  → una chat che l'interfaccia non mostra più. Un turno che si
+ *     chiude lì (il dispatcher che pota, un reattach che finisce un giro) non è
+ *     un evento per cui svegliare qualcuno.
+ *   · `muted`     → mute per-TOPIC (migration 073), viaggia col topic.
+ *   · progetto in `mutedProjects` → mute per-PROGETTO, chiavato per
+ *     `projectPath`. Vive in `AppSettings` e il client lo pubblica al server da
+ *     sempre (`PUT /api/ui-state/settings`: non è un campo device-local, quindi
+ *     è dentro `syncableSettings`) — mancava solo qualcuno che lo LEGGESSE.
+ *     Stesso spazio di chiavi del gate in-app: `mutedProjects` contiene
+ *     `item.projectPath` grezzo (TopicTree) e qui si confronta con
+ *     `Topic.projectPath`, senza normalizzazioni che i due lati non fanno.
+ *
+ * Il verso di sicurezza è OPPOSTO a quello del gemello client
+ * (`client/src/lib/notify/muteGate.ts`), di proposito: là un topic sconosciuto
+ * NON è mutato (perdere un banner è peggio di averne uno di troppo), qui un
+ * topic che non esiste è zittito — non c'è niente da nominare, e una push è
+ * un'interruzione su un telefono, non una riga in una lista.
+ */
+export function isTopicSilenced(
+  topic: SilenceableTopic | null | undefined,
+  mutedProjects: readonly string[] | null | undefined,
+): boolean {
+  if (!topic) return true;
+  if (topic.archived || topic.muted) return true;
+  const proj = topic.projectPath;
+  if (!proj) return false;
+  return (mutedProjects ?? []).includes(proj);
 }
 
 // Fire-and-forget: maybeSendPush runs synchronously after broadcastToAll, so a
