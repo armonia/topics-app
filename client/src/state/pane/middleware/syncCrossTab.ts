@@ -22,7 +22,7 @@
  * carries a fresh server_seq.
  */
 import { usePaneStore } from '../store';
-import { PANE_STORE_LOCAL_KEY } from './persistLocal';
+import { PANE_STORE_LOCAL_KEY } from './storageKeys';
 
 let started = false;
 
