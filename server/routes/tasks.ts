@@ -35,6 +35,7 @@ import { decidePostLandReap, type BranchStatus, type LandOutcome } from "../serv
 import { formatChecksComment, parseReviewChecks, runReviewChecks, type ReviewCheck } from "../services/review-checks";
 import { createTaskAttemptStore, type TaskAttempt } from "../services/task-attempts";
 import { linkNotes, proposeLink, type LinkKind } from "../services/task-intake";
+import { recordRetirement } from "../services/retirement";
 import { attemptHasWork, formatAttemptStat } from "../../shared/task-attempt";
 
 const ERROR_STATUS: Record<string, number> = {
@@ -368,10 +369,17 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     try {
       const topic = ctx.getTopicById(a.topicId);
       if (!topic || topic.archived) return;
+      const at = new Date().toISOString();
       topic.archived = true;
-      topic.updatedAt = new Date().toISOString();
+      topic.updatedAt = at;
       ctx.saveSingleTopic(topic);
       broadcastToAll({ type: "topic:archived", topic });
+      // Il fatto (`services/retirement.ts`) accanto al flag. Questa e' la QUARTA
+      // strada che alza `archived` da sola: non la si riscrive qui — il ritiro
+      // per intero e' `archiveTopicFully` — ma senza il timbro il ritiro di un
+      // tentativo perdente sarebbe invisibile alla query che risponde «cosa e'
+      // aperto», che e' precisamente il guasto che si sta chiudendo.
+      recordRetirement(ctx.db, "topic", topic.id, at, "attempt-reap");
     } catch (err) { console.error(`[attempts] archive topic ${a.topicId}`, err); }
   }
 
