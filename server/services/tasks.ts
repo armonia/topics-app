@@ -125,6 +125,9 @@ export interface Task {
   priorityAuto: boolean;
   /** Model override for the agent topic. null = auto (provider default). */
   model: string | null;
+  /** Lo sforzo con cui il task ha girato davvero (dal topic dell'agente). Sola
+   *  lettura: con la board su `auto` è l'unico posto in cui la scelta si vede. */
+  effort: string | null;
   /** Dependency: not dispatch-eligible until this task is done/archived. */
   blockedByTaskId: string | null;
   /** Branch the task delivered on, snapshotted at the transition into `review`. */
@@ -533,6 +536,29 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     return null;
   }
 
+  /**
+   * Lo sforzo con cui il task ha girato DAVVERO.
+   *
+   * Gemello di `resolveModel`, e per la stessa ragione: con la board su `auto`
+   * lo sceglie il classificatore task per task, e senza questo la scelta non si
+   * vede da nessuna parte — né sulla card né nell'API, solo nel log del server.
+   * Una decisione dinamica che non si può ispezionare è peggio di una fissa: è
+   * la leva più cara che abbiamo (stesso lavoro: `medium` 61,1k token, `xhigh`
+   * 108,8k), e non poterla leggere significa non poter verificare un conto.
+   *
+   * Non c'è una colonna `tasks.effort` e non serve: l'autorità è il TOPIC, che è
+   * ciò che viene davvero passato allo spawn. Duplicarla su `tasks` creerebbe
+   * due verità libere di divergere.
+   */
+  function resolveEffort(r: any): string | null {
+    if (!r.assigned_topic_id) return null;
+    try {
+      const t = db.prepare("SELECT effort FROM topics WHERE id = ?").get(r.assigned_topic_id) as { effort?: string | null } | undefined;
+      return t?.effort ?? null;
+    } catch { /* topics stub senza colonna effort (test) */ }
+    return null;
+  }
+
   function rowToTask(r: any): Task {
     return {
       id: r.id,
@@ -564,6 +590,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       agentCacheReadTokens: r.agent_cache_read_tokens ?? 0,
       priorityAuto: r.priority_auto == null ? true : !!r.priority_auto,
       model: resolveModel(r),
+      effort: resolveEffort(r),
       blockedByTaskId: r.blocked_by_task_id ?? null,
       deliveryBranch: r.delivery_branch ?? null,
       deliveryCommit: r.delivery_commit ?? null,

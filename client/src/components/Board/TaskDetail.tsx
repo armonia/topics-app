@@ -1332,12 +1332,12 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                   onClick={() => setModelMenuOpen(true)}
                   data-testid="task-model-chip"
                   title={(task.agentMs > 0 || task.agentTokens > 0)
-                    ? `Modello ${task.model ? fmtModel(task.model) : 'Auto'} · effort ${fmtMs(task.agentMs)}${task.agentTokens ? `, ${task.agentTokens.toLocaleString('it-IT')} token` : ''}${task.agentCacheReadTokens > 0 ? ` (+${fmtTok(task.agentCacheReadTokens)} cache read)` : ''} — clicca per cambiare modello`
+                    ? `Modello ${task.model ? fmtModel(task.model) : 'Auto'}${task.effort ? ` · sforzo ${task.effort}` : ''} · tempo ${fmtMs(task.agentMs)}${task.agentTokens ? `, ${task.agentTokens.toLocaleString('it-IT')} token` : ''}${task.agentCacheReadTokens > 0 ? ` (+${fmtTok(task.agentCacheReadTokens)} cache read)` : ''} — clicca per cambiare modello`
                     : "Modello dell'agent — Auto = il classificatore opus-first sceglie per task"}
                   className="flex min-w-0 items-center gap-1.5 rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-app-text-secondary hover:bg-white/20"
                 >
                   <Sparkles className="h-3 w-3 shrink-0 text-app-text-muted" />
-                  <span className="truncate">{task.model ? fmtModel(task.model) : 'Auto'}{(task.agentMs > 0 || task.agentTokens > 0) && ` · ⏱ ${fmtMs(task.agentMs)}${task.agentTokens > 0 ? ` · ${fmtTok(task.agentTokens)} tok` : ''}`}</span>
+                  <span className="truncate">{task.model ? fmtModel(task.model) : 'Auto'}{task.effort ? ` · ${task.effort}` : ''}{(task.agentMs > 0 || task.agentTokens > 0) && ` · ⏱ ${fmtMs(task.agentMs)}${task.agentTokens > 0 ? ` · ${fmtTok(task.agentTokens)} tok` : ''}`}</span>
                   <ChevronDown className="h-3 w-3 shrink-0 text-app-text-muted" />
                 </button>
                 <Menu open={modelMenuOpen} anchorRef={modelBtnRef} onClose={() => setModelMenuOpen(false)} minWidth={200} role="listbox">

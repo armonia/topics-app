@@ -27,7 +27,7 @@ describe("reserved action labels", () => {
 function freshDb(): Database {
   const db = new Database(":memory:");
   db.run("PRAGMA foreign_keys = ON");
-  db.run(`CREATE TABLE topics (id TEXT PRIMARY KEY)`);
+  db.run(`CREATE TABLE topics (id TEXT PRIMARY KEY, effort TEXT)`);
   db.run(`CREATE TABLE tasks (
     id TEXT PRIMARY KEY, project_id TEXT NOT NULL, text TEXT NOT NULL, description TEXT,
     status TEXT NOT NULL DEFAULT 'todo', priority INTEGER NOT NULL DEFAULT 2,
@@ -873,6 +873,29 @@ describe("board settings", () => {
 
   test("rejects an invalid effort", () => {
     expect(() => s.updateBoardSettings(PID, { dispatchEffort: "turbo" })).toThrow(TaskServiceError);
+  });
+
+  test("il task espone lo sforzo con cui ha girato DAVVERO, letto dal topic", () => {
+    // Con la board su `auto` lo sceglie il classificatore, e senza questo campo
+    // la scelta non si vede da nessuna parte: ne' sulla card ne' nell'API, solo
+    // nel log del server. E' la leva di costo piu' pesante che abbiamo.
+    const t = s.create({ projectId: PID, text: "x" });
+    db.run("INSERT INTO topics (id, effort) VALUES ('topic-1', 'xhigh')");
+    db.run("UPDATE tasks SET assigned_topic_id = 'topic-1' WHERE id = ?", [t.id]);
+    expect(s.get(t.id)!.task.effort).toBe("xhigh");
+  });
+
+  test("nessun topic assegnato → effort null, non un valore inventato", () => {
+    const t = s.create({ projectId: PID, text: "y" });
+    expect(s.get(t.id)!.task.effort).toBeNull();
+  });
+
+  test("accetta `auto` come effort di board (lo sceglie il classificatore)", () => {
+    // Senza questo, accendere l'effort dinamico e' impossibile dall'API: `auto`
+    // non e' un tier della scala e verrebbe rifiutato come "turbo".
+    const bs = s.updateBoardSettings(PID, { dispatchEffort: "auto" });
+    expect(bs.dispatchEffort).toBe("auto");
+    expect(s.getBoardSettings(PID).dispatchEffort).toBe("auto");
   });
 
   test("enabling auto-dispatch alone keeps the cap at 2 (not the legacy column default 5)", () => {
