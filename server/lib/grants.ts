@@ -16,28 +16,37 @@
  * righe PRIMA, ed è lavoro di fondamenta, non una voce in un enum.
  */
 
-/** Chi riceve. Oggi uno solo: è l'unica identità che esiste. */
-export type SubjectType = 'device';
-
 /** Cosa si riceve. Le due entità che hanno una riga a cui appendere il permesso. */
 export type ResourceType = 'task' | 'topic';
 
-/**
- * Cosa può fare. Solo lettura, e non per prudenza generica: un ospite che scrive
- * in un thread o dispaccia un agente tocca terminali, file e chiavi — è una
- * superficie diversa, e va progettata quando il caso esisterà davvero.
+/*
+ * IL SOGGETTO E IL LIVELLO NON STANNO QUI, e l'assenza è deliberata.
+ *
+ * Fino alla 084 questo file dichiarava anche `SubjectType = 'device'`,
+ * `GrantLevel = 'read'` e la riga intera (`interface Grant`). La 084 ha
+ * RICOSTRUITO la tabella allargando entrambi i CHECK — il soggetto ammette ora
+ * device, person e org; il livello, read e deny — e ha messo le union nuove
+ * accanto a chi legge e scrive davvero le righe:
+ * `SubjectKind`, `GrantLevel` e `GrantRow` in `grants-query.ts`, l'unica porta
+ * da cui si interroga `grants`.
+ *
+ * Le tre dichiarazioni rimaste qui non erano quindi soltanto inutilizzate: erano
+ * la copia VECCHIA di un'union che il DB aveva già superato, cioè esattamente la
+ * deriva CHECK↔TypeScript che il commento della 083 raccomanda di non ripetere.
+ * Tiparci sopra un grant avrebbe RIFIUTATO le righe `person`/`org` e `deny` che
+ * esistono davvero. La forma viva è `GrantRow` (lettura) e `putGrant` (scrittura),
+ * entrambe in `grants-query.ts`; nessun grant viaggia come oggetto non tipizzato.
+ *
+ * `ResourceType` resta qui perché è la sola delle tre che non è cambiata, ed è
+ * quella che questo modulo usa per decidere (`isResourceType`, `frameResource`).
+ *
+ * I CHECK sopra sono descritti a parole e non copiati come SQL di proposito:
+ * `tests/unit/single-door.test.ts` tratta il nome della colonna del soggetto
+ * come sentinella — se compare in un file che non sia `grants-query.ts`,
+ * qualcuno sta interrogando `grants` da una seconda porta. La sentinella non
+ * sa distinguere un commento da una query, e ha ragione a non provarci: il
+ * costo è riscrivere una riga come questa, il ricavo è che la porta resta una.
  */
-export type GrantLevel = 'read';
-
-export interface Grant {
-  id: string;
-  subjectType: SubjectType;
-  subjectId: string;
-  resourceType: ResourceType;
-  resourceId: string;
-  level: GrantLevel;
-  grantedAt: number;
-}
 
 export const RESOURCE_TYPES: readonly ResourceType[] = ['task', 'topic'] as const;
 

@@ -26,7 +26,12 @@ const HANDOFF_TTL_MS = 3000;
 
 const promoted = new Map<string, number>();
 
-if (typeof window !== 'undefined') {
+// Capability, not existence: sotto bun:test alcuni file installano un `window`
+// finto e parziale su globalThis (e non sempre lo tolgono), quindi `typeof
+// window !== 'undefined'` può essere vero mentre il metodo che stiamo per
+// chiamare non c'è. Questo blocco gira all'IMPORT: un throw qui affonderebbe
+// il modulo per chiunque lo importi.
+if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
   window.addEventListener('topics:pane-id-remap', (e: Event) => {
     const to = (e as CustomEvent<{ from?: string; to?: string }>).detail?.to;
     if (to) promoted.set(to, Date.now());
@@ -42,9 +47,4 @@ export function claimCenteredHandoff(topicId: string): boolean {
   if (at === undefined) return false;
   promoted.delete(topicId);
   return Date.now() - at < HANDOFF_TTL_MS;
-}
-
-/** Solo per i test: svuota le consegne in sospeso. */
-export function resetCenteredHandoffs(): void {
-  promoted.clear();
 }

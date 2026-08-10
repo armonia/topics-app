@@ -341,7 +341,9 @@ export function initServerSync(): void {
     });
   }
 
-  if (typeof window !== 'undefined') {
+  // Capability, not existence: a partial `window` stub (unit tests) satisfies
+  // the `undefined` check but has no addEventListener.
+  if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
     // pagehide → beacon (page is terminating; response can't be read anyway).
     // visibilitychange hidden → keepalive fetch (tab may resume and receive the
     // WS echo of this write, so we MUST parse server_seq for the self-echo
