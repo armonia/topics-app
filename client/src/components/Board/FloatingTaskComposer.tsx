@@ -25,7 +25,7 @@ import { POPOVER_ITEM } from '@/lib/popoverStyles';
  * sparire. Quando serve toglierlo di mezzo (un campo che gli si sovrappone, il
  * drawer a tutto schermo del telefono) lo si NASCONDE con `hidden`/`hiddenBelowLg`.
  */
-export function FloatingTaskComposer({ projectId, global, onCreated, onError, hidden, hiddenBelowLg }: {
+export function FloatingTaskComposer({ projectId, global, onCreated, onError, hidden, hiddenBelowLg, onOpenTopic }: {
   projectId: string;
   /** Cross-project mode: no implicit board — the project picker chip appears. */
   global: boolean;
@@ -35,6 +35,12 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
   hidden?: boolean;
   /** Nascosto solo sotto `lg`, dove il drawer del task è un overlay a tutto schermo. */
   hiddenBelowLg?: boolean;
+  /**
+   * Apre la chat di un topic. Serve alla porta dell'orchestratore: la sua
+   * risposta vive nella SUA sessione, e se non la si apre il gesto finisce in
+   * un silenzio — che è esattamente il «mai in muto» che la feature vieta.
+   */
+  onOpenTopic?: (topicId: string) => void;
 }) {
   const [text, setText] = useState('');
   /**
@@ -266,10 +272,14 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
       if (autoTarget || noneTarget) { onError("Scegli la board di cui parlare all'orchestratore."); setProjOpen(true); return; }
       setSubmitting(true);
       try {
-        await boardApi.askOrchestrator(target, raw);
+        const { topicId } = await boardApi.askOrchestrator(target, raw);
         setText('');
         boardDrafts.clearComposer();
         if (taRef.current) taRef.current.style.height = 'auto';
+        // La risposta arriva nella sessione dell'orchestratore: aprirla è parte
+        // del gesto, non un extra. Mandare e non mostrare dove è finito sarebbe
+        // il muto che questa feature esiste per non fare.
+        onOpenTopic?.(topicId);
         onCreated();
       } catch (e) { onError(e instanceof Error ? e.message : 'invio fallito'); }
       finally { setSubmitting(false); }
