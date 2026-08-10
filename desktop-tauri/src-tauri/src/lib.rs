@@ -895,6 +895,117 @@ async fn probe_topics_server(port: u16, tls: bool) -> bool {
         .unwrap_or(false)
 }
 
+/// How long a NON-document connection (XHR, SSE, WebSocket) waits for the upstream
+/// to come back before we give up on it. A `launchctl kickstart -k` of the external
+/// server is down for ~2s; holding the connection open across that gap means the
+/// running app never sees the outage at all.
+const UPSTREAM_GRACE: std::time::Duration = std::time::Duration::from_secs(15);
+/// Same, for a DOCUMENT navigation. Much shorter: we have something better than
+/// waiting — the reconnect page, which paints immediately and reloads itself.
+const UPSTREAM_GRACE_DOC: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// Read an HTTP request head (everything up to the blank line) off `s`, with a cap
+/// and a timeout. Returns the bytes actually read — they MUST be replayed to the
+/// upstream once we connect, since they're already out of the socket. An empty
+/// return means the peer opened a connection and said nothing yet (speculative
+/// preconnect): we then pipe blind, exactly like before.
+async fn read_request_head(s: &mut tokio::net::TcpStream) -> Vec<u8> {
+    use tokio::io::AsyncReadExt;
+    let mut head = Vec::with_capacity(1024);
+    let mut buf = [0u8; 1024];
+    let deadline = std::time::Duration::from_millis(2000);
+    let fut = async {
+        loop {
+            match s.read(&mut buf).await {
+                Ok(0) => break,
+                Ok(n) => {
+                    head.extend_from_slice(&buf[..n]);
+                    if head.windows(4).any(|w| w == b"\r\n\r\n") || head.len() >= 16 * 1024 {
+                        break;
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+    };
+    let _ = tokio::time::timeout(deadline, fut).await;
+    head
+}
+
+/// Is this request head a WebSocket upgrade? Those must never be answered with an
+/// HTML body — the client would just log a handshake error. We let them fail.
+fn is_websocket_head(head: &[u8]) -> bool {
+    let s = String::from_utf8_lossy(head).to_ascii_lowercase();
+    s.contains("upgrade: websocket")
+}
+
+/// Is this request head a top-level DOCUMENT navigation? That's the one case where
+/// a dead upstream turns into "the window is empty": a transparent, titlebar-less
+/// window whose webview has nothing to paint is INVISIBLE, not white. Detected from
+/// `Sec-Fetch-Dest: document` (WebKit always sends it) with an `Accept: text/html`
+/// fallback for anything that doesn't.
+fn is_document_head(head: &[u8]) -> bool {
+    let s = String::from_utf8_lossy(head).to_ascii_lowercase();
+    if is_websocket_head(head) {
+        return false;
+    }
+    if s.contains("sec-fetch-dest: document") {
+        return true;
+    }
+    s.lines()
+        .find(|l| l.starts_with("accept:"))
+        .is_some_and(|l| l.contains("text/html"))
+}
+
+/// The page the shell serves INSTEAD of a dead navigation. Two jobs, both of which
+/// the "nothing" we served before could not do: it PAINTS (opaque background, so
+/// the transparent window stops being invisible and the user sees a state instead
+/// of a ghost), and it RELOADS ITSELF every second — so the moment the server is
+/// back the real app returns with no human in the loop. `no-store` keeps WebKit
+/// from ever caching this in place of the app.
+fn reconnect_page_response() -> Vec<u8> {
+    let body = "<!doctype html><html><head><meta charset=\"utf-8\">\
+<title>Topics</title>\
+<style>html,body{height:100%;margin:0;background:#1c1c1e;color:#98989d;\
+font:13px/1.5 -apple-system,system-ui,sans-serif;\
+display:flex;align-items:center;justify-content:center;-webkit-user-select:none}\
+.d{width:6px;height:6px;border-radius:50%;background:#98989d;margin-right:8px;\
+animation:p 1.2s ease-in-out infinite}\
+@keyframes p{0%,100%{opacity:.25}50%{opacity:1}}</style></head>\
+<body><div class=\"d\"></div>In attesa del server\u{2026}\
+<script>setTimeout(function(){location.reload()},1000)</script></body></html>";
+    format!(
+        "HTTP/1.1 503 Service Unavailable\r\n\
+Content-Type: text/html; charset=utf-8\r\n\
+Content-Length: {}\r\n\
+Cache-Control: no-store\r\n\
+Connection: close\r\n\r\n{}",
+        body.len(),
+        body
+    )
+    .into_bytes()
+}
+
+/// Connect to the upstream, RETRYING until `grace` runs out. The old code gave up on
+/// the first `ECONNREFUSED`, which is exactly what a server restart looks like for
+/// the second or two it takes to rebind — one unlucky reload in that window left the
+/// window permanently empty.
+async fn connect_upstream_retrying(
+    port: u16,
+    grace: std::time::Duration,
+) -> Option<tokio::net::TcpStream> {
+    let deadline = std::time::Instant::now() + grace;
+    loop {
+        match tokio::net::TcpStream::connect(("127.0.0.1", port)).await {
+            Ok(s) => return Some(s),
+            Err(_) if std::time::Instant::now() < deadline => {
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            }
+            Err(_) => return None,
+        }
+    }
+}
+
 /// Loopback origination proxy: accept plain TCP on 127.0.0.1:PROXY_PORT and pipe it,
 /// byte-for-byte, to the chosen upstream. When the upstream is the external server
 /// (`tls=true`) we ADD TLS — WKWebView won't trust the server's local-CA cert but
@@ -906,8 +1017,7 @@ async fn probe_topics_server(port: u16, tls: bool) -> bool {
 /// server's CORS still matches. Reads the boot-decided `UPSTREAM` (defaults to the
 /// external TLS server if `decide_upstream` never ran, e.g. probe race).
 async fn run_tls_proxy() {
-    use tokio::io::copy_bidirectional;
-    use tokio::net::{TcpListener, TcpStream};
+    use tokio::net::TcpListener;
 
     let listener = match TcpListener::bind(("127.0.0.1", PROXY_PORT)).await {
         Ok(l) => l,
@@ -917,6 +1027,15 @@ async fn run_tls_proxy() {
         }
     };
     let up = *UPSTREAM.get().unwrap_or(&Upstream { port: DEFAULT_UPSTREAM_PORT, tls: true });
+    proxy_loop(listener, up).await
+}
+
+/// The accept loop, split out from `run_tls_proxy` so the outage behaviour (hold →
+/// reconnect page → self-recovery) can be driven end-to-end in a test against a real
+/// browser, on an ephemeral port, without touching :13333 or a live server.
+async fn proxy_loop(listener: tokio::net::TcpListener, up: Upstream) {
+    use tokio::io::copy_bidirectional;
+
     let tls = match native_tls::TlsConnector::builder()
         // The server presents a local-CA cert for 127.0.0.1; we originate the TLS
         // ourselves to a hard-coded loopback address, so cert/hostname validation
@@ -932,7 +1051,11 @@ async fn run_tls_proxy() {
         }
     };
     println!(
-        "[proxy] loopback proxy 127.0.0.1:{PROXY_PORT} -> {}127.0.0.1:{}",
+        "[proxy] loopback proxy {} -> {}127.0.0.1:{}",
+        listener
+            .local_addr()
+            .map(|a| a.to_string())
+            .unwrap_or_default(),
         if up.tls { "https://" } else { "http://" },
         up.port
     );
@@ -944,10 +1067,24 @@ async fn run_tls_proxy() {
         };
         let tls = tls.clone();
         tauri::async_runtime::spawn(async move {
-            let upstream = match TcpStream::connect(("127.0.0.1", up.port)).await {
-                Ok(s) => s,
-                Err(e) => {
-                    eprintln!("[proxy] upstream connect failed: {e}");
+            use tokio::io::AsyncWriteExt;
+            // Read the request head FIRST so we can tell a document navigation from
+            // an XHR/WebSocket. Whatever we read is replayed to the upstream below —
+            // it's already out of the socket, `copy_bidirectional` can't see it.
+            let head = read_request_head(&mut inbound).await;
+            let doc = is_document_head(&head);
+            let grace = if doc { UPSTREAM_GRACE_DOC } else { UPSTREAM_GRACE };
+            let upstream = match connect_upstream_retrying(up.port, grace).await {
+                Some(s) => s,
+                None => {
+                    eprintln!("[proxy] upstream :{} unreachable for {:?}", up.port, grace);
+                    if doc {
+                        // Paint SOMETHING and keep retrying by itself. Without this the
+                        // transparent window has no pixels at all — "sparita" and "vuota"
+                        // are the same state, with no way back short of a relaunch.
+                        let _ = inbound.write_all(&reconnect_page_response()).await;
+                        let _ = inbound.flush().await;
+                    }
                     return;
                 }
             };
@@ -959,9 +1096,15 @@ async fn run_tls_proxy() {
                         return;
                     }
                 };
+                if !head.is_empty() && tls_stream.write_all(&head).await.is_err() {
+                    return;
+                }
                 let _ = copy_bidirectional(&mut inbound, &mut tls_stream).await;
             } else {
                 let mut plain = upstream;
+                if !head.is_empty() && plain.write_all(&head).await.is_err() {
+                    return;
+                }
                 let _ = copy_bidirectional(&mut inbound, &mut plain).await;
             }
         });
@@ -1262,12 +1405,81 @@ async fn decide_upstream_and_spawn(app: tauri::AppHandle) {
         // Nudge the webview to reload now that the upstream is live, so a client
         // that connected during the cold start (and cached a failed fetch) re-fetches.
         if healthy {
-            use tauri::Manager;
-            if let Some(w) = app_health.get_webview_window("main") {
-                let _ = w.eval("window.location.reload()");
-            }
+            let h = app_health.clone();
+            let _ = app_health.run_on_main_thread(move || {
+                eval_in_main_webview(&h, "window.location.reload()");
+            });
         }
     });
+}
+
+/// JS that reloads the main document ONLY IF it has nothing on screen. Sent by the
+/// upstream watchdog after the server comes back: a live app (mounted `#root`) is
+/// left alone — it reconnects its own WebSocket and a forced reload would throw away
+/// a working session — while an empty document (WebKit error page, our reconnect
+/// page, a webview that lost its content) is put back on its feet. Wrapped in
+/// try/catch that reloads on failure: if we can't even inspect the DOM, the document
+/// is not in a state worth preserving.
+const RELOAD_IF_BLANK_JS: &str = "(function(){try{\
+var r=document.getElementById('root');\
+if(r&&r.childElementCount>0)return;\
+location.reload()}catch(e){location.reload()}})()";
+
+/// Run `js` in the MAIN webview. Not `get_webview_window` — once native browser panes
+/// are mounted the main window is multi-webview and that lookup returns None (see the
+/// `TlWindow` note), which is precisely the state a recovery path must survive.
+/// Falls back to the webview-window lookup for the single-webview case.
+fn eval_in_main_webview(app: &tauri::AppHandle, js: &str) -> bool {
+    use tauri::Manager;
+    if let Some(wv) = app.get_webview("main") {
+        return wv.eval(js).is_ok();
+    }
+    if let Some(w) = app.get_webview_window("main") {
+        return w.eval(js).is_ok();
+    }
+    false
+}
+
+/// Watch the upstream forever and put the window back when the server returns.
+///
+/// This is THE recovery path, and it runs in BOTH boot branches — the old
+/// `window.location.reload()` lived inside the sidecar branch only, so on a machine
+/// with an external launchd server on :3333 (the reported case) production had no
+/// recovery at all: the shell `return`ed before ever reaching it.
+///
+/// Edge-triggered on down→up: we only nudge after having actually SEEN the server
+/// down, so a healthy machine never gets a spurious reload. The nudge itself is
+/// conservative (see `RELOAD_IF_BLANK_JS`).
+async fn watch_upstream(app: tauri::AppHandle) {
+    let up = *UPSTREAM
+        .get()
+        .unwrap_or(&Upstream { port: DEFAULT_UPSTREAM_PORT, tls: true });
+    let mut was_down = false;
+    loop {
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        let alive = probe_topics_server(up.port, up.tls).await;
+        if !alive {
+            if !was_down {
+                eprintln!("[watchdog] upstream :{} is DOWN", up.port);
+            }
+            was_down = true;
+            continue;
+        }
+        if was_down {
+            eprintln!("[watchdog] upstream :{} is back — nudging the webview", up.port);
+            was_down = false;
+            // Give the server a beat to finish binding its routes before the reload
+            // fires, so the nudged navigation doesn't race the very restart it's
+            // recovering from.
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            let app2 = app.clone();
+            let _ = app.run_on_main_thread(move || {
+                if !eval_in_main_webview(&app2, RELOAD_IF_BLANK_JS) {
+                    eprintln!("[watchdog] no main webview to nudge");
+                }
+            });
+        }
+    }
 }
 
 /// Kill the sidecar if we spawned one. Called on app exit so no orphan server
@@ -3209,6 +3421,151 @@ fn unwire_live_resize_cover(wkey: usize) {
         let nc: id = msg_send![class!(NSNotificationCenter), defaultCenter];
         let _: () = msg_send![nc, removeObserver: obs];
     }
+}
+
+// ─────────────── Recompose on display change / wake (Electron parity) ───────────────
+//
+// The Electron shell had `recomposeWindow`, hung off `display-metrics-changed` and
+// `powerMonitor`: re-anchor the window onto a screen that still exists, then bounce
+// its bounds by 1px to force AppKit/WebKit to recompose. Only the "re-anchor" half
+// survived the Tauri port (PORTING-PLAN T1.3), so a display swap or a sleep/wake
+// could leave a window that the system reports as perfectly healthy — right position,
+// right size, not minimised — with nothing painted in it. On a `transparent: true`
+// window with no titlebar that reads as GONE, not as blank.
+
+/// The app handle, stashed at setup so AppKit notification callbacks (which get no
+/// user data) can reach the window. `OnceLock` because setup runs once.
+static SHELL_APP: std::sync::OnceLock<tauri::AppHandle> = std::sync::OnceLock::new();
+
+/// Does `rect` (logical points, top-left origin) overlap ANY currently-attached
+/// monitor? Pure geometry so it can be unit-tested without a screen: `monitors` is
+/// the list of monitor rects in the same space. A window that overlaps nothing is
+/// stranded on a display that no longer exists — the classic "the app is running but
+/// I can't see it" after unplugging the ultrawide.
+fn rect_intersects_any(rect: (f64, f64, f64, f64), monitors: &[(f64, f64, f64, f64)]) -> bool {
+    let (x, y, w, h) = rect;
+    monitors.iter().any(|&(mx, my, mw, mh)| {
+        x < mx + mw && mx < x + w && y < my + mh && my < y + h
+    })
+}
+
+/// Re-anchor + bounce the main window so the compositor is forced to produce a frame.
+///
+/// Re-anchor: if the saved geometry now sits entirely off every attached screen, pull
+/// the window back onto the primary one. We do NOT touch a window that is still on a
+/// screen — `-797,-1410` is where Attilio KEEPS this window on his ultrawide, and
+/// "fixing" a position the user chose is the bug, not the cure.
+///
+/// Bounce: grow the outer size by 1px and put it back a beat later. That is the half
+/// that was missing, and it's the half that actually repaints.
+fn recompose_main_window(app: &tauri::AppHandle, why: &str) {
+    use tauri::Manager;
+    let Some(win) = app.get_window("main") else { return };
+    if !win.is_visible().unwrap_or(true) || win.is_minimized().unwrap_or(false) {
+        return; // hidden to tray / minimised: nothing to recompose, and a bounce
+                // would be a visible glitch when it comes back.
+    }
+    // Read the geometry off the plain `Window` (not `window_logical_geometry`, which
+    // takes a WebviewWindow — a lookup that returns None once browser panes are up).
+    let Ok(sf) = win.scale_factor() else { return };
+    let Ok(pos) = win.outer_position() else { return };
+    let Ok(size) = win.outer_size() else { return };
+    let pos = pos.to_logical::<f64>(sf);
+    let size = size.to_logical::<f64>(sf);
+    let (x, y, w, h) = (pos.x, pos.y, size.width, size.height);
+    if w <= 0.0 || h <= 0.0 {
+        return;
+    }
+    let monitors: Vec<(f64, f64, f64, f64)> = win
+        .available_monitors()
+        .unwrap_or_default()
+        .iter()
+        .map(|m| {
+            let sf = m.scale_factor();
+            let p = m.position().to_logical::<f64>(sf);
+            let s = m.size().to_logical::<f64>(sf);
+            (p.x, p.y, s.width, s.height)
+        })
+        .collect();
+    if !monitors.is_empty() && !rect_intersects_any((x, y, w, h), &monitors) {
+        let (mx, my, _, _) = monitors[0];
+        eprintln!("[recompose] {why}: window off every screen — re-anchoring to {mx},{my}");
+        let _ = win.set_position(tauri::LogicalPosition::new(mx + 30.0, my + 80.0));
+    }
+    eprintln!("[recompose] {why}: bouncing bounds to force a redraw");
+    let _ = win.set_size(tauri::LogicalSize::new(w + 1.0, h));
+    let app2 = app.clone();
+    let (bw, bh) = (w, h);
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(120));
+        let app3 = app2.clone();
+        let _ = app2.run_on_main_thread(move || {
+            use tauri::Manager;
+            if let Some(w2) = app3.get_window("main") {
+                let _ = w2.set_size(tauri::LogicalSize::new(bw, bh));
+            }
+            // A window that came back from a dead display can also have lost its
+            // document; same conservative nudge the watchdog uses.
+            eval_in_main_webview(&app3, RELOAD_IF_BLANK_JS);
+        });
+    });
+}
+
+/// `NSApplicationDidChangeScreenParameters` / `NSWorkspaceDidWake` callback.
+#[cfg(target_os = "macos")]
+extern "C" fn on_recompose_event(
+    _this: &objc2::runtime::AnyObject,
+    _sel: objc2::runtime::Sel,
+    _notif: *mut objc2::runtime::AnyObject,
+) {
+    if let Some(app) = SHELL_APP.get() {
+        recompose_main_window(app, "display/wake");
+    }
+}
+
+/// Register the display-change and wake observers. Called ONCE from setup — the
+/// grep that found "zero listeners for display change, sleep or wake" was pointing
+/// at the absence of exactly this function.
+#[cfg(target_os = "macos")]
+fn wire_recompose_observers() {
+    use crate::mac::*;
+    use objc2::runtime::ClassBuilder;
+    #[link(name = "AppKit", kind = "framework")]
+    extern "C" {
+        static NSApplicationDidChangeScreenParametersNotification: id;
+        static NSWorkspaceDidWakeNotification: id;
+    }
+    static PTR: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    let class_ptr = *PTR.get_or_init(|| {
+        let mut decl = ClassBuilder::new(c"TopicsRecomposeObserver", class!(NSObject))
+            .expect("register TopicsRecomposeObserver");
+        unsafe {
+            decl.add_method(
+                sel!(onRecompose:),
+                on_recompose_event as extern "C" fn(_, _, _),
+            );
+        }
+        decl.register() as *const Class as usize
+    });
+    unsafe {
+        let cls = class_ptr as *const Class;
+        let obs: id = msg_send![cls, new];
+        // Screen parameters live on the DEFAULT centre; sleep/wake lives on
+        // NSWorkspace's OWN centre — registering wake on the default one is the
+        // classic silent no-op.
+        let nc: id = msg_send![class!(NSNotificationCenter), defaultCenter];
+        let _: () = msg_send![nc, addObserver: obs,
+                                   selector: sel!(onRecompose:),
+                                   name: NSApplicationDidChangeScreenParametersNotification,
+                                   object: nil];
+        let ws: id = msg_send![class!(NSWorkspace), sharedWorkspace];
+        let wnc: id = msg_send![ws, notificationCenter];
+        let _: () = msg_send![wnc, addObserver: obs,
+                                    selector: sel!(onRecompose:),
+                                    name: NSWorkspaceDidWakeNotification,
+                                    object: nil];
+    }
+    eprintln!("[recompose] observers wired (screen params + wake)");
 }
 
 // ───────────────────────── Native browser pane ─────────────────────────
@@ -8009,10 +8366,20 @@ pub fn run() {
             // sets `UPSTREAM` then RETURNS (its up-to-20s sidecar health wait is now
             // fire-and-forget), so run_tls_proxy binds :13333 immediately — the virgin
             // machine no longer sits on "connecting" for the whole cold start.
+            // Reachable from AppKit notification callbacks, which carry no user data.
+            let _ = SHELL_APP.set(app.handle().clone());
+            // Display change / wake → re-anchor + bounce (PORTING-PLAN T1.3).
+            #[cfg(target_os = "macos")]
+            wire_recompose_observers();
+
             {
                 let app_for_boot = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
-                    decide_upstream_and_spawn(app_for_boot).await;
+                    decide_upstream_and_spawn(app_for_boot.clone()).await;
+                    // The recovery path, started for BOTH upstreams (external server
+                    // and bundled sidecar) — see `watch_upstream`. Spawned before the
+                    // proxy because `run_tls_proxy` never returns.
+                    tauri::async_runtime::spawn(watch_upstream(app_for_boot));
                     run_tls_proxy().await;
                 });
             }
@@ -8817,5 +9184,223 @@ mod bundle_rev_tests {
         let out = stamp_bundle_rev("<body>x</body>", "/assets/index-Aa.js");
         assert!(out.starts_with("<meta name=\"topics-bundle-rev\""));
         assert!(out.ends_with("<body>x</body>"));
+    }
+}
+
+#[cfg(test)]
+mod window_recovery_tests {
+    use super::{
+        connect_upstream_retrying, is_document_head, is_websocket_head, rect_intersects_any,
+        reconnect_page_response, RELOAD_IF_BLANK_JS,
+    };
+    use std::time::Duration;
+
+    /// A current-thread runtime for the two socket tests (the crate's tokio has no
+    /// `macros` feature, so there is no `#[tokio::test]`).
+    fn rt() -> tokio::runtime::Runtime {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+    }
+
+    const DOC: &[u8] = b"GET / HTTP/1.1\r\nHost: 127.0.0.1:13333\r\n\
+Accept: text/html,application/xhtml+xml\r\nSec-Fetch-Dest: document\r\n\r\n";
+    const XHR: &[u8] = b"GET /api/topics HTTP/1.1\r\nHost: 127.0.0.1:13333\r\n\
+Accept: application/json\r\nSec-Fetch-Dest: empty\r\n\r\n";
+    const WS: &[u8] = b"GET /ws HTTP/1.1\r\nHost: 127.0.0.1:13333\r\n\
+Upgrade: websocket\r\nConnection: Upgrade\r\nAccept: */*\r\n\r\n";
+
+    /// Only a top-level navigation may be answered with the reconnect page: an XHR
+    /// gets HTML where it wanted JSON, and a WebSocket gets a broken handshake.
+    #[test]
+    fn only_documents_get_the_reconnect_page() {
+        assert!(is_document_head(DOC));
+        assert!(!is_document_head(XHR));
+        assert!(!is_document_head(WS));
+        assert!(is_websocket_head(WS));
+        assert!(!is_websocket_head(DOC));
+    }
+
+    /// A browser that sends no `Sec-Fetch-Dest` must still be recognised by Accept.
+    #[test]
+    fn accept_html_is_enough_without_sec_fetch_dest() {
+        let head = b"GET / HTTP/1.1\r\nHost: x\r\nAccept: text/html\r\n\r\n";
+        assert!(is_document_head(head));
+    }
+
+    /// The whole point of the page is that it PAINTS (opaque background — the window
+    /// is transparent, so "nothing" is invisible, not white) and comes back BY ITSELF.
+    #[test]
+    fn reconnect_page_paints_and_self_reloads() {
+        let r = String::from_utf8(reconnect_page_response()).unwrap();
+        assert!(r.starts_with("HTTP/1.1 503 "));
+        assert!(r.contains("Content-Type: text/html"));
+        assert!(r.contains("Cache-Control: no-store"), "must never be cached over the app");
+        assert!(r.contains("location.reload()"), "must recover with no human in the loop");
+        assert!(r.contains("background:#1c1c1e"), "must paint opaque pixels");
+        let len: usize = r
+            .split("Content-Length: ")
+            .nth(1)
+            .and_then(|s| s.split("\r\n").next())
+            .unwrap()
+            .parse()
+            .unwrap();
+        let body = r.split("\r\n\r\n").nth(1).unwrap();
+        assert_eq!(len, body.len(), "Content-Length must match the body");
+    }
+
+    /// The nudge must be a no-op on a LIVE app (a forced reload would throw away a
+    /// working session) and must fire on an empty document.
+    #[test]
+    fn blank_guard_spares_a_mounted_app() {
+        assert!(RELOAD_IF_BLANK_JS.contains("childElementCount>0)return"));
+        assert!(RELOAD_IF_BLANK_JS.contains("catch(e){location.reload()}"));
+    }
+
+    /// A server restart is ~2s of ECONNREFUSED. The old code gave up on the first
+    /// one; this must hold on and succeed when the port comes back.
+    #[test]
+    fn connect_retries_across_a_restart() {
+        rt().block_on(async {
+        let probe = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = probe.local_addr().unwrap().port();
+        drop(probe); // port now closed — exactly like a server mid-restart
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(600)).await;
+            let _l = tokio::net::TcpListener::bind(("127.0.0.1", port)).await.unwrap();
+            tokio::time::sleep(Duration::from_secs(3)).await;
+        });
+        let got = connect_upstream_retrying(port, Duration::from_secs(5)).await;
+        assert!(got.is_some(), "must survive a port that comes back after 600ms");
+        });
+    }
+
+    /// ...but it must still give up, so a document request falls through to the
+    /// reconnect page instead of hanging forever on a server that is truly gone.
+    #[test]
+    fn connect_gives_up_after_the_grace() {
+        rt().block_on(async {
+        let probe = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = probe.local_addr().unwrap().port();
+        drop(probe);
+        let t0 = std::time::Instant::now();
+        let got = connect_upstream_retrying(port, Duration::from_millis(500)).await;
+        assert!(got.is_none());
+        assert!(t0.elapsed() < Duration::from_secs(3), "must not hang past the grace");
+        });
+    }
+
+    /// Re-anchor only when the window is on NO screen. Attilio keeps this window at
+    /// -797,-1410 on an ultrawide: negative is not "wrong", it's his choice.
+    #[test]
+    fn negative_position_on_a_real_monitor_is_left_alone() {
+        let ultrawide = (-1720.0, -1440.0, 3440.0, 1440.0);
+        let builtin = (0.0, 0.0, 1512.0, 982.0);
+        let mons = [builtin, ultrawide];
+        assert!(rect_intersects_any((-797.0, -1410.0, 1200.0, 800.0), &mons));
+        // Same window after the ultrawide is unplugged: stranded, must be re-anchored.
+        assert!(!rect_intersects_any((-797.0, -1410.0, 1200.0, 800.0), &[builtin]));
+    }
+
+    /// Touching edges only (x + w == mx) is NOT overlap — a window flush against a
+    /// monitor's left edge from outside shows zero pixels.
+    #[test]
+    fn touching_edges_does_not_count_as_on_screen() {
+        let mon = (0.0, 0.0, 1000.0, 800.0);
+        assert!(!rect_intersects_any((-500.0, 0.0, 500.0, 400.0), &[mon]));
+        assert!(rect_intersects_any((-499.0, 0.0, 500.0, 400.0), &[mon]));
+    }
+}
+
+/// The end-to-end PROOF for the empty-window bug, kept out of the normal run
+/// (`#[ignore]`) because it drives a real browser and takes ~15s:
+///
+///   cargo test --lib demo_window_recovers -- --ignored --nocapture
+///
+/// It serves a fake app through the SHIPPED `proxy_loop`, kills the upstream
+/// mid-clip, and lets Playwright record what a user would see. The reload that
+/// happens while the server is down is exactly the move that used to leave a
+/// transparent, titlebar-less window with nothing to paint — i.e. invisible.
+#[cfg(test)]
+mod window_recovery_demo {
+    use super::{proxy_loop, Upstream};
+
+    /// Minimal HTTP server standing in for the Topics server: one fixed page whose
+    /// marker (`TOPICS`) the browser checks for. Killed by aborting its task, which
+    /// drops the listener — the same abrupt disappearance as a server restart.
+    async fn fake_app_server(port: u16) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = match tokio::net::TcpListener::bind(("127.0.0.1", port)).await {
+            Ok(l) => l,
+            Err(e) => panic!("fake upstream bind :{port}: {e}"),
+        };
+        loop {
+            let Ok((mut s, _)) = listener.accept().await else { continue };
+            tokio::spawn(async move {
+                let mut buf = [0u8; 2048];
+                let _ = s.read(&mut buf).await;
+                let body = "<!doctype html><html><body style=\"background:#0b3d2e;color:#eafff5;\
+font:24px/1.4 -apple-system,system-ui,sans-serif;display:flex;align-items:center;\
+justify-content:center;height:100vh;margin:0\"><div id=\"root\">TOPICS \u{2014} app viva</div></body></html>";
+                let resp = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n\
+Content-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n{}",
+                    body.len(), body);
+                let _ = s.write_all(resp.as_bytes()).await;
+                let _ = s.flush().await;
+            });
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn demo_window_recovers_after_server_restart() {
+        let out_dir = std::env::var("DEMO_OUT")
+            .unwrap_or_else(|_| "/tmp/topics-window-recovery".to_string());
+        let _ = std::fs::create_dir_all(&out_dir);
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        rt.block_on(async move {
+            let up_port = {
+                let l = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+                l.local_addr().unwrap().port()
+            };
+            let proxy_listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+            let proxy_port = proxy_listener.local_addr().unwrap().port();
+
+            let server = tokio::spawn(fake_app_server(up_port));
+            tokio::spawn(proxy_loop(proxy_listener, Upstream { port: up_port, tls: false }));
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+
+            // The camera + browser, on its own clock (see window-recovery-demo.mjs).
+            let script = concat!(env!("CARGO_MANIFEST_DIR"), "/../scripts/window-recovery-demo.mjs");
+            let repo_root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
+            let mut child = std::process::Command::new("node")
+                .arg(script)
+                .arg(proxy_port.to_string())
+                .arg(&out_dir)
+                .current_dir(repo_root)
+                .spawn()
+                .expect("spawn node (playwright-core must be installed)");
+
+            // t=3s: the server goes down (a `launchctl kickstart -k`, a crash, an update).
+            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+            server.abort();
+            eprintln!("[demo] upstream :{up_port} DOWN");
+            // t=9s: it comes back. Nothing else happens — no human, no click.
+            tokio::time::sleep(std::time::Duration::from_secs(6)).await;
+            tokio::spawn(fake_app_server(up_port));
+            eprintln!("[demo] upstream :{up_port} BACK");
+
+            let status = tokio::task::spawn_blocking(move || child.wait())
+                .await
+                .unwrap()
+                .expect("node exited");
+            assert!(status.success(), "the window did not come back by itself");
+            eprintln!("[demo] clip in {out_dir}");
+        });
     }
 }
