@@ -16,6 +16,7 @@ import {
   decidiConio, creaGestoreConio, leggiConfigConio, scriviGettone,
   GRAZIA_MS, TOLLERANZA_SCADENZA_MS,
 } from "./conio-licenze";
+import type { FetchLike } from "./conio-licenze";
 import { caricaPrivata, coniaGettone, leggiCaricoNonVerificato } from "./conio-lib";
 import { caricaChiavi, verificaGettone } from "../server/lib/licenza";
 
@@ -302,7 +303,7 @@ const CONFIG_PIENA = () => leggiConfigConio({
 describe("conio · il gestore del webhook", () => {
   it("conia e SCRIVE il gettone nei metadati dell'abbonamento", async () => {
     const chiamate: Array<{ url: string; body: string; headers: Headers }> = [];
-    const finto: typeof fetch = async (u, init) => {
+    const finto: FetchLike = async (u, init) => {
       chiamate.push({
         url: String(u),
         body: String(init?.body ?? ""),
@@ -432,19 +433,21 @@ describe("conio · la scrittura su Stripe non solleva mai", () => {
   });
 
   it("la chiave Stripe va nell'header e non nel corpo", async () => {
-    let auth: string | null = null;
-    let corpo = "";
+    // In un oggetto e non in due `let`: TS non segue le assegnazioni fatte
+    // dentro una callback, quindi `auth` resterebbe stretto a `null` e il
+    // confronto qui sotto non compilerebbe.
+    const visto: { auth: string | null; corpo: string } = { auth: null, corpo: "" };
     await scriviGettone({
       apiBase: "https://finto.stripe", secretKey: "sk_segretissima", subscriptionId: "sub_1",
       gettone: "g", eventId: "evt_1",
       fetchImpl: async (_u, init) => {
-        auth = new Headers(init?.headers).get("authorization");
-        corpo = String(init?.body ?? "");
+        visto.auth = new Headers(init?.headers).get("authorization");
+        visto.corpo = String(init?.body ?? "");
         return new Response("{}");
       },
     });
-    expect(auth).toBe("Bearer sk_segretissima");
-    expect(corpo).not.toContain("sk_segretissima");
+    expect(visto.auth).toBe("Bearer sk_segretissima");
+    expect(visto.corpo).not.toContain("sk_segretissima");
   });
 });
 
