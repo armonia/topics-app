@@ -47,7 +47,7 @@ describe('riancoraggi espliciti', () => {
     // Un turno non è sempre dell'utente: lo avviano la board, un agente,
     // un'altra finestra. Se la vista era sganciata deve restarci — «ho appena
     // inviato» ha il suo evento, `user-sent`, che riancora comunque.
-    const staccato = { anchored: false, guardUntil: 0 };
+    const staccato = at({ anchored: false });
     const d = reduceScroll(staccato, { type: 'stream-start' }, 1_000);
     expect(d.state.anchored).toBe(false);
     expect(d.pin).toBe(false);
@@ -56,7 +56,7 @@ describe('riancoraggi espliciti', () => {
   });
 
   it('inviare vince comunque sulla vista sganciata (è l\'intento di seguire)', () => {
-    const staccato = { anchored: false, guardUntil: 0 };
+    const staccato = at({ anchored: false });
     const d = reduceScroll(staccato, { type: 'user-sent' }, 1_000);
     expect(d.state.anchored).toBe(true);
     expect(d.pin).toBe(true);
@@ -97,7 +97,7 @@ describe('lo scroll dell\'utente', () => {
     // messaggio dopo gliela ributtava in fondo. Con la distanza misurata lo
     // sgancio è immediato.
     const d = reduceScroll(
-      { anchored: true, guardUntil: 0 },
+      at(),
       { type: 'user-scrolled-up', streaming: false, distanceFromBottom: 900 },
       1_000,
     );
@@ -108,7 +108,7 @@ describe('lo scroll dell\'utente', () => {
     // Sotto la tolleranza sei ancora «in fondo»: sganciare qui farebbe comparire
     // il bottone «torna in fondo» per due pixel.
     const d = reduceScroll(
-      { anchored: true, guardUntil: 0 },
+      at(),
       { type: 'user-scrolled-up', streaming: false, distanceFromBottom: 40 },
       1_000,
     );

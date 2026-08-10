@@ -120,7 +120,9 @@ describe("rollupGlobalAttention", () => {
 
 const sess = (over: Partial<ClaudeSessionState> = {}): ClaudeSessionState => ({
   sessionKey: null, claudeSessionId: "c", phase: "running",
-  phaseUpdatedAt: 1000, rev: 1, updatedAt: 1000, ...over,
+  // `jsonlOffset`/`createdAt` sono obbligatori sul filo (il tracker li scrive
+  // sempre): senza, questa fixture era una sessione che il server non produce.
+  phaseUpdatedAt: 1000, jsonlOffset: 0, rev: 1, createdAt: 1000, updatedAt: 1000, ...over,
 });
 
 describe("attentionTierForPhase", () => {

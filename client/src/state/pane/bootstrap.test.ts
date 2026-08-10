@@ -7,6 +7,7 @@
  * processes a real server frame OR the fallback GET itself completes.
  */
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { blankPaneState } from "./testSupport";
 
 // Fake window stub (same pattern as syncCrossTab.test.ts).
 function installFakeWindow(): void {
@@ -42,20 +43,22 @@ const { __resetServerHydratedForTests, hasReceivedServerHydrate, markServerHydra
   await import("./middleware/serverHydrated");
 
 function resetStore(): void {
-  usePaneStore.setState({
-    panes: {},
-    groups: {},
-    closedStack: [],
-    focusedPaneId: null,
-    groupOrder: [],
-    lastSeq: 0,
-  });
+  // `setState` FONDE: i campi non elencati sopravvivono al reset. Mancavano
+  // `tombstones`, `spaces`, `activeSpaceId` e `lastServerSeq`, quindi un
+  // marcatore lasciato da un test precedente entrava nel successivo — e
+  // proprio i tombstone sono ciò che impedisce a una pane chiusa di tornare.
+  // Nessun tipo se ne accorgeva: `setState` accetta un parziale.
+  usePaneStore.setState(blankPaneState());
 }
 
 // fetch stub with assertable call count.
 let fetchCalls: number;
 let originalFetch: typeof fetch | undefined;
-function installFetchStub(response: Partial<Response> & { body?: unknown }): void {
+// `Partial<Response>` era una promessa che questo finto non mantiene: di
+// `Response` usa solo lo status, e `body` qui non e' lo stream di `Response`
+// (`ReadableStream | null`) ma il JSON da serializzare. Il tipo ora dice quello
+// che la funzione accetta davvero — `{ data: {}, meta: {} }` non e' uno stream.
+function installFetchStub(response: { status?: number; body?: unknown }): void {
   fetchCalls = 0;
   originalFetch = (globalThis as unknown as { fetch?: typeof fetch }).fetch;
   (globalThis as unknown as { fetch: unknown }).fetch = (): Promise<Response> => {
