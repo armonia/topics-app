@@ -119,7 +119,7 @@ test.describe.serial("Costo per-azione sulle righe di tool", () => {
 
     // Evidenza di review, allegata al risultato del test.
     //
-    // Non un percorso assoluto: c'era `/Users/zorahrel/.topics/media/…` cablato,
+    // Non un percorso assoluto: c'era `/Users/utente/.topics/media/…` cablato,
     // che su qualunque altro checkout — e su CI — scrive in una cartella che non
     // esiste, quindi o fallisce o sparisce. `test.info().attach` mette lo scatto
     // nel report HTML e negli artifact, dove chi rivede lo trova davvero.

@@ -57,12 +57,12 @@
         "testCommand": "bun test scripts/token-live.test.ts",
         "testExitCode": 0,
         "testTail": "bun test v1.3.8 (b64edcb4)\n\n 3 pass\n 0 fail\n 26 expect() calls\nRan 3 tests across 1 file. [94.00ms]",
-        "jsonProbeCommand": "DATA_DIR=/Users/zorahrel/Projects/topics-app/data bun scripts/token-live.ts --json",
+        "jsonProbeCommand": "DATA_DIR=~/Projects/topics-app/data bun scripts/token-live.ts --json",
         "jsonProbeExitCode": 0,
         "jsonProbeParsed": true,
         "jsonProbeTail": "{\"chats\":[{\"sessionKey\":\"topic:dec44329\",\"name\":\"Volo Salerno-Milano post Ferragosto\",\"phase\":\"completed\",\"model\":\"claude-opus-5\",\"contextTokens\":309386,\"contextWindowTokens\":200000,\"contextWindowKnown\":true,\"contextPercent\":154.7,\"readTokens\":925774,\"deltaReadTokens\":0,\"costUsd\":3.6631,\"preambles\":1,\"previousPreambles\":null,\"calls\":4},{\"sessionKey\":\"topic:8d37839c\",\"name\":\"L\",\"phase\":\"completed\","
       },
-      "transcriptPath": "/Users/zorahrel/.claude/projects/-private-tmp-board-arms-run2-cli/76561519-ae85-449a-b030-84ab448fef1d.jsonl",
+      "transcriptPath": "~/.claude/projects/-private-tmp-board-arms-run2-cli/76561519-ae85-449a-b030-84ab448fef1d.jsonl",
       "sandboxDir": "/private/tmp/board-arms-run2/cli",
       "sandboxTreeSha": "db608ba9502ff4f4d203a43dd282d2f4cbd4c371"
     },
@@ -109,12 +109,12 @@
         "testCommand": "bun test scripts/token-live.test.ts",
         "testExitCode": 0,
         "testTail": "bun test v1.3.8 (b64edcb4)\n\n 2 pass\n 0 fail\n 19 expect() calls\nRan 2 tests across 1 file. [71.00ms]",
-        "jsonProbeCommand": "DATA_DIR=/Users/zorahrel/Projects/topics-app/data bun scripts/token-live.ts --json",
+        "jsonProbeCommand": "DATA_DIR=~/Projects/topics-app/data bun scripts/token-live.ts --json",
         "jsonProbeExitCode": 0,
         "jsonProbeParsed": true,
         "jsonProbeTail": "{\"chats\":[{\"name\":\"Volo Salerno-Milano post Ferragosto\",\"phase\":\"completed\",\"contextTokens\":309386,\"contextWindow\":200000,\"contextWindowKnown\":true,\"readTokens\":925774,\"costUsd\":3.6631165,\"preambles\":1,\"calls\":4,\"deltaReadTokens\":0},{\"name\":\"L\",\"phase\":\"completed\",\"contextTokens\":576211,\"contextWindow\":200000,\"contextWindowKnown\":true,\"readTokens\":553429146,\"costUsd\":358.0575975,\"preambles\":9,\"cal"
       },
-      "transcriptPath": "/Users/zorahrel/.claude/projects/-private-tmp-board-arms-run2-chat/0f066283-ba94-4ed8-a768-12cb2e4b80bc.jsonl",
+      "transcriptPath": "~/.claude/projects/-private-tmp-board-arms-run2-chat/0f066283-ba94-4ed8-a768-12cb2e4b80bc.jsonl",
       "sandboxDir": "/private/tmp/board-arms-run2/chat",
       "sandboxTreeSha": "db608ba9502ff4f4d203a43dd282d2f4cbd4c371"
     },
@@ -162,12 +162,12 @@
         "testCommand": "bun test scripts/token-live.test.ts",
         "testExitCode": 0,
         "testTail": "bun test v1.3.8 (b64edcb4)\n\n 5 pass\n 0 fail\n 25 expect() calls\nRan 5 tests across 1 file. [214.00ms]",
-        "jsonProbeCommand": "DATA_DIR=/Users/zorahrel/Projects/topics-app/data bun scripts/token-live.ts --json",
+        "jsonProbeCommand": "DATA_DIR=~/Projects/topics-app/data bun scripts/token-live.ts --json",
         "jsonProbeExitCode": 0,
         "jsonProbeParsed": true,
         "jsonProbeTail": "{\"chats\":[{\"name\":\"Volo Salerno-Milano post Ferragosto\",\"phase\":\"completed\",\"contextTokens\":309386,\"windowTokens\":200000,\"windowKnown\":true,\"readTokens\":925774,\"costUsd\":3.663117,\"preambles\":1,\"calls\":4},{\"name\":\"L\",\"phase\":\"completed\",\"contextTokens\":576211,\"windowTokens\":200000,\"windowKnown\":true,\"readTokens\":553429146,\"costUsd\":358.057597,\"preambles\":9,\"calls\":1407},{\"name\":\"Ricerca su github l"
       },
-      "transcriptPath": "/Users/zorahrel/.claude/projects/-private-tmp-board-arms-run2-chat-xhigh/8814354d-e938-4126-b770-b0eec359210f.jsonl",
+      "transcriptPath": "~/.claude/projects/-private-tmp-board-arms-run2-chat-xhigh/8814354d-e938-4126-b770-b0eec359210f.jsonl",
       "sandboxDir": "/private/tmp/board-arms-run2/chat-xhigh",
       "sandboxTreeSha": "db608ba9502ff4f4d203a43dd282d2f4cbd4c371"
     },
@@ -217,12 +217,12 @@
         "testCommand": "bun test scripts/token-live.test.ts",
         "testExitCode": 0,
         "testTail": "bun test v1.3.8 (b64edcb4)\n\n 3 pass\n 0 fail\n 30 expect() calls\nRan 3 tests across 1 file. [92.00ms]",
-        "jsonProbeCommand": "DATA_DIR=/Users/zorahrel/Projects/topics-app/data bun scripts/token-live.ts --json",
+        "jsonProbeCommand": "DATA_DIR=~/Projects/topics-app/data bun scripts/token-live.ts --json",
         "jsonProbeExitCode": 0,
         "jsonProbeParsed": true,
         "jsonProbeTail": "{\"filter\":null,\"count\":7,\"chats\":[{\"id\":\"dec44329-b901-4956-abbe-7ff2c1a44fad\",\"name\":\"Volo Salerno-Milano post Ferragosto\",\"sessionKey\":\"topic:dec44329\",\"phase\":\"completed\",\"model\":\"claude-opus-5\",\"lastContextTokens\":309386,\"contextWindowTokens\":200000,\"contextWindowKnown\":true,\"contextPct\":154.69299999999998,\"readTokens\":925774,\"costUsd\":3.6631165,\"preambles\":1,\"calls\":4},{\"id\":\"8d37839c-c4a7-4e"
       },
-      "transcriptPath": "/Users/zorahrel/.claude/projects/-private-tmp-board-arms-run2-board-sim/0997c3a5-4c44-4370-94b5-fe5738ec41eb.jsonl",
+      "transcriptPath": "~/.claude/projects/-private-tmp-board-arms-run2-board-sim/0997c3a5-4c44-4370-94b5-fe5738ec41eb.jsonl",
       "sandboxDir": "/private/tmp/board-arms-run2/board-sim",
       "sandboxTreeSha": "db608ba9502ff4f4d203a43dd282d2f4cbd4c371"
     }
@@ -267,12 +267,12 @@
         "testCommand": "bun test scripts/token-live.test.ts",
         "testExitCode": 0,
         "testTail": "bun test v1.3.8 (b64edcb4)\n\n 2 pass\n 0 fail\n 19 expect() calls\nRan 2 tests across 1 file. [78.00ms]",
-        "jsonProbeCommand": "DATA_DIR=/Users/zorahrel/Projects/topics-app/data bun scripts/token-live.ts --json",
+        "jsonProbeCommand": "DATA_DIR=~/Projects/topics-app/data bun scripts/token-live.ts --json",
         "jsonProbeExitCode": 0,
         "jsonProbeParsed": true,
         "jsonProbeTail": "{\"chats\":[{\"name\":\"Volo Salerno-Milano post Ferragosto\",\"phase\":\"completed\",\"lastContextTokens\":309386,\"contextWindowTokens\":200000,\"readTokens\":925774,\"costUsd\":3.6631165,\"preambles\":1,\"calls\":4},{\"name\":\"L\",\"phase\":\"completed\",\"lastContextTokens\":576211,\"contextWindowTokens\":200000,\"readTokens\":553429146,\"costUsd\":358.0575975,\"preambles\":9,\"calls\":1407},{\"name\":\"Ricerca su github librerie per\",\""
       },
-      "transcriptPath": "/Users/zorahrel/.claude/projects/-private-tmp-board-arms-run3-cli/93c70854-2bf5-4974-8078-f21e7eb0df39.jsonl",
+      "transcriptPath": "~/.claude/projects/-private-tmp-board-arms-run3-cli/93c70854-2bf5-4974-8078-f21e7eb0df39.jsonl",
       "sandboxDir": "/private/tmp/board-arms-run3/cli",
       "sandboxTreeSha": "db608ba9502ff4f4d203a43dd282d2f4cbd4c371"
     },
@@ -319,12 +319,12 @@
         "testCommand": "bun test scripts/token-live.test.ts",
         "testExitCode": 0,
         "testTail": "bun test v1.3.8 (b64edcb4)\n\n 4 pass\n 0 fail\n 21 expect() calls\nRan 4 tests across 1 file. [113.00ms]",
-        "jsonProbeCommand": "DATA_DIR=/Users/zorahrel/Projects/topics-app/data bun scripts/token-live.ts --json",
+        "jsonProbeCommand": "DATA_DIR=~/Projects/topics-app/data bun scripts/token-live.ts --json",
         "jsonProbeExitCode": 0,
         "jsonProbeParsed": true,
         "jsonProbeTail": "{\"chats\":[{\"id\":\"dec44329-b901-4956-abbe-7ff2c1a44fad\",\"name\":\"Volo Salerno-Milano post Ferragosto\",\"sessionKey\":\"topic:dec44329\",\"phase\":\"completed\",\"model\":\"claude-opus-5\",\"contextTokens\":309386,\"windowTokens\":200000,\"windowKnown\":true,\"contextPercent\":154.7,\"readTokens\":925774,\"deltaTokens\":0,\"costUsd\":3.6631,\"preambles\":1,\"preamblesGrew\":false,\"calls\":4},{\"id\":\"8d37839c-c4a7-4e52-aa28-ff2317b7"
       },
-      "transcriptPath": "/Users/zorahrel/.claude/projects/-private-tmp-board-arms-run3-chat/ac5b6ae7-7947-4553-a051-a64e72131f2d.jsonl",
+      "transcriptPath": "~/.claude/projects/-private-tmp-board-arms-run3-chat/ac5b6ae7-7947-4553-a051-a64e72131f2d.jsonl",
       "sandboxDir": "/private/tmp/board-arms-run3/chat",
       "sandboxTreeSha": "db608ba9502ff4f4d203a43dd282d2f4cbd4c371"
     },
@@ -372,12 +372,12 @@
         "testCommand": "bun test scripts/token-live.test.ts",
         "testExitCode": 0,
         "testTail": "bun test v1.3.8 (b64edcb4)\n\n 5 pass\n 0 fail\n 31 expect() calls\nRan 5 tests across 1 file. [165.00ms]",
-        "jsonProbeCommand": "DATA_DIR=/Users/zorahrel/Projects/topics-app/data bun scripts/token-live.ts --json",
+        "jsonProbeCommand": "DATA_DIR=~/Projects/topics-app/data bun scripts/token-live.ts --json",
         "jsonProbeExitCode": 0,
         "jsonProbeParsed": true,
         "jsonProbeTail": "{\"chats\":[{\"name\":\"Volo Salerno-Milano post Ferragosto\",\"phase\":\"completed\",\"lastContextTokens\":309386,\"contextWindowTokens\":200000,\"readTokens\":925774,\"costUsd\":3.663117,\"preambles\":1,\"calls\":4},{\"name\":\"L\",\"phase\":\"completed\",\"lastContextTokens\":576211,\"contextWindowTokens\":200000,\"readTokens\":553429146,\"costUsd\":358.057598,\"preambles\":9,\"calls\":1407},{\"name\":\"Ricerca su github librerie per\",\"ph"
       },
-      "transcriptPath": "/Users/zorahrel/.claude/projects/-private-tmp-board-arms-run3-chat-xhigh/cd755432-1cc1-498d-8302-bc4ba0389113.jsonl",
+      "transcriptPath": "~/.claude/projects/-private-tmp-board-arms-run3-chat-xhigh/cd755432-1cc1-498d-8302-bc4ba0389113.jsonl",
       "sandboxDir": "/private/tmp/board-arms-run3/chat-xhigh",
       "sandboxTreeSha": "db608ba9502ff4f4d203a43dd282d2f4cbd4c371"
     },
@@ -427,12 +427,12 @@
         "testCommand": "bun test scripts/token-live.test.ts",
         "testExitCode": 0,
         "testTail": "bun test v1.3.8 (b64edcb4)\n\n 3 pass\n 0 fail\n 17 expect() calls\nRan 3 tests across 1 file. [120.00ms]",
-        "jsonProbeCommand": "DATA_DIR=/Users/zorahrel/Projects/topics-app/data bun scripts/token-live.ts --json",
+        "jsonProbeCommand": "DATA_DIR=~/Projects/topics-app/data bun scripts/token-live.ts --json",
         "jsonProbeExitCode": 0,
         "jsonProbeParsed": true,
         "jsonProbeTail": "{\"chats\":[{\"name\":\"Volo Salerno-Milano post Ferragosto\",\"phase\":\"completed\",\"lastContextTokens\":309386,\"contextWindowTokens\":200000,\"contextWindowKnown\":true,\"readTokens\":925774,\"costUsd\":3.6631165,\"preambles\":1,\"calls\":4},{\"name\":\"L\",\"phase\":\"completed\",\"lastContextTokens\":576211,\"contextWindowTokens\":200000,\"contextWindowKnown\":true,\"readTokens\":553429146,\"costUsd\":358.0575975,\"preambles\":9,\"cal"
       },
-      "transcriptPath": "/Users/zorahrel/.claude/projects/-private-tmp-board-arms-run3-board-sim/ccacff38-12c8-454d-bf61-92821e675c22.jsonl",
+      "transcriptPath": "~/.claude/projects/-private-tmp-board-arms-run3-board-sim/ccacff38-12c8-454d-bf61-92821e675c22.jsonl",
       "sandboxDir": "/private/tmp/board-arms-run3/board-sim",
       "sandboxTreeSha": "db608ba9502ff4f4d203a43dd282d2f4cbd4c371"
     },
@@ -475,12 +475,12 @@
         "testCommand": "bun test scripts/token-live.test.ts",
         "testExitCode": 0,
         "testTail": "bun test v1.3.8 (b64edcb4)\n\n 3 pass\n 0 fail\n 19 expect() calls\nRan 3 tests across 1 file. [124.00ms]",
-        "jsonProbeCommand": "DATA_DIR=/Users/zorahrel/Projects/topics-app/data bun scripts/token-live.ts --json",
+        "jsonProbeCommand": "DATA_DIR=~/Projects/topics-app/data bun scripts/token-live.ts --json",
         "jsonProbeExitCode": 0,
         "jsonProbeParsed": true,
         "jsonProbeTail": "{\"chats\":[{\"sessionKey\":\"topic:dec44329\",\"name\":\"Volo Salerno-Milano post Ferragosto\",\"phase\":\"completed\",\"model\":\"claude-opus-5\",\"contextTokens\":309386,\"contextWindow\":200000,\"contextWindowKnown\":true,\"contextPct\":154.69299999999998,\"readTokens\":925774,\"costUsd\":3.6631165,\"preambles\":1,\"calls\":4},{\"sessionKey\":\"topic:8d37839c\",\"name\":\"L\",\"phase\":\"completed\",\"model\":\"claude-opus-5\",\"contextTokens\""
       },
-      "transcriptPath": "/Users/zorahrel/.claude/projects/-private-tmp-board-arms-run4-cli/3bfa9129-369f-4189-965c-405166bbd654.jsonl",
+      "transcriptPath": "~/.claude/projects/-private-tmp-board-arms-run4-cli/3bfa9129-369f-4189-965c-405166bbd654.jsonl",
       "sandboxDir": "/private/tmp/board-arms-run4/cli",
       "sandboxTreeSha": "db608ba9502ff4f4d203a43dd282d2f4cbd4c371"
     },
@@ -527,12 +527,12 @@
         "testCommand": "bun test scripts/token-live.test.ts",
         "testExitCode": 0,
         "testTail": "bun test v1.3.8 (b64edcb4)\n\n 4 pass\n 0 fail\n 17 expect() calls\nRan 4 tests across 1 file. [115.00ms]",
-        "jsonProbeCommand": "DATA_DIR=/Users/zorahrel/Projects/topics-app/data bun scripts/token-live.ts --json",
+        "jsonProbeCommand": "DATA_DIR=~/Projects/topics-app/data bun scripts/token-live.ts --json",
         "jsonProbeExitCode": 0,
         "jsonProbeParsed": true,
         "jsonProbeTail": "{\"generatedAt\":\"2026-08-09T19:13:27.161Z\",\"filter\":null,\"chats\":[{\"name\":\"Volo Salerno-Milano post Ferragosto\",\"phase\":\"completed\",\"contextTokens\":309386,\"contextWindow\":200000,\"contextWindowKnown\":true,\"readTokens\":925774,\"costUsd\":3.6631165,\"preambles\":1,\"calls\":4},{\"name\":\"L\",\"phase\":\"completed\",\"contextTokens\":576211,\"contextWindow\":200000,\"contextWindowKnown\":true,\"readTokens\":553429146,\"cost"
       },
-      "transcriptPath": "/Users/zorahrel/.claude/projects/-private-tmp-board-arms-run4-chat/a1bbb923-514b-475f-ac54-9cf5997712ec.jsonl",
+      "transcriptPath": "~/.claude/projects/-private-tmp-board-arms-run4-chat/a1bbb923-514b-475f-ac54-9cf5997712ec.jsonl",
       "sandboxDir": "/private/tmp/board-arms-run4/chat",
       "sandboxTreeSha": "db608ba9502ff4f4d203a43dd282d2f4cbd4c371"
     },
@@ -580,12 +580,12 @@
         "testCommand": "bun test scripts/token-live.test.ts",
         "testExitCode": 0,
         "testTail": "bun test v1.3.8 (b64edcb4)\n\n 5 pass\n 0 fail\n 26 expect() calls\nRan 5 tests across 1 file. [147.00ms]",
-        "jsonProbeCommand": "DATA_DIR=/Users/zorahrel/Projects/topics-app/data bun scripts/token-live.ts --json",
+        "jsonProbeCommand": "DATA_DIR=~/Projects/topics-app/data bun scripts/token-live.ts --json",
         "jsonProbeExitCode": 0,
         "jsonProbeParsed": true,
         "jsonProbeTail": "{\"chats\":[{\"name\":\"Volo Salerno-Milano post Ferragosto\",\"phase\":\"completed\",\"contextTokens\":309386,\"windowTokens\":200000,\"windowEstimated\":false,\"readTokens\":925774,\"costUsd\":3.663117,\"preambles\":1,\"calls\":4},{\"name\":\"L\",\"phase\":\"completed\",\"contextTokens\":576211,\"windowTokens\":200000,\"windowEstimated\":false,\"readTokens\":553429146,\"costUsd\":358.057598,\"preambles\":9,\"calls\":1407},{\"name\":\"Ricerca s"
       },
-      "transcriptPath": "/Users/zorahrel/.claude/projects/-private-tmp-board-arms-run4-chat-xhigh/aea9d047-6811-4cdb-bac9-2c2d21d04ab3.jsonl",
+      "transcriptPath": "~/.claude/projects/-private-tmp-board-arms-run4-chat-xhigh/aea9d047-6811-4cdb-bac9-2c2d21d04ab3.jsonl",
       "sandboxDir": "/private/tmp/board-arms-run4/chat-xhigh",
       "sandboxTreeSha": "db608ba9502ff4f4d203a43dd282d2f4cbd4c371"
     },
@@ -635,12 +635,12 @@
         "testCommand": "bun test scripts/token-live.test.ts",
         "testExitCode": 0,
         "testTail": "bun test v1.3.8 (b64edcb4)\n\n 3 pass\n 0 fail\n 20 expect() calls\nRan 3 tests across 1 file. [96.00ms]",
-        "jsonProbeCommand": "DATA_DIR=/Users/zorahrel/Projects/topics-app/data bun scripts/token-live.ts --json",
+        "jsonProbeCommand": "DATA_DIR=~/Projects/topics-app/data bun scripts/token-live.ts --json",
         "jsonProbeExitCode": 0,
         "jsonProbeParsed": true,
         "jsonProbeTail": "{\"generatedAt\":\"2026-08-09T19:19:12.007Z\",\"chats\":[{\"id\":\"dec44329-b901-4956-abbe-7ff2c1a44fad\",\"name\":\"Volo Salerno-Milano post Ferragosto\",\"phase\":\"completed\",\"model\":\"claude-opus-5\",\"lastContext\":309386,\"contextWindow\":200000,\"contextWindowEstimated\":false,\"contextPercent\":154.69299999999998,\"tokensRead\":925774,\"deltaRead\":0,\"costUsd\":3.6631165,\"preambles\":1,\"deltaPreambles\":0,\"calls\":4},{\"id\":"
       },
-      "transcriptPath": "/Users/zorahrel/.claude/projects/-private-tmp-board-arms-run4-board-sim/b763dff2-bd6f-49cb-97e6-acfa7961d4ce.jsonl",
+      "transcriptPath": "~/.claude/projects/-private-tmp-board-arms-run4-board-sim/b763dff2-bd6f-49cb-97e6-acfa7961d4ce.jsonl",
       "sandboxDir": "/private/tmp/board-arms-run4/board-sim",
       "sandboxTreeSha": "db608ba9502ff4f4d203a43dd282d2f4cbd4c371"
     }

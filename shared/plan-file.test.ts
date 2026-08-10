@@ -7,8 +7,8 @@ import { isPlanFile } from './plan-file';
 
 describe('isPlanFile', () => {
   test('i percorsi veri prodotti dalla CLI', () => {
-    expect(isPlanFile('/Users/zorahrel/.claude/plans/context-you-are-working-deep-locket.md')).toBe(true);
-    expect(isPlanFile('/Users/zorahrel/.claude/plans/crea-un-file-note-txt-cozy-wilkes.md')).toBe(true);
+    expect(isPlanFile('/Users/utente/.claude/plans/context-you-are-working-deep-locket.md')).toBe(true);
+    expect(isPlanFile('/Users/utente/.claude/plans/crea-un-file-note-txt-cozy-wilkes.md')).toBe(true);
   });
 
   test('una home qualunque, e Windows', () => {

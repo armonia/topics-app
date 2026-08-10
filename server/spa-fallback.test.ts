@@ -55,7 +55,7 @@ describe("shouldServeSpaFallback — permalink alle tab (/tab/)", () => {
   });
 
   test("/tab/file/<b64>/<b64> — i due segmenti encodati passano", () => {
-    const path = buildTabPath({ kind: "file", key: "client/src/App.tsx", projectPath: "/Users/zorahrel/Projects/my.app" })!;
+    const path = buildTabPath({ kind: "file", key: "client/src/App.tsx", projectPath: "/Users/utente/Projects/my.app" })!;
     // Pre-condizione della grammatica: l'encoding non ha prodotto punti.
     expect(path).not.toContain(".");
     expect(nav(path)).toBe(true);
