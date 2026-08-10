@@ -250,7 +250,7 @@ jobs:
         run: |
           triple="$(rustc -vV | sed -n 's/host: //p')"
           mkdir -p binaries
-          touch "binaries/topics-server-$triple" "binaries/pty-bridge-$triple"
+          touch "binaries/topics-server-$triple" "binaries/pty-bridge-$triple" "binaries/webrtc-bridge-$triple"
 
       - name: Cargo check (Tauri crate)
         run: cargo check

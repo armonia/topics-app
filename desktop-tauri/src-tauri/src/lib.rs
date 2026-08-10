@@ -1046,6 +1046,43 @@ fn bundled_pty_bridge_bin() -> Option<std::path::PathBuf> {
     Some(bin)
 }
 
+/// Resolve the bundled **Rust WebRTC bridge** sidecar (`binaries/webrtc-bridge-<triple>`
+/// → bundled beside the app binary in `Contents/MacOS/webrtc-bridge`). It streams a
+/// server-side headless-Chromium pane as one shared H.264 WebRTC track to N viewers —
+/// the transport the browser pane's `<video>` renders (see server/webrtc-bridge.ts +
+/// client/src/hooks/useRemoteBrowser.ts). The compiled Bun server can't hold an
+/// openh264 encoder / webrtc-rs stack in-process, so it spawns this binary.
+///
+/// Same shape as `bundled_pty_bridge_bin`: `Some` only when the binary exists (Windows
+/// ships a no-op stub, so we don't advertise one there → the server keeps
+/// `available() == false` and the pane falls back to DOM rendering instead of hanging
+/// on a negotiation nobody answers). On unix the packaged binary can lose its exec bit,
+/// so we re-assert it.
+fn bundled_webrtc_bridge_bin() -> Option<std::path::PathBuf> {
+    // Windows ships only a no-op stub (the wire protocol is a Unix socket).
+    if cfg!(windows) {
+        return None;
+    }
+    let exe = std::env::current_exe().ok()?;
+    let dir = exe.parent()?;
+    let bin = dir.join("webrtc-bridge");
+    if !bin.exists() {
+        return None;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(meta) = std::fs::metadata(&bin) {
+            let mut perm = meta.permissions();
+            if perm.mode() & 0o111 == 0 {
+                perm.set_mode(perm.mode() | 0o755);
+                let _ = std::fs::set_permissions(&bin, perm);
+            }
+        }
+    }
+    Some(bin)
+}
+
 /// Boot decision: if a Topics server already answers on :3333 (external launchd /
 /// dev — try TLS first, then plain), defer to it. Otherwise spawn the bundled
 /// sidecar on a free plain-HTTP port with an isolated data dir, wait until it's
@@ -1091,6 +1128,10 @@ async fn decide_upstream_and_spawn(app: tauri::AppHandle) {
     // shell/claude-code tabs work on a virgin install. Absent (Windows stub / older
     // bundle / dev build without the sidecar) → None, keeping today's kill-switch.
     let bridge_bin = bundled_pty_bridge_bin();
+    // Same story for the WebRTC bridge: present → the browser pane's shared-session
+    // <video> transport works on a virgin install; absent → server/webrtc-bridge.ts
+    // reports available()==false and the pane uses the DOM fallback.
+    let webrtc_bin = bundled_webrtc_bridge_bin();
     let cmd = match app.shell().sidecar("topics-server") {
         Ok(c) => {
             let mut c = c
@@ -1135,6 +1176,19 @@ async fn decide_upstream_and_spawn(app: tauri::AppHandle) {
                 // run one itself, so terminals answer 503.
                 None => {
                     c = c.env("TOPICS_DISABLE_PTY_BRIDGE", "1");
+                }
+            }
+            match &webrtc_bin {
+                // Bundled WebRTC bridge present: hand the server the binary to spawn
+                // lazily on the first SDP offer (resolveBin() in webrtc-bridge.ts).
+                Some(bin) => {
+                    c = c.env("TOPICS_WEBRTC_BRIDGE_BIN", bin.to_string_lossy().to_string());
+                }
+                // No bundled bridge (Windows stub / older bundle): say so explicitly
+                // rather than letting the server probe a dev-checkout path that only
+                // exists on a developer's machine.
+                None => {
+                    c = c.env("TOPICS_DISABLE_WEBRTC_BRIDGE", "1");
                 }
             }
             c
