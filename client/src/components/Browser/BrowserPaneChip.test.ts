@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'bun:test';
 import { TONE, type ChipTone } from './BrowserPaneChip';
-import { DANGER_TEXT, WARNING_TEXT, SUCCESS_TEXT } from '../../lib/popoverStyles';
+import { DANGER_TEXT, WARNING_TEXT, SUCCESS_TEXT, ACTIVE_TEXT } from '../../lib/popoverStyles';
 
 /**
  * The chip's tones are a colour DECISION with numbers behind it, so this guards
@@ -22,6 +22,7 @@ describe('BrowserPaneChip tones', () => {
     expect(TONE.ok).toContain(SUCCESS_TEXT);
     expect(TONE.warn).toContain(WARNING_TEXT);
     expect(TONE.danger).toContain(DANGER_TEXT);
+    expect(TONE.active).toContain(ACTIVE_TEXT);
   });
 
   it('no tone re-introduces a shade that failed the light theme', () => {
@@ -33,6 +34,14 @@ describe('BrowserPaneChip tones', () => {
     }
   });
 
+  it('active does not fall back to the raw, unmeasured text-primary in light theme', () => {
+    // text-primary (#0066ff) over the chip's own bg-primary/15 veil measures
+    // 3,90:1 in light theme, under the 4,5 threshold — it must appear only
+    // after a `dark:` prefix, where the theme's own override (index.css
+    // `.dark .text-primary`) already clears the bar.
+    expect(TONE.active).not.toMatch(/(?<!dark:)\btext-primary\b/);
+  });
+
   it('the success token is the one that clears the threshold over its tint', () => {
     expect(SUCCESS_TEXT).toBe('text-green-800 dark:text-green-400');
   });
@@ -42,10 +51,18 @@ describe('BrowserPaneChip tones', () => {
     expect(DANGER_TEXT).toBe('text-red-700 dark:text-red-400');
   });
 
+  it('active is the shade that clears the threshold over the primary tint', () => {
+    // blue-800 measures 7,12:1 over bg-primary/15 in light theme (blue-700
+    // already clears at 5,51 but blue-800 matches the /800 step its siblings
+    // landed on). Dark keeps text-primary: index.css already retints it via
+    // `.dark .text-primary`, which measures 5,68 on these chips.
+    expect(ACTIVE_TEXT).toBe('text-blue-800 dark:text-primary');
+  });
+
   it('every colour token names a shade for BOTH themes', () => {
     // A token defined for one theme only is how the co-browse chip ended up as a
     // black pill sitting on a light background.
-    for (const token of [SUCCESS_TEXT, WARNING_TEXT, DANGER_TEXT]) {
+    for (const token of [SUCCESS_TEXT, WARNING_TEXT, DANGER_TEXT, ACTIVE_TEXT]) {
       expect(token).toMatch(/^text-\S+ dark:text-\S+$/);
     }
   });

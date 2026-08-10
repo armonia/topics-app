@@ -146,6 +146,22 @@ export const WARNING_TEXT = 'text-amber-800 dark:text-amber-400';
  */
 export const SUCCESS_TEXT = 'text-green-800 dark:text-green-400';
 
+/**
+ * Il tono «attivo» dei chip del pane browser (toggle motore/render, hint
+ * co-browse) usava `text-primary` (`#0066ff`) grezzo, senza passare dal
+ * fratello misurato qui sopra. Sul velo `bg-primary/15` che quei chip
+ * disegnano sotto, in tema chiaro fa 3,90:1 — sotto la soglia 4,5 dei suoi
+ * 11px. Misurato con lo stesso metodo (canvas per convertire l'oklch di
+ * Tailwind, veil composto sul bianco):
+ *   text-primary (attuale)  3,90  → sotto
+ *   blue-700                5,51  → sopra
+ *   blue-800                7,12  → sopra, stesso gradino di SUCCESS_TEXT
+ * In tema scuro `text-primary` va già bene (5,68 su questi chip, per via
+ * della regola `.dark .text-primary { color: var(--primary-dark) }` in
+ * `index.css`), quindi il buio non cambia.
+ */
+export const ACTIVE_TEXT = 'text-blue-800 dark:text-primary';
+
 /** Destructive variant of POPOVER_ITEM (delete / clear / discard). Stesso ritmo
  *  verticale del suo fratello non distruttivo: se divergessero, un menu con una
  *  voce rossa avrebbe una riga più bassa delle altre. */
