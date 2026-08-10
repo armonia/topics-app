@@ -14,14 +14,29 @@ mock.module("./push-service", () => ({
   sendPushToAll: async (payload: any) => { pushCalls.push(payload); },
 }));
 
-const { maybeSendPush, configurePushTriggers } = await import("./push-triggers");
+const { maybeSendPush, configurePushTriggers, isTopicSilenced } = await import("./push-triggers");
 
-// Resolver iniettati (in prod sono lookup sul DB in createAppContext). Qui
-// finti: `tp1` → nome, resto → null; `arch` è archiviato/mutato, cioè da
-// zittire.
+/**
+ * Finto "DB": la tabella dei topic e le AppSettings del server. I resolver
+ * iniettati portano solo QUESTI dati — la decisione la prende il gate vero
+ * (`isTopicSilenced`), non il finto. Un fake che rispondesse `id === "arch"`
+ * testerebbe se stesso: passerebbe anche con il gate rotto.
+ *
+ * `zzz` esiste ma non ha nome: serve al caso «push senza nome risolto». Senza
+ * la riga sarebbe un topic inesistente, che il gate zittisce (fail-closed).
+ */
+const TOPICS: Record<string, { name?: string | null; archived?: boolean; muted?: boolean; projectPath?: string | null }> = {
+  tp1:   { name: "Rifai la migration", projectPath: "/w/alfa" },
+  zzz:   { name: null, projectPath: "/w/alfa" },
+  arch:  { name: "Vecchia chat", archived: true },
+  quiet: { name: "Dentro il progetto zittito", projectPath: "/w/muto" },
+};
+/** Lo specchio di `AppSettings.mutedProjects` (in prod: `ui_state.settings`). */
+const MUTED_PROJECTS = ["/w/muto"];
+
 configurePushTriggers({
-  getTopicName: (id: string) => (id === "tp1" ? "Rifai la migration" : null),
-  isTopicSilenced: (id: string) => id === "arch",
+  getTopicName: (id: string) => TOPICS[id]?.name ?? null,
+  isTopicSilenced: (id: string) => isTopicSilenced(TOPICS[id] ?? null, MUTED_PROJECTS),
 });
 
 describe("maybeSendPush — task:review-ready", () => {
@@ -159,5 +174,63 @@ describe("maybeSendPush — fine risposta della chat", () => {
   test("MUTA su un topic archiviato o mutato", () => {
     maybeSendPush({ type: "stream:end", sessionKey: "topic:arch", topicId: "arch", messageId: "m1", completed: true });
     expect(pushCalls).toHaveLength(0);
+  });
+
+  // La terza sorgente di mute, quella che il gate non guardava: il topic è
+  // sano — non archiviato, non mutato — ma il suo PROGETTO è in
+  // `AppSettings.mutedProjects`. Muti un progetto intero dalla sidebar, il
+  // banner in-app tace (`isTopicMuted`) e la push partiva lo stesso.
+  test("MUTA un topic NON mutato il cui PROGETTO è mutato", () => {
+    maybeSendPush({ type: "stream:end", sessionKey: "topic:quiet", topicId: "quiet", messageId: "m1", completed: true });
+    expect(pushCalls).toHaveLength(0);
+  });
+
+  // Il controllo che rende falsificabile quello sopra: stesso percorso, stessa
+  // forma di topic, progetto NON mutato → la push parte. Senza questo, un gate
+  // che zittisce tutto passerebbe il test precedente.
+  test("un topic in un progetto NON mutato manda la push", () => {
+    maybeSendPush({ type: "stream:end", sessionKey: "topic:tp1", topicId: "tp1", messageId: "m1", completed: true });
+    expect(pushCalls).toHaveLength(1);
+  });
+});
+
+/**
+ * Il gate, da solo. `maybeSendPush` lo esercita attraverso l'iniezione; qui si
+ * fissano i casi limite che in prod arrivano dal DB e da un JSON scritto dal
+ * client — inclusi i due versi di sicurezza, che sono opposti apposta.
+ */
+describe("isTopicSilenced — il gate puro", () => {
+  test("topic sano in un progetto non mutato → parla", () => {
+    expect(isTopicSilenced({ projectPath: "/w/alfa" }, ["/w/muto"])).toBe(false);
+  });
+
+  test("archiviato o mutato → zitto, qualunque sia il progetto", () => {
+    expect(isTopicSilenced({ archived: true, projectPath: "/w/alfa" }, [])).toBe(true);
+    expect(isTopicSilenced({ muted: true, projectPath: "/w/alfa" }, [])).toBe(true);
+  });
+
+  test("progetto in mutedProjects → zitto", () => {
+    expect(isTopicSilenced({ projectPath: "/w/muto" }, ["/w/alfa", "/w/muto"])).toBe(true);
+  });
+
+  test("confronto per path ESATTO: un prefisso non è il progetto", () => {
+    expect(isTopicSilenced({ projectPath: "/w/muto-bis" }, ["/w/muto"])).toBe(false);
+  });
+
+  test("topic senza projectPath → il mute per progetto non lo tocca", () => {
+    expect(isTopicSilenced({ projectPath: null }, ["/w/muto"])).toBe(false);
+  });
+
+  test("lista assente o vuota = nessun progetto mutato (si sbaglia verso la push)", () => {
+    expect(isTopicSilenced({ projectPath: "/w/muto" }, undefined)).toBe(false);
+    expect(isTopicSilenced({ projectPath: "/w/muto" }, [])).toBe(false);
+  });
+
+  // Verso di sicurezza OPPOSTO al gemello client (`muteGate.ts`, dove un topic
+  // sconosciuto NON è mutato): una push è un'interruzione su un telefono, e di
+  // un topic che non esiste non sapremmo nemmeno il nome da metterci.
+  test("topic inesistente → zitto (fail-closed)", () => {
+    expect(isTopicSilenced(null, [])).toBe(true);
+    expect(isTopicSilenced(undefined, [])).toBe(true);
   });
 });
