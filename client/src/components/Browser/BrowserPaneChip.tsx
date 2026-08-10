@@ -23,7 +23,7 @@
  * style, and a colour can't drift without the numbers next to it changing.
  */
 import type { ReactNode } from 'react';
-import { DANGER_TEXT, WARNING_TEXT, SUCCESS_TEXT } from '../../lib/popoverStyles';
+import { DANGER_TEXT, WARNING_TEXT, SUCCESS_TEXT, ACTIVE_TEXT } from '../../lib/popoverStyles';
 
 export type ChipTone = 'neutral' | 'active' | 'ok' | 'warn' | 'danger';
 
@@ -36,7 +36,7 @@ export type ChipCorner = 'top-left' | 'top-right' | 'bottom-left' | 'top-center'
 export const TONE: Record<ChipTone, string> = {
   // The off state of a toggle: readable, but visibly not "on".
   neutral: 'bg-surface/90 border-app-border text-app-text-secondary hover:bg-surface hover:text-app-text',
-  active: 'bg-primary/15 border-primary/40 text-primary hover:bg-primary/25',
+  active: `bg-primary/15 border-primary/40 ${ACTIVE_TEXT} hover:bg-primary/25`,
   ok: `bg-green-500/15 border-green-500/30 ${SUCCESS_TEXT}`,
   warn: `bg-yellow-500/15 border-yellow-500/30 ${WARNING_TEXT}`,
   danger: `bg-red-500/15 border-red-500/30 ${DANGER_TEXT}`,
