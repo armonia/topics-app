@@ -83,6 +83,21 @@ const CONTEXT_WINDOWS: Record<string, number> = {
  */
 const LONG_WINDOW_MARKERS = ["[1m]", "-1m", ":1m", "1m-context", "context-1m"];
 
+/** La finestra lunga, quella che il beta `context-1m-2025-08-07` serve. */
+const LONG_WINDOW_TOKENS = 1_000_000;
+
+/**
+ * Le famiglie Claude che il beta a un milione serve davvero.
+ *
+ * NON è la lista dei modelli (quella la scansiona `server/providers/claude-models.ts`
+ * dal binario della CLI, ed è l'unica autorevole): è il sottoinsieme che serve
+ * qui, dove si può solo dedurre. Haiku resta fuori — misurato il 3 agosto 2026,
+ * `claude-haiku-4-5[1m]` muore con «The long context beta is not yet available
+ * for this subscription» — e fable/mythos non ci sono perché il milione ce
+ * l'hanno già di loro, quindi non c'è niente da promuovere.
+ */
+const LONG_WINDOW_FAMILIES = ["opus", "sonnet"];
+
 /** true = il nome dichiara la variante a finestra lunga. */
 export function hasLongWindowMarker(model: string | null | undefined): boolean {
   if (!model || typeof model !== "string") return false;
@@ -144,7 +159,7 @@ export function contextWindowFor(model: string | null | undefined): ContextWindo
   if (!model || typeof model !== "string") return { tokens: DEFAULT_CONTEXT_WINDOW, known: false };
   const lower = model.toLowerCase();
 
-  if (LONG_WINDOW_MARKERS.some((m) => lower.includes(m))) return { tokens: 1_000_000, known: true };
+  if (LONG_WINDOW_MARKERS.some((m) => lower.includes(m))) return { tokens: LONG_WINDOW_TOKENS, known: true };
 
   const keys = Object.keys(CONTEXT_WINDOWS).sort((a, b) => b.length - a.length);
   for (const key of keys) {
@@ -156,12 +171,57 @@ export function contextWindowFor(model: string | null | undefined): ContextWindo
   // significa "l'ultimo di quella famiglia" — e senza il suffisso `[1m]`, che
   // qui sopra è già stato escluso, l'ultimo di ogni famiglia Claude sta a 200k.
   // Fable no: quello è a un milione di suo, e non ha un alias corto ambiguo.
-  if (lower.includes("fable") || lower.includes("mythos")) return { tokens: 1_000_000, known: true };
+  if (lower.includes("fable") || lower.includes("mythos")) return { tokens: LONG_WINDOW_TOKENS, known: true };
   if (lower.includes("haiku") || lower.includes("opus") || lower.includes("sonnet")) {
     return { tokens: 200_000, known: true };
   }
 
   return { tokens: DEFAULT_CONTEXT_WINDOW, known: false };
+}
+
+/**
+ * La finestra riletta alla luce della MISURA — perché il numeratore è una prova
+ * sul denominatore, e finora nessuno lo stava a sentire.
+ *
+ * Il nome del modello è la strada principale per dimensionare la finestra, ma è
+ * una strada che si può perdere: `[1m]` è una modalità di servizio e la CLI nei
+ * suoi eventi riporta il nome NUDO, quindi basta che il pin del topic sia vuoto
+ * perché `claude-opus-5` torni a valere 200k su una chat che gira a un milione.
+ * Il 10 agosto 2026 `token-live --json` dava così **576.211 / 200.000 = 288%**:
+ * quattro chat su sette sopra il 100%.
+ *
+ * Una percentuale di riempimento sopra 100 non è un numero grande, è un numero
+ * SBAGLIATO — e qui si sa anche da che parte. Quella chiamata da 576k token ha
+ * ricevuto risposta: se la finestra fosse stata da 200k il provider l'avrebbe
+ * rifiutata con «Prompt is too long». La misura, quindi, è un limite INFERIORE
+ * certo sulla finestra, e vince sul nome ogni volta che i due si contraddicono.
+ *
+ * Due esiti, perché "so che è di più" e "so quanto" sono due cose diverse:
+ *  • famiglia con la beta a un milione → la finestra lunga è l'unico modo in cui
+ *    quella chiamata può essere passata: si promuove a 1M, e resta `known` se lo
+ *    era il punto di partenza;
+ *  • tutti gli altri (haiku, un modello non-Claude, o un contesto che supera pure
+ *    il milione) → non sappiamo NOMINARE la finestra vera, solo che è almeno
+ *    quanto la misura: si torna `known: false`, cioè il "≈" della UI. Meglio una
+ *    stima dichiarata che un 100% preciso e falso.
+ *
+ * Questa è una rete, non la cura: prende solo le finestre sbagliate PER DIFETTO
+ * (quelle per eccesso non lasciano traccia nella misura). Chi legge deve
+ * comunque risolvere il modello giusto — `windowModelFor` per il turno passato,
+ * il pin del topic o il default del provider per quello che verrà.
+ */
+export function windowCoveringMeasure(
+  window: ContextWindow,
+  model: string | null | undefined,
+  usedTokens: number,
+): ContextWindow {
+  if (!Number.isFinite(usedTokens) || usedTokens <= window.tokens) return window;
+  const lower = typeof model === "string" ? model.toLowerCase() : "";
+  const canGoLong = LONG_WINDOW_FAMILIES.some((f) => lower.includes(f));
+  if (canGoLong && usedTokens <= LONG_WINDOW_TOKENS) {
+    return { tokens: LONG_WINDOW_TOKENS, known: window.known };
+  }
+  return { tokens: Math.round(usedTokens), known: false };
 }
 
 /**
