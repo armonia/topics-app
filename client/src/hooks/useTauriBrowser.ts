@@ -41,6 +41,7 @@ import { deadLoopbackNotice, isLoopbackUrl, navErrorMessage } from '../component
 import { loopbackAlive } from '../lib/loopbackAlive';
 import type { NativeBrowserHandle, DeviceMode, BrowserConsoleEntry } from '@/components/Browser/browserDevTypes';
 import { DEVICE_PRESETS } from '@/components/Browser/browserDevTypes';
+import { normalizeUrl } from '@/lib/browserNavUrl';
 
 /** Off-screen X for parking a hidden native view far outside any display — keeps
  *  the webview alive (no reload) while hidden. We park at the last REAL size (not
@@ -109,17 +110,6 @@ function onDocumentVisible(fn: () => void): () => void {
   return () => document.removeEventListener('visibilitychange', handler);
 }
 
-/** Best-effort URL/search normalisation for the address bar. Full URLs pass
- *  through; a bare host gets https://; anything else becomes a web search. */
-function normalizeUrl(input: string): string {
-  const s = input.trim();
-  if (!s) return 'about:blank';
-  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(s) || s.startsWith('about:')) return s;
-  // looks like a domain (has a dot, no spaces) → https://
-  if (/^[^\s]+\.[^\s]+$/.test(s) && !s.includes(' ')) return `https://${s}`;
-  return `https://www.google.com/search?q=${encodeURIComponent(s)}`;
-}
-
 /** Native browser views are durable across TRANSIENT React unmounts. A project
  *  auto-split moves the browser pane into a NEW group; SplitTree keys its leaf by
  *  group id, so the move remounts `RemoteBrowserPanel` — firing `browser_close(id)`
@@ -161,6 +151,12 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
   const [title, setTitle] = useState('');
   const [faviconUrl, setFaviconUrl] = useState('');
   const [loading, setLoading] = useState(false);
+  // Whether the real WKBackForwardList can go back/forward, derived from
+  // getNavEntries after each load settles (see the effect below). Drives the
+  // toolbar arrows' disabled state — otherwise a click at the end of history is
+  // a silent no-op.
+  const [canGoBack, setCanGoBack] = useState(false);
+  const [canGoForward, setCanGoForward] = useState(false);
   // Last navigation failure (Rust did-fail queue). Owned by navigate()/the
   // drain poll below — NOT reset by the eval polls, which can't tell a failed
   // load from "still showing the previous page".
@@ -1207,6 +1203,19 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     await tauriInvoke('browser_go_to_index', { id, index }).catch(() => {});
   }, [id]);
 
+  // Derive the arrows' enabled state from the real WKBackForwardList. Event-
+  // driven (runs when a load settles, not per poll-tick): activeIndex>0 means
+  // there's history behind, activeIndex<last means there's history ahead.
+  const refreshNavState = useCallback(async () => {
+    const { entries, activeIndex } = await getNavEntries();
+    setCanGoBack(activeIndex > 0);
+    setCanGoForward(activeIndex < entries.length - 1);
+  }, [getNavEntries]);
+
+  useEffect(() => {
+    if (ready && !loading) void refreshNavState();
+  }, [ready, loading, refreshNavState]);
+
   const viewId = ready ? id : null;
 
   // Memoized: this hook re-renders often (the 120ms fast-focus poll alone can
@@ -1258,12 +1267,14 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     clearConsole,
     getNavEntries,
     goToNavIndex,
+    canGoBack,
+    canGoForward,
   }), [
     url, title, loading, agentActive, agentAction, ready, viewId, faviconUrl, frozenImage,
     navError, clearNavError, retryNav, parked, parkedChecking, retryParked,
     navigate, goBack, goForward, reload, goHome, setBounds, animateBounds, toggleDevTools, findInPage, stopFind,
     setZoom, zoom, countMatches, inspectAt, selectMode, enterSelectMode, exitSelectMode,
     deviceMode, setDevice, responsiveSize, setResponsiveSize, consoleEntries, consoleSummary,
-    clearConsole, getNavEntries, goToNavIndex,
+    clearConsole, getNavEntries, goToNavIndex, canGoBack, canGoForward,
   ]);
 }
