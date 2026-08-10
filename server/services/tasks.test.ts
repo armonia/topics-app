@@ -1,5 +1,8 @@
 import { test, expect, describe, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createTaskService, isLandActionLabel, isPublishActionLabel, LAND_ACTION_LABEL, PUBLISH_ACTION_LABEL, projectIdForPath, TaskServiceError, type TaskService } from "./tasks";
 
 describe("reserved action labels", () => {
@@ -1322,5 +1325,142 @@ describe("il park è autoritativo: l'agente scartato non si riprende il task", (
     s.release({ taskId: id, requeue: false, parkState: "failed" });
     const out = s.update({ taskId: id, actor: "human", by: "user", patch: { status: "todo" } });
     expect(out.status).toBe("todo");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Il ramo DIAGRAMMA, e i due controlli che lo accompagnano.
+//
+// `PREVIEW_RULE` ha un terzo ramo per le consegne senza superficie renderizzata
+// (un piano, un'architettura, una migrazione): si consegna un diagramma `.svg`.
+// Senza `svg` fra le estensioni promuovibili quel ramo nasceva morto — l'agente
+// allegava il diagramma e la card restava cieca. Qui i file sono VERI su disco:
+// il gate di forma legge l'header, e con path finti non misurerebbe niente.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("anteprima: ramo diagramma, gate di forma, duplicati", () => {
+  let db: Database;
+  let dir: string;
+  let n = 0;
+  const mk = () => createTaskService(db, { now: () => new Date().toISOString(), uuid: () => `dg-${++n}` });
+  beforeEach(() => { db = freshDb(); dir = mkdtempSync(join(tmpdir(), "task-preview-")); });
+
+  const preview = (id: string) =>
+    (db.prepare("SELECT preview_image FROM tasks WHERE id = ?").get(id) as any)?.preview_image ?? null;
+  const notes = (id: string) =>
+    (db.prepare("SELECT content FROM task_comments WHERE task_id = ? AND kind = 'review-note'").all(id) as any[])
+      .map((r) => r.content as string);
+
+  const write = (name: string, bytes: Buffer | string): string => {
+    const p = join(dir, name);
+    writeFileSync(p, bytes);
+    return p;
+  };
+  /** Header PNG (firma + IHDR): è tutto ciò che il gate di forma legge. */
+  const png = (name: string, w: number, h: number): string => {
+    const b = Buffer.alloc(33);
+    b.writeUInt32BE(0x89504e47, 0); b.writeUInt32BE(0x0d0a1a0a, 4);
+    b.writeUInt32BE(13, 8); b.write("IHDR", 12, "latin1");
+    b.writeUInt32BE(w, 16); b.writeUInt32BE(h, 20); b[24] = 8; b[25] = 6;
+    return write(name, b);
+  };
+  const svg = (name: string, w: number, h: number): string =>
+    write(name, `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}"><rect width="40" height="20"/></svg>`);
+
+  test("un .svg allegato al commento di consegna DIVENTA l'anteprima della card", () => {
+    const s = mk();
+    const t = s.create({ projectId: PID, text: "piano di migrazione" });
+    const diagram = svg("piano.svg", 900, 420);
+    s.addComment({ taskId: t.id, author: "claude", content: "consegna: lo schema del piano", media: [diagram] });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    expect(preview(t.id)).toBe(diagram);
+    expect(s.get(t.id)!.task.previewImage).toBe(diagram); // e arriva fino al client
+  });
+
+  test("un'immagine più alta che larga (h/w > 0.7) non viene promossa e lascia una nota", () => {
+    const s = mk();
+    const t = s.create({ projectId: PID, text: "piano fotografato" });
+    s.addComment({ taskId: t.id, author: "claude", content: "consegna", media: [png("intero-piano.png", 1200, 4000)] });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+
+    expect(preview(t.id)).toBeNull();
+    expect(notes(t.id)[0]).toContain("1200×4000");
+    expect(notes(t.id)[0]).toContain("DIAGRAMMA");
+  });
+
+  test("il rifiuto NON blocca la consegna: il task resta in review, l'allegato nel thread", () => {
+    const s = mk();
+    const t = s.create({ projectId: PID, text: "piano fotografato" });
+    const tall = png("alta.png", 1000, 3000);
+    s.addComment({ taskId: t.id, author: "claude", content: "consegna", media: [tall] });
+    const after = s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+
+    expect(after.status).toBe("review");
+    const thread = s.get(t.id)!.comments;
+    expect(thread.some((c) => (c.media ?? []).includes(tall))).toBe(true);
+  });
+
+  test("la nota non si ripete: la promozione ripassa dallo stesso file a ogni commento", () => {
+    // Clock che avanza: la promozione legge i commenti ORDER BY created_at DESC,
+    // e con timestamp identici l'ordine è arbitrario (visto: il test passava da
+    // solo e cadeva nella suite intera).
+    const clock = { t: Date.parse("2026-08-10T09:00:00.000Z") };
+    let k = 0;
+    const s = createTaskService(db, { now: () => new Date(clock.t).toISOString(), uuid: () => `dgn-${++k}` });
+    const t = s.create({ projectId: PID, text: "piano" });
+    const tall = png("alta.png", 800, 2400);
+    s.addComment({ taskId: t.id, author: "claude", content: "consegna", media: [tall] });
+    clock.t += 60_000;
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    clock.t += 60_000;
+    s.addComment({ taskId: t.id, author: "claude", content: "e ancora", media: [tall] });
+    expect(notes(t.id).length).toBe(1);
+    // Un file DIVERSO è un rifiuto diverso, e quello si dice.
+    clock.t += 60_000;
+    s.addComment({ taskId: t.id, author: "claude", content: "un'altra", media: [png("alta2.png", 800, 2400)] });
+    expect(notes(t.id).length).toBe(2);
+  });
+
+  test("appena sotto la soglia passa: il gate taglia il documento fotografato, non il quasi-quadrato", () => {
+    const s = mk();
+    const t = s.create({ projectId: PID, text: "un pannello" });
+    const ok = png("pannello.png", 1000, 690); // 0.69
+    s.addComment({ taskId: t.id, author: "claude", content: "consegna", media: [ok] });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    expect(preview(t.id)).toBe(ok);
+    expect(notes(t.id)).toEqual([]);
+  });
+
+  test("forma non misurabile (un video, un formato che non si legge) ⇒ si promuove lo stesso", () => {
+    const s = mk();
+    const t = s.create({ projectId: PID, text: "comportamento" });
+    const clip = write("clip.webm", Buffer.alloc(2048)); // nessun header leggibile
+    s.addComment({ taskId: t.id, author: "claude", content: "consegna", media: [clip] });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    expect(preview(t.id)).toBe(clip);
+  });
+
+  test("anteprima byte-identica a quella di un altro task: SEGNALE, non blocco", () => {
+    const s = mk();
+    const a = s.create({ projectId: PID, text: "il primo task" });
+    const b = s.create({ projectId: PID, text: "il secondo task" });
+    const one = svg("uno.svg", 600, 300);
+    const clone = write("due.svg", readFileSync(one)); // stesso contenuto, altro path
+
+    s.update({ taskId: a.id, actor: "agent", by: "claude", patch: { previewImage: one } });
+    const after = s.update({ taskId: b.id, actor: "agent", by: "claude", patch: { previewImage: clone } });
+
+    expect(after.previewImage).toBe(clone);      // messa comunque: è un segnale
+    expect(notes(b.id)[0]).toContain("IDENTICA");
+    expect(notes(b.id)[0]).toContain(a.id);
+    expect(notes(a.id)).toEqual([]);             // il primo non c'entra niente
+  });
+
+  test("anteprime diverse: nessun rumore nel thread", () => {
+    const s = mk();
+    const a = s.create({ projectId: PID, text: "primo" });
+    const b = s.create({ projectId: PID, text: "secondo" });
+    s.update({ taskId: a.id, actor: "agent", by: "claude", patch: { previewImage: svg("a.svg", 600, 300) } });
+    s.update({ taskId: b.id, actor: "agent", by: "claude", patch: { previewImage: svg("b.svg", 640, 300) } });
+    expect(notes(b.id)).toEqual([]);
   });
 });
