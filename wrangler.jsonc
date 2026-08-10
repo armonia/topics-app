@@ -14,9 +14,12 @@
   // `landing/` right now, and the version that ships is the version you can
   // read in git.
   //
-  // The demo under landing/app/ is a BUILD ARTIFACT (client → vite.landing.
-  // config.ts). Rebuild it with `bun run build:landing` from client/ before
-  // deploying if the client changed, or the site ships a stale demo.
+  // The demo under /app/ is a BUILD ARTIFACT (client → vite.landing.config.ts →
+  // landing/public/app/ → copied by astro into landing/dist/app/). "Rebuild it
+  // by hand before deploying" was the instruction, and it worked exactly as well
+  // as the commit pin did: the bundle sat tracked in git and drifted. `build:site`
+  // rebuilds it now, so `deploy:landing` cannot ship a demo older than the client
+  // it was built from — and landing/public/app/ is gitignored.
   // ─────────────────────────────────────────────────────────────────────────
   "name": "topics-landing",
   "compatibility_date": "2026-08-01",
