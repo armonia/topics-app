@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'bun:test';
+import { readFileSync } from 'node:fs';
 import {
-  NO_FAULT, FAULT_STREAK, STRUCTURAL_COMMANDS, recordPaneOk, recordPaneError, type FaultState,
+  NO_FAULT, FAULT_STREAK, STRUCTURAL_COMMANDS, recordPaneOk, recordPaneError, recreatePane,
+  type FaultState, type PaneRecreateSteps,
 } from './browserPaneFault';
 
 /** Feed n failures of the same command through the reducer. */
@@ -83,5 +85,81 @@ describe('browserPaneFault', () => {
     // in well under a second — no timer needed to tell permanent from transient.
     expect(STRUCTURAL_COMMANDS.has('browser_set_bounds')).toBe(true);
     expect(FAULT_STREAK).toBeGreaterThan(1);
+  });
+});
+
+/**
+ * «Ricrea la scheda» — il rimedio che la striscia di guasto offre, nel caso per
+ * cui la striscia esiste: il dispatcher col mutex avvelenato, dove la vista non
+ * si lascia nemmeno chiudere.
+ */
+describe('recreatePane', () => {
+  /** Registra l'ordine dei passi e permette di far fallire quello che serve. */
+  function steps(over: { closeFails?: boolean; openFails?: boolean } = {}) {
+    const calls: string[] = [];
+    const s: PaneRecreateSteps = {
+      close: async () => { calls.push('close'); return !over.closeFails; },
+      open: async () => { calls.push('open'); return !over.openFails; },
+      handshake: () => { calls.push('handshake'); },
+      onLabelBurned: () => { calls.push('burned'); },
+    };
+    return { s, calls };
+  }
+
+  it('si riapre ANCHE dopo una chiusura fallita — è lì che serve', async () => {
+    // La catena del guasto: close() panica sul mutex avvelenato, la vista resta
+    // registrata nel manager, e senza riapertura la pane resta com'era. Il
+    // guscio brucia l'etichetta proprio perché la riapertura che segue nasca
+    // come vista NUOVA invece di riusare la morta.
+    const { s, calls } = steps({ closeFails: true });
+    expect(await recreatePane(s)).toBe(true);
+    expect(calls).toEqual(['close', 'burned', 'open', 'handshake']);
+  });
+
+  it('la chiusura riuscita non segnala nessuna etichetta bruciata', async () => {
+    const { s, calls } = steps();
+    expect(await recreatePane(s)).toBe(true);
+    expect(calls).toEqual(['close', 'open', 'handshake']);
+  });
+
+  it('si chiude PRIMA di riaprire', async () => {
+    const { s, calls } = steps();
+    await recreatePane(s);
+    expect(calls.indexOf('close')).toBeLessThan(calls.indexOf('open'));
+  });
+
+  it('niente vista nuova, niente stretta di mano: il guasto resta scritto', async () => {
+    // Il vecchio `commitFault(NO_FAULT)` in testa faceva sparire la striscia
+    // qualunque cosa succedesse dopo: «risolto» per un attimo, poi il guasto
+    // tornava dopo altri tre fallimenti. Solo la vista nuova può assolvere.
+    const { s, calls } = steps({ openFails: true });
+    expect(await recreatePane(s)).toBe(false);
+    expect(calls).not.toContain('handshake');
+  });
+
+  /**
+   * Il pezzo che vive in React non è provabile qui (niente jsdom né renderer di
+   * hook in questo progetto), ma il CABLAGGIO sì — stessa tecnica di
+   * `nativeBrowserOpen.test.ts`. È ciò che è tornato a rompersi una volta:
+   * `recreate` che azzera il guasto da sé e butta via l'esito della chiusura.
+   */
+  it('il pulsante passa di qui, e non assolve la pane per conto suo', () => {
+    const src = readFileSync(new URL('../../hooks/useTauriBrowser.ts', import.meta.url), 'utf8');
+    const body = src.slice(src.indexOf('const recreate ='), src.indexOf('const viewId ='));
+    expect(body).toContain('recreatePane({');
+    expect(body).toContain("tauriInvoke('browser_close'");
+    // L'esito della chiusura si legge (niente `.catch(() => {})` che lo ingoia)…
+    expect(body).not.toContain('.catch(() => {})');
+    // …e il guasto non si azzera a mano: lo cancella la vista nuova.
+    expect(body).not.toContain('commitFault(NO_FAULT)');
+    expect(body).toContain('handshake:');
+  });
+
+  it('è la stretta di mano a cancellare il guasto, non la ricreazione in sé', () => {
+    // Chi ricrea non tocca lo stato del guasto: lo cancella `recordPaneOk`
+    // quando un comando strutturale sulla vista nuova risponde davvero.
+    const broken = recordPaneError(recordPaneError(recordPaneError(NO_FAULT, 'browser_set_bounds'), 'browser_set_bounds'), 'browser_set_bounds');
+    expect(broken.faulted).toBe(true);
+    expect(recordPaneOk(broken)).toEqual(NO_FAULT);
   });
 });
