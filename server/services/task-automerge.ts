@@ -167,8 +167,24 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
      */
     async function pickOwnCommits(cwd: string, own: { others: string[] }): Promise<{ ok: boolean; conflict: boolean }> {
       const list = await runGit(cwd, ["rev-list", "--reverse", `${defaultBranch}..${branch}`, "--not", ...own.others]);
-      const shas = list.stdout.split("\n").map((x) => x.trim()).filter(Boolean);
-      if (list.code !== 0 || shas.length === 0) return { ok: false, conflict: false };
+      const all = list.stdout.split("\n").map((x) => x.trim()).filter(Boolean);
+      if (list.code !== 0 || all.length === 0) return { ok: false, conflict: false };
+      // Chi c'è già per CONTENUTO si salta. Un commit landato una volta resta
+      // nel range (`rev-list` guarda la discendenza, e il land ricopia invece di
+      // fondere: sha diverso, stesso contenuto), quindi rilandare la stessa card
+      // aggiungeva un commit VUOTO a main — successo apparente, e una storia che
+      // dice «landato due volte» quando è stato landato una volta.
+      // `git cherry` è esattamente questa domanda: '-' = già a monte per patch-id.
+      const cherry = await runGit(cwd, ["cherry", defaultBranch, branch]);
+      const already = new Set(
+        cherry.code === 0
+          ? cherry.stdout.split("\n").filter((l) => l.startsWith("-")).map((l) => l.slice(2).trim())
+          : [],
+      );
+      const shas = all.filter((s) => !already.has(s));
+      // Tutto già a monte: il lavoro di questa card È su main. È una consegna
+      // riuscita, non un fallimento da rimandare all'agente.
+      if (shas.length === 0) return { ok: true, conflict: false };
       for (const sha of shas) {
         const r = await runGit(cwd, ["cherry-pick", "--allow-empty", "--keep-redundant-commits", sha]);
         if (r.code !== 0) {
