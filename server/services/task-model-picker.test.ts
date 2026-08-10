@@ -151,6 +151,45 @@ describe("pickTaskPlan", () => {
   });
 });
 
+describe("il task arriva al giudice come MATERIALE, non come richiesta", () => {
+  const promptFor = async (task: { text: string; description?: string }) => {
+    let seen = "";
+    await pickTaskPlan(task, {
+      complete: async (p) => { seen = p; return "opus high"; },
+      availableModels: ALL, fallback: "claude-opus-5",
+    });
+    return seen;
+  };
+
+  test("il testo del task sta fra marcatori", async () => {
+    // Senza, una descrizione lunga in markdown si confonde con la richiesta e il
+    // giudice risponde «Manca il task. Che devo fare?» invece di classificare.
+    const p = await promptFor({ text: "T", description: "## Cosa\nfai questo" });
+    expect(p).toContain("<<<TASK");
+    expect(p).toContain("TASK>>>");
+    expect(p.indexOf("<<<TASK")).toBeLessThan(p.indexOf("Titolo: T"));
+    expect(p.indexOf("TASK>>>")).toBeGreaterThan(p.indexOf("Titolo: T"));
+  });
+
+  test("una descrizione lunga viene tagliata a riga e il taglio è DICHIARATO", async () => {
+    // Misurato: tagliando secco a metà frase, il giudice rispondeva «il messaggio
+    // sembra troncato» e non classificava — 2 volte su 3 sulla card più
+    // impegnativa della board, che finiva così a effort minimo in silenzio.
+    const lunga = Array.from({ length: 200 }, (_, i) => `riga ${i} con un po' di testo`).join("\n");
+    const p = await promptFor({ text: "T", description: lunga });
+    expect(p).toContain("[… estratto: il task continua]");
+    // Taglio su confine di riga: nessuna riga spezzata a metà prima del marcatore.
+    const corpo = p.slice(p.indexOf("Descrizione:"), p.indexOf("[… estratto"));
+    expect(corpo.trimEnd().endsWith("testo")).toBe(true);
+  });
+
+  test("una descrizione corta non viene toccata", async () => {
+    const p = await promptFor({ text: "T", description: "breve" });
+    expect(p).toContain("Descrizione: breve");
+    expect(p).not.toContain("[… estratto");
+  });
+});
+
 describe("parseEffort / floorEffort", () => {
   test("legge il tier anche in una risposta prolissa, e vince il PRIMO", () => {
     expect(parseEffort("high")).toBe("high");
