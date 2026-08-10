@@ -2036,6 +2036,7 @@ function PaneCloseButton({
         size={ROW_ACTION_GLYPH}
         boxClassName={ROW_ACTION_BOX}
         className="tap-expand-y"
+        testId="pane-tab-close"
         onIdleClick={() => onClose(paneId)}
         idleTitle="Chiudi tab"
         idleAriaLabel={`Chiudi tab ${paneId}`}
