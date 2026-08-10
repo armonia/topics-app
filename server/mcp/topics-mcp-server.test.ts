@@ -1002,6 +1002,42 @@ describe("callUpdateTask", () => {
     expect(text).toBe("task t1 → in_progress");
   });
 
+  test("preview_image arriva al server invece di essere buttato via", async () => {
+    // Il protocollo (docs/board-protocol.md) dice `update_task(previewImage=…)` e
+    // l'envelope lo porta a ogni agente, ma il campo non era nello schema: il
+    // valore veniva scartato in SILENZIO. Tre consegne di fila hanno scritto
+    // «anteprima allegata» con la card vuota — sembravano bugie, erano agenti
+    // che seguivano il protocollo mentre lo strumento perdeva il valore.
+    const seen: { init?: RequestInit } = {};
+    const fetchImpl = stubFetch(async (_url, init) => {
+      seen.init = init;
+      return new Response(JSON.stringify({ id: "t1", status: "review" }), { status: 200 });
+    });
+    await callUpdateTask(
+      { baseUrl: "http://x", sessionKey: "s" },
+      { task_id: "t1", status: "review", preview_image: "/Users/x/.topics/media/prova.webm" },
+      fetchImpl,
+    );
+    expect(JSON.parse(String(seen.init?.body))).toEqual({
+      status: "review",
+      previewImage: "/Users/x/.topics/media/prova.webm",
+    });
+  });
+
+  test("preview_image da solo basta: non serve accompagnarlo a uno stato", async () => {
+    const seen: { init?: RequestInit } = {};
+    const fetchImpl = stubFetch(async (_url, init) => {
+      seen.init = init;
+      return new Response(JSON.stringify({ id: "t1", status: "in_progress" }), { status: 200 });
+    });
+    await callUpdateTask(
+      { baseUrl: "http://x", sessionKey: "s" },
+      { task_id: "t1", preview_image: "/Users/x/.topics/media/p.png" },
+      fetchImpl,
+    );
+    expect(JSON.parse(String(seen.init?.body))).toEqual({ previewImage: "/Users/x/.topics/media/p.png" });
+  });
+
   test("sends only the provided patch fields", async () => {
     const seen: { init?: RequestInit } = {};
     const fetchImpl = stubFetch(async (_url, init) => {
