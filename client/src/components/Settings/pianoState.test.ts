@@ -11,12 +11,18 @@ import {
   mostraMotivo, POSTI_MAX_ACQUISTO, POSTI_MIN_ACQUISTO, postiValidi,
   scadenzaVicina, siPuoComprare, type MotivoLicenza,
 } from './pianoState';
+import { MOTIVI_LICENZA } from '../../../../shared/licenza-motivi';
 import { t } from '../../lib/i18n';
 
-const TUTTI: MotivoLicenza[] = [
-  'no_token', 'no_verification_key', 'malformed',
-  'bad_signature', 'other_installation', 'expired', 'valid',
-];
+/**
+ * L'elenco viene dal modulo condiviso, non riscritto qui.
+ *
+ * Riscriverlo vorrebbe dire un test che continua a dire di sì il giorno in cui
+ * il server distingue un ottavo motivo: girerebbe sui sette che conosce e non
+ * si accorgerebbe dell'ottavo, che è precisamente il caso in cui a schermo
+ * comparirebbe una chiave nuda.
+ */
+const TUTTI: readonly MotivoLicenza[] = MOTIVI_LICENZA;
 
 describe('motivo · si tace sui due casi normali, si parla sugli altri cinque', () => {
   it('`valid` e `no_token` non mostrano niente', () => {
