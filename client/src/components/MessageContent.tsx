@@ -19,6 +19,7 @@ import type { ToolCall } from '../types';
 import { LEGACY_ERROR_PREFIX, turnErrorOf } from './Chat/turnError';
 import { releaseAudio } from '../lib/releaseAudio';
 import { useModalDialog } from '../hooks/useModalDialog';
+import { MODAL_LAYER } from '../lib/modalStyles';
 import { hasDiffBlocks, parseMessageWithDiffs, type MessageSegment } from '../lib/diffParser';
 import { DiffBlock, type DiffBlockHandle } from './Chat/DiffBlock';
 import { PlanView } from './Chat/PlanView';
@@ -204,7 +205,12 @@ function ImageLightbox({ src, alt, onClose }: { src: string; alt: string; onClos
       aria-modal="true"
       aria-label={alt || 'Immagine'}
       data-testid="image-lightbox"
-      className="fixed inset-0 bg-black/90 z-[9999] flex items-center justify-center overflow-hidden"
+      // `MODAL_LAYER` e non `z-[9999]`: 9999 non è «sopra i popover», è lo
+      // STESSO piano (Z_POPOVER / Z_CONTEXT_MENU). A parità di z decide
+      // l'ordine nel DOM, e qui entrambi sono portal su `<body>`: il lightbox
+      // stava sopra per fortuna, non per contratto. La costante lo mette a
+      // 10000, che è dove i modali stanno per definizione.
+      className={`fixed inset-0 bg-black/90 ${MODAL_LAYER} flex items-center justify-center overflow-hidden`}
       style={{ touchAction: 'none' }}
       onClick={handleBackdropClick}
       onTouchStart={handleTouchStart}

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { MessageSquare, LayoutGrid, RefreshCw } from 'lucide-react';
+import { MODAL_LAYER } from '../../lib/modalStyles';
 
 /**
  * Cosa vede un OSPITE quando apre Topics.
@@ -69,7 +70,11 @@ export function GuestView({ deviceName }: { deviceName: string }) {
   const vuoto = stato === 'pronto' && tasks.length === 0 && chats.length === 0;
 
   return (
-    <div className="fixed inset-0 z-[9990] overflow-y-auto bg-app-bg">
+    // Come il cancello di pairing: superficie a schermo intero, piano
+    // dichiarato dalla costante. `z-[9990]` era un numero scelto a occhio, e
+    // per giunta SOTTO i popover (9999) — una vista ospite che si fa coprire
+    // da un menu dell'app che non dovrebbe nemmeno esserci.
+    <div className={`fixed inset-0 ${MODAL_LAYER} overflow-y-auto bg-app-bg`}>
       <header className="sticky top-0 flex items-center gap-2 border-b border-app-border bg-app-bg px-4 py-3">
         <span className="text-[15px] font-semibold text-app-text">Topics</span>
         <span className="rounded bg-app-hover px-1.5 py-px text-[10px] text-app-text-secondary">
