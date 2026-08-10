@@ -10,11 +10,17 @@
  * Prima questo hook faceva `.filter(...).length` e BUTTAVA le righe appena
  * lette — poi la fascia della tessera fissata avrebbe dovuto richiedere al
  * server esattamente le stesse righe per mostrarle. Una fetch, due consumatori.
+ *
+ * Oggi i consumatori sono di più — le tab «Board» riassumono gli stessi stati —
+ * e non stanno tutti sotto questo hook: le righe finiscono in
+ * `boardTasksStore`, che è il posto da cui LEGGONO gli altri. La fetch e il
+ * WebSocket restano qui, cioè uno solo (vedi la nota in `boardTasksStore.ts`).
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 import type { WSMessage } from '../types';
 import { boardApi, type BoardTask, type TaskStatus } from '../lib/board';
 import { groupByStatus } from '../lib/boardOrder';
+import { setBoardTasks, useBoardTasks } from '../lib/boardTasksStore';
 
 export interface GlobalBoard {
   /** Task non ancora `done`, su tutti i progetti. */
@@ -26,23 +32,17 @@ export interface GlobalBoard {
 export function useGlobalBoard(
   onMessage?: (handler: (msg: WSMessage) => void) => () => void,
 ): GlobalBoard {
-  const [tasks, setTasks] = useState<BoardTask[]>([]);
+  const tasks = useBoardTasks();
 
   const refresh = useCallback(async () => {
     try {
-      setTasks(await boardApi.listAll());
+      setBoardTasks(await boardApi.listAll());
     } catch {
       /* leave the last known list on a transient failure */
     }
   }, []);
 
-  // La prima lettura del feed globale: `refresh` è async e scrive lo stato solo
-  // DOPO l'await, quindi non c'è nessun setState sincrono da cui nasca la
-  // cascata di render che la regola previene. La regola non vede oltre l'await
-  // e segnala la chiamata in sé. (Prima non compariva perché il compilatore
-  // React si arrendeva su questo componente e la regola non lo analizzava
-  // affatto: semplificare `byStatus` l'ha reso analizzabile, non l'ha rotto.)
-  // eslint-disable-next-line react-hooks/set-state-in-effect
+  // La prima lettura del feed globale.
   useEffect(() => { refresh(); }, [refresh]);
 
   useEffect(() => {

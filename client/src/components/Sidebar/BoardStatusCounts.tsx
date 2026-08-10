@@ -2,6 +2,7 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 import { MoreHorizontal } from 'lucide-react';
 import { StatusIcon } from '../Board/atoms';
 import { STATUS_GLYPH_PX, STATUS_LABEL, type BoardTask, type TaskStatus } from '../../lib/board';
+import { SUMMARY_STATUSES } from '../../lib/boardTabCounts';
 import { useBoardProjects } from '../../lib/boardProjectsStore';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { useProjectIconsPresent } from '../Shared/projectIconStore';
@@ -38,8 +39,12 @@ const BOARD_ROW_GAP = 8;
  * L'ordine resta anche quello in cui la coda si arrotola (`fitStatusCounts`): si
  * perde «in corso», mai «review». `done` resta fuori: la board si annuncia per
  * il lavoro APERTO.
+ *
+ * La costante è emigrata in `lib/boardTabCounts` il giorno in cui la TAB della
+ * board ha cominciato a dire le stesse due cose: due elenchi paralleli sarebbero
+ * la premessa perché la sidebar e la tab riassumano la stessa board in modo
+ * diverso. Il ragionamento resta qui, dov'è stato fatto.
  */
-const SUMMARY_STATUSES: readonly TaskStatus[] = ['review', 'in_progress'];
 
 /**
  * UNA PASTIGLIA DI PROGETTO — e adesso è davvero una pastiglia.
