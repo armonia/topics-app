@@ -49,7 +49,16 @@ export const POPOVER_MARGIN = 8;
 export const Z_POPOVER = 9999;
 export const Z_CONTEXT_MENU = 9999; // same plane as popovers, by design
 export const Z_POPOVER_SCRIM = 9998; // mobile bottom-sheet backdrop, just under the sheet
-/** Palette e dialoghi a schermo intero: SOPRA ogni popover, per definizione. */
+/**
+ * Palette e dialoghi a schermo intero: SOPRA ogni popover, per definizione.
+ *
+ * È QUI che il piano dei modali è dichiarato, e da qui lo prende `MODAL_LAYER`
+ * (`lib/modalStyles.ts`) — che è la forma con cui i modali lo usano davvero,
+ * una classe Tailwind. Il legame è nel tipo di `MODAL_LAYER`, così cambiare
+ * questo numero non compila finché non è cambiato anche là: prima erano due
+ * letterali indipendenti tenuti insieme da un commento, ed è esattamente il
+ * modo in cui `z-[60]` era finito 9939 sotto un dropdown.
+ */
 export const Z_MODAL = 10000;
 
 /**

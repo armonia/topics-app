@@ -12,6 +12,27 @@
  * aesthetic). The panel itself keeps the OPAQUE `bg-surface` — exactly like the
  * command palette — so dense text in dialogs stays crisp and readable.
  */
+import { Z_MODAL } from './popoverStyles';
+
+/**
+ * Il piano dei modali, come classe Tailwind. Gemello di `Z_MODAL` in
+ * `lib/popoverStyles.ts` (10000) — i due DEVONO restare allineati: un modale a
+ * `z-50` finiva sotto ogni popover (9999) e un dropdown rimasto aperto si
+ * disegnava sopra il velo. Nessuna superficie modale scrive più il numero a
+ * mano: si importa questa, o `Z_MODAL` se serve come valore inline.
+ *
+ * «DEVONO restare allineati» era una FRASE, non un vincolo: il numero stava
+ * scritto a mano qui (due volte, contando `MODAL_OVERLAY`) e come costante là,
+ * e niente si accorgeva se divergevano. Ora l'annotazione lo lega a `Z_MODAL`:
+ * cambiare la costante cambia il TIPO di questa riga, e la stringa scritta
+ * sotto smette di compilare finché non la si aggiorna.
+ *
+ * Un'annotazione, e non una classe composta a runtime dal valore: Tailwind
+ * cerca le classi come TESTO nei sorgenti, quindi interpolare la costante non
+ * genererebbe nessuna regola e il piano dei modali smetterebbe di esistere in
+ * silenzio. La stringa resta letterale — è il tipo a fare da cancello.
+ */
+export const MODAL_LAYER: `z-[${typeof Z_MODAL}]` = 'z-[10000]';
 
 /**
  * Combined container + backdrop, for modals whose outermost element is BOTH the
@@ -20,16 +41,7 @@
  * dead-center.
  */
 export const MODAL_OVERLAY =
-  'fixed inset-0 z-[10000] flex items-center justify-center bg-black/30 dark:bg-black/50 backdrop-blur-sm';
-
-/**
- * Il piano dei modali, come classe Tailwind. Gemello di `Z_MODAL` in
- * `lib/popoverStyles.ts` (10000) — i due DEVONO restare allineati: un modale a
- * `z-50` finiva sotto ogni popover (9999) e un dropdown rimasto aperto si
- * disegnava sopra il velo. Nessuna superficie modale scrive più il numero a
- * mano: si importa questa, o `Z_MODAL` se serve come valore inline.
- */
-export const MODAL_LAYER = 'z-[10000]';
+  `fixed inset-0 ${MODAL_LAYER} flex items-center justify-center bg-black/30 dark:bg-black/50 backdrop-blur-sm`;
 
 /**
  * Standalone backdrop layer, for modals that render the dimming div separately
