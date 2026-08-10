@@ -46,9 +46,17 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
   // of their neighbours on both sides; Review is wider (its own, roomier slide).
   const isReview = status === 'review';
   const snapCls = 'snap-center';
-  // Review is the approval surface — give it more room than the working columns
-  // on every viewport (wider slide on mobile, 32rem on desktop).
-  const widthCls = isReview ? 'w-[22rem] lg:w-[32rem]' : 'w-72';
+  // Width is a RANGE, not a number: `basis` is the floor (what a column is worth
+  // when the board overflows and scroll-snapping takes over), `grow` spends any
+  // leftover room on a wide board so the columns fill it instead of leaving a
+  // dead gutter, and `max-w` is the ceiling — past it a card stops being easier
+  // to read and just gets wider, so the surplus goes back to the gutter.
+  // The floor holds because the item is already `shrink-0`.
+  // Review is the approval surface — roomier floor AND roomier ceiling than the
+  // working columns on every viewport.
+  const widthCls = isReview
+    ? 'grow basis-[22rem] max-w-[34rem] lg:basis-[32rem] lg:max-w-[44rem]'
+    : 'grow basis-72 max-w-[26rem]';
   const borderCls = isOver ? 'border-emerald-400/60' : 'border-app-border';
   const bgCls = isOver ? 'bg-emerald-400/5' : 'bg-white/5';
 
