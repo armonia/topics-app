@@ -1290,7 +1290,7 @@ export function ChatInput({
                     {replyingTo.content.slice(0, 80)}{replyingTo.content.length > 80 ? '…' : ''}
                   </div>
                 </div>
-                <button onClick={() => setReplyingTo(null)} className="text-app-text-tertiary hover:text-app-text p-0.5">
+                <button aria-label="Annulla la risposta" onClick={() => setReplyingTo(null)} className="text-app-text-tertiary hover:text-app-text p-0.5">
                   <X size={14} />
                 </button>
               </div>
