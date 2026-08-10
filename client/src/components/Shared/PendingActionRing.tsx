@@ -82,6 +82,12 @@ interface Props {
   idleTitle?: string;
   pendingTitle?: string;
   doneTitle?: string;
+  /** Appiglio stabile per i test: finisce su `data-testid` del <button> in
+   *  OGNI stato (riposo, conto alla rovescia, fatto), perche' chi lo cerca
+   *  vuole «il comando di questa riga», non lo stato in cui si trova. Senza,
+   *  le spec lo prendevano come `.locator("button").last()` — posizionale, e
+   *  quindi rotto dal primo bottone che si aggiunge accanto. */
+  testId?: string;
   /** Extra Tailwind classes for the wrapping <button>. */
   className?: string;
 }
@@ -110,6 +116,7 @@ export function PendingActionRing({
   pendingTitle = 'Annulla',
   doneTitle = 'Ripristina',
   className,
+  testId,
 }: Props) {
   if (!status && !done) {
     return (
@@ -118,6 +125,7 @@ export function PendingActionRing({
         onClick={(e) => { e.stopPropagation(); onIdleClick?.(); }}
         aria-label={idleAriaLabel}
         title={idleTitle}
+        data-testid={testId}
         className={`${baseBtn} ${boxClassName ?? ''} ${className ?? ''}`}
         // Il box viene dalle CLASSI quando il chiamante ne dà (`boxClassName`),
         // altrimenti resta l'inline di sempre: `width`/`height` inline
@@ -142,6 +150,7 @@ export function PendingActionRing({
       onClick={(e) => { e.stopPropagation(); if (status) status.cancel(); else onDoneClick?.(); }}
       aria-label={status ? pendingAriaLabel : doneAriaLabel}
       title={status ? pendingTitle : doneTitle}
+      data-testid={testId}
       className={`${baseBtn} ${boxClassName ?? ''} ${className ?? ''}`}
       style={boxClassName ? { color: accent } : { width: size, height: size, color: accent }}
     >

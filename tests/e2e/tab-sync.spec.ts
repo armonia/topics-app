@@ -1,6 +1,7 @@
 import { test } from "./fixtures/tab-sync.fixture";
 import { expect } from "@playwright/test";
 import { goToApp, openTopic, openTopicByClick, openTopicByDoubleClick } from "./helpers";
+import { closeTabViaCommand } from "./helpers/layout";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
@@ -90,9 +91,10 @@ test.describe("Tab Sync & Persistence", () => {
     // Close the last tab via its close button
     const tabs = tabSyncPage.tabs;
     const lastTab = tabs.last();
-    const closeBtn = lastTab.locator("button").last();
     const closedLabel = (await lastTab.textContent())?.trim() || "";
-    await closeBtn.click();
+    // Hover PRIMA del clic: il comando in coda e' un overlay `pointer-events:
+    // none` finche' la riga non e' sotto il mouse. Vedi `closeTabViaCommand`.
+    await closeTabViaCommand(lastTab);
 
     // ASPETTA CHE LA TAB SIA DAVVERO CHIUSA, non solo che il click sia partito.
     //
@@ -190,7 +192,7 @@ test.describe("Tab Sync & Persistence", () => {
         break;
       }
     }
-    await browserTab.locator("button").last().click();
+    await closeTabViaCommand(browserTab);
 
     // Let the deferred close commit (CLOSE_PANE → tombstone) and sync.
     await tabSyncPage.waitForSyncPut("pane-store-v2").catch(() => {});
@@ -242,7 +244,7 @@ test.describe("Tab Sync & Persistence", () => {
       const text = (await tabs.nth(i).textContent())?.trim() || "";
       if (/browser/i.test(text)) { browserTab = tabs.nth(i); break; }
     }
-    await browserTab.locator("button").last().click();
+    await closeTabViaCommand(browserTab);
 
     // Reload IMMEDIATELY — no wait for the countdown to elapse. The unload flush
     // must persist the close. "load" not "networkidle": the browser pane keeps
