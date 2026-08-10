@@ -118,16 +118,19 @@ describe("free-checkout su git vero", () => {
 
     const s = await sweepWorktrees(deps());
 
-    expect(s.freed).toBe(1);
-    expect(s.reaped).toBe(0);
-    expect(s.kept).toBe(0);
-    // La cartella non c'è più: è lo spazio che si libera.
-    expect(existsSync(wt.absPath)).toBe(false);
-    // I commit sì: `git rev-parse` verde, e sullo STESSO tip di prima.
+    // PRIMA il lavoro, poi lo spazio: se una modifica trasforma `free-checkout`
+    // in `reap` è QUESTA riga che deve diventare rossa per prima, non un
+    // contatore — il rosso deve nominare il danno, non l'effetto collaterale.
+    // I commit ci sono: `git rev-parse` verde, e sullo STESSO tip di prima.
     expect(branchResolves(repo, wt.branchName!)).toBe(true);
     expect(git(repo, "rev-parse", wt.branchName!).out).toBe(tip);
     // E il contenuto è ancora leggibile dal repo, non solo il ref.
     expect(git(repo, "show", `${wt.branchName}:chiuso.txt`).out).toBe("lavoro consegnato");
+    // La cartella invece non c'è più: è lo spazio che si libera.
+    expect(existsSync(wt.absPath)).toBe(false);
+    expect(s.freed).toBe(1);
+    expect(s.reaped).toBe(0);
+    expect(s.kept).toBe(0);
   });
 
   test("il task viene avvisato di DOVE è finito il suo lavoro", async () => {
