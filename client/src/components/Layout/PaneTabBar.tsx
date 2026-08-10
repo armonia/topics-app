@@ -16,7 +16,8 @@ import { ClaudeIcon } from '../Shared/ClaudeIcon';
 import { CodexIcon } from '../Shared/CodexIcon';
 import { getFileIconDef } from '../../lib/fileIcons';
 import { rememberDraggedPane } from '../../lib/dragPayload';
-import { DND_TYPES, paneTabScopeType, paneTabSoloSrcType, dragMatchesScope } from '../../lib/dndTypes';
+import { DND_TYPES, paneTabScopeType, paneTabSoloSrcType, dragMatchesScope, STANDALONE_SCOPE } from '../../lib/dndTypes';
+import { BoardTabCounts } from './BoardTabCounts';
 import { EDGE_DROP_PX } from './constants';
 import { SplitRegion, InsertCaret } from './DropOverlay';
 import { useMobile } from '../../hooks/useMobile';
@@ -1313,6 +1314,21 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 X e lo spinner — due passi nella stessa tab. Adesso l'aria la
                 mette il contenitore, una volta. */}
             <div className={`${ROW_TRAIL} flex items-center ${ROW_GAP} flex-shrink-0`}>
+            {/* Quanto lavoro c'è su questa board, per stato. Vale per le DUE
+                tab che aprono una kanban — quella generale (`board`) e quella
+                di un progetto (`kanban`) — e la seconda conta solo i suoi: il
+                progetto è quello della finestra, che questa barra conosce come
+                `dndScope` (per il main è `STANDALONE_SCOPE`, cioè nessuno).
+                Vedi BoardTabCounts per il perché di quali stati e da dove. */}
+            {(pane.type === 'board' || pane.type === 'kanban') && (
+              <BoardTabCounts
+                projectPath={
+                  pane.type === 'kanban'
+                    ? (pane.projectPath ?? (dndScope && dndScope !== STANDALONE_SCOPE ? dndScope : undefined))
+                    : undefined
+                }
+              />
+            )}
             {/* Quiet cue: this chat/terminal tab opened a browser. A third,
                 independent signal — not attention (NotificationBadge) and not
                 loading (spinner) — so it stays muted. Keyed by topicId (chat)
