@@ -5562,6 +5562,38 @@ fn logical_monitors(win: &tauri::WebviewWindow) -> Vec<(i32, i32, u32, u32)> {
 
 /// The window's outer geometry in LOGICAL points: `((x, y), (w, h))`.
 /// Unscales tao's per-current-monitor "physical" values back to AppKit points.
+///
+/// ── DIFETTO APERTO, MISURATO IL 2026-08-10 ──────────────────────────────────
+/// Su questa macchina (retina scale 2 come primario + DUE ultrawide scale 1)
+/// quello che finisce nel file NON è la geometria vera, e sbaglia in modo
+/// ASIMMETRICO — che è l'indizio, perché un fattore di scala sbagliato
+/// sbaglierebbe tutto allo stesso modo:
+///
+///   finestra vera (System Events / CGDisplayBounds, punti logici):
+///       x = -797   y = -1410   w = 3440   h = 1410
+///   topics-win-size.json:
+///       lx = -797  ly =  -705  w = 1720   h =  705
+///
+/// `w`, `h` e `ly` sono ESATTAMENTE la metà; `lx` no. Cioè `to_logical(sf)` ha
+/// diviso per 2 dei valori che erano già logici, mentre la x arrivava già
+/// raddoppiata e la divisione la rimetteva a posto per caso. Ne segue che
+/// `win.scale_factor()` qui vale 2 mentre la finestra sta su un display scale 1,
+/// e che la "physical" che tao restituisce per la posizione non è coerente fra i
+/// due assi (probabilmente perché il ribaltamento origine-in-basso di AppKit usa
+/// l'altezza del PRIMARIO, con la sua scala, mentre la x resta nello spazio
+/// della finestra).
+///
+/// EFFETTO: al prossimo cold-start la finestra si riapre a un quarto dell'area.
+/// Non è il difetto off-screen già chiuso in 2.1.4 — la posizione salvata cade
+/// dentro un display vivo, quindi `clamp_position_to_monitors` la accetta, ed è
+/// giusto che la accetti.
+///
+/// NON L'HO CORRETTO, e la ragione è che non si può provare da qui: qualunque
+/// cura (usare la scala di `current_monitor()`, oppure leggere `NSWindow.frame`
+/// da objc2, che darebbe punti AppKit senza nessuna conversione) va verificata
+/// facendo girare il guscio su QUESTA disposizione di monitor, cioè
+/// ricostruendo e sostituendo la app in uso. Le due misure qui sopra sono il
+/// punto di partenza: chi ci mette mano le rilegga dopo, non prima.
 fn window_logical_geometry(win: &tauri::WebviewWindow) -> Option<((i32, i32), (u32, u32))> {
     let sf = win.scale_factor().ok()?;
     let pos = win.outer_position().ok()?.to_logical::<f64>(sf);
