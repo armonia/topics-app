@@ -3,7 +3,8 @@ import { join, resolve, dirname } from "path";
 import { detectProjectPath } from "../lib/detect-project-path";
 import { homedir } from "os";
 import type { AppContext, RouteHandler, Topic } from "../types";
-import { getProvider, getDefaultProvider, type AIProvider } from "../providers";
+import { getProvider, getDefaultProvider, getDefaultProviderName, type AIProvider } from "../providers";
+import { routesThroughGateway } from "./commandRouting";
 import { createAutoNameRouter } from "./autoname";
 import { createHistoryRouter } from "./history";
 import { createEditRouter } from "./edit";
@@ -468,6 +469,17 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
   function providerForSessionKey(sessionKey: string): AIProvider {
     const topic = getTopicBySessionKey(sessionKey);
     return resolveProvider(topic);
+  }
+
+  /**
+   * Lo slash command di questo sessionKey va inoltrato al gateway OpenClaw?
+   *
+   * Si decide sul provider DICHIARATO dal topic, non su quello risolto: la
+   * regola (e il perché) stanno in `commandRouting.ts`, pure e testate.
+   */
+  function commandRoutesThroughGateway(sessionKey: string): boolean {
+    const topic = getTopicBySessionKey(sessionKey);
+    return routesThroughGateway(topic?.provider, getDefaultProviderName());
   }
 
   /**
@@ -2691,7 +2703,8 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
           case "model": {
             const modelName = args?.model;
             if (!modelName) return json({ error: "model name required" }, 400);
-            if (providerForSessionKey(sessionKey).name === 'openclaw') {
+            // Il provider DICHIARATO, non quello risolto: vedi declaredProviderName.
+            if (commandRoutesThroughGateway(sessionKey)) {
               const resp = await fetch(`${GATEWAY_URL}/api/inference/chat`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}`, "x-openclaw-scopes": "operator.read,operator.write" }, body: JSON.stringify({ sessionKey, messages: [{ role: "user", content: `/model ${modelName}` }] }) });
               if (!resp.ok) return json({ error: "Failed to set model" }, 500);
               return json({ ok: true, command: "model", model: modelName, message: `Model set to: ${modelName}` });
@@ -2718,7 +2731,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
             // `--effort`). openclaw has no effort tier → route through /reasoning.
             const tier = String(args?.level || args?.effort || "").trim().toLowerCase();
             const VALID_EFFORTS = new Set<string>(EFFORT_TIERS);
-            if (providerForSessionKey(sessionKey).name === 'openclaw') {
+            if (commandRoutesThroughGateway(sessionKey)) {
               return json({ error: "L'effort non si applica a questo provider — usa /reasoning." }, 400);
             }
             if (!tier || !VALID_EFFORTS.has(tier)) {
@@ -2739,7 +2752,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
           }
           case "reasoning": {
             const level = args?.level || "on";
-            if (providerForSessionKey(sessionKey).name === 'openclaw') {
+            if (commandRoutesThroughGateway(sessionKey)) {
               const resp = await fetch(`${GATEWAY_URL}/api/inference/chat`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}`, "x-openclaw-scopes": "operator.read,operator.write" }, body: JSON.stringify({ sessionKey, messages: [{ role: "user", content: `/reasoning ${level}` }] }) });
               if (!resp.ok) return json({ error: "Failed to toggle reasoning" }, 500);
               const text = await resp.text();
