@@ -1216,6 +1216,13 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
             onOpenTask={openTask}
             onOpenTopic={onOpenTopic}
             focusPaneId={pendingPaneId ?? undefined}
+            /* Apertura automatica nel workspace: SOLO dalla board globale, che
+               è una superficie a sé. Dentro una finestra di progetto la board è
+               una pane di quella stessa finestra, e promuovere lì il risultato
+               vorrebbe dire togliere spazio al drawer che stai leggendo — e
+               rifare lo split a ogni card. Il bottone «Apri nel workspace»
+               resta comunque, in entrambi i casi. */
+            autoOpenInWorkspace={global}
           />
         )}
       </div>

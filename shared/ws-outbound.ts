@@ -628,11 +628,14 @@ const browserOpenNearPaneSchema = z.looseObject({
 // Browser di proprietà del TASK (dietro TOPICS_TASK_BROWSER): i layout globali
 // ignorano di proposito questo frame, così la tab non finisce nel pane-store
 // condiviso — la consuma solo il gruppo in-drawer del task.
+// `title` è il NOME che l'agente ha prescritto alla tab (il manifesto), assente
+// quando non ne ha dato uno — allora l'etichetta resta il titolo della pagina.
 const browserOpenTaskTabSchema = z.looseObject({
   type: z.literal('browser:open-task-tab'),
   taskId: z.string(),
   contextId: z.string(),
   url: z.string(),
+  title: z.optional(z.string()),
 });
 
 // "Porta in primo piano la pane di questo topic". `projectPath` arriva inline
