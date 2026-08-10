@@ -52,6 +52,28 @@ export function browserPaneLabel(paneId: string): string {
   return `browserpane-${paneId}`;
 }
 
+/**
+ * Dalla label alla pane, inverso di `browser_label` (lib.rs).
+ *
+ * Non basta togliere il prefisso: una pane la cui vista ha rifiutato di
+ * chiudersi (mutex del dispatcher avvelenato) riapre sotto un'etichetta di
+ * GENERAZIONE nuova — `browserpane-~1~<id>` — mentre la morta resta registrata
+ * sotto la vecchia. Le due webview sono processi diversi che pesano entrambi, e
+ * appartengono alla stessa pane: qui si riconoscono uguali, così la misura non
+ * sparisce dalla tab proprio dopo una ricreazione.
+ */
+export function paneIdFromWebviewLabel(label: string): string | null {
+  if (!label.startsWith('browserpane-')) return null;
+  const rest = label.slice('browserpane-'.length);
+  if (!rest.startsWith('~')) return rest;
+  const end = rest.indexOf('~', 1);
+  if (end < 0) return rest;
+  const gen = rest.slice(1, end);
+  // `~` che non racchiude una generazione: è parte dell'id, non si taglia.
+  if (gen.length === 0 || !/^\d+$/.test(gen)) return rest;
+  return rest.slice(end + 1);
+}
+
 let snapshot: UsageSnapshot | null = null;
 let inFlight: Promise<void> | null = null;
 let version = 0;
@@ -169,10 +191,33 @@ export function getPaneUsage(sessionId: string | null | undefined): PaneUsageEnt
   return snapshot.bySession.get(sessionId) ?? null;
 }
 
-/** Consumo di una pane browser, per id di pane. */
+/**
+ * Consumo di una pane browser, per id di pane.
+ *
+ * SOMMA tutte le webview che appartengono a questa pane. Normalmente è una
+ * sola; sono due quando una vista si è rifiutata di morire e la pane è stata
+ * ricreata sotto un'etichetta nuova (vedi {@link paneIdFromWebviewLabel}). Il
+ * processo della morta è ancora lì e lo paga questa pane: nasconderlo
+ * mostrerebbe meno memoria proprio dove ce n'è di più.
+ */
 export function getBrowserPaneUsage(paneId: string | null | undefined): PaneUsageEntry | null {
   if (!paneId || !snapshot) return null;
-  return snapshot.byWebviewLabel.get(browserPaneLabel(paneId)) ?? null;
+  const exact = snapshot.byWebviewLabel.get(browserPaneLabel(paneId));
+  let total: PaneUsageEntry | null = exact ?? null;
+  for (const [label, entry] of snapshot.byWebviewLabel) {
+    if (label === browserPaneLabel(paneId)) continue;
+    if (paneIdFromWebviewLabel(label) !== paneId) continue;
+    total = total
+      ? {
+          memoryMB: total.memoryMB + entry.memoryMB,
+          cpuPercent: total.cpuPercent == null && entry.cpuPercent == null
+            ? null
+            : (total.cpuPercent ?? 0) + (entry.cpuPercent ?? 0),
+          processCount: total.processCount + entry.processCount,
+        }
+      : entry;
+  }
+  return total;
 }
 
 /**
