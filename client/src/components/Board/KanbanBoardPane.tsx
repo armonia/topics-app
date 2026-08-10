@@ -794,13 +794,16 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
     setGcResult(null);
     try {
       const r = await fetch('/api/worktrees/gc', { method: 'POST' });
-      const b = (await r.json()) as { summary?: { reaped?: number; landed?: number; kept?: number; keptReasons?: Record<string, number> } };
+      const b = (await r.json()) as { summary?: { reaped?: number; landed?: number; freed?: number; kept?: number; keptReasons?: Record<string, number> } };
       const sm = b?.summary;
       if (!sm) { setGcResult('Il GC non ha risposto'); return; }
       const motivi = Object.entries(sm.keptReasons ?? {}).sort((a, b2) => b2[1] - a[1]).slice(0, 2)
         .map(([m, n]) => `${n}× ${m}`).join('; ');
+      // `liberati` è la voce che oggi fa quasi tutto il lavoro (cartella via,
+      // branch conservato): senza, la passata che ne libera 77 direbbe «0
+      // ripuliti, 0 landati» e sembrerebbe non aver fatto niente.
       setGcResult(
-        `${sm.reaped ?? 0} ripuliti, ${sm.landed ?? 0} landati, ${sm.kept ?? 0} tenuti`
+        `${sm.reaped ?? 0} ripuliti, ${sm.freed ?? 0} liberati (branch salvo), ${sm.landed ?? 0} landati, ${sm.kept ?? 0} tenuti`
         + (motivi ? ` — ${motivi}` : ''),
       );
       // Il conteggio accanto deve riflettere la passata appena fatta.
