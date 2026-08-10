@@ -1024,6 +1024,24 @@ describe("callUpdateTask", () => {
     });
   });
 
+  test("anche `previewImage` in camelCase arriva: e' il nome che insegnano i prompt", async () => {
+    // Il doctor della board ha trovato questo mentre la correzione era fresca:
+    // «il protocollo insegna previewImage, lo schema dichiara preview_image».
+    // Con un solo nome accettato, un agente che obbedisce al testo ricevuto
+    // perde l'anteprima in silenzio — lo stesso guasto, riaperto dal lato del nome.
+    const seen: { init?: RequestInit } = {};
+    const fetchImpl = stubFetch(async (_url, init) => {
+      seen.init = init;
+      return new Response(JSON.stringify({ id: "t1", status: "review" }), { status: 200 });
+    });
+    await callUpdateTask(
+      { baseUrl: "http://x", sessionKey: "s" },
+      { task_id: "t1", previewImage: "/Users/x/.topics/media/camel.png" } as never,
+      fetchImpl,
+    );
+    expect(JSON.parse(String(seen.init?.body))).toEqual({ previewImage: "/Users/x/.topics/media/camel.png" });
+  });
+
   test("preview_image da solo basta: non serve accompagnarlo a uno stato", async () => {
     const seen: { init?: RequestInit } = {};
     const fetchImpl = stubFetch(async (_url, init) => {
