@@ -114,7 +114,9 @@ export interface DispatcherDeps {
    * host without a classifier (tests / degraded); "auto" then keeps the default.
    * MUST resolve fast and never reject (the picker swallows its own errors).
    */
-  pickAutoModel?: (task: Task) => Promise<{ model: string | null }>;
+  /** «Modello auto»: un giudice haiku legge il task e sceglie modello E sforzo
+   *  prima che l'agente nasca. `effort: null` = non deciso, e la board decide. */
+  pickAutoModel?: (task: Task) => Promise<{ model: string | null; effort?: string | null }>;
   /** Auto concurrency cap for a board on `maxAgentsAuto`: live machine capacity
    *  (CPU/load). Absent ⇒ auto falls back to the board's manual `maxAgents`. */
   recommendedCap?: () => number;
@@ -324,6 +326,14 @@ export interface TaskDispatcher {
    */
   busyCount(): number;
 }
+
+/**
+ * Dove cade l'effort quando la board dice "auto" ma il classificatore non
+ * risponde. NON e' una preferenza: e' cio' che la board faceva prima che l'auto
+ * esistesse, quindi un giudice muto lascia le cose esattamente come stavano
+ * invece di spostarle di nascosto.
+ */
+const DEFAULT_AUTO_EFFORT = "medium";
 
 const CHIP_QUEUED = "queued";
 const CHIP_WORKING = "working";
@@ -918,9 +928,17 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         // Persist the board-default so the card shows the real model, not "auto".
         deps.svc.setModel({ taskId, model: chosenModel });
       }
+      // L'effort segue la stessa regola del modello: la board puo' fissarlo
+      // ("medium", "high", …) e allora comanda lei; su "auto" lo sceglie il
+      // classificatore, task per task. E' la leva piu' pesante che abbiamo —
+      // misurato: lo stesso lavoro a `medium` costa 61,1k token e a `xhigh`
+      // 108,8k — quindi tenerla fissa per tutta una board significa pagarla
+      // uguale su un typo e su un refactor.
+      let chosenEffort = settings.effort;
       if (!chosenModel && !reuseTopicId && deps.pickAutoModel) {
         const picked = await deps.pickAutoModel(task);
         chosenModel = picked.model ?? undefined;
+        if (settings.effort === "auto") chosenEffort = picked.effort ?? DEFAULT_AUTO_EFFORT;
         // "auto" è solo lo stato INIZIALE: appena il classifier risolve un
         // modello concreto lo persisto sul task, così la card mostra quello
         // davvero usato (non più "auto"). Nessun emit qui: la setDispatchState
@@ -949,7 +967,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
             projectPath: cwd,
             worktreeId,
             systemPrompt: rolePrompt(langFor(task.projectId)),
-            effort: settings.effort,
+            effort: chosenEffort,
             model: chosenModel,
             // Catch-all task → standalone session: keeps its (now per-task) cwd
             // but never renders a phantom project node in the sidebar.
@@ -1289,9 +1307,11 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // confrontare STRADE, non provider.
       let chosenModel: string | undefined = task.model ?? settings.model ?? undefined;
       if (chosenModel && chosenModel !== task.model) deps.svc.setModel({ taskId, model: chosenModel });
+      let chosenEffort = settings.effort;
       if (!chosenModel && deps.pickAutoModel) {
         const picked = await deps.pickAutoModel(task);
         chosenModel = picked.model ?? undefined;
+        if (settings.effort === "auto") chosenEffort = picked.effort ?? DEFAULT_AUTO_EFFORT;
         if (chosenModel) deps.svc.setModel({ taskId, model: chosenModel });
       }
 
@@ -1310,7 +1330,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // deve lasciare i fratelli a girare senza nessuno che ne raccolga l'esito.
       await Promise.allSettled(
         Array.from({ length: n }, (_, i) =>
-          runAttempt(task, i + 1, n, { timeoutMs, effort: settings.effort, mcp: settings.mcp, model: chosenModel }, resolved),
+          runAttempt(task, i + 1, n, { timeoutMs, effort: chosenEffort, mcp: settings.mcp, model: chosenModel }, resolved),
         ),
       );
       // Sepolto dalla rete di liveness mentre giravamo (o rimpiazzato da un run

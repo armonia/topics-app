@@ -90,7 +90,7 @@ import { aiBridgeEnabled } from "./server/providers/claude-code";
 import { cancelled, describeTurnEnd, type TurnEndInfo } from "./server/providers/stop-reason";
 import { recordTurnEnd, takeTurnEnd } from "./server/providers/turn-end-registry";
 import { getAiBridgeClient } from "./server/lib/ai-bridge-client";
-import { pickTaskModel } from "./server/services/task-model-picker";
+import { pickTaskPlan } from "./server/services/task-model-picker";
 import { FALLBACK_MODELS, newestOfFamily } from "./server/providers/claude-models";
 import { createProcessesRouter, startProcessDetection } from "./server/routes/processes";
 import { createTasksRouter } from "./server/routes/tasks";
@@ -834,8 +834,8 @@ const taskDispatcher = createTaskDispatcher({
       const availableModels = cc?.models ?? [];
       // No snapshot yet → can't classify, but opus-first means we still hand the
       // agent opus (the human's default + this host's primary), never a downgrade.
-      if (availableModels.length === 0) return { model: staticOpus };
-      const model = await pickTaskModel(task, {
+      if (availableModels.length === 0) return { model: staticOpus, effort: null };
+      const plan = await pickTaskPlan(task, {
         // Force the cheapest tier for the classification itself.
         complete: (prompt) =>
           provider.complete([{ role: "user", content: prompt }], { model: "claude-haiku-4-5" }).then((r) => r.content ?? ""),
@@ -843,9 +843,11 @@ const taskDispatcher = createTaskDispatcher({
         fallback: newestOfFamily("opus", availableModels, { preferLong: true }) ?? staticOpus,
         log: (m) => console.log(`[dispatcher] ${m}`),
       });
-      return { model };
+      return plan;
     } catch {
-      return { model: staticOpus }; // any failure → opus-first, never a silent downgrade
+      // any failure → opus-first, never a silent downgrade; effort null =
+      // «non lo so», e la board decide (non un medium inventato qui).
+      return { model: staticOpus, effort: null };
     }
   },
   // Auto concurrency cap: live machine capacity for boards on `maxAgentsAuto`.
