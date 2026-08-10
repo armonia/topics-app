@@ -9,6 +9,8 @@ import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { SelectElementOverlay } from './SelectElementOverlay';
 import { NativeBrowserPlaceholder } from './NativeBrowserPlaceholder';
 import { ParkedPane } from './ParkedPane';
+import { BrowserNoticeStrip } from './BrowserNoticeStrip';
+import { BrowserPaneChip, ChipDot, type ChipTone } from './BrowserPaneChip';
 import { DownloadStrip } from './DownloadStrip';
 import { useBrowserSpawner } from '../../state/browserSpawner';
 import { signalsActions } from '../../state/signals';
@@ -432,53 +434,37 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
           <button className={findBtn} title="Chiudi (Esc)" onClick={closeFind}><X size={14} aria-hidden /></button>
         </div>
       )}
+      {/* La scheda non risponde più. Sta SOPRA l'errore di navigazione perché lo
+          scavalca: se la vista nativa non accetta comandi, «Riprova» non può
+          riprovare niente. Non si può nemmeno chiudere — un pane morto non
+          smette di esserlo perché uno ne ha nascosto l'avviso. */}
+      {browser.nativeFault && (
+        <BrowserNoticeStrip
+          testId="browser-native-fault"
+          message="Questa scheda non risponde più."
+          hint={`La vista nativa ha rifiutato ${browser.nativeFault.command} più volte di fila: quello che vedi è l'ultima pagina che è riuscita a disegnare.`}
+          action={{ label: 'Ricrea la scheda', onClick: () => { void browser.recreate?.(); } }}
+        />
+      )}
       {/* Navigation error strip — native-path parity with BRW-REL-02. Fed by the
-          Rust did-fail queue (browser_take_nav_errors). IN FLOW, not an absolute
-          overlay: the native WKWebView composites ABOVE the DOM, so an overlay
-          would be invisible — shrinking the placeholder repositions the native
-          view below the strip instead. The failed load leaves the previous page
-          alive, hence the explicit dismiss next to Riprova. */}
+          Rust did-fail queue (browser_take_nav_errors). The failed load leaves
+          the previous page alive, hence the explicit dismiss next to Riprova. */}
       {browser.navError && (
-        <div
-          className="flex items-center gap-2 px-3 py-1.5 bg-red-500/10 border-b border-red-500/30 text-red-700 dark:text-red-300 text-[12px] flex-shrink-0"
-          data-testid="browser-nav-error"
-          role="alert"
-        >
-          <AlertTriangle size={13} className="flex-shrink-0" />
-          {/* Due righe, non una troncata: la prima dice cosa è successo, la
-              seconda perché (vedi navErrorMessage). Il testo viene già scritto
-              corto apposta — `truncate` qui tagliava proprio la parte che
-              spiegava il problema. */}
-          <span className="flex-1 min-w-0 leading-tight" title={[browser.navError.message, browser.navError.hint].filter(Boolean).join('\n')}>
-            {/* `line-clamp-*` imposta già `display:-webkit-box`: aggiungerci
-                `block` metterebbe due utility sulla stessa proprietà, e a
-                decidere sarebbe l'ordine nel foglio di stile, non quello delle
-                classi. */}
-            <span className="line-clamp-2">{browser.navError.message}</span>
-            {browser.navError.hint && (
-              <span className="line-clamp-2 opacity-70">{browser.navError.hint}</span>
-            )}
-          </span>
-          {(browser.navError.url || browser.url) && (
-            <button
-              onClick={() => {
-                const target = browser.navError!.url || browser.url;
-                void (browser.retryNav ? browser.retryNav(target) : browser.navigate(target));
-              }}
-              className="flex items-center gap-1 px-2 py-0.5 rounded bg-red-500/15 hover:bg-red-500/25 font-medium transition-colors flex-shrink-0"
-            >
-              <RotateCw size={11} />
-              Riprova
-            </button>
-          )}
-          <button
-            onClick={() => browser.clearNavError?.()}
-            className="w-5 h-5 flex items-center justify-center rounded hover:bg-red-500/15 transition-colors flex-shrink-0"
-            title="Chiudi"
-          >
-            <X size={12} />
-          </button>
-        </div>
+        <BrowserNoticeStrip
+          testId="browser-nav-error"
+          message={browser.navError.message}
+          hint={browser.navError.hint}
+          action={(browser.navError.url || browser.url)
+            ? {
+                label: 'Riprova',
+                onClick: () => {
+                  const target = browser.navError!.url || browser.url;
+                  void (browser.retryNav ? browser.retryNav(target) : browser.navigate(target));
+                },
+              }
+            : undefined}
+          onDismiss={() => browser.clearNavError?.()}
+        />
       )}
       {/* Parcheggiata = nessuna webview nativa da posizionare, quindi al posto
           del placeholder ci va la schermata che spiega perché. Montare
@@ -716,14 +702,20 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
     browser.connectionState === 'connecting' ? 'Connecting...' :
     'Disconnected';
 
-  const connectionClassPill =
-    browser.connectionState === 'connected'
-      ? 'bg-green-500/15 text-green-600 dark:text-green-400 connection-live'
-      : browser.connectionState === 'fallback-http'
-      ? 'bg-yellow-500/15 text-yellow-600 dark:text-yellow-400 connection-fallback'
-      : browser.connectionState === 'connecting'
-      ? 'bg-yellow-500/15 text-yellow-600 dark:text-yellow-400 connection-connecting'
-      : 'bg-red-500/15 text-red-600 dark:text-red-400 connection-disconnected';
+  // Tone + the marker class E2E asserts on. The colours themselves now come from
+  // the measured tokens in BrowserPaneChip: `green-600`/`yellow-600` used to be
+  // written here by hand and measured 2,81:1 and 2,65:1 over their own tint in
+  // the light theme, against a 4,5 threshold for 11px text.
+  const connectionTone: ChipTone =
+    browser.connectionState === 'connected' ? 'ok'
+    : browser.connectionState === 'fallback-http' || browser.connectionState === 'connecting' ? 'warn'
+    : 'danger';
+
+  const connectionMarker =
+    browser.connectionState === 'connected' ? 'connection-live'
+    : browser.connectionState === 'fallback-http' ? 'connection-fallback'
+    : browser.connectionState === 'connecting' ? 'connection-connecting'
+    : 'connection-disconnected';
 
   const connectionDotClass =
     browser.connectionState === 'connected' ? 'bg-green-500 animate-pulse' :
@@ -781,13 +773,15 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
         {/* Phase 30 BROWSER-CHAT-02 — connection indicator pillola (top-right).
             Hidden on the settled happy path (see hideConnectionPill). */}
         {!hideConnectionPill && (
-          <div
-            className={`absolute top-2 right-2 z-10 flex items-center gap-1 px-2 py-1 rounded-full text-[11px] font-medium pointer-events-none transition-colors browser-connection-indicator ${connectionClassPill}`}
-            data-testid="browser-connection-indicator"
+          <BrowserPaneChip
+            corner="top-right"
+            tone={connectionTone}
+            testId="browser-connection-indicator"
+            className={`browser-connection-indicator ${connectionMarker}`}
+            icon={<ChipDot className={connectionDotClass} />}
           >
-            <span className={`w-1.5 h-1.5 rounded-full ${connectionDotClass}`} />
             {connectionLabel}
-          </div>
+          </BrowserPaneChip>
         )}
 
         {/* Engine toggle (task 54601eeb) — Native ↔ real Chromium (extensions).
@@ -795,22 +789,18 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
             (un Chromium installato sulla macchina). Streaming-only:
             an iframe pane has no server-side engine. */}
         {browser.engineToggleAvailable && (
-          <button
-            type="button"
-            data-testid="browser-engine-toggle"
+          <BrowserPaneChip
+            corner="top-left"
+            tone={browser.engine === 'chromium' ? 'active' : 'neutral'}
+            testId="browser-engine-toggle"
             onClick={() => browser.setEngine(browser.engine === 'chromium' ? 'native' : 'chromium')}
-            className={`absolute top-2 left-2 z-10 flex items-center gap-1.5 px-2 py-1 rounded-full text-[11px] font-medium border transition-colors ${
-              browser.engine === 'chromium'
-                ? 'bg-primary/15 border-primary/40 text-primary hover:bg-primary/25'
-                : 'bg-surface/90 border-border text-muted hover:bg-surface hover:text-text'
-            }`}
+            icon={<Puzzle size={12} className="flex-shrink-0" aria-hidden />}
             title={browser.engine === 'chromium'
               ? `Chromium reale · ${browser.engineExtensions} estensioni — clicca per tornare al motore nativo`
               : 'Motore nativo — clicca per usare il tuo Chromium reale (con le estensioni)'}
           >
-            <Puzzle size={12} className="flex-shrink-0" />
             {browser.engine === 'chromium' ? `Chromium · ${browser.engineExtensions}` : 'Nativo'}
-          </button>
+          </BrowserPaneChip>
         )}
 
         {/* T1 DOM co-browse toggle — DOM (native rrweb reconstruction) ↔ video (the
@@ -818,22 +808,21 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
             (Option A): the real browser, native + cross-device-sharp, no video. Video
             is the manual/auto fallback for canvas/WebGL/media the DOM can't rebuild. */}
         {!!browser.url && browser.url !== 'about:blank' && (
-          <button
-            type="button"
-            data-testid="browser-render-toggle"
+          <BrowserPaneChip
+            corner="bottom-left"
+            z={20} // above the co-browse surface, which paints its own layers
+            tone={browser.renderMode === 'dom' ? 'active' : 'neutral'}
+            testId="browser-render-toggle"
             onClick={() => browser.setRenderMode(browser.renderMode === 'dom' ? 'video' : 'dom')}
-            className={`absolute bottom-2 left-2 z-20 flex items-center gap-1.5 px-2 py-1 rounded-full text-[11px] font-medium border transition-colors ${
-              browser.renderMode === 'dom'
-                ? 'bg-primary/15 border-primary/40 text-primary hover:bg-primary/25'
-                : 'bg-surface/90 border-border text-muted hover:bg-surface hover:text-text'
-            }`}
+            icon={browser.renderMode === 'dom'
+              ? <Boxes size={12} className="flex-shrink-0" aria-hidden />
+              : <MonitorPlay size={12} className="flex-shrink-0" aria-hidden />}
             title={browser.renderMode === 'dom'
               ? 'Modalità DOM: browser vero ricostruito nativamente (cross-device). Clicca per tornare al video.'
               : 'Modalità video (stream a pixel). Clicca per la modalità DOM: il browser vero, nativo e cross-device.'}
           >
-            {browser.renderMode === 'dom' ? <Boxes size={12} className="flex-shrink-0" /> : <MonitorPlay size={12} className="flex-shrink-0" />}
             {browser.renderMode === 'dom' ? 'DOM' : 'Video'}
-          </button>
+          </BrowserPaneChip>
         )}
 
         {/* Navigation error strip (BRW-REL-02) — a failed goto/launch used to
