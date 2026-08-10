@@ -138,9 +138,11 @@ test.describe("Apri nel workspace", () => {
 
     await openBtn.click();
 
+    // UN evento solo: la navigazione. L'apertura della finestra non parte più
+    // (vedi sotto), quindi aspettare "almeno due" aspetterebbe per sempre.
     await expect
       .poll(async () => page.evaluate(() => (window as unknown as { __wsOpen: unknown[] }).__wsOpen.length), { timeout: 5000 })
-      .toBeGreaterThanOrEqual(2);
+      .toBeGreaterThanOrEqual(1);
 
     const evts = (await page.evaluate(() => (window as unknown as { __wsOpen: unknown[] }).__wsOpen)) as {
       type: string;
@@ -154,8 +156,64 @@ test.describe("Apri nel workspace", () => {
     expect(typeof nav!.detail.contextId).toBe("string");
     expect(nav!.detail.contextId!.length).toBeGreaterThan(0);
 
+    // La finestra del progetto è GIÀ montata (la board sta dentro di lei):
+    // `topics:open-project` NON deve partire. Prima partiva a ogni click e
+    // rialzava una finestra che era già lì; ora il registro delle finestre
+    // montate lo evita, e l'apertura resta l'ultima risorsa per la finestra
+    // chiusa. Vedi state/pane/adapters/browserOriginStore.
     const openProj = evts.find((e) => e.type === "open-project");
-    expect(openProj, "topics:open-project deve partire").toBeTruthy();
-    expect(openProj!.detail.projectPath).toBe(PROJECT_PATH);
+    expect(openProj, "la finestra c'è già: niente apertura forzata").toBeFalsy();
+  });
+
+  test("WSOPEN-02: il bottone promuove TUTTE le tab del task, ognuna col suo nome", async ({ page }) => {
+    const text = `Task con manifesto ${Date.now()}`;
+    const task = await apiCreateTask(page.request, { text, status: "in_progress" });
+    // Il manifesto come lo scrive il server quando l'agente chiama
+    // open_browser_pane({url, name}): una tab per nome, etichetta pinnata.
+    const tabs = {
+      tabs: [
+        { contextId: `task-${task.id.slice(0, 8)}-napp`, url: `${BASE}/`, title: "App", seq: 0, titleSource: "agent" },
+        { contextId: `task-${task.id.slice(0, 8)}-nreport`, url: `${BASE}/?report`, title: "Report", seq: 1, titleSource: "agent" },
+      ],
+      activeContextId: `task-${task.id.slice(0, 8)}-napp`,
+      nextSeq: 2,
+    };
+    const put = await page.request.put(`${BASE}/api/ui-state/task-browser-tabs:${task.id}`, { data: tabs });
+    expect(put.ok()).toBe(true);
+
+    await page.goto("/");
+    await openProjectBoard(page);
+
+    await page.getByTestId("kanban-column-in_progress").getByText(text).click();
+    const drawer = page.getByTestId("task-detail-drawer");
+    await expect(drawer).toBeVisible({ timeout: 10000 });
+
+    // Le due tab del manifesto sono le tab del drawer, con i NOMI dell'agente.
+    await expect(drawer.getByRole("tab", { name: "App" })).toBeVisible({ timeout: 10000 });
+    await expect(drawer.getByRole("tab", { name: "Report" })).toBeVisible();
+
+    await page.evaluate(() => {
+      (window as unknown as { __wsOpen: unknown[] }).__wsOpen = [];
+      window.addEventListener("browser:open-and-navigate", (e) =>
+        (window as unknown as { __wsOpen: unknown[] }).__wsOpen.push((e as CustomEvent).detail));
+    });
+
+    await drawer.getByTestId("task-open-in-workspace").click();
+
+    // DUE navigate, uno per tab: il risultato non è più «Output» al singolare.
+    await expect
+      .poll(async () => page.evaluate(() => (window as unknown as { __wsOpen: unknown[] }).__wsOpen.length), { timeout: 5000 })
+      .toBe(2);
+
+    const navs = (await page.evaluate(() => (window as unknown as { __wsOpen: unknown[] }).__wsOpen)) as {
+      url?: string; contextId?: string;
+    }[];
+    expect(navs.map((n) => n.url).sort()).toEqual([`${BASE}/`, `${BASE}/?report`]);
+    // Ogni tab va nella sua pane, sotto il GEMELLO del suo contextId: due viste
+    // della stessa consegna senza contendersi la stessa webview nativa.
+    expect(navs.map((n) => n.contextId).sort()).toEqual([
+      `task-${task.id.slice(0, 8)}-napp_ws`,
+      `task-${task.id.slice(0, 8)}-nreport_ws`,
+    ]);
   });
 });
