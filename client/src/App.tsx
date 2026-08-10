@@ -5,6 +5,8 @@ import { Settings as SettingsIcon, ChevronDown, Search, Archive, List, RotateCcw
 import { useGlobalBoard } from './hooks/useGlobalBoard';
 import { useTaskTopicIndex } from './hooks/useTaskTopicIndex';
 import { openTaskInApp } from './lib/openTaskLink';
+import { runNotificationAction } from './lib/notify/notificationAction';
+import { boardApi } from './lib/board';
 import { SidebarToggleButton } from './components/Shared/SidebarToggleButton';
 import { UpdaterToast } from './components/UpdaterToast';
 import type { PaneType } from './types';
@@ -464,6 +466,36 @@ function App() {
     (window as unknown as { __topicsOpenTask?: (id: string) => void }).__topicsOpenTask =
       (id: string) => { if (id) openTaskInApp({ taskId: id }); };
     return () => { delete (window as unknown as { __topicsOpenTask?: (id: string) => void }).__topicsOpenTask; };
+  }, []);
+
+  // Il gemello del precedente per i TASTI del banner nativo: il delegate Rust
+  // legge `actionIdentifier` e chiama qui. Il guscio trasporta, il client
+  // esegue — la chiamata vuole sessione, cookie ed endpoint della board, che
+  // vivono da questa parte.
+  //
+  // Il progetto si RISOLVE dal feed globale invece di viaggiare nella notifica:
+  // così un banner ancora appeso in Centro Notifiche resta premibile anche
+  // dopo un riavvio dell'app, che è precisamente quando una mappa in memoria
+  // avrebbe già dimenticato tutto.
+  useEffect(() => {
+    type ActionGlobal = { __topicsNotificationAction?: (taskId: string, actionId: string) => void };
+    (window as unknown as ActionGlobal).__topicsNotificationAction = (taskId: string, actionId: string) => {
+      void runNotificationAction(taskId, actionId, {
+        resolveProjectId: async (id) =>
+          (await boardApi.listAll()).find((t) => t.id === id)?.projectId ?? null,
+        send: async (req) => {
+          const resp = await fetch(req.path, {
+            method: req.method,
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify(req.body),
+          });
+          return resp.ok;
+        },
+        openTask: (id) => openTaskInApp({ taskId: id }),
+      });
+    };
+    return () => { delete (window as unknown as ActionGlobal).__topicsNotificationAction; };
   }, []);
 
   // Task-owned browser fork → per-task tab store. Consumes the server's
