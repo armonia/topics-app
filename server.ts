@@ -28,8 +28,8 @@ import { createFilesRouter } from "./server/routes/files";
 import { createBrowserRouter } from "./server/routes/browser";
 import { createCronRouter } from "./server/routes/cron";
 import { createContextRouter } from "./server/routes/context";
-import { censusOnce, formatCensus } from "./server/services/orphan-census";
-import { createTerminalRouter, handleTerminalWebSocket, disconnectBridge, getClaudeSessionsForDetection, getClaudeSessionPtyIdleMs, setTerminalBrowserCloser, countAttachedTerminalSessions, listTerminalSessionSnapshot } from "./server/routes/terminal";
+import { createOrphanCensusRunner } from "./server/services/orphan-census";
+import { createTerminalRouter, handleTerminalWebSocket, disconnectBridge, getClaudeSessionsForDetection, getClaudeSessionPtyIdleMs, setTerminalBrowserCloser, countAttachedTerminalSessions, listTerminalSessionSnapshot, parkOrphanSessions } from "./server/routes/terminal";
 import { createStatusRouter } from "./server/routes/status";
 import { createMemoryRouter } from "./server/routes/memory";
 import { initUsageStore, rebuildSummary } from "./server/usage/store";
@@ -42,7 +42,6 @@ import { createExternalSessionsService } from "./server/services/external-sessio
 import { createExternalSessionsRouter } from "./server/routes/external-sessions";
 import { createTaskDispatcher } from "./server/services/task-dispatcher";
 import { computeDispatchCapacity } from "./server/services/dispatch-capacity";
-import { scanOrphanSessions, referencedSessionIdsIn } from "./server/lib/orphan-sessions";
 import { buildBranchInventory, summarizeInventory } from "./server/services/branch-inventory";
 import { createTaskAutoMerge, worktreeRealDirt } from "./server/services/task-automerge";
 import { createPreviewManager, type PreviewManager, type PreviewProcess } from "./server/services/preview-manager";
@@ -3523,57 +3522,6 @@ function runWorktreeGc() {
   }).catch((err) => { console.error("[worktree-gc] sweep failed", err); return null; });
 }
 // First pass 2 min after boot (let dispatch settle), then every 30 min.
-// ── Censimento delle sessioni orfane — SOLO LETTURA ────────────────────────
-//
-// Esistono sessioni claude-code vive che nessuna struttura di `ui_state`
-// referenzia: nessuna finestra le mostra, quindi non esiste un gesto umano per
-// chiuderle. Qui si CONTANO e basta.
-//
-// Perché non si agisce: «non referenziata» è un giudizio che attraversa quattro
-// strutture diverse, e un falso positivo ucciderebbe una sessione che qualcuno
-// stava usando. Un giro in sola lettura è il modo di scoprire i falsi positivi
-// PRIMA che costino — se il log nomina sessioni che stai usando, il censimento
-// è sbagliato e si vede senza aver perso niente.
-function censusOrphanSessions(): void {
-  try {
-    const snap = listTerminalSessionSnapshot();
-    if (snap.length === 0) return;
-    const referenced = new Set<string>();
-    try {
-      for (const row of ctx.db.prepare("SELECT value FROM ui_state").all() as Array<{ value: string }>) {
-        for (const id of referencedSessionIdsIn(String(row.value ?? ""))) referenced.add(id);
-      }
-    } catch (err) {
-      // Senza poter leggere `ui_state` NON si censisce: un insieme di
-      // referenze vuoto farebbe risultare orfane TUTTE le sessioni.
-      console.warn("[orfane] censimento saltato: ui_state illeggibile", err);
-      return;
-    }
-    const res = scanOrphanSessions({
-      liveSessionIds: snap.map((s) => s.id),
-      referencedIds: referenced,
-      attachedIds: new Set(snap.filter((s) => s.attached).map((s) => s.id)),
-      subAgentIds: new Set(snap.filter((s) => s.isSubAgent).map((s) => s.id)),
-    });
-    const motivi = Object.entries(res.sparedReasons).map(([k, n]) => `${n}× ${k}`).join("; ");
-    if (res.orphans.length > 0) {
-      console.log(
-        `[orfane] ${res.orphans.length} sessioni che NESSUNA interfaccia mostra (di ${res.examined} vive): ` +
-        res.orphans.map((id) => id.slice(0, 8)).join(", ") +
-        (motivi ? ` — risparmiate: ${motivi}` : "") +
-        " · SOLO CENSIMENTO, nessuna azione presa.",
-      );
-    } else {
-      console.log(`[orfane] nessuna orfana su ${res.examined} sessioni vive${motivi ? ` — ${motivi}` : ""}.`);
-    }
-  } catch (err) {
-    console.warn("[orfane] censimento fallito", err);
-  }
-}
-// Dopo il boot, quando il roster si è ripopolato: prima sarebbe un censimento
-// su una lista vuota, cioè zero orfane per il motivo sbagliato.
-const orphanCensusBoot = setTimeout(censusOrphanSessions, 180_000);
-
 const worktreeGcBoot = setTimeout(runWorktreeGc, 120_000);
 const worktreeGcTimer = setInterval(runWorktreeGc, WORKTREE_GC_INTERVAL_MS);
 
@@ -3776,37 +3724,65 @@ browserService.restoreAllContexts(Object.values(ctx.loadTopics().topics))
   .then(r => console.log(`[server] browser restore: ${r.restored} restored, ${r.failed} failed`))
   .catch(err => console.warn(`[server] browser restore failed (non-fatal):`, err.message));
 
-// Censimento delle sessioni orfane — SOLA LETTURA (task `90762124`, punto 2).
+// Sessioni orfane: censimento e PARCHEGGIO (task `90762124`).
 //
-// Prima di collegare qualunque azione si guarda il giudizio girare sul campo:
-// «nessuna interfaccia la referenzia» attraversa quattro strutture di `ui_state`,
-// e un falso positivo, il giorno in cui l'azione ci sarà, spegnerebbe una
-// sessione che qualcuno stava usando. Qui non si tocca niente: si logga cosa
-// SAREBBE stato parcheggiato, e l'azione (che sarà il parcheggio, non la
-// cancellazione) si collega solo quando questo log smette di nominare sessioni
-// vive.
+// Esistono sessioni claude-code vive che nessuna struttura di `ui_state`
+// referenzia — né il pane store, né un layout di progetto, né le pane di
+// progetto, né una tab standalone. Nessuna finestra le mostra, quindi non
+// esiste un gesto umano per chiuderle: restano finché non le si cancella a mano
+// o non si riavvia il server, e nel frattempo consumano.
+//
+// Il censimento ha girato in SOLA LETTURA prima di poter agire, ed era il punto:
+// «non referenziata» attraversa quattro strutture, e un falso positivo spegne
+// una sessione che qualcuno stava usando. Sessantotto giri fra il 04/08 e il
+// 10/08 non hanno mai nominato una sessione. Prova pulita, ma sottile: il roster
+// non ha mai avuto più di UNA sessione viva alla volta, quindi la scarsità dei
+// falsi positivi dice poco. Per questo l'azione non si fida di un censimento
+// solo — vedi `lib/orphan-park-policy.ts`, che pretende DUE avvistamenti
+// consecutivi e si rifiuta di agire se `ui_state` non ha restituito righe.
+//
+// E l'azione è il PARCHEGGIO, non la cancellazione: muore la PTY, la riga resta
+// `dormant`, `--resume` la riporta dov'era con lo scrollback. Un falso positivo
+// su un parcheggio costa un click, su una `DELETE` costa una conversazione.
+// `parkOrphanSessions` passa poi dagli stessi cancelli del giro di inattività
+// (`decidePark`): «orfana» non sa niente di un turno in corso.
 //
 // Il ritardo serve, e 90 secondi NON bastavano: le sessioni di terminale non
 // vengono ripristinate all'avvio, ma quando un client si attacca. Misurato il
 // 04/08 sul server vivo, il primo giro riportava «0 sessioni esaminate» — vero
 // e inutile. A quindici minuti l'app ha attaccato le sue pane e il censimento
-// guarda qualcosa. Poi ogni sei ore, che è la frequenza giusta per una cosa che
-// si legge nei log e non fa nulla.
+// guarda qualcosa. Poi ogni sei ore: è anche la distanza fra i due avvistamenti
+// che servono per parcheggiare, cioè un'orfana vera muore dopo mezza giornata di
+// conferme e una pane appena creata non rischia niente.
 const ORPHAN_CENSUS_DELAY_MS = 15 * 60_000;
 const ORPHAN_CENSUS_EVERY_MS = 6 * 60 * 60_000;
+// Quanto dev'essere muta la PTY. Non è ridondante con «nessuna interfaccia la
+// mostra»: il registro delle pane non sa se la sessione sta scrivendo ADESSO.
+const ORPHAN_PARK_IDLE_MS = 30 * 60_000;
+// Acceso di serie, spegnibile con `TOPICS_ORPHAN_PARK=0`. Al contrario del
+// parcheggio per inattività — spento di default perché una sessione parcheggiata
+// mostra «Sessione scaduta» finché la sua pane non la rianima — qui quella
+// ragione non esiste: un'orfana non ha una pane che possa mostrare alcunché.
+const ORPHAN_PARK_ENABLED = (process.env.TOPICS_ORPHAN_PARK ?? "1").trim() !== "0";
+// La catena vive in `services/orphan-census.ts` (dove un test la monta identica
+// a questa); qui restano solo le dipendenze vere e i timer.
+const orphanCensusRunner = createOrphanCensusRunner({
+  listSessions: () => listTerminalSessionSnapshot(),
+  listUiStateValues: () =>
+    (ctx.db.query("SELECT value FROM ui_state").all() as Array<{ value?: string }>)
+      .map((row) => row.value ?? "")
+      .filter(Boolean),
+  park: (ids) => { parkOrphanSessions(ids, ORPHAN_PARK_IDLE_MS); },
+  enabled: ORPHAN_PARK_ENABLED,
+});
 function runOrphanCensus(): void {
   try {
-    const r = censusOnce({
-      listSessions: () => listTerminalSessionSnapshot(),
-      listUiStateValues: () =>
-        (ctx.db.query("SELECT value FROM ui_state").all() as Array<{ value?: string }>)
-          .map((row) => row.value ?? "")
-          .filter(Boolean),
-    });
-    console.log(formatCensus(r));
+    orphanCensusRunner();
   } catch (err) {
     // Un censimento che non riesce non deve mai essere un problema del server:
-    // non serve a farlo funzionare, serve a farci sapere una cosa.
+    // non serve a farlo funzionare, serve a farci sapere una cosa. E un giro
+    // fallito non lascia conferme: la memoria del giro precedente resta com'era,
+    // quindi mezza lettura non può diventare un permesso.
     console.warn("[orphan-census] salto questo giro:", (err as Error).message);
   }
 }
@@ -3855,7 +3831,6 @@ async function gracefulShutdown(signal: string) {
   clearInterval(staleStreamTimer);
   clearInterval(dispatchTimer);
   clearTimeout(worktreeGcBoot);
-  clearTimeout(orphanCensusBoot);
   clearInterval(worktreeGcTimer);
   clearTimeout(landingAuditBoot);
   clearInterval(landingAuditTimer);
