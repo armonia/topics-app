@@ -710,6 +710,41 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             if (last && last.kind === "thinking") last.text += delta;
             else blocks.push({ kind: "thinking", text: delta });
           };
+          /**
+           * L'unica porta da cui il CORPO del turno finisce sulla riga —
+           * salvataggio periodico del testo e scatti dei tool passano di qui.
+           *
+           * Dentro una RIADOZIONE applica la regola di `reattachMerge.ts` a
+           * OGNI scrittura, non solo all'ultima: quello che il replay non ha
+           * ancora ri-emesso resta quello di prima. Serve perché la finestra
+           * pericolosa è lunga quanto il replay, non quanto il finalize — un
+           * riavvio (o un guasto) preso nel mezzo lasciava la riga con la metà
+           * di quello che c'era. Fuori da una riadozione è la scrittura di
+           * sempre, senza costi aggiunti.
+           *
+           * `withText` distingue le due chiamate: il salvataggio periodico
+           * porta testo + blocchi, quello dopo un evento di tool solo i blocchi.
+           */
+          const persistTurnBody = (withText: boolean) => {
+            const blocchi = blocks.length > 0 ? blocks : undefined;
+            if (!isReattach || !reattachSnapshot) {
+              updateLastMessage(sessionKey, withText
+                ? { content: fullContent, thinking: fullThinking || undefined, blocks: blocchi }
+                : { blocks: blocchi });
+              return;
+            }
+            const merged = mergeReattachedRow(reattachSnapshot, {
+              content: fullContent,
+              thinking: fullThinking || undefined,
+              trackedTools: trackedToolCallIds.length,
+              blocks,
+            }, "progress");
+            updateLastMessage(sessionKey, {
+              content: merged.content,
+              thinking: merged.thinking,
+              blocks: (merged.blocks as ContentBlock[] | undefined) ?? blocchi,
+            });
+          };
           // Persist `blocks` immediately on every tool lifecycle event (start,
           // result, abort). Without this, mid-stream reload misses tool calls:
           // `addToolCallToLastMessage` writes the legacy `tool_calls` column
@@ -718,9 +753,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // reload between text saves shows stale rows. This helper closes
           // that race — the cost is one extra UPDATE per tool event, which is
           // small relative to the model's tool-call cadence.
-          const persistBlocks = () => {
-            updateLastMessage(sessionKey, { blocks: blocks.length > 0 ? blocks : undefined });
-          };
+          const persistBlocks = () => persistTurnBody(false);
           const appendToolBlock = (tc: ToolCall) => {
             blocks.push({ kind: "tool", toolCall: tc });
             persistBlocks();
@@ -843,7 +876,15 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           }
           const externalAbort = new AbortController();
           startStream(sessionKey, partialMsg.id, externalAbort);
-          broadcastToAll({ type: "stream:start", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id });
+          // `reattached` dice al client: questa bolla la stai già vedendo piena,
+          // e sto per ricostruirla da capo — svuotala PRIMA che arrivino le
+          // delta, o il replay si somma a quello che c'è già e il testo esce
+          // doppio. È l'azzeramento che prima si faceva cancellando la riga in
+          // DB: la vista si può rifare, il record no.
+          broadcastToAll({
+            type: "stream:start", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id,
+            ...(isReattach && "reusedBody" in partialMsg && partialMsg.reusedBody ? { reattached: true as const } : {}),
+          });
 
           // Create SSE response for the HTTP client
           const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
@@ -1610,11 +1651,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 // the bucket fields. Without this the attaching window
                 // has no blocks until finalize, and falls back to the
                 // legacy bucket render for the duration of the stream.
-                updateLastMessage(sessionKey, {
-                  content: fullContent,
-                  thinking: fullThinking || undefined,
-                  blocks: blocks.length > 0 ? blocks : undefined,
-                });
+                persistTurnBody(true);
               }
             },
 
