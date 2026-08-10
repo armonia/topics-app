@@ -240,6 +240,50 @@ describe("task-dispatcher", () => {
     h.dispatcher.shutdown();
   });
 
+  it("board su effort 'auto': lo sforzo lo sceglie il classificatore, task per task", async () => {
+    // La leva piu' pesante che abbiamo: sullo stesso micro-task `medium` costa
+    // 61,1k token di lavoro e `xhigh` 108,8k. Fissarla per tutta una board vuol
+    // dire pagarla uguale su un typo e su un refactor.
+    const h = harness({
+      pickAutoModel: async () => ({ model: "claude-opus-5[1m]", effort: "xhigh" }),
+    });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 2, dispatchEffort: "auto" });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.topicsCreated[0].effort).toBe("xhigh");
+    expect(h.topicsCreated[0].model).toBe("claude-opus-5[1m]");
+    h.dispatcher.shutdown();
+  });
+
+  it("board con un effort FISSATO: comanda la board, il classificatore non la scavalca", async () => {
+    // Il controllo del test qui sopra: senza, un classificatore che risponde
+    // sempre farebbe passare entrambi i casi e nessuno dei due proverebbe niente.
+    const h = harness({
+      pickAutoModel: async () => ({ model: "claude-opus-5[1m]", effort: "xhigh" }),
+    });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 2, dispatchEffort: "high" });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.topicsCreated[0].effort).toBe("high");
+    h.dispatcher.shutdown();
+  });
+
+  it("board su 'auto' ma giudice muto: resta medium, cioe' come stavano le cose", async () => {
+    // `effort: null` significa «non lo so», e un «non lo so» non deve spostare
+    // niente: si ricade su cio' che la board faceva prima che l'auto esistesse.
+    const h = harness({
+      pickAutoModel: async () => ({ model: "claude-opus-5[1m]", effort: null }),
+    });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 2, dispatchEffort: "auto" });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.topicsCreated[0].effort).toBe("medium");
+    h.dispatcher.shutdown();
+  });
+
   it("self-heals a DEAD binding: a todo bound to a reaped topic dispatches again", async () => {
     // A task that ran before, reached done, then was dragged back to todo — its
     // agent topic was reaped in between, so `assigned_topic_id` now dangles.
