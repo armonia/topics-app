@@ -864,7 +864,13 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
             ]
           : []),
         "- Commenti BREVI e utili: max 1-2 frasi ai milestone (cosa è fatto / cosa blocca). Mai log, diff o dump di codice nel thread (il server rifiuta commenti lunghi).",
-        "- Contesto snello (tieni i turni leggeri): usa Grep per trovare, poi Read a fette (offset/limit) sui file oltre ~400 righe — mai leggere file interi 'per sicurezza'. Per ispezionare lo schermo del browser usa browser_read_screen (testo), MAI screenshot/immagini nel contesto (uno screenshot va solo come allegato a comment_task). Comandi lunghi (build, test, install >~2 min): lanciali in background (run_script o `&`) e polla read_process_output ogni tanto invece di restare bloccato sul comando.",
+        "- Contesto snello (tieni i turni leggeri): usa Grep per trovare, poi Read a fette (offset/limit) sui file oltre ~400 righe — mai leggere file interi 'per sicurezza'. Comandi lunghi (build, test, install >~2 min): lanciali in background (run_script o `&`) e polla read_process_output ogni tanto invece di restare bloccato sul comando.",
+        // Il divieto è anche un CANCELLO vero (hook PreToolUse su Read, vedi
+        // `blockImageReads` in providers/claude/args.ts): scritto qui restava un
+        // consiglio in mezzo agli altri, e gli agenti aprivano gli screenshot lo
+        // stesso — il 25% del loro contesto erano immagini. Resta scritto perché
+        // un rifiuto spiegato PRIMA costa una riga, scoperto dopo costa un giro.
+        "- MAI aprire immagini o video con Read (il tuo Read li rifiuta): pesano ~mezzo mega e restano nel PREFISSO, che ogni turno successivo rilegge. Per consegnare la prova basta il path — update_task(preview_image=<path>) o comment_task(media=[<path>]) — non serve averla aperta. Per ispezionare lo schermo del browser usa browser_read_screen, che risponde in testo.",
         "- PIANO VISIBILE: se il lavoro ha più di un passo, crea subito i tuoi step come sottotask — " +
           `create_task(text=<step>, parent_task_id="${task.id}") per ognuno — e marca OGNI step done appena lo completi: update_task(task_id=<step id>, status="done") (permesso sui TUOI step). Sono la tua checklist sulla board: l'umano vede i progressi in tempo reale.`,
         "- Prima di consegnare in review TUTTI i tuoi step devono essere done (un task con sottotask aperti non è approvabile). Lavoro futuro fuori scope → task top-level SENZA parent (resta in backlog per l'umano).",
