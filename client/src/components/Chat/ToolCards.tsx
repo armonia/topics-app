@@ -23,6 +23,8 @@ import { highlightCode, langFromPath, subscribeHighlighter, highlighterReady } f
 import { clampBody, formatBytes } from './clampBody';
 import { unwrapStoredToolResult } from '../../../../shared/tool-result-text';
 import { skillInstructions } from './toolCardBody';
+import { useBackgroundShell, parseShellIdFromStartResult } from '../../hooks/useBackgroundShell';
+import type { LiveBackgroundShell } from '../../hooks/useBackgroundShell';
 
 /**
  * Monospace block with lazy syntax highlighting. hljs ESCAPES the source and
@@ -53,11 +55,57 @@ function HighlightedPre({ code, lang, className, testId, prefix }: {
   );
 }
 
+// ── Shell in background: il pezzo che si aggiorna da solo ───────────────────
+
+/**
+ * La coda VIVA di una shell lasciata in background, letta dal registro dei
+ * processi invece che dal transcript.
+ *
+ * Il transcript dice cosa c'era quando il tool ha risposto e non lo dice mai
+ * più; il registro sa se la shell corre ancora, quanto output ha prodotto da
+ * allora e con che codice è uscita. Quando il registro non la conosce — chat
+ * vecchia, server riavviato — questo blocco non compare e la card resta quella
+ * di prima: nessuna riga di segnaposto per uno stato che non abbiamo.
+ */
+function LiveShellTail({ live }: { live: LiveBackgroundShell }) {
+  if (!live.known) return null;
+  const running = live.status === 'running';
+  return (
+    <div className="space-y-1" data-testid="shell-live">
+      <div className="flex items-center gap-1.5 text-[11px] text-app-text-muted">
+        <span
+          data-testid="shell-live-status"
+          data-status={running ? 'running' : 'ended'}
+          className={`inline-block w-1.5 h-1.5 rounded-full ${running ? 'bg-emerald-500 animate-pulse' : (live.status === 'error' ? 'bg-red-500' : 'bg-app-text-muted')}`}
+        />
+        <span>{running ? 'in corso' : (live.exitCode != null ? `uscita ${live.exitCode}` : 'terminata')}</span>
+      </div>
+      {live.truncatedLines > 0 && (
+        <div className="text-[11px] text-app-text-muted">[… {live.truncatedLines} righe scartate: il buffer del log è pieno]</div>
+      )}
+      {live.output && (
+        <pre
+          data-testid="shell-live-output"
+          className="tool-card-code text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-72 bg-app-hover/40 rounded px-2 py-1.5"
+        >
+          {live.output}
+        </pre>
+      )}
+    </div>
+  );
+}
+
 // ── Shell ───────────────────────────────────────────────────────────────────
 
-export function ShellCard({ command, cwd, output, exitCode, isError }: {
+export function ShellCard({ command, cwd, output, exitCode, isError, background, sessionKey }: {
   command: string; cwd?: string; output?: string; exitCode?: number | null; isError?: boolean;
+  /** `run_in_background`: il risultato è l'id della shell, non il suo output. */
+  background?: boolean; sessionKey?: string;
 }) {
+  // L'id sta solo dentro il testo del risultato («Command running in background
+  // with ID: bash_1»): il `detail` porta il comando, non l'id.
+  const liveShellId = background && !isError ? parseShellIdFromStartResult(output) : undefined;
+  const live = useBackgroundShell(liveShellId, sessionKey);
   return (
     <div className="space-y-1">
       <HighlightedPre
@@ -78,6 +126,7 @@ export function ShellCard({ command, cwd, output, exitCode, isError }: {
           </pre>
         </div>
       )}
+      <LiveShellTail live={live} />
     </div>
   );
 }
@@ -428,6 +477,11 @@ function ResultPre({ text }: { text: string }) {
 }
 
 // ── Monitor (long-lived event watcher) ──────────────────────────────────────
+//
+// Resta statica, e non per dimenticanza: un `Monitor` non passa dal registro
+// delle shell — non ha un id con cui ritrovarlo, il CLI ne annuncia solo la
+// descrizione e la sorgente. Agganciarlo vorrebbe dire un registro suo, che
+// oggi non esiste: qui una card viva la si può dare solo a chi un id ce l'ha.
 
 export function MonitorCard({ description, command, wsUrl, persistent, result }: {
   description: string; command?: string; wsUrl?: string; persistent?: boolean; result?: string;
@@ -449,14 +503,23 @@ export function MonitorCard({ description, command, wsUrl, persistent, result }:
 
 // ── BashOutput / KillShell (background-shell lifecycle) ──────────────────────
 
-export function BashOutputCard({ shellId, filter, output }: { shellId: string; filter?: string; output?: string }) {
+export function BashOutputCard({ shellId, filter, output, sessionKey }: {
+  shellId: string; filter?: string; output?: string; sessionKey?: string;
+}) {
+  const live = useBackgroundShell(shellId, sessionKey);
   return (
     <div className="space-y-1">
       <div className="flex flex-wrap items-center gap-2 text-[11px] text-app-text-muted">
         <span className="font-mono">shell <span className="text-app-text-secondary">{shellId}</span></span>
         {filter && <span className="font-mono">filter <span className="text-app-text-secondary">/{filter}/</span></span>}
       </div>
-      {output && <ResultPre text={output} />}
+      {/* Con il registro la lettura di allora è un doppione della coda viva, che
+          contiene già quel pezzo e tutto quello venuto dopo: si mostra l'una O
+          l'altra, mai le due insieme. Il `filter` fa eccezione — lì il testo
+          nel transcript è un SOTTOINSIEME scelto dall'agente, e la coda intera
+          non lo sostituisce. */}
+      {(!live.known || filter) && output && <ResultPre text={output} />}
+      <LiveShellTail live={live} />
     </div>
   );
 }
@@ -552,10 +615,15 @@ export function UnknownCard({ args, result }: { args?: Record<string, unknown>; 
 // ── Dispatcher ──────────────────────────────────────────────────────────────
 
 
-export function ToolCardBody({ detail, isError, isRunning }: { detail: ToolCallDetail; isError?: boolean; isRunning?: boolean }) {
+export function ToolCardBody({ detail, isError, isRunning, sessionKey }: {
+  detail: ToolCallDetail; isError?: boolean; isRunning?: boolean;
+  /** Serve alle sole card delle shell in background: è la metà della chiave
+   *  con cui la shell sta nel registro dei processi. */
+  sessionKey?: string;
+}) {
   switch (detail.type) {
     case 'shell':
-      return <ShellCard command={detail.command} cwd={detail.cwd} output={detail.output} exitCode={detail.exitCode} isError={isError} />;
+      return <ShellCard command={detail.command} cwd={detail.cwd} output={detail.output} exitCode={detail.exitCode} isError={isError} background={detail.background} sessionKey={sessionKey} />;
     case 'read':
       return <ReadCard filePath={detail.filePath} content={detail.content} offset={detail.offset} limit={detail.limit} />;
     case 'edit':
@@ -577,7 +645,7 @@ export function ToolCardBody({ detail, isError, isRunning }: { detail: ToolCallD
     case 'monitor':
       return <MonitorCard description={detail.description} command={detail.command} wsUrl={detail.wsUrl} persistent={detail.persistent} result={detail.result} />;
     case 'bash_output':
-      return <BashOutputCard shellId={detail.shellId} filter={detail.filter} output={detail.output} />;
+      return <BashOutputCard shellId={detail.shellId} filter={detail.filter} output={detail.output} sessionKey={sessionKey} />;
     case 'kill_shell':
       return <KillShellCard shellId={detail.shellId} result={detail.result} />;
     case 'notebook_edit':
