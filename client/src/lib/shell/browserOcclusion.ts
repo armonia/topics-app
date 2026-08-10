@@ -74,7 +74,8 @@ function recompute(): void {
 }
 
 /** Pure: does `slot` (viewport-rel x/y/width/height) intersect any of `rects`?
- *  Exported for unit tests; `slotIsOccluded` applies it to the live overlay set. */
+ *  Exported for unit tests; `decideFreeze` applies it to the rects the caller
+ *  received from `onOcclusionChange`. */
 export function slotIntersectsRects(
   slot: { x: number; y: number; width: number; height: number },
   rects: readonly OverlayRect[],
@@ -83,11 +84,6 @@ export function slotIntersectsRects(
   const r = slot.x + slot.width;
   const b = slot.y + slot.height;
   return rects.some((o) => o.left < r && o.right > slot.x && o.top < b && o.bottom > slot.y);
-}
-
-/** True if `slot` intersects any currently-open overlay. */
-export function slotIsOccluded(slot: { x: number; y: number; width: number; height: number }): boolean {
-  return slotIntersectsRects(slot, overlays);
 }
 
 /**
