@@ -76,9 +76,52 @@ const isAtTrueBottom = (scroller: Scroller) =>
     TRUE_BOTTOM_PX,
   );
 
+/**
+ * «SEI IN FONDO» È VERO A VUOTO SU UNA LISTA CHE NON SI È ANCORA MISURATA.
+ *
+ * Finché Virtuoso non ha montato niente, lo scroller ha `scrollHeight ===
+ * clientHeight` e `scrollTop === 0`: ogni predicato sul fondo — la tolleranza
+ * dei 150 come gli 8 del fondo vero — vale `0 - 0 <= tol`, cioè VERO. La poll
+ * che doveva aspettare l'ancoraggio usciva quindi al primo campione, sulla
+ * lista vuota.
+ *
+ * Misurato in traccia (run 6/6, spec 331): la poll esce a 490ms con
+ * `h=800 ch=800`, il test tira dritto, e il transcript vero (2258px) atterra
+ * SOTTO le assert che seguono. Da lì i tre rossi a intermittenza di questo
+ * file — «riapre a metà» (154px), «residuo 13», «il messaggio di prova non è
+ * più alto della viewport» — tutti e tre con la stessa firma: un'attesa finita
+ * prima che ci fosse qualcosa da attendere. Il difetto era nell'attesa, non
+ * nello scroll.
+ *
+ * L'eccedenza (`h > ch`) è la condizione che mancava, ed è legittimo pretenderla
+ * qui: ogni test di questo file semina un transcript più lungo della finestra e
+ * `assertScrollabile` lo verifica a voce alta. Non è un allargamento di soglia —
+ * le soglie restano quelle di prima; è la precondizione che prima non c'era.
+ */
+const statoFondo = (scroller: Scroller, tolerance: number) =>
+  scroller.evaluate(
+    (el, tol) => ({
+      montata: el.scrollHeight - el.clientHeight > 0,
+      inFondo: el.scrollHeight - el.scrollTop - el.clientHeight <= tol,
+      residuo: Math.round(el.scrollHeight - el.scrollTop - el.clientHeight),
+      h: el.scrollHeight,
+      c: el.clientHeight,
+    }),
+    tolerance,
+  );
+
 /** Attende che la lista virtualizzata abbia finito di misurarsi e sia ancorata in fondo. */
 async function settleAtBottom(scroller: Scroller): Promise<void> {
-  await expect.poll(() => isAtBottom(scroller), { timeout: 15_000 }).toBe(true);
+  await expect
+    .poll(() => statoFondo(scroller, AT_BOTTOM_TOLERANCE_PX), { timeout: 15_000 })
+    .toMatchObject({ montata: true, inFondo: true });
+}
+
+/** Come sopra, ma al fondo VERO: è l'attesa dei test di refresh. */
+async function settleAtTrueBottom(scroller: Scroller, timeout: number): Promise<void> {
+  await expect
+    .poll(() => statoFondo(scroller, TRUE_BOTTOM_PX), { timeout })
+    .toMatchObject({ montata: true, inFondo: true });
 }
 
 /**
@@ -286,7 +329,7 @@ test.describe("Chat scroll behavior", () => {
     await expect(dopo).toHaveCount(1, { timeout: 15_000 });
 
     // Il fondo va raggiunto DA SOLO: nessuno scroll, nessun click.
-    await expect.poll(() => isAtTrueBottom(dopo), { timeout: 12_000 }).toBe(true);
+    await settleAtTrueBottom(dopo, 12_000);
 
     // E ci resta: due letture a distanza, per escludere il rimbalzo. Il
     // messaggio d'errore porta i numeri: un booleano non dice mai di quanto.
@@ -343,18 +386,26 @@ test.describe("Chat scroll behavior", () => {
       await settleAtBottom(scroller);
       // Precondizione: l'ultimo messaggio deve DAVVERO superare la finestra,
       // altrimenti questo test tornerebbe a essere quello di sopra travestito.
-      const supera = await scroller.evaluate((el) => {
-        const rows = el.querySelectorAll('[data-item-index]');
-        const last = rows[rows.length - 1] as HTMLElement | undefined;
-        return last ? last.getBoundingClientRect().height > el.clientHeight : false;
-      });
-      expect(supera, "il messaggio di prova deve essere più alto della viewport").toBe(true);
+      // Si POLLA, non si campiona: il muro di 1275px non nasce misurato, e
+      // leggerlo un istante troppo presto dava un rosso che accusava la semina
+      // («il messaggio di prova non è più alto della viewport») invece
+      // dell'attesa. Vedi `settleAtBottom`.
+      await expect
+        .poll(() => scroller.evaluate((el) => {
+          const rows = el.querySelectorAll('[data-item-index]');
+          const last = rows[rows.length - 1] as HTMLElement | undefined;
+          return last ? Math.round(last.getBoundingClientRect().height - el.clientHeight) : -1;
+        }), {
+          timeout: 10_000,
+          message: "il messaggio di prova deve essere più alto della viewport",
+        })
+        .toBeGreaterThan(0);
 
       await page.reload();
       const dopo = page.locator('[data-testid="virtuoso-scroller"], [data-virtuoso-scroller]').first();
       await expect(dopo).toHaveCount(1, { timeout: 15_000 });
 
-      await expect.poll(() => isAtTrueBottom(dopo), { timeout: 12_000 }).toBe(true);
+      await settleAtTrueBottom(dopo, 12_000);
       await page.waitForTimeout(1200);
       expect(await isAtTrueBottom(dopo)).toBe(true);
     } finally {
@@ -400,7 +451,7 @@ test.describe("Chat scroll behavior", () => {
 
       // Il fondo VERO, e dopo che la storia autorevole e' atterrata: e' proprio
       // quel secondo momento a spostare la vista, non il montaggio.
-      await expect.poll(() => isAtTrueBottom(dopo), { timeout: 20_000 }).toBe(true);
+      await settleAtTrueBottom(dopo, 20_000);
       await page.waitForTimeout(1500);
       const finale = await dopo.evaluate((el) => ({
         residuo: Math.round(el.scrollHeight - el.scrollTop - el.clientHeight),
