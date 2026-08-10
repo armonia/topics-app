@@ -18,7 +18,7 @@ Ground truth from real transcripts (`~/.claude/projects/<enc>/<sid>.jsonl`, samp
 
 Every user/assistant line carries an ISO `timestamp`. `isSidechain` was 0 across 3350 sampled lines (subagent transcripts live in separate files) — sidechain lines, if ever present, are ignored for phase.
 
-Encoding of the project dir: every char outside `[A-Za-z0-9]` → `-` (verified: `/Users/zorahrel/.claude/jarvis` → `-Users-zorahrel--claude-jarvis`).
+Encoding of the project dir: every char outside `[A-Za-z0-9]` → `-` (verified: `/Users/utente/.claude/jarvis` → `-Users-utente--claude-jarvis`).
 
 ## Decisions
 

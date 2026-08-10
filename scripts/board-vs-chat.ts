@@ -100,6 +100,7 @@
 import { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { createTranscriptUsageReader, ZERO_USAGE, type SessionUsage } from "../server/services/transcript-usage";
 import { contextWindowFor, windowModelFor } from "../server/usage/context-window";
@@ -588,6 +589,22 @@ function asString(v: unknown): string | null {
   return typeof v === "string" && v.length > 0 ? v : null;
 }
 
+/**
+ * `~/…` → la home di CHI ESEGUE. I `.pair.json` sono committati in un repo
+ * PUBBLICO: un `transcriptPath` assoluto ci scriverebbe dentro il nome utente
+ * di chi ha fatto la misura (ed è la stessa classe di dato per cui `.planning/`
+ * è stata tolta dal repo quando è diventato pubblico). Con la tilde il file
+ * resta RISOLVIBILE su quella macchina — che è l'unica dove i transcript
+ * esistono davvero — e non dice a nessun altro come si chiama chi l'ha scritto.
+ *
+ * Solo il prefisso `~/`: un `~` nudo o `~altroutente/` non si espandono, perché
+ * la prima forma non è un percorso e la seconda dichiarerebbe la home di un
+ * altro — cioè di nuovo un nome proprio.
+ */
+function expandHome(p: string): string {
+  return p.startsWith("~/") ? join(homedir(), p.slice(2)) : p;
+}
+
 function asFiniteNumber(v: unknown): number | null {
   return typeof v === "number" && Number.isFinite(v) ? v : null;
 }
@@ -664,7 +681,7 @@ export function parsePairFile(raw: unknown, where: string): PairFile {
     const model = asString(r.model);
     if (model) run.model = model;
     const transcriptPath = asString(r.transcriptPath);
-    if (transcriptPath) run.transcriptPath = transcriptPath;
+    if (transcriptPath) run.transcriptPath = expandHome(transcriptPath);
     const taskId = asString(r.taskId);
     if (taskId) run.taskId = taskId;
     if (r.usage !== undefined) run.usage = parseUsage(r.usage, at);

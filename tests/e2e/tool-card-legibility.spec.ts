@@ -389,7 +389,7 @@ test.describe.serial("Leggibilità delle card dei tool", () => {
     const sk = `topic:${fresh.id.slice(0, 8)}`;
     try {
       await seedMessage(request, {
-        sessionKey: sk, role: "user", content: "/Users/zorahrel/Projects/topics-app",
+        sessionKey: sk, role: "user", content: "/Users/utente/Projects/topics-app",
         timestamp: new Date(Date.now() - 3000).toISOString(),
       });
 

@@ -1,7 +1,7 @@
 import { describe, test, expect } from 'bun:test';
 import { reconcilePaneOrder } from './paneOrderReconcile';
 
-const PROJECT = 'project:%2FUsers%2Fzorahrel%2FProjects%2Ftopics-app';
+const PROJECT = 'project:%2FUsers%2Futente%2FProjects%2Ftopics-app';
 
 describe('reconcilePaneOrder — una identità per pane', () => {
   test('OSSERVATO: ordine con lo stesso project id 3 volte, store lo tiene 1 → 1 tab', () => {
