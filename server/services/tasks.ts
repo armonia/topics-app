@@ -1397,6 +1397,20 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (reason && reason.trim()) {
         try { this.addComment({ taskId, author: "system", content: reason }); } catch { /* best-effort */ }
       }
+      // Un padre con sottotask aperti NON è approvabile (il gate su `done` lo
+      // rifiuta), quindi metterlo in review mette in coda all'umano una card su
+      // cui non può decidere niente — e ci torna a ogni turno esaurito. Misurato
+      // il 10/08: la stessa card rimbalzata in review quattro volte in un'ora,
+      // con quattro figli aperti. Il posto giusto è la coda: il lavoro non è
+      // finito, e il turno finito non lo rende finito.
+      if (hasActiveChildren(taskId)) {
+        db.prepare(
+          `UPDATE tasks SET assigned_topic_id = NULL, assigned_agent_id = NULL,
+              status = 'todo', dispatch_state = NULL, dispatch_error = NULL, updated_at = ? WHERE id = ?`,
+        ).run(ts, taskId);
+        if (row.status !== "todo") logStatus(taskId, row.status, "todo", "dispatcher");
+        return rowToTask(getTaskRow(taskId));
+      }
       // Hand to the human: keep assigned_topic_id (a rejection resumes this
       // agent), clear the stale error, chip = needs_input (a decision is wanted).
       // `delivered_by = 'system'`: la card in review deve dire da sé che non è una
