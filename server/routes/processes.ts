@@ -8,6 +8,7 @@ import { augmentEnv, wrapPty, stripAnsi } from "../utils/path-env";
 import { resolveStateDir } from "../lib/data-dir";
 import { getTerminalSessionById } from "./terminal";
 import { getSessionCliPid } from "../providers/session-pids";
+import { backgroundShellBanner, shellProcessKey } from "../../shared/background-shell-registry";
 
 interface ScriptProcess {
   processId: string;
@@ -541,7 +542,9 @@ function invalidateScriptsCache() {
 }
 
 // Build current scripts list (without port detection for WS broadcasts — ports are fetched on GET)
-function getScriptsSnapshot(): any[] {
+// Esportata per i test: è la lista che viaggia sulla WS, e deve dire le stesse
+// cose della risposta HTTP — se le due divergono la divergenza si vede solo dal vivo.
+export function getScriptsSnapshot(): any[] {
   const running = Array.from(runningScripts.values()).map(sp => ({
     processId: sp.processId,
     scriptName: sp.scriptName,
@@ -553,6 +556,11 @@ function getScriptsSnapshot(): any[] {
     completedAt: sp.completedAt,
     exitCode: sp.exitCode,
     source: sp.source ?? "script",
+    // Lo shellId viaggia anche qui, non solo sulla risposta HTTP: le card della
+    // chat trovano la loro shell PER id, e il broadcast è ciò che arriva per
+    // primo quando la shell nasce o cambia stato. Senza, la card restava
+    // ferma fino al prossimo poll — cioè fino a 15s dopo.
+    ...(sp.shell ? { shellId: sp.shell.shellId, topicId: sp.shell.topicId } : {}),
     ports: [] as number[],
   }));
   const recent = recentScripts.map(sp => ({
@@ -566,6 +574,7 @@ function getScriptsSnapshot(): any[] {
     completedAt: sp.completedAt,
     exitCode: sp.exitCode,
     source: sp.source ?? "script",
+    ...(sp.shell ? { shellId: sp.shell.shellId, topicId: sp.shell.topicId } : {}),
     ports: [] as number[],
   }));
   return [...running, ...recent];
@@ -639,12 +648,6 @@ export function unregisterPreviewProcess(taskId: string): void {
 // è viva vale anche senza poterla fermare, e il contrario (un bottone che non
 // fa niente) sarebbe peggio del bottone assente.
 
-function shellProcessKey(sessionKey: string, shellId: string): string {
-  const s = sessionKey.replace(/[^A-Za-z0-9_.:-]/g, "-");
-  const id = shellId.replace(/[^A-Za-z0-9_.-]/g, "-");
-  return `shell:${s}:${id}`;
-}
-
 /** Etichetta corta per la riga del pannello: il comando, senza il romanzo. */
 function shellLabel(command: string): string {
   const oneLine = command.replace(/\s+/g, " ").trim();
@@ -675,7 +678,7 @@ export function registerBackgroundShell(entry: {
     status: "running",
     pid: null,
     startedAt: new Date().toISOString(),
-    output: [`[shell in background dell'agente — id ${entry.shellId}]`],
+    output: [backgroundShellBanner(entry.shellId)],
     outputBytes: 0,
     proc: null,
     source: "shell",
