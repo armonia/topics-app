@@ -12,9 +12,10 @@ import type {
 } from "./types";
 import { initDatabase } from "./db";
 import { isGuestSocketData } from "./lib/grants";
+import { readMutedProjects } from "./lib/muted-projects";
 import { resolveStateDir } from "./lib/data-dir";
 import { knownProjectDirs, isInsideKnownProject } from "./services/known-project-dirs";
-import { maybeSendPush, configurePushTriggers } from "./push-triggers";
+import { maybeSendPush, configurePushTriggers, isTopicSilenced } from "./push-triggers";
 import { createProjectStore } from "./services/project-store";
 import { createWorktreeStore } from "./services/worktree-store";
 import { createWorktreeManager } from "./services/worktree-manager";
@@ -782,16 +783,20 @@ export function createAppContext(baseDir: string): AppContext {
     }
   }
 
-  // Il modulo push-triggers è puro; qui gli passiamo i due agganci al DB che gli
-  // servono — il nome del topic per il titolo della push di fine risposta, e se
-  // quel topic è da zittire (archiviato o mutato). Un topic che non esiste più
-  // conta come zittito: non c'è niente da nominare e nessuno da svegliare.
+  // Il modulo push-triggers è puro; qui gli passiamo i dati che gli servono e
+  // che vivono sul DB — il nome del topic per il titolo della push di fine
+  // risposta, e la riga + le impostazioni su cui `isTopicSilenced` decide il
+  // silenzio (archiviato, mutato, o dentro un progetto mutato). Un topic che
+  // non esiste più conta come zittito: non c'è niente da nominare e nessuno da
+  // svegliare.
+  //
+  // `mutedProjects` si LEGGE al momento della push, non si memorizza qui: muti
+  // un progetto e un valore preso al bootstrap resterebbe quello di ore prima.
+  // Una SELECT per chiave vale la freschezza, tanto più che le push di fine
+  // risposta sono rare (una per turno di chat umana, già a valle di cinque gate).
   configurePushTriggers({
     getTopicName: (topicId) => getTopicById(topicId)?.name ?? null,
-    isTopicSilenced: (topicId) => {
-      const t = getTopicById(topicId);
-      return !t || !!t.archived || !!t.muted;
-    },
+    isTopicSilenced: (topicId) => isTopicSilenced(getTopicById(topicId), readMutedProjects(db)),
   });
 
   /**
