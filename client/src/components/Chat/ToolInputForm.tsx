@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { clearAskDraft, readAskDraft, writeAskDraft } from './askDraft';
 import { HelpCircle, Send, Loader2, ChevronRight } from 'lucide-react';
 import type { ToolUserResponse, UserInputSchema, AskUserQuestionItem } from '../../types';
+import { isPlanApprovalSchema } from '../../../../shared/plan-decision';
 
 /** Extract a human-readable message from a rejected submit. `onSubmit`
  *  rejects with `{ status, message }` on HTTP errors, but a thrown Error or
@@ -351,7 +352,16 @@ function QuestionsForm({
                 prevedono è quella che costa di più da dare, e farla precedere
                 da un pallino da spuntare è un ostacolo messo proprio lì.
                 Scrivere seleziona; svuotare annulla.
-                */}
+
+                L'ECCEZIONE è la scelta su un piano. Lì dall'altra parte non c'è
+                nessun modello che legga la prosa: la risposta la interpretiamo
+                noi confrontandola con due etichette esatte
+                (`shared/plan-decision.ts`), quindi qualunque cosa scrivessi che
+                non sia «Approva ed esegui» varrebbe RIFIUTO — e il testo
+                scritto sparirebbe senza che nessuno lo legga. È la stessa
+                ragione per cui il composer non accetta prosa su questa domanda
+                (`answerFromText`): qui la si prende premendo. */}
+            {!isPlanApprovalSchema({ kind: 'questions', questions: [q] }) && (
             <label className="flex items-start gap-2 text-[13px] cursor-pointer hover:bg-app-hover rounded px-1.5 py-1">
               <input
                 type={inputType}
@@ -375,6 +385,7 @@ function QuestionsForm({
                 />
               </div>
             </label>
+            )}
           </div>
         </fieldset>
         );

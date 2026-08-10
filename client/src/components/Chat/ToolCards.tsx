@@ -16,7 +16,9 @@
 
 import { useMemo, useState, useSyncExternalStore } from 'react';
 import type { ReactNode } from 'react';
+import type { Components } from 'react-markdown';
 import type { ToolCallDetail } from '../../types';
+import { ChatMarkdown } from '../ChatMarkdown';
 import { highlightCode, langFromPath, subscribeHighlighter, highlighterReady } from '../../lib/syntaxHighlight';
 import { clampBody, formatBytes } from './clampBody';
 import { unwrapStoredToolResult } from '../../../../shared/tool-result-text';
@@ -319,15 +321,36 @@ export function SubAgentCard({ subAgentType, description, actions, result, isRun
   );
 }
 
-// ── Plan (ExitPlanMode) ─────────────────────────────────────────────────────
+// ── Plan (ExitPlanMode, o il piano scritto in ~/.claude/plans) ──────────────
 
+/**
+ * Mappa di renderer VUOTA, ma module-const: `ChatMarkdown` memoizza il parse
+ * sul riferimento, quindi una `{}` scritta inline rifarebbe l'AST a ogni
+ * render. I renderer ricchi di `MessageContent` (menzioni, media, mermaid) qui
+ * non servono e non si possono importare: ToolCards è a valle di
+ * MessageContent nel grafo, e prenderli formerebbe un ciclo.
+ */
+const PLAN_MARKDOWN_COMPONENTS: Components = {};
+
+/**
+ * Il piano su cui stai per dire sì o no.
+ *
+ * Era un `<pre>`: un piano è markdown — titolo, passi numerati, grassetti — e
+ * in monospazio a 11px si leggeva come un file di log, cioè come la cosa che
+ * si scorre senza leggere. È l'unico testo di questa chat su cui si prende una
+ * DECISIONE, quindi qui si rende per come è scritto. Il pannello con le due
+ * scelte lo aggiunge `<ToolCallRow>` sotto, quando il turno resta in attesa.
+ */
 export function PlanCard({ text }: { text: string }) {
   return (
     <div className="space-y-1.5">
-      <div className="text-[11px] uppercase tracking-wide text-app-text-muted">Proposed plan</div>
-      <pre className="tool-card-code text-[11px] text-app-text whitespace-pre-wrap bg-app-hover/40 rounded px-2 py-1.5 max-h-72 overflow-auto">
-        {text}
-      </pre>
+      <div className="text-[11px] uppercase tracking-wide text-app-text-muted">Piano proposto</div>
+      <div
+        data-testid="plan-card-body"
+        className="prose prose-sm max-w-none text-[12px] text-app-text bg-app-hover/40 rounded px-2 py-1.5 max-h-72 overflow-auto prose-p:my-0.5 prose-headings:my-1 prose-headings:text-[13px] prose-ul:my-0.5 prose-ol:my-0.5 prose-li:my-0 prose-pre:my-1 prose-code:text-[11px]"
+      >
+        <ChatMarkdown components={PLAN_MARKDOWN_COMPONENTS}>{text}</ChatMarkdown>
+      </div>
     </div>
   );
 }
