@@ -116,6 +116,14 @@ export function CheckpointTimeline({ topicId, onRollback }: CheckpointTimelinePr
               {checkpoints.map((cp) => (
                 <div
                   key={cp.idx}
+                  // Appiglio stabile per chi cerca UNA voce della timeline.
+                  // `.space-y-1 > div` non lo è: quella utility di spaziatura la
+                  // portano almeno sei contenitori di chat (ToolCards ×3,
+                  // InvokedCommandRow, ToolPermissionRow, e questo), quindi un
+                  // `nth(1)` prendeva il secondo div di QUALUNQUE di loro — e
+                  // una card di strumento che sta ancora comparendo non è mai
+                  // «stable», da cui un clic che non parte più.
+                  data-testid="checkpoint-entry"
                   className={`flex items-center gap-2 px-2 py-1.5 rounded-md text-[11px] transition-colors ${
                     hoveredIdx === cp.idx ? 'bg-app-hover' : ''
                   }`}
