@@ -114,6 +114,18 @@ export type { ToolCallDetail, ToolCall, ContentBlock } from "../shared/types";
 // altri moduli via il re-export sopra, non questo file.
 import type { ToolCall, ContentBlock } from "../shared/types";
 
+/**
+ * La riga su cui un turno RIADOTTATO continuerà a scrivere, più la sola cosa
+ * che il chiamante non può dedurre da solo: se quella riga porta già un corpo
+ * scritto prima del riavvio (`reusedBody`) o è nata adesso. È il flag che
+ * decide se il client deve svuotare la BOLLA prima che il replay la ricostruisca
+ * — perché il RECORD non viene più svuotato. Vedi
+ * `reuseOrCreatePartialForReattach`.
+ */
+export interface ReattachedPartial extends StoredMessage {
+  reusedBody: boolean;
+}
+
 export interface StoredMessage {
   id: string;
   role: "user" | "assistant";
@@ -325,7 +337,7 @@ export interface AppContext {
   saveLocalMessages: (sessionKey: string, msgs: StoredMessage[]) => void;
   appendLocalMessage: (sessionKey: string, role: "user" | "assistant", content: string) => StoredMessage;
   createPartialMessage: (sessionKey: string, role: "user" | "assistant") => StoredMessage;
-  reuseOrCreatePartialForReattach: (sessionKey: string) => StoredMessage;
+  reuseOrCreatePartialForReattach: (sessionKey: string) => ReattachedPartial;
   updateLastMessage: (sessionKey: string, updates: Partial<StoredMessage>) => StoredMessage | null;
   appendToLastMessage: (sessionKey: string, contentDelta: string, thinkingDelta?: string) => StoredMessage | null;
   finalizeLastMessage: (sessionKey: string) => StoredMessage | null;

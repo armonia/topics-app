@@ -375,6 +375,13 @@ export interface WSStreamStartMessage {
   type: 'stream:start';
   sessionKey: string;
   messageId?: string;
+  /**
+   * Il turno RIPRENDE dopo un riavvio del server: `messageId` è la bolla che
+   * abbiamo già a schermo, piena, e il replay sta per ridettarla da capo. Va
+   * svuotata qui, prima delle delta, o il replay si somma a quello che c'è.
+   * Il record in DB non viene più toccato — vedi `reuseOrCreatePartialForReattach`.
+   */
+  reattached?: boolean;
 }
 
 export interface WSStreamEndMessage {

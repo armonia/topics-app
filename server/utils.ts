@@ -7,7 +7,7 @@ import type { ServerWebSocket } from "bun";
 import { clientReceivesTopicDelta } from "./lib/ws-topic-routing";
 import { warnThrottled } from "./lib/warn-throttled";
 import type {
-  WSData, GuestBroadcastFilter, StoredMessage, ToolCall, Topic, TopicsData, UnreadData,
+  WSData, GuestBroadcastFilter, StoredMessage, ReattachedPartial, ToolCall, Topic, TopicsData, UnreadData,
   ActiveStream, ErrorResponseOptions, AppContext,
 } from "./types";
 import { initDatabase } from "./db";
@@ -1070,24 +1070,40 @@ export function createAppContext(baseDir: string): AppContext {
 
   /** Reattach after a server restart: REUSE the surviving partial assistant row
    *  for this session (the exact bubble the client was watching before the
-   *  restart) and clear its body so the JSONL replay rebuilds it IN PLACE — no
-   *  duplicate turn, no ghost spinner, and the client's `stream:catchup` targets
-   *  the same messageId so the bubble updates seamlessly. Falls back to a fresh
-   *  partial row when nothing survived. Only used on the reattach boot path. */
-  function reuseOrCreatePartialForReattach(sessionKey: string): StoredMessage {
+   *  restart) so the JSONL replay rebuilds it IN PLACE — no duplicate turn, no
+   *  ghost spinner, and the client's `stream:catchup` targets the same
+   *  messageId so the bubble updates seamlessly. Falls back to a fresh partial
+   *  row when nothing survived. Only used on the reattach boot path.
+   *
+   *  IL CORPO NON SI TOCCA. Prima si svuotava qui (`content=''`, tool e blocchi
+   *  a NULL) contando sul replay per riscriverlo, e la copia di quel che si
+   *  cancellava viveva solo in RAM, dentro la richiesta di riadozione. Ma la
+   *  riadozione ha tre uscite e due non ri-emettono niente, e la richiesta può
+   *  morire prima di rimettere a posto: un secondo riavvio del watcher, il
+   *  provider giù, un timeout. Quando succede la cancellazione è definitiva.
+   *  Misurato su topic:dc2b90d0 il 10 agosto: riga nata alle 15:46:22.678,
+   *  `streamed_at` 15:47:29.751 (l'ora del riattacco), corpo vuoto e
+   *  `latency_ms` NULL — il finalize non è mai arrivato. A schermo restava il
+   *  messaggio dell'utente e una bolla vuota, per sempre.
+   *
+   *  Adesso l'adozione è una scrittura sola: `streamed_at` riparte (la riga è
+   *  di nuovo viva, e lo spazzino degli stream fermi la deve misurare da
+   *  adesso). Chi ricostruisce ci scrive SOPRA — le scritture del turno sono
+   *  assolute, e i tool si fondono per id — e chi muore non lascia il vuoto.
+   *  Ad azzerarsi è la VISTA, non il record: `stream:start` porta
+   *  `reattached`, e il client svuota la bolla prima di riempirla col replay. */
+  function reuseOrCreatePartialForReattach(sessionKey: string): ReattachedPartial {
     const row = stmts.getLastMessage.get(sessionKey) as any;
     if (row && row.role === "assistant" && (row.partial === 1 || row.partial === true)) {
       const now = new Date().toISOString();
-      db.run(
-        "UPDATE messages SET content = '', thinking = NULL, tool_calls = NULL, blocks = NULL, streamed_at = ?, partial = 1 WHERE id = ?",
-        [now, String(row.id)],
-      );
+      db.run("UPDATE messages SET streamed_at = ?, partial = 1 WHERE id = ?", [now, String(row.id)]);
       return {
-        id: String(row.id), role: "assistant", content: "", timestamp: String(row.timestamp),
+        id: String(row.id), role: "assistant", content: String(row.content ?? ""), timestamp: String(row.timestamp),
         partial: true, streamedAt: now, parentId: row.parent_id ?? null, branchIndex: row.branch_index ?? 0,
+        reusedBody: true,
       };
     }
-    return createPartialMessage(sessionKey, "assistant");
+    return { ...createPartialMessage(sessionKey, "assistant"), reusedBody: false };
   }
 
   /** Get the last message in the active thread (or by sort_order as fallback for streaming). */
