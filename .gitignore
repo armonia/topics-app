@@ -108,6 +108,13 @@ docs/*
 # macchina non prova niente a nessun altro.
 !docs/board-vs-chat/
 !docs/board-vs-chat/cases.json
+# effort-variance/ è il referto su cui è stata decisa la mediana di tre voti del
+# giudice di dispatch (`JUDGE_VOTES` in task-model-picker.ts). I suoi numeri sono
+# citati in un commento di codice come motivo di una scelta, e una misura citata
+# ma non allegata non è verificabile da nessuno: i file contengono ogni voto
+# grezzo, così chiunque può ricontare (`--rescore`) invece di fidarsi.
+!docs/effort-variance/
+!docs/effort-variance/*
 !docs/board-vs-chat/README.md
 
 # Reference repos (local only)

@@ -60,27 +60,67 @@ export type EffortTier = (typeof EFFORT_TIERS)[number];
 export const MIN_EXECUTION_EFFORT: EffortTier = "medium";
 
 /**
- * ⚠️ Il giudice NON è stabile, ed è una proprietà da conoscere prima di leggere
- * un conto.
+ * ⚠️ Il giudice non è stabile, e va saputo prima di leggere un conto — anche ora
+ * che è messo ai voti (`JUDGE_VOTES`).
  *
- * Misurato il 2026-08-10 chiamandolo tre volte di fila sullo STESSO testo (il
- * micro-task «token-live: opzione --json»): `opus medium`, `opus high`,
- * `opus medium`. Il modello è stato lo stesso tutte e tre le volte; lo sforzo
- * no, 2 su 3.
+ * Misurato il 2026-08-10 su N=20 chiamate allo STESSO identico testo (il
+ * micro-task «token-live: opzione --json»; sonda `scripts/effort-variance.ts`,
+ * referti e ragionamento in `docs/effort-variance/`). Due dispatch indipendenti
+ * dello stesso task ricevevano uno sforzo diverso nel **33,7%** dei casi, e un
+ * piano diverso (modello+sforzo) nel 54,2%: lo stesso lavoro poteva costare
+ * sensibilmente di più per un lancio di dado, visto che fra `medium` e `xhigh`
+ * il costo quasi raddoppia.
  *
- * Conseguenza pratica: lo stesso task dispatchato due volte può costare
- * sensibilmente di più per un lancio di dado del router, non per il lavoro.
- * Non è un guasto da correggere qui — un giudice one-shot su un testo
- * ambiguo È incerto, e forzarlo a fingersi deterministico nasconderebbe
- * l'incertezza invece di toglierla. Le strade vere sarebbero un voto di
- * maggioranza (tre chiamate, costano) o memorizzare la scelta sul task al primo
- * dispatch. Oggi la scelta resta comunque ferma DOPO il primo lancio, perché
- * vive sul topic dell'agente (`topics.effort`) e un resume riusa quel topic:
- * a ri-tirare il dado è solo un dispatch da zero.
+ * La mediana di tre voti porta il disaccordo sullo sforzo al **10,0%**
+ * (confronto appaiato, stessi voti). NON lo azzera, e non deve: un giudice
+ * one-shot su un testo ambiguo È incerto, e forzarlo a sembrare deterministico
+ * nasconderebbe l'incertezza invece di toglierla.
  *
- * Se un giorno questa variabilità andrà tolta, va tolta con una misura in mano:
- * quante volte su N il verdetto cambia, e quanto costa la differenza.
+ * Due cose che restano vere e che il referto misura:
+ * - Sul MODELLO il voto quasi non serve (41,3% → 39,5%): lì il giudice è diviso
+ *   vicino al 30/70, e nessun numero di voti mette d'accordo chi non ha
+ *   un'opinione. Quello si affronta sul prompt, non sull'aggregazione.
+ * - La distribuzione del giudice non è ferma nemmeno nel tempo: a un'ora di
+ *   distanza, stesso testo, la quota di `sonnet` è passata dal 15% al 28%. Per
+ *   questo un confronto fra due corse separate non vale, e la sonda misura
+ *   appaiato dentro la stessa corsa.
+ *
+ * Attenuante che vale ancora: dopo il primo lancio la scelta resta ferma, perché
+ * vive sul topic dell'agente (`topics.effort`) e un resume riusa quel topic; a
+ * ri-tirare i dadi è solo un dispatch da zero.
  */
+
+/**
+ * La MEDIANA di più voti su una scala ordinata — il modo in cui si mette
+ * d'accordo un giudice che balla.
+ *
+ * Non è «il più frequente» ed è una scelta, non un dettaglio: su tre voti la
+ * mediana COINCIDE col voto di maggioranza ogni volta che una maggioranza c'è
+ * (`[a,a,b]` ordinati mettono `a` in mezzo), ma quando i tre voti sono tutti
+ * diversi — cioè proprio il caso in cui la maggioranza non esiste e servirebbe
+ * un pareggio da rompere — la mediana risponde comunque, e risponde con quello
+ * di mezzo invece che con un estremo. Un `argmax` lì dovrebbe inventarsi una
+ * regola di spareggio, e qualunque regola scegliesse sarebbe un altro dado.
+ *
+ * Su un numero PARI di voti prende il basso dei due centrali: fra due candidati
+ * equivalenti si paga il meno caro, che è la stessa logica del pavimento.
+ * Lista vuota → null: «non lo so» resta distinguibile da una scelta.
+ */
+function medianOf<T>(scale: readonly T[], votes: readonly T[]): T | null {
+  if (votes.length === 0) return null;
+  const sorted = [...votes].sort((a, b) => scale.indexOf(a) - scale.indexOf(b));
+  return sorted[Math.floor((sorted.length - 1) / 2)] ?? null;
+}
+
+/** Mediana di più voti sul tier del modello (haiku < sonnet < opus < fable). */
+export function medianTier(votes: readonly ModelTier[]): ModelTier | null {
+  return medianOf(MODEL_TIERS, votes);
+}
+
+/** Mediana di più voti sullo sforzo (low < medium < high < xhigh < max). */
+export function medianEffort(votes: readonly EffortTier[]): EffortTier | null {
+  return medianOf(EFFORT_TIERS, votes);
+}
 
 /** Clamp an effort up to the floor (low → medium). */
 export function floorEffort(effort: EffortTier): EffortTier {
@@ -121,6 +161,22 @@ const TIER_TO_FAMILY: Record<ModelTier, string> = {
 };
 
 
+/**
+ * Quante volte si interroga il giudice per UNA decisione.
+ *
+ * Tre, e il tre viene da una misura (`scripts/effort-variance.ts`, referti in
+ * `docs/effort-variance/`): sullo stesso identico testo il giudice one-shot
+ * cambiava sforzo abbastanza spesso da rendere il costo dello stesso task un
+ * lancio di dado. Tre voti costano tre haiku — che è nulla accanto alla
+ * differenza fra `medium` e `xhigh` sull'agente vero — e girano in parallelo,
+ * quindi il dispatch non aspetta di più.
+ *
+ * Perché non di più: la mediana è dispari-amichevole e il guadagno per voto
+ * cala in fretta; cinque voti costerebbero altri due giudici per limare quel che
+ * resta. Se un giorno si vorrà alzarlo, si alza guardando lo stesso referto.
+ */
+export const JUDGE_VOTES = 3;
+
 export interface PickModelDeps {
   /** One-shot completion (the dispatcher passes claude-code's, forced to haiku). */
   complete: (prompt: string) => Promise<string>;
@@ -130,9 +186,11 @@ export interface PickModelDeps {
   fallback: string;
   /** Optional log sink for observability (no-op in tests). */
   log?: (msg: string) => void;
+  /** Quanti voti raccogliere (default `JUDGE_VOTES`). Serve alla sonda e ai test. */
+  votes?: number;
 }
 
-const CLASSIFIER_PROMPT = (title: string, description: string) =>
+export const CLASSIFIER_PROMPT = (title: string, description: string) =>
   [
     "Sei un router di task. Il modello DI DEFAULT è opus: l'umano lavora normalmente su opus.",
     "Scendi a un modello più piccolo SOLO se il task è chiaramente più piccolo; nel dubbio scegli opus (mai declassare).",
@@ -243,10 +301,59 @@ export interface TaskPlan {
   effort: EffortTier | null;
 }
 
+/** Una risposta del giudice, letta. `tier`/`effort` sono ancora GREZZI (senza
+ *  pavimento): il log deve poter dire «ha detto haiku, l'ho alzato a sonnet». */
+export interface JudgeVote {
+  raw: string;
+  tier: ModelTier | null;
+  effort: EffortTier | null;
+}
+
+/**
+ * Legge una singola risposta del giudice.
+ *
+ * L'effort si legge DOPO il modello: la prima parola e' il tier, quindi si
+ * cerca lo sforzo in cio' che resta. Cercarlo nell'intera risposta farebbe
+ * vincere un tier di modello che porta lo stesso nome (non ce ne sono oggi, ma
+ * il prompt puo' cambiare e questo non deve diventare un indovinello).
+ */
+export function readVote(raw: string): JudgeVote {
+  const text = raw ?? "";
+  const tier = parseTier(text);
+  if (!tier) return { raw: text, tier: null, effort: null };
+  const afterModel = text.slice(text.toLowerCase().indexOf(tier) + tier.length);
+  return { raw: text, tier, effort: parseEffort(afterModel) };
+}
+
+/**
+ * Il verdetto di una tornata di voti: la mediana di ciò che è leggibile, prima
+ * e dopo i pavimenti.
+ *
+ * I voti illeggibili non votano — non contano come astensione né come `medium`:
+ * su tre voti, se uno esce rotto, decidono gli altri due, e solo se NESSUNO è
+ * leggibile il verdetto è `null` (cioè «non lo so», e decide la board).
+ */
+export function tallyVotes(votes: readonly JudgeVote[]): {
+  rawTier: ModelTier | null; tier: ModelTier | null;
+  rawEffort: EffortTier | null; effort: EffortTier | null;
+} {
+  const rawTier = medianTier(votes.map((v) => v.tier).filter((t): t is ModelTier => t !== null));
+  const rawEffort = medianEffort(votes.map((v) => v.effort).filter((e): e is EffortTier => e !== null));
+  return {
+    rawTier, tier: rawTier ? floorTier(rawTier) : null,
+    rawEffort, effort: rawEffort ? floorEffort(rawEffort) : null,
+  };
+}
+
 /**
  * Pick a model id AND an effort tier for a task. Never throws — returns
  * `fallback` on any problem (a picker hiccup must never strand or misroute a
  * dispatch).
+ *
+ * Il giudice viene interrogato `JUDGE_VOTES` volte IN PARALLELO e vince la
+ * mediana: vedi `JUDGE_VOTES` per la misura che ha deciso il numero, e
+ * `medianOf` per perché mediana e non «il più frequente». Le chiamate sono
+ * indipendenti anche nel fallire — una che esplode non porta giù le altre.
  */
 export async function pickTaskPlan(
   task: { text: string; description?: string | null },
@@ -255,36 +362,40 @@ export async function pickTaskPlan(
   try {
     const title = clip(task.text ?? "", 300);
     const description = clip(task.description ?? "", 1200);
-    const raw = (await deps.complete(CLASSIFIER_PROMPT(title, description))) ?? "";
-    const rawTier = parseTier(raw);
-    if (!rawTier) {
-      deps.log?.(`model-picker: unparsable answer ${JSON.stringify(raw.slice(0, 60))} → fallback`);
+    const prompt = CLASSIFIER_PROMPT(title, description);
+    const rounds = Math.max(1, deps.votes ?? JUDGE_VOTES);
+    const votes = await Promise.all(
+      Array.from({ length: rounds }, async () => {
+        try {
+          return readVote((await deps.complete(prompt)) ?? "");
+        } catch (err) {
+          deps.log?.(`model-picker: un voto è caduto (${err instanceof Error ? err.message : String(err)})`);
+          return readVote("");
+        }
+      }),
+    );
+    const seen = votes.map((v) => JSON.stringify(v.raw.slice(0, 40))).join(" | ");
+    const { rawTier, tier, rawEffort, effort } = tallyVotes(votes);
+    if (!tier || !rawTier) {
+      deps.log?.(`model-picker: nessun voto leggibile ${seen} → fallback`);
       return { model: deps.fallback, effort: null };
     }
     // Clamp to the execution floor (haiku → sonnet) and strip haiku from the
     // candidate set, so neither a haiku pick NOR a walk-down on a host missing
     // sonnet can ever land an agent on haiku.
-    const tier = floorTier(rawTier);
     const execAvailable = deps.availableModels.filter((m) => familyOf(m) !== TIER_TO_FAMILY.haiku);
     const model = tierToAvailableModel(tier, execAvailable);
     if (!model) {
       deps.log?.(`model-picker: tier ${tier} has no available model → fallback`);
       return { model: deps.fallback, effort: null };
     }
-    // L'effort si legge DOPO il modello: la prima parola e' il tier, quindi si
-    // cerca lo sforzo in cio' che resta. Cercarlo nell'intera risposta farebbe
-    // vincere un tier di modello che porta lo stesso nome (non ce ne sono oggi,
-    // ma il prompt puo' cambiare e questo non deve diventare un indovinello).
-    const afterModel = raw.slice(raw.toLowerCase().indexOf(rawTier) + rawTier.length);
-    const rawEffort = parseEffort(afterModel);
-    const effort = rawEffort ? floorEffort(rawEffort) : null;
-    // Always log the raw answer: a misroute must be diagnosable from the log
-    // alone (the parsed tier hides whether the judge really said that).
+    // Always log the raw answers: a misroute must be diagnosable from the log
+    // alone (the median hides whether the judges really agreed).
     const clamped = tier !== rawTier ? ` (floor da ${rawTier})` : "";
     const effortNote = rawEffort
       ? ` · effort ${effort}${effort !== rawEffort ? ` (floor da ${rawEffort})` : ""}`
       : " · effort non letto → resta quello della board";
-    deps.log?.(`model-picker: ${tier}${clamped} → ${model}${effortNote} — raw ${JSON.stringify(raw.slice(0, 60))}`);
+    deps.log?.(`model-picker: ${tier}${clamped} → ${model}${effortNote} — mediana di ${rounds} voti: ${seen}`);
     return { model, effort };
   } catch (err) {
     deps.log?.(`model-picker: failed (${err instanceof Error ? err.message : String(err)}) → fallback`);
