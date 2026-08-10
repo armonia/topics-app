@@ -845,6 +845,19 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
     return m;
   }, [tasks]);
 
+  // L'altra metà del collegamento. Il task incatenato mostra "in attesa di X";
+  // finora la card X non mostrava NIENTE — cioè metà del legame era invisibile
+  // proprio da dove si decide se chiudere il lavoro. Qui si conta chi sta
+  // aspettando ogni card, così il legame si vede da entrambi i lati.
+  const waitingOnById = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const t of tasks) {
+      if (!t.blockedByTaskId || t.status === 'done') continue;
+      m.set(t.blockedByTaskId, (m.get(t.blockedByTaskId) ?? 0) + 1);
+    }
+    return m;
+  }, [tasks]);
+
   // Project path index, only needed in the cross-project board (per-card
   // favicon — task.projectId is a one-way hash, ProjectFavicon needs a path).
   // Dallo store CONDIVISO: card, filtro e composer devono vedere lo stesso
@@ -1137,6 +1150,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
                   onRefetch={refetch}
                   onOpenTopic={onOpenTopic}
                   tasksById={tasksById}
+                  waitingOnById={waitingOnById}
                   projectPathById={projectPathById}
                   liveById={liveUsage}
                   awaitingHuman={awaitingHuman}

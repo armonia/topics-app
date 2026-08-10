@@ -18,10 +18,12 @@ import { StatusIcon, DispatchChip, TaskIdChip } from './atoms';
 import { POPOVER_DIVIDER, POPOVER_ITEM, POPOVER_ITEM_DANGER } from '@/lib/popoverStyles';
 
 // ── Column ────────────────────────────────────────────────────────────────
-export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject, onError, onRefetch, onOpenTopic, tasksById, projectPathById, liveById, awaitingHuman }: {
+export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject, onError, onRefetch, onOpenTopic, tasksById, waitingOnById, projectPathById, liveById, awaitingHuman }: {
   status: TaskStatus; tasks: BoardTask[]; onOpen: OpenTask; onCreate: (text: string) => void;
   canCreate: boolean; showProject: boolean; onError: (e: string) => void; onRefetch: () => void;
   onOpenTopic?: (topicId: string) => void; tasksById: Map<string, BoardTask>; projectPathById: Map<string, string>;
+  /** Quanti task aspettano OGNI card: l'altra metà del "in attesa di…". */
+  waitingOnById: Map<string, number>;
   /** Live per-turn usage keyed by task id (ticking chip on working cards). */
   liveById: Map<string, LiveUsage>;
   /** Task che in questo momento aspettano una persona (evento transitorio). */
@@ -73,6 +75,7 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
               key={t.id} task={t} onOpen={onOpen} showProject={showProject} onError={onError} onRefetch={onRefetch} onOpenTopic={onOpenTopic}
               parentTitle={t.parentTaskId ? tasksById.get(t.parentTaskId)?.text : undefined}
               blocker={t.blockedByTaskId ? tasksById.get(t.blockedByTaskId) : undefined}
+              waitingOnThis={waitingOnById.get(t.id) ?? 0}
               projectPath={projectPathById.get(t.projectId)}
               live={liveById.get(t.id)}
               awaiting={awaitingHuman.has(t.id)}
@@ -108,13 +111,20 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
 // props from the parent (onOpen/onError/onRefetch/onOpenTopic) are stable
 // (useCallback / state setters), and task/blocker come from tasks-keyed memos,
 // so the shallow prop compare holds for idle cards.
-export const Card = memo(function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, parentTitle, blocker, projectPath, live, awaiting }: {
+export const Card = memo(function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, parentTitle, blocker, waitingOnThis = 0, projectPath, live, awaiting }: {
   task: BoardTask; onOpen: OpenTask; showProject: boolean;
   onError: (e: string) => void; onRefetch: () => void; onOpenTopic?: (topicId: string) => void;
   /** Text of the parent task when this card is a subtask (context chip). */
   parentTitle?: string;
   /** The task this one is gated on, when still unresolved (blocked-by chip). */
   blocker?: BoardTask;
+  /**
+   * Quanti task, ancora aperti, aspettano QUESTA card. È l'altra metà del chip
+   * "in attesa di…": senza, il collegamento si vedeva solo dal lato bloccato, e
+   * chi guarda il bloccante non aveva modo di sapere che chiudendolo fa partire
+   * qualcos'altro.
+   */
+  waitingOnThis?: number;
   /** Real filesystem path of task.projectId, for the favicon (cross-project board only). */
   projectPath?: string;
   /** Il turno e' vivo ma fermo su una PERSONA: pannello di domanda o permesso
@@ -239,7 +249,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
   // nessun agent ha detto "fatto". Su una card done sarebbe archeologia (il
   // drawer la conserva comunque).
   const systemDelivered = task.status === 'review' && task.deliveredBy === 'system';
-  const hasMetaRow = !!((blocker && blocker.status !== 'done') || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo || notLanded || checksRed || systemDelivered);
+  const hasMetaRow = !!((blocker && blocker.status !== 'done') || (waitingOnThis > 0 && task.status !== 'done') || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo || notLanded || checksRed || systemDelivered);
 
   return (
     <div
@@ -395,6 +405,15 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
               title={`In attesa di: ${blocker.text}`}
               className="flex max-w-[11rem] items-center gap-1 truncate rounded bg-amber-500/15 px-1.5 py-0.5 text-xs md:text-[11px] text-amber-300"
             ><Lock className="h-3 w-3 shrink-0" /> <span className="truncate">in attesa di: {blocker.text}</span></span>
+          )}
+          {waitingOnThis > 0 && task.status !== 'done' && (
+            <span
+              data-testid="card-waiting-on-this"
+              title={waitingOnThis === 1
+                ? 'Un task aspetta questa card: parte da solo quando la chiudi'
+                : `${waitingOnThis} task aspettano questa card: partono da soli quando la chiudi`}
+              className="flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-xs md:text-[11px] text-amber-300"
+            ><Hourglass className="h-3 w-3 shrink-0" /> {waitingOnThis} in attesa</span>
           )}
           {task.parentTaskId && (
             <button
