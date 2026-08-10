@@ -264,7 +264,7 @@ function GlobalSettingsMenu({ onMessage }: { onMessage?: (handler: (msg: WSMessa
         <div className="space-y-2.5 px-3 py-2.5 text-xs text-app-text-heading">
           <p className="text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.dispatch.allBoards')}</p>
           <label className="flex cursor-pointer items-center justify-between gap-3">
-            <span className="flex items-center gap-1.5"><Bot className="h-3.5 w-3.5 text-app-text-secondary" /> Auto-dispatch</span>
+            <span className="flex items-center gap-1.5"><Bot className="h-3.5 w-3.5 text-app-text-secondary" /> {tr('board.settings.autoDispatch')}</span>
             <input type="checkbox" checked={!!g?.autoDispatch} onChange={(e) => toggleAuto(e.target.checked)} className="h-3.5 w-3.5 accent-emerald-500" />
           </label>
           <div className="space-y-1 border-t border-app-border-subtle pt-2">
