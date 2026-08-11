@@ -17,6 +17,9 @@
  * sul contextId che il ponte ha SCELTO, non su un mock del ponte stesso.
  */
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createBrowserBridgeRouter, type TerminalSessionRef } from "./browser-bridge";
 import type { AppContext, Topic } from "../types";
 import type { BrowserService } from "../browser-service";
@@ -47,6 +50,12 @@ interface HarnessOpts {
   navigateTo?: string;
   /** `destroyContext` esplode: è il caso di una pane solo-nativa, senza contesto headless. */
   destroyThrows?: boolean;
+  /**
+   * Dà al contesto finto uno `storageState()`, cioè quel che serve a
+   * `browser_save_state` per riuscire. Senza, l'export esplode e il tool
+   * risponde `{error}` — che è esattamente l'altro caso da provare.
+   */
+  storageState?: { cookies: unknown[]; origins: unknown[] };
 }
 
 function harness(opts: HarnessOpts = {}) {
@@ -58,7 +67,8 @@ function harness(opts: HarnessOpts = {}) {
 
   const broadcasts: Array<Record<string, unknown> & { type: string }> = [];
   /** Le scritture del record `task-browser-tabs:<taskId>` (il db resta fuori). */
-  const persisted: Array<{ taskId: string; contextId: string; url: string }> = [];
+  const persisted: Array<{ taskId: string; contextId: string; url: string; title: string }> = [];
+  const loginAttached: Array<{ contextId: string; handle: string }> = [];
   /**
    * Traccia UNICA di persistenza e broadcast, in ordine: la tab del task deve
    * essere scritta PRIMA di essere annunciata, altrimenti un dispatch senza
@@ -91,7 +101,10 @@ function harness(opts: HarnessOpts = {}) {
       navigations.push({ contextId, url });
       return { url: opts.navigateTo ?? url, title: "Titolo" };
     },
-    getOrCreate: async (contextId: string) => ({ page: page(contextId) }),
+    getOrCreate: async (contextId: string) => ({
+      page: page(contextId),
+      context: opts.storageState ? { storageState: async () => opts.storageState } : undefined,
+    }),
     destroyContext: async (id: string) => {
       if (opts.destroyThrows) throw new Error("nessun contesto headless per questa pane");
       destroyed.push(id);
@@ -128,7 +141,8 @@ function harness(opts: HarnessOpts = {}) {
     taskForTopic: (topicId) => taskOfTopic.get(topicId) ?? null,
     taskByIdPrefix: (prefix) => taskOfPrefix.get(prefix) ?? null,
     browserNavigatedTopics: navigatedTopics,
-    persistTaskTab: (taskId, contextId, url) => { persisted.push({ taskId, contextId, url }); order.push("persist"); },
+    persistTaskTab: (taskId, contextId, url, title) => { persisted.push({ taskId, contextId, url, title: title ?? "" }); order.push("persist"); },
+    attachLoginHandle: (contextId, handle) => { loginAttached.push({ contextId, handle }); order.push("login-attach"); },
   }, opts.noService ? undefined : service);
 
   const post = async (path: string, body?: unknown, headers: Record<string, string> = { "x-gateway-token": TOKEN }) => {
@@ -144,7 +158,7 @@ function harness(opts: HarnessOpts = {}) {
   return {
     router, post,
     topics, terminals, taskOfTopic, taskOfPrefix, contexts,
-    broadcasts, persisted, order, saved, destroyed, navigatedTopics, dispatchedOn, navigations, evaluations,
+    broadcasts, persisted, loginAttached, order, saved, destroyed, navigatedTopics, dispatchedOn, navigations, evaluations,
     addTopic: (id: string, over?: Partial<Topic>) => { const t = makeTopic(id, over); topics.set(id, t); return t; },
     addTerminal: (id: string) => { terminals.set(id, { id, name: `Terminal ${id}`, cwd: "/tmp" }); },
     typed: (type: string) => broadcasts.filter((b) => b.type === type),
@@ -273,6 +287,70 @@ describe("open-pane — tre rami, tre pannelli diversi", () => {
     });
   });
 
+  // --- IL MANIFESTO: il nome È l'identità della tab ---
+  //
+  // Il guasto che questi test recintano: con un contextId stabile per (task,
+  // topic) il SECONDO `open_browser_pane` navigava la prima tab invece di
+  // aggiungerne una, quindi un task poteva consegnare UNA pagina sola.
+
+  test("manifesto: due nomi diversi coniano due tab, non una che ri-naviga", async () => {
+    const h = harness();
+    const topic = h.addTopic("aaaaaaaa-topic");
+    h.taskOfTopic.set(topic.id, { id: "12345678-task" });
+
+    await h.post("/api/topics/aaaaaaaa-topic/browser/open-pane", { url: "https://app.test/", name: "App" });
+    await h.post("/api/topics/aaaaaaaa-topic/browser/open-pane", { url: "https://report.test/", name: "Report" });
+
+    expect(h.persisted).toEqual([
+      { taskId: "12345678-task", contextId: "task-12345678-napp", url: "https://app.test/", title: "App" },
+      { taskId: "12345678-task", contextId: "task-12345678-nreport", url: "https://report.test/", title: "Report" },
+    ]);
+    // Il nome viaggia anche nel broadcast e nella risposta all'agente: è
+    // l'etichetta pinnata (`titleSource:'agent'`), non il titolo della pagina.
+    expect(h.typed("browser:open-task-tab").map((m) => m.title)).toEqual(["App", "Report"]);
+  });
+
+  test("manifesto: lo STESSO nome ri-naviga la sua tab (idempotente, niente doppioni)", async () => {
+    const h = harness();
+    const topic = h.addTopic("aaaaaaaa-topic");
+    h.taskOfTopic.set(topic.id, { id: "12345678-task" });
+
+    await h.post("/api/topics/aaaaaaaa-topic/browser/open-pane", { url: "https://app.test/uno", name: "App" });
+    // Stesso nome, slug identico anche se scritto diverso: «App» e «app» sono
+    // la stessa superficie per l'umano, e devono esserlo per il manifesto.
+    await h.post("/api/topics/aaaaaaaa-topic/browser/open-pane", { url: "https://app.test/due", name: "app" });
+
+    expect(h.persisted.map((p) => p.contextId)).toEqual(["task-12345678-napp", "task-12345678-napp"]);
+    expect(h.persisted[1].url).toBe("https://app.test/due");
+  });
+
+  test("manifesto: un nome fatto di soli simboli ricade sulla tab senza nome", async () => {
+    const h = harness();
+    const topic = h.addTopic("aaaaaaaa-topic");
+    h.taskOfTopic.set(topic.id, { id: "12345678-task" });
+
+    // `slugTabName("###")` è "" — coniare `task-…-n` collezionerebbe tutti i
+    // nomi degeneri in UNA tab sola, che è peggio del ripiego.
+    const resp = await h.post("/api/topics/aaaaaaaa-topic/browser/open-pane", { url: "https://x.test/", name: "###" });
+
+    expect(await resp!.json()).toEqual({ url: "https://x.test/", title: "" });
+    expect(h.persisted[0].contextId).toBe("task-12345678-aaaaaaaaa");
+    expect(h.persisted[0].title).toBe("");
+  });
+
+  test("manifesto: fuori da un task il nome viene ignorato (nessun record di task)", async () => {
+    const h = harness();
+    h.addTopic("t1");
+
+    await h.post("/api/topics/t1/browser/open-pane", { url: "https://x.test/", name: "App" });
+
+    // Una chat qualsiasi non ha un manifesto: il pane-store globale etichetta
+    // dal titolo di pagina, e scrivere `task-browser-tabs:*` da qui popolerebbe
+    // il drawer di task che non l'hanno chiesto.
+    expect(h.persisted).toEqual([]);
+    expect(h.typed("browser:open-task-tab")).toEqual([]);
+  });
+
   test("task: la scheda è SCRITTA prima di essere annunciata (un dispatch gira senza finestre)", async () => {
     const h = harness();
     const topic = h.addTopic("aaaaaaaa-topic");
@@ -284,6 +362,7 @@ describe("open-pane — tre rami, tre pannelli diversi", () => {
       taskId: "12345678-task",
       contextId: "task-12345678-aaaaaaaaa",
       url: "https://example.com/",
+      title: "",
     }]);
     // L'ORDINE è il punto: finché l'unico scrittore era il client, «nessuna
     // finestra Topics aperta» voleva dire tab persa. Se il broadcast precedesse
@@ -560,5 +639,85 @@ describe("il blocco generico :tool non ingoia le rotte degli altri", () => {
   test("una rotta fuori dal ponte non viene toccata", async () => {
     const h = harness();
     expect(await h.post("/api/topics/t1/system-message", { content: "ciao" })).toBeNull();
+  });
+});
+
+/**
+ * LOGIN GIÀ INIETTATO — la metà di andata.
+ *
+ * L'agente entra una volta in una pagina protetta e chiama `browser_save_state`.
+ * Perché il reviewer che apre quella tab dopo NON trovi il muro del login,
+ * l'handle va legato alla TAB (`task-tab-persist`), non alla sessione: il turno
+ * dell'agente finisce, la tab resta. Qui si prova solo la decisione del ponte —
+ * chi viene legato, con quale handle, e quando NON legare niente.
+ */
+describe("save_state — l'handle finisce sulla tab del task", () => {
+  let savedDataDir: string | undefined;
+  let tmpDir = "";
+
+  beforeEach(() => {
+    // Lo store degli stati è un vero file su disco: lo dirotto in un tmp, così
+    // il test non tocca `~/.openclaw` né lo store dell'utente.
+    savedDataDir = process.env.DATA_DIR;
+    tmpDir = mkdtempSync(join(tmpdir(), "bridge-state-"));
+    process.env.DATA_DIR = tmpDir;
+  });
+  afterEach(() => {
+    if (savedDataDir === undefined) delete process.env.DATA_DIR;
+    else process.env.DATA_DIR = savedDataDir;
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  const STATE = { cookies: [{ name: "sid", value: "x" }], origins: [] };
+
+  test("salvataggio riuscito su una tab del task ⇒ l'handle viene legato a QUELLA tab", async () => {
+    const h = harness({ storageState: STATE });
+    const topic = h.addTopic("aaaaaaaa-topic");
+    h.taskOfTopic.set(topic.id, { id: "12345678-task" });
+    await h.post("/api/topics/aaaaaaaa-topic/browser/open-pane", { url: "https://app.test/", name: "App" });
+
+    const resp = await h.post("/api/topics/aaaaaaaa-topic/browser/save-state", { handle: "app-login" });
+
+    expect(resp!.status).toBe(200);
+    expect(h.loginAttached).toEqual([{ contextId: "task-12345678-napp", handle: "app-login" }]);
+  });
+
+  test("l'handle registrato è quello NORMALIZZATO, non la stringa grezza", async () => {
+    const h = harness({ storageState: STATE });
+    const topic = h.addTopic("aaaaaaaa-topic");
+    h.taskOfTopic.set(topic.id, { id: "12345678-task" });
+    await h.post("/api/topics/aaaaaaaa-topic/browser/open-pane", { url: "https://app.test/" });
+
+    await h.post("/api/topics/aaaaaaaa-topic/browser/save-state", { handle: "App Login!" });
+
+    // È il NOME DEL FILE che il tool ha scritto: registrarne un altro farebbe
+    // fallire in silenzio il `browser_load_state` della riapertura.
+    expect(h.loginAttached).toEqual([{ contextId: "task-12345678-aaaaaaaaa", handle: "App_Login_" }]);
+  });
+
+  test("un salvataggio FALLITO non lega niente", async () => {
+    // Nessuno `storageState` ⇒ l'export esplode ⇒ il tool risponde `{error}`.
+    const h = harness();
+    const topic = h.addTopic("aaaaaaaa-topic");
+    h.taskOfTopic.set(topic.id, { id: "12345678-task" });
+    await h.post("/api/topics/aaaaaaaa-topic/browser/open-pane", { url: "https://app.test/" });
+
+    const resp = await h.post("/api/topics/aaaaaaaa-topic/browser/save-state", { handle: "app-login" });
+
+    expect(resp!.status).toBe(502);
+    // Legare un handle che non esiste su disco darebbe una tab che promette un
+    // login e poi atterra sul muro comunque.
+    expect(h.loginAttached).toEqual([]);
+  });
+
+  test("gli altri tool non legano niente", async () => {
+    const h = harness({ storageState: STATE });
+    const topic = h.addTopic("aaaaaaaa-topic");
+    h.taskOfTopic.set(topic.id, { id: "12345678-task" });
+    await h.post("/api/topics/aaaaaaaa-topic/browser/open-pane", { url: "https://app.test/" });
+
+    await h.post("/api/topics/aaaaaaaa-topic/browser/eval", { expression: "1+1" });
+
+    expect(h.loginAttached).toEqual([]);
   });
 });
