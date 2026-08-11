@@ -5,8 +5,8 @@
  * Direzioni:
  *   - frame, agent_active, console, download, engine, webrtc_answer,
  *     render_mode, dom_event:  server → client
- *   - input, take_control, resize, set_engine, set_stream, set_render,
- *     webrtc_offer:            client → server
+ *   - input, take_control, resize, set_engine, set_stream, set_watching,
+ *     set_render, webrtc_offer: client → server
  *   - nav, webrtc_ice:         entrambe (richiesta da un lato, broadcast dall'altro)
  *
  * Fino al 29/07 questo schema esisteva DUE volte — `server/browser-ws-messages.ts`
@@ -124,6 +124,23 @@ const setStreamMessageSchema = z.object({
   active: z.boolean(),
 });
 
+/** Client -> server: is this viewer's pane ON SCREEN?
+ *
+ *  Deliberately NOT `set_stream`. That one is about the pixel transport, and a
+ *  pane pauses the screencast for reasons that have nothing to do with looking
+ *  away: WebRTC took over the pixels (the DEFAULT transport), DOM co-browse is
+ *  carrying the page, a native <iframe> is showing it. Using it as "is anyone
+ *  watching" made a phone streaming over WebRTC invisible to the cross-device
+ *  viewer count — so the Mac's 'auto' pane never joined the shared session.
+ *
+ *  This frame carries only that one fact, and it is what
+ *  `GET /api/browsers/:id/viewers` counts. Absent ⇒ watching (a viewer that
+ *  never sends it — an older client — keeps the pre-frame behaviour). */
+const setWatchingMessageSchema = z.object({
+  type: z.literal('set_watching'),
+  active: z.boolean(),
+});
+
 /** Client -> server (T1 DOM co-browse): how this pane renders — 'video' (JPEG/
  *  WebRTC pixels, default) or 'dom' (rrweb DOM stream, reconstructed natively).
  *  Paired with set_stream:false to pause the screencast while in DOM mode. */
@@ -181,6 +198,7 @@ export const browserWsMessageSchema = z.discriminatedUnion('type', [
   setEngineMessageSchema,
   engineMessageSchema,
   setStreamMessageSchema,
+  setWatchingMessageSchema,
   setRenderMessageSchema,
   renderModeMessageSchema,
   domEventMessageSchema,
