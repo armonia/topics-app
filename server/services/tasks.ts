@@ -145,6 +145,18 @@ export interface Task {
    * puntata non esiste più (edge orfano).
    */
   blockedBy: BlockerRef | null;
+  /**
+   * L'altra metà del legame: quanti task stanno aspettando QUESTO, contati sul
+   * DB. Il chip «N in attesa» sulla card si disegna da qui, per lo stesso
+   * motivo di `blockedBy`: la lista della board è un progetto solo, `rootsOnly`,
+   * non archiviati — un dipendente che è un sottotask o sta in un altro
+   * progetto non ci compare, e contando quella lista il legame spariva proprio
+   * dalla card da cui si decide se chiudere il lavoro.
+   *
+   * Conta i dipendenti VIVI: non archiviati e non `done` — cioè quelli che il
+   * gate di dispatch tiene ancora fermi e che ripartono quando questo chiude.
+   */
+  waitingOnCount: number;
   /** Branch the task delivered on, snapshotted at the transition into `review`. */
   deliveryBranch: string | null;
   /** Branch tip at delivery time — the handle that outlives the reaped branch. */
@@ -726,6 +738,27 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     return { id: r.id, text: r.text, status: r.status, archived: !!r.archived };
   }
 
+  /**
+   * Quanti task aspettano questo, contati sul DB.
+   *
+   * Sta in `rowToTask` accanto a `resolveBlocker`, e per le stesse due ragioni.
+   * La prima: il client non può contarli: la sua lista è un progetto, `rootsOnly`,
+   * non archiviati, quindi un dipendente sottotask o di un altro progetto non
+   * viene contato e la card del bloccante si presenta come libera. La seconda:
+   * ogni payload esce anche dalle scritture che il server ribalta sul WS come
+   * `task:updated` — se il contatore lo riempissero i soli `list`/`get` (come i
+   * contatori dei sottotask), un giro di WS lo azzererebbe fino al fetch dopo.
+   *
+   * Costa una lettura per riga su `idx_tasks_blocked_by` (migration 042): un
+   * lookup su indice, non una scansione.
+   */
+  function countWaitingOn(taskId: string): number {
+    const r = db.prepare(
+      "SELECT COUNT(*) AS n FROM tasks WHERE blocked_by_task_id = ? AND archived = 0 AND status != 'done'",
+    ).get(taskId) as { n: number } | undefined;
+    return r?.n ?? 0;
+  }
+
   function rowToTask(r: any): Task {
     return {
       id: r.id,
@@ -760,6 +793,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       model: resolveModel(r),
       blockedByTaskId: r.blocked_by_task_id ?? null,
       blockedBy: resolveBlocker(r.blocked_by_task_id),
+      waitingOnCount: countWaitingOn(r.id),
       deliveryBranch: r.delivery_branch ?? null,
       deliveryCommit: r.delivery_commit ?? null,
       landingState: r.landing_state ?? null,
