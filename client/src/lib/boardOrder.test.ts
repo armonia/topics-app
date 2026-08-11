@@ -74,6 +74,37 @@ describe('groupByStatus', () => {
     expect(groupByStatus([a, b], 'board').review.map((t) => t.id)).toEqual(['aaa', 'zzz']);
     expect(groupByStatus([b, a], 'board').review.map((t) => t.id)).toEqual(['aaa', 'zzz']);
   });
+
+  test('done è una cronologia: l\'ultimo chiuso sta in cima, kanbanOrder non conta', () => {
+    // Il caso vero: si approva dalla review, il server scrive `completed_at` e
+    // basta. `kanbanOrder` resta quello della colonna da cui la card veniva —
+    // qui il 99 — e prima bastava a seppellirla in fondo a Done.
+    const vecchio = task({ id: 'vecchio', status: 'done', kanbanOrder: 1, completedAt: '2026-01-01T00:00:00.000Z' });
+    const appena = task({ id: 'appena', status: 'done', kanbanOrder: 99, completedAt: '2026-03-01T00:00:00.000Z' });
+    expect(groupByStatus([vecchio, appena], 'board').done.map((t) => t.id)).toEqual(['appena', 'vecchio']);
+    expect(groupByStatus([appena, vecchio], 'board').done.map((t) => t.id)).toEqual(['appena', 'vecchio']);
+  });
+
+  test('done: senza completedAt (righe vecchie) si ripiega su updatedAt', () => {
+    const senza = task({ id: 'senza', status: 'done', completedAt: null, updatedAt: '2026-02-01T00:00:00.000Z' });
+    const con = task({ id: 'con', status: 'done', completedAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' });
+    expect(groupByStatus([con, senza], 'board').done.map((t) => t.id)).toEqual(['senza', 'con']);
+  });
+
+  test('done: stesso ordine anche nella board generale', () => {
+    // Lì `kanbanOrder` non è nemmeno comparabile fra progetti: la data di
+    // chiusura è l'unica chiave che significa la stessa cosa ovunque.
+    const px = task({ id: 'px', projectId: 'pX', status: 'done', kanbanOrder: 300, completedAt: '2026-01-01T00:00:00.000Z' });
+    const py = task({ id: 'py', projectId: 'pY', status: 'done', kanbanOrder: 1, completedAt: '2026-03-01T00:00:00.000Z' });
+    expect(groupByStatus([px, py], 'cross-project').done.map((t) => t.id)).toEqual(['py', 'px']);
+  });
+
+  test('done: pari-merito di data → comunque un ordine solo', () => {
+    const a = task({ id: 'zzz', status: 'done' });
+    const b = task({ id: 'aaa', status: 'done' });
+    expect(groupByStatus([a, b], 'board').done.map((t) => t.id)).toEqual(['aaa', 'zzz']);
+    expect(groupByStatus([b, a], 'board').done.map((t) => t.id)).toEqual(['aaa', 'zzz']);
+  });
 });
 
 describe('between', () => {
@@ -179,6 +210,19 @@ describe('planDrop', () => {
     expect(planDrop({ task: a, overId: 'r2', byStatus: g, scope: 'board' })).toEqual({ patch: { status: 'review' } });
     // Riordinare dentro review non fa niente.
     expect(planDrop({ task: r1, overId: 'r2', byStatus: g, scope: 'board' })).toBeNull();
+  });
+
+  test('done: ci si entra, non ci si riordina', () => {
+    const d1 = task({ id: 'd1', status: 'done', kanbanOrder: 1, completedAt: '2026-01-01T00:00:00.000Z' });
+    const d2 = task({ id: 'd2', status: 'done', kanbanOrder: 2, completedAt: '2026-02-01T00:00:00.000Z' });
+    const g = col([a, b, c, d1, d2]);
+    // Chiudere trascinando: solo lo stato. Il server scrive completedAt, ed è
+    // QUELLO a decidere dove la card atterra — un kanbanOrder scritto qui non si
+    // vedrebbe, e la seguirebbe fuori se la si riaprisse.
+    expect(planDrop({ task: a, overId: 'd2', byStatus: g, scope: 'board' })).toEqual({ patch: { status: 'done' } });
+    expect(planDrop({ task: a, overId: 'done', byStatus: g, scope: 'board' })).toEqual({ patch: { status: 'done' } });
+    // Riordinare dentro done non fa niente.
+    expect(planDrop({ task: d1, overId: 'd2', byStatus: g, scope: 'board' })).toBeNull();
   });
 
   test('cross-project: si cambia stato, MAI la posizione', () => {

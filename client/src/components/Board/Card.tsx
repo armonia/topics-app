@@ -18,7 +18,7 @@ import { StatusIcon, DispatchChip, TaskIdChip } from './atoms';
 import { POPOVER_DIVIDER, POPOVER_ITEM, POPOVER_ITEM_DANGER } from '@/lib/popoverStyles';
 
 // ── Column ────────────────────────────────────────────────────────────────
-export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject, onError, onRefetch, onOpenTopic, tasksById, waitingOnById, projectPathById, liveById, awaitingHuman }: {
+export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject, onError, onRefetch, onOpenTopic, tasksById, waitingOnById, projectPathById, liveById, awaitingHuman, justDone }: {
   status: TaskStatus; tasks: BoardTask[]; onOpen: OpenTask; onCreate: (text: string) => void;
   canCreate: boolean; showProject: boolean; onError: (e: string) => void; onRefetch: () => void;
   onOpenTopic?: (topicId: string) => void; tasksById: Map<string, BoardTask>; projectPathById: Map<string, string>;
@@ -28,6 +28,8 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
   liveById: Map<string, LiveUsage>;
   /** Task che in questo momento aspettano una persona (evento transitorio). */
   awaitingHuman: Set<string>;
+  /** Card appena arrivate in Done: lampeggiano per un paio di secondi. */
+  justDone: Set<string>;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: status });
   const [adding, setAdding] = useState(false);
@@ -86,6 +88,7 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
               projectPath={projectPathById.get(t.projectId)}
               live={liveById.get(t.id)}
               awaiting={awaitingHuman.has(t.id)}
+              justDone={justDone.has(t.id)}
             />
           ))}
         </SortableContext>
@@ -118,7 +121,7 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
 // props from the parent (onOpen/onError/onRefetch/onOpenTopic) are stable
 // (useCallback / state setters), and task/parentTitle come from tasks-keyed
 // memos, so the shallow prop compare holds for idle cards.
-export const Card = memo(function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, parentTitle, waitingOnThis = 0, projectPath, live, awaiting }: {
+export const Card = memo(function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, parentTitle, waitingOnThis = 0, projectPath, live, awaiting, justDone }: {
   task: BoardTask; onOpen: OpenTask; showProject: boolean;
   onError: (e: string) => void; onRefetch: () => void; onOpenTopic?: (topicId: string) => void;
   /** Text of the parent task when this card is a subtask (context chip). */
@@ -137,6 +140,8 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
   awaiting?: boolean;
   /** Live per-turn usage while this task's agent works (ticking chip). */
   live?: LiveUsage;
+  /** La card è appena arrivata in Done: lampo verde, si spegne da solo. */
+  justDone?: boolean;
 }) {
   // Sortable: the source card is dimmed (the DragOverlay carries the visual)
   // but its NEIGHBOURS get the reflow transform — the list opens a gap under
@@ -273,7 +278,8 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
       // nativo che bolla fino all'`onContextMenu` qui accanto, quindi non
       // esiste un secondo menu da tenere allineato — e' lo stesso.
       onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ x: e.clientX, y: e.clientY }); }}
-      className={`group cursor-grab rounded-md border border-app-border bg-surface p-2.5 text-sm text-app-text shadow-sm hover:border-app-border-light ${isDragging ? 'opacity-40' : ''}`}
+      data-just-done={justDone || undefined}
+      className={`group cursor-grab rounded-md border border-app-border bg-surface p-2.5 text-sm text-app-text shadow-sm hover:border-app-border-light ${isDragging ? 'opacity-40' : ''} ${justDone ? 'task-done-flash' : ''}`}
     >
       {/* Top row: project eyebrow (cross-project) on the LEFT; the AGENT
           cluster in the top-right SLOT — dispatch state, model/effort, "apri
