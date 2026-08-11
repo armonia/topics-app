@@ -551,7 +551,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         svc.addComment({ taskId, author: "system", content: "Merge automatico in conflitto con main — rimando all'agent per risolvere." });
         dispatcher?.resume(
           taskId,
-          'Il merge automatico del tuo branch su main è andato in conflitto. Porta main dentro il tuo branch (git merge main, oppure rebase), risolvi i conflitti, poi rimetti in review con update_task(status="review").',
+          'Il merge automatico del tuo branch su main è andato in conflitto. Rifai la BASE del tuo ramo sul main aggiornato (`git fetch` se serve, poi `git rebase main`), NON un merge di main dentro il ramo: risolvi i conflitti durante la rebase, ricommitta, poi rimetti in review con update_task(status="review"). Resta vietato toccare main: niente push, niente merge verso main.',
         ).catch((err) => console.warn(`[Tasks] resume after merge-conflict failed for ${taskId}:`, err));
       } else if (res.status === "skipped") {
         svc.addComment({ taskId, author: "system", content: `⚠️ Land NON riuscito: ${res.reason}. Il branch del task NON è su main — risolvi e rilancia "Landa su main".` });
