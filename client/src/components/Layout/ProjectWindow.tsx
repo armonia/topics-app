@@ -23,6 +23,8 @@ import { useProjectLayout } from './hooks/useProjectLayout';
 import { useProjectChatSync } from './hooks/useProjectChatSync';
 import { useProjectPersistenceSave } from './hooks/useProjectPersistenceSave';
 import type { SendMessageOptions } from '@/hooks/useChat';
+import { missionPrompt, type Mission } from '../../lib/missions';
+import { pickMissionSession } from '../../lib/missionTarget';
 
 const RemoteBrowserPanel = lazy(() => import('../Browser/RemoteBrowserPanel').then(m => ({ default: m.RemoteBrowserPanel })));
 const SingleTerminalPane = lazy(() => import('../Terminal/SingleTerminalPane').then(m => ({ default: m.SingleTerminalPane })));
@@ -323,6 +325,42 @@ export function ProjectWindowPane({
     onOpenPanesChange,
   });
 
+  /**
+   * UNA MISSIONE ALLA SESSIONE LATERALE.
+   *
+   * Tre gesti in uno, e sono tutti gesti che esistevano già: si sceglie la chat
+   * di progetto (`pickMissionSession`), le si mette il testo nella bozza —
+   * `draft:<topicId>`, la stessa che ChatPane salva e ricarica da sola — e la si
+   * apre accanto alla board (`reopenTopic`, la stessa chiamata di quando si
+   * clicca una sessione). Nessun tipo di sessione nuovo, nessuna route: la
+   * missione è testo davanti a una chat normale.
+   *
+   * A MANDARE È L'UMANO. Non è timidezza: la missione dà compiti IN PIÙ, e una
+   * board da cui partono turni al click è di nuovo il posto da cui si lavora —
+   * l'esatta cosa che questa feature non deve diventare.
+   *
+   * Se c'è già una bozza, la missione si ACCODA invece di sostituirla: quel
+   * testo è lavoro di qualcuno, e cancellarlo per un click su un menu sarebbe
+   * un furto silenzioso.
+   */
+  const startMission = useCallback((mission: Mission): string | null => {
+    const topicId = pickMissionSession({ projectPath, topics, panes, groups, focusedGroupId });
+    if (!topicId) return 'Nessuna chat di progetto a cui dare la missione: aprine una e riprova.';
+    const text = missionPrompt(mission, projectPath.split('/').filter(Boolean).pop() || projectPath);
+    let seeded = text;
+    try {
+      const existing = localStorage.getItem(`draft:${topicId}`) || '';
+      seeded = existing.trim() ? `${existing.trimEnd()}\n\n${text}` : text;
+      localStorage.setItem(`draft:${topicId}`, seeded);
+    } catch { /* private mode: la bozza vive comunque nell'evento qui sotto */ }
+    // La pane può essere GIÀ montata su quel topic, e in quel caso l'effetto che
+    // rilegge la bozza (dipende da `topic.id`) non riparte: senza questo evento
+    // la missione resterebbe scritta su localStorage e invisibile.
+    window.dispatchEvent(new CustomEvent('topics:seed-composer', { detail: { topicId, text: seeded } }));
+    chatSync.reopenTopic(topicId);
+    return null;
+  }, [projectPath, topics, panes, groups, focusedGroupId, chatSync]);
+
   const handleNewChatInGroup = useCallback((groupId: string) => {
     // Pass the clicked group's id so the new chat lands as a tab in THAT group
     // (even a terminal/utility group), instead of the type-affinity fallback
@@ -470,6 +508,7 @@ export function ProjectWindowPane({
               projectPath={projectPath}
               onMessage={onWSMessage}
               onOpenTopic={chatSync.reopenTopic}
+              onStartMission={startMission}
             />
           </LazyPane>
         );
@@ -487,7 +526,7 @@ export function ProjectWindowPane({
     getSessionMessages, getCompactionMarkers, isSessionLoading, isSessionStreaming, wasSessionStopped, stopSession,
     sendMessage, editMessage, regenerateMessage, deleteMessage, switchBranch, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
     handleOpenFile, pinPaneById, onFocusPanel, browserNavigate, chatSync.reopenTopic, updatePane,
-    windowVisible,
+    windowVisible, startMission,
   ]);
 
   return (
