@@ -1,8 +1,7 @@
 import { describe, test, expect } from "bun:test";
 import {
-  parseTier, tierToAvailableModel, pickTaskPlan, floorTier, parseEffort, floorEffort,
-  medianTier, medianEffort, JUDGE_VOTES,
-} from "./task-model-picker";
+  parseTier, tierToAvailableModel, pickTaskPlan, floorTier, parseEffort, floorEffort, medianTier, medianEffort, JUDGE_VOTES, parseWeight, medianWeight,
+} from './task-model-picker';
 
 // La lista come la annuncia davvero la CLI: due generazioni per famiglia, e
 // accanto a ognuna la sua variante a finestra lunga. Il tier deve scegliere la
@@ -108,7 +107,7 @@ describe("pickTaskPlan", () => {
     let seen = "";
     await pickTaskPlan(
       { text: "Titolone", description: "Descrizione dettagliata" },
-      { ...base, complete: async (p) => { seen = p; return "sonnet medium"; } },
+      { ...base, complete: async (p) => { seen = p; return "sonnet medium light"; } },
     );
     expect(seen).toContain("Titolone");
     expect(seen).toContain("Descrizione dettagliata");
@@ -158,7 +157,7 @@ describe("il task arriva al giudice come MATERIALE, non come richiesta", () => {
   const promptFor = async (task: { text: string; description?: string }) => {
     let seen = "";
     await pickTaskPlan(task, {
-      complete: async (p) => { seen = p; return "opus high"; },
+      complete: async (p) => { seen = p; return "opus high light"; },
       availableModels: ALL, fallback: "claude-opus-5",
     });
     return seen;
@@ -194,6 +193,7 @@ describe("il task arriva al giudice come MATERIALE, non come richiesta", () => {
 });
 
 describe("parseEffort / floorEffort", () => {
+  const base = { availableModels: ALL, fallback: "claude-sonnet-5" };
   test("legge il tier anche in una risposta prolissa, e vince il PRIMO", () => {
     expect(parseEffort("high")).toBe("high");
     expect(parseEffort("direi max, non xhigh")).toBe("max");
@@ -204,6 +204,61 @@ describe("parseEffort / floorEffort", () => {
     expect(floorEffort("low")).toBe("medium");
     expect(floorEffort("medium")).toBe("medium");
     expect(floorEffort("max")).toBe("max");
+  });
+
+  // ── Il peso ───────────────────────────────────────────────────────────────
+
+  test("la seconda parola è il peso, e arriva nel piano", async () => {
+    const p = await pickTaskPlan({ text: "ricompila tutto" }, { ...base, complete: async () => "opus medium heavy" });
+    expect(p.model).toBe("claude-opus-5[1m]");
+    expect(p.weight).toBe("heavy");
+  });
+
+  test("peso non letto → null, che ogni gate tratta come light", async () => {
+    // È il caso di ogni risposta a UNA parola, cioè come rispondeva il giudice
+    // prima che il peso esistesse: niente deve cambiare rispetto a prima.
+    const p = await pickTaskPlan({ text: "x" }, { ...base, complete: async () => "opus" });
+    expect(p.model).toBe("claude-opus-5[1m]");
+    expect(p.weight).toBeNull();
+  });
+
+  test("un fallback di modello non porta con sé un peso: un giudice caduto non ferma la coda", async () => {
+    const p = await pickTaskPlan({ text: "x" }, { ...base, complete: async () => "boh" });
+    expect(p.weight).toBeNull();
+    const crashed = await pickTaskPlan({ text: "x" }, {
+      ...base, complete: async () => { throw new Error("provider down"); },
+    });
+    expect(crashed.weight).toBeNull();
+  });
+
+  test("il peso si legge DOPO il modello, e sopravvive a una risposta prolissa", async () => {
+    const p = await pickTaskPlan({ text: "x" }, {
+      ...base, complete: async () => "opus — heavy, ricompila tutto il progetto",
+    });
+    expect(p.weight).toBe("heavy");
+  });
+
+  test("il prompt chiede TRE parole e spiega che il peso non è la difficoltà", async () => {
+    let seen = "";
+    await pickTaskPlan({ text: "T" }, { ...base, complete: async (p) => { seen = p; return "opus medium light"; } });
+    expect(seen).toContain("TRE parole");
+    expect(seen).toContain("MORDE LA MACCHINA");
+    expect(seen).toContain("Nel dubbio light");
+  });
+});
+
+describe("parseWeight", () => {
+  test("legge il peso anche in una risposta prolissa, e vince il PRIMO", () => {
+    expect(parseWeight("heavy")).toBe("heavy");
+    expect(parseWeight("direi light, non heavy")).toBe("light");
+    expect(parseWeight("nessuna parola utile")).toBeNull();
+  });
+
+  test("nessuna parola di peso dentro un'altra parola", () => {
+    // «lightweight» o «heavyweight» sono parole intere diverse: senza i confini
+    // il gate scatterebbe su una risposta che non ha detto quello.
+    expect(parseWeight("lightweight")).toBeNull();
+    expect(parseWeight("heavyweight")).toBeNull();
   });
 });
 
@@ -264,7 +319,7 @@ describe("il giudice si vota, non si crede sulla parola", () => {
 
   test("interroga il giudice JUDGE_VOTES volte, non una", async () => {
     let calls = 0;
-    await pickTaskPlan({ text: "x" }, { ...ALL_MODELS, complete: async () => { calls++; return "opus high"; } });
+    await pickTaskPlan({ text: "x" }, { ...ALL_MODELS, complete: async () => { calls++; return "opus high light"; } });
     expect(calls).toBe(JUDGE_VOTES);
   });
 
@@ -299,7 +354,7 @@ describe("il giudice si vota, non si crede sulla parola", () => {
       ...ALL_MODELS,
       complete: async () => {
         if (i++ === 0) throw new Error("provider down");
-        return "opus high";
+        return "opus high light";
       },
     });
     expect(p.model).toBe("claude-opus-5[1m]");
@@ -334,7 +389,7 @@ describe("il giudice si vota, non si crede sulla parola", () => {
       complete: async () => {
         if (++arrived === JUDGE_VOTES) openTheGate();
         await gate;
-        return "opus high";
+        return "opus high light";
       },
     });
     expect(p.effort).toBe("high");

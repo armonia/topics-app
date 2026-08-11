@@ -545,3 +545,53 @@ describe("terminal Claude tab (session-key = terminal id, no chat topic)", () =>
     } finally { h.cleanup(); }
   });
 });
+
+/**
+ * Il ponte MCP del browser vive in `browser-bridge.ts`, ma è `topicsRouter` a
+ * montarlo — e il montaggio è l'unico pezzo che i suoi test unitari non possono
+ * vedere. Qui si prova solo QUELLO: che le rotte `…/browser/*` sono raggiungibili
+ * attraverso il router intero, nella posizione giusta (nessuna rotta a cinque
+ * segmenti le scavalca) e con `getTerminalSessionById` davvero collegato.
+ */
+describe("il ponte MCP del browser è montato dentro topicsRouter", () => {
+  test("close-pane risolve la topic e chiede la chiusura del pannello", async () => {
+    const h = makeHarness();
+    try {
+      h.topics.set("t1", makeTopic({ id: "t1" }));
+      const resp = (await h.call("POST", "/api/topics/t1/browser/close-pane", {}))!;
+      expect(resp.status).toBe(200);
+      expect(await resp.json()).toEqual({ ok: true, contextId: "t1" });
+      expect(h.broadcasts.filter((b) => b.type === "browser:close-pane")).toHaveLength(1);
+    } finally { h.cleanup(); }
+  });
+
+  test("una sessionKey di TERMINALE arriva fino a term-<id>", async () => {
+    const h = makeHarness();
+    try {
+      registerTerminalSession("77", "Terminal 77");
+      const resp = (await h.call("POST", "/api/sessions/77/browser/close-pane", {}))!;
+      expect(await resp.json()).toEqual({ ok: true, contextId: "term-77" });
+    } finally { h.cleanup(); }
+  });
+
+  test("open-pane in una build senza browser ⇒ 503, non un 404 da rotta inesistente", async () => {
+    const h = makeHarness();
+    try {
+      h.topics.set("t1", makeTopic({ id: "t1" }));
+      const resp = (await h.call("POST", "/api/topics/t1/browser/open-pane", { url: "https://example.com/" }))!;
+      // 503 = la rotta c'è ed è stata eseguita (questo harness monta
+      // createTopicsRouter senza BrowserService). Un 404 vorrebbe dire che il
+      // sotto-router non è montato o è coperto da un'altra rotta.
+      expect(resp.status).toBe(503);
+    } finally { h.cleanup(); }
+  });
+
+  test("un endpoint browser sconosciuto non viene ingoiato dal blocco generico", async () => {
+    const h = makeHarness();
+    try {
+      h.topics.set("t1", makeTopic({ id: "t1" }));
+      const resp = await h.call("POST", "/api/topics/t1/browser/inventata", {});
+      expect(resp).toBeNull();
+    } finally { h.cleanup(); }
+  });
+});

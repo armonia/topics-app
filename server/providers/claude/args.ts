@@ -76,6 +76,30 @@ export interface ClaudeSpawnArgsOptions {
    * disattivarlo dal disco per sbaglio.
    */
   blockImageReads?: boolean;
+  /**
+   * Manda il CATALOGO delle skill al modello coi soli NOMI, senza descrizioni
+   * (`skillListingMaxDescChars: 1` → `- nome: …`).
+   *
+   * Le skill dell'utente arrivano da `--setting-sources user,project,local`, che
+   * sta lì per altro — il blocco `env` di `~/.claude/settings.json`, dove vive
+   * fra le altre cose l'URL del provider: toglierlo per alleggerire il prefisso
+   * porterebbe via la configurazione, non solo l'elenco.
+   *
+   * Quindi si toglie il CATALOGO, non la capacità: i nomi restano, `Skill` resta
+   * chiamabile, e il testo della skill si carica quando parte — la stessa forma
+   * del deferral degli schemi MCP qui sotto.
+   *
+   * Misurato il 10/08/2026 (CLI 2.1.226, opus-5[1m], stessa cwd e stesso config
+   * MCP, prompt che non chiama tool), argv del dispatch vero:
+   *     catalogo intero .......  37.867 token di prefisso   (elenco 14.067 B)
+   *     soli nomi .............  33.657 token   (−4.210)    (elenco  2.130 B)
+   * È prefisso: un task da ~40 turni lo ripaga ogni volta.
+   *
+   * Vale per i soli agenti del board: una chat è guidata da una persona che le
+   * skill le sceglie leggendo cosa fanno, un agente dispacciato ha già il suo
+   * compito scritto nel task.
+   */
+  slimSkillListing?: boolean;
 }
 
 /**
@@ -154,12 +178,17 @@ export function buildClaudeArgs(opts: ClaudeSpawnArgsOptions): string[] {
     // `toolSearch` in `ClaudeSpawnArgsOptions` per il perché.
     // Un solo `--settings`: la CLI prende l'ULTIMO, quindi passarlo due volte
     // farebbe sparire in silenzio il primo dei due (il deferral degli schemi
-    // vale −71,5% di prefisso: perderlo per un cancello sugli screenshot
-    // sarebbe uno scambio in perdita).
-    ...(opts.toolSearch || opts.blockImageReads
+    // vale −71,5% di prefisso: perderlo per un cancello sugli screenshot o per
+    // l'elenco delle skill sarebbe uno scambio in perdita). Chi aggiunge una
+    // leva la aggiunge QUI DENTRO, in questo stesso oggetto: due `--settings`
+    // non si sommano, l'ultimo vince.
+    ...(opts.toolSearch || opts.blockImageReads || opts.slimSkillListing
       ? ["--settings", JSON.stringify({
           ...(opts.toolSearch ? { env: { ENABLE_TOOL_SEARCH: opts.toolSearch } } : {}),
           ...(opts.blockImageReads ? IMAGE_READ_GUARD_SETTINGS : {}),
+          // 1 e non 0: lo zero non è un valore che la CLI accetta come «nessuna
+          // descrizione» (misurato — l'elenco resta intero), 1 tronca a `…`.
+          ...(opts.slimSkillListing ? { skillListingMaxDescChars: 1 } : {}),
         })]
       : []),
     "--append-system-prompt", opts.appendSystemPrompt,

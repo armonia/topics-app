@@ -44,6 +44,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { createTranscriptUsageReader } from "../server/services/transcript-usage";
 import { calculateCostWithCache } from "../server/usage/pricing";
+import { PREVIEW_RULE } from "../shared/board";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Il micro-task. Identico nei tre bracci, byte per byte: è l'unica cosa che
@@ -137,10 +138,9 @@ export function buildKickoffReplica(task: ReplicaTask): string {
       "- Ogni step ha il SUO thread: note specifiche → comment_task(task_id=<step id>, ...). Se l'umano risponde sul thread di uno step mentre sei in review, riparti con quel contesto.",
       "- Allegati (comment_task media[]): il server accetta SOLO file sotto ~/.topics/media/ (o ~/.openclaw/media/) o il workspace — copia lì il file (es. un PDF/screenshot/clip da mostrare) PRIMA di allegarlo, o il commento viene rifiutato.",
       "- CONSEGNA AUTOCONSISTENTE: il reviewer decide guardando SOLO il task — tutto ciò che serve alla decisione va nel thread: testi completi (es. la bozza di una mail va INCOLLATA nel commento, non descritta), anteprime come allegato, pagine/report come output_url. Se chiedi 'confermi X?' l'umano deve poter vedere X.",
-      `- EVIDENZA DI REVIEW = anteprima nel task, scelta in base al tipo di lavoro. Impostala con update_task(task_id="${task.id}", previewImage=<path assoluto sotto ~/.topics/media/>) — compare come card sulla board e nel drawer (immagine cliccabile, oppure VIDEO coi controlli).`,
-      "  · UI STATICA (layout, un componente, una pagina) → uno SCREENSHOT (.png).",
-      "  · COMPORTAMENTO / UI DINAMICA (scroll, un box che si apre/chiude, streaming, una transizione, un flusso a più passi) → un VIDEO (.webm/.mp4): uno screenshot statico NON dimostra il comportamento. Registralo con Playwright — clip breve (login: in locale l'identity picker è a un click; poi naviga ed esegui l'azione) con `recordVideo: { dir }` sul context, copia il .webm sotto ~/.topics/media/ e mettilo in previewImage.",
-      "  · Se il progetto ha spec-flow: esegui lo SCENARIO relativo — Playwright registra già il .webm nel Living Doc; usa QUEL clip come evidenza (è anche la prova che l'acceptance test passa).",
+      // Importata, non ricopiata: il braccio misura il COSTO dell'envelope
+      // vero, e una copia stantia qui falsa i token senza che si veda.
+      PREVIEW_RULE,
       `- Se c'è qualcosa da far navigare/testare al reviewer dal vivo (dev server, pagina, report): update_task(task_id="${task.id}", output_url=<url http(s)>) — appare nel pannello di review. NB: il dev server dell'agente è effimero e muore a fine sessione, quindi l'output_url NON è evidenza durevole: la prova che resta è l'anteprima (screenshot/video), l'output_url è solo un extra dal vivo.`,
       `- Alla consegna, PRIMA di spostare in review: UN commento di sintesi con comment_task (1-2 frasi: cosa hai fatto QUESTO turno, dove guardare). Il server rifiuta la review se in questo turno non hai ancora commentato.`,
       `- SE hai committato codice sul tuo branch (lavoro landabile), in quel commento di consegna offri SOLO l'opzione: comment_task(..., options=["${LAND_ACTION_LABEL}"]). Se l'umano la sceglie, il SISTEMA fa il merge LOCALE su main (nessun push). Tu NON fare mai git merge/push a mano. La pubblicazione online (push + deploy) è un passo SEPARATO, deciso ed eseguito dall'umano dal controllo "Pubblica" della board con anteprima del diff — NON proporla, non è un'opzione del task. NON offrire l'opzione senza codice committato (una domanda, un piano, lavoro solo-headless).`,

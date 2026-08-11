@@ -895,6 +895,117 @@ async fn probe_topics_server(port: u16, tls: bool) -> bool {
         .unwrap_or(false)
 }
 
+/// How long a NON-document connection (XHR, SSE, WebSocket) waits for the upstream
+/// to come back before we give up on it. A `launchctl kickstart -k` of the external
+/// server is down for ~2s; holding the connection open across that gap means the
+/// running app never sees the outage at all.
+const UPSTREAM_GRACE: std::time::Duration = std::time::Duration::from_secs(15);
+/// Same, for a DOCUMENT navigation. Much shorter: we have something better than
+/// waiting — the reconnect page, which paints immediately and reloads itself.
+const UPSTREAM_GRACE_DOC: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// Read an HTTP request head (everything up to the blank line) off `s`, with a cap
+/// and a timeout. Returns the bytes actually read — they MUST be replayed to the
+/// upstream once we connect, since they're already out of the socket. An empty
+/// return means the peer opened a connection and said nothing yet (speculative
+/// preconnect): we then pipe blind, exactly like before.
+async fn read_request_head(s: &mut tokio::net::TcpStream) -> Vec<u8> {
+    use tokio::io::AsyncReadExt;
+    let mut head = Vec::with_capacity(1024);
+    let mut buf = [0u8; 1024];
+    let deadline = std::time::Duration::from_millis(2000);
+    let fut = async {
+        loop {
+            match s.read(&mut buf).await {
+                Ok(0) => break,
+                Ok(n) => {
+                    head.extend_from_slice(&buf[..n]);
+                    if head.windows(4).any(|w| w == b"\r\n\r\n") || head.len() >= 16 * 1024 {
+                        break;
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+    };
+    let _ = tokio::time::timeout(deadline, fut).await;
+    head
+}
+
+/// Is this request head a WebSocket upgrade? Those must never be answered with an
+/// HTML body — the client would just log a handshake error. We let them fail.
+fn is_websocket_head(head: &[u8]) -> bool {
+    let s = String::from_utf8_lossy(head).to_ascii_lowercase();
+    s.contains("upgrade: websocket")
+}
+
+/// Is this request head a top-level DOCUMENT navigation? That's the one case where
+/// a dead upstream turns into "the window is empty": a transparent, titlebar-less
+/// window whose webview has nothing to paint is INVISIBLE, not white. Detected from
+/// `Sec-Fetch-Dest: document` (WebKit always sends it) with an `Accept: text/html`
+/// fallback for anything that doesn't.
+fn is_document_head(head: &[u8]) -> bool {
+    let s = String::from_utf8_lossy(head).to_ascii_lowercase();
+    if is_websocket_head(head) {
+        return false;
+    }
+    if s.contains("sec-fetch-dest: document") {
+        return true;
+    }
+    s.lines()
+        .find(|l| l.starts_with("accept:"))
+        .is_some_and(|l| l.contains("text/html"))
+}
+
+/// The page the shell serves INSTEAD of a dead navigation. Two jobs, both of which
+/// the "nothing" we served before could not do: it PAINTS (opaque background, so
+/// the transparent window stops being invisible and the user sees a state instead
+/// of a ghost), and it RELOADS ITSELF every second — so the moment the server is
+/// back the real app returns with no human in the loop. `no-store` keeps WebKit
+/// from ever caching this in place of the app.
+fn reconnect_page_response() -> Vec<u8> {
+    let body = "<!doctype html><html><head><meta charset=\"utf-8\">\
+<title>Topics</title>\
+<style>html,body{height:100%;margin:0;background:#1c1c1e;color:#98989d;\
+font:13px/1.5 -apple-system,system-ui,sans-serif;\
+display:flex;align-items:center;justify-content:center;-webkit-user-select:none}\
+.d{width:6px;height:6px;border-radius:50%;background:#98989d;margin-right:8px;\
+animation:p 1.2s ease-in-out infinite}\
+@keyframes p{0%,100%{opacity:.25}50%{opacity:1}}</style></head>\
+<body><div class=\"d\"></div>In attesa del server\u{2026}\
+<script>setTimeout(function(){location.reload()},1000)</script></body></html>";
+    format!(
+        "HTTP/1.1 503 Service Unavailable\r\n\
+Content-Type: text/html; charset=utf-8\r\n\
+Content-Length: {}\r\n\
+Cache-Control: no-store\r\n\
+Connection: close\r\n\r\n{}",
+        body.len(),
+        body
+    )
+    .into_bytes()
+}
+
+/// Connect to the upstream, RETRYING until `grace` runs out. The old code gave up on
+/// the first `ECONNREFUSED`, which is exactly what a server restart looks like for
+/// the second or two it takes to rebind — one unlucky reload in that window left the
+/// window permanently empty.
+async fn connect_upstream_retrying(
+    port: u16,
+    grace: std::time::Duration,
+) -> Option<tokio::net::TcpStream> {
+    let deadline = std::time::Instant::now() + grace;
+    loop {
+        match tokio::net::TcpStream::connect(("127.0.0.1", port)).await {
+            Ok(s) => return Some(s),
+            Err(_) if std::time::Instant::now() < deadline => {
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            }
+            Err(_) => return None,
+        }
+    }
+}
+
 /// Loopback origination proxy: accept plain TCP on 127.0.0.1:PROXY_PORT and pipe it,
 /// byte-for-byte, to the chosen upstream. When the upstream is the external server
 /// (`tls=true`) we ADD TLS — WKWebView won't trust the server's local-CA cert but
@@ -906,8 +1017,7 @@ async fn probe_topics_server(port: u16, tls: bool) -> bool {
 /// server's CORS still matches. Reads the boot-decided `UPSTREAM` (defaults to the
 /// external TLS server if `decide_upstream` never ran, e.g. probe race).
 async fn run_tls_proxy() {
-    use tokio::io::copy_bidirectional;
-    use tokio::net::{TcpListener, TcpStream};
+    use tokio::net::TcpListener;
 
     let listener = match TcpListener::bind(("127.0.0.1", PROXY_PORT)).await {
         Ok(l) => l,
@@ -917,6 +1027,15 @@ async fn run_tls_proxy() {
         }
     };
     let up = *UPSTREAM.get().unwrap_or(&Upstream { port: DEFAULT_UPSTREAM_PORT, tls: true });
+    proxy_loop(listener, up).await
+}
+
+/// The accept loop, split out from `run_tls_proxy` so the outage behaviour (hold →
+/// reconnect page → self-recovery) can be driven end-to-end in a test against a real
+/// browser, on an ephemeral port, without touching :13333 or a live server.
+async fn proxy_loop(listener: tokio::net::TcpListener, up: Upstream) {
+    use tokio::io::copy_bidirectional;
+
     let tls = match native_tls::TlsConnector::builder()
         // The server presents a local-CA cert for 127.0.0.1; we originate the TLS
         // ourselves to a hard-coded loopback address, so cert/hostname validation
@@ -932,7 +1051,11 @@ async fn run_tls_proxy() {
         }
     };
     println!(
-        "[proxy] loopback proxy 127.0.0.1:{PROXY_PORT} -> {}127.0.0.1:{}",
+        "[proxy] loopback proxy {} -> {}127.0.0.1:{}",
+        listener
+            .local_addr()
+            .map(|a| a.to_string())
+            .unwrap_or_default(),
         if up.tls { "https://" } else { "http://" },
         up.port
     );
@@ -944,10 +1067,24 @@ async fn run_tls_proxy() {
         };
         let tls = tls.clone();
         tauri::async_runtime::spawn(async move {
-            let upstream = match TcpStream::connect(("127.0.0.1", up.port)).await {
-                Ok(s) => s,
-                Err(e) => {
-                    eprintln!("[proxy] upstream connect failed: {e}");
+            use tokio::io::AsyncWriteExt;
+            // Read the request head FIRST so we can tell a document navigation from
+            // an XHR/WebSocket. Whatever we read is replayed to the upstream below —
+            // it's already out of the socket, `copy_bidirectional` can't see it.
+            let head = read_request_head(&mut inbound).await;
+            let doc = is_document_head(&head);
+            let grace = if doc { UPSTREAM_GRACE_DOC } else { UPSTREAM_GRACE };
+            let upstream = match connect_upstream_retrying(up.port, grace).await {
+                Some(s) => s,
+                None => {
+                    eprintln!("[proxy] upstream :{} unreachable for {:?}", up.port, grace);
+                    if doc {
+                        // Paint SOMETHING and keep retrying by itself. Without this the
+                        // transparent window has no pixels at all — "sparita" and "vuota"
+                        // are the same state, with no way back short of a relaunch.
+                        let _ = inbound.write_all(&reconnect_page_response()).await;
+                        let _ = inbound.flush().await;
+                    }
                     return;
                 }
             };
@@ -959,9 +1096,15 @@ async fn run_tls_proxy() {
                         return;
                     }
                 };
+                if !head.is_empty() && tls_stream.write_all(&head).await.is_err() {
+                    return;
+                }
                 let _ = copy_bidirectional(&mut inbound, &mut tls_stream).await;
             } else {
                 let mut plain = upstream;
+                if !head.is_empty() && plain.write_all(&head).await.is_err() {
+                    return;
+                }
                 let _ = copy_bidirectional(&mut inbound, &mut plain).await;
             }
         });
@@ -1046,6 +1189,43 @@ fn bundled_pty_bridge_bin() -> Option<std::path::PathBuf> {
     Some(bin)
 }
 
+/// Resolve the bundled **Rust WebRTC bridge** sidecar (`binaries/webrtc-bridge-<triple>`
+/// → bundled beside the app binary in `Contents/MacOS/webrtc-bridge`). It streams a
+/// server-side headless-Chromium pane as one shared H.264 WebRTC track to N viewers —
+/// the transport the browser pane's `<video>` renders (see server/webrtc-bridge.ts +
+/// client/src/hooks/useRemoteBrowser.ts). The compiled Bun server can't hold an
+/// openh264 encoder / webrtc-rs stack in-process, so it spawns this binary.
+///
+/// Same shape as `bundled_pty_bridge_bin`: `Some` only when the binary exists (Windows
+/// ships a no-op stub, so we don't advertise one there → the server keeps
+/// `available() == false` and the pane falls back to DOM rendering instead of hanging
+/// on a negotiation nobody answers). On unix the packaged binary can lose its exec bit,
+/// so we re-assert it.
+fn bundled_webrtc_bridge_bin() -> Option<std::path::PathBuf> {
+    // Windows ships only a no-op stub (the wire protocol is a Unix socket).
+    if cfg!(windows) {
+        return None;
+    }
+    let exe = std::env::current_exe().ok()?;
+    let dir = exe.parent()?;
+    let bin = dir.join("webrtc-bridge");
+    if !bin.exists() {
+        return None;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(meta) = std::fs::metadata(&bin) {
+            let mut perm = meta.permissions();
+            if perm.mode() & 0o111 == 0 {
+                perm.set_mode(perm.mode() | 0o755);
+                let _ = std::fs::set_permissions(&bin, perm);
+            }
+        }
+    }
+    Some(bin)
+}
+
 /// Boot decision: if a Topics server already answers on :3333 (external launchd /
 /// dev — try TLS first, then plain), defer to it. Otherwise spawn the bundled
 /// sidecar on a free plain-HTTP port with an isolated data dir, wait until it's
@@ -1091,6 +1271,10 @@ async fn decide_upstream_and_spawn(app: tauri::AppHandle) {
     // shell/claude-code tabs work on a virgin install. Absent (Windows stub / older
     // bundle / dev build without the sidecar) → None, keeping today's kill-switch.
     let bridge_bin = bundled_pty_bridge_bin();
+    // Same story for the WebRTC bridge: present → the browser pane's shared-session
+    // <video> transport works on a virgin install; absent → server/webrtc-bridge.ts
+    // reports available()==false and the pane uses the DOM fallback.
+    let webrtc_bin = bundled_webrtc_bridge_bin();
     let cmd = match app.shell().sidecar("topics-server") {
         Ok(c) => {
             let mut c = c
@@ -1135,6 +1319,19 @@ async fn decide_upstream_and_spawn(app: tauri::AppHandle) {
                 // run one itself, so terminals answer 503.
                 None => {
                     c = c.env("TOPICS_DISABLE_PTY_BRIDGE", "1");
+                }
+            }
+            match &webrtc_bin {
+                // Bundled WebRTC bridge present: hand the server the binary to spawn
+                // lazily on the first SDP offer (resolveBin() in webrtc-bridge.ts).
+                Some(bin) => {
+                    c = c.env("TOPICS_WEBRTC_BRIDGE_BIN", bin.to_string_lossy().to_string());
+                }
+                // No bundled bridge (Windows stub / older bundle): say so explicitly
+                // rather than letting the server probe a dev-checkout path that only
+                // exists on a developer's machine.
+                None => {
+                    c = c.env("TOPICS_DISABLE_WEBRTC_BRIDGE", "1");
                 }
             }
             c
@@ -1208,12 +1405,99 @@ async fn decide_upstream_and_spawn(app: tauri::AppHandle) {
         // Nudge the webview to reload now that the upstream is live, so a client
         // that connected during the cold start (and cached a failed fetch) re-fetches.
         if healthy {
-            use tauri::Manager;
-            if let Some(w) = app_health.get_webview_window("main") {
-                let _ = w.eval("window.location.reload()");
-            }
+            let h = app_health.clone();
+            let _ = app_health.run_on_main_thread(move || {
+                eval_in_main_webview(&h, COLD_START_RELOAD_JS);
+            });
         }
     });
+}
+
+/// L'UNICO reload SILENZIOSO e INCONDIZIONATO della app: parte senza che nessuno
+/// abbia premuto niente, non lascia segno, e ricarica quello che c'è sullo schermo
+/// qualunque cosa sia. Ha una sola licenza, ed è la finestra in cui viene sparato:
+/// il cold start. L'upstream è appena salito, il client si è collegato mentre il
+/// server ancora non rispondeva e ha in cache una fetch fallita — non c'è nessuna
+/// sessione viva da buttare via e nessun «hai premuto» da confermare.
+///
+/// Fuori da quella finestra un reload muto è un difetto, non una feature: lo
+/// schermo sbatte, il lavoro sparisce e l'utente conclude «è crashato». Gli altri
+/// tre reload del guscio sono di categorie diverse e restano legittimi:
+/// `RELOAD_WITH_FLASH_JS` è ANNUNCIATO (⌘R lascia il toast), `RELOAD_IF_BLANK_JS` e
+/// la pagina di `reconnect_page_response` sono AUTO-LIMITATI (ricaricano solo un
+/// documento che non ha niente da perdere). Un secondo membro di QUESTA categoria
+/// non si aggiunge: `reloadFlash.test.ts` conta i siti di reload uno per uno e
+/// diventa rosso — se ti serve davvero, cambia la guardia spiegando perché, non il
+/// numero.
+const COLD_START_RELOAD_JS: &str = "window.location.reload()";
+
+/// JS that reloads the main document ONLY IF it has nothing on screen. Sent by the
+/// upstream watchdog after the server comes back: a live app (mounted `#root`) is
+/// left alone — it reconnects its own WebSocket and a forced reload would throw away
+/// a working session — while an empty document (WebKit error page, our reconnect
+/// page, a webview that lost its content) is put back on its feet. Wrapped in
+/// try/catch that reloads on failure: if we can't even inspect the DOM, the document
+/// is not in a state worth preserving.
+const RELOAD_IF_BLANK_JS: &str = "(function(){try{\
+var r=document.getElementById('root');\
+if(r&&r.childElementCount>0)return;\
+location.reload()}catch(e){location.reload()}})()";
+
+/// Run `js` in the MAIN webview. Not `get_webview_window` — once native browser panes
+/// are mounted the main window is multi-webview and that lookup returns None (see the
+/// `TlWindow` note), which is precisely the state a recovery path must survive.
+/// Falls back to the webview-window lookup for the single-webview case.
+fn eval_in_main_webview(app: &tauri::AppHandle, js: &str) -> bool {
+    use tauri::Manager;
+    if let Some(wv) = app.get_webview("main") {
+        return wv.eval(js).is_ok();
+    }
+    if let Some(w) = app.get_webview_window("main") {
+        return w.eval(js).is_ok();
+    }
+    false
+}
+
+/// Watch the upstream forever and put the window back when the server returns.
+///
+/// This is THE recovery path, and it runs in BOTH boot branches — the old
+/// `window.location.reload()` lived inside the sidecar branch only, so on a machine
+/// with an external launchd server on :3333 (the reported case) production had no
+/// recovery at all: the shell `return`ed before ever reaching it.
+///
+/// Edge-triggered on down→up: we only nudge after having actually SEEN the server
+/// down, so a healthy machine never gets a spurious reload. The nudge itself is
+/// conservative (see `RELOAD_IF_BLANK_JS`).
+async fn watch_upstream(app: tauri::AppHandle) {
+    let up = *UPSTREAM
+        .get()
+        .unwrap_or(&Upstream { port: DEFAULT_UPSTREAM_PORT, tls: true });
+    let mut was_down = false;
+    loop {
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        let alive = probe_topics_server(up.port, up.tls).await;
+        if !alive {
+            if !was_down {
+                eprintln!("[watchdog] upstream :{} is DOWN", up.port);
+            }
+            was_down = true;
+            continue;
+        }
+        if was_down {
+            eprintln!("[watchdog] upstream :{} is back — nudging the webview", up.port);
+            was_down = false;
+            // Give the server a beat to finish binding its routes before the reload
+            // fires, so the nudged navigation doesn't race the very restart it's
+            // recovering from.
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            let app2 = app.clone();
+            let _ = app.run_on_main_thread(move || {
+                if !eval_in_main_webview(&app2, RELOAD_IF_BLANK_JS) {
+                    eprintln!("[watchdog] no main webview to nudge");
+                }
+            });
+        }
+    }
 }
 
 /// Kill the sidecar if we spawned one. Called on app exit so no orphan server
@@ -3157,6 +3441,151 @@ fn unwire_live_resize_cover(wkey: usize) {
     }
 }
 
+// ─────────────── Recompose on display change / wake (Electron parity) ───────────────
+//
+// The Electron shell had `recomposeWindow`, hung off `display-metrics-changed` and
+// `powerMonitor`: re-anchor the window onto a screen that still exists, then bounce
+// its bounds by 1px to force AppKit/WebKit to recompose. Only the "re-anchor" half
+// survived the Tauri port (PORTING-PLAN T1.3), so a display swap or a sleep/wake
+// could leave a window that the system reports as perfectly healthy — right position,
+// right size, not minimised — with nothing painted in it. On a `transparent: true`
+// window with no titlebar that reads as GONE, not as blank.
+
+/// The app handle, stashed at setup so AppKit notification callbacks (which get no
+/// user data) can reach the window. `OnceLock` because setup runs once.
+static SHELL_APP: std::sync::OnceLock<tauri::AppHandle> = std::sync::OnceLock::new();
+
+/// Does `rect` (logical points, top-left origin) overlap ANY currently-attached
+/// monitor? Pure geometry so it can be unit-tested without a screen: `monitors` is
+/// the list of monitor rects in the same space. A window that overlaps nothing is
+/// stranded on a display that no longer exists — the classic "the app is running but
+/// I can't see it" after unplugging the ultrawide.
+fn rect_intersects_any(rect: (f64, f64, f64, f64), monitors: &[(f64, f64, f64, f64)]) -> bool {
+    let (x, y, w, h) = rect;
+    monitors.iter().any(|&(mx, my, mw, mh)| {
+        x < mx + mw && mx < x + w && y < my + mh && my < y + h
+    })
+}
+
+/// Re-anchor + bounce the main window so the compositor is forced to produce a frame.
+///
+/// Re-anchor: if the saved geometry now sits entirely off every attached screen, pull
+/// the window back onto the primary one. We do NOT touch a window that is still on a
+/// screen — `-797,-1410` is where Attilio KEEPS this window on his ultrawide, and
+/// "fixing" a position the user chose is the bug, not the cure.
+///
+/// Bounce: grow the outer size by 1px and put it back a beat later. That is the half
+/// that was missing, and it's the half that actually repaints.
+fn recompose_main_window(app: &tauri::AppHandle, why: &str) {
+    use tauri::Manager;
+    let Some(win) = app.get_window("main") else { return };
+    if !win.is_visible().unwrap_or(true) || win.is_minimized().unwrap_or(false) {
+        return; // hidden to tray / minimised: nothing to recompose, and a bounce
+                // would be a visible glitch when it comes back.
+    }
+    // Read the geometry off the plain `Window` (not `window_logical_geometry`, which
+    // takes a WebviewWindow — a lookup that returns None once browser panes are up).
+    let Ok(sf) = win.scale_factor() else { return };
+    let Ok(pos) = win.outer_position() else { return };
+    let Ok(size) = win.outer_size() else { return };
+    let pos = pos.to_logical::<f64>(sf);
+    let size = size.to_logical::<f64>(sf);
+    let (x, y, w, h) = (pos.x, pos.y, size.width, size.height);
+    if w <= 0.0 || h <= 0.0 {
+        return;
+    }
+    let monitors: Vec<(f64, f64, f64, f64)> = win
+        .available_monitors()
+        .unwrap_or_default()
+        .iter()
+        .map(|m| {
+            let sf = m.scale_factor();
+            let p = m.position().to_logical::<f64>(sf);
+            let s = m.size().to_logical::<f64>(sf);
+            (p.x, p.y, s.width, s.height)
+        })
+        .collect();
+    if !monitors.is_empty() && !rect_intersects_any((x, y, w, h), &monitors) {
+        let (mx, my, _, _) = monitors[0];
+        eprintln!("[recompose] {why}: window off every screen — re-anchoring to {mx},{my}");
+        let _ = win.set_position(tauri::LogicalPosition::new(mx + 30.0, my + 80.0));
+    }
+    eprintln!("[recompose] {why}: bouncing bounds to force a redraw");
+    let _ = win.set_size(tauri::LogicalSize::new(w + 1.0, h));
+    let app2 = app.clone();
+    let (bw, bh) = (w, h);
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(120));
+        let app3 = app2.clone();
+        let _ = app2.run_on_main_thread(move || {
+            use tauri::Manager;
+            if let Some(w2) = app3.get_window("main") {
+                let _ = w2.set_size(tauri::LogicalSize::new(bw, bh));
+            }
+            // A window that came back from a dead display can also have lost its
+            // document; same conservative nudge the watchdog uses.
+            eval_in_main_webview(&app3, RELOAD_IF_BLANK_JS);
+        });
+    });
+}
+
+/// `NSApplicationDidChangeScreenParameters` / `NSWorkspaceDidWake` callback.
+#[cfg(target_os = "macos")]
+extern "C" fn on_recompose_event(
+    _this: &objc2::runtime::AnyObject,
+    _sel: objc2::runtime::Sel,
+    _notif: *mut objc2::runtime::AnyObject,
+) {
+    if let Some(app) = SHELL_APP.get() {
+        recompose_main_window(app, "display/wake");
+    }
+}
+
+/// Register the display-change and wake observers. Called ONCE from setup — the
+/// grep that found "zero listeners for display change, sleep or wake" was pointing
+/// at the absence of exactly this function.
+#[cfg(target_os = "macos")]
+fn wire_recompose_observers() {
+    use crate::mac::*;
+    use objc2::runtime::ClassBuilder;
+    #[link(name = "AppKit", kind = "framework")]
+    extern "C" {
+        static NSApplicationDidChangeScreenParametersNotification: id;
+        static NSWorkspaceDidWakeNotification: id;
+    }
+    static PTR: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    let class_ptr = *PTR.get_or_init(|| {
+        let mut decl = ClassBuilder::new(c"TopicsRecomposeObserver", class!(NSObject))
+            .expect("register TopicsRecomposeObserver");
+        unsafe {
+            decl.add_method(
+                sel!(onRecompose:),
+                on_recompose_event as extern "C" fn(_, _, _),
+            );
+        }
+        decl.register() as *const Class as usize
+    });
+    unsafe {
+        let cls = class_ptr as *const Class;
+        let obs: id = msg_send![cls, new];
+        // Screen parameters live on the DEFAULT centre; sleep/wake lives on
+        // NSWorkspace's OWN centre — registering wake on the default one is the
+        // classic silent no-op.
+        let nc: id = msg_send![class!(NSNotificationCenter), defaultCenter];
+        let _: () = msg_send![nc, addObserver: obs,
+                                   selector: sel!(onRecompose:),
+                                   name: NSApplicationDidChangeScreenParametersNotification,
+                                   object: nil];
+        let ws: id = msg_send![class!(NSWorkspace), sharedWorkspace];
+        let wnc: id = msg_send![ws, notificationCenter];
+        let _: () = msg_send![wnc, addObserver: obs,
+                                    selector: sel!(onRecompose:),
+                                    name: NSWorkspaceDidWakeNotification,
+                                    object: nil];
+    }
+    eprintln!("[recompose] observers wired (screen params + wake)");
+}
+
 // ───────────────────────── Native browser pane ─────────────────────────
 //
 // Electron parity: each browser pane is a real native child webview (own
@@ -3169,10 +3598,76 @@ fn unwire_live_resize_cover(wkey: usize) {
 // command when a popover overlaps it (the Electron shell hides the view the same
 // way during resize / when chrome covers it).
 
+/// Prefisso di ogni etichetta di pane browser. Distintivo apposta: non deve
+/// collidere con la webview della UI ("main") né con nessuna etichetta di
+/// finestra presente o futura.
+const BROWSER_LABEL_PREFIX: &str = "browserpane-";
+
+/// Pane la cui etichetta è BRUCIATA: id → generazione (assente = 0).
+///
+/// Una WKWebView il cui dispatcher ha il mutex avvelenato non si può più
+/// chiudere — `Webview::close()` passa dallo stesso `window_id.lock().unwrap()`
+/// di tutto il resto e panica. La vista resta quindi REGISTRATA nel manager di
+/// tauri, e `browser_open` sullo stesso id ci ricadeva sopra col suo ramo di
+/// riuso: «Ricrea la scheda» riconsegnava la stessa vista morta, cioè non
+/// ricreava niente proprio nel caso per cui il pulsante esiste.
+///
+/// L'etichetta è l'unica cosa che si può cambiare: bruciata quella, la pane
+/// conserva il suo id (che è come la chiamano il client, gli agenti e ogni
+/// cache) e la prossima apertura nasce sotto un'etichetta nuova, quindi come
+/// webview NUOVA. La vecchia resta appesa al manager finché la finestra non
+/// muore: è già irrecuperabile, e non poterla nemmeno spostare è la ragione per
+/// cui non la si può salvare, non un effetto di questa scelta.
+static BURNED_PANE_LABELS: std::sync::OnceLock<
+    std::sync::Mutex<std::collections::HashMap<String, u32>>,
+> = std::sync::OnceLock::new();
+fn burned_pane_labels() -> &'static std::sync::Mutex<std::collections::HashMap<String, u32>> {
+    BURNED_PANE_LABELS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+/// Generazione corrente dell'etichetta di una pane. 0 = mai bruciata.
+fn pane_label_generation(id: &str) -> u32 {
+    let m = burned_pane_labels().lock().unwrap_or_else(|e| e.into_inner());
+    m.get(id).copied().unwrap_or(0)
+}
+
+/// Brucia l'etichetta corrente di una pane e restituisce la generazione nuova.
+/// Da qui in poi `browser_label(id)` indica un'etichetta LIBERA, quindi
+/// `browser_open` crea invece di riusare.
+fn burn_pane_label(id: &str) -> u32 {
+    let mut m = burned_pane_labels().lock().unwrap_or_else(|e| e.into_inner());
+    let next = m.get(id).copied().unwrap_or(0).saturating_add(1);
+    m.insert(id.to_string(), next);
+    next
+}
+
 /// Per-pane webview label. Keep the prefix distinctive so it never collides with
 /// the main UI webview ("main") or any future window label.
+///
+/// La generazione va in TESTA all'id e dentro il prefisso (`browserpane-~2~<id>`)
+/// per due motivi: `browser_list` filtra per prefisso, che così continua a
+/// vedere anche le pane rigenerate; e `~` non compare negli id (uuid/contextId),
+/// quindi l'inverso `pane_id_from_label` resta senza ambiguità.
 fn browser_label(id: &str) -> String {
-    format!("browserpane-{id}")
+    match pane_label_generation(id) {
+        0 => format!("{BROWSER_LABEL_PREFIX}{id}"),
+        gen => format!("{BROWSER_LABEL_PREFIX}~{gen}~{id}"),
+    }
+}
+
+/// Inverso di `browser_label`: dall'etichetta all'id della pane. `None` se
+/// l'etichetta non è di una pane browser.
+fn pane_id_from_label(label: &str) -> Option<&str> {
+    let rest = label.strip_prefix(BROWSER_LABEL_PREFIX)?;
+    let Some(after) = rest.strip_prefix('~') else {
+        return Some(rest);
+    };
+    // `~<gen>~<id>` — se il secondo `~` manca, l'etichetta non è nostra da
+    // interpretare: meglio restituire il resto così com'è che inventare un id.
+    match after.split_once('~') {
+        Some((gen, id)) if !gen.is_empty() && gen.chars().all(|c| c.is_ascii_digit()) => Some(id),
+        _ => Some(rest),
+    }
 }
 
 // ── Downloads ────────────────────────────────────────────────────────────────
@@ -4235,12 +4730,18 @@ fn browser_animate_bounds(
 fn browser_list(app: tauri::AppHandle) -> Result<Vec<String>, String> {
     no_abort("browser_list", move || {
         use tauri::Manager;
-        let prefix = browser_label("");
-        Ok(app
+        // Deduplicato: una pane la cui etichetta è stata BRUCIATA (vedi
+        // `burn_pane_label`) lascia dietro di sé una webview morta registrata
+        // sotto la generazione vecchia, e quella e la nuova risalgono allo
+        // stesso id. Elencarlo due volte direbbe «due pane» dove ce n'è una.
+        let mut ids: Vec<String> = app
             .webviews()
             .keys()
-            .filter_map(|label| label.strip_prefix(prefix.as_str()).map(str::to_string))
-            .collect())
+            .filter_map(|label| pane_id_from_label(label).map(str::to_string))
+            .collect();
+        ids.sort();
+        ids.dedup();
+        Ok(ids)
     })
 }
 
@@ -4250,9 +4751,24 @@ fn browser_close(app: tauri::AppHandle, id: String) -> Result<(), String> {
     no_abort("browser_close", move || browser_close_inner(app, id))
 }
 
+/// Chiude la vista di una pane e dice la VERITÀ su com'è andata.
+///
+/// Ogni passo che tocca il dispatcher di wry ha il suo `no_abort`, non uno
+/// solo attorno a tutto: col mutex avvelenato panicava già `navigate()` — la
+/// prima riga — e il `?` che seguiva portava fuori dalla funzione prima della
+/// chiusura E prima della pulizia delle cache. Isolati, un passo morto non si
+/// porta via i successivi.
+///
+/// L'esito è `Err` quando l'etichetta è ancora registrata alla fine, cioè
+/// quando la vista NON è morta: `Webview::close()` toglie l'etichetta dal
+/// manager in modo sincrono (è la distruzione dell'NSView a essere asincrona),
+/// quindi trovarla ancora lì significa che la chiusura non è mai atterrata. In
+/// quel caso l'etichetta si brucia, così la prossima `browser_open` sullo stesso
+/// id crea una vista nuova invece di riusare quella morta.
 fn browser_close_inner(app: tauri::AppHandle, id: String) -> Result<(), String> {
     use tauri::Manager;
-    if let Some(wv) = app.get_webview(&browser_label(&id)) {
+    let label = browser_label(&id);
+    if let Some(wv) = app.get_webview(&label) {
         // SVUOTA PRIMA DI CHIUDERE. `close()` non libera il processo WebContent:
         // wry non dealloca mai la WKWebView — `impl Drop for InnerWebView`
         // (wry 0.55.1, `src/wkwebview/mod.rs:1413`) chiama `self.webview.retain()`
@@ -4272,12 +4788,14 @@ fn browser_close_inner(app: tauri::AppHandle, id: String) -> Result<(), String> 
         // termine un caricamento anche su una view staccata dalla sua superview
         // (e' la stessa proprieta' su cui contavano le pane nascoste).
         if let Ok(blank) = "about:blank".parse::<tauri::Url>() {
-            let _ = wv.navigate(blank);
+            let _ = no_abort("browser_close/navigate", || {
+                wv.navigate(blank).map_err(|e| e.to_string())
+            });
         }
         // La pane non esiste più: l'appunto sulla sua URL nemmeno, o una pane
         // nuova con lo stesso id erediterebbe la posizione della vecchia.
-        forget_pane_url(&browser_label(&id));
-        wv.close().map_err(|e| e.to_string())?;
+        forget_pane_url(&label);
+        let _ = no_abort("browser_close/close", || wv.close().map_err(|e| e.to_string()));
     }
     // Drop the cache entries so a re-opened pane on the same id re-applies move + mask.
     if let Ok(mut g) = browser_bounds_cache().lock() {
@@ -4301,7 +4819,24 @@ fn browser_close_inner(app: tauri::AppHandle, id: String) -> Result<(), String> 
     if let Ok(mut v) = DOWNLOAD_EVENTS.lock() {
         v.retain(|e| e.pane_id != id);
     }
-    Ok(())
+    // La vista è ancora registrata? Allora non è morta.
+    close_verdict(&id, app.get_webview(&label).is_some())
+}
+
+/// Il verdetto della chiusura, separato dal guscio per poterlo provare.
+///
+/// `still_registered` è `app.get_webview(&browser_label(id)).is_some()` dopo il
+/// tentativo. Vero = la vista è sopravvissuta: si brucia la sua etichetta (così
+/// il ramo di riuso di `browser_open` non la ritrova più) e si dichiara il
+/// fallimento, invece di mentire con un `Ok` che manda il client a riaprire
+/// sopra un morto.
+fn close_verdict(id: &str, still_registered: bool) -> Result<(), String> {
+    if !still_registered {
+        return Ok(());
+    }
+    let gen = burn_pane_label(id);
+    eprintln!("[browser_close] {id}: la vista ha rifiutato di chiudersi, etichetta bruciata (gen {gen})");
+    Err(format!("browser_close: pane {id} refused to close"))
 }
 
 /// Purge a browser pane's PERSISTENT on-disk `WKWebsiteDataStore` — the cookie/
@@ -5993,11 +6528,19 @@ fn install_shortcut_forwarder(app: &tauri::AppHandle) {
             // terminal eats the menu accelerator's key-equivalent, so ⌘R never
             // reloaded unless the main chrome itself held focus ("premo reload e
             // non succede nulla"). The NSEvent monitor sees the key first — so we
-            // handle it HERE, BEFORE the inside-UI gate below, and reload the
-            // event window's own UI webview directly, then swallow the original
-            // so neither the pane nor the terminal also acts on it. `location.
-            // reload()` re-fetches index.html + bundle = the app reload the user
-            // expects. (Only ⌘R without Ctrl — leaves ⌃R and page shortcuts alone.)
+            // handle it HERE, BEFORE the inside-UI gate below, riparte TUTTA la
+            // app (`reload_all_ui_windows`, la stessa logica di `app_reload_all`),
+            // poi ingoia l'originale così né la pane né il terminale agiscono
+            // anche loro. `location.reload()` re-fetches index.html + bundle = the
+            // app reload the user expects. (Only ⌘R without Ctrl — leaves ⌃R and
+            // page shortcuts alone.)
+            //
+            // TUTTE le finestre, non solo quella dell'evento: siccome qui si
+            // ingoia il keydown, `useKeyboardShortcuts` — che chiamava
+            // `reloadAllWindows` — non vede mai ⌘R, quindi questo ramo È il ⌘R
+            // del desktop. Ricaricarne una sola lasciava i gruppi staccati sul
+            // bundle vecchio, due versioni dello stesso client sullo stesso
+            // pane-store.
             //
             // E senza Shift: ⌘⇧R è "Record voice" (lo dicono il tooltip del
             // microfono e il pannello delle scorciatoie). Togliere l'acceleratore
@@ -6013,21 +6556,10 @@ fn install_shortcut_forwarder(app: &tauri::AppHandle) {
                 let chars_r_id: id = msg_send![event, charactersIgnoringModifiers];
                 let chars_r = ns_string_to_rust(chars_r_id).to_lowercase();
                 if cmd_r && !ctrl_r && !shift_r && chars_r == "r" {
-                    let mut done = false;
-                    for (label, w) in app.webview_windows() {
-                        if w.ns_window().map(|p| p as usize).ok() == Some(ev_window_ptr) {
-                            if let Some(wv) = app.get_webview(&label) {
-                                let _ = wv.eval(RELOAD_WITH_FLASH_JS);
-                                done = true;
-                            }
-                            break;
-                        }
-                    }
-                    if !done {
-                        if let Some(mw) = app.get_webview("main") {
-                            let _ = mw.eval(RELOAD_WITH_FLASH_JS);
-                        }
-                    }
+                    // no_abort: si sta girando dentro un blocco NSEvent, dove un
+                    // panic non ha nessuno che lo raccolga — sarebbe un abort
+                    // dell'intera app su una pressione di ⌘R.
+                    let _ = no_abort("cmd_r_reload_all", || Ok(reload_all_ui_windows(&app)));
                     return nil; // swallow — the pane/terminal must not also see ⌘R
                 }
             }
@@ -6645,20 +7177,31 @@ const RELOAD_WITH_FLASH_JS: &str =
 /// altre ferme sono due versioni dello stesso client che si parlano — e chi
 /// preme ⌘R non sta chiedendo "ricarica questa", sta chiedendo "riparti".
 /// Le pane native dei browser non si toccano: si ricarica il documento UI.
+///
+/// QUESTA è l'unica implementazione del gesto «riparti», e ci passano tutte e
+/// tre le porte: il monitor NSEvent che intercetta ⌘R su macOS, la voce Reload /
+/// Force Reload del menu, e il comando `app_reload_all` chiamato dal renderer.
+/// Prima erano tre: il monitor ingoia l'evento (`return nil`), quindi
+/// `useKeyboardShortcuts` non vedeva mai ⌘R e il ramo "ricarica tutto" era di
+/// fatto morto sul desktop — il nativo ricaricava la sola finestra dell'evento e
+/// i gruppi staccati restavano sul bundle vecchio. Una semantica sola, in un
+/// posto solo: se cambia, cambia per tutti e tre i gesti.
+fn reload_all_ui_windows(app: &tauri::AppHandle) -> usize {
+    use tauri::Manager;
+    let mut n = 0usize;
+    for (label, win) in app.webview_windows() {
+        // Le pane native del browser sono webview a sé: si saltano, o si
+        // ricaricherebbe la pagina che l'utente sta guardando.
+        if label.starts_with("browserpane-") { continue; }
+        if win.eval(RELOAD_WITH_FLASH_JS).is_ok() { n += 1; }
+    }
+    n
+}
+
+/// Il gesto «riparti» esposto al renderer. Vedi `reload_all_ui_windows`.
 #[tauri::command]
 fn app_reload_all(app: tauri::AppHandle) -> usize {
-    use tauri::Manager;
-    no_abort("app_reload_all", || {
-        let mut n = 0usize;
-        for (label, win) in app.webview_windows() {
-            // Le pane native del browser sono webview a sé: si saltano, o si
-            // ricaricherebbe la pagina che l'utente sta guardando.
-            if label.starts_with("browserpane-") { continue; }
-            if win.eval(RELOAD_WITH_FLASH_JS).is_ok() { n += 1; }
-        }
-        Ok(n)
-    })
-    .unwrap_or(0)
+    no_abort("app_reload_all", || Ok(reload_all_ui_windows(&app))).unwrap_or(0)
 }
 
 /// Chiude la finestra `label` (una finestra-gruppo, di solito): è il "riporta
@@ -7443,22 +7986,14 @@ pub fn run() {
             use tauri::Manager;
             match event.id().0.as_str() {
                 "reload" | "force-reload" => {
-                    // Ricarica la finestra FOCUSSATA, non sempre "main": con le
-                    // finestre progetto aperte il vecchio target fisso lasciava
-                    // quelle col bundle stantìo per sempre ("Cmd+R non va").
-                    // Stesso pattern di reset-split-layout qui sotto.
-                    let label = app
-                        .get_focused_window()
-                        .map(|w| w.label().to_string())
-                        .unwrap_or_else(|| "main".to_string());
-                    if let Some(win) = app
-                        .get_webview_window(&label)
-                        .or_else(|| app.get_webview_window("main"))
-                    {
-                        // Stesso segno del ⌘R nativo: il menu e la scorciatoia
-                        // sono lo stesso gesto, devono dare la stessa risposta.
-                        let _ = win.eval(RELOAD_WITH_FLASH_JS);
-                    }
+                    // Il menu e la scorciatoia sono lo stesso gesto, quindi
+                    // chiamano la stessa funzione: riparte TUTTA la app, non la
+                    // sola finestra focussata. Il bundle è uno; ricaricarne una
+                    // lasciava le altre (gruppi staccati, finestre progetto) su
+                    // quello vecchio, a parlarsi sullo stesso pane-store.
+                    // Non serve più risolvere la finestra focussata: le prende
+                    // tutte, quella inclusa.
+                    let _ = no_abort("menu_reload_all", || Ok(reload_all_ui_windows(app)));
                 }
                 "app-quit" => {
                     QUITTING.store(true, Ordering::Relaxed);
@@ -7955,10 +8490,20 @@ pub fn run() {
             // sets `UPSTREAM` then RETURNS (its up-to-20s sidecar health wait is now
             // fire-and-forget), so run_tls_proxy binds :13333 immediately — the virgin
             // machine no longer sits on "connecting" for the whole cold start.
+            // Reachable from AppKit notification callbacks, which carry no user data.
+            let _ = SHELL_APP.set(app.handle().clone());
+            // Display change / wake → re-anchor + bounce (PORTING-PLAN T1.3).
+            #[cfg(target_os = "macos")]
+            wire_recompose_observers();
+
             {
                 let app_for_boot = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
-                    decide_upstream_and_spawn(app_for_boot).await;
+                    decide_upstream_and_spawn(app_for_boot.clone()).await;
+                    // The recovery path, started for BOTH upstreams (external server
+                    // and bundled sidecar) — see `watch_upstream`. Spawned before the
+                    // proxy because `run_tls_proxy` never returns.
+                    tauri::async_runtime::spawn(watch_upstream(app_for_boot));
                     run_tls_proxy().await;
                 });
             }
@@ -8763,5 +9308,342 @@ mod bundle_rev_tests {
         let out = stamp_bundle_rev("<body>x</body>", "/assets/index-Aa.js");
         assert!(out.starts_with("<meta name=\"topics-bundle-rev\""));
         assert!(out.ends_with("<body>x</body>"));
+    }
+}
+
+#[cfg(test)]
+mod window_recovery_tests {
+    use super::{
+        connect_upstream_retrying, is_document_head, is_websocket_head, rect_intersects_any,
+        reconnect_page_response, RELOAD_IF_BLANK_JS,
+    };
+    use std::time::Duration;
+
+    /// A current-thread runtime for the two socket tests (the crate's tokio has no
+    /// `macros` feature, so there is no `#[tokio::test]`).
+    fn rt() -> tokio::runtime::Runtime {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+    }
+
+    const DOC: &[u8] = b"GET / HTTP/1.1\r\nHost: 127.0.0.1:13333\r\n\
+Accept: text/html,application/xhtml+xml\r\nSec-Fetch-Dest: document\r\n\r\n";
+    const XHR: &[u8] = b"GET /api/topics HTTP/1.1\r\nHost: 127.0.0.1:13333\r\n\
+Accept: application/json\r\nSec-Fetch-Dest: empty\r\n\r\n";
+    const WS: &[u8] = b"GET /ws HTTP/1.1\r\nHost: 127.0.0.1:13333\r\n\
+Upgrade: websocket\r\nConnection: Upgrade\r\nAccept: */*\r\n\r\n";
+
+    /// Only a top-level navigation may be answered with the reconnect page: an XHR
+    /// gets HTML where it wanted JSON, and a WebSocket gets a broken handshake.
+    #[test]
+    fn only_documents_get_the_reconnect_page() {
+        assert!(is_document_head(DOC));
+        assert!(!is_document_head(XHR));
+        assert!(!is_document_head(WS));
+        assert!(is_websocket_head(WS));
+        assert!(!is_websocket_head(DOC));
+    }
+
+    /// A browser that sends no `Sec-Fetch-Dest` must still be recognised by Accept.
+    #[test]
+    fn accept_html_is_enough_without_sec_fetch_dest() {
+        let head = b"GET / HTTP/1.1\r\nHost: x\r\nAccept: text/html\r\n\r\n";
+        assert!(is_document_head(head));
+    }
+
+    /// The whole point of the page is that it PAINTS (opaque background — the window
+    /// is transparent, so "nothing" is invisible, not white) and comes back BY ITSELF.
+    #[test]
+    fn reconnect_page_paints_and_self_reloads() {
+        let r = String::from_utf8(reconnect_page_response()).unwrap();
+        assert!(r.starts_with("HTTP/1.1 503 "));
+        assert!(r.contains("Content-Type: text/html"));
+        assert!(r.contains("Cache-Control: no-store"), "must never be cached over the app");
+        assert!(r.contains("location.reload()"), "must recover with no human in the loop");
+        assert!(r.contains("background:#1c1c1e"), "must paint opaque pixels");
+        let len: usize = r
+            .split("Content-Length: ")
+            .nth(1)
+            .and_then(|s| s.split("\r\n").next())
+            .unwrap()
+            .parse()
+            .unwrap();
+        let body = r.split("\r\n\r\n").nth(1).unwrap();
+        assert_eq!(len, body.len(), "Content-Length must match the body");
+    }
+
+    /// The nudge must be a no-op on a LIVE app (a forced reload would throw away a
+    /// working session) and must fire on an empty document.
+    #[test]
+    fn blank_guard_spares_a_mounted_app() {
+        assert!(RELOAD_IF_BLANK_JS.contains("childElementCount>0)return"));
+        assert!(RELOAD_IF_BLANK_JS.contains("catch(e){location.reload()}"));
+    }
+
+    /// A server restart is ~2s of ECONNREFUSED. The old code gave up on the first
+    /// one; this must hold on and succeed when the port comes back.
+    #[test]
+    fn connect_retries_across_a_restart() {
+        rt().block_on(async {
+        let probe = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = probe.local_addr().unwrap().port();
+        drop(probe); // port now closed — exactly like a server mid-restart
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(600)).await;
+            let _l = tokio::net::TcpListener::bind(("127.0.0.1", port)).await.unwrap();
+            tokio::time::sleep(Duration::from_secs(3)).await;
+        });
+        let got = connect_upstream_retrying(port, Duration::from_secs(5)).await;
+        assert!(got.is_some(), "must survive a port that comes back after 600ms");
+        });
+    }
+
+    /// ...but it must still give up, so a document request falls through to the
+    /// reconnect page instead of hanging forever on a server that is truly gone.
+    #[test]
+    fn connect_gives_up_after_the_grace() {
+        rt().block_on(async {
+        let probe = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = probe.local_addr().unwrap().port();
+        drop(probe);
+        let t0 = std::time::Instant::now();
+        let got = connect_upstream_retrying(port, Duration::from_millis(500)).await;
+        assert!(got.is_none());
+        assert!(t0.elapsed() < Duration::from_secs(3), "must not hang past the grace");
+        });
+    }
+
+    /// Re-anchor only when the window is on NO screen. Attilio keeps this window at
+    /// -797,-1410 on an ultrawide: negative is not "wrong", it's his choice.
+    #[test]
+    fn negative_position_on_a_real_monitor_is_left_alone() {
+        let ultrawide = (-1720.0, -1440.0, 3440.0, 1440.0);
+        let builtin = (0.0, 0.0, 1512.0, 982.0);
+        let mons = [builtin, ultrawide];
+        assert!(rect_intersects_any((-797.0, -1410.0, 1200.0, 800.0), &mons));
+        // Same window after the ultrawide is unplugged: stranded, must be re-anchored.
+        assert!(!rect_intersects_any((-797.0, -1410.0, 1200.0, 800.0), &[builtin]));
+    }
+
+    /// Touching edges only (x + w == mx) is NOT overlap — a window flush against a
+    /// monitor's left edge from outside shows zero pixels.
+    #[test]
+    fn touching_edges_does_not_count_as_on_screen() {
+        let mon = (0.0, 0.0, 1000.0, 800.0);
+        assert!(!rect_intersects_any((-500.0, 0.0, 500.0, 400.0), &[mon]));
+        assert!(rect_intersects_any((-499.0, 0.0, 500.0, 400.0), &[mon]));
+    }
+}
+
+/// The end-to-end PROOF for the empty-window bug, kept out of the normal run
+/// (`#[ignore]`) because it drives a real browser and takes ~15s:
+///
+///   cargo test --lib demo_window_recovers -- --ignored --nocapture
+///
+/// It serves a fake app through the SHIPPED `proxy_loop`, kills the upstream
+/// mid-clip, and lets Playwright record what a user would see. The reload that
+/// happens while the server is down is exactly the move that used to leave a
+/// transparent, titlebar-less window with nothing to paint — i.e. invisible.
+#[cfg(test)]
+mod window_recovery_demo {
+    use super::{proxy_loop, Upstream};
+
+    /// Minimal HTTP server standing in for the Topics server: one fixed page whose
+    /// marker (`TOPICS`) the browser checks for. Killed by aborting its task, which
+    /// drops the listener — the same abrupt disappearance as a server restart.
+    async fn fake_app_server(port: u16) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = match tokio::net::TcpListener::bind(("127.0.0.1", port)).await {
+            Ok(l) => l,
+            Err(e) => panic!("fake upstream bind :{port}: {e}"),
+        };
+        loop {
+            let Ok((mut s, _)) = listener.accept().await else { continue };
+            tokio::spawn(async move {
+                let mut buf = [0u8; 2048];
+                let _ = s.read(&mut buf).await;
+                let body = "<!doctype html><html><body style=\"background:#0b3d2e;color:#eafff5;\
+font:24px/1.4 -apple-system,system-ui,sans-serif;display:flex;align-items:center;\
+justify-content:center;height:100vh;margin:0\"><div id=\"root\">TOPICS \u{2014} app viva</div></body></html>";
+                let resp = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n\
+Content-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n{}",
+                    body.len(), body);
+                let _ = s.write_all(resp.as_bytes()).await;
+                let _ = s.flush().await;
+            });
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn demo_window_recovers_after_server_restart() {
+        let out_dir = std::env::var("DEMO_OUT")
+            .unwrap_or_else(|_| "/tmp/topics-window-recovery".to_string());
+        let _ = std::fs::create_dir_all(&out_dir);
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        rt.block_on(async move {
+            let up_port = {
+                let l = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+                l.local_addr().unwrap().port()
+            };
+            let proxy_listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+            let proxy_port = proxy_listener.local_addr().unwrap().port();
+
+            let server = tokio::spawn(fake_app_server(up_port));
+            tokio::spawn(proxy_loop(proxy_listener, Upstream { port: up_port, tls: false }));
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+
+            // The camera + browser, on its own clock (see window-recovery-demo.mjs).
+            let script = concat!(env!("CARGO_MANIFEST_DIR"), "/../scripts/window-recovery-demo.mjs");
+            let repo_root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
+            let mut child = std::process::Command::new("node")
+                .arg(script)
+                .arg(proxy_port.to_string())
+                .arg(&out_dir)
+                .current_dir(repo_root)
+                .spawn()
+                .expect("spawn node (playwright-core must be installed)");
+
+            // t=3s: the server goes down (a `launchctl kickstart -k`, a crash, an update).
+            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+            server.abort();
+            eprintln!("[demo] upstream :{up_port} DOWN");
+            // t=9s: it comes back. Nothing else happens — no human, no click.
+            tokio::time::sleep(std::time::Duration::from_secs(6)).await;
+            tokio::spawn(fake_app_server(up_port));
+            eprintln!("[demo] upstream :{up_port} BACK");
+
+            let status = tokio::task::spawn_blocking(move || child.wait())
+                .await
+                .unwrap()
+                .expect("node exited");
+            assert!(status.success(), "the window did not come back by itself");
+            eprintln!("[demo] clip in {out_dir}");
+        });
+    }
+}
+
+/// L'etichetta di una pane browser, e cosa succede quando la sua vista rifiuta
+/// di morire.
+///
+/// La catena che questi test chiudono: col mutex del dispatcher avvelenato
+/// `Webview::close()` panica, quindi `on_webview_close` non gira mai e
+/// l'etichetta resta REGISTRATA nel manager di tauri; `browser_open` sullo
+/// stesso id trovava quella webview e prendeva il ramo di RIUSO, riconsegnando
+/// la stessa vista morta. «Ricrea la scheda» non ricreava niente.
+#[cfg(test)]
+mod browser_label_tests {
+    use super::{browser_label, burn_pane_label, close_verdict, pane_id_from_label, pane_label_generation};
+    use std::collections::HashSet;
+
+    // Il registro delle bruciature è un globale di processo: ogni test usa un id
+    // suo, così l'ordine di esecuzione non conta.
+
+    #[test]
+    fn una_pane_sana_ha_l_etichetta_semplice() {
+        assert_eq!(pane_label_generation("sana"), 0);
+        assert_eq!(browser_label("sana"), "browserpane-sana");
+    }
+
+    /// Il cuore della cura: dopo la bruciatura l'etichetta è DIVERSA, quindi
+    /// `app.get_webview(&browser_label(id))` non trova più la vista morta e
+    /// `browser_open` cade nel ramo di CREAZIONE invece che in quello di riuso.
+    #[test]
+    fn bruciare_cambia_l_etichetta_cosi_open_non_puo_riusare() {
+        let id = "bruciata";
+        let prima = browser_label(id);
+        assert_eq!(burn_pane_label(id), 1);
+        let dopo = browser_label(id);
+        assert_ne!(prima, dopo, "l'etichetta bruciata non va riusata");
+        assert_eq!(dopo, "browserpane-~1~bruciata");
+    }
+
+    /// Una vista può morire due volte: la generazione sale, e ogni giro dà
+    /// un'etichetta ancora libera.
+    #[test]
+    fn bruciature_ripetute_salgono_di_generazione() {
+        let id = "due-volte";
+        assert_eq!(burn_pane_label(id), 1);
+        let g1 = browser_label(id);
+        assert_eq!(burn_pane_label(id), 2);
+        assert_eq!(pane_label_generation(id), 2);
+        assert_ne!(g1, browser_label(id));
+    }
+
+    /// L'id resta l'id: è come chiamano la pane il client, gli agenti e le cache
+    /// (bounds, corner, nav-error). Bruciare l'etichetta non deve rinominarla.
+    #[test]
+    fn l_id_sopravvive_alla_bruciatura() {
+        let id = "id-stabile";
+        assert_eq!(pane_id_from_label(&browser_label(id)), Some(id));
+        burn_pane_label(id);
+        assert_eq!(pane_id_from_label(&browser_label(id)), Some(id));
+    }
+
+    /// `browser_list` filtra per prefisso: una pane rigenerata deve restare
+    /// visibile, e la sua etichetta vecchia (webview morta ancora registrata)
+    /// deve risalire allo STESSO id — è così che la lista le collassa in una.
+    #[test]
+    fn vecchia_e_nuova_etichetta_danno_lo_stesso_id() {
+        assert!(browser_label("prefisso").starts_with("browserpane-"));
+        assert_eq!(pane_id_from_label("browserpane-x"), Some("x"));
+        assert_eq!(pane_id_from_label("browserpane-~3~x"), Some("x"));
+    }
+
+    /// Etichette che non sono di una pane browser non vanno interpretate.
+    #[test]
+    fn le_etichette_altrui_non_sono_pane() {
+        assert_eq!(pane_id_from_label("main"), None);
+        assert_eq!(pane_id_from_label("popout-1"), None);
+    }
+
+    /// Un id che comincia per `~` senza generazione valida non viene mutilato:
+    /// meglio restituire il resto così com'è che inventare un id.
+    #[test]
+    fn una_tilde_che_non_e_una_generazione_resta_nell_id() {
+        assert_eq!(pane_id_from_label("browserpane-~strano"), Some("~strano"));
+        assert_eq!(pane_id_from_label("browserpane-~~x"), Some("~~x"));
+    }
+
+    /// Una chiusura riuscita non brucia niente: l'etichetta è libera e la pane
+    /// riapre esattamente dov'era, che è il caso di gran lunga più comune.
+    #[test]
+    fn una_chiusura_riuscita_non_brucia_niente() {
+        let id = "chiusa-bene";
+        assert!(close_verdict(id, false).is_ok());
+        assert_eq!(pane_label_generation(id), 0);
+    }
+
+    /// LA CATENA, in miniatura. `manager` è il registro di tauri: `browser_open`
+    /// prende il ramo di riuso esattamente quando contiene `browser_label(id)`.
+    ///
+    /// Col mutex avvelenato `Webview::close()` panica prima di
+    /// `on_webview_close`, quindi l'etichetta resta dentro. Prima: la
+    /// riapertura la ritrovava e riconsegnava la vista morta — «Ricrea la
+    /// scheda» non ricreava niente. Adesso l'etichetta è bruciata e quel
+    /// `contains` è falso: `browser_open` CREA.
+    #[test]
+    fn una_vista_che_non_muore_brucia_l_etichetta_e_open_deve_creare() {
+        let id = "avvelenata";
+        let mut manager: HashSet<String> = HashSet::new();
+        manager.insert(browser_label(id)); // la vista viva, prima della chiusura
+
+        let verdict = close_verdict(id, manager.contains(&browser_label(id)));
+        assert!(verdict.is_err(), "una vista sopravvissuta non è una chiusura riuscita");
+
+        assert!(
+            !manager.contains(&browser_label(id)),
+            "browser_open deve CREARE una vista nuova, non riusare quella morta"
+        );
+        // La morta è ancora appesa al manager sotto l'etichetta vecchia — e
+        // risale allo stesso id, così `browser_list` non conta due pane per una.
+        let ids: Vec<&str> = manager.iter().filter_map(|l| pane_id_from_label(l)).collect();
+        assert_eq!(ids, vec![id]);
     }
 }

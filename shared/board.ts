@@ -32,6 +32,105 @@ export const MAX_FANOUT = 5;
 
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Anteprima di consegna — la regola, in UN posto solo.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * La card mostra l'anteprima in un riquadro `max-h-36` (144px) con
+ * `object-cover object-top` dentro una colonna da 268px: un'immagine più ALTA
+ * di questo rapporto non viene rimpicciolita, viene TAGLIATA in basso. È la
+ * soglia oltre la quale «ho messo l'anteprima» e «il reviewer vede la cosa»
+ * smettono di coincidere. Vive qui perché la stessa cifra la cita il testo del
+ * protocollo (`PREVIEW_RULE`) e la misura il gate di `promoteReviewPreview`.
+ * @see client/src/components/Board/PreviewMedia.tsx
+ */
+export const PREVIEW_CARD_MAX_RATIO = 144 / 268;
+
+/**
+ * Il gate di PROMOZIONE è più largo della soglia della card (0.7 contro 0.537):
+ * promuovere è un favore che il server fa a una consegna già valida, non un
+ * cancello di review, quindi taglia solo ciò che è palesemente illeggibile in
+ * una card — la pagina intera fotografata — e lascia passare il quasi-quadrato.
+ */
+export const PREVIEW_PROMOTE_MAX_RATIO = 0.7;
+
+/**
+ * Come si sceglie l'anteprima di una consegna. **Questa stringa è la copia
+ * canonica**: la citano l'envelope di kickoff, quello di resume, la descrizione
+ * di `preview_image` nello schema del tool MCP, il braccio `board-sim` del
+ * benchmark e §4 di `docs/board-protocol.md`.
+ *
+ * Prima erano cinque testi liberi di divergere, e divergevano: due soli rami,
+ * entrambi su UI («statica» → screenshot, «dinamica» → video). Una consegna che
+ * non ha nessuna superficie renderizzata — un piano, un'architettura, una
+ * migrazione — non sta in nessuno dei due, così cadeva nel ramo «statica» e
+ * l'agente FOTOGRAFAVA il documento: la card del piano-amicizia aveva come
+ * anteprima l'immagine dell'intero piano, illeggibile a 268px.
+ *
+ * Da qui i tre rami e, soprattutto, criteri che si possono MISURARE invece di
+ * aggettivi ("statica", "dinamica") su cui due agenti danno due risposte.
+ * `server/services/task-dispatcher.test.ts` verifica che le copie siano ancora
+ * la stessa stringa.
+ */
+export const PREVIEW_RULE = [
+  "EVIDENZA DI REVIEW = un'ANTEPRIMA durevole nel task — update_task(preview_image=<path assoluto sotto ~/.topics/media/ o nel workspace del task; stringa vuota = azzera>), che compare come card sulla board e nel drawer. Tre rami, e a scegliere è il criterio, non l'abitudine:",
+  `· SCREENSHOT .png — la consegna HA una superficie renderizzata che entra in una schermata. Catturala a viewport ≤1440×900 e con altezza/larghezza ≤ ${PREVIEW_CARD_MAX_RATIO.toFixed(3)} (=144/268: oltre quella soglia la card TAGLIA invece di rimpicciolire). Mai un full-page.`,
+  "· VIDEO .webm/.mp4 ≤20s — dimostrare la consegna richiede DUE O PIÙ STATI (appare, resta, sparisce; scroll, apri/chiudi, streaming, un flusso a più passi): uno screenshot statico non prova un comportamento. Clip Playwright breve (`recordVideo: { dir }` sul context) o, se il progetto ha spec-flow, il .webm dello scenario.",
+  "· DIAGRAMMA .svg — la consegna NON ha una superficie renderizzata (un piano, un'architettura, un protocollo, una migrazione): si disegna la STRUTTURA — riquadri, frecce, cinque parole per nodo — non si fotografa il documento.",
+  "Una TAB del task (open_browser_pane) NON sostituisce l'anteprima: la pagina viva muore col server che la serve, l'anteprima resta.",
+  "Cancello unico, e vale per tutti e tre: a 268px di larghezza (`sips -Z 268 <file>`) devi ancora saper dire cosa mostra.",
+].join("\n");
+
+/**
+ * Ritaglia il blocco `PREVIEW_RULE` da un envelope già composto, per STRUTTURA
+ * (prima riga «EVIDENZA DI REVIEW…», ultima «Cancello unico…») e non
+ * cercandovi la costante: un test che cerca la costante che ha appena
+ * interpolato non può fallire, e questo invece deve fallire il giorno in cui
+ * qualcuno riscrive il testo a mano dentro un envelope.
+ */
+export function extractPreviewRule(envelope: string): string | null {
+  const lines = envelope.split('\n');
+  const from = lines.findIndex((l) => l.startsWith('EVIDENZA DI REVIEW'));
+  if (from < 0) return null;
+  const to = lines.findIndex((l, i) => i >= from && l.startsWith('Cancello unico'));
+  if (to < 0) return null;
+  return lines.slice(from, to + 1).join('\n');
+}
+
+/**
+ * Il PESO di un task: quanto MORDE LA MACCHINA mentre gira, non quanto è
+ * difficile. Sono due assi diversi e vanno tenuti separati — un algoritmo
+ * ambiguo è `fable` e non consuma niente; un `bun run build` è banale da
+ * decidere e si prende tutti i core per due minuti. Il modello dice quanto
+ * l'agente deve PENSARE; il peso dice quanto l'esecuzione COSTA alla macchina
+ * su cui gira, che è la cosa che lo scheduler deve sapere.
+ *
+ * Due valori e non una scala: quello che serve allo scheduler è una domanda
+ * binaria («questo task può stare accanto ad altri, sì o no?»), e ogni gradino
+ * in mezzo sarebbe un valore che nessun gate legge.
+ *
+ * `light` è il DEFAULT in ogni senso: è il valore di ripiego quando il
+ * classificatore non risponde, ed è come si legge un `null` in colonna (vedi
+ * migration 090). Senza una risposta letta, niente cambia rispetto a prima.
+ */
+export const TASK_WEIGHTS = ['light', 'heavy'] as const;
+
+export type TaskWeight = (typeof TASK_WEIGHTS)[number];
+
+/**
+ * Legge il peso da una colonna/valore libero. Tutto ciò che non è uno dei due
+ * valori noti — `null`, stringa vuota, un valore vecchio o storto — torna
+ * `null`, cioè «mai classificato», che ogni gate tratta come `light`.
+ *
+ * `null` NON viene normalizzato a `'light'` di proposito: distinguere «non l'ho
+ * mai chiesto» da «ho chiesto e ha detto leggero» è l'unico modo per accorgersi
+ * che il classificatore ha smesso di rispondere.
+ */
+export function readTaskWeight(raw: unknown): TaskWeight | null {
+  return (TASK_WEIGHTS as readonly unknown[]).includes(raw) ? (raw as TaskWeight) : null;
+}
+
 /**
  * Gli stati di `dispatch_state` in cui un agente sta LAVORANDO il task adesso:
  * è in coda per partire, sta partendo, o è dentro un turno. Fuori da questi tre
@@ -84,6 +183,24 @@ export interface TaskComment {
    * svegliare l'agente.
    */
   kind: 'comment' | 'status' | 'review-note';
+}
+
+/**
+ * Il bloccante di un task, RISOLTO dal server leggendolo dal DB.
+ *
+ * Esiste perché il chip «in attesa di» non può dipendere da chi c'è nella lista
+ * che il client ha in mano: la board fetcha UN progetto, `rootsOnly`, non
+ * archiviati — un bloccante fuori da quel taglio (un sottotask, un task di un
+ * altro progetto, uno archiviato) non si trovava, e il chip spariva anche se il
+ * legame c'era eccome. `status` e `archived` sono i due bit che decidono se il
+ * chip va ancora disegnato: chiuso o archiviato = non blocca più (lo stesso
+ * predicato del gate di dispatch, `isDispatchBlocked`).
+ */
+export interface BlockerRef {
+  id: string;
+  text: string;
+  status: TaskStatus;
+  archived: boolean;
 }
 
 /** Un comando del gate pre-review dichiarato nelle impostazioni della board. */
@@ -225,5 +342,35 @@ export interface DispatchCapacity {
   /** Load average a 1 minuto (vivo). */
   load1: number;
   /** Spiegazione in una riga di come `recommended` è stato derivato. */
+  reason: string;
+}
+
+/** Le due primitive di collegamento dell'intake. */
+export type LinkKind = "subtask" | "chain";
+
+/**
+ * La PROPOSTA dell'intake: dove andrebbe un testo nuovo.
+ * Vive qui perche' la calcola il server e la disegna il client — due copie
+ * libere di divergere erano esattamente cio' che il cancello sui doppioni
+ * di tipo esiste per impedire.
+ */
+export interface LinkProposal {
+  targetTaskId: string;
+  targetText: string;
+  targetStatus: TaskStatus;
+  /**
+   * Quale delle due primitive il motore consiglia. NON è una decisione: la UI
+   * evidenzia questa e lascia l'altra a un click di distanza.
+   * - `chain` quando la card sta ancora girando (in_progress/review): il testo
+   *   nuovo è un SEGUITO, e riparte dentro la conversazione del bloccante.
+   * - `subtask` quando la card non è ancora partita (backlog/todo): il testo
+   *   nuovo è un PEZZO di quel lavoro.
+   */
+  recommended: LinkKind;
+  /** 0..1 — copertura pesata dei termini del testo nuovo sulla card. */
+  score: number;
+  /** Le parole che hanno fatto il punteggio, dalla più rara alla più comune. */
+  sharedTerms: string[];
+  /** Frase leggibile: va sotto al composer E nel thread delle due card. */
   reason: string;
 }

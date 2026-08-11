@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { TONE, type ChipTone } from './BrowserPaneChip';
+import { TONE, type ChipTone } from './browserPaneChipTones';
 import { DANGER_TEXT, WARNING_TEXT, SUCCESS_TEXT, ACTIVE_TEXT } from '../../lib/popoverStyles';
 
 /**

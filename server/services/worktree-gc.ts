@@ -22,9 +22,17 @@
  * `in_progress` with no sign of life for days is active only on paper, and it
  * held its checkout forever. That path keeps the BRANCH and parks the task —
  * it frees a directory, never a commit (see `isAbandoned`).
+ *
+ * UNA CARTELLA NON È UN COMMIT. Fino all'11/08 le uniche risposte per un task
+ * chiuso erano «distruggi tutto» o «non toccare niente», e ogni volta che il
+ * lavoro non era su main vinceva la seconda: 77 worktree per 33,9 GB tenuti in
+ * vita da un solo motivo — «commit non mergiati». Ma `git worktree remove` non
+ * tocca i commit: finché un ref li raggiunge, la cartella è una COPIA, e una
+ * copia si può buttare. Da qui `free-checkout`, la terza risposta: la cartella
+ * va, il branch resta, il lavoro è al sicuro dove è sempre stato.
  */
 
-export type WorktreeReapAction = "reap" | "land-then-reap" | "abandon" | "keep";
+export type WorktreeReapAction = "reap" | "land-then-reap" | "free-checkout" | "abandon" | "keep";
 
 export interface WorktreeReapDecision {
   action: WorktreeReapAction;
@@ -42,6 +50,16 @@ export interface WorktreeReapInput {
   hasRealDirt: boolean;
   /** Worktree tip is an ancestor of main → no unmerged commits to lose. */
   mergedIntoMain: boolean;
+  /**
+   * Il branch del worktree non esiste più nel repo. Allora l'unico ref che
+   * raggiunge quei commit è l'HEAD della cartella, e liberare la cartella li
+   * renderebbe irraggiungibili: `free-checkout` non è disponibile.
+   *
+   * Il chiamante di oggi (`sweepWorktrees`) intercetta il branch sparito prima
+   * di arrivare qui, ma la sicurezza di una funzione pura non deve dipendere
+   * dall'ordine dei controlli di chi la chiama.
+   */
+  branchGone?: boolean;
   /** The task's board opted into auto-merge (so land-then-reap is allowed). */
   autoMergeEnabled: boolean;
   /** Only `branch`-mode worktrees own a landable branch. */
@@ -113,8 +131,17 @@ export function decideWorktreeReap(input: WorktreeReapInput): WorktreeReapDecisi
     return { action: "land-then-reap", reason: "task chiuso con commit non ancora su main" };
   }
 
-  // Unmerged commits we can't safely auto-land (automerge off / non-branch).
-  // Keep for an explicit human decision rather than lose the commits.
+  // Commit che non si possono auto-landare (automerge spento, o modo non-branch).
+  // Restano da decidere a mano — ma «da decidere» riguarda i COMMIT, non la
+  // cartella: se un branch li raggiunge ancora, il checkout è una copia in più e
+  // può andarsene senza che nessuno perda niente.
+  if (input.mode === "branch" && !input.branchGone) {
+    return { action: "free-checkout", reason: "task chiuso, commit non su main: branch conservato, checkout liberato" };
+  }
+
+  // `detached` non ha un branch proprio: i suoi commit sono raggiungibili solo
+  // dall'HEAD della cartella. `reuse` sta su un ramo di qualcun altro, di cui
+  // qui non abbiamo letto lo stato. In entrambi i casi la cartella È l'appiglio.
   return { action: "keep", reason: "commit non mergiati, automerge non disponibile → decisione umana" };
 }
 
@@ -150,19 +177,34 @@ export interface PostLandInput {
  *     the same hole seen from the other side: not-landed vs not-committed);
  *   • branch still `unmerged` → the content is provably NOT on main.
  * Anything else and the branch keeps living until a human says otherwise.
+ *
+ * Il branch, appunto — non la cartella. Un land fallito è un motivo per non
+ * distruggere i COMMIT, e per anni è stato letto anche come motivo per tenere il
+ * checkout: da `03ca44c3` il land si rifiuta ogni volta che il branch porta
+ * commit di un'altra sessione, cioè quasi sempre, e ogni rifiuto lasciava una
+ * cartella immortale. Quando il branch c'è e l'albero è pulito la risposta giusta
+ * non è né `reap` né `keep`, è `free-checkout`.
  */
 export function decidePostLandReap(input: PostLandInput): WorktreeReapDecision {
-  if (input.outcome === "conflict" || input.outcome === "skipped") {
-    return { action: "keep", reason: `land ${input.outcome}` };
-  }
+  // Prima di tutto il resto: lavoro non committato esiste SOLO nella cartella.
+  // Nessun esito del land può autorizzare a toccarla. (Stava dopo il controllo
+  // su conflict/skipped, che restituiva comunque `keep`: lì l'ordine non si
+  // vedeva, qui sì, perché adesso quel ramo può liberare la cartella.)
   if (input.dirtAfter.length > 0) {
     return { action: "keep", reason: `modifiche non committate dopo il land (${input.dirtAfter.length} file)` };
+  }
+  if (input.outcome === "conflict" || input.outcome === "skipped") {
+    // Il land non è avvenuto. Il branch resta l'unico posto dove vive il lavoro
+    // — e se è sparito sotto di noi, la cartella è l'ultimo appiglio: si tiene.
+    return input.branchAfter === "gone"
+      ? { action: "keep", reason: `land ${input.outcome} e branch sparito: la cartella è l'unica copia` }
+      : { action: "free-checkout", reason: `land ${input.outcome}: branch conservato, checkout liberato` };
   }
   // `gone` = the land itself deleted the ref; there is no branch left to lose.
   if (input.branchAfter === "unmerged") {
     return {
-      action: "keep",
-      reason: `land '${input.outcome}' ma il contenuto NON risulta su main — branch conservato`,
+      action: "free-checkout",
+      reason: `land '${input.outcome}' ma il contenuto NON risulta su main — branch conservato, checkout liberato`,
     };
   }
   return { action: "reap", reason: `land '${input.outcome}' verificato su main` };
@@ -225,12 +267,48 @@ export interface WorktreeGcDeps {
   /** Reap worktree + branch + row (worktreeManager.delete). */
   reap: (worktreeId: string) => Promise<boolean>;
   /**
+   * Libera SOLO la cartella: worktree rimosso, riga cancellata, BRANCH INTATTO
+   * (`worktreeManager.delete(id, { deleteBranch: false })`). È l'unica differenza
+   * con `reap`, ed è tutta la differenza: i commit restano raggiungibili dal ref.
+   *
+   * Assente ⇒ l'host non sa liberare un checkout e la decisione degrada a `keep`
+   * — la stessa regola di `abandon`: senza il mezzo per farlo in sicurezza, non
+   * si fa.
+   */
+  freeCheckout?: (worktreeId: string) => Promise<boolean>;
+  /**
    * Surface a refused reap on the task itself (a system comment). A branch kept
    * because its content never reached main is exactly the failure that went
    * unnoticed for 8 days — it must be visible where the human looks.
    */
   noteOnTask?: (taskId: string, message: string) => void;
+  /**
+   * Butta gli artefatti rigenerabili (dipendenze, cache di build) da un worktree
+   * che RESTA in piedi, e restituisce i byte liberati. Vedi `worktree-slim`.
+   *
+   * È la risposta intermedia fra `keep` e `free-checkout`: il `keep` è la
+   * decisione giusta sui COMMIT e su ciò che è tracciato, ma non dice niente sui
+   * ~260 MB di `node_modules` che una card consegnata si porta dietro per giorni
+   * mentre aspetta un umano. Assente ⇒ il GC non snellisce, e basta.
+   */
+  slim?: (wt: GcWorktree) => Promise<number>;
   log: (msg: string) => void;
+}
+
+/**
+ * Un worktree TENUTO può comunque perdere gli artefatti rigenerabili? Sì,
+ * quando nessuno sta per riaprirlo a breve.
+ *
+ * `review` è il caso che conta — la card consegnata che aspetta un umano — e
+ * `done`/archiviato/orfano sono già finiti. `backlog` e `todo` NO: sono in coda
+ * per il dispatcher, e snellirli trenta secondi prima che un agent ci entri
+ * regalerebbe un `bun install` senza liberare niente per più di quei trenta
+ * secondi. `in_progress` men che meno: lì dentro c'è qualcuno.
+ */
+export function shouldSlimOnKeep(taskStatus: TaskStatus | null, taskArchived: boolean): boolean {
+  if (taskStatus === null) return true;
+  if (taskArchived) return true;
+  return taskStatus === "review" || taskStatus === "done";
 }
 
 export interface WorktreeGcSummary {
@@ -239,7 +317,13 @@ export interface WorktreeGcSummary {
   landed: number;
   /** Checkouts freed under a task abandoned in `in_progress` (branch kept). */
   abandoned: number;
+  /** Cartelle liberate su task CHIUSI, con il branch conservato (`free-checkout`). */
+  freed: number;
   kept: number;
+  /** Worktree TENUTI a cui sono stati tolti gli artefatti rigenerabili. */
+  slimmed: number;
+  /** Byte liberati dallo snellimento (i `reap`/`free-checkout` non contano qui). */
+  slimmedBytes: number;
   errors: number;
   /**
    * PERCHÉ i `kept` sono stati tenuti, contati per motivo.
@@ -278,7 +362,8 @@ export function normalizeKeepReason(reason: string): string {
 export async function sweepWorktrees(deps: WorktreeGcDeps): Promise<WorktreeGcSummary> {
   const worktrees = deps.listWorktrees();
   const summary: WorktreeGcSummary = {
-    total: worktrees.length, reaped: 0, landed: 0, abandoned: 0, kept: 0, errors: 0, keptReasons: {},
+    total: worktrees.length, reaped: 0, landed: 0, abandoned: 0, freed: 0, kept: 0,
+    slimmed: 0, slimmedBytes: 0, errors: 0, keptReasons: {},
   };
   /** Un keep senza motivo registrato e' un keep che nessuno puo' spiegare. */
   const keep = (reason: string) => {
@@ -286,6 +371,52 @@ export async function sweepWorktrees(deps: WorktreeGcDeps): Promise<WorktreeGcSu
     const k = normalizeKeepReason(reason);
     summary.keptReasons[k] = (summary.keptReasons[k] ?? 0) + 1;
   };
+
+  /**
+   * Libera la cartella tenendo il branch, e lo DICE sul task.
+   *
+   * La riga sul task non è cortesia: chi torna su una card chiusa e trova la
+   * cartella sparita deve leggere, lì, dove sta il suo lavoro — altrimenti
+   * «liberato lo spazio» e «perso il lavoro» si assomigliano troppo. Restituisce
+   * `false` quando non si è potuto fare, così il chiamante ripiega su `keep`.
+   */
+  async function freeCheckout(wt: GcWorktree, taskId: string | null, reason: string): Promise<boolean> {
+    if (!deps.freeCheckout) return false;
+    const ok = await deps.freeCheckout(wt.id);
+    if (!ok) return false;
+    summary.freed += 1;
+    deps.log(`[worktree-gc] checkout liberato ${wt.branchName ?? wt.id} — ${reason} (branch conservato)`);
+    if (taskId && wt.branchName) {
+      deps.noteOnTask?.(
+        taskId,
+        `🧹 Cartella del worktree liberata per fare spazio: ${reason}. ` +
+        `Il lavoro NON è perso — vive sul branch \`${wt.branchName}\`, che è intatto ` +
+        `(\`git log main..${wt.branchName}\` per vederlo, \`git switch ${wt.branchName}\` per riprenderlo).`,
+      );
+    }
+    return true;
+  }
+
+  /**
+   * TENUTA, MA NON PIENA. Un worktree che resta in piedi non deve restare
+   * pesante: gli artefatti rigenerabili se ne vanno comunque, e la cartella, il
+   * branch e i file tracciati restano esattamente com'erano.
+   *
+   * Best-effort come tutto il resto della passata: uno snellimento che fallisce
+   * è un peccato, non un motivo per interrompere il giro.
+   */
+  async function slimKept(wt: GcWorktree, taskStatus: TaskStatus | null, taskArchived: boolean, present: boolean) {
+    if (!deps.slim || !present || !shouldSlimOnKeep(taskStatus, taskArchived)) return;
+    try {
+      const bytes = await deps.slim(wt);
+      if (bytes > 0) {
+        summary.slimmed += 1;
+        summary.slimmedBytes += bytes;
+      }
+    } catch (err) {
+      deps.log(`[worktree-gc] slim fallito su ${wt.branchName ?? wt.id}: ${(err as Error)?.message ?? err}`);
+    }
+  }
 
   for (const wt of worktrees) {
     try {
@@ -324,12 +455,15 @@ export async function sweepWorktrees(deps: WorktreeGcDeps): Promise<WorktreeGcSu
       // tree for dirt when it actually exists.
       const present = deps.diskPresent(wt.absPath);
       const dirt = present ? await deps.realDirt(wt.absPath).catch(() => [] as string[]) : [];
+      const taskStatus = taskId ? (t as { status: TaskStatus }).status : null;
+      const taskArchived = taskId ? (t as { archived: boolean }).archived : false;
 
       const decision = decideWorktreeReap({
-        taskStatus: taskId ? (t as { status: TaskStatus }).status : null,
-        taskArchived: taskId ? (t as { archived: boolean }).archived : false,
+        taskStatus,
+        taskArchived,
         hasRealDirt: dirt.length > 0,
         mergedIntoMain: branch === "merged",
+        branchGone: branch === "gone",
         autoMergeEnabled: deps.autoMergeEnabled(wt.projectId),
         mode: wt.mode,
         // Measured only for a task that could BE abandoned: for everything else
@@ -342,7 +476,21 @@ export async function sweepWorktrees(deps: WorktreeGcDeps): Promise<WorktreeGcSu
         abandonAfterDays: deps.abandonAfterDays,
       });
 
-      if (decision.action === "keep") { keep(decision.reason); continue; }
+      if (decision.action === "keep") {
+        keep(decision.reason);
+        await slimKept(wt, taskStatus, taskArchived, present);
+        continue;
+      }
+
+      if (decision.action === "free-checkout") {
+        if (!(await freeCheckout(wt, taskId, decision.reason))) {
+          keep(decision.reason);
+          // Il `free-checkout` non è riuscito (l'host non sa farlo, o git ha
+          // rifiutato): la cartella resta, e allora almeno non resta piena.
+          await slimKept(wt, taskStatus, taskArchived, present);
+        }
+        continue;
+      }
 
       if (decision.action === "abandon") {
         // Needs both a task to park and a host able to do it; without either,
@@ -361,7 +509,11 @@ export async function sweepWorktrees(deps: WorktreeGcDeps): Promise<WorktreeGcSu
       if (decision.action === "land-then-reap") {
         // Needs a real task to land. An orphan (taskId null) with unmerged
         // commits can't be landed → keep it for a human rather than lose work.
-        if (!taskId) { keep("commit non su main e nessun task a cui landarli (orfano)"); continue; }
+        if (!taskId) {
+          keep("commit non su main e nessun task a cui landarli (orfano)");
+          await slimKept(wt, taskStatus, taskArchived, present);
+          continue;
+        }
         const outcome = await deps.tryLand(taskId);
         if (outcome === "landed") summary.landed += 1;
 
@@ -374,7 +526,16 @@ export async function sweepWorktrees(deps: WorktreeGcDeps): Promise<WorktreeGcSu
             : Promise.resolve([] as string[]),
         ]);
         const post = decidePostLandReap({ outcome, branchAfter, dirtAfter });
-        if (post.action === "keep") {
+        // Il land non è passato (quasi sempre: il cancello di `03ca44c3` rifiuta
+        // un branch che porta commit di un'altra sessione), ma l'albero è pulito
+        // e il branch c'è. I commit restano dove sono; la cartella no.
+        //
+        // Se l'host non sa liberare un checkout si ricade nel `keep` qui sotto,
+        // NOTA COMPRESA: la riga che avverte «il branch è conservato, verificalo»
+        // è l'unica cosa che rende visibile un worktree tenuto in vita, e perderla
+        // in silenzio riaprirebbe il buco da otto giorni che l'ha fatta scrivere.
+        if (post.action === "free-checkout" && await freeCheckout(wt, taskId, post.reason)) continue;
+        if (post.action === "keep" || post.action === "free-checkout") {
           deps.log(`[worktree-gc] keep ${wt.branchName ?? wt.id}: ${post.reason}`);
           if (outcome === "landed" || outcome === "nothing") {
             // Anche qui si dice solo ciò che è stato VERIFICATO: `branchAfter` è
@@ -388,6 +549,7 @@ export async function sweepWorktrees(deps: WorktreeGcDeps): Promise<WorktreeGcSu
             deps.noteOnTask?.(taskId, `⚠️ Worktree NON ripulito: ${post.reason}. ${branchNote}`);
           }
           keep(post.reason);
+          await slimKept(wt, taskStatus, taskArchived, deps.diskPresent(wt.absPath));
           continue;
         }
       }
@@ -405,10 +567,12 @@ export async function sweepWorktrees(deps: WorktreeGcDeps): Promise<WorktreeGcSu
     }
   }
 
-  if (summary.reaped || summary.landed || summary.abandoned || summary.errors) {
+  if (summary.reaped || summary.landed || summary.abandoned || summary.freed || summary.slimmed || summary.errors) {
     deps.log(
       `[worktree-gc] sweep done: ${summary.reaped} reaped, ${summary.landed} landed, ` +
-      `${summary.abandoned} abbandonati, ${summary.kept} kept, ${summary.errors} errors (of ${summary.total})`,
+      `${summary.freed} checkout liberati, ${summary.abandoned} abbandonati, ` +
+      `${summary.slimmed} snelliti (${(summary.slimmedBytes / 1_048_576).toFixed(0)} MB), ` +
+      `${summary.kept} kept, ${summary.errors} errors (of ${summary.total})`,
     );
   }
   // I MOTIVI dei kept, sempre — anche quando la passata non ha fatto altro.

@@ -11,6 +11,7 @@ import { spawn, ChildProcess } from "child_process";
 import { join } from "path";
 import { createInterface, Interface } from "readline";
 import { getAiBridgeClient, type AiBridgeClient } from "../lib/ai-bridge-client";
+import { createLineFolder } from "../lib/ndjson-lines";
 import { readdirSync, existsSync, mkdirSync, writeFileSync, unlinkSync, readFileSync, chmodSync } from "fs";
 import { tmpdir } from "os";
 import type {
@@ -28,6 +29,7 @@ import { SidechainTracker } from "./claude/sidechain-tracker";
 import { parseCompactBoundary } from "./claude/compaction";
 import { buildClaudeArgs, buildClaudeOneshotArgs } from "./claude/args";
 import { checkClaudeCliCompat, type ClaudeCliCompat } from "./claude/cli-compat";
+import { applyJobQuota } from "../services/agent-job-quota";
 // La decodifica degli eventi `stream-json` — campi INTERNI della CLI, non
 // un'API pubblicata — vive in un modulo puro, provato su fixture registrate.
 import {
@@ -449,8 +451,14 @@ export function writeMcpConfigForSession(
   // re-read on EVERY API call of every turn, a pure token tax for an agent
   // that works one task. Web research stays available via the CLI's built-in
   // WebSearch/WebFetch (not MCP). Per-board escape hatch: dispatch_mcp='inherit'.
-  if (opts?.mcpPolicy === "bridge-only") {
-    const config = { mcpServers: { topics: topicsMcpBridgeSpec(sessionKey, "dispatch") } };
+  // 'orchestrator' (la sessione con la board in contesto, services/orchestrator.ts):
+  // stessa forma di 'bridge-only' — solo il bridge, strict — ma col profilo
+  // `orchestrator`, che tiene TUTTI i tool della board e toglie quelli di
+  // sotto-agente. Il perché di quel confine sta accanto alla lista, in
+  // `ORCHESTRATOR_EXCLUDED_TOOLS`.
+  if (opts?.mcpPolicy === "bridge-only" || opts?.mcpPolicy === "orchestrator") {
+    const profile = opts.mcpPolicy === "orchestrator" ? "orchestrator" : "dispatch";
+    const config = { mcpServers: { topics: topicsMcpBridgeSpec(sessionKey, profile) } };
     const path = mcpConfigPathForSession(sessionKey);
     writeFileSync(path, JSON.stringify(config, null, 2), { encoding: "utf-8", mode: 0o600 });
     try { chmodSync(path, 0o600); } catch { /* best-effort */ }
@@ -571,10 +579,14 @@ function getTopicSpawnOverridesForSession(sessionKey: string): { effort: string 
       .prepare("SELECT id, effort, model, provider, mcp_policy, autonomy_level FROM topics WHERE session_key = ? LIMIT 1")
       .get(sessionKey) as { id?: string; effort?: string | null; model?: string | null; provider?: string | null; mcp_policy?: string | null; autonomy_level?: string | null } | undefined;
     if (!row) return { effort: null, model: null, mcpPolicy: null, autonomy: null, dispatched: false };
-    // «Questo topic è l'agente di un task?» Serve a decidere il cancello sulle
-    // immagini: la chat di una persona può volerne aprire una, un agente che
-    // consegna una prova di review no — gli basta il path. Lettura stretta,
-    // come il resto qui, per non ricreare l'import circolare con utils.ts.
+    // «Questo topic è l'agente di un task?» Risponde a DUE domande insieme: il
+    // cancello sulle immagini (la chat di una persona può volerne aprire una,
+    // un agente che consegna una prova di review no — gli basta il path) e il
+    // catalogo delle skill coi soli nomi. E non si chiede a `mcp_policy`:
+    // 'bridge-only' è la scelta sullo SCOPING MCP, e un board può metterla su
+    // 'inherit' (`dispatch_mcp`) restando dispacciato — sono assi diversi.
+    // Lettura stretta, come il resto qui, per non ricreare l'import circolare
+    // con utils.ts.
     let dispatched = false;
     try {
       dispatched = !!getDatabase()
@@ -1174,9 +1186,21 @@ export class ClaudeCodeProvider implements AIProvider {
           const live = [...this.processes.keys()].filter((k) => this.processes.get(k)?.alive);
           if (live.length === 0) return;
           console.warn(`[claude-code] Broker socket reconnected — re-attaching ${live.length} live session(s)`);
-          for (const key of live) {
-            this.resyncStream(key).catch((err) => console.warn(`[claude-code] Re-attach after reconnect failed for ${key}:`, err));
-          }
+          // UNO ALLA VOLTA. Il ponte è un socket solo: N riattacchi sparati
+          // insieme mettono in coda i replay uno dietro l'altro e ogni ack
+          // aspetta i megabyte di tutti quelli davanti — le risposte escono a
+          // scaletta (misurato: 0,2s → 5,2s per sei sessioni da 7 MB). Ma le
+          // deadline partono tutte insieme, quindi la coda le brucia in blocco:
+          // è la RAFFICA di «ack timeout» del log, 51 di fila su topic diversi.
+          // In fila indiana ognuno spende il proprio tempo sul proprio turno, e
+          // il totale non cambia di un millisecondo.
+          void live.reduce(
+            (chain, key) => chain.then(() =>
+              this.resyncStream(key)
+                .then(() => undefined)
+                .catch((err) => console.warn(`[claude-code] Re-attach after reconnect failed for ${key}:`, err))),
+            Promise.resolve(),
+          );
         });
       } catch (err) {
         console.warn("[claude-code] Could not arm the broker reconnect hook:", err);
@@ -1895,6 +1919,14 @@ export class ClaudeCodeProvider implements AIProvider {
       // voce di spesa più grossa misurata (25% del contesto dei task); il perché
       // sta accanto all'opzione, in `claude/args.ts`.
       blockImageReads: overrides.dispatched,
+      // Solo gli agenti del board: il catalogo delle skill dell'UTENTE
+      // (14.067 byte, ~4.200 token di prefisso misurati il 10/08) sta nel
+      // prefisso e si ripaga a ogni turno, per un elenco che un agente col
+      // compito già scritto nel task non legge. Restano i nomi: `Skill` non
+      // sparisce, sparisce la descrizione — stessa forma del deferral degli
+      // schemi MCP. Il perché sta accanto all'opzione, in `claude/args.ts`.
+      // `TOPICS_SKILL_LISTING=full` lo rimette intero senza toccare il codice.
+      slimSkillListing: overrides.dispatched && process.env.TOPICS_SKILL_LISTING !== "full",
       claudeSessionId,
       isNewSession,
     });
@@ -1904,6 +1936,33 @@ export class ClaudeCodeProvider implements AIProvider {
     );
 
     const env = buildSafeEnv();
+
+    // La QUOTA DI CORE, e solo per gli agenti dispatchati.
+    //
+    // È la cintura per i pesi che il classificatore non riconosce: un task
+    // «leggero» che però ricompila si prende comunque tutti i core, perché è il
+    // default di cargo, e quattro agenti così lasciano la macchina senza
+    // padrone. Qui ognuno parte con la sua fetta (core ÷ tetto di concorrenza),
+    // e un `heavy` — che lo scheduler tiene già solo — la allarga.
+    //
+    // Sta QUI e non in `buildSafeEnv()` di proposito: quello è l'ambiente di
+    // ogni sessione, chat interattive comprese, e recintare la build che
+    // l'umano lancia a mano nella sua chat è un rallentamento che nessuno ha
+    // chiesto. Il canale è lo stesso di effort/modello/policy MCP — la riga del
+    // topic — e `applyJobQuota` torna `null` per una chat che non è la
+    // sessione di un task: in quel caso l'ambiente resta byte per byte quello
+    // di prima. Il numero si rilegge a ogni spawn, come le altre scelte
+    // per-topic, e da qui in poi anche A METÀ SESSIONE: `applyJobQuota` lascia
+    // sul disco un file col numero e due shim di cargo/make in testa al PATH
+    // che lo rileggono a ogni invocazione, perché una sessione vive ore e la
+    // macchina che aveva intorno alla nascita non è quella di due ore dopo.
+    try {
+      const quota = applyJobQuota(getDatabase(), sessionKey, env);
+      if (quota != null) {
+        console.log(`[claude-code] job quota for dispatched ${sessionKey}: -j${quota} (rilettura viva attiva)`);
+      }
+    } catch { /* nessun recinto: la sessione parte comunque, com'è sempre stato */ }
+
     // Dispatch sessions: defer MCP tool schemas so caricano on-demand via
     // ToolSearch invece di viaggiare nel contesto di ogni chiamata.
     //
@@ -2030,16 +2089,14 @@ export class ClaudeCodeProvider implements AIProvider {
     sessionKey: string,
     onLine: (line: string) => void,
   ): void {
-    let lineBuf = "";
+    // Il taglia-righe sta in `lib/ndjson-lines`: lineare invece che quadratico
+    // sulla dimensione del chunk, e con `StringDecoder` al posto di
+    // `chunk.toString()` — i frame ora arrivano a fette e una fetta può cadere
+    // in mezzo a una sequenza UTF-8.
+    const fold = createLineFolder(onLine);
     client.registerHandlers(sessionKey, {
       onData: (chunk, offset) => {
-        lineBuf += chunk.toString();
-        let nl: number;
-        while ((nl = lineBuf.indexOf("\n")) !== -1) {
-          const line = lineBuf.slice(0, nl);
-          lineBuf = lineBuf.slice(nl + 1);
-          onLine(line);
-        }
+        fold(chunk);
         pp.consumedOffset = offset + chunk.byteLength;
       },
       onStderr: (chunk) => this.handleStderrData(pp, sessionKey, chunk),

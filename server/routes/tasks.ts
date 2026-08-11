@@ -34,6 +34,8 @@ import type { TaskAutoMerge } from "../services/task-automerge";
 import { decidePostLandReap, type BranchStatus, type LandOutcome } from "../services/worktree-gc";
 import { formatChecksComment, parseReviewChecks, runReviewChecks, type ReviewCheck } from "../services/review-checks";
 import { createTaskAttemptStore, type TaskAttempt } from "../services/task-attempts";
+import { linkNotes, proposeLink, type LinkKind } from "../services/task-intake";
+import { recordRetirement } from "../services/retirement";
 import { attemptHasWork, formatAttemptStat } from "../../shared/task-attempt";
 
 const ERROR_STATUS: Record<string, number> = {
@@ -121,11 +123,17 @@ export interface TasksRouterOpts {
    */
   taskBranchStatus?: (taskId: string) => Promise<BranchStatus | null>;
   /**
-   * The task branch and its current tip, for the delivery snapshot taken when a
-   * task enters `review`. `null` ⇒ no branch worktree (in-place task), nothing
-   * to audit later.
+   * The task branch and the most recent commit that is the task's OWN, for the
+   * delivery snapshot taken when a task enters `review`. Not the branch tip: a
+   * branch born from the shared checkout's HEAD carries commits inherited from
+   * whoever was working there, and pointing the audit at one of those makes the
+   * card claim someone else's work (10/08: `dd2aa40d` → `987cd8ae`).
+   *
+   * `null` ⇒ niente da fotografare (task in-place senza branch, o la domanda non
+   * ha avuto risposta: si lascia stare quel che c'è). `commit: null` ⇒ verificato,
+   * la card non ha prodotto codice — che è un'informazione, e va registrata.
    */
-  taskDeliveryRef?: (taskId: string) => Promise<{ branch: string; commit: string } | null>;
+  taskDeliveryRef?: (taskId: string) => Promise<{ branch: string; commit: string | null } | null>;
   /**
    * Dove girano i checks pre-review: la cartella del worktree del task e il commit
    * su cui sta in quel momento. `null` ⇒ nessun worktree di branch (task in-place),
@@ -265,6 +273,49 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
   const attempts = createTaskAttemptStore(db);
 
   /**
+   * Project "Auto" → the REAL board. Resolve a known project name mentioned in
+   * the task text. Exactly one distinct hit → that board (auto-assigned).
+   * None/ambiguous → the catch-all workspace so the task STILL RUNS standalone
+   * — a project-less task MUST dispatch (by request). The dispatcher only ticks
+   * real boards, so the catch-all is a real (scaffolded, non-git, in-place)
+   * board; its "generale" label is hidden client-side (the card treats it as
+   * "no project"). Only a host with no workspace at all degrades to UNASSIGNED.
+   *
+   * Shared by create AND by the intake suggester: the proposal has to look at
+   * the SAME board the task would be born on, or it would offer to link a
+   * landing-feedback card to whatever sits on the wrong board.
+   */
+  function resolveBoardId(projectId: string, text: unknown, description: unknown): string {
+    if (projectId !== AUTO_PROJECT_ID) return projectId;
+    const haystack = `${typeof text === "string" ? text : ""}\n${typeof description === "string" ? description : ""}`.toLowerCase();
+    const hits = new Set<string>();
+    let dirs: string[] = [];
+    try { dirs = opts?.listProjectDirs?.() ?? []; } catch { /* best-effort */ }
+    for (const raw of dirs) {
+      if (typeof raw !== "string" || !raw.startsWith("/")) continue;
+      const path = raw.replace(/\/+$/, "");
+      const name = basename(path).toLowerCase();
+      if (name.length < 3) continue; // too generic to be a mention
+      const esc = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      if (new RegExp(`(^|[^a-z0-9])${esc}($|[^a-z0-9])`).test(haystack)) hits.add(projectIdForPath(path));
+    }
+    if (hits.size === 1) return [...hits][0];
+    if (!opts?.workspaceDir) return UNASSIGNED_PROJECT_ID; // degraded host (no workspace)
+    const dir = join(opts.workspaceDir, "generale");
+    if (!existsSync(dir)) {
+      try {
+        mkdirSync(dir, { recursive: true });
+        writeFileSync(join(dir, "CLAUDE.md"), "# generale\n\nWorkspace catch-all: i task senza progetto girano qui, in-place (non-git).\n");
+        // Non-git → dispatch in-place (no worktree). Nothing else to set: a
+        // fresh board defaults autoDispatch on, so a project-less task starts
+        // without any manual setup.
+        svc.updateBoardSettings(projectIdForPath(dir), { dispatchUseWorktree: false });
+      } catch { /* fall through to unassigned below */ }
+    }
+    return existsSync(dir) ? projectIdForPath(dir) : UNASSIGNED_PROJECT_ID;
+  }
+
+  /**
    * Land a task's branch on main (merge locally, reap the worktree, rebuild the
    * client if it changed). ON-DEMAND — this used to ride on every approve, which
    * meant approving a task also merged/built "da sotto". Now approve just accepts
@@ -293,10 +344,20 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       branchAfter: branchAfter ?? "gone",
       dirtAfter: dirtAfter ?? [],
     });
-    if (post.action === "keep") {
+    // `free-checkout` — liberare la cartella tenendo il branch — è una decisione
+    // che QUESTO percorso non esegue, di proposito. La passata periodica agisce
+    // su task chiusi che nessuno guarda; qui l'umano ha appena premuto «Landa su
+    // main» su una card ancora in review, e portargli via la cartella sotto le
+    // dita (con magari una shell aperta dentro) mentre legge perché il land non
+    // è passato non fa risparmiare spazio: fa perdere il filo. Il contratto è
+    // uno — `decidePostLandReap` — ma l'autorità di distruggere no.
+    if (post.action === "keep" || post.action === "free-checkout") {
+      const nota = post.action === "free-checkout"
+        ? " Il GC libererà la cartella (conservando il branch) quando il task sarà chiuso."
+        : "";
       svc.addComment({
         taskId, author: "system",
-        content: `⚠️ Worktree NON ripulito: ${post.reason}. Il branch del task è stato conservato — recupera il lavoro o cancellalo a mano.`,
+        content: `⚠️ Worktree NON ripulito: ${post.reason}. Il branch del task è stato conservato — recupera il lavoro o cancellalo a mano.${nota}`,
       });
       return;
     }
@@ -324,10 +385,17 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     try {
       const topic = ctx.getTopicById(a.topicId);
       if (!topic || topic.archived) return;
+      const at = new Date().toISOString();
       topic.archived = true;
-      topic.updatedAt = new Date().toISOString();
+      topic.updatedAt = at;
       ctx.saveSingleTopic(topic);
       broadcastToAll({ type: "topic:archived", topic });
+      // Il fatto (`services/retirement.ts`) accanto al flag. Questa e' la QUARTA
+      // strada che alza `archived` da sola: non la si riscrive qui — il ritiro
+      // per intero e' `archiveTopicFully` — ma senza il timbro il ritiro di un
+      // tentativo perdente sarebbe invisibile alla query che risponde «cosa e'
+      // aperto», che e' precisamente il guasto che si sta chiudendo.
+      recordRetirement(ctx.db, "topic", topic.id, at, "attempt-reap");
     } catch (err) { console.error(`[attempts] archive topic ${a.topicId}`, err); }
   }
 
@@ -1071,6 +1139,36 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         return null;
       }
 
+      // POST /api/boards/:projectId/intake/suggest — "dove va questo testo?".
+      // Sola LETTURA: guarda la board e restituisce al massimo UNA proposta di
+      // collegamento (o niente, che è la risposta giusta quasi sempre). Non
+      // tocca un solo task: l'attribuzione la decide l'umano nel composer e
+      // viaggia dentro la create. Sta fuori dal prefisso `/tasks` di proposito,
+      // così non compete mai con `/tasks/:taskId`.
+      const bIntake = matchRoute(pathname, "/api/boards/:projectId/intake/suggest");
+      if (bIntake && method === "POST") {
+        const body = (await readJSON(req)) as any;
+        try {
+          const text = typeof body?.text === "string" ? body.text : "";
+          const description = typeof body?.description === "string" ? body.description : null;
+          if (!text.trim()) return json({ proposal: null });
+          const boardId = resolveBoardId(bIntake.projectId, text, description);
+          if (boardId === UNASSIGNED_PROJECT_ID) return json({ proposal: null });
+          // rootsOnly: un sottotask è la checklist di qualcun altro, non una
+          // destinazione — appenderci sotto un feedback lo seppellirebbe.
+          const candidates = svc.list({ scope: "project", projectId: boardId, rootsOnly: true });
+          const proposal = proposeLink({
+            text,
+            description,
+            candidates: candidates.map((t) => ({
+              id: t.id, text: t.text, description: t.description, status: t.status, updatedAt: t.updatedAt,
+            })),
+            excludeTaskId: typeof body?.excludeTaskId === "string" ? body.excludeTaskId : null,
+          });
+          return json({ proposal, projectId: boardId });
+        } catch (e) { return fail(e); }
+      }
+
       const bCol = matchRoute(pathname, "/api/boards/:projectId/tasks");
       if (bCol) {
         const projectId = bCol.projectId;
@@ -1083,47 +1181,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         if (method === "POST") {
           const body = (await readJSON(req)) as any;
           try {
-            // Project "Auto": resolve the real board from a known project name
-            // mentioned in the task text. Exactly one distinct hit → that board
-            // (auto-assigned). None/ambiguous → the catch-all workspace so the
-            // task STILL RUNS standalone — a project-less task MUST dispatch (by
-            // request). The dispatcher only ticks real boards, so the catch-all
-            // is a real (scaffolded, non-git, in-place) board; its "generale"
-            // label is hidden client-side (the card treats it as "no project").
-            // Only a host with no workspace at all degrades to UNASSIGNED.
-            let effectiveProjectId = projectId;
-            if (projectId === AUTO_PROJECT_ID) {
-              const haystack = `${body?.text ?? ""}\n${body?.description ?? ""}`.toLowerCase();
-              const hits = new Set<string>();
-              let dirs: string[] = [];
-              try { dirs = opts?.listProjectDirs?.() ?? []; } catch { /* best-effort */ }
-              for (const raw of dirs) {
-                if (typeof raw !== "string" || !raw.startsWith("/")) continue;
-                const path = raw.replace(/\/+$/, "");
-                const name = basename(path).toLowerCase();
-                if (name.length < 3) continue; // too generic to be a mention
-                const esc = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-                if (new RegExp(`(^|[^a-z0-9])${esc}($|[^a-z0-9])`).test(haystack)) hits.add(projectIdForPath(path));
-              }
-              if (hits.size === 1) {
-                effectiveProjectId = [...hits][0];
-              } else if (opts?.workspaceDir) {
-                const dir = join(opts.workspaceDir, "generale");
-                if (!existsSync(dir)) {
-                  try {
-                    mkdirSync(dir, { recursive: true });
-                    writeFileSync(join(dir, "CLAUDE.md"), "# generale\n\nWorkspace catch-all: i task senza progetto girano qui, in-place (non-git).\n");
-                    // Non-git → dispatch in-place (no worktree). Nothing else to
-                    // set: a fresh board defaults autoDispatch on, so a project-
-                    // less task starts without any manual setup.
-                    svc.updateBoardSettings(projectIdForPath(dir), { dispatchUseWorktree: false });
-                  } catch { /* fall through to unassigned below */ }
-                }
-                effectiveProjectId = existsSync(dir) ? projectIdForPath(dir) : UNASSIGNED_PROJECT_ID;
-              } else {
-                effectiveProjectId = UNASSIGNED_PROJECT_ID; // degraded host (no workspace)
-              }
-            }
+            const effectiveProjectId = resolveBoardId(projectId, body?.text, body?.description);
             const task = svc.create({
               projectId: effectiveProjectId,
               text: body?.text,
@@ -1138,6 +1196,32 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               reuseBlockerContext: body?.reuseBlockerContext === true,
             });
             broadcastToAll({ type: "task:created", projectId: effectiveProjectId, task });
+            // Intake: il collegamento accettato si SCRIVE, nei due thread. Un
+            // link muto è il modo in cui un feedback si perde — chi apre la card
+            // bloccata deve leggere perché è ferma, e chi apre il bloccante deve
+            // sapere che qualcuno lo aspetta. Best-effort: la nota non può far
+            // fallire una create già andata a buon fine.
+            try {
+              const kind: LinkKind | null = task.parentTaskId ? "subtask" : task.blockedByTaskId ? "chain" : null;
+              const targetId = task.parentTaskId ?? task.blockedByTaskId;
+              if (kind && targetId && body?.intakeLink === true) {
+                const target = svc.get(targetId, { projectId: effectiveProjectId });
+                if (target) {
+                  const notes = linkNotes({
+                    kind,
+                    newTaskText: task.text,
+                    targetText: target.task.text,
+                    reason: typeof body?.intakeReason === "string" && body.intakeReason.trim()
+                      ? body.intakeReason.trim()
+                      : "Collegamento scelto dall'intake al momento della creazione.",
+                  });
+                  svc.addComment({ taskId: task.id, author: "system", content: notes.onNewTask, projectId: effectiveProjectId });
+                  svc.addComment({ taskId: targetId, author: "system", content: notes.onTargetTask, projectId: effectiveProjectId });
+                  const updatedTarget = svc.get(targetId, { projectId: effectiveProjectId });
+                  if (updatedTarget) broadcastToAll({ type: "task:updated", projectId: effectiveProjectId, task: updatedTarget.task });
+                }
+              }
+            } catch (err) { console.warn(`[Tasks] intake link note failed for ${task.id}:`, err); }
             // A task born directly in Todo is the same "vai" signal as a drag
             // into Todo: same chip, same grace window — not a silent 10s wait
             // for the reconcile poll. No-op when auto-dispatch is off.
@@ -1494,6 +1578,11 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             status: "backlog",
             idempotencyKey: typeof body?.idempotency_key === "string" ? body.idempotency_key : null,
             parentTaskId: typeof body?.parent_task_id === "string" ? body.parent_task_id : null,
+            // PROVENIENZA (migration 093): chi sta scrivendo. Viene dal topic
+            // risolto server-side dalla sessione, mai dal body — è la prova
+            // durevole che uno step è della TUA checklist, e regge il requeue
+            // che azzera `assigned_topic_id` mentre il turno gira.
+            createdByTopicId: sess.topicId,
           });
           broadcastToAll({ type: "task:created", projectId: sess.projectId, task });
           return json(task, 201);

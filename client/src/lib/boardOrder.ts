@@ -42,7 +42,7 @@ import { TASK_STATUSES } from './board';
 export type OrderScope = 'board' | 'cross-project';
 
 /** Il minimo che serve per ordinare: così i test non costruiscono un BoardTask intero. */
-export type OrderableTask = Pick<BoardTask, 'id' | 'kanbanOrder' | 'createdAt' | 'updatedAt'>;
+export type OrderableTask = Pick<BoardTask, 'id' | 'kanbanOrder' | 'createdAt' | 'updatedAt' | 'completedAt'>;
 
 /**
  * Comparatore TOTALE: due task distinti non sono mai pari-merito, quindi
@@ -69,6 +69,26 @@ const compareReview = (a: OrderableTask, b: OrderableTask): number => {
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 };
 
+/**
+ * Done è una cronologia, non una corsia: comanda la data di CHIUSURA, l'ultimo
+ * chiuso in cima. Prima si andava per `kanbanOrder`, che a un task chiuso non
+ * dice niente: approvare dalla review non ne scrive nessuno, quindi la card
+ * conservava la posizione che aveva nella colonna da cui veniva e atterrava in
+ * un punto qualsiasi di Done — chiudere un task non si vedeva.
+ *
+ * `completedAt` è scritto dal server su ENTRAMBE le vie (approvazione e
+ * trascinamento), ma può mancare sulle righe chiuse prima che esistesse: lì si
+ * ripiega su `updatedAt`, che per un task fermo in Done è l'ultima cosa che gli
+ * è successa. Coda di spareggi identica alle altre colonne: l'ordine è totale.
+ */
+const compareDone = (a: OrderableTask, b: OrderableTask): number => {
+  const ka = a.completedAt ?? a.updatedAt;
+  const kb = b.completedAt ?? b.updatedAt;
+  if (ka !== kb) return ka < kb ? 1 : -1;
+  if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? 1 : -1;
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+};
+
 /** Raggruppa per stato e ordina ogni colonna. Una colonna per stato, sempre presente. */
 export function groupByStatus<T extends OrderableTask & { status: TaskStatus }>(
   tasks: readonly T[],
@@ -77,7 +97,9 @@ export function groupByStatus<T extends OrderableTask & { status: TaskStatus }>(
   const byStatus = Object.fromEntries(TASK_STATUSES.map((s) => [s, [] as T[]])) as Record<TaskStatus, T[]>;
   for (const t of tasks) byStatus[t.status]?.push(t);
   const cmp = compareTasks(scope);
-  for (const s of TASK_STATUSES) byStatus[s].sort(s === 'review' ? compareReview : cmp);
+  for (const s of TASK_STATUSES) {
+    byStatus[s].sort(s === 'review' ? compareReview : s === 'done' ? compareDone : cmp);
+  }
   return byStatus;
 }
 
@@ -135,11 +157,12 @@ export function planDrop(args: {
   // Board generale: la posizione non è scrivibile (kanbanOrder è per-progetto).
   if (scope === 'cross-project') return sameColumn ? null : { patch: { status } };
 
-  // Review si ordina per data (vedi `compareReview`): una posizione scritta lì
-  // non si vedrebbe, e resterebbe appesa al task come un numero derivato da
-  // vicini ordinati per tutt'altro — pronto a spostarlo altrove quando la card
-  // torna in una colonna a mano. Si entra in review, non ci si riordina.
-  if (status === 'review') return sameColumn ? null : { patch: { status } };
+  // Review e Done si ordinano per data (vedi `compareReview` / `compareDone`):
+  // una posizione scritta lì non si vedrebbe, e resterebbe appesa al task come
+  // un numero derivato da vicini ordinati per tutt'altro — pronto a spostarlo
+  // altrove quando la card torna in una colonna a mano. Ci si entra, non ci si
+  // riordina.
+  if (status === 'review' || status === 'done') return sameColumn ? null : { patch: { status } };
 
   const col = byStatus[status].filter((t) => t.id !== task.id); // già ordinata
   let idx = overTask ? col.findIndex((t) => t.id === overTask.id) : col.length;

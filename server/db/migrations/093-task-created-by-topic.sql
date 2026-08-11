@@ -1,0 +1,41 @@
+-- 093: CHI ha scritto lo step. La provenienza, che non cambia mai.
+--
+-- Il numero è 093 perché 089/090/091/092 se li sono presi altre card in volo
+-- (vedi l'intestazione di 090-task-dispatch-weight.sql e
+-- `scripts/check-migration-numbers.ts`).
+--
+-- L'11/08 un agent non è più riuscito a spuntare i PROPRI passi: i primi due
+-- `done` sono passati, tutti gli altri hanno risposto 409 «agents deliver to
+-- 'review' … (exception: subtask steps of YOUR assigned task)» — compreso un
+-- sottotask creato in quel momento, con il server che confermava il legame col
+-- padre. Il legame padre-figlio c'era: mancava il RAMO D'ECCEZIONE.
+--
+-- Perché mancava: «è un mio passo» si misurava risalendo la catena dei padri e
+-- chiedendo `assigned_topic_id`, cioè STATO DI DISPATCH. Quello stato vive
+-- quanto il dispatch, non quanto il turno: `release()` lo azzera ogni volta che
+-- il dispatcher rimette in coda o parcheggia (nell'incidente: riavvio del
+-- server alle 22:56, task riportato in `todo`, link azzerato), mentre il turno
+-- dell'agent continua a girare. Da quel secondo in poi la sua checklist non era
+-- più sua. E siccome un task con figli aperti non è approvabile, la consegna
+-- arrivava all'umano con dei passi da chiudere a mano — cioè il gate del
+-- protocollo ("prima di consegnare TUTTI i tuoi step devono essere done") non
+-- era più raggiungibile dall'unico che poteva soddisfarlo.
+--
+-- Questa colonna registra un fatto che non cambia mai: quale topic ha CREATO il
+-- task. Scritta una volta all'inserimento, mai riscritta, indipendente da chi
+-- sta lavorando il padre adesso. `isOwnStep` la legge come seconda strada:
+-- discendente stretto di un task assegnato a te (com'era, e serve ancora — gli
+-- step scritti dall'UMANO sotto il tuo task devi poterli chiudere) OPPURE un
+-- task con padre che hai scritto tu.
+--
+-- Resta STRETTA: `parent_task_id IS NOT NULL` è parte della condizione, quindi
+-- un task di primo livello creato dall'agent NON si apre — il cancello della
+-- review umana sul deliverable è intatto.
+--
+-- NIENTE foreign key su topics(id), a differenza di `assigned_topic_id`. Quello
+-- è un LEGAME VIVO (la board ci fa "apri la tab dell'agente"); questo è un
+-- fatto storico, e deve sopravvivere alla sparizione del topic invece di
+-- impedirne la cancellazione o far fallire una INSERT su un topic non ancora
+-- scritto. NULLABLE, nessun UPDATE di massa: le righe esistenti restano
+-- identiche e continuano a passare dalla vecchia strada (l'antenato assegnato).
+ALTER TABLE tasks ADD COLUMN created_by_topic_id TEXT;

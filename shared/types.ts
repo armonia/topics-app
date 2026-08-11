@@ -106,11 +106,21 @@ export function isAwaitingHuman(status: ToolCallStatus | undefined | null): bool
  * `{ "Permesso richiesto — <tool>": "Consenti sempre" }`, riconosciuta per
  * prefisso di stringa. Funziona finché nessuno tocca un'etichetta.
  *
- * Una domanda ha risposte aperte e le legge un modello. Un permesso ha TRE
- * esiti esatti, li legge il server, e uno dei tre scrive una regola permanente.
- * Sono due cose diverse e ora hanno due stati diversi.
+ * Una domanda ha risposte aperte e le legge un modello. Un permesso ha esiti
+ * ESATTI, li legge il server, e alcuni di loro cambiano il regime di ciò che
+ * verrà dopo. Sono due cose diverse e ora hanno due stati diversi.
+ *
+ * ── Le quattro, e perché non sono tre ───────────────────────────────────────
+ * `allow`/`allow_always`/`deny` sono le tre che la CLI capisce. `allow_free` è
+ * una decisione dell'INTERFACCIA: consente QUESTA richiesta — verso la CLI
+ * viaggia come `allow`, vedi `cliDecisionFor` in `shared/permission-decision.ts`
+ * — e nello stesso gesto porta la sessione in modalità libera, cioè smette di
+ * chiedere. È qui, nell'enum, e non come flag accanto a `allow`, per la stessa
+ * ragione per cui l'enum esiste: la decisione presa si RILEGGE dalla riga di
+ * tool, e «consentito» e «consentito, e da qui in poi non chiedo più» non sono
+ * la stessa cosa da rileggere sei mesi dopo.
  */
-export type PermissionDecision = 'allow' | 'allow_always' | 'deny';
+export type PermissionDecision = 'allow' | 'allow_always' | 'deny' | 'allow_free';
 
 /** Cosa la CLI sta chiedendo di poter fare. Tipato: niente chiavi in prosa. */
 export interface ToolPermissionRequest {
@@ -126,6 +136,15 @@ export interface ToolPermissionRequest {
 export interface ToolPermissionOutcome {
   decision: PermissionDecision;
   decidedAt: string;
+  /**
+   * CHI ha deciso, in una parola leggibile (`etichettaAutore`).
+   *
+   * Scritto solo dove serve saperlo: `allow_free` cambia il regime della
+   * sessione, e un cambio di regime senza un nome accanto è un cambio di regime
+   * di cui nessuno risponde. Sulle altre tre resta assente — un «Consenti» è la
+   * risposta di chi ha la chat aperta, e non c'è niente da attribuire.
+   */
+  actor?: string;
 }
 
 // ─── User-input request / response envelopes ───────────────────────────
@@ -673,6 +692,12 @@ export interface Project {
   color?: string | null;
   icon?: string | null;
   archived: boolean;
+  /** L'organizzazione che lo vede (migration 092). NULL = solo chi possiede questa macchina. */
+  orgId?: string | null;
+  /** Chi l'ha messo qui. Serve al solo caso `incognito`, non è un permesso. */
+  ownerPersonId?: string | null;
+  /** Marcato incognito: fuori dall'elenco dei compagni d'organizzazione. */
+  incognito?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -746,32 +771,13 @@ export interface Checkpoint {
   gitBranch?: string;
 }
 
-/** Una nota della memoria di board (`/api/boards/:projectId/memory`). */
-export interface BoardMemory {
-  id: string;
-  projectId: string;
-  content: string;
-  tags: string[];
-  isChat: boolean;
-  source: string | null;
-  agentId: string | null;
-  createdAt: string;
-}
-
-/**
- * Una riga del log azioni di un agente. `detail` è `unknown`, non `any`: la
- * copia del server diceva `any`, quindi lato server il payload di ogni azione
- * era scrivibile e leggibile senza controlli. Chi lo consuma restringe.
- */
-export interface AgentActionLog {
-  id: string;
-  agentId: string;
-  actionType: string;
-  entityType: string | null;
-  entityId: string | null;
-  detail: unknown;
-  createdAt: string;
-}
+// `BoardMemory` e `AgentActionLog` stavano qui: le forme client di
+// `/api/boards/:projectId/memory`. Quella rotta non esiste — non c'è un
+// handler, non c'è un lettore, e le tabelle `board_memory`/`agent_action_log`
+// (migration 002) non hanno scrittori. I due tipi arrivavano fino al client solo
+// attraverso un re-export in `client/src/lib/api.ts` che nessuno importava, e il
+// cancello sul codice morto non poteva dirlo perché su quel file era cieco. Le
+// tabelle restano dov'erano: cancellare SQL è un'altra decisione.
 
 // ────────────────────────────────────────────────────────────────────────────
 // Provider / context envelope
@@ -889,6 +895,15 @@ export interface ClaudeSessionState {
   jsonlPath?: string;
   /** Offset già consumato del transcript. Come sopra: server-side, ma copiato sul filo. */
   jsonlOffset: number;
+  /**
+   * Byte watermark del MESSAGE importer per una sessione ADOTTATA — quanti byte
+   * del transcript sono già stati riflessi nelle righe `messages` del topic.
+   * Distinto da `jsonlOffset` (che è del tracker delle fasi): due lettori dello
+   * stesso file avanzano a ritmi diversi. `null`/assente = la sessione NON va
+   * importata dal JSONL (ogni sessione nativa, i cui messaggi arrivano dallo
+   * stream). Lo imposta solo `adopt-claude`. Server-side; sul filo per il debug.
+   */
+  importOffset?: number | null;
   pendingApproval?: ClaudeSessionPendingApproval;
   lastTool?: ClaudeSessionActiveTool;
   lastHookAt?: number;

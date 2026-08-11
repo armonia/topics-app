@@ -80,8 +80,6 @@ interface MessageListProps {
   onFileDragOver: (e: React.DragEvent) => void;
   onFileDragLeave: (e: React.DragEvent) => void;
   onFileDrop: (e: React.DragEvent) => void;
-  onPlanApprove?: () => void;
-  onPlanReject?: () => void;
   onPlanDecision?: (approved: boolean) => void;
   onRemember?: (msg: ChatMessage) => void;
   onEdit?: (msg: ChatMessage) => void;
@@ -122,8 +120,6 @@ export function MessageList({
   onFileDragOver,
   onFileDragLeave,
   onFileDrop,
-  onPlanApprove,
-  onPlanReject,
   onPlanDecision,
   onRemember,
   onEdit,
@@ -1541,8 +1537,6 @@ export function MessageList({
                   onReply={onReply}
                   onCopy={onCopy}
                   onTogglePin={onTogglePin}
-                  onPlanApprove={isLastAssistant ? onPlanApprove : undefined}
-                  onPlanReject={isLastAssistant ? onPlanReject : undefined}
                   // La decisione sul piano NON è gatata sull'ultimo messaggio:
                   // il pannello sta sulla riga del tool che ha proposto, che può
                   // essere più su se nel frattempo è arrivato altro.

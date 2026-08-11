@@ -226,12 +226,16 @@ export function usePaneLifecycle(args: UsePaneLifecycleArgs): UsePaneLifecycleRe
     }
   }, [ordering.ops, activePaneId, validatedOrderedIds, onFocusPanel, onClosePanel]);
 
+  // La pane si chiude solo se la chat è stata davvero buttata via, e a dirlo è
+  // il server (`stopSession` risolve sul suo `cleared`). Quando decideva il
+  // client, uno Stop su un primo turno che aveva già lavorato chiudeva la pane
+  // di una chat che il server teneva intatta.
   const handleStopStreaming = useCallback((paneId: string) => {
     const topic = topics[paneId];
-    if (topic) {
-      const isFirst = stopSession(topic.sessionKey);
-      if (isFirst) onClosePanel(paneId);
-    }
+    if (!topic) return;
+    void stopSession(topic.sessionKey).then((discarded) => {
+      if (discarded) onClosePanel(paneId);
+    });
   }, [topics, stopSession, onClosePanel]);
 
   const handleSettings = useCallback((paneId: string) => {

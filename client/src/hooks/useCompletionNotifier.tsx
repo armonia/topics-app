@@ -9,6 +9,9 @@ import { decideTerminalBanner, statusBody, isTerminalPaneSelected, isTabActively
 import { useProjectFocusStore } from '../state/projectFocus';
 import { isAgentTurnNoise } from '../lib/notify/dispatchedTopic';
 import { isTopicMuted as isTopicMutedPure } from '../lib/notify/muteGate';
+import { bannerClaimKey, bannerClaimant, claimMessageBanner } from '../lib/notify/messageBannerClaim';
+import { decideMessageBanner } from '../lib/notify/messageBanner';
+import { isAgentWorking } from '../lib/board';
 import type { TopicTaskResolver } from './useTaskTopicIndex';
 
 interface CompletionNotifierProps {
@@ -33,6 +36,13 @@ interface CompletionNotifierProps {
    *  `dispatchState` dice se l'agente sta lavorando ADESSO, che è la condizione
    *  per zittire la fine turno (isAgentTurnNoise). */
   taskForTopic?: TopicTaskResolver;
+  /** True se QUESTA finestra sta streammando quella sessione (useChat →
+   *  `isOwnStream`). Il banner di `message:new` lo salta: la pane che streamma
+   *  ha già il messaggio in pagina. Era un gate implicito del vecchio sito di
+   *  chiamata in `usePanelLifecycle` (il `return` del bail su isOwnStream usciva
+   *  dall'intero handler, banner compreso); viaggia esplicito perché una
+   *  soppressione che dipende da dove sta scritto il codice non è una regola. */
+  isOwnStream?: (sessionKey: string) => boolean;
 }
 
 /**
@@ -129,6 +139,7 @@ export function useCompletionNotifier({
   focusedPanelId,
   terminalSessions,
   taskForTopic,
+  isOwnStream,
 }: CompletionNotifierProps): void {
   // Prime OS-notification permission once on mount. In a browser tab this raises
   // the one-time prompt so later completions can surface a system banner.
@@ -162,12 +173,18 @@ export function useCompletionNotifier({
   // suono e' acceso, cosi' il banner del sistema resta muto e non si sente due
   // volte. `taskId` (quando la topic lavora un task dispatchato) rende il
   // banner cliccabile → apre il drawer di quel task.
+  //
+  // `tag` (solo web) collassa i banner che si sostituiscono a vicenda invece di
+  // impilarli: due messaggi dello stesso topic sono UNA cosa da guardare, non
+  // due. Sotto Tauri non esiste — lì il compito lo fa la cooldown del
+  // chiamante.
   const fire = useCallback((
     _level: 'ok' | 'warn',
     title: string,
     body: string,
     sound: boolean,
     taskId?: string | null,
+    tag?: string,
   ) => {
     // Gate su Focus/Non disturbare. Se il sistema ci dice CON CERTEZZA che c'è un
     // Focus attivo, l'app tace del tutto — banner E suono. L'informazione non si
@@ -175,7 +192,7 @@ export function useCompletionNotifier({
     // solo il rumore. `isFocusSilencing()` è false su web e ovunque lo stato non
     // sia leggibile → di default si notifica normalmente (nessun falso silenzio).
     if (isFocusSilencing()) return;
-    notifyNative(title, body, { silent: true, taskId: taskId ?? undefined });
+    notifyNative(title, body, { silent: true, taskId: taskId ?? undefined, tag });
     if (sound) playCompletionTone();
   }, []);
 
@@ -187,6 +204,7 @@ export function useCompletionNotifier({
   const focusedRef = useRefMirror(focusedPanelId);
   const terminalSessionsRef = useRefMirror(terminalSessions);
   const taskForTopicRef = useRefMirror(taskForTopic);
+  const isOwnStreamRef = useRefMirror(isOwnStream);
 
   // Per-topic cooldown (10s) so two completions in quick succession on
   // the same topic don't double-banner.
@@ -259,6 +277,55 @@ export function useCompletionNotifier({
         cfg.notificationsSound,
         taskId,
       );
+  });
+
+  // ── Banner del messaggio a finestra nascosta ───────────────────────────
+  // Un messaggio dell'assistente arrivato mentre non guardavi. Viveva in
+  // `usePanelLifecycle`, dentro il cluster WS che sincronizza i messaggi, e da
+  // lì chiamava `notifyNative` di suo — cioè fuori da questa porta, e quindi
+  // fuori da TUTTI i suoi gate: suonava a topic silenziato, suonava con un Focus
+  // attivo, suonava con l'interruttore generale delle notifiche spento. Tre
+  // promesse dell'interfaccia che quel percorso non manteneva.
+  //
+  // I gate che quel sito aveva davvero — e che qui restano — erano due, e
+  // impliciti: stavano nel `return` di un `if` PRECEDENTE dello stesso handler
+  // (isOwnStream, corpo vuoto), non in una condizione del banner. Ora sono
+  // scritti, perché una soppressione che dipende dall'ordine delle righe non è
+  // una regola: è una coincidenza che il prossimo refactor rompe in silenzio.
+  //
+  // L'ordine conta: prima tutti i gate SINCRONI, la claim per ultima. Una
+  // finestra che comunque tacerebbe non deve potersi mangiare la consegna di una
+  // che invece parlerebbe.
+  useWSSubscription(onWSMessage, 'message:new', (msg) => {
+      const cfg = settingsRef.current;
+      const task = taskForTopicRef.current?.(msg.topicId) ?? null;
+      const decision = decideMessageBanner({
+        topicId: msg.topicId,
+        role: msg.role,
+        visibilityState: typeof document !== 'undefined' ? document.visibilityState : 'hidden',
+        notificationsEnabled: cfg.notificationsEnabled,
+        isOwnStream: isOwnStreamRef.current?.(msg.sessionKey) ?? false,
+        body: msg.preview || msg.content || '',
+        topicName: topicsRef.current[msg.topicId]?.name,
+        muted: isTopicMuted(msg.topicId),
+        agentWorking: isAgentWorking(task?.dispatchState),
+        lastFiredAt: cooldownRef.current.get(`msg:${msg.topicId}`),
+        now: Date.now(),
+      });
+      if (!decision) return;
+      cooldownRef.current.set(decision.cooldownKey, Date.now());
+
+      // Una consegna per MESSAGGIO, non una per finestra. Il frame è un
+      // broadcast: con i gruppi staccati lo ricevono N finestre, e i gate qui
+      // sopra sono veri in tutte contemporaneamente — nessuno di loro può
+      // scegliere. Serve un fatto condiviso, ed è la claim.
+      //
+      // Ultima, e apposta: una finestra che comunque tacerebbe non deve potersi
+      // mangiare la consegna di una che invece parlerebbe.
+      void claimMessageBanner(bannerClaimKey(msg), bannerClaimant()).then((mine) => {
+        if (!mine) return;
+        fire('ok', decision.title, decision.body, cfg.notificationsSound, null, decision.tag);
+      });
   });
 
   // ── Claude Code session-state notifier ─────────────────────────────────

@@ -95,6 +95,51 @@ describe("buildClaudeArgs — il cancello sulle immagini nel contesto", () => {
   });
 });
 
+describe("buildClaudeArgs — il catalogo delle skill fuori dal prefisso", () => {
+  // Misurato il 10/08/2026 con l'argv del dispatch vero (CLI 2.1.226, opus,
+  // stessa cwd e stesso config MCP): l'elenco delle skill dell'utente pesa
+  // 14.067 byte e vale 4.210 token di PREFISSO — che un task da ~40 turni
+  // ripaga ogni volta, per una lista che l'agente non usa.
+  function settings(opts: Record<string, unknown>) {
+    const args = buildClaudeArgs({ ...BASE, ...opts } as never);
+    const i = args.indexOf("--settings");
+    return i < 0 ? null : JSON.parse(args[i + 1]!);
+  }
+
+  test("acceso: soli NOMI nell'elenco, e il deferral resta nello STESSO `--settings`", () => {
+    const s = settings({ toolSearch: "1", slimSkillListing: true });
+    expect(s.skillListingMaxDescChars).toBe(1);
+    // La CLI prende l'ULTIMO `--settings`: un secondo flag farebbe sparire in
+    // silenzio il deferral degli schemi (-71,5% di prefisso).
+    expect(buildClaudeArgs({ ...BASE, toolSearch: "1", slimSkillListing: true })
+      .filter((a) => a === "--settings").length).toBe(1);
+    expect(s.env.ENABLE_TOOL_SEARCH).toBe("1");
+  });
+
+  test("1 e non 0: lo zero la CLI lo ignora e l'elenco resta intero", () => {
+    // Misurato: `skillListingMaxDescChars: 0` lascia l'attachment `skill_listing`
+    // identico al default (9.096 B), `1` lo porta a 2.130.
+    expect(settings({ slimSkillListing: true })!.skillListingMaxDescChars).toBe(1);
+  });
+
+  test("da sola accende `--settings`: non dipende dal deferral", () => {
+    const s = settings({ slimSkillListing: true });
+    expect(s).toEqual({ skillListingMaxDescChars: 1 });
+  });
+
+  test("spento per le chat: una persona le skill le sceglie leggendo cosa fanno", () => {
+    expect(settings({ toolSearch: "1", slimSkillListing: false })).toEqual({ env: { ENABLE_TOOL_SEARCH: "1" } });
+    expect(buildClaudeArgs({ ...BASE })).not.toContain("--settings");
+  });
+
+  test("le skill NON spariscono: `--disable-slash-commands` non compare", () => {
+    // Il cambio toglie il CATALOGO, non la capacità: i nomi restano nell'elenco
+    // e `Skill` resta chiamabile.
+    expect(buildClaudeArgs({ ...BASE, slimSkillListing: true })).not.toContain("--disable-slash-commands");
+    expect(buildClaudeArgs({ ...BASE, slimSkillListing: true })).not.toContain("--bare");
+  });
+});
+
 describe("buildClaudeArgs — la fotografia", () => {
   test("sessione NUOVA, effort e strict attivi", () => {
     expect(buildClaudeArgs({ ...BASE, effort: "xhigh" })).toEqual([

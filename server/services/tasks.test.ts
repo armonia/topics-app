@@ -1,5 +1,8 @@
 import { test, expect, describe, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createTaskService, isLandActionLabel, isPublishActionLabel, LAND_ACTION_LABEL, PUBLISH_ACTION_LABEL, projectIdForPath, TaskServiceError, type TaskService } from "./tasks";
 
 describe("reserved action labels", () => {
@@ -36,14 +39,14 @@ function freshDb(): Database {
     claude_task_id TEXT, assigned_topic_id TEXT REFERENCES topics(id), archived INTEGER NOT NULL DEFAULT 0,
     assigned_agent_id TEXT, in_progress_at TEXT,
     dispatch_attempts INTEGER NOT NULL DEFAULT 0, dispatch_state TEXT, dispatch_error TEXT,
-    dispatch_deferred_until TEXT,
+    dispatch_deferred_until TEXT, dispatch_weight TEXT,
     parent_task_id TEXT REFERENCES tasks(id), output_url TEXT, plan_first INTEGER NOT NULL DEFAULT 0,
     agent_ms INTEGER NOT NULL DEFAULT 0, agent_tokens INTEGER NOT NULL DEFAULT 0,
     agent_cache_read_tokens INTEGER NOT NULL DEFAULT 0,
     model TEXT, blocked_by_task_id TEXT REFERENCES tasks(id), reuse_blocker_context INTEGER NOT NULL DEFAULT 0,
     priority_auto INTEGER NOT NULL DEFAULT 1, preview_image TEXT,
     checks_state TEXT, checks_at TEXT, checks_commit TEXT, checks_json TEXT,
-    delivered_by TEXT, delivered_reason TEXT
+    delivered_by TEXT, delivered_reason TEXT, created_by_topic_id TEXT
   )`);
   db.run(`CREATE UNIQUE INDEX idx_tasks_claude_task_id ON tasks(claude_task_id) WHERE claude_task_id IS NOT NULL`);
   db.run(`CREATE TABLE board_settings (
@@ -437,6 +440,40 @@ describe("own steps carve-out (KANBAN-08: the agent checks off its own checklist
     s.create({ projectId: PID, text: "sub-step", status: "backlog", parentTaskId: step.id });
     expect(() => s.update({ taskId: step.id, actor: "agent", by: "claude", agentTopicId: "top-1", patch: { status: "done" } }))
       .toThrow(/open subtasks/);
+  });
+
+  // L'INCIDENTE dell'11/08 (task f9d60212). Il legame che rendeva "miei" gli step
+  // era `assigned_topic_id` del PADRE — cioè stato di dispatch, che vive quanto
+  // il dispatch e non quanto il turno. `release()` lo azzera quando rimette in
+  // coda o parcheggia, e il turno dell'agent NON muore con quella riga: da lì in
+  // poi ogni `done` sulla propria checklist tornava 409, e la consegna arrivava
+  // all'umano con gli step aperti (che un task con figli aperti non è nemmeno
+  // approvabile). La provenienza — CHI ha scritto lo step — non cambia mai.
+  test("il rimescolamento del dispatch non porta via all'agent la SUA checklist", () => {
+    const step = s.create({ projectId: PID, text: "step", status: "backlog", parentTaskId: parentId, createdByTopicId: "top-1" });
+    s.release({ taskId: parentId, requeue: true, reason: "rimesso in coda dal dispatcher", by: "dispatcher" });
+    const done = s.update({ taskId: step.id, actor: "agent", by: "claude", agentTopicId: "top-1", patch: { status: "done" } });
+    expect(done.status).toBe("done");
+  });
+
+  test("nemmeno un ri-dispatch a un ALTRO topic: gli step che ho scritto io restano miei", () => {
+    const step = s.create({ projectId: PID, text: "step", status: "backlog", parentTaskId: parentId, createdByTopicId: "top-1" });
+    db.prepare("UPDATE tasks SET assigned_topic_id = 'top-2' WHERE id = ?").run(parentId);
+    const done = s.update({ taskId: step.id, actor: "agent", by: "claude", agentTopicId: "top-1", patch: { status: "done" } });
+    expect(done.status).toBe("done");
+  });
+
+  test("STRICT anche sulla provenienza: un task SENZA padre creato da me resta dietro il gate", () => {
+    const mine = s.create({ projectId: PID, text: "un task che ho creato io", createdByTopicId: "top-1" });
+    expect(() => s.update({ taskId: mine.id, actor: "agent", by: "claude", agentTopicId: "top-1", patch: { status: "done" } }))
+      .toThrow(/only a human/);
+  });
+
+  test("la provenienza di un ALTRO agent non apre nulla", () => {
+    const step = s.create({ projectId: PID, text: "step", status: "backlog", parentTaskId: parentId, createdByTopicId: "top-1" });
+    db.prepare("UPDATE tasks SET assigned_topic_id = NULL WHERE id = ?").run(parentId);
+    expect(() => s.update({ taskId: step.id, actor: "agent", by: "claude", agentTopicId: "top-2", patch: { status: "done" } }))
+      .toThrow(/only a human/);
   });
 });
 
@@ -1188,6 +1225,70 @@ describe("blocked-by dependency", () => {
     expect(s.isDispatchBlocked(b.id)).toBe(false);
   });
 
+  test("il bloccante arriva RISOLTO nel payload, anche quando NON è nella lista della board", () => {
+    // Un sottotask come bloccante: la board fetcha `rootsOnly`, quindi il client
+    // non ce l'ha mai in mano — ed è esattamente il caso in cui il chip spariva.
+    const parent = s.create({ projectId: PID, text: "epica" });
+    const step = s.create({ projectId: PID, text: "lo step che blocca", parentTaskId: parent.id });
+    const dep = s.create({ projectId: PID, text: "dipendente", blockedByTaskId: step.id, status: "todo" });
+    expect(dep.blockedBy).toEqual({ id: step.id, text: "lo step che blocca", status: "backlog", archived: false });
+
+    const roots = s.list({ scope: "project", projectId: PID, rootsOnly: true });
+    expect(roots.map((t) => t.id)).not.toContain(step.id); // fuori dalla lista…
+    expect(roots.find((t) => t.id === dep.id)?.blockedBy?.text).toBe("lo step che blocca"); // …ma risolto lo stesso
+
+    // Anche in lettura singola e — cosa che conta per il WS — in SCRITTURA:
+    // ogni `task:updated` porta il bloccante risolto, non solo i fetch pieni.
+    expect(s.get(dep.id)?.task.blockedBy?.text).toBe("lo step che blocca");
+    const touched = s.update({ taskId: dep.id, actor: "human", by: "u", patch: { priority: 3 } });
+    expect(touched.blockedBy?.text).toBe("lo step che blocca");
+  });
+
+  test("il contatore «N in attesa» lo risolve il server: conta anche i dipendenti fuori dalla lista", () => {
+    // L'altra metà del legame. Il client contava i dipendenti fra i task
+    // fetchati — un progetto, `rootsOnly`, non archiviati: un dipendente che è
+    // un sottotask, o che sta in un altro progetto, non veniva contato e la
+    // card del bloccante si presentava libera.
+    const bloccante = s.create({ projectId: PID, text: "bloccante", status: "todo" });
+    const epica = s.create({ projectId: PID, text: "epica" });
+    const sottotask = s.create({ projectId: PID, text: "step", parentTaskId: epica.id, blockedByTaskId: bloccante.id });
+    const altroProgetto = s.create({ projectId: "altro-progetto-x", text: "fuori progetto", blockedByTaskId: bloccante.id });
+    const inLista = s.create({ projectId: PID, text: "dipendente in lista", blockedByTaskId: bloccante.id, status: "todo" });
+
+    const roots = s.list({ scope: "project", projectId: PID, rootsOnly: true });
+    const card = roots.find((t) => t.id === bloccante.id);
+    expect(roots.map((t) => t.id)).not.toContain(sottotask.id);   // fuori dalla lista…
+    expect(roots.map((t) => t.id)).not.toContain(altroProgetto.id); // …e anche questo…
+    expect(card?.waitingOnCount).toBe(3);                          // …ma contati lo stesso
+
+    // In lettura singola e — cosa che conta per il WS — in SCRITTURA: ogni
+    // `task:updated` porta il contatore, non solo i fetch pieni.
+    expect(s.get(bloccante.id)?.task.waitingOnCount).toBe(3);
+    expect(s.update({ taskId: bloccante.id, actor: "human", by: "u", patch: { priority: 3 } }).waitingOnCount).toBe(3);
+
+    // Vivi = non done e non archiviati: gli stessi che il gate di dispatch tiene
+    // fermi e che ripartono quando il bloccante chiude.
+    s.update({ taskId: inLista.id, actor: "human", by: "u", patch: { status: "done" } });
+    expect(s.get(bloccante.id)?.task.waitingOnCount).toBe(2);
+    s.archive({ taskId: altroProgetto.id });
+    expect(s.get(bloccante.id)?.task.waitingOnCount).toBe(1);
+    // Sciolto il legame, il contatore va a zero (e chi non blocca nessuno sta a 0).
+    s.update({ taskId: sottotask.id, actor: "human", by: "u", patch: { blockedByTaskId: null } });
+    expect(s.get(bloccante.id)?.task.waitingOnCount).toBe(0);
+    expect(s.get(epica.id)?.task.waitingOnCount).toBe(0);
+  });
+
+  test("done e archiviato viaggiano nel payload: sono i due bit che spengono il chip", () => {
+    const a = s.create({ projectId: PID, text: "bloccante" });
+    const b = s.create({ projectId: PID, text: "dipendente", blockedByTaskId: a.id });
+    s.update({ taskId: a.id, actor: "human", by: "u", patch: { status: "done" } });
+    expect(s.get(b.id)?.task.blockedBy).toMatchObject({ status: "done", archived: false });
+    // Archiviato: la riga esce dalla board ma il link resta, e il payload lo dice
+    // (un `null` muto non distinguerebbe "non blocca più" da "non lo trovo").
+    s.archive({ taskId: a.id });
+    expect(s.get(b.id)?.task.blockedBy).toMatchObject({ id: a.id, archived: true });
+  });
+
   test("self-block and cycles are rejected; clearing works", () => {
     const a = s.create({ projectId: PID, text: "a" });
     const b = s.create({ projectId: PID, text: "b" });
@@ -1383,5 +1484,142 @@ describe("il park è autoritativo: l'agente scartato non si riprende il task", (
     s.release({ taskId: id, requeue: false, parkState: "failed" });
     const out = s.update({ taskId: id, actor: "human", by: "user", patch: { status: "todo" } });
     expect(out.status).toBe("todo");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Il ramo DIAGRAMMA, e i due controlli che lo accompagnano.
+//
+// `PREVIEW_RULE` ha un terzo ramo per le consegne senza superficie renderizzata
+// (un piano, un'architettura, una migrazione): si consegna un diagramma `.svg`.
+// Senza `svg` fra le estensioni promuovibili quel ramo nasceva morto — l'agente
+// allegava il diagramma e la card restava cieca. Qui i file sono VERI su disco:
+// il gate di forma legge l'header, e con path finti non misurerebbe niente.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("anteprima: ramo diagramma, gate di forma, duplicati", () => {
+  let db: Database;
+  let dir: string;
+  let n = 0;
+  const mk = () => createTaskService(db, { now: () => new Date().toISOString(), uuid: () => `dg-${++n}` });
+  beforeEach(() => { db = freshDb(); dir = mkdtempSync(join(tmpdir(), "task-preview-")); });
+
+  const preview = (id: string) =>
+    (db.prepare("SELECT preview_image FROM tasks WHERE id = ?").get(id) as any)?.preview_image ?? null;
+  const notes = (id: string) =>
+    (db.prepare("SELECT content FROM task_comments WHERE task_id = ? AND kind = 'review-note'").all(id) as any[])
+      .map((r) => r.content as string);
+
+  const write = (name: string, bytes: Buffer | string): string => {
+    const p = join(dir, name);
+    writeFileSync(p, bytes);
+    return p;
+  };
+  /** Header PNG (firma + IHDR): è tutto ciò che il gate di forma legge. */
+  const png = (name: string, w: number, h: number): string => {
+    const b = Buffer.alloc(33);
+    b.writeUInt32BE(0x89504e47, 0); b.writeUInt32BE(0x0d0a1a0a, 4);
+    b.writeUInt32BE(13, 8); b.write("IHDR", 12, "latin1");
+    b.writeUInt32BE(w, 16); b.writeUInt32BE(h, 20); b[24] = 8; b[25] = 6;
+    return write(name, b);
+  };
+  const svg = (name: string, w: number, h: number): string =>
+    write(name, `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}"><rect width="40" height="20"/></svg>`);
+
+  test("un .svg allegato al commento di consegna DIVENTA l'anteprima della card", () => {
+    const s = mk();
+    const t = s.create({ projectId: PID, text: "piano di migrazione" });
+    const diagram = svg("piano.svg", 900, 420);
+    s.addComment({ taskId: t.id, author: "claude", content: "consegna: lo schema del piano", media: [diagram] });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    expect(preview(t.id)).toBe(diagram);
+    expect(s.get(t.id)!.task.previewImage).toBe(diagram); // e arriva fino al client
+  });
+
+  test("un'immagine più alta che larga (h/w > 0.7) non viene promossa e lascia una nota", () => {
+    const s = mk();
+    const t = s.create({ projectId: PID, text: "piano fotografato" });
+    s.addComment({ taskId: t.id, author: "claude", content: "consegna", media: [png("intero-piano.png", 1200, 4000)] });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+
+    expect(preview(t.id)).toBeNull();
+    expect(notes(t.id)[0]).toContain("1200×4000");
+    expect(notes(t.id)[0]).toContain("DIAGRAMMA");
+  });
+
+  test("il rifiuto NON blocca la consegna: il task resta in review, l'allegato nel thread", () => {
+    const s = mk();
+    const t = s.create({ projectId: PID, text: "piano fotografato" });
+    const tall = png("alta.png", 1000, 3000);
+    s.addComment({ taskId: t.id, author: "claude", content: "consegna", media: [tall] });
+    const after = s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+
+    expect(after.status).toBe("review");
+    const thread = s.get(t.id)!.comments;
+    expect(thread.some((c) => (c.media ?? []).includes(tall))).toBe(true);
+  });
+
+  test("la nota non si ripete: la promozione ripassa dallo stesso file a ogni commento", () => {
+    // Clock che avanza: la promozione legge i commenti ORDER BY created_at DESC,
+    // e con timestamp identici l'ordine è arbitrario (visto: il test passava da
+    // solo e cadeva nella suite intera).
+    const clock = { t: Date.parse("2026-08-10T09:00:00.000Z") };
+    let k = 0;
+    const s = createTaskService(db, { now: () => new Date(clock.t).toISOString(), uuid: () => `dgn-${++k}` });
+    const t = s.create({ projectId: PID, text: "piano" });
+    const tall = png("alta.png", 800, 2400);
+    s.addComment({ taskId: t.id, author: "claude", content: "consegna", media: [tall] });
+    clock.t += 60_000;
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    clock.t += 60_000;
+    s.addComment({ taskId: t.id, author: "claude", content: "e ancora", media: [tall] });
+    expect(notes(t.id).length).toBe(1);
+    // Un file DIVERSO è un rifiuto diverso, e quello si dice.
+    clock.t += 60_000;
+    s.addComment({ taskId: t.id, author: "claude", content: "un'altra", media: [png("alta2.png", 800, 2400)] });
+    expect(notes(t.id).length).toBe(2);
+  });
+
+  test("appena sotto la soglia passa: il gate taglia il documento fotografato, non il quasi-quadrato", () => {
+    const s = mk();
+    const t = s.create({ projectId: PID, text: "un pannello" });
+    const ok = png("pannello.png", 1000, 690); // 0.69
+    s.addComment({ taskId: t.id, author: "claude", content: "consegna", media: [ok] });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    expect(preview(t.id)).toBe(ok);
+    expect(notes(t.id)).toEqual([]);
+  });
+
+  test("forma non misurabile (un video, un formato che non si legge) ⇒ si promuove lo stesso", () => {
+    const s = mk();
+    const t = s.create({ projectId: PID, text: "comportamento" });
+    const clip = write("clip.webm", Buffer.alloc(2048)); // nessun header leggibile
+    s.addComment({ taskId: t.id, author: "claude", content: "consegna", media: [clip] });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    expect(preview(t.id)).toBe(clip);
+  });
+
+  test("anteprima byte-identica a quella di un altro task: SEGNALE, non blocco", () => {
+    const s = mk();
+    const a = s.create({ projectId: PID, text: "il primo task" });
+    const b = s.create({ projectId: PID, text: "il secondo task" });
+    const one = svg("uno.svg", 600, 300);
+    const clone = write("due.svg", readFileSync(one)); // stesso contenuto, altro path
+
+    s.update({ taskId: a.id, actor: "agent", by: "claude", patch: { previewImage: one } });
+    const after = s.update({ taskId: b.id, actor: "agent", by: "claude", patch: { previewImage: clone } });
+
+    expect(after.previewImage).toBe(clone);      // messa comunque: è un segnale
+    expect(notes(b.id)[0]).toContain("IDENTICA");
+    expect(notes(b.id)[0]).toContain(a.id);
+    expect(notes(a.id)).toEqual([]);             // il primo non c'entra niente
+  });
+
+  test("anteprime diverse: nessun rumore nel thread", () => {
+    const s = mk();
+    const a = s.create({ projectId: PID, text: "primo" });
+    const b = s.create({ projectId: PID, text: "secondo" });
+    s.update({ taskId: a.id, actor: "agent", by: "claude", patch: { previewImage: svg("a.svg", 600, 300) } });
+    s.update({ taskId: b.id, actor: "agent", by: "claude", patch: { previewImage: svg("b.svg", 640, 300) } });
+    expect(notes(b.id)).toEqual([]);
   });
 });

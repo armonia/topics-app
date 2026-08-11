@@ -516,7 +516,7 @@ export function usePersistedTaskLayout(taskId: string | null): TaskLayoutState {
 /** Map a task browser tab to a `Pane` for the layout engine (never enters
  *  pane-store-v2). `browser:<contextId>` is the id RemoteBrowserPanel already
  *  reports activity under. */
-export function tabToPane(tab: { contextId: string; url: string; title: string; titleSource?: 'auto' | 'user' }): Pane {
+export function tabToPane(tab: { contextId: string; url: string; title: string; titleSource?: 'auto' | 'agent' | 'user' }): Pane {
   return {
     id: `browser:${tab.contextId}`,
     type: 'browser',

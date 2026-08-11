@@ -937,6 +937,48 @@ html, body {
   border-radius: 8px;
 }
 
+/* Una card che ATTRAVERSA il confine verso Done. Chiudere un task — trascinandolo
+   o approvandolo dal drawer — non lasciava nessun segno visivo: la card riappariva
+   in una colonna che di norma sta fuori dal campo visivo, e non si sapeva se il
+   click avesse fatto qualcosa. Il lampo dura quanto serve a seguirla con l'occhio,
+   poi sparisce da solo.
+   Solo box-shadow: nessun transform (i vicini di un drag in corso non si devono
+   spostare) e nessun background-color, che sostituirebbe `bg-surface` e farebbe
+   sfarfallare la card sul finale. La tinta è un'ombra INSET a raggio enorme:
+   copre la card e si compone sopra il suo fondo invece di rimpiazzarlo. */
+/* TIENE, poi svanisce. Con una sola sfumata da 0% a 100% e `ease-out` quasi
+   tutto il calo avviene nei primi decimi: misurato sul video della spec, il
+   verde restava sopra soglia per ~0,2 s su 2,4 — un guizzo che si perde se
+   guardavi l'altra metà dello schermo. I due fotogrammi identici in testa sono
+   una pausa: 45% del tempo acceso e fermo, il resto per spegnersi. */
+@keyframes taskDoneFlash {
+  0%, 45% {
+    box-shadow: 0 0 0 2px rgb(52 211 153 / 0.9), 0 0 18px 2px rgb(52 211 153 / 0.45),
+                inset 0 0 0 999px rgb(52 211 153 / 0.16);
+  }
+  75% {
+    box-shadow: 0 0 0 2px rgb(52 211 153 / 0.5), 0 0 12px 1px rgb(52 211 153 / 0.2),
+                inset 0 0 0 999px rgb(52 211 153 / 0.08);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgb(52 211 153 / 0), 0 0 0 0 rgb(52 211 153 / 0),
+                inset 0 0 0 999px rgb(52 211 153 / 0);
+  }
+}
+
+.task-done-flash {
+  animation: taskDoneFlash 2.4s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Il segnale resta, il movimento no: l'anello si accende e si spegne quando il
+     timer toglie la classe, senza sfumare. */
+  .task-done-flash {
+    animation: none;
+    box-shadow: 0 0 0 2px rgb(52 211 153 / 0.6), inset 0 0 0 999px rgb(52 211 153 / 0.12);
+  }
+}
+
 /* Skeleton loading animation */
 @keyframes shimmer {
   0% { background-position: -200% 0; }
@@ -1445,14 +1487,41 @@ input[type="range"]::-webkit-slider-thumb {
  * Un bottone invisibile ma cliccabile in un angolo non è una trappola qui:
  * entrare nella barra lo accende PRIMA che tu possa raggiungerlo. */
 
-.row-actions { display: flex; align-items: center; justify-content: center; }
+.row-actions {
+  display: flex; align-items: center; justify-content: center;
+  /* La SCATOLA del comando, in pixel: specchia `ROW_ACTION_BOX`
+   * (`w-9 h-9 md:w-7 md:h-7`). Serve qui perché l'incasso qui sotto si calcola
+   * a partire da essa, e nessuna media query può leggere una costante TS. */
+  --row-action-box: 36px;
+}
+@media (min-width: 768px) { .row-actions { --row-action-box: 28px; } }
 @media (hover: hover) {
   .row-actions {
     position: absolute;
-    /* 8px = `ROW_PX`, cioè il bordo interno del contenuto: il comando finisce
-     * dove finiscono i segnali che copre. Il numero è ricalcolato da
-     * `selectionStyles.test.ts` a partire da ROW_PX — vedi ROW_ACTIONS_INSET_PX. */
-    right: 8px;
+    /* SI ALLINEA IL GLIFO, NON LA SCATOLA.
+     *
+     * La promessa è sempre la stessa — «il comando finisce dove finiscono i
+     * segnali che copre», cioè a `ROW_PX` (8px) dal bordo interno — ma finora
+     * era la SCATOLA a fermarsi lì, e la scatola è 28 attorno a un glifo da 16.
+     * Risultato: il cerchietto disegnato finiva a 8 + (28 − 16) / 2 = 14px dal
+     * bordo, mentre il badge che sostituisce ne sta 8. Passando il mouse su una
+     * tab il pallino della notifica spariva e il cerchio di chiusura compariva
+     * SEI PIXEL PIÙ A SINISTRA — «il tasto, cerchietto per chiudere una tab, non
+     * è ben posizionato» (Attilio, 10/08). Due cose che si danno il cambio nello
+     * stesso posto devono stare nello stesso posto.
+     *
+     * Quindi si scala l'incasso di metà della differenza fra scatola e glifo, e
+     * il glifo atterra esattamente sul binario dei segnali quieti.
+     *
+     * `max(0px, …)`: sul ramo col dito la scatola è 36 e il conto darebbe −2px,
+     * cioè una scatola che sborda dalla riga — dentro una tab, che ha
+     * `overflow-hidden`, sarebbero 2px di bersaglio tagliati via. Là si resta a
+     * filo (glifo a 10 invece che a 8), che è il residuo accettabile: quel ramo
+     * è anche quello in cui l'hover, per definizione, quasi non esiste.
+     *
+     * 8px = `ROW_PX`, ricalcolato da `selectionStyles.test.ts` — vedi
+     * ROW_ACTIONS_INSET_PX. */
+    right: max(0px, calc(8px - (var(--row-action-box) - 16px) / 2));
     top: 50%;
     transform: translateY(-50%);
     z-index: 20;
@@ -2139,7 +2208,7 @@ html.electron-mac.dark :is(.raised-control-overlay .raised-control:hover, .raise
  * Keyframes from the reference desktop client we studied:
  *   · `timeline-blur-in`    — content swap entry (24px blur → 0 in 120ms)
  *   · `timeline-blur-out`   — exit (faster, 80ms)
- * (the "working now" cue is `grid-lit` below, defined with GridLoader.)
+ * (the "working now" cue is `wave-bar` below, defined with WaveLoader.)
  * Plus three Material easing curves.
  */
 @keyframes timeline-blur-in {
@@ -2155,22 +2224,60 @@ html.electron-mac.dark :is(.raised-control-overlay .raised-control:hover, .raise
 .animate-timeline-in { animation: timeline-blur-in 120ms cubic-bezier(0, 0, 0.2, 1) both; }
 .animate-timeline-out { animation: timeline-blur-out 80ms cubic-bezier(0.4, 0, 1, 1) both; }
 
-/* Grid loader — the canonical "working now" cue (GridLoader in
- * StreamingIndicator). A vertical 2-column × 3-row matrix of tiny squares where
- * ONE cell lights up at a time and the lit cell TRAVELS column-by-column,
- * top→bottom (the per-cell animation-delay sets the order). This drives the LIT
- * OVERLAY only: each cell has a permanent neutral base frame (the SplitMiniMap
- * "deactivated pane" wash) and a blue gradient overlay on top. The overlay pops
- * to full opacity, then snaps to 0 — a hard cut, NOT a soft fade — fully
- * revealing the neutral base, so it reads as cells activating one by one (the
- * metaphor: discrete computation steps) over an always-visible frame. The
- * on-window (~17%) ≈ one slot (1/6), so exactly one cell is lit through the
- * cycle. Opacity only → no layout reflow when it mounts. */
-@keyframes grid-lit {
-  0%, 17%      { opacity: 1; }
-  17.01%, 100% { opacity: 0; }
+/* L'ONDA — il cue «sto lavorando», rifatto (WaveLoader in StreamingIndicator).
+ *
+ * Prima erano sei quadratini da 3px accesi uno alla volta. Due difetti, uno
+ * estetico e uno misurabile:
+ *
+ *  · misurabile — la matrice era larga 7,5px dentro una scatola da 16, quindi
+ *    partiva a (16 − 7,5) / 2 = 4,25px. Un quadrato di 3px che nasce su un
+ *    quarto di pixel non ha un bordo: ha due colonne di sub-pixel sbiadite. Da
+ *    vicino il glifo si legge sfocato, ed è metà del «il loader non è ben
+ *    posizionato» (Attilio, 10/08). Adesso il glifo è 10×12: (16 − 10) / 2 = 3
+ *    e (16 − 12) / 2 = 2, tutti e due interi.
+ *  · estetico — un solo pixel acceso alla volta su uno spento è un segno
+ *    povero, e da fermo (l'attesa) diventava letteralmente «quel coso fermo».
+ *
+ * Adesso sono tre colonne in una traccia: ogni barra ha un fondo quieto sempre
+ * presente (la stessa acqua del 22% dello SplitMiniMap, così la parentela di
+ * famiglia resta) e dentro ci sale una barra col gradiente del primario. Le tre
+ * salgono sfalsate — è un misuratore che respira, non una spia che lampeggia.
+ *
+ * Si anima SOLO `transform` (scaleY con origine in basso): il compositore la
+ * muove senza toccare il main thread e senza un riflusso, che è la stessa regola
+ * già scritta qui sopra per `awaiting-pulse` e `turnDotGlow`.
+ *
+ * 1,05s e non mezzo secondo: sotto il secondo l'onda «corre» e legge come una
+ * barra di caricamento che si aspetta finisca a momenti; più lenta legge come
+ * qualcosa che pensa — che è quello che sta succedendo davvero. */
+@keyframes wave-bar {
+  0%, 100% { transform: scaleY(0.34); }
+  50%      { transform: scaleY(1); }
 }
-.animate-grid-lit { animation: grid-lit 1.1s linear infinite; }
+.animate-wave-bar {
+  transform-origin: 50% 100%;
+  animation: wave-bar 1.05s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+/* L'ATTESA: stesse barre, ferme a mezz'altezza e in ambra, che respirano piano.
+ * «Fermo» è l'informazione — un turno sospeso su una domanda non macina — ma
+ * fermo non vuol dire spento: il respiro lento dice che la sessione è ancora
+ * viva e la palla è tua. */
+@keyframes wave-breath {
+  0%, 100% { opacity: 0.5; }
+  50%      { opacity: 1; }
+}
+.animate-wave-breath { animation: wave-breath 2.4s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  /* Niente movimento, ma il segnale resta: le tre barre si fermano su altezze
+     diverse (lo sfalsamento diventa una forma invece che un tempo). */
+  .animate-wave-bar { animation: none; }
+  .animate-wave-bar[data-slot='0'] { transform: scaleY(0.5); }
+  .animate-wave-bar[data-slot='1'] { transform: scaleY(1); }
+  .animate-wave-bar[data-slot='2'] { transform: scaleY(0.68); }
+  .animate-wave-breath { animation: none; opacity: 0.9; }
+}
 
 /* Electric-blue "awaiting feedback" tab/row — a gentle breathe so a session
  * parked waiting for the user reads as "alive, expecting you".
@@ -2226,7 +2333,7 @@ html.electron-mac.dark :is(.raised-control-overlay .raised-control:hover, .raise
 /* Pause EVERY keyframe animation while the window is backgrounded (driven by
  * useAnimationPause, which toggles `.anims-paused` on <html> on blur/hide). On
  * the big transparent-vibrancy desktop window the always-running loaders
- * (grid-lit) and parked-session breathers (awaiting-pulse) otherwise keep the
+ * (wave-bar) and parked-session breathers (awaiting-pulse) otherwise keep the
  * compositor working every frame with nobody watching. `animation-play-state` is
  * compositor-safe: the toggle costs one style recalc on blur/focus, never a
  * per-frame cost, and CSS *transitions* are unaffected. */
