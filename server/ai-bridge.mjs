@@ -117,23 +117,55 @@ function appendToStore(session, buf) {
 // SYNCHRONOUS read + attach registration in one tick so a concurrent stdout
 // 'data' event (which would append + broadcast live) can never interleave and
 // create an overlap/gap — node is single-threaded, the child 'data' callback
-// cannot run in the middle of this function.
+// cannot run in the middle of this function. Slicing does NOT weaken that: the
+// loop below is synchronous from the first byte to the `attached.set`, so no
+// other callback can run in the middle of it either.
+//
+// POSIZIONALE, non `readFileSync` dell'intero file. Il vecchio codice leggeva
+// TUTTO lo store a ogni attach e poi ne buttava via il prefisso — anche per
+// `resyncStream`, che riattacca dall'ULTIMO byte consumato e nel caso normale
+// vuole ZERO byte. Con 27 store fino a 6,9 MB e una raffica di riattacchi dopo
+// ogni riconnessione del socket, quella era decine di MB letti e scartati per
+// non consegnare niente.
+//
+// A FETTE, non un frame solo. Un attach da offset 0 su uno store da 7 MB
+// produceva UNA riga JSON da ~9,8 MB: base64 dell'intero file più la stringa
+// JSON che lo avvolge, cioè ~25 MB di stringhe temporanee per attach, e dal
+// lato server un `JSON.parse` altrettanto grande prima che UN solo byte
+// diventasse utile. A fette il picco di memoria è costante, il server piega
+// mentre il resto arriva, e — cosa che conta per il timeout — chi aspetta
+// l'ack vede il replay PROGREDIRE invece di un silenzio lungo secondi.
+// Taglia della fetta. Misurata, non scelta a occhio: fette troppo piccole
+// pagano il costo per-frame (una riga JSON, un base64, una write, un parse
+// dall'altra parte) su un replay che di byte ne ha comunque milioni; fette
+// troppo grosse riportano il picco di memoria e la lunga muta che il taglio
+// serviva a togliere. L'env esiste per il banco (`ai-bridge-replay-bench.ts`)
+// e per i test, non per la produzione.
+const REPLAY_SLICE_BYTES = Number(process.env.TOPICS_AI_BRIDGE_REPLAY_SLICE) || 1024 * 1024;
+
 function replayTo(session, socket, fromOffset) {
-  const from = Math.max(0, Math.min(fromOffset | 0, session.endOffset));
-  if (session.endOffset > from) {
-    let slice;
+  const end = session.endOffset;
+  const from = Math.max(0, Math.min(fromOffset | 0, end));
+  if (end > from) {
+    let fd = null;
     try {
-      const full = fs.readFileSync(session.storePath);
-      slice = full.subarray(from, session.endOffset);
+      fd = fs.openSync(session.storePath, 'r');
+      const buf = Buffer.allocUnsafe(Math.min(REPLAY_SLICE_BYTES, end - from));
+      let pos = from;
+      while (pos < end) {
+        const want = Math.min(buf.byteLength, end - pos);
+        const got = fs.readSync(fd, buf, 0, want, pos);
+        if (got <= 0) break; // file troncato sotto i piedi: meglio corto che in loop
+        sendTo(socket, { type: 'data', id: session.id, offset: pos, chunk: buf.subarray(0, got).toString('base64') });
+        pos += got;
+      }
     } catch (e) {
       console.error(`[AI Bridge] replay read failed for ${session.id}: ${e.message}`);
-      slice = Buffer.alloc(0);
-    }
-    if (slice.byteLength > 0) {
-      sendTo(socket, { type: 'data', id: session.id, offset: from, chunk: slice.toString('base64') });
+    } finally {
+      if (fd !== null) { try { fs.closeSync(fd); } catch { /* già chiuso */ } }
     }
   }
-  session.attached.set(socket, session.endOffset);
+  session.attached.set(socket, end);
 }
 
 function handleMessage(msg, client) {
