@@ -60,15 +60,14 @@ export type Piano = "free" | "team";
  * perché «non ho una chiave con cui controllare» e «la firma è falsa» sono due
  * cose diversissime da dire a chi ha appena pagato, e distinguerle è ciò che
  * evita che un problema di distribuzione somigli a una truffa.
+ *
+ * La dichiarazione vive in `shared/`: la legge anche il client, che a ognuno di
+ * questi sette appende la frase che una persona leggerà. Era scritta due volte,
+ * una per lato, e due elenchi di sette voci sono due elenchi che un giorno ne
+ * hanno otto e sette.
  */
-export type MotivoLicenza =
-  | "no_token"            // nessun gettone installato: il caso normale, non un errore
-  | "no_verification_key" // niente con cui controllare la firma → non si crede a niente
-  | "malformed"           // non sono due segmenti base64url, o il carico non è JSON
-  | "bad_signature"
-  | "other_installation"  // firmato per un'altra macchina: copiarlo non serve
-  | "expired"
-  | "valid";
+export type { MotivoLicenza } from "../../shared/licenza-motivi";
+import type { MotivoLicenza } from "../../shared/licenza-motivi";
 
 export interface Entitlement {
   piano: Piano;

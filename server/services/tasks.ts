@@ -143,6 +143,9 @@ export interface Task {
   priorityAuto: boolean;
   /** Model override for the agent topic. null = auto (provider default). */
   model: string | null;
+  /** Lo sforzo con cui il task ha girato davvero (dal topic dell'agente). Sola
+   *  lettura: con la board su `auto` è l'unico posto in cui la scelta si vede. */
+  effort: string | null;
   /** Dependency: not dispatch-eligible until this task is done/archived. */
   blockedByTaskId: string | null;
   /**
@@ -259,6 +262,15 @@ export interface UpdateTaskPatch {
   reuseBlockerContext?: boolean;
   /** Toggle "plan first" after creation (agent delivers a plan to approve before implementing). */
   planFirst?: boolean;
+  /**
+   * Re-nest under another task; null detaches back to a root card. Unlike at
+   * creation, the id already exists and CAN be an ancestor of the new parent,
+   * so the chain is walked (see `assertParentValid`). Refused while the task
+   * has live work: a subtask is a step of the parent's checklist that the
+   * dispatcher never claims on its own, so demoting a running card would leave
+   * its agent turning with nobody watching it.
+   */
+  parentTaskId?: string | null;
 }
 
 export interface ListTasksInput {
@@ -295,7 +307,16 @@ function parseChecksJson(raw: unknown): CheckRun[] | null {
   } catch { return null; }
 }
 
-const VALID_EFFORT = new Set<string>(EFFORT_TIERS);
+/**
+ * L'effort di board accetta anche `auto`, come il modello.
+ *
+ * Fissarlo per tutta una board significa pagare lo stesso sforzo su un typo e su
+ * un refactor — e non e' una differenza teorica: misurato il 2026-08-09 sullo
+ * stesso micro-task, `medium` costa 61,1k token di lavoro e `xhigh` 108,8k. Su
+ * `auto` lo sceglie il classificatore task per task (`task-model-picker.ts`),
+ * con pavimento a `medium` cosi' non puo' peggiorare niente in silenzio.
+ */
+const VALID_EFFORT = new Set<string>([...EFFORT_TIERS, "auto"]);
 const VALID_DISPATCH_MCP = new Set(["bridge-only", "inherit"]);
 const clampInt = (n: number, lo: number, hi: number) =>
   Math.max(lo, Math.min(hi, Math.trunc(Number.isFinite(n) ? n : lo)));
@@ -757,6 +778,29 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
   }
 
   /**
+   * Lo sforzo con cui il task ha girato DAVVERO.
+   *
+   * Gemello di `resolveModel`, e per la stessa ragione: con la board su `auto`
+   * lo sceglie il classificatore task per task, e senza questo la scelta non si
+   * vede da nessuna parte — né sulla card né nell'API, solo nel log del server.
+   * Una decisione dinamica che non si può ispezionare è peggio di una fissa: è
+   * la leva più cara che abbiamo (stesso lavoro: `medium` 61,1k token, `xhigh`
+   * 108,8k), e non poterla leggere significa non poter verificare un conto.
+   *
+   * Non c'è una colonna `tasks.effort` e non serve: l'autorità è il TOPIC, che è
+   * ciò che viene davvero passato allo spawn. Duplicarla su `tasks` creerebbe
+   * due verità libere di divergere.
+   */
+  function resolveEffort(r: any): string | null {
+    if (!r.assigned_topic_id) return null;
+    try {
+      const t = db.prepare("SELECT effort FROM topics WHERE id = ?").get(r.assigned_topic_id) as { effort?: string | null } | undefined;
+      return t?.effort ?? null;
+    } catch { /* topics stub senza colonna effort (test) */ }
+    return null;
+  }
+
+  /**
    * Il bloccante, letto dal DB per id.
    *
    * Sta in `rowToTask` — non nei soli `list`/`get` come i contatori dei
@@ -830,6 +874,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       agentCacheReadTokens: r.agent_cache_read_tokens ?? 0,
       priorityAuto: r.priority_auto == null ? true : !!r.priority_auto,
       model: resolveModel(r),
+      effort: resolveEffort(r),
       blockedByTaskId: r.blocked_by_task_id ?? null,
       blockedBy: resolveBlocker(r.blocked_by_task_id),
       waitingOnCount: countWaitingOn(r.id),
@@ -1034,6 +1079,28 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     for (let hops = 0; cur && hops < 100; hops++) {
       if (cur === taskId) throw new TaskServiceError("invalid_input", "blocked-by chain would form a cycle");
       cur = (getTaskRow(cur)?.blocked_by_task_id ?? null) as string | null;
+    }
+  }
+
+  // Re-parenting. At creation the walk is unnecessary (a fresh id can never be
+  // an ancestor of an existing row); MOVING an existing task can close a loop —
+  // nest A under its own child and the pair disappears from the board, because
+  // `rootsOnly` shows neither and the detail tree recurses forever.
+  function assertParentValid(taskId: string, parentId: string): void {
+    const self = getTaskRow(taskId);
+    const parent = getTaskRow(parentId);
+    if (!self) throw new TaskServiceError("not_found", `task ${taskId} not found`);
+    if (!parent || parent.project_id !== self.project_id || parent.archived) {
+      // Same not_found shape as the create-side guard: no cross-board probing.
+      throw new TaskServiceError("not_found", `parent task ${parentId} not found`);
+    }
+    if (parentId === taskId) {
+      throw new TaskServiceError("invalid_input", "a task cannot be its own parent");
+    }
+    let cur: string | null = parent.parent_task_id ?? null;
+    for (let hops = 0; cur && hops < 100; hops++) {
+      if (cur === taskId) throw new TaskServiceError("invalid_input", "parent chain would form a cycle");
+      cur = (getTaskRow(cur)?.parent_task_id ?? null) as string | null;
     }
   }
 
@@ -1271,6 +1338,27 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (patch.blockedByTaskId !== undefined) {
         if (patch.blockedByTaskId) assertBlockerValid(taskId, patch.blockedByTaskId);
         put("blocked_by_task_id", patch.blockedByTaskId || null);
+      }
+      if (patch.parentTaskId !== undefined) {
+        if (patch.parentTaskId) {
+          assertParentValid(taskId, patch.parentTaskId);
+          // NON `isAgentWorking`: quello include `queued`, che altrove ("zitto,
+          // sta lavorando") è la risposta giusta ma qui è la sbagliata. Una card
+          // in coda non ha ancora nessuna sessione — nidificarla la toglie
+          // semplicemente dalla coda, che è esattamente ciò che si vuole
+          // accorpando. Il rifiuto riguarda un turno che sta GIRANDO: quello sì
+          // resterebbe orfano, perché un sottotask non lo dispaccia più nessuno.
+          if (row.dispatch_state === "working" || row.dispatch_state === "starting" || row.status === "in_progress") {
+            throw new TaskServiceError(
+              "invalid_input",
+              "task has live work: a subtask is never dispatched on its own, so stop the agent before nesting it under a parent",
+            );
+          }
+          // Un sottotask non è in coda per niente: il chip 'queued' resterebbe
+          // acceso su una card che il dispatcher non guarderà mai più.
+          if (row.dispatch_state === "queued") put("dispatch_state", null);
+        }
+        put("parent_task_id", patch.parentTaskId || null);
       }
       if (patch.reuseBlockerContext !== undefined) put("reuse_blocker_context", patch.reuseBlockerContext ? 1 : 0);
       if (patch.planFirst !== undefined) put("plan_first", patch.planFirst ? 1 : 0);

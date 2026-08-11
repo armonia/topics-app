@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { X, Bell, Cpu, Palette, UserRound } from 'lucide-react';
+import { X, Bell, Cpu, CreditCard, Palette, UserRound } from 'lucide-react';
 import type { AppSettings, ThemeMode } from '../../types';
 import { saveSettings } from '../../lib/settings';
 import { MODAL_OVERLAY, MODAL_PANEL } from '../../lib/modalStyles';
@@ -9,6 +9,7 @@ import { AIProvidersSection } from './AIProvidersSection';
 import { DevicesSection } from './DevicesSection';
 import { IdentitySection } from './IdentitySection';
 import { AccountSection } from './AccountSection';
+import { PlanSection } from './PlanSection';
 import { FriendsSection } from './FriendsSection';
 import { useModalDialog } from '../../hooks/useModalDialog';
 
@@ -47,17 +48,23 @@ interface GlobalSettingsProps {
 // vuoto — un pannello vuoto per default non merita un posto fisso nel menu —
 // mentre il controllo che si cerca pensando «permessi», il livello di autonomia,
 // è per-chat e sta nel composer.
-type SectionId = 'appearance' | 'notifications' | 'providers' | 'devices';
+type SectionId = 'appearance' | 'notifications' | 'providers' | 'devices' | 'plan';
 
 // L'id resta `devices` — è la chiave interna a cui punta il deep-link della
 // riga d'identità nella sidebar (`onOpenDevices` in App.tsx). L'ETICHETTA no:
 // la scheda porta il profilo (nome, email, organizzazione, membri) prima dei
 // dispositivi, e chi cerca «come mi chiamo qui» non apre uno smartphone.
+// `plan` è una voce di PRIMO livello e non un riquadro dentro «Account», per
+// due ragioni. La prima: non è mai vuota — c'è sempre un piano, e sul gratuito
+// dice cosa hai invece di cosa ti manca, quindi l'obiezione qui sopra non la
+// tocca. La seconda: quanto paghi e chi sei sono domande diverse, e chi cerca
+// «dove si paga» non apre la scheda dell'identità.
 const SECTIONS: Array<{ id: SectionId; label: string; icon: typeof Palette }> = [
   { id: 'appearance', label: 'Appearance', icon: Palette },
   { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'providers', label: 'AI Providers', icon: Cpu },
   { id: 'devices', label: 'Account', icon: UserRound },
+  { id: 'plan', label: 'Plan', icon: CreditCard },
 ];
 
 export function GlobalSettings({ isOpen, onClose, settings, onSettingsChange, themeMode = 'system', onThemeChange, onOpenShortcuts, initialSection }: GlobalSettingsProps & { initialSection?: SectionId }) {
@@ -147,6 +154,7 @@ export function GlobalSettings({ isOpen, onClose, settings, onSettingsChange, th
               <NotificationsSection settings={localSettings} onChange={handleChange} />
             )}
             {section === 'providers' && <AIProvidersSection />}
+            {section === 'plan' && <PlanSection />}
             {section === 'devices' && (
               // Chi sei viene PRIMA di che ferri hai: i dispositivi fanno capo
               // a una persona, e leggere l'elenco senza sapere di chi sono è

@@ -49,6 +49,48 @@ describe("buildClaudeArgs — il deferral degli schemi MCP", () => {
 
   test("null non emette la flag: la CLI resta ai suoi settings", () => {
     expect(buildClaudeArgs({ ...BASE, toolSearch: null })).not.toContain("--settings");
+  });
+});
+
+describe("buildClaudeArgs — il cancello sulle immagini nel contesto", () => {
+  // La voce di spesa piu' grossa misurata il 10/08 sugli agenti dispacciati: il
+  // 95% del volume dei transcript sono tool_result, il 97% di quelli e' Read, e
+  // i Read grossi sono SCREENSHOT (~132 kB l'uno). 7 task su 12, il 25% del
+  // volume totale. Il prompt lo vietava gia' (per il browser) e non e' bastato.
+  function guard(opts: Record<string, unknown>) {
+    const args = buildClaudeArgs({ ...BASE, ...opts } as never);
+    const i = args.indexOf("--settings");
+    return i < 0 ? null : JSON.parse(args[i + 1]!);
+  }
+
+  test("acceso: hook PreToolUse su Read, e il deferral NON viene perso", () => {
+    const s = guard({ toolSearch: "1", blockImageReads: true });
+    expect(s.hooks.PreToolUse[0].matcher).toBe("Read");
+    // Un solo `--settings` (la CLI prende l'ultimo): il deferral vale -71,5% di
+    // prefisso, perderlo per il cancello sarebbe uno scambio in perdita.
+    expect(s.env.ENABLE_TOOL_SEARCH).toBe("1");
+    expect(buildClaudeArgs({ ...BASE, toolSearch: "1", blockImageReads: true })
+      .filter((a) => a === "--settings").length).toBe(1);
+  });
+
+  test("spento per le chat: nessun hook quando non e' un agente del board", () => {
+    // Una persona in chat puo' volere aprire un'immagine; un agente che consegna
+    // una prova di review no, gli basta il path.
+    expect(guard({ toolSearch: "1", blockImageReads: false })?.hooks).toBeUndefined();
+  });
+
+  test("il comando dell'hook rifiuta le immagini e lascia passare il codice", async () => {
+    // Un cancello che non ha mai detto di no non e' un cancello: qui si esegue
+    // davvero, con l'argv vero.
+    const cmd = guard({ blockImageReads: true }).hooks.PreToolUse[0].hooks[0].command;
+    const run = async (path: string) => {
+      const p = Bun.spawn(["sh", "-c", cmd], { stdin: new TextEncoder().encode(JSON.stringify({ tool_input: { file_path: path } })), stdout: "pipe", stderr: "pipe" });
+      return await p.exited;
+    };
+    expect(await run("/x/shot.png")).toBe(2);
+    expect(await run("/x/clip.webm")).toBe(2);
+    expect(await run("/x/server.ts")).toBe(0);
+    expect(await run("")).toBe(0);
     expect(buildClaudeArgs({ ...BASE })).not.toContain("--settings");
   });
 });

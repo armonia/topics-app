@@ -17,7 +17,7 @@
  */
 import { afterEach, describe, expect, it } from "bun:test";
 import { creaRelayClient } from "./relay-client";
-import { creaOspiteHttp } from "../../shared/relay-fake";
+import { creaOspiteHttp, SEGRETO_FINTO } from "../../shared/relay-fake";
 import { involucro, leggiMessaggio, type FrameTubo } from "../../shared/relay-protocol";
 import { GENERE_RISPOSTA } from "../../shared/relay-http";
 import { nuovaChiave, sigilla, apri } from "../../shared/relay-crypto";
@@ -55,7 +55,8 @@ function scena(opts: { porta: number | null | undefined; maxFrame?: number; fetc
   const link = { ref: "r1", key: nuovaChiave(), resourceType: "task" as const, resourceId: "t1", expiresAt: Date.now() + 60_000, revokedAt: null };
   const c = creaRelayClient({
     baseUrl: "http://relay.test",
-    installationId: "i1",
+    relayId: "i1",
+    segreto: SEGRETO_FINTO,
     trovaLink: (ref) => (ref === link.ref ? link : null),
     serviRisorsa: async () => ({ status: 200, body: { id: "t1" } }),
     segnaApertura: () => {},

@@ -173,6 +173,51 @@ describe("tasks router (session-scoped)", () => {
     expect(got.children.map((c: any) => c.id)).toEqual([kid.id]);
   });
 
+  test("PATCH re-parents, refuses a cycle, and detaches with null", async () => {
+    const parent = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "epic" }))!.json();
+    const solo = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "orfano" }))!.json();
+    // Il buco: la PATCH rispondeva 200 senza spostare niente.
+    const moved = await (await call(router, "PATCH", `/api/boards/pX/tasks/${solo.id}`, { parentTaskId: parent.id }))!.json();
+    expect(moved.parentTaskId).toBe(parent.id);
+    const tree = await (await call(router, "GET", `/api/boards/pX/tasks/${parent.id}`))!.json();
+    expect(tree.children.map((c: any) => c.id)).toEqual([solo.id]);
+
+    // Anche col nome MCP (`parent_task_id`), che è quello che scrivono gli agenti.
+    const two = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "secondo" }))!.json();
+    const viaSnake = await (await call(router, "PATCH", `/api/boards/pX/tasks/${two.id}`, { parent_task_id: parent.id }))!.json();
+    expect(viaSnake.parentTaskId).toBe(parent.id);
+
+    // Ciclo: il padre sotto il proprio figlio farebbe sparire entrambi dalla board.
+    const cyc = (await call(router, "PATCH", `/api/boards/pX/tasks/${parent.id}`, { parentTaskId: solo.id }))!;
+    expect(cyc.status).toBe(400);
+    expect((await cyc.json()).code).toBe("invalid_input");
+    const self = (await call(router, "PATCH", `/api/boards/pX/tasks/${parent.id}`, { parentTaskId: parent.id }))!;
+    expect(self.status).toBe(400);
+
+    // Padre su un ALTRO progetto: 404, stessa forma dell'IDOR alla creazione.
+    const foreign = await (await call(router, "POST", "/api/sessions/s2/tasks", { text: "far" }))!.json();
+    const cross = (await call(router, "PATCH", `/api/boards/pX/tasks/${solo.id}`, { parentTaskId: foreign.id }))!;
+    expect(cross.status).toBe(404);
+
+    // Lavoro in volo: declassare lascerebbe l'agente a girare senza nessuno che guarda.
+    const live = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "in volo", status: "in_progress" }))!.json();
+    const busy = (await call(router, "PATCH", `/api/boards/pX/tasks/${live.id}`, { parentTaskId: parent.id }))!;
+    expect(busy.status).toBe(400);
+
+    // Una card in CODA invece si nidifica: nessuna sessione ancora accesa, e
+    // accorpare è proprio il modo di toglierla dalla coda. Il chip 'queued' si
+    // spegne, o resterebbe acceso su una card che nessuno dispaccerà più.
+    const queued = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "in coda", status: "todo" }))!.json();
+    db.run("UPDATE tasks SET dispatch_state = 'queued' WHERE id = ?", [queued.id]);
+    const nested = await (await call(router, "PATCH", `/api/boards/pX/tasks/${queued.id}`, { parentTaskId: parent.id }))!.json();
+    expect(nested.parentTaskId).toBe(parent.id);
+    expect(nested.dispatchState ?? null).toBe(null);
+
+    // null stacca e la card torna a vivere da sola.
+    const back = await (await call(router, "PATCH", `/api/boards/pX/tasks/${solo.id}`, { parentTaskId: null }))!.json();
+    expect(back.parentTaskId).toBe(null);
+  });
+
   // L'incidente dell'11/08 riprodotto dalla porta che l'agent usa davvero: il
   // dispatcher rimette il task in coda MENTRE il turno gira (riavvio del server,
   // timeout, requeue) e `assigned_topic_id` va a NULL. Prima della provenienza,
@@ -1459,6 +1504,29 @@ describe("tasks routes — anteprima dalla sessione dell'agente", () => {
       previewImage: "/Users/x/.ssh/id_rsa",
     }))!;
     expect((await resp.json()).previewImage).toBeNull();
+  });
+
+  // Un `.pdf` passava l'allowlist (è un allegato legittimo) e diventava
+  // l'anteprima: il client lo mandava al ramo `<img>` e sulla card restava
+  // un'icona rotta. Nessun errore da nessuna parte — la consegna sembrava
+  // fatta e non mostrava niente. Il tipo va guardato QUI, non solo il path.
+  test("un file che nessuno sa MOSTRARE non diventa anteprima (il .pdf che l'ha insegnato)", async () => {
+    const r = createTasksRouter(makeCtx(db, broadcasts));
+    const t = await (await call(r, "POST", "/api/sessions/s1/tasks", { text: "x" }))!.json();
+    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, {
+      previewImage: "/allowed/relazione.pdf",
+    }))!;
+    expect(resp.status).toBe(200);
+    expect((await resp.json()).previewImage).toBeNull();
+  });
+
+  test("e non travolge i tre rami del protocollo: png, svg e webm entrano", async () => {
+    const r = createTasksRouter(makeCtx(db, broadcasts));
+    for (const p of ["/allowed/schermata.png", "/allowed/schema.svg", "/allowed/clip.webm"]) {
+      const t = await (await call(r, "POST", "/api/sessions/s1/tasks", { text: p }))!.json();
+      const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { previewImage: p }))!;
+      expect((await resp.json()).previewImage).toBe(p);
+    }
   });
 
   test("stringa vuota azzera l'anteprima", async () => {
