@@ -79,6 +79,37 @@ export interface ClaudeSpawnArgsOptions {
    * compito scritto nel task.
    */
   slimSkillListing?: boolean;
+  /**
+   * Il TETTO in token di un singolo risultato di tool MCP, o null per lasciare
+   * quello della CLI (`MAX_MCP_OUTPUT_TOKENS`, default **25.000**).
+   *
+   * Sopra la soglia la CLI non tronca alla cieca: scrive il risultato intero in
+   * un file e in contesto lascia il puntatore («Output has been saved to …»,
+   * con le istruzioni per rileggerlo a fette o con jq). Cioè fa GIÀ «estratto +
+   * riferimento» — il difetto non è il meccanismo, è che 25.000 token sono
+   * ~100 kB a chiamata, cioè una soglia che nella pratica non scatta mai.
+   *
+   * E un risultato di tool non si paga una volta: resta nella finestra e ogni
+   * chiamata successiva lo rispedisce. Misurato l'11/08 sulla chat
+   * `topic:4c8de758` (48 messaggi, 29,5M token di prompt, $23,86): il 65% del
+   * payload dei tool erano 20 chiamate a un tool di ricerca web MCP, 21,3 kB
+   * l'una. Nessuna di esse toccava il tetto da 25.000.
+   *
+   * Il numero viene da una simulazione sui 15.464 risultati MCP dei transcript
+   * reali (138,5 MB in tutto):
+   *     tetto 25.000 token (~100 kB) ....  −27,8% di byte,  2,8% su file
+   *     tetto  8.000 token (~ 32 kB) ....  −60,6% di byte,  6,0% su file
+   *     tetto  4.000 token (~ 16 kB) ....  −73,6% di byte,  9,2% su file
+   *     tetto  2.500 token (~ 10 kB) ....  −80,5% di byte, 11,4% su file
+   * 4.000 è il ginocchio: prende i tre quarti del volume toccando una chiamata
+   * su undici, e quella che tocca non la perde — la sposta su disco.
+   *
+   * Perché non è un cancello come `blockImageReads`: qui il caso legittimo
+   * («l'utente CHIEDE il contenuto della pagina») non va rotto. Il taglio non
+   * cade su ciò che il turno corrente sta leggendo, cade su ciò che resterebbe
+   * in contesto DOPO essere stato usato — e resta rileggibile.
+   */
+  mcpOutputTokens?: number | null;
 }
 
 /** Ciò che serve per un completamento usa-e-getta (auto-titolo, digest, SSE). */
@@ -134,9 +165,23 @@ export function buildClaudeArgs(opts: ClaudeSpawnArgsOptions): string[] {
     // farebbe sparire in silenzio il primo dei due (il deferral degli schemi
     // vale −71,5% di prefisso: perderlo per l'elenco delle skill sarebbe uno
     // scambio in perdita). Chi aggiunge una leva la aggiunge QUI DENTRO.
-    ...(opts.toolSearch || opts.slimSkillListing
+    ...(opts.toolSearch || opts.slimSkillListing || opts.mcpOutputTokens
       ? ["--settings", JSON.stringify({
-          ...(opts.toolSearch ? { env: { ENABLE_TOOL_SEARCH: opts.toolSearch } } : {}),
+          ...(opts.toolSearch || opts.mcpOutputTokens
+            ? {
+                env: {
+                  ...(opts.toolSearch ? { ENABLE_TOOL_SEARCH: opts.toolSearch } : {}),
+                  // Il tetto per singolo risultato MCP. Sta nel blocco `env` e
+                  // non nell'ambiente del processo per la stessa ragione di
+                  // `ENABLE_TOOL_SEARCH`: `--setting-sources user` fa vincere
+                  // il blocco `env` di `~/.claude/settings.json` su ciò che
+                  // passiamo allo spawn. La CLI vuole una stringa.
+                  ...(opts.mcpOutputTokens
+                    ? { MAX_MCP_OUTPUT_TOKENS: String(opts.mcpOutputTokens) }
+                    : {}),
+                },
+              }
+            : {}),
           // 1 e non 0: lo zero non è un valore che la CLI accetta come «nessuna
           // descrizione» (misurato — l'elenco resta intero), 1 tronca a `…`.
           ...(opts.slimSkillListing ? { skillListingMaxDescChars: 1 } : {}),
