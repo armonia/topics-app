@@ -125,6 +125,24 @@ function ChatPaneComponent({
   useEffect(() => {
     try { if (message) localStorage.setItem(draftKey, message); else localStorage.removeItem(draftKey); } catch {}
   }, [message, draftKey]);
+  /**
+   * Qualcuno ha messo del testo nella bozza di QUESTA chat mentre era già
+   * montata — oggi: una missione scelta dalla board accanto (`ProjectWindow`).
+   * L'effetto qui sopra che rilegge `draft:<id>` dipende da `topic.id`, quindi
+   * su una pane già aperta non ripartirebbe e la missione resterebbe scritta su
+   * localStorage senza comparire mai. Il fuoco va con essa: il testo è davanti
+   * a chi lo deve mandare, e a mandarlo è lui.
+   */
+  useEffect(() => {
+    const onSeed = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { topicId?: string; text?: string } | undefined;
+      if (!detail || detail.topicId !== topic.id || !detail.text) return;
+      setMessage(detail.text);
+      requestAnimationFrame(() => textareaRef.current?.focus());
+    };
+    window.addEventListener('topics:seed-composer', onSeed);
+    return () => window.removeEventListener('topics:seed-composer', onSeed);
+  }, [topic.id]);
   const [pendingImages, setPendingImages] = useState<{ dataUrl: string; mimeType: string }[]>([]);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [mentionedFiles, setMentionedFiles] = useState<MentionedFile[]>([]);
