@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { ArrowLeft, ArrowRight, RotateCw, ExternalLink, Clock, Code2, CornerUpLeft, MoreHorizontal, MonitorSmartphone } from 'lucide-react';
 import { AgentActivityPill } from './AgentActivityPill';
 import { ZoomControl, DeviceSwitcher, ConsoleBadge } from './BrowserDevControls';
+import { DownloadsMenu, type DownloadsMenuProps } from './DownloadsMenu';
 import type { DeviceMode, BrowserConsoleEntry, NavHistoryEntry } from './browserDevTypes';
 import { POPOVER_ITEM, POPOVER_DIVIDER } from '../../lib/popoverStyles';
 import type { ShareMode } from '../../lib/sharedAuto';
@@ -70,6 +71,10 @@ interface BrowserToolbarProps {
   consoleEntries?: BrowserConsoleEntry[];
   consoleSummary?: { errors: number; warnings: number };
   onClearConsole?: () => void;
+  /** Download della pane: l'elenco + le sue azioni, così come li vuole
+   *  `DownloadsMenu`. Le due pane li riempiono da sorgenti diverse (coda Rust
+   *  per quella nativa, messaggi WS per quella condivisa) e il menu è lo stesso. */
+  downloads?: DownloadsMenuProps;
   /** Back/forward history (Chrome-style right-click / long-press menu). */
   getNavEntries?: () => Promise<{ entries: NavHistoryEntry[]; activeIndex: number }>;
   onGoToNavIndex?: (index: number) => void;
@@ -109,6 +114,7 @@ export function BrowserToolbar({
   consoleEntries,
   consoleSummary,
   onClearConsole,
+  downloads,
   getNavEntries,
   onGoToNavIndex,
   shared,
@@ -428,6 +434,11 @@ export function BrowserToolbar({
       {consoleSummary && consoleEntries && onClearConsole && (
         <ConsoleBadge entries={consoleEntries} summary={consoleSummary} onClear={onClearConsole} />
       )}
+      {/* Download — inline a ogni larghezza, come il badge della console: il suo
+          menu si ancora al proprio bottone, e piegato dentro l'overflow si
+          ancorerebbe alla voce di un altro popover. Il bottone esiste solo
+          quando c'è almeno un download, quindi a riposo non toglie niente. */}
+      {downloads && <DownloadsMenu {...downloads} />}
       {deviceMode && onSetDevice && (
         <DeviceSwitcher mode={deviceMode} onSet={onSetDevice} />
       )}
