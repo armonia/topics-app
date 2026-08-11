@@ -151,7 +151,7 @@
   // sotto Bun; sta qui accanto a `git`, `cp`, `lsof` e `ps`, che le altre spec
   // spawnano per la stessa ragione. È preinstallato sia su macOS sia sull'immagine
   // ubuntu-latest che esegue il job `e2e`.
-  "ignoreBinaries": ["pkill", "du", "tsc", "sqlite3"],
+  "ignoreBinaries": ["pkill", "du", "tsc", "sqlite3", "ffmpeg"],
   // NON è un import: è il primo argomento di
   // `spawnSync("bun", ["scripts/board-cases.ts", "--case", …], { cwd: ROOT })`
   // in scripts/board-cases.ts:1624 — il rilancio di sé stesso che genera la
