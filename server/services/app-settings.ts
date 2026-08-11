@@ -20,7 +20,12 @@
 
 import { getDatabase } from "../db";
 import { warnDeprecatedEnv } from "../lib/env-alias";
-import { OUTPUT_LANGUAGES, type OutputLanguage } from "../../shared/types";
+import {
+  OUTPUT_LANGUAGES,
+  type OutputLanguage,
+  DISCORD_DETAIL_LEVELS,
+  type DiscordDetailLevel,
+} from "../../shared/types";
 
 /** Config dei provider AI. Omonimo ma NON parente dell'`AppSettings` del
  *  client (`client/src/types/index.ts`), che sono le preferenze della UI. */
@@ -39,6 +44,13 @@ export interface AppSettings {
   /** La lingua in cui il modello deve rispondere (migration 087). NULL = «auto»,
    *  cioè nessuna direttiva: il modello sceglie come ha sempre fatto. */
   outputLanguage: string | null;
+  /** Topics pubblica il tuo stato su Discord (migration 101). NULL = mai
+   *  toccato = SPENTO: si veda il commento della migration sul perché il
+   *  default non può essere acceso. */
+  discordPresenceEnabled: boolean | null;
+  /** Quanto di quello stato si vede (`DiscordDetailLevel`). NULL = il default
+   *  del codice, `activity`. */
+  discordDetailLevel: string | null;
 }
 
 const EMPTY: AppSettings = {
@@ -54,6 +66,8 @@ const EMPTY: AppSettings = {
   codexApprovalMode: null,
   claudeCodeEnabled: null,
   outputLanguage: null,
+  discordPresenceEnabled: null,
+  discordDetailLevel: null,
 };
 
 interface Row {
@@ -69,6 +83,8 @@ interface Row {
   codex_approval_mode: string | null;
   claude_code_enabled: number | null;
   output_language: string | null;
+  discord_presence_enabled: number | null;
+  discord_detail_level: string | null;
 }
 
 function rowToSettings(r: Row): AppSettings {
@@ -86,6 +102,9 @@ function rowToSettings(r: Row): AppSettings {
     claudeCodeEnabled:
       r.claude_code_enabled == null ? null : r.claude_code_enabled === 1,
     outputLanguage: r.output_language ?? null,
+    discordPresenceEnabled:
+      r.discord_presence_enabled == null ? null : r.discord_presence_enabled === 1,
+    discordDetailLevel: r.discord_detail_level ?? null,
   };
 }
 
@@ -103,7 +122,7 @@ export function getAppSettings(): AppSettings {
         `SELECT ai_provider, claude_model, claude_max_tokens, claude_effort,
                 openai_model, openai_max_tokens, codex_model, codex_reasoning_effort,
                 claude_code_permission_mode, codex_approval_mode, claude_code_enabled,
-                output_language
+                output_language, discord_presence_enabled, discord_detail_level
            FROM app_settings WHERE id = 1`,
       )
       .get() as Row | null;
@@ -128,6 +147,8 @@ const COLUMNS: Record<keyof AppSettings, string> = {
   codexApprovalMode: "codex_approval_mode",
   claudeCodeEnabled: "claude_code_enabled",
   outputLanguage: "output_language",
+  discordPresenceEnabled: "discord_presence_enabled",
+  discordDetailLevel: "discord_detail_level",
 };
 
 /**
@@ -143,7 +164,10 @@ export function updateAppSettings(patch: Partial<AppSettings>): AppSettings {
     if (!(key in patch)) continue;
     const v = patch[key];
     sets.push(`${col} = ?`);
-    if (key === "claudeCodeEnabled") {
+    // I booleani vanno in colonne INTEGER: l'elenco è quello, e va tenuto
+    // insieme al tipo — un `boolean` finito qui senza conversione entra in
+    // SQLite come… niente, perché bun:sqlite non lega un bool.
+    if (key === "claudeCodeEnabled" || key === "discordPresenceEnabled") {
       values.push(v == null ? null : v ? 1 : 0);
     } else {
       values.push((v as string | number | null) ?? null);
@@ -272,4 +296,30 @@ export function resolveOutputLanguage(s = getAppSettings()): OutputLanguage {
   return (OUTPUT_LANGUAGES as readonly string[]).includes(raw)
     ? (raw as OutputLanguage)
     : "auto";
+}
+
+/**
+ * Topics pubblica il tuo stato su Discord? (migration 101)
+ *
+ * Come `resolveOutputLanguage`, e per lo stesso motivo, NON ha un env di
+ * ripiego: è una scelta di persona presa da un interruttore, e un
+ * `TOPICS_DISCORD_PRESENCE` nell'ambiente di launchd sarebbe una seconda verità
+ * che non compare in Impostazioni. Non deciso = spento, che è l'unico default
+ * accettabile per qualcosa che parla di te a degli sconosciuti.
+ */
+export function resolveDiscordPresenceEnabled(s = getAppSettings()): boolean {
+  return s.discordPresenceEnabled === true;
+}
+
+/**
+ * Quanto di quello stato si vede. Un valore fuori scala (riga scritta a mano,
+ * DB di un'altra versione) NON cade su `detailed`: cade sul livello di mezzo,
+ * che è il default. Sbagliare verso il più riservato è l'unico verso in cui un
+ * controllo di privacy può sbagliare.
+ */
+export function resolveDiscordDetailLevel(s = getAppSettings()): DiscordDetailLevel {
+  const raw = (s.discordDetailLevel ?? "").trim().toLowerCase();
+  return (DISCORD_DETAIL_LEVELS as readonly string[]).includes(raw)
+    ? (raw as DiscordDetailLevel)
+    : "activity";
 }
