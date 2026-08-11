@@ -1061,6 +1061,44 @@ export function createAppContext(baseDir: string): AppContext {
     return stored;
   }
 
+  /**
+   * APPENDE un blocco di messaggi già formati (id/parentId/branchIndex/toolCalls
+   * decisi dal chiamante) in coda alla sessione, senza toccare quelli esistenti.
+   *
+   * È il complemento di `saveLocalMessages` (che RIMPIAZZA tutto): serve
+   * all'import incrementale di una sessione adottata, che a ogni sweep aggiunge i
+   * turni nuovi letti dal transcript conservando i tool call e il thinking. I
+   * `sort_order` proseguono dal massimo attuale; i `parentId` li ha già cablati
+   * il parser delta (il primo punta all'ultima riga salvata). Transazionale: o
+   * entrano tutti, o nessuno.
+   */
+  function appendImportedMessages(sessionKey: string, msgs: StoredMessage[]): void {
+    if (msgs.length === 0) return;
+    db.transaction(() => {
+      const base = (stmts.getMaxSortOrder.get(sessionKey) as any).max_order as number;
+      for (let i = 0; i < msgs.length; i++) {
+        const msg = msgs[i]!;
+        stmts.insertMessage.run({
+          $id: msg.id,
+          $session_key: sessionKey,
+          $role: msg.role,
+          $content: msg.content || '',
+          $thinking: msg.thinking || null,
+          $tool_calls: msg.toolCalls ? JSON.stringify(msg.toolCalls) : null,
+          $media: msg.media ? JSON.stringify(msg.media) : null,
+          $partial: 0,
+          $streamed_at: null,
+          $plan_status: msg.planStatus || null,
+          $timestamp: msg.timestamp,
+          $sort_order: base + 1 + i,
+          $parent_id: msg.parentId || null,
+          $branch_index: msg.branchIndex || 0,
+          ...metaParams(msg),
+        });
+      }
+    })();
+  }
+
   function createPartialMessage(sessionKey: string, role: "user" | "assistant"): StoredMessage {
     const maxOrder = (stmts.getMaxSortOrder.get(sessionKey) as any).max_order;
     // Find the last message in the active thread to set as parent
@@ -2026,7 +2064,7 @@ export function createAppContext(baseDir: string): AppContext {
     loadTopics, saveTopics, saveSingleTopic,
     getTopicById, getTopicBySessionKey, setTopicBrowserState,
     loadUnread, saveUnread,
-    loadLocalMessages, countMessagesBySession, saveLocalMessages, appendLocalMessage,
+    loadLocalMessages, countMessagesBySession, saveLocalMessages, appendLocalMessage, appendImportedMessages,
     createPartialMessage, reuseOrCreatePartialForReattach, updateLastMessage, appendToLastMessage,
     finalizeLastMessage, addToolCallToLastMessage, updateToolCallResult, updateToolCallFields,
     startStream, updateStreamActivity, updateStreamContent, getStreamContent, endStream, isStreaming,
