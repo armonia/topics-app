@@ -34,6 +34,8 @@ import {
   DEFAULT_REAPER_CONFIG,
 } from './claude-session-state';
 import { createClaudeSessionRepo } from './claude-session-repo';
+import { findForkContinuation } from './transcript-fork';
+import { basename } from 'path';
 import { parseTranscriptDelta } from './claude-transcript-import';
 import type { StoredMessage } from '../types';
 
@@ -113,6 +115,18 @@ export interface ClaudeSessionTrackerOptions {
    * (pure terminal), which is the common adopted case.
    */
   isSessionLocallyDriven?: (sessionKey: string) => boolean;
+  /**
+   * Quanto deve essere FERMO il transcript di una sessione adottata prima che
+   * lo sweep si chieda "ha forkato?" (ms). Una sessione viva scrive di
+   * continuo; solo un file che ha smesso di crescere merita la scansione.
+   * Default 8s.
+   */
+  forkStaleMs?: number;
+  /**
+   * Intervallo minimo tra due scansioni di fork per la STESSA sessione (ms).
+   * La scansione legge i transcript vicini: va fatta di rado. Default 10s.
+   */
+  forkScanCooldownMs?: number;
 }
 
 interface DedupEntry {
@@ -243,6 +257,8 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
   const homeDir = opts.homeDir ?? homedir();
   const importSink = opts.importSink;
   const isSessionLocallyDriven = opts.isSessionLocallyDriven ?? (() => false);
+  const forkStaleMs = opts.forkStaleMs ?? 8_000;
+  const forkScanCooldownMs = opts.forkScanCooldownMs ?? 10_000;
 
   // Dedup map: claudeSessionId|event → DedupEntry
   const dedupMap = new Map<string, DedupEntry>();
@@ -254,6 +270,11 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
   // design: terminal.ts re-registers on reconcile after a restart and the next
   // hook re-establishes phase.
   const terminalStates = new Map<string, ClaudeSessionState>();
+  // Stato del "seguire il fork", per sessionKey adottata: quando abbiamo
+  // guardato l'ultima volta e quali file vicini abbiamo già scartato (con il
+  // loro mtime, così un file che cambia torna candidabile). Volatile: al
+  // riavvio si riparte a guardare, che è il comportamento giusto.
+  const forkWatch = new Map<string, { lastScanAt: number; rejected: Map<string, number> }>();
 
   function dedupKey(claudeSessionId: string, event: string): string {
     return `${claudeSessionId}|${event}`;
@@ -654,13 +675,75 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
   }
 
   /**
+   * Il transcript seguito non cresce più: la sessione ha forkato? Un `--resume`
+   * può ripartire da un file NUOVO (`<nuovo-id>.jsonl`) in cui la CLI ricopia la
+   * storia del padre. Chi taillava il padre resterebbe fermo per sempre e la
+   * chat si ricongelerebbe. Il figlio però copia gli uuid del padre: cerchiamo
+   * nella cartella di progetto un transcript più recente che contenga le righe
+   * che abbiamo già consumato e ci riagganciamo al punto in cui la copia
+   * finisce (così non reimportiamo nulla).
+   *
+   * Percorso di RECUPERO, non principale: gira solo su una sessione adottata,
+   * solo quando il file è fermo da `forkStaleMs`, al più una volta ogni
+   * `forkScanCooldownMs`, e non riesamina candidati già scartati e immutati.
+   * Ritorna lo stato riletto dopo il relink, o null se non c'è nulla da seguire.
+   */
+  async function maybeFollowFork(sess: ClaudeSessionState, t: number): Promise<ClaudeSessionState | null> {
+    const sessionKey = sess.sessionKey;
+    if (!sessionKey || !sess.jsonlPath || sess.importOffset == null) return null;
+    // Mentre Topics guida la sessione è il provider a decidere resume e path:
+    // un relink euristico gli si metterebbe di traverso.
+    if (isSessionLocallyDriven(sessionKey)) return null;
+
+    let watch = forkWatch.get(sessionKey);
+    if (!watch) { watch = { lastScanAt: 0, rejected: new Map() }; forkWatch.set(sessionKey, watch); }
+    if (t - watch.lastScanAt < forkScanCooldownMs) return null;
+    const mtime = fileMtimeMs(sess.jsonlPath);
+    // Ancora caldo: una pausa dentro un turno non è un fork.
+    if (mtime !== undefined && t - mtime < forkStaleMs) return null;
+    watch.lastScanAt = t;
+
+    const currentPath = sess.jsonlPath;
+    const { found, rejected } = await findForkContinuation({
+      currentPath,
+      consumedBytes: sess.importOffset,
+      isPathTaken: (p) => repo.isTranscriptPathTaken(p, sessionKey),
+      skip: (p, m) => watch!.rejected.get(p) === m,
+    });
+    for (const r of rejected) watch.rejected.set(r.path, r.mtimeMs);
+    if (!found) return null;
+    // Il nome del file diventa il claude_session_id con cui faremo `--resume`:
+    // stesso guardrail di charset dell'adozione, niente path traversal.
+    if (!/^[A-Za-z0-9][A-Za-z0-9-]{0,127}$/.test(found.sessionId)) return null;
+
+    const moved = repo.relinkTranscript({
+      sessionKey,
+      fromPath: currentPath,
+      toPath: found.path,
+      claudeSessionId: found.sessionId,
+      offset: found.offset,
+      updatedAt: t,
+    });
+    // CAS perso: un hook ha già stabilito il path del figlio. Va bene così —
+    // la prova diretta batte l'euristica, e il prossimo sweep legge la sua.
+    if (!moved) return null;
+    watch.rejected.clear();
+    console.log(
+      `[claude-session-tracker] fork seguito per ${sessionKey}: ${basename(currentPath)} → ` +
+      `${basename(found.path)} (${found.matched} righe già note, riprendo da ${found.offset})`
+    );
+    return repo.loadBySessionKey(sessionKey);
+  }
+
+  /**
    * Import the unconsumed tail of ONE adopted session's transcript into its
    * chat. Returns the number of messages imported (0 when nothing new, or when
    * the cursor was merely advanced past Topics-authored bytes). Mirrors
    * `readSessionTail`'s byte accounting so import_offset always lands on a
-   * complete-line boundary.
+   * complete-line boundary. `followFork` è false nella chiamata ricorsiva dopo
+   * un relink: si segue un fork alla volta, mai a catena dentro uno sweep.
    */
-  async function importSessionTail(sess: ClaudeSessionState): Promise<number> {
+  async function importSessionTail(sess: ClaudeSessionState, t: number, followFork = true): Promise<number> {
     if (!importSink || !sess.sessionKey || !sess.jsonlPath || sess.importOffset == null) return 0;
     const sessionKey = sess.sessionKey;
     const fromOffset = sess.importOffset;
@@ -668,7 +751,12 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
     let nextOffset: number;
     try {
       const stat = await fsp.stat(sess.jsonlPath);
-      if (stat.size <= fromOffset) return 0;
+      if (stat.size <= fromOffset) {
+        // Fermo. O la sessione è solo silenziosa, o è ripartita altrove.
+        if (!followFork) return 0;
+        const relinked = await maybeFollowFork(sess, t);
+        return relinked ? importSessionTail(relinked, t, false) : 0;
+      }
       const fh = await fsp.open(sess.jsonlPath, 'r');
       try {
         const len = stat.size - fromOffset;
@@ -685,8 +773,10 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
         await fh.close();
       }
     } catch {
-      // File missing / unreadable — a fork (resume-from-zero) or a delete. Leave
-      // the cursor; a later sweep retries. Following the fork is a separate task.
+      // File sparito o illeggibile. Non si segue nessun fork da qui: senza gli
+      // uuid già consumati non c'è prova di parentela, e agganciarsi al file
+      // più recente della cartella vorrebbe dire rubare la sessione di un
+      // altro topic. Si lascia il cursore; uno sweep successivo riprova.
       return 0;
     }
 
@@ -735,15 +825,23 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
     return messages.length;
   }
 
-  async function importOnce(_overrideNow?: number): Promise<number> {
+  async function importOnce(overrideNow?: number): Promise<number> {
     if (!importSink) return 0;
+    const t = overrideNow ?? now();
     let changed = 0;
+    const live = new Set<string>();
     for (const sess of repo.listImportable()) {
+      if (sess.sessionKey) live.add(sess.sessionKey);
       try {
-        if ((await importSessionTail(sess)) > 0) changed += 1;
+        if ((await importSessionTail(sess, t)) > 0) changed += 1;
       } catch (err) {
         console.error('[claude-session-tracker] import sweep error', err);
       }
+    }
+    // Una sessione uscita dallo sweep (topic cancellato) non deve lasciarsi
+    // dietro la sua cache di fork.
+    if (forkWatch.size > live.size) {
+      for (const key of [...forkWatch.keys()]) if (!live.has(key)) forkWatch.delete(key);
     }
     return changed;
   }
