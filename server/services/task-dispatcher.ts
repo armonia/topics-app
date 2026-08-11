@@ -1900,7 +1900,20 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // libera. Si parcheggiano con la ragione scritta — la coda deve dire il
     // vero, e un umano decide se rimetterle in coda (la PATCH a `todo` azzera
     // il contatore) o lasciarle stare.
-    const exhausted = todos.filter((t) => !t.assignedTopicId && t.dispatchAttempts >= settings.dispatchRetryCap);
+    //
+    // Ma «non riproverà mai più» vale solo per chi sarebbe pronto ADESSO. Un
+    // task dentro la sua finestra d'attesa non ha finito niente: sta aspettando
+    // una condizione esterna che l'agente ha dichiarato, e il tentativo lo
+    // consumerà semmai la riclamata dopo. L'11/08 questo controllo, messo prima
+    // del cancello dell'attesa, ha ucciso una card che aspettava 14 minuti di
+    // UAT su CI — il bound sugli aspettatori eterni resta, ma scatta quando la
+    // finestra è passata, non mentre scorre. Stessa ragione per il bloccante:
+    // chi aspetta un altro task non sta fallendo.
+    const pronto = (t: Task) =>
+      !t.assignedTopicId &&
+      (!t.dispatchDeferredUntil || t.dispatchDeferredUntil <= nowIso) &&
+      (() => { try { return !deps.svc.isDispatchBlocked(t.id); } catch { return true; } })();
+    const exhausted = todos.filter((t) => pronto(t) && t.dispatchAttempts >= settings.dispatchRetryCap);
     let toldExhausted = false;
     for (const t of exhausted) {
       if (inFlight.has(t.id) || graceTimers.has(t.id)) continue;
