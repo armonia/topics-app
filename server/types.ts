@@ -355,6 +355,9 @@ export interface AppContext {
     content: string,
     autore?: { authorPersonId?: string | null; authorDeviceId?: string | null },
   ) => StoredMessage;
+  /** Append pre-formed messages (id/parentId/toolCalls fixed by the caller) to
+   *  the tail — the incremental-import complement to `saveLocalMessages`. */
+  appendImportedMessages: (sessionKey: string, msgs: StoredMessage[]) => void;
   createPartialMessage: (sessionKey: string, role: "user" | "assistant") => StoredMessage;
   reuseOrCreatePartialForReattach: (sessionKey: string) => ReattachedPartial;
   updateLastMessage: (sessionKey: string, updates: Partial<StoredMessage>) => StoredMessage | null;
