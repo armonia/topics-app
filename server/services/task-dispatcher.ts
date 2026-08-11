@@ -115,10 +115,10 @@ export interface DispatcherDeps {
    * host without a classifier (tests / degraded); "auto" then keeps the default.
    * MUST resolve fast and never reject (the picker swallows its own errors).
    */
-  /** Il giudice legge il task e sceglie modello E peso prima che l'agente nasca.
-   *  `weight` assente/null = leggero, cioè niente cambia (vedi `TASK_WEIGHTS` in
-   *  shared/board.ts e il gate del claim). */
-  pickAutoModel?: (task: Task) => Promise<{ model: string | null; weight?: string | null }>;
+  /** Il giudice haiku legge il task e sceglie modello, SFORZO e PESO prima che
+   *  l'agente nasca. `effort: null` = non deciso, e la board decide; `weight`
+   *  assente/null = leggero, cioè niente cambia (vedi `TASK_WEIGHTS`). */
+  pickAutoModel?: (task: Task) => Promise<{ model: string | null; effort?: string | null; weight?: string | null }>;
   /** Auto concurrency cap for a board on `maxAgentsAuto`: live machine capacity
    *  (CPU/load). Absent ⇒ auto falls back to the board's manual `maxAgents`. */
   recommendedCap?: () => number;
@@ -340,6 +340,26 @@ export interface TaskDispatcher {
    */
   busyCount(): number;
 }
+
+/**
+ * Dove cade l'effort quando la board dice "auto" ma il classificatore non
+ * risponde. NON e' una preferenza: e' cio' che la board faceva prima che l'auto
+ * esistesse, quindi un giudice muto lascia le cose esattamente come stavano
+ * invece di spostarle di nascosto.
+ */
+/** Quanti errori del provider di fila si perdonano prima di ricominciare a
+ *  pagare tentativi. Tre: una raffica si assorbe, un guasto cronico no. */
+/**
+ * Dove cade l'effort quando la board dice "auto" ma il classificatore non
+ * risponde. NON è una preferenza: è ciò che la board faceva prima che l'auto
+ * esistesse, quindi un giudice muto lascia le cose come stavano.
+ *
+ * Vive solo su questo ramo: su main l'effort automatico non c'è (scelta del
+ * cherry-pick di `ed607a5a`, per non portare metà di una feature).
+ */
+const DEFAULT_AUTO_EFFORT = "medium";
+
+const FREE_PROVIDER_ERRORS = 3;
 
 /**
  * Sotto quale carico PER CORE la macchina è «scarica» abbastanza da far partire
@@ -588,6 +608,24 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     try { gcap = deps.svc.getGlobalCap(); } catch { /* defaults */ }
     return effectiveDispatchCap(gcap, deps.recommendedCap ? deps.recommendedCap() : null);
   }
+  /**
+   * Errori del PROVIDER di fila su un task, per non fargli pagare i tentativi.
+   *
+   * `consumesAttempt` dice `true` per ogni `error`, e il tetto è 2: due
+   * singhiozzi del provider uccidono una card che non ha ancora scritto una
+   * riga. Misurato il 10/08: durante una raffica di dispatch paralleli, VENTI
+   * task sono finiti in review a mano vuote — «Errore del provider: riprovo tra
+   * 60s (tentativo 2/2)» e poi consegna forzata. Lavoro zero, review sporca, e
+   * i token dello spawn pagati due volte per niente.
+   *
+   * Non è gratis all'infinito, o un'interruzione lunga girerebbe per sempre: i
+   * primi `FREE_PROVIDER_ERRORS` non contano (col backoff che c'è già), dal
+   * successivo si torna a pagare. Il contatore si azzera al primo turno che NON
+   * muore per errore — è una raffica che si perdona, non un guasto cronico.
+   * Sta in memoria di proposito: un riavvio ri-pianifica comunque.
+   */
+  const providerErrors = new Map<string, number>();
+
   /**
    * One in-flight run: a turn being set up, running, or winding down.
    *
@@ -1003,6 +1041,29 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     parts.push(task.text);
     if (task.description && task.description.trim()) parts.push("", task.description.trim());
     parts.push("------------");
+    // I sottotask GIÀ sulla board sono lavoro di questo task, non contorno: un
+    // padre nasce anche accorpando card che esistevano da sole, e la loro
+    // sostanza vive nei figli, non nella descrizione del padre. Senza questo
+    // blocco l'agente del padre non li vede — accorpare, che dovrebbe
+    // concentrare il lavoro, lo farebbe sparire.
+    // Solo i figli APERTI: quelli done sono storia, e ripassarli invita a
+    // rifarli. Titolo + prima riga di descrizione: il resto lo legge da sé con
+    // get_task, e il preambolo si paga a ogni turno.
+    try {
+      // `childrenOf` esclude già gli archiviati: qui resta da togliere i chiusi.
+      const open = (deps.svc.get(task.id)?.children ?? []).filter((c) => c.status !== "done");
+      if (open.length) {
+        parts.push(
+          "",
+          `Questo task ha ${open.length} sottotask aperti: sono la SUA checklist, li lavori tu (nessuno li dispaccia da solo).`,
+          ...open.map((c) => {
+            const head = (c.description ?? "").trim().split("\n")[0]?.trim() ?? "";
+            return `- [${c.id}] ${c.text}${head ? ` — ${head.slice(0, 160)}` : ""}`;
+          }),
+          `Man mano che ne chiudi uno: update_task(task_id=<id sottotask>, status="done"). Il dettaglio di ognuno con get_task.`,
+        );
+      }
+    } catch { /* board senza albero: il task resta quello che è */ }
     return parts;
   }
 
@@ -1037,7 +1098,13 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
             ]
           : []),
         "- Commenti BREVI e utili: max 1-2 frasi ai milestone (cosa è fatto / cosa blocca). Mai log, diff o dump di codice nel thread (il server rifiuta commenti lunghi).",
-        "- Contesto snello (tieni i turni leggeri): usa Grep per trovare, poi Read a fette (offset/limit) sui file oltre ~400 righe — mai leggere file interi 'per sicurezza'. Per ispezionare lo schermo del browser usa browser_read_screen (testo), MAI screenshot/immagini nel contesto (uno screenshot va solo come allegato a comment_task). Comandi lunghi (build, test, install >~2 min): lanciali in background (run_script o `&`) e polla read_process_output ogni tanto invece di restare bloccato sul comando.",
+        "- Contesto snello (tieni i turni leggeri): usa Grep per trovare, poi Read a fette (offset/limit) sui file oltre ~400 righe — mai leggere file interi 'per sicurezza'. Comandi lunghi (build, test, install >~2 min): lanciali in background (run_script o `&`) e polla read_process_output ogni tanto invece di restare bloccato sul comando.",
+        // Il divieto è anche un CANCELLO vero (hook PreToolUse su Read, vedi
+        // `blockImageReads` in providers/claude/args.ts): scritto qui restava un
+        // consiglio in mezzo agli altri, e gli agenti aprivano gli screenshot lo
+        // stesso — il 25% del loro contesto erano immagini. Resta scritto perché
+        // un rifiuto spiegato PRIMA costa una riga, scoperto dopo costa un giro.
+        "- MAI aprire immagini o video con Read (il tuo Read li rifiuta): pesano ~mezzo mega e restano nel PREFISSO, che ogni turno successivo rilegge. Per consegnare la prova basta il path — update_task(preview_image=<path>) o comment_task(media=[<path>]) — non serve averla aperta. Per ispezionare lo schermo del browser usa browser_read_screen, che risponde in testo.",
         "- PIANO VISIBILE: se il lavoro ha più di un passo, crea subito i tuoi step come sottotask — " +
           `create_task(text=<step>, parent_task_id="${task.id}") per ognuno — e marca OGNI step done appena lo completi: update_task(task_id=<step id>, status="done") (permesso sui TUOI step). Sono la tua checklist sulla board: l'umano vede i progressi in tempo reale.`,
         "- Prima di consegnare in review TUTTI i tuoi step devono essere done (un task con sottotask aperti non è approvabile). Lavoro futuro fuori scope → task top-level SENZA parent (resta in backlog per l'umano).",
@@ -1117,6 +1184,12 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // board pins one instead of 'auto') > classifier pick. The board default skips
       // the classifier entirely — a pinned board dispatches every task on that model.
       let chosenModel: string | undefined = task.model ?? settings.model ?? undefined;
+      // L'effort segue la stessa regola del modello: la board può fissarlo e
+      // allora comanda lei; su "auto" lo sceglie il classificatore task per
+      // task. È la leva più cara che abbiamo — stesso lavoro: `medium` 61,1k
+      // token, `xhigh` 108,8k — quindi tenerla fissa per una board intera
+      // significa pagarla uguale su un typo e su un refactor.
+      let chosenEffort = settings.effort;
       if (chosenModel && chosenModel !== task.model && !reuseTopicId) {
         // Persist the board-default so the card shows the real model, not "auto".
         deps.svc.setModel({ taskId, model: chosenModel });
@@ -1129,6 +1202,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         // il giudice ripete la lettura, che costa un haiku, e in cambio modello e
         // peso restano una decisione sola invece di due mezze decisioni salvate a
         // metà.)
+        if (settings.effort === "auto") chosenEffort = picked.effort ?? DEFAULT_AUTO_EFFORT;
         if (absorbWeight(task, picked.weight)) return;
         chosenModel = picked.model ?? undefined;
         // "auto" è solo lo stato INIZIALE: appena il classifier risolve un
@@ -1182,7 +1256,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
             projectPath: cwd,
             worktreeId,
             systemPrompt: rolePrompt(langFor(task.projectId)),
-            effort: settings.effort,
+            effort: chosenEffort,
             model: chosenModel,
             // Catch-all task → standalone session: keeps its (now per-task) cwd
             // but never renders a phantom project node in the sidebar.
@@ -1526,12 +1600,19 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // confronto un esperimento su due variabili insieme, e il fan-out serve a
       // confrontare STRADE, non provider.
       let chosenModel: string | undefined = task.model ?? settings.model ?? undefined;
+      // L'effort segue la stessa regola del modello: la board può fissarlo e
+      // allora comanda lei; su "auto" lo sceglie il classificatore task per
+      // task. È la leva più cara che abbiamo — stesso lavoro: `medium` 61,1k
+      // token, `xhigh` 108,8k — quindi tenerla fissa per una board intera
+      // significa pagarla uguale su un typo e su un refactor.
+      let chosenEffort = settings.effort;
       if (chosenModel && chosenModel !== task.model) deps.svc.setModel({ taskId, model: chosenModel });
       if (!chosenModel && deps.pickAutoModel) {
         const picked = await deps.pickAutoModel(task);
         // Vale a maggior ragione qui: un task pesante in fan-out sono N
         // macinate in parallelo, cioè il caso peggiore che il peso esiste per
         // evitare. Il `finally` restituisce gli slot prenotati.
+        if (settings.effort === "auto") chosenEffort = picked.effort ?? DEFAULT_AUTO_EFFORT;
         if (absorbWeight(task, picked.weight)) return;
         chosenModel = picked.model ?? undefined;
         if (chosenModel) deps.svc.setModel({ taskId, model: chosenModel });
@@ -1552,7 +1633,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // deve lasciare i fratelli a girare senza nessuno che ne raccolga l'esito.
       await Promise.allSettled(
         Array.from({ length: n }, (_, i) =>
-          runAttempt(task, i + 1, n, { timeoutMs, effort: settings.effort, mcp: settings.mcp, model: chosenModel }, resolved),
+          runAttempt(task, i + 1, n, { timeoutMs, effort: chosenEffort, mcp: settings.mcp, model: chosenModel }, resolved),
         ),
       );
       // Sepolto dalla rete di liveness mentre giravamo (o rimpiazzato da un run
@@ -1732,7 +1813,22 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         // costa un tentativo (`consumesAttempt`): si riprende senza bruciare
         // budget. Il nostro tetto a orologio invece SÌ, o il freno contro un
         // task che gira in tondo non frenerebbe mai.
-        const free = !consumesAttempt(end);
+        // Un errore del provider non è un fallimento dell'agente: vedi
+        // `providerErrors`. Il contatore vive qui, non in `consumesAttempt`,
+        // perché quella è una funzione pura sul singolo turno e questa è una
+        // domanda sulla STORIA del task.
+        let free = !consumesAttempt(end);
+        // `process-died` arriva come `error` ma NON si perdona: è la rete di
+        // sicurezza sulla liveness, cioè l'unico freno contro una sessione
+        // fantasma. Perdonare anche quella significherebbe pagare un problema
+        // di costo con una guardia — e la guardia serve.
+        if (end.end === "error" && end.cause !== "process-died") {
+          const n = (providerErrors.get(taskId) ?? 0) + 1;
+          providerErrors.set(taskId, n);
+          if (n <= FREE_PROVIDER_ERRORS) free = true;
+        } else {
+          providerErrors.delete(taskId);
+        }
         try {
           bumped = free
             ? (deps.svc.get(taskId)?.task ?? null)
@@ -2298,7 +2394,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           try {
             deps.svc.addComment({
               taskId: t.id, author: "system",
-              content: `Fan-out ridotto da ${wantFanOut} a ${taskFanOut}: il tetto di concorrenza (${effectiveCap}) non lascia posto per tutti i tentativi.`,
+              content: `Fan-out ${wantFanOut}→${taskFanOut}: tetto di concorrenza ${effectiveCap}.`,
             });
           } catch { /* best-effort */ }
         }
@@ -2310,7 +2406,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         try {
           deps.svc.addComment({
             taskId: t.id, author: "system",
-            content: `Fan-out a ${wantFanOut} ignorato: questa board dispaccia IN-PLACE (isolamento worktree off) e ${wantFanOut} agenti nella stessa cartella si pesterebbero i piedi. Parte un agente solo.`,
+            content: `Fan-out ${wantFanOut} ignorato: board IN-PLACE (worktree off), ${wantFanOut} agenti nella stessa cartella si pesterebbero. Parte un agente solo.`,
           });
         } catch { /* best-effort */ }
       }
@@ -2537,7 +2633,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
             try {
               deps.svc.addComment({
                 taskId: t.id, author: "system",
-                content: "Ripreso in diretta dopo un riavvio del server: nessuna interruzione della sessione, nessun tentativo consumato.",
+                content: "Riavvio del server: ripreso in diretta, nessun tentativo consumato.",
               });
             } catch { /* dedupe/best-effort */ }
             void reattachTask(t.id);
@@ -2546,7 +2642,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           try {
             deps.svc.addComment({
               taskId: t.id, author: "system",
-              content: "Il server è ripartito mentre l'agent lavorava: riprendo la stessa sessione da dove era rimasta (nessun tentativo consumato).",
+              content: "Server ripartito a metà turno: riprendo la stessa sessione, nessun tentativo consumato.",
             });
           } catch { /* dedupe/best-effort */ }
           // Sets inFlight synchronously → the 10s poll can never double-fire.

@@ -121,8 +121,8 @@ describe("cripto · il link tiene la chiave dove il server non la vede", () => {
 
   it("e si rilegge", () => {
     const k = nuovaChiave();
-    const letto = leggiLink(componiLink("https://topics.esempio.io", "inst-1", "ref con spazi", k));
-    expect(letto).toEqual({ installationId: "inst-1", shareRef: "ref con spazi", chiave: k });
+    const letto = leggiLink(componiLink("https://topics.esempio.io", "punto-1", "ref con spazi", k));
+    expect(letto).toEqual({ relayId: "punto-1", shareRef: "ref con spazi", chiave: k });
   });
 
   it("un link senza frammento non è un link valido", () => {

@@ -1,8 +1,8 @@
 import { useState, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { Maximize2, PanelTop, X } from 'lucide-react';
+import { FileText, Maximize2, PanelTop, X } from 'lucide-react';
 import { getMediaUrl } from '../../lib/api';
-import { isVideoPath } from '../../lib/mediaKind';
+import { isVideoPath, isPreviewablePath } from '../../lib/mediaKind';
 import { MODAL_LAYER } from '../../lib/modalStyles';
 import { useModalDialog } from '../../hooks/useModalDialog';
 
@@ -90,7 +90,9 @@ export function PreviewMedia({ path, variant, onOpenTab }: {
   const [lightbox, setLightbox] = useState(false);
   const url = getMediaUrl(path);
   const video = isVideoPath(path);
-  const expandable = variant === 'drawer';
+  // Il lightbox mostra `<img>` o `<video>`: offrirlo su un file che nessuno dei
+  // due sa aprire riproporrebbe l'icona rotta, solo a schermo intero.
+  const expandable = variant === 'drawer' && isPreviewablePath(path);
   const openLightbox = useCallback(() => setLightbox(true), []);
 
   // `max-h-36` = 144px in una colonna da 268: è la misura da cui esce
@@ -119,7 +121,29 @@ export function PreviewMedia({ path, variant, onOpenTab }: {
       ? 'block w-full max-h-[min(280px,32vh)] rounded border border-app-border bg-black/20 object-contain'
       : 'block w-full max-h-[min(220px,24vh)] rounded border border-app-border bg-black/20 object-cover object-top';
 
-  const media = video ? (
+  // Terzo caso: un file che NESSUN elemento sa mostrare (un `.pdf`, un `.zip`
+  // — roba fuori dai tre rami di `PREVIEW_RULE`). Prima finiva nel ramo `<img>`
+  // e diventava un'icona rotta: la card sembrava consegnata e non mostrava
+  // niente, che è peggio di un'anteprima assente. Qui si dichiara — nome del
+  // file e un gesto per aprirlo — invece di fingere un'immagine.
+  const media = !isPreviewablePath(path) ? (
+    <a
+      href={url}
+      target="_blank"
+      rel="noreferrer"
+      onClick={(e) => e.stopPropagation()}
+      title={path}
+      data-testid="preview-unrenderable"
+      className={`flex items-center gap-2 px-2.5 py-2 text-left text-xs ${
+        variant === 'card'
+          ? 'block w-full rounded border border-app-border'
+          : 'block w-full rounded border border-app-border bg-black/20'
+      } text-app-text-muted hover:text-app-text`}
+    >
+      <FileText className="h-4 w-4 shrink-0" />
+      <span className="truncate">{path.split('/').pop() || path}</span>
+    </a>
+  ) : video ? (
     <video
       src={url}
       muted

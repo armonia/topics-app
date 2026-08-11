@@ -130,6 +130,7 @@ export async function commitStatusFromRepo(
  * un branch assente da un repo non raggiungibile, perché il primo è un allarme e
  * il secondo è ignoranza.
  */
+
 export async function branchExistsInRepo(repoPath: string, branch: string | null): Promise<boolean> {
   if (!branch) return false;
   return (await gitExit(repoPath, ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`])) === 0;

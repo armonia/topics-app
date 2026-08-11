@@ -194,6 +194,10 @@ export interface BoardTask {
   userCommentCount: number;
   /** Model the dispatched agent runs on; null = provider default ("Auto"). */
   model: string | null;
+  /** Lo sforzo con cui il task ha girato davvero (dal topic dell'agente). Con la
+   *  board su `auto` lo sceglie il classificatore, e questo è l'unico posto in
+   *  cui la scelta si legge: è la leva di costo più pesante che abbiamo. */
+  effort?: string | null;
   /** Root task this one is gated on — the dispatcher won't start it until that task is done. */
   blockedByTaskId: string | null;
   /** Lo stesso bloccante risolto dal server (titolo + stato + archiviato). È la

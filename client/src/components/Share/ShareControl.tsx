@@ -79,7 +79,7 @@ export function ShareControl({ resourceType, resourceId }: { resourceType: Resou
   /** Il relay: dove vive e come si chiama questa installazione. `null` = spento,
    *  e allora il gesto «fuori rete» non si offre affatto — un bottone che non
    *  può funzionare è peggio di un bottone che non c'è. */
-  const [relay, setRelay] = useState<{ baseUrl: string; installationId: string; connected: boolean } | null>(null);
+  const [relay, setRelay] = useState<{ baseUrl: string; relayId: string; connected: boolean } | null>(null);
   const [links, setLinks] = useState<LinkFuoriRete[]>([]);
   /** Il link appena creato, con la chiave. Vive SOLO qui, in memoria: il server
    *  non lo ripropone mai più. Chiudere il pannello lo perde, ed è giusto —
@@ -98,13 +98,13 @@ export function ShareControl({ resourceType, resourceId }: { resourceType: Resou
         fetch(`/api/auth/share-links?resourceType=${resourceType}&resourceId=${encodeURIComponent(resourceId)}`, { credentials: 'same-origin' }).then((r) => r.json()),
       ]) as [
         { shares: Share[] }, { subjects: Subject[] },
-        { enabled: boolean; baseUrl: string | null; installationId: string | null; connected: boolean },
+        { enabled: boolean; baseUrl: string | null; relayId: string | null; connected: boolean },
         { links: LinkFuoriRete[] },
       ];
       setShares(s.shares ?? []);
       setSoggetti(d.subjects ?? []);
-      setRelay(r.enabled && r.baseUrl && r.installationId
-        ? { baseUrl: r.baseUrl, installationId: r.installationId, connected: r.connected }
+      setRelay(r.enabled && r.baseUrl && r.relayId
+        ? { baseUrl: r.baseUrl, relayId: r.relayId, connected: r.connected }
         : null);
       setLinks((l.links ?? []).filter((x) => x.revokedAt === null && !x.scaduto));
       setErrore(null);
@@ -154,7 +154,7 @@ export function ShareControl({ resourceType, resourceId }: { resourceType: Resou
       });
       if (!r.ok) { setErrore(t(chiaveErroreAuth(((await r.json()) as { error?: string }).error))); return; }
       const { ref, key } = await r.json() as { ref: string; key: string };
-      setAppenaCreato(componiLink(relay.baseUrl, relay.installationId, ref, key));
+      setAppenaCreato(componiLink(relay.baseUrl, relay.relayId, ref, key));
       setCopiato(false);
       await carica();
     } finally { setInCorso(false); }
