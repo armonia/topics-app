@@ -16,7 +16,7 @@
 // Le forme del filo vivono in shared/: qui si ri-esportano perché i callsite del
 // client importino da un posto solo, non perché siano dichiarate due volte.
 import type { SttCapabilities, SttResult } from '../../../shared/stt';
-export type { SttProviderId, SttProviderStatus, SttCapabilities, SttResult } from '../../../shared/stt';
+export type { SttCapabilities, SttResult } from '../../../shared/stt';
 
 const UNAVAILABLE: SttCapabilities = { available: false, provider: null, model: null, providers: [], language: null };
 
@@ -36,11 +36,6 @@ export function fetchSttCapabilities(): Promise<SttCapabilities> {
       .catch(() => UNAVAILABLE);
   }
   return capabilitiesPromise;
-}
-
-/** Da usare quando la configurazione può essere cambiata sotto (es. dopo un restart del server). */
-export function resetSttCapabilities(): void {
-  capabilitiesPromise = null;
 }
 
 export class SttRequestError extends Error {
