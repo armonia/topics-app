@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef, useCallback, type TouchEvent as ReactTouchEvent } from 'react';
 import { useT } from '../../hooks/useT';
+import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { NightModeCard } from './NightModeCard';
 import { ArrowUpRight, Bot, Camera, Check, ChevronDown, ChevronRight, Clock, Download, ExternalLink, Footprints, GitMerge, Globe, Hourglass, Link2, Lock, Maximize2, Minimize2, MoreHorizontal, Paperclip, Plus, Send, ShieldCheck, ShieldX, Sparkles, Square, X } from 'lucide-react';
 import { ChatMarkdown } from '../ChatMarkdown';
@@ -17,7 +18,7 @@ import { useTaskBrowserTabs, liveTabs, workspaceTwinContextId } from '../../stat
 import { noteAutoOpenedPreview, releaseAutoOpenedPreview } from '../../state/taskWorkspacePreviews';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
 import { writeCursor, markActiveComposer, restoreCursor } from '../../lib/composerCursor';
-import { boardApi, STATUS_LABEL, TASK_STATUSES, isAgentWorking, parseQuestionBlock, parseStatusEvent, isProjectlessId, boardDrafts, systemDeliveryNote, blockedByChip, attemptHasWork, type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch, type BoardProjectRef, type DiffBundle, type DiffNote, type ReviewCheck, type CheckRun, type TaskAttempt } from '../../lib/board';
+import { boardApi, STATUS_LABEL, TASK_STATUSES, isAgentWorking, parseQuestionBlock, parseStatusEvent, hasPlanApproveOption, isProjectlessId, boardDrafts, systemDeliveryNote, blockedByChip, attemptHasWork, type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch, type BoardProjectRef, type DiffBundle, type DiffNote, type ReviewCheck, type CheckRun, type TaskAttempt } from '../../lib/board';
 import { PreviewMedia } from './PreviewMedia';
 import { UnifiedDiff } from './UnifiedDiff';
 import { collectTaskMediaPaths } from './taskMedia';
@@ -233,7 +234,9 @@ export function TaskChangesSection({ projectId, taskId, bump, onSent }: {
       </button>
       {open && (
         <>
-          <div className="mt-1.5 max-h-[42vh] overflow-y-auto">
+          {/* Accordion puro: il `max-h-[42vh] overflow-y-auto` era uno scroll
+              dentro lo scroll che non c'era. Adesso scorre il brief. */}
+          <div className="mt-1.5">
             <UnifiedDiff bundle={bundle} defaultOpenFirst review={review} />
           </div>
           {notes.length > 0 && (
@@ -409,7 +412,9 @@ function AttemptDiff({ projectId, taskId, attemptId }: { projectId: string; task
   if (state === 'error') return <p className="mt-1.5 text-[11px] text-rose-300">{tr('board.task.diffUnreadable')}</p>;
   if (state.code === 'no_worktree' || state.stat.length === 0) return <p className="mt-1.5 text-[11px] text-app-text-muted">{tr('board.task.noChanges')}</p>;
   return (
-    <div className="mt-1.5 max-h-[38vh] overflow-y-auto">
+    // Accordion puro (vedi TaskChangesSection): il tetto in vh era il surrogato
+    // dello scroll che il drawer non aveva.
+    <div className="mt-1.5">
       <UnifiedDiff bundle={state} defaultOpenFirst />
     </div>
   );
@@ -520,6 +525,13 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   // them reclaims vertical room for the chat.
   const [descOpen, setDescOpen] = useState(() => { try { return localStorage.getItem('board:taskDescOpen') !== '0'; } catch { return true; } });
   const [subtasksOpen, setSubtasksOpen] = useState(() => { try { return localStorage.getItem('board:taskSubtasksOpen') !== '0'; } catch { return true; } });
+  // L'anteprima ha una sezione SUA, che si chiude da sola. Prima era sorella
+  // della descrizione dentro lo stesso riquadro ma FUORI dal ramo `descOpen`:
+  // chiudere la descrizione non la nascondeva, e nessuna maniglia la nascondeva.
+  // Non era un bug — mancava lo slot per «la consegna», che è la cosa per cui
+  // il drawer si apre.
+  const [previewOpen, setPreviewOpen] = useState(() => { try { return localStorage.getItem('board:taskPreviewOpen') !== '0'; } catch { return true; } });
+  const togglePreviewOpen = () => setPreviewOpen((o) => { const n = !o; try { localStorage.setItem('board:taskPreviewOpen', n ? '1' : '0'); } catch { /* private mode */ } return n; });
   const toggleDescOpen = () => setDescOpen((o) => { const n = !o; try { localStorage.setItem('board:taskDescOpen', n ? '1' : '0'); } catch { /* private mode */ } return n; });
   const toggleSubtasksOpen = () => setSubtasksOpen((o) => { const n = !o; try { localStorage.setItem('board:taskSubtasksOpen', n ? '1' : '0'); } catch { /* private mode */ } return n; });
   // The workspace (the task's GroupLayout: thread + browser + piano + media) is
@@ -527,6 +539,19 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   // "Spazio di lavoro" label. Default open.
   const [workspaceOpen, setWorkspaceOpen] = useState(() => { try { return localStorage.getItem('board:taskWorkspaceOpen') !== '0'; } catch { return true; } });
   const toggleWorkspaceOpen = () => setWorkspaceOpen((o) => { const n = !o; try { localStorage.setItem('board:taskWorkspaceOpen', n ? '1' : '0'); } catch { /* private mode */ } return n; });
+  // DUE COLONNE — «a sinistra la sessione stretta col task, a destra la tab
+  // aperta con quello che devo vedere». Serve spazio VERO: a sinistra 22rem di
+  // brief+sessione, a destra il tiling. Il drawer in modo largo misura
+  // `min(64rem, 72%)`, quindi la seconda colonna ha senso solo da ~1280px in su
+  // (lì la destra resta sopra i 550px); a 1024 il drawer sarebbe 737px e le due
+  // colonne uscirebbero 352+385, cioè due strisce. Sotto la soglia il drawer
+  // resta a UNA colonna, esattamente come prima.
+  //
+  // Media query e non classe `xl:`: la seconda colonna non deve essere NASCOSTA,
+  // deve non esistere — il thread ci si trasferisce dentro, e due copie montate
+  // sarebbero due sottoscrizioni allo stesso stream.
+  const viewportWide = useMediaQuery('(min-width: 1280px)');
+  const twoCol = wide && viewportWide;
   // The drawer body is ONE task-scoped GroupLayout (Thread + browser tabs +
   // Piano + media as panes → the app's real PaneTabBar). `wide` is now a pure
   // width preference (more room for the native tiling), no side-panel fold.
@@ -614,11 +639,27 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   const speech = comments.filter((c) => c.kind !== 'status');
   const lastThreadComment = speech[speech.length - 1] ?? null;
   const pending = isAgentReview && lastThreadComment ? parseQuestionBlock(lastThreadComment.content) : null;
-  // The plan lives in the agent's last real comment; the "Piano" tab surfaces it.
-  // Shown only for plan-first tasks (where a plan is the expected deliverable).
-  const planComment = task?.planFirst
-    ? ([...speech].reverse().find((c) => c.author !== 'user' && c.author !== 'system') ?? null)
-    : null;
+  // QUALE commento è il piano. Il task lo PUNTA (`planCommentId`, scritto dal
+  // server quando il piano arriva secondo protocollo): non è più «l'ultimo
+  // commento non-utente», euristica che su 13 task piano-prima sbagliava 13
+  // volte su 13 — bastava una rettifica dopo il piano per prenderne il posto.
+  //
+  // La ricaduta serve ai task nati PRIMA del puntatore: stessa regola, applicata
+  // a posteriori — l'ultimo commento dell'agente le cui opzioni offrono
+  // l'approvazione del piano. Se nessuno la offre, non c'è nessun piano da
+  // mostrare (meglio nessuna tab che la tab sbagliata).
+  const planComment = useMemo(() => {
+    if (!task?.planFirst) return null;
+    if (task.planCommentId) {
+      const byId = speech.find((c) => c.id === task.planCommentId);
+      if (byId) return byId;
+    }
+    return [...speech].reverse().find((c) => (
+      c.author !== 'user' && c.author !== 'system'
+      && hasPlanApproveOption(parseQuestionBlock(c.content)?.options ?? [])
+    )) ?? null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `speech` is derived from `comments` each render
+  }, [comments, task?.planFirst, task?.planCommentId]);
 
 
   const deliverAnswer = async (v: string, media?: string[]): Promise<boolean> => {
@@ -1146,7 +1187,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   }, [renderThread, planComment, taskId]);
 
   // The single GroupLayout that IS the drawer body's tab system.
-  const browser = useTaskBrowserGroupLayout(taskId, { planActive: !!planComment, mediaPaths, renderSurface });
+  const browser = useTaskBrowserGroupLayout(taskId, { planActive: !!planComment, mediaPaths, renderSurface, threadInline: twoCol });
   // Apertura mirata. Va riprovata: al primo render i commenti (e quindi i media,
   // e quindi le pane) non sono ancora arrivati, perciò `focusPane` fallisce e
   // basta. Il ref si azzera solo quando la pane c'è davvero ed è stata attivata,
@@ -1337,20 +1378,58 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
           {' '}non risulta nel contenuto di main. Landa il branch, o recupera il commit prima che venga potato.
         </div>
       )}
+      {/* IL GUSCIO — chi possiede l'altezza, e dove sta il solo scroll.
+          ═══════════════════════════════════════════════════════════════════
+          Prima era una pila di sezioni in cui NESSUNO possedeva l'altezza:
+          niente `overflow-y` in tutta la catena, quindi ogni sezione si metteva
+          un tetto addosso (`max-h-[40%]` sui sottotask, `[38vh]` su Tentativi,
+          `[42vh]` su Modifiche, `[50vh]` sull'anteprima) come surrogato dello
+          scroll che mancava. Quando i tetti non bastavano la colonna debordava e
+          l'`overflow-hidden` della board tagliava — e il primo pezzo tagliato è
+          l'ULTIMO figlio: Approva / Rifiuta / Landa. I bottoni della decisione
+          uscivano dallo schermo.
+
+          Adesso: UN contenitore di scroll (il brief), e fuori da lui solo cose
+          che possiedono la propria altezza — lo Spazio di lavoro e la zona di
+          decisione+composer, che è `shrink-0` e quindi non esce mai dal viewport
+          a nessuna altezza di finestra. Le sezioni tornano accordion puri:
+          niente scroll dentro lo scroll.
+
+          TRAPPOLA, non toccare: il GroupLayout deve restare FUORI dallo scroll.
+          Dentro un contenitore scrollabile perde l'altezza definita e le sue
+          pane collassano a 0. Per costruzione, non per fortuna. */}
       {!task ? (
         <div className="flex flex-1 items-center justify-center">
           <Spinner size="md" tone="current" className="text-app-text-muted" />
         </div>
       ) : (
-      <div className="flex min-h-0 flex-1 flex-col">
-        {/* Single column: meta + subtask tree + the one GroupLayout body +
-            composer/review actions. No more left/right surface split — the
-            GroupLayout tiles natively when the user splits. `min-h-0` is
-            load-bearing: without it this column grows to its content instead of
-            the drawer height, so the subtask tray's `max-h-[40%]` and the
-            thread's `overflow-y-auto` never get a bounded height → nothing
-            scrolls. */}
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <div className={`flex min-h-0 flex-1 ${twoCol ? 'flex-row' : 'flex-col'}`}>
+        {/* La colonna del BRIEF. In modo largo è la colonna stretta di sinistra
+            (brief + sessione + composer) e il tiling si prende la destra; in modo
+            stretto è l'unica colonna e si prende tutto. */}
+        <div className={`flex min-h-0 min-w-0 flex-col ${twoCol ? 'w-[22rem] shrink-0 border-r border-app-border' : 'flex-1'}`}>
+        <div className="min-h-0 flex-1 overflow-y-auto" data-testid="task-brief-scroll">
+          {/* L'ANTEPRIMA È LA CONSEGNA, e sta in cima: è la cosa per cui il
+              drawer si apre. Sezione sua, maniglia sua — prima viveva appesa
+              alla descrizione ma fuori dal suo ramo aperto/chiuso, quindi
+              nessun gesto la nascondeva. */}
+          {task?.previewImage && (
+            <div className="border-b border-app-border px-3 py-2" data-testid="task-detail-preview">
+              <button
+                onClick={togglePreviewOpen}
+                className="flex w-full items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-app-text-muted hover:text-app-text-heading"
+              >
+                {previewOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />} {tr('board.task.deliveryLabel')}
+              </button>
+              {previewOpen && (
+                <PreviewMedia
+                  path={task.previewImage}
+                  variant="drawer"
+                  onOpenTab={() => browser.focusPane(mediaPaneIdFor(task.previewImage!))}
+                />
+              )}
+            </div>
+          )}
           <div className="border-b border-app-border px-3 py-3">
             {task?.parentTaskId && onOpenTask && (
               <button
@@ -1582,27 +1661,10 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 className="flex w-full items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-app-text-faint hover:text-app-text-secondary"
               >{tr('board.task.addDesc')}</button>
             )}
-            {/* Anteprima della consegna anche nel drawer (non solo sulla card):
-                intera, object-contain — il reviewer deve poter vedere TUTTO lo
-                screenshot.
-
-                È lo STESSO componente della card (`PreviewMedia`), non più un
-                <img> scritto a mano: da qui il click apre il lightbox dentro
-                l'app — prima usciva in una finestra esterna, perdendo il thread
-                (e dentro il WKWebView di Tauri spesso non apriva niente) — e un
-                video è un <video> coi controlli invece di un'icona rotta.
-
-                In hover, il bottone «apri in una tab» porta l'anteprima
-                accanto a Thread: il lightbox serve a guardare, la tab a
-                lavorarci mentre leggi il resto. La tab esiste perché
-                `previewImage` sta in `mediaPaths`. */}
-            {task?.previewImage && (
-              <PreviewMedia
-                path={task.previewImage}
-                variant="drawer"
-                onOpenTab={() => browser.focusPane(mediaPaneIdFor(task.previewImage!))}
-              />
-            )}
+            {/* (L'anteprima stava QUI, sorella della descrizione ma fuori dal
+                suo ramo `descOpen`: chiudere la descrizione non la nascondeva.
+                Ora ha la sua sezione in cima al brief — «la consegna» è uno slot,
+                non un dettaglio della descrizione.) */}
             {/* File consegnati: ogni artefatto (screenshot/video/PDF) è
                 polimorfo — click sul nome lo apre come TAB nel workspace del
                 task, l'icona lo SCARICA. Rimpiazza l'idea di "output" a parte:
@@ -1670,9 +1732,13 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
           {/* Subtask tree — collapsible; unlimited depth, lazy-expanded. The
               agent's steps live here too: dots flip green as it checks them off.
               Hidden entirely when there are no subtasks ("non mostrare se non ci
-              sono") — added on demand from the ⋯ menu (subtaskComposerOpen). */}
+              sono") — added on demand from the ⋯ menu (subtaskComposerOpen).
+              Accordion puro: il `max-h-[40%] overflow-y-auto` che stava qui era
+              il surrogato dello scroll mancante — un elenco di sottotask dentro
+              la sua finestrella, dentro un drawer che non scorreva. Adesso scorre
+              il brief. */}
           {(children.length > 0 || subtaskComposerOpen) && (
-          <div className="max-h-[40%] shrink-0 overflow-y-auto border-b border-app-border px-3 py-2" data-testid="task-detail-subtasks">
+          <div className="border-b border-app-border px-3 py-2" data-testid="task-detail-subtasks">
             <button
               onClick={toggleSubtasksOpen}
               className="flex w-full items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-app-text-muted hover:text-app-text-heading"
@@ -1709,15 +1775,29 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               essere quello che si tiene. Prima si sceglie, poi si revisiona. */}
           <TaskAttemptsSection projectId={projectId} taskId={taskId} bump={bump} onChanged={onChanged} onOpenTopic={onOpenTopic} />
           {task.assignedTopicId && <TaskChangesSection projectId={projectId} taskId={taskId} bump={bump} onSent={onChanged} />}
+        </div>
+        {/* ── fine del solo scroll verticale ─────────────────────────────── */}
+          {/* LA SESSIONE, in modo largo: sta a SINISTRA col task, stretta, dove
+              si legge e si decide — non è più una tab che compete con quello che
+              devi guardare. Il suo scroll è il suo, fratello del brief: nessuno
+              dei due è dentro l'altro. In modo stretto la sessione resta una pane
+              del gruppo (`thread:`), come prima. */}
+          {twoCol && (
+            <div className="flex min-h-0 flex-1 flex-col border-t border-app-border" data-testid="task-session-column">
+              {renderThread()}
+            </div>
+          )}
           {/* "Spazio di lavoro" — the task's ONE GroupLayout (Thread + browser
               tabs + Piano + media, the app's real PaneTabBar). Collapsible like
               the other sections: the tab bar sits UNDER this label. Default open;
               when collapsed the panes hide and a flex spacer keeps the composer
-              pinned to the bottom. */}
+              pinned to the bottom. In modo largo NON è qui: è la colonna di
+              destra, a piena altezza (sotto). */}
+          {!twoCol && (
           <div className={`flex min-w-0 flex-col ${workspaceOpen ? 'min-h-0 flex-1' : 'shrink-0'}`}>
             <button
               onClick={toggleWorkspaceOpen}
-              className="flex w-full shrink-0 items-center gap-1 border-b border-app-border px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-app-text-muted hover:text-app-text-heading"
+              className="flex w-full shrink-0 items-center gap-1 border-y border-app-border px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-app-text-muted hover:text-app-text-heading"
             >
               {workspaceOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
               {tr('board.task.workspaceLabel')}
@@ -1728,8 +1808,12 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               </div>
             )}
           </div>
-          {!workspaceOpen && <div className="flex-1" />}
-          <div className="border-t border-app-border p-2">
+          )}
+          {/* La zona di DECISIONE: `shrink-0`, fuori dallo scroll, ultima della
+              colonna. È l'invariante che il guscio esiste per garantire —
+              Approva/Rifiuta/Landa dentro il viewport a qualunque altezza di
+              finestra e con qualunque combinazione di sezioni aperte. */}
+          <div className="shrink-0 border-t border-app-border p-2">
             {/* Review zone — decisions live HERE, where the agent's questions
                 land (end of the thread), not up in the header. ("Modifiche" moved
                 up above the body, out of this composer area.) */}
@@ -1834,6 +1918,33 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             </div>
           </div>
         </div>
+        {/* COLONNA DESTRA (solo in modo largo): «quello che devo vedere», a
+            piena altezza. Il GroupLayout è figlio diretto — fuori da ogni
+            contenitore scrollabile, per la stessa ragione di sempre.
+
+            LO STATO VUOTO NON È DECORAZIONE. Portando la sessione a sinistra, la
+            pane `thread:` esce dal gruppo: su un task che non ha nient'altro
+            (nessuna tab, nessun piano, nessun allegato) il gruppo resta senza
+            pane e la colonna sarebbe un rettangolo vuoto senza spiegazione — il
+            modo esatto in cui questa struttura si rompe per prima. Quindi lo si
+            dice, con il gesto per riempirla. */}
+        {twoCol && (
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col" data-testid="task-drawer-right">
+            {browser.groupLayoutProps.panes.length > 0 ? (
+              <div className="flex min-h-0 flex-1 flex-col" data-testid="task-drawer-body">
+                <GroupLayout {...browser.groupLayoutProps} />
+              </div>
+            ) : (
+              <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
+                <p className="text-xs text-app-text-muted">{tr('board.task.noWorkspaceTabs')}</p>
+                <button
+                  onClick={browser.addBrowserTab}
+                  className="rounded bg-white/10 px-2.5 py-1.5 text-xs text-app-text hover:bg-white/20"
+                >{tr('board.task.openTab')}</button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
       )}
     </div>
@@ -1904,13 +2015,31 @@ export function SurfaceContent({ surface, taskId }: { surface: TaskSurface; task
   void taskId;
   if (surface.kind === 'media') return <MediaViewer key={surface.url} url={surface.url} path={surface.path} />;
   if (surface.kind === 'browser') return null; // handled by GroupLayout in TaskDetail
+  // La fence NON è il piano. Il thread la scarta e la card la scarta; questa
+  // tab era l'unica delle tre superfici che la rendeva grezza — cioè come un
+  // `<pre>` che non va a capo, dove il piano si leggeva scorrendo di lato e
+  // «allegata» compariva tagliata a «legata». Stesso trattamento delle altre
+  // due: il corpo è markdown, le opzioni sono un elenco.
+  const q = parseQuestionBlock(surface.content);
+  const outside = q ? surface.content.replace(/```question[\s\S]*?```/, '').trim() : '';
+  const body = q ? [outside, q.question].filter(Boolean).join('\n\n') : surface.content;
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
-      <div className="rounded-lg border border-violet-500/25 bg-violet-500/5 px-4 py-3.5">
+      <div className="min-w-0 rounded-lg border border-violet-500/25 bg-violet-500/5 px-4 py-3.5">
         <p className="mb-2.5 text-[11px] font-semibold uppercase tracking-wide text-violet-300">{tr('board.task.proposedPlan')}</p>
-        <div className={`text-sm text-app-text ${PLAN_MD_CLS}`}>
-          <ChatMarkdown components={{}}>{surface.content}</ChatMarkdown>
+        <div className={`min-w-0 break-words text-sm text-app-text ${PLAN_MD_CLS}`} data-testid="plan-surface-body">
+          <ChatMarkdown components={{}}>{body}</ChatMarkdown>
         </div>
+        {q && q.options.length > 0 && (
+          <ul className="mt-3 space-y-1 border-t border-violet-500/20 pt-3" data-testid="plan-surface-options">
+            {q.options.map((opt, i) => (
+              <li key={i} className="flex items-start gap-2 text-[13px] text-app-text">
+                <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-violet-300/70" />
+                <span className="min-w-0 break-words">{opt}</span>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </div>
   );

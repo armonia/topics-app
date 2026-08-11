@@ -11,7 +11,7 @@
 // Il contratto della board sta in `shared/board.ts`, dichiarato UNA volta e
 // letto dai due lati del filo: `export … from` ri-esporta ma non porta i nomi
 // in scope locale, e qui sotto servono, quindi l'import gemello non è ridondante.
-export { MAX_FANOUT, TASK_STATUSES, ACTIVE_DISPATCH_STATES, isAgentWorking, parseStatusEvent } from '../../../shared/board';
+export { MAX_FANOUT, TASK_STATUSES, ACTIVE_DISPATCH_STATES, isAgentWorking, parseStatusEvent, hasPlanApproveOption } from '../../../shared/board';
 export type {
   TaskStatus, TaskComment, ReviewCheck, CheckRun, BoardSettings, BoardSettingsPatch, DispatchCapacity, BlockerRef,
 } from '../../../shared/board';
@@ -174,6 +174,10 @@ export interface BoardTask {
   previewImage: string | null;
   /** Dispatch contract: agent delivers a PLAN to review before implementing. */
   planFirst: boolean;
+  /** IL commento che È il piano — scritto dal server quando il piano arriva
+   *  (contratto piano-prima). `null` sui task nati prima del puntatore: la tab
+   *  "Piano" ha una ricaduta esplicita per quelli. */
+  planCommentId: string | null;
   /** When the current claim started — anchors the live "ci sta mettendo" ticker. */
   inProgressAt: string | null;
   /** Cumulative agent effort across every turn (dispatcher-recorded).
@@ -296,15 +300,20 @@ export function parseQuestionBlock(text: string): { question: string; options: s
   }
   const question = qLines.join(' ').trim();
   if (!question) return null;
-  // "Landa e pubblica" (go online = merge + push + deploy) is NEVER a per-task
-  // quick-reply: publishing is a SEPARATE, human-only board action (the "Pubblica"
-  // control) with a diff preview to review before pushing. The dispatcher used to
-  // make agents offer it at delivery; drop it from the rendered options so old
-  // deliveries that still carry it don't show a one-click merge+push button.
-  // "Landa su main" (local merge, no push) stays.
+  return { question, options: filterReservedOptions(options) };
+}
+
+/**
+ * "Landa e pubblica" (go online = merge + push + deploy) is NEVER a per-task
+ * quick-reply: publishing is a SEPARATE, human-only board action (the "Pubblica"
+ * control) with a diff preview to review before pushing. The dispatcher used to
+ * make agents offer it at delivery; drop it from the rendered options so old
+ * deliveries that still carry it don't show a one-click merge+push button.
+ * "Landa su main" (local merge, no push) stays.
+ */
+function filterReservedOptions(options: string[]): string[] {
   const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
-  const filtered = options.filter((o) => norm(o) !== 'landa e pubblica');
-  return { question, options: filtered };
+  return options.filter((o) => norm(o) !== 'landa e pubblica');
 }
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {

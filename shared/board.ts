@@ -213,6 +213,52 @@ export function isAgentWorking(
   return (ACTIVE_DISPATCH_STATES as readonly string[]).includes(dispatchState ?? '');
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Blocco `question` — il formato, dichiarato dove SCRITTURA e LETTURA lo vedono
+// entrambe (`addComment` lo compone, `parseQuestionBlock` lo legge).
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * IL BLOCCO ```question È UN CONTRATTO, non una formattazione.
+ *
+ * Lo compone il server (unico scrittore, `addComment`) in una forma fissa —
+ * fence, la domanda su UNA riga, poi le opzioni come righe `- …` — e lo legge
+ * `parseQuestionBlock` per disegnare le risposte rapide. Cambiare quel layout
+ * non è un dettaglio estetico: è una card che perde i bottoni, e le risposte
+ * rapide devono esserci SEMPRE finché il task non è chiuso.
+ *
+ * Da qui la conseguenza che vale la pena scrivere: dentro la fence il corpo
+ * resta appiattito, perché una riga `- …` del corpo non sarebbe distinguibile
+ * da un'opzione. Un testo lungo che vuole tenersi l'impaginazione (un piano)
+ * viaggia FUORI dalla fence, nello stesso commento: il parser lascia intatto
+ * ciò che sta attorno al blocco, e le tre superfici (thread, card, tab Piano)
+ * lo rendono come markdown. Il posto dove separare corpo e opzioni è il
+ * RENDER, non il testo salvato — questo modulo dichiara solo la forma.
+ */
+
+/** Etichette senza punteggiatura/emoji/spaziatura: due opzioni si confrontano
+ *  per SIGNIFICATO, non per byte (il modello aggiunge volentieri un ✅). */
+export function normalizeActionLabel(s: string): string {
+  return s.replace(/[^\p{L}\s]/gu, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+/**
+ * Le due opzioni del protocollo piano-prima. Sono un CONTRATTO, non un testo di
+ * cortesia: il dispatcher le scrive nell'envelope, e la loro presenza è ciò che
+ * dice al servizio «questo commento È il piano» (→ `tasks.plan_comment_id`).
+ * Prima il piano si indovinava — «l'ultimo commento non-utente» — e su 13 task
+ * piano-prima l'euristica sbagliava 13 volte su 13: il commento di rettifica,
+ * o la consegna con «Landa su main», rubavano il posto al piano.
+ */
+export const PLAN_APPROVE_LABEL = 'Approva il piano';
+export const PLAN_REVISE_LABEL = 'Da rivedere';
+
+/** Vero quando fra le opzioni c'è l'approvazione di un piano (match tollerante). */
+export function hasPlanApproveOption(options: readonly string[]): boolean {
+  const want = normalizeActionLabel(PLAN_APPROVE_LABEL);
+  return options.some((o) => normalizeActionLabel(o) === want);
+}
+
 export interface TaskComment {
   id: string;
   taskId: string;
