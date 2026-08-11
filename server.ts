@@ -50,6 +50,7 @@ import { createTaskAutoMerge, worktreeRealDirt } from "./server/services/task-au
 import { createPreviewManager, type PreviewManager, type PreviewProcess } from "./server/services/preview-manager";
 import { registerPreviewProcess, unregisterPreviewProcess } from "./server/routes/processes";
 import { sweepWorktrees, type TaskStatus as GcTaskStatus } from "./server/services/worktree-gc";
+import { formatMb, parseSlimSkip, slimWorktree } from "./server/services/worktree-slim";
 import { branchStatusFromRepo, commitStatusFromRepo, resolveCommit, worktreeDiffStat } from "./server/services/branch-status";
 import { abandonNoticeFromRepo } from "./server/services/worktree-abandon-notice";
 import { createTaskAttemptStore } from "./server/services/task-attempts";
@@ -1051,6 +1052,11 @@ const taskDispatcher = createTaskDispatcher({
   // prod). Lazy — reads `previewManager` when a turn actually reaches review.
   preparePreview: (taskId) => previewManager?.prepareForReview(taskId) ?? Promise.resolve(),
   teardownPreview: (taskId) => previewManager?.teardown(taskId) ?? Promise.resolve(),
+  // Consegnata la card, il suo worktree smette di pesare per le dipendenze: via
+  // `node_modules` e le cache di build, restano cartella, branch e commit. È il
+  // momento giusto perché la maggior parte delle card NON landa subito, e sono
+  // proprio i giorni di attesa in review a costare ~260 MB l'una.
+  slimWorktree: (taskId) => slimWorktreeOfTask(taskId),
   broadcast: ctx.broadcastToAll,
 });
 
@@ -3511,6 +3517,42 @@ function taskIdleDays(taskId: string): number | null {
  * `reap` sia il `free-checkout` la portano via, quindi entrambi lo spengono
  * prima. Best-effort — un preview ostinato non deve impedire di liberare spazio.
  */
+/**
+ * Butta gli artefatti rigenerabili dal worktree di un task, tenendo la cartella.
+ *
+ * Tre condizioni prima di toccare qualsiasi cosa, e sono tutte «c'è ancora
+ * qualcuno lì dentro?»: la cartella esiste, nessun turno sta girando su quel
+ * task, nessuna anteprima viva ci sta servendo un `bun run dev`. La sicurezza
+ * di COSA si cancella sta invece tutta in `worktree-slim` (lista chiusa di nomi
+ * + doppio cancello letto da git), non qui.
+ *
+ * Un'anteprima viva è un rinvio, non un no: la passata del GC ripassa ogni 30
+ * minuti e la troverà spenta appena l'umano avrà approvato o chiuso.
+ */
+// Chi risparmiare, se l'umano non è d'accordo su un nome (di solito `target`:
+// vedi `parseSlimSkip`). Letto una volta sola: cambiarlo vuole un riavvio, come
+// ogni altra soglia di questo file.
+const WORKTREE_SLIM_SKIP = parseSlimSkip(process.env.TOPICS_WORKTREE_SLIM_SKIP);
+
+async function slimWorktreeOfTask(taskId: string): Promise<void> {
+  try {
+    const wt = worktreeOfTask(taskId);
+    if (!wt || !existsSync(wt.absPath)) return;
+    if (taskDispatcher.isInFlight(taskId)) return;
+    if (previewManager?.list().some((p) => p.taskId === taskId)) return;
+    const res = await slimWorktree(wt.absPath, WORKTREE_SLIM_SKIP);
+    if (res.removed.length > 0) {
+      console.log(
+        `[worktree-slim] ${wt.name}: ${formatMb(res.bytes)} liberati — ` +
+        res.removed.map((r) => `${r.relPath} (${formatMb(r.bytes)})`).join(", "),
+      );
+    }
+    for (const e of res.errors) console.warn(`[worktree-slim] ${wt.name}: ${e.relPath} non rimosso — ${e.message}`);
+  } catch (err) {
+    console.warn("[worktree-slim] fallito", err);
+  }
+}
+
 async function teardownPreviewOfWorktree(worktreeId: string): Promise<void> {
   try {
     const topic = ctx.db.prepare("SELECT id FROM topics WHERE worktree_id = ? LIMIT 1").get(worktreeId) as { id?: string } | undefined;
@@ -3608,6 +3650,22 @@ function runWorktreeGc() {
     reap: async (worktreeId) => {
       await teardownPreviewOfWorktree(worktreeId);
       return ctx.worktreeManager.delete(worktreeId);
+    },
+    // Il recupero dell'arretrato: le card consegnate PRIMA che esistesse lo
+    // snellimento alla consegna, e quelle la cui anteprima era ancora viva
+    // quando ci abbiamo provato. Stesse tre condizioni di `slimWorktreeOfTask`
+    // — che è la funzione stessa, raggiunta via il task del worktree.
+    slim: async (wt) => {
+      // Un'anteprima viva è un `bun run dev` che gira LÌ DENTRO: rimandare.
+      if (previewManager?.list().some((p) => worktreeOfTask(p.taskId)?.id === wt.id)) return 0;
+      const res = await slimWorktree(wt.absPath, WORKTREE_SLIM_SKIP);
+      if (res.removed.length > 0) {
+        console.log(
+          `[worktree-slim] ${wt.branchName ?? wt.id}: ${formatMb(res.bytes)} liberati — ` +
+          res.removed.map((r) => r.relPath).join(", "),
+        );
+      }
+      return res.bytes;
     },
     // A reap refused because the work isn't provably on main must be VISIBLE:
     // the same class of loss went unnoticed for 8 days precisely because the
