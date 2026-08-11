@@ -1,0 +1,592 @@
+{
+ "note": "Prefisso dei primi 46 messaggi della chat reale topic:4c8de758 («Reference siti scene motion»), estratto l'11/08/2026 dal database vivo. Solo i fatti che parlano di costo: nessun contenuto. `misuraAMano` è il conto preso a mano su QUELLA chat a quel momento — la sonda deve ricostruirlo.",
+ "sessionKey": "topic:4c8de758",
+ "misuraAMano": {
+  "messaggi": 46,
+  "toolCalls": 104,
+  "contextTokens": 320000,
+  "promptTokens": 20500000,
+  "costUsd": 14.67,
+  "ultimoTurnoPromptTokens": 3070000
+ },
+ "rows": [
+  {
+   "role": "user",
+   "promptTokens": 0,
+   "completionTokens": 0,
+   "cacheReadTokens": 0,
+   "cacheCreationTokens": 0,
+   "costCents": 0,
+   "model": null,
+   "callTokens": []
+  },
+  {
+   "role": "assistant",
+   "promptTokens": 84131,
+   "completionTokens": 7,
+   "cacheReadTokens": 53617,
+   "cacheCreationTokens": 30510,
+   "costCents": 33,
+   "model": "claude-opus-5",
+   "callTokens": [
+    38112,
+    46026,
+    46026,
+    46026,
+    46026
+   ]
+  },
+  {
+   "role": "user",
+   "promptTokens": 0,
+   "completionTokens": 0,
+   "cacheReadTokens": 0,
+   "cacheCreationTokens": 0,
+   "costCents": 0,
+   "model": null,
+   "callTokens": []
+  },
+  {
+   "role": "assistant",
+   "promptTokens": 227275,
+   "completionTokens": 4115,
+   "cacheReadTokens": 157109,
+   "cacheCreationTokens": 0,
+   "costCents": 78,
+   "model": "claude-opus-5",
+   "callTokens": [
+    65443,
+    65443,
+    72926,
+    72926,
+    72926,
+    72926
+   ]
+  },
+  {
+   "role": "user",
+   "promptTokens": 0,
+   "completionTokens": 0,
+   "cacheReadTokens": 0,
+   "cacheCreationTokens": 0,
+   "costCents": 0,
+   "model": null,
+   "callTokens": []
+  },
+  {
+   "role": "assistant",
+   "promptTokens": 324385,
+   "completionTokens": 5347,
+   "cacheReadTokens": 292059,
+   "cacheCreationTokens": 0,
+   "costCents": 47,
+   "model": "claude-opus-5",
+   "callTokens": [
+    92174,
+    92174,
+    110986,
+    110986,
+    110986
+   ]
+  },
+  {
+   "role": "user",
+   "promptTokens": 0,
+   "completionTokens": 0,
+   "cacheReadTokens": 0,
+   "cacheCreationTokens": 0,
+   "costCents": 0,
+   "model": null,
+   "callTokens": []
+  },
+  {
+   "role": "assistant",
+   "promptTokens": 262211,
+   "completionTokens": 3499,
+   "cacheReadTokens": 143093,
+   "cacheCreationTokens": 0,
+   "costCents": 126,
+   "model": "claude-opus-5",
+   "callTokens": [
+    124348,
+    124348
+   ]
+  },
+  {
+   "role": "user",
+   "promptTokens": 0,
+   "completionTokens": 0,
+   "cacheReadTokens": 0,
+   "cacheCreationTokens": 0,
+   "costCents": 0,
+   "model": null,
+   "callTokens": []
+  },
+  {
+   "role": "assistant",
+   "promptTokens": 288019,
+   "completionTokens": 686,
+   "cacheReadTokens": 162590,
+   "cacheCreationTokens": 0,
+   "costCents": 134,
+   "model": "claude-opus-5",
+   "callTokens": [
+    143869
+   ]
+  },
+  {
+   "role": "user",
+   "promptTokens": 0,
+   "completionTokens": 0,
+   "cacheReadTokens": 0,
+   "cacheCreationTokens": 0,
+   "costCents": 0,
+   "model": null,
+   "callTokens": []
+  },
+  {
+   "role": "assistant",
+   "promptTokens": 437156,
+   "completionTokens": 2698,
+   "cacheReadTokens": 434908,
+   "cacheCreationTokens": 0,
+   "costCents": 24,
+   "model": "claude-opus-5",
+   "callTokens": [
+    144632,
+    146139,
+    146139
+   ]
+  },
+  {
+   "role": "user",
+   "promptTokens": 0,
+   "completionTokens": 0,
+   "cacheReadTokens": 0,
+   "cacheCreationTokens": 0,
+   "costCents": 0,
+   "model": null,
+   "callTokens": []
+  },
+  {
+   "role": "assistant",
+   "promptTokens": 1210195,
+   "completionTokens": 3269,
+   "cacheReadTokens": 1203346,
+   "cacheCreationTokens": 0,
+   "costCents": 67,
+   "model": "claude-opus-5",
+   "callTokens": [
+    148445,
+    149658,
+    150401,
+    151556,
+    151675,
+    152291,
+    153128
+   ]
+  },
+  {
+   "role": "user",
+   "promptTokens": 0,
+   "completionTokens": 0,
+   "cacheReadTokens": 0,
+   "cacheCreationTokens": 0,
+   "costCents": 0,
+   "model": null,
+   "callTokens": []
+  },
+  {
+   "role": "assistant",
+   "promptTokens": 153854,
+   "completionTokens": 677,
+   "cacheReadTokens": 153175,
+   "cacheCreationTokens": 0,
+   "costCents": 8,
+   "model": "claude-opus-5",
+   "callTokens": []
+  },
+  {
+   "role": "user",
+   "promptTokens": 0,
+   "completionTokens": 0,
+   "cacheReadTokens": 0,
+   "cacheCreationTokens": 0,
+   "costCents": 0,
+   "model": null,
+   "callTokens": []
+  },
+  {
+   "role": "assistant",
+   "promptTokens": 1940430,
+   "completionTokens": 5707,
+   "cacheReadTokens": 1923208,
+   "cacheCreationTokens": 0,
+   "costCents": 114,
+   "model": "claude-opus-5",
+   "callTokens": [
+    154597,
+    155640,
+    156176,
+    157028,
+    158778,
+    160211,
+    160970,
+    163665,
+    165116,
+    167408,
+    169876
+   ]
+  },
+  {
+   "role": "user",
+   "promptTokens": 0,
+   "completionTokens": 0,
+   "cacheReadTokens": 0,
+   "cacheCreationTokens": 0,
+   "costCents": 0,
+   "model": null,
+   "callTokens": []
+  },
+  {
+   "role": "assistant",
+   "promptTokens": 881584,
+   "completionTokens": 4355,
+   "cacheReadTokens": 874063,
+   "cacheCreationTokens": 0,
+   "costCents": 51,
+   "model": "claude-opus-5",
+   "callTokens": [
+    174023,
+    174931,
+    176762,
+    177343
+   ]
+  },
+  {
+   "role": "user",
+   "promptTokens": 0,
+   "completionTokens": 0,
+   "cacheReadTokens": 0,
+   "cacheCreationTokens": 0,
+   "costCents": 0,
+   "model": null,
+   "callTokens": []
+  },
+  {
+   "role": "assistant",
+   "promptTokens": 368910,
+   "completionTokens": 2724,
+   "cacheReadTokens": 358573,
+   "cacheCreationTokens": 0,
+   "costCents": 28,
+   "model": "claude-opus-5",
+   "callTokens": [
+    180015,
+    180015
+   ]
+  },
+  {
+   "role": "user",
+   "promptTokens": 0,
+   "completionTokens": 0,
+   "cacheReadTokens": 0,
+   "cacheCreationTokens": 0,
+   "costCents": 0,
+   "model": null,
+   "callTokens": []
+  },
+  {
+   "role": "assistant",
+   "promptTokens": 368910,
+   "completionTokens": 2724,
+   "cacheReadTokens": 358573,
+   "cacheCreationTokens": 0,
+   "costCents": 28,
+   "model": "claude-opus-5",
+   "callTokens": [
+    180015,
+    180015
+   ]
+  },
+  {
+   "role": "user",
+   "promptTokens": 0,
+   "completionTokens": 0,
+   "cacheReadTokens": 0,
+   "cacheCreationTokens": 0,
+   "costCents": 0,
+   "model": null,
+   "callTokens": []
+  },
+  {
+   "role": "assistant",
+   "promptTokens": 0,
+   "completionTokens": 0,
+   "cacheReadTokens": 0,
+   "cacheCreationTokens": 0,
+   "costCents": 0,
+   "model": null,
+   "callTokens": []
+  },
+  {
+   "role": "user",
+   "promptTokens": 0,
+   "completionTokens": 0,
+   "cacheReadTokens": 0,
+   "cacheCreationTokens": 0,
+   "costCents": 0,
+   "model": null,
+   "callTokens": []
+  },
+  {
+   "role": "assistant",
+   "promptTokens": 1391345,
+   "completionTokens": 1194,
+   "cacheReadTokens": 1388266,
+   "cacheCreationTokens": 0,
+   "costCents": 73,
+   "model": "claude-opus-5",
+   "callTokens": [
+    198099,
+    198544,
+    198615,
+    198844,
+    199014,
+    199104
+   ]
+  },
+  {
+   "role": "user",
+   "promptTokens": 0,
+   "completionTokens": 0,
+   "cacheReadTokens": 0,
+   "cacheCreationTokens": 0,
+   "costCents": 0,
+   "model": null,
+   "callTokens": []
+  },
+  {
+   "role": "assistant",
+   "promptTokens": 850642,
+   "completionTokens": 2509,
+   "cacheReadTokens": 832596,
+   "cacheCreationTokens": 0,
+   "costCents": 60,
+   "model": "claude-opus-5",
+   "callTokens": [
+    199748,
+    199748,
+    216606,
+    217082
+   ]
+  },
+  {
+   "role": "user",
+   "promptTokens": 0,
+   "completionTokens": 0,
+   "cacheReadTokens": 0,
+   "cacheCreationTokens": 0,
+   "costCents": 0,
+   "model": null,
+   "callTokens": []
+  },
+  {
+   "role": "assistant",
+   "promptTokens": 902189,
+   "completionTokens": 2470,
+   "cacheReadTokens": 891154,
+   "cacheCreationTokens": 0,
+   "costCents": 56,
+   "model": "claude-opus-5",
+   "callTokens": [
+    218058,
+    227657,
+    228239
+   ]
+  },
+  {
+   "role": "user",
+   "promptTokens": 0,
+   "completionTokens": 0,
+   "cacheReadTokens": 0,
+   "cacheCreationTokens": 0,
+   "costCents": 0,
+   "model": null,
+   "callTokens": []
+  },
+  {
+   "role": "assistant",
+   "promptTokens": 966327,
+   "completionTokens": 2376,
+   "cacheReadTokens": 948557,
+   "cacheCreationTokens": 0,
+   "costCents": 65,
+   "model": "claude-opus-5",
+   "callTokens": [
+    229088,
+    229088,
+    245239,
+    246002
+   ]
+  },
+  {
+   "role": "user",
+   "promptTokens": 0,
+   "completionTokens": 0,
+   "cacheReadTokens": 0,
+   "cacheCreationTokens": 0,
+   "costCents": 0,
+   "model": null,
+   "callTokens": []
+  },
+  {
+   "role": "assistant",
+   "promptTokens": 1292570,
+   "completionTokens": 3610,
+   "cacheReadTokens": 1276399,
+   "cacheCreationTokens": 0,
+   "costCents": 80,
+   "model": "claude-opus-5",
+   "callTokens": [
+    247774,
+    247774,
+    259053,
+    259053,
+    261426,
+    262155
+   ]
+  },
+  {
+   "role": "user",
+   "promptTokens": 0,
+   "completionTokens": 0,
+   "cacheReadTokens": 0,
+   "cacheCreationTokens": 0,
+   "costCents": 0,
+   "model": null,
+   "callTokens": []
+  },
+  {
+   "role": "assistant",
+   "promptTokens": 1329767,
+   "completionTokens": 2391,
+   "cacheReadTokens": 1325020,
+   "cacheCreationTokens": 0,
+   "costCents": 71,
+   "model": "claude-opus-5",
+   "callTokens": [
+    263224,
+    263224,
+    265988,
+    266827,
+    266901
+   ]
+  },
+  {
+   "role": "user",
+   "promptTokens": 0,
+   "completionTokens": 0,
+   "cacheReadTokens": 0,
+   "cacheCreationTokens": 0,
+   "costCents": 0,
+   "model": null,
+   "callTokens": []
+  },
+  {
+   "role": "assistant",
+   "promptTokens": 552512,
+   "completionTokens": 3557,
+   "cacheReadTokens": 534718,
+   "cacheCreationTokens": 0,
+   "costCents": 45,
+   "model": "claude-opus-5",
+   "callTokens": [
+    267784,
+    267784
+   ]
+  },
+  {
+   "role": "user",
+   "promptTokens": 0,
+   "completionTokens": 0,
+   "cacheReadTokens": 0,
+   "cacheCreationTokens": 0,
+   "costCents": 0,
+   "model": null,
+   "callTokens": []
+  },
+  {
+   "role": "assistant",
+   "promptTokens": 287039,
+   "completionTokens": 1643,
+   "cacheReadTokens": 284730,
+   "cacheCreationTokens": 0,
+   "costCents": 17,
+   "model": "claude-opus-5",
+   "callTokens": []
+  },
+  {
+   "role": "user",
+   "promptTokens": 0,
+   "completionTokens": 0,
+   "cacheReadTokens": 0,
+   "cacheCreationTokens": 0,
+   "costCents": 0,
+   "model": null,
+   "callTokens": []
+  },
+  {
+   "role": "assistant",
+   "promptTokens": 2065145,
+   "completionTokens": 7944,
+   "cacheReadTokens": 2052396,
+   "cacheCreationTokens": 0,
+   "costCents": 115,
+   "model": "claude-opus-5",
+   "callTokens": [
+    288724,
+    288724,
+    292563,
+    292563,
+    294844,
+    295721,
+    296149,
+    297418
+   ]
+  },
+  {
+   "role": "user",
+   "promptTokens": 0,
+   "completionTokens": 0,
+   "cacheReadTokens": 0,
+   "cacheCreationTokens": 0,
+   "costCents": 0,
+   "model": null,
+   "callTokens": []
+  },
+  {
+   "role": "assistant",
+   "promptTokens": 3066181,
+   "completionTokens": 195,
+   "cacheReadTokens": 3056605,
+   "cacheCreationTokens": 9557,
+   "costCents": 163,
+   "model": "claude-opus-5",
+   "callTokens": [
+    300717,
+    300717,
+    304910,
+    305864,
+    306087,
+    306449,
+    307506,
+    308107,
+    308447,
+    308954,
+    309335,
+    null
+   ]
+  }
+ ]
+}

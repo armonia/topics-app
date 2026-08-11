@@ -6,6 +6,8 @@ import { useOpenClawContext } from '../../hooks/useOpenClawContext';
 import { useMemory } from '../../hooks/useMemory';
 import { uploadApi, type MemoryTreeNode } from '../../lib/api';
 import { ContextBudgetBar } from './ContextBudgetBar';
+import { CostProbePanel } from './CostProbePanel';
+import { useCostProbe } from '../../hooks/useCostProbe';
 import { ContextWarnings } from './ContextWarnings';
 import { ContextSourceRow } from './ContextSourceRow';
 import { ContextEnvelopeView } from './ContextEnvelopeView';
@@ -44,6 +46,11 @@ export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMess
   }, [topic]);
 
   const { sources, totalTokens, budgetLimit, budgetPercent, warnings, loading, reload } = useContextInspector(topic.id, onMessage);
+  // La sonda del costo. `isOpen` è la chiave di rilettura: il pannello si apre
+  // per guardare i numeri, ed è l'unico momento in cui vale la pena andarli a
+  // riprendere. Il contesto continua ad aggiornarsi dal filo anche a pannello
+  // aperto, senza altre richieste.
+  const costProbe = useCostProbe(topic.sessionKey ?? null, onMessage, isOpen);
   const { data: openclawData } = useOpenClawContext();
   const { saveTopicMemory, saveGlobalMemory } = useMemory(topic.id, { onMessage });
   const toast = useToast();
@@ -225,6 +232,14 @@ export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMess
           <X size={14} />
         </button>
       </div>
+
+      {/* Il costo, PRIMA di cosa c'è dentro.
+          La barra qui sotto risponde a «di cosa è fatto il contesto», che è la
+          domanda che ci si fa dopo. Questa risponde a «quanto sta costando», che
+          è quella per cui si apre il pannello — e finora non aveva risposta da
+          nessuna parte: i due fattori esistevano separati (l'anello e un
+          tooltip) e nessuno li moltiplicava. */}
+      <CostProbePanel probe={costProbe} />
 
       {/* Budget bar */}
       <ContextBudgetBar

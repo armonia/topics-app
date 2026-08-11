@@ -587,6 +587,10 @@ export interface ContextUsage {
  * nostra e vive fuori dal blocco.
  */
 export type { AcpUsageUpdate } from '../../../shared/types';
+/** La sonda del costo (`GET /api/context/cost`): contesto × chiamate, e il
+ *  prodotto. Il contratto sta in shared/ perché è la stessa forma che scrive il
+ *  server — vedi `server/usage/cost-probe.ts`. */
+export type { SessionCostProbe } from '../../../shared/types';
 /** Payload sul filo: blocco ACP + presentazione. `useRealContext` lo appiattisce
  *  in `ContextUsage` per la UI, che di ACP non deve sapere niente. */
 export interface ContextUpdatePayload {
