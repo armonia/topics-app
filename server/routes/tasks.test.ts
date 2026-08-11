@@ -995,6 +995,66 @@ describe("approve decoupled from landing", () => {
     expect(parseStatusEvent(ev.content)?.reason).toContain("il codice è su main");
   });
 
+  /**
+   * Dove vanno i soldi. Chiudere la card la toglie dalla coda, ma NON taglia il
+   * turno già partito: l'11/08 due land di fila hanno pagato $5,64 (`4ec47331`)
+   * e $8,24 (`56677242`, fermata entro un minuto) a un agente che rifaceva
+   * lavoro già su main. Il turno si taglia, e si taglia DOPO aver chiuso la
+   * card — `onTurnEnd` su una card ancora `in_progress` riprenderebbe l'agente.
+   */
+  test("un land riuscito FERMA l'agente che sta ancora lavorando su quella card", async () => {
+    const aborted: string[] = [];
+    let statusAlloStop: string | undefined;
+    let taskId = "";
+    const d = freshDb(); const b: any[] = [];
+    const rt = createTasksRouter(makeCtx(d, b), undefined, {
+      autoMerge: { tryMerge: async () => MERGED, buildClient: async () => ({ code: 0, stderr: "" }) } as any,
+      // Si registra ANCHE lo stato della card nell'istante dello stop: l'ordine
+      // non è un dettaglio di stile. `onTurnEnd` su una card ancora
+      // `in_progress` riprende l'agente, quindi tagliare prima di chiuderla lo
+      // farebbe ripartire — cioè ripagherebbe il turno che si stava evitando.
+      abortTurn: async (key: string) => {
+        aborted.push(key);
+        statusAlloStop = (d.prepare("SELECT status FROM tasks WHERE id = ?").get(taskId) as any)?.status;
+      },
+    });
+    d.run("INSERT INTO topics (id) VALUES ('485cb19a-993f-4e36-9823-687ee4235aae')");
+    const t = await (await call(rt, "POST", "/api/boards/pX/tasks", { text: "feature" }))!.json();
+    taskId = t.id;
+    d.prepare(
+      "UPDATE tasks SET assigned_topic_id='485cb19a-993f-4e36-9823-687ee4235aae', status='in_progress', dispatch_state='working' WHERE id = ?",
+    ).run(t.id);
+
+    await call(rt, "POST", `/api/boards/pX/tasks/${t.id}/land`, {});
+    await new Promise((res) => setTimeout(res, 20));
+
+    // La chiave della sessione è `topic:<primi 8>` — la stessa che usa «Ferma».
+    expect(aborted).toEqual(["topic:485cb19a"]);
+    const after = createTaskService(d).get(t.id)!;
+    expect(after.task.status).toBe("done");
+    // E il thread dice che qualcuno è stato fermato, altrimenti l'agente
+    // sparisce a metà frase senza spiegazione.
+    expect(after.comments.some((c) => c.content.includes("Fermato l'agente"))).toBe(true);
+    // L'ordine: quando lo stop parte, la card è GIÀ chiusa.
+    expect(statusAlloStop).toBe("done");
+  });
+
+  test("nessun agente vivo → il land non chiama nessuno stop", async () => {
+    // Il controllo del test qui sopra: il percorso normale (card già consegnata
+    // e ferma) non deve mandare un abort a una sessione che non lavora.
+    const aborted: string[] = [];
+    const d = freshDb(); const b: any[] = [];
+    const rt = createTasksRouter(makeCtx(d, b), undefined, {
+      autoMerge: { tryMerge: async () => MERGED, buildClient: async () => ({ code: 0, stderr: "" }) } as any,
+      abortTurn: async (key: string) => { aborted.push(key); },
+    });
+    const t = await (await call(rt, "POST", "/api/boards/pX/tasks", { text: "feature" }))!.json();
+    d.prepare("UPDATE tasks SET status='done' WHERE id = ?").run(t.id);
+    await call(rt, "POST", `/api/boards/pX/tasks/${t.id}/land`, {});
+    await new Promise((res) => setTimeout(res, 20));
+    expect(aborted).toEqual([]);
+  });
+
   test("un land riuscito su una card GIÀ chiusa non aggiunge righe di storico", async () => {
     // Il controllo del test qui sopra: il percorso normale (review → «Landa su
     // main» → done → merge) non deve guadagnare una transizione done→done.
