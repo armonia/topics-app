@@ -1,5 +1,10 @@
 import { test, expect } from "@playwright/test";
 import { E2E_BASE } from "./helpers/test-server";
+import { hermetic } from "./fixtures/hermetic";
+
+// Confine ermetico: questo file riparte dalla baseline del globalSetup, non
+// dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
+hermetic(test);
 
 /**
  * PARITÀ GET/HEAD sui file statici — RFC 9110 §9.3.2.
