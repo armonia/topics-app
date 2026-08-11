@@ -13,7 +13,7 @@
  * L'inglese si prova a parte, perché lì il plurale esiste davvero.
  */
 import { describe, test, expect } from 'bun:test';
-import { attemptStat } from './format';
+import { attemptStat, taskCopyText } from './format';
 import { formatAttemptStat } from '../../../../shared/task-attempt';
 import { t } from '../../lib/i18n';
 import type { TaskAttempt } from '../../lib/board';
@@ -52,5 +52,22 @@ describe('attemptStat', () => {
     expect(attemptStat(attempt({ commit: null, filesChanged: null }), en)).toBe('no changes');
     expect(attemptStat(attempt({ commit: null, filesChanged: null, state: 'failed', error: 'timeout' }), en))
       .toBe('no changes — timeout');
+  });
+});
+
+describe('taskCopyText', () => {
+  test('titolo e descrizione separati da una riga vuota', () => {
+    expect(taskCopyText({ text: 'Rifare la scheda prodotto', description: 'Foto nuove e prezzo in alto.' }))
+      .toBe('Rifare la scheda prodotto\n\nFoto nuove e prezzo in alto.');
+  });
+
+  test('senza descrizione si copia il titolo, senza righe vuote in coda', () => {
+    expect(taskCopyText({ text: 'Rifare la scheda prodotto', description: null })).toBe('Rifare la scheda prodotto');
+    expect(taskCopyText({ text: 'Rifare la scheda prodotto' })).toBe('Rifare la scheda prodotto');
+    expect(taskCopyText({ text: 'Rifare la scheda prodotto', description: '   \n  ' })).toBe('Rifare la scheda prodotto');
+  });
+
+  test('gli spazi ai bordi non finiscono negli appunti', () => {
+    expect(taskCopyText({ text: '  Titolo  ', description: '\n  corpo\n\n' })).toBe('Titolo\n\ncorpo');
   });
 });
