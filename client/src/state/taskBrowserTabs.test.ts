@@ -20,8 +20,10 @@ import {
   taskIdFromKey,
   applyRemoteTaskTabs,
   applyRemoteTaskTabsInit,
+  forgetTaskTabs,
   getTaskTabs,
   subscribeTaskTabs,
+  taskBrowserTabs,
 } from './taskBrowserTabs';
 
 const TASK = '125aafd5-0e15-4aa0-ab25-f00000000000';
@@ -283,5 +285,50 @@ describe('applyRemoteTaskTabsInit (reconnect resync)', () => {
       'pane-store-v2': { panes: {} },
     });
     expect(getTaskTabs(tid).tabs.map((t) => t.contextId)).toEqual(['task-e-0']);
+  });
+});
+
+// ── il task è stato archiviato: si dimentica ─────────────────────────────────
+// Il server ha appena CANCELLATO `task-browser-tabs:<id>`. Se questo client si
+// ricorda la chiave, il suo PUT ancora in coda la ricrea qualche centinaio di
+// millisecondi dopo — che è esattamente il modo in cui questi record sono
+// diventati immortali.
+
+describe('forgetTaskTabs (task archiviato)', () => {
+  test('svuota la cache, avvisa, e ANNULLA la scrittura in coda', () => {
+    const tid = uniq('forget');
+    taskBrowserTabs.addTab(tid, 'https://e.test');
+    expect(getTaskTabs(tid).tabs).toHaveLength(1);
+
+    // Finché il debounce è in volo, `applyRemote` si tira indietro (l'edit
+    // locale è più recente): è il modo di osservare che il timer c'è.
+    applyRemoteTaskTabs(tid, { tabs: [], activeContextId: null, nextSeq: 0 });
+    expect(getTaskTabs(tid).tabs).toHaveLength(1);
+
+    let notified = 0;
+    const unsub = subscribeTaskTabs(() => { notified++; });
+    forgetTaskTabs(tid);
+    unsub();
+
+    expect(getTaskTabs(tid)).toBe(EMPTY_TASK_TABS);
+    expect(notified).toBeGreaterThan(0);
+
+    // Timer sparito ⇒ il remoto passa di nuovo. Se `forget` avesse lasciato il
+    // timer, questa riga fallirebbe — ed è quel timer che ricrea la riga.
+    applyRemoteTaskTabs(tid, {
+      tabs: [{ contextId: 'task-z-0', url: 'u', title: 'T', seq: 0 }],
+      activeContextId: 'task-z-0',
+      nextSeq: 1,
+    });
+    expect(getTaskTabs(tid).tabs).toHaveLength(1);
+  });
+
+  test('un task mai visto (o id vuoto): no-op silenzioso, nessuna notifica', () => {
+    let notified = 0;
+    const unsub = subscribeTaskTabs(() => { notified++; });
+    forgetTaskTabs(uniq('mai-visto'));
+    forgetTaskTabs('');
+    unsub();
+    expect(notified).toBe(0);
   });
 });

@@ -29,8 +29,10 @@ import {
   taskBrowserTabs,
   applyRemoteTaskTabs,
   applyRemoteTaskTabsInit,
+  forgetTaskTabs,
   taskIdFromKey,
 } from '../state/taskBrowserTabs';
+import { forgetTaskLayout } from '../state/taskBrowserLayout';
 import { getTabId } from '../state/pane/middleware/syncCrossTab';
 
 export function useTaskBrowserTabsSync(
@@ -66,6 +68,19 @@ export function useTaskBrowserTabsSync(
       // Reconnect resync — the ui-state:init snapshot carries every ui-state key.
       if (msg.type === 'ui-state:init' && msg.data) {
         applyRemoteTaskTabsInit(msg.data);
+        return;
+      }
+      // ARCHIVED — the server has just deleted this task's two ui-state rows
+      // (services/task-tab-teardown.ts) and closed its browser contexts. Forget
+      // them here or our debounced PUT recreates the key seconds later, which is
+      // exactly how these records became immortal in the first place. `taskIds`
+      // carries the whole archived subtree (archiving cascades); older servers
+      // omit it, so fall back to the root.
+      if (msg.type === 'task:deleted') {
+        for (const id of msg.taskIds?.length ? msg.taskIds : [msg.taskId]) {
+          forgetTaskTabs(id);
+          forgetTaskLayout(id);
+        }
         return;
       }
     });
