@@ -123,7 +123,7 @@ function startFakeDiscord(dir: string, mode: "ready" | "refuse" | "silent" = "re
         received.push({ op: frame.op, payload: frame.payload });
         if (frame.op !== IPC_OP.HANDSHAKE) continue;
         if (mode === "ready") {
-          sock.write(encodeFrame(IPC_OP.FRAME, { evt: "READY", data: { v: 1, user: { id: "7", username: "zorahrel" } } }));
+          sock.write(encodeFrame(IPC_OP.FRAME, { evt: "READY", data: { v: 1, user: { id: "7", username: "pippo" } } }));
         } else if (mode === "refuse") {
           sock.write(encodeFrame(IPC_OP.FRAME, { evt: "ERROR", data: { code: 4000, message: "Invalid Client ID" } }));
         }
@@ -163,7 +163,7 @@ describe("handshake", () => {
     fakes.push(fake);
 
     const res = await handshake({ clientId: "123", candidates: [fake.path], timeoutMs: 2000 });
-    expect(res.user?.username).toBe("zorahrel");
+    expect(res.user?.username).toBe("pippo");
     expect(res.socketPath).toBe(fake.path);
     expect(fake.received[0]?.payload).toMatchObject({ v: 1, client_id: "123" });
     res.socket.destroy();
