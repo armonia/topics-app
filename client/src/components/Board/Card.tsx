@@ -74,11 +74,21 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
       {/* Bottom clearance lives on the scroll body (not the outer board padding)
           so the column FRAME reaches the bottom of the pane, while a full column's
           last card can still scroll clear of the floating "Descrivi un task" box.
-          On a short column it is invisible slack below the already-empty area. */}
+          On a short column it is invisible slack below the already-empty area.
+
+          MISURATO, non stimato: il composer è alto 110px e il suo bordo
+          superiore cade 129px sopra il fondo del corpo colonna. Con `pb-16`
+          (64px) la corsa NON bastava — nemmeno scrollando fino in fondo la
+          card ultima riusciva a uscire da sotto quel riquadro, e un task appena
+          creato (che prende `kanban_order = max + 1`, quindi atterra proprio
+          lì) restava dietro alla scatola in cui l'avevi scritto. `pb-36` =
+          144px: 129 di composer + un margine. Il valore qui dà la CORSA; a
+          decidere dove fermarsi è la misura del composer viva, in
+          KanbanBoardPane — perché quell'altezza cresce col testo. */}
       {/* scrollbar-standard keeps the app's standard thin hover scrollbar as the
           single indicator and zeroes the legacy ::-webkit-scrollbar, so the
           native bar no longer renders ON TOP of it (the "double bar" on hover). */}
-      <div data-testid={`kanban-column-body-${status}`} className="flex-1 space-y-2 overflow-y-auto px-2 pb-16 scrollbar-standard">
+      <div data-testid={`kanban-column-body-${status}`} className="flex-1 space-y-2 overflow-y-auto px-2 pb-36 scrollbar-standard">
         <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
           {tasks.map((t) => (
             <Card
