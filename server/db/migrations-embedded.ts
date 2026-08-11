@@ -99,6 +99,7 @@ import m090 from "./migrations/092-project-org-incognito.sql" with { type: "text
 import m091 from "./migrations/093-task-created-by-topic.sql" with { type: "text" };
 import m092 from "./migrations/094-github-profiles.sql" with { type: "text" };
 import m093 from "./migrations/095-message-author.sql" with { type: "text" };
+import m094 from "./migrations/096-claude-import-offset.sql" with { type: "text" };
 
 export interface EmbeddedMigration {
   version: number;
@@ -202,4 +203,5 @@ export const EMBEDDED_MIGRATIONS: EmbeddedMigration[] = [
   { version: 93, name: "093-task-created-by-topic.sql", sql: m091 },
   { version: 94, name: "094-github-profiles.sql", sql: m092 },
   { version: 95, name: "095-message-author.sql", sql: m093 },
+  { version: 96, name: "096-claude-import-offset.sql", sql: m094 },
 ];

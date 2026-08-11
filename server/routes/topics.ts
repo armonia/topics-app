@@ -1231,6 +1231,12 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         if (!cwd) return json({ error: "could not resolve session cwd" }, 400);
 
         const messages = parseTranscriptToMessages(text);
+        // Byte cursor for the incremental import sweep: everything up to and
+        // including the last complete line has just been imported, so the sweep
+        // reads only what the TERMINAL appends after this. A partial trailing
+        // line (mid-write) is deliberately left for the sweep to re-read whole.
+        const lastNl = text.lastIndexOf("\n");
+        const importOffset = lastNl >= 0 ? Buffer.byteLength(text.slice(0, lastNl + 1), "utf-8") : 0;
         const projectDir = resolveProjectRef(cwd, { trustRawPaths: true });
         const id = crypto.randomUUID();
         const sessionKey = "topic:" + id.slice(0, 8);
@@ -1257,11 +1263,19 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
           // Bind the topic's chat session to the EXISTING claude session id. The
           // provider's getOrCreateClaudeSessionId will now find this row, see
           // created_at !== spawn-time-now, and take the `--resume` branch.
+          // Persist jsonl_path + import_offset here so the import sweep can pick
+          // up where the initial import stopped and stream in the terminal's
+          // later turns. import_offset being non-null is exactly what enrolls
+          // this (adopted) session in the sweep; native sessions leave it NULL.
           ctx.db.prepare(
-            `INSERT INTO claude_code_sessions (session_key, claude_session_id, created_at, updated_at)
-             VALUES (?, ?, ?, ?)
-             ON CONFLICT(session_key) DO UPDATE SET claude_session_id = excluded.claude_session_id, updated_at = excluded.updated_at`
-          ).run(sessionKey, sessionId, nowIso, nowIso);
+            `INSERT INTO claude_code_sessions (session_key, claude_session_id, created_at, updated_at, jsonl_path, import_offset)
+             VALUES (?, ?, ?, ?, ?, ?)
+             ON CONFLICT(session_key) DO UPDATE SET
+               claude_session_id = excluded.claude_session_id,
+               updated_at = excluded.updated_at,
+               jsonl_path = excluded.jsonl_path,
+               import_offset = excluded.import_offset`
+          ).run(sessionKey, sessionId, nowIso, nowIso, transcriptPath, importOffset);
           if (messages.length) saveLocalMessages(sessionKey, messages);
           return t;
         })();
