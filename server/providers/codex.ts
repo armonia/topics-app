@@ -34,7 +34,7 @@ import { resolveCodexReasoningEffort } from "../lib/topics-agent-prompt";
 import { topicsMcpBridgeSpec } from "./claude-code";
 import { buildCodexArgs, buildCodexOneshotArgs } from "./codex/args";
 import { getDatabase } from "../db";
-import { resolveJobQuotaEnv } from "../services/agent-job-quota";
+import { applyJobQuota } from "../services/agent-job-quota";
 import { contextTokensFromUsage } from "../usage/usage-update";
 
 // ============ Config ============
@@ -379,10 +379,9 @@ export class CodexProvider implements AIProvider {
     // quello di prima).
     const env = buildSafeEnv();
     try {
-      const quota = resolveJobQuotaEnv(getDatabase(), sessionKey);
-      if (quota) {
-        Object.assign(env, quota);
-        console.log(`[codex] job quota for dispatched ${sessionKey}: -j${quota.CARGO_BUILD_JOBS}`);
+      const quota = applyJobQuota(getDatabase(), sessionKey, env);
+      if (quota != null) {
+        console.log(`[codex] job quota for dispatched ${sessionKey}: -j${quota} (rilettura viva attiva)`);
       }
     } catch { /* nessun recinto: la sessione parte comunque, com'è sempre stato */ }
 

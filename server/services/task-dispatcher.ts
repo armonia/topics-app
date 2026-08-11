@@ -2018,10 +2018,12 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     let gcap = { auto: true, max: 3 };
     try { gcap = deps.svc.getGlobalCap(); } catch { /* defaults */ }
     const capScope: "board" | "global" = "global";
-    // La stessa funzione che usa la quota di core dello spawn
-    // (`agent-job-quota.ts`): il recinto di un agente è la macchina divisa per
-    // QUESTO numero, e se le due letture divergessero la somma delle quote non
-    // tornerebbe più al tetto.
+    // Attenzione a riusarlo altrove: questo numero risponde a «quanti agenti
+    // NUOVI ammetto ADESSO», ed è apposta reattivo al carico. La quota di core
+    // (`agent-job-quota.ts`) chiede un'altra cosa — «quanti stanno compilando
+    // accanto a me» — e la prende dal ROSTER vivo, con il tetto STRUTTURALE
+    // come ripiego. Usare questo come divisore lo invertiva: macchina carica →
+    // raccomandazione 1 → «sono solo» → fetta intera.
     const effectiveCap = effectiveDispatchCap(gcap, deps.recommendedCap ? deps.recommendedCap() : null);
 
     // Fan-out richiesto dalla board, e cosa ne resta dopo la realtà. Due
