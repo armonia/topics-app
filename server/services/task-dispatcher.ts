@@ -1264,7 +1264,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         `- NON spostare il task di stato (niente update_task(status=...)): decide l'umano quale tentativo tenere, e il server rifiuta comunque il cambio finché il fan-out è aperto.`,
         `- NON creare sottotask e NON rinominare il task: la board è UNA e condivisa fra i ${total} tentativi — ne uscirebbero ${total} copie di tutto.`,
         "- NON scrivere nel thread del task (è condiviso): il tuo resoconto è l'ULTIMO messaggio di questo turno, ed è quello che finisce nel confronto.",
-        "- COMMITTA tutto sul tuo branch prima di chiudere: un tentativo con lavoro non committato conta come 'nessuna modifica' e viene scartato. Nessun merge, nessun push, nessun rebase su main.",
+        "- COMMITTA tutto sul tuo branch prima di chiudere: un tentativo con lavoro non committato conta come 'nessuna modifica' e viene scartato.",
+        "- NON TOCCARE main: niente push, niente merge VERSO main — landare è una decisione umana. Rifare la BASE del TUO ramo su main aggiornato (`git rebase main`) invece è permesso, ed è il gesto giusto quando il land dice che i tuoi commit collidono — la rebase sul main AGGIORNATO, non un merge di main dentro il ramo.",
         ...(checks.length
           ? [
               `- Prima di chiudere fai girare ${checks.length === 1 ? "questo comando" : "questi comandi"} — ${checks.map((c) => `\`${c.cmd}\``).join(", ")}: il server li rieseguirà sul tentativo scelto, e un tentativo rosso parte svantaggiato.`,
