@@ -284,6 +284,9 @@ describe("Phase A · Project + Worktree domain", () => {
       const { createProjectsRouter } = await projectsRoutePromise;
       const ctx = createAppContext(PROJECT_ROOT);
       const captured: any[] = [];
+      // `project:new` esce da `broadcastProject` (fan-out per socket, 092): il
+      // frame è lo stesso, la porta no.
+      (ctx as any).broadcastProject = (type: string, project: unknown) => captured.push({ type, project });
       (ctx as any).broadcastToAll = (m: any) => captured.push(m);
       const route = createProjectsRouter(ctx);
 

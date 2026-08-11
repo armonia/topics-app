@@ -8,10 +8,14 @@ import { clientReceivesTopicDelta } from "./lib/ws-topic-routing";
 import { warnThrottled } from "./lib/warn-throttled";
 import type {
   WSData, GuestBroadcastFilter, StoredMessage, ReattachedPartial, ToolCall, Topic, TopicsData, UnreadData,
-  ActiveStream, ErrorResponseOptions, AppContext,
+  ActiveStream, ErrorResponseOptions, AppContext, Project,
 } from "./types";
 import { initDatabase } from "./db";
 import { isGuestSocketData } from "./lib/grants";
+import {
+  osservatoreDaDispositivo, envelopeProgettoPer,
+  type Osservatore, type TipoFrameProgetto,
+} from "./lib/project-visibility";
 import { readMutedProjects } from "./lib/muted-projects";
 import { resolveStateDir } from "./lib/data-dir";
 import { knownProjectDirs, isInsideKnownProject } from "./services/known-project-dirs";
@@ -631,6 +635,68 @@ export function createAppContext(baseDir: string): AppContext {
       // Push is best-effort, but a persistent throw here means notifications
       // are silently dead — surface it (throttled) instead of never knowing.
       warnThrottled("maybeSendPush", `[Push] maybeSendPush threw:`, err);
+    }
+  }
+
+  /**
+   * I frame che portano una RIGA di `projects`, uno per socket.
+   *
+   * `broadcastToAll` manda a tutti lo stesso payload, e per questi tre frame
+   * quel payload è nome + path del progetto: con la 092 `GET /api/projects`
+   * filtra per organizzazione e incognito, ma il broadcast subito dopo la stessa
+   * mutazione rimetteva in chiaro a OGNI socket connessa ciò che l'elenco aveva
+   * appena nascosto. Un filtro che vale su una porta e non sull'altra non è un
+   * filtro.
+   *
+   * Qui la decisione è PER SOCKET, e non può essere altrimenti: `vedeProgetto`
+   * dipende dalla persona, e la persona sta sulla socket (`ws.data.deviceId`,
+   * timbrato all'upgrade), non nel frame.
+   *
+   * Chi non vede riceve la RITRATTA, non il silenzio — il perché sta su
+   * `envelopeProgettoPer`, insieme alla regola.
+   *
+   * L'ordine con gli ospiti: il filtro degli ospiti resta il PRIMO. `project:*`
+   * non è fra i tipi ammessi, quindi a un ospite non parte né la riga né la
+   * ritratta, esattamente come prima che questa fan-out esistesse.
+   *
+   * Niente `maybeSendPush`: nessun `project:*` è fra i tipi che fanno partire una
+   * notifica (`server/push-triggers.ts`), e chiamarlo qui vorrebbe dire che il
+   * giorno in cui uno ci finisse la notifica uscirebbe senza passare da questo
+   * filtro — cioè col nome del progetto sopra. Se serve, si aggiunge di qui
+   * DOPO aver deciso a chi.
+   */
+  function broadcastProject(type: TipoFrameProgetto, project: Project): void {
+    const guests = guestSocketFilter();
+    // Un osservatore per DISPOSITIVO e non per socket: risolverlo costa due
+    // query, e più finestre dello stesso dispositivo sono la norma, non il caso
+    // limite. La cache dura questa sola fan-out: fuori di qui un'appartenenza
+    // può cambiare, e una cache più lunga sarebbe una revoca che non arriva.
+    const osservatori = new Map<string, Osservatore>();
+    // Le forme possibili sono due — la riga e la ritratta — quindi si validano e
+    // si serializzano una volta ciascuna, non una per socket.
+    const serializzati = new Map<string, string>();
+    for (const ws of wsClients) {
+      if (ws.readyState !== 1) continue;
+      const deviceId = ws.data.deviceId ?? null;
+      // La stringa vuota non è un id di dispositivo valido: qui è il loopback,
+      // cioè la macchina stessa.
+      const chiave = deviceId ?? "";
+      let chi = osservatori.get(chiave);
+      if (!chi) {
+        chi = osservatoreDaDispositivo(db, deviceId);
+        osservatori.set(chiave, chi);
+      }
+      const message = envelopeProgettoPer(chi, type, project);
+      if (guests && isGuestSocket(ws) && !guests.mayReceiveFrame(ws.data.deviceId!, message)) continue;
+      let payload = serializzati.get(message.type);
+      if (payload === undefined) {
+        devValidateOutbound(message);
+        payload = JSON.stringify(message);
+        serializzati.set(message.type, payload);
+      }
+      try { ws.send(payload); } catch (err) {
+        console.error(`[WS] Send error to ${ws.data.id}:`, err);
+      }
     }
   }
 
@@ -2060,7 +2126,7 @@ export function createAppContext(baseDir: string): AppContext {
     TOPICS_FILE, UNREAD_FILE, PUBLIC_DIR, UPLOADS_DIR, CONTEXT_DIR,
     OPENCLAW_DIR, SESSIONS_DIR, MESSAGES_DIR, BASE_DIR: baseDir, STATE_DIR,
     activeStreams, wsClients,
-    broadcast, broadcastToAll, broadcastToTopic, broadcastToTopicSubscribers, sendToDevice, closeDeviceSockets, setGuestBroadcastFilter,
+    broadcast, broadcastToAll, broadcastProject, broadcastToTopic, broadcastToTopicSubscribers, sendToDevice, closeDeviceSockets, setGuestBroadcastFilter,
     loadTopics, saveTopics, saveSingleTopic,
     getTopicById, getTopicBySessionKey, setTopicBrowserState,
     loadUnread, saveUnread,

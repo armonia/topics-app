@@ -19,23 +19,20 @@
  * legge comunque, e prometterlo diversamente sarebbe una promessa che lo schema
  * non può mantenere.
  *
- * DOVE QUESTA REGOLA NON ARRIVA, detto qui perché il posto in cui si scopre da
- * soli è sempre quello sbagliato: i frame `project:*` di `broadcastToAll`. Il
- * filtro dei broadcast è per OSPITI (`isGuestSocketData` + l'allowlist per tipo),
- * e `project:new`/`project:updated` non sono nell'allowlist — quindi a un ospite
- * non arrivano affatto. Arrivano invece a ogni socket NON confinata, cioè agli
- * altri PROPRIETARI DELL'INSTALLAZIONE, incognito compreso.
+ * DOVE ARRIVA, oltre alla rotta: i frame `project:*` del WebSocket. Fino a
+ * questa consegna uscivano da `broadcastToAll`, cioè a OGNI socket connessa, con
+ * nome e path dentro — e l'unico filtro su quel canale era quello degli OSPITI
+ * (`isGuestSocketData` + l'allowlist per tipo), che i `project:*` non nomina
+ * nemmeno. Un elenco filtrato che il broadcast successivo rimette in chiaro non
+ * è un elenco filtrato: è una finestra che si richiude da sola.
  *
- * Non è la stessa cosa che manca un cancello, ed è la ragione per cui questa
- * consegna non ci mette un filtro per socket: un secondo proprietario è, per la
- * 084, la stessa macchina — il mio filesystem, i miei terminali, la mia shell.
- * Un progetto che lui non vede in elenco lo legge comunque con `ls`. Il confine
- * che `incognito` fa valere è quello verso i COMPAGNI D'ORG, che oggi sono
- * ospiti e da questi frame sono già fuori. Il giorno in cui un compagno d'org
- * smetterà di essere un ospite, questo commento è il posto da cui ripartire: il
- * filtro va nella fan-out, accanto a quello degli ospiti, non ricopiato qui.
+ * Ora quel canale ha la sua fan-out — `broadcastProject` in `server/utils.ts` —
+ * che chiama `vedeProgetto` SOCKET PER SOCKET usando `envelopeProgettoPer` qui
+ * sotto. La regola resta scritta una volta sola: la fan-out la chiama, non la
+ * ricopia.
  */
 import { resolvePrincipals } from "./principals";
+import type { OutboundMessage } from "../../shared/ws-outbound";
 
 /** Le tre colonne che la 092 ha aggiunto a `projects`, e nient'altro. */
 export interface ProgettoVisibilita {
@@ -107,4 +104,69 @@ export function vedeProgetto(chi: Osservatore, p: ProgettoVisibilita): boolean {
   // (installazione senza organizzazione): resta al proprietario della macchina,
   // cioè com'era prima della 092.
   return mio || chi.proprietarioInstallazione;
+}
+
+/**
+ * Le tre colonne lette da una riga che le porta OPZIONALI (`Project`), nella
+ * forma stretta che `vedeProgetto` pretende.
+ *
+ * Sta qui e non in due call site perché `undefined` e `null` devono cadere sullo
+ * stesso ramo, e `incognito` deve valere solo su `true` — un `1` o un `"true"`
+ * non sono un sì. Scritto due volte, il secondo posto è quello che un giorno
+ * ammette il `1`.
+ */
+export function visibilitaDi(p: {
+  orgId?: string | null;
+  ownerPersonId?: string | null;
+  incognito?: boolean;
+}): ProgettoVisibilita {
+  return {
+    orgId: p.orgId ?? null,
+    ownerPersonId: p.ownerPersonId ?? null,
+    incognito: p.incognito === true,
+  };
+}
+
+/**
+ * I tre frame che portano la riga INTERA — nome, path, colore: cioè tutto ciò
+ * che «incognito» promette di non far vedere. `project:deleted` non è fra questi
+ * perché porta il solo id, ed è per lo stesso motivo che qui sotto fa da
+ * ritratta.
+ */
+export type TipoFrameProgetto = "project:new" | "project:updated" | "project:archived";
+
+/** Ciò che serve per decidere, più l'id che va nella ritratta. Volutamente più
+ *  largo di `ProgettoVisibilita`: chi chiama ha in mano una riga `Project`. */
+export interface ProgettoTrasmesso {
+  id: string;
+  orgId?: string | null;
+  ownerPersonId?: string | null;
+  incognito?: boolean;
+}
+
+/**
+ * COSA vede passare QUESTA socket: non un booleano, un envelope.
+ *
+ * Perché non un booleano: la risposta giusta per chi non vede il progetto non è
+ * «niente». Un progetto che diventa incognito — o che cambia organizzazione —
+ * sparisce dall'elenco di chi ce l'aveva, e la sparizione va DETTA: senza,
+ * quella riga resta sullo schermo, con nome e path, fino al prossimo
+ * `GET /api/projects`, cioè fino al prossimo reload. Quindi a chi non vede parte
+ * la RITRATTA: `project:deleted` col solo id, che è il frame che il client già
+ * sa applicare e che non porta niente di nessuno.
+ *
+ * La ritratta parte anche a chi quel progetto non l'ha mai avuto — un
+ * `project:new` incognito, per esempio. È un no-op sul client (un id che non
+ * conosce), ed è una regola sola invece di due: il ramo in più starebbe proprio
+ * nel punto dove sbagliarsi significa consegnare un nome.
+ */
+export function envelopeProgettoPer(
+  chi: Osservatore,
+  tipo: TipoFrameProgetto,
+  progetto: ProgettoTrasmesso,
+): OutboundMessage {
+  if (vedeProgetto(chi, visibilitaDi(progetto))) {
+    return { type: tipo, project: progetto, payload_version: 1 };
+  }
+  return { type: "project:deleted", project: { id: progetto.id }, payload_version: 1 };
 }
