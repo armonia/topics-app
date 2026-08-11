@@ -1079,6 +1079,52 @@ describe("task-dispatcher", () => {
     expect(h.turns.length).toBe(0);
   });
 
+  it("reconcile LIBERA un orfano fermo su `queued` con la board SPENTA", async () => {
+    // Il fantasma misurato l'11/08: sette card in_progress col chip `queued`,
+    // ferme da 40 minuti, nessun turno vivo. Nascono da un'attesa che vive in
+    // memoria (il rinvio del resume quando il tetto è pieno): il riavvio si
+    // porta via il timer e lascia il chip, e la card resta in_progress PER
+    // SEMPRE — il recupero orfani la saltava perché guardava solo
+    // {working, starting}.
+    //
+    // La board spenta è il caso duro: non reclama nulla, ma deve comunque
+    // poter LIBERARE la card (e con lei lo slot che l'umano le vede occupare).
+    const h = harness({ topicExists: () => true });
+    seedTask(h.db, { id: "t1", status: "in_progress", assignedTopicId: "topic-live", attempts: 1, dispatchState: "queued" });
+
+    await h.dispatcher.reconcile();
+    await flush();
+
+    const t = h.task("t1")!;
+    expect(t.status).toBe("todo");
+    expect(t.assignedTopicId).toBeNull();
+    expect(t.dispatchAttempts).toBe(0);   // il riavvio non consuma un tentativo
+    expect(t.dispatchState).toBeNull();   // niente chip arenato su una board che non dispaccia
+    expect(h.turns.length).toBe(0);       // spenta: nessun agente riparte
+  });
+
+  it("reconcile LIBERA un orfano fermo su `queued` anche con la board ACCESA", async () => {
+    // Stesso fantasma, board accesa. Il passaggio da `todo` c'è ma non si
+    // fotografa: la STESSA reconcile, dopo il requeue, ticca la board e la
+    // riclaima — ed è il punto, perché è così che lo slot torna a lavorare
+    // invece di restare occupato da una card ferma.
+    const h = harness({ topicExists: () => true });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "in_progress", assignedTopicId: "topic-live", attempts: 1, dispatchState: "queued" });
+
+    await h.dispatcher.reconcile();
+    await flush();
+
+    const t = h.task("t1")!;
+    // L'invariante, in entrambe le modalità: nessuna card sopravvive come
+    // in_progress + `queued` senza un turno.
+    expect(t.status === "in_progress" && t.dispatchState === "queued").toBe(false);
+    expect(t.assignedTopicId).toBe("topic-1");                       // topic NUOVO, il fantasma era sbindato
+    expect(t.dispatchAttempts).toBe(1);                              // rimborsato (1→0) e riclaimato (0→1)
+    expect(h.turns.length).toBe(1);                                  // lo slot lavora davvero
+    expect(h.turns[0].content).toContain("owner esclusivo del task"); // kickoff, non un turno fantasma
+  });
+
   it("reconcile requeues a starting orphan (kickoff may never have reached the CLI)", async () => {
     // Crash in the claim→bind window: there may be NO session to resume, so a
     // clean re-claim beats resuming into a possibly-empty conversation.
