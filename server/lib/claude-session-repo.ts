@@ -35,6 +35,7 @@ interface RawRow {
   phase_updated_at: string | null;
   jsonl_path: string | null;
   jsonl_offset: number;
+  import_offset: number | null;
   pending_approval_json: string | null;
   last_tool_json: string | null;
   last_hook_at: string | null;
@@ -70,6 +71,7 @@ function rowToState(row: RawRow): ClaudeSessionState {
     phaseUpdatedAt: isoToMs(row.phase_updated_at) || isoToMs(row.updated_at),
     jsonlPath: row.jsonl_path ?? undefined,
     jsonlOffset: row.jsonl_offset,
+    importOffset: row.import_offset,
     pendingApproval: safeParse<PendingApproval>(row.pending_approval_json),
     lastTool: safeParse<ActiveTool>(row.last_tool_json),
     lastHookAt: row.last_hook_at ? isoToMs(row.last_hook_at) : undefined,
@@ -87,8 +89,26 @@ export interface ClaudeSessionRepo {
    * Persist the full state. The row MUST already exist (inserted by the
    * claude-code provider on spawn). If it doesn't, this is a no-op and
    * returns false — caller can log "untracked session".
+   *
+   * NOTE: deliberately does NOT touch `import_offset` — that column has its own
+   * writer (`setImportOffset`). The phase tracker calls `update` on every tail
+   * sweep; folding import_offset in here would let a stale phase-copy clobber
+   * the message importer's watermark (and vice-versa). One column, one owner.
    */
   update(state: ClaudeSessionState): boolean;
+  /**
+   * Narrow single-column write of the message importer's byte watermark. Its
+   * own statement so it never races the full-state `update` (each owns disjoint
+   * columns). Returns false if the row is gone.
+   */
+  setImportOffset(sessionKey: string, offset: number): boolean;
+  /**
+   * Every session enrolled in JSONL message import — `import_offset IS NOT NULL`
+   * AND a transcript path to read. This is the set the import sweep walks; it is
+   * exactly the ADOPTED sessions (adopt-claude is the only writer of a non-null
+   * import_offset).
+   */
+  listImportable(): ClaudeSessionState[];
   listAll(): ClaudeSessionState[];
   listActive(): ClaudeSessionState[];
   /**
@@ -126,6 +146,14 @@ export function createClaudeSessionRepo(db: Database): ClaudeSessionRepo {
     `SELECT * FROM claude_code_sessions
      WHERE phase IN (${LIVE_PHASES.map(() => '?').join(',')})
      ORDER BY phase_updated_at DESC NULLS LAST`
+  );
+  const selectImportableStmt = db.prepare(
+    `SELECT * FROM claude_code_sessions
+     WHERE import_offset IS NOT NULL AND jsonl_path IS NOT NULL
+     ORDER BY updated_at DESC`
+  );
+  const setImportOffsetStmt = db.prepare(
+    `UPDATE claude_code_sessions SET import_offset = ? WHERE session_key = ?`
   );
 
   const updateRow = db.prepare(`
@@ -168,12 +196,18 @@ export function createClaudeSessionRepo(db: Database): ClaudeSessionRepo {
     return r.changes > 0;
   }
 
+  function setImportOffset(sessionKey: string, offset: number): boolean {
+    return setImportOffsetStmt.run(offset, sessionKey).changes > 0;
+  }
+
   return {
     loadByClaudeSessionId: (id) => rowFor(selectByClaudeId.get(id)),
     loadBySessionKey: (key) => rowFor(selectByKey.get(key)),
     listAll: () => (selectAll.all() as RawRow[]).map(rowToState),
     listActive: () => (selectActiveStmt.all(...ACTIVE_PHASES) as RawRow[]).map(rowToState),
     listLive: () => (selectLiveStmt.all(...LIVE_PHASES) as RawRow[]).map(rowToState),
+    listImportable: () => (selectImportableStmt.all() as RawRow[]).map(rowToState),
+    setImportOffset,
     update,
     forEachLive: (visitor) => {
       for (const s of (selectActiveStmt.all(...ACTIVE_PHASES) as RawRow[])) {
