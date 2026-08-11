@@ -5,9 +5,21 @@
 // cosa entra nel grafo — toglierli affiderebbe la copertura a un default che
 // può cambiare sotto. L'ultimo, su `.css`, dice solo che knip non segue gli
 // import dei fogli di stile: servirebbe un plugin, e non ci sono CSS orfani da
-// cercare.
+// cercare. Gli hint NON contano nell'exit code: misurato, `check:deadcode`
+// esce 0 stampando tutti e otto.
+//
+// La versione di knip è PINNATA in package.json (devDependency esatta) e il
+// gate lancia il binario locale, non `bunx knip`. Non è pignoleria: `bunx`
+// scarica l'ultima, e sullo STESSO albero (main e110b4c2, deps fresche)
+// knip@5 e knip@6 danno due verdetti diversi — 5 elenca un file inutilizzato,
+// un binario non dichiarato (`python3`) e cinque export/tipi morti, di cui
+// almeno due sono falsi positivi (usi via `await import()` e via namespace);
+// 6 ne trova uno solo, vero. È il motivo per cui questo cancello ha dato tre
+// esiti diversi a tre misure diverse, e la stessa lezione già scritta sopra
+// `typecheck` in ci.yml («usa il tsc pinnato, `bunx tsc` può prendere un major
+// nuovo»). Chi alza la versione lo fa in un commit che si vede.
 {
-  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "$schema": "https://unpkg.com/knip@6/schema.json",
   "workspaces": {
     ".": {
       // `!` = "this IS an entrypoint, even though nothing imports it".

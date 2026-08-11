@@ -281,7 +281,7 @@ export interface TopicTreeProps {
   onNewTopicInProject?: (projectPath: string) => void;
   onAddProjectPane?: (projectPath: string, type: PaneType, subType?: string) => void;
   onProjectClick?: (projectPath: string) => void;
-  stopSession?: (sessionKey: string) => boolean;
+  stopSession?: (sessionKey: string) => Promise<boolean>;
   onNewChat?: () => void;
   onNewBrowser?: () => void;
   terminalSessions?: TerminalSessionInfo[];
@@ -836,11 +836,16 @@ export function TopicTree({
         onContextMenu={(e) => onTopicContextMenu(e, topic)}
         onArchive={handleArchive}
         onStopStreaming={stopSession ? () => {
-          const isFirst = stopSession(topic.sessionKey);
-          // Route through the same deferred wrapper the row's Archive button
-          // uses (not a raw onArchiveTopic call) so both paths share one
-          // contract; surface a failed archive instead of dropping it silently.
-          if (isFirst) handleArchive(topic.id, true).catch(() => {});
+          // Si archivia solo se il server ha davvero buttato via la chat: qui
+          // lo Stop non ferma soltanto, fa SPARIRE il topic dalla sidebar, ed è
+          // la mossa che nell'incidente del 10 agosto il client si prendeva da
+          // solo su un turno che aveva già lavorato.
+          void stopSession(topic.sessionKey).then((discarded) => {
+            // Route through the same deferred wrapper the row's Archive button
+            // uses (not a raw onArchiveTopic call) so both paths share one
+            // contract; surface a failed archive instead of dropping it silently.
+            if (discarded) handleArchive(topic.id, true).catch(() => {});
+          });
         } : undefined}
         isArchived={item.archived}
         pinned={!!item.pinned}
