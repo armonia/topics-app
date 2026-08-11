@@ -35,7 +35,9 @@ the env still wins, so nothing changes until a user edits Settings in the UI.
 | `ANTHROPIC_API_KEY` | Anthropic API key (claude provider) | user |
 | `OPENAI_API_KEY` | OpenAI API key (openai provider) | user |
 | `CODEX_API_KEY` | Codex API key (falls back to `OPENAI_API_KEY`) | user |
-| `ELEVENLABS_API_KEY` | ElevenLabs TTS key (enables voice) | user |
+| `ELEVENLABS_API_KEY` | ElevenLabs key — TTS **and** Scribe v2 speech-to-text | user |
+| `DEEPGRAM_API_KEY` | Deepgram key (Nova-3 speech-to-text) | user |
+| `GROQ_API_KEY` | Groq key (Whisper large-v3-turbo speech-to-text) | user |
 | `GATEWAY_TOKEN` | OpenClaw gateway token | user |
 | `VAPID_SUBJECT` | Web-push VAPID subject | user/deploy |
 
@@ -61,7 +63,13 @@ the env still wins, so nothing changes until a user edits Settings in the UI.
 | `TOPICS_EXTERNAL_STATES_DIR` / `JARVIS_STATES_DIR` | Browser login-state dirs (`JARVIS_STATES_DIR` is a back-compat alias) | shell |
 | `XDG_DATA_HOME` | XDG data root (opencode session) | OS |
 | `CODEX_HOME` | Codex config/home dir | user/shell |
-| `WHISPER_MODEL_PATH` | Whisper model file for voice transcription | user/shell |
+| `WHISPER_MODEL_PATH` | Whisper model file (local STT). Unset → auto-discovered under `~/whisper-models`, `~/.cache/whisper`, `/opt/homebrew/share/whisper-cpp` | user/shell |
+| `WHISPER_MODEL_DIR` | Extra directory to search for `ggml-*.bin` models | user/shell |
+| `WHISPER_CLI_PATH` / `FFMPEG_PATH` | Explicit binaries for the local Whisper path (auto-probed in `/opt/homebrew/bin`, `/usr/local/bin` — the app bundle's PATH has neither) | user/shell |
+| `STT_PROVIDER` | `auto` (default cascade: elevenlabs → openai → deepgram → groq → local), one provider (exclusive), or a comma-separated order | user/shell |
+| `STT_MODEL_ELEVENLABS` / `STT_MODEL_OPENAI` / `STT_MODEL_DEEPGRAM` / `STT_MODEL_GROQ` | Override the model per provider (defaults: `scribe_v2`, `gpt-transcribe`, `nova-3`, `whisper-large-v3-turbo`) | user/shell |
+| `STT_LANGUAGE` | ISO-639-1 hint, e.g. `it`. Unset/`auto` → the model detects it | user/shell |
+| `STT_PROMPT` | Domain hint sent to `gpt-transcribe` (empty string disables it) | user/shell |
 
 ## build — env only (set by the desktop/Tauri shell)
 
