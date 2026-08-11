@@ -106,11 +106,21 @@ export function isAwaitingHuman(status: ToolCallStatus | undefined | null): bool
  * `{ "Permesso richiesto — <tool>": "Consenti sempre" }`, riconosciuta per
  * prefisso di stringa. Funziona finché nessuno tocca un'etichetta.
  *
- * Una domanda ha risposte aperte e le legge un modello. Un permesso ha TRE
- * esiti esatti, li legge il server, e uno dei tre scrive una regola permanente.
- * Sono due cose diverse e ora hanno due stati diversi.
+ * Una domanda ha risposte aperte e le legge un modello. Un permesso ha esiti
+ * ESATTI, li legge il server, e alcuni di loro cambiano il regime di ciò che
+ * verrà dopo. Sono due cose diverse e ora hanno due stati diversi.
+ *
+ * ── Le quattro, e perché non sono tre ───────────────────────────────────────
+ * `allow`/`allow_always`/`deny` sono le tre che la CLI capisce. `allow_free` è
+ * una decisione dell'INTERFACCIA: consente QUESTA richiesta — verso la CLI
+ * viaggia come `allow`, vedi `cliDecisionFor` in `shared/permission-decision.ts`
+ * — e nello stesso gesto porta la sessione in modalità libera, cioè smette di
+ * chiedere. È qui, nell'enum, e non come flag accanto a `allow`, per la stessa
+ * ragione per cui l'enum esiste: la decisione presa si RILEGGE dalla riga di
+ * tool, e «consentito» e «consentito, e da qui in poi non chiedo più» non sono
+ * la stessa cosa da rileggere sei mesi dopo.
  */
-export type PermissionDecision = 'allow' | 'allow_always' | 'deny';
+export type PermissionDecision = 'allow' | 'allow_always' | 'deny' | 'allow_free';
 
 /** Cosa la CLI sta chiedendo di poter fare. Tipato: niente chiavi in prosa. */
 export interface ToolPermissionRequest {
@@ -126,6 +136,15 @@ export interface ToolPermissionRequest {
 export interface ToolPermissionOutcome {
   decision: PermissionDecision;
   decidedAt: string;
+  /**
+   * CHI ha deciso, in una parola leggibile (`etichettaAutore`).
+   *
+   * Scritto solo dove serve saperlo: `allow_free` cambia il regime della
+   * sessione, e un cambio di regime senza un nome accanto è un cambio di regime
+   * di cui nessuno risponde. Sulle altre tre resta assente — un «Consenti» è la
+   * risposta di chi ha la chat aperta, e non c'è niente da attribuire.
+   */
+  actor?: string;
 }
 
 // ─── User-input request / response envelopes ───────────────────────────
