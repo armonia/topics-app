@@ -55,16 +55,24 @@ export function FriendsSection() {
   const [bozza, setBozza] = useState<string>('');
   const [errore, setErrore] = useState<string | null>(null);
 
-  const carica = useCallback(async () => {
-    try {
-      const { people } = await peopleApi.list();
-      setPersone(people);
-    } catch {
-      setPersone([]);
-    }
+  /**
+   * L'elenco si carica una volta, all'apertura.
+   *
+   * La richiesta sta DENTRO l'effetto e lo stato si posa nella callback, non nel
+   * corpo: chiamare qui una funzione che fa `setState` — anche dietro un `await`
+   * — è una catena di render che React sconsiglia, ed è ciò che
+   * `react-hooks/set-state-in-effect` ferma. `annullato` chiude l'altra metà
+   * dello stesso problema: se il pannello si smonta mentre la fetch è in volo,
+   * la risposta non deve scrivere su un componente che non c'è più.
+   */
+  useEffect(() => {
+    let annullato = false;
+    peopleApi.list().then(
+      ({ people }) => { if (!annullato) setPersone(people); },
+      () => { if (!annullato) setPersone([]); },
+    );
+    return () => { annullato = true; };
   }, []);
-
-  useEffect(() => { void carica(); }, [carica]);
 
   /** Aprire una persona è ciò che autorizza la richiesta a GitHub: un gesto
    *  umano, uno alla volta. Il risultato rientra nella riga già disegnata. */
