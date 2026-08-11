@@ -1404,10 +1404,27 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // con quattro figli aperti. Il posto giusto è la coda: il lavoro non è
       // finito, e il turno finito non lo rende finito.
       if (hasActiveChildren(taskId)) {
+        // Il tentativo si RESTITUISCE: il turno non è finito per colpa del
+        // padre, è finito mentre i figli lavoravano ancora — esattamente come
+        // il riavvio del server non è colpa dell'agente. Senza questo, il padre
+        // rientra in coda col budget già speso e non verrà reclamato MAI più:
+        // niente chip, niente errore, una card che finge di essere in coda.
+        // Diciannove così l'11/08, tutte da questo ramo.
+        //
+        // E il chip lo dice: `waiting` con la ragione, non il nulla che sul
+        // board si legge come «fermato a mano».
+        //
+        // E non rientra SUBITO in coda: senza finestra, il tick lo riprende al
+        // giro dopo, il turno finisce di nuovo coi figli ancora aperti, e sono
+        // turni pagati per aspettare. Stessa meccanica di `deferForWait`.
+        const note = "In attesa dei sottotask ancora aperti: torno in coda e riparto quando hanno finito.";
+        const until = new Date(Date.parse(ts) + 10 * 60_000).toISOString();
         db.prepare(
           `UPDATE tasks SET assigned_topic_id = NULL, assigned_agent_id = NULL,
-              status = 'todo', dispatch_state = NULL, dispatch_error = NULL, updated_at = ? WHERE id = ?`,
-        ).run(ts, taskId);
+              dispatch_attempts = MAX(dispatch_attempts - 1, 0),
+              status = 'todo', dispatch_state = 'waiting', dispatch_error = ?,
+              dispatch_deferred_until = ?, updated_at = ? WHERE id = ?`,
+        ).run(note, until, ts, taskId);
         if (row.status !== "todo") logStatus(taskId, row.status, "todo", "dispatcher");
         return rowToTask(getTaskRow(taskId));
       }
