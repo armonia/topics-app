@@ -41,7 +41,16 @@ const PROXY = 'http://127.0.0.1:13333';
 type Call = { url: string; headers: Headers; method?: string };
 
 let calls: Call[];
-let net: typeof import('./net');
+
+// I tre nomi scritti a mano invece di `typeof import('./net')` + `await
+// import('./net')`: entrambe quelle forme sono riferimenti OPACHI all'intero
+// modulo per il cancello sul codice morto, che da lì in poi non può segnalare
+// nessun export di `net.ts` (`bun run check:deadcode-blindspots`).
+async function loadNet() {
+  const { serverHttpBase, installNetShim, __resetNetShimForTests } = await import('./net');
+  return { serverHttpBase, installNetShim, __resetNetShimForTests };
+}
+let net: Awaited<ReturnType<typeof loadNet>>;
 
 function makeSpy(): typeof globalThis.fetch {
   return ((input: unknown, init?: RequestInit) => {
@@ -67,7 +76,7 @@ beforeAll(async () => {
   w.window = { fetch: makeSpy(), EventSource: undefined };
   w.fetch = (w.window as { fetch: unknown }).fetch;
 
-  net = await import('./net');
+  net = await loadNet();
   // Se questo fallisce il mock non ha preso, e ogni test sotto sarebbe verde per
   // il motivo sbagliato: starebbe esercitando il ramo web.
   expect(net.serverHttpBase()).toBe(PROXY);

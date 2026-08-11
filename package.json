@@ -44,6 +44,7 @@
     "check:test-skips": "bun run scripts/check-test-skips.ts",
     "check:migrations": "bun run scripts/check-migration-numbers.ts",
     "check:deadcode": "./node_modules/.bin/knip-bun",
+    "check:deadcode-blindspots": "bun run scripts/check-deadcode-blindspots.ts",
     "check:occlusion": "node scripts/check-occlusion.mjs",
     "check:bundle": "bun run scripts/check-bundle-size.ts",
     "check:lockfile": "bun install --frozen-lockfile && cd client && bun install --frozen-lockfile && cd ../landing && bun install --frozen-lockfile",
