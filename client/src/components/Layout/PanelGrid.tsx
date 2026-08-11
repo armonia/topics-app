@@ -1193,6 +1193,32 @@ export function PanelGrid({
     onFocusPanel(topicId);
   }, [onFocusPanel, setSoloCells]);
 
+  /* ---- Dove ATTERRA una cosa lasciata cadere dalla SIDEBAR.
+     Stessa semantica del drop di una TAB sul corpo di una cella (vedi il ramo
+     `actualZone === 'center'` del drop handler): sulla cella divisa si entra
+     come sua prossima tab, sul serbatoio principale si torna nel serbatoio.
+     `targetPrimary === null` = il serbatoio. ---- */
+  const landSidebarDrop = useCallback((topicId: string, targetPrimary: string | null) => {
+    if (targetPrimary && targetPrimary !== topicId) handleMergeIntoCell(topicId, targetPrimary);
+    else handleUnsoloTopic(topicId);
+  }, [handleMergeIntoCell, handleUnsoloTopic]);
+
+  /* ---- L'atterraggio in SOSPESO di un drop dalla sidebar.
+     Una riga della sidebar può essere una chat NON aperta: la pane nasce solo
+     quando `topics:open-topic` è stato processato, e `soloCells` viene POTATO
+     su `openPanels` a ogni derivazione (`pruneSoloCells`) — mettere l'id in una
+     cella prima che la pane esista lo farebbe cancellare nello stesso render.
+     Quindi si registra l'intenzione e la si applica quando la pane compare,
+     con la stessa forma del `pendingSoloPanelId` qui sotto. ---- */
+  const pendingSidebarLandingRef = useRef<{ topicId: string; targetPrimary: string | null } | null>(null);
+  useEffect(() => {
+    const pending = pendingSidebarLandingRef.current;
+    if (!pending) return;
+    if (!openPanels.includes(pending.topicId)) return;
+    pendingSidebarLandingRef.current = null;
+    landSidebarDrop(pending.topicId, pending.targetPrimary);
+  }, [openPanels, landSidebarDrop]);
+
   /* ---- Auto-solo: a newly created utility pane (terminal/browser) created via
          quick-create should land in its own grid cell rather than join the
          standalone group with existing panels. The parent (App) signals which
@@ -1628,15 +1654,34 @@ export function PanelGrid({
     dropConsumedRef.current = true;
 
     // Sidebar drag (PANEL_ID only — no GRID_ITEM, no PANE_TAB): OPEN the topic
-    // into the workspace, GROUPING it as a tab in the main standalone group.
-    // Routed through the shared `topics:open-topic` event with an explicit
-    // `mode: 'permanent'`, which the canonical listener (usePanelLifecycle)
-    // turns into openPanel — the funnel that REGISTERS the chat pane in the
-    // pane-store (a bare setOpenPanels/onOpenPanelAt does NOT — REORDER_PANES
-    // then drops the unregistered id and nothing renders). The `permanent` opt-in
-    // keeps this drop a commitment while the board's peek stays a preview.
+    // into the workspace E LASCIARLA NELLA CELLA SU CUI È CADUTA.
+    //
+    // L'apertura passa dall'evento condiviso `topics:open-topic` con
+    // `mode: 'permanent'`, che il listener canonico (usePanelLifecycle) traduce
+    // in openPanel — l'imbuto che REGISTRA la pane nel pane-store (una
+    // setOpenPanels/onOpenPanelAt nuda NO: REORDER_PANES scarta poi l'id non
+    // registrato e non si disegna niente). Il `permanent` tiene questo drop un
+    // impegno, mentre lo sbirciare dalla board resta un'anteprima.
+    //
+    // MA L'APERTURA DA SOLA NON BASTAVA, ed è il difetto che questo ramo
+    // portava: il `dragover` dipinge l'anteprima di fusione sulla CELLA sotto
+    // il cursore (vedi `isSidebarDrag` in handleGridItemDragOverCapture, che
+    // promette «questa cosa entra QUI»), poi il drop ignorava riga e colonna e
+    // apriva la chat nel serbatoio principale. Su una griglia con una sola
+    // cella non si vedeva; appena la griglia è divisa, trascinare una riga o
+    // una tessera fissata dentro una finestra non ci metteva niente — mentre
+    // lo STESSO gesto partendo da una tab della barra funzionava. Ora le due
+    // sorgenti atterrano nello stesso posto: quello indicato.
     if (!effectiveKey && !sourcePaneTab && sourceTopicId) {
-      window.dispatchEvent(new CustomEvent('topics:open-topic', { detail: { topicId: sourceTopicId, mode: 'permanent' } }));
+      const targetKey = gridRowsRef.current[dropTarget.rowIdx]?.itemKeys[dropTarget.colIdx];
+      const targetPrimary = targetKey?.startsWith('solo:') ? targetKey.slice('solo:'.length) : null;
+      if (openPanels.includes(sourceTopicId)) {
+        // Già aperta: la si sposta e basta — nessuna attesa da aspettare.
+        landSidebarDrop(sourceTopicId, targetPrimary);
+      } else {
+        pendingSidebarLandingRef.current = { topicId: sourceTopicId, targetPrimary };
+        window.dispatchEvent(new CustomEvent('topics:open-topic', { detail: { topicId: sourceTopicId, mode: 'permanent' } }));
+      }
       setDraggingGridKey(null);
       setGridDropTarget(null);
       gridDropTargetRef.current = null;
@@ -1977,7 +2022,7 @@ export function PanelGrid({
     // omitting it captured a stale soloCells in the drop handler. The handler is
     // only a JSX prop / wrapped by other callbacks (never an effect dep), so
     // recreating it on soloCells change has no re-render/loop cost.
-  }, [itemMap, gridDropTargetRef, gridRowsRef, fullRowDropRef, setGridRows, setSoloCells, soloCells, handleMergeIntoCell, handleUnsoloTopic]);
+  }, [itemMap, gridDropTargetRef, gridRowsRef, fullRowDropRef, setGridRows, setSoloCells, soloCells, handleMergeIntoCell, handleUnsoloTopic, openPanels, landSidebarDrop]);
 
   /* ---- Insert-between handlers (column / row dividers) ----
    *
