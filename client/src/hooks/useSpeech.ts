@@ -1,5 +1,14 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { releaseAudio } from '../lib/releaseAudio';
+import {
+  transcribeAudio,
+  extForMime,
+  pickRecorderMimeType,
+  MIN_VOICE_BLOB_BYTES,
+  SPEECH_AUDIO_CONSTRAINTS,
+  SPEECH_BITS_PER_SECOND,
+} from '../lib/stt';
+import { attachSilenceDetector, type VadHandle } from '../lib/vad';
 
 
 
@@ -212,7 +221,18 @@ export function useTextToSpeech() {
   return { speak, stop, isSpeaking };
 }
 
-// Voice Call Mode - continuous voice conversation using local Whisper
+/**
+ * Voice call: si parla, l'agente risponde a voce, e si ricomincia.
+ *
+ * Il turno finiva su un cronometro di 5 secondi fissi — non su quando smettevi
+ * di parlare. Una frase lunga veniva tagliata a metà, una corta faceva aspettare
+ * il resto del tempo, e un pezzo di silenzio puro veniva comunque mandato al
+ * modello (che sul silenzio non restituisce vuoto: restituisce «Sottotitoli e
+ * revisione a cura di QTSS»). Ora il fine turno è il silenzio, misurato sul
+ * rumore vero della stanza — vedi `lib/vad.ts` — e la trascrizione passa dalla
+ * porta unica `/api/stt`, cioè dai modelli allo stato dell'arte invece che dal
+ * solo whisper locale.
+ */
 export function useVoiceCall(
   sendMessage: (content: string) => Promise<boolean>,
   currentMessages: { role: string; content: string }[],
@@ -228,26 +248,23 @@ export function useVoiceCall(
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
-  const silenceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const vadRef = useRef<VadHandle | null>(null);
   const lastProcessedMsgRef = useRef<number>(0);
   const isSupported = typeof window !== 'undefined' && !!navigator.mediaDevices?.getUserMedia;
 
-  // Transcribe audio using local Whisper
-  const transcribeAudio = useCallback(async (audioBlob: Blob): Promise<string> => {
-    const formData = new FormData();
-    formData.append('audio', audioBlob, 'recording.webm');
-    
-    const response = await fetch('/api/stt', {
-      method: 'POST',
-      body: formData,
-    });
-    
-    if (!response.ok) {
-      throw new Error('STT failed');
+  const transcribeTurn = useCallback(async (audioBlob: Blob): Promise<string> => {
+    const result = await transcribeAudio(audioBlob, { filename: `call.${extForMime(audioBlob.type)}` });
+    return result.transcript;
+  }, []);
+
+  /** Chiude microfono e analisi. Idempotente: viene chiamata dal VAD, da endCall e dallo smontaggio. */
+  const releaseMic = useCallback(() => {
+    vadRef.current?.stop();
+    vadRef.current = null;
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(t => t.stop());
+      streamRef.current = null;
     }
-    
-    const data = await response.json();
-    return data.transcript || '';
   }, []);
 
   // Start recording
@@ -257,15 +274,15 @@ export function useVoiceCall(
     // guard the mic silently goes hot again with no UI left to stop it.
     if (!isCallActiveRef.current) return;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: SPEECH_AUDIO_CONSTRAINTS });
       streamRef.current = stream;
 
       try {
-        const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-          ? 'audio/webm;codecs=opus'
-          : 'audio/webm';
-
-        const mediaRecorder = new MediaRecorder(stream, { mimeType });
+        const mimeType = pickRecorderMimeType();
+        const mediaRecorder = new MediaRecorder(stream, {
+          ...(mimeType ? { mimeType } : {}),
+          audioBitsPerSecond: SPEECH_BITS_PER_SECOND,
+        });
 
         audioChunksRef.current = [];
 
@@ -275,56 +292,66 @@ export function useVoiceCall(
           }
         };
 
-        mediaRecorder.onstop = async () => {
-          if (audioChunksRef.current.length === 0) {
-            setCallStatus('listening');
-            setTimeout(() => startRecording(), 500);
-            return;
-          }
+        /** Riapre il microfono per il turno successivo, se la chiamata è ancora viva. */
+        const relisten = () => {
+          setCallStatus('listening');
+          setTimeout(() => { void startRecording(); }, 300);
+        };
 
-          const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        mediaRecorder.onstop = async () => {
+          releaseMic();
+          const type = mediaRecorder.mimeType || mimeType || 'audio/webm';
+          const chunks = audioChunksRef.current;
           audioChunksRef.current = [];
+          // Nessun dato, o solo l'header del container: non c'è niente da
+          // trascrivere e nemmeno da pagare.
+          if (chunks.length === 0) { relisten(); return; }
+          const audioBlob = new Blob(chunks, { type });
+          if (audioBlob.size < MIN_VOICE_BLOB_BYTES) { relisten(); return; }
 
           setCallStatus('processing');
-
           try {
-            const transcript = await transcribeAudio(audioBlob);
+            const transcript = await transcribeTurn(audioBlob);
             if (transcript.trim()) {
               await sendMessage(transcript.trim());
             } else {
-              setCallStatus('listening');
-              setTimeout(() => startRecording(), 500);
+              // Silenzio (o l'artefatto da silenzio, che il server filtra):
+              // si torna ad ascoltare senza disturbare l'agente.
+              relisten();
             }
           } catch (e) {
             console.error('[VoiceCall] Transcription error:', e);
-            setCallStatus('listening');
-            setTimeout(() => startRecording(), 500);
+            relisten();
           }
         };
 
         mediaRecorderRef.current = mediaRecorder;
-        mediaRecorder.start(1000); // Request data every second
+        mediaRecorder.start(250);
 
-        // Auto-stop after 5 seconds of recording
-        silenceTimeoutRef.current = setTimeout(() => {
-          if (mediaRecorder.state === 'recording') {
-            mediaRecorder.stop();
-            if (streamRef.current) {
-              streamRef.current.getTracks().forEach(t => t.stop());
-              streamRef.current = null;
-            }
-          }
-        }, 5000);
+        // Fine turno sul SILENZIO. Il vecchio taglio a 5 secondi fissi troncava
+        // le frasi lunghe e faceva aspettare quelle corte; il tetto duro resta,
+        // ma come rete di sicurezza, non come regola.
+        const closeTurn = () => {
+          if (mediaRecorder.state === 'recording') mediaRecorder.stop();
+          else releaseMic();
+        };
+        vadRef.current = attachSilenceDetector(stream, {
+          onSilence: closeTurn,
+          onMaxDuration: closeTurn,
+          onNoSpeech: closeTurn,
+          silenceMs: 1200,
+          maxTurnMs: 30_000,
+          noSpeechTimeoutMs: 10_000,
+        });
       } catch (innerErr) {
-        stream.getTracks().forEach(t => t.stop());
-        streamRef.current = null;
+        releaseMic();
         throw innerErr;
       }
 
     } catch (e) {
       console.error('[VoiceCall] Failed to start recording:', e);
     }
-  }, [transcribeAudio, sendMessage]);
+  }, [transcribeTurn, sendMessage, releaseMic]);
 
   // Watch for new assistant messages to speak
   useEffect(() => {
@@ -406,23 +433,18 @@ export function useVoiceCall(
     isCallActiveRef.current = false;
     setIsCallActive(false);
     setCallStatus('idle');
-    
-    if (silenceTimeoutRef.current) {
-      clearTimeout(silenceTimeoutRef.current);
-    }
-    
+
+    // Il VAD si stacca PRIMA del recorder: il suo `onSilence` chiama
+    // `mediaRecorder.stop()`, e uno stop già in corso lo farebbe rientrare da
+    // dietro riaprendo il microfono su una chiamata appena chiusa.
+    releaseMic();
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
       mediaRecorderRef.current.stop();
-    }
-    
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(t => t.stop());
-      streamRef.current = null;
     }
 
     releaseAudio(ttsAudioRef.current);
     ttsAudioRef.current = null;
-  }, []);
+  }, [releaseMic]);
 
   const toggleCall = useCallback(() => {
     if (isCallActive) {
@@ -437,7 +459,9 @@ export function useVoiceCall(
   // would stop the getUserMedia stream if the component just goes away.
   useEffect(() => {
     return () => {
-      if (silenceTimeoutRef.current) clearTimeout(silenceTimeoutRef.current);
+      isCallActiveRef.current = false;
+      vadRef.current?.stop();
+      vadRef.current = null;
       if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
         mediaRecorderRef.current.stop();
       }
