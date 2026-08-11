@@ -1,7 +1,7 @@
 import { describe, it, expect } from "bun:test";
 import { Database } from "bun:sqlite";
 import { createTaskService, type TaskService } from "./tasks";
-import { createTaskDispatcher, type DispatcherDeps } from "./task-dispatcher";
+import { createTaskDispatcher, rotateFrom, type DispatcherDeps } from "./task-dispatcher";
 import { cancelled, type TurnEndInfo } from "../providers/stop-reason";
 import { beginAsk, endAsk } from "../lib/ask-user-bridge";
 import { beginPermission, endPermission } from "../lib/permission-bridge";
@@ -1861,5 +1861,30 @@ describe("la coda deve dire il vero", () => {
     const p = h.task("padre")!;
     expect(p.status).toBe("backlog");
     expect(p.dispatchState).toBe("blocked");
+  });
+
+  it("l'ordine dei board gira a ogni giro, o il tetto globale affama chi sta in fondo", () => {
+    // Il tetto dei posti è GLOBALE: chi viene interrogato per primo li riempie.
+    // Misurato l'11/08 sul DB vivo: una board 26 claim su 31 in un'ora, un'altra
+    // con tre card in coda ZERO — non per priorità, per posizione nella lista,
+    // che era sempre la stessa a ogni reconcile.
+    //
+    // Qui si fissa la sola aritmetica dell'ordine, e una versione inerte (che
+    // restituisse la lista com'è) fallirebbe ogni riga con cursore > 0. NON
+    // copre il giro intero reconcile→claim: il banco di prova non riesce a far
+    // reclamare una seconda board, quindi la fame vera resta dimostrata dalla
+    // misura sul DB, non da un test — ed è bene saperlo invece di crederla
+    // coperta.
+    const b = ["alpha", "beta", "gamma"];
+    expect(rotateFrom(b, 0)).toEqual(["alpha", "beta", "gamma"]);
+    expect(rotateFrom(b, 1)).toEqual(["beta", "gamma", "alpha"]);
+    expect(rotateFrom(b, 2)).toEqual(["gamma", "alpha", "beta"]);
+    expect(rotateFrom(b, 3)).toEqual(["alpha", "beta", "gamma"]);
+    // Ogni board apre il giro esattamente una volta ogni tre.
+    expect(new Set([0, 1, 2].map((c) => rotateFrom(b, c)[0])).size).toBe(3);
+    // Casi limite: una board sola, lista vuota, cursore negativo.
+    expect(rotateFrom(["solo"], 5)).toEqual(["solo"]);
+    expect(rotateFrom([], 2)).toEqual([]);
+    expect(rotateFrom(b, -1)).toEqual(["gamma", "alpha", "beta"]);
   });
 });
