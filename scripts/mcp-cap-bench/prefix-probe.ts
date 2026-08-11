@@ -26,6 +26,13 @@
  * deriva, non il differimento. Appaiate, la differenza C − D è la leva.
  *
  *     bun scripts/mcp-cap-bench/prefix-probe.ts [--model <id>] [--real-home]
+ *
+ * ── E poi? ──────────────────────────────────────────────────────────────────
+ * Questa sonda dice quanto pesa il prefisso INTERO e quanto vale il
+ * differimento degli schemi. NON dice di cosa sia fatto ciò che resta: per
+ * quello c'è `prefix-ladder.ts`, che toglie una voce alla volta e misura il
+ * delta. La risposta, misurata l'11/08/2026: il pezzo più grosso dei ~35k che
+ * restano è la descrizione di UN TOOL — `Workflow`, 7.856 token su opus.
  */
 import { spawn } from "node:child_process";
 import { mkdirSync, writeFileSync, existsSync, copyFileSync, readdirSync, readFileSync, statSync } from "node:fs";
