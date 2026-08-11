@@ -2,7 +2,7 @@ import { describe, it, expect } from "bun:test";
 import { Database } from "bun:sqlite";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { PREVIEW_RULE, PREVIEW_CARD_MAX_RATIO, extractPreviewRule } from "../../shared/board";
+import { PREVIEW_RULE, PREVIEW_CARD_MAX_RATIO, extractPreviewRule, formatStatusEvent } from "../../shared/board";
 import { toolsForProfile } from "../mcp/topics-mcp-server";
 import { createTaskService, type TaskService } from "./tasks";
 import { createTaskDispatcher, type DispatcherDeps } from "./task-dispatcher";
@@ -697,6 +697,35 @@ describe("task-dispatcher", () => {
     // Nessuno l'ha consegnato: il timbro resta vuoto, non 'system'.
     expect(t.deliveredBy).toBeNull();
     expect(t.deliveredReason).toBeNull();
+  });
+
+  it("l'inizio del turno si legge anche quando la transizione porta la sua RAGIONE", async () => {
+    // La forma vera del land in conflitto: l'agent aveva consegnato (commento),
+    // l'umano ha cliccato «Landa su main», il merge è andato in conflitto e la
+    // card è tornata `in_progress` con la causa scritta sulla transizione.
+    // Quel commento è del turno PRIMA: se il confine del turno si legge col
+    // suffisso (`…in_progress`), la riga con la ragione non viene vista, il
+    // confine resta indietro e la consegna vecchia passa per fresca — cioè
+    // l'ultima parola dell'agent di QUESTO turno non viene recuperata.
+    const h = harness({ getLastAgentText: () => "Ho risolto i conflitti col main." });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    h.svc.addComment({ taskId: "t1", author: "claude", content: "Consegna del turno prima del land." });
+    // Il nuovo turno si apre DOPO quel commento, e la sua riga porta la ragione.
+    h.db.prepare(
+      "INSERT INTO task_comments (id, task_id, author, content, kind, created_at) VALUES ('s-land', 't1', 'system', ?, 'status', ?)",
+    ).run(
+      formatStatusEvent("done", "in_progress", "il land ha fatto conflitto con main"),
+      new Date(Date.now() + 1000).toISOString(),
+    );
+    h.finishTurn(); await flush();
+    h.finishTurn(); await flush();
+    const comments = h.svc.get("t1")!.comments;
+    // Nessun riepilogo per QUESTO turno → le ultime parole finiscono nella nota
+    // di sistema, invece di lasciare al reviewer la consegna pre-conflitto.
+    expect(comments.some((c) => c.author === "system" && c.content.includes("Ho risolto i conflitti"))).toBe(true);
   });
 
   it("does NOT recover into the note when the agent already left a fresh comment", async () => {

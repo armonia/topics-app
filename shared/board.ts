@@ -33,6 +33,58 @@ export const MAX_FANOUT = 5;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Evento di transizione (`kind='status'`) — il formato, in UN posto solo.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Separatore fra la transizione e la sua RAGIONE dentro `content`.
+ *
+ * Il contenuto di un evento di stato era `from→to` e basta, e tre lettori lo
+ * spacchettavano ognuno a modo suo: una `LIKE '%in_progress'` in SQL (l'inizio
+ * del turno, che arma il gate della consegna muta), un `endsWith("in_progress")`
+ * nel dispatcher, e uno `split('→')[1]` nel client. Appendere una ragione senza
+ * toccarli avrebbe rotto tutti e tre in silenzio — il gate avrebbe letto un
+ * turno più vecchio e una consegna muta sarebbe passata. Quindi il formato ha
+ * un writer solo (`formatStatusEvent`) e un parser solo (`parseStatusEvent`).
+ */
+export const STATUS_EVENT_SEP = ' · ';
+
+/** Quanto può essere lunga la ragione: è una riga di timeline, non un thread. */
+export const STATUS_EVENT_REASON_MAX = 160;
+
+/** `from→to` (+ ` · ragione`). Unico posto che SCRIVE il formato. */
+export function formatStatusEvent(from: string, to: string, reason?: string | null): string {
+  // A capo e spazi doppi diventano uno spazio: la riga della timeline è una
+  // riga sola, e un `\n` a metà romperebbe anche il `title` del tooltip.
+  const clean = (reason ?? '').replace(/\s+/g, ' ').trim().slice(0, STATUS_EVENT_REASON_MAX).trim();
+  return clean ? `${from}→${to}${STATUS_EVENT_SEP}${clean}` : `${from}→${to}`;
+}
+
+/**
+ * `content` → transizione. `null` se non è un evento di stato (nessuna freccia).
+ * Legge la destinazione FINO al separatore, così una ragione che contiene una
+ * freccia o un altro `·` non sposta il confine.
+ */
+export function parseStatusEvent(content: string): { from: string; to: string; reason: string | null } | null {
+  if (typeof content !== 'string') return null;
+  const arrow = content.indexOf('→');
+  if (arrow < 0) return null;
+  const rest = content.slice(arrow + 1);
+  const sep = rest.indexOf(STATUS_EVENT_SEP);
+  const reason = sep < 0 ? null : rest.slice(sep + STATUS_EVENT_SEP.length).trim() || null;
+  return {
+    from: content.slice(0, arrow).trim(),
+    to: (sep < 0 ? rest : rest.slice(0, sep)).trim(),
+    reason,
+  };
+}
+
+/** La transizione è ENTRATA in questo stato? (il "quando inizia il turno"). */
+export function statusEventEnters(content: string, status: TaskStatus): boolean {
+  return parseStatusEvent(content)?.to === status;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Anteprima di consegna — la regola, in UN posto solo.
 // ─────────────────────────────────────────────────────────────────────────────
 
