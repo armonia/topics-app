@@ -21,33 +21,15 @@
  *
  * One component, one set of tokens: a fifth badge can't be added in a fifth
  * style, and a colour can't drift without the numbers next to it changing.
+ *
+ * I token VIVONO in `browserPaneChipTones.ts` — questo file esporta solo
+ * componenti, perché un export non-componente qui spegnerebbe il fast refresh
+ * per l'intero modulo.
  */
 import type { ReactNode } from 'react';
-import { DANGER_TEXT, WARNING_TEXT, SUCCESS_TEXT, ACTIVE_TEXT } from '../../lib/popoverStyles';
+import { TONE, CORNER, type ChipTone, type ChipCorner } from './browserPaneChipTones';
 
-export type ChipTone = 'neutral' | 'active' | 'ok' | 'warn' | 'danger';
-
-/** Where the chip sits inside the pane. `top-center` belongs to transient hints
- *  (they read as a message, not as a control), the corners to state + toggles. */
-export type ChipCorner = 'top-left' | 'top-right' | 'bottom-left' | 'top-center';
-
-/** Exported so a test can assert the colour DECISION (the measured pairs above)
- *  without needing a DOM to render into. */
-export const TONE: Record<ChipTone, string> = {
-  // The off state of a toggle: readable, but visibly not "on".
-  neutral: 'bg-surface/90 border-app-border text-app-text-secondary hover:bg-surface hover:text-app-text',
-  active: `bg-primary/15 border-primary/40 ${ACTIVE_TEXT} hover:bg-primary/25`,
-  ok: `bg-green-500/15 border-green-500/30 ${SUCCESS_TEXT}`,
-  warn: `bg-yellow-500/15 border-yellow-500/30 ${WARNING_TEXT}`,
-  danger: `bg-red-500/15 border-red-500/30 ${DANGER_TEXT}`,
-};
-
-const CORNER: Record<ChipCorner, string> = {
-  'top-left': 'top-2 left-2',
-  'top-right': 'top-2 right-2',
-  'bottom-left': 'bottom-2 left-2',
-  'top-center': 'top-2 left-1/2 -translate-x-1/2',
-};
+export type { ChipTone, ChipCorner };
 
 export interface BrowserPaneChipProps {
   corner: ChipCorner;
