@@ -99,6 +99,35 @@ function findGlobalBrowserPaneId(): string | null {
 }
 
 /**
+ * CHI RIVENDICA UN «apri il browser su questa URL». Decisione pura, condivisa
+ * dalle due porte che la fanno (WS `browser:navigate` ed evento DOM
+ * `browser:open-and-navigate`): erano copie, e sono divergite — la DOM è stata
+ * corretta il 10/07/2026 (CHAT-REL-03), la WS è rimasta com'era fino all'
+ * 11/08/2026, quando `open_browser_pane` è stato visto aprire un contesto vivo
+ * senza montare nessun pannello.
+ *
+ * La regola, in una riga: con un topicId decide la MEMBERSHIP, non la presenza
+ * di un progetto.
+ *  · topicId presente ⇒ questo gruppo rivendica solo se quella topic è una sua
+ *    tab. Una topic di progetto non viene quindi dirottata qui
+ *    (`useProjectBrowserPanes` la prende), e una topic SENZA progetto non resta
+ *    orfana solo perché nel gruppo c'è anche una tab di progetto aperta — che
+ *    era il guasto: il gruppo standalone scaricava il frame sulla finestra di
+ *    progetto, e quella lo rifiutava perché la topic non era sua.
+ *  · topicId assente ⇒ non si sa attribuire il produttore, e il vecchio
+ *    «c'è un pannello progetto qui dentro? lascia fare a lui» resta l'unica
+ *    euristica disponibile.
+ */
+export function groupClaimsBrowserNavigate(args: {
+  topicId?: string;
+  hasProjectPane: boolean;
+  orderedIds: string[];
+}): boolean {
+  if (!args.topicId) return !args.hasProjectPane;
+  return args.orderedIds.includes(args.topicId);
+}
+
+/**
  * Singleton reducer shared by `ensureBrowserPane` op and the WS
  * browser:navigate listener. Keeps the swap/reuse/create logic DRY.
  */
@@ -447,8 +476,17 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
   useEffect(() => {
     const unsub = onWSMessage((msg: WSMessage) => {
       if (msg.type === 'browser:navigate' && msg.url) {
-        if (hasProjectPaneRef.current) return; // Let ProjectWindowPane handle it
         const navTopicId = msg.topicId;
+        // Ownership: with a topicId, MEMBERSHIP decides (the reducer below bails
+        // unless the topic is a tab of THIS group), so a project-owned topic is
+        // never hijacked here — useProjectBrowserPanes claims those. The old
+        // blanket "any project pane open in this group → bail, ProjectWindowPane
+        // handles it" was a LIE for a topic that belongs to NO project: the
+        // project window's own guard (topicBelongsToThisProject) rejects it too,
+        // so the frame fell between the two and open_browser_pane mounted
+        // nothing while the server context stayed live and drivable. Same rule
+        // (now the SAME function) as the DOM variant in 8b — CHAT-REL-03.
+        //
         // The server-resolved browser contextId (== topic.id). Binding the pane to
         // it makes useNativeBrowser register the native CDP target under the SAME
         // id the agent's browser_* tools resolve to — without this the pane took a
@@ -458,13 +496,14 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
         // (same-machine WebContentsView reaches localhost directly, and forcing
         // https there breaks http dev servers → white page). See resolveBrowserNavigateUrl.
         const navigateUrl: string = resolveBrowserNavigateUrl(msg.url);
-        onBrowserNavigateUrl(navigateUrl);
         setOrderedIds(prev => {
-          // Today's extra guard: navTopicId must already be open in this group.
-          if (navTopicId && !prev.includes(navTopicId)) return prev;
+          if (!groupClaimsBrowserNavigate({ topicId: navTopicId, hasProjectPane: hasProjectPaneRef.current, orderedIds: prev })) return prev;
           const { next, resolvedId } = browserSingletonReducer(prev, navContextId);
           if (resolvedId) {
-            queueMicrotask(() => { onFocusPanel(resolvedId); requestBrowserSolo(resolvedId); });
+            // Il seme dell'URL sta QUI, dopo la rivendicazione: prima stava
+            // sopra il claim, e un gruppo che poi si tirava indietro aveva già
+            // spinto l'URL nel suo browser (stessa trappola già chiusa in 8b).
+            queueMicrotask(() => { onBrowserNavigateUrl(navigateUrl); onFocusPanel(resolvedId); requestBrowserSolo(resolvedId); });
             persistBrowserPane(resolvedId);
             // Persist the URL onto the pane NOW (deterministic) so the tab
             // restores to its page after reload — the onUrlChange render path is
@@ -516,17 +555,12 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
     const handler = (e: Event) => {
       const ce = e as CustomEvent<{ topicId?: string; url?: string }>;
       if (!ce.detail?.url) return;
-      // Ownership: with a topicId, MEMBERSHIP decides (the reducer below bails
-      // unless the topic is a tab of THIS group), so a project-owned topic is
-      // never hijacked here. The old blanket "any project pane open → bail"
-      // orphaned the event for STANDALONE topics whenever a project tab was
-      // also open: /browser became a silent no-op (audit 2026-07-10,
-      // CHAT-REL-03). The blanket bail survives only for topic-less events,
-      // whose producer we can't attribute.
-      if (!ce.detail.topicId && hasProjectPaneRef.current) return;
+      // Ownership: la stessa regola del ramo WS, e ora la stessa funzione
+      // (groupClaimsBrowserNavigate) — questa era la copia CORRETTA, l'altra
+      // era rimasta indietro di un mese.
       const navigateUrl: string = resolveBrowserNavigateUrl(ce.detail.url);
       setOrderedIds(prev => {
-        if (ce.detail?.topicId && !prev.includes(ce.detail.topicId)) return prev;
+        if (!groupClaimsBrowserNavigate({ topicId: ce.detail?.topicId, hasProjectPane: hasProjectPaneRef.current, orderedIds: prev })) return prev;
         // For a chat topic the browser contextId IS the topicId
         // (resolveContextIdForTopic === topic.id), so bind the pane to it — same
         // reason as the WS browser:navigate path: keep the native CDP target on
