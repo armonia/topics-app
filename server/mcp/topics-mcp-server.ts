@@ -273,7 +273,7 @@ const TOOLS = [
   {
     name: "update_task",
     description:
-      "Update a task on THIS session's project board: status, priority, assignee, title/description, preview_image. The project is derived from the session (no project id). NOTE: you CANNOT set status='done' on your MAIN task — that is a human review gate: set status='review' and a human approves it. Exception: subtask STEPS of the task assigned to you (created with parent_task_id) are your checklist — mark each done as you complete it. To give the reviewer something concrete to look at, do NOT reach for output_url: a live page goes in a TAB of the task (open_browser_pane) and files go in the task's download list (comment_task media[]).",
+      "Update a task on THIS session's project board: status, priority, assignee, title/description, preview_image. The project is derived from the session (no project id). NOTE: you CANNOT set status='done' on your MAIN task — that is a human review gate: set status='review' and a human approves it. Exception: subtask STEPS of the task assigned to you (created with parent_task_id) are your checklist — mark each done as you complete it. You also cannot REOPEN a card a human closed (approved in review, or moved to done on the board): that is their decision — comment the reason and ask. Your own steps, which you closed yourself, you may reopen. To give the reviewer something concrete to look at, do NOT reach for output_url: a live page goes in a TAB of the task (open_browser_pane) and files go in the task's download list (comment_task media[]).",
     inputSchema: {
       type: "object",
       properties: {

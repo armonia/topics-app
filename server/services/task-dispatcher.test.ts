@@ -32,7 +32,8 @@ function freshDb(): Database {
     agent_cache_read_tokens INTEGER NOT NULL DEFAULT 0,
     model TEXT, blocked_by_task_id TEXT REFERENCES tasks(id), reuse_blocker_context INTEGER NOT NULL DEFAULT 0,
     priority_auto INTEGER NOT NULL DEFAULT 1,
-    delivered_by TEXT, delivered_reason TEXT, created_by_topic_id TEXT
+    delivered_by TEXT, delivered_reason TEXT, created_by_topic_id TEXT,
+    done_actor TEXT, reopened_at TEXT, reopened_by TEXT, reopened_actor TEXT
   )`);
   db.run(`CREATE TABLE board_settings (
     project_id TEXT PRIMARY KEY, require_approval_for_done INTEGER DEFAULT 0,

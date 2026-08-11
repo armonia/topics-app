@@ -2,11 +2,11 @@ import { memo, useState, useEffect, useMemo } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { AlertTriangle, ArrowUpRight, ClipboardList, Copy, Hourglass, Lock, MessageSquare, Plus, Send, ShieldCheck, ShieldX, Trash2 } from 'lucide-react';
+import { AlertTriangle, ArrowUpRight, ClipboardList, Copy, Hourglass, Lock, MessageSquare, Plus, RotateCcw, Send, ShieldCheck, ShieldX, Trash2 } from 'lucide-react';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
-import { boardApi, STATUS_LABEL, isAgentWorking, parseQuestionBlock, isProjectlessId, systemDeliveryNote, blockedByChip, SYSTEM_DELIVERY_CHIP, type BoardTask, type TaskComment, type TaskStatus } from '../../lib/board';
+import { boardApi, STATUS_LABEL, isAgentWorking, parseQuestionBlock, isProjectlessId, systemDeliveryNote, blockedByChip, reopenedChip, SYSTEM_DELIVERY_CHIP, type BoardTask, type TaskComment, type TaskStatus } from '../../lib/board';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useLongPress, openContextMenuAt } from '../../hooks/useLongPress';
 import { useMobile } from '../../hooks/useMobile';
@@ -269,11 +269,14 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
   // risolto dal server, così vale anche quando il bloccante non è fra i task
   // fetchati (sottotask, altro progetto, archiviato).
   const blockedChip = blockedByChip(task);
+  // «Riaperta»: la card ERA in Done e non c'è più. Il fatto vive sulla card
+  // (l'API lo dice), non solo nel thread — dalla colonna si vedeva solo il buco.
+  const reopened = reopenedChip(task);
   // …e l'altra metà: quanti aspettano QUESTA card. Anche questo numero è un
   // fatto del DB, non della lista fetchata — un dipendente che è un sottotask o
   // sta in un altro progetto non è fra le card, ma aspetta lo stesso.
   const waitingOnThis = task.waitingOnCount;
-  const hasMetaRow = !!(blockedChip || (waitingOnThis > 0 && task.status !== 'done') || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo || notLanded || checksRed || systemDelivered);
+  const hasMetaRow = !!(blockedChip || reopened || (waitingOnThis > 0 && task.status !== 'done') || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo || notLanded || checksRed || systemDelivered);
 
   return (
     <div
@@ -437,6 +440,13 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
               title={blockedChip.title}
               className="flex max-w-[11rem] items-center gap-1 truncate rounded bg-amber-500/15 px-1.5 py-0.5 text-xs md:text-[11px] text-amber-300"
             ><Lock className="h-3 w-3 shrink-0" /> <span className="truncate">{blockedChip.label}</span></span>
+          )}
+          {reopened && (
+            <span
+              data-testid="card-reopened"
+              title={reopened.title}
+              className="flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-xs md:text-[11px] text-amber-300"
+            ><RotateCcw className="h-3 w-3 shrink-0" /> {reopened.label}</span>
           )}
           {waitingOnThis > 0 && task.status !== 'done' && (
             <span
