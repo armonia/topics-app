@@ -5,10 +5,124 @@
  */
 
 import { execSync, execFileSync } from "child_process";
-import { E2E_PORT, descendantsOf } from "./helpers/test-server";
+import { existsSync, readFileSync, unlinkSync } from "fs";
+import { E2E_PORT, descendantsOf, testServerEnv } from "./helpers/test-server";
 import { releaseRunLock } from "./helpers/run-lock";
 
 const TEST_PORT = E2E_PORT;
+
+/**
+ * Spegne il ponte PTY del BANCO — e solo quello.
+ *
+ * Il ponte nasce `detached` + `unref()` (server/routes/terminal.ts): sopravvive
+ * per progetto alla morte del server, così le sessioni reggono un riavvio.
+ * Ottimo in sviluppo, un accumulo qui: senza questo passo ogni run lascerebbe
+ * dietro un `pty-bridge.mjs` orfano, uno per porta, per sempre.
+ *
+ * Il bersaglio è il SOCKET del banco, mai il nome del processo. Un
+ * `pkill -f pty-bridge` porterebbe via anche il ponte di PRODUZIONE, con dentro
+ * le sessioni Claude vive dell'utente — esattamente l'incidente che
+ * `start-test-server.sh` evita dando al banco un socket suo. Il socket di
+ * produzione ha un path diverso per costruzione, quindi non può mai finire in
+ * questa lista. L'invariante è controllata da
+ * tests/unit/pty-bridge-e2e-isolation.test.ts.
+ */
+function bankBridgePids(socket: string, pidFile: string): number[] {
+  const pids = new Set<number>();
+
+  // 1. Il pidfile che il ponte scrive accanto al suo socket.
+  try {
+    if (existsSync(pidFile)) {
+      const pid = Number(readFileSync(pidFile, "utf-8").trim());
+      if (Number.isInteger(pid) && pid > 0) pids.add(pid);
+    }
+  } catch { /* pidfile illeggibile: resta la scansione qui sotto */ }
+
+  // 2. Cintura: un ponte morto male può non aver lasciato il pidfile, e un ponte
+  //    RINATO dopo la scrittura può averlo lasciato stantio. Si cerca per riga
+  //    di comando, ancorata al path ESATTO del socket del banco.
+  try {
+    const rows = execSync("ps ax -o pid=,command= 2>/dev/null || true").toString();
+    for (const row of rows.split("\n")) {
+      if (!row.includes(socket)) continue;
+      const pid = Number(row.trim().split(/\s+/)[0]);
+      if (Number.isInteger(pid) && pid > 0) pids.add(pid);
+    }
+  } catch { /* ps non disponibile */ }
+
+  // Vivi soltanto: un pid morto nel pidfile non è un orfano da riportare.
+  return [...pids].filter((pid) => {
+    try { process.kill(pid, 0); return true; } catch { return false; }
+  });
+}
+
+/**
+ * Aspetta che sulla porta del banco non ascolti PIÙ NESSUNO.
+ *
+ * Va prima di spegnere il ponte, e non è pignoleria d'ordine: alla chiusura del
+ * socket il server aspetta 500 ms e poi chiama `ensureBridge()`
+ * (server/routes/terminal.ts, handler `socket.on('close')`), che ne spawna uno
+ * nuovo. Ammazzare il ponte con un server ancora vivo NON lo spegne: lo fa
+ * rinascere mezzo secondo dopo, orfano. Il SIGTERM di sopra è asincrono, quindi
+ * senza questa attesa il teardown correva contro la resurrezione — e la perdeva.
+ */
+async function waitForServersGone(port: number, timeoutMs = 10_000): Promise<void> {
+  const listeners = () => {
+    try {
+      return execSync(`lsof -ti :${port} -sTCP:LISTEN 2>/dev/null || true`)
+        .toString().trim().split("\n").filter(Boolean);
+    } catch { return []; }
+  };
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!listeners().length) return;
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  // Non se n'è andato con le buone: si insiste, poi si va avanti comunque —
+  // il ponte va spento anche se un server si è impuntato.
+  const rimasti = listeners();
+  if (rimasti.length) {
+    console.warn(`[global-teardown] Server ancora in ascolto su ${port} (PID ${rimasti.join(", ")}): SIGKILL.`);
+    for (const pid of rimasti) {
+      try { process.kill(Number(pid), "SIGKILL"); } catch { /* già morto */ }
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+}
+
+async function killBankPtyBridge(port: number): Promise<void> {
+  const socket = testServerEnv(port).TOPICS_PTY_SOCKET;
+  const pidFile = socket.replace(/\.sock$/, ".pid");
+  const killed = new Set<number>();
+
+  // Più passate, e non una sola. Il primo tentativo ne lasciava uno vivo a ogni
+  // run che RIAVVIA il server (terminal-session-resume): il server morente vede
+  // il socket sparire, chiama `ensureBridge()` e ne spawna un altro SUBITO DOPO
+  // la scansione — un orfano nuovo di zecca, nato dopo la sua stessa pulizia.
+  // Si ripassa finché una scansione non trova più niente; il server ormai è
+  // morto, quindi la lista converge a zero.
+  for (let pass = 0; pass < 4; pass++) {
+    const pids = bankBridgePids(socket, pidFile);
+    if (!pids.length) break;
+    for (const pid of pids) {
+      try { process.kill(pid, "SIGTERM"); killed.add(pid); } catch { /* già morto */ }
+    }
+    await new Promise((r) => setTimeout(r, 400));
+  }
+
+  for (const f of [socket, pidFile]) {
+    try { if (existsSync(f)) unlinkSync(f); } catch { /* non nostro / già sparito */ }
+  }
+
+  const rimasti = bankBridgePids(socket, pidFile);
+  if (rimasti.length) {
+    // Non si alza la voce a vuoto: se resta, resta detto — un ponte orfano tiene
+    // aperti i PTY e si accumula una run dopo l'altra.
+    console.warn(`[global-teardown] ATTENZIONE: ponte PTY del banco ancora vivo (PID ${rimasti.join(", ")}) su ${socket}`);
+  } else if (killed.size) {
+    console.log(`[global-teardown] Ponte PTY del banco spento (PID ${[...killed].join(", ")}) su ${socket}`);
+  }
+}
 
 async function globalTeardown() {
   // Da qui in poi la morte del server è ATTESA: il banner "morto a metà run"
@@ -49,6 +163,10 @@ async function globalTeardown() {
   }
 
   console.log("[global-teardown] Test server stopped.");
+
+  // Dopo il server, non prima: finché il server respira può rispawnare il ponte.
+  await waitForServersGone(TEST_PORT);
+  await killBankPtyBridge(TEST_PORT);
 
   // Reap Chromiums orphaned by THIS run — never anyone else's.
   //
