@@ -486,7 +486,17 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     // Landing ends the task's review life — reap its preview server (idempotent).
     try { await opts?.teardownPreview?.(taskId); } catch { /* best-effort */ }
     try {
-      const res = await autoMerge.tryMerge(taskId, task.text);
+      const res = await autoMerge.tryMerge(taskId, task.text, {
+        branch: task.deliveryBranch ?? null,
+        commit: task.deliveryCommit ?? null,
+      });
+      // Ciò che è atterrato non era lo scatto approvato: chi ha cliccato «Landa»
+      // deve leggerlo, altrimenti crede di aver pubblicato quello che ha visto.
+      // Prima del «Mergiato»: la riga che spiega vale solo se si legge per prima.
+      const drift = res.status === "merged" || res.status === "nothing" ? res.deliveryDrift : null;
+      if (drift) {
+        svc.addComment({ taskId, author: "system", content: `⚠️ Land ≠ consegna: ${drift}.` });
+      }
       if (res.status === "merged") {
         svc.addComment({ taskId, author: "system", content: `Mergiato su main (commit ${res.commit}).` });
         await reapAfterLand(taskId, "landed");

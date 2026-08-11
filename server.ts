@@ -3768,8 +3768,12 @@ function runWorktreeGc() {
       return ctx.worktreeManager.delete(wt.id, { deleteBranch: false });
     },
     tryLand: async (taskId) => {
-      const text = dispatcherSvc.get(taskId)?.task.text ?? "";
-      const res = await taskAutoMerge.tryMerge(taskId, text);
+      const t = dispatcherSvc.get(taskId)?.task;
+      const text = t?.text ?? "";
+      const res = await taskAutoMerge.tryMerge(taskId, text, {
+        branch: t?.deliveryBranch ?? null,
+        commit: t?.deliveryCommit ?? null,
+      });
       return res.status === "merged" ? "landed" : res.status === "nothing" ? "nothing" : res.status === "conflict" ? "conflict" : "skipped";
     },
     // Solo la cartella. `deleteBranch: false` è tutta la differenza con `reap`
