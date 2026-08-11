@@ -31,6 +31,7 @@ import { computeDispatchCapacity } from "../services/dispatch-capacity";
 import { newProjectParentDir } from "../services/project-path-resolver";
 import type { TaskDispatcher } from "../services/task-dispatcher";
 import { landFallout, type TaskAutoMerge } from "../services/task-automerge";
+import type { LandingState } from "../services/landing-audit";
 import { decidePostLandReap, type BranchStatus, type LandOutcome } from "../services/worktree-gc";
 import { formatChecksComment, parseReviewChecks, runReviewChecks, type ReviewCheck } from "../services/review-checks";
 import { createTaskAttemptStore, type TaskAttempt } from "../services/task-attempts";
@@ -142,16 +143,18 @@ export interface TasksRouterOpts {
    */
   taskCheckoutRef?: (taskId: string) => Promise<{ cwd: string; commit: string | null } | null>;
   /**
-   * Ri-chiedi ORA il verdetto di atterraggio di UNA card (il commit di consegna
-   * è nel contenuto di main?) e timbralo su `landing_state`.
+   * Timbra l'esito di atterraggio di UNA card, subito dopo un land.
    *
-   * La passata periodica gira ogni 30 minuti: subito dopo un land il semaforo
-   * mostrerebbe ancora l'ultimo verdetto — rosso su lavoro appena atterrato,
-   * verde su un land appena fallito. Un semaforo che risponde in ritardo si
-   * smette di guardare, e allora tanto vale non averlo. Best-effort: se non
-   * risponde, la passata periodica lo raggiunge comunque.
+   * Due modi, e la differenza è il punto: uno stato concreto è ciò che il land
+   * HA VISTO (merge uscito zero, o fallito) e vale come fatto — si registra
+   * mentre il ramo esiste ancora e la passata periodica non lo tocca più.
+   * `"ask"` è il caso in cui il land non sa (nessun ramo, o niente da portare):
+   * lì si chiede al repo, ed è una deduzione come le altre.
+   *
+   * Best-effort: se non risponde, la passata periodica raggiunge comunque le
+   * card senza testimonianza.
    */
-  auditTaskLanding?: (taskId: string) => Promise<void>;
+  stampLanding?: (taskId: string, verdict: LandingState | "ask") => Promise<void>;
   /**
    * Delete the task's worktree + branch + store row (the worktree-manager
    * path). Called after a landing: once merged, the worktree has no value and
@@ -510,6 +513,16 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       }
       if (res.status === "merged") {
         svc.addComment({ taskId, author: "system", content: `Mergiato su main (commit ${res.commit}).` });
+        // L'ALTRO verso dello stesso difetto. Il land promuoveva a `done` solo
+        // passando da `review` (`POST …/land` lo fa prima di chiamare qui): da
+        // ogni altro stato mergiava e lasciava la card dov'era. Misurato l'11/08
+        // su `4ec47331` — lavoro su main (`a5f83e0e`), card `in_progress` con il
+        // chip `working`, e un agente che ha speso un turno intero a rifarlo.
+        // Un merge riuscito è l'affermazione più forte che il lavoro è finito:
+        // lo stato la deve dire, da qualunque stato si arrivi. Idempotente sulle
+        // card già chiuse e ferme (il caso normale), quindi non aggiunge righe
+        // di storico al percorso che funzionava.
+        svc.settleLanded({ taskId, by: "system", reason: `il land è riuscito: il codice è su main (${res.commit})` });
         await reapAfterLand(taskId, "landed");
         if (res.landedNotLive) {
           // Landed on main, but the shared checkout (the live server's cwd) is parked
@@ -591,12 +604,28 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           }
         }
       }
-      // Il semaforo `landingState` è scritto da una passata ogni 30 minuti: dopo
-      // un land (riuscito o no) resterebbe fino a mezz'ora sull'ultimo verdetto,
-      // e la card mostrerebbe «non su main» su lavoro appena atterrato — un
-      // rosso che dice sempre rosso non lo guarda più nessuno. Qui si richiede
-      // il verdetto per QUESTA card, subito, sullo stesso conto per CONTENUTO.
-      try { await opts?.auditTaskLanding?.(taskId); } catch { /* la spia non fa fallire un land */ }
+      // ── L'esito si REGISTRA adesso, non si ricostruisce dopo ────────────
+      //
+      // `landingState` lo scriveva solo una passata ogni 30 minuti che, dato il
+      // commit di consegna, prova a DEDURRE se il suo contenuto è su main. Due
+      // guai: il verdetto arrivava fino a mezz'ora tardi (rosso su lavoro appena
+      // atterrato), e la deduzione sbaglia — provate a mano su 108 card, la
+      // patch inversa dà 20 falsi allarmi, la riga distintiva 5, e il messaggio
+      // «NON su main» nel thread ce l'hanno anche le card atterrate bene perché
+      // è emesso alla CONSEGNA. L'unica prova che regge vale finché il ramo
+      // esiste, cioè ADESSO.
+      //
+      // Quindi qui si scrive ciò che il land HA VISTO — `merged` = atterrato,
+      // fallito = non atterrato — e lo si marca testimoniato, così la passata
+      // periodica lo salta invece di sovrascriverlo con la sua deduzione. Solo
+      // dove il land non sa (nessun ramo da guardare, o «non c'era niente da
+      // portare») si chiede al repo.
+      const verdict: LandingState | "ask" =
+        res.status === "merged" ? "landed"
+        : res.status === "conflict" ? "unlanded"
+        : res.status === "skipped" && res.code !== "no-branch" ? "unlanded"
+        : "ask";
+      try { await opts?.stampLanding?.(taskId, verdict); } catch { /* la spia non fa fallire un land */ }
       const updated = svc.get(taskId, { projectId })?.task;
       if (updated) broadcastToAll({ type: "task:updated", projectId, task: updated });
     } catch (e) {
