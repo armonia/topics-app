@@ -142,3 +142,21 @@ export const fmtModel = (m: string | null | undefined): string => {
   if (s.includes('fable')) return 'fable';
   return m.replace(/^claude-/, '').split('-')[0];
 };
+
+/**
+ * Il TESTO del task per gli appunti: titolo, riga vuota, descrizione.
+ *
+ * Serve al bottone «Copia task» del drawer, che esiste per un gesto solo:
+ * prendere quello che c'è scritto sulla card e incollarlo altrove (una chat,
+ * un'altra board, un agent). Il vicino «Copia link» copia un URL — utile a
+ * ritrovare il task, inutile a chi il task deve LEGGERLO senza aprire Topics.
+ *
+ * Niente id, niente stato, niente metadati: è il contenuto, non un dump. La
+ * descrizione vuota (o `null`, che il server usa quando non c'è) non lascia
+ * dietro righe vuote — si copia il titolo e basta.
+ */
+export const taskCopyText = (task: { text: string; description?: string | null }): string => {
+  const title = task.text.trim();
+  const desc = (task.description ?? '').trim();
+  return desc ? `${title}\n\n${desc}` : title;
+};

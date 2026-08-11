@@ -2,7 +2,7 @@ import { memo, useState, useEffect, useMemo } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { AlertTriangle, ArrowUpRight, ClipboardList, Hourglass, Lock, MessageSquare, Plus, Send, ShieldCheck, ShieldX, Trash2 } from 'lucide-react';
+import { AlertTriangle, ArrowUpRight, ClipboardList, Copy, Hourglass, Lock, MessageSquare, Plus, Send, ShieldCheck, ShieldX, Trash2 } from 'lucide-react';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
@@ -13,7 +13,8 @@ import { useMobile } from '../../hooks/useMobile';
 import { PreviewMedia } from './PreviewMedia';
 import { stripMarkdown } from '../../lib/stripMarkdown';
 import { PRIORITY_DOT, PRIORITY_LABEL, DISPATCH_CHIP, COMPACT_MD_CLS, mediaPaneIdFor, type LiveUsage, type OpenTask } from './constants';
-import { fmtMs, fmtLive, fmtTok, fmtModel, fmtUpdatedAt } from './format';
+import { copyText } from '../../lib/clipboard';
+import { fmtMs, fmtLive, fmtTok, fmtModel, fmtUpdatedAt, taskCopyText } from './format';
 import { StatusIcon, DispatchChip, TaskIdChip } from './atoms';
 import { POPOVER_DIVIDER, POPOVER_ITEM, POPOVER_ITEM_DANGER } from '@/lib/popoverStyles';
 
@@ -560,6 +561,15 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
             onClick={(e) => { e.stopPropagation(); setCtxMenu(null); onOpen(task.id); }}
             className={POPOVER_ITEM}
           ><ClipboardList className="h-3.5 w-3.5 text-app-text-secondary" /> Apri</button>
+          {/* Stesso testo che copia il bottone del drawer (`taskCopyText`):
+              titolo + descrizione. Qui è a portata di tasto destro perché il
+              gesto — «prendo questo task e lo incollo altrove» — parte quasi
+              sempre dalla card, senza aprire niente. */}
+          <button
+            role="menuitem"
+            onClick={(e) => { e.stopPropagation(); setCtxMenu(null); void copyText(taskCopyText(task)); }}
+            className={POPOVER_ITEM}
+          ><Copy className="h-3.5 w-3.5 text-app-text-secondary" /> Copia task</button>
           {task.assignedTopicId && onOpenTopic && (
             <button
               role="menuitem"
