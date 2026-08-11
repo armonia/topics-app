@@ -892,6 +892,86 @@ describe("approve decoupled from landing", () => {
     expect(resumed[0]![1]).not.toContain("git merge main");
   });
 
+  /**
+   * Il guasto dell'11/08 (card `2e6964cb`): il land NON è riuscito, il thread lo
+   * scriveva onestamente — «⚠️ Land NON riuscito … Il branch del task NON è su
+   * main» — e lo STATO diceva il contrario. Sulla board la card stava in Done
+   * come tutte le altre, cioè nell'unica colonna che nessuno riapre, col codice
+   * fuori da main e un GC dei worktree che può potare quel ramo.
+   */
+  async function landSkipping(code: string | undefined): Promise<{ id: string; db: Database; resumed: Array<[string, string]> }> {
+    const d = freshDb(); const b: any[] = []; const r: Array<[string, string]> = [];
+    const autoMerge = {
+      tryMerge: async () => ({ status: "skipped", reason: "non so quali commit siano suoi", code }),
+      buildClient: async () => ({ code: 0, stderr: "" }),
+    } as any;
+    const dispatcher = {
+      onEnterTodo() {}, onLeaveTodo() {}, onBlockerDone() {},
+      resume: async (id: string, msg: string) => { r.push([id, msg]); },
+    } as any;
+    const rt = createTasksRouter(makeCtx(d, b), dispatcher, { autoMerge });
+    d.run("INSERT INTO topics (id) VALUES ('top-s')");
+    const t = await (await call(rt, "POST", "/api/boards/pX/tasks", { text: "feature" }))!.json();
+    d.prepare("UPDATE tasks SET assigned_topic_id='top-s', status='review' WHERE id = ?").run(t.id);
+    d.prepare("INSERT INTO task_comments (id, task_id, author, content, kind, created_at) VALUES ('cs', ?, 'claude', 'consegna', 'comment', ?)")
+      .run(t.id, new Date().toISOString());
+    await call(rt, "POST", `/api/boards/pX/tasks/${t.id}/land`, {});
+    await new Promise((res) => setTimeout(res, 20)); // il land gira fire-and-forget
+    return { id: t.id, db: d, resumed: r };
+  }
+
+  test("un land che NON isola i commit ritira la card da done, con la ragione nello STATO", async () => {
+    const { id, db: d, resumed: r } = await landSkipping("unisolable");
+    const t = createTaskService(d).get(id)!;
+    expect(t.task.status).toBe("in_progress");          // NON resta in Done
+    const ev = t.comments.filter((c) => c.kind === "status").at(-1)!;
+    expect(ev.author).toBe("system");                   // l'ha ritirata la macchina, non l'umano
+    // La ragione sta nella riga di storico, non solo nel thread: il thread lo si
+    // legge aprendo la card, lo stato si vede dalla board.
+    expect(parseStatusEvent(ev.content)).toEqual({
+      from: "done", to: "in_progress", reason: "il land non ha saputo isolare i commit della card",
+    });
+    // E l'agente riparte con il gesto che ripara il ramo.
+    expect(r.length).toBe(1);
+    expect(r[0]![1]).toContain("git rebase main");
+  });
+
+  test("un land fallito per colpa dell'OSPITE torna in review (l'agente non può ripararlo)", async () => {
+    const { id, db: d, resumed: r } = await landSkipping("dirty-checkout");
+    expect(createTaskService(d).get(id)!.task.status).toBe("review");
+    expect(r).toEqual([]);
+  });
+
+  test("«non c'era niente da atterrare» lascia la card chiusa: è l'unico skip innocuo", async () => {
+    // Il controllo dei due test qui sopra. Se il ritiro scattasse su ogni skip,
+    // una nota chiusa a mano rimbalzerebbe fuori da Done a ogni gesto.
+    const { id, db: d } = await landSkipping("no-branch");
+    expect(createTaskService(d).get(id)!.task.status).toBe("done");
+  });
+
+  test("dopo un land il verdetto di atterraggio è ri-chiesto SUBITO per quella card", async () => {
+    // `landingState` lo scrive una passata ogni 30 minuti: senza questa chiamata
+    // la card mostra il verdetto del giro precedente — rosso su lavoro appena
+    // atterrato — e un semaforo in ritardo si smette di guardare.
+    const audited: string[] = [];
+    const am = {
+      tryMerge: async () => ({ status: "nothing" }),
+      buildClient: async () => ({ code: 0, stderr: "" }),
+    } as any;
+    const rt = createTasksRouter(makeCtx(db, broadcasts), undefined, {
+      autoMerge: am,
+      auditTaskLanding: async (taskId: string) => { audited.push(taskId); },
+    });
+    db.run("INSERT INTO topics (id) VALUES ('top-a')");
+    const t = await (await call(rt, "POST", "/api/boards/pX/tasks", { text: "feature" }))!.json();
+    db.prepare("UPDATE tasks SET assigned_topic_id='top-a', status='review' WHERE id = ?").run(t.id);
+    db.prepare("INSERT INTO task_comments (id, task_id, author, content, kind, created_at) VALUES ('ca', ?, 'claude', 'consegna', 'comment', ?)")
+      .run(t.id, new Date().toISOString());
+    await call(rt, "POST", `/api/boards/pX/tasks/${t.id}/land`, {});
+    await new Promise((r) => setTimeout(r, 20));
+    expect(audited).toEqual([t.id]);
+  });
+
   test("picking 'Landa e pubblica' approves + lands (routes to land+publish, not a reject)", async () => {
     const id = await reviewTask();
     const t = await (await call(router, "POST", `/api/boards/pX/tasks/${id}/review`, { decision: "reject", comment: PUBLISH_ACTION_LABEL }))!.json();
