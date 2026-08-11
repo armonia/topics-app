@@ -17,7 +17,7 @@ import { useTaskBrowserTabs, liveTabs, workspaceTwinContextId } from '../../stat
 import { noteAutoOpenedPreview, releaseAutoOpenedPreview } from '../../state/taskWorkspacePreviews';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
 import { writeCursor, markActiveComposer, restoreCursor } from '../../lib/composerCursor';
-import { boardApi, STATUS_LABEL, TASK_STATUSES, isAgentWorking, parseQuestionBlock, isProjectlessId, boardDrafts, systemDeliveryNote, blockedByChip, attemptHasWork, type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch, type BoardProjectRef, type DiffBundle, type DiffNote, type ReviewCheck, type CheckRun, type TaskAttempt } from '../../lib/board';
+import { boardApi, STATUS_LABEL, TASK_STATUSES, isAgentWorking, parseQuestionBlock, parseStatusEvent, isProjectlessId, boardDrafts, systemDeliveryNote, blockedByChip, attemptHasWork, type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch, type BoardProjectRef, type DiffBundle, type DiffNote, type ReviewCheck, type CheckRun, type TaskAttempt } from '../../lib/board';
 import { PreviewMedia } from './PreviewMedia';
 import { UnifiedDiff } from './UnifiedDiff';
 import { collectTaskMediaPaths } from './taskMedia';
@@ -2005,7 +2005,11 @@ export interface SessionMsg { role: string; content: string; timestamp: string; 
  * author = the actor — user, agent name, or dispatcher).
  */
 export function StatusEventRow({ comment }: { comment: TaskComment }) {
-  const to = comment.content.split('→')[1] as TaskStatus | undefined;
+  // Lo stesso parser del server: la destinazione si legge fino al separatore,
+  // altrimenti una transizione con la sua ragione (`done→in_progress · il land
+  // ha fatto conflitto`) perde l'icona e si stampa cruda.
+  const ev = parseStatusEvent(comment.content);
+  const to = ev?.to as TaskStatus | undefined;
   const valid = !!to && TASK_STATUSES.includes(to);
   const at = new Date(comment.createdAt);
   return (
@@ -2017,6 +2021,8 @@ export function StatusEventRow({ comment }: { comment: TaskComment }) {
       {valid ? <StatusIcon status={to} /> : <span className="h-1 w-1 shrink-0 rounded-full bg-app-text-faint" />}
       <span className="min-w-0 truncate">
         <span className="text-app-text-secondary">{comment.author}</span> → {valid ? STATUS_LABEL[to] : comment.content}
+        {/* La ragione: perché la card si è mossa, sulla riga che la muove. */}
+        {valid && ev?.reason && <span className="text-app-text-faint"> · {ev.reason}</span>}
       </span>
       <span className="ml-auto shrink-0 text-app-text-faint">{at.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}</span>
     </div>

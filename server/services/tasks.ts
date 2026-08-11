@@ -34,7 +34,7 @@ import { readGlobalCap } from "./dispatch-capacity";
 // l'import separato. Della lista `TASK_STATUSES` questo modulo non è una porta:
 // chi la vuole la prende da `shared/board`.
 export type { TaskStatus, TaskComment, BoardSettings, BoardSettingsPatch, BlockerRef } from "../../shared/board";
-import { MAX_FANOUT, PREVIEW_PROMOTE_MAX_RATIO, TASK_STATUSES, isAgentWorking, readTaskWeight } from "../../shared/board";
+import { MAX_FANOUT, PREVIEW_PROMOTE_MAX_RATIO, TASK_STATUSES, formatStatusEvent, isAgentWorking, readTaskWeight, statusEventEnters } from "../../shared/board";
 import { EFFORT_TIERS } from "../../shared/effort";
 import type { TaskStatus, TaskComment, BoardSettings, BoardSettingsPatch, BlockerRef, TaskWeight } from "../../shared/board";
 
@@ -339,7 +339,13 @@ export interface TaskService {
    * strict descendant of the task bound to its topic (its own checklist),
    * while the KANBAN-05 gate keeps protecting the deliverable itself.
    */
-  update(args: { taskId: string; actor: Actor; by: string; patch: UpdateTaskPatch; projectId?: string; agentTopicId?: string | null }): Task;
+  /**
+   * `statusReason`: il PERCHÉ della transizione, che finisce nell'evento di
+   * stato accanto a `from→to`. Serve a chi muove una card per conto della
+   * macchina (il land in conflitto che la ritira da `done`): senza, la riga
+   * dice solo chi e quando, e chi rivede legge un ritiro senza causa.
+   */
+  update(args: { taskId: string; actor: Actor; by: string; patch: UpdateTaskPatch; projectId?: string; agentTopicId?: string | null; statusReason?: string | null }): Task;
   /**
    * `questionOptions` turns the comment into a human-decision request: the
    * SERVER composes the canonical ```question``` block (question = content,
@@ -911,13 +917,41 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
    * INSERT — no dedupe, no question composing: transitions are deliberate
    * writes and each one IS the history entry ("chi l'ha spostato e quando").
    * The task's own status write already bumped updated_at (change signal).
+   *
+   * `reason` risponde alla terza domanda, quella che mancava: PERCHÉ. Una card
+   * che esce da `done` perché il land è andato in conflitto era indistinguibile
+   * da un umano che l'ha ritirata a mano — stessa riga, stesso autore. Il
+   * formato lo scrive `formatStatusEvent`, e nessuno lo compone a mano.
    */
-  function logStatus(taskId: string, from: string, to: string, by: string): void {
+  function logStatus(taskId: string, from: string, to: string, by: string, reason?: string | null): void {
     try {
       db.prepare(
         "INSERT INTO task_comments (id, task_id, author, content, kind, created_at) VALUES (?, ?, ?, ?, 'status', ?)",
-      ).run(uuid(), taskId, by || "system", `${from}→${to}`, now());
+      ).run(uuid(), taskId, by || "system", formatStatusEvent(from, to, reason), now());
     } catch { /* history is best-effort — never fail the transition itself */ }
+  }
+
+  /**
+   * Quando è iniziato il turno corrente = l'evento `…→in_progress` più recente.
+   * Lo legge il gate della consegna muta (`review_needs_summary`).
+   *
+   * NON è una `LIKE '%in_progress'`: da quando una transizione può portare la
+   * sua ragione (`done→in_progress · il land…`), il contenuto non finisce più
+   * con lo stato — e la LIKE avrebbe pescato un turno PRECEDENTE, cioè avrebbe
+   * riaperto in silenzio proprio il buco che quel gate chiude (una consegna muta
+   * sbloccata da un commento vecchio). Le righe di stato di un task sono poche:
+   * si leggono e si spacchettano con l'unico parser.
+   */
+  function lastTurnStart(taskId: string): string | null {
+    const rows = db.prepare(
+      "SELECT content, created_at FROM task_comments WHERE task_id = ? AND kind = 'status'",
+    ).all(taskId) as Array<{ content: string; created_at: string }>;
+    let latest: string | null = null;
+    for (const r of rows) {
+      if (!statusEventEnters(r.content, "in_progress")) continue;
+      if (latest === null || r.created_at > latest) latest = r.created_at;
+    }
+    return latest;
   }
 
   function getTaskRow(taskId: string): any {
@@ -1034,7 +1068,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return withSubtaskCounts(rows.map(rowToTask));
     },
 
-    update({ taskId, actor, by, patch, projectId, agentTopicId }): Task {
+    update({ taskId, actor, by, patch, projectId, agentTopicId, statusReason }): Task {
       const row = getTaskRow(taskId);
       // projectId guard: a session may only touch tasks on its own project.
       // A mismatch is reported as not_found (not 403) so cross-project ids stay
@@ -1118,9 +1152,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           // (the newest `…→in_progress` status event). Coach a retry — same
           // pattern as comment_too_long. kind='comment' only: an agent-authored
           // status flip must not satisfy the gate.
-          const turnStart = (db.prepare(
-            "SELECT MAX(created_at) AS ts FROM task_comments WHERE task_id = ? AND kind = 'status' AND content LIKE '%in\\_progress' ESCAPE '\\'",
-          ).get(taskId) as any).ts as string | null;
+          const turnStart = lastTurnStart(taskId);
           const fresh = (db.prepare(
             `SELECT COUNT(*) AS c FROM task_comments
               WHERE task_id = ? AND author NOT IN ('user', 'system') AND kind = 'comment'
@@ -1243,7 +1275,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       }
       // Status history: every applied transition lands in the thread with its
       // author — the timeline answers "chi l'ha spostato e quando".
-      if (patch.status !== undefined && patch.status !== current) logStatus(taskId, current, patch.status, by);
+      if (patch.status !== undefined && patch.status !== current) logStatus(taskId, current, patch.status, by, statusReason);
       // Hand-off into review without an explicit preview: promote the
       // delivery comment's evidence (comment-first delivery order).
       if (patch.status === "review") promoteReviewPreview(taskId);
