@@ -604,6 +604,47 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    */
   let reservedSlots = 0;
 
+  /**
+   * Le attese di uno slot VIVE in questo processo: taskId → timer del ritentativo.
+   *
+   * Un resume rinviato a tetto pieno non ha un turno, quindi non lascia traccia
+   * in `inFlight`: la card resta `in_progress` col chip `queued` e l'unica cosa
+   * che la tiene in piedi è un `setTimeout` in memoria. Il recupero orfani di
+   * `reconcile` recupera anche `queued` (per le attese che un riavvio si è
+   * portato via), e senza questo registro non saprebbe distinguere le due: si
+   * mangerebbe anche quelle vive, buttando via il messaggio dell'umano che quel
+   * timer ha in mano e facendo ripartire la card su un topic nuovo.
+   *
+   * Sta in memoria ACCANTO a `inFlight` e per la stessa ragione: un riavvio
+   * perde il timer e il registro INSIEME: e a quel punto la card è orfana
+   * davvero, ed è giusto che `reconcile` la rimetta in coda.
+   *
+   * Invariante: un'attesa sola per task (chi arriva mentre una è in corso
+   * imbuca il messaggio in `pendingResume`), così la voce del registro c'è
+   * esattamente finché c'è un timer pendente.
+   */
+  const slotWaits = new Map<string, { timer: ReturnType<typeof setTimeout>; message: string }>();
+
+  /**
+   * L'attesa non ha più senso: via il timer, via la memoria del suo commento.
+   *
+   * Il messaggio che teneva in mano NON muore col timer: `inherit` lo passa al
+   * turno che sta partendo (lo consegna `onTurnEnd`, come per i messaggi
+   * arrivati a turno vivo). Senza, un secondo resume che trova il posto libero
+   * spegnerebbe l'attesa e con essa la risposta dell'umano che l'aveva aperta.
+   * Quando invece il task è uscito da `in_progress` non c'è nessun turno a cui
+   * darlo, ed è la stessa fine che faceva prima.
+   */
+  function clearSlotWait(taskId: string, inherit: boolean): void {
+    const wait = slotWaits.get(taskId);
+    if (wait) {
+      clearTimeout(wait.timer);
+      slotWaits.delete(taskId);
+      if (inherit && wait.message) pendingResume.set(taskId, [...(pendingResume.get(taskId) ?? []), wait.message]);
+    }
+    waitingForSlot.delete(taskId);
+  }
+
   /** Claim the slot for a new run. Returns its id — the owner's proof. */
   function beginRun(taskId: string, sessionKey: string): number {
     const runId = nextRunId++;
@@ -1803,7 +1844,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     const t = deps.svc.get(taskId)?.task;
     // The caller (reviewDecision reject) has already moved it to in_progress and
     // it must still be bound to its topic. Anything else = nothing to resume.
-    if (!t || !t.assignedTopicId || t.status !== "in_progress") return;
+    // E se quel task stava aspettando uno slot, l'attesa muore qui insieme al
+    // resume: una voce che resta nel registro senza timer è peggio del guasto
+    // che il registro cura — quella card non verrebbe recuperata MAI più.
+    if (!t || !t.assignedTopicId || t.status !== "in_progress") { clearSlotWait(taskId, false); return; }
     if (inFlight.has(taskId)) {
       // Turn still live (winding down): buffer, onTurnEnd delivers it.
       pendingResume.set(taskId, [...(pendingResume.get(taskId) ?? []), humanMessage]);
@@ -1828,13 +1872,33 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           });
         } catch { /* best-effort */ }
       }
+      // Un'attesa sola per task. Un secondo messaggio che arriva mentre la prima
+      // è in corso NON apre un secondo timer (due attese per una card renderebbero
+      // il registro un'approssimazione, e la seconda voce cancellerebbe la prima
+      // scattando): si imbuca dove si imbucano già i messaggi arrivati a turno
+      // vivo, e `onTurnEnd` lo consegna quando il turno dell'attesa ha finito.
+      if (slotWaits.has(taskId)) {
+        if (humanMessage) pendingResume.set(taskId, [...(pendingResume.get(taskId) ?? []), humanMessage]);
+        return;
+      }
       // Sfalsati, o venti resume in coda si sveglierebbero tutti insieme per
       // riscoprire insieme che il posto è uno solo.
       const delay = RESUME_SLOT_RETRY_MS + (resumeStagger++ % 8) * 250;
-      setTimeout(() => { void resume(taskId, humanMessage, opts); }, delay);
+      // Il registro dice a `reconcile` che qui c'è ancora qualcuno: la voce vive
+      // esattamente quanto il timer, e sparisce appena scatta (il resume che ne
+      // segue o parte, o ri-registra una nuova attesa). Fra il `delete` e la
+      // ri-registrazione non c'è nessun `await`, quindi il poll non può mai
+      // guardare in mezzo e vedere l'attesa sparita.
+      const timer = setTimeout(() => {
+        slotWaits.delete(taskId);
+        void resume(taskId, humanMessage, opts);
+      }, delay);
+      slotWaits.set(taskId, { timer, message: humanMessage });
       return;
     }
-    waitingForSlot.delete(taskId);
+    // C'è posto: questo turno parte e si prende anche l'eredità di un'attesa
+    // ancora pendente su questo task (il suo messaggio, non il suo timer).
+    clearSlotWait(taskId, true);
     const sessionKey = "topic:" + t.assignedTopicId.slice(0, 8);
     const runId = beginRun(taskId, sessionKey);
     try {
@@ -2336,6 +2400,14 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     catch (err) { log("reconcile list failed", err); }
     for (const t of running) {
       if (inFlight.has(t.id)) continue; // we own it, leave it
+      // Un'attesa di slot VIVA (il resume rinviato a tetto pieno) non ha un turno,
+      // quindi non lascia traccia in `inFlight`: da qui è indistinguibile da un
+      // fantasma del riavvio — stessa riga `in_progress`, stesso chip `queued`.
+      // Requeuarla sarebbe il guasto di prima al contrario: il messaggio
+      // dell'umano muore col timer e la card riparte su un topic nuovo. Il
+      // registro è la differenza, e vive in memoria come il timer: se il processo
+      // è ripartito è vuoto, e allora la card è orfana per davvero.
+      if (slotWaits.has(t.id)) continue;
       // Just buried above: its recovery is already scheduled (onTurnEnd). Without
       // this it would ALSO look like a restart orphan and get a second, wrong
       // recovery ("il server è ripartito", which never happened).
@@ -2446,6 +2518,12 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   function shutdown(): void {
     for (const t of graceTimers.values()) clearTimeout(t);
     graceTimers.clear();
+    // Un dispatcher spento non deve svegliarsi fra 5s per riprendere un task su
+    // un DB che non è più il suo — ed è anche il modo in cui i test, che ne
+    // creano uno per caso, non si passano le attese a vicenda.
+    for (const w of slotWaits.values()) clearTimeout(w.timer);
+    slotWaits.clear();
+    waitingForSlot.clear();
     pendingResume.clear();
     // Senza questa riga un dispatcher spento resterebbe iscritto e continuerebbe
     // a scrivere chip su un DB che non è più il suo — e i test, che ne creano
