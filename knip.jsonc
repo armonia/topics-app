@@ -48,6 +48,7 @@
         "scripts/disk-report.ts!",        // `bun run report:disk`
         "scripts/token-live.ts!",         // diagnostica a mano: `bun scripts/token-live.ts [filtro] [--watch]`
         "scripts/orphan-park-dryrun.ts!", // `bun run orphan:dryrun` — prova a vuoto sul db vero
+        "scripts/skill-listing-probe.ts!", // misura a mano: `bun run scripts/skill-listing-probe.ts`
         // Il conio delle licenze. Non è un residuo: il servizio che firmerà i
         // gettoni non esiste ancora (`CHIAVI_INTEGRATE` è vuota, e il ramo
         // Stripe `no_token_in_event` dice esplicitamente che «il gettone lo
