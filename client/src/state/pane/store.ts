@@ -4,6 +4,11 @@ import { immer } from 'zustand/middleware/immer';
 import { paneReducer } from './reducers';
 import type { PaneState, PaneAction } from './types';
 import { DEFAULT_SPACE_ID } from './types';
+// `import type` è erasable: il modulo NON entra nel grafo di produzione (Vite lo
+// tree-shaka come prima). In cambio il tipo non passa più da
+// `typeof import('./middleware/mutationLog')`, che per il cancello sul codice
+// morto è un riferimento opaco all'intero modulo.
+import type { MutationLogEntry } from './middleware/mutationLog';
 
 // Monotonic per-dispatch sequence. Kept as a *lower bound*: after HYDRATE_FROM_SNAPSHOT
 // applies a higher server_seq to state.lastSeq, the next dispatch clamps `_seq`
@@ -37,7 +42,7 @@ const warnedMissingPaneIds = new Set<string>();
 // module, but caching the promise here avoids the per-dispatch call overhead
 // entirely. The whole thing is gated behind `import.meta.env.DEV` so Vite
 // still tree-shakes it (and the module) out of production.
-let _mutationLogPromise: Promise<typeof import('./middleware/mutationLog')> | null = null;
+let _mutationLogPromise: Promise<{ recordAction: (entry: MutationLogEntry) => void }> | null = null;
 
 const initialState: PaneState = {
   panes: {},
@@ -102,7 +107,14 @@ export const usePaneStore = create<PaneStore>()(
           // the microtask runs.
           const seq = _seq;
           const ts = performance.now();
-          _mutationLogPromise ??= import('./middleware/mutationLog');
+          // La destrutturazione sta dentro l'`await`: un `import()` il cui
+          // risultato non finisce in un `const { … } =` è opaco per knip e
+          // rende immortale ogni export di quel modulo
+          // (`bun run check:deadcode-blindspots`).
+          _mutationLogPromise ??= (async () => {
+            const { recordAction } = await import('./middleware/mutationLog');
+            return { recordAction };
+          })();
           _mutationLogPromise.then(({ recordAction }) => {
             recordAction({ seq, ts, action });
           });

@@ -92,7 +92,7 @@ export function mintTaskContextId(taskId: string, seq: number): string {
 // (`task-<id8>-n<slug>`) e il gemello nel workspace (`<ctx>_ws`) — stanno in
 // `shared/task-tab-context.ts`, che è la sola definizione condivisa con il
 // server. Qui si ri-esportano perché il client le nomina da questo modulo.
-export { isTaskContextId, workspaceTwinContextId, taskTabContextIdOf } from '../../../shared/task-tab-context';
+export { isTaskContextId, workspaceTwinContextId } from '../../../shared/task-tab-context';
 
 // ── pure reducer ops (unit-tested; no I/O) ───────────────────────────────────
 
