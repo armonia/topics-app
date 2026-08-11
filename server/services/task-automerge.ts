@@ -45,9 +45,16 @@ export type AutoMergeResult =
       landedNotLive: boolean;
       /** Branch the shared checkout is currently on (the live branch). */
       checkoutBranch: string;
+      /**
+       * Ciò che è stato pubblicato NON coincide con la consegna che il reviewer
+       * ha approvato (ramo diverso, commit aggiunti dopo, commit di consegna
+       * riscritto): frase pronta per il thread. `null` = pubblicato esattamente
+       * lo scatto della consegna, non c'è niente da dire.
+       */
+      deliveryDrift: string | null;
     }
   | { status: "conflict"; branch: string }
-  | { status: "nothing"; branch: string }
+  | { status: "nothing"; branch: string; deliveryDrift?: string | null }
   | { status: "skipped"; reason: string };
 
 /** Where a task's work lives, resolved from its dispatch topic → worktree → project. */
@@ -64,6 +71,17 @@ export interface GitRunResult {
   code: number;
   stdout: string;
   stderr: string;
+}
+
+/**
+ * Cosa la card ha CONSEGNATO: il ramo e il commit registrati quando è entrata in
+ * review (`tasks.delivery_branch` / `delivery_commit`). È l'unica descrizione di
+ * ciò che il reviewer ha guardato prima di cliccare «Landa su main» — il
+ * worktree vivo della card può nel frattempo puntare altrove.
+ */
+export interface DeliverySnapshot {
+  branch: string | null;
+  commit: string | null;
 }
 
 export interface AutoMergeDeps {
@@ -132,12 +150,82 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
     return next;
   }
 
-  async function tryMerge(taskId: string, title: string): Promise<AutoMergeResult> {
+  /**
+   * Il ramo da pubblicare, e cosa dire se non è lo scatto della consegna.
+   *
+   * Il land risolve il ramo dal worktree VIVO della card (`resolveTaskMerge`),
+   * ma una card che è stata ri-dispatchata più volte ha avuto PIÙ worktree e più
+   * rami: il binding vivo non è per forza quello che il reviewer ha approvato.
+   * Misurato l'11/08 sulla card `e54a9be6`: consegnata su `topics/cheery-shepherd`
+   * (dove l'umano aveva anche aggiunto il commit che rimetteva `lint` a 0), il
+   * land ha mergiato `topics/gilded-galleon` — un altro ramo della STESSA card,
+   * con una copia più vecchia dello stesso lavoro — e poi l'ha potato. Su main è
+   * atterrata la copia vecchia, `lint` è tornato rosso, e il thread non ha detto
+   * niente perché per il land era un merge riuscito come tutti gli altri.
+   *
+   * Quindi: si pubblica il ramo CONSEGNATO quando esiste, e ogni scostamento
+   * dallo scatto della consegna (ramo diverso, commit aggiunti dopo, commit di
+   * consegna riscritto da un rebase) diventa una riga nel thread.
+   */
+  async function resolveLanding(
+    repoPath: string,
+    liveBranch: string,
+    delivery: DeliverySnapshot | undefined,
+  ): Promise<{ branch: string; drift: string | null }> {
+    const notes: string[] = [];
+    let branch = liveBranch;
+
+    const delBranch = delivery?.branch?.trim() || null;
+    if (delBranch && delBranch !== liveBranch) {
+      const exists = await runGit(repoPath, ["rev-parse", "--verify", "--quiet", `${delBranch}^{commit}`]);
+      if (exists.code === 0 && exists.stdout.trim() !== "") {
+        branch = delBranch;
+        notes.push(
+          `pubblico il ramo CONSEGNATO \`${delBranch}\`, non \`${liveBranch}\` a cui punta il worktree vivo della card: ` +
+          `la card ha avuto più rami e quello approvato è il primo`,
+        );
+      } else {
+        notes.push(
+          `il ramo consegnato \`${delBranch}\` non esiste più (potato o rinominato): pubblico \`${liveBranch}\`, ` +
+          `il ramo del worktree vivo — se la consegna aveva commit solo lì, NON sono su main`,
+        );
+      }
+    }
+
+    const delCommit = delivery?.commit?.trim() || null;
+    if (delCommit) {
+      const reachable = await runGit(repoPath, ["merge-base", "--is-ancestor", delCommit, branch]);
+      if (reachable.code === 0) {
+        const after = await runGit(repoPath, ["rev-list", "--count", `${delCommit}..${branch}`]);
+        const n = Number(after.stdout.trim());
+        if (after.code === 0 && Number.isFinite(n) && n > 0) {
+          notes.push(
+            `il ramo porta ${n} commit ${n === 1 ? "aggiunto" : "aggiunti"} DOPO la consegna ` +
+            `(lo scatto approvato era \`${delCommit.slice(0, 8)}\`): ${n === 1 ? "lo pubblico" : "li pubblico"} anch${n === 1 ? "e lui" : "e loro"}`,
+          );
+        }
+      } else {
+        notes.push(
+          `il commit consegnato \`${delCommit.slice(0, 8)}\` non è raggiungibile da \`${branch}\` ` +
+          `(ribasato o riscritto dopo la consegna): pubblico la punta del ramo, che può non essere ciò che hai approvato`,
+        );
+      }
+    }
+
+    return { branch, drift: notes.length > 0 ? notes.join("; ") : null };
+  }
+
+  async function tryMerge(taskId: string, title: string, delivery?: DeliverySnapshot): Promise<AutoMergeResult> {
     const target = deps.resolveTaskMerge(taskId);
     if (!target) {
       return { status: "skipped", reason: "nessun worktree/branch per il task (in-place o non dispatchato)" };
     }
-    const { repoPath, branch, defaultBranch } = target;
+    const { repoPath, defaultBranch } = target;
+
+    // Riempiti da `resolveLanding` prima di qualunque merge: `branch` è il ramo
+    // che si pubblica davvero, `drift` la frase da mettere nel thread.
+    let branch = target.branch;
+    let drift: string | null = null;
 
     const mergeMsg = `merge task ${taskId}: ${title}`.replace(/\s+/g, " ").slice(0, 200);
 
@@ -155,6 +243,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
         touchedServer: files.some((f) => f.startsWith("server/") || f === "server.ts"),
         touchedNative: files.some((f) => f.startsWith("desktop-tauri/")),
         landedNotLive: !live, checkoutBranch,
+        deliveryDrift: drift,
       };
     }
 
@@ -163,6 +252,13 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
         const head = await runGit(repoPath, ["symbolic-ref", "--short", "-q", "HEAD"]);
         const cur = head.stdout.trim();
 
+        // Quale ramo si pubblica, e cosa dire se non è lo scatto della consegna.
+        // PRIMA di ogni controllo: tutto quello che segue (ahead, commit propri,
+        // merge) deve parlare del ramo che atterrerà davvero.
+        const landing = await resolveLanding(repoPath, branch, delivery);
+        branch = landing.branch;
+        drift = landing.drift;
+
         // Does the branch exist and have commits main doesn't? (Refs are shared
         // across every worktree, so this reads the same from the shared checkout.)
         const ahead = await runGit(repoPath, ["rev-list", "--count", `${defaultBranch}..${branch}`]);
@@ -170,7 +266,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
           return { status: "skipped", reason: `branch '${branch}' non trovato o non confrontabile con '${defaultBranch}'` };
         }
         if (ahead.stdout.trim() === "0") {
-          return { status: "nothing", branch };
+          return { status: "nothing", branch, deliveryDrift: drift };
         }
 
         // ── Il branch porta SOLO il lavoro di questo task? ──────────────────
