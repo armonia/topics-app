@@ -11,13 +11,17 @@
  *   POST   /api/projects/:id/restore            → set archived=0
  *   DELETE /api/projects/:id                    → row delete (refuses if any worktree exists)
  *
- * Every successful mutation broadcasts a `project:<verb>` envelope via
- * `broadcastToAll`, mirrored by the response. Validation is structural
- * (length caps, control-char strip, regex on slug) and surfaces 400/404/
- * 409 with clear messages.
+ * Every successful mutation broadcasts a `project:<verb>` envelope, mirrored by
+ * the response. I tre che portano la RIGA INTERA (`new`/`updated`/`archived`)
+ * escono da `ctx.broadcastProject`, che decide socket per socket con la stessa
+ * regola dell'elenco: senza, il filtro della 092 valeva su `GET /api/projects` e
+ * il broadcast subito dopo rimetteva nome e path in chiaro a chiunque fosse
+ * connesso. `project:deleted` resta su `broadcastToAll` perché porta il solo id.
+ *
+ * Validation is structural (length caps, control-char strip, regex on slug) and
+ * surfaces 400/404/409 with clear messages.
  */
 import type { AppContext, RouteHandler } from "../types";
-import type { OutboundType } from "../../shared/ws-outbound";
 import { SlugConflictError, ProjectInUseError } from "../services/project-store";
 import { unwatchGitDir } from "../git-watcher";
 import { unwatchProjectFiles } from "../file-watcher";
@@ -25,7 +29,7 @@ import { existsSync, statSync, readFileSync, realpathSync } from "node:fs";
 import { extname, join } from "node:path";
 import { resolveProjectIcon, ICON_CONTENT_TYPE } from "../lib/project-icon";
 import { knownProjectDirs } from "../services/known-project-dirs";
-import { osservatoreDaDispositivo, vedeProgetto } from "../lib/project-visibility";
+import { osservatoreDaDispositivo, vedeProgetto, visibilitaDi } from "../lib/project-visibility";
 import { installationOrgId, actingPersonId } from "../lib/orgs";
 
 const NAME_MAX = 200;
@@ -46,11 +50,19 @@ function stripCtrl(input: unknown): string | null {
 // file, non una copia: due copie sono due confini che divergono.
 
 export function createProjectsRouter(ctx: AppContext): RouteHandler {
-  const { json, readJSON, matchRoute, errorResponse, projectStore, broadcastToAll } = ctx;
+  const { json, readJSON, matchRoute, errorResponse, projectStore, broadcastToAll, broadcastProject } = ctx;
 
-  function emit(type: OutboundType, project: unknown) {
-    broadcastToAll({ type, project, payload_version: 1 });
-  }
+  /**
+   * La riga intera esce SOLO verso chi la vede: `broadcastProject` chiede
+   * `vedeProgetto` socket per socket, e a chi non vede manda la ritratta. Il
+   * giro da `broadcastToAll` — un payload solo, uguale per tutte le socket — è
+   * quello che consegnava nome e path di un incognito a ogni finestra connessa.
+   *
+   * Non è un alias per comodità: il tipo di `broadcastProject` NON ammette
+   * `project:deleted`, quindi il giorno in cui qualcuno aggiunge un quinto verbo
+   * la scelta fra i due canali gliela chiede il compilatore.
+   */
+  const emit = broadcastProject;
 
   /**
    * Chi sta chiedendo, tradotto nella forma che la regola di visibilità legge
@@ -65,11 +77,7 @@ export function createProjectsRouter(ctx: AppContext): RouteHandler {
   }
 
   const visibile = (req: Request, p: { orgId?: string | null; ownerPersonId?: string | null; incognito?: boolean }) =>
-    vedeProgetto(osservatore(req), {
-      orgId: p.orgId ?? null,
-      ownerPersonId: p.ownerPersonId ?? null,
-      incognito: p.incognito === true,
-    });
+    vedeProgetto(osservatore(req), visibilitaDi(p));
 
   return async function projectsRouter(
     req: Request,
@@ -97,13 +105,7 @@ export function createProjectsRouter(ctx: AppContext): RouteHandler {
       // pura provata a parte, e un secondo `WHERE` che prova a dire la stessa
       // cosa in SQL è la copia che diverge.
       const chi = osservatore(req);
-      const projects = projectStore.list(opts).filter((p) =>
-        vedeProgetto(chi, {
-          orgId: p.orgId ?? null,
-          ownerPersonId: p.ownerPersonId ?? null,
-          incognito: p.incognito === true,
-        }),
-      );
+      const projects = projectStore.list(opts).filter((p) => vedeProgetto(chi, visibilitaDi(p)));
       return json({ projects });
     }
 
@@ -330,7 +332,10 @@ export function createProjectsRouter(ctx: AppContext): RouteHandler {
             const ok = projectStore.delete(idParams.id);
             if (!ok) return errorResponse(404, "Project not found");
             if (doomed) { unwatchGitDir(doomed.path); unwatchProjectFiles(doomed.path); }
-            emit("project:deleted", { id: idParams.id });
+            // L'unico che resta su `broadcastToAll`: porta il solo id, cioè è già
+            // la forma ridotta che le altre tre assumono per chi non vede. E la
+            // riga non c'è più: non ci sarebbe niente da valutare.
+            broadcastToAll({ type: "project:deleted", project: { id: idParams.id }, payload_version: 1 });
             return json({ ok: true });
           } catch (err: any) {
             if (err instanceof ProjectInUseError) {

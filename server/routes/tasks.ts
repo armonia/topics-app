@@ -154,6 +154,15 @@ export interface TasksRouterOpts {
    */
   teardownPreview?: (taskId: string) => Promise<void>;
   /**
+   * Smonta le tab del task ARCHIVIATO: cancella `task-browser-tabs:<id>` e
+   * `task-browser-layout:<id>` (root + sottoalbero) e rilascia i contesti
+   * browser che ci trova dentro — `services/task-tab-teardown.ts`, dove sta il
+   * perché. Restituisce gli id toccati, che finiscono nel `task:deleted` così i
+   * client dimenticano le chiavi invece di ri-PUTtarle dal loro debounce.
+   * Assente ⇒ passo saltato (test, fixture): il ripasso al boot rimedia.
+   */
+  teardownTaskBrowserState?: (taskId: string) => { taskIds: string[] };
+  /**
    * Boot the review preview from the task's worktree. Serve alla scelta del
    * vincitore di un fan-out: la consegna arriva in review PRIMA che il task abbia
    * un worktree suo (quello del tentativo 1 può non essere il vincitore), quindi
@@ -477,7 +486,17 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     // Landing ends the task's review life — reap its preview server (idempotent).
     try { await opts?.teardownPreview?.(taskId); } catch { /* best-effort */ }
     try {
-      const res = await autoMerge.tryMerge(taskId, task.text);
+      const res = await autoMerge.tryMerge(taskId, task.text, {
+        branch: task.deliveryBranch ?? null,
+        commit: task.deliveryCommit ?? null,
+      });
+      // Ciò che è atterrato non era lo scatto approvato: chi ha cliccato «Landa»
+      // deve leggerlo, altrimenti crede di aver pubblicato quello che ha visto.
+      // Prima del «Mergiato»: la riga che spiega vale solo se si legge per prima.
+      const drift = res.status === "merged" || res.status === "nothing" ? res.deliveryDrift : null;
+      if (drift) {
+        svc.addComment({ taskId, author: "system", content: `⚠️ Land ≠ consegna: ${drift}.` });
+      }
       if (res.status === "merged") {
         svc.addComment({ taskId, author: "system", content: `Mergiato su main (commit ${res.commit}).` });
         await reapAfterLand(taskId, "landed");
@@ -516,11 +535,23 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         // the repo (content, not ancestry) before destroying anything.
         await reapAfterLand(taskId, "nothing");
       } else if (res.status === "conflict") {
-        svc.update({ taskId, actor: "human", by: "user", projectId, patch: { status: "in_progress" } });
+        // La card ESCE da `done`, e la riga di storico deve dire perché. Prima
+        // diceva "user → In corso": la stessa riga che scrive un umano quando
+        // ritira una consegna a mano — mentre qui l'umano aveva cliccato
+        // "Landa su main" e il ritiro è della macchina. `by: "system"` mette la
+        // firma giusta, `statusReason` la causa; il commento sotto resta perché
+        // porta l'istruzione all'agent, non la sola causa.
+        // `actor: "human"` è l'asse dei PERMESSI (nessun agente potrebbe
+        // riportare indietro un task chiuso), non quello dell'attribuzione.
+        svc.update({
+          taskId, actor: "human", by: "system", projectId,
+          patch: { status: "in_progress" },
+          statusReason: "il land ha fatto conflitto con main",
+        });
         svc.addComment({ taskId, author: "system", content: "Merge automatico in conflitto con main — rimando all'agent per risolvere." });
         dispatcher?.resume(
           taskId,
-          'Il merge automatico del tuo branch su main è andato in conflitto. Porta main dentro il tuo branch (git merge main, oppure rebase), risolvi i conflitti, poi rimetti in review con update_task(status="review").',
+          'Il merge automatico del tuo branch su main è andato in conflitto. Rifai la BASE del tuo ramo sul main aggiornato (`git fetch` se serve, poi `git rebase main`), NON un merge di main dentro il ramo: risolvi i conflitti durante la rebase, ricommitta, poi rimetti in review con update_task(status="review"). Resta vietato toccare main: niente push, niente merge verso main.',
         ).catch((err) => console.warn(`[Tasks] resume after merge-conflict failed for ${taskId}:`, err));
       } else if (res.status === "skipped") {
         svc.addComment({ taskId, author: "system", content: `⚠️ Land NON riuscito: ${res.reason}. Il branch del task NON è su main — risolvi e rilancia "Landa su main".` });
@@ -705,6 +736,33 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       const status = new URL(req.url).searchParams.get("status") || undefined;
       // Columns show ROOT tasks only — steps live in the parent's detail tree.
       try { return json({ tasks: svc.list({ scope: "all", status: status as any, rootsOnly: true }) }); }
+      catch (e) { return fail(e); }
+    }
+
+    // GET /api/all-boards/tasks/:taskId — LA PORTA UNICA «da un id al suo task, a
+    // qualunque profondità». Il feed qui sopra è `rootsOnly` (le colonne mostrano
+    // le radici) ed è l'unico risolutore cross-progetto che il client abbia: da un
+    // id di SOTTOTASK non si arrivava a niente — click su uno step nell'albero del
+    // drawer, deep-link `/task/<id>`, click su una notifica. Questa rotta non
+    // filtra né per profondità né per progetto: dato un id, restituisce il task e
+    // il suo `projectId`, che è quanto serve per aprirlo con le rotte normali.
+    //
+    // Risponde SEMPRE 200: «quest'id non esiste» è una risposta legittima di un
+    // risolutore, non un errore di trasporto. Un 404 arriva al client come la
+    // stessa `Error` di una rete caduta, e il chiamante deve distinguere i due
+    // casi (smettere di aspettare / tenere vivo il deep-link).
+    //
+    // Non filtra `archived`: è la stessa semantica di `svc.get`, che serve la
+    // porta per-progetto già esistente — un deep-link vecchio a un task archiviato
+    // apre il suo drawer invece di restare appeso.
+    //
+    // Ospiti: negata due volte e per costruzione. Il cancello esterno
+    // (`isGuestAllowedPath`) confronta `/api/all-boards/tasks` per uguaglianza,
+    // quindi questo percorso non è in allowlist; e il ramo ospite di questo router
+    // riconosce solo `/api/tasks/:id` fra i concessi, quindi cade su 403.
+    const allTaskItem = matchRoute(pathname, "/api/all-boards/tasks/:taskId");
+    if (allTaskItem && method === "GET") {
+      try { return json({ task: svc.get(allTaskItem.taskId)?.task ?? null }); }
       catch (e) { return fail(e); }
     }
 
@@ -1538,7 +1596,13 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             }
             const task = svc.archive({ taskId, projectId });
             void opts?.teardownPreview?.(taskId).catch(() => {}); // reap preview on close
-            broadcastToAll({ type: "task:deleted", projectId, taskId });
+            // Le tab del task se ne vanno con lui: un task archiviato è fuori
+            // dalla board e la sua evidenza durevole è l'anteprima, non la tab
+            // viva. DOPO l'archiviazione perché il sottoalbero è quello che
+            // `archive` ha appena marcato, e PRIMA del broadcast perché il
+            // frame porta gli id da dimenticare.
+            const torn = opts?.teardownTaskBrowserState?.(taskId);
+            broadcastToAll({ type: "task:deleted", projectId, taskId, taskIds: torn?.taskIds ?? [taskId] });
             return json({ ok: true, task });
           } catch (e) { return fail(e); }
         }

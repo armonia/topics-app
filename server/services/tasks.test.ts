@@ -275,6 +275,47 @@ describe("review gate (KANBAN-05)", () => {
     expect(s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } }).status).toBe("review");
   });
 
+  test("una transizione può portare la sua RAGIONE, e resta una transizione", () => {
+    const t = s.create({ projectId: PID, text: "work", status: "todo" });
+    s.update({
+      taskId: t.id, actor: "human", by: "system", patch: { status: "in_progress" },
+      statusReason: "il land ha fatto conflitto con main",
+    });
+    const ev = s.get(t.id)!.comments.filter((c) => c.kind === "status");
+    expect(ev.length).toBe(1);
+    expect(ev[0]!.author).toBe("system");
+    expect(ev[0]!.content).toBe("todo→in_progress · il land ha fatto conflitto con main");
+  });
+
+  test("il gate per-turno regge quando l'inizio del turno porta una ragione", () => {
+    // Il buco che una ragione appesa avrebbe aperto in silenzio: l'inizio del
+    // turno si leggeva col suffisso (`…in_progress`), e `done→in_progress · …`
+    // non finisce più con lo stato. Il gate avrebbe ancorato il turno a quello
+    // PRECEDENTE, e un riepilogo vecchio avrebbe sbloccato una consegna muta.
+    const t = s.create({ projectId: PID, text: "work" });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "in_progress" } });
+    s.addComment({ taskId: t.id, author: "claude", content: "riepilogo turno 1" });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    s.update({ taskId: t.id, actor: "human", by: "user", patch: { status: "done" } });
+    // Tutto il turno 1 è VECCHIO, e il suo riepilogo sta DOPO il suo inizio: è
+    // la forma che distingue le due letture del confine (l'inizio del turno 1
+    // resta l'evento più recente che *finisce* con `in_progress`).
+    db.prepare("UPDATE task_comments SET created_at = ? WHERE task_id = ? AND kind = 'status'")
+      .run("2020-01-01T00:00:00.000Z", t.id);
+    db.prepare("UPDATE task_comments SET created_at = ? WHERE task_id = ? AND kind = 'comment'")
+      .run("2020-01-01T00:00:01.000Z", t.id);
+    // Il land va in conflitto: la card esce da `done` con la sua causa scritta.
+    s.update({
+      taskId: t.id, actor: "human", by: "system", patch: { status: "in_progress" },
+      statusReason: "il land ha fatto conflitto con main",
+    });
+    // Turno nuovo → il riepilogo vecchio NON vale.
+    expect(() => s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } }))
+      .toThrow(/summary/);
+    s.addComment({ taskId: t.id, author: "claude", content: "riepilogo turno 2: conflitti risolti" });
+    expect(s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } }).status).toBe("review");
+  });
+
   test("status history: update, claim and reviewDecision log who moved it and when", () => {
     const t = s.create({ projectId: PID, text: "work", status: "backlog" });
     s.update({ taskId: t.id, actor: "human", by: "user", patch: { status: "todo" } });

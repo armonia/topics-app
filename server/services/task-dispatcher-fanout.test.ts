@@ -204,6 +204,12 @@ describe("task-dispatcher fan-out", () => {
     expect(k).toContain("NON spostare il task di stato");
     expect(k).toContain("NON scrivere nel thread del task");
     expect(k).toContain("COMMITTA tutto sul tuo branch");
+    // Il divieto è su main, non sulla BASE del proprio ramo. La vecchia formula
+    // ("nessun rebase su main") vietava anche il gesto che RISOLVE il conflitto
+    // di land, e tre card in un pomeriggio ci sono rimaste incastrate.
+    expect(k).toContain("NON TOCCARE main");
+    expect(k).toContain("git rebase main");
+    expect(k).not.toContain("nessun rebase");
     // Il contratto normale ("sei l'owner, porta in review") NON deve comparire:
     // due contratti opposti nello stesso prompt = il modello ne sceglie uno a caso.
     expect(k).not.toContain("owner esclusivo del task");

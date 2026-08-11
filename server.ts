@@ -16,6 +16,10 @@ import {
   startUiStateBackupTicker, snapshotUiStateNow,
 } from "./server/services/ui-state-backup";
 import { purgeOrphanTopicRefs } from "./server/services/ui-state-orphan-cleanup";
+import {
+  sweepArchivedTaskBrowserState,
+  teardownArchivedTaskBrowserState,
+} from "./server/services/task-tab-teardown";
 import { createTopicsRouter, purgeTopicFromUiState } from "./server/routes/topics";
 import { archiveTopicFully } from "./server/services/archive-topic";
 import { applyPaneCascade, reconcile, recordRetirement, retiredIds, type ReconcileDeps } from "./server/services/retirement";
@@ -43,6 +47,7 @@ import { createOpenClawContextRouter } from "./server/routes/openclaw-context";
 import { createContextPreviewRouter } from "./server/routes/context-preview";
 import { createTaskService, projectIdForPath } from "./server/services/tasks";
 import { createExternalSessionsService } from "./server/services/external-sessions";
+import { resolveWorktreeBaseRef } from "./server/services/worktree-base-ref";
 import { createExternalSessionsRouter } from "./server/routes/external-sessions";
 import { createTaskDispatcher } from "./server/services/task-dispatcher";
 import { refreshLiveJobQuotas } from "./server/services/agent-job-quota";
@@ -301,6 +306,27 @@ try {
   // Non-fatal: log loudly but don't abort boot — the runtime guard in
   // PURGE_ORPHAN_PANE will still catch any orphan that slips through.
   console.error("[Startup] ui_state orphan cleanup failed:", err);
+}
+
+// Ripasso al boot delle tab dei task ARCHIVIATI (`services/task-tab-teardown.ts`).
+// L'aggancio vero sta sull'archiviazione; questo è il backstop che ripara il
+// pregresso — i record lasciati prima che quel codice esistesse — e qualunque
+// chiave risuscitata da un client che era disconnesso mentre il task veniva
+// archiviato. Niente broadcast e niente `destroyContext`: qui non c'è ancora
+// nessun client collegato né nessun contesto browser vivo.
+try {
+  const swept = sweepArchivedTaskBrowserState({ db });
+  if (swept.keysDeleted.length > 0) {
+    console.log(
+      `[Startup] tab dei task archiviati: ${swept.keysDeleted.length} chiave/i ui_state via ` +
+        `(${swept.bytesFreed} byte, ${swept.taskIds.length} task)`,
+    );
+  } else {
+    console.log("[Startup] tab dei task archiviati: pulito");
+  }
+} catch (err) {
+  // Non-fatale come sopra: al massimo lo snapshot resta grasso un boot in più.
+  console.error("[Startup] tab dei task archiviati: ripasso fallito:", err);
 }
 
 // Init AI provider — pick the boot default:
@@ -979,7 +1005,9 @@ const taskDispatcher = createTaskDispatcher({
   attemptStats: async (worktreeId) => {
     const wt = ctx.worktreeStore.get(worktreeId);
     if (!wt || wt.mode !== "branch" || !wt.absPath || !existsSync(wt.absPath)) return null;
-    return worktreeDiffStat(wt.absPath);
+    // Il branch va DETTO: è la chiave con cui si separa il lavoro del tentativo
+    // da quello che ha soltanto ereditato dal checkout condiviso.
+    return worktreeDiffStat(wt.absPath, { branch: wt.branchName ?? undefined });
   },
   worktreeBranch: (worktreeId) => ctx.worktreeStore.get(worktreeId)?.branchName ?? null,
   // Potatura dei topic dei tentativi a fine task. Passa dal servizio condiviso,
@@ -988,35 +1016,14 @@ const taskDispatcher = createTaskDispatcher({
   // più apribile e un id fantasma in `ui_state` che risuscitava al reload.
   archiveTopic: retirementConsequences.archiveTopic,
   createWorktree: async (projectStoreId) => {
-    // Il ramo di una card nasce da MAIN, non dall'HEAD del checkout condiviso.
-    //
-    // Con `HEAD` il worktree ereditava il ramo di chi stava lavorando lì — e
-    // l'11/08 quella sola riga ha prodotto, in una notte: rami di task con 147
-    // commit altrui (il land pubblicava lavoro di terzi finché non ha imparato a
-    // prendere solo i propri); consegne che poggiavano su commit mai landati
-    // («manca un pezzo sotto»); DUE collisioni di numeri di migration, perché
-    // l'agente contava da un albero fermo a 088 mentre main era a 089; un
-    // manifest rigenerato senza la migration di un altro; e un agente che ha
-    // «corretto» due test su main inseguendo un messaggio che esisteva solo su
-    // un ramo non landato — lasciando main rossa per un'ora.
-    //
-    // Nessuno aveva chiesto quell'eredità: era un effetto collaterale. Main è
-    // già il ramo d'integrazione dichiarato (`resolveTaskMerge`), quindi è anche
-    // la base giusta: l'agente parte da ciò che è pubblicato, non da ciò che
-    // qualcuno ha in mano.
-    //
-    // Ripiego su `HEAD` se il repo non ha `main`: meglio il vecchio difetto che
-    // un dispatch che non parte.
-    const repoPath = ctx.projectStore.get(projectStoreId)?.path;
-    let baseRef = "HEAD";
-    if (repoPath) {
-      try {
-        const p = Bun.spawn(["git", "rev-parse", "--verify", "--quiet", "refs/heads/main"], { cwd: repoPath, stdout: "pipe", stderr: "pipe" });
-        if ((await p.exited) === 0) baseRef = "main";
-        else console.warn(`[dispatch] ${repoPath}: nessun ramo 'main', il worktree parte da HEAD`);
-      } catch { /* ripiego su HEAD */ }
-    }
-    const wt = await ctx.worktreeManager.create({ projectId: projectStoreId, mode: "branch", baseRef });
+    // Il ramo di una card nasce da MAIN, non dall'HEAD del checkout condiviso:
+    // con `HEAD` il worktree ereditava il ramo di chi stava lavorando qui, e da
+    // lì arrivavano collisioni di migration, consegne su commit mai landati e
+    // land che pubblicavano lavoro di terzi. Il perché per esteso, e il ripiego
+    // su HEAD quando `main` non c'è, stanno in `worktree-base-ref.ts`.
+    const base = await resolveWorktreeBaseRef(ctx.projectStore.get(projectStoreId)?.path);
+    if (base.fallback) console.warn(`[dispatch] ${base.reason}: il worktree parte da HEAD`);
+    const wt = await ctx.worktreeManager.create({ projectId: projectStoreId, mode: "branch", baseRef: base.baseRef });
     const ready = await ctx.worktreeManager.awaitMaterialisation(wt.id, 120_000);
     if (ready.status !== "ready") {
       throw new Error(`worktree ${wt.id}: ${ready.status}${ready.errorMessage ? " " + ready.errorMessage : ""}`);
@@ -1364,6 +1371,18 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
   },
   // Reap the task's live preview server on land / approve / close.
   teardownPreview: (taskId) => previewManager?.teardown(taskId) ?? Promise.resolve(),
+  // Archiviare un task porta via anche le sue tab: le due chiavi `ui_state` e i
+  // contesti browser dietro di esse. `browserService` è il servizio vivo, quindi
+  // la chiusura headless è reale; il broadcast chiude la pane su ogni device.
+  teardownTaskBrowserState: (taskId) =>
+    teardownArchivedTaskBrowserState(
+      {
+        db,
+        broadcastToAll: ctx.broadcastToAll,
+        destroyContext: (contextId) => browserService.destroyContext(contextId),
+      },
+      taskId,
+    ),
   // Fan-out: l'anteprima parte quando l'umano sceglie il vincitore, perché solo
   // allora il worktree del task è quello giusto da mostrare.
   preparePreview: (taskId) => previewManager?.prepareForReview(taskId) ?? Promise.resolve(),
@@ -3258,8 +3277,13 @@ async function reattachSurvivingChatTurns(): Promise<void> {
     let brokerSays: "open" | "idle" | "unknown" = "unknown";
     if (adoptable && !midTurnAtBoot.has(s.id)) {
       try {
-        const prov = getProvider("claude-code") as { brokerTurnState?: (sk: string) => Promise<"open" | "idle" | "unknown"> } | undefined;
-        brokerSays = (await prov?.brokerTurnState?.(s.id)) ?? "unknown";
+        const prov = getProvider("claude-code") as { brokerTurnState?: (sk: string, opts?: { park?: boolean }) => Promise<"open" | "idle" | "unknown"> } | undefined;
+        // `park: true` è la promessa che qui sotto manteniamo davvero: se la
+        // risposta è «open» si riadotta, nella riga dopo. Senza, ogni sessione
+        // si faceva spedire l'intero store DUE volte al boot — una per questa
+        // sonda e una per la fase 1 della riadozione, tutte sull'unico socket
+        // del ponte e tutte prima che l'utente veda qualcosa.
+        brokerSays = (await prov?.brokerTurnState?.(s.id, { park: true })) ?? "unknown";
       } catch (err) {
         console.warn(`[chat-reattach] broker turn probe failed for ${s.id} (skipping reap for safety):`, err);
         brokerSays = "unknown";
@@ -3766,8 +3790,12 @@ function runWorktreeGc() {
       return ctx.worktreeManager.delete(wt.id, { deleteBranch: false });
     },
     tryLand: async (taskId) => {
-      const text = dispatcherSvc.get(taskId)?.task.text ?? "";
-      const res = await taskAutoMerge.tryMerge(taskId, text);
+      const t = dispatcherSvc.get(taskId)?.task;
+      const text = t?.text ?? "";
+      const res = await taskAutoMerge.tryMerge(taskId, text, {
+        branch: t?.deliveryBranch ?? null,
+        commit: t?.deliveryCommit ?? null,
+      });
       return res.status === "merged" ? "landed" : res.status === "nothing" ? "nothing" : res.status === "conflict" ? "conflict" : "skipped";
     },
     // Solo la cartella. `deleteBranch: false` è tutta la differenza con `reap`

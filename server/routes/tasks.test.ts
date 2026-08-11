@@ -6,6 +6,7 @@ import { join } from "node:path";
 import type { AppContext } from "../types";
 import { createTasksRouter } from "./tasks";
 import { createTaskService, LAND_ACTION_LABEL, PUBLISH_ACTION_LABEL } from "../services/tasks";
+import { parseStatusEvent } from "../../shared/board";
 
 function freshDb(): Database {
   const db = new Database(":memory:");
@@ -214,6 +215,8 @@ describe("tasks router (session-scoped)", () => {
     // null stacca e la card torna a vivere da sola.
     const back = await (await call(router, "PATCH", `/api/boards/pX/tasks/${solo.id}`, { parentTaskId: null }))!.json();
     expect(back.parentTaskId).toBe(null);
+  });
+
   // L'incidente dell'11/08 riprodotto dalla porta che l'agent usa davvero: il
   // dispatcher rimette il task in coda MENTRE il turno gira (riavvio del server,
   // timeout, requeue) e `assigned_topic_id` va a NULL. Prima della provenienza,
@@ -377,6 +380,31 @@ describe("board router (human, project-scoped)", () => {
     const { tasks } = await (await call(router, "GET", "/api/boards/pX/tasks"))!.json();
     expect(tasks.length).toBe(0);
     expect(broadcasts.some(b => b.type === "task:deleted")).toBe(true);
+  });
+
+  // Le tab del task archiviato: la rotta chiama il teardown e mette gli id
+  // toccati nel frame, perché il client deve DIMENTICARE quelle chiavi — non
+  // ri-PUTtarle dal suo debounce (services/task-tab-teardown.ts).
+  test("DELETE smonta le tab del task e mette il sottoalbero in task:deleted", async () => {
+    const seen: string[] = [];
+    const r = createTasksRouter(makeCtx(db, broadcasts), undefined, {
+      teardownTaskBrowserState: (taskId) => {
+        seen.push(taskId);
+        return { taskIds: [taskId, "figlio-1"] };
+      },
+    });
+    const t = await (await call(r, "POST", "/api/boards/pX/tasks", { text: "x" }))!.json();
+    await call(r, "DELETE", `/api/boards/pX/tasks/${t.id}`);
+
+    expect(seen).toEqual([t.id]);
+    const frame = broadcasts.find((b) => b.type === "task:deleted");
+    expect(frame.taskIds).toEqual([t.id, "figlio-1"]);
+  });
+
+  test("senza il teardown iniettato, task:deleted porta almeno la root", async () => {
+    const t = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "x" }))!.json();
+    await call(router, "DELETE", `/api/boards/pX/tasks/${t.id}`);
+    expect(broadcasts.find((b) => b.type === "task:deleted").taskIds).toEqual([t.id]);
   });
 
   test("human comment is authored 'user'", async () => {
@@ -721,6 +749,40 @@ describe("board router (human, project-scoped)", () => {
     expect(done.tasks.length).toBe(1);
     expect(done.tasks[0].projectId).toBe("pX");
   });
+
+  test("GET /api/all-boards/tasks/:taskId resolves an id at ANY depth (the feed is rootsOnly)", async () => {
+    const root = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "radice" }))!.json();
+    const step = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "step", parentTaskId: root.id }))!.json();
+    const nested = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "nipote", parentTaskId: step.id }))!.json();
+
+    // La premessa del guasto: il feed non contiene i sottotask.
+    const feed = await (await call(router, "GET", "/api/all-boards/tasks"))!.json();
+    expect(feed.tasks.map((t: any) => t.id)).toEqual([root.id]);
+
+    // La porta: ognuno di quegli id si risolve, col suo projectId.
+    for (const t of [root, step, nested]) {
+      const resp = (await call(router, "GET", `/api/all-boards/tasks/${t.id}`))!;
+      expect(resp.status).toBe(200);
+      const body = await resp.json();
+      expect(body.task.id).toBe(t.id);
+      expect(body.task.projectId).toBe("pX");
+    }
+  });
+
+  test("GET /api/all-boards/tasks/:taskId — un id ignoto è 200 + task:null, non un errore", async () => {
+    const resp = (await call(router, "GET", "/api/all-boards/tasks/non-esiste"))!;
+    expect(resp.status).toBe(200);
+    expect((await resp.json()).task).toBeNull();
+  });
+
+  test("GET /api/all-boards/tasks/:taskId risolve anche un task archiviato (deep-link vecchio)", async () => {
+    const t = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "vecchio" }))!.json();
+    await call(router, "DELETE", `/api/boards/pX/tasks/${t.id}`);
+    const feed = await (await call(router, "GET", "/api/all-boards/tasks"))!.json();
+    expect(feed.tasks.some((x: any) => x.id === t.id)).toBe(false);
+    const body = await (await call(router, "GET", `/api/all-boards/tasks/${t.id}`))!.json();
+    expect(body.task?.id).toBe(t.id);
+  });
 });
 
 describe("board settings route", () => {
@@ -837,6 +899,44 @@ describe("approve decoupled from landing", () => {
     expect(merges).toEqual([id]);
   });
 
+  test("un land in CONFLITTO ritira la card da done dicendo perché, e firma la macchina", async () => {
+    // La riga di storico diceva «user → In corso»: identica a quella che scrive
+    // un umano quando ritira una consegna a mano — mentre qui l'umano aveva
+    // cliccato «Landa su main» e il ritiro è del merge. Chi rivede leggeva un
+    // dietrofront senza causa e senza il suo autore vero.
+    db = freshDb(); broadcasts = []; resumed = [];
+    const autoMerge = {
+      tryMerge: async () => ({ status: "conflict" }),
+      buildClient: async () => ({ code: 0, stderr: "" }),
+    } as any;
+    const dispatcher = {
+      onEnterTodo() {}, onLeaveTodo() {}, onBlockerDone() {},
+      resume: async (id: string, msg: string) => { resumed.push([id, msg]); },
+    } as any;
+    router = createTasksRouter(makeCtx(db, broadcasts), dispatcher, { autoMerge });
+
+    const id = await reviewTask();
+    await call(router, "POST", `/api/boards/pX/tasks/${id}/land`, {});
+    await new Promise((r) => setTimeout(r, 10)); // il land gira fire-and-forget
+
+    const svc = createTaskService(db);
+    const t = svc.get(id)!;
+    expect(t.task.status).toBe("in_progress");     // ritirata da done
+    const ev = t.comments.filter((c) => c.kind === "status").at(-1)!;
+    expect(ev.author).toBe("system");              // non «user»: non l'ha mossa l'umano
+    expect(parseStatusEvent(ev.content)).toEqual({
+      from: "done", to: "in_progress", reason: "il land ha fatto conflitto con main",
+    });
+    // E l'agent riparte con l'istruzione, come prima.
+    expect(resumed.length).toBe(1);
+    expect(resumed[0]![1]).toContain("conflitto");
+    // L'istruzione dice il gesto GIUSTO: rifare la base del proprio ramo. Diceva
+    // «git merge main, oppure rebase», e il merge non toglieva il conflitto —
+    // tre card ci sono rimaste incastrate finché non gliel'ho spiegato a mano.
+    expect(resumed[0]![1]).toContain("git rebase main");
+    expect(resumed[0]![1]).not.toContain("git merge main");
+  });
+
   test("picking 'Landa e pubblica' approves + lands (routes to land+publish, not a reject)", async () => {
     const id = await reviewTask();
     const t = await (await call(router, "POST", `/api/boards/pX/tasks/${id}/review`, { decision: "reject", comment: PUBLISH_ACTION_LABEL }))!.json();
@@ -846,6 +946,43 @@ describe("approve decoupled from landing", () => {
     expect(t.status).toBe("done"); // accepted
     expect(merges).toEqual([id]);  // land ran first (merges.push is synchronous)
     expect(resumed).toEqual([]);   // NOT resumed as a rejection
+  });
+
+  /**
+   * Il land riceve lo SCATTO della consegna, e ciò che non coincide finisce nel
+   * thread. Senza questa riga chi ha aggiunto un commit dopo la consegna — o chi
+   * ha consegnato da un ramo che la card non usa più — crede di aver pubblicato
+   * quello che ha visto: è così che l'11/08 `lint` è tornato rosso su main senza
+   * che nessuno collegasse le due cose.
+   */
+  test("land: la consegna arriva al merge, e la deriva viene detta nel thread", async () => {
+    const seen: any[] = [];
+    const am = {
+      tryMerge: async (_id: string, _t: string, delivery: any) => {
+        seen.push(delivery);
+        return { status: "merged", commit: "cafe123", branch: "topics/consegnato", repoPath: "/repo",
+          touchedClient: false, touchedServer: false, touchedNative: false,
+          landedNotLive: false, checkoutBranch: "main",
+          deliveryDrift: "il ramo porta 1 commit aggiunto DOPO la consegna" };
+      },
+      buildClient: async () => ({ code: 0, stderr: "" }),
+    } as any;
+    const r2 = createTasksRouter(makeCtx(db, broadcasts), undefined, { autoMerge: am });
+    db.run("INSERT INTO topics (id) VALUES ('top-2')");
+    const t = await (await call(r2, "POST", "/api/boards/pX/tasks", { text: "feature" }))!.json();
+    db.prepare(
+      "UPDATE tasks SET assigned_topic_id='top-2', status='review', delivery_branch='topics/consegnato', delivery_commit='bdfcf0cb' WHERE id = ?",
+    ).run(t.id);
+    db.prepare("INSERT INTO task_comments (id, task_id, author, content, kind, created_at) VALUES ('c9', ?, 'claude', 'consegna', 'comment', ?)")
+      .run(t.id, new Date().toISOString());
+
+    await call(r2, "POST", `/api/boards/pX/tasks/${t.id}/land`, {});
+    // Il land gira staccato dalla risposta: si aspetta che la catena dreni.
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(seen).toEqual([{ branch: "topics/consegnato", commit: "bdfcf0cb" }]);
+    const said = db.prepare("SELECT content FROM task_comments WHERE task_id = ?").all(t.id) as Array<{ content: string }>;
+    expect(said.some((c) => c.content.includes("Land ≠ consegna") && c.content.includes("DOPO la consegna"))).toBe(true);
   });
 });
 

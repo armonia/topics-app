@@ -1034,7 +1034,21 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
     catch (e) { setError(e instanceof Error ? e.message : 'create failed'); }
   }, [projectId, refetch]);
 
-  const selected = tasks.find((t) => t.id === selectedId) || null;
+  // Il task che il drawer mostra quando l'id NON è nel feed. Il feed è
+  // `rootsOnly` — le colonne mostrano le radici, gli step vivono nell'albero del
+  // genitore — quindi un id di SOTTOTASK non ci sarà mai, e `tasks.find(...)` da
+  // solo restituiva `undefined`: il click su uno step CHIUDEVA il drawer invece
+  // di aprirlo, e un deep-link `/task/<id-di-sottotask>` restava appeso per
+  // sempre. Lo risolve `boardApi.resolve`, la porta unica «da un id al suo task,
+  // a qualunque profondità».
+  const [outsider, setOutsider] = useState<BoardTask | null>(null);
+  const selected = tasks.find((t) => t.id === selectedId)
+    || (outsider && outsider.id === selectedId ? outsider : null);
+
+  // L'id che il drawer deve mostrare: la selezione, o il deep-link ancora in
+  // volo. Uno solo dei due è valorizzato nel caso normale.
+  const wantId = selectedId ?? pendingSelect;
+  const inFeed = !!wantId && tasks.some((t) => t.id === wantId);
 
   // Promote a deep-link target to the selection once the task lands in the
   // loaded list (the global board loads every project's tasks, so it will).
@@ -1048,6 +1062,45 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
       window.dispatchEvent(new CustomEvent('topics:task-opened'));
     }
   }, [pendingSelect, tasks]);
+
+  // Un id fuori dal feed passa comunque: la porta unica lo risolve e il drawer
+  // si apre. Rigira a ogni cambio di `tasks` — la board rifetcha su ogni evento
+  // `task:*`, quindi è anche il battito che tiene fresco `updatedAt` (il `bump`
+  // con cui il drawer ricarica il suo thread) per un task che nel feed non c'è.
+  const resolvedRef = useRef<{ id: string; feed: BoardTask[] } | null>(null);
+  useEffect(() => {
+    if (!wantId) { setOutsider(null); resolvedRef.current = null; return; }
+    if (inFeed) return; // il feed ce l'ha: nessuna porta da aprire
+    // Una sola richiesta per (id, feed): sciogliere il deep-link cambia
+    // `pendingSelect`, e senza questo la rifarebbe subito a vuoto.
+    if (resolvedRef.current?.id === wantId && resolvedRef.current.feed === tasks) return;
+    resolvedRef.current = { id: wantId, feed: tasks };
+    // Vero solo se stiamo sciogliendo un deep-link, non un click su uno step:
+    // `topics:task-opened` rilascia l'intento di fuoco della board, e va emesso
+    // per quello e basta.
+    const deepLink = pendingSelect === wantId;
+    let alive = true;
+    boardApi.resolve(wantId)
+      .then((t) => {
+        if (!alive) return;
+        if (t) {
+          setOutsider(t);
+          if (deepLink) {
+            setSelectedId(wantId);
+            setPendingSelect(null);
+            window.dispatchEvent(new CustomEvent('topics:task-opened'));
+          }
+          return;
+        }
+        // Quell'id non esiste: chiudere è l'unica risposta onesta — restare
+        // appesi in attesa di un task che non arriverà è il guasto di prima.
+        if (deepLink) setPendingSelect(null);
+        setSelectedId((s) => (s === wantId ? null : s));
+      })
+      .catch(() => { resolvedRef.current = null; /* trasporto caduto: il prossimo refetch riprova */ });
+    return () => { alive = false; };
+    // `outsider` fuori dalle dipendenze di proposito: lo SCRIVE questo effetto.
+  }, [wantId, inFeed, tasks, pendingSelect]);
 
   // URL ⇄ drawer reflection (GLOBAL board only — `/task/<id>` points at the
   // global board, matching buildTaskLink). Opening a drawer pushes `/task/<id>`;

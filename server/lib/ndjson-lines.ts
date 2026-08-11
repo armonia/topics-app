@@ -34,19 +34,60 @@ import { StringDecoder } from "node:string_decoder";
  * perdeva nel `catch` del parser. Il decoder tiene i byte incompleti da parte
  * fino al chunk successivo.
  */
-export function createLineFolder(onLine: (line: string) => void): (chunk: Buffer) => void {
+export type LineFolder = ((chunk: Buffer) => void) & {
+  /**
+   * Riallinea il cursore dei byte a `atOffset` e butta il mezzo pezzo di riga
+   * rimasto in sospeso. Serve quando la consegna RIPARTE da un punto diverso —
+   * un `attach` da un offset arbitrario — e quindi i byte tenuti da parte non
+   * sono più contigui con quelli che stanno per arrivare.
+   */
+  reset(atOffset: number): void;
+};
+
+/**
+ * `onLine` riceve la riga E l'offset assoluto del primo byte DOPO il suo `\n`.
+ *
+ * Perché l'offset, e perché per RIGA. Chi riadotta un turno vivo riparte da
+ * «subito dopo l'ultimo `result`». Prima quell'offset veniva letto dal cursore
+ * del CHUNK — che si aggiorna a fold FINITO, quindi mentre le righe scorrono
+ * vale ancora quello del giro precedente: su un replay consegnato in un frame
+ * solo, zero. La riadozione si rispediva l'intero store una terza volta e lo
+ * ripiegava non muta, con i turni vecchi che tornavano nella bolla nuova.
+ * Anche prendendolo alla fine della fetta sarebbe stato sbagliato al contrario:
+ * tutto ciò che nella stessa fetta veniva DOPO il result — la testa del turno
+ * ancora aperto — resterebbe prima del punto di ripartenza e non verrebbe mai
+ * rispedito, e la fase 2 dichiarerebbe «completed» un turno in volo.
+ *
+ * Il conto è esatto per costruzione: `byteLength(riga) + 1` (l'`\n`), sommato
+ * riga per riga. I byte ancora in sospeso — mezza riga, o una sequenza UTF-8
+ * spezzata dentro il decoder — semplicemente non sono ancora contati.
+ */
+export function createLineFolder(
+  onLine: (line: string, endOffset: number) => void,
+  startOffset = 0,
+): LineFolder {
   const decoder = new StringDecoder("utf8");
   let carry = "";
-  return (chunk: Buffer): void => {
+  // Offset assoluto del primo byte di `carry`, cioè del prossimo byte da piegare.
+  let cursor = startOffset;
+  const fold = ((chunk: Buffer): void => {
     const s = carry + decoder.write(chunk);
     let start = 0;
     let nl = s.indexOf("\n", start);
     if (nl === -1) { carry = s; return; }
     while (nl !== -1) {
-      onLine(s.slice(start, nl));
+      const line = s.slice(start, nl);
+      cursor += Buffer.byteLength(line) + 1;
+      onLine(line, cursor);
       start = nl + 1;
       nl = s.indexOf("\n", start);
     }
     carry = s.slice(start);
+  }) as LineFolder;
+  fold.reset = (atOffset: number): void => {
+    carry = "";
+    decoder.end(); // butta via i byte UTF-8 incompleti: sono di un'altra regione
+    cursor = atOffset;
   };
+  return fold;
 }
