@@ -44,8 +44,17 @@ function mockShell(kind: 'tauri' | 'web') {
 }
 
 // L'import è dinamico e DOPO il mock: `shellKind` si legge al caricamento.
+// I nomi sono scritti uno per uno invece di restituire il namespace del modulo:
+// un `import()` il cui risultato non finisce in una destrutturazione è OPACO per
+// il cancello sul codice morto, che da lì in poi considera usato OGNI export di
+// `app.ts` (11) — guardia `bun run check:deadcode-blindspots`.
 async function loadApp() {
-  return await import('./app');
+  const {
+    __resetWebNotificationPrimeForTests,
+    primeWebNotificationPermission,
+    webNotificationPermission,
+  } = await import('./app');
+  return { __resetWebNotificationPrimeForTests, primeWebNotificationPermission, webNotificationPermission };
 }
 
 beforeEach(() => { installFakeNotification(); });

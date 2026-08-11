@@ -28,11 +28,6 @@ import { isTaskContextId } from '../state/taskBrowserTabs';
 /** ContextId già serviti in questa sessione dell'app (vedi la nota sopra). */
 const applied = new Set<string>();
 
-/** Solo per i test: dimentica cosa è già stato iniettato. */
-export function __resetTaskTabLoginState(): void {
-  applied.clear();
-}
-
 export function useTaskTabLoginState(contextId: string, ready: boolean): void {
   useEffect(() => {
     if (!ready || !contextId || !isTaskContextId(contextId)) return;

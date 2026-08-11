@@ -57,10 +57,28 @@ afterAll(() => {
 });
 
 // Defer imports until env is set so initDatabase respects DATA_DIR.
-const utilsPromise = import("../../server/utils");
-const projectsRoutePromise = import("../../server/routes/projects");
-const worktreesRoutePromise = import("../../server/routes/worktrees");
-const namingPromise = import("../../server/utils/worktree-naming");
+// I nomi sono elencati invece di tenere il namespace del modulo: un `import()`
+// il cui risultato non finisce in una destrutturazione è OPACO per il cancello
+// sul codice morto, che da lì in poi considera usato ogni export di questi
+// quattro moduli (10 in tutto). Il momento in cui la promessa parte non cambia:
+// resta la valutazione di questo file. Guardia:
+// `bun run check:deadcode-blindspots`.
+const utilsPromise = (async () => {
+  const { createAppContext } = await import("../../server/utils");
+  return { createAppContext };
+})();
+const projectsRoutePromise = (async () => {
+  const { createProjectsRouter } = await import("../../server/routes/projects");
+  return { createProjectsRouter };
+})();
+const worktreesRoutePromise = (async () => {
+  const { createWorktreesRouter } = await import("../../server/routes/worktrees");
+  return { createWorktreesRouter };
+})();
+const namingPromise = (async () => {
+  const { generateWorktreeName, NAME_REGEX } = await import("../../server/utils/worktree-naming");
+  return { generateWorktreeName, NAME_REGEX };
+})();
 
 describe("Phase A · Project + Worktree domain", () => {
 
