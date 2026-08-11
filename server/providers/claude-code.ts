@@ -934,9 +934,9 @@ interface PersistentProcess {
    *  where the LIVE second attach starts so old turns are never re-emitted. */
   replayAfterLastResultOffset?: number;
   /** Offset assoluto appena DOPO l'ultima riga NDJSON piegata. Non è
-   *  `consumedOffset`, che sta alla fine del CHUNK: qui si è precisi alla riga,
-   *  ed è l'unico modo di far ripartire la fase 2 esattamente dopo il `result`
-   *  invece che dopo la fetta che lo conteneva. Vedi `createLineFolder`. */
+   *  `consumedOffset`, che si muove a CHUNK e per giunta solo a fold finito:
+   *  qui si è precisi alla riga, mentre la riga passa. È ciò che fa ripartire
+   *  la fase 2 esattamente dopo il `result`. Vedi `createLineFolder`. */
   lineEndOffset?: number;
   /** Accumulated stderr tail for the rate-limit / missing-session scan. */
   stderrBuf: string;
@@ -2777,10 +2777,14 @@ export class ClaudeCodeProvider implements AIProvider {
         if (rt && rt !== "waiting for message") {
           pp.replayTailOpen = false;
           pp.replayLastResult = event;
-          // Alla RIGA, non alla fetta: `consumedOffset` sta alla fine del chunk
-          // consegnato dal daemon (fino a 1 MB), quindi ripartire da lì saltava
-          // tutto ciò che nella stessa fetta veniva dopo il `result` — cioè la
-          // testa del turno ancora aperto. Vedi `createLineFolder`.
+          // Alla RIGA, non alla fetta — e la fetta era anche peggio di come
+          // suona. `consumedOffset` si aggiorna DOPO il fold dell'intero chunk,
+          // quindi mentre le righe scorrono qui dentro vale ancora quello del
+          // giro precedente: su un replay consegnato in un frame solo (che è il
+          // caso normale) è ZERO. Il punto di ripartenza della fase 2 non era la
+          // fine della fetta, era il suo inizio — misurato: la riadozione si
+          // rispediva l'intero store una TERZA volta, e la rifoldava non muta.
+          // Vedi `createLineFolder`.
           pp.replayAfterLastResultOffset = pp.lineEndOffset ?? pp.consumedOffset;
         }
       } else {
