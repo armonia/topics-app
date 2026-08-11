@@ -368,9 +368,20 @@ const CHIP_WAITING = "waiting";
 // killing a live turn is far worse than recovering one sweep later.
 const LIVENESS_DEAD_SWEEPS = 2;
 // The two states that mean "a dispatch turn is genuinely live" — reconcile only
-// requeues orphans in these states, so a human dragging a review/done task into
+// resumes IN PLACE from these, so a human dragging a review/done task into
 // In Progress (dispatch_state null/needs_input) is never falsely "orphaned".
 const ACTIVE_DISPATCH_STATES = new Set([CHIP_WORKING, "starting"]);
+// Gli stati da cui un task in_progress SENZA turno vivo va recuperato — cioè i
+// tre che solo il dispatcher scrive. `queued` è il terzo, e per un pezzo non
+// c'era: un'attesa che vive in memoria (il rinvio del resume a tetto pieno)
+// muore col processo e lascia la card in_progress col chip «aspetto il turno».
+// Da fuori sembra occupata, e per l'umano lo è; dentro non c'è più nessuno che
+// la riprenda. Misurate l'11/08: sette card ferme così da 40 minuti su una
+// board che ne faceva girare una sola.
+//
+// Restano fuori i chip che scrive UNA PERSONA (null, needs_input, delivered):
+// lì il task è in mano sua e recuperarlo sarebbe rubarglielo.
+const RECOVERABLE_DISPATCH_STATES = new Set([...ACTIVE_DISPATCH_STATES, CHIP_QUEUED]);
 
 /**
  * Human phrasing for the external-session guard: how many sessions, where, and
@@ -2203,12 +2214,13 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // this it would ALSO look like a restart orphan and get a second, wrong
       // recovery ("il server è ripartito", which never happened).
       if (justBuried.has(t.id)) continue;
-      // Only touch tasks that were genuinely mid-dispatch (starting/working)
-      // when the process died — including a claim that never got its topic
-      // bound (claim precedes bindTopic, so an early crash leaves the binding
-      // NULL). A human who drags a review/done card (chip null or needs_input)
-      // into In Progress is NOT an orphan — leave it be.
-      if (!ACTIVE_DISPATCH_STATES.has(t.dispatchState ?? "")) continue;
+      // Only touch tasks the DISPATCHER had in hand when the process died:
+      // mid-turn (working), mid-claim (starting — the claim precedes bindTopic,
+      // so an early crash leaves the binding NULL), or waiting for a slot
+      // (queued — an attesa that lived only in memory). A human who drags a
+      // review/done card (chip null or needs_input) into In Progress is NOT an
+      // orphan — leave it be.
+      if (!RECOVERABLE_DISPATCH_STATES.has(t.dispatchState ?? "")) continue;
       // Un FAN-OUT orfano non si "riprende sulla stessa sessione": di sessioni
       // ne aveva N, e `assigned_topic_id` ne punta una sola (il tentativo 1).
       // Riprendere quella abbandonerebbe le altre in silenzio. Si chiude il giro
@@ -2284,7 +2296,12 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           taskId: t.id,
           requeue: true,
           rollbackAttempt: true,
-          reason: "Il server è ripartito mentre l'agent lavorava: task rimesso in coda (il riavvio non consuma un tentativo).",
+          // Un fantasma `queued` non stava lavorando: stava aspettando un posto,
+          // e l'attesa è morta col processo. Dirgli "mentre l'agent lavorava"
+          // manderebbe l'umano a cercare un lavoro che non c'è mai stato.
+          reason: t.dispatchState === CHIP_QUEUED
+            ? "Il server è ripartito mentre il task aspettava uno slot libero: l'attesa viveva in memoria, quindi lo rimetto in coda (il riavvio non consuma un tentativo)."
+            : "Il server è ripartito mentre l'agent lavorava: task rimesso in coda (il riavvio non consuma un tentativo).",
         });
         // On a board that never dispatches the requeue's `queued` chip would
         // strand forever (tick no-ops with the switch off) — clear it.
