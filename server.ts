@@ -494,7 +494,19 @@ configureSessionParkingForTracker(claudeSessionTracker);
 const webrtcBridge = createWebrtcBridge();
 
 // Create route handlers
-const topicsRouter = createTopicsRouter(ctx, browserService);
+// «Qualcuno sta VEDENDO questo contextId?» — un socket `/ws/browser/<ctx>`
+// aperto e vivo. Lo apre sia la pane nativa (che poi si registra come delegato)
+// sia quella web (che guarda lo screencast), quindi è il segnale più vicino a
+// «la pane è montata» che il server abbia: il contesto headless, da solo, esiste
+// anche quando nessuna pane si è montata. `open-pane` lo usa per armare il
+// ripiego `browser:force-open` e per rispondere la verità (`visible`).
+const paneAttachedTo = (contextId: string): boolean => {
+  const set = browserWsClients.get(contextId);
+  if (!set) return false;
+  for (const w of set) if (w.readyState === 1) return true;
+  return false;
+};
+const topicsRouter = createTopicsRouter(ctx, browserService, paneAttachedTo);
 const filesRouter = createFilesRouter(ctx);
 const voiceRouter = createVoiceRouter(ctx);
 const mediaRouter = createMediaRouter(ctx);
