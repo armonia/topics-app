@@ -451,8 +451,14 @@ export function writeMcpConfigForSession(
   // re-read on EVERY API call of every turn, a pure token tax for an agent
   // that works one task. Web research stays available via the CLI's built-in
   // WebSearch/WebFetch (not MCP). Per-board escape hatch: dispatch_mcp='inherit'.
-  if (opts?.mcpPolicy === "bridge-only") {
-    const config = { mcpServers: { topics: topicsMcpBridgeSpec(sessionKey, "dispatch") } };
+  // 'orchestrator' (la sessione con la board in contesto, services/orchestrator.ts):
+  // stessa forma di 'bridge-only' — solo il bridge, strict — ma col profilo
+  // `orchestrator`, che tiene TUTTI i tool della board e toglie quelli di
+  // sotto-agente. Il perché di quel confine sta accanto alla lista, in
+  // `ORCHESTRATOR_EXCLUDED_TOOLS`.
+  if (opts?.mcpPolicy === "bridge-only" || opts?.mcpPolicy === "orchestrator") {
+    const profile = opts.mcpPolicy === "orchestrator" ? "orchestrator" : "dispatch";
+    const config = { mcpServers: { topics: topicsMcpBridgeSpec(sessionKey, profile) } };
     const path = mcpConfigPathForSession(sessionKey);
     writeFileSync(path, JSON.stringify(config, null, 2), { encoding: "utf-8", mode: 0o600 });
     try { chmodSync(path, 0o600); } catch { /* best-effort */ }

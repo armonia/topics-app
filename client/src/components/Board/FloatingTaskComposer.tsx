@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Check, ChevronDown, ClipboardList, CornerDownRight, Link2, Loader2, Lock, Send, Sparkles, X } from 'lucide-react';
+import { Bot, Check, ChevronDown, ClipboardList, CornerDownRight, Link2, Loader2, Lock, Plus, Send, Sparkles, X } from 'lucide-react';
 import { Menu } from '../Shared/Menu';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { boardApi, boardDrafts, AUTO_PROJECT_ID, STATUS_LABEL, UNASSIGNED_PROJECT_ID, type BoardProjectRef, type LinkProposal } from '../../lib/board';
@@ -25,7 +25,7 @@ import { POPOVER_ITEM } from '@/lib/popoverStyles';
  * sparire. Quando serve toglierlo di mezzo (un campo che gli si sovrappone, il
  * drawer a tutto schermo del telefono) lo si NASCONDE con `hidden`/`hiddenBelowLg`.
  */
-export function FloatingTaskComposer({ projectId, global, onCreated, onError, hidden, hiddenBelowLg }: {
+export function FloatingTaskComposer({ projectId, global, onCreated, onError, hidden, hiddenBelowLg, onOpenTopic }: {
   projectId: string;
   /** Cross-project mode: no implicit board — the project picker chip appears. */
   global: boolean;
@@ -35,8 +35,32 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
   hidden?: boolean;
   /** Nascosto solo sotto `lg`, dove il drawer del task è un overlay a tutto schermo. */
   hiddenBelowLg?: boolean;
+  /**
+   * Apre la chat di un topic. Serve alla porta dell'orchestratore: la sua
+   * risposta vive nella SUA sessione, e se non la si apre il gesto finisce in
+   * un silenzio — che è esattamente il «mai in muto» che la feature vieta.
+   */
+  onOpenTopic?: (topicId: string) => void;
 }) {
   const [text, setText] = useState('');
+  /**
+   * Le due cose che si possono fare da qui: nascere una card, o parlare
+   * all'ORCHESTRATORE — la sessione che ha questa board in contesto.
+   *
+   * È un interruttore e non un secondo composer perché l'orchestratore non è
+   * una superficie: la porta della chat e questa arrivano alla stessa sessione
+   * (`server/services/orchestrator.ts`). Duplicare l'input qui vorrebbe dire
+   * duplicare anche le regole, e da lì in poi le due porte divergono.
+   */
+  const [mode, setMode] = useState<'task' | 'orchestrator'>(() => {
+    try { return localStorage.getItem('board:composerMode') === 'orchestrator' ? 'orchestrator' : 'task'; }
+    catch { return 'task'; }
+  });
+  const orchestrating = mode === 'orchestrator';
+  const setModeStored = (m: 'task' | 'orchestrator') => {
+    setMode(m);
+    try { localStorage.setItem('board:composerMode', m); } catch { /* private mode */ }
+  };
   const [focused, setFocused] = useState(false);
   const [planFirst, setPlanFirst] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -178,6 +202,11 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
   useEffect(() => {
     const raw = text.trim();
     if (link) return;
+    // In modalità orchestratore l'intake non ha oggetto: qui non sta nascendo
+    // una card da collegare, si sta parlando. Proporre «sembra legato a X» su
+    // una frase come «a che punto siamo?» sarebbe una risposta a una domanda
+    // che nessuno ha fatto — e una chiamata alla board per ogni tasto.
+    if (orchestrating) { setProposal(null); return; }
     if (raw.length < 12 || !target || target === UNASSIGNED_PROJECT_ID) { setProposal(null); return; }
     let alive = true;
     const timer = setTimeout(() => {
@@ -186,7 +215,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
         .catch(() => { if (alive) setProposal(null); });
     }, 450);
     return () => { alive = false; clearTimeout(timer); };
-  }, [text, target, link]);
+  }, [text, target, link, orchestrating]);
 
   // Cambiare board azzera la scelta: un collegamento vive su UNA board, e
   // trascinarlo altrove vorrebbe dire attaccare il task a una card che su quel
@@ -242,6 +271,25 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
     const raw = text.trim();
     if (!raw || submitting) return;
     if (!target) { onError('Scegli il progetto del task.'); setProjOpen(true); return; }
+    if (orchestrating) {
+      // «Progetto auto» non vale qui: l'orchestratore È la sessione DI una
+      // board, e senza sapere quale non c'è nessuno stato da mettergli davanti.
+      if (autoTarget || noneTarget) { onError("Scegli la board di cui parlare all'orchestratore."); setProjOpen(true); return; }
+      setSubmitting(true);
+      try {
+        const { topicId } = await boardApi.askOrchestrator(target, raw);
+        setText('');
+        boardDrafts.clearComposer();
+        if (taRef.current) taRef.current.style.height = 'auto';
+        // La risposta arriva nella sessione dell'orchestratore: aprirla è parte
+        // del gesto, non un extra. Mandare e non mostrare dove è finito sarebbe
+        // il muto che questa feature esiste per non fare.
+        onOpenTopic?.(topicId);
+        onCreated();
+      } catch (e) { onError(e instanceof Error ? e.message : 'invio fallito'); }
+      finally { setSubmitting(false); }
+      return;
+    }
     const lines = raw.split('\n');
     const firstLine = lines[0].trim();
     const title = firstLine.length > 80 ? firstLine.slice(0, 77) + '…' : firstLine;
@@ -309,7 +357,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
           onKeyUp={saveCursor}
           onClick={saveCursor}
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } }}
-          placeholder="Descrivi un task per l'agent…"
+          placeholder={orchestrating ? 'Chiedi all’orchestratore — «a che punto siamo?», «sposta le tre in review»…' : "Descrivi un task per l'agent…"}
           className={`block max-h-40 w-full resize-none overflow-y-auto bg-transparent px-3.5 py-3 text-sm leading-5 text-app-text outline-none transition-[min-height] duration-200 ease-out placeholder:text-app-placeholder ${
             expanded ? 'min-h-[4.5rem]' : 'min-h-0'
           }`}
@@ -318,7 +366,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
             portata di occhio (title = la frase intera), e due bottoni — quello
             consigliato acceso, l'altro a un click. Il terzo bottone è "no": il
             task nasce libero, che è anche ciò che succede se non tocchi niente. */}
-        {expanded && (proposal || link) && (
+        {expanded && !orchestrating && (proposal || link) && (
           <div
             data-testid="composer-intake"
             className="mx-2.5 mb-2 flex items-center gap-2 overflow-x-auto rounded-lg border border-app-border bg-black/5 px-2 py-1.5 text-[11px] scrollbar-hide dark:bg-white/5"
@@ -387,6 +435,22 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
               `shrink-0` perché lo scroll funzioni davvero: senza, si
               schiaccerebbero sotto il minimo tattile invece di traboccare. */}
           <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto scrollbar-hide">
+            {/* L'interruttore fra le due cose che si fanno da qui. Primo chip:
+                cambia il significato di tutto il resto della riga, quindi si
+                legge prima di scegliere un modello o una priorità. */}
+            <button
+              onClick={() => setModeStored(orchestrating ? 'task' : 'orchestrator')}
+              data-testid="composer-mode-chip"
+              title={orchestrating
+                ? "Stai parlando all'orchestratore (la sessione con questa board in contesto). Clicca per tornare a creare un task."
+                : 'Stai creando un task. Clicca per parlare invece all’orchestratore della board.'}
+              className={`flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[11px] transition-colors ${
+                orchestrating ? 'bg-sky-500/25 text-sky-200' : 'bg-black/5 text-app-text-secondary hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10'
+              }`}
+            >
+              {orchestrating ? <Bot className="h-3 w-3 shrink-0" /> : <Plus className="h-3 w-3 shrink-0" />}
+              <span className={CHIP_LABEL}>{orchestrating ? 'Orchestratore' : 'Nuovo task'}</span>
+            </button>
             {global && (
               <>
                 <button
@@ -429,6 +493,10 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
                 </Menu>
               </>
             )}
+            {/* Modello, priorità e plan-first descrivono come nascerà una CARD:
+                parlando all'orchestratore non hanno un oggetto, e lasciarli
+                accesi prometterebbe un effetto che non c'è. */}
+            {!orchestrating && (<>
             <button
               ref={modelBtnRef}
               onClick={() => { setModelOpen(true); loadModels(); }}
@@ -500,10 +568,11 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
                 planFirst ? 'bg-violet-500/25 text-violet-200' : 'bg-black/5 text-app-text-secondary hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10'
               }`}
             ><ClipboardList className="h-3 w-3 shrink-0" /><span className={CHIP_LABEL}>Plan first</span></button>
+            </>)}
           </div>
           <button
             onClick={submit} disabled={!text.trim() || submitting}
-            title="Crea il task (l'agent parte da Todo)"
+            title={orchestrating ? "Manda all'orchestratore (risponde nella sua chat)" : "Crea il task (l'agent parte da Todo)"}
             data-testid="composer-send"
             className="shrink-0 rounded-lg bg-emerald-500/80 p-1.5 text-white hover:bg-emerald-500 disabled:opacity-40"
           >{submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}</button>

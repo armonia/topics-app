@@ -1203,7 +1203,9 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
             onError={setError}
             hidden={typingElsewhere}
             hiddenBelowLg={!!selected}
+            onOpenTopic={onOpenTopic}
           />
+
         </div>
         {selected && (
           <TaskDetail
