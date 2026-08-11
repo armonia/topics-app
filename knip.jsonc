@@ -66,6 +66,10 @@
         // path in stringa: un riferimento che knip non può vedere.
         "scripts/licenza.ts!",
         "scripts/prefix-budget.ts!",      // diagnostica a mano: `bun run scripts/prefix-budget.ts [--probe]`
+        // Il `postinstall` di package.json — invocato da `bun install`, quindi da
+        // fuori del grafo degli import. Rimette il bit +x su spawn-helper di
+        // node-pty, senza il quale ogni terminale è morto.
+        "scripts/fix-node-pty-exec-bit.ts!",
         // La prova che la quota di core si RILEGGE a metà sessione: fa girare un
         // finto `cargo` attraverso lo shim vero con l'ambiente congelato, e
         // esce non-zero se il numero non cambia. Si lancia a mano
