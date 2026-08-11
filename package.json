@@ -16,6 +16,7 @@
     "companion"
   ],
   "scripts": {
+    "postinstall": "bun run scripts/fix-node-pty-exec-bit.ts",
     "start": "bun run server.ts",
     "dev:server": "bun --watch run server.ts",
     "dev:client": "cd client && bun run dev",
