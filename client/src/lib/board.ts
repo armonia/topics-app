@@ -14,9 +14,10 @@
 export { MAX_FANOUT, TASK_STATUSES, ACTIVE_DISPATCH_STATES, isAgentWorking, parseStatusEvent, hasPlanApproveOption } from '../../../shared/board';
 export type {
   TaskStatus, TaskComment, ReviewCheck, CheckRun, BoardSettings, BoardSettingsPatch, DispatchCapacity, BlockerRef,
+  LandingTicket,
 } from '../../../shared/board';
 import type {
-  TaskStatus, TaskComment, CheckRun, BoardSettings, BoardSettingsPatch, DispatchCapacity, BlockerRef,
+  TaskStatus, TaskComment, CheckRun, BoardSettings, BoardSettingsPatch, DispatchCapacity, BlockerRef, LandingTicket,
 } from '../../../shared/board';
 // Il tentativo di un fan-out: stesso contratto del server, stessa cartella condivisa.
 // Passa solo `attemptHasWork`, che è un predicato e non ha lingua. Il diffstat
@@ -527,9 +528,14 @@ export const boardApi = {
   review: (projectId: string, taskId: string, decision: 'approve' | 'reject', comment?: string, opts?: { force?: boolean }) =>
     req<BoardTask>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/review`, { method: 'POST', body: JSON.stringify({ decision, comment, force: opts?.force }) }),
   /** Land the task's branch on main (accept if still in review, then merge locally
-   *  + rebuild). Explicit, decoupled from approve — never pushes online. */
+   *  + rebuild). Explicit, decoupled from approve — never pushes online.
+   *  Risponde `202`: il land è ACCODATO, non ancora avvenuto — `landing` dice in
+   *  quanti ha davanti, e `landStatus` com'è finito. */
   land: (projectId: string, taskId: string) =>
-    req<BoardTask>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/land`, { method: 'POST', body: JSON.stringify({}) }),
+    req<BoardTask & { landing: LandingTicket }>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/land`, { method: 'POST', body: JSON.stringify({}) }),
+  /** L'esito del land richiesto per questo task (404 se non ne è mai stato chiesto uno). */
+  landStatus: (projectId: string, taskId: string) =>
+    req<{ landing: LandingTicket; pending: number }>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/land`),
   /** Move a root task (and its subtree) to another board. */
   move: (projectId: string, taskId: string, toProjectId: string) =>
     req<BoardTask>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/move`, { method: 'POST', body: JSON.stringify({ toProjectId }) }),
