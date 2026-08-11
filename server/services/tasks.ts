@@ -35,7 +35,7 @@ import { readGlobalCap } from "./dispatch-capacity";
 // chi la vuole la prende da `shared/board`.
 export type { TaskStatus, TaskComment, BoardSettings, BoardSettingsPatch, BlockerRef } from "../../shared/board";
 import {
-  MAX_FANOUT, PREVIEW_PROMOTE_MAX_RATIO, TASK_STATUSES, QUESTION_OPTIONS_SENTINEL,
+  MAX_FANOUT, PREVIEW_PROMOTE_MAX_RATIO, TASK_STATUSES,
   formatStatusEvent, hasPlanApproveOption, isAgentWorking, normalizeActionLabel,
   readTaskWeight, statusEventEnters,
 } from "../../shared/board";
@@ -1313,17 +1313,16 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         const options = questionOptions.map((o) => String(o ?? "").trim()).filter(Boolean);
         if (options.length === 0) throw new TaskServiceError("invalid_input", "question options are empty");
         if (body.includes("```")) throw new TaskServiceError("invalid_input", "question content must not contain code fences");
-        // Il corpo entra VERBATIM (a-capo compresi) e il separatore dice dove
-        // finisce: prima veniva appiattito in una riga per non confondere le sue
-        // righe-elenco con le opzioni, il che rendeva illeggibile per costruzione
-        // ogni piano consegnato secondo protocollo. Vedi QUESTION_OPTIONS_SENTINEL.
-        body = [
-          "```question",
-          body.replace(/\r\n/g, "\n").trim(),
-          QUESTION_OPTIONS_SENTINEL,
-          ...options.map((o) => `- ${o}`),
-          "```",
-        ].join("\n");
+        // IL LAYOUT DI QUESTO BLOCCO NON SI TOCCA. Non è formattazione: è il
+        // contratto fra l'unico scrittore (qui) e il parser delle risposte
+        // rapide del client — cambiarlo significa card senza bottoni, cioè
+        // proprio la cosa che deve esserci SEMPRE su un task non chiuso.
+        // L'a-capo del corpo resta appiattito perché in questa forma una riga
+        // `- …` del corpo sarebbe indistinguibile da un'opzione. Un piano che
+        // vuole tenersi l'impaginazione la tiene FUORI dalla fence (il testo
+        // attorno al blocco viaggia intatto e viene reso come markdown): il
+        // posto dove separare corpo e opzioni è il RENDER, non il salvato.
+        body = ["```question", body.replace(/\r?\n/g, " ").trim(), ...options.map((o) => `- ${o}`), "```"].join("\n");
         isPlanDelivery = hasPlanApproveOption(options);
       }
       const row = getTaskRow(taskId);
