@@ -407,6 +407,49 @@ export interface AcpUsageUpdate {
   cost?: UsageCost;
 }
 
+// ─── La sonda del costo: contesto × chiamate ───────────────────────────
+
+/**
+ * Il consuntivo di un turno, col suo moltiplicatore. Vedi
+ * `server/usage/cost-probe.ts` per il perché di ogni campo.
+ */
+export interface TurnCostProbe {
+  /** Chiamate a tool del turno: quante volte il contesto è ripartito. */
+  toolCalls: number;
+  /** Contesto all'ultima chiamata misurata del turno. */
+  contextTokens: number;
+  /** `contextTokens × toolCalls`: il costo del turno a contesto costante. */
+  projectedTokens: number;
+  /** Quello che è stato spedito davvero. */
+  promptTokens: number;
+  completionTokens: number;
+  costUsd: number;
+}
+
+/**
+ * La risposta di `GET /api/context/cost`: i due fattori e il loro prodotto.
+ *
+ * `projectedTokens` è una PREVISIONE (contesto di adesso × chiamate),
+ * `promptTokens` un CONSUNTIVO (quanto è partito davvero). Il primo è più
+ * grande del secondo perché il contesto cresceva: vanno letti insieme, o uno
+ * dei due diventa una bugia.
+ */
+export interface SessionCostProbe {
+  /** Il contesto di ADESSO: quanto rilegge la PROSSIMA chiamata a un tool. */
+  contextTokens: number;
+  windowTokens: number;
+  /** Costo in dollari di una sola chiamata in più, a questo contesto. */
+  perCallUsd: number;
+  toolCalls: number;
+  projectedTokens: number;
+  promptTokens: number;
+  completionTokens: number;
+  costUsd: number;
+  messages: number;
+  model: string | null;
+  lastTurn: TurnCostProbe | null;
+}
+
 /** Forma del broadcast WS `providers:snapshot`. */
 export interface WSProvidersSnapshotMessage {
   type: 'providers:snapshot';
