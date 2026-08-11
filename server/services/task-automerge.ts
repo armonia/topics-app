@@ -25,6 +25,7 @@
 import { tmpdir } from "os";
 import { join } from "path";
 import { createHash } from "crypto";
+import { countOwnCommits, otherLocalBranches } from "./own-commits";
 
 export type AutoMergeResult =
   | {
@@ -189,17 +190,16 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
         // Il discrimine non ha bisogno di ricordare da dove il worktree è nato:
         // un commit EREDITATO è raggiungibile anche da un ALTRO branch locale,
         // uno fatto dentro questo worktree no. Quindi `--not <gli altri branch>`
-        // lascia esattamente i commit del task.
-        const refs = await runGit(repoPath, ["for-each-ref", "--format=%(refname)", "refs/heads/"]);
-        const others = refs.stdout.split("\n").map((r) => r.trim()).filter(
-          (r) => r && r !== `refs/heads/${branch}` && r !== `refs/heads/${defaultBranch}`,
-        );
-        if (others.length > 0) {
-          const own = await runGit(repoPath, ["rev-list", "--count", `${defaultBranch}..${branch}`, "--not", ...others]);
-          if (own.code === 0) {
+        // lascia esattamente i commit del task — la sottrazione vive in
+        // `own-commits.ts`, perché è la STESSA domanda che si fa la consegna
+        // quando registra cosa ha prodotto la card: due copie divergerebbero, e
+        // la copia sbagliata è quella che pubblica il lavoro di un altro.
+        const others = await otherLocalBranches(repoPath, branch, { mainRef: defaultBranch, runGit });
+        if (others && others.length > 0) {
+          const mine = await countOwnCommits(repoPath, branch, { mainRef: defaultBranch, runGit, others });
+          if (mine !== null) {
             const total = Number(ahead.stdout.trim());
-            const mine = Number(own.stdout.trim());
-            if (Number.isFinite(total) && Number.isFinite(mine) && total > mine) {
+            if (Number.isFinite(total) && total > mine) {
               return {
                 status: "skipped",
                 reason:
