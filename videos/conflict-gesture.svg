@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="520" viewBox="0 0 1000 520" font-family="ui-sans-serif,-apple-system,Segoe UI,Helvetica,Arial">
+  <rect width="1000" height="520" fill="#0f1115"/>
+  <text x="40" y="62" fill="#f4f6fb" font-size="42" font-weight="800">Land in conflitto → quale gesto</text>
+
+  <rect x="40" y="98" width="440" height="250" rx="16" fill="#241318" stroke="#a33b4b" stroke-width="3"/>
+  <text x="70" y="158" fill="#ff8b9d" font-size="40" font-weight="800">PRIMA</text>
+  <text x="70" y="216" fill="#e6e9f0" font-size="36" font-weight="600">merge main</text>
+  <text x="70" y="264" fill="#e6e9f0" font-size="36" font-weight="600">nel ramo</text>
+  <text x="70" y="322" fill="#ff8b9d" font-size="34" font-weight="700">→ collide ancora</text>
+
+  <rect x="520" y="98" width="440" height="250" rx="16" fill="#0f2419" stroke="#3f9e6a" stroke-width="3"/>
+  <text x="550" y="158" fill="#7ee2a8" font-size="40" font-weight="800">DOPO</text>
+  <text x="550" y="216" fill="#e6e9f0" font-size="36" font-weight="600" font-family="ui-monospace,Menlo,monospace">git rebase main</text>
+  <text x="550" y="264" fill="#e6e9f0" font-size="36" font-weight="600">main intoccato</text>
+  <text x="550" y="322" fill="#7ee2a8" font-size="34" font-weight="700">→ passa al 1º colpo</text>
+
+  <rect x="40" y="380" width="920" height="104" rx="16" fill="#171a21" stroke="#2c3341" stroke-width="3"/>
+  <text x="70" y="428" fill="#f4f6fb" font-size="34" font-weight="700">3 file di testo · 5 asserzioni nuove</text>
+  <text x="70" y="468" fill="#9aa3b5" font-size="30">protocollo · kickoff · resume al conflitto</text>
+</svg>
