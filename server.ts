@@ -2100,12 +2100,36 @@ const opzioniServer = {
       return new Response("WebSocket upgrade failed", { status: 400 });
     }
 
+    // LETTURA = GET **o HEAD**. Ogni ramo statico qui sotto era gated sul solo
+    // `method === "GET"`, così un HEAD scivolava fino in fondo e prendeva 404:
+    // misurato l'11/08 sul server vivo, `GET /assets/index-<hash>.js` → 200 e
+    // `HEAD` sullo stesso path → 404, `HEAD /` → 404. HEAD è il verbo di cache,
+    // proxy, link checker e sonde di salute — chi chiede «esiste? è cambiato?»
+    // si sentiva rispondere «non esiste» e agiva di conseguenza (invalida,
+    // riscarica, segnala un link morto). RFC 9110 §9.3.2: la risposta a HEAD è
+    // identica a quella di GET **senza il corpo**, header compresi.
+    // Il corpo non va tolto a mano: Bun.serve svuota da sé la risposta a un HEAD
+    // e conserva `Content-Length` (verificato con Bun.file e con una stringa) —
+    // quello che mancava era solo il montaggio del verbo.
+    const isRead = method === "GET" || method === "HEAD";
+    // La parità degli HEADER, non solo dello status. Quando il corpo è un
+    // `Bun.file` grande (misurato: 290 KB sì, 3 KB no — è il ramo sendfile) Bun
+    // aggiunge da sé un `Content-Disposition: filename="index-<hash>.js"`, che
+    // sull'HEAD non c'è: due risposte che dovrebbero essere identiche
+    // differivano di un header, e quello sul GET è pure malformato (RFC 6266
+    // vuole un tipo, `inline`/`attachment`, non un `filename` nudo). Dichiararlo
+    // NOI vince sull'iniezione e riallinea i due verbi.
+    // Solo per il bundle, che è roba NOSTRA e va renderizzata: gli allegati e i
+    // media restano senza dichiarazione, e i download del browser hanno già il
+    // loro `attachment` esplicito qualche riga più sotto.
     // Dev mode proxy: ?dev=true proxies to Topics Vite dev server on :3332
     const isDevMode = url.searchParams.get("dev") === "true" || req.headers.get("cookie")?.includes("topics-dev=true");
-    if (isDevMode && method === "GET" && !pathname.startsWith("/api/") && !pathname.startsWith("/ws")) {
+    if (isDevMode && isRead && !pathname.startsWith("/api/") && !pathname.startsWith("/ws")) {
       try {
         const viteUrl = `https://localhost:3332${pathname}${url.search}`;
-        const viteResp = await fetch(viteUrl, { headers: req.headers, tls: { rejectUnauthorized: false } } as any);
+        // `method` e non "GET" implicito: un HEAD proxato come GET tirerebbe giù
+        // da Vite l'intero modulo per poi buttarlo via.
+        const viteResp = await fetch(viteUrl, { method, headers: req.headers, tls: { rejectUnauthorized: false } } as any);
         if (viteResp.ok) {
           const respHeaders = new Headers(viteResp.headers);
           if (url.searchParams.get("dev") === "true") {
@@ -2124,7 +2148,7 @@ const opzioniServer = {
 
     // Static files
     const isDevPort = PORT === 3330;
-    if (method === "GET" && (pathname === "/" || pathname === "/index.html")) {
+    if (isRead && (pathname === "/" || pathname === "/index.html")) {
       // Last-known-good shell. /public is rewritten in place by the build-watch
       // agent (com.armonia.topics-build-watch), so a page load that lands mid
       // rebuild used to read a missing index.html, throw, and answer 500 — the
@@ -2166,27 +2190,27 @@ const opzioniServer = {
       // /assets/* stay immutable, so this costs one tiny HTML fetch, not the JS.
       return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
     }
-    if (method === "GET" && pathname.endsWith(".html")) {
+    if (isRead && pathname.endsWith(".html")) {
       const file = Bun.file(join(PUBLIC_DIR, pathname));
-      if (await file.exists()) return new Response(file, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
+      if (await file.exists()) return new Response(file, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "Content-Disposition": "inline" } });
     }
     // Asset del bundle. La decisione (quali file, con che cache) sta in
     // `classifyStaticAsset` (server/static-assets.ts) così è unit-testata —
     // stesso trattamento di `shouldServeSpaFallback`. Qui c'era un elenco di
     // nomi a mano in cui `/boot.js` mancava: la shell web caricava uno script
     // che rispondeva 404, e con lui perdeva tema pre-paint e service worker.
-    if (method === "GET") {
+    if (isRead) {
       const asset = classifyStaticAsset(pathname, PUBLIC_DIR);
       if (asset) {
         const file = Bun.file(asset.filePath);
         if (await file.exists()) {
-          return new Response(file, { headers: { "Content-Type": getMimeType(asset.filePath), "Cache-Control": asset.cacheControl } });
+          return new Response(file, { headers: { "Content-Type": getMimeType(asset.filePath), "Cache-Control": asset.cacheControl, "Content-Disposition": "inline" } });
         }
       }
     }
 
     // Serve uploaded files (screenshots, attachments)
-    if (method === "GET" && pathname.startsWith("/uploads/")) {
+    if (isRead && pathname.startsWith("/uploads/")) {
       const filePath = join(ctx.UPLOADS_DIR, pathname.slice("/uploads/".length));
       const file = Bun.file(filePath);
       if (await file.exists()) {
@@ -2197,7 +2221,7 @@ const opzioniServer = {
 
     // Serve OpenClaw media files (browser screenshots, etc.)
     // Handles paths like /media/browser/uuid.jpg → ~/.openclaw/media/browser/uuid.jpg
-    if (method === "GET" && pathname.startsWith("/media/") && !pathname.includes("..")) {
+    if (isRead && pathname.startsWith("/media/") && !pathname.includes("..")) {
       const mediaBase = join(process.env.HOME || "/tmp", ".openclaw", "media");
       const filePath = join(mediaBase, pathname.slice("/media/".length));
       // Security: ensure resolved path stays within media directory (match on a
@@ -2231,7 +2255,7 @@ const opzioniServer = {
     }
 
     // Preview endpoint: serve local files for browser panel
-    if (method === "GET" && pathname.startsWith("/preview/")) {
+    if (isRead && pathname.startsWith("/preview/")) {
       let filePath = decodeURIComponent(pathname.slice("/preview".length));
       if (!filePath.startsWith("/")) filePath = "/" + filePath;
       const resolved = resolve(filePath);
