@@ -18,7 +18,7 @@ import { StatusIcon, DispatchChip, TaskIdChip } from './atoms';
 import { POPOVER_DIVIDER, POPOVER_ITEM, POPOVER_ITEM_DANGER } from '@/lib/popoverStyles';
 
 // ── Column ────────────────────────────────────────────────────────────────
-export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject, onError, onRefetch, onOpenTopic, tasksById, projectPathById, liveById, awaitingHuman, justDone }: {
+export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject, onError, onRefetch, onOpenTopic, tasksById, projectPathById, liveById, awaitingHuman, justDone, justCreated }: {
   status: TaskStatus; tasks: BoardTask[]; onOpen: OpenTask; onCreate: (text: string) => void;
   canCreate: boolean; showProject: boolean; onError: (e: string) => void; onRefetch: () => void;
   onOpenTopic?: (topicId: string) => void; tasksById: Map<string, BoardTask>; projectPathById: Map<string, string>;
@@ -28,6 +28,8 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
   awaitingHuman: Set<string>;
   /** Card appena arrivate in Done: lampeggiano per un paio di secondi. */
   justDone: Set<string>;
+  /** Card appena NATE: stesso lampo all'altro capo della vita del task, in azzurro. */
+  justCreated: Set<string>;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: status });
   const [adding, setAdding] = useState(false);
@@ -86,6 +88,7 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
               live={liveById.get(t.id)}
               awaiting={awaitingHuman.has(t.id)}
               justDone={justDone.has(t.id)}
+              justCreated={justCreated.has(t.id)}
             />
           ))}
         </SortableContext>
@@ -118,7 +121,7 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
 // props from the parent (onOpen/onError/onRefetch/onOpenTopic) are stable
 // (useCallback / state setters), and task/parentTitle come from tasks-keyed
 // memos, so the shallow prop compare holds for idle cards.
-export const Card = memo(function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, parentTitle, projectPath, live, awaiting, justDone }: {
+export const Card = memo(function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, parentTitle, projectPath, live, awaiting, justDone, justCreated }: {
   task: BoardTask; onOpen: OpenTask; showProject: boolean;
   onError: (e: string) => void; onRefetch: () => void; onOpenTopic?: (topicId: string) => void;
   /** Text of the parent task when this card is a subtask (context chip). */
@@ -132,6 +135,8 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
   live?: LiveUsage;
   /** La card è appena arrivata in Done: lampo verde, si spegne da solo. */
   justDone?: boolean;
+  /** La card è appena stata CREATA: lampo azzurro, si spegne da solo. */
+  justCreated?: boolean;
 }) {
   // Sortable: the source card is dimmed (the DragOverlay carries the visual)
   // but its NEIGHBOURS get the reflow transform — the list opens a gap under
@@ -273,7 +278,13 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
       // esiste un secondo menu da tenere allineato — e' lo stesso.
       onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ x: e.clientX, y: e.clientY }); }}
       data-just-done={justDone || undefined}
-      className={`group cursor-grab rounded-md border border-app-border bg-surface p-2.5 text-sm text-app-text shadow-sm hover:border-app-border-light ${isDragging ? 'opacity-40' : ''} ${justDone ? 'task-done-flash' : ''}`}
+      data-just-created={justCreated || undefined}
+      // I due lampi sono UNA scelta, non due classi che si sommano: `animation`
+      // è una proprietà sola, quindi la seconda vincerebbe per ordine di
+      // dichiarazione in index.css invece che per quello che è successo alla
+      // card. Done batte creato — nascere è l'evento più debole dei due, e
+      // comunque non si nasce in Done.
+      className={`group cursor-grab rounded-md border border-app-border bg-surface p-2.5 text-sm text-app-text shadow-sm hover:border-app-border-light ${isDragging ? 'opacity-40' : ''} ${justDone ? 'task-done-flash' : justCreated ? 'task-created-flash' : ''}`}
     >
       {/* Top row: project eyebrow (cross-project) on the LEFT; the AGENT
           cluster in the top-right SLOT — dispatch state, model/effort, "apri
