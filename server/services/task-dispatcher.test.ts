@@ -410,6 +410,70 @@ describe("task-dispatcher", () => {
     expect(h.dispatcher.isInFlight("t1")).toBe(false);
   });
 
+  // ── snellimento del worktree alla consegna ────────────────────────────
+  //
+  // Una card consegnata aspetta un umano per giorni tenendosi ~260 MB di
+  // dipendenze. Alla consegna quel peso se ne va — ma DOPO l'anteprima, che è
+  // un `bun run dev` dentro quello stesso worktree.
+
+  async function deliver(h: ReturnType<typeof harness>) {
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    h.svc.addComment({ taskId: "t1", author: "claude", content: "fatto" });
+    h.svc.update({ taskId: "t1", actor: "agent", by: "claude", patch: { status: "review" } });
+    h.finishTurn();
+    await flush();
+  }
+
+  it("consegna → il worktree si snellisce, ma solo DOPO l'anteprima", async () => {
+    const ordine: string[] = [];
+    let sbloccaAnteprima: (() => void) | null = null;
+    const h = harness({
+      preparePreview: (id) => new Promise<void>((res) => {
+        ordine.push(`anteprima:${id}`);
+        sbloccaAnteprima = () => res();
+      }),
+      slimWorktree: async (id) => { ordine.push(`slim:${id}`); },
+    });
+    await deliver(h);
+    // L'anteprima è ancora in piedi: togliere `node_modules` ora la ucciderebbe.
+    expect(ordine).toEqual(["anteprima:t1"]);
+    sbloccaAnteprima!();
+    await flush();
+    expect(ordine).toEqual(["anteprima:t1", "slim:t1"]);
+  });
+
+  it("un'anteprima che fallisce non impedisce di liberare lo spazio", async () => {
+    const slimmed: string[] = [];
+    const h = harness({
+      preparePreview: async () => { throw new Error("porta occupata"); },
+      slimWorktree: async (id) => { slimmed.push(id); },
+    });
+    await deliver(h);
+    expect(slimmed).toEqual(["t1"]);
+  });
+
+  it("uno slim che esplode non tocca la consegna", async () => {
+    const h = harness({ slimWorktree: async () => { throw new Error("permessi"); } });
+    await deliver(h);
+    expect(h.task("t1")!.status).toBe("review");
+    expect(h.task("t1")!.dispatchState).toBe("delivered");
+  });
+
+  it("un turno che NON consegna non snellisce niente", async () => {
+    const slimmed: string[] = [];
+    const h = harness({ slimWorktree: async (id) => { slimmed.push(id); } });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    h.finishTurn();   // finito senza arrivare in review
+    await flush();
+    expect(slimmed).toEqual([]);
+  });
+
   it("a question as the agent's last word flips the chip to needs_input ('serve te')", async () => {
     const h = harness();
     h.svc.updateBoardSettings(PID, { autoDispatch: true });
