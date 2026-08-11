@@ -525,7 +525,19 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         // the repo (content, not ancestry) before destroying anything.
         await reapAfterLand(taskId, "nothing");
       } else if (res.status === "conflict") {
-        svc.update({ taskId, actor: "human", by: "user", projectId, patch: { status: "in_progress" } });
+        // La card ESCE da `done`, e la riga di storico deve dire perché. Prima
+        // diceva "user → In corso": la stessa riga che scrive un umano quando
+        // ritira una consegna a mano — mentre qui l'umano aveva cliccato
+        // "Landa su main" e il ritiro è della macchina. `by: "system"` mette la
+        // firma giusta, `statusReason` la causa; il commento sotto resta perché
+        // porta l'istruzione all'agent, non la sola causa.
+        // `actor: "human"` è l'asse dei PERMESSI (nessun agente potrebbe
+        // riportare indietro un task chiuso), non quello dell'attribuzione.
+        svc.update({
+          taskId, actor: "human", by: "system", projectId,
+          patch: { status: "in_progress" },
+          statusReason: "il land ha fatto conflitto con main",
+        });
         svc.addComment({ taskId, author: "system", content: "Merge automatico in conflitto con main — rimando all'agent per risolvere." });
         dispatcher?.resume(
           taskId,
