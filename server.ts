@@ -62,7 +62,7 @@ import { branchStatusFromRepo, commitStatusFromRepo, resolveCommit, worktreeDiff
 import { deliveryPointer } from "./server/services/own-commits";
 import { abandonNoticeFromRepo } from "./server/services/worktree-abandon-notice";
 import { createTaskAttemptStore } from "./server/services/task-attempts";
-import { auditLandings } from "./server/services/landing-audit";
+import { auditLandings, type AuditTask, type LandingState } from "./server/services/landing-audit";
 import { createTranscriptUsageReader, ZERO_USAGE } from "./server/services/transcript-usage";
 import { createDetachedTopic, DETACHED_TOPIC_AUTONOMY } from "./server/lib/session-control-core";
 import { buildProjectCandidates, resolveProjectPath, isSelectableProjectDir } from "./server/services/project-path-resolver";
@@ -1399,6 +1399,9 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
     const commit = await resolveCommit(wt.absPath, "HEAD");
     return { cwd: wt.absPath, commit };
   },
+  // Il semaforo di atterraggio della card, ri-chiesto SUBITO dopo un land invece
+  // di aspettare la passata dei 30 minuti (`auditOneLanding`, più in basso).
+  auditTaskLanding: (taskId) => auditOneLanding(taskId),
   // Post-landing reap: merged (or empty) worktrees have no remaining value —
   // the manager path removes worktree + branch + row, serialized per project.
   deleteTaskWorktree: async (taskId) => {
@@ -3936,8 +3939,19 @@ async function backfillDeliveries(): Promise<void> {
 }
 
 const LANDING_AUDIT_INTERVAL_MS = 30 * 60_000;
-async function runLandingAudit() {
-  await backfillDeliveries().catch((err) => console.warn("[landing-audit] backfill failed", err));
+
+/**
+ * Le dipendenze dell'audit, meno la lista di chi guardare — così la passata
+ * periodica e il timbro su UNA card fanno lo stesso conto. Se divergessero, il
+ * verdetto istantaneo dopo un land e quello del giro dopo potrebbero
+ * contraddirsi, e il semaforo tornerebbe a non voler dire niente.
+ *
+ * `announce` è l'unica differenza legittima: la passata deve DIRE sulla card
+ * che una consegna non è su main (una riga, datata); il timbro post-land no —
+ * lì il thread ha appena scritto perché il land non è riuscito, e ripeterlo
+ * sarebbe il commento numero due sullo stesso fatto.
+ */
+function landingAuditDeps(listCandidates: () => AuditTask[], announce: boolean) {
   // `tasks.project_id` is the BOARD id — `projectIdForPath(path)`, a one-way
   // hash — not a ProjectStore UUID. Asking the store for it returns undefined
   // for every real board, and the audit reads a missing repo as "can't tell":
@@ -3950,32 +3964,59 @@ async function runLandingAudit() {
     workspaceDir: DISPATCH_WORKSPACE_DIR,
     extraPaths: dispatchExtraPaths,
   });
-  return auditLandings({
-    listCandidates: () => dispatcherSvc.listLandingAuditCandidates(),
-    repoPath: (projectId) => resolveProjectPath(projectId, candidates)?.path ?? null,
-    commitStatus: (repoPath, commit) => commitStatusFromRepo(repoPath, commit),
-    record: (taskId, state, checkedAt) => dispatcherSvc.recordLandingState({ taskId, state, checkedAt }),
-    previousState: (taskId) => dispatcherSvc.get(taskId)?.task.landingState ?? null,
+  return {
+    listCandidates,
+    repoPath: (projectId: string) => resolveProjectPath(projectId, candidates)?.path ?? null,
+    commitStatus: (repoPath: string, commit: string) => commitStatusFromRepo(repoPath, commit),
+    record: (taskId: string, state: LandingState, checkedAt: string) =>
+      dispatcherSvc.recordLandingState({ taskId, state, checkedAt }),
+    previousState: (taskId: string) => dispatcherSvc.get(taskId)?.task.landingState ?? null,
     // The whole point: a delivery that never reached main must SAY so, on the
     // task, once — not sit silently in a column for 8 days.
-    onNewlyUnlanded: (task) => {
-      try {
-        dispatcherSvc.addComment({
-          taskId: task.id, author: "system",
-          // Una riga, non un paragrafo: lo STATO ha già una banda in cima al
-          // drawer e un badge sulla card (`landingState`), e questo commento
-          // serve solo a datare il momento in cui è successo. Ripeterci sopra
-          // l'intera spiegazione, a ogni oscillazione, era la parte brutta —
-          // 128 commenti su 97 card, uno lungo tre righe.
-          content: `Non è su main: \`${task.deliveryCommit?.slice(0, 8)}\`${task.deliveryBranch ? ` (${task.deliveryBranch})` : ""} — landa il ramo prima che venga potato.`,
-        });
-        const fresh = dispatcherSvc.get(task.id)?.task;
-        if (fresh) broadcastToAll({ type: "task:updated", projectId: task.projectId, task: fresh });
-      } catch (err) { console.warn("[landing-audit] comment failed", err); }
-    },
+    onNewlyUnlanded: announce
+      ? (task: AuditTask) => {
+          try {
+            dispatcherSvc.addComment({
+              taskId: task.id, author: "system",
+              // Una riga, non un paragrafo: lo STATO ha già una banda in cima al
+              // drawer e un badge sulla card (`landingState`), e questo commento
+              // serve solo a datare il momento in cui è successo. Ripeterci sopra
+              // l'intera spiegazione, a ogni oscillazione, era la parte brutta —
+              // 128 commenti su 97 card, uno lungo tre righe.
+              content: `Non è su main: \`${task.deliveryCommit?.slice(0, 8)}\`${task.deliveryBranch ? ` (${task.deliveryBranch})` : ""} — landa il ramo prima che venga potato.`,
+            });
+            const fresh = dispatcherSvc.get(task.id)?.task;
+            if (fresh) broadcastToAll({ type: "task:updated", projectId: task.projectId, task: fresh });
+          } catch (err) { console.warn("[landing-audit] comment failed", err); }
+        }
+      : undefined,
     now: () => new Date().toISOString(),
-    log: (msg) => console.log(msg),
-  }).catch((err) => { console.error("[landing-audit] sweep failed", err); return null; });
+    log: (msg: string) => console.log(msg),
+  };
+}
+
+async function runLandingAudit() {
+  await backfillDeliveries().catch((err) => console.warn("[landing-audit] backfill failed", err));
+  return auditLandings(
+    landingAuditDeps(() => dispatcherSvc.listLandingAuditCandidates(), /*announce*/ true),
+  ).catch((err) => { console.error("[landing-audit] sweep failed", err); return null; });
+}
+
+/**
+ * Il verdetto per UNA card, subito. Lo chiama il land (`auditTaskLanding`) alla
+ * fine di ogni tentativo: senza, il semaforo della card resterebbe fino a
+ * mezz'ora sull'ultimo giro — rosso su lavoro appena atterrato — e un rosso che
+ * dice sempre rosso non lo guarda più nessuno.
+ */
+async function auditOneLanding(taskId: string): Promise<void> {
+  const t = dispatcherSvc.get(taskId)?.task;
+  if (!t?.deliveryCommit) return; // niente fotografia della consegna: niente da verificare
+  const one: AuditTask = {
+    id: t.id, projectId: t.projectId,
+    deliveryBranch: t.deliveryBranch ?? null, deliveryCommit: t.deliveryCommit,
+  };
+  await auditLandings(landingAuditDeps(() => [one], /*announce*/ false))
+    .catch((err) => { console.warn("[landing-audit] verdetto singolo fallito", err); return null; });
 }
 // Offset from the GC pass so the two git sweeps don't collide on the same repo.
 const landingAuditBoot = setTimeout(runLandingAudit, 180_000);
