@@ -9,6 +9,7 @@ import { AIProvidersSection } from './AIProvidersSection';
 import { DevicesSection } from './DevicesSection';
 import { IdentitySection } from './IdentitySection';
 import { AccountSection } from './AccountSection';
+import { FriendsSection } from './FriendsSection';
 import { useModalDialog } from '../../hooks/useModalDialog';
 
 interface GlobalSettingsProps {
@@ -158,6 +159,9 @@ export function GlobalSettings({ isOpen, onClose, settings, onSettingsChange, th
                     schermata resta esattamente com'era. */}
                 <AccountSection />
                 <IdentitySection />
+                {/* I profili vengono DOPO l'elenco delle persone: quello dice chi
+                    c'è, questo dice chi sono. */}
+                <FriendsSection />
                 <DevicesSection />
               </div>
             )}
