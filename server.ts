@@ -48,7 +48,7 @@ import { createTaskAutoMerge, worktreeRealDirt } from "./server/services/task-au
 import { createPreviewManager, type PreviewManager, type PreviewProcess } from "./server/services/preview-manager";
 import { registerPreviewProcess, unregisterPreviewProcess } from "./server/routes/processes";
 import { sweepWorktrees, type TaskStatus as GcTaskStatus } from "./server/services/worktree-gc";
-import { branchStatusFromRepo, commitStatusFromRepo, resolveCommit, worktreeDiffStat } from "./server/services/branch-status";
+import { branchStatusFromRepo, commitStatusFromRepo, ownTipOfBranch, resolveCommit, worktreeDiffStat } from "./server/services/branch-status";
 import { abandonNoticeFromRepo } from "./server/services/worktree-abandon-notice";
 import { createTaskAttemptStore } from "./server/services/task-attempts";
 import { auditLandings } from "./server/services/landing-audit";
@@ -1230,7 +1230,11 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
     if (!wt || wt.mode !== "branch" || !wt.branchName) return null;
     const repoPath = ctx.projectStore.get(wt.projectId)?.path;
     if (!repoPath) return null;
-    const commit = await resolveCommit(repoPath, `refs/heads/${wt.branchName}`);
+    // NON la punta del ramo: l'ultimo commit SUO. Un ramo che eredita il lavoro
+    // di chi stava sul checkout condiviso ha una punta che non e' della card, e
+    // chi rivede finirebbe a leggere il diff di un altro (misurato il 10/08).
+    // Niente commit propri ⇒ nessun puntatore, che e' l'informazione giusta.
+    const commit = await ownTipOfBranch(repoPath, wt.branchName);
     return commit ? { branch: wt.branchName, commit } : null;
   },
   // Dove far girare i checks pre-review: la cartella del worktree del task e il
