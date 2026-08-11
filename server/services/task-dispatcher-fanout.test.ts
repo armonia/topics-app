@@ -215,6 +215,32 @@ describe("task-dispatcher fan-out", () => {
     expect(k).not.toContain("owner esclusivo del task");
   });
 
+  /**
+   * I QUATTRO cancelli, su una board che NON dichiara nessun comando.
+   *
+   * È la regressione dell'11/08: il kickoff nominava i cancelli solo dentro il
+   * ramo `reviewChecks`, nessuna board ne dichiarava, quindi tre card di fila
+   * hanno lasciato main con `check:deadcode` rosso — sempre per uno script che
+   * si lancia a mano e che nessuno importa. `boardWithFanOut` non tocca
+   * `reviewChecks`: se questo test passa, i quattro nomi ci sono per default.
+   *
+   * I nomi si scrivono a mano e non si interpolano da `CODE_GATES_RULE`: un
+   * test che cerca la costante che ha appena interpolato non può fallire.
+   */
+  it("il kickoff del tentativo nomina i QUATTRO cancelli anche senza check dichiarati", async () => {
+    const h = harness();
+    boardWithFanOut(h, 2);
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    const k = h.turns[0].content;
+    for (const gate of ["typecheck", "lint", "check:deadcode", "test:unit"]) expect(k).toContain(gate);
+    // E la regola che rende verde il terzo: lo script a mano si DICHIARA.
+    expect(k).toContain("knip.jsonc");
+    expect(k).toContain("scripts/disk-report.ts!");
+  });
+
   it("il confronto si scrive quando ha finito l'ULTIMO tentativo, non il primo", async () => {
     const h = harness();
     boardWithFanOut(h, 2);

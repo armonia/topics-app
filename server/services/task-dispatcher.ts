@@ -27,7 +27,7 @@ import { ZERO_USAGE, type SessionUsage } from "./transcript-usage";
 import { onHumanHoldChange } from "../lib/human-hold-events";
 import type { TaskAttemptStore } from "./task-attempts";
 import { attemptHasWork, formatFanoutComment } from "../../shared/task-attempt";
-import { MAX_FANOUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_RULE, readTaskWeight, statusEventEnters } from "../../shared/board";
+import { CODE_GATES_RULE, MAX_FANOUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_RULE, readTaskWeight, statusEventEnters } from "../../shared/board";
 import { decideNight, deadlineFrom } from "./night-mode";
 import { effectiveDispatchCap } from "./dispatch-capacity";
 import type { OutboundMessage } from "../../shared/ws-outbound";
@@ -1059,6 +1059,12 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         `- Alla consegna, PRIMA di spostare in review: UN commento di sintesi con comment_task (1-2 frasi: cosa hai fatto QUESTO turno, dove guardare). Il server rifiuta la review se in questo turno non hai ancora commentato.`,
         `- SE hai committato codice sul tuo branch (lavoro landabile), in quel commento di consegna offri SOLO l'opzione: comment_task(..., options=["${LAND_ACTION_LABEL}"]). Se l'umano la sceglie, il SISTEMA fa il merge LOCALE su main (nessun push). Tu NON fare mai git merge/push a mano. La pubblicazione online (push + deploy) è un passo SEPARATO, deciso ed eseguito dall'umano dal controllo "Pubblica" della board con anteprima del diff — NON proporla, non è un'opzione del task. NON offrire l'opzione senza codice committato (una domanda, un piano, lavoro solo-headless).`,
         `- Se devi ASPETTARE una condizione esterna (un servizio che torna su, il carico macchina che scende, una finestra oraria): NON dormire con un poller tenendo occupato lo slot. Dichiara l'attesa con wait_for_condition(task_id="${task.id}", reason=<cosa aspetti>, minutes=<quanto riprovare, default 15>): il task torna in coda con la nota, lo slot si libera per altri, e il sistema lo ri-dispaccia da solo quando scade la finestra. NON è una consegna: non mandarlo in review "vuoto".`,
+        // I cancelli del codice si nominano SEMPRE, board o no. Prima stavano
+        // solo dentro il ramo `checks.length` qui sotto, cioè: nessuna board
+        // dichiarava comandi → nessun kickoff nominava un cancello → tre card
+        // in un pomeriggio hanno lasciato main con `check:deadcode` rosso.
+        // Il testo è `CODE_GATES_RULE` (shared/board.ts), non una copia.
+        `- ${CODE_GATES_RULE}`,
         ...(checks.length
           ? [
               `- CHECKS PRE-REVIEW: alla consegna il server esegue da sé, nel tuo worktree, ${checks.length === 1 ? "questo comando" : "questi comandi"} — ${checks.map((c) => `\`${c.cmd}\``).join(", ")}. Se uno è rosso la review viene RIFIUTATA e ti torna l'output: falli girare tu prima, così non ci perdi un giro.`,
@@ -1285,6 +1291,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         "- NON scrivere nel thread del task (è condiviso): il tuo resoconto è l'ULTIMO messaggio di questo turno, ed è quello che finisce nel confronto.",
         "- COMMITTA tutto sul tuo branch prima di chiudere: un tentativo con lavoro non committato conta come 'nessuna modifica' e viene scartato.",
         "- NON TOCCARE main: niente push, niente merge VERSO main — landare è una decisione umana. Rifare la BASE del TUO ramo su main aggiornato (`git rebase main`) invece è permesso, ed è il gesto giusto quando il land dice che i tuoi commit collidono — la rebase sul main AGGIORNATO, non un merge di main dentro il ramo.",
+        // Stessa costante del kickoff normale: un tentativo che lascia il ramo
+        // con un cancello rosso parte svantaggiato al confronto, e il tentativo
+        // SCELTO è quello che poi finisce su main.
+        `- ${CODE_GATES_RULE}`,
         ...(checks.length
           ? [
               `- Prima di chiudere fai girare ${checks.length === 1 ? "questo comando" : "questi comandi"} — ${checks.map((c) => `\`${c.cmd}\``).join(", ")}: il server li rieseguirà sul tentativo scelto, e un tentativo rosso parte svantaggiato.`,
