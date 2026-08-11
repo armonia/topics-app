@@ -1,30 +1,9 @@
 /**
- * Che COSA è un file allegato, deciso dall'estensione — l'unica fonte per
- * tutte le superfici che mostrano media di un task (card, drawer, tab).
+ * Le regole vivono in `shared/media-kind.ts`: le usa anche il SERVER, sulla
+ * porta che accetta `previewImage`. Era la quarta copia mancante — non sapendo
+ * distinguere i tipi, accettava come anteprima qualunque path che passasse
+ * l'allowlist, e un `.pdf` arrivava fino al ramo `<img>` della card.
  *
- * Stava scritto tre volte, e le tre copie non coincidevano: la card sapeva dei
- * video (`PreviewMedia`), il drawer no (renderizzava un `<img>` su un `.webm`,
- * icona rotta) e il visore delle tab (`MediaViewer`) conosceva solo immagine e
- * PDF, quindi una clip finiva nel ramo «Nessuna anteprima per questo tipo di
- * file». La stessa evidenza si vedeva o no a seconda di dove la guardavi.
- *
- * Il suffisso tollera query/hash: il path memorizzato è nudo, ma il controllo
- * gira anche su url già costruite.
+ * Questo file resta la porta d'ingresso del client, che le importava già da qui.
  */
-
-const VIDEO_RE = /\.(webm|mp4|mov|m4v)(\?|#|$)/i;
-const IMAGE_RE = /\.(png|jpe?g|gif|webp|svg|avif)(\?|#|$)/i;
-const PDF_RE = /\.pdf(\?|#|$)/i;
-
-/** Clip (registrazione di review): va in un <video>, non in un <img>. */
-export function isVideoPath(path: string | null | undefined): boolean {
-  return !!path && VIDEO_RE.test(path);
-}
-
-export function isImagePath(path: string | null | undefined): boolean {
-  return !!path && IMAGE_RE.test(path);
-}
-
-export function isPdfPath(path: string | null | undefined): boolean {
-  return !!path && PDF_RE.test(path);
-}
+export { isVideoPath, isImagePath, isPdfPath, isPreviewablePath } from '../../../shared/media-kind';
