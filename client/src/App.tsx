@@ -442,10 +442,11 @@ function App() {
   // "Board generale" sidebar row and shows its badge.
   const { activeCount: boardTaskCount, byStatus: boardByStatus } = useGlobalBoard(onWSMessage);
 
-  // topicId → task index for dispatched tasks. Due consumatori: il banner di
-  // completamento ci mette dentro il taskId (un click apre il drawer del task)
-  // e i due notificatori lo usano per NON bannerizzare la fine turno di un
-  // agente di board al lavoro — quella la annuncia `task:review-ready`.
+  // topicId → task index for dispatched tasks. Un consumatore solo, e apposta:
+  // `useCompletionNotifier` è l'unica porta dei banner. Ci mette dentro il
+  // taskId (un click apre il drawer del task) e lo legge per NON bannerizzare
+  // né la fine turno né i messaggi di un agente di board al lavoro — quelli li
+  // annuncia `task:review-ready`.
   const taskForTopic = useTaskTopicIndex(onWSMessage);
 
   // A stable global the native (Tauri) notification delegate can call on click to
@@ -547,7 +548,6 @@ function App() {
     },
     setSidebarCollapsed,
     removeClosedTab, closedTabs,
-    taskForTopic,
   });
   const {
     openPanels, visiblePanels, activeSpaceId,
@@ -1031,6 +1031,7 @@ function App() {
       focusedPanelId={focusedPanelId}
       terminalSessions={terminalSessions}
       taskForTopic={taskForTopic}
+      isOwnStream={isOwnStream}
     />
     {/*
       countdownMs=1500: soft-destructive close window. 3s was the original
