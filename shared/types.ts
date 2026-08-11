@@ -895,6 +895,15 @@ export interface ClaudeSessionState {
   jsonlPath?: string;
   /** Offset già consumato del transcript. Come sopra: server-side, ma copiato sul filo. */
   jsonlOffset: number;
+  /**
+   * Byte watermark del MESSAGE importer per una sessione ADOTTATA — quanti byte
+   * del transcript sono già stati riflessi nelle righe `messages` del topic.
+   * Distinto da `jsonlOffset` (che è del tracker delle fasi): due lettori dello
+   * stesso file avanzano a ritmi diversi. `null`/assente = la sessione NON va
+   * importata dal JSONL (ogni sessione nativa, i cui messaggi arrivano dallo
+   * stream). Lo imposta solo `adopt-claude`. Server-side; sul filo per il debug.
+   */
+  importOffset?: number | null;
   pendingApproval?: ClaudeSessionPendingApproval;
   lastTool?: ClaudeSessionActiveTool;
   lastHookAt?: number;

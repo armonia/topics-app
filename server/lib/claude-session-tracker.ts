@@ -34,8 +34,28 @@ import {
   DEFAULT_REAPER_CONFIG,
 } from './claude-session-state';
 import { createClaudeSessionRepo } from './claude-session-repo';
+import { parseTranscriptDelta } from './claude-transcript-import';
+import type { StoredMessage } from '../types';
 
 export type Broadcaster = (msg: OutboundMessage) => void;
+
+/**
+ * The message store the import sweep writes through. Injected so the tracker
+ * stays free of DB-message plumbing and unit-testable with a fake. All four
+ * ops are keyed by the topic's session_key.
+ */
+export interface ImportSink {
+  /** id of the last row in the session's active thread, or null when empty —
+   *  the parent the first newly-imported message chains from. */
+  getLastMessageId(sessionKey: string): string | null;
+  /** Append already-chained messages (id/parentId/toolCalls decided upstream). */
+  appendMessages(sessionKey: string, msgs: StoredMessage[]): void;
+  /** Patch a tool_result onto the tool call in the session's LAST message —
+   *  the cross-chunk case where a tool_use was imported in an earlier sweep. */
+  resolveToolResult(sessionKey: string, toolUseId: string, result: string, isError: boolean): void;
+  /** Topic id for the WS `message:new` fan-out, or null if unmapped. */
+  topicIdForSessionKey(sessionKey: string): string | null;
+}
 
 export interface ClaudeSessionTrackerOptions {
   db: Database;
@@ -78,6 +98,21 @@ export interface ClaudeSessionTrackerOptions {
    * os.homedir(); tests point it at a temp dir.
    */
   homeDir?: string;
+  /**
+   * Message store for the ADOPTED-session import sweep. Omitted ⇒ the import
+   * sweep is a no-op (the phase tracker still runs). Wired by the server from
+   * the topic message store.
+   */
+  importSink?: ImportSink;
+  /**
+   * True while Topics owns a LIVE claude child for this session_key (the chat
+   * provider's `isTurnProcessAlive`). The import sweep uses it as the
+   * double-import guard: while Topics drives the session it also streams +
+   * persists the turns, so the sweep must NOT re-import the same JSONL bytes —
+   * it advances the cursor past them instead. Omitted ⇒ treated as "not driven"
+   * (pure terminal), which is the common adopted case.
+   */
+  isSessionLocallyDriven?: (sessionKey: string) => boolean;
 }
 
 interface DedupEntry {
@@ -170,6 +205,20 @@ export interface ClaudeSessionTracker {
    */
   startJsonlTail(intervalMs?: number): () => void;
   /**
+   * One MESSAGE-import sweep over every adopted session (import_offset set): read
+   * the transcript tail, append the new turns to the topic's chat (with tool
+   * calls + thinking), patch cross-chunk tool_results, advance import_offset.
+   * While Topics drives the session, the cursor is advanced WITHOUT importing
+   * (the stream already persisted those turns). Returns sessions that changed.
+   */
+  importOnce(now?: number): Promise<number>;
+  /**
+   * Start the recurring import sweep. Returns a stop fn. No-op without an
+   * `importSink`. This is what unfreezes an adopted chat: turns typed in the
+   * TERMINAL land in Topics within one interval.
+   */
+  startImportSweep(intervalMs?: number): () => void;
+  /**
    * Start the recurring reaper interval. Returns a stop fn.
    */
   startReaper(intervalMs?: number): () => void;
@@ -192,6 +241,8 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
   const reaperConfig = opts.reaperConfig ?? DEFAULT_REAPER_CONFIG;
   const ptyIdleMs = opts.ptyIdleMs;
   const homeDir = opts.homeDir ?? homedir();
+  const importSink = opts.importSink;
+  const isSessionLocallyDriven = opts.isSessionLocallyDriven ?? (() => false);
 
   // Dedup map: claudeSessionId|event → DedupEntry
   const dedupMap = new Map<string, DedupEntry>();
@@ -602,6 +653,116 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
     return () => clearInterval(handle);
   }
 
+  /**
+   * Import the unconsumed tail of ONE adopted session's transcript into its
+   * chat. Returns the number of messages imported (0 when nothing new, or when
+   * the cursor was merely advanced past Topics-authored bytes). Mirrors
+   * `readSessionTail`'s byte accounting so import_offset always lands on a
+   * complete-line boundary.
+   */
+  async function importSessionTail(sess: ClaudeSessionState): Promise<number> {
+    if (!importSink || !sess.sessionKey || !sess.jsonlPath || sess.importOffset == null) return 0;
+    const sessionKey = sess.sessionKey;
+    const fromOffset = sess.importOffset;
+    let consumedText: string;
+    let nextOffset: number;
+    try {
+      const stat = await fsp.stat(sess.jsonlPath);
+      if (stat.size <= fromOffset) return 0;
+      const fh = await fsp.open(sess.jsonlPath, 'r');
+      try {
+        const len = stat.size - fromOffset;
+        const buf = Buffer.alloc(len);
+        await fh.read(buf, 0, len, fromOffset);
+        const { lines, remainder } = splitJsonlChunk(buf.toString('utf-8'));
+        // Advance past complete lines only; the partial tail waits for the next
+        // sweep (same rule the phase tail uses).
+        const consumedBytes = len - Buffer.byteLength(remainder, 'utf-8');
+        nextOffset = fromOffset + consumedBytes;
+        if (nextOffset === fromOffset) return 0; // no complete new line yet
+        consumedText = lines.join('\n');
+      } finally {
+        await fh.close();
+      }
+    } catch {
+      // File missing / unreadable — a fork (resume-from-zero) or a delete. Leave
+      // the cursor; a later sweep retries. Following the fork is a separate task.
+      return 0;
+    }
+
+    // Double-import guard: while Topics owns a live child for this session, the
+    // chat provider already streamed + persisted these turns into the SAME
+    // JSONL. Skip the import but advance the cursor so that, once the child
+    // dies, only genuinely-external (terminal) turns remain to import.
+    if (isSessionLocallyDriven(sessionKey)) {
+      repo.setImportOffset(sessionKey, nextOffset);
+      return 0;
+    }
+
+    const parentId = importSink.getLastMessageId(sessionKey);
+    const { messages, resolutions } = parseTranscriptDelta(consumedText, { parentId });
+
+    // Cross-chunk tool_results FIRST: they patch the session's current last
+    // message (a tool_use imported in an earlier sweep), which must still be the
+    // last row when we patch — before we append this chunk's new turns.
+    for (const r of resolutions) {
+      try { importSink.resolveToolResult(sessionKey, r.toolUseId, r.result, r.isError); }
+      catch (err) { console.error('[claude-session-tracker] resolveToolResult failed', err); }
+    }
+    if (messages.length) importSink.appendMessages(sessionKey, messages);
+    repo.setImportOffset(sessionKey, nextOffset);
+
+    // Push the new turns to any open chat + sidebar preview, reusing the same
+    // `message:new` the streaming paths emit (the client appends by messageId).
+    // Text-only, like every other emitter; a reload hydrates tool cards from the
+    // rows we just wrote.
+    if (messages.length) {
+      const topicId = importSink.topicIdForSessionKey(sessionKey);
+      for (const m of messages) {
+        const content = m.content ?? '';
+        if (!content) continue; // pure tool-call rows carry no preview text
+        broadcast({
+          type: 'message:new',
+          topicId: topicId ?? undefined,
+          sessionKey,
+          role: m.role,
+          messageId: m.id,
+          content,
+          preview: content.slice(0, 100),
+        } as OutboundMessage);
+      }
+    }
+    return messages.length;
+  }
+
+  async function importOnce(_overrideNow?: number): Promise<number> {
+    if (!importSink) return 0;
+    let changed = 0;
+    for (const sess of repo.listImportable()) {
+      try {
+        if ((await importSessionTail(sess)) > 0) changed += 1;
+      } catch (err) {
+        console.error('[claude-session-tracker] import sweep error', err);
+      }
+    }
+    return changed;
+  }
+
+  function startImportSweep(intervalMs = 1_500): () => void {
+    if (!importSink) return () => {};
+    let sweeping = false; // re-entrancy guard: a slow sweep must not stack
+    const handle = setInterval(() => {
+      if (sweeping) return;
+      sweeping = true;
+      importOnce()
+        .catch((err) => console.error('[claude-session-tracker] import sweep error', err))
+        .finally(() => { sweeping = false; });
+    }, intervalMs);
+    // Don't keep the event loop alive just for the import sweep.
+    if (typeof handle.unref === 'function') handle.unref();
+    return () => clearInterval(handle);
+  }
+
   function startReaper(intervalMs = 30_000): () => void {
     const handle = setInterval(() => {
       try { reapOnce(); } catch (err) { console.error('[claude-session-tracker] reaper error', err); }
@@ -625,6 +786,8 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
     recoverFromJsonl,
     tailOnce,
     startJsonlTail,
+    importOnce,
+    startImportSweep,
     startReaper,
   };
 }

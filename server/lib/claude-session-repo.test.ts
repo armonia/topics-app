@@ -20,18 +20,23 @@ function freshDb(): Database {
       FOREIGN KEY (session_key) REFERENCES topics(session_key) ON DELETE CASCADE
     )
   `);
-  // Apply migration 027 statement-by-statement.
+  // Apply the migrations that shape claude_code_sessions (027 tracker columns,
+  // 096 import_offset) statement-by-statement.
   const migDir = join(import.meta.dir, '..', 'db', 'migrations');
-  const m027 = readdirSync(migDir).find((f) => f.startsWith('027-'))!;
-  // Strip line comments so the simple `;` splitter works, then run each
-  // statement individually. The migration only has trivial DDL statements.
-  const sql = readFileSync(join(migDir, m027), 'utf-8')
-    .split('\n')
-    .filter((l) => !l.trim().startsWith('--'))
-    .join('\n');
-  for (const stmt of sql.split(';').map((s) => s.trim()).filter(Boolean)) {
-    db.run(stmt);
-  }
+  const apply = (prefix: string) => {
+    const file = readdirSync(migDir).find((f) => f.startsWith(prefix))!;
+    // Strip line comments so the simple `;` splitter works, then run each
+    // statement individually. These migrations only have trivial DDL.
+    const sql = readFileSync(join(migDir, file), 'utf-8')
+      .split('\n')
+      .filter((l) => !l.trim().startsWith('--'))
+      .join('\n');
+    for (const stmt of sql.split(';').map((s) => s.trim()).filter(Boolean)) {
+      db.run(stmt);
+    }
+  };
+  apply('027-');
+  apply('096-');
   return db;
 }
 
