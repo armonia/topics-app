@@ -752,32 +752,13 @@ export interface Checkpoint {
   gitBranch?: string;
 }
 
-/** Una nota della memoria di board (`/api/boards/:projectId/memory`). */
-export interface BoardMemory {
-  id: string;
-  projectId: string;
-  content: string;
-  tags: string[];
-  isChat: boolean;
-  source: string | null;
-  agentId: string | null;
-  createdAt: string;
-}
-
-/**
- * Una riga del log azioni di un agente. `detail` è `unknown`, non `any`: la
- * copia del server diceva `any`, quindi lato server il payload di ogni azione
- * era scrivibile e leggibile senza controlli. Chi lo consuma restringe.
- */
-export interface AgentActionLog {
-  id: string;
-  agentId: string;
-  actionType: string;
-  entityType: string | null;
-  entityId: string | null;
-  detail: unknown;
-  createdAt: string;
-}
+// `BoardMemory` e `AgentActionLog` stavano qui: le forme client di
+// `/api/boards/:projectId/memory`. Quella rotta non esiste — non c'è un
+// handler, non c'è un lettore, e le tabelle `board_memory`/`agent_action_log`
+// (migration 002) non hanno scrittori. I due tipi arrivavano fino al client solo
+// attraverso un re-export in `client/src/lib/api.ts` che nessuno importava, e il
+// cancello sul codice morto non poteva dirlo perché su quel file era cieco. Le
+// tabelle restano dov'erano: cancellare SQL è un'altra decisione.
 
 // ────────────────────────────────────────────────────────────────────────────
 // Provider / context envelope

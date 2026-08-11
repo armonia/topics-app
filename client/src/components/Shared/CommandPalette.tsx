@@ -217,11 +217,21 @@ export function CommandPalette({
       // not clobber B's list — the user would see/open paths from the wrong
       // project.
       let cancelled = false;
-      import('../../lib/api').then(({ filesApi }) => {
-        filesApi.flatList(projectPath)
-          .then(data => { if (!cancelled) setFileList(Array.isArray(data?.files) ? data.files : []); })
-          .catch(() => {});
-      });
+      // `const { … } = await import(…)` e non `import(…).then(({ … }) => …)`:
+      // sono la stessa cosa a runtime, non per il cancello sul codice morto. Un
+      // `import()` il cui risultato non finisce in una destrutturazione è OPACO
+      // per knip, che non sapendo quali membri leggerai assume che li usi TUTTI
+      // — e da lì in poi NESSUN export di quel modulo può più risultare morto.
+      // Con `api.ts` (49 export, la superficie HTTP del client) questa riga da
+      // sola teneva cieco il cancello sull'intero file. Guardia:
+      // `bun run check:deadcode-blindspots`.
+      void (async () => {
+        const { filesApi } = await import('../../lib/api');
+        try {
+          const data = await filesApi.flatList(projectPath);
+          if (!cancelled) setFileList(Array.isArray(data?.files) ? data.files : []);
+        } catch { /* lista file non disponibile: la palette resta sui comandi */ }
+      })();
       return () => { cancelled = true; };
     }
   }, [projectPath, isOpen, scope]);

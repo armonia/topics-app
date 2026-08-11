@@ -327,8 +327,12 @@ export function initServerSync(): void {
   // abandon the in-flight write; the next `lastSeq` tick will re-push with
   // the current state once the WS is back.
   if (typeof window !== 'undefined') {
-    // Lazily import to avoid a circular dep at module init.
-    import('../../../lib/wsFrameBus').then(({ subscribeLifecycle }) => {
+    // Lazily import to avoid a circular dep at module init. La destrutturazione
+    // sta nell'`await` e non nel `.then` perché è l'unica forma in cui knip vede
+    // quali export usi: un `import()` opaco rende immortale ogni export del
+    // modulo (`bun run check:deadcode-blindspots`).
+    void (async () => {
+      const { subscribeLifecycle } = await import('../../../lib/wsFrameBus');
       subscribeLifecycle((event) => {
         if (event !== 'close') return;
         for (const entry of inflight.values()) entry.controller.abort();
@@ -338,7 +342,7 @@ export function initServerSync(): void {
           timer = null;
         }
       });
-    });
+    })();
   }
 
   // Capability, not existence: a partial `window` stub (unit tests) satisfies

@@ -128,8 +128,9 @@ export function upsertTaskTab(
 }
 
 // Il conio dei contextId (e la loro reversibilità) sta in `shared/`: lo usano il
-// server per coniarli e il client per riconoscerli — una regola sola.
-export { taskTabContextId, slugTabName } from "../../shared/task-tab-context";
+// server per coniarli e il client per riconoscerli — una regola sola. Si importa
+// da lì: il ri-export che stava qui («perché i callsite nominino da un posto
+// solo») non aveva callsite, misurato con `bun run check:deadcode`.
 import { taskTabContextIdOf } from "../../shared/task-tab-context";
 
 /** Il minimo che serve a questo modulo dal db (iniettabile nei test). */
