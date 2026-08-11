@@ -357,6 +357,20 @@ const HEAVY_MAX_LOAD_PER_CORE = 1.0;
 /** Ogni quanto un resume in attesa ricontrolla se si è liberato un posto. */
 const RESUME_SLOT_RETRY_MS = 5_000;
 
+/**
+ * La stessa lista, ma cominciando dall'elemento `cursor`-esimo.
+ *
+ * Serve a far girare l'ordine dei board a ogni reconcile. Il tetto dei posti è
+ * GLOBALE: chi viene interrogato per primo li riempie, e chi sta in fondo non
+ * ne trova mai. Misurato l'11/08 sul DB vivo: una board 26 claim su 31 in
+ * un'ora, un'altra con tre card in coda ZERO — non per priorità, per posizione.
+ */
+export function rotateFrom<T>(items: readonly T[], cursor: number): T[] {
+  if (items.length < 2) return [...items];
+  const da = ((cursor % items.length) + items.length) % items.length;
+  return [...items.slice(da), ...items.slice(0, da)];
+}
+
 const CHIP_QUEUED = "queued";
 const CHIP_WORKING = "working";
 const CHIP_NEEDS_INPUT = "needs_input";
@@ -552,6 +566,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   const graceTimers = new Map<string, ReturnType<typeof setTimeout>>();
   /** Chi ha già detto nel thread che sta aspettando uno slot: una volta basta. */
   const waitingForSlot = new Set<string>();
+  /** Da quale board comincia il prossimo giro: vedi `reconcile` (turnazione). */
+  let boardCursor = 0;
   let resumeStagger = 0;
 
   /**
@@ -2028,6 +2044,42 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       }
     }
     const nowIso = new Date().toISOString();
+    // Budget dei tentativi finito = NON riproverà MAI più, e finché lo si scarta
+    // in silenzio la card resta in colonna «coda» fingendosi lavorabile: nessun
+    // chip, nessuna riga, e il board conta come lavoro ciò che è fermo per
+    // sempre. Misurate 19 card così l'11/08, a interruttore acceso e macchina
+    // libera. Si parcheggiano con la ragione scritta — la coda deve dire il
+    // vero, e un umano decide se rimetterle in coda (la PATCH a `todo` azzera
+    // il contatore) o lasciarle stare.
+    //
+    // Ma «non riproverà mai più» vale solo per chi sarebbe pronto ADESSO. Un
+    // task dentro la sua finestra d'attesa non ha finito niente: sta aspettando
+    // una condizione esterna che l'agente ha dichiarato, e il tentativo lo
+    // consumerà semmai la riclamata dopo. L'11/08 questo controllo, messo prima
+    // del cancello dell'attesa, ha ucciso una card che aspettava 14 minuti di
+    // UAT su CI — il bound sugli aspettatori eterni resta, ma scatta quando la
+    // finestra è passata, non mentre scorre. Stessa ragione per il bloccante:
+    // chi aspetta un altro task non sta fallendo.
+    const pronto = (t: Task) =>
+      !t.assignedTopicId &&
+      (!t.dispatchDeferredUntil || t.dispatchDeferredUntil <= nowIso) &&
+      (() => { try { return !deps.svc.isDispatchBlocked(t.id); } catch { return true; } })();
+    const exhausted = todos.filter((t) => pronto(t) && t.dispatchAttempts >= settings.dispatchRetryCap);
+    let toldExhausted = false;
+    for (const t of exhausted) {
+      if (inFlight.has(t.id) || graceTimers.has(t.id)) continue;
+      try {
+        releaseAndEmit({
+          taskId: t.id,
+          requeue: false,
+          parkState: CHIP_FAILED,
+          reason:
+            `Budget dei tentativi finito (${t.dispatchAttempts}/${settings.dispatchRetryCap}): non riparte da solo. ` +
+            "Rimettilo in Todo per ridargli i tentativi, oppure guarda cosa lo fa fallire.",
+        }, { announce: !toldExhausted });
+        toldExhausted = true;
+      } catch { /* il task può essersi mosso */ }
+    }
     todos = todos
       .filter((t) => !t.assignedTopicId && t.dispatchAttempts < settings.dispatchRetryCap)
       // Deferral gate: a task the agent parked with an external-condition wait
@@ -2515,7 +2567,15 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     const boards = new Set<string>();
     try { for (const t of deps.svc.list({ scope: "all", status: "todo", rootsOnly: true })) boards.add(t.projectId); }
     catch (err) { log("reconcile todo list failed", err); }
-    for (const projectId of boards) {
+    // A TURNO, non sempre nello stesso ordine. Il tetto è globale: la board che
+    // tocca per prima riempie i posti, e chi viene dopo non ne trova mai. Con
+    // l'ordine fisso della lista, l'11/08 una board ha preso 26 claim su 31 in
+    // un'ora mentre un'altra, con tre card in coda, ne prendeva ZERO — non per
+    // priorità, per posizione. Il cursore fa scorrere chi comincia, così ogni
+    // board arriva prima a giro suo e nessuna resta indietro per sempre.
+    const ordinate = rotateFrom([...boards], boardCursor);
+    if (ordinate.length > 1) boardCursor = (boardCursor + 1) % ordinate.length;
+    for (const projectId of ordinate) {
       await tick(projectId).catch((err) => log(`reconcile tick failed for ${projectId}`, err));
     }
   }

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { PREVIEW_RULE, PREVIEW_CARD_MAX_RATIO, extractPreviewRule, formatStatusEvent } from "../../shared/board";
 import { toolsForProfile } from "../mcp/topics-mcp-server";
 import { createTaskService, type TaskService } from "./tasks";
-import { createTaskDispatcher, type DispatcherDeps } from "./task-dispatcher";
+import { createTaskDispatcher, rotateFrom, type DispatcherDeps } from "./task-dispatcher";
 import { cancelled, type TurnEndInfo } from "../providers/stop-reason";
 import { beginAsk, endAsk } from "../lib/ask-user-bridge";
 import { beginPermission, endPermission } from "../lib/permission-bridge";
@@ -63,16 +63,16 @@ const PID = "alpha-abc123";
 let seq = 0;
 function seedTask(
   db: Database,
-  o: { id?: string; status?: string; attempts?: number; assignedTopicId?: string | null; dispatchState?: string | null; createdAt?: string } = {},
+  o: { id?: string; status?: string; attempts?: number; assignedTopicId?: string | null; dispatchState?: string | null; createdAt?: string; parentTaskId?: string | null; text?: string } = {},
 ): string {
   const id = o.id ?? `t${++seq}`;
   const ts = o.createdAt ?? new Date(Date.now() + seq).toISOString();
   // FK: a seeded binding needs its topics row, like in prod.
   if (o.assignedTopicId) db.run("INSERT OR IGNORE INTO topics (id) VALUES (?)", [o.assignedTopicId]);
   db.run(
-    `INSERT INTO tasks (id, project_id, text, status, created_at, updated_at, dispatch_attempts, assigned_topic_id, dispatch_state)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [id, PID, "task " + id, o.status ?? "todo", ts, ts, o.attempts ?? 0, o.assignedTopicId ?? null, o.dispatchState ?? null],
+    `INSERT INTO tasks (id, project_id, text, status, created_at, updated_at, dispatch_attempts, assigned_topic_id, dispatch_state, parent_task_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, PID, o.text ?? ("task " + id), o.status ?? "todo", ts, ts, o.attempts ?? 0, o.assignedTopicId ?? null, o.dispatchState ?? null, o.parentTaskId ?? null],
   );
   return id;
 }
@@ -1938,5 +1938,95 @@ describe("PREVIEW_RULE — una stringa sola, in tutti gli envelope", () => {
     };
     for (const r of roots) walk(join(repo, r));
     expect(hits.sort()).toEqual(["server/services/task-dispatcher.test.ts", "shared/board.ts"]);
+  });
+});
+
+describe("la coda deve dire il vero", () => {
+  it("budget finito = parcheggiata con la ragione, non ferma in coda a fingersi lavorabile", async () => {
+    // Misurato l'11/08: 19 card in colonna «coda», interruttore acceso, macchina
+    // libera, zero agenti. Il tick le scartava in silenzio perché avevano finito
+    // i tentativi — nessun chip, nessuna riga — e il board contava come lavoro
+    // ciò che era fermo per sempre.
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchRetryCap: 2 });
+    seedTask(h.db, { id: "t1", status: "todo", attempts: 2 });
+    await h.dispatcher.tick(PID);
+    await flush();
+    const t = h.task("t1")!;
+    expect(t.status).toBe("backlog");        // fuori dalla coda
+    expect(t.dispatchState).toBe("failed");  // e lo dice
+    expect(h.svc.get("t1")!.comments.map((c) => c.content).join("\n")).toContain("Budget dei tentativi finito");
+    expect(h.turns.length).toBe(0);          // nessun turno sprecato
+  });
+
+  it("…ma chi ASPETTA non è esaurito: la finestra scorre, il parcheggio no", async () => {
+    // L'11/08, dal vivo: un agente aveva dichiarato «UAT su CI, 8 shard, ~14
+    // minuti, riprovo fra 15» e il parcheggio degli esauriti — messo prima del
+    // cancello dell'attesa — l'ha ucciso mentre la finestra scorreva. Il bound
+    // sugli aspettatori eterni resta: scatta quando la finestra è passata.
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchRetryCap: 2 });
+    seedTask(h.db, { id: "t1", status: "todo", attempts: 2, dispatchState: "waiting" });
+    const fra10min = new Date(Date.now() + 10 * 60_000).toISOString();
+    h.db.run("UPDATE tasks SET dispatch_deferred_until = ? WHERE id = ?", [fra10min, "t1"]);
+    await h.dispatcher.tick(PID);
+    await flush();
+    const t = h.task("t1")!;
+    expect(t.status).toBe("todo");            // aspetta ancora, non parcheggiato
+    expect(t.dispatchState).toBe("waiting");
+    expect(h.turns.length).toBe(0);           // e nemmeno reclamato
+  });
+
+  it("il padre che finisce il turno coi figli aperti non paga il tentativo, e aspetta", () => {
+    // Era questo a fabbricare le 19 zombie: il rimando in coda del padre
+    // lasciava il contatore com'era, e al secondo giro la card rientrava già al
+    // tetto — invisibile, senza chip, mai più reclamabile.
+    const h = harness();
+    seedTask(h.db, { id: "padre", status: "in_progress", attempts: 2, assignedTopicId: "topic-padre" });
+    seedTask(h.db, { id: "figlio", status: "todo", parentTaskId: "padre" });
+    h.svc.deliverToReviewBySystem({ taskId: "padre", reason: "turno finito" });
+    const p = h.task("padre")!;
+    expect(p.status).toBe("todo");
+    expect(p.dispatchAttempts).toBe(1);          // il tentativo torna indietro
+    expect(p.dispatchState).toBe("waiting");     // e il board dice perché
+    expect(p.dispatchDeferredUntil).toBeTruthy(); // niente giro a vuoto immediato
+  });
+
+  it("…ma se i figli sono SOLO parcheggiati non c'è nulla da aspettare: si ferma lui", () => {
+    // Nessuno dispaccia dal backlog: rimandarlo in coda sarebbe un giro
+    // perpetuo ogni 10 minuti. Parcheggiato con la ragione, è una card su cui
+    // si può agire.
+    const h = harness();
+    seedTask(h.db, { id: "padre", status: "in_progress", assignedTopicId: "topic-padre" });
+    seedTask(h.db, { id: "figlio", status: "backlog", parentTaskId: "padre" });
+    h.svc.deliverToReviewBySystem({ taskId: "padre", reason: "turno finito" });
+    const p = h.task("padre")!;
+    expect(p.status).toBe("backlog");
+    expect(p.dispatchState).toBe("blocked");
+  });
+
+  it("l'ordine dei board gira a ogni giro, o il tetto globale affama chi sta in fondo", () => {
+    // Il tetto dei posti è GLOBALE: chi viene interrogato per primo li riempie.
+    // Misurato l'11/08 sul DB vivo: una board 26 claim su 31 in un'ora, un'altra
+    // con tre card in coda ZERO — non per priorità, per posizione nella lista,
+    // che era sempre la stessa a ogni reconcile.
+    //
+    // Qui si fissa la sola aritmetica dell'ordine, e una versione inerte (che
+    // restituisse la lista com'è) fallirebbe ogni riga con cursore > 0. NON
+    // copre il giro intero reconcile→claim: il banco di prova non riesce a far
+    // reclamare una seconda board, quindi la fame vera resta dimostrata dalla
+    // misura sul DB, non da un test — ed è bene saperlo invece di crederla
+    // coperta.
+    const b = ["alpha", "beta", "gamma"];
+    expect(rotateFrom(b, 0)).toEqual(["alpha", "beta", "gamma"]);
+    expect(rotateFrom(b, 1)).toEqual(["beta", "gamma", "alpha"]);
+    expect(rotateFrom(b, 2)).toEqual(["gamma", "alpha", "beta"]);
+    expect(rotateFrom(b, 3)).toEqual(["alpha", "beta", "gamma"]);
+    // Ogni board apre il giro esattamente una volta ogni tre.
+    expect(new Set([0, 1, 2].map((c) => rotateFrom(b, c)[0])).size).toBe(3);
+    // Casi limite: una board sola, lista vuota, cursore negativo.
+    expect(rotateFrom(["solo"], 5)).toEqual(["solo"]);
+    expect(rotateFrom([], 2)).toEqual([]);
+    expect(rotateFrom(b, -1)).toEqual(["gamma", "alpha", "beta"]);
   });
 });
