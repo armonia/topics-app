@@ -26,12 +26,13 @@ import {
 } from '../../lib/board';
 import { groupByStatus, planDrop, type DropPlan, type OrderScope } from '../../lib/boardOrder';
 import { DONE_FLASH_MS, landedInDone, statusSnapshot } from '../../lib/justDone';
+import { scrollDelta } from '../../lib/scrollDelta';
 import { resolveProjectRefs, useBoardProjects } from '../../lib/boardProjectsStore';
 import { ProjectPickerBody } from './ProjectPicker';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { UnifiedDiff } from './UnifiedDiff';
 import { useConfirm } from '../../hooks/useConfirm';
-import { PRIORITY_DOT, PRIORITY_ORDER, PRIORITY_LABEL, type LiveUsage, type OpenTask } from './constants';
+import { CREATED_FLASH_MS, PRIORITY_DOT, PRIORITY_ORDER, PRIORITY_LABEL, type LiveUsage, type OpenTask } from './constants';
 import { boardCollision } from './format';
 import { FloatingTaskComposer } from './FloatingTaskComposer';
 import { Column } from './Card';
@@ -712,6 +713,57 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
 
   useEffect(() => { setLoading(true); refetch(); }, [refetch]);
 
+  // ── Un task appena NATO ────────────────────────────────────────────────────
+  // Scrivevi nel composer, quello si svuotava, e la card atterrava in fondo a
+  // una colonna che spesso non stavi guardando: nessun modo di sapere QUALE
+  // card fosse, né se ce ne fosse una. Due segnali distinti, e apposta con due
+  // regole diverse:
+  //
+  //  · il LAMPO risponde a «è nato un task»: vale per chiunque l'abbia creato,
+  //    quindi la sorgente è l'evento WS `task:created` — anche quando arriva da
+  //    un agent o dall'MCP, su un'altra macchina.
+  //  · lo SCORRIMENTO risponde a «l'ho appena scritto io»: muove la board sotto
+  //    gli occhi di chi guarda, e farlo per una creazione altrui vorrebbe dire
+  //    strappargli via la colonna che stava leggendo. Quindi lo arma SOLO il
+  //    ritorno della POST fatta da questo client, mai il broadcast.
+  //
+  // Il broadcast torna indietro anche a chi ha creato: `flashCreated` è
+  // idempotente finché il lampo è acceso, così l'eco non riarma il timer e non
+  // allunga la durata.
+  const [justCreated, setJustCreated] = useState<Set<string>>(() => new Set());
+  const createdFlashTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const flashCreated = useCallback((id: string) => {
+    if (createdFlashTimers.current.has(id)) return; // già acceso: non riarmare
+    setJustCreated((prev) => {
+      if (prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+    createdFlashTimers.current.set(id, setTimeout(() => {
+      createdFlashTimers.current.delete(id);
+      setJustCreated((prev) => {
+        if (!prev.has(id)) return prev;
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    }, CREATED_FLASH_MS));
+  }, []);
+  // Smontando la pane a lampo acceso i timer resterebbero appesi a chiamare un
+  // setState su un componente che non c'è più.
+  useEffect(() => {
+    const timers = createdFlashTimers.current;
+    return () => { for (const t of timers.values()) clearTimeout(t); timers.clear(); };
+  }, []);
+  /** La card che questo client vuole vedere: creata QUI, non ancora inquadrata. */
+  const [scrollTarget, setScrollTarget] = useState<string | null>(null);
+  /** Creazione partita da questa finestra: lampo + la board ci va sopra. */
+  const onCreatedHere = useCallback((taskId?: string) => {
+    if (taskId) { flashCreated(taskId); setScrollTarget(taskId); }
+    refetch();
+  }, [flashCreated, refetch]);
+
   // Live updates. In 'all' mode any task event is relevant; in 'project' mode
   // only events for this project (or project-less broadcasts) trigger a refetch.
   // board:settings keeps the header pill honest when another client toggles it.
@@ -744,6 +796,14 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
         waiting?: boolean };
       if (m.type === 'task:created' || m.type === 'task:updated' || m.type === 'task:deleted') {
         if (mode === 'all' || m.projectId === undefined || m.projectId === projectId) safeRefetch();
+        // Il lampo è il segnale «è nato un task», e non ha un autore
+        // privilegiato: qui passano anche le creazioni remote (agent, MCP, un
+        // altro device), che sono proprio quelle che altrimenti comparirebbero
+        // in silenzio. L'eco della propria POST rientra da qui ed è innocua.
+        if (m.type === 'task:created' && typeof m.task?.id === 'string'
+          && (mode === 'all' || m.projectId === undefined || m.projectId === projectId)) {
+          flashCreated(m.task.id);
+        }
         // A turn that ended (or a task that left 'working') drops its live chip;
         // the refetched task then carries the final agent_ms/agent_tokens.
         if (m.task && m.task.dispatchState !== 'working') {
@@ -774,7 +834,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
       // Global switch flipped anywhere (any board, any client) → this pill too.
       if (m.type === 'board:dispatch' && typeof m.autoDispatch === 'boolean') setDispatchOn(m.autoDispatch);
     });
-  }, [onMessage, projectId, safeRefetch, mode]);
+  }, [onMessage, projectId, safeRefetch, mode, flashCreated]);
 
   // Wake-up refresh: a window coming back from sleep/background has yesterday's
   // board (WS events happened while it slept) — and the live "ci sta mettendo"
@@ -979,6 +1039,115 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
     return () => cancelAnimationFrame(raf);
   }, [justDone]);
 
+  // …e lo stesso all'altro capo: la card appena creata va PORTATA A SCHERMO.
+  // Il lampo da solo non basta per la nascita ancora meno che per la chiusura —
+  // un task nuovo prende `kanban_order = max + 1`, cioè atterra in FONDO alla
+  // colonna, che su una colonna piena è già fuori dal corpo scrollabile; e se la
+  // colonna di destinazione è a sua volta oltre il bordo della riga, la card
+  // nasce, lampeggia e si spegne in un pezzo di DOM che nessuno sta guardando.
+  //
+  // DUE assi, DUE contenitori distinti, ed è il punto: la riga delle colonne
+  // scorre in orizzontale, il corpo della colonna in verticale. `scrollIntoView`
+  // li farebbe entrambi da sola — ma anche parecchi altri, risalendo gli
+  // antenati fin dove non deve (vedi la nota sull'effetto della selezione).
+  // Quindi ognuno per la sua `scrollBy`, con il delta calcolato da `scrollDelta`.
+  //
+  // In orizzontale si inquadra la COLONNA, non la card: sono `snap-center` e
+  // portare a filo la sola card lascerebbe la colonna tagliata a metà. In
+  // verticale la card, che è esattamente ciò che si vuole leggere.
+  useEffect(() => {
+    if (!scrollTarget) return;
+    // La card entra nel DOM solo quando il refetch ha rimpiazzato `tasks`: fino
+    // ad allora questo effetto non trova niente e riprova al giro dopo. Se un
+    // filtro attivo la tiene fuori, non arriva nessun giro — ci pensa la
+    // scadenza qui sotto a non lasciare un bersaglio appeso.
+    if (!tasks.some((t) => t.id === scrollTarget)) return;
+    // DUE frame, non uno. L'effetto parte nello stesso commit in cui la card
+    // entra in colonna, e i rettangoli vanno letti a layout FATTO — ma il primo
+    // frame non basta: la card esiste già e la colonna sta ancora assestando la
+    // propria altezza (chip, anteprime, il resto del contenuto della card che
+    // prende posto). Misurato lì, il rettangolo era ~55px più in alto del vero,
+    // lo scorrimento partiva corto di altrettanto e la card si fermava dietro al
+    // composer una volta su due — un rosso a intermittenza che non parlava del
+    // meccanismo ma di QUANDO lo si era interrogato. Il secondo frame legge
+    // numeri che non si muovono più, e lo scorrimento morbido parte una volta
+    // sola dalla posizione giusta.
+    let raf2 = 0;
+    const raf = requestAnimationFrame(() => { raf2 = requestAnimationFrame(() => {
+      const row = columnsScrollRef.current;
+      const card = row?.querySelector(`[data-task-card="${CSS.escape(scrollTarget)}"]`);
+      setScrollTarget(null);
+      if (!row || !card) return;
+      const cardRect = card.getBoundingClientRect();
+      const column = card.closest('[data-testid^="kanban-column-"]');
+      if (column) {
+        const rowRect = row.getBoundingClientRect();
+        const colRect = column.getBoundingClientRect();
+        const dx = scrollDelta({ start: rowRect.left, end: rowRect.right }, { start: colRect.left, end: colRect.right });
+        if (dx !== 0) {
+          // Quanto scorrere non è «il minimo per rientrare»: la riga è un
+          // carosello `snap-x snap-mandatory`, e i suoi punti di riposo sono le
+          // colonne CENTRATE. Chiedendo il minimo, lo snap corregge di sua
+          // iniziativa verso il punto più vicino — che è la colonna ACCANTO — e
+          // quella appena inquadrata torna fuori, tagliata dal lato da cui era
+          // arrivata. Quindi si chiede direttamente una posizione che lo snap
+          // accetta: la colonna al centro. `scrollDelta` qui decide SE muoversi,
+          // non di quanto. Una colonna più larga della riga (Review in una pane
+          // stretta) non ha un centro utile: lì vale il minimo, e lo snap si
+          // rilassa da solo perché nessun punto di riposo la conterrebbe.
+          const centered = (colRect.left + colRect.right - rowRect.left - rowRect.right) / 2;
+          row.scrollBy({ left: colRect.width >= rowRect.width ? dx : centered, behavior: 'smooth' });
+        }
+      }
+      const body = card.closest('[data-testid^="kanban-column-body-"]');
+      if (body) {
+        const bodyRect = body.getBoundingClientRect();
+        // Il fondo UTILE della colonna non è il suo bordo inferiore. Il composer
+        // («Descrivi un task per l'agent…») è un overlay ancorato in basso
+        // sull'area della board, e la fascia che copre è esattamente dove un
+        // task nuovo atterra: prende `kanban_order = max + 1`, quindi va in
+        // fondo alla colonna. Fermarsi al bordo mette la card appena creata
+        // DIETRO al riquadro in cui l'hai scritta — rettangolo giusto, e non la
+        // vedi. È lo stesso motivo per cui il corpo colonna porta `pb-16`.
+        //
+        // Il composer si MISURA invece di ricopiarne l'altezza in una costante:
+        // cresce col testo, si alza quando è a fuoco, e sparisce del tutto in
+        // alcuni stati (`hidden`, drawer a tutto schermo sotto lg) — un numero
+        // fisso sarebbe sbagliato in tutti e tre i casi. Nascosto ha un rect di
+        // zeri, ed è l'unico caso da scartare: `height > 0`.
+        //
+        // NIENTE test di sovrapposizione orizzontale, per quanto sembri la cosa
+        // giusta da fare. Qui siamo in un rAF che parte quando la card entra nel
+        // DOM: lo scorrimento orizzontale è stato CHIESTO due righe sopra, ma è
+        // morbido e non è ancora avvenuto, quindi la colonna sta ancora dov'era
+        // — fuori schermo, che è tutto il motivo per cui la stiamo spostando.
+        // Un `compRect.left < bodyRect.right` letto in quell'istante confronta
+        // il composer con una posizione che sta per non esistere più e risponde
+        // sempre «non si sovrappongono»: misurato, la card tornava esattamente a
+        // `bordo - 8`, cioè dietro al composer. E la domanda è comunque oziosa,
+        // perché la colonna la stiamo CENTRANDO — cioè portando esattamente
+        // dove il composer, anche lui centrato, sta.
+        const composer = document.querySelector('[data-testid="board-task-composer"]');
+        const compRect = composer?.getBoundingClientRect();
+        const covers = !!compRect && compRect.height > 0;
+        const usableBottom = covers ? Math.min(bodyRect.bottom, compRect.top) : bodyRect.bottom;
+        // Un filo di margine: appoggiata al bordo la card è tecnicamente in
+        // vista e sembra tagliata.
+        const dy = scrollDelta({ start: bodyRect.top, end: usableBottom }, { start: cardRect.top, end: cardRect.bottom }, 8);
+        if (dy !== 0) body.scrollBy({ top: dy, behavior: 'smooth' });
+      }
+    }); });
+    return () => { cancelAnimationFrame(raf); cancelAnimationFrame(raf2); };
+  }, [scrollTarget, tasks]);
+  // Un bersaglio che non atterra (filtro attivo, creazione in un'altra board)
+  // non resta armato per sempre: scorrere mezzo minuto dopo sarebbe uno
+  // strattone che non risponde a niente di quello che stai facendo ORA.
+  useEffect(() => {
+    if (!scrollTarget) return;
+    const t = setTimeout(() => setScrollTarget(null), CREATED_FLASH_MS);
+    return () => clearTimeout(t);
+  }, [scrollTarget]);
+
   // Task lookup by id for the parent chip ("⤴ epic…"). Best effort: a parent
   // not in the current fetch just shows the generic label.
   //
@@ -1096,9 +1265,11 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
   const create = useCallback(async (status: TaskStatus, text: string) => {
     // A task can't be created directly in Done — land it in Todo instead.
     const target: TaskStatus = status === 'done' ? 'todo' : status;
-    try { await boardApi.create(projectId, { text, status: target }); refetch(); }
+    // L'id arriva dalla POST, non dal broadcast: è quello che distingue «l'ho
+    // creato io» da «è comparso», e solo il primo autorizza a muovere la board.
+    try { const created = await boardApi.create(projectId, { text, status: target }); onCreatedHere(created.id); }
     catch (e) { setError(e instanceof Error ? e.message : 'create failed'); }
-  }, [projectId, refetch]);
+  }, [projectId, onCreatedHere]);
 
   // Il task che il drawer mostra quando l'id NON è nel feed. Il feed è
   // `rootsOnly` — le colonne mostrano le radici, gli step vivono nell'albero del
@@ -1345,6 +1516,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
                   liveById={liveUsage}
                   awaitingHuman={awaitingHuman}
                   justDone={justDone}
+                  justCreated={justCreated}
                 />
               ))}
             </div>
@@ -1376,7 +1548,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
           <FloatingTaskComposer
             projectId={projectId}
             global={mode === 'all'}
-            onCreated={refetch}
+            onCreated={onCreatedHere}
             onError={setError}
             hidden={typingElsewhere}
             hiddenBelowLg={!!selected}
