@@ -487,6 +487,43 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     return { ok, comment };
   }
 
+  /**
+   * Taglia il turno VIVO di una card: ferma il processo dell'agente e chiude i
+   * tentativi in corso. Non tocca lo stato — dove finisce la card lo decide chi
+   * chiama (parcheggiata dal bottone «Ferma», chiusa da un land riuscito).
+   *
+   * `false` = non c'era niente da tagliare, e chi chiama può smettere lì.
+   *
+   * Chi chiama DEVE aver già scritto lo stato finale: la fine del turno passa da
+   * `onTurnEnd`, che su una card ancora `in_progress` RIPRENDE l'agente
+   * (`shouldResume` è vero per tutto tranne un rifiuto del modello). Tagliare
+   * prima di chiudere la card significa quindi farla ripartire — su `done` la
+   * stessa strada si limita a spegnere il chip.
+   */
+  function cutLiveTurn(
+    t: { id: string; assignedTopicId: string | null; dispatchState: string | null },
+    reason: string,
+  ): boolean {
+    let running: TaskAttempt[] = [];
+    try { running = attempts.list(t.id).filter((a) => a.state === "running"); }
+    catch { /* tabella assente (host degradato) ⇒ nessun fan-out */ }
+    if (!t.assignedTopicId && !isAgentWorking(t.dispatchState) && running.length === 0) return false;
+    // Dedup: il tentativo 1 è anche il topic legato al task.
+    const keys = new Set<string>();
+    for (const id of [t.assignedTopicId, ...running.map((a) => a.topicId)]) {
+      if (id) keys.add("topic:" + id.slice(0, 8));
+    }
+    dispatcher?.onLeaveTodo(t.id); // sgancia un grace timer ancora pendente (queued)
+    for (const a of running) {
+      try { attempts.finish(a.id, { state: "failed", error: reason }); }
+      catch { /* best-effort: il taglio del turno conta più della riga */ }
+    }
+    if (opts?.abortTurn) {
+      for (const key of keys) void opts.abortTurn(key).catch(() => { /* best-effort */ });
+    }
+    return true;
+  }
+
   async function landTask(projectId: string, taskId: string): Promise<void> {
     const autoMerge = opts?.autoMerge;
     if (!autoMerge) {
@@ -522,7 +559,23 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         // lo stato la deve dire, da qualunque stato si arrivi. Idempotente sulle
         // card già chiuse e ferme (il caso normale), quindi non aggiunge righe
         // di storico al percorso che funzionava.
-        svc.settleLanded({ taskId, by: "system", reason: `il land è riuscito: il codice è su main (${res.commit})` });
+        const closed = svc.settleLanded({ taskId, by: "system", reason: `il land è riuscito: il codice è su main (${res.commit})` });
+        // …e se un agente stava LAVORANDO su quella card, lo si ferma. Chiudere
+        // la card lo toglie dalla coda ma non taglia il turno già partito, ed è
+        // lì che vanno i soldi: misurato l'11/08 su due land di fila, $5,64
+        // (`4ec47331`) e $8,24 (`56677242`, fermata entro un minuto) spesi a
+        // rifare lavoro che era già su main. Non è un caso limite — è successo a
+        // due land su due, e il conto sale a ogni land.
+        //
+        // DOPO `settleLanded`, mai prima: la fine del turno passa da `onTurnEnd`,
+        // che su una card ancora `in_progress` RIPRENDE l'agente. Tagliare prima
+        // di chiudere la card la farebbe ripartire.
+        if (closed && cutLiveTurn(closed, "il lavoro di questa card è atterrato su main: il turno non serve più")) {
+          svc.addComment({
+            taskId, author: "system",
+            content: "Fermato l'agente che stava ancora lavorando su questa card: il suo lavoro è appena atterrato su main.",
+          });
+        }
         await reapAfterLand(taskId, "landed");
         if (res.landedNotLive) {
           // Landed on main, but the shared checkout (the live server's cwd) is parked
@@ -1186,25 +1239,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         t: { id: string; assignedTopicId: string | null; dispatchState: string | null },
         reason: string,
       ): Task | null => {
-        let running: TaskAttempt[] = [];
-        try { running = attempts.list(t.id).filter((a) => a.state === "running"); }
-        catch { /* tabella assente (host degradato) ⇒ nessun fan-out */ }
-        if (!t.assignedTopicId && !isAgentWorking(t.dispatchState) && running.length === 0) return null;
-        // Dedup: il tentativo 1 è anche il topic legato al task.
-        const keys = new Set<string>();
-        for (const id of [t.assignedTopicId, ...running.map((a) => a.topicId)]) {
-          if (id) keys.add("topic:" + id.slice(0, 8));
-        }
-        dispatcher?.onLeaveTodo(t.id); // sgancia un grace timer ancora pendente (queued)
-        const parked = svc.release({ taskId: t.id, requeue: false, by: HUMAN, reason });
-        for (const a of running) {
-          try { attempts.finish(a.id, { state: "failed", error: reason }); }
-          catch { /* best-effort: il taglio del turno conta più della riga */ }
-        }
-        if (opts?.abortTurn) {
-          for (const key of keys) void opts.abortTurn(key).catch(() => { /* best-effort */ });
-        }
-        return parked;
+        if (!cutLiveTurn(t, reason)) return null;
+        return svc.release({ taskId: t.id, requeue: false, by: HUMAN, reason });
       };
 
       // GET/PATCH /api/boards/:projectId/settings — per-board dispatch config

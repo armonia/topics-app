@@ -155,6 +155,53 @@ for (const r of rows) {
   });
 }
 
+/**
+ * Il METRO dei soldi: i turni di agente pagati su lavoro appena atterrato.
+ *
+ * L'impronta, misurata sui due casi visti a occhio l'11/08 (`4ec47331`,
+ * `56677242`): la risposta dell'umano su una card in review vale come rifiuto e
+ * RISVEGLIA l'agente (`review→in_progress`), poi arriva il land — e quel turno
+ * gira per minuti su lavoro che è già su main. Si riconosce da tre cose
+ * insieme: la card è stata rimessa in corso, un turno è partito entro 30
+ * secondi da lì, e un «Mergiato su main» cade nello stesso minuto.
+ *
+ * NON entra nel codice d'uscita, di proposito: qui dentro c'è lo storico, che
+ * non si può più non spendere. Serve a vedere se la DATA dell'ultimo caso
+ * smette di avanzare — il cancello sta nel land (`cutLiveTurn` dopo
+ * `settleLanded`), questo è solo il contatore che lo verifica.
+ */
+function turniPagatiDopoUnLand(): { turni: number; usd: number; ultimo: string | null } {
+  try {
+    const r = db.prepare(`
+      WITH land AS (
+        SELECT task_id, MAX(created_at) AS landed_at FROM task_comments
+         WHERE kind = 'comment' AND content LIKE 'Mergiato su main%' GROUP BY task_id
+      ),
+      kick AS (
+        SELECT task_id, created_at FROM task_comments
+         WHERE kind = 'status' AND content LIKE '%review%in_progress%'
+      ),
+      sprechi AS (
+        SELECT DISTINCT m.id, m.cost_cents, m.timestamp
+          FROM land l
+          JOIN tasks t  ON t.id = l.task_id
+          JOIN topics tp ON tp.id = t.assigned_topic_id
+          JOIN messages m ON m.session_key = tp.session_key AND m.role = 'assistant'
+          JOIN kick k ON k.task_id = t.id
+           AND (julianday(m.timestamp) - julianday(k.created_at)) * 86400 BETWEEN -1 AND 30
+         WHERE (julianday(m.timestamp) - julianday(l.landed_at)) * 86400 BETWEEN -60 AND 300
+           AND COALESCE(m.cost_cents, 0) > 0
+      )
+      SELECT COUNT(*) AS turni, COALESCE(SUM(cost_cents), 0) AS cents, MAX(timestamp) AS ultimo FROM sprechi
+    `).get() as any;
+    return { turni: r?.turni ?? 0, usd: (r?.cents ?? 0) / 100, ultimo: r?.ultimo ?? null };
+  } catch {
+    // Un host senza `messages` (o senza colonne di costo) non ha questo conto:
+    // tacere è corretto, inventare uno zero no — lo dice chi stampa.
+    return { turni: -1, usd: 0, ultimo: null };
+  }
+}
+
 const outside = verdicts.filter((v) => v.status === "unmerged");
 const pruned = verdicts.filter((v) => v.status === "gone");
 const unresolved = verdicts.filter((v) => v.status === "no-repo");
@@ -168,6 +215,7 @@ if (JSON_OUT) {
     pruned: pruned.length,
     unresolvedProject: unresolved.length,
     witnessed: verdicts.filter((v) => v.fonte === "land").length,
+    turniPagatiDopoUnLand: turniPagatiDopoUnLand(),
     cards: outside.map((v) => ({ id: v.id, commit: v.commit, branch: v.branch, fonte: v.fonte, text: v.text.slice(0, 80) })),
   }));
 } else {
@@ -187,6 +235,16 @@ if (JSON_OUT) {
     `  esito registrato dal land: ${witnessed}/${verdicts.length} · ` +
     `dedotto qui dal solo commit: ${verdicts.length - witnessed}`,
   );
+  const spreco = turniPagatiDopoUnLand();
+  if (spreco.turni < 0) {
+    console.log("  turni pagati dopo un land: non misurabile su questo database (niente costi sui messaggi)");
+  } else {
+    console.log(
+      `  turni di agente pagati su lavoro già atterrato: ${spreco.turni} · ` +
+      `$${spreco.usd.toFixed(2)} · ultimo: ${spreco.ultimo?.slice(0, 16) ?? "mai"}` +
+      "  (storico, non entra nel codice d'uscita: conta che la data smetta di avanzare)",
+    );
+  }
   if (outside.length > 0) {
     console.log(`\n  ${outside.length} card sono in Done col codice FUORI dal contenuto di main:`);
     // Raggruppate per checkout: la prova si incolla in un terminale per NON
