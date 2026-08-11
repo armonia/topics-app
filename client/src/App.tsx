@@ -473,16 +473,22 @@ function App() {
   // esegue — la chiamata vuole sessione, cookie ed endpoint della board, che
   // vivono da questa parte.
   //
-  // Il progetto si RISOLVE dal feed globale invece di viaggiare nella notifica:
-  // così un banner ancora appeso in Centro Notifiche resta premibile anche
-  // dopo un riavvio dell'app, che è precisamente quando una mappa in memoria
-  // avrebbe già dimenticato tutto.
+  // Il progetto si RISOLVE dall'id invece di viaggiare nella notifica: così un
+  // banner ancora appeso in Centro Notifiche resta premibile anche dopo un
+  // riavvio dell'app, che è precisamente quando una mappa in memoria avrebbe
+  // già dimenticato tutto.
+  //
+  // A risolvere è `boardApi.resolve`, la porta unica «da un id al suo task, a
+  // qualunque profondità». Prima si cercava nel feed globale — che è
+  // `rootsOnly`, quindi per un id di SOTTOTASK la find tornava `undefined`, il
+  // progetto restava `null` e il tasto ripiegava su «apri il task». Cioè:
+  // proprio i banner degli step, che sono la maggioranza di quelli che chiedono
+  // una risposta, non facevano mai la loro azione.
   useEffect(() => {
     type ActionGlobal = { __topicsNotificationAction?: (taskId: string, actionId: string) => void };
     (window as unknown as ActionGlobal).__topicsNotificationAction = (taskId: string, actionId: string) => {
       void runNotificationAction(taskId, actionId, {
-        resolveProjectId: async (id) =>
-          (await boardApi.listAll()).find((t) => t.id === id)?.projectId ?? null,
+        resolveProjectId: async (id) => (await boardApi.resolve(id))?.projectId ?? null,
         send: async (req) => {
           const resp = await fetch(req.path, {
             method: req.method,
