@@ -20,11 +20,13 @@ function freshDb(): Database {
     )
   `);
   const migDir = join(import.meta.dir, '..', 'db', 'migrations');
-  const m027 = readdirSync(migDir).find((f) => f.startsWith('027-'))!;
-  const sql = readFileSync(join(migDir, m027), 'utf-8')
-    .split('\n').filter((l) => !l.trim().startsWith('--')).join('\n');
-  for (const stmt of sql.split(';').map((s) => s.trim()).filter(Boolean)) {
-    db.run(stmt);
+  for (const prefix of ['027-', '096-']) {
+    const file = readdirSync(migDir).find((f) => f.startsWith(prefix))!;
+    const sql = readFileSync(join(migDir, file), 'utf-8')
+      .split('\n').filter((l) => !l.trim().startsWith('--')).join('\n');
+    for (const stmt of sql.split(';').map((s) => s.trim()).filter(Boolean)) {
+      db.run(stmt);
+    }
   }
   return db;
 }
@@ -646,5 +648,143 @@ describe('ClaudeSessionTracker — terminal (topic-less) sessions', () => {
     expect(tracker.getSession('term-1')!.phase).toBe('running');
     tracker.registerTerminalSession('term-1', { now: T0 + 20 }); // should be a no-op
     expect(tracker.getSession('term-1')!.phase).toBe('running');
+  });
+});
+
+describe('ClaudeSessionTracker — message import sweep (adopted sessions)', () => {
+  let counter = 0;
+  function tmpTranscript(): string {
+    const dir = mkdtempSync(join(tmpdir(), 'import-sweep-'));
+    return join(dir, `sess-${counter++}.jsonl`);
+  }
+
+  const jline = (o: object) => JSON.stringify(o);
+
+  interface FakeSink {
+    append: any[][];
+    resolved: Array<{ id: string; result: string; isError: boolean }>;
+    lastId: string | null;
+    sink: NonNullable<Parameters<typeof createClaudeSessionTracker>[0]['importSink']>;
+  }
+  function makeSink(): FakeSink {
+    const state: FakeSink = { append: [], resolved: [], lastId: null, sink: null as any };
+    state.sink = {
+      getLastMessageId: () => state.lastId,
+      appendMessages: (_sk, msgs) => {
+        state.append.push(msgs);
+        if (msgs.length) state.lastId = msgs[msgs.length - 1]!.id; // mirror the DB tail
+      },
+      resolveToolResult: (_sk, toolUseId, result, isError) => state.resolved.push({ id: toolUseId, result, isError }),
+      topicIdForSessionKey: () => 'topic-x',
+    };
+    return state;
+  }
+
+  /** Seed an ADOPTED session: import_offset non-null + jsonl_path set. */
+  function seedAdopted(db: Database, sessionKey: string, csid: string, path: string, importOffset: number) {
+    db.prepare(`INSERT INTO topics VALUES (?)`).run(sessionKey);
+    db.prepare(`
+      INSERT INTO claude_code_sessions (session_key, claude_session_id, created_at, updated_at, phase, phase_updated_at, jsonl_path, import_offset)
+      VALUES (?, ?, ?, ?, 'dormant', ?, ?, ?)
+    `).run(sessionKey, csid, new Date(T0).toISOString(), new Date(T0).toISOString(), new Date(T0).toISOString(), path, importOffset);
+  }
+
+  it('appends a terminal turn that lands after adoption, advancing import_offset', async () => {
+    const db = freshDb();
+    const rec = makeRecorder();
+    const fake = makeSink();
+    fake.lastId = 'ADOPT-LAST'; // the last row the initial import wrote
+
+    const path = tmpTranscript();
+    const initial = jline({ type: 'user', message: { role: 'user', content: 'ciao' } }) + '\n';
+    writeFileSync(path, initial);
+    seedAdopted(db, 'topic-a', 'cli-a', path, Buffer.byteLength(initial, 'utf-8'));
+
+    const tracker = makeTracker(db, rec, { importSink: fake.sink });
+
+    // Nothing new yet.
+    expect(await tracker.importOnce()).toBe(0);
+    expect(fake.append).toEqual([]);
+
+    // A new turn is typed in the TERMINAL — appended to the same file.
+    const turn = [
+      jline({ type: 'user', message: { role: 'user', content: 'domanda-dal-terminale' } }),
+      jline({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'risposta-dal-terminale' }] } }),
+    ].join('\n') + '\n';
+    writeFileSync(path, initial + turn);
+
+    expect(await tracker.importOnce()).toBe(1);
+    expect(fake.append).toHaveLength(1);
+    const appended = fake.append[0]!;
+    expect(appended.map((m: any) => [m.role, m.content])).toEqual([
+      ['user', 'domanda-dal-terminale'],
+      ['assistant', 'risposta-dal-terminale'],
+    ]);
+    // first new message chains from the last already-saved row
+    expect(appended[0].parentId).toBe('ADOPT-LAST');
+    // import_offset advanced to EOF
+    const row = db.prepare(`SELECT import_offset FROM claude_code_sessions WHERE session_key = 'topic-a'`).get() as any;
+    expect(row.import_offset).toBe(Buffer.byteLength(initial + turn, 'utf-8'));
+    // and the open chat was nudged with message:new for both turns
+    const news = rec.events.filter((e: any) => e.type === 'message:new');
+    expect(news.map((e: any) => e.content)).toEqual(['domanda-dal-terminale', 'risposta-dal-terminale']);
+
+    // Idempotent: a second sweep with no growth does nothing.
+    expect(await tracker.importOnce()).toBe(0);
+    expect(fake.append).toHaveLength(1);
+  });
+
+  it('does NOT re-import while Topics drives the session, but advances the cursor', async () => {
+    const db = freshDb();
+    const rec = makeRecorder();
+    const fake = makeSink();
+
+    const path = tmpTranscript();
+    const initial = jline({ type: 'user', message: { role: 'user', content: 'ciao' } }) + '\n';
+    writeFileSync(path, initial);
+    seedAdopted(db, 'topic-b', 'cli-b', path, Buffer.byteLength(initial, 'utf-8'));
+
+    // Topics owns a live child for this session — its stream persists the turns.
+    const tracker = makeTracker(db, rec, { importSink: fake.sink, isSessionLocallyDriven: () => true });
+
+    const turn = jline({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'topics-authored' }] } }) + '\n';
+    writeFileSync(path, initial + turn);
+
+    expect(await tracker.importOnce()).toBe(0); // no import
+    expect(fake.append).toEqual([]);
+    // but the cursor moved past the Topics-authored bytes (no re-import later)
+    const row = db.prepare(`SELECT import_offset FROM claude_code_sessions WHERE session_key = 'topic-b'`).get() as any;
+    expect(row.import_offset).toBe(Buffer.byteLength(initial + turn, 'utf-8'));
+  });
+
+  it('resolves a tool_result whose tool_use arrived in an earlier sweep (cross-chunk)', async () => {
+    const db = freshDb();
+    const rec = makeRecorder();
+    const fake = makeSink();
+    fake.lastId = 'P0';
+
+    const path = tmpTranscript();
+    writeFileSync(path, ''); // empty transcript at adoption
+    seedAdopted(db, 'topic-c', 'cli-c', path, 0);
+    const tracker = makeTracker(db, rec, { importSink: fake.sink });
+
+    // Sweep 1: the assistant fires a long tool; the result has NOT landed yet.
+    const chunk1 = jline({
+      type: 'assistant',
+      message: { role: 'assistant', content: [{ type: 'text', text: 'eseguo' }, { type: 'tool_use', id: 'tX', name: 'Bash', input: { command: 'sleep' } }] },
+    }) + '\n';
+    writeFileSync(path, chunk1);
+    expect(await tracker.importOnce()).toBe(1);
+    expect(fake.append[0]![0].toolCalls[0]).toMatchObject({ id: 'tX', name: 'Bash' });
+    expect(fake.append[0]![0].toolCalls[0].result).toBeUndefined();
+    expect(fake.resolved).toEqual([]);
+
+    // Sweep 2: only the tool_result. No new message; the earlier row is patched.
+    const chunk2 = jline({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tX', content: 'done' }] } }) + '\n';
+    writeFileSync(path, chunk1 + chunk2);
+    await tracker.importOnce();
+    expect(fake.resolved).toEqual([{ id: 'tX', result: 'done', isError: false }]);
+    // no second append (pure tool_result carrier)
+    expect(fake.append).toHaveLength(1);
   });
 });
