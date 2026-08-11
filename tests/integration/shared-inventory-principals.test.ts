@@ -57,7 +57,8 @@ const DDL_TASKS = `CREATE TABLE tasks (
   delivery_branch TEXT, delivery_commit TEXT, landing_state TEXT, landing_checked_at TEXT,
     landing_witnessed INTEGER NOT NULL DEFAULT 0, dispatch_deferred_until TEXT,
   checks_state TEXT, checks_at TEXT, checks_commit TEXT, checks_json TEXT,
-  delivered_by TEXT, delivered_reason TEXT, preview_image TEXT, created_by_topic_id TEXT
+  delivered_by TEXT, delivered_reason TEXT, preview_image TEXT, created_by_topic_id TEXT,
+  done_actor TEXT, reopened_at TEXT, reopened_by TEXT, reopened_actor TEXT
 )`;
 
 /** Lo schema VERO, applicando le migration: un CREATE TABLE riscritto a mano
