@@ -64,6 +64,11 @@
         // (`bun run scripts/job-quota-live-demo.ts`) e alimenta il video di
         // `scripts/job-quota-live-video.mjs`.
         "scripts/job-quota-live-demo.ts!",
+        // `bun run measure:task-tabs <copia.db>` — la misura prima/dopo del
+        // ripasso sulle tab dei task archiviati, su una COPIA del db vivo. Si
+        // lancia a mano quando si vuole rifare il conto (o rispondere a «quanto
+        // rende davvero»): nessuno lo importa e non deve.
+        "scripts/measure-task-tab-teardown.ts!",
         // Chi lo chiama: `scripts/check-occlusion.mjs` (`bun run check:occlusion`),
         // che lo bundla con `bun build` per portare il modulo di occlusione VERO
         // dentro un WebKit vero. Il riferimento è un path in stringa dentro un
