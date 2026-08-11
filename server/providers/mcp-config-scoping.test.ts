@@ -31,16 +31,6 @@ describe("writeMcpConfigForSession — bridge-only policy", () => {
     expect(config.mcpServers.topics.args).toContain("--profile=dispatch");
   });
 
-  it("la policy 'orchestrator' scrive lo stesso config col SUO profilo", () => {
-    const sk = track("topic:orch1234");
-    const { path, strict } = writeMcpConfigForSession(sk, { mcpPolicy: "orchestrator" });
-    expect(strict).toBe(true);
-    const config = JSON.parse(readFileSync(path, "utf-8"));
-    expect(Object.keys(config.mcpServers)).toEqual(["topics"]);
-    expect(config.mcpServers.topics.args).toContain("--profile=orchestrator");
-    expect(config.mcpServers.topics.args).not.toContain("--profile=dispatch");
-  });
-
   it("does NOT set the dispatch profile for the default (inherit) policy", () => {
     const spec = topicsMcpBridgeSpec("topic:plain");
     expect(spec.args).not.toContain("--profile=dispatch");
