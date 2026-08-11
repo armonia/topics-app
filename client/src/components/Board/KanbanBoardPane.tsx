@@ -794,7 +794,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
     setGcResult(null);
     try {
       const r = await fetch('/api/worktrees/gc', { method: 'POST' });
-      const b = (await r.json()) as { summary?: { reaped?: number; landed?: number; freed?: number; kept?: number; keptReasons?: Record<string, number> } };
+      const b = (await r.json()) as { summary?: { reaped?: number; landed?: number; freed?: number; kept?: number; slimmed?: number; slimmedBytes?: number; keptReasons?: Record<string, number> } };
       const sm = b?.summary;
       if (!sm) { setGcResult('Il GC non ha risposto'); return; }
       const motivi = Object.entries(sm.keptReasons ?? {}).sort((a, b2) => b2[1] - a[1]).slice(0, 2)
@@ -802,8 +802,15 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
       // `liberati` è la voce che oggi fa quasi tutto il lavoro (cartella via,
       // branch conservato): senza, la passata che ne libera 77 direbbe «0
       // ripuliti, 0 landati» e sembrerebbe non aver fatto niente.
+      //
+      // Lo stesso vale per gli `snelliti`: una passata che tiene TUTTI i
+      // worktree può comunque aver liberato qualche giga di `node_modules`, e
+      // senza questa voce direbbe solo «0, 0, 0, N tenuti».
+      const snelliti = (sm.slimmed ?? 0) > 0
+        ? `, ${sm.slimmed} snelliti (${Math.round((sm.slimmedBytes ?? 0) / 1_048_576)} MB)`
+        : '';
       setGcResult(
-        `${sm.reaped ?? 0} ripuliti, ${sm.freed ?? 0} liberati (branch salvo), ${sm.landed ?? 0} landati, ${sm.kept ?? 0} tenuti`
+        `${sm.reaped ?? 0} ripuliti, ${sm.freed ?? 0} liberati (branch salvo), ${sm.landed ?? 0} landati${snelliti}, ${sm.kept ?? 0} tenuti`
         + (motivi ? ` — ${motivi}` : ''),
       );
       // Il conteggio accanto deve riflettere la passata appena fatta.
