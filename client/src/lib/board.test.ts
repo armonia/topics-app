@@ -1,5 +1,5 @@
 import { test, expect, describe } from 'bun:test';
-import { boardIdForPath, TASK_STATUSES, parseQuestionBlock } from './board';
+import { blockedByChip, boardIdForPath, TASK_STATUSES, parseQuestionBlock, type BoardTask } from './board';
 
 describe('boardIdForPath', () => {
   // Parity lock with the server (services/tasks.ts:projectIdForPath). Must stay
@@ -72,5 +72,36 @@ describe('parseQuestionBlock', () => {
 
   test('single-line block without options is a plain question', () => {
     expect(parseQuestionBlock('```question Come procedo?```')).toEqual({ question: 'Come procedo?', options: [] });
+  });
+});
+
+describe('blockedByChip', () => {
+  const chip = (over: Partial<BoardTask> = {}) =>
+    blockedByChip({ blockedByTaskId: 'blk', blockedBy: null, ...over } as BoardTask);
+
+  test('nessun link, nessun chip', () => {
+    expect(chip({ blockedByTaskId: null })).toBeNull();
+  });
+
+  test('bloccante risolto: il titolo finisce nel chip', () => {
+    expect(chip({ blockedBy: { id: 'blk', text: 'Rifai la scheda', status: 'todo', archived: false } }))
+      .toEqual({ label: 'in attesa di: Rifai la scheda', title: 'In attesa di: Rifai la scheda' });
+  });
+
+  // Il caso per cui esiste tutto questo: il bloccante non è nella lista fetchata
+  // (sottotask, altro progetto, archiviato) e il server non ha potuto risolverlo.
+  // Prima il chip spariva e la card sembrava libera; ora resta, degradato.
+  test('titolo mancante: il chip resta, con il testo degradato', () => {
+    const c = chip({ blockedBy: null });
+    expect(c?.label).toBe('in attesa di un altro task');
+    expect(c?.title).toContain('non parte finché');
+  });
+
+  test('bloccante done: muto (il dispatcher lo farebbe partire)', () => {
+    expect(chip({ blockedBy: { id: 'blk', text: 'Fatto', status: 'done', archived: false } })).toBeNull();
+  });
+
+  test('bloccante archiviato: muto', () => {
+    expect(chip({ blockedBy: { id: 'blk', text: 'Archiviato', status: 'todo', archived: true } })).toBeNull();
   });
 });
