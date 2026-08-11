@@ -34,24 +34,46 @@ export interface BrowserDownloads {
   openFile: (path: string) => void;
 }
 
+/** L'elenco PORTA con sé la pane a cui appartiene. Tenerli in un solo stato è
+ *  ciò che permette di ripartire da zero quando la pane cambia identità senza
+ *  farlo in un effetto: si legge `ctx` e si sa già se le voci sono le sue. */
+interface DownloadsState {
+  ctx: string;
+  entries: DownloadEntry[];
+  started: number;
+}
+
+const EMPTY = (ctx: string): DownloadsState => ({ ctx, entries: [], started: 0 });
+
 export function useBrowserDownloads(contextId: string): BrowserDownloads {
-  const [downloads, setDownloads] = useState<DownloadEntry[]>([]);
-  const [startedCount, setStartedCount] = useState(0);
+  const [state, setState] = useState<DownloadsState>(() => EMPTY(contextId));
+
+  // Pane diversa = elenco diverso: senza questo, cambiando contextId le voci
+  // della pane precedente restavano appese a quella nuova. L'azzeramento avviene
+  // DURANTE il render (il modo con cui React vuole che uno stato reagisca a un
+  // prop cambiato) e non dentro un effetto, che farebbe un render a cascata —
+  // il divieto di `react-hooks/set-state-in-effect`. `current` copre il render
+  // in corso: React riesegue subito il componente, ma nessuno deve poter leggere
+  // le voci della pane precedente nemmeno per un giro.
+  const current = state.ctx === contextId ? state : EMPTY(contextId);
+  if (state.ctx !== contextId) setState(current);
 
   useEffect(() => {
     if (!isTauri) return;
-    // Pane diversa = elenco diverso: senza questo, cambiando contextId le voci
-    // della pane precedente restavano appese a quella nuova.
-    setDownloads([]);
-    setStartedCount(0);
     let stop = false;
     const iv = window.setInterval(() => {
       void tauriInvoke<DownloadEventIn[]>('browser_take_download_events', { id: contextId })
         .then((events) => {
           if (stop || !events || !events.length) return;
-          setDownloads((prev) => events.reduce(applyDownloadEvent, prev));
           const starts = events.filter((e) => e.kind === 'start').length;
-          if (starts) setStartedCount((n) => n + starts);
+          // Callback di una sottoscrizione, non corpo di effetto: qui setState
+          // è il modo previsto. La guardia su `ctx` scarta la risposta di un
+          // poll partito per la pane di prima.
+          setState((prev) => (prev.ctx !== contextId ? prev : {
+            ...prev,
+            entries: events.reduce(applyDownloadEvent, prev.entries),
+            started: prev.started + starts,
+          }));
         })
         .catch(() => {});
     }, POLL_MS);
@@ -59,9 +81,9 @@ export function useBrowserDownloads(contextId: string): BrowserDownloads {
   }, [contextId]);
 
   const dismiss = useCallback((id: string) => {
-    setDownloads((prev) => prev.filter((d) => d.id !== id));
+    setState((prev) => ({ ...prev, entries: prev.entries.filter((d) => d.id !== id) }));
   }, []);
-  const clear = useCallback(() => setDownloads([]), []);
+  const clear = useCallback(() => setState((prev) => ({ ...prev, entries: [] })), []);
   const reveal = useCallback((path: string) => {
     // opener: seleziona il file nel Finder / gestore file.
     void tauriInvoke('plugin:opener|reveal_item_in_dir', { path }).catch(() => {});
@@ -72,5 +94,13 @@ export function useBrowserDownloads(contextId: string): BrowserDownloads {
     void tauriInvoke('plugin:opener|open_path', { path }).catch(() => {});
   }, []);
 
-  return { downloads, activeCount: countActive(downloads), startedCount, dismiss, clear, reveal, openFile };
+  return {
+    downloads: current.entries,
+    activeCount: countActive(current.entries),
+    startedCount: current.started,
+    dismiss,
+    clear,
+    reveal,
+    openFile,
+  };
 }

@@ -20,7 +20,7 @@
  * fuori o col suo bottone. Passa dalla primitiva `Menu`, che è anche ciò che lo
  * fa comparire SOPRA la webview nativa.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { Download, Check, X as XIcon, FolderOpen, Loader2, AlertTriangle } from 'lucide-react';
 import { Menu } from '../Shared/Menu';
 import { POPOVER_DIVIDER, POPOVER_ITEM_DANGER } from '../../lib/popoverStyles';
@@ -53,23 +53,27 @@ export interface DownloadsMenuProps {
 }
 
 export function DownloadsMenu({ items, activeCount, startedCount, onDismiss, onClear, onOpen, onReveal }: DownloadsMenuProps) {
-  const [open, setOpen] = useState(false);
+  // `wanted` è la VOLONTÀ (il menu è stato aperto), non il fatto: se l'elenco è
+  // vuoto il bottone non esiste e il menu non ha più un'ancora, quindi
+  // `open` si DERIVA. Prima quella riconciliazione era un effetto che spegneva
+  // lo stato dopo il fatto — un render in più, e il warning di React.
+  const [wanted, setWanted] = useState(false);
   const btnRef = useRef<HTMLButtonElement>(null);
+  const open = wanted && items.length > 0;
 
   // Apertura automatica al download che PARTE (non a ogni render con la lista
-  // piena, che riaprirebbe il menu appena chiuso).
-  const seenRef = useRef(startedCount);
-  useEffect(() => {
-    if (startedCount > seenRef.current) {
-      seenRef.current = startedCount;
-      setOpen(true);
-    }
-  }, [startedCount]);
-
-  // Elenco vuoto = niente bottone, quindi niente menu appeso a un'ancora sparita.
-  useEffect(() => {
-    if (items.length === 0 && open) setOpen(false);
-  }, [items.length, open]);
+  // piena, che riaprirebbe il menu appena chiuso). L'aggiustamento avviene
+  // DURANTE il render — il modo con cui React vuole che uno stato reagisca a un
+  // prop cambiato — invece che dentro un effetto: React riesegue subito questo
+  // componente, senza toccare il DOM e senza il render a cascata che
+  // `react-hooks/set-state-in-effect` vieta. `startedCount` cresce solo, tranne
+  // quando la pane cambia identità e riparte da zero: allora si ri-allinea il
+  // riferimento SENZA aprire niente.
+  const [seenStarted, setSeenStarted] = useState(startedCount);
+  if (startedCount !== seenStarted) {
+    setSeenStarted(startedCount);
+    if (startedCount > seenStarted) setWanted(true);
+  }
 
   if (items.length === 0) return null;
 
@@ -78,7 +82,7 @@ export function DownloadsMenu({ items, activeCount, startedCount, onDismiss, onC
       <button
         ref={btnRef}
         type="button"
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => setWanted(!open)}
         className="relative w-6 h-6 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 text-app-text-secondary transition-colors shrink-0"
         title={activeCount > 0 ? `${activeCount} download in corso` : 'Download'}
         aria-haspopup="menu"
@@ -102,7 +106,7 @@ export function DownloadsMenu({ items, activeCount, startedCount, onDismiss, onC
       <Menu
         open={open}
         anchorRef={btnRef}
-        onClose={() => setOpen(false)}
+        onClose={() => setWanted(false)}
         align="right"
         minWidth={280}
         className="max-w-[380px]"
@@ -113,7 +117,7 @@ export function DownloadsMenu({ items, activeCount, startedCount, onDismiss, onC
           <span className="text-[11px] font-medium text-app-text-secondary">Download</span>
           <button
             type="button"
-            onClick={() => setOpen(false)}
+            onClick={() => setWanted(false)}
             className="w-5 h-5 flex items-center justify-center rounded text-app-text-muted hover:bg-app-hover"
             title="Chiudi"
             aria-label="Chiudi"
@@ -207,7 +211,7 @@ export function DownloadsMenu({ items, activeCount, startedCount, onDismiss, onC
         <div className={POPOVER_DIVIDER} />
         <button
           type="button"
-          onClick={() => { onClear(); setOpen(false); }}
+          onClick={() => { onClear(); setWanted(false); }}
           className={POPOVER_ITEM_DANGER}
           data-testid="browser-downloads-clear"
         >
