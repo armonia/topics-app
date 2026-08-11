@@ -29,7 +29,17 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
   projectId: string;
   /** Cross-project mode: no implicit board — the project picker chip appears. */
   global: boolean;
-  onCreated: () => void;
+  /**
+   * Il gesto è andato a buon fine: la board si rinfresca.
+   *
+   * L'id del task creato viaggia insieme, quando ce n'è uno: è il modo in cui
+   * la board sa che quella card l'ha voluta CHI STA QUI — e quindi che può
+   * scorrere fino a lei — invece di scoprirla dal broadcast, dove una creazione
+   * propria e una di un agent dall'altra parte del mondo sono indistinguibili.
+   * La porta dell'orchestratore chiama senza id: lì non nasce nessuna card, la
+   * risposta è una sessione di chat.
+   */
+  onCreated: (createdTaskId?: string) => void;
   onError: (e: string) => void;
   /** Fuori dalla vista (ma vivo): un campo della board gli sta sopra. */
   hidden?: boolean;
@@ -256,7 +266,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
       // il task è nato e il link non c'è ancora (o peggio, c'è senza che
       // nessuno l'abbia scelto). `intakeLink` dice al server di scrivere il
       // perché nei thread di entrambe le card.
-      await boardApi.create(target, {
+      const created = await boardApi.create(target, {
         text: title, description, status: 'todo', planFirst,
         model: model ?? undefined, priority: prio ?? undefined,
         ...(link?.kind === 'subtask' ? { parentTaskId: link.proposal.targetTaskId } : {}),
@@ -272,7 +282,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
       dismissedRef.current.clear();
       boardDrafts.clearComposer();
       if (taRef.current) taRef.current.style.height = 'auto';
-      onCreated();
+      onCreated(created.id);
     } catch (e) { onError(e instanceof Error ? e.message : 'create failed'); }
     finally { setSubmitting(false); }
   };
