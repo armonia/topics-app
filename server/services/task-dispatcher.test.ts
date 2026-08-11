@@ -1991,4 +1991,17 @@ describe("la coda deve dire il vero", () => {
     expect(p.dispatchState).toBe("waiting");     // e il board dice perché
     expect(p.dispatchDeferredUntil).toBeTruthy(); // niente giro a vuoto immediato
   });
+
+  it("…ma se i figli sono SOLO parcheggiati non c'è nulla da aspettare: si ferma lui", () => {
+    // Nessuno dispaccia dal backlog: rimandarlo in coda sarebbe un giro
+    // perpetuo ogni 10 minuti. Parcheggiato con la ragione, è una card su cui
+    // si può agire.
+    const h = harness();
+    seedTask(h.db, { id: "padre", status: "in_progress", assignedTopicId: "topic-padre" });
+    seedTask(h.db, { id: "figlio", status: "backlog", parentTaskId: "padre" });
+    h.svc.deliverToReviewBySystem({ taskId: "padre", reason: "turno finito" });
+    const p = h.task("padre")!;
+    expect(p.status).toBe("backlog");
+    expect(p.dispatchState).toBe("blocked");
+  });
 });
