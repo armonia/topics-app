@@ -203,6 +203,12 @@ export type ApriSocketLocale = (
   o: { intestazioni: Intestazioni; protocolli: string[] },
 ) => WebSocket;
 
+/** `WebSocket.CONNECTING`: la stretta di mano non è finita. Scritto come numero
+ *  e non come `WebSocket.CONNECTING` perché `apriSocketLocale` è iniettabile e
+ *  un socket finto può non discendere dalla classe globale; il valore invece è
+ *  quello in ogni implementazione, ed è parte del contratto. */
+const SOCKET_IN_APERTURA = 0;
+
 const apriSocketLocaleVero: ApriSocketLocale = (url, o) => {
   const opzioni: Record<string, unknown> = { headers: Object.fromEntries(o.intestazioni) };
   if (o.protocolli.length > 0) opzioni.protocols = o.protocolli;
@@ -262,6 +268,11 @@ interface SocketProxy {
   su_aperto: boolean;
   /** La chiusura è già stata dichiarata: non se ne manda una seconda. */
   finito: boolean;
+  /** Il codice che l'ospite ha chiesto di far arrivare al socket vero mentre la
+   *  stretta di mano non era ancora finita. Un `close(c)` su un socket in
+   *  apertura non manda nessun codice — vedi `chiudiSocket` — quindi si tiene
+   *  qui e si spende all'apertura, che è il primo istante in cui può viaggiare. */
+  chiudiAllApertura: ChiusuraWs | null;
 }
 
 interface SessioneOspite {
@@ -279,6 +290,13 @@ interface SessioneOspite {
    *  il credito, e cercarlo scorrendo tutti i socket sarebbe un giro lineare
    *  su ogni ricarica. */
   perCanale: Map<number, SocketProxy>;
+  /** I socket veri che restano attaccati SOLO per finire di aprirsi e poter
+   *  dire il codice con cui l'ospite li ha chiusi. Non stanno in `socket`: lì
+   *  ci sono i vivi, e questi sono già morti per tutti. Servono a un elenco
+   *  perché quando l'ospite se ne va non c'è più nessun codice da consegnare, e
+   *  senza un posto dove trovarli resterebbero a finire una stretta di mano che
+   *  non interessa più a nessuno. */
+  inApertura: Set<WebSocket>;
 }
 
 export function creaProxyTubo(deps: ProxyTuboDeps) {
@@ -348,6 +366,7 @@ export function creaProxyTubo(deps: ProxyTuboDeps) {
       inVolo: new Map(),
       socket: new Map(),
       perCanale: new Map(),
+      inApertura: new Set(),
     };
   }
 
@@ -557,10 +576,27 @@ export function creaProxyTubo(deps: ProxyTuboDeps) {
     // scadenza.
     sk.canale.chiudi("aborted");
     if (opts.avvisa !== false) manda(sid, { f: "reset", s: sk.sIn, motivo: "aborted" });
-    try {
-      if (opts.chiudiSu) sk.su?.close(opts.chiudiSu.c, opts.chiudiSu.r);
-      else sk.su?.close();
-    } catch { /* già chiusa */ }
+    // Un codice di chiusura si può dire solo su una stretta di mano FINITA.
+    // `close(c)` su un socket ancora in apertura non manda nessun codice: per
+    // protocollo fa cadere la connessione, e l'altro capo legge 1006 — cioè
+    // esattamente il codice che la guardia di `chiusuraDallOspite` esiste per
+    // non lasciar passare. Quando il codice conta, allora, si aspetta
+    // l'apertura e si chiude LÌ: è il primo istante in cui può viaggiare.
+    //
+    // È anche il solo modo perché il risultato non dipenda da quanto era
+    // occupata la macchina: fra l'`open` di chi ascolta e l'`onopen` di qui c'è
+    // altro lavoro, e sotto carico l'ospite chiude nel mezzo. Con la chiusura
+    // immediata il codice arrivava o no a seconda del tempo — misurato, non
+    // dedotto: 30ms di lavoro sincrono in mezzo bastano a farlo diventare 1006.
+    if (opts.chiudiSu && sk.su !== null && sk.su.readyState === SOCKET_IN_APERTURA) {
+      sk.chiudiAllApertura = opts.chiudiSu;
+      sess.inApertura.add(sk.su);
+    } else {
+      try {
+        if (opts.chiudiSu) sk.su?.close(opts.chiudiSu.c, opts.chiudiSu.r);
+        else sk.su?.close();
+      } catch { /* già chiusa */ }
+    }
     sk.su = null;
   }
 
@@ -597,7 +633,10 @@ export function creaProxyTubo(deps: ProxyTuboDeps) {
       ...(deps.credito !== undefined ? { credito: deps.credito } : {}),
       ...(deps.arretratoMax !== undefined ? { arretratoMax: deps.arretratoMax } : {}),
     });
-    const sk: SocketProxy = { sIn, sOut, su: null, canale, coda: [], su_aperto: false, finito: false };
+    const sk: SocketProxy = {
+      sIn, sOut, su: null, canale, coda: [], su_aperto: false, finito: false,
+      chiudiAllApertura: null,
+    };
     sess.socket.set(sIn, sk);
     sess.perCanale.set(sOut, sk);
 
@@ -637,7 +676,17 @@ export function creaProxyTubo(deps: ProxyTuboDeps) {
     try { su.binaryType = "arraybuffer"; } catch { /* non tutte le implementazioni lo espongono */ }
 
     su.onopen = () => {
-      if (sk.finito) { try { su.close(); } catch { /* già chiusa */ } return; }
+      sess.inApertura.delete(su);
+      if (sk.finito) {
+        // Morto prima di nascere. Se qualcuno aveva chiesto un codice, questo è
+        // il primo — e ultimo — istante in cui glielo si può dire.
+        try {
+          const c = sk.chiudiAllApertura;
+          if (c) su.close(c.c, c.r);
+          else su.close();
+        } catch { /* già chiusa */ }
+        return;
+      }
       sk.su_aperto = true;
       const scelto = typeof su.protocol === "string" && su.protocol.length > 0 ? su.protocol : undefined;
       canale.apri(GENERE_WS_APERTO, scriviTestaWs({
@@ -659,11 +708,15 @@ export function creaProxyTubo(deps: ProxyTuboDeps) {
     };
 
     su.onerror = () => {
+      sess.inApertura.delete(su);
       if (sk.su_aperto) return; // ci pensa `onclose`, che porta anche il codice
       rifiuta(502);
     };
 
     su.onclose = (ev) => {
+      // La stretta di mano è finita male: non c'è nessuna apertura da aspettare
+      // per dire un codice, e l'elenco non deve tenersi un socket morto.
+      sess.inApertura.delete(su);
       if (!sk.su_aperto) { rifiuta(502); return; }
       const e = ev as unknown as { code?: unknown; reason?: unknown };
       const codice = typeof e.code === "number" && Number.isInteger(e.code) && e.code >= 1000 && e.code <= 4999
@@ -744,6 +797,12 @@ export function creaProxyTubo(deps: ProxyTuboDeps) {
     // scrivere verso nessuno è un processo che nessuno ferma più. Non si
     // avvisa: la corsia su cui avvisare è proprio quella che non c'è più.
     for (const sk of [...sess.socket.values()]) chiudiSocket(sid, sess, sk, { avvisa: false });
+    // …e quelli che stavano finendo di aprirsi solo per poter dire un codice:
+    // il codice era per l'ospite di prima, che non c'è più. Si chiudono e
+    // basta, invece di restare appesi a una stretta di mano che non serve a
+    // nessuno.
+    for (const su of [...sess.inApertura]) { try { su.close(); } catch { /* già chiusa */ } }
+    sess.inApertura.clear();
   }
 
   return {
