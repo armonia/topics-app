@@ -1,8 +1,8 @@
-import { memo, useState, useEffect, useMemo } from 'react';
+import { memo, useState, useEffect, useMemo, useRef } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { AlertTriangle, ArrowUpRight, ClipboardList, Hourglass, Lock, MessageSquare, Plus, Send, ShieldCheck, ShieldX, Trash2 } from 'lucide-react';
+import { AlertTriangle, ArrowUpRight, ClipboardList, Hourglass, Lock, MessageSquare, Plus, Send, Trash2 } from 'lucide-react';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
@@ -11,6 +11,8 @@ import { useConfirm } from '../../hooks/useConfirm';
 import { useLongPress, openContextMenuAt } from '../../hooks/useLongPress';
 import { useMobile } from '../../hooks/useMobile';
 import { PreviewMedia } from './PreviewMedia';
+import { TaskChoiceRow } from './TaskChoiceRow';
+import { taskChoiceState } from './taskChoices';
 import { stripMarkdown } from '../../lib/stripMarkdown';
 import { PRIORITY_DOT, PRIORITY_LABEL, DISPATCH_CHIP, COMPACT_MD_CLS, mediaPaneIdFor, type LiveUsage, type OpenTask } from './constants';
 import { fmtMs, fmtLive, fmtTok, fmtModel, fmtUpdatedAt } from './format';
@@ -151,6 +153,10 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
   const [children, setChildren] = useState<BoardTask[]>([]);
   const [freeText, setFreeText] = useState('');
   const [busy, setBusy] = useState(false);
+  // Il commento libero è l'ULTIMA opzione, non l'unica: «Rifai così…» ci porta
+  // il cursore invece di agire (è l'unica scelta che senza una riga non dice
+  // niente all'agente).
+  const freeTextRef = useRef<HTMLInputElement>(null);
   // Right-click menu (archive/select live here now — NOT as a trash icon that
   // crowds the card header). Cursor-positioned, portaled, viewport-clamped.
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
@@ -193,6 +199,14 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
   // Answering a question re-kicks the same agent tab (server routes reject →
   // dispatcher.resume), so the answer is a reject carrying the human's choice.
   const answer = (text: string) => review('reject', text);
+  // Il campo libero della card in review: con un agente dietro è una RISPOSTA
+  // (riparte lui); senza, è un commento e basta — un `reject` chiuderebbe una
+  // revisione umana che nessuno ha chiesto di rifiutare.
+  const replyFree = () => {
+    const v = freeText.trim();
+    if (!v) return;
+    if (isAgentReview) void answer(v); else void steer(v);
+  };
   const archive = async () => {
     // Archiviare un task con l'agent al lavoro gli taglia il turno (il server lo
     // stacca prima di archiviare, altrimenti resterebbe a girare per nessuno).
@@ -253,6 +267,8 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
   // risolto dal server, così vale anche quando il bloccante non è fra i task
   // fetchati (sottotask, altro progetto, archiviato).
   const blockedChip = blockedByChip(task);
+  // Quale famiglia di scelte disegna questa card (una sola, vedi taskChoices).
+  const choiceState = taskChoiceState(task);
   // …e l'altra metà: quanti aspettano QUESTA card. Anche questo numero è un
   // fatto del DB, non della lista fetchata — un dipendente che è un sottotask o
   // sta in un altro progetto non è fra le card, ma aspetta lo stesso.
@@ -468,27 +484,39 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
       {/* Steer a WORKING agent right from the card ("anche da kanban"): the
           message is buffered and handed to the agent at the next turn. */}
       {agentBusy && (
-        <div className="mt-2 flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-          <input
-            value={freeText} disabled={busy}
-            onChange={(e) => setFreeText(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter' && freeText.trim()) { e.preventDefault(); steer(freeText); } }}
-            placeholder="Scrivi all'agent…"
-            className="min-w-0 flex-1 rounded-md bg-black/30 px-2.5 py-1.5 text-xs text-app-text outline-none placeholder:text-app-placeholder"
-          />
-          <button
-            disabled={busy || !freeText.trim()} onClick={() => steer(freeText)}
-            title="Invia all'agent — lo riceve al prossimo turno (come Claude Code)"
-            className="flex shrink-0 items-center gap-1 rounded-md bg-sky-500/80 px-2.5 py-1.5 text-xs text-white hover:bg-sky-500 disabled:opacity-50"
-          ><Send className="h-3.5 w-3.5" /></button>
+        <div className="mt-2 space-y-1.5" onClick={(e) => e.stopPropagation()}>
+          <TaskChoiceRow task={task} disabled={busy} onDone={onRefetch} onError={onError} />
+          <div className="flex items-center gap-1">
+            <input
+              ref={freeTextRef}
+              value={freeText} disabled={busy}
+              onChange={(e) => setFreeText(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && freeText.trim()) { e.preventDefault(); steer(freeText); } }}
+              placeholder="…oppure scrivi all'agent"
+              className="min-w-0 flex-1 rounded-md bg-black/30 px-2.5 py-1.5 text-xs text-app-text outline-none placeholder:text-app-placeholder"
+            />
+            <button
+              disabled={busy || !freeText.trim()} onClick={() => steer(freeText)}
+              title="Invia all'agent — lo riceve al prossimo turno (come Claude Code)"
+              className="flex shrink-0 items-center gap-1 rounded-md bg-sky-500/80 px-2.5 py-1.5 text-xs text-white hover:bg-sky-500 disabled:opacity-50"
+            ><Send className="h-3.5 w-3.5" /></button>
+          </div>
         </div>
       )}
-      {task.status === 'review' && isAgentReview && (
+      {/* Bloccata: le scelte sono le uniche due uscite dall'attesa (togliere il
+          legame, o toglierlo e farla partire). Senza, la card resta ferma e
+          l'unico modo per muoverla è aprire il drawer e cercare il picker. */}
+      {choiceState === 'blocked' && (
+        <div className="mt-2" onClick={(e) => e.stopPropagation()}>
+          <TaskChoiceRow task={task} disabled={busy} onDone={onRefetch} onError={onError} />
+        </div>
+      )}
+      {task.status === 'review' && (
         <div className="mt-2 space-y-1.5" onClick={(e) => e.stopPropagation()}>
           {/* The agent's last word, ALWAYS on the card — a formatted question
               with quick-reply buttons when it's a question block, plain text
               otherwise. Approving/rejecting blind was the bug. */}
-          {pending ? (
+          {!isAgentReview ? null : pending ? (
             <p className="break-words text-xs leading-snug text-app-text">{stripMarkdown(pending.question)}</p>
           ) : lastComment ? (
             // Render the agent's last word as REAL markdown (bold/headings/lists
@@ -517,40 +545,30 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
               ))}
             </div>
           )}
+          {/* Le scelte della card: ci sono SEMPRE, anche quando l'agente non ha
+              proposto niente. Nascono dallo stato (ramo consegnato o no), e sono
+              le stesse azioni dei bottoni che stavano qui — dette per nome
+              invece che come due icone ✓/✗. Il campo libero resta sotto. */}
+          <TaskChoiceRow
+            task={task} disabled={busy}
+            onDone={onRefetch} onError={onError}
+            onNeedText={() => freeTextRef.current?.focus()}
+          />
           <div className="flex items-center gap-1">
             <input
+              ref={freeTextRef}
               value={freeText} disabled={busy}
               onChange={(e) => setFreeText(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter' && freeText.trim()) { e.preventDefault(); answer(freeText.trim()); } }}
-              placeholder="Rispondi…"
+              onKeyDown={(e) => { if (e.key === 'Enter' && freeText.trim()) { e.preventDefault(); replyFree(); } }}
+              placeholder={isAgentReview ? '…oppure rispondi a parole' : '…oppure commenta'}
               className="min-w-0 flex-1 rounded-md bg-black/30 px-2.5 py-1.5 text-xs text-app-text outline-none placeholder:text-app-placeholder"
             />
             <button
-              disabled={busy || !freeText.trim()} onClick={() => answer(freeText.trim())}
-              title="Rispondi (l'agent riparte con la tua risposta)"
+              disabled={busy || !freeText.trim()} onClick={replyFree}
+              title={isAgentReview ? "Rispondi (l'agent riparte con la tua risposta)" : 'Commenta'}
               className="flex items-center gap-1 rounded-md bg-sky-500/80 px-2.5 py-1.5 text-xs text-white hover:bg-sky-500 disabled:opacity-50"
             ><Send className="h-3.5 w-3.5" /></button>
-            <button
-              disabled={busy} onClick={() => review('approve', freeText.trim() || undefined)}
-              title={freeText.trim() ? 'Accetta e completa il task — il testo scritto finisce nel thread' : 'Accetta e completa il task'}
-              className="flex items-center gap-1 rounded-md bg-emerald-500/80 px-2.5 py-1.5 text-xs text-white hover:bg-emerald-500 disabled:opacity-50"
-            ><ShieldCheck className="h-3.5 w-3.5" /></button>
-            <button
-              disabled={busy} onClick={() => review('reject', freeText.trim() || undefined)}
-              title={freeText.trim() ? "Rifiuta — l'agent riparte col testo scritto come indicazione" : "Rifiuta (l'agent riparte senza indicazioni — scrivi nel campo per dargliene)"}
-              className="flex items-center gap-1 rounded-md bg-white/10 px-2.5 py-1.5 text-xs text-app-text hover:bg-white/20 disabled:opacity-50"
-            ><ShieldX className="h-3.5 w-3.5" /></button>
           </div>
-        </div>
-      )}
-      {task.status === 'review' && !isAgentReview && (
-        <div className="mt-2 flex gap-1" onClick={(e) => e.stopPropagation()}>
-          <button disabled={busy} onClick={() => review('approve')} className="flex items-center gap-1 rounded-md bg-emerald-500/80 px-2.5 py-1.5 text-xs text-white hover:bg-emerald-500 disabled:opacity-50">
-            <ShieldCheck className="h-3.5 w-3.5" /> Approva
-          </button>
-          <button disabled={busy} onClick={() => review('reject')} className="flex items-center gap-1 rounded-md bg-white/10 px-2.5 py-1.5 text-xs text-app-text hover:bg-white/20 disabled:opacity-50">
-            <ShieldX className="h-3.5 w-3.5" /> Rifiuta
-          </button>
         </div>
       )}
       {ctxMenu && (
