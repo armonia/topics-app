@@ -12,8 +12,13 @@
  *
  *   bun test scripts/board-doctor.test.ts
  */
-import { describe, expect, it } from "bun:test";
+import { afterAll, beforeAll, describe, expect, it } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { deliveryPointer, listOwnCommits } from "../server/services/own-commits";
 import {
+  branchFacts,
   CHECKS,
   citesSubtasks,
   costBaselineFromJson,
@@ -699,5 +704,103 @@ describe("isReadOnlyProof", () => {
       `sqlite3 /d/topics.db "UPDATE tasks SET status='done'"`,
       "git log --oneline > /tmp/out.txt",
     ]) expect(isReadOnlyProof(bad)).toBe(false);
+  });
+});
+
+// ── I fatti del branch: la SOTTRAZIONE non e' una copia del doctor ───────────
+
+/**
+ * Il doctor si calcolava i commit propri per conto suo — `%(refname:short)`,
+ * SHA abbreviati — mentre il land e la consegna li leggono da
+ * `server/services/own-commits.ts`. Due copie della stessa domanda divergono, e
+ * il controllo 8 confronta proprio i due insiemi: la deriva sarebbe il falso
+ * allarme prodotto dal controllo che esiste per non darne.
+ *
+ * Qui si gira su un repo VERO, e la barra e' l'accordo con l'helper: se il
+ * doctor tornasse a farsi i conti da solo, questi test diventano rossi.
+ *
+ *   main    base
+ *   dev     base ← A          (l'altra sessione)
+ *   card    base ← A ← M      (eredita A, produce M)
+ *   vuota   base ← A          (eredita e basta)
+ */
+describe("branchFacts — la stessa domanda del land, su git vero", () => {
+  let repo: string;
+  let shaA: string;
+  let shaM: string;
+
+  const g = (...args: string[]) => Bun.spawnSync(["git", "-C", repo, ...args], { stdout: "pipe", stderr: "pipe" })
+    .stdout.toString().trim();
+
+  const commit = (file: string, body: string, msg: string) => {
+    writeFileSync(join(repo, file), body);
+    g("add", "-A");
+    g("commit", "-q", "-m", msg);
+  };
+
+  beforeAll(() => {
+    repo = mkdtempSync(join(tmpdir(), "doctor-branch-"));
+    g("init", "-q", "-b", "main");
+    g("config", "user.email", "t@t.t");
+    g("config", "user.name", "t");
+    commit("a.txt", "base\n", "base");
+    g("checkout", "-q", "-b", "dev");
+    commit("wip.txt", "roba di un altro\n", "WIP di un'altra sessione");
+    shaA = g("rev-parse", "dev");
+    g("checkout", "-q", "-b", "topics/card", "dev");
+    commit("mio.txt", "il mio lavoro\n", "il mio lavoro");
+    shaM = g("rev-parse", "topics/card");
+    g("checkout", "-q", "-b", "topics/vuota", "dev");
+    g("checkout", "-q", "main");
+  }, 60_000);
+
+  afterAll(() => { rmSync(repo, { recursive: true, force: true }); });
+
+  it("i commit propri sono ESATTAMENTE quelli di own-commits.ts, con la stessa grafia", async () => {
+    const facts = await branchFacts(repo, "t-1", "topics/card", "main");
+    expect(facts!.ownShas).toEqual((await listOwnCommits(repo, "topics/card"))!);
+    expect(facts!.ownShas).toEqual([shaM]);          // SHA interi, non abbreviati
+    expect(facts!.ownCount).toBe(1);
+    expect(facts!.aheadTotal).toBe(2);                // il land ne porterebbe due
+    expect(facts!.foreignHead).toBe(shaA);            // l'impronta della causa comune
+    expect(facts!.otherBranches).toContain("refs/heads/dev");
+  });
+
+  it("la consegna registrata dal server e' riconosciuta come PROPRIA: nessun falso allarme", async () => {
+    // Le due grafie si incontrano qui e solo qui: il puntatore lo scrive
+    // `deliveryPointer`, l'insieme lo elenca il doctor. Se una delle due
+    // cambiasse forma, questo test e' il posto in cui si vede.
+    const ptr = await deliveryPointer(repo, "topics/card");
+    const facts = await branchFacts(repo, "t-1", "topics/card", "main");
+    const t = task({ id: "t-1", status: "review", deliveryBranch: "topics/card", deliveryCommit: ptr!.commit });
+    expect(runChecks(input({ tasks: [t], branches: [facts!] }), only("delivery-commit-not-own"))).toHaveLength(0);
+  });
+
+  it("SCATTA quando la consegna punta al commit dell'ALTRA sessione", async () => {
+    const facts = await branchFacts(repo, "t-1", "topics/card", "main");
+    const t = task({ id: "t-1", status: "review", deliveryBranch: "topics/card", deliveryCommit: shaA });
+    const f = runChecks(input({ tasks: [t], branches: [facts!] }), only("delivery-commit-not-own"));
+    expect(f).toHaveLength(1);
+    expect(f[0]?.what).toContain("non e' fra i 1 commit");
+  });
+
+  it("un branch che si chiama come un file resta confrontabile (la grafia corta lo rendeva ambiguo)", async () => {
+    // `main..a.txt` senza `refs/heads/` e' ambiguo per git: il doctor rispondeva
+    // «non confrontabile» su una card sana, mentre il land la sapeva leggere.
+    g("branch", "-q", "a.txt", "topics/card");
+    try {
+      const facts = await branchFacts(repo, "t-1", "a.txt", "main");
+      expect(facts).not.toBeNull();
+      expect(facts!.ownShas).toEqual([]); // stessa punta di topics/card: niente di suo
+      expect(facts!.aheadTotal).toBe(2);
+    } finally { g("branch", "-q", "-D", "a.txt"); }
+  });
+
+  it("branch potato o git muto → null, che NON e' «non ha commit suoi»", async () => {
+    expect(await branchFacts(repo, "t-1", "topics/mai-esistito", "main")).toBeNull();
+    const nonRepo = mkdtempSync(join(tmpdir(), "doctor-non-repo-"));
+    try {
+      expect(await branchFacts(nonRepo, "t-1", "topics/card", "main")).toBeNull();
+    } finally { rmSync(nonRepo, { recursive: true, force: true }); }
   });
 });
