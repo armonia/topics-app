@@ -25,6 +25,8 @@ import { existsSync, statSync, readFileSync, realpathSync } from "node:fs";
 import { extname, join } from "node:path";
 import { resolveProjectIcon, ICON_CONTENT_TYPE } from "../lib/project-icon";
 import { knownProjectDirs } from "../services/known-project-dirs";
+import { osservatoreDaDispositivo, vedeProgetto } from "../lib/project-visibility";
+import { installationOrgId, actingPersonId } from "../lib/orgs";
 
 const NAME_MAX = 200;
 const SLUG_REGEX = /^[a-z][a-z0-9-]{0,63}$/;
@@ -50,6 +52,25 @@ export function createProjectsRouter(ctx: AppContext): RouteHandler {
     broadcastToAll({ type, project, payload_version: 1 });
   }
 
+  /**
+   * Chi sta chiedendo, tradotto nella forma che la regola di visibilità legge
+   * (`server/lib/project-visibility.ts`). Senza `requestIdentity` — i test che
+   * non lo stubbano, e ogni percorso che non passa dal gate — si ricade sul
+   * loopback, cioè sulla macchina: è il caso in cui QUESTO filtro non deve
+   * cambiare niente rispetto a prima.
+   */
+  function osservatore(req: Request) {
+    const id = ctx.requestIdentity?.(req) ?? null;
+    return osservatoreDaDispositivo(ctx.db as never, id?.deviceId ?? null);
+  }
+
+  const visibile = (req: Request, p: { orgId?: string | null; ownerPersonId?: string | null; incognito?: boolean }) =>
+    vedeProgetto(osservatore(req), {
+      orgId: p.orgId ?? null,
+      ownerPersonId: p.ownerPersonId ?? null,
+      incognito: p.incognito === true,
+    });
+
   return async function projectsRouter(
     req: Request,
     url: URL,
@@ -62,13 +83,27 @@ export function createProjectsRouter(ctx: AppContext): RouteHandler {
       const path = url.searchParams.get("path");
       if (path !== null) {
         const project = projectStore.getByPath(path);
+        // Un progetto che non ti riguarda risponde come se non esistesse: la
+        // stessa forma del miss. Un 403 direbbe «c'è ma non te lo do», che su
+        // una lookup per path è già la risposta che qualcuno cercava.
+        if (project && !visibile(req, project)) return json(null);
         return json(project); // null on miss is intentional (200 with body=null)
       }
       const archivedParam = url.searchParams.get("archived");
       let opts: { archived?: boolean } = {};
       if (archivedParam === "true") opts.archived = true;
       else if (archivedParam === "false") opts.archived = false;
-      const projects = projectStore.list(opts);
+      // Il filtro sta QUI e non nel SQL dello store: la regola è una funzione
+      // pura provata a parte, e un secondo `WHERE` che prova a dire la stessa
+      // cosa in SQL è la copia che diverge.
+      const chi = osservatore(req);
+      const projects = projectStore.list(opts).filter((p) =>
+        vedeProgetto(chi, {
+          orgId: p.orgId ?? null,
+          ownerPersonId: p.ownerPersonId ?? null,
+          incognito: p.incognito === true,
+        }),
+      );
       return json({ projects });
     }
 
@@ -202,7 +237,16 @@ export function createProjectsRouter(ctx: AppContext): RouteHandler {
       }
 
       try {
-        const project = projectStore.create({ name, slug, path, color, icon });
+        // Il progetto nasce nell'organizzazione dell'installazione e intestato a
+        // chi lo sta creando (migration 092). Non è una scelta dell'utente: se
+        // lo fosse, il primo progetto creato prima che qualcuno ci pensasse
+        // resterebbe fuori dall'org per sempre. Chi non vuole condividerlo lo
+        // marca incognito DOPO, che è una leva reversibile.
+        const project = projectStore.create({
+          name, slug, path, color, icon,
+          orgId: installationOrgId(ctx.db as never),
+          ownerPersonId: actingPersonId(ctx.db as never, ctx.requestIdentity?.(req)?.deviceId ?? null),
+        });
         emit("project:new", project);
         return json(project, 201);
       } catch (err: any) {
@@ -217,6 +261,14 @@ export function createProjectsRouter(ctx: AppContext): RouteHandler {
     {
       const idParams = matchRoute(pathname, "/api/projects/:id");
       if (idParams) {
+        // Un progetto che non vedi non esiste, per QUALUNQUE verbo. Il controllo
+        // sta prima del dispatch e non dentro i singoli rami perché un ramo
+        // dimenticato qui non è una lettura di troppo: è una PATCH o una DELETE
+        // su una risorsa di qualcun altro.
+        {
+          const esistente = projectStore.get(idParams.id);
+          if (esistente && !visibile(req, esistente)) return errorResponse(404, "Project not found");
+        }
         if (method === "GET") {
           const project = projectStore.get(idParams.id);
           if (!project) return errorResponse(404, "Project not found");
@@ -225,7 +277,15 @@ export function createProjectsRouter(ctx: AppContext): RouteHandler {
         if (method === "PATCH") {
           const body = await readJSON(req);
           if (!body) return errorResponse(400, "body required");
-          const patch: { name?: string; color?: string | null; icon?: string | null } = {};
+          const patch: { name?: string; color?: string | null; icon?: string | null; incognito?: boolean } = {};
+          // L'interruttore incognito. Booleano stretto: un `"true"` di stringa o
+          // un `1` NON valgono, perché un cast permissivo su una leva di
+          // visibilità trasforma ogni errore di battitura del client in una
+          // condivisione.
+          if (body.incognito !== undefined) {
+            if (typeof body.incognito !== "boolean") return errorResponse(400, "incognito must be a boolean");
+            patch.incognito = body.incognito;
+          }
           if (body.name !== undefined) {
             const v = stripCtrl(body.name);
             if (!v) return errorResponse(400, "name cannot be empty");
@@ -289,6 +349,8 @@ export function createProjectsRouter(ctx: AppContext): RouteHandler {
     {
       const params = matchRoute(pathname, "/api/projects/:id/archive");
       if (params && method === "POST") {
+        const prima = projectStore.get(params.id);
+        if (prima && !visibile(req, prima)) return errorResponse(404, "Project not found");
         const project = projectStore.archive(params.id);
         if (!project) return errorResponse(404, "Project not found");
         emit("project:archived", project);
@@ -300,6 +362,8 @@ export function createProjectsRouter(ctx: AppContext): RouteHandler {
     {
       const params = matchRoute(pathname, "/api/projects/:id/restore");
       if (params && method === "POST") {
+        const prima = projectStore.get(params.id);
+        if (prima && !visibile(req, prima)) return errorResponse(404, "Project not found");
         const project = projectStore.restore(params.id);
         if (!project) return errorResponse(404, "Project not found");
         emit("project:updated", project);

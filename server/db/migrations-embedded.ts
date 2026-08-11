@@ -95,7 +95,10 @@ import m086 from "./migrations/087-output-language.sql" with { type: "text" };
 import m087 from "./migrations/088-board-language.sql" with { type: "text" };
 import m088 from "./migrations/089-retirements.sql" with { type: "text" };
 import m089 from "./migrations/090-task-dispatch-weight.sql" with { type: "text" };
-import m090 from "./migrations/093-task-created-by-topic.sql" with { type: "text" };
+import m090 from "./migrations/092-project-org-incognito.sql" with { type: "text" };
+import m091 from "./migrations/093-task-created-by-topic.sql" with { type: "text" };
+import m092 from "./migrations/094-github-profiles.sql" with { type: "text" };
+import m093 from "./migrations/095-message-author.sql" with { type: "text" };
 
 export interface EmbeddedMigration {
   version: number;
@@ -195,5 +198,8 @@ export const EMBEDDED_MIGRATIONS: EmbeddedMigration[] = [
   { version: 88, name: "088-board-language.sql", sql: m087 },
   { version: 89, name: "089-retirements.sql", sql: m088 },
   { version: 90, name: "090-task-dispatch-weight.sql", sql: m089 },
-  { version: 93, name: "093-task-created-by-topic.sql", sql: m090 },
+  { version: 92, name: "092-project-org-incognito.sql", sql: m090 },
+  { version: 93, name: "093-task-created-by-topic.sql", sql: m091 },
+  { version: 94, name: "094-github-profiles.sql", sql: m092 },
+  { version: 95, name: "095-message-author.sql", sql: m093 },
 ];
