@@ -193,6 +193,18 @@ export interface DispatcherDeps {
   /** Tear a task's preview server down (land / approve / close / reap). */
   teardownPreview?: (taskId: string) => Promise<void>;
   /**
+   * La card è consegnata: butta dal suo worktree gli artefatti rigenerabili
+   * (dipendenze, cache di build) tenendo cartella, branch e commit.
+   *
+   * Qui e non al land, perché la maggior parte delle card NON landa subito: sono
+   * i giorni fra la consegna e l'ok umano a costare ~260 MB l'una, ed è lì che il
+   * disco è passato da 30 a 64 GB in una notte. L'host è l'unico che sa se in
+   * quel worktree c'è un'anteprima viva — la decisione su QUANDO farlo sta di là
+   * (vedi `worktree-slim`), qui c'è solo il momento in cui ha senso chiederlo.
+   * Assente (test/degradato) ⇒ nessuno snellimento, comportamento di prima.
+   */
+  slimWorktree?: (taskId: string) => Promise<void>;
+  /**
    * True if the topic still exists. Used to SELF-HEAL a dead binding: a task
    * whose `assigned_topic_id` points at a topic that was later reaped (its agent
    * tab deleted) would be skipped forever by the eligibility filter (`!assignedTopicId`)
@@ -1590,7 +1602,18 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       try { emit(deps.svc.setDispatchState({ taskId, state: chip })); } catch { /* best-effort */ }
       // Review-ready preview: boot a live server from the worktree, set output_url
       // to the local deep-link, attach a screenshot. Best-effort, fire-and-forget.
-      try { void deps.preparePreview?.(taskId); } catch { /* best-effort */ }
+      //
+      // Lo snellimento viene DOPO, incatenato: l'anteprima è un `bun run dev` che
+      // gira dentro quel worktree, e togliergli `node_modules` sotto i piedi
+      // mentre parte lo ucciderebbe. Aspettare che il tentativo si concluda toglie
+      // la corsa; se un'anteprima è rimasta viva, `slimWorktree` se ne accorge e
+      // non tocca niente (la passata del GC ci riproverà quando sarà spenta).
+      try {
+        void Promise.resolve(deps.preparePreview?.(taskId))
+          .catch(() => { /* best-effort: un'anteprima fallita non blocca il resto */ })
+          .then(() => deps.slimWorktree?.(taskId))
+          .catch(() => { /* best-effort */ });
+      } catch { /* best-effort */ }
       return;
     }
     if (cur.status === "in_progress") {
@@ -1683,7 +1706,15 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
               reason: "system-delivered",
             });
           } catch { /* best-effort */ }
-          try { void deps.preparePreview?.(taskId); } catch { /* best-effort */ }
+          // Stessa catena della consegna volontaria: anteprima prima, snellimento
+          // dopo. Una consegna forzata dal sistema è una consegna a tutti gli
+          // effetti, e il suo worktree costa gli stessi ~260 MB.
+          try {
+            void Promise.resolve(deps.preparePreview?.(taskId))
+              .catch(() => { /* best-effort */ })
+              .then(() => deps.slimWorktree?.(taskId))
+              .catch(() => { /* best-effort */ });
+          } catch { /* best-effort */ }
         } catch (err) { log(`deliverToReviewBySystem failed for ${taskId}`, err); }
         return;
       }

@@ -4,7 +4,7 @@
  * live turn and degrade to keep on a landing that can't complete.
  */
 import { describe, test, it, expect } from "bun:test";
-import { decidePostLandReap, decideWorktreeReap, normalizeKeepReason, sweepWorktrees, type GcWorktree, type WorktreeGcDeps } from "./worktree-gc";
+import { decidePostLandReap, decideWorktreeReap, normalizeKeepReason, shouldSlimOnKeep, sweepWorktrees, type GcWorktree, type WorktreeGcDeps } from "./worktree-gc";
 
 describe("decideWorktreeReap — safety contract", () => {
   const base = {
@@ -609,5 +609,127 @@ describe("normalizeKeepReason", () => {
     // diverse: collassarli renderebbe il riepilogo inutile.
     expect(normalizeKeepReason("task 'review' attivo"))
       .not.toBe(normalizeKeepReason("task 'backlog' attivo"));
+  });
+});
+
+// ── snellimento dei worktree TENUTI ──────────────────────────────────────
+//
+// Il `keep` è la decisione giusta sui commit e sui file tracciati, ma per anni
+// ha significato anche «resta piena»: una card consegnata aspetta un umano per
+// giorni tenendosi ~260 MB di dipendenze. Qui si verifica che il `keep` continui
+// a valere sui commit e smetta di valere sui MB.
+
+describe("shouldSlimOnKeep", () => {
+  it("una card consegnata o chiusa si snellisce", () => {
+    expect(shouldSlimOnKeep("review", false)).toBe(true);
+    expect(shouldSlimOnKeep("done", false)).toBe(true);
+  });
+
+  it("un orfano o un archiviato pure: nessuno li riaprirà", () => {
+    expect(shouldSlimOnKeep(null, false)).toBe(true);
+    expect(shouldSlimOnKeep("in_progress", true)).toBe(true);
+  });
+
+  it("chi è in coda o al lavoro NO — si riprenderebbe il bun install subito", () => {
+    expect(shouldSlimOnKeep("in_progress", false)).toBe(false);
+    expect(shouldSlimOnKeep("todo", false)).toBe(false);
+    expect(shouldSlimOnKeep("backlog", false)).toBe(false);
+  });
+});
+
+describe("sweepWorktrees — snellimento", () => {
+  const inReview = (over: Partial<WorktreeGcDeps> = {}): WorktreeGcDeps =>
+    makeDeps({
+      listWorktrees: () => [wt("consegnato")],
+      resolveTask: () => ({ taskId: "t-rev", status: "review", archived: false }),
+      branchStatus: async () => "unmerged",
+      ...over,
+    });
+
+  test("una card in review resta dov'è, ma perde gli artefatti", async () => {
+    const slimmed: string[] = [];
+    const s = await sweepWorktrees(inReview({
+      slim: async (w) => { slimmed.push(w.id); return 260 * 1_048_576; },
+      reap: async () => { throw new Error("non si deve reapare una card in review"); },
+    }));
+    expect(slimmed).toEqual(["consegnato"]);
+    expect(s.kept).toBe(1);
+    expect(s.slimmed).toBe(1);
+    expect(s.slimmedBytes).toBe(260 * 1_048_576);
+  });
+
+  test("un turno VIVO ferma anche lo snellimento", async () => {
+    const slimmed: string[] = [];
+    const s = await sweepWorktrees(inReview({
+      isBusy: () => true,
+      slim: async (w) => { slimmed.push(w.id); return 1; },
+    }));
+    expect(slimmed).toEqual([]);
+    expect(s.slimmed).toBe(0);
+  });
+
+  test("un task in_progress tenuto non si tocca: l'agent ci sta lavorando", async () => {
+    const slimmed: string[] = [];
+    const s = await sweepWorktrees(inReview({
+      resolveTask: () => ({ taskId: "t-wip", status: "in_progress", archived: false }),
+      slim: async (w) => { slimmed.push(w.id); return 1; },
+    }));
+    expect(slimmed).toEqual([]);
+    expect(s.kept).toBe(1);
+    expect(s.slimmed).toBe(0);
+  });
+
+  test("cartella non più sul disco → niente da snellire", async () => {
+    const slimmed: string[] = [];
+    await sweepWorktrees(inReview({
+      diskPresent: () => false,
+      slim: async (w) => { slimmed.push(w.id); return 1; },
+    }));
+    expect(slimmed).toEqual([]);
+  });
+
+  test("zero byte liberati non conta come snellimento", async () => {
+    const s = await sweepWorktrees(inReview({ slim: async () => 0 }));
+    expect(s.slimmed).toBe(0);
+    expect(s.slimmedBytes).toBe(0);
+  });
+
+  test("uno slim che esplode non fa saltare la passata", async () => {
+    const s = await sweepWorktrees(inReview({
+      slim: async () => { throw new Error("permessi"); },
+    }));
+    expect(s.kept).toBe(1);
+    expect(s.errors).toBe(0);
+    expect(s.slimmed).toBe(0);
+  });
+
+  test("chi viene reapato non si snellisce prima: la cartella se ne va intera", async () => {
+    const slimmed: string[] = [];
+    const s = await sweepWorktrees(makeDeps({
+      listWorktrees: () => [wt("chiuso")],
+      slim: async (w) => { slimmed.push(w.id); return 1; },
+    }));
+    expect(s.reaped).toBe(1);
+    expect(slimmed).toEqual([]);
+  });
+
+  test("free-checkout fallito → la cartella resta, e almeno si snellisce", async () => {
+    const slimmed: string[] = [];
+    const s = await sweepWorktrees(inReview({
+      resolveTask: () => ({ taskId: "t-chiuso", status: "done", archived: false }),
+      autoMergeEnabled: () => false,
+      freeCheckout: async () => false,
+      slim: async (w) => { slimmed.push(w.id); return 42; },
+    }));
+    expect(s.freed).toBe(0);
+    expect(s.kept).toBe(1);
+    expect(slimmed).toEqual(["consegnato"]);
+  });
+
+  test("host senza 'slim' → passata identica a prima, zero contati", async () => {
+    const s = await sweepWorktrees(inReview({ slim: undefined }));
+    expect(s.kept).toBe(1);
+    expect(s.slimmed).toBe(0);
+    expect(s.slimmedBytes).toBe(0);
   });
 });
