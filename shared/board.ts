@@ -185,6 +185,24 @@ export interface TaskComment {
   kind: 'comment' | 'status' | 'review-note';
 }
 
+/**
+ * Il bloccante di un task, RISOLTO dal server leggendolo dal DB.
+ *
+ * Esiste perché il chip «in attesa di» non può dipendere da chi c'è nella lista
+ * che il client ha in mano: la board fetcha UN progetto, `rootsOnly`, non
+ * archiviati — un bloccante fuori da quel taglio (un sottotask, un task di un
+ * altro progetto, uno archiviato) non si trovava, e il chip spariva anche se il
+ * legame c'era eccome. `status` e `archived` sono i due bit che decidono se il
+ * chip va ancora disegnato: chiuso o archiviato = non blocca più (lo stesso
+ * predicato del gate di dispatch, `isDispatchBlocked`).
+ */
+export interface BlockerRef {
+  id: string;
+  text: string;
+  status: TaskStatus;
+  archived: boolean;
+}
+
 /** Un comando del gate pre-review dichiarato nelle impostazioni della board. */
 export interface ReviewCheck {
   name: string;

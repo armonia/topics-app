@@ -53,7 +53,7 @@ export interface UseKeyboardShortcutsArgs {
   /** Session-key selector — read fresh via ref, not mirrored as a snapshot. */
   isSessionStreaming: (sessionKey: string) => boolean;
   /** Aborts the current turn (SIGINT-style) without killing the session. */
-  stopSession: (sessionKey: string) => boolean;
+  stopSession: (sessionKey: string) => Promise<boolean>;
   // Modal setters (React useState setters — stable identity).
   setShowSearch: Dispatch<SetStateAction<boolean>>;
   /** Palette scope — ⌘K apre 'all', ⌘⇧P apre 'projects' (salta a un progetto). */
@@ -463,7 +463,7 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
         const sessionKey = sessionKeyForPaneId(focusedPanelIdRef.current, topicsRef.current);
         if (sessionKey && isSessionStreaming(sessionKey)) {
           e.preventDefault();
-          stopSession(sessionKey);
+          void stopSession(sessionKey);
           return;
         }
       }
