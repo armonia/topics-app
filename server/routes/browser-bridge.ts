@@ -89,6 +89,23 @@ export interface BrowserBridgeDeps {
   persistTaskTab: (taskId: string, contextId: string, url: string, title?: string) => void;
   /** Lega un handle di `browser_save_state` alla tab del task che lo ha prodotto. */
   attachLoginHandle: (contextId: string, handle: string) => void;
+  /**
+   * «C'è una pane VIVA agganciata a questo contextId?» — cioè un client che ha
+   * aperto `/ws/browser/<contextId>`: una pane nativa (delegato) o una web che
+   * guarda lo screencast. È l'UNICO segnale che il server ha del fatto che
+   * qualcuno stia davvero VEDENDO il browser che ha appena aperto: il contesto
+   * headless esiste comunque, quindi senza questo `open-pane` non può
+   * distinguere «montato» da «invisibile» e risponde uguale nei due casi.
+   * Iniettata perché il registro (`browserWsClients`) vive in `server.ts`.
+   */
+  paneAttachedTo: (contextId: string) => boolean;
+  /**
+   * Quanto si aspetta che una pane si agganci, per finestra (due finestre: una
+   * dopo il broadcast normale, una dopo il ripiego `browser:force-open`).
+   * Default 2500 ms — sopra il tempo di mount+socket su una macchina locale.
+   * I test la stringono a pochi ms.
+   */
+  paneWaitMs?: number;
 }
 
 export function createBrowserBridgeRouter(
@@ -101,7 +118,9 @@ export function createBrowserBridgeRouter(
     getTopicById, getTopicBySessionKey,
     readJSON, json, matchRoute,
   } = ctx;
-  const { getTerminalSessionById, taskForTopic, taskByIdPrefix, browserNavigatedTopics, persistTaskTab, attachLoginHandle } = deps;
+  const { getTerminalSessionById, taskForTopic, taskByIdPrefix, browserNavigatedTopics, persistTaskTab, attachLoginHandle, paneAttachedTo } = deps;
+  const PANE_WAIT_MS = deps.paneWaitMs ?? 2500;
+  const PANE_POLL_MS = 50;
 
   // Server gate for the task-owned browser fork (client mirror:
   // localStorage['board:taskBrowser']). Default ON → an agent open-pane on a
@@ -155,6 +174,41 @@ export function createBrowserBridgeRouter(
       if (term) return { contextId: `term-${term.id}`, topic: null };
     }
     return null;
+  }
+
+  /** Aspetta che una pane si agganci al contextId, o si arrende alla scadenza. */
+  async function waitForAttachedPane(contextId: string, budgetMs: number): Promise<boolean> {
+    const deadline = Date.now() + budgetMs;
+    for (;;) {
+      if (paneAttachedTo(contextId)) return true;
+      if (Date.now() >= deadline) return false;
+      await new Promise((r) => setTimeout(r, Math.min(PANE_POLL_MS, Math.max(1, deadline - Date.now()))));
+    }
+  }
+
+  /**
+   * IL RIPIEGO CHE NON ESISTEVA. `browser:force-open` aveva tipo, schema Zod e
+   * handler nel client (`usePanelLifecycle`) — documentato come «quando il
+   * broadcast normale non ha montato NESSUNA pane visibile» — ma NESSUNO lo
+   * emetteva (`tests/unit/ws-outbound-coverage.test.ts` lo annotava:
+   * «emissione server assente»). Risultato osservato l'11/08/2026: contesto
+   * vivo, pane mai montata, l'utente non vede niente e il tool risponde
+   * «Opened browser pane at …» lo stesso.
+   *
+   * Qui il ripiego viene finalmente armato: dopo il broadcast normale si
+   * aspetta che una pane si agganci al contextId; se nessuna lo fa si chiede
+   * alla finestra primaria di aprirne una a forza, e si aspetta ancora. Il
+   * booleano che torna è ciò che rende ONESTA la risposta della rotta.
+   *
+   * Perché due attese e non un ack esplicito: l'aggancio del socket
+   * `/ws/browser/<ctx>` è già il segnale che la pane esiste ED è viva (lo apre
+   * sia la pane nativa che quella web), quindi non serve un protocollo nuovo
+   * che poi vivrebbe non provato accanto a questo.
+   */
+  async function ensureVisiblePane(contextId: string, url: string): Promise<boolean> {
+    if (await waitForAttachedPane(contextId, PANE_WAIT_MS)) return true;
+    broadcastToAll({ type: "browser:force-open", contextId, url });
+    return waitForAttachedPane(contextId, PANE_WAIT_MS);
   }
 
   /**
@@ -268,7 +322,11 @@ export function createBrowserBridgeRouter(
             // native delegate (registered under ctxId). Nothing to navigate
             // server-side here — just ack.
             broadcastToAll({ type: "browser:open-near-pane", paneId: `terminal:${term.id}`, contextId: ctxId, url });
-            return json({ url, title: "" });
+            // Il terminale può non essere una tab da nessuna parte (dispatch
+            // headless, finestra chiusa): stessa cecità della rotta chat, stesso
+            // ripiego, stessa risposta onesta.
+            const visible = await ensureVisiblePane(ctxId, url);
+            return json({ url, title: "", visible });
           }
         }
         if (!topic) return json({ error: "Topic not found" }, 404);
@@ -342,7 +400,11 @@ export function createBrowserBridgeRouter(
           if (resolvedUrl !== url) {
             broadcastToAll({ type: "browser:navigate", topicId: topic.id, contextId: ctxId, url: resolvedUrl });
           }
-          return json({ url: resolvedUrl, title: result?.title ?? "" });
+          // 3. Solo ORA si può dire com'è andata: `visible` distingue la pane
+          //    montata dal contesto vivo che nessuno vede (il ripiego
+          //    force-open è già stato tentato qui dentro).
+          const visible = await ensureVisiblePane(ctxId, resolvedUrl);
+          return json({ url: resolvedUrl, title: result?.title ?? "", visible });
         } catch (e: unknown) {
           const msg = e instanceof Error ? e.message : String(e);
           return json({ error: msg }, 500);

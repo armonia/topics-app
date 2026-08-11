@@ -743,7 +743,7 @@ export async function callOpenBrowserPane(
   args: ParsedArgs,
   toolArgs: { url?: unknown; name?: unknown },
   fetchImpl: typeof fetch = fetch,
-): Promise<{ url: string; title: string }> {
+): Promise<{ url: string; title: string; visible: boolean }> {
   if (typeof toolArgs?.url !== "string" || !toolArgs.url) {
     throw new Error("open_browser_pane: 'url' (string) is required");
   }
@@ -767,11 +767,14 @@ export async function callOpenBrowserPane(
     const text = await resp.text().catch(() => "");
     throw new Error(`topics-app HTTP ${resp.status}: ${text || resp.statusText}`);
   }
-  const body = (await resp.json()) as { url?: unknown; title?: unknown; error?: unknown };
+  const body = (await resp.json()) as { url?: unknown; title?: unknown; visible?: unknown; error?: unknown };
   if (body.error) throw new Error(String(body.error));
   return {
     url: typeof body.url === "string" ? body.url : toolArgs.url,
     title: typeof body.title === "string" ? body.title : "",
+    // Assente (server più vecchio del flag) ⇒ si tiene il messaggio storico:
+    // meglio non dire niente che dire «invisibile» a un server che non lo sa.
+    visible: body.visible !== false,
   };
 }
 
@@ -1739,7 +1742,13 @@ const TOOL_HANDLERS: Record<
 > = {
   open_browser_pane: async (a, t) => {
     const r = await callOpenBrowserPane(a, t as { url?: unknown; name?: unknown });
-    return `Opened browser pane at ${r.url}` + (r.title ? ` (title: ${r.title})` : "");
+    const where = `${r.url}` + (r.title ? ` (title: ${r.title})` : "");
+    // I due esiti DEVONO leggersi diversi. Finché il messaggio era lo stesso,
+    // «pane aperta» e «contesto vivo che nessuno vede» erano indistinguibili da
+    // fuori: né l'agente né l'umano potevano accorgersi del guasto.
+    return r.visible
+      ? `Opened browser pane at ${where}`
+      : `Browser context ready at ${where} — but NO visible pane is mounted (no Topics window took it). The page is loaded and drivable with browser_*; call browser_focus_tab to surface it, or tell the user it is not on screen.`;
   },
   close_browser_pane: (a, t) => callCloseBrowserPane(a, t as { contextId?: unknown }),
   browser_list_tabs: (a, t) => callListBrowserTabs(a, t),

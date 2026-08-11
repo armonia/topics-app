@@ -4,7 +4,7 @@
  * pane per context. Legacy context-less opens keep the old singleton reuse.
  */
 import { describe, test, expect, beforeEach } from 'bun:test';
-import { browserSingletonReducer } from './usePaneOrdering';
+import { browserSingletonReducer, groupClaimsBrowserNavigate } from './usePaneOrdering';
 import { usePaneStore } from '../../../state/pane/store';
 import { DEFAULT_SPACE_ID } from '../../../state/pane/types';
 
@@ -94,5 +94,45 @@ describe('browserSingletonReducer', () => {
     const { next, resolvedId } = browserSingletonReducer(prev);
     expect(resolvedId, 'deve riusare la pane che esiste altrove').toBe('browser:altrove');
     expect(next, "e non aggiungerne una nuova al proprio gruppo").toBe(prev);
+  });
+});
+
+/**
+ * CHI RIVENDICA un `browser:navigate`. La regola stava scritta due volte — nel
+ * listener WS e nel gemello DOM — e le due copie sono divergite: la DOM è stata
+ * corretta il 10/07/2026 (CHAT-REL-03), la WS no. Il prezzo, visto l'11/08/2026
+ * in sessione reale: `open_browser_pane` su una topic SENZA progetto apriva il
+ * contesto browser (vivo in `browser_list_tabs`, pilotabile, pagina caricata) e
+ * non montava NESSUN pannello — perché il gruppo standalone scaricava il frame
+ * sulla finestra di progetto e quella lo rifiutava, non essendo la topic sua.
+ */
+describe('groupClaimsBrowserNavigate — la regola sta scritta una volta sola', () => {
+  test('IL GUASTO: topic senza progetto + una tab di progetto aperta nel gruppo ⇒ rivendica lo stesso', () => {
+    expect(groupClaimsBrowserNavigate({
+      topicId: 'topic-a',
+      hasProjectPane: true,          // ← prima bastava questo per lasciar cadere tutto
+      orderedIds: ['topic-a', 'project:/qualcosa'],
+    })).toBe(true);
+  });
+
+  test('la topic è una tab di questo gruppo ⇒ rivendica', () => {
+    expect(groupClaimsBrowserNavigate({
+      topicId: 'topic-a', hasProjectPane: false, orderedIds: ['topic-a'],
+    })).toBe(true);
+  });
+
+  test('la topic NON è una tab di questo gruppo ⇒ non la dirotta (la prende chi la mostra)', () => {
+    expect(groupClaimsBrowserNavigate({
+      topicId: 'topic-di-progetto', hasProjectPane: false, orderedIds: ['topic-a'],
+    })).toBe(false);
+  });
+
+  test('frame senza topicId: non attribuibile, quindi il pannello di progetto ha la precedenza', () => {
+    expect(groupClaimsBrowserNavigate({
+      hasProjectPane: true, orderedIds: ['project:/qualcosa'],
+    })).toBe(false);
+    expect(groupClaimsBrowserNavigate({
+      hasProjectPane: false, orderedIds: ['topic-a'],
+    })).toBe(true);
   });
 });
