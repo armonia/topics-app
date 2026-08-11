@@ -2028,6 +2028,29 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       }
     }
     const nowIso = new Date().toISOString();
+    // Budget dei tentativi finito = NON riproverà MAI più, e finché lo si scarta
+    // in silenzio la card resta in colonna «coda» fingendosi lavorabile: nessun
+    // chip, nessuna riga, e il board conta come lavoro ciò che è fermo per
+    // sempre. Misurate 19 card così l'11/08, a interruttore acceso e macchina
+    // libera. Si parcheggiano con la ragione scritta — la coda deve dire il
+    // vero, e un umano decide se rimetterle in coda (la PATCH a `todo` azzera
+    // il contatore) o lasciarle stare.
+    const exhausted = todos.filter((t) => !t.assignedTopicId && t.dispatchAttempts >= settings.dispatchRetryCap);
+    let toldExhausted = false;
+    for (const t of exhausted) {
+      if (inFlight.has(t.id) || graceTimers.has(t.id)) continue;
+      try {
+        releaseAndEmit({
+          taskId: t.id,
+          requeue: false,
+          parkState: CHIP_FAILED,
+          reason:
+            `Budget dei tentativi finito (${t.dispatchAttempts}/${settings.dispatchRetryCap}): non riparte da solo. ` +
+            "Rimettilo in Todo per ridargli i tentativi, oppure guarda cosa lo fa fallire.",
+        }, { announce: !toldExhausted });
+        toldExhausted = true;
+      } catch { /* il task può essersi mosso */ }
+    }
     todos = todos
       .filter((t) => !t.assignedTopicId && t.dispatchAttempts < settings.dispatchRetryCap)
       // Deferral gate: a task the agent parked with an external-condition wait
