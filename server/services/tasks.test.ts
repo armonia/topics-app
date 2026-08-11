@@ -46,7 +46,7 @@ function freshDb(): Database {
     model TEXT, blocked_by_task_id TEXT REFERENCES tasks(id), reuse_blocker_context INTEGER NOT NULL DEFAULT 0,
     priority_auto INTEGER NOT NULL DEFAULT 1, preview_image TEXT,
     checks_state TEXT, checks_at TEXT, checks_commit TEXT, checks_json TEXT,
-    delivered_by TEXT, delivered_reason TEXT
+    delivered_by TEXT, delivered_reason TEXT, created_by_topic_id TEXT
   )`);
   db.run(`CREATE UNIQUE INDEX idx_tasks_claude_task_id ON tasks(claude_task_id) WHERE claude_task_id IS NOT NULL`);
   db.run(`CREATE TABLE board_settings (
@@ -440,6 +440,40 @@ describe("own steps carve-out (KANBAN-08: the agent checks off its own checklist
     s.create({ projectId: PID, text: "sub-step", status: "backlog", parentTaskId: step.id });
     expect(() => s.update({ taskId: step.id, actor: "agent", by: "claude", agentTopicId: "top-1", patch: { status: "done" } }))
       .toThrow(/open subtasks/);
+  });
+
+  // L'INCIDENTE dell'11/08 (task f9d60212). Il legame che rendeva "miei" gli step
+  // era `assigned_topic_id` del PADRE — cioè stato di dispatch, che vive quanto
+  // il dispatch e non quanto il turno. `release()` lo azzera quando rimette in
+  // coda o parcheggia, e il turno dell'agent NON muore con quella riga: da lì in
+  // poi ogni `done` sulla propria checklist tornava 409, e la consegna arrivava
+  // all'umano con gli step aperti (che un task con figli aperti non è nemmeno
+  // approvabile). La provenienza — CHI ha scritto lo step — non cambia mai.
+  test("il rimescolamento del dispatch non porta via all'agent la SUA checklist", () => {
+    const step = s.create({ projectId: PID, text: "step", status: "backlog", parentTaskId: parentId, createdByTopicId: "top-1" });
+    s.release({ taskId: parentId, requeue: true, reason: "rimesso in coda dal dispatcher", by: "dispatcher" });
+    const done = s.update({ taskId: step.id, actor: "agent", by: "claude", agentTopicId: "top-1", patch: { status: "done" } });
+    expect(done.status).toBe("done");
+  });
+
+  test("nemmeno un ri-dispatch a un ALTRO topic: gli step che ho scritto io restano miei", () => {
+    const step = s.create({ projectId: PID, text: "step", status: "backlog", parentTaskId: parentId, createdByTopicId: "top-1" });
+    db.prepare("UPDATE tasks SET assigned_topic_id = 'top-2' WHERE id = ?").run(parentId);
+    const done = s.update({ taskId: step.id, actor: "agent", by: "claude", agentTopicId: "top-1", patch: { status: "done" } });
+    expect(done.status).toBe("done");
+  });
+
+  test("STRICT anche sulla provenienza: un task SENZA padre creato da me resta dietro il gate", () => {
+    const mine = s.create({ projectId: PID, text: "un task che ho creato io", createdByTopicId: "top-1" });
+    expect(() => s.update({ taskId: mine.id, actor: "agent", by: "claude", agentTopicId: "top-1", patch: { status: "done" } }))
+      .toThrow(/only a human/);
+  });
+
+  test("la provenienza di un ALTRO agent non apre nulla", () => {
+    const step = s.create({ projectId: PID, text: "step", status: "backlog", parentTaskId: parentId, createdByTopicId: "top-1" });
+    db.prepare("UPDATE tasks SET assigned_topic_id = NULL WHERE id = ?").run(parentId);
+    expect(() => s.update({ taskId: step.id, actor: "agent", by: "claude", agentTopicId: "top-2", patch: { status: "done" } }))
+      .toThrow(/only a human/);
   });
 });
 

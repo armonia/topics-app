@@ -208,6 +208,14 @@ export interface CreateTaskInput {
   blockedByTaskId?: string | null;
   /** Reuse the blocker agent's conversation at dispatch. */
   reuseBlockerContext?: boolean;
+  /**
+   * PROVENIENZA: il topic che ha creato il task (migration 093). La scrive solo
+   * la superficie di sessione, dal topic risolto server-side — un agent non può
+   * dichiararla. Scritta una volta e mai riscritta: è ciò che rende chiudibili
+   * i propri step anche dopo che il dispatcher ha rimescolato le assegnazioni
+   * (vedi `isOwnStep`).
+   */
+  createdByTopicId?: string | null;
 }
 
 export interface UpdateTaskPatch {
@@ -808,12 +816,32 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
   }
 
   /**
-   * True when `taskId` is a STRICT descendant of a task whose dispatch topic is
-   * `topicId` — i.e. one of the calling agent's own checklist steps. Strict:
-   * the assigned task itself never matches, so the agent still cannot close
-   * its own deliverable (that stays behind the human review gate).
+   * True when `taskId` is one of the calling agent's own checklist steps. Two
+   * strade, e servono entrambe:
+   *
+   *  a) DISCENDENTE STRETTO di un task assegnato a `topicId` — copre gli step
+   *     che l'UMANO aggiunge sotto il task dell'agent (nessuna provenienza
+   *     d'agent, ma sono comunque la sua checklist);
+   *  b) TASK CON PADRE che `topicId` ha CREATO (`created_by_topic_id`, migration
+   *     093) — copre il caso in cui il legame vivo non c'è più.
+   *
+   * Perché (b): (a) da sola misura la proprietà su `assigned_topic_id`, che è
+   * stato di DISPATCH e vive quanto il dispatch, non quanto il turno. Il
+   * dispatcher lo azzera a ogni requeue/park (`release`) e lo riscrive su un
+   * ALTRO topic al ri-dispatch, mentre il turno dell'agent continua a girare:
+   * misurato l'11/08, l'agent ha chiuso due step e poi ha preso 409 su tutti gli
+   * altri, consegnando con la checklist aperta (e un task con figli aperti non è
+   * approvabile). La provenienza invece è un fatto storico: non cambia mai.
+   *
+   * STRETTA in entrambe le strade: il task assegnato non fa match in (a), e (b)
+   * richiede `parent_task_id IS NOT NULL` — l'agent non può chiudere né il
+   * proprio deliverable né un task di primo livello che ha creato lui.
    */
   function isOwnStep(taskId: string, topicId: string): boolean {
+    const own = db.prepare(
+      "SELECT 1 FROM tasks WHERE id = ? AND parent_task_id IS NOT NULL AND created_by_topic_id = ?",
+    ).get(taskId, topicId);
+    if (own) return true;
     const r = db.prepare(
       `WITH RECURSIVE anc(id, parent, topic) AS (
          SELECT id, parent_task_id, assigned_topic_id FROM tasks WHERE id = ?
@@ -930,13 +958,14 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (input.blockedByTaskId) assertBlockerValid(id, input.blockedByTaskId);
 
       db.prepare(
-        `INSERT INTO tasks (id, project_id, text, description, status, priority, kanban_order, assigned_to, chat_id, created_at, completed_at, updated_at, claude_task_id, parent_task_id, plan_first, model, blocked_by_task_id, reuse_blocker_context, priority_auto)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO tasks (id, project_id, text, description, status, priority, kanban_order, assigned_to, chat_id, created_at, completed_at, updated_at, claude_task_id, parent_task_id, plan_first, model, blocked_by_task_id, reuse_blocker_context, created_by_topic_id, priority_auto)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         id, input.projectId, text, input.description ?? null, status, priority, order,
         input.assignedTo ?? null, input.chatId ?? null, ts, ts, input.idempotencyKey ?? null,
         input.parentTaskId ?? null, input.planFirst ? 1 : 0,
         input.model ?? null, input.blockedByTaskId ?? null, input.reuseBlockerContext ? 1 : 0,
+        input.createdByTopicId ?? null,
         // "Priorità automatica": no explicit choice at creation = the
         // dispatched agent evaluates and sets one at kickoff.
         input.priority === undefined ? 1 : 0,

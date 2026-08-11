@@ -25,7 +25,7 @@ function freshDb(): Database {
     priority_auto INTEGER NOT NULL DEFAULT 1, preview_image TEXT,
     delivery_branch TEXT, delivery_commit TEXT, landing_state TEXT, landing_checked_at TEXT,
     checks_state TEXT, checks_at TEXT, checks_commit TEXT, checks_json TEXT,
-    delivered_by TEXT, delivered_reason TEXT
+    delivered_by TEXT, delivered_reason TEXT, created_by_topic_id TEXT
   )`);
   db.run(`CREATE UNIQUE INDEX idx_tasks_claude_task_id ON tasks(claude_task_id) WHERE claude_task_id IS NOT NULL`);
   db.run(`CREATE TABLE board_settings (
@@ -169,6 +169,23 @@ describe("tasks router (session-scoped)", () => {
     // GET of the parent lists the child.
     const got = await (await call(router, "GET", `/api/sessions/s1/tasks/${parent.id}`))!.json();
     expect(got.children.map((c: any) => c.id)).toEqual([kid.id]);
+  });
+
+  // L'incidente dell'11/08 riprodotto dalla porta che l'agent usa davvero: il
+  // dispatcher rimette il task in coda MENTRE il turno gira (riavvio del server,
+  // timeout, requeue) e `assigned_topic_id` va a NULL. Prima della provenienza,
+  // da quel momento ogni step della propria checklist tornava 409 e la consegna
+  // arrivava con la lista aperta.
+  test("PATCH step→done regge il requeue del task padre (checklist dell'agent)", async () => {
+    db.run("INSERT INTO topics (id) VALUES ('top-s1')");
+    const parent = await (await call(router, "POST", "/api/sessions/s1/tasks", { text: "il mio task" }))!.json();
+    db.prepare("UPDATE tasks SET assigned_topic_id = 'top-s1', status = 'in_progress' WHERE id = ?").run(parent.id);
+    const step = await (await call(router, "POST", "/api/sessions/s1/tasks", { text: "step 1", parent_task_id: parent.id }))!.json();
+    // …il dispatcher rilascia (release: link azzerato, chip 'queued').
+    db.prepare("UPDATE tasks SET assigned_topic_id = NULL, status = 'todo', dispatch_state = 'queued' WHERE id = ?").run(parent.id);
+    const resp = (await call(router, "PATCH", `/api/sessions/s1/tasks/${step.id}`, { status: "done" }))!;
+    expect(resp.status).toBe(200);
+    expect((await resp.json()).status).toBe("done");
   });
 
   test("PATCH agent → review opens approval; agent → done is 409", async () => {
