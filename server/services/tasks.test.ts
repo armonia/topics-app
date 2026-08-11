@@ -1130,6 +1130,36 @@ describe("blocked-by dependency", () => {
     expect(s.isDispatchBlocked(b.id)).toBe(false);
   });
 
+  test("il bloccante arriva RISOLTO nel payload, anche quando NON è nella lista della board", () => {
+    // Un sottotask come bloccante: la board fetcha `rootsOnly`, quindi il client
+    // non ce l'ha mai in mano — ed è esattamente il caso in cui il chip spariva.
+    const parent = s.create({ projectId: PID, text: "epica" });
+    const step = s.create({ projectId: PID, text: "lo step che blocca", parentTaskId: parent.id });
+    const dep = s.create({ projectId: PID, text: "dipendente", blockedByTaskId: step.id, status: "todo" });
+    expect(dep.blockedBy).toEqual({ id: step.id, text: "lo step che blocca", status: "backlog", archived: false });
+
+    const roots = s.list({ scope: "project", projectId: PID, rootsOnly: true });
+    expect(roots.map((t) => t.id)).not.toContain(step.id); // fuori dalla lista…
+    expect(roots.find((t) => t.id === dep.id)?.blockedBy?.text).toBe("lo step che blocca"); // …ma risolto lo stesso
+
+    // Anche in lettura singola e — cosa che conta per il WS — in SCRITTURA:
+    // ogni `task:updated` porta il bloccante risolto, non solo i fetch pieni.
+    expect(s.get(dep.id)?.task.blockedBy?.text).toBe("lo step che blocca");
+    const touched = s.update({ taskId: dep.id, actor: "human", by: "u", patch: { priority: 3 } });
+    expect(touched.blockedBy?.text).toBe("lo step che blocca");
+  });
+
+  test("done e archiviato viaggiano nel payload: sono i due bit che spengono il chip", () => {
+    const a = s.create({ projectId: PID, text: "bloccante" });
+    const b = s.create({ projectId: PID, text: "dipendente", blockedByTaskId: a.id });
+    s.update({ taskId: a.id, actor: "human", by: "u", patch: { status: "done" } });
+    expect(s.get(b.id)?.task.blockedBy).toMatchObject({ status: "done", archived: false });
+    // Archiviato: la riga esce dalla board ma il link resta, e il payload lo dice
+    // (un `null` muto non distinguerebbe "non blocca più" da "non lo trovo").
+    s.archive({ taskId: a.id });
+    expect(s.get(b.id)?.task.blockedBy).toMatchObject({ id: a.id, archived: true });
+  });
+
   test("self-block and cycles are rejected; clearing works", () => {
     const a = s.create({ projectId: PID, text: "a" });
     const b = s.create({ projectId: PID, text: "b" });

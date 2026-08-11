@@ -6,7 +6,7 @@ import { AlertTriangle, ArrowUpRight, ClipboardList, Hourglass, Lock, MessageSqu
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
-import { boardApi, STATUS_LABEL, isAgentWorking, parseQuestionBlock, isProjectlessId, systemDeliveryNote, SYSTEM_DELIVERY_CHIP, type BoardTask, type TaskComment, type TaskStatus } from '../../lib/board';
+import { boardApi, STATUS_LABEL, isAgentWorking, parseQuestionBlock, isProjectlessId, systemDeliveryNote, blockedByChip, SYSTEM_DELIVERY_CHIP, type BoardTask, type TaskComment, type TaskStatus } from '../../lib/board';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useLongPress, openContextMenuAt } from '../../hooks/useLongPress';
 import { useMobile } from '../../hooks/useMobile';
@@ -82,7 +82,6 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
             <Card
               key={t.id} task={t} onOpen={onOpen} showProject={showProject} onError={onError} onRefetch={onRefetch} onOpenTopic={onOpenTopic}
               parentTitle={t.parentTaskId ? tasksById.get(t.parentTaskId)?.text : undefined}
-              blocker={t.blockedByTaskId ? tasksById.get(t.blockedByTaskId) : undefined}
               waitingOnThis={waitingOnById.get(t.id) ?? 0}
               projectPath={projectPathById.get(t.projectId)}
               live={liveById.get(t.id)}
@@ -117,15 +116,13 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
 // `liveById`. Without memo every card re-renders on each tick; with it only the
 // cards whose `live` prop actually changed (the working ones) do. All handler
 // props from the parent (onOpen/onError/onRefetch/onOpenTopic) are stable
-// (useCallback / state setters), and task/blocker come from tasks-keyed memos,
-// so the shallow prop compare holds for idle cards.
-export const Card = memo(function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, parentTitle, blocker, waitingOnThis = 0, projectPath, live, awaiting }: {
+// (useCallback / state setters), and task/parentTitle come from tasks-keyed
+// memos, so the shallow prop compare holds for idle cards.
+export const Card = memo(function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, parentTitle, waitingOnThis = 0, projectPath, live, awaiting }: {
   task: BoardTask; onOpen: OpenTask; showProject: boolean;
   onError: (e: string) => void; onRefetch: () => void; onOpenTopic?: (topicId: string) => void;
   /** Text of the parent task when this card is a subtask (context chip). */
   parentTitle?: string;
-  /** The task this one is gated on, when still unresolved (blocked-by chip). */
-  blocker?: BoardTask;
   /**
    * Quanti task, ancora aperti, aspettano QUESTA card. È l'altra metà del chip
    * "in attesa di…": senza, il collegamento si vedeva solo dal lato bloccato, e
@@ -257,7 +254,11 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
   // nessun agent ha detto "fatto". Su una card done sarebbe archeologia (il
   // drawer la conserva comunque).
   const systemDelivered = task.status === 'review' && task.deliveredBy === 'system';
-  const hasMetaRow = !!((blocker && blocker.status !== 'done') || (waitingOnThis > 0 && task.status !== 'done') || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo || notLanded || checksRed || systemDelivered);
+  // Il legame, non la lista: il chip nasce da `blockedByTaskId` + il bloccante
+  // risolto dal server, così vale anche quando il bloccante non è fra i task
+  // fetchati (sottotask, altro progetto, archiviato).
+  const blockedChip = blockedByChip(task);
+  const hasMetaRow = !!(blockedChip || (waitingOnThis > 0 && task.status !== 'done') || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo || notLanded || checksRed || systemDelivered);
 
   return (
     <div
@@ -408,11 +409,12 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
           row renders only when at least one is present. */}
       {hasMetaRow && (
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-          {blocker && blocker.status !== 'done' && (
+          {blockedChip && (
             <span
-              title={`In attesa di: ${blocker.text}`}
+              data-testid="card-blocked-by"
+              title={blockedChip.title}
               className="flex max-w-[11rem] items-center gap-1 truncate rounded bg-amber-500/15 px-1.5 py-0.5 text-xs md:text-[11px] text-amber-300"
-            ><Lock className="h-3 w-3 shrink-0" /> <span className="truncate">in attesa di: {blocker.text}</span></span>
+            ><Lock className="h-3 w-3 shrink-0" /> <span className="truncate">{blockedChip.label}</span></span>
           )}
           {waitingOnThis > 0 && task.status !== 'done' && (
             <span
