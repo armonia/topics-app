@@ -90,6 +90,36 @@ describe("buildClaudeArgs — il catalogo delle skill fuori dal prefisso", () =>
     expect(buildClaudeArgs({ ...BASE })).not.toContain("--settings");
   });
 
+  test("il tetto ai risultati MCP viaggia nello STESSO `--settings`, accanto al deferral", () => {
+    // Default della CLI: 25.000 token (~100 kB) per singolo risultato — una
+    // soglia che nella pratica non scatta mai. Misurato sui 15.464 risultati
+    // MCP dei transcript reali: a 4.000 il volume cala del 73,6% e finisce su
+    // file una chiamata su undici (a 25.000 il taglio è −27,8%).
+    const s = settings({ toolSearch: "1", mcpOutputTokens: 4000 });
+    expect(s.env).toEqual({ ENABLE_TOOL_SEARCH: "1", MAX_MCP_OUTPUT_TOKENS: "4000" });
+    // Un solo `--settings`: la CLI prende l'ultimo, e perdere il deferral
+    // (−71,5% di prefisso) per il tetto sarebbe uno scambio in perdita.
+    expect(buildClaudeArgs({ ...BASE, toolSearch: "1", mcpOutputTokens: 4000 })
+      .filter((a) => a === "--settings").length).toBe(1);
+  });
+
+  test("il tetto da solo accende `--settings`, e non porta con sé il deferral", () => {
+    expect(settings({ mcpOutputTokens: 2500 })).toEqual({ env: { MAX_MCP_OUTPUT_TOKENS: "2500" } });
+  });
+
+  test("null/assente: nessun tetto imposto, e il gate può essere visto FALLIRE", () => {
+    // `TOPICS_MCP_OUTPUT_TOKENS=off` deve poter riportare la sessione al
+    // comportamento della CLI: senza questa via d'uscita la misura "prima"
+    // non si può rifare.
+    expect(settings({ toolSearch: "1", mcpOutputTokens: null })).toEqual({ env: { ENABLE_TOOL_SEARCH: "1" } });
+    expect(buildClaudeArgs({ ...BASE, mcpOutputTokens: null })).not.toContain("--settings");
+  });
+
+  test("stringa e non numero: la CLI legge il blocco `env`, dove i valori sono testo", () => {
+    const args = buildClaudeArgs({ ...BASE, mcpOutputTokens: 4000 });
+    expect(args.join(" ")).toContain('"MAX_MCP_OUTPUT_TOKENS":"4000"');
+  });
+
   test("le skill NON spariscono: `--disable-slash-commands` non compare", () => {
     // Il cambio toglie il CATALOGO, non la capacità: i nomi restano nell'elenco
     // e `Skill` resta chiamabile.
