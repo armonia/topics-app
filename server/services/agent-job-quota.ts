@@ -42,7 +42,7 @@
 import os from "node:os";
 import type { Database } from "bun:sqlite";
 import { readTaskWeight, type TaskWeight } from "../../shared/board";
-import { computeDispatchCapacity, effectiveDispatchCap, readGlobalCap } from "./dispatch-capacity";
+import { effectiveDispatchCap, readGlobalCap, structuralDispatchCapacity } from "./dispatch-capacity";
 
 /** Cosa sa lo spawn del topic che sta per far partire. */
 export type DispatchBinding = {
@@ -161,6 +161,14 @@ function legatura(db: Database, da: string, dove: string, topicId: string): Disp
  * Il tetto si RILEGGE a ogni spawn, come effort e modello: alzare "Agent in
  * parallelo" nelle impostazioni stringe la quota dalla sessione dopo, senza
  * riavviare niente.
+ *
+ * IL DIVISORE È IL TETTO STRUTTURALE, non la raccomandazione viva. In `auto` la
+ * raccomandazione è apposta reattiva al carico — si tira indietro quando la
+ * macchina è occupata — e come divisore si invertiva: load alto →
+ * raccomandazione 1 → «sono solo» → fetta intera. Misurato su questo host in
+ * `auto` con load 45: usciva `-j11`, cioè nessun recinto proprio dove serviva.
+ * `structuralDispatchCapacity()` risponde alla domanda giusta («quanti ne regge
+ * questa macchina in regime»), e un tetto FISSO resta la parola dell'umano.
  */
 export function resolveJobQuotaEnv(db: Database, sessionKey: string): Record<string, string> | null {
   const binding = readDispatchBinding(db, sessionKey);
@@ -168,7 +176,7 @@ export function resolveJobQuotaEnv(db: Database, sessionKey: string): Record<str
   let cap = 3;
   try {
     const globale = readGlobalCap(db);
-    cap = effectiveDispatchCap(globale, globale.auto ? computeDispatchCapacity().recommended : null);
+    cap = effectiveDispatchCap(globale, globale.auto ? structuralDispatchCapacity() : null);
   } catch { /* impostazioni illeggibili: si resta sul default della board */ }
   const cores = Math.max(1, os.cpus().length);
   return jobQuotaEnv(computeJobQuota({ cores, cap, weight: binding.weight }));
