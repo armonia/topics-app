@@ -18,6 +18,7 @@ import { useBrowserSpawner } from '../../state/browserSpawner';
 import { signalsActions } from '../../state/signals';
 import { isTauri } from '../../lib/shell';
 import { computeAutoShared, type ShareMode } from '../../lib/sharedAuto';
+import { installViewportZoomGuard } from '../../lib/viewportZoomGuard';
 import { useSharedViewerCount } from '../../hooks/useSharedViewerCount';
 import { useTaskTabLoginState } from '../../hooks/useTaskTabLoginState';
 import type { Topic } from '../../types';
@@ -710,6 +711,21 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
     // this frame feeds the cross-device viewer count.
     setWatching(isVisible && !useIframe);
   }, [isVisible, useIframe, setStreamActive, setWatching]);
+
+  // Zoom al focus, ramo <iframe>. Qui il campo che prende il fuoco è del SITO, e
+  // il suo CSS non è nostro: se ha un font sotto i 16px iOS ingrandisce l'intera
+  // shell al primo tocco e non la rimpicciolisce più. Non possiamo prevenirlo
+  // (l'iframe è cross-origin, non ci si inietta niente), quindi lo si annulla:
+  // la guardia vede la scala salire e la riporta a 1.
+  //
+  // Nel ramo DOM co-browse la stessa guardia non serve e non si monta: là il
+  // campo a fuoco è NOSTRO e sta a 16px, quindi lo zoom non parte proprio —
+  // meglio non far scattare niente che rincorrere.
+  useEffect(() => {
+    if (!useIframe) return;
+    return installViewportZoomGuard();
+  }, [useIframe]);
+
   if (useIframe) {
     return (
       <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
