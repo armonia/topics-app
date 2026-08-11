@@ -2,6 +2,7 @@ import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import {
   branchExistsInRepo,
   branchStatusFromRepo,
+  commitStatusFromRepo,
   countCommitsAhead,
   filterUniqueSourceFiles,
   worktreeDiffStat,
@@ -105,6 +106,95 @@ describe("branchStatusFromRepo", () => {
   });
   test("null branch → gone", async () => {
     expect(await branchStatusFromRepo(repo, null)).toBe("gone");
+  });
+});
+
+/**
+ * Il verdetto su un COMMIT di consegna, contro un repo vero.
+ *
+ * Il guasto dell'11/08: la domanda era quella dei BRANCH (`main...<ref>`), che
+ * su un ramo nato dall'HEAD del checkout condiviso ingloba i commit di
+ * un'altra sessione. Il confronto trovava le differenze DEGLI ALTRI e timbrava
+ * `unlanded` su lavoro che su main c'era — il semaforo diceva rosso anche sul
+ * verde, e ha smesso di voler dire qualcosa.
+ */
+describe("commitStatusFromRepo", () => {
+  let repo: string;
+  let ereditato = "";   // consegna su un ramo che porta anche lavoro altrui, contenuto SU main
+  let ricopiato = "";   // consegna atterrata con un cherry-pick: altro sha, stesso autore/oggetto
+  let assente = "";     // consegna che su main non c'è, in nessuna forma
+  let radice = "";
+
+  beforeAll(() => {
+    repo = mkdtempSync(join(tmpdir(), "cstat-"));
+    git(repo, "init", "-q", "-b", "main");
+    git(repo, "config", "user.email", "t@t.t");
+    git(repo, "config", "user.name", "t");
+    writeFileSync(join(repo, "a.txt"), "base\n");
+    git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", "base");
+    radice = git(repo, "rev-list", "--max-parents=0", "HEAD");
+    const base = git(repo, "rev-parse", "HEAD");
+
+    // ── Il ramo di una card che è NATO dal ramo di un'altra sessione ─────────
+    // Prima i commit ereditati (tanti file, mai su main), poi il commit SUO.
+    git(repo, "checkout", "-q", "-b", "altra-sessione");
+    for (const f of ["x1.txt", "x2.txt", "x3.txt"]) {
+      writeFileSync(join(repo, f), "lavoro di un altro\n");
+      git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", `altrui ${f}`);
+    }
+    git(repo, "checkout", "-q", "-b", "topics/card");
+    writeFileSync(join(repo, "mio.txt"), "il lavoro della card\n");
+    git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", "il lavoro della card");
+    ereditato = git(repo, "rev-parse", "HEAD");
+
+    // Su main quel contenuto ARRIVA (rimesso a mano, sha diverso e oggetto diverso).
+    git(repo, "checkout", "-q", "main");
+    writeFileSync(join(repo, "mio.txt"), "il lavoro della card\n");
+    git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", "rimesso a mano");
+
+    // ── La consegna RICOPIATA dal land (`cherry-pick -C`) ────────────────────
+    git(repo, "checkout", "-q", "-b", "topics/copia", base);
+    writeFileSync(join(repo, "copiato.txt"), "sorgente\n");
+    git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", "il commit che il land ricopia (con parentesi)");
+    ricopiato = git(repo, "rev-parse", "HEAD");
+    git(repo, "checkout", "-q", "main");
+    git(repo, "cherry-pick", ricopiato);
+    // …e poi main EVOLVE quel file: senza il riconoscimento della copia, il
+    // confronto per contenuto direbbe di nuovo `unmerged`.
+    writeFileSync(join(repo, "copiato.txt"), "sorgente, poi cambiata da un'altra card\n");
+    git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", "evoluzione successiva");
+
+    // ── La consegna che non è mai atterrata ──────────────────────────────────
+    git(repo, "checkout", "-q", "-b", "topics/persa", base);
+    writeFileSync(join(repo, "persa.txt"), "lavoro mai landato\n");
+    git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", "lavoro mai landato");
+    assente = git(repo, "rev-parse", "HEAD");
+    git(repo, "checkout", "-q", "main");
+  }, 30_000);
+
+  afterAll(() => { rmSync(repo, { recursive: true, force: true }); });
+
+  test("consegna su un ramo che porta lavoro ALTRUI, contenuto su main → merged", async () => {
+    // Il guasto misurato: qui `main...<commit>` differisce per i 3 file
+    // dell'altra sessione, e la vecchia domanda rispondeva `unmerged`.
+    expect(await commitStatusFromRepo(repo, ereditato)).toBe("merged");
+  });
+
+  test("il controllo: la stessa forma senza il contenuto su main → unmerged", async () => {
+    expect(await commitStatusFromRepo(repo, assente)).toBe("unmerged");
+  });
+
+  test("consegna RICOPIATA dal land (altro sha) → merged, anche dopo che main ha evoluto quel file", async () => {
+    expect(await commitStatusFromRepo(repo, ricopiato)).toBe("merged");
+  });
+
+  test("commit RADICE (nessun padre) → si guarda comunque il suo contenuto", async () => {
+    expect(await commitStatusFromRepo(repo, radice)).toBe("merged");
+  });
+
+  test("commit non più nel repo, o assente → gone, mai «non atterrato»", async () => {
+    expect(await commitStatusFromRepo(repo, "0".repeat(40))).toBe("gone");
+    expect(await commitStatusFromRepo(repo, null)).toBe("gone");
   });
 });
 

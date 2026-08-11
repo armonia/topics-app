@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { createTaskAutoMerge, worktreeRealDirt, type GitRunResult, type TaskMergeTarget } from "./task-automerge";
+import { createTaskAutoMerge, landFallout, worktreeRealDirt, type GitRunResult, type LandSkipCode, type TaskMergeTarget } from "./task-automerge";
 
 const TARGET: TaskMergeTarget = { repoPath: "/repo", branch: "topics/lyrical-cobra", defaultBranch: "main" };
 
@@ -131,6 +131,101 @@ describe("task-automerge", () => {
     const res = await am.tryMerge("t1", "x");
     expect(res.status).toBe("merged");
     expect(calls.some((c) => c[0] === "merge")).toBe(true);
+  });
+
+  /**
+   * Il guasto dell'11/08 (card `2e6964cb`), nella sua forma minima.
+   *
+   * Il branch è AVANTI rispetto a main, ma togliendo i commit raggiungibili
+   * dagli altri rami non ne resta nessuno — succede appena un ramo nasce da un
+   * altro, o due card lavorano vicine. Quella risposta vuota veniva letta come
+   * «niente da fare», e la card restava in Done col codice fuori da main.
+   */
+  test("commit propri VUOTI ma branch avanti → skipped 'unisolable', non un merge e non 'nothing'", async () => {
+    const calls: string[][] = [];
+    const run = async (_cwd: string, args: string[]) => {
+      calls.push(args);
+      const key = args.slice(0, 2).join(" ");
+      if (key === "symbolic-ref --short") return { code: 0, stdout: "main\n", stderr: "" };
+      if (key === "status --porcelain") return { code: 0, stdout: "", stderr: "" };
+      if (key === "for-each-ref --format=%(refname)") {
+        return { code: 0, stdout: "refs/heads/main\nrefs/heads/topics/vicina\nrefs/heads/topics/lyrical-cobra\n", stderr: "" };
+      }
+      // 27 commit avanti, ZERO dopo la sottrazione: la forma esatta del guasto.
+      if (key === "rev-list --count") return { code: 0, stdout: args.includes("--not") ? "0\n" : "27\n", stderr: "" };
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    const am = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: run });
+    const res = await am.tryMerge("t1", "x");
+    expect(res.status).toBe("skipped");
+    if (res.status !== "skipped") throw new Error("expected skipped");
+    // Il codice è ciò che la board legge per decidere dove finisce la card.
+    expect(res.code).toBe("unisolable");
+    // E la frase deve DISTINGUERE le due cose che prima collassavano in una.
+    expect(res.reason).toContain("non so quali siano i suoi");
+    expect(res.reason).toContain("niente da portare");
+    expect(calls.some((c) => c[0] === "merge")).toBe(false);
+    expect(calls.some((c) => c[0] === "worktree")).toBe(false);
+  });
+
+  test("«non lo so» ≠ «già tutto dentro»: due esiti diversi per due domande diverse", async () => {
+    // Il controllo del test qui sopra. Stesso repo, unica differenza: il branch
+    // non è avanti. Quella è la consegna già dentro main — `nothing`, e la card
+    // resta legittimamente chiusa.
+    const git = fakeGit({
+      "symbolic-ref --short": { stdout: "main\n" },
+      "status --porcelain": { stdout: "" },
+      "for-each-ref --format=%(refname)": { stdout: "refs/heads/main\nrefs/heads/topics/vicina\n" },
+      "rev-list --count": { stdout: "0\n" },
+    });
+    const am = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: git.run });
+    const res = await am.tryMerge("t1", "x");
+    expect(res.status).toBe("nothing");
+  });
+
+  test("la sottrazione non risponde (git in errore) → 'unisolable', mai un merge alla cieca", async () => {
+    // `null` = non contabile. Prima cadeva nel silenzio e il land proseguiva a
+    // mergiare il branch INTERO: cioè, se git singhiozzava, si pubblicava anche
+    // il lavoro di un'altra sessione — l'esatto contrario del cancello.
+    const calls: string[][] = [];
+    const run = async (_cwd: string, args: string[]) => {
+      calls.push(args);
+      const key = args.slice(0, 2).join(" ");
+      if (key === "symbolic-ref --short") return { code: 0, stdout: "main\n", stderr: "" };
+      if (key === "status --porcelain") return { code: 0, stdout: "", stderr: "" };
+      if (key === "for-each-ref --format=%(refname)") {
+        return { code: 0, stdout: "refs/heads/main\nrefs/heads/topics/vicina\n", stderr: "" };
+      }
+      if (key === "rev-list --count") {
+        return args.includes("--not")
+          ? { code: 128, stdout: "", stderr: "fatal: bad revision" }
+          : { code: 0, stdout: "13\n", stderr: "" };
+      }
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    const am = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: run });
+    const res = await am.tryMerge("t1", "x");
+    if (res.status !== "skipped") throw new Error(`expected skipped, got ${res.status}`);
+    expect(res.code).toBe("unisolable");
+    expect(calls.some((c) => c[0] === "merge")).toBe(false);
+  });
+
+  test("nemmeno gli ALTRI branch sono elencabili → 'unisolable'", async () => {
+    const calls: string[][] = [];
+    const run = async (_cwd: string, args: string[]) => {
+      calls.push(args);
+      const key = args.slice(0, 2).join(" ");
+      if (key === "symbolic-ref --short") return { code: 0, stdout: "main\n", stderr: "" };
+      if (key === "status --porcelain") return { code: 0, stdout: "", stderr: "" };
+      if (key === "for-each-ref --format=%(refname)") return { code: 1, stdout: "", stderr: "fatal: not a git repository" };
+      if (key === "rev-list --count") return { code: 0, stdout: "3\n", stderr: "" };
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    const am = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: run });
+    const res = await am.tryMerge("t1", "x");
+    if (res.status !== "skipped") throw new Error(`expected skipped, got ${res.status}`);
+    expect(res.code).toBe("unisolable");
+    expect(calls.some((c) => c[0] === "merge")).toBe(false);
   });
 
   test("in-place land on main reports landedNotLive false", async () => {
@@ -328,5 +423,54 @@ describe("task-automerge", () => {
     const am = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: run });
     await Promise.all([am.tryMerge("a", "x"), am.tryMerge("b", "y"), am.tryMerge("c", "z")]);
     expect(maxActive).toBe(1);
+  });
+});
+
+/**
+ * La regola che chiude il guasto, provata senza un repo e senza una board: dal
+ * PERCHÉ il land non è riuscito a DOVE finisce la card.
+ */
+describe("landFallout — un land fallito non lascia la card in Done", () => {
+  test("l'unico esito che lascia la card chiusa è «non c'era niente da atterrare»", () => {
+    expect(landFallout("no-branch").status).toBe(null);
+  });
+
+  test("ogni altro esito TOGLIE la card da Done, con una ragione da scrivere nello stato", () => {
+    const codes: LandSkipCode[] = [
+      "unisolable", "foreign-commits", "branch-missing", "dirty-checkout",
+      "worktree-add-failed", "internal-error",
+    ];
+    for (const code of codes) {
+      const f = landFallout(code);
+      expect(f.status).not.toBe(null);
+      // La ragione finisce nella riga di storico: vuota vorrebbe dire di nuovo
+      // «lo stato non dice perché», cioè il guasto.
+      expect(f.reason.length).toBeGreaterThan(0);
+    }
+  });
+
+  test("colpa del RAMO → torna all'agente con l'istruzione di rebase; colpa dell'OSPITE → torna all'umano", () => {
+    // Il ramo è riparabile dall'agente: stessa strada del conflitto.
+    for (const code of ["unisolable", "foreign-commits"] as LandSkipCode[]) {
+      const f = landFallout(code);
+      expect(f.status).toBe("in_progress");
+      expect(f.resume).toContain("git rebase main");
+      // Il merge di main dentro il ramo NON toglie il problema: tre card ci
+      // sono rimaste incastrate quando l'istruzione lo suggeriva.
+      expect(f.resume).not.toContain("git merge main");
+    }
+    // Albero sporco, worktree non creabile: l'agente non può farci niente.
+    for (const code of ["dirty-checkout", "worktree-add-failed", "branch-missing"] as LandSkipCode[]) {
+      const f = landFallout(code);
+      expect(f.status).toBe("review");
+      expect(f.resume).toBeUndefined();
+    }
+  });
+
+  test("un codice sconosciuto sbaglia verso il RITIRO, mai verso il lasciarla chiusa", () => {
+    // Uno `skipped` costruito altrove, o un codice nuovo aggiunto senza passare
+    // di qui: il difetto da non ripetere è una card chiusa col codice fuori.
+    expect(landFallout(undefined).status).toBe("review");
+    expect(landFallout("qualcosa-di-nuovo" as LandSkipCode).status).toBe("review");
   });
 });
