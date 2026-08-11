@@ -69,6 +69,11 @@
         // lancia a mano quando si vuole rifare il conto (o rispondere a «quanto
         // rende davvero»): nessuno lo importa e non deve.
         "scripts/measure-task-tab-teardown.ts!",
+        // `bun run measure:ui-state-init <copia.db>` — quanto pesa il frame
+        // `ui-state:init` con e senza le chiavi per-task del browser. Stesso
+        // patto del precedente: si lancia a mano su una COPIA del db, nessuno
+        // lo importa.
+        "scripts/measure-ui-state-init.ts!",
         // Chi lo chiama: `scripts/check-occlusion.mjs` (`bun run check:occlusion`),
         // che lo bundla con `bun build` per portare il modulo di occlusione VERO
         // dentro un WebKit vero. Il riferimento è un path in stringa dentro un
