@@ -865,6 +865,11 @@ describe("approve decoupled from landing", () => {
     // E l'agent riparte con l'istruzione, come prima.
     expect(resumed.length).toBe(1);
     expect(resumed[0]![1]).toContain("conflitto");
+    // L'istruzione dice il gesto GIUSTO: rifare la base del proprio ramo. Diceva
+    // «git merge main, oppure rebase», e il merge non toglieva il conflitto —
+    // tre card ci sono rimaste incastrate finché non gliel'ho spiegato a mano.
+    expect(resumed[0]![1]).toContain("git rebase main");
+    expect(resumed[0]![1]).not.toContain("git merge main");
   });
 
   test("picking 'Landa e pubblica' approves + lands (routes to land+publish, not a reject)", async () => {
