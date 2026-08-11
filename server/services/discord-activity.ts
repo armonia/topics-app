@@ -23,7 +23,10 @@
  * dimenticato che pubblica il nome di un cliente.
  */
 
-import type { DiscordDetailLevel, OutputLanguage } from "../../shared/types";
+import type { DiscordActivity, DiscordDetailLevel, OutputLanguage } from "../../shared/types";
+// La forma dell'attività sta in `shared/`: la card in Impostazioni ne disegna
+// l'anteprima, quindi i due lati devono leggere la STESSA dichiarazione.
+export type { DiscordActivity };
 
 /** Lo stato vero, misurato da chi lo conosce. Tutti i numeri sono conteggi
  *  ESATTI del server, non stime su processi. */
@@ -41,14 +44,6 @@ export interface PresenceSnapshot {
   /** Da quando questa installazione è in piedi (ms epoch): diventa il
    *  cronometro che Discord mostra sotto la card. */
   since: number;
-}
-
-/** La forma che Discord accetta in `SET_ACTIVITY.args.activity`. */
-export interface DiscordActivity {
-  details: string;
-  state?: string;
-  timestamps?: { start: number };
-  assets?: { large_image: string; large_text: string };
 }
 
 /** Discord tronca a 128 caratteri; troncare qui significa che l'anteprima
