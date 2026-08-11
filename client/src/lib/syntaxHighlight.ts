@@ -16,14 +16,18 @@ const listeners = new Set<() => void>();
 
 function ensureHljsLoaded(): void {
   if (hljs || loadPromise) return;
-  loadPromise = import('./syntaxHighlightLangs')
-    .then((m) => {
-      hljs = m.default;
+  // `const { default: … } = await import(…)`: nel `.then((m) => m.default)` il
+  // modulo è OPACO per knip e nessuno dei suoi export può più risultare morto
+  // (`bun run check:deadcode-blindspots`).
+  loadPromise = (async () => {
+    try {
+      const { default: loaded } = await import('./syntaxHighlightLangs');
+      hljs = loaded;
       listeners.forEach((l) => l());
-    })
-    .catch(() => {
+    } catch {
       loadPromise = null; // chunk fetch failed (offline?) — retry on next block
-    });
+    }
+  })();
 }
 
 /** useSyncExternalStore subscribe — fires once when the tokenizers land. */
