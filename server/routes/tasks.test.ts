@@ -1280,6 +1280,29 @@ describe("tasks routes — anteprima dalla sessione dell'agente", () => {
     expect((await resp.json()).previewImage).toBeNull();
   });
 
+  // Un `.pdf` passava l'allowlist (è un allegato legittimo) e diventava
+  // l'anteprima: il client lo mandava al ramo `<img>` e sulla card restava
+  // un'icona rotta. Nessun errore da nessuna parte — la consegna sembrava
+  // fatta e non mostrava niente. Il tipo va guardato QUI, non solo il path.
+  test("un file che nessuno sa MOSTRARE non diventa anteprima (il .pdf che l'ha insegnato)", async () => {
+    const r = createTasksRouter(makeCtx(db, broadcasts));
+    const t = await (await call(r, "POST", "/api/sessions/s1/tasks", { text: "x" }))!.json();
+    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, {
+      previewImage: "/allowed/relazione.pdf",
+    }))!;
+    expect(resp.status).toBe(200);
+    expect((await resp.json()).previewImage).toBeNull();
+  });
+
+  test("e non travolge i tre rami del protocollo: png, svg e webm entrano", async () => {
+    const r = createTasksRouter(makeCtx(db, broadcasts));
+    for (const p of ["/allowed/schermata.png", "/allowed/schema.svg", "/allowed/clip.webm"]) {
+      const t = await (await call(r, "POST", "/api/sessions/s1/tasks", { text: p }))!.json();
+      const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { previewImage: p }))!;
+      expect((await resp.json()).previewImage).toBe(p);
+    }
+  });
+
   test("stringa vuota azzera l'anteprima", async () => {
     const r = createTasksRouter(makeCtx(db, broadcasts));
     const t = await (await call(r, "POST", "/api/sessions/s1/tasks", { text: "x" }))!.json();
