@@ -1662,6 +1662,18 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               // clear, concise one). Same projectId guard as everything else.
               text: typeof body?.text === "string" && body.text.trim() ? body.text : undefined,
               description: typeof body?.description === "string" ? body.description : undefined,
+              // L'ANTEPRIMA, di nuovo persa per strada — un piano più sotto.
+              // Il tool MCP era stato riparato (`callUpdateTask` manda
+              // `previewImage`), ma QUESTA rotta — quella che usa ogni agente
+              // dispacciato — non leggeva il campo: 200 OK, card vuota. Cioè
+              // esattamente il guasto che quella riparazione descriveva, un
+              // livello più giù. Verificato sul server vivo: `update_task`
+              // rispondeva ok e `previewImage` restava null.
+              // Stesso fence della rotta umana: `filterMedia` (allowlist dei
+              // path) è l'unico cancello, stringa vuota = azzera.
+              previewImage: typeof body?.previewImage === "string"
+                ? (body.previewImage.trim() === "" ? "" : (filterMedia([body.previewImage])?.length ? body.previewImage : undefined))
+                : undefined,
             },
           });
           task = await captureDelivery(task, prevStatus);
