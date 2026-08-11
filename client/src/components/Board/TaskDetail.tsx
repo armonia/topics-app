@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef, useCallback, type TouchEvent as ReactTouchEvent } from 'react';
 import { useT } from '../../hooks/useT';
 import { NightModeCard } from './NightModeCard';
-import { ArrowUpRight, Bot, Camera, Check, ChevronDown, ChevronRight, Clock, Download, ExternalLink, Footprints, GitMerge, Globe, Hourglass, Link2, Lock, Maximize2, Minimize2, MoreHorizontal, Paperclip, Plus, Send, ShieldCheck, ShieldX, Sparkles, Square, X } from 'lucide-react';
+import { ArrowUpRight, Bot, Camera, Check, ChevronDown, ChevronRight, Clock, Copy, Download, ExternalLink, Footprints, GitMerge, Globe, Hourglass, Link2, Lock, Maximize2, Minimize2, MoreHorizontal, Paperclip, Plus, Send, ShieldCheck, ShieldX, Sparkles, Square, X } from 'lucide-react';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ReasoningRow } from '../Chat/ReasoningRow';
 import { Menu } from '../Shared/Menu';
@@ -10,6 +10,7 @@ import { Spinner } from '../Shared/Spinner';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { getMediaUrl } from '../../lib/api';
 import { isImagePath, isPdfPath, isVideoPath } from '../../lib/mediaKind';
+import { copyText } from '../../lib/clipboard';
 import { openExternalOnce } from '../../lib/openExternal';
 import { buildTaskLink } from '../../lib/openTaskLink';
 import { enqueueProjectBrowserNavigate, isProjectWindowMounted } from '../../state/pane/adapters';
@@ -23,7 +24,7 @@ import { UnifiedDiff } from './UnifiedDiff';
 import { collectTaskMediaPaths } from './taskMedia';
 import { formatReviewNotes } from './reviewNotes';
 import { COMPACT_MD_CLS, PLAN_MD_CLS, PRIORITY_DOT, PRIORITY_LABEL, PRIORITY_ORDER, DISPATCH_CHIP, EFFORTS, FANOUT_CHOICES, mediaPaneIdFor, type TaskSurface } from './constants';
-import { friendlyModelLabel, fmtModel, commentTime, fmtMs, fmtLive, fmtTok, fmtUpdatedAt, autoGrow, attemptStat } from './format';
+import { friendlyModelLabel, fmtModel, commentTime, fmtMs, fmtLive, fmtTok, fmtUpdatedAt, autoGrow, attemptStat, taskCopyText } from './format';
 import { StatusIcon, DispatchChip } from './atoms';
 import { ProjectPickerBody } from './ProjectPicker';
 import { addBoardProject, projectNameFromId, useBoardProjects } from '../../lib/boardProjectsStore';
@@ -986,15 +987,28 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  // "Copia link" feedback: swap the icon to a check for a beat.
-  const [copied, setCopied] = useState(false);
+  // Copia link / copia task: l'icona diventa una spunta per un attimo, e SOLO
+  // se la copia è avvenuta davvero (`copyText` risponde `false` fuori da un
+  // secure context, dove la clipboard non c'è proprio — v. lib/clipboard.ts).
+  // Un solo stato per due bottoni: la spunta appartiene a quello premuto.
+  const [copied, setCopied] = useState<'link' | 'task' | null>(null);
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flashCopied = (which: 'link' | 'task') => {
+    setCopied(which);
+    if (copyTimer.current) clearTimeout(copyTimer.current);
+    copyTimer.current = setTimeout(() => setCopied(null), 1400);
+  };
+  useEffect(() => () => { if (copyTimer.current) clearTimeout(copyTimer.current); }, []);
   const copyLink = async () => {
     if (!task) return;
-    try {
-      await navigator.clipboard.writeText(buildTaskLink(task.id));
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1400);
-    } catch { /* clipboard blocked — nothing to surface */ }
+    if (await copyText(buildTaskLink(task.id))) flashCopied('link');
+  };
+  /** Il CONTENUTO del task (titolo + descrizione) negli appunti: quello che
+   *  serve per incollarlo in una chat o in un'altra board. Il link, accanto,
+   *  copre il caso opposto — ritrovare il task, non leggerlo. */
+  const copyTask = async () => {
+    if (!task) return;
+    if (await copyText(taskCopyText(task))) flashCopied('task');
   };
 
   const pickBlocker = async (id: string | null) => {
@@ -1281,13 +1295,26 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               ><Plus className="h-3.5 w-3.5 shrink-0 text-app-text-secondary" /> {tr('board.task.addSubtask')}</button>
             </Menu>
           )}
+          {/* Due copie diverse, una accanto all'altra: il TESTO del task (per
+              incollarlo altrove) e il LINK (per ritrovarlo). Stanno in riga e
+              non nel menù ⋯ perché sono gesti di un click, non impostazioni. */}
+          {task && (
+            <button
+              onClick={copyTask}
+              data-testid="task-copy-text"
+              title={copied === 'task' ? tr('board.task.copyTextDone') : tr('board.task.copyTextTitle')}
+              aria-label={tr('board.task.copyText')}
+              className="rounded p-1.5 text-app-text-secondary hover:bg-white/10"
+            >{copied === 'task' ? <Check className="h-4 w-4 text-emerald-400" /> : <Copy className="h-4 w-4" />}</button>
+          )}
           {task && (
             <button
               onClick={copyLink}
               data-testid="task-copy-link"
-              title={copied ? 'Link copiato' : 'Copia il link al task (deep-link apribile, per debug/condivisione)'}
+              title={copied === 'link' ? tr('board.task.copyLinkDone') : tr('board.task.copyLinkTitle')}
+              aria-label={tr('board.task.copyLink')}
               className="rounded p-1.5 text-app-text-secondary hover:bg-white/10"
-            >{copied ? <Check className="h-4 w-4 text-emerald-400" /> : <Link2 className="h-4 w-4" />}</button>
+            >{copied === 'link' ? <Check className="h-4 w-4 text-emerald-400" /> : <Link2 className="h-4 w-4" />}</button>
           )}
           {task?.assignedTopicId && onOpenTopic && (
             <button
