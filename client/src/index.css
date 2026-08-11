@@ -937,6 +937,48 @@ html, body {
   border-radius: 8px;
 }
 
+/* Una card che ATTRAVERSA il confine verso Done. Chiudere un task — trascinandolo
+   o approvandolo dal drawer — non lasciava nessun segno visivo: la card riappariva
+   in una colonna che di norma sta fuori dal campo visivo, e non si sapeva se il
+   click avesse fatto qualcosa. Il lampo dura quanto serve a seguirla con l'occhio,
+   poi sparisce da solo.
+   Solo box-shadow: nessun transform (i vicini di un drag in corso non si devono
+   spostare) e nessun background-color, che sostituirebbe `bg-surface` e farebbe
+   sfarfallare la card sul finale. La tinta è un'ombra INSET a raggio enorme:
+   copre la card e si compone sopra il suo fondo invece di rimpiazzarlo. */
+/* TIENE, poi svanisce. Con una sola sfumata da 0% a 100% e `ease-out` quasi
+   tutto il calo avviene nei primi decimi: misurato sul video della spec, il
+   verde restava sopra soglia per ~0,2 s su 2,4 — un guizzo che si perde se
+   guardavi l'altra metà dello schermo. I due fotogrammi identici in testa sono
+   una pausa: 45% del tempo acceso e fermo, il resto per spegnersi. */
+@keyframes taskDoneFlash {
+  0%, 45% {
+    box-shadow: 0 0 0 2px rgb(52 211 153 / 0.9), 0 0 18px 2px rgb(52 211 153 / 0.45),
+                inset 0 0 0 999px rgb(52 211 153 / 0.16);
+  }
+  75% {
+    box-shadow: 0 0 0 2px rgb(52 211 153 / 0.5), 0 0 12px 1px rgb(52 211 153 / 0.2),
+                inset 0 0 0 999px rgb(52 211 153 / 0.08);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgb(52 211 153 / 0), 0 0 0 0 rgb(52 211 153 / 0),
+                inset 0 0 0 999px rgb(52 211 153 / 0);
+  }
+}
+
+.task-done-flash {
+  animation: taskDoneFlash 2.4s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Il segnale resta, il movimento no: l'anello si accende e si spegne quando il
+     timer toglie la classe, senza sfumare. */
+  .task-done-flash {
+    animation: none;
+    box-shadow: 0 0 0 2px rgb(52 211 153 / 0.6), inset 0 0 0 999px rgb(52 211 153 / 0.12);
+  }
+}
+
 /* Skeleton loading animation */
 @keyframes shimmer {
   0% { background-position: -200% 0; }
