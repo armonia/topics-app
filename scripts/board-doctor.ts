@@ -13,7 +13,10 @@
  *      «controllo X: ok»: `runChecks` restituisce rilievi, e su una board sana
  *      restituisce l'array vuoto. Dove manca il dato per decidere il controllo
  *      TACE e finisce in `skipped` — il silenzio per ignoranza e' dichiarato,
- *      non spacciato per assoluzione.
+ *      non spacciato per assoluzione. `skipped` vale pero' solo per il dato che
+ *      PUO' mancare (una baseline non passata, un rosso mai misurato): un file
+ *      VERSIONATO che non c'e' e' un guasto e va detto a voce alta, altrimenti
+ *      e' la corsia in cui un controllo muore inosservato — vedi il nono.
  *   2. Ogni rilievo porta IL COMANDO CHE LO PROVA. `finding()` rifiuta di
  *      costruire un rilievo senza `proof`, e `assertProofIsReadOnly` rifiuta un
  *      comando che scrive: la prova si incolla in un terminale per NON credergli.
@@ -28,11 +31,14 @@
  *      muove). Il registro filtra il resto.
  *
  * ── I controlli: solo guasti GIA' SUCCESSI ───────────────────────────────────
- * Nessun controllo su un guasto immaginato. Ognuno degli otto e' capitato
+ * Nessun controllo su un guasto immaginato. Ognuno dei nove e' capitato
  * davvero su questa board, e ognuno porta il modo di provarlo. Si aggiungono
  * controlli quando succede qualcosa di nuovo, non quando viene in mente
- * qualcosa di nuovo — gli ultimi due sono entrati il 2026-08-10, il giorno in
- * cui i loro guasti sono stati trovati a mano.
+ * qualcosa di nuovo — il settimo e l'ottavo sono entrati il 2026-08-10, il
+ * giorno in cui i loro guasti sono stati trovati a mano; il nono il 2026-08-11,
+ * quando si e' scoperto che il settimo era rimasto CIECO per settimane perche'
+ * il documento che legge era in `.gitignore` e la sua assenza si limitava a
+ * finire in `skipped`.
  *
  * ── Il controllo piu' difficile: quando NON allarmare ────────────────────────
  * Un task fermo puo' essere un cambio di turno, non un fantasma. Due trappole,
@@ -141,7 +147,8 @@ export type CheckId =
   | "environmental-red"
   | "cost-out-of-class"
   | "documented-parameter-not-declared"
-  | "delivery-commit-not-own";
+  | "delivery-commit-not-own"
+  | "protocol-doc-missing";
 
 // ── Il rilievo, e le regole che ne vietano uno inutile ───────────────────────
 
@@ -201,6 +208,7 @@ const SHELL_WRITERS = new Set([
 const GIT_READ_VERBS = new Set([
   "rev-list", "rev-parse", "show", "log", "diff", "status", "for-each-ref",
   "worktree", "symbolic-ref", "cat-file", "branch", "describe", "blame", "shortlog",
+  "check-ignore",
 ]);
 const SQL_WRITERS = /\b(insert|update|delete|drop|alter|create|replace|attach|vacuum)\b/i;
 
@@ -408,6 +416,8 @@ export interface DoctorInput {
   probes: Readonly<Record<string, readonly LivenessProbe[]>>;
   /** Cio' che i documenti di protocollo insegnano a passare ai tool. */
   documentedParams: readonly DocumentedParam[];
+  /** I documenti di protocollo che il controllo 7 doveva leggere e non ha trovato. */
+  missingProtocolDocs: readonly string[];
 }
 
 export interface DoctorCheck {
@@ -727,6 +737,41 @@ const checkDeliveryCommitNotOwn: DoctorCheck = {
   },
 };
 
+// ── 9. Il documento che il controllo 7 legge non c'e' ────────────────────────
+
+/**
+ * Il controllo 7 legge un documento: se quel documento non c'e', non trova
+ * niente e la board sembra sana. E' esattamente cio' che e' successo — per
+ * tutto il tempo in cui `docs/board-protocol.md` e' stato in `.gitignore` il
+ * controllo e' girato su zero chiamate documentate, verde, in ogni worktree
+ * appena creato. Un controllo cieco che tace non si distingue da un controllo
+ * che passa, e infatti nessuno se n'e' accorto.
+ *
+ * Quindi il documento assente non e' un'ignoranza da dichiarare in `skipped`
+ * (quella e' per il dato che PUO' mancare: una baseline non passata, un rosso
+ * mai misurato). Qui il file e' atteso, versionato, e la sua assenza e' un
+ * guasto — la stessa convenzione che `docs/board-vs-chat/cases.json` ha gia'
+ * («lo script esce ROSSO se non la trova», dice il `.gitignore`).
+ */
+const checkProtocolDocMissing: DoctorCheck = {
+  id: "protocol-doc-missing",
+  bornFrom: "`docs/board-protocol.md` in `.gitignore`: il controllo 7 e' rimasto inerte per settimane, verde, senza che nessuno se ne accorgesse",
+  run({ missingProtocolDocs, repoPath }) {
+    const out: Finding[] = [];
+    for (const doc of missingProtocolDocs) {
+      out.push(finding({
+        check: "protocol-doc-missing",
+        taskText: doc,
+        what: `${doc} non esiste in questo checkout: il controllo sui parametri documentati gira su zero chiamate e resta verde per ignoranza`,
+        proof: `ls -l ${shq(join(repoPath, doc))}; git -C ${shq(repoPath)} log --oneline -1 -- ${shq(doc)}; git -C ${shq(repoPath)} check-ignore -v ${shq(doc)}`,
+        action: `ripristina il documento (\`git checkout -- ${doc}\`) o, se e' stato spostato, aggiorna PROTOCOL_DOCS. Finche' manca, il controllo 7 non controlla niente`,
+        occurrence: `protocol-doc-missing:${doc}`,
+      }));
+    }
+    return out;
+  },
+};
+
 export const CHECKS: readonly DoctorCheck[] = Object.freeze([
   checkDeliveryCitesAbsentArtifact,
   checkBehaviourWithoutPreview,
@@ -736,6 +781,7 @@ export const CHECKS: readonly DoctorCheck[] = Object.freeze([
   checkCostOutOfClass,
   checkDocumentedParameterNotDeclared,
   checkDeliveryCommitNotOwn,
+  checkProtocolDocMissing,
 ]);
 
 /**
@@ -805,6 +851,15 @@ export function saveState(state: DoctorState, path = statePath()): void {
 /** Dove stanno le due verita' del controllo 7. Percorsi relativi alla repo. */
 export const MCP_SERVER = "server/mcp/topics-mcp-server.ts";
 export const PROTOCOL_DOCS = ["docs/board-protocol.md"] as const;
+
+/**
+ * Quali documenti di protocollo mancano da questo checkout. Sta qui, fuori da
+ * `collect`, perche' e' l'unico pezzo del controllo 9 che tocca il disco: cosi'
+ * si prova su una cartella vera senza mettere in piedi un DB.
+ */
+export function missingProtocolDocs(repoPath: string, docs: readonly string[] = PROTOCOL_DOCS): string[] {
+  return docs.filter((doc) => !existsSync(join(repoPath, doc)));
+}
 
 /**
  * Le chiavi di PRIMO livello di un oggetto letterale, contando le graffe.
@@ -1087,14 +1142,22 @@ export async function collect(opts: CollectOptions = {}): Promise<Collected> {
     }
 
     // ── Controllo 7: il protocollo contro lo schema dei tool ────────────────
+    // Il documento assente NON finisce in `skipped`: e' il controllo 9, cioe'
+    // un rilievo. Un file versionato che non c'e' e' un guasto, e il silenzio
+    // su di lui e' proprio il modo in cui il controllo 7 e' rimasto inerte.
+    // La sua presenza si guarda a parte dallo schema: se domani il server MCP
+    // cambiasse posto, il documento sparito tornerebbe a passare inosservato.
     const documentedParams: DocumentedParam[] = [];
+    const docs = opts.protocolDocs ?? PROTOCOL_DOCS;
+    const missingDocs = missingProtocolDocs(repoPath, docs);
+
     const mcpPath = join(repoPath, MCP_SERVER);
     if (existsSync(mcpPath)) {
       const declared = declaredToolParams(readFileSync(mcpPath, "utf8"));
       const tools = new Set(declared.keys());
-      for (const doc of opts.protocolDocs ?? PROTOCOL_DOCS) {
+      for (const doc of docs) {
         const p = join(repoPath, doc);
-        if (!existsSync(p)) { skipped.push(`protocollo ${doc} assente — controllo sui parametri documentati saltato`); continue; }
+        if (!existsSync(p)) continue;   // gia' detto dal controllo 9, e a voce alta
         for (const call of documentedCalls(readFileSync(p, "utf8"), tools)) {
           documentedParams.push({ doc, tool: call.tool, param: call.param, declared: declared.get(call.tool) ?? [] });
         }
@@ -1118,6 +1181,7 @@ export async function collect(opts: CollectOptions = {}): Promise<Collected> {
         costBaseline,
         probes: opts.probes ?? {},
         documentedParams,
+        missingProtocolDocs: missingDocs,
       },
       probeNow,
       skipped,

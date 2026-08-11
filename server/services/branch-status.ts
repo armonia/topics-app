@@ -176,8 +176,10 @@ async function emptyTree(cwd: string): Promise<string | null> {
  * il working tree farebbe apparire "3 file, +120" un tentativo che non ha
  * consegnato niente, e l'umano sceglierebbe un branch vuoto.
  *
- * La base NON è il merge-base con main: il worktree di un tentativo nasce da
- * `baseRef: "HEAD"` sul checkout condiviso, quindi `merge-base(main, HEAD)..HEAD`
+ * La base NON è il merge-base con main: il worktree di un tentativo nasceva da
+ * `baseRef: "HEAD"` sul checkout condiviso (ora parte da `main`, vedi
+ * `worktree-base-ref.ts`, ma i rami già esistenti restano), quindi
+ * `merge-base(main, HEAD)..HEAD`
  * ingloba i commit dell'altra sessione che stava parcheggiata lì e attribuisce
  * al tentativo il lavoro di qualcun altro. È la stessa bugia della consegna
  * (task `95518dab`), su un'altra superficie: si chiude allo stesso modo, cioè
