@@ -1,8 +1,9 @@
 import type { AppContext, RouteHandler } from "../types";
 import { getAppSettings, updateAppSettings, type AppSettings } from "../services/app-settings";
 import { recomputeDefault, getDefaultProviderName, listProviders } from "../providers";
+import { reconcileDiscordPresence } from "../services/discord-presence";
 import { EFFORT_TIERS, CODEX_REASONING_EFFORTS } from "../../shared/effort";
-import { OUTPUT_LANGUAGES } from "../../shared/types";
+import { OUTPUT_LANGUAGES, DISCORD_DETAIL_LEVELS } from "../../shared/types";
 
 /**
  * GET/PUT /api/app-settings — the promoted behaviour toggles (env-var audit,
@@ -28,6 +29,9 @@ const APPROVAL = new Set(["auto", "full-access"]);
 /** L'insieme delle lingue vive in `shared/types.ts`, letto dai due lati del
  *  filo: qui per validare, nel selettore per disegnare le opzioni. */
 const LANGUAGES = new Set<string>(OUTPUT_LANGUAGES);
+/** Idem per i gradini di privacy della presence: l'insieme sta in
+ *  `shared/types.ts`, qui si valida contro quello. */
+const DISCORD_LEVELS = new Set<string>(DISCORD_DETAIL_LEVELS);
 
 /**
  * I nomi ammessi per `aiProvider`: quelli REGISTRATI adesso, non una lista
@@ -80,6 +84,11 @@ const FIELD_RULES: Record<keyof AppSettings, FieldRule> = {
   // `null` e `'auto'` dicono la stessa cosa — «nessuna direttiva» — e passano
   // entrambi: il selettore manda la stringa, chi azzera manda null.
   outputLanguage: { kind: "string", allow: LANGUAGES },
+  // Lo stato pubblicato su Discord (migration 097). Passa da QUI e non da una
+  // rotta sua: due porte che scrivono la stessa colonna è il guasto che il
+  // commento in cima a questo file racconta già per `aiProvider`.
+  discordPresenceEnabled: { kind: "bool" },
+  discordDetailLevel: { kind: "string", allow: DISCORD_LEVELS },
 };
 
 /** Coerce+validate an incoming patch. Returns the clean patch or errors. */
@@ -168,6 +177,14 @@ export function createAppSettingsRouter(ctx: AppContext): RouteHandler {
         return json({ ok: false, errors }, 400);
       }
       const settings = updateAppSettings(patch);
+      // L'interruttore della presence deve valere SUBITO. Senza questo, un
+      // «accendi» avrebbe effetto al prossimo giro del servizio — fino a
+      // quindici secondi di pannello acceso e profilo Discord vuoto, che si
+      // legge come una spunta rotta. Non si aspetta l'esito: la risposta a chi
+      // salva non dipende da Discord.
+      if ("discordPresenceEnabled" in patch || "discordDetailLevel" in patch) {
+        void reconcileDiscordPresence().catch(() => { /* lo stato lo racconta /api/profile/discord */ });
+      }
       // Re-pick the default provider so an aiProvider change is reflected live.
       const changed = recomputeDefault();
       if (changed) {

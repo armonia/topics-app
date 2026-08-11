@@ -46,6 +46,32 @@
 export const OUTPUT_LANGUAGES = ['auto', 'it', 'en'] as const;
 export type OutputLanguage = (typeof OUTPUT_LANGUAGES)[number];
 
+// ─── Discord Rich Presence: QUANTO si vede ─────────────────────────────
+
+/**
+ * Quanto della tua giornata finisce sul profilo Discord (migration 097).
+ *
+ * È un controllo di PRIVACY, non un gusto: la presence la vede chiunque
+ * condivida un server con te, quindi ogni gradino va letto come «cosa sto
+ * dicendo a degli sconosciuti».
+ *
+ *   • `minimal`  — che Topics è aperto. Nessun numero, nessun nome.
+ *   • `activity` — i CONTEGGI: quante sessioni hai aperte, quante stanno
+ *                  lavorando adesso. Numeri, che non nominano nessun cliente.
+ *   • `detailed` — anche il NOME del progetto in cima. È l'unico gradino che
+ *                  può far uscire di qui una parola che non hai scelto per
+ *                  quel pubblico, quindi non è il default e non lo diventa.
+ *
+ * Il default vive nel codice ed è `activity`, ma vale solo a interruttore
+ * ACCESO: la presence parte spenta (vedi 097), perché pubblicare cosa stai
+ * facendo non è una cosa che si accende per conto di qualcuno.
+ *
+ * Come per le lingue, il tipo DERIVA dall'array: chi valida (la rotta), chi
+ * costruisce l'attività e chi disegna il selettore leggono lo stesso insieme.
+ */
+export const DISCORD_DETAIL_LEVELS = ['minimal', 'activity', 'detailed'] as const;
+export type DiscordDetailLevel = (typeof DISCORD_DETAIL_LEVELS)[number];
+
 // ─── ToolCall status (chat message → tool call lifecycle) ──────────────
 
 /**
