@@ -1432,9 +1432,11 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
       },
       taskId,
     ),
-  // Fan-out: l'anteprima parte quando l'umano sceglie il vincitore, perché solo
-  // allora il worktree del task è quello giusto da mostrare.
-  preparePreview: (taskId) => previewManager?.prepareForReview(taskId) ?? Promise.resolve(),
+  // Due chiamanti, stessa porta: il fan-out (l'anteprima parte quando l'umano
+  // sceglie il vincitore, perché solo allora il worktree del task è quello
+  // giusto da mostrare) e «Ricattura evidenza» su una card già in review, che
+  // passa `explain: true` per farsi motivare anche il no.
+  preparePreview: (taskId, o) => previewManager?.prepareForReview(taskId, o) ?? Promise.resolve(),
   // NOTE: the server no longer SELF-RESTARTS when an approve lands server code
   // (removed 2026-07-18, Attilio: "l'auto-riavvio sporca tutto"). A landed
   // server change goes live either via the opt-in graceful hot-reload watch
