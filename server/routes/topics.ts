@@ -18,7 +18,7 @@ import { getSessionContext } from "../db/session-context";
 import { classifyContext, windowForMeasure } from "../usage/context-window";
 import { contextUpdateFromUsage } from "../usage/usage-update";
 import { createTaskService } from "../services/tasks";
-import { persistAgentTaskTab } from "../services/task-tab-persist";
+import { persistAgentTaskTab, attachLoginHandleToTaskTab } from "../services/task-tab-persist";
 import { matchProjectRefAll, type ProjectRefCandidate } from "../lib/project-ref";
 import { shouldHonorClearMessages } from "../../shared/clear-messages-policy";
 import { clearActionFor } from "./clearPolicy";
@@ -763,7 +763,8 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
     taskForTopic: (topicId) => taskSvc.taskForTopic(topicId),
     taskByIdPrefix: (prefix) => taskSvc.taskByIdPrefix(prefix),
     browserNavigatedTopics,
-    persistTaskTab: (taskId, contextId, url) => { persistAgentTaskTab(ctx.db, broadcastToAll, taskId, contextId, url); },
+    persistTaskTab: (taskId, contextId, url, title) => { persistAgentTaskTab(ctx.db, broadcastToAll, taskId, contextId, url, title); },
+    attachLoginHandle: (contextId, handle) => { attachLoginHandleToTaskTab(ctx.db, broadcastToAll, contextId, handle); },
   }, browserService);
 
   /**
