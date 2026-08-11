@@ -35,6 +35,7 @@ import { getSnapshotManager } from "../providers/snapshot-manager";
 import { cancelled, classifyTurnError, isAcpStopReason, type TurnEndInfo } from "../providers/stop-reason";
 import { recordTurnEnd } from "../providers/turn-end-registry";
 import { appendUsageRecord } from "../usage/store";
+import { autoreDaIdentita } from "../lib/message-author";
 import { accumulateTurnUsage, emptyTurnUsage, turnUsageCostParts } from "../usage/turn-usage";
 import { calculateCost, calculateCostWithCache, splitPromptTokens } from "../usage/pricing";
 import type { BrowserService } from "../browser-service";
@@ -304,7 +305,15 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
 
       const lastUserMsg = messages[messages.length - 1];
       if (lastUserMsg?.role === "user" && lastUserMsg?.content) {
-        const storedUserMsg = appendLocalMessage(sessionKey, "user", lastUserMsg.content);
+        // L'AUTORE si stampa QUI, ed è l'unico posto in cui un prompt umano
+        // entra nel database: `appendLocalMessage` da qualunque altro
+        // chiamante (import di transcript, sotto-agenti) non ha un'identità di
+        // richiesta da cui ricavarlo, e quelle righe restano senza autore —
+        // che è la risposta giusta, non una mancanza.
+        const storedUserMsg = appendLocalMessage(
+          sessionKey, "user", lastUserMsg.content,
+          autoreDaIdentita(ctx.db as never, ctx.requestIdentity?.(req) ?? null),
+        );
         if (matchedTopic) {
           broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "user", messageId: storedUserMsg.id, content: lastUserMsg.content, preview: lastUserMsg.content.slice(0, 100) });
           // Bump the topic's own timestamp on every real message, not just

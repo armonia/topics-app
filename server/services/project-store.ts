@@ -37,6 +37,9 @@ export interface ProjectStore {
     path: string;
     color?: string | null;
     icon?: string | null;
+    /** Migration 092 — chi lo vede. Li passa la rotta, che sa CHI sta creando. */
+    orgId?: string | null;
+    ownerPersonId?: string | null;
   }): Project;
   get(id: string): Project | null;
   getBySlug(slug: string): Project | null;
@@ -44,7 +47,7 @@ export interface ProjectStore {
   list(opts?: { archived?: boolean }): Project[];
   update(
     id: string,
-    patch: { name?: string; color?: string | null; icon?: string | null }
+    patch: { name?: string; color?: string | null; icon?: string | null; incognito?: boolean }
   ): Project | null;
   archive(id: string): Project | null;
   restore(id: string): Project | null;
@@ -57,8 +60,10 @@ export interface ProjectStore {
 export function createProjectStore(db: Database): ProjectStore {
   const stmts = {
     insert: db.prepare(`
-      INSERT INTO projects (id, name, slug, path, color, icon, archived, created_at, updated_at)
-      VALUES ($id, $name, $slug, $path, $color, $icon, 0, $created_at, $updated_at)
+      INSERT INTO projects (id, name, slug, path, color, icon, archived, created_at, updated_at,
+                            org_id, owner_person_id)
+      VALUES ($id, $name, $slug, $path, $color, $icon, 0, $created_at, $updated_at,
+              $org_id, $owner_person_id)
     `),
     getById: db.prepare(`SELECT * FROM projects WHERE id = ?`),
     getBySlug: db.prepare(`SELECT * FROM projects WHERE slug = ?`),
@@ -71,7 +76,8 @@ export function createProjectStore(db: Database): ProjectStore {
     ),
     listAll: db.prepare(`SELECT * FROM projects ORDER BY updated_at DESC`),
     update: db.prepare(`
-      UPDATE projects SET name = $name, color = $color, icon = $icon, updated_at = $updated_at WHERE id = $id
+      UPDATE projects SET name = $name, color = $color, icon = $icon, incognito = $incognito,
+                          updated_at = $updated_at WHERE id = $id
     `),
     setArchived: db.prepare(
       `UPDATE projects SET archived = $archived, updated_at = $updated_at WHERE id = $id`,
@@ -91,6 +97,9 @@ export function createProjectStore(db: Database): ProjectStore {
       color: row.color ?? null,
       icon: row.icon ?? null,
       archived: row.archived === 1,
+      orgId: row.org_id ?? null,
+      ownerPersonId: row.owner_person_id ?? null,
+      incognito: row.incognito === 1,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -107,7 +116,7 @@ export function createProjectStore(db: Database): ProjectStore {
 
   return {
     slugify,
-    create({ name, slug, path, color, icon }) {
+    create({ name, slug, path, color, icon, orgId, ownerPersonId }) {
       const now = new Date().toISOString();
       const id = randomUUID();
       try {
@@ -120,6 +129,8 @@ export function createProjectStore(db: Database): ProjectStore {
           $icon: icon ?? null,
           $created_at: now,
           $updated_at: now,
+          $org_id: orgId ?? null,
+          $owner_person_id: ownerPersonId ?? null,
         });
       } catch (err: any) {
         if (
@@ -162,6 +173,7 @@ export function createProjectStore(db: Database): ProjectStore {
         $name: patch.name ?? existing.name,
         $color: patch.color !== undefined ? patch.color : existing.color,
         $icon: patch.icon !== undefined ? patch.icon : existing.icon,
+        $incognito: patch.incognito !== undefined ? (patch.incognito ? 1 : 0) : existing.incognito,
         $updated_at: now,
       });
       const row = stmts.getById.get(id);
