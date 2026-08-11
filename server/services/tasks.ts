@@ -903,6 +903,32 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     return (r?.c ?? 0) > 0;
   }
 
+  /**
+   * Figli che qualcuno sta davvero lavorando o sta per lavorare. Un figlio in
+   * **backlog** è parcheggiato: nessun dispatcher lo prenderà, quindi il padre
+   * che lo aspetta aspetta a vuoto — e col rinvio a finestra girerebbe ogni 10
+   * minuti per sempre. Misurati l'11/08 venti padri i cui unici figli aperti
+   * erano parcheggiati.
+   *
+   * NON è la definizione dei cancelli su `done` e sull'approvazione: là un
+   * sottotask parcheggiato blocca eccome, ed è voluto (un epic non è finito
+   * perché un pezzo è stato rimandato). Serve solo a distinguere «aspetta» da
+   * «non aspetterà mai nessuno».
+   */
+  function hasChildrenInFlight(taskId: string): boolean {
+    const r = db.prepare(
+      "SELECT COUNT(*) AS c FROM tasks WHERE parent_task_id = ? AND archived = 0 AND status IN ('todo','in_progress','review')",
+    ).get(taskId) as any;
+    return (r?.c ?? 0) > 0;
+  }
+
+  /** I sottotask parcheggiati in backlog: non li aspetta nessuno, vanno DETTI. */
+  function parkedChildren(taskId: string): Array<{ id: string; text: string }> {
+    return db.prepare(
+      "SELECT id, text FROM tasks WHERE parent_task_id = ? AND archived = 0 AND status = 'backlog' ORDER BY created_at",
+    ).all(taskId) as any;
+  }
+
   function rowToComment(r: any): TaskComment {
     let mentions: string[] = [];
     if (r.mentions) { try { mentions = JSON.parse(r.mentions); } catch { mentions = []; } }
@@ -1632,6 +1658,28 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // il 10/08: la stessa card rimbalzata in review quattro volte in un'ora,
       // con quattro figli aperti. Il posto giusto è la coda: il lavoro non è
       // finito, e il turno finito non lo rende finito.
+      //
+      // Ma «aperto» e «lo sta aspettando qualcuno» non sono la stessa cosa: se
+      // gli unici figli aperti sono PARCHEGGIATI in backlog, nessun dispatcher
+      // li prenderà e il padre aspetterebbe a vuoto per sempre. Quello non è un
+      // rimando in coda, è uno stallo: si parcheggia anche il padre, dicendo chi
+      // lo tiene fermo, così è una card su cui si può agire invece di una che
+      // gira ogni dieci minuti.
+      if (hasActiveChildren(taskId) && !hasChildrenInFlight(taskId)) {
+        const parked = parkedChildren(taskId);
+        const elenco = parked.map((c) => `• ${c.text}`).join("\n");
+        const note =
+          `Fermo su ${parked.length} sottotask parcheggiati in backlog: finché restano lì non posso chiudere il padre ` +
+          `(un task con sottotask aperti non è approvabile), e nessuno li prenderà da solo. ` +
+          `Mettine almeno uno in coda, oppure archivia ciò che non serve più.\n${elenco}`;
+        try { this.addComment({ taskId, author: "system", content: note }); } catch { /* best-effort */ }
+        db.prepare(
+          `UPDATE tasks SET assigned_topic_id = NULL, assigned_agent_id = NULL,
+              status = 'backlog', dispatch_state = 'blocked', dispatch_error = ?, updated_at = ? WHERE id = ?`,
+        ).run(note, ts, taskId);
+        if (row.status !== "backlog") logStatus(taskId, row.status, "backlog", "dispatcher");
+        return rowToTask(getTaskRow(taskId));
+      }
       if (hasActiveChildren(taskId)) {
         // Il tentativo si RESTITUISCE: il turno non è finito per colpa del
         // padre, è finito mentre i figli lavoravano ancora — esattamente come
