@@ -1,5 +1,36 @@
 import { pointerWithin, closestCorners, type CollisionDetection } from '@dnd-kit/core';
-import { TASK_STATUSES, type TaskStatus } from '../../lib/board';
+import { TASK_STATUSES, attemptHasWork, type TaskAttempt, type TaskStatus } from '../../lib/board';
+
+/** La firma di `useT()`, per le funzioni che formattano fuori da un componente. */
+type Translate = (key: string, vars?: Record<string, string | number>) => string;
+
+/**
+ * Il diffstat accanto a un tentativo del fan-out: `3 file · +120 −8`,
+ * `in corso…`, `nessuna modifica`.
+ *
+ * Esiste già in `shared/task-attempt.ts` (`formatAttemptStat`) e questa NON è
+ * una copia per distrazione: quella versione la usa il SERVER per scrivere il
+ * confronto nel thread del task, e `shared/` non può vedere il dizionario del
+ * client. Sono due superfici diverse — un commento scritto una volta e una UI
+ * che cambia lingua sotto l'utente — e l'unico modo di unificarle sarebbe
+ * portare il dizionario in `shared/`, cioè spostare la i18n del client dentro
+ * codice che gira anche sul server. La forma resta la stessa (il test di parità
+ * in `shared/task-attempt.test.ts` sorveglia quella copia).
+ */
+export function attemptStat(a: TaskAttempt, tr: Translate): string {
+  if (a.state === 'running') return tr('board.task.attempt.stat.running');
+  if (!attemptHasWork(a)) {
+    return a.error
+      ? tr('board.task.attempt.stat.noChangesError', { error: a.error })
+      : tr('board.task.attempt.stat.noChanges');
+  }
+  const n = a.filesChanged ?? 0;
+  // «file» è invariante in italiano (1 file, 3 file), non in inglese: il ramo
+  // singolare/plurale esiste per l'inglese e in italiano rende lo stesso testo.
+  return tr(n === 1 ? 'board.task.attempt.stat.files.one' : 'board.task.attempt.stat.files.many', {
+    n, ins: a.insertions ?? 0, del: a.deletions ?? 0,
+  });
+}
 
 /**
  * "claude-opus-4-8" → "Opus 4.8" — strip the `claude-` prefix, capitalize the
