@@ -213,6 +213,57 @@ export function isAgentWorking(
   return (ACTIVE_DISPATCH_STATES as readonly string[]).includes(dispatchState ?? '');
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Blocco `question` — il formato, dichiarato dove SCRITTURA e LETTURA lo vedono
+// entrambe (`addComment` lo compone, `parseQuestionBlock` lo legge).
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * La riga che separa il CORPO dalle OPZIONI dentro una fence ```question.
+ *
+ * Nasce da un difetto misurato: finché il corpo e le opzioni erano distinti
+ * solo dal trattino di elenco, l'unico modo di non confonderli era appiattire
+ * il corpo in una riga sola (`content.replace(/\n/g, " ")`). Cioè: un piano
+ * consegnato SECONDO PROTOCOLLO — piano-prima chiede esattamente
+ * `comment_task(content=<piano>, options=[…])` — diventava per costruzione una
+ * riga da centinaia di caratteri dentro un blocco di codice. Non era l'agente a
+ * scrivere male, era il formato a chiederglielo.
+ *
+ * Con un separatore esplicito il corpo torna testo verbatim (a-capo, elenchi,
+ * titoli: un piano è un documento) e le opzioni restano ESATTAMENTE quelle
+ * passate — nessuna riga del corpo promossa a bottone, che è il modo in cui il
+ * fix ingenuo (togliere e basta l'appiattimento) si rompe.
+ *
+ * `parseQuestionBlock` resta tollerante con la forma VECCHIA (senza
+ * separatore): i commenti già in archivio si leggono come prima.
+ */
+export const QUESTION_OPTIONS_SENTINEL = '--- options ---';
+/** La riconosce anche con spaziatura/trattini in più (è testo, non un token). */
+export const QUESTION_OPTIONS_SENTINEL_RE = /^\s*-{2,}\s*options\s*-{2,}\s*$/i;
+
+/** Etichette senza punteggiatura/emoji/spaziatura: due opzioni si confrontano
+ *  per SIGNIFICATO, non per byte (il modello aggiunge volentieri un ✅). */
+export function normalizeActionLabel(s: string): string {
+  return s.replace(/[^\p{L}\s]/gu, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+/**
+ * Le due opzioni del protocollo piano-prima. Sono un CONTRATTO, non un testo di
+ * cortesia: il dispatcher le scrive nell'envelope, e la loro presenza è ciò che
+ * dice al servizio «questo commento È il piano» (→ `tasks.plan_comment_id`).
+ * Prima il piano si indovinava — «l'ultimo commento non-utente» — e su 13 task
+ * piano-prima l'euristica sbagliava 13 volte su 13: il commento di rettifica,
+ * o la consegna con «Landa su main», rubavano il posto al piano.
+ */
+export const PLAN_APPROVE_LABEL = 'Approva il piano';
+export const PLAN_REVISE_LABEL = 'Da rivedere';
+
+/** Vero quando fra le opzioni c'è l'approvazione di un piano (match tollerante). */
+export function hasPlanApproveOption(options: readonly string[]): boolean {
+  const want = normalizeActionLabel(PLAN_APPROVE_LABEL);
+  return options.some((o) => normalizeActionLabel(o) === want);
+}
+
 export interface TaskComment {
   id: string;
   taskId: string;

@@ -34,7 +34,11 @@ import { readGlobalCap } from "./dispatch-capacity";
 // l'import separato. Della lista `TASK_STATUSES` questo modulo non è una porta:
 // chi la vuole la prende da `shared/board`.
 export type { TaskStatus, TaskComment, BoardSettings, BoardSettingsPatch, BlockerRef } from "../../shared/board";
-import { MAX_FANOUT, PREVIEW_PROMOTE_MAX_RATIO, TASK_STATUSES, formatStatusEvent, isAgentWorking, readTaskWeight, statusEventEnters } from "../../shared/board";
+import {
+  MAX_FANOUT, PREVIEW_PROMOTE_MAX_RATIO, TASK_STATUSES, QUESTION_OPTIONS_SENTINEL,
+  formatStatusEvent, hasPlanApproveOption, isAgentWorking, normalizeActionLabel,
+  readTaskWeight, statusEventEnters,
+} from "../../shared/board";
 import { EFFORT_TIERS } from "../../shared/effort";
 import type { TaskStatus, TaskComment, BoardSettings, BoardSettingsPatch, BlockerRef, TaskWeight } from "../../shared/board";
 
@@ -73,7 +77,7 @@ export const LAND_ACTION_LABEL = "Landa su main";
  * chain server-side. "Andare online" stays a human pick — the agent never pushes.
  */
 export const PUBLISH_ACTION_LABEL = "Landa e pubblica";
-const normLabel = (s: string) => s.replace(/[^\p{L}\s]/gu, " ").replace(/\s+/g, " ").trim().toLowerCase();
+const normLabel = normalizeActionLabel;
 /** Tolerant match (ignores emoji/punctuation/spacing the model may add). */
 export function isLandActionLabel(text: string | undefined | null): boolean {
   return !!text && normLabel(text) === normLabel(LAND_ACTION_LABEL);
@@ -122,6 +126,10 @@ export interface Task {
   previewImage: string | null;
   /** Dispatch contract: deliver a PLAN to review before implementing. */
   planFirst: boolean;
+  /** IL commento che È il piano (la tab "Piano" rende questo, non l'ultimo
+   *  commento che capita). Lo scrive `addComment` riconoscendo il contratto
+   *  piano-prima; `null` sui task nati prima di questo puntatore. */
+  planCommentId: string | null;
   /** When the current claim started (dispatcher CAS) — the live "ci sta
    *  mettendo" ticker anchors here while a turn runs. */
   inProgressAt: string | null;
@@ -791,6 +799,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       outputUrl: r.output_url ?? null,
       previewImage: r.preview_image ?? null,
       planFirst: !!r.plan_first,
+      planCommentId: r.plan_comment_id ?? null,
       inProgressAt: r.in_progress_at ?? null,
       agentMs: r.agent_ms ?? 0,
       agentTokens: r.agent_tokens ?? 0,
@@ -1299,11 +1308,23 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // fence/newline layout the quick-reply parser expects is never delegated
       // to an LLM. A question inside `content` that already carries fences
       // would nest ambiguously → reject as invalid input.
+      let isPlanDelivery = false;
       if (questionOptions && questionOptions.length > 0) {
         const options = questionOptions.map((o) => String(o ?? "").trim()).filter(Boolean);
         if (options.length === 0) throw new TaskServiceError("invalid_input", "question options are empty");
         if (body.includes("```")) throw new TaskServiceError("invalid_input", "question content must not contain code fences");
-        body = ["```question", body.replace(/\r?\n/g, " ").trim(), ...options.map((o) => `- ${o}`), "```"].join("\n");
+        // Il corpo entra VERBATIM (a-capo compresi) e il separatore dice dove
+        // finisce: prima veniva appiattito in una riga per non confondere le sue
+        // righe-elenco con le opzioni, il che rendeva illeggibile per costruzione
+        // ogni piano consegnato secondo protocollo. Vedi QUESTION_OPTIONS_SENTINEL.
+        body = [
+          "```question",
+          body.replace(/\r\n/g, "\n").trim(),
+          QUESTION_OPTIONS_SENTINEL,
+          ...options.map((o) => `- ${o}`),
+          "```",
+        ].join("\n");
+        isPlanDelivery = hasPlanApproveOption(options);
       }
       const row = getTaskRow(taskId);
       // Same projectId guard as update() — no cross-project commenting.
@@ -1328,6 +1349,15 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // drawer, review card) see a change signal and refetch — without this, a
       // new comment broadcasts task:updated but the payload looks identical.
       db.prepare("UPDATE tasks SET updated_at = ? WHERE id = ?").run(ts, taskId);
+      // QUALE commento è il piano: lo si SCRIVE qui, non lo si indovina dopo.
+      // Il segnale è il contratto piano-prima — un task `plan_first` + un blocco
+      // question che offre l'approvazione del piano, scritto da un agente (mai
+      // dall'umano). Un piano rifatto dopo «Da rivedere» porta le stesse opzioni
+      // e quindi RIMPIAZZA il puntatore; una rettifica qualunque, o la consegna
+      // con «Landa su main», non lo toccano.
+      if (isPlanDelivery && row.plan_first && author !== "user" && author !== "system") {
+        db.prepare("UPDATE tasks SET plan_comment_id = ? WHERE id = ?").run(id, taskId);
+      }
       // Evidence attached AFTER the review transition (review-first delivery
       // order): fill the still-empty card preview from this attachment.
       if (files.length) promoteReviewPreview(taskId);
