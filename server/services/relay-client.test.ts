@@ -8,6 +8,7 @@
 import { describe, expect, it } from "bun:test";
 import { creaRelayClient, type LinkCondivisione } from "./relay-client";
 import { nuovaChiave, sigilla, apri } from "../../shared/relay-crypto";
+import { SEGRETO_FINTO } from "../../shared/relay-fake";
 
 const ORA = 1_000_000;
 
@@ -21,7 +22,7 @@ function link(over: Partial<LinkCondivisione> = {}): LinkCondivisione {
 function client(l: LinkCondivisione | null, opts: { serve?: unknown } = {}) {
   const aperture: string[] = [];
   const c = creaRelayClient({
-    baseUrl: null, installationId: "i1",
+    baseUrl: null, relayId: "i1", segreto: SEGRETO_FINTO,
     trovaLink: (ref) => (l && ref === l.ref ? l : null),
     serviRisorsa: async (x) => ({ status: 200, body: opts.serve ?? { id: x.resourceId, testo: "la scheda" } }),
     segnaApertura: (ref) => { aperture.push(ref); },
@@ -114,7 +115,7 @@ describe("relay client · il link vale per UNA cosa", () => {
     const l = link({ resourceId: "solo-questo" });
     let servita = "";
     const c = creaRelayClient({
-      baseUrl: null, installationId: "i1",
+      baseUrl: null, relayId: "i1", segreto: SEGRETO_FINTO,
       trovaLink: () => l,
       serviRisorsa: async (x) => { servita = x.resourceId; return { status: 200, body: {} }; },
       segnaApertura: () => {},

@@ -53,7 +53,8 @@
         // mano (`bun scripts/board-doctor.mutants.ts`), non lo importa nessuno
         // e non deve — mentre gira riscrive il file che sta mutando.
         "scripts/board-doctor.mutants.ts!",
-        "scripts/disk-report.ts!",        // `bun run report:disk`
+        "scripts/effort-variance.ts!",
+    "scripts/disk-report.ts!",        // `bun run report:disk`
         "scripts/token-live.ts!",         // diagnostica a mano: `bun scripts/token-live.ts [filtro] [--watch]`
         "scripts/orphan-park-dryrun.ts!", // `bun run orphan:dryrun` — prova a vuoto sul db vero
         "scripts/skill-listing-probe.ts!", // misura a mano: `bun run scripts/skill-listing-probe.ts`

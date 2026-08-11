@@ -31,6 +31,7 @@ import {
   GENERE_RICHIESTA, GENERE_RISPOSTA, intestazioniRichiesta, intestazioniRisposta,
   leggiTestaRichiesta, risolviUrlLocale, scriviTesta, type Intestazioni,
 } from "../../shared/relay-http";
+import { INTESTAZIONE_SEGRETO } from "../../shared/relay-identita";
 import {
   GENERE_WS, GENERE_WS_APERTO, GENERE_WS_CHIUSO, WS_APERTO,
   WS_CHIUSURA_ANOMALA, WS_CHIUSURA_NORMALE,
@@ -67,9 +68,27 @@ export interface RelayDeps {
   /** L'URL del relay, senza percorso. `null` = spento, e allora questo modulo
    *  non fa niente: il relay è un di più, mai la strada del lavoro locale. */
   baseUrl: string | null;
-  /** Identifica questa installazione presso il relay. Non è un segreto che
-   *  apre qualcosa: è un nome. Ciò che protegge una risorsa è il link. */
-  installationId: string;
+  /**
+   * Il nome del punto d'incontro presso il relay: sta nei link, e chi lo
+   * conosce non apre niente — ciò che protegge una risorsa è la chiave nel
+   * frammento.
+   *
+   * NON è `installationId`, che resta legato alla licenza e non compare da
+   * nessuna parte qui: sono due domande diverse, e tenerle sullo stesso valore
+   * è ciò che rendeva un nome mostrato in un link sufficiente a spacciarsi per
+   * questa macchina. Vedi `shared/relay-identita.ts`.
+   */
+  relayId: string;
+  /**
+   * La preimmagine di `relayId`, che non esce da questo processo se non
+   * nell'intestazione dell'aggancio.
+   *
+   * È l'unica cosa che distingue questa macchina da chiunque abbia ricevuto un
+   * suo link: il Worker la trasforma e confronta il risultato col nome nel
+   * percorso, PRIMA di svegliare il punto d'incontro. Vuota = l'aggancio verrà
+   * rifiutato, che è il verso giusto in cui sbagliare.
+   */
+  segreto: string;
   /** Il link, se esiste ed è ancora buono. `null` fa rispondere «non trovato»
    *  senza distinguere scaduto da inesistente — vedi sotto. */
   trovaLink(ref: string): LinkCondivisione | null;
@@ -96,7 +115,11 @@ export interface RelayDeps {
   tunnelTls?: boolean;
   /** Iniettabile per i test. */
   now?: () => number;
-  apriSocket?: (url: string) => WebSocket;
+  /** Come si apre il filo verso il relay. Le opzioni portano l'intestazione
+   *  col segreto: un test che le ignora prova un aggancio che in produzione
+   *  verrebbe respinto, quindi la firma le rende visibili invece di
+   *  nasconderle dietro un secondo argomento facoltativo che nessuno guarda. */
+  apriSocket?: (url: string, opzioni: { headers: Record<string, string> }) => WebSocket;
   fetchLocale?: typeof fetch;
   /** Come si apre un socket verso l'ascoltatore del tunnel. Iniettabile per la
    *  stessa ragione di `fetchLocale`: un test deve poter guardare la stretta di
@@ -1004,16 +1027,28 @@ export function creaRelayClient(deps: RelayDeps) {
 
   function collega(): void {
     if (fermato || !deps.baseUrl) return;
-    const url = `${deps.baseUrl.replace(/^http/, "ws")}/agent/${encodeURIComponent(deps.installationId)}`;
-    const s = (deps.apriSocket ?? ((u: string) => new WebSocket(u)))(url);
+    const url = `${deps.baseUrl.replace(/^http/, "ws")}/agent/${encodeURIComponent(deps.relayId)}`;
+    // Il segreto viaggia in un'INTESTAZIONE della stretta di mano, e non nel
+    // percorso né in un parametro: quelli finiscono nei registri di chi sta in
+    // mezzo, e un segreto scritto in un log vive più a lungo della connessione
+    // che lo usava. Il Worker lo verifica prima di svegliare qualsiasi cosa.
+    const apriIlFilo = deps.apriSocket
+      ?? ((u: string, o: { headers: Record<string, string> }) => new WebSocket(u, o as never));
+    const s = apriIlFilo(url, { headers: { [INTESTAZIONE_SEGRETO]: deps.segreto } });
     ws = s;
 
     s.onopen = () => {
       tentativo = 0;
       log(`[relay] collegato a ${deps.baseUrl}`);
+      // Un ANNUNCIO, non una credenziale: a questo punto il relay ha già
+      // deciso, guardando l'intestazione, che siamo noi. `token` resta nel
+      // protocollo perché è la forma del messaggio, ma non concede niente e
+      // non deve MAI portare il segreto — finirebbe dentro il punto d'incontro
+      // e nei suoi registri, che è esattamente ciò da cui l'intestazione lo
+      // tiene fuori.
       s.send(JSON.stringify({
         t: "hello", v: RELAY_PROTOCOL_VERSION,
-        installationId: deps.installationId, token: deps.installationId,
+        installationId: deps.relayId, token: deps.relayId,
       } satisfies MessaggioRelay));
     };
 

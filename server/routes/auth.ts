@@ -659,7 +659,12 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
       return json({
         enabled: !!c?.baseUrl,
         baseUrl: c?.baseUrl ?? null,
-        installationId: c?.installationId ?? null,
+        // Il nome del PUNTO D'INCONTRO, non quello dell'installazione: è
+        // questo che finisce nel link, e l'altro resta legato alla licenza.
+        // Erano lo stesso valore, e finché lo sono stati mostrare un link
+        // consegnava anche la credenziale con cui ci si dichiara questa
+        // macchina sul relay (`shared/relay-identita.ts`).
+        relayId: c?.relayId ?? null,
         connected: ctx.relayConnected?.() ?? false,
       });
     }

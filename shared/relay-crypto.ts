@@ -117,12 +117,17 @@ export async function apri(chiave: string, busta: string): Promise<string | null
  * uno solo — la chiave dopo `#` — e due funzioni scritte lontane sono due
  * occasioni di metterla prima.
  */
-export function componiLink(base: string, installationId: string, shareRef: string, chiave: string): string {
+export function componiLink(base: string, relayId: string, shareRef: string, chiave: string): string {
   const u = new URL(base);
-  // DUE segmenti, entrambi pubblici: quale installazione (serve al relay per
+  // DUE segmenti, entrambi pubblici: quale PUNTO D'INCONTRO (serve al relay per
   // instradare) e quale condivisione (serve alla macchina per trovare la
   // chiave). Nessuno dei due apre niente da solo.
-  u.pathname = `${u.pathname.replace(/\/$/, "")}/g/${encodeURIComponent(installationId)}/${encodeURIComponent(shareRef)}`;
+  //
+  // Il primo è `relayId` e non `installationId`, e la differenza è tutta qui:
+  // questo segmento va in mano a chiunque riceva il link. Quando i due erano lo
+  // stesso valore, consegnarlo consegnava anche la credenziale con cui ci si
+  // dichiara la macchina su `/agent/:id` (`shared/relay-identita.ts`).
+  u.pathname = `${u.pathname.replace(/\/$/, "")}/g/${encodeURIComponent(relayId)}/${encodeURIComponent(shareRef)}`;
   // La chiave NON è un parametro di query: lì il browser la manderebbe al
   // server, e sarebbe finita nei log del relay prima ancora di essere usata.
   u.hash = chiave;
@@ -130,14 +135,14 @@ export function componiLink(base: string, installationId: string, shareRef: stri
   return u.toString();
 }
 
-export function leggiLink(href: string): { installationId: string; shareRef: string; chiave: string } | null {
+export function leggiLink(href: string): { relayId: string; shareRef: string; chiave: string } | null {
   try {
     const u = new URL(href);
     const m = u.pathname.match(/\/g\/([^/]+)\/([^/]+)\/?$/);
     const chiave = u.hash.replace(/^#/, "");
     if (!m || !chiave) return null;
     return {
-      installationId: decodeURIComponent(m[1]),
+      relayId: decodeURIComponent(m[1]),
       shareRef: decodeURIComponent(m[2]),
       chiave,
     };
