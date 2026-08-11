@@ -48,6 +48,7 @@
     "check:bundle": "bun run scripts/check-bundle-size.ts",
     "check:lockfile": "bun install --frozen-lockfile && cd client && bun install --frozen-lockfile && cd ../landing && bun install --frozen-lockfile",
     "report:disk": "bun run scripts/disk-report.ts",
+    "bench:ai-bridge": "bun run scripts/ai-bridge-replay-bench.ts",
     "orphan:dryrun": "bun run scripts/orphan-park-dryrun.ts",
     "typecheck": "bun run typecheck:client && bun run typecheck:tests:client && bun run typecheck:server && bun run typecheck:e2e",
     "typecheck:client": "cd client && ./node_modules/.bin/tsc -b",
