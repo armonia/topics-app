@@ -55,7 +55,97 @@ export type AutoMergeResult =
     }
   | { status: "conflict"; branch: string }
   | { status: "nothing"; branch: string; deliveryDrift?: string | null }
-  | { status: "skipped"; reason: string };
+  | { status: "skipped"; reason: string; code?: LandSkipCode };
+
+/**
+ * PERCHÉ il land non ha atterrato niente. La frase (`reason`) è per l'umano; il
+ * codice è per la macchina, e serve a una decisione sola: dove finisce la card.
+ *
+ * Senza di lui «non c'era un branch da landare» (la card è chiusa e va bene) e
+ * «non so quali commit siano suoi» (la card è chiusa col codice FUORI da main)
+ * erano la STESSA risposta — e la board le mostrava tutte e due in Done. Misurato
+ * l'11/08 sulla card `2e6964cb`: il thread diceva «Land NON riuscito … il branch
+ * NON è su main», lo stato diceva `done`, e il lavoro è sopravvissuto solo perché
+ * qualcuno ha riletto il thread prima che il GC potasse il ramo.
+ */
+export type LandSkipCode =
+  /** Niente worktree/branch: non c'era proprio niente da atterrare. L'unico che lascia la card chiusa. */
+  | "no-branch"
+  /** Il branch non esiste più o non è confrontabile con l'integrazione. */
+  | "branch-missing"
+  /** Non si sa QUALI commit siano della card: la sottrazione non ha risposto, o ha risposto vuoto. */
+  | "unisolable"
+  /** Si sa che il branch porta anche lavoro di un'altra sessione: non lo si pubblica. */
+  | "foreign-commits"
+  /** Il checkout condiviso ha WIP: non si fonde il lavoro non committato di nessuno. */
+  | "dirty-checkout"
+  /** Il worktree usa-e-getta su cui atterrare non si è potuto creare. */
+  | "worktree-add-failed"
+  /** Eccezione durante il land. */
+  | "internal-error";
+
+/** Cosa succede alla CARD quando il land non atterra. */
+export interface LandFallout {
+  /**
+   * Dove finisce la card. `null` = resta chiusa, ed è legittimo: non c'era
+   * niente da atterrare. Ogni altro codice la TOGLIE da Done, perché Done è
+   * l'unica colonna che si guarda quando si tira una riga e una card lì dentro
+   * col codice fuori da main è lavoro che nessuno cerca più.
+   */
+  status: "in_progress" | "review" | null;
+  /**
+   * La causa, destinata alla riga di STORICO (`statusReason`), non al solo
+   * thread: il thread lo si legge aprendo la card, lo stato lo si vede dalla
+   * board. Il guasto era esattamente questo — thread onesto, stato che diceva
+   * il contrario.
+   */
+  reason: string;
+  /**
+   * L'istruzione con cui ri-svegliare l'agente. Presente solo dove è il RAMO a
+   * essere sbagliato e quindi c'è qualcosa che l'agente può fare (rifare la
+   * base sul main aggiornato). Assente = il guasto è dell'ospite (albero
+   * sporco, worktree non creabile, git in errore): l'agente non può ripararlo,
+   * e la card torna all'umano.
+   */
+  resume?: string;
+}
+
+/** L'istruzione per l'agente quando è il suo ramo a non essere pubblicabile. */
+const REBASE_INSTRUCTION =
+  "Il land del tuo branch su main non è riuscito: dal ramo non si riesce a isolare il lavoro di questa card " +
+  "(porta anche commit che non sono suoi, o non se ne distingue nessuno). Rifai la BASE del tuo ramo sul main " +
+  "aggiornato (`git fetch` se serve, poi `git rebase main`), NON un merge di main dentro il ramo: dopo la rebase " +
+  "il ramo deve portare SOLO i tuoi commit. Poi rimetti in review con update_task(status=\"review\"). " +
+  "Resta vietato toccare main: niente push, niente merge verso main.";
+
+/**
+ * Dal perché-non-è-atterrato a dove-finisce-la-card. Pura, così la regola si
+ * prova senza un repo e senza una board.
+ *
+ * Il conflitto aveva già la risposta giusta (torna all'agente); lo `skipped` no,
+ * e trattava allo stesso modo l'unico caso innocuo e tutti quelli in cui il
+ * codice resta fuori da main. Un codice sconosciuto (un `skipped` costruito
+ * altrove, o uno nuovo aggiunto senza passare di qui) vale come fallito: sbaglia
+ * verso il rimandare indietro una card, mai verso il chiuderla.
+ */
+export function landFallout(code: LandSkipCode | undefined): LandFallout {
+  switch (code) {
+    case "no-branch":
+      return { status: null, reason: "" };
+    case "unisolable":
+      return { status: "in_progress", reason: "il land non ha saputo isolare i commit della card", resume: REBASE_INSTRUCTION };
+    case "foreign-commits":
+      return { status: "in_progress", reason: "il ramo porta anche commit di un'altra sessione", resume: REBASE_INSTRUCTION };
+    case "branch-missing":
+      return { status: "review", reason: "il ramo consegnato non è più confrontabile con main" };
+    case "dirty-checkout":
+      return { status: "review", reason: "il checkout condiviso ha lavoro non committato" };
+    case "worktree-add-failed":
+      return { status: "review", reason: "il worktree su cui atterrare non si è potuto creare" };
+    default:
+      return { status: "review", reason: "il land non è riuscito e il codice non è su main" };
+  }
+}
 
 /** Where a task's work lives, resolved from its dispatch topic → worktree → project. */
 export interface TaskMergeTarget {
@@ -218,7 +308,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
   async function tryMerge(taskId: string, title: string, delivery?: DeliverySnapshot): Promise<AutoMergeResult> {
     const target = deps.resolveTaskMerge(taskId);
     if (!target) {
-      return { status: "skipped", reason: "nessun worktree/branch per il task (in-place o non dispatchato)" };
+      return { status: "skipped", code: "no-branch", reason: "nessun worktree/branch per il task (in-place o non dispatchato)" };
     }
     const { repoPath, defaultBranch } = target;
 
@@ -263,7 +353,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
         // across every worktree, so this reads the same from the shared checkout.)
         const ahead = await runGit(repoPath, ["rev-list", "--count", `${defaultBranch}..${branch}`]);
         if (ahead.code !== 0) {
-          return { status: "skipped", reason: `branch '${branch}' non trovato o non confrontabile con '${defaultBranch}'` };
+          return { status: "skipped", code: "branch-missing", reason: `branch '${branch}' non trovato o non confrontabile con '${defaultBranch}'` };
         }
         if (ahead.stdout.trim() === "0") {
           return { status: "nothing", branch, deliveryDrift: drift };
@@ -295,21 +385,59 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
         // `own-commits.ts`, perché è la STESSA domanda che si fa la consegna
         // quando registra cosa ha prodotto la card: due copie divergerebbero, e
         // la copia sbagliata è quella che pubblica il lavoro di un altro.
+        //
+        // Tre risposte, non due. `own-commits.ts` distingue già «verificato: non
+        // ne ha» (`0`) da «non contabile» (`null`), e QUI quella distinzione va
+        // tenuta: il land ha un solo modo di dire «non faccio niente» e finché
+        // ci finiscono dentro sia «è già tutto su main» sia «non so quali siano
+        // i suoi», la card resta in Done in entrambi i casi. Il secondo è il
+        // caso in cui il codice NON è su main.
+        //
+        //   · `null`  — git non ha risposto: non si tocca niente (`unisolable`).
+        //   · `0` con il branch AVANTI — la sottrazione ha tolto tutto, cioè
+        //     ogni commit del ramo è raggiungibile anche da un altro ramo
+        //     locale. Normalissimo (un ramo nato da un altro, due card vicine),
+        //     e NON vuol dire «niente da portare»: vuol dire che di quel ramo
+        //     non si sa cosa sia suo (`unisolable`). «Niente da portare» è
+        //     `ahead === 0`, ed è già uscito sopra come `nothing`.
+        //   · `0 < mine < total` — si sa, ed è misto: `foreign-commits`.
         const others = await otherLocalBranches(repoPath, branch, { mainRef: defaultBranch, runGit });
-        if (others && others.length > 0) {
+        if (others === null) {
+          return {
+            status: "skipped", code: "unisolable",
+            reason:
+              `non ho potuto elencare i branch di '${repoPath}', quindi non so quali commit di '${branch}' siano di questa card: ` +
+              "non pubblico un ramo che potrebbe portare lavoro di un'altra sessione",
+          };
+        }
+        if (others.length > 0) {
           const mine = await countOwnCommits(repoPath, branch, { mainRef: defaultBranch, runGit, others });
-          if (mine !== null) {
-            const total = Number(ahead.stdout.trim());
-            if (Number.isFinite(total) && total > mine) {
-              return {
-                status: "skipped",
-                reason:
-                  `il branch '${branch}' porterebbe su '${defaultBranch}' ${total} commit, ma solo ${mine} ${mine === 1 ? "è" : "sono"} di questo task: ` +
-                  `gli altri ${total - mine} arrivano dal branch su cui era il checkout quando la card è partita, e sono lavoro di qualcun altro. ` +
-                  `Non li pubblico. Prendi il lavoro del task con un cherry-pick (\`git log --oneline ${defaultBranch}..${branch} --not ${others.join(" ")}\`), ` +
-                  `oppure landa prima quel branch`,
-              };
-            }
+          const total = Number(ahead.stdout.trim());
+          if (mine === null) {
+            return {
+              status: "skipped", code: "unisolable",
+              reason: `git non ha saputo dire quali dei commit di '${branch}' siano di questa card: non pubblico un ramo che non so leggere`,
+            };
+          }
+          if (Number.isFinite(total) && total > 0 && mine === 0) {
+            return {
+              status: "skipped", code: "unisolable",
+              reason:
+                `il branch '${branch}' porta ${total} commit che '${defaultBranch}' non ha, ma togliendo quelli raggiungibili dagli altri ` +
+                `${others.length} branch locali non ne resta NESSUNO: non è «niente da portare» (quello sarebbe zero commit avanti), ` +
+                "è «non so quali siano i suoi». Succede quando il ramo della card è raggiungibile anche da un altro ramo. " +
+                `Guarda con \`git log --oneline ${defaultBranch}..${branch}\`, poi cancella il ramo di troppo o cherry-picka a mano`,
+            };
+          }
+          if (Number.isFinite(total) && total > mine) {
+            return {
+              status: "skipped", code: "foreign-commits",
+              reason:
+                `il branch '${branch}' porterebbe su '${defaultBranch}' ${total} commit, ma solo ${mine} ${mine === 1 ? "è" : "sono"} di questo task: ` +
+                `gli altri ${total - mine} arrivano dal branch su cui era il checkout quando la card è partita, e sono lavoro di qualcun altro. ` +
+                `Non li pubblico. Prendi il lavoro del task con un cherry-pick (\`git log --oneline ${defaultBranch}..${branch} --not ${others.join(" ")}\`), ` +
+                `oppure landa prima quel branch`,
+            };
           }
         }
 
@@ -319,7 +447,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
         if (cur === defaultBranch) {
           const st = await runGit(repoPath, ["status", "--porcelain"]);
           if (st.stdout.trim() !== "") {
-            return { status: "skipped", reason: `il checkout è su '${defaultBranch}' con WIP non committata — mergia a mano o pulisci il checkout` };
+            return { status: "skipped", code: "dirty-checkout", reason: `il checkout è su '${defaultBranch}' con WIP non committata — mergia a mano o pulisci il checkout` };
           }
           // --no-ff keeps a merge commit so the landing is auditable even for a FF.
           const merge = await runGit(repoPath, ["merge", "--no-ff", "-m", mergeMsg, branch]);
@@ -338,7 +466,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
         await runGit(repoPath, ["worktree", "prune"]).catch(() => undefined);
         const add = await runGit(repoPath, ["worktree", "add", wtPath, defaultBranch]);
         if (add.code !== 0) {
-          return { status: "skipped", reason: `impossibile creare il worktree di land su '${defaultBranch}': ${(add.stderr || add.stdout).trim().slice(-200) || "git worktree add fallito"}` };
+          return { status: "skipped", code: "worktree-add-failed", reason: `impossibile creare il worktree di land su '${defaultBranch}': ${(add.stderr || add.stdout).trim().slice(-200) || "git worktree add fallito"}` };
         }
         try {
           const merge = await runGit(wtPath, ["merge", "--no-ff", "-m", mergeMsg, branch]);
@@ -353,7 +481,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
         log(`[automerge] tryMerge failed for ${taskId}`, e);
         // Best-effort cleanup, then report as a skip so the approve never breaks.
         await runGit(repoPath, ["merge", "--abort"]).catch(() => undefined);
-        return { status: "skipped", reason: `errore interno durante il merge: ${e instanceof Error ? e.message : String(e)}` };
+        return { status: "skipped", code: "internal-error", reason: `errore interno durante il merge: ${e instanceof Error ? e.message : String(e)}` };
       }
     });
   }

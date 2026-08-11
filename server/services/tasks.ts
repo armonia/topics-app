@@ -515,10 +515,34 @@ export interface TaskService {
     commit?: string | null;
     runs?: CheckRun[] | null;
   }): Task;
-  /** Tasks worth auditing: alive, delivered (review/done) and carrying a commit. */
+  /**
+   * Tasks worth auditing: alive, delivered (review/done), carrying a commit —
+   * e SENZA un esito testimoniato. Un verdetto scritto dal land stesso è un
+   * fatto osservato mentre il ramo esisteva ancora: la passata periodica non ha
+   * niente da aggiungerci, e sovrascriverlo con la propria deduzione è
+   * esattamente il modo in cui `landing_state` è finito a dire `unlanded` su
+   * card dimostrabilmente dentro main.
+   */
   listLandingAuditCandidates(): Array<{ id: string; projectId: string; deliveryBranch: string | null; deliveryCommit: string | null }>;
-  /** Persist a landing-audit verdict. */
-  recordLandingState(args: { taskId: string; state: "landed" | "unlanded" | "unverifiable"; checkedAt: string }): void;
+  /**
+   * Persist a landing verdict. `witnessed` = lo scrive chi il land l'ha VISTO
+   * (merge uscito zero, o fallito), non chi lo deduce dopo: quel verdetto
+   * diventa definitivo finché la card non riconsegna.
+   */
+  recordLandingState(args: { taskId: string; state: "landed" | "unlanded" | "unverifiable"; checkedAt: string; witnessed?: boolean }): void;
+  /**
+   * Lo stato terminale che un land RIUSCITO impone alla card: `done`, chip di
+   * dispatch spento, nessuna finestra di ri-tentativo. Idempotente — su una card
+   * già chiusa e ferma non scrive niente e non lascia una riga di storico.
+   *
+   * Esiste perché il land può partire da QUALUNQUE stato (il bottone «Landa su
+   * main» sulla card, `POST …/land`, il trascinamento in Done): promuoveva a
+   * `done` solo passando da `review`, e una card landata da `in_progress`
+   * restava in corso con un agente sopra. Misurato l'11/08 su `4ec47331`: il
+   * lavoro era su main (`a5f83e0e`) e un agente ha speso un turno intero a
+   * rifarlo.
+   */
+  settleLanded(args: { taskId: string; by?: string; reason: string }): Task | null;
   /** How many alive tasks are delivered but provably NOT on main (board badge). */
   countUnlanded(projectId?: string): number;
   /** Read the per-board dispatch config (defaults when no row exists). */
@@ -1822,8 +1846,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     recordDelivery({ taskId, branch, commit }): void {
       // A new delivery invalidates any previous verdict: re-audit from scratch
       // rather than leave a stale "landed" on top of fresh, unlanded commits.
+      // La TESTIMONIANZA cade con lui: era su un'altra consegna.
       db.prepare(
-        "UPDATE tasks SET delivery_branch = ?, delivery_commit = ?, landing_state = NULL, landing_checked_at = NULL WHERE id = ?",
+        "UPDATE tasks SET delivery_branch = ?, delivery_commit = ?, landing_state = NULL, " +
+        "landing_checked_at = NULL, landing_witnessed = 0 WHERE id = ?",
       ).run(branch || null, commit || null, taskId);
     },
 
@@ -1832,7 +1858,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         `SELECT id, project_id, delivery_branch, delivery_commit
            FROM tasks
           WHERE archived = 0 AND delivery_commit IS NOT NULL
-            AND status IN ('review', 'done')`,
+            AND status IN ('review', 'done')
+            AND COALESCE(landing_witnessed, 0) = 0`,
       ).all().map((r: any) => ({
         id: r.id,
         projectId: r.project_id,
@@ -1841,9 +1868,33 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       }));
     },
 
-    recordLandingState({ taskId, state, checkedAt }): void {
-      db.prepare("UPDATE tasks SET landing_state = ?, landing_checked_at = ? WHERE id = ?")
-        .run(state, checkedAt, taskId);
+    recordLandingState({ taskId, state, checkedAt, witnessed }): void {
+      // `witnessed` si ALZA e non si abbassa da qui: solo una riconsegna lo
+      // riporta a zero. Una passata periodica che scrivesse `0` sopra un
+      // verdetto osservato lo declasserebbe a deduzione, cioè annullerebbe il
+      // punto — quindi il parametro assente NON è «no».
+      db.prepare(
+        "UPDATE tasks SET landing_state = ?, landing_checked_at = ?" +
+        (witnessed ? ", landing_witnessed = 1" : "") + " WHERE id = ?",
+      ).run(state, checkedAt, taskId);
+    },
+
+    settleLanded({ taskId, by, reason }): Task | null {
+      const row = getTaskRow(taskId);
+      if (!row) return null;
+      const live = row.status !== "done" || row.dispatch_state !== null || row.dispatch_deferred_until !== null;
+      if (!live) return rowToTask(row); // già ferma e chiusa: niente da dire
+      const ts = now();
+      // Il topic assegnato RESTA: è la chat in cui il lavoro è stato fatto, ed è
+      // la stessa cosa che una card approvata in review si tiene. A fare danno
+      // non era il legame, era il chip di dispatch vivo e la finestra di
+      // ri-tentativo — da lì la card è claimabile e l'agente riparte.
+      db.prepare(
+        `UPDATE tasks SET status = 'done', completed_at = ?, dispatch_state = NULL,
+            dispatch_error = NULL, dispatch_deferred_until = NULL, updated_at = ? WHERE id = ?`,
+      ).run(row.completed_at ?? ts, ts, taskId);
+      if (row.status !== "done") logStatus(taskId, row.status, "done", by ?? "system", reason);
+      return rowToTask(getTaskRow(taskId));
     },
 
     countUnlanded(projectId?: string): number {
