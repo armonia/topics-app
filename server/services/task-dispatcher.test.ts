@@ -111,6 +111,12 @@ function harness(overrides: Partial<DispatcherDeps> = {}) {
   const dispatcher = createTaskDispatcher(deps);
   return {
     db, svc, dispatcher, events, worktreesCreated, topicsCreated, turns,
+    /**
+     * Un RIAVVIO del server: stesso DB, memoria nuova. Tutto ciò che vive solo
+     * nel processo (turni in volo, timer, attese di uno slot) non c'è più —
+     * ed è l'unica differenza che distingue un fantasma da un'attesa viva.
+     */
+    restart: () => { dispatcher.shutdown(); return createTaskDispatcher(deps); },
     finishTurn: () => { resolveTurn?.(); },
     /** Chiude il turno DICENDO perché è finito (0.4) — come fa il provider vero. */
     finishTurnWith: (info: TurnEndInfo) => { resolveTurn?.(info); },
@@ -1123,6 +1129,90 @@ describe("task-dispatcher", () => {
     expect(t.dispatchAttempts).toBe(1);                              // rimborsato (1→0) e riclaimato (0→1)
     expect(h.turns.length).toBe(1);                                  // lo slot lavora davvero
     expect(h.turns[0].content).toContain("owner esclusivo del task"); // kickoff, non un turno fantasma
+  });
+
+  it("un'attesa di slot VIVA non è un orfano: reconcile la lascia stare, il riavvio no", async () => {
+    // La collisione fra due pezzi che presi da soli sono giusti: il rinvio del
+    // resume a tetto pieno lascia la card `in_progress` col chip `queued`, e il
+    // recupero orfani ha imparato ad accettare `queued` proprio per liberare le
+    // card che quel rinvio si lascia dietro quando il processo muore.
+    //
+    // Ma un'attesa VIVA non ha un turno, quindi non compare in `inFlight`: da
+    // fuori è identica al fantasma. Senza il registro, il poll di reconcile (10s)
+    // se la mangerebbe prima ancora che i 5s del ritentativo siano passati — e
+    // sarebbe il guasto di prima al contrario: il messaggio dell'umano muore col
+    // timer e la card riparte su un topic nuovo.
+    const h = harness({ topicExists: () => true });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    h.svc.setGlobalCap({ auto: false, max: 1 });
+    seedTask(h.db, { id: "t1", status: "todo", createdAt: "2020-01-01T00:00:00.000Z" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.turns.length).toBe(1); // t1 si prende l'unico posto e lo tiene
+
+    // t2 rifiutato in review: il resume non trova posto e si mette in attesa.
+    seedTask(h.db, { id: "t2", status: "in_progress", assignedTopicId: "topic-live", attempts: 1, dispatchState: "working", createdAt: "2020-01-02T00:00:00.000Z" });
+    await h.dispatcher.resume("t2", "riprova da qui");
+    await flush();
+    expect(h.turns.length).toBe(1);                     // il posto è ancora uno
+    expect(h.task("t2")!.dispatchState).toBe("queued"); // l'attesa è viva, e lo dice
+
+    // Il poll passa MENTRE l'attesa è viva.
+    await h.dispatcher.reconcile();
+    await flush();
+
+    const waiting = h.task("t2")!;
+    expect(waiting.status).toBe("in_progress");             // non requeuata
+    expect(waiting.assignedTopicId).toBe("topic-live");     // stessa sessione: il messaggio è ancora suo
+    expect(waiting.dispatchState).toBe("queued");
+    expect(waiting.dispatchAttempts).toBe(1);               // nessun tentativo toccato
+    expect(h.turns.length).toBe(1);                         // e nessun agente in più
+    expect(waiting.dispatchState === "queued" && h.svc.get("t2")!.comments.some((c) => c.content.includes("rimesso in coda"))).toBe(false);
+
+    // Riavvio: il processo nuovo non ha né il timer né il registro. ADESSO la
+    // stessa card è orfana per davvero, e reconcile deve liberarla.
+    const restarted = h.restart();
+    await restarted.reconcile();
+    await flush();
+
+    const ghost = h.task("t2")!;
+    expect(ghost.status).toBe("todo");                      // rimessa in coda
+    expect(ghost.assignedTopicId).toBeNull();               // sbindata: la sessione non ha più nessuno
+    expect(ghost.dispatchAttempts).toBe(0);                 // il riavvio non consuma un tentativo
+    expect(h.svc.get("t2")!.comments.some((c) => c.content.includes("aspettava uno slot libero"))).toBe(true);
+    restarted.shutdown();
+  });
+
+  it("un resume che parte EREDITA il messaggio dell'attesa che spegne", async () => {
+    // Il registro tiene una attesa sola per task, quindi un resume che trova il
+    // posto libero spegne il timer di quella pendente. Il timer aveva in mano un
+    // messaggio dell'umano: spegnerlo e basta lo perderebbe — la stessa perdita
+    // che il registro esiste per evitare, solo per un'altra strada. Va dove
+    // vanno i messaggi arrivati a turno vivo, e `onTurnEnd` lo consegna.
+    const h = harness({ topicExists: () => true });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    h.svc.setGlobalCap({ auto: false, max: 1 });
+    seedTask(h.db, { id: "t1", status: "todo", createdAt: "2020-01-01T00:00:00.000Z" });
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    seedTask(h.db, { id: "t2", status: "in_progress", assignedTopicId: "topic-live", attempts: 1, dispatchState: "working", createdAt: "2020-01-02T00:00:00.000Z" });
+    await h.dispatcher.resume("t2", "il PRIMO messaggio");
+    await flush();
+    expect(h.turns.length).toBe(1); // in attesa: il posto è di t1
+
+    // Si libera posto (il tetto sale) e arriva un secondo messaggio.
+    h.svc.setGlobalCap({ auto: false, max: 5 });
+    void h.dispatcher.resume("t2", "il SECONDO messaggio"); // parte davvero: il turno resta in volo
+    await flush();
+    expect(h.turns.length).toBe(2);
+    expect(h.turns[1].content).toContain("il SECONDO messaggio");
+
+    // E il primo non è morto col timer: arriva col turno successivo.
+    h.finishTurn();
+    await flush();
+    expect(h.turns.length).toBe(3);
+    expect(h.turns[2].content).toContain("il PRIMO messaggio");
   });
 
   it("reconcile requeues a starting orphan (kickoff may never have reached the CLI)", async () => {
