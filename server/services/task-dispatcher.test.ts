@@ -1752,3 +1752,37 @@ describe("task-dispatcher — rete di sicurezza sulla liveness", () => {
     expect(h.dispatcher.isInFlight("t1")).toBe(false); // slot libero
   });
 });
+
+describe("la coda deve dire il vero", () => {
+  it("budget finito = parcheggiata con la ragione, non ferma in coda a fingersi lavorabile", async () => {
+    // Misurato l'11/08: 19 card in colonna «coda», interruttore acceso, macchina
+    // libera, zero agenti. Il tick le scartava in silenzio perché avevano finito
+    // i tentativi — nessun chip, nessuna riga — e il board contava come lavoro
+    // ciò che era fermo per sempre.
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchRetryCap: 2 });
+    seedTask(h.db, { id: "t1", status: "todo", attempts: 2 });
+    await h.dispatcher.tick(PID);
+    await flush();
+    const t = h.task("t1")!;
+    expect(t.status).toBe("backlog");        // fuori dalla coda
+    expect(t.dispatchState).toBe("failed");  // e lo dice
+    expect(h.svc.get("t1")!.comments.map((c) => c.content).join("\n")).toContain("Budget dei tentativi finito");
+    expect(h.turns.length).toBe(0);          // nessun turno sprecato
+  });
+
+  it("il padre che finisce il turno coi figli aperti non paga il tentativo, e aspetta", () => {
+    // Era questo a fabbricare le 19 zombie: il rimando in coda del padre
+    // lasciava il contatore com'era, e al secondo giro la card rientrava già al
+    // tetto — invisibile, senza chip, mai più reclamabile.
+    const h = harness();
+    seedTask(h.db, { id: "padre", status: "in_progress", attempts: 2, assignedTopicId: "topic-padre" });
+    seedTask(h.db, { id: "figlio", status: "todo", parentTaskId: "padre" });
+    h.svc.deliverToReviewBySystem({ taskId: "padre", reason: "turno finito" });
+    const p = h.task("padre")!;
+    expect(p.status).toBe("todo");
+    expect(p.dispatchAttempts).toBe(1);          // il tentativo torna indietro
+    expect(p.dispatchState).toBe("waiting");     // e il board dice perché
+    expect(p.dispatchDeferredUntil).toBeTruthy(); // niente giro a vuoto immediato
+  });
+});
