@@ -58,6 +58,12 @@
         // path in stringa: un riferimento che knip non può vedere.
         "scripts/licenza.ts!",
         "scripts/prefix-budget.ts!",      // diagnostica a mano: `bun run scripts/prefix-budget.ts [--probe]`
+        // La prova che la quota di core si RILEGGE a metà sessione: fa girare un
+        // finto `cargo` attraverso lo shim vero con l'ambiente congelato, e
+        // esce non-zero se il numero non cambia. Si lancia a mano
+        // (`bun run scripts/job-quota-live-demo.ts`) e alimenta il video di
+        // `scripts/job-quota-live-video.mjs`.
+        "scripts/job-quota-live-demo.ts!",
         // Chi lo chiama: `scripts/check-occlusion.mjs` (`bun run check:occlusion`),
         // che lo bundla con `bun build` per portare il modulo di occlusione VERO
         // dentro un WebKit vero. Il riferimento è un path in stringa dentro un
