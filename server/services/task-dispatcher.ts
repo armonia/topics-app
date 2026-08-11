@@ -29,6 +29,7 @@ import type { TaskAttemptStore } from "./task-attempts";
 import { attemptHasWork, formatFanoutComment } from "../../shared/task-attempt";
 import { MAX_FANOUT, PREVIEW_RULE, readTaskWeight } from "../../shared/board";
 import { decideNight, deadlineFrom } from "./night-mode";
+import { effectiveDispatchCap } from "./dispatch-capacity";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import {
   classifyTurnError,
@@ -2016,9 +2017,11 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     let gcap = { auto: true, max: 3 };
     try { gcap = deps.svc.getGlobalCap(); } catch { /* defaults */ }
     const capScope: "board" | "global" = "global";
-    const effectiveCap = gcap.auto && deps.recommendedCap
-      ? Math.max(1, deps.recommendedCap())
-      : Math.max(1, gcap.max);
+    // La stessa funzione che usa la quota di core dello spawn
+    // (`agent-job-quota.ts`): il recinto di un agente è la macchina divisa per
+    // QUESTO numero, e se le due letture divergessero la somma delle quote non
+    // tornerebbe più al tetto.
+    const effectiveCap = effectiveDispatchCap(gcap, deps.recommendedCap ? deps.recommendedCap() : null);
 
     // Fan-out richiesto dalla board, e cosa ne resta dopo la realtà. Due
     // condizioni non negoziabili, entrambe silenziose sarebbero una trappola:
