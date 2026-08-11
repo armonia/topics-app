@@ -704,6 +704,40 @@ describe("board router (human, project-scoped)", () => {
     expect(done.tasks.length).toBe(1);
     expect(done.tasks[0].projectId).toBe("pX");
   });
+
+  test("GET /api/all-boards/tasks/:taskId resolves an id at ANY depth (the feed is rootsOnly)", async () => {
+    const root = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "radice" }))!.json();
+    const step = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "step", parentTaskId: root.id }))!.json();
+    const nested = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "nipote", parentTaskId: step.id }))!.json();
+
+    // La premessa del guasto: il feed non contiene i sottotask.
+    const feed = await (await call(router, "GET", "/api/all-boards/tasks"))!.json();
+    expect(feed.tasks.map((t: any) => t.id)).toEqual([root.id]);
+
+    // La porta: ognuno di quegli id si risolve, col suo projectId.
+    for (const t of [root, step, nested]) {
+      const resp = (await call(router, "GET", `/api/all-boards/tasks/${t.id}`))!;
+      expect(resp.status).toBe(200);
+      const body = await resp.json();
+      expect(body.task.id).toBe(t.id);
+      expect(body.task.projectId).toBe("pX");
+    }
+  });
+
+  test("GET /api/all-boards/tasks/:taskId — un id ignoto è 200 + task:null, non un errore", async () => {
+    const resp = (await call(router, "GET", "/api/all-boards/tasks/non-esiste"))!;
+    expect(resp.status).toBe(200);
+    expect((await resp.json()).task).toBeNull();
+  });
+
+  test("GET /api/all-boards/tasks/:taskId risolve anche un task archiviato (deep-link vecchio)", async () => {
+    const t = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "vecchio" }))!.json();
+    await call(router, "DELETE", `/api/boards/pX/tasks/${t.id}`);
+    const feed = await (await call(router, "GET", "/api/all-boards/tasks"))!.json();
+    expect(feed.tasks.some((x: any) => x.id === t.id)).toBe(false);
+    const body = await (await call(router, "GET", `/api/all-boards/tasks/${t.id}`))!.json();
+    expect(body.task?.id).toBe(t.id);
+  });
 });
 
 describe("board settings route", () => {

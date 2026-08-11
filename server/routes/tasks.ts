@@ -739,6 +739,33 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       catch (e) { return fail(e); }
     }
 
+    // GET /api/all-boards/tasks/:taskId — LA PORTA UNICA «da un id al suo task, a
+    // qualunque profondità». Il feed qui sopra è `rootsOnly` (le colonne mostrano
+    // le radici) ed è l'unico risolutore cross-progetto che il client abbia: da un
+    // id di SOTTOTASK non si arrivava a niente — click su uno step nell'albero del
+    // drawer, deep-link `/task/<id>`, click su una notifica. Questa rotta non
+    // filtra né per profondità né per progetto: dato un id, restituisce il task e
+    // il suo `projectId`, che è quanto serve per aprirlo con le rotte normali.
+    //
+    // Risponde SEMPRE 200: «quest'id non esiste» è una risposta legittima di un
+    // risolutore, non un errore di trasporto. Un 404 arriva al client come la
+    // stessa `Error` di una rete caduta, e il chiamante deve distinguere i due
+    // casi (smettere di aspettare / tenere vivo il deep-link).
+    //
+    // Non filtra `archived`: è la stessa semantica di `svc.get`, che serve la
+    // porta per-progetto già esistente — un deep-link vecchio a un task archiviato
+    // apre il suo drawer invece di restare appeso.
+    //
+    // Ospiti: negata due volte e per costruzione. Il cancello esterno
+    // (`isGuestAllowedPath`) confronta `/api/all-boards/tasks` per uguaglianza,
+    // quindi questo percorso non è in allowlist; e il ramo ospite di questo router
+    // riconosce solo `/api/tasks/:id` fra i concessi, quindi cade su 403.
+    const allTaskItem = matchRoute(pathname, "/api/all-boards/tasks/:taskId");
+    if (allTaskItem && method === "GET") {
+      try { return json({ task: svc.get(allTaskItem.taskId)?.task ?? null }); }
+      catch (e) { return fail(e); }
+    }
+
     // GET /api/system/dispatch-capacity — the auto concurrency cap this machine
     // can sustain right now (CPU/load), shown in the board settings' "Auto" option.
     if (pathname === "/api/system/dispatch-capacity" && method === "GET") {
