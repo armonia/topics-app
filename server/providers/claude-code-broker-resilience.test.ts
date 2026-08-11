@@ -68,14 +68,19 @@ beforeAll(async () => {
   setEnv("HOME", tempDir);
   setEnv("TOPICS_AI_BRIDGE", "1");
   setEnv("TOPICS_AI_BRIDGE_SOCKET", SOCK);
-  (await import("../lib/ai-bridge-client")).__resetAiBridgeClientForTests();
+  const { __resetAiBridgeClientForTests } = await import("../lib/ai-bridge-client");
+  __resetAiBridgeClientForTests();
 });
 
 afterAll(async () => {
   // Dispose the client FIRST: killing the daemon with a live client would trip
   // the auto-reconnect and respawn a daemon that outlives the test process.
-  (await import("../lib/ai-bridge-client")).__resetAiBridgeClientForTests();
-  try { (await import("../db")).closeDatabase(); } catch { /* not opened */ }
+  const { __resetAiBridgeClientForTests } = await import("../lib/ai-bridge-client");
+  __resetAiBridgeClientForTests();
+  try {
+    const { closeDatabase } = await import("../db");
+    closeDatabase();
+  } catch { /* not opened */ }
   try {
     const pidPath = SOCK.replace(/\.sock$/, ".pid");
     if (existsSync(pidPath)) process.kill(Number(readFileSync(pidPath, "utf8").trim()), "SIGTERM");

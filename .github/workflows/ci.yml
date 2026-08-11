@@ -117,6 +117,24 @@ jobs:
           bun run check:eslint-disable
           bun run check:test-skips
 
+      # `check:deadcode` dice «zero export morti». Non dice su quanti file
+      # l'ha guardato, e la differenza non era teorica: su `client/src/lib/api.ts`
+      # — 49 export, la superficie HTTP del client — non poteva vedere niente,
+      # perché un `import('../../lib/api').then(…)` altrove lo rendeva OPACO per
+      # knip (che, non sapendo quali membri leggi, li considera usati tutti). Nove
+      # export morti stavano lì da mesi con il cancello verde. In tutto i file
+      # ciechi erano 41 su 801, e nessuno di loro compariva da nessuna parte.
+      #
+      # Questo passo appende un export morto-per-costruzione a ogni file di
+      # progetto non-entrypoint, lancia knip UNA volta e pretende che ogni sonda
+      # torni nel report. Sta in un passo suo per due motivi: costa una run di
+      # knip (~1 min), e mentre gira l'albero è modificato — quindi non deve
+      # incrociare altri check. I file vengono rimessi a posto in `finally`; su
+      # un checkout di CI, comunque usa-e-getta, il danno massimo di un crash è
+      # zero.
+      - name: Il cancello sul codice morto non è cieco su nessun file
+        run: bun run check:deadcode-blindspots
+
       # Il numero di una migration non è una scelta libera di chi scrive il
       # file: è un'identità, e due card in parallelo se la prendono uguale senza
       # potersene accorgere (il 10/08: due `089`, il secondo ramo tagliato prima

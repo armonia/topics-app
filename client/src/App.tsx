@@ -91,8 +91,16 @@ const GlobalSettings = lazy(() => import('./components/Settings/GlobalSettings')
 // instead of paying a ~25–40ms synchronous fetch+eval on the opening frame
 // (measured: cold open worst 41.7ms/1 frame >33ms; warmed open worst 9.4ms,
 // 0 frames >16.7ms).
-const importCommandPalette = () => import('./components/Shared/CommandPalette');
-const CommandPalette = lazy(() => importCommandPalette().then(m => ({ default: m.CommandPalette })));
+// La destrutturazione dentro l'`await` non è stile: è l'unica forma in cui il
+// cancello sul codice morto vede QUALI export usi. Un `import()` il cui
+// risultato non finisce in un `const { … } =` è opaco per knip, che assume di
+// usarli tutti e non può più segnalarne nessuno come morto.
+// Guardia: `bun run check:deadcode-blindspots`.
+const importCommandPalette = async () => {
+  const { CommandPalette: Component } = await import('./components/Shared/CommandPalette');
+  return { default: Component };
+};
+const CommandPalette = lazy(importCommandPalette);
 const KeyboardShortcuts = lazy(() => import('./components/Shared/KeyboardShortcuts').then(m => ({ default: m.KeyboardShortcuts })));
 const FileSearch = lazy(() => import('./components/Project/FileSearch').then(m => ({ default: m.FileSearch })));
 // BrowserSidebarControl replaced by useBrowserContexts hook + unified TopicTree
@@ -175,9 +183,10 @@ function App() {
   const [DevOverlay, setDevOverlay] = useState<ComponentType | null>(null);
   useEffect(() => {
     if (import.meta.env.DEV) {
-      import('./state/pane/devOverlay').then((m) => {
-        setDevOverlay(() => m.MutationLogOverlay);
-      });
+      void (async () => {
+        const { MutationLogOverlay } = await import('./state/pane/devOverlay');
+        setDevOverlay(() => MutationLogOverlay);
+      })();
     }
   }, []);
 
