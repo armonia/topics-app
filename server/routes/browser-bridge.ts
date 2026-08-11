@@ -493,8 +493,16 @@ export function createBrowserBridgeRouter(
           // `/api/browsers/:id/login-handle` e lo inietta, così il reviewer
           // atterra dentro invece che sul muro del login. Best-effort e dopo il
           // salvataggio riuscito: se il contextId non è di nessun task, no-op.
-          if (toolName === "browser_save_state" && typeof body.handle === "string" && body.handle) {
-            attachLoginHandle(contextId, body.handle);
+          //
+          // L'handle registrato è quello che il tool ha REALMENTE scritto
+          // (`result.handle`, già passato da `safeHandle`), non la stringa
+          // grezza dell'agente: è il nome del file su disco, ed è quello che
+          // `/login-state/apply` dovrà ridare a `browser_load_state`.
+          if (toolName === "browser_save_state") {
+            const savedHandle = typeof result?.handle === "string" && result.handle
+              ? result.handle
+              : (typeof body.handle === "string" ? body.handle : "");
+            if (savedHandle) attachLoginHandle(contextId, savedHandle);
           }
           return json(result);
         } catch (e: unknown) {

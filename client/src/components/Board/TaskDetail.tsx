@@ -885,8 +885,12 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   // Ri-parte quando cambia il manifesto (l'agente apre una tab nuova mentre
   // guardi): `ensureBrowserPaneAndNavigate` riusa la pane dello stesso
   // contextId, quindi ri-navigare non moltiplica niente.
+  // Chiave SERIALIZZATA, non concatenata a mano: un separatore scelto a occhio
+  // o compare dentro un URL — e allora due manifesti diversi danno la stessa
+  // chiave e l'auto-open non riparte — oppure e' un byte di controllo, e qui lo
+  // era (NUL + SOH): un file con un NUL dentro sparisce da `grep -r`.
   const manifestKey = useMemo(
-    () => workspaceManifest.map((e) => `${e.contextId} ${e.url}`).join(''),
+    () => JSON.stringify(workspaceManifest),
     [workspaceManifest],
   );
   const promoteRef = useRef(promoteToWorkspace);
