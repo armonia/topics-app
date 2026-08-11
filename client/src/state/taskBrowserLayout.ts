@@ -482,6 +482,18 @@ function commit(taskId: string, next: TaskLayoutState): void {
   notify();
 }
 
+/** Forget a task's persisted layout — twin of `forgetTaskTabs`, same reason:
+ *  the task was archived and the server DELETED `task-browser-layout:<id>`, so
+ *  the pending debounced PUT must be cancelled before it recreates the row. */
+export function forgetTaskLayout(taskId: string): void {
+  if (!taskId) return;
+  const key = keyFor(taskId);
+  const t = writeTimers.get(key);
+  if (t) { clearTimeout(t); writeTimers.delete(key); }
+  loaded.delete(taskId);
+  if (cache.delete(taskId)) notify();
+}
+
 /** Apply a pure reducer op to a task's layout + persist. */
 export const taskBrowserLayout = {
   ensureLoaded: ensureTaskLayoutLoaded,
