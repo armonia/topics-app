@@ -25,6 +25,7 @@ import {
   type PublishProject, type DiffBundle, type DispatchCapacity, type GlobalSettings,
 } from '../../lib/board';
 import { groupByStatus, planDrop, type DropPlan, type OrderScope } from '../../lib/boardOrder';
+import { DONE_FLASH_MS, landedInDone, statusSnapshot } from '../../lib/justDone';
 import { resolveProjectRefs, useBoardProjects } from '../../lib/boardProjectsStore';
 import { ProjectPickerBody } from './ProjectPicker';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
@@ -845,6 +846,73 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
     return groupByStatus(visible, orderScope);
   }, [tasks, filters, orderScope]);
 
+  // Le card appena CHIUSE, per il lampo verde. Si guarda `tasks` (la lista
+  // grezza), non `byStatus`: un filtro attivo può nascondere la card, e il lampo
+  // non deve dipendere da cosa si sta guardando — quando riappare l'ha già
+  // consumato, che è giusto, ma la transizione resta registrata una volta sola.
+  //
+  // Vale per OGNI via di chiusura, perché nessuna passa di qui direttamente: il
+  // trascinamento, l'approvazione dal drawer e un altro device finiscono tutti e
+  // tre nello stesso refetch. Il confronto è con lo stato precedente (vedi
+  // `lib/justDone`), non con la freschezza di `completedAt`.
+  const [justDone, setJustDone] = useState<Set<string>>(() => new Set());
+  const prevStatusRef = useRef<Map<string, TaskStatus> | null>(null);
+  const flashTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  useEffect(() => {
+    const landed = landedInDone(prevStatusRef.current, tasks);
+    prevStatusRef.current = statusSnapshot(tasks);
+    if (landed.length === 0) return;
+    setJustDone((prev) => {
+      const next = new Set(prev);
+      for (const id of landed) next.add(id);
+      return next;
+    });
+    for (const id of landed) {
+      clearTimeout(flashTimers.current.get(id));
+      flashTimers.current.set(id, setTimeout(() => {
+        flashTimers.current.delete(id);
+        setJustDone((prev) => {
+          if (!prev.has(id)) return prev;
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
+      }, DONE_FLASH_MS));
+    }
+  }, [tasks]);
+  // Smontando la pane a lampo acceso i timer resterebbero appesi a chiamare un
+  // setState su un componente che non c'è più.
+  useEffect(() => {
+    const timers = flashTimers.current;
+    return () => { for (const t of timers.values()) clearTimeout(t); timers.clear(); };
+  }, []);
+
+  // …e portare Done DOVE SI GUARDA. Il lampo da solo non bastava: nel layout
+  // normale — sidebar più cinque colonne, con Review più larga delle altre —
+  // Done sta oltre il bordo destro. Misurato: a 1600×900 il bordo destro della
+  // card appena chiusa cadeva a 2195px, cioè quasi 600 fuori dalla finestra. La
+  // card arrivava, lampeggiava e si spegneva senza che nessuno la vedesse.
+  //
+  // Si scorre la riga delle colonne per la sua PROPRIA `scrollLeft`, mai
+  // `element.scrollIntoView()`: la sua risalita automatica degli antenati può
+  // uscire da questa preoccupazione (orizzontale) e portarsi dietro un antenato
+  // verticale — vedi la nota sull'effetto della selezione qui sopra.
+  useEffect(() => {
+    if (justDone.size === 0) return;
+    // rAF: l'effetto parte nello stesso commit in cui la card entra in colonna,
+    // e il rettangolo di Done va misurato a layout fatto.
+    const raf = requestAnimationFrame(() => {
+      const container = columnsScrollRef.current;
+      const col = container?.querySelector('[data-testid="kanban-column-done"]');
+      if (!container || !col) return;
+      const cRect = container.getBoundingClientRect();
+      const dRect = col.getBoundingClientRect();
+      if (dRect.left >= cRect.left && dRect.right <= cRect.right) return; // già in vista
+      container.scrollBy({ left: dRect.right - cRect.right, behavior: 'smooth' });
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [justDone]);
+
   // Task lookup by id for the parent chip ("⤴ epic…"). Best effort: a parent
   // not in the current fetch just shows the generic label.
   //
@@ -1168,6 +1236,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
                   projectPathById={projectPathById}
                   liveById={liveUsage}
                   awaitingHuman={awaitingHuman}
+                  justDone={justDone}
                 />
               ))}
             </div>
