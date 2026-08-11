@@ -47,6 +47,7 @@ import { createOpenClawContextRouter } from "./server/routes/openclaw-context";
 import { createContextPreviewRouter } from "./server/routes/context-preview";
 import { createTaskService, projectIdForPath } from "./server/services/tasks";
 import { createExternalSessionsService } from "./server/services/external-sessions";
+import { resolveWorktreeBaseRef } from "./server/services/worktree-base-ref";
 import { createExternalSessionsRouter } from "./server/routes/external-sessions";
 import { createTaskDispatcher } from "./server/services/task-dispatcher";
 import { refreshLiveJobQuotas } from "./server/services/agent-job-quota";
@@ -1012,7 +1013,14 @@ const taskDispatcher = createTaskDispatcher({
   // più apribile e un id fantasma in `ui_state` che risuscitava al reload.
   archiveTopic: retirementConsequences.archiveTopic,
   createWorktree: async (projectStoreId) => {
-    const wt = await ctx.worktreeManager.create({ projectId: projectStoreId, mode: "branch", baseRef: "HEAD" });
+    // Il ramo di una card nasce da MAIN, non dall'HEAD del checkout condiviso:
+    // con `HEAD` il worktree ereditava il ramo di chi stava lavorando qui, e da
+    // lì arrivavano collisioni di migration, consegne su commit mai landati e
+    // land che pubblicavano lavoro di terzi. Il perché per esteso, e il ripiego
+    // su HEAD quando `main` non c'è, stanno in `worktree-base-ref.ts`.
+    const base = await resolveWorktreeBaseRef(ctx.projectStore.get(projectStoreId)?.path);
+    if (base.fallback) console.warn(`[dispatch] ${base.reason}: il worktree parte da HEAD`);
+    const wt = await ctx.worktreeManager.create({ projectId: projectStoreId, mode: "branch", baseRef: base.baseRef });
     const ready = await ctx.worktreeManager.awaitMaterialisation(wt.id, 120_000);
     if (ready.status !== "ready") {
       throw new Error(`worktree ${wt.id}: ${ready.status}${ready.errorMessage ? " " + ready.errorMessage : ""}`);
@@ -3886,10 +3894,12 @@ async function runLandingAudit() {
       try {
         dispatcherSvc.addComment({
           taskId: task.id, author: "system",
-          content:
-            `⚠️ Consegnato ma NON su main: il commit \`${task.deliveryCommit?.slice(0, 8)}\`` +
-            (task.deliveryBranch ? ` (branch \`${task.deliveryBranch}\`)` : "") +
-            " non risulta nel contenuto di main. Landa il branch, oppure recupera il commit prima che venga potato.",
+          // Una riga, non un paragrafo: lo STATO ha già una banda in cima al
+          // drawer e un badge sulla card (`landingState`), e questo commento
+          // serve solo a datare il momento in cui è successo. Ripeterci sopra
+          // l'intera spiegazione, a ogni oscillazione, era la parte brutta —
+          // 128 commenti su 97 card, uno lungo tre righe.
+          content: `Non è su main: \`${task.deliveryCommit?.slice(0, 8)}\`${task.deliveryBranch ? ` (${task.deliveryBranch})` : ""} — landa il ramo prima che venga potato.`,
         });
         const fresh = dispatcherSvc.get(task.id)?.task;
         if (fresh) broadcastToAll({ type: "task:updated", projectId: task.projectId, task: fresh });
