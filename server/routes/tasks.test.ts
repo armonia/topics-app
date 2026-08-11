@@ -336,6 +336,31 @@ describe("board router (human, project-scoped)", () => {
     expect(broadcasts.some(b => b.type === "task:deleted")).toBe(true);
   });
 
+  // Le tab del task archiviato: la rotta chiama il teardown e mette gli id
+  // toccati nel frame, perché il client deve DIMENTICARE quelle chiavi — non
+  // ri-PUTtarle dal suo debounce (services/task-tab-teardown.ts).
+  test("DELETE smonta le tab del task e mette il sottoalbero in task:deleted", async () => {
+    const seen: string[] = [];
+    const r = createTasksRouter(makeCtx(db, broadcasts), undefined, {
+      teardownTaskBrowserState: (taskId) => {
+        seen.push(taskId);
+        return { taskIds: [taskId, "figlio-1"] };
+      },
+    });
+    const t = await (await call(r, "POST", "/api/boards/pX/tasks", { text: "x" }))!.json();
+    await call(r, "DELETE", `/api/boards/pX/tasks/${t.id}`);
+
+    expect(seen).toEqual([t.id]);
+    const frame = broadcasts.find((b) => b.type === "task:deleted");
+    expect(frame.taskIds).toEqual([t.id, "figlio-1"]);
+  });
+
+  test("senza il teardown iniettato, task:deleted porta almeno la root", async () => {
+    const t = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "x" }))!.json();
+    await call(router, "DELETE", `/api/boards/pX/tasks/${t.id}`);
+    expect(broadcasts.find((b) => b.type === "task:deleted").taskIds).toEqual([t.id]);
+  });
+
   test("human comment is authored 'user'", async () => {
     const t = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "x" }))!.json();
     await call(router, "POST", `/api/boards/pX/tasks/${t.id}/comments`, { content: "hi" });

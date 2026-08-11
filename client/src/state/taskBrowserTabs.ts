@@ -370,6 +370,27 @@ function applyRemote(taskId: string, value: unknown): boolean {
   return true;
 }
 
+/** Forget everything this client remembers about a task's tabs — called when the
+ *  task is archived (`task:deleted`), because the server has just DELETED its
+ *  ui-state row.
+ *
+ *  The pending write timer goes first: that debounced PUT is the only thing that
+ *  can resurrect the key, and it fires up to 800 ms after the last edit — well
+ *  past the archive. Dropping the cache is just memory (and stops a stale drawer
+ *  from rendering tabs whose browser contexts the server has already destroyed).
+ *
+ *  An initial GET still in flight can repopulate the cache with the pre-archive
+ *  value; it 404s once the row is gone, and either way it never PUTs, so the
+ *  server stays clean — and the boot sweep re-purges anything that slips. */
+export function forgetTaskTabs(taskId: string): void {
+  if (!taskId) return;
+  const key = keyFor(taskId);
+  const t = writeTimers.get(key);
+  if (t) { clearTimeout(t); writeTimers.delete(key); }
+  loaded.delete(taskId);
+  if (cache.delete(taskId)) notify();
+}
+
 /** Live-apply a single remote `ui-state:updated` for a task-browser-tabs key. The
  *  WS bridge drops this client's own echo (by sourceClientId) before calling, so a
  *  park/close/reorder/rename/remove on ANOTHER device updates this one in real time
