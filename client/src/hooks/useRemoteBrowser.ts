@@ -94,6 +94,10 @@ interface RemoteBrowser extends RemoteBrowserState, InteractionHandlers {
   setEngine: (engine: 'native' | 'chromium') => void;
   /** Task 052f53ef: pause/resume the server screencast (iframe-mode ⇒ false). */
   setStreamActive: (active: boolean) => void;
+  /** Is this pane ON SCREEN? Separate from setStreamActive on purpose: this is
+   *  the ONLY input of the cross-device viewer count, and the screencast pauses
+   *  for transport reasons (WebRTC, DOM co-browse) while still watching. */
+  setWatching: (active: boolean) => void;
   /** Retry the WebRTC transport after a `webrtcError` (the pane's Riprova button). */
   retryWebrtc: () => void;
   /** T1 DOM co-browse: request 'video' (pixel stream) or 'dom' (native rrweb
@@ -273,6 +277,12 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
   // it renders a native <iframe> so the headless Chromium stops rendering; the WS
   // stays open. Re-asserted on every (re)connect (the server defaults to active).
   const streamActiveRef = useRef(true);
+  // Is this pane on screen? The ONLY thing the cross-device viewer count reads.
+  // Kept apart from streamActiveRef because the screencast pauses for transport
+  // reasons (WebRTC took the pixels, DOM co-browse, iframe) while the pane is
+  // very much being watched. Re-asserted on every (re)connect (server default:
+  // watching).
+  const watchingRef = useRef(true);
   // See NAV_LOADING_TIMEOUT_MS — force-clears a stuck `loading` if the nav
   // completion signal never arrives.
   const loadingWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -501,6 +511,13 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
       // (or the initial open) doesn't silently resume the headless render.
       if (!streamActiveRef.current) {
         try { ws.send(JSON.stringify({ type: 'set_stream', active: false } satisfies BrowserWsMessage)); } catch { /* dropped */ }
+      }
+      // Same for "am I on screen": a fresh socket counts as watching, so a
+      // hidden pane that reconnects must say otherwise or it would silently
+      // re-enter the viewer count and pin every other device to the shared
+      // session.
+      if (!watchingRef.current) {
+        try { ws.send(JSON.stringify({ type: 'set_watching', active: false } satisfies BrowserWsMessage)); } catch { /* dropped */ }
       }
       // Option A: DOM is the default surface, so RE-ASSERT it on every (re)connect —
       // the server defaults a fresh connection to the pixel stream. This makes the
@@ -1136,6 +1153,20 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     }
   }, []);
 
+  // "My pane is on screen" — the ONLY input of the cross-device viewer count
+  // (GET /api/browsers/:id/viewers → computeAutoShared). Idempotent; the desired
+  // state lives in a ref so onopen re-asserts it after a reconnect.
+  const setWatching = useCallback((active: boolean) => {
+    if (watchingRef.current === active) return;
+    watchingRef.current = active;
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      try {
+        const msg: BrowserWsMessage = { type: 'set_watching', active };
+        wsRef.current.send(JSON.stringify(msg));
+      } catch { /* socket gone — re-asserted on next onopen */ }
+    }
+  }, []);
+
   // WebRTC error → Riprova: reset the retry budget, clear the error, renegotiate.
   const retryWebrtc = useCallback(() => {
     webrtcAttemptRef.current = 0;
@@ -1213,9 +1244,10 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     setSelectedElement,
     setEngine,
     setStreamActive,
+    setWatching,
     retryWebrtc,
     setRenderMode,
     registerDomSink,
     sendInput,
-  }), [state, navigate, goBack, goForward, reload, goHome, onClick, onWheel, onKeyDown, containerRef, takeControl, enterSelectMode, exitSelectMode, setSelectedElement, setEngine, setStreamActive, retryWebrtc, setRenderMode, registerDomSink, sendInput]);
+  }), [state, navigate, goBack, goForward, reload, goHome, onClick, onWheel, onKeyDown, containerRef, takeControl, enterSelectMode, exitSelectMode, setSelectedElement, setEngine, setStreamActive, setWatching, retryWebrtc, setRenderMode, registerDomSink, sendInput]);
 }

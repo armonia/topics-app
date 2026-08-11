@@ -78,6 +78,20 @@ describe('browser-ws-messages: set_stream (client -> server)', () => {
   });
 });
 
+// Frame a sé, e non un alias di set_stream: quello è la pausa del transport (il
+// WebRTC lo manda mentre guarda eccome), questo è «la mia pane è sullo schermo»
+// ed è l'unico ingresso del conteggio spettatori cross-device.
+describe('browser-ws-messages: set_watching (client -> server)', () => {
+  it('accepts active true/false', () => {
+    expect(parseBrowserWsMessage({ type: 'set_watching', active: false }).ok).toBe(true);
+    expect(parseBrowserWsMessage({ type: 'set_watching', active: true }).ok).toBe(true);
+  });
+  it('rejects a missing / non-boolean active', () => {
+    expect(parseBrowserWsMessage({ type: 'set_watching' }).ok).toBe(false);
+    expect(parseBrowserWsMessage({ type: 'set_watching', active: 'yes' }).ok).toBe(false);
+  });
+});
+
 describe('browser-ws-messages: set_render (client -> server)', () => {
   it('accepts video / dom', () => {
     expect(parseBrowserWsMessage({ type: 'set_render', mode: 'video' }).ok).toBe(true);
