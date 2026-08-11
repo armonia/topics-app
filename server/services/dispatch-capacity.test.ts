@@ -1,6 +1,6 @@
 import { test, expect, describe } from "bun:test";
 import { Database } from "bun:sqlite";
-import { effectiveDispatchCap, readGlobalCap } from "./dispatch-capacity";
+import { computeDispatchCapacity, effectiveDispatchCap, readGlobalCap, structuralDispatchCapacity } from "./dispatch-capacity";
 
 function dbConImpostazioni(): Database {
   const db = new Database(":memory:");
@@ -56,5 +56,27 @@ describe("effectiveDispatchCap — quanti agenti insieme, adesso", () => {
   test("mai sotto 1: un tetto di zero non è prudenza, è una board ferma", () => {
     expect(effectiveDispatchCap({ auto: true, max: 0 }, 0)).toBe(1);
     expect(effectiveDispatchCap({ auto: false, max: -3 }, null)).toBe(1);
+  });
+});
+
+describe("structuralDispatchCapacity — quanti ne regge in REGIME, non adesso", () => {
+  test("non guarda il carico: due letture di fila danno lo stesso numero", () => {
+    // La raccomandazione viva può cambiare fra due chiamate (il load si muove);
+    // questa no, ed è il motivo per cui la quota di core divide per questa.
+    expect(structuralDispatchCapacity()).toBe(structuralDispatchCapacity());
+  });
+
+  test("non vale mai 1: il caso «da solo» non si raggiunge per sbaglio in auto", () => {
+    // Il pavimento di `byCores` è 2. Serve a `agent-job-quota`: un tetto di 1
+    // significa «sono solo sulla macchina» e vale la fetta intera — deve poterlo
+    // dire solo un umano che sceglie 1 a mano, mai il dimensionamento automatico.
+    expect(structuralDispatchCapacity()).toBeGreaterThanOrEqual(2);
+  });
+
+  test("la raccomandazione viva non la supera mai: è il tetto meno ciò che il carico si è già preso", () => {
+    // A riposo il carico non morde e le due letture coincidono; sotto carico la
+    // viva scende SOTTO la strutturale. Mai il contrario: la strutturale è il
+    // tetto, la viva è il tetto meno quello che il carico si è già preso.
+    expect(computeDispatchCapacity().recommended).toBeLessThanOrEqual(structuralDispatchCapacity());
   });
 });
