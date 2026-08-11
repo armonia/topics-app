@@ -540,6 +540,10 @@ const streamToolPermissionResolvedSchema = z.looseObject({
   outcome: z.looseObject({
     decision: z.string(),
     decidedAt: z.string(),
+    // Chi ha deciso. C'è solo su `allow_free`, l'unica decisione che cambia il
+    // regime della sessione e quindi l'unica che qualcuno andrà a chiedere «e
+    // chi è stato?».
+    actor: z.optional(z.string()),
   }),
 });
 

@@ -7,12 +7,16 @@ import {
   resolvePendingPermission,
   aliasPermission,
   cancelPermission,
+  allowPendingPermissions,
   PermissionWaitError,
 } from "../lib/permission-bridge";
 import { decideGrantForTool, addToolGrant, listToolGrants, removeToolGrant } from "../lib/tool-grants";
 import { decidePermissionPaint } from "../lib/permission-paint";
-import { isPermissionDecision } from "../../shared/permission-decision";
-import type { PermissionDecision, ToolPermissionRequest } from "../../shared/types";
+import { cliDecisionFor, decisionFreesSession, isPermissionDecision } from "../../shared/permission-decision";
+import { sessionIsFree, switchSessionToFree } from "../lib/session-free-mode";
+import { etichettaAutore } from "../lib/message-author";
+import { logActivity } from "../db/activity-log";
+import type { PermissionDecision, ToolPermissionOutcome, ToolPermissionRequest } from "../../shared/types";
 
 /**
  * IL CANALE UMANO: le quattro rotte con cui una CLI si ferma e aspetta una
@@ -37,7 +41,7 @@ import type { PermissionDecision, ToolPermissionRequest } from "../../shared/typ
  * dispatch — l'ordine fra rotte è comportamento, non stile.
  */
 export function createPermissionRouter(ctx: AppContext): RouteHandler {
-  const { json, readJSON, matchRoute, broadcastToAll, getTopicBySessionKey, updateToolCallFields } = ctx;
+  const { json, readJSON, matchRoute, broadcastToAll, getTopicBySessionKey, saveSingleTopic, updateToolCallFields } = ctx;
 
   return async function permissionRouter(req: Request, _url: URL, pathname: string, method: string): Promise<Response | null> {
     // POST /api/sessions/:sessionKey/ask-user
@@ -136,6 +140,23 @@ export function createPermissionRouter(ctx: AppContext): RouteHandler {
           return json({ decision: "allow" });
         }
 
+        // 1-bis. Questa CHAT è passata a libera? Allora non c'è niente da
+        //    chiedere: si consente e basta, senza aprire un pannello.
+        //
+        //    È la seconda metà di «Passa a libero» (vedi lib/session-free-mode.ts).
+        //    La prima — il livello scritto sul topic — vale dal prossimo spawn,
+        //    perché `--permission-mode` si decide alla nascita del figlio CLI: il
+        //    processo che sta girando ADESSO è nato in una modalità che chiede e
+        //    continuerà a chiedere fino a che non muore. Senza questa riga
+        //    «passa a libero» avrebbe liberato la sessione DOPO il turno in cui
+        //    è stato premuto, cioè non avrebbe fatto quello che dice.
+        //
+        //    Vale per QUESTA sessione, letta dal suo topic: nessuna regola
+        //    globale, nessuna altra chat toccata.
+        if (sessionIsFree(getTopicBySessionKey(sk)?.autonomyLevel)) {
+          return json({ decision: "allow" });
+        }
+
         const legMs = typeof body?.legMs === "number" && Number.isFinite(body.legMs)
           ? Math.min(Math.max(body.legMs, 100), 60_000)
           : undefined;
@@ -228,7 +249,7 @@ export function createPermissionRouter(ctx: AppContext): RouteHandler {
         // NON diventa un sì per inerzia, e nemmeno un no silenzioso — è un 400,
         // e chi ha premuto lo vede.
         if (!isPermissionDecision(body?.decision)) {
-          return json({ error: "decision must be allow | allow_always | deny", code: "invalid_decision" }, 400);
+          return json({ error: "decision must be allow | allow_always | deny | allow_free", code: "invalid_decision" }, 400);
         }
         const decision: PermissionDecision = body.decision;
 
@@ -242,35 +263,95 @@ export function createPermissionRouter(ctx: AppContext): RouteHandler {
 
         const decidedAt = new Date().toISOString();
         const topic = getTopicBySessionKey(sk);
-        if (decision === "allow_always") {
-          // Il pattern è il nome dello strumento, letto dalla riga: è l'unica
-          // cosa che sappiamo per certo, e scriverne uno più largo (tutto il
-          // server MCP) sarebbe concedere qualcosa che nessuno ha premuto.
+        // Il nome dello strumento, letto dalla riga: è l'unica cosa che sappiamo
+        // per certo di questa richiesta una volta che il click è arrivato.
+        // Illeggibile è una risposta legittima — nessuna delle due decisioni che
+        // lo usano dipende da lui per essere presa.
+        const toolNameOnRow = (): string | null => {
           try {
             const row = ctx.db
               .prepare("SELECT tool_calls FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 1")
               .get(sk) as { tool_calls?: string | null } | undefined;
             const calls = row?.tool_calls ? (JSON.parse(row.tool_calls) as { id?: string; name?: string }[]) : [];
-            const name = calls.find((c) => c?.id === toolCallId)?.name;
-            if (name) addToolGrant(name, sk);
-          } catch { /* la concessione di QUESTA volta vale comunque */ }
+            return calls.find((c) => c?.id === toolCallId)?.name ?? null;
+          } catch {
+            return null;
+          }
+        };
+        if (decision === "allow_always") {
+          // Il pattern è il nome dello strumento: scriverne uno più largo (tutto
+          // il server MCP) sarebbe concedere qualcosa che nessuno ha premuto.
+          // Se la riga è illeggibile, la concessione di QUESTA volta vale comunque.
+          const name = toolNameOnRow();
+          if (name) addToolGrant(name, sk);
         }
 
-        deliverDecision(sk, openId, decision);
+        const outcome: ToolPermissionOutcome = { decision, decidedAt };
+
+        // «Passa a libero»: la stessa pressione consente QUESTA richiesta e
+        // cambia il regime della chat. Prima il regime, poi la consegna: se il
+        // passaggio non riesce (una sessione senza topic non ha un livello dove
+        // scriverlo) chi ha premuto deve vedere un errore, non un permesso
+        // concesso e una promessa di libertà che nessuno ha mantenuto.
+        let freed = false;
+        if (decisionFreesSession(decision)) {
+          const change = switchSessionToFree({ getTopicBySessionKey, saveSingleTopic, broadcastToAll }, sk);
+          if (!change) {
+            return json(
+              { error: "questa sessione non ha un topic: non c'è dove scrivere la modalità", code: "no_topic_for_session" },
+              409,
+            );
+          }
+          freed = true;
+          // CHI l'ha fatto resta scritto sulla riga — la traccia nel thread —
+          // e nel registro, che è dove si va a guardare quando la domanda è
+          // «da quando questa chat non chiede più, e chi l'ha deciso».
+          outcome.actor = etichettaAutore(ctx.db as never, ctx.requestIdentity?.(req) ?? null);
+          logActivity({
+            category: "permission",
+            level: "warn",
+            title: "sessione passata a modalità libera dal pannello del permesso",
+            detail: `strumento consentito: ${toolNameOnRow() ?? "sconosciuto"} · livello precedente: ${change.previous ?? "non scelto"}`,
+            entityType: "topic",
+            entityId: change.topic.id,
+            actor: outcome.actor,
+            sessionKey: sk,
+          });
+        }
+
+        deliverDecision(sk, openId, cliDecisionFor(decision));
         // La riga torna a girare, e l'esito RESTA: chi rilegge la chat vede chi
         // ha detto cosa, non solo che a un certo punto il tool è partito.
-        updateToolCallFields(sk, toolCallId, {
-          status: "running",
-          permissionOutcome: { decision, decidedAt },
-        });
+        updateToolCallFields(sk, toolCallId, { status: "running", permissionOutcome: outcome });
         broadcastToAll({
           type: "stream:tool_permission_resolved",
           sessionKey: sk,
           topicId: topic?.id,
           toolCallId,
-          outcome: { decision, decidedAt },
+          outcome,
         });
-        return json({ ok: true, decidedAt });
+
+        // La sessione è libera: ogni ALTRO pannello aperto su questa chat non ha
+        // più niente da chiedere. Chiuderli qui — invece di lasciarli morire di
+        // TTL — è ciò che impedisce a un turno di restare «in attesa di una
+        // persona» (e quindi fuori dalla vista di watchdog e reaper) mentre la
+        // persona ha già risposto per tutti.
+        if (freed) {
+          for (const served of allowPendingPermissions(sk)) {
+            const alsoOutcome: ToolPermissionOutcome = { decision: "allow", decidedAt, actor: outcome.actor };
+            for (const rowId of [served.toolUseId, ...served.rowIds]) {
+              updateToolCallFields(sk, rowId, { status: "running", permissionOutcome: alsoOutcome });
+              broadcastToAll({
+                type: "stream:tool_permission_resolved",
+                sessionKey: sk,
+                topicId: topic?.id,
+                toolCallId: rowId,
+                outcome: alsoOutcome,
+              });
+            }
+          }
+        }
+        return json({ ok: true, decidedAt, ...(freed ? { autonomyLevel: "yolo" } : {}) });
       }
     }
 
