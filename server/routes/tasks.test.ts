@@ -22,7 +22,7 @@ function freshDb(): Database {
     parent_task_id TEXT REFERENCES tasks(id), output_url TEXT, plan_first INTEGER NOT NULL DEFAULT 0,
     agent_ms INTEGER NOT NULL DEFAULT 0, agent_tokens INTEGER NOT NULL DEFAULT 0,
     model TEXT, blocked_by_task_id TEXT REFERENCES tasks(id), reuse_blocker_context INTEGER NOT NULL DEFAULT 0,
-    priority_auto INTEGER NOT NULL DEFAULT 1,
+    priority_auto INTEGER NOT NULL DEFAULT 1, preview_image TEXT,
     delivery_branch TEXT, delivery_commit TEXT, landing_state TEXT, landing_checked_at TEXT,
     checks_state TEXT, checks_at TEXT, checks_commit TEXT, checks_json TEXT,
     delivered_by TEXT, delivered_reason TEXT
@@ -955,5 +955,48 @@ describe("checks pre-review (gate review_needs_green_checks)", () => {
     db.prepare("UPDATE tasks SET checks_state = 'pass' WHERE id = ?").run(t.id);
     const ok = (await call(r, "POST", `/api/boards/pX/tasks/${t.id}/review`, { decision: "approve" }))!;
     expect(ok.status).toBe(200);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// L'anteprima dalla rotta di SESSIONE — quella che usa ogni agente.
+//
+// Il tool MCP `update_task` manda `previewImage`, e la rotta la scartava senza
+// dirlo: 200 OK, card vuota. Stesso guasto che la riparazione del tool
+// raccontava di aver chiuso, un piano più sotto — misurato sul server vivo:
+// `update_task(preview_image=…)` rispondeva ok e il campo restava null.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("tasks routes — anteprima dalla sessione dell'agente", () => {
+  let db: Database;
+  let broadcasts: any[];
+  beforeEach(() => { db = freshDb(); broadcasts = []; });
+
+  test("PATCH /api/sessions/:sk/tasks/:id con previewImage la SCRIVE (prima spariva in silenzio)", async () => {
+    const r = createTasksRouter(makeCtx(db, broadcasts));
+    const t = await (await call(r, "POST", "/api/sessions/s1/tasks", { text: "un piano" }))!.json();
+    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, {
+      previewImage: "/allowed/diagramma.svg",
+    }))!;
+    expect(resp.status).toBe(200);
+    expect((await resp.json()).previewImage).toBe("/allowed/diagramma.svg");
+  });
+
+  test("un path fuori allowlist è scartato QUI, come sulla rotta umana", async () => {
+    const ctx = makeCtx(db, broadcasts) as any;
+    ctx.isPathAllowed = (p: string) => p.startsWith("/allowed/");
+    const r = createTasksRouter(ctx);
+    const t = await (await call(r, "POST", "/api/sessions/s1/tasks", { text: "x" }))!.json();
+    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, {
+      previewImage: "/Users/x/.ssh/id_rsa",
+    }))!;
+    expect((await resp.json()).previewImage).toBeNull();
+  });
+
+  test("stringa vuota azzera l'anteprima", async () => {
+    const r = createTasksRouter(makeCtx(db, broadcasts));
+    const t = await (await call(r, "POST", "/api/sessions/s1/tasks", { text: "x" }))!.json();
+    await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { previewImage: "/allowed/a.png" });
+    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { previewImage: "" }))!;
+    expect((await resp.json()).previewImage).toBeNull();
   });
 });
