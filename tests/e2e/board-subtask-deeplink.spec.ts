@@ -91,8 +91,42 @@ async function openProjectBoard(page: Page) {
 const beat = (page: Page, ms = 1200) =>
   process.env.E2E_EVIDENCE === "1" ? page.waitForTimeout(ms) : Promise.resolve();
 
+/**
+ * Didascalia sulla clip — SOLO sotto E2E_EVIDENCE, zero effetto sulla suite.
+ *
+ * L'anteprima di un task viene resa a 268px di larghezza: da un video di una UI
+ * a 1440px non si legge una riga, e «devi ancora saper dire cosa mostra» non è
+ * soddisfatto da una macchia di pannelli. Un titolo grande sopravvive alla
+ * riduzione, quindi la clip dice da sé cosa sta provando. `pointer-events:none`
+ * e in basso: non copre il drawer e non intercetta un click.
+ */
+async function didascalia(page: Page, testo: string) {
+  if (process.env.E2E_EVIDENCE !== "1") return;
+  await page.evaluate((t) => {
+    let el = document.getElementById("__e2e_caption__");
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "__e2e_caption__";
+      el.setAttribute(
+        "style",
+        "position:fixed;left:0;right:0;bottom:0;z-index:2147483647;pointer-events:none;" +
+        "background:rgba(10,10,12,.92);color:#fff;font:700 44px/1.25 system-ui,sans-serif;" +
+        "padding:14px 20px;letter-spacing:-.01em;border-top:3px solid #8b5cf6;",
+      );
+      document.body.appendChild(el);
+    }
+    el.textContent = t;
+  }, testo);
+}
+
 test.describe("Sottotask · dall'id al drawer, a qualunque profondità", () => {
   test.describe.configure({ timeout: 120_000 });
+  // Viewport più largo del default della suite (1280×800) per una ragione sola:
+  // questa spec È la clip di consegna, e l'anteprima di un task viene resa a
+  // 268px di larghezza — oltre un rapporto altezza/larghezza di 0.537 la card
+  // TAGLIA invece di rimpicciolire. 1440×760 → il video esce 800×422 (0.528) e
+  // ci sta intero. Nessuna asserzione qui dipende dalla larghezza.
+  test.use({ viewport: { width: 1440, height: 760 } });
 
   test.beforeAll(async ({ request }) => {
     mkdirSync(PROJECT_PATH, { recursive: true });
@@ -135,13 +169,15 @@ test.describe("Sottotask · dall'id al drawer, a qualunque profondità", () => {
     // contratto — è esattamente l'id che il client non sapeva risolvere.
     await expect(page.locator(`[data-task-card="${epica.id}"]`)).toBeVisible({ timeout: 10000 });
     await expect(page.locator(`[data-task-card="${step.id}"]`)).toHaveCount(0);
-    await beat(page, 1600);
+    await didascalia(page, "Lo step NON ha una card: il feed è roots-only");
+    await beat(page, 1800);
 
     await page.locator(`[data-task-card="${epica.id}"]`).click();
     const drawer = page.getByTestId("task-detail-drawer");
     await expect(drawer).toBeVisible({ timeout: 10000 });
     await expect(drawer.getByText(EPICA, { exact: true })).toBeVisible();
-    await beat(page, 1600);
+    await didascalia(page, "1 · click sullo step nell'albero del drawer");
+    await beat(page, 1800);
 
     // Il click sullo step nell'albero. Prima: il drawer si CHIUDEVA.
     await page.getByTestId(`subtask-open-${step.id}`).click();
@@ -153,7 +189,8 @@ test.describe("Sottotask · dall'id al drawer, a qualunque profondità", () => {
     await expect
       .poll(() => page.evaluate(() => navigator.clipboard.readText()), { timeout: 5000 })
       .toBe(`${BASE}/task/${step.id}`);
-    await beat(page, 1800);
+    await didascalia(page, "Aperto lo STEP (prima il drawer si chiudeva)");
+    await beat(page, 2200);
 
     // ── Atto 2: la URL nuda ───────────────────────────────────────────────────
     // Lo stesso link, aperto da zero (notifica, commento, push del service
@@ -163,6 +200,7 @@ test.describe("Sottotask · dall'id al drawer, a qualunque profondità", () => {
     const deepDrawer = page.getByTestId("task-detail-drawer");
     await expect(deepDrawer, "il deep-link a un sottotask non ha aperto niente").toBeVisible({ timeout: 20000 });
     await expect(deepDrawer.getByText(STEP, { exact: true })).toBeVisible({ timeout: 10000 });
-    await beat(page, 2200);
+    await didascalia(page, "2 · /task/<id-di-sottotask> apre lo stesso step");
+    await beat(page, 2600);
   });
 });
