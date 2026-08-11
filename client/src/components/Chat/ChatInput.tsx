@@ -607,10 +607,17 @@ export function ChatInput({
   // Il tooltip dell'anello è dove vive il segnale di COSTO quando non merita un
   // riquadro (vedi `contextNotice`): ambra sull'anello senza una riga che dica
   // perché è un colore che l'umano non può interpretare.
-  const ringCostHint =
-    realContext && realContext.level !== 'ok' && (realContext.reason ?? 'window') === 'cost'
-      ? '\nOgni chiamata al modello rilegge questi token: è il costo per risposta, non un problema di capienza.'
-      : '';
+  //
+  // La riga di base c'è SEMPRE, non solo sopra soglia, ed è un cambio voluto:
+  // «ogni chiamata rilegge questi token» non è un allarme, è come funziona il
+  // conto. Dirlo solo in ambra insegnava la regola nel momento peggiore per
+  // impararla — e la conclusione (per il prodotto, il turno, la sessione) sta
+  // nell'ispettore, a un click da qui.
+  const ringCostHint = realContext
+    ? realContext.level !== 'ok' && (realContext.reason ?? 'window') === 'cost'
+      ? '\nOgni chiamata a un tool rilegge questi token: è il costo per chiamata, non un problema di capienza. Apri l’ispettore per contesto × chiamate.'
+      : '\nOgni chiamata a un tool rilegge questi token: il costo è contesto × chiamate. Apri l’ispettore per il conto.'
+    : '';
   const ringTitle = realContext
     ? `Contesto del modello: ${formatTokens(realContext.used)} / ${realContext.estimated ? '≈' : ''}${formatTokens(realContext.size)} (${realContext.percent}%)${realContext.model ? ` · ${realContext.model}` : ''}${ringCostHint}`
     : `Contesto iniettato (stima): ${budgetPercent}%`;
