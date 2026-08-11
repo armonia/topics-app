@@ -109,6 +109,30 @@ export interface ClaudeSessionRepo {
    * import_offset).
    */
   listImportable(): ClaudeSessionState[];
+  /**
+   * Segue il FORK del transcript: la sessione continua in un altro file
+   * (`--resume` che riapre un nuovo `<id>.jsonl` con la storia ricopiata).
+   * Sposta in UN colpo path + entrambi i cursori — separarli lascerebbe una
+   * finestra in cui un offset del file vecchio viene letto sul file nuovo.
+   *
+   * Compare-and-swap su `jsonl_path`: se nel frattempo un hook (SessionStart
+   * del figlio) ha già stabilito il path, la nostra rilettura perde e non
+   * scrive nulla — chi ha la prova diretta vince sull'euristica.
+   * Ritorna false se la riga è cambiata o non esiste.
+   */
+  relinkTranscript(args: {
+    sessionKey: string;
+    fromPath: string;
+    toPath: string;
+    claudeSessionId: string;
+    offset: number;
+    updatedAt: number;
+  }): boolean;
+  /**
+   * Un ALTRO topic sta già seguendo questo transcript? Due sessioni nella
+   * stessa cartella di progetto non devono rubarsi il file a vicenda.
+   */
+  isTranscriptPathTaken(path: string, exceptSessionKey: string): boolean;
   listAll(): ClaudeSessionState[];
   listActive(): ClaudeSessionState[];
   /**
@@ -154,6 +178,14 @@ export function createClaudeSessionRepo(db: Database): ClaudeSessionRepo {
   );
   const setImportOffsetStmt = db.prepare(
     `UPDATE claude_code_sessions SET import_offset = ? WHERE session_key = ?`
+  );
+  const relinkStmt = db.prepare(
+    `UPDATE claude_code_sessions
+        SET jsonl_path = ?, jsonl_offset = ?, import_offset = ?, claude_session_id = ?, updated_at = ?
+      WHERE session_key = ? AND jsonl_path = ?`
+  );
+  const pathTakenStmt = db.prepare(
+    `SELECT 1 FROM claude_code_sessions WHERE jsonl_path = ? AND session_key IS NOT ? LIMIT 1`
   );
 
   const updateRow = db.prepare(`
@@ -208,6 +240,9 @@ export function createClaudeSessionRepo(db: Database): ClaudeSessionRepo {
     listLive: () => (selectLiveStmt.all(...LIVE_PHASES) as RawRow[]).map(rowToState),
     listImportable: () => (selectImportableStmt.all() as RawRow[]).map(rowToState),
     setImportOffset,
+    relinkTranscript: ({ sessionKey, fromPath, toPath, claudeSessionId, offset, updatedAt }) =>
+      relinkStmt.run(toPath, offset, offset, claudeSessionId, msToIso(updatedAt), sessionKey, fromPath).changes > 0,
+    isTranscriptPathTaken: (path, exceptSessionKey) => pathTakenStmt.get(path, exceptSessionKey) != null,
     update,
     forEachLive: (visitor) => {
       for (const s of (selectActiveStmt.all(...ACTIVE_PHASES) as RawRow[])) {

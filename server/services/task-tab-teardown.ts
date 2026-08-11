@@ -4,12 +4,16 @@
  * PERCHÉ ESISTE. `task-browser-tabs:<id>` e `task-browser-layout:<id>` nascono
  * quando un task apre un browser e non muoiono MAI: un task non si cancella, si
  * archivia (soft-delete), quindi non c'è nessun hard-delete a cui agganciare la
- * pulizia. Il costo non è il disco: lo snapshot `ui-state:init` porta OGNI
- * chiave a OGNI client a OGNI riconnessione, quindi ogni record è un pezzo di
- * payload che viaggia per sempre. Misurato sul db vivo l'11/08: 91 record
- * `task-browser-*` su 172 righe di `ui_state` (31 KB su 101 KB) — erano 75 su
- * 155 (21 KB su 87 KB) il giorno prima, da quando il server scrive il record da
- * sé (`task-tab-persist.ts`) anche senza nessun client che guarda.
+ * pulizia. Misurato sul db vivo l'11/08: 91 record `task-browser-*` su 172 righe
+ * di `ui_state` (31 KB su 101 KB) — erano 75 su 155 (21 KB su 87 KB) il giorno
+ * prima, da quando il server scrive il record da sé (`task-tab-persist.ts`)
+ * anche senza nessun client che guarda.
+ *
+ * Il costo di rete di quei record è stato tolto a monte: l'`ui-state:init` non
+ * porta più i due prefissi (`UI_STATE_INIT_EXCLUDED_PREFIXES` in
+ * `routes/ui-state.ts`), quindi una riga in più non è più un pezzo di payload a
+ * ogni riconnessione di ogni client. Restano il disco, il contesto browser vivo
+ * dietro la tab e il rumore — che è ciò che questa purga chiude.
  *
  * COSA GARANTISCE. Dopo `purgeTaskBrowserState` su un task:
  *   1. le sue due chiavi `ui_state` non esistono più,

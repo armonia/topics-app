@@ -162,6 +162,33 @@ export function resolveClaudeEffort(topicOverride?: string | null): string | nul
 }
 
 /**
+ * Il tetto in token di un SINGOLO risultato di tool MCP (`MAX_MCP_OUTPUT_TOKENS`),
+ * o null per lasciare quello della CLI (25.000).
+ *
+ * Sta qui accanto agli altri resolver dello spawn perché come loro legge
+ * l'ambiente: `claude/args.ts` è una funzione pura e non deve saperne niente.
+ *
+ * `TOPICS_MCP_OUTPUT_TOKENS`: `off`/`none`/`default` → nessun tetto imposto (si
+ * torna a quello della CLI, ed è così che il gate si vede FALLIRE); un intero
+ * positivo → quel tetto; qualunque altra cosa → il default di Topics. Il perché
+ * del 4.000 sta accanto a `mcpOutputTokens` in `claude/args.ts`, con la
+ * simulazione sui 15.464 risultati MCP reali da cui viene.
+ */
+export const DEFAULT_MCP_OUTPUT_TOKENS = 4000;
+
+export function resolveMcpOutputTokens(): number | null {
+  const raw = (process.env.TOPICS_MCP_OUTPUT_TOKENS ?? '').trim().toLowerCase();
+  if (raw === 'off' || raw === 'none' || raw === 'default') return null;
+  if (raw) {
+    const n = Number.parseInt(raw, 10);
+    // Un valore illeggibile non deve spegnere il tetto in silenzio: chi scrive
+    // `TOPICS_MCP_OUTPUT_TOKENS=molti` vuole un tetto, non nessun tetto.
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return DEFAULT_MCP_OUTPUT_TOKENS;
+}
+
+/**
  * Reasoning-effort tier for Topics-launched Codex sessions — the Codex
  * analogue of `resolveClaudeEffort()` above. Codex reads
  * `model_reasoning_effort` from `~/.codex/config.toml`; we resolve a tier

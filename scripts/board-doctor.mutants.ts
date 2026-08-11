@@ -54,8 +54,12 @@ const MUTATIONS: ReadonlyArray<readonly [string, string, string]> = [
   ["7 non guarda se il parametro e' dichiarato", "      if (d.declared.includes(d.param)) continue;", "      if (false) continue;"],
   ["7 allarma anche su uno schema mai letto", "      if (d.declared.length === 0) continue;", "      if (d.declared.length < 0) continue;"],
   ["7 confonde le due grafie", "      const near = d.declared.find((p) => normalizeParam(p) === normalizeParam(d.param));", "      const near = undefined as string | undefined;"],
+  ["9 il doc assente torna a saltare in silenzio", "  return docs.filter((doc) => !existsSync(join(repoPath, doc)));", "  return [];"],
+  ["9 il controllo esce dall'elenco (torna inerte)", "  checkProtocolDocMissing,\n]);", "]);"],
   ["8 non riconosce i commit propri", "      const isOwn = b.ownShas.some((own) => sha.startsWith(own) || own.startsWith(sha));", "      const isOwn = false;"],
   ["8 parla anche senza sapere quali siano i commit propri", "      if (!b || b.ownShas === null) continue;", "      if (!b) continue;"],
+  ["8 torna alla grafia abbreviata sua (deriva dalla consegna)", "    ownShas: split.own,", "    ownShas: split.own.map((s) => s.slice(0, 7)),"],
+  ["8 chiama propri anche i commit ereditati", "  const mine = new Set(split.own);", "  const mine = new Set(split.ahead);"],
   ["schema: le graffe non contano piu' (sconfina nel tool dopo)", "    if (depth !== 1) continue;", "    if (depth < 1) continue;"],
 ];
 
