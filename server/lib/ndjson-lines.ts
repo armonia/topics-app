@@ -48,13 +48,15 @@ export type LineFolder = ((chunk: Buffer) => void) & {
  * `onLine` riceve la riga E l'offset assoluto del primo byte DOPO il suo `\n`.
  *
  * Perché l'offset, e perché per RIGA. Chi riadotta un turno vivo riparte da
- * «subito dopo l'ultimo `result`»: se quell'offset è preso dal cursore del
- * CHUNK (`offset + chunk.byteLength`, cioè la fine della fetta consegnata dal
- * daemon, fino a 1 MB) allora tutto ciò che nella stessa fetta veniva DOPO il
- * result — cioè l'inizio del turno ancora aperto — sta prima del punto di
- * ripartenza e non viene mai rispedito. Il turno vivo perde la sua testa, e
- * con abbastanza sfortuna la fase 2 non trova più niente da consegnare e lo
- * dichiara «completed»: misurato, un turno in volo chiuso come finito.
+ * «subito dopo l'ultimo `result`». Prima quell'offset veniva letto dal cursore
+ * del CHUNK — che si aggiorna a fold FINITO, quindi mentre le righe scorrono
+ * vale ancora quello del giro precedente: su un replay consegnato in un frame
+ * solo, zero. La riadozione si rispediva l'intero store una terza volta e lo
+ * ripiegava non muta, con i turni vecchi che tornavano nella bolla nuova.
+ * Anche prendendolo alla fine della fetta sarebbe stato sbagliato al contrario:
+ * tutto ciò che nella stessa fetta veniva DOPO il result — la testa del turno
+ * ancora aperto — resterebbe prima del punto di ripartenza e non verrebbe mai
+ * rispedito, e la fase 2 dichiarerebbe «completed» un turno in volo.
  *
  * Il conto è esatto per costruzione: `byteLength(riga) + 1` (l'`\n`), sommato
  * riga per riga. I byte ancora in sospeso — mezza riga, o una sequenza UTF-8
