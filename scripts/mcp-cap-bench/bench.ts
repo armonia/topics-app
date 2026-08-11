@@ -27,13 +27,14 @@
  * rileggibile. È l'unica parte del banco che può bocciare il cambio anche con i
  * token in discesa.
  *
- *     bun scripts/mcp-cap-bench/bench.ts [--model <id>] [--real-home] [--arm off|on]
+ *     bun scripts/mcp-cap-bench/bench.ts [--model <id>] [--real-home]
+ *                                        [--arm off|on] [--lever cap|prefix]
  */
 import { spawn } from "node:child_process";
 import { mkdirSync, writeFileSync, existsSync, copyFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir, tmpdir } from "node:os";
-import { buildClaudeArgs } from "../../server/providers/claude/args";
+import { buildClaudeArgs, TRIMMED_TOOLS } from "../../server/providers/claude/args";
 import { PAGES, BENCH_DIR, RESULTS_PATH, markerFor, MANIFEST_PATH } from "./pages";
 
 const argv = process.argv.slice(2);
@@ -46,6 +47,61 @@ const REAL_HOME = argv.includes("--real-home");
 const ONLY_ARM = flag("--arm");
 /** Il tetto del braccio "acceso" — lo stesso default del prodotto. */
 const CAP = Number(flag("--cap", "4000"));
+/**
+ * QUALE LEVA si sta misurando. Il banco è nato per una sola (`cap`, il tetto ai
+ * risultati MCP) ed è servito a scoprire che quella leva non è la più grossa:
+ * il 65% del prompt che il tetto non tocca è per l'88% PREFISSO, cioè il testo
+ * che ogni richiesta del turno ripaga per intero.
+ *
+ *   `--lever cap` ....... braccio OFF senza tetto, ON col tetto (il banco storico)
+ *   `--lever prefix` .... tetto ACCESO in entrambi (è già in produzione), e la
+ *                         differenza è il taglio agli schemi dei tool inutili +
+ *                         il catalogo skill ai soli nomi
+ *
+ * Con `prefix` i due bracci NON hanno lo stesso registro di tool, e non devono
+ * averlo: la differenza È il trattamento. Il cancello quindi non chiede
+ * l'uguaglianza, chiede che lo scarto sia ESATTAMENTE i tool dichiarati in
+ * `TRIMMED_TOOLS` — che è la stessa domanda, fatta bene.
+ */
+const LEVER = (flag("--lever", "cap") as "cap" | "prefix");
+/**
+ * Il risparmio di prefisso per richiesta che la scala di ablazione predice per
+ * la leva `prefix`: −13.176 token, misurati su opus-5[1m] a HOME reale
+ * (`prefix-ladder.ts --only tool-trim`, 11/08/2026, CLI 2.1.227, rumore di
+ * fondo 2 token).
+ *
+ * Il banco non lo usa come barra da superare: lo usa come PREVISIONE da
+ * falsificare. Un turno intero moltiplica quel numero per le sue richieste; se
+ * il conto non torna, o la scala ha misurato un mondo diverso da quello del
+ * turno vero, o il taglio in produzione non è quello che la scala ha provato.
+ *
+ * ── Perché 13.176 e non 17.457 ─────────────────────────────────────────────
+ * Il taglio completo (quattro schemi + catalogo skill ai soli nomi) vale
+ * −17.457. Ma `slimSkillListing` è GIÀ in produzione per gli agenti del board:
+ * metterlo nel braccio ON e non in quello OFF farebbe vincere il braccio nuovo
+ * con una leva già landata. Il «prima» di questo banco è la produzione di
+ * OGGI — skill slim in entrambi i bracci — e la differenza è solo il taglio
+ * dei quattro schemi. Il resto (4.281 token) è il catalogo skill, ed è già
+ * pagato.
+ *
+ * Il numero dipende dal MODELLO: la CLI manda ai modelli piccoli descrizioni
+ * di tool più corte, e su haiku-4.5 lo stesso taglio vale 10.060. Chi gira il
+ * banco su un altro modello sposta la previsione con `--atteso`.
+ *
+ * ── La lettura, 11/08/2026 (opus-5[1m], HOME reale, tetto 4.000) ────────────
+ *     OFF  447.073 token · $0,44 · 13 richieste · marcatori OK · 35 tool
+ *     ON   274.970 token · $0,35 · 13 richieste · marcatori OK · 31 tool
+ *     −172.103 token (−38,5%), cioè 13.239 per richiesta contro i 13.176
+ *     previsti dalla scala: mezzo punto percentuale di scarto.
+ *
+ * E una cosa che il banco ha scoperto e vale scritta: il COSTO scende meno dei
+ * token (−20,8% contro −38,5%), l'opposto di quanto fa il tetto ai risultati
+ * MCP (−57% di costo contro −35% di token). Il prefisso è la parte di prompt
+ * che si CACHA meglio — è identica a ogni richiesta — quindi tagliarlo toglie
+ * soprattutto token letti dalla cache, che costano un decimo. Resta la leva
+ * più grossa in token, e non è la più grossa in dollari.
+ */
+const ATTESO_PER_RICHIESTA = Number(flag("--atteso", "13176"));
 /** Le due pagine di cui si chiede il marcatore: una grande (versata su file) e una piccola. */
 const ASK = [4, 10];
 
@@ -234,7 +290,16 @@ interface ArmResult {
 }
 
 async function runArm(arm: "off" | "on", home: string, cfg: string): Promise<ArmResult> {
-  const cap = arm === "on" ? CAP : null;
+  // Con la leva `prefix` il tetto è acceso in ENTRAMBI i bracci: è già in
+  // produzione, e lasciarlo spento a sinistra misurerebbe le due leve sommate
+  // spacciandole per una.
+  const cap = LEVER === "prefix" ? CAP : arm === "on" ? CAP : null;
+  const trim = LEVER === "prefix" && arm === "on";
+  // Il catalogo skill ai soli nomi è acceso in ENTRAMBI i bracci della leva
+  // `prefix`: è già in produzione per gli agenti del board, e tenerlo spento a
+  // sinistra regalerebbe al braccio nuovo 4.281 token per richiesta che ha già
+  // vinto un'altra card.
+  const slim = LEVER === "prefix";
   const args = buildClaudeArgs({
     permissionMode: "bypassPermissions",
     model: MODEL,
@@ -246,6 +311,8 @@ async function runArm(arm: "off" | "on", home: string, cfg: string): Promise<Arm
     isNewSession: true,
     toolSearch: "1",
     mcpOutputTokens: cap,
+    trimUnusedTools: trim,
+    slimSkillListing: slim,
   });
 
   const t0 = Date.now();
@@ -379,10 +446,18 @@ if (off && on) {
    */
   // `length > 0`: due bracci morti prima di `init` hanno due elenchi vuoti, che
   // sono uguali. Un cancello che passa quando non c'è misura è peggio di niente.
+  //
+  // Con la leva `prefix` lo scarto è VOLUTO, e l'uguaglianza sarebbe il guasto:
+  // significherebbe che `--disallowed-tools` non ha morso e il braccio ON sta
+  // vincendo per un'altra ragione. Quindi il registro atteso a destra è quello
+  // di sinistra meno ESATTAMENTE `TRIMMED_TOOLS` — niente di più, niente di meno.
+  const atteso = LEVER === "prefix"
+    ? off.toolsAtBoot.filter((t) => !TRIMMED_TOOLS.includes(t as never))
+    : off.toolsAtBoot;
   const sameTools =
     off.toolsAtBoot.length > 0 &&
-    off.toolsAtBoot.length === on.toolsAtBoot.length &&
-    off.toolsAtBoot.every((t, i) => t === on.toolsAtBoot[i]);
+    atteso.length === on.toolsAtBoot.length &&
+    atteso.every((t, i) => t === on.toolsAtBoot[i]);
   if (!sameTools) {
     const onlyOff = off.toolsAtBoot.filter((t) => !on.toolsAtBoot.includes(t));
     const onlyOn = on.toolsAtBoot.filter((t) => !off.toolsAtBoot.includes(t));
@@ -395,13 +470,39 @@ if (off && on) {
   }
   const drop = 1 - on.promptTokens / off.promptTokens;
   const costDrop = off.costUsd > 0 ? 1 - on.costUsd / off.costUsd : 0;
-  const pass = sameTools && drop >= TOKEN_BAR && costDrop >= COST_BAR && on.markersCorrect;
-  console.log(`\n  token di prompt: ${(drop * 100).toFixed(1)}% in meno (barra ${TOKEN_BAR * 100}%)`);
-  console.log(`  costo: ${(costDrop * 100).toFixed(1)}% in meno (barra ${COST_BAR * 100}%)`);
-  console.log(`  marcatori esatti a taglio acceso: ${on.markersCorrect ? "sì" : "NO"}`);
-  console.log(`  stesso registro di tool nei due bracci: ${sameTools ? "sì" : "NO"}`);
+
+  // ── La barra, e per la leva `prefix` è una PREVISIONE ──────────────────────
+  // Il tetto ai risultati MCP si giudica su una percentuale, perché quanto
+  // risparmia dipende da quanto pesano le pagine. Il prefisso no: è una
+  // quantità FISSA per richiesta, che la scala di ablazione ha già misurato.
+  // Quindi qui la barra è «il turno intero deve risparmiare quel numero moltip-
+  // licato per le sue richieste», e un banco che scendesse molto meno direbbe
+  // che la scala ha misurato un mondo diverso da quello del turno vero.
+  let pass: boolean, previsto = 0;
+  if (LEVER === "prefix") {
+    previsto = ATTESO_PER_RICHIESTA * on.requests;
+    const saved = off.promptTokens - on.promptTokens;
+    const dentro = saved >= previsto * 0.8;
+    console.log(
+      `\n  risparmio: ${saved.toLocaleString("it-IT")} token su ${on.requests} richieste ` +
+        `(${Math.round(saved / Math.max(1, on.requests)).toLocaleString("it-IT")}/richiesta) · ` +
+        `previsti ${previsto.toLocaleString("it-IT")} (${ATTESO_PER_RICHIESTA.toLocaleString("it-IT")}/richiesta)`,
+    );
+    console.log(`  token di prompt: ${(drop * 100).toFixed(1)}% in meno`);
+    console.log(`  costo: ${(costDrop * 100).toFixed(1)}% in meno`);
+    console.log(`  la previsione della scala regge (≥80%): ${dentro ? "sì" : "NO"}`);
+    console.log(`  marcatori esatti a taglio acceso: ${on.markersCorrect ? "sì" : "NO"}`);
+    console.log(`  registro atteso nel braccio ON (OFF meno ${TRIMMED_TOOLS.join(", ")}): ${sameTools ? "sì" : "NO"}`);
+    pass = sameTools && dentro && on.markersCorrect;
+  } else {
+    pass = sameTools && drop >= TOKEN_BAR && costDrop >= COST_BAR && on.markersCorrect;
+    console.log(`\n  token di prompt: ${(drop * 100).toFixed(1)}% in meno (barra ${TOKEN_BAR * 100}%)`);
+    console.log(`  costo: ${(costDrop * 100).toFixed(1)}% in meno (barra ${COST_BAR * 100}%)`);
+    console.log(`  marcatori esatti a taglio acceso: ${on.markersCorrect ? "sì" : "NO"}`);
+    console.log(`  stesso registro di tool nei due bracci: ${sameTools ? "sì" : "NO"}`);
+  }
   console.log(`  ⇒ ${pass ? "GATE VERDE" : "GATE ROSSO"}`);
-  writeFileSync(RESULTS_PATH, JSON.stringify({ model: MODEL, realHome: REAL_HOME, cap: CAP, arms, drop, costDrop, sameTools, pass }, null, 2) + "\n");
+  writeFileSync(RESULTS_PATH, JSON.stringify({ model: MODEL, realHome: REAL_HOME, lever: LEVER, cap: CAP, previsto, arms, drop, costDrop, sameTools, pass }, null, 2) + "\n");
   console.log(`  risultati → ${RESULTS_PATH}`);
   if (!pass) process.exit(1);
 } else {
