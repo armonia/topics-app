@@ -12,12 +12,13 @@ import { useRefMirror } from './useRefMirror';
 import { reconcileOrphanStreams } from '../state/signals';
 import { answerFromText, findPendingAsk } from '../state/pendingAsk';
 import {
-  claimHead as claimQueuedTurn,
+  claimBatch as claimQueuedTurns,
   decideSend,
   enqueueTurn,
   getQueue as getTurnQueue,
   isHeld as isQueueHeld,
   holdQueue,
+  mergeBatch,
   releaseClaim,
   releaseHold,
   requeueFront,
@@ -1940,7 +1941,10 @@ export function useChat() {
   }, [addMessage, addToolCallToLastMessage, updateLastMessage, bufferLiveDelta, flushLiveDeltas, clearSSEFailsafe, beginStreaming]);
 
   /**
-   * Fa partire il messaggio in cima alla coda, se è il momento.
+   * Fa partire quello che è in coda, se è il momento — TUTTO INSIEME, in un
+   * turno solo. Chi ha scritto tre righe mentre l'agente lavorava non voleva
+   * tre turni in fila: voleva che l'agente le leggesse tutte prima di partire
+   * (`claimBatch`/`mergeBatch` in `state/chatQueue.ts`).
    *
    * È l'UNICO drenaggio della coda del turno. Prima ce n'erano tre — un effetto
    * dentro `ChatPane` (che quindi funzionava solo a pane montata, e scattava al
@@ -1963,9 +1967,10 @@ export function useChat() {
       setTimeout(() => drainTurnQueueRef.current?.(sessionKey, attempt + 1), TURN_DRAIN_RETRY_MS);
       return;
     }
-    const head = claimQueuedTurn(sessionKey, CLAIM_CLIENT_ID);
-    if (!head) return;
-    void performSend(sessionKey, head.content, head.options, () => requeueFront(sessionKey, head))
+    const batch = claimQueuedTurns(sessionKey, CLAIM_CLIENT_ID);
+    if (batch.length === 0) return;
+    const turn = mergeBatch(batch);
+    void performSend(sessionKey, turn.content, turn.options, () => requeueFront(sessionKey, batch))
       .finally(() => releaseClaim(sessionKey, CLAIM_CLIENT_ID));
   }, [performSend, streamingRef]); // `streamingRef` e' uno specchio (useRefMirror): stesso oggetto a ogni render, quindi elencarlo non ridichiara nulla — serve solo a non lasciare un avviso exhaustive-deps che coprirebbe quelli veri.
   // In un effetto, non in fase di render, come il gemello `sendMessageRef` qui
@@ -2019,12 +2024,14 @@ export function useChat() {
 
     if (decision === 'queue-then-drain') {
       // C'era già una coda ferma (tipico dopo uno stop): questo messaggio va in
-      // fondo e riparte la TESTA, altrimenti scavalcherebbe quello che l'umano
-      // aveva scritto prima.
+      // FONDO e riparte dalla testa, altrimenti scavalcherebbe quello che
+      // l'umano aveva scritto prima. Parte tutta la coda in un turno solo — il
+      // nuovo messaggio compreso, se le opzioni combaciano.
       enqueueTurn(sessionKey, content, options);
-      const head = claimQueuedTurn(sessionKey, CLAIM_CLIENT_ID);
-      if (!head) return true;
-      return performSend(sessionKey, head.content, head.options, () => requeueFront(sessionKey, head))
+      const batch = claimQueuedTurns(sessionKey, CLAIM_CLIENT_ID);
+      if (batch.length === 0) return true;
+      const turn = mergeBatch(batch);
+      return performSend(sessionKey, turn.content, turn.options, () => requeueFront(sessionKey, batch))
         .finally(() => releaseClaim(sessionKey, CLAIM_CLIENT_ID));
     }
 
