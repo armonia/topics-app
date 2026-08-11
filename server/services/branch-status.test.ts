@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
-import { branchExistsInRepo, branchStatusFromRepo, countCommitsAhead, filterUniqueSourceFiles } from "./branch-status";
+import { branchExistsInRepo, branchStatusFromRepo, countCommitsAhead, filterUniqueSourceFiles, ownTipOfBranch } from "./branch-status";
 import { mkdtempSync, writeFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -162,5 +162,49 @@ describe("branchExistsInRepo / countCommitsAhead", () => {
 
   test("main inesistente → il conteggio si arrende invece di mentire", async () => {
     expect(await countCommitsAhead(repo, "topics/vivo", "ramo-che-non-esiste")).toBeNull();
+  });
+});
+
+describe("ownTipOfBranch — la consegna e' il lavoro TUO, non la punta del ramo", () => {
+  let repo: string;
+
+  beforeAll(() => {
+    repo = mkdtempSync(join(tmpdir(), "owntip-"));
+    git(repo, "init", "-q", "-b", "main");
+    git(repo, "config", "user.email", "t@t.t");
+    git(repo, "config", "user.name", "t");
+    writeFileSync(join(repo, "a.txt"), "base\n");
+    git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", "base");
+
+    // Una sessione umana lavora sul checkout condiviso e committa.
+    git(repo, "checkout", "-q", "-b", "dev");
+    writeFileSync(join(repo, "wip.txt"), "roba di un altro\n");
+    git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", "WIP di un altro");
+
+    // Il worktree della card NASCE da li' (il difetto storico): eredita quel commit.
+    git(repo, "checkout", "-q", "-b", "card", "dev");
+    writeFileSync(join(repo, "mio.txt"), "il mio lavoro\n");
+    git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", "il mio lavoro");
+
+    // Un ramo che non ha prodotto NIENTE di suo.
+    git(repo, "checkout", "-q", "-b", "vuoto", "dev");
+  });
+
+  afterAll(() => { rmSync(repo, { recursive: true, force: true }); });
+
+  test("torna il commit della card, non quello ereditato", async () => {
+    const tip = await ownTipOfBranch(repo, "card");
+    expect(tip).not.toBeNull();
+    expect(git(repo, "log", "-1", "--format=%s", tip!)).toBe("il mio lavoro");
+    // La PUNTA sarebbe la stessa qui, ma il punto e' che «WIP di un altro» non
+    // puo' mai uscire: e' il commit che una card rivendicava per sbaglio.
+    const altrui = git(repo, "rev-parse", "dev");
+    expect(tip).not.toBe(altrui);
+  });
+
+  test("nessun commit proprio ⇒ null, non il commit di qualcun altro", async () => {
+    // «Non ho prodotto codice» e' un'informazione; un puntatore al lavoro altrui
+    // manda chi rivede a leggere il diff sbagliato.
+    expect(await ownTipOfBranch(repo, "vuoto")).toBeNull();
   });
 });

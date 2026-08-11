@@ -84,6 +84,31 @@ export async function commitStatusFromRepo(
  * un branch assente da un repo non raggiungibile, perché il primo è un allarme e
  * il secondo è ignoranza.
  */
+/**
+ * L'ultimo commit che appartiene DAVVERO a questo ramo, o null se non ce n'e'
+ * nessuno.
+ *
+ * La punta del ramo non risponde alla domanda «cosa ha prodotto questa card»:
+ * il worktree nasceva dall'HEAD del checkout condiviso, quindi il ramo eredita
+ * il lavoro di chi stava lavorando li'. Misurato il 10/08: una card rivendicava
+ * il commit di un'altra, gia' su main, e chi rivedeva leggeva il diff sbagliato.
+ *
+ * «Suoi» = raggiungibili dal ramo ma da nessun ALTRO ramo locale (la stessa
+ * domanda che si fa il land quando prende solo i propri commit). Se il conto e'
+ * zero si torna null: «non ho prodotto codice» e' un'informazione, un puntatore
+ * a un commit altrui no.
+ */
+export async function ownTipOfBranch(
+  repoPath: string, branch: string, mainRef = "main",
+): Promise<string | null> {
+  const refs = (await gitOut(repoPath, ["for-each-ref", "--format=%(refname)", "refs/heads/"]))
+    .split("\n").map((r) => r.trim()).filter(Boolean);
+  const others = refs.filter((r) => r !== `refs/heads/${branch}` && r !== `refs/heads/${mainRef}`);
+  const out = await gitOut(repoPath, ["rev-list", "-1", `${mainRef}..${branch}`, "--not", ...others]);
+  const sha = out.trim().split("\n")[0] ?? "";
+  return /^[0-9a-f]{40}$/.test(sha) ? sha : null;
+}
+
 export async function branchExistsInRepo(repoPath: string, branch: string | null): Promise<boolean> {
   if (!branch) return false;
   return (await gitExit(repoPath, ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`])) === 0;
