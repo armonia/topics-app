@@ -133,12 +133,19 @@ export function TurnActivityIndicator({
   // riceve `sessionKey` e `onMessage`: uno stato transitorio di un elemento non
   // ha motivo di attraversare l'albero come prop.
   const [slow, setSlow] = useState(false);
-  // Quante chiamate al modello finora. È l'UNICO numero che resta di questa
-  // iscrizione: serve solo al title («7 chiamate finora — i letti comprendono
-  // il prompt riletto a ogni chiamata»), e su un remount ricomincia a contare
-  // dal frame dopo. I numeri che contano — token, cache, costo — arrivano
-  // invece dalla riga del messaggio, che ai remount sopravvive.
+  // I DUE FATTORI del costo, presi dal filo mentre il turno lavora.
+  //
+  // `calls` = quante volte il modello è stato chiamato in questo turno (una per
+  // ogni tool). `context` = quanto era grande il prompt dell'ultima chiamata.
+  // Il costo del turno è il loro PRODOTTO, e finché stavano in due tooltip
+  // diversi nessuno lo faceva: con 320k in pancia dieci chiamate sono 3,2M, e
+  // ci si accorgeva della cifra a spesa finita.
+  //
+  // Su un remount ricominciano dal frame dopo, come prima: sono numeri del
+  // turno VIVO. I totali che devono sopravvivere — token, cache, costo —
+  // continuano ad arrivare dalla riga del messaggio.
   const [calls, setCalls] = useState(0);
+  const [context, setContext] = useState(0);
   useEffect(() => {
     if (!onMessage || !sessionKey) return;
     return onMessage((msg: WSMessage) => {
@@ -146,6 +153,7 @@ export function TurnActivityIndicator({
       if (msg.type === 'stream:slow') setSlow(true);
       else if (msg.type === 'stream:resumed') setSlow(false);
       else if (msg.type === 'stream:usage') setCalls(msg.calls ?? 0);
+      else if (msg.type === 'stream:context') setContext(msg.usage?.used ?? 0);
     });
   }, [onMessage, sessionKey]);
 
@@ -276,16 +284,36 @@ export function TurnActivityIndicator({
       {/* Mentre la domanda aspetta, i numeri NON stanno qui: scendono nella
           striscia di chiusura qui sotto, che è la stessa di un messaggio
           finito. Lasciarli anche in riga li direbbe due volte. */}
+      {/* IL MOLTIPLICATORE, in chiaro e mentre lavora: `12 × 309k`.
+          Non è una decorazione del totale accanto — è la sua CAUSA. Il totale
+          dice quanto è già andato; questo dice che la prossima chiamata costa
+          ancora 309k, quindi è l'unico dei due su cui si può ancora decidere
+          (fermare, compattare, aprire una chat nuova). Finora i due fattori
+          stavano separati e muti: le chiamate in un tooltip qui, il contesto
+          nell'anello del composer, e il loro prodotto da nessuna parte.
+          Sta PRIMA del totale perché si legge come una moltiplicazione che
+          finisce nel numero dopo. */}
+      {calls > 0 && context > 0 && state !== 'waiting' && (
+        <span
+          className="tabular-nums text-app-text-muted shrink-0"
+          data-testid="turn-multiplier"
+          data-calls={calls}
+          data-context={context}
+          title={`${calls} chiamat${calls === 1 ? 'a' : 'e'} a tool × ${formatTokens(context)} di contesto = ${formatTokens(calls * context)} token spediti.\nOgni chiamata rispedisce tutto il contesto: la prossima costa altri ${formatTokens(context)}.`}
+        >
+          · {calls} × {formatTokens(context)}
+        </span>
+      )}
       {liveTokens > 0 && state !== 'waiting' && (
         <span
           className="tabular-nums text-app-text-muted shrink-0"
           data-testid="turn-usage"
-          // Le chiamate e lo scorporo della cache stanno nel title e non nella
-          // riga: sono i numeri che SPIEGANO perche' i token letti superano la
-          // finestra di contesto (lo stesso prompt riletto N volte), ma la
-          // striscia deve restare una riga. A turno finito lo scorporo passa in
-          // chiaro nella striscia del messaggio (`MessageMetaFooter`), dove c'e'
-          // spazio per mandarlo a capo.
+          // Lo scorporo della cache sta nel title e non nella riga: spiega che
+          // quasi tutti i letti sono lo STESSO prompt riletto, ma la striscia
+          // deve restare una riga. A turno finito passa in chiaro nella
+          // striscia del messaggio (`MessageMetaFooter`), dove c'e' spazio per
+          // mandarlo a capo. Le chiamate invece sono uscite dal tooltip: sono
+          // il moltiplicatore qui accanto.
           title={liveUsageTitle({
             calls,
             promptTokens: promptTokens ?? undefined,
