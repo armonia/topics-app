@@ -32,3 +32,29 @@ export function autoreDaIdentita(
   const deviceId = identita?.deviceId ?? null;
   return { authorPersonId: actingPersonId(db, deviceId), authorDeviceId: deviceId };
 }
+
+/**
+ * Lo stesso autore, ma in una parola che qualcuno RILEGGERÀ.
+ *
+ * Gli id sono la verità e restano quelli; questa è la forma per le tracce che
+ * finiscono sotto gli occhi di una persona — «chi ha portato questa chat in
+ * modalità libera» sei mesi dopo. Il ripiego non inventa nessuno: se non c'è un
+ * nome si dice da DOVE è arrivato il gesto, e davanti a questa macchina la
+ * risposta onesta è «questo computer», non un nome preso a caso.
+ */
+export function etichettaAutore(
+  db: Db,
+  identita: { deviceId: string | null } | null | undefined,
+): string {
+  const { authorPersonId, authorDeviceId } = autoreDaIdentita(db, identita);
+  if (authorPersonId) {
+    try {
+      const row = db
+        .query("SELECT display_name FROM people WHERE id = ? AND revoked_at IS NULL")
+        .get(authorPersonId) as { display_name?: string } | undefined;
+      if (row?.display_name) return row.display_name;
+    } catch { /* nessun nome leggibile: si ripiega sul dispositivo */ }
+  }
+  if (authorDeviceId) return `dispositivo ${authorDeviceId.slice(0, 8)}`;
+  return "questo computer";
+}
