@@ -401,13 +401,52 @@ export function applyRemoteTaskTabs(taskId: string, value: unknown): void {
 
 /** Live-apply the bulk `ui-state:init` snapshot on (re)connect: every
  *  task-browser-tabs key in `data`, coalesced into one notify. Resyncs closes the
- *  client missed while it was disconnected. */
-export function applyRemoteTaskTabsInit(data: Record<string, unknown>): void {
+ *  client missed while it was disconnected.
+ *
+ *  Un server aggiornato queste chiavi nello snapshot NON le manda più (erano il
+ *  30% del payload di ogni riconnessione e nessuno le leggeva da lì): resta per i
+ *  server vecchi, ed è il primo passo di `resyncTaskTabsFromServer`, che copre il
+ *  resto con dei GET mirati. Restituisce gli id già riallineati da qui. */
+export function applyRemoteTaskTabsInit(data: Record<string, unknown>): Set<string> {
+  const applied = new Set<string>();
   let changed = false;
   for (const [key, value] of Object.entries(data)) {
     const taskId = taskIdFromKey(key);
-    if (taskId && applyRemote(taskId, value)) changed = true;
+    if (!taskId) continue;
+    applied.add(taskId);
+    if (applyRemote(taskId, value)) changed = true;
   }
+  if (changed) notify();
+  return applied;
+}
+
+/** RESYNC DI RICONNESSIONE, mirato.
+ *
+ *  Prima lo snapshot `ui-state:init` faceva anche da resync: portava OGNI chiave
+ *  `task-browser-tabs:*` del db, così un client che era offline mentre un altro
+ *  device chiudeva una tab si riallineava alla riconnessione. Costava il 30% del
+ *  payload di ogni `ui-state:init` (91 righe / 31 KB su 172 / 101 KB, misurato
+ *  l'11/08) per riallineare, quasi sempre, ZERO task: un client tiene in cache
+ *  solo i task di cui ha davvero aperto il drawer.
+ *
+ *  Quindi il server non le manda più (`UI_STATE_INIT_EXCLUDED_PREFIXES`) e il
+ *  riallineamento lo chiede il client, per i soli task che ha in cache — uno o
+ *  due GET invece di novanta record. Un task MAI aperto non ha niente da
+ *  riallineare: la sua prima lettura è il GET pigro di `ensureTaskTabsLoaded`.
+ *
+ *  Le chiavi con una scrittura in coda restano fuori (`applyRemote` le protegge
+ *  già: l'edit locale non ancora flushato è più recente di qualsiasi valore
+ *  remoto). Una chiave sparita dal server (task archiviato mentre eravamo
+ *  offline) legge `null` e non cambia niente — identico a prima, quando la
+ *  chiave semplicemente mancava dallo snapshot; a cancellarla è il `task:deleted`
+ *  → `forgetTaskTabs`. */
+export async function resyncTaskTabsFromServer(snapshot?: Record<string, unknown>): Promise<void> {
+  const alreadyApplied = snapshot ? applyRemoteTaskTabsInit(snapshot) : new Set<string>();
+  const ids = [...loaded].filter((id) => !alreadyApplied.has(id) && !writeTimers.has(keyFor(id)));
+  if (!ids.length) return;
+  const values = await Promise.all(ids.map((id) => uiGet<unknown>(keyFor(id))));
+  let changed = false;
+  ids.forEach((id, i) => { if (values[i] != null && applyRemote(id, values[i])) changed = true; });
   if (changed) notify();
 }
 

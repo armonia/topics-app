@@ -271,12 +271,17 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
 
         // ── Il branch porta SOLO il lavoro di questo task? ──────────────────
         //
-        // Il worktree di una card nasce da `baseRef: "HEAD"` (server.ts), cioè
+        // Il worktree di una card NASCEVA da `baseRef: "HEAD"` (server.ts), cioè
         // dall'HEAD del checkout CONDIVISO — che quando qualcuno sta lavorando
-        // non è main ma il suo branch. Il branch del task eredita quindi tutti i
-        // commit di quella linea, e questo merge li porterebbe su main insieme
+        // non è main ma il suo branch. Il branch del task ereditava quindi tutti
+        // i commit di quella linea, e questo merge li porterebbe su main insieme
         // ai suoi: «Landa su main» pubblicherebbe lavoro non finito di un'altra
         // sessione, con un click che sembra innocuo.
+        //
+        // Alla radice ora si parte da `main` (`worktree-base-ref.ts`), ma questo
+        // controllo RESTA: i rami nati prima portano ancora quell'eredità, il
+        // ripiego su HEAD sopravvive nei repo senza `main`, e un worktree in
+        // modo `reuse` parte da un branch che l'umano ha scelto.
         //
         // Successo davvero il 2026-08-09: card dispatchata con il checkout su
         // `topics/gruppi-spazi-pulizia`, e il suo branch portava 13 commit che
