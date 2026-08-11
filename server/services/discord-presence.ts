@@ -26,7 +26,12 @@
  * righe.
  */
 
-import type { DiscordDetailLevel, OutputLanguage } from "../../shared/types";
+import type {
+  DiscordConnectionState,
+  DiscordDetailLevel,
+  DiscordPresenceStatus,
+  OutputLanguage,
+} from "../../shared/types";
 import {
   DiscordIpcError,
   handshake,
@@ -52,36 +57,17 @@ export const DEFAULT_CLIENT_ID = "1467514747988611174";
 export const DEFAULT_LARGE_IMAGE =
   "https://raw.githubusercontent.com/armonia/topics-app/main/desktop-tauri/src-tauri/icons/128x128.png";
 
-export type ConnectionState =
-  /** L'interruttore è spento: non c'è nessun filo, ed è una condizione, non un guasto. */
-  | "off"
-  /** Acceso, filo non ancora aperto. */
-  | "connecting"
-  /** Acceso e collegato: la presence è viva. */
-  | "connected"
-  /** Acceso, ma Discord desktop non è in esecuzione. Da distinguere da `error`:
-   *  qui non c'è niente da riparare, basta aprire Discord. */
-  | "no_discord"
-  /** Acceso, Discord c'è, ma il filo è stato rifiutato o è caduto. */
-  | "error";
-
-export interface DiscordPresenceStatus {
-  enabled: boolean;
-  level: DiscordDetailLevel;
-  connection: ConnectionState;
-  /** Chi sei per Discord, quando il filo è aperto: l'unica conferma che la
-   *  presence sta finendo sul profilo giusto se sulla macchina ci sono due
-   *  account. */
-  user: { id?: string; username?: string; global_name?: string } | null;
-  /** L'ultimo errore, in chiaro. Un pannello che dice «non funziona» senza
-   *  dire cosa è un pannello che manda a indovinare. */
-  lastError: string | null;
-  /** Quando è stata pubblicata l'ultima attività (ms epoch), o `null`. */
-  lastPublishedAt: number | null;
-  /** Ciò che gli altri vedono ADESSO — la stessa struttura che è stata
-   *  scritta sul filo, non una sua descrizione. `null` = presence pulita. */
-  activity: DiscordActivity | null;
-}
+/**
+ * Lo stato del filo e la sua fotografia stanno in `shared/types.ts`, non qui:
+ * `GET /api/profile/discord` li manda al pannello tali e quali, e una seconda
+ * dichiarazione lato client sarebbe uno specchio destinato a divergere
+ * (`tests/unit/no-type-mirrors.test.ts`).
+ *
+ * Il nome è `DiscordConnectionState` e non `ConnectionState` di proposito: il
+ * client ha già un `ConnectionState` suo — quello del browser remoto — che è
+ * un'altra cosa. Due concetti diversi non devono contendersi un nome generico.
+ */
+export type { DiscordConnectionState, DiscordPresenceStatus };
 
 export interface DiscordPresenceSettings {
   enabled: boolean;
@@ -145,7 +131,7 @@ export function createDiscordPresence(deps: DiscordPresenceDeps): DiscordPresenc
       : deps.largeImage;
 
   let socket: IpcSocket | null = null;
-  let connection: ConnectionState = "off";
+  let connection: DiscordConnectionState = "off";
   let user: DiscordPresenceStatus["user"] = null;
   let lastError: string | null = null;
   let lastPublishedAt: number | null = null;

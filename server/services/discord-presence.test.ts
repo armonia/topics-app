@@ -36,7 +36,7 @@ function fakeDiscord(opts: { ready?: boolean } = {}) {
       for (const frame of decode(data)) {
         if (frame.op === IPC_OP.HANDSHAKE && ready) {
           queueMicrotask(() => emit("data", encodeFrame(IPC_OP.FRAME, {
-            evt: "READY", data: { user: { username: "zorahrel" } },
+            evt: "READY", data: { user: { username: "pippo" } },
           })));
         }
         if (frame.op === IPC_OP.FRAME && frame.payload?.cmd === "SET_ACTIVITY") {
@@ -110,7 +110,7 @@ describe("interruttore", () => {
     await svc.tick(); // il READY arriva in un microtask: il secondo giro scrive
     expect(discord.connections).toBe(1);
     expect(svc.status().connection).toBe("connected");
-    expect(svc.status().user?.username).toBe("zorahrel");
+    expect(svc.status().user?.username).toBe("pippo");
     expect(discord.activities.at(-1)).toMatchObject({ details: "3 al lavoro · 12 aperte" });
   });
 
