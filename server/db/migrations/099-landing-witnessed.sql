@@ -1,0 +1,35 @@
+-- 099-landing-witnessed.sql: l'esito di un land è un FATTO OSSERVATO, non una
+-- cosa da ricostruire mezz'ora dopo per euristica.
+--
+-- Il numero è 099 e non 098 perché la 098 è già rivendicata da una card in volo
+-- (`098-task-reopen-trace.sql` su `topics/stout-frond`): main è ferma alla 097,
+-- quindi il cancello (`scripts/check-migration-numbers.ts`) la vede libera
+-- finché quella non atterra. Stessa disciplina dell'intestazione della 098 —
+-- saltare avanti costa un buco che al runner non dice niente, e toglie una
+-- collisione certa al land.
+--
+-- ── Perché serve ─────────────────────────────────────────────────────────────
+-- `landing_state` lo scriveva SOLO una passata periodica che, dato un commit di
+-- consegna, prova a dedurre se il suo contenuto è su main. Provato a mano
+-- sull'11/08 su 108 card `done`, tre strade ovvie sbagliano:
+--   · `git apply --reverse --check` del commit → 20 falsi allarmi su 108
+--     (fallisce anche quando il contenuto c'è ma le righe intorno sono cambiate);
+--   · cercare in main una riga distintiva del commit → 5 su 108, tutti e cinque
+--     dentro (basta che una card successiva riscriva quella riga);
+--   · leggere il messaggio «NON su main» nel thread → ce l'hanno anche le card
+--     atterrate bene, perché è emesso alla CONSEGNA e non è un verdetto.
+-- L'unica prova che regge è cumulativa e vale solo finché il ramo esiste. Cioè:
+-- il momento giusto per rispondere è il LAND, non un giro successivo.
+--
+-- Quindi il land scrive quello che HA VISTO (`git merge` uscito zero e il commit
+-- di merge riletto = `landed`; un land fallito = `unlanded`) e alza questa
+-- colonna. Un verdetto testimoniato non si tocca più: la passata periodica lo
+-- salta, invece di sovrascriverlo con la sua deduzione — che è esattamente il
+-- modo in cui `landing_state` è finito a dire `unlanded` su card dimostrabilmente
+-- dentro main, e a non voler più dire niente.
+--
+-- 0 per tutto lo storico, ed è corretto: nessuna delle righe di oggi ha un esito
+-- osservato: hanno una deduzione. Restano candidate della passata, come prima.
+-- Il campo si azzera insieme al verdetto quando la card RICONSEGNA
+-- (`recordDelivery`): una consegna nuova rende vecchia anche la testimonianza.
+ALTER TABLE tasks ADD COLUMN landing_witnessed INTEGER NOT NULL DEFAULT 0;

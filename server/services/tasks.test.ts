@@ -46,6 +46,8 @@ function freshDb(): Database {
     model TEXT, blocked_by_task_id TEXT REFERENCES tasks(id), reuse_blocker_context INTEGER NOT NULL DEFAULT 0,
     priority_auto INTEGER NOT NULL DEFAULT 1, preview_image TEXT,
     checks_state TEXT, checks_at TEXT, checks_commit TEXT, checks_json TEXT,
+    delivery_branch TEXT, delivery_commit TEXT, landing_state TEXT, landing_checked_at TEXT,
+    landing_witnessed INTEGER NOT NULL DEFAULT 0,
     delivered_by TEXT, delivered_reason TEXT, created_by_topic_id TEXT
   )`);
   db.run(`CREATE UNIQUE INDEX idx_tasks_claude_task_id ON tasks(claude_task_id) WHERE claude_task_id IS NOT NULL`);
@@ -1639,5 +1641,76 @@ describe("anteprima: ramo diagramma, gate di forma, duplicati", () => {
     s.update({ taskId: a.id, actor: "agent", by: "claude", patch: { previewImage: svg("a.svg", 600, 300) } });
     s.update({ taskId: b.id, actor: "agent", by: "claude", patch: { previewImage: svg("b.svg", 640, 300) } });
     expect(notes(b.id)).toEqual([]);
+  });
+});
+
+/**
+ * L'esito di un land è un FATTO, e lo stato della card lo deve dire in ENTRAMBI
+ * i versi. Misurato l'11/08: land fallito → card in `done` col codice fuori da
+ * main; land riuscito → card `in_progress` con un agente sopra a rifarlo.
+ */
+describe("settleLanded / verdetto testimoniato", () => {
+  let db: Database; let svc: TaskService;
+  beforeEach(() => { db = freshDb(); svc = createTaskService(db); });
+
+  const nuovo = (patch = "") => {
+    const t = svc.create({ projectId: "pX", text: "feature" });
+    if (patch) db.prepare(`UPDATE tasks SET ${patch} WHERE id = ?`).run(t.id);
+    return t.id;
+  };
+
+  test("una card viva chiusa dal land: done, chip spento, e la riga di storico dice perché", () => {
+    const id = nuovo("status = 'in_progress', dispatch_state = 'working'");
+    const after = svc.settleLanded({ taskId: id, by: "system", reason: "il land è riuscito: il codice è su main" });
+    expect(after?.status).toBe("done");
+    // Il chip spento è ciò che toglie la card dalla presa del dispatcher.
+    expect(after?.dispatchState).toBe(null);
+    const ev = svc.get(id)!.comments.filter((c) => c.kind === "status").at(-1)!;
+    expect(ev.author).toBe("system");
+    expect(ev.content).toContain("il codice è su main");
+  });
+
+  test("su una card già chiusa e ferma non scrive NIENTE: nessuna riga done→done", () => {
+    const id = nuovo("status = 'done'");
+    const before = svc.get(id)!.comments.length;
+    svc.settleLanded({ taskId: id, by: "system", reason: "x" });
+    expect(svc.get(id)!.comments.length).toBe(before);
+    expect(svc.get(id)!.task.status).toBe("done");
+  });
+
+  test("una card chiusa ma col chip ANCORA acceso si ripulisce, senza una nuova transizione", () => {
+    // Il caso in mezzo: `done` con `dispatch_state` vivo è claimabile-adiacente
+    // e mostra un chip che mente. Si spegne, ma la card non è "ri-chiusa".
+    const id = nuovo("status = 'done', dispatch_state = 'working'");
+    const before = svc.get(id)!.comments.filter((c) => c.kind === "status").length;
+    const after = svc.settleLanded({ taskId: id, by: "system", reason: "x" });
+    expect(after?.dispatchState).toBe(null);
+    expect(svc.get(id)!.comments.filter((c) => c.kind === "status").length).toBe(before);
+  });
+
+  test("un verdetto TESTIMONIATO esce dai candidati della passata: non lo si rideduce", () => {
+    const dedotto = nuovo();
+    const visto = nuovo();
+    for (const id of [dedotto, visto]) {
+      svc.recordDelivery({ taskId: id, branch: "topics/x", commit: "c".repeat(40) });
+      db.prepare("UPDATE tasks SET status = 'done' WHERE id = ?").run(id);
+    }
+    svc.recordLandingState({ taskId: dedotto, state: "unlanded", checkedAt: "2026-08-11T00:00:00Z" });
+    svc.recordLandingState({ taskId: visto, state: "landed", checkedAt: "2026-08-11T00:00:00Z", witnessed: true });
+
+    const candidati = svc.listLandingAuditCandidates().map((c) => c.id);
+    expect(candidati).toContain(dedotto);   // dedotto: si può riprovare
+    expect(candidati).not.toContain(visto); // visto: non c'è niente da aggiungere
+  });
+
+  test("una CONSEGNA nuova fa cadere la testimonianza: era su un'altra consegna", () => {
+    const id = nuovo();
+    svc.recordDelivery({ taskId: id, branch: "topics/x", commit: "a".repeat(40) });
+    db.prepare("UPDATE tasks SET status = 'done' WHERE id = ?").run(id);
+    svc.recordLandingState({ taskId: id, state: "landed", checkedAt: "2026-08-11T00:00:00Z", witnessed: true });
+    expect(svc.listLandingAuditCandidates().map((c) => c.id)).not.toContain(id);
+
+    svc.recordDelivery({ taskId: id, branch: "topics/x", commit: "b".repeat(40) });
+    expect(svc.listLandingAuditCandidates().map((c) => c.id)).toContain(id);
   });
 });
