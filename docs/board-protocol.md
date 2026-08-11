@@ -85,3 +85,30 @@ queste regole.
 7. **Lavoro futuro fuori scope → task top-level nel backlog** (senza `parent`), mai
    nuovi subtask del task in consegna. Un task con subtask aperti non è approvabile:
    i subtask sono la checklist dello STESSO task, non un modo per rimandare lavoro.
+
+8. **Chi chiude la card lo dice un'ETICHETTA, e l'etichetta la deriva il server.**
+   L'11/08/2026 la coda di review contava 29 card, tutte con del codice sotto: un
+   terzo non toccava una riga che un umano potesse VEDERE (server, script, test,
+   doc), e stava lì solo perché mancava la regola che dicesse chi la chiude.
+
+   - **La regola**, misurabile e scritta una volta sola in `shared/task-labels.ts`
+     (`deriveVisibility`): il diff dei commit PROPRI del task tocca `client/src/**`
+     fuori dai `*.test.*` ⇒ **`visibile`**; altrimenti **`invisibile`**. Commit
+     PROPRI (`server/services/own-commits.ts`), non `main...ramo`: un ramo che
+     eredita il lavoro di un altro risponderebbe per conto suo.
+   - **Una card SENZA codice non è invisibile.** Un piano, una decisione, una
+     ricerca, un acquisto non producono diff, e sono le più umane di tutte:
+     lista di file vuota ⇒ `visibile`. L'assenza di prova non è prova.
+   - **La conseguenza operativa.** Una card `invisibile` con la barra VERDE per
+     intero (`checksState === 'pass'`: tutti i comandi della board, non alcuni)
+     la chiude il **conduttore**. Una `visibile` resta in review finché non la
+     guarda un umano, anche con la barra verde. «Nessun check» (`null`) non è un
+     verde e non autorizza nessuno. Il predicato è `whoCloses`, e la board lo
+     disegna sulla card in review.
+   - **L'agente può alzare la mano, mai abbassarla.** Con `label_task` può
+     chiedere `visibile` («guardala tu anche se il diff dice di no») e mettere le
+     etichette di genere (`bugfix` `feature` `chore` `misura`, che non decidono
+     niente). `invisibile` è **rifiutato con 403**: marcare invisibile il proprio
+     lavoro sarebbe firmarsi il permesso di chiudersi le card da solo.
+   - **L'umano corregge sempre**, dal chip nel drawer, `invisibile` compreso — e
+     una correzione a mano non viene sovrascritta dalla consegna successiva.
