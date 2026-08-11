@@ -291,14 +291,29 @@ test.describe("Apri nel workspace", () => {
     // E la finestra del progetto non viene ri-aperta né rialzata: c'è già.
     expect(autos.some((a) => a.forced)).toBe(false);
 
+    // L'evento non è la prova: la prova è la PANE. Andando nella finestra del
+    // progetto le due pane ci sono davvero, una per tab del manifesto, ognuna
+    // sotto il gemello del suo contextId.
+    const appPane = page.locator(`[data-pane-id="browser:${appCtx}_ws"]`);
+    const reportPane = page.locator(`[data-pane-id="browser:${reportCtx}_ws"]`);
+    await openTestProject(page);
+    await expect(appPane).toHaveCount(1, { timeout: 10000 });
+    await expect(reportPane).toHaveCount(1);
+
     // Uscita dal task: quello che si è aperto DA SOLO si richiude da solo, e
     // passa dalla porta normale (`browser:request-close`, la stessa di
     // `window.close()`), non da una scorciatoia distruttiva.
+    await page.getByTestId("sidebar-board-generale").click();
+    await expect(drawer).toBeVisible({ timeout: 10000 });
     await drawer.getByRole("button", { name: /Chiudi il dettaglio del task|Close the task detail/ }).click();
     await expect(drawer).toBeHidden({ timeout: 10000 });
 
     await expect
       .poll(async () => page.evaluate(() => (window as unknown as { __wsClosed: string[] }).__wsClosed.slice().sort()), { timeout: 5000 })
       .toEqual([`${appCtx}_ws`, `${reportCtx}_ws`]);
+    // …e sparite per davvero dal workspace, non solo «richieste».
+    await openTestProject(page);
+    await expect(appPane).toHaveCount(0, { timeout: 10000 });
+    await expect(reportPane).toHaveCount(0);
   });
 });
