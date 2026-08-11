@@ -1350,7 +1350,7 @@ export const projectsApi = {
   },
   async update(
     id: string,
-    patch: { name?: string; color?: string | null; icon?: string | null },
+    patch: { name?: string; color?: string | null; icon?: string | null; incognito?: boolean },
   ): Promise<Project> {
     return request<Project>(`/projects/${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
   },
@@ -1362,6 +1362,58 @@ export const projectsApi = {
   },
   async delete(id: string): Promise<{ ok: boolean }> {
     return request<{ ok: boolean }>(`/projects/${id}`, { method: 'DELETE' });
+  },
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Le PERSONE della mia organizzazione, coi profili GitHub (migration 094)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface ProfiloGitHubClient {
+  login: string;
+  name: string | null;
+  avatarUrl: string | null;
+  htmlUrl: string | null;
+  bio: string | null;
+  company: string | null;
+  location: string | null;
+  publicRepos: number | null;
+  followers: number | null;
+  fetchedAt: number | null;
+}
+
+export interface StatistichePersonaClient {
+  prompts: number;
+  inputTokens: number;
+  outputTokens: number;
+  costCents: number;
+  ultimoPrompt: string | null;
+}
+
+export interface PersonaConProfilo {
+  id: string;
+  displayName: string;
+  email: string | null;
+  githubLogin: string | null;
+  github: ProfiloGitHubClient | null;
+  stats: StatistichePersonaClient;
+  isMe: boolean;
+}
+
+export const peopleApi = {
+  /** La rubrica. NON tocca GitHub: le facce arrivano dalla cache del server. */
+  async list(): Promise<{ people: PersonaConProfilo[] }> {
+    return request<{ people: PersonaConProfilo[] }>('/people');
+  },
+  /** Una persona sola — QUI il server va a prendere il profilo fresco. */
+  async get(id: string): Promise<PersonaConProfilo> {
+    return request<PersonaConProfilo>(`/people/${id}`);
+  },
+  async setGithubLogin(id: string, githubLogin: string | null) {
+    return request<{ id: string; githubLogin: string | null; github: ProfiloGitHubClient | null }>(
+      `/people/${id}`,
+      { method: 'PATCH', body: JSON.stringify({ githubLogin }) },
+    );
   },
 };
 

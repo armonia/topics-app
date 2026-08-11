@@ -673,6 +673,12 @@ export interface Project {
   color?: string | null;
   icon?: string | null;
   archived: boolean;
+  /** L'organizzazione che lo vede (migration 092). NULL = solo chi possiede questa macchina. */
+  orgId?: string | null;
+  /** Chi l'ha messo qui. Serve al solo caso `incognito`, non è un permesso. */
+  ownerPersonId?: string | null;
+  /** Marcato incognito: fuori dall'elenco dei compagni d'organizzazione. */
+  incognito?: boolean;
   createdAt: string;
   updatedAt: string;
 }
