@@ -46,17 +46,52 @@ function toolResultText(content: unknown): string {
   return "";
 }
 
+/** A tool_result whose tool_use lives in an EARLIER chunk (already-saved
+ *  message), so the caller must patch that stored row rather than a fresh
+ *  message in this delta. See `parseTranscriptDelta`. */
+export interface ToolResolution {
+  toolUseId: string;
+  result: string;
+  isError: boolean;
+}
+
+export interface DeltaParseResult {
+  /** New messages to APPEND, already chained (first from `opts.parentId`). */
+  messages: StoredMessage[];
+  /** tool_results for tool_use ids NOT in this chunk — patch the saved rows. */
+  resolutions: ToolResolution[];
+}
+
+export interface DeltaParseOptions {
+  /**
+   * id of the last already-persisted message for this session. The first new
+   * message's `parentId` points at it, so the imported branch stays linear
+   * across sweeps. Omit (or null) for a full, from-scratch import.
+   */
+  parentId?: string | null;
+}
+
 /**
- * Parse a whole JSONL transcript into ordered chat messages.
+ * Parse a JSONL DELTA (the tail appended since the last import) into new chat
+ * messages, chained from an already-saved parent.
  *
- * The result is a single linear branch: each message's `parentId` points at the
- * previous one (branchIndex 0), which is exactly what `loadActiveThread` walks —
- * so `saveLocalMessages(sessionKey, result)` renders them in order.
+ * Two things make this more than a windowed `parseTranscriptToMessages`:
+ *   1. `parentId` — the first new message links to the last row already in the
+ *      DB, so appending the result keeps one linear branch across sweeps.
+ *   2. cross-chunk tool_result — a tool_use can be consumed in sweep N and its
+ *      result only in sweep N+1. Results whose tool_use is NOT in this chunk
+ *      are returned as `resolutions` for the caller to patch onto the saved
+ *      message. (Claude Code never emits a second assistant turn before a
+ *      pending tool_result lands, so that saved message is always the LAST one
+ *      — `updateToolCallResult` targets exactly it.)
  */
-export function parseTranscriptToMessages(text: string): StoredMessage[] {
+export function parseTranscriptDelta(text: string, opts?: DeltaParseOptions): DeltaParseResult {
+  const startParentId = opts?.parentId ?? null;
   const out: StoredMessage[] = [];
+  const resolutions: ToolResolution[] = [];
   // tool_use id → the toolCall object awaiting its result, so a later
-  // tool_result line (which arrives as a `user` entry) can fill it in.
+  // tool_result line (which arrives as a `user` entry) can fill it in — but
+  // only for tool_use blocks seen IN THIS chunk.
   const pendingTools = new Map<string, ToolCall>();
 
   for (const line of text.split("\n")) {
@@ -117,7 +152,7 @@ export function parseTranscriptToMessages(text: string): StoredMessage[] {
         thinking: thinkingOut || undefined,
         toolCalls: toolCalls.length ? toolCalls : undefined,
         timestamp: ts,
-        parentId: out.length ? out[out.length - 1]!.id : null,
+        parentId: out.length ? out[out.length - 1]!.id : startParentId,
         branchIndex: 0,
       });
       continue;
@@ -134,13 +169,21 @@ export function parseTranscriptToMessages(text: string): StoredMessage[] {
         if (!block || typeof block !== "object") continue;
         const b = block as any;
         if (b.type === "tool_result" && typeof b.tool_use_id === "string") {
+          const resText = toolResultText(b.content);
           const tc = pendingTools.get(b.tool_use_id);
           if (tc) {
-            const resText = toolResultText(b.content);
+            // tool_use is in THIS chunk — resolve the fresh toolCall in place.
             if (b.is_error) tc.error = resText || "error";
             else tc.result = resText;
             tc.status = b.is_error ? "error" : "success";
             pendingTools.delete(b.tool_use_id);
+          } else {
+            // tool_use was in an earlier chunk — the caller patches the saved row.
+            resolutions.push({
+              toolUseId: b.tool_use_id,
+              result: b.is_error ? (resText || "error") : resText,
+              isError: !!b.is_error,
+            });
           }
         } else if (b.type === "text" && typeof b.text === "string") {
           userText += b.text;
@@ -164,10 +207,24 @@ export function parseTranscriptToMessages(text: string): StoredMessage[] {
       role: "user",
       content: userText,
       timestamp: ts,
-      parentId: out.length ? out[out.length - 1]!.id : null,
+      parentId: out.length ? out[out.length - 1]!.id : startParentId,
       branchIndex: 0,
     });
   }
 
-  return out;
+  return { messages: out, resolutions };
+}
+
+/**
+ * Parse a whole JSONL transcript into ordered chat messages — the full,
+ * from-scratch import used at adoption time (and unit-tested directly).
+ *
+ * The result is a single linear branch: each message's `parentId` points at the
+ * previous one (branchIndex 0), which is exactly what `loadActiveThread` walks —
+ * so `saveLocalMessages(sessionKey, result)` renders them in order. Thin wrapper
+ * over `parseTranscriptDelta` with no parent and (for a complete transcript) no
+ * dangling cross-chunk resolutions.
+ */
+export function parseTranscriptToMessages(text: string): StoredMessage[] {
+  return parseTranscriptDelta(text).messages;
 }
