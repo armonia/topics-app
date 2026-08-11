@@ -1959,6 +1959,24 @@ describe("la coda deve dire il vero", () => {
     expect(h.turns.length).toBe(0);          // nessun turno sprecato
   });
 
+  it("…ma chi ASPETTA non è esaurito: la finestra scorre, il parcheggio no", async () => {
+    // L'11/08, dal vivo: un agente aveva dichiarato «UAT su CI, 8 shard, ~14
+    // minuti, riprovo fra 15» e il parcheggio degli esauriti — messo prima del
+    // cancello dell'attesa — l'ha ucciso mentre la finestra scorreva. Il bound
+    // sugli aspettatori eterni resta: scatta quando la finestra è passata.
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchRetryCap: 2 });
+    seedTask(h.db, { id: "t1", status: "todo", attempts: 2, dispatchState: "waiting" });
+    const fra10min = new Date(Date.now() + 10 * 60_000).toISOString();
+    h.db.run("UPDATE tasks SET dispatch_deferred_until = ? WHERE id = ?", [fra10min, "t1"]);
+    await h.dispatcher.tick(PID);
+    await flush();
+    const t = h.task("t1")!;
+    expect(t.status).toBe("todo");            // aspetta ancora, non parcheggiato
+    expect(t.dispatchState).toBe("waiting");
+    expect(h.turns.length).toBe(0);           // e nemmeno reclamato
+  });
+
   it("il padre che finisce il turno coi figli aperti non paga il tentativo, e aspetta", () => {
     // Era questo a fabbricare le 19 zombie: il rimando in coda del padre
     // lasciava il contatore com'era, e al secondo giro la card rientrava già al
