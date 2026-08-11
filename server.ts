@@ -74,6 +74,8 @@ import { sendBrowserWsMessage, parseBrowserWsMessage, type BrowserWsMessage } fr
 import { applyEngineSwitch } from "./server/browser-engine-switch";
 import { browserEngineRegistry, chromiumExtensionsCount } from "./server/browser-engine-registry";
 import { nativeDelegateRegistry, handleNativeDelegationFrame } from "./server/browser-native-delegate";
+import { countSharedViewers } from "./server/browser-viewer-count";
+import { seedNativeFromShared } from "./server/browser-session-handoff";
 import { parseChatWsInbound } from "./server/schemas/chat-ws-inbound";
 import { buildPresenceSnapshot } from "./server/presence";
 import { SERVER_VERSION, SERVER_PROTOCOL_VERSION, SERVER_CAPABILITIES } from "./server/ws-capabilities";
@@ -511,21 +513,12 @@ const filesRouter = createFilesRouter(ctx);
 const voiceRouter = createVoiceRouter(ctx);
 const mediaRouter = createMediaRouter(ctx);
 const branchesRouter = createBranchesRouter(ctx);
-const browserRouter = createBrowserRouter(ctx, browserService, (c) => {
-  // Count only REAL streaming viewers of the shared session. A Tauri native pane
-  // holds a /ws/browser socket too (for register_native_executor delegation) but
-  // is NOT a viewer — excluding it keeps a solo native pane at 0 so 'auto' doesn't
-  // oscillate native↔shared (browser reset every ~2s).
-  const set = browserWsClients.get(c);
-  if (!set) return 0;
-  let n = 0;
-  // Count real viewers that are ACTIVELY streaming: exclude native delegates
-  // (never watchers) AND viewers that paused their stream (set_stream:false —
-  // e.g. their browser tab is off-screen). So a phone with the tab backgrounded
-  // no longer flips this desktop's 'auto' pane into the shared session.
-  for (const w of set) if (!w.data._nativeDelegate && w.data._streamActive !== false) n++;
-  return n;
-});
+// Chi conta come spettatore sta in browser-viewer-count.ts (puro, con i suoi
+// test): esclude i delegati nativi e chi ha la pane fuori dallo schermo, e NON
+// guarda la pausa dello screencast — vedi lì il perché.
+const browserRouter = createBrowserRouter(ctx, browserService, (c) =>
+  countSharedViewers(browserWsClients.get(c)),
+);
 const cronRouter = createCronRouter(ctx);
 const contextRouter = createContextRouter(ctx);
 const terminalRouter = createTerminalRouter(ctx, claudeSessionTracker);
@@ -2709,19 +2702,41 @@ const opzioniServer = {
               // guarda lo stream) tiene il suo socket non-delegato e sopravvive.
               //
               // Di proposito NON si riusa il contatore dei viewer di
-              // `createBrowserRouter`: quello esclude anche chi ha messo lo
-              // stream in pausa (`_streamActive === false`), che per il flapping
+              // `createBrowserRouter`: quello esclude anche chi ha la pane fuori
+              // dallo schermo (`_watching === false`), che per il flapping
               // native↔shared e' giusto ma qui sarebbe un disastro — uno
-              // spettatore in pausa e' comunque uno spettatore, e distruggergli
-              // il contesto sotto lo lascerebbe a mani vuote alla ripresa.
+              // spettatore in secondo piano e' comunque uno spettatore, e
+              // distruggergli il contesto sotto lo lascerebbe a mani vuote
+              // quando torna a guardare.
               const watchers = [...(browserWsClients.get(ctxId) ?? [])]
                 .filter((w) => !w.data._nativeDelegate).length;
-              if (watchers > 0) return;
-              try {
-                await browserService.destroyContext(ctxId);
-                console.log(`[WS][browser] destroyed phantom context ${ctxId} (native pane delegates ops, 0 viewers)`);
-              } catch (err) {
-                console.warn(`[WS][browser] destroyContext(${ctxId}) failed:`, (err as Error).message);
+              if (watchers === 0) {
+                try {
+                  await browserService.destroyContext(ctxId);
+                  console.log(`[WS][browser] destroyed phantom context ${ctxId} (native pane delegates ops, 0 viewers)`);
+                } catch (err) {
+                  console.warn(`[WS][browser] destroyContext(${ctxId}) failed:`, (err as Error).message);
+                }
+              }
+              // IL VERSO OPPOSTO DEL CASSETTO COOKIE. Questa e' l'unica volta in
+              // cui una WKWebView nativa si annuncia viva su un contesto: se la
+              // sessione condivisa di quello stesso contesto ha un login (il
+              // telefono si e' loggato mentre il Mac era via), qui lo si versa
+              // nel suo barattolo. Senza, «mi loggo dal telefono e sul Mac sono
+              // ancora fuori» non aveva nessun codice che lo risolvesse.
+              //
+              // Il flush prima serve quando il contesto e' ancora VIVO (qualcuno
+              // guarda): l'autosave e' a 30s, e leggere il file cosi' com'e'
+              // vorrebbe dire perdersi il login appena fatto. Se il contesto e'
+              // stato appena distrutto, e' gia' stato salvato e il flush e' un
+              // no-op. Nessuna delle due puo' lanciare: sta davanti al primo
+              // fotogramma della pane nativa.
+              await browserService.flushStorageState(ctxId).catch(() => false);
+              const back = await seedNativeFromShared(ctxId);
+              if (back.ok) {
+                console.log(`[WS][browser] cookie della sessione condivisa passati alla pane nativa ${ctxId} (${back.cookies} cookie)`);
+              } else if (back.skipped !== "empty" && back.skipped !== "unchanged" && back.skipped !== "no-native-pane") {
+                console.warn(`[WS][browser] passaggio cookie condivisa→nativa saltato per ${ctxId}: ${back.skipped}${back.error ? ` (${back.error})` : ""}`);
               }
             })();
             console.log(`[WS][browser] native executor registered for ctx ${ctxId}`);
@@ -2792,6 +2807,12 @@ const opzioniServer = {
             // Task 052f53ef — pause/resume this viewer's screencast when the pane
             // enters/leaves native iframe-mode (kills the wasted headless render).
             ws.data._browserSetStream?.(parsed.active);
+          } else if (parsed.type === 'set_watching') {
+            // «La mia pane è sullo schermo». È l'UNICO ingresso del conteggio
+            // spettatori (browser-viewer-count.ts) e sta apposta fuori da
+            // set_stream: quello è il transport, e il WebRTC lo mette in pausa
+            // mentre guarda eccome.
+            ws.data._watching = parsed.active;
           } else if (parsed.type === 'set_render') {
             // T1 DOM co-browse — switch THIS viewer between the pixel stream
             // ('video', default) and a native rrweb DOM reconstruction ('dom').

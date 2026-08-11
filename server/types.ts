@@ -64,13 +64,19 @@ export interface WSData {
    *  set_stream(true) when it switches back to the stream (agent attaches / frame
    *  not framable). Keeps the WS open so agent_active still reaches the pane. */
   _browserSetStream?: (active: boolean) => void;
-  /** Mirror of this viewer's current stream state (set by _browserSetStream).
-   *  A viewer that paused its stream (set_stream:false — e.g. its browser tab
-   *  went off-screen) is NOT an active watcher, so it's excluded from the
-   *  cross-device viewer count: a phone with the tab in the background must not
-   *  keep the desktop's 'auto' pane in the shared session. Absent = active (a
-   *  fresh viewer streams by default). */
-  _streamActive?: boolean;
+  /** Is this viewer's pane ON SCREEN (`set_watching`)? This — and NOT the
+   *  screencast pause — is what the cross-device viewer count
+   *  (GET /api/browsers/:id/viewers) counts, so a phone with the tab in the
+   *  background stops keeping the desktop's 'auto' pane in the shared session.
+   *
+   *  It used to be `_streamActive`, a mirror of set_stream that NOTHING ever
+   *  wrote (declared, read by the count, never assigned — so the count silently
+   *  included every socket). Wiring it to set_stream would have been worse than
+   *  the dead field: WebRTC is the default transport and pauses the screencast
+   *  while very much watching, which would have made a phone invisible and the
+   *  auto-share never fire. Absent = watching (older client, or an agent
+   *  socket). */
+  _watching?: boolean;
   /** T1 DOM co-browse — true while THIS viewer renders the pane as a native rrweb
    *  DOM reconstruction (set_render:'dom') instead of the pixel stream. Used to
    *  ref-count DOM viewers per context so `dom_event` emission stops once the last

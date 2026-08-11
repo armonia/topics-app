@@ -186,6 +186,14 @@ export interface BrowserService {
   getTargetId(id: string): Promise<string | null>;
   createContext(id: string, opts?: { viewport?: { width: number; height: number }; persistCookies?: boolean; deviceScaleFactor?: number; engine?: "default" | "chromium"; cdpEndpoint?: string }): Promise<void>;
   destroyContext(id: string): Promise<void>;
+  /** Scrivi ADESSO lo storageState di un contesto VIVO sul suo store, senza
+   *  chiuderlo. L'autosave normale è a 30s + un salvataggio finale in
+   *  `destroyContext`: chi deve LEGGERE quel barattolo mentre il contesto è
+   *  ancora acceso (il passaggio condivisa→nativa) leggerebbe roba vecchia di
+   *  mezzo minuto — cioè non il login che il telefono ha appena fatto.
+   *  `false` quando non c'è nessun contesto vivo con quell'id (nulla da fare:
+   *  il file su disco è già l'ultima parola) o quando il salvataggio fallisce. */
+  flushStorageState(id: string): Promise<boolean>;
   /** Engine switch (task 54601eeb): remember the engine a context must be
    *  (re)created on. Consulted by createContext — so a switch is: setEngineHint →
    *  destroyContext → (client remounts) → getOrCreate → createContext picks it up.
@@ -1031,6 +1039,22 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       const tracked = create.finally(() => pendingCreates.delete(id));
       pendingCreates.set(id, tracked);
       return tracked;
+    },
+
+    async flushStorageState(id) {
+      const entry = contexts.get(id);
+      // Nessun contesto vivo ⇒ niente da forzare: quello su disco è già l'ultimo
+      // (destroyContext salva prima di chiudere). Il motore chromium non ha uno
+      // stato per-contesto da tirare fuori (il profilo persistente è del
+      // sidecar), come già dice destroyContext.
+      if (!entry || entry.engine === "chromium") return false;
+      try {
+        await saveStorageState(id, await entry.context.storageState({ indexedDB: true }));
+        return true;
+      } catch (err: any) {
+        console.warn(`[BrowserService] flushStorageState(${id}) failed:`, err?.message ?? err);
+        return false;
+      }
     },
 
     async destroyContext(id) {

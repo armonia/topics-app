@@ -175,6 +175,10 @@ describe('WS-04 contract: browserWsMessageSchema (Phase 30)', () => {
     //   download                            — a file download the pane offers
     //   set_engine / engine                 — Native↔Chromium engine toggle + status
     //   set_stream                          — screencast on/off
+    //   set_watching                        — is this pane on screen (the ONLY
+    //                                         input of the cross-device viewer
+    //                                         count; set_stream is the transport
+    //                                         and pauses while still watching)
     //   set_render / render_mode            — pixel vs DOM co-browse render toggle + status
     //   dom_event                           — rrweb DOM co-browse event
     //   webrtc_offer / webrtc_answer / webrtc_ice — shared-session WebRTC transport
@@ -192,6 +196,7 @@ describe('WS-04 contract: browserWsMessageSchema (Phase 30)', () => {
       'set_engine',
       'set_render',
       'set_stream',
+      'set_watching',
       'take_control',
       'webrtc_answer',
       'webrtc_ice',
