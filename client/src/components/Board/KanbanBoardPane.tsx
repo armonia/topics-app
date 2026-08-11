@@ -12,7 +12,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { DndContext, DragOverlay, KeyboardSensor, MouseSensor, TouchSensor, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
-import { AlertTriangle, Bot, Check, ChevronDown, ChevronRight, Loader2, Search, Settings, UploadCloud, X } from 'lucide-react';
+import { AlertTriangle, Bot, Check, ChevronDown, ChevronRight, Loader2, Search, Settings, Target, UploadCloud, X } from 'lucide-react';
 import type { WSMessage } from '../../types';
 import { Menu } from '../Shared/Menu';
 import { ExternalSessionsBadge } from './ExternalSessionsBadge';
@@ -37,6 +37,8 @@ import { FloatingTaskComposer } from './FloatingTaskComposer';
 import { Column } from './Card';
 import { TaskDetail, BoardSettingsPanel } from './TaskDetail';
 import { POPOVER_ITEM } from '@/lib/popoverStyles';
+import { MISSIONS, type Mission } from '../../lib/missions';
+import { useDevInstall } from '../../hooks/useDevInstall';
 
 interface Props {
   /** Absent in the global ('Board generale') pane — there is no single project. */
@@ -46,6 +48,15 @@ interface Props {
   onMessage?: (handler: (msg: WSMessage) => void) => () => void;
   /** Deep-link a task's bound agent tab into focus (wired to handleTopicClick). */
   onOpenTopic?: (topicId: string) => void;
+  /**
+   * Consegna una MISSIONE alla sessione laterale del progetto: apre la chat
+   * accanto alla board e le mette il testo davanti. Restituisce il motivo per
+   * cui non si è potuto fare, o `null` se è andata.
+   *
+   * Assente = niente missioni: la board generale non ha UN progetto di cui
+   * parlare, e senza quello la sessione laterale non esiste.
+   */
+  onStartMission?: (mission: Mission) => string | null;
 }
 
 /** Publish control: lists projects with unpushed commits on their current branch
@@ -203,6 +214,56 @@ function OverloadBadge() {
       {severe ? 'Carico critico' : 'Carico alto'}
       <span className="text-app-text-muted">· max {cap.recommended}</span>
     </span>
+  );
+}
+
+/**
+ * LE MISSIONI — l'unico comando che la board ha verso la sessione laterale.
+ *
+ * Tre cose, e sono tutte deliberate:
+ *
+ * 1. **Non è una superficie sulla board.** È un bottone che apre un menu e
+ *    consegna il testo a una chat di progetto NORMALE, quella che c'è già. La
+ *    versione precedente (5f39a2c1) faceva l'opposto — un chip dentro il
+ *    composer, cioè dentro il punto da cui nasce ogni card, che cambiava il
+ *    significato dell'intera riga — ed è il motivo per cui è stata bocciata.
+ * 2. **Fuori dallo sviluppo non esiste** (`useDevInstall`): non è nascosto, non
+ *    è disabilitato, non è renderizzato. Chi usa Topics per lavorare non deve
+ *    trovarsi un pannello di governo della sua board.
+ * 3. **La barra si legge PRIMA di scegliere** (`doneWhen` sotto ogni nome): è
+ *    ciò che distingue una missione da un prompt, e metterla solo dentro il
+ *    testo vorrebbe dire sceglierla senza sapere quando finisce.
+ */
+function MissionsMenu({ onStart }: { onStart: (m: Mission) => void }) {
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button
+        ref={btnRef}
+        onClick={() => setOpen((o) => !o)}
+        data-testid="missions-button"
+        title="Missioni — compiti in più per la sessione di progetto, accanto alla board. Il testo arriva nel suo composer: a mandarlo sei tu."
+        className={`flex items-center gap-1 rounded px-2 py-0.5 text-[11px] ${open ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/10'}`}
+      ><Target className="h-3 w-3 shrink-0" /><span className="hidden sm:inline">Missioni</span></button>
+      <Menu open={open} anchorRef={btnRef} onClose={() => setOpen(false)} minWidth={330}>
+        <div className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">
+          Alla sessione di progetto, accanto alla board
+        </div>
+        {MISSIONS.map((m) => (
+          <button
+            key={m.id}
+            data-testid={`mission-${m.id}`}
+            onClick={() => { setOpen(false); onStart(m); }}
+            className={`${POPOVER_ITEM} flex-col !items-start gap-0.5 py-1.5`}
+          >
+            <span className="font-medium text-app-text">{m.name}</span>
+            <span className="text-[11px] leading-snug text-app-text-secondary">{m.summary}</span>
+            <span className="text-[11px] leading-snug text-app-text-muted">finita quando: {m.doneWhen}</span>
+          </button>
+        ))}
+      </Menu>
+    </>
   );
 }
 
@@ -501,7 +562,7 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
   );
 }
 
-export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpenTopic }: Props) {
+export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpenTopic, onStartMission }: Props) {
   const projectId = useMemo(() => (projectPath ? boardIdForPath(projectPath) : ''), [projectPath]);
   // The project/all toggle only makes sense inside a project window. The global
   // pane has no project, so it locks to 'all'.
@@ -509,6 +570,11 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
   // Per-board dispatch settings only exist for a single project (the global board
   // aggregates many), so the gear only shows inside a project window.
   const hasProject = !!projectPath && !global;
+  // Le missioni sono una superficie interna: esistono solo in un'installazione
+  // di sviluppo, e solo dentro un progetto (la board generale non ha UNA
+  // sessione laterale di cui parlare).
+  const devInstall = useDevInstall();
+  const canRunMissions = hasProject && devInstall && !!onStartMission;
   // 'project' = this project only · 'all' = the global cross-project board.
   const [mode, setMode] = useState<'project' | 'all'>(canToggle ? 'project' : 'all');
   const [tasks, setTasks] = useState<BoardTask[]>([]);
@@ -1165,6 +1231,9 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
               bare `claude` sessions and no cards reads as "fermo". */}
           <ExternalSessionsBadge sessions={externalSessions} showProject={mode === 'all'} onOpenTopic={onOpenTopic} />
           {/* Auto-dispatch on/off lives in GlobalSettingsMenu now — no duplicate pill. */}
+          {canRunMissions && (
+            <MissionsMenu onStart={(m) => setError(onStartMission!(m))} />
+          )}
           <PublishControl />
           {hasProject && (
             <button
