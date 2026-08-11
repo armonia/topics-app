@@ -2,7 +2,7 @@
  * Tests for the task-owned browser tab group's pure reducer ops. No I/O — the
  * ui-state persistence / React hook layers are exercised only in the app.
  */
-import { describe, test, expect } from 'bun:test';
+import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import {
   EMPTY_TASK_TABS,
   mintTaskContextId,
@@ -20,8 +20,11 @@ import {
   taskIdFromKey,
   applyRemoteTaskTabs,
   applyRemoteTaskTabsInit,
+  resyncTaskTabsFromServer,
+  forgetTaskTabs,
   getTaskTabs,
   subscribeTaskTabs,
+  taskBrowserTabs,
 } from './taskBrowserTabs';
 
 const TASK = '125aafd5-0e15-4aa0-ab25-f00000000000';
@@ -275,7 +278,7 @@ describe('applyRemoteTaskTabs (inbound live-apply)', () => {
   });
 });
 
-describe('applyRemoteTaskTabsInit (reconnect resync)', () => {
+describe('applyRemoteTaskTabsInit (snapshot di un server vecchio)', () => {
   test('applies only the task-browser-tabs keys from the snapshot', () => {
     const tid = uniq('init');
     applyRemoteTaskTabsInit({
@@ -283,5 +286,127 @@ describe('applyRemoteTaskTabsInit (reconnect resync)', () => {
       'pane-store-v2': { panes: {} },
     });
     expect(getTaskTabs(tid).tabs.map((t) => t.contextId)).toEqual(['task-e-0']);
+  });
+});
+
+// ── resync di riconnessione, MIRATO ──────────────────────────────────────────
+// Il server non manda più `task-browser-tabs:*` nell'`ui-state:init` (erano il
+// 30% del payload di ogni riconnessione). Il riallineamento delle chiusure perse
+// mentre si era offline lo chiede il client, e SOLO per i task che ha in cache.
+
+describe('resyncTaskTabsFromServer (riconnessione)', () => {
+  const REAL_FETCH = globalThis.fetch;
+  let fetched: string[];
+  let served: Map<string, unknown>;
+
+  beforeEach(() => {
+    fetched = [];
+    served = new Map();
+    (globalThis as unknown as { fetch: unknown }).fetch = async (url: string): Promise<Response> => {
+      const key = decodeURIComponent(String(url).replace('/api/ui-state/', ''));
+      fetched.push(key);
+      const value = served.get(key);
+      return new Response(JSON.stringify(value === undefined ? null : { value }), {
+        status: 200, headers: { 'Content-Type': 'application/json' },
+      });
+    };
+  });
+  afterEach(() => { (globalThis as unknown as { fetch: unknown }).fetch = REAL_FETCH; });
+
+  const tabsOf = (ctx: string) => ({ tabs: [{ contextId: ctx, url: 'u', title: 'T', seq: 0 }], activeContextId: ctx, nextSeq: 1 });
+
+  test('ri-GETta i task IN CACHE e applica la chiusura persa mentre era offline', async () => {
+    const tid = uniq('resync');
+    // In cache perché un frame precedente lo ha portato (applyRemote marca loaded).
+    applyRemoteTaskTabs(tid, tabsOf('task-r-0'));
+    expect(liveTabs(getTaskTabs(tid))).toHaveLength(1);
+
+    // Offline, un altro device ha parcheggiato la tab.
+    served.set(`task-browser-tabs:${tid}`, { tabs: [{ contextId: 'task-r-0', url: 'u', title: 'T', seq: 0, parked: true }], activeContextId: null, nextSeq: 1 });
+    await resyncTaskTabsFromServer({});
+
+    expect(fetched).toContain(`task-browser-tabs:${tid}`);
+    expect(liveTabs(getTaskTabs(tid))).toHaveLength(0);
+  });
+
+  test('un task MAI aperto non si chiede: è il GET pigro all\'apertura a coprirlo', async () => {
+    const mai = uniq('mai-visto');
+    await resyncTaskTabsFromServer({});
+    expect(fetched).not.toContain(`task-browser-tabs:${mai}`);
+  });
+
+  test('una scrittura ancora in coda vince: niente GET, l\'edit locale resta', async () => {
+    const tid = uniq('pending');
+    taskBrowserTabs.addTab(tid, 'https://locale.test');   // arma il PUT debounced
+    served.set(`task-browser-tabs:${tid}`, { tabs: [], activeContextId: null, nextSeq: 0 });
+
+    await resyncTaskTabsFromServer({});
+
+    expect(fetched).not.toContain(`task-browser-tabs:${tid}`);
+    expect(getTaskTabs(tid).tabs).toHaveLength(1);
+    forgetTaskTabs(tid);                                   // disarma il timer
+  });
+
+  test('server vecchio: la chiave arriva nello snapshot e NON si ri-chiede', async () => {
+    const tid = uniq('vecchio');
+    applyRemoteTaskTabs(tid, tabsOf('task-v-0'));
+    await resyncTaskTabsFromServer({ [`task-browser-tabs:${tid}`]: tabsOf('task-v-1') });
+
+    expect(fetched).not.toContain(`task-browser-tabs:${tid}`);
+    expect(getTaskTabs(tid).tabs.map((t) => t.contextId)).toEqual(['task-v-1']);
+  });
+
+  test('chiave sparita dal server (task archiviato offline): la cache non cambia', async () => {
+    // Parità col comportamento vecchio, dove la chiave semplicemente mancava
+    // dallo snapshot. A cancellarla è `task:deleted` → forgetTaskTabs.
+    const tid = uniq('sparito');
+    applyRemoteTaskTabs(tid, tabsOf('task-s-0'));
+    await resyncTaskTabsFromServer({});                    // served non ha la chiave ⇒ null
+    expect(getTaskTabs(tid).tabs).toHaveLength(1);
+  });
+});
+
+// ── il task è stato archiviato: si dimentica ─────────────────────────────────
+// Il server ha appena CANCELLATO `task-browser-tabs:<id>`. Se questo client si
+// ricorda la chiave, il suo PUT ancora in coda la ricrea qualche centinaio di
+// millisecondi dopo — che è esattamente il modo in cui questi record sono
+// diventati immortali.
+
+describe('forgetTaskTabs (task archiviato)', () => {
+  test('svuota la cache, avvisa, e ANNULLA la scrittura in coda', () => {
+    const tid = uniq('forget');
+    taskBrowserTabs.addTab(tid, 'https://e.test');
+    expect(getTaskTabs(tid).tabs).toHaveLength(1);
+
+    // Finché il debounce è in volo, `applyRemote` si tira indietro (l'edit
+    // locale è più recente): è il modo di osservare che il timer c'è.
+    applyRemoteTaskTabs(tid, { tabs: [], activeContextId: null, nextSeq: 0 });
+    expect(getTaskTabs(tid).tabs).toHaveLength(1);
+
+    let notified = 0;
+    const unsub = subscribeTaskTabs(() => { notified++; });
+    forgetTaskTabs(tid);
+    unsub();
+
+    expect(getTaskTabs(tid)).toBe(EMPTY_TASK_TABS);
+    expect(notified).toBeGreaterThan(0);
+
+    // Timer sparito ⇒ il remoto passa di nuovo. Se `forget` avesse lasciato il
+    // timer, questa riga fallirebbe — ed è quel timer che ricrea la riga.
+    applyRemoteTaskTabs(tid, {
+      tabs: [{ contextId: 'task-z-0', url: 'u', title: 'T', seq: 0 }],
+      activeContextId: 'task-z-0',
+      nextSeq: 1,
+    });
+    expect(getTaskTabs(tid).tabs).toHaveLength(1);
+  });
+
+  test('un task mai visto (o id vuoto): no-op silenzioso, nessuna notifica', () => {
+    let notified = 0;
+    const unsub = subscribeTaskTabs(() => { notified++; });
+    forgetTaskTabs(uniq('mai-visto'));
+    forgetTaskTabs('');
+    unsub();
+    expect(notified).toBe(0);
   });
 });

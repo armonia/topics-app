@@ -150,6 +150,11 @@ const IT: Dict = {
   'board.task.steerPlaceholder': "Scrivi all'agent mentre lavora — lo riceve al prossimo turno…",
   'board.task.commentPlaceholder': 'Commenta…',
   'board.task.workspaceLabel': 'Spazio di lavoro',
+  // «Consegna» e non «Anteprima»: è la cosa CONSEGNATA, la sezione in cima al
+  // brief per cui il drawer si apre (e che ora si chiude da sé).
+  'board.task.deliveryLabel': 'Consegna',
+  'board.task.noWorkspaceTabs': 'Nessuna tab aperta su questo task.',
+  'board.task.openTab': 'Apri una tab',
   'board.task.reviewPreview': 'Anteprima',
   // ── TaskDetail: i tre sotto-pannelli CONDIZIONALI (Checks, Modifiche,
   //    Tentativi). Si vedono solo in stati precisi — checks girati, worktree con
@@ -205,7 +210,6 @@ const IT: Dict = {
   'board.task.attempt.stat.files.one': '{n} file · +{ins} −{del}',
   'board.task.attempt.stat.files.many': '{n} file · +{ins} −{del}',
   'board.settings.close': 'Chiudi le impostazioni della board',
-  'board.settings.dispatchOnPre': 'Avvia un agent quando un task entra in',
   'board.settings.dispatchOnTitle': 'Interruttore globale, vale per tutte le board. Il cap di agent in parallelo si imposta dal ▾ accanto al titolo della board.',
   'board.settings.effort': 'Effort',
   'board.settings.model': 'Modello',
@@ -625,6 +629,9 @@ const EN: Dict = {
   'board.task.steerPlaceholder': 'Write to the agent while it works — it gets it on the next turn…',
   'board.task.commentPlaceholder': 'Comment…',
   'board.task.workspaceLabel': 'Workspace',
+  'board.task.deliveryLabel': 'Delivery',
+  'board.task.noWorkspaceTabs': 'No tab open on this task.',
+  'board.task.openTab': 'Open a tab',
   'board.task.reviewPreview': 'Preview',
   // ── TaskDetail: the three CONDITIONAL sub-panels (Checks, Changes, Attempts).
   'board.task.checks.running': 'Pre-review checks running…',
@@ -663,7 +670,6 @@ const EN: Dict = {
   'board.task.attempt.stat.files.one': '{n} file · +{ins} −{del}',
   'board.task.attempt.stat.files.many': '{n} files · +{ins} −{del}',
   'board.settings.close': 'Close the board settings',
-  'board.settings.dispatchOnPre': 'Start an agent when a task enters',
   'board.settings.dispatchOnTitle': 'Global switch, applies to every board. The parallel-agents cap is set from the ▾ next to the board title.',
   'board.settings.effort': 'Effort',
   'board.settings.model': 'Model',

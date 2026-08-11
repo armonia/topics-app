@@ -34,7 +34,11 @@ import { readGlobalCap } from "./dispatch-capacity";
 // l'import separato. Della lista `TASK_STATUSES` questo modulo non è una porta:
 // chi la vuole la prende da `shared/board`.
 export type { TaskStatus, TaskComment, BoardSettings, BoardSettingsPatch, BlockerRef } from "../../shared/board";
-import { MAX_FANOUT, PREVIEW_PROMOTE_MAX_RATIO, TASK_STATUSES, isAgentWorking, readTaskWeight } from "../../shared/board";
+import {
+  MAX_FANOUT, PREVIEW_PROMOTE_MAX_RATIO, TASK_STATUSES,
+  formatStatusEvent, hasPlanApproveOption, isAgentWorking, normalizeActionLabel,
+  readTaskWeight, statusEventEnters,
+} from "../../shared/board";
 import { EFFORT_TIERS } from "../../shared/effort";
 import type { TaskStatus, TaskComment, BoardSettings, BoardSettingsPatch, BlockerRef, TaskWeight } from "../../shared/board";
 
@@ -73,7 +77,7 @@ export const LAND_ACTION_LABEL = "Landa su main";
  * chain server-side. "Andare online" stays a human pick — the agent never pushes.
  */
 export const PUBLISH_ACTION_LABEL = "Landa e pubblica";
-const normLabel = (s: string) => s.replace(/[^\p{L}\s]/gu, " ").replace(/\s+/g, " ").trim().toLowerCase();
+const normLabel = normalizeActionLabel;
 /** Tolerant match (ignores emoji/punctuation/spacing the model may add). */
 export function isLandActionLabel(text: string | undefined | null): boolean {
   return !!text && normLabel(text) === normLabel(LAND_ACTION_LABEL);
@@ -122,6 +126,10 @@ export interface Task {
   previewImage: string | null;
   /** Dispatch contract: deliver a PLAN to review before implementing. */
   planFirst: boolean;
+  /** IL commento che È il piano (la tab "Piano" rende questo, non l'ultimo
+   *  commento che capita). Lo scrive `addComment` riconoscendo il contratto
+   *  piano-prima; `null` sui task nati prima di questo puntatore. */
+  planCommentId: string | null;
   /** When the current claim started (dispatcher CAS) — the live "ci sta
    *  mettendo" ticker anchors here while a turn runs. */
   inProgressAt: string | null;
@@ -360,7 +368,13 @@ export interface TaskService {
    * strict descendant of the task bound to its topic (its own checklist),
    * while the KANBAN-05 gate keeps protecting the deliverable itself.
    */
-  update(args: { taskId: string; actor: Actor; by: string; patch: UpdateTaskPatch; projectId?: string; agentTopicId?: string | null }): Task;
+  /**
+   * `statusReason`: il PERCHÉ della transizione, che finisce nell'evento di
+   * stato accanto a `from→to`. Serve a chi muove una card per conto della
+   * macchina (il land in conflitto che la ritira da `done`): senza, la riga
+   * dice solo chi e quando, e chi rivede legge un ritiro senza causa.
+   */
+  update(args: { taskId: string; actor: Actor; by: string; patch: UpdateTaskPatch; projectId?: string; agentTopicId?: string | null; statusReason?: string | null }): Task;
   /**
    * `questionOptions` turns the comment into a human-decision request: the
    * SERVER composes the canonical ```question``` block (question = content,
@@ -829,6 +843,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       outputUrl: r.output_url ?? null,
       previewImage: r.preview_image ?? null,
       planFirst: !!r.plan_first,
+      planCommentId: r.plan_comment_id ?? null,
       inProgressAt: r.in_progress_at ?? null,
       agentMs: r.agent_ms ?? 0,
       agentTokens: r.agent_tokens ?? 0,
@@ -982,13 +997,41 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
    * INSERT — no dedupe, no question composing: transitions are deliberate
    * writes and each one IS the history entry ("chi l'ha spostato e quando").
    * The task's own status write already bumped updated_at (change signal).
+   *
+   * `reason` risponde alla terza domanda, quella che mancava: PERCHÉ. Una card
+   * che esce da `done` perché il land è andato in conflitto era indistinguibile
+   * da un umano che l'ha ritirata a mano — stessa riga, stesso autore. Il
+   * formato lo scrive `formatStatusEvent`, e nessuno lo compone a mano.
    */
-  function logStatus(taskId: string, from: string, to: string, by: string): void {
+  function logStatus(taskId: string, from: string, to: string, by: string, reason?: string | null): void {
     try {
       db.prepare(
         "INSERT INTO task_comments (id, task_id, author, content, kind, created_at) VALUES (?, ?, ?, ?, 'status', ?)",
-      ).run(uuid(), taskId, by || "system", `${from}→${to}`, now());
+      ).run(uuid(), taskId, by || "system", formatStatusEvent(from, to, reason), now());
     } catch { /* history is best-effort — never fail the transition itself */ }
+  }
+
+  /**
+   * Quando è iniziato il turno corrente = l'evento `…→in_progress` più recente.
+   * Lo legge il gate della consegna muta (`review_needs_summary`).
+   *
+   * NON è una `LIKE '%in_progress'`: da quando una transizione può portare la
+   * sua ragione (`done→in_progress · il land…`), il contenuto non finisce più
+   * con lo stato — e la LIKE avrebbe pescato un turno PRECEDENTE, cioè avrebbe
+   * riaperto in silenzio proprio il buco che quel gate chiude (una consegna muta
+   * sbloccata da un commento vecchio). Le righe di stato di un task sono poche:
+   * si leggono e si spacchettano con l'unico parser.
+   */
+  function lastTurnStart(taskId: string): string | null {
+    const rows = db.prepare(
+      "SELECT content, created_at FROM task_comments WHERE task_id = ? AND kind = 'status'",
+    ).all(taskId) as Array<{ content: string; created_at: string }>;
+    let latest: string | null = null;
+    for (const r of rows) {
+      if (!statusEventEnters(r.content, "in_progress")) continue;
+      if (latest === null || r.created_at > latest) latest = r.created_at;
+    }
+    return latest;
   }
 
   function getTaskRow(taskId: string): any {
@@ -1127,7 +1170,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return withSubtaskCounts(rows.map(rowToTask));
     },
 
-    update({ taskId, actor, by, patch, projectId, agentTopicId }): Task {
+    update({ taskId, actor, by, patch, projectId, agentTopicId, statusReason }): Task {
       const row = getTaskRow(taskId);
       // projectId guard: a session may only touch tasks on its own project.
       // A mismatch is reported as not_found (not 403) so cross-project ids stay
@@ -1211,9 +1254,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           // (the newest `…→in_progress` status event). Coach a retry — same
           // pattern as comment_too_long. kind='comment' only: an agent-authored
           // status flip must not satisfy the gate.
-          const turnStart = (db.prepare(
-            "SELECT MAX(created_at) AS ts FROM task_comments WHERE task_id = ? AND kind = 'status' AND content LIKE '%in\\_progress' ESCAPE '\\'",
-          ).get(taskId) as any).ts as string | null;
+          const turnStart = lastTurnStart(taskId);
           const fresh = (db.prepare(
             `SELECT COUNT(*) AS c FROM task_comments
               WHERE task_id = ? AND author NOT IN ('user', 'system') AND kind = 'comment'
@@ -1357,7 +1398,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       }
       // Status history: every applied transition lands in the thread with its
       // author — the timeline answers "chi l'ha spostato e quando".
-      if (patch.status !== undefined && patch.status !== current) logStatus(taskId, current, patch.status, by);
+      if (patch.status !== undefined && patch.status !== current) logStatus(taskId, current, patch.status, by, statusReason);
       // Hand-off into review without an explicit preview: promote the
       // delivery comment's evidence (comment-first delivery order).
       if (patch.status === "review") promoteReviewPreview(taskId);
@@ -1381,11 +1422,22 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // fence/newline layout the quick-reply parser expects is never delegated
       // to an LLM. A question inside `content` that already carries fences
       // would nest ambiguously → reject as invalid input.
+      let isPlanDelivery = false;
       if (questionOptions && questionOptions.length > 0) {
         const options = questionOptions.map((o) => String(o ?? "").trim()).filter(Boolean);
         if (options.length === 0) throw new TaskServiceError("invalid_input", "question options are empty");
         if (body.includes("```")) throw new TaskServiceError("invalid_input", "question content must not contain code fences");
+        // IL LAYOUT DI QUESTO BLOCCO NON SI TOCCA. Non è formattazione: è il
+        // contratto fra l'unico scrittore (qui) e il parser delle risposte
+        // rapide del client — cambiarlo significa card senza bottoni, cioè
+        // proprio la cosa che deve esserci SEMPRE su un task non chiuso.
+        // L'a-capo del corpo resta appiattito perché in questa forma una riga
+        // `- …` del corpo sarebbe indistinguibile da un'opzione. Un piano che
+        // vuole tenersi l'impaginazione la tiene FUORI dalla fence (il testo
+        // attorno al blocco viaggia intatto e viene reso come markdown): il
+        // posto dove separare corpo e opzioni è il RENDER, non il salvato.
         body = ["```question", body.replace(/\r?\n/g, " ").trim(), ...options.map((o) => `- ${o}`), "```"].join("\n");
+        isPlanDelivery = hasPlanApproveOption(options);
       }
       const row = getTaskRow(taskId);
       // Same projectId guard as update() — no cross-project commenting.
@@ -1410,6 +1462,15 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // drawer, review card) see a change signal and refetch — without this, a
       // new comment broadcasts task:updated but the payload looks identical.
       db.prepare("UPDATE tasks SET updated_at = ? WHERE id = ?").run(ts, taskId);
+      // QUALE commento è il piano: lo si SCRIVE qui, non lo si indovina dopo.
+      // Il segnale è il contratto piano-prima — un task `plan_first` + un blocco
+      // question che offre l'approvazione del piano, scritto da un agente (mai
+      // dall'umano). Un piano rifatto dopo «Da rivedere» porta le stesse opzioni
+      // e quindi RIMPIAZZA il puntatore; una rettifica qualunque, o la consegna
+      // con «Landa su main», non lo toccano.
+      if (isPlanDelivery && row.plan_first && author !== "user" && author !== "system") {
+        db.prepare("UPDATE tasks SET plan_comment_id = ? WHERE id = ?").run(id, taskId);
+      }
       // Evidence attached AFTER the review transition (review-first delivery
       // order): fill the still-empty card preview from this attachment.
       if (files.length) promoteReviewPreview(taskId);

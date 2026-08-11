@@ -27,7 +27,7 @@ import { ZERO_USAGE, type SessionUsage } from "./transcript-usage";
 import { onHumanHoldChange } from "../lib/human-hold-events";
 import type { TaskAttemptStore } from "./task-attempts";
 import { attemptHasWork, formatFanoutComment } from "../../shared/task-attempt";
-import { MAX_FANOUT, PREVIEW_RULE, readTaskWeight } from "../../shared/board";
+import { MAX_FANOUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_RULE, readTaskWeight, statusEventEnters } from "../../shared/board";
 import { decideNight, deadlineFrom } from "./night-mode";
 import { effectiveDispatchCap } from "./dispatch-capacity";
 import type { OutboundMessage } from "../../shared/ws-outbound";
@@ -349,6 +349,16 @@ export interface TaskDispatcher {
  */
 /** Quanti errori del provider di fila si perdonano prima di ricominciare a
  *  pagare tentativi. Tre: una raffica si assorbe, un guasto cronico no. */
+/**
+ * Dove cade l'effort quando la board dice "auto" ma il classificatore non
+ * risponde. NON è una preferenza: è ciò che la board faceva prima che l'auto
+ * esistesse, quindi un giudice muto lascia le cose come stavano.
+ *
+ * Vive solo su questo ramo: su main l'effort automatico non c'è (scelta del
+ * cherry-pick di `ed607a5a`, per non portare metà di una feature).
+ */
+const DEFAULT_AUTO_EFFORT = "medium";
+
 const FREE_PROVIDER_ERRORS = 3;
 
 /**
@@ -380,8 +390,6 @@ export function rotateFrom<T>(items: readonly T[], cursor: number): T[] {
   const da = ((cursor % items.length) + items.length) % items.length;
   return [...items.slice(da), ...items.slice(0, da)];
 }
-
-const DEFAULT_AUTO_EFFORT = "medium";
 
 const CHIP_QUEUED = "queued";
 const CHIP_WORKING = "working";
@@ -578,6 +586,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   const graceTimers = new Map<string, ReturnType<typeof setTimeout>>();
   /** Chi ha già detto nel thread che sta aspettando uno slot: una volta basta. */
   const waitingForSlot = new Set<string>();
+  /** Da quale board comincia il prossimo giro: vedi `reconcile` (turnazione). */
+  let boardCursor = 0;
   let resumeStagger = 0;
 
   /**
@@ -615,8 +625,6 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * Sta in memoria di proposito: un riavvio ri-pianifica comunque.
    */
   const providerErrors = new Map<string, number>();
-  /** Da quale board comincia il prossimo giro: vedi `reconcile` (turnazione). */
-  let boardCursor = 0;
 
   /**
    * One in-flight run: a turn being set up, running, or winding down.
@@ -1071,7 +1079,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         "",
         "⚠ PLAN FIRST — l'umano vuole approvare il piano PRIMA dell'implementazione:",
         "1. Analizza il lavoro (leggi il codice/contesto necessario), NON implementare nulla.",
-        `2. comment_task(task_id="${task.id}", content=<piano sintetico: cosa farai e in che ordine>, options=["Approva il piano", "Da rivedere"])`,
+        // Le etichette sono un CONTRATTO, non cortesia: la presenza di
+        // PLAN_APPROVE_LABEL è ciò che dice al servizio quale commento È il
+        // piano (→ tasks.plan_comment_id). Scritte dalla costante, non a mano.
+        `2. comment_task(task_id="${task.id}", content=<piano: cosa farai e in che ordine — a capo, elenchi e titoli si conservano, scrivilo leggibile>, options=["${PLAN_APPROVE_LABEL}", "${PLAN_REVISE_LABEL}"])`,
         `3. update_task(task_id="${task.id}", status="review") e fermati.`,
         "Implementi solo quando l'umano approva (riparti con la sua risposta).",
       );
@@ -1346,7 +1357,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         `- NON spostare il task di stato (niente update_task(status=...)): decide l'umano quale tentativo tenere, e il server rifiuta comunque il cambio finché il fan-out è aperto.`,
         `- NON creare sottotask e NON rinominare il task: la board è UNA e condivisa fra i ${total} tentativi — ne uscirebbero ${total} copie di tutto.`,
         "- NON scrivere nel thread del task (è condiviso): il tuo resoconto è l'ULTIMO messaggio di questo turno, ed è quello che finisce nel confronto.",
-        "- COMMITTA tutto sul tuo branch prima di chiudere: un tentativo con lavoro non committato conta come 'nessuna modifica' e viene scartato. Nessun merge, nessun push, nessun rebase su main.",
+        "- COMMITTA tutto sul tuo branch prima di chiudere: un tentativo con lavoro non committato conta come 'nessuna modifica' e viene scartato.",
+        "- NON TOCCARE main: niente push, niente merge VERSO main — landare è una decisione umana. Rifare la BASE del TUO ramo su main aggiornato (`git rebase main`) invece è permesso, ed è il gesto giusto quando il land dice che i tuoi commit collidono — la rebase sul main AGGIORNATO, non un merge di main dentro il ramo.",
         ...(checks.length
           ? [
               `- Prima di chiudere fai girare ${checks.length === 1 ? "questo comando" : "questi comandi"} — ${checks.map((c) => `\`${c.cmd}\``).join(", ")}: il server li rieseguirà sul tentativo scelto, e un tentativo rosso parte svantaggiato.`,
@@ -1695,7 +1707,11 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       const comments = deps.svc.get(task.id)?.comments ?? [];
       let turnStart = 0;
       for (const c of comments) {
-        if (c.kind === "status" && typeof c.content === "string" && c.content.endsWith("in_progress")) {
+        // `endsWith` no: da quando una transizione porta la sua ragione
+        // (`done→in_progress · il land…`) il contenuto non finisce con lo stato.
+        // Lo stesso parser del servizio, o le due letture del "quando inizia il
+        // turno" divergerebbero.
+        if (c.kind === "status" && statusEventEnters(c.content, "in_progress")) {
           const ts = Date.parse(c.createdAt);
           if (ts > turnStart) turnStart = ts;
         }

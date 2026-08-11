@@ -56,9 +56,23 @@ interface DatiSocket {
   percorso: string; cookie: string; xff: string; host: string; chiave: string;
 }
 
+/** Lavoro sincrono, misurato in millisecondi: il modo di occupare la macchina
+ *  senza cedere il turno a nessuno. Serve a un test solo, e serve a dire una
+ *  cosa che con l'attesa non si direbbe — vedi `carico` qui sotto. */
+function occupaLaMacchina(ms: number) {
+  const fine = Date.now() + ms;
+  while (Date.now() < fine) { /* apposta: nessun altro deve poter girare */ }
+}
+
 /** L'ascoltatore del tunnel, in piccolo: accetta gli upgrade sotto `/ws` e
- *  rifiuta tutto il resto — come fa il vero quando il percorso non esiste. */
-function ascoltatore() {
+ *  rifiuta tutto il resto — come fa il vero quando il percorso non esiste.
+ *
+ *  `carico` è lavoro SINCRONO dentro l'apertura, e non è un capriccio: è
+ *  l'unico modo di separare due istanti che di solito si toccano — «l'upgrade
+ *  è stato accolto di sopra» e «il socket di qui è aperto». Nella suite intera
+ *  a separarli sono gli altri cinquecento file; qui lo si fa apposta, così la
+ *  corsa si può guardare invece di aspettarla. */
+function ascoltatore(o: { carico?: number } = {}) {
   const aperti: DatiSocket[] = [];
   const ricevuti: Array<string | Uint8Array> = [];
   const chiusi: Array<{ code: number; reason: string }> = [];
@@ -83,7 +97,10 @@ function ascoltatore() {
       return new Response("serve un upgrade", { status: 426 });
     },
     websocket: {
-      open(ws) { aperti.push(ws.data); vivi.add(ws); },
+      open(ws) {
+        aperti.push(ws.data); vivi.add(ws);
+        if (o.carico !== undefined) occupaLaMacchina(o.carico);
+      },
       message(_ws, m) { ricevuti.push(typeof m === "string" ? m : new Uint8Array(m)); },
       close(ws, code, reason) { vivi.delete(ws); chiusi.push({ code, reason }); },
     },
@@ -670,7 +687,16 @@ describe("proxy ws · le due righe che nessun test reggeva", () => {
     const up = ascoltatore();
     const t = proxyNudo({ porta: up.porta });
     t.apri(1);
-    expect(await fino(() => up.aperti.length === 1)).toBe(true);
+    // Si aspetta il CANALE della macchina, non l'ascoltatore. È la stessa
+    // ragione scritta più su, e qui era la riga che rendeva il test un dado:
+    // che l'upgrade sia stato accolto di sopra NON vuol dire che il socket di
+    // qui sia aperto, e su un socket ancora in apertura un codice non ci va.
+    // Fermandosi al primo dei due eventi questo test misurava il percorso «il
+    // socket è aperto» o quello «si sta ancora aprendo» a seconda di quanto era
+    // occupata la macchina — cioè, dentro la suite intera, a caso. Il secondo
+    // percorso ha un test suo, qui sotto.
+    expect(await fino(() =>
+      t.arrivati.some((f) => f.f === "open" && f.k === GENERE_WS_APERTO))).toBe(true);
 
     for (const fr of componiStream({
       s: 3, k: GENERE_WS_CHIUSO,
@@ -682,5 +708,49 @@ describe("proxy ws · le due righe che nessun test reggeva", () => {
     expect(await fino(() => up.vivi() === 0)).toBe(true);
     expect(await fino(() => up.chiusi.length === 1)).toBe(true);
     expect(up.chiusi[0]!.code, "1006 non è inviabile: va tradotto in 1000").toBe(1000);
+  });
+
+  /**
+   * L'altra metà: l'ospite chiude MENTRE la stretta di mano non è finita.
+   *
+   * Non è un caso di scuola, è il caso che ha reso instabile il test qui sopra
+   * per tre giorni: fra l'`open` di chi ascolta e l'`onopen` di qui può passare
+   * lavoro altrui, e un ospite che chiude nel mezzo trova un socket a metà.
+   * `close(1000)` su un socket in apertura non manda nessun codice — per
+   * protocollo fa CADERE la connessione — e chi ascolta legge 1006: esattamente
+   * il codice che la guardia esiste per non far passare. Il difetto era doppio,
+   * e il secondo stava nel codice vero.
+   */
+  it("l'ospite chiude mentre il socket vero sta ancora nascendo: il codice arriva lo stesso", async () => {
+    // 30ms di lavoro sincrono dentro l'apertura di sopra: di qui non può essere
+    // ancora arrivato niente, quindi la corsa è armata per costruzione e non
+    // per fortuna.
+    const up = ascoltatore({ carico: 30 });
+    const t = proxyNudo({ porta: up.porta });
+    t.apri(1);
+    expect(await fino(() => up.aperti.length === 1)).toBe(true);
+    // La precondizione, dichiarata: l'upgrade è accolto di sopra e il canale
+    // della macchina NON è ancora nato — cioè il socket vero è ancora in
+    // apertura. Senza questa riga il test resterebbe verde anche il giorno in
+    // cui smettesse di provare quello che dice di provare.
+    expect(
+      t.arrivati.some((f) => f.f === "open" && f.k === GENERE_WS_APERTO),
+      "la corsa non è armata: il socket vero è già aperto",
+    ).toBe(false);
+
+    for (const fr of componiStream({
+      s: 3, k: GENERE_WS_CHIUSO,
+      h: scriviTestaWs({ w: 1 }),
+      dati: scriviChiusuraWs({ c: 1006, r: "caduta" }),
+    })) t.p.riceviFrame(SID, fr);
+
+    expect(await fino(() => up.chiusi.length === 1)).toBe(true);
+    expect(
+      up.chiusi[0]!.code,
+      "chiuso prima di aprirsi: il codice si dice all'apertura, non si perde",
+    ).toBe(1000);
+    expect(await fino(() => up.vivi() === 0)).toBe(true);
+    // E il socket non resta appeso: la sessione non ne tiene più nessuno.
+    expect(t.p.__socket(SID)).toBe(0);
   });
 });

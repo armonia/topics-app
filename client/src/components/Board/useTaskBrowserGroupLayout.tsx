@@ -25,6 +25,7 @@ import {
   usePersistedTaskLayout,
   taskBrowserLayout,
   reconcileTaskLayout,
+  syncRowsWithGroups,
   tabToPane,
   paneIdToContextId,
 } from '../../state/taskBrowserLayout';
@@ -60,6 +61,16 @@ export interface TaskDrawerLayoutInput {
   mediaPaths: string[];
   /** Renders thread/plan/media pane bodies (closure from TaskDetail). */
   renderSurface: RenderSurface;
+  /**
+   * Il drawer a due colonne monta la SESSIONE a sinistra, da sé: qui la pane
+   * `thread:` va tolta dalla barra, o la stessa sessione starebbe in due posti.
+   *
+   * Si toglie dalla VISTA, non dallo stato: l'identità della pane e la sua
+   * posizione nei gruppi restano nel layout persistito (che è cross-device),
+   * così stringere e riallargare non è una scrittura — e non riordina le tab di
+   * chi sta guardando il task dall'altro dispositivo.
+   */
+  threadInline?: boolean;
 }
 
 export interface TaskBrowserGroupLayout {
@@ -122,7 +133,7 @@ export interface TaskBrowserGroupLayout {
 }
 
 export function useTaskBrowserGroupLayout(taskId: string, input: TaskDrawerLayoutInput): TaskBrowserGroupLayout {
-  const { planActive, mediaPaths, renderSurface } = input;
+  const { planActive, mediaPaths, renderSurface, threadInline = false } = input;
   const tabsState = useTaskBrowserTabs(taskId);
   const persisted = usePersistedTaskLayout(taskId);
 
@@ -166,6 +177,37 @@ export function useTaskBrowserGroupLayout(taskId: string, input: TaskDrawerLayou
   useEffect(() => {
     if (reconciled !== persisted) taskBrowserLayout.set(taskId, reconciled);
   }, [taskId, reconciled, persisted]);
+
+  // La VISTA che GroupLayout riceve. Uguale a `reconciled`, tranne che in modo
+  // due-colonne, dove la pane `thread:` esce di scena (TaskDetail monta la
+  // sessione a sinistra). Derivata a ogni render, MAI persistita: vedi
+  // `threadInline`.
+  //
+  // Un gruppo rimasto senza pane sparisce dalla vista, e con lui la sua cella:
+  // se spariscono tutti la colonna di destra resta senza gruppi — caso reale su
+  // un task senza tab, senza piano e senza allegati — e TaskDetail lo riconosce
+  // da `panes.length === 0` per mostrare uno stato vuoto invece di un rettangolo.
+  const view = useMemo(() => {
+    const tid = threadPaneId(taskId);
+    if (!threadInline) return reconciled;
+    const groups = reconciled.groups
+      .map((g) => {
+        if (!g.paneIds.includes(tid)) return g;
+        const paneIds = g.paneIds.filter((id) => id !== tid);
+        return { ...g, paneIds, activePaneId: paneIds.includes(g.activePaneId) ? g.activePaneId : (paneIds[0] ?? g.activePaneId) };
+      })
+      .filter((g) => g.paneIds.length > 0);
+    if (groups.length === reconciled.groups.length && groups.every((g, i) => g === reconciled.groups[i])) return reconciled;
+    const r = syncRowsWithGroups(groups, reconciled.rows, reconciled.rowHeights);
+    const focusedGroupId = groups.some((g) => g.id === reconciled.focusedGroupId)
+      ? reconciled.focusedGroupId
+      : (groups[0]?.id ?? null);
+    return { groups, rows: r.rows, rowHeights: r.rowHeights, focusedGroupId };
+  }, [reconciled, threadInline, taskId]);
+  const viewPanes = useMemo(
+    () => (threadInline ? panes.filter((p) => p.id !== threadPaneId(taskId)) : panes),
+    [panes, threadInline, taskId],
+  );
 
   const onActivatePane = useCallback((groupId: string, paneId: string) => taskBrowserLayout.activatePane(taskId, groupId, paneId), [taskId]);
   // Close routing: a browser tab parks (soft-close → reopenable tray); the
@@ -258,11 +300,11 @@ export function useTaskBrowserGroupLayout(taskId: string, input: TaskDrawerLayou
     seedFromUrl,
     retireLoneSeed,
     groupLayoutProps: {
-      panes,
-      groups: reconciled.groups,
-      rows: reconciled.rows,
-      rowHeights: reconciled.rowHeights,
-      focusedGroupId: reconciled.focusedGroupId,
+      panes: viewPanes,
+      groups: view.groups,
+      rows: view.rows,
+      rowHeights: view.rowHeights,
+      focusedGroupId: view.focusedGroupId,
       dndScope: `task:${taskId}`,
       linkContext: { taskId },
       nonClosablePaneIds,

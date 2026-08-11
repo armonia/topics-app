@@ -13,11 +13,13 @@ import {
   topicEffortFor,
   languageDirective,
   topicsAgentSystemPrompt,
+  resolveMcpOutputTokens,
+  DEFAULT_MCP_OUTPUT_TOKENS,
 } from './topics-agent-prompt';
 import { __resetDeprecatedEnvWarnings } from './env-alias';
 
 const ENV_KEYS = ['TOPICS_CODEX_REASONING_EFFORT', 'CODEX_REASONING_EFFORT'] as const;
-const CLAUDE_ENV_KEYS = ['TOPICS_CLAUDE_EFFORT', 'CLAUDE_EFFORT'] as const;
+const CLAUDE_ENV_KEYS = ['TOPICS_CLAUDE_EFFORT', 'CLAUDE_EFFORT', 'TOPICS_MCP_OUTPUT_TOKENS'] as const;
 const savedEnv: Record<string, string | undefined> = {};
 for (const k of ENV_KEYS) savedEnv[k] = process.env[k];
 for (const k of CLAUDE_ENV_KEYS) savedEnv[k] = process.env[k];
@@ -202,6 +204,31 @@ describe('topicEffortFor — il selettore per-topic sul percorso PTY', () => {
  * inventata quando l'utente non ha scelto niente è peggio di nessuna direttiva
  * — e i chiamanti si appoggiano al vuoto per non concatenare una riga bianca.
  */
+describe('resolveMcpOutputTokens — il tetto ai risultati dei tool MCP', () => {
+  test('di default il tetto c\'è: 25.000 token della CLI sono ~100 kB a chiamata, e non scattano mai', () => {
+    expect(resolveMcpOutputTokens()).toBe(DEFAULT_MCP_OUTPUT_TOKENS);
+  });
+
+  test('`off` lo spegne — è la via con cui il gate si vede FALLIRE', () => {
+    for (const v of ['off', 'none', 'default', 'OFF']) {
+      process.env.TOPICS_MCP_OUTPUT_TOKENS = v;
+      expect(resolveMcpOutputTokens()).toBeNull();
+    }
+  });
+
+  test('un intero lo sposta', () => {
+    process.env.TOPICS_MCP_OUTPUT_TOKENS = '1500';
+    expect(resolveMcpOutputTokens()).toBe(1500);
+  });
+
+  test('un valore illeggibile NON lo spegne in silenzio: chi scrive un numero vuole un tetto', () => {
+    for (const v of ['molti', '0', '-3', '']) {
+      process.env.TOPICS_MCP_OUTPUT_TOKENS = v;
+      expect(resolveMcpOutputTokens()).toBe(DEFAULT_MCP_OUTPUT_TOKENS);
+    }
+  });
+});
+
 describe('languageDirective', () => {
   test("'auto' non è una lingua: nessuna direttiva", () => {
     expect(languageDirective('auto')).toBe('');
