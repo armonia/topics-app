@@ -441,12 +441,14 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
       // chiesto al sistema di ridurre il movimento se lo prendeva lo stesso,
       // ogni volta che cambiava tab.
       //
-      // Nessuna spec lo esercita, e non per dimenticanza: accendere
-      // `contextOptions.reducedMotion` nella config di Playwright fa cadere
-      // `reopen-closed-tab` (misurato l'08/08 — un `raised-control-overlay`
-      // finisce a coprire l'angolo del tab bar e intercetta il click). E' un
-      // difetto vero del percorso «movimento ridotto», ha il suo task, e finche'
-      // non e' chiuso la suite non puo' girare in quella modalita'.
+      // Adesso lo esercita la suite intera: `reducedMotion: "reduce"` sta nel
+      // `use` di playwright.config.ts, quindi OGNI spec che cambia tab passa di
+      // qui col ramo istantaneo. Restava chiuso da un difetto che sembrava di
+      // questa famiglia e non lo era — `reopen-closed-tab` andava in timeout sul
+      // click all'angolo della barra — ma la causa era mezzo pixel di inset del
+      // comando in testa alla riga, identico nelle due modalita': vedi
+      // `tests/e2e/reduced-motion-chrome-controls.spec.ts`, che ora misura
+      // posizione e cliccabilita' con e senza movimento ridotto.
       const riduciMovimento =
         typeof window !== 'undefined' &&
         window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;

@@ -117,6 +117,36 @@ export default defineConfig({
     // voci del menu tab, 8 test caddero su «Dividi a destra» perche' l'app
     // rendeva «Split right», correttamente.
     locale: "it-IT",
+    // MOVIMENTO RIDOTTO PER TUTTA LA SUITE.
+    //
+    // Non è una preferenza estetica del runner: è il modo pulito di togliere di
+    // mezzo una classe intera di rossi da «elemento mai stable». Playwright,
+    // prima di ogni click, aspetta che la scatola del bersaglio sia ferma per
+    // due frame consecutivi; con le transizioni accese, su un runner carico —
+    // quattro shard sulla stessa macchina — una tab che scorre o un pannello che
+    // scivola può non arrivarci dentro il timeout, e il test muore su
+    // un'animazione invece che su un difetto. Spente, la geometria è quella
+    // finale dal primo frame.
+    //
+    // Ciò che si perde è coperto altrove: le transizioni che sono LA cosa da
+    // provare (il composer che scende, il drawer) hanno le loro spec, e chi
+    // vuole vedere l'app muoversi ha `E2E_EVIDENCE=1`.
+    //
+    // Restava chiusa da un difetto: fino al 09/08 il comando in testa alla riga
+    // di chrome stava a `md:left-[5.5px]`, mezzo pixel dentro il punto (5, 5)
+    // che `reopen-closed-tab` usa per spostare il fuoco — e l'hit-test di
+    // Chromium arrotondava DENTRO la scatola, mandando il click a timeout. Il
+    // mezzo pixel è sparito (ab8d7514, inset a 6) e ora c'è una guardia che
+    // misura la cosa nelle due modalità:
+    // `tests/e2e/reduced-motion-chrome-controls.spec.ts`.
+    //
+    // `contextOptions` è la sola porta: fino alla 1.59 `reducedMotion` non è
+    // un'opzione di primo livello di `use` (lo è `colorScheme`, non questa).
+    // Conseguenza per chi scrive una spec che vuole l'altra modalità:
+    // `contextOptions` è UN fixture solo, quindi un `test.use` che lo tocca
+    // SOSTITUISCE l'oggetto invece di aggiungerci una chiave — la guardia infatti
+    // si apre i due contesti a mano con `browser.newContext`.
+    contextOptions: { reducedMotion: "reduce" },
   },
   outputDir: "test-results/artifacts",
   projects: [
