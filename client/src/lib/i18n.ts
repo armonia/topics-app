@@ -150,6 +150,11 @@ const IT: Dict = {
   'board.task.steerPlaceholder': "Scrivi all'agent mentre lavora — lo riceve al prossimo turno…",
   'board.task.commentPlaceholder': 'Commenta…',
   'board.task.workspaceLabel': 'Spazio di lavoro',
+  // «Consegna» e non «Anteprima»: è la cosa CONSEGNATA, la sezione in cima al
+  // brief per cui il drawer si apre (e che ora si chiude da sé).
+  'board.task.deliveryLabel': 'Consegna',
+  'board.task.noWorkspaceTabs': 'Nessuna tab aperta su questo task.',
+  'board.task.openTab': 'Apri una tab',
   'board.task.reviewPreview': 'Anteprima',
   // ── TaskDetail: i tre sotto-pannelli CONDIZIONALI (Checks, Modifiche,
   //    Tentativi). Si vedono solo in stati precisi — checks girati, worktree con
@@ -584,6 +589,9 @@ const EN: Dict = {
   'board.task.steerPlaceholder': 'Write to the agent while it works — it gets it on the next turn…',
   'board.task.commentPlaceholder': 'Comment…',
   'board.task.workspaceLabel': 'Workspace',
+  'board.task.deliveryLabel': 'Delivery',
+  'board.task.noWorkspaceTabs': 'No tab open on this task.',
+  'board.task.openTab': 'Open a tab',
   'board.task.reviewPreview': 'Preview',
   // ── TaskDetail: the three CONDITIONAL sub-panels (Checks, Changes, Attempts).
   'board.task.checks.running': 'Pre-review checks running…',

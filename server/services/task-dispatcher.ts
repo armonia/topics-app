@@ -27,7 +27,7 @@ import { ZERO_USAGE, type SessionUsage } from "./transcript-usage";
 import { onHumanHoldChange } from "../lib/human-hold-events";
 import type { TaskAttemptStore } from "./task-attempts";
 import { attemptHasWork, formatFanoutComment } from "../../shared/task-attempt";
-import { MAX_FANOUT, PREVIEW_RULE, readTaskWeight, statusEventEnters } from "../../shared/board";
+import { MAX_FANOUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_RULE, readTaskWeight, statusEventEnters } from "../../shared/board";
 import { decideNight, deadlineFrom } from "./night-mode";
 import { effectiveDispatchCap } from "./dispatch-capacity";
 import type { OutboundMessage } from "../../shared/ws-outbound";
@@ -1002,7 +1002,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         "",
         "⚠ PLAN FIRST — l'umano vuole approvare il piano PRIMA dell'implementazione:",
         "1. Analizza il lavoro (leggi il codice/contesto necessario), NON implementare nulla.",
-        `2. comment_task(task_id="${task.id}", content=<piano sintetico: cosa farai e in che ordine>, options=["Approva il piano", "Da rivedere"])`,
+        // Le etichette sono un CONTRATTO, non cortesia: la presenza di
+        // PLAN_APPROVE_LABEL è ciò che dice al servizio quale commento È il
+        // piano (→ tasks.plan_comment_id). Scritte dalla costante, non a mano.
+        `2. comment_task(task_id="${task.id}", content=<piano: cosa farai e in che ordine — a capo, elenchi e titoli si conservano, scrivilo leggibile>, options=["${PLAN_APPROVE_LABEL}", "${PLAN_REVISE_LABEL}"])`,
         `3. update_task(task_id="${task.id}", status="review") e fermati.`,
         "Implementi solo quando l'umano approva (riparti con la sua risposta).",
       );
