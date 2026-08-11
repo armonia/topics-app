@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="520" viewBox="0 0 1000 520" font-family="Helvetica, Arial, sans-serif">
+  <rect width="1000" height="520" fill="#12141a"/>
+
+  <text x="40" y="72" fill="#e8eaf0" font-size="46" font-weight="700">Tetto risultati MCP  25.000 → 4.000</text>
+
+  <!-- SPENTO -->
+  <rect x="40" y="110" width="430" height="215" rx="16" fill="#241a1a" stroke="#7a3b34" stroke-width="3"/>
+  <text x="66" y="172" fill="#ff8f6b" font-size="48" font-weight="700">SPENTO</text>
+  <text x="66" y="238" fill="#e8eaf0" font-size="52" font-weight="700">726k tok</text>
+  <text x="66" y="298" fill="#e8eaf0" font-size="52" font-weight="700">$1,55</text>
+
+  <!-- ACCESO -->
+  <rect x="530" y="110" width="430" height="215" rx="16" fill="#16261d" stroke="#2f6b4a" stroke-width="3"/>
+  <text x="556" y="172" fill="#7fe0a8" font-size="48" font-weight="700">ACCESO</text>
+  <text x="556" y="238" fill="#e8eaf0" font-size="52" font-weight="700">474k tok</text>
+  <text x="556" y="298" fill="#e8eaf0" font-size="52" font-weight="700">$0,67</text>
+
+  <path d="M478 218 L522 218" stroke="#7fe0a8" stroke-width="8"/>
+  <path d="M510 204 L528 218 L510 232 Z" fill="#7fe0a8"/>
+
+  <text x="40" y="400" fill="#7fe0a8" font-size="62" font-weight="700">−35% token   −57% costo</text>
+  <text x="40" y="462" fill="#e8eaf0" font-size="40">9 su 10 su file, risposta ancora ESATTA</text>
+  <text x="40" y="505" fill="#8b93a6" font-size="34">10 fetch web · stesse pagine · due bracci</text>
+</svg>
