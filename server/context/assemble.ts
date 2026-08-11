@@ -25,6 +25,8 @@ import { join } from "path";
 import type { ChatMessage } from "../providers/types";
 import type { AppContext, StoredMessage, Topic } from "../types";
 import { getActiveGoal, goalContextContent } from "../services/goals";
+import { boardSnapshotContent, isOrchestratorTopic } from "../services/orchestrator";
+import { createTaskService, projectIdForPath } from "../services/tasks";
 import { languageDirective } from "../lib/topics-agent-prompt";
 
 import { contextWindowFor } from "../usage/context-window";
@@ -221,6 +223,10 @@ export function assembleTopicContext(ctx: AppContext, args: AssembleArgs): Conte
     // L'obiettivo prima di tutto il resto, e anche nel turno lean: vedi
     // `pushGoalBlock`.
     pushGoalBlock(systemBlocks, topic, ctx);
+    // Lo stato della board, per la sola sessione-orchestratore. Fuori dal ramo
+    // lean come il goal, e per la stessa ragione: è STATO, non un documento —
+    // il turno in cui lo togli è il turno in cui il modello agisce a memoria.
+    pushBoardSnapshotBlock(systemBlocks, topic, ctx);
     // Lean (dispatcher resume/continuation): system prompt + cwd awareness ONLY.
     // The persistent CLI session already carries CLAUDE.md/README, the browser
     // instructions, memory & co. from the kickoff turn — re-sending them just
@@ -818,6 +824,44 @@ function pushGoalBlock(blocks: SystemBlock[], topic: Topic, ctx: AppContext): vo
   blocks.push({
     id: "synthetic:goal",
     label: "Obiettivo",
+    category: "synthetic",
+    content,
+    tokens: estimateTokens(content),
+    enabled: true,
+    countInBudget: true,
+    editable: false,
+    injectedByTopicsApp: true,
+  });
+}
+
+/**
+ * Lo stato della board della sessione-orchestratore (`server/services/orchestrator.ts`).
+ *
+ * Ricostruito qui a ogni assemblaggio, cioè a ogni turno: è l'unico modo in cui
+ * «a che punto siamo» si risponde leggendo invece che ricordando. Il blocco
+ * finisce nello slot volatile `board`, che non si deduplica mai — e non entra
+ * nella storia, perché il preambolo `<context>` non è il messaggio che si salva.
+ *
+ * Un errore di lettura NON fa saltare l'assemblaggio: il resto del contesto vale
+ * comunque, e il modello ha `list_tasks` per rimediare da sé.
+ */
+function pushBoardSnapshotBlock(blocks: SystemBlock[], topic: Topic, ctx: AppContext): void {
+  if (!isOrchestratorTopic(topic)) return;
+  if (!topic.projectPath) return;
+  let content: string;
+  try {
+    const svc = createTaskService(ctx.db);
+    content = boardSnapshotContent(
+      { listTasks: (pid) => svc.list({ scope: "project", projectId: pid, rootsOnly: true }) },
+      projectIdForPath(topic.projectPath),
+    );
+  } catch (err) {
+    console.warn("[assemble] board snapshot skipped:", err);
+    return;
+  }
+  blocks.push({
+    id: "synthetic:board-snapshot",
+    label: "Stato della board",
     category: "synthetic",
     content,
     tokens: estimateTokens(content),
