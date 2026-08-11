@@ -22,37 +22,44 @@
  * conversation has 50+ persisted turns. The client would then ask the server
  * to wipe and the server (until the regression guard landed) would oblige.
  *
- * The fix is two-sided (defense in depth):
+ * La difesa è su tre strati, e nessuno da solo basta:
  *
- *  1. **Client** (here): never claim "this is the first message" until we've
- *     actually hydrated the local state from the server's history endpoint.
- *  2. **Server** (`abortClearPolicy.ts`): re-derive the count from the DB and
- *     refuse to wipe a thread that already has multiple stored turns,
- *     regardless of what the client said.
- *
- * Either layer alone would catch the bug; both together close every race we
- * can think of and the next one we can't.
+ *  1. **Idratazione** (qui): finché il server non ci ha detto cosa c'è davvero
+ *     nel thread, il conteggio locale non è autorevole e non si cancella.
+ *  2. **Il predicato condiviso** (`shared/clear-messages-policy.ts`): la stessa
+ *     funzione che usa il server. Prima ce n'erano due — il server guardava se
+ *     il turno aveva prodotto lavoro, qui si contavano solo i messaggi utente —
+ *     e il 10 agosto 2026 lo Stop su un primo turno lungo otto minuti ha
+ *     svuotato la pagina mentre il server rifiutava di svuotare il disco.
+ *  3. **L'esito del server** (`useChat.stopSession`): il ramo distruttivo —
+ *     svuota la chat, chiude la pane, archivia il topic — parte solo se
+ *     `/api/chat/abort` risponde `cleared: true`. Il server vede cose che qui
+ *     non si vedono: le righe fuori dal ramo attivo, che la cancellazione
+ *     butterebbe comunque.
  */
 
+import { shouldHonorClearMessages } from "../../../shared/clear-messages-policy";
+import type { AssistantTurnShape } from "../../../shared/empty-turn";
+
 /**
- * Decide whether the client may wipe its own session state (and ask the
- * server to do the same) when the user stops an in-flight stream.
+ * Decide whether the client may propose the wipe (and act on it once the
+ * server agrees) when the user stops an in-flight stream.
  *
  * The wipe is intended for "I started typing, immediately changed my mind,
- * cancel before anything is saved". It must NOT fire for any longer thread.
+ * cancel before anything is saved". It must NOT fire for any longer thread,
+ * nor for a first turn that has already produced work.
  *
- * @param hydrated         True iff `loadHistory()` (or another server-truth
- *                         path) has populated this session's messages map at
- *                         least once. While false the local count is not
- *                         authoritative and we MUST NOT wipe.
- * @param userMessageCount Number of user-role messages currently in the
- *                         local map for this session. Only consulted when
- *                         `hydrated` is true.
+ * @param hydrated True iff `loadHistory()` (or another server-truth path) has
+ *                 populated this session's messages map at least once. While
+ *                 false the local list is not authoritative and we MUST NOT
+ *                 wipe.
+ * @param messages The session's messages as the client currently has them.
+ *                 Only consulted when `hydrated` is true.
  */
 export function decideClientWipeOnStop(
   hydrated: boolean,
-  userMessageCount: number,
+  messages: readonly AssistantTurnShape[],
 ): boolean {
   if (!hydrated) return false;
-  return userMessageCount <= 1;
+  return shouldHonorClearMessages(messages).shouldWipe;
 }
