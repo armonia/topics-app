@@ -1100,7 +1100,6 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
       .catch(() => { resolvedRef.current = null; /* trasporto caduto: il prossimo refetch riprova */ });
     return () => { alive = false; };
     // `outsider` fuori dalle dipendenze di proposito: lo SCRIVE questo effetto.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wantId, inFeed, tasks, pendingSelect]);
 
   // URL ⇄ drawer reflection (GLOBAL board only — `/task/<id>` points at the
