@@ -43,7 +43,7 @@
     "check:eslint-disable": "bun run scripts/check-eslint-disable.ts",
     "check:test-skips": "bun run scripts/check-test-skips.ts",
     "check:migrations": "bun run scripts/check-migration-numbers.ts",
-    "check:deadcode": "bunx --bun knip",
+    "check:deadcode": "./node_modules/.bin/knip-bun",
     "check:occlusion": "node scripts/check-occlusion.mjs",
     "check:bundle": "bun run scripts/check-bundle-size.ts",
     "check:lockfile": "bun install --frozen-lockfile && cd client && bun install --frozen-lockfile && cd ../landing && bun install --frozen-lockfile",
@@ -85,6 +85,7 @@
     "@playwright/test": "^1.58.2",
     "@types/bun": "^1.3.14",
     "@types/web-push": "^3.6.4",
-    "axe-core": "^4.12.1"
+    "axe-core": "^4.12.1",
+    "knip": "6.32.1"
   }
 }
