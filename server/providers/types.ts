@@ -515,8 +515,13 @@ export interface AIProvider {
    * riga `partial` in DB è un'ombra che si perde, e su una sessione ferma su
    * una domanda perderla significa buttare via la domanda. `unknown` non è
    * `idle`: chi non sa non uccide.
+   *
+   * `park: true` è una PROMESSA del chiamante: «se dici "open" riadotto subito».
+   * Chi la fa autorizza il provider a tenersi la scansione appena fatta invece
+   * di buttarla, così la riadozione non se la rifà da capo. Chi sonda e basta
+   * (la rotta della storia, a ogni caricamento della chat) la omette.
    */
-  brokerTurnState?(sessionKey: string): Promise<"open" | "idle" | "unknown">;
+  brokerTurnState?(sessionKey: string, opts?: { park?: boolean }): Promise<"open" | "idle" | "unknown">;
   getHistory?(sessionKey: string, limit?: number): Promise<unknown>;
   pauseSession?(sessionKey: string): Promise<void>;
   resumeSession?(sessionKey: string): Promise<void>;
