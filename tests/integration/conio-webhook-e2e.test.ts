@@ -66,7 +66,9 @@ function finziStripe() {
   const emessi: Array<Record<string, unknown>> = [];
   let n = 0;
 
-  const fetchImpl: typeof fetch = async (u, init) => {
+  // `as unknown as typeof fetch` come in stripe.test.ts e approval-prompt.test.ts:
+  // il tipo di `fetch` porta anche `preconnect`, che un finto non ha e non serve.
+  const fetchImpl = (async (u: unknown, init?: { body?: unknown }) => {
     const url = String(u);
     if (!url.endsWith("/v1/subscriptions/sub_e2e")) return new Response("no", { status: 404 });
     const corpo = new URLSearchParams(String(init?.body ?? ""));
@@ -81,7 +83,7 @@ function finziStripe() {
       data: { object: structuredClone(abbonamento) },
     });
     return new Response(JSON.stringify(abbonamento), { status: 200 });
-  };
+  }) as unknown as typeof fetch;
 
   return {
     fetchImpl,

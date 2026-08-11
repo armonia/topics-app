@@ -86,6 +86,7 @@ import { creaServizioLicenza, creaInterruttoreLicenza, baseUrlConcesso } from ".
 import { createLicenseRouter } from "./server/routes/license";
 import { createBillingRouter, isBillingWebhookPath } from "./server/routes/billing";
 import { createAccountRouter } from "./server/routes/account";
+import { createPeopleRouter } from "./server/routes/people";
 import { getGatewayWS } from "./server/gateway-ws";
 import { initProvider, recomputeDefault, getDefaultProviderName, stopAllProviders, getProvider } from "./server/providers";
 import { aiBridgeEnabled } from "./server/providers/claude-code";
@@ -502,6 +503,7 @@ const licenseRouter = createLicenseRouter(ctx);
 // l'interfaccia non offre nulla — e non è un cancello: nessun ramo di
 // `server/routes/account.ts` può togliere una capacità locale (ORG-08).
 const accountRouter = createAccountRouter(ctx);
+const peopleRouter = createPeopleRouter(ctx);
 // Il pagamento, che NON è ciò che è concesso: `server/routes/billing.ts` può
 // solo passare un gettone a `licenzaSvc.installa`, che lo riverifica con la
 // chiave pubblica. Nasce SPENTO — senza `STRIPE_SECRET_KEY` la rotta risponde
@@ -2155,6 +2157,7 @@ const opzioniServer = {
         || await contextPreviewRouter(req, url, pathname, method)
         || await authRouter(req, url, pathname, method)
         || await accountRouter(req, url, pathname, method)
+        || await peopleRouter(req, url, pathname, method)
         || await licenseRouter(req, url, pathname, method)
         || await billingRouter(req, url, pathname, method)
         || await dashboardRouter(req, url, pathname, method)

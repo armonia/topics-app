@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef, useMemo, type HTMLAttributes } from 'react';
 import { useT } from '../../hooks/useT';
 import type { TerminalAgentType } from '../../../../shared/terminal-session-types';
-import { ChevronRight, Archive, ArchiveRestore, TerminalSquare, Globe, FolderOpen, MoreHorizontal, Plus, X, CheckCheck, Pin, PinOff, LayoutGrid, Activity, BookOpen, Cpu, BarChart3, Clock, Kanban, Hourglass, BellOff, BellRing, type LucideIcon } from 'lucide-react';
+import { ChevronRight, Archive, ArchiveRestore, TerminalSquare, Globe, FolderOpen, MoreHorizontal, Plus, X, CheckCheck, Pin, PinOff, LayoutGrid, Activity, BookOpen, Cpu, BarChart3, Clock, Kanban, Hourglass, BellOff, BellRing, Eye, EyeOff, type LucideIcon } from 'lucide-react';
 import {
   usePendingActionStatus,
   useTerminalPendingStatus,
@@ -11,7 +11,7 @@ import { PendingActionRing } from '../Shared/PendingActionRing';
 import { PendingActionProgressOverlay } from '../Shared/PendingActionProgressOverlay';
 import { PaneAddMenu, PaneAddMenuItems } from '../Shared/PaneAddMenu';
 import { TopicItem } from './TopicItem';
-import { topicsApi } from '@/lib/api';
+import { topicsApi, projectsApi } from '@/lib/api';
 import { createPaneId, getTerminalSessionFromPaneId, pinKeyFromPaneId, resolvePinnedBrowserOrigin, useClosedTabs, type BrowserOrigin } from '@/state/pane/adapters';
 import { PinnedTiles, type PinnedTileMeta } from './PinnedTiles';
 import type { PinnedRow } from './pinnedLayout';
@@ -1915,6 +1915,10 @@ export function TopicTree({
             {projectContextMenu.muted ? <BellRing size={14} /> : <BellOff size={14} />}
             <span>{projectContextMenu.muted ? 'Riattiva notifiche' : 'Muta notifiche'}</span>
           </button>
+          <VoceIncognito
+            projectPath={projectContextMenu.projectPath}
+            onDone={() => setProjectContextMenu(null)}
+          />
           {onArchiveProject && (
             <button
               onClick={() => {
@@ -1930,6 +1934,47 @@ export function TopicTree({
         </ContextMenuPortal>
       )}
     </div>
+  );
+}
+
+// ── «Incognito» sul progetto ───────────────────────────────────────────────────
+/**
+ * L'unica leva umana della 092: un progetto è dell'organizzazione a meno che
+ * qualcuno non dica di no.
+ *
+ * Si carica da sé perché la sidebar conosce i progetti per PATH (l'indice della
+ * board), non come righe di `projects`: il record con l'interruttore lo si
+ * chiede quando il menu si apre, e non un istante prima — un fetch per ogni riga
+ * di progetto disegnata sarebbe una richiesta a vuoto per ogni apertura
+ * dell'app.
+ *
+ * Finché non si sa, la voce NON si disegna. Disegnarla con uno stato indovinato
+ * significherebbe mostrare «Rendi incognito» su un progetto che lo è già, cioè
+ * offrire un gesto che non fa quello che dice.
+ */
+function VoceIncognito({ projectPath, onDone }: { projectPath: string; onDone: () => void }) {
+  const [progetto, setProgetto] = useState<{ id: string; incognito: boolean } | null>(null);
+  useEffect(() => {
+    let vivo = true;
+    projectsApi
+      .byPath(projectPath)
+      .then(p => { if (vivo && p) setProgetto({ id: p.id, incognito: p.incognito === true }); })
+      .catch(() => {});
+    return () => { vivo = false; };
+  }, [projectPath]);
+
+  if (!progetto) return null;
+  return (
+    <button
+      onClick={() => {
+        projectsApi.update(progetto.id, { incognito: !progetto.incognito }).catch(() => {});
+        onDone();
+      }}
+      className={POPOVER_ITEM}
+    >
+      {progetto.incognito ? <Eye size={14} /> : <EyeOff size={14} />}
+      <span>{progetto.incognito ? 'Mostra al gruppo' : 'Rendi incognito'}</span>
+    </button>
   );
 }
 
