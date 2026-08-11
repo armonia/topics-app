@@ -8,9 +8,9 @@
  */
 import { describe, expect, test, beforeEach } from 'bun:test';
 import {
-  __setQueueStorage, adoptLegacyQueue, claimHead, clearQueue, decideSend, enqueueTurn,
-  getQueue, holdQueue, isHeld, legacyQueueKey, parseQueue, queueKey, releaseClaim,
-  releaseHold, removeTurn, requeueFront, updateTurn, CLAIM_LEASE_MS,
+  __setQueueStorage, adoptLegacyQueue, claimBatch, clearQueue, decideSend, enqueueTurn,
+  getQueue, holdQueue, isHeld, legacyQueueKey, mergeBatch, parseQueue, queueKey, releaseClaim,
+  releaseHold, removeTurn, requeueFront, updateTurn, BATCH_SEPARATOR, CLAIM_LEASE_MS,
 } from './chatQueue';
 import type { QueueStorage } from '../hooks/outboundQueue';
 
@@ -91,50 +91,97 @@ describe('formati vecchi', () => {
 });
 
 describe('una finestra sola drena', () => {
-  test('la testa esce una volta: la seconda finestra trova la prenotazione e si tira indietro', () => {
+  test('la coda esce una volta: la seconda finestra trova la prenotazione e si tira indietro', () => {
     enqueueTurn(SK, 'uno');
     enqueueTurn(SK, 'due');
 
-    const preso = claimHead(SK, 'finestra-A', 1_000);
-    const rubato = claimHead(SK, 'finestra-B', 1_100);
+    const preso = claimBatch(SK, 'finestra-A', 1_000);
+    const rubato = claimBatch(SK, 'finestra-B', 1_100);
 
-    expect(preso?.content).toBe('uno');
-    expect(rubato).toBeNull();
-    expect(getQueue(SK).map(i => i.content)).toEqual(['due']);
+    expect(preso.map(i => i.content)).toEqual(['uno', 'due']);
+    expect(rubato).toEqual([]);
+    expect(getQueue(SK)).toHaveLength(0);
   });
 
   test('la prenotazione scade: se chi l\'aveva presa è morto, un\'altra finestra riprende', () => {
     enqueueTurn(SK, 'uno');
-    claimHead(SK, 'finestra-A', 1_000);
+    claimBatch(SK, 'finestra-A', 1_000);
     enqueueTurn(SK, 'due');
 
-    const ripreso = claimHead(SK, 'finestra-B', 1_000 + CLAIM_LEASE_MS + 1);
-    expect(ripreso?.content).toBe('due');
+    const ripreso = claimBatch(SK, 'finestra-B', 1_000 + CLAIM_LEASE_MS + 1);
+    expect(ripreso.map(i => i.content)).toEqual(['due']);
   });
 
   test('rilasciata la prenotazione, la stessa finestra può riprendere subito', () => {
-    enqueueTurn(SK, 'uno');
-    enqueueTurn(SK, 'due');
-    claimHead(SK, 'finestra-A', 1_000);
+    enqueueTurn(SK, 'uno', { fastMode: true });
+    enqueueTurn(SK, 'due'); // opzioni diverse: resta indietro, non si unisce
+    claimBatch(SK, 'finestra-A', 1_000);
     releaseClaim(SK, 'finestra-A');
-    expect(claimHead(SK, 'finestra-B', 1_100)?.content).toBe('due');
+    expect(claimBatch(SK, 'finestra-B', 1_100).map(i => i.content)).toEqual(['due']);
   });
 
   test('su coda vuota non prenota niente: nessun lucchetto lasciato appeso', () => {
-    expect(claimHead(SK, 'finestra-A', 1_000)).toBeNull();
+    expect(claimBatch(SK, 'finestra-A', 1_000)).toEqual([]);
     expect(store.map.has(`msgQueue:claim:${SK}`)).toBe(false);
   });
 
   test('un 409 rimette in TESTA: chi era dietro non scavalca', () => {
-    enqueueTurn(SK, 'uno');
-    enqueueTurn(SK, 'due');
-    const head = claimHead(SK, 'finestra-A', 1_000)!;
+    enqueueTurn(SK, 'uno', { fastMode: true });
+    enqueueTurn(SK, 'due'); // opzioni diverse: non entra nel batch
+    const batch = claimBatch(SK, 'finestra-A', 1_000);
 
-    requeueFront(SK, head);
+    requeueFront(SK, batch);
 
     expect(getQueue(SK).map(i => i.content)).toEqual(['uno', 'due']);
     // E non si duplica se per qualche strada ci torna due volte.
-    requeueFront(SK, head);
+    requeueFront(SK, batch);
+    expect(getQueue(SK).map(i => i.content)).toEqual(['uno', 'due']);
+  });
+});
+
+// Il guasto: scrivere tre righe mentre l'agente lavora faceva partire TRE
+// turni in fila, e il primo partiva senza aver mai visto gli altri due.
+describe('la coda parte tutta insieme, non uno alla volta', () => {
+  test('tre messaggi accodati escono in UN batch solo, nell\'ordine scritto', () => {
+    enqueueTurn(SK, 'uno');
+    enqueueTurn(SK, 'due');
+    enqueueTurn(SK, 'tre');
+
+    const batch = claimBatch(SK, 'w1', 1_000);
+
+    expect(batch.map(i => i.content)).toEqual(['uno', 'due', 'tre']);
+    expect(getQueue(SK)).toHaveLength(0);
+    expect(mergeBatch(batch).content).toBe(['uno', 'due', 'tre'].join(BATCH_SEPARATOR));
+  });
+
+  test('il turno unito parte con le opzioni con cui era stato scritto', () => {
+    enqueueTurn(SK, 'uno', { fastMode: true, model: 'opus' });
+    enqueueTurn(SK, 'due', { fastMode: true, model: 'opus' });
+    expect(mergeBatch(claimBatch(SK, 'w1', 1_000)).options).toEqual({ fastMode: true, model: 'opus' });
+  });
+
+  test('opzioni diverse spezzano il batch: il resto parte al turno dopo', () => {
+    enqueueTurn(SK, 'normale');
+    enqueueTurn(SK, 'ancora normale');
+    enqueueTurn(SK, 'ma questo in fast', { fastMode: true });
+
+    expect(claimBatch(SK, 'w1', 1_000).map(i => i.content)).toEqual(['normale', 'ancora normale']);
+    releaseClaim(SK, 'w1');
+    expect(claimBatch(SK, 'w1', 1_100).map(i => i.content)).toEqual(['ma questo in fast']);
+  });
+
+  test('opzioni assenti e opzioni vuote sono la stessa cosa: non spezzano niente', () => {
+    enqueueTurn(SK, 'uno');
+    enqueueTurn(SK, 'due', {});
+    enqueueTurn(SK, 'tre', { fastMode: false });
+    expect(claimBatch(SK, 'w1', 1_000)).toHaveLength(3);
+  });
+
+  test('l\'intero batch torna in coda se il turno non parte, nel suo ordine', () => {
+    enqueueTurn(SK, 'uno');
+    enqueueTurn(SK, 'due');
+    const batch = claimBatch(SK, 'w1', 1_000);
+    requeueFront(SK, batch);
     expect(getQueue(SK).map(i => i.content)).toEqual(['uno', 'due']);
   });
 });
@@ -173,26 +220,26 @@ describe('lo stop tiene', () => {
 });
 
 describe('la testa estratta non si perde', () => {
-  // `claimHead` toglie la testa dallo storage DUREVOLE. Se l'invio poi fallisce
+  // `claimBatch` toglie la testa dallo storage DUREVOLE. Se l'invio poi fallisce
   // per un motivo che `performSend` non raccoglie da sé (il 409 sì, la rete
   // pure), quella era l'unica copia: `requeueFront` è la strada del ritorno che
-  // il commento di `claimHead` prometteva e che nessuno percorreva.
+  // il commento di `claimBatch` prometteva e che nessuno percorreva.
   test('rimessa in TESTA, non in fondo: non si fa scavalcare da chi era dietro', () => {
     const primo = enqueueTurn(SK, 'primo')!;
-    enqueueTurn(SK, 'secondo');
-    const head = claimHead(SK, 'w1')!;
+    enqueueTurn(SK, 'secondo', { fastMode: true }); // opzioni diverse: resta in coda
+    const [head] = claimBatch(SK, 'w1');
     expect(head.id).toBe(primo.id);
     expect(getQueue(SK).map(i => i.content)).toEqual(['secondo']);
 
-    requeueFront(SK, head);
+    requeueFront(SK, [head]);
     expect(getQueue(SK).map(i => i.content)).toEqual(['primo', 'secondo']);
   });
 
   test('rimetterla due volte non la duplica', () => {
     enqueueTurn(SK, 'primo');
-    const head = claimHead(SK, 'w1')!;
-    requeueFront(SK, head);
-    requeueFront(SK, head);
+    const batch = claimBatch(SK, 'w1');
+    requeueFront(SK, batch);
+    requeueFront(SK, batch);
     expect(getQueue(SK).length).toBe(1);
   });
 });
