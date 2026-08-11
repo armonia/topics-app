@@ -24,6 +24,7 @@ import { createTopic, deleteTopic, resetPaneStore, resetProjectPanes, seedProjec
 import { mkdirSync, rmSync, writeFileSync } from "fs";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
+import { beat, didascalia } from "./helpers/evidence";
 
 hermetic(test);
 
@@ -85,38 +86,6 @@ async function openProjectBoard(page: Page) {
   if (!opened) throw new Error("no + menu with a Board (kanban) entry found");
   await item.click();
   await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 10000 });
-}
-
-/** Pausa che serve SOLO alla clip di consegna (E2E_EVIDENCE=1). Zero a suite normale. */
-const beat = (page: Page, ms = 1200) =>
-  process.env.E2E_EVIDENCE === "1" ? page.waitForTimeout(ms) : Promise.resolve();
-
-/**
- * Didascalia sulla clip — SOLO sotto E2E_EVIDENCE, zero effetto sulla suite.
- *
- * L'anteprima di un task viene resa a 268px di larghezza: da un video di una UI
- * a 1440px non si legge una riga, e «devi ancora saper dire cosa mostra» non è
- * soddisfatto da una macchia di pannelli. Un titolo grande sopravvive alla
- * riduzione, quindi la clip dice da sé cosa sta provando. `pointer-events:none`
- * e in basso: non copre il drawer e non intercetta un click.
- */
-async function didascalia(page: Page, testo: string) {
-  if (process.env.E2E_EVIDENCE !== "1") return;
-  await page.evaluate((t) => {
-    let el = document.getElementById("__e2e_caption__");
-    if (!el) {
-      el = document.createElement("div");
-      el.id = "__e2e_caption__";
-      el.setAttribute(
-        "style",
-        "position:fixed;left:0;right:0;bottom:0;z-index:2147483647;pointer-events:none;" +
-        "background:rgba(10,10,12,.92);color:#fff;font:700 44px/1.25 system-ui,sans-serif;" +
-        "padding:14px 20px;letter-spacing:-.01em;border-top:3px solid #8b5cf6;",
-      );
-      document.body.appendChild(el);
-    }
-    el.textContent = t;
-  }, testo);
 }
 
 test.describe("Sottotask · dall'id al drawer, a qualunque profondità", () => {
