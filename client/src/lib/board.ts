@@ -478,6 +478,22 @@ export const boardApi = {
    */
   listAll: (status?: TaskStatus) =>
     req<{ tasks: BoardTask[] }>(`/all-boards/tasks${status ? `?status=${status}` : ''}`).then(r => r.tasks),
+  /**
+   * LA PORTA UNICA «da un id al suo task, a qualunque profondità».
+   *
+   * `listAll` è `rootsOnly` — le colonne mostrano le radici, gli step vivono
+   * nell'albero del genitore — quindi `(await listAll()).find(t => t.id === id)`
+   * è `undefined` per QUALSIASI sottotask, e chi lo usava come risolutore
+   * (drawer, deep-link `/task/<id>`, click su una notifica) non arrivava a
+   * niente. Questa è la sola funzione da chiamare quando si ha in mano un id e
+   * si vuole il suo task: non filtra per profondità né per progetto.
+   *
+   * `null` = quell'id non esiste (risposta, non errore: il server risponde 200).
+   * Un rifiuto della promise è un guasto di TRASPORTO — chi aspetta un deep-link
+   * deve poterli distinguere: sul primo smette, sul secondo riprova.
+   */
+  resolve: (taskId: string) =>
+    req<{ task: BoardTask | null }>(`/all-boards/tasks/${enc(taskId)}`).then(r => r.task ?? null),
   create: (projectId: string, body: CreateTaskBody) =>
     req<BoardTask>(`/boards/${enc(projectId)}/tasks`, { method: 'POST', body: JSON.stringify(body) }),
   /** "Dove va questo testo?" — sola lettura, non tocca un solo task. */
