@@ -979,6 +979,47 @@ html, body {
   }
 }
 
+/* Una card appena NATA. Stesso problema del lampo verde all'altro capo della
+   board: scrivi un task nel composer, quello sparisce, e la card atterra in
+   fondo a una colonna che spesso non stai guardando — quindi "ho premuto invio
+   e non è successo niente". Il lampo dice QUALE card è nata; a portarla sotto
+   gli occhi ci pensa lo scorrimento (vedi KanbanBoardPane), ma solo per chi
+   l'ha scritta.
+   Azzurro, non verde: il verde su questa board significa già "chiuso", e due
+   eventi opposti non possono avere lo stesso colore. È il `sky-400` che l'app
+   usa già come accento (link, chip attivi).
+   Stessa forma tecnica del verde e per le stesse ragioni: solo box-shadow —
+   nessun transform (i vicini di un drag in corso non si devono spostare) e
+   nessun background-color, che rimpiazzerebbe `bg-surface` invece di comporsi
+   col fondo. La tinta è un'ombra INSET a raggio enorme. E stessa curva: 45% del
+   tempo acceso e fermo, il resto per spegnersi — con una sfumata lineare quasi
+   tutto il calo cade nei primi decimi e il lampo si perde. */
+@keyframes taskCreatedFlash {
+  0%, 45% {
+    box-shadow: 0 0 0 2px rgb(56 189 248 / 0.9), 0 0 18px 2px rgb(56 189 248 / 0.45),
+                inset 0 0 0 999px rgb(56 189 248 / 0.16);
+  }
+  75% {
+    box-shadow: 0 0 0 2px rgb(56 189 248 / 0.5), 0 0 12px 1px rgb(56 189 248 / 0.2),
+                inset 0 0 0 999px rgb(56 189 248 / 0.08);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgb(56 189 248 / 0), 0 0 0 0 rgb(56 189 248 / 0),
+                inset 0 0 0 999px rgb(56 189 248 / 0);
+  }
+}
+
+.task-created-flash {
+  animation: taskCreatedFlash 2.4s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .task-created-flash {
+    animation: none;
+    box-shadow: 0 0 0 2px rgb(56 189 248 / 0.6), inset 0 0 0 999px rgb(56 189 248 / 0.12);
+  }
+}
+
 /* Skeleton loading animation */
 @keyframes shimmer {
   0% { background-position: -200% 0; }

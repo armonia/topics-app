@@ -110,6 +110,17 @@ export const DISPATCH_CHIP: Record<string, { text: string; cls: string; title?: 
 export const COMPOSER_CURSOR_KEY = 'board:composer';
 
 /**
+ * Quanto resta acceso il lampo su una card appena creata. Uguale al keyframe
+ * `taskCreatedFlash` in index.css — se i due divergono la classe se ne va prima
+ * che l'animazione finisca (taglio secco) o resta dopo (card ferma e accesa).
+ *
+ * È anche la finestra entro cui la board accetta di scorrere fino alla card
+ * nuova: passata quella, il gesto che l'ha creata non è più "appena successo" e
+ * portare a schermo qualcosa sarebbe uno strattone che risponde a niente.
+ */
+export const CREATED_FLASH_MS = 2400;
+
+/**
  * One tab of a task's surface tab group. The Thread is the always-present body;
  * these are the auxiliary surfaces the side panel / inline tab bar switch to.
  */
