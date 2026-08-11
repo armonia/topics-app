@@ -63,16 +63,16 @@ const PID = "alpha-abc123";
 let seq = 0;
 function seedTask(
   db: Database,
-  o: { id?: string; status?: string; attempts?: number; assignedTopicId?: string | null; dispatchState?: string | null; createdAt?: string } = {},
+  o: { id?: string; status?: string; attempts?: number; assignedTopicId?: string | null; dispatchState?: string | null; createdAt?: string; parentTaskId?: string | null; text?: string } = {},
 ): string {
   const id = o.id ?? `t${++seq}`;
   const ts = o.createdAt ?? new Date(Date.now() + seq).toISOString();
   // FK: a seeded binding needs its topics row, like in prod.
   if (o.assignedTopicId) db.run("INSERT OR IGNORE INTO topics (id) VALUES (?)", [o.assignedTopicId]);
   db.run(
-    `INSERT INTO tasks (id, project_id, text, status, created_at, updated_at, dispatch_attempts, assigned_topic_id, dispatch_state)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [id, PID, "task " + id, o.status ?? "todo", ts, ts, o.attempts ?? 0, o.assignedTopicId ?? null, o.dispatchState ?? null],
+    `INSERT INTO tasks (id, project_id, text, status, created_at, updated_at, dispatch_attempts, assigned_topic_id, dispatch_state, parent_task_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, PID, o.text ?? ("task " + id), o.status ?? "todo", ts, ts, o.attempts ?? 0, o.assignedTopicId ?? null, o.dispatchState ?? null, o.parentTaskId ?? null],
   );
   return id;
 }
@@ -1938,5 +1938,39 @@ describe("PREVIEW_RULE — una stringa sola, in tutti gli envelope", () => {
     };
     for (const r of roots) walk(join(repo, r));
     expect(hits.sort()).toEqual(["server/services/task-dispatcher.test.ts", "shared/board.ts"]);
+  });
+});
+
+describe("la coda deve dire il vero", () => {
+  it("budget finito = parcheggiata con la ragione, non ferma in coda a fingersi lavorabile", async () => {
+    // Misurato l'11/08: 19 card in colonna «coda», interruttore acceso, macchina
+    // libera, zero agenti. Il tick le scartava in silenzio perché avevano finito
+    // i tentativi — nessun chip, nessuna riga — e il board contava come lavoro
+    // ciò che era fermo per sempre.
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchRetryCap: 2 });
+    seedTask(h.db, { id: "t1", status: "todo", attempts: 2 });
+    await h.dispatcher.tick(PID);
+    await flush();
+    const t = h.task("t1")!;
+    expect(t.status).toBe("backlog");        // fuori dalla coda
+    expect(t.dispatchState).toBe("failed");  // e lo dice
+    expect(h.svc.get("t1")!.comments.map((c) => c.content).join("\n")).toContain("Budget dei tentativi finito");
+    expect(h.turns.length).toBe(0);          // nessun turno sprecato
+  });
+
+  it("il padre che finisce il turno coi figli aperti non paga il tentativo, e aspetta", () => {
+    // Era questo a fabbricare le 19 zombie: il rimando in coda del padre
+    // lasciava il contatore com'era, e al secondo giro la card rientrava già al
+    // tetto — invisibile, senza chip, mai più reclamabile.
+    const h = harness();
+    seedTask(h.db, { id: "padre", status: "in_progress", attempts: 2, assignedTopicId: "topic-padre" });
+    seedTask(h.db, { id: "figlio", status: "todo", parentTaskId: "padre" });
+    h.svc.deliverToReviewBySystem({ taskId: "padre", reason: "turno finito" });
+    const p = h.task("padre")!;
+    expect(p.status).toBe("todo");
+    expect(p.dispatchAttempts).toBe(1);          // il tentativo torna indietro
+    expect(p.dispatchState).toBe("waiting");     // e il board dice perché
+    expect(p.dispatchDeferredUntil).toBeTruthy(); // niente giro a vuoto immediato
   });
 });
