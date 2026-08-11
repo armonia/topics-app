@@ -133,7 +133,7 @@ describe("callOpenBrowserPane", () => {
     expect(headers["Content-Type"]).toBe("application/json");
     expect(headers["X-Gateway-Token"]).toBeUndefined();
     expect(seen.init?.body).toBe(JSON.stringify({ url: "https://example.com" }));
-    expect(result).toEqual({ url: "https://example.com/final", title: "Example Domain" });
+    expect(result).toEqual({ url: "https://example.com/final", title: "Example Domain", visible: true });
   });
 
   test("forwards gateway-token as X-Gateway-Token header", async () => {
@@ -185,7 +185,9 @@ describe("callOpenBrowserPane", () => {
       { url: "https://example.com/foo" },
       fetchImpl,
     );
-    expect(result).toEqual({ url: "https://example.com/foo", title: "" });
+    // `visible` assente ⇒ true: un server più vecchio del flag non deve far
+    // dire all'agente «non si vede» di un pannello che magari si vede benissimo.
+    expect(result).toEqual({ url: "https://example.com/foo", title: "", visible: true });
   });
 
   test("surfaces server-side { error } as throw", async () => {
@@ -669,6 +671,32 @@ describe("handleMessage", () => {
       expect(result.isError).toBeUndefined();
       expect(result.content[0].text).toContain("processId=p1");
       expect(seenUrl).toContain("/api/sessions/s/scripts/run");
+    } finally {
+      (globalThis as any).fetch = orig;
+    }
+  });
+
+  test("open_browser_pane: i due esiti si LEGGONO diversi (visibile vs contesto invisibile)", async () => {
+    // Finché il messaggio era lo stesso, «pannello aperto» e «contesto vivo che
+    // nessuno vede» erano indistinguibili da fuori: l'agente diceva all'umano
+    // «l'ho aperta» mentre sullo schermo non compariva niente (11/08/2026).
+    const orig = globalThis.fetch;
+    const call = async (visible: boolean) => {
+      (globalThis as any).fetch = stubFetch(async () =>
+        new Response(JSON.stringify({ url: "https://example.com/", title: "T", visible }), { status: 200 }),
+      );
+      const resp = await handleMessage(
+        { jsonrpc: "2.0", id: 77, method: "tools/call", params: { name: "open_browser_pane", arguments: { url: "https://example.com/" } } },
+        ARGS,
+      );
+      return (resp!.result as any).content[0].text as string;
+    };
+    try {
+      expect(await call(true)).toContain("Opened browser pane at https://example.com/");
+      const invisibile = await call(false);
+      expect(invisibile).toContain("NO visible pane");
+      expect(invisibile).toContain("browser_focus_tab");
+      expect(invisibile).not.toContain("Opened browser pane");
     } finally {
       (globalThis as any).fetch = orig;
     }
