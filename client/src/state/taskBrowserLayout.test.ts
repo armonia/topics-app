@@ -249,7 +249,7 @@ describe('forgetTaskLayout (task archiviato)', () => {
   test('annulla il PUT in coda — e senza forget quel PUT parte', async () => {
     const real = globalThis.fetch;
     const puts: string[] = [];
-    globalThis.fetch = (async (url: any, init?: any) => {
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
       if (init?.method === 'PUT') puts.push(String(url));
       return new Response('{}', { status: 200 });
     }) as typeof fetch;
