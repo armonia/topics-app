@@ -1,0 +1,25 @@
+-- 097: QUALE commento è il piano.
+--
+-- La tab "Piano" del drawer mostrava «l'ultimo commento non-utente» di un task
+-- `plan_first`. È un'euristica, e su 13 task piano-prima sbagliava 13 volte su
+-- 13: qualunque cosa l'agente scrivesse DOPO il piano — una rettifica, una
+-- domanda, la consegna con «Landa su main» — diventava «il piano».
+--
+-- Il puntatore lo scrive `addComment` nel momento in cui il piano arriva,
+-- riconoscendo il contratto piano-prima (task `plan_first` + blocco question
+-- che offre l'approvazione del piano, autore = agente). Un piano rifatto dopo
+-- «Da rivedere» porta le stesse opzioni e rimpiazza il puntatore; nient'altro
+-- lo tocca.
+--
+-- NIENTE FOREIGN KEY, ed è una scelta. `task_comments` cancella in cascata col
+-- task; una FK qui aggiungerebbe un secondo cammino di cancellazione sulla
+-- stessa riga per nessun guadagno — il lettore risolve l'id nel thread che ha
+-- già in mano, e un id che non risolve vale esattamente quanto NULL.
+--
+-- NULL per tutti i task esistenti: la struttura del piano di ieri è persa in
+-- SCRITTURA (l'appiattimento degli a-capo), non è ricostruibile, e inventare
+-- un puntatore all'indietro sarebbe indovinare due volte. Il lettore ha una
+-- ricaduta esplicita per quelle righe (l'ultimo commento non-utente le cui
+-- opzioni contengono l'approvazione del piano), che è la stessa regola di
+-- questo puntatore applicata a posteriori.
+ALTER TABLE tasks ADD COLUMN plan_comment_id TEXT;
