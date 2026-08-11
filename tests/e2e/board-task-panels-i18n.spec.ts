@@ -289,5 +289,18 @@ test.describe("Board · i pannelli condizionali del task parlano inglese", () =>
     await checks.click();
     await expect(drawer.getByText("The normal path is")).toBeVisible();
     await expect(drawer.getByText("the agent restarts with this output")).toBeVisible();
+
+    // Solo sotto E2E_EVIDENCE, cioè quando questa spec sta girando per PRODURRE
+    // la clip di consegna. Due cose che al test non servono e alla prova sì:
+    // `toBeVisible` di Playwright non vuole l'elemento DENTRO il viewport (basta
+    // che abbia un rettangolo), quindi il pannello Checks può essere asserito
+    // verde mentre resta sotto il bordo del drawer — invisibile in video; e la
+    // registrazione si chiude insieme al contesto, cioè l'ultimo mezzo secondo
+    // non arriva nel file. Nel giro normale (senza la variabile) queste righe
+    // non esistono e il gate non paga un secondo.
+    if (process.env.E2E_EVIDENCE === "1") {
+      await drawer.getByText("The normal path is").scrollIntoViewIfNeeded();
+      await page.waitForTimeout(2500);
+    }
   });
 });
