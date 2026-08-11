@@ -1399,9 +1399,17 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
     const commit = await resolveCommit(wt.absPath, "HEAD");
     return { cwd: wt.absPath, commit };
   },
-  // Il semaforo di atterraggio della card, ri-chiesto SUBITO dopo un land invece
-  // di aspettare la passata dei 30 minuti (`auditOneLanding`, più in basso).
-  auditTaskLanding: (taskId) => auditOneLanding(taskId),
+  // L'esito di atterraggio della card, timbrato SUBITO dopo un land: un verdetto
+  // concreto è ciò che il land ha visto e vale come fatto (`witnessed`), `"ask"`
+  // è il caso in cui non sa e si chiede al repo (`auditOneLanding`, più in basso).
+  stampLanding: async (taskId, verdict) => {
+    if (verdict === "ask") { await auditOneLanding(taskId); return; }
+    try {
+      dispatcherSvc.recordLandingState({
+        taskId, state: verdict, checkedAt: new Date().toISOString(), witnessed: true,
+      });
+    } catch (err) { console.warn("[landing-audit] timbro del land fallito", err); }
+  },
   // Post-landing reap: merged (or empty) worktrees have no remaining value —
   // the manager path removes worktree + branch + row, serialized per project.
   deleteTaskWorktree: async (taskId) => {
@@ -4003,10 +4011,10 @@ async function runLandingAudit() {
 }
 
 /**
- * Il verdetto per UNA card, subito. Lo chiama il land (`auditTaskLanding`) alla
- * fine di ogni tentativo: senza, il semaforo della card resterebbe fino a
- * mezz'ora sull'ultimo giro — rosso su lavoro appena atterrato — e un rosso che
- * dice sempre rosso non lo guarda più nessuno.
+ * Il verdetto DEDOTTO per UNA card, subito. Lo chiama il land (`stampLanding`)
+ * quando l'esito non l'ha visto lui — nessun ramo da guardare, o «non c'era
+ * niente da portare». Dove invece l'ha visto scrive il fatto e non passa di
+ * qui: una deduzione sopra una testimonianza è un declassamento.
  */
 async function auditOneLanding(taskId: string): Promise<void> {
   const t = dispatcherSvc.get(taskId)?.task;

@@ -101,6 +101,7 @@ import m092 from "./migrations/094-github-profiles.sql" with { type: "text" };
 import m093 from "./migrations/095-message-author.sql" with { type: "text" };
 import m094 from "./migrations/096-claude-import-offset.sql" with { type: "text" };
 import m095 from "./migrations/097-task-plan-comment.sql" with { type: "text" };
+import m096 from "./migrations/099-landing-witnessed.sql" with { type: "text" };
 
 export interface EmbeddedMigration {
   version: number;
@@ -206,4 +207,5 @@ export const EMBEDDED_MIGRATIONS: EmbeddedMigration[] = [
   { version: 95, name: "095-message-author.sql", sql: m093 },
   { version: 96, name: "096-claude-import-offset.sql", sql: m094 },
   { version: 97, name: "097-task-plan-comment.sql", sql: m095 },
+  { version: 99, name: "099-landing-witnessed.sql", sql: m096 },
 ];

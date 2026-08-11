@@ -32,6 +32,7 @@ function freshDb(): Database {
     model TEXT, blocked_by_task_id TEXT REFERENCES tasks(id), reuse_blocker_context INTEGER NOT NULL DEFAULT 0,
     priority_auto INTEGER NOT NULL DEFAULT 1,
     delivery_branch TEXT, delivery_commit TEXT, landing_state TEXT, landing_checked_at TEXT,
+    landing_witnessed INTEGER NOT NULL DEFAULT 0, dispatch_deferred_until TEXT,
     checks_state TEXT, checks_at TEXT, checks_commit TEXT, checks_json TEXT,
     delivered_by TEXT, delivered_reason TEXT, created_by_topic_id TEXT
   )`);

@@ -57,19 +57,25 @@ interface DoneRow {
   delivery_branch: string | null;
   delivery_commit: string;
   landing_state: string | null;
+  landing_witnessed: number | null;
 }
 
-/** Una card chiusa e il verdetto del repo sulla sua consegna. */
+/** Una card chiusa e il verdetto sulla sua consegna. */
 interface Verdict {
   id: string;
   text: string;
   projectId: string;
   branch: string | null;
   commit: string;
-  /** Quello che la board MOSTRA — utile solo per vedere quanto è in ritardo. */
-  landingState: string | null;
-  /** `unmerged` = provato: non è su main. `gone` = il commit non c'è più. */
+  /** `unmerged` = non è su main. `gone` = il commit non c'è più. */
   status: BranchStatus | "no-repo";
+  /**
+   * Da dove viene il verdetto. `land` = l'ha scritto il land che l'ha visto
+   * succedere, mentre il ramo esisteva ancora: è un fatto, e nessuna euristica
+   * lo tocca. `dedotto` = ricostruito qui dal solo commit, e allora vale quanto
+   * vale — questo script esiste anche per dire quale delle due si sta leggendo.
+   */
+  fonte: "land" | "dedotto";
   repoPath: string | null;
 }
 
@@ -110,8 +116,16 @@ for (const path of projectPaths()) {
   if (!byBoardId.has(id) && existsSync(join(path, ".git"))) byBoardId.set(id, path);
 }
 
+// `landing_witnessed` può non esistere ancora (database precedente alla 099):
+// la sua assenza vale «nessuna testimonianza», non un errore.
+const hasWitness = (() => {
+  try { return (db.prepare("PRAGMA table_info(tasks)").all() as any[]).some((c) => c.name === "landing_witnessed"); }
+  catch { return false; }
+})();
+
 const rows = db.prepare(
-  `SELECT id, project_id, text, delivery_branch, delivery_commit, landing_state
+  `SELECT id, project_id, text, delivery_branch, delivery_commit, landing_state,
+          ${hasWitness ? "landing_witnessed" : "0 AS landing_witnessed"}
      FROM tasks
     WHERE archived = 0 AND status = 'done' AND delivery_commit IS NOT NULL`,
 ).all() as unknown as DoneRow[];
@@ -119,13 +133,25 @@ const rows = db.prepare(
 const verdicts: Verdict[] = [];
 for (const r of rows) {
   const repoPath = byBoardId.get(r.project_id) ?? null;
+  // Il verdetto TESTIMONIATO vince, e non si ricontrolla: l'ha scritto il land
+  // mentre il ramo c'era ancora. Ricalcolarlo qui vorrebbe dire rimettere in
+  // mezzo la deduzione che questo campo esiste per non usare più.
+  if (r.landing_witnessed) {
+    verdicts.push({
+      id: r.id, text: r.text ?? "", projectId: r.project_id,
+      branch: r.delivery_branch, commit: r.delivery_commit,
+      status: r.landing_state === "landed" ? "merged" : "unmerged",
+      fonte: "land", repoPath,
+    });
+    continue;
+  }
   const status: BranchStatus | "no-repo" = repoPath
     ? await commitStatusFromRepo(repoPath, r.delivery_commit)
     : "no-repo";
   verdicts.push({
     id: r.id, text: r.text ?? "", projectId: r.project_id,
     branch: r.delivery_branch, commit: r.delivery_commit,
-    landingState: r.landing_state, status, repoPath,
+    status, fonte: "dedotto", repoPath,
   });
 }
 
@@ -141,14 +167,25 @@ if (JSON_OUT) {
     outsideMain: outside.length,
     pruned: pruned.length,
     unresolvedProject: unresolved.length,
-    cards: outside.map((v) => ({ id: v.id, commit: v.commit, branch: v.branch, text: v.text.slice(0, 80) })),
+    witnessed: verdicts.filter((v) => v.fonte === "land").length,
+    cards: outside.map((v) => ({ id: v.id, commit: v.commit, branch: v.branch, fonte: v.fonte, text: v.text.slice(0, 80) })),
   }));
 } else {
   const line = (v: Verdict) =>
-    `    · ${v.id.slice(0, 8)} ${v.commit.slice(0, 8)}${v.branch ? ` (${v.branch})` : ""} — ${v.text.slice(0, 60)}`;
+    `    · ${v.id.slice(0, 8)} ${v.commit.slice(0, 8)}${v.branch ? ` (${v.branch})` : ""} ` +
+    `[${v.fonte}] — ${v.text.slice(0, 60)}`;
+  const witnessed = verdicts.filter((v) => v.fonte === "land").length;
   console.log(
     `card done con una consegna registrata: ${verdicts.length} · su main: ${landed.length} · ` +
     `FUORI da main: ${outside.length} · commit sparito: ${pruned.length} · progetto non risolto: ${unresolved.length}`,
+  );
+  // La riga che dice quanto ci si può fidare del numero qui sopra. Le card
+  // vecchie non hanno una testimonianza e non l'avranno mai: il loro verdetto
+  // è dedotto, e la deduzione sbaglia in modo noto (una card successiva che
+  // riscrive gli stessi file la fa leggere come «fuori»).
+  console.log(
+    `  esito registrato dal land: ${witnessed}/${verdicts.length} · ` +
+    `dedotto qui dal solo commit: ${verdicts.length - witnessed}`,
   );
   if (outside.length > 0) {
     console.log(`\n  ${outside.length} card sono in Done col codice FUORI dal contenuto di main:`);
