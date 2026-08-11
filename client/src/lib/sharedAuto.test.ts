@@ -23,3 +23,22 @@ test('no oscillation across the join/leave transition', () => {
   // phone leaves: count drops to 1 (just this pane) → native
   expect(computeAutoShared(1, true)).toBe(false);
 });
+
+// THE FLAP. The "-1 because I'm shared" is only true while the server is
+// actually counting this pane. It counts WATCHERS: a pane that left the screen
+// says so (set_watching:false) and drops OUT of the count. Subtracting anyway
+// turned "the phone is watching" (1) into "nobody is here" (0), so a
+// backgrounded shared pane fell back to native, was counted again on the next
+// poll, and bounced shared→native→shared every 1200ms while the phone looked.
+test('a shared pane that is NOT watching does not subtract itself', () => {
+  // Off-screen shared pane + a phone watching: the count is the phone alone.
+  expect(computeAutoShared(1, true, false)).toBe(true);   // stay shared — no flap
+  // Off-screen and alone: nobody is watching this context at all → native.
+  expect(computeAutoShared(0, true, false)).toBe(false);
+  // On screen it IS counted, so the subtraction stands (default stays true).
+  expect(computeAutoShared(1, true, true)).toBe(false);
+  expect(computeAutoShared(2, true, true)).toBe(true);
+  // A native pane never holds a viewer socket: `selfWatching` can't change it.
+  expect(computeAutoShared(1, false, false)).toBe(true);
+  expect(computeAutoShared(0, false, true)).toBe(false);
+});
