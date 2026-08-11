@@ -29,7 +29,7 @@ import { SidechainTracker } from "./claude/sidechain-tracker";
 import { parseCompactBoundary } from "./claude/compaction";
 import { buildClaudeArgs, buildClaudeOneshotArgs } from "./claude/args";
 import { checkClaudeCliCompat, type ClaudeCliCompat } from "./claude/cli-compat";
-import { resolveJobQuotaEnv } from "../services/agent-job-quota";
+import { applyJobQuota } from "../services/agent-job-quota";
 // La decodifica degli eventi `stream-json` — campi INTERNI della CLI, non
 // un'API pubblicata — vive in un modulo puro, provato su fixture registrate.
 import {
@@ -1942,15 +1942,17 @@ export class ClaudeCodeProvider implements AIProvider {
     // ogni sessione, chat interattive comprese, e recintare la build che
     // l'umano lancia a mano nella sua chat è un rallentamento che nessuno ha
     // chiesto. Il canale è lo stesso di effort/modello/policy MCP — la riga del
-    // topic — e `resolveJobQuotaEnv` torna `null` per una chat che non è la
+    // topic — e `applyJobQuota` torna `null` per una chat che non è la
     // sessione di un task: in quel caso l'ambiente resta byte per byte quello
     // di prima. Il numero si rilegge a ogni spawn, come le altre scelte
-    // per-topic.
+    // per-topic, e da qui in poi anche A METÀ SESSIONE: `applyJobQuota` lascia
+    // sul disco un file col numero e due shim di cargo/make in testa al PATH
+    // che lo rileggono a ogni invocazione, perché una sessione vive ore e la
+    // macchina che aveva intorno alla nascita non è quella di due ore dopo.
     try {
-      const quota = resolveJobQuotaEnv(getDatabase(), sessionKey);
-      if (quota) {
-        Object.assign(env, quota);
-        console.log(`[claude-code] job quota for dispatched ${sessionKey}: -j${quota.CARGO_BUILD_JOBS}`);
+      const quota = applyJobQuota(getDatabase(), sessionKey, env);
+      if (quota != null) {
+        console.log(`[claude-code] job quota for dispatched ${sessionKey}: -j${quota} (rilettura viva attiva)`);
       }
     } catch { /* nessun recinto: la sessione parte comunque, com'è sempre stato */ }
 
