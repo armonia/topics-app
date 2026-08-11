@@ -38,6 +38,7 @@ import { createMemoryRouter } from "./server/routes/memory";
 import { initUsageStore, rebuildSummary } from "./server/usage/store";
 import { createCheckpointsRouter } from "./server/routes/checkpoints";
 import { createGoalsRouter } from "./server/routes/goals";
+import { createOrchestratorRouter } from "./server/routes/orchestrator";
 import { createOpenClawContextRouter } from "./server/routes/openclaw-context";
 import { createContextPreviewRouter } from "./server/routes/context-preview";
 import { createTaskService, projectIdForPath } from "./server/services/tasks";
@@ -632,7 +633,7 @@ function rejectedTurn(resp: Response, what: string): TurnEndInfo | null {
 async function runHeadlessTurn(
   sessionKey: string,
   content: string,
-  opts: { timeoutMs: number; contextMode?: "full" | "lean" },
+  opts: { timeoutMs: number; contextMode?: "full" | "lean"; dispatched?: boolean },
 ): Promise<TurnEndInfo> {
   const url = new URL("http://localhost/api/chat");
   // Butta via un eventuale residuo: una fine depositata e mai ritirata è di un
@@ -644,7 +645,11 @@ async function runHeadlessTurn(
   // `dispatched`: è un turno d'AGENTE guidato dalla board, non una chat umana.
   // La route lo rimanda sul `stream:end` di completamento così la push di fine
   // risposta lo esclude (decine di turni d'agente = spam).
-  const body = JSON.stringify({ sessionKey, messages: [{ role: "user", content }], contextMode: opts.contextMode ?? "full", dispatched: true });
+  // `dispatched: false` è il turno dell'ORCHESTRATORE lanciato dal composer:
+  // è una persona che ha appena scritto, non la board che guida un agente, e
+  // sopprimerne la push di fine risposta la lascerebbe senza risposta a una
+  // domanda che ha fatto lei.
+  const body = JSON.stringify({ sessionKey, messages: [{ role: "user", content }], contextMode: opts.contextMode ?? "full", dispatched: opts.dispatched !== false });
   const resp = await topicsRouter(
     new Request(url, { method: "POST", headers: { "Content-Type": "application/json" }, body }),
     url, "/api/chat", "POST",
@@ -1058,6 +1063,51 @@ const taskDispatcher = createTaskDispatcher({
   // proprio i giorni di attesa in review a costare ~260 MB l'una.
   slimWorktree: (taskId) => slimWorktreeOfTask(taskId),
   broadcast: ctx.broadcastToAll,
+});
+
+// La porta del composer verso l'ORCHESTRATORE. Riusa le stesse due dipendenze
+// del dispatcher — risoluzione del progetto e creazione di un topic scollegato —
+// perché sono la stessa domanda («dove sta questo progetto», «apri una sessione
+// senza rubare lo schermo»), non due. `dispatched: false`: chi ha scritto è una
+// persona, e la risposta le va notificata.
+const orchestratorRouter = createOrchestratorRouter(ctx, {
+  resolveProject: (projectId) =>
+    resolveProjectPath(
+      projectId,
+      buildProjectCandidates({
+        projectStore: ctx.projectStore,
+        workspaceDir: DISPATCH_WORKSPACE_DIR,
+        extraPaths: dispatchExtraPaths,
+      }),
+    ),
+  createTopic: (o) => {
+    const { topic } = createDetachedTopic(
+      {
+        name: o.name,
+        projectPath: o.projectPath,
+        systemPrompt: o.systemPrompt,
+        mcpPolicy: o.mcpPolicy,
+        // NON `background`, a differenza di una sessione d'agente. Un agente di
+        // task lavora e consegna su una card: la sua chat è un dettaglio, e
+        // aprirla di prepotenza sarebbe furto di schermo. L'orchestratore è
+        // l'opposto — è una CONVERSAZIONE, e la sua risposta è tutto il
+        // risultato. Nascerla chiusa significa mandare dal composer e non
+        // vedere niente tornare indietro, cioè il muto che qui è vietato.
+        background: false,
+        autonomyLevel: DISPATCH_AUTONOMY,
+      },
+      {
+        getTopicById: ctx.getTopicById,
+        loadTopics: ctx.loadTopics,
+        saveSingleTopic: ctx.saveSingleTopic,
+        slugify: ctx.slugify,
+        broadcastToAll: ctx.broadcastToAll,
+      },
+    );
+    return { topicId: topic.id, sessionKey: topic.sessionKey };
+  },
+  runTurn: (sessionKey, content) =>
+    runHeadlessTurn(sessionKey, content, { timeoutMs: 15 * 60_000, dispatched: false }),
 });
 
 // Opt-in auto-merge on approve (board setting `dispatchAutoMerge`). Resolves a
@@ -2159,6 +2209,7 @@ const opzioniServer = {
         || await checkpointsRouter(req, url, pathname, method)
         || await goalsRouter(req, url, pathname, method)
         || await openRouter(req, url, pathname, method)
+        || await orchestratorRouter(req, url, pathname, method)
         || (openclawContextRouter && await openclawContextRouter(req, url, pathname, method))
         || await contextPreviewRouter(req, url, pathname, method)
         || await authRouter(req, url, pathname, method)
