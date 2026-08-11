@@ -15,7 +15,7 @@ import { buildTaskLink } from '../../lib/openTaskLink';
 import { enqueueProjectBrowserNavigate } from '../../state/pane/adapters';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
 import { writeCursor, markActiveComposer, restoreCursor } from '../../lib/composerCursor';
-import { boardApi, STATUS_LABEL, TASK_STATUSES, isAgentWorking, parseQuestionBlock, isProjectlessId, boardDrafts, systemDeliveryNote, attemptHasWork, type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch, type BoardProjectRef, type DiffBundle, type DiffNote, type ReviewCheck, type CheckRun, type TaskAttempt } from '../../lib/board';
+import { boardApi, STATUS_LABEL, TASK_STATUSES, isAgentWorking, parseQuestionBlock, isProjectlessId, boardDrafts, systemDeliveryNote, blockedByChip, attemptHasWork, type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch, type BoardProjectRef, type DiffBundle, type DiffNote, type ReviewCheck, type CheckRun, type TaskAttempt } from '../../lib/board';
 import { PreviewMedia } from './PreviewMedia';
 import { UnifiedDiff } from './UnifiedDiff';
 import { collectTaskMediaPaths } from './taskMedia';
@@ -829,7 +829,12 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   // else here).
   const [blockerMenuOpen, setBlockerMenuOpen] = useState(false);
   const [boardTasks, setBoardTasks] = useState<BoardTask[] | null>(null);
-  const openBlockerMenu = () => {
+  // Il picker si àncora a CHI l'ha aperto: il chip in riga quando c'è, il ⋯
+  // quando il task non è bloccato (e il chip quindi non è disegnato).
+  const blockerChipRef = useRef<HTMLButtonElement>(null);
+  const blockerAnchorRef = useRef<HTMLElement | null>(null);
+  const openBlockerMenu = (anchor?: HTMLElement | null) => {
+    blockerAnchorRef.current = anchor ?? optionsBtnRef.current;
     setBlockerMenuOpen(true);
     if (boardTasks === null && task) boardApi.list(task.projectId).then(setBoardTasks).catch(() => setBoardTasks([]));
   };
@@ -837,9 +842,11 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
     () => (boardTasks ?? []).filter((t) => !t.parentTaskId && t.id !== taskId),
     [boardTasks, taskId],
   );
-  const blockerTask = task?.blockedByTaskId
-    ? (boardTasks?.find((t) => t.id === task.blockedByTaskId) ?? null)
-    : null;
+  // Il bloccante lo risolve il SERVER (`task.blockedBy`): la lista della board
+  // arriva solo quando si apre il picker, e cercarlo lì dentro voleva dire un
+  // chip muto (o un «Bloccato da…» generico) su un task che un bloccante ce
+  // l'aveva — e per un bloccante archiviato o di un altro taglio, per sempre.
+  const blockedChip = task ? blockedByChip(task) : null;
 
   // Overflow "⋯" menu (header): the less-frequent task config lives here instead
   // of as always-on chips in the meta row — blocked-by, plan-first, reuse
@@ -1138,11 +1145,15 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 {task.planFirst && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
               </button>
               <button
-                role="menuitem" onClick={() => { setOptionsMenuOpen(false); openBlockerMenu(); }}
+                role="menuitem" onClick={() => { setOptionsMenuOpen(false); openBlockerMenu(blockerChipRef.current); }}
                 className={POPOVER_ITEM}
               >
                 <Lock className="h-3.5 w-3.5 shrink-0 text-app-text-secondary" />
-                <span className="min-w-0 flex-1 truncate">{blockerTask ? tr('board.task.blockedByText', { text: blockerTask.text }) : tr('board.task.blockedBy')}</span>
+                <span className="min-w-0 flex-1 truncate">{
+                  task.blockedBy ? tr('board.task.blockedByText', { text: task.blockedBy.text })
+                    : task.blockedByTaskId ? tr('board.task.blockedByUnknown')
+                      : tr('board.task.blockedBy')
+                }</span>
                 <ChevronRight className="h-3 w-3 shrink-0 text-app-text-muted" />
               </button>
               {task.blockedByTaskId && (
@@ -1378,10 +1389,27 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                     </button>
                   ))}
                 </Menu>
-                {/* Blocked-by / plan-first / reuse moved to the ⋯ header menu.
-                    Only the blocker PICKER stays here — portaled, anchored to the
-                    ⋯ button, opened from that menu. */}
-                <Menu open={blockerMenuOpen} anchorRef={optionsBtnRef} onClose={() => setBlockerMenuOpen(false)} align="right" minWidth={220} role="listbox" unmanagedFocus>
+                {/* «In attesa di…» sta IN RIGA, non dentro il ⋯: è uno stato che
+                    cambia la lettura del task (non parte finché l'altro non
+                    chiude), e uno stato dentro un menu è uno stato che nessuno
+                    vede. Cliccarlo apre lo stesso picker della voce nel ⋯. */}
+                {blockedChip && (
+                  <button
+                    ref={blockerChipRef}
+                    onClick={() => openBlockerMenu(blockerChipRef.current)}
+                    data-testid="task-blocked-by-chip"
+                    title={`${blockedChip.title} — clicca per cambiare il bloccante`}
+                    className="flex min-w-0 items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-[11px] text-amber-300 hover:bg-amber-500/25"
+                  >
+                    <Lock className="h-3 w-3 shrink-0" />
+                    <span className="max-w-[14rem] truncate">{blockedChip.label}</span>
+                    <ChevronDown className="h-3 w-3 shrink-0 text-amber-300/70" />
+                  </button>
+                )}
+                {/* Plan-first / reuse-context vivono nel ⋯ header menu. Il PICKER
+                    del bloccante resta qui — portaled, ancorato a chi l'ha
+                    aperto (il chip qui sopra, o il ⋯ quando il chip non c'è). */}
+                <Menu open={blockerMenuOpen} anchorRef={blockerAnchorRef} onClose={() => setBlockerMenuOpen(false)} align="right" minWidth={220} role="listbox" unmanagedFocus testId="task-blocker-picker">
                   <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.task.blockedBy')}</p>
                   <button
                     role="option" aria-selected={!task.blockedByTaskId}

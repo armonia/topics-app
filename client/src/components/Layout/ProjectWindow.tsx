@@ -47,7 +47,7 @@ export interface ProjectWindowPaneProps {
   isSessionLoading: (sk: string) => boolean;
   isSessionStreaming: (sk: string) => boolean;
   wasSessionStopped: (sk: string) => boolean;
-  stopSession: (sk: string) => boolean;
+  stopSession: (sk: string) => Promise<boolean>;
   sendMessage: (sk: string, content: string, options?: SendMessageOptions) => Promise<boolean>;
   editMessage?: (sk: string, messageId: string, newContent: string) => Promise<boolean>;
   regenerateMessage?: (sk: string, messageId: string) => Promise<boolean>;

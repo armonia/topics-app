@@ -35,7 +35,7 @@ interface ChatPanelProps {
    * the unified composer button can offer Stop without going through the
    * sidebar `TopicItem` route. See `composerAction.ts`.
    */
-  stopSession: (sk: string) => boolean;
+  stopSession: (sk: string) => Promise<boolean>;
   editMessage?: (sk: string, messageId: string, newContent: string) => Promise<boolean>;
   regenerateMessage?: (sk: string, messageId: string) => Promise<boolean>;
   deleteMessage?: (sk: string, messageId: string) => Promise<boolean>;

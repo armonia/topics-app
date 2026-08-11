@@ -82,7 +82,7 @@ interface StandaloneChatGroupProps {
   // a split cell uses it to re-target the pane into itself (see the wrapper
   // around PaneTabBar's onNewChat below).
   onNewChat?: () => void | Promise<unknown>;
-  stopSession: (sessionKey: string) => boolean;
+  stopSession: (sessionKey: string) => Promise<boolean>;
   // Pending pane request for project tabs
   pendingProjectPane?: { projectPath: string; type: import('../../types').PaneType; terminalSessionId?: string; terminalType?: TerminalAgentType } | null;
   onPendingProjectPaneConsumed?: () => void;

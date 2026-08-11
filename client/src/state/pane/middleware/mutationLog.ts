@@ -45,5 +45,3 @@ export function clearRing(): void {
   snapshot = null;
   for (const fn of subscribers) fn();
 }
-
-export const RING_BUFFER_SIZE = RING_SIZE;
