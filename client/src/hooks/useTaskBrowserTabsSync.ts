@@ -15,8 +15,10 @@
  * and the server broadcast `ui-state:updated`, but no client applied it: the tab
  * stayed live on the other device until a full reload re-ran the initial GET. This
  * hook now also applies `ui-state:updated` (single key, own echo dropped by
- * sourceClientId) and the `ui-state:init` snapshot (reconnect resync) into the
- * store, so closing a task browser tab on the Mac closes it on the PWA live.
+ * sourceClientId) into the store, so closing a task browser tab on the Mac
+ * closes it on the PWA live. Alla riconnessione l'`ui-state:init` fa da segnale
+ * e il resync è mirato (`resyncTaskTabsFromServer`): le chiavi `task-browser-*`
+ * non viaggiano più nello snapshot.
  *
  * Mounted once at App level (like useGlobalBoard / CompletionNotifierBridge)
  * so it's active whenever the app is running, regardless of which task drawer — if
@@ -28,7 +30,7 @@ import type { WSMessage } from '../types';
 import {
   taskBrowserTabs,
   applyRemoteTaskTabs,
-  applyRemoteTaskTabsInit,
+  resyncTaskTabsFromServer,
   forgetTaskTabs,
   taskIdFromKey,
 } from '../state/taskBrowserTabs';
@@ -65,9 +67,14 @@ export function useTaskBrowserTabsSync(
         applyRemoteTaskTabs(taskId, msg.value);
         return;
       }
-      // Reconnect resync — the ui-state:init snapshot carries every ui-state key.
-      if (msg.type === 'ui-state:init' && msg.data) {
-        applyRemoteTaskTabsInit(msg.data);
+      // Reconnect resync — MIRATO. L'`ui-state:init` non porta più le chiavi
+      // `task-browser-*` (erano il 30% del payload di ogni riconnessione e il
+      // client le legge per-task); qui l'init vale solo come SEGNALE di
+      // riconnessione: si ri-GETtano le sole chiavi dei task in cache. Lo
+      // snapshot si passa lo stesso, così un server vecchio che le manda ancora
+      // le fa applicare direttamente, senza GET.
+      if (msg.type === 'ui-state:init') {
+        void resyncTaskTabsFromServer(msg.data);
         return;
       }
       // ARCHIVED — the server has just deleted this task's two ui-state rows
