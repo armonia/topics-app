@@ -1183,6 +1183,40 @@ describe("blocked-by dependency", () => {
     expect(touched.blockedBy?.text).toBe("lo step che blocca");
   });
 
+  test("il contatore «N in attesa» lo risolve il server: conta anche i dipendenti fuori dalla lista", () => {
+    // L'altra metà del legame. Il client contava i dipendenti fra i task
+    // fetchati — un progetto, `rootsOnly`, non archiviati: un dipendente che è
+    // un sottotask, o che sta in un altro progetto, non veniva contato e la
+    // card del bloccante si presentava libera.
+    const bloccante = s.create({ projectId: PID, text: "bloccante", status: "todo" });
+    const epica = s.create({ projectId: PID, text: "epica" });
+    const sottotask = s.create({ projectId: PID, text: "step", parentTaskId: epica.id, blockedByTaskId: bloccante.id });
+    const altroProgetto = s.create({ projectId: "altro-progetto-x", text: "fuori progetto", blockedByTaskId: bloccante.id });
+    const inLista = s.create({ projectId: PID, text: "dipendente in lista", blockedByTaskId: bloccante.id, status: "todo" });
+
+    const roots = s.list({ scope: "project", projectId: PID, rootsOnly: true });
+    const card = roots.find((t) => t.id === bloccante.id);
+    expect(roots.map((t) => t.id)).not.toContain(sottotask.id);   // fuori dalla lista…
+    expect(roots.map((t) => t.id)).not.toContain(altroProgetto.id); // …e anche questo…
+    expect(card?.waitingOnCount).toBe(3);                          // …ma contati lo stesso
+
+    // In lettura singola e — cosa che conta per il WS — in SCRITTURA: ogni
+    // `task:updated` porta il contatore, non solo i fetch pieni.
+    expect(s.get(bloccante.id)?.task.waitingOnCount).toBe(3);
+    expect(s.update({ taskId: bloccante.id, actor: "human", by: "u", patch: { priority: 3 } }).waitingOnCount).toBe(3);
+
+    // Vivi = non done e non archiviati: gli stessi che il gate di dispatch tiene
+    // fermi e che ripartono quando il bloccante chiude.
+    s.update({ taskId: inLista.id, actor: "human", by: "u", patch: { status: "done" } });
+    expect(s.get(bloccante.id)?.task.waitingOnCount).toBe(2);
+    s.archive({ taskId: altroProgetto.id });
+    expect(s.get(bloccante.id)?.task.waitingOnCount).toBe(1);
+    // Sciolto il legame, il contatore va a zero (e chi non blocca nessuno sta a 0).
+    s.update({ taskId: sottotask.id, actor: "human", by: "u", patch: { blockedByTaskId: null } });
+    expect(s.get(bloccante.id)?.task.waitingOnCount).toBe(0);
+    expect(s.get(epica.id)?.task.waitingOnCount).toBe(0);
+  });
+
   test("done e archiviato viaggiano nel payload: sono i due bit che spengono il chip", () => {
     const a = s.create({ projectId: PID, text: "bloccante" });
     const b = s.create({ projectId: PID, text: "dipendente", blockedByTaskId: a.id });

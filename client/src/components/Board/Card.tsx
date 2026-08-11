@@ -18,12 +18,10 @@ import { StatusIcon, DispatchChip, TaskIdChip } from './atoms';
 import { POPOVER_DIVIDER, POPOVER_ITEM, POPOVER_ITEM_DANGER } from '@/lib/popoverStyles';
 
 // ── Column ────────────────────────────────────────────────────────────────
-export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject, onError, onRefetch, onOpenTopic, tasksById, waitingOnById, projectPathById, liveById, awaitingHuman, justDone }: {
+export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject, onError, onRefetch, onOpenTopic, tasksById, projectPathById, liveById, awaitingHuman, justDone }: {
   status: TaskStatus; tasks: BoardTask[]; onOpen: OpenTask; onCreate: (text: string) => void;
   canCreate: boolean; showProject: boolean; onError: (e: string) => void; onRefetch: () => void;
   onOpenTopic?: (topicId: string) => void; tasksById: Map<string, BoardTask>; projectPathById: Map<string, string>;
-  /** Quanti task aspettano OGNI card: l'altra metà del "in attesa di…". */
-  waitingOnById: Map<string, number>;
   /** Live per-turn usage keyed by task id (ticking chip on working cards). */
   liveById: Map<string, LiveUsage>;
   /** Task che in questo momento aspettano una persona (evento transitorio). */
@@ -84,7 +82,6 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
             <Card
               key={t.id} task={t} onOpen={onOpen} showProject={showProject} onError={onError} onRefetch={onRefetch} onOpenTopic={onOpenTopic}
               parentTitle={t.parentTaskId ? tasksById.get(t.parentTaskId)?.text : undefined}
-              waitingOnThis={waitingOnById.get(t.id) ?? 0}
               projectPath={projectPathById.get(t.projectId)}
               live={liveById.get(t.id)}
               awaiting={awaitingHuman.has(t.id)}
@@ -121,18 +118,11 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
 // props from the parent (onOpen/onError/onRefetch/onOpenTopic) are stable
 // (useCallback / state setters), and task/parentTitle come from tasks-keyed
 // memos, so the shallow prop compare holds for idle cards.
-export const Card = memo(function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, parentTitle, waitingOnThis = 0, projectPath, live, awaiting, justDone }: {
+export const Card = memo(function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, parentTitle, projectPath, live, awaiting, justDone }: {
   task: BoardTask; onOpen: OpenTask; showProject: boolean;
   onError: (e: string) => void; onRefetch: () => void; onOpenTopic?: (topicId: string) => void;
   /** Text of the parent task when this card is a subtask (context chip). */
   parentTitle?: string;
-  /**
-   * Quanti task, ancora aperti, aspettano QUESTA card. È l'altra metà del chip
-   * "in attesa di…": senza, il collegamento si vedeva solo dal lato bloccato, e
-   * chi guarda il bloccante non aveva modo di sapere che chiudendolo fa partire
-   * qualcos'altro.
-   */
-  waitingOnThis?: number;
   /** Real filesystem path of task.projectId, for the favicon (cross-project board only). */
   projectPath?: string;
   /** Il turno e' vivo ma fermo su una PERSONA: pannello di domanda o permesso
@@ -263,6 +253,10 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
   // risolto dal server, così vale anche quando il bloccante non è fra i task
   // fetchati (sottotask, altro progetto, archiviato).
   const blockedChip = blockedByChip(task);
+  // …e l'altra metà: quanti aspettano QUESTA card. Anche questo numero è un
+  // fatto del DB, non della lista fetchata — un dipendente che è un sottotask o
+  // sta in un altro progetto non è fra le card, ma aspetta lo stesso.
+  const waitingOnThis = task.waitingOnCount;
   const hasMetaRow = !!(blockedChip || (waitingOnThis > 0 && task.status !== 'done') || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo || notLanded || checksRed || systemDelivered);
 
   return (
