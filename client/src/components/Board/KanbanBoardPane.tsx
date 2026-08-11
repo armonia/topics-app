@@ -838,10 +838,13 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
     return groupByStatus(visible, orderScope);
   }, [tasks, filters, orderScope]);
 
-  // Task lookup by id for card-level context chips: parent title ("⤴ epic…")
-  // and blocked-by ("in attesa di…", needs the blocker's status too). Best
-  // effort: a referenced task not in the current fetch (e.g. filtered) just
-  // shows no chip.
+  // Task lookup by id for the parent chip ("⤴ epic…"). Best effort: a parent
+  // not in the current fetch just shows the generic label.
+  //
+  // Il chip «in attesa di» NON passa più di qui: il bloccante lo risolve il
+  // server (`task.blockedBy`), perché questa lista è un progetto solo,
+  // `rootsOnly`, non archiviati — e un bloccante fuori da quel taglio faceva
+  // sparire il chip da una card che il dispatcher teneva ferma comunque.
   const tasksById = useMemo(() => {
     const m = new Map<string, BoardTask>();
     for (const t of tasks) m.set(t.id, t);
