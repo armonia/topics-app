@@ -3260,8 +3260,13 @@ async function reattachSurvivingChatTurns(): Promise<void> {
     let brokerSays: "open" | "idle" | "unknown" = "unknown";
     if (adoptable && !midTurnAtBoot.has(s.id)) {
       try {
-        const prov = getProvider("claude-code") as { brokerTurnState?: (sk: string) => Promise<"open" | "idle" | "unknown"> } | undefined;
-        brokerSays = (await prov?.brokerTurnState?.(s.id)) ?? "unknown";
+        const prov = getProvider("claude-code") as { brokerTurnState?: (sk: string, opts?: { park?: boolean }) => Promise<"open" | "idle" | "unknown"> } | undefined;
+        // `park: true` è la promessa che qui sotto manteniamo davvero: se la
+        // risposta è «open» si riadotta, nella riga dopo. Senza, ogni sessione
+        // si faceva spedire l'intero store DUE volte al boot — una per questa
+        // sonda e una per la fase 1 della riadozione, tutte sull'unico socket
+        // del ponte e tutte prima che l'utente veda qualcosa.
+        brokerSays = (await prov?.brokerTurnState?.(s.id, { park: true })) ?? "unknown";
       } catch (err) {
         console.warn(`[chat-reattach] broker turn probe failed for ${s.id} (skipping reap for safety):`, err);
         brokerSays = "unknown";
