@@ -1089,20 +1089,17 @@ export const contextAnalysisApi = {
 // costruisce. Fino al 29/07 erano ricopiati a mano qui sotto — sette interfacce
 // rinominate `Envelope*` (perché `ChatMessage` era già preso da tutt'altro) con
 // il `diagnostics` espanso inline e un commento "Mirrors server/…" per campo.
-// I nomi vecchi restano come alias: cambiare 40 import non era il punto.
+// I nomi vecchi restavano come alias: cambiare 40 import non era il punto.
+//
+// Di quegli alias ne sono rimasti DUE. Gli altri sette non li importava più
+// nessuno da qui, e nessuno se n'era accorto: il cancello sul codice morto era
+// cieco su questo file — un `import('../../lib/api')` opaco in CommandPalette
+// rendeva usato per costruzione ogni suo export. Guardia contro il ritorno del
+// buco: `bun run check:deadcode-blindspots`.
 export type {
-  SystemBlockCategory as EnvelopeSystemBlockCategory,
-  SystemBlock as EnvelopeSystemBlock,
   HistoryEntryDiagnostic as EnvelopeHistoryEntry,
-  SessionMeta as EnvelopeSessionMeta,
-  ContextDiagnostics,
   ContextEnvelope,
-  ProviderPayload as EnvelopeProviderPayload,
 } from '../../../shared/context-envelope';
-export type {
-  ProviderChatMessage as EnvelopeChatMessage,
-  ProviderContextStrategy as EnvelopeProviderStrategy,
-} from '../../../shared/types';
 
 import type { ContextEnvelope, ProviderPayload } from '../../../shared/context-envelope';
 
@@ -1162,11 +1159,6 @@ export const dashboardApi = {
     return data.points;
   },
 };
-
-// ── Board Memory ─────────────────────────────────────────────────────────────
-
-// Entità di dominio: dichiarate in `shared/types.ts` insieme a Topic/Project.
-export type { BoardMemory, AgentActionLog } from '../../../shared/types';
 
 // Providers API
 export interface ProviderListEntry {
