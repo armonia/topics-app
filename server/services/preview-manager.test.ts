@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { createPreviewManager, isLocalUrl, type PreviewManagerDeps, type PreviewProcess, type PreviewWorktree } from "./preview-manager";
+import { createPreviewManager, isLocalUrl, isEvidencePage, isPlaceholderPage, type PreviewManagerDeps, type PreviewProcess, type PreviewWorktree } from "./preview-manager";
 
 // ── Fakes ────────────────────────────────────────────────────────────────────
 
@@ -185,8 +185,11 @@ describe("prepareForReview", () => {
     expect(h.reviewNotes.length).toBe(0);
   });
 
-  it("reuses a live LOCAL output_url the agent already set (no new server)", async () => {
-    const h = harness();
+  it("reuses a live LOCAL output_url the agent already set, WHEN it runs in the task's worktree", async () => {
+    const h = harness({
+      listenerPid: async () => 4242,          // qualcuno ascolta su :9999...
+      processCwd: async () => "/tmp/wt1",     // ...ed è nel worktree del task
+    });
     h.outputUrl.v = "http://localhost:9999/agents-own";
     const pm = createPreviewManager(h.deps);
     await pm.prepareForReview("t1");
@@ -207,6 +210,124 @@ describe("prepareForReview", () => {
     expect(h.spawned.length).toBe(1);
     expect(h.outputUrl.v).toBe("http://localhost:3400/");
     expect(calls).toBeGreaterThan(0);
+  });
+});
+
+// ── Cancello d'IDENTITÀ ──────────────────────────────────────────────────────
+// «Qualcuno risponde sulla porta» non è «è il mio server». Le prime porte del
+// pool erano occupate dai dev server di un ALTRO progetto e 10 card hanno
+// fotografato la sua pagina di login come evidenza del proprio lavoro.
+
+describe("identity gate — chi risponde sulla porta dev'essere il nostro", () => {
+  it("figlio MORTO + probe che dice sempre true ⇒ nessuno screenshot, nessuna anteprima", async () => {
+    const h = harness({
+      probe: async () => true,                       // uno sconosciuto risponde
+      spawn: (cmd, opts) => {                        // ...e il nostro figlio è già morto
+        h.spawned.push({ cmd, ...opts });
+        const p = fakeProc(); p.kill();
+        h.procs.push(p);
+        return p;
+      },
+      readyTimeoutMs: 5, readyPollMs: 1,
+    });
+    const pm = createPreviewManager(h.deps);
+    await pm.prepareForReview("t1");
+    expect(h.previewImage).toBeNull();
+    expect(h.reviewNotes.length).toBe(0);
+    expect(h.outputUrl.v).toBeNull();
+  });
+
+  it("ensurePreview rifiuta la porta quando ad ascoltare è un processo estraneo", async () => {
+    const h = harness({
+      listenerPid: async () => 999,               // non è il nostro pid (1234)...
+      processCwd: async () => "/Users/x/Projects/gtm-board", // ...né il nostro worktree
+    });
+    const pm = createPreviewManager(h.deps);
+    expect(await pm.ensurePreview("t1")).toBeNull();
+    expect(h.procs[0].killed).toBe(true);
+    expect(pm.list().length).toBe(0);
+  });
+
+  it("accetta la porta quando ad ascoltare è un discendente (stesso cwd del worktree)", async () => {
+    const h = harness({
+      listenerPid: async () => 5555,          // nipote, pid diverso dal figlio
+      processCwd: async () => "/tmp/wt1/",    // stesso worktree (slash finale incluso)
+    });
+    const pm = createPreviewManager(h.deps);
+    const res = await pm.ensurePreview("t1");
+    expect(res!.url).toBe("http://localhost:3400/");
+  });
+
+  it("NON riusa un output_url locale che risponde ma non è l'anteprima di questo task", async () => {
+    const h = harness();                       // nessun listenerPid ⇒ identità non verificabile
+    h.outputUrl.v = "http://localhost:3400/";  // porta del pool, oggi di chissà chi
+    const pm = createPreviewManager(h.deps);
+    await pm.prepareForReview("t1");
+    expect(h.spawned.length).toBe(1);          // ha bootato il PROPRIO server
+    expect(h.outputUrl.v).toBe("http://localhost:3400/");
+    expect(h.previewImage).toBe("/tmp/media/t1.png");
+  });
+
+  it("NON riusa un output_url locale servito da un altro progetto", async () => {
+    const h = harness({
+      // su :3400 c'è un estraneo, su :3401 il figlio che spawniamo noi
+      listenerPid: async (port) => (port === 3400 ? 777 : 1234),
+      processCwd: async () => "/Users/x/Projects/gtm-board",
+      portRange: [3401, 3402],
+    });
+    h.outputUrl.v = "http://localhost:3400/";
+    const pm = createPreviewManager(h.deps);
+    await pm.prepareForReview("t1");
+    expect(h.outputUrl.v).toBe("http://localhost:3401/"); // il suo, non quello estraneo
+  });
+
+  it("azzera l'output_url locale quando su quella porta risponde un estraneo e nessuna anteprima è possibile", async () => {
+    const h = harness({ resolveCommand: () => null, listenerPid: async () => 777, processCwd: async () => "/altro/progetto" });
+    h.outputUrl.v = "http://localhost:3400/";
+    const pm = createPreviewManager(h.deps);
+    await pm.prepareForReview("t1");
+    expect(h.outputUrl.v).toBeNull();
+    expect(h.previewImage).toBeNull();
+    expect(h.reviewNotes[0].content).toContain("output_url rimosso");
+  });
+});
+
+// ── Cancello sul CONTENUTO ───────────────────────────────────────────────────
+
+describe("isPlaceholderPage / isEvidencePage", () => {
+  it("riconosce il bundle mai costruito e la pagina vuota", () => {
+    expect(isPlaceholderPage("Bundle not built yet — run `cd client && bun run build`.")).toBe(true);
+    expect(isPlaceholderPage("   ")).toBe(true);
+    expect(isPlaceholderPage("Cannot GET /")).toBe(true);
+  });
+  it("lascia passare una pagina vera", () => {
+    expect(isPlaceholderPage('<!doctype html><div id="root">Topics</div>')).toBe(false);
+    expect(isEvidencePage({ status: 200, body: '<div id="root">Topics</div>' })).toBe(true);
+  });
+  it("uno status di errore non è evidenza, qualunque sia il corpo", () => {
+    expect(isEvidencePage({ status: 503, body: "<h1>ci sono quasi</h1>" })).toBe(false);
+    expect(isEvidencePage({ status: 404, body: "<h1>ci sono quasi</h1>" })).toBe(false);
+  });
+});
+
+describe("content gate in prepareForReview", () => {
+  it("placeholder ⇒ niente screenshot, anteprima AZZERATA, nota che dice perché", async () => {
+    const h = harness({
+      fetchPage: async () => ({ status: 503, body: "Bundle not built yet — run `cd client && bun run build`." }),
+      screenshot: async () => { throw new Error("non deve nemmeno provarci"); },
+    });
+    const pm = createPreviewManager(h.deps);
+    await pm.prepareForReview("t1");
+    expect(h.previewImage).toBe("");                       // evidenza ritirata
+    expect(h.reviewNotes[0].content).toContain("Nessuna anteprima allegata");
+    expect(h.reviewNotes[0].media).toBeUndefined();
+  });
+
+  it("pagina vera ⇒ si fotografa come prima", async () => {
+    const h = harness({ fetchPage: async () => ({ status: 200, body: '<div id="root">Topics</div>' }) });
+    const pm = createPreviewManager(h.deps);
+    await pm.prepareForReview("t1");
+    expect(h.previewImage).toBe("/tmp/media/t1.png");
   });
 });
 

@@ -1,6 +1,6 @@
 import { basename, join, resolve, sep } from "path";
 import { finalizeOrphanTool } from "./server/lib/orphan-tool-sweep";
-import { existsSync, readFileSync, mkdirSync, statSync, writeFileSync } from "fs";
+import { existsSync, readFileSync, mkdirSync, statSync, writeFileSync, readlinkSync } from "fs";
 import { timingSafeEqual } from "crypto";
 import type { ServerWebSocket } from "bun";
 import type { WSData } from "./server/types";
@@ -1189,6 +1189,18 @@ const worktreeOfTask = (taskId: string) => {
 const PREVIEW_MEDIA_DIR = join(homedir(), ".openclaw", "media", "task-previews");
 const PREVIEW_SCRIPT_CANDIDATES = ["preview", "dev", "start"];
 
+/** `lsof` per le domande d'identità sulla porta (macOS non lo ha sempre nel PATH). */
+function lsofBin(): string { return Bun.which("lsof") ?? "/usr/sbin/lsof"; }
+
+/** stdout di un comando breve, "" se fallisce o sfora `ms`. Best-effort by design. */
+async function previewCmdOutput(cmd: string[], ms = 2000): Promise<string> {
+  try {
+    const proc = Bun.spawn(cmd, { stdout: "pipe", stderr: "ignore", stdin: "ignore" });
+    const t = setTimeout(() => { try { proc.kill(); } catch { /* già uscito */ } }, ms);
+    try { return await new Response(proc.stdout).text(); } finally { clearTimeout(t); }
+  } catch { return ""; }
+}
+
 previewManager = createPreviewManager({
   worktreeOf: (taskId) => {
     const wt = worktreeOfTask(taskId);
@@ -1231,17 +1243,49 @@ previewManager = createPreviewManager({
       finally { clearTimeout(t); }
     } catch { return false; }
   },
+  // Cancello d'IDENTITÀ. `probe` dice solo che la porta parla; queste due dicono
+  // CHI parla. Il listener è quasi sempre un discendente del figlio che
+  // spawniamo (`bun run dev` → server), quindi il pid da solo non basta: il cwd
+  // ereditato (= worktree del task) è ciò che lo riconosce.
+  listenerPid: async (port) => {
+    const out = await previewCmdOutput([lsofBin(), "-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-t"]);
+    const pid = out.split(/\s+/).map(Number).find((n) => Number.isFinite(n) && n > 0);
+    return pid ?? null;
+  },
+  processCwd: async (pid) => {
+    if (process.platform === "linux") {
+      try { return readlinkSync(`/proc/${pid}/cwd`); } catch { /* lsof fallback */ }
+    }
+    const out = await previewCmdOutput([lsofBin(), "-a", "-p", String(pid), "-d", "cwd", "-Fn"]);
+    const line = out.split("\n").find((l) => l.startsWith("n/"));
+    return line ? line.slice(1) : null;
+  },
+  // Cancello sul CONTENUTO: la pagina si LEGGE prima di fotografarla, così un
+  // 503 «Bundle not built yet» non finisce sulla card come evidenza del lavoro.
+  fetchPage: async (url) => {
+    try {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 5000);
+      try {
+        const res = await fetch(url, { signal: ctrl.signal, redirect: "follow" });
+        return { status: res.status, body: (await res.text()).slice(0, 200_000) };
+      } finally { clearTimeout(t); }
+    } catch { return null; }
+  },
   // Reuse the already-running headless Chromium (no extra launch) via a throwaway
   // context, sized to 1440px. Best-effort → boolean.
   screenshot: async (url, outPath, opts) => {
     let port = "0"; try { port = new URL(url).port || "0"; } catch { /* keep */ }
     const id = `preview-shot:${port}`;
     try {
-      await browserService.createContext(id, { viewport: { width: opts.width, height: 900 } });
+      // Viewport, non full-page: la card è un riquadro 268×144 in `object-cover`
+      // e un'immagine più alta di 0.537× la larghezza la TAGLIA invece di
+      // rimpicciolirla — 1440×760 = 0.528 sta dentro, una full-page no.
+      await browserService.createContext(id, { viewport: { width: opts.width, height: 760 } });
       const nav = await browserService.navigate(id, url);
       if (nav.error) return false;
       await new Promise((r) => setTimeout(r, 1500)); // let the first paint settle
-      const buf = await browserService.screenshot(id, { format: "png", fullPage: true });
+      const buf = await browserService.screenshot(id, { format: "png", fullPage: false });
       writeFileSync(outPath, buf);
       return true;
     } catch (err) {
