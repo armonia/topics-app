@@ -1,6 +1,6 @@
 import { BrowserToolbar } from './BrowserToolbar';
 import { createPortal } from 'react-dom';
-import { Globe, Loader2, ChevronUp, ChevronDown, X, AlertTriangle, RotateCw, Check, Download, Puzzle, Boxes, MonitorPlay } from 'lucide-react';
+import { Globe, Loader2, ChevronUp, ChevronDown, X, AlertTriangle, RotateCw, Puzzle, Boxes, MonitorPlay } from 'lucide-react';
 import { lazy, Suspense } from 'react';
 import { useRemoteBrowser } from '../../hooks/useRemoteBrowser';
 import { useTauriBrowser } from '../../hooks/useTauriBrowser';
@@ -11,7 +11,9 @@ import { NativeBrowserPlaceholder } from './NativeBrowserPlaceholder';
 import { ParkedPane } from './ParkedPane';
 import { BrowserNoticeStrip } from './BrowserNoticeStrip';
 import { BrowserPaneChip, ChipDot, type ChipTone } from './BrowserPaneChip';
-import { DownloadStrip } from './DownloadStrip';
+import { useBrowserDownloads } from '../../hooks/useBrowserDownloads';
+import type { DownloadsMenuProps } from './DownloadsMenu';
+import { formatSize } from './downloadsModel';
 import { useBrowserSpawner } from '../../state/browserSpawner';
 import { signalsActions } from '../../state/signals';
 import { isTauri } from '../../lib/shell';
@@ -279,6 +281,25 @@ function useBackToSpawner(
  */
 function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChange, onTitleChange, onNavigateConsumed, isVisible = true, onFocusPanel, topics, onSelfFocus, shared, shareMode, onToggleShare }: RemoteBrowserPanelProps) {
   const browser = useTauriBrowser(contextId, initialUrl, isVisible, onSelfFocus);
+  const dl = useBrowserDownloads(contextId);
+  // Le voci native portano un path su QUESTO computer: si aprono e si mostrano
+  // nel Finder. `detail` è il path stesso — «dov'è finito» è la domanda che la
+  // vecchia striscia non rispondeva.
+  const downloads = useMemo<DownloadsMenuProps>(() => ({
+    items: dl.downloads.map((d) => ({
+      id: d.id,
+      filename: d.filename,
+      state: d.state,
+      detail: d.savedPath,
+      savedPath: d.savedPath,
+    })),
+    activeCount: dl.activeCount,
+    startedCount: dl.startedCount,
+    onDismiss: dl.dismiss,
+    onClear: dl.clear,
+    onOpen: dl.openFile,
+    onReveal: dl.reveal,
+  }), [dl]);
   useReportBrowserActivity(contextId, browser.loading || browser.agentActive);
   // Tab di un task con un login salvato dall'agente: rimettilo, così il reviewer
   // atterra dentro invece che sul muro del login. Solo a pane viva (una URL
@@ -417,6 +438,7 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
         consoleEntries={browser.consoleEntries}
         consoleSummary={browser.consoleSummary}
         onClearConsole={browser.clearConsole}
+        downloads={downloads}
         shared={shared}
         shareMode={shareMode}
         onToggleShare={onToggleShare}
@@ -490,7 +512,6 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
       ) : (
         <NativeBrowserPlaceholder browser={browser} isVisible={isVisible} />
       )}
-      <DownloadStrip contextId={contextId} />
     </div>
   );
 }
@@ -508,6 +529,26 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
   usePaneHold(browser.agentActive);
   const { history, push: pushHistory } = useBrowserHistory(contextId);
   const backToSpawner = useBackToSpawner(contextId, onFocusPanel, topics);
+
+  // I download della pane CONDIVISA finiscono sul server, non su questo
+  // computer: la voce porta un link alla nostra origine (lo scarica il browser
+  // che sta guardando, anche il telefono) invece di un path da aprire. Stesso
+  // menu della pane nativa — vedi DownloadsMenu.
+  const dismissDownload = browser.dismissDownload;
+  const clearDownloads = browser.clearDownloads;
+  const streamDownloads = useMemo<DownloadsMenuProps>(() => ({
+    items: browser.downloads.map((d) => ({
+      id: d.href,
+      filename: d.filename,
+      state: d.state === 'completed' ? 'completed' : d.state === 'failed' ? 'interrupted' : 'progressing',
+      detail: d.state === 'completed' ? formatSize(d.size) : undefined,
+      href: d.href,
+    })),
+    activeCount: browser.downloads.filter((d) => d.state === 'started').length,
+    startedCount: browser.downloadsSeq,
+    onDismiss: dismissDownload,
+    onClear: clearDownloads,
+  }), [browser.downloads, browser.downloadsSeq, dismissDownload, clearDownloads]);
 
   // Same fresh/empty-pane URL-bar autofocus as the Tauri branch — see the
   // comment there. Wired through the toolbar's onRegisterFocus below.
@@ -686,6 +727,7 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
           spawnerLabel={backToSpawner?.spawnerLabel}
           agentActive={browser.agentActive}
           agentAction={browser.agentAction}
+          downloads={streamDownloads}
           shared={shared}
           shareMode={shareMode}
           onToggleShare={onToggleShare}
@@ -776,6 +818,7 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
         spawnerLabel={backToSpawner?.spawnerLabel}
         agentActive={browser.agentActive}
         agentAction={browser.agentAction}
+        downloads={streamDownloads}
         shared={shared}
         shareMode={shareMode}
         onToggleShare={onToggleShare}
@@ -1035,38 +1078,9 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
         />
       </div>
 
-      {/* Download strip — the web streaming pane has no native download shelf,
-          so headless-page downloads (saved server-side under our origin) surface
-          here as user-clickable links. Newest last, bounded by the hook. */}
-      {browser.downloads.length > 0 && (
-        <div
-          className="flex items-center gap-2 px-3 py-1.5 border-t border-app-border bg-app-bg flex-shrink-0 overflow-x-auto"
-          data-testid="browser-download-strip"
-        >
-          <Download size={13} className="text-app-text-muted flex-shrink-0" aria-hidden />
-          {browser.downloads.map((d) => (
-            <a
-              key={d.href}
-              href={d.href}
-              download
-              target="_blank"
-              rel="noreferrer"
-              title={d.state === 'failed' ? 'Download fallito' : d.filename}
-              className="flex items-center gap-1 px-2 py-0.5 rounded bg-surface border border-app-border text-[12px] text-app-text hover:bg-app-hover transition-colors flex-shrink-0 max-w-[220px]"
-              data-testid="browser-download-item"
-            >
-              {d.state === 'completed' ? (
-                <Check size={12} className="text-green-600 dark:text-green-400 flex-shrink-0" aria-hidden />
-              ) : d.state === 'failed' ? (
-                <X size={12} className="text-red-500 flex-shrink-0" aria-hidden />
-              ) : (
-                <Loader2 size={12} className="animate-spin text-app-spinner flex-shrink-0" aria-hidden />
-              )}
-              <span className="truncate">{d.filename}</span>
-            </a>
-          ))}
-        </div>
-      )}
+      {/* I download NON stanno più qui sotto: sono nel menu Download della
+          toolbar (DownloadsMenu), che è chiudibile, non fa scadere le voci e
+          non si mangia una riga della pagina. */}
     </div>
   );
 }
