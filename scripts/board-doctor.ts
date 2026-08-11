@@ -83,6 +83,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { DEFAULT_PROJECT_ID, THRESHOLDS, type SizeClass } from "./board-baseline";
+import { splitAheadCommits, type GitRunner } from "../server/services/own-commits";
 
 // ── Parametri dichiarati ─────────────────────────────────────────────────────
 
@@ -366,11 +367,13 @@ export interface BranchFacts {
    */
   foreignHead: string | null;
   /**
-   * I commit che sono NATI in questo worktree, abbreviati. `null` = non
-   * elencabili, e allora di chi sia la consegna non si sa: nessun allarme.
+   * I commit che sono NATI in questo worktree, con lo SHA intero — la stessa
+   * grafia con cui la consegna li registra (`own-commits.ts`), perche' e' con
+   * quella che il controllo 8 li confronta. `null` = non elencabili, e allora
+   * di chi sia la consegna non si sa: nessun allarme.
    */
   ownShas: readonly string[] | null;
-  /** Gli altri branch locali usati per la sottrazione: servono alla prova. */
+  /** Gli altri branch (`refs/heads/…`) da cui si e' sottratto: servono alla prova. */
   otherBranches: readonly string[];
 }
 
@@ -533,7 +536,7 @@ const checkLandDragsForeignCommits: DoctorCheck = {
         proof: `R=${shq(repoPath)}; git -C "$R" rev-list --count ${b.defaultBranch}..${b.branch}; git -C "$R" rev-list --count ${b.defaultBranch}..${b.branch} --not ${others}`,
         action: `prendi solo il lavoro della card (\`git -C "$R" log --oneline ${b.defaultBranch}..${b.branch} --not ${others}\` e poi un cherry-pick), oppure landa prima quel branch. Il cancello dell'automerge rifiuterebbe comunque: qui lo sai prima di cliccare`,
         occurrence: `land-drags-foreign-commits:${t.id}:${b.headSha ?? b.aheadTotal}`,
-        group: b.foreignHead ? `stessa linea ereditata, punta ${b.foreignHead}` : undefined,
+        group: b.foreignHead ? `stessa linea ereditata, punta ${b.foreignHead.slice(0, 8)}` : undefined,
         brief: `${b.aheadTotal} commit, ${b.ownCount} suo${b.ownCount === 1 ? "" : "i"}`,
       }));
     }
@@ -712,7 +715,10 @@ const checkDeliveryCommitNotOwn: DoctorCheck = {
         what: b.ownCount === 0
           ? `la consegna e' registrata su ${sha.slice(0, 8)}, ma questa card non ha committato niente: il commit e' di qualcun altro`
           : `la consegna e' registrata su ${sha.slice(0, 8)}, che non e' fra i ${b.ownCount} commit di questa card`,
-        proof: `R=${shq(repoPath)}; git -C "$R" rev-list --abbrev-commit ${b.defaultBranch}..${b.branch} --not $(git -C "$R" for-each-ref --format='%(refname:short)' refs/heads/ | grep -vx -e ${b.branch} -e ${b.defaultBranch}); git -C "$R" show --oneline -s ${sha}`,
+        // SHA interi, come quelli che il doctor ha confrontato: cosi' la
+        // consegna o compare in quell'elenco o non c'e', senza far combaciare
+        // prefissi a occhio.
+        proof: `R=${shq(repoPath)}; git -C "$R" rev-list ${b.defaultBranch}..${b.branch} --not $(git -C "$R" for-each-ref --format='%(refname:short)' refs/heads/ | grep -vx -e ${b.branch} -e ${b.defaultBranch}); git -C "$R" show --oneline -s ${sha}`,
         action: "non fidarti del diff mostrato in review: sta guardando il lavoro di un'altra sessione. Chiedi alla card quale commit e' suo, o rigettala",
         occurrence: `delivery-commit-not-own:${t.id}:${sha}`,
       }));
@@ -867,6 +873,60 @@ function git(cwd: string, args: string[]): { code: number; out: string } {
   return { code: res.status ?? 1, out: typeof res.stdout === "string" ? res.stdout : "" };
 }
 
+/**
+ * Il `git` del doctor nella forma che vuole `own-commits.ts`. E' un runner
+ * asincrono su una `spawnSync`: non serve a parallelizzare niente, serve a far
+ * girare il doctor sulla STESSA sottrazione del land invece che su una copia.
+ * Il cancello di sola-lettura resta quello di sopra — l'helper non decide cosa
+ * il doctor puo' eseguire.
+ */
+const doctorGitRunner: GitRunner = async (cwd, args) => {
+  const r = git(cwd, args);
+  return { code: r.code, stdout: r.out };
+};
+
+/**
+ * Cosa porterebbe il branch di una card, e quanto di quello e' suo. La domanda
+ * NON si ricalcola qui: la fa `own-commits.ts`, la stessa che risponde al
+ * cancello del land e alla fotografia della consegna. Due copie divergono, e
+ * siccome il controllo 8 confronta questi SHA con quello registrato dalla
+ * consegna, la deriva fra le copie sarebbe un falso allarme prodotto dal
+ * controllo che esiste per non darne.
+ *
+ * `null` = non confrontabile (branch potato, git muto): chi chiama lo dice fra
+ * le cose che non ha potuto guardare, e nessun controllo parla di questa card.
+ */
+export async function branchFacts(
+  repoPath: string,
+  taskId: string,
+  branch: string,
+  defaultBranch: string,
+  runGit: GitRunner = doctorGitRunner,
+): Promise<BranchFacts | null> {
+  // Le liste, non i conteggi: dalla differenza esce anche QUALE commit
+  // estraneo e' il piu' recente, cioe' l'impronta della causa condivisa.
+  const split = await splitAheadCommits(repoPath, branch, { mainRef: defaultBranch, runGit });
+  if (split === null) return null;
+  const mine = new Set(split.own);
+  const head = await runGit(repoPath, ["rev-parse", "--short", refShort(branch)]);
+  return {
+    taskId,
+    branch,
+    defaultBranch,
+    headSha: head.code === 0 ? head.stdout.trim() : null,
+    aheadTotal: split.ahead.length,
+    ownCount: mine.size,
+    foreignHead: split.ahead.find((sha) => !mine.has(sha)) ?? null,
+    ownShas: split.own,
+    otherBranches: split.others,
+  };
+}
+
+/** Il nome nudo di un ref, per i posti che lo mostrano a un umano o lo passano a una shell. */
+function refShort(ref: string): string {
+  return ref.startsWith("refs/heads/") ? ref.slice("refs/heads/".length) : ref;
+}
+
 function classify(value: number | null, smallMax: number, mediumMax: number): SizeClass | null {
   if (value === null || !Number.isFinite(value)) return null;
   if (value <= smallMax) return "small";
@@ -916,7 +976,7 @@ export interface Collected {
   skipped: string[];
 }
 
-export function collect(opts: CollectOptions = {}): Collected {
+export async function collect(opts: CollectOptions = {}): Promise<Collected> {
   const dbPath = opts.dbPath ?? defaultDbPath();
   const repoPath = opts.repoPath ?? join(import.meta.dir, "..");
   const projectId = opts.projectId ?? DEFAULT_PROJECT_ID;
@@ -963,10 +1023,7 @@ export function collect(opts: CollectOptions = {}): Collected {
     const probeNow: Record<string, LivenessProbe> = {};
     const nowIso = new Date(nowMs).toISOString();
 
-    // Gli altri branch locali: la sottrazione che isola i commit della card.
     const defaultBranch = git(repoPath, ["rev-parse", "--verify", "--quiet", "main"]).code === 0 ? "main" : "master";
-    const allRefs = git(repoPath, ["for-each-ref", "--format=%(refname:short)", "refs/heads/"])
-      .out.split("\n").map((s) => s.trim()).filter(Boolean);
 
     for (const r of scoped) {
       const agent = lastAgent.get(r.id) as { content: string; created_at: string } | null;
@@ -1020,33 +1077,12 @@ export function collect(opts: CollectOptions = {}): Collected {
       };
 
       if (r.delivery_branch) {
-        // Le liste, non i conteggi: dalla differenza esce anche QUALE commit
-        // estraneo e' il piu' recente, cioe' l'impronta della causa condivisa.
-        const ahead = git(repoPath, ["rev-list", "--abbrev-commit", `${defaultBranch}..${r.delivery_branch}`]);
-        if (ahead.code !== 0) {
+        const facts = await branchFacts(repoPath, r.id, r.delivery_branch, defaultBranch);
+        if (facts === null) {
           skipped.push(`${r.id.slice(0, 8)}: branch ${r.delivery_branch} non confrontabile con ${defaultBranch} — controllo land saltato`);
           continue;
         }
-        const others = allRefs.filter((b) => b !== r.delivery_branch && b !== defaultBranch);
-        const own = others.length
-          ? git(repoPath, ["rev-list", "--abbrev-commit", `${defaultBranch}..${r.delivery_branch}`, "--not", ...others])
-          : ahead;
-        if (own.code !== 0) continue;
-        const lines = (s: string) => s.split("\n").map((x) => x.trim()).filter(Boolean);
-        const all = lines(ahead.out);
-        const mine = new Set(lines(own.out));
-        const head = git(repoPath, ["rev-parse", "--short", r.delivery_branch]);
-        branches.push({
-          taskId: r.id,
-          branch: r.delivery_branch,
-          defaultBranch,
-          headSha: head.code === 0 ? head.out.trim() : null,
-          aheadTotal: all.length,
-          ownCount: mine.size,
-          foreignHead: all.find((sha) => !mine.has(sha)) ?? null,
-          ownShas: [...mine],
-          otherBranches: others,
-        });
+        branches.push(facts);
       }
     }
 
@@ -1210,8 +1246,8 @@ async function main(): Promise<void> {
   }
 
   /** Un giro: guarda, dice cio' che e' nuovo, aggiorna la catena dei sondaggi. */
-  function round(prev: DoctorState, remember: boolean): { state: DoctorState; fresh: Finding[] } {
-    const { input, probeNow, skipped } = collect({
+  async function round(prev: DoctorState, remember: boolean): Promise<{ state: DoctorState; fresh: Finding[] }> {
+    const { input, probeNow, skipped } = await collect({
       dbPath, repoPath, projectId: opt("project"), day: opt("day"),
       costBaseline, reds, probes: prev.probes,
     });
@@ -1256,7 +1292,7 @@ async function main(): Promise<void> {
     let cur = state;
     for (;;) {
       try {
-        cur = round(cur, true).state;
+        cur = (await round(cur, true)).state;
         if (persist) saveState(cur, stateFile);
       } catch (e) {
         console.error(`[doctor] giro fallito: ${e instanceof Error ? e.message : String(e)}`);
@@ -1265,7 +1301,7 @@ async function main(): Promise<void> {
     }
   }
 
-  const { state: next, fresh } = round(state, has("remember"));
+  const { state: next, fresh } = await round(state, has("remember"));
   if (persist) saveState(next, stateFile);
   if (has("gate") && fresh.length) process.exit(1);
 }
