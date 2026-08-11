@@ -13,10 +13,10 @@
 // in scope locale, e qui sotto servono, quindi l'import gemello non è ridondante.
 export { MAX_FANOUT, TASK_STATUSES, ACTIVE_DISPATCH_STATES, isAgentWorking } from '../../../shared/board';
 export type {
-  TaskStatus, TaskComment, ReviewCheck, CheckRun, BoardSettings, BoardSettingsPatch, DispatchCapacity,
+  TaskStatus, TaskComment, ReviewCheck, CheckRun, BoardSettings, BoardSettingsPatch, DispatchCapacity, BlockerRef,
 } from '../../../shared/board';
 import type {
-  TaskStatus, TaskComment, CheckRun, BoardSettings, BoardSettingsPatch, DispatchCapacity,
+  TaskStatus, TaskComment, CheckRun, BoardSettings, BoardSettingsPatch, DispatchCapacity, BlockerRef,
 } from '../../../shared/board';
 // Il tentativo di un fan-out: stesso contratto del server, stessa cartella condivisa.
 export { attemptHasWork, formatAttemptStat } from '../../../shared/task-attempt';
@@ -111,6 +111,34 @@ export const SYSTEM_DELIVERY_CHIP: Record<'retries_exhausted' | 'model_refused' 
   fanout: 'scegli il tentativo',
 };
 
+/**
+ * Il chip «in attesa di» di un task: cosa scriverci, o `null` se non va disegnato.
+ *
+ * Decide dal LINK (`blockedByTaskId`), non da chi c'è nella lista che il client
+ * ha in mano. La card lo derivava cercando il bloccante fra i task fetchati —
+ * un progetto, `rootsOnly`, non archiviati — quindi un bloccante fuori da quel
+ * taglio faceva sparire il chip e la card sembrava libera di partire mentre il
+ * dispatcher la teneva ferma. Il titolo lo risolve il server (`blockedBy`);
+ * quando manca il chip resta, degradato: «c'è un legame» è l'informazione che
+ * conta, il titolo è il di più.
+ *
+ * Muto solo quando il bloccante è chiuso o archiviato — lo stesso predicato del
+ * gate di dispatch lato server: lì il task riparte, qui il chip si spegne.
+ */
+export function blockedByChip(
+  task: Pick<BoardTask, 'blockedByTaskId' | 'blockedBy'>,
+): { label: string; title: string } | null {
+  if (!task.blockedByTaskId) return null;
+  const b = task.blockedBy;
+  if (b && (b.status === 'done' || b.archived)) return null;
+  return b
+    ? { label: `in attesa di: ${b.text}`, title: `In attesa di: ${b.text}` }
+    : {
+      label: 'in attesa di un altro task',
+      title: 'In attesa di un altro task: non parte finché quello non chiude. Il titolo non è disponibile qui.',
+    };
+}
+
 export interface BoardTask {
   id: string;
   projectId: string;
@@ -159,6 +187,10 @@ export interface BoardTask {
   model: string | null;
   /** Root task this one is gated on — the dispatcher won't start it until that task is done. */
   blockedByTaskId: string | null;
+  /** Lo stesso bloccante risolto dal server (titolo + stato + archiviato). È la
+   *  fonte del chip «in attesa di»: la lista fetchata non lo contiene sempre.
+   *  null = nessun link, o la riga puntata non esiste più. */
+  blockedBy: BlockerRef | null;
   /** When blocked, hand the new agent the blocker's session context instead of a cold start. */
   reuseBlockerContext: boolean;
   /** Branch the task delivered on, snapshot at review-time (diagnostics). */

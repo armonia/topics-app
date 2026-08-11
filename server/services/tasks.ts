@@ -32,10 +32,10 @@ import { imageShape } from "./image-shape";
 // ri-esporta ma NON porta i nomi in scope locale, e qui sotto servono — da cui
 // l'import separato. Della lista `TASK_STATUSES` questo modulo non è una porta:
 // chi la vuole la prende da `shared/board`.
-export type { TaskStatus, TaskComment, BoardSettings, BoardSettingsPatch } from "../../shared/board";
+export type { TaskStatus, TaskComment, BoardSettings, BoardSettingsPatch, BlockerRef } from "../../shared/board";
 import { MAX_FANOUT, PREVIEW_PROMOTE_MAX_RATIO, TASK_STATUSES, isAgentWorking, readTaskWeight } from "../../shared/board";
 import { EFFORT_TIERS } from "../../shared/effort";
-import type { TaskStatus, TaskComment, BoardSettings, BoardSettingsPatch, TaskWeight } from "../../shared/board";
+import type { TaskStatus, TaskComment, BoardSettings, BoardSettingsPatch, BlockerRef, TaskWeight } from "../../shared/board";
 
 export type Actor = "human" | "agent";
 
@@ -136,6 +136,14 @@ export interface Task {
   model: string | null;
   /** Dependency: not dispatch-eligible until this task is done/archived. */
   blockedByTaskId: string | null;
+  /**
+   * Lo stesso bloccante, RISOLTO dal DB. Il chip «in attesa di» sul client si
+   * disegna da qui: la lista della board (un progetto, `rootsOnly`, non
+   * archiviati) non è una fonte affidabile per il titolo del bloccante, quindi
+   * lo risolve chi ha il DB sotto mano. `null` = nessun link, oppure la riga
+   * puntata non esiste più (edge orfano).
+   */
+  blockedBy: BlockerRef | null;
   /** Branch the task delivered on, snapshotted at the transition into `review`. */
   deliveryBranch: string | null;
   /** Branch tip at delivery time — the handle that outlives the reaped branch. */
@@ -689,6 +697,26 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     return null;
   }
 
+  /**
+   * Il bloccante, letto dal DB per id.
+   *
+   * Sta in `rowToTask` — non nei soli `list`/`get` come i contatori dei
+   * sottotask — perché ogni payload di task esce anche dalle scritture (update,
+   * claim, release) che il server ribalta sul WS come `task:updated`: se lo
+   * risolvessimo solo in lettura, un giro di WS spegnerebbe il titolo del chip
+   * fino al prossimo fetch pieno. Costa una lettura per chiave primaria SOLO
+   * quando il link c'è (pochi task per board).
+   *
+   * Legge la riga anche se ARCHIVIATA: un bloccante archiviato non blocca più,
+   * ma dirlo è compito del client (`archived: true`), non di un `null` muto.
+   */
+  function resolveBlocker(blockerId: string | null | undefined): BlockerRef | null {
+    if (!blockerId) return null;
+    const r = db.prepare("SELECT id, text, status, archived FROM tasks WHERE id = ?").get(blockerId) as any;
+    if (!r) return null;
+    return { id: r.id, text: r.text, status: r.status, archived: !!r.archived };
+  }
+
   function rowToTask(r: any): Task {
     return {
       id: r.id,
@@ -722,6 +750,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       priorityAuto: r.priority_auto == null ? true : !!r.priority_auto,
       model: resolveModel(r),
       blockedByTaskId: r.blocked_by_task_id ?? null,
+      blockedBy: resolveBlocker(r.blocked_by_task_id),
       deliveryBranch: r.delivery_branch ?? null,
       deliveryCommit: r.delivery_commit ?? null,
       landingState: r.landing_state ?? null,
