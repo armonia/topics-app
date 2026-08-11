@@ -52,6 +52,7 @@ import { registerPreviewProcess, unregisterPreviewProcess } from "./server/route
 import { sweepWorktrees, type TaskStatus as GcTaskStatus } from "./server/services/worktree-gc";
 import { formatMb, parseSlimSkip, slimWorktree } from "./server/services/worktree-slim";
 import { branchStatusFromRepo, commitStatusFromRepo, resolveCommit, worktreeDiffStat } from "./server/services/branch-status";
+import { deliveryPointer } from "./server/services/own-commits";
 import { abandonNoticeFromRepo } from "./server/services/worktree-abandon-notice";
 import { createTaskAttemptStore } from "./server/services/task-attempts";
 import { auditLandings } from "./server/services/landing-audit";
@@ -1219,16 +1220,21 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
     if (!repoPath) return null;
     return branchStatusFromRepo(repoPath, wt.branchName);
   },
-  // Delivery snapshot, taken when the task enters review: branch + tip SHA. The
-  // branch dies with the reap, the commit survives (gc.pruneExpire=90d), so the
-  // landing audit holds the COMMIT.
+  // Delivery snapshot, taken when the task enters review: the branch plus the
+  // most recent commit that is the task's OWN. The branch dies with the reap,
+  // the commit survives (gc.pruneExpire=90d), so the landing audit holds it.
+  //
+  // NON la punta del ramo: un branch nato dall'HEAD del checkout condiviso
+  // eredita i commit di chi ci stava sopra, e la punta è di un altro — il 10/08
+  // `dd2aa40d` registrava `987cd8ae`, commit di un'altra card e già su main.
+  // `null` = domanda senza risposta ⇒ nessuna fotografia (meglio del ritratto
+  // sbagliato); `commit: null` = verificato, non ha prodotto codice.
   taskDeliveryRef: async (taskId) => {
     const wt = worktreeOfTask(taskId);
     if (!wt || wt.mode !== "branch" || !wt.branchName) return null;
     const repoPath = ctx.projectStore.get(wt.projectId)?.path;
     if (!repoPath) return null;
-    const commit = await resolveCommit(repoPath, `refs/heads/${wt.branchName}`);
-    return commit ? { branch: wt.branchName, commit } : null;
+    return deliveryPointer(repoPath, wt.branchName).catch(() => null);
   },
   // Dove far girare i checks pre-review: la cartella del worktree del task e il
   // commit su cui sta. Solo worktree di branch — un task in-place girerebbe i
@@ -3688,9 +3694,9 @@ const worktreeGcTimer = setInterval(runWorktreeGc, WORKTREE_GC_INTERVAL_MS);
 //
 // Two steps per pass:
 //  1. BACKFILL — any review/done task with a live branch worktree but no
-//     recorded delivery gets its branch tip recorded now. Covers the paths that
-//     bypass the route PATCH (system-delivery from the dispatcher) and every
-//     task that predates the delivery snapshot.
+//     recorded delivery gets its own most recent commit recorded now. Covers the
+//     paths that bypass the route PATCH (system-delivery from the dispatcher) and
+//     every task that predates the delivery snapshot.
 //  2. AUDIT — compare each recorded commit against main by CONTENT and stamp
 //     the verdict; the edge into `unlanded` posts a comment on the task.
 async function backfillDeliveries(): Promise<void> {
@@ -3703,10 +3709,16 @@ async function backfillDeliveries(): Promise<void> {
     if (!wt || wt.mode !== "branch" || !wt.branchName) continue;
     const repoPath = ctx.projectStore.get(wt.projectId)?.path;
     if (!repoPath) continue;
+    // Stessa domanda della cattura in review: il commit PROPRIO più recente, non
+    // la punta del ramo — altrimenti questo giro riscriverebbe ogni 30 minuti il
+    // lavoro di un'altra sessione sopra le card senza consegna.
     // Awaited: the audit right below must see what we just recorded, otherwise
     // a backfilled task waits a full interval for its first verdict.
-    const commit = await resolveCommit(repoPath, `refs/heads/${wt.branchName}`).catch(() => null);
-    if (commit) dispatcherSvc.recordDelivery({ taskId: row.id, branch: wt.branchName, commit });
+    const ptr = await deliveryPointer(repoPath, wt.branchName).catch(() => null);
+    // Niente commit propri (o domanda senza risposta): non si scrive niente e si
+    // riprova al giro dopo — se intanto l'altro branch landa o sparisce, la
+    // stessa domanda cambia risposta da sola.
+    if (ptr?.commit) dispatcherSvc.recordDelivery({ taskId: row.id, branch: ptr.branch, commit: ptr.commit });
   }
 }
 

@@ -633,6 +633,19 @@ describe("board router (human, project-scoped)", () => {
     expect(calls).toBe(1);
   });
 
+  test("delivery snapshot: «non ho prodotto codice» si dice, e non si inventa un commit", async () => {
+    // Un branch che porta SOLO commit ereditati non ha un commit proprio da
+    // registrare: la consegna deve dirlo (branch sì, commit vuoto), non puntare
+    // alla punta del ramo, che è il lavoro di un'altra sessione.
+    const r = createTasksRouter(makeCtx(db, broadcasts), undefined, {
+      taskDeliveryRef: async () => ({ branch: "topics/purple-finch", commit: null }),
+    });
+    const t = await (await call(r, "POST", "/api/boards/pX/tasks", { text: "x" }))!.json();
+    const rev = await (await call(r, "PATCH", `/api/boards/pX/tasks/${t.id}`, { status: "review" }))!.json();
+    expect(rev.deliveryBranch).toBe("topics/purple-finch");
+    expect(rev.deliveryCommit).toBeNull();
+  });
+
   test("delivery snapshot: an in-place task (no branch worktree) records nothing", async () => {
     const r = createTasksRouter(makeCtx(db, broadcasts), undefined, { taskDeliveryRef: async () => null });
     const t = await (await call(r, "POST", "/api/boards/pX/tasks", { text: "x" }))!.json();
