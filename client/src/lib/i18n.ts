@@ -151,6 +151,59 @@ const IT: Dict = {
   'board.task.commentPlaceholder': 'Commenta…',
   'board.task.workspaceLabel': 'Spazio di lavoro',
   'board.task.reviewPreview': 'Anteprima',
+  // ── TaskDetail: i tre sotto-pannelli CONDIZIONALI (Checks, Modifiche,
+  //    Tentativi). Si vedono solo in stati precisi — checks girati, worktree con
+  //    diff, fan-out con più tentativi — e per questo lo scanner di copertura
+  //    non li contava: il loro testo sta dentro espressioni JSX multi-riga.
+  //    I valori IT sono IDENTICI ai letterali di prima (li ancorano
+  //    board-fanout.spec.ts e board-diff-review.spec.ts).
+  //
+  //    Sui plurali: due chiavi `.one`/`.many` e il ramo lo sceglie chi chiama.
+  //    Con due lingue che pluralizzano allo stesso modo, un plurale a regole
+  //    (Intl.PluralRules, categorie `few`/`many`) sarebbe macchinario per una
+  //    distinzione che qui è un `=== 1`.
+  'board.task.checks.running': 'Checks pre-review in corso…',
+  'board.task.checks.pass': 'Checks verdi',
+  'board.task.checks.fail': 'Checks ROSSI',
+  'board.task.checks.at': 'alle {t}',
+  'board.task.checks.notStarted': 'non è partito',
+  'board.task.checks.timedOut': 'oltre il tempo massimo',
+  // Il consiglio è spezzato in due perché in mezzo c'è <b>Rifiuta</b>, che è la
+  // STESSA etichetta del bottone (`board.task.reject`): ripeterla dentro una
+  // frase intera vorrebbe dire poterla tradurre in due modi diversi.
+  'board.task.checks.hintLead': 'La strada normale è',
+  'board.task.checks.hintTail': ": l'agent riparte con questo output. Approvare qui significa accettarlo rosso.",
+  'board.task.changes': 'Modifiche',
+  'board.task.changes.files.one': '{n} file',
+  'board.task.changes.files.many': '{n} file',
+  'board.task.changes.pending': '{n} in sospeso',
+  'board.task.changes.notes.one': '{n} commento sul diff, non ancora inviati',
+  'board.task.changes.notes.many': '{n} commenti sul diff, non ancora inviati',
+  'board.task.changes.discard': 'Scarta',
+  'board.task.changes.send': "Invia all'agente",
+  'board.task.changes.sendFailed': 'invio fallito',
+  'board.task.changes.sendFailedInline': 'Invio fallito: {msg} — le note sono ancora qui, riprova.',
+  'board.task.attempts': 'Tentativi',
+  'board.task.attempts.parallel': '{n} in parallelo',
+  'board.task.attempts.running': '{n} in corso',
+  'board.task.attempts.pickHint': 'Scegline uno: il task prende il suo branch, gli altri (worktree e chat) vengono buttati.',
+  'board.task.attempts.pickFailed': 'scelta fallita',
+  'board.task.attempt.n': 'Tentativo {n}',
+  'board.task.attempt.selected': 'scelto',
+  'board.task.attempt.discarded': 'scartato',
+  'board.task.attempt.openDiff': 'Vedi il diff',
+  'board.task.attempt.closeDiff': 'Chiudi il diff',
+  'board.task.attempt.pick': 'Scegli questo',
+  'board.task.attempt.emptyTitle': 'Questo tentativo non ha modificato niente: tenerlo significa consegnare un branch vuoto.',
+  // Il diffstat accanto a ogni tentativo. Esiste già in `shared/task-attempt.ts`
+  // (`formatAttemptStat`), ma quella copia resta in italiano di proposito: la
+  // usa il SERVER per scrivere il confronto nel thread, e `shared/` non può
+  // vedere il dizionario del client. Qui la stessa forma, tradotta.
+  'board.task.attempt.stat.running': 'in corso…',
+  'board.task.attempt.stat.noChanges': 'nessuna modifica',
+  'board.task.attempt.stat.noChangesError': 'nessuna modifica — {error}',
+  'board.task.attempt.stat.files.one': '{n} file · +{ins} −{del}',
+  'board.task.attempt.stat.files.many': '{n} file · +{ins} −{del}',
   'board.settings.close': 'Chiudi le impostazioni della board',
   'board.settings.dispatchOnPre': 'Avvia un agent quando un task entra in',
   'board.settings.dispatchOnTitle': 'Interruttore globale, vale per tutte le board. Il cap di agent in parallelo si imposta dal ▾ accanto al titolo della board.',
@@ -532,6 +585,42 @@ const EN: Dict = {
   'board.task.commentPlaceholder': 'Comment…',
   'board.task.workspaceLabel': 'Workspace',
   'board.task.reviewPreview': 'Preview',
+  // ── TaskDetail: the three CONDITIONAL sub-panels (Checks, Changes, Attempts).
+  'board.task.checks.running': 'Pre-review checks running…',
+  'board.task.checks.pass': 'Checks green',
+  'board.task.checks.fail': 'Checks RED',
+  'board.task.checks.at': 'at {t}',
+  'board.task.checks.notStarted': 'did not start',
+  'board.task.checks.timedOut': 'past the time limit',
+  'board.task.checks.hintLead': 'The normal path is',
+  'board.task.checks.hintTail': ': the agent restarts with this output. Approving here means accepting it red.',
+  'board.task.changes': 'Changes',
+  'board.task.changes.files.one': '{n} file',
+  'board.task.changes.files.many': '{n} files',
+  'board.task.changes.pending': '{n} pending',
+  'board.task.changes.notes.one': '{n} comment on the diff, not sent yet',
+  'board.task.changes.notes.many': '{n} comments on the diff, not sent yet',
+  'board.task.changes.discard': 'Discard',
+  'board.task.changes.send': 'Send to the agent',
+  'board.task.changes.sendFailed': 'sending failed',
+  'board.task.changes.sendFailedInline': 'Sending failed: {msg} — the notes are still here, try again.',
+  'board.task.attempts': 'Attempts',
+  'board.task.attempts.parallel': '{n} in parallel',
+  'board.task.attempts.running': '{n} running',
+  'board.task.attempts.pickHint': 'Pick one: the task takes its branch, the others (worktree and chat) are thrown away.',
+  'board.task.attempts.pickFailed': 'the pick failed',
+  'board.task.attempt.n': 'Attempt {n}',
+  'board.task.attempt.selected': 'picked',
+  'board.task.attempt.discarded': 'discarded',
+  'board.task.attempt.openDiff': 'See the diff',
+  'board.task.attempt.closeDiff': 'Close the diff',
+  'board.task.attempt.pick': 'Pick this one',
+  'board.task.attempt.emptyTitle': 'This attempt changed nothing: keeping it means delivering an empty branch.',
+  'board.task.attempt.stat.running': 'running…',
+  'board.task.attempt.stat.noChanges': 'no changes',
+  'board.task.attempt.stat.noChangesError': 'no changes — {error}',
+  'board.task.attempt.stat.files.one': '{n} file · +{ins} −{del}',
+  'board.task.attempt.stat.files.many': '{n} files · +{ins} −{del}',
   'board.settings.close': 'Close the board settings',
   'board.settings.dispatchOnPre': 'Start an agent when a task enters',
   'board.settings.dispatchOnTitle': 'Global switch, applies to every board. The parallel-agents cap is set from the ▾ next to the board title.',
