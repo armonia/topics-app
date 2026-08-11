@@ -124,6 +124,15 @@ docs/*
 !docs/board-vs-chat/
 !docs/board-vs-chat/cases.json
 !docs/board-vs-chat/README.md
+# board-protocol.md è la copia CANONICA dello standard di consegna sul board, ed
+# è il documento che chi tocca `buildKickoff` deve tenere allineato all'envelope.
+# Ignorato faceva tre danni misurati: viveva su un disco solo e senza storia; in
+# ogni worktree di agente era ASSENTE, quindi un task che chiedeva di correggerlo
+# tornava fatto a metà senza che si capisse perché; e `board-doctor` — che lo
+# legge via `PROTOCOL_DOCS` — lo trovava mancante e SALTAVA in silenzio il
+# controllo sui parametri documentati. Stessa malattia di board-vs-chat/. Gli
+# agenti dispatchati continuano a riceverlo dall'envelope, non da qui.
+!docs/board-protocol.md
 
 # Reference repos (local only)
 .reference/
