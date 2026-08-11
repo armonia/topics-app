@@ -148,13 +148,18 @@ test.describe("Sottotask senza agente suo · chi lo lavora", () => {
     const card = page.locator(`[data-task-card="${epica.id}"]`);
     await expect(card).toBeVisible({ timeout: 10000 });
     await expect(page.locator("[data-task-card]")).toHaveCount(1);
-    await beat(page, 1800);
 
     await card.click();
     const drawer = page.getByTestId("task-detail-drawer");
     await expect(drawer).toBeVisible({ timeout: 10000 });
 
     // (a) Il padre tiene il turno: la riga dello step lo dice, in silenzio.
+    //
+    // Si asserisce SUBITO, prima di ogni pausa: il padre qui è un agente finto
+    // — topic legato e chip `working` senza nessuna sessione viva dietro — e il
+    // recupero del server fa il suo mestiere parcheggiandolo. Con `slowMo` (la
+    // modalità clip) quella finestra si allarga fino a superarlo, e il test
+    // diventava rosso su un comportamento CORRETTO del server.
     const row = drawer.getByTestId(`subtask-work-${step.id}`);
     await expect(row).toHaveAttribute("data-kind", "parent-turn", { timeout: 10000 });
     await expect(row).toHaveAttribute("title", new RegExp(EPICA));
