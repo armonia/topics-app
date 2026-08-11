@@ -59,6 +59,36 @@ export function effectiveDispatchCap(cap: { auto: boolean; max: number }, recomm
 /** Absolute ceiling — never auto-recommend more than this regardless of the box. */
 const MAX_AUTO_CAP = 8;
 
+/**
+ * La parte STRUTTURALE della capacità: quanti agenti questa macchina regge in
+ * regime, per core e per RAM. Non guarda il carico, ed è il punto.
+ *
+ * Serve a rispondere a una domanda diversa da `computeDispatchCapacity()`.
+ * Quella dice «quanti agenti NUOVI posso ammettere ADESSO», ed è apposta
+ * reattiva al carico: più la macchina è occupata, più si tira indietro. La
+ * quota di core (`agent-job-quota.ts`) chiede invece «quanti agenti possono
+ * girare ACCANTO a me», che è una domanda sul regime, non sull'istante.
+ *
+ * Usare il numero reattivo come divisore le invertiva: macchina carica →
+ * raccomandazione 1 → «sono solo» → fetta INTERA. Misurato l'11/08 su questo
+ * host con il tetto su `auto` (il default di un'installazione nuova) e load
+ * 45: la quota usciva `-j11`, cioè nessun recinto, proprio nel momento in cui
+ * serviva. Gli agenti già partiti non si fermano quando la raccomandazione
+ * scende — al respawn si sarebbero presi la macchina uno per uno.
+ *
+ * Il pavimento di `byCores` è 2, quindi in `auto` questo numero non vale mai 1:
+ * il caso «da solo» resta riservato a chi ha scelto un tetto fisso di 1 a mano.
+ */
+export function structuralDispatchCapacity(): number {
+  const cores = Math.max(1, os.cpus().length);
+  const totalMemGB = os.totalmem() / 1e9;
+  // I/O-bound agents → ~cores/3 as the CPU budget (2–6 band).
+  const byCores = clamp(Math.round(cores / 3), 2, 6);
+  // ~3 GB/agent incl. OS headroom — only binding on small-RAM machines.
+  const byMem = Math.max(1, Math.floor(totalMemGB / 3));
+  return clamp(Math.min(byCores, byMem), 1, MAX_AUTO_CAP);
+}
+
 export function computeDispatchCapacity(): DispatchCapacity {
   const cores = Math.max(1, os.cpus().length);
   const totalMemGB = os.totalmem() / 1e9;

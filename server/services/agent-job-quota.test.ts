@@ -7,6 +7,7 @@ import {
   readDispatchBinding,
   resolveJobQuotaEnv,
 } from "./agent-job-quota";
+import { structuralDispatchCapacity } from "./dispatch-capacity";
 
 // Il sottoinsieme di schema che la quota tocca: la riga del topic, la legatura
 // del task e quella dei tentativi di fan-out, più le impostazioni della board da
@@ -181,6 +182,38 @@ describe("resolveJobQuotaEnv — cosa finisce davvero nell'ambiente del figlio",
     db.prepare("UPDATE board_settings SET max_agents = 6 WHERE project_id = '*'").run();
     const strettissimo = Number(resolveJobQuotaEnv(db, "topic:agente")!.CARGO_BUILD_JOBS);
     expect(strettissimo).toBeLessThanOrEqual(stretto);
+  });
+
+  test("tetto in AUTO: il recinto NON dipende dal carico della macchina", () => {
+    // Il guasto vero, misurato l'11/08 su questo host. Il divisore era la
+    // raccomandazione viva (`computeDispatchCapacity`), che si tira indietro
+    // quando la macchina è carica: con `auto` — il default di un'installazione
+    // nuova — e load 45 usciva tetto 1, cioè «sono solo», cioè `-j11`. Nessun
+    // recinto proprio nel momento in cui serviva.
+    const db = dbFresco();
+    topic(db, "t1", "topic:agente");
+    db.prepare("INSERT INTO tasks (id, assigned_topic_id) VALUES (?,?)").run("k1", "t1");
+    db.prepare("INSERT INTO board_settings (project_id, max_agents, max_agents_auto) VALUES ('*', 3, 1)").run();
+
+    const jobs = Number(resolveJobQuotaEnv(db, "topic:agente")!.CARGO_BUILD_JOBS);
+    const cores = Math.max(1, os.cpus().length);
+    // In `auto` il tetto strutturale non vale mai 1 (il pavimento di byCores è
+    // 2), quindi la fetta non può mai essere quella del caso «da solo».
+    expect(jobs).toBe(computeJobQuota({ cores, cap: structuralDispatchCapacity(), weight: null }));
+    if (cores > 2) expect(jobs).toBeLessThan(cores - 1);
+    // E deve valere ADESSO, sotto QUESTO carico, qualunque esso sia: se il
+    // divisore tornasse a guardare il load, questa asserzione cadrebbe su una
+    // macchina occupata e passerebbe su una a riposo.
+    expect(structuralDispatchCapacity()).toBeGreaterThanOrEqual(2);
+  });
+
+  test("tetto FISSO a 1: quello è l'umano che dice «uno alla volta», e la fetta è intera", () => {
+    const db = dbFresco();
+    topic(db, "t1", "topic:agente");
+    db.prepare("INSERT INTO tasks (id, assigned_topic_id) VALUES (?,?)").run("k1", "t1");
+    db.prepare("INSERT INTO board_settings (project_id, max_agents, max_agents_auto) VALUES ('*', 1, 0)").run();
+    const jobs = Number(resolveJobQuotaEnv(db, "topic:agente")!.CARGO_BUILD_JOBS);
+    expect(jobs).toBe(Math.max(1, Math.max(1, os.cpus().length) - 1));
   });
 
   test("impostazioni illeggibili: si recinta lo stesso, sul default della board", () => {

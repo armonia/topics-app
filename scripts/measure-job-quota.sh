@@ -29,6 +29,18 @@ mkdir -p "$OUT"
 cores="$(sysctl -n hw.logicalcpu 2>/dev/null || nproc)"
 echo "crate=$CRATE cores=$cores legs=[$LEGS] giri=$ROUNDS"
 
+# I sidecar (server, pty-bridge, webrtc-bridge) NON li compila cargo: sono
+# risorse `externalBin`, e `tauri-build` ne verifica solo l'ESISTENZA. In un
+# worktree fresco non ci sono, e ogni corsa moriva con rc=101 dopo aver
+# compilato tutte le dipendenze — un tempo che sembrava una misura e non lo era.
+# Si stubbano come fa la CI (ci.yml, «Stub sidecar binaries»): la misura resta
+# quella della compilazione Rust, che è ciò che `-j` governa.
+triple="$(rustc -vV | sed -n 's/host: //p')"
+mkdir -p "$CRATE/binaries"
+for s in topics-server pty-bridge webrtc-bridge; do
+  [ -e "$CRATE/binaries/$s-$triple" ] || { touch "$CRATE/binaries/$s-$triple"; echo "stub: binaries/$s-$triple"; }
+done
+
 run() {
   local jobs="$1" giro="$2"
   local etichetta; [ "$jobs" = "0" ] && etichetta="libera" || etichetta="j$jobs"
@@ -49,8 +61,13 @@ run() {
   t1=$(date +%s)
   dopo="$(uptime | sed 's/.*averages: //' | awk '{print $1}')"
   rm -rf "$target"
-  echo "giro $giro · $etichetta · wall=$((t1 - t0))s · load $prima→$dopo · rc=$rc"
+  # Il risultato si SCRIVE prima di stamparlo. La versione precedente faceva il
+  # contrario e ci ha rimesso una corsa intera: in `echo "... $prima→$dopo"` bash
+  # inghiotte i byte di `→` dentro il nome della variabile, e con `set -u` la
+  # riga muore — dopo dieci minuti di build, senza lasciarne traccia. Le graffe
+  # separano il nome dal carattere che segue.
   echo "$giro $etichetta $((t1 - t0)) $prima $dopo $rc" >>"$OUT/results.txt"
+  echo "giro $giro · $etichetta · wall=$((t1 - t0))s · load ${prima} -> ${dopo} · rc=$rc"
 }
 
 : >"$OUT/results.txt"
@@ -59,3 +76,24 @@ for giro in $(seq 1 "$ROUNDS"); do
 done
 echo "=== fine ==="
 cat "$OUT/results.txt"
+
+# Una corsa che ESCE NON-ZERO non è una misura, è una build rotta col
+# cronometro attaccato: la prima versione ne ha prodotte due (sidecar mancanti,
+# rc=101) e i loro tempi si leggevano come se fossero buoni. Qui si dice forte.
+falliti="$(awk '$6 != 0' "$OUT/results.txt" | wc -l | tr -d ' ')"
+if [ "$falliti" != "0" ]; then
+  echo "!!! $falliti corse USCITE NON-ZERO: non sono misure. Vedi i .log in $OUT"
+  awk '$6 != 0 {print "    rotta: giro " $1 " " $2 " rc=" $6}' "$OUT/results.txt"
+fi
+
+# La MEDIANA per configurazione, sulle sole corse buone: con il carico di fondo
+# che si muove sotto la misura, una corsa sola non decide niente.
+echo "=== mediane (solo corse rc=0) ==="
+awk '$6 == 0 {t[$2] = t[$2] " " $3} END {
+  for (k in t) {
+    n = split(t[k], v, " ");
+    for (i = 1; i < n; i++) for (j = i + 1; j <= n; j++) if (v[i] + 0 > v[j] + 0) { tmp = v[i]; v[i] = v[j]; v[j] = tmp }
+    mediana = (n % 2) ? v[(n + 1) / 2] : int((v[n / 2] + v[n / 2 + 1]) / 2);
+    printf "%-8s n=%d  mediana=%ss  (%s)\n", k, n, mediana, t[k];
+  }
+}' "$OUT/results.txt"
