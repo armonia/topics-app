@@ -102,7 +102,7 @@ const TOOLS = [
   {
     name: "open_browser_pane",
     description:
-      "Open the topics-app browser pane and navigate it to the given URL. Use this whenever you need to surface a URL to the user (OAuth flows, dev servers, generated previews, documentation). The pane appears next to the current chat. Returns the final URL and page title after navigation.",
+      "Open the topics-app browser pane and navigate it to the given URL. Use this whenever you need to surface a URL to the user (OAuth flows, dev servers, generated previews, documentation). The pane appears next to the current chat. Inside a task, the pane IS a tab of that task and survives your turn: pass `name` to open one tab PER SURFACE you are delivering (e.g. 'App', 'Report') — same name reopened navigates that tab, a new name adds one. Returns the final URL and page title after navigation.",
     inputSchema: {
       type: "object",
       properties: {
@@ -110,6 +110,11 @@ const TOOLS = [
           type: "string",
           description:
             "Absolute URL to open (must include protocol — https://, http://, or file://). Examples: 'https://example.com', 'http://localhost:3000', 'https://accounts.google.com/oauth/authorize?...'.",
+        },
+        name: {
+          type: "string",
+          description:
+            "Short label for the tab, e.g. 'App' or 'Report Lighthouse'. Inside a task it also IDENTIFIES the tab: reusing a name navigates that tab, a new name opens another one, and the label is pinned (the page title no longer overwrites it). Omit for a single unnamed pane that just re-navigates.",
         },
       },
       required: ["url"],
@@ -736,7 +741,7 @@ function loopbackTlsInit(): RequestInit {
 
 export async function callOpenBrowserPane(
   args: ParsedArgs,
-  toolArgs: { url?: unknown },
+  toolArgs: { url?: unknown; name?: unknown },
   fetchImpl: typeof fetch = fetch,
 ): Promise<{ url: string; title: string }> {
   if (typeof toolArgs?.url !== "string" || !toolArgs.url) {
@@ -746,10 +751,13 @@ export async function callOpenBrowserPane(
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (args.gatewayToken) headers["X-Gateway-Token"] = args.gatewayToken;
 
+  // `name` viaggia solo se c'è: il body storico è `{url}`, e mandare `name:""`
+  // cambierebbe i byte di ogni chiamata esistente per niente.
+  const name = typeof toolArgs?.name === "string" ? toolArgs.name.trim() : "";
   const resp = await fetchImpl(endpoint, {
     method: "POST",
     headers,
-    body: JSON.stringify({ url: toolArgs.url }),
+    body: JSON.stringify(name ? { url: toolArgs.url, name } : { url: toolArgs.url }),
     // topics-app serves a self-signed cert on this loopback origin; skip
     // verification (Bun fetch extension). Safe: we only ever talk to 127.0.0.1.
     ...loopbackTlsInit(),
@@ -1730,7 +1738,7 @@ const TOOL_HANDLERS: Record<
   (args: ParsedArgs, toolArgs: Record<string, unknown>, ctx?: ToolCallContext) => Promise<string>
 > = {
   open_browser_pane: async (a, t) => {
-    const r = await callOpenBrowserPane(a, t as { url?: unknown });
+    const r = await callOpenBrowserPane(a, t as { url?: unknown; name?: unknown });
     return `Opened browser pane at ${r.url}` + (r.title ? ` (title: ${r.title})` : "");
   },
   close_browser_pane: (a, t) => callCloseBrowserPane(a, t as { contextId?: unknown }),

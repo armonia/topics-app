@@ -47,6 +47,7 @@ import { BRIDGED_BROWSER_ENDPOINTS } from "../browser-tool-spec";
 import { nativeDelegateRegistry } from "../browser-native-delegate";
 import { collectLiveContextIds, listBrowserTabs, type TabInventoryDeps } from "../browser-tab-inventory";
 import { timingSafeEqualStr } from "../utils";
+import { taskTabContextId, slugTabName } from "../../shared/task-tab-context";
 
 /**
  * Le sessioni di terminale viste da qui: solo i tre campi che servono a dare un
@@ -77,13 +78,17 @@ export interface TerminalSessionRef {
  * (`services/task-tab-persist`): arriva iniettata invece che importata perché è
  * l'unica cosa qui dentro che tocca il database, e chiuderla dentro il modulo
  * avrebbe costretto ogni test del ramo task ad avere uno sqlite vero.
+ * `attachLoginHandle` è la sua gemella per il login già iniettato, e sta qui per
+ * la stessa ragione.
  */
 export interface BrowserBridgeDeps {
   getTerminalSessionById: (id: string) => TerminalSessionRef | undefined;
   taskForTopic: (topicId: string) => { id: string } | null | undefined;
   taskByIdPrefix: (prefix: string) => { text: string } | null | undefined;
   browserNavigatedTopics: Set<string>;
-  persistTaskTab: (taskId: string, contextId: string, url: string) => void;
+  persistTaskTab: (taskId: string, contextId: string, url: string, title?: string) => void;
+  /** Lega un handle di `browser_save_state` alla tab del task che lo ha prodotto. */
+  attachLoginHandle: (contextId: string, handle: string) => void;
 }
 
 export function createBrowserBridgeRouter(
@@ -96,7 +101,7 @@ export function createBrowserBridgeRouter(
     getTopicById, getTopicBySessionKey,
     readJSON, json, matchRoute,
   } = ctx;
-  const { getTerminalSessionById, taskForTopic, taskByIdPrefix, browserNavigatedTopics, persistTaskTab } = deps;
+  const { getTerminalSessionById, taskForTopic, taskByIdPrefix, browserNavigatedTopics, persistTaskTab, attachLoginHandle } = deps;
 
   // Server gate for the task-owned browser fork (client mirror:
   // localStorage['board:taskBrowser']). Default ON → an agent open-pane on a
@@ -107,16 +112,21 @@ export function createBrowserBridgeRouter(
 
   /**
    * If `topic` is a task dispatch AND the fork is enabled, the canonical
-   * task-scoped browser handle. The contextId is STABLE per (task, topic) so
-   * repeated opens reuse the SAME in-drawer tab (idempotent client upsert), and
-   * self-describing (`task-<id8>-…`) so labelForContext + the store recognise it
-   * without a lookup. Null → the caller falls back to the normal chat pane.
+   * task-scoped browser handle. The contextId is STABLE per (task, topic, name)
+   * so repeated opens reuse the SAME in-drawer tab (idempotent client upsert),
+   * and self-describing (`task-<id8>-…`) so labelForContext + the store
+   * recognise it without a lookup. Null → the caller falls back to the normal
+   * chat pane.
+   *
+   * `name` è il manifesto: senza nome c'è UNA tab per agente (che ri-naviga a
+   * ogni apertura), con un nome c'è una tab PER NOME — è così che un task
+   * consegna più superfici invece di sovrascrivere sempre la stessa.
    */
-  function resolveTaskBrowserContext(topic: Topic): { taskId: string; contextId: string } | null {
+  function resolveTaskBrowserContext(topic: Topic, name?: string): { taskId: string; contextId: string } | null {
     if (!TASK_BROWSER_ENABLED) return null;
     const task = taskForTopic(topic.id);
     if (!task) return null;
-    return { taskId: task.id, contextId: `task-${task.id.slice(0, 8)}-a${topic.id.slice(0, 8)}` };
+    return { taskId: task.id, contextId: taskTabContextId(task.id, topic.id, name) };
   }
 
   /**
@@ -263,9 +273,16 @@ export function createBrowserBridgeRouter(
         }
         if (!topic) return json({ error: "Topic not found" }, 404);
 
-        const body = (await readJSON(req)) as { url?: unknown } | null;
+        const body = (await readJSON(req)) as { url?: unknown; name?: unknown } | null;
         const url = typeof body?.url === "string" ? body.url : "";
         if (!url) return json({ error: "url (string) is required" }, 400);
+        // Il NOME della tab, quando l'agente lo prescrive. Fuori da un task non
+        // significa niente (il pane-store globale etichetta dal titolo pagina):
+        // lì viene semplicemente ignorato. Un nome fatto di soli simboli non
+        // conia niente — `slugTabName` lo riduce a "" e si ricade sulla tab
+        // senza nome, invece di collezionarli tutti in un id degenere.
+        const rawName = typeof body?.name === "string" ? body.name.trim() : "";
+        const tabName = slugTabName(rawName) ? rawName : "";
 
         // Task-owned browser fork (feature-flagged): the agent working a task
         // opens a browser into that task's IN-DRAWER group, not the global
@@ -276,7 +293,7 @@ export function createBrowserBridgeRouter(
         // `url` (initialUrl) once the pane mounts and registers its native
         // target under contextId; the agent's later observe/act reach that same
         // pane because we bind topic.browserState.contextId to it here.
-        const taskCtx = resolveTaskBrowserContext(topic);
+        const taskCtx = resolveTaskBrowserContext(topic, tabName);
         if (taskCtx) {
           topic.browserState = {
             url,
@@ -292,9 +309,9 @@ export function createBrowserBridgeRouter(
           // connesso" voleva dire tab persa. Ora il record c'è comunque; il
           // client che riceve `browser:open-task-tab` fa lo stesso upsert
           // idempotente e converge.
-          persistTaskTab(taskCtx.taskId, taskCtx.contextId, url);
-          broadcastToAll({ type: "browser:open-task-tab", taskId: taskCtx.taskId, contextId: taskCtx.contextId, url });
-          return json({ url, title: "" });
+          persistTaskTab(taskCtx.taskId, taskCtx.contextId, url, tabName);
+          broadcastToAll({ type: "browser:open-task-tab", taskId: taskCtx.taskId, contextId: taskCtx.contextId, url, title: tabName });
+          return json({ url, title: tabName });
         }
 
         const ctxId = resolveContextIdForTopic(topic);
@@ -470,6 +487,23 @@ export function createBrowserBridgeRouter(
             browserService,
           ) as Record<string, unknown> & { error?: string };
           if (result?.error) return json({ error: result.error }, 502);
+          // Login già iniettato: un `browser_save_state` fatto SU una tab di un
+          // task lega quell'handle a QUELLA tab. Chi la apre dopo — drawer del
+          // task o workspace del progetto — se lo fa dare da
+          // `/api/browsers/:id/login-handle` e lo inietta, così il reviewer
+          // atterra dentro invece che sul muro del login. Best-effort e dopo il
+          // salvataggio riuscito: se il contextId non è di nessun task, no-op.
+          //
+          // L'handle registrato è quello che il tool ha REALMENTE scritto
+          // (`result.handle`, già passato da `safeHandle`), non la stringa
+          // grezza dell'agente: è il nome del file su disco, ed è quello che
+          // `/login-state/apply` dovrà ridare a `browser_load_state`.
+          if (toolName === "browser_save_state") {
+            const savedHandle = typeof result?.handle === "string" && result.handle
+              ? result.handle
+              : (typeof body.handle === "string" ? body.handle : "");
+            if (savedHandle) attachLoginHandle(contextId, savedHandle);
+          }
           return json(result);
         } catch (e: unknown) {
           return json({ error: e instanceof Error ? e.message : String(e) }, 500);

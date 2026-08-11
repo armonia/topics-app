@@ -80,10 +80,13 @@ export interface Pane {
    * terminal session's `name_source`. `'auto'` (or absent) = the title tracks
    * the live page title (persisted from the WKWebView poll); `'user'` = the
    * user renamed the tab, which pins the title so the poll no longer overwrites
-   * it. Only set on browser panes. MUST be whitelisted in sanitizePane
-   * (reducers/sanitizeSnapshot.ts) or it's erased on every server round-trip.
+   * it. `'agent'` sits in between: il NOME che l'agente ha prescritto alla tab
+   * di un task (`open_browser_pane({url, name})`) — pinnato come `'user'` contro
+   * il poll, ma sovrascrivibile da una rinomina a mano. Only set on browser
+   * panes. MUST be whitelisted in sanitizePane (reducers/sanitizeSnapshot.ts)
+   * or it's erased on every server round-trip.
    */
-  titleSource?: 'auto' | 'user';
+  titleSource?: 'auto' | 'agent' | 'user';
   // Legacy pane-shape fields — carried through sync so a round-trip through
   // the server doesn't silently erase tab metadata. Every field here must
   // also appear in sanitizePane's whitelist (reducers/sanitizeSnapshot.ts).
