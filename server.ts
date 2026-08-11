@@ -431,7 +431,31 @@ rebuildSummary();
 // terminal sessions are tracked in-memory). Created before the terminal router
 // so the latter can register its sessions with it. See
 // openspec/changes/claude-session-tracker.
-const claudeSessionTracker = createClaudeSessionTracker({ db: ctx.db, broadcast: ctx.broadcastToAll, ptyIdleMs: getClaudeSessionPtyIdleMs });
+const claudeSessionTracker = createClaudeSessionTracker({
+  db: ctx.db,
+  broadcast: ctx.broadcastToAll,
+  ptyIdleMs: getClaudeSessionPtyIdleMs,
+  // Message-import sink for ADOPTED sessions: the sweep reads the transcript
+  // tail and appends the terminal's new turns into the topic's chat.
+  importSink: {
+    getLastMessageId: (sk) => {
+      const thread = ctx.loadLocalMessages(sk, { withBlocks: false });
+      return thread.length ? thread[thread.length - 1]!.id : null;
+    },
+    appendMessages: (sk, msgs) => ctx.appendImportedMessages(sk, msgs),
+    resolveToolResult: (sk, toolUseId, result, isError) =>
+      ctx.updateToolCallResult(sk, toolUseId, isError ? "" : result, isError ? result : undefined),
+    topicIdForSessionKey: (sk) => ctx.getTopicBySessionKey(sk)?.id ?? null,
+  },
+  // Double-import guard: while Topics owns a live claude child for the session,
+  // the chat provider streams + persists those turns itself.
+  isSessionLocallyDriven: (sk) => {
+    try {
+      const p = getProvider("claude-code") as unknown as { isTurnProcessAlive?: (s: string) => boolean };
+      return !!p?.isTurnProcessAlive?.(sk);
+    } catch { return false; }
+  },
+});
 
 // La porta unica del parcheggio (lib/session-parking.ts): archiviare un topic
 // deve anche mettere a riposo la sua sessione, o la fase resta viva per sempre
@@ -1374,6 +1398,9 @@ claudeSessionTracker.recoverFromJsonl().catch((err) => {
 });
 claudeSessionTracker.startReaper();
 claudeSessionTracker.startJsonlTail();
+// Import sweep: pull terminal turns of ADOPTED sessions into their chat, so an
+// adopted conversation no longer freezes at the adoption snapshot.
+claudeSessionTracker.startImportSweep();
 const projectsRouter = createProjectsRouter(ctx);
 const worktreesRouter = createWorktreesRouter(ctx, {
   // I rami locali non su main, col task a cui appartengono. Due letture: git
