@@ -90,7 +90,7 @@ import { hasGrant, holdsGrantOnTaskPreview, deviceP } from "./server/lib/grants-
 import { resolvePrincipals, principalsRev } from "./server/lib/principals";
 import { resolveIdentity } from "./server/lib/identity";
 import { creaRelayClient } from "./server/services/relay-client";
-import { leggiRelayConfig, leggiInstallationId } from "./server/services/relay-config";
+import { leggiRelayConfig, leggiInstallationId, leggiRelaySegreto } from "./server/services/relay-config";
 import { creaServizioLicenza, creaInterruttoreLicenza, baseUrlConcesso } from "./server/lib/licenza";
 import { createLicenseRouter } from "./server/routes/license";
 import { createBillingRouter, isBillingWebhookPath } from "./server/routes/billing";
@@ -102,7 +102,7 @@ import { aiBridgeEnabled } from "./server/providers/claude-code";
 import { cancelled, describeTurnEnd, type TurnEndInfo } from "./server/providers/stop-reason";
 import { recordTurnEnd, takeTurnEnd } from "./server/providers/turn-end-registry";
 import { getAiBridgeClient } from "./server/lib/ai-bridge-client";
-import { pickTaskModel } from "./server/services/task-model-picker";
+import { pickTaskPlan } from "./server/services/task-model-picker";
 import { FALLBACK_MODELS, newestOfFamily } from "./server/providers/claude-models";
 import { createProcessesRouter, startProcessDetection } from "./server/routes/processes";
 import { createTasksRouter } from "./server/routes/tasks";
@@ -922,10 +922,12 @@ const taskDispatcher = createTaskDispatcher({
       const availableModels = cc?.models ?? [];
       // No snapshot yet → can't classify, but opus-first means we still hand the
       // agent opus (the human's default + this host's primary), never a downgrade.
-      // `weight: null` = leggero, cioè lo scheduler si comporta come prima: un
-      // giudice che non può parlare non deve poter fermare la coda della board.
-      if (availableModels.length === 0) return { model: staticOpus, weight: null };
-      return await pickTaskModel(task, {
+      // Entrambi i null dicono «non lo so», e nessuno dei due viene inventato
+      // qui: l'effort ricade sulla board, il peso vale leggero — cioè lo
+      // scheduler si comporta come prima che il peso esistesse. Un giudice che
+      // non può parlare non deve poter fermare la coda della board.
+      if (availableModels.length === 0) return { model: staticOpus, effort: null, weight: null };
+      const plan = await pickTaskPlan(task, {
         // Force the cheapest tier for the classification itself.
         complete: (prompt) =>
           provider.complete([{ role: "user", content: prompt }], { model: "claude-haiku-4-5" }).then((r) => r.content ?? ""),
@@ -933,10 +935,11 @@ const taskDispatcher = createTaskDispatcher({
         fallback: newestOfFamily("opus", availableModels, { preferLong: true }) ?? staticOpus,
         log: (m) => console.log(`[dispatcher] ${m}`),
       });
+      return plan;
     } catch {
-      // any failure → opus-first, never a silent downgrade; peso null per la
-      // stessa ragione: leggero, cioè niente cambia.
-      return { model: staticOpus, weight: null };
+      // any failure → opus-first, never a silent downgrade; effort e peso null
+      // per la stessa ragione: la board decide l'uno, l'altro vale leggero.
+      return { model: staticOpus, effort: null, weight: null };
     }
   },
   // Auto concurrency cap: live machine capacity for boards on `maxAgentsAuto`.
@@ -1388,6 +1391,10 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
     if (!wt || wt.mode !== "branch" || !wt.branchName) return null;
     const repoPath = ctx.projectStore.get(wt.projectId)?.path;
     if (!repoPath) return null;
+    // NON la punta del ramo: l'ultimo commit SUO. Un ramo che eredita il lavoro
+    // di chi stava sul checkout condiviso ha una punta che non è della card, e
+    // chi rivede finirebbe a leggere il diff di un altro (misurato il 10/08).
+    // `deliveryPointer` è la stessa domanda che si fa l'automerge: una fonte sola.
     return deliveryPointer(repoPath, wt.branchName).catch(() => null);
   },
   // Dove far girare i checks pre-review: la cartella del worktree del task e il
@@ -4059,10 +4066,15 @@ const landingAuditTimer = setInterval(runLandingAudit, LANDING_AUDIT_INTERVAL_MS
 // Cade verso il locale per costruzione: senza licenza `baseUrl` è `null`, cioè
 // esattamente lo stato «relay non configurato» che l'app sa già gestire da
 // sempre, e non uno stato d'errore nuovo.
-const relayCfg = leggiRelayConfig(process.env, ctx.STATE_DIR);
+const relayCfg = await leggiRelayConfig(process.env, ctx.STATE_DIR);
 const relay = creaRelayClient({
   baseUrl: relayCfg.baseUrl,
-  installationId: relayCfg.installationId,
+  // Il NOME del punto d'incontro, che è il digest del segreto qui sotto. Non è
+  // `installationId`: quello resta legato alla licenza e non compare in nessun
+  // link. Vedi `shared/relay-identita.ts` per il motivo per cui erano lo stesso
+  // valore e non potevano restarlo.
+  relayId: relayCfg.relayId,
+  segreto: leggiRelaySegreto(ctx.STATE_DIR),
   // Dove si rigioca ciò che arriva dal relay. `null` — cioè
   // `TOPICS_TUNNEL_PORT` non impostata, che è il caso di default — fa rifiutare
   // in modo dichiarato: senza l'ascoltatore dedicato l'unica porta a cui
@@ -4117,6 +4129,7 @@ const relay = creaRelayClient({
 ctx.relayConfig = () => ({
   baseUrl: baseUrlConcesso(relayCfg.baseUrl, licenzaSvc.stato()),
   installationId: relayCfg.installationId,
+  relayId: relayCfg.relayId,
 });
 ctx.relayConnected = () => relay.collegato();
 

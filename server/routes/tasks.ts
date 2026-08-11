@@ -25,6 +25,7 @@ import { grantedResourceIds } from "../lib/grants-query";
 import { resolvePrincipals } from "../lib/principals";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import { isAgentWorking } from "../../shared/board";
+import { isPreviewablePath } from "../../shared/media-kind";
 import { getTerminalSessionById } from "./terminal";
 import { AUTO_PROJECT_ID, createTaskService, isLandActionLabel, isPublishActionLabel, projectIdForPath, TaskServiceError, UNASSIGNED_PROJECT_ID, type Task } from "../services/tasks";
 import { computeDispatchCapacity } from "../services/dispatch-capacity";
@@ -716,6 +717,28 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       if (typeof isPathAllowed !== "function") return true; // test ctx without the helper
       try { return isPathAllowed(m); } catch { return false; }
     });
+  }
+
+  /**
+   * Il valore da scrivere in `previewImage`, o `undefined` per «non toccare il
+   * campo». Due cancelli, non uno:
+   *
+   *  · il PATH, come per ogni allegato (`filterMedia`, allowlist di sicurezza);
+   *  · il TIPO — deve esistere un elemento che lo mostri. `PREVIEW_RULE` ne
+   *    ammette tre (screenshot .png, video, diagramma .svg) e questa è la stessa
+   *    frontiera vista dal rendering.
+   *
+   * Il secondo mancava, ed è così che un `.pdf` è diventato l'anteprima di una
+   * card: passava l'allowlist, arrivava al ramo `<img>` del client e si vedeva
+   * un'icona rotta. Il 200 diceva «consegnato», la card non mostrava niente.
+   *
+   * Stringa vuota = azzera (gesto esplicito, resta valido).
+   */
+  function acceptPreview(raw: unknown): string | undefined {
+    if (typeof raw !== "string") return undefined;
+    if (raw.trim() === "") return "";
+    if (!filterMedia([raw])?.length) return undefined;
+    return isPreviewablePath(raw) ? raw : undefined;
   }
 
   /**
@@ -1635,15 +1658,26 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
                 outputUrl: typeof body?.outputUrl === "string" ? body.outputUrl : undefined,
                 // Card preview: stesso fence dei media commenti — un path fuori
                 // allowlist è scartato QUI (la patch non arriva al service).
-                previewImage: typeof body?.previewImage === "string"
-                  ? (body.previewImage.trim() === "" ? "" : (filterMedia([body.previewImage])?.length ? body.previewImage : undefined))
-                  : undefined,
+                previewImage: acceptPreview(body?.previewImage),
                 model: body?.model !== undefined ? (typeof body.model === "string" ? body.model : null) : undefined,
                 blockedByTaskId: body?.blockedByTaskId !== undefined
                   ? (typeof body.blockedByTaskId === "string" && body.blockedByTaskId ? body.blockedByTaskId : null)
                   : undefined,
                 reuseBlockerContext: typeof body?.reuseBlockerContext === "boolean" ? body.reuseBlockerContext : undefined,
                 planFirst: typeof body?.planFirst === "boolean" ? body.planFirst : undefined,
+                // Accetta anche `parent_task_id` (il nome MCP): la PATCH la
+                // chiamano sia il client sia gli agenti, e un nome scartato in
+                // silenzio qui risponde 200 senza aver spostato niente.
+                // La chiave si guarda per PRESENZA, non con `??`: `null` è il
+                // modo di staccare un sottotask, e `??` lo scambierebbe per
+                // "campo assente" — di nuovo un 200 che non sposta nulla.
+                parentTaskId: ((): string | null | undefined => {
+                  const raw = body?.parentTaskId !== undefined ? body.parentTaskId
+                    : body?.parent_task_id !== undefined ? body.parent_task_id
+                    : undefined;
+                  if (raw === undefined) return undefined;
+                  return typeof raw === "string" && raw ? raw : null;
+                })(),
               },
             });
             task = await captureDelivery(task, prevStatus);
@@ -1915,11 +1949,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               // esattamente il guasto che quella riparazione descriveva, un
               // livello più giù. Verificato sul server vivo: `update_task`
               // rispondeva ok e `previewImage` restava null.
-              // Stesso fence della rotta umana: `filterMedia` (allowlist dei
-              // path) è l'unico cancello, stringa vuota = azzera.
-              previewImage: typeof body?.previewImage === "string"
-                ? (body.previewImage.trim() === "" ? "" : (filterMedia([body.previewImage])?.length ? body.previewImage : undefined))
-                : undefined,
+              // Stesso fence della rotta umana: `acceptPreview` (allowlist dei
+              // path E tipo mostrabile), stringa vuota = azzera.
+              previewImage: acceptPreview(body?.previewImage),
             },
           });
           task = await captureDelivery(task, prevStatus);

@@ -1,5 +1,9 @@
 # Dependencies
-node_modules/
+# Senza lo slash finale di proposito: `node_modules/` copre solo una CARTELLA,
+# e un SYMLINK con lo stesso nome le sfugge. E' successo — un link a
+# /Users/<nome>/... e' finito tracciato da un `git add -A`, path di casa
+# dentro un repo pubblico.
+node_modules
 .bun/
 
 # User data - DO NOT COMMIT
@@ -123,6 +127,13 @@ docs/*
 # macchina non prova niente a nessun altro.
 !docs/board-vs-chat/
 !docs/board-vs-chat/cases.json
+# effort-variance/ è il referto su cui è stata decisa la mediana di tre voti del
+# giudice di dispatch (`JUDGE_VOTES` in task-model-picker.ts). I suoi numeri sono
+# citati in un commento di codice come motivo di una scelta, e una misura citata
+# ma non allegata non è verificabile da nessuno: i file contengono ogni voto
+# grezzo, così chiunque può ricontare (`--rescore`) invece di fidarsi.
+!docs/effort-variance/
+!docs/effort-variance/*
 !docs/board-vs-chat/README.md
 # board-protocol.md è la copia CANONICA dello standard di consegna sul board, ed
 # è il documento che chi tocca `buildKickoff` deve tenere allineato all'envelope.
@@ -216,10 +227,18 @@ ui-state-backups/
 # ai-bridge broker store (ephemeral NDJSON session buffers)
 ai-bridge/
 
-# L'identificativo di QUESTA installazione presso il relay. Lo genera il server
-# al primo avvio e vive in STATE_DIR — che sotto launchd è la radice del repo,
-# ed è il motivo per cui compare qui. Non è un segreto (è un nome: senza un
-# `ref` e senza la chiave nel frammento non apre niente) ma è per-macchina:
-# tracciarlo vorrebbe dire che due installazioni si presentano al relay con lo
-# stesso nome e si rubano gli ospiti a vicenda.
+# L'identificativo di QUESTA installazione. Lo genera il server al primo avvio e
+# vive in STATE_DIR — che sotto launchd è la radice del repo, ed è il motivo per
+# cui compare qui. Ci si lega la LICENZA (un gettone coniato per un'altra
+# installazione viene rifiutato) e gli eventi di Stripe; nel relay non entra e
+# in nessun link compare. Non è un segreto, ma è per-macchina: tracciarlo
+# vorrebbe dire che due installazioni rivendicano la stessa licenza.
 installation-id
+
+# La preimmagine del nome con cui questa macchina si aggancia al relay. Stesso
+# posto e stessa ragione del file qui sopra, ma con una differenza che conta:
+# questo È un segreto. Chi lo legge può presentarsi al relay come questa
+# macchina e prendersi il traffico dei suoi ospiti — è esattamente la cosa da
+# cui `shared/relay-identita.ts` esiste per difendere. Il server lo scrive con
+# modo 600; tracciarlo lo pubblicherebbe.
+relay-secret

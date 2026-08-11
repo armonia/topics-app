@@ -204,6 +204,12 @@ async function defaultRunGit(cwd: string, args: string[]): Promise<GitRunResult>
   }
 }
 
+/** La firma del «manca un pezzo sotto» nell'output di git. */
+const MISSING_BASE = /modify\/delete|deleted in|does not exist|no such file/i;
+
+/** Dove vivono le migration numerate (il gate qui sotto le confronta per NUMERO). */
+const MIGRATIONS_DIR = "server/db/migrations";
+
 const BUILD_TIMEOUT_MS = 5 * 60_000;
 
 async function defaultRunBuild(cwd: string): Promise<GitRunResult> {
@@ -337,6 +343,143 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
       };
     }
 
+    /**
+     * Porta su `cwd` SOLO i commit della card, in ordine, con `cherry-pick`.
+     *
+     * Serve quando il branch del task e' nato dall'HEAD del checkout condiviso e
+     * porta anche il lavoro di chi ci stava lavorando: mergiare il branch
+     * pubblicherebbe roba di altri, rifiutarsi lascia la consegna in un limbo.
+     * Si prende la terza strada — i suoi commit e basta.
+     */
+    /**
+     * «Conflitto» e «manca un pezzo sotto» sono due cose diverse, e all'agente
+     * servono due risposte diverse: nel primo caso deve riconciliare, nel
+     * secondo non c'è niente da riconciliare — il suo lavoro poggia su commit
+     * di un'altra sessione che non sono ancora su main, e finché non ci
+     * arrivano il pick fallirà uguale ogni volta che riprova.
+     */
+    function conflictOrDependency(missingBase?: boolean, dependsOn?: number): AutoMergeResult {
+      // Che ci siano commit estranei non prova niente: il pick selettivo parte
+      // PROPRIO perché ce ne sono. La prova è la natura del fallimento — git
+      // dice `modify/delete` quando il file che il commit modifica non esiste
+      // di qua, ed è la firma del pezzo mancante. Un conflitto di CONTENUTO
+      // resta un conflitto, e torna all'agente come prima.
+      if (!missingBase || !dependsOn) return { status: "conflict", branch };
+      return {
+        status: "skipped",
+        reason:
+          `il lavoro di questa card poggia su ${dependsOn} commit che stanno sul branch ` +
+          `'${branch}' ma NON sono suoi e non sono ancora su '${defaultBranch}': ` +
+          "non è un conflitto da riconciliare, manca un pezzo sotto. " +
+          "Landa prima quel lavoro, oppure ribasa la card su " + defaultBranch + ".",
+      };
+    }
+
+    /**
+     * Un numero di migration presente su ENTRAMBI i rami ma con nomi diversi.
+     * Torna la ragione da mostrare, o null se non c'e' collisione.
+     */
+    async function migrationCollision(): Promise<string | null> {
+      const read = async (ref: string): Promise<Map<string, string>> => {
+        const r = await runGit(repoPath, ["ls-tree", "-r", "--name-only", ref, "--", MIGRATIONS_DIR]);
+        const out = new Map<string, string>();
+        if (r.code !== 0) return out;
+        for (const path of r.stdout.split("\n")) {
+          const file = path.trim().split("/").pop() ?? "";
+          const n = file.slice(0, 3);
+          if (/^\d{3}$/.test(n)) out.set(n, file);
+        }
+        return out;
+      };
+      const [base, mine] = await Promise.all([read(defaultBranch), read(branch)]);
+      const clash: string[] = [];
+      for (const [n, file] of mine) {
+        const other = base.get(n);
+        if (other && other !== file) clash.push(`${n}: '${defaultBranch}' ha ${other}, il ramo ha ${file}`);
+      }
+      if (clash.length === 0) return null;
+      return (
+        `collisione di numeri di migration (${clash.join(" · ")}). Il registro conta i NUMERI e il ` +
+        "runner salta in silenzio: la seconda non si applicherebbe mai, e il codice che la presuppone " +
+        "atterrerebbe lo stesso. Rinumera la migration del RAMO (mai quelle gia' applicate) e rigenera il manifest."
+      );
+    }
+
+    /**
+     * Quanti commit sul branch NON sono di questa card e non sono ancora su
+     * main. Sono le sue DIPENDENZE possibili: il worktree nasce dall'HEAD del
+     * checkout condiviso, quindi il lavoro della card può poggiare su commit di
+     * un'altra sessione che il pick selettivo esclude per non pubblicarli.
+     *
+     * Quando succede, il pick fallisce su un file che su main non esiste ancora
+     * — ed è un'informazione diversa da «conflitto»: non c'è niente da
+     * riconciliare, manca un pezzo sotto. Dirlo cambia cosa fa l'agente.
+     */
+    async function unlandedForeign(cwd: string, mine: number): Promise<number> {
+      const tot = await runGit(cwd, ["rev-list", "--count", `${defaultBranch}..${branch}`]);
+      const n = Number.parseInt(tot.stdout.trim(), 10);
+      return Number.isFinite(n) && n > mine ? n - mine : 0;
+    }
+
+    async function pickOwnCommits(
+      cwd: string,
+      own: { others: string[] },
+    ): Promise<{ ok: boolean; conflict: boolean; dependsOn?: number; missingBase?: boolean }> {
+      const list = await runGit(cwd, ["rev-list", "--reverse", `${defaultBranch}..${branch}`, "--not", ...own.others]);
+      const all = list.stdout.split("\n").map((x) => x.trim()).filter(Boolean);
+      if (list.code !== 0 || all.length === 0) return { ok: false, conflict: false };
+      // Un commit già landato resta nel range: `rev-list` guarda la discendenza,
+      // e il land RICOPIA invece di fondere, quindi la copia atterrata ha un altro
+      // sha. Rilandare la stessa card aggiungeva un commit VUOTO a main — successo
+      // apparente, e una storia che dice «landato due volte».
+      //
+      // Non si riconosce dal patch-id (`git cherry`): il pick ADATTA il commit al
+      // main del momento, quindi la copia atterrata ha un patch-id diverso
+      // dall'originale. Nemmeno dalla patch a rovescio: appena qualcun altro tocca
+      // quei file, le righe di contorno non combaciano più. Misurato il 10/08:
+      // entrambe le strade hanno lasciato passare lo stesso commit, comparso
+      // QUATTRO volte su main.
+      //
+      // La domanda giusta la sa rispondere solo il merge di git: si applica il
+      // commit SENZA committare e si guarda se resta qualcosa. Niente in stage =
+      // quel contenuto è già nell'albero, comunque ci sia arrivato.
+      let brought = 0;
+      for (const sha of all) {
+        const r = await runGit(cwd, ["cherry-pick", "-n", "--allow-empty", sha]);
+        if (r.code !== 0) {
+          // `--quit` lascia l'albero com'è, poi lo si riporta a HEAD: `--abort`
+          // da solo non basta dopo un `-n` andato male.
+          await runGit(cwd, ["cherry-pick", "--quit"]).catch(() => undefined);
+          await runGit(cwd, ["reset", "--hard", "HEAD"]).catch(() => undefined);
+          return {
+            ok: false, conflict: true,
+            missingBase: MISSING_BASE.test(`${r.stderr}\n${r.stdout}`),
+            dependsOn: await unlandedForeign(cwd, all.length),
+          };
+        }
+        const staged = await runGit(cwd, ["diff", "--cached", "--quiet", "HEAD"]);
+        if (staged.code === 0) {
+          // Niente da portare: già applicato. Si pulisce e si passa oltre.
+          await runGit(cwd, ["cherry-pick", "--quit"]).catch(() => undefined);
+          await runGit(cwd, ["reset", "--hard", "HEAD"]).catch(() => undefined);
+          continue;
+        }
+        // `-C` tiene messaggio E autore dell'originale: il lavoro resta di chi
+        // l'ha fatto, non di chi ha premuto «landa».
+        const c = await runGit(cwd, ["commit", "--no-edit", "-C", sha]);
+        if (c.code !== 0) {
+          await runGit(cwd, ["cherry-pick", "--quit"]).catch(() => undefined);
+          await runGit(cwd, ["reset", "--hard", "HEAD"]).catch(() => undefined);
+          return { ok: false, conflict: true, dependsOn: await unlandedForeign(cwd, all.length) };
+        }
+        brought++;
+      }
+      // Zero portati = era già tutto su main. È una consegna riuscita, non un
+      // fallimento da rimandare all'agente.
+      if (brought === 0) return { ok: true, conflict: false };
+      return { ok: true, conflict: false };
+    }
+
     return chain(repoPath, async (): Promise<AutoMergeResult> => {
       try {
         const head = await runGit(repoPath, ["symbolic-ref", "--short", "-q", "HEAD"]);
@@ -358,6 +501,22 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
         if (ahead.stdout.trim() === "0") {
           return { status: "nothing", branch, deliveryDrift: drift };
         }
+
+        // ── Numeri di migration: due card in parallelo se li prendono uguali ──
+        //
+        // `schema_migrations.version` e' CHIAVE PRIMARIA INTERA e il runner fa
+        // `if (applied.has(version)) continue` (server/db.ts): salta per NUMERO e
+        // in silenzio. Due file `089-*.sql` diversi vogliono dire che il secondo
+        // non si applica MAI — nemmeno ai riavvii — mentre il codice che lo
+        // presuppone atterra lo stesso. Il guasto non si vede al land: si vede in
+        // produzione, come una query su colonne che non esistono.
+        //
+        // Misurato il 10/08: DUE collisioni in una sera. Con N card in parallelo
+        // e' l'esito normale di due migration scritte lo stesso giorno, non la
+        // sfortuna di qualcuno — quindi il posto giusto e' un cancello, non la
+        // memoria di chi rivede.
+        const collision = await migrationCollision();
+        if (collision) return { status: "skipped", reason: collision };
 
         // ── Il branch porta SOLO il lavoro di questo task? ──────────────────
         //
@@ -401,6 +560,14 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
         //     non si sa cosa sia suo (`unisolable`). «Niente da portare» è
         //     `ahead === 0`, ed è già uscito sopra come `nothing`.
         //   · `0 < mine < total` — si sa, ed è misto: `foreign-commits`.
+        //
+        // E quando si SA e il ramo è misto, non ci si ferma: si atterrano SOLO
+        // i suoi (`onlyOwn` → `pickOwnCommits`). Rifiutarsi e basta teneva main
+        // pulito lasciando il lavoro in un limbo — misurato: 12 consegne
+        // accettate vivevano solo sul loro branch, fra cui uno scorporo da 800
+        // righe e una rimozione da 21.775.
+        /** Quando il branch porta anche commit non suoi: si prendono solo i suoi. */
+        let onlyOwn: { total: number; mine: number; others: string[] } | null = null;
         const others = await otherLocalBranches(repoPath, branch, { mainRef: defaultBranch, runGit });
         if (others === null) {
           return {
@@ -430,14 +597,12 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
             };
           }
           if (Number.isFinite(total) && total > mine) {
-            return {
-              status: "skipped", code: "foreign-commits",
-              reason:
-                `il branch '${branch}' porterebbe su '${defaultBranch}' ${total} commit, ma solo ${mine} ${mine === 1 ? "è" : "sono"} di questo task: ` +
-                `gli altri ${total - mine} arrivano dal branch su cui era il checkout quando la card è partita, e sono lavoro di qualcun altro. ` +
-                `Non li pubblico. Prendi il lavoro del task con un cherry-pick (\`git log --oneline ${defaultBranch}..${branch} --not ${others.join(" ")}\`), ` +
-                `oppure landa prima quel branch`,
-            };
+            // Si sa QUALI sono i suoi (`mine > 0`): il ramo è misto ma leggibile.
+            // Qui main si fermava con `foreign-commits`, che è una diagnosi
+            // giusta e una conseguenza sbagliata — il lavoro della card resta
+            // sul branch finché qualcuno non lo cherry-picka a mano, e nessuno
+            // lo fa. Si portano i suoi e basta.
+            onlyOwn = { total, mine, others };
           }
         }
 
@@ -448,6 +613,15 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
           const st = await runGit(repoPath, ["status", "--porcelain"]);
           if (st.stdout.trim() !== "") {
             return { status: "skipped", code: "dirty-checkout", reason: `il checkout è su '${defaultBranch}' con WIP non committata — mergia a mano o pulisci il checkout` };
+          }
+          if (onlyOwn) {
+            const picked = await pickOwnCommits(repoPath, onlyOwn);
+            if (picked.ok) return finishMerged(repoPath, /*live*/ true, cur);
+            if (picked.conflict) return conflictOrDependency(picked.missingBase, picked.dependsOn);
+            return {
+              status: "skipped", code: "unisolable",
+              reason: `non sono riuscito a isolare i ${onlyOwn.mine} commit di questa card su '${branch}'`,
+            };
           }
           // --no-ff keeps a merge commit so the landing is auditable even for a FF.
           const merge = await runGit(repoPath, ["merge", "--no-ff", "-m", mergeMsg, branch]);
@@ -469,9 +643,21 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
           return { status: "skipped", code: "worktree-add-failed", reason: `impossibile creare il worktree di land su '${defaultBranch}': ${(add.stderr || add.stdout).trim().slice(-200) || "git worktree add fallito"}` };
         }
         try {
+          if (onlyOwn) {
+            const picked = await pickOwnCommits(wtPath, onlyOwn);
+            if (picked.ok) return await finishMerged(wtPath, /*live*/ false, cur || "detached HEAD");
+            if (!picked.conflict) {
+              return {
+              status: "skipped", code: "unisolable",
+              reason: `non sono riuscito a isolare i ${onlyOwn.mine} commit di questa card su '${branch}'`,
+            };
+            }
+            return conflictOrDependency(picked.missingBase, picked.dependsOn);
+          } else {
           const merge = await runGit(wtPath, ["merge", "--no-ff", "-m", mergeMsg, branch]);
           if (merge.code === 0) return await finishMerged(wtPath, /*live*/ false, cur || "detached HEAD");
           await runGit(wtPath, ["merge", "--abort"]).catch(() => undefined);
+          }
           return { status: "conflict", branch };
         } finally {
           await runGit(repoPath, ["worktree", "remove", "--force", wtPath]).catch(() => undefined);

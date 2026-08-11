@@ -23,7 +23,7 @@
  * ciò che succede quando una pagina apre l'API e la socket.
  */
 import {
-  creaOspiteHttp, creaOspiteWs, creaRelayFinto,
+  creaOspiteHttp, creaOspiteWs, creaRelayFinto, SEGRETO_FINTO,
   type AperturaWs, type RispostaTubo, type SocketOspite,
 } from "../../../shared/relay-fake";
 import { involucro, leggiFramePayload, leggiMessaggio, type FrameTubo } from "../../../shared/relay-protocol";
@@ -172,7 +172,8 @@ export function alzaRelayE2E(portaTunnel: number | null): RelayE2E {
 
   const client = creaRelayClient({
     baseUrl: "http://relay.finto",
-    installationId: INSTALLAZIONE,
+    relayId: INSTALLAZIONE,
+    segreto: SEGRETO_FINTO,
     // Il vecchio verbo dei link di condivisione non c'entra con questa strada:
     // qui si passa dal TUBO, e questi tre non vengono mai chiamati.
     trovaLink: () => null,

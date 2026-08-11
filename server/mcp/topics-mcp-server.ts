@@ -1320,7 +1320,7 @@ export async function callListTasks(
 
 export async function callUpdateTask(
   args: ParsedArgs,
-  toolArgs: { task_id?: unknown; status?: unknown; priority?: unknown; assignee?: unknown; output_url?: unknown; text?: unknown; description?: unknown; preview_image?: unknown },
+  toolArgs: { task_id?: unknown; status?: unknown; priority?: unknown; assignee?: unknown; output_url?: unknown; text?: unknown; description?: unknown; preview_image?: unknown; previewImage?: unknown },
   fetchImpl: typeof fetch = fetch,
 ): Promise<string> {
   if (typeof toolArgs?.task_id !== "string" || !toolArgs.task_id) {
@@ -1345,7 +1345,19 @@ export async function callUpdateTask(
   // La rotta REST lo accettava gia' (routes/tasks.ts) e lo passa per l'allowlist
   // `filterMedia`, che resta l'unico cancello: qui non si valida il path, si
   // smette solo di perderlo per strada.
-  if (typeof toolArgs.preview_image === "string") patch.previewImage = toolArgs.preview_image;
+  // DUE nomi accettati, e non e' pigrizia. Il protocollo canonico e i due
+  // envelope (kickoff e resume) insegnano `previewImage` in camelCase da sempre;
+  // lo schema di questo tool usa snake_case come tutti i suoi parametri. Un
+  // agente che obbedisce al testo che ha ricevuto scrive `previewImage`, e con
+  // un solo nome accettato tornerebbe a perdersi in silenzio — lo stesso guasto
+  // che ho appena chiuso, riaperto dal lato del nome. Il doctor l'ha trovato in
+  // questa forma: «il protocollo insegna previewImage, lo schema dichiara
+  // preview_image». Finche' le due parole convivono nei prompt, il tool le
+  // accetta entrambe.
+  const anteprima = typeof toolArgs.preview_image === "string" ? toolArgs.preview_image
+    : typeof (toolArgs as { previewImage?: unknown }).previewImage === "string" ? (toolArgs as { previewImage?: string }).previewImage
+    : undefined;
+  if (anteprima !== undefined) patch.previewImage = anteprima;
   if (Object.keys(patch).length === 0) {
     throw new Error("update_task: provide at least one of 'status', 'priority', 'assignee', 'output_url', 'text', 'description', 'preview_image'");
   }

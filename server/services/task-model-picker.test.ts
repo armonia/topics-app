@@ -1,5 +1,7 @@
 import { describe, test, expect } from "bun:test";
-import { parseTier, tierToAvailableModel, pickTaskModel, floorTier, parseWeight } from "./task-model-picker";
+import {
+  parseTier, tierToAvailableModel, pickTaskPlan, floorTier, parseEffort, floorEffort, medianTier, medianEffort, JUDGE_VOTES, parseWeight, medianWeight,
+} from './task-model-picker';
 
 // La lista come la annuncia davvero la CLI: due generazioni per famiglia, e
 // accanto a ognuna la sua variante a finestra lunga. Il tier deve scegliere la
@@ -75,59 +77,139 @@ describe("tierToAvailableModel", () => {
   });
 });
 
-describe("pickTaskModel", () => {
+describe("pickTaskPlan", () => {
   const base = { availableModels: ALL, fallback: "claude-sonnet-5" };
-  /** Il modello del piano: la maggior parte di questi test guarda solo quello. */
-  const modelFor = async (answer: string, over: Record<string, unknown> = {}) =>
-    (await pickTaskModel({ text: "x" }, { ...base, complete: async () => answer, ...over })).model;
+  const model = async (answer: string, over: Record<string, unknown> = {}) =>
+    (await pickTaskPlan({ text: "x" }, { ...base, complete: async () => answer, ...over })).model;
 
   test("maps the classifier's tier to a concrete model", async () => {
-    const p = await pickTaskModel(
+    const p = await pickTaskPlan(
       { text: "refactor del layout engine" },
-      { ...base, complete: async () => "opus" },
+      { ...base, complete: async () => "opus high" },
     );
     expect(p.model).toBe("claude-opus-5[1m]");
+    expect(p.effort).toBe("high");
   });
 
   test("unparsable answer → fallback", async () => {
-    expect(await modelFor("boh non so")).toBe("claude-sonnet-5");
+    expect(await model("boh non so")).toBe("claude-sonnet-5");
   });
 
   test("classifier throwing → fallback (never blocks dispatch)", async () => {
-    expect(await modelFor("", { complete: async () => { throw new Error("provider down"); } }))
-      .toBe("claude-sonnet-5");
+    expect(await model("", { complete: async () => { throw new Error("provider down"); } })).toBe("claude-sonnet-5");
   });
 
   test("tier valid but not available on host → fallback", async () => {
-    expect(await modelFor("fable", { availableModels: ["gpt-4o"] })).toBe("claude-sonnet-5");
+    expect(await model("fable", { availableModels: ["gpt-4o"] })).toBe("claude-sonnet-5");
   });
 
   test("feeds title + description into the prompt", async () => {
     let seen = "";
-    await pickTaskModel(
+    await pickTaskPlan(
       { text: "Titolone", description: "Descrizione dettagliata" },
-      { ...base, complete: async (p) => { seen = p; return "sonnet light"; } },
+      { ...base, complete: async (p) => { seen = p; return "sonnet medium light"; } },
     );
     expect(seen).toContain("Titolone");
     expect(seen).toContain("Descrizione dettagliata");
   });
 
   test("execution floor: a haiku pick is clamped UP to sonnet (haiku is judge-only)", async () => {
-    expect(await modelFor("haiku")).toBe("claude-sonnet-5[1m]");
+    expect(await model("haiku medium")).toBe("claude-sonnet-5[1m]");
   });
 
   test("execution floor: haiku pick on a host without sonnet resolves to opus, NEVER haiku", async () => {
-    const p = await pickTaskModel(
+    const p = await pickTaskPlan(
       { text: "typo" },
-      { availableModels: ["claude-haiku-4-5", "claude-opus-5"], fallback: "claude-opus-5", complete: async () => "haiku" },
+      { availableModels: ["claude-haiku-4-5", "claude-opus-5"], fallback: "claude-opus-5", complete: async () => "haiku medium" },
     );
     expect(p.model).toBe("claude-opus-5");
+  });
+
+  // ── L'effort ──────────────────────────────────────────────────────────────
+
+  test("un effort sotto il pavimento sale a medium, non scende", async () => {
+    // `low` non e' un target: il pavimento e' cio' che la board fa oggi, cosi'
+    // accendere l'auto non puo' peggiorare nessun task in silenzio.
+    const p = await pickTaskPlan({ text: "typo" }, { ...base, complete: async () => "sonnet low" });
+    expect(p.effort).toBe("medium");
+  });
+
+  test("effort illeggibile → null, cioè «decide la board» e non un medium inventato", async () => {
+    const p = await pickTaskPlan({ text: "x" }, { ...base, complete: async () => "opus" });
+    expect(p.model).toBe("claude-opus-5[1m]");
+    expect(p.effort).toBeNull();
+  });
+
+  test("un fallback di modello non porta con sé un effort", async () => {
+    // Se il giudice non si capisce, non si capisce nemmeno il suo sforzo:
+    // spacciarne uno sarebbe inventare una decisione che nessuno ha preso.
+    const p = await pickTaskPlan({ text: "x" }, { ...base, complete: async () => "boh" });
+    expect(p.effort).toBeNull();
+  });
+
+  test("xhigh non viene letto come high (il prefisso non deve vincere)", async () => {
+    const p = await pickTaskPlan({ text: "x" }, { ...base, complete: async () => "fable xhigh" });
+    expect(p.effort).toBe("xhigh");
+  });
+});
+
+describe("il task arriva al giudice come MATERIALE, non come richiesta", () => {
+  const promptFor = async (task: { text: string; description?: string }) => {
+    let seen = "";
+    await pickTaskPlan(task, {
+      complete: async (p) => { seen = p; return "opus high light"; },
+      availableModels: ALL, fallback: "claude-opus-5",
+    });
+    return seen;
+  };
+
+  test("il testo del task sta fra marcatori", async () => {
+    // Senza, una descrizione lunga in markdown si confonde con la richiesta e il
+    // giudice risponde «Manca il task. Che devo fare?» invece di classificare.
+    const p = await promptFor({ text: "T", description: "## Cosa\nfai questo" });
+    expect(p).toContain("<<<TASK");
+    expect(p).toContain("TASK>>>");
+    expect(p.indexOf("<<<TASK")).toBeLessThan(p.indexOf("Titolo: T"));
+    expect(p.indexOf("TASK>>>")).toBeGreaterThan(p.indexOf("Titolo: T"));
+  });
+
+  test("una descrizione lunga viene tagliata a riga e il taglio è DICHIARATO", async () => {
+    // Misurato: tagliando secco a metà frase, il giudice rispondeva «il messaggio
+    // sembra troncato» e non classificava — 2 volte su 3 sulla card più
+    // impegnativa della board, che finiva così a effort minimo in silenzio.
+    const lunga = Array.from({ length: 200 }, (_, i) => `riga ${i} con un po' di testo`).join("\n");
+    const p = await promptFor({ text: "T", description: lunga });
+    expect(p).toContain("[… estratto: il task continua]");
+    // Taglio su confine di riga: nessuna riga spezzata a metà prima del marcatore.
+    const corpo = p.slice(p.indexOf("Descrizione:"), p.indexOf("[… estratto"));
+    expect(corpo.trimEnd().endsWith("testo")).toBe(true);
+  });
+
+  test("una descrizione corta non viene toccata", async () => {
+    const p = await promptFor({ text: "T", description: "breve" });
+    expect(p).toContain("Descrizione: breve");
+    expect(p).not.toContain("[… estratto");
+  });
+});
+
+describe("parseEffort / floorEffort", () => {
+  const base = { availableModels: ALL, fallback: "claude-sonnet-5" };
+  test("legge il tier anche in una risposta prolissa, e vince il PRIMO", () => {
+    expect(parseEffort("high")).toBe("high");
+    expect(parseEffort("direi max, non xhigh")).toBe("max");
+    expect(parseEffort("nessuna parola utile")).toBeNull();
+  });
+
+  test("il pavimento alza low e lascia stare il resto", () => {
+    expect(floorEffort("low")).toBe("medium");
+    expect(floorEffort("medium")).toBe("medium");
+    expect(floorEffort("max")).toBe("max");
   });
 
   // ── Il peso ───────────────────────────────────────────────────────────────
 
   test("la seconda parola è il peso, e arriva nel piano", async () => {
-    const p = await pickTaskModel({ text: "ricompila tutto" }, { ...base, complete: async () => "opus heavy" });
+    const p = await pickTaskPlan({ text: "ricompila tutto" }, { ...base, complete: async () => "opus medium heavy" });
     expect(p.model).toBe("claude-opus-5[1m]");
     expect(p.weight).toBe("heavy");
   });
@@ -135,31 +217,31 @@ describe("pickTaskModel", () => {
   test("peso non letto → null, che ogni gate tratta come light", async () => {
     // È il caso di ogni risposta a UNA parola, cioè come rispondeva il giudice
     // prima che il peso esistesse: niente deve cambiare rispetto a prima.
-    const p = await pickTaskModel({ text: "x" }, { ...base, complete: async () => "opus" });
+    const p = await pickTaskPlan({ text: "x" }, { ...base, complete: async () => "opus" });
     expect(p.model).toBe("claude-opus-5[1m]");
     expect(p.weight).toBeNull();
   });
 
   test("un fallback di modello non porta con sé un peso: un giudice caduto non ferma la coda", async () => {
-    const p = await pickTaskModel({ text: "x" }, { ...base, complete: async () => "boh" });
+    const p = await pickTaskPlan({ text: "x" }, { ...base, complete: async () => "boh" });
     expect(p.weight).toBeNull();
-    const crashed = await pickTaskModel({ text: "x" }, {
+    const crashed = await pickTaskPlan({ text: "x" }, {
       ...base, complete: async () => { throw new Error("provider down"); },
     });
     expect(crashed.weight).toBeNull();
   });
 
   test("il peso si legge DOPO il modello, e sopravvive a una risposta prolissa", async () => {
-    const p = await pickTaskModel({ text: "x" }, {
+    const p = await pickTaskPlan({ text: "x" }, {
       ...base, complete: async () => "opus — heavy, ricompila tutto il progetto",
     });
     expect(p.weight).toBe("heavy");
   });
 
-  test("il prompt chiede due parole e spiega che il peso non è la difficoltà", async () => {
+  test("il prompt chiede TRE parole e spiega che il peso non è la difficoltà", async () => {
     let seen = "";
-    await pickTaskModel({ text: "T" }, { ...base, complete: async (p) => { seen = p; return "opus light"; } });
-    expect(seen).toContain("DUE parole");
+    await pickTaskPlan({ text: "T" }, { ...base, complete: async (p) => { seen = p; return "opus medium light"; } });
+    expect(seen).toContain("TRE parole");
     expect(seen).toContain("MORDE LA MACCHINA");
     expect(seen).toContain("Nel dubbio light");
   });
@@ -186,5 +268,130 @@ describe("floorTier", () => {
     expect(floorTier("sonnet")).toBe("sonnet");
     expect(floorTier("opus")).toBe("opus");
     expect(floorTier("fable")).toBe("fable");
+  });
+});
+
+describe("mediana dei voti", () => {
+  test("con una maggioranza, la mediana È la maggioranza", () => {
+    expect(medianEffort(["high", "medium", "medium"])).toBe("medium");
+    expect(medianEffort(["medium", "high", "high"])).toBe("high");
+    expect(medianTier(["sonnet", "opus", "opus"])).toBe("opus");
+  });
+
+  test("senza maggioranza vince quello di mezzo, mai un estremo", () => {
+    // Il caso in cui un «più frequente» dovrebbe inventarsi uno spareggio.
+    expect(medianEffort(["medium", "xhigh", "high"])).toBe("high");
+    expect(medianTier(["fable", "sonnet", "opus"])).toBe("opus");
+  });
+
+  test("l'ordine di arrivo dei voti non conta", () => {
+    expect(medianEffort(["high", "medium", "medium"])).toBe(medianEffort(["medium", "medium", "high"]));
+    expect(medianEffort(["medium", "xhigh", "high"])).toBe(medianEffort(["xhigh", "high", "medium"]));
+  });
+
+  test("su un numero pari si paga il meno caro dei due centrali", () => {
+    expect(medianEffort(["medium", "xhigh"])).toBe("medium");
+  });
+
+  test("nessun voto → null, cioè «non lo so» (mai un medium inventato)", () => {
+    expect(medianEffort([])).toBeNull();
+    expect(medianTier([])).toBeNull();
+  });
+});
+
+/**
+ * Il rimedio alla misura del 2026-08-10: il giudice one-shot, chiamato 20 volte
+ * sullo stesso identico testo, cambiava sforzo nel 33,7% delle coppie e piano
+ * (modello+sforzo) nel 54,2% — cioè lo stesso task poteva costare parecchio di
+ * più per un lancio di dado. Referti: `docs/effort-variance/`.
+ *
+ * Questi test diventano rossi se qualcuno rimette il voto singolo: con una sola
+ * chiamata vincerebbe la PRIMA risposta, e la minoranza qui è messa apposta per
+ * prima.
+ */
+describe("il giudice si vota, non si crede sulla parola", () => {
+  const ALL_MODELS = { availableModels: ALL, fallback: "claude-sonnet-5" };
+  /** Un giudice che risponde le cose scritte, una per chiamata, in quest'ordine. */
+  const scripted = (answers: string[]) => {
+    let i = 0;
+    return async () => answers[Math.min(i++, answers.length - 1)]!;
+  };
+
+  test("interroga il giudice JUDGE_VOTES volte, non una", async () => {
+    let calls = 0;
+    await pickTaskPlan({ text: "x" }, { ...ALL_MODELS, complete: async () => { calls++; return "opus high light"; } });
+    expect(calls).toBe(JUDGE_VOTES);
+  });
+
+  test("la minoranza perde anche se parla per prima", async () => {
+    const p = await pickTaskPlan(
+      { text: "x" },
+      { ...ALL_MODELS, complete: scripted(["opus xhigh", "opus medium", "opus medium"]) },
+    );
+    expect(p.effort).toBe("medium");
+    expect(p.model).toBe("claude-opus-5[1m]");
+  });
+
+  test("il voto vale anche sul modello, non solo sullo sforzo", async () => {
+    const p = await pickTaskPlan(
+      { text: "x" },
+      { ...ALL_MODELS, complete: scripted(["fable high", "opus high", "opus high"]) },
+    );
+    expect(p.model).toBe("claude-opus-5[1m]");
+  });
+
+  test("tre voti tutti diversi → quello di mezzo, non il primo né il più caro", async () => {
+    const p = await pickTaskPlan(
+      { text: "x" },
+      { ...ALL_MODELS, complete: scripted(["opus max", "opus medium", "opus high"]) },
+    );
+    expect(p.effort).toBe("high");
+  });
+
+  test("un voto che esplode non porta giù la decisione: decidono gli altri", async () => {
+    let i = 0;
+    const p = await pickTaskPlan({ text: "x" }, {
+      ...ALL_MODELS,
+      complete: async () => {
+        if (i++ === 0) throw new Error("provider down");
+        return "opus high light";
+      },
+    });
+    expect(p.model).toBe("claude-opus-5[1m]");
+    expect(p.effort).toBe("high");
+  });
+
+  test("un voto illeggibile non conta come astensione: decidono i leggibili", async () => {
+    const p = await pickTaskPlan(
+      { text: "x" },
+      { ...ALL_MODELS, complete: scripted(["boh non so", "opus xhigh", "opus xhigh"]) },
+    );
+    expect(p.effort).toBe("xhigh");
+  });
+
+  test("nessun voto leggibile → fallback, e nessuno sforzo inventato", async () => {
+    const p = await pickTaskPlan(
+      { text: "x" },
+      { ...ALL_MODELS, complete: scripted(["boh", "mah", "???"]) },
+    );
+    expect(p.model).toBe("claude-sonnet-5");
+    expect(p.effort).toBeNull();
+  });
+
+  test("i voti partono INSIEME: tre giudici in serie triplicherebbero l'attesa del dispatch", async () => {
+    // Nessun voto può rispondere finché non sono arrivati tutti: in serie il
+    // primo aspetterebbe per sempre e il test scadrebbe.
+    let arrived = 0;
+    let openTheGate: () => void = () => {};
+    const gate = new Promise<void>((r) => { openTheGate = r; });
+    const p = await pickTaskPlan({ text: "x" }, {
+      ...ALL_MODELS,
+      complete: async () => {
+        if (++arrived === JUDGE_VOTES) openTheGate();
+        await gate;
+        return "opus high light";
+      },
+    });
+    expect(p.effort).toBe("high");
   });
 });
