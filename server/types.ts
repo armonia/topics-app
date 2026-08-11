@@ -224,7 +224,7 @@ export interface StoredMessage {
 export type { Topic, Project, Worktree, TopicsData, UnreadData } from "../shared/types";
 // `export type { … } from` ri-esporta ma NON porta i nomi in scope locale, e
 // qui sotto `AppContext` li usa. Import separato, non è una ridondanza.
-import type { Topic, TopicsData, UnreadData } from "../shared/types";
+import type { Topic, Project, TopicsData, UnreadData } from "../shared/types";
 import type { ServizioLicenza } from "./lib/licenza";
 
 export interface ActiveStream {
@@ -333,6 +333,15 @@ export interface AppContext {
    */
   requestIdentity?: (req: Request) => { role: 'owner' | 'guest'; deviceId: string | null } | null;
   broadcastToAll: (message: OutboundMessage) => void;
+  /**
+   * I tre frame che portano una riga di `projects` per intero. NON passano da
+   * `broadcastToAll`: quel payload è uno solo per tutte le socket, e questi
+   * portano nome e path — cioè proprio ciò che `GET /api/projects` filtra per
+   * organizzazione e incognito. Qui la riga esce solo verso chi `vedeProgetto`
+   * dice, e a tutti gli altri parte la ritratta (`project:deleted`, il solo id).
+   * `project:deleted` vero resta su `broadcastToAll`: porta già solo l'id.
+   */
+  broadcastProject: (type: import("./lib/project-visibility").TipoFrameProgetto, project: Project) => void;
   broadcastToTopic: (topicId: string, message: OutboundMessage, exclude?: ServerWebSocket<WSData>) => void;
   broadcastToTopicSubscribers: (topicId: string, message: OutboundMessage, exclude?: ServerWebSocket<WSData>) => void;
   loadTopics: () => TopicsData;

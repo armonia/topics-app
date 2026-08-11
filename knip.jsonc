@@ -45,7 +45,8 @@
         // mano (`bun scripts/board-doctor.mutants.ts`), non lo importa nessuno
         // e non deve — mentre gira riscrive il file che sta mutando.
         "scripts/board-doctor.mutants.ts!",
-        "scripts/disk-report.ts!",        // `bun run report:disk`
+        "scripts/effort-variance.ts!",
+    "scripts/disk-report.ts!",        // `bun run report:disk`
         "scripts/token-live.ts!",         // diagnostica a mano: `bun scripts/token-live.ts [filtro] [--watch]`
         "scripts/orphan-park-dryrun.ts!", // `bun run orphan:dryrun` — prova a vuoto sul db vero
         "scripts/skill-listing-probe.ts!", // misura a mano: `bun run scripts/skill-listing-probe.ts`
@@ -64,6 +65,29 @@
         // (`bun run scripts/job-quota-live-demo.ts`) e alimenta il video di
         // `scripts/job-quota-live-video.mjs`.
         "scripts/job-quota-live-demo.ts!",
+        // Il banco del tetto ai risultati MCP: `bun scripts/mcp-cap-bench/bench.ts`
+        // fa i due bracci (taglio spento e acceso) e misura i token di prompt. Si
+        // lancia a mano — è la prova che il tetto serve, non un pezzo della app —
+        // e `fake-web-mcp` è il server MCP finto che bench.ts SPAWNA, quindi
+        // nessun import lo raggiunge mai.
+        "scripts/mcp-cap-bench/bench.ts!",
+        "scripts/mcp-cap-bench/fake-web-mcp.ts!",
+        "scripts/mcp-cap-bench/fetch-pages.ts!",
+        "scripts/mcp-cap-bench/pages.ts!",
+        // La decomposizione del prompt e la sonda del prefisso: si lanciano a
+        // mano accanto al banco, e come lui nessuno le importa.
+        "scripts/mcp-cap-bench/decompose.ts!",
+        "scripts/mcp-cap-bench/prefix-probe.ts!",
+        // `bun run measure:task-tabs <copia.db>` — la misura prima/dopo del
+        // ripasso sulle tab dei task archiviati, su una COPIA del db vivo. Si
+        // lancia a mano quando si vuole rifare il conto (o rispondere a «quanto
+        // rende davvero»): nessuno lo importa e non deve.
+        "scripts/measure-task-tab-teardown.ts!",
+        // `bun run measure:ui-state-init <copia.db>` — quanto pesa il frame
+        // `ui-state:init` con e senza le chiavi per-task del browser. Stesso
+        // patto del precedente: si lancia a mano su una COPIA del db, nessuno
+        // lo importa.
+        "scripts/measure-ui-state-init.ts!",
         // Chi lo chiama: `scripts/check-occlusion.mjs` (`bun run check:occlusion`),
         // che lo bundla con `bun build` per portare il modulo di occlusione VERO
         // dentro un WebKit vero. Il riferimento è un path in stringa dentro un

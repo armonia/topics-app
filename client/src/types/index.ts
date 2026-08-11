@@ -1019,7 +1019,23 @@ export interface WSTaskParkedMessage {
   reason?: string;
 }
 
+/** A board task was ARCHIVED (the board's soft-delete). `taskIds` carries the
+ *  whole archived subtree — archiving a parent cascades to its children, and
+ *  anything holding per-task state must forget all of them, not just the root.
+ *  Older servers omit it; fall back to `[taskId]`.
+ *
+ *  Typed here because `useTaskBrowserTabsSync` acts on it: the server has just
+ *  deleted `task-browser-tabs:<id>` / `task-browser-layout:<id>`, so the client
+ *  must drop its cache AND its pending debounced PUT. */
+export interface WSTaskDeletedMessage {
+  type: 'task:deleted';
+  projectId: string;
+  taskId: string;
+  taskIds?: string[];
+}
+
 export type WSMessage =
+  | WSTaskDeletedMessage
   | WSProvidersSnapshotMessage
   | WSGoalUpdatedMessage
   | WSGatewayStatusMessage

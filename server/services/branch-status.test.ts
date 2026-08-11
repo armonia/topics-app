@@ -1,5 +1,11 @@
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
-import { branchExistsInRepo, branchStatusFromRepo, countCommitsAhead, filterUniqueSourceFiles, ownTipOfBranch } from "./branch-status";
+import {
+  branchExistsInRepo,
+  branchStatusFromRepo,
+  countCommitsAhead,
+  filterUniqueSourceFiles,
+  worktreeDiffStat,
+} from "./branch-status";
 import { mkdtempSync, writeFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -165,46 +171,91 @@ describe("branchExistsInRepo / countCommitsAhead", () => {
   });
 });
 
-describe("ownTipOfBranch — la consegna e' il lavoro TUO, non la punta del ramo", () => {
+/**
+ * Il numero con cui l'umano sceglie il vincitore del fan-out. Il difetto che
+ * chiude questo blocco: il worktree di un tentativo nasce da `HEAD` del checkout
+ * CONDIVISO, quindi il vecchio `merge-base(main, HEAD)..HEAD` gli attribuiva
+ * anche i commit dell'altra sessione parcheggiata lì.
+ *
+ *   main         base
+ *   dev          base ← A          (l'altra sessione: 40 righe in wip.txt)
+ *   topics/card  base ← A ← M      (eredita A, produce M: 3 righe in mio.txt)
+ *   topics/vuota base ← A          (eredita e basta)
+ */
+describe("worktreeDiffStat", () => {
   let repo: string;
+  let shaM: string;
 
+  // Timeout largo per la stessa ragione dei blocchi sopra: sono spawn di git.
   beforeAll(() => {
-    repo = mkdtempSync(join(tmpdir(), "owntip-"));
+    repo = mkdtempSync(join(tmpdir(), "wtstat-"));
     git(repo, "init", "-q", "-b", "main");
     git(repo, "config", "user.email", "t@t.t");
     git(repo, "config", "user.name", "t");
     writeFileSync(join(repo, "a.txt"), "base\n");
     git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", "base");
 
-    // Una sessione umana lavora sul checkout condiviso e committa.
     git(repo, "checkout", "-q", "-b", "dev");
-    writeFileSync(join(repo, "wip.txt"), "roba di un altro\n");
-    git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", "WIP di un altro");
+    writeFileSync(join(repo, "wip.txt"), Array.from({ length: 40 }, (_, i) => `altrui ${i}\n`).join(""));
+    git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", "WIP di un'altra sessione");
 
-    // Il worktree della card NASCE da li' (il difetto storico): eredita quel commit.
-    git(repo, "checkout", "-q", "-b", "card", "dev");
-    writeFileSync(join(repo, "mio.txt"), "il mio lavoro\n");
+    git(repo, "checkout", "-q", "-b", "topics/card", "dev");
+    writeFileSync(join(repo, "mio.txt"), "uno\ndue\ntre\n");
     git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", "il mio lavoro");
+    shaM = git(repo, "rev-parse", "HEAD");
 
-    // Un ramo che non ha prodotto NIENTE di suo.
-    git(repo, "checkout", "-q", "-b", "vuoto", "dev");
-  });
+    git(repo, "checkout", "-q", "-b", "topics/vuota", "dev");
+
+    // Nato dalla radice: il commit più vecchio proprio non ha un padre.
+    git(repo, "checkout", "-q", "--orphan", "topics/orfana");
+    git(repo, "rm", "-rq", "--cached", ".");
+    rmSync(join(repo, "wip.txt"), { force: true });
+    rmSync(join(repo, "a.txt"), { force: true });
+    writeFileSync(join(repo, "solo.txt"), "x\ny\n");
+    git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", "radice");
+
+    git(repo, "checkout", "-q", "main");
+  }, 60_000);
 
   afterAll(() => { rmSync(repo, { recursive: true, force: true }); });
 
-  test("torna il commit della card, non quello ereditato", async () => {
-    const tip = await ownTipOfBranch(repo, "card");
-    expect(tip).not.toBeNull();
-    expect(git(repo, "log", "-1", "--format=%s", tip!)).toBe("il mio lavoro");
-    // La PUNTA sarebbe la stessa qui, ma il punto e' che «WIP di un altro» non
-    // puo' mai uscire: e' il commit che una card rivendicava per sbaglio.
-    const altrui = git(repo, "rev-parse", "dev");
-    expect(tip).not.toBe(altrui);
+  test("conta SOLO il lavoro proprio, non i commit ereditati dall'altra sessione", async () => {
+    // Il controllo che rende il test capace di fallire: dal merge-base con main
+    // il ramo mostra DUE file e 43 righe, cioè la vecchia risposta sbagliata.
+    expect(git(repo, "diff", "--numstat", "main", "topics/card").split("\n").length).toBe(2);
+
+    const stat = await worktreeDiffStat(repo, { branch: "topics/card" });
+    expect(stat).toEqual({ commit: shaM, filesChanged: 1, insertions: 3, deletions: 0 });
   });
 
-  test("nessun commit proprio ⇒ null, non il commit di qualcun altro", async () => {
-    // «Non ho prodotto codice» e' un'informazione; un puntatore al lavoro altrui
-    // manda chi rivede a leggere il diff sbagliato.
-    expect(await ownTipOfBranch(repo, "vuoto")).toBeNull();
+  test("il branch si legge da HEAD quando il chiamante non lo passa", async () => {
+    git(repo, "checkout", "-q", "topics/card");
+    try {
+      expect(await worktreeDiffStat(repo)).toEqual({ commit: shaM, filesChanged: 1, insertions: 3, deletions: 0 });
+    } finally { git(repo, "checkout", "-q", "main"); }
+  });
+
+  test("solo lavoro ereditato → zero MISURATO, non il diff di un altro", async () => {
+    expect(await worktreeDiffStat(repo, { branch: "topics/vuota" }))
+      .toEqual({ commit: null, filesChanged: 0, insertions: 0, deletions: 0 });
+  });
+
+  test("commit proprio senza padre (radice) → si misura dall'albero vuoto", async () => {
+    const stat = await worktreeDiffStat(repo, { branch: "topics/orfana" });
+    expect(stat).toMatchObject({ filesChanged: 1, insertions: 2, deletions: 0 });
+    expect(stat?.commit).toBe(git(repo, "rev-parse", "topics/orfana"));
+  });
+
+  test("HEAD staccato → null: senza branch non si sa cosa è suo", async () => {
+    git(repo, "checkout", "-q", "--detach", "topics/card");
+    try {
+      expect(await worktreeDiffStat(repo)).toBeNull();
+    } finally { git(repo, "checkout", "-q", "main"); }
+  });
+
+  test("branch o repo non contabili → null, MAI uno zero", async () => {
+    expect(await worktreeDiffStat(repo, { branch: "topics/non-esiste" })).toBeNull();
+    expect(await worktreeDiffStat(repo, { branch: "topics/card", mainRef: "ramo-che-non-esiste" })).toBeNull();
+    expect(await worktreeDiffStat(join(tmpdir(), "wtstat-non-esiste-affatto"), { branch: "topics/card" })).toBeNull();
   });
 });

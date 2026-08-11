@@ -11,7 +11,7 @@
 // Il contratto della board sta in `shared/board.ts`, dichiarato UNA volta e
 // letto dai due lati del filo: `export … from` ri-esporta ma non porta i nomi
 // in scope locale, e qui sotto servono, quindi l'import gemello non è ridondante.
-export { MAX_FANOUT, TASK_STATUSES, ACTIVE_DISPATCH_STATES, isAgentWorking } from '../../../shared/board';
+export { MAX_FANOUT, TASK_STATUSES, ACTIVE_DISPATCH_STATES, isAgentWorking, parseStatusEvent, hasPlanApproveOption } from '../../../shared/board';
 export type {
   TaskStatus, TaskComment, ReviewCheck, CheckRun, BoardSettings, BoardSettingsPatch, DispatchCapacity, BlockerRef,
 } from '../../../shared/board';
@@ -174,6 +174,10 @@ export interface BoardTask {
   previewImage: string | null;
   /** Dispatch contract: agent delivers a PLAN to review before implementing. */
   planFirst: boolean;
+  /** IL commento che È il piano — scritto dal server quando il piano arriva
+   *  (contratto piano-prima). `null` sui task nati prima del puntatore: la tab
+   *  "Piano" ha una ricaduta esplicita per quelli. */
+  planCommentId: string | null;
   /** When the current claim started — anchors the live "ci sta mettendo" ticker. */
   inProgressAt: string | null;
   /** Cumulative agent effort across every turn (dispatcher-recorded).
@@ -300,15 +304,20 @@ export function parseQuestionBlock(text: string): { question: string; options: s
   }
   const question = qLines.join(' ').trim();
   if (!question) return null;
-  // "Landa e pubblica" (go online = merge + push + deploy) is NEVER a per-task
-  // quick-reply: publishing is a SEPARATE, human-only board action (the "Pubblica"
-  // control) with a diff preview to review before pushing. The dispatcher used to
-  // make agents offer it at delivery; drop it from the rendered options so old
-  // deliveries that still carry it don't show a one-click merge+push button.
-  // "Landa su main" (local merge, no push) stays.
+  return { question, options: filterReservedOptions(options) };
+}
+
+/**
+ * "Landa e pubblica" (go online = merge + push + deploy) is NEVER a per-task
+ * quick-reply: publishing is a SEPARATE, human-only board action (the "Pubblica"
+ * control) with a diff preview to review before pushing. The dispatcher used to
+ * make agents offer it at delivery; drop it from the rendered options so old
+ * deliveries that still carry it don't show a one-click merge+push button.
+ * "Landa su main" (local merge, no push) stays.
+ */
+function filterReservedOptions(options: string[]): string[] {
   const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
-  const filtered = options.filter((o) => norm(o) !== 'landa e pubblica');
-  return { question, options: filtered };
+  return options.filter((o) => norm(o) !== 'landa e pubblica');
 }
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
@@ -482,6 +491,22 @@ export const boardApi = {
    */
   listAll: (status?: TaskStatus) =>
     req<{ tasks: BoardTask[] }>(`/all-boards/tasks${status ? `?status=${status}` : ''}`).then(r => r.tasks),
+  /**
+   * LA PORTA UNICA «da un id al suo task, a qualunque profondità».
+   *
+   * `listAll` è `rootsOnly` — le colonne mostrano le radici, gli step vivono
+   * nell'albero del genitore — quindi `(await listAll()).find(t => t.id === id)`
+   * è `undefined` per QUALSIASI sottotask, e chi lo usava come risolutore
+   * (drawer, deep-link `/task/<id>`, click su una notifica) non arrivava a
+   * niente. Questa è la sola funzione da chiamare quando si ha in mano un id e
+   * si vuole il suo task: non filtra per profondità né per progetto.
+   *
+   * `null` = quell'id non esiste (risposta, non errore: il server risponde 200).
+   * Un rifiuto della promise è un guasto di TRASPORTO — chi aspetta un deep-link
+   * deve poterli distinguere: sul primo smette, sul secondo riprova.
+   */
+  resolve: (taskId: string) =>
+    req<{ task: BoardTask | null }>(`/all-boards/tasks/${enc(taskId)}`).then(r => r.task ?? null),
   create: (projectId: string, body: CreateTaskBody) =>
     req<BoardTask>(`/boards/${enc(projectId)}/tasks`, { method: 'POST', body: JSON.stringify(body) }),
   /** "Dove va questo testo?" — sola lettura, non tocca un solo task. */
