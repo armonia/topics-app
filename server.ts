@@ -47,6 +47,7 @@ import { createOpenClawContextRouter } from "./server/routes/openclaw-context";
 import { createContextPreviewRouter } from "./server/routes/context-preview";
 import { createTaskService, projectIdForPath } from "./server/services/tasks";
 import { createExternalSessionsService } from "./server/services/external-sessions";
+import { resolveWorktreeBaseRef } from "./server/services/worktree-base-ref";
 import { createExternalSessionsRouter } from "./server/routes/external-sessions";
 import { createTaskDispatcher } from "./server/services/task-dispatcher";
 import { refreshLiveJobQuotas } from "./server/services/agent-job-quota";
@@ -1012,7 +1013,14 @@ const taskDispatcher = createTaskDispatcher({
   // più apribile e un id fantasma in `ui_state` che risuscitava al reload.
   archiveTopic: retirementConsequences.archiveTopic,
   createWorktree: async (projectStoreId) => {
-    const wt = await ctx.worktreeManager.create({ projectId: projectStoreId, mode: "branch", baseRef: "HEAD" });
+    // Il ramo di una card nasce da MAIN, non dall'HEAD del checkout condiviso:
+    // con `HEAD` il worktree ereditava il ramo di chi stava lavorando qui, e da
+    // lì arrivavano collisioni di migration, consegne su commit mai landati e
+    // land che pubblicavano lavoro di terzi. Il perché per esteso, e il ripiego
+    // su HEAD quando `main` non c'è, stanno in `worktree-base-ref.ts`.
+    const base = await resolveWorktreeBaseRef(ctx.projectStore.get(projectStoreId)?.path);
+    if (base.fallback) console.warn(`[dispatch] ${base.reason}: il worktree parte da HEAD`);
+    const wt = await ctx.worktreeManager.create({ projectId: projectStoreId, mode: "branch", baseRef: base.baseRef });
     const ready = await ctx.worktreeManager.awaitMaterialisation(wt.id, 120_000);
     if (ready.status !== "ready") {
       throw new Error(`worktree ${wt.id}: ${ready.status}${ready.errorMessage ? " " + ready.errorMessage : ""}`);
