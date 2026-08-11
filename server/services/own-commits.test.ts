@@ -4,6 +4,7 @@ import {
   deliveryPointer,
   listOwnCommits,
   otherLocalBranches,
+  splitAheadCommits,
   type GitRunResult,
 } from "./own-commits";
 import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "fs";
@@ -106,6 +107,30 @@ describe("own-commits — su git vero", () => {
     expect(ptr!.commit).not.toBe(shaA);
   });
 
+  test("le due liste insieme: cosa porterebbe il land, e quanto di quello è suo", async () => {
+    const split = await splitAheadCommits(repo, "topics/card");
+    expect(split!.ahead).toEqual([shaM, shaA]);   // tutto ciò che main non ha
+    expect(split!.own).toEqual([shaM]);           // di suo, uno solo
+    // Il commit estraneo più recente è ciò che il doctor mostra come causa
+    // condivisa: esce dalla differenza fra le due liste, non da una terza domanda.
+    expect(split!.ahead.find((sha) => !split!.own.includes(sha))).toBe(shaA);
+    expect(split!.others).toContain("refs/heads/dev");
+    expect(split!.others).not.toContain("refs/heads/topics/card");
+  });
+
+  test("le due liste non divergono da `listOwnCommits`: è la STESSA sottrazione", async () => {
+    for (const branch of ["topics/card", "topics/doppia", "topics/vuota"]) {
+      const split = await splitAheadCommits(repo, branch);
+      expect(split!.own).toEqual((await listOwnCommits(repo, branch))!);
+      expect(await countOwnCommits(repo, branch)).toBe(split!.own.length);
+    }
+  });
+
+  test("le due liste, quando non si può guardare → null (mai `ahead` senza `own`)", async () => {
+    expect(await splitAheadCommits(repo, "topics/mai-esistito")).toBeNull();
+    expect(await splitAheadCommits(repo, "topics/card", { mainRef: "ramo-che-non-esiste" })).toBeNull();
+  });
+
   test("branch cancellato o mai esistito → null, che non è «non ha niente»", async () => {
     expect(await listOwnCommits(repo, "topics/mai-esistito")).toBeNull();
     expect(await countOwnCommits(repo, "topics/mai-esistito")).toBeNull();
@@ -173,6 +198,21 @@ describe("own-commits — il runner iniettato", () => {
     calls.length = 0;
     await listOwnCommits("/repo", "mio", { runGit: run, others: [] });
     expect(calls[0]).toEqual(["rev-list", "refs/heads/main..refs/heads/mio"]);
+  });
+
+  test("le due liste: `--not` solo se c'è da sottrarre, e una `rev-list` sola quando non c'è", async () => {
+    calls.length = 0;
+    const conAltri = await splitAheadCommits("/repo", "mio", { runGit: run, others: ["refs/heads/altro"] });
+    expect(calls.map((c) => c.join(" "))).toEqual([
+      "rev-list refs/heads/main..refs/heads/mio",
+      "rev-list refs/heads/main..refs/heads/mio --not refs/heads/altro",
+    ]);
+    expect(conAltri!.others).toEqual(["refs/heads/altro"]);
+
+    calls.length = 0;
+    const senza = await splitAheadCommits("/repo", "mio", { runGit: run, others: [] });
+    expect(calls).toHaveLength(1); // niente da sottrarre: la seconda domanda non si paga
+    expect(senza!.own).toEqual(senza!.ahead);
   });
 
   test("se `for-each-ref` fallisce non si ripiega su main..branch: null", async () => {

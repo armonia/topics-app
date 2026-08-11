@@ -912,6 +912,32 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     return (r?.c ?? 0) > 0;
   }
 
+  /**
+   * Figli che qualcuno sta davvero lavorando o sta per lavorare. Un figlio in
+   * **backlog** è parcheggiato: nessun dispatcher lo prenderà, quindi il padre
+   * che lo aspetta aspetta a vuoto — e col rinvio a finestra girerebbe ogni 10
+   * minuti per sempre. Misurati l'11/08 venti padri i cui unici figli aperti
+   * erano parcheggiati.
+   *
+   * NON è la definizione dei cancelli su `done` e sull'approvazione: là un
+   * sottotask parcheggiato blocca eccome, ed è voluto (un epic non è finito
+   * perché un pezzo è stato rimandato). Serve solo a distinguere «aspetta» da
+   * «non aspetterà mai nessuno».
+   */
+  function hasChildrenInFlight(taskId: string): boolean {
+    const r = db.prepare(
+      "SELECT COUNT(*) AS c FROM tasks WHERE parent_task_id = ? AND archived = 0 AND status IN ('todo','in_progress','review')",
+    ).get(taskId) as any;
+    return (r?.c ?? 0) > 0;
+  }
+
+  /** I sottotask parcheggiati in backlog: non li aspetta nessuno, vanno DETTI. */
+  function parkedChildren(taskId: string): Array<{ id: string; text: string }> {
+    return db.prepare(
+      "SELECT id, text FROM tasks WHERE parent_task_id = ? AND archived = 0 AND status = 'backlog' ORDER BY created_at",
+    ).all(taskId) as any;
+  }
+
   function rowToComment(r: any): TaskComment {
     let mentions: string[] = [];
     if (r.mentions) { try { mentions = JSON.parse(r.mentions); } catch { mentions = []; } }
@@ -1654,6 +1680,59 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // Note first so the "why it's here" is the last word on the review card.
       if (reason && reason.trim()) {
         try { this.addComment({ taskId, author: "system", content: reason }); } catch { /* best-effort */ }
+      }
+      // Un padre con sottotask aperti NON è approvabile (il gate su `done` lo
+      // rifiuta), quindi metterlo in review mette in coda all'umano una card su
+      // cui non può decidere niente — e ci torna a ogni turno esaurito. Misurato
+      // il 10/08: la stessa card rimbalzata in review quattro volte in un'ora,
+      // con quattro figli aperti. Il posto giusto è la coda: il lavoro non è
+      // finito, e il turno finito non lo rende finito.
+      //
+      // Ma «aperto» e «lo sta aspettando qualcuno» non sono la stessa cosa: se
+      // gli unici figli aperti sono PARCHEGGIATI in backlog, nessun dispatcher
+      // li prenderà e il padre aspetterebbe a vuoto per sempre. Quello non è un
+      // rimando in coda, è uno stallo: si parcheggia anche il padre, dicendo chi
+      // lo tiene fermo, così è una card su cui si può agire invece di una che
+      // gira ogni dieci minuti.
+      if (hasActiveChildren(taskId) && !hasChildrenInFlight(taskId)) {
+        const parked = parkedChildren(taskId);
+        const elenco = parked.map((c) => `• ${c.text}`).join("\n");
+        const note =
+          `Fermo su ${parked.length} sottotask parcheggiati in backlog: finché restano lì non posso chiudere il padre ` +
+          `(un task con sottotask aperti non è approvabile), e nessuno li prenderà da solo. ` +
+          `Mettine almeno uno in coda, oppure archivia ciò che non serve più.\n${elenco}`;
+        try { this.addComment({ taskId, author: "system", content: note }); } catch { /* best-effort */ }
+        db.prepare(
+          `UPDATE tasks SET assigned_topic_id = NULL, assigned_agent_id = NULL,
+              status = 'backlog', dispatch_state = 'blocked', dispatch_error = ?, updated_at = ? WHERE id = ?`,
+        ).run(note, ts, taskId);
+        if (row.status !== "backlog") logStatus(taskId, row.status, "backlog", "dispatcher");
+        return rowToTask(getTaskRow(taskId));
+      }
+      if (hasActiveChildren(taskId)) {
+        // Il tentativo si RESTITUISCE: il turno non è finito per colpa del
+        // padre, è finito mentre i figli lavoravano ancora — esattamente come
+        // il riavvio del server non è colpa dell'agente. Senza questo, il padre
+        // rientra in coda col budget già speso e non verrà reclamato MAI più:
+        // niente chip, niente errore, una card che finge di essere in coda.
+        // Diciannove così l'11/08, tutte da questo ramo.
+        //
+        // E il chip lo dice: `waiting` con la ragione, non il nulla che sul
+        // board si legge come «fermato a mano».
+        //
+        // E non rientra SUBITO in coda: senza finestra, il tick lo riprende al
+        // giro dopo, il turno finisce di nuovo coi figli ancora aperti, e sono
+        // turni pagati per aspettare. Stessa meccanica di `deferForWait`.
+        const note = "In attesa dei sottotask ancora aperti: torno in coda e riparto quando hanno finito.";
+        const until = new Date(Date.parse(ts) + 10 * 60_000).toISOString();
+        db.prepare(
+          `UPDATE tasks SET assigned_topic_id = NULL, assigned_agent_id = NULL,
+              dispatch_attempts = MAX(dispatch_attempts - 1, 0),
+              status = 'todo', dispatch_state = 'waiting', dispatch_error = ?,
+              dispatch_deferred_until = ?, updated_at = ? WHERE id = ?`,
+        ).run(note, until, ts, taskId);
+        if (row.status !== "todo") logStatus(taskId, row.status, "todo", "dispatcher");
+        return rowToTask(getTaskRow(taskId));
       }
       // Hand to the human: keep assigned_topic_id (a rejection resumes this
       // agent), clear the stale error, chip = needs_input (a decision is wanted).

@@ -52,7 +52,7 @@ import { modelPrice } from "../usage/pricing";
 import { getSnapshotManager } from "./snapshot-manager";
 import { skillBodyFromInjectedText } from "./claude/user-event-text";
 import { toolResultText } from "../../shared/tool-result-text";
-import { topicsAgentSystemPrompt, resolveClaudeEffort } from "../lib/topics-agent-prompt";
+import { topicsAgentSystemPrompt, resolveClaudeEffort, resolveMcpOutputTokens } from "../lib/topics-agent-prompt";
 import { resolveClaudeCodeModel } from "../services/app-settings";
 import { detectUserInputRequest } from "./ask-user-detector";
 import { endAsk, ASK_TTL_MS } from "../lib/ask-user-bridge";
@@ -1946,6 +1946,17 @@ export class ClaudeCodeProvider implements AIProvider {
       // schemi MCP. Il perché sta accanto all'opzione, in `claude/args.ts`.
       // `TOPICS_SKILL_LISTING=full` lo rimette intero senza toccare il codice.
       slimSkillListing: overrides.dispatched && process.env.TOPICS_SKILL_LISTING !== "full",
+      // Il tetto per singolo risultato di tool MCP. Vale per OGNI sessione, non
+      // solo per gli agenti del board: la chat che ha fatto nascere la misura
+      // (29,5M token di prompt, $23,86) era una chat guidata da una persona, e
+      // il 65% del suo payload erano venti risposte di un tool di ricerca web
+      // da 21 kB l'una — nessuna vicina al tetto di 25.000 token della CLI.
+      // Non toglie niente al modello: sopra la soglia la CLI mette il risultato
+      // su file e lascia il puntatore, quindi chi ha davvero bisogno del corpo
+      // intero se lo rilegge. Il perché del numero sta accanto all'opzione, in
+      // `claude/args.ts`. `TOPICS_MCP_OUTPUT_TOKENS=off` lo spegne, un numero
+      // lo sposta — per il giorno in cui una release cambia la semantica.
+      mcpOutputTokens: resolveMcpOutputTokens(),
       claudeSessionId,
       isNewSession,
     });

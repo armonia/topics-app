@@ -2327,7 +2327,11 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
   return (
     <div className="shrink-0 space-y-2 border-b border-app-border bg-app-inset px-3 py-2.5 text-xs text-app-text-heading">
       <div className="flex items-center justify-between">
-        <span className="font-semibold text-app-text">{tr('board.settings.autoDispatch')}</span>
+        {/* Il pannello non è «Auto-dispatch»: contiene effort, modello, lingua,
+            worktree, fan-out, notturna, auto-merge, MCP. Chiamarlo col nome
+            della prima riga faceva sembrare che quel nome fosse un titolo E un
+            interruttore. */}
+        <span className="font-semibold text-app-text">{tr('board.settings.title')}</span>
         <button aria-label={tr('board.settings.close')} onClick={onClose} className="rounded p-0.5 text-app-text-secondary hover:bg-white/10"><X className="h-3.5 w-3.5" /></button>
       </div>
 
@@ -2335,7 +2339,10 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
         className="flex cursor-pointer items-center justify-between gap-3"
         title={tr('board.settings.dispatchOnTitle')}
       >
-        <span>{tr('board.settings.dispatchOnPre')} <b>Todo</b></span>
+        {/* STESSA etichetta del ▾ in testata: è lo stesso interruttore globale,
+            e due nomi diversi per un valore solo fanno sembrare che siano due
+            impostazioni. Il cosa-fa sta nel `title`, non nel nome. */}
+        <span className="flex items-center gap-1.5"><Bot className="h-3.5 w-3.5 text-app-text-secondary" /> {tr('board.settings.autoDispatch')}</span>
         <input type="checkbox" checked={!!dispatchOn} onChange={onToggleDispatch} className="h-3.5 w-3.5 shrink-0 accent-emerald-500" />
       </label>
 

@@ -812,6 +812,26 @@ describe("approve decoupled from landing", () => {
     return t.id;
   }
 
+  test("trascinare una card in Done LANDA: `done` deve voler dire atterrato", async () => {
+    // Il land era un'azione a parte, e il gesto piu' naturale — trascinare la
+    // card in Done — chiudeva il lavoro lasciandolo sul suo ramo, in silenzio.
+    // Misurato il 10/08: 17 card chiuse in otto ore col contenuto NON su main.
+    const id = await reviewTask();
+    db.prepare("UPDATE tasks SET delivery_branch = 'topics/x' WHERE id = ?").run(id);
+    await call(router, "PATCH", `/api/boards/pX/tasks/${id}`, { status: "done" });
+    await new Promise((r) => setTimeout(r, 0)); // il land e' fire-and-forget
+    expect(merges).toContain(id);
+  });
+
+  test("una card SENZA ramo di consegna non tenta nessun land", async () => {
+    // Il controllo del test qui sopra: una nota chiusa a mano non deve svegliare
+    // git, o ogni gesto sulla board diventerebbe un'operazione sul repo.
+    const id = await reviewTask();
+    await call(router, "PATCH", `/api/boards/pX/tasks/${id}`, { status: "done" });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(merges).not.toContain(id);
+  });
+
   test("approve accepts the task WITHOUT merging (no azioni da sotto)", async () => {
     const id = await reviewTask();
     const t = await (await call(router, "POST", `/api/boards/pX/tasks/${id}/review`, { decision: "approve" }))!.json();
@@ -865,6 +885,11 @@ describe("approve decoupled from landing", () => {
     // E l'agent riparte con l'istruzione, come prima.
     expect(resumed.length).toBe(1);
     expect(resumed[0]![1]).toContain("conflitto");
+    // L'istruzione dice il gesto GIUSTO: rifare la base del proprio ramo. Diceva
+    // «git merge main, oppure rebase», e il merge non toglieva il conflitto —
+    // tre card ci sono rimaste incastrate finché non gliel'ho spiegato a mano.
+    expect(resumed[0]![1]).toContain("git rebase main");
+    expect(resumed[0]![1]).not.toContain("git merge main");
   });
 
   test("picking 'Landa e pubblica' approves + lands (routes to land+publish, not a reject)", async () => {

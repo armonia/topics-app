@@ -478,10 +478,46 @@ export function createUiStateRouter(ctx: AppContext, opts?: UiStateRouterOptions
   };
 }
 
-/** Helper to load all ui_state for WS init push — returns Option-A envelope { data, meta }. */
+/**
+ * I prefissi che l'`ui-state:init` NON porta — le chiavi per-task del browser.
+ *
+ * PERCHÉ. Lo snapshot va a OGNI client a OGNI riconnessione, e queste chiavi
+ * crescono di una coppia per ogni task che apre un browser, per sempre (un task
+ * non si cancella, si archivia — vedi `services/task-tab-teardown.ts`). Misura
+ * sul db vivo dell'11/08: 91 righe `task-browser-*` su 172 di `ui_state`, 31 KB
+ * su 101 KB — il 30,8% di uno snapshot che nessuno legge da lì.
+ *
+ * PERCHÉ SI PUÒ. Il client queste due chiavi le carica GIÀ da sé, con un GET
+ * per-task (`ensureTaskTabsLoaded` / `ensureTaskLayoutLoaded`) quando apre quel
+ * task: lo snapshot le portava solo perché la query non filtrava. Il layout non
+ * ha nessun consumer di `ui-state:init`; le tab lo usavano come RESYNC di
+ * riconnessione, e quel resync ora è mirato lato client — ri-GETta le sole
+ * chiavi dei task che ha davvero in cache (`resyncTaskTabsFromServer`), di norma
+ * zero o due invece di novanta.
+ *
+ * NON È UNA CANCELLAZIONE: le righe restano, il GET singolo le serve identiche.
+ * `GET /api/ui-state` (all-keys) resta completo di proposito — è la porta di
+ * servizio per chi vuole davvero tutto.
+ */
+export const UI_STATE_INIT_EXCLUDED_PREFIXES = ["task-browser-tabs:", "task-browser-layout:"] as const;
+
+/** Vero se la chiave è esclusa dallo snapshot `ui-state:init` (gemello JS del WHERE sotto). */
+export function isExcludedFromUiStateInit(key: string): boolean {
+  return UI_STATE_INIT_EXCLUDED_PREFIXES.some((p) => key.startsWith(p));
+}
+
+// Nessun `_` o `%` nei prefissi ⇒ nessun escape da fare nel LIKE.
+const INIT_EXCLUSION_WHERE = UI_STATE_INIT_EXCLUDED_PREFIXES.map(() => "key NOT LIKE ?").join(" AND ");
+const INIT_EXCLUSION_PARAMS = UI_STATE_INIT_EXCLUDED_PREFIXES.map((p) => `${p}%`);
+
+/** Helper to load all ui_state for WS init push — returns Option-A envelope { data, meta }.
+ *  Le chiavi in `UI_STATE_INIT_EXCLUDED_PREFIXES` sono filtrate: il client le
+ *  legge per-task, non da qui. */
 export function loadAllUiState(db: import("bun:sqlite").Database): UiStateEnvelope {
   try {
-    const rows = db.query("SELECT key, value, payload_version, server_seq FROM ui_state").all() as { key: string; value: string; payload_version: number; server_seq: number }[];
+    const rows = db.query(
+      `SELECT key, value, payload_version, server_seq FROM ui_state WHERE ${INIT_EXCLUSION_WHERE}`,
+    ).all(...INIT_EXCLUSION_PARAMS) as { key: string; value: string; payload_version: number; server_seq: number }[];
     const data: Record<string, unknown> = {};
     const meta: Record<string, UiStateMeta> = {};
     for (const row of rows) {
