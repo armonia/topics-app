@@ -843,6 +843,43 @@ describe("approve decoupled from landing", () => {
     expect(merges).toEqual([id]);  // land ran first (merges.push is synchronous)
     expect(resumed).toEqual([]);   // NOT resumed as a rejection
   });
+
+  /**
+   * Il land riceve lo SCATTO della consegna, e ciò che non coincide finisce nel
+   * thread. Senza questa riga chi ha aggiunto un commit dopo la consegna — o chi
+   * ha consegnato da un ramo che la card non usa più — crede di aver pubblicato
+   * quello che ha visto: è così che l'11/08 `lint` è tornato rosso su main senza
+   * che nessuno collegasse le due cose.
+   */
+  test("land: la consegna arriva al merge, e la deriva viene detta nel thread", async () => {
+    const seen: any[] = [];
+    const am = {
+      tryMerge: async (_id: string, _t: string, delivery: any) => {
+        seen.push(delivery);
+        return { status: "merged", commit: "cafe123", branch: "topics/consegnato", repoPath: "/repo",
+          touchedClient: false, touchedServer: false, touchedNative: false,
+          landedNotLive: false, checkoutBranch: "main",
+          deliveryDrift: "il ramo porta 1 commit aggiunto DOPO la consegna" };
+      },
+      buildClient: async () => ({ code: 0, stderr: "" }),
+    } as any;
+    const r2 = createTasksRouter(makeCtx(db, broadcasts), undefined, { autoMerge: am });
+    db.run("INSERT INTO topics (id) VALUES ('top-2')");
+    const t = await (await call(r2, "POST", "/api/boards/pX/tasks", { text: "feature" }))!.json();
+    db.prepare(
+      "UPDATE tasks SET assigned_topic_id='top-2', status='review', delivery_branch='topics/consegnato', delivery_commit='bdfcf0cb' WHERE id = ?",
+    ).run(t.id);
+    db.prepare("INSERT INTO task_comments (id, task_id, author, content, kind, created_at) VALUES ('c9', ?, 'claude', 'consegna', 'comment', ?)")
+      .run(t.id, new Date().toISOString());
+
+    await call(r2, "POST", `/api/boards/pX/tasks/${t.id}/land`, {});
+    // Il land gira staccato dalla risposta: si aspetta che la catena dreni.
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(seen).toEqual([{ branch: "topics/consegnato", commit: "bdfcf0cb" }]);
+    const said = db.prepare("SELECT content FROM task_comments WHERE task_id = ?").all(t.id) as Array<{ content: string }>;
+    expect(said.some((c) => c.content.includes("Land ≠ consegna") && c.content.includes("DOPO la consegna"))).toBe(true);
+  });
 });
 
 /**
