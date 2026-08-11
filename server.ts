@@ -3037,7 +3037,11 @@ const staleStreamTimer = setInterval(() => {
 // Task auto-dispatch reconciliation: on boot, requeue any in-progress task whose
 // agent turn died with the previous process; then poll to fill free slots on
 // boards with auto_dispatch on (also the safety net if a →todo hook is missed).
-// reconcile() is a no-op for boards with auto_dispatch off, so this is cheap.
+// Con auto_dispatch OFF è il TICK a essere un no-op, non l'intera reconcile: il
+// recupero degli orfani gira comunque, ed è voluto — una board spenta non
+// reclama, ma deve poter liberare le sue card ferme (la riga qui diceva
+// "reconcile() is a no-op", e ha mandato a caccia nel posto sbagliato chi
+// cercava perché sette fantasmi `queued` non venissero mai recuperati).
 const DISPATCH_POLL_MS = 10_000;
 taskDispatcher.reconcile().catch((err) => console.error("[dispatcher] boot reconcile failed", err));
 const dispatchTimer = setInterval(() => {
