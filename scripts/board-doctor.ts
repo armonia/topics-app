@@ -13,7 +13,10 @@
  *      «controllo X: ok»: `runChecks` restituisce rilievi, e su una board sana
  *      restituisce l'array vuoto. Dove manca il dato per decidere il controllo
  *      TACE e finisce in `skipped` — il silenzio per ignoranza e' dichiarato,
- *      non spacciato per assoluzione.
+ *      non spacciato per assoluzione. `skipped` vale pero' solo per il dato che
+ *      PUO' mancare (una baseline non passata, un rosso mai misurato): un file
+ *      VERSIONATO che non c'e' e' un guasto e va detto a voce alta, altrimenti
+ *      e' la corsia in cui un controllo muore inosservato — vedi il nono.
  *   2. Ogni rilievo porta IL COMANDO CHE LO PROVA. `finding()` rifiuta di
  *      costruire un rilievo senza `proof`, e `assertProofIsReadOnly` rifiuta un
  *      comando che scrive: la prova si incolla in un terminale per NON credergli.
@@ -28,11 +31,14 @@
  *      muove). Il registro filtra il resto.
  *
  * ── I controlli: solo guasti GIA' SUCCESSI ───────────────────────────────────
- * Nessun controllo su un guasto immaginato. Ognuno degli otto e' capitato
+ * Nessun controllo su un guasto immaginato. Ognuno dei nove e' capitato
  * davvero su questa board, e ognuno porta il modo di provarlo. Si aggiungono
  * controlli quando succede qualcosa di nuovo, non quando viene in mente
- * qualcosa di nuovo — gli ultimi due sono entrati il 2026-08-10, il giorno in
- * cui i loro guasti sono stati trovati a mano.
+ * qualcosa di nuovo — il settimo e l'ottavo sono entrati il 2026-08-10, il
+ * giorno in cui i loro guasti sono stati trovati a mano; il nono il 2026-08-11,
+ * quando si e' scoperto che il settimo era rimasto CIECO per settimane perche'
+ * il documento che legge era in `.gitignore` e la sua assenza si limitava a
+ * finire in `skipped`.
  *
  * ── Il controllo piu' difficile: quando NON allarmare ────────────────────────
  * Un task fermo puo' essere un cambio di turno, non un fantasma. Due trappole,
@@ -83,6 +89,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { DEFAULT_PROJECT_ID, THRESHOLDS, type SizeClass } from "./board-baseline";
+import { splitAheadCommits, type GitRunner } from "../server/services/own-commits";
 
 // ── Parametri dichiarati ─────────────────────────────────────────────────────
 
@@ -140,7 +147,8 @@ export type CheckId =
   | "environmental-red"
   | "cost-out-of-class"
   | "documented-parameter-not-declared"
-  | "delivery-commit-not-own";
+  | "delivery-commit-not-own"
+  | "protocol-doc-missing";
 
 // ── Il rilievo, e le regole che ne vietano uno inutile ───────────────────────
 
@@ -200,6 +208,7 @@ const SHELL_WRITERS = new Set([
 const GIT_READ_VERBS = new Set([
   "rev-list", "rev-parse", "show", "log", "diff", "status", "for-each-ref",
   "worktree", "symbolic-ref", "cat-file", "branch", "describe", "blame", "shortlog",
+  "check-ignore",
 ]);
 const SQL_WRITERS = /\b(insert|update|delete|drop|alter|create|replace|attach|vacuum)\b/i;
 
@@ -366,11 +375,13 @@ export interface BranchFacts {
    */
   foreignHead: string | null;
   /**
-   * I commit che sono NATI in questo worktree, abbreviati. `null` = non
-   * elencabili, e allora di chi sia la consegna non si sa: nessun allarme.
+   * I commit che sono NATI in questo worktree, con lo SHA intero — la stessa
+   * grafia con cui la consegna li registra (`own-commits.ts`), perche' e' con
+   * quella che il controllo 8 li confronta. `null` = non elencabili, e allora
+   * di chi sia la consegna non si sa: nessun allarme.
    */
   ownShas: readonly string[] | null;
-  /** Gli altri branch locali usati per la sottrazione: servono alla prova. */
+  /** Gli altri branch (`refs/heads/…`) da cui si e' sottratto: servono alla prova. */
   otherBranches: readonly string[];
 }
 
@@ -405,6 +416,8 @@ export interface DoctorInput {
   probes: Readonly<Record<string, readonly LivenessProbe[]>>;
   /** Cio' che i documenti di protocollo insegnano a passare ai tool. */
   documentedParams: readonly DocumentedParam[];
+  /** I documenti di protocollo che il controllo 7 doveva leggere e non ha trovato. */
+  missingProtocolDocs: readonly string[];
 }
 
 export interface DoctorCheck {
@@ -533,7 +546,7 @@ const checkLandDragsForeignCommits: DoctorCheck = {
         proof: `R=${shq(repoPath)}; git -C "$R" rev-list --count ${b.defaultBranch}..${b.branch}; git -C "$R" rev-list --count ${b.defaultBranch}..${b.branch} --not ${others}`,
         action: `prendi solo il lavoro della card (\`git -C "$R" log --oneline ${b.defaultBranch}..${b.branch} --not ${others}\` e poi un cherry-pick), oppure landa prima quel branch. Il cancello dell'automerge rifiuterebbe comunque: qui lo sai prima di cliccare`,
         occurrence: `land-drags-foreign-commits:${t.id}:${b.headSha ?? b.aheadTotal}`,
-        group: b.foreignHead ? `stessa linea ereditata, punta ${b.foreignHead}` : undefined,
+        group: b.foreignHead ? `stessa linea ereditata, punta ${b.foreignHead.slice(0, 8)}` : undefined,
         brief: `${b.aheadTotal} commit, ${b.ownCount} suo${b.ownCount === 1 ? "" : "i"}`,
       }));
     }
@@ -712,9 +725,47 @@ const checkDeliveryCommitNotOwn: DoctorCheck = {
         what: b.ownCount === 0
           ? `la consegna e' registrata su ${sha.slice(0, 8)}, ma questa card non ha committato niente: il commit e' di qualcun altro`
           : `la consegna e' registrata su ${sha.slice(0, 8)}, che non e' fra i ${b.ownCount} commit di questa card`,
-        proof: `R=${shq(repoPath)}; git -C "$R" rev-list --abbrev-commit ${b.defaultBranch}..${b.branch} --not $(git -C "$R" for-each-ref --format='%(refname:short)' refs/heads/ | grep -vx -e ${b.branch} -e ${b.defaultBranch}); git -C "$R" show --oneline -s ${sha}`,
+        // SHA interi, come quelli che il doctor ha confrontato: cosi' la
+        // consegna o compare in quell'elenco o non c'e', senza far combaciare
+        // prefissi a occhio.
+        proof: `R=${shq(repoPath)}; git -C "$R" rev-list ${b.defaultBranch}..${b.branch} --not $(git -C "$R" for-each-ref --format='%(refname:short)' refs/heads/ | grep -vx -e ${b.branch} -e ${b.defaultBranch}); git -C "$R" show --oneline -s ${sha}`,
         action: "non fidarti del diff mostrato in review: sta guardando il lavoro di un'altra sessione. Chiedi alla card quale commit e' suo, o rigettala",
         occurrence: `delivery-commit-not-own:${t.id}:${sha}`,
+      }));
+    }
+    return out;
+  },
+};
+
+// ── 9. Il documento che il controllo 7 legge non c'e' ────────────────────────
+
+/**
+ * Il controllo 7 legge un documento: se quel documento non c'e', non trova
+ * niente e la board sembra sana. E' esattamente cio' che e' successo — per
+ * tutto il tempo in cui `docs/board-protocol.md` e' stato in `.gitignore` il
+ * controllo e' girato su zero chiamate documentate, verde, in ogni worktree
+ * appena creato. Un controllo cieco che tace non si distingue da un controllo
+ * che passa, e infatti nessuno se n'e' accorto.
+ *
+ * Quindi il documento assente non e' un'ignoranza da dichiarare in `skipped`
+ * (quella e' per il dato che PUO' mancare: una baseline non passata, un rosso
+ * mai misurato). Qui il file e' atteso, versionato, e la sua assenza e' un
+ * guasto — la stessa convenzione che `docs/board-vs-chat/cases.json` ha gia'
+ * («lo script esce ROSSO se non la trova», dice il `.gitignore`).
+ */
+const checkProtocolDocMissing: DoctorCheck = {
+  id: "protocol-doc-missing",
+  bornFrom: "`docs/board-protocol.md` in `.gitignore`: il controllo 7 e' rimasto inerte per settimane, verde, senza che nessuno se ne accorgesse",
+  run({ missingProtocolDocs, repoPath }) {
+    const out: Finding[] = [];
+    for (const doc of missingProtocolDocs) {
+      out.push(finding({
+        check: "protocol-doc-missing",
+        taskText: doc,
+        what: `${doc} non esiste in questo checkout: il controllo sui parametri documentati gira su zero chiamate e resta verde per ignoranza`,
+        proof: `ls -l ${shq(join(repoPath, doc))}; git -C ${shq(repoPath)} log --oneline -1 -- ${shq(doc)}; git -C ${shq(repoPath)} check-ignore -v ${shq(doc)}`,
+        action: `ripristina il documento (\`git checkout -- ${doc}\`) o, se e' stato spostato, aggiorna PROTOCOL_DOCS. Finche' manca, il controllo 7 non controlla niente`,
+        occurrence: `protocol-doc-missing:${doc}`,
       }));
     }
     return out;
@@ -730,6 +781,7 @@ export const CHECKS: readonly DoctorCheck[] = Object.freeze([
   checkCostOutOfClass,
   checkDocumentedParameterNotDeclared,
   checkDeliveryCommitNotOwn,
+  checkProtocolDocMissing,
 ]);
 
 /**
@@ -801,6 +853,15 @@ export const MCP_SERVER = "server/mcp/topics-mcp-server.ts";
 export const PROTOCOL_DOCS = ["docs/board-protocol.md"] as const;
 
 /**
+ * Quali documenti di protocollo mancano da questo checkout. Sta qui, fuori da
+ * `collect`, perche' e' l'unico pezzo del controllo 9 che tocca il disco: cosi'
+ * si prova su una cartella vera senza mettere in piedi un DB.
+ */
+export function missingProtocolDocs(repoPath: string, docs: readonly string[] = PROTOCOL_DOCS): string[] {
+  return docs.filter((doc) => !existsSync(join(repoPath, doc)));
+}
+
+/**
  * Le chiavi di PRIMO livello di un oggetto letterale, contando le graffe.
  *
  * Una regex sul blocco intero sembrava bastare e non bastava: sconfinava nel
@@ -867,6 +928,60 @@ function git(cwd: string, args: string[]): { code: number; out: string } {
   return { code: res.status ?? 1, out: typeof res.stdout === "string" ? res.stdout : "" };
 }
 
+/**
+ * Il `git` del doctor nella forma che vuole `own-commits.ts`. E' un runner
+ * asincrono su una `spawnSync`: non serve a parallelizzare niente, serve a far
+ * girare il doctor sulla STESSA sottrazione del land invece che su una copia.
+ * Il cancello di sola-lettura resta quello di sopra — l'helper non decide cosa
+ * il doctor puo' eseguire.
+ */
+const doctorGitRunner: GitRunner = async (cwd, args) => {
+  const r = git(cwd, args);
+  return { code: r.code, stdout: r.out };
+};
+
+/**
+ * Cosa porterebbe il branch di una card, e quanto di quello e' suo. La domanda
+ * NON si ricalcola qui: la fa `own-commits.ts`, la stessa che risponde al
+ * cancello del land e alla fotografia della consegna. Due copie divergono, e
+ * siccome il controllo 8 confronta questi SHA con quello registrato dalla
+ * consegna, la deriva fra le copie sarebbe un falso allarme prodotto dal
+ * controllo che esiste per non darne.
+ *
+ * `null` = non confrontabile (branch potato, git muto): chi chiama lo dice fra
+ * le cose che non ha potuto guardare, e nessun controllo parla di questa card.
+ */
+export async function branchFacts(
+  repoPath: string,
+  taskId: string,
+  branch: string,
+  defaultBranch: string,
+  runGit: GitRunner = doctorGitRunner,
+): Promise<BranchFacts | null> {
+  // Le liste, non i conteggi: dalla differenza esce anche QUALE commit
+  // estraneo e' il piu' recente, cioe' l'impronta della causa condivisa.
+  const split = await splitAheadCommits(repoPath, branch, { mainRef: defaultBranch, runGit });
+  if (split === null) return null;
+  const mine = new Set(split.own);
+  const head = await runGit(repoPath, ["rev-parse", "--short", refShort(branch)]);
+  return {
+    taskId,
+    branch,
+    defaultBranch,
+    headSha: head.code === 0 ? head.stdout.trim() : null,
+    aheadTotal: split.ahead.length,
+    ownCount: mine.size,
+    foreignHead: split.ahead.find((sha) => !mine.has(sha)) ?? null,
+    ownShas: split.own,
+    otherBranches: split.others,
+  };
+}
+
+/** Il nome nudo di un ref, per i posti che lo mostrano a un umano o lo passano a una shell. */
+function refShort(ref: string): string {
+  return ref.startsWith("refs/heads/") ? ref.slice("refs/heads/".length) : ref;
+}
+
 function classify(value: number | null, smallMax: number, mediumMax: number): SizeClass | null {
   if (value === null || !Number.isFinite(value)) return null;
   if (value <= smallMax) return "small";
@@ -916,7 +1031,7 @@ export interface Collected {
   skipped: string[];
 }
 
-export function collect(opts: CollectOptions = {}): Collected {
+export async function collect(opts: CollectOptions = {}): Promise<Collected> {
   const dbPath = opts.dbPath ?? defaultDbPath();
   const repoPath = opts.repoPath ?? join(import.meta.dir, "..");
   const projectId = opts.projectId ?? DEFAULT_PROJECT_ID;
@@ -963,10 +1078,7 @@ export function collect(opts: CollectOptions = {}): Collected {
     const probeNow: Record<string, LivenessProbe> = {};
     const nowIso = new Date(nowMs).toISOString();
 
-    // Gli altri branch locali: la sottrazione che isola i commit della card.
     const defaultBranch = git(repoPath, ["rev-parse", "--verify", "--quiet", "main"]).code === 0 ? "main" : "master";
-    const allRefs = git(repoPath, ["for-each-ref", "--format=%(refname:short)", "refs/heads/"])
-      .out.split("\n").map((s) => s.trim()).filter(Boolean);
 
     for (const r of scoped) {
       const agent = lastAgent.get(r.id) as { content: string; created_at: string } | null;
@@ -1020,45 +1132,32 @@ export function collect(opts: CollectOptions = {}): Collected {
       };
 
       if (r.delivery_branch) {
-        // Le liste, non i conteggi: dalla differenza esce anche QUALE commit
-        // estraneo e' il piu' recente, cioe' l'impronta della causa condivisa.
-        const ahead = git(repoPath, ["rev-list", "--abbrev-commit", `${defaultBranch}..${r.delivery_branch}`]);
-        if (ahead.code !== 0) {
+        const facts = await branchFacts(repoPath, r.id, r.delivery_branch, defaultBranch);
+        if (facts === null) {
           skipped.push(`${r.id.slice(0, 8)}: branch ${r.delivery_branch} non confrontabile con ${defaultBranch} — controllo land saltato`);
           continue;
         }
-        const others = allRefs.filter((b) => b !== r.delivery_branch && b !== defaultBranch);
-        const own = others.length
-          ? git(repoPath, ["rev-list", "--abbrev-commit", `${defaultBranch}..${r.delivery_branch}`, "--not", ...others])
-          : ahead;
-        if (own.code !== 0) continue;
-        const lines = (s: string) => s.split("\n").map((x) => x.trim()).filter(Boolean);
-        const all = lines(ahead.out);
-        const mine = new Set(lines(own.out));
-        const head = git(repoPath, ["rev-parse", "--short", r.delivery_branch]);
-        branches.push({
-          taskId: r.id,
-          branch: r.delivery_branch,
-          defaultBranch,
-          headSha: head.code === 0 ? head.out.trim() : null,
-          aheadTotal: all.length,
-          ownCount: mine.size,
-          foreignHead: all.find((sha) => !mine.has(sha)) ?? null,
-          ownShas: [...mine],
-          otherBranches: others,
-        });
+        branches.push(facts);
       }
     }
 
     // ── Controllo 7: il protocollo contro lo schema dei tool ────────────────
+    // Il documento assente NON finisce in `skipped`: e' il controllo 9, cioe'
+    // un rilievo. Un file versionato che non c'e' e' un guasto, e il silenzio
+    // su di lui e' proprio il modo in cui il controllo 7 e' rimasto inerte.
+    // La sua presenza si guarda a parte dallo schema: se domani il server MCP
+    // cambiasse posto, il documento sparito tornerebbe a passare inosservato.
     const documentedParams: DocumentedParam[] = [];
+    const docs = opts.protocolDocs ?? PROTOCOL_DOCS;
+    const missingDocs = missingProtocolDocs(repoPath, docs);
+
     const mcpPath = join(repoPath, MCP_SERVER);
     if (existsSync(mcpPath)) {
       const declared = declaredToolParams(readFileSync(mcpPath, "utf8"));
       const tools = new Set(declared.keys());
-      for (const doc of opts.protocolDocs ?? PROTOCOL_DOCS) {
+      for (const doc of docs) {
         const p = join(repoPath, doc);
-        if (!existsSync(p)) { skipped.push(`protocollo ${doc} assente — controllo sui parametri documentati saltato`); continue; }
+        if (!existsSync(p)) continue;   // gia' detto dal controllo 9, e a voce alta
         for (const call of documentedCalls(readFileSync(p, "utf8"), tools)) {
           documentedParams.push({ doc, tool: call.tool, param: call.param, declared: declared.get(call.tool) ?? [] });
         }
@@ -1082,6 +1181,7 @@ export function collect(opts: CollectOptions = {}): Collected {
         costBaseline,
         probes: opts.probes ?? {},
         documentedParams,
+        missingProtocolDocs: missingDocs,
       },
       probeNow,
       skipped,
@@ -1210,8 +1310,8 @@ async function main(): Promise<void> {
   }
 
   /** Un giro: guarda, dice cio' che e' nuovo, aggiorna la catena dei sondaggi. */
-  function round(prev: DoctorState, remember: boolean): { state: DoctorState; fresh: Finding[] } {
-    const { input, probeNow, skipped } = collect({
+  async function round(prev: DoctorState, remember: boolean): Promise<{ state: DoctorState; fresh: Finding[] }> {
+    const { input, probeNow, skipped } = await collect({
       dbPath, repoPath, projectId: opt("project"), day: opt("day"),
       costBaseline, reds, probes: prev.probes,
     });
@@ -1256,7 +1356,7 @@ async function main(): Promise<void> {
     let cur = state;
     for (;;) {
       try {
-        cur = round(cur, true).state;
+        cur = (await round(cur, true)).state;
         if (persist) saveState(cur, stateFile);
       } catch (e) {
         console.error(`[doctor] giro fallito: ${e instanceof Error ? e.message : String(e)}`);
@@ -1265,7 +1365,7 @@ async function main(): Promise<void> {
     }
   }
 
-  const { state: next, fresh } = round(state, has("remember"));
+  const { state: next, fresh } = await round(state, has("remember"));
   if (persist) saveState(next, stateFile);
   if (has("gate") && fresh.length) process.exit(1);
 }

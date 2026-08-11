@@ -33,6 +33,58 @@ export const MAX_FANOUT = 5;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Evento di transizione (`kind='status'`) — il formato, in UN posto solo.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Separatore fra la transizione e la sua RAGIONE dentro `content`.
+ *
+ * Il contenuto di un evento di stato era `from→to` e basta, e tre lettori lo
+ * spacchettavano ognuno a modo suo: una `LIKE '%in_progress'` in SQL (l'inizio
+ * del turno, che arma il gate della consegna muta), un `endsWith("in_progress")`
+ * nel dispatcher, e uno `split('→')[1]` nel client. Appendere una ragione senza
+ * toccarli avrebbe rotto tutti e tre in silenzio — il gate avrebbe letto un
+ * turno più vecchio e una consegna muta sarebbe passata. Quindi il formato ha
+ * un writer solo (`formatStatusEvent`) e un parser solo (`parseStatusEvent`).
+ */
+export const STATUS_EVENT_SEP = ' · ';
+
+/** Quanto può essere lunga la ragione: è una riga di timeline, non un thread. */
+export const STATUS_EVENT_REASON_MAX = 160;
+
+/** `from→to` (+ ` · ragione`). Unico posto che SCRIVE il formato. */
+export function formatStatusEvent(from: string, to: string, reason?: string | null): string {
+  // A capo e spazi doppi diventano uno spazio: la riga della timeline è una
+  // riga sola, e un `\n` a metà romperebbe anche il `title` del tooltip.
+  const clean = (reason ?? '').replace(/\s+/g, ' ').trim().slice(0, STATUS_EVENT_REASON_MAX).trim();
+  return clean ? `${from}→${to}${STATUS_EVENT_SEP}${clean}` : `${from}→${to}`;
+}
+
+/**
+ * `content` → transizione. `null` se non è un evento di stato (nessuna freccia).
+ * Legge la destinazione FINO al separatore, così una ragione che contiene una
+ * freccia o un altro `·` non sposta il confine.
+ */
+export function parseStatusEvent(content: string): { from: string; to: string; reason: string | null } | null {
+  if (typeof content !== 'string') return null;
+  const arrow = content.indexOf('→');
+  if (arrow < 0) return null;
+  const rest = content.slice(arrow + 1);
+  const sep = rest.indexOf(STATUS_EVENT_SEP);
+  const reason = sep < 0 ? null : rest.slice(sep + STATUS_EVENT_SEP.length).trim() || null;
+  return {
+    from: content.slice(0, arrow).trim(),
+    to: (sep < 0 ? rest : rest.slice(0, sep)).trim(),
+    reason,
+  };
+}
+
+/** La transizione è ENTRATA in questo stato? (il "quando inizia il turno"). */
+export function statusEventEnters(content: string, status: TaskStatus): boolean {
+  return parseStatusEvent(content)?.to === status;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Anteprima di consegna — la regola, in UN posto solo.
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -159,6 +211,52 @@ export function isAgentWorking(
   dispatchState: string | null | undefined,
 ): dispatchState is ActiveDispatchState {
   return (ACTIVE_DISPATCH_STATES as readonly string[]).includes(dispatchState ?? '');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Blocco `question` — il formato, dichiarato dove SCRITTURA e LETTURA lo vedono
+// entrambe (`addComment` lo compone, `parseQuestionBlock` lo legge).
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * IL BLOCCO ```question È UN CONTRATTO, non una formattazione.
+ *
+ * Lo compone il server (unico scrittore, `addComment`) in una forma fissa —
+ * fence, la domanda su UNA riga, poi le opzioni come righe `- …` — e lo legge
+ * `parseQuestionBlock` per disegnare le risposte rapide. Cambiare quel layout
+ * non è un dettaglio estetico: è una card che perde i bottoni, e le risposte
+ * rapide devono esserci SEMPRE finché il task non è chiuso.
+ *
+ * Da qui la conseguenza che vale la pena scrivere: dentro la fence il corpo
+ * resta appiattito, perché una riga `- …` del corpo non sarebbe distinguibile
+ * da un'opzione. Un testo lungo che vuole tenersi l'impaginazione (un piano)
+ * viaggia FUORI dalla fence, nello stesso commento: il parser lascia intatto
+ * ciò che sta attorno al blocco, e le tre superfici (thread, card, tab Piano)
+ * lo rendono come markdown. Il posto dove separare corpo e opzioni è il
+ * RENDER, non il testo salvato — questo modulo dichiara solo la forma.
+ */
+
+/** Etichette senza punteggiatura/emoji/spaziatura: due opzioni si confrontano
+ *  per SIGNIFICATO, non per byte (il modello aggiunge volentieri un ✅). */
+export function normalizeActionLabel(s: string): string {
+  return s.replace(/[^\p{L}\s]/gu, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+/**
+ * Le due opzioni del protocollo piano-prima. Sono un CONTRATTO, non un testo di
+ * cortesia: il dispatcher le scrive nell'envelope, e la loro presenza è ciò che
+ * dice al servizio «questo commento È il piano» (→ `tasks.plan_comment_id`).
+ * Prima il piano si indovinava — «l'ultimo commento non-utente» — e su 13 task
+ * piano-prima l'euristica sbagliava 13 volte su 13: il commento di rettifica,
+ * o la consegna con «Landa su main», rubavano il posto al piano.
+ */
+export const PLAN_APPROVE_LABEL = 'Approva il piano';
+export const PLAN_REVISE_LABEL = 'Da rivedere';
+
+/** Vero quando fra le opzioni c'è l'approvazione di un piano (match tollerante). */
+export function hasPlanApproveOption(options: readonly string[]): boolean {
+  const want = normalizeActionLabel(PLAN_APPROVE_LABEL);
+  return options.some((o) => normalizeActionLabel(o) === want);
 }
 
 export interface TaskComment {

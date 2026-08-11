@@ -151,6 +151,49 @@ export async function countOwnCommits(
   return /^\d+$/.test(n) ? Number.parseInt(n, 10) : null;
 }
 
+/** Il branch visto dal land: cosa porterebbe in tutto, e quanto di quello è suo. */
+export interface AheadSplit {
+  /** Tutti i commit che `main` non ha, dal più RECENTE. SHA interi. */
+  ahead: string[];
+  /** Di quelli, i PROPRI — sottoinsieme di `ahead`, stesso ordine. */
+  own: string[];
+  /** I ref da cui si è sottratto (`refs/heads/…`): servono a chi scrive la prova. */
+  others: string[];
+}
+
+/**
+ * Le DUE liste insieme, per chi non deve solo sapere quanti commit sono suoi ma
+ * anche QUALI sono degli altri — la diagnostica del board-doctor, che dalla
+ * differenza tira fuori il commit estraneo più recente (l'impronta della causa
+ * condivisa fra più card).
+ *
+ * Sta qui e non nel doctor perché è la stessa sottrazione del land: due copie
+ * divergono, e siccome il doctor CONFRONTA il suo insieme con la consegna
+ * registrata da `deliveryPointer`, la deriva fra le due sarebbe proprio il
+ * falso allarme che il controllo esiste per non dare.
+ *
+ * `null` = non contabile, come le altre.
+ */
+export async function splitAheadCommits(
+  repoPath: string,
+  branch: string,
+  opts: OwnCommitsOptions = {},
+): Promise<AheadSplit | null> {
+  const run = opts.runGit ?? defaultRunGit;
+  const mainRef = opts.mainRef ?? "main";
+  const others = await resolveOthers(repoPath, branch, opts);
+  if (others === null) return null;
+  const aheadRes = await run(repoPath, ["rev-list", ...rangeArgs(branch, mainRef, [])]);
+  if (aheadRes.code !== 0) return null;
+  const ahead = lines(aheadRes.stdout);
+  // Senza altri branch non c'è niente da sottrarre: la seconda `rev-list`
+  // darebbe la stessa risposta, e il doctor gira su ogni card in review.
+  if (others.length === 0) return { ahead, own: [...ahead], others };
+  const own = await listOwnCommits(repoPath, branch, { ...opts, others });
+  if (own === null) return null;
+  return { ahead, own, others };
+}
+
 /** Cosa ha consegnato una card: il suo branch e il commit PROPRIO più recente. */
 export interface DeliveryPointer {
   branch: string;
