@@ -97,9 +97,27 @@ export function PreviewMedia({ path, variant, onOpenTab }: {
   // `PREVIEW_CARD_MAX_RATIO` (144/268), la soglia che il protocollo dà agli
   // agenti. `object-cover` NON rimpicciolisce l'eccedenza, la TAGLIA — cambiare
   // questo numero senza cambiare la costante fa mentire la regola.
+  //
+  // DRAWER — perché non più `max-h-[50vh] object-contain`:
+  //  · il tetto in `vh` guarda la FINESTRA, non il riquadro: un'anteprima
+  //    2200x6010 (una schermata lunga, che gli agenti consegnano spesso) si
+  //    prendeva mezzo drawer e spingeva fuori tutto il resto;
+  //  · `object-contain` mostrava tutta l'immagine RIMPICCIOLITA — a quella
+  //    scala non è leggibile, quindi non serviva a decidere: mostrava soltanto
+  //    che c'è un'anteprima. L'immagine intera è a UN click (lightbox, o la sua
+  //    tab): la miniatura non deve fare quel lavoro.
+  //  · `object-cover object-top` — lo STESSO ritaglio della card: quello che
+  //    hai visto sulla card è quello che ritrovi qui, e una copertina bassa non
+  //    viene stirata (il tetto taglia, non deforma).
+  // Il `min(px, vh)`: il px è la misura di lettura, il vh è la garanzia che su
+  // una finestra bassa l'anteprima resti una FETTA del drawer e non il drawer.
+  // Un video tiene `object-contain` (ritagliarlo nasconderebbe l'azione) e un
+  // tetto più alto: sotto ~150px i controlli nativi diventano inusabili.
   const mediaCls = variant === 'card'
     ? 'block w-full max-h-36 rounded border border-app-border object-cover object-top'
-    : 'block w-full max-h-[50vh] rounded border border-app-border bg-black/20 object-contain';
+    : video
+      ? 'block w-full max-h-[min(280px,32vh)] rounded border border-app-border bg-black/20 object-contain'
+      : 'block w-full max-h-[min(220px,24vh)] rounded border border-app-border bg-black/20 object-cover object-top';
 
   const media = video ? (
     <video
