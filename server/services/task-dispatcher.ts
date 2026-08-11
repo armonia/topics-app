@@ -1729,7 +1729,15 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     const t = deps.svc.get(taskId)?.task;
     // The caller (reviewDecision reject) has already moved it to in_progress and
     // it must still be bound to its topic. Anything else = nothing to resume.
-    if (!t || !t.assignedTopicId || t.status !== "in_progress") return;
+    if (!t || !t.assignedTopicId || t.status !== "in_progress") {
+      // Un resume in attesa di posto può ritrovare la card già chiusa al giro
+      // dopo (approvata mentre aspettava). Rinunciare senza ripulire lascia
+      // l'id nel Set per sempre, e la prossima attesa VERA di quella card non
+      // verrebbe più annunciata: il commento «in coda» è guardato proprio da
+      // questo insieme.
+      waitingForSlot.delete(taskId);
+      return;
+    }
     if (inFlight.has(taskId)) {
       // Turn still live (winding down): buffer, onTurnEnd delivers it.
       pendingResume.set(taskId, [...(pendingResume.get(taskId) ?? []), humanMessage]);
