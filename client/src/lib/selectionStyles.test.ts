@@ -119,6 +119,35 @@ describe('la riga di chrome e il comando in coda', () => {
     );
   });
 
+  test('gli incassi orizzontali cadono su pixel INTERI', () => {
+    // MEZZO PIXEL NON È UNA POSIZIONE, È UN LANCIO DI MONETA.
+    //
+    // L'08/08 il comando in testa alla riga stava a `md:left-[5.5px]`
+    // (cbd00427, poi rientrato a 6 il 09/08 con ab8d7514). Il bordo sinistro
+    // della sua scatola cadeva quindi a metà del pixel 5 — e `reopen-closed-tab`
+    // clicca il punto (5, 5) della barra per spostare il fuoco: l'hit-test di
+    // Chromium arrotonda DENTRO la scatola, il click finiva sul comando invece
+    // che sulla barra, e il test moriva a 30 s. Misurato in entrambe le
+    // direzioni: a 5.5 `elementFromPoint(bar.x+5)` risponde il comando, a 6
+    // risponde la barra (tests/e2e/reduced-motion-chrome-controls.spec.ts).
+    //
+    // Il verticale non è in questa lista di proposito: lì il mezzo pixel non ha
+    // un bersaglio contro cui sbattere — nessuno mira il bordo alto della riga.
+    const frazionari = Object.entries({
+      'incasso in coda': risolvi(CHROME_ROW_ACTION_INSET, 'right'),
+      'incasso in testa': risolvi(CHROME_ROW_ACTION_INSET_LEFT, 'left'),
+      'riserva in coda': risolvi(CHROME_ROW_ACTION_RESERVE, 'pr'),
+      'riserva in testa': risolvi(CHROME_ROW_ACTION_RESERVE_LEFT, 'pl'),
+    }).flatMap(([nome, { wide, compact }]) =>
+      [
+        ['col mouse', wide],
+        ['col dito', compact],
+      ].filter(([, px]) => !Number.isInteger(px as number))
+       .map(([dove, px]) => `${nome} ${dove}: ${px}px`),
+    );
+    expect(frazionari).toEqual([]);
+  });
+
   test('la riserva della strip è bordo + box + la stessa aria del bordo', () => {
     // I tre pezzi ci sono tutti: 6 dal bordo, il box, e altri 6 prima della
     // tab. Era `box + chromeRowInset(box)`, cioè senza il terzo: la strip
