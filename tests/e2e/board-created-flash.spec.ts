@@ -146,6 +146,34 @@ async function scrollColumnsToEnd(page: Page, offscreen: Locator) {
  *
  * `- 1` / `+ 1`: i rettangoli sono frazionari, un bordo a filo non è un rosso.
  */
+/**
+ * Nessuna parte di `inner` finisce sotto `cover`, e al suo centro non c'è
+ * nient'altro davanti.
+ *
+ * «Dentro il contenitore giusto» e «la vedi» sono due domande diverse, e la
+ * prima versione di questa spec faceva solo la prima: la card atterrava nel
+ * corpo colonna — rettangolo perfetto — e stava dietro al composer flottante.
+ * Due controlli perché falliscono in modi diversi: l'intersezione dei rettangoli
+ * prende anche una copertura PARZIALE (un angolo, il bordo inferiore), che
+ * `elementFromPoint` sul centro si lascerebbe scappare; `elementFromPoint`
+ * prende qualunque cosa stia davanti, anche una che non ho pensato di misurare.
+ */
+async function notCoveredBy(inner: Locator, cover: Locator): Promise<boolean> {
+  const [i, c] = [await inner.boundingBox(), await cover.boundingBox()];
+  if (!i) return false;
+  if (c && c.width > 0 && c.height > 0) {
+    const overlap = i.x < c.x + c.width && i.x + i.width > c.x
+      && i.y < c.y + c.height && i.y + i.height > c.y;
+    if (overlap) return false;
+  }
+  return inner.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    if (!r.width || !r.height) return false;
+    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return !!hit && (hit === el || el.contains(hit));
+  });
+}
+
 async function fits(inner: Locator, outer: Locator, axis: "x" | "y"): Promise<boolean> {
   const [i, o] = [await inner.boundingBox(), await outer.boundingBox()];
   if (!i || !o) return false;
@@ -252,7 +280,11 @@ test.describe("Task appena creato: lampo e scorrimento", () => {
     expect(overflow.top).toBe(0);
     expect(overflow.hidden).toBeGreaterThan(0);
 
-    const composer = page.getByTestId("board-task-composer").locator("textarea");
+    // Il riquadro INTERO del composer (il vetro che si vede), non solo la sua
+    // textarea: è quello a coprire la colonna, ed è quello che la card deve
+    // scansare.
+    const composerBox = page.getByTestId("board-task-composer");
+    const composer = composerBox.locator("textarea");
     await composer.click();
     await composer.fill(mio);
     await composer.press("Enter");
@@ -292,6 +324,18 @@ test.describe("Task appena creato: lampo e scorrimento", () => {
     // rettangolo e non è nascosta» e passa anche per una colonna scrollata fuori
     // dallo schermo — è esattamente il modo in cui questa prova poteva essere
     // verde senza provare niente.
+    // E NON È COPERTA. Questa è l'asserzione che mancava, ed è il motivo per cui
+    // la prima versione di questa spec era verde su una consegna sbagliata: il
+    // composer flottante è un overlay ancorato in basso sull'area della board,
+    // e la fascia che copre è esattamente dove atterra un task nuovo
+    // (`kanban_order = max + 1` → in fondo alla colonna). Misurato allora: card
+    // a 622–699, composer a 578–688 — dentro il rettangolo giusto, e invisibile.
+    // Un controllo geometrico sui contenitori non poteva vederlo: il contenitore
+    // era quello previsto, era il vetro DAVANTI a non essere nel conto.
+    await expect(async () => {
+      expect(await notCoveredBy(landed, composerBox), "la card è finita DIETRO al composer").toBe(true);
+    }).toPass({ timeout: 8000 });
+
     const vp = page.viewportSize()!;
     const box = await landed.boundingBox();
     expect(box).not.toBeNull();

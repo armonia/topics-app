@@ -996,9 +996,18 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
     // filtro attivo la tiene fuori, non arriva nessun giro — ci pensa la
     // scadenza qui sotto a non lasciare un bersaglio appeso.
     if (!tasks.some((t) => t.id === scrollTarget)) return;
-    // rAF: l'effetto parte nello stesso commit in cui la card entra in colonna,
-    // e i rettangoli vanno letti a layout fatto.
-    const raf = requestAnimationFrame(() => {
+    // DUE frame, non uno. L'effetto parte nello stesso commit in cui la card
+    // entra in colonna, e i rettangoli vanno letti a layout FATTO — ma il primo
+    // frame non basta: la card esiste già e la colonna sta ancora assestando la
+    // propria altezza (chip, anteprime, il resto del contenuto della card che
+    // prende posto). Misurato lì, il rettangolo era ~55px più in alto del vero,
+    // lo scorrimento partiva corto di altrettanto e la card si fermava dietro al
+    // composer una volta su due — un rosso a intermittenza che non parlava del
+    // meccanismo ma di QUANDO lo si era interrogato. Il secondo frame legge
+    // numeri che non si muovono più, e lo scorrimento morbido parte una volta
+    // sola dalla posizione giusta.
+    let raf2 = 0;
+    const raf = requestAnimationFrame(() => { raf2 = requestAnimationFrame(() => {
       const row = columnsScrollRef.current;
       const card = row?.querySelector(`[data-task-card="${CSS.escape(scrollTarget)}"]`);
       setScrollTarget(null);
@@ -1027,14 +1036,42 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
       const body = card.closest('[data-testid^="kanban-column-body-"]');
       if (body) {
         const bodyRect = body.getBoundingClientRect();
+        // Il fondo UTILE della colonna non è il suo bordo inferiore. Il composer
+        // («Descrivi un task per l'agent…») è un overlay ancorato in basso
+        // sull'area della board, e la fascia che copre è esattamente dove un
+        // task nuovo atterra: prende `kanban_order = max + 1`, quindi va in
+        // fondo alla colonna. Fermarsi al bordo mette la card appena creata
+        // DIETRO al riquadro in cui l'hai scritta — rettangolo giusto, e non la
+        // vedi. È lo stesso motivo per cui il corpo colonna porta `pb-16`.
+        //
+        // Il composer si MISURA invece di ricopiarne l'altezza in una costante:
+        // cresce col testo, si alza quando è a fuoco, e sparisce del tutto in
+        // alcuni stati (`hidden`, drawer a tutto schermo sotto lg) — un numero
+        // fisso sarebbe sbagliato in tutti e tre i casi. Nascosto ha un rect di
+        // zeri, ed è l'unico caso da scartare: `height > 0`.
+        //
+        // NIENTE test di sovrapposizione orizzontale, per quanto sembri la cosa
+        // giusta da fare. Qui siamo in un rAF che parte quando la card entra nel
+        // DOM: lo scorrimento orizzontale è stato CHIESTO due righe sopra, ma è
+        // morbido e non è ancora avvenuto, quindi la colonna sta ancora dov'era
+        // — fuori schermo, che è tutto il motivo per cui la stiamo spostando.
+        // Un `compRect.left < bodyRect.right` letto in quell'istante confronta
+        // il composer con una posizione che sta per non esistere più e risponde
+        // sempre «non si sovrappongono»: misurato, la card tornava esattamente a
+        // `bordo - 8`, cioè dietro al composer. E la domanda è comunque oziosa,
+        // perché la colonna la stiamo CENTRANDO — cioè portando esattamente
+        // dove il composer, anche lui centrato, sta.
+        const composer = document.querySelector('[data-testid="board-task-composer"]');
+        const compRect = composer?.getBoundingClientRect();
+        const covers = !!compRect && compRect.height > 0;
+        const usableBottom = covers ? Math.min(bodyRect.bottom, compRect.top) : bodyRect.bottom;
         // Un filo di margine: appoggiata al bordo la card è tecnicamente in
-        // vista e sembra tagliata — e in fondo alla colonna ci sta anche il
-        // bottone «Aggiungi», che non deve coprirla.
-        const dy = scrollDelta({ start: bodyRect.top, end: bodyRect.bottom }, { start: cardRect.top, end: cardRect.bottom }, 8);
+        // vista e sembra tagliata.
+        const dy = scrollDelta({ start: bodyRect.top, end: usableBottom }, { start: cardRect.top, end: cardRect.bottom }, 8);
         if (dy !== 0) body.scrollBy({ top: dy, behavior: 'smooth' });
       }
-    });
-    return () => cancelAnimationFrame(raf);
+    }); });
+    return () => { cancelAnimationFrame(raf); cancelAnimationFrame(raf2); };
   }, [scrollTarget, tasks]);
   // Un bersaglio che non atterra (filtro attivo, creazione in un'altra board)
   // non resta armato per sempre: scorrere mezzo minuto dopo sarebbe uno
