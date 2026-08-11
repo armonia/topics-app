@@ -30,7 +30,7 @@ import { AUTO_PROJECT_ID, createTaskService, isLandActionLabel, isPublishActionL
 import { computeDispatchCapacity } from "../services/dispatch-capacity";
 import { newProjectParentDir } from "../services/project-path-resolver";
 import type { TaskDispatcher } from "../services/task-dispatcher";
-import type { TaskAutoMerge } from "../services/task-automerge";
+import { landFallout, type TaskAutoMerge } from "../services/task-automerge";
 import { decidePostLandReap, type BranchStatus, type LandOutcome } from "../services/worktree-gc";
 import { formatChecksComment, parseReviewChecks, runReviewChecks, type ReviewCheck } from "../services/review-checks";
 import { createTaskAttemptStore, type TaskAttempt } from "../services/task-attempts";
@@ -141,6 +141,17 @@ export interface TasksRouterOpts {
    * "verde" vale per QUEL codice, non per il branch a vita.
    */
   taskCheckoutRef?: (taskId: string) => Promise<{ cwd: string; commit: string | null } | null>;
+  /**
+   * Ri-chiedi ORA il verdetto di atterraggio di UNA card (il commit di consegna
+   * è nel contenuto di main?) e timbralo su `landing_state`.
+   *
+   * La passata periodica gira ogni 30 minuti: subito dopo un land il semaforo
+   * mostrerebbe ancora l'ultimo verdetto — rosso su lavoro appena atterrato,
+   * verde su un land appena fallito. Un semaforo che risponde in ritardo si
+   * smette di guardare, e allora tanto vale non averlo. Best-effort: se non
+   * risponde, la passata periodica lo raggiunge comunque.
+   */
+  auditTaskLanding?: (taskId: string) => Promise<void>;
   /**
    * Delete the task's worktree + branch + store row (the worktree-manager
    * path). Called after a landing: once merged, the worktree has no value and
@@ -555,7 +566,37 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         ).catch((err) => console.warn(`[Tasks] resume after merge-conflict failed for ${taskId}:`, err));
       } else if (res.status === "skipped") {
         svc.addComment({ taskId, author: "system", content: `⚠️ Land NON riuscito: ${res.reason}. Il branch del task NON è su main — risolvi e rilancia "Landa su main".` });
+        // Il thread lo diceva onestamente e lo STATO diceva il contrario: la card
+        // restava in Done col codice fuori da main, cioè nell'unica colonna che
+        // nessuno riapre — e il GC dei worktree può potare quel ramo. Misurato
+        // l'11/08 su `2e6964cb`. Ora un land fallito ritira la card, con la
+        // causa nella riga di storico; l'unico `skipped` che la lascia chiusa è
+        // «non c'era niente da atterrare».
+        const fall = landFallout(res.code);
+        const cur = svc.get(taskId, { projectId })?.task;
+        if (fall.status && cur && cur.status === "done") {
+          try {
+            // `actor: "human"` è l'asse dei PERMESSI (nessun agente riporta
+            // indietro un task chiuso); `by: "system"` è la firma vera, perché
+            // a ritirarla è la macchina — stessa scelta del ramo `conflict`.
+            svc.update({
+              taskId, actor: "human", by: "system", projectId,
+              patch: { status: fall.status },
+              statusReason: fall.reason,
+            });
+          } catch (err) { console.warn(`[land] impossibile ritirare ${taskId} da done:`, err); }
+          if (fall.resume) {
+            dispatcher?.resume(taskId, fall.resume)
+              .catch((err) => console.warn(`[Tasks] resume after failed land for ${taskId}:`, err));
+          }
+        }
       }
+      // Il semaforo `landingState` è scritto da una passata ogni 30 minuti: dopo
+      // un land (riuscito o no) resterebbe fino a mezz'ora sull'ultimo verdetto,
+      // e la card mostrerebbe «non su main» su lavoro appena atterrato — un
+      // rosso che dice sempre rosso non lo guarda più nessuno. Qui si richiede
+      // il verdetto per QUESTA card, subito, sullo stesso conto per CONTENUTO.
+      try { await opts?.auditTaskLanding?.(taskId); } catch { /* la spia non fa fallire un land */ }
       const updated = svc.get(taskId, { projectId })?.task;
       if (updated) broadcastToAll({ type: "task:updated", projectId, task: updated });
     } catch (e) {

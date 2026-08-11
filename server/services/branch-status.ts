@@ -59,12 +59,31 @@ export async function branchStatusFromRepo(
 }
 
 /**
- * Same verdict for an arbitrary commit-ish (a recorded delivery SHA), not just a
- * live branch name. The landing audit needs this: a task's branch is reaped once
- * it lands, so the only durable handle on "what the agent delivered" is the
- * commit it delivered — and that object outlives the branch (gc.pruneExpire is
- * 90 days here). `gone` = the object is no longer in the repo, so the question
- * can't be answered rather than answered "not landed".
+ * Il verdetto per UN COMMIT di consegna, che è una domanda DIVERSA da quella su
+ * un branch. Serve all'audit degli atterraggi: il ramo di una card viene potato
+ * appena atterra, quindi l'unica maniglia durevole su «cosa ha consegnato» è il
+ * commit (l'oggetto sopravvive: `gc.pruneExpire` qui è 90 giorni).
+ *
+ * Perché non la stessa strada del branch: quella confronta `main...<ref>`, cioè
+ * TUTTO ciò che il ramo ha di suo dal punto in cui ha forkato. Su un ramo nato
+ * dall'HEAD del checkout condiviso quella gamma ingloba i commit di un'altra
+ * sessione — misurato l'11/08 sulla consegna `8d92173c`: 90 file, di cui 3 suoi.
+ * Il confronto trovava differenze (quelle degli altri) e stampava `unlanded` su
+ * un lavoro che su main c'era. Un semaforo che dice rosso anche sul verde non lo
+ * guarda più nessuno, ed è esattamente com'è finito.
+ *
+ * Tre modi di essere dentro, in ordine di costo:
+ *   1. il commit è ANTENATO di main (merge o fast-forward classico);
+ *   2. su main c'è la sua COPIA — stesso autore-data e stesso oggetto. Il land
+ *      RICOPIA i commit della card (`cherry-pick … -C <sha>`, che tiene
+ *      messaggio e autore) invece di fonderli, quindi la copia atterrata ha un
+ *      altro sha e la discendenza non la vede. Non si riconosce dal patch-id: il
+ *      pick ADATTA il commit al main del momento;
+ *   3. il CONTENUTO del suo cambiamento è già su main — ogni file che il commit
+ *      tocca è identico di là. Copre lo squash-land e la rimessa a mano.
+ *
+ * `gone` = l'oggetto non è più nel repo: la domanda non si può rispondere, e
+ * dirlo è meglio che rispondere «non atterrato».
  */
 export async function commitStatusFromRepo(
   repoPath: string,
@@ -73,7 +92,32 @@ export async function commitStatusFromRepo(
 ): Promise<BranchStatus> {
   if (!commit) return "gone";
   if ((await gitExit(repoPath, ["rev-parse", "--verify", "--quiet", `${commit}^{commit}`])) !== 0) return "gone";
-  return statusOfExistingRef(repoPath, commit, mainRef);
+
+  // (1) Discendenza.
+  if ((await gitExit(repoPath, ["merge-base", "--is-ancestor", commit, mainRef])) === 0) return "merged";
+
+  // (2) La copia ricopiata dal land. `-F` perché l'oggetto di un commit è prosa
+  // e contiene parentesi, backtick e accenti: come regex sarebbe un'altra
+  // domanda, e a volte un errore.
+  const head = (await gitOut(repoPath, ["log", "-1", "--format=%at%x09%s", commit])).trim();
+  const tab = head.indexOf("\t");
+  const at = tab > 0 ? head.slice(0, tab) : "";
+  const subject = tab > 0 ? head.slice(tab + 1) : "";
+  if (at && subject) {
+    const twins = (await gitOut(repoPath, ["log", mainRef, "-F", `--grep=${subject}`, "--format=%at%x09%s"]))
+      .split("\n").map((l) => l.trim());
+    if (twins.includes(`${at}\t${subject}`)) return "merged";
+  }
+
+  // (3) Il contenuto del SUO cambiamento, non di tutto il ramo. Su un commit
+  // radice `^` non esiste: `show` lo elenca comunque.
+  const ownDiff = await gitOut(repoPath, ["diff", "--name-only", `${commit}^`, commit]);
+  const changed = filterUniqueSourceFiles(
+    (ownDiff.trim() ? ownDiff : await gitOut(repoPath, ["show", "--format=", "--name-only", commit])).split("\n"),
+  );
+  if (changed.length === 0) return "merged"; // solo rumore generato: niente da perdere
+  // `git diff --quiet` esce 0 quando NON c'è differenza sui path dati.
+  return (await gitExit(repoPath, ["diff", "--quiet", commit, mainRef, "--", ...changed])) === 0 ? "merged" : "unmerged";
 }
 
 /**
