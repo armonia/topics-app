@@ -112,7 +112,14 @@
   // dipendenze: i primi due sono coreutils POSIX, il terzo è il tsc pinnato
   // sotto client/node_modules. `playwright`, `eslint` e `spec-flow` stavano qui
   // e non servivano più — knip li risolve da solo.
-  "ignoreBinaries": ["pkill", "du", "tsc"],
+  //
+  // `sqlite3` lo spawna `tests/e2e/friend-profiles.spec.ts` per seminare le
+  // righe che quella clip deve far vedere (turni attribuiti e cache del profilo
+  // GitHub). Non passa da `bun:sqlite` perché Playwright gira sotto node, non
+  // sotto Bun; sta qui accanto a `git`, `cp`, `lsof` e `ps`, che le altre spec
+  // spawnano per la stessa ragione. È preinstallato sia su macOS sia sull'immagine
+  // ubuntu-latest che esegue il job `e2e`.
+  "ignoreBinaries": ["pkill", "du", "tsc", "sqlite3"],
   // NON è un import: è il primo argomento di
   // `spawnSync("bun", ["scripts/board-cases.ts", "--case", …], { cwd: ROOT })`
   // in scripts/board-cases.ts:1624 — il rilancio di sé stesso che genera la

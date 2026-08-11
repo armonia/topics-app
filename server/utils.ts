@@ -236,8 +236,8 @@ export function createAppContext(baseDir: string): AppContext {
     appendMessageContent: db.prepare(`UPDATE messages SET content = ? WHERE id = ?`),
     getMaxSortOrder: db.prepare(`SELECT COALESCE(MAX(sort_order), -1) as max_order FROM messages WHERE session_key = ?`),
     insertMessage: db.prepare(`
-      INSERT INTO messages (id, session_key, role, content, thinking, tool_calls, blocks, media, partial, streamed_at, plan_status, timestamp, sort_order, parent_id, branch_index, latency_ms, usage_prompt_tokens, usage_completion_tokens, cost_cents, cache_read_tokens, cache_creation_tokens, cache_creation_1h_tokens, model)
-      VALUES ($id, $session_key, $role, $content, $thinking, $tool_calls, $blocks, $media, $partial, $streamed_at, $plan_status, $timestamp, $sort_order, $parent_id, $branch_index, $latency_ms, $usage_prompt_tokens, $usage_completion_tokens, $cost_cents, $cache_read_tokens, $cache_creation_tokens, $cache_creation_1h_tokens, $model)
+      INSERT INTO messages (id, session_key, role, content, thinking, tool_calls, blocks, media, partial, streamed_at, plan_status, timestamp, sort_order, parent_id, branch_index, latency_ms, usage_prompt_tokens, usage_completion_tokens, cost_cents, cache_read_tokens, cache_creation_tokens, cache_creation_1h_tokens, model, author_person_id, author_device_id)
+      VALUES ($id, $session_key, $role, $content, $thinking, $tool_calls, $blocks, $media, $partial, $streamed_at, $plan_status, $timestamp, $sort_order, $parent_id, $branch_index, $latency_ms, $usage_prompt_tokens, $usage_completion_tokens, $cost_cents, $cache_read_tokens, $cache_creation_tokens, $cache_creation_1h_tokens, $model, $author_person_id, $author_device_id)
     `),
     updateMessage: db.prepare(`
       UPDATE messages SET
@@ -254,7 +254,9 @@ export function createAppContext(baseDir: string): AppContext {
         usage_prompt_tokens = COALESCE($usage_prompt_tokens, usage_prompt_tokens),
         usage_completion_tokens = COALESCE($usage_completion_tokens, usage_completion_tokens),
         cost_cents = COALESCE($cost_cents, cost_cents),
-        model = COALESCE($model, model)
+        model = COALESCE($model, model),
+        author_person_id = COALESCE($author_person_id, author_person_id),
+        author_device_id = COALESCE($author_device_id, author_device_id)
       WHERE id = $id
     `),
     deleteMessagesBySession: db.prepare(`DELETE FROM messages WHERE session_key = ?`),
@@ -534,6 +536,9 @@ export function createAppContext(baseDir: string): AppContext {
     if (row.cache_read_tokens !== undefined && row.cache_read_tokens !== null) msg.cacheReadTokens = row.cache_read_tokens;
     if (row.cache_creation_tokens !== undefined && row.cache_creation_tokens !== null) msg.cacheCreationTokens = row.cache_creation_tokens;
     if (row.cache_creation_1h_tokens !== undefined && row.cache_creation_1h_tokens !== null) msg.cacheCreation1hTokens = row.cache_creation_1h_tokens;
+    // Idem: senza questa lettura il giro carica→salva perderebbe l'autore.
+    if (row.author_person_id !== undefined && row.author_person_id !== null) msg.authorPersonId = row.author_person_id;
+    if (row.author_device_id !== undefined && row.author_device_id !== null) msg.authorDeviceId = row.author_device_id;
     return msg;
   }
 
@@ -551,6 +556,13 @@ export function createAppContext(baseDir: string): AppContext {
       $cache_creation_tokens: msg.cacheCreationTokens ?? null,
       $cache_creation_1h_tokens: msg.cacheCreation1hTokens ?? null,
       $model: msg.model ?? null,
+      // L'autore (095) passa di QUI e non da un parametro a parte perche'
+      // `saveLocalMessages` RIMPIAZZA l'intera sessione: se questo blocco non lo
+      // portasse, ogni salvataggio successivo — una troncatura, un import, una
+      // riscrittura di ramo — cancellerebbe l'attribuzione di tutti i messaggi
+      // gia' scritti, in silenzio. Su `updateMessage` il COALESCE lo tiene fermo.
+      $author_person_id: msg.authorPersonId ?? null,
+      $author_device_id: msg.authorDeviceId ?? null,
       $blocks: msg.blocks ? JSON.stringify(msg.blocks) : null,
     };
   }
@@ -1011,13 +1023,24 @@ export function createAppContext(baseDir: string): AppContext {
     })();
   }
 
-  function appendLocalMessage(sessionKey: string, role: "user" | "assistant", content: string): StoredMessage {
+  function appendLocalMessage(
+    sessionKey: string,
+    role: "user" | "assistant",
+    content: string,
+    /** Chi l'ha scritto (migration 095). Assente = non lo sappiamo, e resta NULL:
+     *  è il caso dei turni importati da un transcript e di ogni risposta. */
+    autore?: { authorPersonId?: string | null; authorDeviceId?: string | null },
+  ): StoredMessage {
     const maxOrder = (stmts.getMaxSortOrder.get(sessionKey) as any).max_order;
     // Find the last message in the active thread to set as parent
     const activeThread = loadActiveThread(sessionKey);
     const lastMsg = activeThread.length > 0 ? activeThread[activeThread.length - 1] : null;
     const parentId = lastMsg?.id || null;
-    const stored: StoredMessage = { id: crypto.randomUUID(), role, content, timestamp: new Date().toISOString(), parentId, branchIndex: 0 };
+    const stored: StoredMessage = {
+      id: crypto.randomUUID(), role, content, timestamp: new Date().toISOString(), parentId, branchIndex: 0,
+      authorPersonId: autore?.authorPersonId ?? null,
+      authorDeviceId: autore?.authorDeviceId ?? null,
+    };
     stmts.insertMessage.run({
       $id: stored.id,
       $session_key: sessionKey,
@@ -1033,7 +1056,7 @@ export function createAppContext(baseDir: string): AppContext {
       $sort_order: maxOrder + 1,
       $parent_id: parentId,
       $branch_index: 0,
-      ...metaParams({}),
+      ...metaParams(stored),
     });
     return stored;
   }
@@ -1815,11 +1838,23 @@ export function createAppContext(baseDir: string): AppContext {
     return row?.session_key || null;
   }
 
-  function createBranchMessage(sessionKey: string, parentId: string, role: "user" | "assistant", content: string): StoredMessage {
+  function createBranchMessage(
+    sessionKey: string,
+    parentId: string,
+    role: "user" | "assistant",
+    content: string,
+    /** Chi l'ha scritto (095). Un prompt CORRETTO è un prompt: senza questo, chi
+     *  riscrive una domanda invece di ribatterla sparisce dai conteggi. */
+    autore?: { authorPersonId?: string | null; authorDeviceId?: string | null },
+  ): StoredMessage {
     const maxOrder = (stmts.getMaxSortOrder.get(sessionKey) as any).max_order;
     const maxBranch = (stmts.getMaxBranchIndex.get(parentId) as any).max_idx;
     const branchIndex = maxBranch + 1;
-    const stored: StoredMessage = { id: crypto.randomUUID(), role, content, timestamp: new Date().toISOString(), parentId, branchIndex };
+    const stored: StoredMessage = {
+      id: crypto.randomUUID(), role, content, timestamp: new Date().toISOString(), parentId, branchIndex,
+      authorPersonId: autore?.authorPersonId ?? null,
+      authorDeviceId: autore?.authorDeviceId ?? null,
+    };
     stmts.insertMessage.run({
       $id: stored.id,
       $session_key: sessionKey,
@@ -1835,7 +1870,7 @@ export function createAppContext(baseDir: string): AppContext {
       $sort_order: maxOrder + 1,
       $parent_id: parentId,
       $branch_index: branchIndex,
-      ...metaParams({}),
+      ...metaParams(stored),
     });
     // Set this new branch as active
     stmts.upsertActiveBranch.run(parentId, sessionKey, branchIndex);
