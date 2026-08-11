@@ -6,6 +6,7 @@ import { join } from "node:path";
 import type { AppContext } from "../types";
 import { createTasksRouter } from "./tasks";
 import { createTaskService, LAND_ACTION_LABEL, PUBLISH_ACTION_LABEL } from "../services/tasks";
+import { parseStatusEvent } from "../../shared/board";
 
 function freshDb(): Database {
   const db = new Database(":memory:");
@@ -797,6 +798,39 @@ describe("approve decoupled from landing", () => {
     const t = await (await call(router, "POST", `/api/boards/pX/tasks/${id}/land`, {}))!.json();
     expect(t.status).toBe("done");
     expect(merges).toEqual([id]);
+  });
+
+  test("un land in CONFLITTO ritira la card da done dicendo perché, e firma la macchina", async () => {
+    // La riga di storico diceva «user → In corso»: identica a quella che scrive
+    // un umano quando ritira una consegna a mano — mentre qui l'umano aveva
+    // cliccato «Landa su main» e il ritiro è del merge. Chi rivede leggeva un
+    // dietrofront senza causa e senza il suo autore vero.
+    db = freshDb(); broadcasts = []; resumed = [];
+    const autoMerge = {
+      tryMerge: async () => ({ status: "conflict" }),
+      buildClient: async () => ({ code: 0, stderr: "" }),
+    } as any;
+    const dispatcher = {
+      onEnterTodo() {}, onLeaveTodo() {}, onBlockerDone() {},
+      resume: async (id: string, msg: string) => { resumed.push([id, msg]); },
+    } as any;
+    router = createTasksRouter(makeCtx(db, broadcasts), dispatcher, { autoMerge });
+
+    const id = await reviewTask();
+    await call(router, "POST", `/api/boards/pX/tasks/${id}/land`, {});
+    await new Promise((r) => setTimeout(r, 10)); // il land gira fire-and-forget
+
+    const svc = createTaskService(db);
+    const t = svc.get(id)!;
+    expect(t.task.status).toBe("in_progress");     // ritirata da done
+    const ev = t.comments.filter((c) => c.kind === "status").at(-1)!;
+    expect(ev.author).toBe("system");              // non «user»: non l'ha mossa l'umano
+    expect(parseStatusEvent(ev.content)).toEqual({
+      from: "done", to: "in_progress", reason: "il land ha fatto conflitto con main",
+    });
+    // E l'agent riparte con l'istruzione, come prima.
+    expect(resumed.length).toBe(1);
+    expect(resumed[0]![1]).toContain("conflitto");
   });
 
   test("picking 'Landa e pubblica' approves + lands (routes to land+publish, not a reject)", async () => {
