@@ -187,17 +187,25 @@ const SPKI_ED25519 = Buffer.from("302a300506032b6570032100", "hex");
 /**
  * Le chiavi INTEGRATE nel binario.
  *
- * Oggi è vuota, ed è vuota per onestà: la chiave di firma del servizio non
- * esiste ancora, e metterne una inventata vorrebbe dire spedire un cancello che
- * sembra chiuso e non lo è. Finché resta vuota, un gettone perfettamente
- * firmato produce `no_verification_key` e la macchina resta sul piano gratuito
- * — che è il verso giusto in cui sbagliare, ed è fissato da un test.
- *
- * Il rilascio la riempie con la chiave PUBBLICA del servizio (32 byte, base64).
  * Una chiave pubblica in chiaro nel sorgente è ciò che deve essere: pubblica.
- * La privata non tocca questo repository, in nessuna forma, mai.
+ * La privata corrispondente non tocca questo repository, in nessuna forma, mai
+ * — vive fuori, e dove vive lo dice `docs/licenze-rilascio.md`.
+ *
+ * **Questa lista vuota è un'app che non vende.** Senza chiavi `verificaGettone`
+ * risponde `no_verification_key` prima ancora di guardare la firma, e ogni
+ * installazione spedita resta sul piano gratuito qualunque gettone le si dia.
+ * Sbagliare in quel verso è giusto — non si crede a ciò che non si può
+ * controllare — ma è un verso in cui non si spedisce.
+ *
+ * Il `kid` davanti ai due punti nomina la chiave. Serve a ruotarla senza
+ * invalidare i gettoni già emessi: si AGGIUNGE la nuova in coda e si toglie la
+ * vecchia quando l'ultimo gettone che ha firmato è scaduto. Chi verifica prova
+ * comunque tutte le chiavi, quindi il nome non decide niente — dice solo quale
+ * ha firmato.
  */
-export const CHIAVI_INTEGRATE: readonly string[] = [];
+export const CHIAVI_INTEGRATE: readonly string[] = [
+  "armonia-1:XWT2wKbBJFU4oscPKowJuH_sRq6DbTpGh4pCW3c8D-M",
+];
 
 /**
  * Legge le chiavi da una variabile d'ambiente, formato `kid:base64` separati da

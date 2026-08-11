@@ -7,6 +7,7 @@ import { decideClientWipeOnStop } from './stopSessionPolicy';
 // vorrebbero dire bolla via da una parte e ancora lì dall'altra.
 import { isEmptyAssistantTurn } from '../../../shared/empty-turn';
 import { mergeCatchupIntoPartial } from './streamCatchupMerge';
+import { clearPartialForReattach } from './streamReattachReset';
 import { useRefMirror } from './useRefMirror';
 import { reconcileOrphanStreams } from '../state/signals';
 import { answerFromText, findPendingAsk } from '../state/pendingAsk';
@@ -1052,12 +1053,24 @@ export function useChat() {
       case 'stream:start':
         beginStreaming(sessionKey);
         resetStreamTimeout(sessionKey); // Start timeout watchdog
+        // Le delta del turno di PRIMA non devono atterrare dopo l'azzeramento:
+        // sono già dentro la bolla che stiamo per svuotare, e ricomparirebbero
+        // in testa al replay.
+        if (event.reattached) liveDeltaBufferRef.current.delete(sessionKey);
         // Only create assistant placeholder if there isn't already a partial one
         // (sendMessage creates one via SSE, so WS broadcast to OTHER windows only)
         setMessages(prev => {
           const sessionMessages = prev[sessionKey] || [];
           const lastMsg = sessionMessages[sessionMessages.length - 1];
           if (lastMsg?.role === 'assistant' && lastMsg.partial) {
+            // Riadozione dopo un riavvio del server: la bolla c'è già ed è
+            // PIENA di quello che il turno aveva scritto prima. Il replay sta
+            // per ridettarlo tutto in delta, che qui si appendono: senza questo
+            // azzeramento il turno uscirebbe doppio. Vedi streamReattachReset.ts.
+            if (event.reattached) {
+              const cleared = clearPartialForReattach(sessionMessages);
+              return cleared === sessionMessages ? prev : { ...prev, [sessionKey]: cleared };
+            }
             // Already have a partial assistant message — skip duplicate
             return prev;
           }
@@ -2060,8 +2073,20 @@ export function useChat() {
     return stoppedByUser[sessionKey] || false;
   }, [stoppedByUser]);
 
-  /** Stop streaming. Returns true if this was the first message (chat can be discarded). */
-  const stopSession = useCallback((sessionKey: string): boolean => {
+  /**
+   * Ferma lo stream. Risolve a `true` SOLO se il server ha davvero buttato via
+   * la chat: è quel `true` che fa chiudere la pane a chi chiama, e archiviare
+   * il topic alla riga in sidebar.
+   *
+   * La frenata è immediata e sincrona (freno della coda, `stoppedByUser`,
+   * abort dell'SSE): quello che aspetta la risposta è solo il ramo DISTRUTTIVO.
+   * Prima non aspettava, e decideva da sé con un predicato più permissivo di
+   * quello del server: il 10 agosto 2026 lo Stop su un primo turno lungo otto
+   * minuti ha svuotato la pagina e chiuso la pane mentre il server rifiutava
+   * («il turno aveva già prodotto lavoro») e teneva tutto su disco. Vedi
+   * `stopSessionPolicy.ts` e `shared/clear-messages-policy.ts`.
+   */
+  const stopSession = useCallback(async (sessionKey: string): Promise<boolean> => {
     // PRIMA di tutto il resto: «ferma» vuol dire fermo. L'abort qui sotto fa
     // finire lo stream, e la fine di uno stream è ciò che fa partire la coda —
     // per questo il freno si alza per primo e in modo DUREVOLE (le altre
@@ -2079,22 +2104,29 @@ export function useChat() {
       controller.abort();
     }
 
-    // Decide whether this is a brand-new chat that can be wiped client-side.
-    // We MUST consult `hydratedSessionsRef`: until `loadHistory` has run for
-    // this session, `messagesRef.current[sessionKey]` is empty for non-content
-    // reasons (initial mount race, hot reload, WS reconnect) and would
-    // falsely claim "first message" on a thread the server has on disk.
-    // See `stopSessionPolicy.ts` for the full rationale and the matching
-    // server-side guard in `server/routes/abortClearPolicy.ts`.
+    // Proposta di cancellazione, non decisione. Serve `hydratedSessionsRef`:
+    // finché `loadHistory` non è passata, `messagesRef.current[sessionKey]` è
+    // vuota per ragioni che non c'entrano col contenuto (mount iniziale, hot
+    // reload, riaggancio del WS) e direbbe «primo messaggio» su un thread che
+    // il server ha su disco. Il predicato è quello del server, importato:
+    // `shared/clear-messages-policy.ts`.
     const hydrated = hydratedSessionsRef.current.has(sessionKey);
     const msgs = messagesRef.current[sessionKey] || [];
-    const userMsgs = msgs.filter(m => m.role === 'user');
-    const isFirstMessage = decideClientWipeOnStop(hydrated, userMsgs.length);
+    const proposeWipe = decideClientWipeOnStop(hydrated, msgs);
 
     // Tell the server to abort — also clear server-side messages if first message
-    chatApi.abort(sessionKey, isFirstMessage).catch(() => {});
+    let clearedByServer = false;
+    try {
+      const res = await chatApi.abort(sessionKey, proposeWipe);
+      // `cleared` è l'unica parola che conta: il server ricontrolla sul DB e
+      // vede anche le righe fuori dal ramo attivo, che qui non si vedono.
+      // Assente (server vecchio, richiesta fallita) ⇒ non si butta niente.
+      clearedByServer = proposeWipe && (res as { cleared?: boolean })?.cleared === true;
+    } catch {
+      clearedByServer = false;
+    }
 
-    if (isFirstMessage) {
+    if (clearedByServer) {
       // Clear session entirely — the chat is brand new
       setMessages(prev => ({ ...prev, [sessionKey]: [] }));
       clearCachedMessages(sessionKey);
@@ -2109,7 +2141,7 @@ export function useChat() {
       updateLastMessage(sessionKey, { partial: false });
     }
 
-    return isFirstMessage;
+    return clearedByServer;
   }, [updateLastMessage, dropEmptyTurn]);
 
   const loadHistory = useCallback(async (sessionKey: string): Promise<boolean> => {

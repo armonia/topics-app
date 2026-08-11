@@ -91,8 +91,16 @@ const GlobalSettings = lazy(() => import('./components/Settings/GlobalSettings')
 // instead of paying a ~25–40ms synchronous fetch+eval on the opening frame
 // (measured: cold open worst 41.7ms/1 frame >33ms; warmed open worst 9.4ms,
 // 0 frames >16.7ms).
-const importCommandPalette = () => import('./components/Shared/CommandPalette');
-const CommandPalette = lazy(() => importCommandPalette().then(m => ({ default: m.CommandPalette })));
+// La destrutturazione dentro l'`await` non è stile: è l'unica forma in cui il
+// cancello sul codice morto vede QUALI export usi. Un `import()` il cui
+// risultato non finisce in un `const { … } =` è opaco per knip, che assume di
+// usarli tutti e non può più segnalarne nessuno come morto.
+// Guardia: `bun run check:deadcode-blindspots`.
+const importCommandPalette = async () => {
+  const { CommandPalette: Component } = await import('./components/Shared/CommandPalette');
+  return { default: Component };
+};
+const CommandPalette = lazy(importCommandPalette);
 const KeyboardShortcuts = lazy(() => import('./components/Shared/KeyboardShortcuts').then(m => ({ default: m.KeyboardShortcuts })));
 const FileSearch = lazy(() => import('./components/Project/FileSearch').then(m => ({ default: m.FileSearch })));
 // BrowserSidebarControl replaced by useBrowserContexts hook + unified TopicTree
@@ -175,9 +183,10 @@ function App() {
   const [DevOverlay, setDevOverlay] = useState<ComponentType | null>(null);
   useEffect(() => {
     if (import.meta.env.DEV) {
-      import('./state/pane/devOverlay').then((m) => {
-        setDevOverlay(() => m.MutationLogOverlay);
-      });
+      void (async () => {
+        const { MutationLogOverlay } = await import('./state/pane/devOverlay');
+        setDevOverlay(() => MutationLogOverlay);
+      })();
     }
   }, []);
 
@@ -442,10 +451,11 @@ function App() {
   // "Board generale" sidebar row and shows its badge.
   const { activeCount: boardTaskCount, byStatus: boardByStatus } = useGlobalBoard(onWSMessage);
 
-  // topicId → task index for dispatched tasks. Due consumatori: il banner di
-  // completamento ci mette dentro il taskId (un click apre il drawer del task)
-  // e i due notificatori lo usano per NON bannerizzare la fine turno di un
-  // agente di board al lavoro — quella la annuncia `task:review-ready`.
+  // topicId → task index for dispatched tasks. Un consumatore solo, e apposta:
+  // `useCompletionNotifier` è l'unica porta dei banner. Ci mette dentro il
+  // taskId (un click apre il drawer del task) e lo legge per NON bannerizzare
+  // né la fine turno né i messaggi di un agente di board al lavoro — quelli li
+  // annuncia `task:review-ready`.
   const taskForTopic = useTaskTopicIndex(onWSMessage);
 
   // A stable global the native (Tauri) notification delegate can call on click to
@@ -547,7 +557,6 @@ function App() {
     },
     setSidebarCollapsed,
     removeClosedTab, closedTabs,
-    taskForTopic,
   });
   const {
     openPanels, visiblePanels, activeSpaceId,
@@ -1031,6 +1040,7 @@ function App() {
       focusedPanelId={focusedPanelId}
       terminalSessions={terminalSessions}
       taskForTopic={taskForTopic}
+      isOwnStream={isOwnStream}
     />
     {/*
       countdownMs=1500: soft-destructive close window. 3s was the original

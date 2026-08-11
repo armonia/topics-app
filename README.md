@@ -49,7 +49,9 @@ Topics reads configuration from environment variables (or a `.env` file). Copy `
 | `CLAUDE_MODEL` | Model id for the `claude` provider | — |
 | `OPENAI_API_KEY` | OpenAI API key (required when `AI_PROVIDER=openai`) | — |
 | `OPENAI_MODEL` | Model id for the `openai` provider | — |
-| `ELEVENLABS_API_KEY` | ElevenLabs key — enables text-to-speech (optional) | — |
+| `ELEVENLABS_API_KEY` | ElevenLabs key — text-to-speech, and Scribe v2 dictation/speech-to-text (optional) | — |
+| `STT_PROVIDER` | Speech-to-text engine: `auto` tries ElevenLabs Scribe v2 → OpenAI `gpt-transcribe` → Deepgram Nova-3 → Groq Whisper turbo → local whisper.cpp, using whichever keys you have. Pin one (`openai`) or set an order (`openai,local`) | `auto` |
+| `STT_LANGUAGE` | ISO-639-1 dictation language; unset means the model auto-detects | auto |
 | `MOONDREAM_API_KEY` | Moondream key — enables browser vision grounding (optional) | — |
 | `APP_DATA_DIR` | Where conversations and app data are stored | `~/.openclaw` |
 

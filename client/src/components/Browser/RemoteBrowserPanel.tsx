@@ -17,6 +17,7 @@ import { signalsActions } from '../../state/signals';
 import { isTauri } from '../../lib/shell';
 import { computeAutoShared, type ShareMode } from '../../lib/sharedAuto';
 import { useSharedViewerCount } from '../../hooks/useSharedViewerCount';
+import { useTaskTabLoginState } from '../../hooks/useTaskTabLoginState';
 import type { Topic } from '../../types';
 import { usePaneHold } from '../../state/pane/residency/holds';
 
@@ -273,6 +274,10 @@ function useBackToSpawner(
 function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChange, onTitleChange, onNavigateConsumed, isVisible = true, onFocusPanel, topics, onSelfFocus, shared, shareMode, onToggleShare }: RemoteBrowserPanelProps) {
   const browser = useTauriBrowser(contextId, initialUrl, isVisible, onSelfFocus);
   useReportBrowserActivity(contextId, browser.loading || browser.agentActive);
+  // Tab di un task con un login salvato dall'agente: rimettilo, così il reviewer
+  // atterra dentro invece che sul muro del login. Solo a pane viva (una URL
+  // vera ⟺ il contesto nativo esiste).
+  useTaskTabLoginState(contextId, !!browser.url && browser.url !== 'about:blank');
   // Niente sfratto mentre un agente sta guidando: smontare la pane toglie al
   // server l'esecutore delle sue operazioni (server/browser-native-delegate.ts).
   usePaneHold(browser.agentActive);
@@ -489,6 +494,9 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
   // the single-WKWebView Tauri renderer's memory in check — see useRemoteBrowser).
   const browser = useRemoteBrowser(contextId, isVisible);
   useReportBrowserActivity(contextId, browser.loading || browser.agentActive);
+  // Vedi il gemello nel ramo Tauri: login salvato dall'agente → reiniettato una
+  // volta, così la preview di un task protetto si apre già dentro.
+  useTaskTabLoginState(contextId, !!browser.url && browser.url !== 'about:blank');
   // Niente sfratto mentre un agente sta guidando: smontare la pane toglie al
   // server l'esecutore delle sue operazioni (server/browser-native-delegate.ts).
   usePaneHold(browser.agentActive);

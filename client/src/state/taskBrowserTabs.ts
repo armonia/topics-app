@@ -22,6 +22,29 @@
 import { useSyncExternalStore, useEffect } from 'react';
 import { getTabId } from './pane/middleware/syncCrossTab';
 
+/**
+ * Chi ha deciso l'etichetta di una tab, in ordine di autorità crescente:
+ *
+ *  - `auto`  — il titolo della pagina, riletto a ogni navigazione;
+ *  - `agent` — il NOME prescritto dall'agente (`open_browser_pane({url, name})`):
+ *              è il manifesto della consegna, quindi la pagina non lo sovrascrive;
+ *  - `user`  — la rinomina fatta a mano, che vince su tutto.
+ *
+ * La regola è una sola e vale per ogni scrittore: una patch cambia il titolo
+ * SOLO se la sua autorità è ≥ di quella già registrata (vedi `titleRank`).
+ */
+export type TaskTabTitleSource = 'auto' | 'agent' | 'user';
+
+/** Autorità di una fonte di titolo. Assente ⟺ `auto` (il titolo della pagina). */
+export function titleRank(source: TaskTabTitleSource | undefined): number {
+  return source === 'user' ? 2 : source === 'agent' ? 1 : 0;
+}
+
+/** Etichetta decisa da qualcuno (agente o umano): il poll del titolo non la tocca. */
+export function isPinnedTitle(source: TaskTabTitleSource | undefined): boolean {
+  return titleRank(source) > 0;
+}
+
 export interface TaskBrowserTab {
   /** Canonical browser contextId: `task-<id8>-<seq>`. */
   contextId: string;
@@ -34,10 +57,18 @@ export interface TaskBrowserTab {
    * clickable preview under the task description, so closing a tab doesn't
    * destroy it — the user (or agent) can reopen it (`unparkTab`) to its last
    * url. `removeTab` is the explicit hard-delete (the preview's trash). Absent
-   * ⟺ live. `titleSource='user'` pins the label against the live-title poll.
+   * ⟺ live. A pinned `titleSource` (agent/user) holds the label against the
+   * live-title poll.
    */
   parked?: boolean;
-  titleSource?: 'auto' | 'user';
+  titleSource?: TaskTabTitleSource;
+  /**
+   * Handle di login salvato dall'agente su QUESTA tab (`browser_save_state`).
+   * Chi monta la tab lo inietta una volta (`browser_load_state`) e il reviewer
+   * atterra già dentro, invece di trovare il muro del login. Scritto dal server
+   * (`task-tab-persist`), qui è di sola lettura.
+   */
+  loginHandle?: string;
 }
 
 export interface TaskBrowserTabsState {
@@ -57,10 +88,11 @@ export function mintTaskContextId(taskId: string, seq: number): string {
   return `task-${taskId.slice(0, 8)}-${seq}`;
 }
 
-/** True for a task-owned browser contextId (label + routing heuristics). */
-export function isTaskContextId(contextId: string): boolean {
-  return typeof contextId === 'string' && contextId.startsWith('task-');
-}
+// Le altre due forme di contextId — quella coniata dal server per il manifesto
+// (`task-<id8>-n<slug>`) e il gemello nel workspace (`<ctx>_ws`) — stanno in
+// `shared/task-tab-context.ts`, che è la sola definizione condivisa con il
+// server. Qui si ri-esportano perché il client le nomina da questo modulo.
+export { isTaskContextId, workspaceTwinContextId } from '../../../shared/task-tab-context';
 
 // ── pure reducer ops (unit-tested; no I/O) ───────────────────────────────────
 
@@ -79,19 +111,35 @@ export function addTab(state: TaskBrowserTabsState, taskId: string, url: string,
  *  Idempotent: an existing ctx is refreshed (url/title), UN-PARKED (a re-open
  *  of a soft-closed tab brings it back live) + activated, never duplicated.
  *  `nextSeq` is advanced past any embedded seq so a later client mint can't
- *  collide. */
-export function upsertTab(state: TaskBrowserTabsState, contextId: string, url: string, title = ''): TaskBrowserTabsState {
+ *  collide. `titleSource` porta l'autorità dell'etichetta: un nome prescritto
+ *  dall'agente entra come `agent` e non viene più sovrascritto dal titolo della
+ *  pagina — ma una rinomina a mano lo batte comunque. */
+export function upsertTab(
+  state: TaskBrowserTabsState,
+  contextId: string,
+  url: string,
+  title = '',
+  titleSource: TaskTabTitleSource = 'auto',
+): TaskBrowserTabsState {
   const existing = state.tabs.find((t) => t.contextId === contextId);
   if (existing) {
+    const accepts = !!title && titleRank(titleSource) >= titleRank(existing.titleSource);
     return {
       ...state,
-      tabs: state.tabs.map((t) => (t.contextId === contextId ? { ...t, url: url || t.url, title: title || t.title, parked: false } : t)),
+      tabs: state.tabs.map((t) => (t.contextId === contextId
+        ? {
+            ...t,
+            url: url || t.url,
+            ...(accepts ? { title, titleSource } : {}),
+            parked: false,
+          }
+        : t)),
       activeContextId: contextId,
     };
   }
   const seq = state.nextSeq;
   return {
-    tabs: [...state.tabs, { contextId, url, title, seq }],
+    tabs: [...state.tabs, { contextId, url, title, seq, ...(title && titleSource !== 'auto' ? { titleSource } : {}) }],
     activeContextId: contextId,
     nextSeq: seq + 1,
   };
@@ -171,11 +219,12 @@ export function reorderTabs(state: TaskBrowserTabsState, from: number, to: numbe
  *  navigation, or a user rename (`titleSource:'user'` pins the label so the
  *  live page-title poll stops overwriting it — same contract as a pane's
  *  browser title). */
-export function updateTab(state: TaskBrowserTabsState, contextId: string, patch: { url?: string; title?: string; titleSource?: 'auto' | 'user' }): TaskBrowserTabsState {
+export function updateTab(state: TaskBrowserTabsState, contextId: string, patch: { url?: string; title?: string; titleSource?: TaskTabTitleSource }): TaskBrowserTabsState {
   const t = state.tabs.find((x) => x.contextId === contextId);
   if (!t) return state;
-  // A user-pinned title is not overwritten by an automatic (poll) title update.
-  const titleLocked = t.titleSource === 'user' && patch.titleSource !== 'user';
+  // Un'etichetta decisa (agente o umano) non viene sovrascritta da una fonte di
+  // autorità minore — il poll del titolo di pagina è `auto`, l'ultimo di tutti.
+  const titleLocked = titleRank(patch.titleSource) < titleRank(t.titleSource);
   const nextTitle = patch.title !== undefined && !titleLocked ? patch.title : t.title;
   const nextSource = patch.titleSource ?? t.titleSource;
   const nextUrl = patch.url ?? t.url;
@@ -204,7 +253,8 @@ export function sanitizeTaskTabs(v: unknown): TaskBrowserTabsState | null {
       title: typeof r.title === 'string' ? r.title : '',
       seq: typeof r.seq === 'number' ? r.seq : 0,
       ...(r.parked === true ? { parked: true } : {}),
-      ...(r.titleSource === 'user' ? { titleSource: 'user' as const } : {}),
+      ...(r.titleSource === 'user' || r.titleSource === 'agent' ? { titleSource: r.titleSource } : {}),
+      ...(typeof r.loginHandle === 'string' && r.loginHandle ? { loginHandle: r.loginHandle } : {}),
     });
   }
   // The active ctx must reference a LIVE (non-parked) tab; fall back to the
@@ -350,7 +400,7 @@ export const taskBrowserTabs = {
     commit(taskId, next);
     return next.activeContextId!;
   },
-  upsertTab: (taskId: string, contextId: string, url: string, title?: string) => commit(taskId, upsertTab(getTaskTabs(taskId), contextId, url, title)),
+  upsertTab: (taskId: string, contextId: string, url: string, title?: string, titleSource?: TaskTabTitleSource) => commit(taskId, upsertTab(getTaskTabs(taskId), contextId, url, title, titleSource)),
   /** Soft-close (park as preview). */
   closeTab: (taskId: string, contextId: string) => commit(taskId, closeTab(getTaskTabs(taskId), contextId)),
   /** Reopen a parked tab from the preview strip. */
@@ -366,7 +416,7 @@ export const taskBrowserTabs = {
   },
   setActive: (taskId: string, contextId: string | null) => commit(taskId, setActiveTab(getTaskTabs(taskId), contextId)),
   reorder: (taskId: string, from: number, to: number) => commit(taskId, reorderTabs(getTaskTabs(taskId), from, to)),
-  updateTab: (taskId: string, contextId: string, patch: { url?: string; title?: string; titleSource?: 'auto' | 'user' }) => commit(taskId, updateTab(getTaskTabs(taskId), contextId, patch)),
+  updateTab: (taskId: string, contextId: string, patch: { url?: string; title?: string; titleSource?: TaskTabTitleSource }) => commit(taskId, updateTab(getTaskTabs(taskId), contextId, patch)),
 };
 
 export function subscribeTaskTabs(listener: () => void): () => void {

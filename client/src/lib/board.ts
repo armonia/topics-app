@@ -13,13 +13,18 @@
 // in scope locale, e qui sotto servono, quindi l'import gemello non è ridondante.
 export { MAX_FANOUT, TASK_STATUSES, ACTIVE_DISPATCH_STATES, isAgentWorking } from '../../../shared/board';
 export type {
-  TaskStatus, TaskComment, ReviewCheck, CheckRun, BoardSettings, BoardSettingsPatch, DispatchCapacity,
+  TaskStatus, TaskComment, ReviewCheck, CheckRun, BoardSettings, BoardSettingsPatch, DispatchCapacity, BlockerRef,
 } from '../../../shared/board';
 import type {
-  TaskStatus, TaskComment, CheckRun, BoardSettings, BoardSettingsPatch, DispatchCapacity,
+  TaskStatus, TaskComment, CheckRun, BoardSettings, BoardSettingsPatch, DispatchCapacity, BlockerRef,
 } from '../../../shared/board';
 // Il tentativo di un fan-out: stesso contratto del server, stessa cartella condivisa.
-export { attemptHasWork, formatAttemptStat } from '../../../shared/task-attempt';
+// Passa solo `attemptHasWork`, che è un predicato e non ha lingua. Il diffstat
+// (`formatAttemptStat`) NON passa più di qui: la UI lo vuole tradotto, e la sua
+// versione con dizionario vive in `components/Board/format.ts` (`attemptStat`).
+// Quella in `shared/` resta al server, che con essa scrive il confronto nel
+// thread del task.
+export { attemptHasWork } from '../../../shared/task-attempt';
 // Solo `TaskAttempt` passa di qui (la board lo importa da questo modulo).
 // `AttemptState` si prende da `shared/task-attempt`, dov'è dichiarato ed è già
 // da lì che lo importa chi lo usa (il servizio lato server).
@@ -111,6 +116,34 @@ export const SYSTEM_DELIVERY_CHIP: Record<'retries_exhausted' | 'model_refused' 
   fanout: 'scegli il tentativo',
 };
 
+/**
+ * Il chip «in attesa di» di un task: cosa scriverci, o `null` se non va disegnato.
+ *
+ * Decide dal LINK (`blockedByTaskId`), non da chi c'è nella lista che il client
+ * ha in mano. La card lo derivava cercando il bloccante fra i task fetchati —
+ * un progetto, `rootsOnly`, non archiviati — quindi un bloccante fuori da quel
+ * taglio faceva sparire il chip e la card sembrava libera di partire mentre il
+ * dispatcher la teneva ferma. Il titolo lo risolve il server (`blockedBy`);
+ * quando manca il chip resta, degradato: «c'è un legame» è l'informazione che
+ * conta, il titolo è il di più.
+ *
+ * Muto solo quando il bloccante è chiuso o archiviato — lo stesso predicato del
+ * gate di dispatch lato server: lì il task riparte, qui il chip si spegne.
+ */
+export function blockedByChip(
+  task: Pick<BoardTask, 'blockedByTaskId' | 'blockedBy'>,
+): { label: string; title: string } | null {
+  if (!task.blockedByTaskId) return null;
+  const b = task.blockedBy;
+  if (b && (b.status === 'done' || b.archived)) return null;
+  return b
+    ? { label: `in attesa di: ${b.text}`, title: `In attesa di: ${b.text}` }
+    : {
+      label: 'in attesa di un altro task',
+      title: 'In attesa di un altro task: non parte finché quello non chiude. Il titolo non è disponibile qui.',
+    };
+}
+
 export interface BoardTask {
   id: string;
   projectId: string;
@@ -163,6 +196,15 @@ export interface BoardTask {
   effort?: string | null;
   /** Root task this one is gated on — the dispatcher won't start it until that task is done. */
   blockedByTaskId: string | null;
+  /** Lo stesso bloccante risolto dal server (titolo + stato + archiviato). È la
+   *  fonte del chip «in attesa di»: la lista fetchata non lo contiene sempre.
+   *  null = nessun link, o la riga puntata non esiste più. */
+  blockedBy: BlockerRef | null;
+  /** L'altra metà del legame, contata dal server: quanti task VIVI (non
+   *  archiviati, non done) aspettano questo. È la fonte del chip «N in attesa»:
+   *  contandoli nella lista fetchata sparivano i dipendenti che sono sottotask
+   *  o stanno in un altro progetto. */
+  waitingOnCount: number;
   /** When blocked, hand the new agent the blocker's session context instead of a cold start. */
   reuseBlockerContext: boolean;
   /** Branch the task delivered on, snapshot at review-time (diagnostics). */
@@ -297,7 +339,27 @@ export interface CreateTaskBody {
   blockedByTaskId?: string | null;
   /** When blocked, hand the new agent the blocker's session context. */
   reuseBlockerContext?: boolean;
+  /**
+   * Il link (parent o blocker) arriva da una proposta di intake ACCETTATA: il
+   * server scrive il perché nei thread di entrambe le card. Senza questo flag
+   * il link resta muto — che va bene per uno step aggiunto a mano dal drawer,
+   * mai per un collegamento che qualcuno ha solo confermato con un click.
+   */
+  intakeLink?: boolean;
+  /** Il motivo, in chiaro, così com'è stato mostrato prima del click. */
+  intakeReason?: string;
 }
+
+/**
+ * La proposta dell'intake: dove andrebbe il testo che stai scrivendo. È una
+ * PROPOSTA — finché non la si accetta non esiste nessun collegamento, e il
+ * default (non fare niente) resta "task nuovo".
+ */
+// Dichiarata in shared/: la calcola il server e la disegna il client, e due
+// copie libere di divergere sono esattamente ciò che il cancello sui doppioni
+// di tipo esiste per impedire.
+export type { LinkProposal } from '../../../shared/board';
+import type { LinkProposal } from '../../../shared/board';
 
 export interface UpdateTaskBody {
   status?: TaskStatus;
@@ -422,6 +484,11 @@ export const boardApi = {
     req<{ tasks: BoardTask[] }>(`/all-boards/tasks${status ? `?status=${status}` : ''}`).then(r => r.tasks),
   create: (projectId: string, body: CreateTaskBody) =>
     req<BoardTask>(`/boards/${enc(projectId)}/tasks`, { method: 'POST', body: JSON.stringify(body) }),
+  /** "Dove va questo testo?" — sola lettura, non tocca un solo task. */
+  suggestLink: (projectId: string, text: string, description?: string | null) =>
+    req<{ proposal: LinkProposal | null }>(`/boards/${enc(projectId)}/intake/suggest`, {
+      method: 'POST', body: JSON.stringify({ text, description }),
+    }).then(r => r.proposal),
   get: (projectId: string, taskId: string) =>
     req<TaskWithThread>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}`),
   update: (projectId: string, taskId: string, patch: UpdateTaskBody) =>
@@ -472,6 +539,19 @@ export const boardApi = {
     req<{ task: BoardTask; attempts: TaskAttempt[] }>(
       `/boards/${enc(projectId)}/tasks/${enc(taskId)}/attempts/${enc(attemptId)}/select`,
       { method: 'POST', body: JSON.stringify({}) },
+    ),
+  /**
+   * La porta del composer verso l'ORCHESTRATORE — la sessione che ha questa
+   * board in contesto (`server/services/orchestrator.ts`).
+   *
+   * Non è una superficie nuova: risolve la STESSA sessione a cui si parla in
+   * chat, e la risposta arriva lì. Perciò qui non c'è nessuna regola — il
+   * client manda il testo e riceve dove è finito, niente altro.
+   */
+  askOrchestrator: (projectId: string, text: string) =>
+    req<{ topicId: string; sessionKey: string; created: boolean }>(
+      `/orchestrator/${enc(projectId)}/message`,
+      { method: 'POST', body: JSON.stringify({ text }) },
     ),
   /** Scaffold a NEW workspace project (dir + CLAUDE.md); 409 on name collision. */
   createProject: (name: string) =>

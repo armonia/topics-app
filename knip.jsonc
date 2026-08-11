@@ -5,9 +5,21 @@
 // cosa entra nel grafo — toglierli affiderebbe la copertura a un default che
 // può cambiare sotto. L'ultimo, su `.css`, dice solo che knip non segue gli
 // import dei fogli di stile: servirebbe un plugin, e non ci sono CSS orfani da
-// cercare.
+// cercare. Gli hint NON contano nell'exit code: misurato, `check:deadcode`
+// esce 0 stampando tutti e otto.
+//
+// La versione di knip è PINNATA in package.json (devDependency esatta) e il
+// gate lancia il binario locale, non `bunx knip`. Non è pignoleria: `bunx`
+// scarica l'ultima, e sullo STESSO albero (main e110b4c2, deps fresche)
+// knip@5 e knip@6 danno due verdetti diversi — 5 elenca un file inutilizzato,
+// un binario non dichiarato (`python3`) e cinque export/tipi morti, di cui
+// almeno due sono falsi positivi (usi via `await import()` e via namespace);
+// 6 ne trova uno solo, vero. È il motivo per cui questo cancello ha dato tre
+// esiti diversi a tre misure diverse, e la stessa lezione già scritta sopra
+// `typecheck` in ci.yml («usa il tsc pinnato, `bunx tsc` può prendere un major
+// nuovo»). Chi alza la versione lo fa in un commit che si vede.
 {
-  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "$schema": "https://unpkg.com/knip@6/schema.json",
   "workspaces": {
     ".": {
       // `!` = "this IS an entrypoint, even though nothing imports it".
@@ -29,8 +41,14 @@
         "scripts/e2e-shards-summary.ts!", // invoked by scripts/e2e-shards.sh:88
         "scripts/gen-migrations-manifest.ts!", // run by hand to regenerate migrations-embedded.ts
         "scripts/watch-board-tasks.ts!",  // CLI tool for the Monitor loop, run by hand
+        // La prova che i test del doctor sanno diventare rossi: si lancia a
+        // mano (`bun scripts/board-doctor.mutants.ts`), non lo importa nessuno
+        // e non deve — mentre gira riscrive il file che sta mutando.
+        "scripts/board-doctor.mutants.ts!",
         "scripts/disk-report.ts!",        // `bun run report:disk`
         "scripts/token-live.ts!",         // diagnostica a mano: `bun scripts/token-live.ts [filtro] [--watch]`
+        "scripts/orphan-park-dryrun.ts!", // `bun run orphan:dryrun` — prova a vuoto sul db vero
+        "scripts/skill-listing-probe.ts!", // misura a mano: `bun run scripts/skill-listing-probe.ts`
         // Il conio delle licenze. Non è un residuo: il servizio che firmerà i
         // gettoni non esiste ancora (`CHIAVI_INTEGRATE` è vuota, e il ramo
         // Stripe `no_token_in_event` dice esplicitamente che «il gettone lo
@@ -40,6 +58,17 @@
         // path in stringa: un riferimento che knip non può vedere.
         "scripts/licenza.ts!",
         "scripts/prefix-budget.ts!",      // diagnostica a mano: `bun run scripts/prefix-budget.ts [--probe]`
+        // La prova che la quota di core si RILEGGE a metà sessione: fa girare un
+        // finto `cargo` attraverso lo shim vero con l'ambiente congelato, e
+        // esce non-zero se il numero non cambia. Si lancia a mano
+        // (`bun run scripts/job-quota-live-demo.ts`) e alimenta il video di
+        // `scripts/job-quota-live-video.mjs`.
+        "scripts/job-quota-live-demo.ts!",
+        // Chi lo chiama: `scripts/check-occlusion.mjs` (`bun run check:occlusion`),
+        // che lo bundla con `bun build` per portare il modulo di occlusione VERO
+        // dentro un WebKit vero. Il riferimento è un path in stringa dentro un
+        // comando, non un import: knip non può vederlo.
+        "scripts/occlusion-probe-entry.ts!",
         "scripts/*.test.ts!",             // run by `bun test ./scripts` in test:unit
         // Everything else under scripts/ stays a PROJECT file only (see the
         // `project` list below). Listing the folder here — with or without `!` —
@@ -89,7 +118,14 @@
   // dipendenze: i primi due sono coreutils POSIX, il terzo è il tsc pinnato
   // sotto client/node_modules. `playwright`, `eslint` e `spec-flow` stavano qui
   // e non servivano più — knip li risolve da solo.
-  "ignoreBinaries": ["pkill", "du", "tsc"],
+  //
+  // `sqlite3` lo spawna `tests/e2e/friend-profiles.spec.ts` per seminare le
+  // righe che quella clip deve far vedere (turni attribuiti e cache del profilo
+  // GitHub). Non passa da `bun:sqlite` perché Playwright gira sotto node, non
+  // sotto Bun; sta qui accanto a `git`, `cp`, `lsof` e `ps`, che le altre spec
+  // spawnano per la stessa ragione. È preinstallato sia su macOS sia sull'immagine
+  // ubuntu-latest che esegue il job `e2e`.
+  "ignoreBinaries": ["pkill", "du", "tsc", "sqlite3"],
   // NON è un import: è il primo argomento di
   // `spawnSync("bun", ["scripts/board-cases.ts", "--case", …], { cwd: ROOT })`
   // in scripts/board-cases.ts:1624 — il rilancio di sé stesso che genera la

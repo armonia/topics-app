@@ -85,6 +85,17 @@ function formatBuildDate(iso: string): string {
   } catch { return iso; }
 }
 
+// Fabbrica condivisa fra il prefetch (hover sul trigger) e il confine `lazy()`
+// più in basso, così risolvono lo STESSO modulo — stesso motivo per cui App.tsx
+// ha `importCommandPalette`. La destrutturazione dentro l'`await` è anche
+// l'unica forma in cui il cancello sul codice morto vede quali export usi: con
+// un `import()` opaco nessun export di questo modulo può più risultare morto
+// (`bun run check:deadcode-blindspots`).
+const importSystemStatusPanel = async () => {
+  const { SystemStatusPanel: Component } = await import('./SystemStatusPanel');
+  return { default: Component };
+};
+
 // Prefetch the lazy status panel chunk so the dropdown opens instantly instead
 // of flashing a "Loading…" while the chunk downloads on first click. Triggered
 // on hover/focus of the trigger button. Vite dedupes with the lazy() import().
@@ -92,7 +103,7 @@ let _statusPanelPrefetched = false;
 function prefetchStatusPanel() {
   if (_statusPanelPrefetched) return;
   _statusPanelPrefetched = true;
-  import('./SystemStatusPanel').catch(() => { _statusPanelPrefetched = false; });
+  importSystemStatusPanel().catch(() => { _statusPanelPrefetched = false; });
 }
 
 // Track last code update time — updates on HMR in dev, uses __BUILD_TIME__ in prod
@@ -141,7 +152,7 @@ function formatBuildTime(iso: string): string {
   } catch { return iso; }
 }
 
-const SystemStatusPanel = lazy(() => import('./SystemStatusPanel').then(m => ({ default: m.SystemStatusPanel })));
+const SystemStatusPanel = lazy(importSystemStatusPanel);
 
 export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
   wsStatus?: ConnectionStatus;

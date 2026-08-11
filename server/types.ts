@@ -114,6 +114,18 @@ export type { ToolCallDetail, ToolCall, ContentBlock } from "../shared/types";
 // altri moduli via il re-export sopra, non questo file.
 import type { ToolCall, ContentBlock } from "../shared/types";
 
+/**
+ * La riga su cui un turno RIADOTTATO continuerà a scrivere, più la sola cosa
+ * che il chiamante non può dedurre da solo: se quella riga porta già un corpo
+ * scritto prima del riavvio (`reusedBody`) o è nata adesso. È il flag che
+ * decide se il client deve svuotare la BOLLA prima che il replay la ricostruisca
+ * — perché il RECORD non viene più svuotato. Vedi
+ * `reuseOrCreatePartialForReattach`.
+ */
+export interface ReattachedPartial extends StoredMessage {
+  reusedBody: boolean;
+}
+
 export interface StoredMessage {
   id: string;
   role: "user" | "assistant";
@@ -184,6 +196,20 @@ export interface StoredMessage {
   cacheCreationTokens?: number;
   /** Scritture in cache a UN'ORA (2×), quota disgiunta dalla precedente. */
   cacheCreation1hTokens?: number;
+  /**
+   * CHI ha scritto questo messaggio (migration 095).
+   *
+   * La persona è il soggetto, il dispositivo è il credenziale da cui il
+   * messaggio è entrato: `server/lib/message-author.ts` li ricava insieme
+   * dall'identità della richiesta.
+   *
+   * `undefined` ≠ «di nessuno»: vuol dire NON LO SAPPIAMO — una risposta
+   * dell'assistente (l'autore è un modello), un turno importato da un
+   * transcript della CLI, una riga scritta prima della 095. Un profilo che
+   * conta i prompt di una persona deve saltarle, non attribuirsele.
+   */
+  authorPersonId?: string | null;
+  authorDeviceId?: string | null;
 }
 
 // ─── Entità di dominio: dichiarate in shared/, non qui ─────────────────
@@ -331,9 +357,17 @@ export interface AppContext {
    *  cancellazione colpisce davvero. */
   countMessagesBySession: (sessionKey: string) => number;
   saveLocalMessages: (sessionKey: string, msgs: StoredMessage[]) => void;
-  appendLocalMessage: (sessionKey: string, role: "user" | "assistant", content: string) => StoredMessage;
+  appendLocalMessage: (
+    sessionKey: string,
+    role: "user" | "assistant",
+    content: string,
+    autore?: { authorPersonId?: string | null; authorDeviceId?: string | null },
+  ) => StoredMessage;
+  /** Append pre-formed messages (id/parentId/toolCalls fixed by the caller) to
+   *  the tail — the incremental-import complement to `saveLocalMessages`. */
+  appendImportedMessages: (sessionKey: string, msgs: StoredMessage[]) => void;
   createPartialMessage: (sessionKey: string, role: "user" | "assistant") => StoredMessage;
-  reuseOrCreatePartialForReattach: (sessionKey: string) => StoredMessage;
+  reuseOrCreatePartialForReattach: (sessionKey: string) => ReattachedPartial;
   updateLastMessage: (sessionKey: string, updates: Partial<StoredMessage>) => StoredMessage | null;
   appendToLastMessage: (sessionKey: string, contentDelta: string, thinkingDelta?: string) => StoredMessage | null;
   finalizeLastMessage: (sessionKey: string) => StoredMessage | null;
@@ -379,7 +413,13 @@ export interface AppContext {
   // Branching
   getMessageById: (id: string) => StoredMessage | null;
   getMessageSessionKey: (id: string) => string | null;
-  createBranchMessage: (sessionKey: string, parentId: string, role: "user" | "assistant", content: string) => StoredMessage;
+  createBranchMessage: (
+    sessionKey: string,
+    parentId: string,
+    role: "user" | "assistant",
+    content: string,
+    autore?: { authorPersonId?: string | null; authorDeviceId?: string | null },
+  ) => StoredMessage;
   createBranchPartialMessage: (sessionKey: string, parentId: string) => StoredMessage;
   /** Cancella messaggio + sottoalbero e ripara la numerazione dei rami. */
   deleteMessageSubtree: (sessionKey: string, messageId: string) => boolean;

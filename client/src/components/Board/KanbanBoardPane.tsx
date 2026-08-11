@@ -25,6 +25,7 @@ import {
   type PublishProject, type DiffBundle, type DispatchCapacity, type GlobalSettings,
 } from '../../lib/board';
 import { groupByStatus, planDrop, type DropPlan, type OrderScope } from '../../lib/boardOrder';
+import { DONE_FLASH_MS, landedInDone, statusSnapshot } from '../../lib/justDone';
 import { resolveProjectRefs, useBoardProjects } from '../../lib/boardProjectsStore';
 import { ProjectPickerBody } from './ProjectPicker';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
@@ -794,13 +795,23 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
     setGcResult(null);
     try {
       const r = await fetch('/api/worktrees/gc', { method: 'POST' });
-      const b = (await r.json()) as { summary?: { reaped?: number; landed?: number; kept?: number; keptReasons?: Record<string, number> } };
+      const b = (await r.json()) as { summary?: { reaped?: number; landed?: number; freed?: number; kept?: number; slimmed?: number; slimmedBytes?: number; keptReasons?: Record<string, number> } };
       const sm = b?.summary;
       if (!sm) { setGcResult('Il GC non ha risposto'); return; }
       const motivi = Object.entries(sm.keptReasons ?? {}).sort((a, b2) => b2[1] - a[1]).slice(0, 2)
         .map(([m, n]) => `${n}× ${m}`).join('; ');
+      // `liberati` è la voce che oggi fa quasi tutto il lavoro (cartella via,
+      // branch conservato): senza, la passata che ne libera 77 direbbe «0
+      // ripuliti, 0 landati» e sembrerebbe non aver fatto niente.
+      //
+      // Lo stesso vale per gli `snelliti`: una passata che tiene TUTTI i
+      // worktree può comunque aver liberato qualche giga di `node_modules`, e
+      // senza questa voce direbbe solo «0, 0, 0, N tenuti».
+      const snelliti = (sm.slimmed ?? 0) > 0
+        ? `, ${sm.slimmed} snelliti (${Math.round((sm.slimmedBytes ?? 0) / 1_048_576)} MB)`
+        : '';
       setGcResult(
-        `${sm.reaped ?? 0} ripuliti, ${sm.landed ?? 0} landati, ${sm.kept ?? 0} tenuti`
+        `${sm.reaped ?? 0} ripuliti, ${sm.freed ?? 0} liberati (branch salvo), ${sm.landed ?? 0} landati${snelliti}, ${sm.kept ?? 0} tenuti`
         + (motivi ? ` — ${motivi}` : ''),
       );
       // Il conteggio accanto deve riflettere la passata appena fatta.
@@ -835,10 +846,80 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
     return groupByStatus(visible, orderScope);
   }, [tasks, filters, orderScope]);
 
-  // Task lookup by id for card-level context chips: parent title ("⤴ epic…")
-  // and blocked-by ("in attesa di…", needs the blocker's status too). Best
-  // effort: a referenced task not in the current fetch (e.g. filtered) just
-  // shows no chip.
+  // Le card appena CHIUSE, per il lampo verde. Si guarda `tasks` (la lista
+  // grezza), non `byStatus`: un filtro attivo può nascondere la card, e il lampo
+  // non deve dipendere da cosa si sta guardando — quando riappare l'ha già
+  // consumato, che è giusto, ma la transizione resta registrata una volta sola.
+  //
+  // Vale per OGNI via di chiusura, perché nessuna passa di qui direttamente: il
+  // trascinamento, l'approvazione dal drawer e un altro device finiscono tutti e
+  // tre nello stesso refetch. Il confronto è con lo stato precedente (vedi
+  // `lib/justDone`), non con la freschezza di `completedAt`.
+  const [justDone, setJustDone] = useState<Set<string>>(() => new Set());
+  const prevStatusRef = useRef<Map<string, TaskStatus> | null>(null);
+  const flashTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  useEffect(() => {
+    const landed = landedInDone(prevStatusRef.current, tasks);
+    prevStatusRef.current = statusSnapshot(tasks);
+    if (landed.length === 0) return;
+    setJustDone((prev) => {
+      const next = new Set(prev);
+      for (const id of landed) next.add(id);
+      return next;
+    });
+    for (const id of landed) {
+      clearTimeout(flashTimers.current.get(id));
+      flashTimers.current.set(id, setTimeout(() => {
+        flashTimers.current.delete(id);
+        setJustDone((prev) => {
+          if (!prev.has(id)) return prev;
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
+      }, DONE_FLASH_MS));
+    }
+  }, [tasks]);
+  // Smontando la pane a lampo acceso i timer resterebbero appesi a chiamare un
+  // setState su un componente che non c'è più.
+  useEffect(() => {
+    const timers = flashTimers.current;
+    return () => { for (const t of timers.values()) clearTimeout(t); timers.clear(); };
+  }, []);
+
+  // …e portare Done DOVE SI GUARDA. Il lampo da solo non bastava: nel layout
+  // normale — sidebar più cinque colonne, con Review più larga delle altre —
+  // Done sta oltre il bordo destro. Misurato: a 1600×900 il bordo destro della
+  // card appena chiusa cadeva a 2195px, cioè quasi 600 fuori dalla finestra. La
+  // card arrivava, lampeggiava e si spegneva senza che nessuno la vedesse.
+  //
+  // Si scorre la riga delle colonne per la sua PROPRIA `scrollLeft`, mai
+  // `element.scrollIntoView()`: la sua risalita automatica degli antenati può
+  // uscire da questa preoccupazione (orizzontale) e portarsi dietro un antenato
+  // verticale — vedi la nota sull'effetto della selezione qui sopra.
+  useEffect(() => {
+    if (justDone.size === 0) return;
+    // rAF: l'effetto parte nello stesso commit in cui la card entra in colonna,
+    // e il rettangolo di Done va misurato a layout fatto.
+    const raf = requestAnimationFrame(() => {
+      const container = columnsScrollRef.current;
+      const col = container?.querySelector('[data-testid="kanban-column-done"]');
+      if (!container || !col) return;
+      const cRect = container.getBoundingClientRect();
+      const dRect = col.getBoundingClientRect();
+      if (dRect.left >= cRect.left && dRect.right <= cRect.right) return; // già in vista
+      container.scrollBy({ left: dRect.right - cRect.right, behavior: 'smooth' });
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [justDone]);
+
+  // Task lookup by id for the parent chip ("⤴ epic…"). Best effort: a parent
+  // not in the current fetch just shows the generic label.
+  //
+  // Il chip «in attesa di» NON passa più di qui: il bloccante lo risolve il
+  // server (`task.blockedBy`), perché questa lista è un progetto solo,
+  // `rootsOnly`, non archiviati — e un bloccante fuori da quel taglio faceva
+  // sparire il chip da una card che il dispatcher teneva ferma comunque.
   const tasksById = useMemo(() => {
     const m = new Map<string, BoardTask>();
     for (const t of tasks) m.set(t.id, t);
@@ -887,22 +968,23 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
 
   const [activeId, setActiveId] = useState<string | null>(null);
   // Hide the floating "Descrivi un task" composer while the human is typing in
-  // ANY other field — a card's quick-reply / "Scrivi all'agent" box (which sit
-  // low on screen, right under the composer) or the drawer thread. Tracked from
-  // document focus so it covers every feedback input without wiring each one.
+  // a field that SITS ON IT: a card's quick-reply / "Scrivi all'agent" box,
+  // which opens low in a column, right under the composer.
+  //
+  // Il gate è ristretto alle COLONNE della board. Prima il listener era su
+  // `window` e il predicato «un campo qualsiasi ha il fuoco»: mettere il cursore
+  // nella chat di un'altra pane, in un terminale o in una ricerca faceva sparire
+  // il composer di qua — un focus-out dalla board non sovrappone proprio niente.
   const [typingElsewhere, setTypingElsewhere] = useState(false);
   useEffect(() => {
     const sync = () => {
       const el = document.activeElement as HTMLElement | null;
       const isField = !!el && (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT');
-      const inComposer = !!el?.closest('[data-testid="board-task-composer"]');
-      // Un campo dentro un MENU fluttuante non è «scrivere altrove»: il menu è
-      // portalato su <body>, quindi `closest` non lo riconduce mai al composer
-      // che lo ha aperto. Senza questa condizione, digitare nella ricerca del
-      // picker progetto smontava il composer — e con lui il menu stesso, che ne
-      // è figlio React: il popover spariva al primo carattere.
-      const inFloatingMenu = !!el?.closest('[data-popover]');
-      setTypingElsewhere(isField && !inComposer && !inFloatingMenu);
+      // Solo i campi DENTRO il carosello delle colonne si sovrappongono al
+      // composer. Il composer stesso e i menu portalati su <body> ne sono fuori
+      // per costruzione, quindi non serve escluderli a mano.
+      const inColumns = !!el && !!columnsScrollRef.current?.contains(el);
+      setTypingElsewhere(isField && inColumns);
     };
     window.addEventListener('focusin', sync);
     window.addEventListener('focusout', sync);
@@ -1140,6 +1222,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
                   projectPathById={projectPathById}
                   liveById={liveUsage}
                   awaitingHuman={awaitingHuman}
+                  justDone={justDone}
                 />
               ))}
             </div>
@@ -1162,17 +1245,22 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
             )}
           </DndContext>
           {/* New-task composer, anchored to the board AREA (centered on the
-              visible columns). Hidden while a task is open: the drawer is where
-              you review and write feedback, and the floating "Descrivi un task"
-              box otherwise sits on top of that input — reappears on close. */}
-          {!selected && !typingElsewhere && (
-            <FloatingTaskComposer
-              projectId={projectId}
-              global={mode === 'all'}
-              onCreated={refetch}
-              onError={setError}
-            />
-          )}
+              visible columns). SEMPRE montato: quello che ci hai scritto dentro
+              non deve evaporare perché hai guardato altrove o hai aperto un
+              task. Si nasconde soltanto quando qualcosa gli sta davvero sopra —
+              un campo aperto in una colonna, o (sotto lg) il drawer del task,
+              che lì è un overlay a tutto schermo. Su desktop il drawer è un
+              fratello in-flow accanto alle colonne: non lo copre, resta. */}
+          <FloatingTaskComposer
+            projectId={projectId}
+            global={mode === 'all'}
+            onCreated={refetch}
+            onError={setError}
+            hidden={typingElsewhere}
+            hiddenBelowLg={!!selected}
+            onOpenTopic={onOpenTopic}
+          />
+
         </div>
         {selected && (
           <TaskDetail
@@ -1185,6 +1273,13 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
             onOpenTask={openTask}
             onOpenTopic={onOpenTopic}
             focusPaneId={pendingPaneId ?? undefined}
+            /* Apertura automatica nel workspace: SOLO dalla board globale, che
+               è una superficie a sé. Dentro una finestra di progetto la board è
+               una pane di quella stessa finestra, e promuovere lì il risultato
+               vorrebbe dire togliere spazio al drawer che stai leggendo — e
+               rifare lo split a ogni card. Il bottone «Apri nel workspace»
+               resta comunque, in entrambi i casi. */
+            autoOpenInWorkspace={global}
           />
         )}
       </div>

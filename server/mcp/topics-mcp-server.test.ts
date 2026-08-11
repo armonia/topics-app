@@ -603,6 +603,35 @@ describe("handleMessage", () => {
     }
   });
 
+  test("tools/list under --profile=orchestrator: TUTTE le mani della board, ZERO sotto-agenti", async () => {
+    const resp = await handleMessage(
+      { jsonrpc: "2.0", id: 30, method: "tools/list" },
+      { ...ARGS, profile: "orchestrator" },
+    );
+    const names = ((resp!.result as any).tools as Array<{ name: string }>).map((t) => t.name);
+    // Il confine che dà senso al profilo: un orchestratore che spawna agenti
+    // fuori dalla board è un secondo dispatcher, senza coda né tetto né card.
+    for (const gone of ["spawn_agent", "send_to_agent", "read_agent", "list_agents", "stop_agent"]) {
+      expect(names).not.toContain(gone);
+    }
+    // Le mani ci sono già, ed è il motivo per cui non serviva un'API nuova.
+    for (const kept of ["list_tasks", "get_task", "create_task", "update_task", "comment_task"]) {
+      expect(names).toContain(kept);
+    }
+    // A differenza di `dispatch`, i progetti restano: coordinare più task vuol
+    // dire anche saperli mettere sulla board giusta.
+    expect(names).toContain("create_project");
+    expect(names).toContain("open_project");
+  });
+
+  test("tools/call refuse spawn_agent anche all'orchestratore (difesa in profondità)", async () => {
+    const resp = await handleMessage(
+      { jsonrpc: "2.0", id: 31, method: "tools/call", params: { name: "spawn_agent", arguments: { prompt: "x" } } },
+      { ...ARGS, profile: "orchestrator" },
+    );
+    expect((resp!.error as any)?.code).toBe(-32601);
+  });
+
   test("tools/call refuses a profile-excluded tool (defense in depth)", async () => {
     const resp = await handleMessage(
       { jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "spawn_agent", arguments: { prompt: "x" } } },

@@ -43,6 +43,86 @@ const listeners = new Set<(overlays: OverlayRect[]) => void>();
 let observer: MutationObserver | null = null;
 let scheduled = false;
 
+/** Coda una rimisura. A livello di modulo perché non la chiede solo
+ *  l'observer: anche la FINE di un'animazione d'entrata, che nel DOM non lascia
+ *  nessuna traccia da osservare (vedi `watchAnimation`).
+ *
+ *  Next-task, not 30ms: same-tick mutations still coalesce (the observer
+ *  batches, and `scheduled` gates re-entry), but a menu that just opened is
+ *  measured immediately. Every ms here is a ms the freshly-opened overlay
+ *  spends painting UNDERNEATH the native pane — part of the perceived flash. */
+function schedule(): void {
+  if (scheduled || !observer) return;
+  scheduled = true;
+  window.setTimeout(recompute, 0);
+}
+
+/**
+ * Questo overlay DIPINGE, cioè può coprire una pane nativa?
+ *
+ * Pura, perché la riga che conta è una sola e per anni ha detto la cosa
+ * sbagliata: `opacity === '0'` ⇒ ignoralo. Ma OGNI modale di questa app entra
+ * con `command-palette-enter` (0.15s da `opacity: 0`), e il tracciatore misura
+ * il pannello nell'istante in cui viene inserito — quando l'animazione è ancora
+ * a zero. Misurato in WebKit (il motore della WKWebView) e in Chromium: al primo
+ * giro `getComputedStyle(card).opacity` è esattamente `"0"`, con
+ * `getAnimations()` già in `running`.
+ *
+ * Il modale finiva quindi FUORI dal set di overlay, e — questo è il punto che lo
+ * rendeva permanente e non un lampeggio — nessuna mutazione successiva lo
+ * riportava dentro: le modifiche DENTRO il pannello non contengono un overlay,
+ * quindi non fanno scattare un altro giro. La webview nativa restava sopra il
+ * modale finché il modale non si chiudeva.
+ *
+ * La distinzione giusta non è «opaco o trasparente» ma «fermo a zero o in
+ * arrivo»: uno zero STABILE è un elemento che davvero non si vede (una row
+ * action `opacity-0` in attesa dell'hover); uno zero mentre un'animazione gira
+ * è un pannello che sta apparendo — e che fra due frame coprirà la pane.
+ */
+export function overlayPaints(el: {
+  hasRects: boolean;
+  visibility: string;
+  opacity: string;
+  animating: boolean;
+}): boolean {
+  if (!el.hasRects) return false; // display:none — nessun rettangolo, niente da coprire
+  if (el.visibility === 'hidden') return false;
+  if (el.opacity === '0') return el.animating;
+  return true;
+}
+
+/** Le animazioni IN CORSO su questo elemento (entrata, uscita, transizione).
+ *  Assente in ambienti senza Web Animations: lì si torna al comportamento
+ *  vecchio, che è conservativo nel verso sbagliato ma non peggiore di prima. */
+function runningAnimations(node: Element): Animation[] {
+  const el = node as Element & { getAnimations?: () => Animation[] };
+  if (typeof el.getAnimations !== 'function') return [];
+  try {
+    return el.getAnimations().filter((a) => a.playState === 'running');
+  } catch {
+    return [];
+  }
+}
+
+/** Animazioni già agganciate, per non registrare due volte lo stesso `finished`. */
+const watchedAnimations = new WeakSet<Animation>();
+
+/** Rimisura quando l'animazione finisce.
+ *
+ *  Un overlay che entra non ha ancora la sua geometria definitiva: a metà di
+ *  `commandPaletteIn` il pannello è ancora traslato di -12px e scalato a 0.98,
+ *  quindi il rettangolo appena raccolto è quello di un posto in cui il modale
+ *  non resterà. Nessuna mutazione DOM segna la fine di un'animazione CSS —
+ *  senza questo aggancio l'ultimo rettangolo noto sarebbe per sempre quello di
+ *  metà transizione. */
+function watchAnimation(a: Animation): void {
+  if (watchedAnimations.has(a)) return;
+  watchedAnimations.add(a);
+  const done = (a as Animation & { finished?: Promise<unknown> }).finished;
+  if (typeof done?.then !== 'function') return;
+  done.then(() => schedule(), () => { /* annullata: l'overlay è sparito, e la rimozione ha già rimisurato */ });
+}
+
 function recompute(): void {
   scheduled = false;
   const next: OverlayRect[] = [];
@@ -55,11 +135,15 @@ function recompute(): void {
     // that never thaws — a dead/frozen-looking browser. Structural, so any future
     // in-pane glass chrome is covered too.
     if (node.closest('[data-native-browser-slot]')) return;
-    // Ignore hidden overlays (display:none yields no client rects; a
-    // visibility:hidden / opacity:0 card paints nothing yet still has a rect).
-    if (node.getClientRects().length === 0) return;
     const cs = getComputedStyle(node);
-    if (cs.visibility === 'hidden' || cs.opacity === '0') return;
+    const animations = runningAnimations(node);
+    if (!overlayPaints({
+      hasRects: node.getClientRects().length > 0,
+      visibility: cs.visibility,
+      opacity: cs.opacity,
+      animating: animations.length > 0,
+    })) return;
+    for (const a of animations) watchAnimation(a);
     const r = node.getBoundingClientRect();
     if (r.width > 1 && r.height > 1) next.push({ left: r.left, top: r.top, right: r.right, bottom: r.bottom });
   });
@@ -135,12 +219,27 @@ export function liveSlotRect(id: string): { x: number; y: number; width: number;
   }
 }
 
+/** Gli overlay aperti ADESSO, per chi deve decidere fuori dal giro delle
+ *  notifiche — una pane che si apre, o che torna visibile, mentre un menu è già
+ *  aperto: nessun evento arriverà, perché niente sta cambiando. */
+export function currentOverlays(): readonly OverlayRect[] {
+  return overlays;
+}
+
 /** Subscribe to overlay-set changes (open/close/move). The callback gets the
  *  current overlay rects; consumers decide intersection per pane. Returns an
  *  unsubscribe fn. Lazily starts the observer on first subscription (Tauri). */
 export function onOcclusionChange(fn: (overlays: OverlayRect[]) => void): () => void {
   listeners.add(fn);
   if (isTauri) startObserver();
+  // Lo stato CORRENTE, subito. Chi arriva a menu già aperto non riceverebbe
+  // nessuna notifica — non sta cambiando niente, e le notifiche parlano solo di
+  // cambiamenti — quindi resterebbe cieco fino alla prossima apertura o
+  // chiusura di un overlay: una pane che monta (o si ri-registra a un
+  // re-render) sotto un modale aperto ci si disegnava sopra e ci restava.
+  // `startObserver` rimisura solo la PRIMA volta: con un'altra pane già
+  // iscritta l'observer c'è già e quel giro non avviene.
+  fn(overlays);
   return () => {
     listeners.delete(fn);
     // Last browser pane gone → tear the body-wide observer down. Nothing can
@@ -164,16 +263,6 @@ export function stopObserver(): void {
 
 function startObserver(): void {
   if (observer || typeof document === 'undefined') return;
-
-  const schedule = () => {
-    if (scheduled) return;
-    scheduled = true;
-    // Next-task, not 30ms: same-tick mutations still coalesce (the observer
-    // batches, and `scheduled` gates re-entry), but a menu that just opened is
-    // measured immediately. Every ms here is a ms the freshly-opened overlay
-    // spends painting UNDERNEATH the native pane — part of the perceived flash.
-    window.setTimeout(recompute, 0);
-  };
 
   // Only schedule when an added/removed node could be (or contain) an overlay —
   // skips the constant text-node churn of streaming chat.

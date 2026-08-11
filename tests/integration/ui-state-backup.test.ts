@@ -24,8 +24,8 @@ afterEach(() => {
 });
 
 async function loadModules() {
-  const utils = await import("../../server/utils");
-  const ctx = utils.createAppContext(PROJECT_ROOT);
+  const { createAppContext } = await import("../../server/utils");
+  const ctx = createAppContext(PROJECT_ROOT);
   // Seed a row so the backup has content.
   ctx.db.run(
     `INSERT OR REPLACE INTO ui_state (key, value, payload_version, server_seq, updated_at)

@@ -27,6 +27,7 @@ import {
   BRIDGED_BROWSER_ENDPOINTS,
   type McpToolAnnotations,
 } from "../browser-tool-spec";
+import { PREVIEW_RULE } from "../../shared/board";
 
 interface JsonRpcRequest {
   jsonrpc: "2.0";
@@ -101,7 +102,7 @@ const TOOLS = [
   {
     name: "open_browser_pane",
     description:
-      "Open the topics-app browser pane and navigate it to the given URL. Use this whenever you need to surface a URL to the user (OAuth flows, dev servers, generated previews, documentation). The pane appears next to the current chat. Returns the final URL and page title after navigation.",
+      "Open the topics-app browser pane and navigate it to the given URL. Use this whenever you need to surface a URL to the user (OAuth flows, dev servers, generated previews, documentation). The pane appears next to the current chat. Inside a task, the pane IS a tab of that task and survives your turn: pass `name` to open one tab PER SURFACE you are delivering (e.g. 'App', 'Report') — same name reopened navigates that tab, a new name adds one. Returns the final URL and page title after navigation.",
     inputSchema: {
       type: "object",
       properties: {
@@ -109,6 +110,11 @@ const TOOLS = [
           type: "string",
           description:
             "Absolute URL to open (must include protocol — https://, http://, or file://). Examples: 'https://example.com', 'http://localhost:3000', 'https://accounts.google.com/oauth/authorize?...'.",
+        },
+        name: {
+          type: "string",
+          description:
+            "Short label for the tab, e.g. 'App' or 'Report Lighthouse'. Inside a task it also IDENTIFIES the tab: reusing a name navigates that tab, a new name opens another one, and the label is pinned (the page title no longer overwrites it). Omit for a single unnamed pane that just re-navigates.",
         },
       },
       required: ["url"],
@@ -267,7 +273,7 @@ const TOOLS = [
   {
     name: "update_task",
     description:
-      "Update a task on THIS session's project board: status, priority, assignee, and/or output_url. The project is derived from the session (no project id). NOTE: you CANNOT set status='done' on your MAIN task — that is a human review gate: set status='review' and a human approves it. Exception: subtask STEPS of the task assigned to you (created with parent_task_id) are your checklist — mark each done as you complete it. Set output_url (http/https) to give the reviewer something concrete to look at (dev server, rendered page, report).",
+      "Update a task on THIS session's project board: status, priority, assignee, title/description, preview_image. The project is derived from the session (no project id). NOTE: you CANNOT set status='done' on your MAIN task — that is a human review gate: set status='review' and a human approves it. Exception: subtask STEPS of the task assigned to you (created with parent_task_id) are your checklist — mark each done as you complete it. To give the reviewer something concrete to look at, do NOT reach for output_url: a live page goes in a TAB of the task (open_browser_pane) and files go in the task's download list (comment_task media[]).",
     inputSchema: {
       type: "object",
       properties: {
@@ -275,14 +281,13 @@ const TOOLS = [
         status: { type: "string", description: "backlog | todo | in_progress | review — plus done, but ONLY on subtask steps of your assigned task." },
         priority: { type: "number", description: "0–4." },
         assignee: { type: "string", description: "Agent/person to assign." },
-        output_url: { type: "string", description: "http(s) URL of the reviewable output, shown in the task's review panel. Empty string clears it." },
+        output_url: { type: "string", description: "LEGACY — seeds the task's first browser tab; prefer open_browser_pane, which opens the tab directly. Empty string clears it." },
         text: { type: "string", description: "Rewrite the task title (clear + concise) — use it to polish a raw composer-born title." },
         description: { type: "string", description: "Rewrite/fill the task description." },
-        preview_image: {
-          type: "string",
-          description:
-            "Absolute path to the DURABLE preview shown on the card and in the drawer — a .png for static UI, a .webm/.mp4 for behaviour (a screenshot does not prove a behaviour). Must live under ~/.topics/media/ or the task workspace, or it is rejected. Empty string clears it.",
-        },
+        // La descrizione È `PREVIEW_RULE`, verbatim: lo schema del tool è uno
+        // dei posti in cui l'agente legge la regola, e finché era un riassunto
+        // scritto qui diceva due rami mentre il protocollo ne diceva tre.
+        preview_image: { type: "string", description: PREVIEW_RULE },
       },
       required: ["task_id"],
     },
@@ -603,6 +608,33 @@ const DISPATCH_EXCLUDED_TOOLS = new Set([
 ]);
 
 /**
+ * Il profilo della sessione-ORCHESTRATORE (`--profile=orchestrator`).
+ *
+ * Le mani della board le tiene tutte — è il suo mestiere. Quello che gli è
+ * TOLTO sono i tool di sotto-agente: spawn/send/read/list/stop. Non è una
+ * misura di prudenza generica, è il confine che gli dà senso — un orchestratore
+ * che fa partire agenti fuori dalla board è un SECONDO dispatcher, non
+ * governato: i suoi agenti non hanno una card, quindi non hanno né priorità, né
+ * coda, né tetto di concorrenza, né un posto dove consegnare. La board smette
+ * di essere il racconto vero di cosa sta girando, che è l'unica cosa che
+ * l'orchestratore esiste per proteggere.
+ *
+ * Via anche `import_chrome` (cookie di un browser reale: niente a che vedere con
+ * il coordinare card) e le navigazioni di topic/tab, che sposterebbero la
+ * superficie sotto l'umano mentre gli sta parlando.
+ */
+const ORCHESTRATOR_EXCLUDED_TOOLS = new Set([
+  "spawn_agent",
+  "send_to_agent",
+  "read_agent",
+  "list_agents",
+  "stop_agent",
+  "import_chrome",
+  "new_topic",
+  "switch_topic",
+]);
+
+/**
  * `approval_prompt` è pubblicato SEMPRE, e non è un'incoerenza: lo spawn passa
  * `--permission-prompt-tool` in ogni modalità, e la CLI toglie da sé il tool
  * designato dall'elenco che il modello vede (verificato sul filo, anche in
@@ -611,9 +643,18 @@ const DISPATCH_EXCLUDED_TOOLS = new Set([
  * esattamente il modo in cui la versione a due flag si rompeva:
  * «MCP tool mcp__topics__approval_prompt … not found» su ogni richiesta.
  */
+/** Cosa toglie ciascun profilo. Assente = profilo sconosciuto o interattivo:
+ *  toolset pieno, che è il default storico e il verso giusto in cui sbagliare. */
+function excludedForProfile(profile: string | undefined): Set<string> | null {
+  if (profile === "dispatch") return DISPATCH_EXCLUDED_TOOLS;
+  if (profile === "orchestrator") return ORCHESTRATOR_EXCLUDED_TOOLS;
+  return null;
+}
+
 export function toolsForProfile(profile: string | undefined): typeof TOOLS {
-  if (profile !== "dispatch") return TOOLS;
-  return TOOLS.filter((t) => !DISPATCH_EXCLUDED_TOOLS.has(t.name));
+  const excluded = excludedForProfile(profile);
+  if (!excluded) return TOOLS;
+  return TOOLS.filter((t) => !excluded.has(t.name));
 }
 
 export function isToolAllowedForProfile(profile: string | undefined, name: string): boolean {
@@ -621,7 +662,8 @@ export function isToolAllowedForProfile(profile: string | undefined, name: strin
   // chiama è la CLI, non il modello, e un `tools/list` che non lo elenca non
   // vuol dire che la CLI non lo designi. Rifiutarlo qui spegnerebbe il canale
   // proprio nelle sessioni che ne hanno bisogno.
-  return profile !== "dispatch" || !DISPATCH_EXCLUDED_TOOLS.has(name);
+  const excluded = excludedForProfile(profile);
+  return !excluded || !excluded.has(name);
 }
 
 export function parseArgs(argv: string[]): ParsedArgs {
@@ -699,7 +741,7 @@ function loopbackTlsInit(): RequestInit {
 
 export async function callOpenBrowserPane(
   args: ParsedArgs,
-  toolArgs: { url?: unknown },
+  toolArgs: { url?: unknown; name?: unknown },
   fetchImpl: typeof fetch = fetch,
 ): Promise<{ url: string; title: string }> {
   if (typeof toolArgs?.url !== "string" || !toolArgs.url) {
@@ -709,10 +751,13 @@ export async function callOpenBrowserPane(
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (args.gatewayToken) headers["X-Gateway-Token"] = args.gatewayToken;
 
+  // `name` viaggia solo se c'è: il body storico è `{url}`, e mandare `name:""`
+  // cambierebbe i byte di ogni chiamata esistente per niente.
+  const name = typeof toolArgs?.name === "string" ? toolArgs.name.trim() : "";
   const resp = await fetchImpl(endpoint, {
     method: "POST",
     headers,
-    body: JSON.stringify({ url: toolArgs.url }),
+    body: JSON.stringify(name ? { url: toolArgs.url, name } : { url: toolArgs.url }),
     // topics-app serves a self-signed cert on this loopback origin; skip
     // verification (Bun fetch extension). Safe: we only ever talk to 127.0.0.1.
     ...loopbackTlsInit(),
@@ -1705,7 +1750,7 @@ const TOOL_HANDLERS: Record<
   (args: ParsedArgs, toolArgs: Record<string, unknown>, ctx?: ToolCallContext) => Promise<string>
 > = {
   open_browser_pane: async (a, t) => {
-    const r = await callOpenBrowserPane(a, t as { url?: unknown });
+    const r = await callOpenBrowserPane(a, t as { url?: unknown; name?: unknown });
     return `Opened browser pane at ${r.url}` + (r.title ? ` (title: ${r.title})` : "");
   },
   close_browser_pane: (a, t) => callCloseBrowserPane(a, t as { contextId?: unknown }),

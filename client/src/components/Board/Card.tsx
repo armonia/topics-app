@@ -6,7 +6,7 @@ import { AlertTriangle, ArrowUpRight, ClipboardList, Hourglass, Lock, MessageSqu
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
-import { boardApi, STATUS_LABEL, isAgentWorking, parseQuestionBlock, isProjectlessId, systemDeliveryNote, SYSTEM_DELIVERY_CHIP, type BoardTask, type TaskComment, type TaskStatus } from '../../lib/board';
+import { boardApi, STATUS_LABEL, isAgentWorking, parseQuestionBlock, isProjectlessId, systemDeliveryNote, blockedByChip, SYSTEM_DELIVERY_CHIP, type BoardTask, type TaskComment, type TaskStatus } from '../../lib/board';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useLongPress, openContextMenuAt } from '../../hooks/useLongPress';
 import { useMobile } from '../../hooks/useMobile';
@@ -18,7 +18,7 @@ import { StatusIcon, DispatchChip, TaskIdChip } from './atoms';
 import { POPOVER_DIVIDER, POPOVER_ITEM, POPOVER_ITEM_DANGER } from '@/lib/popoverStyles';
 
 // ── Column ────────────────────────────────────────────────────────────────
-export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject, onError, onRefetch, onOpenTopic, tasksById, projectPathById, liveById, awaitingHuman }: {
+export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject, onError, onRefetch, onOpenTopic, tasksById, projectPathById, liveById, awaitingHuman, justDone }: {
   status: TaskStatus; tasks: BoardTask[]; onOpen: OpenTask; onCreate: (text: string) => void;
   canCreate: boolean; showProject: boolean; onError: (e: string) => void; onRefetch: () => void;
   onOpenTopic?: (topicId: string) => void; tasksById: Map<string, BoardTask>; projectPathById: Map<string, string>;
@@ -26,6 +26,8 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
   liveById: Map<string, LiveUsage>;
   /** Task che in questo momento aspettano una persona (evento transitorio). */
   awaitingHuman: Set<string>;
+  /** Card appena arrivate in Done: lampeggiano per un paio di secondi. */
+  justDone: Set<string>;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: status });
   const [adding, setAdding] = useState(false);
@@ -44,9 +46,17 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
   // of their neighbours on both sides; Review is wider (its own, roomier slide).
   const isReview = status === 'review';
   const snapCls = 'snap-center';
-  // Review is the approval surface — give it more room than the working columns
-  // on every viewport (wider slide on mobile, 32rem on desktop).
-  const widthCls = isReview ? 'w-[22rem] lg:w-[32rem]' : 'w-72';
+  // Width is a RANGE, not a number: `basis` is the floor (what a column is worth
+  // when the board overflows and scroll-snapping takes over), `grow` spends any
+  // leftover room on a wide board so the columns fill it instead of leaving a
+  // dead gutter, and `max-w` is the ceiling — past it a card stops being easier
+  // to read and just gets wider, so the surplus goes back to the gutter.
+  // The floor holds because the item is already `shrink-0`.
+  // Review is the approval surface — roomier floor AND roomier ceiling than the
+  // working columns on every viewport.
+  const widthCls = isReview
+    ? 'grow basis-[22rem] max-w-[34rem] lg:basis-[32rem] lg:max-w-[44rem]'
+    : 'grow basis-72 max-w-[26rem]';
   const borderCls = isOver ? 'border-emerald-400/60' : 'border-app-border';
   const bgCls = isOver ? 'bg-emerald-400/5' : 'bg-white/5';
 
@@ -72,10 +82,10 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
             <Card
               key={t.id} task={t} onOpen={onOpen} showProject={showProject} onError={onError} onRefetch={onRefetch} onOpenTopic={onOpenTopic}
               parentTitle={t.parentTaskId ? tasksById.get(t.parentTaskId)?.text : undefined}
-              blocker={t.blockedByTaskId ? tasksById.get(t.blockedByTaskId) : undefined}
               projectPath={projectPathById.get(t.projectId)}
               live={liveById.get(t.id)}
               awaiting={awaitingHuman.has(t.id)}
+              justDone={justDone.has(t.id)}
             />
           ))}
         </SortableContext>
@@ -106,15 +116,13 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
 // `liveById`. Without memo every card re-renders on each tick; with it only the
 // cards whose `live` prop actually changed (the working ones) do. All handler
 // props from the parent (onOpen/onError/onRefetch/onOpenTopic) are stable
-// (useCallback / state setters), and task/blocker come from tasks-keyed memos,
-// so the shallow prop compare holds for idle cards.
-export const Card = memo(function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, parentTitle, blocker, projectPath, live, awaiting }: {
+// (useCallback / state setters), and task/parentTitle come from tasks-keyed
+// memos, so the shallow prop compare holds for idle cards.
+export const Card = memo(function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, parentTitle, projectPath, live, awaiting, justDone }: {
   task: BoardTask; onOpen: OpenTask; showProject: boolean;
   onError: (e: string) => void; onRefetch: () => void; onOpenTopic?: (topicId: string) => void;
   /** Text of the parent task when this card is a subtask (context chip). */
   parentTitle?: string;
-  /** The task this one is gated on, when still unresolved (blocked-by chip). */
-  blocker?: BoardTask;
   /** Real filesystem path of task.projectId, for the favicon (cross-project board only). */
   projectPath?: string;
   /** Il turno e' vivo ma fermo su una PERSONA: pannello di domanda o permesso
@@ -122,6 +130,8 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
   awaiting?: boolean;
   /** Live per-turn usage while this task's agent works (ticking chip). */
   live?: LiveUsage;
+  /** La card è appena arrivata in Done: lampo verde, si spegne da solo. */
+  justDone?: boolean;
 }) {
   // Sortable: the source card is dimmed (the DragOverlay carries the visual)
   // but its NEIGHBOURS get the reflow transform — the list opens a gap under
@@ -239,7 +249,15 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
   // nessun agent ha detto "fatto". Su una card done sarebbe archeologia (il
   // drawer la conserva comunque).
   const systemDelivered = task.status === 'review' && task.deliveredBy === 'system';
-  const hasMetaRow = !!((blocker && blocker.status !== 'done') || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo || notLanded || checksRed || systemDelivered);
+  // Il legame, non la lista: il chip nasce da `blockedByTaskId` + il bloccante
+  // risolto dal server, così vale anche quando il bloccante non è fra i task
+  // fetchati (sottotask, altro progetto, archiviato).
+  const blockedChip = blockedByChip(task);
+  // …e l'altra metà: quanti aspettano QUESTA card. Anche questo numero è un
+  // fatto del DB, non della lista fetchata — un dipendente che è un sottotask o
+  // sta in un altro progetto non è fra le card, ma aspetta lo stesso.
+  const waitingOnThis = task.waitingOnCount;
+  const hasMetaRow = !!(blockedChip || (waitingOnThis > 0 && task.status !== 'done') || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo || notLanded || checksRed || systemDelivered);
 
   return (
     <div
@@ -254,7 +272,8 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
       // nativo che bolla fino all'`onContextMenu` qui accanto, quindi non
       // esiste un secondo menu da tenere allineato — e' lo stesso.
       onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ x: e.clientX, y: e.clientY }); }}
-      className={`group cursor-grab rounded-md border border-app-border bg-surface p-2.5 text-sm text-app-text shadow-sm hover:border-app-border-light ${isDragging ? 'opacity-40' : ''}`}
+      data-just-done={justDone || undefined}
+      className={`group cursor-grab rounded-md border border-app-border bg-surface p-2.5 text-sm text-app-text shadow-sm hover:border-app-border-light ${isDragging ? 'opacity-40' : ''} ${justDone ? 'task-done-flash' : ''}`}
     >
       {/* Top row: project eyebrow (cross-project) on the LEFT; the AGENT
           cluster in the top-right SLOT — dispatch state, model/effort, "apri
@@ -390,11 +409,21 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
           row renders only when at least one is present. */}
       {hasMetaRow && (
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-          {blocker && blocker.status !== 'done' && (
+          {blockedChip && (
             <span
-              title={`In attesa di: ${blocker.text}`}
+              data-testid="card-blocked-by"
+              title={blockedChip.title}
               className="flex max-w-[11rem] items-center gap-1 truncate rounded bg-amber-500/15 px-1.5 py-0.5 text-xs md:text-[11px] text-amber-300"
-            ><Lock className="h-3 w-3 shrink-0" /> <span className="truncate">in attesa di: {blocker.text}</span></span>
+            ><Lock className="h-3 w-3 shrink-0" /> <span className="truncate">{blockedChip.label}</span></span>
+          )}
+          {waitingOnThis > 0 && task.status !== 'done' && (
+            <span
+              data-testid="card-waiting-on-this"
+              title={waitingOnThis === 1
+                ? 'Un task aspetta questa card: parte da solo quando la chiudi'
+                : `${waitingOnThis} task aspettano questa card: partono da soli quando la chiudi`}
+              className="flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-xs md:text-[11px] text-amber-300"
+            ><Hourglass className="h-3 w-3 shrink-0" /> {waitingOnThis} in attesa</span>
           )}
           {task.parentTaskId && (
             <button

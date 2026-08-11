@@ -123,7 +123,7 @@ export interface UsePaneLifecycleArgs {
    *  is silently lost on reload — unlike the identical gesture in projects. */
   onPersistReorder?: (newPaneIds: string[]) => void;
   claudeSkipPermissions: boolean;
-  stopSession: (sessionKey: string) => boolean;
+  stopSession: (sessionKey: string) => Promise<boolean>;
 }
 
 export interface UsePaneLifecycleHandlers {

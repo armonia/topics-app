@@ -5,11 +5,11 @@ import { X } from 'lucide-react';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, CompactionMarker } from '../../types';
 import type { SendMessageOptions } from '../../hooks/useChat';
 import { uploadApi, filesApi, autoNameApi, commandApi, memoryApi, contextAnalysisApi, topicsApi, chatApi } from '../../lib/api';
-import { findPendingAsk } from '../../state/pendingAsk';
 import { claimCenteredHandoff } from '../../state/composerHandoff';
 import { markDraftTouched, setDraftDirty } from '../../state/draftPane';
 import { ChatEmptyState } from './ChatEmptyState';
-import { isPlanApprovalSchema, PLAN_APPROVAL_QUESTION, PLAN_APPROVE_LABEL, PLAN_REJECT_LABEL } from '../../../../shared/plan-decision';
+import { findPendingPlan } from './planDetection';
+import { PLAN_APPROVAL_QUESTION, PLAN_APPROVE_LABEL, PLAN_REJECT_LABEL } from '../../../../shared/plan-decision';
 import { useConfirm } from '../../hooks/useConfirm';
 import { DND_TYPES } from '../../lib/dndTypes';
 import { sendFocusTopic } from '../../lib/focusMessaging';
@@ -70,7 +70,7 @@ export interface ChatPaneProps {
    * agent owns the turn. See `composerAction.ts` for the decision rules
    * and `stopSessionPolicy.ts` for the wipe-safety guard.
    */
-  stopSession: (sk: string) => boolean;
+  stopSession: (sk: string) => Promise<boolean>;
   sendMessage: (sk: string, content: string, options?: SendMessageOptions) => Promise<boolean>;
   loadHistory: (sk: string) => Promise<boolean>;
   chatError: string | null;
@@ -946,14 +946,6 @@ function ChatPaneComponent({
     }
   }, [topic.id, onUpdateTopic]);
 
-  const handlePlanApprove = useCallback(() => {
-    sendMessage(topic.sessionKey, 'Execute the approved plan.');
-  }, [sendMessage, topic.sessionKey]);
-
-  const handlePlanReject = useCallback(() => {
-    sendMessage(topic.sessionKey, 'Plan rejected. Please propose an alternative approach.');
-  }, [sendMessage, topic.sessionKey]);
-
   /**
    * La decisione presa sul piano che il turno ha proposto senza poterlo
    * consegnare (plan mode senza `ExitPlanMode` — vedi server/lib/plan-approval.ts).
@@ -968,11 +960,18 @@ function ChatPaneComponent({
    */
   // Il piano che aspetta una risposta, se c'è: alimenta la barra sopra il
   // composer. Stessa lettura del pannello inline (`findPendingAsk`), così le
-  // due superfici non possono dire cose diverse.
-  const pendingPlan = useMemo(() => {
-    const ask = findPendingAsk(currentMessages);
-    return ask && isPlanApprovalSchema(ask.schema) ? ask : null;
-  }, [currentMessages]);
+  // due superfici non possono dire cose diverse — più il ripiego sul piano
+  // scritto solo in prosa, che di riga a cui appendersi non ne ha
+  // (`findPendingPlan`). In entrambi i casi la scelta è la stessa e fa la
+  // stessa cosa.
+  const pendingPlan = useMemo(
+    () => findPendingPlan({
+      messages: currentMessages,
+      autonomy,
+      busy: currentStreaming || currentLoading,
+    }),
+    [currentMessages, autonomy, currentStreaming, currentLoading],
+  );
   const [planBusy, setPlanBusy] = useState(false);
 
   const handlePlanDecision = useCallback(async (approved: boolean) => {
@@ -1002,11 +1001,16 @@ function ChatPaneComponent({
     if (!pendingPlan || planBusy) return;
     setPlanBusy(true);
     try {
-      await chatApi.toolResponse(topic.sessionKey, pendingPlan.toolCallId, {
-        kind: 'questions',
-        answers: { [PLAN_APPROVAL_QUESTION]: approved ? PLAN_APPROVE_LABEL : PLAN_REJECT_LABEL },
-        submittedAt: new Date().toISOString(),
-      });
+      // Un piano scritto solo in prosa non ha una riga che aspetta: non c'è
+      // niente da chiudere, e postare una risposta a un tool inesistente
+      // tornerebbe 404 mandando in errore una scelta che è invece valida.
+      if (pendingPlan.toolCallId) {
+        await chatApi.toolResponse(topic.sessionKey, pendingPlan.toolCallId, {
+          kind: 'questions',
+          answers: { [PLAN_APPROVAL_QUESTION]: approved ? PLAN_APPROVE_LABEL : PLAN_REJECT_LABEL },
+          submittedAt: new Date().toISOString(),
+        });
+      }
       await handlePlanDecision(approved);
     } catch {
       toast.error('Non sono riuscito a registrare la scelta. Riprova.');
@@ -1278,7 +1282,7 @@ function ChatPaneComponent({
         </div>
       )}
       <PinnedMessages show={showPinned} pinnedMessages={pinnedMessages} />
-      <MessageList isMobile={isMobile} topic={topic} currentMessages={currentMessages} compactionMarkers={currentMarkers} currentLoading={currentLoading} currentStreaming={currentStreaming} copiedMsgId={copiedMsgId} fileDragOver={fileDragOver} chatContainerRef={chatContainerRef} messagesEndRef={messagesEndRef} onReply={setReplyingTo} onCopy={handleCopyMessage} onTogglePin={handleTogglePin} onFileDragOver={handleFileDragOver} onFileDragLeave={handleFileDragLeave} onFileDrop={handleFileDrop} onPlanApprove={handlePlanApprove} onPlanReject={handlePlanReject} onPlanDecision={handlePlanDecision} onRemember={handleRememberMessage} onEdit={editMessage ? handleEditMessage : undefined} onRegenerate={regenerateMessage && !currentStreaming ? handleRegenerateMessage : undefined} onDeleteMessage={deleteMessage && !currentStreaming ? handleDeleteMessage : undefined} onSwitchBranch={switchBranch ? handleSwitchBranch : undefined} onMessage={onWSMessage} onRetry={handleRetry} inputAreaHeight={inputAreaHeight} initialScrollOffset={initialScrollOffset} onScrollOffsetChange={handleScrollOffsetChange} />
+      <MessageList isMobile={isMobile} topic={topic} currentMessages={currentMessages} compactionMarkers={currentMarkers} currentLoading={currentLoading} currentStreaming={currentStreaming} copiedMsgId={copiedMsgId} fileDragOver={fileDragOver} chatContainerRef={chatContainerRef} messagesEndRef={messagesEndRef} onReply={setReplyingTo} onCopy={handleCopyMessage} onTogglePin={handleTogglePin} onFileDragOver={handleFileDragOver} onFileDragLeave={handleFileDragLeave} onFileDrop={handleFileDrop} onPlanDecision={handlePlanDecision} onRemember={handleRememberMessage} onEdit={editMessage ? handleEditMessage : undefined} onRegenerate={regenerateMessage && !currentStreaming ? handleRegenerateMessage : undefined} onDeleteMessage={deleteMessage && !currentStreaming ? handleDeleteMessage : undefined} onSwitchBranch={switchBranch ? handleSwitchBranch : undefined} onMessage={onWSMessage} onRetry={handleRetry} inputAreaHeight={inputAreaHeight} initialScrollOffset={initialScrollOffset} onScrollOffsetChange={handleScrollOffsetChange} />
       {/* The composer docks at the bottom with only its natural margin — no
           home-indicator reservation (the user wants minimal bottom space), so it
           reaches the bottom edge and the OS indicator simply overlays it. */}
@@ -1327,7 +1331,7 @@ function ChatPaneComponent({
         <SubAgentsStrip topicSessionKey={topic.sessionKey} />
         {aboveInputSlot}
         <CheckpointTimeline topicId={topic.id} onRollback={() => loadHistory(topic.sessionKey)} />
-        <ChatInput autonomy={autonomy} onAutonomyChange={handleAutonomyChange} isMobile={isMobile} isFocused={isFocused} topic={topic} currentMessages={currentMessages} currentStreaming={currentStreaming} stoppedByUser={currentStoppedByUser} message={message} setMessage={setMessage} pendingFiles={pendingFiles} pendingImages={pendingImages} setPendingImages={setPendingImages} uploading={isUploading} replyingTo={replyingTo} setReplyingTo={setReplyingTo} isRecording={isRecording} recordingTime={recordingTime} fileInputRef={fileInputRef} textareaRef={textareaRef} onSubmit={handleSendMessage} onStop={() => { stopSession(topic.sessionKey); }} onKeyDown={handleKeyDown} onFileSelect={handleFileSelect} removePendingFile={removePendingFile} onPaste={handlePaste} startRecording={startRecording} stopRecording={stopRecording} formatRecordingTime={formatRecordingTime} isImageFile={isImageFile} chatError={chatError} sendMessageDirect={async (c: string) => {
+        <ChatInput autonomy={autonomy} onAutonomyChange={handleAutonomyChange} isMobile={isMobile} isFocused={isFocused} topic={topic} currentMessages={currentMessages} currentStreaming={currentStreaming} stoppedByUser={currentStoppedByUser} message={message} setMessage={setMessage} pendingFiles={pendingFiles} pendingImages={pendingImages} setPendingImages={setPendingImages} uploading={isUploading} replyingTo={replyingTo} setReplyingTo={setReplyingTo} isRecording={isRecording} recordingTime={recordingTime} fileInputRef={fileInputRef} textareaRef={textareaRef} onSubmit={handleSendMessage} onStop={() => { void stopSession(topic.sessionKey); }} onKeyDown={handleKeyDown} onFileSelect={handleFileSelect} removePendingFile={removePendingFile} onPaste={handlePaste} startRecording={startRecording} stopRecording={stopRecording} formatRecordingTime={formatRecordingTime} isImageFile={isImageFile} chatError={chatError} sendMessageDirect={async (c: string) => {
           // Passa dall'imbuto degli slash: il bottone «Compact now» e
           // l'azione dell'anello mandavano `/compact` come messaggio nudo,
           // quindi non vedevano il banner di stato ne' l'esito. Ora le tre

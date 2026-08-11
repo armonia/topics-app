@@ -36,13 +36,15 @@ printf '{"type":"result","result":"pong","usage":{"input_tokens":3,"output_token
   chmodSync(fake, 0o755);
   setEnv("TOPICS_CLAUDE_CLI_PATH", fake);
   // Drop any singleton a prior broker test file created with a different socket.
-  (await import("../lib/ai-bridge-client")).__resetAiBridgeClientForTests();
+  const { __resetAiBridgeClientForTests } = await import("../lib/ai-bridge-client");
+  __resetAiBridgeClientForTests();
 });
 
 afterAll(async () => {
   // Dispose the client FIRST so killing the daemon below doesn't trigger the
   // auto-reconnect (which would respawn a daemon and hang the process).
-  (await import("../lib/ai-bridge-client")).__resetAiBridgeClientForTests();
+  const { __resetAiBridgeClientForTests } = await import("../lib/ai-bridge-client");
+  __resetAiBridgeClientForTests();
   try {
     const { closeDatabase } = await import("../db");
     closeDatabase();
