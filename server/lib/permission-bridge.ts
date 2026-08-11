@@ -40,9 +40,18 @@
  */
 
 import { emitHumanHoldChange } from './human-hold-events';
+import type { CliPermissionDecision as PermissionDecision } from '../../shared/permission-decision';
 
-/** Cosa torna alla CLI. `allow_always` consente ORA e scrive un grant. */
-export type PermissionDecision = 'allow' | 'allow_always' | 'deny';
+/**
+ * Cosa torna ALLA CLI. `allow_always` consente ORA e scrive un grant.
+ *
+ * Tre valori, non quattro: `allow_free` — «consenti e libera la sessione» — è
+ * una decisione dell'interfaccia, e da qui in giù non deve nemmeno essere
+ * dicibile. La rotta la converte in `allow` sul confine (`cliDecisionFor`), e
+ * questo tipo fa sì che dimenticarsene sia un errore di compilazione invece che
+ * una parola sconosciuta consegnata a un processo figlio.
+ */
+export type { CliPermissionDecision as PermissionDecision } from '../../shared/permission-decision';
 
 export interface PermissionWaitOptions {
   /** Quanto blocca QUESTA gamba (ms). Una gamba, non la richiesta. */
@@ -263,6 +272,38 @@ export function resolvePendingPermission(sessionKey: string, toolUseId: string):
   if (hasPendingPermission(sessionKey, toolUseId)) return toolUseId;
   const aliased = aliases.get(permissionKey(sessionKey, toolUseId));
   return aliased && hasPendingPermission(sessionKey, aliased) ? aliased : null;
+}
+
+/**
+ * Consente IN BLOCCO ogni richiesta ancora aperta su questa sessione, e dice
+ * quali erano — con gli id delle righe a schermo, alias compresi, perché chi
+ * chiama deve poterle richiudere anche graficamente.
+ *
+ * Esiste per una sola strada: la sessione passa in modalità libera mentre più
+ * pannelli sono a schermo. La CLI può emettere più `tool_use` nello stesso
+ * messaggio e chiedere per ognuno (misurati a 170 ms di distanza), quindi
+ * rispondere solo a quello premuto lascerebbe gli altri appesi: la loro gamba
+ * successiva verrebbe cortocircuitata dalla rotta — «questa sessione non chiede
+ * più» — e nessuno chiuderebbe MAI la richiesta aperta. Il pannello resterebbe
+ * a schermo su un permesso già superato, e con lui `humanHold`, che tiene
+ * lontani watchdog e reaper: un turno che nessuno sorveglia più.
+ *
+ * Gli alias si leggono PRIMA di consegnare: `endPermission` li cancella.
+ */
+export function allowPendingPermissions(sessionKey: string): { toolUseId: string; rowIds: string[] }[] {
+  const prefix = `${sessionKey}\u0000`;
+  const served: { toolUseId: string; rowIds: string[] }[] = [];
+  for (const entry of [...activeRequests.values()]) {
+    if (entry.sessionKey !== sessionKey) continue;
+    const rowIds: string[] = [];
+    for (const [aliasKey, target] of aliases) {
+      if (target === entry.toolUseId && aliasKey.startsWith(prefix)) rowIds.push(aliasKey.slice(prefix.length));
+    }
+    if (deliverDecision(sessionKey, entry.toolUseId, 'allow')) {
+      served.push({ toolUseId: entry.toolUseId, rowIds });
+    }
+  }
+  return served;
 }
 
 /** C'è ALMENO una richiesta di permesso aperta su questa sessione? */

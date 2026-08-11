@@ -1,0 +1,34 @@
+-- 090: il PESO del task — quanto morde la macchina, non quanto è difficile.
+--
+-- Il numero è 090 e non 089 perché 089 se l'è preso `089-retirements.sql`,
+-- atterrata su main mentre questa card era in volo. Non è sfortuna: con N card
+-- in parallelo due migration scritte lo stesso giorno che prendono lo stesso
+-- numero sono l'esito normale, ed è per questo che esistono il cancello del
+-- land (`task-automerge.ts`) e `scripts/check-migration-numbers.ts`.
+--
+-- Lo scheduler sapeva contare gli agenti e non sapeva cosa stessero facendo:
+-- per il tetto di concorrenza un task che rinomina una variabile e un task che
+-- ricompila il progetto valgono uno e uno. Quando il secondo parte accanto ad
+-- altri tre, la macchina è dell'umano che ci lavora sopra, e i quattro agenti
+-- diventano più lenti tutti insieme — è il caso in cui il numero giusto di
+-- slot è UNO, e nessun numero fisso può saperlo.
+--
+-- Il peso lo legge il classificatore che già sceglie modello e sforzo
+-- (`task-model-picker.ts`): una lettura sola del task, tre risposte coerenti.
+-- Ma il classificatore parla al LANCIO, e il gate serve al CLAIM, che viene
+-- prima — quindi il peso va ricordato: questa colonna è quel promemoria. Alla
+-- prima corsa il claim non lo sa (e il lancio rimette il task in coda col
+-- tentativo rimborsato); da lì in poi lo sa, e decide con quello in mano.
+--
+-- NULLABLE e senza UPDATE di massa, che qui è la garanzia principale: NULL
+-- significa «mai classificato», ogni gate lo legge come `light`, e una board
+-- esistente si comporta esattamente come ieri finché un giudice non risponde.
+-- Nessuna riga viene toccata da questa migration.
+--
+-- Valori: 'light' | 'heavy'. Niente CHECK, per la stessa ragione di 087:
+-- l'insieme ammesso vive nell'union TypeScript (`TASK_WEIGHTS`, shared/board.ts)
+-- e la lettura normalizza tutto ciò che non riconosce a NULL (`readTaskWeight`),
+-- quindi un valore storto degrada in «leggero» invece di rompere una scrittura.
+-- Un CHECK sarebbe una terza copia da allineare a mano, ed è precisamente il
+-- modo in cui i vincoli SQLite di questo repo sono già andati in deriva.
+ALTER TABLE tasks ADD COLUMN dispatch_weight TEXT;

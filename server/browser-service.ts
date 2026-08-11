@@ -3,6 +3,7 @@ import { pushNetworkEntry, completeNetworkEntry, type NetworkEntry } from "./bro
 import { existsSync, mkdirSync, writeFileSync, readFileSync, statSync } from "fs";
 import { join } from "path";
 import { loadStorageState, saveStorageState, debouncedSaver, saveLastUrl, loadLastUrl, readLastUrlEntry } from "./browser-state-store";
+import { seedSharedFromNative } from "./browser-session-handoff";
 import type { Topic } from "./types";
 import type { IndexedElement } from "./browser-tools";
 import type { BrowserWsMessage } from "../shared/browser-ws-messages";
@@ -886,6 +887,22 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
         ? { width: hint.width, height: hint.height }
         : (opts?.viewport || defaultViewport);
       const deviceScaleFactor = clampDsf(hint?.deviceScaleFactor ?? opts?.deviceScaleFactor);
+
+      // Un solo cassetto cookie. Se su QUESTO contesto c'è ancora una pane
+      // nativa viva (è il caso dell'auto-share: il telefono si affaccia, la
+      // sessione condivisa nasce, e solo 1200ms dopo il Mac lascia la
+      // WKWebView), versa il suo barattolo nel seme prima di leggerlo. Senza
+      // questo passaggio i due lati hanno cookie separati e chi era loggato di
+      // là si ritrova sloggato di qua. Non lancia mai e ha un tetto di 2s: al
+      // massimo la pane nasce sloggata com'era prima. Vedi
+      // browser-session-handoff.ts per le regole (fonde, non sovrascrive; non
+      // scrive mai il vuoto; solo nativa → condivisa).
+      const handoff = await seedSharedFromNative(id);
+      if (handoff.ok) {
+        console.log(`[BrowserService] cookie della pane nativa passati alla sessione condivisa ${id} (${handoff.cookies} cookie, ${handoff.origins} origini)`);
+      } else if (handoff.skipped !== "no-native-pane") {
+        console.warn(`[BrowserService] passaggio cookie nativa→condivisa saltato per ${id}: ${handoff.skipped}${handoff.error ? ` (${handoff.error})` : ""}`);
+      }
 
       // Load persisted storageState if available (cookies + localStorage).
       // null is fine — newContext accepts undefined storageState.

@@ -25,6 +25,7 @@
 import { tmpdir } from "os";
 import { join } from "path";
 import { createHash } from "crypto";
+import { countOwnCommits, otherLocalBranches } from "./own-commits";
 
 export type AutoMergeResult =
   | {
@@ -348,19 +349,24 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
         // Il discrimine non ha bisogno di ricordare da dove il worktree è nato:
         // un commit EREDITATO è raggiungibile anche da un ALTRO branch locale,
         // uno fatto dentro questo worktree no. Quindi `--not <gli altri branch>`
-        // lascia esattamente i commit del task.
+        // lascia esattamente i commit del task — la sottrazione vive in
+        // `own-commits.ts`, perché è la STESSA domanda che si fa la consegna
+        // quando registra cosa ha prodotto la card: due copie divergerebbero, e
+        // la copia sbagliata è quella che pubblica il lavoro di un altro.
+        //
+        // Trovati commit non suoi NON ci si ferma: si atterrano SOLO i suoi
+        // (`onlyOwn` → `pickOwnCommits` più sotto). Rifiutarsi e basta teneva
+        // main pulito e lasciava il lavoro in un limbo: misurato, 12 consegne
+        // accettate vivevano solo sul loro branch, fra cui uno scorporo da 800
+        // righe e una rimozione da 21.775.
         /** Quando il branch porta anche commit non suoi: si prendono solo i suoi. */
         let onlyOwn: { total: number; mine: number; others: string[] } | null = null;
-        const refs = await runGit(repoPath, ["for-each-ref", "--format=%(refname)", "refs/heads/"]);
-        const others = refs.stdout.split("\n").map((r) => r.trim()).filter(
-          (r) => r && r !== `refs/heads/${branch}` && r !== `refs/heads/${defaultBranch}`,
-        );
-        if (others.length > 0) {
-          const own = await runGit(repoPath, ["rev-list", "--count", `${defaultBranch}..${branch}`, "--not", ...others]);
-          if (own.code === 0) {
+        const others = await otherLocalBranches(repoPath, branch, { mainRef: defaultBranch, runGit });
+        if (others && others.length > 0) {
+          const mine = await countOwnCommits(repoPath, branch, { mainRef: defaultBranch, runGit, others });
+          if (mine !== null) {
             const total = Number(ahead.stdout.trim());
-            const mine = Number(own.stdout.trim());
-            if (Number.isFinite(total) && Number.isFinite(mine) && total > mine) {
+            if (Number.isFinite(total) && total > mine) {
               if (mine === 0) {
                 return {
                   status: "skipped",
@@ -369,13 +375,10 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
                     "non c'è niente da landare che sia suo",
                 };
               }
-              // Solo i commit DELLA CARD. Rifiutarsi e basta — la prima versione —
-              // teneva main pulito e lasciava il lavoro in un limbo: misurato,
-              // 12 consegne accettate vivevano solo sul loro branch, fra cui uno
-              // scorporo da 800 righe e una rimozione da 21.775. «Accettata» deve
-              // voler dire «atterrata», altrimenti la board misura il lavoro fatto
-              // e non quello arrivato.
               onlyOwn = { total, mine, others };
+            }
+          }
+        }
             }
           }
         }

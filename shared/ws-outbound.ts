@@ -331,6 +331,17 @@ const streamStartSchema = z.looseObject({
   sessionKey: z.string(),
   topicId: z.optional(z.string()),
   messageId: z.string(),
+  /**
+   * Il turno non comincia: RIPRENDE. `messageId` punta a una bolla che il
+   * client ha già piena — quella di prima del riavvio — e il replay sta per
+   * ridettarla da capo. Chi la vede la svuota adesso, o le delta si sommano a
+   * quello che c'è e il testo esce doppio.
+   *
+   * Prima questo azzeramento si faceva cancellando il corpo della riga in DB, e
+   * bastava che la riadozione morisse prima di rimetterlo a posto per perderlo
+   * per sempre. La vista si può rifare; il record no.
+   */
+  reattached: z.optional(z.boolean()),
 });
 
 const streamContentChunkSchema = z.looseObject({
@@ -529,6 +540,10 @@ const streamToolPermissionResolvedSchema = z.looseObject({
   outcome: z.looseObject({
     decision: z.string(),
     decidedAt: z.string(),
+    // Chi ha deciso. C'è solo su `allow_free`, l'unica decisione che cambia il
+    // regime della sessione e quindi l'unica che qualcuno andrà a chiedere «e
+    // chi è stato?».
+    actor: z.optional(z.string()),
   }),
 });
 
@@ -617,11 +632,14 @@ const browserOpenNearPaneSchema = z.looseObject({
 // Browser di proprietà del TASK (dietro TOPICS_TASK_BROWSER): i layout globali
 // ignorano di proposito questo frame, così la tab non finisce nel pane-store
 // condiviso — la consuma solo il gruppo in-drawer del task.
+// `title` è il NOME che l'agente ha prescritto alla tab (il manifesto), assente
+// quando non ne ha dato uno — allora l'etichetta resta il titolo della pagina.
 const browserOpenTaskTabSchema = z.looseObject({
   type: z.literal('browser:open-task-tab'),
   taskId: z.string(),
   contextId: z.string(),
   url: z.string(),
+  title: z.optional(z.string()),
 });
 
 // "Porta in primo piano la pane di questo topic". `projectPath` arriva inline

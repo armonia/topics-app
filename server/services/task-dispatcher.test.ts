@@ -1,5 +1,9 @@
 import { describe, it, expect } from "bun:test";
 import { Database } from "bun:sqlite";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { PREVIEW_RULE, PREVIEW_CARD_MAX_RATIO, extractPreviewRule } from "../../shared/board";
+import { toolsForProfile } from "../mcp/topics-mcp-server";
 import { createTaskService, type TaskService } from "./tasks";
 import { createTaskDispatcher, rotateFrom, type DispatcherDeps } from "./task-dispatcher";
 import { cancelled, type TurnEndInfo } from "../providers/stop-reason";
@@ -22,13 +26,13 @@ function freshDb(): Database {
     claude_task_id TEXT, assigned_topic_id TEXT REFERENCES topics(id), archived INTEGER NOT NULL DEFAULT 0,
     assigned_agent_id TEXT, in_progress_at TEXT,
     dispatch_attempts INTEGER NOT NULL DEFAULT 0, dispatch_state TEXT, dispatch_error TEXT,
-    dispatch_deferred_until TEXT,
+    dispatch_deferred_until TEXT, dispatch_weight TEXT,
     parent_task_id TEXT REFERENCES tasks(id), output_url TEXT, plan_first INTEGER NOT NULL DEFAULT 0,
     agent_ms INTEGER NOT NULL DEFAULT 0, agent_tokens INTEGER NOT NULL DEFAULT 0,
     agent_cache_read_tokens INTEGER NOT NULL DEFAULT 0,
     model TEXT, blocked_by_task_id TEXT REFERENCES tasks(id), reuse_blocker_context INTEGER NOT NULL DEFAULT 0,
     priority_auto INTEGER NOT NULL DEFAULT 1,
-    delivered_by TEXT, delivered_reason TEXT
+    delivered_by TEXT, delivered_reason TEXT, created_by_topic_id TEXT
   )`);
   db.run(`CREATE TABLE board_settings (
     project_id TEXT PRIMARY KEY, require_approval_for_done INTEGER DEFAULT 0,
@@ -107,6 +111,12 @@ function harness(overrides: Partial<DispatcherDeps> = {}) {
   const dispatcher = createTaskDispatcher(deps);
   return {
     db, svc, dispatcher, events, worktreesCreated, topicsCreated, turns,
+    /**
+     * Un RIAVVIO del server: stesso DB, memoria nuova. Tutto ciò che vive solo
+     * nel processo (turni in volo, timer, attese di uno slot) non c'è più —
+     * ed è l'unica differenza che distingue un fantasma da un'attesa viva.
+     */
+    restart: () => { dispatcher.shutdown(); return createTaskDispatcher(deps); },
     finishTurn: () => { resolveTurn?.(); },
     /** Chiude il turno DICENDO perché è finito (0.4) — come fa il provider vero. */
     finishTurnWith: (info: TurnEndInfo) => { resolveTurn?.(info); },
@@ -450,6 +460,70 @@ describe("task-dispatcher", () => {
     expect(h.dispatcher.isInFlight("t1")).toBe(false);
   });
 
+  // ── snellimento del worktree alla consegna ────────────────────────────
+  //
+  // Una card consegnata aspetta un umano per giorni tenendosi ~260 MB di
+  // dipendenze. Alla consegna quel peso se ne va — ma DOPO l'anteprima, che è
+  // un `bun run dev` dentro quello stesso worktree.
+
+  async function deliver(h: ReturnType<typeof harness>) {
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    h.svc.addComment({ taskId: "t1", author: "claude", content: "fatto" });
+    h.svc.update({ taskId: "t1", actor: "agent", by: "claude", patch: { status: "review" } });
+    h.finishTurn();
+    await flush();
+  }
+
+  it("consegna → il worktree si snellisce, ma solo DOPO l'anteprima", async () => {
+    const ordine: string[] = [];
+    let sbloccaAnteprima: (() => void) | null = null;
+    const h = harness({
+      preparePreview: (id) => new Promise<void>((res) => {
+        ordine.push(`anteprima:${id}`);
+        sbloccaAnteprima = () => res();
+      }),
+      slimWorktree: async (id) => { ordine.push(`slim:${id}`); },
+    });
+    await deliver(h);
+    // L'anteprima è ancora in piedi: togliere `node_modules` ora la ucciderebbe.
+    expect(ordine).toEqual(["anteprima:t1"]);
+    sbloccaAnteprima!();
+    await flush();
+    expect(ordine).toEqual(["anteprima:t1", "slim:t1"]);
+  });
+
+  it("un'anteprima che fallisce non impedisce di liberare lo spazio", async () => {
+    const slimmed: string[] = [];
+    const h = harness({
+      preparePreview: async () => { throw new Error("porta occupata"); },
+      slimWorktree: async (id) => { slimmed.push(id); },
+    });
+    await deliver(h);
+    expect(slimmed).toEqual(["t1"]);
+  });
+
+  it("uno slim che esplode non tocca la consegna", async () => {
+    const h = harness({ slimWorktree: async () => { throw new Error("permessi"); } });
+    await deliver(h);
+    expect(h.task("t1")!.status).toBe("review");
+    expect(h.task("t1")!.dispatchState).toBe("delivered");
+  });
+
+  it("un turno che NON consegna non snellisce niente", async () => {
+    const slimmed: string[] = [];
+    const h = harness({ slimWorktree: async (id) => { slimmed.push(id); } });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    h.finishTurn();   // finito senza arrivare in review
+    await flush();
+    expect(slimmed).toEqual([]);
+  });
+
   it("a question as the agent's last word flips the chip to needs_input ('serve te')", async () => {
     const h = harness();
     h.svc.updateBoardSettings(PID, { autoDispatch: true });
@@ -748,7 +822,7 @@ describe("task-dispatcher", () => {
 
     expect(h.turns.length).toBe(1); // nessun secondo turno: il posto è uno
     // E non è perso in silenzio: la card lo dice, nel thread E nel chip.
-    expect(h.svc.get("t2")!.comments.some((c) => c.content.includes("In coda: tetto di concorrenza"))).toBe(true);
+    expect(h.svc.get("t2")!.comments.some((c) => c.content.includes("In attesa di uno slot"))).toBe(true);
     // Senza il chip la card resta `in_progress` senza turno vivo: il tempo non
     // scorre e sembra piantata — una coda invisibile.
     expect(h.task("t2")!.dispatchState).toBe("queued");
@@ -775,7 +849,7 @@ describe("task-dispatcher", () => {
     legaT2();
     await h.dispatcher.resume("t2", "riprova");   // aspetta un posto, lo annuncia
     await flush();
-    const primo = h.svc.get("t2")!.comments.filter((c) => c.content.includes("In coda: tetto")).length;
+    const primo = h.svc.get("t2")!.comments.filter((c) => c.content.includes("In attesa di uno slot")).length;
     expect(primo).toBe(1);
 
     // Approvata mentre aspettava: il ritentativo rinuncia.
@@ -795,7 +869,7 @@ describe("task-dispatcher", () => {
     legaT2();
     await h.dispatcher.resume("t2", "riprova ancora");
     await flush();
-    const testi = h.svc.get("t2")!.comments.filter((c) => c.content.includes("In coda: tetto")).map((c) => c.content);
+    const testi = h.svc.get("t2")!.comments.filter((c) => c.content.includes("In attesa di uno slot")).map((c) => c.content);
     expect(testi.length).toBe(2);
     expect(testi.some((t) => t.includes("(2)"))).toBe(true);
   });
@@ -1171,6 +1245,90 @@ describe("task-dispatcher", () => {
     expect(h.turns[0].content).toContain("owner esclusivo del task"); // kickoff, non un turno fantasma
   });
 
+  it("un'attesa di slot VIVA non è un orfano: reconcile la lascia stare, il riavvio no", async () => {
+    // La collisione fra due pezzi che presi da soli sono giusti: il rinvio del
+    // resume a tetto pieno lascia la card `in_progress` col chip `queued`, e il
+    // recupero orfani ha imparato ad accettare `queued` proprio per liberare le
+    // card che quel rinvio si lascia dietro quando il processo muore.
+    //
+    // Ma un'attesa VIVA non ha un turno, quindi non compare in `inFlight`: da
+    // fuori è identica al fantasma. Senza il registro, il poll di reconcile (10s)
+    // se la mangerebbe prima ancora che i 5s del ritentativo siano passati — e
+    // sarebbe il guasto di prima al contrario: il messaggio dell'umano muore col
+    // timer e la card riparte su un topic nuovo.
+    const h = harness({ topicExists: () => true });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    h.svc.setGlobalCap({ auto: false, max: 1 });
+    seedTask(h.db, { id: "t1", status: "todo", createdAt: "2020-01-01T00:00:00.000Z" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.turns.length).toBe(1); // t1 si prende l'unico posto e lo tiene
+
+    // t2 rifiutato in review: il resume non trova posto e si mette in attesa.
+    seedTask(h.db, { id: "t2", status: "in_progress", assignedTopicId: "topic-live", attempts: 1, dispatchState: "working", createdAt: "2020-01-02T00:00:00.000Z" });
+    await h.dispatcher.resume("t2", "riprova da qui");
+    await flush();
+    expect(h.turns.length).toBe(1);                     // il posto è ancora uno
+    expect(h.task("t2")!.dispatchState).toBe("queued"); // l'attesa è viva, e lo dice
+
+    // Il poll passa MENTRE l'attesa è viva.
+    await h.dispatcher.reconcile();
+    await flush();
+
+    const waiting = h.task("t2")!;
+    expect(waiting.status).toBe("in_progress");             // non requeuata
+    expect(waiting.assignedTopicId).toBe("topic-live");     // stessa sessione: il messaggio è ancora suo
+    expect(waiting.dispatchState).toBe("queued");
+    expect(waiting.dispatchAttempts).toBe(1);               // nessun tentativo toccato
+    expect(h.turns.length).toBe(1);                         // e nessun agente in più
+    expect(waiting.dispatchState === "queued" && h.svc.get("t2")!.comments.some((c) => c.content.includes("rimesso in coda"))).toBe(false);
+
+    // Riavvio: il processo nuovo non ha né il timer né il registro. ADESSO la
+    // stessa card è orfana per davvero, e reconcile deve liberarla.
+    const restarted = h.restart();
+    await restarted.reconcile();
+    await flush();
+
+    const ghost = h.task("t2")!;
+    expect(ghost.status).toBe("todo");                      // rimessa in coda
+    expect(ghost.assignedTopicId).toBeNull();               // sbindata: la sessione non ha più nessuno
+    expect(ghost.dispatchAttempts).toBe(0);                 // il riavvio non consuma un tentativo
+    expect(h.svc.get("t2")!.comments.some((c) => c.content.includes("aspettava uno slot libero"))).toBe(true);
+    restarted.shutdown();
+  });
+
+  it("un resume che parte EREDITA il messaggio dell'attesa che spegne", async () => {
+    // Il registro tiene una attesa sola per task, quindi un resume che trova il
+    // posto libero spegne il timer di quella pendente. Il timer aveva in mano un
+    // messaggio dell'umano: spegnerlo e basta lo perderebbe — la stessa perdita
+    // che il registro esiste per evitare, solo per un'altra strada. Va dove
+    // vanno i messaggi arrivati a turno vivo, e `onTurnEnd` lo consegna.
+    const h = harness({ topicExists: () => true });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    h.svc.setGlobalCap({ auto: false, max: 1 });
+    seedTask(h.db, { id: "t1", status: "todo", createdAt: "2020-01-01T00:00:00.000Z" });
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    seedTask(h.db, { id: "t2", status: "in_progress", assignedTopicId: "topic-live", attempts: 1, dispatchState: "working", createdAt: "2020-01-02T00:00:00.000Z" });
+    await h.dispatcher.resume("t2", "il PRIMO messaggio");
+    await flush();
+    expect(h.turns.length).toBe(1); // in attesa: il posto è di t1
+
+    // Si libera posto (il tetto sale) e arriva un secondo messaggio.
+    h.svc.setGlobalCap({ auto: false, max: 5 });
+    void h.dispatcher.resume("t2", "il SECONDO messaggio"); // parte davvero: il turno resta in volo
+    await flush();
+    expect(h.turns.length).toBe(2);
+    expect(h.turns[1].content).toContain("il SECONDO messaggio");
+
+    // E il primo non è morto col timer: arriva col turno successivo.
+    h.finishTurn();
+    await flush();
+    expect(h.turns.length).toBe(3);
+    expect(h.turns[2].content).toContain("il PRIMO messaggio");
+  });
+
   it("reconcile requeues a starting orphan (kickoff may never have reached the CLI)", async () => {
     // Crash in the claim→bind window: there may be NO session to resume, so a
     // clean re-claim beats resuming into a possibly-empty conversation.
@@ -1266,7 +1424,7 @@ describe("task-dispatcher", () => {
     expect(h2.turns[0].content).not.toContain("PLAN FIRST");
   });
 
-  it("kickoff teaches the step checklist (nested subtasks, self-closable) and output_url", async () => {
+  it("kickoff teaches the step checklist (nested subtasks, self-closable) and the tab+file delivery model", async () => {
     const h = harness();
     h.svc.updateBoardSettings(PID, { autoDispatch: true });
     seedTask(h.db, { id: "t1", status: "todo" });
@@ -1276,7 +1434,12 @@ describe("task-dispatcher", () => {
     expect(kickoff).toContain('parent_task_id="t1"');
     expect(kickoff).toContain('status="done"'); // marca ogni step done
     expect(kickoff).toContain("TUTTI i tuoi step devono essere done");
-    expect(kickoff).toContain("output_url");
+    // Consegna = tab del task + file consegnati, niente concetto "Output":
+    // l'agente deve sapere che una pagina viva si apre come TAB, non si dichiara
+    // come url in un campo a parte.
+    expect(kickoff).toContain("open_browser_pane");
+    expect(kickoff).toContain("FILE CONSEGNATI");
+    expect(kickoff).not.toContain("output_url");
   });
 
   it("kickoff carries the OPEN subtasks already on the board (accorpare non fa sparire il lavoro)", async () => {
@@ -1796,6 +1959,86 @@ describe("task-dispatcher — rete di sicurezza sulla liveness", () => {
     expect(h.task("t1")!.status).toBe("review");
     expect(h.turns.length).toBe(1);                   // nessun turno in più: budget finito
     expect(h.dispatcher.isInFlight("t1")).toBe(false); // slot libero
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// La regola dell'anteprima vive in UN posto solo.
+//
+// Era scritta cinque volte — protocollo, kickoff, resume, schema del tool MCP,
+// commento del componente — e divergeva: gli envelope dicevano DUE rami
+// (UI statica → screenshot, UI dinamica → video), così una consegna senza
+// superficie renderizzata (un piano, un'architettura) cadeva nel ramo
+// «statica» e l'agente fotografava il documento. Ora la stringa è
+// `PREVIEW_RULE` in shared/board.ts e questi test sono ciò che impedisce alla
+// sesta copia di nascere.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("PREVIEW_RULE — una stringa sola, in tutti gli envelope", () => {
+  it("il kickoff porta la regola VERBATIM (tre rami, non due)", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    const kickoff = h.turns[0].content;
+    // Estratta per STRUTTURA (dalla riga «EVIDENZA DI REVIEW» a «Cancello
+    // unico»), non cercando la costante: un test che cerca la stringa che ha
+    // appena interpolato non può fallire.
+    const kickoffPreviewRule = extractPreviewRule(kickoff);
+    expect(kickoffPreviewRule).toBe(PREVIEW_RULE);
+    // E una sola volta: due blocchi nello stesso envelope sarebbero già la
+    // divergenza che ricomincia.
+    expect(kickoff.split(PREVIEW_RULE).length - 1).toBe(1);
+    expect(kickoff).toContain("· DIAGRAMMA");
+    expect(kickoff).not.toContain("UI STATICA"); // il vecchio ramo a due vie è sparito
+  });
+
+  it("il resume porta la STESSA regola, non un riassunto che perde un ramo", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "in_progress", assignedTopicId: "topic-42", attempts: 1 });
+
+    void h.dispatcher.resume("t1", "riprendi");
+    await flush();
+
+    const resumePreviewRule = extractPreviewRule(h.turns[0].content);
+    expect(resumePreviewRule).toBe(PREVIEW_RULE);
+  });
+
+  it("lo schema del tool MCP `update_task.preview_image` È la regola", () => {
+    const updateTask = toolsForProfile("dispatch").find((t) => t.name === "update_task");
+    const mcpToolSchema = updateTask!.inputSchema.properties as Record<string, { description: string }>;
+    expect(mcpToolSchema.preview_image.description).toBe(PREVIEW_RULE);
+  });
+
+  it("i criteri sono MISURABILI: la soglia della card esce dal numero, non da un aggettivo", () => {
+    // 144/268 = il riquadro `max-h-36 object-cover` della card. Se qualcuno
+    // cambia il layout e non la costante, la regola mente agli agenti.
+    expect(PREVIEW_CARD_MAX_RATIO).toBeCloseTo(0.537, 3);
+    expect(PREVIEW_RULE).toContain(PREVIEW_CARD_MAX_RATIO.toFixed(3));
+    expect(PREVIEW_RULE).toContain("≤20s");        // il tetto del video
+    expect(PREVIEW_RULE).toContain("DUE O PIÙ STATI"); // il criterio del ramo video
+  });
+
+  it("nessuna sesta copia: il testo dei rami esiste solo in shared/board.ts", () => {
+    // Il marcatore è una riga della costante. Chi riscrive la regola a mano in
+    // un altro file la ricopia quasi certamente da qui — e questo test lo vede.
+    const MARK = "· DIAGRAMMA .svg";
+    const roots = ["server", "scripts", "shared", "client/src"];
+    const repo = join(import.meta.dir, "..", "..");
+    const hits: string[] = [];
+    const walk = (dir: string) => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        if (e.name === "node_modules" || e.name.startsWith(".")) continue;
+        const p = join(dir, e.name);
+        if (e.isDirectory()) { walk(p); continue; }
+        if (!/\.(ts|tsx)$/.test(e.name)) continue;
+        if (readFileSync(p, "utf8").includes(MARK)) hits.push(p.slice(repo.length + 1));
+      }
+    };
+    for (const r of roots) walk(join(repo, r));
+    expect(hits.sort()).toEqual(["server/services/task-dispatcher.test.ts", "shared/board.ts"]);
   });
 });
 

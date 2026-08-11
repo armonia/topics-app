@@ -22,8 +22,6 @@ import { useModalDialog } from '../hooks/useModalDialog';
 import { MODAL_LAYER } from '../lib/modalStyles';
 import { hasDiffBlocks, parseMessageWithDiffs, type MessageSegment } from '../lib/diffParser';
 import { DiffBlock, type DiffBlockHandle } from './Chat/DiffBlock';
-import { PlanView } from './Chat/PlanView';
-import { isPlanResponse } from './Chat/planDetection';
 import { parseSlashInvocation } from '../../../shared/slash-invocation';
 import { isAwaitingHuman } from '../../../shared/types';
 
@@ -609,7 +607,7 @@ const CodeBlock = memo(function CodeBlock({ children, className }: { children: R
   );
 });
 
-// Shared markdown components config (exported for reuse in PlanView)
+// Shared markdown components config (exported for reuse in the editor panes)
 /**
  * Process React children to highlight @mentions in text nodes.
  */
@@ -1003,14 +1001,11 @@ interface MessageContentProps {
   cacheCreation1hTokens?: number | null;
   usageCompletionTokens?: number | null;
   costCents?: number | null;
-  // Plan mode
-  onPlanApprove?: () => void;
   /** La decisione presa su un piano proposto — vedi <ToolCallRow>. */
   onPlanDecision?: (approved: boolean) => void;
   /** Il comando che ha aperto QUESTO turno, quando l'utente l'ha digitato:
    *  la CLI lo espande prima del turno e sul filo non resta traccia. */
   invokedCommand?: { command: string; args?: string } | null;
-  onPlanReject?: () => void;
   // Session viewer
   /**
    * The session key this message belongs to. Threaded down to
@@ -1052,7 +1047,7 @@ function TurnErrorBanner({ text }: { text: string }) {
   );
 }
 
-export const MessageContent = memo(function MessageContent({ content, role, thinking, toolCalls, blocks, media, partial, isLast, turnStartedAt, usagePromptTokens, usageCompletionTokens, costCents, cacheReadTokens, cacheCreationTokens, cacheCreation1hTokens, onPlanApprove, onPlanReject, onPlanDecision, invokedCommand, sessionKey, onMessage }: MessageContentProps) {
+export const MessageContent = memo(function MessageContent({ content, role, thinking, toolCalls, blocks, media, partial, isLast, turnStartedAt, usagePromptTokens, usageCompletionTokens, costCents, cacheReadTokens, cacheCreationTokens, cacheCreation1hTokens, onPlanDecision, invokedCommand, sessionKey, onMessage }: MessageContentProps) {
   const { cleanText: rawCleanText, mediaPaths: extractedMediaPaths, voicePaths } = useMemo(() => {
     const result = extractMediaPaths(content);
     return result;
@@ -1113,10 +1108,6 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
     const tools = (blocks ?? []).flatMap((b) => (b.kind === 'tool' ? [b.toolCall] : [])).concat(toolCalls ?? []);
     return !tools.some((t) => /^(skill|slashcommand|slash_command)$/i.test(t.name));
   }, [invokedCommand, role, blocks, toolCalls]);
-
-  // Plan detection is reused at both legacy-path gates below; cleanText is
-  // already memoized so this dependency is stable.
-  const planResp = useMemo(() => isPlanResponse(cleanText), [cleanText]);
 
   // Il turno è fermo su una domanda a schermo? Guarda entrambe le sorgenti: la
   // timeline `blocks` (percorso attuale) e il vecchio secchio `toolCalls`, così
@@ -1348,18 +1339,16 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
               </div>
             )}
 
-            {/* Plan view - detect plan-format responses */}
-            {cleanText && !partial && planResp && onPlanApprove && (
-              <PlanView
-                content={cleanText}
-                onApprove={onPlanApprove}
-                onReject={onPlanReject || (() => {})}
-                isStreaming={partial}
-              />
-            )}
-
             {/* Main content - inline tool calls or plain */}
-            {cleanText && (!planResp || !onPlanApprove || partial) && (
+            {/* Il piano NON ha più una vista sua qui. Quando un turno propone e
+                aspetta, la decisione sta in due posti che dicono la stessa cosa:
+                il pannello sulla riga del tool e la barra sopra il composer
+                (`PlanApprovalBar`). Una terza superficie — che si accendeva a
+                fiuto su qualunque prosa con «## Plan» e due passi numerati, e
+                approvando NON alzava l'autonomia — rimandava il turno nella
+                stessa plan mode da cui non poteva uscire. Vedi
+                `shared/plan-decision.ts`. */}
+            {cleanText && (
               hasDiffBlocks(cleanText) ? (
                 <DiffBlocksWithApplyAll segments={parseMessageWithDiffs(cleanText)} />
               ) : hasInline ? (

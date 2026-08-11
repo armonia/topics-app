@@ -218,6 +218,17 @@ Two things the sidecar needs that a naïve `--compile` drops, both handled:
   dir is absent. **Regenerate the manifest whenever you add or rename a migration**
   (`bun run scripts/gen-migrations-manifest.ts` — the sidecar build script also runs
   it, so CI ships a current schema).
+
+  **Numbering.** The number in front of a migration is *ordering*, not identity: the
+  applied-migrations registry (`schema_migrations`) is keyed by **file name**, so two
+  files that happen to share a number both apply, in `(number, name)` order. That is
+  the net under the real failure — on 2026-08-10 two branches developed in parallel
+  both produced an `089`, and the old number-keyed registry skipped the second one
+  **silently, forever**, while the code that assumed those columns landed anyway.
+  A shared number is still ambiguous to read, so `bun run check:migrations` fails when
+  your branch introduces a number that already exists on `main` (it runs in CI, and it
+  tells you the first free number). Never renumber a migration that is already on
+  `main`: it is applied on live databases, and renaming it would make it re-run.
 - **playwright-core / chromium-bidi / electron** are marked `--external` in the compile
   (optional server-side CDP fallback with unresolvable optional deps; the native
   WKWebView pane is the primary browser).

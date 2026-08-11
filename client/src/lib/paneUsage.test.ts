@@ -13,6 +13,7 @@ import {
   ensurePaneUsageFresh,
   getBrowserPaneUsage,
   browserPaneLabel,
+  paneIdFromWebviewLabel,
   _resetPaneUsage,
   _setPaneUsageSnapshot,
 } from './paneUsage';
@@ -99,6 +100,34 @@ describe('pane browser (RES-ATTR-02)', () => {
     // Se il prefisso cambia da una parte sola, il tooltip smette di trovare la
     // misura e nessun test se ne accorgerebbe altrimenti.
     expect(browserPaneLabel('abc')).toBe('browserpane-abc');
+  });
+
+  it('una pane RICREATA non perde la misura, e paga anche la vista che non è morta', () => {
+    // Vista col mutex avvelenato: rifiuta di chiudersi, resta registrata sotto
+    // l'etichetta vecchia, e la pane riapre su una generazione nuova
+    // (`browser_close`/`burn_pane_label` in lib.rs). Cercare la sola etichetta
+    // esatta avrebbe fatto sparire il numero proprio dopo la ricreazione — e
+    // due processi WebContent su una pane sola sono la cosa da vedere, non da
+    // nascondere.
+    _setPaneUsageSnapshot([], {
+      webviews: [
+        { label: 'browserpane-pane-7', memoryMB: 400, cpuPercent: 0 },   // la morta
+        { label: 'browserpane-~1~pane-7', memoryMB: 120, cpuPercent: 12 }, // la nuova
+      ],
+    });
+    const usage = getBrowserPaneUsage('pane-7');
+    expect(usage?.memoryMB).toBe(520);
+    expect(usage?.processCount).toBe(2);
+  });
+
+  it('la generazione si legge solo quando è una generazione', () => {
+    // Un id che comincia per `~` non va mutilato: meglio non riconoscerlo che
+    // attribuire la misura a una pane sbagliata.
+    expect(paneIdFromWebviewLabel('browserpane-abc')).toBe('abc');
+    expect(paneIdFromWebviewLabel('browserpane-~2~abc')).toBe('abc');
+    expect(paneIdFromWebviewLabel('browserpane-~abc')).toBe('~abc');
+    expect(paneIdFromWebviewLabel('browserpane-~x~abc')).toBe('~x~abc');
+    expect(paneIdFromWebviewLabel('main')).toBeNull();
   });
 
   it('una pane browser senza webview associata dice "non ancora misurato"', () => {

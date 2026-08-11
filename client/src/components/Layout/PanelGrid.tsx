@@ -210,7 +210,7 @@ interface PanelGridProps {
   isSessionLoading: (sessionKey: string) => boolean;
   isSessionStreaming: (sessionKey: string) => boolean;
   wasSessionStopped: (sessionKey: string) => boolean;
-  stopSession: (sessionKey: string) => boolean;
+  stopSession: (sessionKey: string) => Promise<boolean>;
   sendMessage: (sessionKey: string, content: string, options?: SendMessageOptions) => Promise<boolean>;
   editMessage?: (sessionKey: string, messageId: string, newContent: string) => Promise<boolean>;
   regenerateMessage?: (sessionKey: string, messageId: string) => Promise<boolean>;

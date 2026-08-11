@@ -94,17 +94,18 @@ export function getBrowserPaneTitle(paneId: string): string {
 }
 
 /** Pure gate: should an incoming auto (page-poll) title be written? Skip blank
- *  titles, no-op writes, and any pane the user has pinned with a manual rename.
+ *  titles, no-op writes, and any pane whose label someone DECIDED — la rinomina
+ *  a mano ('user') o il nome che l'agente ha dato alla tab di un task ('agent').
  *  Shared by the store-backed path (standalone) and the project-layout path so
- *  the "user rename wins" rule is defined once. */
+ *  the rule is defined once. */
 export function shouldPersistBrowserTitle(
   currentTitle: string | undefined,
-  currentSource: 'auto' | 'user' | undefined,
+  currentSource: 'auto' | 'agent' | 'user' | undefined,
   incoming: string,
 ): boolean {
   const next = incoming.trim();
   if (!next) return false; // a page with no <title> pushes '' — don't erase
-  if (currentSource === 'user') return false; // manual rename is sticky
+  if (currentSource === 'user' || currentSource === 'agent') return false; // etichetta decisa: appiccicosa
   if (currentTitle === next) return false; // unchanged
   return true;
 }
