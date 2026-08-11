@@ -183,6 +183,17 @@ describe("boot · un solo replay dello store per sessione", () => {
       driveDopo.catch(() => {});
       await waitFor(() => suDi(keyDopo).length >= 2, 10_000);
 
+      // La misura, PRIMA delle asserzioni: quando la barra è rossa i numeri
+      // sono la diagnosi, e un log che non esce perché l'expect è saltato
+      // prima non serve a nessuno.
+      const kb = (n: number) => `${(n / 1024).toFixed(1)} KB`;
+      console.log(
+        `[misura] store ${kb(storePrima)} · PRIMA ${replayIntegraliDi(keyPrima)} replay integrali, ` +
+        `${suDi(keyPrima).length} attach, ${kb(byteDi(keyPrima))} · ` +
+        `DOPO ${replayIntegraliDi(keyDopo)} replay integrali, ${suDi(keyDopo).length} attach, ${kb(byteDi(keyDopo))} ` +
+        `(−${(100 * (1 - byteDi(keyDopo) / byteDi(keyPrima))).toFixed(0)}%)`,
+      );
+
       // LA BARRA. Prima: due replay integrali (sonda + fase 1) più l'attach
       // mirato della fase 2. Dopo: UNO solo, più lo stesso attach mirato.
       expect(replayIntegraliDi(keyPrima)).toBe(2);
