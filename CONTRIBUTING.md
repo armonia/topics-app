@@ -269,13 +269,26 @@ page but are no longer built, signed, or updated.
 
 ## Testing
 
+**I quattro cancelli** — verdi tutti e quattro prima di consegnare, non tre su quattro:
+
 ```bash
-bun run typecheck        # client + server + e2e
-bun run lint             # eslint (client)
+bun run typecheck        # client + server + e2e (~20s)
+bun run lint             # eslint (client) (~17s)
+bun run check:deadcode   # knip — un file che nessuno importa È codice morto (~5s)
 bun run test:unit        # bun:test — moduli puri (~70s, ~4100 test)
+```
+
+```bash
 bun run test             # E2E Playwright, seriale (~35 min)
 bun run test:e2e:shards  # E2E in parallelo sulla stessa macchina  ← usa questo
 ```
+
+**Aggiungi uno script che si lancia a mano** (una sonda, un banco, una misura)?
+Dichiaralo in `knip.jsonc` col suffisso `!` — `"scripts/webrtc-probe.ts!", // misura a
+mano: bun run scripts/webrtc-probe.ts` — nello **stesso commit** che aggiunge il file,
+con accanto la riga che dice come si lancia. Senza, `check:deadcode` è rosso: l'11/08
+tre card di fila hanno lasciato `main` rosso esattamente così. Il cancello aveva ragione
+ogni volta — la dichiarazione mancava davvero.
 
 **E2E in parallelo.** Playwright gira con `workers: 1` e `fullyParallel: false`
 perché i test condividono UN server e UN SQLite: dentro un singolo processo la
