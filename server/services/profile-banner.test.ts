@@ -101,7 +101,7 @@ describe("sparkPath", () => {
 
 describe("renderBanner", () => {
   test("è un documento XML ben formato", () => {
-    const svg = renderBanner(STATS, { name: "zorahrel" });
+    const svg = renderBanner(STATS, { name: "pippo" });
     expect(benFormato(svg)).toEqual([]);
     expect(svg.startsWith("<svg xmlns=")).toBe(true);
   });

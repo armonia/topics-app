@@ -32,37 +32,12 @@
  */
 
 import type { Database } from "bun:sqlite";
-
-export interface ProfileStats {
-  sessions: { total: number; open: number };
-  messages: { total: number; assistant: number };
-  /** Token, cache inclusa. `chat` = i messaggi, `agents` = il lavoro della
-   *  board: sono due fonti diverse e sommarle è il punto (guardarne una sola
-   *  faceva sembrare scarico proprio il giorno in cui la board aveva lavorato
-   *  di più). */
-  tokens: { total: number; chat: number; agents: number };
-  cost: { measuredUsd: number; uncertainRows: number };
-  tasks: { total: number; done: number; inProgress: number };
-  projects: number;
-  /** Ore di esecuzione degli agenti sulla board (`tasks.agent_ms`). */
-  agentHours: number;
-  activity: {
-    /** Il primo messaggio mai scritto qui (ISO), o `null` su DB vuoto. */
-    firstSeen: string | null;
-    /** Giorni in cui è successo qualcosa. Non «giorni dall'inizio»: quelli li
-     *  saprebbe contare un calendario. */
-    activeDays: number;
-    /** Giorni consecutivi fino a oggi. Si interrompe solo dopo AVER SALTATO un
-     *  giorno intero: alle 9 del mattino la serie di ieri è ancora viva, e
-     *  azzerarla perché oggi non hai ancora aperto l'app è un contatore che
-     *  punisce chi dorme. */
-    streakDays: number;
-    /** Gli ultimi 30 giorni, per lo sparkline del banner. Include i giorni a
-     *  zero: una curva che salta i giorni vuoti comprime il tempo e disegna
-     *  una costanza che non c'è. */
-    last30: Array<{ date: string; tokens: number }>;
-  };
-}
+// La FORMA sta in `shared/types.ts` perché attraversa il filo: il pannello del
+// profilo la legge dalla stessa dichiarazione, invece di tenerne una copia
+// destinata a divergere (`tests/unit/no-type-mirrors.test.ts`). Qui si
+// ri-esporta, così ogni import storico di questo modulo resta valido.
+import type { ProfileStats } from "../../shared/types";
+export type { ProfileStats };
 
 const VUOTO: ProfileStats = {
   sessions: { total: 0, open: 0 },

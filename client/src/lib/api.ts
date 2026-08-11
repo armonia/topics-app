@@ -1331,41 +1331,22 @@ export const appSettingsApi = {
 // storia sta in cima a `server/services/profile-stats.ts`.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export interface ProfileStats {
-  sessions: { total: number; open: number };
-  messages: { total: number; assistant: number };
-  tokens: { total: number; chat: number; agents: number };
-  /** Il costo MISURATO, e quante righe sono state escluse perché il loro costo
-   *  non è attendibile. Le due cose si mostrano insieme: un totale che
-   *  inghiotte in silenzio le righe dubbie è una bugia. */
-  cost: { measuredUsd: number; uncertainRows: number };
-  tasks: { total: number; done: number; inProgress: number };
-  projects: number;
-  agentHours: number;
-  activity: {
-    firstSeen: string | null;
-    activeDays: number;
-    streakDays: number;
-    last30: Array<{ date: string; tokens: number }>;
-  };
-}
-
-export interface DiscordActivityPreview {
-  details: string;
-  state?: string;
-  timestamps?: { start: number };
-  assets?: { large_image: string; large_text: string };
-}
-
-export interface DiscordPresenceStatus {
-  enabled: boolean;
-  level: DiscordDetailLevel;
-  connection: 'off' | 'connecting' | 'connected' | 'no_discord' | 'error';
-  user: { id?: string; username?: string; global_name?: string } | null;
-  lastError: string | null;
-  lastPublishedAt: number | null;
-  activity: DiscordActivityPreview | null;
-}
+// Le forme vivono in `shared/types.ts` e si RI-ESPORTANO: sono le stesse che
+// il server manda sul filo, e una copia di qua sarebbe l'ennesimo «KEEP IN
+// SYNC» che non tiene in sync niente (`tests/unit/no-type-mirrors.test.ts`).
+// `DiscordActivityPreview` è un alias locale: da questo lato l'attività è
+// sempre e solo un'anteprima da disegnare, mai qualcosa da pubblicare.
+export type {
+  ProfileStats,
+  DiscordPresenceStatus,
+  DiscordConnectionState,
+  DiscordActivity as DiscordActivityPreview,
+} from '../../../shared/types';
+import type {
+  ProfileStats,
+  DiscordPresenceStatus,
+  DiscordActivity as DiscordActivityPreview,
+} from '../../../shared/types';
 
 export const profileApi = {
   async stats(): Promise<{ stats: ProfileStats; name: string | null }> {
