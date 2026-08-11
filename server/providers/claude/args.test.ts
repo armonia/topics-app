@@ -11,7 +11,7 @@
  * la domanda giusta al momento giusto.
  */
 import { describe, expect, test } from "bun:test";
-import { buildClaudeArgs, buildClaudeOneshotArgs } from "./args";
+import { buildClaudeArgs, buildClaudeOneshotArgs, TRIMMED_TOOLS } from "./args";
 import { buildCodexArgs, buildCodexOneshotArgs } from "../codex/args";
 
 const BASE = {
@@ -50,6 +50,44 @@ describe("buildClaudeArgs — il deferral degli schemi MCP", () => {
   test("null non emette la flag: la CLI resta ai suoi settings", () => {
     expect(buildClaudeArgs({ ...BASE, toolSearch: null })).not.toContain("--settings");
     expect(buildClaudeArgs({ ...BASE })).not.toContain("--settings");
+  });
+});
+
+describe("buildClaudeArgs — gli schemi dei tool che il differimento non tocca", () => {
+  // Decomposto per ablazione appaiata il 11/08/2026 (CLI 2.1.227, HOME reale,
+  // rumore di fondo 0-4 token): dei 34.845 token di prefisso su opus-5[1m],
+  // `Workflow` da solo ne vale 7.856 — il 22,5%, più di CLAUDE.md e del
+  // catalogo skill messi insieme — ed è un tool che la sua stessa descrizione
+  // vieta senza un consenso umano esplicito, che a un agente dispacciato non
+  // arriva. I quattro insieme: −13.176 a ogni richiesta.
+  test("acceso: UN argomento a virgole, non un variadico", () => {
+    const args = buildClaudeArgs({ ...BASE, trimUnusedTools: true } as never);
+    const i = args.indexOf("--disallowed-tools");
+    expect(i).toBeGreaterThan(-1);
+    // Il valore è UNA stringa sola. `--disallowed-tools A B C` è variadico e in
+    // mezzo all'argv si mangerebbe la flag successiva.
+    expect(args[i + 1]).toBe("Workflow,Artifact,ReportFindings,ListAgents");
+    expect(args[i + 2]).toStartWith("--");
+  });
+
+  test("i quattro nomi sono esportati: il banco confronta il registro dei bracci con QUESTA lista", () => {
+    // Se qualcuno aggiunge un nome qui senza che il banco lo sappia, il
+    // cancello «stesso registro nei due bracci» diventa rosso — che è il modo
+    // giusto di accorgersene.
+    expect([...TRIMMED_TOOLS]).toEqual(["Workflow", "Artifact", "ReportFindings", "ListAgents"]);
+  });
+
+  test("spento (default): nessuna deny, il registro resta intero", () => {
+    expect(buildClaudeArgs({ ...BASE })).not.toContain("--disallowed-tools");
+    expect(buildClaudeArgs({ ...BASE, trimUnusedTools: false } as never)).not.toContain("--disallowed-tools");
+  });
+
+  test("`Task` e `Read` NON sono nella lista: sono ciò che rende capace l'agente", () => {
+    // Il criterio del taglio non è «pesa tanto» — `Task` vale quanto
+    // `Artifact` — è «l'agente non lo può usare comunque». Un agente del board
+    // i sotto-agenti li usa per le ricerche larghe.
+    expect(TRIMMED_TOOLS).not.toContain("Task" as never);
+    expect(TRIMMED_TOOLS).not.toContain("Read" as never);
   });
 });
 
