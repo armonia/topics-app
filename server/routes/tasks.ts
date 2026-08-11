@@ -123,11 +123,17 @@ export interface TasksRouterOpts {
    */
   taskBranchStatus?: (taskId: string) => Promise<BranchStatus | null>;
   /**
-   * The task branch and its current tip, for the delivery snapshot taken when a
-   * task enters `review`. `null` ⇒ no branch worktree (in-place task), nothing
-   * to audit later.
+   * The task branch and the most recent commit that is the task's OWN, for the
+   * delivery snapshot taken when a task enters `review`. Not the branch tip: a
+   * branch born from the shared checkout's HEAD carries commits inherited from
+   * whoever was working there, and pointing the audit at one of those makes the
+   * card claim someone else's work (10/08: `dd2aa40d` → `987cd8ae`).
+   *
+   * `null` ⇒ niente da fotografare (task in-place senza branch, o la domanda non
+   * ha avuto risposta: si lascia stare quel che c'è). `commit: null` ⇒ verificato,
+   * la card non ha prodotto codice — che è un'informazione, e va registrata.
    */
-  taskDeliveryRef?: (taskId: string) => Promise<{ branch: string; commit: string } | null>;
+  taskDeliveryRef?: (taskId: string) => Promise<{ branch: string; commit: string | null } | null>;
   /**
    * Dove girano i checks pre-review: la cartella del worktree del task e il commit
    * su cui sta in quel momento. `null` ⇒ nessun worktree di branch (task in-place),
