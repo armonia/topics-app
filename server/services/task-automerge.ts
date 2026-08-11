@@ -379,9 +379,6 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
             }
           }
         }
-            }
-          }
-        }
 
         // Fast path: the shared checkout is ALREADY on main → merge in place, so a
         // hot-reload/rebuild makes the landing live immediately. Requires a clean
