@@ -80,6 +80,65 @@ export interface ClaudeSpawnArgsOptions {
    */
   slimSkillListing?: boolean;
   /**
+   * Toglie dal registro gli schemi dei tool integrati che un agente del board
+   * non può usare — e che il differimento NON tocca, perché la CLI li tiene
+   * inline (`--disallowed-tools`).
+   *
+   * ── Perché è LA voce, e non il catalogo delle skill ─────────────────────────
+   * Il prefisso, decomposto per ablazione appaiata il 2026-08-11
+   * (`scripts/mcp-cap-bench/prefix-ladder.ts`, CLI 2.1.227, HOME reale, rumore
+   * di fondo fra due corse della base: 0-4 token). Su **haiku-4.5**, base
+   * 32.126 token:
+   *
+   *     Workflow ................  6.024 token   18,8%
+   *     Artifact ................  3.171          9,9%
+   *     Task (sotto-agenti) .....  3.128          9,7%   ← NON si tocca
+   *     CLAUDE.md dell'utente ...  2.229          6,9%   ← NON si tocca
+   *     catalogo skill ..........  1.683          5,2%   ← già tolto (slimSkillListing)
+   *     ReportFindings ..........    608          1,9%
+   *     ListAgents ..............    257          0,8%
+   *     elenco degli agenti .....      0                 (`--agents {}` non morde)
+   *     prompt di Topics ........     71          0,2%
+   *
+   * Cioè il pezzo più grosso del prefisso è la DESCRIZIONE DI UN TOOL SOLO. Il
+   * catalogo delle skill, che era la leva conosciuta, ne vale un settimo.
+   *
+   * ── E il modello cambia il numero, non il verso ────────────────────────────
+   * Le stesse ablazioni su **opus-5[1m]**, cioè il modello con cui gli agenti
+   * del board girano davvero (base 34.845 token): `Workflow` 7.856 (22,5%), e
+   * il taglio intero −17.457, **il 50,1% del prefisso**. La CLI manda ai
+   * modelli piccoli descrizioni più corte, quindi una misura fatta su haiku
+   * SOTTOSTIMA il risparmio di ~un terzo. Il banco, girato su opus, ha letto
+   * 17.416 token per richiesta: 41 token di scarto dalla previsione della
+   * scala, su 13 richieste di un turno vero.
+   *
+   * ── Perché questi quattro e non altri ──────────────────────────────────────
+   * Il criterio non è «pesa tanto», è «l'agente non lo può usare comunque»:
+   *  • `Workflow` — la sua stessa descrizione dice di NON chiamarlo senza un
+   *    consenso esplicito dell'umano nel prompt («ultracode», o la richiesta a
+   *    parole di orchestrare). Un agente dispacciato riceve un task, non una
+   *    conversazione: quel consenso non può arrivargli. 6.024 token per un tool
+   *    vietato per costruzione.
+   *  • `Artifact` — Topics non rende gli artefatti da nessuna parte (nessun
+   *    riferimento nel client né nel server): la consegna di un agente sono le
+   *    sue TAB e i suoi FILE.
+   *  • `ReportFindings` — serve solo alla code review ospitata dalla UI di
+   *    Claude Code, che qui non c'è; senza, i findings tornano testo.
+   *  • `ListAgents` — elenca i destinatari di `SendMessage`, che è già differito.
+   * Restano `Task` e `CLAUDE.md`, che pesano quanto Artifact e sono esattamente
+   * ciò che rende capace l'agente: tagliarli sposta il costo sui turni sprecati
+   * invece di toglierlo.
+   *
+   * Su haiku, misurato insieme a `slimSkillListing`: 32.123 → 20.383 token di
+   * prefisso, −11.742 a ogni richiesta, e i pezzi sommano (6.024 + 3.171 + 608
+   * + 257 + 1.683 = 11.743): l'ablazione è additiva, non c'è doppio conteggio.
+   * Su opus, 34.845 → 17.388: **−17.457 a OGNI richiesta, −50,1%**.
+   *
+   * Un solo argomento separato da virgole, non un variadico: `--disallowed-tools
+   * A B C` in mezzo all'argv si mangerebbe la flag successiva.
+   */
+  trimUnusedTools?: boolean;
+  /**
    * Il TETTO in token di un singolo risultato di tool MCP, o null per lasciare
    * quello della CLI (`MAX_MCP_OUTPUT_TOKENS`, default **25.000**).
    *
@@ -111,6 +170,14 @@ export interface ClaudeSpawnArgsOptions {
    */
   mcpOutputTokens?: number | null;
 }
+
+/**
+ * I tool integrati che `trimUnusedTools` toglie dal registro. Sta qui e non
+ * dentro la funzione perché è la LISTA che il banco deve poter confrontare col
+ * registro dei due bracci: un taglio che la CLI ignorasse in silenzio darebbe
+ * un risparmio di zero travestito da configurazione corretta.
+ */
+export const TRIMMED_TOOLS = ["Workflow", "Artifact", "ReportFindings", "ListAgents"] as const;
 
 /** Ciò che serve per un completamento usa-e-getta (auto-titolo, digest, SSE). */
 export interface ClaudeOneshotArgsOptions {
@@ -149,6 +216,13 @@ export function buildClaudeArgs(opts: ClaudeSpawnArgsOptions): string[] {
     // SEMPRE (vedi `lib/autonomy-mode.ts` — un flag solo non può
     // desincronizzarsi da sé stesso).
     "--permission-prompt-tool", opts.permissionPromptTool,
+    // Gli schemi dei tool integrati che il differimento NON tocca. Un solo
+    // argomento a virgole, e non `A B C`: la flag è variadica e in mezzo
+    // all'argv si porterebbe via quella dopo. Verificato che le due forme
+    // danno lo stesso taglio (−11.742 contro −11.743): la virgola non è
+    // ignorata in silenzio. Il perché dei quattro nomi sta accanto a
+    // `trimUnusedTools` in `ClaudeSpawnArgsOptions`.
+    ...(opts.trimUnusedTools ? ["--disallowed-tools", TRIMMED_TOOLS.join(",")] : []),
     // Gli schemi dei tool MCP viaggiano nel PREFISSO, cioè nella parte di prompt
     // che ogni richiesta del turno ripaga: un turno da 4 round-trip li paga 4
     // volte. Con il deferral la CLI manda i soli NOMI e carica lo schema quando
