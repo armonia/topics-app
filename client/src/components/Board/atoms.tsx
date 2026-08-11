@@ -1,5 +1,7 @@
 import { useState } from 'react';
-import type { TaskStatus } from '../../lib/board';
+import { Pencil, Sigma } from 'lucide-react';
+import type { TaskStatus, TaskLabel } from '../../lib/board';
+import type { LabelSource } from '../../../../shared/task-labels';
 import { STATUS_ICON_COLOR, DISPATCH_CHIP } from './constants';
 import { memorableId } from '../../lib/memorableId';
 
@@ -153,6 +155,42 @@ export function DispatchChip({ state, error }: { state: string; error?: string |
     >
       {Icon && <Icon className="h-3 w-3" aria-hidden />}
       {chip.text}
+    </span>
+  );
+}
+
+/**
+ * Il chip di un'etichetta. Due famiglie, e si vedono diverse perché fanno cose
+ * diverse: `visibile`/`invisibile` DECIDONO chi chiude la card (e portano il
+ * loro perché nel title), le altre servono solo a leggere e filtrare la board.
+ *
+ * `source` non è decorazione: un'etichetta `derived` è una misura che la
+ * consegna successiva può riscrivere, una `human` è una decisione che resta —
+ * e chi guarda la card deve poter distinguere le due prima di fidarsi.
+ */
+export function LabelChip({ label, source }: { label: TaskLabel; source: LabelSource }) {
+  const visibility = label === 'visibile' || label === 'invisibile';
+  const cls = label === 'invisibile'
+    ? 'bg-slate-500/20 text-slate-300'
+    : label === 'visibile'
+      ? 'bg-sky-500/15 text-sky-300'
+      : 'bg-white/10 text-app-text-heading';
+  const why = label === 'invisibile'
+    ? 'Non tocca nessuna riga di client/src: con la barra verde la può chiudere il conduttore.'
+    : label === 'visibile'
+      ? 'Tocca una superficie che si vede: resta in review finché non la guarda un umano.'
+      : null;
+  const origin = source === 'derived'
+    ? 'Derivata dal diff della consegna'
+    : source === 'agent' ? "Chiesta dall'agent" : 'Messa a mano';
+  return (
+    <span
+      data-testid={`card-label-${label}`}
+      title={why ? `${why} (${origin})` : origin}
+      className={`inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs md:text-[11px] ${cls}`}
+    >
+      {visibility && (source === 'derived' ? <Sigma className="h-3 w-3" aria-hidden /> : <Pencil className="h-3 w-3" aria-hidden />)}
+      {label}
     </span>
   );
 }
