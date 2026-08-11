@@ -51,6 +51,10 @@ const ERROR_STATUS: Record<string, number> = {
   // di proprieta, non 403 — non e un problema di permessi, e uno stato che nel
   // frattempo e cambiato sotto.
   task_not_yours: 409,
+  // La card era chiusa da un umano: riaprirla e' scavalcare quella decisione.
+  // 409 come gli altri rifiuti di stato, non 403 — non e un permesso mancante,
+  // e una decisione che esiste gia sulla card.
+  reopen_needs_human: 409,
 };
 
 /**
