@@ -9,6 +9,7 @@ import { createTaskDispatcher, rotateFrom, type DispatcherDeps } from "./task-di
 import { cancelled, type TurnEndInfo } from "../providers/stop-reason";
 import { beginAsk, endAsk } from "../lib/ask-user-bridge";
 import { beginPermission, endPermission } from "../lib/permission-bridge";
+import { TASK_LABELS_DDL } from "../db/test-schema";
 
 // Self-contained schema (mirrors migrations 001 + 026 + 031, tasks-relevant
 // subset). PRAGMA foreign_keys + the assigned_topic_id FK are faithful to prod
@@ -35,6 +36,7 @@ function freshDb(): Database {
     delivered_by TEXT, delivered_reason TEXT, created_by_topic_id TEXT,
     done_actor TEXT, reopened_at TEXT, reopened_by TEXT, reopened_actor TEXT
   )`);
+  db.run(TASK_LABELS_DDL); // migration 097 — rowToTask la legge per OGNI task
   db.run(`CREATE TABLE board_settings (
     project_id TEXT PRIMARY KEY, require_approval_for_done INTEGER DEFAULT 0,
     require_review_before_done INTEGER DEFAULT 0, block_status_with_pending INTEGER DEFAULT 0,

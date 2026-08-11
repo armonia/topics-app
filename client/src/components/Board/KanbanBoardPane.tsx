@@ -12,7 +12,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { DndContext, DragOverlay, KeyboardSensor, MouseSensor, TouchSensor, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
-import { AlertTriangle, Bot, Check, ChevronDown, ChevronRight, Loader2, Search, Settings, Target, UploadCloud, X } from 'lucide-react';
+import { AlertTriangle, Bot, Check, ChevronDown, ChevronRight, Loader2, Search, Settings, Tag, Target, UploadCloud, X } from 'lucide-react';
 import type { WSMessage } from '../../types';
 import { Menu } from '../Shared/Menu';
 import { ExternalSessionsBadge } from './ExternalSessionsBadge';
@@ -21,7 +21,8 @@ import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib
 import { currentTaskTarget, reflectTaskOpen, reflectTaskClose, subscribePopstateTask } from '../../lib/openTaskLink';
 import {
   boardApi, boardIdForPath, isProjectlessId, TASK_STATUSES, UNASSIGNED_PROJECT_ID,
-  type BoardProjectRef, type BoardTask, type TaskStatus, type BoardSettings,
+  VISIBILITY_LABELS, KIND_LABELS,
+  type BoardProjectRef, type BoardTask, type TaskStatus, type BoardSettings, type TaskLabel,
   type PublishProject, type DiffBundle, type DispatchCapacity, type GlobalSettings,
 } from '../../lib/board';
 import { groupByStatus, planDrop, type DropPlan, type OrderScope } from '../../lib/boardOrder';
@@ -357,9 +358,13 @@ function GlobalSettingsMenu({ onMessage }: { onMessage?: (handler: (msg: WSMessa
   );
 }
 
+interface BoardFilters {
+  priority: number[]; assignedTo: string[]; text: string; projectId: string[]; labels: TaskLabel[];
+}
+
 interface FilterPanelProps {
-  filters: { priority: number[]; assignedTo: string[]; text: string; projectId: string[] };
-  onFiltersChange: (filters: { priority: number[]; assignedTo: string[]; text: string; projectId: string[] }) => void;
+  filters: BoardFilters;
+  onFiltersChange: (filters: BoardFilters) => void;
   tasks: BoardTask[];
   mode: 'project' | 'all';
 }
@@ -394,6 +399,8 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
   const [prioOpen, setPrioOpen] = useState(false);
   const [asgOpen, setAsgOpen] = useState(false);
   const [projOpen, setProjOpen] = useState(false);
+  const lblBtnRef = useRef<HTMLButtonElement>(null);
+  const [lblOpen, setLblOpen] = useState(false);
 
   const togglePriority = (p: number) => {
     const updated = filters.priority.includes(p)
@@ -407,7 +414,11 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
       : [...filters.assignedTo, a];
     onFiltersChange({ ...filters, assignedTo: updated });
   };
-  const reset = () => onFiltersChange({ priority: [], assignedTo: [], text: '', projectId: [] });
+  const toggleLabel = (l: TaskLabel) => {
+    const updated = filters.labels.includes(l) ? filters.labels.filter((x) => x !== l) : [...filters.labels, l];
+    onFiltersChange({ ...filters, labels: updated });
+  };
+  const reset = () => onFiltersChange({ priority: [], assignedTo: [], text: '', projectId: [], labels: [] });
 
   const assignees = Array.from(new Set(tasks.map((t) => t.assignedTo).filter(Boolean) as string[])).sort();
 
@@ -465,7 +476,7 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
   );
   const soleProject = pickedProjects.length === 1 ? pickedProjects[0]! : null;
 
-  const anyActive = filters.priority.length + filters.assignedTo.length + filters.projectId.length + (filters.text ? 1 : 0) > 0;
+  const anyActive = filters.priority.length + filters.assignedTo.length + filters.projectId.length + filters.labels.length + (filters.text ? 1 : 0) > 0;
 
   // Same chip look the composer uses for its model/priority/project pickers.
   // Explicit h-6 (not py-*) so the search <input> — which renders taller from
@@ -552,6 +563,36 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
           </Menu>
         </>
       )}
+
+      {/* Etichette — chip + Menu. Il caso d'uso che le ha fatte nascere si
+          compone qui: «visibile» acceso mentre si guarda la colonna Review è
+          esattamente la lista che un umano deve guardare. */}
+      <button
+        ref={lblBtnRef} onClick={() => setLblOpen(true)}
+        data-testid="filter-labels-chip"
+        title="Filtra per etichetta"
+        className={chip(filters.labels.length > 0)}
+      >
+        <Tag className="h-3 w-3 shrink-0" />
+        {filters.labels.length === 1 ? filters.labels[0] : 'Etichette'}
+        {filters.labels.length > 1 && <span className="tabular-nums text-app-text-secondary">·{filters.labels.length}</span>}
+        <ChevronDown className="h-3 w-3 text-app-text-muted" />
+      </button>
+      <Menu open={lblOpen} anchorRef={lblBtnRef} onClose={() => setLblOpen(false)} minWidth={200} role="listbox">
+        <p className={menuHeader}>Chi la chiude</p>
+        {VISIBILITY_LABELS.map((l) => (
+          <FilterOption
+            key={l} selected={filters.labels.includes(l)} onClick={() => toggleLabel(l)} label={l}
+            title={l === 'visibile'
+              ? 'Tocca client/src: la guarda un umano prima di chiuderla'
+              : 'Non tocca niente che si veda: con la barra verde la chiude il conduttore'}
+          />
+        ))}
+        <p className={menuHeader}>Genere</p>
+        {KIND_LABELS.map((l) => (
+          <FilterOption key={l} selected={filters.labels.includes(l)} onClick={() => toggleLabel(l)} label={l} />
+        ))}
+      </Menu>
 
       {/* Reset — only when something is active */}
       {anyActive && (
@@ -665,13 +706,19 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
     assignedTo: string[];
     text: string;
     projectId: string[];
+    /** Etichette in AND — «solo le visibili in review» è questo più la colonna. */
+    labels: TaskLabel[];
   }
   const storageKey = `board:filters-${mode === 'all' ? 'all' : projectId}`;
   const [filters, setFilters] = useState<Filters>(() => {
     try {
       const stored = localStorage.getItem(storageKey);
-      return stored ? JSON.parse(stored) : { priority: [], assignedTo: [], text: '', projectId: [] };
-    } catch { return { priority: [], assignedTo: [], text: '', projectId: [] }; }
+      // `labels` è arrivato dopo: un filtro salvato da una versione precedente
+      // non ce l'ha, e senza il default `filters.labels.length` esploderebbe al
+      // primo render su ogni board già usata.
+      const parsed = stored ? JSON.parse(stored) : null;
+      return { priority: [], assignedTo: [], text: '', projectId: [], labels: [], ...(parsed ?? {}) };
+    } catch { return { priority: [], assignedTo: [], text: '', projectId: [], labels: [] }; }
   });
   useEffect(() => {
     try { localStorage.setItem(storageKey, JSON.stringify(filters)); } catch { /* private mode */ }
@@ -967,6 +1014,11 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
       if (filters.assignedTo.length > 0 && !filters.assignedTo.includes(t.assignedTo || '')) return false;
       if (filters.text && !t.text.toLowerCase().includes(filters.text.toLowerCase())) return false;
       if (filters.projectId.length > 0 && !filters.projectId.includes(t.projectId)) return false;
+      // AND, come gli altri: «bugfix E visibile» è una lista sola, non due.
+      if (filters.labels.length > 0) {
+        const on = new Set(t.labels.map((l) => l.label));
+        if (!filters.labels.every((l) => on.has(l))) return false;
+      }
       return true;
     });
     return groupByStatus(visible, orderScope);
