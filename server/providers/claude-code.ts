@@ -565,12 +565,24 @@ function peekClaudeSessionId(sessionKey: string): string | null {
  * narrow row read (not the full `getTopicBySessionKey`) to avoid a circular
  * import with utils.ts.
  */
-function getTopicSpawnOverridesForSession(sessionKey: string): { effort: string | null; model: string | null; mcpPolicy: string | null; autonomy: string | null } {
+function getTopicSpawnOverridesForSession(sessionKey: string): { effort: string | null; model: string | null; mcpPolicy: string | null; autonomy: string | null; dispatched: boolean } {
   try {
     const row = getDatabase()
-      .prepare("SELECT effort, model, provider, mcp_policy, autonomy_level FROM topics WHERE session_key = ? LIMIT 1")
-      .get(sessionKey) as { effort?: string | null; model?: string | null; provider?: string | null; mcp_policy?: string | null; autonomy_level?: string | null } | undefined;
-    if (!row) return { effort: null, model: null, mcpPolicy: null, autonomy: null };
+      .prepare("SELECT id, effort, model, provider, mcp_policy, autonomy_level FROM topics WHERE session_key = ? LIMIT 1")
+      .get(sessionKey) as { id?: string; effort?: string | null; model?: string | null; provider?: string | null; mcp_policy?: string | null; autonomy_level?: string | null } | undefined;
+    if (!row) return { effort: null, model: null, mcpPolicy: null, autonomy: null, dispatched: false };
+    // «Questo topic è l'agente di un task?» Serve a decidere se mandare il
+    // catalogo delle skill coi soli nomi. E non si chiede a `mcp_policy`:
+    // 'bridge-only' è la scelta sullo SCOPING MCP, e un board può metterla su
+    // 'inherit' (`dispatch_mcp`) restando dispacciato — sono due assi diversi.
+    // Lettura stretta, come il resto qui, per non ricreare l'import circolare
+    // con utils.ts.
+    let dispatched = false;
+    try {
+      dispatched = !!getDatabase()
+        .prepare("SELECT 1 FROM tasks WHERE assigned_topic_id = ? LIMIT 1")
+        .get(row.id ?? "");
+    } catch { /* board assente: resta una chat come le altre */ }
     const provider = row.provider ?? null;
     const providerIsUs = provider === null || provider === "claude-code" || provider === "claude-code-team";
     // Loose shape guard only (argv array — no shell involved): the CLI is the
@@ -582,9 +594,9 @@ function getTopicSpawnOverridesForSession(sessionKey: string): { effort: string 
     const model = providerIsUs && typeof row.model === "string" && /^[A-Za-z0-9._[\]-]{1,64}$/.test(row.model)
       ? row.model
       : null;
-    return { effort: row.effort ?? null, model, mcpPolicy: row.mcp_policy ?? null, autonomy: row.autonomy_level ?? null };
+    return { effort: row.effort ?? null, model, mcpPolicy: row.mcp_policy ?? null, autonomy: row.autonomy_level ?? null, dispatched };
   } catch {
-    return { effort: null, model: null, mcpPolicy: null, autonomy: null };
+    return { effort: null, model: null, mcpPolicy: null, autonomy: null, dispatched: false };
   }
 }
 
@@ -1880,6 +1892,14 @@ export class ClaudeCodeProvider implements AIProvider {
       // `TOPICS_TOOL_SEARCH=off` lo spegne senza toccare il codice, per il
       // giorno in cui una release della CLI cambia il significato del valore.
       toolSearch: process.env.TOPICS_TOOL_SEARCH === "off" ? null : (process.env.TOPICS_TOOL_SEARCH || "1"),
+      // Solo gli agenti del board: il catalogo delle skill dell'UTENTE
+      // (14.067 byte, ~4.200 token di prefisso misurati il 10/08) sta nel
+      // prefisso e si ripaga a ogni turno, per un elenco che un agente col
+      // compito già scritto nel task non legge. Restano i nomi: `Skill` non
+      // sparisce, sparisce la descrizione — stessa forma del deferral degli
+      // schemi MCP. Il perché sta accanto all'opzione, in `claude/args.ts`.
+      // `TOPICS_SKILL_LISTING=full` lo rimette intero senza toccare il codice.
+      slimSkillListing: overrides.dispatched && process.env.TOPICS_SKILL_LISTING !== "full",
       claudeSessionId,
       isNewSession,
     });
