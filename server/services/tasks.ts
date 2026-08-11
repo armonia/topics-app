@@ -33,14 +33,14 @@ import { readGlobalCap } from "./dispatch-capacity";
 // ri-esporta ma NON porta i nomi in scope locale, e qui sotto servono — da cui
 // l'import separato. Della lista `TASK_STATUSES` questo modulo non è una porta:
 // chi la vuole la prende da `shared/board`.
-export type { TaskStatus, TaskComment, BoardSettings, BoardSettingsPatch, BlockerRef } from "../../shared/board";
+export type { TaskStatus, TaskComment, BoardSettings, BoardSettingsPatch, BlockerRef, SubtaskWork } from "../../shared/board";
 import {
   MAX_FANOUT, PREVIEW_PROMOTE_MAX_RATIO, TASK_STATUSES,
-  formatStatusEvent, hasPlanApproveOption, isAgentWorking, normalizeActionLabel,
-  readTaskWeight, statusEventEnters,
+  deriveSubtaskWork, formatStatusEvent, hasPlanApproveOption, isAgentWorking,
+  isUnattributedSubtask, normalizeActionLabel, readTaskWeight, statusEventEnters,
 } from "../../shared/board";
 import { EFFORT_TIERS } from "../../shared/effort";
-import type { TaskStatus, TaskComment, BoardSettings, BoardSettingsPatch, BlockerRef, TaskWeight } from "../../shared/board";
+import type { TaskStatus, TaskComment, BoardSettings, BoardSettingsPatch, BlockerRef, SubtaskWork, TaskWeight } from "../../shared/board";
 
 export type Actor = "human" | "agent";
 
@@ -156,6 +156,18 @@ export interface Task {
    * puntata non esiste più (edge orfano).
    */
   blockedBy: BlockerRef | null;
+  /**
+   * Chi lavora questo sottotask quando non ha un agente suo — DERIVATO dalla
+   * catena dei padri, non da una colonna. `null` = la domanda non si pone (non
+   * è un sottotask, non è in corso, o ha già topic/chip).
+   *
+   * Distingue le due facce di una card `in_progress` senza topic né chip: la
+   * lavora un antenato dentro il proprio turno (`parent-turn`, il flusso voluto
+   * e la norma), oppure non la lavora nessuno (`unattended`, raro ma reale — e
+   * fin qui invisibile, perché il recupero orfani filtra sul chip di dispatch
+   * che in questa forma non c'è).
+   */
+  subtaskWork: SubtaskWork | null;
   /**
    * L'altra metà del legame: quanti task stanno aspettando QUESTO, contati sul
    * DB. Il chip «N in attesa» sulla card si disegna da qui, per lo stesso
@@ -841,6 +853,70 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     return r?.n ?? 0;
   }
 
+  /**
+   * Chi lavora un sottotask che non ha né topic né chip: risalendo i padri.
+   *
+   * Sta in `rowToTask` accanto a `resolveBlocker` per due ragioni. La prima: il
+   * client non può risolverlo da sé — la sua lista è un progetto, `rootsOnly`,
+   * non archiviati, e il padre di un sottotask quasi mai ci sta dentro. La
+   * seconda: `rowToTask` è il mappatore UNICO, quindi metterlo qui è l'unico
+   * modo perché `list`, `get`, `update` e `boundRootOf` dicano tutti la stessa
+   * cosa; riempirlo nei soli `list`/`get` (come i contatori dei sottotask) lo
+   * lascerebbe spento sul payload di ritorno di ogni scrittura.
+   *
+   * Costa ZERO sul caso normale: la guardia `isUnattributedSubtask` esclude
+   * tutto tranne la forma ambigua — 1 riga viva su ~1.276 alla misura dell'11/08
+   * — e solo lì parte la risalita, UNA query sola su `idx_tasks_parent`, con la
+   * catena misurata profonda 2.
+   *
+   * NON è `boundRootOf`, che pure risale gli stessi padri: quella cerca il primo
+   * antenato con un TOPIC, al lavoro o no. Qui la differenza è tutta: un padre
+   * con un topic ma tornato in `backlog`/`blocked` è esattamente il caso da
+   * segnalare, e `boundRootOf` lo darebbe per buono.
+   *
+   * La query porta su la catena e il verdetto lo dà `isAncestorAtWork` in JS —
+   * non un `WHERE` che riscrive quel predicato in SQL. `ACTIVE_DISPATCH_STATES`
+   * è dichiarato una volta in `shared/board` proprio perché era una lista
+   * copiata in cinque posti: una sesta copia dentro una stringa SQL non la
+   * vedrebbe nemmeno il compilatore.
+   *
+   * Il tetto sulla profondità non è per la catena vera (2), è perché una che si
+   * richiude su sé stessa qui aprirebbe una CTE infinita: il cancello di
+   * `parent_task_id` (migration 034) dice che un id nuovo non può essere
+   * antenato di una riga esistente, ma un ciclo scritto da una migration futura
+   * non deve poter appendere il server.
+   */
+  const MAX_ANCESTOR_DEPTH = 32;
+
+  function resolveSubtaskWork(r: any): SubtaskWork | null {
+    const task = {
+      status: r.status,
+      parentTaskId: r.parent_task_id ?? null,
+      assignedTopicId: r.assigned_topic_id ?? null,
+      dispatchState: r.dispatch_state ?? null,
+    };
+    if (!isUnattributedSubtask(task)) return null;
+
+    const rows = db.prepare(
+      `WITH RECURSIVE chain(id, parent, depth) AS (
+         SELECT id, parent_task_id, 0 FROM tasks WHERE id = ?
+         UNION ALL
+         SELECT t.id, t.parent_task_id, c.depth + 1
+           FROM tasks t JOIN chain c ON t.id = c.parent
+          WHERE c.depth < ?
+       )
+       SELECT t.id, t.text, t.status, t.dispatch_state, t.archived
+         FROM chain c JOIN tasks t ON t.id = c.id
+        WHERE c.depth > 0
+        ORDER BY c.depth ASC`,
+    ).all(r.id, MAX_ANCESTOR_DEPTH) as any[];
+
+    return deriveSubtaskWork(task, rows.map((a) => ({
+      id: a.id, text: a.text, status: a.status,
+      dispatchState: a.dispatch_state ?? null, archived: !!a.archived,
+    })));
+  }
+
   function rowToTask(r: any): Task {
     return {
       id: r.id,
@@ -877,6 +953,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       effort: resolveEffort(r),
       blockedByTaskId: r.blocked_by_task_id ?? null,
       blockedBy: resolveBlocker(r.blocked_by_task_id),
+      subtaskWork: resolveSubtaskWork(r),
       waitingOnCount: countWaitingOn(r.id),
       deliveryBranch: r.delivery_branch ?? null,
       deliveryCommit: r.delivery_commit ?? null,

@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef, useCallback, type TouchEvent as R
 import { useT } from '../../hooks/useT';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { NightModeCard } from './NightModeCard';
-import { ArrowUpRight, Bot, Camera, Check, ChevronDown, ChevronRight, Clock, Copy, Download, ExternalLink, Footprints, GitMerge, Globe, Hourglass, Link2, Lock, Maximize2, Minimize2, MoreHorizontal, Paperclip, Plus, Send, ShieldCheck, ShieldX, Sparkles, Square, X } from 'lucide-react';
+import { AlertTriangle, ArrowUpRight, Bot, Camera, Check, ChevronDown, ChevronRight, Clock, Copy, Download, ExternalLink, Footprints, GitMerge, Globe, Hourglass, Link2, Lock, Maximize2, Minimize2, MoreHorizontal, Paperclip, Plus, Send, ShieldCheck, ShieldX, Sparkles, Square, UserRound, X } from 'lucide-react';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ReasoningRow } from '../Chat/ReasoningRow';
 import { Menu } from '../Shared/Menu';
@@ -19,7 +19,7 @@ import { useTaskBrowserTabs, liveTabs, workspaceTwinContextId } from '../../stat
 import { noteAutoOpenedPreview, releaseAutoOpenedPreview } from '../../state/taskWorkspacePreviews';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
 import { writeCursor, markActiveComposer, restoreCursor } from '../../lib/composerCursor';
-import { boardApi, STATUS_LABEL, TASK_STATUSES, isAgentWorking, parseQuestionBlock, parseStatusEvent, hasPlanApproveOption, isProjectlessId, boardDrafts, systemDeliveryNote, blockedByChip, attemptHasWork, type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch, type BoardProjectRef, type DiffBundle, type DiffNote, type ReviewCheck, type CheckRun, type TaskAttempt } from '../../lib/board';
+import { boardApi, STATUS_LABEL, TASK_STATUSES, isAgentWorking, parseQuestionBlock, parseStatusEvent, hasPlanApproveOption, isProjectlessId, boardDrafts, systemDeliveryNote, blockedByChip, subtaskWorkChip, attemptHasWork, type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch, type BoardProjectRef, type DiffBundle, type DiffNote, type ReviewCheck, type CheckRun, type TaskAttempt } from '../../lib/board';
 import { PreviewMedia } from './PreviewMedia';
 import { UnifiedDiff } from './UnifiedDiff';
 import { collectTaskMediaPaths } from './taskMedia';
@@ -996,6 +996,10 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   // chip muto (o un «Bloccato da…» generico) su un task che un bloccante ce
   // l'aveva — e per un bloccante archiviato o di un altro taglio, per sempre.
   const blockedChip = task ? blockedByChip(task) : null;
+  // Chi lavora un sottotask che non ha un agente suo: il server lo risolve
+  // risalendo i padri, qui si sceglie solo come dirlo.
+  const workChip = task ? subtaskWorkChip(task) : null;
+  const workAncestorId = task?.subtaskWork?.kind === 'parent-turn' ? task.subtaskWork.ancestor.id : null;
 
   // Overflow "⋯" menu (header): the less-frequent task config lives here instead
   // of as always-on chips in the meta row — blocked-by, plan-first, reuse
@@ -1620,6 +1624,37 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                     <ChevronDown className="h-3 w-3 shrink-0 text-amber-300/70" />
                   </button>
                 )}
+                {/* «Chi la lavora» sta in riga accanto al bloccante, e per lo
+                    stesso motivo: su una card in corso senza topic né chip è lo
+                    stato che decide se c'è da intervenire. Quando la tiene un
+                    antenato il chip ci porta — la domanda successiva è sempre
+                    «e chi sarebbe?». */}
+                {workChip && (workAncestorId && onOpenTask ? (
+                  <button
+                    onClick={() => onOpenTask(workAncestorId)}
+                    data-testid="task-subtask-work-chip"
+                    data-kind="parent-turn"
+                    title={`${workChip.title} — clicca per aprirlo`}
+                    className="flex min-w-0 items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-app-text-muted hover:bg-white/20"
+                  >
+                    <UserRound className="h-3 w-3 shrink-0" />
+                    <span className="max-w-[14rem] truncate">{workChip.label}</span>
+                  </button>
+                ) : (
+                  <span
+                    data-testid="task-subtask-work-chip"
+                    data-kind={workChip.kind}
+                    title={workChip.title}
+                    className={workChip.kind === 'unattended'
+                      ? 'flex min-w-0 items-center gap-1 rounded bg-rose-500/20 px-1.5 py-0.5 text-[11px] text-rose-300'
+                      : 'flex min-w-0 items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-app-text-muted'}
+                  >
+                    {workChip.kind === 'unattended'
+                      ? <AlertTriangle className="h-3 w-3 shrink-0" />
+                      : <UserRound className="h-3 w-3 shrink-0" />}
+                    <span className="max-w-[14rem] truncate">{workChip.label}</span>
+                  </span>
+                ))}
                 {/* Plan-first / reuse-context vivono nel ⋯ header menu. Il PICKER
                     del bloccante resta qui — portaled, ancorato a chi l'ha
                     aperto (il chip qui sopra, o il ⋯ quando il chip non c'è). */}
@@ -1994,6 +2029,16 @@ export function SubtaskNode({ projectId, node, depth, onOpenTask }: {
   // in the drawer — no click affordance, so it doesn't look openable when it
   // isn't.
   const openable = !!node.description || hasKids || !!node.assignedTopicId;
+  // Questa riga è dove il triage guarda davvero: le colonne mostrano solo le
+  // radici (`rootsOnly`), quindi uno step non è MAI una card — l'albero del
+  // padre è l'unico posto in cui si vede senza averlo cercato per id.
+  //
+  // Asimmetrico di proposito. `unattended` è raro e va notato: marcatore rosso.
+  // `parent-turn` è la norma (243 step chiusi così in un giorno): un chip su
+  // ognuno sarebbe rumore su tutta la checklist, e per giunta ridondante — il
+  // padre che la lavora è il drawer che stai guardando. Resta come icona muta,
+  // che risponde al passaggio del mouse.
+  const work = subtaskWorkChip(node);
   const toggle = async () => {
     if (!open && kids === null) {
       try { const { children } = await boardApi.get(projectId, node.id); setKids(children ?? []); }
@@ -2022,6 +2067,21 @@ export function SubtaskNode({ projectId, node, depth, onOpenTask }: {
         ) : (
           <span className={`min-w-0 flex-1 truncate text-xs ${node.status === 'done' ? 'text-app-text-muted line-through' : 'text-app-text-secondary'}`}>{node.text}</span>
         )}
+        {work && (work.kind === 'unattended' ? (
+          <span
+            data-testid={`subtask-work-${node.id}`}
+            data-kind="unattended"
+            title={work.title}
+            className="flex shrink-0 items-center gap-1 rounded bg-rose-500/20 px-1 py-0.5 text-[10px] text-rose-300"
+          ><AlertTriangle className="h-2.5 w-2.5 shrink-0" /> {work.label}</span>
+        ) : (
+          <span
+            data-testid={`subtask-work-${node.id}`}
+            data-kind="parent-turn"
+            title={work.title}
+            className="flex shrink-0 text-app-text-muted"
+          ><UserRound className="h-2.5 w-2.5" /></span>
+        ))}
         {hasKids && <span className="shrink-0 text-[10px] text-app-text-muted">↳ {node.subtaskDoneCount}/{node.subtaskCount}</span>}
       </div>
       {open && kids?.map((k) => (

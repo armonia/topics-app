@@ -14,9 +14,11 @@
 export { MAX_FANOUT, TASK_STATUSES, ACTIVE_DISPATCH_STATES, isAgentWorking, parseStatusEvent, hasPlanApproveOption } from '../../../shared/board';
 export type {
   TaskStatus, TaskComment, ReviewCheck, CheckRun, BoardSettings, BoardSettingsPatch, DispatchCapacity, BlockerRef,
+  SubtaskWork,
 } from '../../../shared/board';
 import type {
   TaskStatus, TaskComment, CheckRun, BoardSettings, BoardSettingsPatch, DispatchCapacity, BlockerRef,
+  SubtaskWork,
 } from '../../../shared/board';
 // Il tentativo di un fan-out: stesso contratto del server, stessa cartella condivisa.
 // Passa solo `attemptHasWork`, che è un predicato e non ha lingua. Il diffstat
@@ -144,6 +146,41 @@ export function blockedByChip(
     };
 }
 
+/**
+ * Il chip «chi la lavora» di un sottotask senza agente proprio: cosa scriverci,
+ * o `null` se non va disegnato.
+ *
+ * Due chip e non uno, perché le due risposte servono a due persone diverse.
+ * `parent-turn` rassicura chi guarda la board — la card è in mano a qualcuno,
+ * dentro il turno di un antenato, ed è il flusso voluto. `unattended` è invece
+ * l'unico caso che chiede un intervento: nessuno la sta lavorando, e finora non
+ * lo diceva nessuno (il recupero orfani filtra sul chip di dispatch, che in
+ * questa forma non c'è). Tacere sul primo per non urlare il secondo lascerebbe
+ * la card ambigua com'era: è proprio la coppia che la disambigua.
+ *
+ * Il titolo dell'antenato lo risolve il server (`subtaskWork.ancestor`): la
+ * lista della board è un progetto solo, `rootsOnly`, non archiviati, e il padre
+ * di un sottotask quasi mai ci sta dentro.
+ */
+export function subtaskWorkChip(
+  task: Pick<BoardTask, 'subtaskWork'>,
+): { kind: SubtaskWork['kind']; label: string; title: string } | null {
+  const w = task.subtaskWork;
+  if (!w) return null;
+  if (w.kind === 'unattended') {
+    return {
+      kind: 'unattended',
+      label: 'nessuno la lavora',
+      title: 'In corso, ma senza agente suo e senza nessun antenato al lavoro: è rimasta qui. Rimettila in coda o chiudila.',
+    };
+  }
+  return {
+    kind: 'parent-turn',
+    label: 'nel turno del padre',
+    title: `La lavora l'agente di: ${w.ancestor.text}`,
+  };
+}
+
 export interface BoardTask {
   id: string;
   projectId: string;
@@ -204,6 +241,9 @@ export interface BoardTask {
    *  fonte del chip «in attesa di»: la lista fetchata non lo contiene sempre.
    *  null = nessun link, o la riga puntata non esiste più. */
   blockedBy: BlockerRef | null;
+  /** Chi lavora questo sottotask quando non ha un agente suo — derivato dalla
+   *  catena dei padri dal server. `null` = la domanda non si pone. */
+  subtaskWork: SubtaskWork | null;
   /** L'altra metà del legame, contata dal server: quanti task VIVI (non
    *  archiviati, non done) aspettano questo. È la fonte del chip «N in attesa»:
    *  contandoli nella lista fetchata sparivano i dipendenti che sono sottotask

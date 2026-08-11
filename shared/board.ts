@@ -290,6 +290,113 @@ export function hasPlanApproveOption(options: readonly string[]): boolean {
   return options.some((o) => normalizeActionLabel(o) === want);
 }
 
+/**
+ * L'antenato al lavoro che spiega un sottotask senza agente proprio: chi lo sta
+ * lavorando, e con che titolo dirlo. Risolto dal server come `BlockerRef` e per
+ * lo stesso motivo — la lista della board è un progetto solo, `rootsOnly`, non
+ * archiviati, quindi il padre di un sottotask spesso NON è fra i task che il
+ * client ha in mano, e cercarcelo dentro dava «nessuno lo lavora» proprio quando
+ * qualcuno lo stava lavorando.
+ */
+export interface AncestorAtWork {
+  id: string;
+  text: string;
+}
+
+/**
+ * Chi lavora un sottotask `in_progress` che non ha né topic né chip di dispatch.
+ *
+ * `parent-turn` = lo lavora un antenato dentro il PROPRIO turno: è il flusso
+ * voluto — l'agente si crea la checklist come sottotask e la spunta mentre va —
+ * ed è la norma schiacciante (misurato l'11/08/2026 sul DB vivo: 243 figli
+ * chiusi in quella forma in un giorno, 281 il giorno prima).
+ *
+ * `unattended` = nessun antenato è al lavoro: la card è rimasta lì e non la
+ * lavora nessuno. Rara (1 card viva su ~1.276 al momento della misura) ma reale,
+ * e oggi invisibile: il recupero orfani filtra sul chip di dispatch, che qui non
+ * c'è, quindi non vede né questo caso né l'altro.
+ */
+export type SubtaskWork =
+  | { kind: 'parent-turn'; ancestor: AncestorAtWork }
+  | { kind: 'unattended' };
+
+/**
+ * Un antenato sta lavorando ADESSO?
+ *
+ * `isAgentWorking` da solo non basta: `dispatch_state` resta scritto anche su
+ * righe che nel frattempo sono state archiviate o mosse fuori da `in_progress`,
+ * e leggerlo da solo farebbe passare per «al lavoro» un padre già chiuso.
+ *
+ * NON guarda `topics.archived`: i topic che il dispatcher crea per un agente
+ * NASCONO archiviati (sono worker di sfondo, non tab da mostrare in sidebar).
+ * Misurato l'11/08/2026: 755 topic archiviati su 767, e tutti e 7 i task con un
+ * agente vivo in quel momento — compreso quello che stava girando — avevano il
+ * topic `archived = 1`. Usare quel bit come segno di vita inverte la risposta
+ * sul 100% dei casi sani.
+ */
+export function isAncestorAtWork(a: {
+  status: TaskStatus | string;
+  dispatchState: string | null | undefined;
+  archived: boolean;
+}): boolean {
+  return !a.archived && a.status === 'in_progress' && isAgentWorking(a.dispatchState);
+}
+
+/**
+ * La forma ambigua: un sottotask `in_progress` MAI dispacciato — niente topic,
+ * niente chip. È l'unica in cui la domanda «chi lo lavora?» non ha già risposta
+ * sulla card: con un topic c'è il deep-link, con un chip c'è lo stato.
+ */
+export function isUnattributedSubtask(t: {
+  status: TaskStatus | string;
+  parentTaskId: string | null | undefined;
+  assignedTopicId: string | null | undefined;
+  dispatchState: string | null | undefined;
+}): boolean {
+  return t.status === 'in_progress' && !!t.parentTaskId && !t.assignedTopicId && !t.dispatchState;
+}
+
+/**
+ * Il segnale, DERIVATO dalla catena dei padri: nessuna migration e nessun
+ * `assigned_topic_id` ereditato — quella colonna pesa su quota, dispatcher e
+ * deep-link, e riempirla per dire una cosa che si può leggere sarebbe pagare
+ * tre conti per un'etichetta.
+ *
+ * Nemmeno `created_by_topic_id` (migration 093) risponde: sembra la scorciatoia
+ * — «chi mi ha creato è il topic che mi lavora» — ma è scritto solo su una
+ * parte delle righe. Misurato l'11/08/2026 sui figli chiusi in giornata nella
+ * forma ambigua: 90 su 249 ce l'hanno, 159 no. Leggerlo come segnale darebbe
+ * «non la lavora nessuno» sui due terzi dei casi sani.
+ *
+ * `ancestors` arriva ordinata dal padre in su. Vince il PRIMO antenato al
+ * lavoro, non il padre diretto: l'agente che lavora un task si crea la checklist
+ * come figli, e quei figli possono avere figli loro — la catena misurata arriva
+ * a due livelli, e chi tiene il turno può stare più in alto del padre.
+ *
+ * Torna `null` quando la domanda non si pone (non è un sottotask, non è in
+ * corso, o ha già un agente suo): un `null` qui vuol dire «niente da dire»,
+ * mai «non lo lavora nessuno» — quello è `unattended`, ed è un'altra cosa.
+ */
+export function deriveSubtaskWork(
+  task: {
+    status: TaskStatus | string;
+    parentTaskId: string | null | undefined;
+    assignedTopicId: string | null | undefined;
+    dispatchState: string | null | undefined;
+  },
+  ancestors: ReadonlyArray<{
+    id: string;
+    text: string;
+    status: TaskStatus | string;
+    dispatchState: string | null | undefined;
+    archived: boolean;
+  }>,
+): SubtaskWork | null {
+  if (!isUnattributedSubtask(task)) return null;
+  const at = ancestors.find(isAncestorAtWork);
+  return at ? { kind: 'parent-turn', ancestor: { id: at.id, text: at.text } } : { kind: 'unattended' };
+}
+
 export interface TaskComment {
   id: string;
   taskId: string;
