@@ -344,7 +344,7 @@ export interface CreateTaskBody {
 // Dichiarata in shared/: la calcola il server e la disegna il client, e due
 // copie libere di divergere sono esattamente ciò che il cancello sui doppioni
 // di tipo esiste per impedire.
-export type { LinkKind, LinkProposal } from '../../../shared/board';
+export type { LinkProposal } from '../../../shared/board';
 import type { LinkProposal } from '../../../shared/board';
 
 export interface UpdateTaskBody {
