@@ -196,6 +196,11 @@ export interface BoardTask {
    *  fonte del chip «in attesa di»: la lista fetchata non lo contiene sempre.
    *  null = nessun link, o la riga puntata non esiste più. */
   blockedBy: BlockerRef | null;
+  /** L'altra metà del legame, contata dal server: quanti task VIVI (non
+   *  archiviati, non done) aspettano questo. È la fonte del chip «N in attesa»:
+   *  contandoli nella lista fetchata sparivano i dipendenti che sono sottotask
+   *  o stanno in un altro progetto. */
+  waitingOnCount: number;
   /** When blocked, hand the new agent the blocker's session context instead of a cold start. */
   reuseBlockerContext: boolean;
   /** Branch the task delivered on, snapshot at review-time (diagnostics). */
