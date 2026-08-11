@@ -86,6 +86,10 @@ function creaCtx(db: Database, deviceId: string | null): never {
       return out;
     },
     broadcastToAll: () => {},
+    // I tre frame con la riga intera non passano più di là: chi li riceve lo
+    // decide `broadcastProject`, provato in `project-broadcast-visibility.test.ts`.
+    // Qui si guarda l'elenco, non il filo.
+    broadcastProject: () => {},
     requestIdentity: () => (deviceId ? { role: "owner", deviceId } : null),
   } as never;
 }
