@@ -25,6 +25,14 @@
       // `!` = "this IS an entrypoint, even though nothing imports it".
       // Everything marked so is reached from OUTSIDE the import graph:
       // a shell command, a launchd job, or Claude Code's hook settings.
+      //
+      // AGGIUNGI UNO SCRIPT CHE SI LANCIA A MANO (una sonda, un banco, una
+      // misura)? La voce qui sotto va nello STESSO commit che aggiunge il file,
+      // con accanto la riga che dice come si lancia. Senza, `check:deadcode` è
+      // rosso — e ha ragione: per knip un file che nessuno importa È codice
+      // morto. L'11/08 tre card di fila hanno lasciato main rosso proprio così
+      // (`scripts/mcp-cap-bench/`, `decompose.ts` + `prefix-probe.ts`,
+      // `scripts/webrtc-probe.ts`).
       "entry": [
         "server.ts",
         "server/ai-bridge.mjs!", // spawned as a detached daemon

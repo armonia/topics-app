@@ -1357,6 +1357,23 @@ describe("task-dispatcher", () => {
     expect(kickoff).not.toContain("output_url");
   });
 
+  /**
+   * Il gemello del test omonimo in `task-dispatcher-fanout.test.ts`: qui la board
+   * NON dichiara `reviewChecks` (nessuna board lo faceva l'11/08, ed è per questo
+   * che tre card di fila hanno lasciato main con `check:deadcode` rosso).
+   */
+  it("kickoff nomina i QUATTRO cancelli e la regola dello script che nessuno importa", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    const kickoff = h.turns[0].content;
+    for (const gate of ["typecheck", "lint", "check:deadcode", "test:unit"]) expect(kickoff).toContain(gate);
+    expect(kickoff).toContain("knip.jsonc");
+    expect(kickoff).toContain("scripts/disk-report.ts!");
+  });
+
   it("buffers a resume landing while the turn is in flight and delivers it on the same tab at turn end", async () => {
     const h = harness();
     h.svc.updateBoardSettings(PID, { autoDispatch: true });
