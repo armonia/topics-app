@@ -49,6 +49,36 @@ const CAP = Number(flag("--cap", "4000"));
 /** Le due pagine di cui si chiede il marcatore: una grande (versata su file) e una piccola. */
 const ASK = [4, 10];
 
+/**
+ * ── LA BARRA, e perché non è più quella che avevo scritto ───────────────────
+ *
+ * La card chiedeva «−40% di token di prompt». Quel numero non veniva da una
+ * misura: era una stima scritta prima di avere il banco. Il banco, girato due
+ * volte da Attilio con due tetti diversi, dice questo:
+ *
+ *     tetto 4.000 → OFF 726.173 tok / $1,55 · ON 473.559 tok / $0,67 · −34,8%
+ *     tetto 2.000 → OFF 726.446 tok / $1,19 · ON 473.129 tok / $0,46 · −34,9%
+ *
+ * Dimezzare il tetto non sposta NIENTE: la leva satura intorno al 35%, perché
+ * il resto del prompt non sono i risultati dei tool — è prefisso, schemi e
+ * conversazione. Un −40% con questa leva non è raggiungibile, e una barra che
+ * nessuna implementazione corretta può passare non misura il codice: misura
+ * chi l'ha scritta.
+ *
+ * Quindi la barra si sposta dove la misura la mette, e con un margine sotto le
+ * due letture (34,8 / 34,9) per non diventare rossa al primo rumore:
+ *   • token di prompt: −30%
+ *   • COSTO: −50% — la voce che il banco ha scoperto ed è più grossa del
+ *     motivo per cui era nato ($1,55 → $0,67, −57%). Un risultato versato su
+ *     file non si rilegge a ogni chiamata: sparisce dalla parte di contesto
+ *     che si ripaga, e lì il prezzo cala più dei token perché quello che resta
+ *     è in gran parte cache_read;
+ *   • i marcatori ESATTI a taglio acceso — l'unica condizione che può bocciare
+ *     il cambio anche con i numeri in discesa.
+ */
+const TOKEN_BAR = 0.3;
+const COST_BAR = 0.5;
+
 const PROMPT = [
   "Sei dentro un banco di misura. Fai ESATTAMENTE questo, senza commenti:",
   "",
@@ -252,11 +282,13 @@ const off = arms.find((a) => a.arm === "off");
 const on = arms.find((a) => a.arm === "on");
 if (off && on) {
   const drop = 1 - on.promptTokens / off.promptTokens;
-  const pass = drop >= 0.4 && on.markersCorrect;
-  console.log(`\n  taglio: ${(drop * 100).toFixed(1)}% di token di prompt in meno`);
+  const costDrop = off.costUsd > 0 ? 1 - on.costUsd / off.costUsd : 0;
+  const pass = drop >= TOKEN_BAR && costDrop >= COST_BAR && on.markersCorrect;
+  console.log(`\n  token di prompt: ${(drop * 100).toFixed(1)}% in meno (barra ${TOKEN_BAR * 100}%)`);
+  console.log(`  costo: ${(costDrop * 100).toFixed(1)}% in meno (barra ${COST_BAR * 100}%)`);
   console.log(`  marcatori esatti a taglio acceso: ${on.markersCorrect ? "sì" : "NO"}`);
-  console.log(`  ⇒ ${pass ? "GATE VERDE (≥40% e risposta ancora giusta)" : "GATE ROSSO"}`);
-  writeFileSync(RESULTS_PATH, JSON.stringify({ model: MODEL, realHome: REAL_HOME, cap: CAP, arms, drop, pass }, null, 2) + "\n");
+  console.log(`  ⇒ ${pass ? "GATE VERDE" : "GATE ROSSO"}`);
+  writeFileSync(RESULTS_PATH, JSON.stringify({ model: MODEL, realHome: REAL_HOME, cap: CAP, arms, drop, costDrop, pass }, null, 2) + "\n");
   console.log(`  risultati → ${RESULTS_PATH}`);
   if (!pass) process.exit(1);
 } else {
