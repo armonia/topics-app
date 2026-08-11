@@ -1,6 +1,7 @@
 import type { AppContext, RouteHandler, Topic } from "../types";
 import type { AIProvider, ChatMessage } from "../providers";
 import { adaptEnvelope, assembleTopicContext } from "../context";
+import { autoreDaIdentita } from "../lib/message-author";
 
 export interface EditDeps {
   resolveProvider: (topic?: Topic | null) => AIProvider;
@@ -283,6 +284,12 @@ export function createEditRouter(ctx: AppContext, deps: EditDeps): RouteHandler 
       const sessionKey = getMessageSessionKey(params.id);
       if (!sessionKey) return json({ error: "session not found" }, 404);
 
+      // L'autore (095). Questa rotta è la SECONDA porta da cui un prompt umano
+      // entra — la prima è `POST /api/chat` — e riscrivere una domanda invece di
+      // ribatterla non deve costare l'attribuzione: senza questa riga chi
+      // corregge i propri prompt sparisce dai conteggi del suo profilo.
+      const autore = autoreDaIdentita(ctx.db as never, ctx.requestIdentity?.(req) ?? null);
+
       const parentId = originalMsg.parentId || null;
       if (!parentId) {
         // Root message edit: create a new root message (sibling).
@@ -300,9 +307,16 @@ export function createEditRouter(ctx: AppContext, deps: EditDeps): RouteHandler 
           branchIndex,
         };
         ctx.db.prepare(`
-          INSERT INTO messages (id, session_key, role, content, timestamp, sort_order, parent_id, branch_index, partial, plan_status)
-          VALUES (?, ?, ?, ?, ?, ?, NULL, ?, 0, NULL)
-        `).run(newMsg.id, sessionKey, newMsg.role, newMsg.content, newMsg.timestamp, maxOrder + 1, branchIndex);
+          INSERT INTO messages (id, session_key, role, content, timestamp, sort_order, parent_id, branch_index, partial, plan_status,
+                                author_person_id, author_device_id)
+          VALUES (?, ?, ?, ?, ?, ?, NULL, ?, 0, NULL, ?, ?)
+        `).run(
+          newMsg.id, sessionKey, newMsg.role, newMsg.content, newMsg.timestamp, maxOrder + 1, branchIndex,
+          // Solo su una riga UTENTE: la radice riscritta conserva il `role`
+          // dell'originale, e su una risposta l'autore è un modello.
+          newMsg.role === "user" ? autore.authorPersonId : null,
+          newMsg.role === "user" ? autore.authorDeviceId : null,
+        );
         // Set active branch to this new sibling — use a special key for root siblings
         ctx.db.prepare(`INSERT OR REPLACE INTO active_branches (parent_id, session_key, active_branch_index) VALUES ('__root__', ?, ?)`).run(sessionKey, branchIndex);
 
@@ -311,7 +325,7 @@ export function createEditRouter(ctx: AppContext, deps: EditDeps): RouteHandler 
       }
 
       // Create sibling user message under the same parent
-      const newUserMsg = createBranchMessage(sessionKey, parentId, "user", body.content);
+      const newUserMsg = createBranchMessage(sessionKey, parentId, "user", body.content, autore);
 
       // Now stream the assistant response under the new user message
       return await streamEditResponse(sessionKey, newUserMsg.id, body.content);
