@@ -252,14 +252,3 @@ export async function claimMessageBanner(
   }
   return run();
 }
-
-/** Solo per i test: svuota il registro condiviso. */
-export function __resetBannerClaimsForTests(): void {
-  const storage = sharedStorage();
-  if (!storage) return;
-  try {
-    storage.setItem(BANNER_CLAIM_KEY, '[]');
-  } catch {
-    /* niente da azzerare */
-  }
-}
