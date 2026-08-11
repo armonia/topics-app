@@ -27,7 +27,7 @@ import { ZERO_USAGE, type SessionUsage } from "./transcript-usage";
 import { onHumanHoldChange } from "../lib/human-hold-events";
 import type { TaskAttemptStore } from "./task-attempts";
 import { attemptHasWork, formatFanoutComment } from "../../shared/task-attempt";
-import { MAX_FANOUT, PREVIEW_RULE, readTaskWeight } from "../../shared/board";
+import { MAX_FANOUT, PREVIEW_RULE, readTaskWeight, statusEventEnters } from "../../shared/board";
 import { decideNight, deadlineFrom } from "./night-mode";
 import { effectiveDispatchCap } from "./dispatch-capacity";
 import type { OutboundMessage } from "../../shared/ws-outbound";
@@ -1606,7 +1606,11 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       const comments = deps.svc.get(task.id)?.comments ?? [];
       let turnStart = 0;
       for (const c of comments) {
-        if (c.kind === "status" && typeof c.content === "string" && c.content.endsWith("in_progress")) {
+        // `endsWith` no: da quando una transizione porta la sua ragione
+        // (`done→in_progress · il land…`) il contenuto non finisce con lo stato.
+        // Lo stesso parser del servizio, o le due letture del "quando inizia il
+        // turno" divergerebbero.
+        if (c.kind === "status" && statusEventEnters(c.content, "in_progress")) {
           const ts = Date.parse(c.createdAt);
           if (ts > turnStart) turnStart = ts;
         }
