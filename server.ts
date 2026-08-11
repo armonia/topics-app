@@ -45,6 +45,7 @@ import { createTaskService, projectIdForPath } from "./server/services/tasks";
 import { createExternalSessionsService } from "./server/services/external-sessions";
 import { createExternalSessionsRouter } from "./server/routes/external-sessions";
 import { createTaskDispatcher } from "./server/services/task-dispatcher";
+import { refreshLiveJobQuotas } from "./server/services/agent-job-quota";
 import { computeDispatchCapacity } from "./server/services/dispatch-capacity";
 import { buildBranchInventory, summarizeInventory } from "./server/services/branch-inventory";
 import { createTaskAutoMerge, worktreeRealDirt } from "./server/services/task-automerge";
@@ -3167,6 +3168,16 @@ const DISPATCH_POLL_MS = 10_000;
 taskDispatcher.reconcile().catch((err) => console.error("[dispatcher] boot reconcile failed", err));
 const dispatchTimer = setInterval(() => {
   taskDispatcher.reconcile().catch((err) => console.error("[dispatcher] poll reconcile failed", err));
+  // LA QUOTA DI CORE SI RILEGGE QUI, sullo stesso giro che fa nascere e morire
+  // gli agenti — cioè l'unico momento in cui il denominatore («quanti stanno
+  // compilando accanto a me») può essere cambiato. L'ambiente di un processo si
+  // scrive una volta sola, allo spawn: senza questa riga un agente rimasto solo
+  // su dodici core continuerebbe a compilare con la fetta di quando erano in
+  // quattro, e il prezzo del recinto lo pagherebbe per niente.
+  // Sta in server.ts e non dentro `reconcile()` per la stessa ragione di tutto
+  // il resto del cablaggio: il dispatcher resta host-agnostico e testabile.
+  try { refreshLiveJobQuotas(ctx.db); }
+  catch (err) { console.error("[job-quota] rilettura viva fallita", err); }
 }, DISPATCH_POLL_MS);
 
 // Chat reload-resilience: adopt broker-surviving CHAT turns after a restart.
