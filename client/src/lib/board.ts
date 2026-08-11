@@ -12,7 +12,6 @@
 // letto dai due lati del filo: `export … from` ri-esporta ma non porta i nomi
 // in scope locale, e qui sotto servono, quindi l'import gemello non è ridondante.
 export { MAX_FANOUT, TASK_STATUSES, ACTIVE_DISPATCH_STATES, isAgentWorking, parseStatusEvent, PLAN_APPROVE_LABEL, hasPlanApproveOption } from '../../../shared/board';
-import { QUESTION_OPTIONS_SENTINEL_RE } from '../../../shared/board';
 export type {
   TaskStatus, TaskComment, ReviewCheck, CheckRun, BoardSettings, BoardSettingsPatch, DispatchCapacity, BlockerRef,
 } from '../../../shared/board';
@@ -282,28 +281,6 @@ export function parseQuestionBlock(text: string): { question: string; options: s
   if (!body) return null;
   const options: string[] = [];
   const qLines: string[] = [];
-  // FORMA CANONICA (dal 097): il separatore dice dove finisce il corpo. Sopra
-  // resta testo VERBATIM — a-capo, righe vuote, elenchi: un piano è un
-  // documento, e le sue righe puntate NON sono bottoni. Sotto, solo opzioni.
-  // L'ULTIMA occorrenza: il separatore lo scrive il server in fondo, quindi un
-  // corpo che per caso contiene la stessa riga non tronca il piano a metà.
-  const lines = body.split('\n');
-  let sep = -1;
-  for (let i = lines.length - 1; i >= 0; i--) {
-    if (QUESTION_OPTIONS_SENTINEL_RE.test(lines[i])) { sep = i; break; }
-  }
-  if (sep >= 0) {
-    const question = lines.slice(0, sep).join('\n').trim();
-    if (!question) return null;
-    for (const raw of lines.slice(sep + 1)) {
-      const opt = raw.trim().match(/^[-*]\s+(.*)$/);
-      if (opt) { const v = opt[1].trim(); if (v) options.push(v); }
-    }
-    return { question, options: filterReservedOptions(options) };
-  }
-  // FORMA VECCHIA (commenti già in archivio, o scritta a mano da un LLM): ogni
-  // riga puntata è un'opzione. È l'euristica che ha costretto il server ad
-  // appiattire il corpo; resta viva solo per leggere il passato.
   if (body.includes('\n')) {
     for (const raw of body.split('\n')) {
       const line = raw.trim();
@@ -321,9 +298,7 @@ export function parseQuestionBlock(text: string): { question: string; options: s
     else if (first) qLines.push(first);
     for (const s of segments) { const v = s.trim(); if (v) options.push(v); }
   }
-  // Il corpo vecchio arriva già appiattito dal server; unire con '\n' serve alle
-  // (rare) fence scritte a mano su più righe, che così non perdono l'impaginazione.
-  const question = qLines.join('\n').trim();
+  const question = qLines.join(' ').trim();
   if (!question) return null;
   return { question, options: filterReservedOptions(options) };
 }

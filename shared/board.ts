@@ -219,27 +219,22 @@ export function isAgentWorking(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * La riga che separa il CORPO dalle OPZIONI dentro una fence ```question.
+ * IL BLOCCO ```question È UN CONTRATTO, non una formattazione.
  *
- * Nasce da un difetto misurato: finché il corpo e le opzioni erano distinti
- * solo dal trattino di elenco, l'unico modo di non confonderli era appiattire
- * il corpo in una riga sola (`content.replace(/\n/g, " ")`). Cioè: un piano
- * consegnato SECONDO PROTOCOLLO — piano-prima chiede esattamente
- * `comment_task(content=<piano>, options=[…])` — diventava per costruzione una
- * riga da centinaia di caratteri dentro un blocco di codice. Non era l'agente a
- * scrivere male, era il formato a chiederglielo.
+ * Lo compone il server (unico scrittore, `addComment`) in una forma fissa —
+ * fence, la domanda su UNA riga, poi le opzioni come righe `- …` — e lo legge
+ * `parseQuestionBlock` per disegnare le risposte rapide. Cambiare quel layout
+ * non è un dettaglio estetico: è una card che perde i bottoni, e le risposte
+ * rapide devono esserci SEMPRE finché il task non è chiuso.
  *
- * Con un separatore esplicito il corpo torna testo verbatim (a-capo, elenchi,
- * titoli: un piano è un documento) e le opzioni restano ESATTAMENTE quelle
- * passate — nessuna riga del corpo promossa a bottone, che è il modo in cui il
- * fix ingenuo (togliere e basta l'appiattimento) si rompe.
- *
- * `parseQuestionBlock` resta tollerante con la forma VECCHIA (senza
- * separatore): i commenti già in archivio si leggono come prima.
+ * Da qui la conseguenza che vale la pena scrivere: dentro la fence il corpo
+ * resta appiattito, perché una riga `- …` del corpo non sarebbe distinguibile
+ * da un'opzione. Un testo lungo che vuole tenersi l'impaginazione (un piano)
+ * viaggia FUORI dalla fence, nello stesso commento: il parser lascia intatto
+ * ciò che sta attorno al blocco, e le tre superfici (thread, card, tab Piano)
+ * lo rendono come markdown. Il posto dove separare corpo e opzioni è il
+ * RENDER, non il testo salvato — questo modulo dichiara solo la forma.
  */
-export const QUESTION_OPTIONS_SENTINEL = '--- options ---';
-/** La riconosce anche con spaziatura/trattini in più (è testo, non un token). */
-export const QUESTION_OPTIONS_SENTINEL_RE = /^\s*-{2,}\s*options\s*-{2,}\s*$/i;
 
 /** Etichette senza punteggiatura/emoji/spaziatura: due opzioni si confrontano
  *  per SIGNIFICATO, non per byte (il modello aggiunge volentieri un ✅). */
