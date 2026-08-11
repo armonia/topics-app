@@ -92,6 +92,12 @@ const INACTIVITY_TIMEOUT_MS = 15 * 60 * 1000;   // 15 min
 const MAX_LIFETIME_MS = 2 * 60 * 60 * 1000;      // 2 hours
 /** Ogni quanto il tetto di vita ricontrolla, mentre una domanda è a schermo. */
 const LIFETIME_REARM_MS = 60 * 1000;
+/** Quanto uno scan PARCHEGGIATO aspetta chi lo adotterà prima di smontarsi da
+ *  solo. Il varco reale è un round-trip HTTP verso noi stessi (il setaccio di
+ *  boot sonda e subito dopo riadotta), quindi il minuto è tutto margine: è la
+ *  rete per il caso in cui la riadozione non parta MAI — altrimenti resterebbe
+ *  un attacco al daemon senza padrone per tutta la vita del processo. */
+const PARKED_SCAN_TTL_MS = 60_000;
 const MESSAGE_TIMEOUT_MS = 30 * 60 * 1000;        // 30 min
 const RATE_LIMIT_GRACE_MS = 10_000;               // 10s grace after rate limit detection
 
@@ -927,6 +933,11 @@ interface PersistentProcess {
   /** Scan outcome: consumed-store offset right after the last `result` —
    *  where the LIVE second attach starts so old turns are never re-emitted. */
   replayAfterLastResultOffset?: number;
+  /** Offset assoluto appena DOPO l'ultima riga NDJSON piegata. Non è
+   *  `consumedOffset`, che sta alla fine del CHUNK: qui si è precisi alla riga,
+   *  ed è l'unico modo di far ripartire la fase 2 esattamente dopo il `result`
+   *  invece che dopo la fetta che lo conteneva. Vedi `createLineFolder`. */
+  lineEndOffset?: number;
   /** Accumulated stderr tail for the rate-limit / missing-session scan. */
   stderrBuf: string;
   /** Spawn-time facts the stderr scan + reattach need. */
@@ -1136,6 +1147,17 @@ export class ClaudeCodeProvider implements AIProvider {
 
   private config: ClaudeCodeProviderConfig;
   private processes = new Map<string, PersistentProcess>();
+  /**
+   * Gli scan della sonda TENUTI IN VITA per chi li adotterà — deliberatamente
+   * fuori da `this.processes`, che è la mappa di chi sta GUIDANDO una sessione.
+   *
+   * Un `pp` qui dentro è attaccato al broker e muto: continua a piegare i byte
+   * che arrivano (quindi `replayTailOpen` resta vero DAL VIVO) ma non emette
+   * niente verso nessun handler, perché non ne ha uno. Ci finisce solo lo scan
+   * di una sonda che ha risposto «open» a un chiamante che ha dichiarato di
+   * voler riadottare subito; `reattach` lo reclama e salta la fase 1.
+   */
+  private parkedScans = new Map<string, { pp: PersistentProcess; evict: ReturnType<typeof setTimeout> }>();
   private queues = new Map<string, Promise<void>>();
   private started = false;
   /** Unsubscribe for the broker reconnect hook armed in start(). */
@@ -1228,6 +1250,10 @@ export class ClaudeCodeProvider implements AIProvider {
         this.killProcess(pp);
       }
     }
+    // Gli scan parcheggiati non sono in `this.processes` — e proprio per questo
+    // nessuno li staccherebbe: uno spegnimento che li dimentica lascia al daemon
+    // un attacco per una sessione che nessuno guiderà mai più.
+    for (const key of [...this.parkedScans.keys()]) this.evictParkedScan(key);
     this.processes.clear();
     this.queues.clear();
     console.log("[claude-code] Provider stopped");
@@ -2027,6 +2053,10 @@ export class ClaudeCodeProvider implements AIProvider {
       // `client.attach` resolves, the replayed NDJSON is fully processed —
       // determinism the four-case reattach branch relies on.
       const client = getAiBridgeClient();
+      // Uno scan parcheggiato su questa chiave ha appena perso il suo scopo: il
+      // padrone della sessione è questo `pp`. Si lascia cadere SENZA staccare —
+      // `registerHandlers` qui sotto ha già preso il suo posto sul socket.
+      this.dropParkedScan(sessionKey);
       this.wireBrokerHandlers(pp, client, sessionKey, onLine);
       pp.io = brokerIO(client, sessionKey);
       // Fire the spawn; expose readiness so the first stdin write (sendChat)
@@ -2086,9 +2116,16 @@ export class ClaudeCodeProvider implements AIProvider {
     // sulla dimensione del chunk, e con `StringDecoder` al posto di
     // `chunk.toString()` — i frame ora arrivano a fette e una fetta può cadere
     // in mezzo a una sequenza UTF-8.
-    const fold = createLineFolder(onLine);
+    const fold = createLineFolder((line, endOffset) => {
+      pp.lineEndOffset = endOffset;
+      onLine(line);
+    });
     client.registerHandlers(sessionKey, {
       onData: (chunk, offset) => {
+        // La consegna riparte da un punto diverso (un `attach` da un offset:
+        // la fase 2 della riadozione fa esattamente questo). Il mezzo pezzo di
+        // riga tenuto da parte apparteneva a un'altra regione dello store.
+        if (offset !== pp.consumedOffset) fold.reset(offset);
         fold(chunk);
         pp.consumedOffset = offset + chunk.byteLength;
       },
@@ -2166,34 +2203,131 @@ export class ClaudeCodeProvider implements AIProvider {
    * fallita) NON è `idle` — chi decide di uccidere deve avere una prova, non
    * l'assenza di una risposta.
    */
-  async brokerTurnState(sessionKey: string): Promise<"open" | "idle" | "unknown"> {
+  async brokerTurnState(
+    sessionKey: string,
+    /**
+     * `park: true` = «se dici "open" io RIADOTTO subito, tienimi lo scan».
+     *
+     * È opt-in perché la sonda ha due chiamanti con bisogni opposti. Il
+     * setaccio di boot, quando sente «open», parte con la riadozione nella
+     * riga dopo: parcheggiare gli risparmia il secondo replay integrale dello
+     * store. La rotta della storia invece sonda a OGNI caricamento della chat e
+     * non riadotta niente: lì un parcheggio sarebbe solo un attacco al daemon
+     * lasciato in giro, uno per ricarica di pagina.
+     */
+    opts?: { park?: boolean },
+  ): Promise<"open" | "idle" | "unknown"> {
     if (!USE_AI_BRIDGE) return "unknown";
     // Sessione già guidata da questo processo: la verità è in memoria, e una
     // seconda scansione dello store le passerebbe sopra.
     const existing = this.processes.get(sessionKey);
     if (existing) return existing.alive && existing.streamHandler ? "open" : "idle";
 
-    const client = getAiBridgeClient();
+    // Uno scan già parcheggiato per questa chiave È la risposta, e non costa un
+    // byte: resta attaccato e muto, quindi la sua coda continua a seguire lo
+    // store DAL VIVO. Se nel frattempo si è chiusa, il turno è finito mentre lo
+    // scan aspettava: non c'è più niente da adottare e il parcheggio va sciolto.
+    const parked = this.parkedScans.get(sessionKey);
+    if (parked) {
+      if (parked.pp.replayTailOpen) return "open";
+      this.evictParkedScan(sessionKey);
+      return "idle";
+    }
+
     const pp = this.adoptBrokerProcess(sessionKey);
+    let park = false;
+    try {
+      const scan = await this.scanBrokerStore(getAiBridgeClient(), sessionKey, pp);
+      if (scan.missing || !scan.alive) return "idle";
+      if (!pp.replayTailOpen) return "idle";
+      // «open» è l'unica risposta che porta a una riadozione, quindi l'unica in
+      // cui vale la pena tenere lo scan. Tutte le altre smontano come prima.
+      park = opts?.park === true;
+      return "open";
+    } catch {
+      return "unknown";
+    } finally {
+      // O il pp resta parcheggiato per chi lo adotterà, o la sonda non lascia
+      // niente dietro: nessun pp in mappa, nessun timer, nessun attacco.
+      if (park) this.parkScan(sessionKey, pp);
+      else this.teardownScan(sessionKey, pp);
+    }
+  }
+
+  /**
+   * La scansione MUTA dello store: un `attach(0)` che si fa consegnare tutto e
+   * non emette niente, per imparare la forma della coda. La fanno in due — la
+   * sonda e la fase 1 della riadozione — ed è esattamente per non farla due
+   * volte di fila che esiste il parcheggio.
+   */
+  private async scanBrokerStore(
+    client: AiBridgeClient,
+    sessionKey: string,
+    pp: PersistentProcess,
+  ): Promise<{ missing: boolean; alive: boolean }> {
     pp.replayMute = true;
     pp.replayTailOpen = false;
     pp.replayLastResult = undefined;
     pp.replayAfterLastResultOffset = 0;
-    try {
-      const scan = await client.attach(sessionKey, 0);
-      if (scan.missing || !scan.alive) return "idle";
-      return pp.replayTailOpen ? "open" : "idle";
-    } catch {
-      return "unknown";
-    } finally {
-      // La sonda non lascia niente dietro: nessun pp in mappa (chi adotta
-      // davvero se lo ricostruisce), nessun timer, nessun attacco al daemon.
-      pp.replayMute = false;
-      pp.alive = false;
-      this.cleanupTimers(pp);
-      try { client.detach(sessionKey); } catch { /* daemon andato */ }
-      try { client.unregister(sessionKey); } catch { /* idem */ }
-    }
+    const scan = await client.attach(sessionKey, 0);
+    return { missing: scan.missing === true, alive: scan.alive === true };
+  }
+
+  /** Mette lo scan appena fatto in attesa di un adottante: resta ATTACCATO e
+   *  MUTO, con uno sfratto a TTL come rete per la riadozione che non arriva. */
+  private parkScan(sessionKey: string, pp: PersistentProcess): void {
+    this.evictParkedScan(sessionKey); // mai due attacchi sulla stessa chiave
+    const evict = setTimeout(() => {
+      if (this.parkedScans.get(sessionKey)?.pp !== pp) return; // già reclamato
+      console.warn(`[claude-code] scan parcheggiato scaduto su ${sessionKey}: nessuna riadozione in ${PARKED_SCAN_TTL_MS}ms — lo smonto`);
+      this.evictParkedScan(sessionKey);
+    }, PARKED_SCAN_TTL_MS);
+    evict.unref?.();
+    this.parkedScans.set(sessionKey, { pp, evict });
+  }
+
+  /**
+   * Reclamo ATOMICO dello scan parcheggiato: chi lo prende lo toglie dalla
+   * mappa nello stesso giro di event loop in cui lo legge, quindi due
+   * riadozioni in corsa non possono guidare lo stesso `pp` — la seconda trova
+   * `null` e si ricostruisce il suo, com'è sempre stato.
+   */
+  private claimParkedScan(sessionKey: string): PersistentProcess | null {
+    const entry = this.parkedScans.get(sessionKey);
+    if (!entry) return null;
+    this.parkedScans.delete(sessionKey);
+    clearTimeout(entry.evict);
+    return entry.pp;
+  }
+
+  /** Sfratta lo scan parcheggiato e lo smonta (stacca dal daemon). */
+  private evictParkedScan(sessionKey: string): void {
+    const pp = this.claimParkedScan(sessionKey);
+    if (pp) this.teardownScan(sessionKey, pp);
+  }
+
+  /**
+   * Lo scan parcheggiato ha un padrone NUOVO (uno spawn, o una riadozione che
+   * si è ricostruita il suo `pp`): si lascia cadere senza staccare.
+   *
+   * `detach` e `unregister` lavorano per CHIAVE su un socket solo, quindi qui
+   * chiuderebbero la consegna del subentrante invece di quella del morto.
+   */
+  private dropParkedScan(sessionKey: string): void {
+    const pp = this.claimParkedScan(sessionKey);
+    if (!pp) return;
+    pp.replayMute = false;
+    pp.alive = false;
+    this.cleanupTimers(pp);
+  }
+
+  private teardownScan(sessionKey: string, pp: PersistentProcess): void {
+    pp.replayMute = false;
+    pp.alive = false;
+    this.cleanupTimers(pp);
+    const client = getAiBridgeClient();
+    try { client.detach(sessionKey); } catch { /* daemon andato */ }
+    try { client.unregister(sessionKey); } catch { /* idem */ }
   }
 
   /**
@@ -2290,7 +2424,17 @@ export class ClaudeCodeProvider implements AIProvider {
     // sotto), il pannello moriva a un quarto d'ora dalla riadozione con
     // «il turno è finito mentre la domanda era ancora a schermo».
     if (existing) this.cleanupTimers(existing);
-    const pp = this.adoptBrokerProcess(sessionKey);
+
+    // Lo scan che la sonda ha PARCHEGGIATO, se c'è. È lo stesso store, già
+    // piegato dalla stessa scansione muta che farebbe la fase 1 qui sotto:
+    // adottarlo la salta, ed è tutto il punto del parcheggio — al boot lo store
+    // di ogni sessione viaggiava DUE volte, una per la sonda e una per questa.
+    // Con un `existing` in mappa si lascia cadere invece: quale dei due tenga
+    // l'attacco vivo dipende da chi ha registrato per ultimo, e la fase 1
+    // completa rimette tutto a posto da sola.
+    if (existing) this.dropParkedScan(sessionKey);
+    const parked = existing ? null : this.claimParkedScan(sessionKey);
+    const pp = parked ?? this.adoptBrokerProcess(sessionKey);
     this.processes.set(sessionKey, pp);
 
     // La rete. Il corpo qui sotto parla col broker in quattro punti e ognuno può
@@ -2301,7 +2445,7 @@ export class ClaudeCodeProvider implements AIProvider {
     // essere riusata e la rifusione dello snapshot vive dentro `finalizeStream`,
     // che quel `.catch` non chiama mai. Vedi `finalizeFailedReattach`.
     try {
-      return await this.reattachDrive(sessionKey, handler, pp);
+      return await this.reattachDrive(sessionKey, handler, pp, parked !== null);
     } catch (err) {
       return this.finalizeFailedReattach(sessionKey, pp, handler, err);
     }
@@ -2316,6 +2460,13 @@ export class ClaudeCodeProvider implements AIProvider {
     sessionKey: string,
     handler: StreamHandler,
     pp: PersistentProcess,
+    /**
+     * Il `pp` arriva da uno scan PARCHEGGIATO: la fase 1 è già stata fatta —
+     * dalla sonda, sugli stessi byte — ed è già piegata dentro di lui. Rifarla
+     * significherebbe farsi spedire lo store una seconda volta per riscoprire
+     * quello che sappiamo già.
+     */
+    preScanned: boolean,
   ): Promise<"completed" | "live" | "awaiting-input" | "dead"> {
     const client = getAiBridgeClient();
 
@@ -2324,11 +2475,14 @@ export class ClaudeCodeProvider implements AIProvider {
     // replay from 0 learns the tail shape without re-emitting old turns:
     // does anything follow the last `result` (open turn), and what was that
     // last result (to deliver it if the turn completed while detached)?
-    pp.replayMute = true;
-    pp.replayTailOpen = false;
-    pp.replayLastResult = undefined;
-    pp.replayAfterLastResultOffset = 0;
-    const scan = await client.attach(sessionKey, 0);
+    //
+    // Su un pp parcheggiato non si attacca niente: lo scan è già suo, e restando
+    // attaccato e muto ha continuato a seguire la coda dal vivo. `alive` è la
+    // verità corrente (`onSessionClosed` lo abbassa se il figlio è morto nel
+    // frattempo), e «missing» non può esserlo: il daemon ce l'aveva un attimo fa.
+    const scan = preScanned
+      ? { missing: false, alive: pp.alive }
+      : await this.scanBrokerStore(client, sessionKey, pp);
     pp.replayMute = false;
     if (scan.missing) {
       pp.streamHandler = handler;
@@ -2623,7 +2777,11 @@ export class ClaudeCodeProvider implements AIProvider {
         if (rt && rt !== "waiting for message") {
           pp.replayTailOpen = false;
           pp.replayLastResult = event;
-          pp.replayAfterLastResultOffset = pp.consumedOffset;
+          // Alla RIGA, non alla fetta: `consumedOffset` sta alla fine del chunk
+          // consegnato dal daemon (fino a 1 MB), quindi ripartire da lì saltava
+          // tutto ciò che nella stessa fetta veniva dopo il `result` — cioè la
+          // testa del turno ancora aperto. Vedi `createLineFolder`.
+          pp.replayAfterLastResultOffset = pp.lineEndOffset ?? pp.consumedOffset;
         }
       } else {
         pp.replayTailOpen = true;
