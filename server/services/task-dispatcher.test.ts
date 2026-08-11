@@ -754,6 +754,52 @@ describe("task-dispatcher", () => {
     expect(h.task("t2")!.dispatchState).toBe("queued");
   });
 
+  it("il resume che rinuncia perché la card è chiusa non lascia residui", async () => {
+    // Una card in attesa di posto può essere approvata mentre aspetta. Il
+    // ritentativo la ritrova chiusa e rinuncia — giusto — ma se non ripulisce
+    // l'insieme di chi aspetta, la PROSSIMA attesa vera di quella card non
+    // verrebbe più annunciata: il commento «in coda» è guardato da lì.
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    h.svc.setGlobalCap({ auto: false, max: 1 });
+    seedTask(h.db, { id: "t1", status: "todo", createdAt: "2020-01-01T00:00:00.000Z" });
+    seedTask(h.db, { id: "t2", status: "todo", createdAt: "2020-01-02T00:00:00.000Z" });
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    h.db.run("INSERT OR IGNORE INTO topics (id) VALUES (?)", ["topic-2"]);
+    const legaT2 = () => {
+      h.svc.update({ taskId: "t2", actor: "human", by: "u", patch: { status: "in_progress" } });
+      h.db.run("UPDATE tasks SET assigned_topic_id = ? WHERE id = ?", ["topic-2", "t2"]);
+    };
+    legaT2();
+    await h.dispatcher.resume("t2", "riprova");   // aspetta un posto, lo annuncia
+    await flush();
+    const primo = h.svc.get("t2")!.comments.filter((c) => c.content.includes("In coda: tetto")).length;
+    expect(primo).toBe(1);
+
+    // Approvata mentre aspettava: il ritentativo rinuncia.
+    h.db.run("UPDATE tasks SET status = 'done' WHERE id = ?", ["t2"]);
+    await h.dispatcher.resume("t2", "riprova");
+    await flush();
+
+    // Ora torna in lavorazione e aspetta di nuovo: deve tornare a dirlo.
+    // Il tetto cambia apposta — `addComment` deduplica i testi identici, quindi
+    // con lo stesso numero il secondo annuncio sparirebbe per un motivo che non
+    // c'entra con ciò che stiamo misurando.
+    h.svc.setGlobalCap({ auto: false, max: 2 });
+    seedTask(h.db, { id: "t3", status: "todo", createdAt: "2020-01-03T00:00:00.000Z" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.turns.length).toBe(2); // due posti, due turni vivi: il tetto e' pieno
+    legaT2();
+    await h.dispatcher.resume("t2", "riprova ancora");
+    await flush();
+    const testi = h.svc.get("t2")!.comments.filter((c) => c.content.includes("In coda: tetto")).map((c) => c.content);
+    expect(testi.length).toBe(2);
+    expect(testi.some((t) => t.includes("(2)"))).toBe(true);
+  });
+
   it("parks (does not run in-place) when a worktree is required but unavailable", async () => {
     const h = harness({ resolveProject: () => ({ path: "/Users/x/Projects/alpha", projectStoreId: null }) });
     h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchUseWorktree: true });
