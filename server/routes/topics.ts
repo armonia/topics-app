@@ -376,7 +376,19 @@ export function topicPreviewText(raw: string): string {
   return s.slice(0, PREVIEW_MAX_CHARS - 1).trimEnd() + "…";
 }
 
-export function createTopicsRouter(ctx: AppContext, browserService?: BrowserService): RouteHandler {
+/**
+ * `paneAttachedTo` — «una pane viva sta guardando questo contextId?». Il
+ * registro dei socket `/ws/browser/<ctx>` vive in `server.ts`, quindi arriva
+ * come predicato: serve solo al ponte del browser (`browser-bridge`), che senza
+ * di lui non sa distinguere una pane montata da un contesto headless che
+ * nessuno vede. Assente (test, build parziali) ⇒ «non lo so», trattato come
+ * «nessuna pane»: la rotta prova comunque il ripiego force-open.
+ */
+export function createTopicsRouter(
+  ctx: AppContext,
+  browserService?: BrowserService,
+  paneAttachedTo: (contextId: string) => boolean = () => false,
+): RouteHandler {
   const {
     GATEWAY_URL, GATEWAY_TOKEN, OPENCLAW_DIR,
     broadcastToAll,
@@ -765,6 +777,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
     browserNavigatedTopics,
     persistTaskTab: (taskId, contextId, url, title) => { persistAgentTaskTab(ctx.db, broadcastToAll, taskId, contextId, url, title); },
     attachLoginHandle: (contextId, handle) => { attachLoginHandleToTaskTab(ctx.db, broadcastToAll, contextId, handle); },
+    paneAttachedTo,
   }, browserService);
 
   /**

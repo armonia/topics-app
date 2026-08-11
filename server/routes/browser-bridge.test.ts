@@ -56,6 +56,15 @@ interface HarnessOpts {
    * risponde `{error}` — che è esattamente l'altro caso da provare.
    */
   storageState?: { cookies: unknown[]; origins: unknown[] };
+  /**
+   * «Una pane si è agganciata al contextId?» — il segnale con cui open-pane
+   * decide se armare il ripiego `browser:force-open` e cosa rispondere.
+   * Default `true` (il caso normale: la finestra c'è e monta il pannello).
+   * `false` = nessuna finestra la prende; `"dopo-force-open"` = la prende solo
+   * dopo che il ripiego è stato emesso, che è il caso che il ripiego esiste
+   * per coprire.
+   */
+  paneAttached?: boolean | "dopo-force-open";
 }
 
 function harness(opts: HarnessOpts = {}) {
@@ -81,6 +90,8 @@ function harness(opts: HarnessOpts = {}) {
   /** Il PRIMO effetto del dispatcher vero: dice su quale contesto è atterrato. */
   const dispatchedOn: string[] = [];
   const navigations: Array<{ contextId: string; url: string }> = [];
+  /** Su quali contextId la rotta ha chiesto «c'è una pane viva?». */
+  const attachChecks: string[] = [];
   const evaluations: Array<{ contextId: string; expression: string }> = [];
 
   const page = (contextId: string) => ({
@@ -143,6 +154,17 @@ function harness(opts: HarnessOpts = {}) {
     browserNavigatedTopics: navigatedTopics,
     persistTaskTab: (taskId, contextId, url, title) => { persisted.push({ taskId, contextId, url, title: title ?? "" }); order.push("persist"); },
     attachLoginHandle: (contextId, handle) => { loginAttached.push({ contextId, handle }); order.push("login-attach"); },
+    paneAttachedTo: (contextId) => {
+      attachChecks.push(contextId);
+      if (opts.paneAttached === false) return false;
+      if (opts.paneAttached === "dopo-force-open") {
+        return broadcasts.some((b) => b.type === "browser:force-open");
+      }
+      return true;
+    },
+    // Le attese vere sono da secondi: qui bastano pochi millisecondi, o ogni
+    // test del ramo «nessuna pane» pagherebbe due finestre piene.
+    paneWaitMs: 20,
   }, opts.noService ? undefined : service);
 
   const post = async (path: string, body?: unknown, headers: Record<string, string> = { "x-gateway-token": TOKEN }) => {
@@ -158,7 +180,7 @@ function harness(opts: HarnessOpts = {}) {
   return {
     router, post,
     topics, terminals, taskOfTopic, taskOfPrefix, contexts,
-    broadcasts, persisted, loginAttached, order, saved, destroyed, navigatedTopics, dispatchedOn, navigations, evaluations,
+    broadcasts, persisted, loginAttached, order, saved, destroyed, navigatedTopics, dispatchedOn, navigations, evaluations, attachChecks,
     addTopic: (id: string, over?: Partial<Topic>) => { const t = makeTopic(id, over); topics.set(id, t); return t; },
     addTerminal: (id: string) => { terminals.set(id, { id, name: `Terminal ${id}`, cwd: "/tmp" }); },
     typed: (type: string) => broadcasts.filter((b) => b.type === type),
@@ -238,7 +260,7 @@ describe("open-pane — tre rami, tre pannelli diversi", () => {
 
     const resp = await h.post("/api/topics/t1/browser/open-pane", { url: "https://example.com/" });
 
-    expect(await resp!.json()).toEqual({ url: "https://example.com/", title: "Titolo" });
+    expect(await resp!.json()).toEqual({ url: "https://example.com/", title: "Titolo", visible: true });
     // L'ordine è il fix del guasto: prima il client monta il pannello sotto
     // ctxId, poi ci si naviga dentro. Invertito, Playwright guidava un fantasma.
     expect(h.broadcasts[0]).toMatchObject({ type: "browser:navigate", topicId: "t1", contextId: "t1", url: "https://example.com/" });
@@ -254,7 +276,7 @@ describe("open-pane — tre rami, tre pannelli diversi", () => {
 
     const resp = await h.post("/api/topics/t1/browser/open-pane", { url: "https://example.com/inizio" });
 
-    expect(await resp!.json()).toEqual({ url: "https://example.com/finale", title: "Titolo" });
+    expect(await resp!.json()).toEqual({ url: "https://example.com/finale", title: "Titolo", visible: true });
     expect(h.typed("browser:navigate").map((b) => b.url)).toEqual([
       "https://example.com/inizio",
       "https://example.com/finale",
@@ -408,7 +430,7 @@ describe("open-pane — tre rami, tre pannelli diversi", () => {
 
     const resp = await h.post("/api/sessions/42/browser/open-pane", { url: "https://example.com/" });
 
-    expect(await resp!.json()).toEqual({ url: "https://example.com/", title: "" });
+    expect(await resp!.json()).toEqual({ url: "https://example.com/", title: "", visible: true });
     expect(h.broadcasts).toEqual([{
       type: "browser:open-near-pane",
       paneId: "terminal:42",
@@ -450,6 +472,87 @@ describe("open-pane — tre rami, tre pannelli diversi", () => {
 
     expect(open!.status).toBe(200);
     expect(close!.status).toBe(200);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// «Aperto» deve voler dire VISTO.
+//
+// Il guasto dell'11/08/2026: contesto browser vivo (compare in
+// browser_list_tabs, risponde a browser_status, ha la pagina caricata) e
+// NESSUNA pane montata — perché il frame `browser:navigate` era caduto fra i due
+// consumatori (il gruppo standalone lo scaricava sul progetto, il progetto lo
+// rifiutava perché la topic non era sua). Il ripiego previsto,
+// `browser:force-open`, aveva tipo, schema e gestore client ma nessun
+// emettitore. E il tool rispondeva «Opened browser pane at …» lo stesso: da
+// fuori i due esiti erano indistinguibili.
+// ---------------------------------------------------------------------------
+describe("open-pane — «visibile» non si dà per scontato", () => {
+  test("nessuna pane aggancia il contextId ⇒ ripiego force-open, e la risposta lo DICE", async () => {
+    const h = harness({ paneAttached: false });
+    h.addTopic("t1");
+
+    const resp = await h.post("/api/topics/t1/browser/open-pane", { url: "https://example.com/" });
+
+    expect(await resp!.json()).toEqual({ url: "https://example.com/", title: "Titolo", visible: false });
+    expect(h.typed("browser:force-open")).toEqual([
+      { type: "browser:force-open", contextId: "t1", url: "https://example.com/" },
+    ]);
+    expect(h.attachChecks).toContain("t1");
+  });
+
+  test("il ripiego funziona: la pane si aggancia dopo force-open ⇒ visible", async () => {
+    const h = harness({ paneAttached: "dopo-force-open" });
+    h.addTopic("t1");
+
+    const resp = await h.post("/api/topics/t1/browser/open-pane", { url: "https://example.com/" });
+
+    expect(await resp!.json()).toMatchObject({ visible: true });
+    expect(h.typed("browser:force-open")).toHaveLength(1);
+  });
+
+  test("pane già agganciata ⇒ nessun force-open (il ripiego non raddoppia i pannelli)", async () => {
+    const h = harness();
+    h.addTopic("t1");
+
+    await h.post("/api/topics/t1/browser/open-pane", { url: "https://example.com/" });
+
+    expect(h.typed("browser:force-open")).toEqual([]);
+  });
+
+  test("dopo un redirect, il force-open porta l'URL FINALE (non quello di partenza)", async () => {
+    const h = harness({ paneAttached: false, navigateTo: "https://example.com/finale" });
+    h.addTopic("t1");
+
+    await h.post("/api/topics/t1/browser/open-pane", { url: "https://example.com/inizio" });
+
+    // Una pane forzata carica l'initialUrl e basta (su Tauri il server non la
+    // guida via CDP): darle l'URL di partenza la lascerebbe sulla pagina
+    // sbagliata mentre il contesto headless è già altrove.
+    expect(h.typed("browser:force-open")[0]).toMatchObject({ url: "https://example.com/finale" });
+  });
+
+  test("terminale non renderizzato da nessuna parte: stesso ripiego, stessa risposta onesta", async () => {
+    const h = harness({ paneAttached: false });
+    h.addTerminal("42");
+
+    const resp = await h.post("/api/sessions/42/browser/open-pane", { url: "https://example.com/" });
+
+    expect(await resp!.json()).toEqual({ url: "https://example.com/", title: "", visible: false });
+    expect(h.typed("browser:force-open")[0]).toMatchObject({ contextId: "term-42" });
+  });
+
+  test("la scheda di un task NON passa dal ripiego: vive nel drawer, e il suo record è già persistito", async () => {
+    const h = harness({ paneAttached: false });
+    const topic = h.addTopic("aaaaaaaa-topic");
+    h.taskOfTopic.set(topic.id, { id: "12345678-task" });
+
+    const resp = await h.post("/api/topics/aaaaaaaa-topic/browser/open-pane", { url: "https://example.com/" });
+
+    // Forzare una pane standalone qui SPOSTEREBBE la tab fuori dal task, che è
+    // il posto in cui il reviewer la cerca.
+    expect(h.typed("browser:force-open")).toEqual([]);
+    expect(await resp!.json()).toEqual({ url: "https://example.com/", title: "" });
   });
 });
 
