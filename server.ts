@@ -1001,7 +1001,9 @@ const taskDispatcher = createTaskDispatcher({
   attemptStats: async (worktreeId) => {
     const wt = ctx.worktreeStore.get(worktreeId);
     if (!wt || wt.mode !== "branch" || !wt.absPath || !existsSync(wt.absPath)) return null;
-    return worktreeDiffStat(wt.absPath);
+    // Il branch va DETTO: è la chiave con cui si separa il lavoro del tentativo
+    // da quello che ha soltanto ereditato dal checkout condiviso.
+    return worktreeDiffStat(wt.absPath, { branch: wt.branchName ?? undefined });
   },
   worktreeBranch: (worktreeId) => ctx.worktreeStore.get(worktreeId)?.branchName ?? null,
   // Potatura dei topic dei tentativi a fine task. Passa dal servizio condiviso,
