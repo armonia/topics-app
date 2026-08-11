@@ -11,6 +11,7 @@ import { spawn, ChildProcess } from "child_process";
 import { join } from "path";
 import { createInterface, Interface } from "readline";
 import { getAiBridgeClient, type AiBridgeClient } from "../lib/ai-bridge-client";
+import { createLineFolder } from "../lib/ndjson-lines";
 import { readdirSync, existsSync, mkdirSync, writeFileSync, unlinkSync, readFileSync, chmodSync } from "fs";
 import { tmpdir } from "os";
 import type {
@@ -1176,9 +1177,21 @@ export class ClaudeCodeProvider implements AIProvider {
           const live = [...this.processes.keys()].filter((k) => this.processes.get(k)?.alive);
           if (live.length === 0) return;
           console.warn(`[claude-code] Broker socket reconnected — re-attaching ${live.length} live session(s)`);
-          for (const key of live) {
-            this.resyncStream(key).catch((err) => console.warn(`[claude-code] Re-attach after reconnect failed for ${key}:`, err));
-          }
+          // UNO ALLA VOLTA. Il ponte è un socket solo: N riattacchi sparati
+          // insieme mettono in coda i replay uno dietro l'altro e ogni ack
+          // aspetta i megabyte di tutti quelli davanti — le risposte escono a
+          // scaletta (misurato: 0,2s → 5,2s per sei sessioni da 7 MB). Ma le
+          // deadline partono tutte insieme, quindi la coda le brucia in blocco:
+          // è la RAFFICA di «ack timeout» del log, 51 di fila su topic diversi.
+          // In fila indiana ognuno spende il proprio tempo sul proprio turno, e
+          // il totale non cambia di un millisecondo.
+          void live.reduce(
+            (chain, key) => chain.then(() =>
+              this.resyncStream(key)
+                .then(() => undefined)
+                .catch((err) => console.warn(`[claude-code] Re-attach after reconnect failed for ${key}:`, err))),
+            Promise.resolve(),
+          );
         });
       } catch (err) {
         console.warn("[claude-code] Could not arm the broker reconnect hook:", err);
@@ -2035,16 +2048,14 @@ export class ClaudeCodeProvider implements AIProvider {
     sessionKey: string,
     onLine: (line: string) => void,
   ): void {
-    let lineBuf = "";
+    // Il taglia-righe sta in `lib/ndjson-lines`: lineare invece che quadratico
+    // sulla dimensione del chunk, e con `StringDecoder` al posto di
+    // `chunk.toString()` — i frame ora arrivano a fette e una fetta può cadere
+    // in mezzo a una sequenza UTF-8.
+    const fold = createLineFolder(onLine);
     client.registerHandlers(sessionKey, {
       onData: (chunk, offset) => {
-        lineBuf += chunk.toString();
-        let nl: number;
-        while ((nl = lineBuf.indexOf("\n")) !== -1) {
-          const line = lineBuf.slice(0, nl);
-          lineBuf = lineBuf.slice(nl + 1);
-          onLine(line);
-        }
+        fold(chunk);
         pp.consumedOffset = offset + chunk.byteLength;
       },
       onStderr: (chunk) => this.handleStderrData(pp, sessionKey, chunk),
