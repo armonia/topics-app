@@ -101,7 +101,13 @@ describe("le fan-out non possono dimenticare il filtro degli ospiti", () => {
   // deve costringere a toccare questa riga. Una scoperta automatica renderebbe
   // il test comodo e cieco — passerebbe da sola su una funzione nuova, che è
   // esattamente il caso che deve fallire.
-  const FANOUT = ["broadcast", "broadcastToAll", "broadcastToTopic", "broadcastToTopicSubscribers"];
+  const FANOUT = [
+    "broadcast", "broadcastToAll", "broadcastToTopic", "broadcastToTopicSubscribers",
+    // La quinta: decide per socket CHI vede un progetto (la 092), e il filtro
+    // degli ospiti resta comunque il primo dei due — `project:*` non è fra i tipi
+    // ammessi, quindi a un ospite non parte né la riga né la ritratta.
+    "broadcastProject",
+  ];
 
   for (const nome of FANOUT) {
     it(`${nome} consulta guestSocketFilter()`, () => {
