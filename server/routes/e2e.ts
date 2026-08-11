@@ -14,7 +14,8 @@
  * Più un verbo di SETUP, per lo stesso motivo (arrivare a uno stato che le API
  * pubbliche non sanno costruire):
  *
- *   POST /api/test/tasks/:id/bind-topic   lega un task alla topic dell'agente,
+ *   POST /api/test/tasks/:id/bind-topic   lega un task alla topic dell'agente
+ *                                         (+ `dispatchState` opzionale),
  *                              come il dispatcher — così si può testare la
  *                              superficie dei task dispatchati senza agente.
  *   POST /api/test/tasks/:id/attempts     semina i tentativi di un fan-out già
@@ -221,13 +222,20 @@ export function createE2eRouter(ctx: AppContext): RouteHandler {
     // logica che possa invecchiare.
     const bind = /^\/api\/test\/tasks\/([^/]+)\/bind-topic$/.exec(pathname);
     if (method === "POST" && bind) {
-      const body = (await req.json().catch(() => null)) as { topicId?: string } | null;
+      const body = (await req.json().catch(() => null)) as { topicId?: string; dispatchState?: string | null } | null;
       if (!body?.topicId) return json({ error: "topicId required" }, 400);
       try {
-        const task = createTaskService(db).bindTopic({
-          taskId: decodeURIComponent(bind[1]),
-          topicId: body.topicId,
-        });
+        const svc = createTaskService(db);
+        const taskId = decodeURIComponent(bind[1]);
+        let task = svc.bindTopic({ taskId, topicId: body.topicId });
+        // `dispatchState` opzionale, per la stessa ragione del topic qui sopra:
+        // quella colonna la scrive SOLO il dispatcher, e senza di essa un test
+        // non può mettere in scena un task con l'agente dentro un turno — che è
+        // il presupposto di tutto ciò che si legge dalla catena dei padri.
+        // Passa dal servizio vero (`setDispatchState`), non da una UPDATE a mano.
+        if (body.dispatchState !== undefined) {
+          task = svc.setDispatchState({ taskId, state: body.dispatchState });
+        }
         return json({ ok: true, task });
       } catch (e) {
         return json({ error: (e as Error).message }, 400);
