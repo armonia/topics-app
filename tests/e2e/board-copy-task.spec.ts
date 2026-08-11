@@ -1,0 +1,167 @@
+/**
+ * board-copy-task.spec.ts — «Copia task»: il contenuto della card negli appunti.
+ *
+ * Nel drawer c'era solo «Copia link», che copia un URL: utile a RITROVARE il
+ * task, inutile a chi il task deve incollarlo altrove (una chat, un'altra
+ * board). Ora accanto c'è il bottone che copia il TESTO — titolo, riga vuota,
+ * descrizione — e la stessa voce sta nel menù col tasto destro sulla card.
+ *
+ * È anche la clip di consegna, e il comportamento ha più di uno stato: icona
+ * copia → spunta verde → di nuovo icona. Uno screenshot non lo direbbe.
+ */
+import { test } from "./fixtures/layout.fixture";
+import { projectRow } from "./helpers/project-row";
+import { expect, type Page } from "@playwright/test";
+import { createTopic, deleteTopic, resetPaneStore, resetProjectPanes, seedProjectPane, deleteTask } from "./helpers/api-fixtures";
+import { mkdirSync, rmSync, writeFileSync } from "fs";
+import { E2E_BASE } from "./helpers/test-server";
+import { hermetic } from "./fixtures/hermetic";
+
+hermetic(test);
+
+const BASE = E2E_BASE;
+const PROJECT_PATH = `/tmp/e2e-copytask-${Date.now()}`;
+
+/** BYTE-IDENTICAL a server/services/tasks.ts:projectIdForPath. */
+function boardIdForPath(projectPath: string): string {
+  const parts = projectPath.replace(/\/+$/, "").split("/");
+  const dirName = parts[parts.length - 1] || "project";
+  let hash = 0;
+  for (let i = 0; i < projectPath.length; i++) {
+    hash = ((hash << 5) - hash) + projectPath.charCodeAt(i);
+    hash |= 0;
+  }
+  return dirName + "-" + Math.abs(hash).toString(36).slice(0, 6);
+}
+const PROJECT_ID = boardIdForPath(PROJECT_PATH);
+
+const TITOLO = "Rifare la scheda prodotto";
+const DESCRIZIONE = "Foto nuove, prezzo in alto, recensioni sotto la piega.";
+const ATTESO = `${TITOLO}\n\n${DESCRIZIONE}`;
+
+let projectTopicId: string | null = null;
+const createdTasks: string[] = [];
+
+async function createTask(request: any, body: Record<string, unknown>): Promise<{ id: string }> {
+  const res = await request.post(`${BASE}/api/boards/${PROJECT_ID}/tasks`, { data: body });
+  expect(res.ok()).toBe(true);
+  const task = (await res.json()) as { id: string };
+  createdTasks.push(`${PROJECT_ID}:${task.id}`);
+  return task;
+}
+
+async function openProjectBoard(page: Page) {
+  const projectsSection = page.getByRole("button", { name: /sezione Progetti/ });
+  if ((await projectsSection.count()) > 0) {
+    const expanded = await projectsSection.getAttribute("aria-expanded");
+    if (expanded === "false") await projectsSection.click();
+  }
+  const btn = projectRow(page, /e2e-copytask/);
+  await expect(btn).toBeVisible({ timeout: 10000 });
+  await btn.click();
+  await expect(page.getByTestId("project-window")).toBeVisible({ timeout: 10000 });
+
+  const triggers = page.getByTestId("pane-add-menu-trigger");
+  const count = await triggers.count();
+  const item = page.getByTestId("pane-add-menu-kanban");
+  let opened = false;
+  for (let i = count - 1; i >= 0; i--) {
+    const t = triggers.nth(i);
+    if (!(await t.isVisible().catch(() => false))) continue;
+    if (!(await t.click({ timeout: 3000 }).then(() => true, () => false))) continue;
+    if (await item.waitFor({ state: "visible", timeout: 2000 }).then(() => true, () => false)) { opened = true; break; }
+    await page.keyboard.press("Escape");
+  }
+  if (!opened) throw new Error("no + menu with a Board (kanban) entry found");
+  await item.click();
+  await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 10000 });
+}
+
+/** Pausa che serve SOLO alla clip di consegna (E2E_EVIDENCE=1). Zero a suite normale. */
+const beat = (page: Page, ms = 1400) =>
+  process.env.E2E_EVIDENCE === "1" ? page.waitForTimeout(ms) : Promise.resolve();
+
+/** Gli appunti letti dalla pagina. Richiede il permesso concesso al context. */
+const clipboard = (page: Page) => page.evaluate(() => navigator.clipboard.readText());
+
+test.describe("Copia task · il contenuto della card negli appunti", () => {
+  test.describe.configure({ timeout: 90_000 });
+  // Finestra più bassa del default (1280×800) per un motivo solo: la clip di
+  // consegna finisce nella card della board, che sopra 0.537 di altezza/larghezza
+  // TAGLIA invece di rimpicciolire. 1280×680 → 0.531, e il drawer ci sta tutto.
+  test.use({ viewport: { width: 1280, height: 680 } });
+
+  test.beforeAll(async ({ request }) => {
+    mkdirSync(PROJECT_PATH, { recursive: true });
+    writeFileSync(`${PROJECT_PATH}/package.json`, JSON.stringify({ name: "e2e-copytask" }, null, 2));
+    const topic = await createTopic(request, "E2E-CopyTask", { projectPath: PROJECT_PATH });
+    projectTopicId = topic.id;
+  });
+
+  test.afterAll(async ({ request }) => {
+    for (const key of [...createdTasks].reverse()) {
+      const [pid, tid] = key.split(":");
+      await deleteTask(request, pid, tid);
+    }
+    if (projectTopicId) await deleteTopic(request, projectTopicId);
+    rmSync(PROJECT_PATH, { recursive: true, force: true });
+  });
+
+  // I permessi di clipboard (che servono alla LETTURA del test, non al bottone)
+  // li concede già `playwright.config.ts` a tutta la suite.
+  test.beforeEach(async ({ page }) => {
+    await resetPaneStore(page.request, []);
+    await resetProjectPanes(page.request, PROJECT_PATH);
+    await seedProjectPane(page.request, PROJECT_PATH);
+  });
+
+  test("dal drawer copia titolo + descrizione, e la spunta dice che è successo", async ({ page, request }) => {
+    const task = await createTask(request, { text: TITOLO, description: DESCRIZIONE, status: "todo" });
+
+    await page.goto("/");
+    await openProjectBoard(page);
+
+    const card = page.locator(`[data-task-card="${task.id}"]`);
+    await expect(card).toBeVisible({ timeout: 10000 });
+    await beat(page, 1600);
+    await card.click();
+
+    const drawer = page.getByTestId("task-detail-drawer");
+    await expect(drawer).toBeVisible({ timeout: 10000 });
+    const copia = drawer.getByTestId("task-copy-text");
+    await expect(copia).toBeVisible();
+    await beat(page, 1800);
+
+    await copia.click();
+    expect(await clipboard(page)).toBe(ATTESO);
+
+    // La spunta è la sola cosa che l'utente vede: c'è, e poi se ne va da sola.
+    await expect(copia.locator("svg.text-emerald-400")).toBeVisible({ timeout: 2000 });
+    await beat(page, 1800);
+    await expect(copia.locator("svg.text-emerald-400")).toHaveCount(0, { timeout: 4000 });
+
+    // Il vicino «Copia link» non è stato mangiato: copia ancora un URL, non il testo.
+    await drawer.getByTestId("task-copy-link").click();
+    expect(await clipboard(page)).toContain(`/task/${task.id}`);
+    await beat(page, 1500);
+  });
+
+  test("il tasto destro sulla card copia lo stesso testo, senza aprire il drawer", async ({ page, request }) => {
+    const task = await createTask(request, { text: TITOLO, description: DESCRIZIONE, status: "todo" });
+
+    await page.goto("/");
+    await openProjectBoard(page);
+
+    const card = page.locator(`[data-task-card="${task.id}"]`);
+    await expect(card).toBeVisible({ timeout: 10000 });
+    await card.click({ button: "right" });
+    const voce = page.getByRole("menuitem", { name: "Copia task" });
+    await expect(voce).toBeVisible({ timeout: 5000 });
+    await beat(page, 1600);
+    await voce.click();
+
+    expect(await clipboard(page)).toBe(ATTESO);
+    await expect(page.getByTestId("task-detail-drawer")).toHaveCount(0);
+    await beat(page, 1400);
+  });
+});
