@@ -1,5 +1,9 @@
 # Dependencies
-node_modules/
+# Senza lo slash finale di proposito: `node_modules/` copre solo una CARTELLA,
+# e un SYMLINK con lo stesso nome le sfugge. E' successo — un link a
+# /Users/<nome>/... e' finito tracciato da un `git add -A`, path di casa
+# dentro un repo pubblico.
+node_modules
 .bun/
 
 # User data - DO NOT COMMIT
