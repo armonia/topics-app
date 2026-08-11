@@ -69,8 +69,15 @@ function reply(id: unknown, result: unknown) {
  */
 let buf = "";
 const decoder = new TextDecoder();
-for await (const chunk of Bun.stdin.stream()) {
-  buf += decoder.decode(chunk as Uint8Array, { stream: true });
+// `for await` sullo stream non tipa: `ReadableStream` non dichiara
+// `[Symbol.asyncIterator]` nei lib DOM, e `bun run typecheck` lo rifiuta. Il
+// reader esplicito fa la stessa cosa ed è tipato.
+const reader = Bun.stdin.stream().getReader();
+for (;;) {
+  const { done, value } = await reader.read();
+  if (done) break;
+  const chunk = value as Uint8Array;
+  buf += decoder.decode(chunk, { stream: true });
   let nl: number;
   while ((nl = buf.indexOf("\n")) >= 0) {
     const line = buf.slice(0, nl).trim();
