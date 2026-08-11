@@ -202,6 +202,11 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
   useEffect(() => {
     const raw = text.trim();
     if (link) return;
+    // In modalità orchestratore l'intake non ha oggetto: qui non sta nascendo
+    // una card da collegare, si sta parlando. Proporre «sembra legato a X» su
+    // una frase come «a che punto siamo?» sarebbe una risposta a una domanda
+    // che nessuno ha fatto — e una chiamata alla board per ogni tasto.
+    if (orchestrating) { setProposal(null); return; }
     if (raw.length < 12 || !target || target === UNASSIGNED_PROJECT_ID) { setProposal(null); return; }
     let alive = true;
     const timer = setTimeout(() => {
@@ -210,7 +215,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
         .catch(() => { if (alive) setProposal(null); });
     }, 450);
     return () => { alive = false; clearTimeout(timer); };
-  }, [text, target, link]);
+  }, [text, target, link, orchestrating]);
 
   // Cambiare board azzera la scelta: un collegamento vive su UNA board, e
   // trascinarlo altrove vorrebbe dire attaccare il task a una card che su quel
@@ -361,7 +366,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
             portata di occhio (title = la frase intera), e due bottoni — quello
             consigliato acceso, l'altro a un click. Il terzo bottone è "no": il
             task nasce libero, che è anche ciò che succede se non tocchi niente. */}
-        {expanded && (proposal || link) && (
+        {expanded && !orchestrating && (proposal || link) && (
           <div
             data-testid="composer-intake"
             className="mx-2.5 mb-2 flex items-center gap-2 overflow-x-auto rounded-lg border border-app-border bg-black/5 px-2 py-1.5 text-[11px] scrollbar-hide dark:bg-white/5"
