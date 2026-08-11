@@ -21,13 +21,30 @@
 import { describe, test, expect } from "bun:test";
 import { createPermissionRouter } from "./permission";
 import { deliverAnswer, hasPendingAsk, cancelAsk } from "../lib/ask-user-bridge";
-import { cancelPermission, hasPendingPermission } from "../lib/permission-bridge";
+import { cancelPermission, hasPendingPermission, sessionHasPendingPermission } from "../lib/permission-bridge";
 
 type Row = { tool_calls?: string | null; blocks?: string | null } | undefined;
 
 function makeHarness(row: Row = undefined) {
   const broadcasts: Array<{ type: string } & Record<string, unknown>> = [];
   const toolCallWrites: Array<{ sessionKey: string; toolCallId: string; fields: Record<string, unknown> }> = [];
+
+  /**
+   * I topic della finta app. Uno per session key, coniato alla prima richiesta
+   * con il livello che ha una chat normale (`auto-apply` → `acceptEdits`, cioè
+   * la modalità che CHIEDE). Sono veri oggetti mutabili perché è esattamente
+   * ciò che «passa a libero» va a scrivere, ed è l'unico modo di provare che
+   * scrive sulla chat GIUSTA e su nessun'altra.
+   */
+  const topics = new Map<string, { id: string; sessionKey: string; autonomyLevel: string }>();
+  const topicFor = (key: string) => {
+    let t = topics.get(key);
+    if (!t) {
+      t = { id: `topic-of-${key}`, sessionKey: key, autonomyLevel: "auto-apply" };
+      topics.set(key, t);
+    }
+    return t;
+  };
 
   const ctx = {
     db: { prepare: () => ({ get: () => row }) },
@@ -46,7 +63,10 @@ function makeHarness(row: Row = undefined) {
       return params;
     },
     broadcastToAll: (msg: { type: string } & Record<string, unknown>) => { broadcasts.push(msg); },
-    getTopicBySessionKey: (key: string) => ({ id: `topic-of-${key}` }),
+    getTopicBySessionKey: (key: string) => topicFor(key),
+    saveSingleTopic: (t: { id: string; sessionKey: string; autonomyLevel: string }) => {
+      topics.set(t.sessionKey, { id: t.id, sessionKey: t.sessionKey, autonomyLevel: t.autonomyLevel });
+    },
     updateToolCallFields: (sessionKey: string, toolCallId: string, fields: Record<string, unknown>) => {
       toolCallWrites.push({ sessionKey, toolCallId, fields });
     },
@@ -62,7 +82,7 @@ function makeHarness(row: Row = undefined) {
     });
     return router(req, url, url.pathname, method) as Promise<Response | null>;
   };
-  return { call, broadcasts, toolCallWrites };
+  return { call, broadcasts, toolCallWrites, topicFor };
 }
 
 const callRow = (id: string, extra: Record<string, unknown> = {}) =>
@@ -208,6 +228,175 @@ describe("POST /api/sessions/:sessionKey/permission-response", () => {
     expect(resp.status).toBe(200);
     const outcome = h.toolCallWrites.at(-1)!.fields.permissionOutcome as { decision: string };
     expect(outcome.decision).toBe("deny");
+  });
+});
+
+/**
+ * «PASSA A LIBERO» — la terza azione del pannello.
+ *
+ * Una sola pressione fa tre cose, e le tre si provano SEPARATE: se una sola
+ * mancasse, un test che le guarda insieme resterebbe verde per il motivo
+ * sbagliato. Il caso peggiore è proprio il verde a metà — la richiesta
+ * consentita e la sessione NON liberata (il pannello successivo ricompare), o
+ * la sessione liberata e nessuna traccia di chi l'ha deciso.
+ */
+describe("«Passa a libero»: consente ORA e libera la sessione", () => {
+  test("(a) la richiesta in corso si risolve come CONSENTITA — e la CLI non vede mai la quarta parola", async () => {
+    const h = makeHarness({ tool_calls: callRow("tu_free_a") });
+    const sk = "free:a";
+    // Ordine reale: il bridge è già dentro la sua gamba quando la persona preme.
+    const leg = h.call("POST", `/api/sessions/${sk}/permission`, { toolName: "Bash", toolUseId: "tu_free_a", legMs: 5_000 });
+    await Bun.sleep(20);
+
+    const resp = (await h.call("POST", `/api/sessions/${sk}/permission-response`, {
+      toolCallId: "tu_free_a",
+      decision: "allow_free",
+    }))!;
+    expect(resp.status).toBe(200);
+
+    // La gamba si sblocca con un `allow`: `allow_free` è una decisione di
+    // Topics su sé stesso, e consegnarla al figlio CLI sarebbe una parola
+    // sconosciuta al posto di un permesso.
+    expect(await (await leg)!.json()).toEqual({ decision: "allow" });
+    expect(hasPendingPermission(sk, "tu_free_a")).toBe(false);
+  });
+
+  test("(b) la sessione passa in modalità libera, e il selettore di autonomia lo viene a sapere", async () => {
+    const h = makeHarness({ tool_calls: callRow("tu_free_b") });
+    const sk = "free:b";
+    expect(h.topicFor(sk).autonomyLevel).toBe("auto-apply");
+
+    await h.call("POST", `/api/sessions/${sk}/permission`, { toolName: "Bash", toolUseId: "tu_free_b", legMs: 100 });
+    const resp = (await h.call("POST", `/api/sessions/${sk}/permission-response`, {
+      toolCallId: "tu_free_b",
+      decision: "allow_free",
+    }))!;
+
+    expect((await resp.json()).autonomyLevel).toBe("yolo");
+    expect(h.topicFor(sk).autonomyLevel).toBe("yolo");
+    // Il `topic:updated` è ciò che fa dire «Libero» al selettore nel composer —
+    // cioè l'unico comando da cui si torna indietro. Senza, il regime sarebbe
+    // cambiato di nascosto.
+    const updated = h.broadcasts.find((b) => b.type === "topic:updated");
+    expect(updated).toBeTruthy();
+    expect((updated!.topic as { autonomyLevel: string }).autonomyLevel).toBe("yolo");
+  });
+
+  test("(c) resta una riga nel thread: cosa è stato fatto, e da chi", async () => {
+    const h = makeHarness({ tool_calls: callRow("tu_free_c") });
+    const sk = "free:c";
+    await h.call("POST", `/api/sessions/${sk}/permission`, { toolName: "Bash", toolUseId: "tu_free_c", legMs: 100 });
+    await h.call("POST", `/api/sessions/${sk}/permission-response`, { toolCallId: "tu_free_c", decision: "allow_free" });
+
+    // La traccia si scrive sulla RIGA della chat (`permissionOutcome`), che è
+    // ciò che sopravvive al reload ed è quello che il thread disegna. Un
+    // `allow` liscio non basterebbe: dopo, rileggendo, «consentito» e
+    // «consentito e da qui non chiedo più» sembrerebbero la stessa cosa.
+    const write = h.toolCallWrites.at(-1)!;
+    const outcome = write.fields.permissionOutcome as { decision: string; actor?: string; decidedAt: string };
+    expect(write.toolCallId).toBe("tu_free_c");
+    expect(outcome.decision).toBe("allow_free");
+    expect(outcome.actor).toBeTruthy();
+    expect(outcome.decidedAt).toBeTruthy();
+    // E arriva anche a chi sta guardando adesso, non solo a chi ricarica.
+    const resolved = h.broadcasts.find((b) => b.type === "stream:tool_permission_resolved")!;
+    expect((resolved.outcome as { decision: string }).decision).toBe("allow_free");
+    expect((resolved.outcome as { actor?: string }).actor).toBeTruthy();
+  });
+
+  test("il turno prosegue: il pannello SUCCESSIVO non compare", async () => {
+    const h = makeHarness({ tool_calls: callRow("tu_free_next") });
+    const sk = "free:next";
+    await h.call("POST", `/api/sessions/${sk}/permission`, { toolName: "Bash", toolUseId: "tu_free_next", legMs: 100 });
+    await h.call("POST", `/api/sessions/${sk}/permission-response`, { toolCallId: "tu_free_next", decision: "allow_free" });
+    const before = h.broadcasts.length;
+
+    // Lo strumento DOPO, nello stesso turno, con lo stesso figlio CLI ancora
+    // nato in `acceptEdits`: se questa gamba aprisse un pannello, «passa a
+    // libero» avrebbe liberato la sessione solo dal turno successivo — cioè
+    // non avrebbe fatto quello che dice.
+    const next = (await h.call("POST", `/api/sessions/${sk}/permission`, {
+      toolName: "mcp__gateway__kiwi__search-flight",
+      toolUseId: "tu_free_next_2",
+      legMs: 100,
+    }))!;
+    expect(await next.json()).toEqual({ decision: "allow" });
+    expect(hasPendingPermission(sk, "tu_free_next_2")).toBe(false);
+    expect(h.broadcasts.length).toBe(before);
+  });
+
+  test("vale per QUESTA sessione: le altre continuano a chiedere", async () => {
+    const h = makeHarness({ tool_calls: callRow("tu_mia") });
+    const mia = "free:mia";
+    const altra = "free:altra";
+    await h.call("POST", `/api/sessions/${mia}/permission`, { toolName: "Bash", toolUseId: "tu_mia", legMs: 100 });
+    await h.call("POST", `/api/sessions/${mia}/permission-response`, { toolCallId: "tu_mia", decision: "allow_free" });
+
+    // Il livello dell'altra chat non si è mosso…
+    expect(h.topicFor(altra).autonomyLevel).toBe("auto-apply");
+    // …e soprattutto il suo canale CHIEDE ancora: nessuna regola globale è
+    // stata scritta. È la differenza con «Consenti sempre», che invece vale per
+    // tutta l'app — e sarebbe stata la scorciatoia sbagliata da prendere qui.
+    try {
+      const resp = (await h.call("POST", `/api/sessions/${altra}/permission`, {
+        toolName: "Bash",
+        toolUseId: "tu_altra",
+        legMs: 100,
+      }))!;
+      expect(await resp.json()).toEqual({ pending: true });
+      expect(hasPendingPermission(altra, "tu_altra")).toBe(true);
+    } finally {
+      cancelPermission(altra, "tu_altra");
+    }
+  });
+
+  test("è REVERSIBILE da dove si è cambiata: rimesso «agisce», si torna a chiedere", async () => {
+    const h = makeHarness({ tool_calls: callRow("tu_rev") });
+    const sk = "free:rev";
+    await h.call("POST", `/api/sessions/${sk}/permission`, { toolName: "Bash", toolUseId: "tu_rev", legMs: 100 });
+    await h.call("POST", `/api/sessions/${sk}/permission-response`, { toolCallId: "tu_rev", decision: "allow_free" });
+    expect(h.topicFor(sk).autonomyLevel).toBe("yolo");
+
+    // Quello che fa il selettore di autonomia nel composer (PATCH del topic).
+    h.topicFor(sk).autonomyLevel = "auto-apply";
+
+    try {
+      const resp = (await h.call("POST", `/api/sessions/${sk}/permission`, {
+        toolName: "Bash",
+        toolUseId: "tu_rev_2",
+        legMs: 100,
+      }))!;
+      // Un permesso che si toglie e non si può rimettere non è un permesso.
+      expect(await resp.json()).toEqual({ pending: true });
+    } finally {
+      cancelPermission(sk, "tu_rev_2");
+    }
+  });
+
+  test("due pannelli aperti insieme: nessuno resta appeso a chiedere a vuoto", async () => {
+    // La CLI può chiedere per più `tool_use` nello stesso messaggio (misurati a
+    // 170 ms di distanza). Liberata la sessione, il secondo pannello non ha più
+    // niente da chiedere: se restasse aperto, il turno resterebbe «in attesa di
+    // una persona» — cioè fuori dalla vista di watchdog e reaper — mentre la
+    // persona ha già risposto per tutti.
+    const h = makeHarness({ tool_calls: callRow("tu_due_1") });
+    const sk = "free:due";
+    const primo = h.call("POST", `/api/sessions/${sk}/permission`, { toolName: "Bash", toolUseId: "tu_due_1", legMs: 5_000 });
+    const secondo = h.call("POST", `/api/sessions/${sk}/permission`, { toolName: "Write", toolUseId: "tu_due_2", legMs: 5_000 });
+    await Bun.sleep(20);
+    expect(hasPendingPermission(sk, "tu_due_2")).toBe(true);
+
+    await h.call("POST", `/api/sessions/${sk}/permission-response`, { toolCallId: "tu_due_1", decision: "allow_free" });
+
+    expect(await (await primo)!.json()).toEqual({ decision: "allow" });
+    expect(await (await secondo)!.json()).toEqual({ decision: "allow" });
+    expect(hasPendingPermission(sk, "tu_due_2")).toBe(false);
+    expect(sessionHasPendingPermission(sk)).toBe(false);
+    // E la riga del secondo non resta a girare su «in attesa della tua risposta».
+    // L'ULTIMA scrittura, non la prima: la prima è il pannello che si dipinge.
+    const write = h.toolCallWrites.filter((w) => w.toolCallId === "tu_due_2").at(-1)!;
+    expect(write.fields.status).toBe("running");
+    expect((write.fields.permissionOutcome as { decision: string }).decision).toBe("allow");
   });
 });
 
