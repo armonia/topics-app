@@ -1877,6 +1877,7 @@ export function SubtaskNode({ projectId, node, depth, onOpenTask }: {
         {openable ? (
           <button
             onClick={() => onOpenTask?.(node.id)}
+            data-testid={`subtask-open-${node.id}`}
             title={tr('board.task.openSubtaskTitle')}
             className={`min-w-0 flex-1 truncate text-left text-xs ${node.status === 'done' ? 'text-app-text-muted line-through' : 'text-app-text'}`}
           >{node.text}</button>
