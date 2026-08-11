@@ -340,6 +340,20 @@ const FREE_PROVIDER_ERRORS = 3;
 /** Ogni quanto un resume in attesa ricontrolla se si è liberato un posto. */
 const RESUME_SLOT_RETRY_MS = 5_000;
 
+/**
+ * La stessa lista, ma cominciando dall'elemento `cursor`-esimo.
+ *
+ * Serve a far girare l'ordine dei board a ogni reconcile. Il tetto dei posti è
+ * GLOBALE: chi viene interrogato per primo li riempie, e chi sta in fondo non
+ * ne trova mai. Misurato l'11/08 sul DB vivo: una board 26 claim su 31 in
+ * un'ora, un'altra con tre card in coda ZERO — non per priorità, per posizione.
+ */
+export function rotateFrom<T>(items: readonly T[], cursor: number): T[] {
+  if (items.length < 2) return [...items];
+  const da = ((cursor % items.length) + items.length) % items.length;
+  return [...items.slice(da), ...items.slice(0, da)];
+}
+
 const DEFAULT_AUTO_EFFORT = "medium";
 
 const CHIP_QUEUED = "queued";
@@ -554,6 +568,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   const providerErrors = new Map<string, number>();
   /** Chi ha già detto nel thread che sta aspettando uno slot: una volta basta. */
   const waitingForSlot = new Set<string>();
+  /** Da quale board comincia il prossimo giro: vedi `reconcile` (turnazione). */
+  let boardCursor = 0;
   let resumeStagger = 0;
 
   /**
@@ -2356,7 +2372,15 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     const boards = new Set<string>();
     try { for (const t of deps.svc.list({ scope: "all", status: "todo", rootsOnly: true })) boards.add(t.projectId); }
     catch (err) { log("reconcile todo list failed", err); }
-    for (const projectId of boards) {
+    // A TURNO, non sempre nello stesso ordine. Il tetto è globale: la board che
+    // tocca per prima riempie i posti, e chi viene dopo non ne trova mai. Con
+    // l'ordine fisso della lista, l'11/08 una board ha preso 26 claim su 31 in
+    // un'ora mentre un'altra, con tre card in coda, ne prendeva ZERO — non per
+    // priorità, per posizione. Il cursore fa scorrere chi comincia, così ogni
+    // board arriva prima a giro suo e nessuna resta indietro per sempre.
+    const ordinate = rotateFrom([...boards], boardCursor);
+    if (ordinate.length > 1) boardCursor = (boardCursor + 1) % ordinate.length;
+    for (const projectId of ordinate) {
       await tick(projectId).catch((err) => log(`reconcile tick failed for ${projectId}`, err));
     }
   }
