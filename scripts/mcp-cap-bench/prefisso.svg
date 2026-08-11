@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 500" width="1000" height="500" font-family="ui-sans-serif, -apple-system, Helvetica, Arial, sans-serif">
+  <!--
+    Il cancello dell'anteprima e' a 268px di larghezza: la scala e' 0,268, quindi
+    ogni testo che deve restare leggibile sta a >=30px qui dentro (>=8px la').
+    Tutto quello che sarebbe piu' piccolo non c'e': sta nei numeri del task.
+
+    Numeri: prefix-ladder.ts, opus-5[1m] (il modello di produzione), HOME reale,
+    CLI 2.1.227, rumore di fondo 0-4 token. PRIMA = produzione di oggi, cioe' il
+    prefisso col catalogo skill gia' ai soli nomi: 34.845 - 4.281 = 30.564.
+    Scala della barra: 880px / 30.564 token.
+  -->
+  <rect width="1000" height="500" fill="#0f1115"/>
+
+  <text x="40" y="62" fill="#e7e9ee" font-size="40" font-weight="700">Il prefisso, voce per voce</text>
+  <text x="40" y="104" fill="#8b93a7" font-size="32">si paga a OGNI richiesta</text>
+
+  <text x="40" y="168" fill="#8b93a7" font-size="32" font-weight="600">PRIMA</text>
+  <text x="920" y="168" fill="#e7e9ee" font-size="36" font-weight="700" text-anchor="end">30.564</text>
+  <rect x="40"  y="184" width="226" height="60" fill="#e0533d"/>
+  <rect x="266" y="184" width="153" height="60" fill="#e8785f"/>
+  <rect x="419" y="184" width="154" height="60" fill="#3f4756"/>
+  <rect x="573" y="184" width="346" height="60" fill="#2a303b"/>
+
+  <text x="40"  y="284" fill="#e0533d" font-size="30" font-weight="700">Workflow 7.856</text>
+  <text x="300" y="284" fill="#e8785f" font-size="30">altri tre 5.320</text>
+  <text x="560" y="284" fill="#7b8398" font-size="30">Task · CLAUDE.md · resto</text>
+
+  <text x="40" y="326" fill="#8b93a7" font-size="32" font-weight="600">DOPO</text>
+  <text x="920" y="326" fill="#e7e9ee" font-size="36" font-weight="700" text-anchor="end">17.388</text>
+  <rect x="40" y="342" width="501" height="60" fill="#2f8f5b"/>
+
+  <text x="40" y="470" fill="#e7e9ee" font-size="54" font-weight="800">−13.176</text>
+  <text x="290" y="470" fill="#9aa3b8" font-size="34">a ogni richiesta · −43,1%</text>
+</svg>

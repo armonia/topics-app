@@ -77,6 +77,10 @@
         // mano accanto al banco, e come lui nessuno le importa.
         "scripts/mcp-cap-bench/decompose.ts!",
         "scripts/mcp-cap-bench/prefix-probe.ts!",
+        // La SCALA di ablazione: toglie una voce di prefisso alla volta e
+        // misura il delta (`bun scripts/mcp-cap-bench/prefix-ladder.ts`). Come
+        // le altre si lancia a mano e nessuno la importa.
+        "scripts/mcp-cap-bench/prefix-ladder.ts!",
         // `bun run measure:task-tabs <copia.db>` — la misura prima/dopo del
         // ripasso sulle tab dei task archiviati, su una COPIA del db vivo. Si
         // lancia a mano quando si vuole rifare il conto (o rispondere a «quanto
