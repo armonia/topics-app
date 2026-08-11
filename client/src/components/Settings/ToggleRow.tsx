@@ -1,3 +1,5 @@
+import { Switch } from '../Shared/Switch';
+
 interface ToggleRowProps {
   label: string;
   description?: string;
@@ -10,9 +12,9 @@ interface ToggleRowProps {
  * schede (Aspetto e Notifiche): tenerlo dentro una delle due farebbe importare
  * l'altra scheda intera per un solo bottone.
  *
- * `role="switch"` + `aria-checked` + `aria-label`: il <div> con l'etichetta non
- * avvolge il bottone e non lo lega per `for`, quindi senza il nome esplicito
- * l'interruttore sarebbe anonimo — e in questo pannello ce ne sono cinque.
+ * L'interruttore vero e proprio sta in `Shared/Switch`: il disegno era copiato
+ * qui e nel modale delle impostazioni del topic, e il difetto dello stato
+ * spento (bianco su bianco in tema chiaro) andava corretto in due punti.
  */
 export function ToggleRow({ label, description, value, onChange }: ToggleRowProps) {
   return (
@@ -23,21 +25,7 @@ export function ToggleRow({ label, description, value, onChange }: ToggleRowProp
           <div className="text-[11px] text-app-text-muted mt-0.5">{description}</div>
         )}
       </div>
-      <button
-        role="switch"
-        aria-checked={value}
-        aria-label={label}
-        onClick={() => onChange(!value)}
-        className={`relative shrink-0 mt-0.5 w-9 h-5 rounded-full transition-colors ${
-          value ? 'bg-primary' : 'bg-app-border'
-        }`}
-      >
-        <span
-          className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-transform ${
-            value ? 'translate-x-4' : 'translate-x-0'
-          }`}
-        />
-      </button>
+      <Switch checked={value} onChange={onChange} label={label} className="mt-0.5" />
     </div>
   );
 }
