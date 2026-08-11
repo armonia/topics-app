@@ -1064,7 +1064,10 @@ describe("deliveredBy (chi ha portato il task in review)", () => {
     // gate su `done` rifiuta un padre con figli attivi) e ci tornerebbe a ogni
     // turno esaurito. Misurato il 10/08: quattro rimbalzi in un'ora.
     const p = s.create({ projectId: PID, text: "epic" });
-    s.create({ projectId: PID, text: "passo aperto", parentTaskId: p.id });
+    const kid = s.create({ projectId: PID, text: "passo aperto", parentTaskId: p.id });
+    // «Aperto» vuol dire che qualcuno lo sta lavorando o sta per farlo: in coda.
+    // Un figlio lasciato in backlog è parcheggiato e non blocca (test qui sotto).
+    s.update({ taskId: kid.id, actor: "human", by: "u", patch: { status: "todo" } });
     const d = s.deliverToReviewBySystem({ taskId: p.id, reason: "budget finito", cause: "retries_exhausted" });
     expect(d.status).toBe("todo");
     // La ragione resta scritta nel thread: sparire in silenzio sarebbe peggio.
@@ -1079,6 +1082,19 @@ describe("deliveredBy (chi ha portato il task in review)", () => {
     const kid = s.create({ projectId: PID, text: "passo", parentTaskId: p.id });
     s.update({ taskId: kid.id, actor: "human", by: "u", patch: { status: "done" } });
     expect(s.deliverToReviewBySystem({ taskId: p.id, reason: "fine", cause: "retries_exhausted" }).status).toBe("review");
+  });
+
+  test("figli SOLO parcheggiati: non è un'attesa, è uno stallo — e lo dice", () => {
+    // Nessuno dispaccia dal backlog: rimandare il padre in coda lo farebbe
+    // girare ogni 10 minuti per sempre (misurati 20 padri così l'11/08). Si
+    // parcheggia lui, con scritto chi lo tiene fermo e come sbloccarlo.
+    const p = s.create({ projectId: PID, text: "epic" });
+    s.create({ projectId: PID, text: "seguito rimandato", parentTaskId: p.id });
+    const d = s.deliverToReviewBySystem({ taskId: p.id, reason: "fine" });
+    expect(d.status).toBe("backlog");
+    expect(d.dispatchState).toBe("blocked");
+    const notes = s.get(p.id)!.comments.map((c) => c.content).join("\n");
+    expect(notes).toContain("seguito rimandato");
   });
 
   test("senza causa nota resta 'system' e basta — mai una causa inventata", () => {
