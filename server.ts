@@ -16,6 +16,10 @@ import {
   startUiStateBackupTicker, snapshotUiStateNow,
 } from "./server/services/ui-state-backup";
 import { purgeOrphanTopicRefs } from "./server/services/ui-state-orphan-cleanup";
+import {
+  sweepArchivedTaskBrowserState,
+  teardownArchivedTaskBrowserState,
+} from "./server/services/task-tab-teardown";
 import { createTopicsRouter, purgeTopicFromUiState } from "./server/routes/topics";
 import { archiveTopicFully } from "./server/services/archive-topic";
 import { applyPaneCascade, reconcile, recordRetirement, retiredIds, type ReconcileDeps } from "./server/services/retirement";
@@ -301,6 +305,27 @@ try {
   // Non-fatal: log loudly but don't abort boot — the runtime guard in
   // PURGE_ORPHAN_PANE will still catch any orphan that slips through.
   console.error("[Startup] ui_state orphan cleanup failed:", err);
+}
+
+// Ripasso al boot delle tab dei task ARCHIVIATI (`services/task-tab-teardown.ts`).
+// L'aggancio vero sta sull'archiviazione; questo è il backstop che ripara il
+// pregresso — i record lasciati prima che quel codice esistesse — e qualunque
+// chiave risuscitata da un client che era disconnesso mentre il task veniva
+// archiviato. Niente broadcast e niente `destroyContext`: qui non c'è ancora
+// nessun client collegato né nessun contesto browser vivo.
+try {
+  const swept = sweepArchivedTaskBrowserState({ db });
+  if (swept.keysDeleted.length > 0) {
+    console.log(
+      `[Startup] tab dei task archiviati: ${swept.keysDeleted.length} chiave/i ui_state via ` +
+        `(${swept.bytesFreed} byte, ${swept.taskIds.length} task)`,
+    );
+  } else {
+    console.log("[Startup] tab dei task archiviati: pulito");
+  }
+} catch (err) {
+  // Non-fatale come sopra: al massimo lo snapshot resta grasso un boot in più.
+  console.error("[Startup] tab dei task archiviati: ripasso fallito:", err);
 }
 
 // Init AI provider — pick the boot default:
@@ -1329,6 +1354,18 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
   },
   // Reap the task's live preview server on land / approve / close.
   teardownPreview: (taskId) => previewManager?.teardown(taskId) ?? Promise.resolve(),
+  // Archiviare un task porta via anche le sue tab: le due chiavi `ui_state` e i
+  // contesti browser dietro di esse. `browserService` è il servizio vivo, quindi
+  // la chiusura headless è reale; il broadcast chiude la pane su ogni device.
+  teardownTaskBrowserState: (taskId) =>
+    teardownArchivedTaskBrowserState(
+      {
+        db,
+        broadcastToAll: ctx.broadcastToAll,
+        destroyContext: (contextId) => browserService.destroyContext(contextId),
+      },
+      taskId,
+    ),
   // Fan-out: l'anteprima parte quando l'umano sceglie il vincitore, perché solo
   // allora il worktree del task è quello giusto da mostrare.
   preparePreview: (taskId) => previewManager?.prepareForReview(taskId) ?? Promise.resolve(),

@@ -790,6 +790,16 @@ const taskDeletedSchema = z.looseObject({
   type: z.literal('task:deleted'),
   projectId: z.string(),
   taskId: z.string(),
+  /**
+   * L'INTERO sottoalbero archiviato (root compresa): archiviare un task
+   * archivia in cascata i suoi sottotask, e chi tiene stato per-task deve
+   * dimenticarli tutti, non solo la root. Oggi lo usa il client per buttare via
+   * `task-browser-tabs:<id>` / `task-browser-layout:<id>` dalla sua cache
+   * (`useTaskBrowserTabsSync`): il server ha appena cancellato quelle righe, e
+   * un client che se le ricorda le ri-PUTterebbe al primo debounce.
+   * Assente ⇒ ricadi su `[taskId]`.
+   */
+  taskIds: z.optional(z.array(z.string())),
 });
 
 // Il fronte "task ENTRATO in review", emesso IN AGGIUNTA a `task:updated` e solo

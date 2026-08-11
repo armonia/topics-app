@@ -154,6 +154,15 @@ export interface TasksRouterOpts {
    */
   teardownPreview?: (taskId: string) => Promise<void>;
   /**
+   * Smonta le tab del task ARCHIVIATO: cancella `task-browser-tabs:<id>` e
+   * `task-browser-layout:<id>` (root + sottoalbero) e rilascia i contesti
+   * browser che ci trova dentro — `services/task-tab-teardown.ts`, dove sta il
+   * perché. Restituisce gli id toccati, che finiscono nel `task:deleted` così i
+   * client dimenticano le chiavi invece di ri-PUTtarle dal loro debounce.
+   * Assente ⇒ passo saltato (test, fixture): il ripasso al boot rimedia.
+   */
+  teardownTaskBrowserState?: (taskId: string) => { taskIds: string[] };
+  /**
    * Boot the review preview from the task's worktree. Serve alla scelta del
    * vincitore di un fan-out: la consegna arriva in review PRIMA che il task abbia
    * un worktree suo (quello del tentativo 1 può non essere il vincitore), quindi
@@ -1511,7 +1520,13 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             }
             const task = svc.archive({ taskId, projectId });
             void opts?.teardownPreview?.(taskId).catch(() => {}); // reap preview on close
-            broadcastToAll({ type: "task:deleted", projectId, taskId });
+            // Le tab del task se ne vanno con lui: un task archiviato è fuori
+            // dalla board e la sua evidenza durevole è l'anteprima, non la tab
+            // viva. DOPO l'archiviazione perché il sottoalbero è quello che
+            // `archive` ha appena marcato, e PRIMA del broadcast perché il
+            // frame porta gli id da dimenticare.
+            const torn = opts?.teardownTaskBrowserState?.(taskId);
+            broadcastToAll({ type: "task:deleted", projectId, taskId, taskIds: torn?.taskIds ?? [taskId] });
             return json({ ok: true, task });
           } catch (e) { return fail(e); }
         }

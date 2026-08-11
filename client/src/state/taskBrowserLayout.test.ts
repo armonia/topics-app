@@ -17,6 +17,9 @@ import {
   sanitizeTaskLayout,
   tabToPane,
   paneIdToContextId,
+  forgetTaskLayout,
+  getTaskLayout,
+  taskBrowserLayout,
   type GenId,
   type TaskLayoutState,
 } from './taskBrowserLayout';
@@ -231,5 +234,42 @@ describe('tabToPane / paneIdToContextId', () => {
     expect(pane).toMatchObject({ id: 'browser:task-abc-0', type: 'browser', stableKey: 'task-abc-0', url: 'https://x', title: 'X', titleSource: 'user' });
     expect(paneIdToContextId('browser:task-abc-0')).toBe('task-abc-0');
     expect(paneIdToContextId('task-abc-0')).toBe('task-abc-0');
+  });
+});
+
+// ── il task è stato archiviato: si dimentica il layout ───────────────────────
+// Il server ha appena CANCELLATO `task-browser-layout:<id>`. La riga torna in
+// vita se questo client lascia partire il PUT che ha in coda — quindi la prova
+// è che quel PUT NON parta. Il caso di controllo (senza `forget`) parte davvero:
+// senza di lui questo test non potrebbe fallire.
+
+const flushDebounce = () => new Promise((r) => setTimeout(r, 900));
+
+describe('forgetTaskLayout (task archiviato)', () => {
+  test('annulla il PUT in coda — e senza forget quel PUT parte', async () => {
+    const real = globalThis.fetch;
+    const puts: string[] = [];
+    globalThis.fetch = (async (url: any, init?: any) => {
+      if (init?.method === 'PUT') puts.push(String(url));
+      return new Response('{}', { status: 200 });
+    }) as typeof fetch;
+    try {
+      // controllo: il debounce esiste davvero e scrive
+      const vivo = 'layout-vivo-1';
+      taskBrowserLayout.set(vivo, build([P('a')]));
+      await flushDebounce();
+      expect(puts).toEqual([`/api/ui-state/task-browser-layout:${vivo}`]);
+
+      // archiviato: stessa mossa, ma la chiave viene dimenticata prima
+      const morto = 'layout-morto-1';
+      taskBrowserLayout.set(morto, build([P('b')]));
+      expect(getTaskLayout(morto).groups).toHaveLength(1);
+      forgetTaskLayout(morto);
+      expect(getTaskLayout(morto)).toBe(EMPTY_TASK_LAYOUT);
+      await flushDebounce();
+      expect(puts.filter((u) => u.includes(morto))).toEqual([]);
+    } finally {
+      globalThis.fetch = real;
+    }
   });
 });
