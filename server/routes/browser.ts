@@ -19,6 +19,8 @@ import { probeFraming } from "../browser-framing";
 import { isPortListening, loopbackPortOf } from "../lib/loopback-probe";
 import type { BrowserActAction } from "../browser-tools";
 import { browserEngineRegistry, chromiumEngineInfo } from "../browser-engine-registry";
+import { deleteStorageState } from "../browser-state-store";
+import { forgetNativeSeed } from "../browser-session-handoff";
 import { findTaskTabOwner } from "../services/task-tab-persist";
 import { dispatchBrowserToolCallByContext } from "../browser-tool-dispatcher";
 
@@ -559,6 +561,29 @@ export function createBrowserRouter(
       // Chromium: non serve più chiedersi se la capacità è «accesa».
       browserEngineRegistry.release(deleteMatch.id);
       browserService.setEngineHint(deleteMatch.id, "default");
+      // E DIMENTICA LA SESSIONE, non solo il contesto.
+      //
+      // `destroyContext` fa un ULTIMO salvataggio di storageState prima di
+      // chiudere: senza questa riga, chiudere una pane scriveva il barattolo
+      // invece di buttarlo. Il lato nativo della stessa chiusura invece lo
+      // butta davvero (`browser_purge_data_store` cancella il
+      // WKWebsiteDataStore del contesto, vedi usePaneLifecycle) — quindi la
+      // sessione condivisa sopravviveva a una chiusura che l'utente ha fatto
+      // apposta, e tornava viva al primo contesto riaperto con lo stesso id.
+      // Due metà della stessa chiusura con due politiche diverse non era una
+      // decisione, era un chiamante mancante: `deleteStorageState` non ne
+      // aveva NESSUNO di produzione.
+      //
+      // Solo QUI: questa rotta è la chiusura vera (quella col tombstone). Il
+      // reaper d'inattività e lo switch di motore passano da `destroyContext`
+      // diretto e devono conservare il login — un contesto che si riaprirà.
+      await deleteStorageState(deleteMatch.id).catch((err) =>
+        console.warn(`[browser] deleteStorageState(${deleteMatch.id}) failed:`, err?.message ?? err),
+      );
+      // E con il barattolo se ne va la memoria di cosa era stato versato nella
+      // pane nativa: un contesto riaperto con lo stesso id riparte da zero, e
+      // non deve trovare un «già fatto» che parla di cookie non più esistenti.
+      forgetNativeSeed(deleteMatch.id);
       // NIENTE broadcast qui: la DELETE la chiama sempre il client che ha GIÀ
       // chiuso la sua pane (usePaneLifecycle / useProjectLayout / useBrowserContexts),
       // e la chiusura sugli ALTRI device passa da `browser:close-pane`. Il vecchio

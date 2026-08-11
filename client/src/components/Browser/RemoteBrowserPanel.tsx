@@ -158,13 +158,19 @@ export function RemoteBrowserPanel({ contextId, initialUrl, navigateUrl, onUrlCh
   useEffect(() => {
     // Pinned mode: `shared` is derived from `mode`, not autoShared → nothing to do.
     if (!autoEnabled) return;
-    const want = computeAutoShared(viewerCount, autoShared);
+    // `isVisible`: whether the server is counting THIS pane. A shared pane that
+    // left the screen reports set_watching:false and drops out of the count, so
+    // subtracting itself anyway read "the phone is watching" as "nobody is
+    // here" — and the pane bounced shared→native→shared every 1200ms for as
+    // long as the phone looked. Under Tauri (the only place 'auto' runs) the
+    // iframe path never applies, so on-screen == counted.
+    const want = computeAutoShared(viewerCount, autoShared, isVisible);
     if (want === autoShared) return;
     // Debounce flaps (async, not a synchronous in-effect setState): a reconnecting
     // phone must not bounce the pane native↔shared.
     const t = setTimeout(() => setAutoShared(want), 1200);
     return () => clearTimeout(t);
-  }, [autoEnabled, viewerCount, autoShared]);
+  }, [autoEnabled, viewerCount, autoShared, isVisible]);
 
   // Effective render: pinned mode wins; in auto it follows the live decision.
   const shared = mode === 'shared' ? true : mode === 'native' ? false : autoShared;
@@ -647,6 +653,7 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
   // Chromium has no viewer: pause its screencast (keeps the WS open for
   // agent_active). Resume the instant we fall back to the stream.
   const setStreamActive = browser.setStreamActive;
+  const setWatching = browser.setWatching;
   // Stream ONLY when this pane is the visible tab AND we're not showing the
   // native <iframe>. A hidden pane (background tab / off-screen split, e.g. a
   // browser tab you left on your phone) pauses the server screencast entirely —
@@ -656,7 +663,12 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
   // (agent/nav still update); onopen re-asserts this on reconnect.
   useEffect(() => {
     setStreamActive(isVisible && !useIframe);
-  }, [isVisible, useIframe, setStreamActive]);
+    // And SEPARATELY: am I a watcher of this shared session? Same condition
+    // today, different meaning — the screencast also pauses when WebRTC or DOM
+    // co-browse carries the pixels, and those are viewers all the same. Only
+    // this frame feeds the cross-device viewer count.
+    setWatching(isVisible && !useIframe);
+  }, [isVisible, useIframe, setStreamActive, setWatching]);
   if (useIframe) {
     return (
       <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
