@@ -82,7 +82,7 @@ import { utilityPanelId } from '../components/Layout/UtilityPanel';
 import { UTILITY_PANEL_TYPES, type UtilityPanelType } from '../state/pane/adapters/utilityPanelId';
 import type { SendMessageOptions } from '@/hooks/useChat';
 import { DEFAULT_TOPIC_ICON } from '../lib/topicIcons';
-import { notifyNative, primeWebNotificationPermission } from '../lib/shell/app';
+import { primeWebNotificationPermission } from '../lib/shell/app';
 import { isTauri } from '../lib/shell';
 import { getBrowserContextFromPaneId } from '../state/pane/adapters/paneConfig';
 import { clearBrowserSpawner } from '../state/browserSpawner';
@@ -92,8 +92,6 @@ import { spaceWindowId } from '../lib/windowRole';
 import { markTabRestored } from '../lib/previewTabs';
 import { pushUndo } from '../contexts/UndoContext';
 import { useRefMirror } from './useRefMirror';
-import type { TopicTaskResolver } from './useTaskTopicIndex';
-import { isAgentWorking } from '../lib/board';
 import { tabAckReleasesIntent } from '../lib/tabLink';
 import { useShallow } from 'zustand/react/shallow';
 
@@ -245,11 +243,6 @@ export interface UsePanelLifecycleArgs {
    *  reopened pinned browser back into its owning project instead of a blank
    *  standalone pane (project browser url/affinity live only on the record). */
   closedTabs: ClosedTabRecord[];
-  /** topicId → il task dispatchato che ci gira (useTaskTopicIndex). Serve al
-   *  banner di `message:new`: mentre un agente di board lavora, i suoi messaggi
-   *  non sono un evento per l'umano — la consegna la annuncia
-   *  `task:review-ready` in useCompletionNotifier. */
-  taskForTopic?: TopicTaskResolver;
 }
 
 export interface UsePanelLifecycleReturn {
@@ -351,7 +344,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     terminalSessions, pruneStaleTerminalPanes, terminalOps,
     onWSMessage, sendWS, wsStatus, windowId,
     chatStreamHandlers,
-    setSidebarCollapsed, removeClosedTab, closedTabs, taskForTopic,
+    setSidebarCollapsed, removeClosedTab, closedTabs,
   } = args;
 
   // The full detached set — seeds openPanels; empty off-detach. `detachedTopicId`
@@ -386,8 +379,6 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   // guard — without these it would close over the first render's values.
   const workspaceProjectsRef = useRefMirror(workspaceProjects);
   const terminalSessionsRef = useRefMirror(terminalSessions);
-  // Letto dal Cluster 2 (banner di `message:new`), che si iscrive una volta sola.
-  const taskForTopicRef = useRefMirror(taskForTopic);
   // Gli handler di chat letti dai cluster WS, mirrorati. I cluster si iscrivono
   // UNA VOLTA e pescano da qui: metterli fra le dipendenze dell'effect voleva
   // dire rifare unsubscribe+subscribe a ogni cambio di identità, e
@@ -1224,35 +1215,20 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
           timestamp: new Date().toISOString(),
         });
       }
-      // Banner per un messaggio arrivato mentre la finestra è NASCOSTA.
+      // Il banner del messaggio a finestra nascosta NON sta più qui.
       //
-      // C'era anche `msg.topicId !== focusedPanelIdRef.current`, e NON era una
-      // condizione morta: le pane di chat di primo livello si mettono a fuoco
-      // col topicId nudo (`setFocusedPanelId(msg.topicId)` poco sotto, e altri
-      // quattro siti), quindi per la superficie principale il confronto era
-      // omogeneo e a volte falso. Via lo stesso, ma per il motivo giusto: tutto
-      // il blocco è già gated su `visibilityState === 'hidden'`, e a finestra
-      // nascosta l'utente non sta guardando NESSUNA tab — quale fosse l'ultima
-      // a fuoco non conta (è la stessa dottrina di `isTabActivelyVisible`).
-      // Tenerla significava zittire proprio il topic che stavi seguendo.
+      // Stava, e chiamava `notifyNative` di suo: fuori dall'unica porta delle
+      // notifiche e quindi fuori da tutti i suoi gate — suonava a topic
+      // silenziato, con un Focus attivo, e con l'interruttore generale spento.
+      // Per di più questo effetto è montato una volta PER FINESTRA e il frame è
+      // un broadcast, quindi con i gruppi staccati un messaggio solo faceva N
+      // banner. Ora vive in `useCompletionNotifier` insieme a tutti gli altri
+      // segnali, con una claim cross-finestra per messageId che ne fa consegnare
+      // uno solo (lib/notify/messageBannerClaim.ts).
       //
-      // Il gate che invece serviva non c'era: mentre un agente di board lavora
-      // il topic, i suoi messaggi non sono un evento per l'umano — la consegna
-      // la annuncia `task:review-ready`. Senza, una consegna sola faceva tre
-      // banner quasi identici (il nome del topic È il testo del task).
-      if (
-        msg.type === 'message:new' &&
-        msg.role === 'assistant' &&
-        document.visibilityState === 'hidden'
-      ) {
-        const topic = topicsRef.current[msg.topicId];
-        const task = taskForTopicRef.current?.(msg.topicId) ?? null;
-        if (topic && !isAgentWorking(task?.dispatchState)) {
-          // Shell bridge: web Notification on Electron/web, native `notify`
-          // command on Tauri (WKWebView's web Notification API is unreliable).
-          notifyNative(topic.name, msg.preview || 'New message', { tag: `topic-${msg.topicId}` });
-        }
-      }
+      // Attenzione a chi tocca il blocco `message:new` qui sopra: i suoi `return`
+      // uscivano dall'INTERO handler, quindi zittivano anche il banner. Quei due
+      // gate (isOwnStream, corpo vuoto) ora viaggiano espliciti nel notificatore.
       // message:media
       if (msg.type === 'message:media') {
         chatHandlersRef.current.appendMediaToLastAssistant(msg.sessionKey, msg.media);
@@ -1271,7 +1247,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
         if (cleared) clearTopicPreview(cleared.id);
       }
     });
-  }, [onWSMessage, topicsRef, chatHandlersRef, taskForTopicRef]);
+  }, [onWSMessage, topicsRef, chatHandlersRef]);
 
   // WS Cluster 3: topic switch + topic switch complete (CRITIQUE C13)
   // ownTopicSwitchesRef writer + reader co-located here.
