@@ -46,7 +46,12 @@ export interface SpaFallbackRequest {
 const CLIENT_ROUTE_PREFIXES = ["/task/", "/topic/", "/tab/"] as const;
 
 export function shouldServeSpaFallback({ method, pathname, accept }: SpaFallbackRequest): boolean {
-  if (method !== "GET") return false;
+  // GET **o HEAD**: per RFC 9110 §9.3.2 la risposta a HEAD è quella di GET senza
+  // il corpo, quindi un link checker che chiede «esiste /task/<uuid>?» deve
+  // leggere lo stesso 200 di una navigazione vera. Prima qui HEAD cadeva nel
+  // ramo "non-GET" insieme a POST e riceveva un 404 che contraddiceva il GET
+  // sullo stesso path. Il corpo lo toglie Bun.serve da sé.
+  if (method !== "GET" && method !== "HEAD") return false;
   if (pathname.startsWith("/api/") || pathname.startsWith("/ws")) return false;
   if (!(accept || "").includes("text/html")) return false;
   // Rotta client nota per nome → shell, anche se la chiave contiene un punto.
