@@ -42,7 +42,6 @@ export type SystemSlotId =
   | "memory"
   | "pinned"
   | "goal"
-  | "board"
   | "plan-mode";
 
 export interface SystemSlot {
@@ -61,7 +60,6 @@ const SLOT_LABELS: Record<SystemSlotId, string> = {
   memory: "memory",
   pinned: "pinned messages",
   goal: "goal",
-  board: "board state",
   "plan-mode": "plan mode",
 };
 
@@ -69,18 +67,8 @@ const SLOT_LABELS: Record<SystemSlotId, string> = {
  * Slot che NON si deduplicano mai: sono uno STATO corrente, non un documento.
  * Plan mode costa poche centinaia di token e vale la pena riaffermarlo ad ogni
  * turno in cui è attivo, invece di fidarsi che il modello se lo ricordi.
- *
- * `board` è qui per un motivo più forte del costo. La deduplicazione salta uno
- * slot quando l'hash NON è cambiato, e per un documento è la cosa giusta: un
- * README identico è identico. Per lo stato di una board no — l'hash uguale
- * significherebbe solo «da quando l'ho mandato non è cambiato niente», e a
- * saltarlo si insegnerebbe al modello che l'assenza di stato vale come stato.
- * Ma soprattutto: quando l'hash CAMBIA (che è il caso normale) la dedup lo
- * rimanderebbe comunque, quindi non risparmia nulla e in cambio introduce un
- * caso in cui l'orchestratore ragiona sul ricordo invece che sulla lettura.
- * Uno snapshot vecchio non è caro, MENTE: dice `todo` di una card che è `done`.
  */
-const VOLATILE_SLOTS: ReadonlySet<SystemSlotId> = new Set<SystemSlotId>(["plan-mode", "board"]);
+const VOLATILE_SLOTS: ReadonlySet<SystemSlotId> = new Set<SystemSlotId>(["plan-mode"]);
 
 /** Stesso preventivo del resto dell'envelope (`SystemBlock.tokens`). */
 function estimateTokens(text: string): number {
@@ -368,14 +356,7 @@ export function composeSystemSlots(blocks: SystemBlock[]): SystemSlot[] {
   const goal = enabled.find((b) => b.id === "synthetic:goal");
   if (goal) push("goal", goal.content);
 
-  // ── 10. Stato della board (solo sessione-orchestratore) ──
-  // Slot VOLATILE: vedi `VOLATILE_SLOTS`. Riparte intero a ogni turno, e non
-  // resta nella storia — il preambolo `<context>` non è ciò che si salva come
-  // messaggio utente, quindi lo snapshot del turno k non ricompare al turno k+1.
-  const board = enabled.find((b) => b.id === "synthetic:board-snapshot");
-  if (board) push("board", board.content);
-
-  // ── 11. Plan mode ──
+  // ── 10. Plan mode ──
   const plan = enabled.find((b) => b.id === "synthetic:plan-mode");
   if (plan) push("plan-mode", plan.content);
 
