@@ -119,6 +119,74 @@ function prepareHome(): string {
   return home;
 }
 
+/**
+ * UN GIRO A VUOTO PRIMA DI MISURARE, e non è scaramanzia.
+ *
+ * `prepareHome()` riscrive `.claude.json` a ogni esecuzione. Lì dentro la CLI si
+ * ricorda quali tool esistono: azzerato il file, il PRIMO processo parte con 30
+ * tool dichiarati, li scopre strada facendo e li lascia scritti — così il
+ * SECONDO parte con 35. Il braccio OFF gira per primo, quindi la zavorra la
+ * prendeva sempre il braccio ON, cioè quello che doveva scendere: ~5.400 token
+ * di prefisso su ognuna delle sue 13 richieste, 70.291 token che col tetto non
+ * c'entrano nulla. Misurato due volte, identico.
+ *
+ * Il giro a vuoto fa un turno INTERO con un prompt di due parole (~27k token,
+ * ~3 centesimi). Fermarlo a `init` sembrava gratis e non serviva a niente: il
+ * registro la CLI lo riscrive a FINE turno, quindi un processo ucciso prima non
+ * scalda nulla — misurato, il giro a vuoto leggeva 30 e i bracci ripartivano
+ * da 30 e 35 come prima. Peggio: ucciderlo mentre rinfresca l'OAuth svuota
+ * `.credentials.json` nella home del banco, e i due bracci muoiono con
+ * «OAuth session expired» dopo due secondi. Si aspetta `result`.
+ */
+async function warmUp(home: string, cfg: string): Promise<number> {
+  const args = buildClaudeArgs({
+    permissionMode: "bypassPermissions",
+    model: MODEL,
+    mcpConfigPath: cfg,
+    mcpStrict: true,
+    permissionPromptTool: "mcp__bench__noop",
+    appendSystemPrompt: "Banco di misura: esegui alla lettera, non commentare.",
+    claudeSessionId: crypto.randomUUID(),
+    isNewSession: true,
+    toolSearch: "1",
+    mcpOutputTokens: null,
+  });
+  const child = spawn("claude", args, {
+    cwd: BENCH_DIR,
+    env: { ...process.env, HOME: home, CLAUDE_CODE_ENTRYPOINT: "bench" },
+    stdio: ["pipe", "pipe", "ignore"],
+  });
+  // Senza un messaggio su stdin la CLI resta in attesa e non parte niente.
+  child.stdin.write(
+    JSON.stringify({
+      type: "user",
+      message: { role: "user", content: [{ type: "text", text: "Rispondi con una sola parola: ok" }] },
+    }) + "\n",
+  );
+  let buf = "";
+  let tools = 0;
+  await new Promise<void>((resolve) => {
+    // Se il turno non chiudesse, il banco non deve restare appeso: il giro a
+    // vuoto è un'ottimizzazione, non una precondizione.
+    const bail = setTimeout(() => { child.kill(); resolve(); }, 120_000);
+    child.stdout.on("data", (c: Buffer) => {
+      buf += c.toString("utf8");
+      let nl: number;
+      while ((nl = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, nl); buf = buf.slice(nl + 1);
+        if (!line.trim()) continue;
+        try {
+          const ev = JSON.parse(line);
+          if (ev.type === "system" && ev.subtype === "init") tools = (ev.tools ?? []).length;
+          if (ev.type === "result") { clearTimeout(bail); child.kill(); resolve(); return; }
+        } catch { /* riga parziale */ }
+      }
+    });
+    child.on("exit", () => { clearTimeout(bail); resolve(); });
+  });
+  return tools;
+}
+
 function mcpConfig(): string {
   const p = join(BENCH_DIR, "mcp-config.json");
   writeFileSync(
@@ -154,6 +222,15 @@ interface ArmResult {
   answer: string;
   markersCorrect: boolean;
   durationMs: number;
+  /**
+   * I tool che la CLI dichiara nell'evento `init`. Non è un dettaglio: il
+   * registro NON è stabile fra due processi — misurato il 2026-08-11, il
+   * braccio OFF è partito con 30 tool e quello ON con 35, ~5.400 token di
+   * prefisso in più su OGNI richiesta del braccio che doveva vincere. Due
+   * bracci con due preamboli diversi non misurano il tetto, misurano il
+   * momento in cui sono partiti. Vedi il cancello in fondo.
+   */
+  toolsAtBoot: string[];
 }
 
 async function runArm(arm: "off" | "on", home: string, cfg: string): Promise<ArmResult> {
@@ -196,6 +273,7 @@ async function runArm(arm: "off" | "on", home: string, cfg: string): Promise<Arm
   let promptTokens = 0, requests = 0, toolCalls = 0, spilled = 0, cost = 0;
   let answer = "";
   let buf = "";
+  let toolsAtBoot: string[] = [];
   const seen = new Set<string>();
 
   await new Promise<void>((resolve) => {
@@ -233,6 +311,7 @@ async function runArm(arm: "off" | "on", home: string, cfg: string): Promise<Arm
             }
           }
         }
+        if (ev.type === "system" && ev.subtype === "init") toolsAtBoot = (ev.tools ?? []) as string[];
         if (ev.type === "result") {
           cost = ev.total_cost_usd ?? 0;
           child.kill();
@@ -254,7 +333,7 @@ async function runArm(arm: "off" | "on", home: string, cfg: string): Promise<Arm
   return {
     arm, cap, promptTokens, requests, toolCalls, spilledToFile: spilled,
     costUsd: cost, answer: answer.trim().slice(-300), markersCorrect,
-    durationMs: Date.now() - t0,
+    durationMs: Date.now() - t0, toolsAtBoot,
   };
 }
 
@@ -264,7 +343,9 @@ if (!existsSync(MANIFEST_PATH)) {
 }
 const home = prepareHome();
 const cfg = mcpConfig();
-console.log(`banco: model=${MODEL} home=${REAL_HOME ? "REALE" : home} cap=${CAP}\n`);
+console.log(`banco: model=${MODEL} home=${REAL_HOME ? "REALE" : home} cap=${CAP}`);
+const warmTools = await warmUp(home, cfg);
+console.log(`  giro a vuoto: registro a ${warmTools} tool\n`);
 
 const arms: ArmResult[] = [];
 for (const arm of (ONLY_ARM ? [ONLY_ARM as "off" | "on"] : ["off", "on"] as const)) {
@@ -281,14 +362,46 @@ for (const arm of (ONLY_ARM ? [ONLY_ARM as "off" | "on"] : ["off", "on"] as cons
 const off = arms.find((a) => a.arm === "off");
 const on = arms.find((a) => a.arm === "on");
 if (off && on) {
+  /**
+   * ── IL CANCELLO CHE MANCAVA: stesso registro di tool nei due bracci ────────
+   *
+   * Il banco garantiva pagine identiche (manifest con sha256) e argv identico,
+   * e dava per scontata l'unica cosa che non controllava: il PREFISSO. Misurato
+   * il 2026-08-11 sui due stream salvati, non lo era — 30 tool contro 35, cioè
+   * ~5.400 token in più su ognuna delle 13 richieste del braccio ON. In quel
+   * giro il braccio col tetto acceso portava 70.291 token di zavorra che col
+   * tetto non c'entrano niente: il −34,9% è una lettura DEPRESSA, e la barra
+   * a −40% era stata dichiarata irraggiungibile su un confronto sbilanciato.
+   *
+   * Il registro si scalda da solo fra un processo e l'altro (non è l'env: tolti
+   * MESSAGING_SOCKET e AGENT_TEAMS, la CLI parte lo stesso con 35). Quindi non
+   * si può fissare: si può però RIFIUTARE il confronto quando è cambiato.
+   */
+  // `length > 0`: due bracci morti prima di `init` hanno due elenchi vuoti, che
+  // sono uguali. Un cancello che passa quando non c'è misura è peggio di niente.
+  const sameTools =
+    off.toolsAtBoot.length > 0 &&
+    off.toolsAtBoot.length === on.toolsAtBoot.length &&
+    off.toolsAtBoot.every((t, i) => t === on.toolsAtBoot[i]);
+  if (!sameTools) {
+    const onlyOff = off.toolsAtBoot.filter((t) => !on.toolsAtBoot.includes(t));
+    const onlyOn = on.toolsAtBoot.filter((t) => !off.toolsAtBoot.includes(t));
+    console.log(
+      `\n  ⚠ REGISTRO DIVERSO — OFF ${off.toolsAtBoot.length} tool, ON ${on.toolsAtBoot.length}` +
+        `${onlyOff.length ? ` · solo in OFF: ${onlyOff.join(", ")}` : ""}` +
+        `${onlyOn.length ? ` · solo in ON: ${onlyOn.join(", ")}` : ""}`,
+    );
+    console.log("    I due bracci non hanno lo stesso prefisso: il confronto non misura il tetto. Rigira.");
+  }
   const drop = 1 - on.promptTokens / off.promptTokens;
   const costDrop = off.costUsd > 0 ? 1 - on.costUsd / off.costUsd : 0;
-  const pass = drop >= TOKEN_BAR && costDrop >= COST_BAR && on.markersCorrect;
+  const pass = sameTools && drop >= TOKEN_BAR && costDrop >= COST_BAR && on.markersCorrect;
   console.log(`\n  token di prompt: ${(drop * 100).toFixed(1)}% in meno (barra ${TOKEN_BAR * 100}%)`);
   console.log(`  costo: ${(costDrop * 100).toFixed(1)}% in meno (barra ${COST_BAR * 100}%)`);
   console.log(`  marcatori esatti a taglio acceso: ${on.markersCorrect ? "sì" : "NO"}`);
+  console.log(`  stesso registro di tool nei due bracci: ${sameTools ? "sì" : "NO"}`);
   console.log(`  ⇒ ${pass ? "GATE VERDE" : "GATE ROSSO"}`);
-  writeFileSync(RESULTS_PATH, JSON.stringify({ model: MODEL, realHome: REAL_HOME, cap: CAP, arms, drop, costDrop, pass }, null, 2) + "\n");
+  writeFileSync(RESULTS_PATH, JSON.stringify({ model: MODEL, realHome: REAL_HOME, cap: CAP, arms, drop, costDrop, sameTools, pass }, null, 2) + "\n");
   console.log(`  risultati → ${RESULTS_PATH}`);
   if (!pass) process.exit(1);
 } else {
