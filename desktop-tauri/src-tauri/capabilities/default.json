@@ -8,6 +8,10 @@
     "core:window:allow-start-dragging",
     "opener:default",
     "opener:allow-open-url",
+    {
+      "identifier": "opener:allow-open-path",
+      "allow": [{ "path": "$DOWNLOAD/*" }, { "path": "$DOWNLOAD/**" }]
+    },
     "process:default",
     "process:allow-restart",
     "os:default",

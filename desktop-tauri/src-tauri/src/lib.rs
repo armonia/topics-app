@@ -2595,7 +2595,7 @@ fn notification_status() -> serde_json::Value {
 /// intermediate child `_exit(0)`s immediately and stays `<defunct>` forever,
 /// one zombie per link opened. Same launcher command, but the handle goes to
 /// `child_reaper` instead of the floor. The plugin stays registered — the
-/// download strip's `reveal_item_in_dir` still uses it.
+/// Download menu's `reveal_item_in_dir` / `open_path` still use it.
 ///
 /// Only `http`/`https`/`mailto` are accepted. Without that check this command
 /// would be a "run anything" primitive reachable from the webview, since the
@@ -3673,9 +3673,11 @@ fn pane_id_from_label(label: &str) -> Option<&str> {
 // ── Downloads ────────────────────────────────────────────────────────────────
 // wry exposes WKWebView's download delegate via WebviewBuilder::on_download, but
 // gives only Requested + Finished (no progress, and on macOS the final path is
-// empty). We choose the save path (~/Downloads/<name>) on Requested and queue
-// start/done events the client drains (browser_take_download_events) to drive the
-// DownloadStrip — a start spinner then a done check, no %.
+// empty). The save path is the one wry proposes (system Downloads folder +
+// suggested filename + `(n)` on collision) — see the comment on Requested for why
+// rewriting it broke downloads outright. We queue start/done events the client
+// drains (browser_take_download_events) to drive the toolbar's Download menu —
+// a start spinner then a done check, no %.
 #[derive(Clone, Serialize)]
 struct DownloadEventMsg {
     kind: String, // "start" | "done"
@@ -3688,7 +3690,7 @@ struct DownloadEventMsg {
     saved_path: String,
     // Pane this download belongs to. The queue is a single GLOBAL Vec shared by
     // every open browser webview, so draining it whole (the old behaviour) let
-    // whichever DownloadStrip happened to poll first steal every other pane's
+    // whichever pane's Download menu happened to poll first steal every other pane's
     // events. Internal bookkeeping only — not serialized to the client, which
     // already scoped its poll by passing its own contextId.
     #[serde(skip)]
@@ -3696,10 +3698,10 @@ struct DownloadEventMsg {
 }
 
 static DOWNLOAD_EVENTS: std::sync::Mutex<Vec<DownloadEventMsg>> = std::sync::Mutex::new(Vec::new());
-static DOWNLOAD_PENDING: std::sync::Mutex<Vec<(String, i64, String, String)>> = std::sync::Mutex::new(Vec::new()); // (url, id, savedPath, paneId)
+static DOWNLOAD_PENDING: std::sync::Mutex<Vec<(String, i64, String, String, String)>> = std::sync::Mutex::new(Vec::new()); // (url, id, savedPath, paneId, filename)
 static DOWNLOAD_ID: AtomicI64 = AtomicI64::new(1);
 
-/// Drain queued download start/done events for `id`'s DownloadStrip to apply.
+/// Drain queued download start/done events for `id`'s Download menu to apply.
 /// Scoped to that pane — other panes' events stay queued for their own poll.
 #[tauri::command]
 fn browser_take_download_events(id: String) -> Vec<DownloadEventMsg> {
@@ -4431,19 +4433,42 @@ fn browser_open_inner(
                     match event {
                         DownloadEvent::Requested { url, destination } => {
                             let url_s = url.to_string();
-                            let filename = url
-                                .path_segments()
-                                .and_then(|mut s| s.next_back().map(|x| x.to_string()))
+                            // LA DESTINAZIONE ARRIVA GIÀ DECISA, E RISCRIVERLA ERA IL
+                            // MOTIVO PER CUI «I DOWNLOAD NON VANNO».
+                            //
+                            // wry la calcola in `download_policy` (wkwebview/download.rs):
+                            // cartella Download di sistema + il nome SUGGERITO dalla
+                            // risposta (cioè Content-Disposition, quando c'è) + un
+                            // contatore `(1)`, `(2)`… finché il path è libero.
+                            //
+                            // Qui sopra la si buttava via per ricomporla dall'ultimo
+                            // pezzo dell'URL, e si perdevano entrambe le cose. Misurato
+                            // con una probe wry isolata, stessa versione:
+                            //   · `…/files?id=42` con Content-Disposition report-2026.zip
+                            //     → salvato come «files», senza estensione;
+                            //   · stesso file due volte → WKDownload NON sovrascrive:
+                            //     fallisce con «cancelled», nessun file su disco. Cioè
+                            //     il secondo download di qualunque cosa non arriva.
+                            // Rispettando il path di wry: nome giusto e «report-2026 (1).zip».
+                            //
+                            // Se il path proposto fosse relativo (nessuna cartella
+                            // Download rilevata: wry ripiega sulla cwd) lo si àncora a
+                            // ~/Downloads, che è dove l'utente lo va a cercare.
+                            if destination.is_relative() {
+                                if let Ok(home) = std::env::var("HOME") {
+                                    let name = destination
+                                        .file_name()
+                                        .map(std::ffi::OsStr::to_os_string)
+                                        .unwrap_or_else(|| std::ffi::OsString::from("download"));
+                                    *destination = std::path::PathBuf::from(home).join("Downloads").join(name);
+                                }
+                            }
+                            let saved = destination.to_string_lossy().to_string();
+                            let filename = destination
+                                .file_name()
+                                .map(|n| n.to_string_lossy().to_string())
                                 .filter(|s| !s.is_empty())
                                 .unwrap_or_else(|| "download".to_string());
-                            let saved = if let Ok(home) = std::env::var("HOME") {
-                                let dest = std::path::PathBuf::from(home).join("Downloads").join(&filename);
-                                let s = dest.to_string_lossy().to_string();
-                                *destination = dest;
-                                s
-                            } else {
-                                String::new()
-                            };
                             let id = DOWNLOAD_ID.fetch_add(1, Ordering::SeqCst);
                             if let Ok(mut p) = DOWNLOAD_PENDING.lock() {
                                 // Bound the pending set: an orphaned Requested (cancelled /
@@ -4454,7 +4479,7 @@ fn browser_open_inner(
                                     let overflow = p.len() - 63;
                                     p.drain(0..overflow);
                                 }
-                                p.push((url_s.clone(), id, saved.clone(), dl_pane_id.clone()));
+                                p.push((url_s.clone(), id, saved.clone(), dl_pane_id.clone(), filename.clone()));
                             }
                             if let Ok(mut v) = DOWNLOAD_EVENTS.lock() {
                                 // Bounded like DOWNLOAD_PENDING: a pane that downloads
@@ -4477,13 +4502,13 @@ fn browser_open_inner(
                         }
                         DownloadEvent::Finished { url, path: _, success } => {
                             let url_s = url.to_string();
-                            let (id, saved, pane_id) = {
+                            let (id, saved, pane_id, name) = {
                                 let mut p = DOWNLOAD_PENDING.lock().unwrap_or_else(|e| e.into_inner());
-                                if let Some(pos) = p.iter().position(|(u, _, _, _)| *u == url_s) {
-                                    let (_, i, s, pid) = p.remove(pos);
-                                    (i, s, pid)
+                                if let Some(pos) = p.iter().position(|(u, _, _, _, _)| *u == url_s) {
+                                    let (_, i, s, pid, n) = p.remove(pos);
+                                    (i, s, pid, n)
                                 } else {
-                                    (DOWNLOAD_ID.fetch_add(1, Ordering::SeqCst), String::new(), dl_pane_id.clone())
+                                    (DOWNLOAD_ID.fetch_add(1, Ordering::SeqCst), String::new(), dl_pane_id.clone(), String::new())
                                 }
                             };
                             if let Ok(mut v) = DOWNLOAD_EVENTS.lock() {
@@ -4493,9 +4518,13 @@ fn browser_open_inner(
                                 }
                                 v.push(DownloadEventMsg {
                                     kind: "done".into(),
+                                    // Il nome viaggia anche nel «done»: se la pane è
+                                    // stata ricreata fra i due eventi il client non ha
+                                    // più lo «start» da cui prenderlo, e una voce senza
+                                    // nome è una voce che non dice niente.
                                     id: id.to_string(),
                                     url: url_s,
-                                    filename: String::new(),
+                                    filename: name,
                                     success,
                                     state: if success { "completed".into() } else { "interrupted".into() },
                                     saved_path: saved,
