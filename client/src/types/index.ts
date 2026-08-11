@@ -880,6 +880,10 @@ export interface WSBrowserOpenTaskTabMessage {
   /** Canonical task-scoped browser contextId (`task-<id8>-…`). */
   contextId: string;
   url: string;
+  /** Il NOME prescritto dall'agente per questa tab (`open_browser_pane({url,
+   *  name})`). Assente quando non ne ha dato uno: l'etichetta resta il titolo
+   *  della pagina. Presente ⇒ entra come `titleSource:'agent'`, cioè pinnato. */
+  title?: string;
 }
 /**
  * Remote pane close (close_browser_pane MCP tool / REST): every window that
