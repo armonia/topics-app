@@ -1,7 +1,8 @@
 import { test, expect } from "bun:test";
-import { seedSharedFromNative, HANDOFF_TIMEOUT_MS } from "./browser-session-handoff";
+import { seedSharedFromNative, seedNativeFromShared, HANDOFF_TIMEOUT_MS } from "./browser-session-handoff";
 import { createNativeDelegateRegistry } from "./browser-native-delegate";
 import type { StorageState } from "../shared/browser-login-state";
+import type { BrowserStorageState } from "./browser-state-store";
 
 /**
  * Registry VERO con un client finto: la risposta passa dal vero `resolveOp`,
@@ -174,4 +175,144 @@ test("se la scrittura fallisce il chiamante lo sa e non gli esplode in mano", as
   // Sta sul percorso di creazione del contesto: un throw qui sarebbe una pane
   // che non nasce invece di una pane sloggata.
   expect(out).toMatchObject({ ok: false, skipped: "export-failed", error: "disco pieno" });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// IL VERSO OPPOSTO — sessione condivisa → WKWebView nativa.
+//
+// Il passaggio sopra è mezza storia: «mi loggo sul Mac, il telefono apre la
+// stessa scheda ed è dentro». L'altra metà — «mi loggo dal telefono, torno sul
+// Mac e sono ancora fuori» — non aveva NESSUN codice: `seedSharedFromNative`
+// esiste in un verso solo, e il barattolo della pane nativa non l'ha mai letto
+// nessuno all'indietro.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const CONDIVISO: StorageState = {
+  cookies: [{ name: "sid", value: "DAL-TELEFONO", domain: "example.com", path: "/" }],
+  origins: [{ origin: "https://example.com", localStorage: [{ name: "tok", value: "T" }] }],
+};
+
+/** Memo pulita per ogni test: il modulo ne tiene una sua di processo. */
+const memoNuova = () => new Map<string, string>();
+
+/**
+ * Un `loadStorageState` finto con la FIRMA VERA dello store: prende il
+ * contextId e può restituire `null` (nessun barattolo su disco). Scritto come
+ * `async () => X` compilava soltanto dove passava per l'`any` di JSON.parse —
+ * qui il tipo è quello di produzione, così un cambio di firma dello store si
+ * vede subito invece di scivolare via.
+ */
+const barattolo =
+  (s: StorageState | null) =>
+  async (_topicId: string): Promise<BrowserStorageState | null> =>
+    s as never;
+
+test("[⟲] senza pane nativa viva non si delega niente", async () => {
+  const registry = createNativeDelegateRegistry(); // nessuno registrato
+  const out = await seedNativeFromShared("ctx", {
+    registry,
+    load: barattolo(CONDIVISO),
+    memo: memoNuova(),
+  });
+  expect(out).toEqual({ ok: false, skipped: "no-native-pane" });
+});
+
+test("[⟲] i cookie della sessione condivisa arrivano sulla WKWebView", async () => {
+  const { registry, seen } = scriptedRegistry({ result: { cookies: 1, origins: 0 } });
+  const out = await seedNativeFromShared("ctx", {
+    registry,
+    load: barattolo(CONDIVISO),
+    memo: memoNuova(),
+  });
+  expect(out).toEqual({ ok: true, cookies: 1 });
+  expect(seen).toHaveLength(1);
+  expect(seen[0]!.tool).toBe("browser_load_state");
+});
+
+test("[⟲] NON naviga la pane dell'utente per posare il localStorage", async () => {
+  // `browser_load_state` lato nativo, per seminare il localStorage, VISITA ogni
+  // origine e poi torna indietro. Fatto a mano dall'agente va benissimo; fatto
+  // da solo a ogni flip vorrebbe dire strappare la pagina sotto gli occhi di
+  // chi guarda. Qui passano solo i cookie — che sono la sessione, per la quasi
+  // totalità dei login.
+  const { registry, seen } = scriptedRegistry({ result: { cookies: 1, origins: 0 } });
+  await seedNativeFromShared("ctx", { registry, load: barattolo(CONDIVISO), memo: memoNuova() });
+  const args = seen[0]!.args as { state: StorageState };
+  expect(args.state.origins).toEqual([]);
+  expect(args.state.cookies).toEqual(CONDIVISO.cookies);
+});
+
+test("[⟲] un barattolo vuoto non viene applicato", async () => {
+  const { registry, seen } = scriptedRegistry({ result: { cookies: 0, origins: 0 } });
+  const vuoto = await seedNativeFromShared("ctx", {
+    registry, load: barattolo({ cookies: [], origins: [] }), memo: memoNuova(),
+  });
+  expect(vuoto).toEqual({ ok: false, skipped: "empty" });
+  const assente = await seedNativeFromShared("ctx", {
+    registry, load: barattolo(null), memo: memoNuova(),
+  });
+  expect(assente).toEqual({ ok: false, skipped: "empty" });
+  expect(seen).toHaveLength(0);
+});
+
+test("[⟲] rifarlo con lo stesso barattolo non ri-tocca la pane", async () => {
+  // Il gancio è `register_native_executor`, che riparte a ogni RICONNESSIONE
+  // del socket: senza memoria, ogni riconnessione sarebbe una scrittura di
+  // cookie sulla pane viva.
+  const { registry, seen } = scriptedRegistry({ result: { cookies: 1, origins: 0 } });
+  const memo = memoNuova();
+  const load = barattolo(CONDIVISO);
+  expect(await seedNativeFromShared("ctx", { registry, load, memo })).toEqual({ ok: true, cookies: 1 });
+  expect(await seedNativeFromShared("ctx", { registry, load, memo })).toEqual({ ok: false, skipped: "unchanged" });
+  expect(seen).toHaveLength(1);
+});
+
+test("[⟲] ma un login NUOVO dal telefono riparte", async () => {
+  const { registry, seen } = scriptedRegistry({ result: { cookies: 1, origins: 0 } });
+  const memo = memoNuova();
+  let jar: StorageState = CONDIVISO;
+  const load = async (_topicId: string): Promise<BrowserStorageState | null> => jar as never;
+  await seedNativeFromShared("ctx", { registry, load, memo });
+  jar = { cookies: [{ name: "sid", value: "LOGIN-NUOVO", domain: "example.com", path: "/" }], origins: [] };
+  expect(await seedNativeFromShared("ctx", { registry, load, memo })).toEqual({ ok: true, cookies: 1 });
+  expect(seen).toHaveLength(2);
+});
+
+test("[⟲] il Mac che non risponde non appende il flip", async () => {
+  const { registry } = scriptedRegistry(null); // il client non risponde mai
+  const t0 = performance.now();
+  const out = await seedNativeFromShared("ctx", {
+    registry, load: barattolo(CONDIVISO), timeoutMs: 40, memo: memoNuova(),
+  });
+  expect(out).toMatchObject({ ok: false, skipped: "timeout" });
+  expect(performance.now() - t0).toBeLessThan(1000);
+});
+
+test("[⟲] un errore del client non diventa un'eccezione, e non viene memorizzato", async () => {
+  const { registry, seen } = scriptedRegistry({ error: "pane sparita" });
+  const memo = memoNuova();
+  const load = barattolo(CONDIVISO);
+  expect(await seedNativeFromShared("ctx", { registry, load, memo })).toMatchObject({
+    ok: false, skipped: "apply-failed", error: "pane sparita",
+  });
+  // Non memorizzato ⇒ al prossimo giro ci riprova invece di dirsi già a posto.
+  await seedNativeFromShared("ctx", { registry, load, memo });
+  expect(seen).toHaveLength(2);
+});
+
+test("[⟲] se lo store non si legge non salta nulla in aria", async () => {
+  const { registry } = scriptedRegistry({ result: { cookies: 1, origins: 0 } });
+  const out = await seedNativeFromShared("ctx", {
+    registry, load: async (_topicId: string): Promise<BrowserStorageState | null> => { throw new Error("disco rotto"); }, memo: memoNuova(),
+  });
+  expect(out).toEqual({ ok: false, skipped: "empty" });
+});
+
+test("[⟲] confinato al suo contesto", async () => {
+  const { registry, seen } = scriptedRegistry({ result: { cookies: 1, origins: 0 } }, "ctx-A");
+  const memo = memoNuova();
+  await seedNativeFromShared("ctx-A", { registry, load: barattolo(CONDIVISO), memo });
+  const altro = await seedNativeFromShared("ctx-B", { registry, load: barattolo(CONDIVISO), memo });
+  expect(altro).toEqual({ ok: false, skipped: "no-native-pane" });
+  expect(seen).toHaveLength(1);
 });
