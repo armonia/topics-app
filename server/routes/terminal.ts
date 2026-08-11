@@ -507,11 +507,35 @@ registerFleetSessionSource(getFleetSessionRefs);
  * instance). Returns null if the file can't be opened — losing the bridge's log
  * is survivable, failing to spawn the bridge is not.
  */
+function bridgeLogPath(): string {
+  return join(dirname(SOCKET_PATH), `${basename(SOCKET_PATH, ".sock")}.log`);
+}
+
 function openBridgeLog(): number | null {
   try {
-    const dir = dirname(SOCKET_PATH);
-    fs.mkdirSync(dir, { recursive: true });
-    return fs.openSync(join(dir, `${basename(SOCKET_PATH, ".sock")}.log`), "a");
+    fs.mkdirSync(dirname(SOCKET_PATH), { recursive: true });
+    return fs.openSync(bridgeLogPath(), "a");
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * L'ultima riga di stderr del ponte, per METTERLA nell'errore.
+ *
+ * «Failed to connect to PTY bridge after spawning» dice che è andata male, non
+ * PERCHÉ: il motivo il ponte l'ha scritto nel suo log, e nessuno lo leggeva. È
+ * costato un'indagine intera — le spec E2E del terminale erano rosse da
+ * settimane con un timeout su `.xterm-rows` («il terminale non compare»), e la
+ * causa era una riga già scritta qui dentro: «Self-test failed: posix_spawnp
+ * failed.», cioè `spawn-helper` di node-pty senza bit di esecuzione (vedi
+ * scripts/fix-node-pty-exec-bit.ts). Un errore che si porta dietro la sua
+ * ragione vale un pomeriggio.
+ */
+function lastBridgeLogLine(): string | null {
+  try {
+    const lines = fs.readFileSync(bridgeLogPath(), "utf-8").trim().split("\n");
+    return lines[lines.length - 1]?.trim() || null;
   } catch {
     return null;
   }
@@ -626,7 +650,11 @@ export async function ensureBridge(): Promise<void> {
     }
 
     if (!bridgeReady) {
-      throw new Error("Failed to connect to PTY bridge after spawning");
+      const why = lastBridgeLogLine();
+      throw new Error(
+        `Failed to connect to PTY bridge after spawning (${cmd} --socket ${SOCKET_PATH})` +
+          (why ? ` — il ponte dice: ${why}` : ` — nessun log in ${bridgeLogPath()}`),
+      );
     }
   } finally {
     bridgeConnecting = false;
