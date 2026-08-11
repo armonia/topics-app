@@ -282,7 +282,33 @@ export interface WorktreeGcDeps {
    * unnoticed for 8 days — it must be visible where the human looks.
    */
   noteOnTask?: (taskId: string, message: string) => void;
+  /**
+   * Butta gli artefatti rigenerabili (dipendenze, cache di build) da un worktree
+   * che RESTA in piedi, e restituisce i byte liberati. Vedi `worktree-slim`.
+   *
+   * È la risposta intermedia fra `keep` e `free-checkout`: il `keep` è la
+   * decisione giusta sui COMMIT e su ciò che è tracciato, ma non dice niente sui
+   * ~260 MB di `node_modules` che una card consegnata si porta dietro per giorni
+   * mentre aspetta un umano. Assente ⇒ il GC non snellisce, e basta.
+   */
+  slim?: (wt: GcWorktree) => Promise<number>;
   log: (msg: string) => void;
+}
+
+/**
+ * Un worktree TENUTO può comunque perdere gli artefatti rigenerabili? Sì,
+ * quando nessuno sta per riaprirlo a breve.
+ *
+ * `review` è il caso che conta — la card consegnata che aspetta un umano — e
+ * `done`/archiviato/orfano sono già finiti. `backlog` e `todo` NO: sono in coda
+ * per il dispatcher, e snellirli trenta secondi prima che un agent ci entri
+ * regalerebbe un `bun install` senza liberare niente per più di quei trenta
+ * secondi. `in_progress` men che meno: lì dentro c'è qualcuno.
+ */
+export function shouldSlimOnKeep(taskStatus: TaskStatus | null, taskArchived: boolean): boolean {
+  if (taskStatus === null) return true;
+  if (taskArchived) return true;
+  return taskStatus === "review" || taskStatus === "done";
 }
 
 export interface WorktreeGcSummary {
@@ -294,6 +320,10 @@ export interface WorktreeGcSummary {
   /** Cartelle liberate su task CHIUSI, con il branch conservato (`free-checkout`). */
   freed: number;
   kept: number;
+  /** Worktree TENUTI a cui sono stati tolti gli artefatti rigenerabili. */
+  slimmed: number;
+  /** Byte liberati dallo snellimento (i `reap`/`free-checkout` non contano qui). */
+  slimmedBytes: number;
   errors: number;
   /**
    * PERCHÉ i `kept` sono stati tenuti, contati per motivo.
@@ -332,7 +362,8 @@ export function normalizeKeepReason(reason: string): string {
 export async function sweepWorktrees(deps: WorktreeGcDeps): Promise<WorktreeGcSummary> {
   const worktrees = deps.listWorktrees();
   const summary: WorktreeGcSummary = {
-    total: worktrees.length, reaped: 0, landed: 0, abandoned: 0, freed: 0, kept: 0, errors: 0, keptReasons: {},
+    total: worktrees.length, reaped: 0, landed: 0, abandoned: 0, freed: 0, kept: 0,
+    slimmed: 0, slimmedBytes: 0, errors: 0, keptReasons: {},
   };
   /** Un keep senza motivo registrato e' un keep che nessuno puo' spiegare. */
   const keep = (reason: string) => {
@@ -364,6 +395,27 @@ export async function sweepWorktrees(deps: WorktreeGcDeps): Promise<WorktreeGcSu
       );
     }
     return true;
+  }
+
+  /**
+   * TENUTA, MA NON PIENA. Un worktree che resta in piedi non deve restare
+   * pesante: gli artefatti rigenerabili se ne vanno comunque, e la cartella, il
+   * branch e i file tracciati restano esattamente com'erano.
+   *
+   * Best-effort come tutto il resto della passata: uno snellimento che fallisce
+   * è un peccato, non un motivo per interrompere il giro.
+   */
+  async function slimKept(wt: GcWorktree, taskStatus: TaskStatus | null, taskArchived: boolean, present: boolean) {
+    if (!deps.slim || !present || !shouldSlimOnKeep(taskStatus, taskArchived)) return;
+    try {
+      const bytes = await deps.slim(wt);
+      if (bytes > 0) {
+        summary.slimmed += 1;
+        summary.slimmedBytes += bytes;
+      }
+    } catch (err) {
+      deps.log(`[worktree-gc] slim fallito su ${wt.branchName ?? wt.id}: ${(err as Error)?.message ?? err}`);
+    }
   }
 
   for (const wt of worktrees) {
@@ -403,10 +455,12 @@ export async function sweepWorktrees(deps: WorktreeGcDeps): Promise<WorktreeGcSu
       // tree for dirt when it actually exists.
       const present = deps.diskPresent(wt.absPath);
       const dirt = present ? await deps.realDirt(wt.absPath).catch(() => [] as string[]) : [];
+      const taskStatus = taskId ? (t as { status: TaskStatus }).status : null;
+      const taskArchived = taskId ? (t as { archived: boolean }).archived : false;
 
       const decision = decideWorktreeReap({
-        taskStatus: taskId ? (t as { status: TaskStatus }).status : null,
-        taskArchived: taskId ? (t as { archived: boolean }).archived : false,
+        taskStatus,
+        taskArchived,
         hasRealDirt: dirt.length > 0,
         mergedIntoMain: branch === "merged",
         branchGone: branch === "gone",
@@ -422,10 +476,19 @@ export async function sweepWorktrees(deps: WorktreeGcDeps): Promise<WorktreeGcSu
         abandonAfterDays: deps.abandonAfterDays,
       });
 
-      if (decision.action === "keep") { keep(decision.reason); continue; }
+      if (decision.action === "keep") {
+        keep(decision.reason);
+        await slimKept(wt, taskStatus, taskArchived, present);
+        continue;
+      }
 
       if (decision.action === "free-checkout") {
-        if (!(await freeCheckout(wt, taskId, decision.reason))) keep(decision.reason);
+        if (!(await freeCheckout(wt, taskId, decision.reason))) {
+          keep(decision.reason);
+          // Il `free-checkout` non è riuscito (l'host non sa farlo, o git ha
+          // rifiutato): la cartella resta, e allora almeno non resta piena.
+          await slimKept(wt, taskStatus, taskArchived, present);
+        }
         continue;
       }
 
@@ -446,7 +509,11 @@ export async function sweepWorktrees(deps: WorktreeGcDeps): Promise<WorktreeGcSu
       if (decision.action === "land-then-reap") {
         // Needs a real task to land. An orphan (taskId null) with unmerged
         // commits can't be landed → keep it for a human rather than lose work.
-        if (!taskId) { keep("commit non su main e nessun task a cui landarli (orfano)"); continue; }
+        if (!taskId) {
+          keep("commit non su main e nessun task a cui landarli (orfano)");
+          await slimKept(wt, taskStatus, taskArchived, present);
+          continue;
+        }
         const outcome = await deps.tryLand(taskId);
         if (outcome === "landed") summary.landed += 1;
 
@@ -482,6 +549,7 @@ export async function sweepWorktrees(deps: WorktreeGcDeps): Promise<WorktreeGcSu
             deps.noteOnTask?.(taskId, `⚠️ Worktree NON ripulito: ${post.reason}. ${branchNote}`);
           }
           keep(post.reason);
+          await slimKept(wt, taskStatus, taskArchived, deps.diskPresent(wt.absPath));
           continue;
         }
       }
@@ -499,10 +567,11 @@ export async function sweepWorktrees(deps: WorktreeGcDeps): Promise<WorktreeGcSu
     }
   }
 
-  if (summary.reaped || summary.landed || summary.abandoned || summary.freed || summary.errors) {
+  if (summary.reaped || summary.landed || summary.abandoned || summary.freed || summary.slimmed || summary.errors) {
     deps.log(
       `[worktree-gc] sweep done: ${summary.reaped} reaped, ${summary.landed} landed, ` +
       `${summary.freed} checkout liberati, ${summary.abandoned} abbandonati, ` +
+      `${summary.slimmed} snelliti (${(summary.slimmedBytes / 1_048_576).toFixed(0)} MB), ` +
       `${summary.kept} kept, ${summary.errors} errors (of ${summary.total})`,
     );
   }
