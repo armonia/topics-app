@@ -23,6 +23,13 @@ name = "webrtc-bridge"
 path = "src/main.rs"
 
 [dependencies]
+anyhow = "1"
+
+# Unix-only: the daemon speaks NDJSON over a Unix socket, so on Windows main.rs
+# compiles to a no-op stub (see scripts/build-webrtc-bridge.sh). Scoping the heavy
+# stack here keeps that stub a seconds-long compile instead of dragging webrtc-rs +
+# openh264 through a Windows toolchain that would never run them.
+[target.'cfg(unix)'.dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync", "io-util"] }
 tokio-tungstenite = "0.24"
 futures-util = "0.3"
@@ -33,7 +40,6 @@ bytes = "1"
 zune-jpeg = "0.4"
 openh264 = "0.6"
 webrtc = "0.11"
-anyhow = "1"
 
 [profile.release]
 opt-level = 3

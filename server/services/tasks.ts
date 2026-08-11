@@ -22,18 +22,21 @@
  * DB without booting the server.
  */
 import type { Database } from "bun:sqlite";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { parseReviewChecks, serializeReviewChecks, type CheckRun } from "./review-checks";
+import { imageShape } from "./image-shape";
+import { readGlobalCap } from "./dispatch-capacity";
 
 // Stati e forma del thread stanno in `shared/board.ts`: il client li legge
 // dalla stessa dichiarazione invece di riscriverli. `export type … from`
 // ri-esporta ma NON porta i nomi in scope locale, e qui sotto servono — da cui
 // l'import separato. Della lista `TASK_STATUSES` questo modulo non è una porta:
 // chi la vuole la prende da `shared/board`.
-export type { TaskStatus, TaskComment, BoardSettings, BoardSettingsPatch } from "../../shared/board";
-import { MAX_FANOUT, TASK_STATUSES, isAgentWorking } from "../../shared/board";
+export type { TaskStatus, TaskComment, BoardSettings, BoardSettingsPatch, BlockerRef } from "../../shared/board";
+import { MAX_FANOUT, PREVIEW_PROMOTE_MAX_RATIO, TASK_STATUSES, isAgentWorking, readTaskWeight } from "../../shared/board";
 import { EFFORT_TIERS } from "../../shared/effort";
-import type { TaskStatus, TaskComment, BoardSettings, BoardSettingsPatch } from "../../shared/board";
+import type { TaskStatus, TaskComment, BoardSettings, BoardSettingsPatch, BlockerRef, TaskWeight } from "../../shared/board";
 
 export type Actor = "human" | "agent";
 
@@ -103,6 +106,13 @@ export interface Task {
    *  future the task sits in `todo` (chip `waiting`) and is NOT dispatch-eligible;
    *  the tick re-claims it once the window passes. null = no wait. */
   dispatchDeferredUntil: string | null;
+  /**
+   * Quanto questo task morde la MACCHINA quando gira (migration 090), come
+   * l'ha letto il classificatore l'ultima volta che è stato dispacciato.
+   * `null` = mai classificato, e ogni gate lo tratta come `light` — cioè come
+   * si comportava il dispatcher prima che il peso esistesse.
+   */
+  dispatchWeight: TaskWeight | null;
   /** Parent task (nested subtask, unlimited depth). Set at creation only. */
   parentTaskId: string | null;
   /** Reviewable output (http/https URL) shown in the task's review panel. */
@@ -130,6 +140,26 @@ export interface Task {
   effort: string | null;
   /** Dependency: not dispatch-eligible until this task is done/archived. */
   blockedByTaskId: string | null;
+  /**
+   * Lo stesso bloccante, RISOLTO dal DB. Il chip «in attesa di» sul client si
+   * disegna da qui: la lista della board (un progetto, `rootsOnly`, non
+   * archiviati) non è una fonte affidabile per il titolo del bloccante, quindi
+   * lo risolve chi ha il DB sotto mano. `null` = nessun link, oppure la riga
+   * puntata non esiste più (edge orfano).
+   */
+  blockedBy: BlockerRef | null;
+  /**
+   * L'altra metà del legame: quanti task stanno aspettando QUESTO, contati sul
+   * DB. Il chip «N in attesa» sulla card si disegna da qui, per lo stesso
+   * motivo di `blockedBy`: la lista della board è un progetto solo, `rootsOnly`,
+   * non archiviati — un dipendente che è un sottotask o sta in un altro
+   * progetto non ci compare, e contando quella lista il legame spariva proprio
+   * dalla card da cui si decide se chiudere il lavoro.
+   *
+   * Conta i dipendenti VIVI: non archiviati e non `done` — cioè quelli che il
+   * gate di dispatch tiene ancora fermi e che ripartono quando questo chiude.
+   */
+  waitingOnCount: number;
   /** Branch the task delivered on, snapshotted at the transition into `review`. */
   deliveryBranch: string | null;
   /** Branch tip at delivery time — the handle that outlives the reaped branch. */
@@ -194,6 +224,14 @@ export interface CreateTaskInput {
   blockedByTaskId?: string | null;
   /** Reuse the blocker agent's conversation at dispatch. */
   reuseBlockerContext?: boolean;
+  /**
+   * PROVENIENZA: il topic che ha creato il task (migration 093). La scrive solo
+   * la superficie di sessione, dal topic risolto server-side — un agent non può
+   * dichiararla. Scritta una volta e mai riscritta: è ciò che rende chiudibili
+   * i propri step anche dopo che il dispatcher ha rimescolato le assegnazioni
+   * (vedi `isOwnStep`).
+   */
+  createdByTopicId?: string | null;
 }
 
 export interface UpdateTaskPatch {
@@ -401,7 +439,26 @@ export interface TaskService {
    * `assigned_topic_id` has a FK to topics(id) (migration 026), so a
    * placeholder id can never be written there.
    */
-  claim(args: { taskId: string; cap: number; maxAttempts: number; agentId?: string | null; scope?: "board" | "global" }): Task | null;
+  claim(args: {
+    taskId: string; cap: number; maxAttempts: number; agentId?: string | null; scope?: "board" | "global";
+    /**
+     * La macchina è SCARICA adesso? Vale solo per un task `heavy`, che parte
+     * solo quando lo è (un task che compila su una macchina già piena è il caso
+     * che il peso esiste per evitare). Il carico lo misura il chiamante — questo
+     * modulo non deve leggere `os` — e `undefined` significa «nessuna sonda»:
+     * niente gate, cioè il comportamento che c'era prima del peso.
+     */
+    machineIdle?: boolean;
+  }): Task | null;
+  /**
+   * C'è un task `heavy` con un agente vivo su questa macchina adesso?
+   *
+   * Lo stesso predicato che il CAS di `claim` applica, esposto perché il filtro
+   * del dispatcher possa fermarsi PRIMA di provare (e dirlo sulla card) invece
+   * di scoprirlo da un `null` muto. Sempre globale: un task che compila si
+   * prende la macchina, non la board.
+   */
+  hasHeavyInFlight(): boolean;
   /**
    * Bump the attempt counter of a LIVE claim (in_progress + bound topic) —
    * the dispatcher's resume-continuation after a timed-out turn. Returns the
@@ -442,6 +499,13 @@ export interface TaskService {
   /** Persist the model actually resolved for a run (auto-pick → concrete id) so
    *  the card stops showing "auto" once the agent has run. */
   setModel(args: { taskId: string; model: string | null }): Task;
+  /**
+   * Ricorda il peso letto dal classificatore (migration 090). È il promemoria
+   * che permette al CLAIM di decidere: il giudice parla al lancio, il gate serve
+   * un passo prima, quindi la seconda volta il claim sa già con cosa ha a che
+   * fare. `null` cancella (torna a «mai classificato» = leggero).
+   */
+  setDispatchWeight(args: { taskId: string; weight: TaskWeight | null }): Task;
   /** Accumulate agent effort on the task (dispatcher, at each turn end). */
   recordAgentUsage(args: { taskId: string; addMs: number; addTokens: number; addCacheReadTokens?: number }): Task;
   /**
@@ -501,7 +565,40 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
   // Idempotent and best-effort: an explicit previewImage always wins (we only
   // fill the empty case), and any failure just leaves the card without
   // preview — exactly the status quo.
-  const PREVIEWABLE_MEDIA = /\.(png|jpe?g|gif|webp|webm|mp4|mov)$/i;
+  //
+  // `svg` è in lista dal 10/08: il protocollo (`PREVIEW_RULE`) ha un terzo ramo
+  // — DIAGRAMMA — per le consegne senza superficie renderizzata (un piano,
+  // un'architettura, una migrazione), e senza l'estensione qui quel ramo
+  // nasceva morto: l'agente allegava il diagramma al commento di consegna e la
+  // promozione lo saltava, lasciando la card cieca.
+  const PREVIEWABLE_MEDIA = /\.(png|jpe?g|gif|webp|svg|webm|mp4|mov)$/i;
+  const VIDEO_MEDIA = /\.(webm|mp4|mov)$/i;
+
+  /**
+   * Gate di FORMA — non un quarto cancello di review.
+   *
+   * Un'immagine molto più alta che larga, dentro il riquadro `object-cover` da
+   * 268×144 della card, non si rimpicciolisce: si taglia. Promuoverla mette
+   * sulla board la fascia alta di un documento e fa sembrare consegnata
+   * un'evidenza che nessuno può leggere — è così che la card di un PIANO ha
+   * finito per mostrare la fotografia del piano stesso.
+   *
+   * Quindi la promozione si ferma e lascia una nota. Si FERMA LA PROMOZIONE,
+   * non la consegna: il task resta in review, l'allegato resta nel thread, e
+   * l'agente legge nella nota quale ramo del protocollo era quello giusto. Un
+   * rifiuto qui non deve mai costare un giro di dispatch.
+   *
+   * Soglia 0.7 e non 0.537 (quella della card): promuovere è un favore, taglia
+   * solo ciò che è palesemente illeggibile. Forma non misurabile (video,
+   * formato esotico, file illeggibile) ⇒ si promuove: vedi `imageShape`.
+   */
+  function tooTallForCard(path: string): { ratio: number; width: number; height: number } | null {
+    if (VIDEO_MEDIA.test(path)) return null;
+    const shape = imageShape(path);
+    if (!shape) return null;
+    return shape.ratio > PREVIEW_PROMOTE_MAX_RATIO ? shape : null;
+  }
+
   function promoteReviewPreview(taskId: string): void {
     try {
       const row = getTaskRow(taskId);
@@ -509,6 +606,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       const rows = db.prepare(
         "SELECT media FROM task_comments WHERE task_id = ? AND media IS NOT NULL ORDER BY created_at DESC LIMIT 10",
       ).all(taskId) as Array<{ media: string }>;
+      const rejected: Array<{ path: string; shape: { ratio: number; width: number; height: number } }> = [];
       for (const r of rows) {
         let files: unknown;
         try { files = JSON.parse(r.media); } catch { continue; }
@@ -516,11 +614,98 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         for (const f of files) {
           if (typeof f !== "string" || !f.startsWith("/") || !PREVIEWABLE_MEDIA.test(f)) continue;
           if (!fileExists(f)) continue;
+          const tall = tooTallForCard(f);
+          if (tall) { rejected.push({ path: f, shape: tall }); continue; }
           db.prepare("UPDATE tasks SET preview_image = ?, updated_at = ? WHERE id = ?").run(f, now(), taskId);
+          noteDuplicatePreview(taskId, f);
           return;
         }
       }
+      // Nessun candidato promosso ma qualcuno scartato per forma: la card
+      // resterebbe cieca senza che nessuno sappia perché.
+      if (rejected.length) {
+        const { path, shape } = rejected[0]!;
+        reviewNote(
+          taskId,
+          `Anteprima non promossa: \`${baseName(path)}\` è ${shape.width}×${shape.height}, altezza/larghezza ${shape.ratio.toFixed(2)} (soglia ${PREVIEW_PROMOTE_MAX_RATIO}). ` +
+            "In una card da 268px se ne vedrebbe solo la fascia alta. La consegna resta in review e l'allegato resta nel thread: " +
+            "se il lavoro non ha una superficie renderizzata il ramo giusto è un DIAGRAMMA `.svg` (la struttura, non la foto del documento); " +
+            "se è UI, ricattura a viewport ≤1440×900. Poi `update_task(preview_image=…)`.",
+        );
+      }
     } catch { /* best-effort — the card just stays without a preview */ }
+  }
+
+  /**
+   * SEGNALE, mai blocco: l'anteprima appena messa è byte per byte quella di un
+   * altro task.
+   *
+   * Nel rilievo che ha aperto questo lavoro c'erano 16 PNG identici da 10.191
+   * byte sparsi su altrettante card — lo stesso screenshot riciclato, cioè
+   * consegne senza evidenza propria. Ma alcuni di quei duplicati sono legittimi
+   * (due task sullo stesso pannello, uno stato vuoto che è davvero identico):
+   * un blocco farebbe strage di consegne buone. Quindi si scrive una nota e si
+   * lascia decidere a chi legge.
+   */
+  function noteDuplicatePreview(taskId: string, path: string): void {
+    try {
+      const mine = fileDigest(path);
+      if (!mine) return;
+      const others = db.prepare(
+        "SELECT id, text, preview_image FROM tasks WHERE preview_image IS NOT NULL AND preview_image != '' AND id != ? ORDER BY updated_at DESC LIMIT 200",
+      ).all(taskId) as Array<{ id: string; text: string; preview_image: string }>;
+      for (const o of others) {
+        if (o.preview_image === path) continue; // stesso file, non un duplicato di contenuto
+        if (fileDigest(o.preview_image) !== mine) continue;
+        reviewNote(
+          taskId,
+          `Anteprima IDENTICA (md5 \`${mine.slice(0, 8)}\`) a quella del task \`${o.id}\` — «${(o.text ?? "").slice(0, 60)}». ` +
+            "Non è un blocco: due task sullo stesso pannello possono avere davvero la stessa immagine. " +
+            "Ma se è una svista, questa consegna non ha ancora un'evidenza sua.",
+        );
+        return;
+      }
+    } catch { /* best-effort: il segnale è un extra, non un invariante */ }
+  }
+
+  /** md5 del file, con cache su (path, size, mtime): la scansione dei duplicati
+   *  rilegge le stesse anteprime a ogni consegna. `null` se non si può leggere. */
+  const digestCache = new Map<string, { key: string; md5: string }>();
+  function fileDigest(path: string): string | null {
+    try {
+      const st = statSync(path);
+      if (!st.isFile() || st.size === 0 || st.size > 16 * 1024 * 1024) return null;
+      const key = `${st.size}:${st.mtimeMs}`;
+      const hit = digestCache.get(path);
+      if (hit && hit.key === key) return hit.md5;
+      const md5 = createHash("md5").update(readFileSync(path)).digest("hex");
+      digestCache.set(path, { key, md5 });
+      return md5;
+    } catch { return null; }
+  }
+
+  function baseName(p: string): string { return p.slice(p.lastIndexOf("/") + 1); }
+
+  /**
+   * Una nota della MACCHINA nel thread (`kind: 'review-note'`): il canale che
+   * il client rende come annotazione di review e che NON sveglia l'agente —
+   * lo stesso che usa `preview-manager`. Inserimento diretto e non via
+   * `addComment`, che ri-chiamerebbe la promozione da cui questa nota nasce.
+   * Deduplicata sul contenuto: la promozione gira a ogni transizione in review
+   * e a ogni commento con allegati, e la stessa nota non va ripetuta.
+   */
+  function reviewNote(taskId: string, content: string): void {
+    try {
+      const dupe = db.prepare(
+        "SELECT id FROM task_comments WHERE task_id = ? AND kind = 'review-note' AND content = ? LIMIT 1",
+      ).get(taskId, content);
+      if (dupe) return;
+      const ts = now();
+      db.prepare(
+        "INSERT INTO task_comments (id, task_id, author, content, mentions, media, kind, created_at) VALUES (?, ?, ?, ?, NULL, NULL, 'review-note', ?)",
+      ).run(uuid(), taskId, "system", content, ts);
+      db.prepare("UPDATE tasks SET updated_at = ? WHERE id = ?").run(ts, taskId);
+    } catch { /* best-effort */ }
   }
 
   // The global start switch (row '*'). Closure helper — never `this` — so the
@@ -529,6 +714,15 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     const r = db.prepare("SELECT auto_dispatch FROM board_settings WHERE project_id = ?").get(GLOBAL_SETTINGS_KEY) as any;
     return r ? !!r.auto_dispatch : false;
   };
+
+  // C'è un task pesante con un agente vivo ADESSO? Closure e non `this`, come
+  // sopra: il claim lo chiama, e il claim deve sopravvivere a essere destrutturato.
+  const heavyInFlight = (): boolean =>
+    !!db.prepare(
+      `SELECT 1 AS h FROM tasks
+        WHERE status = 'in_progress' AND dispatch_state IN ('starting','working')
+          AND archived = 0 AND dispatch_weight = 'heavy' LIMIT 1`,
+    ).get();
 
   // The model shown on a task must ALWAYS reflect what actually ran: task.model
   // may be null ("auto") even after dispatch, but the agent's TOPIC was created
@@ -568,6 +762,47 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     return null;
   }
 
+  /**
+   * Il bloccante, letto dal DB per id.
+   *
+   * Sta in `rowToTask` — non nei soli `list`/`get` come i contatori dei
+   * sottotask — perché ogni payload di task esce anche dalle scritture (update,
+   * claim, release) che il server ribalta sul WS come `task:updated`: se lo
+   * risolvessimo solo in lettura, un giro di WS spegnerebbe il titolo del chip
+   * fino al prossimo fetch pieno. Costa una lettura per chiave primaria SOLO
+   * quando il link c'è (pochi task per board).
+   *
+   * Legge la riga anche se ARCHIVIATA: un bloccante archiviato non blocca più,
+   * ma dirlo è compito del client (`archived: true`), non di un `null` muto.
+   */
+  function resolveBlocker(blockerId: string | null | undefined): BlockerRef | null {
+    if (!blockerId) return null;
+    const r = db.prepare("SELECT id, text, status, archived FROM tasks WHERE id = ?").get(blockerId) as any;
+    if (!r) return null;
+    return { id: r.id, text: r.text, status: r.status, archived: !!r.archived };
+  }
+
+  /**
+   * Quanti task aspettano questo, contati sul DB.
+   *
+   * Sta in `rowToTask` accanto a `resolveBlocker`, e per le stesse due ragioni.
+   * La prima: il client non può contarli: la sua lista è un progetto, `rootsOnly`,
+   * non archiviati, quindi un dipendente sottotask o di un altro progetto non
+   * viene contato e la card del bloccante si presenta come libera. La seconda:
+   * ogni payload esce anche dalle scritture che il server ribalta sul WS come
+   * `task:updated` — se il contatore lo riempissero i soli `list`/`get` (come i
+   * contatori dei sottotask), un giro di WS lo azzererebbe fino al fetch dopo.
+   *
+   * Costa una lettura per riga su `idx_tasks_blocked_by` (migration 042): un
+   * lookup su indice, non una scansione.
+   */
+  function countWaitingOn(taskId: string): number {
+    const r = db.prepare(
+      "SELECT COUNT(*) AS n FROM tasks WHERE blocked_by_task_id = ? AND archived = 0 AND status != 'done'",
+    ).get(taskId) as { n: number } | undefined;
+    return r?.n ?? 0;
+  }
+
   function rowToTask(r: any): Task {
     return {
       id: r.id,
@@ -589,6 +824,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       dispatchAttempts: r.dispatch_attempts ?? 0,
       dispatchError: r.dispatch_error ?? null,
       dispatchDeferredUntil: r.dispatch_deferred_until ?? null,
+      dispatchWeight: readTaskWeight(r.dispatch_weight),
       parentTaskId: r.parent_task_id ?? null,
       outputUrl: r.output_url ?? null,
       previewImage: r.preview_image ?? null,
@@ -601,6 +837,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       model: resolveModel(r),
       effort: resolveEffort(r),
       blockedByTaskId: r.blocked_by_task_id ?? null,
+      blockedBy: resolveBlocker(r.blocked_by_task_id),
+      waitingOnCount: countWaitingOn(r.id),
       deliveryBranch: r.delivery_branch ?? null,
       deliveryCommit: r.delivery_commit ?? null,
       landingState: r.landing_state ?? null,
@@ -658,12 +896,32 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
   }
 
   /**
-   * True when `taskId` is a STRICT descendant of a task whose dispatch topic is
-   * `topicId` — i.e. one of the calling agent's own checklist steps. Strict:
-   * the assigned task itself never matches, so the agent still cannot close
-   * its own deliverable (that stays behind the human review gate).
+   * True when `taskId` is one of the calling agent's own checklist steps. Two
+   * strade, e servono entrambe:
+   *
+   *  a) DISCENDENTE STRETTO di un task assegnato a `topicId` — copre gli step
+   *     che l'UMANO aggiunge sotto il task dell'agent (nessuna provenienza
+   *     d'agent, ma sono comunque la sua checklist);
+   *  b) TASK CON PADRE che `topicId` ha CREATO (`created_by_topic_id`, migration
+   *     093) — copre il caso in cui il legame vivo non c'è più.
+   *
+   * Perché (b): (a) da sola misura la proprietà su `assigned_topic_id`, che è
+   * stato di DISPATCH e vive quanto il dispatch, non quanto il turno. Il
+   * dispatcher lo azzera a ogni requeue/park (`release`) e lo riscrive su un
+   * ALTRO topic al ri-dispatch, mentre il turno dell'agent continua a girare:
+   * misurato l'11/08, l'agent ha chiuso due step e poi ha preso 409 su tutti gli
+   * altri, consegnando con la checklist aperta (e un task con figli aperti non è
+   * approvabile). La provenienza invece è un fatto storico: non cambia mai.
+   *
+   * STRETTA in entrambe le strade: il task assegnato non fa match in (a), e (b)
+   * richiede `parent_task_id IS NOT NULL` — l'agent non può chiudere né il
+   * proprio deliverable né un task di primo livello che ha creato lui.
    */
   function isOwnStep(taskId: string, topicId: string): boolean {
+    const own = db.prepare(
+      "SELECT 1 FROM tasks WHERE id = ? AND parent_task_id IS NOT NULL AND created_by_topic_id = ?",
+    ).get(taskId, topicId);
+    if (own) return true;
     const r = db.prepare(
       `WITH RECURSIVE anc(id, parent, topic) AS (
          SELECT id, parent_task_id, assigned_topic_id FROM tasks WHERE id = ?
@@ -828,13 +1086,14 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (input.blockedByTaskId) assertBlockerValid(id, input.blockedByTaskId);
 
       db.prepare(
-        `INSERT INTO tasks (id, project_id, text, description, status, priority, kanban_order, assigned_to, chat_id, created_at, completed_at, updated_at, claude_task_id, parent_task_id, plan_first, model, blocked_by_task_id, reuse_blocker_context, priority_auto)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO tasks (id, project_id, text, description, status, priority, kanban_order, assigned_to, chat_id, created_at, completed_at, updated_at, claude_task_id, parent_task_id, plan_first, model, blocked_by_task_id, reuse_blocker_context, created_by_topic_id, priority_auto)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         id, input.projectId, text, input.description ?? null, status, priority, order,
         input.assignedTo ?? null, input.chatId ?? null, ts, ts, input.idempotencyKey ?? null,
         input.parentTaskId ?? null, input.planFirst ? 1 : 0,
         input.model ?? null, input.blockedByTaskId ?? null, input.reuseBlockerContext ? 1 : 0,
+        input.createdByTopicId ?? null,
         // "Priorità automatica": no explicit choice at creation = the
         // dispatched agent evaluates and sets one at kickoff.
         input.priority === undefined ? 1 : 0,
@@ -996,6 +1255,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         }
         put("output_url", url || null);
       }
+      let explicitPreview: string | null = null;
       if (patch.previewImage !== undefined) {
         const p = (patch.previewImage ?? "").trim();
         // Path assoluto su disco, mai un URL: il client lo rende via
@@ -1004,6 +1264,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           throw new TaskServiceError("invalid_input", "preview_image must be an absolute file path");
         }
         put("preview_image", p || null);
+        explicitPreview = p || null;
       }
       if (patch.model !== undefined) {
         const m = (patch.model ?? "").trim();
@@ -1100,6 +1361,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // Hand-off into review without an explicit preview: promote the
       // delivery comment's evidence (comment-first delivery order).
       if (patch.status === "review") promoteReviewPreview(taskId);
+      // Anteprima messa a mano: nessun gate (l'agente ha SCELTO quel file, e un
+      // rifiuto qui sarebbe il quarto cancello di review che non vogliamo) —
+      // ma il riciclo di un'evidenza altrui va almeno detto.
+      if (explicitPreview) noteDuplicatePreview(taskId, explicitPreview);
       return rowToTask(getTaskRow(taskId));
     },
 
@@ -1303,9 +1568,29 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return rowToTask(getTaskRow(taskId));
     },
 
-    claim({ taskId, cap, maxAttempts, agentId, scope }): Task | null {
+    hasHeavyInFlight(): boolean {
+      return heavyInFlight();
+    },
+
+    claim({ taskId, cap, maxAttempts, agentId, scope, machineIdle }): Task | null {
       const row = getTaskRow(taskId);
       if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
+      // PESO — due regole, entrambe dentro il claim perché è l'unico punto in cui
+      // la decisione è atomica rispetto agli altri claim (bun:sqlite è sincrono e
+      // monoprocesso, quindi read-then-CAS qui non ha corse).
+      //
+      //  1. Un heavy in volo blocca OGNI altro claim, non solo gli altri heavy:
+      //     il senso del peso è che quel task si prenda la macchina da solo, e
+      //     tre task leggeri che gli partono accanto sono esattamente ciò che
+      //     rende lunga la compilazione. Vale a macchina intera, non per board.
+      //  2. Un heavy parte solo a macchina scarica. Il carico non lo legge questo
+      //     modulo (resta puro): lo passa il chiamante. `undefined` = nessuna
+      //     sonda ⇒ nessun gate, il comportamento storico.
+      //
+      // Entrambe si applicano PRIMA del conteggio degli slot: un no del peso non
+      // è «non c'è posto», è «non adesso», e il chiamante lo dice diversamente.
+      if (heavyInFlight()) return null;
+      if (readTaskWeight(row.dispatch_weight) === "heavy" && machineIdle === false) return null;
       // Concurrency cap: count tasks already claimed by a dispatch (in_progress
       // with a live dispatch chip). Per-board by default; scope 'global' counts
       // across EVERY board so a machine-wide cap holds no matter how many boards
@@ -1532,6 +1817,17 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return rowToTask(getTaskRow(taskId));
     },
 
+    setDispatchWeight({ taskId, weight }): Task {
+      const row = getTaskRow(taskId);
+      if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
+      // `readTaskWeight` anche in scrittura: un valore che non è uno dei due
+      // noti entra come NULL, cioè leggero. Una stringa storta non deve poter
+      // diventare un `heavy` che ferma la coda della board.
+      db.prepare("UPDATE tasks SET dispatch_weight = ?, updated_at = ? WHERE id = ?")
+        .run(readTaskWeight(weight), now(), taskId);
+      return rowToTask(getTaskRow(taskId));
+    },
+
     recordChecks({ taskId, state, commit, runs }): Task {
       const row = getTaskRow(taskId);
       if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
@@ -1598,11 +1894,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     },
 
     getGlobalCap(): { auto: boolean; max: number } {
-      const r = db.prepare("SELECT max_agents, max_agents_auto FROM board_settings WHERE project_id = ?").get(GLOBAL_SETTINGS_KEY) as any;
-      // Auto is the default until a manual number is explicitly picked (NULL = never
-      // set → auto), so a fresh install caps concurrency by capacity, not at nothing.
-      const auto = r?.max_agents_auto == null ? true : !!r.max_agents_auto;
-      return { auto, max: clampInt(r?.max_agents ?? 3, 1, 20) };
+      // Una lettura sola per due chiamanti: il tick del dispatcher e la quota di
+      // core dello spawn (`agent-job-quota.ts`) devono leggere lo STESSO tetto,
+      // NULL compreso — vedi `readGlobalCap`.
+      return readGlobalCap(db);
     },
 
     setGlobalCap(patch: { auto?: boolean; max?: number }): { auto: boolean; max: number } {

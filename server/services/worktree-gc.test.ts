@@ -4,7 +4,7 @@
  * live turn and degrade to keep on a landing that can't complete.
  */
 import { describe, test, it, expect } from "bun:test";
-import { decidePostLandReap, decideWorktreeReap, normalizeKeepReason, sweepWorktrees, type GcWorktree, type WorktreeGcDeps } from "./worktree-gc";
+import { decidePostLandReap, decideWorktreeReap, normalizeKeepReason, shouldSlimOnKeep, sweepWorktrees, type GcWorktree, type WorktreeGcDeps } from "./worktree-gc";
 
 describe("decideWorktreeReap — safety contract", () => {
   const base = {
@@ -42,12 +42,40 @@ describe("decideWorktreeReap — safety contract", () => {
     expect(decideWorktreeReap({ ...base, mergedIntoMain: false }).action).toBe("land-then-reap");
   });
 
-  test("done + clean + UNMERGED + automerge OFF → keep (human decides)", () => {
-    expect(decideWorktreeReap({ ...base, mergedIntoMain: false, autoMergeEnabled: false }).action).toBe("keep");
+  // I COMMIT restano da decidere a mano; la CARTELLA no. Il branch li tiene
+  // raggiungibili, quindi il checkout è una copia — e 77 copie da ~400 MB sono
+  // i 33,9 GB che questa riga, dicendo `keep`, difendeva.
+  test("done + clean + UNMERGED + automerge OFF → free-checkout (branch conservato)", () => {
+    const d = decideWorktreeReap({ ...base, mergedIntoMain: false, autoMergeEnabled: false });
+    expect(d.action).toBe("free-checkout");
+    expect(d.reason).toContain("branch conservato");
+  });
+
+  test("done + clean + UNMERGED + branch SPARITO → keep (la cartella è l'unica copia)", () => {
+    expect(
+      decideWorktreeReap({ ...base, mergedIntoMain: false, autoMergeEnabled: false, branchGone: true }).action,
+    ).toBe("keep");
   });
 
   test("done + clean + UNMERGED + non-branch mode → keep (nothing to land)", () => {
     expect(decideWorktreeReap({ ...base, mergedIntoMain: false, mode: "reuse" }).action).toBe("keep");
+  });
+
+  test("detached: i commit vivono solo nell'HEAD della cartella → keep", () => {
+    expect(
+      decideWorktreeReap({ ...base, mergedIntoMain: false, autoMergeEnabled: false, mode: "detached" }).action,
+    ).toBe("keep");
+  });
+
+  test("free-checkout non distrugge MAI un branch: nessun input pulito+non-mergiato produce 'reap'", () => {
+    for (const mode of ["branch", "reuse", "detached"] as const) {
+      for (const autoMergeEnabled of [true, false]) {
+        for (const branchGone of [true, false]) {
+          const d = decideWorktreeReap({ ...base, mergedIntoMain: false, mode, autoMergeEnabled, branchGone });
+          expect(d.action).not.toBe("reap");
+        }
+      }
+    }
   });
 
   test("dirt beats merged: closed task with dirt is kept", () => {
@@ -67,15 +95,20 @@ describe("decidePostLandReap — verify before destroy", () => {
   });
 
   // THE REGRESSION. 2026-07-19: tryLand said "nothing", the branch was reaped,
-  // 139 lines survived only in the reflog.
-  test("land 'nothing' but branch still UNMERGED → keep, never reap", () => {
+  // 139 lines survived only in the reflog. Il branch resta intoccabile — è la
+  // CARTELLA che ora può andarsene, ed è una cosa diversa.
+  test("land 'nothing' but branch still UNMERGED → mai reap; cartella libera, branch salvo", () => {
     const d = decidePostLandReap({ ...base, outcome: "nothing", branchAfter: "unmerged" });
-    expect(d.action).toBe("keep");
+    expect(d.action).toBe("free-checkout");
+    expect(d.action).not.toBe("reap");
     expect(d.reason).toContain("NON risulta su main");
+    expect(d.reason).toContain("branch conservato");
   });
 
-  test("land 'landed' but branch still UNMERGED → keep (the claim was wrong)", () => {
-    expect(decidePostLandReap({ ...base, branchAfter: "unmerged" }).action).toBe("keep");
+  test("land 'landed' but branch still UNMERGED → mai reap (the claim was wrong)", () => {
+    const d = decidePostLandReap({ ...base, branchAfter: "unmerged" });
+    expect(d.action).toBe("free-checkout");
+    expect(d.action).not.toBe("reap");
   });
 
   test("uncommitted work in the tree beats a successful land → keep (task e8780726)", () => {
@@ -85,8 +118,23 @@ describe("decidePostLandReap — verify before destroy", () => {
   });
 
   for (const outcome of ["conflict", "skipped"] as const) {
-    test(`land '${outcome}' → keep even if the branch reads merged`, () => {
-      expect(decidePostLandReap({ ...base, outcome }).action).toBe("keep");
+    // Il land non è avvenuto: i commit vivono solo sul branch, che non si tocca.
+    // La cartella invece è ridondante, e da `03ca44c3` questo è il caso NORMALE
+    // (il land rifiuta ogni branch che porti commit di un'altra sessione).
+    test(`land '${outcome}' → free-checkout, mai reap`, () => {
+      const d = decidePostLandReap({ ...base, outcome });
+      expect(d.action).toBe("free-checkout");
+      expect(d.action).not.toBe("reap");
+    });
+
+    test(`land '${outcome}' con lavoro non committato → keep, la cartella è l'unica copia`, () => {
+      expect(decidePostLandReap({ ...base, outcome, dirtAfter: ["client/x.tsx"] }).action).toBe("keep");
+    });
+
+    test(`land '${outcome}' e branch sparito → keep, la cartella è l'ultimo appiglio`, () => {
+      const d = decidePostLandReap({ ...base, outcome, branchAfter: "gone" });
+      expect(d.action).toBe("keep");
+      expect(d.reason).toContain("unica copia");
     });
   }
 });
@@ -561,5 +609,127 @@ describe("normalizeKeepReason", () => {
     // diverse: collassarli renderebbe il riepilogo inutile.
     expect(normalizeKeepReason("task 'review' attivo"))
       .not.toBe(normalizeKeepReason("task 'backlog' attivo"));
+  });
+});
+
+// ── snellimento dei worktree TENUTI ──────────────────────────────────────
+//
+// Il `keep` è la decisione giusta sui commit e sui file tracciati, ma per anni
+// ha significato anche «resta piena»: una card consegnata aspetta un umano per
+// giorni tenendosi ~260 MB di dipendenze. Qui si verifica che il `keep` continui
+// a valere sui commit e smetta di valere sui MB.
+
+describe("shouldSlimOnKeep", () => {
+  it("una card consegnata o chiusa si snellisce", () => {
+    expect(shouldSlimOnKeep("review", false)).toBe(true);
+    expect(shouldSlimOnKeep("done", false)).toBe(true);
+  });
+
+  it("un orfano o un archiviato pure: nessuno li riaprirà", () => {
+    expect(shouldSlimOnKeep(null, false)).toBe(true);
+    expect(shouldSlimOnKeep("in_progress", true)).toBe(true);
+  });
+
+  it("chi è in coda o al lavoro NO — si riprenderebbe il bun install subito", () => {
+    expect(shouldSlimOnKeep("in_progress", false)).toBe(false);
+    expect(shouldSlimOnKeep("todo", false)).toBe(false);
+    expect(shouldSlimOnKeep("backlog", false)).toBe(false);
+  });
+});
+
+describe("sweepWorktrees — snellimento", () => {
+  const inReview = (over: Partial<WorktreeGcDeps> = {}): WorktreeGcDeps =>
+    makeDeps({
+      listWorktrees: () => [wt("consegnato")],
+      resolveTask: () => ({ taskId: "t-rev", status: "review", archived: false }),
+      branchStatus: async () => "unmerged",
+      ...over,
+    });
+
+  test("una card in review resta dov'è, ma perde gli artefatti", async () => {
+    const slimmed: string[] = [];
+    const s = await sweepWorktrees(inReview({
+      slim: async (w) => { slimmed.push(w.id); return 260 * 1_048_576; },
+      reap: async () => { throw new Error("non si deve reapare una card in review"); },
+    }));
+    expect(slimmed).toEqual(["consegnato"]);
+    expect(s.kept).toBe(1);
+    expect(s.slimmed).toBe(1);
+    expect(s.slimmedBytes).toBe(260 * 1_048_576);
+  });
+
+  test("un turno VIVO ferma anche lo snellimento", async () => {
+    const slimmed: string[] = [];
+    const s = await sweepWorktrees(inReview({
+      isBusy: () => true,
+      slim: async (w) => { slimmed.push(w.id); return 1; },
+    }));
+    expect(slimmed).toEqual([]);
+    expect(s.slimmed).toBe(0);
+  });
+
+  test("un task in_progress tenuto non si tocca: l'agent ci sta lavorando", async () => {
+    const slimmed: string[] = [];
+    const s = await sweepWorktrees(inReview({
+      resolveTask: () => ({ taskId: "t-wip", status: "in_progress", archived: false }),
+      slim: async (w) => { slimmed.push(w.id); return 1; },
+    }));
+    expect(slimmed).toEqual([]);
+    expect(s.kept).toBe(1);
+    expect(s.slimmed).toBe(0);
+  });
+
+  test("cartella non più sul disco → niente da snellire", async () => {
+    const slimmed: string[] = [];
+    await sweepWorktrees(inReview({
+      diskPresent: () => false,
+      slim: async (w) => { slimmed.push(w.id); return 1; },
+    }));
+    expect(slimmed).toEqual([]);
+  });
+
+  test("zero byte liberati non conta come snellimento", async () => {
+    const s = await sweepWorktrees(inReview({ slim: async () => 0 }));
+    expect(s.slimmed).toBe(0);
+    expect(s.slimmedBytes).toBe(0);
+  });
+
+  test("uno slim che esplode non fa saltare la passata", async () => {
+    const s = await sweepWorktrees(inReview({
+      slim: async () => { throw new Error("permessi"); },
+    }));
+    expect(s.kept).toBe(1);
+    expect(s.errors).toBe(0);
+    expect(s.slimmed).toBe(0);
+  });
+
+  test("chi viene reapato non si snellisce prima: la cartella se ne va intera", async () => {
+    const slimmed: string[] = [];
+    const s = await sweepWorktrees(makeDeps({
+      listWorktrees: () => [wt("chiuso")],
+      slim: async (w) => { slimmed.push(w.id); return 1; },
+    }));
+    expect(s.reaped).toBe(1);
+    expect(slimmed).toEqual([]);
+  });
+
+  test("free-checkout fallito → la cartella resta, e almeno si snellisce", async () => {
+    const slimmed: string[] = [];
+    const s = await sweepWorktrees(inReview({
+      resolveTask: () => ({ taskId: "t-chiuso", status: "done", archived: false }),
+      autoMergeEnabled: () => false,
+      freeCheckout: async () => false,
+      slim: async (w) => { slimmed.push(w.id); return 42; },
+    }));
+    expect(s.freed).toBe(0);
+    expect(s.kept).toBe(1);
+    expect(slimmed).toEqual(["consegnato"]);
+  });
+
+  test("host senza 'slim' → passata identica a prima, zero contati", async () => {
+    const s = await sweepWorktrees(inReview({ slim: undefined }));
+    expect(s.kept).toBe(1);
+    expect(s.slimmed).toBe(0);
+    expect(s.slimmedBytes).toBe(0);
   });
 });

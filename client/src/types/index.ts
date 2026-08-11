@@ -375,6 +375,13 @@ export interface WSStreamStartMessage {
   type: 'stream:start';
   sessionKey: string;
   messageId?: string;
+  /**
+   * Il turno RIPRENDE dopo un riavvio del server: `messageId` è la bolla che
+   * abbiamo già a schermo, piena, e il replay sta per ridettarla da capo. Va
+   * svuotata qui, prima delle delta, o il replay si somma a quello che c'è.
+   * Il record in DB non viene più toccato — vedi `reuseOrCreatePartialForReattach`.
+   */
+  reattached?: boolean;
 }
 
 export interface WSStreamEndMessage {
@@ -873,6 +880,10 @@ export interface WSBrowserOpenTaskTabMessage {
   /** Canonical task-scoped browser contextId (`task-<id8>-…`). */
   contextId: string;
   url: string;
+  /** Il NOME prescritto dall'agente per questa tab (`open_browser_pane({url,
+   *  name})`). Assente quando non ne ha dato uno: l'etichetta resta il titolo
+   *  della pagina. Presente ⇒ entra come `titleSource:'agent'`, cioè pinnato. */
+  title?: string;
 }
 /**
  * Remote pane close (close_browser_pane MCP tool / REST): every window that

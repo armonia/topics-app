@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AppContext } from "../types";
 import { createTasksRouter } from "./tasks";
-import { LAND_ACTION_LABEL, PUBLISH_ACTION_LABEL } from "../services/tasks";
+import { createTaskService, LAND_ACTION_LABEL, PUBLISH_ACTION_LABEL } from "../services/tasks";
 
 function freshDb(): Database {
   const db = new Database(":memory:");
@@ -25,7 +25,7 @@ function freshDb(): Database {
     priority_auto INTEGER NOT NULL DEFAULT 1, preview_image TEXT,
     delivery_branch TEXT, delivery_commit TEXT, landing_state TEXT, landing_checked_at TEXT,
     checks_state TEXT, checks_at TEXT, checks_commit TEXT, checks_json TEXT,
-    delivered_by TEXT, delivered_reason TEXT
+    delivered_by TEXT, delivered_reason TEXT, created_by_topic_id TEXT
   )`);
   db.run(`CREATE UNIQUE INDEX idx_tasks_claude_task_id ON tasks(claude_task_id) WHERE claude_task_id IS NOT NULL`);
   db.run(`CREATE TABLE board_settings (
@@ -214,6 +214,21 @@ describe("tasks router (session-scoped)", () => {
     // null stacca e la card torna a vivere da sola.
     const back = await (await call(router, "PATCH", `/api/boards/pX/tasks/${solo.id}`, { parentTaskId: null }))!.json();
     expect(back.parentTaskId).toBe(null);
+  // L'incidente dell'11/08 riprodotto dalla porta che l'agent usa davvero: il
+  // dispatcher rimette il task in coda MENTRE il turno gira (riavvio del server,
+  // timeout, requeue) e `assigned_topic_id` va a NULL. Prima della provenienza,
+  // da quel momento ogni step della propria checklist tornava 409 e la consegna
+  // arrivava con la lista aperta.
+  test("PATCH step→done regge il requeue del task padre (checklist dell'agent)", async () => {
+    db.run("INSERT INTO topics (id) VALUES ('top-s1')");
+    const parent = await (await call(router, "POST", "/api/sessions/s1/tasks", { text: "il mio task" }))!.json();
+    db.prepare("UPDATE tasks SET assigned_topic_id = 'top-s1', status = 'in_progress' WHERE id = ?").run(parent.id);
+    const step = await (await call(router, "POST", "/api/sessions/s1/tasks", { text: "step 1", parent_task_id: parent.id }))!.json();
+    // …il dispatcher rilascia (release: link azzerato, chip 'queued').
+    db.prepare("UPDATE tasks SET assigned_topic_id = NULL, status = 'todo', dispatch_state = 'queued' WHERE id = ?").run(parent.id);
+    const resp = (await call(router, "PATCH", `/api/sessions/s1/tasks/${step.id}`, { status: "done" }))!;
+    expect(resp.status).toBe(200);
+    expect((await resp.json()).status).toBe("done");
   });
 
   test("PATCH agent → review opens approval; agent → done is 409", async () => {
@@ -661,6 +676,19 @@ describe("board router (human, project-scoped)", () => {
     expect(calls).toBe(1);
   });
 
+  test("delivery snapshot: «non ho prodotto codice» si dice, e non si inventa un commit", async () => {
+    // Un branch che porta SOLO commit ereditati non ha un commit proprio da
+    // registrare: la consegna deve dirlo (branch sì, commit vuoto), non puntare
+    // alla punta del ramo, che è il lavoro di un'altra sessione.
+    const r = createTasksRouter(makeCtx(db, broadcasts), undefined, {
+      taskDeliveryRef: async () => ({ branch: "topics/purple-finch", commit: null }),
+    });
+    const t = await (await call(r, "POST", "/api/boards/pX/tasks", { text: "x" }))!.json();
+    const rev = await (await call(r, "PATCH", `/api/boards/pX/tasks/${t.id}`, { status: "review" }))!.json();
+    expect(rev.deliveryBranch).toBe("topics/purple-finch");
+    expect(rev.deliveryCommit).toBeNull();
+  });
+
   test("delivery snapshot: an in-place task (no branch worktree) records nothing", async () => {
     const r = createTasksRouter(makeCtx(db, broadcasts), undefined, { taskDeliveryRef: async () => null });
     const t = await (await call(r, "POST", "/api/boards/pX/tasks", { text: "x" }))!.json();
@@ -955,6 +983,129 @@ describe("checks pre-review (gate review_needs_green_checks)", () => {
     db.prepare("UPDATE tasks SET checks_state = 'pass' WHERE id = ?").run(t.id);
     const ok = (await call(r, "POST", `/api/boards/pX/tasks/${t.id}/review`, { decision: "approve" }))!;
     expect(ok.status).toBe(200);
+  });
+});
+
+/**
+ * Intake che collega — la barra del task.
+ *
+ * Due invarianti, e sono l'uno il complemento dell'altro:
+ *  1. testo nuovo su un tema già aperto → esce una PROPOSTA, e la board resta
+ *     esattamente com'era (nessun task toccato: proporre non è attribuire);
+ *  2. il collegamento esiste solo se qualcuno lo ha scelto — e quando è una
+ *     catena, il task NON parte e lo dice (nei due thread, e come chip).
+ */
+describe("intake: propone e mostra, non attribuisce", () => {
+  let db: Database; let broadcasts: any[]; let router: any;
+  const PID = "pIntake";
+  beforeEach(() => {
+    db = freshDb(); broadcasts = [];
+    router = createTasksRouter(makeCtx(db, broadcasts));
+  });
+
+  const FEEDBACK = "Feedback grafici sulla landing: spaziature e contrasto dei chip";
+  const NUOVI = "Altri feedback grafici sulla landing: contrasto dei chip e spaziature";
+
+  async function openCard(status = "in_progress") {
+    const t = await (await call(router, "POST", `/api/boards/${PID}/tasks`, { text: FEEDBACK, status: "todo" }))!.json();
+    db.prepare("UPDATE tasks SET status = ? WHERE id = ?").run(status, t.id);
+    return t;
+  }
+  const suggest = async (text: string) =>
+    (await (await call(router, "POST", `/api/boards/${PID}/intake/suggest`, { text }))!.json()).proposal;
+
+  test("testo sullo stesso tema di una card aperta → PROPOSTA, non attribuzione", async () => {
+    const card = await openCard();
+    const before = db.prepare("SELECT COUNT(*) c FROM tasks").get() as any;
+    broadcasts.length = 0; // da qui in poi ogni evento è colpa della proposta
+
+    const proposal = await suggest(NUOVI);
+    expect(proposal).not.toBeNull();
+    expect(proposal.targetTaskId).toBe(card.id);
+    expect(proposal.recommended).toBe("chain"); // sta girando → è un seguito
+    expect(proposal.reason).toContain("landing");
+
+    // La board è INTATTA: nessun task creato, nessun link scritto, nessun
+    // broadcast. È il cuore del task: proporre non tocca niente.
+    expect((db.prepare("SELECT COUNT(*) c FROM tasks").get() as any).c).toBe(before.c);
+    expect(db.prepare("SELECT COUNT(*) c FROM tasks WHERE blocked_by_task_id IS NOT NULL OR parent_task_id IS NOT NULL").get() as any)
+      .toMatchObject({ c: 0 });
+    expect(broadcasts.length).toBe(0);
+  });
+
+  test("tema estraneo → nessuna proposta (task nuovo è il default silenzioso)", async () => {
+    await openCard();
+    expect(await suggest("Aggiornare le dipendenze Rust del sidecar PTY")).toBeNull();
+  });
+
+  test("la card CHIUSA non si propone: il lavoro lì non è in corso", async () => {
+    await openCard("done");
+    expect(await suggest(NUOVI)).toBeNull();
+  });
+
+  test("proposta IGNORATA: il task nasce libero, parte, e non c'è nessun link", async () => {
+    const card = await openCard();
+    await suggest(NUOVI); // vista e non accettata
+    const t = await (await call(router, "POST", `/api/boards/${PID}/tasks`, { text: NUOVI, status: "todo" }))!.json();
+    expect(t.blockedByTaskId).toBeNull();
+    expect(t.parentTaskId).toBeNull();
+    const svc = createTaskService(db);
+    expect(svc.isDispatchBlocked(t.id)).toBe(false); // niente proposta pendente che lo trattiene
+    expect((await (await call(router, "GET", `/api/boards/${PID}/tasks/${card.id}`))!.json()).comments.length).toBe(0);
+  });
+
+  test("catena ACCETTATA: il task resta fermo, e lo dice nei due thread", async () => {
+    const card = await openCard();
+    const proposal = await suggest(NUOVI);
+
+    const t = await (await call(router, "POST", `/api/boards/${PID}/tasks`, {
+      text: NUOVI, status: "todo",
+      blockedByTaskId: proposal.targetTaskId, reuseBlockerContext: true,
+      intakeLink: true, intakeReason: proposal.reason,
+    }))!.json();
+
+    // RESTA FERMO: il gate del dispatcher è lo stesso predicato della claim CAS.
+    const svc = createTaskService(db);
+    expect(t.blockedByTaskId).toBe(card.id);
+    expect(t.reuseBlockerContext).toBe(true);
+    expect(svc.isDispatchBlocked(t.id)).toBe(true);
+
+    // E LO DICE, da entrambi i lati — niente attribuzione muta.
+    const mine = await (await call(router, "GET", `/api/boards/${PID}/tasks/${t.id}`))!.json();
+    expect(mine.comments.some((c: any) => c.author === "system" && c.content.includes("non parte finché"))).toBe(true);
+    expect(mine.comments.some((c: any) => c.content.includes(proposal.reason))).toBe(true);
+    const target = await (await call(router, "GET", `/api/boards/${PID}/tasks/${card.id}`))!.json();
+    expect(target.comments.some((c: any) => c.author === "system" && c.content.includes("in attesa di questa card"))).toBe(true);
+    expect(target.comments.some((c: any) => c.content.includes(NUOVI))).toBe(true);
+
+    // Il bloccante si aggiorna anche per gli altri client (la card deve poter
+    // mostrare "qualcuno ti aspetta" senza un reload).
+    expect(broadcasts.some((b) => b.type === "task:updated" && b.task?.id === card.id)).toBe(true);
+  });
+
+  test("sottotask ACCETTATO: il link è sulle due card e scritto nei due thread", async () => {
+    const card = await openCard("todo");
+    const proposal = await suggest(NUOVI);
+    expect(proposal.recommended).toBe("subtask"); // ferma in coda → è un pezzo
+
+    const t = await (await call(router, "POST", `/api/boards/${PID}/tasks`, {
+      text: NUOVI, status: "todo", parentTaskId: proposal.targetTaskId,
+      intakeLink: true, intakeReason: proposal.reason,
+    }))!.json();
+    expect(t.parentTaskId).toBe(card.id);
+
+    const parent = await (await call(router, "GET", `/api/boards/${PID}/tasks/${card.id}`))!.json();
+    expect(parent.task.subtaskCount).toBe(1);          // visibile sulla card padre
+    expect(parent.comments.some((c: any) => c.content.includes("sottotask"))).toBe(true);
+    const mine = await (await call(router, "GET", `/api/boards/${PID}/tasks/${t.id}`))!.json();
+    expect(mine.comments.some((c: any) => c.content.includes(FEEDBACK))).toBe(true);
+  });
+
+  test("una create senza intakeLink non scrive niente (nessun rumore sui thread)", async () => {
+    const card = await openCard("todo");
+    await (await call(router, "POST", `/api/boards/${PID}/tasks`, { text: "step a mano", parentTaskId: card.id }))!.json();
+    const parent = await (await call(router, "GET", `/api/boards/${PID}/tasks/${card.id}`))!.json();
+    expect(parent.comments.length).toBe(0);
   });
 });
 

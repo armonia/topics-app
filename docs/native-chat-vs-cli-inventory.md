@@ -44,7 +44,7 @@ Legenda: **OK** = presente e reso · **DEGRADA** = c'è ma peggio · **MANCA** =
 |---|---|---|---|---|
 | **AskUserQuestion** | **MANCA** | built-in provider (interattivo) | Il modello non si ferma a farti scegliere in modo strutturato: procede o scrive testo libero. Detector+form GIÀ pronti ma mai innescati in `--print`. | `--print` a `claude-code.ts:1594`; detector `ask-user-detector.ts:39`; form `ToolInputForm.tsx:48` — **live: 0 emissioni** |
 | **TodoWrite / task tools** | **DEGRADA** | built-in, ma la CLI emette `TaskCreate`/`TaskUpdate` | La todo list appare come tool generico (JSON grezzo): niente `TodoCard`, niente `TodoStrip`. | client normalizza solo `todowrite` `toolDetail.ts:134`; nessun case `taskcreate`; **live: emesso `TaskCreate`** |
-| **ExitPlanMode / EnterPlanMode** | **MANCA / DEGRADA** | built-in (interattivo) | In `--print` non viene emesso → niente plan-mode gating. Anche se emesso, `PlanCard` è senza bottoni approva/rifiuta. | non emesso (live); `PlanCard` senza azioni `ToolCards.tsx:315`; approva solo via euristica prosa legacy `MessageContent.tsx:1229` |
+| **ExitPlanMode / EnterPlanMode** | **DEGRADA** | built-in (interattivo) | In `--print` non viene emesso: il modello scrive il piano in `~/.claude/plans/` e il cancello lo mette Topics a fine turno (la riga passa a `waiting_for_input` con lo schema di approvazione). Manca il tool, non l'approvazione. | non emesso (live); cancello `server/lib/plan-approval.ts`; card `ToolCards.tsx:322`; scelta `PlanApprovalBar.tsx` |
 | **Artifact** | **N/A** | — | Claude Code non ha un tool Artifact (è di claude.ai). L'equivalente sono file+diff, presenti. | nessun tool `Artifact` nel set live |
 | **Skill** | **OK** | built-in | Presente e reso con card dedicata. | live init `Skill`; `SkillCard` `ToolCards.tsx:453` |
 | **WebSearch / WebFetch** | **OK** (search: lieve DEGRADA) | built-in CLI (non MCP) | Presenti. WebSearch cade nella card "search" condivisa con grep/glob: nessuna vista risultati-con-citazioni. | live init; `FetchCard` `ToolCards.tsx:204`, `SearchCard` `:174`; nota provider `claude-code.ts:255` |
@@ -61,10 +61,10 @@ Legenda: **OK** = presente e reso · **DEGRADA** = c'è ma peggio · **MANCA** =
 |---|---|---|---|---|---|
 | Pannello domande | box opzioni interattivo | form radio/checkbox+Other pronto, **ma mai innescato** | in `--print` il tool non arriva → spinner/testo | **MANCA** | `ToolInputForm.tsx:118`; trigger `waiting_for_input` `ToolCallRow.tsx:206` |
 | Todo list | lista con stati | `TodoCard` + `TodoStrip` sticky | client aspetta `todowrite`, CLI manda `TaskCreate` → card generica | **DEGRADA** | `ToolCards.tsx:232`, `TodoStrip.tsx:15`; mismatch `toolDetail.ts:134` |
-| Piano / plan mode | box "approvi il piano?" | `PlanCard` = `<pre>` senza bottoni | approva/rifiuta solo su euristica prosa, ramo legacy | **DEGRADA** | `ToolCards.tsx:315`; `PlanView.tsx:155`; gate `MessageContent.tsx:1229` |
+| Piano / plan mode | box "approvi il piano?" | `PlanCard` in markdown + pannello standard sulla riga, e la scelta sopra il composer | il tool non c'è: la domanda la pone l'app, e approvare alza l'autonomia | **OK** | `ToolCards.tsx:322`; `plan-approval.ts`; `PlanApprovalBar.tsx`; ripiego prosa `planDetection.ts` |
 | Diff di file | diff colorato | `EditCard`/`WriteCard`, unified o Before/After | — | **OK** | `ToolCards.tsx:106` |
 | Tool call in corso | spinner testuale | spinner + ring + timer + grouping ≥3 + indicatore turno con token/costo | superiore | **OK** | `ToolCallRow.tsx:146`, `toolGrouping.ts:38`, `MessageParts.tsx:26` |
-| Output shell background | stream live | `MonitorCard`/`BashOutputCard` statici | non si aggiorna da solo | **DEGRADA** (lieve) | `ToolCards.tsx:393` |
+| Output shell background | stream live | card agganciata al registro processi: pallino vivo, coda che cresce, codice d'uscita | resta il `Monitor`, che non ha un id di shell da agganciare | **OK** | `ToolCards.tsx` `LiveShellTail`, `useBackgroundShell.ts` |
 | Allegati / immagini | path/inline | `MediaImage` + lightbox, thumbnail input | superiore | **OK** | `MessageContent.tsx:236` |
 | Thinking | testo grigio | `ReasoningRow` collassabile, interlacciato | superiore | **OK** | `ReasoningRow.tsx:18` |
 

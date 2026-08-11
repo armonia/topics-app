@@ -52,6 +52,17 @@ export interface ArchiveTopicDeps {
    * Iniettata perché il tracker vive in server.ts; assente ⇒ passo saltato.
    */
   parkClaudeSession?: (sessionKey: string) => void;
+  /**
+   * Timbra il fatto (`services/retirement.ts#recordRetirement` legata al db).
+   * Iniettata per lo stesso motivo della purge: il servizio dichiara di averne
+   * bisogno, non va a prendersi il database.
+   *
+   * Chiamata SEMPRE, anche su un topic gia' archiviato — e' il passo 5 della
+   * convergenza: le 170 chat archiviate prima che il fatto esistesse non hanno
+   * un timbro, e ri-archiviare deve RIPARARE. `recordRetirement` non sposta una
+   * data gia' scritta, quindi il ripasso non costa niente.
+   */
+  recordRetirement?: (topicId: string, at: string) => void;
 }
 
 export interface ArchiveTopicResult {
@@ -118,6 +129,12 @@ export function archiveTopicFully(deps: ArchiveTopicDeps, topicId: string): Arch
   // una query a mano. Il parcheggio è un no-op su una fase già dormant o
   // terminale, quindi il ripasso non costa broadcast per niente.
   if (topic.sessionKey) deps.parkClaudeSession?.(topic.sessionKey);
+
+  // 5. Il fatto. Ultimo perche' e' l'unico passo che non ha conseguenze: e' la
+  // riga su cui il riconcilio al boot decidera' che questo topic era chiuso
+  // anche se qualcuno, un giorno, riuscira' a rimettere `archived` a 0 da una
+  // strada che non passa di qui.
+  deps.recordRetirement?.(topicId, now);
 
   const repaired = alreadyArchived && stale;
   if (!purge.ok) return { ok: true, alreadyArchived, repaired, purgeError: purge.error, topic };

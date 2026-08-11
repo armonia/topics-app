@@ -27,8 +27,9 @@ import { ZERO_USAGE, type SessionUsage } from "./transcript-usage";
 import { onHumanHoldChange } from "../lib/human-hold-events";
 import type { TaskAttemptStore } from "./task-attempts";
 import { attemptHasWork, formatFanoutComment } from "../../shared/task-attempt";
-import { MAX_FANOUT } from "../../shared/board";
+import { MAX_FANOUT, PREVIEW_RULE, readTaskWeight } from "../../shared/board";
 import { decideNight, deadlineFrom } from "./night-mode";
+import { effectiveDispatchCap } from "./dispatch-capacity";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import {
   classifyTurnError,
@@ -114,9 +115,10 @@ export interface DispatcherDeps {
    * host without a classifier (tests / degraded); "auto" then keeps the default.
    * MUST resolve fast and never reject (the picker swallows its own errors).
    */
-  /** «Modello auto»: un giudice haiku legge il task e sceglie modello E sforzo
-   *  prima che l'agente nasca. `effort: null` = non deciso, e la board decide. */
-  pickAutoModel?: (task: Task) => Promise<{ model: string | null; effort?: string | null }>;
+  /** Il giudice haiku legge il task e sceglie modello, SFORZO e PESO prima che
+   *  l'agente nasca. `effort: null` = non deciso, e la board decide; `weight`
+   *  assente/null = leggero, cioè niente cambia (vedi `TASK_WEIGHTS`). */
+  pickAutoModel?: (task: Task) => Promise<{ model: string | null; effort?: string | null; weight?: string | null }>;
   /** Auto concurrency cap for a board on `maxAgentsAuto`: live machine capacity
    *  (CPU/load). Absent ⇒ auto falls back to the board's manual `maxAgents`. */
   recommendedCap?: () => number;
@@ -191,6 +193,18 @@ export interface DispatcherDeps {
   preparePreview?: (taskId: string) => Promise<void>;
   /** Tear a task's preview server down (land / approve / close / reap). */
   teardownPreview?: (taskId: string) => Promise<void>;
+  /**
+   * La card è consegnata: butta dal suo worktree gli artefatti rigenerabili
+   * (dipendenze, cache di build) tenendo cartella, branch e commit.
+   *
+   * Qui e non al land, perché la maggior parte delle card NON landa subito: sono
+   * i giorni fra la consegna e l'ok umano a costare ~260 MB l'una, ed è lì che il
+   * disco è passato da 30 a 64 GB in una notte. L'host è l'unico che sa se in
+   * quel worktree c'è un'anteprima viva — la decisione su QUANDO farlo sta di là
+   * (vedi `worktree-slim`), qui c'è solo il momento in cui ha senso chiederlo.
+   * Assente (test/degradato) ⇒ nessuno snellimento, comportamento di prima.
+   */
+  slimWorktree?: (taskId: string) => Promise<void>;
   /**
    * True if the topic still exists. Used to SELF-HEAL a dead binding: a task
    * whose `assigned_topic_id` points at a topic that was later reaped (its agent
@@ -336,6 +350,19 @@ export interface TaskDispatcher {
 /** Quanti errori del provider di fila si perdonano prima di ricominciare a
  *  pagare tentativi. Tre: una raffica si assorbe, un guasto cronico no. */
 const FREE_PROVIDER_ERRORS = 3;
+
+/**
+ * Sotto quale carico PER CORE la macchina è «scarica» abbastanza da far partire
+ * un task pesante.
+ *
+ * 1.0, cioè il punto in cui la coda del processore è ancora dentro il numero di
+ * core: sopra di lì i processi si aspettano già a vicenda, ed è esattamente lo
+ * stato in cui una compilazione fa male a tutti gli altri. È più severo dell'1,5
+ * della modalità notturna (`night-mode.ts`) di proposito: lì la domanda è «la
+ * persona sta lavorando?», qui è «c'è margine per un lavoro che si prende tutto?»
+ * — e la seconda vuole un margine vero, non l'assenza di un intralcio.
+ */
+const HEAVY_MAX_LOAD_PER_CORE = 1.0;
 
 /** Ogni quanto un resume in attesa ricontrolla se si è liberato un posto. */
 const RESUME_SLOT_RETRY_MS = 5_000;
@@ -549,6 +576,28 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
 
   // Pending debounced launches, keyed by taskId (the grace window).
   const graceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  /** Chi ha già detto nel thread che sta aspettando uno slot: una volta basta. */
+  const waitingForSlot = new Set<string>();
+  let resumeStagger = 0;
+
+  /**
+   * Il tetto di concorrenza EFFETTIVO, adesso. Era calcolato dentro `tick()`,
+   * quindi valeva solo per i dispatch: il `resume` non lo guardava, e ogni
+   * rifiuto in review faceva ripartire un agente FUORI dal tetto. Misurato il
+   * 09/08: 12 task in corso con il tetto a 6, e metà erano miei rifiuti.
+   *
+   * Un budget solo per macchina (scope 'global'), così N board non si
+   * moltiplicano in N×tetto. È il numero REATTIVO al carico («quanti agenti
+   * nuovi ammetto adesso»): la quota di core dello spawn passa dalla stessa
+   * `effectiveDispatchCap` ma con il tetto STRUTTURALE, perché la sua domanda è
+   * un'altra e usare un freno vivo come divisore lo invertirebbe
+   * (`dispatch-capacity.ts`).
+   */
+  function currentCap(): number {
+    let gcap = { auto: true, max: 3 };
+    try { gcap = deps.svc.getGlobalCap(); } catch { /* defaults */ }
+    return effectiveDispatchCap(gcap, deps.recommendedCap ? deps.recommendedCap() : null);
+  }
   /**
    * Errori del PROVIDER di fila su un task, per non fargli pagare i tentativi.
    *
@@ -566,28 +615,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * Sta in memoria di proposito: un riavvio ri-pianifica comunque.
    */
   const providerErrors = new Map<string, number>();
-  /** Chi ha già detto nel thread che sta aspettando uno slot: una volta basta. */
-  const waitingForSlot = new Set<string>();
   /** Da quale board comincia il prossimo giro: vedi `reconcile` (turnazione). */
   let boardCursor = 0;
-  let resumeStagger = 0;
 
-  /**
-   * Il tetto di concorrenza EFFETTIVO, adesso. Era calcolato dentro `tick()`,
-   * quindi valeva solo per i dispatch: il `resume` non lo guardava, e ogni
-   * rifiuto in review faceva ripartire un agente FUORI dal tetto. Misurato il
-   * 09/08: 12 task in corso con il tetto a 6, e metà erano miei rifiuti.
-   *
-   * Un budget solo per macchina (scope 'global'), così N board non si
-   * moltiplicano in N×tetto.
-   */
-  function currentCap(): number {
-    let gcap = { auto: true, max: 3 };
-    try { gcap = deps.svc.getGlobalCap(); } catch { /* defaults */ }
-    return gcap.auto && deps.recommendedCap
-      ? Math.max(1, deps.recommendedCap())
-      : Math.max(1, gcap.max);
-  }
   /**
    * One in-flight run: a turn being set up, running, or winding down.
    *
@@ -619,6 +649,47 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * agente vivo da contare.
    */
   let reservedSlots = 0;
+
+  /**
+   * Le attese di uno slot VIVE in questo processo: taskId → timer del ritentativo.
+   *
+   * Un resume rinviato a tetto pieno non ha un turno, quindi non lascia traccia
+   * in `inFlight`: la card resta `in_progress` col chip `queued` e l'unica cosa
+   * che la tiene in piedi è un `setTimeout` in memoria. Il recupero orfani di
+   * `reconcile` recupera anche `queued` (per le attese che un riavvio si è
+   * portato via), e senza questo registro non saprebbe distinguere le due: si
+   * mangerebbe anche quelle vive, buttando via il messaggio dell'umano che quel
+   * timer ha in mano e facendo ripartire la card su un topic nuovo.
+   *
+   * Sta in memoria ACCANTO a `inFlight` e per la stessa ragione: un riavvio
+   * perde il timer e il registro INSIEME: e a quel punto la card è orfana
+   * davvero, ed è giusto che `reconcile` la rimetta in coda.
+   *
+   * Invariante: un'attesa sola per task (chi arriva mentre una è in corso
+   * imbuca il messaggio in `pendingResume`), così la voce del registro c'è
+   * esattamente finché c'è un timer pendente.
+   */
+  const slotWaits = new Map<string, { timer: ReturnType<typeof setTimeout>; message: string }>();
+
+  /**
+   * L'attesa non ha più senso: via il timer, via la memoria del suo commento.
+   *
+   * Il messaggio che teneva in mano NON muore col timer: `inherit` lo passa al
+   * turno che sta partendo (lo consegna `onTurnEnd`, come per i messaggi
+   * arrivati a turno vivo). Senza, un secondo resume che trova il posto libero
+   * spegnerebbe l'attesa e con essa la risposta dell'umano che l'aveva aperta.
+   * Quando invece il task è uscito da `in_progress` non c'è nessun turno a cui
+   * darlo, ed è la stessa fine che faceva prima.
+   */
+  function clearSlotWait(taskId: string, inherit: boolean): void {
+    const wait = slotWaits.get(taskId);
+    if (wait) {
+      clearTimeout(wait.timer);
+      slotWaits.delete(taskId);
+      if (inherit && wait.message) pendingResume.set(taskId, [...(pendingResume.get(taskId) ?? []), wait.message]);
+    }
+    waitingForSlot.delete(taskId);
+  }
 
   /** Claim the slot for a new run. Returns its id — the owner's proof. */
   function beginRun(taskId: string, sessionKey: string): number {
@@ -708,6 +779,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   // CURRENT hold episode — cleared when the repo frees, so a later hold can
   // note again without spamming one comment per 10s reconcile poll.
   const externallyHeldNoted = new Set<string>();
+  // Task a cui si è già detto "aspetti perché la macchina è impegnata da un
+  // task pesante / è troppo carica". Stessa disciplina dell'insieme qui sopra:
+  // una nota per EPISODIO, non una per poll — si svuota appena l'attesa finisce.
+  const heavyHeldNoted = new Set<string>();
   // Board a cui si è già detto "il fan-out qui non si applica" (worktree off).
   // È una configurazione, non un evento: ripeterlo a ogni dispatch sarebbe rumore.
   const fanOutBlockedNoted = new Set<string>();
@@ -720,6 +795,83 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   /** Broadcast the updated task so live boards move the chip. */
   function emit(task: Task): void {
     try { deps.broadcast({ type: "task:updated", projectId: task.projectId, task }); } catch { /* best-effort */ }
+  }
+
+  /**
+   * C'è margine per un task PESANTE adesso? (vedi `HEAVY_MAX_LOAD_PER_CORE`)
+   *
+   * `null` non è «no»: è «non lo so». Senza la sonda del carico il gate non si
+   * applica affatto — un host che non sa misurare non deve poter fermare la coda
+   * per sempre, che è il modo in cui una guardia diventa una trappola.
+   */
+  function heavyLoadGate(): { ok: boolean; load1: number; cores: number } | null {
+    if (!deps.capacity) return null;
+    try {
+      const { load1, cores } = deps.capacity();
+      const c = Math.max(1, cores);
+      return { ok: load1 < c * HEAVY_MAX_LOAD_PER_CORE, load1, cores: c };
+    } catch (err) {
+      log("sonda del carico caduta: il gate del peso resta aperto", err);
+      return null;
+    }
+  }
+
+  /**
+   * «Aspetti per via del peso», detto una volta per episodio: chip `queued` +
+   * una riga nel thread. Stessa disciplina della guardia sulle sessioni esterne
+   * — la nota si ripete solo dopo che l'attesa è finita davvero, altrimenti un
+   * poll ogni 10s riempirebbe il thread della stessa frase.
+   */
+  function noteHeavyHold(task: Task, why: string): void {
+    if (inFlight.has(task.id) || graceTimers.has(task.id)) return;
+    if (heavyHeldNoted.has(task.id)) return;
+    heavyHeldNoted.add(task.id);
+    try {
+      emit(deps.svc.setDispatchState({ taskId: task.id, state: CHIP_QUEUED }));
+      deps.svc.addComment({ taskId: task.id, author: "system", content: why });
+    } catch { /* il task può essersi mosso sotto i piedi */ }
+  }
+
+  /**
+   * Il peso appena letto dal classificatore, applicato al task — e la decisione
+   * che ne segue: si può proseguire, o questo lancio non doveva avvenire?
+   *
+   * Il classificatore parla al LANCIO; il gate del peso vive nel claim, che è
+   * già passato. Alla primissima corsa di un task, quindi, il claim ha deciso
+   * senza sapere: se scopre adesso di avere in mano un task pesante, l'unica cosa
+   * onesta è rimetterlo in coda e lasciare che sia il claim a decidere, stavolta
+   * col peso in mano — far partire l'agente comunque significherebbe metterlo
+   * accanto agli altri, che è precisamente ciò che il peso esiste per impedire.
+   *
+   * Il tentativo si RIMBORSA (`rollbackAttempt`): non è un fallimento, non ha
+   * prodotto niente e non ha nemmeno acceso un agente. Farlo pesare sul budget
+   * dei ritentativi vorrebbe dire che un task pesante arriva al parcheggio dopo
+   * due scoperte invece che dopo due fallimenti veri.
+   *
+   * Torna `true` se il lancio deve fermarsi. Il rientro in coda avviene UNA
+   * volta sola per scoperta: la seconda volta il peso è già sul task, quindi
+   * `wasHeavy` è vero e si prosegue — non c'è modo di girare in tondo.
+   */
+  function absorbWeight(task: Task, weight: string | null | undefined): boolean {
+    const read = readTaskWeight(weight);
+    const wasHeavy = task.dispatchWeight === "heavy";
+    if (read !== task.dispatchWeight) {
+      // Best-effort: il promemoria serve al PROSSIMO claim, e non riuscire a
+      // scriverlo non è una ragione per non far partire questo turno.
+      try { deps.svc.setDispatchWeight({ taskId: task.id, weight: read }); }
+      catch (err) { log(`peso non salvato per il task ${task.id}`, err); }
+    }
+    if (read !== "heavy" || wasHeavy) return false;
+    log(`task ${task.id}: pesante, scoperto al lancio → torna in coda prima di aprire l'agente`);
+    releaseAndEmit({
+      taskId: task.id,
+      requeue: true,
+      rollbackAttempt: true,
+      reason:
+        "Questo task è PESANTE (compila / gira la suite / macina): lo si è scoperto leggendolo, cioè dopo che era già partito. " +
+        "Torna in coda senza consumare un tentativo e riparte da solo appena la macchina è libera — un task così prende il turno da solo.",
+    });
+    return true;
   }
 
   /**
@@ -946,13 +1098,20 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           `create_task(text=<step>, parent_task_id="${task.id}") per ognuno — e marca OGNI step done appena lo completi: update_task(task_id=<step id>, status="done") (permesso sui TUOI step). Sono la tua checklist sulla board: l'umano vede i progressi in tempo reale.`,
         "- Prima di consegnare in review TUTTI i tuoi step devono essere done (un task con sottotask aperti non è approvabile). Lavoro futuro fuori scope → task top-level SENZA parent (resta in backlog per l'umano).",
         "- Ogni step ha il SUO thread: note specifiche → comment_task(task_id=<step id>, ...). Se l'umano risponde sul thread di uno step mentre sei in review, riparti con quel contesto.",
-        "- Allegati (comment_task media[]): il server accetta SOLO file sotto ~/.topics/media/ (o ~/.openclaw/media/) o il workspace — copia lì il file (es. un PDF/screenshot/clip da mostrare) PRIMA di allegarlo, o il commento viene rifiutato.",
-        "- CONSEGNA AUTOCONSISTENTE: il reviewer decide guardando SOLO il task — tutto ciò che serve alla decisione va nel thread: testi completi (es. la bozza di una mail va INCOLLATA nel commento, non descritta), anteprime come allegato, pagine/report come output_url. Se chiedi 'confermi X?' l'umano deve poter vedere X.",
-        `- EVIDENZA DI REVIEW = anteprima nel task, scelta in base al tipo di lavoro. Impostala con update_task(task_id="${task.id}", preview_image=<path assoluto sotto ~/.topics/media/>) — compare come card sulla board e nel drawer (immagine cliccabile, oppure VIDEO coi controlli).`,
-        "  · UI STATICA (layout, un componente, una pagina) → uno SCREENSHOT (.png).",
-        "  · COMPORTAMENTO / UI DINAMICA (scroll, un box che si apre/chiude, streaming, una transizione, un flusso a più passi) → un VIDEO (.webm/.mp4): uno screenshot statico NON dimostra il comportamento. Registralo con Playwright — clip breve (login: in locale l'identity picker è a un click; poi naviga ed esegui l'azione) con `recordVideo: { dir }` sul context, copia il .webm sotto ~/.topics/media/ e mettilo in previewImage.",
-        "  · Se il progetto ha spec-flow: esegui lo SCENARIO relativo — Playwright registra già il .webm nel Living Doc; usa QUEL clip come evidenza (è anche la prova che l'acceptance test passa).",
-        `- Se c'è qualcosa da far navigare/testare al reviewer dal vivo (dev server, pagina, report): update_task(task_id="${task.id}", output_url=<url http(s)>) — appare nel pannello di review. NB: il dev server dell'agente è effimero e muore a fine sessione, quindi l'output_url NON è evidenza durevole: la prova che resta è l'anteprima (screenshot/video), l'output_url è solo un extra dal vivo.`,
+        "- IL RISULTATO DEL TASK sono le sue TAB e i suoi FILE. Non esiste un «Output» a parte:",
+        "  · TAB — una pagina viva da far vedere o navigare al reviewer (dev server, report HTML, dashboard, pagina) la apri TU con open_browser_pane({url, name}): dentro un task quella diventa una tab DEL TASK, resta nel task dopo la fine del tuo turno ed è lì che il reviewer la trova. Il `name` è l'etichetta della tab E la sua identità: riusare lo stesso nome ri-naviga quella tab, un nome nuovo ne apre un'altra — così consegni UNA tab per superficie che serve davvero (es. name:\"App\", name:\"Report\"), non di più, e senza sovrascrivere sempre la prima.",
+        "  · TAB DIETRO LOGIN — se la pagina che consegni è protetta, entra tu una volta nella tab e chiama browser_save_state({handle}) mentre sei dentro: l'handle resta legato a QUELLA tab e chi la apre dopo ci atterra già loggato, senza rifare il login a mano.",
+        "  · FILE CONSEGNATI — PDF, report, screenshot, clip: li alleghi con comment_task media[] e diventano la lista scaricabile del task (click sul nome = si apre come tab, l'icona = download). Il server accetta SOLO file sotto ~/.topics/media/ (o ~/.openclaw/media/) o il workspace: copia lì il file PRIMA di allegarlo, o il commento viene rifiutato.",
+        "  · ANTEPRIMA — l'unica evidenza DUREVOLE (vedi sotto): una tab viva muore col server che la serve, uno screenshot o un video no.",
+        "- CONSEGNA AUTOCONSISTENTE: il reviewer decide guardando SOLO il task — tutto ciò che serve alla decisione va nel thread: testi completi (es. la bozza di una mail va INCOLLATA nel commento, non descritta), artefatti come file consegnati, pagine e report come tab del task. Se chiedi 'confermi X?' l'umano deve poter vedere X.",
+        // La regola dell'anteprima NON si riscrive qui: è `PREVIEW_RULE`
+        // (shared/board.ts), la stessa stringa che leggono il resume, lo schema
+        // del tool MCP e §4 del protocollo. Riscriverla a mano è esattamente il
+        // modo in cui le cinque copie erano arrivate a dire cose diverse — ed è
+        // ciò che era appena successo qui: il blocco a due rami che stava in
+        // questo punto non conosceva il ramo del diagramma, e chiamava il campo
+        // `previewImage` mentre il tool MCP lo espone come `preview_image`.
+        PREVIEW_RULE,
         `- Alla consegna, PRIMA di spostare in review: UN commento di sintesi con comment_task (1-2 frasi: cosa hai fatto QUESTO turno, dove guardare). Il server rifiuta la review se in questo turno non hai ancora commentato.`,
         `- SE hai committato codice sul tuo branch (lavoro landabile), in quel commento di consegna offri SOLO l'opzione: comment_task(..., options=["${LAND_ACTION_LABEL}"]). Se l'umano la sceglie, il SISTEMA fa il merge LOCALE su main (nessun push). Tu NON fare mai git merge/push a mano. La pubblicazione online (push + deploy) è un passo SEPARATO, deciso ed eseguito dall'umano dal controllo "Pubblica" della board con anteprima del diff — NON proporla, non è un'opzione del task. NON offrire l'opzione senza codice committato (una domanda, un piano, lavoro solo-headless).`,
         `- Se devi ASPETTARE una condizione esterna (un servizio che torna su, il carico macchina che scende, una finestra oraria): NON dormire con un poller tenendo occupato lo slot. Dichiara l'attesa con wait_for_condition(task_id="${task.id}", reason=<cosa aspetti>, minutes=<quanto riprovare, default 15>): il task torna in coda con la nota, lo slot si libera per altri, e il sistema lo ri-dispaccia da solo quando scade la finestra. NON è una consegna: non mandarlo in review "vuoto".`,
@@ -993,6 +1152,49 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         try { reuseTopicId = deps.svc.get(task.blockedByTaskId)?.task?.assignedTopicId ?? null; } catch { /* fresh topic below */ }
       }
 
+      // Il classificatore PRIMA del worktree, e l'ordine è la parte che conta:
+      // fra le due cose che legge c'è il peso, e un peso scoperto adesso può
+      // rimandare in coda il task. Rimandarlo dopo aver aperto un worktree
+      // vorrebbe dire aprirlo e cancellarlo a ogni scoperta (o dimenticarselo
+      // dietro, che è il modo in cui si orfanano le cartelle). Qui non è ancora
+      // nato niente da disfare.
+      //
+      // Model selection. Explicit choice wins; "auto" (null) → classifier pick
+      // before spawn (never for a reused topic — it inherits the blocker's).
+      // The picker never rejects and returns fast; a null/absent result keeps
+      // the provider default, so dispatch is never blocked on this.
+      // Priority: explicit per-task model > board default (settings.model, when the
+      // board pins one instead of 'auto') > classifier pick. The board default skips
+      // the classifier entirely — a pinned board dispatches every task on that model.
+      let chosenModel: string | undefined = task.model ?? settings.model ?? undefined;
+      // L'effort segue la stessa regola del modello: la board può fissarlo e
+      // allora comanda lei; su "auto" lo sceglie il classificatore task per
+      // task. È la leva più cara che abbiamo — stesso lavoro: `medium` 61,1k
+      // token, `xhigh` 108,8k — quindi tenerla fissa per una board intera
+      // significa pagarla uguale su un typo e su un refactor.
+      let chosenEffort = settings.effort;
+      if (chosenModel && chosenModel !== task.model && !reuseTopicId) {
+        // Persist the board-default so the card shows the real model, not "auto".
+        deps.svc.setModel({ taskId, model: chosenModel });
+      }
+      if (!chosenModel && !reuseTopicId && deps.pickAutoModel) {
+        const picked = await deps.pickAutoModel(task);
+        // Il peso PRIMA di tutto il resto: se questo lancio non doveva avvenire,
+        // deve fermarsi qui — prima del worktree, prima del topic, prima
+        // dell'agente. (Il modello non si persiste in quel caso: al prossimo giro
+        // il giudice ripete la lettura, che costa un haiku, e in cambio modello e
+        // peso restano una decisione sola invece di due mezze decisioni salvate a
+        // metà.)
+        if (settings.effort === "auto") chosenEffort = picked.effort ?? DEFAULT_AUTO_EFFORT;
+        if (absorbWeight(task, picked.weight)) return;
+        chosenModel = picked.model ?? undefined;
+        // "auto" è solo lo stato INIZIALE: appena il classifier risolve un
+        // modello concreto lo persisto sul task, così la card mostra quello
+        // davvero usato (non più "auto"). Nessun emit qui: la setDispatchState
+        // subito sotto rilegge la riga e ne fa il broadcast.
+        if (chosenModel) deps.svc.setModel({ taskId, model: chosenModel });
+      }
+
       if (!reuseTopicId && settings.useWorktree) {
         if (!deps.createWorktree || !resolved.projectStoreId) {
           // Worktree required but impossible → park with a clear, actionable error
@@ -1014,36 +1216,6 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       if (reuseTopicId) {
         kickoff =
           "Nuovo task nella STESSA sessione del task precedente: il contesto che hai costruito è condiviso di proposito, riusalo dove serve.\n\n" + kickoff;
-      }
-
-      // Model selection. Explicit choice wins; "auto" (null) → classifier pick
-      // before spawn (never for a reused topic — it inherits the blocker's).
-      // The picker never rejects and returns fast; a null/absent result keeps
-      // the provider default, so dispatch is never blocked on this.
-      // Priority: explicit per-task model > board default (settings.model, when the
-      // board pins one instead of 'auto') > classifier pick. The board default skips
-      // the classifier entirely — a pinned board dispatches every task on that model.
-      let chosenModel: string | undefined = task.model ?? settings.model ?? undefined;
-      if (chosenModel && chosenModel !== task.model && !reuseTopicId) {
-        // Persist the board-default so the card shows the real model, not "auto".
-        deps.svc.setModel({ taskId, model: chosenModel });
-      }
-      // L'effort segue la stessa regola del modello: la board puo' fissarlo
-      // ("medium", "high", …) e allora comanda lei; su "auto" lo sceglie il
-      // classificatore, task per task. E' la leva piu' pesante che abbiamo —
-      // misurato: lo stesso lavoro a `medium` costa 61,1k token e a `xhigh`
-      // 108,8k — quindi tenerla fissa per tutta una board significa pagarla
-      // uguale su un typo e su un refactor.
-      let chosenEffort = settings.effort;
-      if (!chosenModel && !reuseTopicId && deps.pickAutoModel) {
-        const picked = await deps.pickAutoModel(task);
-        chosenModel = picked.model ?? undefined;
-        if (settings.effort === "auto") chosenEffort = picked.effort ?? DEFAULT_AUTO_EFFORT;
-        // "auto" è solo lo stato INIZIALE: appena il classifier risolve un
-        // modello concreto lo persisto sul task, così la card mostra quello
-        // davvero usato (non più "auto"). Nessun emit qui: la setDispatchState
-        // subito sotto rilegge la riga e ne fa il broadcast.
-        if (chosenModel) deps.svc.setModel({ taskId, model: chosenModel });
       }
 
       // Plan-first is opt-in only (the "piano prima" toggle). The dispatcher used
@@ -1406,12 +1578,21 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // confronto un esperimento su due variabili insieme, e il fan-out serve a
       // confrontare STRADE, non provider.
       let chosenModel: string | undefined = task.model ?? settings.model ?? undefined;
-      if (chosenModel && chosenModel !== task.model) deps.svc.setModel({ taskId, model: chosenModel });
+      // L'effort segue la stessa regola del modello: la board può fissarlo e
+      // allora comanda lei; su "auto" lo sceglie il classificatore task per
+      // task. È la leva più cara che abbiamo — stesso lavoro: `medium` 61,1k
+      // token, `xhigh` 108,8k — quindi tenerla fissa per una board intera
+      // significa pagarla uguale su un typo e su un refactor.
       let chosenEffort = settings.effort;
+      if (chosenModel && chosenModel !== task.model) deps.svc.setModel({ taskId, model: chosenModel });
       if (!chosenModel && deps.pickAutoModel) {
         const picked = await deps.pickAutoModel(task);
-        chosenModel = picked.model ?? undefined;
+        // Vale a maggior ragione qui: un task pesante in fan-out sono N
+        // macinate in parallelo, cioè il caso peggiore che il peso esiste per
+        // evitare. Il `finally` restituisce gli slot prenotati.
         if (settings.effort === "auto") chosenEffort = picked.effort ?? DEFAULT_AUTO_EFFORT;
+        if (absorbWeight(task, picked.weight)) return;
+        chosenModel = picked.model ?? undefined;
         if (chosenModel) deps.svc.setModel({ taskId, model: chosenModel });
       }
 
@@ -1578,7 +1759,18 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       try { emit(deps.svc.setDispatchState({ taskId, state: chip })); } catch { /* best-effort */ }
       // Review-ready preview: boot a live server from the worktree, set output_url
       // to the local deep-link, attach a screenshot. Best-effort, fire-and-forget.
-      try { void deps.preparePreview?.(taskId); } catch { /* best-effort */ }
+      //
+      // Lo snellimento viene DOPO, incatenato: l'anteprima è un `bun run dev` che
+      // gira dentro quel worktree, e togliergli `node_modules` sotto i piedi
+      // mentre parte lo ucciderebbe. Aspettare che il tentativo si concluda toglie
+      // la corsa; se un'anteprima è rimasta viva, `slimWorktree` se ne accorge e
+      // non tocca niente (la passata del GC ci riproverà quando sarà spenta).
+      try {
+        void Promise.resolve(deps.preparePreview?.(taskId))
+          .catch(() => { /* best-effort: un'anteprima fallita non blocca il resto */ })
+          .then(() => deps.slimWorktree?.(taskId))
+          .catch(() => { /* best-effort */ });
+      } catch { /* best-effort */ }
       return;
     }
     if (cur.status === "in_progress") {
@@ -1686,7 +1878,15 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
               reason: "system-delivered",
             });
           } catch { /* best-effort */ }
-          try { void deps.preparePreview?.(taskId); } catch { /* best-effort */ }
+          // Stessa catena della consegna volontaria: anteprima prima, snellimento
+          // dopo. Una consegna forzata dal sistema è una consegna a tutti gli
+          // effetti, e il suo worktree costa gli stessi ~260 MB.
+          try {
+            void Promise.resolve(deps.preparePreview?.(taskId))
+              .catch(() => { /* best-effort */ })
+              .then(() => deps.slimWorktree?.(taskId))
+              .catch(() => { /* best-effort */ });
+          } catch { /* best-effort */ }
         } catch (err) { log(`deliverToReviewBySystem failed for ${taskId}`, err); }
         return;
       }
@@ -1713,7 +1913,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // and hands back a mute review. This is the "altro da fare?" → review-without-
       // comment gap. Even "niente di nuovo" is a valid summary.
       `Prosegui il lavoro. Alla consegna, PRIMA di mettere in review scrivi SEMPRE un commento di sintesi di QUESTO turno con comment_task (1-2 frasi: cosa hai fatto ora, dove guardare — oppure "niente di nuovo" col perché). POI update_task(task_id="${task.id}", status="review"). Senza un commento di questo turno il server rifiuta la review.`,
-      `EVIDENZA: metti l'anteprima con update_task(preview_image=<path sotto ~/.topics/media/>). UI statica → screenshot .png; comportamento/UI dinamica (scroll, apri/chiudi, streaming) → un VIDEO .webm/.mp4 (clip Playwright breve, o lo scenario spec-flow se c'è) — uno screenshot statico non prova un comportamento.`,
+      // Stessa costante del kickoff, non un riassunto: il resume è l'unico
+      // messaggio davanti all'agente che riprende, e la versione «corta» che
+      // stava qui aveva già perso per strada il ramo del diagramma.
+      PREVIEW_RULE,
       `Se hai committato codice landabile, offri SOLO options=["${LAND_ACTION_LABEL}"] → il sistema fa il merge LOCALE su main (nessun push). Tu non fare mai git merge/push. La pubblicazione online è separata, la fa l'umano dal controllo "Pubblica" della board: NON proporla. Niente opzione se non c'è codice committato.`,
     ].join("\n");
   }
@@ -1745,15 +1948,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     const t = deps.svc.get(taskId)?.task;
     // The caller (reviewDecision reject) has already moved it to in_progress and
     // it must still be bound to its topic. Anything else = nothing to resume.
-    if (!t || !t.assignedTopicId || t.status !== "in_progress") {
-      // Un resume in attesa di posto può ritrovare la card già chiusa al giro
-      // dopo (approvata mentre aspettava). Rinunciare senza ripulire lascia
-      // l'id nel Set per sempre, e la prossima attesa VERA di quella card non
-      // verrebbe più annunciata: il commento «in coda» è guardato proprio da
-      // questo insieme.
-      waitingForSlot.delete(taskId);
-      return;
-    }
+    // E se quel task stava aspettando uno slot, l'attesa muore qui insieme al
+    // resume: una voce che resta nel registro senza timer è peggio del guasto
+    // che il registro cura — quella card non verrebbe recuperata MAI più.
+    if (!t || !t.assignedTopicId || t.status !== "in_progress") { clearSlotWait(taskId, false); return; }
     if (inFlight.has(taskId)) {
       // Turn still live (winding down): buffer, onTurnEnd delivers it.
       pendingResume.set(taskId, [...(pendingResume.get(taskId) ?? []), humanMessage]);
@@ -1774,17 +1972,37 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         try {
           deps.svc.addComment({
             taskId, author: "system",
-            content: `In coda: tetto di concorrenza pieno (${currentCap()}). Riprendo appena si libera.`,
+            content: `In attesa di uno slot: il tetto di concorrenza (${currentCap()}) è pieno. Riprendo appena si libera — niente è andato perso.`,
           });
         } catch { /* best-effort */ }
+      }
+      // Un'attesa sola per task. Un secondo messaggio che arriva mentre la prima
+      // è in corso NON apre un secondo timer (due attese per una card renderebbero
+      // il registro un'approssimazione, e la seconda voce cancellerebbe la prima
+      // scattando): si imbuca dove si imbucano già i messaggi arrivati a turno
+      // vivo, e `onTurnEnd` lo consegna quando il turno dell'attesa ha finito.
+      if (slotWaits.has(taskId)) {
+        if (humanMessage) pendingResume.set(taskId, [...(pendingResume.get(taskId) ?? []), humanMessage]);
+        return;
       }
       // Sfalsati, o venti resume in coda si sveglierebbero tutti insieme per
       // riscoprire insieme che il posto è uno solo.
       const delay = RESUME_SLOT_RETRY_MS + (resumeStagger++ % 8) * 250;
-      setTimeout(() => { void resume(taskId, humanMessage, opts); }, delay);
+      // Il registro dice a `reconcile` che qui c'è ancora qualcuno: la voce vive
+      // esattamente quanto il timer, e sparisce appena scatta (il resume che ne
+      // segue o parte, o ri-registra una nuova attesa). Fra il `delete` e la
+      // ri-registrazione non c'è nessun `await`, quindi il poll non può mai
+      // guardare in mezzo e vedere l'attesa sparita.
+      const timer = setTimeout(() => {
+        slotWaits.delete(taskId);
+        void resume(taskId, humanMessage, opts);
+      }, delay);
+      slotWaits.set(taskId, { timer, message: humanMessage });
       return;
     }
-    waitingForSlot.delete(taskId);
+    // C'è posto: questo turno parte e si prende anche l'eredità di un'attesa
+    // ancora pendente su questo task (il suo messaggio, non il suo timer).
+    clearSlotWait(taskId, true);
     const sessionKey = "topic:" + t.assignedTopicId.slice(0, 8);
     const runId = beginRun(taskId, sessionKey);
     try {
@@ -2021,12 +2239,50 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // the episode so a FUTURE hold notes again instead of staying silent.
     for (const t of todos) externallyHeldNoted.delete(t.id);
 
+    // PESO — gli STESSI due predicati che il CAS di `claim` applica, letti qui
+    // una volta per tick. Il claim li fa valere in silenzio (torna `null`), e un
+    // silenzio lascerebbe le card ferme su `queued` senza che nessuno sappia
+    // perché: la regola sta nel claim perché lì è atomica, la spiegazione sta
+    // qui perché qui c'è il thread.
+    const heavyBusy = (() => {
+      try { return deps.svc.hasHeavyInFlight(); }
+      catch (err) { log("lettura dei task pesanti in volo fallita", err); return false; }
+    })();
+    const loadGate = heavyLoadGate();
+    const heldForLoad = (t: Task) => t.dispatchWeight === "heavy" && loadGate?.ok === false;
+    // Chi NON è più trattenuto dal peso dimentica l'episodio, così una prossima
+    // attesa lo dice di nuovo invece di restare muta.
+    if (!heavyBusy) for (const t of todos) { if (!heldForLoad(t)) heavyHeldNoted.delete(t.id); }
+    if (heavyBusy) {
+      // Un pesante in volo blocca OGNI claim, non solo gli altri pesanti: è il
+      // senso stesso del peso — quel task si prende la macchina da solo. Niente
+      // di questa board parte finché non ha finito, e la coda riparte da sé al
+      // reconcile successivo.
+      for (const t of todos) {
+        noteHeavyHold(
+          t,
+          "In coda: c'è un task PESANTE al lavoro e si prende la macchina da solo. " +
+            "Riparto appena ha finito — non devi fare nulla.",
+        );
+      }
+      return;
+    }
+
     // Effective concurrency cap for this tick: ONE machine-wide budget counted
     // across EVERY board (scope 'global'), so N boards can't multiply into N×cap
     // agents. 'auto' sizes it from live capacity (CPU/load); otherwise the fixed
     // number set in the global settings dropdown. Computed once so every claim in
     // this tick shares the same budget.
     const capScope: "board" | "global" = "global";
+    // Una porta sola per entrambe le strade (dispatch e resume): `currentCap()`
+    // legge il tetto globale e lo passa alla stessa funzione che usa la quota di
+    // core dello spawn (`agent-job-quota.ts`).
+    //
+    // Attenzione a riusarlo altrove: questo numero risponde a «quanti agenti
+    // NUOVI ammetto ADESSO», ed è apposta reattivo al carico. La quota di core
+    // chiede un'altra cosa — «quanti stanno compilando accanto a me» — e la
+    // prende dal ROSTER vivo. Usare questo come divisore lo invertiva: macchina
+    // carica → raccomandazione 1 → «sono solo» → fetta intera.
     const effectiveCap = currentCap();
 
     // Fan-out richiesto dalla board, e cosa ne resta dopo la realtà. Due
@@ -2063,11 +2319,25 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // restano almeno N posti liberi.
       const claimCap = effectiveCap - reservedSlots - (taskFanOut - 1);
       if (claimCap < 1) break; // macchina piena: gli altri todo aspettano il prossimo tick
+      // Un pesante a macchina carica aspetta — e TIENE la testa della coda. Se
+      // cedesse il posto ai task leggeri dietro di lui, quelli partirebbero,
+      // alzerebbero il carico, e il momento in cui la macchina è scarica non
+      // arriverebbe mai: la guardia si trasformerebbe in un divieto permanente
+      // proprio per il task che deve girare da solo.
+      if (heldForLoad(t)) {
+        noteHeavyHold(
+          t,
+          `In coda: questo task è PESANTE e la macchina è carica (load ${loadGate!.load1.toFixed(1)} su ${loadGate!.cores} core). ` +
+            "Parte da solo appena si libera — un task così prende il turno da solo.",
+        );
+        break;
+      }
       const claimed = deps.svc.claim({
         taskId: t.id,
         cap: claimCap,
         maxAttempts: settings.dispatchRetryCap,
         scope: capScope,
+        machineIdle: loadGate?.ok,
       });
       if (!claimed) continue; // cap hit or lost the race
       clearGrace(t.id);
@@ -2270,6 +2540,14 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     catch (err) { log("reconcile list failed", err); }
     for (const t of running) {
       if (inFlight.has(t.id)) continue; // we own it, leave it
+      // Un'attesa di slot VIVA (il resume rinviato a tetto pieno) non ha un turno,
+      // quindi non lascia traccia in `inFlight`: da qui è indistinguibile da un
+      // fantasma del riavvio — stessa riga `in_progress`, stesso chip `queued`.
+      // Requeuarla sarebbe il guasto di prima al contrario: il messaggio
+      // dell'umano muore col timer e la card riparte su un topic nuovo. Il
+      // registro è la differenza, e vive in memoria come il timer: se il processo
+      // è ripartito è vuoto, e allora la card è orfana per davvero.
+      if (slotWaits.has(t.id)) continue;
       // Just buried above: its recovery is already scheduled (onTurnEnd). Without
       // this it would ALSO look like a restart orphan and get a second, wrong
       // recovery ("il server è ripartito", which never happened).
@@ -2388,6 +2666,12 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   function shutdown(): void {
     for (const t of graceTimers.values()) clearTimeout(t);
     graceTimers.clear();
+    // Un dispatcher spento non deve svegliarsi fra 5s per riprendere un task su
+    // un DB che non è più il suo — ed è anche il modo in cui i test, che ne
+    // creano uno per caso, non si passano le attese a vicenda.
+    for (const w of slotWaits.values()) clearTimeout(w.timer);
+    slotWaits.clear();
+    waitingForSlot.clear();
     pendingResume.clear();
     // Senza questa riga un dispatcher spento resterebbe iscritto e continuerebbe
     // a scrivere chip su un DB che non è più il suo — e i test, che ne creano

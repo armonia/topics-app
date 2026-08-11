@@ -14,7 +14,8 @@
  *
  * NOTHING here references real user/project data — it's a generic showcase.
  * Maintainability: this IS the real app bundle; only this one file is the
- * demo seam. Rebuild via `npm run build:landing` after any client change.
+ * demo seam. `bun run build:site` rebuilds the demo, so a client change reaches
+ * the site on the next deploy; `bun run build:landing` does it now, for dev:site.
  * ───────────────────────────────────────────────────────────────────────── */
 (function () {
   "use strict";
@@ -641,6 +642,22 @@
     var u = typeof input === "string" ? input : (input && input.url) || "";
     try {
       if (/\/api\//.test(u) || /^\/api/.test(u)) {
+        // IDENTITY FIRST, and it has to be first. `refreshSession()` asks
+        // /api/auth/session before anything else renders, and an answer without
+        // `paired` means «this device was never authorised» — so the demo showed
+        // the pairing screen instead of the app. It fell through to the generic
+        // `J([])` at the bottom, which is exactly the failure a stale committed
+        // bundle hid: the snapshot in git predated the auth gate, so nobody
+        // noticed the shim had never learnt about it. Loopback + owner is what
+        // the real app reports on the machine it runs on, which is the demo's
+        // premise.
+        if (/\/auth\/session\b/.test(u)) return Promise.resolve(J({
+          paired: true, as: "loopback", name: "This Mac",
+          deviceId: "demo-loopback", role: "owner", personId: null,
+        }));
+        if (/\/auth\/devices\b/.test(u)) return Promise.resolve(J({ devices: [], requests: [] }));
+        if (/\/auth\//.test(u)) return Promise.resolve(J({}));
+
         // text endpoints (caller does response.text())
         if (/\/git\/(diff|show)\b/.test(u)) return Promise.resolve(T(GIT_DIFF));
         if (/\/files\/content\b/.test(u)) return Promise.resolve(T("// generic preview\nexport const hello = 'world';\n"));
@@ -663,7 +680,11 @@
         if (/\/git\/remotes\b/.test(u)) return Promise.resolve(J([{ name: "origin", fetchUrl: "git@github.com:acme/acme-web.git", pushUrl: "git@github.com:acme/acme-web.git" }]));
         if (/\/git\/diff-summary\b/.test(u)) return Promise.resolve(J({ message: "", stat: "6 files changed", files: { added: ["src/routes/dashboard.tsx"], modified: ["src/components/Hero.tsx"], deleted: [], untracked: ["scripts/seed.ts"] } }));
         if (/\/git\/(log|line-changes)\b/.test(u)) return Promise.resolve(J(/line-changes/.test(u) ? { changes: [] } : []));
-        if (/\/boards\/tasks\b/.test(u)) return Promise.resolve(J({ tasks: TASKS }));
+        // `all-boards/tasks` is the cross-project feed App() reads through
+        // useGlobalBoard, and it spreads the result — so the bare `[]` fallback
+        // was a render-time «tasks is not iterable», i.e. a white demo. The
+        // hyphen is why `/boards/tasks` never matched it.
+        if (/\/(all-)?boards\/tasks\b/.test(u)) return Promise.resolve(J({ tasks: TASKS }));
         if (/\/boards\/[^/]+\/tasks\b/.test(u)) return Promise.resolve(J({ tasks: TASKS }));
         if (/\/boards\/[^/]+\/settings\b/.test(u)) return Promise.resolve(J({ projectId: PROJECT, requireApprovalForDone: false, requireReviewBeforeDone: false, blockStatusWithPending: false, onlyLeadCanChangeStatus: false, maxAgents: 4, autoExpireHours: 0 }));
         if (/\/boards\/[^/]+\/approvals\b/.test(u)) return Promise.resolve(J({ approvals: [] }));
@@ -707,11 +728,21 @@
           return Promise.resolve(J({ points: pts }));
         }
         if (/\/dashboard\/agent-stats\b/.test(u)) return Promise.resolve(J({ agents: AGENT_STATS }));
-        // MUST precede the generic /files rule: ScriptRunner does Object.entries
-        // on .scripts, so this must be an OBJECT map (an array → crash).
+        // MUST precede the generic /files rule. `.scripts` is a LIST of detected
+        // scripts (shared/project-scripts.ts: id/name/detail/argv/from) — it used
+        // to be an object map of name → command, and this mock still said so, so
+        // ScriptRunner died on `scripts.map`. Nothing caught it because the demo
+        // in git was built before the change.
         if (/\/files\/package-scripts\b/.test(u)) return Promise.resolve(J({
-          scripts: { dev: "vite dev", build: "vite build", server: "bun server.ts", test: "bun test", lint: "eslint ." },
-          engines: { node: ">=20" },
+          scripts: [
+            { id: "package.json#dev",    name: "dev",    detail: "vite dev",      argv: ["bun", "run", "dev"],    from: "package.json" },
+            { id: "package.json#build",  name: "build",  detail: "vite build",    argv: ["bun", "run", "build"],  from: "package.json" },
+            { id: "package.json#server", name: "server", detail: "bun server.ts", argv: ["bun", "run", "server"], from: "package.json" },
+            { id: "package.json#test",   name: "test",   detail: "bun test",      argv: ["bun", "run", "test"],   from: "package.json" },
+            { id: "package.json#lint",   name: "lint",   detail: "eslint .",      argv: ["bun", "run", "lint"],   from: "package.json" },
+          ],
+          found: ["package.json"],
+          looked: ["package.json", "Makefile", "Cargo.toml"],
         }));
         if (/\/files\b/.test(u)) return Promise.resolve(J([
           { name: "src", type: "dir", path: PROJECT + "/src", children: [] },
@@ -723,7 +754,8 @@
         if (/\/history\//.test(u)) return Promise.resolve(J({ messages: [] }));
         if (/\/openclaw\/context\b/.test(u)) return Promise.resolve(J({ soul: null, memory: null, agents: null, tools: null, identity: null, user: null, memoryIndex: [], memoryTokens: 0, totalTokens: 0, workspacePath: PROJECT }));
 
-        if (/snapshot|settings|status|state|kpis|summary|monitor|count|config/i.test(u)) return Promise.resolve(J({}));
+        if (/snapshot|settings|status|state|kpis|summary|monitor|count|config/i.test(u)) { if (window.__DEMO_TRACE__) console.warn("[demo] fallback {} ←", u); return Promise.resolve(J({})); }
+        if (window.__DEMO_TRACE__) console.warn("[demo] fallback [] ←", u);
         return Promise.resolve(J([]));
       }
       if (/\/preview\//.test(u)) return Promise.resolve(J({}));

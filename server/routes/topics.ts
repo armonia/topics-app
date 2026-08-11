@@ -3,52 +3,43 @@ import { join, resolve, dirname } from "path";
 import { detectProjectPath } from "../lib/detect-project-path";
 import { homedir } from "os";
 import type { AppContext, RouteHandler, Topic } from "../types";
-import { getProvider, getDefaultProvider, type AIProvider } from "../providers";
+import { getProvider, getDefaultProvider, getDefaultProviderName, type AIProvider } from "../providers";
+import { routesThroughGateway } from "./commandRouting";
 import { createAutoNameRouter } from "./autoname";
 import { createHistoryRouter } from "./history";
 import { createEditRouter } from "./edit";
 import { createChatRouter } from "./chat";
+import { createPermissionRouter } from "./permission";
+import { createBrowserBridgeRouter } from "./browser-bridge";
 import type { BrowserService } from "../browser-service";
-import { dispatchBrowserToolCallByContext, resolveContextIdForTopic } from "../browser-tool-dispatcher";
-import { BRIDGED_BROWSER_ENDPOINTS } from "../browser-tool-spec";
-import { nativeDelegateRegistry } from "../browser-native-delegate";
-import { collectLiveContextIds, listBrowserTabs, type TabInventoryDeps } from "../browser-tab-inventory";
+import { resolveContextIdForTopic } from "../browser-tool-dispatcher";
 import { getTerminalSessionById, setSubAgentExitHandler } from "./terminal";
 import { getSessionContext } from "../db/session-context";
 import { classifyContext, windowForMeasure } from "../usage/context-window";
 import { contextUpdateFromUsage } from "../usage/usage-update";
 import { createTaskService } from "../services/tasks";
+import { persistAgentTaskTab, attachLoginHandleToTaskTab } from "../services/task-tab-persist";
 import { matchProjectRefAll, type ProjectRefCandidate } from "../lib/project-ref";
-import { shouldHonorClearMessages } from "./abortClearPolicy";
+import { shouldHonorClearMessages } from "../../shared/clear-messages-policy";
 import { clearActionFor } from "./clearPolicy";
 import { switchTopicCore, createTopicCore } from "../lib/session-control-core";
 import { moveTerminalPaneToProject as relocateTerminalPaneToProject } from "../lib/relocate-pane";
 import { bumpUnreadCount } from "../lib/unread-count";
 import { createSubagentWatcher } from "../lib/subagent-watch";
 import { archiveTopicFully } from "../services/archive-topic";
+import { clearRetirement, recordRetirement } from "../services/retirement";
 import { parkTopicSession } from "../lib/session-parking";
-import { timingSafeEqualStr } from "../utils";
 import { parseTranscriptToMessages } from "../lib/claude-transcript-import";
 import { parseTranscriptFacts } from "../lib/external-claude-sessions";
 import { EFFORT_TIERS } from "../../shared/effort";
-import { waitForAnswer, deliverAnswer, hasPendingAsk, cancelAsk, beginAsk, AskWaitError } from "../lib/ask-user-bridge";
+// Solo il lato «consegna»: le gambe dell'attesa (beginAsk/waitForAnswer) sono
+// nel canale umano, in ./permission.
+import { deliverAnswer, hasPendingAsk } from "../lib/ask-user-bridge";
 // «Aspetta te» si legge anche dalla RIGA: le domande del pannello passano dal
 // bridge MCP, non dal canale nativo del provider, e dopo un riavvio nessuna
 // mappa in memoria se le ricorda più. Vedi lib/waiting-ask.ts.
 import { waitingAskStartedAt } from "../lib/waiting-ask";
 import { isPlanApprovalAnswer } from "../lib/plan-approval";
-import {
-  beginPermission,
-  waitForDecision,
-  deliverDecision,
-  resolvePendingPermission,
-  aliasPermission,
-  cancelPermission,
-  PermissionWaitError,
-} from "../lib/permission-bridge";
-import { decideGrantForTool, addToolGrant, listToolGrants, removeToolGrant } from "../lib/tool-grants";
-import { isPermissionDecision } from "../../shared/permission-decision";
-import type { PermissionDecision, ToolPermissionRequest } from "../../shared/types";
 import { releaseHumanHold, humanHoldAgeMs } from "../lib/human-hold";
 import { readSlashCommandSource, isValidSlashCommandName } from "../lib/slash-command-source";
 
@@ -434,28 +425,11 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
     broadcastToAll({ type: "stream:context", sessionKey: topic.sessionKey, topicId: topic.id, ...update });
   }
 
-  // Task lookup for the task-owned browser fork + tab-inventory label. One
-  // instance over the shared db (same pattern as the dispatcher's service).
+  // Task lookup per il ponte MCP del browser (fork del browser su un task +
+  // etichetta della scheda nell'inventario). One instance over the shared db
+  // (same pattern as the dispatcher's service); le due letture che servono
+  // finiscono in `BrowserBridgeDeps`.
   const taskSvc = createTaskService(ctx.db);
-  // Server gate for the task-owned browser fork (client mirror:
-  // localStorage['board:taskBrowser']). Default ON → an agent open-pane on a
-  // task topic routes to the task's browser group; set TOPICS_TASK_BROWSER='0'
-  // as a kill-switch to fall back to the layout-level `browser:navigate`.
-  const TASK_BROWSER_ENABLED = process.env.TOPICS_TASK_BROWSER !== "0";
-
-  /**
-   * If `topic` is a task dispatch AND the fork is enabled, the canonical
-   * task-scoped browser handle. The contextId is STABLE per (task, topic) so
-   * repeated opens reuse the SAME in-drawer tab (idempotent client upsert), and
-   * self-describing (`task-<id8>-…`) so labelForContext + the store recognise it
-   * without a lookup. Null → the caller falls back to the normal chat pane.
-   */
-  function resolveTaskBrowserContext(topic: Topic): { taskId: string; contextId: string } | null {
-    if (!TASK_BROWSER_ENABLED) return null;
-    const task = taskSvc.taskForTopic(topic.id);
-    if (!task) return null;
-    return { taskId: task.id, contextId: `task-${task.id.slice(0, 8)}-a${topic.id.slice(0, 8)}` };
-  }
 
   /** Resolve the AI provider for a topic. Uses topic.provider if set, else default. */
   function resolveProvider(topic?: Topic | null): AIProvider {
@@ -479,72 +453,14 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
   }
 
   /**
-   * Resolve the browser-pane contextId for an MCP bridge call addressed by
-   * topic id OR session key. Handles BOTH Claude Code surfaces:
-   *   - chat topic   → contextId = the topic's own browser contextId (topic.id)
-   *   - terminal tab → contextId = `term-<terminalId>` (the deterministic id the
-   *     client registers the near-terminal pane under, see open-pane below)
-   * Returns null when neither matches (genuinely unbound session). `topic` is
-   * returned when present so callers that still need it (broadcasts) have it.
+   * Lo slash command di questo sessionKey va inoltrato al gateway OpenClaw?
+   *
+   * Si decide sul provider DICHIARATO dal topic, non su quello risolto: la
+   * regola (e il perché) stanno in `commandRouting.ts`, pure e testate.
    */
-  function resolveBrowserContext(
-    byTopic: Record<string, string> | null,
-    bySession: Record<string, string> | null,
-  ): { contextId: string; topic: Topic | null } | null {
-    if (byTopic) {
-      const topic = getTopicById(byTopic.id);
-      if (!topic) return null;
-      return { contextId: resolveContextIdForTopic(topic), topic };
-    }
-    if (bySession) {
-      const key = decodeURIComponent(bySession.sessionKey);
-      const topic = getTopicBySessionKey(key);
-      if (topic) return { contextId: resolveContextIdForTopic(topic), topic };
-      const term = getTerminalSessionById(key);
-      if (term) return { contextId: `term-${term.id}`, topic: null };
-    }
-    return null;
-  }
-
-  /**
-   * Build the injected deps for the tab inventory (browser-tab-inventory.ts)
-   * from the live singletons. `fetchNativeStatus` calls the native registry
-   * DIRECTLY (not through dispatchBrowserToolCallByContext) so listing tabs
-   * doesn't flash the agent-active pill on every open pane. Requires a live
-   * browserService for CDP contexts (callers 503 when it's absent).
-   */
-  function buildTabDeps(svc: BrowserService): TabInventoryDeps {
-    return {
-      listDelegated: () => nativeDelegateRegistry.listDelegated(),
-      listContexts: () => (svc.listContexts?.() ?? []).map((c) => ({ id: c.id, url: c.url, title: c.title })),
-      getTopicById,
-      findTopicByContextId: (contextId) => {
-        for (const t of Object.values(loadTopics().topics)) {
-          if (t.browserState?.contextId === contextId) return t;
-        }
-        return null;
-      },
-      getTerminalSessionById: (id) => {
-        const t = getTerminalSessionById(id);
-        return t ? { id: t.id, name: t.name, cwd: t.cwd } : undefined;
-      },
-      getTaskByContextId: (contextId) => {
-        // `task-<id8>-…` → owning task (label "Task: <text>"). id8 is the task
-        // id's 8-char hex prefix; resolve it back to the row.
-        const m = /^task-([0-9a-f]{1,32})-/i.exec(contextId);
-        if (!m) return null;
-        const task = taskSvc.taskByIdPrefix(m[1]);
-        return task ? { text: task.text } : null;
-      },
-      fetchNativeStatus: async (contextId) => {
-        if (!nativeDelegateRegistry.isDelegated(contextId)) return null;
-        const res = await nativeDelegateRegistry.delegateOp(contextId, "browser_status", {});
-        if (res && typeof res === "object" && !("error" in res)) {
-          return res as { url?: string; title?: string };
-        }
-        return null;
-      },
-    };
+  function commandRoutesThroughGateway(sessionKey: string): boolean {
+    const topic = getTopicBySessionKey(sessionKey);
+    return routesThroughGateway(topic?.provider, getDefaultProviderName());
   }
 
   // ── Recapito dei risultati dei sub-agent ────────────────────────────────
@@ -831,10 +747,24 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
   const autoNameRouter = createAutoNameRouter(ctx, { resolveProvider, detectProjectPathFromMessages });
   const historyRouter = createHistoryRouter(ctx, { matchHistoryRoute, providerForSessionKey });
   const editRouter = createEditRouter(ctx, { resolveProvider, updateUnreadCount });
+  // Il canale umano non chiede niente a questa closure: solo ctx.
+  const permissionRouter = createPermissionRouter(ctx);
   const chatRouter = createChatRouter(ctx, {
     resolveProvider, detectLocalhostAutoNav, bindTopicToProject, resolveProjectRef,
     getProjectIdForTopic, getWorkspaceProjects, autoBindProject,
     watchSessionForSubagents, updateUnreadCount, browserNavigatedTopics, WORKSPACE_DIR,
+  }, browserService);
+  // Il ponte MCP del browser (le sei rotte `…/browser/*` in due forme
+  // d'indirizzo) sta in `browser-bridge.ts` con i tre helper di risoluzione del
+  // contesto che usava SOLO lui. `browserNavigatedTopics` è la stessa istanza
+  // che vede la chat: la deduplica del ripiego localhost non si sdoppia.
+  const browserBridgeRouter = createBrowserBridgeRouter(ctx, {
+    getTerminalSessionById,
+    taskForTopic: (topicId) => taskSvc.taskForTopic(topicId),
+    taskByIdPrefix: (prefix) => taskSvc.taskByIdPrefix(prefix),
+    browserNavigatedTopics,
+    persistTaskTab: (taskId, contextId, url, title) => { persistAgentTaskTab(ctx.db, broadcastToAll, taskId, contextId, url, title); },
+    attachLoginHandle: (contextId, handle) => { attachLoginHandleToTaskTab(ctx.db, broadcastToAll, contextId, handle); },
   }, browserService);
 
   /**
@@ -1302,6 +1232,12 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         if (!cwd) return json({ error: "could not resolve session cwd" }, 400);
 
         const messages = parseTranscriptToMessages(text);
+        // Byte cursor for the incremental import sweep: everything up to and
+        // including the last complete line has just been imported, so the sweep
+        // reads only what the TERMINAL appends after this. A partial trailing
+        // line (mid-write) is deliberately left for the sweep to re-read whole.
+        const lastNl = text.lastIndexOf("\n");
+        const importOffset = lastNl >= 0 ? Buffer.byteLength(text.slice(0, lastNl + 1), "utf-8") : 0;
         const projectDir = resolveProjectRef(cwd, { trustRawPaths: true });
         const id = crypto.randomUUID();
         const sessionKey = "topic:" + id.slice(0, 8);
@@ -1328,11 +1264,19 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
           // Bind the topic's chat session to the EXISTING claude session id. The
           // provider's getOrCreateClaudeSessionId will now find this row, see
           // created_at !== spawn-time-now, and take the `--resume` branch.
+          // Persist jsonl_path + import_offset here so the import sweep can pick
+          // up where the initial import stopped and stream in the terminal's
+          // later turns. import_offset being non-null is exactly what enrolls
+          // this (adopted) session in the sweep; native sessions leave it NULL.
           ctx.db.prepare(
-            `INSERT INTO claude_code_sessions (session_key, claude_session_id, created_at, updated_at)
-             VALUES (?, ?, ?, ?)
-             ON CONFLICT(session_key) DO UPDATE SET claude_session_id = excluded.claude_session_id, updated_at = excluded.updated_at`
-          ).run(sessionKey, sessionId, nowIso, nowIso);
+            `INSERT INTO claude_code_sessions (session_key, claude_session_id, created_at, updated_at, jsonl_path, import_offset)
+             VALUES (?, ?, ?, ?, ?, ?)
+             ON CONFLICT(session_key) DO UPDATE SET
+               claude_session_id = excluded.claude_session_id,
+               updated_at = excluded.updated_at,
+               jsonl_path = excluded.jsonl_path,
+               import_offset = excluded.import_offset`
+          ).run(sessionKey, sessionId, nowIso, nowIso, transcriptPath, importOffset);
           if (messages.length) saveLocalMessages(sessionKey, messages);
           return t;
         })();
@@ -1508,6 +1452,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
             getTopicById, saveSingleTopic, loadUnread, saveUnread, broadcastToAll,
             purgeFromUiState: (id) => purgeTopicFromUiState(ctx.db, broadcastToAll, id),
             parkClaudeSession: parkTopicSession,
+            recordRetirement: (id, at) => recordRetirement(ctx.db, "topic", id, at, "archive"),
           }, params.id);
           // Bug #12: if the purge fails we return 500 — topic is archived but
           // ui_state is stale, so client-side reload will see a phantom id.
@@ -1524,6 +1469,10 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         saveSingleTopic(topic);
         broadcastToAll({ type: "topic:archived", topic });
         restoreTopicInUiState(ctx.db, broadcastToAll, params.id);
+        // Il fatto va ritrattato con gli altri due registri, o al riavvio
+        // successivo il riconcilio richiuderebbe la chat appena riaperta —
+        // con l'utente dentro.
+        clearRetirement(ctx.db, "topic", params.id);
         return json(topic);
       }
     }
@@ -1573,9 +1522,14 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
           if (!purgeResult.ok) {
             purgeFailures.push({ topicId: topic.id, error: purgeResult.error });
           }
+          // Il fatto, come nel percorso singolo. Un'archiviazione in blocco che
+          // non timbra e' esattamente la strada da cui sono usciti i topic
+          // «aperti» chiusi da settimane: il flag c'era, la data no.
+          recordRetirement(ctx.db, "topic", topic.id, now, "bulk-archive");
         } else {
           // Bulk UNarchive — same reopen symmetry as the single-topic DELETE.
           restoreTopicInUiState(ctx.db, broadcastToAll, topic.id);
+          clearRetirement(ctx.db, "topic", topic.id);
         }
       }
       // Bug #12: surface any purge failure in the response body (partial-fail
@@ -1688,167 +1642,16 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       }
     }
 
-    // POST /api/topics/:id/browser/open-pane
-    // POST /api/sessions/:sessionKey/browser/open-pane
-    //
-    // The MCP bridge surface for non-SDK providers (claude-code CLI, codex CLI):
-    // these providers can't receive an inline `browser_open` Anthropic Tool[]
-    // through topics-app, so they invoke this endpoint via the MCP server
-    // spawned at server/mcp/topics-mcp-server.ts (wired in claude-code provider
-    // through `--mcp-config`). End result is identical to the SDK tool path:
-    //   1. Playwright navigates the topic's headless context
-    //   2. browser:navigate WS broadcast opens/focuses the user-facing pane
-    //   3. browserNavigatedTopics is seeded to suppress the localhost-URL fallback
-    //
-    // Two address forms because:
-    //   - topic-id: easy for REST callers that already know the topic
-    //   - session-key: the claude-code MCP subprocess only has the sessionKey
-    //     it was spawned under (the topicId would require an extra DB round-trip
-    //     at spawn time). Both forms resolve to the same handler.
+    // Il ponte MCP del browser: sei rotte (`open-pane`, `close-pane`,
+    // `import-chrome`, i tool generici `:tool`, `list-tabs`, `focus-pane`) in due
+    // forme d'indirizzo, estratte in `browser-bridge.ts` insieme ai tre helper di
+    // risoluzione del contesto che usavano solo loro. Montato QUI, dov'era
+    // `open-pane`: `matchRoute` filtra per numero di segmenti e le uniche altre
+    // rotte a sei segmenti sono `/api/topics/:id/link/:targetId` (letterale
+    // diverso) — nessuna precedenza cambia.
     {
-      const byTopic = matchRoute(pathname, "/api/topics/:id/browser/open-pane");
-      const bySession = matchRoute(pathname, "/api/sessions/:sessionKey/browser/open-pane");
-      if ((byTopic || bySession) && method === "POST") {
-        if (!browserService) {
-          return json({ error: "Browser service is not enabled in this build" }, 503);
-        }
-        let topic: Topic | null = null;
-        if (byTopic) {
-          topic = getTopicById(byTopic.id);
-        } else if (bySession) {
-          topic = getTopicBySessionKey(decodeURIComponent(bySession.sessionKey));
-        }
-
-        // Terminal-originated open: the MCP bridge for a Claude Code *terminal*
-        // passes the terminal session id as the sessionKey, which matches no
-        // chat topic. Instead of 404, open the browser in the same layout group
-        // as the terminal pane. The client resolves the group from the pane id
-        // — works for both standalone (group:default) and project layouts — and
-        // uses that group's own browser context, then navigates. We don't
-        // pre-open a server browser context here (the contextId differs between
-        // standalone and project rendering); the client's RemoteBrowserPanel
-        // drives the actual open/navigate once the pane mounts.
-        if (!topic && bySession) {
-          const term = getTerminalSessionById(decodeURIComponent(bySession.sessionKey));
-          if (term) {
-            const body = (await readJSON(req)) as { url?: unknown } | null;
-            const url = typeof body?.url === "string" ? body.url : "";
-            if (!url) return json({ error: "url (string) is required" }, 400);
-            // contextId is deterministic (`term-<id>`) so the client registers
-            // the pane's CDP target under the SAME id the observe/act routes
-            // resolve to — that's what lets a terminal drive the pane, not just
-            // open it.
-            const ctxId = `term-${term.id}`;
-            // Broadcast so the client opens the near-terminal pane under ctxId and
-            // seeds it with `url` (initialUrl). The client's native pane drives the
-            // actual load; the agent's browser_* tools reach that same pane via the
-            // native delegate (registered under ctxId). Nothing to navigate
-            // server-side here — just ack.
-            broadcastToAll({ type: "browser:open-near-pane", paneId: `terminal:${term.id}`, contextId: ctxId, url });
-            return json({ url, title: "" });
-          }
-        }
-        if (!topic) return json({ error: "Topic not found" }, 404);
-
-        const body = (await readJSON(req)) as { url?: unknown } | null;
-        const url = typeof body?.url === "string" ? body.url : "";
-        if (!url) return json({ error: "url (string) is required" }, 400);
-
-        // Task-owned browser fork (feature-flagged): the agent working a task
-        // opens a browser into that task's IN-DRAWER group, not the global
-        // layout. Mirror the terminal path above — broadcast + return, NO
-        // server-side dispatchBrowserToolCallByContext: the task pane may be
-        // unmounted (drawer closed), so a headless browser_open would drive an
-        // invisible Playwright phantom. The client's RemoteBrowserPanel loads
-        // `url` (initialUrl) once the pane mounts and registers its native
-        // target under contextId; the agent's later observe/act reach that same
-        // pane because we bind topic.browserState.contextId to it here.
-        const taskCtx = resolveTaskBrowserContext(topic);
-        if (taskCtx) {
-          topic.browserState = {
-            url,
-            contextId: taskCtx.contextId,
-            lastActiveAt: Date.now(),
-            viewport: topic.browserState?.viewport,
-          };
-          saveSingleTopic(topic);
-          browserNavigatedTopics.add(topic.id);
-          broadcastToAll({ type: "browser:open-task-tab", taskId: taskCtx.taskId, contextId: taskCtx.contextId, url });
-          return json({ url, title: "" });
-        }
-
-        const ctxId = resolveContextIdForTopic(topic);
-        // 1. Broadcast FIRST (carrying contextId) so the client mounts/seeds the
-        //    native pane under the SAME id the agent's browser_* tools resolve to.
-        //    Previously this dispatched browser_open BEFORE the pane existed, so it
-        //    navigated an invisible Playwright phantom while the visible pane stayed
-        //    on about:blank — the reported bug. Also fixes the contextId-key
-        //    mismatch: the chat pane used to register under a random id.
-        broadcastToAll({ type: "browser:navigate", topicId: topic.id, contextId: ctxId, url });
-        browserNavigatedTopics.add(topic.id);
-        try {
-          // Dispatch browser_open through the context. The dispatcher routes it to
-          // the Tauri native pane (via the native delegate registered under ctxId
-          // by the broadcast above) or, in web mode, to the Playwright context the
-          // streamed pane mirrors. Idempotent with the client's own initialUrl load
-          // and essential for re-navigating an already-open pane to a new URL.
-          const result = await dispatchBrowserToolCallByContext(
-            "browser_open",
-            { url },
-            ctxId,
-            browserService,
-          ) as { url?: string; title?: string; error?: string };
-          if (result?.error) return json({ error: result.error }, 502);
-          const resolvedUrl = typeof result?.url === "string" ? result.url : url;
-          // Re-broadcast only if the navigation redirected, so the visible pane
-          // tracks the final URL too.
-          if (resolvedUrl !== url) {
-            broadcastToAll({ type: "browser:navigate", topicId: topic.id, contextId: ctxId, url: resolvedUrl });
-          }
-          return json({ url: resolvedUrl, title: result?.title ?? "" });
-        } catch (e: unknown) {
-          const msg = e instanceof Error ? e.message : String(e);
-          return json({ error: msg }, 500);
-        }
-      }
-    }
-
-    // POST /api/topics/:id/browser/close-pane
-    // POST /api/sessions/:sessionKey/browser/close-pane
-    //
-    // Symmetric counterpart of open-pane (close_browser_pane MCP tool): asks
-    // every live window that renders `browser:<ctx>` to close it through its
-    // NORMAL close flow (X-button semantics). This must be client-originated:
-    // the membership keys are LWW documents that live clients re-persist from
-    // memory, so a server-side state edit gets clobbered back within seconds.
-    // Resolution mirrors open-pane (topic → topic.id, terminal → term-<id>);
-    // an explicit body.contextId wins (close a specific pane you spawned).
-    // Best-effort: the server-side headless context is destroyed too, so web
-    // clients don't keep streaming a pane that no window shows anymore.
-    {
-      const byTopic = matchRoute(pathname, "/api/topics/:id/browser/close-pane");
-      const bySession = matchRoute(pathname, "/api/sessions/:sessionKey/browser/close-pane");
-      if ((byTopic || bySession) && method === "POST") {
-        const body = (await readJSON(req)) as { contextId?: unknown } | null;
-        let ctxId = typeof body?.contextId === "string" && body.contextId ? body.contextId : "";
-        if (!ctxId) {
-          let topic: Topic | null = null;
-          if (byTopic) topic = getTopicById(byTopic.id);
-          else if (bySession) topic = getTopicBySessionKey(decodeURIComponent(bySession.sessionKey));
-          if (topic) {
-            ctxId = resolveContextIdForTopic(topic);
-          } else if (bySession) {
-            const term = getTerminalSessionById(decodeURIComponent(bySession.sessionKey));
-            if (term) ctxId = `term-${term.id}`;
-          }
-        }
-        if (!ctxId) return json({ error: "No browser context resolvable for this session (pass contextId)" }, 404);
-        broadcastToAll({ type: "browser:close-pane", contextId: ctxId });
-        if (browserService) {
-          try { await browserService.destroyContext(ctxId); } catch { /* no headless context — native-only pane */ }
-        }
-        return json({ ok: true, contextId: ctxId });
-      }
+      const browserResp = await browserBridgeRouter(req, url, pathname, method);
+      if (browserResp) return browserResp;
     }
 
     // POST /api/sessions/:sessionKey/move-to-project
@@ -1888,289 +1691,12 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       }
     }
 
-    // POST /api/sessions/:sessionKey/ask-user
-    //
-    // One POLL LEG of the rendez-vous for the `mcp__topics__ask_user_question`
-    // bridge tool. Called by the bridge subprocess when the model asks the human
-    // a question; it blocks here for a few seconds and then answers one of three
-    // ways: `{answers}` (the human submitted the panel, via
-    // /api/chat/tool-response → deliverAnswer), `{pending:true}` (nobody has
-    // answered yet — come straight back), or `{cancelled,reason}` (the ask is
-    // over: aborted, superseded, or expired).
-    //
-    // WHY legs instead of one long block: the first live question died after
-    // minutes with a socket connection error. A single request held open with
-    // zero bytes flowing is exactly what an idle-socket timeout kills, and it
-    // dies CLIENT-side, so no amount of server patience helps. Short legs always
-    // come back; `beginAsk` keeps the TTL on the ask itself, not on the leg.
-    //
-    // The panel is NOT rendered from here — the CLI also emits a `tool_use` for
-    // this call that the provider's detector turns into
-    // `stream:tool_user_input_required`, so the UI is already showing the form
-    // by the time we start waiting. We only supply the answer channel.
+    // Canale umano — domande, permessi e regole di «consenti sempre».
+    // Estratto in server/routes/permission.ts: montato QUI, alla posizione che
+    // il blocco occupava nel dispatch (l'ordine fra rotte è comportamento).
     {
-      const bySession = matchRoute(pathname, "/api/sessions/:sessionKey/ask-user");
-      if (bySession && method === "POST") {
-        const sk = decodeURIComponent(bySession.sessionKey);
-        const body = (await readJSON(req)) as { questions?: unknown; legMs?: unknown } | null;
-        if (!Array.isArray(body?.questions) || body.questions.length === 0) {
-          return json({ error: "questions (non-empty array) is required" }, 400);
-        }
-        // The CALLER picks the leg length: it's the one whose socket dies, so it
-        // knows its own idle budget. Clamped so a bad value can't turn this back
-        // into the long-poll that broke, nor into a busy loop.
-        const legMs = typeof body.legMs === "number" && Number.isFinite(body.legMs)
-          ? Math.min(Math.max(body.legMs, 100), 60_000)
-          : undefined;
-        if (!beginAsk(sk)) {
-          // The ask outlived its TTL. Close it here rather than letting the
-          // bridge poll on into the CLI child's own lifetime cap.
-          cancelAsk(sk, "nessuna risposta: la domanda è scaduta");
-          return json({ cancelled: true, reason: "ask_user_question: la domanda è scaduta senza risposta" });
-        }
-        try {
-          const answers = await waitForAnswer(sk, legMs !== undefined ? { timeoutMs: legMs } : {});
-          return json({ answers });
-        } catch (err: any) {
-          // A leg expiring is the NORMAL case — the human is still reading.
-          // Only a genuinely finished ask (cancelled/superseded) ends the tool.
-          if (err instanceof AskWaitError && err.code === "timeout") {
-            return json({ pending: true });
-          }
-          // Uses `reason`, not `error`, so the bridge's httpJson passes it
-          // through instead of auto-throwing on `error`.
-          return json({ cancelled: true, reason: err?.message ?? String(err) });
-        }
-      }
-    }
-
-    // POST /api/sessions/:sessionKey/permission
-    //
-    // Una GAMBA del rendez-vous del CANALE DI PERMESSO. La chiama il bridge
-    // (`mcp__topics__approval_prompt`) quando la CLI, invece di eseguire uno
-    // strumento, chiede il permesso — cioè in ogni `--permission-mode` che non
-    // sia `bypassPermissions`. Senza questa rotta quella richiesta diventava un
-    // no muto («…but you haven't granted it yet»), e con lei sparivano TUTTI i
-    // tool MCP e ogni scrittura fuori dalla cwd.
-    //
-    // Tre risposte, esattamente come la gamba di una domanda:
-    //   { decision }            qualcuno ha deciso (o una regola lo copriva)
-    //   { pending: true }       nessuno ha ancora premuto — torna subito
-    //   { cancelled, reason }   la richiesta è finita: turno interrotto o scaduta
-    //
-    // Il pannello lo dipinge QUESTA rotta, non lo stream: la chiamata al tool di
-    // prompt non compare nella trascrizione (verificato sul filo), quindi non
-    // c'è nessun `tool_use` da cui il rilevatore possa ricavarla. Si aggancia
-    // alla riga che è GIÀ a schermo — quella dello strumento in attesa — perché
-    // il `tool_use_id` che la CLI passa è lo stesso id di quella riga.
-    {
-      const permM = matchRoute(pathname, "/api/sessions/:sessionKey/permission");
-      if (permM && method === "POST") {
-        const sk = decodeURIComponent(permM.sessionKey);
-        const body = (await readJSON(req)) as
-          | { toolName?: unknown; input?: unknown; toolUseId?: unknown; legMs?: unknown }
-          | null;
-        const toolName = typeof body?.toolName === "string" ? body.toolName : "";
-        const toolUseId = typeof body?.toolUseId === "string" && body.toolUseId ? body.toolUseId : "";
-        if (!toolName || !toolUseId) {
-          return json({ error: "toolName and toolUseId are required" }, 400);
-        }
-        // 1. Una regola lo copre già? Allora non si disturba nessuno. Qui dentro
-        //    c'è anche `mcp__topics__*`: sono le mani di Topics, e il 7 agosto
-        //    una richiesta di permesso è arrivata proprio su
-        //    `ask_user_question` — serviva il permesso di mostrare un pannello
-        //    per poter mostrare un pannello.
-        if (decideGrantForTool(toolName) === "allow") {
-          return json({ decision: "allow" });
-        }
-
-        const legMs = typeof body?.legMs === "number" && Number.isFinite(body.legMs)
-          ? Math.min(Math.max(body.legMs, 100), 60_000)
-          : undefined;
-
-        if (!beginPermission(sk, toolUseId)) {
-          cancelPermission(sk, toolUseId, "nessuna risposta: la richiesta è scaduta");
-          return json({ cancelled: true, reason: "permesso: la richiesta è scaduta senza risposta" });
-        }
-
-        // 2. Il pannello si dipinge finché non è a schermo — non «una volta».
-        //
-        // Dipingerlo solo alla PRIMA gamba lo rende irrecuperabile: se quella
-        // scrittura si perde (i blocchi hanno un altro proprietario dentro lo
-        // stream, e `persistBlocks` può passarci sopra), oppure se il server si
-        // riavvia mentre la richiesta è aperta, la riga resta a girare per
-        // sempre sotto un piede che dice «in attesa della tua risposta». È
-        // successo al primo permesso vero, il 7 agosto.
-        //
-        // Quindi: si guarda la riga com'è ADESSO, e si ridipinge se non mostra
-        // già questo pannello. Una lettura ogni 25 secondi per richiesta
-        // aperta, e nessuno stato che possa restare perso.
-        {
-          const request: ToolPermissionRequest = {
-            toolName,
-            input: (body?.input ?? {}) as Record<string, unknown>,
-            requestedAt: Date.now(),
-          };
-          let targetId = toolUseId;
-          let alreadyPainted = false;
-          try {
-            const row = ctx.db
-              .prepare("SELECT tool_calls, blocks FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 1")
-              .get(sk) as { tool_calls?: string | null; blocks?: string | null } | undefined;
-            const calls = row?.tool_calls ? (JSON.parse(row.tool_calls) as { id?: string; name?: string; status?: string }[]) : [];
-            // Il ripiego per nome copre sia un `tool_use_id` che Topics non ha
-            // persistito, sia una CLI futura che smettesse di passarlo.
-            if (!calls.some((c) => c?.id === toolUseId)) {
-              const byName = [...calls].reverse().find(
-                (c) => c?.name === toolName && (c.status === "running" || c.status === "pending"),
-              );
-              if (byName?.id) {
-                targetId = byName.id;
-                // Il click arriverà con l'id della RIGA: la corrispondenza si
-                // SCRIVE adesso, invece di indovinarla al ritorno.
-                aliasPermission(sk, toolUseId, targetId);
-              }
-            }
-            // «Già dipinto» si giudica sui BLOCCHI quando ci sono, perché sono
-            // quelli che chi disegna legge. Un `tool_calls` in ordine sopra dei
-            // blocchi fermi è esattamente il caso che ci ha fregato.
-            const painted = (json: string | null | undefined, pick: (v: unknown) => { id?: string; status?: string; permissionRequest?: unknown } | null) => {
-              if (!json) return null;
-              try {
-                const arr = JSON.parse(json) as unknown[];
-                for (const raw of arr) {
-                  const tc = pick(raw);
-                  if (tc?.id === targetId) return tc;
-                }
-              } catch { /* riga illeggibile */ }
-              return null;
-            };
-            const fromBlocks = painted(row?.blocks, (b) => {
-              const bb = b as { kind?: string; toolCall?: { id?: string; status?: string; permissionRequest?: unknown } };
-              return bb?.kind === "tool" ? bb.toolCall ?? null : null;
-            });
-            const shown = fromBlocks ?? painted(row?.tool_calls, (c) => c as { id?: string; status?: string; permissionRequest?: unknown });
-            alreadyPainted = shown?.status === "awaiting_permission" && !!shown?.permissionRequest;
-          } catch { /* nel dubbio si ridipinge: un pannello in più è visibile, uno in meno no */ }
-
-          if (!alreadyPainted) {
-            const topic = getTopicBySessionKey(sk);
-            updateToolCallFields(sk, targetId, {
-              status: "awaiting_permission",
-              permissionRequest: request,
-              permissionOutcome: undefined,
-            });
-            broadcastToAll({
-              type: "stream:tool_permission_required",
-              sessionKey: sk,
-              topicId: topic?.id,
-              toolCallId: targetId,
-              request,
-            });
-          }
-        }
-
-        // 3. Aspetta che qualcuno prema.
-        try {
-          const decision = await waitForDecision(sk, toolUseId, legMs !== undefined ? { timeoutMs: legMs } : {});
-          return json({ decision });
-        } catch (err: any) {
-          if (err instanceof PermissionWaitError && err.code === "timeout") {
-            return json({ pending: true });
-          }
-          return json({ cancelled: true, reason: err?.message ?? String(err) });
-        }
-      }
-    }
-
-    // POST /api/sessions/:sessionKey/permission-response
-    //
-    // La decisione umana su UN permesso. Endpoint suo, e non un ramo dentro
-    // `/api/chat/tool-response`: lì la risposta è un `ToolUserResponse` — una
-    // mappa domanda→testo, pensata per essere riletta da un MODELLO. Un
-    // permesso ha tre esiti esatti, li rilegge il SERVER, e uno dei tre scrive
-    // una regola permanente. Farli viaggiare sullo stesso tubo voleva dire
-    // riconoscere la decisione per prefisso di stringa dentro una chiave in
-    // prosa: reggeva finché nessuno toccava un'etichetta.
-    {
-      const respM = matchRoute(pathname, "/api/sessions/:sessionKey/permission-response");
-      if (respM && method === "POST") {
-        const sk = decodeURIComponent(respM.sessionKey);
-        const body = (await readJSON(req)) as { toolCallId?: unknown; decision?: unknown } | null;
-        const toolCallId = typeof body?.toolCallId === "string" ? body.toolCallId : "";
-        if (!toolCallId) return json({ error: "toolCallId is required" }, 400);
-        // Sul confine si valida, non si spera: un valore che non riconosciamo
-        // NON diventa un sì per inerzia, e nemmeno un no silenzioso — è un 400,
-        // e chi ha premuto lo vede.
-        if (!isPermissionDecision(body?.decision)) {
-          return json({ error: "decision must be allow | allow_always | deny", code: "invalid_decision" }, 400);
-        }
-        const decision: PermissionDecision = body.decision;
-
-        const openId = resolvePendingPermission(sk, toolCallId);
-        if (!openId) {
-          // Il pannello è a schermo ma sotto non c'è più nessuno: turno morto,
-          // server riavviato, richiesta scaduta. Dirlo è meglio che accettare
-          // un click che non arriverà da nessuna parte.
-          return json({ error: "nessuna richiesta di permesso aperta per questa riga", code: "permission_not_pending" }, 409);
-        }
-
-        const decidedAt = new Date().toISOString();
-        const topic = getTopicBySessionKey(sk);
-        if (decision === "allow_always") {
-          // Il pattern è il nome dello strumento, letto dalla riga: è l'unica
-          // cosa che sappiamo per certo, e scriverne uno più largo (tutto il
-          // server MCP) sarebbe concedere qualcosa che nessuno ha premuto.
-          try {
-            const row = ctx.db
-              .prepare("SELECT tool_calls FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 1")
-              .get(sk) as { tool_calls?: string | null } | undefined;
-            const calls = row?.tool_calls ? (JSON.parse(row.tool_calls) as { id?: string; name?: string }[]) : [];
-            const name = calls.find((c) => c?.id === toolCallId)?.name;
-            if (name) addToolGrant(name, sk);
-          } catch { /* la concessione di QUESTA volta vale comunque */ }
-        }
-
-        deliverDecision(sk, openId, decision);
-        // La riga torna a girare, e l'esito RESTA: chi rilegge la chat vede chi
-        // ha detto cosa, non solo che a un certo punto il tool è partito.
-        updateToolCallFields(sk, toolCallId, {
-          status: "running",
-          permissionOutcome: { decision, decidedAt },
-        });
-        broadcastToAll({
-          type: "stream:tool_permission_resolved",
-          sessionKey: sk,
-          topicId: topic?.id,
-          toolCallId,
-          outcome: { decision, decidedAt },
-        });
-        return json({ ok: true, decidedAt });
-      }
-    }
-
-    // GET/POST/DELETE /api/tool-grants — le regole di «Consenti sempre».
-    //
-    // Un consenso permanente che non si può rileggere né togliere è una porta
-    // che si apre e basta. Qui si leggono, si aggiungono a mano e si revocano.
-    {
-      if (pathname === "/api/tool-grants" && method === "GET") {
-        return json({ grants: listToolGrants() });
-      }
-      if (pathname === "/api/tool-grants" && method === "POST") {
-        const body = (await readJSON(req)) as { pattern?: unknown } | null;
-        const pattern = typeof body?.pattern === "string" ? body.pattern.trim() : "";
-        if (!pattern) return json({ error: "pattern is required" }, 400);
-        if (!addToolGrant(pattern)) {
-          return json({ error: "pattern non valido (un '*' nudo non è una regola)", code: "invalid_pattern" }, 400);
-        }
-        return json({ ok: true, grants: listToolGrants() });
-      }
-      const grantM = matchRoute(pathname, "/api/tool-grants/:pattern");
-      if (grantM && method === "DELETE") {
-        const removed = removeToolGrant(decodeURIComponent(grantM.pattern));
-        return json({ ok: true, removed, grants: listToolGrants() });
-      }
+      const permResp = await permissionRouter(req, url, pathname, method);
+      if (permResp) return permResp;
     }
 
     // POST /api/sessions/:sessionKey/{switch-topic,new-topic,create-project,open-project}
@@ -2317,173 +1843,6 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       }
     }
 
-    // POST /api/topics/:id/browser/import-chrome
-    // POST /api/sessions/:sessionKey/browser/import-chrome
-    //
-    // MCP bridge for the `import_chrome` tool (claude-code CLI sessions): seed the
-    // topic's native browser pane with the user's real Chrome cookies. Same handler
-    // as the SDK chat tool path (dispatchBrowserToolCall -> handleBrowserImportChrome),
-    // which requires the Electron native pane (CDP). Resolves the pane by topic
-    // OR terminal session (resolveBrowserContext), so a Claude Code terminal tab
-    // can seed its own near-terminal pane too.
-    {
-      const byTopic = matchRoute(pathname, "/api/topics/:id/browser/import-chrome");
-      const bySession = matchRoute(pathname, "/api/sessions/:sessionKey/browser/import-chrome");
-      if ((byTopic || bySession) && method === "POST") {
-        // import-chrome decrypts the user's REAL Chrome session cookies — far more
-        // sensitive than open-pane's navigate. The server binds 0.0.0.0, so require
-        // the gateway token (the MCP bridge always sends X-Gateway-Token; the SDK
-        // chat path never hits this route — it dispatches in-process). Stops a LAN
-        // peer / local process from triggering a confused-deputy cookie import.
-        const tok = req.headers.get("x-gateway-token") || "";
-        if (!process.env.GATEWAY_TOKEN || !timingSafeEqualStr(tok, process.env.GATEWAY_TOKEN)) {
-          return json({ error: "unauthorized" }, 401);
-        }
-        if (!browserService) {
-          return json({ error: "Browser service is not enabled in this build" }, 503);
-        }
-        const target = resolveBrowserContext(byTopic, bySession);
-        if (!target) return json({ error: "No browser pane bound to this session (open a browser pane first)" }, 404);
-
-        const body = (await readJSON(req)) as { domains?: unknown; profile?: unknown; dry_run?: unknown; browser?: unknown } | null;
-        const domains = Array.isArray(body?.domains) ? body.domains.map(String) : [];
-        const profile = typeof body?.profile === "string" ? body.profile : undefined;
-        const dryRun = !!body?.dry_run;
-        // Which Chromium-family browser to read from (chrome default). Validated
-        // downstream against a closed registry — an unknown id degrades to chrome.
-        const browser = typeof body?.browser === "string" ? body.browser : undefined;
-        try {
-          const result = await dispatchBrowserToolCallByContext(
-            "browser_import_chrome",
-            { domains, profile, dry_run: dryRun, browser },
-            target.contextId,
-            browserService,
-          ) as { error?: string };
-          if (result?.error) return json({ error: result.error }, 502);
-          return json(result as Record<string, unknown>);
-        } catch (e: unknown) {
-          const msg = e instanceof Error ? e.message : String(e);
-          return json({ error: msg }, 500);
-        }
-      }
-    }
-
-    // POST /api/{topics/:id,sessions/:sessionKey}/browser/:tool
-    // Generic MCP bridge for the ref-based browser tools (observe/act/extract/
-    // get_text/screenshot/eval and, later, read_screen/save_state/load_state).
-    // ONE block, projected from the single source of truth (browser-tool-spec.ts)
-    // so the REST surface can't drift from the MCP/passthrough surfaces. Same
-    // handler as the SDK chat path; token-gated like import-chrome. Resolves the
-    // pane by topic OR terminal session so a Claude Code terminal tab can drive
-    // its own near-terminal pane. open-pane/import-chrome keep bespoke blocks
-    // above (not in BRIDGED_BROWSER_ENDPOINTS), so this never shadows them.
-    {
-      const byTopic = matchRoute(pathname, "/api/topics/:id/browser/:tool");
-      const bySession = matchRoute(pathname, "/api/sessions/:sessionKey/browser/:tool");
-      const m = byTopic || bySession;
-      const endpoint = m?.tool;
-      const toolName = endpoint ? BRIDGED_BROWSER_ENDPOINTS[endpoint] : undefined;
-      if (m && method === "POST" && toolName) {
-        const tok = req.headers.get("x-gateway-token") || "";
-        if (!process.env.GATEWAY_TOKEN || !timingSafeEqualStr(tok, process.env.GATEWAY_TOKEN)) return json({ error: "unauthorized" }, 401);
-        if (!browserService) return json({ error: "Browser service is not enabled in this build" }, 503);
-        // Read the body FIRST so an explicit `contextId` override can retarget any
-        // live tab (the "manage any tab" capability) — and so a pane-less session
-        // can still drive another tab. `contextId` is stripped before dispatch so
-        // it never leaks into a tool handler's args.
-        const body = ((await readJSON(req)) as Record<string, unknown> | null) ?? {};
-        const override = typeof body.contextId === "string" && body.contextId ? body.contextId : null;
-        delete body.contextId;
-        let contextId: string;
-        if (override) {
-          // Validate against the live inventory: an unknown contextId would
-          // otherwise make getOrCreateContext upsert a phantom headless context.
-          const live = collectLiveContextIds(buildTabDeps(browserService));
-          if (!live.has(override)) {
-            return json({
-              error: `unknown contextId '${override}'. Live tabs: ${[...live].join(", ") || "(none)"}. Call browser_list_tabs for the current list.`,
-            }, 404);
-          }
-          contextId = override;
-        } else {
-          const target = resolveBrowserContext(byTopic, bySession);
-          if (!target) return json({ error: "No browser pane bound to this session (open a browser pane first, or pass contextId from browser_list_tabs)" }, 404);
-          contextId = target.contextId;
-        }
-        try {
-          const result = await dispatchBrowserToolCallByContext(
-            toolName,
-            body,
-            contextId,
-            browserService,
-          ) as Record<string, unknown> & { error?: string };
-          if (result?.error) return json({ error: result.error }, 502);
-          return json(result);
-        } catch (e: unknown) {
-          return json({ error: e instanceof Error ? e.message : String(e) }, 500);
-        }
-      }
-    }
-
-    // POST /api/{topics/:id,sessions/:sessionKey}/browser/list-tabs
-    // Inventory of EVERY live browser tab (all topics/terminals/windows), not
-    // just this session's own — the discovery half of "manage any tab". Bespoke
-    // (not in BRIDGED_BROWSER_ENDPOINTS): it's inventory-scoped and needs `isOwn`
-    // computed from the caller's own contextId, so it doesn't fit the per-context
-    // dispatcher. Token-gated like the bridge (it exposes urls/titles of every
-    // pane). A pane-less caller still lists (no 404 on a null own-context).
-    {
-      const byTopic = matchRoute(pathname, "/api/topics/:id/browser/list-tabs");
-      const bySession = matchRoute(pathname, "/api/sessions/:sessionKey/browser/list-tabs");
-      if ((byTopic || bySession) && method === "POST") {
-        const tok = req.headers.get("x-gateway-token") || "";
-        if (!process.env.GATEWAY_TOKEN || !timingSafeEqualStr(tok, process.env.GATEWAY_TOKEN)) return json({ error: "unauthorized" }, 401);
-        if (!browserService) return json({ error: "Browser service is not enabled in this build" }, 503);
-        const own = resolveBrowserContext(byTopic, bySession)?.contextId ?? null;
-        try {
-          const tabs = await listBrowserTabs(buildTabDeps(browserService), own);
-          return json({ tabs });
-        } catch (e: unknown) {
-          return json({ error: e instanceof Error ? e.message : String(e) }, 500);
-        }
-      }
-    }
-
-    // POST /api/{topics/:id,sessions/:sessionKey}/browser/focus-pane
-    // Bring a browser tab to the front in whichever window shows it — the
-    // management half of "manage any tab". Mirrors close-pane's broadcast path
-    // (browser:focus-pane → usePanelLifecycle → useProjectLayout activation);
-    // client-originated because tab-activation is device-local UI state. An
-    // explicit body.contextId wins (VALIDATED against the live inventory —
-    // focusing a dead pane is meaningless); else own via topic/term-<id>.
-    {
-      const byTopic = matchRoute(pathname, "/api/topics/:id/browser/focus-pane");
-      const bySession = matchRoute(pathname, "/api/sessions/:sessionKey/browser/focus-pane");
-      if ((byTopic || bySession) && method === "POST") {
-        const tok = req.headers.get("x-gateway-token") || "";
-        if (!process.env.GATEWAY_TOKEN || !timingSafeEqualStr(tok, process.env.GATEWAY_TOKEN)) return json({ error: "unauthorized" }, 401);
-        if (!browserService) return json({ error: "Browser service is not enabled in this build" }, 503);
-        const body = (await readJSON(req)) as { contextId?: unknown } | null;
-        const override = typeof body?.contextId === "string" && body.contextId ? body.contextId : null;
-        let ctxId: string;
-        if (override) {
-          const live = collectLiveContextIds(buildTabDeps(browserService));
-          if (!live.has(override)) {
-            return json({
-              error: `unknown contextId '${override}'. Live tabs: ${[...live].join(", ") || "(none)"}. Call browser_list_tabs for the current list.`,
-            }, 404);
-          }
-          ctxId = override;
-        } else {
-          const target = resolveBrowserContext(byTopic, bySession);
-          if (!target) return json({ error: "No browser pane bound to this session (pass contextId from browser_list_tabs)" }, 404);
-          ctxId = target.contextId;
-        }
-        broadcastToAll({ type: "browser:focus-pane", contextId: ctxId });
-        return json({ ok: true, contextId: ctxId });
-      }
-    }
-
     // POST /api/topics/:id/system-message
     {
       const params = matchRoute(pathname, "/api/topics/:id/system-message");
@@ -2611,18 +1970,70 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       if (!sessionKey) return json({ error: "sessionKey required" }, 400);
 
       const stream = activeStreams.get(sessionKey);
-      if (!stream) return json({ ok: false, reason: "no_active_stream" });
-
-      // Abort the gateway request (HTTP fallback)
-      if (stream.abortController) {
-        try { stream.abortController.abort(); } catch {}
-      }
 
       // Resolve topic and provider for abort — O(1) UNIQUE-index lookup
       // instead of a full topics scan per /api/chat/abort hit.
       const abortTopic = getTopicBySessionKey(sessionKey);
       const topicId: string | undefined = abortTopic?.id;
       const abortProvider = resolveProvider(abortTopic);
+
+      // `clearMessages` è una PROPOSTA del client, non un ordine, e la risposta
+      // — il campo `cleared` — è ciò che autorizza il client a svuotare la
+      // pagina, chiudere la pane e archiviare il topic. Prima il client non la
+      // leggeva e decideva da solo: il 10 agosto 2026 una chat viva è sparita
+      // dalla vista mentre qui il wipe veniva rifiutato.
+      const decideClear = (): boolean => {
+        if (!body?.clearMessages) return false;
+        const stored = loadLocalMessages(sessionKey);
+        // Il conteggio della sessione INTERA, non del solo ramo attivo: è la
+        // cancellazione che colpisce tutta la session_key, quindi è su quella
+        // che si deve decidere.
+        const decision = shouldHonorClearMessages(stored, countMessagesBySession(sessionKey));
+        if (!decision.shouldWipe) {
+          console.warn(
+            `[Abort] Ignored clearMessages=true for ${sessionKey} — DB has ${decision.userCount} user / ${decision.assistantCount} assistant messages` +
+            (decision.assistantDidWork ? ", e il turno aveva già prodotto lavoro"
+             : decision.hiddenRows > 0 ? `, e la sessione ha ${decision.hiddenRows} righe fuori dal ramo attivo`
+             : ", not first-message")
+          );
+          return false;
+        }
+        // Si scrive PRIMA di cancellare, e sul ramo che cancella. Finora il
+        // log parlava solo quando RIFIUTAVA: la distruzione di una chat non
+        // lasciava una riga che la nominasse, e nell'incidente dell'8 agosto
+        // l'unica traccia era un `resetSession` a due righe di distanza.
+        console.log(
+          `[Abort] ${sessionKey}: chat cancellata su clearMessages=true — ${decision.userCount} utente / ${decision.assistantCount} assistente, nessun lavoro prodotto`
+        );
+        saveLocalMessages(sessionKey, []);
+        // Stesso taglio di `/clear`, per la stessa ragione: qui la chat viene
+        // buttata via INTERA (era il primo messaggio, fermato prima della
+        // risposta). Senza questo la riga `claude_code_sessions` resta, e la
+        // chat "nuova" che l'utente riapre riprende con `--resume` su una
+        // sessione che ricorda il messaggio appena annullato.
+        if (clearActionFor(abortProvider).kind === "reset") {
+          abortProvider.resetSession!(sessionKey).catch((err: any) =>
+            console.warn(`[Abort] resetSession failed:`, err),
+          );
+        }
+        return true;
+      };
+
+      if (!stream) {
+        // Niente da fermare: turno già finito, oppure una finestra che stava
+        // solo guardando quello di un'altra. Nessun effetto — né sul provider
+        // (un `abort` alla cieca taglierebbe un turno headless che questo
+        // server non ha in `activeStreams`) né sulle righe: `cleared: false`
+        // esplicito, così il client sa che non deve buttare via niente.
+        // Il prezzo è al più una chat usa-e-getta che resta aperta; il prezzo
+        // opposto sarebbe cancellare la domanda di un turno ancora vivo.
+        return json({ ok: false, reason: "no_active_stream", cleared: false });
+      }
+
+      // Abort the gateway request (HTTP fallback)
+      if (stream.abortController) {
+        try { stream.abortController.abort(); } catch {}
+      }
 
       // Also abort via provider if connected
       if (abortProvider.connected) {
@@ -2635,17 +2046,6 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       // turn tears down now instead of hanging on the 10-min ask timeout.
       releaseHumanHold(sessionKey, "turn aborted");
 
-      // `clearMessages` is the client's hint that this was a brand-new chat
-      // whose first message was canceled before the AI could reply, so the
-      // chat itself can be discarded. The client computes this from its own
-      // in-memory state — which is empty during initial load, after WS
-      // reconnect, and after a hot-reload race. Trusting the client here
-      // would let `saveLocalMessages([])` wipe entire conversation histories
-      // when the client guess is wrong. We re-derive the decision from the
-      // DB authoritative copy via `shouldHonorClearMessages` (see
-      // `abortClearPolicy.ts` for the rationale and the matching client-side
-      // guard in `stopSessionPolicy.ts`).
-      let clearedForReal = false;
       // Fermare un turno PRIMA che il modello dica qualcosa lasciava in chat il
       // segnaposto creato all'inizio dello stream, finalizzato vuoto: una bolla
       // senza niente dentro, che poi rientra nella history rimandata al modello
@@ -2664,47 +2064,10 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         discardedMessageId = discardIfEmptyTurn(sessionKey, finalized);
         if (discardedMessageId) console.log(`[Abort] ${sessionKey}: turno vuoto scartato (${discardedMessageId})`);
       };
-      if (body?.clearMessages) {
-        const stored = loadLocalMessages(sessionKey);
-        // Il conteggio della sessione INTERA, non del solo ramo attivo: è la
-        // cancellazione che colpisce tutta la session_key, quindi è su quella
-        // che si deve decidere.
-        const decision = shouldHonorClearMessages(stored, countMessagesBySession(sessionKey));
-        if (decision.shouldWipe) {
-          // Si scrive PRIMA di cancellare, e sul ramo che cancella. Finora il
-          // log parlava solo quando RIFIUTAVA: la distruzione di una chat non
-          // lasciava una riga che la nominasse, e nell'incidente dell'8 agosto
-          // l'unica traccia era un `resetSession` a due righe di distanza.
-          console.log(
-            `[Abort] ${sessionKey}: chat cancellata su clearMessages=true — ${decision.userCount} utente / ${decision.assistantCount} assistente, nessun lavoro prodotto`
-          );
-          saveLocalMessages(sessionKey, []);
-          clearedForReal = true;
-          // Stesso taglio di `/clear`, per la stessa ragione: qui la chat viene
-          // buttata via INTERA (era il primo messaggio, fermato prima della
-          // risposta). Senza questo la riga `claude_code_sessions` resta, e la
-          // chat "nuova" che l'utente riapre riprende con `--resume` su una
-          // sessione che ricorda il messaggio appena annullato.
-          if (clearActionFor(abortProvider).kind === "reset") {
-            abortProvider.resetSession!(sessionKey).catch((err: any) =>
-              console.warn(`[Abort] resetSession failed:`, err),
-            );
-          }
-        } else {
-          console.warn(
-            `[Abort] Ignored clearMessages=true for ${sessionKey} — DB has ${decision.userCount} user / ${decision.assistantCount} assistant messages` +
-            (decision.assistantDidWork ? ", e il turno aveva già prodotto lavoro"
-             : decision.hiddenRows > 0 ? `, e la sessione ha ${decision.hiddenRows} righe fuori dal ramo attivo`
-             : ", not first-message")
-          );
-          // Fall through to the normal finalize path so we don't lose the
-          // partial assistant content the user was about to abort.
-          finalizeAborted();
-        }
-      } else {
-        // Finalize whatever content we have
-        finalizeAborted();
-      }
+      const clearedForReal = decideClear();
+      // Rifiutata (o mai proposta): si passa dalla finalize normale, così non si
+      // perde il contenuto parziale che l'utente stava per fermare.
+      if (!clearedForReal) finalizeAborted();
 
       endStream(sessionKey);
       // user_abort: user explicitly clicked stop — they are present in the tab,
@@ -2967,7 +2330,8 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
           case "model": {
             const modelName = args?.model;
             if (!modelName) return json({ error: "model name required" }, 400);
-            if (providerForSessionKey(sessionKey).name === 'openclaw') {
+            // Il provider DICHIARATO, non quello risolto: vedi declaredProviderName.
+            if (commandRoutesThroughGateway(sessionKey)) {
               const resp = await fetch(`${GATEWAY_URL}/api/inference/chat`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}`, "x-openclaw-scopes": "operator.read,operator.write" }, body: JSON.stringify({ sessionKey, messages: [{ role: "user", content: `/model ${modelName}` }] }) });
               if (!resp.ok) return json({ error: "Failed to set model" }, 500);
               return json({ ok: true, command: "model", model: modelName, message: `Model set to: ${modelName}` });
@@ -2994,7 +2358,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
             // `--effort`). openclaw has no effort tier → route through /reasoning.
             const tier = String(args?.level || args?.effort || "").trim().toLowerCase();
             const VALID_EFFORTS = new Set<string>(EFFORT_TIERS);
-            if (providerForSessionKey(sessionKey).name === 'openclaw') {
+            if (commandRoutesThroughGateway(sessionKey)) {
               return json({ error: "L'effort non si applica a questo provider — usa /reasoning." }, 400);
             }
             if (!tier || !VALID_EFFORTS.has(tier)) {
@@ -3015,7 +2379,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
           }
           case "reasoning": {
             const level = args?.level || "on";
-            if (providerForSessionKey(sessionKey).name === 'openclaw') {
+            if (commandRoutesThroughGateway(sessionKey)) {
               const resp = await fetch(`${GATEWAY_URL}/api/inference/chat`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}`, "x-openclaw-scopes": "operator.read,operator.write" }, body: JSON.stringify({ sessionKey, messages: [{ role: "user", content: `/reasoning ${level}` }] }) });
               if (!resp.ok) return json({ error: "Failed to toggle reasoning" }, 500);
               const text = await resp.text();

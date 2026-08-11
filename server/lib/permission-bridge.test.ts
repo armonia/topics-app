@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import {
   aliasPermission,
+  allowPendingPermissions,
   beginPermission,
   cancelPermission,
   cancelPermissionsForSession,
@@ -94,6 +95,70 @@ describe("due richieste insieme — il motivo per cui la chiave non è la sessio
     endPermission(SK, T1);
     expect(resolvePendingPermission(SK, "riga_diversa")).toBeNull();
     cleanup();
+  });
+});
+
+/**
+ * Gli id qui sotto sono LORO, e non `T1`/`T2`: una decisione consegnata mentre
+ * nessuna gamba è registrata resta in dispensa per il suo TTL, e
+ * `cancelPermissionsForSession` non la ritira (guarda le richieste aperte, e
+ * quella è già chiusa). Riusando gli id, il caso successivo che aspetta un
+ * `cancelled` su `SK/T1` si vedrebbe servire l'`allow` di qui — un rosso che
+ * parla di un'altra cosa.
+ */
+const F1 = "toolu_free_1";
+const F2 = "toolu_free_2";
+const F3 = "toolu_free_3";
+const F4 = "toolu_free_4";
+
+describe("allowPendingPermissions — quando la sessione diventa libera", () => {
+  it("consente TUTTE quelle aperte su quella sessione, e dice quali", async () => {
+    beginPermission(SK, F1);
+    beginPermission(SK, F2);
+    const l1 = waitForDecision(SK, F1, { timeoutMs: 5000 });
+    const l2 = waitForDecision(SK, F2, { timeoutMs: 5000 });
+
+    const served = allowPendingPermissions(SK);
+
+    expect(served.map((s) => s.toolUseId).sort()).toEqual([F1, F2].sort());
+    expect(await l1).toBe("allow");
+    expect(await l2).toBe("allow");
+    expect(sessionHasPendingPermission(SK)).toBe(false);
+  });
+
+  it("riporta anche l'id della RIGA a schermo, o il pannello resterebbe disegnato", async () => {
+    beginPermission(SK, F3);
+    // Il caso del ripiego per nome: la richiesta è indicizzata con l'id della
+    // CLI, ma il pannello è stato dipinto su un'altra riga. Chi richiude deve
+    // sapere QUALE riga spegnere — e gli alias muoiono con la richiesta, quindi
+    // dopo la consegna non sarebbero più recuperabili.
+    aliasPermission(SK, F3, "riga_diversa");
+    const leg = waitForDecision(SK, F3, { timeoutMs: 5000 });
+
+    const served = allowPendingPermissions(SK);
+
+    expect(served).toHaveLength(1);
+    expect(served[0].toolUseId).toBe(F3);
+    expect(served[0].rowIds).toEqual(["riga_diversa"]);
+    expect(await leg).toBe("allow");
+  });
+
+  it("non tocca le altre sessioni", async () => {
+    beginPermission(SK, F4);
+    beginPermission("topic:altra", F4);
+    const mia = waitForDecision(SK, F4, { timeoutMs: 5000 });
+
+    allowPendingPermissions(SK);
+
+    expect(await mia).toBe("allow");
+    expect(sessionHasPendingPermission(SK)).toBe(false);
+    expect(sessionHasPendingPermission("topic:altra")).toBe(true);
+    cleanup("topic:altra");
+  });
+
+  it("nessuna aperta → lista vuota, nessun effetto", () => {
+    cleanup();
+    expect(allowPendingPermissions(SK)).toEqual([]);
   });
 });
 

@@ -47,13 +47,11 @@ import {
   scheduleTerminalCleanup,
   addTerminalTombstone,
   clearTerminalTombstone,
-  getTerminalTombstones,
   addBrowserTombstone,
   clearBrowserTombstone,
   getBrowserTombstones,
   recordBrowserOrigin,
   drainProjectBrowserReopens,
-  drainProjectBrowserNavigates,
 } from '../../../state/pane/adapters';
 import type { ClosedTabRecord } from '../../../state/pane/adapters/hooks/useClosedTabs';
 import { findPreviewPane, replacePaneInGroup } from '../../../lib/previewTabs';
@@ -61,32 +59,30 @@ import { buildTerminalSessionBody, normalizeTerminalAgent, TERMINAL_AGENT_LABELS
 import { pushUndo } from '../../../contexts/UndoContext';
 import { enqueuePendingAction, tickPendingAction, cancelPendingAction } from '../../../contexts/PendingActionContext';
 import { useRefMirror } from '../../../hooks/useRefMirror';
-import { basename } from '../../../lib/path-utils';
-import { resolveBrowserNavigateUrl } from '../../../lib/browserNavUrl';
-import { splitColumnWidths, appendColumnWidths, keepColumnWidths, chooseSplitOrientation } from '../gridWidths';
+import { splitColumnWidths, appendColumnWidths } from '../gridWidths';
 import { notifyPaneReflow } from '../paneReflow';
 import {
   addGroupToColumnStack,
   allGroupIdsInRows,
   isColumnStackFull,
   locateGroup,
-  reconcileCellStacks,
-  pickCellStacks,
-  rowGroupIds,
 } from '../groupLayoutStacks';
-import { setBrowserSpawner, clearBrowserSpawner } from '../../../state/browserSpawner';
+import { clearBrowserSpawner } from '../../../state/browserSpawner';
 import { isTauri } from '../../../lib/shell';
 import { tauriInvoke } from '../../../lib/shell/tauri';
 import { MAX_COLS_PER_ROW, MAX_ROWS } from '../constants';
-import { shouldHandleOpenFile, shouldHandleOpenDiff } from '../fileOpenScope';
 import type { ChatReconciliation, PersistedSnapshot, PersistenceGateRefs } from './types';
-import { shouldKeepRestoredTerminalPane } from './terminalReconcile';
 import { stripWrapperPaneId } from './projectPersistence';
 import {
   detachPaneFromGroups,
   movePaneBetweenGroups,
   paneTypeToGroupType,
 } from './groupOps';
+import { reconcileGroupsWithPanes } from './groupPaneReconcile';
+import { useProjectFileOpen } from './useProjectFileOpen';
+import { useProjectBrowserPanes } from './useProjectBrowserPanes';
+import { useProjectTerminalSync } from './useProjectTerminalSync';
+import { reconcileRowsWithGroups } from './rowLayoutReconcile';
 import { popOutTopic } from '../../../lib/popOutTopic';
 
 // --- Module-local helpers (mirrors of ProjectWindow.tsx helpers) ---
@@ -131,7 +127,7 @@ export interface UseProjectLayoutArgs {
   onOpenPanesChange?: (paneIds: string[]) => void;
   // Streaming:
   isSessionStreaming: (sk: string) => boolean;
-  stopSession: (sk: string) => boolean;
+  stopSession: (sk: string) => Promise<boolean>;
   // For settings modal hop-out:
   onOpenPaneSettings: (topicId: string) => void;
   // Cross-hook gates (read-only here):
@@ -327,14 +323,10 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
   // latest updatePane (defined ~1800 lines below) to persist a project browser
   // pane's URL deterministically at open. Same pattern as handleAddPaneToGroupRef.
   const updatePaneRef = useRef<((paneId: string, updates: Partial<Pane>) => void) | null>(null);
-  // A browser pane just added to a group, queued to be split OUT into its own
-  // space-aware group beside the source (consumed by the effect below once the
-  // pane is committed). Mirrors the standalone pendingSoloPanelId pattern.
-  const [pendingBrowserSplit, setPendingBrowserSplit] = useState<{ paneId: string; sourceGroupId: string } | null>(null);
-  // Set inside the WS/DOM browser-open effect; read by the parked-navigate drain
-  // effect so a board "Apri nel workspace" that raced this window's mount still
-  // opens its pane once the layout exists.
-  const ensureBrowserPaneAndNavigateRef = useRef<((url: string, targetGroupId?: string, spawnerKey?: string, contextId?: string) => void) | null>(null);
+  // Stessa plumbing: la chiusura di una pane browser richiesta dalla PAGINA
+  // (`window.close()` → `browser:request-close`) entra da `useProjectBrowserPanes`,
+  // montato in cima, ma `handleClosePane` nasce ~700 righe più in basso.
+  const handleClosePaneRef = useRef<((groupId: string, paneId: string) => void) | null>(null);
 
   // Forward-declared ref so the pendingFocusTopicId effect (mounted ~80
   // lines below) can call `reopenChatPane`, which is itself defined
@@ -354,522 +346,62 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
   const pendingTargetedChatRef = useRef<{ paneId: string } | null>(null);
 
   // --- Stop streaming (closes pane locally if first-message stop) ---
+  // Si toglie la pane solo se la chat è stata davvero buttata via, e a dirlo è
+  // il server (`stopSession` risolve sul suo `cleared`).
   const handleStopStreaming = useCallback((paneId: string) => {
     const pane = panes.find(p => p.id === paneId);
-    if (pane?.topicId) {
-      const topic = topics[pane.topicId];
-      if (topic) {
-        const isFirst = stopSession(topic.sessionKey);
-        if (isFirst) {
-          setPanes(prev => prev.filter(p => p.id !== paneId));
-        }
-      }
-    }
+    if (!pane?.topicId) return;
+    const topic = topics[pane.topicId];
+    if (!topic) return;
+    void stopSession(topic.sessionKey).then((discarded) => {
+      if (discarded) setPanes(prev => prev.filter(p => p.id !== paneId));
+    });
   }, [panes, topics, stopSession]);
 
-  // --- Sync terminal panes: remove stale, auto-add active terminals matching projectPath ---
-  // Session ids we've POSITIVELY seen in a roster. A terminal pane is pruned
-  // only once its session has been seen AND then disappeared — never on a
-  // transient empty/partial roster. The server's session map is empty for a
-  // moment after a hot-reload (bun --watch restart, reconcile is async) and the
-  // WS reconnect after an Electron refresh can deliver a roster before
-  // reconcile finishes; pruning on those used to wipe every restored
-  // claude-code tab inside a project AND persist the wipe → sessions lost.
-  const seenTerminalSessionIdsRef = useRef<Set<string>>(new Set());
-  /** Sessioni PARCHEGGIATE del progetto: fuori dal roster ma vive come riga
-   *  ripristinabile, quindi le loro tab non vanno potate. Vuoto finché la
-   *  risposta non arriva — e vuoto è il comportamento di prima. */
-  const dormantIdsRef = useRef<ReadonlySet<string>>(new Set());
-  /** Ultimo roster visto, per ripassare il prune se la lista delle dormienti
-   *  arriva dopo (le due fetch non hanno un ordine garantito). */
-  const lastRosterRef = useRef<{ id: string; cwd: string; name: string; type: string }[]>([]);
-  useEffect(() => {
-    // A roster entry is only usable if it carries a string `id` and `cwd`.
-    // The roster can arrive over both the fetch and WS paths from a server
-    // mid-restart (partial shapes) — without this guard `s.cwd.startsWith`
-    // throws and a single bad entry wipes the whole sync.
-    const isTerminalSession = (
-      s: unknown,
-    ): s is { id: string; cwd: string; name: string; type: string } =>
-      !!s &&
-      typeof (s as { id?: unknown }).id === 'string' &&
-      typeof (s as { cwd?: unknown }).cwd === 'string';
+  // --- Sync terminal panes: remove stale, auto-add active terminals ---
+  // Roster, prune e dormienti stanno in `useProjectTerminalSync`: possiede le
+  // sue tre memorie e scrive SOLO `panes`.
+  useProjectTerminalSync({ projectPath, topicsRef, onWSMessage, setPanes });
 
-    const syncTerminals = (rawSessions: { id: string; cwd: string; name: string; type: string }[]) => {
-      // Tenuto per poter ripassare il prune quando la lista delle dormienti
-      // arriva DOPO il roster (due fetch in volo, nessun ordine garantito).
-      lastRosterRef.current = rawSessions;
-      const sessions = rawSessions.filter(isTerminalSession);
-      const sessionIds = new Set(sessions.map(s => s.id));
-      // Live name from the roster, keyed by session id. The server owns the
-      // title (auto-derived from the claude/codex transcript or the opencode DB,
-      // or a user rename), so this lets an existing project tab relabel when its
-      // name lands — a tab spawned as "opencode"/"Claude Code" doesn't stay
-      // generic. (The standalone bar already recomputes titles every render;
-      // only the project layout set the title once at creation and never again.)
-      const nameById = new Map(sessions.map(s => [s.id, s.name] as const));
-      const seen = seenTerminalSessionIdsRef.current;
-      for (const id of sessionIds) seen.add(id);
-      // A NON-EMPTY roster proves the server is up and reconcile has populated
-      // its session map — so a restored terminal pane whose id is absent from it
-      // (and never seen) is a genuine corpse from a previous run, not a
-      // still-loading tab. An EMPTY roster (server mid hot-reload / a reconnect
-      // that raced reconcile) is NOT authoritative: keep never-seen panes then,
-      // preserving the original refresh/reconnect protection. This is what stops
-      // an app restart from resurrecting dead "sessioni morte" project tabs.
-      const rosterAuthoritative = sessionIds.size > 0;
-      // Tombstoned session ids are sessions the user just closed in
-      // this or another window (persisted in localStorage). Don't
-      // auto-add panes for them — otherwise close-then-reload
-      // resurrects them indefinitely until the server-side dormant
-      // reaper kills the session, which can take much longer than the
-      // user's patience.
-      const tombstones = getTerminalTombstones();
-      // Guard against a "broad" project (e.g. the home dir) whose path is an
-      // ancestor of other real projects: by prefix-match it would adopt every
-      // claude-code/terminal underneath it, dragging unrelated sessions into
-      // this split. If a more specific project exists below us, adopt nothing
-      // automatically — those terminals belong to their own project window.
-      const isBroadProject = Object.values(topicsRef.current).some(
-        t => t.projectPath && t.projectPath.startsWith(projectPath + '/'),
-      );
-      const projectSessions = isBroadProject ? [] : sessions.filter(
-        s => (s.cwd === projectPath || s.cwd.startsWith(projectPath + '/'))
-          && !tombstones.has(s.id),
-      );
-      setPanes(prev => {
-        let updated = prev.filter(p => {
-          if (p.type !== 'terminal') return true;
-          const sid = getTerminalSessionFromPaneId(p.id) || '';
-          // Prune a seen-then-gone session (closed in another window) OR a
-          // never-seen id that an authoritative (non-empty) roster doesn't list
-          // (a dead session restored from a previous run). Keep never-seen ids
-          // while the roster is empty/unproven — see terminalReconcile for why
-          // this stops a refresh from losing live tabs.
-          return shouldKeepRestoredTerminalPane(sid, sessionIds, seen, rosterAuthoritative, dormantIdsRef.current);
-        });
-        // Relabel existing terminal tabs from the live roster. Returns the same
-        // object when unchanged, so the identity check below still short-circuits
-        // a no-op broadcast into a no-render.
-        updated = updated.map(p => {
-          if (p.type !== 'terminal') return p;
-          const sid = getTerminalSessionFromPaneId(p.id) || '';
-          const name = nameById.get(sid);
-          return name && name !== p.title ? { ...p, title: name } : p;
-        });
-        const existingTermIds = new Set(
-          updated.filter(p => p.type === 'terminal').map(p => getTerminalSessionFromPaneId(p.id)),
-        );
-        const toAdd: Pane[] = [];
-        for (const s of projectSessions) {
-          if (existingTermIds.has(s.id)) continue;
-          toAdd.push({
-            id: `terminal:${s.id}`,
-            type: 'terminal' as PaneType,
-            title: s.name || TERMINAL_AGENT_LABELS[normalizeTerminalAgent(s.type)],
-            preview: false,
-            // claude-code-team intentionally maps to 'shell' here (not a
-            // user-creatable agent); codex keeps its own type → OpenAI glyph.
-            terminalType: normalizeTerminalAgent(s.type),
-          });
-        }
-        if (toAdd.length > 0) updated = [...updated, ...toAdd];
-        return updated.length === prev.length && updated.every((p, i) => p === prev[i]) ? prev : updated;
-      });
-    };
+  // --- Browser panes (open / navigate / focus / close / split) ---
+  // Tutto in `useProjectBrowserPanes`. Gli handler che gli servono nascono
+  // centinaia di righe più in basso: per questo arrivano come ref.
+  useProjectBrowserPanes({
+    projectPath,
+    topics,
+    panes,
+    groups,
+    panesRef,
+    groupsRef,
+    focusedGroupIdRef,
+    setGroups,
+    setFocusedGroupId,
+    onWSMessage,
+    onBrowserNavigateUrl,
+    handleAddPaneToGroupRef,
+    handleSplitGroupRef,
+    handleClosePaneRef,
+    updatePaneRef,
+  });
 
-    fetch('/api/terminal/sessions').then(r => r.json()).then(syncTerminals).catch(() => {});
-
-    // Le sessioni PARCHEGGIATE si censiscono, non si rianimano.
-    //
-    // Qui si faceva `POST …/revive` su OGNI sessione dormiente di questo cwd.
-    // Serviva a farle rientrare nel roster prima del prune (una dormiente non è
-    // nella mappa in memoria del server, e per il prune «vista e poi sparita» è
-    // indistinguibile da «chiusa in un'altra finestra»), ma il prezzo era che
-    // aprire un progetto rimetteva in piedi in un colpo solo tutti i processi
-    // che il parcheggio per inattività aveva appena spento: il gesto più comune
-    // che esista annullava il risparmio.
-    //
-    // Ora gli id dormienti si passano al prune, che li tiene perché sono
-    // parcheggiati e non morti. A rianimare ci pensa la pane quando diventa
-    // ATTIVA (SingleTerminalPane, gated su `isActive`): con `--resume`,
-    // esattamente dov'era, scrollback compreso. Montare una tab non richiede una
-    // PTY viva — la richiede metterla a fuoco.
-    fetch(`/api/terminal/sessions/dormant?cwd=${encodeURIComponent(projectPath)}`)
-      .then(r => r.json())
-      .then((dormant: { id: string }[]) => {
-        if (!Array.isArray(dormant)) return;
-        dormantIdsRef.current = new Set(dormant.map(d => d.id));
-        // Il roster è già arrivato mentre questa risposta era in volo: ripassa
-        // il prune con l'informazione nuova, o le tab parcheggiate sono già
-        // state potate (e la potatura si persiste).
-        syncTerminals(lastRosterRef.current);
-      })
-      .catch(() => {});
-
-    return onWSMessage((msg: WSMessage) => {
-      const m = msg as unknown as { type?: string; sessions?: unknown };
-      if (m.type === 'terminal:sessions' && Array.isArray(m.sessions)) {
-        syncTerminals(m.sessions as { id: string; cwd: string; name: string; type: string }[]);
-      }
-    });
-  }, [onWSMessage, projectPath, topicsRef]);
-
-  // --- Browser-navigate listener (parity with StandaloneChatGroup) -----------
-  //
-  // When the server (PR #18+#19) or a local `/browser` slash command requests
-  // a URL navigation, the canonical broadcast is `{type:"browser:navigate",
-  // topicId, url}` over WS plus a `browser:open-and-navigate` CustomEvent on
-  // window. Without this hook the bug surfaces: `usePaneOrdering` early-exits
-  // when a ProjectWindowPane is open (`hasProjectPaneRef.current → return`),
-  // expecting THIS hook to take over — but it never did before. Result: the
-  // marker / tool call fires, the broadcast lands, no pane opens.
-  //
-  // What we do here:
-  //   1. Match by topicId: only open a pane when the broadcast targets a
-  //      topic visible in this ProjectWindow (any open chat pane bound to it,
-  //      or the topic itself living under this projectPath).
-  //   2. Ensure exactly one browser pane exists in the focused group
-  //      (singleton). If it already exists, focus it; otherwise add it.
-  //   3. Push the URL through `onBrowserNavigateUrl(url)` so the component-
-  //      level `browserNavigateUrl` state can thread it into
-  //      `<RemoteBrowserPanel navigateUrl={…} />`.
-  //
-  // No retries, no buffering — the URL flows through component state and the
-  // panel consumes it via `onNavigateConsumed`. If the broadcast races the
-  // pane mount, the navigateUrl prop will be honoured on first render.
-  useEffect(() => {
-    const ensureBrowserPaneAndNavigate = (rawUrl: string, targetGroupId?: string, spawnerKey?: string, contextId?: string) => {
-      if (!rawUrl) return;
-      // Rewrite localhost/127.0.0.1/*.local → the LAN https host for remote/mobile
-      // clients, exactly as the standalone path does (usePaneOrdering). Without it
-      // a project browser opened from another device gets a raw localhost URL it
-      // can't reach (white pane) — and seedPaneUrl would persist that dead URL.
-      // On Tauri/local this is a passthrough, so desktop behaviour is unchanged.
-      const url = resolveBrowserNavigateUrl(rawUrl);
-      // Default to the focused group (chat-driven navigation), but allow an
-      // explicit target so a terminal-originated open lands beside the SAME
-      // group as the terminal pane rather than wherever focus happens to be.
-      // Fall back to the first group when nothing is focused yet: a freshly
-      // opened project window can drain a parked "Apri nel workspace" navigate
-      // before focus settles, and we still want the pane to land somewhere.
-      const fgid = targetGroupId ?? focusedGroupIdRef.current ?? groupsRef.current[0]?.id;
-      if (!fgid) return;
-
-      // Reuse ANY existing browser in this project — refresh it in place rather
-      // than spawning a second. A project shares one browser context across its
-      // panes, so a duplicate would fight over the same Electron view.
-      // Persist the URL onto the project pane deterministically at open — the
-      // standalone path does this (usePaneOrdering persistBrowserPaneUrl) but the
-      // project path relied solely on the timing-fragile onUrlChange render, so a
-      // fast open could restore the tab to about:blank after a window restart.
-      // updatePane (not persistBrowserPaneUrl, which no-ops for non-store project
-      // panes) is the project-side persistence seam; round-trips via projectLayoutSync.
-      const seedPaneUrl = (paneId: string): void => {
-        if (url && url !== 'about:blank') updatePaneRef.current?.(paneId, { url });
-      };
-
-      // Per-session isolation: each contextId gets its OWN browser pane. Match
-      // THIS contextId's pane (NOT "any browser in the project") so a second
-      // session opening a browser in the same project gets its OWN pane instead of
-      // STEALING the first's. The old code did find(type==='browser') + REBIND
-      // (rename the existing pane to the incoming contextId), which collapsed EVERY
-      // session in a project onto one shared browser — the "unica per tutti" bug.
-      // Different contextIds are different native views (own WKWebView/WebContents-
-      // View + own server Playwright context), so per-session panes coexist cleanly
-      // in their own DOM slots; the new-pane path below creates one when absent.
-      const existing = contextId
-        ? panesRef.current.find(p => p.id === createPaneId('browser', contextId))
-        : panesRef.current.find(p => p.type === 'browser');
-      if (existing) {
-        const grp = groupsRef.current.find(g => g.paneIds.includes(existing.id));
-        if (grp) {
-          setGroups(prev => prev.map(g => (g.id === grp.id ? { ...g, activePaneId: existing.id } : g)));
-          setFocusedGroupId(grp.id);
-        }
-        const ctx = getBrowserContextFromPaneId(existing.id);
-        if (ctx && spawnerKey) setBrowserSpawner(ctx, spawnerKey);
-        seedPaneUrl(existing.id);
-        onBrowserNavigateUrl?.(url, existing.id);
-        return;
-      }
-
-      // None yet → add the browser to the source group, then queue a split so
-      // it lands in its own space-aware cell BESIDE the chat/terminal instead
-      // of sitting hidden as a tab. The split effect below consumes this once
-      // the pane is committed and picks side-by-side vs stacked by space.
-      queueMicrotask(async () => {
-        const newId = await handleAddPaneToGroupRef.current?.(fgid, 'browser', undefined, contextId);
-        if (newId) {
-          const ctx = getBrowserContextFromPaneId(newId);
-          if (ctx && spawnerKey) setBrowserSpawner(ctx, spawnerKey);
-          seedPaneUrl(newId);
-          setPendingBrowserSplit({ paneId: newId, sourceGroupId: fgid });
-          // Navigate the pane we just created — and ONLY that one. The old
-          // untargeted call here fired before the pane even existed and landed
-          // on whatever browser panes happened to be visible.
-          onBrowserNavigateUrl?.(url, newId);
-        }
-      });
-    };
-    // Expose it so the parked-navigate drain effect (below) can open a pane for a
-    // board "Apri nel workspace" that arrived while this window was still closed.
-    ensureBrowserPaneAndNavigateRef.current = ensureBrowserPaneAndNavigate;
-
-    const topicBelongsToThisProject = (topicId: string | undefined): boolean => {
-      if (!topicId) return false;
-      // Match if the topic is currently rendered as a chat pane here OR if its
-      // projectPath matches ours. The latter handles broadcasts that arrive
-      // before the user has explicitly opened the chat pane in this window.
-      const inOpenChats = panesRef.current.some(
-        p => p.type === 'chat' && p.topicId === topicId,
-      );
-      if (inOpenChats) return true;
-      const t = topics[topicId];
-      return !!t && t.projectPath === projectPath;
-    };
-
-    const unsubWS = onWSMessage((msg: WSMessage) => {
-      const m = msg as unknown as { type?: string; topicId?: string; url?: string; paneId?: string; contextId?: string };
-      if (m.type === 'browser:navigate' && m.url && topicBelongsToThisProject(m.topicId)) {
-        // Bind the pane to the server-resolved contextId (== topic.id) so the
-        // native CDP target registers under the id the agent's browser_* tools
-        // resolve to (no invisible Playwright phantom). Falls back to topicId
-        // (the chat-topic contextId) when the broadcast predates the field.
-        ensureBrowserPaneAndNavigate(m.url, undefined, m.topicId, m.contextId ?? m.topicId);
-      }
-      // Terminal-originated open: only the project window whose layout actually
-      // contains the terminal pane reacts; it opens the browser beside that
-      // exact group (next to the terminal), not the focused group. The spawner
-      // key is the terminal pane id so its tab gets the "opened a browser" cue.
-      if (m.type === 'browser:open-near-pane' && m.url && m.paneId) {
-        const g = groupsRef.current.find(gr => gr.paneIds.includes(m.paneId!));
-        if (g) ensureBrowserPaneAndNavigate(m.url, g.id, m.paneId, m.contextId);
-      }
-    });
-
-    const domHandler = (e: Event) => {
-      const detail = (e as CustomEvent<{ topicId?: string; url?: string; projectPath?: string; contextId?: string }>).detail;
-      if (!detail?.url) return;
-      // Belongs to this window if the event names THIS project path (the board's
-      // "Apri nel workspace", which has no chat topic to key on) OR the topic is
-      // one of ours (chat-driven /browser).
-      const belongs =
-        (!!detail.projectPath && detail.projectPath === projectPath) ||
-        topicBelongsToThisProject(detail.topicId);
-      if (!belongs) return;
-      // chat-topic contextId === topicId (resolveContextIdForTopic); the board
-      // passes an explicit contextId so the pane is steerable by the agent later.
-      ensureBrowserPaneAndNavigate(detail.url, undefined, detail.topicId, detail.contextId ?? detail.topicId);
-      // Handled live by a mounted window — drop any copy parked for the not-yet-
-      // mounted case so it can't re-fire on a later remount.
-      drainProjectBrowserNavigates(projectPath);
-    };
-    window.addEventListener('browser:open-and-navigate', domHandler);
-
-    // Page-initiated close: a page (or the agent) called window.close(); App
-    // bridges it to this event. Close the browser pane IF this project owns it —
-    // the ownership guard means exactly one surface (app-level or the owning
-    // project window) acts, never both. Mirrors a normal tab close (deferred,
-    // animated, undo-able) via handleClosePane.
-    const closeHandler = (e: Event) => {
-      const ctx = (e as CustomEvent<{ contextId?: string }>).detail?.contextId;
-      if (!ctx) return;
-      const paneId = createPaneId('browser', ctx);
-      const pane = panesRef.current.find(p => p.id === paneId);
-      if (!pane) return; // not ours — another surface owns it
-      const grp = groupsRef.current.find(g => g.paneIds.includes(paneId));
-      if (grp) handleClosePaneRef.current?.(grp.id, paneId);
-    };
-    window.addEventListener('browser:request-close', closeHandler);
-
-    // Page/agent-initiated focus (browser_focus_tab): activate the pane in its
-    // group if THIS project owns it (same ownership guard as close). Reuses the
-    // exact "activate existing browser" mutation from the open-and-navigate path.
-    const focusHandler = (e: Event) => {
-      const ctx = (e as CustomEvent<{ contextId?: string }>).detail?.contextId;
-      if (!ctx) return;
-      const paneId = createPaneId('browser', ctx);
-      const pane = panesRef.current.find(p => p.id === paneId);
-      if (!pane) return; // not ours — another surface owns it
-      const grp = groupsRef.current.find(g => g.paneIds.includes(paneId));
-      if (grp) {
-        setGroups(prev => prev.map(g => (g.id === grp.id ? { ...g, activePaneId: paneId } : g)));
-        setFocusedGroupId(grp.id);
-      }
-    };
-    window.addEventListener('browser:request-focus', focusHandler);
-
-    return () => {
-      unsubWS();
-      window.removeEventListener('browser:open-and-navigate', domHandler);
-      window.removeEventListener('browser:request-close', closeHandler);
-      window.removeEventListener('browser:request-focus', focusHandler);
-    };
-    // handleAddPaneToGroupRef is read via ref to avoid re-registering on every
-    // render. Deps are the stable identity inputs only.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [onWSMessage, onBrowserNavigateUrl, topics, projectPath]);
-
-  // Open a browser pane for any "Apri nel workspace" navigate parked while this
-  // window was closed (the board dispatches topics:open-project + enqueues here;
-  // the racing browser:open-and-navigate event loses the mount, so the parked
-  // copy is what actually opens the pane). Fires once the layout has a group to
-  // host it; idempotent — a re-run finds the queue already drained.
-  useEffect(() => {
-    if (groups.length === 0) return;
-    for (const nav of drainProjectBrowserNavigates(projectPath)) {
-      ensureBrowserPaneAndNavigateRef.current?.(nav.url, undefined, nav.spawnerKey ?? nav.contextId, nav.contextId);
-    }
-  }, [projectPath, groups.length]);
-
-  // Consume a queued browser split: once the freshly added browser pane is
-  // committed into its source group (beside the chat/terminal), split it OUT
-  // into its own cell, oriented by the source group's available space (wide →
-  // side-by-side, tall/narrow → stacked). Idempotent: a browser already alone
-  // in its group is left as-is, so re-opening just navigates it.
-  useEffect(() => {
-    if (!pendingBrowserSplit) return;
-    const { paneId } = pendingBrowserSplit;
-    if (!panes.some(p => p.id === paneId)) return; // not committed yet — wait
-    // Mobile (<768px): never split. A phone shows one pane at a time (GroupLayout
-    // flattens groups into a single tab strip), and splitting here would ALSO
-    // restructure the SYNCED layout — the desktop would suddenly show a split it
-    // never asked for. Leave the browser as a tab in its host group.
-    if (window.innerWidth < 768) { setPendingBrowserSplit(null); return; }
-    const hostGroup = groups.find(g => g.paneIds.includes(paneId));
-    if (!hostGroup) return;
-    // Already in its own cell (sibling closed / prior split) → nothing to do.
-    if (hostGroup.paneIds.length <= 1) { setPendingBrowserSplit(null); return; }
-    // Measure the source group's on-screen cell to pick the orientation.
-    let rect: { width: number; height: number } | null = null;
-    try {
-      const bar = document.querySelector(`[data-testid="panel-tab-bar"][data-group-id="${hostGroup.id}"]`);
-      const cell = (bar?.parentElement as HTMLElement | null) ?? null;
-      const r = cell?.getBoundingClientRect();
-      if (r) rect = { width: r.width, height: r.height };
-    } catch { /* DOM not ready / bad selector — fall back to 'side' */ }
-    const edge = chooseSplitOrientation(rect) === 'side' ? 'right' : 'bottom';
-    handleSplitGroupRef.current?.(hostGroup.id, paneId, hostGroup.id, edge);
-    setPendingBrowserSplit(null);
-  }, [pendingBrowserSplit, panes, groups]);
 
   // --- Sync groups with panes (orphan-sync, immutable, no mutations) ---
+  // La regola sta in `reconcileGroupsWithPanes` (puro, testato); qui resta solo
+  // il ponte verso lo stato: leggere il fuoco dalla ref e parcheggiare la chat
+  // di anteprima sostituita per l'effetto che la chiude.
   useEffect(() => {
     setGroups(prev => {
-      const allPaneIds = new Set(panes.map(p => p.id));
-      let anyGroupChanged = false;
-      let updated = prev.map(g => {
-        const filtered = g.paneIds.filter(id => allPaneIds.has(id));
-        if (filtered.length === g.paneIds.length) return g;
-        anyGroupChanged = true;
-        const activePaneId = filtered.includes(g.activePaneId)
-          ? g.activePaneId
-          : filtered[0] || g.activePaneId;
-        return { ...g, paneIds: filtered, activePaneId };
-      });
-      const beforeFilterLen = updated.length;
-      updated = updated.filter(g => g.paneIds.length > 0);
-      if (updated.length !== beforeFilterLen) anyGroupChanged = true;
-
-      const paneToGroupIdx = new Map<string, number>();
-      for (let i = 0; i < updated.length; i++) {
-        for (const pid of updated[i].paneIds) {
-          paneToGroupIdx.set(pid, i);
-        }
-      }
-
-      // Skip the pane that reopenChatPane is about to place into an explicit
-      // target group — see pendingTargetedChatRef. Leaving it orphan for this
-      // tick prevents type-affinity from claiming it into a 'chat' group.
-      const targetedChatId = pendingTargetedChatRef.current?.paneId;
-      const orphanPanes = panes.filter(
-        p => !paneToGroupIdx.has(p.id) && p.id !== targetedChatId,
+      const { groups: next, previewCloseTopicId } = reconcileGroupsWithPanes(
+        prev,
+        panes,
+        focusedGroupIdRef.current,
+        // Skip the pane that reopenChatPane is about to place into an explicit
+        // target group — see pendingTargetedChatRef. Leaving it orphan for this
+        // tick prevents type-affinity from claiming it into a 'chat' group.
+        pendingTargetedChatRef.current?.paneId,
       );
-
-      if (!anyGroupChanged && orphanPanes.length === 0) return prev;
-
-      const orphansByType = new Map<PaneGroupType, Pane[]>();
-      for (const p of orphanPanes) {
-        const gt = paneTypeToGroupType(p.type);
-        if (!orphansByType.has(gt)) orphansByType.set(gt, []);
-        orphansByType.get(gt)!.push(p);
-      }
-
-      const groupIdToIdx = new Map<string, number>();
-      for (let i = 0; i < updated.length; i++) {
-        groupIdToIdx.set(updated[i].id, i);
-      }
-      const groupTypeToFirstIdx = new Map<PaneGroupType, number>();
-      for (let i = 0; i < updated.length; i++) {
-        if (!groupTypeToFirstIdx.has(updated[i].type)) {
-          groupTypeToFirstIdx.set(updated[i].type, i);
-        }
-      }
-
-      const curFocusedGroupId = focusedGroupIdRef.current;
-      const focusedIdx = curFocusedGroupId ? groupIdToIdx.get(curFocusedGroupId) : undefined;
-      const focusedGroup = focusedIdx !== undefined ? updated[focusedIdx] : null;
-
-      for (const [gt, orphans] of orphansByType) {
-        let targetIdx: number | undefined;
-        if (focusedGroup?.type === gt) {
-          targetIdx = focusedIdx;
-        }
-        if (targetIdx === undefined) {
-          targetIdx = groupTypeToFirstIdx.get(gt);
-        }
-        if (targetIdx === undefined && focusedIdx !== undefined) {
-          targetIdx = focusedIdx;
-        }
-        if (targetIdx === undefined && updated.length > 0) {
-          targetIdx = 0;
-        }
-
-        if (targetIdx !== undefined) {
-          const tIdx = targetIdx;
-          const previewOrphan = orphans.find(o => o.preview);
-          if (previewOrphan) {
-            const targetGroup = updated[tIdx];
-            const existingPreview = findPreviewPane(
-              targetGroup.paneIds
-                .map(id => panes.find(p => p.id === id))
-                .filter((p): p is Pane => !!p && paneTypeToGroupType(p.type) === gt),
-              previewOrphan.id,
-            );
-            if (existingPreview) {
-              const newPaneIds = replacePaneInGroup(targetGroup.paneIds, existingPreview.id, previewOrphan.id);
-              const otherOrphans = orphans.filter(o => o !== previewOrphan);
-              updated = updated.map((g, i) =>
-                i === tIdx
-                  ? {
-                      ...g,
-                      paneIds: otherOrphans.length > 0 ? [...newPaneIds, ...otherOrphans.map(p => p.id)] : newPaneIds,
-                      activePaneId: previewOrphan.id,
-                    }
-                  : g,
-              );
-              if (gt === 'chat' && existingPreview.topicId) {
-                pendingPreviewCloseRef.current = existingPreview.topicId;
-              }
-              continue;
-            }
-          }
-          updated = updated.map((g, i) =>
-            i === tIdx ? { ...g, paneIds: [...g.paneIds, ...orphans.map(p => p.id)] } : g,
-          );
-        } else {
-          const newGroup: PaneGroup = {
-            id: createGroupId(),
-            paneIds: orphans.map(p => p.id),
-            activePaneId: orphans[0].id,
-            type: gt,
-          };
-          updated = [...updated, newGroup];
-        }
-      }
-
-      return updated;
+      if (previewCloseTopicId) pendingPreviewCloseRef.current = previewCloseTopicId;
+      return next;
     });
   }, [panes, focusedGroupIdRef]);
 
@@ -877,104 +409,17 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
   // Restore-active-chat is owned by `useProjectChatSync` via
   // `applyChatReconciliation.activateInGroup` (Commit 4) — the layout-side
   // effect that used to live here was redundant and has been removed.
+  //
+  // La regola sta in `reconcileRowsWithGroups` (puro, testato). `rows` e
+  // `rowHeights` restano fuori dalle dipendenze perché sono l'OUTPUT di questa
+  // passata, non il suo input — ora la firma della funzione lo dice al posto di
+  // un commento, e i due `.current` sono i suoi argomenti.
   useEffect(() => {
-    const allGroupIds = new Set(groups.map(g => g.id));
-    // First reconcile per-column vertical stacks: drop dead stacked members,
-    // promote a survivor when a column's primary died, prune empty stacks. This
-    // runs BEFORE the column/row pruning below so a promoted primary is seen as
-    // live and a fully-dead column is left for the width-preserving filter to
-    // drop. `cellStacks` then rides through that filter via pickCellStacks.
-    const reconciled = reconcileCellStacks(rowsRef.current, allGroupIds);
-    const curRows = reconciled.rows;
-    let anyRowChanged = reconciled.changed;
-    let newRows = curRows.map(r => {
-      // Keep the indices of groups that still exist, in order.
-      const keepIdx: number[] = [];
-      for (let i = 0; i < r.groupIds.length; i++) {
-        if (allGroupIds.has(r.groupIds[i])) keepIdx.push(i);
-      }
-      if (keepIdx.length === r.groupIds.length) return r;
-      anyRowChanged = true;
-      const groupIds = keepIdx.map(i => r.groupIds[i]);
-      // Preserve the surviving columns' manual widths (renormalised) instead of
-      // flattening them to equal — dropping a group must not reset its siblings.
-      const widths = keepColumnWidths(r.widths, keepIdx);
-      // Keep the surviving columns' vertical stacks; drop entries keyed by a
-      // pruned primary (reconcile never leaves a dead primary heading a stack).
-      const cellStacks = pickCellStacks(r.cellStacks, groupIds);
-      return { groupIds, widths, ...(cellStacks ? { cellStacks } : {}) };
-    });
-    // Track which pre-filter row indices survive (== indices into rowHeights),
-    // so the surviving rows' manual heights can be preserved below instead of
-    // flattening to 1/n — the vertical twin of the width preservation above.
-    const keptRowIdx: number[] = [];
-    const beforeLen = newRows.length;
-    newRows = newRows.filter((r, i) => {
-      const keep = r.groupIds.length > 0;
-      if (keep) keptRowIdx.push(i);
-      return keep;
-    });
-    if (newRows.length !== beforeLen) anyRowChanged = true;
-
-    // Count BOTH column primaries and stacked members as "placed" — a stacked
-    // group must not also be re-added as a fresh top-level column (it would
-    // render twice). allGroupIdsInRows walks primaries + every cellStack.
-    const usedAfterClean = new Set(newRows.flatMap(rowGroupIds));
-    const newGroupIds = groups.filter(g => !usedAfterClean.has(g.id)).map(g => g.id);
-    if (newGroupIds.length > 0) {
-      anyRowChanged = true;
-      if (newRows.length === 0) {
-        newRows = [{ groupIds: newGroupIds, widths: newGroupIds.map(() => 1 / newGroupIds.length) }];
-      } else {
-        // Respect MAX_COLS_PER_ROW (handleSplitGroup enforces it; this
-        // additive path must not bypass it): fill the first row up to the
-        // cap, overflow into a fresh row below.
-        const firstRow = newRows[0];
-        const slots = Math.max(0, MAX_COLS_PER_ROW - firstRow.groupIds.length);
-        const toFirst = newGroupIds.slice(0, slots);
-        const overflow = newGroupIds.slice(slots);
-        let rebuilt = newRows;
-        if (toFirst.length > 0) {
-          const all = [...firstRow.groupIds, ...toFirst];
-          // Give the newly-appeared groups a fair share but keep the first
-          // row's existing columns in proportion (was `1/n` — reset on every
-          // add).
-          rebuilt = [{ ...firstRow, groupIds: all, widths: appendColumnWidths(firstRow.widths, toFirst.length) }, ...rebuilt.slice(1)];
-        }
-        if (overflow.length > 0) {
-          rebuilt = [...rebuilt, { groupIds: overflow, widths: overflow.map(() => 1 / overflow.length) }];
-        }
-        newRows = rebuilt;
-      }
-    }
-
-    if (newRows.length === 0 && groups.length > 0) {
-      anyRowChanged = true;
-      const gids = groups.map(g => g.id);
-      newRows = [{ groupIds: gids, widths: gids.map(() => 1 / gids.length) }];
-    }
-
-    if (anyRowChanged) {
-      setRows(newRows);
-      const curHeights = rowHeightsRef.current;
-      if (newRows.length !== curHeights.length) {
-        // When rows were purely removed (every survivor maps back to a height
-        // via keptRowIdx) preserve their manual heights in proportion; only
-        // fall back to an equal split when brand-new rows were created.
-        setRowHeights(
-          keptRowIdx.length === newRows.length && newRows.length > 0
-            ? keepColumnWidths(curHeights, keptRowIdx)
-            : newRows.map(() => 1 / newRows.length),
-        );
-      }
-    }
-    // `rows` e `rowHeights` si leggono dalle ref di proposito: sono l'OUTPUT di
-    // questo effetto, non il suo input. Metterli fra le dipendenze lo farebbe
-    // ripartire su ciò che ha appena scritto — un ciclo che si combatte da solo
-    // a ogni ridimensionamento. L'unico ingresso vero è `groups`: questa è la
-    // passata che riconcilia righe e altezze all'insieme dei gruppi vivi.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [groups]);
+    const next = reconcileRowsWithGroups(rowsRef.current, rowHeightsRef.current, groups);
+    if (!next) return;
+    setRows(next.rows);
+    if (next.rowHeights) setRowHeights(next.rowHeights);
+  }, [groups, rowsRef, rowHeightsRef]);
 
   // --- Migration: if no groups but we have panes, build defaults ---
   const migrated = useRef(false);
@@ -1464,7 +909,6 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
   // focused panel, close its inner active sub-tab instead of letting the
   // App-level handler close the whole project. preventDefault marks the
   // event handled so App falls through.
-  const handleClosePaneRef = useRef<((groupId: string, paneId: string) => void) | null>(null);
   handleClosePaneRef.current = handleClosePane;
   useEffect(() => {
     const handler = (e: Event) => {
@@ -1739,239 +1183,21 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
 
   // --- File-event handlers (refs-only — stable) ---
 
-  const handleOpenFile = useCallback((path: string) => {
-    const curPanes = panesRef.current;
-    const curGroups = groupsRef.current;
-    const curFocused = focusedGroupIdRef.current;
+  // --- File / diff / process-log opening ---
+  // Tre handler quasi identici + i loro listener globali stanno in
+  // `useProjectFileOpen`; la regola di collocazione è `planOpenPane` (puro).
+  const { openFile: handleOpenFile, openDiff: handleOpenDiff, openProcessLog: handleOpenProcessLog } =
+    useProjectFileOpen({
+      wrapperPaneId,
+      panesRef,
+      groupsRef,
+      focusedGroupIdRef,
+      focusedPanelIdRef,
+      setPanes,
+      setGroups,
+      setFocusedGroupId,
+    });
 
-    const existing = curPanes.find(p => p.type === 'file' && p.filePath === path);
-    if (existing) {
-      const g = curGroups.find(g => g.paneIds.includes(existing.id));
-      if (g) {
-        setFocusedGroupId(g.id);
-        setGroups(prev =>
-          prev.map(gg => (gg.id === g.id ? { ...gg, activePaneId: existing.id } : gg)),
-        );
-      }
-      return;
-    }
-
-    const filename = basename(path) || path;
-    const newPane: Pane = {
-      id: createPaneId('file'),
-      type: 'file',
-      filePath: path,
-      title: filename,
-      preview: true,
-    };
-
-    const targetGroup = (curFocused ? curGroups.find(g => g.id === curFocused) : null) || curGroups[0];
-    if (!targetGroup) {
-      setPanes(prev => [...prev, newPane]);
-      return;
-    }
-
-    const groupPanes = targetGroup.paneIds
-      .map(id => curPanes.find(p => p.id === id))
-      .filter((p): p is Pane => !!p);
-    const existingPreview = findPreviewPane(groupPanes.filter(p => p.type === 'file'), newPane.id);
-
-    if (existingPreview) {
-      setPanes(prev => prev.map(p => (p.id === existingPreview.id ? newPane : p)));
-      setGroups(prev =>
-        prev.map(g =>
-          g.id === targetGroup.id
-            ? {
-                ...g,
-                paneIds: replacePaneInGroup(g.paneIds, existingPreview.id, newPane.id),
-                activePaneId: newPane.id,
-              }
-            : g,
-        ),
-      );
-    } else {
-      setPanes(prev => [...prev, newPane]);
-      setGroups(prev =>
-        prev.map(g =>
-          g.id === targetGroup.id
-            ? { ...g, paneIds: [...g.paneIds, newPane.id], activePaneId: newPane.id }
-            : g,
-        ),
-      );
-    }
-    setFocusedGroupId(targetGroup.id);
-    // `[]` è il punto, non una dimenticanza: il corpo legge lo stato vivo dalle
-    // ref (`panesRef`/`groupsRef`/`focusedGroupIdRef`) e scrive solo con
-    // setState funzionale, quindi non chiude su niente che possa diventare
-    // stantio. In cambio l'identità dell'handler resta stabile — e questa passa
-    // a ogni pane dell'albero: farla cambiare a ogni modifica del layout
-    // vorrebbe dire ri-renderizzare tutto a ogni tab spostata.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const handleOpenProcessLog = useCallback((processId: string, scriptName: string) => {
-    const curPanes = panesRef.current;
-    const curGroups = groupsRef.current;
-    const curFocused = focusedGroupIdRef.current;
-
-    const paneKey = `process-log:${processId}`;
-    const existing = curPanes.find(p => p.id === paneKey);
-    if (existing) {
-      const g = curGroups.find(g => g.paneIds.includes(existing.id));
-      if (g) {
-        setFocusedGroupId(g.id);
-        setGroups(prev =>
-          prev.map(gg => (gg.id === g.id ? { ...gg, activePaneId: existing.id } : gg)),
-        );
-      }
-      return;
-    }
-
-    const newPane: Pane = {
-      id: paneKey,
-      type: 'process-log',
-      processId,
-      title: scriptName,
-    };
-
-    const targetGroup = (curFocused ? curGroups.find(g => g.id === curFocused) : null) || curGroups[0];
-    if (!targetGroup) {
-      setPanes(prev => [...prev, newPane]);
-      return;
-    }
-
-    setPanes(prev => [...prev, newPane]);
-    setGroups(prev =>
-      prev.map(g =>
-        g.id === targetGroup.id
-          ? { ...g, paneIds: [...g.paneIds, newPane.id], activePaneId: newPane.id }
-          : g,
-      ),
-    );
-    setFocusedGroupId(targetGroup.id);
-    // Refs-only, come `handleOpenFile`: stato vivo dalle ref, scritture con
-    // setState funzionale, identità stabile per non ri-renderizzare l'albero
-    // delle pane.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Rewritten to refs-only (matches handleOpenFile pattern). Per VERIFY Q4.
-  const handleOpenDiff = useCallback((filePath: string, diffProjectPath: string) => {
-    const curPanes = panesRef.current;
-    const curGroups = groupsRef.current;
-    const curFocused = focusedGroupIdRef.current;
-
-    const diffKey = `diff:${filePath}`;
-    const existing = curPanes.find(p => p.type === 'file' && p.id === diffKey);
-    if (existing) {
-      const g = curGroups.find(g => g.paneIds.includes(existing.id));
-      if (g) {
-        setFocusedGroupId(g.id);
-        setGroups(prev =>
-          prev.map(gg => (gg.id === g.id ? { ...gg, activePaneId: existing.id } : gg)),
-        );
-      }
-      return;
-    }
-
-    const filename = basename(filePath) || filePath;
-    const fullPath = `${diffProjectPath}/${filePath}`;
-    const newPane: Pane = {
-      id: diffKey,
-      type: 'file',
-      filePath: fullPath,
-      title: `${filename} (diff)`,
-      diff: true,
-      diffProjectPath,
-      preview: true,
-    };
-
-    const targetGroup = (curFocused ? curGroups.find(g => g.id === curFocused) : null) || curGroups[0];
-    if (!targetGroup) {
-      setPanes(prev => [...prev, newPane]);
-      return;
-    }
-
-    const groupPanes = targetGroup.paneIds
-      .map(id => curPanes.find(p => p.id === id))
-      .filter((p): p is Pane => !!p);
-    const existingPreview = findPreviewPane(groupPanes.filter(p => p.type === 'file'), newPane.id);
-
-    if (existingPreview) {
-      setPanes(prev => prev.map(p => (p.id === existingPreview.id ? newPane : p)));
-      setGroups(prev =>
-        prev.map(g =>
-          g.id === targetGroup.id
-            ? {
-                ...g,
-                paneIds: replacePaneInGroup(g.paneIds, existingPreview.id, newPane.id),
-                activePaneId: newPane.id,
-              }
-            : g,
-        ),
-      );
-    } else {
-      setPanes(prev => [...prev, newPane]);
-      setGroups(prev =>
-        prev.map(g =>
-          g.id === targetGroup.id
-            ? { ...g, paneIds: [...g.paneIds, newPane.id], activePaneId: newPane.id }
-            : g,
-        ),
-      );
-    }
-    setFocusedGroupId(targetGroup.id);
-    // Refs-only, come `handleOpenFile`: stato vivo dalle ref, scritture con
-    // setState funzionale, identità stabile per non ri-renderizzare l'albero
-    // delle pane.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // --- File-event listeners ---
-
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const detail = (e as CustomEvent).detail as { path?: string; topicId?: string };
-      if (!detail?.path) return;
-      // SCOPE to THIS project window. 'open-file' is a GLOBAL window event and
-      // every mounted project window's useProjectLayout subscribes to it — so
-      // with two projects in split view a single dispatch would open the file
-      // in BOTH ("file opens on all splits"). Routing rule extracted to the
-      // unit-tested `shouldHandleOpenFile`; mirrors the projectPath scoping the
-      // global-tab:focus-inner listener already uses.
-      if (!shouldHandleOpenFile(detail, wrapperPaneId, focusedPanelIdRef.current)) return;
-      handleOpenFile(detail.path);
-    };
-    window.addEventListener('open-file', handler);
-    return () => window.removeEventListener('open-file', handler);
-  }, [handleOpenFile, wrapperPaneId, focusedPanelIdRef]);
-
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const detail = (e as CustomEvent).detail as { filePath: string; projectPath: string };
-      if (!detail?.filePath) return;
-      // SCOPE a QUESTA finestra di progetto — la guardia che il gemello
-      // 'open-file' aveva e questo no. Senza, con due finestre affiancate un
-      // click nel pannello Git di B faceva comparire la tab diff anche in A, e
-      // quella tab portava il `diffProjectPath` di B pur essendo ospitata in A.
-      if (!shouldHandleOpenDiff(detail, wrapperPaneId, focusedPanelIdRef.current, p => createPaneId('project', p))) return;
-      handleOpenDiff(detail.filePath, detail.projectPath);
-    };
-    window.addEventListener('open-file-diff', handler);
-    return () => window.removeEventListener('open-file-diff', handler);
-  }, [handleOpenDiff, wrapperPaneId, focusedPanelIdRef]);
-
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const detail = (e as CustomEvent).detail as { path?: string };
-      const path = detail?.path;
-      setPanes(prev =>
-        prev.map(p => (p.type === 'file' && p.filePath === path ? { ...p, preview: false } : p)),
-      );
-    };
-    window.addEventListener('pin-file-pane', handler);
-    return () => window.removeEventListener('pin-file-pane', handler);
-  }, []);
 
   // --- Close replaced preview pane ---
   // Intentionally NO dependency array: this must run AFTER EVERY COMMIT to drain

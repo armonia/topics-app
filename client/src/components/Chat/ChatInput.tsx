@@ -6,7 +6,9 @@ import { decideComposerAction } from './composerAction';
 import { canAnswerWithText, findPendingAsk } from '../../state/pendingAsk';
 import type { Topic, ChatMessage, UpdateTopicRequest, WSMessage } from '../../types';
 import { ImageThumbnail } from '../MessageContent';
-import { useSpeechToText, useTextToSpeech, useVoiceCall } from '../../hooks/useSpeech';
+import { useTextToSpeech, useVoiceCall } from '../../hooks/useSpeech';
+import { useDictation } from '../../hooks/useDictation';
+import { useToast } from '../Shared/Toast';
 import { FileMentionMenu, FilePill, type MentionedFile } from './FileMentionMenu';
 import { ContextPills } from './ContextPills';
 import { useContextFileTokens } from './useContextFileTokens';
@@ -88,9 +90,17 @@ const COMPOSER_CARD =
 // Le AZIONI stanno in cima e i comandi sotto: il «+» lo apri per allegare un
 // file, non per leggere l'elenco degli slash.
 
+/** Avviso di contesto chiuso a mano, con la sessione a cui la chiusura appartiene. */
+interface DismissLatch {
+  key: string;
+  window: 'warn' | 'critical' | null;
+  cost: 'warn' | 'critical' | null;
+}
+
 function AddMenu({
   isCallActive, isListening, isSpeaking, autoTTS,
   voiceCallSupported, sttSupported, currentStreaming, uploading,
+  dictationBusy, dictationModel,
   toggleCall, toggleListening, stopSpeaking, setAutoTTS,
   onSlashCommand,
   onAttach,
@@ -98,6 +108,10 @@ function AddMenu({
 }: {
   isCallActive: boolean; isListening: boolean; isSpeaking: boolean; autoTTS: boolean;
   voiceCallSupported: boolean; sttSupported: boolean; currentStreaming: boolean; uploading: boolean;
+  /** Trascrizione in volo: la dettatura non si riapre finché non è rientrata. */
+  dictationBusy: boolean;
+  /** «elevenlabs scribe_v2» — chi sta ascoltando, nel tooltip. */
+  dictationModel: string | null;
   toggleCall: () => void;
   toggleListening: () => void; stopSpeaking: () => void; setAutoTTS: React.Dispatch<React.SetStateAction<boolean>>;
   onSlashCommand: (cmd: string) => void;
@@ -178,7 +192,13 @@ function AddMenu({
             className={`w-full px-3 py-1.5 text-left flex items-center gap-2.5 text-[12px] transition-colors hover:bg-app-hover ${
               isListening ? 'text-green-500' : 'text-app-text'
             }`}
-            disabled={currentStreaming || uploading}
+            // La dettatura scrive nel composer, non parla con l'agente: uno
+            // streaming in corso non è una ragione per impedirla — anzi, è
+            // esattamente quando si prepara il messaggio dopo. Resta bloccata
+            // solo mentre la trascrizione precedente è ancora in volo.
+            disabled={dictationBusy}
+            data-testid="composer-dictation"
+            title={dictationModel ? `Dettatura — ${dictationModel}` : 'Dettatura'}
           >
             {isListening ? <MicOff size={14} /> : <MessageSquare size={14} />}
             {isListening ? 'Stop dictation' : 'Dictation mode'}
@@ -534,6 +554,7 @@ export function ChatInput({
   onMessage,
 }: ChatInputProps) {
   const tr = useT();
+  const toast = useToast();
   // Context pills state. Excluded pills derive from the topic's SERVER-side
   // disabledContextSources (id format `file:<path>` — the same channel the
   // Context inspector and the envelope assembler use, and the only one the
@@ -607,10 +628,15 @@ export function ChatInput({
   // l'avviso di costo a 400k su un milione (40%, che si vede quasi subito) spegneva
   // per sempre anche l'allarme vero di finestra piena a 900k, che è l'unico che non
   // si può perdere. Due allarmi diversi, due latch.
-  const [dismissed, setDismissed] = useState<Record<'window' | 'cost', 'warn' | 'critical' | null>>(
-    { window: null, cost: null },
-  );
-  useEffect(() => { setDismissed({ window: null, cost: null }); }, [topic.sessionKey]);
+  //
+  // Il latch porta con sé la SESSIONE a cui appartiene, invece di essere
+  // azzerato da un effetto al cambio di topic. Stessa regola («chiudere l'avviso
+  // vale solo per questa chat»), ma derivata: un reset in `useEffect` è un
+  // secondo render a ogni cambio di sessione, e per un fotogramma mostrava
+  // l'avviso della chat PRECEDENTE già chiuso su quella nuova.
+  const [dismissed, setDismissed] = useState<DismissLatch>({ key: topic.sessionKey, window: null, cost: null });
+  const activeDismissed: DismissLatch =
+    dismissed.key === topic.sessionKey ? dismissed : { key: topic.sessionKey, window: null, cost: null };
   const contextNotice = (() => {
     if (!realContext || realContext.level === 'ok') return null;
     const rank = { ok: 0, warn: 1, critical: 2 } as const;
@@ -627,14 +653,14 @@ export function ChatInput({
     // segnale resta dove non costa attenzione: l'anello ambra e il suo tooltip.
     // Il riquadro torna a 400k, dove compattare si ripaga sul serio.
     if (reason === 'cost' && level === 'warn') return null;
-    if (rank[level] <= rank[dismissed[reason] ?? 'ok']) return null;
+    if (rank[level] <= rank[activeDismissed[reason] ?? 'ok']) return null;
     // Rosso vuol dire «stai per perdere pezzi di conversazione», e a farlo è
     // solo la finestra che finisce. Un prompt caro resta ambra anche a livello
     // critico: costa di più, non rompe niente.
     return { ...realContext, reason, level, severe: level === 'critical' && reason === 'window' };
   })();
   const dismissNotice = (n: { reason: 'window' | 'cost'; level: 'warn' | 'critical' }) =>
-    setDismissed((prev) => ({ ...prev, [n.reason]: n.level }));
+    setDismissed({ ...activeDismissed, [n.reason]: n.level });
 
   // Context Inspector popover. Anchored to the ring button below; dismisses on
   // outside-pointer / Escape via the shared useDismissable contract (the ring
@@ -668,15 +694,35 @@ export function ChatInput({
 
   // Position the desktop popover above the ring button, right-clamped to the
   // viewport (mirrors ProviderModelPicker's placement math).
-  const contextPos = showContextPopover && !isMobile && contextBtnRef.current
-    ? (() => {
-        const rect = contextBtnRef.current.getBoundingClientRect();
-        return {
-          bottom: window.innerHeight - rect.top + 6,
-          left: Math.max(8, Math.min(rect.left, window.innerWidth - 396)),
-        };
-      })()
-    : null;
+  //
+  // La misura NON si fa nel corpo del render. Leggere `contextBtnRef.current`
+  // durante il render è leggere un valore che a quel giro può ancora non
+  // esistere: il primo render dopo l'apertura vedeva `null`, il popover non
+  // veniva montato affatto, e ricompariva solo se qualcos'altro ri-renderizzava.
+  // Qui il pannello si monta sempre e la POSIZIONE viene scritta sul nodo in un
+  // layout effect — cioè a DOM pronto e prima che il browser dipinga. È anche il
+  // motivo per cui non passa da uno stato: la posizione non decide cosa
+  // renderizzare, quindi non deve costare un secondo render.
+  const contextPopoverPanelRef = useRef<HTMLDivElement>(null);
+  const contextPopoverOpen = showContextPopover && !!onUpdateTopic && !isMobile;
+  useLayoutEffect(() => {
+    if (!contextPopoverOpen) return;
+    const place = () => {
+      const anchor = contextBtnRef.current;
+      const panel = contextPopoverPanelRef.current;
+      if (!anchor || !panel) return;
+      const rect = anchor.getBoundingClientRect();
+      panel.style.bottom = `${window.innerHeight - rect.top + 6}px`;
+      panel.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - 396))}px`;
+      panel.style.visibility = 'visible';
+    };
+    place();
+    // Il pannello si ridimensiona sotto al popover aperto (split trascinato,
+    // finestra ridotta): senza questo il popover resta dov'era, staccato dal
+    // suo bottone.
+    window.addEventListener('resize', place);
+    return () => window.removeEventListener('resize', place);
+  }, [contextPopoverOpen]);
 
   const handleToggleContext = useCallback((path: string, currentlyExcluded: boolean) => {
     const sourceId = `file:${path}`;
@@ -724,8 +770,42 @@ export function ChatInput({
     [currentMessages],
   );
 
-  // Speech-to-text and TTS hooks
-  const { isListening, transcript, isSupported: sttSupported, toggleListening, clearTranscript } = useSpeechToText();
+  // Dettatura. Il testo entra AL CURSORE, non in coda: chi detta a metà di una
+  // frase già scritta si aspetta che la voce continui da lì, ed è anche l'unico
+  // modo per dettare due volte di seguito senza rimescolare l'ordine.
+  const messageRef = useRef(message);
+  useEffect(() => { messageRef.current = message; }, [message]);
+
+  const insertDictated = useCallback((text: string) => {
+    const ta = textareaRef.current;
+    const current = messageRef.current;
+    const at = ta && ta.selectionStart != null && document.activeElement === ta ? ta.selectionStart : current.length;
+    const before = current.slice(0, at);
+    const after = current.slice(at);
+    const sepBefore = before && !/\s$/.test(before) ? ' ' : '';
+    const sepAfter = after && !/^\s/.test(after) ? ' ' : '';
+    const head = before + sepBefore + text;
+    setMessage(head + sepAfter + after);
+    // Il cursore va dopo il testo appena dettato — altrimenti la dettatura
+    // successiva lo inserirebbe PRIMA di quella di un istante fa.
+    requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(head.length, head.length);
+    });
+  }, [setMessage, textareaRef]);
+
+  const onDictationError = useCallback((m: string) => toast.error(m), [toast]);
+  const {
+    isListening,
+    isTranscribing: isDictationTranscribing,
+    isSupported: sttSupported,
+    modelLabel: dictationModel,
+    toggle: toggleListening,
+    cancel: cancelDictation,
+  } = useDictation({ onText: insertDictated, onError: onDictationError });
+
   const { speak, stop: stopSpeaking, isSpeaking } = useTextToSpeech();
   const [autoTTS, setAutoTTS] = useState(false);
   // Last message id auto-spoken, so the effect below never re-speaks the same
@@ -775,16 +855,20 @@ export function ChatInput({
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
   }, [isFocused, toggleCall, toggleListening, voiceCallSupported, sttSupported, isCallActive, isRecording, startRecording, stopRecording, isSpeaking, stopSpeaking]);
 
-  // Sync transcript to message input. `message`/`setMessage` are intentionally
-  // read as a snapshot only when a new `transcript` arrives — the guard plus
-  // the immediate clearTranscript() make message-change re-runs a safe no-op.
+  // Escape mentre si detta CHIUDE il microfono buttando via l'audio. Senza,
+  // l'unico modo di annullare era premere stop e poi cancellare a mano il testo
+  // — e nel frattempo la trascrizione era già stata pagata.
   useEffect(() => {
-    if (transcript) {
-      setMessage(message + ' ' + transcript);
-      clearTranscript();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- run only when a new transcript arrives; including `message` would re-fire on every keystroke (no-op due to the transcript guard, but pointless), and `setMessage` is a stable parent setter
-  }, [transcript, clearTranscript]);
+    if (!isListening) return;
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      e.stopPropagation();
+      cancelDictation();
+    };
+    window.addEventListener('keydown', onEsc, true);
+    return () => window.removeEventListener('keydown', onEsc, true);
+  }, [isListening, cancelDictation]);
 
   // Reset the auto-TTS guard when switching topics so the first assistant
   // message in the newly-focused topic is spoken even if it shares no id state.
@@ -1030,6 +1114,37 @@ export function ChatInput({
             </div>
           </div>
           <button onClick={toggleCall} className="px-3 py-1 text-[11px] bg-red-500 text-white rounded-md hover:bg-red-600 transition-colors">End Call</button>
+        </div>
+      )}
+
+      {/* Dettatura. La striscia esiste perché il microfono aperto è uno stato
+          INVISIBILE: senza, l'unico segnale era il colore di una voce dentro un
+          menu chiuso, e «perché non scrive niente?» non aveva risposta a schermo.
+          Dice anche CHI sta ascoltando (provider + modello) e come si annulla. */}
+      {(isListening || isDictationTranscribing) && !isCallActive && (
+        <div
+          data-testid="dictation-banner"
+          data-state={isDictationTranscribing ? 'transcribing' : 'listening'}
+          className={`${CHAT_STRIP} bg-app-hover border border-app-border-light px-3 py-2 flex items-center gap-2.5 flex-shrink-0`}
+        >
+          <span className={`w-2 h-2 rounded-full flex-shrink-0 ${isDictationTranscribing ? 'bg-amber-500 animate-pulse' : 'bg-green-500 animate-pulse'}`} />
+          <span className="text-[12px] font-medium text-app-text">
+            {isDictationTranscribing ? 'Trascrivo…' : 'Dettatura'}
+          </span>
+          {!isDictationTranscribing && (
+            <span className="text-[11px] text-app-text-secondary truncate">
+              ⌘⇧D per chiudere · Esc annulla{dictationModel ? ` · ${dictationModel}` : ''}
+            </span>
+          )}
+          {!isDictationTranscribing && (
+            <button
+              type="button"
+              onClick={toggleListening}
+              className="ml-auto px-3 py-1 text-[11px] rounded-md bg-app-surface border border-app-border-light hover:bg-app-hover transition-colors flex-shrink-0"
+            >
+              Stop
+            </button>
+          )}
         </div>
       )}
 
@@ -1346,6 +1461,8 @@ export function ChatInput({
                 sttSupported={sttSupported}
                 currentStreaming={currentStreaming}
                 uploading={uploading}
+                dictationBusy={isDictationTranscribing}
+                dictationModel={dictationModel}
                 toggleCall={toggleCall}
                 toggleListening={toggleListening}
                 stopSpeaking={stopSpeaking}
@@ -1646,15 +1763,20 @@ export function ChatInput({
       {/* Context Inspector popover — anchored to the ring on desktop, a bottom
           sheet on mobile. Replaces the old docked side panel; both trigger
           points (this ring + the per-pane header button) drive it. */}
-      {showContextPopover && onUpdateTopic && !isMobile && contextPos && createPortal(
+      {contextPopoverOpen && createPortal(
         <div
-          ref={contextPopoverRef}
+          ref={node => {
+            contextPopoverRef.current = node;
+            contextPopoverPanelRef.current = node;
+          }}
           data-popover="context-inspector"
           className={`fixed ${POPOVER_PANEL} flex flex-col overflow-hidden`}
+          // `visibility: hidden` per un solo fotogramma: il pannello è nel DOM
+          // (serve, per misurarlo e per il click-outside) ma non lampeggia in
+          // alto a sinistra prima che il layout effect lo collochi.
           style={{
             zIndex: Z_POPOVER,
-            bottom: contextPos.bottom,
-            left: contextPos.left,
+            visibility: 'hidden',
             width: 380,
             height: 'min(60vh, 560px)',
           }}
