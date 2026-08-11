@@ -134,6 +134,37 @@ export const PREVIEW_RULE = [
   "Cancello unico, e vale per tutti e tre: a 268px di larghezza (`sips -Z 268 <file>`) devi ancora saper dire cosa mostra.",
 ].join("\n");
 
+// ─────────────────────────────────────────────────────────────────────────────
+// I cancelli del codice — la regola, in UN posto solo.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Cosa deve essere verde prima di consegnare codice, e la regola dello script
+ * che nessuno importa.
+ *
+ * Misurato l'11/08: tre card nello stesso pomeriggio hanno lasciato `main` con
+ * `check:deadcode` rosso (`scripts/mcp-cap-bench/`, `decompose.ts` +
+ * `prefix-probe.ts`, `scripts/webrtc-probe.ts`), sempre per la stessa forma —
+ * un agente aggiunge uno script che si lancia A MANO, nessuno lo importa, e per
+ * il gate del codice morto un file non importato È codice morto. Il cancello
+ * aveva ragione ogni volta: la dichiarazione mancava davvero.
+ *
+ * La causa non era la distrazione: il kickoff nominava i cancelli SOLO quando la
+ * board dichiarava dei comandi (`reviewChecks`), e nessuna board li dichiarava.
+ * Un cancello che nessuno nomina è un cancello che si scopre a valle — cioè a
+ * mano, dall'umano, tre volte.
+ *
+ * I nomi degli script sono quelli convenzionali di questo repo e valgono come
+ * ESEMPIO: la riga dice esplicitamente di leggerli in `package.json`, perché
+ * quello che non cambia da progetto a progetto sono i quattro CANCELLI, non i
+ * loro nomi. I comandi che il server esegue davvero restano quelli dichiarati
+ * per board (`reviewChecks`) — questa stringa non li sostituisce, li precede.
+ */
+export const CODE_GATES_RULE = [
+  "I QUATTRO CANCELLI del codice, e valgono TUTTI prima di consegnare — i nomi degli script li leggi in `package.json`, i cancelli no: tipi (`bun run typecheck`), lint (`bun run lint`), codice morto (`bun run check:deadcode`), test unitari (`bun run test:unit`).",
+  "Il terzo è quello che si dimentica sempre: per il gate del codice morto un file che NESSUNO IMPORTA è codice morto. Quindi uno script che si lancia a mano (una sonda, un banco, una misura) va DICHIARATO fra gli entry del progetto nello stesso commit che lo aggiunge — con knip: la voce col suffisso `!` in `knip.jsonc` (come `scripts/disk-report.ts!`), e accanto la riga di commento che dice come si lancia.",
+].join("\n");
+
 /**
  * Ritaglia il blocco `PREVIEW_RULE` da un envelope già composto, per STRUTTURA
  * (prima riga «EVIDENZA DI REVIEW…», ultima «Cancello unico…») e non
