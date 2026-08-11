@@ -1545,6 +1545,11 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             status: "backlog",
             idempotencyKey: typeof body?.idempotency_key === "string" ? body.idempotency_key : null,
             parentTaskId: typeof body?.parent_task_id === "string" ? body.parent_task_id : null,
+            // PROVENIENZA (migration 093): chi sta scrivendo. Viene dal topic
+            // risolto server-side dalla sessione, mai dal body — è la prova
+            // durevole che uno step è della TUA checklist, e regge il requeue
+            // che azzera `assigned_topic_id` mentre il turno gira.
+            createdByTopicId: sess.topicId,
           });
           broadcastToAll({ type: "task:created", projectId: sess.projectId, task });
           return json(task, 201);
