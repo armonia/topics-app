@@ -13,7 +13,7 @@
  *   bun test scripts/board-doctor.test.ts
  */
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { deliveryPointer, listOwnCommits } from "../server/services/own-commits";
@@ -31,6 +31,7 @@ import {
   groupForRender,
   isProvablyDead,
   isReadOnlyProof,
+  missingProtocolDocs,
   parseDbTimestamp,
   pushProbe,
   runChecks,
@@ -80,6 +81,7 @@ function input(over: Partial<DoctorInput> = {}): DoctorInput {
     costBaseline: {},
     probes: {},
     documentedParams: [],
+    missingProtocolDocs: [],
     ...over,
   };
 }
@@ -560,6 +562,50 @@ describe("delivery-commit-not-own", () => {
   });
 });
 
+// ── 9. Il documento di protocollo che non c'e' ───────────────────────────────
+
+/**
+ * Il caso scoperto a mano: finche' `docs/board-protocol.md` era in `.gitignore`
+ * nessuna worktree ce l'aveva, il controllo 7 girava su zero chiamate e la
+ * board risultava sana. Un doc assente deve fare ROSSO — se torna a essere una
+ * riga di `skipped`, questi test diventano rossi.
+ */
+describe("protocol-doc-missing", () => {
+  it("SCATTA: il documento che il controllo 7 legge non esiste", () => {
+    const f = runChecks(input({ missingProtocolDocs: ["docs/board-protocol.md"] }), only("protocol-doc-missing"));
+    expect(f).toHaveLength(1);
+    expect(f[0]?.taskText).toBe("docs/board-protocol.md");
+    expect(f[0]?.what).toContain("verde per ignoranza");
+    expect(f[0]?.occurrence).toBe("protocol-doc-missing:docs/board-protocol.md");
+  });
+
+  it("NON scatta quando il documento c'e': l'elenco dei mancanti e' vuoto", () => {
+    expect(runChecks(input({ missingProtocolDocs: [] }), only("protocol-doc-missing"))).toHaveLength(0);
+  });
+
+  it("il doc assente NON e' un `skipped`: e' un rilievo con prova e azione", () => {
+    const f = runChecks(input({ missingProtocolDocs: ["docs/board-protocol.md"] }), only("protocol-doc-missing"))[0];
+    if (!f) throw new Error("fixture");
+    expect(isReadOnlyProof(f.proof)).toBe(true);
+    expect(f.proof).toContain("check-ignore");   // la prova nomina la causa vera del guasto
+    expect(f.action.length).toBeGreaterThan(20);
+  });
+
+  it("missingProtocolDocs legge il disco: presente → nessuno, assente → quello", () => {
+    const repo = mkdtempSync(join(tmpdir(), "doctor-docs-"));
+    try {
+      expect(missingProtocolDocs(repo, ["docs/board-protocol.md"])).toEqual(["docs/board-protocol.md"]);
+      mkdirSync(join(repo, "docs"), { recursive: true });
+      writeFileSync(join(repo, "docs/board-protocol.md"), "# protocollo\n");
+      expect(missingProtocolDocs(repo, ["docs/board-protocol.md"])).toEqual([]);
+    } finally { rmSync(repo, { recursive: true, force: true }); }
+  });
+
+  it("il documento vero di QUESTO checkout c'e' (versionato, non ignorato)", () => {
+    expect(missingProtocolDocs(join(import.meta.dir, ".."))).toEqual([]);
+  });
+});
+
 // ── La disciplina, verificata su tutti i controlli insieme ───────────────────
 
 /** Una fixture per ogni controllo, quella che DEVE far scattare il rilievo. */
@@ -582,6 +628,7 @@ function everythingWrong(): DoctorInput {
       { taskId: "g", branch: "topics/g", defaultBranch: "main", headSha: "ggg", aheadTotal: 3, ownCount: 0, foreignHead: "alt1", ownShas: [], otherBranches: ["topics/y"] },
     ],
     documentedParams: [{ doc: "docs/board-protocol.md", tool: "update_task", param: "previewImage", declared: ["task_id", "preview_image"] }],
+    missingProtocolDocs: ["docs/altro-protocollo.md"],
     reds: [{ taskId: "e", command: "bun run test:unit", worktreePath: "/wt", worktreeExit: 1, mainPath: "/main", mainExit: 0 }],
     costBaseline: { medium: { median: 5_649_737, n: 56 } },
     probes: { d: deadProbes() },
