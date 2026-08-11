@@ -38,6 +38,9 @@
         // entrypoints and let everything else in `scripts/` be checked.
         "scripts/check-*.ts!",            // wired to package.json / CI
         "scripts/typecheck-*.ts!",
+        // `bun scripts/webrtc-probe.ts` — la sonda del percorso WebRTC: si lancia a
+        // mano quando si vuole vedere encode/trasporto dal vivo, nessuno la importa.
+        "scripts/webrtc-probe.ts!",
         "scripts/e2e-shards-summary.ts!", // invoked by scripts/e2e-shards.sh:88
         "scripts/gen-migrations-manifest.ts!", // run by hand to regenerate migrations-embedded.ts
         "scripts/watch-board-tasks.ts!",  // CLI tool for the Monitor loop, run by hand
