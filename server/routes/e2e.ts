@@ -17,6 +17,10 @@
  *   POST /api/test/tasks/:id/bind-topic   lega un task alla topic dell'agente,
  *                              come il dispatcher — così si può testare la
  *                              superficie dei task dispatchati senza agente.
+ *   POST /api/test/tasks/:id/dispatch-state  mette il chip di dispatch come il
+ *                              dispatcher (l'unico che lo scrive) — così una
+ *                              card «in corso, agente al lavoro» si può vedere
+ *                              senza far girare un agente vero.
  *   POST /api/test/tasks/:id/attempts     semina i tentativi di un fan-out già
  *                              chiuso, come il dispatcher a fine giro — così il
  *                              pannello "Tentativi" e la scelta del vincitore si
@@ -227,6 +231,30 @@ export function createE2eRouter(ctx: AppContext): RouteHandler {
         const task = createTaskService(db).bindTopic({
           taskId: decodeURIComponent(bind[1]),
           topicId: body.topicId,
+        });
+        return json({ ok: true, task });
+      } catch (e) {
+        return json({ error: (e as Error).message }, 400);
+      }
+    }
+
+    // POST /api/test/tasks/:taskId/dispatch-state {state, error?} — mette il
+    // chip di dispatch come lo metterebbe il dispatcher.
+    //
+    // Stessa ragione di `bind-topic`: `dispatch_state` lo scrive SOLO il
+    // dispatcher lanciando un agente vero, e da fuori non c'è nessuna API che lo
+    // tocchi (la PATCH del task non lo accetta, di proposito). Senza, una card
+    // «in corso» — con l'agente al lavoro, che è lo stato in cui l'umano vuole
+    // poter dire «fermati» — non è raggiungibile da nessun test end-to-end.
+    // Passa dal servizio vero (`setDispatchState`), nessuna seconda copia.
+    const dispatchState = /^\/api\/test\/tasks\/([^/]+)\/dispatch-state$/.exec(pathname);
+    if (method === "POST" && dispatchState) {
+      const body = (await req.json().catch(() => null)) as { state?: string | null; error?: string | null } | null;
+      try {
+        const task = createTaskService(db).setDispatchState({
+          taskId: decodeURIComponent(dispatchState[1]),
+          state: body?.state ?? null,
+          error: body?.error ?? null,
         });
         return json({ ok: true, task });
       } catch (e) {
