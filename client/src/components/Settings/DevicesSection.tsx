@@ -279,7 +279,7 @@ export function DevicesSection() {
                 ) : (
                   <button
                     onClick={() => setRinomina({ id: d.id, valore: d.name })}
-                    className="group flex max-w-full items-center gap-1 text-left"
+                    className="group flex max-w-full items-center gap-1 text-left coarse:min-h-11"
                     title={t('devices.rename')}
                   >
                     <span className="truncate text-[12.5px] text-app-text">{d.name}</span>
