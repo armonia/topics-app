@@ -2430,7 +2430,27 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // si fa solo per le card che stanno per partire davvero, e solo per quelle
       // che hanno una consegna registrata. Su tutte le altre non c'è nessuna
       // chiamata a git.
-      if (t.deliveryCommit && deps.deliveryLanded) {
+      //
+      // DUE cose che il cancello non tocca, e che senza guardia trasformano una
+      // difesa contro il lavoro rifatto in un modo per buttare via lavoro vero:
+      //
+      //  1. Una card che un UMANO ha rimesso in coda. È lo specchio esatto
+      //     dell'invariante che il repo si è già dato l'11/08 (tasks.ts, «una
+      //     card chiusa da un UMANO non la riapre un agente»): se la decisione
+      //     di una persona non la ribalta la macchina in un verso, non la
+      //     ribalta nemmeno nell'altro. Chi riapre una card atterrata sta
+      //     chiedendo un SEGUITO, e richiuderla gli risponde con una riga di
+      //     storico che non leggerà. Costa un turno crederci; costa una
+      //     richiesta buttata non crederci.
+      //  2. Un padre con sottotask ancora aperti. `done` con figli aperti è
+      //     rifiutato da tutte le porte normali (`update`, l'approvazione in
+      //     review) perché è uno stato che la board non sa raccontare, e questa
+      //     chiusura passa da `settleLanded`, che scrive SQL grezzo e non
+      //     ripassa da quel controllo. I conti dei sottotask arrivano già con la
+      //     lista (`withSubtaskCounts`): nessuna query in più.
+      const riapertaDaUnUmano = t.reopenedActor === "human";
+      const conFigliAperti = t.subtaskCount - t.subtaskDoneCount > 0;
+      if (t.deliveryCommit && deps.deliveryLanded && !riapertaDaUnUmano && !conFigliAperti) {
         let landed: boolean | null = null;
         try { landed = await deps.deliveryLanded(resolved.path, t.deliveryCommit); }
         catch (err) { log(`sonda del commit di consegna fallita per ${t.id}`, err); }

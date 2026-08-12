@@ -1799,6 +1799,31 @@ describe("settleLanded / verdetto testimoniato", () => {
     expect(svc.get(id)!.comments.filter((c) => c.kind === "status").length).toBe(before);
   });
 
+  test("chiudere è chiudere: la card non resta «riaperta» sopra un done, e dice CHI l'ha chiusa", () => {
+    // Questa porta scrive `done` a SQL grezzo: senza le due colonne messe a mano
+    // resterebbe `reopened_actor` acceso e `done_actor` vuoto, cioè «riaperta da
+    // attilio» stampato sopra una card chiusa. Uno stato che `update()` non
+    // produce mai.
+    const id = nuovo("status = 'in_progress', dispatch_state = 'working'");
+    db.prepare("UPDATE tasks SET reopened_at = '2026-08-12T00:00:00Z', reopened_by = 'attilio', reopened_actor = 'human' WHERE id = ?").run(id);
+
+    const dopo = svc.settleLanded({ taskId: id, by: "system", reason: "il land è riuscito" })!;
+
+    expect(dopo.status).toBe("done");
+    expect(dopo.reopenedActor).toBeNull();
+    expect(dopo.reopenedAt).toBeNull();
+    expect(dopo.reopenedBy).toBeNull();
+    expect(dopo.doneActor).toBe("system");
+  });
+
+  test("un verdetto umano NON si riscrive a nome del sistema", () => {
+    // La controprova del COALESCE: se una persona aveva già chiuso questa card,
+    // il verdetto è suo. Sovrascriverlo sarebbe la stessa bugia al contrario.
+    const id = nuovo("status = 'done', dispatch_state = 'working', done_actor = 'human'");
+    const dopo = svc.settleLanded({ taskId: id, by: "system", reason: "il land è riuscito" })!;
+    expect(dopo.doneActor).toBe("human");
+  });
+
   test("un verdetto TESTIMONIATO esce dai candidati della passata: non lo si rideduce", () => {
     const dedotto = nuovo();
     const visto = nuovo();
@@ -1823,6 +1848,67 @@ describe("settleLanded / verdetto testimoniato", () => {
 
     svc.recordDelivery({ taskId: id, branch: "topics/x", commit: "b".repeat(40) });
     expect(svc.listLandingAuditCandidates().map((c) => c.id)).toContain(id);
+  });
+
+  /**
+   * Lo scatto della consegna descrive un lavoro CONSEGNATO. Una card che rientra
+   * in coda non lo sta più consegnando: o è stata rifiutata, o qualcuno l'ha
+   * riaperta per chiedere dell'altro. Tenerlo la fa parlare di un frutto che non
+   * è più suo — e il dispatcher su quel campo ci CHIUDE la card («è già su main»),
+   * quindi la richiesta nuova morirebbe sul commit vecchio senza via d'uscita:
+   * solo una consegna nuova riscrive quel campo, e per consegnare serve il
+   * dispatch che il cancello blocca.
+   */
+  const conConsegna = (stato: string) => {
+    const id = nuovo();
+    svc.recordDelivery({ taskId: id, branch: "topics/x", commit: "a".repeat(40) });
+    svc.recordLandingState({ taskId: id, state: "landed", checkedAt: "2026-08-12T00:00:00Z", witnessed: true });
+    db.prepare("UPDATE tasks SET status = ? WHERE id = ?").run(stato, id);
+    return id;
+  };
+  const atterraggio = (id: string) =>
+    db.prepare("SELECT landing_state AS s, landing_checked_at AS c, landing_witnessed AS w FROM tasks WHERE id = ?").get(id) as any;
+
+  test("una card riaperta da done torna in coda SENZA la consegna di prima", () => {
+    const id = conConsegna("done");
+    expect(svc.get(id)!.task.deliveryCommit).toBe("a".repeat(40));
+
+    const dopo = svc.update({ taskId: id, actor: "human", by: "attilio", patch: { status: "todo" } });
+
+    expect(dopo.deliveryCommit).toBeNull();
+    expect(dopo.deliveryBranch).toBeNull();
+    // Il verdetto sull'atterraggio cade col suo commit: senza, il prossimo
+    // giudizio nascerebbe già «visto» su una consegna che non esiste più.
+    expect(atterraggio(id)).toEqual({ s: null, c: null, w: 0 });
+  });
+
+  test("stessa cosa uscendo da review: un rifiuto non lascia in mano il frutto rifiutato", () => {
+    // La stessa strada di `done`, da un'altra porta: chi trascina una card da
+    // Review a Todo sta chiedendo di rifarla, esattamente come chi la riapre.
+    const id = conConsegna("review");
+    const dopo = svc.update({ taskId: id, actor: "human", by: "attilio", patch: { status: "todo" } });
+    expect(dopo.deliveryCommit).toBeNull();
+    expect(atterraggio(id).w).toBe(0);
+  });
+
+  test("verso done e verso review lo scatto RESTA: è ciò che il reviewer guarda", () => {
+    // La controprova, e non è pedanteria: azzerare qui cancellerebbe la sola
+    // descrizione di ciò che è stato approvato, cioè quello che il land legge.
+    const inReview = conConsegna("review");
+    const approvata = svc.update({ taskId: inReview, actor: "human", by: "attilio", patch: { status: "done" } });
+    expect(approvata.deliveryCommit).toBe("a".repeat(40));
+    expect(atterraggio(inReview).w).toBe(1);
+
+    const chiusa = conConsegna("done");
+    const riletta = svc.update({ taskId: chiusa, actor: "human", by: "attilio", patch: { status: "review" } });
+    expect(riletta.deliveryCommit).toBe("a".repeat(40));
+  });
+
+  test("una card che non è mai stata consegnata non perde niente: il campo era già vuoto", () => {
+    const id = nuovo("status = 'done'");
+    const dopo = svc.update({ taskId: id, actor: "human", by: "attilio", patch: { status: "todo" } });
+    expect(dopo.deliveryCommit).toBeNull();
+    expect(dopo.status).toBe("todo");
   });
 });
 

@@ -2500,6 +2500,101 @@ describe("cancello: non si ridispaccia lavoro già su main", () => {
     } finally { rmSync(repo, { recursive: true, force: true }); }
   }, 60_000);
 
+  it("la strada che RESTA al cancello: l'orfano che la macchina rimette in coda da sé", async () => {
+    // La controprova delle tre guardie qui sotto. Tolte le riaperture umane, le
+    // card senza consegna registrata e i padri con figli aperti, il cancello
+    // deve conservare il caso per cui esiste: il server è ripartito a metà
+    // turno, il rilascio ha rimesso la card in coda da solo, e nessuno ha
+    // chiesto altro lavoro. Se una modifica futura marcasse un rilascio come
+    // «riaperto da un umano», il cancello morirebbe in silenzio e questo test è
+    // l'unico posto che lo direbbe.
+    const { h, chieste } = conSonda(true);
+    seedTask(h.db, { id: "t1", status: "in_progress", dispatchState: "working", deliveryCommit: "eeee5555".repeat(5) });
+
+    const rimessa = h.svc.release({ taskId: "t1", requeue: true, by: "dispatcher", reason: "il server è ripartito" });
+    expect(rimessa.status).toBe("todo");
+    expect(rimessa.reopenedActor).toBeNull();      // la macchina non lascia il marchio dell'umano
+    expect(rimessa.deliveryCommit).not.toBeNull(); // né tocca lo scatto della consegna
+
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    expect(chieste.length).toBe(1);
+    expect(h.turns.length).toBe(0);
+    expect(h.task("t1")!.status).toBe("done");
+    h.dispatcher.shutdown();
+  });
+
+  it("una card che un UMANO ha riaperto RIPARTE: il cancello non ribalta una decisione presa", async () => {
+    // Lo specchio dell'invariante dell'11/08 («una card chiusa da un UMANO non
+    // la riapre un agente»): se la decisione di una persona non la ribalta la
+    // macchina in un verso, non la ribalta nemmeno nell'altro. Chi riapre una
+    // card atterrata sta chiedendo un SEGUITO — richiuderla gli risponde con una
+    // riga di storico che non leggerà, e la richiesta muore lì.
+    const { h } = conSonda(true);
+    seedTask(h.db, { id: "t1", status: "done", deliveryBranch: "topics/x", deliveryCommit: "aaaa1111".repeat(5) });
+
+    h.svc.update({ taskId: "t1", actor: "human", by: "attilio", patch: { status: "todo", text: "aggiungi anche il caso limite X" } });
+    // E la riapertura non le lascia addosso la consegna di prima: senza questo
+    // il guasto non sarebbe nemmeno recuperabile, perché `delivery_commit` lo
+    // riscrive solo una consegna nuova e per consegnare serve il dispatch che il
+    // cancello blocca. Chiusa a ogni tick, per sempre, e a mano non si esce
+    // (il tick reclama solo i `todo`).
+    expect(h.task("t1")!.deliveryCommit).toBeNull();
+
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    expect(h.task("t1")!.status).toBe("in_progress");
+    expect(h.turns.length).toBe(1);
+    h.dispatcher.shutdown();
+  });
+
+  it("il marchio dell'umano vale anche quando in coda ce l'ha rimessa la macchina", async () => {
+    // La riapertura pulisce lo scatto della consegna, ma il marchio `reopened_actor`
+    // resta finché la card non richiude il ciclo. Quindi lo stato «consegna
+    // registrata + riaperta da un umano» esiste eccome: umano riapre → l'agente
+    // consegna di nuovo (`recordDelivery` riscrive il commit) → la macchina la
+    // rimette in coda a SQL grezzo (i sottotask aperti di `deliverToReviewBySystem`,
+    // il rilascio di un orfano), e `markReopened` non tocca niente perché non si
+    // usciva da `done`. Da lì il cancello la rivede, e la sonda dice «atterrato»
+    // di una consegna vecchia. Deve dispacciare lo stesso.
+    const { h, chieste } = conSonda(true);
+    seedTask(h.db, { id: "t1", status: "todo", deliveryCommit: "bbbb2222".repeat(5) });
+    h.db.run("UPDATE tasks SET reopened_actor = 'human', reopened_by = 'attilio' WHERE id = ?", ["t1"]);
+
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    expect(h.task("t1")!.status).toBe("in_progress");
+    expect(h.turns.length).toBe(1);
+    // E a git non si chiede nemmeno: la risposta non cambierebbe la decisione.
+    expect(chieste).toEqual([]);
+    h.dispatcher.shutdown();
+  });
+
+  it("un padre con sottotask aperti non lo chiude nessuno, nemmeno questo cancello", async () => {
+    // `done` con figli aperti è uno stato che la board non sa raccontare, e le
+    // porte normali lo rifiutano (`update` e l'approvazione in review lanciano
+    // `open_subtasks`). La chiusura del cancello passa da `settleLanded`, che
+    // scrive SQL grezzo e non ripassa da lì: senza guardia il padre finiva `done`
+    // col figlio ancora in Todo.
+    const { h, chieste } = conSonda(true);
+    seedTask(h.db, { id: "padre", status: "todo", deliveryCommit: "cccc3333".repeat(5) });
+    seedTask(h.db, { id: "figlio", status: "todo", parentTaskId: "padre" });
+
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    expect(h.task("padre")!.status).not.toBe("done");
+    expect(h.task("figlio")!.status).toBe("todo");
+    expect(chieste).toEqual([]);
+    // …e la porta normale la pensa uguale, sulla stessa riga di DB.
+    expect(() => h.svc.update({ taskId: "padre", actor: "human", by: "attilio", patch: { status: "done" } }))
+      .toThrow(/open subtasks/i);
+    h.dispatcher.shutdown();
+  });
+
   it("card senza consegna registrata: a git non si chiede niente", async () => {
     // Il cancello costa una chiamata a git, e la stragrande maggioranza delle
     // card in coda non ha mai consegnato nulla: su quelle non deve costare poco,
