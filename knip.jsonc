@@ -156,11 +156,14 @@
         "vite.landing.config.ts",
         "src/**/*.{test,spec}.{ts,tsx}"
       ],
-      "project": ["src/**/*.{ts,tsx}"],
-      "ignore": [
-        // Deliberately kept unwired — see the note in GlobalSettings.tsx.
-        "src/hooks/usePushNotifications.ts"
-      ]
+      "project": ["src/**/*.{ts,tsx}"]
+      // `src/hooks/usePushNotifications.ts` stava qui, ignorato perché
+      // «deliberatamente non cablato». Era la forma esatta del guasto: il codice
+      // per iscriversi esisteva, nessuno lo montava, `push_subscriptions` aveva
+      // 0 righe e ad app chiusa non arrivava niente. Ora lo montano
+      // `PushEnrollPrompt` e Impostazioni → Notifiche, quindi l'eccezione non
+      // serve più — e non va rimessa: un hook di notifiche che nessuno importa
+      // non è codice in attesa, è una funzione che non c'è.
     }
   },
   // `pkill`, `du` e `tsc` sono invocati dagli script di package.json ma non sono
