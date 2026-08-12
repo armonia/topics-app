@@ -23,6 +23,7 @@ import { createAccountRouter } from "./account";
 import { createAuthRouter } from "./auth";
 import { isGuestAllowedPath } from "../lib/grants";
 import type { AppContext } from "../types";
+import { TASKS_DDL } from "../db/test-schema";
 
 const RADICE = join(import.meta.dir, "..", "..");
 const MIGRAZIONI = ["080-devices.sql", "082-task-shares.sql", "083-grants.sql", "084-people-orgs.sql"];
@@ -30,7 +31,7 @@ const BASE = "https://conti.esempio.test";
 
 function dbFresco(): Database {
   const db = new Database(":memory:");
-  db.run("CREATE TABLE tasks (id TEXT PRIMARY KEY, text TEXT, status TEXT, project_id TEXT, preview_image TEXT)");
+  db.run(TASKS_DDL);
   db.run("CREATE TABLE topics (id TEXT PRIMARY KEY, name TEXT, updated_at INTEGER)");
   for (const m of MIGRAZIONI) {
     db.run(readFileSync(join(RADICE, "server", "db", "migrations", m), "utf8"));

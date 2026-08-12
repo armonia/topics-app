@@ -14,7 +14,7 @@ import {
   teardownArchivedTaskBrowserState,
   type TaskTabTeardownDeps,
 } from "./task-tab-teardown";
-import { TASK_LABELS_DDL } from "../db/test-schema";
+import { TASKS_DDL, TASK_LABELS_DDL } from "../db/test-schema";
 
 let db: Database;
 let broadcasts: any[];
@@ -27,10 +27,7 @@ function freshDb(): Database {
     payload_version INTEGER NOT NULL DEFAULT 2, server_seq INTEGER NOT NULL DEFAULT 0,
     updated_at TEXT
   )`);
-  d.run(`CREATE TABLE tasks (
-    id TEXT PRIMARY KEY, text TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'todo',
-    archived INTEGER NOT NULL DEFAULT 0, parent_task_id TEXT
-  )`);
+  d.run(TASKS_DDL);
   d.run(TASK_LABELS_DDL); // migration 100 — rowToTask la legge per OGNI task
   return d;
 }
@@ -44,7 +41,7 @@ function putUi(key: string, value: unknown, seq = 1): void {
 }
 
 function task(id: string, opts: { archived?: boolean; parent?: string; status?: string } = {}): void {
-  db.run("INSERT INTO tasks (id, text, status, archived, parent_task_id) VALUES (?, ?, ?, ?, ?)", [
+  db.run("INSERT INTO tasks (id, text, status, archived, parent_task_id, project_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'p-test', '2026-01-01', '2026-01-01')", [
     id,
     `task ${id}`,
     opts.status ?? "todo",
