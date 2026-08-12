@@ -1126,7 +1126,12 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     // GET /api/system/dispatch-capacity — the auto concurrency cap this machine
     // can sustain right now (CPU/load), shown in the board settings' "Auto" option.
     if (pathname === "/api/system/dispatch-capacity" && method === "GET") {
-      return json(computeDispatchCapacity());
+      // `running` viene dal dispatcher, non dal sistema operativo: è il numero
+      // che rende il consiglio leggibile («ne girano 4, ne reggo 2») invece di
+      // un tetto astratto. Senza dispatcher (host degradato) vale 0.
+      let running = 0;
+      try { running = dispatcher?.busyCount() ?? 0; } catch { /* best-effort */ }
+      return json(computeDispatchCapacity(running));
     }
 
     // GET /api/all-boards/publish-status — per-project "commits not yet pushed"
