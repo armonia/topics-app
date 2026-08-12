@@ -92,7 +92,7 @@ test.describe("Sottotask · dall'id al drawer, a qualunque profondità", () => {
   test.describe.configure({ timeout: 120_000 });
   // Viewport più largo del default della suite (1280×800) per una ragione sola:
   // questa spec È la clip di consegna, e l'anteprima di un task viene resa a
-  // 268px di larghezza — oltre un rapporto altezza/larghezza di 0.537 la card
+  // 268px di larghezza — oltre un rapporto altezza/larghezza di 0.70 la card
   // TAGLIA invece di rimpicciolire. 1440×760 → il video esce 800×422 (0.528) e
   // ci sta intero. Nessuna asserzione qui dipende dalla larghezza.
   test.use({ viewport: { width: 1440, height: 760 } });

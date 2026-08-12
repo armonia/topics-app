@@ -33,14 +33,17 @@ import { readGlobalCap } from "./dispatch-capacity";
 // ri-esporta ma NON porta i nomi in scope locale, e qui sotto servono — da cui
 // l'import separato. Della lista `TASK_STATUSES` questo modulo non è una porta:
 // chi la vuole la prende da `shared/board`.
-export type { TaskStatus, TaskComment, BoardSettings, BoardSettingsPatch, BlockerRef } from "../../shared/board";
+export type { TaskStatus, TaskComment, BoardSettings, BoardSettingsPatch, BlockerRef, SubtaskWork } from "../../shared/board";
 import {
-  MAX_FANOUT, PREVIEW_PROMOTE_MAX_RATIO, TASK_STATUSES,
-  formatStatusEvent, hasPlanApproveOption, isAgentWorking, normalizeActionLabel,
-  readTaskWeight, statusEventEnters,
+  MAX_FANOUT, PARKED_STOPPED, PREVIEW_CARD_MAX_RATIO, TASK_STATUSES,
+  deriveSubtaskWork, formatStatusEvent, hasPlanApproveOption, isAgentWorking,
+  isUnattributedSubtask, normalizeActionLabel, readTaskWeight, statusEventEnters,
 } from "../../shared/board";
 import { EFFORT_TIERS } from "../../shared/effort";
-import type { TaskStatus, TaskComment, BoardSettings, BoardSettingsPatch, BlockerRef, TaskWeight } from "../../shared/board";
+// Il vocabolario delle etichette e la regola che le deriva: una sola
+// dichiarazione, letta anche dal client e dalla derivazione alla consegna.
+import { deriveCloser, isCloserLabel, isTaskLabel, normalizeLabels, type LabelSource, type TaskLabel, type TaskLabelRow } from "../../shared/task-labels";
+import type { TaskStatus, TaskComment, BoardSettings, BoardSettingsPatch, BlockerRef, SubtaskWork, TaskWeight } from "../../shared/board";
 
 export type Actor = "human" | "agent";
 
@@ -157,6 +160,18 @@ export interface Task {
    */
   blockedBy: BlockerRef | null;
   /**
+   * Chi lavora questo sottotask quando non ha un agente suo — DERIVATO dalla
+   * catena dei padri, non da una colonna. `null` = la domanda non si pone (non
+   * è un sottotask, non è in corso, o ha già topic/chip).
+   *
+   * Distingue le due facce di una card `in_progress` senza topic né chip: la
+   * lavora un antenato dentro il proprio turno (`parent-turn`, il flusso voluto
+   * e la norma), oppure non la lavora nessuno (`unattended`, raro ma reale — e
+   * fin qui invisibile, perché il recupero orfani filtra sul chip di dispatch
+   * che in questa forma non c'è).
+   */
+  subtaskWork: SubtaskWork | null;
+  /**
    * L'altra metà del legame: quanti task stanno aspettando QUESTO, contati sul
    * DB. Il chip «N in attesa» sulla card si disegna da qui, per lo stesso
    * motivo di `blockedBy`: la lista della board è un progetto solo, `rootsOnly`,
@@ -224,6 +239,14 @@ export interface Task {
    *  'comment') — excludes the AI/agent, system notes and status events. Filled
    *  by list/get; the card shows it as a "quanti messaggi ho mandato" count. */
   userCommentCount: number;
+  /**
+   * Le etichette (migration 100), con CHI le ha scritte. `visibile`,
+   * `decisione` e `invisibile` decidono chi chiude la card e si DERIVANO dal
+   * diff alla consegna; il resto (`bugfix` `feature` `chore` `misura`) serve a
+   * filtrare. Il vocabolario e la regola stanno in `shared/task-labels.ts` —
+   * qui c'è solo la lettura.
+   */
+  labels: TaskLabelRow[];
 }
 
 export interface CreateTaskInput {
@@ -302,6 +325,13 @@ export interface ListTasksInput {
    * dispatcher must never claim a step as an independent task.
    */
   rootsOnly?: boolean;
+  /**
+   * Filtro per etichetta, in AND: un task passa solo se le ha TUTTE. Il caso
+   * d'uso che l'ha chiesto è «mostrami solo le visibili in review» — cioè la
+   * lista che Attilio deve davvero guardare — e si combina con `status`, che è
+   * la colonna. Vuoto/assente = nessun filtro.
+   */
+  labels?: readonly string[];
 }
 
 
@@ -423,6 +453,27 @@ export interface TaskService {
     reason: string;
     cause?: "retries_exhausted" | "model_refused" | "fanout";
   }): Task;
+  /**
+   * Riscrive l'INTERO insieme di etichette di un task (PUT, non PATCH: la board
+   * manda lo stato che vuole vedere). `actor: "agent"` passa dal cancello —
+   * niente `invisibile`, e nessuna visibilità già scritta si può togliere.
+   * `source` timbra chi sta scrivendo, e serve alla derivazione per sapere che
+   * cosa può ricalcolare.
+   */
+  setLabels(args: {
+    taskId: string;
+    labels: readonly string[];
+    actor: Actor;
+    source: LabelSource;
+    projectId?: string;
+  }): Task;
+  /**
+   * La derivazione: dai file dei commit PROPRI del task alla sua visibilità.
+   * Girata sull'edge verso `review`. `null` = non ha scritto niente — o il task
+   * non esiste, o la visibilità è già quella, o l'ha messa a mano un umano e non
+   * si tocca (una correzione che scade alla consegna dopo non è una correzione).
+   */
+  deriveLabelsFromDiff(args: { taskId: string; files: readonly string[] }): Task | null;
   /** Soft-delete (archive) — the row stays for history but drops off the board. */
   archive(args: { taskId: string; projectId?: string }): Task;
   /**
@@ -633,26 +684,30 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
   /**
    * Gate di FORMA — non un quarto cancello di review.
    *
-   * Un'immagine molto più alta che larga, dentro il riquadro `object-cover` da
-   * 268×144 della card, non si rimpicciolisce: si taglia. Promuoverla mette
-   * sulla board la fascia alta di un documento e fa sembrare consegnata
-   * un'evidenza che nessuno può leggere — è così che la card di un PIANO ha
-   * finito per mostrare la fotografia del piano stesso.
+   * Un'immagine molto più alta che larga, nel riquadro `object-cover` della
+   * card, non si rimpicciolisce: si taglia. Promuoverla mette sulla board la
+   * fascia alta di un documento e fa sembrare consegnata un'evidenza che
+   * nessuno può leggere — è così che la card di un PIANO ha finito per mostrare
+   * la fotografia del piano stesso.
    *
    * Quindi la promozione si ferma e lascia una nota. Si FERMA LA PROMOZIONE,
    * non la consegna: il task resta in review, l'allegato resta nel thread, e
    * l'agente legge nella nota quale ramo del protocollo era quello giusto. Un
    * rifiuto qui non deve mai costare un giro di dispatch.
    *
-   * Soglia 0.7 e non 0.537 (quella della card): promuovere è un favore, taglia
-   * solo ciò che è palesemente illeggibile. Forma non misurabile (video,
-   * formato esotico, file illeggibile) ⇒ si promuove: vedi `imageShape`.
+   * La soglia è `PREVIEW_CARD_MAX_RATIO`, la STESSA della card. Erano due (0.7
+   * qui, 0.537 là) perché il tetto della card era un'altezza fissa e quindi un
+   * rapporto ballerino: si promuoveva col numero largo ciò che poi la card
+   * tagliava col numero stretto. Ora la card ha un tetto proporzionale, quindi
+   * il gate dice esattamente «la card taglierebbe questa» — un numero solo per
+   * la stessa immagine. Forma non misurabile (video, formato esotico, file
+   * illeggibile) ⇒ si promuove: vedi `imageShape`.
    */
   function tooTallForCard(path: string): { ratio: number; width: number; height: number } | null {
     if (VIDEO_MEDIA.test(path)) return null;
     const shape = imageShape(path);
     if (!shape) return null;
-    return shape.ratio > PREVIEW_PROMOTE_MAX_RATIO ? shape : null;
+    return shape.ratio > PREVIEW_CARD_MAX_RATIO ? shape : null;
   }
 
   function promoteReviewPreview(taskId: string): void {
@@ -683,8 +738,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         const { path, shape } = rejected[0]!;
         reviewNote(
           taskId,
-          `Anteprima non promossa: \`${baseName(path)}\` è ${shape.width}×${shape.height}, altezza/larghezza ${shape.ratio.toFixed(2)} (soglia ${PREVIEW_PROMOTE_MAX_RATIO}). ` +
-            "In una card da 268px se ne vedrebbe solo la fascia alta. La consegna resta in review e l'allegato resta nel thread: " +
+          `Anteprima non promossa: \`${baseName(path)}\` è ${shape.width}×${shape.height}, altezza/larghezza ${shape.ratio.toFixed(2)} (soglia ${PREVIEW_CARD_MAX_RATIO}). ` +
+            "Sulla card se ne vedrebbe solo la fascia alta. La consegna resta in review e l'allegato resta nel thread: " +
             "se il lavoro non ha una superficie renderizzata il ramo giusto è un DIAGRAMMA `.svg` (la struttura, non la foto del documento); " +
             "se è UI, ricattura a viewport ≤1440×900. Poi `update_task(preview_image=…)`.",
         );
@@ -859,6 +914,86 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     return r?.n ?? 0;
   }
 
+  /**
+   * Chi lavora un sottotask che non ha né topic né chip: risalendo i padri.
+   *
+   * Sta in `rowToTask` accanto a `resolveBlocker` per due ragioni. La prima: il
+   * client non può risolverlo da sé — la sua lista è un progetto, `rootsOnly`,
+   * non archiviati, e il padre di un sottotask quasi mai ci sta dentro. La
+   * seconda: `rowToTask` è il mappatore UNICO, quindi metterlo qui è l'unico
+   * modo perché `list`, `get`, `update` e `boundRootOf` dicano tutti la stessa
+   * cosa; riempirlo nei soli `list`/`get` (come i contatori dei sottotask) lo
+   * lascerebbe spento sul payload di ritorno di ogni scrittura.
+   *
+   * Costa ZERO sul caso normale: la guardia `isUnattributedSubtask` esclude
+   * tutto tranne la forma ambigua — 1 riga viva su ~1.276 alla misura dell'11/08
+   * — e solo lì parte la risalita, UNA query sola su `idx_tasks_parent`, con la
+   * catena misurata profonda 2.
+   *
+   * NON è `boundRootOf`, che pure risale gli stessi padri: quella cerca il primo
+   * antenato con un TOPIC, al lavoro o no. Qui la differenza è tutta: un padre
+   * con un topic ma tornato in `backlog`/`blocked` è esattamente il caso da
+   * segnalare, e `boundRootOf` lo darebbe per buono.
+   *
+   * La query porta su la catena e il verdetto lo dà `isAncestorAtWork` in JS —
+   * non un `WHERE` che riscrive quel predicato in SQL. `ACTIVE_DISPATCH_STATES`
+   * è dichiarato una volta in `shared/board` proprio perché era una lista
+   * copiata in cinque posti: una sesta copia dentro una stringa SQL non la
+   * vedrebbe nemmeno il compilatore.
+   *
+   * Il tetto sulla profondità non è per la catena vera (2), è perché una che si
+   * richiude su sé stessa qui aprirebbe una CTE infinita: il cancello di
+   * `parent_task_id` (migration 034) dice che un id nuovo non può essere
+   * antenato di una riga esistente, ma un ciclo scritto da una migration futura
+   * non deve poter appendere il server.
+   */
+  const MAX_ANCESTOR_DEPTH = 32;
+
+  function resolveSubtaskWork(r: any): SubtaskWork | null {
+    const task = {
+      status: r.status,
+      parentTaskId: r.parent_task_id ?? null,
+      assignedTopicId: r.assigned_topic_id ?? null,
+      dispatchState: r.dispatch_state ?? null,
+    };
+    if (!isUnattributedSubtask(task)) return null;
+
+    const rows = db.prepare(
+      `WITH RECURSIVE chain(id, parent, depth) AS (
+         SELECT id, parent_task_id, 0 FROM tasks WHERE id = ?
+         UNION ALL
+         SELECT t.id, t.parent_task_id, c.depth + 1
+           FROM tasks t JOIN chain c ON t.id = c.parent
+          WHERE c.depth < ?
+       )
+       SELECT t.id, t.text, t.status, t.dispatch_state, t.archived
+         FROM chain c JOIN tasks t ON t.id = c.id
+        WHERE c.depth > 0
+        ORDER BY c.depth ASC`,
+    ).all(r.id, MAX_ANCESTOR_DEPTH) as any[];
+
+    return deriveSubtaskWork(task, rows.map((a) => ({
+      id: a.id, text: a.text, status: a.status,
+      dispatchState: a.dispatch_state ?? null, archived: !!a.archived,
+    })));
+  }
+
+  /**
+   * Le etichette di UNA riga. Letta qui e non in `withSubtaskCounts` per lo
+   * stesso motivo di `waitingOnCount`: i contatori riempiti solo da `list`/`get`
+   * spariscono dai `task:updated`, e un giro di WS azzererebbe il chip fino al
+   * fetch successivo — cioè proprio mentre l'umano guarda la card che ha appena
+   * etichettato. Costa un lookup sulla chiave primaria di `task_labels`.
+   */
+  function labelsOf(taskId: string): TaskLabelRow[] {
+    const rows = db.prepare(
+      "SELECT label, source FROM task_labels WHERE task_id = ? ORDER BY label ASC",
+    ).all(taskId) as Array<{ label: string; source: string }>;
+    return rows
+      .filter((r) => isTaskLabel(r.label))
+      .map((r) => ({ label: r.label as TaskLabel, source: r.source as LabelSource }));
+  }
+
   function rowToTask(r: any): Task {
     return {
       id: r.id,
@@ -895,6 +1030,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       effort: resolveEffort(r),
       blockedByTaskId: r.blocked_by_task_id ?? null,
       blockedBy: resolveBlocker(r.blocked_by_task_id),
+      subtaskWork: resolveSubtaskWork(r),
       waitingOnCount: countWaitingOn(r.id),
       deliveryBranch: r.delivery_branch ?? null,
       deliveryCommit: r.delivery_commit ?? null,
@@ -914,6 +1050,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       subtaskCount: 0,
       subtaskDoneCount: 0,
       userCommentCount: 0,
+      labels: labelsOf(r.id),
     };
   }
 
@@ -1224,6 +1361,17 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       }
       if (input.status) { clauses.push("status = ?"); params.push(input.status); }
       if (input.rootsOnly) clauses.push("parent_task_id IS NULL");
+      // Etichette in AND. Un JOIN sull'indice `idx_task_labels_label`, non una
+      // `LIKE '%bugfix%'` su una stringa: `bugfix-ui` non matcha `bugfix`, ed è
+      // esattamente il motivo per cui le etichette sono righe e non una colonna.
+      const wantedLabels = (input.labels ?? []).filter(isTaskLabel);
+      if (wantedLabels.length) {
+        clauses.push(
+          `id IN (SELECT task_id FROM task_labels WHERE label IN (${wantedLabels.map(() => "?").join(", ")})
+                   GROUP BY task_id HAVING COUNT(DISTINCT label) = ?)`,
+        );
+        params.push(...wantedLabels, wantedLabels.length);
+      }
       const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
       // project scope → board order (status then kanban_order); global feed → recency.
       const order = input.scope === "all" ? "updated_at DESC" : "kanban_order ASC";
@@ -1274,7 +1422,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         // una sessione di lavorare su un task che nessuno le ha tolto.
         const releasedByDispatcher =
           row.assigned_topic_id == null
-          && (row.dispatch_state === "queued" || row.dispatch_state === "failed" || row.dispatch_state === "blocked");
+          && (row.dispatch_state === "queued" || row.dispatch_state === "failed"
+            || row.dispatch_state === "blocked" || row.dispatch_state === PARKED_STOPPED);
         const boundElsewhere = row.assigned_topic_id != null && row.assigned_topic_id !== agentTopicId;
         if (
           actor === "agent" && agentTopicId
@@ -2012,6 +2161,77 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         now(),
         taskId,
       );
+      return rowToTask(getTaskRow(taskId));
+    },
+
+    setLabels({ taskId, labels, actor, source, projectId }): Task {
+      const row = getTaskRow(taskId);
+      if (!row || (projectId && row.project_id !== projectId)) {
+        throw new TaskServiceError("not_found", `task ${taskId} not found`);
+      }
+      const wanted = normalizeLabels(labels);
+      const current = labelsOf(taskId);
+
+      // IL CANCELLO. Un agente può alzare la mano, mai abbassarla. `visibile` e
+      // `decisione` sì — sono due modi di passare la card a un umano, e passare
+      // lavoro a una persona è sempre permesso. `invisibile` no: è l'unica che
+      // TOGLIE la revisione umana, e sarebbe l'autorizzazione a chiudersi le
+      // card da solo. E non può nemmeno TOGLIERE un'etichetta di chiusura già
+      // scritta: sfilare un `visibile` è uscire dalla lista di Attilio per
+      // un'altra strada.
+      if (actor === "agent") {
+        if (wanted.includes("invisibile")) {
+          throw new TaskServiceError(
+            "label_forbidden",
+            "un agente non può marcare `invisibile` il proprio lavoro: chi chiude la card lo deriva il server dal diff (shared/task-labels.ts), o lo corregge un umano",
+          );
+        }
+        const droppedCloser = current.find((c) => isCloserLabel(c.label) && !wanted.includes(c.label));
+        if (droppedCloser) {
+          throw new TaskServiceError(
+            "label_forbidden",
+            `un agente non può togliere l'etichetta \`${droppedCloser.label}\`: la revisione umana si chiede, non si revoca`,
+          );
+        }
+      }
+
+      const ts = now();
+      const tx = db.transaction(() => {
+        db.prepare("DELETE FROM task_labels WHERE task_id = ?").run(taskId);
+        const ins = db.prepare("INSERT INTO task_labels (task_id, label, source, created_at) VALUES (?, ?, ?, ?)");
+        for (const label of wanted) {
+          // Chi non tocca un'etichetta non ne riscrive la provenienza: una
+          // `derived` che l'umano lascia dov'è resta `derived`, così la consegna
+          // successiva può ricalcolarla.
+          const keep = current.find((c) => c.label === label);
+          ins.run(taskId, label, keep && keep.source === source ? keep.source : source, ts);
+        }
+      });
+      tx();
+      return rowToTask(getTaskRow(taskId));
+    },
+
+    deriveLabelsFromDiff({ taskId, files }): Task | null {
+      const row = getTaskRow(taskId);
+      if (!row) return null;
+      const derived = deriveCloser(files);
+      const current = labelsOf(taskId);
+      // Una correzione a mano di Attilio NON si sovrascrive alla consegna
+      // successiva, o la correzione durerebbe quanto il turno seguente. Solo
+      // un'etichetta di chiusura `derived` (o assente) si ricalcola.
+      const held = current.find((c) => isCloserLabel(c.label));
+      if (held && held.source !== "derived") return null;
+      if (held && held.label === derived) return null;
+      const ts = now();
+      const tx = db.transaction(() => {
+        // Tutte e TRE, non le due della prima versione: una `decisione` rimasta
+        // addosso accanto a una `visibile` nuova sarebbe una card con due
+        // risposte alla stessa domanda.
+        db.prepare("DELETE FROM task_labels WHERE task_id = ? AND label IN ('visibile', 'decisione', 'invisibile')").run(taskId);
+        db.prepare("INSERT INTO task_labels (task_id, label, source, created_at) VALUES (?, ?, 'derived', ?)")
+          .run(taskId, derived, ts);
+      });
+      tx();
       return rowToTask(getTaskRow(taskId));
     },
 

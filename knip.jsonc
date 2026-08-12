@@ -48,6 +48,11 @@
         "scripts/typecheck-*.ts!",
         "scripts/e2e-shards-summary.ts!", // invoked by scripts/e2e-shards.sh:88
         "scripts/gen-migrations-manifest.ts!", // run by hand to regenerate migrations-embedded.ts
+        // Congela la coda di review dell'11/08 come fixture della derivazione
+        // delle etichette (`bun run scripts/build-review-queue-fixture.ts`).
+        // Si rilancia solo per rigenerare il file: legge il DB vero e git, quindi
+        // non puo' essere un test — il test legge il JSON che questo ha scritto.
+        "scripts/build-review-queue-fixture.ts!",
         "scripts/watch-board-tasks.ts!",  // CLI tool for the Monitor loop, run by hand
         // La prova che i test del doctor sanno diventare rossi: si lancia a
         // mano (`bun scripts/board-doctor.mutants.ts`), non lo importa nessuno
@@ -151,11 +156,14 @@
         "vite.landing.config.ts",
         "src/**/*.{test,spec}.{ts,tsx}"
       ],
-      "project": ["src/**/*.{ts,tsx}"],
-      "ignore": [
-        // Deliberately kept unwired — see the note in GlobalSettings.tsx.
-        "src/hooks/usePushNotifications.ts"
-      ]
+      "project": ["src/**/*.{ts,tsx}"]
+      // `src/hooks/usePushNotifications.ts` stava qui, ignorato perché
+      // «deliberatamente non cablato». Era la forma esatta del guasto: il codice
+      // per iscriversi esisteva, nessuno lo montava, `push_subscriptions` aveva
+      // 0 righe e ad app chiusa non arrivava niente. Ora lo montano
+      // `PushEnrollPrompt` e Impostazioni → Notifiche, quindi l'eccezione non
+      // serve più — e non va rimessa: un hook di notifiche che nessuno importa
+      // non è codice in attesa, è una funzione che non c'è.
     }
   },
   // `pkill`, `du` e `tsc` sono invocati dagli script di package.json ma non sono

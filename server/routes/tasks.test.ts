@@ -7,6 +7,7 @@ import type { AppContext } from "../types";
 import { createTasksRouter } from "./tasks";
 import { createTaskService, LAND_ACTION_LABEL, PUBLISH_ACTION_LABEL } from "../services/tasks";
 import { parseStatusEvent } from "../../shared/board";
+import { TASK_LABELS_DDL } from "../db/test-schema";
 
 function freshDb(): Database {
   const db = new Database(":memory:");
@@ -30,6 +31,7 @@ function freshDb(): Database {
     delivered_by TEXT, delivered_reason TEXT, created_by_topic_id TEXT,
     done_actor TEXT, reopened_at TEXT, reopened_by TEXT, reopened_actor TEXT
   )`);
+  db.run(TASK_LABELS_DDL); // migration 100 — rowToTask la legge per OGNI task
   db.run(`CREATE UNIQUE INDEX idx_tasks_claude_task_id ON tasks(claude_task_id) WHERE claude_task_id IS NOT NULL`);
   db.run(`CREATE TABLE board_settings (
     project_id TEXT PRIMARY KEY, require_approval_for_done INTEGER DEFAULT 0,
@@ -551,13 +553,20 @@ describe("board router (human, project-scoped)", () => {
     const fake = { onEnterTodo() {}, onLeaveTodo() {}, resume: async () => {} } as any;
     const r = createTasksRouter(makeCtx(db, broadcasts), fake, { abortTurn: async (sk: string) => { aborted.push(sk); } });
     const t = await (await call(r, "POST", "/api/boards/pX/tasks", { text: "sbagliato", status: "in_progress" }))!.json();
-    db.prepare("UPDATE tasks SET assigned_topic_id = 'top-z', dispatch_state = 'working' WHERE id = ?").run(t.id);
+    db.prepare("UPDATE tasks SET assigned_topic_id = 'top-z', dispatch_state = 'working', dispatch_attempts = 1 WHERE id = ?").run(t.id);
 
     const resp = (await call(r, "POST", `/api/boards/pX/tasks/${t.id}/stop`, {}))!;
     expect(resp.status).toBe(200);
     const parked = await resp.json();
     expect(parked.status).toBe("backlog");
     expect(parked.assignedTopicId).toBeNull();
+    // FERMARE NON È FALLIRE, e si vede in due posti.
+    // La chip: 'stopped' — non `null` (una card muta, indistinguibile da una mai
+    // dispacciata) e non 'failed' (l'agent non ha fallito niente).
+    expect(parked.dispatchState).toBe("stopped");
+    // Il contatore: intatto. Un'attesa legittima non deve consumare il budget di
+    // tentativi — chi ferma per guardare non deve pagarlo al rilancio.
+    expect(parked.dispatchAttempts).toBe(1);
     expect(aborted).toEqual(["topic:top-z"]); // "topic:" + id.slice(0,8)
     // The reason is on the thread (visible feedback, not just a chip).
     const got = await (await call(r, "GET", `/api/boards/pX/tasks/${t.id}`))!.json();
@@ -1588,4 +1597,152 @@ describe("uscita da Done: il segno sulla card e chi può riaprirla", () => {
     const detail = await (await call(router, "GET", `/api/boards/${pid}/tasks/${id}`))!.json();
     expect(detail.task.reopenedAt).toBe(card.reopenedAt);
   });
+});
+
+/**
+ * La raffica di land — il guasto misurato l'11/08 a mezzanotte.
+ *
+ * Landando in blocco le card in review con un ciclo (~20 `POST …/land` in
+ * raffica) sono atterrate 4 fusioni. Le altre 16: `status='done'` col codice
+ * ancora sul loro branch, zero commenti, zero ragione, zero traccia. Le STESSE
+ * card, poi, una alla volta e aspettando ognuna: tutte riuscite. Quindi non era
+ * la fusione a essere rotta — erano le chiamate concorrenti a sparire, e a
+ * sparire in silenzio, perché la rotta faceva `void landTask(...)` e rispondeva
+ * `200` con la card: chi chiamava riceveva la card, non l'esito.
+ *
+ * Serializzare ha senso (le fusioni toccano tutte main nello stesso checkout).
+ * Il difetto non è la fila: è che chi arrivava mentre una era in corso spariva
+ * invece di mettersi in coda.
+ */
+describe("land in raffica: N chiamate ⇒ N esiti", () => {
+  /** Banco di prova: N card in review, ognuna col suo ramo di consegna. */
+  function bench(opts?: { fail?: (taskId: string) => boolean }) {
+    const db = freshDb();
+    const broadcasts: any[] = [];
+    const merges: string[] = [];
+    const pending: string[] = [];
+    let live = 0; let maxLive = 0;
+    const autoMerge = {
+      tryMerge: async (taskId: string) => {
+        live += 1; maxLive = Math.max(maxLive, live);
+        await new Promise((r) => setTimeout(r, 1));
+        live -= 1;
+        if (opts?.fail?.(taskId)) throw new Error("git è esploso");
+        merges.push(taskId);
+        return { status: "nothing" };
+      },
+      buildClient: async () => ({ code: 0, stderr: "" }),
+    } as any;
+    const dispatcher = { onEnterTodo() {}, onLeaveTodo() {}, onBlockerDone() {}, resume: async () => {} } as any;
+    const stamped: Array<[string, string]> = [];
+    const router = createTasksRouter(makeCtx(db, broadcasts), dispatcher, {
+      autoMerge,
+      markLandPending: (taskId: string) => { pending.push(taskId); },
+      stampLanding: async (taskId: string, verdict: string) => { stamped.push([taskId, verdict]); },
+    } as any);
+    return {
+      db, router, merges, pending, stamped,
+      get maxLive() { return maxLive; },
+      async seed(n: number): Promise<string[]> {
+        const ids: string[] = [];
+        for (let i = 0; i < n; i++) {
+          const t = await (await call(router, "POST", "/api/boards/pX/tasks", { text: `card ${i}` }))!.json();
+          db.prepare("UPDATE tasks SET status='review', delivery_branch='topics/b' || ? WHERE id = ?").run(String(i), t.id);
+          db.prepare("INSERT INTO task_comments (id, task_id, author, content, kind, created_at) VALUES (?, ?, 'claude', 'consegna', 'comment', ?)")
+            .run(`c${i}`, t.id, new Date().toISOString());
+          ids.push(t.id);
+        }
+        return ids;
+      },
+      /** Aspetta che ogni ticket si chiuda, interrogando la rotta come farebbe la UI. */
+      async settle(ids: string[]): Promise<any[]> {
+        for (let round = 0; round < 500; round++) {
+          const seen = await Promise.all(ids.map(async (id) => (await (await call(router, "GET", `/api/boards/pX/tasks/${id}/land`))!.json()).landing));
+          if (seen.every((s) => s.phase === "settled" || s.phase === "failed")) return seen;
+          await new Promise((r) => setTimeout(r, 2));
+        }
+        throw new Error("i ticket non si sono chiusi");
+      },
+    };
+  }
+
+  test("20 land in raffica ⇒ 20 esiti, nessuno perso, nessuna fusione sovrapposta", async () => {
+    const b = bench();
+    const ids = await b.seed(20);
+    const resps = await Promise.all(ids.map((id) => call(b.router, "POST", `/api/boards/pX/tasks/${id}/land`, {})));
+    // `202`, non `200`: il land è ACCETTATO, non ancora avvenuto. Il `200` con la
+    // card dentro è precisamente ciò che faceva sembrare riuscita una raffica
+    // che non lo era.
+    expect(resps.map((r) => r!.status)).toEqual(ids.map(() => 202));
+    const bodies = await Promise.all(resps.map((r) => r!.json()));
+    expect(bodies.every((x) => x.landing && x.landing.taskId)).toBe(true);
+    // Ognuno sa in quanti ha davanti: chi arriva mentre una fusione è in corso
+    // si ACCODA, e lo dice.
+    expect(bodies.map((x) => x.landing.ahead)).toEqual(ids.map((_, i) => i));
+
+    const settled = await b.settle(ids);
+    expect(settled.filter((s) => s.phase === "settled")).toHaveLength(20);
+    expect(new Set(b.merges).size).toBe(20);   // venti fusioni, una per card
+    expect(b.maxLive).toBe(1);                 // e mai due insieme sullo stesso checkout
+  });
+
+  test("una card in `done` non resta mai senza `landing_state`: il timbro precede la fusione", async () => {
+    // La finestra che ci è costata le 16 card: fra il `done` (immediato) e la
+    // fusione (dopo) la card era chiusa e nessuno poteva dire se il codice fosse
+    // su main. Adesso il timbro parte all'ACCODAMENTO, quindi esiste anche se il
+    // processo muore prima che il suo turno arrivi.
+    const b = bench();
+    const ids = await b.seed(20);
+    await Promise.all(ids.map((id) => call(b.router, "POST", `/api/boards/pX/tasks/${id}/land`, {})));
+    // Subito, prima che la coda abbia finito: tutte chiuse, tutte timbrate.
+    const svc = createTaskService(b.db);
+    for (const id of ids) expect(svc.get(id)!.task.status).toBe("done");
+    expect(new Set(b.pending)).toEqual(new Set(ids));
+    await b.settle(ids);
+  });
+
+  test("un land che esplode non ingoia l'errore, non ferma la fila, e ritira la card da done", async () => {
+    // Il vecchio `catch { console.error }` produceva esattamente «zero commenti,
+    // zero ragione»: una card in Done col codice sul suo ramo e un thread muto.
+    const boom = new Set<string>();
+    const b = bench({ fail: (id) => boom.has(id) });
+    const ids = await b.seed(3);
+    boom.add(ids[1]!);
+
+    await Promise.all(ids.map((id) => call(b.router, "POST", `/api/boards/pX/tasks/${id}/land`, {})));
+    const settled = await b.settle(ids);
+
+    // L'esito del land fallito è LEGGIBILE, col motivo — è ciò che il `void` non
+    // poteva dare: la richiesta era già chiusa quando git è esploso.
+    expect(settled[1]!.phase).toBe("failed");
+    expect(settled[1]!.error).toBe("git è esploso");
+    // …e non contagia i vicini: la fila prosegue.
+    expect(settled[0]!.phase).toBe("settled");
+    expect(settled[2]!.phase).toBe("settled");
+
+    const svc = createTaskService(b.db);
+    const t = svc.get(ids[1]!)!;
+    expect(t.task.status).toBe("in_progress"); // NON resta chiusa su lavoro non atterrato
+    expect(t.comments.some((c) => c.content.includes("Land NON riuscito (errore interno)"))).toBe(true);
+    expect(b.stamped).toContainEqual([ids[1]!, "unlanded"]);
+    const ev = t.comments.filter((c) => c.kind === "status").at(-1)!;
+    expect(parseStatusEvent(ev.content)).toEqual({
+      from: "done", to: "in_progress", reason: "il land è fallito con un errore interno",
+    });
+  });
+
+  test("due click su «Landa» sulla stessa card = UN land", async () => {
+    const b = bench();
+    const [id] = await b.seed(1);
+    const first = await (await call(b.router, "POST", `/api/boards/pX/tasks/${id}/land`, {}))!.json();
+    const second = await (await call(b.router, "POST", `/api/boards/pX/tasks/${id}/land`, {}))!.json();
+    expect(second.landing.queuedAt).toBe(first.landing.queuedAt);
+    await b.settle([id!]);
+    expect(b.merges).toEqual([id!]);
+  });
+
+  test("GET …/land su una card mai landata è 404, non un falso «tutto a posto»", async () => {
+    const b = bench();
+    const [id] = await b.seed(1);
+    expect((await call(b.router, "GET", `/api/boards/pX/tasks/${id}/land`))!.status).toBe(404);  });
 });
