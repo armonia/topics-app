@@ -381,11 +381,25 @@ export function useCompletionNotifier({
       if (now - last < 10_000) return;
       cooldownRef.current.set(key, now);
       const title = (msg.taskTitle || 'Task').slice(0, 140);
-      // Due domande diverse per l'umano: 'blocked' chiede di sistemare una
-      // configurazione, 'failed' dice che l'agent non ha prodotto niente.
+      // Tre domande diverse per l'umano: 'blocked' chiede di sistemare una
+      // configurazione, 'failed' dice che l'agent non ha prodotto niente,
+      // 'waited_out' dice che una condizione esterna non è arrivata.
+      //
+      // Il terzo non riusa nessuno degli altri due titoli, ed è il motivo per
+      // cui esiste come stato a sé: l'agent ha fatto la cosa giusta (ha
+      // dichiarato l'attesa invece di dormirci sopra) e non c'è niente da
+      // sistemare, quindi «da sistemare» o «non consegnato» accuserebbero il
+      // turno di un difetto che non ha. Il titolo non nomina neanche quanto ha
+      // aspettato: il tetto sul CONTEGGIO delle attese può scattare in pochi
+      // minuti, e una durata lì sarebbe una bugia (stessa cautela della nota di
+      // sistema che scrive `deferForWait`).
       fire(
         'task:parked',
-        msg.state === 'blocked' ? 'Task da sistemare' : 'Task non consegnato',
+        msg.state === 'blocked'
+          ? 'Task da sistemare'
+          : msg.state === 'waited_out'
+            ? 'Task in attesa, decidi tu'
+            : 'Task non consegnato',
         title,
         cfg.notificationsSound,
         { dedupeKey: taskParkedNotificationKey(taskId) },

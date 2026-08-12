@@ -840,13 +840,17 @@ const taskReviewReadySchema = z.looseObject({
 // su un rimessa-in-coda, dove il task si auto-guarisce e un banner sarebbe
 // rumore su un ritentativo. `state` distingue le due domande che pone
 // all'umano: 'failed' = l'agent non ha prodotto niente, 'blocked' = c'è una
-// configurazione da sistemare (worktree, directory del progetto).
+// configurazione da sistemare (worktree, directory del progetto), 'waited_out'
+// = la serie di attese dichiarate ha sfondato il tetto, quindi non c'è niente
+// di rotto: c'è una condizione che non arriva e la decisione torna all'umano.
+// Il terzo valore esiste perché riusare 'blocked' farebbe dire al banner «da
+// sistemare» su un task che non ha niente da sistemare.
 const taskParkedSchema = z.looseObject({
   type: z.literal('task:parked'),
   projectId: z.string(),
   taskId: z.string(),
   taskTitle: z.string(),
-  state: z.union([z.literal('failed'), z.literal('blocked')]),
+  state: z.union([z.literal('failed'), z.literal('blocked'), z.literal('waited_out')]),
   reason: z.optional(z.string()),
 });
 
