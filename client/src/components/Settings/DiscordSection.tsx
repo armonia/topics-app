@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useT } from '../../hooks/useT';
+import { Switch } from '../Shared/Switch';
 import {
   appSettingsApi,
   profileApi,
@@ -43,15 +44,25 @@ const COLORE: Record<DiscordPresenceStatus['connection'], string> = {
 
 /** La card come la disegna Discord: due righe, l'icona e il cronometro. */
 function Anteprima({ activity, vuoto }: { activity: DiscordActivityPreview | null; vuoto: string }) {
+  // Lo STESSO testid sui due rami: chi misura vuole «cosa vede l'altro
+  // adesso», e «niente» è una di quelle risposte. Un testid solo sul ramo
+  // pieno costringerebbe la spec a distinguere fra «vuoto» e «non montato»,
+  // che sono due cose diverse e nessuna delle due è quella cercata.
   if (!activity) {
     return (
-      <div className="rounded-md border border-dashed border-app-border px-3 py-2 text-[11px] text-app-text-muted">
+      <div
+        data-testid="discord-preview"
+        className="rounded-md border border-dashed border-app-border px-3 py-2 text-[11px] text-app-text-muted"
+      >
         {vuoto}
       </div>
     );
   }
   return (
-    <div className="flex items-start gap-2.5 rounded-md border border-app-border bg-app-hover/40 px-3 py-2">
+    <div
+      data-testid="discord-preview"
+      className="flex items-start gap-2.5 rounded-md border border-app-border bg-app-hover/40 px-3 py-2"
+    >
       <div className="mt-0.5 h-8 w-8 flex-shrink-0 rounded bg-primary/15 text-center text-[13px] font-semibold leading-8 text-primary">
         T
       </div>
@@ -137,18 +148,18 @@ export function DiscordSection() {
               </span>
             </div>
           </div>
-          <button
-            role="switch"
-            aria-checked={acceso}
-            aria-label={t('discord.toggle')}
+          {/* L'interruttore dell'app, non una sua copia. La copia che stava qui
+              aveva esattamente i due difetti per cui `Shared/Switch` esiste: da
+              spento `bg-app-border`, cioè quasi bianco su bianco in tema chiaro,
+              e un bersaglio 36×20 che sotto il dito sta sotto la soglia dei
+              44px (`settings-mobile.spec.ts` lo misura scheda per scheda). */}
+          <Switch
+            checked={acceso}
+            onChange={(v) => void salva({ discordPresenceEnabled: v })}
+            label={t('discord.toggle')}
             disabled={inCorso || !status}
-            onClick={() => void salva({ discordPresenceEnabled: !acceso })}
-            className={`relative mt-0.5 h-5 w-9 shrink-0 rounded-full transition-colors disabled:opacity-50 ${acceso ? 'bg-primary' : 'bg-app-border'}`}
-          >
-            <span
-              className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${acceso ? 'translate-x-4' : 'translate-x-0'}`}
-            />
-          </button>
+            className="mt-0.5"
+          />
         </div>
 
         {/* Perché non funziona, quando non funziona. Il messaggio del server è
@@ -157,26 +168,45 @@ export function DiscordSection() {
           <p className="text-[11px] leading-snug text-app-text-muted">{status.lastError}</p>
         )}
 
-        {/* Quanto se ne vede */}
-        <fieldset className="space-y-1 border-t border-app-border pt-2">
-          <legend className="mb-1 text-[11px] font-medium text-app-text-secondary">{t('discord.level')}</legend>
-          {LIVELLI.map((l) => (
-            <label key={l} className="flex cursor-pointer items-start gap-2 py-0.5">
-              <input
-                type="radio"
-                name="discord-level"
-                checked={livello === l}
+        {/* Quanto se ne vede.
+            Bottoni con la semantica del radio, non `<input type="radio">`: il
+            pallino nativo è 13px e nessuna classe lo porta a 44 senza
+            disegnarlo grande come una moneta. Qui il bersaglio è la RIGA — che
+            porta già due righe di testo, quindi sotto il dito supera i 44px per
+            conto suo — e il pallino resta la dimensione giusta perché è
+            disegnato, non di sistema. È la stessa ragione per cui nel pannello
+            non c'è un solo `<select>` nativo. */}
+        <div className="space-y-1 border-t border-app-border pt-2">
+          <div className="mb-1 text-[11px] font-medium text-app-text-secondary" id="discord-level-label">
+            {t('discord.level')}
+          </div>
+          <div role="radiogroup" aria-labelledby="discord-level-label" className="space-y-0.5">
+            {LIVELLI.map((l) => (
+              <button
+                key={l}
+                type="button"
+                role="radio"
+                aria-checked={livello === l}
                 disabled={inCorso || !status}
-                onChange={() => void salva({ discordDetailLevel: l })}
-                className="mt-1 flex-shrink-0 accent-[var(--color-primary,#6366f1)]"
-              />
-              <span className="min-w-0">
-                <span className="block text-[12px] text-app-text">{t(`discord.level.${l}`)}</span>
-                <span className="block text-[11px] leading-snug text-app-text-muted">{t(`discord.level.${l}.hint`)}</span>
-              </span>
-            </label>
-          ))}
-        </fieldset>
+                onClick={() => void salva({ discordDetailLevel: l })}
+                className="flex w-full cursor-pointer items-start gap-2 rounded px-1 py-1 text-left transition-colors hover:bg-app-hover disabled:cursor-default disabled:opacity-50 coarse:min-h-11"
+              >
+                <span
+                  aria-hidden="true"
+                  className={`mt-1 flex h-3.5 w-3.5 flex-shrink-0 items-center justify-center rounded-full border transition-colors ${
+                    livello === l ? 'border-primary' : 'border-app-text-muted'
+                  }`}
+                >
+                  {livello === l && <span className="h-1.5 w-1.5 rounded-full bg-primary" />}
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-[12px] text-app-text">{t(`discord.level.${l}`)}</span>
+                  <span className="block text-[11px] leading-snug text-app-text-muted">{t(`discord.level.${l}.hint`)}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
 
         {/* Ciò che vedono gli altri */}
         <div className="space-y-1.5 border-t border-app-border pt-2">

@@ -44,7 +44,7 @@ export interface AppSettings {
   /** La lingua in cui il modello deve rispondere (migration 087). NULL = «auto»,
    *  cioè nessuna direttiva: il modello sceglie come ha sempre fatto. */
   outputLanguage: string | null;
-  /** Topics pubblica il tuo stato su Discord (migration 101). NULL = mai
+  /** Topics pubblica il tuo stato su Discord (migration 102). NULL = mai
    *  toccato = SPENTO: si veda il commento della migration sul perché il
    *  default non può essere acceso. */
   discordPresenceEnabled: boolean | null;
@@ -299,7 +299,7 @@ export function resolveOutputLanguage(s = getAppSettings()): OutputLanguage {
 }
 
 /**
- * Topics pubblica il tuo stato su Discord? (migration 101)
+ * Topics pubblica il tuo stato su Discord? (migration 102)
  *
  * Come `resolveOutputLanguage`, e per lo stesso motivo, NON ha un env di
  * ripiego: è una scelta di persona presa da un interruttore, e un

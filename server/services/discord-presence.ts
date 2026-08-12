@@ -63,11 +63,11 @@ export const DEFAULT_LARGE_IMAGE =
  * dichiarazione lato client sarebbe uno specchio destinato a divergere
  * (`tests/unit/no-type-mirrors.test.ts`).
  *
- * Il nome è `DiscordConnectionState` e non `ConnectionState` di proposito: il
- * client ha già un `ConnectionState` suo — quello del browser remoto — che è
- * un'altra cosa. Due concetti diversi non devono contendersi un nome generico.
+ * E da qui non si ri-esportano: questo modulo li USA, non è la loro porta.
+ * Un `export type { … }` di comodo qui darebbe alla stessa forma due indirizzi,
+ * nessuno importerebbe il secondo, e `check:deadcode` lo conterebbe morto —
+ * che è esattamente ciò che ha rimandato indietro questa card.
  */
-export type { DiscordConnectionState, DiscordPresenceStatus };
 
 export interface DiscordPresenceSettings {
   enabled: boolean;
