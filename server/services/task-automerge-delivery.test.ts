@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { createTaskAutoMerge } from "./task-automerge";
+import { createTaskAutoMerge, landFallout } from "./task-automerge";
 import { mkdtempSync, writeFileSync, existsSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -131,6 +131,57 @@ describe("land vs consegna — su git vero", () => {
       if (res.status !== "merged") return;
       expect(res.branch).toBe("topics/vivo");
       expect(res.deliveryDrift).toContain("non esiste più");
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  /**
+   * L'AGENTE RILASCIATO — su git vero.
+   *
+   * `resolveTaskMerge` risolve card → `assigned_topic_id` → topic → worktree →
+   * ramo. L'agente però si rilascia di routine (fine turno, o lo si ferma a
+   * mano) e `assigned_topic_id` torna NULL: da lì in poi il land rispondeva
+   * `no-branch` — l'unico codice che LASCIA la card in Done — anche col ramo
+   * intatto. Misurato la notte del 12/08 su `ee5ebbb4`: ramo
+   * `topics/transient-berry` presente, worktree presente, e il messaggio diceva
+   * «nessun worktree/branch». Qui `resolveTaskMerge` risponde `null` come in
+   * quella notte, e il land deve atterrare lo stesso.
+   */
+  test("agente rilasciato (resolveTaskMerge → null): il ramo CONSEGNATO atterra comunque", async () => {
+    const { repo, d2 } = repoConDueRami();
+    try {
+      const am = createTaskAutoMerge({
+        resolveTaskMerge: () => null,
+        declaredDelivery: () => ({ repoPath: repo, branch: "topics/consegnato" }),
+      });
+      const res = await am.tryMerge("t5", "consegna senza agente", { branch: "topics/consegnato", commit: d2 });
+
+      expect(res.status).toBe("merged");
+      if (res.status !== "merged") return;
+      expect(res.branch).toBe("topics/consegnato");
+      // La prova che conta: il lavoro è DAVVERO su main.
+      git(repo, "switch", "-q", "main");
+      expect(existsSync(join(repo, "lavoro.txt"))).toBe(true);
+      expect(existsSync(join(repo, "lint-fix.txt"))).toBe(true);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("agente rilasciato e ramo davvero potato: fallisce con un codice che TOGLIE la card da Done", async () => {
+    const { repo } = repoConDueRami();
+    try {
+      const am = createTaskAutoMerge({
+        resolveTaskMerge: () => null,
+        declaredDelivery: () => ({ repoPath: repo, branch: "topics/mai-esistito" }),
+      });
+      const res = await am.tryMerge("t6", "consegna irrecuperabile", { branch: "topics/mai-esistito", commit: null });
+
+      expect(res.status).toBe("skipped");
+      if (res.status !== "skipped") return;
+      expect(res.code).not.toBe("no-branch");
+      expect(landFallout(res.code).status).toBe("review");
     } finally {
       rmSync(repo, { recursive: true, force: true });
     }
