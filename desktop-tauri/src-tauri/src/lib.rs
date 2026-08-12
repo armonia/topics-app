@@ -3963,6 +3963,119 @@ fn browser_take_download_events(id: String) -> Vec<DownloadEventMsg> {
     }
 }
 
+/// Live byte counts for this pane's in-flight downloads, so the Download menu can
+/// show progress instead of an indeterminate spinner until the file lands.
+///
+/// wry surfaces Requested and Finished and NOTHING in between: no progress
+/// callback, no total. What Requested does give us is the destination path, and
+/// WKDownload writes to that path progressively, so the file's own size on disk
+/// is the received byte count. No second request to the server, which is what
+/// rules out the obvious alternative of a HEAD to read Content-Length: a download
+/// URL is often single-use or non-idempotent, and asking twice can spend it.
+///
+/// The total is the hard half, and this is the honest state of it. WebKit knows
+/// `expectedContentLength` but never hands it to wry's callback, so we try to
+/// read it back off the FILE: macOS tags a file being downloaded with the
+/// `com.apple.progress.fractionCompleted` extended attribute (the one Finder's
+/// progress pie is drawn from), and received / fraction recovers the total.
+/// That attribute is OPPORTUNISTIC — it is not part of any WKDownload contract.
+/// When it is missing (chunked response, non-macOS, a WebKit that stops writing
+/// it) `total` stays -1 and the client shows transferred bytes. A made-up
+/// percentage would be worse than no percentage.
+#[derive(Clone, Serialize)]
+struct DownloadProgressMsg {
+    id: String,
+    received: i64,
+    total: i64,
+}
+
+#[tauri::command]
+fn browser_download_progress(id: String) -> Vec<DownloadProgressMsg> {
+    // Copy out under the lock, then stat: a filesystem call per pending download
+    // must not be made while holding a mutex the download callbacks also take.
+    let pending: Vec<(i64, String)> = match DOWNLOAD_PENDING.lock() {
+        Ok(p) => p
+            .iter()
+            .filter(|(_, _, _, pane, _)| *pane == id)
+            .map(|(_, did, saved, _, _)| (*did, saved.clone()))
+            .collect(),
+        Err(_) => return Vec::new(),
+    };
+    pending
+        .into_iter()
+        .map(|(did, saved)| {
+            let received = std::fs::metadata(&saved).map(|m| m.len() as i64).unwrap_or(-1);
+            DownloadProgressMsg {
+                id: did.to_string(),
+                received,
+                total: download_total_bytes(&saved, received),
+            }
+        })
+        .collect()
+}
+
+/// Total size of the download at `path`, or -1 when it cannot be known without
+/// asking the server again. See browser_download_progress for why we do not ask.
+fn download_total_bytes(path: &str, received: i64) -> i64 {
+    #[cfg(target_os = "macos")]
+    if received > 0 {
+        if let Some(f) = progress_fraction_xattr(path) {
+            // 1.0 or beyond means the write finished, so what is on disk IS the
+            // total; at or below 0 the attribute carries no information at all
+            // and dividing by it would invent a number.
+            if f >= 1.0 {
+                return received;
+            }
+            if f > 0.0 {
+                return (received as f64 / f).round() as i64;
+            }
+        }
+    }
+    let _ = (path, received);
+    -1
+}
+
+/// Read `com.apple.progress.fractionCompleted` off `path` as a raw double.
+/// None when the attribute is absent or is not the 8 bytes we expect, which is
+/// the case this must fail cleanly in: the attribute is a Finder convention, not
+/// a guarantee, so an unexpected payload means "unknown", never a guess.
+#[cfg(target_os = "macos")]
+fn progress_fraction_xattr(path: &str) -> Option<f64> {
+    use std::ffi::CString;
+    extern "C" {
+        fn getxattr(
+            path: *const std::os::raw::c_char,
+            name: *const std::os::raw::c_char,
+            value: *mut std::ffi::c_void,
+            size: usize,
+            position: u32,
+            options: std::os::raw::c_int,
+        ) -> isize;
+    }
+    let p = CString::new(path).ok()?;
+    let name = CString::new("com.apple.progress.fractionCompleted").ok()?;
+    let mut buf = [0u8; 8];
+    let got = unsafe {
+        getxattr(
+            p.as_ptr(),
+            name.as_ptr(),
+            buf.as_mut_ptr() as *mut std::ffi::c_void,
+            buf.len(),
+            0,
+            0,
+        )
+    };
+    if got != 8 {
+        return None;
+    }
+    let f = f64::from_le_bytes(buf);
+    if f.is_finite() {
+        Some(f)
+    } else {
+        None
+    }
+}
+
 // ── Navigation failures ──────────────────────────────────────────────────────
 // wry 0.55 bridges no WKNavigationDelegate failure callback (its delegate class
 // implements decidePolicy/didCommit/didFinish only), so a failed load left the
@@ -9912,6 +10025,7 @@ pub fn run() {
             browser_take_download_events,
             browser_take_nav_errors,
             browser_take_nav_state,
+            browser_download_progress,
             updater_check,
             updater_install,
             window_detach,
