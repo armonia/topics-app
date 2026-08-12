@@ -96,6 +96,29 @@ export interface DispatcherDeps {
   /** Capacità viva della macchina (`computeDispatchCapacity`). Serve alla
    *  modalità notturna per sapere se il carico è sceso. */
   capacity?: () => { load1: number; cores: number };
+  /**
+   * Il carico attribuibile a NOI: quanti core stanno bruciando i processi della
+   * nostra flotta (agenti, pty-bridge, sidecar), da `getFleetUsage`.
+   *
+   * Esiste perché `capacity().load1` risponde a un'altra domanda. Il load
+   * average è la coda di esecuzione dell'INTERA macchina, e il freno del peso
+   * non decide se il Mac è occupato: decide se un task pesante può prendersi la
+   * macchina senza pestare i piedi agli agenti già in volo. Sono due misure
+   * diverse, e la notte del 12/08 hanno dato due risposte opposte sullo stesso
+   * host: load1 fra 37 e 48, la nostra flotta a 0,75% su 1200% di CPU. Il
+   * carico erano le app dell'umano, e il freno le ha scambiate per noi.
+   *
+   * `coreUnits` è in unità di core (1 = un core saturo), la stessa scala di
+   * `load1`, così la soglia si legge allo stesso modo. Assente o `null` = host
+   * senza sonda: si ricade su `load1`, che è il comportamento storico.
+   */
+  ownLoad?: () => { coreUnits: number; cores: number } | null;
+  /**
+   * Adesso, in ms. Iniettabile perché l'attesa del freno adesso ha una SCADENZA,
+   * e un test su una scadenza che non può muovere l'orologio misurerebbe solo la
+   * propria pazienza.
+   */
+  now?: () => number;
   /** Quante sessioni UMANE sono vive adesso. È il segnale «sono via» del turno
    *  notturno: finché c'è qualcuno al lavoro, non si dispaccia. */
   humanSessionsLive?: () => number;
@@ -373,6 +396,34 @@ const FREE_PROVIDER_ERRORS = 3;
  * — e la seconda vuole un margine vero, non l'assenza di un intralcio.
  */
 const HEAVY_MAX_LOAD_PER_CORE = 1.0;
+
+/**
+ * Lo stesso margine, ma misurato su NOI (`DispatcherDeps.ownLoad`): sopra metà
+ * dei core occupati dalla nostra flotta un task pesante non si prenderebbe la
+ * macchina da solo, che è l'unica cosa che il peso esiste per garantire.
+ *
+ * Più severo dell'1,0 sul load di sistema, e deve esserlo: quello contava anche
+ * i processi di chiunque altro, quindi la stessa soglia applicata a una misura
+ * che vede solo noi sarebbe un freno che non frena quasi mai. Su questo host
+ * (12 core) sono 6 core-unità, cioè 600% nella scala di `ps`, contro gli 0,06
+ * misurati la notte del 12/08 con la board ferma.
+ */
+const HEAVY_MAX_OWN_LOAD_PER_CORE = 0.5;
+
+/**
+ * Quanto può durare l'attesa di un task pesante prima che parta comunque.
+ *
+ * Senza scadenza la guardia non era una precedenza, era un blocco: la coda è
+ * ordinata per priorità e poi per anzianità, il ramo trattenuto fa `break`, e
+ * un pesante con priorità alta si piazza in testa e ferma la board INTERA.
+ * Misurato il 12/08: due `in_progress` col tetto a 9, per ore, finché non si è
+ * abbassata a mano la priorità delle due card pesanti.
+ *
+ * Quindici minuti perché l'attesa deve poter servire a qualcosa (un turno che
+ * finisce libera la macchina in quell'ordine di grandezza) senza mai diventare
+ * indefinita. Scaduto il tetto il task parte lo stesso, e il thread dice perché.
+ */
+const HEAVY_HOLD_MAX_MS = 15 * 60_000;
 
 /** Ogni quanto un resume in attesa ricontrolla se si è liberato un posto. */
 const RESUME_SLOT_RETRY_MS = 5_000;
@@ -797,6 +848,14 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   // task pesante / è troppo carica". Stessa disciplina dell'insieme qui sopra:
   // una nota per EPISODIO, non una per poll — si svuota appena l'attesa finisce.
   const heavyHeldNoted = new Set<string>();
+  // Da QUANDO un task pesante è trattenuto dal carico (ms). Serve al tetto
+  // dell'attesa (`HEAVY_HOLD_MAX_MS`): senza un istante di inizio «trattenuto da
+  // troppo» non è una condizione misurabile, è un'impressione. Si azzera appena
+  // il task parte o smette di essere trattenuto, così una prossima attesa
+  // riparte dal suo inizio invece di ereditare quella di ieri.
+  const heavyHoldSince = new Map<string, number>();
+  /** L'orologio del freno, iniettabile per i test (vedi `DispatcherDeps.now`). */
+  const clock = (): number => deps.now?.() ?? Date.now();
   // Board a cui si è già detto "il fan-out qui non si applica" (worktree off).
   // È una configurazione, non un evento: ripeterlo a ogni dispatch sarebbe rumore.
   const fanOutBlockedNoted = new Set<string>();
@@ -812,18 +871,45 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   }
 
   /**
-   * C'è margine per un task PESANTE adesso? (vedi `HEAVY_MAX_LOAD_PER_CORE`)
+   * C'è margine per un task PESANTE adesso?
    *
-   * `null` non è «no»: è «non lo so». Senza la sonda del carico il gate non si
-   * applica affatto — un host che non sa misurare non deve poter fermare la coda
-   * per sempre, che è il modo in cui una guardia diventa una trappola.
+   * La misura BUONA è il carico nostro (`deps.ownLoad`): quanti core stanno
+   * bruciando i processi della nostra flotta. Il load average della macchina è
+   * il RIPIEGO, e solo perché un host senza la sonda della flotta non deve
+   * restare senza guardia. Non sono due letture della stessa cosa: la notte del
+   * 12/08 il load stava fra 37 e 48 mentre i nostri agenti usavano 0,75% su
+   * 1200% di CPU. Il carico erano ActivityWatch, il browser, la chat e un
+   * player video, e il freno lo ha addebitato a noi tenendo ferma la board.
+   *
+   * `null` non è «no»: è «non lo so». Senza nessuna delle due sonde il gate non
+   * si applica affatto — un host che non sa misurare non deve poter fermare la
+   * coda per sempre, che è il modo in cui una guardia diventa una trappola.
    */
-  function heavyLoadGate(): { ok: boolean; load1: number; cores: number } | null {
+  function heavyLoadGate(): { ok: boolean; load1: number; cores: number; own: boolean } | null {
+    // Prima la misura nostra. Un errore qui non è «via libera»: si scende al
+    // ripiego, perché spegnere il freno per una sonda caduta rimetterebbe i
+    // pesanti accanto agli altri proprio senza sapere cosa c'è sulla macchina.
+    if (deps.ownLoad) {
+      try {
+        const own = deps.ownLoad();
+        if (own) {
+          const c = Math.max(1, own.cores);
+          return {
+            ok: own.coreUnits < c * HEAVY_MAX_OWN_LOAD_PER_CORE,
+            load1: own.coreUnits,
+            cores: c,
+            own: true,
+          };
+        }
+      } catch (err) {
+        log("sonda della flotta caduta: il gate del peso ripiega sul load di sistema", err);
+      }
+    }
     if (!deps.capacity) return null;
     try {
       const { load1, cores } = deps.capacity();
       const c = Math.max(1, cores);
-      return { ok: load1 < c * HEAVY_MAX_LOAD_PER_CORE, load1, cores: c };
+      return { ok: load1 < c * HEAVY_MAX_LOAD_PER_CORE, load1, cores: c, own: false };
     } catch (err) {
       log("sonda del carico caduta: il gate del peso resta aperto", err);
       return null;
@@ -2328,7 +2414,35 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       catch (err) { log("lettura dei task pesanti in volo fallita", err); return false; }
     })();
     const loadGate = heavyLoadGate();
-    const heldForLoad = (t: Task) => t.dispatchWeight === "heavy" && loadGate?.ok === false;
+    const nowMs = clock();
+    // La chiamata del freno, decisa UNA volta per tick e per task.
+    //
+    // Prima era un predicato puro (`t.dispatchWeight === "heavy" && !ok`) e lo
+    // si poteva rileggere a piacere. Adesso l'attesa ha una DURATA, quindi la
+    // decisione ha un effetto (segna l'istante in cui l'attesa comincia) e
+    // dipende dall'orologio: valutarla due volte nello stesso giro darebbe due
+    // risposte diverse e farebbe scadere il tetto un tick prima o dopo a caso.
+    //
+    //  'go'     → non trattenuto (leggero, o margine c'è).
+    //  'hold'   → pesante, niente margine: aspetta e TIENE la testa della coda.
+    //  'forced' → pesante, niente margine, ma l'attesa ha sfondato il tetto:
+    //             parte comunque, e nel thread c'è scritto perché.
+    const heavyCall = new Map<string, "go" | "hold" | "forced">();
+    for (const t of todos) {
+      if (t.dispatchWeight !== "heavy" || loadGate?.ok !== false) {
+        // Non trattenuto: l'attesa (se c'era) è finita, e il prossimo hold
+        // ricomincia a contare da capo invece di ereditare quella vecchia.
+        heavyHoldSince.delete(t.id);
+        heavyCall.set(t.id, "go");
+        continue;
+      }
+      const since = heavyHoldSince.get(t.id);
+      if (since == null) { heavyHoldSince.set(t.id, nowMs); heavyCall.set(t.id, "hold"); continue; }
+      heavyCall.set(t.id, nowMs - since >= HEAVY_HOLD_MAX_MS ? "forced" : "hold");
+    }
+    const heldForLoad = (t: Task) => heavyCall.get(t.id) === "hold";
+    /** Da quanti ms questo task aspetta il freno (0 = non aspetta). */
+    const heldForMs = (t: Task) => { const s = heavyHoldSince.get(t.id); return s == null ? 0 : Math.max(0, nowMs - s); };
     // Chi NON è più trattenuto dal peso dimentica l'episodio, così una prossima
     // attesa lo dice di nuovo invece di restare muta.
     if (!heavyBusy) for (const t of todos) { if (!heldForLoad(t)) heavyHeldNoted.delete(t.id); }
@@ -2379,7 +2493,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     const freeSlots = Math.max(1, effectiveCap - reservedSlots);
     const fanOut = fanOutBlocked ? 1 : Math.min(wantFanOut, freeSlots);
 
-    for (const t of todos) {
+    for (const [idx, t] of todos.entries()) {
       if (inFlight.has(t.id)) continue;
       // Respect the grace debounce: a task still inside its window is claimed by
       // its OWN scheduled tick (which deletes the timer first), never by a poll
@@ -2403,23 +2517,57 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // alzerebbero il carico, e il momento in cui la macchina è scarica non
       // arriverebbe mai: la guardia si trasformerebbe in un divieto permanente
       // proprio per il task che deve girare da solo.
+      //
+      // Il `break` resta, ma adesso lo si DICE. Quel salto ferma la coda intera,
+      // e la card diceva solo «in coda»: chi guardava la board vedeva quaranta
+      // righe idonee e nessuna che partiva, senza un posto in cui leggere che
+      // era quest'una a tenerle tutte. Il numero di chi sta dietro è la cosa che
+      // trasforma «aspetto il mio turno» in «sono io il tappo».
       if (heldForLoad(t)) {
+        const dietro = todos.slice(idx + 1).filter((o) => !inFlight.has(o.id) && !graceTimers.has(o.id)).length;
+        const misura = loadGate!.own
+          ? `i nostri agenti stanno usando ${loadGate!.load1.toFixed(1)} core su ${loadGate!.cores}`
+          : `la macchina è carica (load ${loadGate!.load1.toFixed(1)} su ${loadGate!.cores} core)`;
+        const tappo = dietro > 0
+          ? ` Intanto tiene ferma la coda: ${dietro} task dietro di lui non partono finché non parte questo.`
+          : "";
         noteHeavyHold(
           t,
-          `In coda: questo task è PESANTE e la macchina è carica (load ${loadGate!.load1.toFixed(1)} su ${loadGate!.cores} core). ` +
-            "Parte da solo appena si libera. Un task così prende il turno da solo.",
+          `In coda: questo task è PESANTE e ${misura}. ` +
+            `Parte da solo appena si libera, e comunque entro ${Math.round(HEAVY_HOLD_MAX_MS / 60_000)} min.` +
+            tappo,
         );
         break;
       }
+      // Attesa sfondata: parte lo stesso. `machineIdle: true` non è una bugia
+      // sulla misura, è la decisione presa qui che passa al CAS del claim, che
+      // altrimenti lo rifiuterebbe in silenzio (`tasks.ts`, regola 2 del peso) e
+      // lascerebbe la card ferma esattamente come prima, ma senza più nemmeno
+      // una nota che lo spieghi.
+      const forced = heavyCall.get(t.id) === "forced";
       const claimed = deps.svc.claim({
         taskId: t.id,
         cap: claimCap,
         maxAttempts: settings.dispatchRetryCap,
         scope: capScope,
-        machineIdle: loadGate?.ok,
+        machineIdle: forced ? true : loadGate?.ok,
       });
       if (!claimed) continue; // cap hit or lost the race
       clearGrace(t.id);
+      if (forced) {
+        const atteso = Math.round(heldForMs(t) / 60_000);
+        heavyHoldSince.delete(t.id);
+        heavyHeldNoted.delete(t.id);
+        try {
+          deps.svc.addComment({
+            taskId: t.id, author: "system",
+            content:
+              `Parte comunque dopo ${atteso} min di attesa: è un task PESANTE e la macchina non si è liberata, ` +
+              "ma un'attesa senza fine tiene ferma tutta la coda dietro di lui. " +
+              "Può quindi girare accanto ad altri agenti: se rallenta, è per questo.",
+          });
+        } catch { /* il task può essersi mosso */ }
+      }
       emit(claimed); // chip → starting
       // Worktree dispatch with a live external session: the agent's files are
       // isolated, but the BRANCH it will land on is contended. Say so in the
