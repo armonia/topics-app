@@ -304,6 +304,16 @@ function defaultLauncher(): SidecarLauncher {
         `--user-data-dir=${userDataDir}`,
         "--no-first-run",
         "--no-default-browser-check",
+        // Portachiavi FINTO, e non e' un dettaglio di igiene: senza, Chromium
+        // chiede al portachiavi VERO di macOS, e ogni avvio fa comparire il
+        // dialogo di autenticazione del sistema. Segnalato da Attilio il 12/08
+        // («mi escono miliardi di finestre Google Chrome for Testing di
+        // autenticazione»): erano due alberi orfani, uno di 22 ore e uno di 15,
+        // ognuno col suo dialogo. Il browser che Playwright avvia per le pane lo
+        // passa gia' (`--use-mock-keychain` e' nei suoi default) ed e' il motivo
+        // per cui quello del server non ha mai chiesto niente: il sidecar era
+        // l'unico a farlo.
+        "--use-mock-keychain",
         // Il marchio, gemello di quello dell'agente in browser-service.ts: se il
         // server muore senza passare da gracefulShutdown, questo Chromium resta
         // vivo con ppid 1 e il prossimo avvio lo riconosce da qui. Conta anche
