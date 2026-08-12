@@ -1,10 +1,10 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import { ArrowLeft, ArrowRight, RotateCw, ExternalLink, Clock, Code2, CornerUpLeft, MoreHorizontal, MonitorSmartphone } from 'lucide-react';
+import { ArrowLeft, ArrowRight, RotateCw, ExternalLink, Clock, Code2, CornerUpLeft, MoreHorizontal, MonitorSmartphone, Trash2 } from 'lucide-react';
 import { AgentActivityPill } from './AgentActivityPill';
 import { ZoomControl, DeviceSwitcher, ConsoleBadge } from './BrowserDevControls';
 import { DownloadsMenu, type DownloadsMenuProps } from './DownloadsMenu';
 import type { DeviceMode, BrowserConsoleEntry, NavHistoryEntry } from './browserDevTypes';
-import { POPOVER_ITEM, POPOVER_DIVIDER } from '../../lib/popoverStyles';
+import { POPOVER_ITEM, POPOVER_ITEM_DANGER, POPOVER_DIVIDER } from '../../lib/popoverStyles';
 import { normalizeUrl } from '../../lib/browserNavUrl';
 import type { ShareMode } from '../../lib/sharedAuto';
 import { DropdownPortal } from '../Shared/DropdownPortal';
@@ -89,6 +89,10 @@ interface BrowserToolbarProps {
   shared?: boolean;
   shareMode?: ShareMode;
   onToggleShare?: () => void;
+  /** «Dimentica questo sito» (solo pane nativa, e solo su una pagina vera).
+   *  La toolbar non cancella niente: apre il dialogo che ELENCA cosa sparisce,
+   *  e quello vive nella pane, che sopravvive alla chiusura del popover. */
+  onForgetSite?: () => void;
 }
 
 export function BrowserToolbar({
@@ -121,6 +125,7 @@ export function BrowserToolbar({
   shared,
   shareMode,
   onToggleShare,
+  onForgetSite,
 }: BrowserToolbarProps) {
   const [editUrl, setEditUrl] = useState(url);
   const [editing, setEditing] = useState(false);
@@ -452,7 +457,7 @@ export function BrowserToolbar({
           deliberate action (leave the shared server session for the private
           native browser), not a primary toolbar button. So the menu renders
           whenever the pane is compact OR there's a session switch to host. */}
-      {(compact || !!onToggleShare) && (
+      {(compact || !!onToggleShare || !!onForgetSite) && (
         <>
           <button
             ref={overflowBtnRef}
@@ -539,6 +544,26 @@ export function BrowserToolbar({
                   className={`${POPOVER_ITEM} disabled:opacity-40`}
                 >
                   <ExternalLink size={13} className="shrink-0 text-app-text-tertiary" /> Apri nel browser di sistema
+                </button>
+              </>
+            )}
+            {/* Dimentica questo sito. Ultima voce e separata dal resto: è
+                l'unica del menu che distrugge qualcosa. I puntini di sospensione
+                sono una promessa, non decorazione: il clic apre l'elenco di cosa
+                sparisce, non cancella. */}
+            {onForgetSite && (
+              <>
+                {(compact || !!onToggleShare) && <div className={POPOVER_DIVIDER} />}
+                <button
+                  type="button"
+                  onClick={() => { onForgetSite(); setOverflowOpen(false); }}
+                  className={POPOVER_ITEM_DANGER}
+                  data-testid="browser-forget-site"
+                  title={urlParts
+                    ? `Cancella sessione, dati e cache di ${urlParts.host} da questa tab`
+                    : 'Cancella sessione, dati e cache di questo sito da questa tab'}
+                >
+                  <Trash2 size={13} className="shrink-0" /> Dimentica questo sito…
                 </button>
               </>
             )}
