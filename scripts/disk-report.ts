@@ -30,9 +30,29 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { isSafeToDelete, landedVerdict, makeMainIndex } from "./landed-lib";
 
 const REPO = process.cwd();
 const WT_ROOT = join(homedir(), ".topics", "worktrees");
+
+/**
+ * Il checkout PRINCIPALE, che non è `process.cwd()` quando questo script gira
+ * dentro una worktree — ed è lì che stanno i 12 GB di `src-tauri/target`.
+ * Misurando `cwd` il rapporto dichiarava "0 KB rigenerabile" dalla worktree di
+ * un task e nascondeva la voce più grossa del disco (rilievo del 12/08).
+ * `--git-common-dir` è la .git condivisa: il suo padre è il checkout vero.
+ */
+const MAIN_CHECKOUT = (() => {
+  try {
+    const common = execFileSync("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], {
+      cwd: REPO,
+      encoding: "utf8",
+    }).trim();
+    return common.endsWith("/.git") ? common.slice(0, -"/.git".length) : REPO;
+  } catch {
+    return REPO;
+  }
+})();
 
 function sh(args: string[], cwd = REPO): string {
   try {
@@ -127,6 +147,33 @@ function unrecoverableDirt(wt: string): string[] {
   return out;
 }
 
+/**
+ * Le directory che un processo VIVO tiene aperte come cwd. Il verdetto "merged
+ * + zero sporco" guarda solo git, e git non sa che dentro quella worktree c'è
+ * una sessione che sta lavorando in questo momento: cestinarla le toglie il
+ * pavimento da sotto. La cwd di un processo è l'unica prova che ci sia qualcuno
+ * dentro davvero (il path del comando mente, la cwd no).
+ */
+const liveCwds: string[] = (() => {
+  try {
+    const out: string = execFileSync("lsof", ["-d", "cwd", "-Fn", "-w"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    const paths = out.split("\n").filter((l: string) => l.startsWith("n")).map((l: string) => l.slice(1));
+    return [...new Set(paths)];
+  } catch {
+    return [];
+  }
+})();
+
+function hasLiveProcess(path: string): boolean {
+  return liveCwds.some((cwd) => cwd === path || cwd.startsWith(`${path}/`));
+}
+
+/** L'albero di main in un indice a parte: lo pagano una volta tutti i verdetti. */
+const mainIndexPath = makeMainIndex(REPO, "main");
+
 interface Row {
   name: string;
   path: string;
@@ -135,6 +182,8 @@ interface Row {
   nm: number;
   merged: boolean;
   dirt: string[];
+  /** Un processo ci sta dentro adesso (cwd). Batte qualsiasi verdetto di git. */
+  live: boolean;
   verdict: "rimuovi" | "solo node_modules" | "NON toccare";
 }
 
@@ -142,25 +191,22 @@ function classify(path: string, branch: string): Row {
   const name = path.split("/").pop() ?? path;
   const total = du(path);
   const nm = nodeModulesBytes(path);
-  // Ancestor of main is the cheap, unambiguous half of the GC's `merged`.
-  const merged = branch ? sh(["merge-base", "--is-ancestor", branch, "main"], REPO) === "" &&
-    (() => {
-      try {
-        execFileSync("git", ["merge-base", "--is-ancestor", branch, "main"], { cwd: REPO, stdio: "ignore" });
-        return true;
-      } catch { return false; }
-    })() : false;
+  // Il verdetto è PER CONTENUTO, non per discendenza: con lo squash landing il
+  // ramo di un task consegnato non è mai antenato di main, e la sola ancestry
+  // dichiarava "NON toccare" worktree che non avevano più niente da perdere.
+  const merged = branch ? isSafeToDelete(landedVerdict(REPO, branch, "main", mainIndexPath)) : false;
   const dirt = unrecoverableDirt(path);
   // `main` is trivially its own ancestor, so the merged test says yes and the
   // worktree looks disposable. It isn't: it is somebody's checkout of the
   // integration branch, and this script must never nominate it.
   const isDefaultBranch = branch === "main" || branch === "master";
-  const verdict: Row["verdict"] = isDefaultBranch
+  const live = hasLiveProcess(path);
+  const verdict: Row["verdict"] = isDefaultBranch || live
     ? "NON toccare"
     : merged && dirt.length === 0
       ? "rimuovi"
       : nm > 0 ? "solo node_modules" : "NON toccare";
-  return { name, path, branch, total, nm, merged, dirt, verdict };
+  return { name, path, branch, total, nm, merged, dirt, live, verdict };
 }
 
 const lines = sh(["worktree", "list", "--porcelain"]).split("\n\n");
@@ -184,6 +230,7 @@ for (const r of rows) {
   if (r.verdict === "NON toccare" && (r.branch === "main" || r.branch === "master")) {
     console.log(`${" ".repeat(20)}↳ è il checkout del branch di integrazione`);
   }
+  if (r.live) console.log(`${" ".repeat(20)}↳ c'è un processo dentro ADESSO (cwd)`);
   if (r.dirt.length > 0 && r.verdict === "NON toccare") {
     for (const d of r.dirt.slice(0, 6)) console.log(`${" ".repeat(20)}↳ contenuto unico: ${d}`);
     if (r.dirt.length > 6) console.log(`${" ".repeat(20)}↳ …e altri ${r.dirt.length - 6}`);
@@ -201,7 +248,7 @@ console.log(`solo node_modules  : ${human(nmOnly)}`);
 console.log(`totale liberabile  : ${human(wholeSafe + nmOnly)}`);
 
 // ── Rigenerabili: ignorati da git, ricostruibili con un comando ────────────
-console.log("\n=== Artefatti rigenerabili (ignorati da git) ===\n");
+console.log(`\n=== Artefatti rigenerabili (ignorati da git) — in ${MAIN_CHECKOUT} ===\n`);
 const REGEN: [string, string][] = [
   ["desktop-tauri/src-tauri/target", "cargo build (~10-25 min)"],
   ["desktop-tauri/webrtc-bridge/target", "cargo build (~3-8 min)"],
@@ -214,7 +261,7 @@ const REGEN: [string, string][] = [
 ];
 let regen = 0;
 for (const [rel, how] of REGEN) {
-  const p = join(REPO, rel);
+  const p = join(MAIN_CHECKOUT, rel);
   if (!existsSync(p)) continue;
   const size = du(p);
   const keep = how.includes("non toccare");
@@ -222,6 +269,26 @@ for (const [rel, how] of REGEN) {
   console.log(`${human(size).padStart(8)}  ${rel.padEnd(36)} ${how}`);
 }
 console.log(`\nrigenerabile senza perdite: ${human(regen)}`);
+
+// ── Fuori da git ───────────────────────────────────────────────────────────
+// Le cartelle di stato dell'app, che nessun `git status` vede e nessun GC
+// spazza. La misura è del `du`; il verdetto è scritto qui perché è un giudizio,
+// e un giudizio va firmato: chi lo cambia deve cambiare la riga, non un numero.
+console.log("\n=== Fuori da git (stato dell'app) ===\n");
+const OUTSIDE: [string, "rigenerabile" | "ridondante" | "NON toccare", string][] = [
+  [join(homedir(), ".topics", "backups"), "ridondante", "snapshot del DB: si tiene il più recente, i precedenti no"],
+  [join(homedir(), ".topics", "ui-state-backups"), "ridondante", "stato UI: lo riscrive l'app al prossimo salvataggio"],
+  [join(homedir(), ".topics", "media"), "NON toccare", "anteprime e allegati REFERENZIATI dalle card"],
+  [join(homedir(), ".openclaw", "browser"), "NON toccare", "profili browser: dentro ci sono i LOGIN"],
+  [join(homedir(), ".openclaw", "workspace"), "NON toccare", "workspace degli agent: può contenere lavoro unico"],
+  [join(homedir(), ".openclaw", "media"), "NON toccare", "allegati referenziati dalle conversazioni"],
+  [join(homedir(), ".openclaw", "chromium-sidecar"), "rigenerabile", "si riscarica da solo al primo uso"],
+  [join(homedir(), ".openclaw", "logs"), "rigenerabile", "log: nessuno li rilegge dopo giorni"],
+];
+for (const [path, verdict, why] of OUTSIDE) {
+  if (!existsSync(path)) continue;
+  console.log(`${human(du(path)).padStart(8)}  ${verdict.padEnd(13)} ${path.replace(homedir(), "~")}  — ${why}`);
+}
 
 if (process.argv.includes("--all") && existsSync(WT_ROOT)) {
   console.log("\n=== Worktree di ALTRI progetti sotto ~/.topics/worktrees ===\n");
