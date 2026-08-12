@@ -270,6 +270,17 @@ export const ACTIVE_DISPATCH_STATES = ['queued', 'starting', 'working'] as const
 export type ActiveDispatchState = (typeof ACTIVE_DISPATCH_STATES)[number];
 
 /**
+ * Il chip che il dispatcher mette quando DECIDE di non far partire un task.
+ *
+ * Sta qui perché adesso ha due lettori che devono concordare: il dispatcher che
+ * lo scrive (`CHIP_QUEUED`) e `rowToTask`, che da quel chip più il peso deduce
+ * «questa card è il tappo della coda». Due letterali `'queued'` in due file
+ * sarebbero andati in deriva nel modo peggiore: la ragione sulla card non
+ * sarebbe sparita con un errore, sarebbe tornata a dire «in coda».
+ */
+export const DISPATCH_CHIP_QUEUED = 'queued';
+
+/**
  * True se su questo task c'è un agente al lavoro ADESSO (vedi ACTIVE_DISPATCH_STATES).
  *
  * È un type guard, non un `boolean`: così `ActiveDispatchState` ha un
