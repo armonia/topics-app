@@ -88,10 +88,6 @@ export interface UseSidebarAndLayoutReturn {
     toggleSidebar: () => void;
     handleSidebarResizeStart: (e: React.MouseEvent) => void;
     handleSidebarDoubleClick: () => void;
-    handleSidebarTouchStart: (e: React.TouchEvent) => void;
-    handleSidebarTouchEnd: (e: React.TouchEvent) => void;
-    handleEdgeTouchStart: (e: React.TouchEvent) => void;
-    handleEdgeTouchEnd: (e: React.TouchEvent) => void;
     setSidebarCollapsed: Dispatch<SetStateAction<boolean>>;
     setAppSettings: Dispatch<SetStateAction<AppSettings>>;
   };
@@ -306,38 +302,10 @@ export function useSidebarAndLayout(args: UseSidebarAndLayoutArgs): UseSidebarAn
   // native Electron WebContentsView panes hide via pane-resize-start/end).
   const sidebarDragOverlay = useRef<HTMLDivElement | null>(null);
 
-  // Mobile swipe-to-dismiss sidebar
-  const touchStartX = useRef<number | null>(null);
-  const handleSidebarTouchStart = useCallback((e: React.TouchEvent) => {
-    touchStartX.current = e.touches[0].clientX;
-  }, []);
-  const handleSidebarTouchEnd = useCallback((e: React.TouchEvent) => {
-    if (touchStartX.current !== null) {
-      const delta = e.changedTouches[0].clientX - touchStartX.current;
-      if (delta < -60) {
-        setSidebarCollapsed(true);
-      }
-      touchStartX.current = null;
-    }
-  }, []);
-
-  // Mobile swipe-from-left-edge to open sidebar
-  const edgeTouchStartX = useRef<number | null>(null);
-  const handleEdgeTouchStart = useCallback((e: React.TouchEvent) => {
-    if (sidebarCollapsed && e.touches[0].clientX < 30) {
-      edgeTouchStartX.current = e.touches[0].clientX;
-    }
-  }, [sidebarCollapsed]);
-  const handleEdgeTouchEnd = useCallback((e: React.TouchEvent) => {
-    if (edgeTouchStartX.current !== null) {
-      const delta = e.changedTouches[0].clientX - edgeTouchStartX.current;
-      if (delta > 60) {
-        setSidebarCollapsed(false);
-      }
-      edgeTouchStartX.current = null;
-    }
-  }, []);
-
+  // IL GESTO DEL CASSETTO NON STA PIÙ QUI: sta in `useSidebarSwipe`, che lo
+  // tratta come un trascinamento (la colonna segue il dito) invece che come una
+  // soglia letta a dito già staccato. Qui restava solo il pezzo di stato che
+  // quel gesto muove — `setSidebarCollapsed`, che infatti è già esposto.
   // Sidebar resize handlers — bypass React during drag for fluid resizing
   const handleSidebarResizeStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -480,10 +448,6 @@ export function useSidebarAndLayout(args: UseSidebarAndLayoutArgs): UseSidebarAn
       toggleSidebar,
       handleSidebarResizeStart,
       handleSidebarDoubleClick,
-      handleSidebarTouchStart,
-      handleSidebarTouchEnd,
-      handleEdgeTouchStart,
-      handleEdgeTouchEnd,
       setSidebarCollapsed,
       setAppSettings,
     },
