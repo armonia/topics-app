@@ -19,7 +19,7 @@
  * so ignoring the manifest stays safe — genuine work keeps the branch "unmerged".
  */
 
-import { listOwnCommits } from "./own-commits";
+import { commitIsIn, listOwnCommits } from "./own-commits";
 
 /** Generated, build-output, lockfile and lockstep-version paths — never unique work. */
 const NOISE_RE =
@@ -93,8 +93,11 @@ export async function commitStatusFromRepo(
   if (!commit) return "gone";
   if ((await gitExit(repoPath, ["rev-parse", "--verify", "--quiet", `${commit}^{commit}`])) !== 0) return "gone";
 
-  // (1) Discendenza.
-  if ((await gitExit(repoPath, ["merge-base", "--is-ancestor", commit, mainRef])) === 0) return "merged";
+  // (1) Discendenza. La domanda sta in `commitIsIn` perché non è solo di qui: il
+  // cancello del land la fa per decidere se c'è qualcosa da pubblicare, questo
+  // per decidere se c'è qualcosa da rifare. Due copie che divergono vogliono dire
+  // ridispacciare ciò che il land ha appena chiuso.
+  if ((await commitIsIn(repoPath, commit, mainRef)) === true) return "merged";
 
   // (2) La copia ricopiata dal land. `-F` perché l'oggetto di un commit è prosa
   // e contiene parentesi, backtick e accenti: come regex sarebbe un'altra
