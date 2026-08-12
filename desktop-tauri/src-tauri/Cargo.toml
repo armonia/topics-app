@@ -79,6 +79,29 @@ tokio = { version = "1", features = ["net", "io-util", "rt"] }
 tokio-native-tls = "0.3"
 native-tls = "0.2"
 
+# Windows: il pane browser nativo parla a WebView2 attraverso il controller che
+# Tauri espone (`PlatformWebview::controller`). Le versioni NON sono libere:
+# devono essere le stesse che risolve wry, altrimenti cargo compila due copie
+# della crate e i tipi, pur chiamandosi uguale, non unificano: l'errore che si
+# ottiene e «expected ICoreWebView2Controller, found ICoreWebView2Controller»,
+# che e fra i piu difficili da leggere. Il riferimento e Cargo.lock, non crates.io.
+[target.'cfg(target_os = "windows")'.dependencies]
+webview2-com = "0.38"
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Com"] }
+
+# Linux e i BSD: stessa storia, ma con WebKitGTK. `cairo-rs` arriva gia da gtk,
+# qui si aggiunge solo la feature `png`, che serve a `write_to_png` per lo
+# screenshot e che nessuno nella catena accende. `javascriptcore-rs` e il tipo
+# del valore che torna da `evaluate_javascript` (webkit2gtk lo importa col nome
+# `java_script_core` ma non lo ri-esporta, quindi va dichiarato qui).
+[target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd"))'.dependencies]
+webkit2gtk = { version = "=2.0.2", features = ["v2_40"] }
+javascriptcore-rs = "=1.1.2"
+cairo-rs = { version = "0.18", features = ["png"] }
+glib = "0.18"
+gio = "0.18"
+soup3 = "0.5"
+
 # macOS-only: toggle the native traffic-light buttons (close/min/zoom) so they
 # stay hidden by default and reveal only when the Topics menu opens — matching
 # the Electron shell's `setWindowButtonVisibility`. Tauri has no JS API for this,
