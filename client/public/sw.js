@@ -16,7 +16,11 @@
 // cache (vedi handler `fetch` più sotto). Il bump serve anche a buttare via
 // qualunque shell di build precedente rimasta in `topics-v10`, che è proprio
 // quella che il vecchio fallback-immediato serviva durante un riavvio del server.
-const CACHE_VERSION = 11;
+// v12 (2026-08-11): la notifica porta i TASTI (`actions`) e li ESEGUE — vedi
+// l'handler `notificationclick` in fondo. Il bump è quello che fa arrivare
+// questo file ai client: un SW vecchio ignorerebbe `actions` e mostrerebbe la
+// solita notifica-link senza che nulla lo dica.
+const CACHE_VERSION = 12;
 const CACHE_NAME = `topics-v${CACHE_VERSION}`;
 
 // Un fallimento di rete su una navigazione ha DUE cause che il vecchio
@@ -143,20 +147,71 @@ self.addEventListener('push', (event) => {
   let data;
   try { data = event.data.json(); } catch { return; }
 
+  // I TASTI. Il browser ne mostra al massimo `Notification.maxActions` (2 sul
+  // desktop): il server ne manda già al massimo altrettanti e con la regola del
+  // tutto-o-niente (shared/notify-actions), ma il taglio qui resta perché il
+  // tetto è del BROWSER, non del contratto — su una piattaforma che ne accetta
+  // uno solo, mostrarne due significa che il secondo sparisce in silenzio, e
+  // sparirebbe proprio la risposta che non hai scelto di nascondere.
+  const maxActions = typeof Notification !== 'undefined' && typeof Notification.maxActions === 'number'
+    ? Notification.maxActions
+    : 2;
+  const declared = Array.isArray(data.actions) ? data.actions : [];
+  const actions = declared.length <= maxActions
+    ? declared
+        .filter((a) => a && typeof a.id === 'string' && typeof a.title === 'string')
+        .map((a) => ({ action: a.id, title: a.title }))
+    : []; // non ci stanno tutti → nessuno: mezza scelta non sembra mezza
+
   const options = {
     body: data.body || 'New event',
     icon: '/icons/icon-192.png',
     badge: '/icons/icon-192.png',
     tag: data.tag || 'topics-notification',
-    data: { url: data.url || '/' },
+    // `requests` viaggia con la notifica: al click il worker non ricompone
+    // niente, esegue la chiamata che gli è arrivata (dopo il cancello sul path).
+    data: { url: data.url || '/', requests: data.requests || {} },
     renotify: true,
     vibrate: [100, 50, 100],
+    ...(actions.length ? { actions } : {}),
   };
 
   event.waitUntil(
     self.registration.showNotification(data.title || 'Topics', options)
   );
 });
+
+// Il cancello su ciò che un tasto può chiamare. Gemello di `isBoardActionPath`
+// in shared/notify-actions.ts — qui riscritto perché sw.js non può importare
+// nulla. È l'UNICA regola duplicata di tutta la catena, ed è duplicata apposta:
+// una difesa che sta solo dall'altra parte del filo non difende chi esegue.
+function isBoardActionPath(path) {
+  return typeof path === 'string' && /^\/api\/boards\/[^/]+\/tasks\/[^/]+(\/[a-z-]+)?$/.test(path);
+}
+
+/**
+ * Esegue il tasto premuto. Ritorna true se il server ha accettato.
+ *
+ * `credentials: 'same-origin'` è load-bearing: la sessione di Topics è un
+ * cookie, e senza di lui la chiamata parte anonima e il gate d'autenticazione
+ * la respinge — il tasto sembrerebbe rotto proprio sul dispositivo autorizzato.
+ */
+async function runNotificationAction(notification, actionId) {
+  const req = (notification.data && notification.data.requests || {})[actionId];
+  if (!req || !isBoardActionPath(req.path)) return false;
+  if (req.method !== 'POST' && req.method !== 'PATCH') return false;
+  try {
+    const resp = await fetch(req.path, {
+      method: req.method,
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify(req.body || {}),
+    });
+    return resp.ok;
+  } catch {
+    return false;
+  }
+}
 
 // Click su una notifica → porta l'utente DOVE dice la notifica.
 //
@@ -166,11 +221,20 @@ self.addEventListener('push', (event) => {
 // — ricaricherebbe la SPA da zero (stato, pane, stream in corso) per un
 // deep-link che l'app sa già aprire in-app. Passiamo la destinazione con un
 // postMessage: `client/src/lib/openTaskLink.ts` la ascolta e apre il drawer.
+//
+// Con un TASTO premuto (`event.action` valorizzato) il click non apre niente:
+// esegue. È il senso stesso dei tasti — se ti aprisse comunque l'app avresti
+// fatto due gesti per uno, e la notifica non ti avrebbe risparmiato nulla.
+// Ma solo se il server ACCETTA: una chiamata fallita (offline, task che nel
+// frattempo è uscito da review, checks rossi che il server rifiuta senza
+// `force`) ricade sull'apertura del task, dove il perché si legge. Un tasto
+// che non fa niente e non lo dice è peggio di un tasto che non c'è.
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const targetUrl = event.notification.data?.url || '/';
+  const actionId = event.action;
 
-  event.waitUntil(
+  const openTarget = () =>
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
       for (const client of windowClients) {
         if (new URL(client.url).origin === self.location.origin && 'focus' in client) {
@@ -185,8 +249,16 @@ self.addEventListener('notificationclick', (event) => {
         }
       }
       return clients.openWindow(targetUrl);
-    })
-  );
+    });
+
+  if (actionId) {
+    event.waitUntil(
+      runNotificationAction(event.notification, actionId).then((ok) => (ok ? undefined : openTarget()))
+    );
+    return;
+  }
+
+  event.waitUntil(openTarget());
 });
 
 // Listen for skip-waiting message from client

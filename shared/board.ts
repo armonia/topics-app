@@ -290,6 +290,113 @@ export function hasPlanApproveOption(options: readonly string[]): boolean {
   return options.some((o) => normalizeActionLabel(o) === want);
 }
 
+/**
+ * L'antenato al lavoro che spiega un sottotask senza agente proprio: chi lo sta
+ * lavorando, e con che titolo dirlo. Risolto dal server come `BlockerRef` e per
+ * lo stesso motivo — la lista della board è un progetto solo, `rootsOnly`, non
+ * archiviati, quindi il padre di un sottotask spesso NON è fra i task che il
+ * client ha in mano, e cercarcelo dentro dava «nessuno lo lavora» proprio quando
+ * qualcuno lo stava lavorando.
+ */
+export interface AncestorAtWork {
+  id: string;
+  text: string;
+}
+
+/**
+ * Chi lavora un sottotask `in_progress` che non ha né topic né chip di dispatch.
+ *
+ * `parent-turn` = lo lavora un antenato dentro il PROPRIO turno: è il flusso
+ * voluto — l'agente si crea la checklist come sottotask e la spunta mentre va —
+ * ed è la norma schiacciante (misurato l'11/08/2026 sul DB vivo: 243 figli
+ * chiusi in quella forma in un giorno, 281 il giorno prima).
+ *
+ * `unattended` = nessun antenato è al lavoro: la card è rimasta lì e non la
+ * lavora nessuno. Rara (1 card viva su ~1.276 al momento della misura) ma reale,
+ * e oggi invisibile: il recupero orfani filtra sul chip di dispatch, che qui non
+ * c'è, quindi non vede né questo caso né l'altro.
+ */
+export type SubtaskWork =
+  | { kind: 'parent-turn'; ancestor: AncestorAtWork }
+  | { kind: 'unattended' };
+
+/**
+ * Un antenato sta lavorando ADESSO?
+ *
+ * `isAgentWorking` da solo non basta: `dispatch_state` resta scritto anche su
+ * righe che nel frattempo sono state archiviate o mosse fuori da `in_progress`,
+ * e leggerlo da solo farebbe passare per «al lavoro» un padre già chiuso.
+ *
+ * NON guarda `topics.archived`: i topic che il dispatcher crea per un agente
+ * NASCONO archiviati (sono worker di sfondo, non tab da mostrare in sidebar).
+ * Misurato l'11/08/2026: 755 topic archiviati su 767, e tutti e 7 i task con un
+ * agente vivo in quel momento — compreso quello che stava girando — avevano il
+ * topic `archived = 1`. Usare quel bit come segno di vita inverte la risposta
+ * sul 100% dei casi sani.
+ */
+export function isAncestorAtWork(a: {
+  status: TaskStatus | string;
+  dispatchState: string | null | undefined;
+  archived: boolean;
+}): boolean {
+  return !a.archived && a.status === 'in_progress' && isAgentWorking(a.dispatchState);
+}
+
+/**
+ * La forma ambigua: un sottotask `in_progress` MAI dispacciato — niente topic,
+ * niente chip. È l'unica in cui la domanda «chi lo lavora?» non ha già risposta
+ * sulla card: con un topic c'è il deep-link, con un chip c'è lo stato.
+ */
+export function isUnattributedSubtask(t: {
+  status: TaskStatus | string;
+  parentTaskId: string | null | undefined;
+  assignedTopicId: string | null | undefined;
+  dispatchState: string | null | undefined;
+}): boolean {
+  return t.status === 'in_progress' && !!t.parentTaskId && !t.assignedTopicId && !t.dispatchState;
+}
+
+/**
+ * Il segnale, DERIVATO dalla catena dei padri: nessuna migration e nessun
+ * `assigned_topic_id` ereditato — quella colonna pesa su quota, dispatcher e
+ * deep-link, e riempirla per dire una cosa che si può leggere sarebbe pagare
+ * tre conti per un'etichetta.
+ *
+ * Nemmeno `created_by_topic_id` (migration 093) risponde: sembra la scorciatoia
+ * — «chi mi ha creato è il topic che mi lavora» — ma è scritto solo su una
+ * parte delle righe. Misurato l'11/08/2026 sui figli chiusi in giornata nella
+ * forma ambigua: 90 su 249 ce l'hanno, 159 no. Leggerlo come segnale darebbe
+ * «non la lavora nessuno» sui due terzi dei casi sani.
+ *
+ * `ancestors` arriva ordinata dal padre in su. Vince il PRIMO antenato al
+ * lavoro, non il padre diretto: l'agente che lavora un task si crea la checklist
+ * come figli, e quei figli possono avere figli loro — la catena misurata arriva
+ * a due livelli, e chi tiene il turno può stare più in alto del padre.
+ *
+ * Torna `null` quando la domanda non si pone (non è un sottotask, non è in
+ * corso, o ha già un agente suo): un `null` qui vuol dire «niente da dire»,
+ * mai «non lo lavora nessuno» — quello è `unattended`, ed è un'altra cosa.
+ */
+export function deriveSubtaskWork(
+  task: {
+    status: TaskStatus | string;
+    parentTaskId: string | null | undefined;
+    assignedTopicId: string | null | undefined;
+    dispatchState: string | null | undefined;
+  },
+  ancestors: ReadonlyArray<{
+    id: string;
+    text: string;
+    status: TaskStatus | string;
+    dispatchState: string | null | undefined;
+    archived: boolean;
+  }>,
+): SubtaskWork | null {
+  if (!isUnattributedSubtask(task)) return null;
+  const at = ancestors.find(isAncestorAtWork);
+  return at ? { kind: 'parent-turn', ancestor: { id: at.id, text: at.text } } : { kind: 'unattended' };
+}
+
 export interface TaskComment {
   id: string;
   taskId: string;
@@ -502,4 +609,123 @@ export interface LinkProposal {
   sharedTerms: string[];
   /** Frase leggibile: va sotto al composer E nel thread delle due card. */
   reason: string;
+}
+
+/**
+ * Parse a task comment for an agent "question block" — the human-decision
+ * request the board renders as a quick-reply:
+ *
+ *   ```question
+ *   Which auth approach?
+ *   - JWT in an httpOnly cookie
+ *   - Short-lived bearer token
+ *   ```
+ *
+ * The canonical block is composed SERVER-side (tasks service `questionOptions`)
+ * so this layout is guaranteed for new comments — but the parser stays
+ * tolerant of hand-written LLM variants: `\r\n`, missing newlines around the
+ * fences, options inlined on one line. Returns the question + the (possibly
+ * empty) option list, or null when the text has no such block.
+ *
+ * Sta in `shared/` e non più solo nel client perché ora ha un secondo lettore:
+ * il SERVER, che deve sapere se il task che entra in review porta una domanda
+ * per poterla mettere nei tasti della notifica (`emitReviewReadyEdge` →
+ * `push-triggers`). Due parser sarebbero due verità: un'opzione che la board
+ * mostra e il banner no è peggio di nessun banner.
+ */
+export function parseQuestionBlock(text: string): { question: string; options: string[] } | null {
+  if (!text) return null;
+  // \s+ (not \s*\n): tolerate a block whose newlines were lost/normalized —
+  // '```question Question? - a - b```' still parses.
+  const m = text.replace(/\r\n/g, '\n').match(/```question\s+([\s\S]*?)```/);
+  if (!m) return null;
+  const body = m[1].trim();
+  if (!body) return null;
+  const options: string[] = [];
+  const qLines: string[] = [];
+  if (body.includes('\n')) {
+    for (const raw of body.split('\n')) {
+      const line = raw.trim();
+      if (!line) continue;
+      const opt = line.match(/^[-*]\s+(.*)$/);
+      if (opt) options.push(opt[1].trim());
+      else qLines.push(line);
+    }
+  } else {
+    // Degenerate single-line body: split on ' - ' option markers. The first
+    // segment is the question; a leading '- ' marks an option-only block.
+    const segments = body.split(/\s+-\s+/);
+    const first = segments.shift()?.trim() ?? '';
+    if (first.startsWith('- ')) segments.unshift(first.slice(2));
+    else if (first) qLines.push(first);
+    for (const s of segments) { const v = s.trim(); if (v) options.push(v); }
+  }
+  const question = qLines.join(' ').trim();
+  if (!question) return null;
+  // "Landa e pubblica" (go online = merge + push + deploy) is NEVER a per-task
+  // quick-reply: publishing is a SEPARATE, human-only board action (the "Pubblica"
+  // control) with a diff preview to review before pushing. The dispatcher used to
+  // make agents offer it at delivery; drop it from the rendered options so old
+  // deliveries that still carry it don't show a one-click merge+push button.
+  // "Landa su main" (local merge, no push) stays.
+  const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
+  const filtered = options.filter((o) => norm(o) !== 'landa e pubblica');
+  return { question, options: filtered };
+}
+
+/** Il minimo che serve per riconoscere una domanda in coda al thread. */
+export type PendingQuestionComment = { content: string; kind?: string | null };
+
+/**
+ * La domanda pendente di un task: l'ULTIMA parola dell'agente, se è un blocco
+ * ```question.
+ *
+ * Stessa lettura della card e del drawer (`parseQuestionBlock` sull'ultimo
+ * commento, righe `kind: 'status'` escluse perché sono cronologia delle
+ * transizioni, non parole di nessuno). Se il banner mostrasse opzioni diverse
+ * da quelle della card, quale delle due superfici crede non sarebbe più una
+ * domanda con risposta.
+ *
+ * Due lettori su due lati del filo: il server, che mette la domanda nel fronte
+ * `task:review-ready`; e il client, che se la ricava da sé quando il fronte non
+ * la porta (server più vecchio del client).
+ */
+export function pendingQuestion(
+  comments: readonly PendingQuestionComment[] | null | undefined,
+): { text: string; options: string[] } | null {
+  if (!comments || comments.length === 0) return null;
+  const speech = comments.filter((c) => c && c.kind !== 'status');
+  const last = speech[speech.length - 1];
+  if (!last) return null;
+  const parsed = parseQuestionBlock(last.content ?? '');
+  // Una domanda senza opzioni non ha tasti da offrire, ma resta una domanda: la
+  // si dichiara comunque, così chi legge sa che il task ASPETTA una risposta e
+  // non è una consegna da approvare.
+  return parsed ? { text: parsed.question, options: parsed.options } : null;
+}
+
+/**
+ * La ricevuta di un land — il server risponde `202` (accodato), non `200`
+ * (fatto).
+ *
+ * Esiste perché `POST …/tasks/:id/land` rispondeva `200` con la card e faceva
+ * la fusione dopo (`void landTask(...)`): chi chiamava riceveva la card, non
+ * l'esito. Misurato l'11/08, ~20 land in raffica ⇒ 4 fusioni riuscite e 16 card
+ * chiuse col codice ancora sul loro branch, senza una riga che lo dicesse.
+ *
+ * `ahead` è quante fusioni ci sono davanti sulla stessa board: toccano tutte
+ * main nello stesso checkout, quindi vanno in fila — e mettersi in fila si dice.
+ */
+export type LandingPhase = 'queued' | 'running' | 'settled' | 'failed';
+
+export interface LandingTicket {
+  taskId: string;
+  phase: LandingPhase;
+  /** Quanti land ci sono DAVANTI a questo nella stessa fila. 0 = tocca a lui. */
+  ahead: number;
+  queuedAt: string;
+  /** ISO in cui il ticket si è chiuso, `null` finché non è finito. */
+  settledAt: string | null;
+  /** Il motivo del `failed`. `null` in ogni altra fase. */
+  error: string | null;
 }
