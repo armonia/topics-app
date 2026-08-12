@@ -14,6 +14,7 @@ import { createTaskService, type TaskService } from "./tasks";
 import { createTaskDispatcher, type DispatcherDeps } from "./task-dispatcher";
 import { createTaskAttemptStore, type TaskAttempt } from "./task-attempts";
 import type { TurnEndInfo } from "../providers/stop-reason";
+import { TASK_LABELS_DDL } from "../db/test-schema";
 
 /** Schema autoportante: sottoinsieme delle migration rilevanti + la 065. */
 function freshDb(): Database {
@@ -37,6 +38,7 @@ function freshDb(): Database {
     delivered_by TEXT, delivered_reason TEXT, created_by_topic_id TEXT,
     done_actor TEXT, reopened_at TEXT, reopened_by TEXT, reopened_actor TEXT
   )`);
+  db.run(TASK_LABELS_DDL); // migration 100 — rowToTask la legge per OGNI task
   db.run(`CREATE TABLE board_settings (
     project_id TEXT PRIMARY KEY, require_approval_for_done INTEGER DEFAULT 0,
     require_review_before_done INTEGER DEFAULT 0, block_status_with_pending INTEGER DEFAULT 0,
