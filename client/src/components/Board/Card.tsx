@@ -318,6 +318,12 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
   // "done" that never reached main — the 19/07 loss, made visible. Only on done:
   // a task in review is legitimately not landed yet, flagging it would be noise.
   const notLanded = task.status === 'done' && task.landingState === 'unlanded';
+  // Il ramo come si legge su una card: senza il prefisso `topics/`, che ce
+  // l'hanno tutti e occupa sette caratteri dei pochi che il chip ha. Con il
+  // prefisso il troncamento mangiava proprio la parte che distingue un ramo
+  // dall'altro (`topics/spectral-fo…`), cioè l'unica informazione nuova. Il
+  // nome intero resta nel `title` e nel drawer.
+  const notLandedBranch = task.deliveryBranch?.replace(/^topics\//, '') ?? null;
   // Solo il ROSSO va sulla card: un verde è la norma e riempirebbe la colonna di
   // spunte che nessuno legge, mentre il rosso è la ragione per non aprire il task.
   const checksRed = task.checksState === 'fail';
@@ -583,9 +589,16 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
           )}
           {notLanded && (
             <span
-              title={`Il lavoro consegnato (${task.deliveryCommit?.slice(0, 8) ?? '?'}${task.deliveryBranch ? ` su ${task.deliveryBranch}` : ''}) NON risulta su main. Landa il branch prima che venga potato.`}
-              className="flex items-center gap-1 rounded bg-rose-500/20 px-1.5 py-0.5 text-xs md:text-[11px] text-rose-300"
-            ><AlertTriangle className="h-3 w-3 shrink-0" /> non su main</span>
+              data-testid="card-not-landed"
+              title={`Il lavoro consegnato (${task.deliveryCommit?.slice(0, 8) ?? '?'}${task.deliveryBranch ? ` su ${task.deliveryBranch}` : ''}) NON risulta su main. Apri il task per landarlo prima che il branch venga potato.`}
+              className="flex max-w-full items-center gap-1 rounded bg-rose-500/20 px-1.5 py-0.5 text-xs md:text-[11px] text-rose-300"
+              // Il RAMO sta nel testo, non solo nel `title`: su touch l'hover non
+              // esiste, e senza il nome la card dice che c'è un problema ma non
+              // dove sta il lavoro. `max-w-full` più il `flex-wrap` della riga:
+              // il chip prende la sua riga invece di comprimere il nome, e
+              // `truncate` resta solo per il caso estremo (nome intero nel DOM
+              // e nel tooltip, colonna che non si allarga mai).
+            ><AlertTriangle className="h-3 w-3 shrink-0" /> <span className="truncate">non su main{notLandedBranch ? ` · ${notLandedBranch}` : ''}</span></span>
           )}
           {checksRed && (
             <span

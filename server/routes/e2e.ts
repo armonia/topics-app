@@ -18,6 +18,11 @@
  *                                         (+ `dispatchState` opzionale),
  *                              come il dispatcher — così si può testare la
  *                              superficie dei task dispatchati senza agente.
+ *   POST /api/test/tasks/:id/landing      semina la fotografia di consegna
+ *                              (branch + commit) e il verdetto dell'audit, che
+ *                              nel mondo vero richiedono un repo git e la
+ *                              passata periodica — così la superficie «chiuso
+ *                              ma non su main» si testa senza aspettarla.
  *   POST /api/test/tasks/:id/dispatch-gate  mette una card in uno dei modi in
  *                              cui il dispatcher la tiene ferma (tentativi
  *                              esauriti, finestra d'attesa aperta). Ci si arriva
@@ -309,6 +314,41 @@ export function createE2eRouter(ctx: AppContext): RouteHandler {
           error: body?.error ?? null,
         });
         return json({ ok: true, task });
+      } catch (e) {
+        return json({ error: (e as Error).message }, 400);
+      }
+    }
+
+    // POST /api/test/tasks/:taskId/landing {branch?, commit?, state?} — semina la
+    // FOTOGRAFIA DI CONSEGNA e il verdetto dell'audit di landing.
+    //
+    // Stessa ragione di `bind-topic`: queste due colonne le scrive solo il
+    // dispatcher (alla consegna) e l'audit periodico (che interroga un repo git
+    // vero, con un commit vero, e ci mette il suo giro). Nessuna API pubblica ci
+    // arriva, quindi senza questo verbo la superficie «done ma non su main» non
+    // è raggiungibile da nessun test end-to-end — ed è esattamente quella che
+    // per otto giorni ha lasciato credere finito un lavoro che non c'era.
+    // Passa dal servizio vero: nessuna seconda copia dello schema da tenere
+    // allineata.
+    const seedLanding = /^\/api\/test\/tasks\/([^/]+)\/landing$/.exec(pathname);
+    if (method === "POST" && seedLanding) {
+      const body = (await req.json().catch(() => null)) as
+        | { branch?: string | null; commit?: string | null; state?: string | null }
+        | null;
+      const taskId = decodeURIComponent(seedLanding[1]);
+      const state = body?.state ?? null;
+      if (state !== null && state !== "landed" && state !== "unlanded" && state !== "unverifiable") {
+        return json({ error: "state must be landed | unlanded | unverifiable | null" }, 400);
+      }
+      try {
+        const svc = createTaskService(db);
+        // Ordine obbligato: `recordDelivery` azzera per contratto il verdetto
+        // precedente (una consegna nuova invalida un vecchio "landed"), quindi
+        // lo stato va scritto DOPO — altrimenti si semina un `landing_state`
+        // nullo e la spec misura il caso sbagliato.
+        svc.recordDelivery({ taskId, branch: body?.branch ?? null, commit: body?.commit ?? null });
+        if (state) svc.recordLandingState({ taskId, state, checkedAt: new Date().toISOString() });
+        return json({ ok: true, task: svc.get(taskId)?.task ?? null });
       } catch (e) {
         return json({ error: (e as Error).message }, 400);
       }
