@@ -2,8 +2,16 @@ import type { Page, BrowserContext, Browser } from "playwright-core";
 import { pushNetworkEntry, completeNetworkEntry, type NetworkEntry } from "./browser-network-log";
 import { existsSync, mkdirSync, writeFileSync, readFileSync, statSync } from "fs";
 import { join } from "path";
-import { loadStorageState, saveStorageState, debouncedSaver, saveLastUrl, loadLastUrl, readLastUrlEntry } from "./browser-state-store";
+import { loadStorageState, saveStorageState, debouncedSaver, saveLastUrl, loadLastUrl, readLastUrlEntry, type BrowserStorageState } from "./browser-state-store";
 import { seedSharedFromNative } from "./browser-session-handoff";
+import {
+  siteDataRecords as recordsFromState,
+  forgetSilosInState,
+  originsOfSilos,
+  cookieSilo,
+  originSilo,
+  type SiteDataRecord,
+} from "./browser-site-data";
 import type { Topic } from "./types";
 import type { IndexedElement } from "./browser-tools";
 import type { BrowserWsMessage } from "../shared/browser-ws-messages";
@@ -237,6 +245,31 @@ const RRWEB_RECORD_START = `(function(){
 // end-allow-emdash
 const RRWEB_STOP = `(function(){ try { if (window.__rrwebStop) { window.__rrwebStop(); window.__rrwebStop = null; } window.__rrwebStarted = false; } catch(_){} })();`;
 
+/**
+ * «Dimentica questo sito», il pezzo che gira DENTRO la pagina aperta sul silo
+ * da cancellare. Espressione e non funzione tipata perché il codice qui non è
+ * codice del server: gira nel renderer, e `evaluate` gli passa la stringa.
+ * Ogni pezzo ha il suo try: un IndexedDB bloccato da un'altra tab non deve
+ * impedire a localStorage di svuotarsi.
+ */
+const CLEAR_PAGE_STORAGE = `(async function(){
+  try { localStorage.clear(); } catch(_){}
+  try { sessionStorage.clear(); } catch(_){}
+  try {
+    var dbs = indexedDB.databases ? await indexedDB.databases() : [];
+    await Promise.all(dbs.map(function(d){
+      if (!d || !d.name) return null;
+      return new Promise(function(res){
+        var req = indexedDB.deleteDatabase(d.name);
+        // Anche 'blocked': una cancellazione che aspetta un'altra connessione
+        // non deve tenere fermo il dialogo. Il file su disco viene ripulito
+        // comunque subito dopo.
+        req.onsuccess = req.onerror = req.onblocked = function(){ res(null); };
+      });
+    }));
+  } catch(_){}
+})();`;
+
 export interface AccessibilityNode {
   role: string;
   name: string;
@@ -264,6 +297,18 @@ export interface BrowserService {
    *  `false` quando non c'è nessun contesto vivo con quell'id (nulla da fare:
    *  il file su disco è già l'ultima parola) o quando il salvataggio fallisce. */
   flushStorageState(id: string): Promise<boolean>;
+  /** «Dimentica questo sito», metà LETTURA: i silo di identità di questa pane,
+   *  con i nomi che il dialogo mostrerà. Legge il contesto vivo se c'è (il file
+   *  su disco è vecchio fino a 30s) e il file quando non c'è. Non tocca niente.
+   *  `supported:false` sul motore `chromium`: lì l'identità sta nel profilo del
+   *  sidecar e da qui non si cancella, e dirlo è meglio che elencare zero
+   *  record facendo credere che non ci sia niente. */
+  siteDataRecords(id: string): Promise<{ supported: boolean; records: SiteDataRecord[] }>;
+  /** «Dimentica questo sito», metà CANCELLAZIONE: toglie i silo NOMINATI (quelli
+   *  che il dialogo ha mostrato) prima dal contesto vivo e poi da `storage.json`.
+   *  In quest'ordine: pulire solo il file lascerebbe l'identità viva in RAM, e
+   *  il primo autosave la riscriverebbe sul disco appena pulito. */
+  forgetSite(id: string, displayNames: string[]): Promise<{ supported: boolean; removed: number }>;
   /** Engine switch (task 54601eeb): remember the engine a context must be
    *  (re)created on. Consulted by createContext — so a switch is: setEngineHint →
    *  destroyContext → (client remounts) → getOrCreate → createContext picks it up.
@@ -861,6 +906,93 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
     }, cleanupIntervalMs);
   }
 
+  // ── «Dimentica questo sito» sulla pane condivisa ──────────────────────────
+  // Il modulo puro (`browser-site-data`) sa leggere e potare uno `storageState`.
+  // Quello che sa solo qui dentro è DOVE sta lo stato buono: nel contesto vivo
+  // finché c'è, e sul disco quando non c'è più nessuno acceso.
+
+  /**
+   * Lo stato da cui si legge l'inventario, e il contesto vivo se esiste.
+   * Il file lo scrive un autosave a 30s: leggerlo mentre il contesto è acceso
+   * significherebbe elencare un login fatto mezzo minuto fa come se non ci
+   * fosse. Se il contesto vivo non risponde si ripiega sul file: meglio un
+   * elenco vecchio che un dialogo che non si apre.
+   */
+  async function readSiteData(
+    id: string,
+  ): Promise<{ supported: boolean; entry?: BrowserContextEntry; state: BrowserStorageState | null }> {
+    const entry = contexts.get(id);
+    // Motore `chromium`: il profilo è del sidecar, `storage.json` non è la sua
+    // identità e cancellarlo non sloggherebbe niente. Vedi `flushStorageState`.
+    if (entry?.engine === "chromium") return { supported: false, state: null };
+    if (entry) {
+      try {
+        return { supported: true, entry, state: await entry.context.storageState({ indexedDB: true }) };
+      } catch (err: any) {
+        console.warn(`[BrowserService] readSiteData(${id}) live read failed:`, err?.message ?? err);
+        return { supported: true, entry, state: await loadStorageState(id) };
+      }
+    }
+    return { supported: true, state: await loadStorageState(id) };
+  }
+
+  /**
+   * Toglie i silo nominati dal contesto ACCESO, nei tre posti in cui vivono.
+   * Tutto best-effort: un pezzo che fallisce non deve impedire agli altri di
+   * cancellare, e comunque il file viene riscritto dopo.
+   */
+  async function purgeLiveSilos(
+    entry: BrowserContextEntry,
+    names: string[],
+    state: BrowserStorageState | null,
+  ): Promise<void> {
+    const targets = new Set(names);
+    // 1. I cookie. `clearCookies({ domain })` taglia per dominio ESATTO e non sa
+    //    del punto iniziale (`.github.com`): rileggerli tutti e riscrivere quelli
+    //    che restano cancella esattamente i silo elencati, niente di più.
+    try {
+      const live = await entry.context.cookies();
+      const keep = live.filter((c) => !targets.has(cookieSilo(c.domain)));
+      if (keep.length !== live.length) {
+        await entry.context.clearCookies();
+        if (keep.length > 0) await entry.context.addCookies(keep);
+      }
+    } catch (err: any) {
+      console.warn(`[BrowserService] purgeLiveSilos cookies failed:`, err?.message ?? err);
+    }
+    // 2. localStorage e IndexedDB, un origin alla volta. Via CDP e non con una
+    //    evaluate, perché l'origin da svuotare quasi mai è quello della pagina
+    //    aperta: `Storage.clearDataForOrigin` ci arriva senza doverci navigare.
+    const origins = originsOfSilos(state, names);
+    if (origins.length > 0) {
+      let session: Awaited<ReturnType<BrowserContext["newCDPSession"]>> | null = null;
+      try {
+        session = await entry.context.newCDPSession(entry.page);
+        for (const origin of origins) {
+          await session.send("Storage.clearDataForOrigin", {
+            origin,
+            storageTypes: "local_storage,indexeddb",
+          });
+        }
+      } catch (err: any) {
+        console.warn(`[BrowserService] purgeLiveSilos origins failed:`, err?.message ?? err);
+      } finally {
+        if (session) await session.detach().catch(() => {});
+      }
+    }
+    // 3. La pagina APERTA su uno dei silo. Il renderer tiene la sua copia di
+    //    localStorage in RAM e la riscriverebbe al prossimo `setItem`, quindi
+    //    svuotarla dal browser non basta: qui è l'unico caso in cui una evaluate
+    //    serve, ed è anche quello che l'utente sta guardando.
+    try {
+      if (targets.has(originSilo(entry.page.url()))) {
+        await entry.page.evaluate(CLEAR_PAGE_STORAGE);
+      }
+    } catch (err: any) {
+      console.warn(`[BrowserService] purgeLiveSilos page failed:`, err?.message ?? err);
+    }
+  }
+
   const service: BrowserService = {
     async launch() {
       // Optional pre-warm: eagerly spin up Chromium. The server does NOT call
@@ -1137,6 +1269,34 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
         console.warn(`[BrowserService] flushStorageState(${id}) failed:`, err?.message ?? err);
         return false;
       }
+    },
+
+    async siteDataRecords(id) {
+      const read = await readSiteData(id);
+      if (!read.supported) return { supported: false, records: [] };
+      return { supported: true, records: recordsFromState(read.state) };
+    },
+
+    async forgetSite(id, displayNames) {
+      const names = [...new Set(displayNames.map((n) => n.trim().toLowerCase()).filter(Boolean))];
+      const read = await readSiteData(id);
+      if (!read.supported) return { supported: false, removed: 0 };
+      if (names.length === 0) return { supported: true, removed: 0 };
+      // PRIMA il contesto vivo. Al contrario, il file pulito verrebbe riscritto
+      // dall'autosave con l'identità ancora accesa in RAM, e trenta secondi
+      // dopo il sito sarebbe di nuovo lì.
+      if (read.entry) await purgeLiveSilos(read.entry, names, read.state);
+      // POI il file, e per NOME: quello che sparisce dal disco è esattamente
+      // quello che il dialogo ha elencato, non il risultato di un secondo
+      // confronto fra host e silo fatto quaggiù.
+      if (!read.state) return { supported: true, removed: 0 };
+      const { state: next, removed } = forgetSilosInState(read.state, names);
+      try {
+        await saveStorageState(id, next);
+      } catch (err: any) {
+        console.warn(`[BrowserService] forgetSite(${id}) save failed:`, err?.message ?? err);
+      }
+      return { supported: true, removed };
     },
 
     async destroyContext(id) {
