@@ -20,8 +20,12 @@
  * Agent control: observe/act/extract/get_text(ref) run natively via tauriBrowserOps
  * (injected snapshot/act), read_screen/point via the server's Moondream on a native
  * screenshot. Still on streaming: save/load/import login state (no WKHTTPCookieStore
- * bridge yet). url/title/loading are reflected by an 800ms eval poll (WKNavigationDelegate
- * not bridged; see PORTING-PLAN §8.1), gated on visibility so only the active pane polls.
+ * bridge yet). url/title/loading arrivano dai NATIVI: WebKit li spinge via KVO, il
+ * Rust li mette in coda e il drain di `browser_take_nav_state` la svuota a 250ms su
+ * ogni pane, visibile o no. I due poll eval (800ms in primo piano, 2500ms di sfondo)
+ * restano come ripiego, unica sorgente fuori da macOS, e portano quello che KVO non
+ * dà: favicon, zoom, contatore di fuoco, console. Chi vince quando parlano entrambi
+ * sta in `nativeNavIsFresh` (lib/shell/browserPagePoll).
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { tauriInvoke, currentWindowLabel } from '../lib/shell/tauri';
@@ -41,7 +45,14 @@ import { deadLoopbackNotice, isLoopbackUrl, navErrorMessage } from '../component
 import { loopbackAlive } from '../lib/loopbackAlive';
 import type { NativeBrowserHandle, DeviceMode, BrowserConsoleEntry } from '@/components/Browser/browserDevTypes';
 import { DEVICE_PRESETS, deviceModeFromUserAgent } from '@/components/Browser/browserDevTypes';
-import { buildReadJs, META_JS, parsePageState, isPageLoading } from '../lib/shell/browserPagePoll';
+import {
+  buildReadJs,
+  META_JS,
+  parsePageState,
+  isPageLoading,
+  pickNavState,
+  nativeNavIsFresh,
+} from '../lib/shell/browserPagePoll';
 import { NO_FAULT, recordPaneOk, recordPaneError, recreatePane, STRUCTURAL_COMMANDS, type FaultState } from '../lib/shell/browserPaneFault';
 import { attemptNativeOpen } from '../lib/shell/nativeBrowserOpen';
 import { normalizeUrl } from '@/lib/browserNavUrl';
@@ -128,6 +139,15 @@ function onDocumentVisible(fn: () => void): () => void {
  *  self-heal paths already use. */
 const pendingBrowserCloses = new Map<string, ReturnType<typeof setTimeout>>();
 const BROWSER_CLOSE_GRACE_MS = 350;
+
+/** Quanto un fallimento di navigazione appena letto (drain di
+ *  `browser_take_nav_errors`) tiene la barra SPENTA contro un `loading: true`
+ *  che arriva dietro di lui. Quel drain gira a 1000ms, quello dello stato nav a
+ *  250ms: senza questa finestra la coda coalescata poteva riaccendere una barra
+ *  che l'errore aveva appena spento, e a spegnerla non sarebbe più tornato
+ *  nessuno finché la pagina non ricaricava. Il fallimento resta l'autorità: è
+ *  l'unica cosa che sa che non c'è nessuna pagina in arrivo. */
+const NAV_FAIL_GRACE_MS = 1500;
 
 // Live-pane refcount per contextId. A native WKWebView is keyed by contextId and
 // SHARED by every pane that mounts under the same id (e.g. the chat tab and a
@@ -906,10 +926,18 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
       try {
         const s = parsePageState(await tauriInvoke<string>('browser_eval_js', { id, js: READ }));
         if (stop || !s) return;
-        if (s.url) setUrl(s.url);
-        setTitle(s.title);
+        // PRECEDENZA. Se il drain nativo ha consegnato di recente, url/title/
+        // loading sono suoi e questo tick NON li tocca: l'eval legge il documento
+        // COMMITTATO, che su una pagina lenta è ancora quello di prima, e
+        // riscriverlo qui farebbe tornare la barra all'indirizzo precedente. Il
+        // resto del tick vale comunque, ed è il motivo per cui il poll non si
+        // spegne: favicon, zoom, contatore di fuoco e console non passano da KVO.
+        if (!nativeNavIsFresh(nativeNavAtRef.current, Date.now())) {
+          if (s.url) setUrl(s.url);
+          setTitle(s.title);
+          setLoading(isPageLoading(s.readyState));
+        }
         if (s.favicon) setFaviconUrl(s.favicon);
-        setLoading(isPageLoading(s.readyState));
         reassertZoom(s.zoomStyle);
         // A growing pointerdown counter means the user clicked inside this native
         // pane — activate its tab (the click never reached React otherwise). First
@@ -965,10 +993,15 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
       try {
         const s = parsePageState(await tauriInvoke<string>('browser_eval_js', { id, js: META_JS }));
         if (stop || !s) return;
-        if (s.url) setUrl(s.url);
-        if (s.title) setTitle(s.title);
+        // Stessa precedenza del poll in primo piano: il nativo, se ha parlato di
+        // recente, è la verità. Vale anche qui perché il drain non è gated su
+        // `isVisible`, quindi una pane di sfondo ha davvero due sorgenti.
+        if (!nativeNavIsFresh(nativeNavAtRef.current, Date.now())) {
+          if (s.url) setUrl(s.url);
+          if (s.title) setTitle(s.title);
+          setLoading(isPageLoading(s.readyState));
+        }
         if (s.favicon) setFaviconUrl(s.favicon);
-        setLoading(isPageLoading(s.readyState));
         reassertZoom(s.zoomStyle);
       } catch { /* pane closing / eval timeout — next tick retries */ }
       finally { inFlight = false; }
@@ -978,6 +1011,62 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     const offVis = onDocumentVisible(() => { void tick(); });
     return () => { stop = true; offVis(); window.clearInterval(iv); };
   }, [id, ready, isVisible, reassertZoom]);
+
+  // ── Stato nav dai NATIVI (KVO su URL/title/loading) ───────────────────────
+  //
+  // Fin qui l'indirizzo, il titolo e la barra di caricamento li leggeva un eval
+  // in pagina, a 800ms sulla pane visibile e 2500ms su quella di sfondo. Un poll
+  // si VEDE: clicchi un link e la barra resta sull'indirizzo di prima per
+  // mezzo secondo. Adesso WebKit lo dice da sé via KVO e il Rust lo mette in
+  // coda; questo drain la svuota a 250ms.
+  //
+  // NON è gated su `isVisible`, come il drain degli errori di navigazione qui
+  // sotto: una pane di sfondo naviga (un agente la guida, un redirect arriva) e
+  // la sua tab deve convergere sull'etichetta giusta. Costa un mutex vuoto per
+  // tick, non un eval in un altro processo.
+  //
+  // Il poll eval RESTA: fuori da macOS la coda è vuota per contratto, quindi lì
+  // è l'unica sorgente e deve bastare da sola. La precedenza quando ci sono
+  // entrambe sta in `nativeNavIsFresh` (una finestra di fiducia, non un
+  // interruttore) ed è applicata dentro i due poll.
+  const nativeNavAtRef = useRef(0);
+  /** Quando la strip d'errore ha spento la barra per un fallimento noto. */
+  const navFailedAtRef = useRef(0);
+
+  useEffect(() => {
+    if (!ready) return;
+    let stop = false;
+    const iv = window.setInterval(() => {
+      void tauriInvoke<Array<{ url: string; title: string; loading: boolean }>>(
+        'browser_take_nav_state',
+        { id },
+      )
+        .then((events) => {
+          if (stop) return;
+          const s = pickNavState(events);
+          if (!s) return; // coda vuota (o guscio senza il comando): niente da applicare
+          nativeNavAtRef.current = Date.now();
+          if (s.url) setUrl(s.url);
+          // Un titolo VUOTO non si scrive: WebKit lo azzera all'inizio di ogni
+          // navigazione, e scriverlo qui farebbe perdere l'etichetta alla tab a
+          // ogni click. Quando la pagina nuova davvero non ha un <title>, a
+          // ripulirlo pensa il poll eval appena la fiducia scade: lì `setTitle`
+          // è senza guardia.
+          if (s.title) setTitle(s.title);
+          // Un fallimento noto batte tutto (vedi `setLoading(false)` nel drain
+          // degli errori): se la strip ha appena spento la barra, un
+          // `loading: true` che arriva dietro di lui non la riaccende.
+          if (!(s.loading && Date.now() - navFailedAtRef.current < NAV_FAIL_GRACE_MS)) {
+            setLoading(s.loading);
+          }
+        })
+        .catch(() => {});
+    }, 250);
+    return () => {
+      stop = true;
+      window.clearInterval(iv);
+    };
+  }, [id, ready]);
 
   // Navigation failures — drain the Rust did-fail queue (browser_take_nav_errors,
   // scoped to this pane, same contract as the download queue). A pure mutex
@@ -1001,7 +1090,11 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
           // server.» — muta su quale server, su cosa manca e sul fatto che
           // «Riprova» non può bastare.
           setNavError({ ...navErrorMessage(last), url: last.url });
-          setLoading(false); // a known failure outranks whatever the last tick read
+          // A known failure outranks whatever the last tick read — eval poll AND
+          // native drain. Il timestamp è come lo dice al drain dello stato nav,
+          // che gira quattro volte più spesso di questo (vedi NAV_FAIL_GRACE_MS).
+          navFailedAtRef.current = Date.now();
+          setLoading(false);
         })
         .catch(() => {});
     }, 1000);
