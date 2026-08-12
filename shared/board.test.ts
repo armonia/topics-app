@@ -1,12 +1,16 @@
 import { test, expect, describe } from "bun:test";
 import {
+  QUEUE_REASON_UNKNOWN,
   STATUS_EVENT_REASON_MAX,
+  deriveQueueReason,
   deriveSubtaskWork,
   formatStatusEvent,
   isAncestorAtWork,
   isUnattributedSubtask,
   parseStatusEvent,
   statusEventEnters,
+  type BlockerRef,
+  type QueueReason,
 } from "./board";
 
 /**
@@ -135,5 +139,194 @@ describe("chi lavora un sottotask senza agente suo", () => {
     expect(deriveSubtaskWork(child({ dispatchState: "working" }), [])).toBeNull();
     expect(deriveSubtaskWork(child({ status: "done" }), [])).toBeNull();
     expect(deriveSubtaskWork(child({ parentTaskId: null }), [])).toBeNull();
+  });
+});
+
+/**
+ * La ragione della coda: ogni ramo del dispatcher ha la SUA frase, e i rami si
+ * distinguono per TONO — «la coda scorre» contro «non riparte finché non
+ * decidi tu». Prima erano tutti la parola «in coda», che è esattamente il
+ * difetto che questa funzione chiude.
+ *
+ * Gira qui e non in un test del client perché è qui che la frase nasce: il
+ * client la riceve già scritta. Se un giorno la deducesse da capo, questo test
+ * resterebbe verde mentre la card mente — per quello il patto «viene dal
+ * server» ha il suo test, in `server/services/tasks.queue-reason.test.ts`.
+ */
+describe("perché questa card è ferma", () => {
+  const NOW = "2026-08-12T10:00:00.000Z";
+  const base = {
+    status: "todo" as string,
+    parentTaskId: null as string | null,
+    dispatchState: null as string | null,
+    dispatchAttempts: 0,
+    dispatchDeferredUntil: null as string | null,
+    blockedByTaskId: null as string | null,
+    blockedBy: null as BlockerRef | null,
+  };
+  const ctx = {
+    now: NOW, autoDispatch: true, retryCap: 2, ahead: 0,
+    parentStatus: null as string | null, projectless: false,
+    formatTime: () => "06:40",
+  };
+  const reason = (t: Partial<typeof base>, c: Partial<typeof ctx> = {}) =>
+    deriveQueueReason({ ...base, ...t }, { ...ctx, ...c })!;
+
+  test("aspetta uno slot: dice QUANTI ne ha davanti, e il tono resta «la coda scorre»", () => {
+    expect(reason({}, { ahead: 3 })).toMatchObject({
+      kind: "slot", tone: "queued", head: "in coda", detail: "3 davanti",
+    });
+    expect(reason({}, { ahead: 0 }).detail).toBe("la prossima");
+  });
+
+  test("«aspetta uno slot» e «non partirà mai» non sono più la stessa parola", () => {
+    // È la barra n.3 del task: i due casi che oggi collassano su «in coda».
+    const slot = reason({}, { ahead: 2 });
+    const mai = reason({ dispatchAttempts: 2 });
+    expect(slot.tone).toBe("queued");
+    expect(mai.tone).toBe("stalled");
+    expect(mai.detail).toBe("tentativi finiti, rimettila in coda");
+    expect(slot.detail).not.toBe(mai.detail);
+  });
+
+  test("rinviata: sotto l'ora e mezza si dice in minuti, oltre con l'orologio", () => {
+    expect(reason({ dispatchDeferredUntil: "2026-08-12T10:12:00.000Z" })).toMatchObject({
+      kind: "deferred", tone: "waiting", head: "rinviata", detail: "riprende fra 12 min",
+    });
+    // `formatTime` iniettato: il ramo con l'orologio non dipende dal fuso della
+    // macchina che fa girare il test.
+    expect(reason({ dispatchDeferredUntil: "2026-08-13T04:40:00.000Z" }).detail)
+      .toBe("riprende alle 06:40");
+  });
+
+  test("una finestra di rinvio già scaduta non ferma più niente", () => {
+    expect(reason({ dispatchDeferredUntil: "2026-08-12T09:00:00.000Z" }).kind).toBe("slot");
+  });
+
+  test("bloccata: porta l'id del bloccante, e il titolo per esteso nel tooltip", () => {
+    const r = reason({
+      blockedByTaskId: "12b4f9a1-0000-4000-8000-000000000000",
+      blockedBy: { id: "12b4f9a1-0000-4000-8000-000000000000", text: "Migrare le foto", status: "in_progress", archived: false },
+    });
+    expect(r).toMatchObject({ kind: "blocked", tone: "waiting", detail: "aspetta 12b4f9a1" });
+    expect(r.title).toContain("Migrare le foto");
+  });
+
+  test("un bloccante chiuso o archiviato non blocca più: stesso predicato del gate di dispatch", () => {
+    const done = { id: "b1", text: "chiuso", status: "done" as const, archived: false };
+    expect(reason({ blockedByTaskId: "b1", blockedBy: done }).kind).toBe("slot");
+    expect(reason({ blockedByTaskId: "b1", blockedBy: { ...done, status: "todo", archived: true } }).kind).toBe("slot");
+  });
+
+  test("rinvio e bloccante vengono PRIMA del budget dei tentativi (l'ordine del tick)", () => {
+    // Invertirli darebbe «tentativi finiti» a una card che sta solo aspettando:
+    // è il guasto dell'11/08, la UAT uccisa mentre la sua finestra scorreva.
+    expect(reason({ dispatchAttempts: 5, dispatchDeferredUntil: "2026-08-12T10:10:00.000Z" }).kind)
+      .toBe("deferred");
+    expect(reason({
+      dispatchAttempts: 5, blockedByTaskId: "b1",
+      blockedBy: { id: "b1", text: "il bloccante", status: "todo", archived: false },
+    }).kind).toBe("blocked");
+  });
+
+  test("interruttore spento e board senza directory: due «non partirà», detti diversi", () => {
+    expect(reason({}, { autoDispatch: false })).toMatchObject({
+      kind: "dispatch_off", tone: "stalled", detail: "dispatch spento",
+    });
+    // Senza progetto non c'è cwd: vale anche a interruttore acceso, e vince.
+    expect(reason({}, { projectless: true, autoDispatch: true }).kind).toBe("no_project");
+  });
+
+  test("l'interruttore spento sostituisce «in coda», non le ragioni della card", () => {
+    // È una proprietà della BOARD: messo per primo stamperebbe la stessa frase
+    // su quaranta card e coprirebbe l'unica cosa vera di ognuna.
+    const spento = { autoDispatch: false };
+    expect(reason({ dispatchAttempts: 9 }, spento).kind).toBe("attempts");
+    expect(reason({ dispatchDeferredUntil: "2026-08-12T10:30:00.000Z" }, spento).kind).toBe("deferred");
+    expect(reason({
+      blockedByTaskId: "b1",
+      blockedBy: { id: "b1", text: "il bloccante", status: "todo", archived: false },
+    }, spento).kind).toBe("blocked");
+    // Solo chi altrimenti direbbe «in coda, 3 davanti» cambia frase: quella, a
+    // interruttore spento, è la sola risposta che sarebbe falsa.
+    expect(reason({}, { ...spento, ahead: 3 }).kind).toBe("dispatch_off");
+  });
+
+  test("uno step non è mai in coda: la sua ragione è sempre il padre", () => {
+    const step = { parentTaskId: "p1" };
+    expect(reason(step, { parentStatus: "review" })).toMatchObject({
+      kind: "parent_review", tone: "stalled", detail: "il padre aspetta te",
+    });
+    expect(reason(step, { parentStatus: "in_progress" })).toMatchObject({
+      kind: "parent_turn", tone: "waiting",
+    });
+    expect(reason(step, { parentStatus: "backlog" })).toMatchObject({
+      kind: "parent_idle", tone: "stalled",
+    });
+    // Anche con un bloccante addosso: il tick lista `rootsOnly`, quindi uno step
+    // non viene reclamato comunque e dire «aspetta una card» sarebbe fuorviante.
+    expect(reason({ ...step, blockedByTaskId: "b1" }, { parentStatus: "in_progress" }).kind)
+      .toBe("parent_turn");
+  });
+
+  test("`null` quando la domanda non si pone: fuori da todo, o con un agente già in volo", () => {
+    const q = (t: Partial<typeof base>) => deriveQueueReason({ ...base, ...t }, ctx);
+    expect(q({ status: "in_progress" })).toBeNull();
+    expect(q({ status: "backlog" })).toBeNull();
+    expect(q({ status: "review" })).toBeNull();
+    // 'queued' invece È la parola che questa funzione sostituisce: non è un'uscita.
+    expect(q({ dispatchState: "queued" })!.kind).toBe("slot");
+    expect(q({ dispatchState: "starting" })).toBeNull();
+    expect(q({ dispatchState: "working" })).toBeNull();
+  });
+
+  test("il buco si dichiara: quando la ragione non si sa, non si scrive «in coda»", () => {
+    // Un ripiego su una parola generica sarebbe la stessa bugia di prima, con
+    // l'aggravante di sembrare una risposta.
+    expect(QUEUE_REASON_UNKNOWN.detail).toBe("motivo non registrato");
+    expect(QUEUE_REASON_UNKNOWN.tone).toBe("stalled");
+    expect(QUEUE_REASON_UNKNOWN.detail).not.toContain("in coda");
+    expect(QUEUE_REASON_UNKNOWN.detail).not.toContain("in attesa");
+  });
+
+  test("nessuna frase usa «in attesa», che sulla card significa il CONTRARIO", () => {
+    // «N in attesa» sulla card vuol dire «altri N aspettano questa»: se una
+    // ragione di coda usasse quella parola direbbe il rovescio della verità.
+    for (const [kind, t, c] of [
+      ["slot", {}, { ahead: 3 }],
+      ["deferred", { dispatchDeferredUntil: "2026-08-12T10:12:00.000Z" }, {}],
+      ["blocked", { blockedByTaskId: "b1", blockedBy: { id: "b1", text: "x", status: "todo", archived: false } }, {}],
+      ["attempts", { dispatchAttempts: 9 }, {}],
+      ["dispatch_off", {}, { autoDispatch: false }],
+      ["no_project", {}, { projectless: true }],
+      ["parent_review", { parentTaskId: "p" }, { parentStatus: "review" }],
+      ["parent_turn", { parentTaskId: "p" }, { parentStatus: "in_progress" }],
+      ["parent_idle", { parentTaskId: "p" }, { parentStatus: "done" }],
+    ] as const) {
+      const r = reason(t, c);
+      expect(`${r.head} ${r.detail}`, `${kind} usa la parola ambigua`).not.toContain("in attesa");
+    }
+  });
+
+  test("ogni motivo ha una frase, e la frase dice cosa succede dopo", () => {
+    // Il cricchetto: un ramo nuovo senza `title` (o con un `title` che è solo
+    // l'etichetta ripetuta) passerebbe inosservato finché non lo legge un umano.
+    const tutti: QueueReason[] = [
+      reason({}, { ahead: 3 }),
+      reason({ dispatchAttempts: 2 }),
+      reason({ dispatchDeferredUntil: "2026-08-12T10:12:00.000Z" }),
+      reason({ blockedByTaskId: "b1", blockedBy: { id: "b1", text: "x", status: "todo", archived: false } }),
+      reason({}, { autoDispatch: false }),
+      reason({}, { projectless: true }),
+      reason({ parentTaskId: "p" }, { parentStatus: "review" }),
+      reason({ parentTaskId: "p" }, { parentStatus: "in_progress" }),
+      reason({ parentTaskId: "p" }, { parentStatus: "done" }),
+    ];
+    expect(new Set(tutti.map((r) => r.kind)).size).toBe(tutti.length);
+    for (const r of tutti) {
+      expect(r.detail.length, `${r.kind} senza detail`).toBeGreaterThan(3);
+      expect(r.title.length, `${r.kind}: il tooltip deve dire cosa succede dopo`).toBeGreaterThan(60);
+      expect(r.title).not.toBe(r.detail);
+    }
   });
 });

@@ -33,11 +33,11 @@ import { readGlobalCap } from "./dispatch-capacity";
 // ri-esporta ma NON porta i nomi in scope locale, e qui sotto servono — da cui
 // l'import separato. Della lista `TASK_STATUSES` questo modulo non è una porta:
 // chi la vuole la prende da `shared/board`.
-export type { TaskStatus, TaskComment, BoardSettings, BoardSettingsPatch, BlockerRef, SubtaskWork } from "../../shared/board";
+export type { TaskStatus, TaskComment, BoardSettings, BoardSettingsPatch, BlockerRef, SubtaskWork, QueueReason } from "../../shared/board";
 import {
-  MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PREVIEW_CARD_MAX_RATIO, TASK_STATUSES,
-  WAIT_SERIES_MAX_MS, WAIT_STREAK_CAP,
-  deriveSubtaskWork, formatStatusEvent, hasPlanApproveOption, isAgentWorking,
+  MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PREVIEW_CARD_MAX_RATIO, QUEUE_REASON_UNKNOWN,
+  TASK_STATUSES, WAIT_SERIES_MAX_MS, WAIT_STREAK_CAP,
+  deriveQueueReason, deriveSubtaskWork, formatStatusEvent, hasPlanApproveOption, isAgentWorking,
   isUnattributedSubtask, normalizeActionLabel, readTaskWeight, statusEventEnters,
   waitReasonKey,
 } from "../../shared/board";
@@ -45,7 +45,7 @@ import { EFFORT_TIERS } from "../../shared/effort";
 // Il vocabolario delle etichette e la regola che le deriva: una sola
 // dichiarazione, letta anche dal client e dalla derivazione alla consegna.
 import { deriveCloser, isCloserLabel, isTaskLabel, normalizeLabels, type LabelSource, type TaskLabel, type TaskLabelRow } from "../../shared/task-labels";
-import type { TaskStatus, TaskComment, BoardSettings, BoardSettingsPatch, BlockerRef, SubtaskWork, TaskWeight } from "../../shared/board";
+import type { TaskStatus, TaskComment, BoardSettings, BoardSettingsPatch, BlockerRef, QueueReason, SubtaskWork, TaskWeight } from "../../shared/board";
 
 export type Actor = "human" | "agent";
 
@@ -205,6 +205,23 @@ export interface Task {
    * gate di dispatch tiene ancora fermi e che ripartono quando questo chiude.
    */
   waitingOnCount: number;
+  /**
+   * PERCHÉ questa card è ferma in `todo`, in una frase già scritta. `null` fuori
+   * da `todo` o con un agente già in volo (lì parla il chip di dispatch).
+   *
+   * Arriva RISOLTA dal server per la stessa ragione di `blockedBy` e
+   * `waitingOnCount`, più una che è solo sua: la decisione di non dispacciare la
+   * prende il dispatcher, e un client che la deducesse dai campi direbbe con la
+   * faccia sicura la regola di ieri il giorno che quella cambia. Due dei tre
+   * ingredienti non stanno nemmeno sulla riga — l'interruttore di dispatch e la
+   * posizione in coda, che è machine-wide mentre la lista del client è un
+   * progetto solo.
+   *
+   * NON ha niente a che vedere con le etichette `visibile`/`invisibile`/
+   * `decisione`: quelle dicono CHI chiude la card e si derivano alla consegna.
+   * Questa dice perché non è ancora partita.
+   */
+  queueReason: QueueReason | null;
   /** Branch the task delivered on, snapshotted at the transition into `review`. */
   deliveryBranch: string | null;
   /** Branch tip at delivery time — the handle that outlives the reaped branch. */
@@ -951,6 +968,90 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
   }
 
   /**
+   * PERCHÉ questa card è ferma — risolto QUI, dove la decisione di non
+   * dispacciare si conosce, e mandato con la card.
+   *
+   * Non è una preferenza di architettura, è l'errore già pagato con
+   * `waitingOnCount` e `blockedBy`: un client che deduce la ragione dai campi
+   * continua a rispondere con sicurezza la risposta di ieri il giorno in cui il
+   * dispatcher cambia una regola. E qui i campi non basterebbero comunque —
+   * l'interruttore di dispatch e la posizione in coda non sono sulla riga del
+   * task, e la coda è machine-wide mentre la lista del client è un progetto
+   * solo, `rootsOnly`, non archiviati.
+   *
+   * La REGOLA sta in `shared/board.deriveQueueReason` (pura, testata ramo per
+   * ramo); qui si raccolgono i tre pezzi che solo il DB conosce: l'interruttore,
+   * il tetto dei tentativi della board, lo stato del padre e quanti task sono
+   * davanti in coda.
+   *
+   * Costa zero fuori da `todo`: la guardia è la prima riga, e su una board
+   * normale i todo sono decine, non migliaia.
+   */
+  function countAhead(r: any, nowIso: string): number {
+    // La STESSA disciplina di coda del tick — priorità prima, anzianità a
+    // parità — sullo STESSO insieme che il tick considera idoneo. Il tetto è
+    // machine-wide (`scope: 'global'` nel claim), quindi la fila si conta su
+    // tutte le board, non solo su questa: dire «3 davanti» contando solo il
+    // progetto aperto darebbe un'attesa più corta di quella vera.
+    const row = db.prepare(
+      `SELECT COUNT(*) AS n
+         FROM tasks t
+         LEFT JOIN board_settings bs ON bs.project_id = t.project_id
+        WHERE t.archived = 0 AND t.status = 'todo'
+          AND t.parent_task_id IS NULL
+          AND t.project_id != ?
+          AND t.assigned_topic_id IS NULL
+          AND t.dispatch_attempts < COALESCE(bs.dispatch_retry_cap, 2)
+          AND (t.dispatch_deferred_until IS NULL OR t.dispatch_deferred_until <= ?)
+          AND (t.blocked_by_task_id IS NULL OR EXISTS (
+                 SELECT 1 FROM tasks bk
+                  WHERE bk.id = t.blocked_by_task_id AND (bk.status = 'done' OR bk.archived = 1)))
+          AND (t.priority > ? OR (t.priority = ? AND t.created_at < ?))`,
+    ).get(UNASSIGNED_PROJECT_ID, nowIso, r.priority, r.priority, r.created_at) as { n: number } | undefined;
+    return row?.n ?? 0;
+  }
+
+  function resolveQueueReason(r: any): QueueReason | null {
+    if (r.status !== "todo") return null;
+    const nowIso = new Date().toISOString();
+    try {
+      const parentStatus = r.parent_task_id
+        ? ((db.prepare("SELECT status FROM tasks WHERE id = ?").get(r.parent_task_id) as any)?.status ?? null)
+        : null;
+      const bs = db.prepare("SELECT dispatch_retry_cap FROM board_settings WHERE project_id = ?").get(r.project_id) as any;
+      return deriveQueueReason(
+        {
+          status: r.status,
+          parentTaskId: r.parent_task_id ?? null,
+          dispatchState: r.dispatch_state ?? null,
+          dispatchAttempts: r.dispatch_attempts ?? 0,
+          dispatchDeferredUntil: r.dispatch_deferred_until ?? null,
+          dispatchError: r.dispatch_error ?? null,
+          blockedByTaskId: r.blocked_by_task_id ?? null,
+          blockedBy: resolveBlocker(r.blocked_by_task_id),
+        },
+        {
+          now: nowIso,
+          autoDispatch: readGlobalDispatch(),
+          retryCap: bs?.dispatch_retry_cap ?? 2,
+          // Il conto della fila si paga solo per chi la fila la sta davvero
+          // facendo: uno step non ci entra mai, e la sua ragione è un'altra.
+          ahead: r.parent_task_id ? 0 : countAhead(r, nowIso),
+          parentStatus,
+          projectless: r.project_id === UNASSIGNED_PROJECT_ID,
+        },
+      );
+    } catch {
+      // Un DB che non sa rispondere (schema ridotto di un test, `board_settings`
+      // assente) non deve inventare una ragione — ma nemmeno tacere: senza
+      // niente la card ricadrebbe sul chip «in coda», cioè proprio la parola
+      // vaga che questo campo esiste per togliere, e stavolta con un guasto
+      // sotto. Il buco si dichiara.
+      return QUEUE_REASON_UNKNOWN;
+    }
+  }
+
+  /**
    * Chi lavora un sottotask che non ha né topic né chip: risalendo i padri.
    *
    * Sta in `rowToTask` accanto a `resolveBlocker` per due ragioni. La prima: il
@@ -1073,6 +1174,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       blockedBy: resolveBlocker(r.blocked_by_task_id),
       subtaskWork: resolveSubtaskWork(r),
       waitingOnCount: countWaitingOn(r.id),
+      queueReason: resolveQueueReason(r),
       deliveryBranch: r.delivery_branch ?? null,
       deliveryCommit: r.delivery_commit ?? null,
       landingState: r.landing_state ?? null,

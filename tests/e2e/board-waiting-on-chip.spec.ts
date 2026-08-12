@@ -1,5 +1,5 @@
 /**
- * board-waiting-on-chip.spec.ts — «N in attesa» conta anche i dipendenti che
+ * board-waiting-on-chip.spec.ts — «N la aspettano» conta anche i dipendenti che
  * non sono nella lista della board.
  *
  * L'altra metà del legame di `board-blocked-chip.spec.ts`. Il caso che
@@ -11,7 +11,7 @@
  * (`task.waitingOnCount`), sul DB.
  *
  * È anche la clip di consegna: due dipendenti ma UNA sola card in giro sulla
- * board → «2 in attesa»; ne chiude uno → «1 in attesa»; chiude il sottotask
+ * board → «2 la aspettano»; ne chiude uno → «1 la aspetta»; chiude il sottotask
  * (che sulla board non c'è mai stato) → il chip si spegne. Un comportamento,
  * non uno screenshot.
  */
@@ -93,7 +93,7 @@ async function openProjectBoard(page: Page) {
 const beat = (page: Page, ms = 1400) =>
   process.env.E2E_EVIDENCE === "1" ? page.waitForTimeout(ms) : Promise.resolve();
 
-test.describe("Chip «N in attesa» · dipendenti fuori dalla lista", () => {
+test.describe("Chip «N la aspettano» · dipendenti fuori dalla lista", () => {
   test.describe.configure({ timeout: 90_000 });
 
   test.beforeAll(async ({ request }) => {
@@ -137,14 +137,14 @@ test.describe("Chip «N in attesa» · dipendenti fuori dalla lista", () => {
     // fra i task fetchati, eppure il contatore dice DUE — cioè non viene da lì.
     await expect(page.locator("[data-task-card]")).toHaveCount(3);
     const chip = card.getByTestId("card-waiting-on-this");
-    await expect(chip).toContainText("2 in attesa");
+    await expect(chip).toContainText("2 la aspettano");
     await expect(chip).toHaveAttribute("title", /2 task aspettano questa card/);
     await beat(page, 2200);
 
     // Chiude il dipendente che è una card: resta quello invisibile, e il
     // contatore lo sa (prima sarebbe andato a zero, cioè chip sparito).
     await closeTask(request, dipendente.id);
-    await expect(chip).toContainText("1 in attesa", { timeout: 10000 });
+    await expect(chip).toContainText("1 la aspetta", { timeout: 10000 });
     await expect(chip).toHaveAttribute("title", /Un task aspetta questa card/);
     await beat(page, 2200);
 
