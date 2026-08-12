@@ -6,7 +6,7 @@ import { AlertTriangle, ClipboardList, Copy, Hourglass, Lock, MessageSquare, Plu
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
-import { STATUS_LABEL, SYSTEM_DELIVERY_CHIP, blockedByChip, boardApi, isAgentWorking, isProjectlessId, parseQuestionBlock, reopenedChip, subtaskWorkChip, systemDeliveryNote, whoCloses, type BoardTask, type TaskComment, type TaskStatus } from '../../lib/board';
+import { STATUS_LABEL, SYSTEM_DELIVERY_CHIP, blockedByChip, boardApi, isAgentWorking, isProjectlessId, parseQuestionBlock, reopenedChip, subtaskWorkChip, systemDeliveryNote, waitingOnThisChip, whoCloses, type BoardTask, type TaskComment, type TaskStatus } from '../../lib/board';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useLongPress, openContextMenuAt } from '../../hooks/useLongPress';
 import { useMobile } from '../../hooks/useMobile';
@@ -16,7 +16,7 @@ import { PRIORITY_DOT, PRIORITY_LABEL, DISPATCH_CHIP, COMPACT_MD_CLS, mediaPaneI
 import { copyText } from '../../lib/clipboard';
 import { canOpenTaskSession, shouldExplainMissingSession, type TaskSessionState } from '../../lib/taskSession';
 import { fmtMs, fmtLive, fmtTok, fmtModel, fmtUpdatedAt, taskCopyText } from './format';
-import { StatusIcon, DispatchChip, TaskIdChip, LabelChip } from './atoms';
+import { StatusIcon, DispatchChip, QueueReasonChip, TaskIdChip, LabelChip } from './atoms';
 import { POPOVER_DIVIDER, POPOVER_ITEM, POPOVER_ITEM_DANGER } from '@/lib/popoverStyles';
 
 // ── Column ────────────────────────────────────────────────────────────────
@@ -312,11 +312,13 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
   // «Riaperta»: la card ERA in Done e non c'è più. Il fatto vive sulla card
   // (l'API lo dice), non solo nel thread — dalla colonna si vedeva solo il buco.
   const reopened = reopenedChip(task);
-  // …e l'altra metà: quanti aspettano QUESTA card. Anche questo numero è un
-  // fatto del DB, non della lista fetchata — un dipendente che è un sottotask o
-  // sta in un altro progetto non è fra le card, ma aspetta lo stesso.
-  const waitingOnThis = task.waitingOnCount;
-  const hasMetaRow = !!(blockedChip || reopened || (waitingOnThis > 0 && task.status !== 'done') || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo || notLanded || checksRed || systemDelivered || task.labels.length);
+  // …e l'altra metà, che è il verso OPPOSTO: quanti aspettano QUESTA card.
+  // Anche questo numero è un fatto del DB, non della lista fetchata — un
+  // dipendente che è un sottotask o sta in un altro progetto non è fra le card,
+  // ma aspetta lo stesso. Le due frasi non condividono una parola: vedi il
+  // blocco «i due versi dell'attesa» in lib/board.ts.
+  const waitingOnThis = waitingOnThisChip(task);
+  const hasMetaRow = !!(blockedChip || reopened || waitingOnThis || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo || notLanded || checksRed || systemDelivered || task.labels.length);
 
   return (
     <div
@@ -370,7 +372,13 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
               // dove rispondere a un turno vivo.
               title="Il turno e' vivo ma aspetta te: apri la sessione dell'agente per rispondere"
             >aspetta te</span>
-          ) : (live && task.dispatchState === 'working') ? null : (task.dispatchState && DISPATCH_CHIP[task.dispatchState]) ? (
+          ) : (live && task.dispatchState === 'working') ? null : task.queueReason ? (
+            // Una card ferma in Todo dice PERCHÉ, e la ragione arriva già
+            // scritta dal server. Vince sul chip di stato («in coda», «in
+            // attesa»): sono la stessa informazione, ma quella è una parola
+            // sola e uguale per sei motivi diversi.
+            <QueueReasonChip reason={task.queueReason} />
+          ) : (task.dispatchState && DISPATCH_CHIP[task.dispatchState]) ? (
             <DispatchChip state={task.dispatchState} error={task.dispatchError} />
           ) : (!task.dispatchState && task.dispatchError) ? (
             <span className="shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-xs md:text-[11px] text-rose-300" title={task.dispatchError}>fermato</span>
@@ -525,14 +533,12 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
               className="flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-xs md:text-[11px] text-amber-300"
             ><RotateCcw className="h-3 w-3 shrink-0" /> {reopened.label}</span>
           )}
-          {waitingOnThis > 0 && task.status !== 'done' && (
+          {waitingOnThis && (
             <span
               data-testid="card-waiting-on-this"
-              title={waitingOnThis === 1
-                ? 'Un task aspetta questa card: parte da solo quando la chiudi'
-                : `${waitingOnThis} task aspettano questa card: partono da soli quando la chiudi`}
+              title={waitingOnThis.title}
               className="flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-xs md:text-[11px] text-amber-300"
-            ><Hourglass className="h-3 w-3 shrink-0" /> {waitingOnThis} in attesa</span>
+            ><Hourglass className="h-3 w-3 shrink-0" /> {waitingOnThis.label}</span>
           )}
           {task.parentTaskId && (
             <button

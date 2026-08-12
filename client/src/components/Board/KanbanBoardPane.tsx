@@ -1132,7 +1132,16 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
       }
       if (m.type === 'board:settings' && m.projectId === projectId && m.settings) setSettings(m.settings);
       // Global switch flipped anywhere (any board, any client) → this pill too.
-      if (m.type === 'board:dispatch' && typeof m.autoDispatch === 'boolean') setDispatchOn(m.autoDispatch);
+      // E anche le CARD: da quando ognuna porta la ragione per cui è ferma
+      // (`queueReason`, risolta dal server), l'interruttore è un ingrediente di
+      // quella frase. Senza il refetch le card resterebbero a «ferma · dispatch
+      // spento» dopo che l'hai riacceso — nessuna riga di task è cambiata,
+      // quindi nessun `task:updated` arriva a correggerle, e la board direbbe
+      // una bugia proprio nell'istante in cui la guardi per vedere l'effetto.
+      if (m.type === 'board:dispatch' && typeof m.autoDispatch === 'boolean') {
+        setDispatchOn(m.autoDispatch);
+        safeRefetch();
+      }
     });
   }, [onMessage, projectId, safeRefetch, mode, flashCreated]);
 
