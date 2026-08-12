@@ -709,7 +709,7 @@ describe("list-tabs — l'inventario, e di chi è ciascuna scheda", () => {
       "t1",                   // poi le topic
       "task-12345678-aaaaaaaa",
     ]);
-    expect(tabs[0]).toMatchObject({ isOwn: true, kind: "terminal", url: "https://due", label: "Terminal 42 — tmp" });
+    expect(tabs[0]).toMatchObject({ isOwn: true, kind: "terminal", url: "https://due", label: "Terminal 42 · tmp" });
     expect(tabs[1]).toMatchObject({ isOwn: false, kind: "topic", label: "Topic t1" });
     // L'etichetta del task arriva dal `contextId`, non da una colonna: è la
     // seconda lettura sui task che il ponte si fa iniettare.

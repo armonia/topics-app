@@ -44,7 +44,7 @@ function extractGroup(entry: MutationLogEntry): string {
   if (typeof gid === 'string') return gid;
   const pid = a?.payload?.id;
   if (typeof pid === 'string') return pid;
-  return '—';
+  return '-';
 }
 
 export function MutationLogOverlay(): JSX.Element | null {

@@ -198,7 +198,7 @@ function AddMenu({
             // solo mentre la trascrizione precedente è ancora in volo.
             disabled={dictationBusy}
             data-testid="composer-dictation"
-            title={dictationModel ? `Dettatura — ${dictationModel}` : 'Dettatura'}
+            title={dictationModel ? `Dettatura · ${dictationModel}` : 'Dettatura'}
           >
             {isListening ? <MicOff size={14} /> : <MessageSquare size={14} />}
             {isListening ? 'Stop dictation' : 'Dictation mode'}

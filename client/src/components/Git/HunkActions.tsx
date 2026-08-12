@@ -154,7 +154,7 @@ export function HunkActions({ projectPath, file, side: sideProp, reloadKey, onAp
               :{h.oldStart}
             </span>
             <span className="truncate text-[11px] text-app-text-body min-w-0" title={h.context}>
-              {h.context || '—'}
+              {h.context || '-'}
             </span>
             <span className="ml-auto text-[10px] tabular-nums flex-shrink-0 leading-none">
               {h.added > 0 && <span className="text-green-500">+{h.added}</span>}

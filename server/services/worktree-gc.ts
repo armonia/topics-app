@@ -204,7 +204,7 @@ export function decidePostLandReap(input: PostLandInput): WorktreeReapDecision {
   if (input.branchAfter === "unmerged") {
     return {
       action: "free-checkout",
-      reason: `land '${input.outcome}' ma il contenuto NON risulta su main — branch conservato, checkout liberato`,
+      reason: `land '${input.outcome}' ma il contenuto NON risulta su main: branch conservato, checkout liberato`,
     };
   }
   return { action: "reap", reason: `land '${input.outcome}' verificato su main` };
@@ -390,7 +390,7 @@ export async function sweepWorktrees(deps: WorktreeGcDeps): Promise<WorktreeGcSu
       deps.noteOnTask?.(
         taskId,
         `🧹 Cartella del worktree liberata per fare spazio: ${reason}. ` +
-        `Il lavoro NON è perso — vive sul branch \`${wt.branchName}\`, che è intatto ` +
+        `Il lavoro NON è perso: vive sul branch \`${wt.branchName}\`, che è intatto ` +
         `(\`git log main..${wt.branchName}\` per vederlo, \`git switch ${wt.branchName}\` per riprenderlo).`,
       );
     }
@@ -545,7 +545,7 @@ export async function sweepWorktrees(deps: WorktreeGcDeps): Promise<WorktreeGcSu
             // bugia del task `5770b9de`, vista da questo lato.
             const branchNote = branchAfter === "gone"
               ? `Il branch \`${wt.branchName ?? wt.id}\` NON è più nel repo: quello che resta è nel worktree, controllalo prima che sparisca.`
-              : `Il branch \`${wt.branchName ?? wt.id}\` è stato conservato — verifica a mano prima di cancellarlo.`;
+              : `Il branch \`${wt.branchName ?? wt.id}\` è stato conservato. Verifica a mano prima di cancellarlo.`;
             deps.noteOnTask?.(taskId, `⚠️ Worktree NON ripulito: ${post.reason}. ${branchNote}`);
           }
           keep(post.reason);
