@@ -154,9 +154,11 @@ export interface NativeBrowserHandle {
   /** Find in page (Cmd+F). Pass empty string + findNext=false to clear. */
   findInPage(text: string, options?: { forward?: boolean; matchCase?: boolean; findNext?: boolean }): Promise<void>;
   stopFind(): Promise<void>;
-  /** Optional — count case-insensitive matches of `text` in the page (Tauri pane,
-   *  where window.find gives no count). */
-  countMatches?(text: string): Promise<number>;
+  /** Optional — count matches of `text` in the page (Tauri pane, where
+   *  window.find gives no count). `matchCase` deve essere lo STESSO passato a
+   *  `findInPage`: il totale e la ricerca che ci cammina sopra sono due letture
+   *  della stessa cosa, e se non concordano il contatore «n/m» cicla in anticipo. */
+  countMatches?(text: string, options?: { matchCase?: boolean }): Promise<number>;
   /** Optional — inspect the element at page CSS coords (Tauri select-element). */
   inspectAt?(x: number, y: number): Promise<{
     cssPath: string;
