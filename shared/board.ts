@@ -299,6 +299,58 @@ export function isAgentWorking(
  */
 export const PARKED_STOPPED = 'stopped';
 
+/**
+ * «Aspetta da troppo», scritto — e deliberatamente NON `failed`.
+ *
+ * Un'attesa dichiarata (`wait_for_condition`) è la cosa giusta da fare: l'agent
+ * ha capito che la condizione non dipende da lui e ha restituito lo slot invece
+ * di dormirci sopra. Quando la serie di attese sfonda il tetto, il task si ferma
+ * lo stesso — ma ciò che si è esaurito è la PAZIENZA, non l'agent: la decisione
+ * torna all'umano perché la condizione non arriva, non perché qualcosa è rotto.
+ *
+ * Ha gli stessi tre lettori di `PARKED_STOPPED`, ed è per questo che vive qui:
+ * chi lo SCRIVE (`deferForWait`, quando la serie sfonda), chi lo PRESERVA (la
+ * coda di `onTurnEnd`, che senza guardia riazzera la chip del turno che si è
+ * appena parcheggiato da solo) e chi lo DISEGNA (la tabella delle chip).
+ */
+export const PARKED_WAITED_OUT = 'waited_out';
+
+/**
+ * Quante attese di FILA per la stessa ragione, prima che decida un umano.
+ *
+ * Sei e non due, che è il tetto dei tentativi di dispatch: quel numero frena i
+ * turni MORTI, e per quelli due è generoso. Un'attesa non è un turno morto, e
+ * col default di 15 minuti sei attese sono un'ora e mezza di condizione che non
+ * arriva. Sotto quella soglia fermare il task vorrebbe dire chiedere all'umano
+ * di guardare una cosa che stava per sistemarsi da sola.
+ */
+export const WAIT_STREAK_CAP = 6;
+
+/**
+ * Il tetto sull'ALTRA grandezza: quanto è lunga la serie in orologio.
+ *
+ * Serve perché `minutes` lo sceglie l'agent e arriva a 1440: due attese da
+ * dodici ore non sfondano mai il tetto sul conteggio, ma sono un giorno in cui
+ * nessuno ha guardato la card. Si misura dall'inizio della serie a ORA, non
+ * sommando le finestre chieste: la finestra è una promessa, il tempo passato è
+ * un fatto.
+ */
+export const WAIT_SERIES_MAX_MS = 4 * 60 * 60 * 1000;
+
+/**
+ * La ragione ridotta alla sua identità: è questo che decide se un'attesa
+ * CONTINUA la serie o ne apre una nuova.
+ *
+ * Minuscole e spazi compattati perché la stessa attesa, ridichiarata da un turno
+ * nuovo che non ha in mano il testo esatto di prima, si riscrive a mano quasi
+ * uguale. «Aspetto che CI finisca» e «aspetto che ci finisca  » sono la stessa
+ * condizione, e contarle come due serie diverse azzererebbe il contatore a ogni
+ * giro. Cioè lo renderebbe un contatore che non conta niente.
+ */
+export function waitReasonKey(reason: string): string {
+  return reason.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Blocco `question` — il formato, dichiarato dove SCRITTURA e LETTURA lo vedono
 // entrambe (`addComment` lo compone, `parseQuestionBlock` lo legge).
@@ -634,6 +686,14 @@ export interface DispatchCapacity {
   load1: number;
   /** Spiegazione in una riga di come `recommended` è stato derivato. */
   reason: string;
+  /**
+   * Quanti agenti stanno girando ADESSO su questa macchina (i turni in volo del
+   * dispatcher). È il termine che manca per trasformare `recommended` da numero
+   * in consiglio: senza sapere quanti ne stanno girando, «max 2» non dice se
+   * c'è qualcosa da fare o no. Zero anche quando il dispatcher non c'è (un
+   * router montato senza, i test): un conteggio assente vale «nessuno».
+   */
+  running: number;
 }
 
 /** Le due primitive di collegamento dell'intake. */

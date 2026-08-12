@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { parseBrowserWsMessage, type BrowserWsMessage } from '../../../shared/browser-ws-messages';
 import type { ElementDescription } from '../../../shared/element-describe';
+import type { RemoteField } from '../../../shared/browser-keyboard-field';
 import { serverWsBase } from '@/lib/shell/net';
 import { mapCoordinates } from './browserCoords';
 
@@ -112,6 +113,10 @@ interface RemoteBrowser extends RemoteBrowserState, InteractionHandlers {
   /** T1 DOM co-browse: register the live rrweb-event sink (the DomCoBrowse view's
    *  Replayer). Returns an unsubscribe. Only one sink at a time. */
   registerDomSink: (cb: (event: unknown) => void) => () => void;
+  /** Registra chi riceve il campo a fuoco riportato dal server dopo un click
+   *  (null = a fuoco non c'è niente di scrivibile). Uno solo alla volta, come il
+   *  sink rrweb; restituisce la disiscrizione. */
+  registerFocusSink: (cb: (field: RemoteField | null) => void) => () => void;
   /** Low-level input relay (page-CSS px). The <img>/<video> handlers use it via
    *  their own mapping; the DomCoBrowse view calls it directly with coords it maps
    *  from the reconstructed iframe. */
@@ -248,6 +253,11 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
   // and the live rrweb-event sink (registered by the DomCoBrowse view's Replayer).
   const renderModeRef = useRef<'video' | 'dom'>('dom');
   const domSinkRef = useRef<((event: unknown) => void) | null>(null);
+  // Chi ha preso il fuoco nella pagina remota dopo il nostro ultimo click. Lo
+  // consuma la superficie visibile (video o mirror) per vestire il campo di
+  // cattura della tastiera. Di proposito SENZA buffer, al contrario degli eventi
+  // rrweb: un fuoco vecchio applicato tardi è peggio di nessun fuoco.
+  const focusSinkRef = useRef<((field: RemoteField | null) => void) | null>(null);
   // Buffer events that arrive before the DomCoBrowse view registers its sink (the
   // bootstrap burst can land in the same tick the pane mounts). Flushed on register.
   const domEventBufferRef = useRef<unknown[]>([]);
@@ -692,6 +702,13 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
             // bootstrap burst can beat the mount); flushed on registerDomSink.
             if (domSinkRef.current) domSinkRef.current(msg.event);
             else domEventBufferRef.current.push(msg.event);
+            break;
+          case 'focus_field':
+            // Il campo che ha preso il fuoco di là dopo il nostro click (assente
+            // = niente di scrivibile). Serve a far uscire la tastiera GIUSTA sul
+            // telefono, ed è l'unica risposta possibile sul ramo video, dove non
+            // c'è nessun mirror da interrogare.
+            focusSinkRef.current?.(msg.field ?? null);
             break;
           default:
             break;
@@ -1213,6 +1230,14 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     return () => { if (domSinkRef.current === cb) domSinkRef.current = null; };
   }, []);
 
+  // La superficie visibile dichiara qui chi vuole sapere che campo è a fuoco di
+  // là. Uno alla volta, come il sink rrweb: la superficie viva è una sola (video
+  // o mirror), e due destinatari vorrebbero dire due tastiere.
+  const registerFocusSink = useCallback((cb: (field: RemoteField | null) => void) => {
+    focusSinkRef.current = cb;
+    return () => { if (focusSinkRef.current === cb) focusSinkRef.current = null; };
+  }, []);
+
   // Engine switch (task 54601eeb): ask the server to move this pane to `engine`.
   // Server-orchestrated over the WS — the reply is an `engine` broadcast that
   // flips state + remounts. Streaming-mode only (no WS ⇒ silent no-op).
@@ -1270,8 +1295,9 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     retryWebrtc,
     setRenderMode,
     registerDomSink,
+    registerFocusSink,
     sendInput,
     dismissDownload,
     clearDownloads,
-  }), [state, navigate, goBack, goForward, reload, goHome, onClick, onWheel, onKeyDown, containerRef, takeControl, enterSelectMode, exitSelectMode, setSelectedElement, setEngine, setStreamActive, setWatching, retryWebrtc, setRenderMode, registerDomSink, sendInput, dismissDownload, clearDownloads]);
+  }), [state, navigate, goBack, goForward, reload, goHome, onClick, onWheel, onKeyDown, containerRef, takeControl, enterSelectMode, exitSelectMode, setSelectedElement, setEngine, setStreamActive, setWatching, retryWebrtc, setRenderMode, registerDomSink, registerFocusSink, sendInput, dismissDownload, clearDownloads]);
 }

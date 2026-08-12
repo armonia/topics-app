@@ -858,6 +858,19 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
     return () => { alive = false; clearInterval(id); };
   }, [landing, projectId, taskId, load, onChanged]);
 
+  // Ricattura evidenza: rifà l'anteprima di QUESTA card senza svegliare l'agent
+  // (il server risponde sul canale review-note, non su quello dei commenti) e
+  // senza muoverla dalla colonna. Ha il suo `busy` perché è lenta — boot del
+  // server + screenshot — e non deve disabilitare Approva/Rifiuta nel frattempo.
+  const [recapturing, setRecapturing] = useState(false);
+  const recapturePreview = async () => {
+    if (recapturing) return;
+    setRecapturing(true);
+    try { await boardApi.recapturePreview(projectId, taskId); setError(null); await load(); onChanged(); }
+    catch (e) { showError(e); }
+    finally { setRecapturing(false); }
+  };
+
   // Quick-add a nested subtask. Born in backlog (intake), like agent creates —
   // dragging it to Todo is the explicit "vai" gesture.
   const addSubtask = async () => {
@@ -2193,6 +2206,19 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                     title={tr('board.task.landTitle')}
                     className="flex w-full items-center justify-center gap-1.5 rounded bg-sky-500/80 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-sky-500 disabled:opacity-50"
                   ><GitMerge className="h-3.5 w-3.5" /> {tr('board.task.landOnMain')}</button>
+                )}
+                {/* Ricattura evidenza: rifà l'anteprima di una card che è GIÀ
+                    qui. Prima l'unico modo era rimandarla all'agent e farla
+                    rientrare in review — un turno d'agente per una foto. Sta
+                    sotto le decisioni, in tono neutro: è un'azione di SERVIZIO
+                    sull'evidenza, non una terza decisione. */}
+                {isAgentReview && (
+                  <button
+                    disabled={recapturing} onClick={recapturePreview}
+                    title={tr('board.task.recapturePreviewTitle')}
+                    data-testid="task-recapture-preview"
+                    className="flex w-full items-center justify-center gap-1.5 rounded bg-white/10 px-2.5 py-1.5 text-xs text-app-text hover:bg-white/20 disabled:opacity-50"
+                  >{recapturing ? <Spinner size="sm" tone="current" /> : <Camera className="h-3.5 w-3.5" />} {tr('board.task.recapturePreview')}</button>
                 )}
               </div>
             )}

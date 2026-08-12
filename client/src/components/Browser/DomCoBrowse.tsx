@@ -54,6 +54,7 @@ import BrowserKeyboardCapture, {
   type BrowserKeyboardCaptureHandle,
   type SendInput,
 } from './BrowserKeyboardCapture';
+import type { RemoteField } from '../../lib/browserKeyboardProfile';
 
 /** Minimal shape of an rrweb event we rely on (Meta carries the recorded size). */
 type RrwebEvent = {
@@ -78,13 +79,17 @@ const TAP_SLOP = 8;
 interface Props {
   /** Register the single live rrweb-event sink; returns an unsubscribe. */
   registerDomSink: (cb: (event: unknown) => void) => () => void;
+  /** Il campo a fuoco riportato dal server dopo un click. Rete di sicurezza per
+   *  quando il mirror non è interrogabile (WKWebView + scheme custom): lì la
+   *  tastiera si alza generica e la corregge questa risposta. */
+  registerFocusSink: (cb: (field: RemoteField | null) => void) => () => void;
   /** Relay input to the source page (page-CSS px). */
   sendInput: SendInput;
   /** Agent lock — while true, this viewer's input is suppressed (take-control parity). */
   agentActive: boolean;
 }
 
-export default function DomCoBrowse({ registerDomSink, sendInput, agentActive }: Props) {
+export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendInput, agentActive }: Props) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const kbdRef = useRef<BrowserKeyboardCaptureHandle | null>(null);
@@ -99,6 +104,14 @@ export default function DomCoBrowse({ registerDomSink, sendInput, agentActive }:
   const scaleRef = useRef(1);
   const agentActiveRef = useRef(agentActive);
   useEffect(() => { agentActiveRef.current = agentActive; }, [agentActive]);
+
+  // Il descrittore del campo a fuoco che il server manda dopo ogni click. Qui è
+  // una rete, non la via maestra: quando il mirror risponde la tastiera è già
+  // giusta prima che il dito si alzi, e `applyRemoteField` se ne accorge e non
+  // tocca niente.
+  useEffect(() => registerFocusSink((field) => {
+    kbdRef.current?.applyRemoteField(field);
+  }), [registerFocusSink]);
 
   // ── Interaction state (refs: the handlers live outside React's render) ───────
   const scrollAccRef = useRef<{ dx: number; dy: number; x: number; y: number; timer: ReturnType<typeof setTimeout> | null }>(
@@ -185,20 +198,36 @@ export default function DomCoBrowse({ registerDomSink, sendInput, agentActive }:
   // sandboxed non è sempre interrogabile (la stessa ragione per cui l'input non
   // si cattura là dentro). Quando non risponde si ricade sulla tastiera di
   // testo, che è ciò che c'era prima per tutti i campi.
-  const mirrorElementAt = useCallback((sx: number, sy: number): Element | null => {
+  //
+  // `readable` separa le due risposte che prima erano lo stesso `null`: «lì non
+  // c'è niente» e «questo documento non me lo fa guardare». La prima chiude la
+  // questione (nessuna tastiera), la seconda no: apre quella generica e aspetta
+  // il descrittore del campo a fuoco che il server manda dopo il click.
+  const mirrorElementAt = useCallback((sx: number, sy: number): { readable: boolean; el: Element | null } => {
     try {
       const doc = (replayerRef.current?.iframe as HTMLIFrameElement | undefined)?.contentDocument;
-      return doc?.elementFromPoint(sx, sy) ?? null;
+      if (!doc) return { readable: false, el: null };
+      return { readable: true, el: doc.elementFromPoint(sx, sy) };
     } catch {
-      return null;
+      return { readable: false, el: null };
     }
   }, []);
 
-  /** Veste la cattura sul campo remoto sotto il punto, poi le dà il fuoco. */
+  /**
+   * Veste la cattura sul campo remoto sotto il punto, poi le dà il fuoco.
+   *
+   * Quando il mirror non è interrogabile (WKWebView + scheme custom: la stessa
+   * ragione per cui l'input non si cattura dentro l'iframe) col dito si alza
+   * comunque la tastiera generica. È l'unico momento in cui si può: iOS apre la
+   * tastiera solo dentro un gesto, e la risposta del server arriva dopo. Se poi
+   * dirà che a fuoco non c'è niente di scrivibile, `applyRemoteField` la fa
+   * rientrare.
+   */
   const focusKbdAt = useCallback((clientX: number, clientY: number, requireField: boolean) => {
     const c = toSource(clientX, clientY);
-    const target = c ? mirrorElementAt(c.x, c.y) : null;
-    kbdRef.current?.focusForField(target, { requireField });
+    if (!c) { kbdRef.current?.focusForField(null, { requireField }); return; }
+    const { readable, el } = mirrorElementAt(c.x, c.y);
+    kbdRef.current?.focusForField(el, { requireField: requireField && readable });
   }, [toSource, mirrorElementAt]);
 
   // ── Pointer / wheel / touch on the overlay ───────────────────────────────────

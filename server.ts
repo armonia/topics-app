@@ -1,6 +1,6 @@
 import { basename, join, resolve, sep } from "path";
 import { finalizeOrphanTool } from "./server/lib/orphan-tool-sweep";
-import { existsSync, readFileSync, mkdirSync, statSync, writeFileSync, readlinkSync } from "fs";
+import { existsSync, readFileSync, mkdirSync, statSync, writeFileSync, readlinkSync, realpathSync } from "fs";
 import { timingSafeEqual } from "crypto";
 import type { ServerWebSocket } from "bun";
 import type { WSData } from "./server/types";
@@ -1156,7 +1156,12 @@ const worktreeOfTask = (taskId: string) => {
 // ── Review-ready previews ──────────────────────────────────────────────────
 // One preview server per task, booted from its branch worktree at review-time.
 // `previewManager` owns the lifecycle; the host wires HOW to start/probe/shoot.
-const PREVIEW_MEDIA_DIR = join(homedir(), ".openclaw", "media", "task-previews");
+// La cartella dell'anteprima deve stare DENTRO l'allowlist che poi la serve
+// (`isPathAllowed` → `${OPENCLAW_DIR}/media/`). Scritta con `homedir()` le due
+// coincidevano solo finché `APP_DATA_DIR`/`OPENCLAW_DIR` restavano al default:
+// spostata la cartella dati, il file veniva scritto dove nessuno può leggerlo e
+// la card mostrava un'immagine rotta.
+const PREVIEW_MEDIA_DIR = join(ctx.OPENCLAW_DIR, "media", "task-previews");
 const PREVIEW_SCRIPT_CANDIDATES = ["preview", "dev", "start"];
 
 /** `lsof` per le domande d'identità sulla porta (macOS non lo ha sempre nel PATH). */
@@ -1230,6 +1235,10 @@ previewManager = createPreviewManager({
     const line = out.split("\n").find((l) => l.startsWith("n/"));
     return line ? line.slice(1) : null;
   },
+  // `lsof` risponde col path REALE, il worktree porta quello con cui è nato: su
+  // macOS `/tmp` è un link a `/private/tmp`, e senza risolverli il cancello
+  // d'identità legge due nomi della stessa cartella come due cartelle diverse.
+  realPath: async (p) => { try { return realpathSync(p); } catch { return null; } },
   // Cancello sul CONTENUTO: la pagina si LEGGE prima di fotografarla, così un
   // 503 «Bundle not built yet» non finisce sulla card come evidenza del lavoro.
   fetchPage: async (url) => {
@@ -1444,9 +1453,11 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
       },
       taskId,
     ),
-  // Fan-out: l'anteprima parte quando l'umano sceglie il vincitore, perché solo
-  // allora il worktree del task è quello giusto da mostrare.
-  preparePreview: (taskId) => previewManager?.prepareForReview(taskId) ?? Promise.resolve(),
+  // Due chiamanti, stessa porta: il fan-out (l'anteprima parte quando l'umano
+  // sceglie il vincitore, perché solo allora il worktree del task è quello
+  // giusto da mostrare) e «Ricattura evidenza» su una card già in review, che
+  // passa `explain: true` per farsi motivare anche il no.
+  preparePreview: (taskId, o) => previewManager?.prepareForReview(taskId, o) ?? Promise.resolve(),
   // NOTE: the server no longer SELF-RESTARTS when an approve lands server code
   // (removed 2026-07-18, Attilio: "l'auto-riavvio sporca tutto"). A landed
   // server change goes live either via the opt-in graceful hot-reload watch
@@ -2836,9 +2847,29 @@ const opzioniServer = {
           }
           const parsed = result.data;
           if (parsed.type === 'input') {
-            browserService.dispatchInput(ctxId, parsed.action, parsed.payload).catch(err =>
-              console.warn(`[WS][browser] dispatchInput failed for ${ctxId}:`, err.message)
-            );
+            const relayed = browserService.dispatchInput(ctxId, parsed.action, parsed.payload).catch(err => {
+              console.warn(`[WS][browser] dispatchInput failed for ${ctxId}:`, err.message);
+              return 'failed' as const;
+            });
+            // DOPO IL CLICK, CHI HA PRESO IL FUOCO.
+            //
+            // Il pane deve vestire il proprio campo di cattura come il campo
+            // remoto, o dal telefono esce sempre la stessa tastiera (quella di
+            // testo) qualunque cosa si tocchi. Sul co-browse DOM la risposta è
+            // in casa, nel mirror; sul ramo video il pane vede pixel e la
+            // risposta può darla solo la pagina vera, qui.
+            //
+            // Va SOLO a chi ha cliccato: in una sessione condivisa gli altri non
+            // hanno toccato niente, e non devono ritrovarsi una tastiera aperta.
+            if (parsed.action === 'click') {
+              void relayed.then(async (outcome) => {
+                if (outcome === 'failed') return;
+                const field = await browserService.describeFocusedField(ctxId).catch(() => null);
+                try {
+                  sendBrowserWsMessage(ws, { type: 'focus_field', ...(field ? { field } : {}) });
+                } catch { /* socket gone — the keyboard question died with it */ }
+              });
+            }
           } else if (parsed.type === 'nav' && parsed.phase === 'request') {
             browserService.navigate(ctxId, parsed.url).then((r) => {
               // goto failures resolve with `error` (page stayed on the old

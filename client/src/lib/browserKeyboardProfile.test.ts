@@ -19,6 +19,7 @@ import {
   applyKeyboardProfile,
   keyboardProfileFor,
   resolveFieldElement,
+  sameKeyboardProfile,
 } from './browserKeyboardProfile';
 
 interface FakeOpts {
@@ -223,5 +224,38 @@ describe('applyKeyboardProfile — si scrive sul campo di cattura', () => {
     const cap = fakeCapture();
     applyKeyboardProfile(cap as unknown as HTMLInputElement, DEFAULT_KEYBOARD_PROFILE);
     expect(cap.autocomplete).toBe('off');
+  });
+});
+
+/**
+ * Il confronto fra due profili esiste per una ragione sola: quando il server
+ * riporta il campo a fuoco DOPO che il mirror aveva già vestito la cattura, la
+ * risposta di solito conferma. Rifare il fuoco per confermare farebbe
+ * sfarfallare la tastiera aperta, quindi prima si guarda se cambia qualcosa.
+ */
+describe('sameKeyboardProfile', () => {
+  test('due profili uguali non chiedono nessun cambio di tastiera', () => {
+    const a = keyboardProfileFor(input({ type: 'email' }))!;
+    const b = keyboardProfileFor(input({ type: 'email' }))!;
+    expect(sameKeyboardProfile(a, b)).toBe(true);
+  });
+
+  test('un tipo diverso è un cambio di tastiera', () => {
+    const a = keyboardProfileFor(input({ type: 'email' }))!;
+    const b = keyboardProfileFor(input({ type: 'tel' }))!;
+    expect(sameKeyboardProfile(a, b)).toBe(false);
+  });
+
+  test('anche solo il tasto invio conta: è una tastiera diversa sotto le dita', () => {
+    const a = keyboardProfileFor(input({ type: 'text', enterkeyhint: 'send' }))!;
+    const b = keyboardProfileFor(input({ type: 'text' }))!;
+    expect(sameKeyboardProfile(a, b)).toBe(false);
+  });
+
+  test('nessun profilo contro un profilo: mai «uguale»', () => {
+    const a = keyboardProfileFor(input({ type: 'email' }))!;
+    expect(sameKeyboardProfile(null, a)).toBe(false);
+    expect(sameKeyboardProfile(a, null)).toBe(false);
+    expect(sameKeyboardProfile(null, null)).toBe(true);
   });
 });
