@@ -194,7 +194,8 @@ export const PREVIEW_RULE = [
  * per board (`reviewChecks`) — questa stringa non li sostituisce, li precede.
  */
 export const CODE_GATES_RULE = [
-  "I QUATTRO CANCELLI del codice, e valgono TUTTI prima di consegnare — i nomi degli script li leggi in `package.json`, i cancelli no: tipi (`bun run typecheck`), lint (`bun run lint`), codice morto (`bun run check:deadcode`), test unitari (`bun run test:unit`).",
+  "I CINQUE CANCELLI del codice, e valgono TUTTI prima di consegnare — i nomi degli script li leggi in `package.json`, i cancelli no: tipi (`bun run typecheck`), lint (`bun run lint`), codice morto (`bun run check:deadcode`), test unitari (`bun run test:unit`), prosa (`bun run check:emdash`).",
+  "Il quinto è nuovo e sorprende: `check:emdash` rifiuta il trattino lungo in QUALUNQUE testo del repo, comprese le stringhe di protocollo e i commenti che scrivi nel codice. Non si sostituisce con un trattino corto: la frase che il trattino teneva insieme erano due frasi, e si spezzano. Se il carattere E' il dato, la riga finisce con `// allow-emdash: <ragione>`.",
   "Il terzo è quello che si dimentica sempre: per il gate del codice morto un file che NESSUNO IMPORTA è codice morto. Quindi uno script che si lancia a mano (una sonda, un banco, una misura) va DICHIARATO fra gli entry del progetto nello stesso commit che lo aggiunge — con knip: la voce col suffisso `!` in `knip.jsonc` (come `scripts/disk-report.ts!`), e accanto la riga di commento che dice come si lancia.",
 ].join("\n");
 
