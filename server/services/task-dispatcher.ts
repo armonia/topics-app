@@ -460,7 +460,7 @@ export function describeIntruders(intruders: Array<{ cwd: string; branch: string
 export function parkedEdgeEvent(
   task: { id: string; projectId: string; text?: string | null },
   args: { requeue: boolean; reason?: string; parkState?: string | null },
-): { type: "task:parked"; projectId: string; taskId: string; taskTitle: string; state: "failed" | "blocked"; reason?: string } | null {
+): { type: "task:parked"; projectId: string; taskId: string; taskTitle: string; state: "failed" | "blocked" | "waited_out"; reason?: string } | null {
   if (args.requeue !== false) return null;
   return {
     type: "task:parked",
@@ -468,8 +468,14 @@ export function parkedEdgeEvent(
     taskId: task.id,
     taskTitle: task.text || "Task",
     // 'blocked' = configurazione da sistemare, 'failed' = l'agent non ha
-    // prodotto niente. Sono due domande diverse per l'umano.
-    state: args.parkState === CHIP_BLOCKED ? "blocked" : "failed",
+    // prodotto niente, 'waited_out' = la serie di attese ha sfondato il tetto.
+    // Sono tre domande diverse per l'umano, e il chip è l'unica cosa che le
+    // distingue: la copy del banner e della push si legge di qui.
+    state: args.parkState === CHIP_BLOCKED
+      ? "blocked"
+      : args.parkState === PARKED_WAITED_OUT
+        ? "waited_out"
+        : "failed",
     ...(args.reason ? { reason: args.reason } : {}),
   };
 }
@@ -2500,6 +2506,23 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     clearGrace(taskId);
     const t = deps.svc.deferForWait({ taskId, reason, minutes, by: "agent" });
     emit(t);
+    // Il park dell'attesa sfondata è l'UNICO park terminale che non passa da
+    // `releaseAndEmit`: lo decide il service, guardando i tetti della serie, e
+    // il dispatcher lo scopre solo dal chip che si ritrova in mano. Senza
+    // questa riga la card cambiava chip in tempo reale sulla board e nessuno
+    // veniva avvisato — proprio del park che esiste per dire «decidi tu», cioè
+    // quello che l'umano ha più bisogno di sapere senza guardare.
+    //
+    // Il taglio è il chip, non il ritorno: `deferForWait` ritorna un task
+    // parcheggiato SOLO quando ha sfondato un tetto, mentre l'attesa normale
+    // torna in coda con chip `waiting` e non si annuncia (riparte da sola, e
+    // un banner per ogni attesa sarebbe rumore).
+    if (t.dispatchState === PARKED_WAITED_OUT) {
+      const parked = parkedEdgeEvent(t, { requeue: false, parkState: PARKED_WAITED_OUT });
+      if (parked) {
+        try { deps.broadcast(parked); } catch { /* best-effort */ }
+      }
+    }
     return t;
   }
 

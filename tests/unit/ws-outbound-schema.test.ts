@@ -728,11 +728,13 @@ describe('validateOutbound — board + task', () => {
     }).ok).toBe(true);
   });
 
-  // Lo `state` è chiuso di proposito: sono i DUE park terminali del dispatcher
-  // (`failed` = l'agente si è arreso, `blocked` = serve una mano umana). Un
-  // terzo valore vorrebbe dire che qualcuno ha aggiunto un esito senza decidere
-  // che fronte mostrargli.
-  test('task:parked accetta failed e blocked, rifiuta il resto', () => {
+  // Lo `state` è chiuso di proposito: sono i TRE park terminali del dispatcher
+  // (`failed` = l'agente si è arreso, `blocked` = serve una mano umana,
+  // `waited_out` = la serie di attese dichiarate ha sfondato il tetto). Un
+  // quarto valore vorrebbe dire che qualcuno ha aggiunto un esito senza decidere
+  // che fronte mostrargli: la copy del banner e della push si legge di qui, e
+  // un esito senza copy propria eredita quella di un altro.
+  test('task:parked accetta failed, blocked e waited_out, rifiuta il resto', () => {
     expect(validateOutbound({
       type: 'task:parked', projectId: 'p-1', taskId: 't-1', taskTitle: 'Fai la cosa', state: 'failed',
     }).ok).toBe(true);
@@ -741,7 +743,13 @@ describe('validateOutbound — board + task', () => {
       state: 'blocked', reason: 'max_turns',
     }).ok).toBe(true);
     expect(validateOutbound({
+      type: 'task:parked', projectId: 'p-1', taskId: 't-1', taskTitle: 'Fai la cosa', state: 'waited_out',
+    }).ok).toBe(true);
+    expect(validateOutbound({
       type: 'task:parked', projectId: 'p-1', taskId: 't-1', taskTitle: 'Fai la cosa', state: 'queued',
+    }).ok).toBe(false);
+    expect(validateOutbound({
+      type: 'task:parked', projectId: 'p-1', taskId: 't-1', taskTitle: 'Fai la cosa', state: 'waiting',
     }).ok).toBe(false);
     expect(validateOutbound({
       type: 'task:parked', projectId: 'p-1', taskId: 't-1', taskTitle: 'Fai la cosa',
