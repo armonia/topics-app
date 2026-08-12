@@ -2069,6 +2069,11 @@ describe("doppioni: il cancello alla creazione e la fusione", () => {
     expect(err.code).toBe("duplicate");
     expect(err.duplicates[0].id).toBe(first.id);
     expect(err.duplicates[0].score).toBeGreaterThanOrEqual(0.72);
+    // Le due mosse praticabili, scritte con i nomi esatti dei tool: senza
+    // questi l'unica mossa che resta all'agente e' riscrivere il titolo storto
+    // finche' passa, cioe' il guasto che il cancello doveva impedire.
+    expect(err.error).toContain("add_comment");
+    expect(err.error).toContain("allow_duplicate: true");
   });
 
   test("il cancello si scavalca, ma dicendolo", async () => {

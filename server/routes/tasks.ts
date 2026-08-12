@@ -2303,7 +2303,12 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           if (twins.length > 0) {
             return json(
               {
-                error: `una card lo dice già: «${twins[0]!.task.text}». Commenta quella, oppure rimanda con allow_duplicate.`,
+                // Gli id NON stanno in questa stringa: stanno in `duplicates[]`,
+                // e il client MCP li appende al messaggio (`httpJson`). Qui si
+                // dice cosa FARE, e si nomina il parametro esatto: un agente che
+                // legge «rimanda con allow_duplicate» e non sa come si scrive
+                // finisce per riscrivere il titolo storto finché passa.
+                error: `una card lo dice già: «${twins[0]!.task.text}». Leggi quella e commentala con add_comment; se è davvero un altro lavoro, ricrea con allow_duplicate: true.`,
                 code: "duplicate",
                 duplicates: twins.map((n) => ({ id: n.task.id, text: n.task.text, score: Number(n.score.toFixed(3)) })),
               },
