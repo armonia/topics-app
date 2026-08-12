@@ -1,4 +1,5 @@
 import { sendPushToAll } from "./push-service";
+import { buildNotifyActionBundle, type NotifyAction, type NotifyActionRequest, type NotifyEvent } from "../shared/notify-actions";
 
 // Il modulo è puro (nessuna dipendenza dal DB), ma la push di fine chat vuole il
 // NOME del topic, non il suo id: senza, la notifica ti sveglia senza dirti DI
@@ -80,8 +81,41 @@ export function isTopicSilenced(
 // rejected sendPushToAll (DB closed mid-shutdown, VAPID init failure — its top
 // getDatabase()/initVapid() calls are NOT internally caught) would surface as an
 // unhandled promise rejection. Push is best-effort; swallow and log.
-function firePush(payload: { title: string; body: string; tag?: string; url?: string }): void {
+function firePush(payload: PushPayload): void {
   sendPushToAll(payload).catch(err => console.warn("[Push] send failed:", err?.message || err));
+}
+
+/**
+ * Il payload che arriva al service worker. `actions` sono i TASTI del banner e
+ * `requests` dice, per ciascuno, quale chiamata fare.
+ *
+ * La richiesta viaggia già composta di proposito: sw.js è JS servito a parte,
+ * fuori dal bundle, e non può importare `shared/notify-actions`. Mandargli il
+ * solo id lo costringerebbe a una copia del `switch` che decide gli endpoint —
+ * la copia che nessun test compila e che si disallinea al primo cambio di
+ * rotta. Così il worker resta stupido: esegue quello che gli è arrivato, dopo
+ * aver controllato che il path sia della board.
+ */
+interface PushPayload {
+  title: string;
+  body: string;
+  tag?: string;
+  url?: string;
+  actions?: NotifyAction[];
+  requests?: Record<string, NotifyActionRequest>;
+}
+
+/**
+ * Attacca i tasti al payload — solo quando ce ne sono, e solo quando il task è
+ * identificabile: un bottone che non sa a chi parlare non si disegna proprio.
+ */
+function withActions(payload: PushPayload, event: NotifyEvent, message: Record<string, any>): PushPayload {
+  const projectId = typeof message.projectId === "string" ? message.projectId : "";
+  const taskId = typeof message.taskId === "string" ? message.taskId : "";
+  if (!projectId || !taskId) return payload;
+  const { actions, requests } = buildNotifyActionBundle(event, { projectId, taskId });
+  if (actions.length === 0) return payload;
+  return { ...payload, actions, requests };
 }
 
 /**
@@ -109,6 +143,21 @@ function topicUrl(topicId: unknown): string {
 }
 
 /**
+ * La domanda pendente come arriva dal broadcast (`emitReviewReadyEdge`),
+ * ricontrollata invece che creduta: questo modulo prende `Record<string, any>`,
+ * e la differenza tra «non c'è domanda» e «c'è ma è malformata» decide QUALI
+ * tasti compaiono — nel primo caso "Approva", nel secondo nessuno. Un campo
+ * storto che passasse per "assente" produrrebbe un tasto Approva su un task che
+ * sta aspettando una risposta.
+ */
+function readQuestion(raw: unknown): { text: string; options: string[] } | null {
+  if (!raw || typeof raw !== "object") return null;
+  const q = raw as { text?: unknown; options?: unknown };
+  const options = Array.isArray(q.options) ? q.options.filter((o): o is string => typeof o === "string") : [];
+  return { text: typeof q.text === "string" ? q.text : "", options };
+}
+
+/**
  * Evaluate a WebSocket broadcast message and send push notifications for meaningful events.
  * Called after broadcastToAll — only triggers on selective, non-spammy events.
  */
@@ -132,12 +181,18 @@ export function maybeSendPush(message: Record<string, any>): void {
   // for a clean self-delivery AND the previously-silent system-delivered review
   // after a timeout. `tag` keyed by taskId so a re-emit replaces, not stacks.
   if (type === "task:review-ready") {
-    firePush({
-      title: "📋 Task pronto per la review",
-      body: message.taskTitle || "Un task è pronto per la review",
+    // La consegna che È una domanda si annuncia come tale: il corpo porta la
+    // domanda (il titolo del task lo dice già il titolo del banner) e i tasti
+    // sono le sue opzioni. Svegliarti con «pronto per la review» quando in
+    // realtà ti stanno CHIEDENDO una cosa è la stessa notifica per due eventi
+    // diversi — e quello che chiede è l'unico che non può aspettare.
+    const question = readQuestion(message.question);
+    firePush(withActions({
+      title: question ? "❓ L'agent ti sta chiedendo una cosa" : "📋 Task pronto per la review",
+      body: question?.text || message.taskTitle || "Un task è pronto per la review",
       tag: `task-review-${message.taskId || "new"}`,
       url: taskUrl(message.taskId),
-    });
+    }, { kind: "review-ready", question }, message));
     return;
   }
 
@@ -146,12 +201,12 @@ export function maybeSendPush(message: Record<string, any>): void {
   // su una rimessa in coda che si auto-guarisce. `tag` keyed by taskId così un
   // re-emit sostituisce invece di impilare.
   if (type === "task:parked") {
-    firePush({
+    firePush(withActions({
       title: message.state === "blocked" ? "🔧 Task da sistemare" : "⛔️ Task non consegnato",
       body: message.taskTitle || "Un task è stato parcheggiato",
       tag: `task-park-${message.taskId || "new"}`,
       url: taskUrl(message.taskId),
-    });
+    }, { kind: "parked" }, message));
     return;
   }
 

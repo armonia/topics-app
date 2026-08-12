@@ -167,6 +167,7 @@ export default defineConfig({
         "**/sidebar-touch-audit.spec.ts",
         "**/sidebar-finger-follow.spec.ts",
         "**/hover-reveal-touch-audit.spec.ts",
+        "**/browser-mobile-keyboard.spec.ts",
         ...(IS_PR ? NIGHTLY_ONLY_SPECS : []),
       ],
     },
@@ -209,10 +210,19 @@ export default defineConfig({
      * `isTouch: true, hasHover: false, isMobile: false`, che è esattamente la
      * combinazione di un tablet con la tastiera staccata — e la popolazione su
      * cui i comandi nascosti dietro l'hover sparivano.
+     *
+     * Qui gira anche `browser-mobile-keyboard.spec.ts` (quale tastiera esce
+     * toccando un campo nel pane browser, e la scala che non si muove), per la
+     * stessa ragione: serve il DITO, non la larghezza. A 390px il pane browser
+     * sta dietro la navigazione mobile e il tocco atterra sulla colonna dei
+     * topic — misurato, l'hit-test in quel punto restituisce `sidebar-column`.
+     * Il contratto sotto esame (il campo di cattura che si veste come il campo
+     * remoto, e la soglia dei 16px) non dipende dalla larghezza: si prova dove
+     * la superficie esiste, invece di pilotare la navigazione del telefono.
      */
     {
       name: "chromium-touch-wide",
-      testMatch: "**/hover-reveal-touch-audit.spec.ts",
+      testMatch: ["**/hover-reveal-touch-audit.spec.ts", "**/browser-mobile-keyboard.spec.ts"],
       use: {
         browserName: "chromium",
         hasTouch: true,

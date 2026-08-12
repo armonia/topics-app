@@ -92,7 +92,7 @@ native-tls = "0.2"
 # post UNNotificationRequests ourselves and request authorization at setup.
 # Versions pin the objc2 stack already in the tree (transitive from tauri/wry).
 objc2 = "0.6"
-objc2-foundation = { version = "0.3", features = ["NSBundle", "NSString", "NSError", "NSData"] }
+objc2-foundation = { version = "0.3", features = ["NSBundle", "NSString", "NSError", "NSData", "NSArray", "NSSet", "NSEnumerator"] }
 block2 = "0.6"
 objc2-user-notifications = { version = "0.3", features = [
     "UNUserNotificationCenter",
@@ -102,5 +102,10 @@ objc2-user-notifications = { version = "0.3", features = [
     "UNNotification",
     "UNNotificationResponse",
     "UNNotificationSettings",
+    # I TASTI del banner: una `UNNotificationCategory` porta le `UNNotificationAction`,
+    # e il click torna dal delegate come `actionIdentifier`. Senza queste due, una
+    # notifica può solo essere aperta — che è esattamente com'era.
+    "UNNotificationAction",
+    "UNNotificationCategory",
     "block2",
 ] }
