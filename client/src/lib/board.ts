@@ -11,7 +11,7 @@
 // Il contratto della board sta in `shared/board.ts`, dichiarato UNA volta e
 // letto dai due lati del filo: `export … from` ri-esporta ma non porta i nomi
 // in scope locale, e qui sotto servono, quindi l'import gemello non è ridondante.
-export { MAX_FANOUT, TASK_STATUSES, ACTIVE_DISPATCH_STATES, isAgentWorking, parseStatusEvent, hasPlanApproveOption, parseQuestionBlock } from '../../../shared/board';
+export { MAX_FANOUT, TASK_STATUSES, ACTIVE_DISPATCH_STATES, PARKED_STOPPED, isAgentWorking, parseStatusEvent, hasPlanApproveOption, parseQuestionBlock } from '../../../shared/board';
 export type {
   TaskStatus, TaskComment, ReviewCheck, CheckRun, BoardSettings, BoardSettingsPatch, DispatchCapacity, BlockerRef,
   LandingTicket,
@@ -443,16 +443,66 @@ export interface DiffFileStat {
   status: string;
 }
 
+/**
+ * Perché NON c'è un diff — tre risposte, e tenerle separate è il punto: prima
+ * erano lo stesso silenzio (il pannello non si disegnava affatto), e «la card non
+ * ha prodotto codice» era indistinguibile da «non ho potuto guardare».
+ *
+ *  · `no_changes`     — la gamma esiste ed è venuta fuori vuota. Verificato.
+ *  · `unreadable`     — nessuna gamma ricostruibile: il worktree è potato e non
+ *                       c'è un riferimento durevole (o la card ha lavorato in
+ *                       loco, senza un ramo suo da leggere).
+ *  · `not_dispatched` — nessun agente ci ha mai lavorato: non c'è una domanda.
+ */
+export type DiffMissCode = 'no_changes' | 'unreadable' | 'not_dispatched';
+
+/** Da dove viene la gamma — cambia cosa stai leggendo, quindi si dice. */
+export type DiffSource = 'worktree' | 'landed-merge' | 'delivery-commit';
+
 /** A unified-diff bundle: per-file stat + the raw patch, capped server-side. */
 export interface DiffBundle {
   branch: string | null;
   range?: string;
-  base?: string;
+  base?: string | null;
   stat: DiffFileStat[];
   patch: string;
   truncated: boolean;
-  /** 'no_worktree' when a task has no isolated worktree to diff yet. */
-  code?: string;
+  code?: DiffMissCode;
+  source?: DiffSource | null;
+}
+
+/**
+ * Il totale in testa al pannello: quanti file, quante righe.
+ *
+ * Si conta sullo STAT, non sul patch: lo stat è completo per contratto (git lo
+ * dà per numstat, che non ha tetto), il patch no — oltre il tetto del payload è
+ * tagliato, e un totale contato lì direbbe «3 file» su una consegna da 40.
+ * I binari escono come `-1`: contano come file toccato, non come righe.
+ */
+export function diffTotals(stat: DiffFileStat[]): { files: number; additions: number; deletions: number } {
+  let additions = 0;
+  let deletions = 0;
+  for (const s of stat) {
+    if (s.additions > 0) additions += s.additions;
+    if (s.deletions > 0) deletions += s.deletions;
+  }
+  return { files: stat.length, additions, deletions };
+}
+
+/**
+ * Ha senso chiedersi «cosa ha cambiato» per questa card?
+ *
+ * Sì appena qualcuno ci ha lavorato (o avrebbe dovuto): un agente assegnato, una
+ * consegna registrata, o una card che sta in review/done — ed è quest'ultimo il
+ * caso che conta, perché è lì che il silenzio faceva più danno. No su una card
+ * di backlog che nessuno ha ancora toccato: quella la domanda non ce l'ha, e una
+ * barra «Modifiche: non dispatchata» su ogni riga del backlog è solo rumore.
+ */
+export function hasCodeQuestion(
+  t: Pick<BoardTask, 'assignedTopicId' | 'deliveryBranch' | 'deliveryCommit' | 'status'>,
+): boolean {
+  return !!t.assignedTopicId || !!t.deliveryBranch || !!t.deliveryCommit
+    || t.status === 'review' || t.status === 'done';
 }
 
 /**
