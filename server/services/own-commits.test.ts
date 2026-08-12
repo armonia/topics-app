@@ -1,5 +1,6 @@
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import {
+  commitIsIn,
   countOwnCommits,
   deliveryPointer,
   listOwnCommits,
@@ -142,6 +143,48 @@ describe("own-commits — su git vero", () => {
     expect(git(repo, "rev-parse", "--verify", "--quiet", "refs/heads/topics/potata")).toBe("");
     expect(await listOwnCommits(repo, "topics/potata")).toBeNull();
     expect(await deliveryPointer(repo, "topics/potata")).toBeNull();
+  });
+
+  test("commitIsIn: dentro, fuori, e «non lo so» — tre risposte distinte", async () => {
+    const base = git(repo, "rev-parse", "main");
+    // DENTRO: il commit di main è antenato di se stesso.
+    expect(await commitIsIn(repo, base, "main")).toBe(true);
+    // FUORI, verificato: il lavoro della card non è ancora atterrato.
+    expect(await commitIsIn(repo, shaM, "main")).toBe(false);
+    expect(await commitIsIn(repo, shaA, "main")).toBe(false);
+    // NON CONTABILE: sha sconosciuto, ref inesistente, cartella che non è un
+    // repo, stringa vuota. Nessuno di questi è un `false` — chi chiama chiude
+    // una card sul `true` e sull'ignoranza non deve toccare niente.
+    expect(await commitIsIn(repo, "0".repeat(40), "main")).toBeNull();
+    expect(await commitIsIn(repo, base, "ramo-che-non-esiste")).toBeNull();
+    expect(await commitIsIn(repo, "   ", "main")).toBeNull();
+    const nonRepo = mkdtempSync(join(tmpdir(), "own-commits-nonrepo-"));
+    try { expect(await commitIsIn(nonRepo, base, "main")).toBeNull(); }
+    finally { rmSync(nonRepo, { recursive: true, force: true }); }
+  });
+
+  test("commitIsIn risponde anche quando il RAMO non c'è più", async () => {
+    // È la ragione per cui la domanda si fa sul commit: dopo il land il ramo
+    // viene potato, e chiedere di lui direbbe «non c'è» su lavoro atterrato.
+    // Il giro completo su un ramo usa-e-getta, per non muovere il fixture che
+    // gli altri test leggono: si consegna, si fonde, si pota.
+    git(repo, "checkout", "-q", "-b", "topics/landata", "main");
+    commit(repo, "landata.txt", "lavoro atterrato\n", "lavoro poi landato");
+    const shaL = git(repo, "rev-parse", "topics/landata");
+    git(repo, "checkout", "-q", "-b", "integrazione", "main");
+    git(repo, "merge", "-q", "--no-ff", "-m", "land della card", "topics/landata");
+    git(repo, "branch", "-q", "-D", "topics/landata");
+    git(repo, "checkout", "-q", "main");
+
+    expect(git(repo, "rev-parse", "--verify", "--quiet", "refs/heads/topics/landata")).toBe("");
+    // Il ramo non è più contabile…
+    expect(await listOwnCommits(repo, "topics/landata", { mainRef: "integrazione" })).toBeNull();
+    // …il commit sì, e dice che il lavoro è dentro.
+    expect(await commitIsIn(repo, shaL, "integrazione")).toBe(true);
+    // E su `main`, dove il land non è arrivato, resta fuori: la risposta è del
+    // ref, non un sì d'ufficio.
+    expect(await commitIsIn(repo, shaL, "main")).toBe(false);
+    git(repo, "branch", "-q", "-D", "integrazione");
   });
 
   test("main inesistente, o una cartella che non è un repo → null", async () => {
