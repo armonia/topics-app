@@ -7,5 +7,24 @@
 # under `tests/e2e/*.spec.ts` and crashes with "Playwright Test did not
 # expect test.describe() to be called here.". The unit/integration runner
 # is kept under `bun test:unit` (see package.json scripts) with an
-# explicit positional path list. This file exists for future bunfig keys
-# but stays minimal so it doesn't fail to parse.
+# explicit positional path list.
+
+[test]
+# Raises the 5s default per-test timeout for `bun test <file>` typed by hand,
+# which is how a red gets triaged and what the header of dozens of test files
+# tells you to run. The number and the whole story live in the module.
+#
+# It is a preload and not a key here because there is no key: `[test] timeout
+# = N` is accepted without a word and then IGNORED (measured on bun 1.3.8, the
+# test still dies "after 5000ms"). `preload` is the only lever this file has.
+#
+# It does NOT cover the full suite, and that is not an oversight: the preload
+# runs ONCE per run, not once per file, so the raised timeout only reaches the
+# file bun is loading at that moment. Three 7s files with a 30s preload and one
+# passes. The suite is covered by `--timeout` on the `test:*` scripts in
+# package.json. Both halves are load bearing.
+#
+# One catch, measured: bun reads bunfig.toml from the working directory only,
+# it does not walk up. Run `bun test` from inside `client/` and you are back
+# to bun's own 5 seconds.
+preload = ["./tests/setup/bun-test-preload.ts"]
