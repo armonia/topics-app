@@ -151,10 +151,13 @@ function codaConPesanteInTesta(h: ReturnType<typeof harness>) {
 describe("freno del peso — quale carico guarda", () => {
   it("carico ESTERNO alto e agenti quasi fermi: i leggeri partono", async () => {
     // Le cifre sono quelle misurate: 12 core, load1 fra 37 e 48 (le app
-    // dell'umano), e la nostra flotta a 0,75% di 1200% = 0,0625 core-unità.
+    // dell'umano), e la nostra flotta a 75% su 1200% nella scala di `ps`, cioè
+    // 0,75 core-unità. Le due misure differiscono di un fattore CINQUANTA sullo
+    // stesso host e nello stesso istante: non sono due letture della stessa
+    // cosa, e il guasto è stato usare la prima per rispondere alla seconda.
     const h = harness({
       capacity: () => ({ load1: 42, cores: 12 }),
-      ownLoad: () => ({ coreUnits: 0.0625, cores: 12 }),
+      ownLoad: () => ({ coreUnits: 0.75, cores: 12 }),
     });
     board(h);
     codaConPesanteInTesta(h);
@@ -233,6 +236,28 @@ describe("freno del peso — l'attesa ha una fine", () => {
     expect(h.started().length).toBeGreaterThan(0);
     // E lo si legge nel thread, invece di indovinarlo da una board ferma.
     expect(h.comments("heavy").join("\n")).toContain("20 min");
+  });
+
+  it("e lo dice anche la CARD, non solo il thread", async () => {
+    // Il thread lo legge chi apre il task. Chi guarda la board vede il chip, e
+    // il chip diceva «in coda» pure alla riga che teneva ferme tutte le altre.
+    // Qui si chiude il giro riga → card: il chip `queued` su un task pesante È
+    // la condizione, e `rowToTask` la traduce in una ragione che lo dichiara.
+    const h = harness({
+      capacity: () => ({ load1: 42, cores: 12 }),
+      ownLoad: () => ({ coreUnits: 11, cores: 12 }),
+    });
+    board(h);
+    codaConPesanteInTesta(h);
+
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    const r = h.task("heavy")!.queueReason!;
+    expect(r.kind).toBe("heavy_hold");
+    expect(r.detail).toContain("2 dietro");
+    // I leggeri dietro NON sono il tappo: la loro ragione resta la fila.
+    expect(h.task("l1")!.queueReason!.kind).toBe("slot");
   });
 
   it("la nota dice che è LUI a tenere ferma la coda, non solo «in coda»", async () => {
