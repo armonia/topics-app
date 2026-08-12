@@ -20,6 +20,7 @@ import { readMutedProjects } from "./lib/muted-projects";
 import { resolveStateDir } from "./lib/data-dir";
 import { knownProjectDirs, isInsideKnownProject } from "./services/known-project-dirs";
 import { maybeSendPush, configurePushTriggers, isTopicSilenced } from "./push-triggers";
+import { configureNotificationRegistry, recordAndAnnounce } from "./notification-registry";
 import { createProjectStore } from "./services/project-store";
 import { createWorktreeStore } from "./services/worktree-store";
 import { createWorktreeManager } from "./services/worktree-manager";
@@ -875,6 +876,18 @@ export function createAppContext(baseDir: string): AppContext {
   configurePushTriggers({
     getTopicName: (topicId) => getTopicById(topicId)?.name ?? null,
     isTopicSilenced: (topicId) => isTopicSilenced(getTopicById(topicId), readMutedProjects(db)),
+    // Ogni push mandata lascia una riga nel registro (migration 101). La push è
+    // la metà "ad app chiusa" della notifica: senza questo aggancio la
+    // cronologia avrebbe un buco proprio dove serve di più — quando torni al
+    // computer e vuoi sapere cosa è successo mentre non c'eri.
+    recordNotification: (input) => { recordAndAnnounce(input); },
+  });
+
+  // Il registro delle notifiche: come sopra, i due dati che gli mancano — dove
+  // annunciare la riga nuova, e se il topic bersaglio è archiviato.
+  configureNotificationRegistry({
+    announce: (row, unseen) => broadcastToAll({ type: "notification:new", row, unseen }),
+    isTopicArchived: (topicId) => !!getTopicById(topicId)?.archived,
   });
 
   /**

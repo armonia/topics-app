@@ -86,6 +86,7 @@ import { popOutTopic } from './lib/popOutTopic';
 import { ErrorBoundary } from './components/Shared/ErrorBoundary';
 import { SkeletonTopicList } from './components/Shared/Skeleton';
 import { SidebarStatusBar } from './components/Sidebar/SidebarStatusBar';
+import { NotificationHistoryButton } from './components/Sidebar/NotificationHistoryButton';
 
 // Lazy-load components that are only shown on demand
 const NewTopicModal = lazy(() => import('./components/Modals/NewTopicModal').then(m => ({ default: m.NewTopicModal })));
@@ -379,7 +380,7 @@ function App() {
   // La sezione da cui aprire le Impostazioni, quando si arriva da un punto
   // preciso (la riga dell'identità → Dispositivi). `undefined` = comportamento
   // normale, cioè «Aspetto».
-  const [settingsSection, setSettingsSection] = useState<'devices' | undefined>(undefined);
+  const [settingsSection, setSettingsSection] = useState<'devices' | 'notifications' | undefined>(undefined);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showFileSearch, setShowFileSearch] = useState<false | { projectPaths: string[]; mode: 'name' | 'content' }>(false);
   // The sidebar header "New" button used to track its dropdown via a
@@ -1296,6 +1297,18 @@ function App() {
                     il riferimento (Attilio, 08/08). */}
                 <ChevronDown size={14} className={`text-app-text-secondary transition-transform ${showTopicsMenu ? 'rotate-180' : ''}`} />
               </button>
+            </div>
+            {/* ACCANTO A TOPICS, e non in coda alla riga con Cerca e «+»: quei
+                due sono comandi che CREANO o CERCANO, questo è uno stato — dice
+                quante cose sono successe mentre non guardavi. Sta a fianco
+                dell'identità della colonna perché è la prima cosa che si guarda
+                tornando all'app, prima di decidere cosa aprire. */}
+            <div className="app-no-drag flex-shrink-0" {...NO_DRAG_REGION}>
+              <NotificationHistoryButton
+                onWSMessage={onWSMessage}
+                isMobile={isMobile}
+                onOpenSettings={() => { setSettingsSection('notifications'); setShowSettings(true); }}
+              />
             </div>
           </div>
           {/* CERCA E «+», in coda alla riga del titolo.
