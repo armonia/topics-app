@@ -112,19 +112,49 @@ async function openTestProject(page: Page) {
   await expect(page.getByTestId("project-window")).toBeVisible({ timeout: 10000 });
 }
 
-/** Apre la board del progetto dal "+" della finestra di progetto. */
+/**
+ * Apre la board del progetto dal "+" della finestra di progetto.
+ *
+ * IL GIRO E' INDURITO, ed e' la stessa forma di `board.spec.ts` (righe 87-105)
+ * PAROLA PER PAROLA. Non e' pignoleria di stile: la versione ingenua di questa
+ * funzione — `for (let i = 0; i < n; i++) await triggers.nth(i).click()` — passa
+ * quando questo file gira DA SOLO e va rossa su tutti e tre i test quando gira
+ * dentro la suite. Il workspace e' condiviso lungo la run: una pane lasciata da
+ * una spec precedente contribuisce un trigger che sta nel DOM ma non e' sullo
+ * schermo, e `click()` senza timeout resta appeso su «visible, enabled and
+ * stable» finche' i 60 s di budget del test non sono finiti. Misurato il 12/08
+ * sull'albero fuso con main: 3 falliti, ogni volta con
+ * «locator.click: Test timeout of 60000ms exceeded» su questa riga.
+ *
+ * Le tre righe che lo evitano, e perche' ognuna serve:
+ *  1. si scorre ALL'INDIETRO — il trigger appena montato (la finestra di
+ *     progetto) e' l'ultimo, i relitti stanno davanti;
+ *  2. `isVisible()` scarta il relitto PRIMA di toccarlo;
+ *  3. `click({ timeout: 3000 })` mette un tetto: se un trigger inganna anche il
+ *     controllo di visibilita', si perdono 3 secondi e si prova il prossimo,
+ *     invece di bruciare il test intero su di lui.
+ * E il click sulla VOCE sta FUORI dal giro: dentro, un `item.click()` fallito
+ * ammazzerebbe la funzione senza lasciar provare i trigger rimasti.
+ */
 async function openProjectBoard(page: Page) {
   await openTestProject(page);
   const triggers = page.getByTestId("pane-add-menu-trigger");
   const item = page.getByTestId("pane-add-menu-kanban");
   const n = await triggers.count();
   let opened = false;
-  for (let i = 0; i < n; i++) {
-    await triggers.nth(i).click();
-    if (await item.count()) { await item.click(); opened = true; break; }
+  for (let i = n - 1; i >= 0; i--) {
+    const t = triggers.nth(i);
+    if (!(await t.isVisible().catch(() => false))) continue;
+    const clicked = await t.click({ timeout: 3000 }).then(() => true, () => false);
+    if (!clicked) continue;
+    if (await item.waitFor({ state: "visible", timeout: 2000 }).then(() => true, () => false)) {
+      opened = true;
+      break;
+    }
     await page.keyboard.press("Escape");
   }
   expect(opened, "nessun menu + con la voce Board (kanban)").toBe(true);
+  await item.click();
   await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 10000 });
 }
 
