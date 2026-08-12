@@ -19,6 +19,7 @@ import { ExternalSessionsBadge } from './ExternalSessionsBadge';
 import { useExternalSessions } from '../../hooks/useExternalSessions';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
 import { currentTaskTarget, reflectTaskOpen, reflectTaskClose, subscribePopstateTask } from '../../lib/openTaskLink';
+import { useTaskSessionResolver } from '../../hooks/useTaskSession';
 import {
   boardApi, boardIdForPath, isProjectlessId, TASK_STATUSES, UNASSIGNED_PROJECT_ID,
   CLOSER_LABELS, KIND_LABELS,
@@ -210,7 +211,7 @@ function OverloadBadge() {
   return (
     <span
       className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium tabular-nums ${cls}`}
-      title={`Load ${cap.load1.toFixed(1)} su ${cap.cores} core — la macchina è sotto carico. Consigliati ${cap.recommended} agent in parallelo${severe ? '. Valuta se fermare qualche agente.' : '.'}`}
+      title={`Load ${cap.load1.toFixed(1)} su ${cap.cores} core. La macchina è sotto carico. Consigliati ${cap.recommended} agent in parallelo${severe ? '. Valuta se fermare qualche agente.' : '.'}`}
     >
       <AlertTriangle className="h-3 w-3" />
       {severe ? 'Carico critico' : 'Carico alto'}
@@ -245,7 +246,7 @@ function MissionsMenu({ onStart }: { onStart: (m: Mission) => void }) {
         ref={btnRef}
         onClick={() => setOpen((o) => !o)}
         data-testid="missions-button"
-        title="Missioni — compiti in più per la sessione di progetto, accanto alla board. Il testo arriva nel suo composer: a mandarlo sei tu."
+        title="Missioni: compiti in più per la sessione di progetto, accanto alla board. Il testo arriva nel suo composer: a mandarlo sei tu."
         className={`flex items-center gap-1 rounded px-2 py-0.5 text-[11px] ${open ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/10'}`}
       ><Target className="h-3 w-3 shrink-0" /><span className="hidden sm:inline">Missioni</span></button>
       <Menu open={open} anchorRef={btnRef} onClose={() => setOpen(false)} minWidth={330}>
@@ -321,7 +322,7 @@ function GlobalSettingsMenu({ onMessage }: { onMessage?: (handler: (msg: WSMessa
       <button
         ref={btnRef}
         onClick={() => { setOpen((o) => !o); if (!open) load(); }}
-        title="Impostazioni dispatch — globali (tutte le board)"
+        title="Impostazioni dispatch, globali (tutte le board)"
         className={`-ml-1 flex items-center bg-transparent p-0 ${open ? 'text-app-text' : 'text-app-text-muted hover:text-app-text-heading'}`}
       ><ChevronDown className={`h-3 w-3 transition-transform ${open ? 'rotate-180' : ''}`} /></button>
       <Menu open={open} anchorRef={btnRef} onClose={() => setOpen(false)} minWidth={288} unmanagedFocus>
@@ -338,7 +339,7 @@ function GlobalSettingsMenu({ onMessage }: { onMessage?: (handler: (msg: WSMessa
             </label>
             {g?.maxAgentsAuto ? (
               <p className="text-[11px] leading-snug text-app-text-muted">
-                <b className="text-emerald-300">{cap ? cap.recommended : '…'}</b> agent in parallelo su tutta la macchina{cap && <span className="text-app-text-faint"> — {cap.reason}</span>}
+                <b className="text-emerald-300">{cap ? cap.recommended : '…'}</b> agent in parallelo su tutta la macchina{cap && <span className="text-app-text-faint"> · {cap.reason}</span>}
               </p>
             ) : (
               <label className="flex items-center justify-between gap-3">
@@ -586,7 +587,7 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
             title={l === 'visibile'
               ? 'Tocca client/src: la guarda un umano prima di chiuderla'
               : l === 'decisione'
-                ? 'Un piano, una ricerca, un documento — o nessun codice: la decide un umano, sempre'
+                ? 'Un piano, una ricerca, un documento, o nessun codice: la decide un umano, sempre'
                 : 'Non tocca niente che si veda: con la barra verde la chiude il conduttore'}
           />
         ))}
@@ -611,6 +612,10 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
   // The project/all toggle only makes sense inside a project window. The global
   // pane has no project, so it locks to 'all'.
   const canToggle = !!projectPath && !global;
+  // La scheda del task esiste sempre; la SESSIONE dell'agente no. Risolto una
+  // volta qui e distribuito già deciso a card e drawer, così nessuno dei due
+  // deve iscriversi all'indice dei topic. Vedi `lib/taskSession.ts`.
+  const resolveSession = useTaskSessionResolver();
   // Per-board dispatch settings only exist for a single project (the global board
   // aggregates many), so the gear only shows inside a project window.
   const hasProject = !!projectPath && !global;
@@ -987,7 +992,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
         : '';
       setGcResult(
         `${sm.reaped ?? 0} ripuliti, ${sm.freed ?? 0} liberati (branch salvo), ${sm.landed ?? 0} landati${snelliti}, ${sm.kept ?? 0} tenuti`
-        + (motivi ? ` — ${motivi}` : ''),
+        + (motivi ? `: ${motivi}` : ''),
       );
       // Il conteggio accanto deve riflettere la passata appena fatta.
       if (projectPath) {
@@ -1483,7 +1488,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
         )}
         {branchInv && branchInv.total > 0 && (branchInv.orphan > 0 || branchInv.onOpenTasks > 0) && (
           <span
-            title={`${branchInv.total} rami locali non su main.\n${branchInv.orphan} non appartengono a nessun task — nessuno li reclamerà.\n${branchInv.onOpenTasks} sono di task ancora aperti: quel lavoro esiste già.`}
+            title={`${branchInv.total} rami locali non su main.\n${branchInv.orphan} non appartengono a nessun task, nessuno li reclamerà.\n${branchInv.onOpenTasks} sono di task ancora aperti: quel lavoro esiste già.`}
             className="flex shrink-0 items-center gap-1 rounded bg-amber-500/15 px-2 py-0.5 text-[11px] text-amber-300"
             data-testid="branch-inventory-badge"
           >{branchInv.orphan > 0 ? `${branchInv.orphan} rami orfani` : `${branchInv.onOpenTasks} rami su task aperti`}</span>
@@ -1492,7 +1497,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
           <button
             onClick={runGc}
             disabled={gcRunning}
-            title={gcResult ?? "Anticipa la passata del GC. Reapa SOLO cio che e provabilmente sicuro — la stessa regola della passata automatica ogni 30 minuti, non una piu aggressiva."}
+            title={gcResult ?? "Anticipa la passata del GC. Reapa SOLO cio che e provabilmente sicuro, la stessa regola della passata automatica ogni 30 minuti, non una piu aggressiva."}
             className="shrink-0 rounded bg-white/10 px-2 py-0.5 text-[11px] text-app-text-secondary hover:bg-white/20 disabled:opacity-50"
             data-testid="worktree-gc-button"
           >{gcRunning ? 'Pulisco…' : 'Pulisci landati'}</button>
@@ -1565,6 +1570,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
                   onError={setError}
                   onRefetch={refetch}
                   onOpenTopic={onOpenTopic}
+                  resolveSession={resolveSession}
                   tasksById={tasksById}
                   projectPathById={projectPathById}
                   liveById={liveUsage}
@@ -1618,6 +1624,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
             onChanged={refetch}
             onOpenTask={openTask}
             onOpenTopic={onOpenTopic}
+            sessionState={resolveSession(selected.assignedTopicId)}
             focusPaneId={pendingPaneId ?? undefined}
             /* Apertura automatica nel workspace: SOLO dalla board globale, che
                è una superficie a sé. Dentro una finestra di progetto la board è

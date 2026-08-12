@@ -105,8 +105,8 @@ export function VersionPopover({
         </span>
       </div>
       <div className="space-y-1 text-[11px] text-app-text-muted">
-        <div className="flex justify-between"><span>Compilato</span><span className="text-app-text-secondary">{buildDate || '—'}</span></div>
-        <div className="flex justify-between"><span>Build</span><span className="text-app-text-secondary font-mono">{buildSha || '—'}</span></div>
+        <div className="flex justify-between"><span>Compilato</span><span className="text-app-text-secondary">{buildDate || '-'}</span></div>
+        <div className="flex justify-between"><span>Build</span><span className="text-app-text-secondary font-mono">{buildSha || '-'}</span></div>
         <div className="flex justify-between"><span>Piattaforma</span><span className="text-app-text-secondary">{platformLabel()}{isDesktop ? ' · desktop' : ''}</span></div>
         {/* Native shell version — surfaced ONLY when it lags the client (a
             client hot-deploy landed but the .app binary hasn't been released
@@ -169,7 +169,7 @@ function UpdateBox({
         onClick={() => window.location.reload()}
         className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-[11px] font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
       >
-        <Download size={12} /> Aggiornamento pronto — ricarica
+        <Download size={12} /> Aggiornamento pronto, ricarica
       </button>
     ) : (
       <div className="text-[11px] text-app-text-muted">Sei sulla versione web più recente.</div>

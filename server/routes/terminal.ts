@@ -653,7 +653,7 @@ export async function ensureBridge(): Promise<void> {
       const why = lastBridgeLogLine();
       throw new Error(
         `Failed to connect to PTY bridge after spawning (${cmd} --socket ${SOCKET_PATH})` +
-          (why ? ` — il ponte dice: ${why}` : ` — nessun log in ${bridgeLogPath()}`),
+          (why ? ` Il ponte dice: ${why}` : ` Nessun log in ${bridgeLogPath()}.`),
       );
     }
   } finally {
@@ -2556,7 +2556,7 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
             await new Promise((r) => setTimeout(r, 250));
           }
           if (sessions.has(id)) {
-            return errorResponse(503, "Session did not stop in time — please retry");
+            return errorResponse(503, "Session did not stop in time. Please retry.");
           }
         }
         await ensureBridge();

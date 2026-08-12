@@ -36,7 +36,7 @@ export function TaskIdChip({ id }: { id: string }) {
       type="button"
       data-testid="task-id-chip"
       data-copied={copied || undefined}
-      aria-label={`ID del task ${memorableId(id)} — copia`}
+      aria-label={`ID del task ${memorableId(id)}: copia`}
       onClick={(e) => {
         e.stopPropagation();
         try { void navigator.clipboard?.writeText(id); setCopied(true); setTimeout(() => setCopied(false), 1200); } catch { /* clipboard blocked */ }
@@ -208,7 +208,7 @@ export function LabelChip({ label, source }: { label: TaskLabel; source: LabelSo
     : label === 'visibile'
       ? 'Tocca una superficie che si vede: resta in review finché non la guarda un umano.'
       : label === 'decisione'
-        ? 'Un piano, una ricerca, un documento — o nessun codice affatto: la decide un umano, sempre.'
+        ? 'Un piano, una ricerca, un documento, o nessun codice affatto: la decide un umano, sempre.'
         : null;
   const origin = source === 'derived'
     ? 'Derivata dal diff della consegna'

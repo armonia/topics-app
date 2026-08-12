@@ -137,7 +137,7 @@ export function ReadCard({ filePath, content, offset, limit }: {
   filePath: string; content?: string; offset?: number; limit?: number;
 }) {
   const meta = offset != null || limit != null
-    ? ` · lines ${offset ?? 0}${limit ? `–${(offset ?? 0) + limit}` : '+'}`
+    ? ` · lines ${offset ?? 0}${limit ? `-${(offset ?? 0) + limit}` : '+'}`
     : '';
   return (
     <div className="space-y-1">
