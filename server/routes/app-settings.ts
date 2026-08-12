@@ -84,7 +84,7 @@ const FIELD_RULES: Record<keyof AppSettings, FieldRule> = {
   // `null` e `'auto'` dicono la stessa cosa — «nessuna direttiva» — e passano
   // entrambi: il selettore manda la stringa, chi azzera manda null.
   outputLanguage: { kind: "string", allow: LANGUAGES },
-  // Lo stato pubblicato su Discord (migration 097). Passa da QUI e non da una
+  // Lo stato pubblicato su Discord (migration 102). Passa da QUI e non da una
   // rotta sua: due porte che scrivono la stessa colonna è il guasto che il
   // commento in cima a questo file racconta già per `aiProvider`.
   discordPresenceEnabled: { kind: "bool" },

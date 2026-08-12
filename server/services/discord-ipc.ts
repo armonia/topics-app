@@ -40,7 +40,11 @@ export const IPC_OP = {
   PONG: 4,
 } as const;
 
-export type IpcOp = (typeof IPC_OP)[keyof typeof IPC_OP];
+/** Gli op che questo modulo SA scrivere. Non è esportato di proposito: fuori
+ *  di qui nessuno compone frame a mano, e un export senza consumatori è codice
+ *  morto per `check:deadcode`. Serve invece a `encodeFrame`, che così accetta
+ *  solo op del protocollo invece di un `number` qualunque. */
+type IpcOp = (typeof IPC_OP)[keyof typeof IPC_OP];
 
 export interface IpcFrame {
   op: number;
@@ -61,7 +65,7 @@ export interface IpcFrame {
  * frame successivo è disallineato di qualche byte. Il filo non muore: diventa
  * spazzatura silenziosa.
  */
-export function encodeFrame(op: number, payload: unknown): Buffer {
+export function encodeFrame(op: IpcOp, payload: unknown): Buffer {
   const body = Buffer.from(JSON.stringify(payload), "utf8");
   const head = Buffer.alloc(8);
   head.writeUInt32LE(op, 0);

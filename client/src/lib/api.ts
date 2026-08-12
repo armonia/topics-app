@@ -1275,7 +1275,7 @@ export interface AppBehaviorSettings {
   claudeCodePermissionMode: string | null;
   codexApprovalMode: string | null;
   claudeCodeEnabled: boolean | null;
-  /** Topics pubblica il tuo stato su Discord (migration 097). `null` = mai
+  /** Topics pubblica il tuo stato su Discord (migration 102). `null` = mai
    *  toccato, che qui vale SPENTO — non «default acceso». */
   discordPresenceEnabled: boolean | null;
   /** Quanto se ne vede: `minimal` | `activity` | `detailed`. `null` = il
@@ -1339,7 +1339,6 @@ export const appSettingsApi = {
 export type {
   ProfileStats,
   DiscordPresenceStatus,
-  DiscordConnectionState,
   DiscordActivity as DiscordActivityPreview,
 } from '../../../shared/types';
 import type {

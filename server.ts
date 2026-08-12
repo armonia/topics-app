@@ -1449,7 +1449,7 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
 startProcessDetection(ctx, getClaudeSessionsForDetection);
 
 // Lo stato pubblicato su Discord, se l'interruttore è acceso (default: spento,
-// migration 097). Il servizio parte SEMPRE — è lui a rileggere le impostazioni
+// migration 102). Il servizio parte SEMPRE — è lui a rileggere le impostazioni
 // a ogni giro e a non aprire nessun filo finché non gli viene detto di sì —
 // così accendere non richiede un riavvio.
 //

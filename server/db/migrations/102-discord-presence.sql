@@ -1,4 +1,4 @@
--- 101: lo stato Discord lo pubblica Topics, e queste due colonne dicono se e
+-- 102: lo stato Discord lo pubblica Topics, e queste due colonne dicono se e
 -- QUANTO.
 --
 -- Fino a ieri il Rich Presence lo faceva un daemon a parte
