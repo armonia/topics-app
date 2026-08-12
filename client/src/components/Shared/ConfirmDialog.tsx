@@ -35,6 +35,10 @@ export interface ConfirmDialogProps {
   cancelLabel?: string;
   /** 'danger' (default) = tasto rosso: cancella, scarta, forza. */
   tone?: 'danger' | 'default';
+  /** Spegne il tasto che conferma: il dialogo sta ancora contando cosa tocca,
+   *  oppure non c'è niente da fare. Un tasto distruttivo attivo prima di sapere
+   *  su cosa cade è la stessa promessa a vuoto che il dialogo serve a evitare. */
+  confirmDisabled?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -45,6 +49,7 @@ export function ConfirmDialog({
   confirmLabel = 'Confirm',
   cancelLabel = 'Cancel',
   tone = 'danger',
+  confirmDisabled = false,
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
@@ -85,10 +90,11 @@ export function ConfirmDialog({
           </button>
           <button
             onClick={onConfirm}
+            disabled={confirmDisabled}
             className={
               tone === 'danger'
-                ? 'px-3 py-1.5 text-xs rounded bg-red-600 text-white hover:bg-red-700 transition-colors'
-                : 'px-3 py-1.5 text-xs rounded bg-primary text-white hover:bg-primary-hover transition-colors'
+                ? 'px-3 py-1.5 text-xs rounded bg-red-600 text-white hover:bg-red-700 disabled:opacity-40 disabled:hover:bg-red-600 transition-colors'
+                : 'px-3 py-1.5 text-xs rounded bg-primary text-white hover:bg-primary-hover disabled:opacity-40 disabled:hover:bg-primary transition-colors'
             }
           >
             {confirmLabel}
