@@ -148,6 +148,11 @@ export function DispatchChip({ state, error }: { state: string; error?: string |
   const Icon = chip.Icon;
   return (
     <span
+      // Lo stato anche come ATTRIBUTO: il testo della chip è una parola sola e
+      // generica ('fermato', 'fallito'), quindi un test che lo cerca nel testo
+      // della card può pescarlo dal titolo o da un commento. Qui è indirizzabile.
+      data-testid="dispatch-chip"
+      data-state={state}
       className={`inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs md:text-[11px] ${chip.cls}`}
       title={chip.title ?? error ?? undefined}
     >

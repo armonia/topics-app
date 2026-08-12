@@ -244,6 +244,22 @@ export function isAgentWorking(
   return (ACTIVE_DISPATCH_STATES as readonly string[]).includes(dispatchState ?? '');
 }
 
+/**
+ * «L'ha fermato una persona», scritto — non dedotto dall'assenza di chip.
+ *
+ * Un park umano finiva a `dispatch_state = NULL`, cioè identico a un task mai
+ * dispacciato: la card tornava in Backlog muta e l'unico modo di sapere perché
+ * era aprire il thread. Le due alternative già in tabella dicono altro:
+ * `failed` accusa l'agent di un fallimento che non c'è stato, `blocked` promette
+ * una configurazione da sistemare.
+ *
+ * Vive qui perché ha tre lettori su due lati del filo — chi lo SCRIVE (lo stop
+ * della route), chi lo PRESERVA (la coda del `onTurnEnd`, che senza guardia
+ * riazzera la chip del turno che ha appena tagliato) e chi lo DISEGNA (la
+ * tabella delle chip del client).
+ */
+export const PARKED_STOPPED = 'stopped';
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Blocco `question` — il formato, dichiarato dove SCRITTURA e LETTURA lo vedono
 // entrambe (`addComment` lo compone, `parseQuestionBlock` lo legge).
