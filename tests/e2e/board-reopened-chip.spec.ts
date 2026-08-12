@@ -135,7 +135,7 @@ test.describe("Chip «riaperta» · una card che esce da Done lo dice", () => {
   test.describe.configure({ timeout: 90_000 });
   // Più largo del default della suite (1280×800) per una ragione sola: questa
   // spec È la clip di consegna, e l'anteprima di un task si rende a 268px —
-  // oltre un rapporto altezza/larghezza di 0.537 la card TAGLIA invece di
+  // oltre un rapporto altezza/larghezza di 0.70 la card TAGLIA invece di
   // rimpicciolire. 1440×760 → video 800×422 (0.528), ci sta intero. Nessuna
   // asserzione qui dipende dalla larghezza.
   test.use({ viewport: { width: 1440, height: 760 } });

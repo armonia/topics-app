@@ -113,7 +113,7 @@ async function didascalia(page: import("@playwright/test").Page, testo: string) 
 
 test.describe.serial("Dettatura e nota vocale · col microfono", () => {
   // 1440×760 e non il 1280×800 della suite: la clip di questa spec È l'evidenza
-  // del task, e oltre un rapporto altezza/larghezza di 0.537 la card TAGLIA
+  // del task, e oltre un rapporto altezza/larghezza di 0.70 la card TAGLIA
   // invece di rimpicciolire. Nessuna asserzione qui dipende dalla larghezza.
   test.use({ viewport: { width: 1440, height: 760 } });
 

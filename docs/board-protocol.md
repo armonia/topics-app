@@ -85,3 +85,45 @@ queste regole.
 7. **Lavoro futuro fuori scope → task top-level nel backlog** (senza `parent`), mai
    nuovi subtask del task in consegna. Un task con subtask aperti non è approvabile:
    i subtask sono la checklist dello STESSO task, non un modo per rimandare lavoro.
+
+8. **Chi chiude la card lo dice un'ETICHETTA, e l'etichetta la deriva il server.**
+   Sulla coda di review dell'11/08/2026 la domanda «chi chiude questa?» si
+   rispondeva a mano, card per card, aprendo il diff. Il conto, rifatto con le
+   classi giuste su una trentina di card: **21 visibili, 7 decisioni, 2
+   invisibili**.
+
+   - **Tre classi, non due**, e la regola sta scritta una volta sola in
+     `shared/task-labels.ts` (`deriveCloser`), applicata ai file dei commit
+     PROPRI del task (`server/services/own-commits.ts` — non `main...ramo`: un
+     ramo che eredita il lavoro di un altro risponderebbe per conto suo):
+     · **`visibile`** — tocca `client/src/**` fuori dai `*.test.*` ⇒ **la guarda
+       un umano**. Basta UN file: una superficie che si vede si guarda, il peso
+       nel diff non c'entra.
+     · **`decisione`** — il diff è solo documenti (`*.md`, `openspec/**`,
+       `docs/**`) oppure NON c'è diff ⇒ **la decide un umano, sempre**.
+     · **`invisibile`** — codice che nessuno vede (server, shared, script, test)
+       ⇒ **la chiude il conduttore**, se la barra è verde per intero.
+   - **`decisione` è la classe che serviva davvero.** Con due sole classi i piani
+     finivano in «invisibile» e la macchina se li sarebbe chiusi da sola: il piano
+     dell'amicizia fra installazioni, la ricerca sulla generative UI, l'iscrizione
+     all'Apple Developer Program, la proposta openspec del browser inline. Un
+     piano non è invisibile: è invisibile il suo EFFETTO, non la sua importanza.
+     L'assenza di diff non è una prova di irrilevanza, è assenza di prova.
+   - **La conseguenza operativa.** Una card `invisibile` con la barra VERDE per
+     intero (`checksState === 'pass'`: tutti i comandi della board, non alcuni)
+     la chiude il **conduttore**. `visibile` e `decisione` restano all'umano
+     anche con la barra verde. «Nessun check» (`null`) non è un verde e non
+     autorizza nessuno. Il predicato è `whoCloses`, e la board lo disegna sulla
+     card in review.
+   - **Quanto vale la scorciatoia, onestamente: 2 card su ~30.** Il grosso della
+     coda è roba visiva e resta di Attilio. L'etichetta serve lo stesso — 2 card
+     al giorno diventano tante in un mese, e soprattutto il FILTRO «solo le
+     visibili in review» è la lista che gli serve davvero.
+   - **L'agente può alzare la mano, mai abbassarla.** Con `label_task` può
+     chiedere `visibile` o `decisione` (due modi di passare la card a una
+     persona) e mettere le etichette di genere (`bugfix` `feature` `chore`
+     `misura`, che non decidono niente). `invisibile` è **rifiutato con 403**:
+     marcare invisibile il proprio lavoro sarebbe firmarsi il permesso di
+     chiudersi le card da solo.
+   - **L'umano corregge sempre**, dal chip nel drawer, `invisibile` compreso — e
+     una correzione a mano non viene più sovrascritta dalla consegna successiva.
