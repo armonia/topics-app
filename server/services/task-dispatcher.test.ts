@@ -2,7 +2,7 @@ import { describe, it, expect } from "bun:test";
 import { Database } from "bun:sqlite";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { PREVIEW_RULE, PREVIEW_CARD_MAX_RATIO, PREVIEW_CARD_MAX_WIDTH_PX, extractPreviewRule, formatStatusEvent } from "../../shared/board";
+import { PREVIEW_RULE, PREVIEW_CARD_MAX_RATIO, extractPreviewRule, formatStatusEvent } from "../../shared/board";
 import { toolsForProfile } from "../mcp/topics-mcp-server";
 import { createTaskService, type TaskService } from "./tasks";
 import { createTaskDispatcher, rotateFrom, type DispatcherDeps } from "./task-dispatcher";
@@ -2128,9 +2128,13 @@ describe("PREVIEW_RULE — una stringa sola, in tutti gli envelope", () => {
     expect(ratio, "il tetto della card deve essere un rapporto in `cqw`").not.toBeNull();
     expect(Number(ratio![1]) / 100).toBeCloseTo(PREVIEW_CARD_MAX_RATIO, 3);
 
-    const width = /max-w-\[(\d+)px\]/.exec(src);
-    expect(width, "e la miniatura deve smettere di crescere a un certo punto").not.toBeNull();
-    expect(Number(width![1])).toBe(PREVIEW_CARD_MAX_WIDTH_PX);
+    // NESSUN tetto in larghezza: la miniatura riempie la card. Una fascia vuota
+    // a destra in una colonna larga si legge come un difetto (Attilio, 12/08),
+    // e il rapporto da solo tiene già la promessa fatta agli agenti. Questa
+    // asserzione presidia il verso: se qualcuno rimette un `max-w` in px sul
+    // riquadro, il rapporto smette di valere a ogni larghezza e il numero del
+    // protocollo torna vero solo in certe colonne.
+    expect(/max-w-\[(\d+)px\]/.test(src), "nessun tetto in px sul riquadro dell'anteprima").toBe(false);
 
     // `cqw` senza un contenitore dichiarato risale al VIEWPORT: il tetto
     // tornerebbe a guardare la finestra invece del riquadro, in silenzio.
