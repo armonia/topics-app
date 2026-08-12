@@ -1,7 +1,11 @@
 import { describe, it, expect } from "bun:test";
 import { Database } from "bun:sqlite";
-import { readdirSync, readFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { commitIsIn } from "./own-commits";
+import { commitStatusFromRepo } from "./branch-status";
+import { classifyLanding } from "./landing-audit";
 import { PARKED_WAITED_OUT, PREVIEW_CARD_MAX_RATIO, PREVIEW_RULE, WAIT_STREAK_CAP, extractPreviewRule, formatStatusEvent } from "../../shared/board";
 import { toolsForProfile } from "../mcp/topics-mcp-server";
 import { createTaskService, type TaskService } from "./tasks";
@@ -52,16 +56,16 @@ const PID = "alpha-abc123";
 let seq = 0;
 function seedTask(
   db: Database,
-  o: { id?: string; status?: string; attempts?: number; assignedTopicId?: string | null; dispatchState?: string | null; createdAt?: string; parentTaskId?: string | null; text?: string } = {},
+  o: { id?: string; status?: string; attempts?: number; assignedTopicId?: string | null; dispatchState?: string | null; createdAt?: string; parentTaskId?: string | null; text?: string; deliveryBranch?: string | null; deliveryCommit?: string | null } = {},
 ): string {
   const id = o.id ?? `t${++seq}`;
   const ts = o.createdAt ?? new Date(Date.now() + seq).toISOString();
   // FK: a seeded binding needs its topics row, like in prod.
   if (o.assignedTopicId) db.run("INSERT OR IGNORE INTO topics (id) VALUES (?)", [o.assignedTopicId]);
   db.run(
-    `INSERT INTO tasks (id, project_id, text, status, created_at, updated_at, dispatch_attempts, assigned_topic_id, dispatch_state, parent_task_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [id, PID, o.text ?? ("task " + id), o.status ?? "todo", ts, ts, o.attempts ?? 0, o.assignedTopicId ?? null, o.dispatchState ?? null, o.parentTaskId ?? null],
+    `INSERT INTO tasks (id, project_id, text, status, created_at, updated_at, dispatch_attempts, assigned_topic_id, dispatch_state, parent_task_id, delivery_branch, delivery_commit)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, PID, o.text ?? ("task " + id), o.status ?? "todo", ts, ts, o.attempts ?? 0, o.assignedTopicId ?? null, o.dispatchState ?? null, o.parentTaskId ?? null, o.deliveryBranch ?? null, o.deliveryCommit ?? null],
   );
   return id;
 }
@@ -2341,5 +2345,269 @@ describe("la coda deve dire il vero", () => {
     expect(rotateFrom(["solo"], 5)).toEqual(["solo"]);
     expect(rotateFrom([], 2)).toEqual([]);
     expect(rotateFrom(b, -1)).toEqual(["gamma", "alpha", "beta"]);
+  });
+});
+
+describe("cancello: non si ridispaccia lavoro già su main", () => {
+  /** Banco di prova con la sonda del commit di consegna sotto controllo. */
+  function conSonda(risposta: boolean | null | (() => Promise<never>)) {
+    const chieste: Array<{ repoPath: string; commit: string }> = [];
+    const h = harness({
+      deliveryLanded: async (repoPath, commit) => {
+        chieste.push({ repoPath, commit });
+        if (typeof risposta === "function") return risposta();
+        return risposta;
+      },
+    });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 2 });
+    return { h, chieste };
+  }
+
+  it("card con delivery_commit già antenato di main: NON parte, e si chiude", async () => {
+    // Il difetto misurato l'11 e il 12/08: 32 ridispacci in un giorno, e le sole
+    // `4ec47331` e `e54a9be6` hanno bruciato 3,26M token e 91M di cache read per
+    // riprodurre codice che su main c'era già. Il land ha il suo cancello; qui si
+    // copre la strada da cui la card RIENTRA in coda dopo essere atterrata.
+    const { h, chieste } = conSonda(true);
+    seedTask(h.db, { id: "t1", status: "todo", deliveryBranch: "topics/ardent-grouse", deliveryCommit: "c2d20879ffffffffffffffffffffffffffffffff" });
+
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    // Nessun agente: niente worktree, niente topic, nessun turno pagato.
+    expect(h.turns.length).toBe(0);
+    expect(h.worktreesCreated).toEqual([]);
+    expect(h.topicsCreated).toEqual([]);
+    expect(h.dispatcher.isInFlight("t1")).toBe(false);
+    // E la card è CHIUSA, non lasciata in coda a ripresentarsi al giro dopo.
+    const t = h.task("t1")!;
+    expect(t.status).toBe("done");
+    expect(t.dispatchState).toBeNull();
+    expect(t.dispatchAttempts).toBe(0);
+    // La domanda è stata fatta al repo del progetto, sul COMMIT (non sul ramo,
+    // che dopo il land è potato).
+    expect(chieste).toEqual([{ repoPath: "/Users/x/Projects/alpha", commit: "c2d20879ffffffffffffffffffffffffffffffff" }]);
+    // …e DICE perché: la riga di storico porta la ragione, non un `done` muto.
+    const storico = h.svc.get("t1")!.comments.filter((c) => c.kind === "status").map((c) => c.content).join("\n");
+    expect(storico).toContain("c2d20879");
+    expect(storico).toContain("già dentro main");
+    h.dispatcher.shutdown();
+  });
+
+  it("stessa card, commit NON su main: parte come sempre", async () => {
+    // La controprova. Senza, «non parte» potrebbe essere vero per un'altra
+    // ragione (la sonda mai chiamata, il claim rotto) e il test sopra passerebbe
+    // lo stesso.
+    const { h, chieste } = conSonda(false);
+    seedTask(h.db, { id: "t1", status: "todo", deliveryCommit: "deadbeef00000000000000000000000000000000" });
+
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    expect(chieste.length).toBe(1);
+    expect(h.turns.length).toBe(1);
+    expect(h.task("t1")!.status).toBe("in_progress");
+    expect(h.task("t1")!.dispatchState).toBe("working");
+    h.dispatcher.shutdown();
+  });
+
+  it("«non lo so» non chiude niente: sull'ignoranza si dispaccia", async () => {
+    // Chiudere una card su un `null` (sha potato, repo irraggiungibile) sarebbe
+    // l'errore opposto e più caro: butta via il lavoro che manca davvero.
+    const { h } = conSonda(null);
+    seedTask(h.db, { id: "t1", status: "todo", deliveryCommit: "0000000000000000000000000000000000000000" });
+
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    expect(h.task("t1")!.status).toBe("in_progress");
+    expect(h.turns.length).toBe(1);
+    h.dispatcher.shutdown();
+  });
+
+  it("una sonda che ESPLODE non ferma il dispatch", async () => {
+    const { h } = conSonda(() => Promise.reject(new Error("git è esploso")));
+    seedTask(h.db, { id: "t1", status: "todo", deliveryCommit: "abc1230000000000000000000000000000000000" });
+
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    expect(h.task("t1")!.status).toBe("in_progress");
+    expect(h.turns.length).toBe(1);
+    h.dispatcher.shutdown();
+  });
+
+  it("il caso VERO: il land RICOPIA i commit, e il cancello lo riconosce lo stesso", async () => {
+    // Il land non fonde, ricopia (`cherry-pick -C <sha>`, task-automerge.ts): dopo
+    // un land riuscito il commit di consegna NON è antenato di main. Un cancello
+    // basato sulla sola discendenza sarebbe quindi inerte proprio sul caso
+    // normale — e passerebbe lo stesso i test con la sonda finta. Qui la sonda è
+    // quella VERA dell'ospite, su un repo vero in cui la consegna è stata
+    // ricopiata e il ramo poi potato.
+    const repo = mkdtempSync(join(tmpdir(), "redispatch-"));
+    const git = (...args: string[]) => {
+      const r = Bun.spawnSync(["git", "-C", repo, ...args], { stdout: "pipe", stderr: "pipe" });
+      return new TextDecoder().decode(r.stdout).trim();
+    };
+    try {
+      git("init", "-q", "-b", "main");
+      git("config", "user.email", "t@t.t");
+      git("config", "user.name", "t");
+      writeFileSync(join(repo, "base.txt"), "base\n");
+      git("add", "-A"); git("commit", "-q", "-m", "base");
+
+      git("checkout", "-q", "-b", "topics/consegna");
+      writeFileSync(join(repo, "lavoro.ts"), "export const fatto = true;\n");
+      git("add", "-A"); git("commit", "-q", "-m", "il lavoro della card");
+      const consegna = git("rev-parse", "HEAD");
+
+      // Main intanto è andato avanti — è la norma, non un caso limite: è per
+      // questo che il land ricopia invece di fondere. Serve anche a rendere il
+      // test DETERMINISTICO: ricopiare sullo stesso genitore, nello stesso
+      // secondo e con la stessa identità rigenererebbe lo SHA identico (un
+      // commit è l'hash di albero+genitore+autore+data+messaggio), e la consegna
+      // risulterebbe antenata di main per coincidenza invece che per contenuto.
+      git("checkout", "-q", "main");
+      writeFileSync(join(repo, "altro.txt"), "un'altra card\n");
+      git("add", "-A"); git("commit", "-q", "-m", "lavoro di un'altra card");
+
+      // Il land: si ricopia su main, e il ramo si pota.
+      git("cherry-pick", consegna);
+      git("branch", "-q", "-D", "topics/consegna");
+
+      // IL PUNTO: per la discendenza la consegna è FUORI da main. Se il cancello
+      // si fermasse qui non scatterebbe mai nel caso normale.
+      expect(await commitIsIn(repo, consegna, "main")).toBe(false);
+
+      const h = harness({
+        resolveProject: () => ({ path: repo, projectStoreId: "store-1" }),
+        // La stessa composizione che server.ts passa al dispatcher.
+        deliveryLanded: async (repoPath, commit) => {
+          const state = classifyLanding(await commitStatusFromRepo(repoPath, commit));
+          return state === "unverifiable" ? null : state === "landed";
+        },
+      });
+      h.svc.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 2 });
+      seedTask(h.db, { id: "t1", status: "todo", deliveryBranch: "topics/consegna", deliveryCommit: consegna });
+
+      await h.dispatcher.tick(PID);
+      await flush();
+
+      expect(h.turns.length).toBe(0);
+      expect(h.worktreesCreated).toEqual([]);
+      expect(h.task("t1")!.status).toBe("done");
+      h.dispatcher.shutdown();
+    } finally { rmSync(repo, { recursive: true, force: true }); }
+  }, 60_000);
+
+  it("la strada che RESTA al cancello: l'orfano che la macchina rimette in coda da sé", async () => {
+    // La controprova delle tre guardie qui sotto. Tolte le riaperture umane, le
+    // card senza consegna registrata e i padri con figli aperti, il cancello
+    // deve conservare il caso per cui esiste: il server è ripartito a metà
+    // turno, il rilascio ha rimesso la card in coda da solo, e nessuno ha
+    // chiesto altro lavoro. Se una modifica futura marcasse un rilascio come
+    // «riaperto da un umano», il cancello morirebbe in silenzio e questo test è
+    // l'unico posto che lo direbbe.
+    const { h, chieste } = conSonda(true);
+    seedTask(h.db, { id: "t1", status: "in_progress", dispatchState: "working", deliveryCommit: "eeee5555".repeat(5) });
+
+    const rimessa = h.svc.release({ taskId: "t1", requeue: true, by: "dispatcher", reason: "il server è ripartito" });
+    expect(rimessa.status).toBe("todo");
+    expect(rimessa.reopenedActor).toBeNull();      // la macchina non lascia il marchio dell'umano
+    expect(rimessa.deliveryCommit).not.toBeNull(); // né tocca lo scatto della consegna
+
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    expect(chieste.length).toBe(1);
+    expect(h.turns.length).toBe(0);
+    expect(h.task("t1")!.status).toBe("done");
+    h.dispatcher.shutdown();
+  });
+
+  it("una card che un UMANO ha riaperto RIPARTE: il cancello non ribalta una decisione presa", async () => {
+    // Lo specchio dell'invariante dell'11/08 («una card chiusa da un UMANO non
+    // la riapre un agente»): se la decisione di una persona non la ribalta la
+    // macchina in un verso, non la ribalta nemmeno nell'altro. Chi riapre una
+    // card atterrata sta chiedendo un SEGUITO — richiuderla gli risponde con una
+    // riga di storico che non leggerà, e la richiesta muore lì.
+    const { h } = conSonda(true);
+    seedTask(h.db, { id: "t1", status: "done", deliveryBranch: "topics/x", deliveryCommit: "aaaa1111".repeat(5) });
+
+    h.svc.update({ taskId: "t1", actor: "human", by: "attilio", patch: { status: "todo", text: "aggiungi anche il caso limite X" } });
+    // E la riapertura non le lascia addosso la consegna di prima: senza questo
+    // il guasto non sarebbe nemmeno recuperabile, perché `delivery_commit` lo
+    // riscrive solo una consegna nuova e per consegnare serve il dispatch che il
+    // cancello blocca. Chiusa a ogni tick, per sempre, e a mano non si esce
+    // (il tick reclama solo i `todo`).
+    expect(h.task("t1")!.deliveryCommit).toBeNull();
+
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    expect(h.task("t1")!.status).toBe("in_progress");
+    expect(h.turns.length).toBe(1);
+    h.dispatcher.shutdown();
+  });
+
+  it("il marchio dell'umano vale anche quando in coda ce l'ha rimessa la macchina", async () => {
+    // La riapertura pulisce lo scatto della consegna, ma il marchio `reopened_actor`
+    // resta finché la card non richiude il ciclo. Quindi lo stato «consegna
+    // registrata + riaperta da un umano» esiste eccome: umano riapre → l'agente
+    // consegna di nuovo (`recordDelivery` riscrive il commit) → la macchina la
+    // rimette in coda a SQL grezzo (i sottotask aperti di `deliverToReviewBySystem`,
+    // il rilascio di un orfano), e `markReopened` non tocca niente perché non si
+    // usciva da `done`. Da lì il cancello la rivede, e la sonda dice «atterrato»
+    // di una consegna vecchia. Deve dispacciare lo stesso.
+    const { h, chieste } = conSonda(true);
+    seedTask(h.db, { id: "t1", status: "todo", deliveryCommit: "bbbb2222".repeat(5) });
+    h.db.run("UPDATE tasks SET reopened_actor = 'human', reopened_by = 'attilio' WHERE id = ?", ["t1"]);
+
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    expect(h.task("t1")!.status).toBe("in_progress");
+    expect(h.turns.length).toBe(1);
+    // E a git non si chiede nemmeno: la risposta non cambierebbe la decisione.
+    expect(chieste).toEqual([]);
+    h.dispatcher.shutdown();
+  });
+
+  it("un padre con sottotask aperti non lo chiude nessuno, nemmeno questo cancello", async () => {
+    // `done` con figli aperti è uno stato che la board non sa raccontare, e le
+    // porte normali lo rifiutano (`update` e l'approvazione in review lanciano
+    // `open_subtasks`). La chiusura del cancello passa da `settleLanded`, che
+    // scrive SQL grezzo e non ripassa da lì: senza guardia il padre finiva `done`
+    // col figlio ancora in Todo.
+    const { h, chieste } = conSonda(true);
+    seedTask(h.db, { id: "padre", status: "todo", deliveryCommit: "cccc3333".repeat(5) });
+    seedTask(h.db, { id: "figlio", status: "todo", parentTaskId: "padre" });
+
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    expect(h.task("padre")!.status).not.toBe("done");
+    expect(h.task("figlio")!.status).toBe("todo");
+    expect(chieste).toEqual([]);
+    // …e la porta normale la pensa uguale, sulla stessa riga di DB.
+    expect(() => h.svc.update({ taskId: "padre", actor: "human", by: "attilio", patch: { status: "done" } }))
+      .toThrow(/open subtasks/i);
+    h.dispatcher.shutdown();
+  });
+
+  it("card senza consegna registrata: a git non si chiede niente", async () => {
+    // Il cancello costa una chiamata a git, e la stragrande maggioranza delle
+    // card in coda non ha mai consegnato nulla: su quelle non deve costare poco,
+    // deve costare NIENTE.
+    const { h, chieste } = conSonda(true);
+    seedTask(h.db, { id: "t1", status: "todo" });
+
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    expect(chieste).toEqual([]);
+    expect(h.task("t1")!.status).toBe("in_progress");
+    expect(h.turns.length).toBe(1);
+    h.dispatcher.shutdown();
   });
 });
