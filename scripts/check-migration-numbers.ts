@@ -1,20 +1,27 @@
 #!/usr/bin/env bun
 /**
- * scripts/check-migration-numbers.ts — nessun numero di migration usato due volte.
+ * scripts/check-migration-numbers.ts — due cancelli sullo stesso file.
  *
- * Il 10/08 due card sviluppate in parallelo hanno prodotto entrambe una `089`
- * (`089-retirements.sql` e `089-project-org-incognito.sql`). Nessuno dei due
- * rami poteva accorgersene: il secondo era stato tagliato PRIMA che il primo
- * atterrasse. Con la board che lavora N card in parallelo sullo stesso repo,
- * due migration scritte lo stesso giorno che si prendono lo stesso numero non
- * sono un caso raro: sono l'esito normale.
+ *   A. Nessun numero rivendicato da due NOMI diversi.
+ *   B. Ogni migration NUOVA usa il prefisso timestamp, non un contatore.
  *
- * Questo è il cancello che chiude il buco al momento della consegna: confronta
- * i numeri di `server/db/migrations/` sul branch con quelli già presenti sulla
- * base (`main` di default) ed esce 1 se lo stesso numero è rivendicato da due
- * NOMI diversi — sia fra branch e base, sia fra due file dello stesso albero.
- * È un controllo di un secondo e non chiede nessuna decisione: il numero libero
- * lo dice il messaggio d'errore.
+ * B è la cura, A è la rete. Il contatore ha fallito quattro volte in due
+ * giorni: il 10/08 due `089` (`089-retirements.sql` e
+ * `089-project-org-incognito.sql`), e nella notte dell'11-12/08 altre tre di
+ * fila (097, 100, 101). Nessuno dei rami poteva accorgersene, perché il numero
+ * si sceglie alla NASCITA della migration e si verifica all'ATTERRAGGIO, e in
+ * mezzo passano ore in cui le altre card atterrano. Con sei agenti in parallelo
+ * è l'esito normale, non la distrazione di qualcuno.
+ *
+ * Da qui in avanti il prefisso è un timestamp UTC `YYYYMMDDHHMMSS` che nessuno
+ * deve contendere a nessuno (`bun run migration:new <slug>`, vedi
+ * scripts/new-migration.ts per il perché delle sole cifre). A resta perché B
+ * copre solo ciò che nasce da qui in avanti: un file scritto a mano, o due
+ * timestamp nello stesso secondo, li prende ancora A.
+ *
+ * Il confronto è fra `server/db/migrations/` sul branch e la base (`main` di
+ * default). Le migration già sulla base sono APPLICATE sui database vivi:
+ * non si rinominano, e infatti nessuno dei due cancelli le guarda.
  *
  * La seconda rete sta a valle, nel runner (`server/db.ts`): il registro
  * `schema_migrations` è indicizzato per NOME file, quindi due migration con lo
@@ -25,7 +32,7 @@
  * strati dello stesso problema: qui si evita l'ambiguità, lì si evita il danno.
  *
  * Uso:
- *   bun run scripts/check-migration-numbers.ts          # confronta con `main`
+ *   bun run check:migrations                            # confronta con `main`
  *   MIGRATION_BASE_REF=origin/main bun run scripts/…    # base esplicita
  *
  * Esce 1 anche se la base non è risolvibile: un cancello che non trova niente
@@ -39,6 +46,21 @@ export const MIGRATIONS_DIR = "server/db/migrations";
 
 /** `089-retirements.sql` → sì; `README.md`, `.gitkeep`, `draft.sql` → no. */
 const MIGRATION_FILE = /^(\d+)-.+\.sql$/;
+
+/**
+ * Il prefisso delle migration NUOVE: 14 cifre, `YYYYMMDDHHMMSS` UTC.
+ *
+ * Sole cifre apposta: così `MIGRATION_FILE` qui sopra, il filtro di
+ * server/db.ts e quello del manifest continuano a riconoscerle senza sapere
+ * niente del cambio, e `parseInt` le ordina dopo i contatori a tre cifre.
+ */
+const STAMP_FILE = /^\d{14}-.+\.sql$/;
+
+/** Chi usa ancora il contatore fra i file che questo branch AGGIUNGE. */
+export function legacyNumbered(branchFiles: string[], baseFiles: string[]): string[] {
+  const base = new Set(migrationFileNames(baseFiles));
+  return migrationFileNames(branchFiles).filter(f => !base.has(f) && !STAMP_FILE.test(f));
+}
 
 export interface Collision {
   version: number;
@@ -63,15 +85,26 @@ export function versionOf(file: string): number {
 }
 
 /**
- * Un numero rivendicato da due NOMI diversi è una collisione, comunque sia
+ * Un CONTATORE rivendicato da due NOMI diversi è una collisione, comunque sia
  * distribuita fra branch e base:
  *   · due file nuovi sullo stesso branch      → entrambi in `introduced`
  *   · un file nuovo su un numero già su main  → uno solo in `introduced`
  * Lo stesso file presente su entrambi i lati (il caso normale) non è nulla.
+ *
+ * I file col prefisso TIMESTAMP sono fuori da questo conto, e non è una svista.
+ * Due contatori uguali sono un guasto perché almeno uno dei due ha scelto quel
+ * numero credendolo libero: l'intenzione di ordinamento di qualcuno è già
+ * saltata. Due timestamp uguali dicono un'altra cosa — che le due migration
+ * sono state scritte nello stesso SECONDO, in due worktree che non potevano
+ * vedersi. Nessuna delle due può dipendere dall'altra, quindi l'ordine fra loro
+ * non significa niente, e il runner le applica comunque entrambe con il nome a
+ * rompere il pareggio (server/db.ts, `byVersionThenName`): deterministico su
+ * ogni macchina. Chiamarlo errore vorrebbe dire riportare la contesa proprio
+ * dove la si è tolta.
  */
 export function findNumberCollisions(branchFiles: string[], baseFiles: string[]): Collision[] {
-  const branch = migrationFileNames(branchFiles);
-  const base = migrationFileNames(baseFiles);
+  const branch = migrationFileNames(branchFiles).filter(f => !STAMP_FILE.test(f));
+  const base = migrationFileNames(baseFiles).filter(f => !STAMP_FILE.test(f));
   const baseSet = new Set(base);
 
   const byVersion = new Map<number, Set<string>>();
@@ -89,12 +122,6 @@ export function findNumberCollisions(branchFiles: string[], baseFiles: string[])
     collisions.push({ version, files, introduced: files.filter(f => !baseSet.has(f)) });
   }
   return collisions.sort((a, b) => a.version - b.version);
-}
-
-/** Il primo numero libero sopra a tutti quelli visti — quello da suggerire. */
-export function nextFreeVersion(branchFiles: string[], baseFiles: string[]): number {
-  const all = migrationFileNames([...branchFiles, ...baseFiles]);
-  return all.reduce((max, f) => Math.max(max, versionOf(f)), 0) + 1;
 }
 
 // ── Lettura dal repo ────────────────────────────────────────────────────────
@@ -160,30 +187,47 @@ if (import.meta.main) {
 
   const branch = branchMigrations(repoRoot);
   const collisions = findNumberCollisions(branch, base.files);
+  const contatori = legacyNumbered(branch, base.files);
 
-  if (collisions.length === 0) {
+  if (collisions.length === 0 && contatori.length === 0) {
     console.log(
-      `✓ nessun numero di migration duplicato ` +
+      `✓ migration a posto ` +
         `(${migrationFileNames(branch).length} file sul branch vs ${base.ref})`,
     );
     process.exit(0);
   }
 
-  const free = nextFreeVersion(branch, base.files);
-  console.error(`✘ ${collisions.length} numero/i di migration rivendicato/i da più file:\n`);
-  for (const c of collisions) {
-    console.error(`  ${String(c.version).padStart(3, "0")}:`);
-    for (const f of c.files) {
-      const dove = c.introduced.includes(f) ? "questo branch" : base.ref;
-      console.error(`      ${f}   (${dove})`);
+  // Come si rimedia è lo stesso in tutti e due i casi: il file è di questo
+  // branch, quindi non è applicato da nessuna parte e si può ricreare.
+  const rimedio =
+    `Rifallo con il prefisso timestamp, che non può collidere:\n` +
+    `  bun run migration:new <slug>            # crea il file e rigenera il manifest\n` +
+    `  # sposta dentro il tuo SQL, poi cancella il vecchio file\n` +
+    `  bun run scripts/gen-migrations-manifest.ts\n` +
+    `Le migration già su ${base.ref} sono APPLICATE sui database vivi: non si rinominano.`;
+
+  if (collisions.length > 0) {
+    console.error(`✘ ${collisions.length} numero/i di migration rivendicato/i da più file:\n`);
+    for (const c of collisions) {
+      console.error(`  ${c.version}:`);
+      for (const f of c.files) {
+        const dove = c.introduced.includes(f) ? "questo branch" : base.ref;
+        console.error(`      ${f}   (${dove})`);
+      }
     }
+    console.error("");
   }
-  const daRinominare = collisions.flatMap(c => c.introduced);
-  console.error(
-    `\nLe migration già su ${base.ref} sono APPLICATE sui database vivi e non si toccano.\n` +
-      `Rinomina ${daRinominare.length === 1 ? "il file" : "i file"} di questo branch ` +
-      `(${daRinominare.join(", ") || "—"}) a partire da ${String(free).padStart(3, "0")}, poi:\n` +
-      `  bun run scripts/gen-migrations-manifest.ts`,
-  );
+
+  if (contatori.length > 0) {
+    console.error(
+      `✘ ${contatori.length} migration nuova/e usa/no ancora un CONTATORE:\n` +
+        contatori.map(f => `      ${f}`).join("\n") +
+        `\n\n  Il contatore si sceglie alla nascita e si verifica all'atterraggio: fra i due\n` +
+        `  momenti atterrano le altre card, ed è così che si sono persi 097, 100 e 101\n` +
+        `  in una notte sola. Il prefisso nuovo è un timestamp UTC YYYYMMDDHHMMSS.\n`,
+    );
+  }
+
+  console.error(rimedio);
   process.exit(1);
 }
