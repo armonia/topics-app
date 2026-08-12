@@ -69,7 +69,7 @@ async function didascalia(page: Page, testo: string) {
 test.describe("Il moltiplicatore del costo", () => {
   // Viewport più largo del default della suite (1280×800) per una ragione sola:
   // questa spec È la clip di consegna, e l'anteprima di un task viene resa a
-  // 268px — oltre un rapporto altezza/larghezza di 0.537 la card TAGLIA invece
+  // 268px — oltre un rapporto altezza/larghezza di 0.70 la card TAGLIA invece
   // di rimpicciolire. 1440×760 → 0.528, e ci sta intera. Nessuna asserzione qui
   // dipende dalla larghezza.
   test.use({ viewport: { width: 1440, height: 760 } });
