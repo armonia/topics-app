@@ -1,28 +1,49 @@
 import { useState } from 'react';
-import { Pencil, Sigma } from 'lucide-react';
+import { Check, Hash, Pencil, Sigma } from 'lucide-react';
 import type { TaskStatus, TaskLabel } from '../../lib/board';
 import type { LabelSource } from '../../../../shared/task-labels';
 import { STATUS_ICON_COLOR, DISPATCH_CHIP } from './constants';
 import { memorableId } from '../../lib/memorableId';
 
 /**
- * Memorable, click-to-copy task id chip — shown in the card eyebrow AND the
- * drawer, after the project. Displays a stable adjective-noun slug (e.g.
- * "brave-otter") so a task is recognisable at a glance; clicking copies the
- * FULL UUID (the actionable key for the API / deep links). stopPropagation so
- * copying never opens/navigates the card.
+ * Il riferimento al task nell'eyebrow della card: un SEGNO, non una parola.
+ *
+ * Prima qui c'era lo slug per esteso ("brave-otter") dentro un chip con fondo
+ * proprio. `shrink-0` — quindi non si comprimeva MAI: misurati 71–86px di riga
+ * presi a costo fisso, che è il nome del progetto a pagare (`truncate`), e per
+ * questo «sta un pochino davanti» (Attilio, 12/08). Un'etichetta che si prende
+ * un quinto della riga per dire una cosa che serve una volta ogni cento card.
+ *
+ * Ora è il glifo `#` a 14px — `ROW_GLYPH`, la misura di ogni icona di riga —
+ * senza fondo. Lo slug non è perso: sta nel `title`, insieme all'UUID.
+ *
+ * Perché `#` e non l'icona del link: il click COPIA l'id pieno, non naviga. Il
+ * simbolo del link prometterebbe un altrove che non c'è; il cancelletto dice
+ * «identificatore», che è esattamente quello che questo bottone maneggia.
+ *
+ * `tap-expand` è il patto sul dito: il disegno resta 14px, l'area sensibile
+ * diventa 44×44 su puntatore grossolano, e il layout della riga non se ne
+ * accorge (pseudo-elemento assoluto). Un segno più piccolo non deve diventare
+ * un bersaglio più piccolo.
+ *
+ * `stopPropagation` perché copiare non deve mai aprire la card.
  */
 export function TaskIdChip({ id }: { id: string }) {
   const [copied, setCopied] = useState(false);
+  const Glyph = copied ? Check : Hash;
   return (
     <button
+      type="button"
+      data-testid="task-id-chip"
+      data-copied={copied || undefined}
+      aria-label={`ID del task ${memorableId(id)}: copia`}
       onClick={(e) => {
         e.stopPropagation();
         try { void navigator.clipboard?.writeText(id); setCopied(true); setTimeout(() => setCopied(false), 1200); } catch { /* clipboard blocked */ }
       }}
       title={copied ? 'ID copiato' : `${memorableId(id)} · clicca per copiare l'ID pieno (${id})`}
-      className="shrink-0 rounded bg-white/5 px-1.5 py-0.5 text-xs leading-none text-app-text-muted hover:bg-white/10 hover:text-app-text-heading md:text-[10px]"
-    >{copied ? 'copiato ✓' : memorableId(id)}</button>
+      className={`tap-expand inline-flex shrink-0 items-center justify-center rounded p-0.5 transition-colors ${copied ? 'text-emerald-400' : 'text-app-text-muted hover:text-app-text-heading'}`}
+    ><Glyph className="h-3.5 w-3.5" aria-hidden /></button>
   );
 }
 
@@ -187,7 +208,7 @@ export function LabelChip({ label, source }: { label: TaskLabel; source: LabelSo
     : label === 'visibile'
       ? 'Tocca una superficie che si vede: resta in review finché non la guarda un umano.'
       : label === 'decisione'
-        ? 'Un piano, una ricerca, un documento — o nessun codice affatto: la decide un umano, sempre.'
+        ? 'Un piano, una ricerca, un documento, o nessun codice affatto: la decide un umano, sempre.'
         : null;
   const origin = source === 'derived'
     ? 'Derivata dal diff della consegna'

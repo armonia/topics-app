@@ -400,10 +400,10 @@ function buildInlineSystemNotes(
   }
   if (withdrawn.length > 0) {
     const labels = withdrawn.map((s) => SLOT_LABELS[s as SystemSlotId] ?? s).join(", ");
-    notes.push(`${withdrawn.length} slot withdrawn — declared no longer in effect: ${labels}`);
+    notes.push(`${withdrawn.length} slot withdrawn, declared no longer in effect: ${labels}`);
   }
   notes.push(
-    `Provider does NOT receive the history field — the CLI session preserves prior turns process-side`,
+    `Provider does NOT receive the history field. The CLI session preserves prior turns process-side.`,
   );
   notes.push(
     `Inspector History tab reflects the topics-app DB; the live CLI session may have additional state from --resume`,

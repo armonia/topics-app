@@ -119,7 +119,73 @@ export function cleanPreviewText(raw: string): string {
   return s.slice(0, TOPIC_PREVIEW_MAX - 1).trimEnd() + '…';
 }
 
-let state: Record<string, TopicPreview> = {};
+/**
+ * LA COPIA LOCALE, e cioè: un refresh è un RITORNO.
+ *
+ * Le anteprime c'erano già sullo schermo un istante prima del ricarico, ma lo
+ * store nasceva vuoto e le riaspettava da `GET /api/topics/previews`. Finché
+ * quella risposta non arrivava, `TopicPreviewLine` rendeva `null` — e la riga di
+ * sidebar era ALTA UNA RIGA SOLA: misurato al refresh, il blocco nome+sottotitolo
+ * passa da 17px a 31px quando l'anteprima atterra, cioè OGNI riga della sidebar
+ * cresce sotto gli occhi. Non è lentezza: è aver trattato un ritorno come una
+ * partenza da zero.
+ *
+ * Il caso a freddo (nessuna cache, primo avvio vero) resta quello di prima:
+ * riga muta finché la rete non risponde. Lì il patto è l'altro — la riga si
+ * riserva comunque la sua altezza, vedi `TopicSubline`.
+ */
+const CACHE_KEY = 'topic-previews-cache';
+/** Quante chat tenere in cache. La sidebar ne mostra qualche decina; il resto
+ *  sarebbe peso in `localStorage` (che è condiviso, e satura — vedi la potatura
+ *  della cache dei messaggi in `useChat.ts`). Si tengono le più recenti. */
+const CACHE_MAX_TOPICS = 200;
+
+function readCache(): Record<string, TopicPreview> {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    if (!raw) return {};
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return {};
+    const out: Record<string, TopicPreview> = {};
+    for (const [id, v] of Object.entries(parsed as Record<string, unknown>)) {
+      const p = v as Partial<TopicPreview>;
+      if (typeof p?.text !== 'string' || !p.text) continue;
+      out[id] = {
+        text: p.text,
+        role: p.role === 'user' ? 'user' : 'assistant',
+        at: typeof p.at === 'number' ? p.at : 0,
+      };
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+let cacheTimer: ReturnType<typeof setTimeout> | null = null;
+/**
+ * Scrittura DIFFERITA. `applyMessagePreview` gira per ogni `message:new` di ogni
+ * finestra aperta: serializzare la mappa lì dentro metterebbe un `JSON.stringify`
+ * sul percorso caldo dello streaming. Un solo giro d'orologio dopo l'ultimo
+ * cambiamento è abbastanza — l'unico lettore è il boot successivo.
+ */
+function scheduleCacheWrite(): void {
+  if (typeof localStorage === 'undefined') return;
+  if (cacheTimer) return;
+  cacheTimer = setTimeout(() => {
+    cacheTimer = null;
+    try {
+      const entries = Object.entries(state)
+        .sort((a, b) => b[1].at - a[1].at)
+        .slice(0, CACHE_MAX_TOPICS);
+      localStorage.setItem(CACHE_KEY, JSON.stringify(Object.fromEntries(entries)));
+    } catch {
+      /* localStorage pieno: la prossima sessione riparte dalla rete, come prima */
+    }
+  }, 1000);
+}
+
+let state: Record<string, TopicPreview> = typeof localStorage === 'undefined' ? {} : readCache();
 /** Iscritti per topic. È l'unica ragione per cui questo store esiste. */
 const perTopic = new Map<string, Set<() => void>>();
 
@@ -176,6 +242,7 @@ export function applyMessagePreview(
   if (prev && prev.at > at) return;
   if (prev && prev.text === text && prev.role === role) return;
   state[topicId] = { text, role, at };
+  scheduleCacheWrite();
   const subs = perTopic.get(topicId);
   if (subs) for (const fn of subs) fn();
 }
@@ -195,6 +262,7 @@ export function applyMessagePreview(
 export function clearTopicPreview(topicId: string): void {
   if (!topicId || !(topicId in state)) return;
   delete state[topicId];
+  scheduleCacheWrite();
   const subs = perTopic.get(topicId);
   if (subs) for (const fn of subs) fn();
 }
@@ -238,8 +306,11 @@ export function useTopicPreview(topicId: string | undefined): TopicPreview | und
   return useSyncExternalStore(subscribe, snapshot, snapshot);
 }
 
-/** Solo per i test: riporta lo store allo stato di boot. */
+/** Solo per i test: riporta lo store allo stato di boot. Anche la copia locale,
+ *  o un test che ne scrive una la lascerebbe al successivo. */
 export function __resetTopicPreviews(): void {
   state = {};
   perTopic.clear();
+  if (cacheTimer) { clearTimeout(cacheTimer); cacheTimer = null; }
+  try { localStorage.removeItem(CACHE_KEY); } catch { /* niente localStorage */ }
 }

@@ -1236,9 +1236,10 @@ previewManager = createPreviewManager({
     let port = "0"; try { port = new URL(url).port || "0"; } catch { /* keep */ }
     const id = `preview-shot:${port}`;
     try {
-      // Viewport, non full-page: la card è un riquadro 268×144 in `object-cover`
-      // e un'immagine più alta di 0.537× la larghezza la TAGLIA invece di
-      // rimpicciolirla — 1440×760 = 0.528 sta dentro, una full-page no.
+      // Viewport, non full-page: la card disegna l'anteprima in `object-cover`
+      // e un'immagine più alta di `PREVIEW_CARD_MAX_RATIO` (0.70) volte la
+      // larghezza la TAGLIA invece di rimpicciolirla — 1440×760 = 0.528 sta
+      // dentro con margine, una full-page no.
       await browserService.createContext(id, { viewport: { width: opts.width, height: 760 } });
       const nav = await browserService.navigate(id, url);
       if (nav.error) return false;
@@ -1292,6 +1293,30 @@ const taskAutoMerge = createTaskAutoMerge({
     const repoPath = ctx.projectStore.get(wt.projectId)?.path;
     if (!repoPath) return null;
     return { repoPath, branch: wt.branchName, defaultBranch: "main" };
+  },
+  // Il ripiego che NON passa dall'agente. `worktreeOfTask` risolve attraverso
+  // `assigned_topic_id`, che si svuota ogni volta che l'agente viene rilasciato
+  // — cosa di routine — e da lì in poi una consegna col ramo intatto diventava
+  // non-landabile. La card però il ramo lo dichiara da sé (`delivery_branch`,
+  // registrato quando è entrata in review), e il checkout del suo progetto si
+  // ricava dal board id come fa l'audit: invertendo l'hash del percorso.
+  declaredDelivery: (taskId) => {
+    const task = dispatcherSvc.get(taskId)?.task;
+    if (!task) return null;
+    const branch = task.deliveryBranch ?? null;
+    if (!branch) return null;
+    let repoPath: string | null = null;
+    try {
+      repoPath = resolveProjectPath(
+        task.projectId,
+        buildProjectCandidates({
+          projectStore: ctx.projectStore,
+          workspaceDir: DISPATCH_WORKSPACE_DIR,
+          extraPaths: dispatchExtraPaths,
+        }),
+      )?.path ?? null;
+    } catch (err) { console.warn("[land] checkout non risolto per", taskId, err); }
+    return { repoPath, branch };
   },
   log: (msg, err) => console.error(msg, err ?? ""),
 });

@@ -73,6 +73,8 @@ export type LandSkipCode =
   | "no-branch"
   /** Il branch non esiste più o non è confrontabile con l'integrazione. */
   | "branch-missing"
+  /** La card DICHIARA un ramo, ma non si trova il checkout del suo progetto: il ramo resta fuori da main. */
+  | "repo-unresolved"
   /** Non si sa QUALI commit siano della card: la sottrazione non ha risposto, o ha risposto vuoto. */
   | "unisolable"
   /** Si sa che il branch porta anche lavoro di un'altra sessione: non lo si pubblica. */
@@ -138,6 +140,8 @@ export function landFallout(code: LandSkipCode | undefined): LandFallout {
       return { status: "in_progress", reason: "il ramo porta anche commit di un'altra sessione", resume: REBASE_INSTRUCTION };
     case "branch-missing":
       return { status: "review", reason: "il ramo consegnato non è più confrontabile con main" };
+    case "repo-unresolved":
+      return { status: "review", reason: "non si trova il checkout del progetto su cui atterrare il ramo consegnato" };
     case "dirty-checkout":
       return { status: "review", reason: "il checkout condiviso ha lavoro non committato" };
     case "worktree-add-failed":
@@ -174,12 +178,76 @@ export interface DeliverySnapshot {
   commit: string | null;
 }
 
+/**
+ * Ciò che la CARD dichiara di aver consegnato, letto dalla card e non
+ * dall'agente: il ramo (`tasks.delivery_branch`) e il checkout del suo
+ * progetto. Sopravvive al rilascio dell'agente, che è il punto.
+ */
+export interface DeclaredDelivery {
+  /** Checkout principale del progetto della card. `null` = non risolto. */
+  repoPath: string | null;
+  /** Il ramo registrato alla consegna. `null` = la card non ne dichiara uno. */
+  branch: string | null;
+}
+
+/** Il ramo scelto per il land, o il perché non ce n'è uno. */
+export type MergeTargetChoice =
+  | { target: TaskMergeTarget; via: "worktree" | "delivery" }
+  | { target: null; code: LandSkipCode; reason: string };
+
+/**
+ * Dove atterra il lavoro della card. Pura: la regola si prova senza un repo.
+ *
+ * Il land risolveva il ramo SOLO attraverso l'agente (card → `assigned_topic_id`
+ * → topic → worktree → branch). L'agente però viene rilasciato di routine — a
+ * fine turno, e ogni volta che lo si ferma a mano — e da quel momento la
+ * consegna diventava non-landabile: `resolveTaskMerge` rispondeva `null`, il
+ * land rispondeva `no-branch` (l'unico codice che LASCIA la card chiusa) e la
+ * card restava in Done col ramo intatto lì accanto. Misurato la notte del 12/08
+ * su `ee5ebbb4`: `delivery_branch = topics/transient-berry` esisteva, il suo
+ * worktree esisteva, mancava solo `assigned_topic_id` — e il messaggio diceva
+ * «nessun worktree/branch», che era falso.
+ *
+ * Quindi l'agente è UN MODO di trovare il ramo, non l'unico: se la card
+ * dichiara un ramo di consegna, quello basta. E il caso che lascia la card
+ * chiusa torna a essere solo quello vero — nessun worktree E nessun ramo
+ * dichiarato.
+ */
+export function chooseMergeTarget(
+  live: TaskMergeTarget | null,
+  declared: DeclaredDelivery | null | undefined,
+  defaultBranch = "main",
+): MergeTargetChoice {
+  if (live) return { target: live, via: "worktree" };
+
+  const branch = declared?.branch?.trim() || null;
+  if (!branch) {
+    return {
+      target: null, code: "no-branch",
+      reason: "la card non ha un worktree e non dichiara un ramo di consegna: non c'è niente da atterrare (girata in-place, o mai dispatchata)",
+    };
+  }
+  const repoPath = declared?.repoPath?.trim() || null;
+  if (!repoPath) {
+    return {
+      target: null, code: "repo-unresolved",
+      reason: `la card consegna il ramo \`${branch}\` ma non si trova il checkout del suo progetto: il ramo NON è su main`,
+    };
+  }
+  return { target: { repoPath, branch, defaultBranch }, via: "delivery" };
+}
+
 export interface AutoMergeDeps {
   /**
    * Resolve a task to its merge target. `null` ⇒ nothing to merge (the task ran
    * in-place with no worktree, or its worktree isn't a `branch`-mode one).
    */
   resolveTaskMerge: (taskId: string) => TaskMergeTarget | null;
+  /**
+   * Il ripiego che non passa dall'agente: ciò che la CARD dichiara di aver
+   * consegnato. Consultato solo quando `resolveTaskMerge` non risolve nulla.
+   */
+  declaredDelivery?: (taskId: string) => DeclaredDelivery | null;
   /** Injected for tests. Default: real `git` via Bun.spawn (never throws — returns the code). */
   runGit?: (cwd: string, args: string[]) => Promise<GitRunResult>;
   /**
@@ -283,7 +351,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
       } else {
         notes.push(
           `il ramo consegnato \`${delBranch}\` non esiste più (potato o rinominato): pubblico \`${liveBranch}\`, ` +
-          `il ramo del worktree vivo — se la consegna aveva commit solo lì, NON sono su main`,
+          `il ramo del worktree vivo. Se la consegna aveva commit solo lì, NON sono su main`,
         );
       }
     }
@@ -312,10 +380,14 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
   }
 
   async function tryMerge(taskId: string, title: string, delivery?: DeliverySnapshot): Promise<AutoMergeResult> {
-    const target = deps.resolveTaskMerge(taskId);
-    if (!target) {
-      return { status: "skipped", code: "no-branch", reason: "nessun worktree/branch per il task (in-place o non dispatchato)" };
+    const choice = chooseMergeTarget(
+      deps.resolveTaskMerge(taskId),
+      deps.declaredDelivery?.(taskId) ?? null,
+    );
+    if (!choice.target) {
+      return { status: "skipped", code: choice.code, reason: choice.reason };
     }
+    const target = choice.target;
     const { repoPath, defaultBranch } = target;
 
     // Riempiti da `resolveLanding` prima di qualunque merge: `branch` è il ramo
@@ -612,7 +684,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
         if (cur === defaultBranch) {
           const st = await runGit(repoPath, ["status", "--porcelain"]);
           if (st.stdout.trim() !== "") {
-            return { status: "skipped", code: "dirty-checkout", reason: `il checkout è su '${defaultBranch}' con WIP non committata — mergia a mano o pulisci il checkout` };
+            return { status: "skipped", code: "dirty-checkout", reason: `il checkout è su '${defaultBranch}' con WIP non committata. Mergia a mano o pulisci il checkout` };
           }
           if (onlyOwn) {
             const picked = await pickOwnCommits(repoPath, onlyOwn);
