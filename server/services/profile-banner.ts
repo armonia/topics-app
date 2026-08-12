@@ -121,7 +121,7 @@ function celle(s: ProfileStats): Cella[] {
     { label: "tasks done", value: compact(s.tasks.done), hint: `${compact(s.tasks.total)} total` },
     { label: "tokens", value: compact(s.tokens.total), hint: "cache included" },
     { label: "agent hours", value: compact(Math.round(s.agentHours)), hint: `${compact(s.activity.activeDays)} active days` },
-    { label: "projects", value: compact(s.projects), hint: s.activity.streakDays > 0 ? `${s.activity.streakDays}d streak` : "—" },
+    { label: "projects", value: compact(s.projects), hint: s.activity.streakDays > 0 ? `${s.activity.streakDays}d streak` : "-" },
   ];
 }
 
@@ -166,7 +166,7 @@ export function renderBanner(stats: ProfileStats, opts: BannerOptions = {}): str
   // `role="img"` + `<title>` perché un banner senza testo alternativo, in un
   // README, per un lettore di schermo è una riga vuota.
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-labelledby="t d">
-  <title id="t">${nome} — Topics stats</title>
+  <title id="t">${nome} · Topics stats</title>
   <desc id="d">${esc(`${compact(stats.sessions.total)} sessions, ${compact(stats.tasks.done)} tasks done, ${compact(stats.tokens.total)} tokens`)}</desc>
   <rect width="${W}" height="${H}" rx="12" fill="${t.bg}"/>
   <rect x="0.5" y="0.5" width="${W - 1}" height="${H - 1}" rx="12" fill="${t.card}" stroke="${t.border}"/>

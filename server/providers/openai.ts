@@ -31,8 +31,8 @@ const FALLBACK_MODELS = [
 ];
 
 function sanitizeUpstreamError(status: number): string {
-  if (status === 401 || status === 403) return "OpenAI auth failed — check your API key in Settings.";
-  if (status === 429) return "OpenAI rate limit reached — try again shortly.";
+  if (status === 401 || status === 403) return "OpenAI auth failed. Check your API key in Settings.";
+  if (status === 429) return "OpenAI rate limit reached. Try again shortly.";
   if (status >= 500) return `OpenAI service error (HTTP ${status})`;
   return `OpenAI request failed (HTTP ${status})`;
 }

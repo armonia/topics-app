@@ -27,7 +27,7 @@ import { ZERO_USAGE, type SessionUsage } from "./transcript-usage";
 import { onHumanHoldChange } from "../lib/human-hold-events";
 import type { TaskAttemptStore } from "./task-attempts";
 import { attemptHasWork, formatFanoutComment } from "../../shared/task-attempt";
-import { CODE_GATES_RULE, MAX_FANOUT, PARKED_STOPPED, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_RULE, readTaskWeight, statusEventEnters } from "../../shared/board";
+import { CODE_GATES_RULE, MAX_FANOUT, PARKED_STOPPED, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_RULE, VERSION_BUMP_RULE, readTaskWeight, statusEventEnters } from "../../shared/board";
 import { decideNight, deadlineFrom } from "./night-mode";
 import { effectiveDispatchCap } from "./dispatch-capacity";
 import type { OutboundMessage } from "../../shared/ws-outbound";
@@ -877,7 +877,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       rollbackAttempt: true,
       reason:
         "Questo task è PESANTE (compila / gira la suite / macina): lo si è scoperto leggendolo, cioè dopo che era già partito. " +
-        "Torna in coda senza consumare un tentativo e riparte da solo appena la macchina è libera — un task così prende il turno da solo.",
+        "Torna in coda senza consumare un tentativo e riparte da solo appena la macchina è libera. Un task così prende il turno da solo.",
     });
     return true;
   }
@@ -1031,6 +1031,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * guardia contro il prompt injection dal titolo/descrizione, e una guardia che
    * esiste in due copie è una guardia che prima o poi ne ha una vecchia.
    */
+  // allow-emdash-block: da qui a `launch` si costruisce il BRIEFING dell'agent.
+  // È un prompt letto da un modello, non un testo della app: la regola sul
+  // trattino lungo non lo riguarda, e riscriverlo cambierebbe il comportamento.
   function taskFramingBlock(task: Task, opening: string): string[] {
     const parts: string[] = [opening];
     parts.push(
@@ -1132,6 +1135,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         // in un pomeriggio hanno lasciato main con `check:deadcode` rosso.
         // Il testo è `CODE_GATES_RULE` (shared/board.ts), non una copia.
         `- ${CODE_GATES_RULE}`,
+        // Stessa forma, stessa cura: il bump di versione è un gesto solo. Due
+        // card in una notte l'hanno fatto a mano dimenticando il lockfile, e
+        // il cancello che le ha prese non nominava il rimedio.
+        `- ${VERSION_BUMP_RULE}`,
         ...(checks.length
           ? [
               `- CHECKS PRE-REVIEW: alla consegna il server esegue da sé, nel tuo worktree, ${checks.length === 1 ? "questo comando" : "questi comandi"} — ${checks.map((c) => `\`${c.cmd}\``).join(", ")}. Se uno è rosso la review viene RIFIUTATA e ti torna l'output: falli girare tu prima, così non ci perdi un giro.`,
@@ -1148,6 +1155,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     );
     return parts.join("\n");
   }
+
+  // end-allow-emdash
 
   /** Launch one already-claimed task: (worktree?) → topic → turn → reconcile. */
   async function launch(
@@ -1347,6 +1356,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * sottotask, niente commenti sul thread condiviso), e due contratti opposti
    * nello stesso prompt significa che il modello ne sceglie uno a caso.
    */
+  // allow-emdash-block: prompt di fan-out, stessa ragione del kickoff qui sopra.
   function buildFanoutKickoff(task: Task, idx: number, total: number): string {
     let checks: { name: string; cmd: string }[] = [];
     try { checks = deps.svc.getBoardSettings(task.projectId).reviewChecks; } catch { /* board senza gate */ }
@@ -1369,6 +1379,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         // con un cancello rosso parte svantaggiato al confronto, e il tentativo
         // SCELTO è quello che poi finisce su main.
         `- ${CODE_GATES_RULE}`,
+        `- ${VERSION_BUMP_RULE}`,
         ...(checks.length
           ? [
               `- Prima di chiudere fai girare ${checks.length === 1 ? "questo comando" : "questi comandi"} — ${checks.map((c) => `\`${c.cmd}\``).join(", ")}: il server li rieseguirà sul tentativo scelto, e un tentativo rosso parte svantaggiato.`,
@@ -1388,6 +1399,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * NON rigetta mai: il fallimento di un tentativo è un DATO del confronto, non
    * un'eccezione che deve travolgere i fratelli ancora in volo.
    */
+  // end-allow-emdash
+
   async function runAttempt(
     task: Task,
     idx: number,
@@ -1934,6 +1947,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     try { emit(deps.svc.setDispatchState({ taskId, state: null })); } catch { /* best-effort */ }
   }
 
+  // allow-emdash-block: prompt di ripresa e di sollecito, stessa ragione.
   function buildResume(task: Task, humanMessage: string): string {
     return [
       `Aggiornamento umano sul task \`${task.id}\`:`,
@@ -1976,6 +1990,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     ].join("\n");
   }
 
+  // end-allow-emdash
+
   async function resume(taskId: string, humanMessage: string, opts?: { continuation?: boolean }): Promise<void> {
     const t = deps.svc.get(taskId)?.task;
     // The caller (reviewDecision reject) has already moved it to in_progress and
@@ -2004,7 +2020,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         try {
           deps.svc.addComment({
             taskId, author: "system",
-            content: `In attesa di uno slot: il tetto di concorrenza (${currentCap()}) è pieno. Riprendo appena si libera — niente è andato perso.`,
+            content: `In attesa di uno slot: il tetto di concorrenza (${currentCap()}) è pieno. Riprendo appena si libera. Niente è andato perso.`,
           });
         } catch { /* best-effort */ }
       }
@@ -2261,7 +2277,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           deps.svc.addComment({
             taskId: t.id, author: "system",
             content: `Dispatch in attesa: ${describeIntruders(intruders)} e questa board lavora IN-PLACE (isolamento worktree off). ` +
-              "Il task riparte da solo appena il repo torna libero — non devi fare nulla.",
+              "Il task riparte da solo appena il repo torna libero. Non devi fare nulla.",
           });
         } catch { /* task may have moved */ }
       }
@@ -2294,7 +2310,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         noteHeavyHold(
           t,
           "In coda: c'è un task PESANTE al lavoro e si prende la macchina da solo. " +
-            "Riparto appena ha finito — non devi fare nulla.",
+            "Riparto appena ha finito. Non devi fare nulla.",
         );
       }
       return;
@@ -2360,7 +2376,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         noteHeavyHold(
           t,
           `In coda: questo task è PESANTE e la macchina è carica (load ${loadGate!.load1.toFixed(1)} su ${loadGate!.cores} core). ` +
-            "Parte da solo appena si libera — un task così prende il turno da solo.",
+            "Parte da solo appena si libera. Un task così prende il turno da solo.",
         );
         break;
       }
@@ -2382,7 +2398,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           deps.svc.addComment({
             taskId: t.id, author: "system",
             content: `Attenzione: ${describeIntruders(intruders)} mentre parte questo agent. ` +
-              "L'agent lavora in un worktree isolato, ma il landing su main può incrociare quel lavoro — controlla il diff prima di approvare.",
+              "L'agent lavora in un worktree isolato, ma il landing su main può incrociare quel lavoro. Controlla il diff prima di approvare.",
           });
         } catch { /* best-effort note */ }
       }

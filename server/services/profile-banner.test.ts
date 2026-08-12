@@ -145,7 +145,7 @@ describe("renderBanner", () => {
 
   test("porta un testo alternativo: in un README un'immagine muta è una riga vuota", () => {
     const svg = renderBanner(STATS, { name: "j" });
-    expect(/<title id="t">j — Topics stats<\/title>/.test(svg)).toBe(true);
+    expect(/<title id="t">j · Topics stats<\/title>/.test(svg)).toBe(true);
     expect(svg).toContain('role="img"');
   });
 

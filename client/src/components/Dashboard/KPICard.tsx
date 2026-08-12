@@ -51,7 +51,7 @@ export function KPICard({ label, value, unit, icon: Icon, trend = 'flat', upIsGo
           className={`text-[18px] font-semibold truncate-tight ${missing ? 'text-app-text-muted' : 'text-app-text'}`}
           title={missing ? 'Dato non disponibile: nessuna fonte per questa metrica' : undefined}
         >
-          {missing ? '—' : value}
+          {missing ? '-' : value}
         </span>
         {unit && !missing && (
           <span className="text-[11px] text-app-text-muted leading-none flex-shrink-0">

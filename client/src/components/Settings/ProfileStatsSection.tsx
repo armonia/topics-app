@@ -121,7 +121,7 @@ export function ProfileStatsSection() {
               <Cifra
                 valore={compatto(s.projects)}
                 etichetta={t('profile.stats.projects')}
-                nota={s.activity.streakDays > 0 ? t('profile.stats.streak', { n: s.activity.streakDays }) : '—'}
+                nota={s.activity.streakDays > 0 ? t('profile.stats.streak', { n: s.activity.streakDays }) : '-'}
               />
             </div>
 
