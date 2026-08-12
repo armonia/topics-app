@@ -86,7 +86,9 @@ pub fn eval_js_blocking(
     }
 }
 
-/// Screenshot della pane come data-URL PNG, uguale agli altri due backend.
+/// Screenshot della pane come base64 NUDO, senza il prefisso `data:`, uguale
+/// agli altri due backend. Il prefisso lo mette il chiamante: vedi la nota nel
+/// backend WebView2, dove c'e il conto di cosa si rompe se lo si mette qui.
 ///
 /// `SnapshotRegion::Visible` e non `FullDocument`: e la porzione a schermo che
 /// cattura anche WKWebView, e quella che l'agent si aspetta di vedere quando
@@ -122,10 +124,7 @@ pub fn screenshot_blocking(wv: &tauri::Webview) -> Result<String, String> {
     let png = rx
         .recv_timeout(OP_TIMEOUT)
         .map_err(|_| "screenshot timeout".to_string())??;
-    Ok(format!(
-        "data:image/png;base64,{}",
-        crate::browser_eval::base64_png(&png)
-    ))
+    Ok(crate::browser_eval::base64_png(&png))
 }
 
 /// Legge i cookie della pane.
@@ -286,13 +285,21 @@ pub fn nav_entries(wv: &tauri::Webview) -> Result<String, String> {
                 list.back_list().iter().rev().map(&entry).collect();
             // L'indice della voce corrente e quante ne ha davanti a se: si legge
             // PRIMA di aggiungerla.
-            let index = entries.len() as i64;
+            let active_index = entries.len() as i64;
             if let Some(cur) = list.current_item() {
                 entries.push(entry(&cur));
             }
             entries.extend(list.forward_list().iter().map(&entry));
-            serde_json::to_string(&serde_json::json!({ "entries": entries, "index": index }))
-                .map_err(|e| e.to_string())
+            // La chiave e `activeIndex`, non `index`, e non e un dettaglio di
+            // stile: e il nome che legge `useTauriBrowser.getNavEntries`, ed e
+            // quello che restituisce il ramo macOS. Con `index` il client non
+            // trova niente e ripiega su 0, cioe considera TUTTA la cronologia
+            // come «avanti»: il menu Indietro resta vuoto e quello Avanti mostra
+            // il passato. Nessun errore da nessuna parte, solo due menu sbagliati.
+            serde_json::to_string(
+                &serde_json::json!({ "entries": entries, "activeIndex": active_index }),
+            )
+            .map_err(|e| e.to_string())
         })();
         let _ = tx.send(out);
     })
