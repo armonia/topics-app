@@ -412,7 +412,7 @@ function apici(s: string): string {
 export function quotaShimScript(fileJobs: string, reale: string): string {
   return [
     "#!/bin/sh",
-    "# Topics — quota di core VIVA per un agente dispatchato.",
+    "# Topics: quota di core VIVA per un agente dispatchato.",
     "# Il numero sta in un file perché l'ambiente di un processo si scrive una",
     "# volta sola, allo spawn, e una sessione vive più a lungo della macchina",
     "# che aveva intorno quando è nata. Vedi server/services/agent-job-quota.ts.",

@@ -273,7 +273,7 @@ export class OpenClawProvider implements AIProvider {
       status: isJustOff ? "unavailable" : "error",
       requirements,
       lastError: isJustOff
-        ? "Gateway not reachable — start the OpenClaw server"
+        ? "Gateway not reachable. Start the OpenClaw server."
         : health.error ?? health.status,
     };
   }

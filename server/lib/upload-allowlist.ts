@@ -93,7 +93,7 @@ export function checkUploadPath(realPath: string, roots: readonly string[]): Upl
     return {
       ok: false,
       error:
-        "browser_upload: nessuna radice consentita configurata — nessun file può essere caricato. " +
+        "browser_upload: nessuna radice consentita configurata. Nessun file può essere caricato. " +
         "Definisci TOPICS_UPLOAD_ROOTS o registra il progetto.",
     };
   }

@@ -58,9 +58,9 @@ export function useTopics() {
       setTopics(prev => {
         const hasCachedData = Object.keys(prev).length > 0;
         if (hasCachedData) {
-          setError(isTimeout ? 'Server slow — showing cached data' : 'Using cached data -- server unreachable');
+          setError(isTimeout ? 'Server slow, showing cached data' : 'Using cached data, server unreachable');
         } else {
-          setError(isTimeout ? 'Server not responding — retrying…' : (err instanceof Error ? err.message : 'Failed to load topics'));
+          setError(isTimeout ? 'Server not responding, retrying…' : (err instanceof Error ? err.message : 'Failed to load topics'));
         }
         return prev;
       });

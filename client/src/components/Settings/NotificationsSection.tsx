@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react';
-import { Bell, BellOff, Check, AlertCircle, Moon } from 'lucide-react';
+import { Bell, BellOff, Check, AlertCircle, Moon, Smartphone } from 'lucide-react';
 import type { AppSettings } from '../../types';
 import { notificationStatus, type NativeNotificationStatus } from '../../lib/shell/app';
 import { describeNativeNotifications } from '../../lib/notificationStatus';
 import { focusGateState, FULL_DISK_ACCESS_URL, type FocusGateState } from '../../lib/shell/focus';
 import { openExternalOnce } from '../../lib/openExternal';
 import { ToggleRow } from './ToggleRow';
+import { usePushNotifications } from '../../hooks/usePushNotifications';
+import type { PushWhenOpen } from '../../state/pushDevice';
 
 interface NotificationsSectionProps {
   settings: AppSettings;
@@ -114,7 +116,7 @@ function FocusGateStatus() {
           onClick={() => openExternalOnce(FULL_DISK_ACCESS_URL)}
           className="underline underline-offset-2 hover:text-app-text transition-colors"
         >Concedi l'accesso completo al disco</button>
-        , poi riavvia Topics — il permesso si legge all'avvio del processo.
+        , poi riavvia Topics: il permesso si legge all'avvio del processo.
       </div>
     </div>
   );
@@ -184,14 +186,163 @@ function MutedProjects({ settings, onChange }: NotificationsSectionProps) {
 }
 
 /**
- * Notifications settings — covers the in-window toast + native desktop
- * notification pair. Web Push (other devices) is intentionally NOT exposed:
- * per product decision, completion alerts are scoped to the desktop client.
+ * Le notifiche a APP CHIUSA, e i dispositivi che le ricevono.
  *
- * Web Push notifications were intentionally removed from the UI: the push
- * subscription infrastructure (`usePushNotifications`, `/api/push/*`) is left
- * in place so a future "notify me on other devices" toggle can wire back into
- * it without redoing the server side.
+ * Prima qui non c'era niente: l'infrastruttura del push esisteva tutta e la UI
+ * era stata tolta, quindi `push_subscriptions` aveva 0 righe e a porte chiuse
+ * non arrivava mai nulla. Questa scheda è la porta — più tre cose che una
+ * semplice porta non avrebbe:
+ *
+ *  · lo STATO DETTO PER INTERO. «Non iscritto», «negato dal sistema» e «su
+ *    iPhone serve Topics installato» producono tutti e tre lo stesso silenzio, e
+ *    due su tre hanno un rimedio a due tocchi. Un interruttore premibile con il
+ *    permesso già negato prometterebbe una cosa che il sistema ha già deciso.
+ *  · una preferenza PER DISPOSITIVO, non per account: l'iscrizione push è già
+ *    per-endpoint, e le impostazioni la seguono. Il telefono e il Mac dicono
+ *    cose diverse, e ognuno vede sé stesso marcato.
+ *  · «ad app aperta» con due valori veri: la notifica di sistema (default,
+ *    quello che l'utente ha chiesto) oppure il banner dentro Topics. Mai
+ *    entrambi — la voce è una.
+ */
+function PushDevices() {
+  const { status, subscribed, devices, loading, subscribe, unsubscribe, setDevicePrefs } = usePushNotifications();
+  const thisDevice = devices.find((d) => d.isThisDevice);
+  const others = devices.filter((d) => !d.isThisDevice);
+
+  const tone = {
+    on: 'text-app-text-muted',
+    off: 'text-amber-500',
+    blocked: 'text-red-400',
+    unavailable: 'text-app-text-muted',
+  }[status.health];
+
+  return (
+    <div className="space-y-3" data-testid="settings-push-devices">
+      <div>
+        <label className="flex items-center gap-2 text-[13px] font-medium text-app-text mb-1">
+          <Smartphone size={14} />
+          Notifiche ad app chiusa
+        </label>
+        <p className="text-[12px] leading-snug text-app-text-muted">
+          Ogni dispositivo si iscrive per conto suo e si spegne per conto suo:
+          quello che decidi qui vale solo per lui.
+        </p>
+      </div>
+
+      <div className="flex items-start gap-2 text-[11.5px]" data-testid="push-status">
+        {status.health === 'on' ? (
+          <Check size={13} className={`shrink-0 mt-px ${tone}`} />
+        ) : (
+          <AlertCircle size={13} className={`shrink-0 mt-px ${tone}`} />
+        )}
+        <div className="min-w-0">
+          <div className={tone} data-testid="push-status-headline">{status.headline}</div>
+          {status.hint && <div className="text-app-text-muted mt-0.5">{status.hint}</div>}
+        </div>
+      </div>
+
+      {/* Il bottone esiste SOLO quando premerlo fa davvero qualcosa. Con il
+          permesso negato non c'è nessun interruttore da mostrare: la riga di
+          stato qui sopra dice dove si rimedia, e non è qui. */}
+      {status.canSubscribe && (
+        <button
+          type="button"
+          disabled={loading}
+          onClick={() => void subscribe()}
+          data-testid="push-subscribe"
+          className="rounded-lg bg-primary px-3 py-1.5 text-[12px] font-medium text-white hover:opacity-90 disabled:opacity-50"
+        >
+          Attiva su questo dispositivo
+        </button>
+      )}
+
+      {subscribed && thisDevice && (
+        <div className="space-y-2">
+          <ToggleRow
+            label="Ricevi su questo dispositivo"
+            description="Spegnere qui non tocca gli altri dispositivi."
+            value={thisDevice.enabled}
+            onChange={(v) => void setDevicePrefs(thisDevice.deviceId!, { enabled: v })}
+          />
+          <div>
+            <div className="text-[12px] text-app-text mb-1">Quando Topics è già aperto</div>
+            <div className="flex gap-1.5" data-testid="push-when-open">
+              {([
+                ['native', 'Notifica di sistema'],
+                ['in-app', 'Banner in Topics'],
+              ] as [PushWhenOpen, string][]).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  data-testid={`push-when-open-${value}`}
+                  aria-pressed={thisDevice.whenOpen === value}
+                  onClick={() => void setDevicePrefs(thisDevice.deviceId!, { whenOpen: value })}
+                  className={`rounded-lg border px-2.5 py-1.5 text-[12px] transition-colors ${
+                    thisDevice.whenOpen === value
+                      ? 'border-app-border bg-app-hover text-app-text'
+                      : 'border-app-border text-app-text-muted hover:bg-app-hover'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <p className="mt-1 text-[11px] leading-snug text-app-text-muted">
+              Una voce sola in entrambi i casi: quando parla una, l'altra tace.
+            </p>
+          </div>
+          <button
+            type="button"
+            disabled={loading}
+            onClick={() => void unsubscribe()}
+            data-testid="push-unsubscribe"
+            className="text-[11.5px] text-app-text-muted underline underline-offset-2 hover:text-app-text disabled:opacity-50"
+          >
+            Togli l'iscrizione di questo dispositivo
+          </button>
+        </div>
+      )}
+
+      {others.length > 0 && (
+        <div className="space-y-1">
+          <div className="text-[12px] text-app-text">Altri dispositivi</div>
+          <ul className="space-y-1">
+            {others.map((d) => (
+              <li
+                key={d.deviceId ?? d.label}
+                data-testid={`push-device-${d.deviceId ?? 'legacy'}`}
+                className="flex items-center gap-2 rounded-md border border-app-border px-2.5 py-2"
+              >
+                <Smartphone size={14} className="shrink-0 text-app-text-muted" />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[12px] text-app-text">{d.label}</div>
+                  <div className="truncate text-[10.5px] text-app-text-muted">
+                    {d.enabled ? 'riceve le notifiche' : 'spento'}
+                  </div>
+                </div>
+                {d.deviceId && (
+                  <button
+                    type="button"
+                    onClick={() => void setDevicePrefs(d.deviceId!, { enabled: !d.enabled })}
+                    title={d.enabled ? 'Spegni su questo dispositivo' : 'Riaccendi su questo dispositivo'}
+                    className="shrink-0 rounded p-1.5 text-app-text-muted transition-colors hover:bg-app-hover hover:text-app-text"
+                  >
+                    {d.enabled ? <BellOff size={13} /> : <Bell size={13} />}
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Notifications settings — covers the in-window toast + native desktop
+ * notification pair, plus le notifiche ad app chiusa (Web Push) per dispositivo
+ * — vedi `PushDevices` qui sopra.
  */
 export function NotificationsSection({ settings, onChange }: NotificationsSectionProps) {
   const masterOn = settings.notificationsEnabled;
@@ -205,7 +356,7 @@ export function NotificationsSection({ settings, onChange }: NotificationsSectio
         <p className="text-[12px] text-app-text-muted mb-2">
           Toast in finestra quando un agente finisce (o va in errore) su un
           topic. Il banner di sistema si aggiunge solo se il sistema operativo
-          lo consente — qui sotto c'è lo stato reale.
+          lo consente. Qui sotto c'è lo stato reale.
         </p>
 
         <NativeBannerStatus />
@@ -233,6 +384,11 @@ export function NotificationsSection({ settings, onChange }: NotificationsSectio
           />
         </div>
       </div>
+
+      {/* Le notifiche ad app CHIUSA sono un canale a sé — per dispositivo, non
+          per account — e stanno dopo gli interruttori generali perché è lì che
+          si va a cercarle: prima «come mi avvisi», poi «dove». */}
+      <PushDevices />
 
       {/* Le eccezioni vanno DOPO gli interruttori: prima la regola generale,
           poi chi ne è escluso. */}
