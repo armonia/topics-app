@@ -1,0 +1,232 @@
+/**
+ * notification-history.spec.ts — la CRONOLOGIA delle notifiche, accanto a Topics.
+ *
+ * Questa spec È la barra della consegna, punto per punto:
+ *   NH-01  arriva una notifica con l'app aperta → il contatore sale DA SOLO
+ *          (fronte WS, nessun refresh), si apre la cronologia, si clicca la
+ *          riga e si finisce esattamente sulla cosa che l'ha generata.
+ *   NH-02  il contatore torna a zero quando le si guarda, e ci resta dopo un
+ *          ricaricamento (il «visto» sta sulla riga, non nella memoria di una
+ *          finestra).
+ *   NH-03  una notifica RAGGRUPPATA, vista una volta, non fa risalire il
+ *          contatore: il «visto» vale per tutto il gruppo.
+ *   NH-04  al riavvio non ricompare niente di vecchio come nuovo, e un secondo
+ *          mittente dello stesso evento (banner + push, o N finestre) non
+ *          raddoppia la riga.
+ *
+ * Il registro si semina dalla sua rotta pubblica (`POST /api/notifications`),
+ * che è la stessa porta che il client usa quando manda un banner: seminare
+ * scrivendo in tabella proverebbe la tabella, non la catena.
+ */
+import { test } from "./fixtures/layout.fixture";
+import { expect, type APIRequestContext, type Page } from "@playwright/test";
+import { createTopic, deleteTopic, deleteTask, resetPaneStore } from "./helpers/api-fixtures";
+import { mkdirSync, rmSync, writeFileSync } from "fs";
+import { E2E_BASE } from "./helpers/test-server";
+import { hermetic } from "./fixtures/hermetic";
+import { beat, didascalia } from "./helpers/evidence";
+
+hermetic(test);
+
+const BASE = E2E_BASE;
+const PROJECT_PATH = `/tmp/e2e-notif-${Date.now()}`;
+
+/** BYTE-IDENTICAL a server/services/tasks.ts:projectIdForPath. */
+function boardIdForPath(projectPath: string): string {
+  const parts = projectPath.replace(/\/+$/, "").split("/");
+  const dirName = parts[parts.length - 1] || "project";
+  let hash = 0;
+  for (let i = 0; i < projectPath.length; i++) {
+    hash = ((hash << 5) - hash) + projectPath.charCodeAt(i);
+    hash |= 0;
+  }
+  return dirName + "-" + Math.abs(hash).toString(36).slice(0, 6);
+}
+const PROJECT_ID = boardIdForPath(PROJECT_PATH);
+
+let projectTopicId: string | null = null;
+let taskId = "";
+
+async function postNotification(
+  request: APIRequestContext,
+  body: Record<string, unknown>,
+): Promise<{ recorded: boolean; unseen: number }> {
+  const res = await request.post(`${BASE}/api/notifications`, { data: body });
+  expect(res.ok()).toBe(true);
+  return (await res.json()) as { recorded: boolean; unseen: number };
+}
+
+/** Il registro riparte pulito prima di ogni prova: il conteggio è
+ *  un'asserzione, e un residuo del test precedente lo renderebbe illeggibile. */
+async function wipeRegistry(request: APIRequestContext): Promise<void> {
+  // Non c'è (di proposito) una rotta che CANCELLA la cronologia: si segna tutto
+  // visto fino ad adesso, che è ciò che azzera il contatore.
+  await request.post(`${BASE}/api/notifications/seen`, { data: { upTo: new Date().toISOString() } });
+}
+
+const bell = (page: Page) => page.getByTestId("notification-history-button");
+const panel = (page: Page) => page.getByTestId("notification-history-panel");
+const rows = (page: Page) => page.getByTestId("notification-history-row");
+/** Il numero sul tastino: il badge condiviso, che si nasconde a zero. */
+const badge = (page: Page) => bell(page).locator("[aria-label$='non viste']");
+
+test.describe("Cronologia notifiche", () => {
+  test.describe.configure({ timeout: 60_000 });
+
+  test.beforeAll(async ({ request }) => {
+    mkdirSync(PROJECT_PATH, { recursive: true });
+    writeFileSync(`${PROJECT_PATH}/package.json`, JSON.stringify({ name: "e2e-notif" }, null, 2));
+    const topic = await createTopic(request, "E2E-Notifiche", { projectPath: PROJECT_PATH });
+    projectTopicId = topic.id;
+    const res = await request.post(`${BASE}/api/boards/${PROJECT_ID}/tasks`, {
+      data: { text: "Il task che la notifica deve aprire" },
+    });
+    expect(res.ok()).toBe(true);
+    taskId = ((await res.json()) as { id: string }).id;
+  });
+
+  test.afterAll(async ({ request }) => {
+    if (taskId) await deleteTask(request, PROJECT_ID, taskId);
+    if (projectTopicId) await deleteTopic(request, projectTopicId);
+    rmSync(PROJECT_PATH, { recursive: true, force: true });
+  });
+
+  test.beforeEach(async ({ page }) => {
+    await resetPaneStore(page.request, []);
+    await wipeRegistry(page.request);
+  });
+
+  test("NH-01: la notifica arriva, il contatore sale, il click porta al task", async ({ page }) => {
+    await page.goto("/");
+    await expect(bell(page)).toBeVisible({ timeout: 15_000 });
+    // Si parte da zero: il badge non esiste proprio quando non c'è nulla da
+    // guardare (NotificationBadge si nasconde a 0).
+    await expect(badge(page)).toHaveCount(0);
+    await didascalia(page, "1 · Il tastino accanto a Topics, contatore a zero");
+    await beat(page, 1400);
+
+    // La notifica arriva mentre l'app è aperta. Nessun reload: se il contatore
+    // sale, è salito per il fronte `notification:new`.
+    await postNotification(page.request, {
+      kind: "task-review",
+      title: "Task pronto per la review",
+      body: "Il task che la notifica deve aprire",
+      targetKind: "task",
+      targetId: taskId,
+      dedupeKey: `task-review:${taskId}`,
+    });
+    await expect(badge(page)).toHaveText("1", { timeout: 10_000 });
+    await didascalia(page, "2 · Arriva una notifica: il contatore sale da solo");
+    await beat(page, 1600);
+
+    // La cronologia si apre dal tastino accanto a Topics.
+    await bell(page).click();
+    await expect(panel(page)).toBeVisible();
+    const row = rows(page).first();
+    await expect(row).toBeVisible();
+    await expect(row).toHaveAttribute("data-target", `/task/${taskId}`);
+    await didascalia(page, "3 · La cronologia, con la riga e dove porta");
+    await beat(page, 1600);
+
+    // Il click porta ALLA COSA: la board generale si apre e il drawer è quello
+    // del task che ha generato la notifica.
+    await row.click();
+    await expect(page.getByTestId("task-detail-drawer")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("task-detail-drawer")).toContainText("Il task che la notifica deve aprire");
+    await didascalia(page, "4 · Il click porta esattamente sul task che l'ha generata");
+    await beat(page, 2200);
+  });
+
+  test("NH-02: guardate = zero, e zero resta dopo un ricaricamento", async ({ page }) => {
+    await page.goto("/");
+    await expect(bell(page)).toBeVisible({ timeout: 15_000 });
+    await postNotification(page.request, {
+      kind: "chat-message",
+      title: "Una risposta",
+      dedupeKey: `e2e-seen-${Date.now()}`,
+    });
+    await expect(badge(page)).toHaveText("1", { timeout: 10_000 });
+
+    await bell(page).click();
+    await expect(panel(page)).toBeVisible();
+    // Guardare la lista È l'atto che azzera il contatore.
+    await expect(badge(page)).toHaveCount(0, { timeout: 10_000 });
+
+    // E ci RESTA: il «visto» sta sulla riga, sul server, non nella memoria di
+    // questa finestra.
+    await page.reload();
+    await expect(bell(page)).toBeVisible({ timeout: 15_000 });
+    await expect(badge(page)).toHaveCount(0);
+  });
+
+  test("NH-03: raggruppata e vista una volta — il contatore non risale", async ({ page }) => {
+    await page.goto("/");
+    await expect(bell(page)).toBeVisible({ timeout: 15_000 });
+
+    // Due notifiche dello stesso topic: un raggruppamento, cioè UNA cosa da
+    // guardare. Chiavi di dedup diverse (sono due eventi), stesso bersaglio —
+    // quindi stesso gruppo.
+    const topicId = projectTopicId!;
+    await postNotification(page.request, {
+      kind: "chat-message", title: "Primo messaggio",
+      targetKind: "topic", targetId: topicId, dedupeKey: `e2e-grp-a-${Date.now()}`,
+    });
+    await postNotification(page.request, {
+      kind: "chat-message", title: "Secondo messaggio",
+      targetKind: "topic", targetId: topicId, dedupeKey: `e2e-grp-b-${Date.now()}`,
+    });
+    await expect(badge(page)).toHaveText("2", { timeout: 10_000 });
+
+    // Il conteggio azzerato dal server, non dall'ottimismo del client: si
+    // rilegge la rotta.
+    const marked = await page.request.post(`${BASE}/api/notifications/seen`, {
+      data: { ids: [await firstRowId(page)] },
+    });
+    expect(marked.ok()).toBe(true);
+    const after = (await marked.json()) as { unseen: number };
+    // Senza la cascata sul gruppo qui resterebbe 1, e il contatore non
+    // tornerebbe mai a zero: è il difetto già pagato sui rollup.
+    expect(after.unseen).toBe(0);
+    await expect(badge(page)).toHaveCount(0, { timeout: 10_000 });
+  });
+
+  test("NH-04: niente di vecchio ricompare come nuovo, e due mittenti = una riga", async ({ page }) => {
+    await page.goto("/");
+    await expect(bell(page)).toBeVisible({ timeout: 15_000 });
+
+    // Chiave UNICA per esecuzione: la finestra di dedup è di 10s e i test di
+    // questo file girano a pochi secondi l'uno dall'altro — riusare la chiave di
+    // NH-01 farebbe fallire il seed, non la regola.
+    const key = `task-review:${taskId}:${Date.now()}`;
+    const first = await postNotification(page.request, {
+      kind: "task-review", title: "Consegna", targetKind: "task", targetId: taskId, dedupeKey: key,
+    });
+    expect(first.recorded).toBe(true);
+    // Il SECONDO mittente dello stesso evento: la push del server, o la stessa
+    // notifica da un'altra finestra. Una riga, non due.
+    const second = await postNotification(page.request, {
+      kind: "task-review", title: "Consegna", targetKind: "task", targetId: taskId, dedupeKey: key, source: "push",
+    });
+    expect(second.recorded).toBe(false);
+    expect(second.unseen).toBe(1);
+
+    // Le si guarda, poi si "riavvia" (ricarica): il registro dice cosa è GIÀ
+    // stato mostrato, quindi non ripresenta niente come nuovo.
+    await bell(page).click();
+    await expect(panel(page)).toBeVisible();
+    await expect(badge(page)).toHaveCount(0, { timeout: 10_000 });
+    await page.reload();
+    await expect(bell(page)).toBeVisible({ timeout: 15_000 });
+    await expect(badge(page)).toHaveCount(0);
+    // La riga però c'è ancora: vista non vuol dire sparita.
+    await bell(page).click();
+    await expect(rows(page).first()).toBeVisible();
+  });
+});
+
+/** L'id della prima riga in elenco, letto dalla rotta (il DOM non lo espone). */
+async function firstRowId(page: Page): Promise<string> {
+  const res = await page.request.get(`${BASE}/api/notifications?limit=1`);
+  const data = (await res.json()) as { rows: Array<{ id: string }> };
+  return data.rows[0]!.id;
+}

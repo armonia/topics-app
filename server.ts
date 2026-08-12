@@ -1,6 +1,6 @@
 import { basename, join, resolve, sep } from "path";
 import { finalizeOrphanTool } from "./server/lib/orphan-tool-sweep";
-import { existsSync, readFileSync, mkdirSync, statSync, writeFileSync, readlinkSync } from "fs";
+import { existsSync, readFileSync, mkdirSync, statSync, writeFileSync, readlinkSync, realpathSync } from "fs";
 import { timingSafeEqual } from "crypto";
 import type { ServerWebSocket } from "bun";
 import type { WSData } from "./server/types";
@@ -108,10 +108,22 @@ import { FALLBACK_MODELS, newestOfFamily } from "./server/providers/claude-model
 import { createProcessesRouter, startProcessDetection } from "./server/routes/processes";
 import { createTasksRouter } from "./server/routes/tasks";
 import { createPushRouter } from "./server/routes/push";
+import { createNotificationsRouter } from "./server/routes/notifications";
 import { createUiStateRouter, loadAllUiState, assertUiStateMigrationApplied } from "./server/routes/ui-state";
 import { createProvidersRouter } from "./server/routes/providers";
 import { createAppSettingsRouter } from "./server/routes/app-settings";
-import { resolveAiProvider, resolveClaudeModel, resolveOpenaiModel } from "./server/services/app-settings";
+import {
+  resolveAiProvider,
+  resolveClaudeModel,
+  resolveOpenaiModel,
+  getAppSettings,
+  resolveOutputLanguage,
+  resolveDiscordPresenceEnabled,
+  resolveDiscordDetailLevel,
+} from "./server/services/app-settings";
+import { createProfileRouter } from "./server/routes/profile";
+import { startDiscordPresence } from "./server/services/discord-presence";
+import { computePresenceCounts } from "./server/services/profile-stats";
 import { createClaudeHooksRouter } from "./server/routes/claude-hooks";
 import { createE2eRouter } from "./server/routes/e2e";
 import { createTabsRouter } from "./server/routes/tabs";
@@ -1144,7 +1156,12 @@ const worktreeOfTask = (taskId: string) => {
 // ── Review-ready previews ──────────────────────────────────────────────────
 // One preview server per task, booted from its branch worktree at review-time.
 // `previewManager` owns the lifecycle; the host wires HOW to start/probe/shoot.
-const PREVIEW_MEDIA_DIR = join(homedir(), ".openclaw", "media", "task-previews");
+// La cartella dell'anteprima deve stare DENTRO l'allowlist che poi la serve
+// (`isPathAllowed` → `${OPENCLAW_DIR}/media/`). Scritta con `homedir()` le due
+// coincidevano solo finché `APP_DATA_DIR`/`OPENCLAW_DIR` restavano al default:
+// spostata la cartella dati, il file veniva scritto dove nessuno può leggerlo e
+// la card mostrava un'immagine rotta.
+const PREVIEW_MEDIA_DIR = join(ctx.OPENCLAW_DIR, "media", "task-previews");
 const PREVIEW_SCRIPT_CANDIDATES = ["preview", "dev", "start"];
 
 /** `lsof` per le domande d'identità sulla porta (macOS non lo ha sempre nel PATH). */
@@ -1218,6 +1235,10 @@ previewManager = createPreviewManager({
     const line = out.split("\n").find((l) => l.startsWith("n/"));
     return line ? line.slice(1) : null;
   },
+  // `lsof` risponde col path REALE, il worktree porta quello con cui è nato: su
+  // macOS `/tmp` è un link a `/private/tmp`, e senza risolverli il cancello
+  // d'identità legge due nomi della stessa cartella come due cartelle diverse.
+  realPath: async (p) => { try { return realpathSync(p); } catch { return null; } },
   // Cancello sul CONTENUTO: la pagina si LEGGE prima di fotografarla, così un
   // 503 «Bundle not built yet» non finisce sulla card come evidenza del lavoro.
   fetchPage: async (url) => {
@@ -1432,9 +1453,11 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
       },
       taskId,
     ),
-  // Fan-out: l'anteprima parte quando l'umano sceglie il vincitore, perché solo
-  // allora il worktree del task è quello giusto da mostrare.
-  preparePreview: (taskId) => previewManager?.prepareForReview(taskId) ?? Promise.resolve(),
+  // Due chiamanti, stessa porta: il fan-out (l'anteprima parte quando l'umano
+  // sceglie il vincitore, perché solo allora il worktree del task è quello
+  // giusto da mostrare) e «Ricattura evidenza» su una card già in review, che
+  // passa `explain: true` per farsi motivare anche il no.
+  preparePreview: (taskId, o) => previewManager?.prepareForReview(taskId, o) ?? Promise.resolve(),
   // NOTE: the server no longer SELF-RESTARTS when an approve lands server code
   // (removed 2026-07-18, Attilio: "l'auto-riavvio sporca tutto"). A landed
   // server change goes live either via the opt-in graceful hot-reload watch
@@ -1461,7 +1484,39 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
 // Auto-register servers Claude starts inside its PTY sessions (bare `bun run dev`
 // etc.) into the Processes panel, attributing listening ports by PTY process tree.
 startProcessDetection(ctx, getClaudeSessionsForDetection);
+
+// Lo stato pubblicato su Discord, se l'interruttore è acceso (default: spento,
+// migration 102). Il servizio parte SEMPRE — è lui a rileggere le impostazioni
+// a ogni giro e a non aprire nessun filo finché non gli viene detto di sì —
+// così accendere non richiede un riavvio.
+//
+// Sostituisce il daemon launchd `claude-discord-presence`, che contava i
+// processi `claude` con `ps`: i numeri che passano di qui sono conteggi esatti
+// del server (`activeStreams` = i turni che stiamo trasmettendo ADESSO, non una
+// soglia sulla CPU di un processo).
+// Da quando questa installazione è in piedi: diventa il cronometro sotto la
+// card di Discord. È l'avvio del SERVER e non l'avvio della sessione, perché è
+// quello che «da quanto stai lavorando» significa per chi guarda.
+const SERVER_STARTED_AT = Date.now();
+startDiscordPresence({
+  getSnapshot: () => ({
+    ...computePresenceCounts(ctx.db, ctx.activeStreams.size),
+    since: SERVER_STARTED_AT,
+  }),
+  getSettings: () => {
+    const s = getAppSettings();
+    return {
+      enabled: resolveDiscordPresenceEnabled(s),
+      level: resolveDiscordDetailLevel(s),
+      language: resolveOutputLanguage(s),
+    };
+  },
+});
+
 const pushRouter = createPushRouter(ctx);
+// La CRONOLOGIA delle notifiche: leggerla, scriverci (il banner del client
+// registra qui la sua riga), segnarla vista. Vedi migration 101.
+const notificationsRouter = createNotificationsRouter(ctx);
 // Chiudere una tab E' il ritiro di cio' che contiene, deciso lato server.
 //
 // Il client gia' archivia la chat e chiude la sessione quando e' LUI a chiudere.
@@ -1485,6 +1540,7 @@ const uiStateRouter = createUiStateRouter(ctx, {
 const openRouter = createOpenRouter(ctx);
 const providersRouter = createProvidersRouter(ctx);
 const appSettingsRouter = createAppSettingsRouter(ctx);
+const profileRouter = createProfileRouter(ctx);
 // Risoluzione dei permalink alle tab (`/tab/…`) — SOLA LETTURA.
 const tabsRouter = createTabsRouter(ctx, browserService);
 // Reset della suite E2E. Si auto-disarma (risponde 404) se TOPICS_E2E ≠ "1",
@@ -2378,9 +2434,11 @@ const opzioniServer = {
         || await licenseRouter(req, url, pathname, method)
         || await billingRouter(req, url, pathname, method)
         || await dashboardRouter(req, url, pathname, method)
+        || await profileRouter(req, url, pathname, method)
         || await processesRouter(req, url, pathname, method)
         || await tasksRouter(req, url, pathname, method)
         || await pushRouter(req, url, pathname, method)
+        || await notificationsRouter(req, url, pathname, method)
         || await uiStateRouter(req, url, pathname, method)
         || await providersRouter(req, url, pathname, method)
         || await appSettingsRouter(req, url, pathname, method)

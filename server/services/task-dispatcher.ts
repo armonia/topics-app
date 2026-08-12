@@ -27,7 +27,7 @@ import { ZERO_USAGE, type SessionUsage } from "./transcript-usage";
 import { onHumanHoldChange } from "../lib/human-hold-events";
 import type { TaskAttemptStore } from "./task-attempts";
 import { attemptHasWork, formatFanoutComment } from "../../shared/task-attempt";
-import { CODE_GATES_RULE, MAX_FANOUT, PARKED_STOPPED, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_RULE, VERSION_BUMP_RULE, readTaskWeight, statusEventEnters } from "../../shared/board";
+import { CODE_GATES_RULE, MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_RULE, VERSION_BUMP_RULE, readTaskWeight, statusEventEnters } from "../../shared/board";
 import { decideNight, deadlineFrom } from "./night-mode";
 import { effectiveDispatchCap } from "./dispatch-capacity";
 import type { OutboundMessage } from "../../shared/ws-outbound";
@@ -1943,6 +1943,13 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // `stopped`. Azzerarla riporterebbe la card muta — che è il difetto che
     // `stopped` esiste per togliere.
     if (cur.dispatchState === PARKED_STOPPED) return;
+    // Stessa trappola, altro park che si annuncia da solo: la serie di attese ha
+    // sfondato il tetto e `deferForWait` ha già parcheggiato la card in backlog
+    // col chip `waited_out`. Il turno che ha dichiarato quell'attesa finisce
+    // SUBITO DOPO e arriva qui: senza questa guardia la riga sotto azzererebbe
+    // il chip, e la card tornerebbe muta — cioè indistinguibile da un park a
+    // mano, che è esattamente il difetto che `waited_out` esiste per togliere.
+    if (cur.dispatchState === PARKED_WAITED_OUT) return;
     // Human moved it elsewhere (backlog/todo/done) mid-turn → just drop our chip.
     try { emit(deps.svc.setDispatchState({ taskId, state: null })); } catch { /* best-effort */ }
   }
@@ -2204,9 +2211,18 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           taskId: t.id,
           requeue: false,
           parkState: CHIP_FAILED,
+          // «Guarda cosa lo fa fallire» diceva due cose sbagliate in una riga.
+          // Presumeva un guasto da trovare, e ci finiva dentro anche chi aveva
+          // solo ASPETTATO: fino al rimborso in `deferForWait`, due attese
+          // dichiarate bastavano a esaurire il budget e la card veniva accusata
+          // di un fallimento che non era successo. Ora le attese hanno il loro
+          // contatore e questa riga può dire soltanto ciò che è vero qui: i
+          // turni si sono chiusi senza arrivare in review, e la ragione di
+          // ciascuno è già scritta nel thread.
           reason:
-            `Budget dei tentativi finito (${t.dispatchAttempts}/${settings.dispatchRetryCap}): non riparte da solo. ` +
-            "Rimettilo in Todo per ridargli i tentativi, oppure guarda cosa lo fa fallire.",
+            `Budget dei tentativi finito (${t.dispatchAttempts}/${settings.dispatchRetryCap}): i turni si sono chiusi ` +
+            "senza arrivare in review, quindi il task non riparte da solo. Rimettilo in Todo per ridargli i tentativi. " +
+            "Il motivo di ogni tentativo è nel thread, in fondo.",
         }, { announce: !toldExhausted });
         toldExhausted = true;
       } catch { /* il task può essersi mosso */ }

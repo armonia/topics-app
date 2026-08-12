@@ -10,7 +10,8 @@
 import { useT } from '../../hooks/useT';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { DndContext, DragOverlay, KeyboardSensor, MouseSensor, TouchSensor, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
+import { DndContext, DragOverlay, KeyboardSensor, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
+import { MouseSensorGentile, TouchSensorGentile } from './dndSensors';
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { AlertTriangle, Bot, Check, ChevronDown, ChevronRight, Loader2, Search, Settings, Tag, Target, UploadCloud, X } from 'lucide-react';
 import type { WSMessage } from '../../types';
@@ -1537,9 +1538,11 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
   // Esc annulla. Senza questo sensore riordinare una colonna era possibile SOLO
   // col mouse — cambiare stato no (il selettore nel drawer c'è), ma la posizione
   // dentro la colonna non era raggiungibile in nessun altro modo.
+  // Sensori SORDI ai campi e ai comandi: un click nell'input di risposta non
+  // deve diventare un trascinamento (vedi `dndSensors.ts` per il perché).
   const sensors = useSensors(
-    useSensor(MouseSensor, { activationConstraint: { distance: 4 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
+    useSensor(MouseSensorGentile, { activationConstraint: { distance: 4 } }),
+    useSensor(TouchSensorGentile, { activationConstraint: { delay: 200, tolerance: 8 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
   const flushDrag = useCallback(() => {
