@@ -10,6 +10,29 @@ Thanks for your interest in contributing! Here's how you can help.
 4. Start the server: `bun run server.ts`
 5. Build the client: `cd client && bun run build`
 
+### Se il terminale non parte: `posix_spawnp failed`
+
+Sintomo: apri una shell e non compare niente, e nel log del ponte
+(`/tmp/topics-pty-bridge-*.log`) c'è
+
+```
+[PTY Bridge] Self-test failed: posix_spawnp failed.. Exiting.
+```
+
+Causa: `node_modules/node-pty/prebuilds/*/spawn-helper` senza bit di esecuzione.
+Arriva così dal tarball npm di node-pty (`npm pack node-pty@1.1.0 && tar tvzf
+node-pty-1.1.0.tgz | grep spawn-helper` → `-rw-r--r--`), e senza quel bit ogni
+`pty.spawn()` fallisce: il ponte PTY muore al proprio self-test e con lui ogni
+terminale, app e banco E2E. La app impacchettata non lo vede perché il guscio
+Tauri usa il ponte Rust (`desktop-tauri/pty-bridge`), che node-pty non lo tocca.
+
+Cura: `scripts/fix-node-pty-exec-bit.ts`, agganciato al `postinstall`, quindi un
+`bun install` basta. **Chi ha installato prima che quello script esistesse deve
+rifare `bun install`** (o lanciarlo a mano: `bun run
+scripts/fix-node-pty-exec-bit.ts`), altrimenti vedrà il ponte morire allo stesso
+modo con node_modules già in casa. L'invariante è controllata da
+`tests/unit/pty-bridge-e2e-isolation.test.ts`, dentro `test:unit`.
+
 ## Development Workflow
 
 ### Hot reload (recommended)
