@@ -17,6 +17,7 @@ import { describe, test, expect } from "bun:test";
 import { Database } from "bun:sqlite";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { TASKS_DDL } from "../db/test-schema";
 
 import {
   installationOrgId, liveMemberCount, liveOwnerCount, orgRole,
@@ -28,7 +29,7 @@ const MIGRAZIONI = ["080-devices.sql", "082-task-shares.sql", "083-grants.sql", 
 
 function db084(): Database {
   const db = new Database(":memory:");
-  db.run("CREATE TABLE tasks (id TEXT PRIMARY KEY, text TEXT, status TEXT, project_id TEXT, preview_image TEXT)");
+  db.run(TASKS_DDL);
   db.run("CREATE TABLE topics (id TEXT PRIMARY KEY, name TEXT, updated_at INTEGER)");
   for (const m of MIGRAZIONI) db.run(readFileSync(join(RADICE, "server", "db", "migrations", m), "utf8"));
   return db;
