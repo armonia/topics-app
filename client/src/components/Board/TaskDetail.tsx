@@ -27,6 +27,7 @@ import { boardApi, diffTotals, hasCodeQuestion, STATUS_LABEL, TASK_STATUSES, isA
 import { PreviewMedia } from './PreviewMedia';
 import { UnifiedDiff } from './UnifiedDiff';
 import { collectTaskMediaPaths } from './taskMedia';
+import { TaskChoiceRow } from './TaskChoiceRow';
 import { formatReviewNotes } from './reviewNotes';
 import { COMPACT_MD_CLS, PLAN_MD_CLS, PRIORITY_DOT, PRIORITY_LABEL, PRIORITY_ORDER, DISPATCH_CHIP, EFFORTS, FANOUT_CHOICES, mediaPaneIdFor, type TaskSurface } from './constants';
 import { friendlyModelLabel, fmtModel, commentTime, fmtMs, fmtLive, fmtTok, fmtUpdatedAt, autoGrow, attemptStat, taskCopyText, descSummary, fmtCount } from './format';
@@ -2162,6 +2163,17 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               Approva/Rifiuta/Landa dentro il viewport a qualunque altezza di
               finestra e con qualunque combinazione di sezioni aperte. */}
           <div className="shrink-0 border-t border-app-border p-2">
+            {/* Fuori dalla review le scelte della card ci sono lo stesso — è la
+                stessa riga della kanban (`taskChoices`), qui sopra il composer:
+                un task in corso si ferma o si fa consegnare, uno bloccato esce
+                dall'attesa, senza dover scrivere una frase. */}
+            {task.status !== 'review' && (
+              <TaskChoiceRow
+                task={task} disabled={busy} className="mb-2"
+                onDone={() => { void load(); onChanged(); }}
+                onError={setError} onNeedText={() => commentRef.current?.focus()}
+              />
+            )}
             {/* Review zone — decisions live HERE, where the agent's questions
                 land (end of the thread), not up in the header. ("Modifiche" moved
                 up above the body, out of this composer area.) */}
@@ -2211,6 +2223,15 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                     className="flex w-full items-center justify-center gap-1.5 rounded bg-sky-500/80 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-sky-500 disabled:opacity-50"
                   ><GitMerge className="h-3.5 w-3.5" /> {tr('board.task.landOnMain')}</button>
                 )}
+                {/* Le uscite che i tre bottoni qui sopra NON hanno: prendersi il
+                    task («Serve a me») o archiviarlo. Approva/Rifiuta/Landa sono
+                    già lì sopra per esteso, quindi si escludono — un doppione
+                    non è una scelta in più. */}
+                <TaskChoiceRow
+                  task={task} disabled={busy} exclude={['land', 'send-back', 'accept', 'redo']}
+                  onDone={() => { void load(); onChanged(); }}
+                  onError={setError} onNeedText={() => commentRef.current?.focus()}
+                />
                 {/* Ricattura evidenza: rifà l'anteprima di una card che è GIÀ
                     qui. Prima l'unico modo era rimandarla all'agent e farla
                     rientrare in review — un turno d'agente per una foto. Sta
