@@ -197,6 +197,29 @@ export const CODE_GATES_RULE = [
 ].join("\n");
 
 /**
+ * Il bump di versione è UN GESTO, non quattro modifiche a mano.
+ *
+ * Misurato nella notte dell'11-12/08: due card diverse (`d18b2db5`, `b1f4d6ff`)
+ * hanno bumpato la versione toccando TRE posti su quattro, e in entrambi i casi
+ * quello lasciato indietro era `Cargo.lock`. Il cancello
+ * (`tests/unit/version-lockstep.test.ts`) le ha prese entrambe, e in entrambi i
+ * casi l'umano ha riallineato il numero a mano prima di landare.
+ *
+ * La causa non è la distrazione ed è la stessa forma di `CODE_GATES_RULE`: chi
+ * bumpa apre i file di CONFIGURAZIONE, e il quarto posto è un lockfile generato
+ * dal build system che nessuno apre mai a mano. Un gesto manuale su un file che
+ * nessuno modifica a mano si dimentica per costruzione, non per svista — e un
+ * cancello che ha ragione ma non nomina il rimedio costa un giro ogni volta.
+ *
+ * Perciò la riga nomina il GESTO, non i file: i posti da toccare cambiano da
+ * repo a repo, «non aprirli a mano» no. I nomi degli script valgono come
+ * ESEMPIO, esattamente come nei cancelli: la riga dice di leggerli in
+ * `package.json`.
+ */
+export const VERSION_BUMP_RULE =
+  "BUMP DI VERSIONE = UN COMANDO, mai i file a mano — il nome lo leggi in `package.json` (qui `bun run bump [patch|X.Y.Z]`, e `bun run bump sync` per riallineare un albero già scollato). Il numero è scritto in PIÙ posti e uno è un file GENERATO (un lockfile): è l'unico che non si apre mai a mano, quindi è l'unico che un bump manuale dimentica — già successo due volte in una notte.";
+
+/**
  * Ritaglia il blocco `PREVIEW_RULE` da un envelope già composto, per STRUTTURA
  * (prima riga «EVIDENZA DI REVIEW…», ultima «Cancello unico…») e non
  * cercandovi la costante: un test che cerca la costante che ha appena

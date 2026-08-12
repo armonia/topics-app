@@ -27,7 +27,7 @@ import { ZERO_USAGE, type SessionUsage } from "./transcript-usage";
 import { onHumanHoldChange } from "../lib/human-hold-events";
 import type { TaskAttemptStore } from "./task-attempts";
 import { attemptHasWork, formatFanoutComment } from "../../shared/task-attempt";
-import { CODE_GATES_RULE, MAX_FANOUT, PARKED_STOPPED, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_RULE, readTaskWeight, statusEventEnters } from "../../shared/board";
+import { CODE_GATES_RULE, MAX_FANOUT, PARKED_STOPPED, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_RULE, VERSION_BUMP_RULE, readTaskWeight, statusEventEnters } from "../../shared/board";
 import { decideNight, deadlineFrom } from "./night-mode";
 import { effectiveDispatchCap } from "./dispatch-capacity";
 import type { OutboundMessage } from "../../shared/ws-outbound";
@@ -1132,6 +1132,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         // in un pomeriggio hanno lasciato main con `check:deadcode` rosso.
         // Il testo è `CODE_GATES_RULE` (shared/board.ts), non una copia.
         `- ${CODE_GATES_RULE}`,
+        // Stessa forma, stessa cura: il bump di versione è un gesto solo. Due
+        // card in una notte l'hanno fatto a mano dimenticando il lockfile, e
+        // il cancello che le ha prese non nominava il rimedio.
+        `- ${VERSION_BUMP_RULE}`,
         ...(checks.length
           ? [
               `- CHECKS PRE-REVIEW: alla consegna il server esegue da sé, nel tuo worktree, ${checks.length === 1 ? "questo comando" : "questi comandi"} — ${checks.map((c) => `\`${c.cmd}\``).join(", ")}. Se uno è rosso la review viene RIFIUTATA e ti torna l'output: falli girare tu prima, così non ci perdi un giro.`,
@@ -1369,6 +1373,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         // con un cancello rosso parte svantaggiato al confronto, e il tentativo
         // SCELTO è quello che poi finisce su main.
         `- ${CODE_GATES_RULE}`,
+        `- ${VERSION_BUMP_RULE}`,
         ...(checks.length
           ? [
               `- Prima di chiudere fai girare ${checks.length === 1 ? "questo comando" : "questi comandi"} — ${checks.map((c) => `\`${c.cmd}\``).join(", ")}: il server li rieseguirà sul tentativo scelto, e un tentativo rosso parte svantaggiato.`,

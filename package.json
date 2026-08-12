@@ -23,6 +23,7 @@
     "build:client": "cd client && bun run build",
     "build:client:watch": "cd client && bun run build:watch",
     "build:cli": "bun build cli/topics.ts --compile --outfile dist/topics",
+    "bump": "bash scripts/bump-version.sh",
     "changelog": "node scripts/gen-changelog.mjs",
     "og": "bun scripts/og-image.mjs",
     "check:contrast": "node scripts/landing-contrast.mjs",
