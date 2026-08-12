@@ -18,6 +18,7 @@ import type {
   WSProvidersSnapshotMessage,
   WSGoalUpdatedMessage,
 } from '../../../shared/types';
+import type { NotificationRow } from '../../../shared/notification-log';
 
 // ─── Entità di dominio: dichiarate in shared/, non qui ─────────────────
 //
@@ -1049,7 +1050,26 @@ export interface WSTaskDeletedMessage {
   taskIds?: string[];
 }
 
+/** Una notifica è appena stata REGISTRATA (migration 101). Porta la riga intera
+ *  e il conteggio: il tastino accanto a Topics si aggiorna dal vivo senza
+ *  rileggere l'elenco. */
+export interface WSNotificationNewMessage {
+  type: 'notification:new';
+  row: NotificationRow;
+  unseen: number;
+}
+
+/** Il «visto» è stato applicato — il contatore vale ORA questo. Il «visto» è
+ *  globale, quindi guardare la cronologia da una finestra spegne il pallino su
+ *  tutte le altre. */
+export interface WSNotificationSeenMessage {
+  type: 'notification:seen';
+  unseen: number;
+}
+
 export type WSMessage =
+  | WSNotificationNewMessage
+  | WSNotificationSeenMessage
   | WSTaskDeletedMessage
   | WSProvidersSnapshotMessage
   | WSGoalUpdatedMessage

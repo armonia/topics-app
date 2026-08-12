@@ -1046,6 +1046,51 @@ const authSharesChangedSchema = z.object({
   type: z.literal('auth:shares-changed'),
 });
 
+// ---- Cronologia delle notifiche --------------------------------------------
+
+/**
+ * Una notifica è appena stata REGISTRATA (migration 101 · db/notification-log).
+ * Emesso una volta sola per evento, dopo il taglio del dedup: se due porte —
+ * banner nativo e web-push — o N finestre staccate riportano la stessa notifica,
+ * la riga è una e questo frame parte una volta.
+ *
+ * Porta la riga INTERA e non solo il conteggio, perché il tastino accanto a
+ * Topics deve poter mostrare l'ultima voce senza rileggere l'elenco: il
+ * contatore che si aggiorna «dal vivo» e una lista che si aggiorna solo
+ * all'apertura sono due promesse diverse.
+ */
+const notificationNewSchema = z.looseObject({
+  type: z.literal('notification:new'),
+  row: z.looseObject({
+    id: z.string(),
+    createdAt: z.string(),
+    kind: z.string(),
+    title: z.string(),
+    body: z.string(),
+    targetKind: z.nullable(z.string()),
+    targetId: z.nullable(z.string()),
+    targetUrl: z.nullable(z.string()),
+    source: z.string(),
+    groupKey: z.nullable(z.string()),
+    seenAt: z.nullable(z.string()),
+  }),
+  unseen: z.number(),
+});
+
+/**
+ * Il «visto» è stato applicato: il contatore vale ORA questo.
+ *
+ * Il frame porta solo il numero perché il «visto» è GLOBALE, non per
+ * dispositivo: guardare la cronologia su una finestra deve spegnere il pallino
+ * anche sulle altre e sul telefono. Senza questo frame ogni finestra resterebbe
+ * con il suo conteggio vecchio fino al ricaricamento — cioè col difetto che il
+ * contatore live doveva togliere.
+ */
+const notificationSeenSchema = z.looseObject({
+  type: z.literal('notification:seen'),
+  unseen: z.number(),
+});
+
 // ---- Registry --------------------------------------------------------------
 
 const OUTBOUND_SCHEMAS = {
@@ -1167,6 +1212,9 @@ const OUTBOUND_SCHEMAS = {
   'auth:pair-resolved': authPairResolvedSchema,
   'auth:device-revoked': authDeviceRevokedSchema,
   'auth:shares-changed': authSharesChangedSchema,
+  // Cronologia delle notifiche
+  'notification:new': notificationNewSchema,
+  'notification:seen': notificationSeenSchema,
 } as const;
 
 /**

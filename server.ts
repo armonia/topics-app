@@ -108,6 +108,7 @@ import { FALLBACK_MODELS, newestOfFamily } from "./server/providers/claude-model
 import { createProcessesRouter, startProcessDetection } from "./server/routes/processes";
 import { createTasksRouter } from "./server/routes/tasks";
 import { createPushRouter } from "./server/routes/push";
+import { createNotificationsRouter } from "./server/routes/notifications";
 import { createUiStateRouter, loadAllUiState, assertUiStateMigrationApplied } from "./server/routes/ui-state";
 import { createProvidersRouter } from "./server/routes/providers";
 import { createAppSettingsRouter } from "./server/routes/app-settings";
@@ -1437,6 +1438,9 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
 // etc.) into the Processes panel, attributing listening ports by PTY process tree.
 startProcessDetection(ctx, getClaudeSessionsForDetection);
 const pushRouter = createPushRouter(ctx);
+// La CRONOLOGIA delle notifiche: leggerla, scriverci (il banner del client
+// registra qui la sua riga), segnarla vista. Vedi migration 101.
+const notificationsRouter = createNotificationsRouter(ctx);
 // Chiudere una tab E' il ritiro di cio' che contiene, deciso lato server.
 //
 // Il client gia' archivia la chat e chiude la sessione quando e' LUI a chiudere.
@@ -2356,6 +2360,7 @@ const opzioniServer = {
         || await processesRouter(req, url, pathname, method)
         || await tasksRouter(req, url, pathname, method)
         || await pushRouter(req, url, pathname, method)
+        || await notificationsRouter(req, url, pathname, method)
         || await uiStateRouter(req, url, pathname, method)
         || await providersRouter(req, url, pathname, method)
         || await appSettingsRouter(req, url, pathname, method)
