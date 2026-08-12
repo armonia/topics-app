@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'bun:test';
-import { buildReadJs, META_JS, parsePageState, isPageLoading } from './browserPagePoll';
+import {
+  buildReadJs,
+  META_JS,
+  parsePageState,
+  isPageLoading,
+  pickNavState,
+  nativeNavIsFresh,
+  NATIVE_NAV_TRUST_MS,
+} from './browserPagePoll';
 
 const READ_JS = buildReadJs('/*focus-hook*/');
 
@@ -115,5 +123,59 @@ describe('isPageLoading', () => {
     // Otherwise a pane whose eval fails lights an indeterminate progress bar
     // that nothing will ever turn off.
     expect(isPageLoading('')).toBe(false);
+  });
+});
+
+describe('pickNavState — what the native KVO drain delivers', () => {
+  it('takes the LAST entry: the queue is coalesced, the newest one wins', () => {
+    expect(pickNavState([
+      { url: 'https://a.dev/', title: 'A', loading: true },
+      { url: 'https://b.dev/', title: 'B', loading: false },
+    ])).toEqual({ url: 'https://b.dev/', title: 'B', loading: false });
+  });
+
+  it('an EMPTY drain is null, which is the whole non-macOS path', () => {
+    // The command answers `[]` off macOS by contract, so this must read as
+    // "nothing to apply" and leave the eval poll as the only source.
+    expect(pickNavState([])).toBeNull();
+    expect(pickNavState(null)).toBeNull();
+    expect(pickNavState('nope')).toBeNull();
+  });
+
+  it('about:blank maps to an EMPTY url, like the eval poll', () => {
+    // A freshly created webview reports about:blank; writing it into the address
+    // bar would erase the url the user just typed.
+    expect(pickNavState([{ url: 'about:blank', title: '', loading: false }])?.url).toBe('');
+  });
+
+  it('an entry without a boolean `loading` is not an entry', () => {
+    // An older shell answering another shape must degrade to "no native source",
+    // never to a blank address bar.
+    expect(pickNavState([{ url: 'https://a.dev/' }])).toBeNull();
+    expect(pickNavState([{ url: 'https://a.dev/', title: 'A', loading: 'yes' }])).toBeNull();
+  });
+
+  it('falls back to the last USABLE entry when the newest is malformed', () => {
+    expect(pickNavState([
+      { url: 'https://a.dev/', title: 'A', loading: true },
+      null,
+    ])).toEqual({ url: 'https://a.dev/', title: 'A', loading: true });
+  });
+});
+
+describe('nativeNavIsFresh — who owns url/title/loading', () => {
+  it('a native delivery just now owns them', () => {
+    expect(nativeNavIsFresh(1_000_000, 1_000_100)).toBe(true);
+  });
+
+  it('past the trust window the eval poll takes them back', () => {
+    expect(nativeNavIsFresh(1_000_000, 1_000_000 + NATIVE_NAV_TRUST_MS)).toBe(false);
+    expect(nativeNavIsFresh(1_000_000, 1_000_000 + NATIVE_NAV_TRUST_MS + 1)).toBe(false);
+  });
+
+  it('NEVER delivered = never owns them (every non-macOS host)', () => {
+    // The fallback has to hold on its own, and this is the line that lets it.
+    expect(nativeNavIsFresh(0, 9_999_999)).toBe(false);
+    expect(nativeNavIsFresh(Number.NaN, 9_999_999)).toBe(false);
   });
 });
