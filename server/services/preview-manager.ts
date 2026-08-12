@@ -304,7 +304,7 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
     const port = await pickPort();
     if (port == null) {
       log(`[preview] no free port in ${range[0]}-${range[1]} for ${taskId}`);
-      return no(`nessuna porta libera nel pool ${range[0]}–${range[1]} (troppe anteprime vive insieme)`);
+      return no(`nessuna porta libera nel pool ${range[0]}-${range[1]} (troppe anteprime vive insieme)`);
     }
 
     let proc: PreviewProcess;
@@ -333,7 +333,7 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
     if (owns === "foreign") {
       log(`[preview] :${port} answers but belongs to another process — refusing to adopt it for ${taskId}`);
       try { proc.kill(); } catch { /* ignore */ }
-      return no(`su :${port} risponde un processo che non è di questo worktree — non lo adotto come anteprima`);
+      return no(`su :${port} risponde un processo che non è di questo worktree, e non lo adotto come anteprima`);
     }
     if (owns === "unknown") log(`[preview] owner of :${port} unverified for ${taskId} (child alive — accepting)`);
 
@@ -412,7 +412,7 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
           // Nessun url da ritirare, quindi alla consegna qui non si direbbe
           // nulla. Ma la richiesta è di una persona: il no va motivato.
           deps.addReviewNote(taskId, {
-            content: `⚠️ Ricattura evidenza: nessuna anteprima possibile — ${bootFailure ?? "il progetto non è avviabile da questo worktree"}. Allega tu l'anteprima, oppure rimanda il task all'agente.`,
+            content: `⚠️ Ricattura evidenza: nessuna anteprima possibile. Motivo: ${bootFailure ?? "il progetto non è avviabile da questo worktree"}. Allega tu l'anteprima, oppure rimanda il task all'agente.`,
           });
         }
         return;
