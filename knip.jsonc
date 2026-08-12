@@ -55,6 +55,9 @@
         "scripts/board-doctor.mutants.ts!",
         "scripts/effort-variance.ts!",
     "scripts/disk-report.ts!",        // `bun run report:disk`
+        // Verdetto sui rami PER CONTENUTO: `bun run report:branches`, e
+        // `--delete-landed` per cancellare quelli che main ha già dentro.
+        "scripts/branch-audit.ts!",
         "scripts/token-live.ts!",         // diagnostica a mano: `bun scripts/token-live.ts [filtro] [--watch]`
         "scripts/orphan-park-dryrun.ts!", // `bun run orphan:dryrun` — prova a vuoto sul db vero
         "scripts/skill-listing-probe.ts!", // misura a mano: `bun run scripts/skill-listing-probe.ts`
