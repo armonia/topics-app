@@ -201,7 +201,13 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
   const cardLongPress = useLongPress(openContextMenuAt, { enabled: isTouch });
   const confirm = useConfirm();
   const isAgentReview = task.status === 'review' && !!task.assignedTopicId;
-  const wantDetail = isAgentReview || (task.status === 'review' && task.subtaskCount > 0);
+  // Lo stallo dei sottotask parcheggiati È una domanda, e la fa il SISTEMA: la
+  // card può non avere nessun topic legato (il padre era stato rilasciato prima
+  // di finire fermo). Senza questa riga la domanda arrivava in review muta — con
+  // le due risposte scritte in un commento e nessun bottone per darle.
+  const isSystemQuestion = task.status === 'review' && task.deliveredReason === 'parked_children';
+  const showsQuestion = isAgentReview || isSystemQuestion;
+  const wantDetail = showsQuestion || (task.status === 'review' && task.subtaskCount > 0);
   useEffect(() => {
     if (!wantDetail) { setLastComment(null); setChildren([]); return; }
     let alive = true;
@@ -210,13 +216,13 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
         if (!alive) return;
         // Status events are history rows, not the agent's word — skip them.
         const speech = comments.filter((c) => c.kind !== 'status');
-        setLastComment(isAgentReview ? speech[speech.length - 1] ?? null : null);
+        setLastComment(showsQuestion ? speech[speech.length - 1] ?? null : null);
         setChildren(kids ?? []);
       })
       .catch(() => { if (alive) { setLastComment(null); setChildren([]); } });
     return () => { alive = false; };
     // Re-check when the task changes (a re-kick bumps updatedAt).
-  }, [wantDetail, isAgentReview, task.projectId, task.id, task.updatedAt]);
+  }, [wantDetail, showsQuestion, task.projectId, task.id, task.updatedAt]);
   const pending = lastComment ? parseQuestionBlock(lastComment.content) : null;
 
   // Route mutations by the task's own projectId (works in the global board too).
@@ -611,7 +617,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
           ><Send className="h-3.5 w-3.5" /></button>
         </div>
       )}
-      {task.status === 'review' && isAgentReview && (
+      {task.status === 'review' && showsQuestion && (
         <div className="mt-2 space-y-1.5" onClick={(e) => e.stopPropagation()}>
           {/* The agent's last word, ALWAYS on the card — a formatted question
               with quick-reply buttons when it's a question block, plain text
