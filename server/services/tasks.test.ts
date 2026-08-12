@@ -918,6 +918,43 @@ describe("release", () => {
     expect(r.assignedTopicId).toBeNull();
     expect(r.dispatchState).toBeNull();
   });
+
+  // IL GUASTO DEL 12/08, alla sua strozzatura. Quattro card che aspettavano una
+  // decisione umana sono finite in backlog marcate `failed` perché il land aveva
+  // potato il loro ramo e il GC aveva parcheggiato la card. In backlog nessuno le
+  // dispaccia e nessuno le guarda: la decisione non era rimandata, era persa.
+  test("card in review → il park scioglie il legame ma NON la fa scendere in backlog", () => {
+    const t = s.create({ projectId: PID, text: "w", status: "todo" });
+    s.claim({ taskId: t.id, cap: 2, maxAttempts: 3 });
+    db.run("INSERT INTO topics (id) VALUES ('top-2')");
+    s.bindTopic({ taskId: t.id, topicId: "top-2" });
+    // Consegnata: lo stato si scrive a mano perché il cancello della review
+    // (serve un commento di sintesi) qui non c'entra ed è collaudato altrove.
+    db.prepare("UPDATE tasks SET status = 'review' WHERE id = ?").run(t.id);
+    const attemptsPrima = s.get(t.id)!.task.dispatchAttempts;
+
+    const r = s.release({
+      taskId: t.id, requeue: false, parkState: "failed", by: "system",
+      reason: "Worktree liberato: il branch del worktree non esiste più.",
+    });
+
+    expect(r.status).toBe("review");
+    expect(r.assignedTopicId).toBeNull();   // il legame col worktree morto se ne va comunque
+    expect(r.dispatchState).toBeNull();     // e nessun timbro `failed` addosso a chi non ha fallito
+    expect(r.dispatchError).toBeNull();
+    expect(r.dispatchAttempts).toBe(attemptsPrima); // il contatore non si muove
+    // La ragione resta leggibile dove serve: nel thread, non come stato della card.
+    expect(s.get(t.id)!.comments.some((c) => c.content.includes("non esiste più"))).toBe(true);
+  });
+
+  test("keepStatus → il park non sposta di colonna nemmeno un task attivo", () => {
+    const t = s.create({ projectId: PID, text: "w", status: "todo" });
+    s.claim({ taskId: t.id, cap: 2, maxAttempts: 3 });
+    const r = s.release({ taskId: t.id, requeue: false, keepStatus: true, parkState: "failed", reason: "consegna già su main" });
+    expect(r.status).toBe("in_progress");
+    expect(r.assignedTopicId).toBeNull();
+    expect(r.dispatchState).toBeNull();
+  });
 });
 
 describe("board settings", () => {
