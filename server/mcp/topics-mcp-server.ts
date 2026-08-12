@@ -27,7 +27,7 @@ import {
   BRIDGED_BROWSER_ENDPOINTS,
   type McpToolAnnotations,
 } from "../browser-tool-spec";
-import { PREVIEW_RULE } from "../../shared/board";
+import { PARKED_WAITED_OUT, PREVIEW_RULE } from "../../shared/board";
 
 interface JsonRpcRequest {
   jsonrpc: "2.0";
@@ -1413,7 +1413,16 @@ export async function callWaitForCondition(
   const reqBody: Record<string, unknown> = { reason: toolArgs.reason };
   if (typeof toolArgs.minutes === "number" && Number.isFinite(toolArgs.minutes)) reqBody.minutes = toolArgs.minutes;
   const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/tasks/${encodeURIComponent(toolArgs.task_id)}/defer`;
-  const res = await httpJson<{ dispatchDeferredUntil?: string }>(args, "POST", path, reqBody, fetchImpl);
+  const res = await httpJson<{ dispatchDeferredUntil?: string; dispatchState?: string }>(args, "POST", path, reqBody, fetchImpl);
+  // Il server può RIFIUTARE l'attesa: troppe di fila sulla stessa condizione, o
+  // una serie troppo lunga, e il task si parcheggia perché decida un umano.
+  // Dirlo qui non è cortesia. La riga di prima prometteva «it will be
+  // re-dispatched automatically» in ogni caso, e un agente che la legge dopo un
+  // rifiuto crede di dover solo aspettare: chiude il turno convinto che il task
+  // riparta da solo, e quello resta fermo in backlog senza che nessuno lo sappia.
+  if (res?.dispatchState === PARKED_WAITED_OUT) {
+    return `task ${toolArgs.task_id} has waited on this same condition too many times, so it is now PARKED in the backlog for a human to decide. It will NOT be re-dispatched automatically. Your turn is done: do not move it to review, and do not call wait_for_condition again.`;
+  }
   const until = res?.dispatchDeferredUntil ? ` until ${res.dispatchDeferredUntil}` : "";
   return `task ${toolArgs.task_id} released to the queue, waiting${until}. It will be re-dispatched automatically. Your turn is done — do not move it to review.`;
 }

@@ -197,4 +197,89 @@ test.describe("Browser da telefono — la tastiera segue il campo", () => {
       await deleteTopic(request, topic.id).catch(() => {});
     }
   });
+
+  /**
+   * IL RAMO VIDEO: la tastiera non può guardare in casa, e la risposta arriva dal server.
+   *
+   * Sul flusso di pixel non esiste nessun mirror da interrogare: al tocco non si
+   * sa che campo ci sia sotto. Prima di questo lavoro non c'era neanche un campo
+   * di cattura, quindi da iPhone non usciva nessuna tastiera e sul ramo video non
+   * si scriveva affatto.
+   *
+   * Adesso la sequenza è a tre tempi, e sono i tre che questa spec percorre:
+   *  1. il tocco alza la tastiera GENERICA (l'unico momento in cui iOS la apre);
+   *  2. il server risponde che campo ha preso il fuoco di là, e la cattura si
+   *     riveste (qui: email) restando a fuoco, cioè senza far rientrare la
+   *     tastiera;
+   *  3. se dice che non c'è niente di scrivibile, il fuoco se ne va e la
+   *     tastiera rientra.
+   */
+  test("sul flusso video la tastiera sale al tocco e si riveste col campo che il server riporta [MOBILE-KBD-VIDEO]", async ({ page, browserProcessPageV2, request }) => {
+    await browserProcessPageV2.mockWebrtcPeer();
+    await browserProcessPageV2.mockBrowserWs({ framesPerSecond: 10 });
+    await browserProcessPageV2.mockBrowserContexts([]);
+    await browserProcessPageV2.mockRemoteBrowserPane({
+      connected: true,
+      url: "https://esempio.test/modulo",
+      title: "Modulo",
+      hasScreenshot: true,
+    });
+    // Pagina che il server non sa ricostruire in DOM: la pane resta sui pixel,
+    // che è esattamente il ramo sotto esame.
+    browserProcessPageV2.mockDomUnsupported();
+
+    const topic = await createTopic(request, `E2E-MOBKBDVID-${Date.now()}`);
+    try {
+      await goToApp(page);
+      await waitForTopicVisible(page, topic.id);
+      await mountBrowserPane(page, topic.id);
+
+      const video = page.locator('[data-testid="browser-webrtc-video"]').first();
+      await expect(video).toBeVisible({ timeout: 10000 });
+      const box = await video.boundingBox();
+      expect(box, "il flusso video deve avere un rettangolo").not.toBeNull();
+      const tapVideo = () => page.touchscreen.tap(box!.x + box!.width / 2, box!.y + box!.height / 2);
+
+      // Lo stato del campo di cattura A FUOCO, quale dei due sia: cambiare
+      // tastiera vuol dire spostare il fuoco fra i due campi (vedi
+      // BrowserKeyboardCapture.applyRemoteField).
+      const focusedCapture = () => page.locator('[data-kbd-capture]').evaluateAll((els) => {
+        const input = els.find((el) => document.activeElement === el) as HTMLInputElement | undefined;
+        if (!input) return null;
+        return {
+          type: input.type,
+          inputMode: input.inputMode,
+          enterKeyHint: input.enterKeyHint,
+          fontSize: parseFloat(getComputedStyle(input).fontSize),
+        };
+      });
+
+      // ── 1. Il tocco alza una tastiera ────────────────────────────────────────
+      // Senza risposta del server (client contro un server vecchio): generica,
+      // ma c'è. Prima non ne saliva nessuna, e il ramo video era muto.
+      await tapVideo();
+      await expect.poll(async () => (await focusedCapture())?.type ?? null, { timeout: 5000 }).toBe("text");
+      expect((await focusedCapture())!.fontSize, "il campo di cattura non deve mai scendere sotto i 16px").toBeGreaterThanOrEqual(16);
+
+      // ── 2. Il server dice che campo è: la tastiera si riveste ────────────────
+      browserProcessPageV2.mockFocusField({ tag: "input", type: "email", enterKeyHint: "go", inForm: true });
+      await tapVideo();
+      await expect
+        .poll(async () => (await focusedCapture())?.type ?? null, { timeout: 5000 })
+        .toBe("email");
+      const dressed = (await focusedCapture())!;
+      expect(dressed.enterKeyHint, "in un form l'invio manda").toBe("go");
+
+      // ── 3. E dove non c'è niente da scrivere, rientra ────────────────────────
+      // Un bottone, un link, il vuoto: il server risponde senza campo e il fuoco
+      // se ne va, com'è in un browser vero.
+      browserProcessPageV2.mockFocusField(null);
+      await tapVideo();
+      await expect
+        .poll(async () => await focusedCapture(), { timeout: 5000 })
+        .toBeNull();
+    } finally {
+      await deleteTopic(request, topic.id).catch(() => {});
+    }
+  });
 });

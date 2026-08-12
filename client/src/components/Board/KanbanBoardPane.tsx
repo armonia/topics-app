@@ -8,7 +8,7 @@
  * project-scoped board API (client/src/lib/board.ts).
  */
 import { useT } from '../../hooks/useT';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { DndContext, DragOverlay, KeyboardSensor, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
 import { MouseSensorGentile, TouchSensorGentile } from './dndSensors';
@@ -185,15 +185,159 @@ function PublishControl() {
   );
 }
 
-/** Visible overload signal in the board header. The dispatch cap is advisory
- *  when set to a fixed number (a human can knowingly run more agents than the
- *  machine recommends) — but the only place that recommendation lived was the
- *  /api/system/dispatch-capacity JSON and the settings popover. This surfaces it
- *  where the human already is: a pill that lights up when the 1-min load average
- *  approaches/exceeds the core count. It never blocks dispatch — it just makes
- *  "the box is on its knees" impossible to miss. Polls every 15s (cheap probe). */
-function OverloadBadge() {
+/**
+ * «NON SU MAIN» — accanto a Pubblica, perché parla della stessa cosa.
+ *
+ * Due cambi rispetto a prima, e sono lo stesso ragionamento:
+ *
+ * 1. **Sta accanto a «Pubblica».** Pubblica ha già il suo contatore ambra e
+ *    dice «lavoro che non è ancora uscito»; questo dice «lavoro che non è
+ *    nemmeno arrivato su main». Sono i due gradini della stessa scala, e
+ *    tenerli a due estremi opposti della barra li faceva leggere come due
+ *    allarmi scollegati.
+ * 2. **Il click apre l'ELENCO, non il primo della lista.** Saltare al primo
+ *    task è un gesto strano quando ce ne sono sei: non c'è modo di vederli come
+ *    INSIEME, che è esattamente la domanda che si fa chi legge il numero
+ *    («quali?»). L'elenco risponde, e da lì si apre quello che si vuole.
+ */
+function UnlandedControl({ tasks, onOpen }: { tasks: BoardTask[]; onOpen: (id: string) => void }) {
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
+  if (tasks.length === 0) return null;
+  return (
+    <>
+      <button
+        ref={btnRef}
+        onClick={() => setOpen((o) => !o)}
+        data-testid="unlanded-badge"
+        /* h-6 come i chip dei filtri: 24px è il minimo WCAG 2.2 AA per un
+           bersaglio, ed è quanto una riga di 36px può dare. */
+        className="flex h-6 items-center gap-1 rounded bg-rose-500/20 px-2 text-[11px] font-medium text-rose-300 hover:bg-rose-500/30"
+      ><AlertTriangle className="h-3 w-3 shrink-0" /> {tasks.length} non su main</button>
+      <Menu open={open} anchorRef={btnRef} onClose={() => setOpen(false)} minWidth={320}>
+        <div className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">
+          Task chiusi, lavoro non su main
+        </div>
+        {tasks.map((t) => (
+          <button
+            key={t.id}
+            data-testid="unlanded-item"
+            onClick={() => { setOpen(false); onOpen(t.id); }}
+            className={`${POPOVER_ITEM} !items-start`}
+          >
+            <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${PRIORITY_DOT[t.priority] ?? PRIORITY_DOT[2]}`} />
+            <span className="min-w-0 flex-1 truncate text-left">{t.text}</span>
+          </button>
+        ))}
+        <p className="border-t border-app-border px-3 py-1.5 text-[11px] leading-snug text-app-text-muted">
+          Chiusi, ma la loro consegna non risulta su main. Aprine uno per landarlo, o per scoprire perché quel lavoro non c'è.
+        </p>
+      </Menu>
+    </>
+  );
+}
+
+/**
+ * LE CARTELLE DI LAVORO — il numero che diceva soltanto sé stesso.
+ *
+ * Era un `<span>` con dentro «7 worktree» e la spiegazione nel `title`: un
+ * numero nudo in una barra non dice di cosa è, e «worktree» è una parola che
+ * chi guarda la board non ha nessun motivo di conoscere. Qui diventa un
+ * comando: l'etichetta dice la cosa in italiano, e il click apre l'unico posto
+ * che risponde alle due domande vere — che cosa sono, e come si liberano.
+ *
+ * Dentro ci sta anche il GC («Pulisci landati») col suo esito, che prima erano
+ * due elementi in più IN BARRA, sempre presenti, per un'azione che si fa una
+ * volta ogni tanto. La barra ci guadagna lo spazio, e la spiegazione ci
+ * guadagna il posto giusto: accanto al bottone che la mette in pratica.
+ *
+ * I due accumuli restano DUE numeri distinti, ed è il punto: un branch landato
+ * libera la sua cartella, ma una cartella tenuta perché il task è ancora aperto
+ * non ha nessun branch da landare. Con un numero solo non si capisce quale dei
+ * due sta crescendo — ed è cresciuto in silenzio fino a ~40 cartelle il 21/07.
+ */
+function WorktreeControl({ count, branches, gcRunning, gcResult, onGc }: {
+  count: number;
+  branches: { total: number; orphan: number; onOpenTasks: number } | null;
+  gcRunning: boolean;
+  gcResult: string | null;
+  onGc: () => void;
+}) {
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
+  if (count === 0) return null;
+  const orphan = branches?.orphan ?? 0;
+  return (
+    <>
+      <button
+        ref={btnRef}
+        onClick={() => setOpen((o) => !o)}
+        data-testid="worktree-count-badge"
+        className={`flex h-6 items-center gap-1 rounded px-2 text-[11px] ${orphan > 0
+          ? 'bg-amber-500/15 text-amber-300 hover:bg-amber-500/25'
+          : 'bg-white/10 text-app-text-secondary hover:bg-white/20'}`}
+      >{count} cartelle di lavoro{orphan > 0 && <span className="tabular-nums">· {orphan} rami orfani</span>}</button>
+      <Menu open={open} anchorRef={btnRef} onClose={() => setOpen(false)} minWidth={320}>
+        <div className="space-y-1.5 px-3 py-2.5 text-[11px] leading-snug text-app-text-secondary">
+          <p className="text-[12px] font-medium text-app-text-heading">{count} cartelle di lavoro aperte</p>
+          <p>Ogni task dispacciato lavora su una COPIA del repo, in una cartella sua (un <span className="font-mono">git worktree</span>). Resta lì finché il lavoro non è su main o il task non è chiuso.</p>
+          {branches && branches.total > 0 && (
+            <p data-testid="worktree-branches-line">
+              Accanto ci sono <span className="text-app-text-heading">{branches.total} rami</span> non su main:
+              {branches.orphan > 0 && <> <span className="text-amber-300">{branches.orphan}</span> non li reclama nessun task, e quel lavoro non lo riprenderà nessuno;</>}
+              {branches.onOpenTasks > 0 && <> {branches.onOpenTasks} sono di task ancora aperti: quel lavoro esiste già.</>}
+            </p>
+          )}
+          <p className="text-app-text-muted">Sono due accumuli diversi: un ramo landato libera la sua cartella, una cartella tenuta per un task aperto non ha niente da landare.</p>
+        </div>
+        <div className="flex items-center gap-2 border-t border-app-border px-3 py-2">
+          <button
+            onClick={onGc}
+            disabled={gcRunning}
+            className="shrink-0 rounded bg-white/10 px-2 py-1 text-[11px] text-app-text-secondary hover:bg-white/20 disabled:opacity-50"
+            data-testid="worktree-gc-button"
+          >{gcRunning ? 'Pulisco…' : 'Pulisci landati'}</button>
+          <span className="text-[10px] leading-snug text-app-text-muted">
+            Anticipa la passata automatica dei 30 minuti. Ripulisce SOLO ciò che è provabilmente sicuro: la stessa regola, non una più aggressiva.
+          </span>
+        </div>
+        {gcResult && (
+          <p className="border-t border-app-border px-3 py-1.5 text-[11px] leading-snug text-app-text-secondary" data-testid="worktree-gc-result">{gcResult}</p>
+        )}
+      </Menu>
+    </>
+  );
+}
+
+/**
+ * IL CARICO, DETTO COME UNA FRASE.
+ *
+ * La versione precedente diceva «Carico critico · max 1», e nessuna delle due
+ * metà si spiegava da sola: «carico critico» è un fatto sulla macchina che non
+ * chiede niente a chi legge, e «max 1» sembra un LIMITE imposto mentre è un
+ * CONSIGLIO — due cose molto diverse per chi le legge in una barra. La
+ * spiegazione c'era, ma stava nel `title`: su un telefono non esiste, e col
+ * mouse va cercata. Un tooltip non è una spiegazione.
+ *
+ * Quindi due regole:
+ *
+ * 1. **Compare solo quando c'è qualcosa da fare.** Il chip vive sullo SCARTO
+ *    fra gli agent che stanno girando (`running`, dal dispatcher) e quelli che
+ *    la macchina regge adesso (`recommended`). Scarto ≤ 0 → niente chip, anche
+ *    con la macchina in ginocchio: se non c'è niente da fermare, un allarme è
+ *    solo rumore. È anche il motivo per cui `running` è stato aggiunto alla
+ *    capacità: senza, «max N» non poteva sapere se c'era uno scarto.
+ * 2. **Quello che si vede è già l'azione.** «Meglio fermare N agent», non un
+ *    aggettivo. Il dettaglio (load, core, perché) sta nel popover, che è
+ *    apribile col dito — e dice a chiare lettere che è un consiglio e non un
+ *    tetto.
+ *
+ * Sonda ogni 15s (probe da poco).
+ */
+function LoadAdviceChip() {
   const [cap, setCap] = useState<DispatchCapacity | null>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
   useEffect(() => {
     let alive = true;
     const tick = () => boardApi.dispatchCapacity().then((c) => { if (alive) setCap(c); }).catch(() => { /* optional */ });
@@ -202,22 +346,36 @@ function OverloadBadge() {
     return () => { alive = false; clearInterval(id); };
   }, []);
   if (!cap) return null;
+  const over = (cap.running ?? 0) - cap.recommended;
+  if (over <= 0) return null; // niente da fermare → niente chip
   // load1 vs cores is the honest live saturation signal (see dispatch-capacity.ts).
   const ratio = cap.cores > 0 ? cap.load1 / cap.cores : 0;
-  if (ratio < 0.9) return null; // healthy — say nothing
-  const severe = ratio >= 1.3;
+  const severe = ratio >= 1.3 || over >= 2;
   const cls = severe
-    ? 'bg-rose-500/15 text-rose-300 ring-1 ring-rose-500/30'
-    : 'bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/30';
+    ? 'bg-rose-500/15 text-rose-300 ring-1 ring-rose-500/30 hover:bg-rose-500/25'
+    : 'bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/30 hover:bg-amber-500/25';
   return (
-    <span
-      className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium tabular-nums ${cls}`}
-      title={`Load ${cap.load1.toFixed(1)} su ${cap.cores} core. La macchina è sotto carico. Consigliati ${cap.recommended} agent in parallelo${severe ? '. Valuta se fermare qualche agente.' : '.'}`}
-    >
-      <AlertTriangle className="h-3 w-3" />
-      {severe ? 'Carico critico' : 'Carico alto'}
-      <span className="text-app-text-muted">· max {cap.recommended}</span>
-    </span>
+    <>
+      <button
+        ref={btnRef}
+        onClick={() => setOpen((o) => !o)}
+        data-testid="load-advice-chip"
+        className={`flex h-6 items-center gap-1 rounded px-2 text-[11px] font-medium ${cls}`}
+      >
+        <AlertTriangle className="h-3 w-3 shrink-0" />
+        Macchina carica: meglio fermare {over} agent
+      </button>
+      <Menu open={open} anchorRef={btnRef} onClose={() => setOpen(false)} minWidth={288}>
+        <div className="space-y-1.5 px-3 py-2.5 text-[11px] leading-snug text-app-text-secondary">
+          <p className="text-[12px] font-medium text-app-text-heading">
+            {cap.running} agent al lavoro, ne reggo {cap.recommended}
+          </p>
+          <p>Load {cap.load1.toFixed(1)} su {cap.cores} core: la macchina è satura, e ogni agent in più rallenta anche gli altri.</p>
+          <p className="text-app-text-muted">{cap.reason}</p>
+          <p>È un <span className="text-app-text-heading">consiglio</span>, non un tetto: puoi lasciarli girare tutti. Il tetto vero è quello del menu qui accanto.</p>
+        </div>
+      </Menu>
+    </>
   );
 }
 
@@ -480,6 +638,61 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
 
   const anyActive = filters.priority.length + filters.assignedTo.length + filters.projectId.length + filters.labels.length + (filters.text ? 1 : 0) > 0;
 
+  // ── I PROGETTI NELLO SPAZIO CHE AVANZA ────────────────────────────────────
+  //
+  // Il menu resta la porta canonica (ha la ricerca, e regge cento progetti),
+  // ma finché nella riga c'è larghezza libera i progetti stanno FUORI, come
+  // filtri a un click. La regola è che la barra non si deforma mai per farceli
+  // stare: niente a capo (spingerebbe giù la board), niente compressione fino
+  // all'illeggibile. Chi non entra torna dietro il chip «Progetto».
+  //
+  // Il conto si fa sulla geometria vera, non su una stima di caratteri: i chip
+  // sono TUTTI renderizzati in una riga `nowrap` dentro un contenitore che
+  // occupa lo spazio residuo, e quelli il cui bordo destro cade oltre il bordo
+  // del contenitore diventano `invisible`. Due proprietà, ed è per questo che
+  // il modo è questo:
+  //   · `visibility:hidden` tiene la posizione, quindi le misure dei chip
+  //     precedenti non cambiano quando l'ultimo sparisce — nessun ciclo in cui
+  //     nascondere un chip libera lo spazio che lo rifà comparire.
+  //   · il contenitore ha `min-w-0` + `overflow-hidden`, quindi la sua larghezza
+  //     MINIMA è zero: quando la riga è affollata collassa a 0, nessun chip
+  //     entra, e non allarga la barra di un pixel. È lo stesso motivo per cui
+  //     un chip a metà non si vede mai: sotto il taglio è invisibile, non
+  //     tagliato.
+  //   · la riga dei chip è ASSOLUTA (`w-max`), e questo non è un dettaglio di
+  //     stile: un figlio in flusso con `basis-0` contribuisce lo stesso la sua
+  //     larghezza MAX-CONTENT al calcolo intrinseco del genitore, e il genitore
+  //     qui sta dentro una barra che scorre. Misurato: con la riga in flusso, a
+  //     1000px la barra eccedeva di 243px — cioè i chip si prendevano lo spazio
+  //     invece di aspettare quello che avanza, ed è esattamente il difetto che
+  //     questa striscia esiste per non avere. Fuori flusso contribuisce zero, e
+  //     la striscia riceve SOLO ciò che resta.
+  const stripRef = useRef<HTMLDivElement>(null);
+  const stripRowRef = useRef<HTMLDivElement>(null);
+  const [inlineProjects, setInlineProjects] = useState(0);
+  useLayoutEffect(() => {
+    const strip = stripRef.current;
+    if (!showProjects || !strip) { setInlineProjects(0); return; }
+    const measure = () => {
+      const row = stripRowRef.current;
+      if (!row) return;
+      const avail = strip.clientWidth;
+      let fit = 0;
+      for (const child of Array.from(row.children) as HTMLElement[]) {
+        // +0.5: le larghezze sono frazionarie, e un mezzo pixel di
+        // arrotondamento non è un chip che non ci sta.
+        if (child.offsetLeft + child.offsetWidth <= avail + 0.5) fit++;
+        else break;
+      }
+      setInlineProjects((n) => (n === fit ? n : fit));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(strip);
+    ro.observe(stripRowRef.current!);
+    return () => ro.disconnect();
+  }, [showProjects, projectOptions]);
+
   // Same chip look the composer uses for its model/priority/project pickers.
   // Explicit h-6 (not py-*) so the search <input> — which renders taller from
   // its UA line-height — sits at the exact same height as these buttons.
@@ -490,7 +703,12 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
   const menuHeader = 'px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted';
 
   return (
-    <div className="flex min-w-0 items-center gap-1.5">
+    /* `grow` e NON `flex-1`: la riga dei filtri deve arrivare fino al gruppo di
+       destra quando c'è spazio, ma la sua base resta il CONTENUTO. Con
+       `flex-1` (base 0) una barra affollata la calcolava larga zero e i suoi
+       stessi chip finivano a disegnarsi sopra i comandi accanto — la striscia
+       dei progetti si guadagnava lo spazio togliendolo ai filtri veri. */
+    <div className="flex min-w-0 grow items-center gap-1.5">
       {/* Search — always visible */}
       <div className="relative">
         <Search className="pointer-events-none absolute left-1.5 top-1/2 h-3 w-3 -translate-y-1/2 text-app-text-secondary" />
@@ -603,6 +821,33 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
         <button onClick={reset} title="Resetta filtri" className="rounded p-0.5 text-app-text-muted hover:bg-white/10 hover:text-app-text">
           <X className="h-3 w-3" />
         </button>
+      )}
+
+      {/* I PROGETTI NELLO SPAZIO CHE AVANZA — vedi `useLayoutEffect` sopra. */}
+      {showProjects && (
+        <div ref={stripRef} className="relative ml-1.5 h-6 min-w-0 grow basis-0 overflow-hidden" data-testid="project-filter-strip">
+          <div ref={stripRowRef} className="absolute inset-y-0 left-0 flex w-max flex-nowrap items-center gap-1.5 [&>*]:shrink-0">
+            {projectOptions.map((p, i) => {
+              const on = selectedProjectIds.includes(p.projectId);
+              const shown = i < inlineProjects;
+              return (
+                <button
+                  key={p.projectId}
+                  onClick={() => toggleProject(p)}
+                  aria-hidden={!shown}
+                  tabIndex={shown ? 0 : -1}
+                  data-testid={`project-filter-chip-${p.projectId}`}
+                  title={`Filtra per ${p.name}`}
+                  className={`${chip(on)} max-w-[10rem] ${shown ? '' : 'invisible'}`}
+                >
+                  {p.path ? <ProjectFavicon path={p.path} size={12} /> : <span className="h-1.5 w-1.5 shrink-0 rounded-full border border-app-text-faint" />}
+                  <span className="min-w-0 truncate">{p.name}</span>
+                  {on && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
+                </button>
+              );
+            })}
+          </div>
+        </div>
       )}
     </div>
   );
@@ -915,12 +1160,13 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
 
   // Quanti CHECKOUT vivi tiene questo progetto.
   //
-  // Il chip «non su main» accanto conta i BRANCH non landati; questo conta le
-  // cartelle. Sono due accumuli diversi e si spostano separatamente: un branch
-  // landato libera il suo worktree, ma un worktree tenuto perche' il task e'
-  // ancora aperto non ha nessun branch da landare. Con un numero solo non si
-  // capisce quale dei due sta crescendo — ed e' cresciuto in silenzio fino a
-  // ~40 worktree il 21/07.
+  // Il chip «non su main» (accanto a Pubblica) conta i BRANCH non landati;
+  // questo conta le cartelle. Sono due accumuli diversi e si spostano
+  // separatamente: un branch landato libera il suo worktree, ma un worktree
+  // tenuto perche' il task e' ancora aperto non ha nessun branch da landare.
+  // Con un numero solo non si capisce quale dei due sta crescendo — ed e'
+  // cresciuto in silenzio fino a ~40 worktree il 21/07. Li mostra
+  // `WorktreeControl`, che li tiene distinti e li spiega a parole.
   const [worktreeCount, setWorktreeCount] = useState(0);
   const [gcRunning, setGcRunning] = useState(false);
   /** Rami locali non su main: quanti, e quanti non li reclama nessun task. */
@@ -946,7 +1192,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
 
   // I RAMI non su main, col task che li reclama.
   //
-  // Il chip «N non su main» accanto conta solo i task CHIUSI: un ramo di un task
+  // Il chip «N non su main» conta solo i task CHIUSI: un ramo di un task
   // ancora in backlog — o di nessun task — non compariva da nessuna parte. È
   // così che quattro rami con lavoro fatto sono rimasti invisibili per
   // settimane, mentre la board riproponeva come «da fare» cose già scritte lì
@@ -1454,7 +1700,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
           continues past the right edge — it tracks live scroll position and
           disappears once fully scrolled. */}
       <div className="relative shrink-0 border-b border-app-border">
-      <div ref={toolbarScrollRef} className="flex items-center gap-1 overflow-x-auto px-2 py-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&>*]:shrink-0 sm:px-3">
+      <div ref={toolbarScrollRef} data-testid="board-toolbar" className="flex items-center gap-1 overflow-x-auto px-2 py-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&>*]:shrink-0 sm:px-3">
         {canToggle ? (
           <>
             <button
@@ -1470,45 +1716,19 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
           <span className="text-xs font-semibold text-app-text">Board<span className="hidden sm:inline"> generale</span></span>
         )}
         <GlobalSettingsMenu onMessage={onMessage} />
-        <OverloadBadge />
-        {/* Landing audit: task chiusi il cui lavoro NON è su main. Zero = il
-            badge sparisce. Un click apre il primo, così il contatore è una
-            porta e non un numero da guardare. */}
-        {unlandedTasks.length > 0 && (
-          <button
-            onClick={() => setSelectedId(unlandedTasks[0]!.id)}
-            title={`${unlandedTasks.length} task chiusi il cui lavoro non risulta su main:\n${unlandedTasks.slice(0, 8).map((t) => `• ${t.text}`).join('\n')}`}
-            className="flex items-center gap-1 rounded bg-rose-500/20 px-2 py-0.5 text-[11px] font-medium text-rose-300 hover:bg-rose-500/30"
-            data-testid="unlanded-badge"
-          ><AlertTriangle className="h-3 w-3 shrink-0" /> {unlandedTasks.length} non su main</button>
-        )}
-        {worktreeCount > 0 && (
-          <span
-            title={`${worktreeCount} worktree vivi per questo progetto.\nIl GC ne ripulisce solo quelli provabilmente sicuri, e scrive nel log dei motivi perche' tiene gli altri.`}
-            className="flex items-center gap-1 rounded bg-white/10 px-2 py-0.5 text-[11px] text-app-text-secondary"
-            data-testid="worktree-count-badge"
-          >{worktreeCount} worktree</span>
-        )}
-        {branchInv && branchInv.total > 0 && (branchInv.orphan > 0 || branchInv.onOpenTasks > 0) && (
-          <span
-            title={`${branchInv.total} rami locali non su main.\n${branchInv.orphan} non appartengono a nessun task, nessuno li reclamerà.\n${branchInv.onOpenTasks} sono di task ancora aperti: quel lavoro esiste già.`}
-            className="flex shrink-0 items-center gap-1 rounded bg-amber-500/15 px-2 py-0.5 text-[11px] text-amber-300"
-            data-testid="branch-inventory-badge"
-          >{branchInv.orphan > 0 ? `${branchInv.orphan} rami orfani` : `${branchInv.onOpenTasks} rami su task aperti`}</span>
-        )}
-        {worktreeCount > 0 && (
-          <button
-            onClick={runGc}
-            disabled={gcRunning}
-            title={gcResult ?? "Anticipa la passata del GC. Reapa SOLO cio che e provabilmente sicuro, la stessa regola della passata automatica ogni 30 minuti, non una piu aggressiva."}
-            className="shrink-0 rounded bg-white/10 px-2 py-0.5 text-[11px] text-app-text-secondary hover:bg-white/20 disabled:opacity-50"
-            data-testid="worktree-gc-button"
-          >{gcRunning ? 'Pulisco…' : 'Pulisci landati'}</button>
-        )}
-        {gcResult && (
-          <span className="shrink-0 text-[11px] text-app-text-muted" data-testid="worktree-gc-result">{gcResult}</span>
-        )}
-        <div className="ml-2 min-w-0">
+        <LoadAdviceChip />
+        <WorktreeControl
+          count={worktreeCount}
+          branches={branchInv}
+          gcRunning={gcRunning}
+          gcResult={gcResult}
+          onGc={runGc}
+        />
+        {/* `grow`: la barra dei filtri è anche il posto in cui vive lo spazio
+            libero della riga. Quando ce n'è, i progetti ci diventano chip; se
+            manca, la striscia resta a zero e restano nel menu — senza che i
+            filtri veri perdano un pixel (vedi la nota dentro `InlineFilters`). */}
+        <div className="ml-2 flex min-w-0 grow items-center">
           <InlineFilters filters={filters} onFiltersChange={setFilters} tasks={tasks} mode={mode} />
         </div>
         <div className="ml-auto flex items-center gap-2">
@@ -1520,6 +1740,10 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
           {canRunMissions && (
             <MissionsMenu onStart={(m) => setError(onStartMission!(m))} />
           )}
+          {/* Accanto a Pubblica, e prima: «non su main» è il gradino sotto —
+              lavoro che non è nemmeno arrivato a main, mentre Pubblica parla di
+              lavoro che è su main e non è ancora uscito. */}
+          <UnlandedControl tasks={unlandedTasks} onOpen={setSelectedId} />
           <PublishControl />
           {hasProject && (
             <button
