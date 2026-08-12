@@ -17,7 +17,7 @@ import type { Topic } from '../../types';
  */
 
 const PROJECT_STARTERS = [
-  { label: '📋 Describe this project', msg: 'Give me a brief overview of this project — what it does, the tech stack, and the main files.' },
+  { label: '📋 Describe this project', msg: 'Give me a brief overview of this project: what it does, the tech stack, and the main files.' },
   { label: '🔄 Recent changes', msg: 'Show me the recent git changes in this project and summarize what was modified.' },
   { label: '🐛 Find issues', msg: 'Review this project for potential bugs, code smells, or improvements.' },
 ];

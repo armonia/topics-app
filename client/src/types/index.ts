@@ -1050,7 +1050,7 @@ export interface WSTaskDeletedMessage {
   taskIds?: string[];
 }
 
-/** Una notifica è appena stata REGISTRATA (migration 101). Porta la riga intera
+/** Una notifica è appena stata REGISTRATA (migration 102). Porta la riga intera
  *  e il conteggio: il tastino accanto a Topics si aggiorna dal vivo senza
  *  rileggere l'elenco. */
 export interface WSNotificationNewMessage {

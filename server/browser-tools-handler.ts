@@ -282,7 +282,7 @@ export async function handleBrowserAct(
       // agent to re-observe rather than act on a stale ref that would silently hit
       // the wrong element.
       snapshot = d.changed > 0
-        ? `${d.text}\n(elements changed — call browser_observe before acting on a ref again)`
+        ? `${d.text}\n(elements changed. Call browser_observe before acting on a ref again.)`
         : d.text;
     } catch {
       /* diff best-effort */
@@ -502,7 +502,7 @@ export async function handleBrowserSaveState(
       };
       if (!localStorageCaptured) {
         out.warning =
-          "No localStorage captured — for token-in-localStorage logins (Firebase/Supabase/Auth0), save while ON the site so its origin is captured.";
+          "No localStorage captured. For token-in-localStorage logins (Firebase/Supabase/Auth0), save while ON the site so its origin is captured.";
       }
       return out;
     } catch (err: unknown) {

@@ -13,7 +13,7 @@
  *   3. il tasto delle IMPOSTAZIONI, che porta dove si decide cosa arriva e come.
  *
  * La lista comincia VUOTA il giorno in cui si accende, e lo dice: il registro
- * (migration 101) è un dato NUOVO, non una vista su qualcosa che c'era già:
+ * (migration 102) è un dato NUOVO, non una vista su qualcosa che c'era già:
  * prima di lui nessuno registrava cosa fosse stato mandato. Fingere una
  * cronologia piena ricostruendola a posteriori sarebbe una lista inventata.
  */
@@ -81,7 +81,7 @@ export function NotificationHistoryButton({
         className={`edge-lit relative ${isMobile ? 'h-11 w-11' : 'h-7 w-7'} flex items-center justify-center rounded-lg ${RAISED_CONTROL} text-app-text transition-colors flex-shrink-0 cursor-pointer app-no-drag ${className}`}
         style={{ pointerEvents: 'auto' }}
         title="Cronologia notifiche"
-        aria-label={unseen > 0 ? `Cronologia notifiche — ${unseen} non viste` : 'Cronologia notifiche'}
+        aria-label={unseen > 0 ? `Cronologia notifiche. ${unseen} non viste` : 'Cronologia notifiche'}
         aria-expanded={open}
         data-testid="notification-history-button"
       >

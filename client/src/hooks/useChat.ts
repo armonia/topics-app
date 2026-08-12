@@ -9,8 +9,10 @@ import { isEmptyAssistantTurn } from '../../../shared/empty-turn';
 import { mergeCatchupIntoPartial } from './streamCatchupMerge';
 import { clearPartialForReattach } from './streamReattachReset';
 import { useRefMirror } from './useRefMirror';
+import { reconcileMessages } from './reconcileMessages';
 import { reconcileOrphanStreams } from '../state/signals';
 import { answerFromText, findPendingAsk } from '../state/pendingAsk';
+import { armPushAsk } from '../state/pushAsk';
 import {
   claimBatch as claimQueuedTurns,
   decideSend,
@@ -1900,7 +1902,7 @@ export function useChat() {
           }
           return prev;
         });
-        setError('Message queued — will send when reconnected');
+        setError('Message queued. It will send when reconnected.');
         return false;
       }
 
@@ -1984,6 +1986,12 @@ export function useChat() {
    * altro posto (`state/chatQueue.ts` → `decideSend`).
    */
   const sendMessage = useCallback(async (sessionKey: string, content: string, options?: SendMessageOptions): Promise<boolean> => {
+    // IL MOMENTO GIUSTO per chiedere le notifiche: hai appena creato un'attesa.
+    // Non apre niente da solo — arma soltanto l'invito, che compare solo se
+    // chiedere non sarebbe una bugia (permesso non ancora negato, push
+    // disponibile, «non ora» mai detto). Vedi `state/pushAsk.ts`.
+    armPushAsk();
+
     // Una domanda a schermo si risponde anche SCRIVENDO, non solo dal pannello.
     //
     // Il turno parcheggiato su un ask resta "in volo": `/api/chat` risponde 409
@@ -2198,7 +2206,13 @@ export function useChat() {
         const merged = localOnly.length > 0
           ? [...chatMessages, ...localOnly]
           : chatMessages;
-        return { ...prev, [sessionKey]: merged };
+        // La storia che arriva è quasi sempre quella che è già a schermo: se lo
+        // è, questa riga restituisce l'array PRECEDENTE e React salta il render
+        // — niente ri-misura delle altezze, niente lista che si ri-assembla
+        // sotto gli occhi un secondo dopo il ricarico. Vedi reconcileMessages.
+        const riconciliato = reconcileMessages(existing, merged);
+        if (riconciliato === existing) return prev;
+        return { ...prev, [sessionKey]: riconciliato };
       });
 
       // Compaction dividers (CHAT-COMPACT-01) — replace the session's set with

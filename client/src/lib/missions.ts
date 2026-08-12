@@ -44,9 +44,9 @@ export const MISSIONS: Mission[] = [
     what: [
       "Prendi TUTTE le card in `review` e rendile decidibili una per una.",
       "Per ciascuna: leggi il thread (`get_task`) e scrivi in una riga cosa è stato",
-      "consegnato e qual è la decisione che aspetta. Se la card non è decidibile —",
-      "manca la prova, manca il commento di consegna, la domanda non ha opzioni —",
-      "dillo esplicitamente in quella riga: è quello il risultato utile.",
+      "consegnato e qual è la decisione che aspetta. Se la card non è decidibile (manca",
+      "la prova, manca il commento di consegna, la domanda non ha opzioni), dillo",
+      "esplicitamente in quella riga: è quello il risultato utile.",
       "Non decidi tu al posto dell'umano e non sposti niente a `done`.",
     ],
     bar: [
@@ -88,7 +88,7 @@ export const MISSIONS: Mission[] = [
     ],
     bar: [
       "Per OGNI id verificato: il comando eseguito e il suo exit code, letti dall'output",
-      "reale. Nessun id proposto per il land con un exit code diverso da 0 o mancante —",
+      "reale. Nessun id proposto per il land con un exit code diverso da 0 o mancante:",
       "«non ho potuto eseguire X» è un esito valido, «dovrebbe essere a posto» no.",
     ],
   },
@@ -104,7 +104,7 @@ export const MISSIONS: Mission[] = [
  */
 export function missionPrompt(mission: Mission, projectName: string): string {
   return [
-    `MISSIONE — ${mission.name} (board: ${projectName})`,
+    `MISSIONE · ${mission.name} (board: ${projectName})`,
     "",
     ...mission.what,
     "",

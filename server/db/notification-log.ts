@@ -1,6 +1,6 @@
 /**
  * Il REGISTRO delle notifiche — l'unico scrittore della tabella `notification_log`
- * (migration 101), e l'unico lettore che la cronologia usa.
+ * (migration 102), e l'unico lettore che la cronologia usa.
  *
  * Le due porte che ci scrivono stanno una per parte: il banner nativo lo decide
  * il client (`useCompletionNotifier` → `fire` → POST /api/notifications), la

@@ -54,7 +54,7 @@ describe("formatAttemptStat", () => {
 
   test("niente lavoro: il perché se c'è, altrimenti il fatto nudo", () => {
     expect(formatAttemptStat(attempt({ commit: null, state: "failed", error: "timeout" }))).toBe(
-      "nessuna modifica — timeout",
+      "nessuna modifica (timeout)",
     );
     expect(formatAttemptStat(attempt({ commit: null, filesChanged: null }))).toBe("nessuna modifica");
   });

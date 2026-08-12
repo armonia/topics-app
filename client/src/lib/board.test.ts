@@ -1,5 +1,5 @@
 import { test, expect, describe } from 'bun:test';
-import { blockedByChip, reopenedChip, boardIdForPath, TASK_STATUSES, parseQuestionBlock, type BoardTask } from './board';
+import { blockedByChip, reopenedChip, boardIdForPath, diffTotals, hasCodeQuestion, TASK_STATUSES, parseQuestionBlock, type BoardTask } from './board';
 
 describe('boardIdForPath', () => {
   // Parity lock with the server (services/tasks.ts:projectIdForPath). Must stay
@@ -135,5 +135,47 @@ describe('reopenedChip', () => {
     const c = chip({ reopenedAt: 'non-una-data', reopenedActor: 'agent' });
     expect(c?.label).toBe('riaperta');
     expect(c?.title).toContain('non-una-data');
+  });
+});
+
+describe('diffTotals', () => {
+  const f = (additions: number, deletions: number) => ({ path: `f${additions}`, additions, deletions, status: 'M' });
+
+  test('somma righe e conta i file', () => {
+    expect(diffTotals([f(10, 2), f(3, 40)])).toEqual({ files: 2, additions: 13, deletions: 42 });
+  });
+
+  // git dà i binari come `-`, che il server porta a -1: contarli farebbe scendere
+  // il totale sotto la somma vera, che è il modo peggiore di sbagliare un numero.
+  test('un binario conta come FILE, mai come righe', () => {
+    expect(diffTotals([f(5, 1), { path: 'logo.png', additions: -1, deletions: -1, status: 'A' }]))
+      .toEqual({ files: 2, additions: 5, deletions: 1 });
+  });
+
+  test('nessun file: zeri, non NaN', () => {
+    expect(diffTotals([])).toEqual({ files: 0, additions: 0, deletions: 0 });
+  });
+});
+
+describe('hasCodeQuestion', () => {
+  const t = (p: Partial<BoardTask>): BoardTask =>
+    ({ assignedTopicId: null, deliveryBranch: null, deliveryCommit: null, status: 'backlog', ...p }) as BoardTask;
+
+  test('una card di backlog che nessuno ha toccato non ha la domanda', () => {
+    expect(hasCodeQuestion(t({}))).toBe(false);
+    expect(hasCodeQuestion(t({ status: 'todo' }))).toBe(false);
+  });
+
+  test('un agente assegnato, o una consegna registrata, accendono il pannello', () => {
+    expect(hasCodeQuestion(t({ assignedTopicId: 'topic-1' }))).toBe(true);
+    expect(hasCodeQuestion(t({ deliveryBranch: 'topics/card' }))).toBe(true);
+    expect(hasCodeQuestion(t({ deliveryCommit: 'abc123' }))).toBe(true);
+  });
+
+  // È il caso che conta: in review il silenzio era indistinguibile da «non ho
+  // potuto guardare», e dopo il land il topic assegnato può non esserci più.
+  test('review e done hanno SEMPRE la domanda, anche senza topic', () => {
+    expect(hasCodeQuestion(t({ status: 'review' }))).toBe(true);
+    expect(hasCodeQuestion(t({ status: 'done' }))).toBe(true);
   });
 });
