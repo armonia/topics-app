@@ -4,6 +4,7 @@ import { useT } from '../../hooks/useT';
 import { chiaveErroreAuth } from '../../lib/authErrors';
 import { useConfirm } from '../../hooks/useConfirm';
 import { membriDaRisposta, splitMembri, type Membro, type Ruolo } from './membri';
+import { Select } from '../Shared/Select';
 
 /**
  * Chi sei, e con chi condividi. UN elenco solo.
@@ -408,7 +409,7 @@ export function IdentitySection() {
                 <button
                   onClick={() => { if (!amministra) return; setBozzaNome(gruppo.name); setModifica({ tipo: 'gruppo' }); }}
                   disabled={!amministra}
-                  className="group flex min-w-0 flex-1 items-center gap-2 text-left disabled:cursor-default"
+                  className="group flex min-w-0 flex-1 items-center gap-2 text-left disabled:cursor-default coarse:min-h-11"
                   title={amministra ? t('identity.renameGroup') : t('identity.notAdmin')}
                 >
                   <span className="min-w-0 flex-1 truncate text-[11px] font-semibold uppercase tracking-wide text-app-text-secondary">
@@ -482,7 +483,7 @@ export function IdentitySection() {
                     setBozzaEmail(m.email ?? '');
                     setModifica({ tipo: 'persona', id: m.id });
                   }}
-                  className="min-w-0 flex-1 text-left"
+                  className="min-w-0 flex-1 text-left coarse:min-h-11"
                   title={t('identity.editPerson')}
                 >
                   <span className="block truncate text-[12.5px] text-app-text">{m.name}</span>
@@ -491,15 +492,15 @@ export function IdentitySection() {
                 {/* Il ruolo dice qualcosa solo da due membri in su: in un gruppo
                     di uno «proprietario» è rumore. */}
                 {!soloTu && (amministra ? (
-                  <select
+                  <Select<Ruolo>
                     value={m.role}
                     disabled={inCorso}
-                    onChange={(e) => void cambiaRuolo(m, e.target.value as Ruolo)}
-                    aria-label={t('identity.roleOf', { nome: m.name })}
-                    className="flex-shrink-0 rounded border border-app-border bg-app-bg px-1 py-0.5 text-[11px] text-app-text-secondary outline-none focus:border-primary disabled:opacity-50"
-                  >
-                    {RUOLI.map((r) => <option key={r} value={r}>{t(`identity.role.${r}`)}</option>)}
-                  </select>
+                    align="right"
+                    onChange={(r) => void cambiaRuolo(m, r)}
+                    ariaLabel={t('identity.roleOf', { nome: m.name })}
+                    className="flex-shrink-0"
+                    options={RUOLI.map((r) => ({ value: r, label: t(`identity.role.${r}`) }))}
+                  />
                 ) : (
                   <span className="flex-shrink-0 text-[11px] text-app-text-muted">{t(`identity.role.${m.role}`)}</span>
                 ))}
@@ -536,7 +537,7 @@ export function IdentitySection() {
         ) : nuovo === null ? (
           <button
             onClick={() => { setNuovo({ nome: '', email: '' }); setRifiuto(null); }}
-            className="flex w-full items-center gap-2 border-t border-app-border px-3 py-2 text-left text-[12.5px] text-app-text-secondary hover:bg-app-hover"
+            className="flex w-full items-center gap-2 border-t border-app-border px-3 py-2 text-left text-[12.5px] text-app-text-secondary hover:bg-app-hover coarse:min-h-11"
           >
             <Plus size={13} className="flex-shrink-0 text-app-text-tertiary" />
             {t('identity.addPerson')}
@@ -602,7 +603,7 @@ export function IdentitySection() {
       {nuovoGruppo === null ? (
         <button
           onClick={() => setNuovoGruppo('')}
-          className="flex items-center gap-1.5 text-[11.5px] text-app-text-secondary hover:text-app-text"
+          className="flex items-center gap-1.5 text-[11.5px] text-app-text-secondary hover:text-app-text coarse:min-h-11"
         >
           <Plus size={12} className="flex-shrink-0 text-app-text-tertiary" />
           {t('identity.newGroup')}
