@@ -654,7 +654,12 @@ test.describe("Kanban board", () => {
     await expect(board.getByText(a)).toBeVisible({ timeout: 10000 });
     await expect(board.getByText(b)).toBeVisible();
     // Project badge on cross-project cards (label = dirName before the hash).
-    await expect(board.getByText("otherproj", { exact: true })).toBeVisible();
+    // Cercato DENTRO la card e non nella board intera: da quando la barra
+    // mostra i progetti come chip filtro (`project-filter-chip-*`), lo stesso
+    // nome compare due volte sulla superficie e un `getByText` largo cadeva su
+    // strict mode — accusando la card, che invece il badge ce l'ha.
+    const colonne = board.locator('[data-testid^="kanban-column-body-"]');
+    await expect(colonne.getByText("otherproj", { exact: true })).toBeVisible();
   });
 
   test("BOARD-14: trascinare una card cambia colonna e riordina, e resta dopo un reload", async ({ page }) => {

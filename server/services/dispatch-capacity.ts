@@ -89,7 +89,13 @@ export function structuralDispatchCapacity(): number {
   return clamp(Math.min(byCores, byMem), 1, MAX_AUTO_CAP);
 }
 
-export function computeDispatchCapacity(): DispatchCapacity {
+/**
+ * @param running quanti turni sono in volo ADESSO (`dispatcher.busyCount()`).
+ *   Non entra nel calcolo del tetto — la raccomandazione è una proprietà della
+ *   macchina, non di chi la sta usando: serve a chi legge, per sapere se fra
+ *   «consigliati N» e la realtà c'è uno scarto su cui agire.
+ */
+export function computeDispatchCapacity(running = 0): DispatchCapacity {
   const cores = Math.max(1, os.cpus().length);
   const totalMemGB = os.totalmem() / 1e9;
   const load1 = os.loadavg()[0] ?? 0;
@@ -107,5 +113,5 @@ export function computeDispatchCapacity(): DispatchCapacity {
     `${cores} core → base ${byCores}` +
     (byMem < byCores ? `, limitato dalla RAM (${totalMemGB.toFixed(0)}GB → ${byMem})` : "") +
     (byLoad < Math.min(byCores, byMem) ? `, ridotto per carico (load ${load1.toFixed(1)})` : "");
-  return { recommended, cores, totalMemGB: Math.round(totalMemGB * 10) / 10, load1: Math.round(load1 * 100) / 100, reason };
+  return { recommended, cores, totalMemGB: Math.round(totalMemGB * 10) / 10, load1: Math.round(load1 * 100) / 100, reason, running };
 }

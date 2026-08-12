@@ -4,7 +4,7 @@
  *
  * Direzioni:
  *   - frame, agent_active, console, download, engine, webrtc_answer,
- *     render_mode, dom_event:  server → client
+ *     render_mode, dom_event, focus_field:  server → client
  *   - input, take_control, resize, set_engine, set_stream, set_watching,
  *     set_render, webrtc_offer: client → server
  *   - nav, webrtc_ice:         entrambe (richiesta da un lato, broadcast dall'altro)
@@ -22,6 +22,7 @@
  * `.safeParse` è identico.
  */
 import { z } from 'zod/mini';
+import { remoteFieldSchema } from './browser-keyboard-field';
 
 const inputActionSchema = z.enum(['click', 'type', 'scroll', 'mousemove', 'keypress']);
 const inputButtonSchema = z.enum(['left', 'right', 'middle']);
@@ -163,6 +164,28 @@ const domEventMessageSchema = z.object({
   event: z.unknown(),
 });
 
+/**
+ * Server -> client: che campo ha preso il fuoco nella pagina remota dopo
+ * l'ultimo click di QUESTO spettatore.
+ *
+ * Sul ramo video non c'è nessun mirror da interrogare: il pane vede pixel, e
+ * senza questa risposta la tastiera del telefono può solo essere quella
+ * generica. Dopo il click relayato il server legge `document.activeElement` e
+ * ne manda gli attributi; il client li applica al proprio campo di cattura, che
+ * è quello che decide la tastiera che iOS apre.
+ *
+ * `field` assente = nessun campo scrivibile a fuoco (hai toccato un bottone, un
+ * link, il vuoto): il client toglie il fuoco e la tastiera rientra.
+ *
+ * Va SOLO al socket che ha mandato il click. In una sessione condivisa gli
+ * altri spettatori non hanno toccato niente, e far salire una tastiera sul
+ * telefono di qualcun altro sarebbe un difetto, non una funzione.
+ */
+const focusFieldMessageSchema = z.object({
+  type: z.literal('focus_field'),
+  field: z.optional(remoteFieldSchema),
+});
+
 /** Client -> server (webrtc shared-session transport): viewer SDP offer. */
 const webrtcOfferMessageSchema = z.object({
   type: z.literal('webrtc_offer'),
@@ -202,6 +225,7 @@ export const browserWsMessageSchema = z.discriminatedUnion('type', [
   setRenderMessageSchema,
   renderModeMessageSchema,
   domEventMessageSchema,
+  focusFieldMessageSchema,
   webrtcOfferMessageSchema,
   webrtcAnswerMessageSchema,
   webrtcIceMessageSchema,

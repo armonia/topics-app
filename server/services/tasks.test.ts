@@ -4,6 +4,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createTaskService, isLandActionLabel, isPublishActionLabel, LAND_ACTION_LABEL, PUBLISH_ACTION_LABEL, projectIdForPath, TaskServiceError, type TaskService } from "./tasks";
+import { PARKED_WAITED_OUT, WAIT_SERIES_MAX_MS, WAIT_STREAK_CAP } from "../../shared/board";
 
 describe("reserved action labels", () => {
   test("isLandActionLabel matches its label tolerantly, and NOT the publish one", () => {
@@ -40,6 +41,7 @@ function freshDb(): Database {
     assigned_agent_id TEXT, in_progress_at TEXT,
     dispatch_attempts INTEGER NOT NULL DEFAULT 0, dispatch_state TEXT, dispatch_error TEXT,
     dispatch_deferred_until TEXT, dispatch_weight TEXT,
+    wait_streak INTEGER NOT NULL DEFAULT 0, wait_reason TEXT, wait_since TEXT,
     parent_task_id TEXT REFERENCES tasks(id), output_url TEXT, plan_first INTEGER NOT NULL DEFAULT 0,
     agent_ms INTEGER NOT NULL DEFAULT 0, agent_tokens INTEGER NOT NULL DEFAULT 0,
     agent_cache_read_tokens INTEGER NOT NULL DEFAULT 0,
@@ -2079,5 +2081,161 @@ describe("uscita da done: la traccia sulla card e chi può riaprirla", () => {
     expect(s.get(vivo.id)!.task.reopenedAt).toBeNull();
     s.deliverToReviewBySystem({ taskId: vivo.id, reason: "boh", cause: "retries_exhausted" });
     expect(s.get(vivo.id)!.task.reopenedAt).toBeNull();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// L'ATTESA DICHIARATA HA UN CONTATORE SUO
+//
+// Il guasto che questi test chiudono: `wait_for_condition` restituiva lo slot ma
+// NON il tentativo, che la claim si era già preso prima che l'agent potesse
+// sapere di dover aspettare. Con `dispatch_retry_cap` a 2 si potevano dichiarare
+// due attese, e alla terza il task non veniva più reclamato: la spazzata dei
+// tentativi esauriti lo parcheggiava `failed`, «guarda cosa lo fa fallire», per
+// un'attesa deliberata e corretta (card e285d5d8 sulla board quadra, due volte
+// in un giorno).
+// ─────────────────────────────────────────────────────────────────────────────
+describe("attesa dichiarata: rimborso del tentativo e contatore separato", () => {
+  let db: Database; let s: TaskService;
+  const T0 = Date.parse("2026-08-12T09:00:00.000Z");
+  const clock = { t: T0 };
+  beforeEach(() => { clock.t = T0; db = freshDb(); s = svc(db, clock); });
+
+  /** Il tetto dei tentativi VERO della board (default 2): è quello che mordeva. */
+  const CAP = 2;
+  /** Un giro completo: la claim spende il tentativo, poi l'agent dichiara l'attesa. */
+  const attende = (id: string, reason: string, minutes = 15) => {
+    const claimed = s.claim({ taskId: id, cap: 5, maxAttempts: CAP });
+    expect(claimed).not.toBeNull();
+    return s.deferForWait({ taskId: id, reason, minutes, by: "claude" });
+  };
+  /** Il tempo passa oltre la finestra, così la claim successiva è ammessa. */
+  const passa = (minuti: number) => { clock.t += minuti * 60_000; };
+
+  test("il tentativo speso dalla claim torna indietro: `dispatch_attempts` com'era prima", () => {
+    const t = s.create({ projectId: PID, text: "aspetta la CI", status: "todo" });
+    const claimed = s.claim({ taskId: t.id, cap: 5, maxAttempts: CAP })!;
+    expect(claimed.dispatchAttempts).toBe(1); // la claim l'ha già speso
+
+    const atteso = s.deferForWait({ taskId: t.id, reason: "la CI sta girando", minutes: 15, by: "claude" });
+    expect(atteso.dispatchAttempts).toBe(0);  // rimborsato
+    expect(atteso.status).toBe("todo");
+    expect(atteso.dispatchState).toBe("waiting");
+    expect(atteso.waitStreak).toBe(1);        // contata sulla SUA grandezza
+    expect(atteso.waitSince).not.toBeNull();
+  });
+
+  test("con cap 2 anche la QUINTA attesa è ancora reclamabile: era qui che la card veniva accusata", () => {
+    const t = s.create({ projectId: PID, text: "aspetta la CI", status: "todo" });
+    for (let i = 1; i <= 5; i++) {
+      // Col vecchio codice la claim numero 3 tornava `null` (attempts 2 >= cap)
+      // e il task restava fermo finché la spazzata non lo dava per fallito.
+      const atteso = attende(t.id, "la CI sta girando");
+      expect(atteso.status).toBe("todo");
+      expect(atteso.waitStreak).toBe(i);
+      passa(16);
+    }
+    const finale = s.get(t.id)!.task;
+    expect(finale.dispatchAttempts).toBe(0);
+    expect(finale.dispatchState).toBe("waiting");
+    expect(finale.dispatchState).not.toBe("failed");
+  });
+
+  test("la serie è per RAGIONE: una condizione diversa la fa ricominciare da uno", () => {
+    const t = s.create({ projectId: PID, text: "aspetta", status: "todo" });
+    attende(t.id, "la CI sta girando"); passa(16);
+    const due = attende(t.id, "  LA CI   STA GIRANDO "); // stessa cosa, riscritta a mano
+    expect(due.waitStreak).toBe(2);                      // normalizzata: la serie continua
+    const inizioSerie = due.waitSince;
+    passa(16);
+
+    const altra = attende(t.id, "aspetto la risposta di Attilio");
+    expect(altra.waitStreak).toBe(1);                    // altra condizione, altra serie
+    expect(altra.waitSince).not.toBe(inizioSerie);
+  });
+
+  test("alla soglia il task si ferma, ma col chip `waited_out` e senza la parola «fallito»", () => {
+    const t = s.create({ projectId: PID, text: "aspetta la CI", status: "todo" });
+    for (let i = 0; i < WAIT_STREAK_CAP; i++) {
+      expect(attende(t.id, "la CI sta girando").status).toBe("todo");
+      passa(16);
+    }
+    const parked = attende(t.id, "la CI sta girando"); // la prima oltre il tetto
+
+    expect(parked.status).toBe("backlog");
+    expect(parked.dispatchState).toBe(PARKED_WAITED_OUT);
+    expect(parked.dispatchState).not.toBe("failed");
+    expect(parked.dispatchDeferredUntil).toBeNull();    // non riparte da solo
+    expect(parked.dispatchAttempts).toBe(0);            // rimborsato anche qui
+    expect(parked.waitStreak).toBe(WAIT_STREAK_CAP + 1);
+
+    // Il testo: dice quante attese, per cosa, e di chi è la decisione. NON dice
+    // «fallito» — nemmeno negato, che sarebbe lo stesso nominarlo.
+    const nota = parked.dispatchError ?? "";
+    expect(nota).toContain(`${WAIT_STREAK_CAP + 1} attese di fila`);
+    expect(nota).toContain("la CI sta girando");
+    expect(nota).toContain("la decisione torna a te");
+    expect(nota).toContain("Rimetti il task in Todo");
+    expect(nota.toLowerCase()).not.toContain("fallit");
+    // E la stessa riga è nel thread, non solo nel tooltip.
+    expect(s.get(t.id)!.comments.map((c) => c.content).join("\n")).toContain("la decisione torna a te");
+  });
+
+  test("l'altro tetto è l'OROLOGIO: due attese lunghissime fermano il task quanto sette corte", () => {
+    const t = s.create({ projectId: PID, text: "aspetta la finestra notturna", status: "todo" });
+    const una = attende(t.id, "la finestra notturna", 1440);
+    expect(una.status).toBe("todo");
+    expect(una.waitStreak).toBe(1);
+
+    passa(1441); // la finestra di 24h passa, e con essa il tetto sulla durata
+    const parked = attende(t.id, "la finestra notturna", 1440);
+    expect(parked.status).toBe("backlog");
+    expect(parked.dispatchState).toBe(PARKED_WAITED_OUT);
+    expect(parked.waitStreak).toBe(2);                          // due sole attese
+    expect(parked.waitStreak).toBeLessThan(WAIT_STREAK_CAP);    // il conteggio non c'entra
+    expect(WAIT_SERIES_MAX_MS).toBeLessThan(1441 * 60_000);     // è stato il tempo
+    expect(parked.dispatchError ?? "").toContain("ore");
+  });
+
+  test("il rientro in Todo dell'umano chiude la serie: il bottone rimette in coda davvero", () => {
+    const t = s.create({ projectId: PID, text: "aspetta la CI", status: "todo" });
+    for (let i = 0; i <= WAIT_STREAK_CAP; i++) { attende(t.id, "la CI sta girando"); passa(16); }
+    expect(s.get(t.id)!.task.status).toBe("backlog");
+
+    const back = s.update({ taskId: t.id, actor: "human", by: "attilio", patch: { status: "todo" } });
+    expect(back.waitStreak).toBe(0);
+    expect(back.waitReason).toBeNull();
+    expect(back.waitSince).toBeNull();
+    expect(back.dispatchAttempts).toBe(0);
+
+    // Senza l'azzeramento questa ripartirebbe già oltre il tetto e si
+    // riparcheggerebbe subito: il bottone non rimetterebbe in coda niente.
+    const di_nuovo = attende(t.id, "la CI sta girando");
+    expect(di_nuovo.status).toBe("todo");
+    expect(di_nuovo.waitStreak).toBe(1);
+  });
+
+  test("anche la consegna chiude la serie: le attese di prima non si portano dietro", () => {
+    const t = s.create({ projectId: PID, text: "aspetta la CI", status: "todo" });
+    attende(t.id, "la CI sta girando"); passa(16);
+    attende(t.id, "la CI sta girando");
+    expect(s.get(t.id)!.task.waitStreak).toBe(2);
+
+    const consegnato = s.deliverToReviewBySystem({ taskId: t.id, reason: "tempo scaduto", cause: "retries_exhausted" });
+    expect(consegnato.status).toBe("review");
+    expect(consegnato.waitStreak).toBe(0);
+    expect(consegnato.waitReason).toBeNull();
+    expect(consegnato.waitSince).toBeNull();
+  });
+
+  test("un turno che muore DAVVERO consuma ancora il tentativo: il rimborso è solo dell'attesa", () => {
+    const t = s.create({ projectId: PID, text: "questo esplode", status: "todo" });
+    s.claim({ taskId: t.id, cap: 5, maxAttempts: CAP });
+    s.release({ taskId: t.id, requeue: true, reason: "timeout del turno", by: "dispatcher" });
+
+    const dopo = s.get(t.id)!.task;
+    expect(dopo.dispatchAttempts).toBe(1);  // NON rimborsato: qui il freno serve
+    expect(dopo.waitStreak).toBe(0);        // e non era un'attesa
+    expect(dopo.waitSince).toBeNull();
   });
 });
