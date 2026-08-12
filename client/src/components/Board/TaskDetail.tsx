@@ -1212,7 +1212,12 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             data-testid="task-not-landed-land"
             disabled={busy} onClick={doLand}
             title="Fa il merge del branch su main (locale, nessun push). L'esito arriva nel thread: se il worktree è già stato potato il land non riesce e te lo dice, così resta il commit da recuperare a mano."
-            className="flex shrink-0 items-center gap-1 rounded border border-rose-400/40 bg-rose-500/20 px-2 py-0.5 font-medium text-rose-100 hover:bg-rose-500/30 disabled:opacity-50"
+            // Nessun colore di testo proprio: eredita il `text-rose-300` della
+            // banda, che è la coppia già provata su questo velo nei due temi.
+            // Con un `text-rose-100` il bottone spariva sul tema chiaro, biancore
+            // su rosa: l'affordance la fanno il bordo e il fondo, non un testo
+            // più chiaro del fondo su cui sta.
+            className="flex shrink-0 items-center gap-1 rounded border border-rose-400/40 bg-rose-500/20 px-2 py-0.5 font-medium hover:bg-rose-500/30 disabled:opacity-50"
           ><GitMerge className="h-3 w-3" /> {tr('board.task.landOnMain')}</button>
         </div>
       )}
