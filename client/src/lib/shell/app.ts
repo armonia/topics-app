@@ -5,6 +5,7 @@ import { shellKind } from './index';
 import { tauriInvoke } from './tauri';
 import { openTaskInApp } from '../openTaskLink';
 import { markReloadFlash } from '../reloadFlash';
+import type { NotifyAction } from '../../../../shared/notify-actions';
 
 /** Open a URL in the user's default browser (never inside the app shell). */
 export async function openExternal(url: string): Promise<void> {
@@ -50,13 +51,25 @@ export async function selectDirectory(): Promise<string | null> {
 export function notifyNative(
   title: string,
   body: string,
-  opts?: { silent?: boolean; tag?: string; taskId?: string },
+  opts?: { silent?: boolean; tag?: string; taskId?: string; actions?: NotifyAction[] },
 ): boolean {
   if (shellKind === 'tauri') {
     // taskId rides into the native notification's userInfo; the Rust delegate
     // reads it back on click and emits `open-task` → the client opens the drawer
     // (see the listener in App). null when the banner isn't task-bound.
-    void tauriInvoke('notify', { title, body, taskId: opts?.taskId ?? null });
+    //
+    // `actions` sono i TASTI del banner (rispondi alla domanda, approva,
+    // rimetti in coda): il guscio ne fa `UNNotificationAction` e al click
+    // rimanda indietro l'id, che `window.__topicsNotificationAction` esegue.
+    // Solo qui: la web `Notification` API NON sa disegnare tasti — le `actions`
+    // esistono solo su `ServiceWorkerRegistration.showNotification`, cioè sul
+    // percorso della push (client/public/sw.js), non su `new Notification`.
+    void tauriInvoke('notify', {
+      title,
+      body,
+      taskId: opts?.taskId ?? null,
+      actions: opts?.actions?.length ? opts.actions : null,
+    });
     return false;
   }
   try {
