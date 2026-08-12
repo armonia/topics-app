@@ -40,15 +40,47 @@ const NOOP = {
   },
 };
 
-function pageFor(url: string): string {
-  const i = PAGES.indexOf(url.trim());
+/**
+ * `?rev=N` — la stessa pagina, servita come documento distinto.
+ *
+ * Serve al banco della compattazione, che ha bisogno di VENTI risultati grassi
+ * e non di dieci: senza il suffisso finirebbe le pagine a metà strada, e con
+ * dieci fetch il contesto non arriva dove la domanda vive. La riga in testa fa
+ * sì che i due risultati non siano byte identici — un modello che vede due
+ * blocchi uguali può rispondere «come sopra» e non rileggerli.
+ */
+/**
+ * `?bundle=N` — la pagina più le N−1 che la seguono, in un solo risultato.
+ *
+ * Le dieci pagine del banco pesano 2-4k token l'una: venti fetch portano il
+ * contesto a ~70k, e la domanda della card vive sopra i 100k. Il pacchetto fa
+ * ingrassare il singolo risultato con pagine VERE e DIVERSE — ripetere la stessa
+ * dieci volte darebbe lo stesso conto in token ma un contesto che nessuna
+ * sessione ha mai avuto.
+ */
+function pageFor(rawUrl: string): string {
+  const url = rawUrl.trim();
+  const m = /^(.*)\?(rev|bundle)=(\d+)$/.exec(url);
+  const base = m ? m[1]! : url;
+  const rev = m && m[2] === "rev" ? Number(m[3]) : 1;
+  const bundle = m && m[2] === "bundle" ? Math.max(1, Number(m[3])) : 1;
+  const i = PAGES.indexOf(base);
   if (i < 0) {
     // Anche l'errore deve essere deterministico: un URL fuori elenco non deve
     // mandare il banco in rete di nascosto.
     return `Errore: ${url} non fa parte del banco. URL ammessi:\n${PAGES.join("\n")}`;
   }
   try {
-    return readFileSync(pageFile(i + 1), "utf8");
+    if (bundle > 1) {
+      const parti: string[] = [];
+      for (let j = 0; j < bundle; j++) {
+        const n = ((i + j) % PAGES.length) + 1;
+        parti.push(`─── ${PAGES[n - 1]} ───\n\n${readFileSync(pageFile(n), "utf8")}`);
+      }
+      return parti.join("\n\n");
+    }
+    const body = readFileSync(pageFile(i + 1), "utf8");
+    return rev > 1 ? `REVISIONE ${rev} di ${base}\n\n${body}` : body;
   } catch (err) {
     // Un'eccezione qui dentro ucciderebbe il server, e il guasto arriverebbe
     // alla CLI travestito da problema di trasporto («Connection closed»).
