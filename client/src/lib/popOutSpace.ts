@@ -15,6 +15,7 @@ import { isTauri } from './shell/index';
 import { tauriInvoke } from './shell/tauri';
 import { usePaneStore } from '../state/pane/store';
 import { DEFAULT_SPACE_ID } from '../state/pane/types';
+import { isLiveSpaceId } from '../state/pane/reducers/spaces';
 import { createSpaceId, nextSpaceName, movePaneToSpace } from '../components/Layout/spaceHelpers';
 
 /**
@@ -135,7 +136,12 @@ export async function detachPaneToNewSpace(paneId: string): Promise<boolean> {
   const opened = await popOutSpace(id);
   if (!opened) {
     const back = usePaneStore.getState();
-    movePaneToSpace(paneId, from ?? DEFAULT_SPACE_ID);
+    // Il gruppo di partenza può non esserci più: se la tab era la sua ultima,
+    // uscendo l'ha sciolto (`movePaneToSpace`). Rimandarcela dentro
+    // significherebbe stamparle addosso l'id di una lapide — che si legge come
+    // "Principale", ma per la via lunga. Meglio dirlo.
+    const backTo = from && isLiveSpaceId(from, back.spaces) ? from : DEFAULT_SPACE_ID;
+    movePaneToSpace(paneId, backTo);
     back.dispatch({ type: 'SPACE_DELETE', payload: { id } });
   }
   return opened;
