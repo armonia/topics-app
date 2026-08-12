@@ -16,6 +16,7 @@
  * machine is unit-testable without a real browser.
  */
 
+import { browserMarkArg } from "./lib/browser-orphan-sweep";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -303,6 +304,12 @@ function defaultLauncher(): SidecarLauncher {
         `--user-data-dir=${userDataDir}`,
         "--no-first-run",
         "--no-default-browser-check",
+        // Il marchio, gemello di quello dell'agente in browser-service.ts: se il
+        // server muore senza passare da gracefulShutdown, questo Chromium resta
+        // vivo con ppid 1 e il prossimo avvio lo riconosce da qui. Conta anche
+        // per un'altra ragione: il profilo del sidecar è FISSO, quindi un
+        // residuo che lo tiene aperto fa fallire il lancio successivo.
+        browserMarkArg("sidecar", process.pid),
       ];
       if (loadExtensions.length > 0) {
         args.push(`--load-extension=${loadExtensions.join(",")}`);

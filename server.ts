@@ -72,7 +72,7 @@ import { clearBrowserCaches } from "./server/browser-tools-handler";
 import { resetMoondreamCounter } from "./server/integrations/moondream-client";
 import { sendBrowserWsMessage, parseBrowserWsMessage, type BrowserWsMessage } from "./shared/browser-ws-messages";
 import { applyEngineSwitch } from "./server/browser-engine-switch";
-import { browserEngineRegistry, chromiumExtensionsCount } from "./server/browser-engine-registry";
+import { browserEngineRegistry, chromiumExtensionsCount, chromiumSidecar } from "./server/browser-engine-registry";
 import { nativeDelegateRegistry, handleNativeDelegationFrame } from "./server/browser-native-delegate";
 import { countSharedViewers } from "./server/browser-viewer-count";
 import { seedNativeFromShared } from "./server/browser-session-handoff";
@@ -406,6 +406,10 @@ console.log(`[Server] AI provider: ${aiProvider.name} (capabilities: ${[...aiPro
 
 // Init browser service (lazy — Chromium launched on first use)
 const browserService = await createBrowserService({
+  // Questa è l'unica accensione della spazzata degli orfani: il posto dove il
+  // processo è davvero un server che sta partendo, e non un test che costruisce
+  // un servizio. Vedi il commento sull'opzione in server/browser-service.ts.
+  sweepOrphansAtBoot: true,
   onNavigate: (contextId, url, viewport) => {
     // Find the topic whose first 8 chars of id match contextId (matches
     // the convention at server/routes/topics.ts:1650). Topics are created with
@@ -4385,6 +4389,12 @@ async function gracefulShutdown(signal: string) {
   disconnectBridge(); // Disconnect from bridge — bridge daemon stays alive, PTY sessions persist
   await webrtcBridge.shutdown();
   await browserService.close();
+  // Il sidecar Chromium NON è di browserService: il suo processo appartiene al
+  // registry degli engine, che lo tiene a conteggio di riferimenti. close() qui
+  // sopra chiude solo i client CDP, quindi finché mancava questa riga l'uscita
+  // PULITA lasciava comunque in piedi un Chromium sulla 19333, reparentato a
+  // launchd. È il gemello del leak da SIGKILL, ma sul cammino buono.
+  chromiumSidecar.dispose();
   // Stop all AI providers BEFORE closing the DB. claude-code's stop() sends
   // SIGTERM to the spawned `claude` CLI children so they flush session state
   // to ~/.claude/sessions/ — without this, `bun --watch` hot reloads left
