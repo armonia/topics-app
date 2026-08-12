@@ -19,7 +19,7 @@ import { useTaskBrowserTabs, liveTabs, workspaceTwinContextId } from '../../stat
 import { noteAutoOpenedPreview, releaseAutoOpenedPreview } from '../../state/taskWorkspacePreviews';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
 import { writeCursor, markActiveComposer, restoreCursor } from '../../lib/composerCursor';
-import { boardApi, STATUS_LABEL, TASK_STATUSES, isAgentWorking, parseQuestionBlock, parseStatusEvent, hasPlanApproveOption, isProjectlessId, boardDrafts, systemDeliveryNote, blockedByChip, subtaskWorkChip, reopenedChip, attemptHasWork, VISIBILITY_LABELS, KIND_LABELS, type TaskLabel, type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch, type BoardProjectRef, type DiffBundle, type DiffNote, type ReviewCheck, type CheckRun, type TaskAttempt, type LandingTicket } from '../../lib/board';
+import { boardApi, STATUS_LABEL, TASK_STATUSES, isAgentWorking, parseQuestionBlock, parseStatusEvent, hasPlanApproveOption, isProjectlessId, boardDrafts, systemDeliveryNote, blockedByChip, subtaskWorkChip, reopenedChip, attemptHasWork, CLOSER_LABELS, KIND_LABELS, type TaskLabel, type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch, type BoardProjectRef, type DiffBundle, type DiffNote, type ReviewCheck, type CheckRun, type TaskAttempt, type LandingTicket } from '../../lib/board';
 import { PreviewMedia } from './PreviewMedia';
 import { UnifiedDiff } from './UnifiedDiff';
 import { collectTaskMediaPaths } from './taskMedia';
@@ -852,10 +852,10 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   const toggleLabel = async (l: TaskLabel) => {
     if (!task || busy) return;
     const on = task.labels.some((x) => x.label === l);
-    const isVisibility = l === 'visibile' || l === 'invisibile';
+    const isCloser = l === 'visibile' || l === 'decisione' || l === 'invisibile';
     const next = task.labels
       .map((x) => x.label)
-      .filter((x) => (on ? x !== l : !(isVisibility && (x === 'visibile' || x === 'invisibile'))));
+      .filter((x) => (on ? x !== l : !(isCloser && (x === 'visibile' || x === 'decisione' || x === 'invisibile'))));
     if (!on) next.push(l);
     setBusy(true);
     try { await boardApi.setLabels(projectId, taskId, next); setError(null); await load(); onChanged(); }
@@ -1668,7 +1668,9 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                     ? 'Invisibile: non tocca client/src — con la barra verde la puo\' chiudere il conduttore'
                     : task.labels.some((l) => l.label === 'visibile')
                       ? 'Visibile: tocca una superficie che si vede — resta in review finche\' non la guarda un umano'
-                      : 'Nessuna etichetta di visibilita\': la chiude un umano'}
+                      : task.labels.some((l) => l.label === 'decisione')
+                        ? 'Decisione: un piano, una ricerca, un documento — la decide un umano, sempre'
+                        : 'Nessuna etichetta di chiusura: la chiude un umano'}
                   className="flex min-w-0 items-center gap-1.5 rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-app-text-secondary hover:bg-white/20"
                 >
                   <Tag className="h-3 w-3 shrink-0 text-app-text-muted" />
@@ -1677,7 +1679,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 </button>
                 <Menu open={labelMenuOpen} anchorRef={labelBtnRef} onClose={() => setLabelMenuOpen(false)} minWidth={220} role="listbox">
                   <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">Chi la chiude</p>
-                  {VISIBILITY_LABELS.map((l) => (
+                  {CLOSER_LABELS.map((l) => (
                     <button
                       key={l} role="option" aria-selected={task.labels.some((x) => x.label === l)}
                       disabled={busy} onClick={() => toggleLabel(l)}

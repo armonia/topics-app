@@ -44,7 +44,7 @@ function freshDb(): Database {
     id TEXT PRIMARY KEY, text TEXT NOT NULL, status TEXT NOT NULL,
     archived INTEGER NOT NULL DEFAULT 0, project_id TEXT, assigned_topic_id TEXT
   )`);
-  d.run(TASK_LABELS_DDL); // migration 097 — rowToTask la legge per OGNI task
+  d.run(TASK_LABELS_DDL); // migration 100 — rowToTask la legge per OGNI task
   d.run(`CREATE TABLE terminal_sessions (
     id TEXT PRIMARY KEY, name TEXT NOT NULL, cwd TEXT NOT NULL, type TEXT NOT NULL,
     topic_id TEXT, status TEXT NOT NULL DEFAULT 'active'

@@ -67,7 +67,7 @@ function freshDb(): Database {
     content TEXT NOT NULL, mentions TEXT, media TEXT, created_at TEXT NOT NULL,
     kind TEXT NOT NULL DEFAULT 'comment'
   )`);
-  // migration 097 — le etichette. `rowToTask` la legge per OGNI riga, quindi
+  // migration 100 — le etichette. `rowToTask` la legge per OGNI riga, quindi
   // senza questa tabella non fallisce il test delle etichette: falliscono tutti.
   db.run(`CREATE TABLE task_labels (
     task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,

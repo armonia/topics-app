@@ -42,7 +42,7 @@ import {
 import { EFFORT_TIERS } from "../../shared/effort";
 // Il vocabolario delle etichette e la regola che le deriva: una sola
 // dichiarazione, letta anche dal client e dalla derivazione alla consegna.
-import { deriveVisibility, isTaskLabel, isVisibilityLabel, normalizeLabels, type LabelSource, type TaskLabel, type TaskLabelRow } from "../../shared/task-labels";
+import { deriveCloser, isCloserLabel, isTaskLabel, normalizeLabels, type LabelSource, type TaskLabel, type TaskLabelRow } from "../../shared/task-labels";
 import type { TaskStatus, TaskComment, BoardSettings, BoardSettingsPatch, BlockerRef, SubtaskWork, TaskWeight } from "../../shared/board";
 
 export type Actor = "human" | "agent";
@@ -240,10 +240,11 @@ export interface Task {
    *  by list/get; the card shows it as a "quanti messaggi ho mandato" count. */
   userCommentCount: number;
   /**
-   * Le etichette (migration 097), con CHI le ha scritte. `visibile`/`invisibile`
-   * decidono chi chiude la card e si DERIVANO dal diff alla consegna; il resto
-   * (`bugfix` `feature` `chore` `misura`) serve a filtrare. Il vocabolario e la
-   * regola stanno in `shared/task-labels.ts` — qui c'è solo la lettura.
+   * Le etichette (migration 100), con CHI le ha scritte. `visibile`,
+   * `decisione` e `invisibile` decidono chi chiude la card e si DERIVANO dal
+   * diff alla consegna; il resto (`bugfix` `feature` `chore` `misura`) serve a
+   * filtrare. Il vocabolario e la regola stanno in `shared/task-labels.ts` —
+   * qui c'è solo la lettura.
    */
   labels: TaskLabelRow[];
 }
@@ -2166,24 +2167,25 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       const wanted = normalizeLabels(labels);
       const current = labelsOf(taskId);
 
-      // IL CANCELLO. Un agente può alzare la mano, mai abbassarla: `visibile` sì
-      // (chiede la revisione umana), `invisibile` no — sarebbe l'autorizzazione a
-      // chiudersi le card da solo. E non può nemmeno TOGLIERE una visibilità già
-      // scritta, perché rimuovere `visibile` è togliersi la revisione dalla lista
-      // di Attilio per un'altra strada.
+      // IL CANCELLO. Un agente può alzare la mano, mai abbassarla. `visibile` e
+      // `decisione` sì — sono due modi di passare la card a un umano, e passare
+      // lavoro a una persona è sempre permesso. `invisibile` no: è l'unica che
+      // TOGLIE la revisione umana, e sarebbe l'autorizzazione a chiudersi le
+      // card da solo. E non può nemmeno TOGLIERE un'etichetta di chiusura già
+      // scritta: sfilare un `visibile` è uscire dalla lista di Attilio per
+      // un'altra strada.
       if (actor === "agent") {
-        const asks = wanted.find((l) => l === "invisibile");
-        if (asks) {
+        if (wanted.includes("invisibile")) {
           throw new TaskServiceError(
             "label_forbidden",
-            "un agente non può marcare `invisibile` il proprio lavoro: la visibilità la deriva il server dal diff (shared/task-labels.ts), o la corregge un umano",
+            "un agente non può marcare `invisibile` il proprio lavoro: chi chiude la card lo deriva il server dal diff (shared/task-labels.ts), o lo corregge un umano",
           );
         }
-        const droppedVisibility = current.find((c) => isVisibilityLabel(c.label) && !wanted.includes(c.label));
-        if (droppedVisibility) {
+        const droppedCloser = current.find((c) => isCloserLabel(c.label) && !wanted.includes(c.label));
+        if (droppedCloser) {
           throw new TaskServiceError(
             "label_forbidden",
-            `un agente non può togliere l'etichetta \`${droppedVisibility.label}\`: la revisione umana si chiede, non si revoca`,
+            `un agente non può togliere l'etichetta \`${droppedCloser.label}\`: la revisione umana si chiede, non si revoca`,
           );
         }
       }
@@ -2207,17 +2209,20 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     deriveLabelsFromDiff({ taskId, files }): Task | null {
       const row = getTaskRow(taskId);
       if (!row) return null;
-      const derived = deriveVisibility(files);
+      const derived = deriveCloser(files);
       const current = labelsOf(taskId);
       // Una correzione a mano di Attilio NON si sovrascrive alla consegna
-      // successiva, o la correzione durerebbe quanto il turno seguente. Solo una
-      // visibilità `derived` (o assente) si ricalcola.
-      const held = current.find((c) => isVisibilityLabel(c.label));
+      // successiva, o la correzione durerebbe quanto il turno seguente. Solo
+      // un'etichetta di chiusura `derived` (o assente) si ricalcola.
+      const held = current.find((c) => isCloserLabel(c.label));
       if (held && held.source !== "derived") return null;
       if (held && held.label === derived) return null;
       const ts = now();
       const tx = db.transaction(() => {
-        db.prepare("DELETE FROM task_labels WHERE task_id = ? AND label IN ('visibile', 'invisibile')").run(taskId);
+        // Tutte e TRE, non le due della prima versione: una `decisione` rimasta
+        // addosso accanto a una `visibile` nuova sarebbe una card con due
+        // risposte alla stessa domanda.
+        db.prepare("DELETE FROM task_labels WHERE task_id = ? AND label IN ('visibile', 'decisione', 'invisibile')").run(taskId);
         db.prepare("INSERT INTO task_labels (task_id, label, source, created_at) VALUES (?, ?, 'derived', ?)")
           .run(taskId, derived, ts);
       });
