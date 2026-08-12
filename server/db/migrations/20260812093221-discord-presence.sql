@@ -1,0 +1,38 @@
+-- 102: lo stato Discord lo pubblica Topics, e queste due colonne dicono se e
+-- QUANTO.
+--
+-- Fino a ieri il Rich Presence lo faceva un daemon a parte
+-- (`claude-discord-presence`) che contava i processi `claude` con `ps` e ne
+-- misurava il delta di CPU per indovinare quali stessero «lavorando». Era una
+-- stima esterna di un fatto che questa casa conosce esatto: quali turni sono in
+-- streaming adesso, quali task la board ha in mano, quante sessioni sono
+-- aperte. Il daemon non poteva sbagliare di poco — o vedeva processi che non
+-- erano sessioni, o non vedeva sessioni che non erano processi (le chat via
+-- API non lanciano nessun `claude`).
+--
+-- Due colonne su `app_settings`, la casa dei knob globali, con la stessa regola
+-- di ogni altra colonna di quella tabella (054): NULLABLE, nessun UPDATE di
+-- massa, NULL = «non deciso» ⇒ il default del codice. E il default è SPENTO:
+-- pubblicare cosa stai facendo su un profilo pubblico non è una cosa che si
+-- accende per conto di qualcuno.
+--
+-- `discord_presence_enabled` — l'interruttore. 0/1, NULL = mai toccato = spento.
+ALTER TABLE app_settings ADD COLUMN discord_presence_enabled INTEGER;
+
+-- `discord_detail_level` — QUANTO si vede, che è la domanda vera: la presence
+-- Discord è pubblica per chiunque sia nei tuoi server, quindi il livello di
+-- dettaglio è un controllo di privacy, non una preferenza estetica.
+--
+-- Valori: 'minimal' | 'activity' | 'detailed'.
+--   • minimal  — «Topics», e basta. Nessun numero, nessun nome.
+--   • activity — i CONTEGGI (quante sessioni, quante al lavoro). Nessun nome
+--                di progetto, di topic o di file: numeri, che non identificano
+--                un cliente.
+--   • detailed — anche il nome del progetto su cui stai lavorando.
+--
+-- Niente CHECK, per la stessa ragione dichiarata nella 087: l'insieme ammesso
+-- vive nell'union TypeScript (`DiscordDetailLevel`, shared/types.ts) e nella
+-- validazione della rotta. Un CHECK qui sarebbe una terza copia da tenere
+-- allineata a mano, ed è esattamente il modo in cui i vincoli SQLite di questo
+-- repo sono già andati in deriva una volta.
+ALTER TABLE app_settings ADD COLUMN discord_detail_level TEXT;

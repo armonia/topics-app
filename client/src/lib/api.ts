@@ -1275,6 +1275,12 @@ export interface AppBehaviorSettings {
   claudeCodePermissionMode: string | null;
   codexApprovalMode: string | null;
   claudeCodeEnabled: boolean | null;
+  /** Topics pubblica il tuo stato su Discord (migration 102). `null` = mai
+   *  toccato, che qui vale SPENTO — non «default acceso». */
+  discordPresenceEnabled: boolean | null;
+  /** Quanto se ne vede: `minimal` | `activity` | `detailed`. `null` = il
+   *  default del server, `activity`. */
+  discordDetailLevel: DiscordDetailLevel | null;
 }
 
 /**
@@ -1285,7 +1291,8 @@ export interface AppBehaviorSettings {
  * La superficie è in Impostazioni → Permessi.
  */
 export type { ToolGrant } from '../../../shared/types';
-import type { ToolGrant } from '../../../shared/types';
+import type { ToolGrant, DiscordDetailLevel } from '../../../shared/types';
+export type { DiscordDetailLevel } from '../../../shared/types';
 
 export const toolGrantsApi = {
   async list(): Promise<ToolGrant[]> {
@@ -1312,6 +1319,46 @@ export const appSettingsApi = {
       body: JSON.stringify(patch),
     });
     return r.settings;
+  },
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Profilo — chi sei qui dentro, cosa è passato di qui, e cosa ne vede Discord.
+//
+// Le statistiche NON vengono da `usage_records`/`agent_sessions`: quelle due
+// tabelle non hanno un solo scrittore in tutto il server, e un numero letto da
+// lì sarebbe zero per sempre. La fonte sono `messages`/`tasks`/`topics` — la
+// storia sta in cima a `server/services/profile-stats.ts`.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Le forme vivono in `shared/types.ts` e si RI-ESPORTANO: sono le stesse che
+// il server manda sul filo, e una copia di qua sarebbe l'ennesimo «KEEP IN
+// SYNC» che non tiene in sync niente (`tests/unit/no-type-mirrors.test.ts`).
+// `DiscordActivityPreview` è un alias locale: da questo lato l'attività è
+// sempre e solo un'anteprima da disegnare, mai qualcosa da pubblicare.
+export type {
+  ProfileStats,
+  DiscordPresenceStatus,
+  DiscordActivity as DiscordActivityPreview,
+} from '../../../shared/types';
+import type {
+  ProfileStats,
+  DiscordPresenceStatus,
+  DiscordActivity as DiscordActivityPreview,
+} from '../../../shared/types';
+
+export const profileApi = {
+  async stats(): Promise<{ stats: ProfileStats; name: string | null }> {
+    return request<{ stats: ProfileStats; name: string | null }>('/profile/stats');
+  },
+  /** Stato del filo + l'anteprima di OGNI livello: la card le mostra tutte e
+   *  tre, così la scelta si fa guardando il risultato invece di leggendo una
+   *  descrizione. */
+  async discord(): Promise<{
+    status: DiscordPresenceStatus;
+    preview: Record<DiscordDetailLevel, DiscordActivityPreview | null>;
+  }> {
+    return request('/profile/discord');
   },
 };
 
