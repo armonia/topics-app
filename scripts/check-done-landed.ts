@@ -57,7 +57,7 @@ import { join } from "path";
 import { Database } from "bun:sqlite";
 import { projectIdForPath } from "../server/services/tasks";
 import { branchExistsInRepo, commitStatusFromRepo, countCommitsAhead, resolveCommit, type BranchStatus } from "../server/services/branch-status";
-import { classifyBranchLanding, indiceRigheMain, type LandingEsito, type LandingVerdict } from "../server/services/landing-verdict";
+import { classifyBranchLanding, classifyCommitLanding, indiceRigheMain, type LandingEsito, type LandingVerdict } from "../server/services/landing-verdict";
 import { scanWorkspaceProjects } from "../server/services/project-path-resolver";
 
 const argv = process.argv.slice(2);
@@ -288,7 +288,32 @@ const outside = verdicts.filter((v) => v.status === "unmerged");
 // Le card fuori da main che NON hanno più un ramo vivo: la loro riga è cronaca,
 // non un'azione, e sta lontano dalle tre liste per non ingrossarle.
 const viveIds = new Set(aliveOutside.map((a) => a.id));
-const storico = outside.filter((v) => !viveIds.has(v.id));
+const senzaRamo = outside.filter((v) => !viveIds.has(v.id));
+
+/**
+ * Anche qui la discendenza mente, e per lo stesso motivo: il land ricopia. Sulle
+ * card senza più un ramo la sola domanda che resta è quella per contenuto, e
+ * misurata il 12/08 assolveva due delle quattro card topics-app che il conto
+ * storico dava per fuori. Restano nell'elenco solo quelle che il contenuto su
+ * main non ce l'hanno davvero.
+ */
+async function ripassoStorico(): Promise<{ storico: Verdict[]; recuperate: Verdict[] }> {
+  const storico: Verdict[] = [];
+  const recuperate: Verdict[] = [];
+  const indici = new Map<string, ReadonlySet<string>>();
+  for (const v of senzaRamo) {
+    if (!v.repoPath) { storico.push(v); continue; }
+    let indiceMain = indici.get(v.repoPath);
+    if (!indiceMain) {
+      indiceMain = await indiceRigheMain(v.repoPath);
+      indici.set(v.repoPath, indiceMain);
+    }
+    const esito = (await classifyCommitLanding(v.repoPath, v.commit, { indiceMain })).esito;
+    (esito === "dentro" ? recuperate : storico).push(v);
+  }
+  return { storico, recuperate };
+}
+const { storico, recuperate } = await ripassoStorico();
 const pruned = verdicts.filter((v) => v.status === "gone");
 const unresolved = verdicts.filter((v) => v.status === "no-repo");
 const landed = verdicts.filter((v) => v.status === "merged");
@@ -320,6 +345,10 @@ if (JSON_OUT) {
           }
         : null,
     })),
+    // Le card senza ramo che la DISCENDENZA dava per fuori e il CONTENUTO
+    // ritrova su main, e quelle che restano fuori davvero.
+    recuperatePerContenuto: recuperate.length,
+    senzaRamoFuori: storico.length,
     witnessed: verdicts.filter((v) => v.fonte === "land").length,
     turniPagatiDopoUnLand: turniPagatiDopoUnLand(),
     cards: outside.map((v) => ({ id: v.id, commit: v.commit, branch: v.branch, fonte: v.fonte, text: v.text.slice(0, 80) })),
@@ -329,9 +358,19 @@ if (JSON_OUT) {
     `    · ${v.id.slice(0, 8)} ${v.commit.slice(0, 8)}${v.branch ? ` (${v.branch})` : ""} ` +
     `[${v.fonte}] — ${v.text.slice(0, 60)}`;
   const witnessed = verdicts.filter((v) => v.fonte === "land").length;
+  // Il conto per DISCENDENZA e quello per CONTENUTO, affiancati. Il primo da
+  // solo era il numero che mentiva: il land ricopia i commit, quindi accusa di
+  // «fuori» del lavoro che è dentro, e su 10 card ne accusava a torto 4.
+  const dentroDavvero = landed.length + recuperate.length + dentroPerContenuto.length;
   console.log(
-    `card done con una consegna registrata: ${verdicts.length} · su main: ${landed.length} · ` +
-    `FUORI da main: ${outside.length} · commit sparito: ${pruned.length} · progetto non risolto: ${unresolved.length}`,
+    `card done con una consegna registrata: ${verdicts.length} · su main per discendenza: ${landed.length} · ` +
+    `fuori: ${outside.length} · commit sparito: ${pruned.length} · progetto non risolto: ${unresolved.length}`,
+  );
+  console.log(
+    `  ripassate per CONTENUTO: su main ${dentroDavvero} ` +
+    `(${recuperate.length + dentroPerContenuto.length} che la discendenza dava per fuori) · ` +
+    `superate ${superati.length} · DEBITO ${debiti.length} · ` +
+    `senza ramo, non più landabili ${storico.length}`,
   );
   // La riga che dice quanto ci si può fidare del numero qui sopra. Le card
   // vecchie non hanno una testimonianza e non l'avranno mai: il loro verdetto
@@ -399,7 +438,7 @@ if (JSON_OUT) {
     // Le card fuori da main il cui RAMO non c'è più: nessun bottone le rimette
     // a posto, quindi non sono un'azione. Restano perché la loro data che smette
     // di avanzare è la prova che il cancello del land ha smesso di perdere.
-    console.log(`\n  storico (${storico.length}) — fuori dal contenuto di main, ma senza un ramo vivo da landare:`);
+    console.log(`\n  storico (${storico.length}) — il contenuto su main non c'è, e il ramo nemmeno: niente da landare:`);
     // Raggruppate per checkout: la prova si incolla in un terminale per NON
     // crederci, e una prova che nomina il repo di un'ALTRA card non si incolla.
     const byRepo = new Map<string, Verdict[]>();

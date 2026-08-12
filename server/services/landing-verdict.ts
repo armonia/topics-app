@@ -136,6 +136,15 @@ export function isRigaDistintiva(riga: string): boolean {
   return t.length >= RIGA_DISTINTIVA_MIN && /[A-Za-z0-9]/.test(t);
 }
 
+/** Commenti e import: prosa e collegamenti, non il lavoro. */
+const CORNICE_RE = /^(\/\/|\/\*|\*|#|<!--|import\s|export\s+\*\s+from)/;
+
+/** Una riga di SOSTANZA: distintiva, e non commento né import. */
+export function isRigaDiSostanza(riga: string): boolean {
+  const t = riga.trim();
+  return isRigaDistintiva(t) && !CORNICE_RE.test(t);
+}
+
 interface DiffRaccolto {
   file: string[];
   /** Le righe aggiunte, per file. */
@@ -319,6 +328,46 @@ function contaPresenti(
   return { cercate: impronte.size, presenti };
 }
 
+/** Lo stesso conto sulle sole righe di sostanza. */
+function contaSostanza(
+  aggiunte: Map<string, string[]>,
+  indice: ReadonlySet<string>,
+): { cercate: number; presenti: number } {
+  const impronte = new Set<string>();
+  for (const righe of aggiunte.values()) {
+    for (const r of righe) {
+      const t = r.trim();
+      if (isRigaDiSostanza(t)) impronte.add(t);
+    }
+  }
+  let presenti = 0;
+  for (const imp of impronte) if (indice.has(imp)) presenti += 1;
+  return { cercate: impronte.size, presenti };
+}
+
+/**
+ * «Il contenuto è su main» letto in DUE modi, e basta che uno dei due dica di sì.
+ *
+ * Su tutte le righe lunghe, e sulle sole righe di SOSTANZA (via commenti e
+ * import). Non è una soglia ammorbidita finché non passa: sono due fenomeni
+ * diversi, e ognuno dei due letture ne vede uno solo.
+ *  · Un ramo piccolo lascia poche righe di sostanza e molte di prosa: contando
+ *    solo la sostanza il campione sparisce. `giant-cabin` ha UNA riga di codice.
+ *  · Un ramo atterrato mesi fa ha la prosa riscritta e il codice intatto:
+ *    contando tutto scende sotto soglia. La consegna `e40c3ad6` dà 75/107 su
+ *    tutte le righe (0,70) e 16/20 sulla sostanza (0,80), ed è dentro.
+ * Il verso in cui si sbaglia è scelto: gridare al debito su lavoro atterrato è
+ * il difetto che ha reso questa lista muta, ed è quello che si evita.
+ */
+function dentroPerContenuto(
+  tutte: { cercate: number; presenti: number },
+  sostanza: { cercate: number; presenti: number },
+): boolean {
+  const passa = (c: { cercate: number; presenti: number }) =>
+    c.cercate >= RIGHE_MINIME && c.presenti / c.cercate >= SOGLIA_DENTRO;
+  return passa(tutte) || passa(sostanza);
+}
+
 /** Il ramo lascia ogni file che tocca identico a main? */
 async function tuttiIFileIdentici(
   repoPath: string,
@@ -374,16 +423,19 @@ export async function classifyBranchLanding(
   const esistenti = await fileSuMain(repoPath, mainRef, file, git);
   const assentiSuMain = file.filter((f) => !esistenti.has(f));
   const righe = contaPresenti(aggiunte, indice);
+  const sostanza = contaSostanza(aggiunte, indice);
   const base = { righe, file, assentiSuMain };
 
   if (await tuttiIFileIdentici(repoPath, mainRef, branch, file, git)) {
     const quanti = file.length === 1 ? "l'unico file toccato è identico" : `tutti e ${file.length} i file toccati sono identici`;
     return { ...base, esito: "dentro", superatoDa: null, commitDopo: 0, motivo: `${quanti} su main` };
   }
-  if (righe.cercate >= RIGHE_MINIME && righe.presenti / righe.cercate >= SOGLIA_DENTRO) {
+  if (dentroPerContenuto(righe, sostanza)) {
     return {
       ...base, esito: "dentro", superatoDa: null, commitDopo: 0,
-      motivo: `${righe.presenti}/${righe.cercate} righe distintive sono già su main`,
+      motivo:
+        `${righe.presenti}/${righe.cercate} righe distintive sono già su main ` +
+        `(${sostanza.presenti}/${sostanza.cercate} contando solo la sostanza)`,
     };
   }
 
@@ -419,6 +471,60 @@ export async function classifyBranchLanding(
   }
   return {
     ...base, esito: "non-decidibile", superatoDa: null, commitDopo: 0,
+    motivo: `non decidibile: nessuna riga distintiva (solo ${righe.cercate} righe da ${RIGA_DISTINTIVA_MIN} caratteri in su)`,
+  };
+}
+
+/**
+ * La stessa prova per CONTENUTO su una consegna di cui resta solo il commit.
+ *
+ * Il ramo di una card atterrata viene potato, quindi sullo storico non c'è più
+ * niente da fondere: cadono la supersessione e il conflitto, che sono domande su
+ * un ramo vivo, e resta la sola domanda che ha ancora senso, «il lavoro è di
+ * là?». Serve perché il conto storico legge ancora la DISCENDENZA, e su una
+ * consegna ricopiata dal land la discendenza dice di no anche quando il
+ * contenuto c'è: misurato il 12/08, due card su quattro.
+ *
+ * Gli esiti qui sono tre: `dentro`, `fuori`, `non-decidibile`. Un `superato` non
+ * si può né provare né usare quando il ramo non esiste più.
+ */
+export async function classifyCommitLanding(
+  repoPath: string,
+  commit: string,
+  opts: LandingVerdictOptions = {},
+): Promise<LandingVerdict> {
+  const git = opts.runGit ?? defaultRunGit;
+  const mainRef = opts.mainRef ?? "main";
+  const nudo = { righe: { cercate: 0, presenti: 0 }, file: [], assentiSuMain: [], superatoDa: null, commitDopo: 0 };
+
+  if ((await git(repoPath, ["rev-parse", "--verify", "--quiet", `${commit}^{commit}`])).code !== 0) {
+    return { ...nudo, esito: "non-decidibile", motivo: "non decidibile: il repo non ha più quel commit" };
+  }
+  const { file, aggiunte } = await raccogliDiff(repoPath, [commit], git);
+  if (file.length === 0) {
+    return { ...nudo, esito: "dentro", motivo: "tocca solo file generati (lock, bundle, versione): niente da perdere" };
+  }
+  const indice = opts.indiceMain ?? (await indiceRigheMain(repoPath, mainRef, git));
+  const righe = contaPresenti(aggiunte, indice);
+  const sostanza = contaSostanza(aggiunte, indice);
+  const base = { righe, file, assentiSuMain: [], superatoDa: null, commitDopo: 0 };
+
+  if (dentroPerContenuto(righe, sostanza)) {
+    return {
+      ...base, esito: "dentro",
+      motivo:
+        `${righe.presenti}/${righe.cercate} righe distintive sono già su main ` +
+        `(${sostanza.presenti}/${sostanza.cercate} contando solo la sostanza)`,
+    };
+  }
+  if (righe.cercate >= RIGHE_MINIME) {
+    return {
+      ...base, esito: "fuori",
+      motivo: `${righe.cercate - righe.presenti}/${righe.cercate} righe distintive non sono su main`,
+    };
+  }
+  return {
+    ...base, esito: "non-decidibile",
     motivo: `non decidibile: nessuna riga distintiva (solo ${righe.cercate} righe da ${RIGA_DISTINTIVA_MIN} caratteri in su)`,
   };
 }
