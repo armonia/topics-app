@@ -38,11 +38,12 @@ import { tauriInvoke } from './shell/tauri';
 
 type Invoke = <T = unknown>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
 
-/** Un silo dello store: il nome WebKit e i tipi di dato che contiene. */
-export interface SiteDataRecord {
-  displayName: string;
-  types: string[];
-}
+/** Un silo dello store: il nome del silo e i tipi di dato che contiene. Il nome
+ *  lo scrive chi tiene i dati, e i due magazzini lo scrivono diverso (WebKit per
+ *  dominio registrabile, il condiviso per host preciso): la FORMA però è una
+ *  sola, e sta in `shared/` perché il server la produce e il client la legge. */
+export type { SiteDataRecord } from '../../../shared/browser-site-record';
+import type { SiteDataRecord } from '../../../shared/browser-site-record';
 
 /**
  * Da dove arrivano i silo e chi li cancella. Le due implementazioni sono
