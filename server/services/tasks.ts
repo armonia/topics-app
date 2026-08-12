@@ -141,6 +141,14 @@ export interface Task {
   /** Screenshot della consegna (path assoluto allowlistato, servito da
    *  /api/media) — thumbnail sulla card Kanban. */
   previewImage: string | null;
+  /**
+   * L'anteprima è stata RITIRATA perché non era evidenza (duplicata, un
+   * placeholder, un errore). È uno stato della card, non un messaggio nel
+   * thread: si spegne da solo appena arriva un'anteprima nuova, cosa che una
+   * nota scritta una volta non può fare. `null` = non è mai successo.
+   */
+  previewRetiredAt: string | null;
+  previewRetiredReason: string | null;
   /** Dispatch contract: deliver a PLAN to review before implementing. */
   planFirst: boolean;
   /** IL commento che È il piano (la tab "Piano" rende questo, non l'ultimo
@@ -611,6 +619,8 @@ export interface TaskService {
    * fare. `null` cancella (torna a «mai classificato» = leggero).
    */
   setDispatchWeight(args: { taskId: string; weight: TaskWeight | null }): Task;
+  /** Toglie l'anteprima e scrive sulla card PERCHÉ (stato, non messaggio). */
+  retirePreview(args: { taskId: string; reason: string }): Task;
   /** Accumulate agent effort on the task (dispatcher, at each turn end). */
   recordAgentUsage(args: { taskId: string; addMs: number; addTokens: number; addCacheReadTokens?: number }): Task;
   /**
@@ -749,7 +759,11 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           if (!fileExists(f)) continue;
           const tall = tooTallForCard(f);
           if (tall) { rejected.push({ path: f, shape: tall }); continue; }
-          db.prepare("UPDATE tasks SET preview_image = ?, updated_at = ? WHERE id = ?").run(f, now(), taskId);
+          // Anche l'adozione automatica supera il ritiro: la card ha di nuovo
+          // un'evidenza, quindi il fatto «ritirata» ha smesso di valere.
+          db.prepare(
+            "UPDATE tasks SET preview_image = ?, preview_retired_at = NULL, preview_retired_reason = NULL, updated_at = ? WHERE id = ?",
+          ).run(f, now(), taskId);
           noteDuplicatePreview(taskId, f);
           return;
         }
@@ -1044,6 +1058,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       parentTaskId: r.parent_task_id ?? null,
       outputUrl: r.output_url ?? null,
       previewImage: r.preview_image ?? null,
+      previewRetiredAt: r.preview_retired_at ?? null,
+      previewRetiredReason: r.preview_retired_reason ?? null,
       planFirst: !!r.plan_first,
       planCommentId: r.plan_comment_id ?? null,
       inProgressAt: r.in_progress_at ?? null,
@@ -1562,6 +1578,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         }
         put("preview_image", p || null);
         explicitPreview = p || null;
+        // Un'anteprima NUOVA supera il ritiro: lo stato si spegne qui, che è la
+        // cosa che una nota nel thread non sa fare. Il ritiro lo riaccende solo
+        // chi ritira (`retirePreview`), mai un azzeramento qualsiasi.
+        if (p) { put("preview_retired_at", null); put("preview_retired_reason", null); }
       }
       if (patch.model !== undefined) {
         const m = (patch.model ?? "").trim();
@@ -2240,6 +2260,24 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
       db.prepare("UPDATE tasks SET model = ?, updated_at = ? WHERE id = ?")
         .run(model || null, now(), taskId);
+      return rowToTask(getTaskRow(taskId));
+    },
+
+    /**
+     * Ritira l'anteprima e SCRIVE il perché sulla card.
+     *
+     * Un solo gesto, perché il fatto è uno solo: l'immagine se ne va e la card
+     * porta il motivo. Prima il motivo finiva solo in una nota del thread —
+     * dove non invecchia, non si corregge e non sa di essere stata superata.
+     * Qui si spegne da solo appena qualcuno allega un'anteprima nuova (vedi
+     * `update`/`promoteReviewPreview`).
+     */
+    retirePreview({ taskId, reason }): Task {
+      const row = getTaskRow(taskId);
+      if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
+      db.prepare(
+        "UPDATE tasks SET preview_image = NULL, preview_retired_at = ?, preview_retired_reason = ?, updated_at = ? WHERE id = ?",
+      ).run(now(), reason.trim() || null, now(), taskId);
       return rowToTask(getTaskRow(taskId));
     },
 

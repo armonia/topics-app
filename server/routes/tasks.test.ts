@@ -25,6 +25,7 @@ function freshDb(): Database {
     agent_ms INTEGER NOT NULL DEFAULT 0, agent_tokens INTEGER NOT NULL DEFAULT 0,
     model TEXT, blocked_by_task_id TEXT REFERENCES tasks(id), reuse_blocker_context INTEGER NOT NULL DEFAULT 0,
     priority_auto INTEGER NOT NULL DEFAULT 1, preview_image TEXT,
+    preview_retired_at TEXT, preview_retired_reason TEXT,
     delivery_branch TEXT, delivery_commit TEXT, landing_state TEXT, landing_checked_at TEXT,
     landing_witnessed INTEGER NOT NULL DEFAULT 0, dispatch_deferred_until TEXT,
     wait_streak INTEGER NOT NULL DEFAULT 0, wait_reason TEXT, wait_since TEXT,
