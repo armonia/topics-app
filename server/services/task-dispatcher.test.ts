@@ -614,6 +614,28 @@ describe("task-dispatcher", () => {
     expect(notes).toContain("non conteggiato");
   });
 
+  it("lo STOP dalla board parcheggia e la chip «fermato» sopravvive al turno tagliato", async () => {
+    // L'ordine dello stop umano: la route PARCHEGGIA prima (release → backlog,
+    // chip 'stopped') e taglia il turno DOPO. Qui si simula esattamente quello,
+    // perché è l'`onTurnEnd` del turno abortito il punto in cui la cosa poteva
+    // rompersi in due modi: rimettere in coda un task che l'umano ha fermato, o
+    // riazzerare la chip e lasciare la card muta in Backlog.
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchRetryCap: 3 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.task("t1")!.dispatchAttempts).toBe(1);
+    h.svc.release({ taskId: "t1", requeue: false, by: "user", parkState: "stopped" });
+    h.finishTurnWith(cancelled("user"));
+    await flush();
+    const t = h.task("t1")!;
+    expect(t.status).toBe("backlog");
+    expect(t.dispatchState).toBe("stopped"); // né null (muta) né 'failed' (accusa)
+    expect(t.dispatchAttempts).toBe(1);      // fermare non consuma un tentativo
+    expect(h.turns.length).toBe(1);          // e non riparte da solo
+  });
+
   it("una raffica di errori del PROVIDER non brucia i tentativi (ma un guasto cronico sì)", async () => {
     // Misurato il 10/08: durante una raffica di dispatch paralleli, VENTI task
     // sono finiti in review a mano vuote — «Errore del provider: riprovo tra 60s
