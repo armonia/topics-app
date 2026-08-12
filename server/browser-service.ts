@@ -128,6 +128,8 @@ try {
 // start on the same document) and pipes each event to the host via __rrwebEmit.
 // The recorder's stop fn is stashed on window.__rrwebStop so instrumentation is
 // REVOCABLE (see RRWEB_STOP) — the mutation observers detach when no one is watching.
+// allow-emdash-block: sotto c'è sorgente JS iniettato nella pagina. I trattini
+// stanno nei suoi COMMENTI, che non si leggono da nessuna parte nella app.
 const RRWEB_RECORD_START = `(function(){
   function emit(p){ try { window.__rrwebEmit && window.__rrwebEmit(JSON.stringify(p)); } catch(_){} }
   if (window.__rrwebStarted) {
@@ -165,6 +167,7 @@ const RRWEB_RECORD_START = `(function(){
   else window.addEventListener('DOMContentLoaded', function(){ start(); }, { once:true });
 })();`;
 // Detach the recorder (stops all MutationObservers) and allow a clean restart.
+// end-allow-emdash
 const RRWEB_STOP = `(function(){ try { if (window.__rrwebStop) { window.__rrwebStop(); window.__rrwebStop = null; } window.__rrwebStarted = false; } catch(_){} })();`;
 
 export interface AccessibilityNode {

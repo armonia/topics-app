@@ -286,14 +286,14 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
     isMobile ? 'Questo telefono' : 'Questo computer',
     appMemMB !== null
       ? (isPartialMem
-          ? `Topics (processo shell): ${appMemMB} MB — ${memMetric === 'footprint' ? 'footprint' : 'memoria residente (RSS)'}\n· NON include i processi WKWebView (contenuto browser dei pannelli)`
-          : `Topics, ${procCount ?? '?'} processi: ${appMemMB} MB di footprint — lo stesso valore di Monitoraggio Attività\n· di cui in RAM adesso: ${residentMemMB ?? '—'} MB (il resto è compresso o in swap)`)
+          ? `Topics (processo shell): ${appMemMB} MB di ${memMetric === 'footprint' ? 'footprint' : 'memoria residente (RSS)'}\n· NON include i processi WKWebView (contenuto browser dei pannelli)`
+          : `Topics, ${procCount ?? '?'} processi: ${appMemMB} MB di footprint, lo stesso valore di Monitoraggio Attività\n· di cui in RAM adesso: ${residentMemMB ?? '-'} MB (il resto è compresso o in swap)`)
       : 'memoria e CPU non misurabili qui: il browser non espone i processi. Sono disponibili solo dentro l’app desktop.',
     shellCpu !== null
-      ? `CPU: ${formatCpuPercent(shellCpu)}% — può superare 100% (per core)`
+      ? `CPU: ${formatCpuPercent(shellCpu)}% · può superare 100% (per core)`
       : null,
     perf && perf.cpu.pids > 0 && perf.cpu.sampled < perf.cpu.pids
-      ? `misurata su ${perf.cpu.sampled}/${perf.cpu.pids} processi — gli altri non hanno ancora un delta`
+      ? `misurata su ${perf.cpu.sampled}/${perf.cpu.pids} processi · gli altri non hanno ancora un delta`
       : null,
     fps > 0 ? `${fps} fotogrammi al secondo, misurati in questa finestra` : null,
   ].filter(Boolean).join('\n· ');
@@ -306,8 +306,8 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
     fleet
       ? `${fleet.processCount} processi: ${fleet.memoryMB} MB`
         + (fleet.memMetric === 'footprint' ? ' di footprint' : fleet.memMetric === 'mixed' ? ' (footprint parziale)' : ' (RSS, stima alta)')
-      : `processo Bun: ${serverMemMB ?? '—'} MB` + (status ? ` (heap ${status.server.heapUsedMB} MB)` : ''),
-    fleetCpu !== null ? `CPU: ${formatCpuPercent(fleetCpu)}% — può superare 100% (per core)` : 'CPU: non misurata',
+      : `processo Bun: ${serverMemMB ?? '-'} MB` + (status ? ` (heap ${status.server.heapUsedMB} MB)` : ''),
+    fleetCpu !== null ? `CPU: ${formatCpuPercent(fleetCpu)}% · può superare 100% (per core)` : 'CPU: non misurata',
     ...(fleet
       ? fleet.roots
           .filter(r => r.kind !== 'server' && r.memoryMB > 0)
@@ -538,7 +538,7 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
           onMouseEnter={prefetchStatusPanel}
           onFocus={prefetchStatusPanel}
           className={`tap-expand-y flex items-center gap-1.5 text-[11px] ${SIDEBAR_HOVER} rounded px-1 py-1 transition-colors min-w-0 overflow-hidden ${showStatusDropdown ? SIDEBAR_ACTIVE : ''}`}
-          title="Performance & stato sistema — apri per FPS live"
+          title="Performance e stato sistema · apri per FPS live"
         >
           {openclawAvailable ? (
             <>

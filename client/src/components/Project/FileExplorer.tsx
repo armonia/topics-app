@@ -17,6 +17,7 @@ import { ConfirmDialog } from '../Shared/ConfirmDialog';
 import { SELECTED_SURFACE, SELECTED_SURFACE_SOFT, SIDEBAR_ACTIVE, SIDEBAR_INDENT_STEP, TREE_ROW_CARD } from '@/lib/selectionStyles';
 import { useToast } from '../Shared/Toast';
 import { Spinner, SpinnerFallback } from '../Shared/Spinner';
+import { SkeletonRows } from '../Shared/Skeleton';
 
 const EditorTabs = lazy(() => import('../Editor/EditorTabs').then(m => ({ default: m.EditorTabs })));
 
@@ -1275,13 +1276,19 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
   }, [projectPath, uploadExternalFiles]);
 
   if (loading) {
+    // Uno scheletro e non un anello centrato: qui sotto arriva un ALBERO, e
+    // l'anello non lo diceva — al suo posto compariva di colpo una colonna di
+    // righe, che è il salto. Le classi della riga finta sono quelle vere del
+    // nodo (`px-2 py-[3px] min-h-[28px]`, indentazione `SIDEBAR_INDENT_STEP`),
+    // copiate dal `FileNode` qui sopra: stessa altezza, stesso passo.
     return (
-      <div className="flex items-center justify-center h-full">
-        <div className="flex items-center gap-2 text-app-text-tertiary text-[13px]">
-          <Spinner size="md" />
-          Loading files...
-        </div>
-      </div>
+      <SkeletonRows
+        count={12}
+        rowClassName={`flex items-center gap-1.5 ${TREE_ROW_CARD} px-2 py-[3px] min-h-[28px]`}
+        glyph={14}
+        indentStep={SIDEBAR_INDENT_STEP}
+        depths={[0, 0, 1, 1, 2, 1, 0, 1, 2, 2, 1, 0]}
+      />
     );
   }
 

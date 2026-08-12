@@ -1049,7 +1049,7 @@ const authSharesChangedSchema = z.object({
 // ---- Cronologia delle notifiche --------------------------------------------
 
 /**
- * Una notifica è appena stata REGISTRATA (migration 101 · db/notification-log).
+ * Una notifica è appena stata REGISTRATA (migration 102 · db/notification-log).
  * Emesso una volta sola per evento, dopo il taglio del dedup: se due porte —
  * banner nativo e web-push — o N finestre staccate riportano la stessa notifica,
  * la riga è una e questo frame parte una volta.
