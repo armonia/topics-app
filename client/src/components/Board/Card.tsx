@@ -403,9 +403,15 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
           )}
           {notLanded && (
             <span
-              title={`Il lavoro consegnato (${task.deliveryCommit?.slice(0, 8) ?? '?'}${task.deliveryBranch ? ` su ${task.deliveryBranch}` : ''}) NON risulta su main. Landa il branch prima che venga potato.`}
-              className="flex items-center gap-1 rounded bg-rose-500/20 px-1.5 py-0.5 text-xs md:text-[11px] text-rose-300"
-            ><AlertTriangle className="h-3 w-3 shrink-0" /> non su main</span>
+              data-testid="card-not-landed"
+              title={`Il lavoro consegnato (${task.deliveryCommit?.slice(0, 8) ?? '?'}${task.deliveryBranch ? ` su ${task.deliveryBranch}` : ''}) NON risulta su main. Apri il task per landarlo prima che il branch venga potato.`}
+              className="flex max-w-[13rem] items-center gap-1 rounded bg-rose-500/20 px-1.5 py-0.5 text-xs md:text-[11px] text-rose-300"
+              // Il RAMO sta nel testo, non solo nel `title`: su touch l'hover non
+              // esiste, e senza il nome la card dice che c'è un problema ma non
+              // dove sta il lavoro. `truncate` come il chip del bloccante: il
+              // nome intero resta nel DOM (e nel tooltip), la colonna non si
+              // allarga per un branch lungo.
+            ><AlertTriangle className="h-3 w-3 shrink-0" /> <span className="truncate">non su main{task.deliveryBranch ? ` · ${task.deliveryBranch}` : ''}</span></span>
           )}
           {checksRed && (
             <span
