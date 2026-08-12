@@ -2847,9 +2847,29 @@ const opzioniServer = {
           }
           const parsed = result.data;
           if (parsed.type === 'input') {
-            browserService.dispatchInput(ctxId, parsed.action, parsed.payload).catch(err =>
-              console.warn(`[WS][browser] dispatchInput failed for ${ctxId}:`, err.message)
-            );
+            const relayed = browserService.dispatchInput(ctxId, parsed.action, parsed.payload).catch(err => {
+              console.warn(`[WS][browser] dispatchInput failed for ${ctxId}:`, err.message);
+              return 'failed' as const;
+            });
+            // DOPO IL CLICK, CHI HA PRESO IL FUOCO.
+            //
+            // Il pane deve vestire il proprio campo di cattura come il campo
+            // remoto, o dal telefono esce sempre la stessa tastiera (quella di
+            // testo) qualunque cosa si tocchi. Sul co-browse DOM la risposta è
+            // in casa, nel mirror; sul ramo video il pane vede pixel e la
+            // risposta può darla solo la pagina vera, qui.
+            //
+            // Va SOLO a chi ha cliccato: in una sessione condivisa gli altri non
+            // hanno toccato niente, e non devono ritrovarsi una tastiera aperta.
+            if (parsed.action === 'click') {
+              void relayed.then(async (outcome) => {
+                if (outcome === 'failed') return;
+                const field = await browserService.describeFocusedField(ctxId).catch(() => null);
+                try {
+                  sendBrowserWsMessage(ws, { type: 'focus_field', ...(field ? { field } : {}) });
+                } catch { /* socket gone — the keyboard question died with it */ }
+              });
+            }
           } else if (parsed.type === 'nav' && parsed.phase === 'request') {
             browserService.navigate(ctxId, parsed.url).then((r) => {
               // goto failures resolve with `error` (page stayed on the old

@@ -125,6 +125,25 @@ describe('browser-ws-messages: dom_event (server -> client)', () => {
   });
 });
 
+describe('browser-ws-messages: focus_field (server -> client)', () => {
+  it('accepts the field descriptor the video branch dresses its keyboard with', () => {
+    const msg = {
+      type: 'focus_field' as const,
+      field: { tag: 'input', type: 'email', inputMode: '', enterKeyHint: 'go', inForm: true },
+    };
+    const r = parseBrowserWsMessage(msg);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.data).toEqual(msg);
+  });
+  it('accepts it WITHOUT a field: nothing writable took focus', () => {
+    expect(parseBrowserWsMessage({ type: 'focus_field' }).ok).toBe(true);
+  });
+  it('needs a tag when a field is there, and keeps the flags booleans', () => {
+    expect(parseBrowserWsMessage({ type: 'focus_field', field: { type: 'email' } }).ok).toBe(false);
+    expect(parseBrowserWsMessage({ type: 'focus_field', field: { tag: 'input', disabled: 'si' } }).ok).toBe(false);
+  });
+});
+
 describe('browser-ws-messages: union still discriminates', () => {
   it('parses a frame and rejects an unknown type', () => {
     expect(parseBrowserWsMessage({ type: 'frame', data: 'abc', metadata: { timestamp: 1 } }).ok).toBe(true);
