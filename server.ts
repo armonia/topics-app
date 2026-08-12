@@ -912,12 +912,38 @@ const retirementConsequences: ReconcileDeps = {
   retireTerminal: (sessionId) => { retireTerminalSession(sessionId); },
 };
 
+/**
+ * Il lavoro consegnato da una card è già dentro main?
+ *
+ * Si guarda per CONTENUTO (`commitStatusFromRepo` + `classifyLanding`, gli stessi
+ * dell'audit degli atterraggi) e non per sola discendenza, perché il land RICOPIA
+ * i commit della card (`cherry-pick -C <sha>`) invece di fonderli: dopo un land
+ * riuscito il commit di consegna NON è antenato di main, e una risposta basata
+ * sull'ancestry direbbe «non atterrato» sul caso normale.
+ *
+ * `unverifiable` esce `null`, che non è `false`: non aver potuto guardare non è
+ * una prova di fallimento, e i due chiamanti ne fanno usi che non perdonano la
+ * confusione — uno scioglie un worktree, l'altro CHIUDE una card.
+ *
+ * Una funzione sola perché le due risposte non possono divergere: se l'audit
+ * dice «atterrato» e il dispatcher dice «no», il dispatcher rimanda un agente su
+ * lavoro che la board mostra come finito.
+ */
+async function deliveryIsOnMain(repoPath: string, commit: string): Promise<boolean | null> {
+  const state = classifyLanding(await commitStatusFromRepo(repoPath, commit));
+  return state === "unverifiable" ? null : state === "landed";
+}
+
 const taskDispatcher = createTaskDispatcher({
   svc: dispatcherSvc,
   // Self-heal dead bindings: a todo task linked to a topic that was reaped
   // (agent tab deleted after a prior run) would never dispatch. tick() clears
   // the dead link so the task runs again.
   topicExists: (id) => !!ctx.getTopicById(id),
+  // Il cancello contro il lavoro rifatto: se il commit della consegna è già
+  // dentro main, la card si chiude invece di far ripartire un agente sopra
+  // codice che c'è già. Stessa risposta che legge l'audit degli atterraggi.
+  deliveryLanded: (repoPath, commit) => deliveryIsOnMain(repoPath, commit),
   // Must match the catch-all dir tasks.ts scaffolds (join(workspaceDir,
   // "generale")): a session resolved here renders standalone, not as a project.
   catchAllProjectPath: join(DISPATCH_WORKSPACE_DIR, "generale"),
@@ -3986,8 +4012,7 @@ function runWorktreeGc() {
       if (!commit) return null;
       const repoPath = ctx.projectStore.get(wt.projectId)?.path;
       if (!repoPath) return null;
-      const state = classifyLanding(await commitStatusFromRepo(repoPath, commit));
-      return state === "unverifiable" ? null : state === "landed";
+      return deliveryIsOnMain(repoPath, commit);
     },
     // Lo scioglimento che NON declassa: il legame col worktree morto se ne va, il
     // checkout pure (il branch è già sparito, non c'è niente da conservare), ma

@@ -81,6 +81,43 @@ function lines(out: string): string[] {
 }
 
 /**
+ * Il commit è DENTRO `ref`? La domanda si fa sul COMMIT e non sul ramo, ed è la
+ * differenza fra sapere e non sapere: dopo un land riuscito il ramo della card
+ * viene POTATO, mentre l'oggetto del commit resta nel repo (`gc.pruneExpire` qui
+ * è 90 giorni). Chiedere del ramo, da quel momento in poi, risponde «non c'è» a
+ * un lavoro che invece è atterrato.
+ *
+ * Tre valori, e servono tutti e tre:
+ *   • `true`  — verificato dentro (uscita 0 di `merge-base --is-ancestor`);
+ *   • `false` — verificato fuori (uscita 1);
+ *   • `null`  — NON CONTABILE: lo sha non risolve, `ref` non esiste, la cartella
+ *     non è un repo. Chi chiama non deve poterlo confondere con `false`, perché
+ *     gli usi sono opposti: su «fuori» si lavora, su «non lo so» non si tocca
+ *     niente. È lo stesso contratto del resto del modulo.
+ *
+ * Una sola copia perché la risposta deve essere una sola: il cancello del land
+ * (`task-automerge.ts`) e quello del dispatch (`task-dispatcher.ts`) decidono
+ * cose opposte — pubblicare o non ripartire — sulla stessa affermazione, e due
+ * copie che divergono vorrebbero dire ridispacciare ciò che si è appena chiuso.
+ */
+export async function commitIsIn(
+  repoPath: string,
+  commit: string,
+  ref: string,
+  opts: Pick<OwnCommitsOptions, "runGit"> = {},
+): Promise<boolean | null> {
+  const sha = commit.trim();
+  if (!sha) return null;
+  const run = opts.runGit ?? defaultRunGit;
+  const res = await run(repoPath, ["merge-base", "--is-ancestor", sha, ref]);
+  if (res.code === 0) return true;
+  // `merge-base --is-ancestor` esce 1 per «no» e con un codice qualsiasi per
+  // «non ho potuto rispondere» (ref inesistente, sha sconosciuto, repo assente).
+  // Collassare tutto su `false` trasformerebbe l'ignoranza in una risposta.
+  return res.code === 1 ? false : null;
+}
+
+/**
  * Gli altri branch locali: tutti tranne questo e quello d'integrazione. Sono i
  * ref da cui si SOTTRAE, e servono anche a chi compone il messaggio per l'umano
  * (il cherry-pick suggerito dal land li elenca).
