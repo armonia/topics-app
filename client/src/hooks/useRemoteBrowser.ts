@@ -41,6 +41,11 @@ interface RemoteBrowserState {
   pageScaleFactor: number;
   /** Downloads the headless page triggered (server-saved, surfaced as links). */
   downloads: DownloadInfo[];
+  /** Quanti download sono PARTITI da quando la pane è viva. Solo cresce — anche
+   *  quando una voce viene tolta dall'elenco — perché è il segnale con cui il
+   *  menu Download della toolbar decide di aprirsi da sé: se contasse le voci
+   *  presenti, svuotare l'elenco spegnerebbe l'annuncio del prossimo file. */
+  downloadsSeq: number;
   /** T2: whether the CURRENT url allows being framed (probed server-side). The
    *  panel renders a native <iframe> when framable AND no agent is driving. */
   framable: boolean;
@@ -114,6 +119,9 @@ interface RemoteBrowser extends RemoteBrowserState, InteractionHandlers {
     action: 'click' | 'type' | 'scroll' | 'mousemove' | 'keypress',
     payload: { x?: number; y?: number; text?: string; key?: string; deltaX?: number; deltaY?: number; button?: 'left' | 'right' | 'middle' },
   ) => void;
+  /** Menu Download della toolbar: togli UNA voce (per href) / svuota l'elenco. */
+  dismissDownload: (href: string) => void;
+  clearDownloads: () => void;
 }
 
 const IDLE_INTERVAL = 2000;
@@ -200,6 +208,7 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     selectedElement: null,
     pageScaleFactor: 1,
     downloads: [],
+    downloadsSeq: 0,
     framable: false,
     engine: 'native',
     engineToggleAvailable: false,
@@ -635,7 +644,7 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
               const i = next.findIndex(d => d.href === msg.href);
               const info: DownloadInfo = { filename: msg.filename, href: msg.href, size: msg.size, state: msg.state };
               if (i >= 0) next[i] = info; else next.push(info);
-              return { ...s, downloads: next.slice(-8) };
+              return { ...s, downloads: next.slice(-8), downloadsSeq: s.downloadsSeq + (i >= 0 ? 0 : 1) };
             });
             break;
           case 'engine': {
@@ -1216,6 +1225,19 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     }
   }, []);
 
+  // Download: togli UNA voce / svuota l'elenco. Il menu della toolbar è
+  // chiudibile e le sue voci si tolgono a mano — quindi lo stato deve poterle
+  // togliere. Prima l'elenco poteva solo crescere (fino al tetto), il che è
+  // metà del motivo per cui la vecchia striscia in fondo dava fastidio.
+  const dismissDownload = useCallback((href: string) => {
+    setState(s => (s.downloads.some(d => d.href === href)
+      ? { ...s, downloads: s.downloads.filter(d => d.href !== href) }
+      : s));
+  }, []);
+  const clearDownloads = useCallback(() => {
+    setState(s => (s.downloads.length ? { ...s, downloads: [] } : s));
+  }, []);
+
   // After every commit: if the <img> (re)mounted it carries the stale
   // state.screenshotSrc — re-assert the newest direct-written frame. A cheap
   // string compare on the (now rare) panel renders, a write only on remount.
@@ -1249,5 +1271,7 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     setRenderMode,
     registerDomSink,
     sendInput,
-  }), [state, navigate, goBack, goForward, reload, goHome, onClick, onWheel, onKeyDown, containerRef, takeControl, enterSelectMode, exitSelectMode, setSelectedElement, setEngine, setStreamActive, setWatching, retryWebrtc, setRenderMode, registerDomSink, sendInput]);
+    dismissDownload,
+    clearDownloads,
+  }), [state, navigate, goBack, goForward, reload, goHome, onClick, onWheel, onKeyDown, containerRef, takeControl, enterSelectMode, exitSelectMode, setSelectedElement, setEngine, setStreamActive, setWatching, retryWebrtc, setRenderMode, registerDomSink, sendInput, dismissDownload, clearDownloads]);
 }
