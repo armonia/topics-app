@@ -26,6 +26,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { createHash } from "crypto";
 import { countOwnCommits, otherLocalBranches } from "./own-commits";
+import { MIGRATIONS_DIR, findNumberCollisions } from "../../shared/migration-numbers";
 
 export type AutoMergeResult =
   | {
@@ -52,8 +53,23 @@ export type AutoMergeResult =
        * lo scatto della consegna, non c'è niente da dire.
        */
       deliveryDrift: string | null;
+      /**
+       * Il ramo era INDIETRO su main e il land l'ha riallineato da se': frase
+       * pronta per il thread. `null` = era gia' aggiornato, non c'e' niente da
+       * dire. Chi legge deve sapere che sul ramo e' comparso un merge che non
+       * ha fatto lui.
+       */
+      realigned: string | null;
     }
-  | { status: "conflict"; branch: string }
+  | {
+      status: "conflict"; branch: string;
+      /**
+       * Il conflitto e' nato RIPORTANDO main nel ramo, non pubblicando il ramo
+       * su main: sono due lavori diversi per l'agente, e i file sono l'unica
+       * cosa che gli dice dove guardare. Assente = conflitto del land.
+       */
+      realignConflict?: { behind: number; files: string[] };
+    }
   | { status: "nothing"; branch: string; deliveryDrift?: string | null }
   | { status: "skipped"; reason: string; code?: LandSkipCode };
 
@@ -83,6 +99,12 @@ export type LandSkipCode =
   | "dirty-checkout"
   /** Il worktree usa-e-getta su cui atterrare non si è potuto creare. */
   | "worktree-add-failed"
+  /**
+   * Il ramo è indietro su main e il riallineamento non si è potuto nemmeno
+   * PROVARE (il worktree del ramo ha WIP, o non si è potuto crearne uno). Non è
+   * un conflitto: nessuno ha ancora tentato una fusione.
+   */
+  | "realign-blocked"
   /** Eccezione durante il land. */
   | "internal-error";
 
@@ -146,6 +168,8 @@ export function landFallout(code: LandSkipCode | undefined): LandFallout {
       return { status: "review", reason: "il checkout condiviso ha lavoro non committato" };
     case "worktree-add-failed":
       return { status: "review", reason: "il worktree su cui atterrare non si è potuto creare" };
+    case "realign-blocked":
+      return { status: "review", reason: "il ramo è indietro su main e il riallineamento non si è potuto provare" };
     default:
       return { status: "review", reason: "il land non è riuscito e il codice non è su main" };
   }
@@ -275,9 +299,6 @@ async function defaultRunGit(cwd: string, args: string[]): Promise<GitRunResult>
 /** La firma del «manca un pezzo sotto» nell'output di git. */
 const MISSING_BASE = /modify\/delete|deleted in|does not exist|no such file/i;
 
-/** Dove vivono le migration numerate (il gate qui sotto le confronta per NUMERO). */
-const MIGRATIONS_DIR = "server/db/migrations";
-
 const BUILD_TIMEOUT_MS = 5 * 60_000;
 
 async function defaultRunBuild(cwd: string): Promise<GitRunResult> {
@@ -394,6 +415,8 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
     // che si pubblica davvero, `drift` la frase da mettere nel thread.
     let branch = target.branch;
     let drift: string | null = null;
+    /** Riempita dal riallineamento, se c'è stato: la frase per il thread. */
+    let realigned: string | null = null;
 
     const mergeMsg = `merge task ${taskId}: ${title}`.replace(/\s+/g, " ").slice(0, 200);
 
@@ -412,6 +435,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
         touchedNative: files.some((f) => f.startsWith("desktop-tauri/")),
         landedNotLive: !live, checkoutBranch,
         deliveryDrift: drift,
+        realigned,
       };
     }
 
@@ -448,41 +472,152 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
     }
 
     /**
-     * Un numero di migration presente su ENTRAMBI i rami ma con nomi diversi.
-     * Torna la ragione da mostrare, o null se non c'e' collisione.
+     * Il worktree in cui il ramo è già CHECKOUTATO, se ce n'è uno. `null` = il
+     * ramo non è aperto da nessuna parte (l'agente è stato rilasciato e il suo
+     * worktree potato), e allora ne serve uno usa-e-getta.
+     *
+     * Serve perché `git worktree add <path> <branch>` rifiuta un branch già
+     * checkoutato altrove: la scelta fra «fondo dove il ramo vive» e «me ne
+     * creo uno» non è un'ottimizzazione, è l'unico modo di non fallire.
+     */
+    async function branchWorktree(): Promise<string | null> {
+      const r = await runGit(repoPath, ["worktree", "list", "--porcelain"]);
+      if (r.code !== 0) return null;
+      let path: string | null = null;
+      for (const raw of r.stdout.split("\n")) {
+        const line = raw.trim();
+        if (line.startsWith("worktree ")) path = line.slice("worktree ".length).trim() || null;
+        else if (line === `branch refs/heads/${branch}`) return path;
+      }
+      return null;
+    }
+
+    /**
+     * Riporta `main` DENTRO il ramo, quando il ramo è indietro.
+     *
+     * Il perché: con N agenti in parallelo main avanza mentre la card aspetta la
+     * review, e un ramo che invecchia comincia a non essere più valutabile —
+     * misurato la notte del 12/08 su `ddf66270`, dove il rimedio (un merge
+     * pulito, zero conflitti) l'ha dovuto fare un umano a mano nel checkout
+     * perché dalla card non c'era nessun modo di dirlo. Nessuno dovrebbe fare a
+     * mano una fusione che non ha conflitti.
+     *
+     * Le stesse cautele del land, dall'altro verso:
+     *   • si fonde solo su un albero PULITO (i rifiuti degli agenti non contano,
+     *     `worktreeRealDirt` li conosce): mai inglobare la WIP di qualcuno;
+     *   • su conflitto `merge --abort` e si NOMINANO i file, così l'agente sa
+     *     dove guardare invece di sentirsi dire «conflitto»;
+     *   • niente push, niente rebase: la storia del ramo non si riscrive sotto
+     *     chi la sta guardando, ci si aggiunge un merge.
+     */
+    async function realignOnMain(): Promise<AutoMergeResult | null> {
+      // `merge-base --is-ancestor` invece di contare: una domanda sola, e la
+      // risposta «main è già dentro» è quella del caso normale.
+      const ancestor = await runGit(repoPath, ["merge-base", "--is-ancestor", defaultBranch, branch]);
+      if (ancestor.code === 0) return null;
+      const cnt = await runGit(repoPath, ["rev-list", "--count", `${branch}..${defaultBranch}`]);
+      const behind = Number.parseInt(cnt.stdout.trim(), 10);
+      // Non un numero = git non ha risposto (e non che il ramo sia a posto): si
+      // lascia fare al land di prima, che ha già i suoi cancelli per dirlo.
+      if (!Number.isFinite(behind) || behind <= 0) return null;
+
+      const live = await branchWorktree();
+      const wtPath = live ?? join(tmpdir(), "topics-realign", createHash("sha1").update(`${repoPath}\n${branch}`).digest("hex").slice(0, 16));
+      if (live) {
+        const dirt = await worktreeRealDirt(live, runGit);
+        if (dirt.length > 0) {
+          return {
+            status: "skipped", code: "realign-blocked",
+            reason:
+              `il ramo '${branch}' è indietro di ${behind} commit su '${defaultBranch}' e va riallineato, ma il suo ` +
+              `worktree (${live}) ha ${dirt.length} file non committati (${dirt.slice(0, 3).join(", ")}): ` +
+              "riportare main dentro il ramo li ingloberebbe nella fusione. Committa o scarta quel lavoro, poi rilancia il land",
+          };
+        }
+      } else {
+        await runGit(repoPath, ["worktree", "remove", "--force", wtPath]).catch(() => undefined);
+        await runGit(repoPath, ["worktree", "prune"]).catch(() => undefined);
+        const add = await runGit(repoPath, ["worktree", "add", wtPath, branch]);
+        if (add.code !== 0) {
+          return {
+            status: "skipped", code: "realign-blocked",
+            reason:
+              `il ramo '${branch}' è indietro di ${behind} commit su '${defaultBranch}' e va riallineato, ma non si è ` +
+              `potuto creare un worktree su cui fonderlo: ${(add.stderr || add.stdout).trim().slice(-200) || "git worktree add fallito"}`,
+          };
+        }
+      }
+
+      try {
+        const msg = `Riporta ${defaultBranch} nel ramo prima del land`;
+        const merge = await runGit(wtPath, ["merge", "--no-edit", "-m", msg, defaultBranch]);
+        if (merge.code !== 0) {
+          const unmerged = await runGit(wtPath, ["diff", "--diff-filter=U", "--name-only"]);
+          const files = unmerged.code === 0 ? unmerged.stdout.split("\n").map((f) => f.trim()).filter(Boolean) : [];
+          await runGit(wtPath, ["merge", "--abort"]).catch(() => undefined);
+          // Un merge può fallire SENZA conflitti: git si rifiuta di partire
+          // perché sovrascriverebbe un file non tracciato, o l'albero non è
+          // pronto. Non c'è niente da riconciliare e mandarlo all'agente come
+          // «conflitto» gli farebbe cercare marcatori che non esistono: si dice
+          // quello che git ha detto, e la card torna all'umano.
+          if (files.length === 0) {
+            return {
+              status: "skipped", code: "realign-blocked",
+              reason:
+                `il ramo '${branch}' è indietro di ${behind} commit su '${defaultBranch}' e riportare main dentro il ramo ` +
+                `non è nemmeno partito (nessun file in conflitto): ${(merge.stderr || merge.stdout).trim().slice(-300) || "git merge fallito"}`,
+            };
+          }
+          return { status: "conflict", branch, realignConflict: { behind, files } };
+        }
+        realigned = `il ramo era indietro di ${behind} commit su '${defaultBranch}': ci ho riportato main dentro (fusione pulita, nessun conflitto) prima di valutare i cancelli`;
+        return null;
+      } finally {
+        if (!live) {
+          await runGit(repoPath, ["worktree", "remove", "--force", wtPath]).catch(() => undefined);
+          await runGit(repoPath, ["worktree", "prune"]).catch(() => undefined);
+        }
+      }
+    }
+
+    /**
+     * Un NUMERO di migration rivendicato da due nomi diversi. Torna la ragione
+     * da mostrare, o null se non c'e' collisione.
+     *
+     * La regola non e' scritta qui: sta in shared/migration-numbers.ts, la
+     * stessa che esegue `bun run check:migrations`. Prima ne esisteva una copia
+     * locale che prendeva il numero con `file.slice(0, 3)`, e sui nomi nuovi a
+     * timestamp (`20260812094300-…`) leggeva sempre «202»: ogni ramo che
+     * aggiungeva una migration dopo il cambio di nomenclatura collideva con
+     * qualunque migration timestamp di main. Misurato la notte del 12/08 su
+     * `ddf66270` — il tasto «Landa su main» rifiutava per sempre e l'unica
+     * uscita era fondere a mano. Una domanda, una risposta.
      */
     async function migrationCollision(): Promise<string | null> {
-      const read = async (ref: string): Promise<Map<string, string>> => {
+      const read = async (ref: string): Promise<string[]> => {
         const r = await runGit(repoPath, ["ls-tree", "-r", "--name-only", ref, "--", MIGRATIONS_DIR]);
-        const out = new Map<string, string>();
-        if (r.code !== 0) return out;
-        for (const path of r.stdout.split("\n")) {
-          const file = path.trim().split("/").pop() ?? "";
-          // Il numero e' la RUN di cifre davanti al trattino, non i primi tre
-          // caratteri. Le due forme convivono: il contatore storico (`089-`) e il
-          // timestamp introdotto il 12/08 (`20260812094300-`), che e' la cura alle
-          // collisioni. Leggere `slice(0, 3)` mandava OGNI migration del 2026
-          // sotto la stessa chiave `202`: due rami con timestamp diversi si
-          // dichiaravano in collisione, e il cancello rifiutava ogni land in cui
-          // main e il ramo non avessero esattamente le stesse migration. Misurato
-          // stanotte su `ddf66270` e `b06bb837`, e con 18 consegne ferme fuori da
-          // main. Un cancello che scatta sempre non protegge: si aggira.
-          const m = /^(\d+)-/.exec(file);
-          if (m) out.set(m[1]!, file);
-        }
-        return out;
+        // I nomi grezzi: chi decide cosa sia una collisione e' `findNumberCollisions`
+        // in `shared/migration-numbers.ts`, che legge la RUN di cifre davanti al
+        // trattino ed esclude del tutto i file col prefisso timestamp.
+        //
+        // Prima il numero si leggeva qui con `file.slice(0, 3)`, e col prefisso
+        // timestamp introdotto il 12/08 ogni migration del 2026 finiva sotto la
+        // stessa chiave `202`: bastava che main e il ramo avessero migration
+        // diverse perche' il land venisse rifiutato per una collisione
+        // inesistente. Costo letto sul posto: 18 turni di agente, $27,50, spesi a
+        // rifare lavoro gia' su main. Un cancello che scatta sempre non protegge:
+        // si aggira.
+        return r.code === 0 ? r.stdout.split("\n").filter((l) => l.trim() !== "") : [];
       };
       const [base, mine] = await Promise.all([read(defaultBranch), read(branch)]);
-      const clash: string[] = [];
-      for (const [n, file] of mine) {
-        const other = base.get(n);
-        if (other && other !== file) clash.push(`${n}: '${defaultBranch}' ha ${other}, il ramo ha ${file}`);
-      }
+      const clash = findNumberCollisions(mine, base);
       if (clash.length === 0) return null;
+      const detail = clash.map((c) => `${c.version}: ${c.files.join(" e ")}`).join(" · ");
       return (
-        `collisione di numeri di migration (${clash.join(" · ")}). Il registro conta i NUMERI e il ` +
-        "runner salta in silenzio: la seconda non si applicherebbe mai, e il codice che la presuppone " +
-        "atterrerebbe lo stesso. Rinumera la migration del RAMO (mai quelle gia' applicate) e rigenera il manifest."
+        `collisione di numeri di migration (${detail}). Due file con lo stesso contatore vogliono dire che ` +
+        "almeno uno dei due l'ha scelto credendolo libero: l'ordine che qualcuno si aspettava e' gia' saltato. " +
+        "Rinumera la migration del RAMO col prefisso timestamp (`bun run migration:new <slug>`, mai le migration " +
+        "gia' applicate su main) e rigenera il manifest."
       );
     }
 
@@ -506,7 +641,13 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
       cwd: string,
       own: { others: string[] },
     ): Promise<{ ok: boolean; conflict: boolean; dependsOn?: number; missingBase?: boolean }> {
-      const list = await runGit(cwd, ["rev-list", "--reverse", `${defaultBranch}..${branch}`, "--not", ...own.others]);
+      // `--no-merges`: un commit di FUSIONE non si ricopia con un cherry-pick
+      // (git chiede `-m` e senza di quello esce non-zero), e non c'è niente da
+      // ricopiare — il contenuto che porta sta nei commit dei suoi due rami, che
+      // questa lista già enumera o esclude di proposito. Diventa obbligatorio da
+      // quando il land riallinea il ramo su main da sé: quel merge è il primo
+      // commit di fusione che compare di routine fra i commit «propri» del ramo.
+      const list = await runGit(cwd, ["rev-list", "--reverse", "--no-merges", `${defaultBranch}..${branch}`, "--not", ...own.others]);
       const all = list.stdout.split("\n").map((x) => x.trim()).filter(Boolean);
       if (list.code !== 0 || all.length === 0) return { ok: false, conflict: false };
       // Un commit già landato resta nel range: `rev-list` guarda la discendenza,
@@ -575,12 +716,37 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
 
         // Does the branch exist and have commits main doesn't? (Refs are shared
         // across every worktree, so this reads the same from the shared checkout.)
-        const ahead = await runGit(repoPath, ["rev-list", "--count", `${defaultBranch}..${branch}`]);
+        let ahead = await runGit(repoPath, ["rev-list", "--count", `${defaultBranch}..${branch}`]);
         if (ahead.code !== 0) {
           return { status: "skipped", code: "branch-missing", reason: `branch '${branch}' non trovato o non confrontabile con '${defaultBranch}'` };
         }
         if (ahead.stdout.trim() === "0") {
           return { status: "nothing", branch, deliveryDrift: drift };
+        }
+
+        // ── Il ramo è INDIETRO? Prima si riallinea, poi si giudica ───────────
+        //
+        // Ogni cancello qui sotto confronta il ramo con main, e su un ramo
+        // vecchio confronta un'istantanea che non esiste più da nessuna parte.
+        // Riportare main dentro il ramo è il gesto che rende la domanda sensata,
+        // ed è un gesto meccanico quando la fusione è pulita: farlo fare a mano
+        // vuol dire che il tasto «Landa su main» resta rotto per sempre su ogni
+        // card che aspetta la review più di qualche ora (misurato: main ha
+        // guadagnato una migration in mezz'ora la notte del 12/08).
+        //
+        // DOPO il controllo qui sopra, non prima: se il ramo non porta niente
+        // non c'è nessun land da salvare, e riallinearlo sarebbe un merge
+        // gratuito su un ramo che sta per essere potato.
+        const realign = await realignOnMain();
+        if (realign) return realign;
+        if (realigned) {
+          // Il ramo si è mosso: tutto ciò che segue deve contare i commit di
+          // ADESSO. Senza questa riletura i cancelli girerebbero sulla misura
+          // precedente al merge, cioè su un ramo che non esiste più.
+          ahead = await runGit(repoPath, ["rev-list", "--count", `${defaultBranch}..${branch}`]);
+          if (ahead.code !== 0) {
+            return { status: "skipped", code: "branch-missing", reason: `branch '${branch}' non più confrontabile con '${defaultBranch}' dopo il riallineamento` };
+          }
         }
 
         // ── Numeri di migration: due card in parallelo se li prendono uguali ──
