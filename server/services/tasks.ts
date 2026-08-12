@@ -35,9 +35,11 @@ import { readGlobalCap } from "./dispatch-capacity";
 // chi la vuole la prende da `shared/board`.
 export type { TaskStatus, TaskComment, BoardSettings, BoardSettingsPatch, BlockerRef, SubtaskWork } from "../../shared/board";
 import {
-  MAX_FANOUT, PARKED_STOPPED, PREVIEW_CARD_MAX_RATIO, TASK_STATUSES,
+  MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PREVIEW_CARD_MAX_RATIO, TASK_STATUSES,
+  WAIT_SERIES_MAX_MS, WAIT_STREAK_CAP,
   deriveSubtaskWork, formatStatusEvent, hasPlanApproveOption, isAgentWorking,
   isUnattributedSubtask, normalizeActionLabel, readTaskWeight, statusEventEnters,
+  waitReasonKey,
 } from "../../shared/board";
 import { EFFORT_TIERS } from "../../shared/effort";
 // Il vocabolario delle etichette e la regola che le deriva: una sola
@@ -113,6 +115,18 @@ export interface Task {
    *  future the task sits in `todo` (chip `waiting`) and is NOT dispatch-eligible;
    *  the tick re-claims it once the window passes. null = no wait. */
   dispatchDeferredUntil: string | null;
+  /**
+   * Le attese dichiarate contate su una grandezza LORO, non sui tentativi.
+   *
+   * `waitStreak` sono le attese consecutive per la stessa ragione, `waitReason`
+   * è quella ragione normalizzata (cambia ⇒ la serie riparte da uno) e
+   * `waitSince` è l'istante in cui la serie è cominciata. Sfondato uno dei due
+   * tetti (`WAIT_STREAK_CAP`, `WAIT_SERIES_MAX_MS`) il task si parcheggia con
+   * chip `waited_out`: fermo sì, fallito no.
+   */
+  waitStreak: number;
+  waitReason: string | null;
+  waitSince: string | null;
   /**
    * Quanto questo task morde la MACCHINA quando gira (migration 090), come
    * l'ha letto il classificatore l'ultima volta che è stato dispacciato.
@@ -573,6 +587,14 @@ export interface TaskService {
    * so it is NOT re-claimed until the window passes (then the tick re-dispatches
    * it fresh). Distinct from a review hand-off: it produced no deliverable, it is
    * just waiting — the note explains for what. `minutes` is clamped to [1, 1440].
+   *
+   * IL TENTATIVO SI RIMBORSA. Il turno che dichiara l'attesa l'ha già speso alla
+   * claim, prima di poter sapere che avrebbe dovuto aspettare: senza rimborso,
+   * un tetto pensato per i turni morti conta le attese e la card finisce
+   * `failed` per aver fatto la cosa giusta. A limitarle c'è invece un contatore
+   * LORO — attese consecutive per la stessa ragione (`WAIT_STREAK_CAP`) e durata
+   * della serie (`WAIT_SERIES_MAX_MS`). Sfondato un tetto il task si parcheggia
+   * in backlog con chip `waited_out`: fermo, non fallito.
    */
   deferForWait(args: { taskId: string; reason: string; minutes?: number; by?: string }): Task;
   /** Overwrite the topic binding of a claimed task (dispatcher: placeholder → real topic). */
@@ -1015,6 +1037,9 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       dispatchAttempts: r.dispatch_attempts ?? 0,
       dispatchError: r.dispatch_error ?? null,
       dispatchDeferredUntil: r.dispatch_deferred_until ?? null,
+      waitStreak: r.wait_streak ?? 0,
+      waitReason: r.wait_reason ?? null,
+      waitSince: r.wait_since ?? null,
       dispatchWeight: readTaskWeight(r.dispatch_weight),
       parentTaskId: r.parent_task_id ?? null,
       outputUrl: r.output_url ?? null,
@@ -1619,6 +1644,21 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         // re-dispatched — the claim filter skipped it and the card stranded
         // on "in coda" forever. Agents don't get to refresh their own retries.
         if (patch.status === "todo" && actor === "human") put("dispatch_attempts", 0);
+        // E con lo stesso gesto finisce la SERIE DI ATTESE. È la risposta alla
+        // domanda che il park `waited_out` ha posto: l'umano ha guardato e ha
+        // detto «riprova». Senza questo azzeramento il task ripartirebbe con la
+        // serie già sfondata e si riparcheggerebbe alla prima attesa, cioè il
+        // bottone «rimetti in Todo» non rimetterebbe in todo un bel niente.
+        //
+        // Vale anche su review e done, e non per simmetria: lì il task ha
+        // SMESSO di aspettare (ha consegnato, o è chiuso). Una serie lasciata
+        // aperta tornerebbe a mordere al primo riavvio del lavoro, contando
+        // insieme attese separate da giorni.
+        if ((patch.status === "todo" && actor === "human") || patch.status === "review" || patch.status === "done") {
+          put("wait_streak", 0);
+          put("wait_reason", null);
+          put("wait_since", null);
+        }
       }
       put("updated_at", now());
 
@@ -1996,22 +2036,85 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
       const mins = clampInt(minutes ?? 15, 1, 1440);
       const ts = now();
-      const until = new Date(Date.parse(ts) + mins * 60_000).toISOString();
+      const detto = reason && reason.trim() ? reason.trim() : "";
+      // La serie: stessa ragione ⇒ continua, ragione nuova ⇒ ricomincia da uno.
+      // `waitReasonKey` normalizza, perché un turno nuovo riscrive a mano quasi
+      // la stessa frase e «quasi» non deve valere come «un'altra attesa».
+      const chiave = waitReasonKey(detto);
+      const stessa = !!row.wait_streak && (row.wait_reason ?? "") === chiave;
+      const streak = stessa ? (row.wait_streak as number) + 1 : 1;
+      const since = stessa && row.wait_since ? (row.wait_since as string) : ts;
+      const serieMs = Math.max(0, Date.parse(ts) - Date.parse(since));
+      // IL TENTATIVO SI RIMBORSA, e questa è la riga che chiude il guasto.
+      //
+      // Il turno che dichiara l'attesa il tentativo l'ha già speso: l'ha preso
+      // la claim, PRIMA che l'agent potesse sapere che avrebbe dovuto aspettare.
+      // Lasciarglielo addosso significa che un tetto pensato per i turni morti
+      // (default 2) conta le attese, e alla terza la spazzata dei tentativi
+      // esauriti parcheggia la card come `failed`. Rimborsando, `dispatch_attempts`
+      // torna al valore che aveva prima della claim: un'attesa dichiarata non
+      // lascia traccia sul contatore dei fallimenti, perché non è un fallimento.
+      // A limitare le attese ci pensano i loro tetti, qui sotto.
+      const rimborso = "dispatch_attempts = MAX(dispatch_attempts - 1, 0),";
+
+      if (streak > WAIT_STREAK_CAP || serieMs >= WAIT_SERIES_MAX_MS) {
+        // Sfondato un tetto: il task si ferma, ma NON come un fallimento. Non
+        // c'è niente da riparare nell'agent, c'è una condizione che non arriva.
+        // La durata detta come sta: il tetto sul CONTEGGIO può scattare in pochi
+        // minuti (attese corte una dietro l'altra), e scrivere «da un'ora» lì
+        // sarebbe una bugia sulla sola cosa che l'umano userà per decidere.
+        const ore = Math.round(serieMs / 3_600_000);
+        const minuti = Math.round(serieMs / 60_000);
+        const quanto = serieMs >= 3_600_000
+          ? `da circa ${ore} ${ore === 1 ? "ora" : "ore"}`
+          : minuti >= 1
+            ? `da ${minuti} ${minuti === 1 ? "minuto" : "minuti"}`
+            : "da meno di un minuto";
+        // La parola «fallito» non compare, e non per delicatezza: qui non è
+        // successa nessuna delle cose che quella parola descrive. Nemmeno
+        // negata («non è un fallimento») ci va, perché nominarla la mette in
+        // testa a chi legge la card. Si dice cosa è successo e cosa fare.
+        const nota =
+          `Sono ${streak} attese di fila per la stessa ragione, ${quanto}` +
+          (detto ? `: ${detto}.` : ".") +
+          " La condizione non sta arrivando da sola, quindi la decisione torna a te. " +
+          "Rimetti il task in Todo per farlo riprovare, oppure sistema ciò che sta aspettando.";
+        try { this.addComment({ taskId, author: "system", content: nota }); } catch { /* dedupe/best-effort */ }
+        // Parcheggiato in backlog senza finestra: non deve ripartire da solo,
+        // il punto è proprio che qualcuno lo guardi. I contatori restano scritti
+        // (li azzera il rientro in Todo) perché sono la ragione del parcheggio.
+        db.prepare(
+          `UPDATE tasks SET assigned_topic_id = NULL, assigned_agent_id = NULL, ${rimborso}
+              status = 'backlog', dispatch_state = ?, dispatch_error = ?,
+              dispatch_deferred_until = NULL,
+              wait_streak = ?, wait_reason = ?, wait_since = ?, updated_at = ?
+            WHERE id = ?`,
+        ).run(PARKED_WAITED_OUT, nota, streak, chiave || null, since, ts, taskId);
+        // Firma di SISTEMA, non dell'agent: l'agent ha chiesto di aspettare
+        // ancora, il parcheggio è il tetto che glielo nega. Attribuirlo a lui
+        // direbbe che ha deciso di fermarsi, che è il contrario di quello che
+        // ha fatto. Stessa distinzione di `deliverToReviewBySystem`.
+        if (row.status !== "backlog") logStatus(taskId, row.status, "backlog", "dispatcher");
+        markReopened(taskId, row.status, "backlog", "system", "dispatcher");
+        return rowToTask(getTaskRow(taskId));
+      }
+
       const note =
-        (reason && reason.trim() ? `In attesa: ${reason.trim()}. ` : "In attesa di una condizione esterna. ") +
-        `Rilascio lo slot, il task torna in coda e riprovo tra ~${mins} min.`;
+        (detto ? `In attesa: ${detto}. ` : "In attesa di una condizione esterna. ") +
+        `Rilascio lo slot, il task torna in coda e riprovo tra ~${mins} min` +
+        (streak > 1 ? ` (attesa ${streak} di ${WAIT_STREAK_CAP}).` : ".");
       // Note first (author = the agent by default) so the "perché è fermo" trail
       // survives clearing the topic link.
       try { this.addComment({ taskId, author: by ?? "agent", content: note }); } catch { /* dedupe/best-effort */ }
       // Back to todo, slot freed (topic/agent cleared), chip `waiting`, and a
-      // deferral window that keeps it out of the claim until it elapses. No
-      // attempt is consumed here — waiting is not a failure (the fresh re-claim
-      // bumps the attempt, which naturally bounds an endlessly-waiting task).
+      // deferral window that keeps it out of the claim until it elapses.
       db.prepare(
-        `UPDATE tasks SET assigned_topic_id = NULL, assigned_agent_id = NULL,
+        `UPDATE tasks SET assigned_topic_id = NULL, assigned_agent_id = NULL, ${rimborso}
             status = 'todo', dispatch_state = 'waiting', dispatch_error = ?,
-            dispatch_deferred_until = ?, updated_at = ? WHERE id = ?`,
-      ).run(note, until, ts, taskId);
+            dispatch_deferred_until = ?,
+            wait_streak = ?, wait_reason = ?, wait_since = ?, updated_at = ?
+          WHERE id = ?`,
+      ).run(note, new Date(Date.parse(ts) + mins * 60_000).toISOString(), streak, chiave || null, since, ts, taskId);
       if (row.status !== "todo") logStatus(taskId, row.status, "todo", by ?? "agent");
       markReopened(taskId, row.status, "todo", "agent", by ?? "agent");
       return rowToTask(getTaskRow(taskId));
@@ -2083,7 +2186,12 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // `delivered_by = 'system'`: la card in review deve dire da sé che non è una
       // consegna dell'agente — sotto può non esserci nessun deliverable.
       db.prepare(
+        // La serie di attese si chiude qui come si chiude in `update()`: il task
+        // è arrivato all'umano, non sta più aspettando niente. Questa porta è a
+        // SQL grezzo e non passa da lì, quindi la riga va ripetuta o la serie
+        // sopravviverebbe alla consegna.
         "UPDATE tasks SET status = 'review', dispatch_state = 'needs_input', dispatch_error = NULL, " +
+          "wait_streak = 0, wait_reason = NULL, wait_since = NULL, " +
           "delivered_by = 'system', delivered_reason = ?, updated_at = ? WHERE id = ?",
       ).run(cause ?? null, ts, taskId);
       if (row.status !== "review") logStatus(taskId, row.status, "review", "dispatcher");
