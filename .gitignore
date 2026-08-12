@@ -251,3 +251,7 @@ installation-id
 # cui `shared/relay-identita.ts` esiste per difendere. Il server lo scrive con
 # modo 600; tracciarlo lo pubblicherebbe.
 relay-secret
+
+# Uscita del banco WebRTC (`bun scripts/webrtc-probe.ts`): filmati del viewer e
+# referti. Si rigenerano lanciandolo, e pesano megabyte: fuori dalla storia.
+artifacts/

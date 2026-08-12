@@ -21,7 +21,13 @@
  * Cosa misura e consegna:
  *   - framesDecoded / fps / codec / tipo di coppia ICE dal getStats del viewer;
  *   - la latenza dell'input misurata SUL POSTO: il viewer stampilla l'orologio nel
- *     messaggio, la stage risponde, il round trip si legge in ms;
+ *     messaggio, la stage registra quando l'ha visto, la differenza è in ms.
+ *     ATTENZIONE a cosa si confronta: `--input datachannel` misura il tubo nuovo
+ *     per intero (pagina → pagina), `--input ws` NON misura il percorso WebSocket
+ *     vero — dispaccia via CDP dritto sulla stage, cioè il PAVIMENTO che quel
+ *     percorso non poteva battere (niente WS del client, niente server Bun,
+ *     niente Playwright). Serve da riferimento, non da termine di paragone;
+ *     il referto se lo porta scritto dietro in `latencyRuler`;
  *   - un filmato .mp4 del viewer (screencast CDP → ffmpeg), che è la prova
  *     richiesta per i punti di comportamento.
  *
@@ -53,6 +59,21 @@ const SW_ENCODE = flag("sw-encode");
 // partire il banco contro il browser DELL'UTENTE — che risponde, quindi sembra
 // funzionare, e poi non trova mai la pagina di prova.
 const CDP_PORT = Number(opt("cdp-port", "19333"));
+
+/**
+ * Il messaggio ESATTO che la pane manda sul canale dati — `{type:"input",
+ * action, payload}`, la stessa forma del messaggio `input` del WebSocket.
+ *
+ * Non è una formalità. Il banco spediva `{a:"click",x,y}`, una forma che non
+ * esiste da nessuna parte: `input::dispatch` nel sidecar legge `action`, non
+ * trovava niente e cadeva sul ramo `_ => false`. Nessun comando CDP partiva, la
+ * stage restava a zero click, e il banco riportava `inputLatencyMs: null`
+ * uscendo ZERO. Cioè: la prova che il punto 6 funziona non ha mai provato
+ * niente, e non poteva accorgersene.
+ */
+function inputMsg(action: string, payload: Record<string, unknown>) {
+  return { type: "input", action, payload };
+}
 
 const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const BRIDGE = join(
@@ -151,7 +172,18 @@ const VIEWER_HTML = `<!doctype html><html><head><meta charset="utf-8"><style>
     return pc.localDescription.sdp;
   };
   window.__answer = async (sdp) => { await pc.setRemoteDescription({ type:'answer', sdp }); return true; };
-  window.__send = (obj) => { if (dc && dc.readyState === 'open') { dc.send(JSON.stringify(obj)); return true; } return false; };
+  // L'ora di partenza si segna QUI, dentro la pagina, non nel banco: il banco
+  // per far partire un messaggio deve fare un CDP eval fino a questo browser, e
+  // quel viaggio non lo fa nessun client vero. Misurato dal banco, il canale
+  // dati sembrava lento del doppio — era il righello, non il tubo. Stessa base
+  // dell'orologio della stage (timeOrigin è wall clock), quindi la differenza
+  // fra le due pagine è una latenza vera.
+  window.__send = (obj) => {
+    if (!dc || dc.readyState !== 'open') return false;
+    window.__lastSendAt = performance.timeOrigin + performance.now();
+    dc.send(JSON.stringify(obj));
+    return true;
+  };
   window.__stats = async () => {
     const s = await pc.getStats(); let r = { frames:0, w:0, h:0, codec:'', pair:'', state:pc.iceConnectionState, dc: dc && dc.readyState };
     const codecs = new Map(); s.forEach(x => { if (x.type==='codec') codecs.set(x.id, x.mimeType); });
@@ -443,7 +475,7 @@ async function main() {
         const y = 260 + ((acted * 53) % 260);
         const t0 = Date.now();
         if (INPUT_MODE === "datachannel") {
-          const ok = await cdp2.eval(viewer, `window.__send(${JSON.stringify({ a: "click", x, y })})`);
+          const ok = await cdp2.eval(viewer, `window.__send(${JSON.stringify(inputMsg("click", { x, y }))})`);
           if (!ok) { await sleep(120); continue; }
         } else {
           // Il vecchio percorso, per il confronto: click via CDP sulla stage,
@@ -452,17 +484,26 @@ async function main() {
           await cdp.send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", clickCount: 1 }, stageSession);
         }
         // Attende che la stage abbia visto il click e legge quando l'ha visto.
+        // Il cronometro parte dal mittente VERO: la pagina del viewer sul ramo
+        // canale dati, il banco sul ramo CDP diretto (che mittente in pagina
+        // non ne ha). Vedi `window.__send` per il perché.
         for (let i = 0; i < 60; i++) {
           const seen = await cdp.eval(stageSession, "window.__lastClickAt || 0");
-          if (seen > t0 - 5) { latencies.push(Date.now() - t0); break; }
+          if (seen > t0 - 5) {
+            const sentAt = INPUT_MODE === "datachannel"
+              ? await cdp2.eval(viewer, "window.__lastSendAt || 0")
+              : t0;
+            if (sentAt > 0 && seen >= sentAt) latencies.push(seen - sentAt);
+            break;
+          }
           await sleep(5);
         }
         if (acted % 6 === 5) {
-          if (INPUT_MODE === "datachannel") await cdp2.eval(viewer, `window.__send(${JSON.stringify({ a: "type", text: "ciao " })})`);
+          if (INPUT_MODE === "datachannel") await cdp2.eval(viewer, `window.__send(${JSON.stringify(inputMsg("type", { text: "ciao " }))})`);
           else await cdp.send("Input.insertText", { text: "ciao " }, stageSession);
         }
         if (acted % 4 === 3) {
-          if (INPUT_MODE === "datachannel") await cdp2.eval(viewer, `window.__send(${JSON.stringify({ a: "scroll", x, y, deltaY: 120 })})`);
+          if (INPUT_MODE === "datachannel") await cdp2.eval(viewer, `window.__send(${JSON.stringify(inputMsg("scroll", { x, y, deltaY: 120 }))})`);
         }
         acted++;
         if (latencies.length) {
@@ -480,6 +521,12 @@ async function main() {
     report.stats = stats;
     report.stage = stageState;
     report.inputSamples = latencies.length;
+    // Da dove parte il cronometro, scritto nel referto: i due rami NON misurano
+    // la stessa cosa e un numero senza il suo righello si confronta con
+    // qualunque altro numero.
+    report.latencyRuler = INPUT_MODE === "datachannel"
+      ? "pagina viewer (dc.send) → pagina stage: il tubo nuovo, per intero"
+      : "banco (CDP diretto sulla stage) → pagina stage: il PAVIMENTO, non il percorso WS vero (niente WS del client, niente server Bun, niente Playwright)";
     report.inputLatencyMs = latencies.length
       ? { avg: +(latencies.reduce((a, b) => a + b, 0) / latencies.length).toFixed(1), min: Math.min(...latencies), max: Math.max(...latencies) }
       : null;
@@ -498,12 +545,23 @@ async function main() {
     }
 
     console.log(JSON.stringify(report, null, 2));
-    const ok = stats && stats.frames > 0;
-    if (!ok) {
+    const framesOk = !!stats && stats.frames > 0;
+    // L'input è un cancello quanto i fotogrammi. Prima non lo era: la stage
+    // poteva restare a zero click e il banco usciva ZERO lo stesso, riportando
+    // `inputLatencyMs: null` come se fosse un dettaglio. Una barra che non può
+    // diventare rossa non misura niente, e infatti per tutto il tempo in cui il
+    // messaggio aveva la forma sbagliata nessuno se n'è accorto.
+    const inputOk = stageState.clicks > 0 && latencies.length > 0;
+    if (!framesOk) {
       // Il log del sidecar è l'unico posto dove si vede PERCHÉ: senza, un fallimento
       // qui è indistinguibile da "non ha risposto".
       console.error("\n--- stderr del sidecar ---\n" + bridgeLog.join("").slice(-4000));
       console.error("FALLITO: nessun fotogramma decodificato dal viewer.");
+      process.exitCode = 1;
+    }
+    if (!inputOk) {
+      console.error("\n--- stderr del sidecar ---\n" + bridgeLog.join("").slice(-4000));
+      console.error(`FALLITO: l'input non è arrivato alla stage (${stageState.clicks} click, ${latencies.length} campioni).`);
       process.exitCode = 1;
     }
   } finally {
