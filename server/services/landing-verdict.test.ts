@@ -4,7 +4,9 @@ import { tmpdir } from "os";
 import { dirname, join } from "path";
 import {
   classifyBranchLanding,
+  classifyCommitLanding,
   indiceRigheMain,
+  isRigaDiSostanza,
   isRigaDistintiva,
   RIGA_DISTINTIVA_MIN,
 } from "./landing-verdict";
@@ -72,6 +74,16 @@ describe("isRigaDistintiva", () => {
     expect(isRigaDistintiva(`const x = "${"a".repeat(RIGA_DISTINTIVA_MIN)}";`)).toBe(true);
     expect(isRigaDistintiva("  });")).toBe(false);
     expect(isRigaDistintiva("=".repeat(RIGA_DISTINTIVA_MIN + 10))).toBe(false);
+  }, TEMPO_GIT);
+});
+
+describe("isRigaDiSostanza", () => {
+  test("via commenti e import, che si riscrivono senza che il lavoro cambi", () => {
+    const codice = `const risultato = calcolaQualcosaDiPreciso(alfa, beta, gamma, delta);`;
+    expect(isRigaDiSostanza(codice)).toBe(true);
+    expect(isRigaDiSostanza(`// ${codice}`)).toBe(false);
+    expect(isRigaDiSostanza(` *  ${codice}`)).toBe(false);
+    expect(isRigaDiSostanza(`import { alfa, beta, gamma, delta, epsilon } from "./modulo-lungo";`)).toBe(false);
   }, TEMPO_GIT);
 });
 
@@ -266,6 +278,28 @@ describe("classifyBranchLanding", () => {
     expect(v.motivo).toContain("inesistente");
   }, TEMPO_GIT);
 
+  test("DENTRO quando la PROSA è stata riscritta su main ma il codice è rimasto", async () => {
+    // Il caso `e40c3ad6`: 75/107 righe contando tutto (0,70, sotto soglia) e
+    // 16/20 contando la sola sostanza (0,80). Il lavoro è atterrato, il commento
+    // che lo spiegava l'ha riscritto qualcun altro dopo.
+    const repo = nuovoRepo("prosa");
+    scrivi(repo, "src/a.ts", "prima\n");
+    commit(repo, "prima", "2026-07-02T10:00:00+02:00");
+    git(repo, ["checkout", "-q", "-b", "topics/ramo"]);
+    const prosa = Array.from({ length: 9 }, (_, i) => `// una riga di commento lunga e discorsiva, la numero ${i} di nove`).join("\n");
+    scrivi(repo, "src/a.ts", `${prosa}\n${impronte("codice", 4)}`);
+    commit(repo, "codice e prosa", "2026-07-03T10:00:00+02:00");
+    // Su main il codice c'è tutto, il commento è stato riscritto da zero.
+    git(repo, ["checkout", "-q", "main"]);
+    scrivi(repo, "src/a.ts", `// un commento completamente diverso, riscritto molto dopo dal manutentore\n${impronte("codice", 4)}`);
+    commit(repo, "atterrato, poi commento rifatto", "2026-07-06T10:00:00+02:00");
+
+    const v = await classifyBranchLanding(repo, "topics/ramo");
+    expect(v.esito).toBe("dentro");
+    // Contando tutto sarebbe 4/13, cioè sotto soglia: decide la sostanza.
+    expect(v.righe.presenti / v.righe.cercate).toBeLessThan(0.75);
+  }, TEMPO_GIT);
+
   test("i commit EREDITATI da un altro ramo non contano come lavoro proprio", async () => {
     const repo = nuovoRepo("eredita");
     scrivi(repo, "src/altrui.ts", "prima\n");
@@ -280,5 +314,49 @@ describe("classifyBranchLanding", () => {
     const v = await classifyBranchLanding(repo, "topics/ramo");
     expect(v.esito).toBe("dentro");
     expect(v.motivo).toContain("nessun commit proprio");
+  }, TEMPO_GIT);
+});
+
+describe("classifyCommitLanding", () => {
+  test("DENTRO sulla consegna RICOPIATA dal land, che la discendenza dà per fuori", async () => {
+    const repo = nuovoRepo("commit-dentro");
+    scrivi(repo, "src/a.ts", "prima\n");
+    commit(repo, "prima", "2026-07-02T10:00:00+02:00");
+    git(repo, ["checkout", "-q", "-b", "topics/ramo"]);
+    scrivi(repo, "src/a.ts", impronte("consegna", 5));
+    commit(repo, "consegna", "2026-07-03T10:00:00+02:00");
+    const consegna = git(repo, ["rev-parse", "HEAD"]);
+    // Il land ricopia: stesso contenuto, altro sha. Poi il ramo viene potato.
+    git(repo, ["checkout", "-q", "main"]);
+    scrivi(repo, "src/a.ts", impronte("consegna", 5));
+    commit(repo, "consegna (ricopiata dal land)", "2026-07-04T10:00:00+02:00");
+    git(repo, ["branch", "-q", "-D", "topics/ramo"]);
+
+    expect(git(repo, ["merge-base", "--is-ancestor", consegna, "main"])).toBe("");
+    const v = await classifyCommitLanding(repo, consegna);
+    expect(v.esito).toBe("dentro");
+    expect(v.righe).toEqual({ cercate: 5, presenti: 5 });
+  }, TEMPO_GIT);
+
+  test("FUORI quando di quella consegna su main non c'è niente", async () => {
+    const repo = nuovoRepo("commit-fuori");
+    scrivi(repo, "src/a.ts", "prima\n");
+    commit(repo, "prima", "2026-07-02T10:00:00+02:00");
+    git(repo, ["checkout", "-q", "-b", "topics/ramo"]);
+    scrivi(repo, "src/a.ts", impronte("persa", 6));
+    commit(repo, "consegna mai atterrata", "2026-07-03T10:00:00+02:00");
+    const consegna = git(repo, ["rev-parse", "HEAD"]);
+    git(repo, ["checkout", "-q", "main"]);
+    git(repo, ["branch", "-q", "-D", "topics/ramo"]);
+
+    const v = await classifyCommitLanding(repo, consegna);
+    expect(v.esito).toBe("fuori");
+  }, TEMPO_GIT);
+
+  test("NON DECIDIBILE se il repo quel commit non ce l'ha più", async () => {
+    const repo = nuovoRepo("commit-sparito");
+    const v = await classifyCommitLanding(repo, "0".repeat(40));
+    expect(v.esito).toBe("non-decidibile");
+    expect(v.motivo).toContain("non ha più");
   }, TEMPO_GIT);
 });
