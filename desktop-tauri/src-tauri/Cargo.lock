@@ -77,9 +77,13 @@ checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
 name = "app"
-version = "2.2.111"
+version = "2.2.112"
 dependencies = [
  "block2",
+ "cairo-rs",
+ "gio",
+ "glib",
+ "javascriptcore-rs",
  "log",
  "native-tls",
  "objc2",
@@ -87,6 +91,7 @@ dependencies = [
  "objc2-user-notifications",
  "serde",
  "serde_json",
+ "soup3",
  "sysinfo",
  "tauri",
  "tauri-build",
@@ -103,6 +108,9 @@ dependencies = [
  "tauri-plugin-updater",
  "tokio",
  "tokio-native-tls",
+ "webkit2gtk",
+ "webview2-com",
+ "windows 0.61.3",
 ]
 
 [[package]]
