@@ -56,6 +56,7 @@
     "check:bundle": "bun run scripts/check-bundle-size.ts",
     "check:lockfile": "bun install --frozen-lockfile && cd client && bun install --frozen-lockfile && cd ../landing && bun install --frozen-lockfile",
     "report:disk": "bun run scripts/disk-report.ts",
+    "report:branches": "bun run scripts/branch-audit.ts",
     "measure:task-tabs": "bun run scripts/measure-task-tab-teardown.ts",
     "measure:ui-state-init": "bun run scripts/measure-ui-state-init.ts",
     "bench:ai-bridge": "bun run scripts/ai-bridge-replay-bench.ts",
