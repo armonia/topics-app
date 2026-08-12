@@ -193,7 +193,7 @@ function variantsOf(schema: any): any[] {
 }
 
 describe('schema completeness', () => {
-  test('all 19 protocol variants are present', () => {
+  test('all 20 protocol variants are present', () => {
     // Snapshot test: if a new variant is added to the schema, this count
     // must be updated — forcing the test author to also document it.
     // Grew from 6 → 17 with the server↔pane co-browse control channel
@@ -202,11 +202,14 @@ describe('schema completeness', () => {
     // (is this pane on screen — the cross-device viewer count's only input,
     // deliberately NOT set_stream), poi 19 con `focus_field` (che campo ha
     // preso il fuoco nella pagina remota dopo il click: sul ramo video è
-    // l'unico modo di sapere quale tastiera far aprire al telefono). See the
+    // l'unico modo di sapere quale tastiera far aprire al telefono), e 20 con
+    // `focus_query`, che quella stessa lettura la CHIEDE: da quando l'input
+    // del ramo video viaggia sul DataChannel il click non passa più dal
+    // server, e agganciata al click la lettura non partiva più. See the
     // frozen literal list in tests/unit/ws-contract.test.ts for the
     // per-variant rationale.
     const variantCount = variantsOf(browserWsMessageSchema).length;
-    expect(variantCount).toBe(19);
+    expect(variantCount).toBe(20);
   });
 
   test('every variant uses a unique `type` literal', () => {
@@ -224,6 +227,7 @@ describe('schema completeness', () => {
         'resize', 'download', 'set_engine', 'engine', 'set_stream',
         'set_watching', 'set_render', 'render_mode', 'dom_event',
         'webrtc_offer', 'webrtc_answer', 'webrtc_ice', 'focus_field',
+        'focus_query',
       ]),
     );
   });
