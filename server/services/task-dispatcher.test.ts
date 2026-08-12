@@ -2318,17 +2318,19 @@ describe("la coda deve dire il vero", () => {
     expect(p.dispatchDeferredUntil).toBeTruthy(); // niente giro a vuoto immediato
   });
 
-  it("…ma se i figli sono SOLO parcheggiati non c'è nulla da aspettare: si ferma lui", () => {
+  it("…ma se i figli sono SOLO parcheggiati non c'è nulla da aspettare: CHIEDE", () => {
     // Nessuno dispaccia dal backlog: rimandarlo in coda sarebbe un giro
-    // perpetuo ogni 10 minuti. Parcheggiato con la ragione, è una card su cui
-    // si può agire.
+    // perpetuo ogni 10 minuti. Parcheggiarlo in backlog, però, lo nascondeva
+    // nella colonna dove «ferma» è l'aspetto normale — cinque card così il
+    // 12/08. Non è un blocco, è una domanda: va dove si vedono le domande.
     const h = harness();
     seedTask(h.db, { id: "padre", status: "in_progress", assignedTopicId: "topic-padre" });
     seedTask(h.db, { id: "figlio", status: "backlog", parentTaskId: "padre" });
     h.svc.deliverToReviewBySystem({ taskId: "padre", reason: "turno finito" });
     const p = h.task("padre")!;
-    expect(p.status).toBe("backlog");
-    expect(p.dispatchState).toBe("blocked");
+    expect(p.status).toBe("review");
+    expect(p.dispatchState).toBe("needs_input");
+    expect(p.deliveredReason).toBe("parked_children");
   });
 
   it("l'ordine dei board gira a ogni giro, o il tetto globale affama chi sta in fondo", () => {

@@ -102,13 +102,15 @@ export const STATUS_GLYPH_PX = 14;
  * Cause diverse = decisioni diverse per il reviewer — perciò testi diversi e non
  * un generico "chiuso dal sistema".
  */
-export const SYSTEM_DELIVERY_REASON: Record<'retries_exhausted' | 'model_refused' | 'fanout', string> = {
+export const SYSTEM_DELIVERY_REASON: Record<'retries_exhausted' | 'model_refused' | 'fanout' | 'parked_children', string> = {
   retries_exhausted:
     "L'agent ha finito i tentativi senza mettere in review da solo: sotto può non esserci un deliverable. Rimandandolo indietro riparte sulla stessa sessione.",
   model_refused:
     "Il modello si è rifiutato di proseguire: nessun ritentativo automatico può sbloccarlo. Serve una decisione tua: rimandarlo indietro identico otterrebbe lo stesso rifiuto.",
   fanout:
     "Fan-out: più agenti hanno lavorato lo stesso task in parallelo, ognuno nel suo worktree. Scegli quale tentativo tenere dal pannello Tentativi. Gli altri vengono buttati.",
+  parked_children:
+    "Non è un blocco, è una domanda: gli unici sottotask aperti sono parcheggiati in backlog, dove nessun dispatcher li prende. Rispondi coi due bottoni e il task riparte da solo.",
 };
 
 /** Il testo giusto per una consegna di sistema, causa nota o meno. */
@@ -119,10 +121,11 @@ export function systemDeliveryNote(reason: BoardTask['deliveredReason']): string
 }
 
 /** Etichetta corta per la chip sulla card (la prosa lunga è nel title). */
-export const SYSTEM_DELIVERY_CHIP: Record<'retries_exhausted' | 'model_refused' | 'fanout', string> = {
+export const SYSTEM_DELIVERY_CHIP: Record<'retries_exhausted' | 'model_refused' | 'fanout' | 'parked_children', string> = {
   retries_exhausted: 'non consegnato',
   model_refused: 'agent bloccato',
   fanout: 'scegli il tentativo',
+  parked_children: 'sottotask parcheggiati',
 };
 
 /*
@@ -362,7 +365,7 @@ export interface BoardTask {
    *  male che qualcuno deve guardare, e sotto può non esserci un deliverable. */
   deliveredBy: 'agent' | 'human' | 'system' | null;
   /** Perché, quando `deliveredBy === 'system'`. La prosa sta nel thread. */
-  deliveredReason: 'retries_exhausted' | 'model_refused' | 'fanout' | null;
+  deliveredReason: 'retries_exhausted' | 'model_refused' | 'fanout' | 'parked_children' | null;
   /** Chi ha chiuso la card l'ultima volta: 'human' = una decisione di Attilio
    *  (approvazione o trascinamento) e un agent non la riapre. */
   doneActor: 'human' | 'agent' | 'system' | null;
