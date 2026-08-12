@@ -1,5 +1,7 @@
 import type { AppContext, RouteHandler } from "../types";
-import { waitForAnswer, cancelAsk, beginAsk, AskWaitError } from "../lib/ask-user-bridge";
+import { waitForAnswer, cancelAsk, beginAsk, deliverAnswer, AskWaitError } from "../lib/ask-user-bridge";
+import { createTaskService } from "../services/tasks";
+import { routeAskToTaskThread, clearRoutedAskForSession } from "../services/board-ask-routing";
 import {
   beginPermission,
   waitForDecision,
@@ -43,6 +45,35 @@ import type { PermissionDecision, ToolPermissionOutcome, ToolPermissionRequest }
 export function createPermissionRouter(ctx: AppContext): RouteHandler {
   const { json, readJSON, matchRoute, broadcastToAll, getTopicBySessionKey, saveSingleTopic, updateToolCallFields } = ctx;
 
+  // Le dipendenze dell'instradamento di una domanda nel thread di un task. Il
+  // servizio dei task si costruisce qui e non si riceve, come fa la rotta dei
+  // task: è una vista sul db, non uno stato, e due viste sullo stesso db sono
+  // la stessa vista.
+  const askRouting = {
+    db: ctx.db,
+    comment: (a: { taskId: string; projectId: string; content: string; options: string[] }) => {
+      try {
+        const svc = createTaskService(ctx.db);
+        svc.addComment({
+          taskId: a.taskId,
+          author: "agent",
+          content: a.content,
+          projectId: a.projectId,
+          questionOptions: a.options,
+        });
+        const task = svc.get(a.taskId, { projectId: a.projectId })?.task;
+        if (task) broadcastToAll({ type: "task:updated", projectId: a.projectId, task });
+        return true;
+      } catch {
+        // Il thread non ha accolto la domanda: il pannello nel tab resta, ed è
+        // il ripiego giusto. Meglio una domanda raggiungibile in un posto solo
+        // che una domanda che non esiste da nessuna parte.
+        return false;
+      }
+    },
+    deliver: (sessionKey: string, answers: Record<string, string>) => deliverAnswer(sessionKey, answers),
+  };
+
   return async function permissionRouter(req: Request, _url: URL, pathname: string, method: string): Promise<Response | null> {
     // POST /api/sessions/:sessionKey/ask-user
     //
@@ -78,12 +109,27 @@ export function createPermissionRouter(ctx: AppContext): RouteHandler {
         const legMs = typeof body.legMs === "number" && Number.isFinite(body.legMs)
           ? Math.min(Math.max(body.legMs, 100), 60_000)
           : undefined;
-        if (!beginAsk(sk)) {
+        const firstLeg = beginAsk(sk);
+        if (!firstLeg) {
           // The ask outlived its TTL. Close it here rather than letting the
           // bridge poll on into the CLI child's own lifetime cap.
           cancelAsk(sk, "nessuna risposta: la domanda è scaduta");
+          clearRoutedAskForSession(sk);
           return json({ cancelled: true, reason: "ask_user_question: la domanda è scaduta senza risposta" });
         }
+        // LA DOMANDA ESCE NEL THREAD DEL TASK, se questa sessione ne ha uno.
+        // La chiamata è su OGNI gamba ma scrive una volta sola: il registro di
+        // `routeAskToTaskThread` riconosce la domanda già aperta per questa
+        // sessione e non la ripete. Le gambe sono lo stesso pannello, non
+        // domande nuove, e un commento per gamba riempirebbe il thread di copie
+        // ogni pochi secondi.
+        //
+        // Non sostituisce il pannello nel tab: lo affianca. Chi guarda la board
+        // vede la domanda dove già risponde ai commenti, chi ha il tab aperto
+        // continua a rispondere da lì, e la prima risposta che arriva chiude il
+        // rendez-vous per entrambe le strade.
+        try { routeAskToTaskThread(askRouting, { sessionKey: sk, questions: body.questions as never[] }); }
+        catch { /* il pannello nel tab resta comunque */ }
         try {
           const answers = await waitForAnswer(sk, legMs !== undefined ? { timeoutMs: legMs } : {});
           return json({ answers });

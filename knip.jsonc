@@ -138,6 +138,8 @@
         // lancia a mano quando si vuole rifare il conto (o rispondere a «quanto
         // rende davvero»): nessuno lo importa e non deve.
         "scripts/measure-task-tab-teardown.ts!",
+        // bun run measure:thread — il thread del task si assottiglia col coordinatore?
+        "scripts/thread-vs-work.ts!",
         // `bun run measure:ui-state-init <copia.db>` — quanto pesa il frame
         // `ui-state:init` con e senza le chiavi per-task del browser. Stesso
         // patto del precedente: si lancia a mano su una COPIA del db, nessuno

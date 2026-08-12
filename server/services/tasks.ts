@@ -27,6 +27,7 @@ import { createHash } from "node:crypto";
 import { parseReviewChecks, serializeReviewChecks, type CheckRun } from "./review-checks";
 import { imageShape } from "./image-shape";
 import { readGlobalCap } from "./dispatch-capacity";
+import { liveAgentCount } from "./agent-census";
 
 // Stati e forma del thread stanno in `shared/board.ts`: il client li legge
 // dalla stessa dichiarazione invece di riscriverli. `export type … from`
@@ -2153,20 +2154,20 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // è «non c'è posto», è «non adesso», e il chiamante lo dice diversamente.
       if (heavyInFlight()) return null;
       if (readTaskWeight(row.dispatch_weight) === "heavy" && machineIdle === false) return null;
-      // Concurrency cap: count tasks already claimed by a dispatch (in_progress
-      // with a live dispatch chip). Per-board by default; scope 'global' counts
-      // across EVERY board so a machine-wide cap holds no matter how many boards
-      // dispatch at once. The task itself is still `todo` here, so it is not in
-      // the count. bun:sqlite is synchronous + single-process, so this
-      // read-then-CAS is atomic w.r.t. other claims.
-      const running = (scope === "global"
-        ? db.prepare(
-            "SELECT COUNT(*) AS c FROM tasks WHERE status = 'in_progress' AND dispatch_state IN ('starting','working') AND archived = 0",
-          ).get()
-        : db.prepare(
-            "SELECT COUNT(*) AS c FROM tasks WHERE project_id = ? AND status = 'in_progress' AND dispatch_state IN ('starting','working') AND archived = 0",
-          ).get(row.project_id)) as any;
-      if ((running.c as number) >= cap) return null;
+      // Concurrency cap: count the AGENTI VIVI, not the card. Per-board by
+      // default; scope 'global' counts across EVERY board so a machine-wide cap
+      // holds no matter how many boards dispatch at once. The task itself is
+      // still `todo` here, so it is not in the count. bun:sqlite is synchronous
+      // + single-process, so this read-then-CAS is atomic w.r.t. other claims.
+      //
+      // La popolazione contata sta in `agent-census.ts` e comprende le SESSIONI
+      // FIGLIE dei task dispatchati. Contare solo le righe `tasks` reggeva
+      // finché un task era un processo; col modello del coordinatore una card
+      // vale N processi, e un tetto che non li vede lascia partire un altro
+      // task su una macchina già piena. Il claim e la rotta di spawn leggono la
+      // stessa funzione apposta: due query diverse sarebbero due tetti.
+      const running = liveAgentCount(db, scope === "global" ? null : row.project_id);
+      if (running >= cap) return null;
       const ts = now();
       const res = db.prepare(
         `UPDATE tasks

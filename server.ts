@@ -62,7 +62,9 @@ import { deliveryPointer } from "./server/services/own-commits";
 import { abandonNoticeFromRepo } from "./server/services/worktree-abandon-notice";
 import { createTaskAttemptStore } from "./server/services/task-attempts";
 import { auditLandings, type AuditTask, type LandingState } from "./server/services/landing-audit";
-import { createTranscriptUsageReader, ZERO_USAGE } from "./server/services/transcript-usage";
+import { createTranscriptUsageReader } from "./server/services/transcript-usage";
+import { createDispatchUsageReader } from "./server/services/dispatch-usage";
+import { orphanBoardChildSessions } from "./server/services/agent-census";
 import { createDetachedTopic, DETACHED_TOPIC_AUTONOMY } from "./server/lib/session-control-core";
 import { buildProjectCandidates, resolveProjectPath, isSelectableProjectDir } from "./server/services/project-path-resolver";
 import { homedir } from "os";
@@ -821,6 +823,15 @@ function dispatchExtraPaths(): string[] {
 // byte offsets so the dispatcher's 4s live ticker stays O(appended bytes).
 const transcriptUsageReader = createTranscriptUsageReader();
 
+// Lo stesso lettore, ma per una sessione DI TASK: somma le sessioni figlie che
+// il coordinatore ha lanciato, così `tasks.agent_tokens` porta il costo del
+// lavoro e non quello del solo coordinamento (vedi dispatch-usage.ts). Una
+// istanza sola: dentro c'è il ledger che tiene i token delle figlie gia' morte.
+const dispatchUsageReader = createDispatchUsageReader({
+  db: ctx.db,
+  read: (p) => transcriptUsageReader.read(p),
+});
+
 // Assigned just below (after worktreeOfTask is defined); the dispatcher only
 // calls it lazily at review-time, so the late binding is safe.
 let previewManager: PreviewManager | undefined;
@@ -1111,14 +1122,13 @@ const taskDispatcher = createTaskDispatcher({
   // Code writes one per content block; the old inline sum overcounted ~2.4x).
   // Best-effort — a missing/unparsable transcript reads as zeros, and the
   // dispatcher only books per-turn deltas.
-  getSessionUsage: (sessionKey: string) => {
-    const row = ctx.db
-      .prepare("SELECT jsonl_path FROM claude_code_sessions WHERE session_key = ?")
-      .get(sessionKey) as { jsonl_path?: string | null } | null;
-    const path = row?.jsonl_path;
-    if (!path) return ZERO_USAGE;
-    return transcriptUsageReader.read(path);
-  },
+  //
+  // LE FIGLIE SONO DENTRO. Il coordinatore delega il lavoro a sessioni proprie,
+  // e il loro consumo è consumo DI QUESTA CARD: senza sommarlo, la card che
+  // spende di più risulterebbe la più economica. Vedi dispatch-usage.ts, che
+  // tiene anche il ledger delle figlie ormai chiuse (una somma sulle sole vive
+  // scenderebbe, e un calo il dispatcher lo appiattisce a zero).
+  getSessionUsage: (sessionKey: string) => dispatchUsageReader.read(sessionKey),
   // Last assistant prose in the session — the dispatcher mirrors it into a task
   // comment at delivery when the agent forgot comment_task, so a review always
   // carries the agent's own summary. Reads the local message store (sync).
@@ -3414,6 +3424,15 @@ const dispatchTimer = setInterval(() => {
   // il resto del cablaggio: il dispatcher resta host-agnostico e testabile.
   try { refreshLiveJobQuotas(ctx.db); }
   catch (err) { console.error("[job-quota] rilettura viva fallita", err); }
+  // LE FIGLIE MUOIONO COL PADRE, e qui è dove si scopre che è morto. La cascata
+  // del bridge copre solo un padre TERMINALE; la sessione di un task è una chat,
+  // e nessun frame `exit` la riguarda. Una spazzata sullo stesso giro che fa
+  // nascere e morire gli agenti risponde alla domanda giusta — «il task ha
+  // ancora un agente vivo?» — su OGNI strada di uscita, invece che su quelle
+  // che ci siamo ricordati di agganciare.
+  try {
+    for (const id of orphanBoardChildSessions(ctx.db)) retireTerminalSession(id);
+  } catch (err) { console.error("[board] reap delle sessioni figlie fallito", err); }
 }, DISPATCH_POLL_MS);
 
 // Chat reload-resilience: adopt broker-surviving CHAT turns after a restart.
