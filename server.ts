@@ -1372,6 +1372,20 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
       });
     } catch (err) { console.warn("[landing-audit] timbro del land fallito", err); }
   },
+  // Il land è stato CHIESTO ma non è ancora avvenuto. La card è già `done` (la
+  // rotta approva e risponde subito) e la fusione arriva dopo: senza questo
+  // timbro, in quella finestra una card chiusa è indistinguibile da una
+  // atterrata — ed è così che l'11/08 sedici card sono rimaste in Done col
+  // codice sul loro ramo, in silenzio. `witnessed: false` di proposito: è il
+  // vero di ADESSO, e la passata periodica resta libera di correggerlo se il
+  // land è morto a metà dopo aver mergiato davvero.
+  markLandPending: (taskId) => {
+    try {
+      dispatcherSvc.recordLandingState({
+        taskId, state: "unlanded", checkedAt: new Date().toISOString(),
+      });
+    } catch (err) { console.warn("[landing-audit] timbro di attesa fallito", err); }
+  },
   // Post-landing reap: merged (or empty) worktrees have no remaining value —
   // the manager path removes worktree + branch + row, serialized per project.
   deleteTaskWorktree: async (taskId) => {
