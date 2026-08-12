@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createTaskService, isLandActionLabel, isPublishActionLabel, LAND_ACTION_LABEL, PUBLISH_ACTION_LABEL, projectIdForPath, TaskServiceError, type TaskService } from "./tasks";
 import { PARKED_WAITED_OUT, WAIT_SERIES_MAX_MS, WAIT_STREAK_CAP } from "../../shared/board";
+import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL } from "../db/test-schema";
 
 describe("reserved action labels", () => {
   test("isLandActionLabel matches its label tolerantly, and NOT the publish one", () => {
@@ -23,37 +24,17 @@ describe("reserved action labels", () => {
   });
 });
 
-// Minimal DDL — the subset of migration 001 + 026 the service touches. Kept in
-// sync with server/db/migrations/*.sql by intent; if the service starts using a
-// new column, add it here too. PRAGMA foreign_keys + the assigned_topic_id FK
-// are deliberately faithful to prod: the "pending:<taskId>" placeholder bug
-// only reproduced with the FK enforced.
+// La DDL di `tasks` non si ricopia più qui: è TASKS_DDL, cioè la catena delle
+// migration, verificata colonna per colonna da test-schema.test.ts. PRAGMA
+// foreign_keys e la FK su assigned_topic_id sono fedeli alla produzione
+// apposta: il guasto del segnaposto "pending:<taskId>" si riproduceva solo con
+// le FK accese, e con le FK accese le tabelle-genitore devono esistere.
 function freshDb(): Database {
   const db = new Database(":memory:");
   db.run("PRAGMA foreign_keys = ON");
   db.run(`CREATE TABLE topics (id TEXT PRIMARY KEY, effort TEXT)`);
-  db.run(`CREATE TABLE tasks (
-    id TEXT PRIMARY KEY, project_id TEXT NOT NULL, text TEXT NOT NULL, description TEXT,
-    status TEXT NOT NULL DEFAULT 'todo', priority INTEGER NOT NULL DEFAULT 2,
-    kanban_order INTEGER NOT NULL DEFAULT 0, assigned_to TEXT, fingerprint TEXT, due_date TEXT,
-    chat_id TEXT, created_at TEXT NOT NULL, completed_at TEXT, updated_at TEXT NOT NULL,
-    claude_task_id TEXT, assigned_topic_id TEXT REFERENCES topics(id), archived INTEGER NOT NULL DEFAULT 0,
-    assigned_agent_id TEXT, in_progress_at TEXT,
-    dispatch_attempts INTEGER NOT NULL DEFAULT 0, dispatch_state TEXT, dispatch_error TEXT,
-    dispatch_deferred_until TEXT, dispatch_weight TEXT,
-    wait_streak INTEGER NOT NULL DEFAULT 0, wait_reason TEXT, wait_since TEXT,
-    parent_task_id TEXT REFERENCES tasks(id), output_url TEXT, plan_first INTEGER NOT NULL DEFAULT 0,
-    agent_ms INTEGER NOT NULL DEFAULT 0, agent_tokens INTEGER NOT NULL DEFAULT 0,
-    agent_cache_read_tokens INTEGER NOT NULL DEFAULT 0,
-    model TEXT, blocked_by_task_id TEXT REFERENCES tasks(id), reuse_blocker_context INTEGER NOT NULL DEFAULT 0,
-    priority_auto INTEGER NOT NULL DEFAULT 1, preview_image TEXT,
-    preview_retired_at TEXT, preview_retired_reason TEXT,
-    checks_state TEXT, checks_at TEXT, checks_commit TEXT, checks_json TEXT,
-    delivery_branch TEXT, delivery_commit TEXT, landing_state TEXT, landing_checked_at TEXT,
-    landing_witnessed INTEGER NOT NULL DEFAULT 0,
-    delivered_by TEXT, delivered_reason TEXT, created_by_topic_id TEXT,
-    done_actor TEXT, reopened_at TEXT, reopened_by TEXT, reopened_actor TEXT
-  )`);
+  db.run(TASKS_DDL);
+  db.run(TASKS_FK_STUBS_DDL);
   db.run(`CREATE UNIQUE INDEX idx_tasks_claude_task_id ON tasks(claude_task_id) WHERE claude_task_id IS NOT NULL`);
   db.run(`CREATE TABLE board_settings (
     project_id TEXT PRIMARY KEY, require_approval_for_done INTEGER DEFAULT 0,
@@ -72,13 +53,7 @@ function freshDb(): Database {
   )`);
   // migration 100 — le etichette. `rowToTask` la legge per OGNI riga, quindi
   // senza questa tabella non fallisce il test delle etichette: falliscono tutti.
-  db.run(`CREATE TABLE task_labels (
-    task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
-    label TEXT NOT NULL,
-    source TEXT NOT NULL DEFAULT 'human' CHECK(source IN ('derived', 'human', 'agent')),
-    created_at TEXT NOT NULL,
-    PRIMARY KEY (task_id, label)
-  )`);
+  db.run(TASK_LABELS_DDL);
   db.run(`CREATE TABLE approvals (
     id TEXT PRIMARY KEY, task_id TEXT NOT NULL, requested_by TEXT NOT NULL,
     approval_type TEXT NOT NULL, from_status TEXT, to_status TEXT, confidence_score REAL,

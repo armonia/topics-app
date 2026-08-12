@@ -16,34 +16,14 @@
 import { test, expect, describe, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import { createTaskService, type TaskService } from "./tasks";
+import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL } from "../db/test-schema";
 
 function freshDb(): Database {
   const db = new Database(":memory:");
   db.run("PRAGMA foreign_keys = ON");
   db.run(`CREATE TABLE topics (id TEXT PRIMARY KEY, effort TEXT)`);
-  db.run(`CREATE TABLE tasks (
-    id TEXT PRIMARY KEY, project_id TEXT NOT NULL, text TEXT NOT NULL, description TEXT,
-    status TEXT NOT NULL DEFAULT 'todo', priority INTEGER NOT NULL DEFAULT 2,
-    kanban_order INTEGER NOT NULL DEFAULT 0, assigned_to TEXT, due_date TEXT, chat_id TEXT,
-    created_at TEXT NOT NULL, completed_at TEXT, updated_at TEXT NOT NULL,
-    claude_task_id TEXT, assigned_topic_id TEXT REFERENCES topics(id),
-    archived INTEGER NOT NULL DEFAULT 0, in_progress_at TEXT,
-    dispatch_attempts INTEGER NOT NULL DEFAULT 0, dispatch_state TEXT, dispatch_error TEXT,
-    dispatch_deferred_until TEXT, dispatch_weight TEXT,
-    parent_task_id TEXT REFERENCES tasks(id), plan_first INTEGER NOT NULL DEFAULT 0,
-    agent_ms INTEGER NOT NULL DEFAULT 0, agent_tokens INTEGER NOT NULL DEFAULT 0,
-    agent_cache_read_tokens INTEGER NOT NULL DEFAULT 0,
-    priority_auto INTEGER NOT NULL DEFAULT 1, reuse_blocker_context INTEGER NOT NULL DEFAULT 0,
-    wait_streak INTEGER NOT NULL DEFAULT 0, wait_reason TEXT, wait_since TEXT,
-    blocked_by_task_id TEXT REFERENCES tasks(id), output_url TEXT, preview_image TEXT,
-    preview_retired_at TEXT, preview_retired_reason TEXT,
-    checks_state TEXT, checks_at TEXT, checks_commit TEXT, checks_json TEXT,
-    delivery_branch TEXT, delivery_commit TEXT, landing_state TEXT, landing_checked_at TEXT,
-    landing_witnessed INTEGER NOT NULL DEFAULT 0,
-    delivered_by TEXT, delivered_reason TEXT,
-    done_actor TEXT, reopened_at TEXT, reopened_by TEXT, reopened_actor TEXT,
-    model TEXT, created_by_topic_id TEXT
-  )`);
+  db.run(TASKS_DDL);
+  db.run(TASKS_FK_STUBS_DDL);
   db.run(`CREATE TABLE board_settings (
     project_id TEXT PRIMARY KEY, auto_dispatch INTEGER NOT NULL DEFAULT 0,
     max_agents INTEGER DEFAULT 3, dispatch_retry_cap INTEGER
@@ -53,11 +33,7 @@ function freshDb(): Database {
     content TEXT NOT NULL, mentions TEXT, media TEXT, created_at TEXT NOT NULL,
     kind TEXT NOT NULL DEFAULT 'comment'
   )`);
-  db.run(`CREATE TABLE task_labels (
-    task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
-    label TEXT NOT NULL, source TEXT NOT NULL DEFAULT 'human',
-    created_at TEXT NOT NULL, PRIMARY KEY (task_id, label)
-  )`);
+  db.run(TASK_LABELS_DDL); // migration 100 — rowToTask la legge per OGNI task
   // L'interruttore acceso: la riga '*' È l'interruttore globale.
   db.run("INSERT INTO board_settings (project_id, auto_dispatch) VALUES ('*', 1)");
   return db;

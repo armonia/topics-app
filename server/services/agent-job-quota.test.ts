@@ -31,6 +31,11 @@ import { structuralDispatchCapacity } from "./dispatch-capacity";
 // si sa contare. I test che lo usano pinzano il RIPIEGO — il divisore torna a
 // essere il tetto di concorrenza, cioè il comportamento di prima del canale
 // vivo. Per il caso normale c'è `dbVivo()`.
+//
+// Ecco perché questo file NON importa `TASKS_DDL` (server/db/test-schema.ts)
+// come gli altri harness: lì la tabella è quella completa, e con la tabella
+// completa metà di questi test misurerebbe un DB che non è quello che dicono di
+// misurare. Il sottoinsieme è la premessa, non una dimenticanza.
 function dbFresco(): Database {
   const db = new Database(":memory:");
   db.run(`CREATE TABLE topics (id TEXT PRIMARY KEY, session_key TEXT NOT NULL UNIQUE)`);

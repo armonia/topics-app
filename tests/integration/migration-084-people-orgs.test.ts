@@ -19,7 +19,13 @@ import { join } from "node:path";
 const RADICE = join(import.meta.dir, "..", "..");
 const M084 = join(RADICE, "server", "db", "migrations", "084-people-orgs.sql");
 
-/** Lo stato del mondo PRIMA della 084: 080 + 082 + 083. */
+/**
+ * Lo stato del mondo PRIMA della 084: 080 + 082 + 083.
+ *
+ * Sottoinsieme deliberato, come in migration-078: si misura una migration, e lo
+ * schema di `tasks` deve essere quello del giorno in cui la 084 gira. `TASKS_DDL`
+ * (server/db/test-schema.ts) è la catena di oggi, colonne più giovani comprese.
+ */
 function dbPrima(): Database {
   const db = new Database(":memory:");
   db.run("CREATE TABLE tasks (id TEXT PRIMARY KEY, text TEXT, preview_image TEXT)");
