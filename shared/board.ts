@@ -89,23 +89,54 @@ export function statusEventEnters(content: string, status: TaskStatus): boolean 
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * La card mostra l'anteprima in un riquadro `max-h-36` (144px) con
- * `object-cover object-top` dentro una colonna da 268px: un'immagine più ALTA
- * di questo rapporto non viene rimpicciolita, viene TAGLIATA in basso. È la
- * soglia oltre la quale «ho messo l'anteprima» e «il reviewer vede la cosa»
- * smettono di coincidere. Vive qui perché la stessa cifra la cita il testo del
- * protocollo (`PREVIEW_RULE`) e la misura il gate di `promoteReviewPreview`.
+ * La card mostra l'anteprima con `object-cover object-top`: ciò che eccede il
+ * riquadro non viene rimpicciolito, viene TAGLIATO in basso. Questa è la soglia
+ * oltre la quale «ho messo l'anteprima» e «il reviewer vede la cosa» smettono
+ * di coincidere. Vive qui perché la stessa cifra la cita il testo del protocollo
+ * (`PREVIEW_RULE`) e la misura il gate di `promoteReviewPreview`.
+ *
+ * ERA `144 / 268` = 0.537, e quel numero era vero in UNA sola configurazione.
+ * Il tetto sulla card era `max-h-36`, un'altezza ASSOLUTA in 144px, dentro una
+ * colonna la cui larghezza è un INTERVALLO (Card.tsx `widthCls`: lavoro
+ * 18→26rem, review 22→44rem). Il rapporto che il reviewer vede davvero è
+ * 144/larghezza, quindi scendeva man mano che la colonna cresceva — misurato:
+ * 0.58 nella colonna di lavoro stretta, 0.30 nella colonna review a 1280,
+ * 0.22 su un board molto largo. Proprio la review — la colonna su cui si
+ * decide — tagliava il doppio di quanto il protocollo dichiarasse.
+ *
+ * Ora il tetto è espresso come RAPPORTO della larghezza vera del riquadro
+ * (unità di container query, `70cqw`), quindi la soglia è la stessa a ogni
+ * larghezza di colonna e su mobile — e a tenerla tale è
+ * `PREVIEW_CARD_MAX_WIDTH_PX`, che ferma la crescita della miniatura senza
+ * toccarne le proporzioni. È anche la stessa soglia che misura il gate di
+ * promozione: due numeri diversi per la stessa immagine erano un odore, non
+ * una politica.
  * @see client/src/components/Board/PreviewMedia.tsx
  */
-export const PREVIEW_CARD_MAX_RATIO = 144 / 268;
+export const PREVIEW_CARD_MAX_RATIO = 0.7;
 
 /**
- * Il gate di PROMOZIONE è più largo della soglia della card (0.7 contro 0.537):
- * promuovere è un favore che il server fa a una consegna già valida, non un
- * cancello di review, quindi taglia solo ciò che è palesemente illeggibile in
- * una card — la pagina intera fotografata — e lascia passare il quasi-quadrato.
+ * A crescere è la LARGHEZZA della miniatura, e si ferma qui.
+ *
+ * Serve un secondo tetto, perché il rapporto da solo non ne è uno: nella
+ * colonna review, larga fino a 666px di riquadro, `0.7 × 666` sono 466px di
+ * anteprima — una card che si mangia la colonna e nasconde le altre, cioè
+ * esattamente il motivo per cui un tetto esiste.
+ *
+ * Il tetto poteva essere sull'ALTEZZA (`max-h: Npx`), ed è la strada che è
+ * stata provata e scartata MISURANDO: un tetto in px sull'altezza rimette
+ * dentro il difetto che questo cambio toglie — sopra una certa larghezza
+ * comanda lui e il rapporto effettivo torna a scendere, quindi il numero del
+ * protocollo tornerebbe a essere vero solo in certe colonne.
+ *
+ * Sulla LARGHEZZA invece no: oltre 380px la miniatura smette di crescere, la
+ * larghezza in più della colonna va al testo, e il rapporto resta 0.7 a
+ * QUALSIASI larghezza di colonna. Il tetto sull'altezza esiste comunque, ma
+ * come conseguenza: `0.7 × 380` = 266px, che a 1280×800 è ~2/3 del corpo
+ * colonna — la card si vede intera senza scorrere, e in una colonna di lavoro
+ * (miniatura 250px) se ne vedono due.
  */
-export const PREVIEW_PROMOTE_MAX_RATIO = 0.7;
+export const PREVIEW_CARD_MAX_WIDTH_PX = 380;
 
 /**
  * Come si sceglie l'anteprima di una consegna. **Questa stringa è la copia
@@ -127,7 +158,7 @@ export const PREVIEW_PROMOTE_MAX_RATIO = 0.7;
  */
 export const PREVIEW_RULE = [
   "EVIDENZA DI REVIEW = un'ANTEPRIMA durevole nel task — update_task(preview_image=<path assoluto sotto ~/.topics/media/ o nel workspace del task; stringa vuota = azzera>), che compare come card sulla board e nel drawer. Tre rami, e a scegliere è il criterio, non l'abitudine:",
-  `· SCREENSHOT .png — la consegna HA una superficie renderizzata che entra in una schermata. Catturala a viewport ≤1440×900 e con altezza/larghezza ≤ ${PREVIEW_CARD_MAX_RATIO.toFixed(3)} (=144/268: oltre quella soglia la card TAGLIA invece di rimpicciolire). Mai un full-page.`,
+  `· SCREENSHOT .png — la consegna HA una superficie renderizzata che entra in una schermata. Catturala a viewport ≤1440×900 e con altezza/larghezza ≤ ${PREVIEW_CARD_MAX_RATIO.toFixed(2)} (la card ritaglia l'eccedenza dal basso invece di rimpicciolirla). Mai un full-page.`,
   "· VIDEO .webm/.mp4 ≤20s — dimostrare la consegna richiede DUE O PIÙ STATI (appare, resta, sparisce; scroll, apri/chiudi, streaming, un flusso a più passi): uno screenshot statico non prova un comportamento. Clip Playwright breve (`recordVideo: { dir }` sul context) o, se il progetto ha spec-flow, il .webm dello scenario.",
   "· DIAGRAMMA .svg — la consegna NON ha una superficie renderizzata (un piano, un'architettura, un protocollo, una migrazione): si disegna la STRUTTURA — riquadri, frecce, cinque parole per nodo — non si fotografa il documento.",
   "Una TAB del task (open_browser_pane) NON sostituisce l'anteprima: la pagina viva muore col server che la serve, l'anteprima resta.",
@@ -244,6 +275,22 @@ export function isAgentWorking(
   return (ACTIVE_DISPATCH_STATES as readonly string[]).includes(dispatchState ?? '');
 }
 
+/**
+ * «L'ha fermato una persona», scritto — non dedotto dall'assenza di chip.
+ *
+ * Un park umano finiva a `dispatch_state = NULL`, cioè identico a un task mai
+ * dispacciato: la card tornava in Backlog muta e l'unico modo di sapere perché
+ * era aprire il thread. Le due alternative già in tabella dicono altro:
+ * `failed` accusa l'agent di un fallimento che non c'è stato, `blocked` promette
+ * una configurazione da sistemare.
+ *
+ * Vive qui perché ha tre lettori su due lati del filo — chi lo SCRIVE (lo stop
+ * della route), chi lo PRESERVA (la coda del `onTurnEnd`, che senza guardia
+ * riazzera la chip del turno che ha appena tagliato) e chi lo DISEGNA (la
+ * tabella delle chip del client).
+ */
+export const PARKED_STOPPED = 'stopped';
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Blocco `question` — il formato, dichiarato dove SCRITTURA e LETTURA lo vedono
 // entrambe (`addComment` lo compone, `parseQuestionBlock` lo legge).
@@ -288,6 +335,113 @@ export const PLAN_REVISE_LABEL = 'Da rivedere';
 export function hasPlanApproveOption(options: readonly string[]): boolean {
   const want = normalizeActionLabel(PLAN_APPROVE_LABEL);
   return options.some((o) => normalizeActionLabel(o) === want);
+}
+
+/**
+ * L'antenato al lavoro che spiega un sottotask senza agente proprio: chi lo sta
+ * lavorando, e con che titolo dirlo. Risolto dal server come `BlockerRef` e per
+ * lo stesso motivo — la lista della board è un progetto solo, `rootsOnly`, non
+ * archiviati, quindi il padre di un sottotask spesso NON è fra i task che il
+ * client ha in mano, e cercarcelo dentro dava «nessuno lo lavora» proprio quando
+ * qualcuno lo stava lavorando.
+ */
+export interface AncestorAtWork {
+  id: string;
+  text: string;
+}
+
+/**
+ * Chi lavora un sottotask `in_progress` che non ha né topic né chip di dispatch.
+ *
+ * `parent-turn` = lo lavora un antenato dentro il PROPRIO turno: è il flusso
+ * voluto — l'agente si crea la checklist come sottotask e la spunta mentre va —
+ * ed è la norma schiacciante (misurato l'11/08/2026 sul DB vivo: 243 figli
+ * chiusi in quella forma in un giorno, 281 il giorno prima).
+ *
+ * `unattended` = nessun antenato è al lavoro: la card è rimasta lì e non la
+ * lavora nessuno. Rara (1 card viva su ~1.276 al momento della misura) ma reale,
+ * e oggi invisibile: il recupero orfani filtra sul chip di dispatch, che qui non
+ * c'è, quindi non vede né questo caso né l'altro.
+ */
+export type SubtaskWork =
+  | { kind: 'parent-turn'; ancestor: AncestorAtWork }
+  | { kind: 'unattended' };
+
+/**
+ * Un antenato sta lavorando ADESSO?
+ *
+ * `isAgentWorking` da solo non basta: `dispatch_state` resta scritto anche su
+ * righe che nel frattempo sono state archiviate o mosse fuori da `in_progress`,
+ * e leggerlo da solo farebbe passare per «al lavoro» un padre già chiuso.
+ *
+ * NON guarda `topics.archived`: i topic che il dispatcher crea per un agente
+ * NASCONO archiviati (sono worker di sfondo, non tab da mostrare in sidebar).
+ * Misurato l'11/08/2026: 755 topic archiviati su 767, e tutti e 7 i task con un
+ * agente vivo in quel momento — compreso quello che stava girando — avevano il
+ * topic `archived = 1`. Usare quel bit come segno di vita inverte la risposta
+ * sul 100% dei casi sani.
+ */
+export function isAncestorAtWork(a: {
+  status: TaskStatus | string;
+  dispatchState: string | null | undefined;
+  archived: boolean;
+}): boolean {
+  return !a.archived && a.status === 'in_progress' && isAgentWorking(a.dispatchState);
+}
+
+/**
+ * La forma ambigua: un sottotask `in_progress` MAI dispacciato — niente topic,
+ * niente chip. È l'unica in cui la domanda «chi lo lavora?» non ha già risposta
+ * sulla card: con un topic c'è il deep-link, con un chip c'è lo stato.
+ */
+export function isUnattributedSubtask(t: {
+  status: TaskStatus | string;
+  parentTaskId: string | null | undefined;
+  assignedTopicId: string | null | undefined;
+  dispatchState: string | null | undefined;
+}): boolean {
+  return t.status === 'in_progress' && !!t.parentTaskId && !t.assignedTopicId && !t.dispatchState;
+}
+
+/**
+ * Il segnale, DERIVATO dalla catena dei padri: nessuna migration e nessun
+ * `assigned_topic_id` ereditato — quella colonna pesa su quota, dispatcher e
+ * deep-link, e riempirla per dire una cosa che si può leggere sarebbe pagare
+ * tre conti per un'etichetta.
+ *
+ * Nemmeno `created_by_topic_id` (migration 093) risponde: sembra la scorciatoia
+ * — «chi mi ha creato è il topic che mi lavora» — ma è scritto solo su una
+ * parte delle righe. Misurato l'11/08/2026 sui figli chiusi in giornata nella
+ * forma ambigua: 90 su 249 ce l'hanno, 159 no. Leggerlo come segnale darebbe
+ * «non la lavora nessuno» sui due terzi dei casi sani.
+ *
+ * `ancestors` arriva ordinata dal padre in su. Vince il PRIMO antenato al
+ * lavoro, non il padre diretto: l'agente che lavora un task si crea la checklist
+ * come figli, e quei figli possono avere figli loro — la catena misurata arriva
+ * a due livelli, e chi tiene il turno può stare più in alto del padre.
+ *
+ * Torna `null` quando la domanda non si pone (non è un sottotask, non è in
+ * corso, o ha già un agente suo): un `null` qui vuol dire «niente da dire»,
+ * mai «non lo lavora nessuno» — quello è `unattended`, ed è un'altra cosa.
+ */
+export function deriveSubtaskWork(
+  task: {
+    status: TaskStatus | string;
+    parentTaskId: string | null | undefined;
+    assignedTopicId: string | null | undefined;
+    dispatchState: string | null | undefined;
+  },
+  ancestors: ReadonlyArray<{
+    id: string;
+    text: string;
+    status: TaskStatus | string;
+    dispatchState: string | null | undefined;
+    archived: boolean;
+  }>,
+): SubtaskWork | null {
+  if (!isUnattributedSubtask(task)) return null;
+  const at = ancestors.find(isAncestorAtWork);
+  return at ? { kind: 'parent-turn', ancestor: { id: at.id, text: at.text } } : { kind: 'unattended' };
 }
 
 export interface TaskComment {
@@ -502,4 +656,123 @@ export interface LinkProposal {
   sharedTerms: string[];
   /** Frase leggibile: va sotto al composer E nel thread delle due card. */
   reason: string;
+}
+
+/**
+ * Parse a task comment for an agent "question block" — the human-decision
+ * request the board renders as a quick-reply:
+ *
+ *   ```question
+ *   Which auth approach?
+ *   - JWT in an httpOnly cookie
+ *   - Short-lived bearer token
+ *   ```
+ *
+ * The canonical block is composed SERVER-side (tasks service `questionOptions`)
+ * so this layout is guaranteed for new comments — but the parser stays
+ * tolerant of hand-written LLM variants: `\r\n`, missing newlines around the
+ * fences, options inlined on one line. Returns the question + the (possibly
+ * empty) option list, or null when the text has no such block.
+ *
+ * Sta in `shared/` e non più solo nel client perché ora ha un secondo lettore:
+ * il SERVER, che deve sapere se il task che entra in review porta una domanda
+ * per poterla mettere nei tasti della notifica (`emitReviewReadyEdge` →
+ * `push-triggers`). Due parser sarebbero due verità: un'opzione che la board
+ * mostra e il banner no è peggio di nessun banner.
+ */
+export function parseQuestionBlock(text: string): { question: string; options: string[] } | null {
+  if (!text) return null;
+  // \s+ (not \s*\n): tolerate a block whose newlines were lost/normalized —
+  // '```question Question? - a - b```' still parses.
+  const m = text.replace(/\r\n/g, '\n').match(/```question\s+([\s\S]*?)```/);
+  if (!m) return null;
+  const body = m[1].trim();
+  if (!body) return null;
+  const options: string[] = [];
+  const qLines: string[] = [];
+  if (body.includes('\n')) {
+    for (const raw of body.split('\n')) {
+      const line = raw.trim();
+      if (!line) continue;
+      const opt = line.match(/^[-*]\s+(.*)$/);
+      if (opt) options.push(opt[1].trim());
+      else qLines.push(line);
+    }
+  } else {
+    // Degenerate single-line body: split on ' - ' option markers. The first
+    // segment is the question; a leading '- ' marks an option-only block.
+    const segments = body.split(/\s+-\s+/);
+    const first = segments.shift()?.trim() ?? '';
+    if (first.startsWith('- ')) segments.unshift(first.slice(2));
+    else if (first) qLines.push(first);
+    for (const s of segments) { const v = s.trim(); if (v) options.push(v); }
+  }
+  const question = qLines.join(' ').trim();
+  if (!question) return null;
+  // "Landa e pubblica" (go online = merge + push + deploy) is NEVER a per-task
+  // quick-reply: publishing is a SEPARATE, human-only board action (the "Pubblica"
+  // control) with a diff preview to review before pushing. The dispatcher used to
+  // make agents offer it at delivery; drop it from the rendered options so old
+  // deliveries that still carry it don't show a one-click merge+push button.
+  // "Landa su main" (local merge, no push) stays.
+  const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
+  const filtered = options.filter((o) => norm(o) !== 'landa e pubblica');
+  return { question, options: filtered };
+}
+
+/** Il minimo che serve per riconoscere una domanda in coda al thread. */
+export type PendingQuestionComment = { content: string; kind?: string | null };
+
+/**
+ * La domanda pendente di un task: l'ULTIMA parola dell'agente, se è un blocco
+ * ```question.
+ *
+ * Stessa lettura della card e del drawer (`parseQuestionBlock` sull'ultimo
+ * commento, righe `kind: 'status'` escluse perché sono cronologia delle
+ * transizioni, non parole di nessuno). Se il banner mostrasse opzioni diverse
+ * da quelle della card, quale delle due superfici crede non sarebbe più una
+ * domanda con risposta.
+ *
+ * Due lettori su due lati del filo: il server, che mette la domanda nel fronte
+ * `task:review-ready`; e il client, che se la ricava da sé quando il fronte non
+ * la porta (server più vecchio del client).
+ */
+export function pendingQuestion(
+  comments: readonly PendingQuestionComment[] | null | undefined,
+): { text: string; options: string[] } | null {
+  if (!comments || comments.length === 0) return null;
+  const speech = comments.filter((c) => c && c.kind !== 'status');
+  const last = speech[speech.length - 1];
+  if (!last) return null;
+  const parsed = parseQuestionBlock(last.content ?? '');
+  // Una domanda senza opzioni non ha tasti da offrire, ma resta una domanda: la
+  // si dichiara comunque, così chi legge sa che il task ASPETTA una risposta e
+  // non è una consegna da approvare.
+  return parsed ? { text: parsed.question, options: parsed.options } : null;
+}
+
+/**
+ * La ricevuta di un land — il server risponde `202` (accodato), non `200`
+ * (fatto).
+ *
+ * Esiste perché `POST …/tasks/:id/land` rispondeva `200` con la card e faceva
+ * la fusione dopo (`void landTask(...)`): chi chiamava riceveva la card, non
+ * l'esito. Misurato l'11/08, ~20 land in raffica ⇒ 4 fusioni riuscite e 16 card
+ * chiuse col codice ancora sul loro branch, senza una riga che lo dicesse.
+ *
+ * `ahead` è quante fusioni ci sono davanti sulla stessa board: toccano tutte
+ * main nello stesso checkout, quindi vanno in fila — e mettersi in fila si dice.
+ */
+export type LandingPhase = 'queued' | 'running' | 'settled' | 'failed';
+
+export interface LandingTicket {
+  taskId: string;
+  phase: LandingPhase;
+  /** Quanti land ci sono DAVANTI a questo nella stessa fila. 0 = tocca a lui. */
+  ahead: number;
+  queuedAt: string;
+  /** ISO in cui il ticket si è chiuso, `null` finché non è finito. */
+  settledAt: string | null;
+  /** Il motivo del `failed`. `null` in ogni altra fase. */
+  error: string | null;
 }

@@ -3,7 +3,7 @@ import type { AppSettings, ClaudeSessionPhase, TerminalSessionInfo, Topic, WSMes
 import { useWSSubscription } from './useWSSubscription';
 import { useRefMirror } from './useRefMirror';
 import { useSignalsStore } from '../state/signals';
-import { notifyNative, primeWebNotificationPermission } from '../lib/shell/app';
+import { notifyNative } from '../lib/shell/app';
 import { initFocusStatus, isFocusSilencing } from '../lib/shell/focus';
 import { decideTerminalBanner, statusBody, isTerminalPaneSelected, isTabActivelyVisible, isRealPhaseTransition } from '../lib/notify/terminalNotify';
 import { useProjectFocusStore } from '../state/projectFocus';
@@ -11,7 +11,11 @@ import { isAgentTurnNoise } from '../lib/notify/dispatchedTopic';
 import { isTopicMuted as isTopicMutedPure } from '../lib/notify/muteGate';
 import { bannerClaimKey, bannerClaimant, claimMessageBanner } from '../lib/notify/messageBannerClaim';
 import { decideMessageBanner } from '../lib/notify/messageBanner';
-import { isAgentWorking } from '../lib/board';
+import { buildNotifyActions, type NotifyAction } from '../../../shared/notify-actions';
+import { resolveReviewQuestion } from '../lib/notify/reviewQuestion';
+import { boardApi, isAgentWorking } from '../lib/board';
+import { inPageBannerAllowed, type NotifyEventKind } from '../lib/notify/pushVoice';
+import { isPushSubscribed } from '../state/pushDevice';
 import type { TopicTaskResolver } from './useTaskTopicIndex';
 
 interface CompletionNotifierProps {
@@ -141,17 +145,20 @@ export function useCompletionNotifier({
   taskForTopic,
   isOwnStream,
 }: CompletionNotifierProps): void {
-  // Prime OS-notification permission once on mount. In a browser tab this raises
-  // the one-time prompt so later completions can surface a system banner.
+  // Il permesso NON si chiede più al mount, ed è un cambio deliberato.
   //
-  // Il guard nativo — sotto Tauri il permesso web NON si chiede — non vive più
-  // qui: sta dentro `primeWebNotificationPermission`, con la sua motivazione.
-  // Stava qui, ed era l'unica copia guardata di tre; le altre due chiedevano lo
-  // stesso permesso senza guard, che è esattamente come è nato il bug dei prompt
-  // a ogni avvio.
-  useEffect(() => {
-    void primeWebNotificationPermission();
-  }, []);
+  // Qui c'era un `primeWebNotificationPermission()` dentro un effetto senza
+  // dipendenze: in una scheda del browser il prompt di sistema partiva
+  // all'avvio, prima che l'utente avesse fatto niente. È il modo peggiore di
+  // chiedere — si nega per riflesso — e il costo non è «stavolta ha detto no»:
+  // un permesso NEGATO non si riapre da dentro la pagina (su iOS si va nelle
+  // impostazioni di sistema), quindi quel no chiude anche la porta alle
+  // notifiche ad app chiusa, per sempre, prima ancora che esistano.
+  //
+  // Ora lo chiede chi ha una ragione da mostrare: `PushEnrollPrompt` dopo che
+  // hai mandato un messaggio (cioè dopo aver creato un'attesa) e il bottone in
+  // Impostazioni → Notifiche. Restano gli unici due siti, e la porta unica
+  // (`lib/shell/app`) resta quella.
 
   // Arm the Focus/DND gate. Installs the push hook the native watcher calls and
   // does one eager query; idempotent and a no-op off Tauri (web keeps the safe
@@ -178,21 +185,32 @@ export function useCompletionNotifier({
   // impilarli: due messaggi dello stesso topic sono UNA cosa da guardare, non
   // due. Sotto Tauri non esiste — lì il compito lo fa la cooldown del
   // chiamante.
+  //
+  // `kind` non è decorazione: dice QUALE segnale è, e su quello si decide se la
+  // pagina ha diritto di parlare. Da quando un dispositivo può essere iscritto
+  // al push, gli eventi che il push copre arrivano DUE volte — una via
+  // WebSocket qui, una via push al service worker — e senza questo gate ogni
+  // evento diventerebbe due banner. La regola sta in `lib/notify/pushVoice.ts`,
+  // e vale solo per gli eventi coperti: i segnali dei terminali, che il push non
+  // manda, continuano a passare da qui. (Prima il primo parametro era `_level`,
+  // che nessuno leggeva.)
   const fire = useCallback((
-    _level: 'ok' | 'warn',
+    kind: NotifyEventKind,
     title: string,
     body: string,
     sound: boolean,
     taskId?: string | null,
     tag?: string,
+    actions?: NotifyAction[],
   ) => {
+    if (!inPageBannerAllowed(isPushSubscribed(), kind)) return;
     // Gate su Focus/Non disturbare. Se il sistema ci dice CON CERTEZZA che c'è un
     // Focus attivo, l'app tace del tutto — banner E suono. L'informazione non si
     // perde: il badge/tab (useTabNotifications, altro hook) resta acceso, sparisce
     // solo il rumore. `isFocusSilencing()` è false su web e ovunque lo stato non
     // sia leggibile → di default si notifica normalmente (nessun falso silenzio).
     if (isFocusSilencing()) return;
-    notifyNative(title, body, { silent: true, taskId: taskId ?? undefined, tag });
+    notifyNative(title, body, { silent: true, taskId: taskId ?? undefined, tag, actions });
     if (sound) playCompletionTone();
   }, []);
 
@@ -245,7 +263,39 @@ export function useCompletionNotifier({
       if (now - last < 10_000) return;
       cooldownRef.current.set(key, now);
       const title = (msg.taskTitle || 'Task').slice(0, 140);
-      fire('ok', 'Task pronto per la review', title, cfg.notificationsSound, taskId);
+      // La consegna che È una domanda si annuncia come tale, e le sue opzioni
+      // diventano i TASTI del banner: rispondere costa un click, non "apri
+      // l'app, trova il task, leggi, premi".
+      //
+      // La domanda arriva nel fronte (server: emitReviewReadyEdge) e allora non
+      // costa niente; se il fronte NON la porta è un server più vecchio di
+      // questo client — caso normale, il guscio desktop si aggiorna per conto
+      // suo — e allora la si chiede, invece di dedurre «nessuna domanda» e
+      // offrire un "Approva" su un task che sta aspettando una risposta. Vedi
+      // lib/notify/reviewQuestion.ts.
+      //
+      // La domanda si risolve PRIMA di sapere se questa voce parlerà: il gate
+      // anti-doppia-voce vive dentro `fire`, e chiederlo qui costerebbe di
+      // duplicare la regola in due posti. È una GET sola, e solo sul fronte di
+      // review di un task — non è il giro caldo.
+      void resolveReviewQuestion(msg, {
+        fetchComments: async (projectId, id) => (await boardApi.get(projectId, id)).comments,
+      }).then((resolved) => {
+        // 'unknown' = non si è potuto sapere: banner senza tasti, come prima.
+        const question = resolved === 'unknown' ? null : resolved;
+        const actions = resolved === 'unknown'
+          ? []
+          : buildNotifyActions({ kind: 'review-ready', question });
+        fire(
+          'task:review-ready',
+          question ? 'Serve una tua risposta' : 'Task pronto per la review',
+          question?.text ? `${title} — ${question.text}`.slice(0, 220) : title,
+          cfg.notificationsSound,
+          taskId,
+          undefined,
+          actions,
+        );
+      });
   });
 
   // ── Il gemello di FALLIMENTO ───────────────────────────────────────────
@@ -271,11 +321,15 @@ export function useCompletionNotifier({
       // Due domande diverse per l'umano: 'blocked' chiede di sistemare una
       // configurazione, 'failed' dice che l'agent non ha prodotto niente.
       fire(
-        'warn',
+        'task:parked',
         msg.state === 'blocked' ? 'Task da sistemare' : 'Task non consegnato',
         title,
         cfg.notificationsSound,
         taskId,
+        undefined,
+        // Un parcheggiato non riparte da solo: il tasto è la mossa che lo fa
+        // ripartire, cioè rimetterlo in Todo.
+        buildNotifyActions({ kind: 'parked' }),
       );
   });
 
@@ -324,7 +378,7 @@ export function useCompletionNotifier({
       // mangiare la consegna di una che invece parlerebbe.
       void claimMessageBanner(bannerClaimKey(msg), bannerClaimant()).then((mine) => {
         if (!mine) return;
-        fire('ok', decision.title, decision.body, cfg.notificationsSound, null, decision.tag);
+        fire('message:new', decision.title, decision.body, cfg.notificationsSound, null, decision.tag);
       });
   });
 
@@ -438,7 +492,7 @@ export function useCompletionNotifier({
           for (const k of keep) ledger.add(k);
         }
 
-        fire(decision.level === 'warn' ? 'warn' : 'ok', decision.title, decision.body, cfg.notificationsSound);
+        fire('session:state', decision.title, decision.body, cfg.notificationsSound);
         return;
       }
 
@@ -529,16 +583,16 @@ export function useCompletionNotifier({
       // una frase sola per due superfici.
       switch (phase) {
         case 'awaiting-user':
-          fire('ok', label, statusBody('awaiting-user'), cfg.notificationsSound, taskId);
+          fire('session:state', label, statusBody('awaiting-user'), cfg.notificationsSound, taskId);
           break;
         case 'awaiting-approval':
-          fire('warn', label, statusBody('awaiting-approval'), cfg.notificationsSound, taskId);
+          fire('session:state', label, statusBody('awaiting-approval'), cfg.notificationsSound, taskId);
           break;
         case 'completed':
-          fire('ok', label, statusBody('completed'), cfg.notificationsSound, taskId);
+          fire('session:state', label, statusBody('completed'), cfg.notificationsSound, taskId);
           break;
         case 'error':
-          fire('warn', label, statusBody('error'), cfg.notificationsSound, taskId);
+          fire('session:state', label, statusBody('error'), cfg.notificationsSound, taskId);
           break;
       }
   });
@@ -602,7 +656,7 @@ export function useCompletionNotifier({
 
       const topicName = ts?.topicId ? topicsRef.current[ts.topicId]?.name : undefined;
       const label = ts?.name || topicName || 'Claude Code';
-      fire('ok', label, statusBody('completed'), cfg.notificationsSound);
+      fire('session:state', label, statusBody('completed'), cfg.notificationsSound);
   });
 }
 

@@ -3,6 +3,8 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
 import { join, dirname } from "path";
 import { getDatabase } from "./db";
 import { resolveStateDir } from "./lib/data-dir";
+import { DEFAULT_WHEN_OPEN, parseWhenOpen } from "./push-devices";
+import type { NotifyAction, NotifyActionRequest } from "../shared/notify-actions";
 
 interface VapidKeys {
   publicKey: string;
@@ -52,6 +54,12 @@ interface PushSubscriptionRow {
   endpoint: string;
   keys_p256dh: string;
   keys_auth: string;
+  /** Cosa fa questo dispositivo ad app aperta (migration 101). Viaggia DENTRO
+   *  il payload invece di essere una copia che il service worker si tiene da
+   *  parte: la preferenza è per-dispositivo e il mittente la conosce già riga
+   *  per riga, quindi non c'è nessuna cache da mantenere in sincrono e nessun
+   *  modo che il worker decida con un valore vecchio. */
+  when_open: string | null;
 }
 
 /** La forma che vuole webpush: chiavi annidate. NON coincide con la riga, ed è
@@ -67,19 +75,47 @@ function toPushSubscription(row: PushSubscriptionRow): PushSubscription {
   return { endpoint: row.endpoint, keys: { p256dh: row.keys_p256dh, auth: row.keys_auth } };
 }
 
-export async function sendPushToAll(payload: { title: string; body: string; tag?: string; url?: string }) {
+/**
+ * Il payload come arriva da `push-triggers`, `whenOpen` a parte — quello lo
+ * aggiunge questa funzione, riga per riga, perché è l'unica che conosce il
+ * DISPOSITIVO a cui sta spedendo.
+ *
+ * `actions`/`requests` sono dichiarati anche qui e non solo dal chiamante: la
+ * firma stretta di prima compilava lo stesso (un oggetto con proprietà in più
+ * passa, se non è un literal), ma diceva il falso — questa funzione inoltra
+ * l'intero payload, e i TASTI ci passano dentro. Una firma che tace su ciò che
+ * trasporta è il posto esatto in cui, al prossimo giro, qualcuno «pulisce» il
+ * payload e i tasti spariscono senza che un tipo protesti.
+ */
+export interface OutgoingPushPayload {
+  title: string;
+  body: string;
+  tag?: string;
+  url?: string;
+  actions?: NotifyAction[];
+  requests?: Record<string, NotifyActionRequest>;
+}
+
+export async function sendPushToAll(payload: OutgoingPushPayload) {
   initVapid();
   const db = getDatabase();
-  const subs = db.query("SELECT endpoint, keys_p256dh, keys_auth FROM push_subscriptions").all() as PushSubscriptionRow[];
+  // `enabled = 0` è un dispositivo che l'utente ha spento, e spegnerlo deve
+  // valere SOLO per lui: il filtro sta qui, sulla riga, perché è l'unico posto
+  // in cui la scelta di un dispositivo non può tracimare sugli altri.
+  const subs = db.query(
+    "SELECT endpoint, keys_p256dh, keys_auth, when_open FROM push_subscriptions WHERE enabled = 1"
+  ).all() as PushSubscriptionRow[];
 
   if (subs.length === 0) return;
 
-  const jsonPayload = JSON.stringify(payload);
   const results = await Promise.allSettled(
     subs.map(sub =>
       webpush.sendNotification(
         toPushSubscription(sub),
-        jsonPayload
+        // Un payload PER DISPOSITIVO: la preferenza «ad app aperta» decide chi
+        // disegna il banner (service worker o pagina) e viaggia col messaggio,
+        // così il worker non deve tenersi una copia che può invecchiare.
+        JSON.stringify({ ...payload, whenOpen: parseWhenOpen(sub.when_open) ?? DEFAULT_WHEN_OPEN })
       ).catch(err => {
         // 410 Gone or 404 = subscription expired, remove it
         if (err.statusCode === 410 || err.statusCode === 404) {

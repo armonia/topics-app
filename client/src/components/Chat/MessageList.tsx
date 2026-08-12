@@ -56,6 +56,28 @@ import { SkeletonChatMessages } from '../Shared/Skeleton';
  */
 const CHAT_BOTTOM_GUTTER_PX = 24;
 
+/**
+ * LA FASCIA DIETRO L'INPUT NON È UN POSTO DOVE VA IL TESTO.
+ *
+ * Il composer galleggia sopra il trascritto (`absolute bottom-0` in ChatPane) e
+ * il trascritto ci passa sotto: è il punto dell'overlay. Il difetto era cosa
+ * succedeva AL BORDO — la scatola opaca del composer tagliava di netto la riga
+ * che gli scorreva dietro, e restava lì una mezza riga illeggibile: né presente
+ * né assente.
+ *
+ * Qui il testo non viene tagliato: si SPEGNE. Una maschera sullo scroller porta
+ * l'inchiostro a zero PRIMA del bordo superiore del composer, così la fascia
+ * dietro l'input non contiene mai pittura — non è una tinta stesa sopra (che
+ * dovrebbe indovinare il colore del vetro che ha dietro, e sbaglierebbe), è
+ * l'alfa del contenuto stesso.
+ *
+ * La rampa vale ESATTAMENTE il varco che il Footer già riserva: da fermo, sotto
+ * l'ultima riga, quei 24px sono vuoti per costruzione — quindi da fermo la
+ * maschera non sbiadisce nulla, e si vede solo quando scorri. Allungarla
+ * significherebbe scolorire l'ultima risposta di una chat ferma.
+ */
+const INK_FADE_RAMP_PX = CHAT_BOTTOM_GUTTER_PX;
+
 const ChatList = forwardRef<HTMLDivElement, ComponentProps<'div'>>(
   function ChatList({ className, ...props }, ref) {
     return <div {...props} ref={ref} className={`${className ?? ''} chat-measure`} />;
@@ -90,6 +112,12 @@ interface MessageListProps {
   onMessage?: (handler: (msg: WSMessage) => void) => () => void;
   onRetry?: () => void;
   inputAreaHeight?: number;
+  /**
+   * Vero quando il composer è al CENTRO della pane (chat vuota / handoff): lì
+   * `inputAreaHeight` comprende anche l'invito, non è la fascia in fondo, e
+   * spegnere l'inchiostro su quella misura cancellerebbe mezza pane.
+   */
+  composerCentered?: boolean;
   /**
    * PANE-03 scroll restore (review I1). When set to a finite positive value
    * at mount, the scroller's scrollTop is restored to it (clamped to content
@@ -130,6 +158,7 @@ export function MessageList({
   onMessage,
   onRetry,
   inputAreaHeight = 0,
+  composerCentered = false,
   initialScrollOffset,
   onScrollOffsetChange,
 }: MessageListProps) {
@@ -185,6 +214,25 @@ export function MessageList({
     };
   }, []);
   const isCompact = settings.messageDensity === 'compact';
+
+  /**
+   * Lo stile dello SCROLLER, maschera compresa (vedi `INK_FADE_RAMP_PX`).
+   *
+   * La maschera sta sullo scroller e non sul contenuto perché il suo riquadro
+   * di riferimento è la scatola dell'elemento, non il contenuto: resta ferma in
+   * fondo alla viewport mentre i messaggi ci scorrono dentro. Sul contenitore
+   * esterno non si può: lì dentro vive anche il bottone «torna in fondo», che
+   * si spegnerebbe con lui.
+   *
+   * Niente maschera quando la fascia non esiste (composer al centro, altezza
+   * non ancora misurata): un `undefined` lascia lo scroller esattamente com'era.
+   */
+  const scrollerStyle = useMemo(() => {
+    const band = Math.round(inputAreaHeight);
+    if (composerCentered || band <= 0) return { height: '100%' };
+    const mask = `linear-gradient(to bottom, #000 0, #000 calc(100% - ${band + INK_FADE_RAMP_PX}px), transparent calc(100% - ${band}px))`;
+    return { height: '100%', maskImage: mask, WebkitMaskImage: mask };
+  }, [inputAreaHeight, composerCentered]);
 
   // Stable Virtuoso `components` map: a fresh object + Footer fn identity every
   // render defeats Virtuoso's bailout, so the footer churned per streaming
@@ -1650,7 +1698,12 @@ export function MessageList({
           // `hidden` no — ma tiene il layout, quindi Virtuoso continua a
           // misurare le altezze mentre il sipario è chiuso. È l'unica delle due
           // che fa entrambe le cose.
-          style={{ height: '100%', visibility: listSettled ? undefined : 'hidden' }}
+          //
+          // Si somma alla maschera del composer (`scrollerStyle`): quella
+          // spegne l'inchiostro dietro l'input, questo tiene chiuso il sipario
+          // finché la lista non si è assestata. Sono due cose diverse e
+          // servono entrambe.
+          style={{ ...scrollerStyle, visibility: listSettled ? undefined : 'hidden' }}
         />
         </>
       )}
