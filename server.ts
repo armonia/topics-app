@@ -1144,7 +1144,12 @@ const worktreeOfTask = (taskId: string) => {
 // ── Review-ready previews ──────────────────────────────────────────────────
 // One preview server per task, booted from its branch worktree at review-time.
 // `previewManager` owns the lifecycle; the host wires HOW to start/probe/shoot.
-const PREVIEW_MEDIA_DIR = join(homedir(), ".openclaw", "media", "task-previews");
+// La cartella dell'anteprima deve stare DENTRO l'allowlist che poi la serve
+// (`isPathAllowed` → `${OPENCLAW_DIR}/media/`). Scritta con `homedir()` le due
+// coincidevano solo finché `APP_DATA_DIR`/`OPENCLAW_DIR` restavano al default:
+// spostata la cartella dati, il file veniva scritto dove nessuno può leggerlo e
+// la card mostrava un'immagine rotta.
+const PREVIEW_MEDIA_DIR = join(ctx.OPENCLAW_DIR, "media", "task-previews");
 const PREVIEW_SCRIPT_CANDIDATES = ["preview", "dev", "start"];
 
 /** `lsof` per le domande d'identità sulla porta (macOS non lo ha sempre nel PATH). */
