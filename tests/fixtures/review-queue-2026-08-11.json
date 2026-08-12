@@ -1,0 +1,495 @@
+{
+  "at": "2026-08-11T17:51:42.720Z",
+  "project": "topics-app",
+  "cards": [
+    {
+      "id": "d6baaf5e-3af1-453f-9495-515c344c44f6",
+      "text": "Piano (rev. 2): amicizia fra installazioni, scrittura per-sessione, presenza per persona, incognito",
+      "basis": "own-commits",
+      "files": [
+        "docs/PIANO-amicizia-sessioni.md"
+      ],
+      "expected": "decisione"
+    },
+    {
+      "id": "54601eeb-dd73-4fe2-b0f6-f17ecb328b64",
+      "text": "Browser pane → browser completo: wiring engine-switch (estensioni Chrome) + findInPage nativo",
+      "basis": "own-commits",
+      "files": [
+        "client/src/components/Browser/BrowserToolbar.tsx",
+        "client/src/components/Browser/RemoteBrowserPanel.tsx",
+        "client/src/components/Browser/browserDevTypes.ts",
+        "client/src/hooks/useTauriBrowser.ts",
+        "client/src/lib/browserNavUrl.test.ts",
+        "client/src/lib/browserNavUrl.ts"
+      ],
+      "expected": "visibile"
+    },
+    {
+      "id": "3bde1ab0-1e5c-4253-ab3c-757c7d37b1f0",
+      "text": "Voice loop board: annuncio vocale task→review + risposta vocale (approva/feedback/chiudi)",
+      "basis": "own-commits-empty",
+      "files": [],
+      "expected": "decisione"
+    },
+    {
+      "id": "c8ea8173-2b84-4582-b947-773c300a0c4d",
+      "text": "Generative UI in chat (Fase 1): ricerca competitor + proposta approccio",
+      "basis": "own-commits",
+      "files": [
+        "docs/generative-ui-in-chat-research.md"
+      ],
+      "expected": "decisione"
+    },
+    {
+      "id": "08541fae-4c0f-4fa5-a1b6-6c01f970bd9c",
+      "text": "Orchestratore: una sessione con la board in contesto, non un pannello",
+      "basis": "merge-commit",
+      "files": [
+        "client/src/components/Board/FloatingTaskComposer.tsx",
+        "client/src/components/Board/KanbanBoardPane.tsx",
+        "client/src/lib/board.ts",
+        "server.ts",
+        "server/context/adapt.ts",
+        "server/context/assemble.ts",
+        "server/context/board-snapshot.test.ts",
+        "server/mcp/topics-mcp-server.test.ts",
+        "server/mcp/topics-mcp-server.ts",
+        "server/providers/claude-code.ts",
+        "server/providers/mcp-config-scoping.test.ts",
+        "server/routes/orchestrator.ts",
+        "server/services/orchestrator.test.ts",
+        "server/services/orchestrator.ts"
+      ],
+      "expected": "visibile"
+    },
+    {
+      "id": "5472e584-2539-4d77-8775-85cbd81950e5",
+      "text": "Ricostruire e installare Topics.app alla 2.2.99 (installata: 2.2.11)",
+      "basis": "own-commits-empty",
+      "files": [],
+      "expected": "decisione"
+    },
+    {
+      "id": "4ec47331-75f0-43b2-89c7-e869092f81cd",
+      "text": "Il click mangiato all'angolo del tab bar era mezzo pixel di inset, non il movimento ridotto",
+      "basis": "merge-commit",
+      "files": [
+        "client/src/components/Layout/PaneTabBar.tsx",
+        "client/src/lib/selectionStyles.test.ts",
+        "playwright.config.ts",
+        "tests/e2e/reduced-motion-chrome-controls.spec.ts",
+        "tests/e2e/reopen-closed-tab.spec.ts"
+      ],
+      "expected": "visibile"
+    },
+    {
+      "id": "4b60cd83-af44-4456-aeb3-0f183823c912",
+      "text": "Banner di message:new: una porta sola, con mute/Focus e una consegna per messaggio",
+      "basis": "merge-commit",
+      "files": [
+        "client/src/App.tsx",
+        "client/src/hooks/useCompletionNotifier.tsx",
+        "client/src/hooks/usePanelLifecycle.ts",
+        "client/src/lib/notify/messageBanner.test.ts",
+        "client/src/lib/notify/messageBanner.ts",
+        "client/src/lib/notify/messageBannerClaim.test.ts",
+        "client/src/lib/notify/messageBannerClaim.ts",
+        "tests/e2e/message-banner-single-delivery.spec.ts"
+      ],
+      "expected": "visibile"
+    },
+    {
+      "id": "ff5c935e-9fa0-4433-ac14-0b7f4a4ed9cc",
+      "text": "Iscrizione Apple Developer Program come [azienda] (atto di Attilio) + procedura scritta",
+      "basis": "own-commits",
+      "files": [
+        "desktop-tauri/SIGNING.md"
+      ],
+      "expected": "decisione"
+    },
+    {
+      "id": "f3fe84b4-8da9-4b11-8023-c945b7db9fd3",
+      "text": "Pannello permessi: «Passa a libero» — consente ORA e libera la sessione, senza uscire dal turno",
+      "basis": "merge-commit",
+      "files": [
+        "client/src/components/Chat/ToolCallRow.tsx",
+        "client/src/components/Chat/ToolPermissionRow.tsx",
+        "server/lib/message-author.ts",
+        "server/lib/permission-bridge.test.ts",
+        "server/lib/permission-bridge.ts",
+        "server/lib/session-free-mode.test.ts",
+        "server/lib/session-free-mode.ts",
+        "server/routes/permission.test.ts",
+        "server/routes/permission.ts",
+        "shared/permission-decision.test.ts",
+        "shared/permission-decision.ts",
+        "shared/types.ts",
+        "shared/ws-outbound.ts",
+        "tests/e2e/permission-panel.spec.ts"
+      ],
+      "expected": "visibile"
+    },
+    {
+      "id": "e54a9be6-0df6-4b5d-bb70-3f434443fa9a",
+      "text": "Archiviare un task porta via le sue tab: purge di task-browser-tabs/layout + rilascio dei contesti",
+      "basis": "own-commits",
+      "files": [
+        "client/src/hooks/useTaskBrowserTabsSync.ts",
+        "client/src/state/taskBrowserLayout.test.ts",
+        "client/src/state/taskBrowserLayout.ts",
+        "client/src/state/taskBrowserTabs.test.ts",
+        "client/src/state/taskBrowserTabs.ts",
+        "client/src/types/index.ts",
+        "knip.jsonc",
+        "package.json",
+        "scripts/measure-task-tab-teardown.ts",
+        "server.ts",
+        "server/routes/tasks.test.ts",
+        "server/routes/tasks.ts",
+        "server/services/task-tab-teardown.test.ts",
+        "server/services/task-tab-teardown.ts",
+        "shared/ws-outbound.ts",
+        "tests/integration/task-tab-teardown.test.ts"
+      ],
+      "expected": "visibile"
+    },
+    {
+      "id": "2e6964cb-32bc-425b-9548-bef583d5ab94",
+      "text": "Browser dell'agent inline in chat: tool box invece di una pane vera",
+      "basis": "own-commits",
+      "files": [
+        "openspec/changes/agent-inline-browser/design.md",
+        "openspec/changes/agent-inline-browser/mockup.html",
+        "openspec/changes/agent-inline-browser/proposal.md",
+        "openspec/changes/agent-inline-browser/specs/chat/spec.md",
+        "openspec/changes/agent-inline-browser/specs/remote-browser/spec.md",
+        "openspec/changes/agent-inline-browser/tasks.md"
+      ],
+      "expected": "decisione"
+    },
+    {
+      "id": "7fb737a9-ad4c-4f05-9bce-332e7cf6b159",
+      "text": "Browser: cookie e flip fra WKWebView nativa e sessione condivisa — 3 guasti",
+      "basis": "merge-commit",
+      "files": [
+        "client/src/components/Browser/RemoteBrowserPanel.tsx",
+        "client/src/hooks/useRemoteBrowser.ts",
+        "client/src/lib/sharedAuto.test.ts",
+        "client/src/lib/sharedAuto.ts",
+        "server.ts",
+        "server/browser-service-engine.test.ts",
+        "server/browser-service.ts",
+        "server/browser-session-handoff.test.ts",
+        "server/browser-session-handoff.ts",
+        "server/browser-viewer-count.test.ts",
+        "server/browser-viewer-count.ts",
+        "server/browser-ws-messages.test.ts",
+        "server/routes/browser-close-forgets-session.test.ts",
+        "server/routes/browser.ts",
+        "server/types.ts",
+        "shared/browser-ws-messages.ts",
+        "tests/e2e/browser-shared-session.spec.ts",
+        "tests/unit/browser-ws-messages.test.ts",
+        "tests/unit/ws-contract.test.ts"
+      ],
+      "expected": "visibile"
+    },
+    {
+      "id": "d0777424-d78b-403c-9803-58137a5a41be",
+      "text": "Il drawer del task: la superficie su cui l'umano DECIDE",
+      "basis": "merge-commit",
+      "files": [
+        "client/src/components/Board/PreviewMedia.tsx",
+        "client/src/components/Board/TaskDetail.tsx",
+        "client/src/components/Board/useTaskBrowserGroupLayout.tsx",
+        "client/src/hooks/useMediaQuery.ts",
+        "client/src/lib/board.ts",
+        "client/src/lib/i18n.ts",
+        "server/db/migrations-embedded.ts",
+        "server/db/migrations/097-task-plan-comment.sql",
+        "server/services/task-dispatcher.ts",
+        "server/services/tasks.ts",
+        "shared/board.ts",
+        "tests/e2e/board-drawer-scroll.spec.ts"
+      ],
+      "expected": "visibile"
+    },
+    {
+      "id": "6495167f-71bb-46f6-92d7-cb3271f41b53",
+      "text": "Profilo: statistiche d'uso reali + Rich Presence Discord gestita da Topics",
+      "basis": "own-commits",
+      "files": [
+        "client/src/components/Settings/DiscordSection.tsx",
+        "client/src/components/Settings/GlobalSettings.tsx",
+        "client/src/components/Settings/ProfileStatsSection.tsx",
+        "client/src/lib/api.ts",
+        "client/src/lib/i18n.ts",
+        "client/src/state/taskBrowserLayout.test.ts",
+        "server.ts",
+        "server/db/migrations-embedded.ts",
+        "server/db/migrations/097-discord-presence.sql",
+        "server/routes/app-settings.ts",
+        "server/routes/profile.ts",
+        "server/services/app-settings.ts",
+        "server/services/discord-activity.test.ts",
+        "server/services/discord-activity.ts",
+        "server/services/discord-ipc.test.ts",
+        "server/services/discord-ipc.ts",
+        "server/services/discord-presence.test.ts",
+        "server/services/discord-presence.ts",
+        "server/services/profile-banner.test.ts",
+        "server/services/profile-banner.ts",
+        "server/services/profile-stats.test.ts",
+        "server/services/profile-stats.ts",
+        "shared/types.ts"
+      ],
+      "expected": "visibile"
+    },
+    {
+      "id": "4ad176f8-8b99-485f-b755-6f61debe8e79",
+      "text": "Il task appena creato si accende sulla board — e la board lo porta a schermo",
+      "basis": "merge-commit",
+      "files": [
+        "client/src/components/Board/Card.tsx",
+        "client/src/components/Board/FloatingTaskComposer.tsx",
+        "client/src/components/Board/KanbanBoardPane.tsx",
+        "client/src/components/Board/constants.ts",
+        "client/src/index.css",
+        "client/src/lib/scrollDelta.test.ts",
+        "client/src/lib/scrollDelta.ts",
+        "tests/e2e/board-created-flash.spec.ts"
+      ],
+      "expected": "visibile"
+    },
+    {
+      "id": "c0479b3d-364d-4388-adad-45aa79c7a34c",
+      "text": "Dettatura e note vocali: STT su modelli SOTA con fallback",
+      "basis": "merge-commit",
+      "files": [
+        ".env.example",
+        "README.md",
+        "client/src/components/Chat/ChatInput.tsx",
+        "client/src/components/Chat/useVoiceRecording.ts",
+        "client/src/hooks/useDictation.ts",
+        "client/src/hooks/useSpeech.ts",
+        "client/src/lib/stt.ts",
+        "client/src/lib/vad.ts",
+        "docs/ENV.md",
+        "server/lib/stt.test.ts",
+        "server/lib/stt.ts",
+        "server/routes/voice.ts",
+        "shared/stt.ts"
+      ],
+      "expected": "visibile"
+    },
+    {
+      "id": "0841a6b6-6bb9-49e7-b093-0b5b4a44e9f9",
+      "text": "Colonna Done: ordinata per chiusura (ultimo in cima) + flash sulla card appena chiusa",
+      "basis": "merge-commit",
+      "files": [
+        "client/src/components/Board/Card.tsx",
+        "client/src/components/Board/KanbanBoardPane.tsx",
+        "client/src/index.css",
+        "client/src/lib/boardOrder.test.ts",
+        "client/src/lib/boardOrder.ts",
+        "client/src/lib/justDone.test.ts",
+        "client/src/lib/justDone.ts",
+        "tests/e2e/board-done-flash.spec.ts"
+      ],
+      "expected": "visibile"
+    },
+    {
+      "id": "215a3449-afb5-4573-818f-64ee3e0842ea",
+      "text": "Il contatore «N in attesa» lo risolve il server (waitingOnCount), non la lista fetchata",
+      "basis": "merge-commit",
+      "files": [
+        "client/src/components/Board/Card.tsx",
+        "client/src/components/Board/KanbanBoardPane.tsx",
+        "client/src/lib/board.ts",
+        "server/services/tasks.test.ts",
+        "server/services/tasks.ts",
+        "tests/e2e/board-waiting-on-chip.spec.ts"
+      ],
+      "expected": "visibile"
+    },
+    {
+      "id": "799f5496-75b1-4713-9872-a0c51f2d37c4",
+      "text": "Una card che esce da Done lo dice (chip «riaperta»), e un agent non riapre ciò che hai chiuso tu",
+      "basis": "merge-commit",
+      "files": [
+        "client/src/components/Board/Card.tsx",
+        "client/src/components/Board/TaskDetail.tsx",
+        "client/src/lib/board.test.ts",
+        "client/src/lib/board.ts",
+        "server/db/migrations-embedded.ts",
+        "server/db/migrations/098-task-reopen-trace.sql",
+        "server/mcp/topics-mcp-server.ts",
+        "server/routes/tasks.fanout.test.ts",
+        "server/routes/tasks.test.ts",
+        "server/routes/tasks.ts",
+        "server/services/task-dispatcher-fanout.test.ts",
+        "server/services/task-dispatcher.test.ts",
+        "server/services/tasks.test.ts",
+        "server/services/tasks.ts",
+        "tests/e2e/board-reopened-chip.spec.ts",
+        "tests/integration/migration-098-task-reopen-trace.test.ts",
+        "tests/integration/shared-inventory-principals.test.ts"
+      ],
+      "expected": "visibile"
+    },
+    {
+      "id": "f42f66f4-29f4-4f59-b310-e5024823ca23",
+      "text": "Dettatura: prova end-to-end col microfono vero + clip video",
+      "basis": "merge-commit",
+      "files": [
+        "scripts/probe-fake-mic.mjs",
+        "tests/e2e/dictation-real-mic.spec.ts",
+        "tests/e2e/fixtures/audio/spoken-phrase.wav"
+      ],
+      "expected": "invisibile"
+    },
+    {
+      "id": "5bfd7356-4c0a-4922-9695-0c37729fbba6",
+      "text": "L'orchestratore esce dalla board: sessione laterale opzionale, solo in dev, con missioni a preset",
+      "basis": "own-commits (congelato 2026-08-11)",
+      "files": [
+        "client/src/components/Board/FloatingTaskComposer.tsx",
+        "client/src/components/Board/KanbanBoardPane.tsx",
+        "client/src/components/Chat/ChatPane.tsx",
+        "client/src/components/Layout/ProjectWindow.tsx",
+        "client/src/hooks/useDevInstall.ts",
+        "client/src/lib/board.ts",
+        "client/src/lib/missionTarget.ts",
+        "client/src/lib/missions.test.ts",
+        "client/src/lib/missions.ts",
+        "server.ts",
+        "server/context/adapt.ts",
+        "server/context/assemble.ts",
+        "server/context/board-snapshot.test.ts",
+        "server/mcp/topics-mcp-server.test.ts",
+        "server/mcp/topics-mcp-server.ts",
+        "server/providers/claude-code.ts",
+        "server/providers/mcp-config-scoping.test.ts",
+        "server/routes/orchestrator.ts",
+        "server/services/orchestrator.test.ts",
+        "server/services/orchestrator.ts"
+      ],
+      "expected": "visibile"
+    },
+    {
+      "id": "7943386d-9c13-478b-8757-e639e1d822a6",
+      "text": "Una card che non è chiusa deve offrire SCELTE, non solo un commento libero",
+      "basis": "own-commits",
+      "files": [
+        "client/src/components/Board/Card.tsx",
+        "client/src/components/Board/TaskChoiceRow.tsx",
+        "client/src/components/Board/TaskDetail.tsx",
+        "client/src/components/Board/taskChoices.test.ts",
+        "client/src/components/Board/taskChoices.ts",
+        "server/routes/e2e.ts",
+        "tests/e2e/board-card-choices.spec.ts"
+      ],
+      "expected": "visibile"
+    },
+    {
+      "id": "e84dd070-8092-452d-9298-8dda5fec83f4",
+      "text": "La sonda del costo: contesto × chiamate, visibile mentre il turno lavora",
+      "basis": "merge-commit",
+      "files": [
+        "client/src/components/Chat/ChatInput.tsx",
+        "client/src/components/Context/ContextInspector.tsx",
+        "client/src/components/Context/CostProbePanel.tsx",
+        "client/src/components/MessageParts.tsx",
+        "client/src/hooks/useCostProbe.ts",
+        "client/src/types/index.ts",
+        "desktop-tauri/src-tauri/Cargo.lock",
+        "desktop-tauri/src-tauri/Cargo.toml",
+        "desktop-tauri/src-tauri/tauri.conf.json",
+        "knip.jsonc",
+        "package.json",
+        "scripts/extract-cost-probe-fixture.ts",
+        "server/routes/context.ts",
+        "server/usage/cost-probe.test.ts",
+        "server/usage/cost-probe.ts",
+        "shared/types.ts",
+        "tests/e2e/turn-cost-multiplier.spec.ts",
+        "tests/fixtures/cost-probe-topic-4c8de758.json"
+      ],
+      "expected": "visibile"
+    },
+    {
+      "id": "aa3ec62b-b4db-4c33-9785-565f006eded2",
+      "text": "Dalla sidebar il drop ignorava la finestra su cui cadeva",
+      "basis": "merge-commit",
+      "files": [
+        "client/src/components/Layout/PanelGrid.tsx",
+        "tests/e2e/group-drop-sources.spec.ts"
+      ],
+      "expected": "visibile"
+    },
+    {
+      "id": "000500e1-ccd2-4007-a630-ad946ad1c63c",
+      "text": "Bottone «Copia task» nell'anteprima del drawer Kanban",
+      "basis": "merge-commit",
+      "files": [
+        "client/src/components/Board/Card.tsx",
+        "client/src/components/Board/TaskDetail.tsx",
+        "client/src/components/Board/format.test.ts",
+        "client/src/components/Board/format.ts",
+        "client/src/lib/i18n.ts",
+        "tests/e2e/board-copy-task.spec.ts"
+      ],
+      "expected": "visibile"
+    },
+    {
+      "id": "ad595633-a0f3-472b-a676-e5ac3cf6695d",
+      "text": "Download del browser: farli funzionare e spostarli in un menu dell'header",
+      "basis": "merge-commit",
+      "files": [
+        "client/src/components/Browser/BrowserToolbar.tsx",
+        "client/src/components/Browser/DownloadStrip.tsx",
+        "client/src/components/Browser/DownloadsMenu.tsx",
+        "client/src/components/Browser/RemoteBrowserPanel.tsx",
+        "client/src/components/Browser/downloadsModel.test.ts",
+        "client/src/components/Browser/downloadsModel.ts",
+        "client/src/hooks/useBrowserDownloads.ts",
+        "client/src/hooks/useRemoteBrowser.ts",
+        "desktop-tauri/src-tauri/capabilities/default.json",
+        "desktop-tauri/src-tauri/src/lib.rs",
+        "tests/e2e/browser-ws-streaming.spec.ts"
+      ],
+      "expected": "visibile"
+    },
+    {
+      "id": "7a1e147b-4a2e-4cd8-b46a-f43ab7349770",
+      "text": "Il 65% che il tetto non tocca è prefisso all'88% — e i due bracci del banco non erano confrontabili",
+      "basis": "merge-commit",
+      "files": [
+        "knip.jsonc",
+        "scripts/mcp-cap-bench/bench.ts",
+        "scripts/mcp-cap-bench/decompose.ts",
+        "scripts/mcp-cap-bench/prefix-probe.ts"
+      ],
+      "expected": "invisibile"
+    },
+    {
+      "id": "b8706bdc-4e02-423e-af0c-45ea857e2b5e",
+      "text": "open_browser_pane apriva un contesto vivo senza montare nessun pannello",
+      "basis": "merge-commit",
+      "files": [
+        "client/src/components/Layout/hooks/usePaneOrdering.browserSingleton.test.ts",
+        "client/src/components/Layout/hooks/usePaneOrdering.ts",
+        "server.ts",
+        "server/mcp/topics-mcp-server.test.ts",
+        "server/mcp/topics-mcp-server.ts",
+        "server/routes/browser-bridge.test.ts",
+        "server/routes/browser-bridge.ts",
+        "server/routes/topics.ts",
+        "tests/e2e/browser-open-pane-orphan.spec.ts",
+        "tests/unit/ws-outbound-coverage.test.ts"
+      ],
+      "expected": "visibile"
+    }
+  ]
+}

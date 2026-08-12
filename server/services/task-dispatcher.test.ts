@@ -9,6 +9,7 @@ import { createTaskDispatcher, rotateFrom, type DispatcherDeps } from "./task-di
 import { cancelled, type TurnEndInfo } from "../providers/stop-reason";
 import { beginAsk, endAsk } from "../lib/ask-user-bridge";
 import { beginPermission, endPermission } from "../lib/permission-bridge";
+import { TASK_LABELS_DDL } from "../db/test-schema";
 
 // Self-contained schema (mirrors migrations 001 + 026 + 031, tasks-relevant
 // subset). PRAGMA foreign_keys + the assigned_topic_id FK are faithful to prod
@@ -35,6 +36,7 @@ function freshDb(): Database {
     delivered_by TEXT, delivered_reason TEXT, created_by_topic_id TEXT,
     done_actor TEXT, reopened_at TEXT, reopened_by TEXT, reopened_actor TEXT
   )`);
+  db.run(TASK_LABELS_DDL); // migration 100 — rowToTask la legge per OGNI task
   db.run(`CREATE TABLE board_settings (
     project_id TEXT PRIMARY KEY, require_approval_for_done INTEGER DEFAULT 0,
     require_review_before_done INTEGER DEFAULT 0, block_status_with_pending INTEGER DEFAULT 0,
@@ -610,6 +612,28 @@ describe("task-dispatcher", () => {
     const notes = h.svc.get("t1")!.comments.map((c) => c.content).join("\n");
     expect(notes).toContain("Turno fermato a mano");
     expect(notes).toContain("non conteggiato");
+  });
+
+  it("lo STOP dalla board parcheggia e la chip «fermato» sopravvive al turno tagliato", async () => {
+    // L'ordine dello stop umano: la route PARCHEGGIA prima (release → backlog,
+    // chip 'stopped') e taglia il turno DOPO. Qui si simula esattamente quello,
+    // perché è l'`onTurnEnd` del turno abortito il punto in cui la cosa poteva
+    // rompersi in due modi: rimettere in coda un task che l'umano ha fermato, o
+    // riazzerare la chip e lasciare la card muta in Backlog.
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchRetryCap: 3 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.task("t1")!.dispatchAttempts).toBe(1);
+    h.svc.release({ taskId: "t1", requeue: false, by: "user", parkState: "stopped" });
+    h.finishTurnWith(cancelled("user"));
+    await flush();
+    const t = h.task("t1")!;
+    expect(t.status).toBe("backlog");
+    expect(t.dispatchState).toBe("stopped"); // né null (muta) né 'failed' (accusa)
+    expect(t.dispatchAttempts).toBe(1);      // fermare non consuma un tentativo
+    expect(h.turns.length).toBe(1);          // e non riparte da solo
   });
 
   it("una raffica di errori del PROVIDER non brucia i tentativi (ma un guasto cronico sì)", async () => {

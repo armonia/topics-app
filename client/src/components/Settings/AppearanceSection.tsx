@@ -5,6 +5,16 @@ import { isDesktop } from '../../lib/shell';
 import { ToggleRow } from './ToggleRow';
 import { fetchOutputLanguage, pushOutputLanguage, type LocalePreference } from '../../lib/i18n';
 import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
+import { Select, type SelectOption } from '../Shared/Select';
+
+// Le etichette restano BILINGUI, per la ragione scritta accanto al controllo:
+// è l'unico posto che si deve poter leggere anche quando la lingua in vigore è
+// quella sbagliata.
+const LANGUAGE_OPTIONS: ReadonlyArray<SelectOption<LocalePreference>> = [
+  { value: 'auto', label: 'Automatica · Automatic' },
+  { value: 'it', label: 'Italiano' },
+  { value: 'en', label: 'English' },
+];
 
 interface AppearanceSectionProps {
   settings: AppSettings;
@@ -253,7 +263,7 @@ export function AppearanceSection({ settings, themeMode, onThemeChange, onChange
       {onOpenShortcuts && (
         <button
           onClick={onOpenShortcuts}
-          className="mt-6 w-full flex items-center gap-2 rounded-lg border border-app-border bg-app-hover/40 px-3 py-2 text-left transition-colors hover:bg-app-hover"
+          className="mt-6 w-full flex items-center gap-2 rounded-lg border border-app-border bg-app-hover/40 px-3 py-2 text-left transition-colors hover:bg-app-hover coarse:min-h-11"
         >
           <Keyboard size={14} className="flex-shrink-0 text-app-text-secondary" />
           <span className="text-[12.5px] text-app-text">Scorciatoie da tastiera</span>
@@ -330,16 +340,19 @@ function LanguageSetting({
         answer in (chat, terminal, board). UI surfaces not yet translated stay as
         they are.
       </p>
-      <select
+      {/* Il `<select>` di sistema che stava qui era l'unico pezzo di questo
+          pannello disegnato dal sistema operativo: su iOS apriva la ruota
+          nativa, col suo carattere e i suoi margini. `Select` è la primitiva
+          dell'app (sopra `Menu`), quindi qui arrivano gratis il foglio dal
+          basso su mobile, il bersaglio da 44px e il tema. */}
+      <Select<LocalePreference>
         value={value}
-        onChange={(e) => handle(e.target.value as LocalePreference)}
-        className="rounded bg-white/5 px-2 py-1 text-[12px] text-app-text outline-none"
-        data-testid="settings-language"
-      >
-        <option value="auto">Automatica · Automatic</option>
-        <option value="it">Italiano</option>
-        <option value="en">English</option>
-      </select>
+        onChange={handle}
+        ariaLabel="Lingua · Language"
+        testId="settings-language"
+        className="w-[220px] max-w-full"
+        options={LANGUAGE_OPTIONS}
+      />
       <p className={`mt-2 text-[11px] ${support.tone}`} data-testid="settings-language-support">
         {support.text}
       </p>

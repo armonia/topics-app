@@ -67,6 +67,15 @@ function freshDb(): Database {
     content TEXT NOT NULL, mentions TEXT, media TEXT, created_at TEXT NOT NULL,
     kind TEXT NOT NULL DEFAULT 'comment'
   )`);
+  // migration 100 — le etichette. `rowToTask` la legge per OGNI riga, quindi
+  // senza questa tabella non fallisce il test delle etichette: falliscono tutti.
+  db.run(`CREATE TABLE task_labels (
+    task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    label TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT 'human' CHECK(source IN ('derived', 'human', 'agent')),
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (task_id, label)
+  )`);
   db.run(`CREATE TABLE approvals (
     id TEXT PRIMARY KEY, task_id TEXT NOT NULL, requested_by TEXT NOT NULL,
     approval_type TEXT NOT NULL, from_status TEXT, to_status TEXT, confidence_score REAL,
