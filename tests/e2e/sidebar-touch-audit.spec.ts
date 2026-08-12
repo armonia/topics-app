@@ -396,14 +396,22 @@ test.describe("Sidebar col dito — audit misurato", () => {
       `la colonna non dipinge un colore opaco (${chrome}): le uguaglianze qui sotto sarebbero vere per vuoto`,
     ).toMatch(/^rgb\(\d+, \d+, \d+\)$/);
 
-    // La barra di stato in fondo NON deve dipingere: deve ereditare la colonna.
-    // Un suo sfondo proprio è ciò che sotto Tauri comporrebbe una SECONDA mano
-    // dell'alpha della vibrancy sopra la prima (0.80 contro 0.55).
-    const statusBg = await bg(page, `${SIDEBAR} [data-testid="sidebar-status-bar"]`);
-    expect(
-      ["rgba(0, 0, 0, 0)", "transparent", chrome],
-      `la fascia di stato dipinge ${statusBg}, la colonna ${chrome}`,
-    ).toContain(statusBg);
+    // SUL TELEFONO LA FASCIA DI STATO NON C'È PIÙ (12/08): «è qualcosa che
+    // l'utente raramente utilizzerà», e le sue tre cose — chi sei, come va, che
+    // versione è — stanno nel menu «Topics». Quello che questa clausola
+    // proteggeva resta vero e si pretende ancora, spostato su chi ha preso il
+    // suo posto: DENTRO la colonna nessuno dà una seconda mano di colore, che
+    // sotto Tauri comporrebbe l'alpha della vibrancy sopra la prima (0,80
+    // contro 0,55). La fila dei comandi in fondo dipinge, ma è un FRATELLO
+    // della colonna, non un suo figlio — ed è per questo che può.
+    await expect(page.locator(`${SIDEBAR} [data-testid="sidebar-status-bar"]`)).toHaveCount(0);
+    const filaFuori = await page.evaluate(() => {
+      const colonna = document.querySelector('[role="navigation"][aria-label="Topics sidebar"]');
+      const fila = document.querySelector('[data-testid="mobile-chrome-bar"]');
+      return { esiste: !!fila, dentro: !!(colonna && fila && colonna.contains(fila)) };
+    });
+    expect(filaFuori.esiste).toBe(true);
+    expect(filaFuori.dentro).toBe(false);
 
     // LA FASCIA DELLA SAFE-AREA È LO STESSO PIXEL DELLA SIDEBAR.
     // È il difetto che ha riaperto la questione: la striscia sotto la tacca è il
@@ -821,73 +829,59 @@ test.describe("Sidebar col dito — audit misurato", () => {
   });
 
   /**
-   * DOVE STANNO LE COSE NELLA COLONNA, col dito.
+   * DOVE STANNO LE COSE NELLA COLONNA, col dito — RISCRITTA IL 12/08.
    *
-   * Tre giri in un giorno, e vale la pena che restino scritti perché il test
-   * serve proprio a non rifarli: la barra di stato è andata in una fascia sua
-   * sotto l'header, poi in linea nella riga del titolo, e infine è tornata IN
-   * FONDO — «per quanto riguarda lo status lascialo in fondo, meglio»
-   * (Attilio). Con lei torna la riga dell'IDENTITÀ, che le sta attaccata sopra
-   * ed era sparita sul telefono quando la barra non aveva più una fascia: è il
-   * «gli account che fine hanno fatto».
+   * Ha girato per un giorno intero, e la storia resta scritta perché il test
+   * serve proprio a non rifarla: la barra di stato è andata in una fascia sua
+   * sotto l'header, poi in linea nella riga del titolo, poi IN FONDO alla
+   * colonna con l'identità attaccata sopra. Cerca e «+» sono stati in una barra
+   * in fondo, poi attaccati al logo, poi allineati a destra nella riga del
+   * titolo.
    *
-   * Cerca e «+» invece restano dove sono finiti al secondo giro: accanto al
-   * logo, non in una barra tutta loro.
+   * La forma decisa da Attilio (12/08) chiude il giro e cambia la risposta a
+   * entrambe le domande:
+   *  · IN ALTO, «da un lato topics, cliccabile; dall'altro nient'altro»;
+   *  · IN BASSO, tre porte — cerca · aggiungi · board — in una fila che non
+   *    appartiene alla colonna ma allo schermo, così resta sotto le dita anche
+   *    a cassetto chiuso;
+   *  · la barra di stato non c'è più: statistiche e versione sono nel menu
+   *    «Topics», «è qualcosa che l'utente raramente utilizzerà».
    *
    * Si misura l'APPARTENENZA e l'ORDINE, non le classi.
    */
-  test("SIDEBAR-TOUCH-06: stato e identità in fondo, comandi nella riga del titolo", async ({ page }) => {
+  test("SIDEBAR-TOUCH-06: in alto solo il titolo, i comandi nella fila in fondo", async ({ page }) => {
     await openSidebarOnPhone(page);
 
     const albero = (await page.locator(`${SIDEBAR} [data-testid="sidebar-topic-list"]`).boundingBox())!;
     const titolo = (await page.getByTestId("sidebar-topics-menu").boundingBox())!;
-    const stato = (await page.locator(`${SIDEBAR} [data-testid="sidebar-status-bar"]`).boundingBox())!;
-    const cerca = (await page.getByRole("button", { name: /^Search/ }).boundingBox())!;
-    const piu = (await page.locator(`${SIDEBAR} [data-testid="pane-add-menu-trigger"]`).first().boundingBox())!;
+    const colonna = (await page.locator(SIDEBAR).boundingBox())!;
 
-    // Lo stato sta SOTTO l'albero, in fondo alla colonna.
-    expect(stato.y, "la barra di stato deve stare sotto l'albero").toBeGreaterThan(albero.y);
-    // Nessuna barra dei comandi: i due stanno col titolo, sopra l'albero.
-    await expect(page.locator('[data-testid="sidebar-action-bar"]')).toHaveCount(0);
-    for (const [nome, b] of [["il cerca", cerca], ["il +", piu]] as const) {
-      expect(b.y, `${nome} deve stare nella riga del titolo, sopra l'albero`).toBeLessThan(albero.y);
-      expect(Math.abs(b.y + b.height / 2 - (titolo.y + titolo.height / 2)), `${nome} non è sulla riga del titolo`).toBeLessThan(24);
+    // In cima c'è UN comando solo, ed è il menu.
+    const testata = page.locator(`${SIDEBAR} .app-drag-region`).first();
+    await expect(testata.locator("button")).toHaveCount(1);
+    expect(titolo.y, "il titolo deve stare sopra l'albero").toBeLessThan(albero.y);
+    expect(Math.round(titolo.x - colonna.x), "il titolo non parte dal rientro della colonna").toBe(6);
+    expect(Math.round(titolo.height), `il titolo è alto ${titolo.height}px: sotto la soglia del dito`).toBeGreaterThanOrEqual(44);
+
+    // Niente barra di stato, niente riga identità: sono nel menu.
+    await expect(page.locator(`${SIDEBAR} [data-testid="sidebar-status-bar"]`)).toHaveCount(0);
+    await expect(page.locator(`${SIDEBAR} [data-testid="device-identity"]`)).toHaveCount(0);
+
+    // I comandi stanno in fondo allo SCHERMO, sotto l'albero, e sono tre.
+    const fila = page.locator('[data-testid="mobile-chrome-bar"]');
+    await expect(fila.locator("button")).toHaveCount(3);
+    const cerca = (await fila.locator('[data-testid="mobile-chrome-search"]').boundingBox())!;
+    const piu = (await fila.locator('[data-testid="pane-add-menu-trigger"]').boundingBox())!;
+    const board = (await fila.locator('[data-testid="mobile-chrome-board"]').boundingBox())!;
+
+    for (const [nome, b] of [["il cerca", cerca], ["l'aggiungi", piu], ["la board", board]] as const) {
+      expect(b.y, `${nome} deve stare sotto l'albero, in fondo allo schermo`).toBeGreaterThan(albero.y);
       expect(Math.round(b.height), `${nome} è alto ${b.height}px: sotto la soglia del dito`).toBeGreaterThanOrEqual(44);
       expect(Math.round(b.width), `${nome} è largo ${b.width}px: sotto la soglia del dito`).toBeGreaterThanOrEqual(44);
     }
-    // L'ordine in testa: Topics ▾ · cerca · +
-    expect(titolo.x).toBeLessThan(cerca.x);
+    // L'ordine della fila: cerca · aggiungi · board.
     expect(cerca.x).toBeLessThan(piu.x);
-
-    // LA SPAZIATURA È QUELLA DI TUTTA LA COLONNA — 6px, lo stesso passo che
-    // separa una card dal bordo. «I tasti toccano il bordo» era questo: due
-    // bottoni da 44 in una riga da 48 lasciavano 2px sopra e sotto.
-    const testata = (await page.locator(`${SIDEBAR} .app-drag-region`).first().boundingBox())!;
-    const colonna = (await page.locator(SIDEBAR).boundingBox())!;
-    const sopra = Math.round(piu.y - testata.y);
-    const sotto = Math.round(testata.y + testata.height - (piu.y + piu.height));
-    // 6px sopra e 7 sotto, non 6 e 6: il `border-b` della testata è UN PIXEL
-    // che sta dentro i suoi 56 (box-border), quindi il bottone si centra su 55
-    // e l'avanzo dispari cade in basso. È il filo, non uno sbilanciamento — e
-    // pretendere 6/6 vorrebbe dire portare la testata a 57 per un pixel che
-    // nessuno vede. Si chiede che siano il respiro della colonna, e uguali fra
-    // loro entro quel pixel.
-    for (const [dove, v] of [["sopra", sopra], ["sotto", sotto]] as const) {
-      expect(v, `${dove} il + non c'è il respiro della colonna (${v}px invece di ~6)`).toBeGreaterThanOrEqual(6);
-      expect(v, `${dove} il + c'è troppo respiro (${v}px invece di ~6)`).toBeLessThanOrEqual(7);
-    }
-    expect(Math.abs(sopra - sotto), "il + non è centrato nella testata").toBeLessThanOrEqual(1);
-    // In ORIZZONTALE i tre stanno a sinistra in gruppo (è la richiesta:
-    // «a fianco al menu e logo Topics»), quindi il bordo che conta è quello da
-    // cui comincia il gruppo — e deve essere lo stesso da cui comincia una card
-    // della lista, o il titolo risulterebbe rientrato rispetto alle righe.
-    expect(Math.round(titolo.x - colonna.x), "il titolo non parte dal rientro della colonna").toBe(6);
-    // …e i tre spazi della riga sono LO STESSO: fra i due bottoni, dal bordo
-    // destro, sopra e sotto. Era l'ultima distanza che non tornava (8 contro 6),
-    // e due pixel di scarto in mezzo a tutto il resto allineato non si leggono
-    // come una scelta.
-    expect(Math.round(piu.x - (cerca.x + cerca.width)), "fra il cerca e il + non c'è il passo della colonna").toBe(6);
-    expect(Math.round(colonna.x + colonna.width - (piu.x + piu.width)), "il + non è a 6px dal bordo destro").toBe(6);
+    expect(piu.x).toBeLessThan(board.x);
   });
 
   /**
