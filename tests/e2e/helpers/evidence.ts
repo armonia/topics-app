@@ -8,12 +8,22 @@
  * pannelli. Quindi: una didascalia grande che sopravvive alla riduzione, e una
  * pausa che dà il tempo di leggerla.
  *
- * Entrambi sono NO-OP senza E2E_EVIDENCE: nella passata normale la suite non
- * paga né i millisecondi né il DOM in più.
+ * Entrambi sono NO-OP fuori da una passata che registra: nella passata normale
+ * la suite non paga né i millisecondi né il DOM in più.
+ *
+ * DUE MODI DI REGISTRARE, e questi attrezzi valgono per tutti e due.
+ *  · `E2E_EVIDENCE=1` — il modo storico: `slowMo` + video su OGNI test, dal
+ *    `use` di `playwright.config.ts`. La clip contiene anche il setup.
+ *  · `E2E_CLIP=1` — un contesto DEDICATO acceso sul solo tratto utile, con la
+ *    durata misurata sul file (`helpers/clip.ts`). Niente slowMo, niente video
+ *    sugli altri test.
+ * Le pause e le didascalie servono in entrambi: una clip senza fermi immagine
+ * non si legge a 268px, che è la larghezza a cui una card la mostra.
  */
 import type { Page } from "@playwright/test";
 
-export const isEvidenceRun = () => process.env.E2E_EVIDENCE === "1";
+export const isEvidenceRun = () =>
+  process.env.E2E_EVIDENCE === "1" || process.env.E2E_CLIP === "1";
 
 /** Pausa leggibile nella clip; zero nella passata veloce. */
 export const beat = (page: Page, ms = 1200) =>
