@@ -234,7 +234,11 @@ test.describe("Scelte sempre presenti sulla card", () => {
 
     // ── 4. Bloccata: il bottone NOMINA il bloccante ───────────────────────────
     const bloccata = card(taskIds.bloccata);
-    await expect(bloccata.getByTestId("card-blocked-by")).toContainText(`in attesa di: ${T_BLOCCANTE}`);
+    // Il fatto sotto esame è che la card NOMINI il bloccante, non il verbo con
+    // cui lo dice: il chip è passato da «in attesa di: X» ad «aspetta: X»
+    // (12/08, vedi lib/board.ts) e un'asserzione sulla frase intera si rompeva
+    // senza che niente fosse rotto.
+    await expect(bloccata.getByTestId("card-blocked-by")).toContainText(T_BLOCCANTE);
     await expect(choice(taskIds.bloccata, "unblock")).toHaveText(`Sblocca: ${T_BLOCCANTE}`);
     await expect(choice(taskIds.bloccata, "unlink")).toHaveText("Togli il legame");
     await beat(page);
