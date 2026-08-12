@@ -110,7 +110,7 @@ export function labelForContext(
     const term = deps.getTerminalSessionById(termMatch[1]);
     if (term) {
       const dir = baseName(term.cwd);
-      return { label: dir ? `${term.name} — ${dir}` : term.name, kind: "terminal" };
+      return { label: dir ? `${term.name} · ${dir}` : term.name, kind: "terminal" };
     }
   }
 

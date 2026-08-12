@@ -185,11 +185,11 @@ function loadState() {
               if (sp.output.length && sp.output[sp.output.length - 1] === "") sp.output.pop();
               sp.outputBytes = logContent.length;
             } else {
-              sp.output = ["[server restarted — previous output lost]"];
+              sp.output = ["[server restarted: previous output lost]"];
               sp.outputBytes = 40;
             }
           } catch {
-            sp.output = ["[server restarted — previous output lost]"];
+            sp.output = ["[server restarted: previous output lost]"];
             sp.outputBytes = 40;
           }
           runningScripts.set(r.processId, sp);
@@ -619,7 +619,7 @@ export function registerPreviewProcess(entry: { taskId: string; port: number; pi
     status: "running",
     pid: entry.pid,
     startedAt: new Date().toISOString(),
-    output: [`[anteprima task ${entry.taskId.slice(0, 8)} — http://localhost:${entry.port}]`],
+    output: [`[anteprima task ${entry.taskId.slice(0, 8)} · http://localhost:${entry.port}]`],
     outputBytes: 0,
     proc: null,
     source: "script",
@@ -1165,7 +1165,7 @@ async function runDetectionCycle(ctx: AppContext): Promise<boolean> {
       status: "running",
       pid: d.pid,
       startedAt: new Date().toISOString(),
-      output: ["[auto-detected running server — Topics did not launch it, so its logs are not captured here]"],
+      output: ["[auto-detected running server. Topics did not launch it, so its logs are not captured here]"],
       outputBytes: 0,
       proc: null,
       source: "detected",
@@ -1292,7 +1292,7 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
     const topic = ctx.getTopicBySessionKey(sessionKey);
     if (topic) {
       const path = ctx.resolveTopicCwd(topic);
-      if (!path) return { error: json({ error: "This topic has no project directory — bind it to a project first" }, 400) };
+      if (!path) return { error: json({ error: "This topic has no project directory. Bind it to a project first." }, 400) };
       return { path };
     }
     // Terminal-driven: a Claude Code *terminal* tab spawns its MCP bridge with the

@@ -149,7 +149,7 @@ export function GoalBar({ goal, fallback, onClose, onEdit }: Props) {
         <ul className="space-y-0.5 border-t border-app-border/50 px-2.5 py-1.5">
           {!own && (
             <li className="pb-0.5 text-[10px] uppercase tracking-wide text-app-text-muted">
-              piano del turno — non sopravvive alla compattazione
+              piano del turno, non sopravvive alla compattazione
             </li>
           )}
           {rows.map((r, i) => (

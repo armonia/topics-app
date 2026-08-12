@@ -309,7 +309,7 @@ function fileOf(audio: SttAudio): File {
 
 async function readError(resp: Response): Promise<string> {
   const body = (await resp.text().catch(() => "")).slice(0, 400);
-  return `HTTP ${resp.status}${body ? ` — ${body}` : ""}`;
+  return `HTTP ${resp.status}${body ? `: ${body}` : ""}`;
 }
 
 async function transcribeElevenLabs(audio: SttAudio, deps: SttDeps, model: string): Promise<{ transcript: string; language: string | null; model: string }> {
@@ -516,7 +516,7 @@ export async function transcribe(audio: SttAudio, deps: SttDeps): Promise<SttRes
   const { chain, all } = resolveSttChain(deps.env);
   if (chain.length === 0) {
     const why = all.map(p => `${p.id}: ${p.reason ?? "?"}`).join(" · ");
-    throw new SttError(`nessun provider di trascrizione disponibile — ${why}`);
+    throw new SttError(`nessun provider di trascrizione disponibile: ${why}`);
   }
 
   const attempts: { provider: SttProviderId; error: string }[] = [];
@@ -551,7 +551,7 @@ export async function transcribe(audio: SttAudio, deps: SttDeps): Promise<SttRes
     }
   }
   throw new SttError(
-    `trascrizione fallita su ${attempts.length} provider — ${attempts.map(a => `${a.provider}: ${a.error}`).join(" · ")}`,
+    `trascrizione fallita su ${attempts.length} provider: ${attempts.map(a => `${a.provider}: ${a.error}`).join(" · ")}`,
     attempts,
   );
 }

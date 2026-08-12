@@ -214,7 +214,7 @@ export function linkNotes(args: {
     };
   }
   return {
-    onNewTask: `Intake: **incatenato** a «${targetText}» su proposta accettata da te — non parte finché quella card non chiude, poi riprende il filo nella sua conversazione.\n\n${reason}`,
-    onTargetTask: `Intake: «${newTaskText}» è **in attesa di questa card** — parte da solo quando questa chiude, riprendendo questa conversazione.\n\n${reason}`,
+    onNewTask: `Intake: **incatenato** a «${targetText}» su proposta accettata da te. Non parte finché quella card non chiude, poi riprende il filo nella sua conversazione.\n\n${reason}`,
+    onTargetTask: `Intake: «${newTaskText}» è **in attesa di questa card**. Parte da solo quando questa chiude, riprendendo questa conversazione.\n\n${reason}`,
   };
 }

@@ -22,7 +22,7 @@ function liveUsageTitle(u: {
   cacheCreationTokens?: number;
   cacheCreation1hTokens?: number;
 }): string {
-  const calls = `${u.calls} chiamat${u.calls === 1 ? 'a' : 'e'} al modello finora — i token letti comprendono il prompt riletto a ogni chiamata`;
+  const calls = `${u.calls} chiamat${u.calls === 1 ? 'a' : 'e'} al modello finora. I token letti comprendono il prompt riletto a ogni chiamata`;
   const bd = cacheBreakdown({
     promptTokens: u.promptTokens,
     cacheReadTokens: u.cacheReadTokens,
