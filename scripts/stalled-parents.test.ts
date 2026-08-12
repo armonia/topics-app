@@ -226,6 +226,29 @@ describe("probe:stalls --gate", () => {
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 
+  /**
+   * IL DB CHE NON SI APRE NON DEVE SEMBRARE UNA BOARD SANA — né uno stallo.
+   *
+   * `readonly` su un file WAL senza `-shm` vivo (cioè proprio la copia su cui si
+   * indaga) muore con `SQLITE_CANTOPEN` prima di stampare qualsiasi cosa, e lo
+   * stack di bun non nomina nemmeno il file. Peggio: usciva 1, lo STESSO codice
+   * con cui `--gate` dice «ci sono stalli». Chi legge solo l'esito leggeva un
+   * allarme dove c'era un percorso sbagliato.
+   */
+  test("--db che non si apre: dice quale file e come si fa, e non finge un allarme", () => {
+    const dir = mkdtempSync(join(tmpdir(), "stalls-"));
+    const path = join(dir, "non-esiste.db");
+    try {
+      const r = runProbe(path, "--gate");
+      const err = r.stderr.toString();
+      expect(err).toContain(path);
+      // La mossa, non il codice d'errore: la copia va fatta con `.backup`.
+      expect(err).toContain(".backup");
+      // E un codice suo: 1 è già preso da «ci sono stalli».
+      expect(r.exitCode).toBe(2);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
   test("board sana: esce 0", () => {
     const { dir, path } = seedFile((db) => {
       card(db, "vivo", "in_progress", { dispatchState: "working" });

@@ -248,6 +248,69 @@ test.describe("Il chip della coda porta la sua ragione", () => {
     }
   });
 
+  /**
+   * IL VICOLO CIECO IN REVIEW, E LA CARD CHE STA GIÀ CHIEDENDO — affiancate.
+   *
+   * A sinistra il caso nuovo: un padre in review con la checklist ancora
+   * aperta. Sembra una consegna che aspetta una persona, ma quella persona non
+   * ha mosse — approvare porta a `done`, e `done` con un sottotask aperto è
+   * rifiutato — e i passi non li dispaccia nessuno da solo. Otto card così
+   * nella notte del 12/08, tutte mute.
+   *
+   * A destra la card che quella domanda la sta GIÀ facendo, coi due bottoni:
+   * ci arriva dal percorso vero (`parkedChildRaisedStall` → `askParkedChildren`,
+   * scatenato spostando un figlio in backlog sotto un padre fermo). Lì il chip
+   * nuovo deve TACERE: «serve te» dice l'unica mossa che c'è, «ferma» la
+   * cancellerebbe per consigliare cose già sullo schermo. Sono due funzioni
+   * diverse — `deriveQueueReason` e la sonda `probe:stalls` — e su questa riga
+   * davano risposta opposta.
+   */
+  test("in review: «ferma» sulla checklist congelata, «serve te» su chi già chiede", async ({ page, request }) => {
+    // A) il vicolo cieco muto: padre in review, un passo ancora aperto.
+    const congelato = await createTask(request, { text: "Rifare l'export dei listini", status: "review" });
+    await createTask(request, { text: "Passo uno: leggere il tracciato", status: "todo", parentTaskId: congelato.id });
+
+    // B) il percorso VERO della domanda di sistema: il figlio scende in backlog
+    // sotto un padre fermo, e `askParkedChildren` porta il padre in review coi
+    // due bottoni. Nessun verbo di test: sono due PATCH pubbliche.
+    const chiede = await createTask(request, { text: "Ripulire i redirect vecchi", status: "todo" });
+    const figlio = await createTask(request, { text: "Passo uno: censire i 301", status: "todo", parentTaskId: chiede.id });
+    const giu = await request.patch(`${BASE}/api/boards/${PROJECT_ID}/tasks/${figlio.id}`, {
+      data: { status: "backlog" },
+    });
+    expect(giu.ok(), await giu.text()).toBe(true);
+
+    await page.goto("/");
+    await openProjectBoard(page);
+    const cardCongelato = page.locator(`[data-task-card="${congelato.id}"]`);
+    await expect(cardCongelato).toBeVisible({ timeout: 10000 });
+
+    // A) la card ferma DICE perché, e col tono che significa «non riparte da sé».
+    await expect(chipOf(page, congelato.id)).toHaveAttribute("data-kind", "checklist_frozen", { timeout: 10000 });
+    await expect(chipOf(page, congelato.id)).toHaveAttribute("data-tone", "stalled");
+    await expect(chipOf(page, congelato.id)).toHaveText("ferma · 1 sottotask aperto");
+
+    // B) la card che chiede tiene il SUO chip e i suoi due bottoni: il chip
+    // nuovo non deve comparire, o la mossa da fare sparisce dallo schermo.
+    const cardChiede = page.locator(`[data-task-card="${chiede.id}"]`);
+    await expect(cardChiede).toBeVisible({ timeout: 10000 });
+    await expect(cardChiede.getByText("serve te", { exact: true })).toBeVisible({ timeout: 10000 });
+    await expect(cardChiede.getByTestId("queue-reason-chip")).toHaveCount(0);
+    await expect(cardChiede.getByRole("button", { name: "Rimetti in coda i sottotask" })).toBeVisible();
+    await expect(cardChiede.getByRole("button", { name: "Archivia i sottotask" })).toBeVisible();
+
+    await didascalia(page, "«ferma · 1 sottotask aperto» ≠ «serve te» — la domanda non si zittisce");
+    await beat(page, 2600);
+
+    // Lo scatto delle due card insieme: è la prova che si legge senza il video.
+    // La COLONNA, non la pagina: la review sta fuori dallo schermo a 1280, e uno
+    // scatto della pagina avrebbe fotografato le card sbagliate.
+    await cardCongelato.scrollIntoViewIfNeeded();
+    const review = page.getByTestId("kanban-column-body-review");
+    await expect(review).toBeVisible();
+    await review.screenshot({ path: "test-results/queue-reason-review.png" });
+  });
+
   test("le etichette di visibilità restano un'altra cosa, e non si mescolano", async ({ page, request }) => {
     // Barra n.4. `visibile`/`invisibile`/`decisione` dicono CHI chiude la card
     // e si derivano alla consegna; la ragione della coda dice perché non è

@@ -97,6 +97,16 @@ const PARENTS_SQL = `
                   WHERE c.parent_task_id = p.id AND c.archived = 0 AND c.status != 'done')
      -- Un figlio col PROPRIO agente addosso si muove per conto suo: finché ce
      -- n'è uno, qualcosa sta andando avanti e la card non è ferma.
+     --
+     -- IL CHIP, NON LA COLONNA — e vale anche per il figlio in \`review\` o in
+     -- \`in_progress\` senza agente. Sembrano mosse visibili («approva il
+     -- figlio»), e per il FIGLIO lo sono; per il padre no. Chiudere un figlio
+     -- non ridà un turno al padre: \`parkedChildRaisedStall\` scatta quando un
+     -- figlio entra in BACKLOG, non quando ne esce, e nessun'altra porta
+     -- rimette il padre in coda. Approvato il figlio, il padre resta fermo
+     -- esattamente dov'era, con gli altri passi ancora aperti — e stavolta
+     -- senza più niente sullo schermo che lo dica. Restano dentro apposta: la
+     -- domanda della sonda è sul padre.
      AND NOT EXISTS (SELECT 1 FROM tasks c
                       WHERE c.parent_task_id = p.id AND c.archived = 0 AND c.status != 'done'
                         AND COALESCE(c.dispatch_state, '') IN ${AGENT_COMING})
@@ -164,7 +174,23 @@ if (import.meta.main) {
     return i >= 0 ? argv[i + 1] : undefined;
   };
   const dbPath = opt("db") ?? defaultDbPath();
-  const db = new Database(dbPath, { readonly: true });
+  // `readonly` su un file WAL senza `-shm` vivo — cioè proprio la copia su cui
+  // si indaga — muore con `SQLITE_CANTOPEN`, e lo stack di bun non nomina
+  // nemmeno il file. Il codice d'uscita è SUO: 1 lo usa già `--gate` per dire
+  // «ci sono stalli», e un percorso sbagliato letto come allarme manda a
+  // cercare card che non esistono.
+  let db: Database;
+  try {
+    db = new Database(dbPath, { readonly: true });
+  } catch (e) {
+    console.error(
+      `Non riesco ad aprire ${dbPath} in sola lettura: ${(e as Error).message}\n` +
+      "Se è una copia di un DB in WAL le manca il `-shm`: rifalla con\n" +
+      `  sqlite3 -readonly <sorgente>.db ".backup ${dbPath}"\n` +
+      "e, se serve ancora, `sqlite3 <copia> \"PRAGMA journal_mode=delete\"`.",
+    );
+    process.exit(2);
+  }
   const report = findStalls(db);
   db.close();
   console.log(has("json") ? JSON.stringify(report, null, 2) : render(report));
