@@ -290,7 +290,7 @@ function parseLabelsParam(raw: string | null): string[] | undefined {
  *
  * `null` = non contabile (niente worktree, git muto): chi chiama non scrive
  * niente. `[]` = verificato, nessun file — che NON è invisibilità (vedi
- * `deriveVisibility`), è una card senza codice.
+ * `deriveCloser`): una card senza codice è una DECISIONE, e la chiude un umano.
  */
 async function ownCommitFiles(cwd: string, mainRef = "main"): Promise<string[] | null> {
   const head = await runGitCap(cwd, ["rev-parse", "--abbrev-ref", "HEAD"]);
@@ -2085,8 +2085,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     //
     // Esiste per UNA cosa: alzare la mano. Un agente che ha toccato solo il
     // server ma sa che il suo lavoro cambia qualcosa che si vede può chiedere
-    // `visibile` — e le etichette di genere (`bugfix`…) le mette come gli pare,
-    // perché non decidono niente. `invisibile` no, mai: il servizio risponde
+    // `visibile`, e `decisione` se quello che ha prodotto è un giudizio da far
+    // dare a una persona — e le etichette di genere (`bugfix`…) le mette come
+    // gli pare, perché non decidono niente. `invisibile` no, mai: il servizio risponde
     // `label_forbidden` → 403. Se un agente potesse marcare invisibile il
     // proprio lavoro, l'etichetta non sarebbe una misura di ciò che si vede:
     // sarebbe il modulo con cui si autorizza a chiudersi le card da solo.
@@ -2099,7 +2100,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       const unknown = raw.filter((l: unknown) => typeof l === "string" && !isTaskLabel(l));
       if (unknown.length) {
         return json({
-          error: `etichette sconosciute: ${unknown.join(", ")} — le etichette valide sono visibile, bugfix, feature, chore, misura`,
+          error: `etichette sconosciute: ${unknown.join(", ")} — le etichette che un agente può scrivere sono visibile, decisione, bugfix, feature, chore, misura`,
           code: "invalid_input",
         }, 400);
       }

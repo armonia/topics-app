@@ -36,7 +36,7 @@ function freshDb(): Database {
     delivered_by TEXT, delivered_reason TEXT, created_by_topic_id TEXT,
     done_actor TEXT, reopened_at TEXT, reopened_by TEXT, reopened_actor TEXT
   )`);
-  db.run(TASK_LABELS_DDL); // migration 097 — rowToTask la legge per OGNI task
+  db.run(TASK_LABELS_DDL); // migration 100 — rowToTask la legge per OGNI task
   db.run(`CREATE TABLE board_settings (
     project_id TEXT PRIMARY KEY, require_approval_for_done INTEGER DEFAULT 0,
     require_review_before_done INTEGER DEFAULT 0, block_status_with_pending INTEGER DEFAULT 0,

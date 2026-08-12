@@ -4,7 +4,7 @@
  * Gli harness della board costruiscono un DB in memoria con una DDL scritta a
  * mano — una copia per file, una decina di copie in tutto. Finché ogni tabella
  * la toccava un test solo, la duplicazione costava poco. `task_labels`
- * (migration 097) no: `rowToTask` la legge per OGNI riga, quindi la sua assenza
+ * (migration 100) no: `rowToTask` la legge per OGNI riga, quindi la sua assenza
  * non fa fallire il test delle etichette — fa fallire ogni test che legga un
  * task, in ogni harness, con un `no such table` a 500. La prima volta sono state
  * 194 asserzioni rosse in dieci file.

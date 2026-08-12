@@ -31,7 +31,7 @@ function freshDb(): Database {
     id TEXT PRIMARY KEY, text TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'todo',
     archived INTEGER NOT NULL DEFAULT 0, parent_task_id TEXT
   )`);
-  d.run(TASK_LABELS_DDL); // migration 097 — rowToTask la legge per OGNI task
+  d.run(TASK_LABELS_DDL); // migration 100 — rowToTask la legge per OGNI task
   return d;
 }
 

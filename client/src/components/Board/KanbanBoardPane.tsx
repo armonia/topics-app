@@ -21,7 +21,7 @@ import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib
 import { currentTaskTarget, reflectTaskOpen, reflectTaskClose, subscribePopstateTask } from '../../lib/openTaskLink';
 import {
   boardApi, boardIdForPath, isProjectlessId, TASK_STATUSES, UNASSIGNED_PROJECT_ID,
-  VISIBILITY_LABELS, KIND_LABELS,
+  CLOSER_LABELS, KIND_LABELS,
   type BoardProjectRef, type BoardTask, type TaskStatus, type BoardSettings, type TaskLabel,
   type PublishProject, type DiffBundle, type DispatchCapacity, type GlobalSettings,
 } from '../../lib/board';
@@ -580,12 +580,14 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
       </button>
       <Menu open={lblOpen} anchorRef={lblBtnRef} onClose={() => setLblOpen(false)} minWidth={200} role="listbox">
         <p className={menuHeader}>Chi la chiude</p>
-        {VISIBILITY_LABELS.map((l) => (
+        {CLOSER_LABELS.map((l) => (
           <FilterOption
             key={l} selected={filters.labels.includes(l)} onClick={() => toggleLabel(l)} label={l}
             title={l === 'visibile'
               ? 'Tocca client/src: la guarda un umano prima di chiuderla'
-              : 'Non tocca niente che si veda: con la barra verde la chiude il conduttore'}
+              : l === 'decisione'
+                ? 'Un piano, una ricerca, un documento — o nessun codice: la decide un umano, sempre'
+                : 'Non tocca niente che si veda: con la barra verde la chiude il conduttore'}
           />
         ))}
         <p className={menuHeader}>Genere</p>

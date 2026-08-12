@@ -75,6 +75,11 @@ describe("l'agente non si marca invisibile da solo", () => {
     ]);
   });
 
+  test("anche `decisione` passa: è l'altro modo di passare la card a una persona", () => {
+    const t = s.setLabels({ taskId, labels: ["decisione"], actor: "agent", source: "agent" });
+    expect(t.labels).toEqual([{ label: "decisione", source: "agent" }]);
+  });
+
   test("nemmeno di sponda: l'agente non può TOGLIERE un `visibile` già scritto", () => {
     s.setLabels({ taskId, labels: ["visibile"], actor: "human", source: "human" });
     expect(() => s.setLabels({ taskId, labels: ["chore"], actor: "agent", source: "agent" }))
@@ -95,9 +100,22 @@ describe("deriveLabelsFromDiff", () => {
     taskId = s.create({ projectId: PID, text: "x" }).id;
   });
 
-  test("dal diff alla visibilità, timbrata `derived`", () => {
+  test("dal diff a chi chiude, timbrato `derived`", () => {
     const t = s.deriveLabelsFromDiff({ taskId, files: ["server/routes/tasks.ts", "docs/x.md"] });
     expect(t!.labels).toEqual([{ label: "invisibile", source: "derived" }]);
+  });
+
+  test("solo documenti ⇒ `decisione`, e la card resta di chi decide", () => {
+    const t = s.deriveLabelsFromDiff({ taskId, files: ["docs/PIANO.md"] });
+    expect(t!.labels).toEqual([{ label: "decisione", source: "derived" }]);
+  });
+
+  test("il ricalcolo porta via anche la classe VECCHIA, non solo la sua gemella", () => {
+    // La DELETE guardava due etichette su tre: una `decisione` rimasta accanto a
+    // una `visibile` nuova sarebbe una card con due risposte alla stessa domanda.
+    s.deriveLabelsFromDiff({ taskId, files: ["docs/PIANO.md"] });
+    s.deriveLabelsFromDiff({ taskId, files: ["client/src/App.tsx"] });
+    expect(s.get(taskId)!.task.labels).toEqual([{ label: "visibile", source: "derived" }]);
   });
 
   test("una consegna successiva RICALCOLA ciò che aveva calcolato lei", () => {

@@ -311,7 +311,7 @@ const TOOLS = [
   {
     name: "label_task",
     description:
-      "Set the labels on a task. Two families, and they do different things. KIND — `bugfix` `feature` `chore` `misura` — is how the board is filtered and read; set whichever fits. VISIBILITY decides WHO CLOSES the card, and you do not get to declare it: the server derives `visibile`/`invisibile` from the files YOUR commits touched (touches client/src outside tests ⇒ visible). The one visibility label you may set is `visibile` — that is RAISING YOUR HAND: 'a human should look at this even though the diff says otherwise'. `invisibile` is refused (403): marking your own work invisible would be signing your own release. Replaces the whole set, so send every label you want kept.",
+      "Set the labels on a task. Two families, and they do different things. KIND — `bugfix` `feature` `chore` `misura` — is how the board is filtered and read; set whichever fits. The CLOSER family decides WHO CLOSES the card and you do not get to declare it: the server derives it from the files YOUR commits touched — `visibile` (touches client/src outside tests), `decisione` (only docs/openspec/*.md, or no code at all), `invisibile` (code nobody sees: server, shared, scripts, tests). You may set `visibile` or `decisione` — both are RAISING YOUR HAND, handing the card to a person. `invisibile` is refused (403): marking your own work invisible would be signing your own release. Replaces the whole set, so send every label you want kept.",
     inputSchema: {
       type: "object",
       properties: {
@@ -319,7 +319,7 @@ const TOOLS = [
         labels: {
           type: "array",
           items: { type: "string" },
-          description: "The FULL set to keep: any of bugfix, feature, chore, misura, visibile. `invisibile` is refused.",
+          description: "The FULL set to keep: any of bugfix, feature, chore, misura, visibile, decisione. `invisibile` is refused.",
         },
       },
       required: ["task_id", "labels"],
