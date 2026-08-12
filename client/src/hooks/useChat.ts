@@ -11,6 +11,7 @@ import { clearPartialForReattach } from './streamReattachReset';
 import { useRefMirror } from './useRefMirror';
 import { reconcileOrphanStreams } from '../state/signals';
 import { answerFromText, findPendingAsk } from '../state/pendingAsk';
+import { armPushAsk } from '../state/pushAsk';
 import {
   claimBatch as claimQueuedTurns,
   decideSend,
@@ -1984,6 +1985,12 @@ export function useChat() {
    * altro posto (`state/chatQueue.ts` → `decideSend`).
    */
   const sendMessage = useCallback(async (sessionKey: string, content: string, options?: SendMessageOptions): Promise<boolean> => {
+    // IL MOMENTO GIUSTO per chiedere le notifiche: hai appena creato un'attesa.
+    // Non apre niente da solo — arma soltanto l'invito, che compare solo se
+    // chiedere non sarebbe una bugia (permesso non ancora negato, push
+    // disponibile, «non ora» mai detto). Vedi `state/pushAsk.ts`.
+    armPushAsk();
+
     // Una domanda a schermo si risponde anche SCRIVENDO, non solo dal pannello.
     //
     // Il turno parcheggiato su un ask resta "in volo": `/api/chat` risponde 409
