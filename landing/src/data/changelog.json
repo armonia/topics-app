@@ -1,5 +1,47 @@
 [
   {
+    "version": "2.2.108",
+    "date": "2026-08-12",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "the second «+ → Browser» opened nothing",
+          "scope": "browser"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.2.105",
+    "date": "2026-08-12",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "the preview cap is a ratio, not a fixed 144px",
+          "scope": "board"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.2.91",
+    "date": "2026-08-10",
+    "sections": {
+      "new": [
+        {
+          "text": "after a ⌘R the app says «Reloaded»",
+          "scope": "shell"
+        }
+      ],
+      "fixes": [],
+      "perf": []
+    }
+  },
+  {
     "version": "2.2.12",
     "date": "2026-08-06",
     "sections": {
