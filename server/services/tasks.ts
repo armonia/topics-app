@@ -393,6 +393,27 @@ export interface ListTasksInput {
    */
   rootsOnly?: boolean;
   /**
+   * Con `rootsOnly`: rimetti nel taglio gli step ORFANI — quelli il cui padre è
+   * chiuso, archiviato o sparito.
+   *
+   * `rootsOnly` ha due consumatori con due bisogni diversi, e sotto un solo nome
+   * ne serviva uno solo. Per il DISPATCHER è una regola di sicurezza («Steps are
+   * never dispatch-eligible»): allargarla vuol dire un agente lanciato su uno
+   * step. Per il FEED della board è una regola di lettura: uno step non è
+   * arretrato, è la checklist di qualcuno — e quel «di qualcuno» smette di
+   * essere vero appena il padre chiude.
+   *
+   * Uno step orfano non lo prende nessun dispatcher, il suo padre è in Done
+   * quindi nessuno ne apre più l'albero, e `parkedChildRaisedStall` esce subito
+   * su un padre chiuso. Tenerlo fuori dalle colonne non lo rimanda: lo perde.
+   *
+   * Default `false` — cioè `rootsOnly` puro, il comportamento di prima — e non
+   * è prudenza cosmetica: sbagliare in questa direzione lascia un orfano
+   * nascosto (lo stato di oggi), sbagliare nell'altra fa partire un agente su
+   * uno step. Lo accende chi disegna colonne, mai chi dispaccia.
+   */
+  includeOrphanSubtasks?: boolean;
+  /**
    * Filtro per etichetta, in AND: un task passa solo se le ha TUTTE. Il caso
    * d'uso che l'ha chiesto è «mostrami solo le visibili in review» — cioè la
    * lista che Attilio deve davvero guardare — e si combina con `status`, che è
@@ -1840,6 +1861,21 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     }
   }
 
+  /**
+   * Un padre può ancora ADOTTARE?
+   *
+   * Archiviato no, e questo si guardava già. CHIUSO nemmeno, e questo mancava:
+   * annidare uno step sotto una card in Done costruisce un vicolo cieco con una
+   * chiamata perfettamente legittima. Nessun dispatcher prende gli step, il
+   * padre è chiuso quindi nessuno ne apre più l'albero, e la sonda dei figli
+   * parcheggiati esce subito su un padre `done`. Il cancello su `done` impedisce
+   * di CHIUDERE un padre con figli aperti; senza questo, la stessa coppia si
+   * otteneva dall'altro verso — prima chiudi, poi attacca.
+   */
+  function isParentAlive(parent: any): boolean {
+    return !parent.archived && parent.status !== "done";
+  }
+
   // Re-parenting. At creation the walk is unnecessary (a fresh id can never be
   // an ancestor of an existing row); MOVING an existing task can close a loop —
   // nest A under its own child and the pair disappears from the board, because
@@ -1848,7 +1884,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     const self = getTaskRow(taskId);
     const parent = getTaskRow(parentId);
     if (!self) throw new TaskServiceError("not_found", `task ${taskId} not found`);
-    if (!parent || parent.project_id !== self.project_id || parent.archived) {
+    if (!parent || parent.project_id !== self.project_id || !isParentAlive(parent)) {
       // Same not_found shape as the create-side guard: no cross-board probing.
       throw new TaskServiceError("not_found", `parent task ${parentId} not found`);
     }
@@ -1913,7 +1949,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // not_found shape as the projectId guard elsewhere (no cross-board probing).
       if (input.parentTaskId) {
         const parent = getTaskRow(input.parentTaskId);
-        if (!parent || parent.project_id !== input.projectId || parent.archived) {
+        if (!parent || parent.project_id !== input.projectId || !isParentAlive(parent)) {
           throw new TaskServiceError("not_found", `parent task ${input.parentTaskId} not found`);
         }
       }
@@ -1962,16 +1998,34 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         params.push(input.projectId);
       }
       if (input.status) { clauses.push("status = ?"); params.push(input.status); }
-      // «Radici», nell'archivio, vuol dire un'altra cosa. Un task senza padre è
-      // una radice; ma anche uno step archiviato da solo, sotto un genitore
-      // ancora vivo, è la radice di ciò che è stato archiviato — e con il
-      // filtro letterale `parent_task_id IS NULL` sarebbe l'unica riga che
-      // nessuna lista mostra più, né la board né l'archivio. I figli di un
-      // archiviato restano fuori: li riporta indietro il ripristino del padre.
+      // «Radici» vuol dire tre cose diverse a seconda di chi chiede, e le tre
+      // convivono qui perché il taglio è uno solo.
+      //
+      //  - ARCHIVIO: un task senza padre è una radice; ma anche uno step
+      //    archiviato da solo, sotto un genitore ancora vivo, è la radice di ciò
+      //    che è stato archiviato — e con il filtro letterale
+      //    `parent_task_id IS NULL` sarebbe l'unica riga che nessuna lista
+      //    mostra più, né la board né l'archivio. I figli di un archiviato
+      //    restano fuori: li riporta indietro il ripristino del padre.
+      //  - FEED della board (`includeOrphanSubtasks`): le radici PIÙ gli step
+      //    che non sono più la checklist di nessuno. «Nessuno» è una sola
+      //    condizione, letta sul padre diretto: chiuso, archiviato, o la riga
+      //    non c'è più. Lo step già `done` resta fuori — un passo finito non è
+      //    un vicolo cieco, è cronaca.
+      //  - DISPATCHER: il filtro letterale, e resta letterale. Lì `rootsOnly` è
+      //    una regola di sicurezza, non di lettura.
+      //
+      // L'archivio per primo perché è una VISTA diversa, non il feed: quando si
+      // guardano le righe archiviate, un padre chiuso non è un orfano da
+      // ripescare, è il contesto di ciò che si sta guardando.
       if (input.rootsOnly) {
         clauses.push(
           input.archived === true
             ? "(parent_task_id IS NULL OR parent_task_id IN (SELECT id FROM tasks WHERE archived = 0))"
+            : input.includeOrphanSubtasks
+            ? `(parent_task_id IS NULL OR (status != 'done' AND NOT EXISTS (
+                 SELECT 1 FROM tasks p
+                  WHERE p.id = tasks.parent_task_id AND p.archived = 0 AND p.status != 'done')))`
             : "parent_task_id IS NULL",
         );
       }
