@@ -5219,6 +5219,253 @@ unsafe fn cache_only_data_types() -> crate::mac::id {
     msg_send![class!(NSSet), setWithObjects: items.as_ptr(), count: items.len()]
 }
 
+/// Un record dello store: il nome del silo WebKit e i tipi di dato che tiene.
+///
+/// `displayName` NON è l'host della pagina: WebKit raggruppa per dominio
+/// registrabile (su `mail.google.com` il record si chiama `google.com` e copre
+/// tutti i sottodomini). È il nome vero della cosa che si cancella, quindi è
+/// quello che il dialogo mostra e quello che la rimozione riceve indietro.
+#[cfg(target_os = "macos")]
+#[derive(Serialize)]
+struct SiteDataRecordJson {
+    #[serde(rename = "displayName")]
+    display_name: String,
+    types: Vec<String>,
+}
+
+/// La chiave stabile di un `WKWebsiteDataType`, per il client.
+///
+/// Il confronto è con i simboli del framework, non con letterali nostri: stessa
+/// ragione di `cache_only_data_types` — un letterale sbagliato non
+/// corrisponderebbe a niente e nessuno se ne accorgerebbe, mentre il link o
+/// regge o non compila. Un tipo che non conosciamo torna col suo nome grezzo:
+/// il client lo mette nel mucchio «dati del sito» invece di perderlo.
+#[cfg(target_os = "macos")]
+unsafe fn site_data_type_key(t: crate::mac::id) -> String {
+    use crate::mac::*;
+    extern "C" {
+        static WKWebsiteDataTypeCookies: id;
+        static WKWebsiteDataTypeLocalStorage: id;
+        static WKWebsiteDataTypeSessionStorage: id;
+        static WKWebsiteDataTypeIndexedDBDatabases: id;
+        static WKWebsiteDataTypeWebSQLDatabases: id;
+        static WKWebsiteDataTypeDiskCache: id;
+        static WKWebsiteDataTypeMemoryCache: id;
+        static WKWebsiteDataTypeFetchCache: id;
+        static WKWebsiteDataTypeOfflineWebApplicationCache: id;
+        static WKWebsiteDataTypeServiceWorkerRegistrations: id;
+    }
+    let known: [(id, &str); 10] = [
+        (WKWebsiteDataTypeCookies, "cookies"),
+        (WKWebsiteDataTypeLocalStorage, "localStorage"),
+        (WKWebsiteDataTypeSessionStorage, "sessionStorage"),
+        (WKWebsiteDataTypeIndexedDBDatabases, "indexedDB"),
+        (WKWebsiteDataTypeWebSQLDatabases, "webSql"),
+        (WKWebsiteDataTypeDiskCache, "diskCache"),
+        (WKWebsiteDataTypeMemoryCache, "memoryCache"),
+        (WKWebsiteDataTypeFetchCache, "fetchCache"),
+        (WKWebsiteDataTypeOfflineWebApplicationCache, "offlineAppCache"),
+        (WKWebsiteDataTypeServiceWorkerRegistrations, "serviceWorkers"),
+    ];
+    for (constant, key) in known {
+        let same: BOOL = msg_send![t, isEqual: constant];
+        if same == YES {
+            return key.to_string();
+        }
+    }
+    nsobject_to_string(t)
+}
+
+/// Elenca i record dello store della pane: `[{displayName, types:[…]}, …]`.
+///
+/// Ponte async-objc identico a `cookies_get_blocking` (il completion handler di
+/// `fetchDataRecordsOfTypes:` gira SUL MAIN, il risultato torna su un canale),
+/// quindi va chiamata fuori dal main thread.
+///
+/// Store e insieme dei tipi si ri-derivano DENTRO il handler invece di
+/// catturarli: sono oggetti autoreleased del giro corrente, e il handler
+/// arriva dopo che quel pool si è svuotato. La WKWebView, che è viva quanto la
+/// pane, si cattura e basta.
+#[cfg(target_os = "macos")]
+fn site_data_records_blocking(wv: &tauri::Webview) -> Result<String, String> {
+    use std::sync::mpsc;
+    use std::time::Duration;
+    let (tx, rx) = mpsc::channel::<Result<String, String>>();
+    wv.with_webview(move |platform| {
+        use crate::mac::*;
+        unsafe {
+            let wk = platform.inner() as id; // WKWebView
+            let config: id = msg_send![wk, configuration];
+            let store: id = msg_send![config, websiteDataStore];
+            let all: id = msg_send![class!(WKWebsiteDataStore), allWebsiteDataTypes];
+            let handler = block2::RcBlock::new(move |records: id| {
+                let mut out: Vec<SiteDataRecordJson> = Vec::new();
+                if records != nil {
+                    let count: usize = msg_send![records, count];
+                    for i in 0..count {
+                        let rec: id = msg_send![records, objectAtIndex: i];
+                        if rec == nil {
+                            continue;
+                        }
+                        let name: id = msg_send![rec, displayName];
+                        let types: id = msg_send![rec, dataTypes];
+                        let mut keys: Vec<String> = Vec::new();
+                        if types != nil {
+                            let list: id = msg_send![types, allObjects];
+                            let n: usize = msg_send![list, count];
+                            for j in 0..n {
+                                let t: id = msg_send![list, objectAtIndex: j];
+                                if t != nil {
+                                    keys.push(site_data_type_key(t));
+                                }
+                            }
+                        }
+                        keys.sort();
+                        out.push(SiteDataRecordJson {
+                            display_name: nsobject_to_string(name),
+                            types: keys,
+                        });
+                    }
+                }
+                let _ = tx.send(serde_json::to_string(&out).map_err(|e| e.to_string()));
+            });
+            let _: () = msg_send![store, fetchDataRecordsOfTypes: all, completionHandler: &*handler];
+        }
+    })
+    .map_err(|e| e.to_string())?;
+    rx.recv_timeout(Duration::from_secs(8))
+        .map_err(|_| "site data records timeout".to_string())?
+}
+
+/// Rimuove dallo store della pane SOLO i record che si chiamano come uno dei
+/// `names`, con tutti i loro tipi di dato. Ritorna quanti record ha tolto.
+///
+/// Il filtro sta qui e non in `removeDataOfTypes:modifiedSince:` perché quello
+/// è per-store, e lo store è per-pane: userebbe il martello di
+/// `browser_purge_data_store` per un chiodo per-sito.
+///
+/// I nomi arrivano da un `browser_site_data_records` che il client ha già
+/// mostrato all'utente: si cancella l'elenco che è stato letto, non «tutto ciò
+/// che assomiglia a quell'host». Un record comparso nel frattempo non è nella
+/// lista, quindi non muore per sbaglio.
+#[cfg(target_os = "macos")]
+fn forget_site_blocking(wv: &tauri::Webview, names: Vec<String>) -> Result<usize, String> {
+    use std::sync::mpsc;
+    use std::time::Duration;
+    let (tx, rx) = mpsc::channel::<Result<usize, String>>();
+    wv.with_webview(move |platform| {
+        use crate::mac::*;
+        unsafe {
+            let wk = platform.inner() as id; // WKWebView
+            let config: id = msg_send![wk, configuration];
+            let store: id = msg_send![config, websiteDataStore];
+            let all: id = msg_send![class!(WKWebsiteDataStore), allWebsiteDataTypes];
+            let handler = block2::RcBlock::new(move |records: id| {
+                let victims: id = msg_send![class!(NSMutableArray), array];
+                let mut hit = 0usize;
+                if records != nil {
+                    let count: usize = msg_send![records, count];
+                    for i in 0..count {
+                        let rec: id = msg_send![records, objectAtIndex: i];
+                        if rec == nil {
+                            continue;
+                        }
+                        let name: id = msg_send![rec, displayName];
+                        if names.contains(&nsobject_to_string(name)) {
+                            let _: () = msg_send![victims, addObject: rec];
+                            hit += 1;
+                        }
+                    }
+                }
+                if hit == 0 {
+                    let _ = tx.send(Ok(0));
+                    return;
+                }
+                // Il pool corrente non è ancora sceso: store e tipi si
+                // ri-derivano qui e restano validi per la chiamata.
+                let config: id = msg_send![wk, configuration];
+                let store: id = msg_send![config, websiteDataStore];
+                let all: id = msg_send![class!(WKWebsiteDataStore), allWebsiteDataTypes];
+                let tx_done = tx.clone();
+                let done = block2::RcBlock::new(move || {
+                    let _ = tx_done.send(Ok(hit));
+                });
+                let _: () = msg_send![store, removeDataOfTypes: all, forDataRecords: victims, completionHandler: &*done];
+            });
+            let _: () = msg_send![store, fetchDataRecordsOfTypes: all, completionHandler: &*handler];
+        }
+    })
+    .map_err(|e| e.to_string())?;
+    rx.recv_timeout(Duration::from_secs(15))
+        .map_err(|_| "forget site timeout".to_string())?
+}
+
+/// Elenca cosa c'è nello store di questa pane, per sito. JSON:
+/// `[{"displayName":"github.com","types":["cookies","localStorage",…]}, …]`.
+///
+/// È la metà «dire prima» del comando «Dimentica questo sito»: senza questa
+/// lista il dialogo direbbe soltanto «cancello i dati», che è la frase per cui
+/// un comando distruttivo si preme una volta e non si preme mai più.
+///
+/// Async + spawn_blocking per lo stesso motivo di `browser_pane_get_cookies`
+/// (completion handler sul main; un comando sincrono bloccherebbe il main).
+#[tauri::command]
+async fn browser_site_data_records(app: tauri::AppHandle, id: String) -> Result<String, String> {
+    let label = browser_label(&id);
+    tauri::async_runtime::spawn_blocking(move || {
+        use tauri::Manager;
+        let wv = app
+            .get_webview(&label)
+            .ok_or_else(|| "no such browser pane".to_string())?;
+        #[cfg(target_os = "macos")]
+        {
+            return site_data_records_blocking(&wv);
+        }
+        #[allow(unreachable_code)]
+        {
+            let _ = wv;
+            Err("browser_site_data_records: macOS only".to_string())
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Dimentica i siti nominati in `display_names`: sessione, cookie, dati e cache
+/// dei loro record, e nient'altro. Ritorna quanti record ha rimosso.
+///
+/// ⚠️ DISTRUTTIVO E IRREVERSIBILE, ma per-SITO: lo store della pane resta, con
+/// dentro tutti gli altri siti. Il fratello che butta lo store intero è
+/// `browser_purge_data_store`, e ha un solo chiamante rimasto (il reaper).
+#[tauri::command]
+async fn browser_forget_site(
+    app: tauri::AppHandle,
+    id: String,
+    display_names: Vec<String>,
+) -> Result<usize, String> {
+    if display_names.is_empty() {
+        return Ok(0);
+    }
+    let label = browser_label(&id);
+    tauri::async_runtime::spawn_blocking(move || {
+        use tauri::Manager;
+        let wv = app
+            .get_webview(&label)
+            .ok_or_else(|| "no such browser pane".to_string())?;
+        #[cfg(target_os = "macos")]
+        {
+            return forget_site_blocking(&wv, display_names);
+        }
+        #[allow(unreachable_code)]
+        {
+            let _ = (wv, display_names);
+            Err("browser_forget_site: macOS only".to_string())
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Il reaper della coda lunga: rimuove per INTERO gli store che nessuna pane
 /// rivendica più e che nessuno tocca da `max_age_days` giorni.
 ///
@@ -9268,6 +9515,8 @@ pub fn run() {
             browser_close,
             browser_purge_data_store,
             browser_purge_cache,
+            browser_site_data_records,
+            browser_forget_site,
             browser_reap_data_stores,
             browser_list,
             browser_eval_js,
