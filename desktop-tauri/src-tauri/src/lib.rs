@@ -4845,10 +4845,20 @@ fn close_verdict(id: &str, still_registered: bool) -> Result<(), String> {
 /// an audit on 2026-08-02 found ~1.1 GB accumulated across contexts that no pane
 /// will ever reopen. This reclaims it.
 ///
-/// ⚠️ DESTRUCTIVE + IRREVERSIBLE: this deletes the login/session for `id`. Call it
-/// ONLY on a pane's TRUE close (the tombstone path in `usePaneLifecycle`), NEVER on
-/// the transient re-key of an auto-split or a hide — those must keep the store so
-/// the pane comes back logged in. The client contract enforces that.
+/// ⚠️ DESTRUCTIVE + IRREVERSIBLE: this deletes the login/session for `id`.
+///
+/// NON è più il comando della chiusura. Lo era, ed era il baratto sbagliato: la
+/// misura del 2026-08-12 sui 45 store veri (2,32 GB) dice che i cookie sono
+/// **44 KB IN TUTTO** — un chilobyte a store — mentre il 70% dello spazio è
+/// NetworkCache. Cancellare la sessione «per fare posto» buttava via un
+/// chilobyte per liberarne cinquantamila, e il conto lo pagava chi riapriva la
+/// tab e si ritrovava sloggato. La chiusura ora chiama `browser_purge_cache`,
+/// che prende gli stessi byte lasciando l'identità.
+///
+/// Restano due chiamanti legittimi, ed entrambi hanno un permesso che la
+/// chiusura non aveva: il reaper a scadenza (`browser_reap_data_stores`, uno
+/// store che NESSUNA pane rivendica più) e — quando ci sarà — il comando
+/// esplicito «Dimentica questo sito», dove a chiedere di dimenticare è l'utente.
 ///
 /// macOS 14+ (`removeDataStoreForIdentifier:completionHandler:`); older systems
 /// no-op via `respondsToSelector:`. Caveat: wry never deallocates the WKWebView
@@ -4899,6 +4909,303 @@ fn browser_purge_data_store(app: tauri::AppHandle, id: String) -> Result<(), Str
         let _ = id;
         Ok(())
     })
+}
+
+/// Svuota la CACHE dello store di una pane e lascia stare l'identità.
+///
+/// È il comando della chiusura, e sostituisce `browser_purge_data_store` in quel
+/// ruolo. Misurato il 2026-08-12 su 45 store veri (2,32 GB su disco):
+///
+///   NetworkCache   1,65 GB   70%   ← rigenerabile, va via
+///   Origins          685 MB   29%   ← localStorage/IndexedDB, RESTA
+///   Cookies           44 KB    0%   ← il login, RESTA
+///
+/// Il 70% torna a ogni chiusura senza toccare il chilobyte che ti tiene dentro
+/// il sito: il baratto «o il login o lo spazio» non esisteva, erano due
+/// cassetti diversi dello stesso mobile.
+///
+/// I tipi rimossi sono le sole cache: disco, fetch, memoria e le registrazioni
+/// dei service worker (una registrazione senza la sua CacheStorage è zavorra, e
+/// si riscrive alla prima visita). NON tocca `Cookies`, `LocalStorage`,
+/// `SessionStorage`, `IndexedDB` — sono l'identità sul sito.
+///
+/// macOS 14+ (`dataStoreForIdentifier:`, lo STESSO cancello di
+/// `removeDataStoreForIdentifier:` che il purge totale già usa); più vecchio =
+/// no-op via `respondsToSelector:`. Fire-and-forget come il fratello: non
+/// aspettiamo la completion asincrona.
+#[tauri::command]
+fn browser_purge_cache(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    no_abort("browser_purge_cache", move || {
+        #[cfg(target_os = "macos")]
+        {
+            use crate::mac::*;
+            let bytes = data_store_uuid_for(&id);
+            let id_for_log = id.clone();
+            let _ = app.run_on_main_thread(move || unsafe {
+                let cls = class!(WKWebsiteDataStore);
+                let sel = sel!(dataStoreForIdentifier:);
+                let responds: BOOL = msg_send![cls, respondsToSelector: sel];
+                if responds != YES {
+                    return; // pre-macOS-14: nessuno store per identifier.
+                }
+                let uuid_alloc: id = msg_send![class!(NSUUID), alloc];
+                let uuid: id = msg_send![uuid_alloc, initWithUUIDBytes: bytes.as_ptr()];
+                if uuid == nil {
+                    return;
+                }
+                let store: id = msg_send![cls, dataStoreForIdentifier: uuid];
+                if store == nil {
+                    return;
+                }
+                let types = cache_only_data_types();
+                if types == nil {
+                    return;
+                }
+                // `distantPast` = tutta la cache, non solo la recente.
+                let since: id = msg_send![class!(NSDate), distantPast];
+                let handler = block2::RcBlock::new(move || {
+                    let _ = &id_for_log; // il blocco possiede l'id solo per il log
+                });
+                let _: () = msg_send![store, removeDataOfTypes: types, modifiedSince: since, completionHandler: &*handler];
+            });
+        }
+        #[cfg(not(target_os = "macos"))]
+        let _ = (&app, &id);
+        Ok(())
+    })
+}
+
+/// L'insieme `NSSet` dei soli tipi-cache di WebKit.
+///
+/// Le costanti sono simboli esterni del framework WebKit (già linkato da wry),
+/// non stringhe che ci scriviamo noi: se un giorno cambiassero valore, un
+/// letterale sbagliato non cancellerebbe NULLA e nessuno se ne accorgerebbe —
+/// il link, invece, o regge o non compila.
+#[cfg(target_os = "macos")]
+unsafe fn cache_only_data_types() -> crate::mac::id {
+    use crate::mac::*;
+    extern "C" {
+        static WKWebsiteDataTypeDiskCache: id;
+        static WKWebsiteDataTypeFetchCache: id;
+        static WKWebsiteDataTypeMemoryCache: id;
+        static WKWebsiteDataTypeServiceWorkerRegistrations: id;
+    }
+    let items: [id; 4] = [
+        WKWebsiteDataTypeDiskCache,
+        WKWebsiteDataTypeFetchCache,
+        WKWebsiteDataTypeMemoryCache,
+        WKWebsiteDataTypeServiceWorkerRegistrations,
+    ];
+    msg_send![class!(NSSet), setWithObjects: items.as_ptr(), count: items.len()]
+}
+
+/// Il reaper della coda lunga: rimuove per INTERO gli store che nessuna pane
+/// rivendica più e che nessuno tocca da `max_age_days` giorni.
+///
+/// È la seconda metà della politica: da quando la chiusura conserva il login,
+/// gli store non se ne vanno più da soli, e senza uno spazzino il disco
+/// crescerebbe per sempre. Ma «vecchio» da solo non basta come permesso —
+/// il sito che apri due volte l'anno è proprio quello di cui NON vuoi rifare il
+/// login. Servono due condizioni insieme:
+///
+///   1. ORFANO — `keep_ids` è la lista dei contextId che hanno ancora una pane,
+///      e la manda il client, che è l'unico ad averla per intero (il suo pane
+///      store è sincronizzato tra i device, quindi copre anche le pane aperte
+///      sul telefono). Uno store nella lista è intoccabile a QUALSIASI età.
+///   2. FERMO — nessun file suo modificato da `max_age_days` giorni.
+///
+/// `max_age_days` ha un pavimento di 7 giorni (`MIN_REAP_AGE_DAYS`): se un
+/// giorno un chiamante sbagliasse a passare 0, il peggio che può fare è
+/// rimuovere store fermi da una settimana e orfani — non svuotare il browser.
+///
+/// Ritorna quanti store ha rimosso.
+#[tauri::command]
+fn browser_reap_data_stores(
+    app: tauri::AppHandle,
+    keep_ids: Vec<String>,
+    max_age_days: u64,
+) -> Result<usize, String> {
+    no_abort("browser_reap_data_stores", move || {
+        #[cfg(target_os = "macos")]
+        {
+            let dir = match website_data_store_dir() {
+                Some(d) => d,
+                None => return Ok(0),
+            };
+            let victims = stale_store_uuids(&dir, &keep_ids, max_age_days, std::time::SystemTime::now());
+            let n = victims.len();
+            for uuid_str in victims {
+                let bytes = match uuid_bytes_from_str(&uuid_str) {
+                    Some(b) => b,
+                    None => continue,
+                };
+                let name = uuid_str.clone();
+                let _ = app.run_on_main_thread(move || unsafe {
+                    use crate::mac::*;
+                    let cls = class!(WKWebsiteDataStore);
+                    let sel = sel!(removeDataStoreForIdentifier:completionHandler:);
+                    let responds: BOOL = msg_send![cls, respondsToSelector: sel];
+                    if responds != YES {
+                        return;
+                    }
+                    let uuid_alloc: id = msg_send![class!(NSUUID), alloc];
+                    let uuid: id = msg_send![uuid_alloc, initWithUUIDBytes: bytes.as_ptr()];
+                    if uuid == nil {
+                        return;
+                    }
+                    let handler = block2::RcBlock::new(move |err: id| {
+                        if err != nil {
+                            let desc: id = msg_send![err, localizedDescription];
+                            eprintln!(
+                                "[browser_reap_data_stores] {}: {}",
+                                name,
+                                nsobject_to_string(desc)
+                            );
+                        }
+                    });
+                    let _: () = msg_send![cls, removeDataStoreForIdentifier: uuid, completionHandler: &*handler];
+                });
+            }
+            Ok(n)
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = (&app, &keep_ids, &max_age_days);
+            Ok(0)
+        }
+    })
+}
+
+/// Pavimento sull'età del reaper — vedi `browser_reap_data_stores`.
+#[cfg(target_os = "macos")]
+const MIN_REAP_AGE_DAYS: u64 = 7;
+
+/// La cartella dove WebKit tiene gli store per identifier.
+///
+/// Il nome della sottocartella è l'identificatore del bundle quando l'app è
+/// impacchettata e il nome del processo quando gira da `cargo run`: lo chiede a
+/// NSBundle invece di indovinarlo, o in sviluppo il reaper spazzerebbe la
+/// cartella dell'app installata (o viceversa).
+#[cfg(target_os = "macos")]
+fn website_data_store_dir() -> Option<std::path::PathBuf> {
+    use crate::mac::*;
+    let name = unsafe {
+        let bundle: id = msg_send![class!(NSBundle), mainBundle];
+        let ident: id = if bundle == nil { nil } else { msg_send![bundle, bundleIdentifier] };
+        if ident != nil {
+            nsobject_to_string(ident)
+        } else {
+            let pi: id = msg_send![class!(NSProcessInfo), processInfo];
+            let pn: id = if pi == nil { nil } else { msg_send![pi, processName] };
+            if pn == nil {
+                return None;
+            }
+            nsobject_to_string(pn)
+        }
+    };
+    if name.is_empty() {
+        return None;
+    }
+    let home = std::env::var_os("HOME")?;
+    Some(
+        std::path::PathBuf::from(home)
+            .join("Library/WebKit")
+            .join(name)
+            .join("WebsiteDataStore"),
+    )
+}
+
+/// Quali store sono da rimuovere: orfani E fermi. Separata dal guscio ObjC per
+/// poterla provare su una cartella finta — la decisione È il pezzo rischioso,
+/// la chiamata a WebKit no.
+#[cfg(target_os = "macos")]
+fn stale_store_uuids(
+    dir: &std::path::Path,
+    keep_ids: &[String],
+    max_age_days: u64,
+    now: std::time::SystemTime,
+) -> Vec<String> {
+    let age = std::time::Duration::from_secs(max_age_days.max(MIN_REAP_AGE_DAYS) * 86_400);
+    let keep: std::collections::HashSet<String> = keep_ids
+        .iter()
+        .map(|id| uuid_str_from_bytes(&data_store_uuid_for(id)))
+        .collect();
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return Vec::new(),
+    };
+    let mut out = Vec::new();
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
+        if uuid_bytes_from_str(&name).is_none() {
+            continue; // non è uno store per identifier: non è roba nostra.
+        }
+        if keep.contains(&name) {
+            continue; // una pane lo rivendica: intoccabile a qualsiasi età.
+        }
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        // L'mtime della cartella radice non si muove quando cambia un file in
+        // fondo a `Origins/`: si prende il PIÙ RECENTE tra la radice e i suoi
+        // figli diretti (Cookies/, NetworkCache/, Origins/…). Un livello basta a
+        // non dichiarare fermo uno store vivo, e costa una readdir.
+        let touched = newest_mtime_shallow(&path);
+        match now.duration_since(touched) {
+            Ok(elapsed) if elapsed >= age => out.push(name),
+            _ => {}
+        }
+    }
+    out.sort();
+    out
+}
+
+/// L'mtime più recente tra una cartella e i suoi figli diretti.
+#[cfg(target_os = "macos")]
+fn newest_mtime_shallow(path: &std::path::Path) -> std::time::SystemTime {
+    let mut newest = std::fs::metadata(path)
+        .and_then(|m| m.modified())
+        .unwrap_or(std::time::UNIX_EPOCH);
+    if let Ok(children) = std::fs::read_dir(path) {
+        for child in children.flatten() {
+            if let Ok(m) = child.metadata().and_then(|m| m.modified()) {
+                if m > newest {
+                    newest = m;
+                }
+            }
+        }
+    }
+    newest
+}
+
+/// I 16 byte di un UUID scritto `8-4-4-4-12`, o `None` se non lo è.
+#[cfg(target_os = "macos")]
+fn uuid_bytes_from_str(s: &str) -> Option<[u8; 16]> {
+    let hex: String = s.chars().filter(|c| *c != '-').collect();
+    if hex.len() != 32 || s.len() != 36 || !hex.chars().all(|c| c.is_ascii_hexdigit()) {
+        return None;
+    }
+    let mut out = [0u8; 16];
+    for (i, byte) in out.iter_mut().enumerate() {
+        *byte = u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16).ok()?;
+    }
+    Some(out)
+}
+
+/// L'inverso: i 16 byte nella forma minuscola `8-4-4-4-12` con cui WebKit
+/// nomina la cartella dello store.
+#[cfg(target_os = "macos")]
+fn uuid_str_from_bytes(b: &[u8; 16]) -> String {
+    let h: Vec<String> = b.iter().map(|x| format!("{x:02x}")).collect();
+    format!(
+        "{}-{}-{}-{}-{}",
+        h[0..4].concat(),
+        h[4..6].concat(),
+        h[6..8].concat(),
+        h[8..10].concat(),
+        h[10..16].concat()
+    )
 }
 
 /// Run `js` in a webview and return its result stringified — the read-side agent
@@ -8740,6 +9047,8 @@ pub fn run() {
             browser_animate_bounds,
             browser_close,
             browser_purge_data_store,
+            browser_purge_cache,
+            browser_reap_data_stores,
             browser_list,
             browser_eval_js,
             browser_screenshot,
@@ -9645,5 +9954,97 @@ mod browser_label_tests {
         // risale allo stesso id, così `browser_list` non conta due pane per una.
         let ids: Vec<&str> = manager.iter().filter_map(|l| pane_id_from_label(l)).collect();
         assert_eq!(ids, vec![id]);
+    }
+}
+
+/// Il reaper decide con due permessi, non uno: ORFANO e FERMO. Ogni test qui
+/// toglie UNO dei due e pretende che lo store sopravviva — è l'unico modo di
+/// provare che nessuno dei due è decorativo.
+///
+/// Il tempo si inietta (`now`) invece di riscrivere gli mtime: una cartella
+/// creata ora, guardata da un `now` spostato avanti di un mese, è vecchia di un
+/// mese, e il test non dipende da quali syscall per i timestamp esistono.
+#[cfg(all(test, target_os = "macos"))]
+mod reaper_degli_store {
+    use super::{data_store_uuid_for, stale_store_uuids, uuid_bytes_from_str, uuid_str_from_bytes};
+    use std::time::{Duration, SystemTime};
+
+    /// Una cartella temporanea con dentro uno store per ciascun contextId.
+    fn store_dir(ids: &[&str]) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "topics-reap-test-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        for id in ids {
+            let uuid = uuid_str_from_bytes(&data_store_uuid_for(id));
+            std::fs::create_dir_all(dir.join(&uuid).join("Cookies")).expect("mkdir store");
+        }
+        dir
+    }
+
+    fn fra(giorni: u64) -> SystemTime {
+        SystemTime::now() + Duration::from_secs(giorni * 86_400)
+    }
+
+    #[test]
+    fn orfano_e_fermo_se_ne_va() {
+        let dir = store_dir(&["browser:abbandonato"]);
+        let victims = stale_store_uuids(&dir, &[], 30, fra(60));
+        assert_eq!(victims.len(), 1, "orfano da 60 giorni: è la coda lunga");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn una_pane_lo_rivendica_e_non_si_tocca_a_nessuna_eta() {
+        let dir = store_dir(&["browser:vivo"]);
+        // Fermo da DIECI ANNI, ma una pane esiste ancora: il sito che apri due
+        // volte l'anno è proprio quello di cui non vuoi rifare il login.
+        let victims = stale_store_uuids(&dir, &["browser:vivo".to_string()], 30, fra(3650));
+        assert!(victims.is_empty(), "keep_ids vince sull'età, sempre");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn orfano_ma_ancora_caldo_resta() {
+        let dir = store_dir(&["browser:di-ieri"]);
+        // Orfano nella lista, ma toccato adesso: chiudere una tab e riaprirla
+        // fra un minuto non deve passare dallo spazzino.
+        let victims = stale_store_uuids(&dir, &[], 30, SystemTime::now());
+        assert!(victims.is_empty(), "l'età manca: nessun permesso");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn un_max_age_a_zero_non_fa_piazza_pulita() {
+        let dir = store_dir(&["browser:qualunque"]);
+        // Il pavimento di 7 giorni è la rete sotto un chiamante sbagliato:
+        // con 0 il peggio che può fare è rimuovere roba ferma da una settimana.
+        let victims = stale_store_uuids(&dir, &[], 0, fra(3));
+        assert!(victims.is_empty(), "0 giorni deve valere MIN_REAP_AGE_DAYS");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn quello_che_non_e_un_uuid_non_e_roba_nostra() {
+        let dir = store_dir(&[]);
+        std::fs::create_dir_all(dir.join("Default")).expect("mkdir");
+        std::fs::write(dir.join("salt"), b"x").expect("write");
+        let victims = stale_store_uuids(&dir, &[], 30, fra(999));
+        assert!(victims.is_empty(), "solo le cartelle-UUID sono store");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn i_byte_dell_uuid_fanno_andata_e_ritorno() {
+        // Se scrittura e lettura del nome cartella divergessero, il reaper
+        // guarderebbe uno store e ne cancellerebbe un altro.
+        let bytes = data_store_uuid_for("browser:andata-e-ritorno");
+        let s = uuid_str_from_bytes(&bytes);
+        assert_eq!(s.len(), 36);
+        assert_eq!(uuid_bytes_from_str(&s), Some(bytes));
+        assert_eq!(uuid_bytes_from_str("non-un-uuid"), None);
     }
 }
