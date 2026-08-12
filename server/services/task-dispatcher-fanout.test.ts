@@ -30,6 +30,7 @@ function freshDb(): Database {
     assigned_agent_id TEXT, in_progress_at TEXT,
     dispatch_attempts INTEGER NOT NULL DEFAULT 0, dispatch_state TEXT, dispatch_error TEXT,
     dispatch_deferred_until TEXT, dispatch_weight TEXT,
+    wait_streak INTEGER NOT NULL DEFAULT 0, wait_reason TEXT, wait_since TEXT,
     parent_task_id TEXT REFERENCES tasks(id), output_url TEXT, plan_first INTEGER NOT NULL DEFAULT 0,
     agent_ms INTEGER NOT NULL DEFAULT 0, agent_tokens INTEGER NOT NULL DEFAULT 0,
     agent_cache_read_tokens INTEGER NOT NULL DEFAULT 0,
