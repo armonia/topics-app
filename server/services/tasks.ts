@@ -1278,6 +1278,21 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
             && readTaskWeight(r.dispatch_weight) === "heavy"
             && r.dispatch_state === DISPATCH_CHIP_QUEUED
             && !heavyInFlight(),
+          // L'altra metà della stessa distinzione. Il ramo `heavyBusy` del tick
+          // esce prima del ciclo e chipa OGNI todo, non solo i pesanti: qui non
+          // si guarda quindi né il peso di questa riga né l'ordine della fila,
+          // si guarda se c'è un turno pesante in volo. Toglierlo dal ramo del
+          // carico ha tolto la bugia; senza questo lasciava la card muta, cioè
+          // di nuovo su «in coda, N davanti».
+          //
+          // Stessa lettura del predicato del tick, dal DB e non da uno stato
+          // vivo del dispatcher: `rowToTask` gira anche in un processo che non
+          // dispaccia, e una ragione che dipendesse da quella memoria sparirebbe
+          // aprendo la card da un'altra finestra. Ultimo nell'`&&`, come sopra,
+          // per non pagarlo su una riga che non è nemmeno in coda.
+          heavyInFlight: inCoda
+            && r.dispatch_state === DISPATCH_CHIP_QUEUED
+            && heavyInFlight(),
           behind: inCoda ? countBehind(r, nowIso) : 0,
           parentStatus,
           projectless: r.project_id === UNASSIGNED_PROJECT_ID,
