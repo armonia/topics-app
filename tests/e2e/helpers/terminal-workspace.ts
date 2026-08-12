@@ -124,8 +124,26 @@ export async function gotoTerminalProject(page: Page, topicName: string): Promis
   }
 }
 
-/** «+» sulla riga del progetto → «Shell», e attende che xterm sia pronto al prompt. */
-export async function openShellViaSidebar(page: Page, terminalPage: TerminalPage): Promise<void> {
+/**
+ * «+» sulla riga del progetto → «Shell», e attende che xterm sia pronto al prompt.
+ *
+ * `readyTimeout` è il budget dei DUE tempi d'attesa qui sotto: la pane a
+ * schermo e il prompt dentro xterm. Il default resta 15 s, cioè quello che
+ * hanno sempre avuto, e nessuna spec cambia comportamento per averlo aggiunto.
+ *
+ * Esiste perché quel numero non misura il prodotto, misura la macchina.
+ * Cronometrato il 12/08/2026 su questo Mac con la board che dispaccia altri
+ * agenti in parallelo (load 27-51), 10 aperture di shell: dal click al prompt
+ * sono passati da 2,2 s a 75 s, e il prompt è arrivato TUTTE E DIECI le volte.
+ * Quindi il rosso non dice «output perso», dice «la macchina era occupata»: la
+ * cura è un budget più largo dove serve, non un a-capo mandato alla shell per
+ * farle ristampare il prompt (quello sì nasconderebbe una perdita vera).
+ */
+export async function openShellViaSidebar(
+  page: Page,
+  terminalPage: TerminalPage,
+  readyTimeout = 15_000,
+): Promise<void> {
   const projectHeader = page.locator(`button[title="${TERMINAL_PROJECT_PATH}"]`);
   // Il "+" ha `opacity-0` finché non si passa sopra la riga.
   await projectHeader.hover();
@@ -145,8 +163,8 @@ export async function openShellViaSidebar(page: Page, terminalPage: TerminalPage
   await shellBtn.waitFor({ state: "visible", timeout: 5000 });
   await shellBtn.click();
 
-  await expect(terminalPage.xtermRows.first()).toBeVisible({ timeout: 15_000 });
-  await terminalPage.waitForReady();
+  await expect(terminalPage.xtermRows.first()).toBeVisible({ timeout: readyTimeout });
+  await terminalPage.waitForReady(readyTimeout);
 }
 
 /**
