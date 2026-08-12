@@ -41,11 +41,6 @@ export function withMaximumScale(content: string, value: string): string {
   return next.join(', ');
 }
 
-/** La scala visiva corrente, o 1 quando il motore non espone visualViewport. */
-export function currentViewportScale(): number {
-  return window.visualViewport?.scale ?? 1;
-}
-
 function metaViewport(): HTMLMetaElement | null {
   return document.querySelector('meta[name="viewport"]');
 }
