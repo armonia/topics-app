@@ -46,6 +46,122 @@
 export const OUTPUT_LANGUAGES = ['auto', 'it', 'en'] as const;
 export type OutputLanguage = (typeof OUTPUT_LANGUAGES)[number];
 
+// ─── Discord Rich Presence: QUANTO si vede ─────────────────────────────
+
+/**
+ * Quanto della tua giornata finisce sul profilo Discord (migration 102).
+ *
+ * È un controllo di PRIVACY, non un gusto: la presence la vede chiunque
+ * condivida un server con te, quindi ogni gradino va letto come «cosa sto
+ * dicendo a degli sconosciuti».
+ *
+ *   • `minimal`  — che Topics è aperto. Nessun numero, nessun nome.
+ *   • `activity` — i CONTEGGI: quante sessioni hai aperte, quante stanno
+ *                  lavorando adesso. Numeri, che non nominano nessun cliente.
+ *   • `detailed` — anche il NOME del progetto in cima. È l'unico gradino che
+ *                  può far uscire di qui una parola che non hai scelto per
+ *                  quel pubblico, quindi non è il default e non lo diventa.
+ *
+ * Il default vive nel codice ed è `activity`, ma vale solo a interruttore
+ * ACCESO: la presence parte spenta (vedi 102), perché pubblicare cosa stai
+ * facendo non è una cosa che si accende per conto di qualcuno.
+ *
+ * Come per le lingue, il tipo DERIVA dall'array: chi valida (la rotta), chi
+ * costruisce l'attività e chi disegna il selettore leggono lo stesso insieme.
+ */
+export const DISCORD_DETAIL_LEVELS = ['minimal', 'activity', 'detailed'] as const;
+export type DiscordDetailLevel = (typeof DISCORD_DETAIL_LEVELS)[number];
+
+/**
+ * L'attività come Discord la vuole in `SET_ACTIVITY.args.activity`.
+ *
+ * Sta qui e non nel servizio perché la card in Impostazioni ne disegna
+ * l'ANTEPRIMA: server e client leggono la stessa forma, e il giorno in cui si
+ * aggiunge un campo lo vedono tutti e due. Un tipo ricopiato di là sarebbe
+ * l'ennesimo «KEEP IN SYNC» che non ha mai tenuto in sync niente.
+ */
+export interface DiscordActivity {
+  details: string;
+  state?: string;
+  timestamps?: { start: number };
+  assets?: { large_image: string; large_text: string };
+}
+
+/**
+ * Com'è messo il filo con Discord.
+ *
+ * `no_discord` ed `error` sono separati di proposito: hanno lo stesso aspetto
+ * (niente presence) e due rimedi opposti — il primo si apre, il secondo si
+ * configura — e un'interfaccia che li fonde in «non funziona» manda a
+ * indovinare.
+ *
+ * Il nome è `DiscordConnectionState` e non `ConnectionState` di proposito: il
+ * client ha già un `ConnectionState` suo — quello del browser remoto — che è
+ * un'altra cosa. Due concetti diversi non devono contendersi un nome generico.
+ * Chi ne ha bisogno lo importa DA QUI: i moduli che lo usano non lo
+ * ri-esportano, o la stessa forma avrebbe due porte e knip conterebbe la
+ * seconda come morta (è già successo, ed è ciò che ha rimandato questa card).
+ */
+export type DiscordConnectionState =
+  | 'off'
+  | 'connecting'
+  | 'connected'
+  | 'no_discord'
+  | 'error';
+
+export interface DiscordPresenceStatus {
+  enabled: boolean;
+  level: DiscordDetailLevel;
+  connection: DiscordConnectionState;
+  /** Chi sei per Discord, quando il filo è aperto: l'unica conferma che la
+   *  presence stia finendo sul profilo giusto se sulla macchina ci sono due
+   *  account. */
+  user: { id?: string; username?: string; global_name?: string } | null;
+  lastError: string | null;
+  lastPublishedAt: number | null;
+  /** Ciò che gli altri vedono ADESSO — la struttura scritta sul filo, non una
+   *  sua descrizione. `null` = presence pulita. */
+  activity: DiscordActivity | null;
+}
+
+// ─── Le statistiche del profilo ────────────────────────────────────────────
+
+/**
+ * Quanto lavoro è passato di qui, misurato su tabelle che qualcuno SCRIVE
+ * (`messages`/`tasks`/`topics`/`projects`) — non su `usage_records` e
+ * `agent_sessions`, che non hanno un solo INSERT in tutto il server e
+ * darebbero zeri per sempre. La storia sta in cima a
+ * `server/services/profile-stats.ts`.
+ *
+ * Attraversa il filo intera (`GET /api/profile/stats`), quindi vive qui: il
+ * pannello del profilo e il banner SVG la leggono dalla stessa dichiarazione.
+ */
+export interface ProfileStats {
+  sessions: { total: number; open: number };
+  messages: { total: number; assistant: number };
+  /** Token, cache inclusa. `chat` = i messaggi, `agents` = il lavoro della
+   *  board: due fonti diverse, e sommarle è il punto. */
+  tokens: { total: number; chat: number; agents: number };
+  /** Il costo MISURATO, e quante righe sono state escluse perché il loro costo
+   *  non è attendibile. Le due cose si mostrano insieme: un totale che
+   *  inghiotte in silenzio le righe dubbie è una bugia. */
+  cost: { measuredUsd: number; uncertainRows: number };
+  tasks: { total: number; done: number; inProgress: number };
+  projects: number;
+  /** Ore di esecuzione degli agenti sulla board (`tasks.agent_ms`). */
+  agentHours: number;
+  activity: {
+    firstSeen: string | null;
+    activeDays: number;
+    /** Giorni consecutivi fino a oggi; si interrompe solo dopo aver saltato un
+     *  giorno INTERO, così la mattina presto non azzera la serie di ieri. */
+    streakDays: number;
+    /** Gli ultimi 30 giorni, zeri compresi: una curva che salta i giorni vuoti
+     *  comprime il tempo e disegna una costanza che non c'è. */
+    last30: Array<{ date: string; tokens: number }>;
+  };
+}
+
 // ─── ToolCall status (chat message → tool call lifecycle) ──────────────
 
 /**
