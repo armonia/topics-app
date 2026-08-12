@@ -7,7 +7,13 @@ import {
 } from "./browser-orphan-reap";
 import { browserMarkArg, parseProcSnapshot, planBootSweep } from "../lib/browser-orphan-sweep";
 
-const CHROME = "/Users/zorahrel/Library/Caches/ms-playwright/chromium-1217/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing";
+
+/** La home nelle fixture e' neutra apposta: le righe vengono da un `ps` vero,
+ *  ma questo repo e' PUBBLICO e il nome utente non ci deve finire (il cancello
+ *  e' `tests/unit/no-home-paths-tracked.test.ts`). Per la regola il percorso non
+ *  conta: conta la FORMA della riga. */
+const CASA = "/Users/utente";
+const CHROME = `${CASA}/Library/Caches/ms-playwright/chromium-1217/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing`;
 const PROFILE = "/var/folders/d8/T/playwright_chromiumdev_profile-zzzzzz";
 
 /** La fotografia che il server troverebbe dopo un `kill -9`: il suo browser di
@@ -15,7 +21,7 @@ const PROFILE = "/var/folders/d8/T/playwright_chromiumdev_profile-zzzzzz";
 function psAfterKill9(): string {
   return [
     "    1     0 /sbin/launchd",
-    "  900   400 bun run /Users/zorahrel/Projects/topics-app/server.ts",
+    `  900   400 bun run ${CASA}/Projects/topics-app/server.ts`,
     `  700     1 ${CHROME} --remote-debugging-port=19222 ${browserMarkArg("agent", 300)} --user-data-dir=${PROFILE}`,
     `  701     1 ${CHROME} Helper --type=renderer --user-data-dir=${PROFILE}`,
     "  800   799 /opt/homebrew/lib/node_modules/wigolo/chrome-headless-shell --remote-debugging-pipe --user-data-dir=/var/folders/d8/T/playwright_chromiumdev_profile-dV2en6",
