@@ -43,8 +43,17 @@ import {
 import { cropToElement } from '../lib/imageCrop';
 import { deadLoopbackNotice, isLoopbackUrl, navErrorMessage } from '../components/Browser/navErrorMessage';
 import { loopbackAlive } from '../lib/loopbackAlive';
-import type { NativeBrowserHandle, DeviceMode, BrowserConsoleEntry } from '@/components/Browser/browserDevTypes';
+import type { NativeBrowserHandle, DeviceMode, BrowserConsoleEntry, PaneContextTarget } from '@/components/Browser/browserDevTypes';
 import { DEVICE_PRESETS, deviceModeFromUserAgent } from '@/components/Browser/browserDevTypes';
+import {
+  PANE_CONTEXT_HOOK_JS,
+  PANE_CONTEXT_TAKE_EXPR,
+  PANE_SELECTION_JS,
+  IMAGE_COPY_READ_JS,
+  imageCopyStartJs,
+  parsePaneContextRequest,
+  paneToHostPoint,
+} from '@/components/Browser/paneContextMenu';
 import {
   buildReadJs,
   META_JS,
@@ -211,6 +220,9 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
   deviceModeRef.current = deviceMode;
   const [responsiveSize, setResponsiveSizeState] = useState<{ width: number; height: number } | null>(null);
   const [selectMode, setSelectMode] = useState(false);
+  // Il tasto destro raccolto dentro la pagina, già in coordinate della finestra.
+  // Lo riempie il poll veloce (120ms), lo svuota chi chiude il menu.
+  const [paneContext, setPaneContext] = useState<PaneContextTarget | null>(null);
   const [agentActive, setAgentActive] = useState(false);
   const [agentAction, setAgentAction] = useState<string | null>(null);
   // Page zoom percent (CSS-driven via exec_js). Reactive so the toolbar's zoom
@@ -1113,20 +1125,45 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
   // Shares __topicsFocusBump + lastFocusBumpRef with the data poll: whichever
   // observes the increment first fires onFocused; the other sees no change (the
   // compare+set is synchronous, no await between, so no double-fire).
+  //
+  // PORTA ANCHE IL TASTO DESTRO, e non per comodità: il menu contestuale deve
+  // comparire alla cadenza del gesto, e questo è l'unico poll che gira a 120ms.
+  // Il payload diventa un JSON con due campi invece di un numero; l'eval è lo
+  // stesso, quindi non c'è nessun giro di IPC in più. L'installazione dell'hook
+  // sta qui dentro per la stessa ragione per cui ci sta `INSTALL_FOCUS_HOOK`:
+  // ogni navigazione rimpiazza il documento e con lui la guardia, e un eval che
+  // gira sempre è ciò che lo reinstalla senza che nessuno debba accorgersi della
+  // navigazione. Il gate su `isVisible` è corretto: una pane che non si vede non
+  // si può nemmeno cliccare col destro.
   useEffect(() => {
     if (!ready || !isVisible) return;
     let stop = false;
     let inFlight = false;
     const FAST =
-      "(function(){" + INSTALL_FOCUS_HOOK +
-      "return String(window.__topicsFocusBump||0)})()";
+      "(function(){" + INSTALL_FOCUS_HOOK + PANE_CONTEXT_HOOK_JS +
+      "try{return JSON.stringify({k:window.__topicsFocusBump||0,m:" + PANE_CONTEXT_TAKE_EXPR + "})}" +
+      "catch(e){return ''}})()";
     const tick = async () => {
       if (stop || inFlight || !docVisible()) return;
       inFlight = true;
       try {
         const raw = await tauriInvoke<string>('browser_eval_js', { id, js: FAST });
-        if (stop || raw == null) return;
-        maybeFireSelfFocus(parseInt(raw, 10) || 0);
+        if (stop || !raw) return;
+        let payload: { k?: unknown; m?: unknown } | null = null;
+        try { payload = JSON.parse(raw) as { k?: unknown; m?: unknown }; } catch { return; }
+        if (!payload) return;
+        maybeFireSelfFocus(typeof payload.k === 'number' ? payload.k : 0);
+        const req = parsePaneContextRequest(payload.m);
+        if (req) {
+          // Il punto arriva in coordinate della PAGINA. Lo slot VIVO dal DOM (la
+          // stessa fonte con cui si decide l'occlusione), lo zoom e le dimensioni
+          // dell'emulazione lo portano nelle coordinate della finestra, dove il
+          // menu vive.
+          setPaneContext(paneToHostPoint(req, liveSlotRect(id) ?? pendingRectRef.current, {
+            zoomPercent: zoomRef.current,
+            deviceDims: deviceDimsRef.current,
+          }));
+        }
       } catch { /* pane closing / eval timeout — next tick retries */ }
       finally { inFlight = false; }
     };
@@ -1140,6 +1177,48 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
 
   const toggleDevTools = useCallback(async () => {
     await tauriInvoke('browser_toggle_devtools', { id }).catch(() => {});
+  }, [id]);
+
+  // ── Le tre letture che servono al menu contestuale ────────────────────────
+  const clearPaneContext = useCallback(() => setPaneContext(null), []);
+
+  /** La selezione INTERA. `paneContext.selection` è tagliata a 200 caratteri per
+   *  non far viaggiare mezza pagina dentro un poll che gira a 120ms; qui si paga
+   *  un eval solo quando l'utente sceglie «Copia». La pane è congelata mentre il
+   *  menu è aperto, ma congelare parcheggia la VISTA: il documento resta vivo e
+   *  la sua selezione con lui. */
+  const readSelection = useCallback(async (): Promise<string> => {
+    try {
+      return (await tauriInvoke<string>('browser_eval_js', { id, js: PANE_SELECTION_JS })) || '';
+    } catch {
+      return '';
+    }
+  }, [id]);
+
+  /**
+   * I byte di un'immagine della pagina, come data URL PNG.
+   *
+   * L'estrazione è asincrona (l'immagine si ricarica dentro la pagina con
+   * `crossOrigin`) mentre `browser_eval_js` risponde subito: quindi si avvia e
+   * poi si aspetta il globale, come fa il picker dell'elemento con
+   * `__topicsPick`. Il tetto è 3 secondi, dopo i quali si torna null e chi ha
+   * chiesto la copia lo dice: senza CORS il canvas resta contaminato e nessuna
+   * attesa più lunga cambierebbe l'esito.
+   */
+  const readImageDataUrl = useCallback(async (src: string): Promise<string | null> => {
+    if (!src) return null;
+    const started = await tauriInvoke('browser_exec_js', { id, js: imageCopyStartJs(src) })
+      .then(() => true, () => false);
+    if (!started) return null;
+    const deadline = Date.now() + 3000;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 120));
+      const raw = await tauriInvoke<string>('browser_eval_js', { id, js: IMAGE_COPY_READ_JS })
+        .catch(() => '');
+      if (raw === 'ERR') return null;
+      if (raw && raw.startsWith('data:image/')) return raw;
+    }
+    return null;
   }, [id]);
 
   // Select-element: inspect the DOM node at page coords (document.elementFromPoint)
@@ -1591,6 +1670,10 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     zoom,
     countMatches,
     inspectAt,
+    paneContext,
+    clearPaneContext,
+    readSelection,
+    readImageDataUrl,
     selectMode,
     enterSelectMode,
     exitSelectMode,
@@ -1611,7 +1694,8 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     url, title, loading, agentActive, agentAction, ready, viewId, faviconUrl, frozenImage,
     navError, clearNavError, retryNav, parked, parkedChecking, retryParked,
     navigate, goBack, goForward, reload, goHome, setBounds, animateBounds, toggleDevTools, findInPage, stopFind,
-    setZoom, zoom, countMatches, inspectAt, selectMode, enterSelectMode, exitSelectMode,
+    setZoom, zoom, countMatches, inspectAt, paneContext, clearPaneContext, readSelection,
+    readImageDataUrl, selectMode, enterSelectMode, exitSelectMode,
     deviceMode, setDevice, responsiveSize, setResponsiveSize, consoleEntries, consoleSummary,
     clearConsole, getNavEntries, goToNavIndex, fault, recreate, canGoBack, canGoForward,
   ]);
