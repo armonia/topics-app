@@ -166,7 +166,7 @@ export function statusBody(phase: ClaudeSessionPhase): string {
     case 'awaiting-user': return 'In attesa di te';
     case 'awaiting-approval': return "Serve un'approvazione";
     case 'completed': return 'Lavoro completato';
-    case 'error': return 'Errore — intervieni';
+    case 'error': return 'Errore, intervieni';
     default: return '';
   }
 }

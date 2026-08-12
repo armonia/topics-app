@@ -1,7 +1,7 @@
 // La CRONOLOGIA delle notifiche, lato client: la porta HTTP e le due decisioni
 // pure che la governano.
 //
-// Il registro vive sul server (migration 101) e non nel browser, di proposito:
+// Il registro vive sul server (migration 102) e non nel browser, di proposito:
 // una notifica può partire da una finestra e vederla è naturale da un'altra (o
 // dal telefono), e un contatore per-finestra sarebbe un numero diverso per ogni
 // scheda aperta. Qui dentro non c'è stato: lo tiene `useNotificationHistory`.

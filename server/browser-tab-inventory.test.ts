@@ -74,7 +74,7 @@ test("labelForContext resolves a terminal `term-<id>` with cwd basename", () => 
       id === "42" ? { id: "42", name: "Claude", cwd: "/Users/me/Projects/topics-app" } : undefined,
   });
   expect(labelForContext("term-42", deps)).toEqual({
-    label: "Claude — topics-app",
+    label: "Claude · topics-app",
     kind: "terminal",
   });
 });

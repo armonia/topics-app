@@ -6,7 +6,7 @@ import { useGlobalBoard } from './hooks/useGlobalBoard';
 import { useTaskTopicIndex } from './hooks/useTaskTopicIndex';
 import { openTaskInApp } from './lib/openTaskLink';
 import { runNotificationAction } from './lib/notify/notificationAction';
-import { boardApi } from './lib/board';
+import { boardNotificationDeps } from './lib/notify/boardActionDeps';
 import { SidebarToggleButton } from './components/Shared/SidebarToggleButton';
 import { UpdaterToast } from './components/UpdaterToast';
 import type { PaneType } from './types';
@@ -37,6 +37,9 @@ import { initChunkReloadGuard } from './lib/chunkReloadGuard';
 import { DevBundleToast } from './components/DevBundleToast';
 import { ReloadedFlash } from './components/ReloadedFlash';
 import { openTaskFromUrl, currentTaskTarget, subscribeServiceWorkerTaskOpen } from './lib/openTaskLink';
+import { subscribeServiceWorkerBanner } from './lib/push/swBridge';
+import { InAppBanners } from './components/Notifications/InAppBanners';
+import { PushEnrollPrompt } from './components/Notifications/PushEnrollPrompt';
 import { consumeTabLinkFromUrl, currentTabTarget, openTabInApp, openTabInAppWhenHydrated, tabAckReleasesIntent } from './lib/tabLink';
 import { TAB_PATH_PREFIX, type TabTarget } from '../../shared/tab-link';
 import { useDismissable } from './hooks/useDismissable';
@@ -234,6 +237,10 @@ function App() {
   // mette a fuoco questa finestra e ci passa la destinazione, perché non può
   // navigarla senza ricaricare la SPA. Stessa via dei deep-link `/task/<id>`.
   useEffect(() => subscribeServiceWorkerTaskOpen(), []);
+  // Il gemello: con la preferenza «banner in Topics» il service worker NON mostra
+  // la notifica di sistema e manda qui il contenuto. Senza questo ascolto quella
+  // preferenza sarebbe un modo elaborato di dire «niente notifica».
+  useEffect(() => subscribeServiceWorkerBanner(), []);
 
   // Warm the ⌘K command-palette chunk on idle so its FIRST open is composited
   // from an already-parsed module (no fetch+eval on the opening frame). Idle-
@@ -486,8 +493,8 @@ function App() {
   // riavvio dell'app, che è precisamente quando una mappa in memoria avrebbe
   // già dimenticato tutto.
   //
-  // A risolvere è `boardApi.resolve`, la porta unica «da un id al suo task, a
-  // qualunque profondità». Prima si cercava nel feed globale — che è
+  // A risolvere è `boardApi.resolve` (dentro `boardNotificationDeps`), la porta
+  // unica «da un id al suo task, a qualunque profondità». Prima si cercava nel feed globale — che è
   // `rootsOnly`, quindi per un id di SOTTOTASK la find tornava `undefined`, il
   // progetto restava `null` e il tasto ripiegava su «apri il task». Cioè:
   // proprio i banner degli step, che sono la maggioranza di quelli che chiedono
@@ -495,19 +502,9 @@ function App() {
   useEffect(() => {
     type ActionGlobal = { __topicsNotificationAction?: (taskId: string, actionId: string) => void };
     (window as unknown as ActionGlobal).__topicsNotificationAction = (taskId: string, actionId: string) => {
-      void runNotificationAction(taskId, actionId, {
-        resolveProjectId: async (id) => (await boardApi.resolve(id))?.projectId ?? null,
-        send: async (req) => {
-          const resp = await fetch(req.path, {
-            method: req.method,
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'same-origin',
-            body: JSON.stringify(req.body),
-          });
-          return resp.ok;
-        },
-        openTask: (id) => openTaskInApp({ taskId: id }),
-      });
+      // Le stesse dipendenze che usa il banner in pagina della push `in-app`
+      // (`InAppBanners`): due superfici, un esecutore e un cablaggio solo.
+      void runNotificationAction(taskId, actionId, boardNotificationDeps());
     };
     return () => { delete (window as unknown as ActionGlobal).__topicsNotificationAction; };
   }, []);
@@ -1038,7 +1035,7 @@ function App() {
       className={`edge-lit ${isMobile ? 'h-11 w-11 justify-center' : 'h-7'} flex items-center gap-1.5 rounded-lg ${RAISED_CONTROL} text-app-text transition-colors flex-shrink-0 cursor-pointer app-no-drag`} {...NO_DRAG_REGION}
       style={{ pointerEvents: 'auto', ...(isMobile ? null : GLYPH_KBD_PADDING) }}
       title="Search (⌘K)"
-      aria-label="Search — open the command palette"
+      aria-label="Search, open the command palette"
     >
       {/* 16 e non 14: accanto a un'icona di sistema (il «+» di WhatsApp è il
           metro che Attilio ha usato) un glifo da 14 in una scatola da 28 legge
@@ -1098,6 +1095,8 @@ function App() {
     */}
     <PendingActionProvider countdownMs={1500}>
     <PairingApproval />
+    <InAppBanners />
+    <PushEnrollPrompt />
       <div
       // NB: the landing demo (client/src/demo/landing-cursor.js, scene
       // "floating") toggles `.floating-splits` on THIS element from outside

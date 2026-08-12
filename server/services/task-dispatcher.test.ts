@@ -2,7 +2,7 @@ import { describe, it, expect } from "bun:test";
 import { Database } from "bun:sqlite";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { PREVIEW_RULE, PREVIEW_CARD_MAX_RATIO, extractPreviewRule, formatStatusEvent } from "../../shared/board";
+import { PREVIEW_RULE, PREVIEW_CARD_MAX_RATIO, PREVIEW_CARD_MAX_WIDTH_PX, extractPreviewRule, formatStatusEvent } from "../../shared/board";
 import { toolsForProfile } from "../mcp/topics-mcp-server";
 import { createTaskService, type TaskService } from "./tasks";
 import { createTaskDispatcher, rotateFrom, type DispatcherDeps } from "./task-dispatcher";
@@ -1513,6 +1513,26 @@ describe("task-dispatcher", () => {
     expect(kickoff).toContain("scripts/disk-report.ts!");
   });
 
+  /**
+   * Il bump di versione è UN comando, e il kickoff lo nomina.
+   *
+   * `tests/unit/version-lockstep.test.ts` prendeva già i bump fatti a mano — due
+   * volte nella notte dell'11-12/08, sul `Cargo.lock` entrambe le volte — ma un
+   * cancello che non nomina il rimedio si paga con un riallineamento a mano ogni
+   * volta. I nomi si scrivono qui a mano, non interpolati da `VERSION_BUMP_RULE`.
+   */
+  it("kickoff nomina il GESTO del bump (un comando), non i file da aprire", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    const kickoff = h.turns[0].content;
+    expect(kickoff).toContain("bun run bump");
+    expect(kickoff).toContain("bun run bump sync");
+    expect(kickoff).toContain("lockfile");
+  });
+
   it("kickoff carries the OPEN subtasks already on the board (accorpare non fa sparire il lavoro)", async () => {
     const h = harness();
     h.svc.updateBoardSettings(PID, { autoDispatch: true });
@@ -2084,12 +2104,37 @@ describe("PREVIEW_RULE — una stringa sola, in tutti gli envelope", () => {
   });
 
   it("i criteri sono MISURABILI: la soglia della card esce dal numero, non da un aggettivo", () => {
-    // 144/268 = il riquadro `max-h-36 object-cover` della card. Se qualcuno
-    // cambia il layout e non la costante, la regola mente agli agenti.
-    expect(PREVIEW_CARD_MAX_RATIO).toBeCloseTo(0.537, 3);
-    expect(PREVIEW_RULE).toContain(PREVIEW_CARD_MAX_RATIO.toFixed(3));
+    // 0.7 = il tetto `max-h-[min(70cqw,320px)] object-cover` della card. Era
+    // 144/268 quando il tetto era un'altezza fissa: un numero vero in una sola
+    // larghezza di colonna su tre. Se qualcuno cambia il layout e non la
+    // costante, la regola mente agli agenti.
+    expect(PREVIEW_CARD_MAX_RATIO).toBeCloseTo(0.7, 3);
+    expect(PREVIEW_RULE).toContain(PREVIEW_CARD_MAX_RATIO.toFixed(2));
     expect(PREVIEW_RULE).toContain("≤20s");        // il tetto del video
     expect(PREVIEW_RULE).toContain("DUE O PIÙ STATI"); // il criterio del ramo video
+  });
+
+  it("la soglia del protocollo È il CSS della card, non un numero che gli somiglia", () => {
+    // Il buco che questo chiude: la costante e la classe Tailwind vivevano in
+    // due file e nessuno le confrontava, quindi `max-h-36` poteva restare 144px
+    // mentre `PREVIEW_CARD_MAX_RATIO` diceva tutt'altro — ed è esattamente ciò
+    // che era successo. Qui il tetto scritto nel componente si legge e si
+    // misura contro le costanti che il protocollo dà agli agenti.
+    const src = readFileSync(
+      join(import.meta.dir, "..", "..", "client", "src", "components", "Board", "PreviewMedia.tsx"),
+      "utf-8",
+    );
+    const ratio = /max-h-\[(\d+)cqw\]/.exec(src);
+    expect(ratio, "il tetto della card deve essere un rapporto in `cqw`").not.toBeNull();
+    expect(Number(ratio![1]) / 100).toBeCloseTo(PREVIEW_CARD_MAX_RATIO, 3);
+
+    const width = /max-w-\[(\d+)px\]/.exec(src);
+    expect(width, "e la miniatura deve smettere di crescere a un certo punto").not.toBeNull();
+    expect(Number(width![1])).toBe(PREVIEW_CARD_MAX_WIDTH_PX);
+
+    // `cqw` senza un contenitore dichiarato risale al VIEWPORT: il tetto
+    // tornerebbe a guardare la finestra invece del riquadro, in silenzio.
+    expect(src).toContain("@container");
   });
 
   it("nessuna sesta copia: il testo dei rami esiste solo in shared/board.ts", () => {

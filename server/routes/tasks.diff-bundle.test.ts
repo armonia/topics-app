@@ -1,8 +1,8 @@
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { gitDiffBundle } from "./tasks";
+import { gitDiffBundle, numstatPath } from "./tasks";
 
 // gitDiffBundle drives a real `git` — these tests build a throwaway repo per case
 // and assert the untracked-inclusion contract that keeps new-file-only deliveries
@@ -93,5 +93,50 @@ describe("gitDiffBundle untracked inclusion", () => {
     writeFileSync(join(dir, "docs", "domande di chiarimento.md"), "q\n");
     const bundle = await gitDiffBundle(dir, base, { includeUntracked: true });
     expect(bundle.stat.some((s) => s.path === "docs/domande di chiarimento.md")).toBe(true);
+  });
+
+  // Su un rinominato `--numstat` non stampa un path ma la TRASFORMAZIONE: presa
+  // alla lettera non combacia con il `b/…` del patch, e da quando l'elenco dei
+  // file si costruisce dallo stat quel disallineamento elencherebbe lo stesso
+  // file due volte (una per lo stat, una per il pezzo di patch).
+  test("un file RINOMINATO ha lo stesso path nello stat e nel patch", async () => {
+    mkdirSync(join(dir, "vecchia"));
+    writeFileSync(join(dir, "vecchia", "modulo.ts"), "export const x = 1;\n");
+    await git(dir, ["add", "-A"]);
+    await git(dir, ["commit", "-qm", "modulo"]);
+    const from = (await (async () => {
+      const p = Bun.spawn(["git", "rev-parse", "HEAD"], { cwd: dir, stdout: "pipe" });
+      return (await new Response(p.stdout).text()).trim();
+    })());
+    mkdirSync(join(dir, "nuova"));
+    renameSync(join(dir, "vecchia", "modulo.ts"), join(dir, "nuova", "modulo.ts"));
+    await git(dir, ["add", "-A"]);
+
+    const bundle = await gitDiffBundle(dir, from);
+    expect(bundle.stat.map((s) => s.path)).toEqual(["nuova/modulo.ts"]);
+    expect(bundle.patch).toContain("b/nuova/modulo.ts");
+  });
+});
+
+describe("numstatPath", () => {
+  test("un path normale passa intatto", () => {
+    expect(numstatPath("server/routes/tasks.ts")).toBe("server/routes/tasks.ts");
+    expect(numstatPath("  spazi/attorno.ts  ")).toBe("spazi/attorno.ts");
+  });
+
+  test("la forma con la freccia dà il path di DESTINAZIONE", () => {
+    expect(numstatPath("vecchio.ts => nuovo.ts")).toBe("nuovo.ts");
+    expect(numstatPath("a/b/vecchio.ts => c/d/nuovo.ts")).toBe("c/d/nuovo.ts");
+  });
+
+  test("la forma con le graffe si risolve DENTRO il path", () => {
+    expect(numstatPath("server/{vecchia => nuova}/modulo.ts")).toBe("server/nuova/modulo.ts");
+    expect(numstatPath("{ => sotto}/f.ts")).toBe("sotto/f.ts");
+    // Il segmento sparisce del tutto: niente doppia barra nel risultato.
+    expect(numstatPath("server/{vecchia => }/modulo.ts")).toBe("server/modulo.ts");
+  });
+
+  test("una freccia che fa parte del NOME non viene scambiata per un rename", () => {
+    expect(numstatPath("docs/a=>b.md")).toBe("docs/a=>b.md");
   });
 });

@@ -36,11 +36,11 @@ describe("formatSubAgentExitBody", () => {
 describe("formatSubAgentExitMessage", () => {
   it("names the sub-agent in a bold header above the body", () => {
     const msg = formatSubAgentExitMessage({ name: "i18n-unit-fase2", result: "consegnato", exitCode: 0 });
-    expect(msg).toBe('🤖 **Sotto-agente "i18n-unit-fase2" — esito:**\n\nconsegnato');
+    expect(msg).toBe('🤖 **Sotto-agente "i18n-unit-fase2", esito:**\n\nconsegnato');
   });
 
   it("embeds the status note when there is no result", () => {
     const msg = formatSubAgentExitMessage({ name: "builder", result: "", exitCode: 2 });
-    expect(msg).toBe('🤖 **Sotto-agente "builder" — esito:**\n\n_(terminato con codice 2, nessun output recuperato)_');
+    expect(msg).toBe('🤖 **Sotto-agente "builder", esito:**\n\n_(terminato con codice 2, nessun output recuperato)_');
   });
 });
