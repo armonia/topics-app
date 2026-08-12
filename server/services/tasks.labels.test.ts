@@ -77,6 +77,11 @@ describe("l'agente non si marca invisibile da solo", () => {
   });
 });
 
+/** File toccati e MAI creati dal task: la forma di gran lunga più comune. */
+const mod = (...paths: string[]) => paths.map((path) => ({ path, added: false }));
+/** File che i commit propri del task hanno CREATO. */
+const add = (...paths: string[]) => paths.map((path) => ({ path, added: true }));
+
 describe("deriveLabelsFromDiff", () => {
   let db: Database; let s: TaskService; let taskId: string;
   beforeEach(() => {
@@ -85,40 +90,83 @@ describe("deriveLabelsFromDiff", () => {
   });
 
   test("dal diff a chi chiude, timbrato `derived`", () => {
-    const t = s.deriveLabelsFromDiff({ taskId, files: ["server/routes/tasks.ts", "docs/x.md"] });
-    expect(t!.labels).toEqual([{ label: "invisibile", source: "derived" }]);
+    const t = s.deriveLabelsFromDiff({ taskId, files: mod("server/routes/tasks.ts", "docs/x.md") });
+    expect(t!.labels).toEqual([
+      { label: "bugfix", source: "derived" },
+      { label: "invisibile", source: "derived" },
+    ]);
   });
 
   test("solo documenti ⇒ `decisione`, e la card resta di chi decide", () => {
-    const t = s.deriveLabelsFromDiff({ taskId, files: ["docs/PIANO.md"] });
+    const t = s.deriveLabelsFromDiff({ taskId, files: mod("docs/PIANO.md") });
+    // Nessun genere: il vocabolario non ha una parola per «un piano».
     expect(t!.labels).toEqual([{ label: "decisione", source: "derived" }]);
   });
 
   test("il ricalcolo porta via anche la classe VECCHIA, non solo la sua gemella", () => {
     // La DELETE guardava due etichette su tre: una `decisione` rimasta accanto a
     // una `visibile` nuova sarebbe una card con due risposte alla stessa domanda.
-    s.deriveLabelsFromDiff({ taskId, files: ["docs/PIANO.md"] });
-    s.deriveLabelsFromDiff({ taskId, files: ["client/src/App.tsx"] });
-    expect(s.get(taskId)!.task.labels).toEqual([{ label: "visibile", source: "derived" }]);
+    s.deriveLabelsFromDiff({ taskId, files: mod("docs/PIANO.md") });
+    s.deriveLabelsFromDiff({ taskId, files: mod("client/src/App.tsx") });
+    expect(s.get(taskId)!.task.labels).toEqual([
+      { label: "bugfix", source: "derived" },
+      { label: "visibile", source: "derived" },
+    ]);
   });
 
   test("una consegna successiva RICALCOLA ciò che aveva calcolato lei", () => {
-    s.deriveLabelsFromDiff({ taskId, files: ["server/a.ts"] });
-    s.deriveLabelsFromDiff({ taskId, files: ["client/src/App.tsx"] });
-    expect(s.get(taskId)!.task.labels).toEqual([{ label: "visibile", source: "derived" }]);
+    s.deriveLabelsFromDiff({ taskId, files: mod("server/a.ts") });
+    s.deriveLabelsFromDiff({ taskId, files: add("client/src/App.tsx") });
+    expect(s.get(taskId)!.task.labels).toEqual([
+      { label: "feature", source: "derived" },
+      { label: "visibile", source: "derived" },
+    ]);
   });
 
   test("la correzione a mano di un umano NON si sovrascrive alla consegna dopo", () => {
     // Una correzione che scade al turno successivo non è una correzione.
     s.setLabels({ taskId, labels: ["visibile"], actor: "human", source: "human" });
-    expect(s.deriveLabelsFromDiff({ taskId, files: ["server/a.ts"] })).toBeNull();
-    expect(s.get(taskId)!.task.labels).toEqual([{ label: "visibile", source: "human" }]);
+    s.deriveLabelsFromDiff({ taskId, files: mod("server/a.ts") });
+    // Il `visibile` a mano è ancora lì, e ancora `human`. Il genere invece si
+    // deriva lo stesso: chi chiude e che genere è sono due domande diverse.
+    expect(s.get(taskId)!.task.labels).toEqual([
+      { label: "bugfix", source: "derived" },
+      { label: "visibile", source: "human" },
+    ]);
   });
 
-  test("la derivazione non tocca le etichette di genere", () => {
-    s.setLabels({ taskId, labels: ["bugfix"], actor: "human", source: "human" });
-    s.deriveLabelsFromDiff({ taskId, files: ["server/a.ts"] });
-    expect(s.get(taskId)!.task.labels.map((l) => l.label)).toEqual(["bugfix", "invisibile"]);
+  test("un genere corretto a mano non lo riscrive la consegna dopo", () => {
+    s.setLabels({ taskId, labels: ["feature"], actor: "human", source: "human" });
+    s.deriveLabelsFromDiff({ taskId, files: mod("server/a.ts") });
+    expect(s.get(taskId)!.task.labels).toEqual([
+      { label: "feature", source: "human" },
+      { label: "invisibile", source: "derived" },
+    ]);
+  });
+
+  test("niente da scrivere ⇒ `null`, e non un giro di DELETE a vuoto", () => {
+    s.setLabels({ taskId, labels: ["visibile", "feature"], actor: "human", source: "human" });
+    expect(s.deriveLabelsFromDiff({ taskId, files: mod("server/a.ts") })).toBeNull();
+  });
+
+  test("LA PROVA: dopo una consegna il genere è una riga vera in `task_labels`", () => {
+    // Il difetto del 12/08: `KIND_LABELS` esisteva, il filtro sulla board pure,
+    // e la tabella aveva 50 righe di cui ZERO di genere. La funzione c'era,
+    // nessuno scriveva il dato. Questa asserzione guarda la TABELLA, non l'API.
+    s.deriveLabelsFromDiff({ taskId, files: [...mod("server/routes/tasks.ts"), ...add("server/services/kind.ts")] });
+    const rows = db.prepare(
+      "SELECT label, source FROM task_labels WHERE task_id = ? AND label IN ('bugfix','feature','chore','misura')",
+    ).all(taskId) as Array<{ label: string; source: string }>;
+    expect(rows).toEqual([{ label: "feature", source: "derived" }]);
+  });
+
+  test("UNO solo: due consegne non lasciano due generi addosso alla stessa card", () => {
+    s.deriveLabelsFromDiff({ taskId, files: add("client/src/New.tsx") });
+    s.deriveLabelsFromDiff({ taskId, files: mod("client/src/New.tsx") });
+    const kinds = db.prepare(
+      "SELECT label FROM task_labels WHERE task_id = ? AND label IN ('bugfix','feature','chore','misura')",
+    ).all(taskId) as Array<{ label: string }>;
+    expect(kinds).toEqual([{ label: "bugfix" }]);
   });
 });
 

@@ -3,10 +3,12 @@ import {
   countOwnCommits,
   deliveryPointer,
   listOwnCommits,
+  mergeNameStatus,
   otherLocalBranches,
   splitAheadCommits,
   type GitRunResult,
 } from "./own-commits";
+import { deriveKind } from "../../shared/task-labels";
 import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -261,5 +263,69 @@ describe("own-commits — il cablaggio della consegna in server.ts", () => {
     const backfill = block("async function backfillDeliveries()", "const LANDING_AUDIT_INTERVAL_MS");
     expect(backfill).toContain("deliveryPointer(");
     expect(backfill).not.toContain("resolveCommit(");
+  });
+});
+
+/**
+ * `mergeNameStatus` contro l'uscita VERA di git, non contro una stringa che mi
+ * sono scritto da solo: il parser esiste per leggere `--name-status`, e una
+ * fixture inventata proverebbe che so scrivere la fixture.
+ */
+describe("mergeNameStatus — il flag «nato qui», su git vero", () => {
+  let repo: string;
+  const show = (sha: string) =>
+    git(repo, "show", "--name-status", "--format=", "--no-renames", sha);
+
+  beforeAll(() => {
+    repo = mkdtempSync(join(tmpdir(), "name-status-"));
+    git(repo, "init", "-q", "-b", "main");
+    git(repo, "config", "user.email", "t@t.t");
+    git(repo, "config", "user.name", "t");
+    commit(repo, "vecchio.ts", "c'ero già\n", "base");
+  });
+  afterAll(() => rmSync(repo, { recursive: true, force: true }));
+
+  test("`A` è nato qui, `M` no", () => {
+    commit(repo, "nato.ts", "nuovo\n", "aggiungo");
+    const sha = git(repo, "rev-parse", "HEAD");
+    expect(mergeNameStatus([show(sha)])).toEqual([{ path: "nato.ts", added: true }]);
+
+    commit(repo, "vecchio.ts", "modificato\n", "modifico");
+    const sha2 = git(repo, "rev-parse", "HEAD");
+    expect(mergeNameStatus([show(sha2)])).toEqual([{ path: "vecchio.ts", added: false }]);
+  });
+
+  test("nato in un commit e modificato nel successivo resta NATO QUI", () => {
+    // Il motivo per cui non basta guardare l'ultimo commit: su due passaggi
+    // l'ultimo dice `M`, e la card diventerebbe un `bugfix` invece di una feature.
+    const nascita = git(repo, "log", "--format=%H", "-1", "--diff-filter=A", "--", "nato.ts");
+    const modifica = git(repo, "rev-parse", "HEAD");
+    commit(repo, "nato.ts", "nuovo, ma ritoccato\n", "ritocco");
+    const ritocco = git(repo, "rev-parse", "HEAD");
+    // Dal più recente al più vecchio, come li elenca `listOwnCommits`.
+    const merged = mergeNameStatus([show(ritocco), show(modifica), show(nascita)]);
+    expect(merged.find((f) => f.path === "nato.ts")).toEqual({ path: "nato.ts", added: true });
+    expect(merged.find((f) => f.path === "vecchio.ts")).toEqual({ path: "vecchio.ts", added: false });
+  });
+
+  test("un file CANCELLATO non è un file nuovo", () => {
+    rmSync(join(repo, "vecchio.ts"));
+    git(repo, "add", "-A");
+    git(repo, "commit", "-q", "-m", "cancello");
+    const sha = git(repo, "rev-parse", "HEAD");
+    expect(mergeNameStatus([show(sha)])).toEqual([{ path: "vecchio.ts", added: false }]);
+  });
+
+  test("LA CATENA INTERA: da git a `deriveKind`, senza fixture in mezzo", () => {
+    // Questo è il punto in cui il pezzo o funziona o no: se il parser sbaglia
+    // colonna, `added` è sempre falso e ogni consegna esce `bugfix`.
+    git(repo, "checkout", "-q", "-b", "feat");
+    commit(repo, "client-src-nuovo.ts", "roba\n", "feature");
+    const feat = git(repo, "rev-parse", "HEAD");
+    expect(deriveKind(mergeNameStatus([show(feat)]))).toBe("feature");
+
+    commit(repo, "client-src-nuovo.ts", "roba corretta\n", "fix");
+    const fix = git(repo, "rev-parse", "HEAD");
+    expect(deriveKind(mergeNameStatus([show(fix)]))).toBe("bugfix");
   });
 });
