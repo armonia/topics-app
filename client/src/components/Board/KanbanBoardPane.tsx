@@ -10,8 +10,8 @@
 import { useT } from '../../hooks/useT';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { DndContext, DragOverlay, KeyboardSensor, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
-import { MouseSensorGentile, TouchSensorGentile } from './dndSensors';
+import { DndContext, DragOverlay, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
+import { KeyboardSensorGentile, MouseSensorGentile, TouchSensorGentile } from './dndSensors';
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { AlertTriangle, Bot, Check, ChevronDown, ChevronRight, Loader2, Search, Settings, Tag, Target, UploadCloud, X } from 'lucide-react';
 import type { WSMessage } from '../../types';
@@ -1552,7 +1552,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
   const sensors = useSensors(
     useSensor(MouseSensorGentile, { activationConstraint: { distance: 4 } }),
     useSensor(TouchSensorGentile, { activationConstraint: { delay: 200, tolerance: 8 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+    useSensor(KeyboardSensorGentile, { coordinateGetter: sortableKeyboardCoordinates }),
   );
   const flushDrag = useCallback(() => {
     draggingRef.current = false;
