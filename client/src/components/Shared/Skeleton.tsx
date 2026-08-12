@@ -1,25 +1,169 @@
-/** Pulse-animated skeleton placeholder shapes */
+/**
+ * Gli SCHELETRI dell'attesa — e la regola che li rende diversi da una girella.
+ *
+ * Uno spinner dice «aspetta» e non dice altro; uno scheletro dice già che forma
+ * avrà la cosa. Ma questo vale solo se le sue misure sono LE MISURE DEL
+ * CONTENUTO VERO: uno scheletro alto 32px davanti a una riga alta 34 non toglie
+ * il salto, lo rimanda — è un layout shift col cappello.
+ *
+ * Da cui l'unica regola di questo file: le misure non si scrivono a mano, si
+ * IMPORTANO da dove le scrive il contenuto vero (`ROW_H` & co. per le righe di
+ * sidebar, le stesse classi del messaggio per la chat). Se la riga cambia
+ * altezza, lo scheletro la segue senza che nessuno se ne ricordi.
+ */
+import { ROW_H, ROW_PX, ROW_GAP } from '@/lib/selectionStyles';
 
 // Fixed, varied widths (%) cycled by row index so the placeholder list looks
 // staggered without an impure Math.random() call during render.
 const SKELETON_WIDTHS = [78, 56, 88, 64, 72, 50, 84, 60];
+/** La seconda riga (l'anteprima dell'ultimo messaggio) è sempre più corta del
+ *  nome: stesso ciclo, spostato, così le due righe non finiscono mai pari. */
+const SKELETON_SUB_WIDTHS = [52, 71, 44, 63, 38, 58, 49, 67];
 
+const BAR = 'rounded bg-black/8 dark:bg-white/8';
+
+/**
+ * L'elenco delle chat in sidebar mentre arriva.
+ *
+ * `ROW_H` / `ROW_PX` / `ROW_GAP` sono le stesse costanti di `TopicItem`: la
+ * riga finta è alta ESATTAMENTE quanto quella vera (44 sul telefono, 34 sul
+ * desktop), gliifo compreso. E ha DUE righe di testo, perché la riga vera ne ha
+ * due — nome sopra, anteprima sotto: disegnarne una sola qui significava
+ * promettere una riga bassa e consegnarne una alta.
+ */
 export function SkeletonTopicList({ count = 5 }: { count?: number }) {
   return (
     <div className="px-2 py-1 space-y-1">
       {Array.from({ length: count }).map((_, i) => (
-        <div key={i} className="flex items-center gap-2 min-h-[44px] h-11 md:min-h-8 md:h-8 pl-3 pr-2 animate-pulse">
-          <div className="w-5 h-5 rounded bg-black/8 dark:bg-white/8 flex-shrink-0" />
+        <div key={i} className={`flex items-center ${ROW_GAP} ${ROW_H} ${ROW_PX} animate-pulse`}>
+          <div className={`w-5 h-5 flex-shrink-0 ${BAR}`} />
+          {/* Stessa impaginazione verticale del contenuto vero: 13 + 3 + 11
+              (vedi il blocco nome/subline in TopicItem). */}
+          <div className="flex-1 min-w-0 flex flex-col justify-center gap-[3px]">
+            <div
+              className={`h-3 ${BAR}`}
+              // Deterministic per-row width (was Math.random() during render,
+              // which is impure and re-rolled every re-render). A fixed cycle of
+              // widths keyed on the row index keeps the staggered look while
+              // staying pure and stable across re-renders.
+              style={{ width: `${SKELETON_WIDTHS[i % SKELETON_WIDTHS.length]}%` }}
+            />
+            <div
+              className={`h-2 ${BAR} hidden md:block`}
+              style={{ width: `${SKELETON_SUB_WIDTHS[i % SKELETON_SUB_WIDTHS.length]}%` }}
+            />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * L'ELENCO GENERICO — un albero di file, una lista di modifiche Git, qualunque
+ * colonna di righe tutte uguali.
+ *
+ * `rowClassName` non ha un default apposta: le misure della riga (padding,
+ * `min-h`, gap) le passa CHI CHIAMA, copiandole dalla propria riga vera. È
+ * l'unico modo perché lo scheletro resti realistico quando quella riga cambia,
+ * ed è quello che rende questo componente riusabile senza diventare una
+ * seconda fonte di verità sulle altezze.
+ *
+ * `depths` disegna l'indentazione di un albero (uno step = 12px, come
+ * `SIDEBAR_INDENT_STEP`): senza, un albero di file finto sarebbe una colonna
+ * piatta, cioè la promessa sbagliata.
+ */
+export function SkeletonRows({ count = 8, rowClassName, glyph = 14, indentStep = 0, depths }: {
+  count?: number;
+  rowClassName: string;
+  /** Lato del quadratino che sta al posto dell'icona. 0 = nessuna icona. */
+  glyph?: number;
+  /** Pixel per livello di profondità. 0 = lista piatta. */
+  indentStep?: number;
+  /** La profondità di ogni riga; ciclata se più corta di `count`. */
+  depths?: number[];
+}) {
+  return (
+    <div aria-hidden="true" className="py-1 overflow-hidden">
+      {Array.from({ length: count }).map((_, i) => (
+        <div
+          key={i}
+          className={`${rowClassName} animate-pulse`}
+          style={depths && indentStep ? { paddingLeft: `${depths[i % depths.length] * indentStep + 8}px` } : undefined}
+        >
+          {glyph > 0 && (
+            <div className={`flex-shrink-0 ${BAR}`} style={{ width: glyph, height: glyph }} />
+          )}
           <div
-            className="h-3 rounded bg-black/8 dark:bg-white/8"
-            // Deterministic per-row width (was Math.random() during render,
-            // which is impure and re-rolled every re-render). A fixed cycle of
-            // widths keyed on the row index keeps the staggered look while
-            // staying pure and stable across re-renders.
+            className={`h-3 ${BAR}`}
             style={{ width: `${SKELETON_WIDTHS[i % SKELETON_WIDTHS.length]}%` }}
           />
         </div>
       ))}
+    </div>
+  );
+}
+
+/**
+ * Le altezze delle bolle finte, in pixel di CONTENUTO (senza il padding della
+ * bolla, che le classi aggiungono sotto).
+ *
+ * Non sono inventate: una riga di testo della chat è 13px con interlinea ~19, e
+ * i valori qui sotto sono 1, 3, 2, 5 e 2 righe — la forma di uno scambio vero,
+ * dove le domande sono corte e le risposte no. Servono ad avere un'ALTEZZA
+ * TOTALE plausibile: lo scheletro riempie il fondo della lista, e se fosse più
+ * basso del contenuto vero il primo frame di contenuto lo vedresti crescere.
+ */
+const BUBBLE_LINES = [2, 5, 2, 3, 1];
+
+/**
+ * La chat mentre la lista si monta.
+ *
+ * DAL BASSO, come la chat vera: una conversazione è ancorata al fondo, e uno
+ * scheletro allineato in cima prometterebbe il contrario di ciò che arriva.
+ * `justify-end` + il gutter di 24px sotto sono gli stessi del contenuto vero
+ * (`CHAT_BOTTOM_GUTTER_PX` nel Footer di Virtuoso).
+ *
+ * `chat-measure` e `px-4`/`px-2` sono le stesse dei messaggi: la colonna finta
+ * cade esattamente dove cadrà quella vera, quindi non c'è un movimento
+ * orizzontale al momento del cambio.
+ */
+export function SkeletonChatMessages({ isMobile = false, count = BUBBLE_LINES.length }: {
+  isMobile?: boolean;
+  count?: number;
+}) {
+  const righe = BUBBLE_LINES.slice(-count);
+  return (
+    <div
+      aria-hidden="true"
+      data-testid="chat-skeleton"
+      className={`absolute inset-0 flex flex-col justify-end overflow-hidden pointer-events-none pb-6 ${isMobile ? 'px-2' : 'px-4'}`}
+    >
+      <div className="chat-measure space-y-3">
+        {righe.map((linee, i) => {
+          // Alterna come uno scambio: le pari sono tue (a destra, strette), le
+          // dispari dell'agente (a sinistra, larghe).
+          const mio = i % 2 === 0;
+          return (
+            <div key={i} className={`flex ${mio ? 'justify-end' : 'justify-start'} animate-pulse`}>
+              <div
+                className={`rounded-lg px-3 py-2 ${mio ? 'bg-primary/10 max-w-[70%]' : 'bg-app-hover max-w-[85%]'} w-full`}
+              >
+                <div className="space-y-1.5">
+                  {Array.from({ length: linee }).map((__, r) => (
+                    <div
+                      key={r}
+                      className={`h-3 ${BAR}`}
+                      // L'ultima riga di un paragrafo non arriva mai in fondo.
+                      style={{ width: r === linee - 1 ? `${SKELETON_SUB_WIDTHS[(i + r) % SKELETON_SUB_WIDTHS.length]}%` : '100%' }}
+                    />
+                  ))}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
