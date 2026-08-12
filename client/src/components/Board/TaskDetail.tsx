@@ -19,7 +19,7 @@ import { useTaskBrowserTabs, liveTabs, workspaceTwinContextId } from '../../stat
 import { noteAutoOpenedPreview, releaseAutoOpenedPreview } from '../../state/taskWorkspacePreviews';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
 import { writeCursor, markActiveComposer, restoreCursor } from '../../lib/composerCursor';
-import { boardApi, STATUS_LABEL, TASK_STATUSES, isAgentWorking, parseQuestionBlock, parseStatusEvent, hasPlanApproveOption, isProjectlessId, boardDrafts, systemDeliveryNote, blockedByChip, subtaskWorkChip, attemptHasWork, type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch, type BoardProjectRef, type DiffBundle, type DiffNote, type ReviewCheck, type CheckRun, type TaskAttempt } from '../../lib/board';
+import { boardApi, STATUS_LABEL, TASK_STATUSES, isAgentWorking, parseQuestionBlock, parseStatusEvent, hasPlanApproveOption, isProjectlessId, boardDrafts, systemDeliveryNote, blockedByChip, subtaskWorkChip, reopenedChip, attemptHasWork, type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch, type BoardProjectRef, type DiffBundle, type DiffNote, type ReviewCheck, type CheckRun, type TaskAttempt, type LandingTicket } from '../../lib/board';
 import { PreviewMedia } from './PreviewMedia';
 import { UnifiedDiff } from './UnifiedDiff';
 import { collectTaskMediaPaths } from './taskMedia';
@@ -505,6 +505,8 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   // behind the drawer. The 409 open_subtasks on Approva is the load-bearing
   // case: swallowing it made the click look dead.
   const [error, setError] = useState<string | null>(null);
+  /** La ricevuta del land chiesto da QUESTO client, finché non si chiude. */
+  const [landing, setLanding] = useState<LandingTicket | null>(null);
   const showError = (e: unknown) => {
     const raw = e instanceof Error ? e.message : String(e);
     setError(/open subtasks/i.test(raw)
@@ -731,13 +733,46 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   // Land = accept + merge the branch on main (local, no push). Explicit, separate
   // from Approva (which only accepts the task). The merge/build runs server-side
   // and surfaces its outcome as system comments in the thread.
+  //
+  // Il server risponde `202`: il land è ACCODATO. La ricevuta va TENUTA e
+  // seguita, perché è la sola cosa che distingue «sta per succedere» da «è
+  // successo» — e senza quella distinzione una raffica di land sembra riuscita
+  // mentre non lo è.
   const doLand = async () => {
     if (busy) return;
     setBusy(true);
-    try { await boardApi.land(projectId, taskId); setError(null); await load(); onChanged(); }
+    try {
+      const res = await boardApi.land(projectId, taskId);
+      setLanding(res.landing ?? null);
+      setError(null); await load(); onChanged();
+    }
     catch (e) { showError(e); }
     finally { setBusy(false); }
   };
+
+  // Il ticket si SEGUE finché non si chiude. Senza qualcuno che chieda «e poi?»,
+  // il 202 sarebbe l'onestà del server sprecata: la richiesta è andata a buon
+  // fine e l'esito non arriva comunque mai a chi l'ha chiesto.
+  useEffect(() => {
+    if (!landing || (landing.phase !== 'queued' && landing.phase !== 'running')) return;
+    let alive = true;
+    const id = setInterval(async () => {
+      try {
+        const res = await boardApi.landStatus(projectId, taskId);
+        if (!alive) return;
+        // Stesso oggetto quando niente è cambiato: altrimenti ogni giro
+        // rimonterebbe questo effetto e riazzererebbe l'intervallo.
+        setLanding((prev) =>
+          prev && prev.phase === res.landing.phase && prev.ahead === res.landing.ahead ? prev : res.landing);
+        if (res.landing.phase === 'settled' || res.landing.phase === 'failed') { await load(); onChanged(); }
+      } catch {
+        // Il ticket è caduto fuori dalla finestra interrogabile (o la board non
+        // risponde): la banda sparisce invece di mentire.
+        if (alive) setLanding(null);
+      }
+    }, 2000);
+    return () => { alive = false; clearInterval(id); };
+  }, [landing, projectId, taskId, load, onChanged]);
 
   // Quick-add a nested subtask. Born in backlog (intake), like agent creates —
   // dragging it to Todo is the explicit "vai" gesture.
@@ -1000,6 +1035,10 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   // risalendo i padri, qui si sceglie solo come dirlo.
   const workChip = task ? subtaskWorkChip(task) : null;
   const workAncestorId = task?.subtaskWork?.kind === 'parent-turn' ? task.subtaskWork.ancestor.id : null;
+
+  // Era in Done e non c'è più: stessa lettura del chip sulla card, qui in forma
+  // di banda (chi e quando). Vive finché la card non torna `done`.
+  const reopened = task ? reopenedChip(task) : null;
 
   // Overflow "⋯" menu (header): the less-frequent task config lives here instead
   // of as always-on chips in the meta row — blocked-by, plan-first, reuse
@@ -1398,6 +1437,21 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
           <button aria-label={tr('board.task.closeError')} onClick={() => setError(null)} className="shrink-0 rounded p-0.5 hover:bg-white/10"><X className="h-3 w-3" /></button>
         </div>
       )}
+      {/* Land ACCODATO, non ancora avvenuto. Sta sopra la banda «non su main»
+          perché in questa finestra quella banda dice il vero ma non dice tutto:
+          il codice non è su main E qualcuno ci sta già lavorando. */}
+      {landing && (landing.phase === 'queued' || landing.phase === 'running') && (
+        <div className="shrink-0 border-b border-amber-500/20 bg-amber-500/10 px-3 py-1.5 text-[11px] text-amber-300">
+          {landing.ahead > 0
+            ? <>Land <strong>in coda</strong>: {landing.ahead} {landing.ahead === 1 ? 'fusione' : 'fusioni'} davanti su questa board (toccano tutte main nello stesso checkout).</>
+            : <>Land <strong>in corso</strong>: la fusione su main sta girando adesso — l'esito arriva nel thread.</>}
+        </div>
+      )}
+      {landing?.phase === 'failed' && (
+        <div className="shrink-0 border-b border-rose-500/20 bg-rose-500/10 px-3 py-1.5 text-[11px] text-rose-300">
+          ⚠️ Land <strong>fallito</strong>: {landing.error ?? 'errore sconosciuto'}
+        </div>
+      )}
       {/* Verdetto dell'audit di landing: un task chiuso il cui lavoro non è su
           main. Sta QUI, in cima al drawer, e non solo come commento nel thread —
           il commento si perde, la banda no. */}
@@ -1407,6 +1461,17 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
           {task.deliveryCommit ? <> <code className="rounded bg-black/30 px-1">{task.deliveryCommit.slice(0, 8)}</code></> : null}
           {task.deliveryBranch ? <> (branch <code className="rounded bg-black/30 px-1">{task.deliveryBranch}</code>)</> : null}
           {' '}non risulta nel contenuto di main. Landa il branch, o recupera il commit prima che venga potato.
+        </div>
+      )}
+      {/* Era in Done e non c'è più: la banda lo dice appena apri la card, con
+          chi e quando. Il MOTIVO sta sotto, nel thread — ma il fatto non deve
+          più dipendere dal fatto che qualcuno scorra i commenti. */}
+      {reopened && (
+        <div
+          data-testid="task-reopened-notice"
+          className="shrink-0 border-b border-amber-500/20 bg-amber-500/10 px-3 py-1.5 text-[11px] text-amber-200"
+        >
+          ↩︎ <strong>Riaperta</strong> {reopened.detail} — era in Done. Il motivo è nel thread qui sotto.
         </div>
       )}
       {/* IL GUSCIO — chi possiede l'altezza, e dove sta il solo scroll.

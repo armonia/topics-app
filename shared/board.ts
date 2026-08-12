@@ -610,3 +610,29 @@ export interface LinkProposal {
   /** Frase leggibile: va sotto al composer E nel thread delle due card. */
   reason: string;
 }
+
+/**
+ * La ricevuta di un land — il server risponde `202` (accodato), non `200`
+ * (fatto).
+ *
+ * Esiste perché `POST …/tasks/:id/land` rispondeva `200` con la card e faceva
+ * la fusione dopo (`void landTask(...)`): chi chiamava riceveva la card, non
+ * l'esito. Misurato l'11/08, ~20 land in raffica ⇒ 4 fusioni riuscite e 16 card
+ * chiuse col codice ancora sul loro branch, senza una riga che lo dicesse.
+ *
+ * `ahead` è quante fusioni ci sono davanti sulla stessa board: toccano tutte
+ * main nello stesso checkout, quindi vanno in fila — e mettersi in fila si dice.
+ */
+export type LandingPhase = 'queued' | 'running' | 'settled' | 'failed';
+
+export interface LandingTicket {
+  taskId: string;
+  phase: LandingPhase;
+  /** Quanti land ci sono DAVANTI a questo nella stessa fila. 0 = tocca a lui. */
+  ahead: number;
+  queuedAt: string;
+  /** ISO in cui il ticket si è chiuso, `null` finché non è finito. */
+  settledAt: string | null;
+  /** Il motivo del `failed`. `null` in ogni altra fase. */
+  error: string | null;
+}
