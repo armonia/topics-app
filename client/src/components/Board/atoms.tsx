@@ -169,17 +169,21 @@ export function DispatchChip({ state, error }: { state: string; error?: string |
  * e chi guarda la card deve poter distinguere le due prima di fidarsi.
  */
 export function LabelChip({ label, source }: { label: TaskLabel; source: LabelSource }) {
-  const visibility = label === 'visibile' || label === 'invisibile';
+  const closer = label === 'visibile' || label === 'decisione' || label === 'invisibile';
   const cls = label === 'invisibile'
     ? 'bg-slate-500/20 text-slate-300'
     : label === 'visibile'
       ? 'bg-sky-500/15 text-sky-300'
-      : 'bg-white/10 text-app-text-heading';
+      : label === 'decisione'
+        ? 'bg-violet-500/15 text-violet-300'
+        : 'bg-white/10 text-app-text-heading';
   const why = label === 'invisibile'
     ? 'Non tocca nessuna riga di client/src: con la barra verde la può chiudere il conduttore.'
     : label === 'visibile'
       ? 'Tocca una superficie che si vede: resta in review finché non la guarda un umano.'
-      : null;
+      : label === 'decisione'
+        ? 'Un piano, una ricerca, un documento — o nessun codice affatto: la decide un umano, sempre.'
+        : null;
   const origin = source === 'derived'
     ? 'Derivata dal diff della consegna'
     : source === 'agent' ? "Chiesta dall'agent" : 'Messa a mano';
@@ -189,7 +193,7 @@ export function LabelChip({ label, source }: { label: TaskLabel; source: LabelSo
       title={why ? `${why} (${origin})` : origin}
       className={`inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs md:text-[11px] ${cls}`}
     >
-      {visibility && (source === 'derived' ? <Sigma className="h-3 w-3" aria-hidden /> : <Pencil className="h-3 w-3" aria-hidden />)}
+      {closer && (source === 'derived' ? <Sigma className="h-3 w-3" aria-hidden /> : <Pencil className="h-3 w-3" aria-hidden />)}
       {label}
     </span>
   );

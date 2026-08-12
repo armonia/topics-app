@@ -9,7 +9,7 @@
       "files": [
         "docs/PIANO-amicizia-sessioni.md"
       ],
-      "expected": "invisibile"
+      "expected": "decisione"
     },
     {
       "id": "54601eeb-dd73-4fe2-b0f6-f17ecb328b64",
@@ -30,7 +30,7 @@
       "text": "Voice loop board: annuncio vocale task→review + risposta vocale (approva/feedback/chiudi)",
       "basis": "own-commits-empty",
       "files": [],
-      "expected": "visibile"
+      "expected": "decisione"
     },
     {
       "id": "c8ea8173-2b84-4582-b947-773c300a0c4d",
@@ -39,7 +39,7 @@
       "files": [
         "docs/generative-ui-in-chat-research.md"
       ],
-      "expected": "invisibile"
+      "expected": "decisione"
     },
     {
       "id": "08541fae-4c0f-4fa5-a1b6-6c01f970bd9c",
@@ -68,12 +68,12 @@
       "text": "Ricostruire e installare Topics.app alla 2.2.99 (installata: 2.2.11)",
       "basis": "own-commits-empty",
       "files": [],
-      "expected": "visibile"
+      "expected": "decisione"
     },
     {
       "id": "4ec47331-75f0-43b2-89c7-e869092f81cd",
       "text": "Il click mangiato all'angolo del tab bar era mezzo pixel di inset, non il movimento ridotto",
-      "basis": "own-commits",
+      "basis": "merge-commit",
       "files": [
         "client/src/components/Layout/PaneTabBar.tsx",
         "client/src/lib/selectionStyles.test.ts",
@@ -106,7 +106,7 @@
       "files": [
         "desktop-tauri/SIGNING.md"
       ],
-      "expected": "invisibile"
+      "expected": "decisione"
     },
     {
       "id": "f3fe84b4-8da9-4b11-8023-c945b7db9fd3",
@@ -166,18 +166,19 @@
         "openspec/changes/agent-inline-browser/specs/remote-browser/spec.md",
         "openspec/changes/agent-inline-browser/tasks.md"
       ],
-      "expected": "invisibile"
+      "expected": "decisione"
     },
     {
       "id": "7fb737a9-ad4c-4f05-9bce-332e7cf6b159",
       "text": "Browser: cookie e flip fra WKWebView nativa e sessione condivisa — 3 guasti",
-      "basis": "own-commits",
+      "basis": "merge-commit",
       "files": [
         "client/src/components/Browser/RemoteBrowserPanel.tsx",
         "client/src/hooks/useRemoteBrowser.ts",
         "client/src/lib/sharedAuto.test.ts",
         "client/src/lib/sharedAuto.ts",
         "server.ts",
+        "server/browser-service-engine.test.ts",
         "server/browser-service.ts",
         "server/browser-session-handoff.test.ts",
         "server/browser-session-handoff.ts",
@@ -197,7 +198,7 @@
     {
       "id": "d0777424-d78b-403c-9803-58137a5a41be",
       "text": "Il drawer del task: la superficie su cui l'umano DECIDE",
-      "basis": "own-commits",
+      "basis": "merge-commit",
       "files": [
         "client/src/components/Board/PreviewMedia.tsx",
         "client/src/components/Board/TaskDetail.tsx",
@@ -248,7 +249,7 @@
     {
       "id": "4ad176f8-8b99-485f-b755-6f61debe8e79",
       "text": "Il task appena creato si accende sulla board — e la board lo porta a schermo",
-      "basis": "own-commits",
+      "basis": "merge-commit",
       "files": [
         "client/src/components/Board/Card.tsx",
         "client/src/components/Board/FloatingTaskComposer.tsx",
@@ -315,7 +316,7 @@
     {
       "id": "799f5496-75b1-4713-9872-a0c51f2d37c4",
       "text": "Una card che esce da Done lo dice (chip «riaperta»), e un agent non riapre ciò che hai chiuso tu",
-      "basis": "own-commits",
+      "basis": "merge-commit",
       "files": [
         "client/src/components/Board/Card.tsx",
         "client/src/components/Board/TaskDetail.tsx",
@@ -340,7 +341,7 @@
     {
       "id": "f42f66f4-29f4-4f59-b310-e5024823ca23",
       "text": "Dettatura: prova end-to-end col microfono vero + clip video",
-      "basis": "own-commits",
+      "basis": "merge-commit",
       "files": [
         "scripts/probe-fake-mic.mjs",
         "tests/e2e/dictation-real-mic.spec.ts",
@@ -351,7 +352,7 @@
     {
       "id": "5bfd7356-4c0a-4922-9695-0c37729fbba6",
       "text": "L'orchestratore esce dalla board: sessione laterale opzionale, solo in dev, con missioni a preset",
-      "basis": "own-commits",
+      "basis": "own-commits (congelato 2026-08-11)",
       "files": [
         "client/src/components/Board/FloatingTaskComposer.tsx",
         "client/src/components/Board/KanbanBoardPane.tsx",
@@ -394,7 +395,7 @@
     {
       "id": "e84dd070-8092-452d-9298-8dda5fec83f4",
       "text": "La sonda del costo: contesto × chiamate, visibile mentre il turno lavora",
-      "basis": "own-commits",
+      "basis": "merge-commit",
       "files": [
         "client/src/components/Chat/ChatInput.tsx",
         "client/src/components/Context/ContextInspector.tsx",
@@ -420,7 +421,7 @@
     {
       "id": "aa3ec62b-b4db-4c33-9785-565f006eded2",
       "text": "Dalla sidebar il drop ignorava la finestra su cui cadeva",
-      "basis": "own-commits",
+      "basis": "merge-commit",
       "files": [
         "client/src/components/Layout/PanelGrid.tsx",
         "tests/e2e/group-drop-sources.spec.ts"
@@ -430,7 +431,7 @@
     {
       "id": "000500e1-ccd2-4007-a630-ad946ad1c63c",
       "text": "Bottone «Copia task» nell'anteprima del drawer Kanban",
-      "basis": "own-commits",
+      "basis": "merge-commit",
       "files": [
         "client/src/components/Board/Card.tsx",
         "client/src/components/Board/TaskDetail.tsx",
@@ -444,7 +445,7 @@
     {
       "id": "ad595633-a0f3-472b-a676-e5ac3cf6695d",
       "text": "Download del browser: farli funzionare e spostarli in un menu dell'header",
-      "basis": "own-commits",
+      "basis": "merge-commit",
       "files": [
         "client/src/components/Browser/BrowserToolbar.tsx",
         "client/src/components/Browser/DownloadStrip.tsx",
@@ -475,7 +476,7 @@
     {
       "id": "b8706bdc-4e02-423e-af0c-45ea857e2b5e",
       "text": "open_browser_pane apriva un contesto vivo senza montare nessun pannello",
-      "basis": "own-commits",
+      "basis": "merge-commit",
       "files": [
         "client/src/components/Layout/hooks/usePaneOrdering.browserSingleton.test.ts",
         "client/src/components/Layout/hooks/usePaneOrdering.ts",
