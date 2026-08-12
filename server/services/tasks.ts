@@ -45,7 +45,7 @@ import {
 import { EFFORT_TIERS } from "../../shared/effort";
 // Il vocabolario delle etichette e la regola che le deriva: una sola
 // dichiarazione, letta anche dal client e dalla derivazione alla consegna.
-import { deriveCloser, isCloserLabel, isTaskLabel, normalizeLabels, type LabelSource, type TaskLabel, type TaskLabelRow } from "../../shared/task-labels";
+import { CLOSER_LABELS, KIND_LABELS, deriveCloser, deriveKind, isCloserLabel, isKindLabel, isTaskLabel, normalizeLabels, type LabelSource, type TaskFile, type TaskLabel, type TaskLabelRow } from "../../shared/task-labels";
 import type { TaskStatus, TaskComment, BoardSettings, BoardSettingsPatch, BlockerRef, QueueReason, SubtaskWork, TaskWeight } from "../../shared/board";
 
 export type Actor = "human" | "agent";
@@ -559,7 +559,7 @@ export interface TaskService {
    * non esiste, o la visibilità è già quella, o l'ha messa a mano un umano e non
    * si tocca (una correzione che scade alla consegna dopo non è una correzione).
    */
-  deriveLabelsFromDiff(args: { taskId: string; files: readonly string[] }): Task | null;
+  deriveLabelsFromDiff(args: { taskId: string; files: readonly TaskFile[] }): Task | null;
   /** Soft-delete (archive) — the row stays for history but drops off the board. */
   archive(args: { taskId: string; projectId?: string }): Task;
   /**
@@ -2688,22 +2688,50 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     deriveLabelsFromDiff({ taskId, files }): Task | null {
       const row = getTaskRow(taskId);
       if (!row) return null;
-      const derived = deriveCloser(files);
       const current = labelsOf(taskId);
-      // Una correzione a mano di Attilio NON si sovrascrive alla consegna
-      // successiva, o la correzione durerebbe quanto il turno seguente. Solo
-      // un'etichetta di chiusura `derived` (o assente) si ricalcola.
-      const held = current.find((c) => isCloserLabel(c.label));
-      if (held && held.source !== "derived") return null;
-      if (held && held.label === derived) return null;
+
+      /**
+       * Che cosa scrivere per UNA famiglia di etichette — `null` = niente.
+       *
+       * Una correzione a mano di Attilio NON si sovrascrive alla consegna
+       * successiva, o la correzione durerebbe quanto il turno seguente: basta
+       * UNA etichetta non `derived` nella famiglia perché la famiglia intera sia
+       * di chi l'ha scritta. E ciò che è già uguale non si riscrive, o ogni
+       * consegna rifarebbe il `created_at` di un dato immutato.
+       */
+      const pick = (belongs: (l: string) => boolean, wanted: TaskLabel | null): TaskLabel | null => {
+        const held = current.filter((c) => belongs(c.label));
+        if (held.some((h) => h.source !== "derived")) return null;
+        if (!wanted) return null;
+        if (held.length === 1 && held[0]!.label === wanted) return null;
+        return wanted;
+      };
+
+      // Due domande INDIPENDENTI: chi chiude la card, e che genere di lavoro è.
+      // Correggere a mano la prima non deve congelare la seconda — prima le due
+      // stavano sotto lo stesso `return null` e un `visibile` scritto da Attilio
+      // lasciava la card senza genere per sempre.
+      const closer = pick(isCloserLabel, deriveCloser(files.map((f) => f.path)));
+      const kind = pick(isKindLabel, deriveKind(files));
+      if (!closer && !kind) return null;
+
       const ts = now();
       const tx = db.transaction(() => {
-        // Tutte e TRE, non le due della prima versione: una `decisione` rimasta
-        // addosso accanto a una `visibile` nuova sarebbe una card con due
-        // risposte alla stessa domanda.
-        db.prepare("DELETE FROM task_labels WHERE task_id = ? AND label IN ('visibile', 'decisione', 'invisibile')").run(taskId);
-        db.prepare("INSERT INTO task_labels (task_id, label, source, created_at) VALUES (?, ?, 'derived', ?)")
-          .run(taskId, derived, ts);
+        const del = db.prepare("DELETE FROM task_labels WHERE task_id = ? AND label = ?");
+        const ins = db.prepare(
+          "INSERT INTO task_labels (task_id, label, source, created_at) VALUES (?, ?, 'derived', ?)",
+        );
+        // Tutta la famiglia, non la sola gemella: una `decisione` rimasta addosso
+        // accanto a una `visibile` nuova sarebbe una card con due risposte alla
+        // stessa domanda, e vale identico per due generi insieme.
+        if (closer) {
+          for (const l of CLOSER_LABELS) del.run(taskId, l);
+          ins.run(taskId, closer, ts);
+        }
+        if (kind) {
+          for (const l of KIND_LABELS) del.run(taskId, l);
+          ins.run(taskId, kind, ts);
+        }
       });
       tx();
       return rowToTask(getTaskRow(taskId));
