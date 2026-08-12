@@ -2,7 +2,7 @@ import { memo, useState, useEffect, useMemo } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { AlertTriangle, ArrowUpRight, ClipboardList, Copy, Hourglass, Lock, MessageSquare, Plus, RotateCcw, Send, ShieldCheck, ShieldX, Trash2, UserRound } from 'lucide-react';
+import { AlertTriangle, ArrowUpRight, ClipboardList, Copy, Hourglass, Lock, MessageSquare, Plus, RotateCcw, Send, ShieldCheck, ShieldX, Square, Trash2, UserRound } from 'lucide-react';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
@@ -235,6 +235,20 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
     }
     try { await boardApi.archive(task.projectId, task.id); onRefetch(); }
     catch (e) { onError(e instanceof Error ? e.message : 'archive failed'); }
+  };
+  // «Aspetta» senza buttare via: interrompe il turno e basta. Prima l'unica
+  // voce del menu era «Archivia», che su un task vivo chiede «Archivia e
+  // ferma» — un gesto solo per due intenzioni, con quella distruttiva
+  // obbligatoria per chi voleva solo guardare. Stesso endpoint del bottone nel
+  // drawer, quindi stesso esito: il task viene PARCHEGGIATO in Backlog (chip
+  // «fermato», non «fallito») e non riparte da solo — chi ferma vuole vedere
+  // dove stava andando, non farlo ripartire mentre guarda.
+  const stop = async () => {
+    if (busy) return;
+    setBusy(true);
+    try { await boardApi.stop(task.projectId, task.id); onRefetch(); }
+    catch (e) { onError(e instanceof Error ? e.message : 'stop failed'); }
+    finally { setBusy(false); }
   };
   // Steer a WORKING agent: a comment on an in_progress task is buffered by the
   // dispatcher and handed over at the next turn (Claude-Code style). Same
@@ -641,6 +655,22 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
               onClick={(e) => { e.stopPropagation(); setCtxMenu(null); onOpenTopic(task.assignedTopicId!); }}
               className={POPOVER_ITEM}
             ><ArrowUpRight className="h-3.5 w-3.5 text-app-text-secondary" /> Apri tab agent</button>
+          )}
+          {/* Solo quando c'è davvero un turno da tagliare: su una card ferma la
+              voce sarebbe un bottone che risponde 409. `agentBusy` è la stessa
+              domanda che accende il bottone «Ferma» del drawer, così le due
+              superfici compaiono e spariscono insieme. */}
+          {agentBusy && (
+            <>
+              <div className={POPOVER_DIVIDER} />
+              <button
+                role="menuitem"
+                disabled={busy}
+                onClick={(e) => { e.stopPropagation(); setCtxMenu(null); stop(); }}
+                title="Interrompe il turno dell'agent. Il task resta sulla board, parcheggiato: riparte solo se lo rimetti in Todo."
+                className={POPOVER_ITEM}
+              ><Square className="h-3.5 w-3.5 fill-current text-rose-400" /> Ferma</button>
+            </>
           )}
           <div className={POPOVER_DIVIDER} />
           <button

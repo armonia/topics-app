@@ -1,6 +1,6 @@
 import type { LucideIcon } from 'lucide-react';
-import { PackageCheck, Hourglass } from 'lucide-react';
-import { MAX_FANOUT } from '../../lib/board';
+import { PackageCheck, Hourglass, Square } from 'lucide-react';
+import { MAX_FANOUT, PARKED_STOPPED } from '../../lib/board';
 import type { TaskStatus } from '../../lib/board';
 import { EFFORT_TIERS } from '../../lib/effortTiers';
 
@@ -104,6 +104,15 @@ export const DISPATCH_CHIP: Record<string, { text: string; cls: string; title?: 
   // The specific reason rides in task.dispatchError → shown as the chip tooltip.
   failed: { text: 'fallito', cls: 'bg-rose-500/25 text-rose-200 ring-1 ring-rose-400/40' },
   blocked: { text: 'da sistemare', cls: 'bg-amber-500/15 text-amber-300' },
+  // 'stopped' = l'ha fermato una PERSONA (menu della card o bottone del
+  // drawer). Neutro per costruzione: non è un fallimento e non c'è niente da
+  // sistemare — il turno è stato tagliato e il task aspetta che tu lo rimetta
+  // in Todo. Senza questa voce un park umano restava a NULL, cioè una card
+  // muta indistinguibile da una mai dispacciata.
+  // Il motivo NON è scritto qui: come per 'failed'/'blocked' viaggia in
+  // `task.dispatchError` («Fermato da te: … Rimetti il task in Todo per
+  // ripartire») e diventa il tooltip. Un titolo fisso lo coprirebbe.
+  [PARKED_STOPPED]: { text: 'fermato', cls: 'bg-white/10 text-app-text-secondary', Icon: Square },
 };
 
 // Single shared new-task draft → single caret key (board composer is global).

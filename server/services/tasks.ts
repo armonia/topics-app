@@ -35,7 +35,7 @@ import { readGlobalCap } from "./dispatch-capacity";
 // chi la vuole la prende da `shared/board`.
 export type { TaskStatus, TaskComment, BoardSettings, BoardSettingsPatch, BlockerRef, SubtaskWork } from "../../shared/board";
 import {
-  MAX_FANOUT, PREVIEW_PROMOTE_MAX_RATIO, TASK_STATUSES,
+  MAX_FANOUT, PARKED_STOPPED, PREVIEW_PROMOTE_MAX_RATIO, TASK_STATUSES,
   deriveSubtaskWork, formatStatusEvent, hasPlanApproveOption, isAgentWorking,
   isUnattributedSubtask, normalizeActionLabel, readTaskWeight, statusEventEnters,
 } from "../../shared/board";
@@ -1351,7 +1351,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         // una sessione di lavorare su un task che nessuno le ha tolto.
         const releasedByDispatcher =
           row.assigned_topic_id == null
-          && (row.dispatch_state === "queued" || row.dispatch_state === "failed" || row.dispatch_state === "blocked");
+          && (row.dispatch_state === "queued" || row.dispatch_state === "failed"
+            || row.dispatch_state === "blocked" || row.dispatch_state === PARKED_STOPPED);
         const boundElsewhere = row.assigned_topic_id != null && row.assigned_topic_id !== agentTopicId;
         if (
           actor === "agent" && agentTopicId

@@ -551,13 +551,20 @@ describe("board router (human, project-scoped)", () => {
     const fake = { onEnterTodo() {}, onLeaveTodo() {}, resume: async () => {} } as any;
     const r = createTasksRouter(makeCtx(db, broadcasts), fake, { abortTurn: async (sk: string) => { aborted.push(sk); } });
     const t = await (await call(r, "POST", "/api/boards/pX/tasks", { text: "sbagliato", status: "in_progress" }))!.json();
-    db.prepare("UPDATE tasks SET assigned_topic_id = 'top-z', dispatch_state = 'working' WHERE id = ?").run(t.id);
+    db.prepare("UPDATE tasks SET assigned_topic_id = 'top-z', dispatch_state = 'working', dispatch_attempts = 1 WHERE id = ?").run(t.id);
 
     const resp = (await call(r, "POST", `/api/boards/pX/tasks/${t.id}/stop`, {}))!;
     expect(resp.status).toBe(200);
     const parked = await resp.json();
     expect(parked.status).toBe("backlog");
     expect(parked.assignedTopicId).toBeNull();
+    // FERMARE NON È FALLIRE, e si vede in due posti.
+    // La chip: 'stopped' — non `null` (una card muta, indistinguibile da una mai
+    // dispacciata) e non 'failed' (l'agent non ha fallito niente).
+    expect(parked.dispatchState).toBe("stopped");
+    // Il contatore: intatto. Un'attesa legittima non deve consumare il budget di
+    // tentativi — chi ferma per guardare non deve pagarlo al rilancio.
+    expect(parked.dispatchAttempts).toBe(1);
     expect(aborted).toEqual(["topic:top-z"]); // "topic:" + id.slice(0,8)
     // The reason is on the thread (visible feedback, not just a chip).
     const got = await (await call(r, "GET", `/api/boards/pX/tasks/${t.id}`))!.json();
