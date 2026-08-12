@@ -33,16 +33,16 @@ import { usePaneHold } from '../../state/pane/residency/holds';
 import { useSessionMessages } from '../../state/useSessionMessages';
 
 const SLASH_COMMANDS_HELP = [
-  '/status — Show session status',
-  '/context — Show context-window usage (tokens, budget, sources)',
-  '/compact — Compatta il contesto ora (riassume la storia e libera spazio)',
-  '/clear — Clear conversation',
-  '/model — Change model (e.g. /model claude-opus-5[1m])',
-  '/effort — Set reasoning effort (low|medium|high|xhigh|max)',
-  '/reasoning — Toggle reasoning (openclaw) / → /effort on claude-code',
-  "/goal <testo> — Dichiara l'obiettivo della chat (sopravvive alla compattazione)",
-  '/goal fatto | basta — Chiudi l\'obiettivo (raggiunto / abbandonato)',
-  '/help — Show available commands',
+  '/status: mostra lo stato della sessione',
+  '/context: uso della finestra di contesto (token, budget, sorgenti)',
+  '/compact: compatta il contesto ora (riassume la storia e libera spazio)',
+  '/clear: svuota la conversazione',
+  '/model: cambia modello (es. /model claude-opus-5[1m])',
+  '/effort: imposta lo sforzo di ragionamento (low|medium|high|xhigh|max)',
+  '/reasoning: accende o spegne il ragionamento (openclaw). Su claude-code usa /effort',
+  "/goal <testo>: dichiara l'obiettivo della chat (sopravvive alla compattazione)",
+  '/goal fatto | basta: chiude l\'obiettivo (raggiunto o abbandonato)',
+  '/help: elenca i comandi disponibili',
 ];
 
 /** Extract a human-readable message from an unknown thrown value. */
@@ -816,7 +816,7 @@ function ChatPaneComponent({
         const k = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}k` : `${n}`);
         const lines = [`Contesto: ${k(a.totalTokens)} / ${k(a.budgetLimit)} token (${Math.round(a.budgetPercent)}%)`];
         const top = [...a.sources].filter((s) => s.enabled && s.tokens > 0).sort((x, y) => y.tokens - x.tokens).slice(0, 6);
-        for (const s of top) lines.push(`  • ${s.category} · ${s.label} — ${k(s.tokens)}`);
+        for (const s of top) lines.push(`  • ${s.category} · ${s.label}: ${k(s.tokens)}`);
         if (a.warnings && a.warnings.length > 0) lines.push(`⚠ ${a.warnings.length} avviso${a.warnings.length === 1 ? '' : 'i'}`);
         setCommandResult({ type: 'success', message: lines.join('\n') });
       } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); }
@@ -1098,7 +1098,7 @@ function ChatPaneComponent({
     const lines: string[] = [`# ${topic.name}`, ''];
     for (const m of currentMessages) {
       const who = m.role === 'user' ? 'You' : 'Assistant';
-      const when = m.timestamp ? ` — ${new Date(m.timestamp).toLocaleString()}` : '';
+      const when = m.timestamp ? ` · ${new Date(m.timestamp).toLocaleString()}` : '';
       lines.push(`### ${who}${when}`, '', m.content || '', '');
     }
     const blob = new Blob([lines.join('\n')], { type: 'text/markdown' });

@@ -93,7 +93,7 @@ export function AutonomyPicker({ value, onChange }: {
           }
           setOpen((o) => !o);
         }}
-        title={`Autonomia: ${current.label} — ${current.desc}`}
+        title={`Autonomia: ${current.label} · ${current.desc}`}
         // Il nome accessibile diceva solo «Agisce»: fuori contesto non è il nome
         // di niente. Chi ascolta sente adesso di che cosa è il livello — ed è
         // anche l'unico modo di agganciarlo dal ruolo, che è come si distingue

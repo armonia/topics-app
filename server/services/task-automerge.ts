@@ -283,7 +283,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
       } else {
         notes.push(
           `il ramo consegnato \`${delBranch}\` non esiste più (potato o rinominato): pubblico \`${liveBranch}\`, ` +
-          `il ramo del worktree vivo — se la consegna aveva commit solo lì, NON sono su main`,
+          `il ramo del worktree vivo. Se la consegna aveva commit solo lì, NON sono su main`,
         );
       }
     }
@@ -612,7 +612,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
         if (cur === defaultBranch) {
           const st = await runGit(repoPath, ["status", "--porcelain"]);
           if (st.stdout.trim() !== "") {
-            return { status: "skipped", code: "dirty-checkout", reason: `il checkout è su '${defaultBranch}' con WIP non committata — mergia a mano o pulisci il checkout` };
+            return { status: "skipped", code: "dirty-checkout", reason: `il checkout è su '${defaultBranch}' con WIP non committata. Mergia a mano o pulisci il checkout` };
           }
           if (onlyOwn) {
             const picked = await pickOwnCommits(repoPath, onlyOwn);

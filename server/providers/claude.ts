@@ -438,7 +438,7 @@ export class ClaudeProvider implements AIProvider {
 
   private requireClient(): Anthropic {
     if (!this.client) {
-      throw new Error("ClaudeProvider not started — call start() first");
+      throw new Error("ClaudeProvider not started. Call start() first.");
     }
     return this.client;
   }

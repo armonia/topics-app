@@ -99,12 +99,12 @@ export function checkClaudeCliCompat(version: string | null | undefined): Claude
     const removed = parseSemver(f.removedIn);
     if (introduced && compareSemver(parsed, introduced) < 0) {
       missingFlags.push(f.flag);
-      notes.push(`${f.flag} arriva dalla ${f.introducedIn} — senza: ${f.breaks}`);
+      notes.push(`${f.flag} arriva dalla ${f.introducedIn}. Senza: ${f.breaks}`);
       continue;
     }
     if (removed && compareSemver(parsed, removed) >= 0) {
       missingFlags.push(f.flag);
-      notes.push(`${f.flag} è stata tolta nella ${f.removedIn} — senza: ${f.breaks}`);
+      notes.push(`${f.flag} è stata tolta nella ${f.removedIn}. Senza: ${f.breaks}`);
     }
   }
 

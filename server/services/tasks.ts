@@ -766,7 +766,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         if (fileDigest(o.preview_image) !== mine) continue;
         reviewNote(
           taskId,
-          `Anteprima IDENTICA (md5 \`${mine.slice(0, 8)}\`) a quella del task \`${o.id}\` — «${(o.text ?? "").slice(0, 60)}». ` +
+          `Anteprima IDENTICA (md5 \`${mine.slice(0, 8)}\`) a quella del task \`${o.id}\`, «${(o.text ?? "").slice(0, 60)}». ` +
             "Non è un blocco: due task sullo stesso pannello possono avere davvero la stessa immagine. " +
             "Ma se è una svista, questa consegna non ha ancora un'evidenza sua.",
         );
@@ -1467,7 +1467,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         if (patch.status === "done" && hasActiveChildren(taskId)) {
           throw new TaskServiceError(
             "open_subtasks",
-            "task has open subtasks — complete or archive them before marking it done",
+            "task has open subtasks. Complete or archive them before marking it done.",
           );
         }
         // Agent entering review → open a pending review approval for the human.
@@ -1489,7 +1489,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           if (fresh === 0) {
             throw new TaskServiceError(
               "review_needs_summary",
-              "post a delivery summary for THIS turn first — comment_task with 1-2 sentences (what you did now, where to look; even \"nothing new\" with the reason) — THEN set status='review'",
+              "post a delivery summary for THIS turn first. Use comment_task with 1-2 sentences (what you did now, where to look; even \"nothing new\" with the reason), THEN set status='review'",
             );
           }
           db.prepare(
@@ -1732,7 +1732,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (decision === "approve" && hasActiveChildren(taskId)) {
         throw new TaskServiceError(
           "open_subtasks",
-          "task has open subtasks — complete or archive them before approving it to done",
+          "task has open subtasks. Complete or archive them before approving it to done.",
         );
       }
       const ts = now();
@@ -1850,12 +1850,12 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // Only the ROOT of a subtree moves: create() pins a subtask to its
       // parent's board, so the subtree travels together or not at all.
       if (row.parent_task_id) {
-        throw new TaskServiceError("invalid_transition", "task is a subtask — move its root task (the subtree moves together)");
+        throw new TaskServiceError("invalid_transition", "task is a subtask. Move its root task (the subtree moves together).");
       }
       // A dispatched agent works a worktree/topic of the SOURCE project; moving
       // the task under it would strand the binding. Finish or release it first.
       if (row.assigned_topic_id || isAgentWorking(row.dispatch_state)) {
-        throw new TaskServiceError("invalid_transition", "task has a live agent — let it reach review (or park it) before moving boards");
+        throw new TaskServiceError("invalid_transition", "task has a live agent. Let it reach review (or park it) before moving boards.");
       }
       const ts = now();
       const maxRow = db.prepare("SELECT COALESCE(MAX(kanban_order), 0) as m FROM tasks WHERE project_id = ?").get(target) as any;
