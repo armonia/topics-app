@@ -60,7 +60,7 @@ import { useBrowserContexts } from './hooks/useBrowserContexts';
 import { useClosedTabs, createPaneId, isProjectPaneId, getProjectPathFromPaneId, setPaneCapability } from './state/pane/adapters';
 
 import { TopicTree } from './components/Sidebar/TopicTree';
-import { groupChromeActive, isDetachedWindow, firstOtherLiveSpace } from './components/Layout/spaceHelpers';
+import { groupChromeActive, isDetachedWindow, firstOtherLiveSpace, tabsPerSpace } from './components/Layout/spaceHelpers';
 import { focusSpaceWindow, isSpaceClaimedLocally } from './lib/popOutSpace';
 import { useGoToSpace } from './components/Sidebar/useSpaceCards';
 import { spaceWindowId } from './lib/windowRole';
@@ -78,7 +78,8 @@ import { DRAG_REGION, NO_DRAG_REGION } from './lib/shell/dragRegion';
 import { flushPaneStoreNow, flushLocalPaneStoreNow } from './state/pane/middleware';
 import { usePaneStore } from './state/pane/store';
 import { useShallow } from 'zustand/react/shallow';
-import { resolvePaneSpace } from './state/pane/reducers/spaces';
+import { resolvePaneSpace, isLiveSpaceId } from './state/pane/reducers/spaces';
+import { DEFAULT_SPACE_ID } from './state/pane/types';
 import { useSignalsSync } from './state/useSignalsSync';
 import { useTaskBrowserTabsSync } from './hooks/useTaskBrowserTabsSync';
 import { PaneAddMenu } from './components/Shared/PaneAddMenu';
@@ -89,6 +90,7 @@ import { popOutTopic } from './lib/popOutTopic';
 import { ErrorBoundary } from './components/Shared/ErrorBoundary';
 import { SkeletonTopicList } from './components/Shared/Skeleton';
 import { SidebarStatusBar } from './components/Sidebar/SidebarStatusBar';
+import { NotificationHistoryButton } from './components/Sidebar/NotificationHistoryButton';
 
 // Lazy-load components that are only shown on demand
 const NewTopicModal = lazy(() => import('./components/Modals/NewTopicModal').then(m => ({ default: m.NewTopicModal })));
@@ -386,7 +388,7 @@ function App() {
   // La sezione da cui aprire le Impostazioni, quando si arriva da un punto
   // preciso (la riga dell'identità → Dispositivi). `undefined` = comportamento
   // normale, cioè «Aspetto».
-  const [settingsSection, setSettingsSection] = useState<'devices' | undefined>(undefined);
+  const [settingsSection, setSettingsSection] = useState<'devices' | 'notifications' | undefined>(undefined);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showFileSearch, setShowFileSearch] = useState<false | { projectPaths: string[]; mode: 'name' | 'content' }>(false);
   // The sidebar header "New" button used to track its dropdown via a
@@ -636,14 +638,25 @@ function App() {
     () => new Map(openPanels.map((id, i) => [id, paneSpaces[i]])),
     [openPanels, paneSpaces],
   );
+  // I gruppi che vivono in una finestra loro. Serve due volte, e la prima è
+  // qui sotto: un gruppo staccato conta come "c'è" anche quando è a zero tab.
+  const spaceWindows = useSpaceWindows();
   // Vero quando l'intestazione del gruppo c'è: allora l'albero si divide in
   // "le tab di questo gruppo" e "fuori dai gruppi". Stessa risposta che dà
   // SpaceGroups per decidere se disegnarsi.
-  const spaceChrome = usePaneStore((s) => groupChromeActive(s.spaces, spaceWindowId()));
+  //
+  // Il selettore restituisce un BOOLEANO, quindi iscriversi qui a `s.panes` non
+  // ridisegna niente finché la risposta non cambia — la mappa dei conteggi
+  // nasce e muore dentro la chiamata.
+  const spaceChrome = usePaneStore((s) => groupChromeActive(
+    s.spaces,
+    spaceWindowId(),
+    tabsPerSpace(s.groups['group:default']?.paneIds ?? [], s.panes, s.spaces),
+    spaceWindows,
+  ));
   const goToSpace = useGoToSpace();
   // Il gruppo attivo vive in un'ALTRA finestra? Allora qui non si disegna: due
   // finestre sulla stessa griglia sono due copie degli stessi terminali vivi.
-  const spaceWindows = useSpaceWindows();
   const activeSpaceWindow = spaceWindows.get(activeSpaceId);
   // ── Il gruppo vive di là: NON si fa vedere un cartello, ci si sposta ──────
   // La cosa giusta da fare quando questa finestra si ritrova addosso un gruppo
@@ -666,6 +679,31 @@ function App() {
     const next = firstOtherLiveSpace(store.spaces, activeSpaceId, spaceWindows);
     if (next) store.dispatch({ type: 'SET_ACTIVE_SPACE', payload: { id: next } });
   }, [activeSpaceWindow, activeSpaceId, pinnedSpaceForHandoff, spaceWindows]);
+
+  // ── Il gruppo su cui sei si è svuotato: si torna a casa ───────────────────
+  // Un gruppo a zero tab non si disegna più (`useSpaceCards`), e restarci
+  // dentro sarebbe il vicolo cieco: griglia vuota, e nessuna card da cliccare
+  // per uscirne — proprio perché la sua non c'è più. Chiusa o portata via
+  // l'ultima tab, la finestra torna al Principale.
+  //
+  // I due `usePaneStore` qui restituiscono BOOLEANI: iscriversi a `s.panes`
+  // costa un confronto per scrittura, non un ridisegno.
+  const activeSpaceHasTabs = usePaneStore((s) => (
+    (tabsPerSpace(s.groups['group:default']?.paneIds ?? [], s.panes, s.spaces).get(s.activeSpaceId) ?? 0) > 0
+  ));
+  // Il gruppo attivo è un record VIVO della registry? Se no, la registry non è
+  // ancora arrivata (all'avvio `activeSpaceId` si ripristina da localStorage
+  // prima dello snapshot): senza questa guardia ogni ricarica dentro un gruppo
+  // finirebbe nel Principale.
+  const activeSpaceLive = usePaneStore((s) => isLiveSpaceId(s.activeSpaceId, s.spaces));
+  useEffect(() => {
+    if (pinnedSpaceForHandoff) return;      // la finestra-gruppo È il suo gruppo
+    if (activeSpaceWindow) return;          // ci pensa l'effetto qui sopra
+    if (activeSpaceId === DEFAULT_SPACE_ID) return;
+    if (!activeSpaceLive || activeSpaceHasTabs) return;
+    usePaneStore.getState().dispatch({ type: 'SET_ACTIVE_SPACE', payload: { id: DEFAULT_SPACE_ID } });
+  }, [activeSpaceId, activeSpaceHasTabs, activeSpaceLive, activeSpaceWindow, pinnedSpaceForHandoff]);
+
   const spaceScoped = spaceChrome && !isDetachedWindow();
 
   // Open / create a project via the native folder picker (select an existing
@@ -1295,6 +1333,18 @@ function App() {
                     il riferimento (Attilio, 08/08). */}
                 <ChevronDown size={14} className={`text-app-text-secondary transition-transform ${showTopicsMenu ? 'rotate-180' : ''}`} />
               </button>
+            </div>
+            {/* ACCANTO A TOPICS, e non in coda alla riga con Cerca e «+»: quei
+                due sono comandi che CREANO o CERCANO, questo è uno stato — dice
+                quante cose sono successe mentre non guardavi. Sta a fianco
+                dell'identità della colonna perché è la prima cosa che si guarda
+                tornando all'app, prima di decidere cosa aprire. */}
+            <div className="app-no-drag flex-shrink-0" {...NO_DRAG_REGION}>
+              <NotificationHistoryButton
+                onWSMessage={onWSMessage}
+                isMobile={isMobile}
+                onOpenSettings={() => { setSettingsSection('notifications'); setShowSettings(true); }}
+              />
             </div>
           </div>
           {/* CERCA E «+», in coda alla riga del titolo.
