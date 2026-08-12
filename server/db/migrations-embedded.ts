@@ -106,6 +106,8 @@ import m099_landing_witnessed from "./migrations/099-landing-witnessed.sql" with
 import m100_task_labels from "./migrations/100-task-labels.sql" with { type: "text" };
 import m101_push_device_prefs from "./migrations/101-push-device-prefs.sql" with { type: "text" };
 import m20260812092918_wait_streak_counter from "./migrations/20260812092918-wait-streak-counter.sql" with { type: "text" };
+import m20260812093221_discord_presence from "./migrations/20260812093221-discord-presence.sql" with { type: "text" };
+import m20260812094300_notification_log from "./migrations/20260812094300-notification-log.sql" with { type: "text" };
 
 export interface EmbeddedMigration {
   version: number;
@@ -216,4 +218,6 @@ export const EMBEDDED_MIGRATIONS: EmbeddedMigration[] = [
   { version: 100, name: "100-task-labels.sql", sql: m100_task_labels },
   { version: 101, name: "101-push-device-prefs.sql", sql: m101_push_device_prefs },
   { version: 20260812092918, name: "20260812092918-wait-streak-counter.sql", sql: m20260812092918_wait_streak_counter },
+  { version: 20260812093221, name: "20260812093221-discord-presence.sql", sql: m20260812093221_discord_presence },
+  { version: 20260812094300, name: "20260812094300-notification-log.sql", sql: m20260812094300_notification_log },
 ];

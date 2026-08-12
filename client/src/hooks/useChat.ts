@@ -8,6 +8,7 @@ import { decideClientWipeOnStop } from './stopSessionPolicy';
 import { isEmptyAssistantTurn } from '../../../shared/empty-turn';
 import { mergeCatchupIntoPartial } from './streamCatchupMerge';
 import { clearPartialForReattach } from './streamReattachReset';
+import { decideCacheWrite } from './messageCacheWrite';
 import { useRefMirror } from './useRefMirror';
 import { reconcileMessages } from './reconcileMessages';
 import { reconcileOrphanStreams } from '../state/signals';
@@ -264,18 +265,52 @@ function evictCacheSpace(targetBytes: number): void {
  *
  * Falliva in silenzio perche' qui c'era un `catch {}` nudo. Adesso l'errore di
  * quota si riconosce, si fa spazio, e si riprova una volta.
+ *
+ * IL SECONDO GUASTO, misurato il 2026-08-11: la quota e' un tetto, ma il COSTO
+ * non e' quanta cache tieni, e' quante volte la riscrivi. 1,52 GB di giornale
+ * WAL su 3,2 GB di store WebKit, e un checkpoint su copia lo riassorbe in 5,1
+ * MB: 166 volte piu' piccolo. Il tetto per voce non c'entra, perche' ogni
+ * `setItem` riappende l'intero insieme di pagine toccate e WebKit non fa
+ * checkpoint finche' la sessione vive. Percio' la decisione di scrivere e'
+ * passata a `decideCacheWrite`, che nega le due riscritture inutili: il blob che
+ * sfora il tetto anche con UN solo messaggio, e quello identico a cio' che c'e'
+ * gia'. Il perche' di ognuna sta nell'intestazione di quel modulo.
  */
 function cacheMessages(sessionKey: string, msgs: ChatMessage[]) {
-  const settled = msgs.filter((m) => !m.partial);
-  // Taglia dalla CODA: i messaggi recenti sono quelli che l'utente si aspetta di
-  // rivedere aprendo la chat. Si scende finche' la voce non sta nel suo tetto.
-  let take = Math.min(settled.length, CACHE_MAX_MESSAGES);
-  let payload = JSON.stringify(settled.slice(-take));
-  while (take > 1 && payload.length > CACHE_MAX_BYTES) {
-    take = Math.floor(take / 2);
-    payload = JSON.stringify(settled.slice(-take));
-  }
   const key = CACHE_PREFIX + sessionKey;
+
+  // Si LEGGE prima di scrivere, e non e' uno spreco: `getItem` copia al massimo
+  // il tetto di una voce, mentre `setItem` riappende al giornale WAL tutte le
+  // pagine toccate. Il confronto e' esatto e vale anche fra finestre diverse,
+  // dove una mappa in memoria non vedrebbe la scrittura dell'altra.
+  let previous: string | null;
+  try {
+    previous = localStorage.getItem(key);
+  } catch {
+    return; // niente localStorage: non c'e' nessuna cache da tenere
+  }
+
+  const decision = decideCacheWrite({
+    settled: msgs.filter((m) => !m.partial),
+    previous,
+    maxMessages: CACHE_MAX_MESSAGES,
+    maxBytes: CACHE_MAX_BYTES,
+  });
+
+  if (decision.action === 'skip') return;
+
+  if (decision.action === 'drop') {
+    // Un solo messaggio piu' grande del tetto: 821 KB contro 256 KB, misurato.
+    // La voce se ne va invece di restare li' a farsi riscrivere a ogni turno.
+    try { localStorage.removeItem(key); } catch { /* storage negato */ }
+    console.info(
+      `[chat] cache dei messaggi rimossa: un singolo messaggio supera il tetto di ${Math.round(CACHE_MAX_BYTES / 1024)} KB`,
+      { sessionKey },
+    );
+    return;
+  }
+
+  const payload = decision.payload;
   try {
     localStorage.setItem(key, payload);
   } catch {

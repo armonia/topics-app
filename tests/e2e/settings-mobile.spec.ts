@@ -96,7 +96,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 /** Le cinque schede del pannello, nell'ordine in cui la nav le elenca. */
-const SCHEDE = ["Appearance", "Notifications", "AI Providers", "Account", "Plan"];
+const SCHEDE = ["Appearance", "Notifications", "AI Providers", "Profile", "Plan"];
 
 test("a 390px il pannello sta nello schermo e non ha bersagli sotto i 44px", async ({ page }) => {
   await apriImpostazioni(page);
