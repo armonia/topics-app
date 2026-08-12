@@ -16,7 +16,31 @@ import { resolveReviewQuestion } from '../lib/notify/reviewQuestion';
 import { boardApi, isAgentWorking } from '../lib/board';
 import { inPageBannerAllowed, type NotifyEventKind } from '../lib/notify/pushVoice';
 import { isPushSubscribed } from '../state/pushDevice';
+import { recordNotificationSent } from '../lib/notify/history';
+import {
+  chatNotificationKey,
+  taskParkedNotificationKey,
+  taskReviewNotificationKey,
+  type NotificationKind,
+} from '../../../shared/notification-log';
 import type { TopicTaskResolver } from './useTaskTopicIndex';
+
+/**
+ * Il segnale → il genere con cui finisce nella CRONOLOGIA.
+ *
+ * Due vocabolari e non uno perché rispondono a due domande diverse:
+ * `NotifyEventKind` dice CHI ha diritto di annunciare l'evento (pagina o push,
+ * `lib/notify/pushVoice`), `NotificationKind` dice COS'ERA a chi legge il
+ * registro un'ora dopo. Tenerli separati costa questa tabella; fonderli
+ * significherebbe che aggiungere un evento al gate anti-doppia-voce cambia in
+ * silenzio come le righe vecchie si leggono.
+ */
+const REGISTRY_KIND: Record<NotifyEventKind, NotificationKind> = {
+  'task:review-ready': 'task-review',
+  'task:parked': 'task-parked',
+  'message:new': 'chat-message',
+  'session:state': 'session',
+};
 
 interface CompletionNotifierProps {
   /** WS subscription registrar from useWebSocket().onMessage. */
@@ -194,11 +218,26 @@ export function useCompletionNotifier({
   // e vale solo per gli eventi coperti: i segnali dei terminali, che il push non
   // manda, continuano a passare da qui. (Prima il primo parametro era `_level`,
   // che nessuno leggeva.)
+  //
+  // `log` è la RIGA DI REGISTRO di questa notifica (cronologia, migration 102),
+  // ed è OBBLIGATORIA: `fire` è l'unica uscita dei banner, cioè l'unico punto
+  // che sa per certo cosa è stato mandato. Facoltativa vorrebbe dire una
+  // cronologia con buchi che nessun test può vedere. Sta prima degli opzionali
+  // apposta — così nessun sito di chiamata deve imbottire di `undefined` per
+  // arrivarci.
   const fire = useCallback((
     kind: NotifyEventKind,
     title: string,
     body: string,
     sound: boolean,
+    log: {
+      /** La stessa chiave che usa la push per lo STESSO evento: una riga sola. */
+      dedupeKey: string;
+      /** Il topic bersaglio quando non c'è un task (il task lo porta già
+       *  `taskId`): senza un bersaglio il click nella cronologia non porta da
+       *  nessuna parte, ed è metà della richiesta. */
+      topicId?: string | null;
+    },
     taskId?: string | null,
     tag?: string,
     actions?: NotifyAction[],
@@ -212,6 +251,27 @@ export function useCompletionNotifier({
     if (isFocusSilencing()) return;
     notifyNative(title, body, { silent: true, taskId: taskId ?? undefined, tag, actions });
     if (sound) playCompletionTone();
+    // IL REGISTRO, dopo la consegna e mai prima: si registra ciò che è stato
+    // MANDATO, non ciò che si aveva intenzione di mandare. I due `return` qui
+    // sopra non lasciano riga, e in un caso è proprio il comportamento giusto —
+    // quando tace perché parla il push (`inPageBannerAllowed`), la riga la
+    // scrive il SERVER dal suo lato (`maybeSendPush`), con la stessa chiave.
+    //
+    // POST fire-and-forget: il server deduplica a finestra, quindi lo stesso
+    // evento uscito da N finestre staccate — o da banner E push insieme —
+    // resta una riga sola.
+    recordNotificationSent({
+      kind: REGISTRY_KIND[kind],
+      title,
+      body,
+      // Il bersaglio: il TASK se c'è (il click apre il suo drawer, come fa il
+      // banner), altrimenti il TOPIC. Derivato da ciò che `fire` ha già in
+      // mano, così non può divergere da dove porta la notifica vera.
+      targetKind: taskId ? 'task' : log.topicId ? 'topic' : null,
+      targetId: taskId ?? log.topicId ?? null,
+      dedupeKey: log.dedupeKey,
+      source: 'banner',
+    });
   }, []);
 
   // Refs let us read the latest values inside the WS handler without
@@ -291,6 +351,9 @@ export function useCompletionNotifier({
           question ? 'Serve una tua risposta' : 'Task pronto per la review',
           question?.text ? `${title} · ${question.text}`.slice(0, 220) : title,
           cfg.notificationsSound,
+          // Stessa chiave della push gemella (server/push-triggers.ts): la
+          // consegna esce da due porte e lascia UNA riga.
+          { dedupeKey: taskReviewNotificationKey(taskId) },
           taskId,
           undefined,
           actions,
@@ -325,6 +388,7 @@ export function useCompletionNotifier({
         msg.state === 'blocked' ? 'Task da sistemare' : 'Task non consegnato',
         title,
         cfg.notificationsSound,
+        { dedupeKey: taskParkedNotificationKey(taskId) },
         taskId,
         undefined,
         // Un parcheggiato non riparte da solo: il tasto è la mossa che lo fa
@@ -378,7 +442,19 @@ export function useCompletionNotifier({
       // mangiare la consegna di una che invece parlerebbe.
       void claimMessageBanner(bannerClaimKey(msg), bannerClaimant()).then((mine) => {
         if (!mine) return;
-        fire('message:new', decision.title, decision.body, cfg.notificationsSound, null, decision.tag);
+        // La chiave è quella della CHAT, condivisa con la push di fine risposta
+        // (`stream:end`): nomi diversi, stesso fatto per chi la riceve — la
+        // risposta è pronta. Il bersaglio è il topic, così il click apre la
+        // conversazione.
+        fire(
+          'message:new',
+          decision.title,
+          decision.body,
+          cfg.notificationsSound,
+          { dedupeKey: chatNotificationKey(msg.topicId), topicId: msg.topicId },
+          null,
+          decision.tag,
+        );
       });
   });
 
@@ -492,7 +568,22 @@ export function useCompletionNotifier({
           for (const k of keep) ledger.add(k);
         }
 
-        fire('session:state', decision.title, decision.body, cfg.notificationsSound);
+        // La chiave del registro è la STESSA del libro mastro qui sopra: se
+        // quello ha già lasciato passare questo fronte una volta, la
+        // cronologia non deve poterlo contare due.
+        //
+        // Il bersaglio è il TOPIC che ospita il terminale, quando c'è: il click
+        // non può selezionare la singola tab di terminale (non esiste una rotta
+        // per quello), ma atterrare nel topic giusto è la differenza fra una
+        // riga viva e una riga morta. Senza topic la riga resta leggibile e non
+        // cliccabile.
+        fire(
+          'session:state',
+          decision.title,
+          decision.body,
+          cfg.notificationsSound,
+          { dedupeKey: `terminal:${decision.dedupeKey}`, topicId: ts.topicId },
+        );
         return;
       }
 
@@ -579,20 +670,37 @@ export function useCompletionNotifier({
 
       // Dispatched-task topic → the banner carries the taskId so a click opens it.
       const taskId = task?.taskId ?? null;
+
+      // LA RIGA DI REGISTRO di questo banner, una per tutti e quattro i rami.
+      //
+      // La chiave ha due forme, e la differenza non è estetica.
+      // `awaiting-user` e `completed` sono «il turno è finito», cioè lo STESSO
+      // evento che la push di fine risposta annuncia sul telefono: chiave
+      // condivisa (`chat:<topicId>`) e una riga sola per i due mezzi.
+      // `awaiting-approval` e `error` la push non li manda affatto, e
+      // collassarli con la fine turno perderebbe la notizia più importante
+      // delle due — quindi chiave propria, per fase.
+      const turnEnded = phase === 'awaiting-user' || phase === 'completed';
+      const log = {
+        dedupeKey: topicId && turnEnded
+          ? chatNotificationKey(topicId)
+          : `session:${topicId || state.claudeSessionId || sessionKey}:${phase}`,
+        topicId,
+      };
       // Il corpo lo scrive `statusBody`, la stessa funzione del ramo terminale:
       // una frase sola per due superfici.
       switch (phase) {
         case 'awaiting-user':
-          fire('session:state', label, statusBody('awaiting-user'), cfg.notificationsSound, taskId);
+          fire('session:state', label, statusBody('awaiting-user'), cfg.notificationsSound, log, taskId);
           break;
         case 'awaiting-approval':
-          fire('session:state', label, statusBody('awaiting-approval'), cfg.notificationsSound, taskId);
+          fire('session:state', label, statusBody('awaiting-approval'), cfg.notificationsSound, log, taskId);
           break;
         case 'completed':
-          fire('session:state', label, statusBody('completed'), cfg.notificationsSound, taskId);
+          fire('session:state', label, statusBody('completed'), cfg.notificationsSound, log, taskId);
           break;
         case 'error':
-          fire('session:state', label, statusBody('error'), cfg.notificationsSound, taskId);
+          fire('session:state', label, statusBody('error'), cfg.notificationsSound, log, taskId);
           break;
       }
   });
@@ -656,7 +764,16 @@ export function useCompletionNotifier({
 
       const topicName = ts?.topicId ? topicsRef.current[ts.topicId]?.name : undefined;
       const label = ts?.name || topicName || 'Claude Code';
-      fire('session:state', label, statusBody('completed'), cfg.notificationsSound);
+      // Stessa chiave della cooldown qui sopra: questo ripiego e il percorso
+      // phase-based non devono poter lasciare due righe per la stessa fine
+      // turno, esattamente come non lasciano due banner.
+      fire(
+        'session:state',
+        label,
+        statusBody('completed'),
+        cfg.notificationsSound,
+        { dedupeKey: `terminal:${cooldownKey}`, topicId: ts?.topicId },
+      );
   });
 }
 
