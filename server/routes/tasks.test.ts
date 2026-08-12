@@ -826,6 +826,36 @@ describe("board settings route", () => {
     expect(resp.status).toBe(400);
   });
 
+  test("i sei cancelli si salvano TUTTI, e il settimo e' un 400 invece di sparire", async () => {
+    // Il 12/08 il tetto era cinque, questo repo aveva sei gate, e il sesto
+    // (`test:unit`) veniva troncato in silenzio: la board mostrava "verde" su
+    // consegne che la suite bocciava, e il rosso lo trovava un umano al land.
+    // Un tetto puo' esistere; sparire no.
+    const sei = [
+      { name: "typecheck", cmd: "bun run typecheck" },
+      { name: "lint", cmd: "bun run lint" },
+      { name: "check:deadcode", cmd: "bun run check:deadcode" },
+      { name: "check:emdash", cmd: "bun run check:emdash" },
+      { name: "check:migrations", cmd: "bun run check:migrations" },
+      { name: "test:unit", cmd: "bun run test:unit" },
+    ];
+    const ok = (await call(router, "PATCH", "/api/boards/pX/settings", { reviewChecks: sei }))!;
+    expect(ok.status).toBe(200);
+    const salvati = (await (await call(router, "GET", "/api/boards/pX/settings"))!.json()).reviewChecks;
+    expect(salvati).toHaveLength(6);
+    expect(salvati.map((c: { name: string }) => c.name)).toContain("test:unit");
+
+    const troppi = (await call(router, "PATCH", "/api/boards/pX/settings", {
+      reviewChecks: [...sei, { name: "settimo", cmd: "echo no" }],
+    }))!;
+    expect(troppi.status).toBe(400);
+    const body = await troppi.json();
+    expect(body.error).toContain("7");
+    // E non ha toccato quelli buoni: un rifiuto non deve lasciare la board a meta'.
+    const dopo = (await (await call(router, "GET", "/api/boards/pX/settings"))!.json()).reviewChecks;
+    expect(dopo).toHaveLength(6);
+  });
+
   test("all-boards/settings: GET default off, PATCH flips globally + broadcasts board:dispatch", async () => {
     let g = await (await call(router, "GET", "/api/all-boards/settings"))!.json();
     expect(g.autoDispatch).toBe(false);
