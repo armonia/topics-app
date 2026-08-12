@@ -10,6 +10,8 @@ import { SelectElementOverlay } from './SelectElementOverlay';
 import { NativeBrowserPlaceholder } from './NativeBrowserPlaceholder';
 import { ParkedPane } from './ParkedPane';
 import { BrowserNoticeStrip } from './BrowserNoticeStrip';
+import { ForgetSiteDialog } from './ForgetSiteDialog';
+import { siteHostOf } from '../../lib/browserForgetSite';
 import { BrowserPaneChip, ChipDot, type ChipTone } from './BrowserPaneChip';
 import { useBrowserDownloads } from '../../hooks/useBrowserDownloads';
 import type { DownloadsMenuProps } from './DownloadsMenu';
@@ -321,6 +323,7 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
   const [findOpen, setFindOpen] = useState(false);
   const [findText, setFindText] = useState('');
   const [findCount, setFindCount] = useState<number | null>(null);
+  const [forgetOpen, setForgetOpen] = useState(false);
 
   // Surface URL changes to the layout (tab title / persisted pane url) + record
   // in per-topic history. browser.url now tracks in-page nav via the poll.
@@ -451,6 +454,7 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
         shared={shared}
         shareMode={shareMode}
         onToggleShare={onToggleShare}
+        onForgetSite={siteHostOf(browser.url) ? () => setForgetOpen(true) : undefined}
       />
       {findOpen && (
         <div className="flex items-center gap-1.5 px-3 h-9 border-b border-app-border bg-app-bg flex-shrink-0">
@@ -520,6 +524,17 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
         />
       ) : (
         <NativeBrowserPlaceholder browser={browser} isVisible={isVisible} />
+      )}
+      {/* «Dimentica questo sito»: il dialogo sta QUI e non nel menu della
+          toolbar, che si chiude al clic e si porterebbe dietro il figlio. Copre
+          la WKWebView da sé: `MODAL_PANEL` porta `.native-occlude`. */}
+      {forgetOpen && (
+        <ForgetSiteDialog
+          contextId={contextId}
+          url={browser.url}
+          onClose={() => setForgetOpen(false)}
+          onForgotten={() => { void browser.reload(); }}
+        />
       )}
     </div>
   );
