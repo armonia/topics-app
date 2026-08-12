@@ -142,11 +142,15 @@ export function ProfileStatsSection() {
                 in un formato che si può portare fuori. */}
             <div className="flex flex-wrap items-center gap-2 border-t border-app-border pt-2">
               <span className="text-[11px] text-app-text-secondary">{t('profile.banner.label')}</span>
+              {/* `coarse:min-h-11`: dentro una riga flex questi `<a>` sono
+                  elementi flex, quindi non ricadono nell'esenzione WCAG per il
+                  link INLINE dentro una frase — sono bottoni a tutti gli
+                  effetti, e sotto il dito devono misurare 44px come tali. */}
               <a
                 href={`/api/profile/banner.svg${nome ? `?name=${encodeURIComponent(nome)}` : ''}`}
                 target="_blank"
                 rel="noreferrer"
-                className="rounded border border-app-border px-2 py-0.5 text-[11px] text-app-text hover:bg-app-hover"
+                className="flex items-center rounded border border-app-border px-2 py-0.5 text-[11px] text-app-text hover:bg-app-hover coarse:min-h-11"
               >
                 {t('profile.banner.open')}
               </a>
@@ -154,7 +158,7 @@ export function ProfileStatsSection() {
                 href={`/api/profile/banner.svg?theme=light${nome ? `&name=${encodeURIComponent(nome)}` : ''}`}
                 target="_blank"
                 rel="noreferrer"
-                className="rounded border border-app-border px-2 py-0.5 text-[11px] text-app-text hover:bg-app-hover"
+                className="flex items-center rounded border border-app-border px-2 py-0.5 text-[11px] text-app-text hover:bg-app-hover coarse:min-h-11"
               >
                 {t('profile.banner.light')}
               </a>

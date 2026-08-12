@@ -49,7 +49,7 @@ export type OutputLanguage = (typeof OUTPUT_LANGUAGES)[number];
 // ─── Discord Rich Presence: QUANTO si vede ─────────────────────────────
 
 /**
- * Quanto della tua giornata finisce sul profilo Discord (migration 097).
+ * Quanto della tua giornata finisce sul profilo Discord (migration 102).
  *
  * È un controllo di PRIVACY, non un gusto: la presence la vede chiunque
  * condivida un server con te, quindi ogni gradino va letto come «cosa sto
@@ -63,7 +63,7 @@ export type OutputLanguage = (typeof OUTPUT_LANGUAGES)[number];
  *                  quel pubblico, quindi non è il default e non lo diventa.
  *
  * Il default vive nel codice ed è `activity`, ma vale solo a interruttore
- * ACCESO: la presence parte spenta (vedi 097), perché pubblicare cosa stai
+ * ACCESO: la presence parte spenta (vedi 102), perché pubblicare cosa stai
  * facendo non è una cosa che si accende per conto di qualcuno.
  *
  * Come per le lingue, il tipo DERIVA dall'array: chi valida (la rotta), chi
@@ -94,6 +94,13 @@ export interface DiscordActivity {
  * (niente presence) e due rimedi opposti — il primo si apre, il secondo si
  * configura — e un'interfaccia che li fonde in «non funziona» manda a
  * indovinare.
+ *
+ * Il nome è `DiscordConnectionState` e non `ConnectionState` di proposito: il
+ * client ha già un `ConnectionState` suo — quello del browser remoto — che è
+ * un'altra cosa. Due concetti diversi non devono contendersi un nome generico.
+ * Chi ne ha bisogno lo importa DA QUI: i moduli che lo usano non lo
+ * ri-esportano, o la stessa forma avrebbe due porte e knip conterebbe la
+ * seconda come morta (è già successo, ed è ciò che ha rimandato questa card).
  */
 export type DiscordConnectionState =
   | 'off'
