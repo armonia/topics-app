@@ -199,6 +199,46 @@ describe("perché questa card è ferma", () => {
     expect(reason({ status: "review" }, { openSubtasks: 1 }).detail).toBe("1 sottotask aperto");
   });
 
+  /**
+   * LA CARD CHE STA GIÀ CHIEDENDO NON SI FA ZITTIRE.
+   *
+   * `needs_input` è l'unico stato in cui la card porta addosso una DOMANDA con
+   * una risposta possibile: quella di sistema sui figli parcheggiati (due
+   * bottoni, «rimettili in coda» / «archiviali») o quella vera dell'agente, che
+   * si risponde nella sessione. Il chip rosa «serve te» dice esattamente quella
+   * mossa; «ferma · 1 sottotask aperto» la cancella e al suo posto consiglia
+   * cose che o ci sono già o non c'entrano.
+   *
+   * Ed è anche la riga su cui la sonda e questa funzione si davano risposta
+   * opposta: `stalled-parents.ts` esclude `review + delivered_reason =
+   * 'parked_children'` dicendo «STA GIÀ CHIEDENDO», e qui si leggeva «ferma».
+   * Escludere `needs_input` CONTIENE quell'esclusione — `askParkedChildren`
+   * scrive i due campi nella stessa UPDATE — quindi le due funzioni non possono
+   * più contraddirsi su nessuna riga.
+   */
+  test("in review con una domanda aperta la ragione TACE: «serve te» è la mossa", () => {
+    expect(deriveQueueReason(
+      { ...base, status: "review", dispatchState: "needs_input" },
+      { ...ctx, openSubtasks: 2 },
+    )).toBeNull();
+  });
+
+  /**
+   * `delivered` invece PERDE il suo chip verde, ed è voluto: «consegnato,
+   * approva» è una bugia quando approvare viene rifiutato (`open_subtasks`).
+   * Non c'è nessuna domanda da cancellare — quel chip non chiede niente, dice
+   * che si può chiudere — e non si può.
+   */
+  test("una consegna pulita con la checklist aperta non è pulita: vince «ferma»", () => {
+    expect(reason({ status: "review", dispatchState: "delivered" }, { openSubtasks: 1 }))
+      .toMatchObject({ kind: "checklist_frozen", tone: "stalled" });
+  });
+
+  test("in review senza domanda («waiting») il chip nuovo resta", () => {
+    expect(reason({ status: "review", dispatchState: "waiting" }, { openSubtasks: 3 }))
+      .toMatchObject({ kind: "checklist_frozen", detail: "3 sottotask aperti" });
+  });
+
   test("fuori da todo e review la domanda resta senza risposta", () => {
     for (const status of ["backlog", "in_progress", "done"]) {
       expect(deriveQueueReason({ ...base, status }, { ...ctx, openSubtasks: 3 })).toBeNull();
