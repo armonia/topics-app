@@ -27,7 +27,7 @@ import { ZERO_USAGE, type SessionUsage } from "./transcript-usage";
 import { onHumanHoldChange } from "../lib/human-hold-events";
 import type { TaskAttemptStore } from "./task-attempts";
 import { attemptHasWork, formatFanoutComment } from "../../shared/task-attempt";
-import { CODE_GATES_RULE, MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_RULE, VERSION_BUMP_RULE, readTaskWeight, statusEventEnters } from "../../shared/board";
+import { CODE_GATES_RULE, DISPATCH_CHIP_QUEUED, MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_RULE, VERSION_BUMP_RULE, readTaskWeight, statusEventEnters } from "../../shared/board";
 import { decideNight, deadlineFrom } from "./night-mode";
 import { effectiveDispatchCap } from "./dispatch-capacity";
 import type { OutboundMessage } from "../../shared/ws-outbound";
@@ -443,7 +443,7 @@ export function rotateFrom<T>(items: readonly T[], cursor: number): T[] {
   return [...items.slice(da), ...items.slice(0, da)];
 }
 
-const CHIP_QUEUED = "queued";
+const CHIP_QUEUED = DISPATCH_CHIP_QUEUED;
 const CHIP_WORKING = "working";
 const CHIP_NEEDS_INPUT = "needs_input";
 // Review, but with a difference the human cares about: "serve te" = the agent
