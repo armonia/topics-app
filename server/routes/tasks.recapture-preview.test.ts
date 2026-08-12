@@ -24,6 +24,7 @@ import type { AppContext } from "../types";
 import { createTasksRouter } from "./tasks";
 import { createTaskService } from "../services/tasks";
 import { createPreviewManager, type PreviewProcess, type PreviewWorktree } from "../services/preview-manager";
+import { TASK_LABELS_DDL } from "../db/test-schema";
 
 function freshDb(): Database {
   const db = new Database(":memory:");
@@ -64,6 +65,9 @@ function freshDb(): Database {
     rubric_scores TEXT, justification TEXT, status TEXT NOT NULL DEFAULT 'pending',
     reviewed_by TEXT, review_comment TEXT, created_at TEXT NOT NULL, reviewed_at TEXT, expires_at TEXT
   )`);
+  // `rowToTask` legge le etichette per OGNI riga: senza questa tabella ogni
+  // lettura di task esplode in un 500, non solo i test delle etichette.
+  db.run(TASK_LABELS_DDL);
   return db;
 }
 
