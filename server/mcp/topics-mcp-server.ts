@@ -605,16 +605,28 @@ interface ParsedArgs {
  * Tools a dispatched board agent never needs — every schema here would ride
  * along in the agent's context on every API call for nothing. Excluded under
  * `--profile=dispatch`, BOTH from tools/list and (defense in depth) tools/call:
- * orchestration fan-out (spawn/steer sub-agents), cross-topic chat, topic/tab
- * navigation, project management, Chrome cookie import. The task tools, the
- * process tools (run_script &c.) and every browser_* verification tool stay.
+ * cross-topic chat, topic/tab navigation, project management, Chrome cookie
+ * import. The task tools, the process tools (run_script &c.) and every browser_*
+ * verification tool stay.
+ *
+ * IL FAN-OUT È TORNATO, e con lui la ragione per cui era stato tolto. La
+ * motivazione originale — «un agente di board non puo' fare fan-out: sarebbe un
+ * secondo dispatcher fuori dal governo dei tetti» — era giusta sul fatto e
+ * sbagliata sul rimedio: toglieva lo strumento invece di metterlo sotto
+ * governo. Il modello del coordinatore ha bisogno di quello strumento (la
+ * sessione del task DECIDE, il lavoro gira nelle figlie), e il governo ora
+ * esiste ed è alla porta, non qui:
+ *   · il tetto di concorrenza conta le figlie come chiunque altro
+ *     (`agent-census.ts`, letto sia dal claim che dalla rotta di spawn);
+ *   · il loro consumo si contabilizza sul task padre (`dispatch-usage.ts`);
+ *   · profondita' 1: una figlia non apre nipoti (`boardSpawnRefusal`);
+ *   · muoiono col padre (`orphanBoardChildSessions`, spazzata del dispatcher).
+ * `list_agents` resta fuori: chi ha aperto le figlie e' il coordinatore, che gli
+ * id ce li ha gia' dallo `spawn_agent`, e uno schema in meno e' un prefisso in
+ * meno moltiplicato per ogni chiamata del turno.
  */
 const DISPATCH_EXCLUDED_TOOLS = new Set([
-  "spawn_agent",
-  "send_to_agent",
-  "read_agent",
   "list_agents",
-  "stop_agent",
   "send_chat_message",
   "read_chat_messages",
   "new_topic",
