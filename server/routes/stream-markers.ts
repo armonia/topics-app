@@ -18,7 +18,7 @@
  * Keep the entire substring stable — modifying it requires updating the strip
  * helper too.
  */
-export const STREAM_SLOW_ANNOTATION = "\n\n---\n*[⏱ stream lento — il provider è ancora connesso]*";
+export const STREAM_SLOW_ANNOTATION = "\n\n---\n*[⏱ stream lento, il provider è ancora connesso]*";
 
 /**
  * Compute the next visible delta to broadcast given the accumulated server-side

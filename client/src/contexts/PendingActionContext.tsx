@@ -166,7 +166,7 @@ export function PendingActionProvider({
           // leaves the client showing "done" while the server disagrees, with no
           // recovery path. Surface it so they can retry / reload.
           console.warn('[PendingAction] commit failed:', err);
-          toastRef.current.error(`Non è stato possibile completare l'azione su «${committed!.label}» — riprova.`);
+          toastRef.current.error(`Non è stato possibile completare l'azione su «${committed!.label}». Riprova.`);
         });
     }
   }, [clearTimer]);

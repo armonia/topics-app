@@ -32,7 +32,7 @@ export interface FastModeUi {
  */
 const REASON_TEXT: Record<string, string> = {
   sdk_opt_in_required:
-    "Fast mode non è disponibile nell'Agent SDK — ed è così che Topics lancia la CLI per le chat.",
+    "Fast mode non è disponibile nell'Agent SDK, ed è così che Topics lancia la CLI per le chat.",
   not_first_party: 'Fast mode è disponibile solo usando l’API Anthropic diretta.',
   model_not_allowed: 'Il modello di questa chat non è fra quelli permessi dalla tua organizzazione.',
   disabled_by_env: "Fast mode è spenta dall'ambiente in cui gira la CLI.",

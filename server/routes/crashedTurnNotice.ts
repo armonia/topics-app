@@ -64,7 +64,7 @@ export function shortErrorDetail(raw: unknown): string {
 export function crashedTurnNotice(row: CrashedTurnRow | null, error: unknown): string | null {
   if (!row) return null;
   if (rowCarriesWork(row)) return null;
-  return `⚠️ Errore interno di Topics: ${shortErrorDetail(error)} — il turno è morto prima di rispondere, non è il servizio AI. Il tuo messaggio è ancora qui: «Riprova» lo rimanda.`;
+  return `⚠️ Errore interno di Topics: ${shortErrorDetail(error)}. Il turno è morto prima di rispondere, non è il servizio AI. Il tuo messaggio è ancora qui: «Riprova» lo rimanda.`;
 }
 
 /**
@@ -79,7 +79,7 @@ export function crashedTurnNotice(row: CrashedTurnRow | null, error: unknown): s
  */
 export function sendFailureNotice(row: CrashedTurnRow | null, error: unknown): string | null {
   if (row && rowCarriesWork(row)) return null;
-  return `⚠️ Non sono riuscito ad avviare il turno: ${shortErrorDetail(error)} — il tuo messaggio è ancora qui: «Riprova» lo rimanda.`;
+  return `⚠️ Non sono riuscito ad avviare il turno: ${shortErrorDetail(error)}. Il tuo messaggio è ancora qui: «Riprova» lo rimanda.`;
 }
 
 /**

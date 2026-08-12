@@ -1552,7 +1552,7 @@ export function createTopicsRouter(
           ok: false,
           count: updatedTopics.length,
           topics: updatedTopics,
-          error: "some ui_state purges failed — stale topic ids may resurrect on client reload",
+          error: "some ui_state purges failed. Stale topic ids may resurrect on client reload.",
           purgeFailures,
         }, 500);
       }
@@ -2364,7 +2364,7 @@ export function createTopicsRouter(
               try { resolveProvider(topic).refreshSessionConfig?.(topic.sessionKey); }
               catch (err) { console.warn(`[command] refreshSessionConfig (model) failed:`, err); }
             }
-            return json({ ok: true, command: "model", model: topic.model, message: `Modello impostato: ${topic.model} — attivo dal prossimo turno.` });
+            return json({ ok: true, command: "model", model: topic.model, message: `Modello impostato: ${topic.model}. Attivo dal prossimo turno.` });
           }
           case "effort": {
             // Per-topic reasoning-effort tier for claude-code (spawn-time
@@ -2372,7 +2372,7 @@ export function createTopicsRouter(
             const tier = String(args?.level || args?.effort || "").trim().toLowerCase();
             const VALID_EFFORTS = new Set<string>(EFFORT_TIERS);
             if (commandRoutesThroughGateway(sessionKey)) {
-              return json({ error: "L'effort non si applica a questo provider — usa /reasoning." }, 400);
+              return json({ error: "L'effort non si applica a questo provider. Usa /reasoning." }, 400);
             }
             if (!tier || !VALID_EFFORTS.has(tier)) {
               return json({ error: "Uso: /effort <low|medium|high|xhigh|max>" }, 400);
@@ -2388,7 +2388,7 @@ export function createTopicsRouter(
               try { resolveProvider(topic).refreshSessionConfig?.(topic.sessionKey); }
               catch (err) { console.warn(`[command] refreshSessionConfig (effort) failed:`, err); }
             }
-            return json({ ok: true, command: "effort", level: tier, message: `Effort impostato: ${tier} — attivo dal prossimo turno.` });
+            return json({ ok: true, command: "effort", level: tier, message: `Effort impostato: ${tier}. Attivo dal prossimo turno.` });
           }
           case "reasoning": {
             const level = args?.level || "on";
@@ -2446,7 +2446,7 @@ export function createTopicsRouter(
               lines.push("", "🗂 Workspace projects:");
               for (const p of wsProjects.slice(0, 20)) {
                 const name = p.split("/").pop() || p;
-                lines.push(`  • ${name}  —  ${p}`);
+                lines.push(`  • ${name}  ·  ${p}`);
               }
               if (wsProjects.length > 20) lines.push(`  …and ${wsProjects.length - 20} more`);
             }

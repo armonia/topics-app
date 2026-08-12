@@ -131,7 +131,7 @@ describe("decideTerminalBanner — body + level per phase", () => {
 
   test("error → error body, warn level", () => {
     const d = decideTerminalBanner(input({ prevPhase: "running", phase: "error" }))!;
-    expect(d.body).toBe("Errore — intervieni");
+    expect(d.body).toBe("Errore, intervieni");
     expect(d.level).toBe("warn");
   });
 
@@ -194,7 +194,7 @@ describe("statusBody — una frase sola per due superfici", () => {
     expect(statusBody("awaiting-user")).toBe("In attesa di te");
     expect(statusBody("awaiting-approval")).toBe("Serve un'approvazione");
     expect(statusBody("completed")).toBe("Lavoro completato");
-    expect(statusBody("error")).toBe("Errore — intervieni");
+    expect(statusBody("error")).toBe("Errore, intervieni");
   });
 
   test("una fase che non merita un banner non ha corpo", () => {
