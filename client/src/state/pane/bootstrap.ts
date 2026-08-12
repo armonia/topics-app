@@ -14,6 +14,7 @@
  * just subscribes to that bus.
  */
 import { hydrateFromLegacyStorage } from './migration/importLegacy';
+import { scheduleBrowserDataStoreReap } from '../../lib/browserDataStoreReaper';
 import {
   initLocalPersistence,
   initServerSync,
@@ -157,6 +158,12 @@ export function bootstrapPaneStore(): void {
 
   // 500 ms WS-latency fallback to GET /api/ui-state.
   scheduleInitialLoadFallback();
+
+  // Lo spazzino degli store browser orfani (Tauri, differito di 90 s). Non
+  // dalle finestre staccate: sono READ-ONLY verso lo stato condiviso, e questo
+  // è il gesto meno reversibile che ci sia — due finestre che grattano lo
+  // stesso disco insieme, poi, non aggiungono niente.
+  if (!isDetached) scheduleBrowserDataStoreReap();
 }
 
 /**
