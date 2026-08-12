@@ -34,6 +34,7 @@ function freshDb(): Database {
     priority_auto INTEGER NOT NULL DEFAULT 1,
     delivery_branch TEXT, delivery_commit TEXT, landing_state TEXT, landing_checked_at TEXT,
     landing_witnessed INTEGER NOT NULL DEFAULT 0, dispatch_deferred_until TEXT,
+    wait_streak INTEGER NOT NULL DEFAULT 0, wait_reason TEXT, wait_since TEXT,
     checks_state TEXT, checks_at TEXT, checks_commit TEXT, checks_json TEXT,
     delivered_by TEXT, delivered_reason TEXT, created_by_topic_id TEXT,
     done_actor TEXT, reopened_at TEXT, reopened_by TEXT, reopened_actor TEXT

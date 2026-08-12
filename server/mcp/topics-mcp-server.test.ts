@@ -27,6 +27,7 @@ import {
   callGetTask,
   callUpdateTask,
   callCommentTask,
+  callWaitForCondition,
   callAskUserQuestion,
   callSpawnAgent,
   callSendToAgent,
@@ -106,6 +107,38 @@ describe("parseArgs", () => {
 function stubFetch(impl: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>) {
   return impl as typeof fetch;
 }
+
+describe("callWaitForCondition", () => {
+  const args = { baseUrl: "http://x", sessionKey: "s" };
+
+  test("attesa accettata: dice all'agent che il task riparte da solo", async () => {
+    const fetchImpl = stubFetch(async () =>
+      new Response(JSON.stringify({ dispatchState: "waiting", dispatchDeferredUntil: "2026-08-12T10:00:00.000Z" }), {
+        status: 200, headers: { "content-type": "application/json" },
+      }),
+    );
+    const out = await callWaitForCondition(args, { task_id: "t1", reason: "la CI sta girando" }, fetchImpl);
+    expect(out).toContain("re-dispatched automatically");
+    expect(out).toContain("2026-08-12T10:00:00.000Z");
+  });
+
+  test("attesa RIFIUTATA: non promette un rientro in coda che non ci sarà", async () => {
+    // Il server ha parcheggiato il task (serie di attese oltre il tetto). La
+    // riga di prima diceva «it will be re-dispatched automatically» comunque, e
+    // un agente che la legge chiude il turno convinto di dover solo aspettare:
+    // il task resta in backlog e nessuno lo sa.
+    const fetchImpl = stubFetch(async () =>
+      new Response(JSON.stringify({ dispatchState: "waited_out", dispatchDeferredUntil: null }), {
+        status: 200, headers: { "content-type": "application/json" },
+      }),
+    );
+    const out = await callWaitForCondition(args, { task_id: "t1", reason: "la CI sta girando" }, fetchImpl);
+    expect(out).toContain("PARKED");
+    expect(out).toContain("NOT be re-dispatched");
+    expect(out).toContain("do not call wait_for_condition again");
+    expect(out).not.toContain("It will be re-dispatched automatically");
+  });
+});
 
 describe("callOpenBrowserPane", () => {
   test("POSTs to the session-keyed open-pane endpoint", async () => {
