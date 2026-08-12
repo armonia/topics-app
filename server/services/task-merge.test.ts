@@ -115,6 +115,20 @@ describe("fusione: niente si perde", () => {
     expect(row.parent_task_id).toBe(survivor.id);
   });
 
+  test("anche i nipoti restano visibili", () => {
+    const { survivor, dupe } = twoCards();
+    const figlio = svc.create({ projectId: PID, text: "test unit dello store", parentTaskId: dupe.id });
+    const nipote = svc.create({ projectId: PID, text: "caso limite: chiave assente", parentTaskId: figlio.id });
+
+    svc.merge({ taskId: dupe.id, intoTaskId: survivor.id, by: "attilio" });
+
+    // Il nipote non viene MAI spostato (resta sotto suo padre): sopravvive solo
+    // perche' il padre e' uscito dal sottoalbero prima che la cascata passasse.
+    const row = db.prepare("SELECT archived, parent_task_id FROM tasks WHERE id = ?").get(nipote.id) as any;
+    expect(row.archived).toBe(0);
+    expect(row.parent_task_id).toBe(figlio.id);
+  });
+
   test("la card assorbita e' archiviata, non cancellata", () => {
     const { survivor, dupe } = twoCards();
     svc.merge({ taskId: dupe.id, intoTaskId: survivor.id, by: "attilio" });
@@ -151,6 +165,79 @@ describe("fusione: niente si perde", () => {
     // `Task` non espone `archived` (l'API non restituisce mai card archiviate):
     // che la card sia uscita dalla board lo dice la riga, ed e' il test sopra.
     expect(esito.survivor.subtaskCount).toBe(1);
+  });
+});
+
+describe("fusione: chi aspettava la card assorbita aspetta ancora", () => {
+  test("il puntatore `bloccata da` passa alla superstite, e il blocco TIENE", () => {
+    const { survivor, dupe } = twoCards();
+    const dipendente = svc.create({ projectId: PID, text: "la card che aspetta lo store", blockedByTaskId: dupe.id });
+    expect(svc.isDispatchBlocked(dipendente.id)).toBe(true);
+
+    svc.merge({ taskId: dupe.id, intoTaskId: survivor.id, by: "attilio" });
+
+    const row = db.prepare("SELECT blocked_by_task_id FROM tasks WHERE id = ?").get(dipendente.id) as any;
+    expect(row.blocked_by_task_id).toBe(survivor.id);
+    // Il difetto vero: archiviare il bloccante lo fa contare come "finito"
+    // (isDispatchBlocked guarda `status='done' OR archived=1`). Senza il
+    // ripuntamento il dipendente parte mentre il lavoro e' ancora da fare.
+    expect(svc.isDispatchBlocked(dipendente.id)).toBe(true);
+    expect(svc.listBlockedBy(survivor.id).map((t) => t.id)).toContain(dipendente.id);
+  });
+
+  test("finito il lavoro sulla superstite, il dipendente si sblocca", () => {
+    const { survivor, dupe } = twoCards();
+    const dipendente = svc.create({ projectId: PID, text: "la card che aspetta lo store", blockedByTaskId: dupe.id });
+    svc.merge({ taskId: dupe.id, intoTaskId: survivor.id, by: "attilio" });
+    db.prepare("UPDATE tasks SET status = 'done' WHERE id = ?").run(survivor.id);
+    expect(svc.isDispatchBlocked(dipendente.id)).toBe(false);
+  });
+
+  test("la superstite non diventa bloccante di se stessa", () => {
+    const { survivor, dupe } = twoCards();
+    // La superstite aspettava proprio la card che ora assorbe: il prerequisito
+    // e' diventato lei stessa, quindi non c'e' piu' niente da aspettare.
+    db.prepare("UPDATE tasks SET blocked_by_task_id = ? WHERE id = ?").run(dupe.id, survivor.id);
+
+    svc.merge({ taskId: dupe.id, intoTaskId: survivor.id, by: "attilio" });
+
+    const row = db.prepare("SELECT blocked_by_task_id FROM tasks WHERE id = ?").get(survivor.id) as any;
+    expect(row.blocked_by_task_id).toBe(null);
+    expect(svc.isDispatchBlocked(survivor.id)).toBe(false);
+  });
+
+  test("nessun anello: chi bloccava la superstite non ripunta su di lei", () => {
+    const { survivor, dupe } = twoCards();
+    // survivor aspetta `ponte`, e `ponte` aspetta `dupe`. Ripuntare `ponte`
+    // sulla superstite chiuderebbe l'anello survivor -> ponte -> survivor, e i
+    // due resterebbero fermi per sempre.
+    const ponte = svc.create({ projectId: PID, text: "il ponte fra le due", blockedByTaskId: dupe.id });
+    db.prepare("UPDATE tasks SET blocked_by_task_id = ? WHERE id = ?").run(ponte.id, survivor.id);
+
+    svc.merge({ taskId: dupe.id, intoTaskId: survivor.id, by: "attilio" });
+
+    const row = db.prepare("SELECT blocked_by_task_id FROM tasks WHERE id = ?").get(ponte.id) as any;
+    expect(row.blocked_by_task_id).not.toBe(survivor.id);
+    expect(svc.isDispatchBlocked(ponte.id)).toBe(false);
+  });
+
+  test("il conto tornato dice quanti puntatori ha spostato", () => {
+    const { survivor, dupe } = twoCards();
+    svc.create({ projectId: PID, text: "prima che aspetta", blockedByTaskId: dupe.id });
+    svc.create({ projectId: PID, text: "seconda che aspetta", blockedByTaskId: dupe.id });
+    const esito = svc.merge({ taskId: dupe.id, intoTaskId: survivor.id, by: "attilio" });
+    expect(esito.movedBlockers).toBe(2);
+    // E la ricevuta lo dice: chi legge il thread della superstite deve sapere
+    // che ora ha due card appese, non scoprirlo quando un dispatch parte.
+    const ricevuta = svc.get(survivor.id)!.comments.map((c) => c.content).join("\n");
+    expect(ricevuta).toContain("2 card che aspettavano quella");
+  });
+
+  test("senza dipendenti la ricevuta non inventa niente", () => {
+    const { survivor, dupe } = twoCards();
+    svc.merge({ taskId: dupe.id, intoTaskId: survivor.id, by: "attilio" });
+    const ricevuta = svc.get(survivor.id)!.comments.map((c) => c.content).join("\n");
+    expect(ricevuta).not.toContain("aspettav");
   });
 });
 
