@@ -19,7 +19,14 @@ const MIGRATION_SQL = fs.readFileSync(
   "utf-8",
 );
 
-/** Le colonne toccate, più quelle che devono restare ferme. */
+/**
+ * Le colonne toccate, più quelle che devono restare ferme.
+ *
+ * Sottoinsieme deliberato: qui si misura una migration, quindi lo schema deve
+ * essere quello del giorno in cui la 078 gira, non quello di oggi. Per questo
+ * non arriva da `TASKS_DDL` (server/db/test-schema.ts), che è la catena
+ * completa e comprende colonne nate DOPO.
+ */
 function makeDb(): Database {
   const db = new Database(":memory:");
   db.run("CREATE TABLE topics (session_key TEXT PRIMARY KEY, model TEXT)");
