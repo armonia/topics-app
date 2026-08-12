@@ -244,6 +244,31 @@ describe("task-dispatcher fan-out", () => {
     expect(k).toContain("scripts/disk-report.ts!");
   });
 
+  /**
+   * Il bump di versione, nominato come GESTO nel kickoff.
+   *
+   * Stessa forma della regressione qui sopra, un giorno dopo: il cancello
+   * `version-lockstep` prendeva i bump fatti a mano (due volte in una notte, sul
+   * `Cargo.lock` entrambe le volte) ma nessun testo diceva quale comando li
+   * evita, quindi l'umano riallineava a mano e il giro si ripeteva.
+   *
+   * Anche qui i nomi si scrivono a mano invece di interpolare `VERSION_BUMP_RULE`:
+   * un test che cerca la costante che ha appena interpolato non può fallire.
+   */
+  it("il kickoff nomina il gesto del bump, non i file da aprire", async () => {
+    const h = harness();
+    boardWithFanOut(h, 2);
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    const k = h.turns[0].content;
+    expect(k).toContain("bun run bump");
+    expect(k).toContain("bun run bump sync");
+    // Il PERCHÉ, non solo il comando: il posto dimenticato è quello generato.
+    expect(k).toContain("lockfile");
+  });
+
   it("il confronto si scrive quando ha finito l'ULTIMO tentativo, non il primo", async () => {
     const h = harness();
     boardWithFanOut(h, 2);
