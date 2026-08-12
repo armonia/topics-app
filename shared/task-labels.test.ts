@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   deriveCloser,
+  deriveKind,
   isAgentWritableLabel,
   isDocumentFile,
   isTaskLabel,
@@ -226,5 +227,58 @@ describe("BARRA — la coda di review dell'11/08/2026", () => {
     const docsOnly = fixture.cards.filter((c) => c.files.length && c.files.every(isDocumentFile));
     expect(docsOnly.length).toBeGreaterThanOrEqual(4);
     for (const c of docsOnly) expect(deriveCloser(c.files)).toBe("decisione");
+  });
+});
+
+describe("deriveKind — il genere si deriva, non si aspetta che qualcuno lo scriva", () => {
+  const mod = (...paths: string[]) => paths.map((path) => ({ path, added: false }));
+  const add = (...paths: string[]) => paths.map((path) => ({ path, added: true }));
+
+  test("SOLO test toccati ⇒ `misura`, anche quando i test sono nuovi", () => {
+    expect(deriveKind(mod("tests/e2e/board.spec.ts"))).toBe("misura");
+    expect(deriveKind(add("client/src/lib/board.test.ts"))).toBe("misura");
+    expect(deriveKind([...mod("tests/unit/a.test.ts"), ...add("server/x.test.ts")])).toBe("misura");
+  });
+
+  test("SOLO build/config/dipendenze ⇒ `chore`", () => {
+    expect(deriveKind(mod("package.json", "bun.lock"))).toBe("chore");
+    expect(deriveKind(mod(".github/workflows/tauri-release.yml"))).toBe("chore");
+    expect(deriveKind(mod("desktop-tauri/src-tauri/Cargo.toml"))).toBe("chore");
+    expect(deriveKind(mod("tsconfig.json", "knip.jsonc", "client/vite.config.ts"))).toBe("chore");
+  });
+
+  test("un file NUOVO di prodotto ⇒ `feature`, e basta che sia uno", () => {
+    expect(deriveKind(add("client/src/components/Board/Chip.tsx"))).toBe("feature");
+    expect(deriveKind([...mod("server/routes/tasks.ts"), ...add("server/services/kind.ts")]))
+      .toBe("feature");
+  });
+
+  test("solo modifiche a codice che esisteva già ⇒ `bugfix`", () => {
+    expect(deriveKind(mod("server/routes/tasks.ts", "shared/board.ts"))).toBe("bugfix");
+    expect(deriveKind(mod("client/src/App.tsx"))).toBe("bugfix");
+  });
+
+  test("i file di CONTORNO non spostano il genere del prodotto", () => {
+    // Un fix di server che si porta dietro il suo test e un bump di lockfile
+    // resta un fix: test e config accompagnano il lavoro, non lo classificano.
+    expect(deriveKind([...mod("server/routes/tasks.ts", "bun.lock"), ...add("server/routes/tasks.test.ts")]))
+      .toBe("bugfix");
+    // E un file nuovo di prodotto resta una feature anche in mezzo ai test.
+    expect(deriveKind(add("client/src/components/New.tsx", "tests/e2e/new.spec.ts")))
+      .toBe("feature");
+  });
+
+  test("ciò per cui il vocabolario NON ha una parola non prende un genere", () => {
+    // Niente file: non c'è niente da misurare. E una card di soli documenti è un
+    // piano o una ricerca — `chore` sarebbe una bugia che poi il filtro propaga.
+    expect(deriveKind([])).toBeNull();
+    expect(deriveKind(mod("docs/PIANO-amicizia-sessioni.md"))).toBeNull();
+    expect(deriveKind(add("openspec/changes/x/proposal.md", "openspec/changes/x/mockup.html")))
+      .toBeNull();
+  });
+
+  test("un genere derivato è SEMPRE una parola del vocabolario chiuso", () => {
+    const cases = [mod("server/a.ts"), add("client/src/a.tsx"), mod("package.json"), mod("tests/a.spec.ts")];
+    for (const c of cases) expect(KIND_LABELS).toContain(deriveKind(c)!);
   });
 });

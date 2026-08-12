@@ -44,10 +44,12 @@ export const KIND_LABELS = ['bugfix', 'feature', 'chore', 'misura'] as const;
 export const TASK_LABELS = [...CLOSER_LABELS, ...KIND_LABELS] as const;
 
 export type CloserLabel = (typeof CLOSER_LABELS)[number];
+export type KindLabel = (typeof KIND_LABELS)[number];
 export type TaskLabel = (typeof TASK_LABELS)[number];
 
 const LABEL_SET: ReadonlySet<string> = new Set<string>(TASK_LABELS);
 const CLOSER_SET: ReadonlySet<string> = new Set<string>(CLOSER_LABELS);
+const KIND_SET: ReadonlySet<string> = new Set<string>(KIND_LABELS);
 
 export function isTaskLabel(value: unknown): value is TaskLabel {
   return typeof value === 'string' && LABEL_SET.has(value);
@@ -55,6 +57,10 @@ export function isTaskLabel(value: unknown): value is TaskLabel {
 
 export function isCloserLabel(value: unknown): value is CloserLabel {
   return typeof value === 'string' && CLOSER_SET.has(value);
+}
+
+export function isKindLabel(value: unknown): value is KindLabel {
+  return typeof value === 'string' && KIND_SET.has(value);
 }
 
 /**
@@ -73,6 +79,20 @@ export type LabelSource = (typeof LABEL_SOURCES)[number];
 export interface TaskLabelRow {
   label: TaskLabel;
   source: LabelSource;
+}
+
+/**
+ * Un file toccato dai commit PROPRI del task, con la sola cosa che il path da
+ * solo non dice: se è NATO in quei commit.
+ *
+ * Serve a `deriveKind` e a nient'altro. `deriveCloser` guarda dove sta il file,
+ * non da quanto tempo esiste: una superficie che si vede si guarda comunque,
+ * nuova o vecchia.
+ */
+export interface TaskFile {
+  path: string;
+  /** `true` se un commit proprio del task lo ha aggiunto (`A` in `--name-status`). */
+  added: boolean;
 }
 
 /**
@@ -144,6 +164,83 @@ export function deriveCloser(files: readonly string[]): CloserLabel {
   if (files.some(isUserVisibleFile)) return 'visibile';
   if (!files.length || files.every(isDocumentFile)) return 'decisione';
   return 'invisibile';
+}
+
+/**
+ * Un file di PROVA: `*.test.*` / `*.spec.*` ovunque, o qualunque cosa sotto
+ * `tests/`. Le fixture (`tests/fixtures/*.json`) sono prova quanto lo spec che
+ * le legge: da sole non cambiano niente di ciò che gira.
+ */
+export function isTestFile(path: string): boolean {
+  const p = path.replace(/^\.\//, '');
+  return p.startsWith('tests/') || /(^|\/)[^/]+\.(test|spec)\.[cm]?[jt]sx?$/.test(p);
+}
+
+/**
+ * Un file di IMPALCATURA: come si compila, come si installa, come si rilascia.
+ * Elencati per nome e non per cartella, perché stanno sparsi — `package.json` e
+ * `bun.lock` alla radice, `Cargo.toml` sotto quattro crate diverse, i workflow
+ * dentro `.github/`.
+ *
+ * `\.config\.` e non `config`: `client/src/lib/config.ts` è codice di prodotto,
+ * `client/vite.config.ts` no. Il punto prima di `config` è tutta la differenza.
+ */
+export function isBuildFile(path: string): boolean {
+  const p = path.replace(/^\.\//, '');
+  if (p.startsWith('.github/')) return true;
+  const base = p.slice(p.lastIndexOf('/') + 1);
+  if (/^tsconfig(\..+)?\.json$/.test(base)) return true;
+  if (/\.config\.[cm]?[jt]s$/.test(base)) return true;
+  if (/^(package(-lock)?\.json|bun\.lockb?|yarn\.lock|pnpm-lock\.yaml)$/.test(base)) return true;
+  if (/^(Cargo\.(toml|lock)|bunfig\.toml|knip\.jsonc|Dockerfile|tauri\.conf\.json)$/.test(base)) return true;
+  return /^\.(gitignore|gitattributes|env\.example)$/.test(base);
+}
+
+/**
+ * CHE GENERE di lavoro è la card, dai file dei suoi commit propri. Serve al
+ * filtro della board, non decide niente: `whoCloses` non lo guarda.
+ *
+ * Esiste perché il 12/08/2026 `KIND_LABELS` era nel vocabolario e il filtro era
+ * disegnato sulla board, ma `task_labels` aveva 50 righe e ZERO di genere. Il
+ * filtro girava a vuoto: la funzione c'era, il dato non lo scriveva nessuno.
+ * Chiederlo all'agente sarebbe stata la stessa scommessa che aveva già perso —
+ * quindi si deriva, come `visibile`.
+ *
+ * L'ordine è la regola, e ruota attorno a una distinzione sola: quali file sono
+ * il LAVORO e quali lo accompagnano.
+ *
+ *  1. niente file di prodotto, ma dei test  ⇒ `misura` — una card che tocca solo
+ *     i test ha misurato qualcosa, non l'ha cambiato;
+ *  2. niente file di prodotto, ma impalcatura ⇒ `chore`;
+ *  3. fra i file di prodotto ce n'è uno NUOVO ⇒ `feature` — e ne basta uno;
+ *  4. solo modifiche a codice che esisteva già ⇒ `bugfix`.
+ *
+ * Test e config non spostano il genere quando c'è del prodotto sotto: un fix di
+ * server che si porta dietro il suo test e un bump di lockfile resta un fix,
+ * altrimenti ogni card sarebbe `chore` per via di `bun.lock`.
+ *
+ * `null` per ciò che il vocabolario non sa nominare: nessun file, o soli
+ * documenti. Quelle sono le card `decisione` — un piano, una ricerca — e
+ * `chore` sarebbe una bugia che poi il filtro propaga. Un'etichetta assente si
+ * legge come «non lo so»; un'etichetta sbagliata no.
+ *
+ * ONESTÀ SUL LIMITE: la coppia `feature`/`bugfix` guarda se un file è nato in
+ * questi commit, il che è una misura, non una diagnosi. Una funzionalità scritta
+ * per intero dentro file che esistevano già esce `bugfix`. Per questo il genere
+ * si scrive `derived` e non `human`: è un default che si filtra, e la correzione
+ * a mano vince e non viene più sovrascritta.
+ */
+export function deriveKind(files: readonly TaskFile[]): KindLabel | null {
+  if (!files.length) return null;
+  const product = files.filter(
+    (f) => !isTestFile(f.path) && !isBuildFile(f.path) && !isDocumentFile(f.path),
+  );
+  if (!product.length) {
+    if (files.some((f) => isTestFile(f.path))) return 'misura';
+    if (files.some((f) => isBuildFile(f.path))) return 'chore';
+    return null; // soli documenti: la card è una `decisione`, e non ha un genere
+  }
+  return product.some((f) => f.added) ? 'feature' : 'bugfix';
 }
 
 /**
