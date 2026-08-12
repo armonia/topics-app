@@ -240,8 +240,12 @@ export interface TasksRouterOpts {
    * un worktree suo (quello del tentativo 1 può non essere il vincitore), quindi
    * l'anteprima non può partire alla consegna — parte quando il worktree del task
    * diventa quello scelto. Assente ⇒ nessuna anteprima, la scelta funziona lo stesso.
+   *
+   * `explain: true` = l'ha chiesto una persona (POST …/preview su una card già in
+   * review): il ramo «non è stato possibile» deve lasciare la sua review-note col
+   * motivo invece di tacere.
    */
-  preparePreview?: (taskId: string) => Promise<void>;
+  preparePreview?: (taskId: string, opts?: { explain?: boolean }) => Promise<void>;
 }
 
 /**
@@ -1890,6 +1894,42 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         const ticket = landings.status(bLand.taskId);
         if (!ticket) return json({ error: "nessun land richiesto per questo task", code: "not_found" }, 404);
         return json({ landing: ticket, pending: landings.pending(bLand.projectId) });
+      }
+
+      // POST /api/boards/:projectId/tasks/:taskId/preview — «Ricattura evidenza»
+      // su una card che è GIÀ in review. Fino a qui `prepareForReview` girava in
+      // un punto solo, il bordo d'ingresso in review: una card che l'evidenza
+      // l'ha persa (o non l'ha mai avuta) poteva riaverla solo uscendo da review
+      // e rientrandoci — cioè svegliando un agente e bruciando un turno per una
+      // foto. L'incidente dell'11/08 (i due cancelli hanno RITIRATO l'evidenza
+      // falsa a 23 card, sei in attesa di giudizio) l'ha reso concreto.
+      //
+      // Questa route fa quella cosa e nient'altro: nessun `resume`, nessun
+      // `dispatch`, nessun cambio di stato, `dispatch_attempts` intatto. L'esito
+      // arriva sul canale `review-note`, che NON sveglia l'agente — un commento
+      // umano invece farebbe reject+resume, cioè esattamente ciò che questa
+      // azione esiste per evitare.
+      const bPreview = matchRoute(pathname, "/api/boards/:projectId/tasks/:taskId/preview");
+      if (bPreview && method === "POST") {
+        try {
+          const before = svc.get(bPreview.taskId, { projectId: bPreview.projectId })?.task;
+          if (!before) return json({ error: "task not found", code: "not_found" }, 404);
+          if (before.status !== "review") {
+            return json({
+              error: "la ricattura dell'evidenza vale solo su un task in review",
+              code: "invalid_transition",
+            }, 409);
+          }
+          if (!opts?.preparePreview) {
+            return json({ error: "preview manager non disponibile", code: "unavailable" }, 503);
+          }
+          await opts.preparePreview(bPreview.taskId, { explain: true });
+          // Rileggo DOPO: previewImage/output_url li scrive il preview manager
+          // direttamente sul db, e la card deve aggiornarsi su ogni device.
+          const task = svc.get(bPreview.taskId, { projectId: bPreview.projectId })?.task ?? before;
+          broadcastToAll({ type: "task:updated", projectId: bPreview.projectId, task });
+          return json({ task, previewImage: task.previewImage ?? null, outputUrl: task.outputUrl ?? null });
+        } catch (e) { return fail(e); }
       }
 
       const bComments = matchRoute(pathname, "/api/boards/:projectId/tasks/:taskId/comments");
