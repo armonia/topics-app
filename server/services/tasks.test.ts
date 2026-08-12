@@ -48,7 +48,8 @@ function freshDb(): Database {
     checks_state TEXT, checks_at TEXT, checks_commit TEXT, checks_json TEXT,
     delivery_branch TEXT, delivery_commit TEXT, landing_state TEXT, landing_checked_at TEXT,
     landing_witnessed INTEGER NOT NULL DEFAULT 0,
-    delivered_by TEXT, delivered_reason TEXT, created_by_topic_id TEXT
+    delivered_by TEXT, delivered_reason TEXT, created_by_topic_id TEXT,
+    done_actor TEXT, reopened_at TEXT, reopened_by TEXT, reopened_actor TEXT
   )`);
   db.run(`CREATE UNIQUE INDEX idx_tasks_claude_task_id ON tasks(claude_task_id) WHERE claude_task_id IS NOT NULL`);
   db.run(`CREATE TABLE board_settings (
@@ -1735,5 +1736,162 @@ describe("settleLanded / verdetto testimoniato", () => {
 
     svc.recordDelivery({ taskId: id, branch: "topics/x", commit: "b".repeat(40) });
     expect(svc.listLandingAuditCandidates().map((c) => c.id)).toContain(id);
+  });
+});
+
+// L'11/08 Attilio: «avevo visto il task fatto nella tab kanban, ora non lo vedo
+// più». Misurato: undici card uscite da `done` in sei ore, nessuna persa — ma la
+// board non lo diceva. Il motivo viveva nel thread; chi guarda la colonna vedeva
+// un buco. Due fatti sulla card, entrambi leggibili dall'API della board: chi ha
+// chiuso (`doneActor`) e che è stata riaperta (`reopened*`).
+describe("uscita da done: la traccia sulla card e chi può riaprirla", () => {
+  let db: Database; let s: TaskService;
+  beforeEach(() => { db = freshDb(); s = svc(db); });
+
+  /** Una card chiusa da un UMANO che approva la review (il caso di Attilio). */
+  function doneByHuman(): string {
+    const t = s.create({ projectId: PID, text: "consegna", status: "in_progress" });
+    s.addComment({ taskId: t.id, author: "claude", content: "fatto, guarda demo/" });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    s.reviewDecision({ taskId: t.id, by: "attilio", decision: "approve" });
+    return t.id;
+  }
+
+  /** Una card `done` senza passare da una review: `create` rifiuta `done` diretto. */
+  function doneByDrag(text: string): { id: string } {
+    const t = s.create({ projectId: PID, text, status: "review" });
+    s.update({ taskId: t.id, actor: "human", by: "attilio", patch: { status: "done" } });
+    return { id: t.id };
+  }
+
+  test("chi ha chiuso resta scritto: approvazione umana → 'human', step chiuso dall'agent → 'agent'", () => {
+    const approved = doneByHuman();
+    expect(s.get(approved)!.task.doneActor).toBe("human");
+
+    // Lo step di checklist di un agent: lo chiude lui, non passa da una review.
+    db.run("INSERT INTO topics (id) VALUES ('top-1')");
+    const root = s.create({ projectId: PID, text: "task dell'agent", status: "in_progress" });
+    s.bindTopic({ taskId: root.id, topicId: "top-1" });
+    const step = s.create({ projectId: PID, text: "passo 1", parentTaskId: root.id });
+    s.update({ taskId: step.id, actor: "agent", by: "claude", patch: { status: "done" }, agentTopicId: "top-1" });
+    expect(s.get(step.id)!.task.doneActor).toBe("agent");
+  });
+
+  test("una card che esce da done lo DICE sulla card: reopenedAt/By/Actor, leggibili da get e list", () => {
+    const id = doneByHuman();
+    const before = s.get(id)!.task;
+    expect(before.reopenedAt).toBeNull();
+
+    s.update({ taskId: id, actor: "human", by: "attilio", patch: { status: "in_progress" } });
+
+    const after = s.get(id)!.task;
+    expect(after.status).toBe("in_progress");
+    expect(after.reopenedAt).not.toBeNull();
+    expect(after.reopenedBy).toBe("attilio");
+    expect(after.reopenedActor).toBe("human");
+    // …e sulla LISTA della board, che è ciò che disegna la colonna.
+    const listed = s.list({ scope: "project", projectId: PID }).find((t) => t.id === id)!;
+    expect(listed.reopenedAt).toBe(after.reopenedAt);
+    expect(listed.reopenedBy).toBe("attilio");
+    // Chiudere il ciclo azzera il segno: una card di nuovo `done` non è «riaperta».
+    s.update({ taskId: id, actor: "human", by: "attilio", patch: { status: "done" } });
+    const redone = s.get(id)!.task;
+    expect(redone.reopenedAt).toBeNull();
+    expect(redone.reopenedBy).toBeNull();
+    expect(redone.doneActor).toBe("human");
+  });
+
+  test("un agent NON riapre un done deciso da un umano (approvazione o trascinamento)", () => {
+    const approved = doneByHuman();
+    expect(() => s.update({ taskId: approved, actor: "agent", by: "claude", patch: { status: "in_progress" } }))
+      .toThrow(/decisione umana/);
+    expect(s.get(approved)!.task.status).toBe("done"); // la card non si è mossa
+    expect(s.get(approved)!.task.reopenedAt).toBeNull(); // e nessuna traccia falsa
+
+    // Stessa cosa per un done messo a mano trascinando sulla board.
+    const dragged = s.create({ projectId: PID, text: "chiusa a mano", status: "review" });
+    s.update({ taskId: dragged.id, actor: "human", by: "attilio", patch: { status: "done" } });
+    expect(() => s.update({ taskId: dragged.id, actor: "agent", by: "claude", patch: { status: "todo" } }))
+      .toThrow(/decisione umana/);
+
+    // L'umano invece riapre sempre: il cancello è sull'agent, non sulla board.
+    expect(s.update({ taskId: approved, actor: "human", by: "attilio", patch: { status: "review" } }).status).toBe("review");
+  });
+
+  test("il proprio sottotask, chiuso dall'agent e mai passato da una review, resta riapribile", () => {
+    db.run("INSERT INTO topics (id) VALUES ('top-2')");
+    const root = s.create({ projectId: PID, text: "task dell'agent", status: "in_progress" });
+    s.bindTopic({ taskId: root.id, topicId: "top-2" });
+    const step = s.create({ projectId: PID, text: "passo 1", parentTaskId: root.id });
+    s.update({ taskId: step.id, actor: "agent", by: "claude", patch: { status: "done" }, agentTopicId: "top-2" });
+
+    const back = s.update({ taskId: step.id, actor: "agent", by: "claude", patch: { status: "in_progress" }, agentTopicId: "top-2" });
+    expect(back.status).toBe("in_progress");
+    // Anche questa riapertura lascia il segno: è comunque una cosa fatta che sparisce.
+    expect(back.reopenedActor).toBe("agent");
+    expect(back.reopenedBy).toBe("claude");
+  });
+
+  test("storico senza prova (done_actor NULL): l'agent la riapre, e la traccia si scrive lo stesso", () => {
+    // Le card chiuse PRIMA della migration che non portano un'approvazione
+    // approvata restano «non si sa». Il cancello le lascia passare di proposito:
+    // murare a posteriori bloccherebbe proprio i sottotask che gli agenti
+    // chiudono da soli. Ciò che NON si perde è il segno — questo è il punto
+    // della card, e vale anche qui.
+    const legacy = doneByDrag("chiusa nel 2025");
+    db.run("UPDATE tasks SET done_actor = NULL WHERE id = ?", [legacy.id]);
+
+    const back = s.update({ taskId: legacy.id, actor: "agent", by: "claude", patch: { status: "todo" } });
+    expect(back.status).toBe("todo");
+    expect(back.reopenedActor).toBe("agent");
+    expect(back.reopenedAt).not.toBeNull();
+  });
+
+  test("anche le porte di SISTEMA lasciano il segno: requeue, attesa dichiarata, consegna forzata", () => {
+    // Non passano da `update()` — scrivono lo status a SQL grezzo. Erano tre
+    // modi di far uscire una card da `done` senza che la board lo dicesse.
+    const requeued = doneByDrag("rimessa in coda");
+    s.release({ taskId: requeued.id, requeue: true, reason: "server ripartito", by: "dispatcher" });
+    const r = s.get(requeued.id)!.task;
+    expect(r.status).toBe("todo");
+    expect(r.reopenedActor).toBe("system");
+    expect(r.reopenedAt).not.toBeNull();
+    expect(r.doneActor).toBeNull();
+
+    const waiting = doneByDrag("in attesa");
+    s.deferForWait({ taskId: waiting.id, reason: "aspetto il server", minutes: 5, by: "claude" });
+    expect(s.get(waiting.id)!.task.reopenedActor).toBe("agent");
+
+    const forced = doneByDrag("consegna di sistema");
+    s.deliverToReviewBySystem({ taskId: forced.id, reason: "tentativi esauriti", cause: "retries_exhausted" });
+    const f = s.get(forced.id)!.task;
+    expect(f.status).toBe("review");
+    expect(f.reopenedActor).toBe("system");
+    expect(f.reopenedBy).toBe("dispatcher");
+  });
+
+  test("il ritiro della MACCHINA non si firma «da te»: attore = permesso, firma = chi", () => {
+    // Il land in conflitto (routes/tasks.ts, ramo "conflict") ritira la card da
+    // `done` con `actor: "human"` — è l'asse dei PERMESSI, l'unico che può
+    // riportare indietro una card chiusa — ma `by: "system"`. Leggendo l'attore,
+    // il chip avrebbe detto «riaperta da te» di una cosa che l'umano non ha
+    // deciso: la stessa bugia che questa card toglie, un livello più giù.
+    const landata = doneByDrag("consegna landata");
+    const back = s.update({
+      taskId: landata.id, actor: "human", by: "system",
+      patch: { status: "in_progress" }, statusReason: "il land ha fatto conflitto con main",
+    });
+    expect(back.reopenedActor).toBe("system");
+    expect(back.reopenedBy).toBe("system");
+  });
+
+  test("una card che NON era done non prende una traccia falsa da nessuna porta", () => {
+    const vivo = s.create({ projectId: PID, text: "mai chiusa", status: "in_progress" });
+    s.update({ taskId: vivo.id, actor: "human", by: "attilio", patch: { status: "todo" } });
+    expect(s.get(vivo.id)!.task.reopenedAt).toBeNull();
+    s.release({ taskId: vivo.id, requeue: false, by: "dispatcher" });
+    expect(s.get(vivo.id)!.task.reopenedAt).toBeNull();
+    s.deliverToReviewBySystem({ taskId: vivo.id, reason: "boh", cause: "retries_exhausted" });
+    expect(s.get(vivo.id)!.task.reopenedAt).toBeNull();
   });
 });
