@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AppContext } from "../types";
 import { createTasksRouter } from "./tasks";
-import { createTaskService, LAND_ACTION_LABEL, PUBLISH_ACTION_LABEL } from "../services/tasks";
+import { ARCHIVE_PARKED_LABEL, createTaskService, LAND_ACTION_LABEL, PUBLISH_ACTION_LABEL, REQUEUE_PARKED_LABEL } from "../services/tasks";
 import { parseStatusEvent } from "../../shared/board";
 import { TASK_LABELS_DDL } from "../db/test-schema";
 
@@ -1894,5 +1894,80 @@ describe("PATCH task: campo non applicabile = 400, non un 200 muto", () => {
       description: "d", previewImage: "",
     }))!;
     expect(agent.status).toBe(200);
+  });
+});
+
+describe("le due risposte allo stallo dei sottotask parcheggiati", () => {
+  // La domanda la fa il sistema, e la risposta la ESEGUE il sistema. Prima
+  // queste due etichette sarebbero cadute nel ramo `reject`: un turno d'agente
+  // pagato per spostare due card di colonna, e su una card senza sessione
+  // nemmeno quello — il rifiuto la mandava in `in_progress` e lì restava.
+  let db: Database; let broadcasts: any[];
+  let resumed: string[]; let todos: string[]; let router: any;
+
+  beforeEach(() => {
+    db = freshDb(); broadcasts = []; resumed = []; todos = [];
+    const dispatcher = {
+      onEnterTodo(_p: string, id: string) { todos.push(id); },
+      onLeaveTodo() {}, onBlockerDone() {},
+      resume: async (id: string) => { resumed.push(id); },
+    } as any;
+    router = createTasksRouter(makeCtx(db, broadcasts), dispatcher);
+  });
+
+  /** Un padre che chiede, con un figlio parcheggiato sotto. */
+  async function padreCheChiede(): Promise<{ padre: string; figlio: string }> {
+    const p = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "il padre" }))!.json();
+    const f = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "il figlio", parentTaskId: p.id }))!.json();
+    db.prepare("UPDATE tasks SET status = 'backlog' WHERE id = ?").run(f.id);
+    db.prepare(
+      "UPDATE tasks SET status = 'review', dispatch_state = 'needs_input', delivered_by = 'system', delivered_reason = 'parked_children', dispatch_attempts = 2 WHERE id = ?",
+    ).run(p.id);
+    return { padre: p.id, figlio: f.id };
+  }
+
+  test("«rimetti in coda»: figlio in todo, padre in coda, nessun agente svegliato", async () => {
+    const { padre, figlio } = await padreCheChiede();
+    const t = await (await call(router, "POST", `/api/boards/pX/tasks/${padre}/review`, {
+      decision: "reject", comment: REQUEUE_PARKED_LABEL,
+    }))!.json();
+
+    expect(t.status).toBe("todo");
+    expect(t.dispatchState).toBe("queued");
+    expect(t.dispatchAttempts).toBe(0);
+    expect((db.prepare("SELECT status FROM tasks WHERE id = ?").get(figlio) as any).status).toBe("todo");
+    expect(resumed).toEqual([]);
+    expect(todos).toEqual([padre]);
+    // Il figlio non viaggia nel feed della board: senza il suo broadcast, un
+    // drawer aperto lo mostrerebbe ancora parcheggiato.
+    expect(broadcasts.filter((b) => b.type === "task:updated" && b.task?.id === figlio)).toHaveLength(1);
+  });
+
+  test("«archivia»: il figlio sparisce e il padre torna in coda", async () => {
+    const { padre, figlio } = await padreCheChiede();
+    const t = await (await call(router, "POST", `/api/boards/pX/tasks/${padre}/review`, {
+      decision: "reject", comment: ARCHIVE_PARKED_LABEL,
+    }))!.json();
+
+    expect(t.status).toBe("todo");
+    expect((db.prepare("SELECT archived FROM tasks WHERE id = ?").get(figlio) as any).archived).toBe(1);
+  });
+
+  test("rispondere a una domanda già risolta è 409, non un esito inventato", async () => {
+    const { padre } = await padreCheChiede();
+    await call(router, "POST", `/api/boards/pX/tasks/${padre}/review`, { decision: "reject", comment: REQUEUE_PARKED_LABEL });
+    const resp = (await call(router, "POST", `/api/boards/pX/tasks/${padre}/review`, {
+      decision: "reject", comment: ARCHIVE_PARKED_LABEL,
+    }))!;
+    expect(resp.status).toBe(409);
+    expect((await resp.json()).code).toBe("no_parked_children");
+  });
+
+  test("un rifiuto normale resta un rifiuto: l'agente riparte", async () => {
+    const { padre } = await padreCheChiede();
+    db.run("INSERT INTO topics (id) VALUES ('top-9')");
+    db.prepare("UPDATE tasks SET assigned_topic_id = 'top-9' WHERE id = ?").run(padre);
+    await call(router, "POST", `/api/boards/pX/tasks/${padre}/review`, { decision: "reject", comment: "rifallo" });
+    expect(resumed).toEqual([padre]);
   });
 });
