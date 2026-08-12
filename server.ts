@@ -51,6 +51,7 @@ import { createExternalSessionsRouter } from "./server/routes/external-sessions"
 import { createTaskDispatcher } from "./server/services/task-dispatcher";
 import { refreshLiveJobQuotas } from "./server/services/agent-job-quota";
 import { computeDispatchCapacity } from "./server/services/dispatch-capacity";
+import { fleetLoadSync } from "./server/lib/fleet-usage";
 import { buildBranchInventory, summarizeInventory } from "./server/services/branch-inventory";
 import { createTaskAutoMerge, worktreeRealDirt } from "./server/services/task-automerge";
 import { createPreviewManager, type PreviewManager, type PreviewProcess } from "./server/services/preview-manager";
@@ -1098,6 +1099,14 @@ const taskDispatcher = createTaskDispatcher({
   capacity: () => {
     const c = computeDispatchCapacity();
     return { load1: c.load1, cores: c.cores };
+  },
+  // Il carico che è NOSTRO, per il freno dei task pesanti. Non è un'altra
+  // lettura di `capacity()`: quello è il load average della macchina intera, e
+  // la notte del 12/08 su questo host valeva fra 37 e 48 mentre i nostri agenti
+  // usavano 0,75% su 1200% di CPU. Il carico erano le app dell'umano, e il freno
+  // le addebitava a noi tenendo ferma la board per ore.
+  ownLoad: () => {
+    try { return fleetLoadSync(); } catch { return null; }
   },
   // Sessioni di terminale con un client ATTACCATO: è il segnale «c'è qualcuno».
   // Una sessione viva ma senza nessuno che la guarda non conta come presenza —
