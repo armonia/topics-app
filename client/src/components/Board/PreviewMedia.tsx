@@ -195,13 +195,17 @@ export function PreviewMedia({ path, variant, onOpenTab }: {
     // `70cqw` del tetto. Senza, `cqw` risalirebbe al primo antenato con
     // `container-type` — nessuno, quindi il viewport — e il tetto tornerebbe a
     // guardare la finestra invece del riquadro.
-    // `max-w-[380px]` (`PREVIEW_CARD_MAX_WIDTH_PX`) sta QUI e non sull'`img`
-    // per lo stesso motivo: dev'essere il container a fermarsi, altrimenti il
-    // `cqw` continuerebbe a misurare la card intera mentre l'immagine è più
-    // stretta, e i due numeri divergerebbero di nuovo.
+    // NESSUN tetto in larghezza: la miniatura riempie la card, perché una
+    // fascia vuota a destra in una colonna larga si legge come un difetto
+    // (segnalato da Attilio il 12/08 guardando la review). Il rapporto resta
+    // 0.7 ovunque, quindi l'altezza cresce con la colonna: 0.7 x 474 = 332px
+    // in review a 1280. Se un giorno la card diventasse troppo alta, il tetto
+    // torna QUI sul container e non sull'`img` — dev'essere il container a
+    // fermarsi, altrimenti il `cqw` misurerebbe la card mentre l'immagine e'
+    // piu' stretta, e i due numeri divergerebbero.
     <div
       data-testid={`preview-${variant}`}
-      className={`group/preview relative @container max-w-[380px] ${variant === 'card' ? 'mb-1.5' : 'mt-2'}`}
+      className={`group/preview relative @container ${variant === 'card' ? 'mb-1.5' : 'mt-2'}`}
     >
       {media}
       {/* I gesti stanno nello stesso angolo, in colonna: "apri come tab" per
