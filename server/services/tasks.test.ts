@@ -1122,15 +1122,18 @@ describe("deliveredBy (chi ha portato il task in review)", () => {
     expect(s.deliverToReviewBySystem({ taskId: p.id, reason: "fine", cause: "retries_exhausted" }).status).toBe("review");
   });
 
-  test("figli SOLO parcheggiati: non è un'attesa, è uno stallo — e lo dice", () => {
+  test("figli SOLO parcheggiati: non è un'attesa, è una DOMANDA — e la fa", () => {
     // Nessuno dispaccia dal backlog: rimandare il padre in coda lo farebbe
-    // girare ogni 10 minuti per sempre (misurati 20 padri così l'11/08). Si
-    // parcheggia lui, con scritto chi lo tiene fermo e come sbloccarlo.
+    // girare ogni 10 minuti per sempre (misurati 20 padri così l'11/08). Ma
+    // parcheggiare anche lui lo nascondeva nella colonna del riposo (cinque card
+    // ferme il 12/08, nessuna lo diceva): la card va dove si vedono le domande,
+    // con le due risposte possibili. Il resto in `tasks.parked-stall.test.ts`.
     const p = s.create({ projectId: PID, text: "epic" });
     s.create({ projectId: PID, text: "seguito rimandato", parentTaskId: p.id });
     const d = s.deliverToReviewBySystem({ taskId: p.id, reason: "fine" });
-    expect(d.status).toBe("backlog");
-    expect(d.dispatchState).toBe("blocked");
+    expect(d.status).toBe("review");
+    expect(d.dispatchState).toBe("needs_input");
+    expect(d.deliveredReason).toBe("parked_children");
     const notes = s.get(p.id)!.comments.map((c) => c.content).join("\n");
     expect(notes).toContain("seguito rimandato");
   });

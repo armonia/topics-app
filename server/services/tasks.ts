@@ -91,6 +91,28 @@ export function isPublishActionLabel(text: string | undefined | null): boolean {
   return !!text && normLabel(text) === normLabel(PUBLISH_ACTION_LABEL);
 }
 
+/**
+ * Le due risposte allo STALLO DEI SOTTOTASK PARCHEGGIATI, e sono riservate come
+ * «Landa su main»: la board le mostra come bottoni, il server le esegue.
+ *
+ * Il giro che chiudono, misurato il 12/08 su cinque card: il figlio in backlog
+ * non lo dispaccia nessuno (voluto, `hasChildrenInFlight`), il padre che lo
+ * aspetta viene fermato per non girare a vuoto (voluto anche questo), e finiva
+ * parcheggiato in backlog — dove «fermo» è l'aspetto NORMALE di una card. Lo
+ * stallo era indistinguibile dal riposo, e si apriva solo a mano.
+ *
+ * Un padre bloccato SOLO da figli parcheggiati non è bloccato: è una DOMANDA
+ * con due risposte, e nessuna delle due è «aspetta ancora».
+ */
+export const REQUEUE_PARKED_LABEL = "Rimetti in coda i sottotask";
+export const ARCHIVE_PARKED_LABEL = "Archivia i sottotask";
+export function isRequeueParkedLabel(text: string | undefined | null): boolean {
+  return !!text && normLabel(text) === normLabel(REQUEUE_PARKED_LABEL);
+}
+export function isArchiveParkedLabel(text: string | undefined | null): boolean {
+  return !!text && normLabel(text) === normLabel(ARCHIVE_PARKED_LABEL);
+}
+
 export interface Task {
   id: string;
   projectId: string;
@@ -250,7 +272,7 @@ export interface Task {
   deliveredBy: "agent" | "human" | "system" | null;
   /** Perché, in forma leggibile da codice. Solo per `deliveredBy === 'system'`;
    *  la prosa completa resta nel commento di sistema del thread. */
-  deliveredReason: "retries_exhausted" | "model_refused" | "fanout" | null;
+  deliveredReason: "retries_exhausted" | "model_refused" | "fanout" | "parked_children" | null;
   /**
    * Chi ha portato la card a `done` l'ultima volta. `'human'` = una decisione di
    * Attilio (approvazione in review o trascinamento sulla board), e vale come
@@ -492,6 +514,30 @@ export interface TaskService {
     reason: string;
     cause?: "retries_exhausted" | "model_refused" | "fanout";
   }): Task;
+  /**
+   * Alza la DOMANDA dello stallo: il task va in review con chip `needs_input` e
+   * un blocco ```question``` che porta le due risposte possibili come bottoni.
+   *
+   * Ritorna `null` quando non c'è niente da chiedere — nessun figlio aperto,
+   * almeno un figlio in volo (lo aspetta davvero qualcuno), il task è chiuso o
+   * archiviato, oppure sta GIÀ chiedendo (è in review: la domanda c'è).
+   * Idempotente per costruzione: due giri di dispatch non fanno due domande.
+   */
+  askParkedChildren(args: { taskId: string; by?: string }): Task | null;
+  /**
+   * Esegue la risposta umana allo stallo. `requeue` manda i figli parcheggiati
+   * in `todo`; `archive` li archivia. In entrambi i casi il padre torna in coda
+   * col chip `queued` e col budget dei tentativi azzerato — la risposta è un
+   * mandato nuovo, come il trascinamento in Todo.
+   *
+   * Ritorna `null` quando non c'è nessun figlio parcheggiato (la domanda è già
+   * stata risolta da qualcun altro): il chiamante non deve inventarsi un esito.
+   */
+  resolveParkedChildren(args: {
+    taskId: string;
+    decision: "requeue" | "archive";
+    by?: string;
+  }): { task: Task; children: Task[] } | null;
   /**
    * Riscrive l'INTERO insieme di etichette di un task (PUT, non PATCH: la board
    * manda lo stato che vuole vedere). `actor: "agent"` passa dal cancello —
@@ -1309,6 +1355,37 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     ).all(taskId) as any;
   }
 
+  /**
+   * Il figlio `childId` è appena entrato in backlog: se il padre resta senza
+   * nessun figlio IN VOLO, da adesso è fermo su qualcosa che non arriverà.
+   *
+   * Due strade, e la differenza è se c'è un turno vivo:
+   *  - padre AL LAVORO → solo l'avviso nel suo thread. Portarlo in review adesso
+   *    gli taglierebbe il turno sotto i piedi; la domanda la farà lui a fine
+   *    turno (`deliverToReviewBySystem`), che è fra minuti, non fra giorni.
+   *  - padre fermo (backlog/todo) → la domanda si alza SUBITO: è il caso
+   *    misurato il 12/08, in cui nessun turno sarebbe più arrivato ad accorgersi
+   *    di niente e la card sarebbe rimasta ferma per sempre.
+   */
+  function parkedChildRaisedStall(parentId: string, childId: string, by: string, svc: TaskService): void {
+    try {
+      const parent = getTaskRow(parentId);
+      if (!parent || parent.archived === 1 || parent.status === "done") return;
+      if (!hasActiveChildren(parentId) || hasChildrenInFlight(parentId)) return;
+      const live = parent.status === "in_progress"
+        || parent.dispatch_state === "working" || parent.dispatch_state === "starting";
+      if (!live) { svc.askParkedChildren({ taskId: parentId, by }); return; }
+      const child = getTaskRow(childId);
+      const titolo = child?.text ? `«${child.text}»` : "un sottotask";
+      svc.addComment({
+        taskId: parentId, author: "system",
+        content:
+          `Sottotask parcheggiato in backlog: ${titolo}. Da qui in avanti non lo prende nessun dispatcher, ` +
+          `e questo task non si può chiudere con un sottotask aperto: a fine turno ti chiedo se rimetterlo in coda o archiviarlo.`,
+      });
+    } catch { /* un avviso non fa mai fallire lo spostamento di una card */ }
+  }
+
   function rowToComment(r: any): TaskComment {
     let mentions: string[] = [];
     if (r.mentions) { try { mentions = JSON.parse(r.mentions); } catch { mentions = []; } }
@@ -1817,6 +1894,14 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // rifiuto qui sarebbe il quarto cancello di review che non vogliamo) —
       // ma il riciclo di un'evidenza altrui va almeno detto.
       if (explicitPreview) noteDuplicatePreview(taskId, explicitPreview);
+      // PARCHEGGIARE UN FIGLIO CHE IL PADRE ASPETTA SI DICE SUBITO. Lo stallo
+      // nasce qui, non dieci minuti dopo: da questo istante nessun dispatcher
+      // prenderà più quel sottotask, e il padre che lo aspetta aspetta il nulla.
+      // Prima lo scopriva solo il turno successivo del padre, e solo se ne aveva
+      // uno.
+      if (patch.status === "backlog" && current !== "backlog" && row.parent_task_id) {
+        parkedChildRaisedStall(row.parent_task_id as string, taskId, by, this);
+      }
       return rowToTask(getTaskRow(taskId));
     },
 
@@ -2259,25 +2344,16 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       //
       // Ma «aperto» e «lo sta aspettando qualcuno» non sono la stessa cosa: se
       // gli unici figli aperti sono PARCHEGGIATI in backlog, nessun dispatcher
-      // li prenderà e il padre aspetterebbe a vuoto per sempre. Quello non è un
-      // rimando in coda, è uno stallo: si parcheggia anche il padre, dicendo chi
-      // lo tiene fermo, così è una card su cui si può agire invece di una che
-      // gira ogni dieci minuti.
-      if (hasActiveChildren(taskId) && !hasChildrenInFlight(taskId)) {
-        const parked = parkedChildren(taskId);
-        const elenco = parked.map((c) => `• ${c.text}`).join("\n");
-        const note =
-          `Fermo su ${parked.length} sottotask parcheggiati in backlog: finché restano lì non posso chiudere il padre ` +
-          `(un task con sottotask aperti non è approvabile), e nessuno li prenderà da solo. ` +
-          `Mettine almeno uno in coda, oppure archivia ciò che non serve più.\n${elenco}`;
-        try { this.addComment({ taskId, author: "system", content: note }); } catch { /* best-effort */ }
-        db.prepare(
-          `UPDATE tasks SET assigned_topic_id = NULL, assigned_agent_id = NULL,
-              status = 'backlog', dispatch_state = 'blocked', dispatch_error = ?, updated_at = ? WHERE id = ?`,
-        ).run(note, ts, taskId);
-        if (row.status !== "backlog") logStatus(taskId, row.status, "backlog", "dispatcher");
-        return rowToTask(getTaskRow(taskId));
-      }
+      // li prenderà e il padre aspetterebbe a vuoto per sempre.
+      //
+      // E quello non è nemmeno un blocco: è una DOMANDA con due risposte
+      // (rimettili in coda / archiviali), e le domande si fanno dove l'umano
+      // guarda. Parcheggiare il padre in backlog con la spiegazione dentro
+      // `dispatch_error` la nascondeva nel drawer di una card in fondo alla
+      // colonna del riposo: misurate il 12/08 cinque card ferme così, e nessuna
+      // lo diceva a nessuno. `askParkedChildren` la porta in review coi bottoni.
+      const domanda = this.askParkedChildren({ taskId, by: "dispatcher" });
+      if (domanda) return domanda;
       if (hasActiveChildren(taskId)) {
         // Il tentativo si RESTITUISCE: il turno non è finito per colpa del
         // padre, è finito mentre i figli lavoravano ancora — esattamente come
@@ -2327,6 +2403,98 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         ).run(uuid(), taskId, row.status, ts);
       } catch { /* an existing pending approval is fine */ }
       return rowToTask(getTaskRow(taskId));
+    },
+
+    askParkedChildren({ taskId, by }): Task | null {
+      const row = getTaskRow(taskId);
+      if (!row) return null;
+      // Una card chiusa o archiviata non ha domande da fare; una GIÀ in review la
+      // sta già facendo, e rifarla a ogni giro sarebbe il rumore che spegne le
+      // domande vere.
+      if (row.archived === 1 || row.status === "done" || row.status === "review") return null;
+      if (!hasActiveChildren(taskId) || hasChildrenInFlight(taskId)) return null;
+      const parked = parkedChildren(taskId);
+      if (parked.length === 0) return null;
+      const ts = now();
+      const elenco = parked.map((c) => `«${c.text.length > 60 ? `${c.text.slice(0, 59)}…` : c.text}»`).join(", ");
+      // La domanda sta su UNA riga: il blocco `question` appiattisce gli a capo
+      // (contratto del parser delle risposte rapide), quindi l'elenco dei figli
+      // viaggia in linea e non come lista.
+      const question =
+        `Fermo su ${parked.length} sottotask parcheggiati in backlog (${elenco}): nessun dispatcher li prenderà da solo, ` +
+        `e con un sottotask aperto questo task non si può chiudere. Li rimetto in coda, o archivio ciò che non serve più?`;
+      try {
+        this.addComment({
+          taskId, author: "system", content: question,
+          questionOptions: [REQUEUE_PARKED_LABEL, ARCHIVE_PARKED_LABEL],
+        });
+      } catch { /* dedupe/best-effort: la domanda resta comunque nello stato */ }
+      // Stessa forma di una consegna di sistema — review + `needs_input` + firma
+      // `system` — perché è la stessa cosa: una card che aspetta una persona.
+      // `delivered_reason` dice QUALE persona serve, e la card lo scrive da sé.
+      db.prepare(
+        "UPDATE tasks SET status = 'review', dispatch_state = 'needs_input', dispatch_error = ?, " +
+          "dispatch_deferred_until = NULL, wait_streak = 0, wait_reason = NULL, wait_since = NULL, " +
+          "delivered_by = 'system', delivered_reason = 'parked_children', updated_at = ? WHERE id = ?",
+      ).run(question, ts, taskId);
+      if (row.status !== "review") logStatus(taskId, row.status, "review", by ?? "dispatcher");
+      markReopened(taskId, row.status, "review", "system", by ?? "dispatcher");
+      // L'approvazione pendente serve al flusso di review: la risposta rapida
+      // arriva su quella porta, ed è anche ciò che la chiude quando il task esce.
+      try {
+        db.prepare(
+          `INSERT INTO approvals (id, task_id, requested_by, approval_type, from_status, to_status, status, created_at)
+           VALUES (?, ?, 'dispatcher', 'review', ?, 'done', 'pending', ?)`,
+        ).run(uuid(), taskId, row.status, ts);
+      } catch { /* un'approvazione già pendente va benissimo */ }
+      return rowToTask(getTaskRow(taskId));
+    },
+
+    resolveParkedChildren({ taskId, decision, by }): { task: Task; children: Task[] } | null {
+      const row = getTaskRow(taskId);
+      if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
+      const parked = parkedChildren(taskId);
+      if (parked.length === 0) return null;
+      const firma = by || "system";
+      const ts = now();
+      const children: Task[] = [];
+      for (const c of parked) {
+        if (decision === "requeue") {
+          // Budget azzerato: un sottotask parcheggiato può aver bruciato tentativi
+          // prima di finire lì, e rimetterlo in coda senza budget sarebbe rimetterlo
+          // in una coda che non lo serve.
+          db.prepare(
+            "UPDATE tasks SET status = 'todo', dispatch_state = NULL, dispatch_error = NULL, " +
+              "dispatch_attempts = 0, dispatch_deferred_until = NULL, updated_at = ? WHERE id = ?",
+          ).run(ts, c.id);
+          logStatus(c.id, "backlog", "todo", firma);
+          const t = getTaskRow(c.id);
+          if (t) children.push(rowToTask(t));
+        } else {
+          children.push(this.archive({ taskId: c.id }));
+        }
+      }
+      const nota = decision === "requeue"
+        ? `Sbloccato: ${parked.length} sottotask rimessi in coda. Torno in coda anch'io e riparto quando hanno finito.`
+        : `Sbloccato: ${parked.length} sottotask archiviati. Torno in coda: non c'è più niente ad aspettarmi.`;
+      // Il mandato è NUOVO — l'ha appena dato una persona — quindi il budget dei
+      // tentativi riparte da zero, esattamente come per un trascinamento in Todo.
+      // Senza, il padre tornerebbe in coda già esaurito e non lo reclamerebbe più
+      // nessuno: la stessa card ferma di prima, con un chip diverso.
+      db.prepare(
+        "UPDATE tasks SET dispatch_attempts = 0, dispatch_deferred_until = NULL, " +
+          "wait_streak = 0, wait_reason = NULL, wait_since = NULL, updated_at = ? WHERE id = ?",
+      ).run(ts, taskId);
+      const task = this.release({ taskId, requeue: true, reason: nota, by: firma });
+      // La domanda ha avuto risposta: l'approvazione pendente non ha più oggetto
+      // (il task non è in review e `reviewDecision` la rifiuterebbe per sempre).
+      try {
+        db.prepare(
+          `UPDATE approvals SET status = 'expired', reviewed_by = ?, reviewed_at = ?
+             WHERE task_id = ? AND approval_type = 'review' AND status = 'pending'`,
+        ).run(firma, ts, taskId);
+      } catch { /* best-effort */ }
+      return { task, children };
     },
 
     bindTopic({ taskId, topicId }): Task {
