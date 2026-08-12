@@ -32,6 +32,7 @@ import { readFileSync } from "node:fs";
 
 import { createAuthRouter } from "../../server/routes/auth";
 import { creaServizioLicenza, type CaricoGettone } from "../../server/lib/licenza";
+import { TASKS_DDL } from "../../server/db/test-schema";
 
 const RADICE = join(import.meta.dir, "..", "..");
 const MIGRAZIONI = ["080-devices.sql", "082-task-shares.sql", "083-grants.sql", "084-people-orgs.sql"];
@@ -39,7 +40,7 @@ const IID = "installazione-di-prova";
 
 function db084(): Database {
   const db = new Database(":memory:");
-  db.run("CREATE TABLE tasks (id TEXT PRIMARY KEY, text TEXT, status TEXT, project_id TEXT, preview_image TEXT)");
+  db.run(TASKS_DDL);
   db.run("CREATE TABLE topics (id TEXT PRIMARY KEY, name TEXT, updated_at INTEGER)");
   for (const m of MIGRAZIONI) db.run(readFileSync(join(RADICE, "server", "db", "migrations", m), "utf8"));
   return db;

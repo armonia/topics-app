@@ -10,12 +10,13 @@ import { Database } from "bun:sqlite";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { resolvePrincipals, principalsRev } from "./principals";
+import { TASKS_DDL } from "../db/test-schema";
 
 const RADICE = join(import.meta.dir, "..", "..");
 
 function db084(): Database {
   const db = new Database(":memory:");
-  db.run("CREATE TABLE tasks (id TEXT PRIMARY KEY, text TEXT, preview_image TEXT)");
+  db.run(TASKS_DDL);
   db.run("CREATE TABLE topics (id TEXT PRIMARY KEY, name TEXT)");
   for (const m of ["080-devices.sql", "082-task-shares.sql", "083-grants.sql", "084-people-orgs.sql"]) {
     db.run(readFileSync(join(RADICE, "server", "db", "migrations", m), "utf8"));
