@@ -107,7 +107,7 @@ function ChecksSection({ task }: { task: BoardTask }) {
       <div className="flex items-center gap-1.5 rounded bg-emerald-500/10 px-2 py-1.5 text-[11px] text-emerald-200">
         <Check className="h-3 w-3 shrink-0" />
         <span className="min-w-0 flex-1 truncate">
-          {tr('board.task.checks.pass')}{at}{runs.length ? ` — ${runs.map((r) => r.name).join(', ')}` : ''}
+          {tr('board.task.checks.pass')}{at}{runs.length ? `: ${runs.map((r) => r.name).join(', ')}` : ''}
         </span>
       </div>
     );
@@ -121,7 +121,7 @@ function ChecksSection({ task }: { task: BoardTask }) {
       >
         {open ? <ChevronDown className="h-3 w-3 shrink-0" /> : <ChevronRight className="h-3 w-3 shrink-0" />}
         <span className="min-w-0 flex-1 truncate">
-          {tr('board.task.checks.fail')}{at}{failed ? ` — ${failed.name} (${short(failed)})` : ''}
+          {tr('board.task.checks.fail')}{at}{failed ? `: ${failed.name} (${short(failed)})` : ''}
         </span>
       </button>
       {open && (
@@ -129,7 +129,7 @@ function ChecksSection({ task }: { task: BoardTask }) {
           {runs.map((r, i) => (
             <div key={i}>
               <div className={r.ok ? 'text-emerald-300' : 'text-rose-200'}>
-                {r.ok ? '✓' : '✗'} <code className="font-mono">{r.cmd}</code>{r.ok ? '' : ` — ${short(r)}`}
+                {r.ok ? '✓' : '✗'} <code className="font-mono">{r.cmd}</code>{r.ok ? '' : `: ${short(r)}`}
               </div>
               {!r.ok && (r.tail || r.spawnError) && (
                 <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded bg-black/40 p-1.5 font-mono text-[10px] leading-snug text-app-text-heading">
@@ -1464,7 +1464,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
         <div className="shrink-0 border-b border-amber-500/20 bg-amber-500/10 px-3 py-1.5 text-[11px] text-amber-300">
           {landing.ahead > 0
             ? <>Land <strong>in coda</strong>: {landing.ahead} {landing.ahead === 1 ? 'fusione' : 'fusioni'} davanti su questa board (toccano tutte main nello stesso checkout).</>
-            : <>Land <strong>in corso</strong>: la fusione su main sta girando adesso — l'esito arriva nel thread.</>}
+            : <>Land <strong>in corso</strong>: la fusione su main sta girando adesso. L'esito arriva nel thread.</>}
         </div>
       )}
       {landing?.phase === 'failed' && (
@@ -1491,7 +1491,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
           data-testid="task-reopened-notice"
           className="shrink-0 border-b border-amber-500/20 bg-amber-500/10 px-3 py-1.5 text-[11px] text-amber-200"
         >
-          ↩︎ <strong>Riaperta</strong> {reopened.detail} — era in Done. Il motivo è nel thread qui sotto.
+          ↩︎ <strong>Riaperta</strong> {reopened.detail}. Era in Done, e il motivo è nel thread qui sotto.
         </div>
       )}
       {/* IL GUSCIO — chi possiede l'altezza, e dove sta il solo scroll.
@@ -1666,11 +1666,11 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                   onClick={() => setLabelMenuOpen(true)}
                   data-testid="task-labels-chip"
                   title={task.labels.some((l) => l.label === 'invisibile')
-                    ? 'Invisibile: non tocca client/src — con la barra verde la puo\' chiudere il conduttore'
+                    ? 'Invisibile: non tocca client/src. Con la barra verde la puo\' chiudere il conduttore.'
                     : task.labels.some((l) => l.label === 'visibile')
-                      ? 'Visibile: tocca una superficie che si vede — resta in review finche\' non la guarda un umano'
+                      ? 'Visibile: tocca una superficie che si vede. Resta in review finche\' non la guarda un umano.'
                       : task.labels.some((l) => l.label === 'decisione')
-                        ? 'Decisione: un piano, una ricerca, un documento — la decide un umano, sempre'
+                        ? 'Decisione: un piano, una ricerca, un documento. La decide un umano, sempre.'
                         : 'Nessuna etichetta di chiusura: la chiude un umano'}
                   className="flex min-w-0 items-center gap-1.5 rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-app-text-secondary hover:bg-white/20"
                 >
@@ -1707,8 +1707,8 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                   onClick={() => setModelMenuOpen(true)}
                   data-testid="task-model-chip"
                   title={(task.agentMs > 0 || task.agentTokens > 0)
-                    ? `Modello ${task.model ? fmtModel(task.model) : 'Auto'}${task.effort ? ` · sforzo ${task.effort}` : ''} · tempo ${fmtMs(task.agentMs)}${task.agentTokens ? `, ${task.agentTokens.toLocaleString('it-IT')} token` : ''}${task.agentCacheReadTokens > 0 ? ` (+${fmtTok(task.agentCacheReadTokens)} cache read)` : ''} — clicca per cambiare modello`
-                    : "Modello dell'agent — Auto = il classificatore opus-first sceglie per task"}
+                    ? `Modello ${task.model ? fmtModel(task.model) : 'Auto'}${task.effort ? ` · sforzo ${task.effort}` : ''} · tempo ${fmtMs(task.agentMs)}${task.agentTokens ? `, ${task.agentTokens.toLocaleString('it-IT')} token` : ''}${task.agentCacheReadTokens > 0 ? ` (+${fmtTok(task.agentCacheReadTokens)} cache read)` : ''} · clicca per cambiare modello`
+                    : "Modello dell'agent. Auto = il classificatore opus-first sceglie per task."}
                   className="flex min-w-0 items-center gap-1.5 rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-app-text-secondary hover:bg-white/20"
                 >
                   <Sparkles className="h-3 w-3 shrink-0 text-app-text-muted" />
@@ -1746,7 +1746,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                     ref={blockerChipRef}
                     onClick={() => openBlockerMenu(blockerChipRef.current)}
                     data-testid="task-blocked-by-chip"
-                    title={`${blockedChip.title} — clicca per cambiare il bloccante`}
+                    title={`${blockedChip.title} · clicca per cambiare il bloccante`}
                     className="flex min-w-0 items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-[11px] text-amber-300 hover:bg-amber-500/25"
                   >
                     <Lock className="h-3 w-3 shrink-0" />
@@ -1764,7 +1764,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                     onClick={() => onOpenTask(workAncestorId)}
                     data-testid="task-subtask-work-chip"
                     data-kind="parent-turn"
-                    title={`${workChip.title} — clicca per aprirlo`}
+                    title={`${workChip.title} · clicca per aprirlo`}
                     className="flex min-w-0 items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-app-text-muted hover:bg-white/20"
                   >
                     <UserRound className="h-3 w-3 shrink-0" />
@@ -2104,7 +2104,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               />
               <button
                 onClick={send} disabled={sending || (!draft.trim() && attachments.length === 0)}
-                title={isAgentReview ? "Rispondi (l'agent riparte con la tua risposta)" : agentBusy ? "Invia all'agent — lo riceve al prossimo turno (come Claude Code)" : 'Commenta'}
+                title={isAgentReview ? "Rispondi (l'agent riparte con la tua risposta)" : agentBusy ? "Invia all'agent. Lo riceve al prossimo turno (come Claude Code)" : 'Commenta'}
                 className={`rounded p-1.5 text-white disabled:opacity-50 ${isAgentReview || agentBusy ? 'bg-sky-500/80 hover:bg-sky-500' : 'bg-emerald-500/80 hover:bg-emerald-500'}`}
               >{sending ? <Spinner size="md" tone="current" /> : <Send className="h-4 w-4" />}</button>
             </div>

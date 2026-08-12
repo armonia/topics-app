@@ -413,7 +413,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
             <button
               key={s.id}
               onClick={() => onOpen(s.id)}
-              title={`${STATUS_LABEL[s.status]} — apri il sottotask`}
+              title={`${STATUS_LABEL[s.status]} · apri il sottotask`}
               className="flex w-full items-center gap-1.5 rounded px-0.5 text-left hover:bg-white/5"
             >
               <StatusIcon status={s.status} />
@@ -557,7 +557,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
           />
           <button
             disabled={busy || !freeText.trim()} onClick={() => steer(freeText)}
-            title="Invia all'agent — lo riceve al prossimo turno (come Claude Code)"
+            title="Invia all'agent. Lo riceve al prossimo turno, come Claude Code."
             className="flex shrink-0 items-center gap-1 rounded-md bg-sky-500/80 px-2.5 py-1.5 text-xs text-white hover:bg-sky-500 disabled:opacity-50"
           ><Send className="h-3.5 w-3.5" /></button>
         </div>
@@ -611,12 +611,12 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
             ><Send className="h-3.5 w-3.5" /></button>
             <button
               disabled={busy} onClick={() => review('approve', freeText.trim() || undefined)}
-              title={freeText.trim() ? 'Accetta e completa il task — il testo scritto finisce nel thread' : 'Accetta e completa il task'}
+              title={freeText.trim() ? 'Accetta e completa il task. Il testo scritto finisce nel thread.' : 'Accetta e completa il task'}
               className="flex items-center gap-1 rounded-md bg-emerald-500/80 px-2.5 py-1.5 text-xs text-white hover:bg-emerald-500 disabled:opacity-50"
             ><ShieldCheck className="h-3.5 w-3.5" /></button>
             <button
               disabled={busy} onClick={() => review('reject', freeText.trim() || undefined)}
-              title={freeText.trim() ? "Rifiuta — l'agent riparte col testo scritto come indicazione" : "Rifiuta (l'agent riparte senza indicazioni — scrivi nel campo per dargliene)"}
+              title={freeText.trim() ? "Rifiuta. L'agent riparte col testo scritto come indicazione." : "Rifiuta (l'agent riparte senza indicazioni, scrivi nel campo per dargliene)"}
               className="flex items-center gap-1 rounded-md bg-white/10 px-2.5 py-1.5 text-xs text-app-text hover:bg-white/20 disabled:opacity-50"
             ><ShieldX className="h-3.5 w-3.5" /></button>
           </div>
@@ -685,7 +685,7 @@ export function LiveEffortChip({ usage }: { usage: LiveUsage }) {
   const ms = usage.baseMs + Math.max(0, Date.now() - usage.turnStartedAt);
   return (
     <span
-      title={`In esecuzione — modello ${fmtModel(usage.model)}, ${fmtLive(ms)} di lavoro${usage.liveTokens ? `, ${usage.liveTokens.toLocaleString('it-IT')} token` : ''} (aggiornamento live)`}
+      title={`In esecuzione · modello ${fmtModel(usage.model)}, ${fmtLive(ms)} di lavoro${usage.liveTokens ? `, ${usage.liveTokens.toLocaleString('it-IT')} token` : ''} (aggiornamento live)`}
       className="flex items-center gap-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-xs md:text-[11px] text-sky-300 tabular-nums"
     >
       <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-sky-400" />

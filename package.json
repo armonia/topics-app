@@ -41,6 +41,7 @@
     "verify:phase30-strip": "bun run build:client && ./scripts/assert-dev-overlay-stripped.sh public",
     "check:any": "bun run scripts/check-any.ts",
     "check:nul": "bun run scripts/check-nul-bytes.ts",
+    "check:emdash": "bun run scripts/check-emdash.ts",
     "check:eslint-disable": "bun run scripts/check-eslint-disable.ts",
     "check:test-skips": "bun run scripts/check-test-skips.ts",
     "check:migrations": "bun run scripts/check-migration-numbers.ts",

@@ -1114,7 +1114,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             // title qui aprirebbe un tooltip sopra una tab il cui nome è già
             // scritto accanto, e duplicherebbe i title dei figli (spinner,
             // SessionActivity) che dicono la loro parte.
-            aria-label={[label, statoTab, dettaglioProgetto].filter(Boolean).join(' — ')}
+            aria-label={[label, statoTab, dettaglioProgetto].filter(Boolean).join(' · ')}
             style={{ width: 150, minWidth: 150, maxWidth: 150, flexShrink: 0 }}
             // overflow-hidden clips a tab whose trailing widgets (project git
             // status + spinner + notification badge + close) would otherwise

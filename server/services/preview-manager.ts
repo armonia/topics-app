@@ -409,7 +409,7 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
 
       if (shot) {
         try { deps.setPreviewImage(taskId, outPath); } catch (err) { log(`[preview] setPreviewImage failed for ${taskId}`, err); }
-        deps.addReviewNote(taskId, { content: `Anteprima viva pronta — ${url}`, media: [outPath] });
+        deps.addReviewNote(taskId, { content: `Anteprima viva pronta: ${url}`, media: [outPath] });
       } else {
         deps.addReviewNote(taskId, { content: `Anteprima viva su ${url} (screenshot non catturato).` });
       }
