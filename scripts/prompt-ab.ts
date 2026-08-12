@@ -200,7 +200,7 @@ if (RESCORE) {
   for (const c of cases) {
     for (let k = 0; k < N; k++) {
       for (const a of arms) {
-        const key = `${a.id} ${c.id}`;
+        const key = `${a.id}\u0000${c.id}`;
         let cell = cells.get(key);
         if (!cell) { cell = { arm: a.id, case: c.id, expect: c.expect, votes: [] }; cells.set(key, cell); }
         jobs.push({ cell, prompt: a.build(c.text, c.description) });

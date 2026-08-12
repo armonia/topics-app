@@ -58,6 +58,12 @@
         // non puo' essere un test — il test legge il JSON che questo ha scritto.
         "scripts/build-review-queue-fixture.ts!",
         "scripts/watch-board-tasks.ts!",  // CLI tool for the Monitor loop, run by hand
+        // `bun scripts/prompt-ab.ts` — il banco A/B sul prompt del giudice: si
+        // lancia a mano quando si vuole rimisurare quale formulazione declassa
+        // meno. Nessuno lo importa, e i suoi bracci stanno nel file accanto
+        // (`prompt-ab.arms.ts`, importato solo da lui). L'esito misurato e il
+        // metodo stanno in `docs/effort-variance/prompt-ab.md`.
+        "scripts/prompt-ab.ts!",
         // La prova che i test del doctor sanno diventare rossi: si lancia a
         // mano (`bun scripts/board-doctor.mutants.ts`), non lo importa nessuno
         // e non deve — mentre gira riscrive il file che sta mutando.
