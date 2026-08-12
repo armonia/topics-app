@@ -16,6 +16,20 @@
 //     that started this work (every output_url pointed at prod without the code).
 //   • The screenshot + status land as `review-note` comments, a channel that does
 //     NOT wake the agent (unlike a human POST /comments, which reject+resumes).
+//
+// v2 (2026-08-11 — due cancelli, dopo il rilievo «24 card su 47 mostrano due
+// immagini che non sono il loro lavoro»):
+//   • IDENTITÀ — «qualcuno risponde sulla porta» non vuol dire «è il mio
+//     server». Le prime porte del pool erano occupate da due dev server di un
+//     ALTRO progetto e 10 card hanno fotografato la sua pagina di login. Chi
+//     ASCOLTA sulla porta dev'essere il figlio spawnato (o un suo discendente,
+//     riconosciuto dal cwd = worktree del task): `listenerPid` + `processCwd`.
+//     Non verificabile ⇒ per il RIUSO di un url altrui si rifiuta, per il
+//     proprio figlio (vivo, appena spawnato) si accetta e si logga.
+//   • CONTENUTO — un placeholder o un errore non è evidenza. 14 card hanno
+//     fotografato il 503 «Bundle not built yet» di un worktree senza `public/`.
+//     Si guarda la pagina PRIMA di fotografarla (`fetchPage`), e se non è
+//     evidenza si AZZERA l'anteprima e si scrive perché.
 
 import { join } from "path";
 import net from "net";
@@ -57,14 +71,53 @@ export interface PreviewManagerDeps {
   resolveCommand(taskId: string, wt: PreviewWorktree): PreviewCommand | null;
   /** Spawn the command detached in `cwd` with `env`. Injected for tests. */
   spawn(cmd: string[], opts: { cwd: string; env: Record<string, string> }): PreviewProcess;
-  /** HTTP GET a url; resolve true if the server answered (any status). */
+  /**
+   * HTTP GET a url; resolve true if the server answered (any status).
+   * NON è una prova d'identità: dice solo che la porta parla. Vedi
+   * `listenerPid`/`processCwd` per «e chi parla è il mio server?».
+   */
   probe(url: string): Promise<boolean>;
+  /**
+   * PID del processo che ASCOLTA su `port` (loopback), null se sconosciuto
+   * (nessun listener, oppure il sistema non sa dirlo). Iniettabile: i test
+   * non hanno processi veri.
+   */
+  listenerPid?(port: number): Promise<number | null>;
+  /**
+   * cwd del processo `pid`, null se sconosciuto. Serve perché il figlio che
+   * spawniamo (`bun run dev`) di solito NON è quello che ascolta: ascolta un
+   * suo discendente, che però eredita il cwd = worktree del task.
+   */
+  processCwd?(pid: number): Promise<string | null>;
+  /**
+   * Il path CANONICO di una cartella, symlink risolti. Serve al cancello
+   * d'identità e non è un dettaglio: `lsof` risponde sempre col path REALE,
+   * mentre il worktree porta con sé il path con cui è stato creato. Su macOS
+   * `/tmp` è un link a `/private/tmp`, quindi le due stringhe divergono per la
+   * stessa cartella e l'anteprima appena avviata veniva scambiata per un
+   * processo estraneo e uccisa. Assente ⇒ confronto fra stringhe (il vecchio
+   * comportamento).
+   */
+  realPath?(p: string): Promise<string | null>;
+  /**
+   * Scarica la pagina per il cancello sul CONTENUTO: `{ status, body }`, o
+   * null se irraggiungibile. Assente ⇒ cancello disattivato (si fotografa).
+   */
+  fetchPage?(url: string): Promise<{ status: number; body: string } | null>;
   /** Render a PNG of `url` at `width` px to `outPath`. Best-effort → boolean. */
   screenshot(url: string, outPath: string, opts: { width: number }): Promise<boolean>;
   /** The task's current output_url (to detect a prod URL we must not keep). */
   currentOutputUrl(taskId: string): string | null;
   setOutputUrl(taskId: string, url: string | null): void;
+  /** Path assoluto dell'anteprima; stringa vuota = AZZERA (evidenza ritirata). */
   setPreviewImage(taskId: string, absPath: string): void;
+  /**
+   * Toglie l'anteprima e scrive sulla CARD perché — lo stato che la nota nel
+   * thread non sa aggiornare (`shared/preview-retirement.ts`). Opzionale: se
+   * l'host non lo fornisce si ricade su `setPreviewImage(taskId, "")`, cioè il
+   * comportamento di prima.
+   */
+  retirePreview?(taskId: string, reason: string): void;
   /** Add a `review-note` comment (does NOT wake the agent). */
   addReviewNote(taskId: string, args: { content: string; media?: string[] }): void;
   /** Surface the preview in the Processes panel (Stop button + logs). Optional. */
@@ -96,13 +149,24 @@ interface LivePreview {
   startedAt: number;
 }
 
+/**
+ * `explain: true` = l'ha chiesto una PERSONA («Ricattura evidenza» su una card
+ * già in review), non la consegna. Cambia una cosa sola, e per un motivo: chi ha
+ * cliccato deve ricevere una risposta comunque, quindi anche il ramo «niente
+ * anteprima possibile» — che alla consegna resta muto per non mettere un ⚠️ su
+ * ogni card senza superficie — qui scrive la sua review-note col motivo.
+ */
+export interface PrepareOptions {
+  explain?: boolean;
+}
+
 export interface PreviewManager {
   /**
    * Full delivery flow: (re)use or boot the preview, set output_url to the local
    * deep-link, capture a screenshot → previewImage + review-note. Enforces the
    * no-prod-url guard when no preview is possible. Best-effort — never throws.
    */
-  prepareForReview(taskId: string): Promise<void>;
+  prepareForReview(taskId: string, opts?: PrepareOptions): Promise<void>;
   /** Boot (or reuse) a preview server for the task. null ⇒ couldn't. */
   ensurePreview(taskId: string): Promise<{ url: string; port: number } | null>;
   /** Kill + forget the task's preview server. Idempotent, never throws. */
@@ -123,6 +187,41 @@ export function isLocalUrl(raw: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Pagine che NON sono evidenza: il server risponde, ma quello che si vede non è
+ * il lavoro del task. Il caso che ha aperto il rilievo è il 503 del bundle mai
+ * costruito (worktree fresco senza `public/`), fotografato su 14 card.
+ */
+const PLACEHOLDER_PATTERNS: RegExp[] = [
+  /bundle not built/i,
+  /cd client && bun run build/i,
+  /cannot (get|find) \//i,
+  /\bERR_CONNECTION_REFUSED\b/i,
+  /this site can[’']t be reached/i,
+];
+
+/** True se il corpo della pagina è un placeholder/errore — niente da mostrare. */
+export function isPlaceholderPage(body: string): boolean {
+  const text = body.trim();
+  if (!text) return true; // pagina vuota: una card bianca non prova nulla
+  return PLACEHOLDER_PATTERNS.some((re) => re.test(text));
+}
+
+/** Cancello sul CONTENUTO: solo una pagina servita OK e non-placeholder è evidenza. */
+export function isEvidencePage(page: { status: number; body: string }): boolean {
+  if (page.status >= 400) return false;
+  return !isPlaceholderPage(page.body);
+}
+
+/** Porta di un url locale, o null se non si legge. */
+function portOf(raw: string): number | null {
+  try {
+    const u = new URL(raw);
+    const p = u.port ? Number(u.port) : u.protocol === "https:" ? 443 : 80;
+    return Number.isFinite(p) ? p : null;
+  } catch { return null; }
 }
 
 /** Default TCP-connect port probe: free ⇒ nothing is listening. */
@@ -160,32 +259,82 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
     return null;
   }
 
-  async function waitReady(url: string): Promise<boolean> {
+  /**
+   * Attesa di prontezza CON identità minima: se il nostro figlio è morto, chi
+   * risponde sulla porta non è lui. È il caso più comune del guasto — la porta
+   * del pool è di un altro progetto, il figlio esce subito (EADDRINUSE) e la
+   * risposta dello sconosciuto passava per «server pronto».
+   */
+  async function waitReady(url: string, proc: PreviewProcess): Promise<boolean> {
     const deadline = now() + readyTimeoutMs;
     while (now() < deadline) {
-      if (await deps.probe(url)) return true;
+      if (!proc.alive()) return false;
+      if (await deps.probe(url)) return proc.alive();
       await sleep(readyPollMs);
     }
     return false;
   }
 
-  async function ensurePreview(taskId: string): Promise<{ url: string; port: number } | null> {
+  /**
+   * Chi ascolta su `port`: il nostro (`own`), uno sconosciuto (`foreign`) o non
+   * si sa (`unknown`, deps non iniettate / lsof muto). `unknown` non è
+   * un'assoluzione: chi chiama decide quanto costa sbagliarsi.
+   */
+  async function ownership(port: number, expect: { pid: number | null; cwd: string | null }): Promise<"own" | "foreign" | "unknown"> {
+    if (!deps.listenerPid) return "unknown";
+    let pid: number | null = null;
+    try { pid = await deps.listenerPid(port); } catch { return "unknown"; }
+    if (pid == null) return "unknown";
+    if (expect.pid != null && pid === expect.pid) return "own";
+    if (!deps.processCwd || !expect.cwd) return "foreign";
+    let cwd: string | null = null;
+    try { cwd = await deps.processCwd(pid); } catch { return "foreign"; }
+    if (!cwd) return "foreign";
+    // Il listener è quasi sempre un DISCENDENTE del figlio (`bun run dev` →
+    // server): non condivide il pid, ma eredita il cwd = worktree del task.
+    // Il confronto è fra path CANONICI, non fra stringhe: `lsof` risponde col
+    // path reale e il worktree con quello di creazione, e due nomi della stessa
+    // cartella non sono un intruso.
+    const [a, b] = await Promise.all([canonical(cwd), canonical(expect.cwd)]);
+    return a === b ? "own" : "foreign";
+  }
+
+  /** Path senza slash finali e con i symlink risolti, quando si può. */
+  async function canonical(p: string): Promise<string> {
+    const trimmed = p.replace(/\/+$/, "");
+    if (!deps.realPath) return trimmed;
+    try { return (await deps.realPath(trimmed))?.replace(/\/+$/, "") ?? trimmed; }
+    catch { return trimmed; }
+  }
+
+  /**
+   * `ensurePreview` col MOTIVO del no. Il null nudo bastava finché a leggerlo
+   * era solo la consegna (che sul niente tace); quando a chiedere è una persona,
+   * «non è stato possibile» senza il perché non è una risposta.
+   */
+  async function bootPreview(taskId: string): Promise<{ preview: { url: string; port: number } | null; reason: string | null }> {
+    const no = (reason: string) => ({ preview: null, reason });
+
     // Reuse a still-alive server (re-review after a reject+fix).
     const existing = live.get(taskId);
     if (existing) {
-      if (existing.proc.alive()) return { url: existing.url, port: existing.port };
+      if (existing.proc.alive()) return { preview: { url: existing.url, port: existing.port }, reason: null };
       live.delete(taskId); // dead — fall through and recreate
       try { deps.unregisterProcess?.(taskId); } catch { /* ignore */ }
     }
 
     const wt = deps.worktreeOf(taskId);
-    if (!wt || wt.mode !== "branch") return null;
+    if (!wt) return no("il task non ha un worktree (nessuna cartella da cui avviare un'anteprima)");
+    if (wt.mode !== "branch") return no(`il worktree del task è in modalità \`${wt.mode}\`, non \`branch\`: non c'è un checkout da avviare`);
 
     const command = deps.resolveCommand(taskId, wt);
-    if (!command || command.cmd.length === 0) return null;
+    if (!command || command.cmd.length === 0) return no("nessun comando di avvio riconosciuto per questo progetto (né script `dev`/`start` né override)");
 
     const port = await pickPort();
-    if (port == null) { log(`[preview] no free port in ${range[0]}-${range[1]} for ${taskId}`); return null; }
+    if (port == null) {
+      log(`[preview] no free port in ${range[0]}-${range[1]} for ${taskId}`);
+      return no(`nessuna porta libera nel pool ${range[0]}-${range[1]} (troppe anteprime vive insieme)`);
+    }
 
     let proc: PreviewProcess;
     try {
@@ -196,16 +345,26 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
       });
     } catch (err) {
       log(`[preview] spawn failed for ${taskId}`, err);
-      return null;
+      return no(`avvio fallito: \`${command.cmd.join(" ")}\` non è partito`);
     }
 
     const probeUrl = `http://127.0.0.1:${port}/`;
-    const ready = await waitReady(probeUrl);
+    const ready = await waitReady(probeUrl, proc);
     if (!ready) {
       log(`[preview] server for ${taskId} never became ready on :${port} — killing`);
       try { proc.kill(); } catch { /* ignore */ }
-      return null;
+      return no(`\`${command.cmd.join(" ")}\` non ha risposto su :${port} entro ${Math.round(readyTimeoutMs / 1000)}s (dipendenze non installate? build mancante?)`);
     }
+
+    // Risponde: ma è LUI? Un dev server estraneo già in ascolto sulla porta del
+    // pool verrebbe adottato in silenzio come anteprima del task.
+    const owns = await ownership(port, { pid: proc.pid, cwd: wt.absPath });
+    if (owns === "foreign") {
+      log(`[preview] :${port} answers but belongs to another process — refusing to adopt it for ${taskId}`);
+      try { proc.kill(); } catch { /* ignore */ }
+      return no(`su :${port} risponde un processo che non è di questo worktree, e non lo adotto come anteprima`);
+    }
+    if (owns === "unknown") log(`[preview] owner of :${port} unverified for ${taskId} (child alive — accepting)`);
 
     const deepLink = command.deepLinkPath && command.deepLinkPath.startsWith("/") ? command.deepLinkPath : "/";
     const url = `http://localhost:${port}${deepLink}`;
@@ -213,10 +372,30 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
     try {
       deps.registerProcess?.({ taskId, port, pid: proc.pid, command: command.cmd.join(" "), cwd: wt.absPath });
     } catch { /* panel registration is best-effort */ }
-    return { url, port };
+    return { preview: { url, port }, reason: null };
   }
 
-  async function prepareForReview(taskId: string): Promise<void> {
+  async function ensurePreview(taskId: string): Promise<{ url: string; port: number } | null> {
+    return (await bootPreview(taskId)).preview;
+  }
+
+  /** L'url che risponde è davvero dell'anteprima di QUESTO task? */
+  async function reusable(taskId: string, url: string): Promise<boolean> {
+    const mine = live.get(taskId);
+    if (mine && mine.url === url && mine.proc.alive()) return true;
+    const port = portOf(url);
+    if (port == null) return false;
+    const cwd = deps.worktreeOf(taskId)?.absPath ?? null;
+    const owns = await ownership(port, { pid: mine?.proc.pid ?? null, cwd });
+    if (owns !== "own") {
+      log(`[preview] refusing to reuse ${url} for ${taskId}: listener is ${owns} (not this task's preview)`);
+      return false;
+    }
+    return true;
+  }
+
+  async function prepareForReview(taskId: string, opts?: PrepareOptions): Promise<void> {
+    const explain = opts?.explain === true;
     try {
       const cur = deps.currentOutputUrl(taskId);
 
@@ -224,22 +403,69 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
       // server), reuse it instead of double-booting — and don't override its
       // deep-link. Only fall through to our own preview when there's nothing
       // reachable to point at.
+      //
+      // «Risponde» NON basta più: un output_url vecchio resta puntato su una
+      // porta che nel frattempo può essere di chiunque. Si riusa solo se è la
+      // NOSTRA anteprima viva, o se chi ascolta su quella porta ha per cwd il
+      // worktree del task. Non verificabile ⇒ non si riusa: costa un boot, non
+      // una consegna con l'evidenza di un altro progetto.
       let url: string | null = null;
+      let refusedLocal = false;
+      let bootFailure: string | null = null;
       if (cur && isLocalUrl(cur) && (await deps.probe(cur))) {
-        url = cur;
-      } else {
-        const res = await ensurePreview(taskId);
-        if (res) { url = res.url; deps.setOutputUrl(taskId, url); }
+        if (await reusable(taskId, cur)) url = cur;
+        else refusedLocal = true;
+      }
+      if (!url) {
+        const res = await bootPreview(taskId);
+        if (res.preview) { url = res.preview.url; deps.setOutputUrl(taskId, url); }
+        else bootFailure = res.reason;
       }
 
       if (!url) {
-        // No preview possible. Never leave a prod URL standing for undeployed code.
+        // No preview possible. Never leave a prod URL standing for undeployed
+        // code — né un url locale di cui abbiamo appena stabilito che chi
+        // risponde NON è questo task (è così che nasce l'evidenza di un altro
+        // progetto: la porta risponde, quindi «c'è l'anteprima»).
         if (cur && !isLocalUrl(cur)) {
           deps.setOutputUrl(taskId, null);
           deps.addReviewNote(taskId, {
             content: `⚠️ output_url rimosso: puntava a ${cur}, ma il codice di questo task non è deployato lì. Nessuna anteprima viva disponibile per questo worktree.`,
           });
+        } else if (refusedLocal) {
+          deps.setOutputUrl(taskId, null);
+          deps.addReviewNote(taskId, {
+            content: `⚠️ output_url rimosso: su ${cur} risponde un processo che non è l'anteprima di questo task. Nessuna anteprima viva disponibile per questo worktree.`,
+          });
+        } else if (explain) {
+          // Nessun url da ritirare, quindi alla consegna qui non si direbbe
+          // nulla. Ma la richiesta è di una persona: il no va motivato.
+          deps.addReviewNote(taskId, {
+            content: `⚠️ Ricattura evidenza: nessuna anteprima possibile. Motivo: ${bootFailure ?? "il progetto non è avviabile da questo worktree"}. Allega tu l'anteprima, oppure rimanda il task all'agente.`,
+          });
         }
+        return;
+      }
+
+      // Cancello sul CONTENUTO: si guarda la pagina PRIMA di fotografarla. Un
+      // placeholder o un errore non è evidenza — e un'evidenza falsa è peggio
+      // di nessuna evidenza, quindi qui si AZZERA anche l'anteprima vecchia.
+      const page = deps.fetchPage ? await deps.fetchPage(url).catch(() => null) : null;
+      if (page && !isEvidencePage(page)) {
+        const why = page.status >= 400
+          ? `ha risposto ${page.status}`
+          : "mostra una pagina di placeholder (nessun contenuto del task)";
+        // Il ritiro va sulla CARD (motivo compreso), non solo nel thread: una
+        // nota resterebbe a dire «non c'è anteprima» anche dopo che ne è
+        // arrivata una nuova.
+        try {
+          if (deps.retirePreview) deps.retirePreview(taskId, `l'anteprima viva ${why}`);
+          else deps.setPreviewImage(taskId, "");
+        } catch (err) { log(`[preview] clearPreviewImage failed for ${taskId}`, err); }
+        deps.addReviewNote(taskId, {
+          content: `⚠️ Nessuna anteprima allegata: ${url} ${why}. ` +
+            "Un'evidenza falsa è peggio di nessuna evidenza. Se il worktree serve un bundle, costruiscilo (`cd client && bun run build`) e allega tu l'anteprima.",
+        });
         return;
       }
 
@@ -253,7 +479,7 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
 
       if (shot) {
         try { deps.setPreviewImage(taskId, outPath); } catch (err) { log(`[preview] setPreviewImage failed for ${taskId}`, err); }
-        deps.addReviewNote(taskId, { content: `Anteprima viva pronta — ${url}`, media: [outPath] });
+        deps.addReviewNote(taskId, { content: `Anteprima viva pronta: ${url}`, media: [outPath] });
       } else {
         deps.addReviewNote(taskId, { content: `Anteprima viva su ${url} (screenshot non catturato).` });
       }

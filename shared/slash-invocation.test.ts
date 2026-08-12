@@ -23,7 +23,7 @@ describe('parseSlashInvocation', () => {
   });
 
   test('un PERCORSO non è un comando', () => {
-    expect(parseSlashInvocation('/Users/zorahrel/Projects/topics-app')).toBeNull();
+    expect(parseSlashInvocation('/Users/utente/Projects/topics-app')).toBeNull();
     expect(parseSlashInvocation('/tmp/x.png')).toBeNull();
   });
 

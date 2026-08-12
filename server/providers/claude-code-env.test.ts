@@ -35,4 +35,14 @@ describe("buildSafeEnv", () => {
       expect(key).not.toMatch(/TOKEN|SECRET|PASSWORD|CREDENTIAL|PRIVATE_KEY/i);
     }
   });
+
+  test("non recinta i core: la quota è per-topic, non per tutti", () => {
+    // Questo ambiente è di OGNI sessione, chat interattive dell'umano comprese.
+    // La quota di job (`agent-job-quota.ts`) vale solo per gli agenti nati dal
+    // dispatcher e si fonde qui sopra allo spawn: se comparisse già qui,
+    // dimezzerebbe anche la build che l'umano lancia a mano nella sua chat.
+    const env = buildSafeEnv();
+    expect(env.CARGO_BUILD_JOBS).toBeUndefined();
+    expect(env.MAKEFLAGS).toBeUndefined();
+  });
 });

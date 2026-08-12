@@ -257,8 +257,8 @@ describe("pinKeyForPane — one canonical pin key per tab type", () => {
 
 describe("normalizePinKey — una sola forma per progetto", () => {
   test("la forma codificata torna grezza", () => {
-    expect(normalizePinKey("project:%2FUsers%2Fzorahrel%2FProjects%2Ftopics-app"))
-      .toBe("project:/Users/zorahrel/Projects/topics-app");
+    expect(normalizePinKey("project:%2FUsers%2Futente%2FProjects%2Ftopics-app"))
+      .toBe("project:/Users/utente/Projects/topics-app");
   });
 
   test("è idempotente: applicarla due volte non cambia nulla", () => {

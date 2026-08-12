@@ -109,13 +109,49 @@ jobs:
       #    `check:copy` — girano su `landing/dist`, cioè su un sito GIÀ
       #    costruito che nessun workflow costruisce: vivono nel deploy manuale
       #    del sito, non nella CI dell'app.
-      - name: Static guard rails (any / NUL / dead code / eslint-disable / test skip)
+      - name: Static guard rails (any / NUL / dead code / eslint-disable / test skip / long dash)
         run: |
           bun run check:any
           bun run check:nul
           bun run check:deadcode
           bun run check:eslint-disable
           bun run check:test-skips
+          bun run check:emdash
+
+      # `check:deadcode` dice «zero export morti». Non dice su quanti file
+      # l'ha guardato, e la differenza non era teorica: su `client/src/lib/api.ts`
+      # — 49 export, la superficie HTTP del client — non poteva vedere niente,
+      # perché un `import('../../lib/api').then(…)` altrove lo rendeva OPACO per
+      # knip (che, non sapendo quali membri leggi, li considera usati tutti). Nove
+      # export morti stavano lì da mesi con il cancello verde. In tutto i file
+      # ciechi erano 41 su 801, e nessuno di loro compariva da nessuna parte.
+      #
+      # Questo passo appende un export morto-per-costruzione a ogni file di
+      # progetto non-entrypoint, lancia knip UNA volta e pretende che ogni sonda
+      # torni nel report. Sta in un passo suo per due motivi: costa una run di
+      # knip (~1 min), e mentre gira l'albero è modificato — quindi non deve
+      # incrociare altri check. I file vengono rimessi a posto in `finally`; su
+      # un checkout di CI, comunque usa-e-getta, il danno massimo di un crash è
+      # zero.
+      - name: Il cancello sul codice morto non è cieco su nessun file
+        run: bun run check:deadcode-blindspots
+
+      # Il prefisso di una migration non è una scelta libera di chi scrive il
+      # file. Col contatore due card in parallelo se lo prendevano uguale senza
+      # potersene accorgere: il numero si sceglie alla NASCITA e si verifica
+      # all'ATTERRAGGIO, e in mezzo atterrano gli altri (il 10/08 due `089`;
+      # l'11-12/08 altre tre di fila, 097 100 101). Da qui in avanti il prefisso
+      # è un timestamp UTC che nessuno deve contendere a nessuno
+      # (`bun run migration:new`), e questo cancello ferma sia chi torna al
+      # contatore sia i contatori duplicati rimasti.
+      #
+      # `fetch-depth` di default è 1, quindi `main` NON esiste in questo
+      # checkout: senza il fetch mirato il cancello non avrebbe con cosa
+      # confrontarsi (e uscirebbe 1 dicendolo, invece di passare a vuoto).
+      - name: Le migration nuove usano il timestamp, e nessun numero è doppio
+        run: |
+          git fetch --no-tags --depth=1 origin main:refs/remotes/origin/main
+          MIGRATION_BASE_REF=refs/remotes/origin/main bun run check:migrations
 
       - name: Unit + integration tests
         run: bun test:unit
@@ -225,32 +261,65 @@ jobs:
 
   # The Tauri shell is the primary desktop app (Electron was archived in v2.0.0,
   # recoverable on branch `electron-archive`). Its Rust crate compiles only on a
-  # native toolchain, so `cargo check` it on macOS to catch Rust regressions on
-  # every push/PR — the same gate the old Electron typecheck job provided.
+  # native toolchain, so `cargo check` it to catch Rust regressions on every
+  # push/PR. It is the same gate the old Electron typecheck job provided.
+  #
+  # Le tre OS e non solo macOS. Il pane browser nativo ha un backend per motore
+  # (WKWebView, WebView2, WebKitGTK) scelto da `cfg(target_os)`, e il compilatore
+  # ne guarda uno solo: su un runner macOS i rami Windows e Linux non vengono
+  # nemmeno letti. Con il solo job macOS quei due rami sono rimasti rotti senza
+  # che nessuno lo vedesse: `on_page_load` chiamava helper macOS-only e non
+  # compilava da nessuna delle due parti. Nessuno poteva accorgersene, perche
+  # l'unica build cross-platform parte sui tag `tauri-v*`, cioe alla release. In locale lo stesso
+  # controllo si fa con `scripts/check-cross-shell.sh`.
   tauri:
-    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      # webkit2gtk-sys e i suoi vicini si configurano con pkg-config: senza
+      # queste, il crate Linux non arriva nemmeno a compilare.
+      - name: Install Linux webview deps
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
+            libsoup-3.0-dev libjavascriptcoregtk-4.1-dev libappindicator3-dev \
+            librsvg2-dev patchelf
+
       - name: Rust build cache
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: desktop-tauri/src-tauri
+          key: ${{ matrix.os }}
 
       # tauri-build validates that every externalBin resource EXISTS for the
       # host triple even under `cargo check` (it only reads their bytes in
       # `tauri build`). The real sidecars are produced by tauri-release.yml,
       # not here, so stub empty host-triple files to clear the build-script
       # existence gate without a slow sidecar compile.
+      # `shell: bash` esplicita: su windows-latest il default e pwsh, e questo
+      # script e sh.
       - name: Stub sidecar binaries (cargo check existence gate)
         working-directory: desktop-tauri/src-tauri
+        shell: bash
         run: |
           triple="$(rustc -vV | sed -n 's/host: //p')"
+          # Su Windows tauri-build cerca i sidecar con l'estensione: senza `.exe`
+          # il segnaposto c'e ma il build script non lo trova lo stesso.
+          ext=""
+          case "$triple" in *windows*) ext=".exe" ;; esac
           mkdir -p binaries
-          touch "binaries/topics-server-$triple" "binaries/pty-bridge-$triple"
+          for s in topics-server pty-bridge webrtc-bridge; do
+            touch "binaries/$s-$triple$ext"
+          done
 
       - name: Cargo check (Tauri crate)
         run: cargo check

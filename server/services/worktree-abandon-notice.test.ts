@@ -159,7 +159,7 @@ describe("abandonNoticeFromRepo — verifica su un repo vero", () => {
     });
     expect(m).toBe(
       "Worktree liberato: il branch del worktree non esiste più. " +
-      "⚠️ Verificato ora: `git rev-parse --verify topics/vibrant-creek` non risolve — il branch NON c'è, " +
+      "⚠️ Verificato ora: `git rev-parse --verify topics/vibrant-creek` non risolve: il branch NON c'è, " +
       "quindi non posso dire che il lavoro committato sia salvo. " +
       "Dove guardare: `git reflog` e `git fsck --lost-found` nel repo del progetto. " +
       "Il task torna in backlog perché la sessione non c'è più.",
@@ -178,5 +178,52 @@ describe("abandonNoticeFromRepo — verifica su un repo vero", () => {
   test("worktree senza branch → nessun ref da promettere", async () => {
     const m = await abandonNoticeFromRepo({ reason: "orfano", repoPath: repo, branchName: null });
     expect(m).toContain("non aveva un branch proprio");
+  });
+
+  // LO STESSO REF ASSENTE, IL SIGNIFICATO OPPOSTO. Il ramo potato da un land
+  // riuscito non è un branch perduto: dirlo con l'allarme spaventava proprio le
+  // card che avevano funzionato (guasto del 12/08).
+  test("branch potato dopo il land → racconta l'atterraggio, non suona l'allarme", async () => {
+    const m = await abandonNoticeFromRepo({
+      reason: "il ramo è stato potato dopo un atterraggio riuscito",
+      repoPath: repo,
+      branchName: "topics/vibrant-creek",
+      deliveryLanded: true,
+      deliveryCommit: "0123456789abcdef",
+      taskFate: "stays",
+    });
+    expect(m).toBe(
+      "Worktree liberato: il ramo è stato potato dopo un atterraggio riuscito. " +
+      "Verificato ora: il branch `topics/vibrant-creek` non c'è più perché il lavoro è ATTERRATO. " +
+      "Il commit di consegna `01234567` risulta su main. " +
+      "Il ramo è stato potato dal land: non c'è niente da recuperare. " +
+      "Il task resta dov'è: il dispatcher non lo sposta di colonna, la decisione è di chi lo guarda.",
+    );
+    expect(m).not.toContain("⚠️");
+    expect(m).not.toContain("backlog");
+  });
+
+  // Il ramo davvero sparito sotto una card in review: l'allarme resta (non
+  // sappiamo dove sia finito il lavoro), ma la frase non promette un backlog
+  // dove la card non va più.
+  test("review + branch sparito davvero → allarme sì, backlog no", async () => {
+    const m = await abandonNoticeFromRepo({
+      reason: "il branch del worktree non esiste più",
+      repoPath: repo,
+      branchName: "topics/vibrant-creek",
+      taskFate: "stays",
+    });
+    expect(m).toContain("il branch NON c'è");
+    expect(m).toContain("git fsck --lost-found");
+    expect(m).toEndWith("Il task resta dov'è: il dispatcher non lo sposta di colonna, la decisione è di chi lo guarda.");
+  });
+
+  // `deliveryLanded` parla SOLO del ramo sparito. Su un branch che esiste il
+  // conteggio dei commit resta l'informazione utile.
+  test("branch presente → `deliveryLanded` non riscrive la frase", async () => {
+    const m = await abandonNoticeFromRepo({
+      reason: "orfano", repoPath: repo, branchName: "topics/vivo", deliveryLanded: true,
+    });
+    expect(m).toContain("c'è, con 1 commit oltre main");
   });
 });

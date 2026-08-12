@@ -78,6 +78,20 @@ describe('browser-ws-messages: set_stream (client -> server)', () => {
   });
 });
 
+// Frame a sé, e non un alias di set_stream: quello è la pausa del transport (il
+// WebRTC lo manda mentre guarda eccome), questo è «la mia pane è sullo schermo»
+// ed è l'unico ingresso del conteggio spettatori cross-device.
+describe('browser-ws-messages: set_watching (client -> server)', () => {
+  it('accepts active true/false', () => {
+    expect(parseBrowserWsMessage({ type: 'set_watching', active: false }).ok).toBe(true);
+    expect(parseBrowserWsMessage({ type: 'set_watching', active: true }).ok).toBe(true);
+  });
+  it('rejects a missing / non-boolean active', () => {
+    expect(parseBrowserWsMessage({ type: 'set_watching' }).ok).toBe(false);
+    expect(parseBrowserWsMessage({ type: 'set_watching', active: 'yes' }).ok).toBe(false);
+  });
+});
+
 describe('browser-ws-messages: set_render (client -> server)', () => {
   it('accepts video / dom', () => {
     expect(parseBrowserWsMessage({ type: 'set_render', mode: 'video' }).ok).toBe(true);
@@ -108,6 +122,36 @@ describe('browser-ws-messages: dom_event (server -> client)', () => {
     // Any JSON payload is allowed — the client's Replayer owns the shape.
     expect(parseBrowserWsMessage({ type: 'dom_event', event: [1, 2, 3] }).ok).toBe(true);
     expect(parseBrowserWsMessage({ type: 'dom_event', event: 'meta' }).ok).toBe(true);
+  });
+});
+
+describe('browser-ws-messages: focus_field (server -> client)', () => {
+  it('accepts the field descriptor the video branch dresses its keyboard with', () => {
+    const msg = {
+      type: 'focus_field' as const,
+      field: { tag: 'input', type: 'email', inputMode: '', enterKeyHint: 'go', inForm: true },
+    };
+    const r = parseBrowserWsMessage(msg);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.data).toEqual(msg);
+  });
+  it('accepts it WITHOUT a field: nothing writable took focus', () => {
+    expect(parseBrowserWsMessage({ type: 'focus_field' }).ok).toBe(true);
+  });
+  it('needs a tag when a field is there, and keeps the flags booleans', () => {
+    expect(parseBrowserWsMessage({ type: 'focus_field', field: { type: 'email' } }).ok).toBe(false);
+    expect(parseBrowserWsMessage({ type: 'focus_field', field: { tag: 'input', disabled: 'si' } }).ok).toBe(false);
+  });
+});
+
+describe('browser-ws-messages: focus_query (client -> server)', () => {
+  it('accepts the bare question the video branch asks after a DataChannel click', () => {
+    // Il click non passa più dal server (va sul canale dati della
+    // PeerConnection), quindi la lettura del campo a fuoco va chiesta a voce:
+    // senza questa variante nell'union il pane resta con la tastiera generica.
+    const r = parseBrowserWsMessage({ type: 'focus_query' });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.data).toEqual({ type: 'focus_query' });
   });
 });
 

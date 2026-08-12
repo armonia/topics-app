@@ -26,10 +26,11 @@ const ROOT = join(import.meta.dir, "..", "..");
  * un'entrata senza motivo è un contratto morto che nessuno ha ancora tolto.
  */
 const DORMANT: Record<string, string> = {
-  // Il client li ASCOLTA ancora (usePanelLifecycle, useTabNotifications): lo
-  // schema resta come contratto di ciò che quel gestore si aspetta, finché
-  // qualcuno decide se togliere il gestore o ripristinare l'emissione.
-  "browser:force-open": "gestito da usePanelLifecycle, emissione server assente",
+  // `browser:force-open` è uscito da questa lista l'11/08/2026: lo emette
+  // `routes/browser-bridge.ts` quando nessuna pane si aggancia al contextId
+  // dopo `open-pane`. Era il caso di scuola di un contratto dormiente che
+  // qualcuno CREDEVA collegato — il commento del gestore diceva «il server
+  // emette force-open», e non lo faceva nessuno.
   // L'unico emittente era il roster agenti (`routes/agent-profiles.ts`), uscito
   // col concetto di agente. `useDashboard` lo ascolta ancora e nel frattempo si
   // aggiorna da solo ogni 60s: il gestore resta, il frame lo riprenderà chi

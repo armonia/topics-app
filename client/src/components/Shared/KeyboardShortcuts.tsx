@@ -31,7 +31,7 @@ export function KeyboardShortcuts({ isOpen, onClose }: KeyboardShortcutsProps) {
       >
         <div className="flex items-center justify-between px-4 py-3 border-b border-app-border">
           <h3 className="text-[14px] font-semibold text-app-text">Keyboard Shortcuts</h3>
-          <button onClick={onClose} className="text-app-text-muted hover:text-app-text-secondary">
+          <button aria-label="Chiudi le scorciatoie da tastiera" onClick={onClose} className="text-app-text-muted hover:text-app-text-secondary">
             <X size={16} />
           </button>
         </div>

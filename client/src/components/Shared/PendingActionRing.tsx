@@ -1,13 +1,30 @@
 /**
  * PendingActionRing — Things3-style "mark as done" affordance.
  *
- * Two visual states:
+ * Three visual states:
  *  - **idle** (no pending entry for the key): empty circle outline. Click
  *    fires `onIdleClick`, which is expected to enqueue a PendingAction
  *    (and auto-tick it, so the countdown starts immediately).
  *  - **pending** (an entry exists, ticked because of auto-tick): filled
  *    circle with a check inside, accented with the topic color when
  *    available. Click cancels.
+ *  - **done** (`done` prop, e nessun pending): lo stesso cerchio pieno con la
+ *    spunta, ma PERSISTENTE — la cosa è archiviata e sta ancora nella lista.
+ *    Un clic ripristina.
+ *
+ * IL TERZO STATO MANCAVA, e la sua assenza è il motivo per cui esistevano le
+ * icone d'archivio. Questo cerchio nasce come comando: prometteva «completa
+ * questa cosa» e, un istante dopo il commit, la riga spariva — quindi non ha mai
+ * dovuto DIRE «completata». Ma una riga archiviata resta visibile (il filtro
+ * «Mostra archiviate»), e per raccontarla si era ripiegato altrove: `Archive` in
+ * testa alla riga chat, `ArchiveRestore` in coda, il nome più tenue sul
+ * progetto, niente sulle tessere. Tre vocabolari perché a questo ne mancava una
+ * parola. Adesso ce l'ha, ed è la stessa forma del secondo stato — perché è la
+ * stessa cosa: il conto alla rovescia è un «fatto» che si può ancora annullare.
+ *
+ * `done` NON scavalca `status`: mentre un conto alla rovescia scorre comanda
+ * quello, o un ripristino a metà countdown avrebbe due significati nello stesso
+ * pixel.
  *
  * The countdown progress itself is rendered separately by
  * `<PendingActionProgressOverlay>` over the parent row/tab background —
@@ -50,13 +67,27 @@ interface Props {
   boxClassName?: string;
   /** Triggered when idle (empty circle clicked). Caller enqueues + auto-ticks. */
   onIdleClick?: () => void;
+  /** La cosa è GIÀ archiviata/fatta e sta ancora nella lista: cerchio pieno
+   *  persistente. Ignorato mentre `status` c'è (vedi la testata). */
+  done?: boolean;
+  /** Clic sul cerchio pieno persistente: ripristina. */
+  onDoneClick?: () => void;
   /** Override `aria-label` for the idle state. */
   idleAriaLabel?: string;
   /** Override `aria-label` for the pending state. */
   pendingAriaLabel?: string;
+  /** Override `aria-label` per lo stato «fatto» persistente. */
+  doneAriaLabel?: string;
   /** Title attribute (tooltip). Per-state defaults supplied if not set. */
   idleTitle?: string;
   pendingTitle?: string;
+  doneTitle?: string;
+  /** Appiglio stabile per i test: finisce su `data-testid` del <button> in
+   *  OGNI stato (riposo, conto alla rovescia, fatto), perche' chi lo cerca
+   *  vuole «il comando di questa riga», non lo stato in cui si trova. Senza,
+   *  le spec lo prendevano come `.locator("button").last()` — posizionale, e
+   *  quindi rotto dal primo bottone che si aggiunge accanto. */
+  testId?: string;
   /** Extra Tailwind classes for the wrapping <button>. */
   className?: string;
 }
@@ -76,19 +107,25 @@ export function PendingActionRing({
   size = 14,
   boxClassName,
   onIdleClick,
+  done,
+  onDoneClick,
   idleAriaLabel = 'Mark as done',
   pendingAriaLabel = 'Annulla',
+  doneAriaLabel = 'Ripristina',
   idleTitle = 'Done',
   pendingTitle = 'Annulla',
+  doneTitle = 'Ripristina',
   className,
+  testId,
 }: Props) {
-  if (!status) {
+  if (!status && !done) {
     return (
       <button
         type="button"
         onClick={(e) => { e.stopPropagation(); onIdleClick?.(); }}
         aria-label={idleAriaLabel}
         title={idleTitle}
+        data-testid={testId}
         className={`${baseBtn} ${boxClassName ?? ''} ${className ?? ''}`}
         // Il box viene dalle CLASSI quando il chiamante ne dà (`boxClassName`),
         // altrimenti resta l'inline di sempre: `width`/`height` inline
@@ -102,14 +139,18 @@ export function PendingActionRing({
       </button>
     );
   }
-  const accent = status.entry.color || 'currentColor';
+  // Il conto alla rovescia prende il colore del topic quando ce l'ha; il «fatto»
+  // persistente no — eredita, così su un fill di attenzione resta leggibile
+  // invece di restare della tinta con cui era stato archiviato.
+  const accent = status ? (status.entry.color || 'currentColor') : 'currentColor';
   const innerCheck = Math.max(8, size - 5);
   return (
     <button
       type="button"
-      onClick={(e) => { e.stopPropagation(); status.cancel(); }}
-      aria-label={pendingAriaLabel}
-      title={pendingTitle}
+      onClick={(e) => { e.stopPropagation(); if (status) status.cancel(); else onDoneClick?.(); }}
+      aria-label={status ? pendingAriaLabel : doneAriaLabel}
+      title={status ? pendingTitle : doneTitle}
+      data-testid={testId}
       className={`${baseBtn} ${boxClassName ?? ''} ${className ?? ''}`}
       style={boxClassName ? { color: accent } : { width: size, height: size, color: accent }}
     >

@@ -3,12 +3,14 @@ import {
   PERMISSION_CHOICES,
   PERMISSION_HINTS,
   PERMISSION_LABELS,
+  cliDecisionFor,
+  decisionFreesSession,
   isPermissionDecision,
   summarizeToolInput,
 } from "./permission-decision";
 
-describe("le tre decisioni, e nient'altro", () => {
-  it("hanno tutte un'etichetta e una riga che dice cosa fanno", () => {
+describe("i tre bottoni in fila, e il quarto che NON ci sta", () => {
+  it("hanno tutti un'etichetta e una riga che dice cosa fanno", () => {
     for (const choice of PERMISSION_CHOICES) {
       expect(PERMISSION_LABELS[choice]).toBeTruthy();
       expect(PERMISSION_HINTS[choice]).toBeTruthy();
@@ -19,13 +21,53 @@ describe("le tre decisioni, e nient'altro", () => {
   it("il no è per ultimo: si legge prima cosa si concede", () => {
     expect(PERMISSION_CHOICES[PERMISSION_CHOICES.length - 1]).toBe("deny");
   });
+
+  it("«passa a libero» ha le sue parole ma resta FUORI dalla fila", () => {
+    // Se un giorno finisce in `PERMISSION_CHOICES`, il pannello lo disegna come
+    // un quarto bottone identico agli altri — a un pollice da «Consenti» — e
+    // l'unica decisione che toglie la barriera di sicurezza diventa la più
+    // facile da premere per sbaglio. Questo caso è lì per accorgersene.
+    expect(PERMISSION_LABELS.allow_free).toBeTruthy();
+    expect(PERMISSION_HINTS.allow_free).toBeTruthy();
+    expect(PERMISSION_CHOICES).not.toContain("allow_free");
+  });
+
+  it("la sua riga dice sia cosa smette di succedere sia da dove si torna indietro", () => {
+    // Un consenso permanente che non dice come si revoca è una porta che si
+    // apre e basta.
+    expect(PERMISSION_HINTS.allow_free).toContain("senza chiedere");
+    expect(PERMISSION_HINTS.allow_free).toContain("autonomia");
+  });
+});
+
+describe("verso la CLI viaggiano sempre e solo le tre che capisce", () => {
+  it("«passa a libero» diventa un `allow`", () => {
+    // La CLI risponde `behavior: allow | deny` e non sa niente di modalità di
+    // autonomia: consegnarle `allow_free` sarebbe una parola sconosciuta al
+    // posto di un permesso.
+    expect(cliDecisionFor("allow_free")).toBe("allow");
+  });
+
+  it("le altre tre passano intatte", () => {
+    expect(cliDecisionFor("allow")).toBe("allow");
+    expect(cliDecisionFor("allow_always")).toBe("allow_always");
+    expect(cliDecisionFor("deny")).toBe("deny");
+  });
+
+  it("una sola decisione libera la sessione, e si riconosce da sé", () => {
+    expect(decisionFreesSession("allow_free")).toBe(true);
+    expect(decisionFreesSession("allow")).toBe(false);
+    expect(decisionFreesSession("allow_always")).toBe(false);
+    expect(decisionFreesSession("deny")).toBe(false);
+  });
 });
 
 describe("isPermissionDecision — sul confine si valida, non si spera", () => {
-  it("passa solo le tre", () => {
+  it("passa le quattro", () => {
     expect(isPermissionDecision("allow")).toBe(true);
     expect(isPermissionDecision("allow_always")).toBe(true);
     expect(isPermissionDecision("deny")).toBe(true);
+    expect(isPermissionDecision("allow_free")).toBe(true);
   });
 
   it("tutto il resto è FUORI — e il chiamante risponde 400, non «sì» né un no muto", () => {

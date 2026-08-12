@@ -754,6 +754,40 @@ export async function resetProjectPanes(
 }
 
 /**
+ * Aspetta che un pane APERTO A MANO dentro il progetto sia ARRIVATO al server,
+ * cioè che `topics-project-panes-<hash>` lo elenchi in `nonChatPanes`.
+ *
+ * Serve a chi apre una superficie su una pagina e la vuole ritrovare aperta su
+ * un'ALTRA pagina (`helpers/clip.ts`: il prologo monta la board, la scena la
+ * ritrova già montata e non la rimonta davanti alla telecamera). Il client
+ * scrive quella chiave con un debounce di 500 ms — `projectLayoutSync.SYNC_DEBOUNCE_MS` —
+ * quindi chiudere la pagina appena il pane è visibile può arrivare prima della
+ * scrittura, e la seconda pagina si idraterebbe senza.
+ */
+export async function waitForProjectPaneType(
+  request: APIRequestContext,
+  projectPath: string,
+  type: string,
+  timeoutMs = 10_000,
+): Promise<void> {
+  const key = projectPanesKey(projectPath);
+  const deadline = Date.now() + timeoutMs;
+  let visti: string[] = [];
+  while (Date.now() < deadline) {
+    const res = await request.get(`${BASE}/api/ui-state/${key}`, { ignoreHTTPSErrors: true });
+    if (res.ok()) {
+      const value = ((await res.json()) as { value?: { nonChatPanes?: Array<{ type?: string }> } })?.value;
+      visti = (value?.nonChatPanes ?? []).map((p) => p?.type ?? "?");
+      if (visti.includes(type)) return;
+    }
+    await new Promise((r) => setTimeout(r, 120));
+  }
+  throw new Error(
+    `waitForProjectPaneType: nessun pane «${type}» in ${key} dopo ${timeoutMs} ms (visti: ${visti.join(", ") || "nessuno"})`,
+  );
+}
+
+/**
  * Seed a project's INNER layout so `topicIds` render as OPEN chat tabs inside the
  * project window. buildSidebarItems only lists a project's child chat when it has
  * an open inner tab (or a notification/pin), and that inner layout is persisted

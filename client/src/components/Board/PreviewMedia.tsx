@@ -1,8 +1,9 @@
 import { useState, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { Maximize2, PanelTop, X } from 'lucide-react';
+import { FileText, Maximize2, PanelTop, X } from 'lucide-react';
 import { getMediaUrl } from '../../lib/api';
-import { isVideoPath } from '../../lib/mediaKind';
+import { isVideoPath, isPreviewablePath } from '../../lib/mediaKind';
+import { MODAL_LAYER } from '../../lib/modalStyles';
 import { useModalDialog } from '../../hooks/useModalDialog';
 
 /** Full-window overlay (portal, over the app — NOT a separate OS window) showing
@@ -17,7 +18,10 @@ function Lightbox({ url, video, onClose }: { url: string; video: boolean; onClos
     <div
       ref={panelRef}
       onClick={onClose}
-      className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 p-6 backdrop-blur-sm anim-pop"
+      // `MODAL_LAYER` e non `z-[200]`: un lightbox a schermo intero è una
+      // superficie modale, e 200 lo lasciava sotto ogni popover (9999). Il
+      // piano si dichiara con la costante, non con un numero scelto a occhio.
+      className={`fixed inset-0 ${MODAL_LAYER} flex items-center justify-center bg-black/80 p-6 backdrop-blur-sm anim-pop`}
       data-testid="preview-lightbox"
       // `role="dialog"` non è solo ARIA: è il marcatore con cui il resto
       // dell'app riconosce che c'è un modale aperto (lib/modalSurface). Senza,
@@ -56,11 +60,15 @@ function Lightbox({ url, video, onClose }: { url: string; video: boolean; onClos
 }
 
 /**
- * A task's review-evidence preview — a screenshot (`<img>`) OR a video clip
- * (`<video>`), chosen by file extension. Behavioural/UI tasks (auto-scroll, a
- * box that opens/closes, a streaming answer) deliver a short Playwright /
- * spec-flow recording that a static image cannot convey; static UI delivers a
- * screenshot. Served by /api/media (Range-enabled for video seeking).
+ * A task's review-evidence preview — an image (`<img>`: screenshot .png or
+ * diagram .svg) OR a video clip (`<video>`), chosen by file extension. Served
+ * by /api/media (Range-enabled for video seeking).
+ *
+ * QUANDO ciascuno dei tre — la regola sta in `PREVIEW_RULE`
+ * (`shared/board.ts`), che è anche il testo letterale che leggono l'envelope
+ * di kickoff, quello di resume e lo schema del tool MCP. Qui NON si riassume:
+ * il riassunto che stava in questo commento diceva due rami mentre il
+ * protocollo ne dice tre, ed è esattamente la divergenza che si è chiusa.
  *
  * `card`   — compact living thumbnail: a video plays muted + looped inline (the
  *            motion IS the evidence); an image is static. Click bubbles up to
@@ -82,14 +90,84 @@ export function PreviewMedia({ path, variant, onOpenTab }: {
   const [lightbox, setLightbox] = useState(false);
   const url = getMediaUrl(path);
   const video = isVideoPath(path);
-  const expandable = variant === 'drawer';
+  // Il lightbox mostra `<img>` o `<video>`: offrirlo su un file che nessuno dei
+  // due sa aprire riproporrebbe l'icona rotta, solo a schermo intero.
+  const expandable = variant === 'drawer' && isPreviewablePath(path);
   const openLightbox = useCallback(() => setLightbox(true), []);
 
+  // IL TETTO È UN RAPPORTO, non un'altezza.
+  //
+  // Era `max-h-36`: 144px fissi. Ma la colonna è larga un INTERVALLO (Card.tsx
+  // `widthCls`), quindi un'altezza fissa diventa un rapporto DIVERSO a ogni
+  // larghezza — 144/250 = 0.58 nella colonna di lavoro stretta, 144/474 = 0.30
+  // nella review a 1280, 144/666 = 0.22 su un board molto largo. Il protocollo
+  // però promette agli agenti UN numero (`PREVIEW_CARD_MAX_RATIO`), e la
+  // colonna dove si decide davvero — la review — era quella che tagliava di
+  // più. È questo lo «schiacciato»: non il tetto, il tetto che si stringe da
+  // solo man mano che la card si allarga.
+  //
+  // `cqw` = percentuale della larghezza del CONTAINER (il wrapper qui sotto ha
+  // `@container`, ed è lui a portare anche il `max-w`). `70cqw` è quindi
+  // letteralmente `PREVIEW_CARD_MAX_RATIO` applicato alla larghezza VERA della
+  // miniatura, uguale a ogni larghezza di colonna e su mobile.
+  //
+  // Il secondo tetto sta sulla LARGHEZZA del wrapper (380px), non sull'altezza:
+  // un `max-h` in px, misurato, rimetteva dentro il difetto appena tolto —
+  // oltre una certa larghezza avrebbe ripreso il comando e il rapporto sarebbe
+  // tornato a scendere colonna per colonna (in review: 320px su 474 = 0.67, e
+  // 0.48 su un board largo). Fermando la LARGHEZZA, il rapporto resta 0.7
+  // ovunque e il tetto in altezza esiste lo stesso, come conseguenza: 266px.
+  // I due numeri stanno in `shared/board.ts` perché li cita il testo del
+  // protocollo — cambiarli qui e basta fa mentire la regola che leggono gli
+  // agenti, e c'è un test che confronta questa classe con le costanti.
+  //
+  // DRAWER — perché non più `max-h-[50vh] object-contain`:
+  //  · il tetto in `vh` guarda la FINESTRA, non il riquadro: un'anteprima
+  //    2200x6010 (una schermata lunga, che gli agenti consegnano spesso) si
+  //    prendeva mezzo drawer e spingeva fuori tutto il resto;
+  //  · `object-contain` mostrava tutta l'immagine RIMPICCIOLITA — a quella
+  //    scala non è leggibile, quindi non serviva a decidere: mostrava soltanto
+  //    che c'è un'anteprima. L'immagine intera è a UN click (lightbox, o la sua
+  //    tab): la miniatura non deve fare quel lavoro.
+  //  · `object-cover object-top` — lo STESSO ritaglio della card: quello che
+  //    hai visto sulla card è quello che ritrovi qui, e una copertina bassa non
+  //    viene stirata (il tetto taglia, non deforma). «Lo stesso» ora lo è per
+  //    davvero: prima card e drawer avevano due tetti in px diversi (144 e 220)
+  //    su due larghezze diverse, quindi due ritagli diversi; con lo stesso
+  //    `70cqw` il ritaglio coincide, e il `vh` resta solo come garanzia che su
+  //    una finestra bassa l'anteprima sia una FETTA del drawer e non il drawer.
+  // Un video tiene `object-contain` (ritagliarlo nasconderebbe l'azione) e un
+  // tetto in px più alto: sotto ~150px i controlli nativi diventano inusabili,
+  // e un rapporto glieli toglierebbe proprio in un drawer stretto.
   const mediaCls = variant === 'card'
-    ? 'block w-full max-h-36 rounded border border-app-border object-cover object-top'
-    : 'block w-full max-h-[50vh] rounded border border-app-border bg-black/20 object-contain';
+    ? 'block w-full max-h-[70cqw] rounded border border-app-border object-cover object-top'
+    : video
+      ? 'block w-full max-h-[min(280px,32vh)] rounded border border-app-border bg-black/20 object-contain'
+      : 'block w-full max-h-[min(70cqw,32vh)] rounded border border-app-border bg-black/20 object-cover object-top';
 
-  const media = video ? (
+  // Terzo caso: un file che NESSUN elemento sa mostrare (un `.pdf`, un `.zip`
+  // — roba fuori dai tre rami di `PREVIEW_RULE`). Prima finiva nel ramo `<img>`
+  // e diventava un'icona rotta: la card sembrava consegnata e non mostrava
+  // niente, che è peggio di un'anteprima assente. Qui si dichiara — nome del
+  // file e un gesto per aprirlo — invece di fingere un'immagine.
+  const media = !isPreviewablePath(path) ? (
+    <a
+      href={url}
+      target="_blank"
+      rel="noreferrer"
+      onClick={(e) => e.stopPropagation()}
+      title={path}
+      data-testid="preview-unrenderable"
+      className={`flex items-center gap-2 px-2.5 py-2 text-left text-xs ${
+        variant === 'card'
+          ? 'block w-full rounded border border-app-border'
+          : 'block w-full rounded border border-app-border bg-black/20'
+      } text-app-text-muted hover:text-app-text`}
+    >
+      <FileText className="h-4 w-4 shrink-0" />
+      <span className="truncate">{path.split('/').pop() || path}</span>
+    </a>
+  ) : video ? (
     <video
       src={url}
       muted
@@ -113,7 +191,22 @@ export function PreviewMedia({ path, variant, onOpenTab }: {
   );
 
   return (
-    <div className={`group/preview relative ${variant === 'card' ? 'mb-1.5' : 'mt-2'}`}>
+    // `@container`: è QUESTO wrapper la larghezza contro cui si misura il
+    // `70cqw` del tetto. Senza, `cqw` risalirebbe al primo antenato con
+    // `container-type` — nessuno, quindi il viewport — e il tetto tornerebbe a
+    // guardare la finestra invece del riquadro.
+    // NESSUN tetto in larghezza: la miniatura riempie la card, perché una
+    // fascia vuota a destra in una colonna larga si legge come un difetto
+    // (segnalato da Attilio il 12/08 guardando la review). Il rapporto resta
+    // 0.7 ovunque, quindi l'altezza cresce con la colonna: 0.7 x 474 = 332px
+    // in review a 1280. Se un giorno la card diventasse troppo alta, il tetto
+    // torna QUI sul container e non sull'`img` — dev'essere il container a
+    // fermarsi, altrimenti il `cqw` misurerebbe la card mentre l'immagine e'
+    // piu' stretta, e i due numeri divergerebbero.
+    <div
+      data-testid={`preview-${variant}`}
+      className={`group/preview relative @container ${variant === 'card' ? 'mb-1.5' : 'mt-2'}`}
+    >
       {media}
       {/* I gesti stanno nello stesso angolo, in colonna: "apri come tab" per
           primo perché è quello che porta l'evidenza dentro il flusso di lavoro.

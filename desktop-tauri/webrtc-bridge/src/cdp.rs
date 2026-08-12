@@ -8,7 +8,7 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::SyncSender;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use anyhow::{anyhow, Result};
 use base64::Engine;
@@ -23,9 +23,69 @@ fn cdp_http() -> String {
     format!("http://127.0.0.1:{port}")
 }
 
+/// La via di RITORNO sulla sessione CDP che questo modulo tiene aperta: permette
+/// a chi sta fuori (il DataChannel di input, punto 6 del piano) di mandare comandi
+/// `Input.*` sullo STESSO socket già attaccato al target, invece di aprirne un altro.
+///
+/// Vive quanto il pipeline del target ed è deliberatamente vuota quando la
+/// sessione non c'è: uno stream CDP che cade e si riattacca la ripopola da solo,
+/// e nel frattempo `send` risponde `false` — il chiamante saprà che quel colpo di
+/// mouse non è partito invece di crederlo consegnato.
+#[derive(Default)]
+pub struct CdpInput {
+    inner: Mutex<Option<Live>>,
+}
+
+struct Live {
+    tx: mpsc::UnboundedSender<String>,
+    session: String,
+    next_id: Arc<AtomicU64>,
+}
+
+impl CdpInput {
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self::default())
+    }
+
+    fn set(&self, tx: mpsc::UnboundedSender<String>, session: String, next_id: Arc<AtomicU64>) {
+        *self.inner.lock().unwrap() = Some(Live { tx, session, next_id });
+    }
+
+    fn clear(&self) {
+        *self.inner.lock().unwrap() = None;
+    }
+
+    /// Manda un metodo CDP sulla sessione del target. `false` = nessuna sessione
+    /// viva (o socket chiuso): il comando NON è partito.
+    pub fn send(&self, method: &str, params: Value) -> bool {
+        let g = self.inner.lock().unwrap();
+        let Some(live) = g.as_ref() else { return false };
+        let id = live.next_id.fetch_add(1, Ordering::SeqCst);
+        let msg = json!({ "id": id, "method": method, "params": params, "sessionId": live.session });
+        live.tx.send(msg.to_string()).is_ok()
+    }
+}
+
 /// Attaches to `target_id` and streams its JPEG screencast bytes to `frame_tx` until
 /// the socket closes. Drop-on-backpressure via `try_send` keeps latency low.
-pub async fn attach_and_stream(target_id: String, every_nth: u32, frame_tx: SyncSender<Vec<u8>>) -> Result<()> {
+///
+/// `input` è la maniglia con cui il DataChannel manderà `Input.*` su questa stessa
+/// sessione: si popola quando il target è attaccato e si svuota all'uscita.
+pub async fn attach_and_stream(
+    target_id: String,
+    every_nth: u32,
+    frame_tx: SyncSender<Vec<u8>>,
+    input: Arc<CdpInput>,
+) -> Result<()> {
+    // Qualunque strada prenda questa funzione (errore, socket chiuso, abort della
+    // task), la maniglia non deve restare a puntare un socket morto.
+    struct ClearOnDrop(Arc<CdpInput>);
+    impl Drop for ClearOnDrop {
+        fn drop(&mut self) {
+            self.0.clear();
+        }
+    }
+    let _guard = ClearOnDrop(input.clone());
     let ver: Value = get_json(&format!("{}/json/version", cdp_http())).await?;
     let browser_ws = ver["webSocketDebuggerUrl"]
         .as_str()
@@ -91,6 +151,8 @@ pub async fn attach_and_stream(target_id: String, every_nth: u32, frame_tx: Sync
                         "params": { "format": "jpeg", "quality": 80, "maxWidth": 2560, "maxHeight": 1440, "everyNthFrame": every_nth } });
                     let _ = tx2.send(msg.to_string());
                 });
+                // Da qui in poi il DataChannel di input può parlare a questa sessione.
+                input.set(tx.clone(), sid.clone(), next_id.clone());
                 session_id = Some(sid);
                 continue;
             }

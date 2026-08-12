@@ -73,8 +73,20 @@ function countToolBlocks(blocks: unknown[]): number {
   return blocks.filter((b) => (b as { kind?: string } | null)?.kind === "tool").length;
 }
 
+/** Quando si sta scrivendo.
+ *
+ *  `final` è il verdetto del turno: quello che il riattacco ha prodotto è tutto
+ *  quello che produrrà, e vince anche se è più corto.
+ *
+ *  `progress` è un salvataggio a metà replay (ogni 10 chunk, o dopo un evento
+ *  di tool). Lì il testo prodotto è un turno A METÀ, e scriverlo sopra quello
+ *  di prima è una sottrazione temporanea che diventa definitiva se proprio in
+ *  quell'istante il server muore di nuovo. Quindi il testo nuovo sostituisce
+ *  quello vecchio solo quando lo ha già RAGGIUNTO. */
+export type MergePhase = "progress" | "final";
+
 /**
- * Cosa scrivere sulla riga alla fine di un turno RIADOTTATO.
+ * Cosa scrivere sulla riga di un turno RIADOTTATO.
  *
  * Il testo prodotto vince se c'è; se il riattacco è tornato a mani vuote resta
  * quello di prima. I tool si tengono se questo handler non ne ha visti — cioè
@@ -83,7 +95,11 @@ function countToolBlocks(blocks: unknown[]): number {
  * una timeline nuova che ha perso per strada le righe dei tool non è un
  * aggiornamento, è una perdita.
  */
-export function mergeReattachedRow(snapshot: RowSnapshot, produced: ReattachProduced): ReattachMerge {
+export function mergeReattachedRow(
+  snapshot: RowSnapshot,
+  produced: ReattachProduced,
+  phase: MergePhase = "final",
+): ReattachMerge {
   const producedText = produced.content.trim();
   const previousText = snapshot.content.trim();
   const snapshotTools = countTools(snapshot.toolCallsJson);
@@ -111,8 +127,15 @@ export function mergeReattachedRow(snapshot: RowSnapshot, produced: ReattachProd
     ? [...snapshotBlocks, ...verdetti]
     : (produced.blocks.length > 0 ? produced.blocks : undefined);
 
+  // A metà replay il testo nuovo prende il posto del vecchio solo quando lo ha
+  // raggiunto: prima di allora quello che c'è in riga è ancora il turno intero
+  // di prima, e vale più di un replay a un terzo.
+  const testoNuovoVince = phase === "final"
+    ? !!producedText
+    : producedText.length >= previousText.length && !!producedText;
+
   return {
-    content: producedText ? produced.content : snapshot.content,
+    content: testoNuovoVince ? produced.content : snapshot.content,
     thinking: produced.thinking || snapshot.thinking || undefined,
     toolCallsJson: keepOldTools ? (snapshot.toolCallsJson ?? undefined) : undefined,
     blocks: blocchiTenuti,

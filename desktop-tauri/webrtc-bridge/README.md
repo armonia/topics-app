@@ -46,13 +46,16 @@ NDJSON) and runs N Playwright viewers, asserting ALL decode H.264 simultaneously
 - **Static pages** emit exactly one CDP screencast frame then go silent (screencast is
   change-driven) → the encoder **keepalive re-encodes the last frame** every ~700ms so a
   peer that joins after that single frame still decodes.
-- **ICE / mDNS**: real browsers obfuscate their host candidate as an `.local` mDNS name.
-  The bridge runs `MulticastDnsMode::QueryAndGather` to resolve it — **verified: a viewer
-  running an mDNS responder connects `ice=connected` and decodes H.264 on this Mac**
-  (`TOPICS_TEST_MDNS=1` → the harness launches the viewer in new-headless, which runs the
-  responder; `fd=106`). Real clients (Chrome/Safari/WKWebView) all run one, so Mac↔mobile
-  on a LAN resolves. A public STUN just stalls gathering on a LAN (kept host-only,
-  `RTCConfiguration::default()`); crossing a NAT would need TURN (Coturn).
+- **ICE / mDNS**: mDNS is **Disabled** here (`daemon.rs`), and that is a liveness fix, not a
+  reachability choice: with it on, webrtc-rs binds a UDP 5353 multicast socket per
+  PeerConnection, the second peer fails to bind and its gathering never completes (the
+  "every other connection times out" bug). Disabled, we advertise our REAL host IPs, so a
+  viewer connects straight to a routable address; even a viewer offering only privacy
+  `.local` candidates reaches us, and we learn its address peer-reflexively. A public STUN
+  just stalls gathering on a LAN, so we stay host-only (`RTCConfiguration::default()`).
+  **Crossing a strict NAT would need TURN, and deliberately has none**: on ICE failure the
+  pane auto-falls back to DOM co-browse over the WebSocket, which travels through the relay
+  tunnel. See `DECISIONE-turn-oltre-lan.md` next to this file.
   **Test caveat:** `chrome-headless-shell` / old-headless do NOT run the mDNS responder, so
   the default harness path launches the viewer with `--disable-features=WebRtcHideLocalIpsWithMdns`
   (raw host candidates) for a deterministic localhost check.

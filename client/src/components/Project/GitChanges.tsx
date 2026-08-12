@@ -26,8 +26,9 @@ import { useLongPress, openContextMenuAt } from '../../hooks/useLongPress';
 import { useHoverReveal } from '../../hooks/useHoverReveal';
 import { useMobile } from '../../hooks/useMobile';
 import { ConfirmDialog } from '../Shared/ConfirmDialog';
-import { SELECTED_SURFACE, SELECTED_SURFACE_SOFT } from '@/lib/selectionStyles';
+import { SECTION_CARD, SELECTED_SURFACE, SELECTED_SURFACE_SOFT, TREE_ROW_CARD } from '@/lib/selectionStyles';
 import { Spinner } from '../Shared/Spinner';
+import { SkeletonRows } from '../Shared/Skeleton';
 
 interface GitChangesProps {
   projectPath: string;
@@ -861,13 +862,16 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
   // Non-compact early returns for loading/error
   if (!compact) {
     if (loading && !gitStatus) {
+      // Come nel file explorer: quello che arriva è un ELENCO DI FILE, e uno
+      // scheletro con le misure della riga vera (`px-2 py-[3px]`, glifo del
+      // badge di stato) lo dice; un anello centrato prometteva solo attesa, e
+      // la lista poi compariva di colpo.
       return (
-        <div className="flex items-center justify-center py-4">
-          <div className="flex items-center gap-2 text-app-text-tertiary text-[11px]">
-            <Spinner size="sm" />
-            Loading...
-          </div>
-        </div>
+        <SkeletonRows
+          count={6}
+          rowClassName={`flex items-center gap-1.5 ${TREE_ROW_CARD} px-2 py-[3px]`}
+          glyph={14}
+        />
       );
     }
     if (error) {
@@ -916,7 +920,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
           data-testid="project-sidebar-git"
           role="button"
           aria-expanded={expanded}
-          className="w-full flex items-center h-8 px-3 text-[12px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0 cursor-pointer select-none group/git"
+          className={`${SECTION_CARD} group/git`}
         >
           {/* Left: icon + label + chevron.
               `min-w-0` e non `flex-shrink-0`: con tutt'e due i gruppi
@@ -1080,8 +1084,12 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                 return (
                   <div
                     key={`${group}-${file.path}`}
-                    className={`flex items-center gap-1.5 px-3 py-[3px] transition-colors group/file cursor-pointer select-none ${
-                      isSelected ? SELECTED_SURFACE : 'hover:bg-app-hover'
+                    // `TREE_ROW_CARD`: incasso + raggio + hover in alpha, come
+                    // ogni riga della colonna. Era full-bleed con `px-3` — due
+                    // px in piu' del canonico e nessun rientro — cioe' una
+                    // fascia sotto un'intestazione che e' una card.
+                    className={`flex items-center gap-1.5 ${TREE_ROW_CARD} px-2 py-[3px] group/file cursor-pointer select-none ${
+                      isSelected ? SELECTED_SURFACE : ''
                     }`}
                     title={fileTitle(file)}
                     // Ancore stabili: il `title` e il testo cambiano (rename,
@@ -1140,7 +1148,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
               return (
                 <>
                   {/* Inline commit row — input + AI + commit all in one line */}
-                  <div className="border-t border-app-border px-2 py-1 flex items-end gap-1 flex-shrink-0">
+                  <div className="border-t border-app-border mx-1.5 px-2 py-1 flex items-end gap-1 flex-shrink-0">
                     <textarea
                       ref={commitBoxRef}
                       data-testid="commit-message-input"
@@ -1197,7 +1205,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                     >
                       <AlertCircle size={11} className="flex-shrink-0 mt-[1px]" />
                       <span className="min-w-0 flex-1 break-words whitespace-pre-wrap font-mono">
-                        Commit non riuscito — niente è stato committato. {commitError}
+                        Commit non riuscito, niente è stato committato. {commitError}
                       </span>
                       <button
                         onClick={() => setCommitError(null)}
@@ -1213,7 +1221,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                       descrizione, ed è esattamente per questo che va detto. */}
                   {msgSource === 'rules' && (
                     <div data-testid="commit-message-source" className="px-2 pb-1 text-[10px] text-app-text-muted flex-shrink-0">
-                      dalle regole — nessun modello collegato
+                      dalle regole, nessun modello collegato
                     </div>
                   )}
 
@@ -1356,8 +1364,10 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
     return (
       <div
         key={`${group}-${file.path}`}
-        className={`flex items-center gap-2 px-2 py-[4px] cursor-pointer text-[12px] transition-colors group select-none ${
-          isMultiSelected ? SELECTED_SURFACE : isDiffOpen ? SELECTED_SURFACE_SOFT : 'hover:bg-app-hover'
+        // Stessa forma delle righe dell'albero dei file: la card, senza il suo
+        // passo verticale. Vedi TREE_ROW_CARD.
+        className={`flex items-center gap-2 ${TREE_ROW_CARD} px-2 py-[4px] cursor-pointer text-[12px] group select-none ${
+          isMultiSelected ? SELECTED_SURFACE : isDiffOpen ? SELECTED_SURFACE_SOFT : ''
         }`}
         title={fileTitle(file)}
         data-git-file={file.path}
@@ -1513,7 +1523,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
             </div>
             {msgSource === 'rules' && (
               <div data-testid="commit-message-source" className="text-[10px] text-app-text-muted">
-                dalle regole — nessun modello collegato
+                dalle regole, nessun modello collegato
               </div>
             )}
             <button
@@ -1701,7 +1711,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                 >
                   <div className="text-[12px] text-app-text-tertiary">
                     {diffBlock.kind === 'binary'
-                      ? 'File binario — git non ne fa un diff testuale.'
+                      ? 'File binario: git non ne fa un diff testuale.'
                       : 'File troppo grande per il confronto affiancato (oltre 100 KB).'}
                   </div>
                 </div>
@@ -1904,7 +1914,7 @@ function CompactFileList({
     switch (item.type) {
       case 'conflicted-header':
         return (
-          <div className="border-t border-app-border">
+          <div>
             <div className="flex items-center gap-1.5 px-3 py-1 select-none">
               <AlertCircle size={11} className="text-red-500 flex-shrink-0" />
               <span className="text-[11px] font-medium text-red-600 dark:text-red-400 uppercase tracking-wider">
@@ -1915,7 +1925,7 @@ function CompactFileList({
         );
       case 'staged-header':
         return (
-          <div className="border-t border-app-border">
+          <div>
             <div className="flex items-center justify-between px-3 py-1 group/hdr select-none">
               <button
                 onClick={onToggleStaged}
@@ -1936,7 +1946,7 @@ function CompactFileList({
         );
       case 'unstaged-header':
         return (
-          <div className="border-t border-app-border">
+          <div>
             <div className="flex items-center justify-between px-3 py-1 group/hdr select-none">
               <button
                 onClick={onToggleUnstaged}

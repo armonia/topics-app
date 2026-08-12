@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Topics",
-  "version": "2.2.59",
+  "version": "2.2.112",
   "identifier": "io.armonia.topics.tauri",
   "build": {
     "frontendDist": "../../public"
@@ -47,7 +47,8 @@
     "createUpdaterArtifacts": true,
     "externalBin": [
       "binaries/topics-server",
-      "binaries/pty-bridge"
+      "binaries/pty-bridge",
+      "binaries/webrtc-bridge"
     ],
     "icon": [
       "icons/32x32.png",

@@ -34,6 +34,7 @@ import { createTasksRouter } from "../../server/routes/tasks";
 import { resolvePrincipals } from "../../server/lib/principals";
 import { grantedByType } from "../../server/lib/grants-query";
 import type { RouteHandler } from "../../server/types";
+import { TASKS_DDL, TASK_LABELS_DDL } from "../../server/db/test-schema";
 
 const RADICE = join(import.meta.dir, "..", "..");
 const MIGRAZIONI = ["080-devices.sql", "082-task-shares.sql", "083-grants.sql", "084-people-orgs.sql"];
@@ -42,28 +43,14 @@ const MIGRAZIONI = ["080-devices.sql", "082-task-shares.sql", "083-grants.sql", 
  *  quelle che bastano alla rotta: l'elenco delle schede di un ospite passa per
  *  `createTaskService`, quindi una tabella ridotta qui non fallirebbe
  *  sull'asserzione — fallirebbe prima, e per la ragione sbagliata. */
-const DDL_TASKS = `CREATE TABLE tasks (
-  id TEXT PRIMARY KEY, project_id TEXT NOT NULL, text TEXT NOT NULL, description TEXT,
-  status TEXT NOT NULL DEFAULT 'todo', priority INTEGER NOT NULL DEFAULT 2,
-  kanban_order INTEGER NOT NULL DEFAULT 0, assigned_to TEXT, fingerprint TEXT, due_date TEXT,
-  chat_id TEXT, created_at TEXT NOT NULL, completed_at TEXT, updated_at TEXT NOT NULL,
-  claude_task_id TEXT, assigned_topic_id TEXT, archived INTEGER NOT NULL DEFAULT 0,
-  assigned_agent_id TEXT, in_progress_at TEXT,
-  dispatch_attempts INTEGER NOT NULL DEFAULT 0, dispatch_state TEXT, dispatch_error TEXT,
-  parent_task_id TEXT REFERENCES tasks(id), output_url TEXT, plan_first INTEGER NOT NULL DEFAULT 0,
-  agent_ms INTEGER NOT NULL DEFAULT 0, agent_tokens INTEGER NOT NULL DEFAULT 0,
-  model TEXT, blocked_by_task_id TEXT REFERENCES tasks(id), reuse_blocker_context INTEGER NOT NULL DEFAULT 0,
-  priority_auto INTEGER NOT NULL DEFAULT 1,
-  delivery_branch TEXT, delivery_commit TEXT, landing_state TEXT, landing_checked_at TEXT,
-  checks_state TEXT, checks_at TEXT, checks_commit TEXT, checks_json TEXT,
-  delivered_by TEXT, delivered_reason TEXT, preview_image TEXT
-)`;
+const DDL_TASKS = TASKS_DDL;
 
 /** Lo schema VERO, applicando le migration: un CREATE TABLE riscritto a mano
  *  smetterebbe di accorgersi proprio della deriva che qui fa più male. */
 function db084(): Database {
   const db = new Database(":memory:");
   db.run(DDL_TASKS);
+  db.run(TASK_LABELS_DDL); // migration 100 — rowToTask la legge per OGNI task
   db.run(`CREATE TABLE task_comments (
     id TEXT PRIMARY KEY, task_id TEXT NOT NULL, author TEXT NOT NULL DEFAULT 'user',
     content TEXT NOT NULL, mentions TEXT, media TEXT, created_at TEXT NOT NULL,

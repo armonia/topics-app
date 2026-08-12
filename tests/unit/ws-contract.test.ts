@@ -169,21 +169,37 @@ describe('WS-04 contract: browserWsMessageSchema (Phase 30)', () => {
     const types = variantsOf(browserWsMessageSchema).map((opt) =>
       objectSignature(opt).literalKeys.type,
     );
-    // Eleven variants joined the browser WS protocol since the 6-variant
+    // Twelve variants joined the browser WS protocol since the 6-variant
     // freeze, all additive (server↔pane co-browse control channel):
     //   resize                              — pane viewport resize
     //   download                            — a file download the pane offers
     //   set_engine / engine                 — Native↔Chromium engine toggle + status
     //   set_stream                          — screencast on/off
+    //   set_watching                        — is this pane on screen (the ONLY
+    //                                         input of the cross-device viewer
+    //                                         count; set_stream is the transport
+    //                                         and pauses while still watching)
     //   set_render / render_mode            — pixel vs DOM co-browse render toggle + status
     //   dom_event                           — rrweb DOM co-browse event
     //   webrtc_offer / webrtc_answer / webrtc_ice — shared-session WebRTC transport
+    //   focus_field                         — che campo ha preso il fuoco di là
+    //                                         dopo il click, cioè quale tastiera
+    //                                         deve aprire il telefono sul ramo
+    //                                         video (dove non c'è nessun mirror
+    //                                         DOM da interrogare)
+    //   focus_query                         — la stessa domanda chiesta a voce.
+    //                                         Da quando l'input del ramo video
+    //                                         va sul DataChannel, il click non
+    //                                         passa più dal server e il campo a
+    //                                         fuoco nessuno lo leggeva più
     expect([...types].sort()).toEqual([
       'agent_active',
       'console',
       'dom_event',
       'download',
       'engine',
+      'focus_field',
+      'focus_query',
       'frame',
       'input',
       'nav',
@@ -192,6 +208,7 @@ describe('WS-04 contract: browserWsMessageSchema (Phase 30)', () => {
       'set_engine',
       'set_render',
       'set_stream',
+      'set_watching',
       'take_control',
       'webrtc_answer',
       'webrtc_ice',

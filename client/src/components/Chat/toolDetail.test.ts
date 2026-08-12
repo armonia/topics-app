@@ -146,12 +146,26 @@ describe('il piano scritto su file È un piano, non una scrittura', () => {
   // una cartella che nessuno apre.
   test('una Write in .claude/plans/ diventa detail plan col testo del piano', () => {
     const d = deriveToolDetail('Write', {
-      file_path: '/Users/zorahrel/.claude/plans/context-you-are-working-deep-locket.md',
+      file_path: '/Users/utente/.claude/plans/context-you-are-working-deep-locket.md',
       content: '# Piano\n\n1. Prima cosa\n2. Seconda cosa',
     });
     expect(d.type).toBe('plan');
     if (d.type === 'plan') expect(d.text).toContain('1. Prima cosa');
     expect(buildToolDisplayLabel(d).name).toBe('Plan');
+  });
+
+  test('la riga chiusa mostra il piano SENZA la sintassi markdown', () => {
+    // A card chiusa `# ` e `**` non strutturano niente: mangiano gli 80
+    // caratteri che si leggono davvero.
+    const d = deriveToolDetail('Write', {
+      file_path: '/Users/utente/.claude/plans/roba.md',
+      content: '# Piano\n\n1. **Primo passo** — leggere i file\n2. **Secondo passo** — scrivere',
+    });
+    const summary = buildToolDisplayLabel(d).summary!;
+    expect(summary.startsWith('Piano 1. Primo passo — leggere i file')).toBe(true);
+    expect(summary).not.toContain('#');
+    expect(summary).not.toContain('**');
+    expect(summary.length).toBeLessThanOrEqual(80);
   });
 
   test('una Write normale resta una Write', () => {

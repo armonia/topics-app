@@ -1,5 +1,12 @@
-import { describe, expect, it } from 'bun:test';
-import { popoversToClose } from './popoverRegistry';
+import { beforeEach, describe, expect, it } from 'bun:test';
+import {
+  closeAllPopovers,
+  openPopoverCount,
+  popoversToClose,
+  registerOpenPopover,
+  subSurfaceNodes,
+  type PopoverEntry,
+} from './popoverRegistry';
 
 /**
  * La regola «uno alla volta» si testa senza DOM: `contains` è iniettato, quindi
@@ -69,5 +76,97 @@ describe('popoversToClose', () => {
     openEntries[0].nodes = () => [null, null];
     const victims = popoversToClose(openEntries, opener('trigger-B'), contains as never);
     expect(victims.map((v) => v.label)).toEqual(['A']);
+  });
+});
+
+/**
+ * L'altra metà del modulo: la CONTABILITÀ del registro — chi ci sta dentro
+ * adesso, chi ne esce, e con quale ordine. `popoversToClose` decide, ma è
+ * `registerOpenPopover` a tenere il `Set` allineato alla decisione, e su quello
+ * non c'era nessun test: la regola era pinnata, il libro mastro no. È il buco
+ * che `openPopoverCount` esisteva per misurare — dichiarato «solo per
+ * test/diagnostica» e mai chiamato da nessun test.
+ *
+ * Niente DOM, come sopra: le voci non dichiarano nodi, quindi il `contains` del
+ * modulo (che è `Node.contains`) non viene mai invocato. L'annidamento vero è
+ * già coperto dai test puri.
+ */
+describe('il registro degli aperti', () => {
+  // Il `Set` è di modulo e sopravvive al singolo test: si riparte da vuoto.
+  beforeEach(() => closeAllPopovers());
+
+  type Fake = PopoverEntry & { closed: number };
+
+  function popover(overrides: Partial<PopoverEntry> = {}): Fake {
+    const e: Fake = {
+      closed: 0,
+      close: () => { e.closed += 1; },
+      trigger: () => null,
+      nodes: () => [],
+      exclusive: true,
+      ...overrides,
+    };
+    return e;
+  }
+
+  it('registrare conta, e la funzione ritornata deregistra', () => {
+    expect(openPopoverCount()).toBe(0);
+    const unregister = registerOpenPopover(popover());
+    expect(openPopoverCount()).toBe(1);
+    unregister();
+    expect(openPopoverCount()).toBe(0);
+  });
+
+  it('un secondo popover esclusivo prende il posto del primo: resta UNO', () => {
+    const first = popover();
+    registerOpenPopover(first);
+    registerOpenPopover(popover());
+    expect(openPopoverCount()).toBe(1);
+    expect(first.closed).toBe(1);
+  });
+
+  it('lo sfrattato esce dal registro PRIMA di essere chiuso', () => {
+    // Il conto va letto DENTRO `close()`: se lo sfratto avvenisse dopo, il
+    // cleanup dell'altro hook girerebbe con una voce fantasma ancora dentro.
+    let countDuringClose = -1;
+    const first = popover();
+    first.close = () => { countDuringClose = openPopoverCount(); };
+    registerOpenPopover(first);
+    registerOpenPopover(popover());
+    expect(countDuringClose).toBe(0);
+  });
+
+  it('deregistrare uno già sfrattato non scala il conto di chi lo ha sostituito', () => {
+    // È il caso reale: `close()` fa scattare la pulizia dell'hook, che chiama
+    // la SUA deregistrazione su una voce già tolta. Togliersi due volte da un
+    // Set è innocuo, ed è questo a renderlo innocuo.
+    const unregisterFirst = registerOpenPopover(popover());
+    registerOpenPopover(popover());
+    unregisterFirst();
+    expect(openPopoverCount()).toBe(1);
+  });
+
+  it('una sotto-superficie (exclusive:false) non caccia nessuno e resta accanto', () => {
+    registerOpenPopover(popover());
+    registerOpenPopover(popover({ exclusive: false }));
+    expect(openPopoverCount()).toBe(2);
+  });
+
+  it('subSurfaceNodes espone SOLO i nodi delle sotto-superfici', () => {
+    const panel = 'panel-sub' as unknown as Node;
+    registerOpenPopover(popover({ nodes: () => ['panel-excl' as unknown as Node] }));
+    registerOpenPopover(popover({ exclusive: false, nodes: () => [panel] }));
+    expect(subSurfaceNodes()).toEqual([panel]);
+  });
+
+  it('closeAllPopovers svuota il registro e chiude tutti, sotto-superfici comprese', () => {
+    const a = popover();
+    const b = popover({ exclusive: false });
+    registerOpenPopover(a);
+    registerOpenPopover(b);
+    closeAllPopovers();
+    expect(openPopoverCount()).toBe(0);
+    expect(a.closed).toBe(1);
+    expect(b.closed).toBe(1);
   });
 });

@@ -19,6 +19,8 @@
  * so ignoring the manifest stays safe — genuine work keeps the branch "unmerged".
  */
 
+import { listOwnCommits } from "./own-commits";
+
 /** Generated, build-output, lockfile and lockstep-version paths — never unique work. */
 const NOISE_RE =
   /(^|\/)(bun\.lock|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|Cargo\.lock|package\.json|tauri\.conf\.json|Cargo\.toml)$|(^|\/)(public|dist|node_modules)\//;
@@ -57,12 +59,31 @@ export async function branchStatusFromRepo(
 }
 
 /**
- * Same verdict for an arbitrary commit-ish (a recorded delivery SHA), not just a
- * live branch name. The landing audit needs this: a task's branch is reaped once
- * it lands, so the only durable handle on "what the agent delivered" is the
- * commit it delivered — and that object outlives the branch (gc.pruneExpire is
- * 90 days here). `gone` = the object is no longer in the repo, so the question
- * can't be answered rather than answered "not landed".
+ * Il verdetto per UN COMMIT di consegna, che è una domanda DIVERSA da quella su
+ * un branch. Serve all'audit degli atterraggi: il ramo di una card viene potato
+ * appena atterra, quindi l'unica maniglia durevole su «cosa ha consegnato» è il
+ * commit (l'oggetto sopravvive: `gc.pruneExpire` qui è 90 giorni).
+ *
+ * Perché non la stessa strada del branch: quella confronta `main...<ref>`, cioè
+ * TUTTO ciò che il ramo ha di suo dal punto in cui ha forkato. Su un ramo nato
+ * dall'HEAD del checkout condiviso quella gamma ingloba i commit di un'altra
+ * sessione — misurato l'11/08 sulla consegna `8d92173c`: 90 file, di cui 3 suoi.
+ * Il confronto trovava differenze (quelle degli altri) e stampava `unlanded` su
+ * un lavoro che su main c'era. Un semaforo che dice rosso anche sul verde non lo
+ * guarda più nessuno, ed è esattamente com'è finito.
+ *
+ * Tre modi di essere dentro, in ordine di costo:
+ *   1. il commit è ANTENATO di main (merge o fast-forward classico);
+ *   2. su main c'è la sua COPIA — stesso autore-data e stesso oggetto. Il land
+ *      RICOPIA i commit della card (`cherry-pick … -C <sha>`, che tiene
+ *      messaggio e autore) invece di fonderli, quindi la copia atterrata ha un
+ *      altro sha e la discendenza non la vede. Non si riconosce dal patch-id: il
+ *      pick ADATTA il commit al main del momento;
+ *   3. il CONTENUTO del suo cambiamento è già su main — ogni file che il commit
+ *      tocca è identico di là. Copre lo squash-land e la rimessa a mano.
+ *
+ * `gone` = l'oggetto non è più nel repo: la domanda non si può rispondere, e
+ * dirlo è meglio che rispondere «non atterrato».
  */
 export async function commitStatusFromRepo(
   repoPath: string,
@@ -71,7 +92,32 @@ export async function commitStatusFromRepo(
 ): Promise<BranchStatus> {
   if (!commit) return "gone";
   if ((await gitExit(repoPath, ["rev-parse", "--verify", "--quiet", `${commit}^{commit}`])) !== 0) return "gone";
-  return statusOfExistingRef(repoPath, commit, mainRef);
+
+  // (1) Discendenza.
+  if ((await gitExit(repoPath, ["merge-base", "--is-ancestor", commit, mainRef])) === 0) return "merged";
+
+  // (2) La copia ricopiata dal land. `-F` perché l'oggetto di un commit è prosa
+  // e contiene parentesi, backtick e accenti: come regex sarebbe un'altra
+  // domanda, e a volte un errore.
+  const head = (await gitOut(repoPath, ["log", "-1", "--format=%at%x09%s", commit])).trim();
+  const tab = head.indexOf("\t");
+  const at = tab > 0 ? head.slice(0, tab) : "";
+  const subject = tab > 0 ? head.slice(tab + 1) : "";
+  if (at && subject) {
+    const twins = (await gitOut(repoPath, ["log", mainRef, "-F", `--grep=${subject}`, "--format=%at%x09%s"]))
+      .split("\n").map((l) => l.trim());
+    if (twins.includes(`${at}\t${subject}`)) return "merged";
+  }
+
+  // (3) Il contenuto del SUO cambiamento, non di tutto il ramo. Su un commit
+  // radice `^` non esiste: `show` lo elenca comunque.
+  const ownDiff = await gitOut(repoPath, ["diff", "--name-only", `${commit}^`, commit]);
+  const changed = filterUniqueSourceFiles(
+    (ownDiff.trim() ? ownDiff : await gitOut(repoPath, ["show", "--format=", "--name-only", commit])).split("\n"),
+  );
+  if (changed.length === 0) return "merged"; // solo rumore generato: niente da perdere
+  // `git diff --quiet` esce 0 quando NON c'è differenza sui path dati.
+  return (await gitExit(repoPath, ["diff", "--quiet", commit, mainRef, "--", ...changed])) === 0 ? "merged" : "unmerged";
 }
 
 /**
@@ -84,6 +130,7 @@ export async function commitStatusFromRepo(
  * un branch assente da un repo non raggiungibile, perché il primo è un allarme e
  * il secondo è ignoranza.
  */
+
 export async function branchExistsInRepo(repoPath: string, branch: string | null): Promise<boolean> {
   if (!branch) return false;
   return (await gitExit(repoPath, ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`])) === 0;
@@ -140,32 +187,75 @@ async function statusOfExistingRef(repoPath: string, ref: string, mainRef: strin
 
 /** Quanto ha prodotto un worktree rispetto al punto in cui ha forkato. */
 export interface WorktreeDiffStat {
-  /** Il tip, o `null` se il worktree non ha NESSUN commit oltre la base. */
+  /** Il commit PROPRIO più recente, o `null` se il worktree non ne ha nessuno. */
   commit: string | null;
   filesChanged: number;
   insertions: number;
   deletions: number;
 }
 
+export interface WorktreeDiffStatOptions {
+  /** Il branch del worktree. Assente ⇒ letto da `HEAD` (detached ⇒ non misurabile). */
+  branch?: string | null;
+  /** Il branch d'integrazione. Default `main`. */
+  mainRef?: string;
+}
+
 /**
- * La fotografia di un worktree a fine turno: commit di punta e diffstat rispetto
- * al merge-base con `main`. È il numero che il confronto del fan-out mostra
- * accanto a ogni tentativo.
+ * L'albero vuoto, per il caso in cui il commit più vecchio è la RADICE e quindi
+ * non ha un padre da cui misurare. Si chiede a git invece di incollare
+ * `4b825dc…`, che è la costante di sha1 e su un repo sha256 non esiste.
+ */
+async function emptyTree(cwd: string): Promise<string | null> {
+  const sha = (await gitOut(cwd, ["hash-object", "-t", "tree", "/dev/null"])).trim();
+  return /^[0-9a-f]{40,64}$/.test(sha) ? sha : null;
+}
+
+/**
+ * La fotografia di un worktree a fine turno: commit di consegna e diffstat del
+ * lavoro SUO. È il numero che il confronto del fan-out mostra accanto a ogni
+ * tentativo — cioè quello con cui l'umano sceglie il vincitore.
  *
  * Conta SOLO il lavoro COMMITTATO — di proposito. Il contratto della board è che
  * una consegna è ciò che sta su un commit (`review_needs_commit`); contare anche
  * il working tree farebbe apparire "3 file, +120" un tentativo che non ha
  * consegnato niente, e l'umano sceglierebbe un branch vuoto.
  *
- * Il merge-base, non `main`: se main è andato avanti mentre il tentativo
- * lavorava, un diff contro la punta di main gli attribuirebbe anche il lavoro
- * degli altri.
+ * La base NON è il merge-base con main: il worktree di un tentativo nasceva da
+ * `baseRef: "HEAD"` sul checkout condiviso (ora parte da `main`, vedi
+ * `worktree-base-ref.ts`, ma i rami già esistenti restano), quindi
+ * `merge-base(main, HEAD)..HEAD`
+ * ingloba i commit dell'altra sessione che stava parcheggiata lì e attribuisce
+ * al tentativo il lavoro di qualcun altro. È la stessa bugia della consegna
+ * (task `95518dab`), su un'altra superficie: si chiude allo stesso modo, cioè
+ * chiedendo a `own-commits` quali commit sono PROPRI e misurando dal PADRE del
+ * più vecchio di loro.
+ *
+ * CONTRATTO: `null` = non misurabile (HEAD staccato, git in errore, cartella
+ * sparita) — mai uno zero, che dice «misurato: non ha prodotto niente».
  */
-export async function worktreeDiffStat(cwd: string, mainRef = "main"): Promise<WorktreeDiffStat | null> {
-  const head = await resolveCommit(cwd, "HEAD");
-  if (!head) return null; // repo senza commit / cartella sparita: niente da dire
-  const base = (await gitOut(cwd, ["merge-base", mainRef, "HEAD"])).trim() || mainRef;
-  if (base === head) return { commit: null, filesChanged: 0, insertions: 0, deletions: 0 };
+export async function worktreeDiffStat(
+  cwd: string,
+  opts: WorktreeDiffStatOptions = {},
+): Promise<WorktreeDiffStat | null> {
+  const mainRef = opts.mainRef ?? "main";
+
+  // Senza sapere QUALE branch si sta misurando non si può sapere cosa è suo: un
+  // HEAD staccato non è misurabile, e dirlo è meglio di rivendicare tutto.
+  const branch = opts.branch ?? (await gitOut(cwd, ["symbolic-ref", "--quiet", "--short", "HEAD"])).trim();
+  if (!branch) return null;
+
+  const own = await listOwnCommits(cwd, branch, { mainRef });
+  if (own === null) return null; // git ha sbagliato: nessun numero, non uno zero
+  const head = own[0];
+  const oldest = own.at(-1);
+  if (!head || !oldest) return { commit: null, filesChanged: 0, insertions: 0, deletions: 0 };
+
+  // Il padre del più vecchio commit proprio è il punto in cui il lavoro di
+  // QUESTA card comincia; se quel commit è la radice del repo, il "prima" è
+  // l'albero vuoto.
+  const base = (await resolveCommit(cwd, `${oldest}^`)) ?? (await emptyTree(cwd));
+  if (!base) return null;
 
   const numstat = await gitOut(cwd, ["diff", "--numstat", base, head]);
   let filesChanged = 0, insertions = 0, deletions = 0;

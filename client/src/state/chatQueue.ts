@@ -36,9 +36,11 @@
  *
  *   - **una coda sola**, per `sessionKey` (non per topic: la sessione è ciò che
  *     streamma), durevole, condivisa da tutte le finestre e visibile nel badge;
- *   - **chi drena è uno solo**: la testa si estrae con `claimHead`, che prende
+ *   - **chi drena è uno solo**: la testa si estrae con `claimBatch`, che prende
  *     una prenotazione a scadenza — due finestre non spediscono lo stesso
  *     messaggio due volte;
+ *   - **si parte tutti insieme**: quel che è in coda esce in UN turno unito
+ *     (`claimBatch` + `mergeBatch`), non uno alla volta;
  *   - **lo stop TIENE**: `holdQueue` alza una bandiera durevole e nessun drain
  *     riparte finché non è l'umano a rimettersi a scrivere;
  *   - **niente sorpassi**: chi scrive mentre una coda ferma esiste finisce IN
@@ -202,11 +204,16 @@ export function enqueueTurn(sessionKey: string, content: string, options?: SendM
  * Rimette in TESTA. È la strada del ritorno: il server ha risposto 409 («c'è
  * già un turno in volo») su un messaggio che avevamo appena estratto, e
  * rimetterlo in fondo lo farebbe scavalcare da chi era in coda dietro di lui.
+ *
+ * Prende una LISTA perché `claimBatch` estrae tutta la testa omogenea in un
+ * colpo: se quel turno non parte, tornano indietro tutti, nel loro ordine.
  */
-export function requeueFront(sessionKey: string, item: QueuedTurn): void {
+export function requeueFront(sessionKey: string, batch: QueuedTurn[]): void {
   const items = readFresh(sessionKey);
-  if (items.some(i => i.id === item.id)) return;
-  setQueue(sessionKey, [item, ...items]);
+  const known = new Set(items.map(i => i.id));
+  const back = batch.filter(i => !known.has(i.id));
+  if (back.length === 0) return;
+  setQueue(sessionKey, [...back, ...items]);
 }
 
 /** Come `requeueFront`, ma per chi ha in mano solo il testo (il ramo 409 dell'invio). */
@@ -277,22 +284,59 @@ function parseClaim(raw: string | null): Claim | null {
  * funziona: si scrive la prenotazione e la si RILEGGE. Se in mezzo è passata
  * un'altra finestra, la rilettura non è più nostra e ci si tira indietro. Il
  * paracadute vero resta comunque il server, che risponde 409 a un secondo turno
- * sulla stessa sessione — e da lì il messaggio torna in testa (`requeueFront`),
- * non si perde.
+ * sulla stessa sessione — e da lì i messaggi tornano in testa (`requeueFront`),
+ * non si perdono.
+ *
+ * **Esce un BATCH, non un item.** Chi scrive tre righe mentre l'agente lavora
+ * sta scrivendo UN pensiero in tre pezzi: drenarle una alla volta ne fa tre
+ * turni, e l'agente parte a lavorare sulla prima senza aver mai visto le altre
+ * due — che è il modo più caro possibile di leggere una domanda a metà. Il
+ * server prende come prompt solo l'ULTIMO messaggio utente della richiesta
+ * (`server/routes/chat.ts`), quindi «insieme» qui vuol dire davvero *unite*:
+ * vedi `mergeBatch`.
+ *
+ * Si ferma dove le OPZIONI cambiano: fast mode, provider e modello sono quelli
+ * che l'umano vedeva accesi quando ha premuto invio (vedi `QueuedTurn.options`)
+ * e unire due righe scritte con impostazioni diverse ne tradirebbe una. Il
+ * resto della coda resta lì e parte al turno dopo.
  */
-export function claimHead(sessionKey: string, clientId: string, now: number = Date.now()): QueuedTurn | null {
+export function claimBatch(sessionKey: string, clientId: string, now: number = Date.now()): QueuedTurn[] {
   const existing = parseClaim(storage.getItem(CLAIM_PREFIX + sessionKey));
-  if (existing && existing.clientId !== clientId && now - existing.at < CLAIM_LEASE_MS) return null;
+  if (existing && existing.clientId !== clientId && now - existing.at < CLAIM_LEASE_MS) return [];
 
   storage.setItem(CLAIM_PREFIX + sessionKey, JSON.stringify({ clientId, at: now } satisfies Claim));
   const readback = parseClaim(storage.getItem(CLAIM_PREFIX + sessionKey));
-  if (!readback || readback.clientId !== clientId) return null;
+  if (!readback || readback.clientId !== clientId) return [];
 
   const items = readFresh(sessionKey);
   const head = items[0];
-  if (!head) { releaseClaim(sessionKey, clientId); return null; }
-  setQueue(sessionKey, items.slice(1));
-  return head;
+  if (!head) { releaseClaim(sessionKey, clientId); return []; }
+  let end = 1;
+  while (end < items.length && sameOptions(head.options, items[end].options)) end++;
+  setQueue(sessionKey, items.slice(end));
+  return items.slice(0, end);
+}
+
+/** Due turni si possono unire solo se partirebbero con la stessa richiesta. */
+function sameOptions(a?: SendMessageOptions, b?: SendMessageOptions): boolean {
+  return !!a?.fastMode === !!b?.fastMode
+    && (a?.provider ?? null) === (b?.provider ?? null)
+    && (a?.model ?? null) === (b?.model ?? null);
+}
+
+/**
+ * Riga vuota fra un pezzo e l'altro: è la separazione che il markdown della
+ * chat (e il modello) leggono già come «paragrafi distinti», senza inventare
+ * un'intestazione che l'umano non ha scritto.
+ */
+export const BATCH_SEPARATOR = '\n\n';
+
+/** Il batch come UN turno solo: testo unito, opzioni della testa (sono uguali per costruzione). */
+export function mergeBatch(batch: QueuedTurn[]): { content: string; options?: SendMessageOptions } {
+  return {
+    content: batch.map(i => i.content).join(BATCH_SEPARATOR),
+    options: batch[0]?.options,
+  };
 }
 
 export function releaseClaim(sessionKey: string, clientId: string): void {
@@ -336,8 +380,9 @@ export type SendDecision = 'send' | 'queue' | 'queue-then-drain';
  *
  *   - la sessione è occupata → in coda, e basta;
  *   - la sessione è libera ma una coda ferma esiste (tipico dopo uno stop) → il
- *     nuovo messaggio va IN FONDO e riparte la TESTA. Senza questo, scrivere
- *     dopo uno stop scavalcherebbe quello che si era scritto prima;
+ *     nuovo messaggio va IN FONDO e riparte dalla testa (tutta la coda, unita).
+ *     Senza questo, scrivere dopo uno stop scavalcherebbe quello che si era
+ *     scritto prima;
  *   - la sessione è libera e la coda è vuota → si spedisce.
  */
 export function decideSend(input: { busy: boolean; queued: number }): SendDecision {
@@ -353,7 +398,9 @@ export function decideSend(input: { busy: boolean; queued: number }): SendDecisi
 let storageListenerInstalled = false;
 
 function ensureStorageListener(): void {
-  if (storageListenerInstalled || typeof window === 'undefined') return;
+  // Capability, non esistenza: un `window` finto e parziale (i test) passa
+  // l'`undefined` check ma non sa fare addEventListener.
+  if (storageListenerInstalled || typeof window === 'undefined' || typeof window.addEventListener !== 'function') return;
   storageListenerInstalled = true;
   window.addEventListener('storage', (e: StorageEvent) => {
     if (!e.key || !e.key.startsWith(QUEUE_PREFIX)) return;

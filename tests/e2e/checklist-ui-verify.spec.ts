@@ -83,26 +83,32 @@ test.describe("Checklist UI verification", () => {
       expect(Math.abs((persisted as number) - widened)).toBeLessThan(4);
     });
 
-    test("CHK8-02: sidebar has no visible right border at rest (only shadow separates it)", async ({ page }) => {
+    test("CHK8-02: al bordo della sidebar UNA cosa sola separa, e la maniglia a riposo non dipinge", async ({ page }) => {
       await goToApp(page);
       const sidebar = page.locator('[aria-label="Topics sidebar"]');
       await expect(sidebar).toBeVisible();
 
-      // A border-r would paint a hairline; the design deliberately uses a
-      // box-shadow (shadow-2xl) instead. Assert the computed right border is
-      // effectively zero-width / transparent so no dividing line reads at rest.
-      const border = await sidebar.evaluate((el) => {
+      // QUESTO TEST HA CAMBIATO PREMESSA, non rigore. Diceva «nessun bordo
+      // destro: a separarla c'è solo l'ombra», ed era giusto finché sidebar e
+      // contenuto avevano tinte diverse — lì l'ombra si leggeva come
+      // profondità. Da quando il velo della finestra è uno solo hanno lo stesso
+      // pixel (misurato sulla finestra vera: #191b1e da tutt'e due i lati), e
+      // quei venticinque pixel di sfumatura sono rimasti l'unica cosa in mezzo:
+      // si leggono come una spaziatura doppia e come una terza tinta, non come
+      // un confine. «Non hanno bordo, c'è una doppia spaziatura e i colori non
+      // sono uguali» (Attilio, 09/08) → un filo, non una sfumatura. La regola
+      // sta in `sidebar-content-seam.spec.ts`; qui resta la parte che non è mai
+      // cambiata: qualunque sia il separatore, UNO solo, e la maniglia a riposo
+      // non ne aggiunge un secondo.
+      const bordo = await sidebar.evaluate((el) => {
         const cs = getComputedStyle(el);
-        return {
-          rightWidth: cs.borderRightWidth,
-          rightStyle: cs.borderRightStyle,
-        };
+        return { larghezza: parseFloat(cs.borderRightWidth || "0"), ombra: cs.boxShadow };
       });
-      const w = parseFloat(border.rightWidth || "0");
+      const conOmbra = bordo.ombra !== "none" && bordo.ombra !== "";
       expect(
-        w === 0 || border.rightStyle === "none",
-        `sidebar must have no visible right border at rest (got width=${border.rightWidth} style=${border.rightStyle})`,
-      ).toBeTruthy();
+        (bordo.larghezza > 0) !== conOmbra,
+        `filo e ombra si escludono: larghezza=${bordo.larghezza}, ombra=${bordo.ombra}`,
+      ).toBe(true);
 
       // And the resting resize handle must NOT paint a line either — its fill
       // classes are group-hover only, so at rest its inner bars are transparent.

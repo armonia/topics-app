@@ -51,15 +51,21 @@ beforeAll(async () => {
       `INSERT OR IGNORE INTO topics (id, name, slug, session_key, created_at, updated_at) VALUES (?,?,?,?,?,?)`,
     ).run(id, id, id, sessionKey, now, now);
   };
-  ProviderCtor = (await import("./claude-code")).ClaudeCodeProvider;
+  const { ClaudeCodeProvider } = await import("./claude-code");
+  ProviderCtor = ClaudeCodeProvider;
   // Drop any singleton a prior broker test file created with a different socket.
-  (await import("../lib/ai-bridge-client")).__resetAiBridgeClientForTests();
+  const { __resetAiBridgeClientForTests } = await import("../lib/ai-bridge-client");
+  __resetAiBridgeClientForTests();
 });
 
 afterAll(async () => {
   // Dispose the client FIRST so killing the daemon doesn't trigger auto-reconnect.
-  (await import("../lib/ai-bridge-client")).__resetAiBridgeClientForTests();
-  try { (await import("../db")).closeDatabase(); } catch {}
+  const { __resetAiBridgeClientForTests } = await import("../lib/ai-bridge-client");
+  __resetAiBridgeClientForTests();
+  try {
+    const { closeDatabase } = await import("../db");
+    closeDatabase();
+  } catch {}
   try {
     const pidPath = SOCK.replace(/\.sock$/, ".pid");
     if (existsSync(pidPath)) process.kill(Number(readFileSync(pidPath, "utf8").trim()), "SIGTERM");
@@ -107,7 +113,8 @@ printf '{"type":"result","result":"final-answer","usage":{"input_tokens":1,"outp
     // has actually landed in the daemon store (endOffset grows past 0). The CLI
     // sleeps 2s before the result, so this poll resolves well inside the
     // mid-generation window on any machine — no reliance on wall-clock timing.
-    const bridge = (await import("../lib/ai-bridge-client")).getAiBridgeClient();
+    const { getAiBridgeClient } = await import("../lib/ai-bridge-client");
+    const bridge = getAiBridgeClient();
     await waitFor(async () => ((await bridge.list()).find((s) => s.id === sessionKey)?.endOffset ?? 0) > 0, 8000);
 
     // "Restart": provider B reattaches to the surviving daemon session.
@@ -146,7 +153,8 @@ sleep 30`));
     const hA = makeHandler();
     provA.sendChat(sessionKey, "hello", hA.handler).catch(() => { /* A muore al riavvio */ });
 
-    const bridge = (await import("../lib/ai-bridge-client")).getAiBridgeClient();
+    const { getAiBridgeClient } = await import("../lib/ai-bridge-client");
+    const bridge = getAiBridgeClient();
     await waitFor(async () => ((await bridge.list()).find((s) => s.id === sessionKey)?.endOffset ?? 0) > 0, 8000);
 
     // "Riavvio": il provider B non ha nessuna memoria del turno — esattamente
@@ -204,7 +212,8 @@ printf '{"type":"result","result":"already-done","usage":{"input_tokens":1,"outp
     const sessionKey = "topic:reattach-bridge-muto";
     seedTopic(sessionKey, "t-bridge-muto");
 
-    const bridge = (await import("../lib/ai-bridge-client")).getAiBridgeClient() as unknown as {
+    const { getAiBridgeClient } = await import("../lib/ai-bridge-client");
+    const bridge = getAiBridgeClient() as unknown as {
       attach: (id: string, off: number) => Promise<unknown>;
     };
     const vero = bridge.attach.bind(bridge);

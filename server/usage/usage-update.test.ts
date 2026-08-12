@@ -74,6 +74,15 @@ describe("buildContextUpdate — blocco ACP + presentazione", () => {
     expect(u.model).toBe("gpt-4o");
   });
 
+  it("il nome nudo della CLI non regge contro la misura: 576k non stanno in 200k", () => {
+    // Sessione lanciata a `[1m]`, transcript col nome nudo e nessuna richiesta da
+    // cui recuperare il suffisso: senza rete l'evento vivo diceva 288%. Quella
+    // chiamata ha ricevuto risposta, quindi la finestra è quella lunga.
+    const u = buildContextUpdate({ tokens: 576_211, model: "claude-opus-5" });
+    expect(u.usage.size).toBe(1_000_000);
+    expect(u.percent).toBe(58);
+  });
+
   it("modello sconosciuto: default DICHIARATO come stima, non spacciato per certo", () => {
     const u = buildContextUpdate({ tokens: 1_000, model: "qualcosa-mai-visto-v9" });
     expect(u.usage.size).toBe(DEFAULT_CONTEXT_WINDOW);

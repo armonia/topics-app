@@ -1,0 +1,10 @@
+# server/db/migrations-embedded.ts è GENERATO (scripts/gen-migrations-manifest.ts)
+# ed è l'unico file che ogni card con una migration deve toccare: due card in
+# parallelo ci aggiungono una riga ciascuna, nello stesso punto, e senza questa
+# riga ogni merge del genere è un conflitto da risolvere a mano. `union` tiene
+# le aggiunte di entrambi i lati, che per una lista generata è esattamente il
+# risultato giusto: gli identificatori derivano dal nome del file, quindi non si
+# sovrappongono, e `resolveMigrations` (server/db.ts) riordina comunque per
+# (numero, nome) prima di applicare. Rigenerare il manifest dopo il merge
+# rinormalizza l'ordine, ma non è necessario perché funzioni.
+server/db/migrations-embedded.ts merge=union

@@ -24,10 +24,12 @@
  */
 import { LAND_ACTION_LABEL, UNASSIGNED_PROJECT_ID, type Task, type TaskService } from "./tasks";
 import { ZERO_USAGE, type SessionUsage } from "./transcript-usage";
+import { onHumanHoldChange } from "../lib/human-hold-events";
 import type { TaskAttemptStore } from "./task-attempts";
 import { attemptHasWork, formatFanoutComment } from "../../shared/task-attempt";
-import { MAX_FANOUT } from "../../shared/board";
+import { CODE_GATES_RULE, MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_RULE, VERSION_BUMP_RULE, readTaskWeight, statusEventEnters } from "../../shared/board";
 import { decideNight, deadlineFrom } from "./night-mode";
+import { effectiveDispatchCap } from "./dispatch-capacity";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import {
   classifyTurnError,
@@ -113,7 +115,10 @@ export interface DispatcherDeps {
    * host without a classifier (tests / degraded); "auto" then keeps the default.
    * MUST resolve fast and never reject (the picker swallows its own errors).
    */
-  pickAutoModel?: (task: Task) => Promise<{ model: string | null }>;
+  /** Il giudice haiku legge il task e sceglie modello, SFORZO e PESO prima che
+   *  l'agente nasca. `effort: null` = non deciso, e la board decide; `weight`
+   *  assente/null = leggero, cioè niente cambia (vedi `TASK_WEIGHTS`). */
+  pickAutoModel?: (task: Task) => Promise<{ model: string | null; effort?: string | null; weight?: string | null }>;
   /** Auto concurrency cap for a board on `maxAgentsAuto`: live machine capacity
    *  (CPU/load). Absent ⇒ auto falls back to the board's manual `maxAgents`. */
   recommendedCap?: () => number;
@@ -188,6 +193,18 @@ export interface DispatcherDeps {
   preparePreview?: (taskId: string) => Promise<void>;
   /** Tear a task's preview server down (land / approve / close / reap). */
   teardownPreview?: (taskId: string) => Promise<void>;
+  /**
+   * La card è consegnata: butta dal suo worktree gli artefatti rigenerabili
+   * (dipendenze, cache di build) tenendo cartella, branch e commit.
+   *
+   * Qui e non al land, perché la maggior parte delle card NON landa subito: sono
+   * i giorni fra la consegna e l'ok umano a costare ~260 MB l'una, ed è lì che il
+   * disco è passato da 30 a 64 GB in una notte. L'host è l'unico che sa se in
+   * quel worktree c'è un'anteprima viva — la decisione su QUANDO farlo sta di là
+   * (vedi `worktree-slim`), qui c'è solo il momento in cui ha senso chiederlo.
+   * Assente (test/degradato) ⇒ nessuno snellimento, comportamento di prima.
+   */
+  slimWorktree?: (taskId: string) => Promise<void>;
   /**
    * True if the topic still exists. Used to SELF-HEAL a dead binding: a task
    * whose `assigned_topic_id` points at a topic that was later reaped (its agent
@@ -324,6 +341,56 @@ export interface TaskDispatcher {
   busyCount(): number;
 }
 
+/**
+ * Dove cade l'effort quando la board dice "auto" ma il classificatore non
+ * risponde. NON e' una preferenza: e' cio' che la board faceva prima che l'auto
+ * esistesse, quindi un giudice muto lascia le cose esattamente come stavano
+ * invece di spostarle di nascosto.
+ */
+/** Quanti errori del provider di fila si perdonano prima di ricominciare a
+ *  pagare tentativi. Tre: una raffica si assorbe, un guasto cronico no. */
+/**
+ * Dove cade l'effort quando la board dice "auto" ma il classificatore non
+ * risponde. NON è una preferenza: è ciò che la board faceva prima che l'auto
+ * esistesse, quindi un giudice muto lascia le cose come stavano.
+ *
+ * Vive solo su questo ramo: su main l'effort automatico non c'è (scelta del
+ * cherry-pick di `ed607a5a`, per non portare metà di una feature).
+ */
+const DEFAULT_AUTO_EFFORT = "medium";
+
+const FREE_PROVIDER_ERRORS = 3;
+
+/**
+ * Sotto quale carico PER CORE la macchina è «scarica» abbastanza da far partire
+ * un task pesante.
+ *
+ * 1.0, cioè il punto in cui la coda del processore è ancora dentro il numero di
+ * core: sopra di lì i processi si aspettano già a vicenda, ed è esattamente lo
+ * stato in cui una compilazione fa male a tutti gli altri. È più severo dell'1,5
+ * della modalità notturna (`night-mode.ts`) di proposito: lì la domanda è «la
+ * persona sta lavorando?», qui è «c'è margine per un lavoro che si prende tutto?»
+ * — e la seconda vuole un margine vero, non l'assenza di un intralcio.
+ */
+const HEAVY_MAX_LOAD_PER_CORE = 1.0;
+
+/** Ogni quanto un resume in attesa ricontrolla se si è liberato un posto. */
+const RESUME_SLOT_RETRY_MS = 5_000;
+
+/**
+ * La stessa lista, ma cominciando dall'elemento `cursor`-esimo.
+ *
+ * Serve a far girare l'ordine dei board a ogni reconcile. Il tetto dei posti è
+ * GLOBALE: chi viene interrogato per primo li riempie, e chi sta in fondo non
+ * ne trova mai. Misurato l'11/08 sul DB vivo: una board 26 claim su 31 in
+ * un'ora, un'altra con tre card in coda ZERO — non per priorità, per posizione.
+ */
+export function rotateFrom<T>(items: readonly T[], cursor: number): T[] {
+  if (items.length < 2) return [...items];
+  const da = ((cursor % items.length) + items.length) % items.length;
+  return [...items.slice(da), ...items.slice(0, da)];
+}
+
 const CHIP_QUEUED = "queued";
 const CHIP_WORKING = "working";
 const CHIP_NEEDS_INPUT = "needs_input";
@@ -350,9 +417,20 @@ const CHIP_WAITING = "waiting";
 // killing a live turn is far worse than recovering one sweep later.
 const LIVENESS_DEAD_SWEEPS = 2;
 // The two states that mean "a dispatch turn is genuinely live" — reconcile only
-// requeues orphans in these states, so a human dragging a review/done task into
+// resumes IN PLACE from these, so a human dragging a review/done task into
 // In Progress (dispatch_state null/needs_input) is never falsely "orphaned".
 const ACTIVE_DISPATCH_STATES = new Set([CHIP_WORKING, "starting"]);
+// Gli stati da cui un task in_progress SENZA turno vivo va recuperato — cioè i
+// tre che solo il dispatcher scrive. `queued` è il terzo, e per un pezzo non
+// c'era: un'attesa che vive in memoria (il rinvio del resume a tetto pieno)
+// muore col processo e lascia la card in_progress col chip «aspetto il turno».
+// Da fuori sembra occupata, e per l'umano lo è; dentro non c'è più nessuno che
+// la riprenda. Misurate l'11/08: sette card ferme così da 40 minuti su una
+// board che ne faceva girare una sola.
+//
+// Restano fuori i chip che scrive UNA PERSONA (null, needs_input, delivered):
+// lì il task è in mano sua e recuperarlo sarebbe rubarglielo.
+const RECOVERABLE_DISPATCH_STATES = new Set([...ACTIVE_DISPATCH_STATES, CHIP_QUEUED]);
 
 /**
  * Human phrasing for the external-session guard: how many sessions, where, and
@@ -382,7 +460,7 @@ export function describeIntruders(intruders: Array<{ cwd: string; branch: string
 export function parkedEdgeEvent(
   task: { id: string; projectId: string; text?: string | null },
   args: { requeue: boolean; reason?: string; parkState?: string | null },
-): { type: "task:parked"; projectId: string; taskId: string; taskTitle: string; state: "failed" | "blocked"; reason?: string } | null {
+): { type: "task:parked"; projectId: string; taskId: string; taskTitle: string; state: "failed" | "blocked" | "waited_out"; reason?: string } | null {
   if (args.requeue !== false) return null;
   return {
     type: "task:parked",
@@ -390,8 +468,14 @@ export function parkedEdgeEvent(
     taskId: task.id,
     taskTitle: task.text || "Task",
     // 'blocked' = configurazione da sistemare, 'failed' = l'agent non ha
-    // prodotto niente. Sono due domande diverse per l'umano.
-    state: args.parkState === CHIP_BLOCKED ? "blocked" : "failed",
+    // prodotto niente, 'waited_out' = la serie di attese ha sfondato il tetto.
+    // Sono tre domande diverse per l'umano, e il chip è l'unica cosa che le
+    // distingue: la copy del banner e della push si legge di qui.
+    state: args.parkState === CHIP_BLOCKED
+      ? "blocked"
+      : args.parkState === PARKED_WAITED_OUT
+        ? "waited_out"
+        : "failed",
     ...(args.reason ? { reason: args.reason } : {}),
   };
 }
@@ -506,6 +590,48 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
 
   // Pending debounced launches, keyed by taskId (the grace window).
   const graceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  /** Chi ha già detto nel thread che sta aspettando uno slot: una volta basta. */
+  const waitingForSlot = new Set<string>();
+  /** Da quale board comincia il prossimo giro: vedi `reconcile` (turnazione). */
+  let boardCursor = 0;
+  let resumeStagger = 0;
+
+  /**
+   * Il tetto di concorrenza EFFETTIVO, adesso. Era calcolato dentro `tick()`,
+   * quindi valeva solo per i dispatch: il `resume` non lo guardava, e ogni
+   * rifiuto in review faceva ripartire un agente FUORI dal tetto. Misurato il
+   * 09/08: 12 task in corso con il tetto a 6, e metà erano miei rifiuti.
+   *
+   * Un budget solo per macchina (scope 'global'), così N board non si
+   * moltiplicano in N×tetto. È il numero REATTIVO al carico («quanti agenti
+   * nuovi ammetto adesso»): la quota di core dello spawn passa dalla stessa
+   * `effectiveDispatchCap` ma con il tetto STRUTTURALE, perché la sua domanda è
+   * un'altra e usare un freno vivo come divisore lo invertirebbe
+   * (`dispatch-capacity.ts`).
+   */
+  function currentCap(): number {
+    let gcap = { auto: true, max: 3 };
+    try { gcap = deps.svc.getGlobalCap(); } catch { /* defaults */ }
+    return effectiveDispatchCap(gcap, deps.recommendedCap ? deps.recommendedCap() : null);
+  }
+  /**
+   * Errori del PROVIDER di fila su un task, per non fargli pagare i tentativi.
+   *
+   * `consumesAttempt` dice `true` per ogni `error`, e il tetto è 2: due
+   * singhiozzi del provider uccidono una card che non ha ancora scritto una
+   * riga. Misurato il 10/08: durante una raffica di dispatch paralleli, VENTI
+   * task sono finiti in review a mano vuote — «Errore del provider: riprovo tra
+   * 60s (tentativo 2/2)» e poi consegna forzata. Lavoro zero, review sporca, e
+   * i token dello spawn pagati due volte per niente.
+   *
+   * Non è gratis all'infinito, o un'interruzione lunga girerebbe per sempre: i
+   * primi `FREE_PROVIDER_ERRORS` non contano (col backoff che c'è già), dal
+   * successivo si torna a pagare. Il contatore si azzera al primo turno che NON
+   * muore per errore — è una raffica che si perdona, non un guasto cronico.
+   * Sta in memoria di proposito: un riavvio ri-pianifica comunque.
+   */
+  const providerErrors = new Map<string, number>();
+
   /**
    * One in-flight run: a turn being set up, running, or winding down.
    *
@@ -538,6 +664,47 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    */
   let reservedSlots = 0;
 
+  /**
+   * Le attese di uno slot VIVE in questo processo: taskId → timer del ritentativo.
+   *
+   * Un resume rinviato a tetto pieno non ha un turno, quindi non lascia traccia
+   * in `inFlight`: la card resta `in_progress` col chip `queued` e l'unica cosa
+   * che la tiene in piedi è un `setTimeout` in memoria. Il recupero orfani di
+   * `reconcile` recupera anche `queued` (per le attese che un riavvio si è
+   * portato via), e senza questo registro non saprebbe distinguere le due: si
+   * mangerebbe anche quelle vive, buttando via il messaggio dell'umano che quel
+   * timer ha in mano e facendo ripartire la card su un topic nuovo.
+   *
+   * Sta in memoria ACCANTO a `inFlight` e per la stessa ragione: un riavvio
+   * perde il timer e il registro INSIEME: e a quel punto la card è orfana
+   * davvero, ed è giusto che `reconcile` la rimetta in coda.
+   *
+   * Invariante: un'attesa sola per task (chi arriva mentre una è in corso
+   * imbuca il messaggio in `pendingResume`), così la voce del registro c'è
+   * esattamente finché c'è un timer pendente.
+   */
+  const slotWaits = new Map<string, { timer: ReturnType<typeof setTimeout>; message: string }>();
+
+  /**
+   * L'attesa non ha più senso: via il timer, via la memoria del suo commento.
+   *
+   * Il messaggio che teneva in mano NON muore col timer: `inherit` lo passa al
+   * turno che sta partendo (lo consegna `onTurnEnd`, come per i messaggi
+   * arrivati a turno vivo). Senza, un secondo resume che trova il posto libero
+   * spegnerebbe l'attesa e con essa la risposta dell'umano che l'aveva aperta.
+   * Quando invece il task è uscito da `in_progress` non c'è nessun turno a cui
+   * darlo, ed è la stessa fine che faceva prima.
+   */
+  function clearSlotWait(taskId: string, inherit: boolean): void {
+    const wait = slotWaits.get(taskId);
+    if (wait) {
+      clearTimeout(wait.timer);
+      slotWaits.delete(taskId);
+      if (inherit && wait.message) pendingResume.set(taskId, [...(pendingResume.get(taskId) ?? []), wait.message]);
+    }
+    waitingForSlot.delete(taskId);
+  }
+
   /** Claim the slot for a new run. Returns its id — the owner's proof. */
   function beginRun(taskId: string, sessionKey: string): number {
     const runId = nextRunId++;
@@ -560,10 +727,76 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   function endRun(taskId: string, runId: number): void {
     if (ownsRun(taskId, runId)) inFlight.delete(taskId);
   }
+
+  /**
+   * «Questo task aspetta te» ANCHE a metà turno.
+   *
+   * Il chip `needs_input` esisteva solo a fine turno, quando l'ultima parola
+   * dell'agente è un blocco ```question. Ma un agente ha un secondo modo di
+   * chiedere — `ask_user_question`, o una richiesta di permesso, aperti MENTRE
+   * il turno è vivo — e lì la card restava `working`: la board diceva «sto
+   * lavorando» sopra una sessione dove non lavorava nessuno, e l'unico modo di
+   * accorgersene era aprire il tab per caso. È il difetto più caro che questa
+   * campagna ha trovato, perché non urla: parcheggia in silenzio.
+   *
+   * Qui la board impara l'attesa dalla porta unica (`human-hold-events`), senza
+   * pollare e senza che i bridge sappiano cos'è un task. Nessun vocabolario
+   * nuovo: `needs_input` significa già «serve te», e sommato allo stato
+   * `in_progress` si legge «in corso, ma aspetta te» — che è esattamente il
+   * fatto.
+   */
+  function taskWaitingOnSession(sessionKey: string): string | null {
+    for (const [taskId, slot] of inFlight) if (slot.sessionKey === sessionKey) return taskId;
+    return null;
+  }
+
+  /**
+   * L'attesa è TRANSITORIA, e non si scrive in `dispatch_state`.
+   *
+   * La prima versione la persisteva (`setDispatchState(needs_input)`), e quella
+   * riga ha introdotto un guasto peggiore di quello che curava: la porta del
+   * recupero orfani è `ACTIVE_DISPATCH_STATES` (qui sopra: solo `working` e
+   * `starting`), perché un chip `needs_input` significava «l'ha messa qui una
+   * persona, non toccarla». Un task fermo su una domanda a metà turno usciva
+   * quindi da quella porta: server riavviato — e con `TOPICS_SERVER_WATCH=1`
+   * basta salvare un file sotto `server/` — e restava `in_progress` +
+   * `needs_input` PER SEMPRE, senza reattach, senza resume, senza un commento
+   * che lo dicesse. Prima della modifica quel task veniva ripreso. Misurato con
+   * l'harness dei test veri: chip `working` → 1 turno rilanciato; chip
+   * `needs_input` → 0 turni, e ancora 0 dopo tre reconcile.
+   *
+   * La causa vera è una collisione di vocabolario: `needs_input` era già
+   * «parcheggiata da un umano». Quindi l'attesa a metà turno prende la strada
+   * che questo file usa già per i fatti che vivono quanto il processo —
+   * `task:usage-live` (qui sotto): un evento, non una colonna. È anche più
+   * corretto nel merito: dopo un riavvio le mappe di `ask-user-bridge` e
+   * `permission-bridge` sono vuote, cioè l'attesa NON esiste più, e un chip
+   * persistito starebbe mentendo.
+   */
+  function broadcastAwaitingHuman(taskId: string, projectId: string, waiting: boolean, source: "ask" | "permission"): void {
+    try {
+      deps.broadcast({ type: "task:awaiting-human", projectId, taskId, waiting, source });
+    } catch { /* best-effort */ }
+  }
+  const unsubscribeHumanHold = onHumanHoldChange(({ sessionKey, phase, source }) => {
+    const taskId = taskWaitingOnSession(sessionKey);
+    if (!taskId) return; // una chat qualunque: non è roba della board
+    try {
+      const task = deps.svc.get(taskId)?.task;
+      // Solo mentre il turno è davvero in volo: a consegna fatta il chip lo
+      // decide `onTurnEnd`, e un'attesa annunciata dopo sarebbe rumore.
+      if (!task || task.status !== "in_progress") return;
+      broadcastAwaitingHuman(taskId, task.projectId, phase === "held", source);
+    } catch { /* best-effort: un annuncio mancato non deve uccidere un pannello */ }
+  });
   // Tasks already told "il repo è occupato da una sessione esterna" during the
   // CURRENT hold episode — cleared when the repo frees, so a later hold can
   // note again without spamming one comment per 10s reconcile poll.
   const externallyHeldNoted = new Set<string>();
+  // Task a cui si è già detto "aspetti perché la macchina è impegnata da un
+  // task pesante / è troppo carica". Stessa disciplina dell'insieme qui sopra:
+  // una nota per EPISODIO, non una per poll — si svuota appena l'attesa finisce.
+  const heavyHeldNoted = new Set<string>();
   // Board a cui si è già detto "il fan-out qui non si applica" (worktree off).
   // È una configurazione, non un evento: ripeterlo a ogni dispatch sarebbe rumore.
   const fanOutBlockedNoted = new Set<string>();
@@ -576,6 +809,83 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   /** Broadcast the updated task so live boards move the chip. */
   function emit(task: Task): void {
     try { deps.broadcast({ type: "task:updated", projectId: task.projectId, task }); } catch { /* best-effort */ }
+  }
+
+  /**
+   * C'è margine per un task PESANTE adesso? (vedi `HEAVY_MAX_LOAD_PER_CORE`)
+   *
+   * `null` non è «no»: è «non lo so». Senza la sonda del carico il gate non si
+   * applica affatto — un host che non sa misurare non deve poter fermare la coda
+   * per sempre, che è il modo in cui una guardia diventa una trappola.
+   */
+  function heavyLoadGate(): { ok: boolean; load1: number; cores: number } | null {
+    if (!deps.capacity) return null;
+    try {
+      const { load1, cores } = deps.capacity();
+      const c = Math.max(1, cores);
+      return { ok: load1 < c * HEAVY_MAX_LOAD_PER_CORE, load1, cores: c };
+    } catch (err) {
+      log("sonda del carico caduta: il gate del peso resta aperto", err);
+      return null;
+    }
+  }
+
+  /**
+   * «Aspetti per via del peso», detto una volta per episodio: chip `queued` +
+   * una riga nel thread. Stessa disciplina della guardia sulle sessioni esterne
+   * — la nota si ripete solo dopo che l'attesa è finita davvero, altrimenti un
+   * poll ogni 10s riempirebbe il thread della stessa frase.
+   */
+  function noteHeavyHold(task: Task, why: string): void {
+    if (inFlight.has(task.id) || graceTimers.has(task.id)) return;
+    if (heavyHeldNoted.has(task.id)) return;
+    heavyHeldNoted.add(task.id);
+    try {
+      emit(deps.svc.setDispatchState({ taskId: task.id, state: CHIP_QUEUED }));
+      deps.svc.addComment({ taskId: task.id, author: "system", content: why });
+    } catch { /* il task può essersi mosso sotto i piedi */ }
+  }
+
+  /**
+   * Il peso appena letto dal classificatore, applicato al task — e la decisione
+   * che ne segue: si può proseguire, o questo lancio non doveva avvenire?
+   *
+   * Il classificatore parla al LANCIO; il gate del peso vive nel claim, che è
+   * già passato. Alla primissima corsa di un task, quindi, il claim ha deciso
+   * senza sapere: se scopre adesso di avere in mano un task pesante, l'unica cosa
+   * onesta è rimetterlo in coda e lasciare che sia il claim a decidere, stavolta
+   * col peso in mano — far partire l'agente comunque significherebbe metterlo
+   * accanto agli altri, che è precisamente ciò che il peso esiste per impedire.
+   *
+   * Il tentativo si RIMBORSA (`rollbackAttempt`): non è un fallimento, non ha
+   * prodotto niente e non ha nemmeno acceso un agente. Farlo pesare sul budget
+   * dei ritentativi vorrebbe dire che un task pesante arriva al parcheggio dopo
+   * due scoperte invece che dopo due fallimenti veri.
+   *
+   * Torna `true` se il lancio deve fermarsi. Il rientro in coda avviene UNA
+   * volta sola per scoperta: la seconda volta il peso è già sul task, quindi
+   * `wasHeavy` è vero e si prosegue — non c'è modo di girare in tondo.
+   */
+  function absorbWeight(task: Task, weight: string | null | undefined): boolean {
+    const read = readTaskWeight(weight);
+    const wasHeavy = task.dispatchWeight === "heavy";
+    if (read !== task.dispatchWeight) {
+      // Best-effort: il promemoria serve al PROSSIMO claim, e non riuscire a
+      // scriverlo non è una ragione per non far partire questo turno.
+      try { deps.svc.setDispatchWeight({ taskId: task.id, weight: read }); }
+      catch (err) { log(`peso non salvato per il task ${task.id}`, err); }
+    }
+    if (read !== "heavy" || wasHeavy) return false;
+    log(`task ${task.id}: pesante, scoperto al lancio → torna in coda prima di aprire l'agente`);
+    releaseAndEmit({
+      taskId: task.id,
+      requeue: true,
+      rollbackAttempt: true,
+      reason:
+        "Questo task è PESANTE (compila / gira la suite / macina): lo si è scoperto leggendolo, cioè dopo che era già partito. " +
+        "Torna in coda senza consumare un tentativo e riparte da solo appena la macchina è libera. Un task così prende il turno da solo.",
+    });
+    return true;
   }
 
   /**
@@ -727,6 +1037,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * guardia contro il prompt injection dal titolo/descrizione, e una guardia che
    * esiste in due copie è una guardia che prima o poi ne ha una vecchia.
    */
+  // allow-emdash-block: da qui a `launch` si costruisce il BRIEFING dell'agent.
+  // È un prompt letto da un modello, non un testo della app: la regola sul
+  // trattino lungo non lo riguarda, e riscriverlo cambierebbe il comportamento.
   function taskFramingBlock(task: Task, opening: string): string[] {
     const parts: string[] = [opening];
     parts.push(
@@ -737,6 +1050,29 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     parts.push(task.text);
     if (task.description && task.description.trim()) parts.push("", task.description.trim());
     parts.push("------------");
+    // I sottotask GIÀ sulla board sono lavoro di questo task, non contorno: un
+    // padre nasce anche accorpando card che esistevano da sole, e la loro
+    // sostanza vive nei figli, non nella descrizione del padre. Senza questo
+    // blocco l'agente del padre non li vede — accorpare, che dovrebbe
+    // concentrare il lavoro, lo farebbe sparire.
+    // Solo i figli APERTI: quelli done sono storia, e ripassarli invita a
+    // rifarli. Titolo + prima riga di descrizione: il resto lo legge da sé con
+    // get_task, e il preambolo si paga a ogni turno.
+    try {
+      // `childrenOf` esclude già gli archiviati: qui resta da togliere i chiusi.
+      const open = (deps.svc.get(task.id)?.children ?? []).filter((c) => c.status !== "done");
+      if (open.length) {
+        parts.push(
+          "",
+          `Questo task ha ${open.length} sottotask aperti: sono la SUA checklist, li lavori tu (nessuno li dispaccia da solo).`,
+          ...open.map((c) => {
+            const head = (c.description ?? "").trim().split("\n")[0]?.trim() ?? "";
+            return `- [${c.id}] ${c.text}${head ? ` — ${head.slice(0, 160)}` : ""}`;
+          }),
+          `Man mano che ne chiudi uno: update_task(task_id=<id sottotask>, status="done"). Il dettaglio di ognuno con get_task.`,
+        );
+      }
+    } catch { /* board senza albero: il task resta quello che è */ }
     return parts;
   }
 
@@ -752,7 +1088,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         "",
         "⚠ PLAN FIRST — l'umano vuole approvare il piano PRIMA dell'implementazione:",
         "1. Analizza il lavoro (leggi il codice/contesto necessario), NON implementare nulla.",
-        `2. comment_task(task_id="${task.id}", content=<piano sintetico: cosa farai e in che ordine>, options=["Approva il piano", "Da rivedere"])`,
+        // Le etichette sono un CONTRATTO, non cortesia: la presenza di
+        // PLAN_APPROVE_LABEL è ciò che dice al servizio quale commento È il
+        // piano (→ tasks.plan_comment_id). Scritte dalla costante, non a mano.
+        `2. comment_task(task_id="${task.id}", content=<piano: cosa farai e in che ordine — a capo, elenchi e titoli si conservano, scrivilo leggibile>, options=["${PLAN_APPROVE_LABEL}", "${PLAN_REVISE_LABEL}"])`,
         `3. update_task(task_id="${task.id}", status="review") e fermati.`,
         "Implementi solo quando l'umano approva (riparti con la sua risposta).",
       );
@@ -768,21 +1107,53 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
             ]
           : []),
         "- Commenti BREVI e utili: max 1-2 frasi ai milestone (cosa è fatto / cosa blocca). Mai log, diff o dump di codice nel thread (il server rifiuta commenti lunghi).",
-        "- Contesto snello (tieni i turni leggeri): usa Grep per trovare, poi Read a fette (offset/limit) sui file oltre ~400 righe — mai leggere file interi 'per sicurezza'. Per ispezionare lo schermo del browser usa browser_read_screen (testo), MAI screenshot/immagini nel contesto (uno screenshot va solo come allegato a comment_task). Comandi lunghi (build, test, install >~2 min): lanciali in background (run_script o `&`) e polla read_process_output ogni tanto invece di restare bloccato sul comando.",
+        "- Contesto snello (tieni i turni leggeri): usa Grep per trovare, poi Read a fette (offset/limit) sui file oltre ~400 righe — mai leggere file interi 'per sicurezza'. Comandi lunghi (build, test, install >~2 min): lanciali in background (run_script o `&`) e polla read_process_output ogni tanto invece di restare bloccato sul comando.",
+        // Il coordinatore. Sta QUI, subito dopo la riga sul contesto snello,
+        // perché è la stessa regola portata alle sue conseguenze: il modo più
+        // efficace di tenere leggero un thread non è leggere meno, è non farci
+        // passare il lavoro. La riga dice anche cosa fare quando lo strumento
+        // dice di no, perché un rifiuto senza ripiego scritto diventa un agente
+        // che si ferma.
+        "- QUESTA SESSIONE È DOVE SI DECIDE, non dove si lavora. Il lavoro lungo (esplorare un'area di codice, provare una strada, girare una suite) mandalo in una sessione separata: spawn_agent(prompt=<mandato completo e autosufficiente>, cwd=<questa working directory>) → read_agent(agent_id=…, since=…) per l'esito → send_to_agent per correggerla → stop_agent quando ha finito. Nel TUO thread tieni solo obiettivo, scelte prese e perché, domande, consegna: NON il diario di bordo. Un thread che si legge in trenta secondi vale più di uno completo che nessuno apre.",
+        "- Le sessioni figlie contano nel tetto di concorrenza della board come chiunque altro, e il loro consumo si contabilizza su QUESTA card. Una figlia non ne apre altre. Se spawn_agent risponde che il tetto è pieno non è un errore da aggirare: fai tu quel pezzo, o aspetta.",
+        // Il divieto è anche un CANCELLO vero (hook PreToolUse su Read, vedi
+        // `blockImageReads` in providers/claude/args.ts): scritto qui restava un
+        // consiglio in mezzo agli altri, e gli agenti aprivano gli screenshot lo
+        // stesso — il 25% del loro contesto erano immagini. Resta scritto perché
+        // un rifiuto spiegato PRIMA costa una riga, scoperto dopo costa un giro.
+        "- MAI aprire immagini o video con Read (il tuo Read li rifiuta): pesano ~mezzo mega e restano nel PREFISSO, che ogni turno successivo rilegge. Per consegnare la prova basta il path — update_task(preview_image=<path>) o comment_task(media=[<path>]) — non serve averla aperta. Per ispezionare lo schermo del browser usa browser_read_screen, che risponde in testo.",
         "- PIANO VISIBILE: se il lavoro ha più di un passo, crea subito i tuoi step come sottotask — " +
           `create_task(text=<step>, parent_task_id="${task.id}") per ognuno — e marca OGNI step done appena lo completi: update_task(task_id=<step id>, status="done") (permesso sui TUOI step). Sono la tua checklist sulla board: l'umano vede i progressi in tempo reale.`,
         "- Prima di consegnare in review TUTTI i tuoi step devono essere done (un task con sottotask aperti non è approvabile). Lavoro futuro fuori scope → task top-level SENZA parent (resta in backlog per l'umano).",
+          "- MAI lasciare un tuo sottotask in `backlog`: e' un vicolo cieco. I sottotask non li dispaccia nessuno (li lavori TU, sono la tua checklist), e un padre con un figlio aperto non si puo' chiudere: la card resta ferma per sempre e sembra una decisione che aspetta l'umano. Nella notte del 12/08 e' successo a otto card. Se uno step non lo puoi fare: o lo fai, o lo PROMUOVI a task indipendente togliendogli il parent (update_task con parent_task_id vuoto), cosi' qualcuno lo prende. Parcheggiarlo da figlio non e' rimandarlo, e' perderlo.",
         "- Ogni step ha il SUO thread: note specifiche → comment_task(task_id=<step id>, ...). Se l'umano risponde sul thread di uno step mentre sei in review, riparti con quel contesto.",
-        "- Allegati (comment_task media[]): il server accetta SOLO file sotto ~/.topics/media/ (o ~/.openclaw/media/) o il workspace — copia lì il file (es. un PDF/screenshot/clip da mostrare) PRIMA di allegarlo, o il commento viene rifiutato.",
-        "- CONSEGNA AUTOCONSISTENTE: il reviewer decide guardando SOLO il task — tutto ciò che serve alla decisione va nel thread: testi completi (es. la bozza di una mail va INCOLLATA nel commento, non descritta), anteprime come allegato, pagine/report come output_url. Se chiedi 'confermi X?' l'umano deve poter vedere X.",
-        `- EVIDENZA DI REVIEW = anteprima nel task, scelta in base al tipo di lavoro. Impostala con update_task(task_id="${task.id}", previewImage=<path assoluto sotto ~/.topics/media/>) — compare come card sulla board e nel drawer (immagine cliccabile, oppure VIDEO coi controlli).`,
-        "  · UI STATICA (layout, un componente, una pagina) → uno SCREENSHOT (.png).",
-        "  · COMPORTAMENTO / UI DINAMICA (scroll, un box che si apre/chiude, streaming, una transizione, un flusso a più passi) → un VIDEO (.webm/.mp4): uno screenshot statico NON dimostra il comportamento. Registralo con Playwright — clip breve (login: in locale l'identity picker è a un click; poi naviga ed esegui l'azione) con `recordVideo: { dir }` sul context, copia il .webm sotto ~/.topics/media/ e mettilo in previewImage.",
-        "  · Se il progetto ha spec-flow: esegui lo SCENARIO relativo — Playwright registra già il .webm nel Living Doc; usa QUEL clip come evidenza (è anche la prova che l'acceptance test passa).",
-        `- Se c'è qualcosa da far navigare/testare al reviewer dal vivo (dev server, pagina, report): update_task(task_id="${task.id}", output_url=<url http(s)>) — appare nel pannello di review. NB: il dev server dell'agente è effimero e muore a fine sessione, quindi l'output_url NON è evidenza durevole: la prova che resta è l'anteprima (screenshot/video), l'output_url è solo un extra dal vivo.`,
+        "- IL RISULTATO DEL TASK sono le sue TAB e i suoi FILE. Non esiste un «Output» a parte:",
+        "  · TAB — una pagina viva da far vedere o navigare al reviewer (dev server, report HTML, dashboard, pagina) la apri TU con open_browser_pane({url, name}): dentro un task quella diventa una tab DEL TASK, resta nel task dopo la fine del tuo turno ed è lì che il reviewer la trova. Il `name` è l'etichetta della tab E la sua identità: riusare lo stesso nome ri-naviga quella tab, un nome nuovo ne apre un'altra — così consegni UNA tab per superficie che serve davvero (es. name:\"App\", name:\"Report\"), non di più, e senza sovrascrivere sempre la prima.",
+        "  · TAB DIETRO LOGIN — se la pagina che consegni è protetta, entra tu una volta nella tab e chiama browser_save_state({handle}) mentre sei dentro: l'handle resta legato a QUELLA tab e chi la apre dopo ci atterra già loggato, senza rifare il login a mano.",
+        "  · FILE CONSEGNATI — PDF, report, screenshot, clip: li alleghi con comment_task media[] e diventano la lista scaricabile del task (click sul nome = si apre come tab, l'icona = download). Il server accetta SOLO file sotto ~/.topics/media/ (o ~/.openclaw/media/) o il workspace: copia lì il file PRIMA di allegarlo, o il commento viene rifiutato.",
+        "  · ANTEPRIMA — l'unica evidenza DUREVOLE (vedi sotto): una tab viva muore col server che la serve, uno screenshot o un video no.",
+        "- CONSEGNA AUTOCONSISTENTE: il reviewer decide guardando SOLO il task — tutto ciò che serve alla decisione va nel thread: testi completi (es. la bozza di una mail va INCOLLATA nel commento, non descritta), artefatti come file consegnati, pagine e report come tab del task. Se chiedi 'confermi X?' l'umano deve poter vedere X.",
+        // La regola dell'anteprima NON si riscrive qui: è `PREVIEW_RULE`
+        // (shared/board.ts), la stessa stringa che leggono il resume, lo schema
+        // del tool MCP e §4 del protocollo. Riscriverla a mano è esattamente il
+        // modo in cui le cinque copie erano arrivate a dire cose diverse — ed è
+        // ciò che era appena successo qui: il blocco a due rami che stava in
+        // questo punto non conosceva il ramo del diagramma, e chiamava il campo
+        // `previewImage` mentre il tool MCP lo espone come `preview_image`.
+        PREVIEW_RULE,
         `- Alla consegna, PRIMA di spostare in review: UN commento di sintesi con comment_task (1-2 frasi: cosa hai fatto QUESTO turno, dove guardare). Il server rifiuta la review se in questo turno non hai ancora commentato.`,
         `- SE hai committato codice sul tuo branch (lavoro landabile), in quel commento di consegna offri SOLO l'opzione: comment_task(..., options=["${LAND_ACTION_LABEL}"]). Se l'umano la sceglie, il SISTEMA fa il merge LOCALE su main (nessun push). Tu NON fare mai git merge/push a mano. La pubblicazione online (push + deploy) è un passo SEPARATO, deciso ed eseguito dall'umano dal controllo "Pubblica" della board con anteprima del diff — NON proporla, non è un'opzione del task. NON offrire l'opzione senza codice committato (una domanda, un piano, lavoro solo-headless).`,
         `- Se devi ASPETTARE una condizione esterna (un servizio che torna su, il carico macchina che scende, una finestra oraria): NON dormire con un poller tenendo occupato lo slot. Dichiara l'attesa con wait_for_condition(task_id="${task.id}", reason=<cosa aspetti>, minutes=<quanto riprovare, default 15>): il task torna in coda con la nota, lo slot si libera per altri, e il sistema lo ri-dispaccia da solo quando scade la finestra. NON è una consegna: non mandarlo in review "vuoto".`,
+        // I cancelli del codice si nominano SEMPRE, board o no. Prima stavano
+        // solo dentro il ramo `checks.length` qui sotto, cioè: nessuna board
+        // dichiarava comandi → nessun kickoff nominava un cancello → tre card
+        // in un pomeriggio hanno lasciato main con `check:deadcode` rosso.
+        // Il testo è `CODE_GATES_RULE` (shared/board.ts), non una copia.
+        `- ${CODE_GATES_RULE}`,
+        // Stessa forma, stessa cura: il bump di versione è un gesto solo. Due
+        // card in una notte l'hanno fatto a mano dimenticando il lockfile, e
+        // il cancello che le ha prese non nominava il rimedio.
+        `- ${VERSION_BUMP_RULE}`,
         ...(checks.length
           ? [
               `- CHECKS PRE-REVIEW: alla consegna il server esegue da sé, nel tuo worktree, ${checks.length === 1 ? "questo comando" : "questi comandi"} — ${checks.map((c) => `\`${c.cmd}\``).join(", ")}. Se uno è rosso la review viene RIFIUTATA e ti torna l'output: falli girare tu prima, così non ci perdi un giro.`,
@@ -799,6 +1170,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     );
     return parts.join("\n");
   }
+
+  // end-allow-emdash
 
   /** Launch one already-claimed task: (worktree?) → topic → turn → reconcile. */
   async function launch(
@@ -818,6 +1191,49 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       let reuseTopicId: string | null = null;
       if (task.reuseBlockerContext && task.blockedByTaskId) {
         try { reuseTopicId = deps.svc.get(task.blockedByTaskId)?.task?.assignedTopicId ?? null; } catch { /* fresh topic below */ }
+      }
+
+      // Il classificatore PRIMA del worktree, e l'ordine è la parte che conta:
+      // fra le due cose che legge c'è il peso, e un peso scoperto adesso può
+      // rimandare in coda il task. Rimandarlo dopo aver aperto un worktree
+      // vorrebbe dire aprirlo e cancellarlo a ogni scoperta (o dimenticarselo
+      // dietro, che è il modo in cui si orfanano le cartelle). Qui non è ancora
+      // nato niente da disfare.
+      //
+      // Model selection. Explicit choice wins; "auto" (null) → classifier pick
+      // before spawn (never for a reused topic — it inherits the blocker's).
+      // The picker never rejects and returns fast; a null/absent result keeps
+      // the provider default, so dispatch is never blocked on this.
+      // Priority: explicit per-task model > board default (settings.model, when the
+      // board pins one instead of 'auto') > classifier pick. The board default skips
+      // the classifier entirely — a pinned board dispatches every task on that model.
+      let chosenModel: string | undefined = task.model ?? settings.model ?? undefined;
+      // L'effort segue la stessa regola del modello: la board può fissarlo e
+      // allora comanda lei; su "auto" lo sceglie il classificatore task per
+      // task. È la leva più cara che abbiamo — stesso lavoro: `medium` 61,1k
+      // token, `xhigh` 108,8k — quindi tenerla fissa per una board intera
+      // significa pagarla uguale su un typo e su un refactor.
+      let chosenEffort = settings.effort;
+      if (chosenModel && chosenModel !== task.model && !reuseTopicId) {
+        // Persist the board-default so the card shows the real model, not "auto".
+        deps.svc.setModel({ taskId, model: chosenModel });
+      }
+      if (!chosenModel && !reuseTopicId && deps.pickAutoModel) {
+        const picked = await deps.pickAutoModel(task);
+        // Il peso PRIMA di tutto il resto: se questo lancio non doveva avvenire,
+        // deve fermarsi qui — prima del worktree, prima del topic, prima
+        // dell'agente. (Il modello non si persiste in quel caso: al prossimo giro
+        // il giudice ripete la lettura, che costa un haiku, e in cambio modello e
+        // peso restano una decisione sola invece di due mezze decisioni salvate a
+        // metà.)
+        if (settings.effort === "auto") chosenEffort = picked.effort ?? DEFAULT_AUTO_EFFORT;
+        if (absorbWeight(task, picked.weight)) return;
+        chosenModel = picked.model ?? undefined;
+        // "auto" è solo lo stato INIZIALE: appena il classifier risolve un
+        // modello concreto lo persisto sul task, così la card mostra quello
+        // davvero usato (non più "auto"). Nessun emit qui: la setDispatchState
+        // subito sotto rilegge la riga e ne fa il broadcast.
+        if (chosenModel) deps.svc.setModel({ taskId, model: chosenModel });
       }
 
       if (!reuseTopicId && settings.useWorktree) {
@@ -843,28 +1259,6 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           "Nuovo task nella STESSA sessione del task precedente: il contesto che hai costruito è condiviso di proposito, riusalo dove serve.\n\n" + kickoff;
       }
 
-      // Model selection. Explicit choice wins; "auto" (null) → classifier pick
-      // before spawn (never for a reused topic — it inherits the blocker's).
-      // The picker never rejects and returns fast; a null/absent result keeps
-      // the provider default, so dispatch is never blocked on this.
-      // Priority: explicit per-task model > board default (settings.model, when the
-      // board pins one instead of 'auto') > classifier pick. The board default skips
-      // the classifier entirely — a pinned board dispatches every task on that model.
-      let chosenModel: string | undefined = task.model ?? settings.model ?? undefined;
-      if (chosenModel && chosenModel !== task.model && !reuseTopicId) {
-        // Persist the board-default so the card shows the real model, not "auto".
-        deps.svc.setModel({ taskId, model: chosenModel });
-      }
-      if (!chosenModel && !reuseTopicId && deps.pickAutoModel) {
-        const picked = await deps.pickAutoModel(task);
-        chosenModel = picked.model ?? undefined;
-        // "auto" è solo lo stato INIZIALE: appena il classifier risolve un
-        // modello concreto lo persisto sul task, così la card mostra quello
-        // davvero usato (non più "auto"). Nessun emit qui: la setDispatchState
-        // subito sotto rilegge la riga e ne fa il broadcast.
-        if (chosenModel) deps.svc.setModel({ taskId, model: chosenModel });
-      }
-
       // Plan-first is opt-in only (the "piano prima" toggle). The dispatcher used
       // to auto-flip it on a fuzzy/under-specified task to save retry budget, but
       // that surprised the human ("piano" appearing though they never set it), so
@@ -886,7 +1280,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
             projectPath: cwd,
             worktreeId,
             systemPrompt: rolePrompt(langFor(task.projectId)),
-            effort: settings.effort,
+            effort: chosenEffort,
             model: chosenModel,
             // Catch-all task → standalone session: keeps its (now per-task) cwd
             // but never renders a phantom project node in the sidebar.
@@ -977,6 +1371,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * sottotask, niente commenti sul thread condiviso), e due contratti opposti
    * nello stesso prompt significa che il modello ne sceglie uno a caso.
    */
+  // allow-emdash-block: prompt di fan-out, stessa ragione del kickoff qui sopra.
   function buildFanoutKickoff(task: Task, idx: number, total: number): string {
     let checks: { name: string; cmd: string }[] = [];
     try { checks = deps.svc.getBoardSettings(task.projectId).reviewChecks; } catch { /* board senza gate */ }
@@ -993,7 +1388,13 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         `- NON spostare il task di stato (niente update_task(status=...)): decide l'umano quale tentativo tenere, e il server rifiuta comunque il cambio finché il fan-out è aperto.`,
         `- NON creare sottotask e NON rinominare il task: la board è UNA e condivisa fra i ${total} tentativi — ne uscirebbero ${total} copie di tutto.`,
         "- NON scrivere nel thread del task (è condiviso): il tuo resoconto è l'ULTIMO messaggio di questo turno, ed è quello che finisce nel confronto.",
-        "- COMMITTA tutto sul tuo branch prima di chiudere: un tentativo con lavoro non committato conta come 'nessuna modifica' e viene scartato. Nessun merge, nessun push, nessun rebase su main.",
+        "- COMMITTA tutto sul tuo branch prima di chiudere: un tentativo con lavoro non committato conta come 'nessuna modifica' e viene scartato.",
+        "- NON TOCCARE main: niente push, niente merge VERSO main — landare è una decisione umana. Rifare la BASE del TUO ramo su main aggiornato (`git rebase main`) invece è permesso, ed è il gesto giusto quando il land dice che i tuoi commit collidono — la rebase sul main AGGIORNATO, non un merge di main dentro il ramo.",
+        // Stessa costante del kickoff normale: un tentativo che lascia il ramo
+        // con un cancello rosso parte svantaggiato al confronto, e il tentativo
+        // SCELTO è quello che poi finisce su main.
+        `- ${CODE_GATES_RULE}`,
+        `- ${VERSION_BUMP_RULE}`,
         ...(checks.length
           ? [
               `- Prima di chiudere fai girare ${checks.length === 1 ? "questo comando" : "questi comandi"} — ${checks.map((c) => `\`${c.cmd}\``).join(", ")}: il server li rieseguirà sul tentativo scelto, e un tentativo rosso parte svantaggiato.`,
@@ -1013,6 +1414,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * NON rigetta mai: il fallimento di un tentativo è un DATO del confronto, non
    * un'eccezione che deve travolgere i fratelli ancora in volo.
    */
+  // end-allow-emdash
+
   async function runAttempt(
     task: Task,
     idx: number,
@@ -1225,9 +1628,20 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // confronto un esperimento su due variabili insieme, e il fan-out serve a
       // confrontare STRADE, non provider.
       let chosenModel: string | undefined = task.model ?? settings.model ?? undefined;
+      // L'effort segue la stessa regola del modello: la board può fissarlo e
+      // allora comanda lei; su "auto" lo sceglie il classificatore task per
+      // task. È la leva più cara che abbiamo — stesso lavoro: `medium` 61,1k
+      // token, `xhigh` 108,8k — quindi tenerla fissa per una board intera
+      // significa pagarla uguale su un typo e su un refactor.
+      let chosenEffort = settings.effort;
       if (chosenModel && chosenModel !== task.model) deps.svc.setModel({ taskId, model: chosenModel });
       if (!chosenModel && deps.pickAutoModel) {
         const picked = await deps.pickAutoModel(task);
+        // Vale a maggior ragione qui: un task pesante in fan-out sono N
+        // macinate in parallelo, cioè il caso peggiore che il peso esiste per
+        // evitare. Il `finally` restituisce gli slot prenotati.
+        if (settings.effort === "auto") chosenEffort = picked.effort ?? DEFAULT_AUTO_EFFORT;
+        if (absorbWeight(task, picked.weight)) return;
         chosenModel = picked.model ?? undefined;
         if (chosenModel) deps.svc.setModel({ taskId, model: chosenModel });
       }
@@ -1247,7 +1661,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // deve lasciare i fratelli a girare senza nessuno che ne raccolga l'esito.
       await Promise.allSettled(
         Array.from({ length: n }, (_, i) =>
-          runAttempt(task, i + 1, n, { timeoutMs, effort: settings.effort, mcp: settings.mcp, model: chosenModel }, resolved),
+          runAttempt(task, i + 1, n, { timeoutMs, effort: chosenEffort, mcp: settings.mcp, model: chosenModel }, resolved),
         ),
       );
       // Sepolto dalla rete di liveness mentre giravamo (o rimpiazzato da un run
@@ -1331,7 +1745,11 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       const comments = deps.svc.get(task.id)?.comments ?? [];
       let turnStart = 0;
       for (const c of comments) {
-        if (c.kind === "status" && typeof c.content === "string" && c.content.endsWith("in_progress")) {
+        // `endsWith` no: da quando una transizione porta la sua ragione
+        // (`done→in_progress · il land…`) il contenuto non finisce con lo stato.
+        // Lo stesso parser del servizio, o le due letture del "quando inizia il
+        // turno" divergerebbero.
+        if (c.kind === "status" && statusEventEnters(c.content, "in_progress")) {
           const ts = Date.parse(c.createdAt);
           if (ts > turnStart) turnStart = ts;
         }
@@ -1395,7 +1813,18 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       try { emit(deps.svc.setDispatchState({ taskId, state: chip })); } catch { /* best-effort */ }
       // Review-ready preview: boot a live server from the worktree, set output_url
       // to the local deep-link, attach a screenshot. Best-effort, fire-and-forget.
-      try { void deps.preparePreview?.(taskId); } catch { /* best-effort */ }
+      //
+      // Lo snellimento viene DOPO, incatenato: l'anteprima è un `bun run dev` che
+      // gira dentro quel worktree, e togliergli `node_modules` sotto i piedi
+      // mentre parte lo ucciderebbe. Aspettare che il tentativo si concluda toglie
+      // la corsa; se un'anteprima è rimasta viva, `slimWorktree` se ne accorge e
+      // non tocca niente (la passata del GC ci riproverà quando sarà spenta).
+      try {
+        void Promise.resolve(deps.preparePreview?.(taskId))
+          .catch(() => { /* best-effort: un'anteprima fallita non blocca il resto */ })
+          .then(() => deps.slimWorktree?.(taskId))
+          .catch(() => { /* best-effort */ });
+      } catch { /* best-effort */ }
       return;
     }
     if (cur.status === "in_progress") {
@@ -1412,7 +1841,22 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         // costa un tentativo (`consumesAttempt`): si riprende senza bruciare
         // budget. Il nostro tetto a orologio invece SÌ, o il freno contro un
         // task che gira in tondo non frenerebbe mai.
-        const free = !consumesAttempt(end);
+        // Un errore del provider non è un fallimento dell'agente: vedi
+        // `providerErrors`. Il contatore vive qui, non in `consumesAttempt`,
+        // perché quella è una funzione pura sul singolo turno e questa è una
+        // domanda sulla STORIA del task.
+        let free = !consumesAttempt(end);
+        // `process-died` arriva come `error` ma NON si perdona: è la rete di
+        // sicurezza sulla liveness, cioè l'unico freno contro una sessione
+        // fantasma. Perdonare anche quella significherebbe pagare un problema
+        // di costo con una guardia — e la guardia serve.
+        if (end.end === "error" && end.cause !== "process-died") {
+          const n = (providerErrors.get(taskId) ?? 0) + 1;
+          providerErrors.set(taskId, n);
+          if (n <= FREE_PROVIDER_ERRORS) free = true;
+        } else {
+          providerErrors.delete(taskId);
+        }
         try {
           bumped = free
             ? (deps.svc.get(taskId)?.task ?? null)
@@ -1488,7 +1932,15 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
               reason: "system-delivered",
             });
           } catch { /* best-effort */ }
-          try { void deps.preparePreview?.(taskId); } catch { /* best-effort */ }
+          // Stessa catena della consegna volontaria: anteprima prima, snellimento
+          // dopo. Una consegna forzata dal sistema è una consegna a tutti gli
+          // effetti, e il suo worktree costa gli stessi ~260 MB.
+          try {
+            void Promise.resolve(deps.preparePreview?.(taskId))
+              .catch(() => { /* best-effort */ })
+              .then(() => deps.slimWorktree?.(taskId))
+              .catch(() => { /* best-effort */ });
+          } catch { /* best-effort */ }
         } catch (err) { log(`deliverToReviewBySystem failed for ${taskId}`, err); }
         return;
       }
@@ -1500,10 +1952,24 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       });
       return;
     }
+    // Lo stop umano passa PROPRIO di qui, ed è l'unico park che si annuncia da
+    // solo: la route parcheggia PRIMA e taglia il turno DOPO, quindi questo
+    // `onTurnEnd` è quello del turno appena abortito e trova la card già
+    // `stopped`. Azzerarla riporterebbe la card muta — che è il difetto che
+    // `stopped` esiste per togliere.
+    if (cur.dispatchState === PARKED_STOPPED) return;
+    // Stessa trappola, altro park che si annuncia da solo: la serie di attese ha
+    // sfondato il tetto e `deferForWait` ha già parcheggiato la card in backlog
+    // col chip `waited_out`. Il turno che ha dichiarato quell'attesa finisce
+    // SUBITO DOPO e arriva qui: senza questa guardia la riga sotto azzererebbe
+    // il chip, e la card tornerebbe muta — cioè indistinguibile da un park a
+    // mano, che è esattamente il difetto che `waited_out` esiste per togliere.
+    if (cur.dispatchState === PARKED_WAITED_OUT) return;
     // Human moved it elsewhere (backlog/todo/done) mid-turn → just drop our chip.
     try { emit(deps.svc.setDispatchState({ taskId, state: null })); } catch { /* best-effort */ }
   }
 
+  // allow-emdash-block: prompt di ripresa e di sollecito, stessa ragione.
   function buildResume(task: Task, humanMessage: string): string {
     return [
       `Aggiornamento umano sul task \`${task.id}\`:`,
@@ -1515,7 +1981,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // and hands back a mute review. This is the "altro da fare?" → review-without-
       // comment gap. Even "niente di nuovo" is a valid summary.
       `Prosegui il lavoro. Alla consegna, PRIMA di mettere in review scrivi SEMPRE un commento di sintesi di QUESTO turno con comment_task (1-2 frasi: cosa hai fatto ora, dove guardare — oppure "niente di nuovo" col perché). POI update_task(task_id="${task.id}", status="review"). Senza un commento di questo turno il server rifiuta la review.`,
-      `EVIDENZA: metti l'anteprima con update_task(previewImage=<path sotto ~/.topics/media/>). UI statica → screenshot .png; comportamento/UI dinamica (scroll, apri/chiudi, streaming) → un VIDEO .webm/.mp4 (clip Playwright breve, o lo scenario spec-flow se c'è) — uno screenshot statico non prova un comportamento.`,
+      // Stessa costante del kickoff, non un riassunto: il resume è l'unico
+      // messaggio davanti all'agente che riprende, e la versione «corta» che
+      // stava qui aveva già perso per strada il ramo del diagramma.
+      PREVIEW_RULE,
       `Se hai committato codice landabile, offri SOLO options=["${LAND_ACTION_LABEL}"] → il sistema fa il merge LOCALE su main (nessun push). Tu non fare mai git merge/push. La pubblicazione online è separata, la fa l'umano dal controllo "Pubblica" della board: NON proporla. Niente opzione se non c'è codice committato.`,
     ].join("\n");
   }
@@ -1543,16 +2012,67 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     ].join("\n");
   }
 
+  // end-allow-emdash
+
   async function resume(taskId: string, humanMessage: string, opts?: { continuation?: boolean }): Promise<void> {
     const t = deps.svc.get(taskId)?.task;
     // The caller (reviewDecision reject) has already moved it to in_progress and
     // it must still be bound to its topic. Anything else = nothing to resume.
-    if (!t || !t.assignedTopicId || t.status !== "in_progress") return;
+    // E se quel task stava aspettando uno slot, l'attesa muore qui insieme al
+    // resume: una voce che resta nel registro senza timer è peggio del guasto
+    // che il registro cura — quella card non verrebbe recuperata MAI più.
+    if (!t || !t.assignedTopicId || t.status !== "in_progress") { clearSlotWait(taskId, false); return; }
     if (inFlight.has(taskId)) {
       // Turn still live (winding down): buffer, onTurnEnd delivers it.
       pendingResume.set(taskId, [...(pendingResume.get(taskId) ?? []), humanMessage]);
       return;
     }
+    // Il tetto vale anche qui. Il messaggio NON si perde: si riprova quando un
+    // posto si libera, invece di aprire un agente in più — che è come si finisce
+    // con 12 turni vivi su un tetto di 6 solo perché qualcuno ha rifiutato in
+    // fila cinque card.
+    if (inFlight.size >= currentCap()) {
+      // Il chip dice DOV'E': senza, la card resta `in_progress` con nessun turno
+      // vivo — il tempo non scorre e sembra piantata, che è esattamente come si
+      // vede dal di fuori una coda invisibile. `queued` è già lo stato «aspetta
+      // il suo turno», lo stesso dei dispatch.
+      try { emit(deps.svc.setDispatchState({ taskId, state: CHIP_QUEUED })); } catch { /* best-effort */ }
+      if (!waitingForSlot.has(taskId)) {
+        waitingForSlot.add(taskId);
+        try {
+          deps.svc.addComment({
+            taskId, author: "system",
+            content: `In attesa di uno slot: il tetto di concorrenza (${currentCap()}) è pieno. Riprendo appena si libera. Niente è andato perso.`,
+          });
+        } catch { /* best-effort */ }
+      }
+      // Un'attesa sola per task. Un secondo messaggio che arriva mentre la prima
+      // è in corso NON apre un secondo timer (due attese per una card renderebbero
+      // il registro un'approssimazione, e la seconda voce cancellerebbe la prima
+      // scattando): si imbuca dove si imbucano già i messaggi arrivati a turno
+      // vivo, e `onTurnEnd` lo consegna quando il turno dell'attesa ha finito.
+      if (slotWaits.has(taskId)) {
+        if (humanMessage) pendingResume.set(taskId, [...(pendingResume.get(taskId) ?? []), humanMessage]);
+        return;
+      }
+      // Sfalsati, o venti resume in coda si sveglierebbero tutti insieme per
+      // riscoprire insieme che il posto è uno solo.
+      const delay = RESUME_SLOT_RETRY_MS + (resumeStagger++ % 8) * 250;
+      // Il registro dice a `reconcile` che qui c'è ancora qualcuno: la voce vive
+      // esattamente quanto il timer, e sparisce appena scatta (il resume che ne
+      // segue o parte, o ri-registra una nuova attesa). Fra il `delete` e la
+      // ri-registrazione non c'è nessun `await`, quindi il poll non può mai
+      // guardare in mezzo e vedere l'attesa sparita.
+      const timer = setTimeout(() => {
+        slotWaits.delete(taskId);
+        void resume(taskId, humanMessage, opts);
+      }, delay);
+      slotWaits.set(taskId, { timer, message: humanMessage });
+      return;
+    }
+    // C'è posto: questo turno parte e si prende anche l'eredità di un'attesa
+    // ancora pendente su questo task (il suo messaggio, non il suo timer).
+    clearSlotWait(taskId, true);
     const sessionKey = "topic:" + t.assignedTopicId.slice(0, 8);
     const runId = beginRun(taskId, sessionKey);
     try {
@@ -1587,6 +2107,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     const t = deps.svc.get(taskId)?.task;
     if (!t || !t.assignedTopicId || t.status !== "in_progress") return;
     if (inFlight.has(taskId)) return;
+    // Nessun tetto qui, di proposito: il reattach ADOTTA un turno che sta già
+    // girando nel broker. Rifiutarlo non risparmierebbe niente — lo lascerebbe
+    // orfano, a bruciare token senza nessuno che ne raccolga il risultato.
     const sessionKey = "topic:" + t.assignedTopicId.slice(0, 8);
     const runId = beginRun(taskId, sessionKey);
     try {
@@ -1674,6 +2197,51 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       }
     }
     const nowIso = new Date().toISOString();
+    // Budget dei tentativi finito = NON riproverà MAI più, e finché lo si scarta
+    // in silenzio la card resta in colonna «coda» fingendosi lavorabile: nessun
+    // chip, nessuna riga, e il board conta come lavoro ciò che è fermo per
+    // sempre. Misurate 19 card così l'11/08, a interruttore acceso e macchina
+    // libera. Si parcheggiano con la ragione scritta — la coda deve dire il
+    // vero, e un umano decide se rimetterle in coda (la PATCH a `todo` azzera
+    // il contatore) o lasciarle stare.
+    //
+    // Ma «non riproverà mai più» vale solo per chi sarebbe pronto ADESSO. Un
+    // task dentro la sua finestra d'attesa non ha finito niente: sta aspettando
+    // una condizione esterna che l'agente ha dichiarato, e il tentativo lo
+    // consumerà semmai la riclamata dopo. L'11/08 questo controllo, messo prima
+    // del cancello dell'attesa, ha ucciso una card che aspettava 14 minuti di
+    // UAT su CI — il bound sugli aspettatori eterni resta, ma scatta quando la
+    // finestra è passata, non mentre scorre. Stessa ragione per il bloccante:
+    // chi aspetta un altro task non sta fallendo.
+    const pronto = (t: Task) =>
+      !t.assignedTopicId &&
+      (!t.dispatchDeferredUntil || t.dispatchDeferredUntil <= nowIso) &&
+      (() => { try { return !deps.svc.isDispatchBlocked(t.id); } catch { return true; } })();
+    const exhausted = todos.filter((t) => pronto(t) && t.dispatchAttempts >= settings.dispatchRetryCap);
+    let toldExhausted = false;
+    for (const t of exhausted) {
+      if (inFlight.has(t.id) || graceTimers.has(t.id)) continue;
+      try {
+        releaseAndEmit({
+          taskId: t.id,
+          requeue: false,
+          parkState: CHIP_FAILED,
+          // «Guarda cosa lo fa fallire» diceva due cose sbagliate in una riga.
+          // Presumeva un guasto da trovare, e ci finiva dentro anche chi aveva
+          // solo ASPETTATO: fino al rimborso in `deferForWait`, due attese
+          // dichiarate bastavano a esaurire il budget e la card veniva accusata
+          // di un fallimento che non era successo. Ora le attese hanno il loro
+          // contatore e questa riga può dire soltanto ciò che è vero qui: i
+          // turni si sono chiusi senza arrivare in review, e la ragione di
+          // ciascuno è già scritta nel thread.
+          reason:
+            `Budget dei tentativi finito (${t.dispatchAttempts}/${settings.dispatchRetryCap}): i turni si sono chiusi ` +
+            "senza arrivare in review, quindi il task non riparte da solo. Rimettilo in Todo per ridargli i tentativi. " +
+            "Il motivo di ogni tentativo è nel thread, in fondo.",
+        }, { announce: !toldExhausted });
+        toldExhausted = true;
+      } catch { /* il task può essersi mosso */ }
+    }
     todos = todos
       .filter((t) => !t.assignedTopicId && t.dispatchAttempts < settings.dispatchRetryCap)
       // Deferral gate: a task the agent parked with an external-condition wait
@@ -1740,7 +2308,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           deps.svc.addComment({
             taskId: t.id, author: "system",
             content: `Dispatch in attesa: ${describeIntruders(intruders)} e questa board lavora IN-PLACE (isolamento worktree off). ` +
-              "Il task riparte da solo appena il repo torna libero — non devi fare nulla.",
+              "Il task riparte da solo appena il repo torna libero. Non devi fare nulla.",
           });
         } catch { /* task may have moved */ }
       }
@@ -1750,17 +2318,51 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // the episode so a FUTURE hold notes again instead of staying silent.
     for (const t of todos) externallyHeldNoted.delete(t.id);
 
+    // PESO — gli STESSI due predicati che il CAS di `claim` applica, letti qui
+    // una volta per tick. Il claim li fa valere in silenzio (torna `null`), e un
+    // silenzio lascerebbe le card ferme su `queued` senza che nessuno sappia
+    // perché: la regola sta nel claim perché lì è atomica, la spiegazione sta
+    // qui perché qui c'è il thread.
+    const heavyBusy = (() => {
+      try { return deps.svc.hasHeavyInFlight(); }
+      catch (err) { log("lettura dei task pesanti in volo fallita", err); return false; }
+    })();
+    const loadGate = heavyLoadGate();
+    const heldForLoad = (t: Task) => t.dispatchWeight === "heavy" && loadGate?.ok === false;
+    // Chi NON è più trattenuto dal peso dimentica l'episodio, così una prossima
+    // attesa lo dice di nuovo invece di restare muta.
+    if (!heavyBusy) for (const t of todos) { if (!heldForLoad(t)) heavyHeldNoted.delete(t.id); }
+    if (heavyBusy) {
+      // Un pesante in volo blocca OGNI claim, non solo gli altri pesanti: è il
+      // senso stesso del peso — quel task si prende la macchina da solo. Niente
+      // di questa board parte finché non ha finito, e la coda riparte da sé al
+      // reconcile successivo.
+      for (const t of todos) {
+        noteHeavyHold(
+          t,
+          "In coda: c'è un task PESANTE al lavoro e si prende la macchina da solo. " +
+            "Riparto appena ha finito. Non devi fare nulla.",
+        );
+      }
+      return;
+    }
+
     // Effective concurrency cap for this tick: ONE machine-wide budget counted
     // across EVERY board (scope 'global'), so N boards can't multiply into N×cap
     // agents. 'auto' sizes it from live capacity (CPU/load); otherwise the fixed
     // number set in the global settings dropdown. Computed once so every claim in
     // this tick shares the same budget.
-    let gcap = { auto: true, max: 3 };
-    try { gcap = deps.svc.getGlobalCap(); } catch { /* defaults */ }
     const capScope: "board" | "global" = "global";
-    const effectiveCap = gcap.auto && deps.recommendedCap
-      ? Math.max(1, deps.recommendedCap())
-      : Math.max(1, gcap.max);
+    // Una porta sola per entrambe le strade (dispatch e resume): `currentCap()`
+    // legge il tetto globale e lo passa alla stessa funzione che usa la quota di
+    // core dello spawn (`agent-job-quota.ts`).
+    //
+    // Attenzione a riusarlo altrove: questo numero risponde a «quanti agenti
+    // NUOVI ammetto ADESSO», ed è apposta reattivo al carico. La quota di core
+    // chiede un'altra cosa — «quanti stanno compilando accanto a me» — e la
+    // prende dal ROSTER vivo. Usare questo come divisore lo invertiva: macchina
+    // carica → raccomandazione 1 → «sono solo» → fetta intera.
+    const effectiveCap = currentCap();
 
     // Fan-out richiesto dalla board, e cosa ne resta dopo la realtà. Due
     // condizioni non negoziabili, entrambe silenziose sarebbero una trappola:
@@ -1796,11 +2398,25 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // restano almeno N posti liberi.
       const claimCap = effectiveCap - reservedSlots - (taskFanOut - 1);
       if (claimCap < 1) break; // macchina piena: gli altri todo aspettano il prossimo tick
+      // Un pesante a macchina carica aspetta — e TIENE la testa della coda. Se
+      // cedesse il posto ai task leggeri dietro di lui, quelli partirebbero,
+      // alzerebbero il carico, e il momento in cui la macchina è scarica non
+      // arriverebbe mai: la guardia si trasformerebbe in un divieto permanente
+      // proprio per il task che deve girare da solo.
+      if (heldForLoad(t)) {
+        noteHeavyHold(
+          t,
+          `In coda: questo task è PESANTE e la macchina è carica (load ${loadGate!.load1.toFixed(1)} su ${loadGate!.cores} core). ` +
+            "Parte da solo appena si libera. Un task così prende il turno da solo.",
+        );
+        break;
+      }
       const claimed = deps.svc.claim({
         taskId: t.id,
         cap: claimCap,
         maxAttempts: settings.dispatchRetryCap,
         scope: capScope,
+        machineIdle: loadGate?.ok,
       });
       if (!claimed) continue; // cap hit or lost the race
       clearGrace(t.id);
@@ -1813,7 +2429,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           deps.svc.addComment({
             taskId: t.id, author: "system",
             content: `Attenzione: ${describeIntruders(intruders)} mentre parte questo agent. ` +
-              "L'agent lavora in un worktree isolato, ma il landing su main può incrociare quel lavoro — controlla il diff prima di approvare.",
+              "L'agent lavora in un worktree isolato, ma il landing su main può incrociare quel lavoro. Controlla il diff prima di approvare.",
           });
         } catch { /* best-effort note */ }
       }
@@ -1831,7 +2447,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           try {
             deps.svc.addComment({
               taskId: t.id, author: "system",
-              content: `Fan-out ridotto da ${wantFanOut} a ${taskFanOut}: il tetto di concorrenza (${effectiveCap}) non lascia posto per tutti i tentativi.`,
+              content: `Fan-out ${wantFanOut}→${taskFanOut}: tetto di concorrenza ${effectiveCap}.`,
             });
           } catch { /* best-effort */ }
         }
@@ -1843,7 +2459,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         try {
           deps.svc.addComment({
             taskId: t.id, author: "system",
-            content: `Fan-out a ${wantFanOut} ignorato: questa board dispaccia IN-PLACE (isolamento worktree off) e ${wantFanOut} agenti nella stessa cartella si pesterebbero i piedi. Parte un agente solo.`,
+            content: `Fan-out ${wantFanOut} ignorato: board IN-PLACE (worktree off), ${wantFanOut} agenti nella stessa cartella si pesterebbero. Parte un agente solo.`,
           });
         } catch { /* best-effort */ }
       }
@@ -1899,6 +2515,23 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     clearGrace(taskId);
     const t = deps.svc.deferForWait({ taskId, reason, minutes, by: "agent" });
     emit(t);
+    // Il park dell'attesa sfondata è l'UNICO park terminale che non passa da
+    // `releaseAndEmit`: lo decide il service, guardando i tetti della serie, e
+    // il dispatcher lo scopre solo dal chip che si ritrova in mano. Senza
+    // questa riga la card cambiava chip in tempo reale sulla board e nessuno
+    // veniva avvisato — proprio del park che esiste per dire «decidi tu», cioè
+    // quello che l'umano ha più bisogno di sapere senza guardare.
+    //
+    // Il taglio è il chip, non il ritorno: `deferForWait` ritorna un task
+    // parcheggiato SOLO quando ha sfondato un tetto, mentre l'attesa normale
+    // torna in coda con chip `waiting` e non si annuncia (riparte da sola, e
+    // un banner per ogni attesa sarebbe rumore).
+    if (t.dispatchState === PARKED_WAITED_OUT) {
+      const parked = parkedEdgeEvent(t, { requeue: false, parkState: PARKED_WAITED_OUT });
+      if (parked) {
+        try { deps.broadcast(parked); } catch { /* best-effort */ }
+      }
+    }
     return t;
   }
 
@@ -2003,16 +2636,25 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     catch (err) { log("reconcile list failed", err); }
     for (const t of running) {
       if (inFlight.has(t.id)) continue; // we own it, leave it
+      // Un'attesa di slot VIVA (il resume rinviato a tetto pieno) non ha un turno,
+      // quindi non lascia traccia in `inFlight`: da qui è indistinguibile da un
+      // fantasma del riavvio — stessa riga `in_progress`, stesso chip `queued`.
+      // Requeuarla sarebbe il guasto di prima al contrario: il messaggio
+      // dell'umano muore col timer e la card riparte su un topic nuovo. Il
+      // registro è la differenza, e vive in memoria come il timer: se il processo
+      // è ripartito è vuoto, e allora la card è orfana per davvero.
+      if (slotWaits.has(t.id)) continue;
       // Just buried above: its recovery is already scheduled (onTurnEnd). Without
       // this it would ALSO look like a restart orphan and get a second, wrong
       // recovery ("il server è ripartito", which never happened).
       if (justBuried.has(t.id)) continue;
-      // Only touch tasks that were genuinely mid-dispatch (starting/working)
-      // when the process died — including a claim that never got its topic
-      // bound (claim precedes bindTopic, so an early crash leaves the binding
-      // NULL). A human who drags a review/done card (chip null or needs_input)
-      // into In Progress is NOT an orphan — leave it be.
-      if (!ACTIVE_DISPATCH_STATES.has(t.dispatchState ?? "")) continue;
+      // Only touch tasks the DISPATCHER had in hand when the process died:
+      // mid-turn (working), mid-claim (starting — the claim precedes bindTopic,
+      // so an early crash leaves the binding NULL), or waiting for a slot
+      // (queued — an attesa that lived only in memory). A human who drags a
+      // review/done card (chip null or needs_input) into In Progress is NOT an
+      // orphan — leave it be.
+      if (!RECOVERABLE_DISPATCH_STATES.has(t.dispatchState ?? "")) continue;
       // Un FAN-OUT orfano non si "riprende sulla stessa sessione": di sessioni
       // ne aveva N, e `assigned_topic_id` ne punta una sola (il tentativo 1).
       // Riprendere quella abbandonerebbe le altre in silenzio. Si chiude il giro
@@ -2061,7 +2703,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
             try {
               deps.svc.addComment({
                 taskId: t.id, author: "system",
-                content: "Ripreso in diretta dopo un riavvio del server: nessuna interruzione della sessione, nessun tentativo consumato.",
+                content: "Riavvio del server: ripreso in diretta, nessun tentativo consumato.",
               });
             } catch { /* dedupe/best-effort */ }
             void reattachTask(t.id);
@@ -2070,7 +2712,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           try {
             deps.svc.addComment({
               taskId: t.id, author: "system",
-              content: "Il server è ripartito mentre l'agent lavorava: riprendo la stessa sessione da dove era rimasta (nessun tentativo consumato).",
+              content: "Server ripartito a metà turno: riprendo la stessa sessione, nessun tentativo consumato.",
             });
           } catch { /* dedupe/best-effort */ }
           // Sets inFlight synchronously → the 10s poll can never double-fire.
@@ -2088,7 +2730,12 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           taskId: t.id,
           requeue: true,
           rollbackAttempt: true,
-          reason: "Il server è ripartito mentre l'agent lavorava: task rimesso in coda (il riavvio non consuma un tentativo).",
+          // Un fantasma `queued` non stava lavorando: stava aspettando un posto,
+          // e l'attesa è morta col processo. Dirgli "mentre l'agent lavorava"
+          // manderebbe l'umano a cercare un lavoro che non c'è mai stato.
+          reason: t.dispatchState === CHIP_QUEUED
+            ? "Il server è ripartito mentre il task aspettava uno slot libero: l'attesa viveva in memoria, quindi lo rimetto in coda (il riavvio non consuma un tentativo)."
+            : "Il server è ripartito mentre l'agent lavorava: task rimesso in coda (il riavvio non consuma un tentativo).",
         });
         // On a board that never dispatches the requeue's `queued` chip would
         // strand forever (tick no-ops with the switch off) — clear it.
@@ -2099,7 +2746,15 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     const boards = new Set<string>();
     try { for (const t of deps.svc.list({ scope: "all", status: "todo", rootsOnly: true })) boards.add(t.projectId); }
     catch (err) { log("reconcile todo list failed", err); }
-    for (const projectId of boards) {
+    // A TURNO, non sempre nello stesso ordine. Il tetto è globale: la board che
+    // tocca per prima riempie i posti, e chi viene dopo non ne trova mai. Con
+    // l'ordine fisso della lista, l'11/08 una board ha preso 26 claim su 31 in
+    // un'ora mentre un'altra, con tre card in coda, ne prendeva ZERO — non per
+    // priorità, per posizione. Il cursore fa scorrere chi comincia, così ogni
+    // board arriva prima a giro suo e nessuna resta indietro per sempre.
+    const ordinate = rotateFrom([...boards], boardCursor);
+    if (ordinate.length > 1) boardCursor = (boardCursor + 1) % ordinate.length;
+    for (const projectId of ordinate) {
       await tick(projectId).catch((err) => log(`reconcile tick failed for ${projectId}`, err));
     }
   }
@@ -2107,7 +2762,17 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   function shutdown(): void {
     for (const t of graceTimers.values()) clearTimeout(t);
     graceTimers.clear();
+    // Un dispatcher spento non deve svegliarsi fra 5s per riprendere un task su
+    // un DB che non è più il suo — ed è anche il modo in cui i test, che ne
+    // creano uno per caso, non si passano le attese a vicenda.
+    for (const w of slotWaits.values()) clearTimeout(w.timer);
+    slotWaits.clear();
+    waitingForSlot.clear();
     pendingResume.clear();
+    // Senza questa riga un dispatcher spento resterebbe iscritto e continuerebbe
+    // a scrivere chip su un DB che non è più il suo — e i test, che ne creano
+    // uno per caso, si passerebbero gli ascoltatori a vicenda.
+    unsubscribeHumanHold();
   }
 
   /**

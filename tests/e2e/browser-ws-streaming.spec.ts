@@ -443,7 +443,7 @@ test.describe("BROWSER-CHAT-02 WebSocket streaming", () => {
     }
   });
 
-  test("download strip: a headless-page download surfaces as a clickable link [native-grade]", async ({ page, browserProcessPageV2, request }) => {
+  test("menu Download: la voce compare nella toolbar, si apre da sé, si toglie e si svuota [native-grade]", async ({ page, browserProcessPageV2, request }) => {
     await browserProcessPageV2.mockBrowserWs({ framesPerSecond: 15 });
     await browserProcessPageV2.mockWebrtcPeer(); // shared-session <video> surface
     await browserProcessPageV2.mockBrowserContexts([]);
@@ -467,11 +467,28 @@ test.describe("BROWSER-CHAT-02 WebSocket streaming", () => {
         state: "completed",
       });
 
-      const strip = page.locator('[data-testid="browser-download-strip"]');
-      await expect(strip).toBeVisible({ timeout: 5000 });
-      const link = strip.locator('[data-testid="browser-download-item"]');
+      // 1. Il download si annuncia da solo: bottone nella toolbar + menu aperto
+      //    (la vecchia striscia in fondo alla pane non c'è più).
+      const button = page.locator('[data-testid="browser-downloads-button"]');
+      await expect(button).toBeVisible({ timeout: 5000 });
+      await expect(page.locator('[data-testid="browser-download-strip"]')).toHaveCount(0);
+      const menu = page.locator('[data-testid="browser-downloads-menu"]');
+      await expect(menu).toBeVisible({ timeout: 5000 });
+      const link = menu.locator('[data-testid="browser-download-item"]');
       await expect(link).toContainText("report.pdf");
       await expect(link).toHaveAttribute("href", "/media/browser/downloads/report.pdf");
+      await expect(menu.locator('[data-testid="browser-download-entry"]')).toHaveText(/4 KB/);
+
+      // 2. È CHIUDIBILE — il reclamo originale. Esc lo chiude, il bottone lo riapre.
+      await page.keyboard.press("Escape");
+      await expect(menu).toHaveCount(0);
+      await button.click();
+      await expect(menu).toBeVisible();
+
+      // 3. La voce si toglie a mano, e con l'ultima sparisce anche il bottone
+      //    (a riposo la toolbar torna com'era).
+      await menu.locator('[data-testid="browser-download-dismiss"]').first().click();
+      await expect(button).toHaveCount(0);
     } finally {
       await deleteTopic(request, topic.id).catch(() => {});
     }

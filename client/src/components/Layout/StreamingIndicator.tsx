@@ -1,9 +1,9 @@
 /**
  * Streaming indicators — the canonical "working now" affordance for a row/tab,
- * rendered as a 3×3 grid of squares lit by a diagonal wave (see GridLoader),
- * NOT a rotating ring or a row of dots. A spinner reads as "blocking / fetching
- * a resource"; the rippling matrix reads as "alive, computing" — the right
- * metaphor for an LLM turn or a busy pty.
+ * rendered as three columns rising and falling out of phase inside their own
+ * track (see WaveLoader), NOT a rotating ring or a row of dots. A spinner reads
+ * as "blocking / fetching a resource"; the wave reads as "alive, computing" —
+ * the right metaphor for an LLM turn or a busy pty.
  *
  * Every variant renders through ONE wrapper (LoaderSlot), so the loader is
  * pixel-identical across surfaces — a project (parent) tab and its chat /
@@ -14,7 +14,7 @@
  * Variants, matching the StreamingContext shape:
  *   - <TopicStreamingSpinner topicId onStop? />   — single topic; optional
  *     stop affordance (a chat tab/sidebar row passes onStop so the user can
- *     interrupt the LLM stream in place — on hover the grid swaps for a stop
+ *     interrupt the LLM stream in place — on hover the wave swaps for a stop
  *     glyph).
  *   - <ProjectStreamingSpinner projectPath />     — aggregated; surfaces when
  *     ANY child of the project is producing output: a chat mid-stream
@@ -27,7 +27,7 @@
  * Used in: PaneTabBar (chat / project / terminal / browser / agents tabs) and
  * Sidebar/TopicTree (project, terminal, browser rows). Sidebar/TopicItem reads
  * the same useTopicLoading signal but renders its own larger stop-button hit
- * target for the chat row (still the GridLoader glyph). Don't roll your own off
+ * target for the chat row (still the WaveLoader glyph). Don't roll your own off
  * a DIFFERENT signal or a different glyph — every surface must report from the
  * same loading facade and the same component so they can't drift.
  */
@@ -37,74 +37,91 @@ import { useSharedNow } from '../../state/useSharedNow';
 import { deriveWorkLongevity, formatElapsedCompact } from '../../state/workLongevity';
 
 /**
- * The vertical 2-column × 3-row square matrix, drawn with the SAME grammar as
- * SplitMiniMap so the two glyphs read as one family: identical cell radius
- * (1.5px), identical gap (1.5px), and unlit cells painted the exact "deactivated
- * pane" wash of the mini-map (`currentColor 22%`, theme-inverting). Each cell is
- * two layers — a quiet neutral base frame that's always present, plus a lit
- * OVERLAY carrying the primary-blue "sfumatura dentro" (an internal gradient).
- * Exactly one overlay is lit at a time and the lit cell TRAVELS
- * column-by-column, top→bottom — each cell's `animation-delay` is its slot in
- * that path × one slot (the `.animate-grid-lit` keyframe in index.css pops the
- * overlay on, then snaps it off, revealing the neutral base). Reads as cells
- * activating one by one, not a soft collective fade. Opacity-only → no layout
- * reflow when it mounts. The blue stays the loading accent; only the unlit frame
- * went neutral to match the mini-map.
+ * L'ONDA — tre colonne che salgono e scendono sfalsate dentro la loro traccia.
+ *
+ * Sostituisce la matrice 2×3 di quadratini accesi uno alla volta. Il motivo non
+ * è solo che era spenta da guardare («l'icona del loader potremmo farla un po'
+ * più carina e interessante, piuttosto che solo quel coso fermo», Attilio,
+ * 10/08): quella matrice era larga 7,5px in una scatola da 16 e quindi nasceva a
+ * 4,25px dal bordo — un quadrato da 3px su un quarto di pixel si rasterizza
+ * sfocato. Qui il glifo è 10×12 in una scatola da 16: 3px di margine per lato e
+ * 2 sopra/sotto, tutti interi, quindi ogni barra ha bordi netti.
+ *
+ * GEOMETRIA — 3 barre da 2px con 2px di passo: 2+2+2+2+2 = 10.
+ *
+ * DUE STRATI per barra, ed è ciò che tiene la parentela con SplitMiniMap: la
+ * TRACCIA è sempre presente e porta la stessa acqua del "pannello disattivato"
+ * del mini-map (`currentColor 22%`, che si inverte col tema); dentro ci sale la
+ * barra viva col gradiente del primario (la "sfumatura dentro" che avevano le
+ * celle accese). Il silhouette non cambia mai misura, quindi il glifo non
+ * "sparisce" nei momenti bassi dell'onda.
+ *
+ * Si anima solo `transform: scaleY` con origine in basso — nessun riflusso,
+ * nessun lavoro sul main thread. Le altezze e i tempi stanno in `index.css`
+ * (`wave-bar`), incluso il ramo `prefers-reduced-motion`.
  */
-// Grid auto-flows row-major (2 cols), so DOM children are [r0c0, r0c1, r1c0,
-// r1c1, r2c0, r2c1]. We want the lit cell to descend column 0 (r0→r1→r2) then
-// column 1, so each child's slot in that vertical path is:
-//   r0c0→0  r0c1→3  r1c0→1  r1c1→4  r2c0→2  r2c1→5
-const SEQ_ORDER = [0, 3, 1, 4, 2, 5];
-const SLOT_MS = 183; // ≈ 1100ms cycle / 6 cells
+const BAR_W = 2;
+const BAR_H = 12;
+const BAR_GAP = 2;
+const BARS = 3;
+const WAVE_W = BARS * BAR_W + (BARS - 1) * BAR_GAP; // 10
+/** Lo sfalsamento fra una colonna e la successiva. Un terzo scarso del ciclo:
+ *  abbastanza da leggere come un'onda che viaggia, non tanto da sembrare tre
+ *  animazioni scollegate. */
+const STAGGER_MS = 130;
 
-// The "lit" tile's internal gradient (sfumatura dentro): a light-blue sheen at
-// the top-left easing into the primary and a touch deeper at the bottom-right,
-// so a lit cell reads as a glossy tile rather than a flat fill.
-const LIT_GRADIENT =
-  'linear-gradient(150deg, color-mix(in srgb, var(--primary) 72%, #fff) 0%, var(--primary) 58%, color-mix(in srgb, var(--primary) 82%, #000) 100%)';
-// The unlit frame: the exact wash a deactivated SplitMiniMap pane uses, so the
-// two glyphs share their quiet colour and invert together with the theme.
-const UNLIT_WASH = 'color-mix(in srgb, currentColor 22%, transparent)';
+// La barra viva: gradiente verticale sul primario — più chiara in cima, più
+// profonda in fondo — così una colonna legge come un volume illuminato invece
+// che come un rettangolo pieno.
+const BAR_GRADIENT =
+  'linear-gradient(180deg, color-mix(in srgb, var(--primary) 68%, #fff) 0%, var(--primary) 52%, color-mix(in srgb, var(--primary) 84%, #000) 100%)';
+// La traccia: la stessa acqua di un pannello disattivato dello SplitMiniMap, per
+// non far divergere i due glifi.
+const TRACK_WASH = 'color-mix(in srgb, currentColor 22%, transparent)';
 
-// L'onda ferma: stesse celle, tutte accese, in ambra e senza animazione. È il
-// glifo dell'ATTESA — un turno sospeso su una domanda è aperto ma non macina, e
-// l'onda che scorre gli darebbe un lavoro che non sta facendo. L'ambra è la
-// stessa tinta del tier 'input' (TIER_INPUT_BG in selectionStyles): dove il
-// fill dice "tocca a te", il glifo dice la stessa cosa.
+// L'ATTESA: stesse barre, ferme a mezz'altezza e in ambra. Un turno sospeso su
+// una domanda è aperto ma non macina, e l'onda che scorre gli darebbe un lavoro
+// che non sta facendo. L'ambra è la stessa tinta del tier 'input' (TIER_INPUT_BG
+// in selectionStyles): dove il fill dice "tocca a te", il glifo dice lo stesso.
+// Non è però un fermo-immagine: respira piano (`animate-wave-breath`), perché
+// «in attesa» non è «spento».
 const STILL_FILL = 'color-mix(in srgb, var(--color-amber-500, #f59e0b) 88%, transparent)';
+/** Altezze di riposo delle tre colonne quando l'onda è ferma: una forma, non una
+ *  riga piatta. */
+const STILL_SCALE = [0.5, 1, 0.68];
 
-export function GridLoader({ className = '', still = false }: { className?: string; still?: boolean }) {
+export function WaveLoader({ className = '', still = false }: { className?: string; still?: boolean }) {
   return (
     <span
-      className={`inline-grid ${className}`}
-      style={{ gridTemplateColumns: 'repeat(2, 3px)', gap: 1.5, width: 7.5, height: 12 }}
+      className={`inline-flex items-end ${className}`}
+      style={{ gap: BAR_GAP, width: WAVE_W, height: BAR_H }}
       aria-hidden="true"
     >
-      {SEQ_ORDER.map((slot, i) => (
+      {Array.from({ length: BARS }, (_, i) => (
         <span
           key={i}
           style={{
             position: 'relative',
-            width: 3,
-            height: 3,
-            borderRadius: 1.5,
-            overflow: 'hidden',
-            background: still ? STILL_FILL : UNLIT_WASH,
+            width: BAR_W,
+            height: BAR_H,
+            borderRadius: BAR_W / 2,
+            background: TRACK_WASH,
           }}
         >
-          {!still && (
-            <span
-              className="animate-grid-lit"
-              style={{
-                position: 'absolute',
-                inset: 0,
-                borderRadius: 'inherit',
-                background: LIT_GRADIENT,
-                animationDelay: `${slot * SLOT_MS}ms`,
-              }}
-            />
-          )}
+          <span
+            className={still ? 'animate-wave-breath' : 'animate-wave-bar'}
+            data-slot={i}
+            style={{
+              position: 'absolute',
+              inset: 0,
+              borderRadius: 'inherit',
+              background: still ? STILL_FILL : BAR_GRADIENT,
+              transformOrigin: '50% 100%',
+              ...(still
+                ? { transform: `scaleY(${STILL_SCALE[i]})`, animationDelay: `${i * 260}ms` }
+                : { animationDelay: `${i * STAGGER_MS}ms` }),
+            }}
+          />
         </span>
       ))}
     </span>
@@ -122,7 +139,7 @@ function StopGlyph({ size = 7, className = '' }: { size?: number; className?: st
 }
 
 interface LoaderSlotProps {
-  /** When provided, the slot becomes a stop button — hover swaps the grid for a
+  /** When provided, the slot becomes a stop button — hover swaps the wave for a
    *  stop glyph and a click interrupts. Omit for read-only loaders. */
   onStop?: () => void;
   title?: string;
@@ -150,13 +167,36 @@ function LoaderSlot({ onStop, title, className = '', size = 16, waiting = false 
     return (
       <button
         onClick={(e) => { e.stopPropagation(); onStop(); }}
-        className={`group/stop flex-shrink-0 inline-flex items-center justify-center rounded hover:bg-black/10 dark:hover:bg-white/10 transition-colors cursor-pointer ${className}`}
+        // `relative z-30` — IL PIANO CHE IL CONTRATTO DICHIARAVA E NESSUNO AVEVA
+        // SCRITTO. `PaneTabBar` lo mette per esteso sul binario dei comandi: «lo
+        // spinner resta FUORI (SOPRA): fermare un turno e chiudere la tab sono
+        // due azioni diverse nello stesso istante». "Sopra" è una quota, e qui
+        // non c'era: `.row-actions` è `position:absolute; right:8px; z-index:20`
+        // e questo bottone stava nel flusso senza z-index, quindi quando la coda
+        // dei segnali è vuota — cioè proprio MENTRE un turno streama — il
+        // cerchio di chiusura gli finiva sopra. Misurato da Playwright, che
+        // rifiuta il clic dicendo «<span class="row-actions …"> subtree
+        // intercepts pointer events»: passi il mouse sulla tab per fermare il
+        // turno e sotto il dito trovi «chiudi».
+        //
+        // Perché il PIANO e non la geometria. Riservare in flusso la larghezza
+        // del binario sposterebbe il layout a ogni inizio e fine turno, e questo
+        // repo ha già la regola opposta («mai layout su stato asincrono»); farlo
+        // sempre costerebbe ~28px di etichetta a ogni tab, che è il conto che il
+        // commento di PaneTabBar aveva già rifiutato. Alzare la quota non muove
+        // un pixel: cambia solo CHI vince i pixel contesi, e li vince l'azione
+        // che esiste solo per pochi secondi ed è quella che stai cercando.
+        //
+        // Solo il ramo con `onStop`. L'altro è un glifo di sola lettura, cioè
+        // uno dei «segnali che il comando può coprire»: quello resta sotto,
+        // com'è giusto.
+        className={`group/stop relative z-30 flex-shrink-0 inline-flex items-center justify-center rounded hover:bg-black/10 dark:hover:bg-white/10 transition-colors cursor-pointer ${className}`}
         style={box}
         title={tip}
         aria-label={tip}
         data-loader-state={state}
       >
-        <GridLoader className="group-hover/stop:hidden" still={waiting} />
+        <WaveLoader className="group-hover/stop:hidden" still={waiting} />
         <StopGlyph className="hidden group-hover/stop:block" />
       </button>
     );
@@ -169,7 +209,7 @@ function LoaderSlot({ onStop, title, className = '', size = 16, waiting = false 
       aria-label={tip}
       data-loader-state={state}
     >
-      <GridLoader still={waiting} />
+      <WaveLoader still={waiting} />
     </span>
   );
 }
@@ -294,7 +334,7 @@ function LabeledLoader({
   const tip = waiting
     ? `Ferma da ${formatElapsedCompact(elapsedMs)} in attesa di una tua risposta.${stopHint}`
     : isStale
-      ? `Nessun aggiornamento da ${formatElapsedCompact(elapsedMs)} — potrebbe essere ferma o in attesa di un processo in background.${stopHint}`
+      ? `Nessun aggiornamento da ${formatElapsedCompact(elapsedMs)}. Potrebbe essere ferma, o in attesa di un processo in background.${stopHint}`
       : showElapsed
         ? `Ultimo aggiornamento ${formatElapsedCompact(elapsedMs)} fa`
         : baseTip;

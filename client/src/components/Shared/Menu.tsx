@@ -3,8 +3,13 @@ import { createPortal } from 'react-dom';
 import { useMobile } from '../../hooks/useMobile';
 import { useDismissable } from '../../hooks/useDismissable';
 import { useMenuKeyboard } from '../../hooks/useMenuKeyboard';
-import { computeMenuPosition } from '@/lib/popoverPosition';
-import { POPOVER_SURFACE, POPOVER_SHEET, Z_POPOVER, Z_POPOVER_SCRIM } from '@/lib/popoverStyles';
+// Import RELATIVI e non `@/lib/...`: l'alias lo risolve Vite, `bun test` no. Da
+// quando `Shared/Select` (che passa di qui) è usato dalle Impostazioni e dai
+// modali, questo file entra nel grafo che i test unitari importano davvero —
+// e con l'alias due suite morivano su «Cannot find module» prima di eseguire
+// una riga.
+import { computeMenuPosition } from '../../lib/popoverPosition';
+import { POPOVER_SURFACE, POPOVER_SHEET, Z_POPOVER, Z_POPOVER_SCRIM } from '../../lib/popoverStyles';
 
 /**
  * Menu — the ONE anchored-popover primitive. Every custom menu / dropdown in the

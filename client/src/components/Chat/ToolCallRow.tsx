@@ -1,5 +1,5 @@
 import { createElement, memo, useEffect, useRef, useState } from 'react';
-import { ChevronDown, ChevronRight, HelpCircle, Loader2, X } from 'lucide-react';
+import { ChevronDown, ChevronRight, HelpCircle, Loader2, ShieldOff, X } from 'lucide-react';
 import type { ToolCall, ToolUserResponse } from '../../types';
 import { resolveToolDetail, buildToolDisplayLabel } from './toolDetail';
 import { ToolCardBody } from './ToolCards';
@@ -195,7 +195,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
   const costFromTokens = typeof toolCall.tokens === 'number' ? formatTokensCompact(toolCall.tokens) : '';
   const costLabel = costFromCents || (costFromTokens ? `${costFromTokens} tok` : '');
   const costTitle = costFromCents
-    ? `Costo di questa azione${costFromTokens ? ` · ${costFromTokens} token` : ''} — la chiamata che l'ha decisa`
+    ? `Costo di questa azione${costFromTokens ? ` · ${costFromTokens} token` : ''} · la chiamata che l'ha decisa`
     : costFromTokens
       ? `${costFromTokens} token attribuiti a questa azione`
       : undefined;
@@ -326,6 +326,25 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
         </span>
         </>,
       )}
+      {/* LA RIGA CHE RESTA NEL THREAD quando qualcuno ha tolto la barriera.
+          Fuori dal riquadro apribile, di proposito: l'esito di un permesso lo
+          si va a RILEGGERE (e sta bene dentro, dove il pannello era), ma un
+          cambio di regime della sessione deve essere leggibile da chi scorre la
+          chat senza aprire niente. È l'unico esito dei quattro che sopravvive
+          alla riga su cui è stato deciso. */}
+      {toolCall.permissionOutcome?.decision === 'allow_free' && (
+        <div
+          data-testid={`session-freed-${toolCall.id}`}
+          className="ml-5 mb-1 flex items-start gap-1.5 rounded-md border border-amber-500/25 bg-amber-500/5 px-2 py-1 text-[11px] leading-snug text-amber-600 dark:text-amber-400"
+        >
+          <ShieldOff size={11} className="mt-[3px] flex-shrink-0" />
+          <span>
+            Questa chat è passata in <strong>modalità libera</strong>
+            {toolCall.permissionOutcome.actor ? ` · da ${toolCall.permissionOutcome.actor}` : ''}: da qui in poi
+            esegue senza chiedere. Si torna indietro dal selettore di autonomia, accanto al campo di testo.
+          </span>
+        </div>
+      )}
       {effectiveOpen && (
         <div className="ml-5 pb-1.5">
           {/* Pending input form takes precedence: when the agent is asking
@@ -343,7 +362,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
               che si va a rileggere sei mesi dopo. */}
           {toolCall.permissionRequest && (isAwaitingPermission || toolCall.permissionOutcome) && sessionKey ? (
             <>
-            <ToolCardBody detail={detail} isError={isError} isRunning={false} />
+            <ToolCardBody detail={detail} isError={isError} isRunning={false} sessionKey={sessionKey} />
             <ToolPermissionRow
               request={toolCall.permissionRequest}
               outcome={toolCall.permissionOutcome}
@@ -353,7 +372,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
             </>
           ) : isWaiting && toolCall.userInputSchema && sessionKey ? (
             <>
-            {!askIsTheWholeCall && <ToolCardBody detail={detail} isError={isError} isRunning={false} />}
+            {!askIsTheWholeCall && <ToolCardBody detail={detail} isError={isError} isRunning={false} sessionKey={sessionKey} />}
             <ToolInputForm
               schema={toolCall.userInputSchema}
               toolCallId={toolCall.id}
@@ -376,7 +395,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
               The agent is asking for input but this view has no session context. Reload to answer.
             </div>
           ) : (
-            <ToolCardBody detail={detail} isError={isError} isRunning={isRunning} />
+            <ToolCardBody detail={detail} isError={isError} isRunning={isRunning} sessionKey={sessionKey} />
           )}
           {toolCall.userResponse && status !== 'waiting_for_input' && (
             <div className="mt-1.5 text-[11px] text-app-text-muted">

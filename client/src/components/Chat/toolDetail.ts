@@ -289,6 +289,25 @@ export function resolveToolDetail(tc: ToolCall): ToolCallDetail {
 }
 
 /**
+ * Il piano in UNA riga, per la testata della riga chiusa.
+ *
+ * Il testo grezzo ci finiva com'era scritto — `# Piano 1. **Primo passo** — …`:
+ * a card chiusa la punteggiatura del markdown non struttura niente, è solo
+ * rumore che consuma gli 80 caratteri che si leggono davvero. Qui si toglie la
+ * sintassi e si tiene il testo, che è l'unica cosa che quella riga può dire.
+ */
+function planSummary(text: string): string {
+  return text
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/^\s{0,3}#{1,6}\s+/gm, '')
+    .replace(/^\s*[-*+]\s+/gm, '')
+    .replace(/\*\*|__|[*_`]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 80);
+}
+
+/**
  * One-line human summary of a tool's arguments for the collapsed row header:
  * scalar values joined as `key: value`, long strings truncated, objects and
  * arrays skipped. Keeps MCP/unknown rows self-explanatory without expanding.
@@ -336,7 +355,7 @@ export function buildToolDisplayLabel(detail: ToolCallDetail, rawName?: string):
         summary: detail.description,
       };
     case 'plan':
-      return { name: 'Plan', summary: detail.text.slice(0, 80) };
+      return { name: 'Plan', summary: planSummary(detail.text) };
     case 'mcp':
       return { name: `${detail.server} · ${detail.tool}`, summary: summarizeArgs(detail.args) };
     case 'monitor':

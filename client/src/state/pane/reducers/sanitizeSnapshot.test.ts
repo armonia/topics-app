@@ -498,11 +498,11 @@ describe("sanitizeSnapshot — una identità per pane", () => {
 
   test("OSSERVATO: 2 pane valide restano 2 (niente terza tab dal nulla)", () => {
     const board = "__board__";
-    const project = "project:%2FUsers%2Fzorahrel%2FProjects%2Ftopics-app";
+    const project = "project:%2FUsers%2Futente%2FProjects%2Ftopics-app";
     const clean = sanitizeSnapshot({
       panes: {
         [board]: { id: board, type: "board" },
-        [project]: { id: project, type: "project", projectPath: "/Users/zorahrel/Projects/topics-app" },
+        [project]: { id: project, type: "project", projectPath: "/Users/utente/Projects/topics-app" },
       },
       groups: {
         "group:default": {

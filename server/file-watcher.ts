@@ -105,8 +105,3 @@ export function unwatchProjectFiles(projectPath: string): void {
     watchers.delete(projectPath);
   }
 }
-
-/** Solo per i test e per la diagnostica. */
-export function watchedProjectCount(): number {
-  return watchers.size;
-}

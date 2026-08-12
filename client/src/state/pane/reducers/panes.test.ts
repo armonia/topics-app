@@ -2,16 +2,7 @@ import { describe, test, expect } from "bun:test";
 import { paneReducer } from "./panes";
 import type { PaneState, ClosedPaneRecord } from "../types";
 import { CLOSED_STACK_MAX } from "../types";
-
-const blankState = (): PaneState => ({
-  panes: {},
-  groups: {},
-  closedStack: [],
-  focusedPaneId: null,
-  groupOrder: [],
-  lastSeq: 0,
-  lastServerSeq: 0,
-});
+import { blankPaneState as blankState } from "../testSupport";
 
 describe("paneReducer (PANE-01, PANE-03, PANE-04)", () => {
   test("OPEN_PANE adds a pane entity keyed by id", () => {
@@ -649,8 +640,15 @@ describe("paneReducer — audit fixes (empty-group cleanup, ratio clamp, reorder
       type: "OPEN_PANE",
       payload: { id: "p1", type: "chat", title: "A", groupId: "g1" },
     });
-    state.groups["g1"].splitAxis = "horizontal";
-    state.groups["g1"].splitRatio = 0.5;
+    // Il gruppo si prepara attraverso il suo riferimento, non scrivendo su
+    // `state.groups["g1"]`: quella scrittura RESTRINGE il tipo di
+    // `splitAxis` a `"horizontal"` per il resto della funzione (il
+    // narrowing di TypeScript non sa che `paneReducer` muta lo stato), e la
+    // riga `toBe("vertical")` qui sotto diventava un confronto che il
+    // compilatore considera impossibile.
+    const g1 = state.groups["g1"];
+    g1.splitAxis = "horizontal";
+    g1.splitRatio = 0.5;
 
     paneReducer(state, { type: "SPLIT", payload: { groupId: "g1", axis: "vertical", ratio: 0.3 } });
     expect(state.groups["g1"].splitAxis).toBe("vertical");

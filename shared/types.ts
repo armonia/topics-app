@@ -46,6 +46,122 @@
 export const OUTPUT_LANGUAGES = ['auto', 'it', 'en'] as const;
 export type OutputLanguage = (typeof OUTPUT_LANGUAGES)[number];
 
+// ─── Discord Rich Presence: QUANTO si vede ─────────────────────────────
+
+/**
+ * Quanto della tua giornata finisce sul profilo Discord (migration 102).
+ *
+ * È un controllo di PRIVACY, non un gusto: la presence la vede chiunque
+ * condivida un server con te, quindi ogni gradino va letto come «cosa sto
+ * dicendo a degli sconosciuti».
+ *
+ *   • `minimal`  — che Topics è aperto. Nessun numero, nessun nome.
+ *   • `activity` — i CONTEGGI: quante sessioni hai aperte, quante stanno
+ *                  lavorando adesso. Numeri, che non nominano nessun cliente.
+ *   • `detailed` — anche il NOME del progetto in cima. È l'unico gradino che
+ *                  può far uscire di qui una parola che non hai scelto per
+ *                  quel pubblico, quindi non è il default e non lo diventa.
+ *
+ * Il default vive nel codice ed è `activity`, ma vale solo a interruttore
+ * ACCESO: la presence parte spenta (vedi 102), perché pubblicare cosa stai
+ * facendo non è una cosa che si accende per conto di qualcuno.
+ *
+ * Come per le lingue, il tipo DERIVA dall'array: chi valida (la rotta), chi
+ * costruisce l'attività e chi disegna il selettore leggono lo stesso insieme.
+ */
+export const DISCORD_DETAIL_LEVELS = ['minimal', 'activity', 'detailed'] as const;
+export type DiscordDetailLevel = (typeof DISCORD_DETAIL_LEVELS)[number];
+
+/**
+ * L'attività come Discord la vuole in `SET_ACTIVITY.args.activity`.
+ *
+ * Sta qui e non nel servizio perché la card in Impostazioni ne disegna
+ * l'ANTEPRIMA: server e client leggono la stessa forma, e il giorno in cui si
+ * aggiunge un campo lo vedono tutti e due. Un tipo ricopiato di là sarebbe
+ * l'ennesimo «KEEP IN SYNC» che non ha mai tenuto in sync niente.
+ */
+export interface DiscordActivity {
+  details: string;
+  state?: string;
+  timestamps?: { start: number };
+  assets?: { large_image: string; large_text: string };
+}
+
+/**
+ * Com'è messo il filo con Discord.
+ *
+ * `no_discord` ed `error` sono separati di proposito: hanno lo stesso aspetto
+ * (niente presence) e due rimedi opposti — il primo si apre, il secondo si
+ * configura — e un'interfaccia che li fonde in «non funziona» manda a
+ * indovinare.
+ *
+ * Il nome è `DiscordConnectionState` e non `ConnectionState` di proposito: il
+ * client ha già un `ConnectionState` suo — quello del browser remoto — che è
+ * un'altra cosa. Due concetti diversi non devono contendersi un nome generico.
+ * Chi ne ha bisogno lo importa DA QUI: i moduli che lo usano non lo
+ * ri-esportano, o la stessa forma avrebbe due porte e knip conterebbe la
+ * seconda come morta (è già successo, ed è ciò che ha rimandato questa card).
+ */
+export type DiscordConnectionState =
+  | 'off'
+  | 'connecting'
+  | 'connected'
+  | 'no_discord'
+  | 'error';
+
+export interface DiscordPresenceStatus {
+  enabled: boolean;
+  level: DiscordDetailLevel;
+  connection: DiscordConnectionState;
+  /** Chi sei per Discord, quando il filo è aperto: l'unica conferma che la
+   *  presence stia finendo sul profilo giusto se sulla macchina ci sono due
+   *  account. */
+  user: { id?: string; username?: string; global_name?: string } | null;
+  lastError: string | null;
+  lastPublishedAt: number | null;
+  /** Ciò che gli altri vedono ADESSO — la struttura scritta sul filo, non una
+   *  sua descrizione. `null` = presence pulita. */
+  activity: DiscordActivity | null;
+}
+
+// ─── Le statistiche del profilo ────────────────────────────────────────────
+
+/**
+ * Quanto lavoro è passato di qui, misurato su tabelle che qualcuno SCRIVE
+ * (`messages`/`tasks`/`topics`/`projects`) — non su `usage_records` e
+ * `agent_sessions`, che non hanno un solo INSERT in tutto il server e
+ * darebbero zeri per sempre. La storia sta in cima a
+ * `server/services/profile-stats.ts`.
+ *
+ * Attraversa il filo intera (`GET /api/profile/stats`), quindi vive qui: il
+ * pannello del profilo e il banner SVG la leggono dalla stessa dichiarazione.
+ */
+export interface ProfileStats {
+  sessions: { total: number; open: number };
+  messages: { total: number; assistant: number };
+  /** Token, cache inclusa. `chat` = i messaggi, `agents` = il lavoro della
+   *  board: due fonti diverse, e sommarle è il punto. */
+  tokens: { total: number; chat: number; agents: number };
+  /** Il costo MISURATO, e quante righe sono state escluse perché il loro costo
+   *  non è attendibile. Le due cose si mostrano insieme: un totale che
+   *  inghiotte in silenzio le righe dubbie è una bugia. */
+  cost: { measuredUsd: number; uncertainRows: number };
+  tasks: { total: number; done: number; inProgress: number };
+  projects: number;
+  /** Ore di esecuzione degli agenti sulla board (`tasks.agent_ms`). */
+  agentHours: number;
+  activity: {
+    firstSeen: string | null;
+    activeDays: number;
+    /** Giorni consecutivi fino a oggi; si interrompe solo dopo aver saltato un
+     *  giorno INTERO, così la mattina presto non azzera la serie di ieri. */
+    streakDays: number;
+    /** Gli ultimi 30 giorni, zeri compresi: una curva che salta i giorni vuoti
+     *  comprime il tempo e disegna una costanza che non c'è. */
+    last30: Array<{ date: string; tokens: number }>;
+  };
+}
+
 // ─── ToolCall status (chat message → tool call lifecycle) ──────────────
 
 /**
@@ -106,11 +222,21 @@ export function isAwaitingHuman(status: ToolCallStatus | undefined | null): bool
  * `{ "Permesso richiesto — <tool>": "Consenti sempre" }`, riconosciuta per
  * prefisso di stringa. Funziona finché nessuno tocca un'etichetta.
  *
- * Una domanda ha risposte aperte e le legge un modello. Un permesso ha TRE
- * esiti esatti, li legge il server, e uno dei tre scrive una regola permanente.
- * Sono due cose diverse e ora hanno due stati diversi.
+ * Una domanda ha risposte aperte e le legge un modello. Un permesso ha esiti
+ * ESATTI, li legge il server, e alcuni di loro cambiano il regime di ciò che
+ * verrà dopo. Sono due cose diverse e ora hanno due stati diversi.
+ *
+ * ── Le quattro, e perché non sono tre ───────────────────────────────────────
+ * `allow`/`allow_always`/`deny` sono le tre che la CLI capisce. `allow_free` è
+ * una decisione dell'INTERFACCIA: consente QUESTA richiesta — verso la CLI
+ * viaggia come `allow`, vedi `cliDecisionFor` in `shared/permission-decision.ts`
+ * — e nello stesso gesto porta la sessione in modalità libera, cioè smette di
+ * chiedere. È qui, nell'enum, e non come flag accanto a `allow`, per la stessa
+ * ragione per cui l'enum esiste: la decisione presa si RILEGGE dalla riga di
+ * tool, e «consentito» e «consentito, e da qui in poi non chiedo più» non sono
+ * la stessa cosa da rileggere sei mesi dopo.
  */
-export type PermissionDecision = 'allow' | 'allow_always' | 'deny';
+export type PermissionDecision = 'allow' | 'allow_always' | 'deny' | 'allow_free';
 
 /** Cosa la CLI sta chiedendo di poter fare. Tipato: niente chiavi in prosa. */
 export interface ToolPermissionRequest {
@@ -126,6 +252,15 @@ export interface ToolPermissionRequest {
 export interface ToolPermissionOutcome {
   decision: PermissionDecision;
   decidedAt: string;
+  /**
+   * CHI ha deciso, in una parola leggibile (`etichettaAutore`).
+   *
+   * Scritto solo dove serve saperlo: `allow_free` cambia il regime della
+   * sessione, e un cambio di regime senza un nome accanto è un cambio di regime
+   * di cui nessuno risponde. Sulle altre tre resta assente — un «Consenti» è la
+   * risposta di chi ha la chat aperta, e non c'è niente da attribuire.
+   */
+  actor?: string;
 }
 
 // ─── User-input request / response envelopes ───────────────────────────
@@ -386,6 +521,49 @@ export interface AcpUsageUpdate {
    *  aggiornamento parte a ogni chiamata. Sta nel tipo perché è lì che va
    *  quando lo avremo, non in un campo inventato altrove. */
   cost?: UsageCost;
+}
+
+// ─── La sonda del costo: contesto × chiamate ───────────────────────────
+
+/**
+ * Il consuntivo di un turno, col suo moltiplicatore. Vedi
+ * `server/usage/cost-probe.ts` per il perché di ogni campo.
+ */
+export interface TurnCostProbe {
+  /** Chiamate a tool del turno: quante volte il contesto è ripartito. */
+  toolCalls: number;
+  /** Contesto all'ultima chiamata misurata del turno. */
+  contextTokens: number;
+  /** `contextTokens × toolCalls`: il costo del turno a contesto costante. */
+  projectedTokens: number;
+  /** Quello che è stato spedito davvero. */
+  promptTokens: number;
+  completionTokens: number;
+  costUsd: number;
+}
+
+/**
+ * La risposta di `GET /api/context/cost`: i due fattori e il loro prodotto.
+ *
+ * `projectedTokens` è una PREVISIONE (contesto di adesso × chiamate),
+ * `promptTokens` un CONSUNTIVO (quanto è partito davvero). Il primo è più
+ * grande del secondo perché il contesto cresceva: vanno letti insieme, o uno
+ * dei due diventa una bugia.
+ */
+export interface SessionCostProbe {
+  /** Il contesto di ADESSO: quanto rilegge la PROSSIMA chiamata a un tool. */
+  contextTokens: number;
+  windowTokens: number;
+  /** Costo in dollari di una sola chiamata in più, a questo contesto. */
+  perCallUsd: number;
+  toolCalls: number;
+  projectedTokens: number;
+  promptTokens: number;
+  completionTokens: number;
+  costUsd: number;
+  messages: number;
+  model: string | null;
+  lastTurn: TurnCostProbe | null;
 }
 
 /** Forma del broadcast WS `providers:snapshot`. */
@@ -673,6 +851,12 @@ export interface Project {
   color?: string | null;
   icon?: string | null;
   archived: boolean;
+  /** L'organizzazione che lo vede (migration 092). NULL = solo chi possiede questa macchina. */
+  orgId?: string | null;
+  /** Chi l'ha messo qui. Serve al solo caso `incognito`, non è un permesso. */
+  ownerPersonId?: string | null;
+  /** Marcato incognito: fuori dall'elenco dei compagni d'organizzazione. */
+  incognito?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -746,32 +930,13 @@ export interface Checkpoint {
   gitBranch?: string;
 }
 
-/** Una nota della memoria di board (`/api/boards/:projectId/memory`). */
-export interface BoardMemory {
-  id: string;
-  projectId: string;
-  content: string;
-  tags: string[];
-  isChat: boolean;
-  source: string | null;
-  agentId: string | null;
-  createdAt: string;
-}
-
-/**
- * Una riga del log azioni di un agente. `detail` è `unknown`, non `any`: la
- * copia del server diceva `any`, quindi lato server il payload di ogni azione
- * era scrivibile e leggibile senza controlli. Chi lo consuma restringe.
- */
-export interface AgentActionLog {
-  id: string;
-  agentId: string;
-  actionType: string;
-  entityType: string | null;
-  entityId: string | null;
-  detail: unknown;
-  createdAt: string;
-}
+// `BoardMemory` e `AgentActionLog` stavano qui: le forme client di
+// `/api/boards/:projectId/memory`. Quella rotta non esiste — non c'è un
+// handler, non c'è un lettore, e le tabelle `board_memory`/`agent_action_log`
+// (migration 002) non hanno scrittori. I due tipi arrivavano fino al client solo
+// attraverso un re-export in `client/src/lib/api.ts` che nessuno importava, e il
+// cancello sul codice morto non poteva dirlo perché su quel file era cieco. Le
+// tabelle restano dov'erano: cancellare SQL è un'altra decisione.
 
 // ────────────────────────────────────────────────────────────────────────────
 // Provider / context envelope
@@ -889,6 +1054,15 @@ export interface ClaudeSessionState {
   jsonlPath?: string;
   /** Offset già consumato del transcript. Come sopra: server-side, ma copiato sul filo. */
   jsonlOffset: number;
+  /**
+   * Byte watermark del MESSAGE importer per una sessione ADOTTATA — quanti byte
+   * del transcript sono già stati riflessi nelle righe `messages` del topic.
+   * Distinto da `jsonlOffset` (che è del tracker delle fasi): due lettori dello
+   * stesso file avanzano a ritmi diversi. `null`/assente = la sessione NON va
+   * importata dal JSONL (ogni sessione nativa, i cui messaggi arrivano dallo
+   * stream). Lo imposta solo `adopt-claude`. Server-side; sul filo per il debug.
+   */
+  importOffset?: number | null;
   pendingApproval?: ClaudeSessionPendingApproval;
   lastTool?: ClaudeSessionActiveTool;
   lastHookAt?: number;

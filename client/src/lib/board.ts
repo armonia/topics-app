@@ -11,15 +11,29 @@
 // Il contratto della board sta in `shared/board.ts`, dichiarato UNA volta e
 // letto dai due lati del filo: `export … from` ri-esporta ma non porta i nomi
 // in scope locale, e qui sotto servono, quindi l'import gemello non è ridondante.
-export { MAX_FANOUT, TASK_STATUSES, ACTIVE_DISPATCH_STATES, isAgentWorking } from '../../../shared/board';
+export { MAX_FANOUT, TASK_STATUSES, ACTIVE_DISPATCH_STATES, PARKED_STOPPED, PARKED_WAITED_OUT, isAgentWorking, parseStatusEvent, hasPlanApproveOption, parseQuestionBlock } from '../../../shared/board';
 export type {
-  TaskStatus, TaskComment, ReviewCheck, CheckRun, BoardSettings, BoardSettingsPatch, DispatchCapacity,
+  TaskStatus, TaskComment, ReviewCheck, CheckRun, BoardSettings, BoardSettingsPatch, DispatchCapacity, BlockerRef,
+  LandingTicket,
+  SubtaskWork, QueueReason, QueueTone,
 } from '../../../shared/board';
+// Le etichette: stessa cartella condivisa, stesso vocabolario chiuso. Il client
+// non ne tiene una copia — un'etichetta in più qui e non lì è un filtro che non
+// filtra niente, sullo stesso modello di `BoardSettings`.
+export { CLOSER_LABELS, KIND_LABELS, whoCloses } from '../../../shared/task-labels';
+export type { TaskLabel, TaskLabelRow } from '../../../shared/task-labels';
+import type { TaskLabel, TaskLabelRow } from '../../../shared/task-labels';
 import type {
-  TaskStatus, TaskComment, CheckRun, BoardSettings, BoardSettingsPatch, DispatchCapacity,
+  TaskStatus, TaskComment, CheckRun, BoardSettings, BoardSettingsPatch, DispatchCapacity, BlockerRef, LandingTicket, SubtaskWork,
+  QueueReason,
 } from '../../../shared/board';
 // Il tentativo di un fan-out: stesso contratto del server, stessa cartella condivisa.
-export { attemptHasWork, formatAttemptStat } from '../../../shared/task-attempt';
+// Passa solo `attemptHasWork`, che è un predicato e non ha lingua. Il diffstat
+// (`formatAttemptStat`) NON passa più di qui: la UI lo vuole tradotto, e la sua
+// versione con dizionario vive in `components/Board/format.ts` (`attemptStat`).
+// Quella in `shared/` resta al server, che con essa scrive il confronto nel
+// thread del task.
+export { attemptHasWork } from '../../../shared/task-attempt';
 // Solo `TaskAttempt` passa di qui (la board lo importa da questo modulo).
 // `AttemptState` si prende da `shared/task-attempt`, dov'è dichiarato ed è già
 // da lì che lo importa chi lo usa (il servizio lato server).
@@ -88,28 +102,163 @@ export const STATUS_GLYPH_PX = 14;
  * Cause diverse = decisioni diverse per il reviewer — perciò testi diversi e non
  * un generico "chiuso dal sistema".
  */
-export const SYSTEM_DELIVERY_REASON: Record<'retries_exhausted' | 'model_refused' | 'fanout', string> = {
+export const SYSTEM_DELIVERY_REASON: Record<'retries_exhausted' | 'model_refused' | 'fanout' | 'parked_children', string> = {
   retries_exhausted:
     "L'agent ha finito i tentativi senza mettere in review da solo: sotto può non esserci un deliverable. Rimandandolo indietro riparte sulla stessa sessione.",
   model_refused:
-    "Il modello si è rifiutato di proseguire: nessun ritentativo automatico può sbloccarlo. Serve una decisione tua — rimandarlo indietro identico otterrebbe lo stesso rifiuto.",
+    "Il modello si è rifiutato di proseguire: nessun ritentativo automatico può sbloccarlo. Serve una decisione tua: rimandarlo indietro identico otterrebbe lo stesso rifiuto.",
   fanout:
-    "Fan-out: più agenti hanno lavorato lo stesso task in parallelo, ognuno nel suo worktree. Scegli quale tentativo tenere dal pannello Tentativi — gli altri vengono buttati.",
+    "Fan-out: più agenti hanno lavorato lo stesso task in parallelo, ognuno nel suo worktree. Scegli quale tentativo tenere dal pannello Tentativi. Gli altri vengono buttati.",
+  parked_children:
+    "Non è un blocco, è una domanda: gli unici sottotask aperti sono parcheggiati in backlog, dove nessun dispatcher li prende. Rispondi coi due bottoni e il task riparte da solo.",
 };
 
 /** Il testo giusto per una consegna di sistema, causa nota o meno. */
 export function systemDeliveryNote(reason: BoardTask['deliveredReason']): string {
   return reason
     ? SYSTEM_DELIVERY_REASON[reason]
-    : "Non l'ha consegnato l'agent: ce l'ha portato il sistema a fine turno. Sotto può non esserci un deliverable — guarda il thread prima di aprire il diff.";
+    : "Non l'ha consegnato l'agent: ce l'ha portato il sistema a fine turno. Sotto può non esserci un deliverable. Guarda il thread prima di aprire il diff.";
 }
 
 /** Etichetta corta per la chip sulla card (la prosa lunga è nel title). */
-export const SYSTEM_DELIVERY_CHIP: Record<'retries_exhausted' | 'model_refused' | 'fanout', string> = {
+export const SYSTEM_DELIVERY_CHIP: Record<'retries_exhausted' | 'model_refused' | 'fanout' | 'parked_children', string> = {
   retries_exhausted: 'non consegnato',
   model_refused: 'agent bloccato',
   fanout: 'scegli il tentativo',
+  parked_children: 'sottotask parcheggiati',
 };
+
+/*
+ * ─────────────────────────────────────────────────────────────────────────────
+ * I DUE VERSI DELL'ATTESA, e perché non possono condividere una parola.
+ *
+ * Fino al 12/08 la stessa card poteva portare «in attesa di: X» e «3 in
+ * attesa», che sono fatti OPPOSTI: il primo è «io aspetto un altro», il
+ * secondo è «altri tre aspettano me» — e chiudere questa card, nel secondo
+ * caso, ne sblocca tre. L'unico indizio era il numero davanti, e la
+ * disambiguazione stava nel `title`: cioè in un tooltip, che vede solo chi ha
+ * un mouse e sa di doverlo cercare. Su un telefono non esisteva proprio.
+ *
+ * Quindi i due verbi ora si scrivono qui, uno accanto all'altro, e non
+ * condividono nemmeno una parola: **«aspetta …»** = io aspetto. **«… la
+ * aspettano»** = altri aspettano me. Il test in `board.test.ts` pinna che
+ * restino disgiunti — è l'unica cosa che impedisce alla parola di tornare.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
+/**
+ * IO ASPETTO un altro task: cosa scriverci, o `null` se non va disegnato.
+ *
+ * Decide dal LINK (`blockedByTaskId`), non da chi c'è nella lista che il client
+ * ha in mano. La card lo derivava cercando il bloccante fra i task fetchati —
+ * un progetto, `rootsOnly`, non archiviati — quindi un bloccante fuori da quel
+ * taglio faceva sparire il chip e la card sembrava libera di partire mentre il
+ * dispatcher la teneva ferma. Il titolo lo risolve il server (`blockedBy`);
+ * quando manca il chip resta, degradato: «c'è un legame» è l'informazione che
+ * conta, il titolo è il di più.
+ *
+ * Muto solo quando il bloccante è chiuso o archiviato — lo stesso predicato del
+ * gate di dispatch lato server: lì il task riparte, qui il chip si spegne.
+ */
+export function blockedByChip(
+  task: Pick<BoardTask, 'blockedByTaskId' | 'blockedBy'>,
+): { label: string; title: string } | null {
+  if (!task.blockedByTaskId) return null;
+  const b = task.blockedBy;
+  if (b && (b.status === 'done' || b.archived)) return null;
+  return b
+    ? {
+      label: `aspetta: ${b.text}`,
+      title: `Questa card aspetta «${b.text}»: non parte finché quella non chiude.`,
+    }
+    : {
+      label: 'aspetta un altro task',
+      title: 'Questa card aspetta un altro task: non parte finché quello non chiude. Il titolo non è disponibile qui.',
+    };
+}
+
+/**
+ * ALTRI ASPETTANO ME: quanti, e cosa succede quando chiudo. `null` = nessuno.
+ *
+ * Il verbo è coniugato apposta al plurale con la card come oggetto — «3 la
+ * aspettano» — perché è la forma che NON si può leggere al contrario. «3 in
+ * attesa», che c'era prima, si legge benissimo come «questa card sta
+ * aspettando tre cose», ed è il rovescio esatto della verità: qui la card è
+ * quella che sblocca, non quella bloccata.
+ */
+export function waitingOnThisChip(
+  task: Pick<BoardTask, 'waitingOnCount' | 'status'>,
+): { label: string; title: string } | null {
+  const n = task.waitingOnCount;
+  if (n <= 0 || task.status === 'done') return null;
+  return n === 1
+    ? { label: '1 la aspetta', title: 'Un task aspetta questa card: parte da solo quando la chiudi.' }
+    : { label: `${n} la aspettano`, title: `${n} task aspettano questa card: partono da soli quando la chiudi.` };
+}
+
+/**
+ * Il chip «chi la lavora» di un sottotask senza agente proprio: cosa scriverci,
+ * o `null` se non va disegnato.
+ *
+ * Due chip e non uno, perché le due risposte servono a due persone diverse.
+ * `parent-turn` rassicura chi guarda la board — la card è in mano a qualcuno,
+ * dentro il turno di un antenato, ed è il flusso voluto. `unattended` è invece
+ * l'unico caso che chiede un intervento: nessuno la sta lavorando, e finora non
+ * lo diceva nessuno (il recupero orfani filtra sul chip di dispatch, che in
+ * questa forma non c'è). Tacere sul primo per non urlare il secondo lascerebbe
+ * la card ambigua com'era: è proprio la coppia che la disambigua.
+ *
+ * Il titolo dell'antenato lo risolve il server (`subtaskWork.ancestor`): la
+ * lista della board è un progetto solo, `rootsOnly`, non archiviati, e il padre
+ * di un sottotask quasi mai ci sta dentro.
+ */
+export function subtaskWorkChip(
+  task: Pick<BoardTask, 'subtaskWork'>,
+): { kind: SubtaskWork['kind']; label: string; title: string } | null {
+  const w = task.subtaskWork;
+  if (!w) return null;
+  if (w.kind === 'unattended') {
+    return {
+      kind: 'unattended',
+      label: 'nessuno la lavora',
+      title: 'In corso, ma senza agente suo e senza nessun antenato al lavoro: è rimasta qui. Rimettila in coda o chiudila.',
+    };
+  }
+  return {
+    kind: 'parent-turn',
+    label: 'nel turno del padre',
+    title: `La lavora l'agente di: ${w.ancestor.text}`,
+  };
+}
+
+/**
+ * Il chip «riaperta»: una card che ERA fatta e non lo è più lo dice sulla card,
+ * dove si guarda — non solo nel thread.
+ *
+ * Misurato l'11/08: undici card uscite da `done` in sei ore. Non se n'era persa
+ * nessuna, ma dalla colonna si vedeva solo un buco al posto di una cosa fatta, e
+ * il motivo (che c'era sempre) viveva nel commento. `null` = la card non è mai
+ * uscita da done, o ci è tornata (allora il ciclo è chiuso e il segno cade).
+ */
+export function reopenedChip(
+  task: Pick<BoardTask, 'reopenedAt' | 'reopenedBy' | 'reopenedActor'>,
+): { label: string; title: string; detail: string } | null {
+  if (!task.reopenedAt) return null;
+  const when = new Date(task.reopenedAt);
+  const quando = Number.isNaN(when.getTime()) ? task.reopenedAt : when.toLocaleString('it-IT');
+  const chi = task.reopenedActor === 'human'
+    ? 'da te'
+    : task.reopenedActor === 'system'
+      ? 'dal sistema'
+      : `da un agent${task.reopenedBy ? ` (${task.reopenedBy})` : ''}`;
+  // `detail` è la stessa frase senza preamboli: la banda del drawer ha già la
+  // parola «Riaperta» in grassetto e ripeterla la renderebbe illeggibile.
+  return {
+    label: 'riaperta',
+    detail: `${chi} il ${quando}`,
+    title: `Era in Done: riaperta ${chi} il ${quando}. Il motivo è nel thread della card.`,
+  };
+}
 
 export interface BoardTask {
   id: string;
@@ -139,8 +288,17 @@ export interface BoardTask {
   /** Screenshot della consegna (path assoluto allowlistato) — thumbnail
    *  sulla card, servito via /api/media. */
   previewImage: string | null;
+  /** L'anteprima è stata RITIRATA perché non era evidenza (duplicata, un
+   *  placeholder, un errore). Stato della card, non messaggio nel thread: si
+   *  spegne da solo appena ne arriva una nuova. `null` = mai successo. */
+  previewRetiredAt: string | null;
+  previewRetiredReason: string | null;
   /** Dispatch contract: agent delivers a PLAN to review before implementing. */
   planFirst: boolean;
+  /** IL commento che È il piano — scritto dal server quando il piano arriva
+   *  (contratto piano-prima). `null` sui task nati prima del puntatore: la tab
+   *  "Piano" ha una ricaduta esplicita per quelli. */
+  planCommentId: string | null;
   /** When the current claim started — anchors the live "ci sta mettendo" ticker. */
   inProgressAt: string | null;
   /** Cumulative agent effort across every turn (dispatcher-recorded).
@@ -157,8 +315,36 @@ export interface BoardTask {
   userCommentCount: number;
   /** Model the dispatched agent runs on; null = provider default ("Auto"). */
   model: string | null;
+  /** Lo sforzo con cui il task ha girato davvero (dal topic dell'agente). Con la
+   *  board su `auto` lo sceglie il classificatore, e questo è l'unico posto in
+   *  cui la scelta si legge: è la leva di costo più pesante che abbiamo. */
+  effort?: string | null;
   /** Root task this one is gated on — the dispatcher won't start it until that task is done. */
   blockedByTaskId: string | null;
+  /** Lo stesso bloccante risolto dal server (titolo + stato + archiviato). È la
+   *  fonte del chip «in attesa di»: la lista fetchata non lo contiene sempre.
+   *  null = nessun link, o la riga puntata non esiste più. */
+  blockedBy: BlockerRef | null;
+  /** Chi lavora questo sottotask quando non ha un agente suo — derivato dalla
+   *  catena dei padri dal server. `null` = la domanda non si pone. */
+  subtaskWork: SubtaskWork | null;
+  /** L'altra metà del legame, contata dal server: quanti task VIVI (non
+   *  archiviati, non done) aspettano questo. È la fonte del chip «N in attesa»:
+   *  contandoli nella lista fetchata sparivano i dipendenti che sono sottotask
+   *  o stanno in un altro progetto. */
+  waitingOnCount: number;
+  /**
+   * PERCHÉ questa card è ferma in `todo`, in una frase GIÀ SCRITTA dal server.
+   * `null` fuori da `todo`, o con un agente già in volo.
+   *
+   * Qui non c'è niente da derivare, ed è apposta: la decisione di non
+   * dispacciare la prende il dispatcher, e due dei suoi ingredienti non stanno
+   * nemmeno sulla card (l'interruttore di dispatch, e la posizione in una coda
+   * che è machine-wide mentre questa lista è un progetto solo). Dedurla qui
+   * vorrebbe dire dire la regola di ieri con la faccia sicura, il giorno che il
+   * dispatcher cambia — lo stesso conto già pagato con `waitingOnCount`.
+   */
+  queueReason: QueueReason | null;
   /** When blocked, hand the new agent the blocker's session context instead of a cold start. */
   reuseBlockerContext: boolean;
   /** Branch the task delivered on, snapshot at review-time (diagnostics). */
@@ -179,7 +365,20 @@ export interface BoardTask {
    *  male che qualcuno deve guardare, e sotto può non esserci un deliverable. */
   deliveredBy: 'agent' | 'human' | 'system' | null;
   /** Perché, quando `deliveredBy === 'system'`. La prosa sta nel thread. */
-  deliveredReason: 'retries_exhausted' | 'model_refused' | 'fanout' | null;
+  deliveredReason: 'retries_exhausted' | 'model_refused' | 'fanout' | 'parked_children' | null;
+  /** Chi ha chiuso la card l'ultima volta: 'human' = una decisione di Attilio
+   *  (approvazione o trascinamento) e un agent non la riapre. */
+  doneActor: 'human' | 'agent' | 'system' | null;
+  /** La card è USCITA da done: quando, per mano di chi, con che ruolo. Resta
+   *  finché non torna done. È il chip «riaperta»: senza, la colonna mostrava
+   *  solo un buco dove c'era una cosa fatta. */
+  reopenedAt: string | null;
+  reopenedBy: string | null;
+  reopenedActor: 'human' | 'agent' | 'system' | null;
+  /** Le etichette (migration 100), con chi le ha scritte. `visibile`/`invisibile`
+   *  decidono chi chiude la card e le DERIVA il server dal diff alla consegna;
+   *  il resto filtra. Vocabolario e regola: `shared/task-labels.ts`. */
+  labels: TaskLabelRow[];
 }
 
 export interface TaskWithThread {
@@ -205,64 +404,6 @@ export function boardIdForPath(projectPath: string): string {
     hash |= 0;
   }
   return dirName + '-' + Math.abs(hash).toString(36).slice(0, 6);
-}
-
-/**
- * Parse a task comment for an agent "question block" — the human-decision
- * request the board renders as a quick-reply:
- *
- *   ```question
- *   Which auth approach?
- *   - JWT in an httpOnly cookie
- *   - Short-lived bearer token
- *   ```
- *
- * The canonical block is composed SERVER-side (tasks service `questionOptions`)
- * so this layout is guaranteed for new comments — but the parser stays
- * tolerant of hand-written LLM variants: `\r\n`, missing newlines around the
- * fences, options inlined on one line. Returns the question + the (possibly
- * empty) option list, or null when the text has no such block. Pure + exported
- * so the "Serve te" card and the detail drawer share it and a bun:test can pin
- * both the canonical and the degenerate forms.
- */
-export function parseQuestionBlock(text: string): { question: string; options: string[] } | null {
-  if (!text) return null;
-  // \s+ (not \s*\n): tolerate a block whose newlines were lost/normalized —
-  // '```question Question? - a - b```' still parses.
-  const m = text.replace(/\r\n/g, '\n').match(/```question\s+([\s\S]*?)```/);
-  if (!m) return null;
-  const body = m[1].trim();
-  if (!body) return null;
-  const options: string[] = [];
-  const qLines: string[] = [];
-  if (body.includes('\n')) {
-    for (const raw of body.split('\n')) {
-      const line = raw.trim();
-      if (!line) continue;
-      const opt = line.match(/^[-*]\s+(.*)$/);
-      if (opt) options.push(opt[1].trim());
-      else qLines.push(line);
-    }
-  } else {
-    // Degenerate single-line body: split on ' - ' option markers. The first
-    // segment is the question; a leading '- ' marks an option-only block.
-    const segments = body.split(/\s+-\s+/);
-    const first = segments.shift()?.trim() ?? '';
-    if (first.startsWith('- ')) segments.unshift(first.slice(2));
-    else if (first) qLines.push(first);
-    for (const s of segments) { const v = s.trim(); if (v) options.push(v); }
-  }
-  const question = qLines.join(' ').trim();
-  if (!question) return null;
-  // "Landa e pubblica" (go online = merge + push + deploy) is NEVER a per-task
-  // quick-reply: publishing is a SEPARATE, human-only board action (the "Pubblica"
-  // control) with a diff preview to review before pushing. The dispatcher used to
-  // make agents offer it at delivery; drop it from the rendered options so old
-  // deliveries that still carry it don't show a one-click merge+push button.
-  // "Landa su main" (local merge, no push) stays.
-  const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
-  const filtered = options.filter((o) => norm(o) !== 'landa e pubblica');
-  return { question, options: filtered };
 }
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
@@ -293,7 +434,27 @@ export interface CreateTaskBody {
   blockedByTaskId?: string | null;
   /** When blocked, hand the new agent the blocker's session context. */
   reuseBlockerContext?: boolean;
+  /**
+   * Il link (parent o blocker) arriva da una proposta di intake ACCETTATA: il
+   * server scrive il perché nei thread di entrambe le card. Senza questo flag
+   * il link resta muto — che va bene per uno step aggiunto a mano dal drawer,
+   * mai per un collegamento che qualcuno ha solo confermato con un click.
+   */
+  intakeLink?: boolean;
+  /** Il motivo, in chiaro, così com'è stato mostrato prima del click. */
+  intakeReason?: string;
 }
+
+/**
+ * La proposta dell'intake: dove andrebbe il testo che stai scrivendo. È una
+ * PROPOSTA — finché non la si accetta non esiste nessun collegamento, e il
+ * default (non fare niente) resta "task nuovo".
+ */
+// Dichiarata in shared/: la calcola il server e la disegna il client, e due
+// copie libere di divergere sono esattamente ciò che il cancello sui doppioni
+// di tipo esiste per impedire.
+export type { LinkProposal } from '../../../shared/board';
+import type { LinkProposal } from '../../../shared/board';
 
 export interface UpdateTaskBody {
   status?: TaskStatus;
@@ -343,16 +504,66 @@ export interface DiffFileStat {
   status: string;
 }
 
+/**
+ * Perché NON c'è un diff — tre risposte, e tenerle separate è il punto: prima
+ * erano lo stesso silenzio (il pannello non si disegnava affatto), e «la card non
+ * ha prodotto codice» era indistinguibile da «non ho potuto guardare».
+ *
+ *  · `no_changes`     — la gamma esiste ed è venuta fuori vuota. Verificato.
+ *  · `unreadable`     — nessuna gamma ricostruibile: il worktree è potato e non
+ *                       c'è un riferimento durevole (o la card ha lavorato in
+ *                       loco, senza un ramo suo da leggere).
+ *  · `not_dispatched` — nessun agente ci ha mai lavorato: non c'è una domanda.
+ */
+export type DiffMissCode = 'no_changes' | 'unreadable' | 'not_dispatched';
+
+/** Da dove viene la gamma — cambia cosa stai leggendo, quindi si dice. */
+export type DiffSource = 'worktree' | 'landed-merge' | 'delivery-commit';
+
 /** A unified-diff bundle: per-file stat + the raw patch, capped server-side. */
 export interface DiffBundle {
   branch: string | null;
   range?: string;
-  base?: string;
+  base?: string | null;
   stat: DiffFileStat[];
   patch: string;
   truncated: boolean;
-  /** 'no_worktree' when a task has no isolated worktree to diff yet. */
-  code?: string;
+  code?: DiffMissCode;
+  source?: DiffSource | null;
+}
+
+/**
+ * Il totale in testa al pannello: quanti file, quante righe.
+ *
+ * Si conta sullo STAT, non sul patch: lo stat è completo per contratto (git lo
+ * dà per numstat, che non ha tetto), il patch no — oltre il tetto del payload è
+ * tagliato, e un totale contato lì direbbe «3 file» su una consegna da 40.
+ * I binari escono come `-1`: contano come file toccato, non come righe.
+ */
+export function diffTotals(stat: DiffFileStat[]): { files: number; additions: number; deletions: number } {
+  let additions = 0;
+  let deletions = 0;
+  for (const s of stat) {
+    if (s.additions > 0) additions += s.additions;
+    if (s.deletions > 0) deletions += s.deletions;
+  }
+  return { files: stat.length, additions, deletions };
+}
+
+/**
+ * Ha senso chiedersi «cosa ha cambiato» per questa card?
+ *
+ * Sì appena qualcuno ci ha lavorato (o avrebbe dovuto): un agente assegnato, una
+ * consegna registrata, o una card che sta in review/done — ed è quest'ultimo il
+ * caso che conta, perché è lì che il silenzio faceva più danno. No su una card
+ * di backlog che nessuno ha ancora toccato: quella la domanda non ce l'ha, e una
+ * barra «Modifiche: non dispatchata» su ogni riga del backlog è solo rumore.
+ */
+export function hasCodeQuestion(
+  t: Pick<BoardTask, 'assignedTopicId' | 'deliveryBranch' | 'deliveryCommit' | 'status'>,
+): boolean {
+  return !!t.assignedTopicId || !!t.deliveryBranch || !!t.deliveryCommit
+    || t.status === 'review' || t.status === 'done';
 }
 
 /**
@@ -407,8 +618,20 @@ export interface NightStatus {
 }
 
 export const boardApi = {
-  list: (projectId: string, status?: TaskStatus) =>
-    req<{ tasks: BoardTask[] }>(`/boards/${enc(projectId)}/tasks${status ? `?status=${status}` : ''}`).then(r => r.tasks),
+  list: (projectId: string, status?: TaskStatus, labels?: readonly TaskLabel[]) => {
+    const qs = new URLSearchParams();
+    if (status) qs.set('status', status);
+    if (labels?.length) qs.set('labels', labels.join(','));
+    const q = qs.toString();
+    return req<{ tasks: BoardTask[] }>(`/boards/${enc(projectId)}/tasks${q ? `?${q}` : ''}`).then(r => r.tasks);
+  },
+  /** Riscrive l'INTERO insieme di etichette (PUT): la board manda ciò che vuole
+   *  vedere, quindi togliere l'ultima etichetta è una chiamata come le altre.
+   *  Da qui `invisibile` si può scrivere — questa è la porta umana. */
+  setLabels: (projectId: string, taskId: string, labels: readonly TaskLabel[]) =>
+    req<BoardTask>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/labels`, {
+      method: 'PUT', body: JSON.stringify({ labels }),
+    }),
   /**
    * The global cross-project feed (GET /api/all-boards/tasks). Read-only list;
    * each task carries its own `projectId`, so per-task mutations route back
@@ -416,8 +639,29 @@ export const boardApi = {
    */
   listAll: (status?: TaskStatus) =>
     req<{ tasks: BoardTask[] }>(`/all-boards/tasks${status ? `?status=${status}` : ''}`).then(r => r.tasks),
+  /**
+   * LA PORTA UNICA «da un id al suo task, a qualunque profondità».
+   *
+   * `listAll` è `rootsOnly` — le colonne mostrano le radici, gli step vivono
+   * nell'albero del genitore — quindi `(await listAll()).find(t => t.id === id)`
+   * è `undefined` per QUALSIASI sottotask, e chi lo usava come risolutore
+   * (drawer, deep-link `/task/<id>`, click su una notifica) non arrivava a
+   * niente. Questa è la sola funzione da chiamare quando si ha in mano un id e
+   * si vuole il suo task: non filtra per profondità né per progetto.
+   *
+   * `null` = quell'id non esiste (risposta, non errore: il server risponde 200).
+   * Un rifiuto della promise è un guasto di TRASPORTO — chi aspetta un deep-link
+   * deve poterli distinguere: sul primo smette, sul secondo riprova.
+   */
+  resolve: (taskId: string) =>
+    req<{ task: BoardTask | null }>(`/all-boards/tasks/${enc(taskId)}`).then(r => r.task ?? null),
   create: (projectId: string, body: CreateTaskBody) =>
     req<BoardTask>(`/boards/${enc(projectId)}/tasks`, { method: 'POST', body: JSON.stringify(body) }),
+  /** "Dove va questo testo?" — sola lettura, non tocca un solo task. */
+  suggestLink: (projectId: string, text: string, description?: string | null) =>
+    req<{ proposal: LinkProposal | null }>(`/boards/${enc(projectId)}/intake/suggest`, {
+      method: 'POST', body: JSON.stringify({ text, description }),
+    }).then(r => r.proposal),
   get: (projectId: string, taskId: string) =>
     req<TaskWithThread>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}`),
   update: (projectId: string, taskId: string, patch: UpdateTaskBody) =>
@@ -431,9 +675,25 @@ export const boardApi = {
   review: (projectId: string, taskId: string, decision: 'approve' | 'reject', comment?: string, opts?: { force?: boolean }) =>
     req<BoardTask>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/review`, { method: 'POST', body: JSON.stringify({ decision, comment, force: opts?.force }) }),
   /** Land the task's branch on main (accept if still in review, then merge locally
-   *  + rebuild). Explicit, decoupled from approve — never pushes online. */
+   *  + rebuild). Explicit, decoupled from approve — never pushes online.
+   *  Risponde `202`: il land è ACCODATO, non ancora avvenuto — `landing` dice in
+   *  quanti ha davanti, e `landStatus` com'è finito. */
   land: (projectId: string, taskId: string) =>
-    req<BoardTask>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/land`, { method: 'POST', body: JSON.stringify({}) }),
+    req<BoardTask & { landing: LandingTicket }>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/land`, { method: 'POST', body: JSON.stringify({}) }),
+  /** L'esito del land richiesto per questo task (404 se non ne è mai stato chiesto uno). */
+  landStatus: (projectId: string, taskId: string) =>
+    req<{ landing: LandingTicket; pending: number }>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/land`),
+  /**
+   * «Ricattura evidenza» su una card GIÀ in review: riavvia l'anteprima dal suo
+   * worktree e la rifotografa. Non sveglia l'agent, non consuma un tentativo, non
+   * muove il task di colonna — e se non è possibile, il motivo arriva nel thread
+   * come review-note. Può metterci decine di secondi (boot + screenshot).
+   */
+  recapturePreview: (projectId: string, taskId: string) =>
+    req<{ task: BoardTask; previewImage: string | null; outputUrl: string | null }>(
+      `/boards/${enc(projectId)}/tasks/${enc(taskId)}/preview`,
+      { method: 'POST', body: JSON.stringify({}) },
+    ),
   /** Move a root task (and its subtree) to another board. */
   move: (projectId: string, taskId: string, toProjectId: string) =>
     req<BoardTask>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/move`, { method: 'POST', body: JSON.stringify({ toProjectId }) }),

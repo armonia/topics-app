@@ -1,6 +1,7 @@
 import { describe, test, expect } from "bun:test";
 import { paneReducer } from "./panes";
 import { selectSyncableSnapshot } from "../selectors";
+import { overTheWire } from "../testSupport";
 import type { PaneState, Pane } from "../types";
 
 /**
@@ -59,7 +60,7 @@ const close = (s: PaneState, id: string) => {
 
 let seq = 0;
 const hydrateInto = (to: PaneState, from: PaneState) => {
-  const snap = selectSyncableSnapshot(from);
+  const snap = overTheWire(selectSyncableSnapshot(from));
   seq += 1;
   paneReducer(to, {
     type: "HYDRATE_FROM_SNAPSHOT",
