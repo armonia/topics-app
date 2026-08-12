@@ -167,11 +167,84 @@ describe("perché questa card è ferma", () => {
   const ctx = {
     now: NOW, autoDispatch: true, retryCap: 2, ahead: 0,
     heavyHeld: false, behind: 0,
-    parentStatus: null as string | null, projectless: false,
+    parentStatus: null as string | null, projectless: false, openSubtasks: 0,
     formatTime: () => "06:40",
   };
   const reason = (t: Partial<typeof base>, c: Partial<typeof ctx> = {}) =>
     deriveQueueReason({ ...base, ...t }, { ...ctx, ...c })!;
+
+  /**
+   * IL VICOLO CIECO CHE LA CARD NON DICEVA — otto card nella notte del 12/08.
+   *
+   * Un padre in review con la checklist ancora aperta sembra una consegna che
+   * aspetta una persona. Non lo è: quella persona non ha mosse. Approvare porta
+   * a `done`, e `done` con un sottotask aperto è rifiutato (`open_subtasks`); e
+   * i sottotask non li dispaccia nessuno da solo, li lavora solo l'agente del
+   * padre dentro il proprio turno, che è finito. La card taceva, e il motivo
+   * viveva soltanto nel log di una sonda che nessuno lancia.
+   */
+  test("in review con la checklist aperta: è ferma, e la card lo dice", () => {
+    const r = reason({ status: "review" }, { openSubtasks: 2 });
+    expect(r).toMatchObject({ kind: "checklist_frozen", tone: "stalled", head: "ferma" });
+    expect(r.detail).toContain("2");
+    // Il tooltip deve dire la CONSEGUENZA, non ripetere il conto: è la cosa che
+    // chi guarda non sa, cioè che approvare non chiuderà niente.
+    expect(r.title.toLowerCase()).toContain("done");
+  });
+
+  test("in review con la checklist CHIUSA non c'è niente da dire", () => {
+    expect(deriveQueueReason({ ...base, status: "review" }, { ...ctx, openSubtasks: 0 })).toBeNull();
+  });
+
+  test("il singolare non dice «1 sottotask aperti»", () => {
+    expect(reason({ status: "review" }, { openSubtasks: 1 }).detail).toBe("1 sottotask aperto");
+  });
+
+  /**
+   * LA CARD CHE STA GIÀ CHIEDENDO NON SI FA ZITTIRE.
+   *
+   * `needs_input` è l'unico stato in cui la card porta addosso una DOMANDA con
+   * una risposta possibile: quella di sistema sui figli parcheggiati (due
+   * bottoni, «rimettili in coda» / «archiviali») o quella vera dell'agente, che
+   * si risponde nella sessione. Il chip rosa «serve te» dice esattamente quella
+   * mossa; «ferma · 1 sottotask aperto» la cancella e al suo posto consiglia
+   * cose che o ci sono già o non c'entrano.
+   *
+   * Ed è anche la riga su cui la sonda e questa funzione si davano risposta
+   * opposta: `stalled-parents.ts` esclude `review + delivered_reason =
+   * 'parked_children'` dicendo «STA GIÀ CHIEDENDO», e qui si leggeva «ferma».
+   * Escludere `needs_input` CONTIENE quell'esclusione — `askParkedChildren`
+   * scrive i due campi nella stessa UPDATE — quindi le due funzioni non possono
+   * più contraddirsi su nessuna riga.
+   */
+  test("in review con una domanda aperta la ragione TACE: «serve te» è la mossa", () => {
+    expect(deriveQueueReason(
+      { ...base, status: "review", dispatchState: "needs_input" },
+      { ...ctx, openSubtasks: 2 },
+    )).toBeNull();
+  });
+
+  /**
+   * `delivered` invece PERDE il suo chip verde, ed è voluto: «consegnato,
+   * approva» è una bugia quando approvare viene rifiutato (`open_subtasks`).
+   * Non c'è nessuna domanda da cancellare — quel chip non chiede niente, dice
+   * che si può chiudere — e non si può.
+   */
+  test("una consegna pulita con la checklist aperta non è pulita: vince «ferma»", () => {
+    expect(reason({ status: "review", dispatchState: "delivered" }, { openSubtasks: 1 }))
+      .toMatchObject({ kind: "checklist_frozen", tone: "stalled" });
+  });
+
+  test("in review senza domanda («waiting») il chip nuovo resta", () => {
+    expect(reason({ status: "review", dispatchState: "waiting" }, { openSubtasks: 3 }))
+      .toMatchObject({ kind: "checklist_frozen", detail: "3 sottotask aperti" });
+  });
+
+  test("fuori da todo e review la domanda resta senza risposta", () => {
+    for (const status of ["backlog", "in_progress", "done"]) {
+      expect(deriveQueueReason({ ...base, status }, { ...ctx, openSubtasks: 3 })).toBeNull();
+    }
+  });
 
   test("aspetta uno slot: dice QUANTI ne ha davanti, e il tono resta «la coda scorre»", () => {
     expect(reason({}, { ahead: 3 })).toMatchObject({
