@@ -166,6 +166,7 @@ export default defineConfig({
       testIgnore: [
         "**/sidebar-touch-audit.spec.ts",
         "**/hover-reveal-touch-audit.spec.ts",
+        "**/mobile-chrome-bar.spec.ts",
         ...(IS_PR ? NIGHTLY_ONLY_SPECS : []),
       ],
     },
@@ -206,6 +207,25 @@ export default defineConfig({
      * combinazione di un tablet con la tastiera staccata — e la popolazione su
      * cui i comandi nascosti dietro l'hover sparivano.
      */
+    /**
+     * IL TELEFONO INTERO, non solo il dito.
+     *
+     * La chrome mobile decisa il 12/08 — «Topics» solo in alto, tre porte in
+     * basso, la fila che segue la curva dello schermo — esiste SOLO sotto i
+     * 768px e solo col dito: nel progetto `chromium` a 1280 non c'è proprio, e
+     * un test che gira lì passerebbe misurando l'assenza. Stessi segnali della
+     * spec touch (`hasTouch` + `isMobile`), viewport di un iPhone 14.
+     */
+    {
+      name: "chromium-phone",
+      testMatch: "**/mobile-chrome-bar.spec.ts",
+      use: {
+        browserName: "chromium",
+        hasTouch: true,
+        isMobile: true,
+        viewport: { width: 390, height: 844 },
+      },
+    },
     {
       name: "chromium-touch-wide",
       testMatch: "**/hover-reveal-touch-audit.spec.ts",
