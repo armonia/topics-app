@@ -11,12 +11,18 @@
 // Il contratto della board sta in `shared/board.ts`, dichiarato UNA volta e
 // letto dai due lati del filo: `export … from` ri-esporta ma non porta i nomi
 // in scope locale, e qui sotto servono, quindi l'import gemello non è ridondante.
-export { MAX_FANOUT, TASK_STATUSES, ACTIVE_DISPATCH_STATES, isAgentWorking, parseStatusEvent, hasPlanApproveOption, parseQuestionBlock } from '../../../shared/board';
+export { MAX_FANOUT, TASK_STATUSES, ACTIVE_DISPATCH_STATES, PARKED_STOPPED, isAgentWorking, parseStatusEvent, hasPlanApproveOption, parseQuestionBlock } from '../../../shared/board';
 export type {
   TaskStatus, TaskComment, ReviewCheck, CheckRun, BoardSettings, BoardSettingsPatch, DispatchCapacity, BlockerRef,
   LandingTicket,
   SubtaskWork,
 } from '../../../shared/board';
+// Le etichette: stessa cartella condivisa, stesso vocabolario chiuso. Il client
+// non ne tiene una copia — un'etichetta in più qui e non lì è un filtro che non
+// filtra niente, sullo stesso modello di `BoardSettings`.
+export { CLOSER_LABELS, KIND_LABELS, whoCloses } from '../../../shared/task-labels';
+export type { TaskLabel, TaskLabelRow } from '../../../shared/task-labels';
+import type { TaskLabel, TaskLabelRow } from '../../../shared/task-labels';
 import type {
   TaskStatus, TaskComment, CheckRun, BoardSettings, BoardSettingsPatch, DispatchCapacity, BlockerRef, LandingTicket, SubtaskWork,
 } from '../../../shared/board';
@@ -308,6 +314,10 @@ export interface BoardTask {
   reopenedAt: string | null;
   reopenedBy: string | null;
   reopenedActor: 'human' | 'agent' | 'system' | null;
+  /** Le etichette (migration 100), con chi le ha scritte. `visibile`/`invisibile`
+   *  decidono chi chiude la card e le DERIVA il server dal diff alla consegna;
+   *  il resto filtra. Vocabolario e regola: `shared/task-labels.ts`. */
+  labels: TaskLabelRow[];
 }
 
 export interface TaskWithThread {
@@ -497,8 +507,20 @@ export interface NightStatus {
 }
 
 export const boardApi = {
-  list: (projectId: string, status?: TaskStatus) =>
-    req<{ tasks: BoardTask[] }>(`/boards/${enc(projectId)}/tasks${status ? `?status=${status}` : ''}`).then(r => r.tasks),
+  list: (projectId: string, status?: TaskStatus, labels?: readonly TaskLabel[]) => {
+    const qs = new URLSearchParams();
+    if (status) qs.set('status', status);
+    if (labels?.length) qs.set('labels', labels.join(','));
+    const q = qs.toString();
+    return req<{ tasks: BoardTask[] }>(`/boards/${enc(projectId)}/tasks${q ? `?${q}` : ''}`).then(r => r.tasks);
+  },
+  /** Riscrive l'INTERO insieme di etichette (PUT): la board manda ciò che vuole
+   *  vedere, quindi togliere l'ultima etichetta è una chiamata come le altre.
+   *  Da qui `invisibile` si può scrivere — questa è la porta umana. */
+  setLabels: (projectId: string, taskId: string, labels: readonly TaskLabel[]) =>
+    req<BoardTask>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/labels`, {
+      method: 'PUT', body: JSON.stringify({ labels }),
+    }),
   /**
    * The global cross-project feed (GET /api/all-boards/tasks). Read-only list;
    * each task carries its own `projectId`, so per-task mutations route back
