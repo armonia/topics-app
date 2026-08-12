@@ -1063,6 +1063,25 @@ html, body {
   opacity: 0;
 }
 
+/* IL VELO DEL CASSETTO MOBILE, montato sempre e spento dal CSS.
+   Il riposo sta QUI e non in uno `style` di React perché durante il
+   trascinamento (useSidebarSwipe) l'opacità la scrive il gesto, in linea, frame
+   per frame — e a fine corsa la cancella. Cancellare un valore in linea
+   restituisce la decisione a questa regola; se il riposo fosse a sua volta in
+   linea, cancellarlo lascerebbe un rettangolo nero a schermo intero.
+   `visibility` e non solo `opacity`: un velo a opacità zero resta un bersaglio
+   per il dito e un nodo per chi legge lo schermo. Sta nella transizione così la
+   sparizione aspetta la dissolvenza invece di anticiparla. */
+.sidebar-scrim {
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 200ms ease, visibility 200ms;
+}
+.sidebar-scrim[data-open="true"] {
+  opacity: 1;
+  visibility: visible;
+}
+
 /* (Removed) The `html.sidebar-animating .xterm { content-visibility: hidden }` blank
    was a kludge to survive PUSH-mode sidebar toggles, where the content area resized
    every frame and WebKit re-flowed every mounted terminal. The structural fix: the
