@@ -29,11 +29,11 @@
  */
 import type { BrowserStorageState } from "./browser-state-store";
 
-/** Un silo: il nome che il dialogo mostra e i tipi di dato che contiene. */
-export interface SiteDataRecord {
-  displayName: string;
-  types: string[];
-}
+/** Un silo: il nome che il dialogo mostra e i tipi di dato che contiene. La
+ *  forma sta in `shared/` perché la dicono in due, e ricopiarla qui vorrebbe
+ *  dire due forme che divergono in silenzio. */
+export type { SiteDataRecord } from "../shared/browser-site-record";
+import type { SiteDataRecord } from "../shared/browser-site-record";
 
 /**
  * I tipi, nell'ordine in cui il client li raggruppa. La cache HTTP NON è in
