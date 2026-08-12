@@ -1236,9 +1236,10 @@ previewManager = createPreviewManager({
     let port = "0"; try { port = new URL(url).port || "0"; } catch { /* keep */ }
     const id = `preview-shot:${port}`;
     try {
-      // Viewport, non full-page: la card è un riquadro 268×144 in `object-cover`
-      // e un'immagine più alta di 0.537× la larghezza la TAGLIA invece di
-      // rimpicciolirla — 1440×760 = 0.528 sta dentro, una full-page no.
+      // Viewport, non full-page: la card disegna l'anteprima in `object-cover`
+      // e un'immagine più alta di `PREVIEW_CARD_MAX_RATIO` (0.70) volte la
+      // larghezza la TAGLIA invece di rimpicciolirla — 1440×760 = 0.528 sta
+      // dentro con margine, una full-page no.
       await browserService.createContext(id, { viewport: { width: opts.width, height: 760 } });
       const nav = await browserService.navigate(id, url);
       if (nav.error) return false;

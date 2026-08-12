@@ -28,6 +28,7 @@ import { useMobile } from '../../hooks/useMobile';
 import { ConfirmDialog } from '../Shared/ConfirmDialog';
 import { SECTION_CARD, SELECTED_SURFACE, SELECTED_SURFACE_SOFT, TREE_ROW_CARD } from '@/lib/selectionStyles';
 import { Spinner } from '../Shared/Spinner';
+import { SkeletonRows } from '../Shared/Skeleton';
 
 interface GitChangesProps {
   projectPath: string;
@@ -861,13 +862,16 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
   // Non-compact early returns for loading/error
   if (!compact) {
     if (loading && !gitStatus) {
+      // Come nel file explorer: quello che arriva è un ELENCO DI FILE, e uno
+      // scheletro con le misure della riga vera (`px-2 py-[3px]`, glifo del
+      // badge di stato) lo dice; un anello centrato prometteva solo attesa, e
+      // la lista poi compariva di colpo.
       return (
-        <div className="flex items-center justify-center py-4">
-          <div className="flex items-center gap-2 text-app-text-tertiary text-[11px]">
-            <Spinner size="sm" />
-            Loading...
-          </div>
-        </div>
+        <SkeletonRows
+          count={6}
+          rowClassName={`flex items-center gap-1.5 ${TREE_ROW_CARD} px-2 py-[3px]`}
+          glyph={14}
+        />
       );
     }
     if (error) {

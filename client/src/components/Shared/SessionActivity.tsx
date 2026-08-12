@@ -154,7 +154,14 @@ function TopicPreviewLine({ topicId, onFill, className = '' }: {
   className?: string;
 }) {
   const preview = useTopicPreview(topicId);
-  if (!preview) return null;
+  // NIENTE DA DIRE ≠ NIENTE SPAZIO. Rendendo `null` il blocco nome+subline si
+  // accorciava da 31px a 17, e il nome si ri-centrava: al boot ogni riga della
+  // sidebar muoveva il proprio nome di 7px nell'istante in cui l'anteprima
+  // atterrava — un layout che dipendeva dall'arrivo di un dato. La riga da 11px
+  // ora c'è sempre, piena o vuota: l'altezza è la stessa prima e dopo.
+  // (Con la copia locale delle anteprime questo caso resta solo al PRIMO avvio
+  // vero, quando non c'è ancora niente in cache — vedi state/topicPreviews.)
+  if (!preview) return <span aria-hidden="true" className="block h-[11px]" />;
   // Il marcatore dei messaggi TUOI. Senza, un «ok, procedi» sotto al nome si
   // legge come una risposta dell'agente, ed è il contrario: è la convenzione
   // delle app di messaggistica («Tu: …»), due lettere e i due punti. Non

@@ -28,7 +28,53 @@ export interface SnapshotState {
 
 type Listener = (state: SnapshotState) => void;
 
-let snapshot: ProvidersSnapshot | null = null;
+/**
+ * LA COPIA LOCALE — perché un refresh non deve ridisegnare la barra.
+ *
+ * Da questo snapshot dipende la FORMA di due superfici: il bottone del modello
+ * nel composer (l'etichetta «Opus 5» e il badge della finestra di contesto) e la
+ * pillola di stato in fondo alla sidebar (`openclawAvailable`). Senza valore
+ * iniziale la prima paint disegna il ripiego — «Model», «≈200K», un pallino da
+ * 6px — e quando la risposta arriva quei box cambiano LARGHEZZA, spingendo di
+ * lato tutto ciò che hanno accanto: misurato al refresh, il bottone di
+ * configurazione della sessione saltava di 40px e la pillola di connessione
+ * passava da 14×14 a 100×25.
+ *
+ * La copia locale è un SEME, non un'autorità: la fetch parte lo stesso (vedi
+ * `subscribeProvidersSnapshot`) e la sovrascrive appena risponde, così un
+ * provider aggiunto o tolto da un'altra finestra non resta appiccicato qui. Se
+ * la forma cambia davvero, un piccolo assestamento è corretto — è il ritorno
+ * identico a com'era che non deve costare niente.
+ */
+const CACHE_KEY = 'providers-snapshot-cache';
+
+function readCache(): ProvidersSnapshot | null {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    if (!raw) return null;
+    const parsed: unknown = JSON.parse(raw);
+    // Stessa guardia della risposta HTTP: una cache scritta da una versione
+    // precedente con un'altra forma non deve entrare nello store.
+    return isProvidersSnapshot(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCache(next: ProvidersSnapshot): void {
+  try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify(next));
+  } catch {
+    /* localStorage pieno: il prossimo boot riparte dalla rete, come prima */
+  }
+}
+
+let snapshot: ProvidersSnapshot | null = typeof localStorage === 'undefined' ? null : readCache();
+/** Il valore che c'è ora viene dalla cache e non ancora dal server? Serve a
+ *  `subscribeProvidersSnapshot`, che senza questo flag salterebbe la fetch
+ *  iniziale (la sua condizione era `snapshot === null`) e resterebbe per sempre
+ *  sulla fotografia del boot precedente. */
+let onlyFromCache = snapshot !== null;
 let lastError: Error | null = null;
 let inflight: Promise<ProvidersSnapshot | null> | null = null;
 const listeners = new Set<Listener>();
@@ -37,6 +83,15 @@ let wireUp: (() => void) | null = null;
 function publish(): void {
   const state: SnapshotState = { snapshot, error: lastError };
   listeners.forEach((cb) => cb(state));
+}
+
+/** Un valore autorevole (HTTP o push WS): entra nello store E nella cache. */
+function adopt(next: ProvidersSnapshot): void {
+  snapshot = next;
+  onlyFromCache = false;
+  lastError = null;
+  writeCache(next);
+  publish();
 }
 
 function ensureWired(): void {
@@ -49,9 +104,7 @@ function ensureWired(): void {
       if (!isProvidersSnapshot(f.snapshot)) return;
       // A WS push resets any prior fetch error — by definition we now have
       // a fresh server-authoritative snapshot.
-      snapshot = f.snapshot;
-      lastError = null;
-      publish();
+      adopt(f.snapshot);
     },
     { types: ['providers:snapshot'] },
   );
@@ -65,14 +118,12 @@ function ensureWired(): void {
 }
 
 async function fetchOnce(opts: { force?: boolean } = {}): Promise<ProvidersSnapshot | null> {
-  if (!opts.force && snapshot !== null) return snapshot;
+  if (!opts.force && snapshot !== null && !onlyFromCache) return snapshot;
   if (inflight) return inflight;
   inflight = (async () => {
     try {
       const next = await providersApi.snapshot();
-      snapshot = next;
-      lastError = null;
-      publish();
+      adopt(next);
       return next;
     } catch (err) {
       // Surface the failure so the UI can stop spinning forever and offer a
@@ -96,9 +147,11 @@ export function getProvidersSnapshotState(): SnapshotState {
 export function subscribeProvidersSnapshot(cb: Listener): () => void {
   ensureWired();
   listeners.add(cb);
-  // Kick off initial fetch on first subscriber if we don't have a value yet.
+  // Kick off initial fetch on first subscriber if we don't have an
+  // AUTHORITATIVE value yet — un seme dalla cache locale non conta, o il boot
+  // successivo resterebbe sulla fotografia del precedente per sempre.
   // On a previous error, allow the next subscribe to retry.
-  if (snapshot === null && !inflight) void fetchOnce();
+  if ((snapshot === null || onlyFromCache) && !inflight) void fetchOnce();
   return () => {
     listeners.delete(cb);
   };
