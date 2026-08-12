@@ -116,7 +116,7 @@ function FocusGateStatus() {
           onClick={() => openExternalOnce(FULL_DISK_ACCESS_URL)}
           className="underline underline-offset-2 hover:text-app-text transition-colors"
         >Concedi l'accesso completo al disco</button>
-        , poi riavvia Topics — il permesso si legge all'avvio del processo.
+        , poi riavvia Topics: il permesso si legge all'avvio del processo.
       </div>
     </div>
   );
@@ -356,7 +356,7 @@ export function NotificationsSection({ settings, onChange }: NotificationsSectio
         <p className="text-[12px] text-app-text-muted mb-2">
           Toast in finestra quando un agente finisce (o va in errore) su un
           topic. Il banner di sistema si aggiunge solo se il sistema operativo
-          lo consente — qui sotto c'è lo stato reale.
+          lo consente. Qui sotto c'è lo stato reale.
         </p>
 
         <NativeBannerStatus />

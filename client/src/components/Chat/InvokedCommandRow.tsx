@@ -80,7 +80,7 @@ export function InvokedCommandRow({ command, args }: { command: string; args?: s
           ) : (
             <pre
               data-testid="invoked-command-body"
-              title={`Contenuto attuale del file di /${command} — non una copia di quando è girato`}
+              title={`Contenuto attuale del file di /${command}, non una copia di quando è girato`}
               className="tool-card-code text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-72 bg-app-hover/40 rounded px-2 py-1.5"
             >
               {body}

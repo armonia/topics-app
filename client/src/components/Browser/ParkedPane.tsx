@@ -40,7 +40,7 @@ export function ParkedPane({ url, checkedAt, checking, onRetry }: ParkedPaneProp
         <div className="text-[13px] font-medium text-app-text">{message}</div>
         {hint && <div className="mt-1.5 text-[12px] text-app-text-muted leading-snug">{hint}</div>}
         <div className="mt-1.5 text-[11px] text-app-text-tertiary">
-          Controllato alle {hhmm(checkedAt)} — la pagina non è stata caricata.
+          Controllato alle {hhmm(checkedAt)}. La pagina non è stata caricata.
         </div>
         <div className="mt-4 flex items-center justify-center gap-2">
           <button

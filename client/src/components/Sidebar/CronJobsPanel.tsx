@@ -48,11 +48,11 @@ function formatSchedule(schedule: CronJob['schedule']): string {
   if (schedule.kind === 'cron' && schedule.expr) {
     return schedule.expr;
   }
-  return '—';
+  return '-';
 }
 
 function formatNextRun(nextRunAt?: string): string {
-  if (!nextRunAt) return '—';
+  if (!nextRunAt) return '-';
   const date = new Date(nextRunAt);
   const now = new Date();
   const diffMs = date.getTime() - now.getTime();
