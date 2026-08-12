@@ -7098,9 +7098,11 @@ fn ensure_window_visible(win: &tauri::WebviewWindow) {
     let _ = win.set_focus();
 }
 
-/// Override the pane's User-Agent (device emulation). WKWebView
-/// `setCustomUserAgent:` — empty string resets to the default. Takes effect on
-/// the next load, so the client reloads after setting it. macOS only.
+/// Override the pane's User-Agent (device emulation). Empty string resets to the
+/// default. Takes effect on the next load, so the client reloads after setting
+/// it. Tutti e tre i motori: `setCustomUserAgent:` su WKWebView,
+/// `ICoreWebView2Settings2::UserAgent` su WebView2, `WebKitSettings:user-agent`
+/// su WebKitGTK.
 #[tauri::command]
 fn browser_set_user_agent(app: tauri::AppHandle, id: String, ua: String) -> Result<(), String> {
     no_abort("browser_set_user_agent", move || browser_set_user_agent_inner(app, id, ua))
@@ -7108,7 +7110,8 @@ fn browser_set_user_agent(app: tauri::AppHandle, id: String, ua: String) -> Resu
 
 fn browser_set_user_agent_inner(app: tauri::AppHandle, id: String, ua: String) -> Result<(), String> {
     use tauri::Manager;
-    let wv = app.get_webview(&browser_label(&id)).ok_or("no such browser pane")?;
+    let label = browser_label(&id);
+    let wv = app.get_webview(&label).ok_or("no such browser pane")?;
     #[cfg(target_os = "macos")]
     {
         let _ = wv.with_webview(move |platform| unsafe {
@@ -7123,12 +7126,14 @@ fn browser_set_user_agent_inner(app: tauri::AppHandle, id: String, ua: String) -
             }
         });
     }
-    // WebView2 lo espone sulle impostazioni (`ICoreWebView2Settings2`), ma quel
-    // ramo non e ancora scritto: resta un no-op, non un errore, perche il
-    // chiamante lo usa per «prova a farti passare per un altro browser» e
-    // fallire la navigazione sarebbe peggio che navigare con lo UA di serie.
+    // Su Windows serve anche l'etichetta, e il motivo e che WebView2 non sa
+    // tornare indietro: la stringa vuota che qui sopra resetta WKWebView, li
+    // viene rifiutata dal setter. Il default va quindi ricordato per pane, e
+    // l'etichetta e la sua chiave.
     #[cfg(target_os = "windows")]
-    let _ = (wv, ua);
+    {
+        let _ = crate::browser_win::set_user_agent(&wv, label, ua);
+    }
     #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
     {
         let _ = crate::browser_linux::set_user_agent(&wv, ua);

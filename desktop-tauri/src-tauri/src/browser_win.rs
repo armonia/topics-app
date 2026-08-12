@@ -16,9 +16,9 @@ use crate::CookieJson;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 use webview2_com::Microsoft::Web::WebView2::Win32::{
-    ICoreWebView2, ICoreWebView2Cookie, ICoreWebView2_2, COREWEBVIEW2_COOKIE_SAME_SITE_KIND,
-    COREWEBVIEW2_COOKIE_SAME_SITE_KIND_LAX, COREWEBVIEW2_COOKIE_SAME_SITE_KIND_NONE,
-    COREWEBVIEW2_COOKIE_SAME_SITE_KIND_STRICT,
+    ICoreWebView2, ICoreWebView2Cookie, ICoreWebView2Settings2, ICoreWebView2_2,
+    COREWEBVIEW2_COOKIE_SAME_SITE_KIND, COREWEBVIEW2_COOKIE_SAME_SITE_KIND_LAX,
+    COREWEBVIEW2_COOKIE_SAME_SITE_KIND_NONE, COREWEBVIEW2_COOKIE_SAME_SITE_KIND_STRICT,
 };
 use webview2_com::{
     CapturePreviewCompletedHandler, ExecuteScriptCompletedHandler, GetCookiesCompletedHandler,
@@ -112,8 +112,15 @@ pub fn eval_js_blocking(
     }
 }
 
-/// Screenshot della pane come data-URL PNG. E la stessa stringa che restituisce
-/// il ramo macOS, cosi `browser_screenshot` non deve distinguere.
+/// Screenshot della pane come base64 NUDO, senza il prefisso `data:`.
+///
+/// Il prefisso lo mette il chiamante, ed e per questo che qui non ci va: la
+/// freeze-still, il ritaglio dell'elemento e l'op dell'agent scrivono tutte e
+/// tre `data:image/png;base64,${shot}` di loro. Con un data-URL di ritorno la
+/// stringa diventerebbe `data:image/png;base64,data:image/png;base64,...`, cioe
+/// un'immagine rotta nei primi due casi e un payload indecodificabile nel terzo,
+/// mentre `encoding: 'base64'` continuerebbe a dichiarare il contrario. Il ramo
+/// macOS restituisce il nudo: questo e il contratto.
 ///
 /// `CapturePreview` scrive su un `IStream`; lo creiamo su HGLOBAL (memoria, non
 /// file), poi si riavvolge e si legge tutto.
@@ -160,10 +167,7 @@ pub fn screenshot_blocking(wv: &tauri::Webview) -> Result<String, String> {
     let png = rx
         .recv_timeout(OP_TIMEOUT)
         .map_err(|_| "screenshot timeout".to_string())??;
-    Ok(format!(
-        "data:image/png;base64,{}",
-        crate::browser_eval::base64_png(&png)
-    ))
+    Ok(crate::browser_eval::base64_png(&png))
 }
 
 /// Svuota un `IStream` in un vettore di byte. Si riavvolge prima di leggere:
@@ -235,34 +239,40 @@ pub fn cookies_get_blocking(wv: &tauri::Webview) -> Result<String, String> {
         .map_err(|_| "get cookies timeout".to_string())?
 }
 
+/// Legge una stringa da un getter COM, cioe da una funzione che invece di
+/// restituirla la scrive in un parametro di uscita.
+///
+/// La memoria arriva allocata da COM e va restituita con `CoTaskMemFree`. Non e
+/// pignoleria: chi legge i cookie lo fa a ogni export di sessione, e chi legge
+/// lo user-agent a ogni cambio di emulazione.
+unsafe fn com_text(
+    f: impl FnOnce(*mut PWSTR) -> windows::core::Result<()>,
+    what: &str,
+) -> Result<String, String> {
+    let mut p = PWSTR::null();
+    f(&mut p).map_err(|e| format!("{what}: {e}"))?;
+    if p.is_null() {
+        return Ok(String::new());
+    }
+    let s = unsafe { p.to_string() }.unwrap_or_default();
+    unsafe { windows::Win32::System::Com::CoTaskMemFree(Some(p.0 as *const _)) };
+    Ok(s)
+}
+
 /// Converte un cookie WebView2 nella forma storageState che parla il client.
 ///
 /// Tutti i getter di `ICoreWebView2Cookie` scrivono in un parametro di uscita e
 /// restituiscono solo l'esito, quindi ogni campo passa da una variabile
-/// d'appoggio. Le stringhe arrivano allocate da COM: vanno liberate con
-/// `CoTaskMemFree`, altrimenti ogni export di sessione perde un po' di memoria.
+/// d'appoggio.
 unsafe fn cookie_to_json(c: &ICoreWebView2Cookie) -> Result<CookieJson, String> {
-    unsafe fn text(
-        f: impl FnOnce(*mut PWSTR) -> windows::core::Result<()>,
-        what: &str,
-    ) -> Result<String, String> {
-        let mut p = PWSTR::null();
-        f(&mut p).map_err(|e| format!("{what}: {e}"))?;
-        if p.is_null() {
-            return Ok(String::new());
-        }
-        let s = unsafe { p.to_string() }.unwrap_or_default();
-        unsafe { windows::Win32::System::Com::CoTaskMemFree(Some(p.0 as *const _)) };
-        Ok(s)
-    }
     unsafe fn flag(f: impl FnOnce(*mut BOOL) -> windows::core::Result<()>) -> bool {
         let mut b = BOOL(0);
         f(&mut b).is_ok() && b.as_bool()
     }
-    let name = unsafe { text(|p| c.Name(p), "Name") }?;
-    let value = unsafe { text(|p| c.Value(p), "Value") }?;
-    let domain = unsafe { text(|p| c.Domain(p), "Domain") }?;
-    let path = unsafe { text(|p| c.Path(p), "Path") }?;
+    let name = unsafe { com_text(|p| c.Name(p), "Name") }?;
+    let value = unsafe { com_text(|p| c.Value(p), "Value") }?;
+    let domain = unsafe { com_text(|p| c.Domain(p), "Domain") }?;
+    let path = unsafe { com_text(|p| c.Path(p), "Path") }?;
     // WebView2 marca i cookie di sessione con `IsSession`, e per quelli
     // l'`Expires` non vuol dire niente. Il client usa -1 per «di sessione», la
     // stessa convenzione di Playwright.
@@ -382,11 +392,68 @@ pub fn reload(wv: &tauri::Webview) -> Result<(), String> {
 /// da restituire, e inventare voci finte sarebbe peggio del vuoto: il menu di
 /// navigazione le mostrerebbe e cliccarle non porterebbe da nessuna parte.
 ///
-/// Si restituisce una lista vuota con l'indice a -1, che e la forma che il
-/// client legge gia come «nessuna cronologia disponibile». Back e forward
-/// continuano a funzionare: e solo il salto diretto a una voce che non c'e.
+/// Si restituisce una lista vuota, che e la forma che il client legge gia come
+/// «nessuna cronologia disponibile». Back e forward continuano a funzionare: e
+/// solo il salto diretto a una voce che non c'e.
+///
+/// La chiave e `activeIndex` come sul ramo macOS, anche se qui la lista e vuota
+/// e il valore non lo guarda nessuno. Vale la pena scriverla giusta lo stesso:
+/// il giorno che WebView2 esponesse la cronologia, un `index` rimasto li si
+/// leggerebbe come 0 invece che come l'indice vero.
 pub fn nav_entries(_wv: &tauri::Webview) -> Result<String, String> {
-    Ok("{\"entries\":[],\"index\":-1}".to_string())
+    Ok("{\"entries\":[],\"activeIndex\":0}".to_string())
+}
+
+/// Lo user-agent di serie di ogni pane, memorizzato la prima volta che lo si
+/// sovrascrive, indicizzato per etichetta della webview.
+///
+/// Serve perche WebView2 non ha un «rimetti come stava»: la stringa vuota, che
+/// su WKWebView e proprio il modo di resettare, qui viene rifiutata dal setter.
+/// L'unico default recuperabile e quello che si legge PRIMA di toccare niente,
+/// quindi lo si prende al primo passaggio e si tiene da parte.
+fn default_user_agents() -> &'static std::sync::Mutex<std::collections::HashMap<String, String>> {
+    static M: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, String>>> =
+        std::sync::OnceLock::new();
+    M.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+/// Cambia lo user-agent della pane (emulazione dispositivo). Stringa vuota =
+/// torna al default, la stessa convenzione del ramo macOS.
+///
+/// Ha effetto dal caricamento successivo, sempre come su macOS: il client
+/// ricarica dopo aver chiamato. Fire-and-forget, perche il comando che la invoca
+/// e sincrono e gira gia sul thread della UI.
+pub fn set_user_agent(wv: &tauri::Webview, label: String, ua: String) -> Result<(), String> {
+    with_core(wv, move |c| {
+        // `UserAgent` sta su Settings2, non sull'interfaccia base delle
+        // impostazioni: su un runtime WebView2 troppo vecchio il cast fallisce e
+        // l'emulazione semplicemente non c'e.
+        let settings: ICoreWebView2Settings2 = unsafe { c.Settings() }
+            .map_err(|e| format!("Settings: {e}"))?
+            .cast()
+            .map_err(|e| format!("Settings2: {e}"))?;
+        let current = unsafe { com_text(|p| settings.UserAgent(p), "UserAgent") }?;
+        if let Ok(mut m) = default_user_agents().lock() {
+            m.entry(label.clone()).or_insert(current);
+        }
+        let target = if ua.is_empty() {
+            default_user_agents()
+                .lock()
+                .ok()
+                .and_then(|m| m.get(&label).cloned())
+                .unwrap_or_default()
+        } else {
+            ua
+        };
+        // Un default che non si e mai riusciti a leggere lascia la pane com'e.
+        // Mandare la stringa vuota al setter non resetterebbe niente: verrebbe
+        // rifiutata, e sarebbe solo un errore in piu nel log.
+        if target.is_empty() {
+            return Ok(());
+        }
+        unsafe { settings.SetUserAgent(&HSTRING::from(target.as_str())) }
+            .map_err(|e| format!("SetUserAgent: {e}"))
+    })
 }
 
 /// Helper per le op di navigazione: manda il lavoro sul thread della UI e NON
