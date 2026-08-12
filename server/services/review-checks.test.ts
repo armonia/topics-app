@@ -168,6 +168,22 @@ describe("formatChecksComment", () => {
     expect(formatChecksComment([dead])).toContain("ENOENT");
   });
 
+  test("uno SCADUTO non è un rosso: non ha misurato niente, e il testo non deve dirlo", () => {
+    // Il 12/08 `b2a3e511` è stata bocciata da `test:unit` fermato al tetto
+    // mentre cinque agenti lavoravano sulla stessa macchina. Il codice era sano:
+    // a mancare era il tempo. Chiamarlo «ROSSI» manda l'agente a cercare un
+    // guasto che non esiste, e la parola conta più del codice di stato.
+    const scaduto: CheckRun = { name: "test:unit", cmd: "bun run test:unit", ok: false, code: null, ms: 600_000, timedOut: true, tail: "" };
+    const out = formatChecksComment([scaduto]);
+    expect(out).toContain("NON MISURATI");
+    expect(out).not.toContain("ROSSI");
+    expect(out).toContain("Non è un fallimento");
+
+    // E il rosso VERO resta rosso, con la stessa parola di prima.
+    const rosso: CheckRun = { name: "lint", cmd: "eslint .", ok: false, code: 2, ms: 800, timedOut: false, tail: "" };
+    expect(formatChecksComment([rosso])).toContain("ROSSI");
+  });
+
   test("nessun comando dichiarato non è un verde", () => {
     expect(formatChecksComment([])).not.toContain("verdi");
   });
