@@ -1520,7 +1520,9 @@ describe("tasks routes — anteprima dalla sessione dell'agente", () => {
     expect((await resp.json()).previewImage).toBe("/allowed/diagramma.svg");
   });
 
-  test("un path fuori allowlist è scartato QUI, come sulla rotta umana", async () => {
+  // Il path fuori allowlist non passa, e ora lo DICE: prima il 200 con la card
+  // vuota era indistinguibile dall'aver consegnato l'anteprima.
+  test("un path fuori allowlist è rifiutato QUI con 400, come sulla rotta umana", async () => {
     const ctx = makeCtx(db, broadcasts) as any;
     ctx.isPathAllowed = (p: string) => p.startsWith("/allowed/");
     const r = createTasksRouter(ctx);
@@ -1528,12 +1530,15 @@ describe("tasks routes — anteprima dalla sessione dell'agente", () => {
     const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, {
       previewImage: "/Users/x/.ssh/id_rsa",
     }))!;
-    expect((await resp.json()).previewImage).toBeNull();
+    expect(resp.status).toBe(400);
+    expect((await resp.json()).fields).toEqual(["previewImage"]);
+    const got = await (await call(r, "GET", `/api/sessions/s1/tasks/${t.id}`))!.json();
+    expect(got.task.previewImage).toBeNull();
   });
 
   // Un `.pdf` passava l'allowlist (è un allegato legittimo) e diventava
   // l'anteprima: il client lo mandava al ramo `<img>` e sulla card restava
-  // un'icona rotta. Nessun errore da nessuna parte — la consegna sembrava
+  // un'icona rotta. Nessun errore da nessuna parte, quindi la consegna sembrava
   // fatta e non mostrava niente. Il tipo va guardato QUI, non solo il path.
   test("un file che nessuno sa MOSTRARE non diventa anteprima (il .pdf che l'ha insegnato)", async () => {
     const r = createTasksRouter(makeCtx(db, broadcasts));
@@ -1541,8 +1546,10 @@ describe("tasks routes — anteprima dalla sessione dell'agente", () => {
     const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, {
       previewImage: "/allowed/relazione.pdf",
     }))!;
-    expect(resp.status).toBe(200);
-    expect((await resp.json()).previewImage).toBeNull();
+    expect(resp.status).toBe(400);
+    expect((await resp.json()).error).toContain("mostrabile");
+    const got = await (await call(r, "GET", `/api/sessions/s1/tasks/${t.id}`))!.json();
+    expect(got.task.previewImage).toBeNull();
   });
 
   test("e non travolge i tre rami del protocollo: png, svg e webm entrano", async () => {
@@ -1760,4 +1767,102 @@ describe("land in raffica: N chiamate ⇒ N esiti", () => {
     const b = bench();
     const [id] = await b.seed(1);
     expect((await call(b.router, "GET", `/api/boards/pX/tasks/${id}/land`))!.status).toBe(404);  });
+});
+
+// Un campo che la PATCH non sa applicare non si ignora. Misurato: `archived`
+// passava, la riga restava a 0 e il chiamante aveva un 200 in mano. Un 200 che
+// non fa niente è indistinguibile dal successo, quindi non si scopre mai.
+describe("PATCH task: campo non applicabile = 400, non un 200 muto", () => {
+  let db: Database; let broadcasts: any[]; let router: any;
+  beforeEach(() => {
+    db = freshDb(); broadcasts = [];
+    router = createTasksRouter(makeCtx(db, broadcasts));
+  });
+
+  const archivedFlag = (id: string): number =>
+    (db.query("SELECT archived FROM tasks WHERE id = ?").get(id) as { archived: number }).archived;
+
+  test("`archived` sulla board: 400 che nomina il campo e indica DELETE, riga intatta", async () => {
+    const t = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "x" }))!.json();
+    const resp = (await call(router, "PATCH", `/api/boards/pX/tasks/${t.id}`, { archived: true }))!;
+    expect(resp.status).toBe(400);
+    const body = await resp.json();
+    expect(body.code).toBe("unapplicable_field");
+    expect(body.fields).toEqual(["archived"]);
+    expect(body.error).toContain("DELETE");
+    expect(archivedFlag(t.id)).toBe(0);
+  });
+
+  test("DELETE archivia ancora: si chiude il buco, non si sposta il gesto", async () => {
+    const t = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "x" }))!.json();
+    expect((await call(router, "DELETE", `/api/boards/pX/tasks/${t.id}`))!.status).toBe(200);
+    expect(archivedFlag(t.id)).toBe(1);
+  });
+
+  test("chiave sconosciuta → 400, e la elenca", async () => {
+    const t = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "x" }))!.json();
+    const resp = (await call(router, "PATCH", `/api/boards/pX/tasks/${t.id}`, { pippo: 1, priority: 4 }))!;
+    expect(resp.status).toBe(400);
+    expect((await resp.json()).fields).toEqual(["pippo"]);
+    // Rifiuto TOTALE: il campo buono della stessa richiesta non passa da solo,
+    // o metà patch applicata sarebbe di nuovo un esito che nessuno ha chiesto.
+    const got = await (await call(router, "GET", `/api/boards/pX/tasks/${t.id}`))!.json();
+    expect(got.task.priority).toBe(2);
+  });
+
+  test("tipo sbagliato → 400 (una stringa al posto di un numero non è «campo assente»)", async () => {
+    const t = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "x", priority: 1 }))!.json();
+    const resp = (await call(router, "PATCH", `/api/boards/pX/tasks/${t.id}`, { priority: "4" }))!;
+    expect(resp.status).toBe(400);
+    expect((await resp.json()).fields).toEqual(["priority"]);
+    const got = await (await call(router, "GET", `/api/boards/pX/tasks/${t.id}`))!.json();
+    expect(got.task.priority).toBe(1);
+  });
+
+  test("anteprima non mostrabile → 400, non un 200 con la card vuota", async () => {
+    const t = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "x" }))!.json();
+    const resp = (await call(router, "PATCH", `/api/boards/pX/tasks/${t.id}`, { previewImage: "/tmp/report.pdf" }))!;
+    expect(resp.status).toBe(400);
+    expect((await resp.json()).fields).toEqual(["previewImage"]);
+    const got = await (await call(router, "GET", `/api/boards/pX/tasks/${t.id}`))!.json();
+    expect(got.task.previewImage).toBe(null);
+  });
+
+  test("`assignee: null` stacca l'assegnatario invece di essere scartato", async () => {
+    const t = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "x", assignee: "claude" }))!.json();
+    expect(t.assignedTo).toBe("claude");
+    const resp = (await call(router, "PATCH", `/api/boards/pX/tasks/${t.id}`, { assignee: null }))!;
+    expect(resp.status).toBe(200);
+    expect((await resp.json()).assignedTo).toBe(null);
+  });
+
+  test("`dueDate` si applica (il service lo scrive: era solo la rotta a perderlo)", async () => {
+    const t = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "x" }))!.json();
+    const resp = (await call(router, "PATCH", `/api/boards/pX/tasks/${t.id}`, { dueDate: "2026-09-01" }))!;
+    expect(resp.status).toBe(200);
+    expect((await resp.json()).dueDate).toBe("2026-09-01");
+  });
+
+  test("rotta agente: un campo che solo la board sa applicare è 400 lì, non silenzio", async () => {
+    const t = await (await call(router, "POST", "/api/sessions/s1/tasks", { text: "x" }))!.json();
+    const resp = (await call(router, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { kanbanOrder: 7 }))!;
+    expect(resp.status).toBe(400);
+    expect((await resp.json()).fields).toEqual(["kanbanOrder"]);
+  });
+
+  test("la patch buona resta un 200 su entrambe le rotte", async () => {
+    const t = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "x" }))!.json();
+    const human = (await call(router, "PATCH", `/api/boards/pX/tasks/${t.id}`, {
+      text: "y", description: null, priority: 3, status: "todo", kanbanOrder: 2,
+      outputUrl: "", model: null, blockedByTaskId: null, reuseBlockerContext: true,
+      planFirst: true, parentTaskId: null, previewImage: "",
+    }))!;
+    expect(human.status).toBe(200);
+    const a = await (await call(router, "POST", "/api/sessions/s1/tasks", { text: "x" }))!.json();
+    const agent = (await call(router, "PATCH", `/api/sessions/s1/tasks/${a.id}`, {
+      status: "in_progress", priority: 1, assignee: "claude", output_url: "", text: "z",
+      description: "d", previewImage: "",
+    }))!;
+    expect(agent.status).toBe(200);
+  });
 });
