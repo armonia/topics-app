@@ -13,6 +13,8 @@ import {
   extractIndexedElementsOnPage,
   captureAnnotatedScreenshotOnPage,
 } from "./browser-dom-walker";
+import { browserMarkArg } from "./lib/browser-orphan-sweep";
+import { reapOrphanBrowsersAtBoot } from "./services/browser-orphan-reap";
 
 interface BrowserContextEntry {
   context: BrowserContext;
@@ -96,6 +98,18 @@ interface BrowserServiceOptions {
    *  unit-tested without a live browser. Defaults to
    *  playwright chromium.connectOverCDP(endpoint). */
   connectOverCDP?: (endpoint: string) => Promise<Browser>;
+  /**
+   * Spazza i Chromium marchiati che un server morto sporco ha lasciato in giro
+   * (`server/services/browser-orphan-reap.ts`).
+   *
+   * SPENTO di serie, e lo accende SOLO server.ts. Non è timidezza: il fondo di
+   * quella catena è un SIGKILL su pid letti da `ps`, e una ventina di test
+   * unitari costruiscono un BrowserService per motivi che con i processi non
+   * c'entrano niente. Un segnale che parte come effetto collaterale di un
+   * costruttore è il tipo di cosa che si scopre dopo. L'interruttore a caldo,
+   * per chi ce l'ha già acceso, è `TOPICS_BROWSER_SWEEP=0` (o `=dry`).
+   */
+  sweepOrphansAtBoot?: boolean;
 }
 
 const MAX_CONSOLE_MESSAGES = 100;
@@ -563,6 +577,12 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
         "--disable-setuid-sandbox",
         "--disable-dev-shm-usage",
         `--remote-debugging-port=${cdpPort}`,
+        // Il marchio. Chromium ignora gli switch che non conosce, `ps` invece
+        // ce lo restituisce: è così che il prossimo avvio riconosce questo
+        // processo come proprio se noi moriamo di SIGKILL e lui sopravvive.
+        // Il pid dentro è il NOSTRO, non il suo: è il padre di cui si verifica
+        // la morte. Vedi server/lib/browser-orphan-sweep.ts.
+        browserMarkArg("agent", process.pid),
       ],
     });
     console.log(`[BrowserService] Chromium launched (CDP port: ${cdpPort})`);
@@ -1952,6 +1972,15 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
   // Start the reaper now — the server uses lazy launch and never calls
   // launch(), so this is the only thing that arms context + Chromium cleanup.
   startCleanup();
+
+  // La spazzata dei Chromium che una MORTE SPORCA del server precedente ha
+  // lasciato in giro. gracefulShutdown copre l'uscita pulita; questo copre
+  // SIGKILL, i crash e i riavvii che non arrivano al gestore, dove il browser
+  // sopravvive reparentato a launchd e nessuno lo riconosce più come nostro.
+  // Gira PRIMA di qualunque lancio, ed è il presupposto della regola: un
+  // browser marchiato col nostro pid, adesso, può solo essere un residuo di un
+  // server morto di cui il sistema ha riciclato il numero.
+  if (opts.sweepOrphansAtBoot) reapOrphanBrowsersAtBoot();
 
   return service;
 }
