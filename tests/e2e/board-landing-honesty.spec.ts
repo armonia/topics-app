@@ -181,7 +181,12 @@ test.describe("Done non mente: lo stato di atterraggio sta sulla card", () => {
     await expect(chip).toBeVisible();
     await expect(chip).toContainText("non su main");
     // Il RAMO: senza, la card dice che c'è un problema e non dove sta il lavoro.
-    await expect(chip).toContainText(UNLANDED_BRANCH);
+    // Nel testo va il nome SENZA il prefisso `topics/` (ce l'hanno tutti, e con
+    // quello il troncamento mangiava proprio la parte che distingue un ramo
+    // dall'altro); il nome intero resta nel `title`, che è il posto dove uno
+    // lo copia.
+    await expect(chip).toContainText(UNLANDED_BRANCH.replace(/^topics\//, ""));
+    await expect(chip).toHaveAttribute("title", new RegExp(UNLANDED_BRANCH));
   });
 
   test("LANDING-02: il drawer lo ripete e OFFRE l'azione che lo risolve", async ({ page }) => {
