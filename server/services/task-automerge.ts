@@ -718,6 +718,23 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
         // across every worktree, so this reads the same from the shared checkout.)
         let ahead = await runGit(repoPath, ["rev-list", "--count", `${defaultBranch}..${branch}`]);
         if (ahead.code !== 0) {
+          // Il ramo non c'è più, e NON vuol dire che il lavoro non sia atterrato:
+          // dopo un land riuscito il ramo viene POTATO. Da quel momento ogni
+          // tentativo di chiudere la card faceva ripartire un land che non
+          // trovava più niente e la rispediva in review. Misurato il 12/08 su
+          // `d0777424`: contenuto su main (`c2d20879`, antenato di main), ramo
+          // `topics/ardent-grouse` inesistente, e la card rimbalzava a ogni
+          // chiusura. Una card che non si può chiudere resta in review a sembrare
+          // una decisione che non è.
+          //
+          // La prova la porta il COMMIT della consegna, che sopravvive al ramo: se
+          // è dentro il ramo di destinazione non c'è niente da landare, ed è lo
+          // stesso esito di un ramo senza commit propri (il caso qui sotto).
+          const sha = delivery?.commit?.trim();
+          if (sha) {
+            const dentro = await runGit(repoPath, ["merge-base", "--is-ancestor", sha, defaultBranch]);
+            if (dentro.code === 0) return { status: "nothing", branch, deliveryDrift: drift };
+          }
           return { status: "skipped", code: "branch-missing", reason: `branch '${branch}' non trovato o non confrontabile con '${defaultBranch}'` };
         }
         if (ahead.stdout.trim() === "0") {

@@ -780,6 +780,47 @@ describe("tryMerge senza agente — la consegna col ramo intatto resta landabile
     if (res.status === "skipped") expect(landFallout(res.code).status).toBe("review");
   });
 
+  test("ramo POTATO ma commit dentro main: e' atterrato, non e' un land fallito", async () => {
+    // Il difetto, misurato il 12/08 su `d0777424`: dopo un land riuscito il ramo
+    // viene potato. Da quel momento chiudere la card faceva ripartire un land
+    // che non trovava piu' il ramo, rispondeva `branch-missing` e la rimandava in
+    // review. La card non si poteva chiudere, e restava li' a sembrare una
+    // decisione da prendere. Il commit sopravvive al ramo ed e' la prova.
+    const git = fakeGit({
+      "symbolic-ref --short": { stdout: "main\n" },
+      "status --porcelain": { stdout: "" },
+      "rev-list --count": { code: 128, stderr: "fatal: unknown revision" },
+      "merge-base --is-ancestor": { code: 0, stdout: "" },
+    });
+    const am = createTaskAutoMerge({
+      resolveTaskMerge: () => null,
+      declaredDelivery: () => DECLARED,
+      runGit: git.run,
+    });
+    const res = await am.tryMerge("t1", "x", { branch: DECLARED.branch, commit: "c2d20879aaaabbbbccccddddeeeeffff00001111" });
+    expect(res.status).toBe("nothing");
+  });
+
+  test("ramo potato e commit NON su main: resta un land fallito", async () => {
+    // Il controllo del test qui sopra: la prova per commit non deve diventare
+    // «chiudi comunque». Se il contenuto non e' su main, il lavoro e' davvero
+    // fuori e la card deve tornare indietro.
+    const git = fakeGit({
+      "symbolic-ref --short": { stdout: "main\n" },
+      "status --porcelain": { stdout: "" },
+      "rev-list --count": { code: 128, stderr: "fatal: unknown revision" },
+      "merge-base --is-ancestor": { code: 1, stdout: "" },
+    });
+    const am = createTaskAutoMerge({
+      resolveTaskMerge: () => null,
+      declaredDelivery: () => DECLARED,
+      runGit: git.run,
+    });
+    const res = await am.tryMerge("t1", "x", { branch: DECLARED.branch, commit: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef" });
+    expect(res.status).toBe("skipped");
+    if (res.status === "skipped") expect(res.code).toBe("branch-missing");
+  });
+
   test("niente agente e niente ramo → resta «no-branch», e il messaggio non parla più di worktree inesistenti", async () => {
     const git = fakeGit({});
     const am = createTaskAutoMerge({
