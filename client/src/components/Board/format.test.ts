@@ -13,7 +13,7 @@
  * L'inglese si prova a parte, perché lì il plurale esiste davvero.
  */
 import { describe, test, expect } from 'bun:test';
-import { attemptStat, taskCopyText } from './format';
+import { attemptStat, descSummary, fmtCount, taskCopyText } from './format';
 import { formatAttemptStat } from '../../../../shared/task-attempt';
 import { t } from '../../lib/i18n';
 import type { TaskAttempt } from '../../lib/board';
@@ -69,5 +69,49 @@ describe('taskCopyText', () => {
 
   test('gli spazi ai bordi non finiscono negli appunti', () => {
     expect(taskCopyText({ text: '  Titolo  ', description: '\n  corpo\n\n' })).toBe('Titolo\n\ncorpo');
+  });
+});
+
+/**
+ * `descSummary` — l'accenno che rende una descrizione CHIUSA distinguibile da
+ * una descrizione assente. Il caso vero: `d4fcce17`, 2.578 caratteri di piano,
+ * letto come «non c'è una descrizione utile» perché la sezione era chiusa.
+ */
+describe('descSummary', () => {
+  test('prende la prima riga di prosa, senza i marcatori del markdown', () => {
+    expect(descSummary('## Il piano\n\nDue segnalazioni, stessa superficie.'))
+      .toBe('Il piano');
+    expect(descSummary('- **Cosa** verificare prima di scrivere codice'))
+      .toBe('Cosa verificare prima di scrivere codice');
+    expect(descSummary('1. Misura, poi cambia')).toBe('Misura, poi cambia');
+  });
+
+  test('le righe di sola decorazione non sono un accenno', () => {
+    expect(descSummary('---\n\n■\n\nIl fatto che conta.')).toBe('Il fatto che conta.');
+  });
+
+  test('taglia lungo e mette i puntini, senza spazio penzolante', () => {
+    const out = descSummary('a'.repeat(200));
+    expect(out).toHaveLength(120);
+    expect(out.endsWith('…')).toBe(true);
+    expect(descSummary('parola '.repeat(30), 12)).toBe('parola paro…');
+  });
+
+  test('vuoto resta vuoto: senza descrizione non si inventa un accenno', () => {
+    expect(descSummary(null)).toBe('');
+    expect(descSummary(undefined)).toBe('');
+    expect(descSummary('   \n\n  ')).toBe('');
+  });
+});
+
+describe('fmtCount', () => {
+  test('i separatori ci sono anche a quattro cifre (ICU italiano li salterebbe)', () => {
+    expect(fmtCount(2578, 'it')).toBe('2.578');
+    expect(fmtCount(2578, 'en')).toBe('2,578');
+  });
+
+  test('gli ordini di grandezza restano coerenti fra loro', () => {
+    expect(fmtCount(12578, 'it')).toBe('12.578');
+    expect(fmtCount(120, 'it')).toBe('120');
   });
 });
