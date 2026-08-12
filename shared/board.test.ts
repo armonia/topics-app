@@ -166,6 +166,7 @@ describe("perché questa card è ferma", () => {
   };
   const ctx = {
     now: NOW, autoDispatch: true, retryCap: 2, ahead: 0,
+    heavyHeld: false, behind: 0,
     parentStatus: null as string | null, projectless: false,
     formatTime: () => "06:40",
   };
@@ -177,6 +178,30 @@ describe("perché questa card è ferma", () => {
       kind: "slot", tone: "queued", head: "in coda", detail: "3 davanti",
     });
     expect(reason({}, { ahead: 0 }).detail).toBe("la prossima");
+  });
+
+  test("un pesante trattenuto dice che è LUI il tappo, non «in coda, 0 davanti»", () => {
+    // Il guasto del 12/08: un pesante con priorità alta si piazza in testa, il
+    // ramo trattenuto del tick fa `break`, e la board intera si ferma. Ogni card
+    // portava lo stesso chip «in coda», compresa quella che le fermava tutte.
+    const tappo = reason({ dispatchState: "queued" }, { heavyHeld: true, behind: 7, ahead: 0 });
+    expect(tappo.kind).toBe("heavy_hold");
+    expect(tappo.detail).toContain("7 dietro");
+    expect(tappo.title).toContain("7 task");
+    // Riparte da sé (c'è un tetto all'attesa): è «waiting», non «stalled».
+    expect(tappo.tone).toBe("waiting");
+    // E soprattutto NON è la frase di prima, che a fila ferma diceva pure il vero.
+    expect(reason({}, { ahead: 0 }).detail).toBe("la prossima");
+    expect(tappo.detail).not.toBe("la prossima");
+  });
+
+  test("il tappo non copre le ragioni della card, né l'interruttore spento", () => {
+    // Precedenza: un pesante trattenuto che ha finito i tentativi non «tiene la
+    // coda», è fermo per conto suo; e a dispatch spento non c'è coda da tappare.
+    const held = { heavyHeld: true, behind: 4 };
+    expect(reason({ dispatchAttempts: 2, dispatchState: "queued" }, held).kind).toBe("attempts");
+    expect(reason({ dispatchState: "queued" }, { ...held, autoDispatch: false }).kind).toBe("dispatch_off");
+    expect(reason({ dispatchState: "queued", blockedByTaskId: "x" }, held).kind).toBe("blocked");
   });
 
   test("«aspetta uno slot» e «non partirà mai» non sono più la stessa parola", () => {
