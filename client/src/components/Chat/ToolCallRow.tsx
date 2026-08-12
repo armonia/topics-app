@@ -195,7 +195,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
   const costFromTokens = typeof toolCall.tokens === 'number' ? formatTokensCompact(toolCall.tokens) : '';
   const costLabel = costFromCents || (costFromTokens ? `${costFromTokens} tok` : '');
   const costTitle = costFromCents
-    ? `Costo di questa azione${costFromTokens ? ` · ${costFromTokens} token` : ''} — la chiamata che l'ha decisa`
+    ? `Costo di questa azione${costFromTokens ? ` · ${costFromTokens} token` : ''} · la chiamata che l'ha decisa`
     : costFromTokens
       ? `${costFromTokens} token attribuiti a questa azione`
       : undefined;
@@ -340,7 +340,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
           <ShieldOff size={11} className="mt-[3px] flex-shrink-0" />
           <span>
             Questa chat è passata in <strong>modalità libera</strong>
-            {toolCall.permissionOutcome.actor ? ` — da ${toolCall.permissionOutcome.actor}` : ''}: da qui in poi
+            {toolCall.permissionOutcome.actor ? ` · da ${toolCall.permissionOutcome.actor}` : ''}: da qui in poi
             esegue senza chiedere. Si torna indietro dal selettore di autonomia, accanto al campo di testo.
           </span>
         </div>

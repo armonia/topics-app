@@ -107,7 +107,7 @@ export function formatReviewNotes(notes: DiffNote[]): string {
   const sorted = [...notes].sort((a, b) =>
     a.path === b.path ? a.line - b.line : a.path.localeCompare(b.path));
   const files = new Set(sorted.map((n) => n.path)).size;
-  const head = `Revisione del diff — ${sorted.length} ${sorted.length === 1 ? 'commento' : 'commenti'} su ${files} file.`;
+  const head = `Revisione del diff: ${sorted.length} ${sorted.length === 1 ? 'commento' : 'commenti'} su ${files} file.`;
   const blocks = sorted.map((n) => {
     const where = n.side === 'old' ? ` (riga rimossa, numerazione precedente)` : '';
     const fence = fenceFor(n.code);
@@ -122,6 +122,6 @@ export function formatReviewNotes(notes: DiffNote[]): string {
   return [
     head,
     ...blocks,
-    'Rispondi punto per punto — con una modifica o con il motivo per cui resta così — poi committa e rimetti il task in review.',
+    'Rispondi punto per punto, con una modifica o con il motivo per cui resta così. Poi committa e rimetti il task in review.',
   ].join('\n\n');
 }

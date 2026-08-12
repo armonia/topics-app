@@ -1294,6 +1294,30 @@ const taskAutoMerge = createTaskAutoMerge({
     if (!repoPath) return null;
     return { repoPath, branch: wt.branchName, defaultBranch: "main" };
   },
+  // Il ripiego che NON passa dall'agente. `worktreeOfTask` risolve attraverso
+  // `assigned_topic_id`, che si svuota ogni volta che l'agente viene rilasciato
+  // — cosa di routine — e da lì in poi una consegna col ramo intatto diventava
+  // non-landabile. La card però il ramo lo dichiara da sé (`delivery_branch`,
+  // registrato quando è entrata in review), e il checkout del suo progetto si
+  // ricava dal board id come fa l'audit: invertendo l'hash del percorso.
+  declaredDelivery: (taskId) => {
+    const task = dispatcherSvc.get(taskId)?.task;
+    if (!task) return null;
+    const branch = task.deliveryBranch ?? null;
+    if (!branch) return null;
+    let repoPath: string | null = null;
+    try {
+      repoPath = resolveProjectPath(
+        task.projectId,
+        buildProjectCandidates({
+          projectStore: ctx.projectStore,
+          workspaceDir: DISPATCH_WORKSPACE_DIR,
+          extraPaths: dispatchExtraPaths,
+        }),
+      )?.path ?? null;
+    } catch (err) { console.warn("[land] checkout non risolto per", taskId, err); }
+    return { repoPath, branch };
+  },
   log: (msg, err) => console.error(msg, err ?? ""),
 });
 

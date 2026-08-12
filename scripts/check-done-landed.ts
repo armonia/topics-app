@@ -17,6 +17,12 @@
  * che l'arretrato è stato smaltito, e accorgersi se il cancello ricomincia a
  * perdere.
  *
+ * Due conti, non uno. Quello storico — le card chiuse col commit di consegna
+ * fuori dal contenuto di main — e quello RECUPERABILE: le card chiuse il cui
+ * RAMO esiste ancora e non è dentro main, cioè quelle che un click su «Landa su
+ * main» rimette a posto adesso. Il secondo è la barra che deve dire zero: il
+ * primo contiene anche rami già potati, che nessun bottone può più salvare.
+ *
  *   bun run check:landed              # esce ≠0 se una sola card done non è su main
  *   bun run check:landed --json       # una riga JSON, per chi la vuole leggere a macchina
  *   bun run check:landed --strict     # fallisce anche sui commit SPARITI dal repo
@@ -36,7 +42,7 @@ import { homedir } from "os";
 import { join } from "path";
 import { Database } from "bun:sqlite";
 import { projectIdForPath } from "../server/services/tasks";
-import { commitStatusFromRepo, type BranchStatus } from "../server/services/branch-status";
+import { branchExistsInRepo, commitStatusFromRepo, countCommitsAhead, resolveCommit, type BranchStatus } from "../server/services/branch-status";
 import { scanWorkspaceProjects } from "../server/services/project-path-resolver";
 
 const argv = process.argv.slice(2);
@@ -202,6 +208,42 @@ function turniPagatiDopoUnLand(): { turni: number; usd: number; ultimo: string |
   }
 }
 
+/**
+ * Le card chiuse che sono ancora RECUPERABILI: il ramo di consegna esiste
+ * tuttora nel repo e il suo contenuto non è dentro main. Sono quelle che un
+ * click su «Landa su main» rimette a posto adesso — e per questo sono la misura
+ * che deve dire zero, mentre il conto qui sopra include anche i rami già potati,
+ * che nessun bottone può più salvare.
+ *
+ * Misurata la notte del 12/08 su `ee5ebbb4`: il land risolveva il worktree
+ * ATTRAVERSO l'agente, quindi appena l'agente veniva rilasciato — a fine turno,
+ * o fermandolo a mano — una consegna col ramo intatto diventava non-landabile e
+ * la card restava in Done. Il cancello sta in `chooseMergeTarget`; questa è la
+ * misura che dice se ne è rimasta fuori qualcuna.
+ *
+ * Due domande, in ordine di costo: quanti commit ha il ramo oltre main
+ * (discendenza, una `rev-list`), e solo se ne ha, se il loro contenuto è
+ * comunque di là (il land RICOPIA i commit, quindi la discendenza da sola
+ * accuserebbe lavoro già atterrato).
+ */
+interface Alive { id: string; text: string; branch: string; ahead: number; repoPath: string }
+
+async function liveBranchesOutsideMain(): Promise<Alive[]> {
+  const alive: Alive[] = [];
+  for (const v of verdicts) {
+    if (!v.branch || !v.repoPath) continue;
+    if (!(await branchExistsInRepo(v.repoPath, v.branch))) continue;
+    const ahead = await countCommitsAhead(v.repoPath, v.branch);
+    if (!ahead) continue; // 0 = già dentro per discendenza · null = non contabile
+    const tip = await resolveCommit(v.repoPath, v.branch);
+    if (!tip) continue;
+    if ((await commitStatusFromRepo(v.repoPath, tip)) !== "unmerged") continue;
+    alive.push({ id: v.id, text: v.text, branch: v.branch, ahead, repoPath: v.repoPath });
+  }
+  return alive;
+}
+
+const aliveOutside = await liveBranchesOutsideMain();
 const outside = verdicts.filter((v) => v.status === "unmerged");
 const pruned = verdicts.filter((v) => v.status === "gone");
 const unresolved = verdicts.filter((v) => v.status === "no-repo");
@@ -214,6 +256,9 @@ if (JSON_OUT) {
     outsideMain: outside.length,
     pruned: pruned.length,
     unresolvedProject: unresolved.length,
+    // La misura che deve dire zero: chiuse, col ramo ancora lì, fuori da main.
+    liveBranchOutsideMain: aliveOutside.length,
+    recoverable: aliveOutside.map((a) => ({ id: a.id, branch: a.branch, ahead: a.ahead, text: a.text.slice(0, 80) })),
     witnessed: verdicts.filter((v) => v.fonte === "land").length,
     turniPagatiDopoUnLand: turniPagatiDopoUnLand(),
     cards: outside.map((v) => ({ id: v.id, commit: v.commit, branch: v.branch, fonte: v.fonte, text: v.text.slice(0, 80) })),
@@ -235,6 +280,15 @@ if (JSON_OUT) {
     `  esito registrato dal land: ${witnessed}/${verdicts.length} · ` +
     `dedotto qui dal solo commit: ${verdicts.length - witnessed}`,
   );
+  // La riga che si guarda per prima: queste si riparano con un click, e finché
+  // non è zero c'è del lavoro consegnato che sta aspettando di sparire col GC.
+  console.log(
+    `  card done col RAMO ancora vivo e FUORI da main (landabili adesso): ${aliveOutside.length}` +
+    (aliveOutside.length === 0 ? "  ✓" : ""),
+  );
+  for (const a of aliveOutside) {
+    console.log(`    · ${a.id.slice(0, 8)} ${a.branch} (+${a.ahead}) — ${a.text.slice(0, 60)}`);
+  }
   const spreco = turniPagatiDopoUnLand();
   if (spreco.turni < 0) {
     console.log("  turni pagati dopo un land: non misurabile su questo database (niente costi sui messaggi)");
@@ -274,4 +328,4 @@ if (JSON_OUT) {
   }
 }
 
-process.exit(outside.length > 0 || (STRICT && pruned.length > 0) ? 1 : 0);
+process.exit(outside.length > 0 || aliveOutside.length > 0 || (STRICT && pruned.length > 0) ? 1 : 0);

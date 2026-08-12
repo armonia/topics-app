@@ -35,5 +35,5 @@ export function formatSubAgentExitBody(info: Pick<SubAgentExitInfo, 'result' | '
 /** Full assistant-message content for a sub-agent exit: a bold header naming the
  *  sub-agent, then its result body. */
 export function formatSubAgentExitMessage(info: Pick<SubAgentExitInfo, 'name' | 'result' | 'exitCode'>): string {
-  return `🤖 **Sotto-agente "${info.name}" — esito:**\n\n${formatSubAgentExitBody(info)}`;
+  return `🤖 **Sotto-agente "${info.name}", esito:**\n\n${formatSubAgentExitBody(info)}`;
 }

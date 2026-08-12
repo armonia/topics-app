@@ -99,8 +99,8 @@ channel. The Electron channel (`v*`) was **archived in v2.0.0**: its build autom
 ### Tauri (primary — the v2 channel)
 
 Tag `tauri-vX.Y.Z` — it must match the `version` in
-`desktop-tauri/src-tauri/tauri.conf.json` (kept in lockstep with the root
-`package.json` and `desktop-tauri/src-tauri/Cargo.toml`). CI
+`desktop-tauri/src-tauri/tauri.conf.json`, which is kept in lockstep with the other
+three places the number is written (see **Bumping the version** below). CI
 (`.github/workflows/tauri-release.yml`) builds a **Universal macOS** app plus Windows
 and Linux installers with `tauri-apps/tauri-action`, and publishes them to a **draft**
 GitHub Release together with the `latest.json` auto-update manifest.
@@ -110,6 +110,43 @@ scripts/ship.sh          # tags origin/main's version + pushes → builds the dr
 # then publish the draft (this is what pushes the update to users):
 gh release edit tauri-v<version> --draft=false
 ```
+
+#### Bumping the version — one gesture, never by hand
+
+The version is written in **four** places, and the fourth is the one that gets
+forgotten:
+
+| | |
+|---|---|
+| `package.json` | `"version"` — the canonical number (also baked into the client bundle as `__APP_VERSION__`) |
+| `desktop-tauri/src-tauri/tauri.conf.json` | `"version"` — what the release tag must match |
+| `desktop-tauri/src-tauri/Cargo.toml` | the `[package]` version |
+| `desktop-tauri/src-tauri/Cargo.lock` | the `[[package]] name = "app"` stanza |
+
+**Never open those files.** One command writes all four:
+
+```bash
+bun run bump              # patch (also: minor, major)
+bun run bump 2.3.0        # exactly this version
+bun run bump sync         # repair: realign the other three to package.json
+```
+
+The first three are configuration files you open on purpose; the lock is generated
+by cargo and nobody edits it by hand — which is exactly why a hand-made bump touches
+three of four. It happened twice in one night (`d18b2db5`, `b1f4d6ff`); both times
+`bun run test:unit` caught it (`tests/unit/version-lockstep.test.ts`) and both times
+it was patched by hand before landing. The gate isn't the missing piece — the gesture
+was. `bun run bump sync` is the one to reach for when the gate is already red.
+
+What it costs to skip: `Cargo.toml` wins over the lock anyway, so nothing breaks at
+build time. What breaks is the tree — anyone running `cargo check` in `desktop-tauri/`
+finds `Cargo.lock` modified without having touched anything, and that stray line is
+how a version ends up inside a commit about something else.
+
+Derivation instead of a script was considered and doesn't close the hole: Tauri can
+point `version` at `package.json`, but Cargo needs a literal in `Cargo.toml` and the
+lock follows `Cargo.toml`. A single source removes at most one of the four — never
+the one that is actually forgotten.
 
 #### La firma macOS: perché conta anche senza pagare Apple
 

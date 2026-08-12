@@ -25,7 +25,7 @@ export function shellProcessKey(sessionKey: string, shellId: string): string {
  */
 
 export function backgroundShellBanner(shellId: string): string {
-  return `[shell in background dell'agente — id ${shellId}]`;
+  return `[shell in background dell'agente, id ${shellId}]`;
 }
 
 /** Toglie l'intestazione, se la coda del log parte proprio da lì. */

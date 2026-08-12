@@ -156,6 +156,8 @@ export const PREVIEW_CARD_MAX_WIDTH_PX = 380;
  * `server/services/task-dispatcher.test.ts` verifica che le copie siano ancora
  * la stessa stringa.
  */
+// allow-emdash-block: da qui alla fine dei cancelli è il BRIEFING dell'agent,
+// un prompt letto da un modello e non un testo della app.
 export const PREVIEW_RULE = [
   "EVIDENZA DI REVIEW = un'ANTEPRIMA durevole nel task — update_task(preview_image=<path assoluto sotto ~/.topics/media/ o nel workspace del task; stringa vuota = azzera>), che compare come card sulla board e nel drawer. Tre rami, e a scegliere è il criterio, non l'abitudine:",
   `· SCREENSHOT .png — la consegna HA una superficie renderizzata che entra in una schermata. Catturala a viewport ≤1440×900 e con altezza/larghezza ≤ ${PREVIEW_CARD_MAX_RATIO.toFixed(2)} (la card ritaglia l'eccedenza dal basso invece di rimpicciolirla). Mai un full-page.`,
@@ -192,9 +194,35 @@ export const PREVIEW_RULE = [
  * per board (`reviewChecks`) — questa stringa non li sostituisce, li precede.
  */
 export const CODE_GATES_RULE = [
-  "I QUATTRO CANCELLI del codice, e valgono TUTTI prima di consegnare — i nomi degli script li leggi in `package.json`, i cancelli no: tipi (`bun run typecheck`), lint (`bun run lint`), codice morto (`bun run check:deadcode`), test unitari (`bun run test:unit`).",
+  "I CINQUE CANCELLI del codice, e valgono TUTTI prima di consegnare — i nomi degli script li leggi in `package.json`, i cancelli no: tipi (`bun run typecheck`), lint (`bun run lint`), codice morto (`bun run check:deadcode`), test unitari (`bun run test:unit`), prosa (`bun run check:emdash`).",
+  "Il quinto è nuovo e sorprende: `check:emdash` rifiuta il trattino lungo in QUALUNQUE testo del repo, comprese le stringhe di protocollo e i commenti che scrivi nel codice. Non si sostituisce con un trattino corto: la frase che il trattino teneva insieme erano due frasi, e si spezzano. Se il carattere E' il dato, la riga finisce con `// allow-emdash: <ragione>`.",
   "Il terzo è quello che si dimentica sempre: per il gate del codice morto un file che NESSUNO IMPORTA è codice morto. Quindi uno script che si lancia a mano (una sonda, un banco, una misura) va DICHIARATO fra gli entry del progetto nello stesso commit che lo aggiunge — con knip: la voce col suffisso `!` in `knip.jsonc` (come `scripts/disk-report.ts!`), e accanto la riga di commento che dice come si lancia.",
 ].join("\n");
+
+// end-allow-emdash
+
+/**
+ * Il bump di versione è UN GESTO, non quattro modifiche a mano.
+ *
+ * Misurato nella notte dell'11-12/08: due card diverse (`d18b2db5`, `b1f4d6ff`)
+ * hanno bumpato la versione toccando TRE posti su quattro, e in entrambi i casi
+ * quello lasciato indietro era `Cargo.lock`. Il cancello
+ * (`tests/unit/version-lockstep.test.ts`) le ha prese entrambe, e in entrambi i
+ * casi l'umano ha riallineato il numero a mano prima di landare.
+ *
+ * La causa non è la distrazione ed è la stessa forma di `CODE_GATES_RULE`: chi
+ * bumpa apre i file di CONFIGURAZIONE, e il quarto posto è un lockfile generato
+ * dal build system che nessuno apre mai a mano. Un gesto manuale su un file che
+ * nessuno modifica a mano si dimentica per costruzione, non per svista — e un
+ * cancello che ha ragione ma non nomina il rimedio costa un giro ogni volta.
+ *
+ * Perciò la riga nomina il GESTO, non i file: i posti da toccare cambiano da
+ * repo a repo, «non aprirli a mano» no. I nomi degli script valgono come
+ * ESEMPIO, esattamente come nei cancelli: la riga dice di leggerli in
+ * `package.json`.
+ */
+export const VERSION_BUMP_RULE =
+  "BUMP DI VERSIONE = UN COMANDO, mai i file a mano. Il nome lo leggi in `package.json` (qui `bun run bump [patch|X.Y.Z]`, e `bun run bump sync` per riallineare un albero già scollato). Il numero è scritto in PIÙ posti e uno è un file GENERATO (un lockfile): è l'unico che non si apre mai a mano, quindi è l'unico che un bump manuale dimentica: è già successo due volte in una notte.";
 
 /**
  * Ritaglia il blocco `PREVIEW_RULE` da un envelope già composto, per STRUTTURA
