@@ -1,5 +1,5 @@
 import { test, expect, describe } from 'bun:test';
-import { blockedByChip, boardIdForPath, TASK_STATUSES, parseQuestionBlock, type BoardTask } from './board';
+import { blockedByChip, reopenedChip, boardIdForPath, TASK_STATUSES, parseQuestionBlock, type BoardTask } from './board';
 
 describe('boardIdForPath', () => {
   // Parity lock with the server (services/tasks.ts:projectIdForPath). Must stay
@@ -103,5 +103,37 @@ describe('blockedByChip', () => {
 
   test('bloccante archiviato: muto', () => {
     expect(chip({ blockedBy: { id: 'blk', text: 'Archiviato', status: 'todo', archived: true } })).toBeNull();
+  });
+});
+
+describe('reopenedChip', () => {
+  const chip = (over: Partial<BoardTask> = {}) =>
+    reopenedChip({ reopenedAt: null, reopenedBy: null, reopenedActor: null, ...over } as BoardTask);
+
+  test('mai uscita da done: nessun chip', () => {
+    expect(chip()).toBeNull();
+  });
+
+  test('riaperta da un agent: il chip lo dice, e dice CHI', () => {
+    const c = chip({ reopenedAt: '2026-08-11T09:30:00.000Z', reopenedBy: 'claude', reopenedActor: 'agent' });
+    expect(c?.label).toBe('riaperta');
+    expect(c?.title).toContain('agent');
+    expect(c?.title).toContain('claude');
+    // `detail` è la frase per la banda del drawer, che ha già «Riaperta» in
+    // grassetto: se ripetesse il preambolo del tooltip sarebbe illeggibile.
+    expect(c?.detail).toContain('agent');
+    expect(c?.detail).not.toContain('Riaperta');
+    expect(c?.detail).not.toContain('Era in Done');
+  });
+
+  test('riaperta dall’umano o dal sistema: stesso chip, autore diverso', () => {
+    expect(chip({ reopenedAt: '2026-08-11T09:30:00.000Z', reopenedActor: 'human' })?.title).toContain('da te');
+    expect(chip({ reopenedAt: '2026-08-11T09:30:00.000Z', reopenedActor: 'system' })?.title).toContain('dal sistema');
+  });
+
+  test('data illeggibile: il chip resta (non è il timestamp a doverlo tenere in piedi)', () => {
+    const c = chip({ reopenedAt: 'non-una-data', reopenedActor: 'agent' });
+    expect(c?.label).toBe('riaperta');
+    expect(c?.title).toContain('non-una-data');
   });
 });
