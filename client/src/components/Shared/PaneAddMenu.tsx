@@ -211,7 +211,7 @@ export interface PaneAddMenuProps extends Omit<PaneAddMenuItemsProps, 'onClose'>
    *     that reopens the column), with room for a `triggerKbd` hint.
    *
    *  The size also drives the inner `Plus` icon (14px / 18px). */
-  triggerVariant?: 'pill' | 'ghost' | 'header';
+  triggerVariant?: 'pill' | 'ghost' | 'header' | 'bar';
   /** Keyboard-shortcut hint rendered INSIDE the trigger (kbd style — same
    *  as the sidebar Search button's ⌘K). Desktop only; hidden on mobile. */
   triggerKbd?: string;
@@ -327,7 +327,14 @@ export function PaneAddMenu({
   // The 'header' variant matches the sidebar Search button — compact h-7
   // RAISED_CONTROL plate with an inline kbd hint.
   const triggerBase =
-    triggerVariant === 'header'
+    // 'bar' — una delle tre porte della fila in fondo al telefono
+    // (MobileChromeBar): glifo sopra, parola sotto, 44 di altezza come le sue
+    // vicine. Non è una quarta pelle per gusto: quel bottone DEVE essere questo
+    // componente — è lo stesso elenco di cose creabili del desktop — e deve
+    // sembrare i suoi due fratelli, che non sono menu.
+    triggerVariant === 'bar'
+      ? 'flex min-w-[64px] h-11 flex-col items-center justify-center gap-0.5 rounded-xl px-3 text-app-text transition-colors hover:bg-black/[0.05] dark:hover:bg-white/[0.05]'
+      : triggerVariant === 'header'
       ? `edge-lit ${isMobile ? 'h-11 w-11 justify-center' : 'h-7'} flex items-center gap-1.5 rounded-lg ${RAISED_CONTROL} text-app-text transition-colors flex-shrink-0`
       : triggerVariant === 'ghost'
         ? `${isMobile ? 'w-11 h-11' : 'w-7 h-7'} flex items-center justify-center text-app-text hover:text-app-text hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0`
@@ -340,7 +347,7 @@ export function PaneAddMenu({
   // quello di WhatsApp, mi sembra più piccolo». In una scatola da 28 un glifo
   // da 14 occupa metà larghezza e legge come mezzo comando; 16 la riempie
   // senza toccarne i bordi. Col dito la scatola è 36, quindi il glifo sale a 20.
-  const triggerIconSize = isMobile ? 20 : 16;
+  const triggerIconSize = triggerVariant === 'bar' ? 22 : isMobile ? 20 : 16;
 
   const menuItems = (
     <PaneAddMenuItems
@@ -369,7 +376,11 @@ export function PaneAddMenu({
         data-testid="pane-add-menu-trigger"
       >
         <Plus size={triggerIconSize} aria-hidden="true" />
-        {triggerLabel && <span className="text-[13px] font-medium">{triggerLabel}</span>}
+        {triggerLabel && (
+          <span className={triggerVariant === 'bar' ? 'text-[10px] font-medium leading-none' : 'text-[13px] font-medium'}>
+            {triggerLabel}
+          </span>
+        )}
         {triggerKbd && !isMobile && (
           <kbd className="kbd flex-shrink-0 hidden md:inline" aria-hidden="true">{triggerKbd}</kbd>
         )}
