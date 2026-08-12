@@ -36,7 +36,7 @@ import { landFallout, type TaskAutoMerge } from "../services/task-automerge";
 import type { LandingState } from "../services/landing-audit";
 import { createLandingQueue, type LandingTicket } from "../services/landing-queue";
 import { decidePostLandReap, type BranchStatus, type LandOutcome } from "../services/worktree-gc";
-import { formatChecksComment, parseReviewChecks, runReviewChecks, type ReviewCheck } from "../services/review-checks";
+import { MAX_CHECKS, formatChecksComment, parseReviewChecks, runReviewChecks, type ReviewCheck } from "../services/review-checks";
 import { createTaskAttemptStore, type TaskAttempt } from "../services/task-attempts";
 import { linkNotes, proposeLink, type LinkKind } from "../services/task-intake";
 import { recordRetirement } from "../services/retirement";
@@ -1585,6 +1585,22 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         }
         if (method === "PATCH") {
           const body = (await readJSON(req)) as any;
+          // Più check del tetto: si dice, non si tronca. Il 12/08 una board ha
+          // dichiarato i suoi sei gate, ne sono stati salvati cinque, e il
+          // troncato era `test:unit` — l'unico che quella notte trovava i rossi.
+          // La board ha continuato a mostrare "verde" su consegne rotte.
+          if (Array.isArray(body?.reviewChecks) && body.reviewChecks.length > MAX_CHECKS) {
+            return json(
+              {
+                error:
+                  `troppi check: ne hai mandati ${body.reviewChecks.length}, il massimo è ${MAX_CHECKS}. ` +
+                  "Non ne salvo un sottoinsieme: avresti un cancello che credi di avere e non hai. " +
+                  "Togline qualcuno, o unisci due comandi in uno solo.",
+                code: "review_checks_too_many",
+              },
+              400,
+            );
+          }
           try {
             const settings = svc.updateBoardSettings(projectId, {
               autoDispatch: typeof body?.autoDispatch === "boolean" ? body.autoDispatch : undefined,
@@ -1601,6 +1617,11 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               // Passa dal parser tollerante: il pannello manda una lista di
               // stringhe (una riga = un comando), la board può averne una lunga
               // salvata a mano. Una sola forma canonica esce da qui.
+              //
+              // Il TRONCAMENTO oltre `MAX_CHECKS` resta giusto in LETTURA (una
+              // config vecchia non deve rompere la board) ed è rifiutato in
+              // SCRITTURA appena sopra: chi ne manda sette e ne vede salvati
+              // cinque crede di avere un cancello che non ha.
               reviewChecks: body?.reviewChecks !== undefined
                 ? parseReviewChecks(JSON.stringify(body.reviewChecks))
                 : undefined,
