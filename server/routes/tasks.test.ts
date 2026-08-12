@@ -1438,7 +1438,7 @@ describe("intake: propone e mostra, non attribuisce", () => {
 
     // E LO DICE, da entrambi i lati — niente attribuzione muta.
     const mine = await (await call(router, "GET", `/api/boards/${PID}/tasks/${t.id}`))!.json();
-    expect(mine.comments.some((c: any) => c.author === "system" && c.content.includes("non parte finché"))).toBe(true);
+    expect(mine.comments.some((c: any) => c.author === "system" && c.content.includes("Non parte finché"))).toBe(true);
     expect(mine.comments.some((c: any) => c.content.includes(proposal.reason))).toBe(true);
     const target = await (await call(router, "GET", `/api/boards/${PID}/tasks/${card.id}`))!.json();
     expect(target.comments.some((c: any) => c.author === "system" && c.content.includes("in attesa di questa card"))).toBe(true);

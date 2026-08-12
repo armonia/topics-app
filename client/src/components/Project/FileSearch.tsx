@@ -321,7 +321,7 @@ export function FileSearch({ projectPaths, mode, onModeChange, onOpenFile, onClo
               ricerca. */}
           {failed && !loading && !regexError && (
             <div data-testid="file-search-error" className="text-center text-red-400 text-xs py-6 px-3">
-              Ricerca non riuscita — il progetto è ancora raggiungibile?
+              Ricerca non riuscita. Il progetto è ancora raggiungibile?
             </div>
           )}
           {!loading && !regexError && !failed && query && results.length === 0 && (
@@ -377,7 +377,7 @@ export function FileSearch({ projectPaths, mode, onModeChange, onOpenFile, onClo
               cose diverse e vanno dette diverse. */}
           {!loading && truncated && (
             <div className="text-center text-amber-500 text-[11px] py-2">
-              Ricerca interrotta al tempo massimo — i risultati sono parziali
+              Ricerca interrotta al tempo massimo, i risultati sono parziali
             </div>
           )}
           {!loading && !truncated && mode === 'content' && results.length >= 100 && (

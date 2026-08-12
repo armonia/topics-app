@@ -1900,7 +1900,7 @@ export function useChat() {
           }
           return prev;
         });
-        setError('Message queued — will send when reconnected');
+        setError('Message queued. It will send when reconnected.');
         return false;
       }
 

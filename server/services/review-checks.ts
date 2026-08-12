@@ -188,7 +188,7 @@ export function formatChecksComment(runs: CheckRun[], opts?: { commit?: string |
   const where = opts?.commit ? ` su \`${opts.commit.slice(0, 8)}\`` : "";
   const line = (r: CheckRun) => `${r.ok ? "✓" : "✗"} \`${r.name}\` (${fmtMs(r.ms)})`;
   if (!failed) {
-    return `**Checks pre-review verdi**${where} — ${runs.map(line).join(", ")}.`;
+    return `**Checks pre-review verdi**${where}: ${runs.map(line).join(", ")}.`;
   }
   const why = failed.spawnError
     ? `non è partito: ${failed.spawnError}`
@@ -196,7 +196,7 @@ export function formatChecksComment(runs: CheckRun[], opts?: { commit?: string |
       ? `oltre il tempo massimo`
       : `exit ${failed.code}`;
   return [
-    `**Checks pre-review ROSSI**${where} — \`${failed.name}\` ${why}.`,
+    `**Checks pre-review ROSSI**${where}: \`${failed.name}\` ${why}.`,
     runs.map(line).join("\n"),
     `Comando: \`${failed.cmd}\``,
     failed.tail ? "```\n" + failed.tail + "\n```" : "(nessun output)",

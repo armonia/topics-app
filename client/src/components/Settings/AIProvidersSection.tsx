@@ -215,7 +215,7 @@ export function AIProvidersSection() {
           <div className="mb-2 flex items-center gap-2 text-[11px] text-app-text-muted border border-dashed border-app-border rounded-md px-2 py-1.5">
             <AlertCircle size={12} className="flex-shrink-0" />
             <span className="flex-1 break-words">
-              Scelta salvata: <span className="font-mono">{settings.aiProvider}</span> — non è fra i
+              Scelta salvata: <span className="font-mono">{settings.aiProvider}</span>. Non è fra i
               provider registrati, quindi ora il default lo decide il ripiego.
             </span>
             <button

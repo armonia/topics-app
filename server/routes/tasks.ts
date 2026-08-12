@@ -488,7 +488,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         : "";
       svc.addComment({
         taskId, author: "system",
-        content: `⚠️ Worktree NON ripulito: ${post.reason}. Il branch del task è stato conservato — recupera il lavoro o cancellalo a mano.${nota}`,
+        content: `⚠️ Worktree NON ripulito: ${post.reason}. Il branch del task è stato conservato. Recupera il lavoro o cancellalo a mano.${nota}`,
       });
       return;
     }
@@ -749,7 +749,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               taskId, author: "system",
               content: build.code === 0
                 ? "Client ricostruito: la modifica è visibile (hard refresh se non appare)."
-                : `Build client fallita (exit ${build.code}) — lancia \`bun run build:client\` a mano.`,
+                : `Build client fallita (exit ${build.code}). Lancia \`bun run build:client\` a mano.`,
             });
             if (build.code !== 0) console.error("[land] build:client failed for", taskId, build.stderr.slice(-2000));
           }
@@ -779,13 +779,13 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           patch: { status: "in_progress" },
           statusReason: "il land ha fatto conflitto con main",
         });
-        svc.addComment({ taskId, author: "system", content: "Merge automatico in conflitto con main — rimando all'agent per risolvere." });
+        svc.addComment({ taskId, author: "system", content: "Merge automatico in conflitto con main. Rimando all'agent per risolvere." });
         dispatcher?.resume(
           taskId,
           'Il merge automatico del tuo branch su main è andato in conflitto. Rifai la BASE del tuo ramo sul main aggiornato (`git fetch` se serve, poi `git rebase main`), NON un merge di main dentro il ramo: risolvi i conflitti durante la rebase, ricommitta, poi rimetti in review con update_task(status="review"). Resta vietato toccare main: niente push, niente merge verso main.',
         ).catch((err) => console.warn(`[Tasks] resume after merge-conflict failed for ${taskId}:`, err));
       } else if (res.status === "skipped") {
-        svc.addComment({ taskId, author: "system", content: `⚠️ Land NON riuscito: ${res.reason}. Il branch del task NON è su main — risolvi e rilancia "Landa su main".` });
+        svc.addComment({ taskId, author: "system", content: `⚠️ Land NON riuscito: ${res.reason}. Il branch del task NON è su main. Risolvi e rilancia "Landa su main".` });
         // Il thread lo diceva onestamente e lo STATO diceva il contrario: la card
         // restava in Done col codice fuori da main, cioè nell'unica colonna che
         // nessuno riapre — e il GC dei worktree può potare quel ramo. Misurato
@@ -854,7 +854,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       try {
         svc.addComment({
           taskId, author: "system",
-          content: `⚠️ Land NON riuscito (errore interno): ${msg}. Il branch del task NON è su main — rilancia "Landa su main" quando la causa è risolta.`,
+          content: `⚠️ Land NON riuscito (errore interno): ${msg}. Il branch del task NON è su main. Rilancia "Landa su main" quando la causa è risolta.`,
         });
       } catch (err) { console.warn("[land] impossibile commentare l'errore di", taskId, err); }
       try { await opts?.stampLanding?.(taskId, "unlanded"); } catch { /* la spia non fa fallire il resto */ }
@@ -885,7 +885,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     const path = dirs.find((d) => projectIdForPath(d) === projectId);
     if (!path) return { ok: false, error: "progetto non trovato" };
     const branch = (await runGitCap(path, ["symbolic-ref", "--short", "HEAD"])).out.trim();
-    if (!branch) return { ok: false, error: "HEAD staccato — niente da pubblicare" };
+    if (!branch) return { ok: false, error: "HEAD staccato: niente da pubblicare." };
     const push = await runGitCap(path, ["push", "origin", branch]);
     if (push.code !== 0) return { ok: false, branch, error: (push.err || push.out).trim().slice(-400) || "git push fallito" };
     return { ok: true, branch, output: (push.err + "\n" + push.out).trim().slice(-400) };
@@ -998,7 +998,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     if (running < 1) return null;
     return json({
       error:
-        `this task is in fan-out: ${running} parallel attempts are working the same task. ${forbidden} — ` +
+        `this task is in fan-out: ${running} parallel attempts are working the same task. ${forbidden}. ` +
         "work in YOUR worktree, commit everything on your branch, and end your turn with 2-3 sentences " +
         "describing what you did: the board composes the comparison from those.",
       code: "fanout_running",
@@ -1221,7 +1221,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       const unknown = raw.filter((l: unknown) => typeof l === "string" && !isTaskLabel(l));
       if (unknown.length) {
         return json({
-          error: `etichette sconosciute: ${unknown.join(", ")} — il vocabolario è chiuso (shared/task-labels.ts)`,
+          error: `etichette sconosciute: ${unknown.join(", ")}. Il vocabolario è chiuso (shared/task-labels.ts).`,
           code: "invalid_input",
         }, 400);
       }
@@ -1311,7 +1311,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         // modi di scrivere lo stesso numero si leggono come due numeri diversi.
         const stat = attemptHasWork(winner)
           ? ` (${formatAttemptStat(winner)})`
-          : " — che però non ha modificato niente";
+          : ", che però non ha modificato niente";
         const tail = losers.length
           ? ` Gli altri ${losers.length} tentativi sono stati buttati: worktree, branch e chat.`
           : "";
@@ -1725,7 +1725,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               return json({
                 error:
                   `i checks pre-review sono ROSSI${red ? ` (\`${red.name}\`)` : ""}` +
-                  `${cur.checksAt ? ` — ultimo giro ${cur.checksAt}` : ""}. ` +
+                  `${cur.checksAt ? `, ultimo giro ${cur.checksAt}` : ""}. ` +
                   "Rimandalo all'agente, oppure approva comunque se il rosso non c'entra con questa consegna.",
                 code: "checks_failed",
               }, 409);
@@ -1754,7 +1754,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
                 taskId, author: "system",
                 content: pub.ok
                   ? `Pubblicato: push di \`${pub.branch}\` su origin (deploy CI dove configurato).`
-                  : `Pubblicazione FALLITA: ${pub.error}. Il merge locale (se avvenuto) resta — ripeti la pubblicazione col bottone Pubblica.`,
+                  : `Pubblicazione FALLITA: ${pub.error}. Il merge locale (se avvenuto) resta. Ripeti la pubblicazione col bottone Pubblica.`,
               });
               const cur = svc.get(taskId, { projectId })?.task;
               if (cur) broadcastToAll({ type: "task:updated", projectId, task: cur });
@@ -2044,7 +2044,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       // the model to summarize and retry.
       if (typeof body?.content === "string" && body.content.length > AGENT_COMMENT_MAX_CHARS) {
         return json({
-          error: `comment too long (${body.content.length} chars, max ${AGENT_COMMENT_MAX_CHARS}) — summarize: 1-2 short sentences, no logs or code dumps`,
+          error: `comment too long (${body.content.length} chars, max ${AGENT_COMMENT_MAX_CHARS}). Summarize: 1-2 short sentences, no logs or code dumps`,
           code: "comment_too_long",
         }, 400);
       }
@@ -2056,7 +2056,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       if (requestedMedia > 0 && (media?.length ?? 0) < requestedMedia) {
         return json({
           error:
-            "some attachments are outside the allowed dirs — copy the file(s) into ~/.topics/media/ (or the workspace) and re-attach from there",
+            "some attachments are outside the allowed dirs. Copy the file(s) into ~/.topics/media/ (or the workspace) and re-attach from there",
           code: "media_path_not_allowed",
         }, 400);
       }
@@ -2100,7 +2100,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       const unknown = raw.filter((l: unknown) => typeof l === "string" && !isTaskLabel(l));
       if (unknown.length) {
         return json({
-          error: `etichette sconosciute: ${unknown.join(", ")} — le etichette che un agente può scrivere sono visibile, decisione, bugfix, feature, chore, misura`,
+          error: `etichette sconosciute: ${unknown.join(", ")}. Le etichette che un agente può scrivere sono visibile, decisione, bugfix, feature, chore, misura`,
           code: "invalid_input",
         }, 400);
       }
@@ -2187,7 +2187,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
                 return json({
                   error:
                     `your worktree has ${dirt.length} uncommitted change${dirt.length === 1 ? "" : "s"} ` +
-                    `(${dirt.slice(0, 3).join(", ")}${dirt.length > 3 ? ", …" : ""}) — ` +
+                    `(${dirt.slice(0, 3).join(", ")}${dirt.length > 3 ? ", …" : ""}). ` +
                     "commit them on your branch (or discard leftovers), THEN set status='review'",
                   code: "review_needs_commit",
                 }, 409);

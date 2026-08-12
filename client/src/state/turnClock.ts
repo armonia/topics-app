@@ -86,7 +86,7 @@ export function turnClock({ elapsedMs, waitedMs, waitingMs }: TurnClockInput): T
       primaryMs: workedMs,
       workedMs,
       totalWaitedMs,
-      title: `Ferma da ${formatDurationMs(open)} in attesa di te — lavorato ${formatDurationMs(workedMs)}, turno aperto da ${formatDurationMs(total)}`,
+      title: `Ferma da ${formatDurationMs(open)} in attesa di te. Lavorato ${formatDurationMs(workedMs)}, turno aperto da ${formatDurationMs(total)}`,
     };
   }
   if (totalWaitedMs > 0) {
@@ -96,7 +96,7 @@ export function turnClock({ elapsedMs, waitedMs, waitingMs }: TurnClockInput): T
       totalWaitedMs,
       // Il totale non sparisce: sparisce dal numero grande, resta a portata di
       // puntatore. Chi cerca «quando l'ho mandato» lo trova ancora.
-      title: `Lavorato ${formatDurationMs(workedMs)} — turno aperto da ${formatDurationMs(total)}, di cui ${formatDurationMs(totalWaitedMs)} in attesa di te`,
+      title: `Lavorato ${formatDurationMs(workedMs)} · turno aperto da ${formatDurationMs(total)}, di cui ${formatDurationMs(totalWaitedMs)} in attesa di te`,
     };
   }
   // Nessuna attesa: il turno è quello che è sempre stato, e non serve spiegare

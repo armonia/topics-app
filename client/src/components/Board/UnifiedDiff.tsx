@@ -168,7 +168,7 @@ const FileDiff = memo(function FileDiff({ chunk, stat, defaultOpen, review }: {
       {open && (
         <div className="overflow-x-auto font-mono text-[11.5px] leading-[1.55]">
           {binary ? (
-            <div className="px-2 py-1 text-app-text-muted">File binario — nessun diff testuale.</div>
+            <div className="px-2 py-1 text-app-text-muted">File binario, nessun diff testuale.</div>
           ) : shown.map((row, i) => {
             // Le intestazioni del file non portano segnale: la card nomina già il path.
             if (row.kind === 'meta') return null;
@@ -259,7 +259,7 @@ export function UnifiedDiff({ bundle, defaultOpenFirst = false, review }: {
         <FileDiff key={f.path + i} chunk={f} stat={statByPath.get(f.path)} defaultOpen={defaultOpenFirst && files.length === 1} review={review} />
       ))}
       {bundle.truncated && (
-        <div className="px-1 py-0.5 text-[10px] text-amber-400/80">Diff troncato (molto grande) — apri il progetto per vederlo intero.</div>
+        <div className="px-1 py-0.5 text-[10px] text-amber-400/80">Diff troncato (molto grande). Apri il progetto per vederlo intero.</div>
       )}
     </div>
   );
