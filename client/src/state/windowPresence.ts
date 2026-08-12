@@ -198,6 +198,23 @@ export function useDetachedWindows(): PresenceWindow[] {
   return useMemo(() => computeDetachedWindows(windows, ownWindowId()), [windows]);
 }
 
+/**
+ * Gli stessi gruppi-in-finestra di `useSpaceWindows`, ma letti ADESSO e fuori
+ * da React.
+ *
+ * Serve a chi decide dentro un gesto — sciogliere un gruppo appena svuotato,
+ * per esempio — dove non c'è un componente a cui appendere un hook. Nessuna
+ * copia della regola: stessa funzione pura, stessi due filtri (il proprio id e
+ * il proprio label).
+ */
+export function spaceWindowsNow(): Map<string, string> {
+  return computeSpaceWindows(
+    useWindowPresenceStore.getState().windows,
+    ownWindowId(),
+    currentWindowLabel(),
+  );
+}
+
 /** See computeSpaceWindows — i gruppi che vivono in una finestra loro. */
 export function useSpaceWindows(): Map<string, string> {
   const windows = useWindowPresenceStore((s) => s.windows);

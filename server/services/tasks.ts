@@ -35,7 +35,7 @@ import { readGlobalCap } from "./dispatch-capacity";
 // chi la vuole la prende da `shared/board`.
 export type { TaskStatus, TaskComment, BoardSettings, BoardSettingsPatch, BlockerRef, SubtaskWork } from "../../shared/board";
 import {
-  MAX_FANOUT, PARKED_STOPPED, PREVIEW_PROMOTE_MAX_RATIO, TASK_STATUSES,
+  MAX_FANOUT, PARKED_STOPPED, PREVIEW_CARD_MAX_RATIO, TASK_STATUSES,
   deriveSubtaskWork, formatStatusEvent, hasPlanApproveOption, isAgentWorking,
   isUnattributedSubtask, normalizeActionLabel, readTaskWeight, statusEventEnters,
 } from "../../shared/board";
@@ -684,26 +684,30 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
   /**
    * Gate di FORMA — non un quarto cancello di review.
    *
-   * Un'immagine molto più alta che larga, dentro il riquadro `object-cover` da
-   * 268×144 della card, non si rimpicciolisce: si taglia. Promuoverla mette
-   * sulla board la fascia alta di un documento e fa sembrare consegnata
-   * un'evidenza che nessuno può leggere — è così che la card di un PIANO ha
-   * finito per mostrare la fotografia del piano stesso.
+   * Un'immagine molto più alta che larga, nel riquadro `object-cover` della
+   * card, non si rimpicciolisce: si taglia. Promuoverla mette sulla board la
+   * fascia alta di un documento e fa sembrare consegnata un'evidenza che
+   * nessuno può leggere — è così che la card di un PIANO ha finito per mostrare
+   * la fotografia del piano stesso.
    *
    * Quindi la promozione si ferma e lascia una nota. Si FERMA LA PROMOZIONE,
    * non la consegna: il task resta in review, l'allegato resta nel thread, e
    * l'agente legge nella nota quale ramo del protocollo era quello giusto. Un
    * rifiuto qui non deve mai costare un giro di dispatch.
    *
-   * Soglia 0.7 e non 0.537 (quella della card): promuovere è un favore, taglia
-   * solo ciò che è palesemente illeggibile. Forma non misurabile (video,
-   * formato esotico, file illeggibile) ⇒ si promuove: vedi `imageShape`.
+   * La soglia è `PREVIEW_CARD_MAX_RATIO`, la STESSA della card. Erano due (0.7
+   * qui, 0.537 là) perché il tetto della card era un'altezza fissa e quindi un
+   * rapporto ballerino: si promuoveva col numero largo ciò che poi la card
+   * tagliava col numero stretto. Ora la card ha un tetto proporzionale, quindi
+   * il gate dice esattamente «la card taglierebbe questa» — un numero solo per
+   * la stessa immagine. Forma non misurabile (video, formato esotico, file
+   * illeggibile) ⇒ si promuove: vedi `imageShape`.
    */
   function tooTallForCard(path: string): { ratio: number; width: number; height: number } | null {
     if (VIDEO_MEDIA.test(path)) return null;
     const shape = imageShape(path);
     if (!shape) return null;
-    return shape.ratio > PREVIEW_PROMOTE_MAX_RATIO ? shape : null;
+    return shape.ratio > PREVIEW_CARD_MAX_RATIO ? shape : null;
   }
 
   function promoteReviewPreview(taskId: string): void {
@@ -734,8 +738,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         const { path, shape } = rejected[0]!;
         reviewNote(
           taskId,
-          `Anteprima non promossa: \`${baseName(path)}\` è ${shape.width}×${shape.height}, altezza/larghezza ${shape.ratio.toFixed(2)} (soglia ${PREVIEW_PROMOTE_MAX_RATIO}). ` +
-            "In una card da 268px se ne vedrebbe solo la fascia alta. La consegna resta in review e l'allegato resta nel thread: " +
+          `Anteprima non promossa: \`${baseName(path)}\` è ${shape.width}×${shape.height}, altezza/larghezza ${shape.ratio.toFixed(2)} (soglia ${PREVIEW_CARD_MAX_RATIO}). ` +
+            "Sulla card se ne vedrebbe solo la fascia alta. La consegna resta in review e l'allegato resta nel thread: " +
             "se il lavoro non ha una superficie renderizzata il ramo giusto è un DIAGRAMMA `.svg` (la struttura, non la foto del documento); " +
             "se è UI, ricattura a viewport ≤1440×900. Poi `update_task(preview_image=…)`.",
         );
@@ -766,7 +770,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         if (fileDigest(o.preview_image) !== mine) continue;
         reviewNote(
           taskId,
-          `Anteprima IDENTICA (md5 \`${mine.slice(0, 8)}\`) a quella del task \`${o.id}\` — «${(o.text ?? "").slice(0, 60)}». ` +
+          `Anteprima IDENTICA (md5 \`${mine.slice(0, 8)}\`) a quella del task \`${o.id}\`, «${(o.text ?? "").slice(0, 60)}». ` +
             "Non è un blocco: due task sullo stesso pannello possono avere davvero la stessa immagine. " +
             "Ma se è una svista, questa consegna non ha ancora un'evidenza sua.",
         );
@@ -1468,7 +1472,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         if (patch.status === "done" && hasActiveChildren(taskId)) {
           throw new TaskServiceError(
             "open_subtasks",
-            "task has open subtasks — complete or archive them before marking it done",
+            "task has open subtasks. Complete or archive them before marking it done.",
           );
         }
         // Agent entering review → open a pending review approval for the human.
@@ -1490,7 +1494,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           if (fresh === 0) {
             throw new TaskServiceError(
               "review_needs_summary",
-              "post a delivery summary for THIS turn first — comment_task with 1-2 sentences (what you did now, where to look; even \"nothing new\" with the reason) — THEN set status='review'",
+              "post a delivery summary for THIS turn first. Use comment_task with 1-2 sentences (what you did now, where to look; even \"nothing new\" with the reason), THEN set status='review'",
             );
           }
           db.prepare(
@@ -1733,7 +1737,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (decision === "approve" && hasActiveChildren(taskId)) {
         throw new TaskServiceError(
           "open_subtasks",
-          "task has open subtasks — complete or archive them before approving it to done",
+          "task has open subtasks. Complete or archive them before approving it to done.",
         );
       }
       const ts = now();
@@ -1851,12 +1855,12 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // Only the ROOT of a subtree moves: create() pins a subtask to its
       // parent's board, so the subtree travels together or not at all.
       if (row.parent_task_id) {
-        throw new TaskServiceError("invalid_transition", "task is a subtask — move its root task (the subtree moves together)");
+        throw new TaskServiceError("invalid_transition", "task is a subtask. Move its root task (the subtree moves together).");
       }
       // A dispatched agent works a worktree/topic of the SOURCE project; moving
       // the task under it would strand the binding. Finish or release it first.
       if (row.assigned_topic_id || isAgentWorking(row.dispatch_state)) {
-        throw new TaskServiceError("invalid_transition", "task has a live agent — let it reach review (or park it) before moving boards");
+        throw new TaskServiceError("invalid_transition", "task has a live agent. Let it reach review (or park it) before moving boards.");
       }
       const ts = now();
       const maxRow = db.prepare("SELECT COALESCE(MAX(kanban_order), 0) as m FROM tasks WHERE project_id = ?").get(target) as any;

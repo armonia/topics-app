@@ -13,10 +13,17 @@
  * un task già chiuso torna a essere una chat umana come tutte le altre, e
  * zittirla per sempre sarebbe il bug opposto — quindi la voce è completa,
  * `{ taskId, status, dispatchState }`, non la sola stringa.
+ *
+ * LA STESSA LETTURA SERVE ALLE CHAT. Da dentro la sessione di un task si deve
+ * poter tornare alla sua SCHEDA, e quel legame è esattamente questo indice —
+ * solo letto al contrario e in modo reattivo. Invece di una seconda fetch, ogni
+ * refresh lo riversa in `state/taskSessions.ts`, lo store per-topic che la chat
+ * osserva. Una fonte, due consumatori.
  */
 import { useCallback, useEffect, useRef } from 'react';
 import type { WSMessage } from '../types';
 import { boardApi, type TaskStatus } from '../lib/board';
+import { applyTaskSessionIndex, type TopicTaskRef as StoreTaskRef } from '../state/taskSessions';
 
 /** Il task che gira (o è girato) in un topic. */
 export interface TopicTaskRef {
@@ -38,11 +45,14 @@ export function useTaskTopicIndex(
     try {
       const tasks = await boardApi.listAll();
       const m = new Map<string, TopicTaskRef>();
+      const forStore: Record<string, StoreTaskRef> = {};
       for (const t of tasks) {
         if (!t.assignedTopicId) continue;
         m.set(t.assignedTopicId, { taskId: t.id, status: t.status, dispatchState: t.dispatchState });
+        forStore[t.assignedTopicId] = { taskId: t.id, text: t.text, status: t.status, dispatchState: t.dispatchState };
       }
       mapRef.current = m;
+      applyTaskSessionIndex(forStore);
     } catch {
       /* keep the last index on a transient failure */
     }

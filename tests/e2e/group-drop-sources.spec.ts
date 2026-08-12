@@ -89,7 +89,7 @@ async function didascalia(page: Page, testo: string) {
 test.describe("Trascinare dentro una finestra", () => {
   // Più largo del default della suite (1280×800) per una ragione sola: questo
   // file È la clip di consegna, e l'anteprima di un task viene resa a 268px —
-  // oltre un rapporto altezza/larghezza di 0.537 la card TAGLIA invece di
+  // oltre un rapporto altezza/larghezza di 0.70 la card TAGLIA invece di
   // rimpicciolire. 1440×760 → 0.528, ci sta intero. Nessuna asserzione qui
   // dipende dalla larghezza: le celle si misurano a runtime.
   test.use({ viewport: { width: 1440, height: 760 } });

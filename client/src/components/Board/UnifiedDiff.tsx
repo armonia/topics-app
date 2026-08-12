@@ -2,6 +2,7 @@ import { memo, useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, FileCode, MessageSquarePlus, Trash2 } from 'lucide-react';
 import type { DiffBundle, DiffFileStat } from '../../lib/board';
 import { parseDiffRows, isCommentable, anchorOf, noteKey, type DiffRow, type DiffNote } from './reviewNotes';
+import { buildFileRows, type DiffFileChunk } from './diffFileRows';
 
 /**
  * GitHub-style unified diff for a raw `git diff` patch (publish range or a task's
@@ -14,30 +15,6 @@ import { parseDiffRows, isCommentable, anchorOf, noteKey, type DiffRow, type Dif
  * contenuto prende un aggancio per una nota di revisione, che resta in sospeso
  * finché il chiamante non la spedisce (vedi `reviewNotes.ts`).
  */
-
-interface FileChunk {
-  /** b/ path from the `diff --git` header. */
-  path: string;
-  body: string;
-}
-
-/** Split one patch into per-file chunks keyed by the destination path. */
-function splitPatch(patch: string): FileChunk[] {
-  if (!patch.trim()) return [];
-  const out: FileChunk[] = [];
-  let cur: { path: string; lines: string[] } | null = null;
-  for (const line of patch.split('\n')) {
-    const m = /^diff --git a\/(.+?) b\/(.+)$/.exec(line);
-    if (m) {
-      if (cur) out.push({ path: cur.path, body: cur.lines.join('\n') });
-      cur = { path: m[2], lines: [line] };
-    } else if (cur) {
-      cur.lines.push(line);
-    }
-  }
-  if (cur) out.push({ path: cur.path, body: cur.lines.join('\n') });
-  return out;
-}
 
 /** Per-file line budget when expanded — keeps a pathological file from flooding the DOM. */
 const MAX_LINES_PER_FILE = 600;
@@ -111,26 +88,33 @@ function NoteComposer({ onSave, onCancel }: { onSave: (body: string) => void; on
   );
 }
 
-const FileDiff = memo(function FileDiff({ chunk, stat, defaultOpen, review }: {
-  chunk: FileChunk;
+const FileDiff = memo(function FileDiff({ path, chunk, stat, partial, defaultOpen, review }: {
+  path: string;
+  /** Assente = il patch di questo file non è arrivato (payload troncato). */
+  chunk?: DiffFileChunk;
   stat?: DiffFileStat;
+  partial?: boolean;
   defaultOpen: boolean;
   review?: DiffReview;
 }) {
   const allNotes = review?.notes;
   const fileNotes = useMemo(
-    () => (allNotes ? allNotes.filter((n) => n.path === chunk.path) : []),
-    [allNotes, chunk.path],
+    () => (allNotes ? allNotes.filter((n) => n.path === path) : []),
+    [allNotes, path],
   );
   // Aperto d'ufficio se ci sono note qui dentro — una nota in un file chiuso è
   // una nota che l'umano non ritrova più — ma la scelta esplicita vince sempre
   // su quella d'ufficio, anche quando le note arrivano dopo (bozza dal server).
   const [userOpen, setUserOpen] = useState<boolean | null>(null);
   const open = userOpen ?? (defaultOpen || fileNotes.length > 0);
+  // Il tetto per file è una difesa del DOM, non un giudizio su cosa vale la pena
+  // leggere: finché la riga in fondo diceva solo «…altre N righe», quelle N
+  // righe non c'era modo di vederle senza uscire dalla app.
+  const [showAll, setShowAll] = useState(false);
   const [composingAt, setComposingAt] = useState<string | null>(null);
-  const rows = useMemo(() => parseDiffRows(chunk.body), [chunk.body]);
-  const shown = open ? rows.slice(0, MAX_LINES_PER_FILE) : [];
-  const overflow = rows.length - shown.length;
+  const rows = useMemo(() => (chunk ? parseDiffRows(chunk.body) : []), [chunk]);
+  const shown = open ? (showAll ? rows : rows.slice(0, MAX_LINES_PER_FILE)) : [];
+  const overflow = open && !showAll ? rows.length - shown.length : 0;
   const st = stat ? STATUS_META[stat.status] : undefined;
   const binary = stat && (stat.additions < 0 || stat.deletions < 0);
   const notesByKey = useMemo(() => {
@@ -151,7 +135,7 @@ const FileDiff = memo(function FileDiff({ chunk, stat, defaultOpen, review }: {
       >
         {open ? <ChevronDown className="h-3 w-3 shrink-0 text-app-text-muted" /> : <ChevronRight className="h-3 w-3 shrink-0 text-app-text-muted" />}
         <FileCode className="h-3 w-3 shrink-0 text-app-text-muted" />
-        <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-app-text" title={chunk.path}>{chunk.path}</span>
+        <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-app-text" title={path}>{path}</span>
         {fileNotes.length > 0 && (
           <span className="shrink-0 rounded bg-indigo-500/20 px-1 text-[9px] text-indigo-300" title={`${fileNotes.length} note in sospeso`}>
             {fileNotes.length}
@@ -167,13 +151,18 @@ const FileDiff = memo(function FileDiff({ chunk, stat, defaultOpen, review }: {
       </button>
       {open && (
         <div className="overflow-x-auto font-mono text-[11.5px] leading-[1.55]">
-          {binary ? (
-            <div className="px-2 py-1 text-app-text-muted">File binario — nessun diff testuale.</div>
+          {!chunk ? (
+            <div className="px-2 py-1 font-sans text-[11px] text-app-text-muted">
+              Il patch di questo file non è arrivato: il diff supera il tetto del payload e si ferma prima.
+              Il conteggio qui sopra è comunque quello vero.
+            </div>
+          ) : binary ? (
+            <div className="px-2 py-1 text-app-text-muted">File binario: nessun diff testuale.</div>
           ) : shown.map((row, i) => {
             // Le intestazioni del file non portano segnale: la card nomina già il path.
             if (row.kind === 'meta') return null;
             const anchor = anchorOf(row);
-            const key = anchor ? noteKey(chunk.path, anchor.line, anchor.side) : '';
+            const key = anchor ? noteKey(path, anchor.line, anchor.side) : '';
             const attached = key ? notesByKey.get(key) : undefined;
             const canComment = !!review && isCommentable(row) && !!anchor;
             return (
@@ -193,7 +182,7 @@ const FileDiff = memo(function FileDiff({ chunk, stat, defaultOpen, review }: {
                           // nuova), e senza il suffisso i due agganci sono
                           // indistinguibili — per uno screen reader come per un
                           // test.
-                          aria-label={`Commenta ${chunk.path}:${anchor!.line}${anchor!.side === 'old' ? ' (riga rimossa)' : ''}`}
+                          aria-label={`Commenta ${path}:${anchor!.line}${anchor!.side === 'old' ? ' (riga rimossa)' : ''}`}
                           className="flex h-3.5 w-3.5 items-center justify-center rounded text-indigo-400 opacity-0 transition-opacity hover:bg-indigo-500/20 focus:opacity-100 group-hover/row:opacity-100"
                         >
                           <MessageSquarePlus className="h-3 w-3" />
@@ -220,7 +209,7 @@ const FileDiff = memo(function FileDiff({ chunk, stat, defaultOpen, review }: {
                   <NoteComposer
                     onCancel={() => setComposingAt(null)}
                     onSave={(body) => {
-                      review!.onAddNote({ path: chunk.path, line: anchor.line, side: anchor.side, code: row.raw, body });
+                      review!.onAddNote({ path, line: anchor.line, side: anchor.side, code: row.raw, body });
                       setComposingAt(null);
                     }}
                   />
@@ -228,7 +217,19 @@ const FileDiff = memo(function FileDiff({ chunk, stat, defaultOpen, review }: {
               </div>
             );
           })}
-          {overflow > 0 && <div className="px-2 py-0.5 text-[10px] text-app-text-faint">…altre {overflow} righe</div>}
+          {overflow > 0 && (
+            <button
+              onClick={() => setShowAll(true)}
+              className="w-full px-2 py-1 text-left font-sans text-[10px] text-indigo-300 hover:bg-indigo-500/10 hover:text-indigo-200"
+            >
+              Mostra tutte le {rows.length} righe (altre {overflow})
+            </button>
+          )}
+          {partial && (
+            <div className="px-2 py-0.5 font-sans text-[10px] text-amber-400/80">
+              …il patch si interrompe qui: oltre c'è il tetto del payload, non la fine del file.
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -242,24 +243,30 @@ export function UnifiedDiff({ bundle, defaultOpenFirst = false, review }: {
   /** Presente = diff commentabile riga per riga. */
   review?: DiffReview;
 }) {
-  const files = useMemo(() => splitPatch(bundle.patch), [bundle.patch]);
-  const statByPath = useMemo(() => {
-    const m = new Map<string, DiffFileStat>();
-    for (const s of bundle.stat) m.set(s.path, s);
-    return m;
-  }, [bundle.stat]);
+  const files = useMemo(() => buildFileRows(bundle), [bundle]);
+  const missing = files.filter((f) => !f.chunk).length;
 
-  if (!bundle.patch.trim()) {
+  if (files.length === 0) {
     return <div className="px-1 py-1 text-[11px] text-app-text-muted">Nessuna modifica.</div>;
   }
 
   return (
     <div className="space-y-1">
       {files.map((f, i) => (
-        <FileDiff key={f.path + i} chunk={f} stat={statByPath.get(f.path)} defaultOpen={defaultOpenFirst && files.length === 1} review={review} />
+        <FileDiff
+          key={f.path + i}
+          path={f.path}
+          chunk={f.chunk}
+          stat={f.stat}
+          partial={f.partial}
+          defaultOpen={defaultOpenFirst && files.length === 1}
+          review={review}
+        />
       ))}
       {bundle.truncated && (
-        <div className="px-1 py-0.5 text-[10px] text-amber-400/80">Diff troncato (molto grande) — apri il progetto per vederlo intero.</div>
+        <div className="px-1 py-0.5 text-[10px] text-amber-400/80">
+          Diff troncato (molto grande){missing > 0 ? `: di ${missing} file resta solo il conteggio` : ''}: apri il progetto per vederlo intero.
+        </div>
       )}
     </div>
   );
