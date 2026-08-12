@@ -42,9 +42,11 @@ describe("writeMcpConfigForSession — bridge-only policy", () => {
     expect(dispatch.length).toBeLessThan(full.length);
     // Every dispatch tool exists in the full set (reduction only, never additions).
     for (const t of dispatch) expect(full).toContain(t);
-    // Task + browser verification survive; sub-agent fan-out does not.
+    // Task + browser verification survive; cross-topic navigation does not.
     expect(dispatch).toContain("create_task");
     expect(dispatch).toContain("browser_read_screen");
-    expect(dispatch).not.toContain("spawn_agent");
+    expect(dispatch).not.toContain("switch_topic");
+    // Il fan-out c'e', sotto il governo della board (agent-census.ts).
+    expect(dispatch).toContain("spawn_agent");
   });
 });

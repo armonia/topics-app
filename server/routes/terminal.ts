@@ -28,6 +28,8 @@ import type { ClaudeSessionTracker } from "../lib/claude-session-tracker";
 import { writeMcpConfigForSession, cleanupMcpConfigForSession } from "../providers/claude-code";
 import { claudeTranscriptPath } from "../lib/claude-transcript-path";
 import { discoverClaudeSubAgentSessionId, normalizePromptSnippet } from "../lib/claude-subagent-transcript";
+import { boardSpawnRefusal } from "../services/agent-census";
+import { effectiveDispatchCap, readGlobalCap, computeDispatchCapacity } from "../services/dispatch-capacity";
 import { deriveClaudeSessionTitle } from "../lib/claude-transcript-title";
 import { parseJsonlLine, splitJsonlChunk } from "../lib/claude-session-state";
 import { topicsAgentSystemPrompt, resolveClaudeEffort, resolveCodexReasoningEffort, topicEffortFor } from "../lib/topics-agent-prompt";
@@ -1746,6 +1748,26 @@ function spawnedAgentDepth(sessionKey: string): number {
   return depth;
 }
 
+/**
+ * Il tetto di concorrenza EFFETTIVO della board, letto qui e ora.
+ *
+ * Stessa coppia di funzioni che usa il tick del dispatcher, e non è una
+ * ripetizione evitabile: il tick il suo numero se lo tiene in una closure che
+ * questa rotta non vede, e chiedere il tetto a una closure altrui vorrebbe dire
+ * legare la porta dello spawn al ciclo del dispatcher. Le due letture si
+ * incontrano su `readGlobalCap`, che è l'unico posto dove è scritto cosa vuol
+ * dire NULL in quella colonna.
+ */
+function boardAgentCap(): number {
+  try {
+    return effectiveDispatchCap(readGlobalCap(getDatabase()), computeDispatchCapacity().recommended);
+  } catch {
+    // Nessuna lettura possibile: si torna al default del menu (3). Un tetto
+    // sconosciuto non autorizza a non averne uno.
+    return 3;
+  }
+}
+
 /** Live children of a parent (present in the in-memory `sessions` map). */
 function liveChildrenOf(parentSessionKey: string): TerminalSession[] {
   return Array.from(sessions.values()).filter(s => s.parentSessionKey === parentSessionKey);
@@ -2612,6 +2634,19 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
         }
         if (liveChildrenOf(parentKey).length >= MAX_CHILDREN_PER_PARENT) {
           return errorResponse(429, `max ${MAX_CHILDREN_PER_PARENT} live sub-agents per session`);
+        }
+        // Il governo della board, e vale SOLO per chi appartiene a un task: una
+        // chat dell'umano passa di qui senza che questo blocco la veda. Chi
+        // invece è la sessione di un task dispatchato spende il tetto di
+        // concorrenza della board come chiunque altro, e una figlia non apre
+        // nipoti. Vedi `agent-census.ts` per il perché di entrambi.
+        {
+          const refusal = boardSpawnRefusal(getDatabase(), { parentSessionKey: parentKey, cap: boardAgentCap() });
+          if (!refusal.ok) {
+            return refusal.code === "depth"
+              ? errorResponse(429, "sub-agent depth limit (1) reached: a board sub-agent cannot spawn its own")
+              : errorResponse(429, `board concurrency cap reached (${refusal.live}/${refusal.cap} live agents)`);
+          }
         }
         const parent = sessions.get(parentKey);
         const cwd = typeof body.cwd === "string" && body.cwd ? body.cwd : (parent?.cwd || process.env.HOME || "/");
