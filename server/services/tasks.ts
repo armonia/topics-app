@@ -1124,14 +1124,35 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           // Il conto della fila si paga solo per chi la fila la sta davvero
           // facendo: uno step non ci entra mai, e la sua ragione è un'altra.
           ahead: r.parent_task_id ? 0 : countAhead(r, nowIso),
-          // Un pesante con il chip `queued` addosso È un pesante trattenuto: il
-          // dispatcher mette quel chip solo quando decide di non farlo partire
-          // (`noteHeavyHold`). Si legge dalla riga e non da uno stato vivo del
-          // tick apposta: `rowToTask` gira anche fuori dal processo che
-          // dispaccia, e una ragione che dipendesse dalla memoria del
-          // dispatcher sparirebbe proprio quando la card la si apre da un'altra
-          // finestra.
-          heavyHeld: !r.parent_task_id && readTaskWeight(r.dispatch_weight) === "heavy" && r.dispatch_state === DISPATCH_CHIP_QUEUED,
+          // Un pesante trattenuto DAL CARICO è il tappo della coda, e la card
+          // lo dichiara. Il chip `queued` da solo non basta a riconoscerlo:
+          // `noteHeavyHold` lo scrive in DUE rami del tick, e i due non hanno
+          // niente in comune se non il chip.
+          //
+          //  - ramo del CARICO: il pesante è in testa, il gate è chiuso, il
+          //    `break` ferma la fila dietro di lui. Qui è davvero lui il tappo,
+          //    l'attesa ha un tetto, e abbassargli la priorità sposta la fila.
+          //  - ramo `heavyBusy`: c'è già un pesante AL LAVORO, e il tick esce
+          //    prima del ciclo mettendo il chip su OGNI todo. Qui l'ordine della
+          //    coda è irrilevante (nessuno legge la fila), il tetto dell'attesa
+          //    non si applica (quello conta il carico, non il turno altrui), e
+          //    la priorità non sblocca niente. Una card che dicesse «tieni ferma
+          //    la coda, abbassami la priorità» mentirebbe su tutti e tre.
+          //
+          // Il secondo caso dura quanto un turno pesante, cioè quasi sempre: la
+          // distinzione va fatta, e va fatta QUI. Si legge dal DB e non da uno
+          // stato vivo del tick apposta — `rowToTask` gira anche fuori dal
+          // processo che dispaccia, e una ragione che dipendesse dalla memoria
+          // del dispatcher sparirebbe proprio aprendo la card da un'altra
+          // finestra. `heavyInFlight()` è lo stesso predicato che il tick usa
+          // per prendere quella strada, letto dalle stesse due colonne.
+          //
+          // Ultimo nell'`&&` per non pagarlo: su una riga normale la lettura
+          // non parte nemmeno.
+          heavyHeld: !r.parent_task_id
+            && readTaskWeight(r.dispatch_weight) === "heavy"
+            && r.dispatch_state === DISPATCH_CHIP_QUEUED
+            && !heavyInFlight(),
           behind: r.parent_task_id ? 0 : countBehind(r, nowIso),
           parentStatus,
           projectless: r.project_id === UNASSIGNED_PROJECT_ID,
