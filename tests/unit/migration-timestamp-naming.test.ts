@@ -135,6 +135,14 @@ function applica(files: string[], contenuto: (f: string) => string): { name: str
   return rows.filter(r => r.name !== "000-base.sql");
 }
 
+/**
+ * Il caso più grosso qui sotto fa girare git VERO e lancia il cancello come
+ * sottoprocesso (`bun run`) tre volte. Sotto la suite intera i 5 secondi di
+ * default non bastano, e il timeout uccide il `bun` a metà: `exitCode` torna
+ * `null` e il rosso parla della macchina, non del cancello.
+ */
+const CON_SOTTOPROCESSI = 30_000;
+
 describe("prefisso timestamp", () => {
   it("due agenti in parallelo: entrambe atterrano, nessuna collisione, ordine giusto", () => {
     const repo = repoConLegacy();
@@ -184,7 +192,7 @@ describe("prefisso timestamp", () => {
     const versioni = registro.map(r => r.version);
     expect(versioni).toEqual(versioni.slice().sort((x, y) => x - y));
     expect(versioni[versioni.length - 1]).toBeGreaterThan(101);
-  });
+  }, CON_SOTTOPROCESSI);
 
   it("stesso secondo, due worktree: non è una collisione, e l'ordine resta deciso dal nome", () => {
     // Il caso stretto, isolato dal timing: due file con lo STESSO stamp.

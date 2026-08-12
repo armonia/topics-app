@@ -83,6 +83,28 @@ async function baseOf(run: GitRunner, cwd: string, oldest: string): Promise<stri
   return (await revParse(run, cwd, `${oldest}^`)) ?? (await emptyTree(run, cwd));
 }
 
+/**
+ * Il più AVANTI dei due candidati a fare da base, o `a` se non sono in linea.
+ *
+ * Serve da quando riportare `main` dentro un ramo è un gesto di routine (lo fa
+ * il land stesso, `task-automerge.ts`, su ogni ramo che ha invecchiato). Il
+ * padre del commit più vecchio della card è un punto della storia PRIMA che main
+ * avanzasse: da lì in poi il diff mostrerebbe anche tutto ciò che il ramo ha
+ * inglobato da main, cioè lavoro di altre card, sotto il nome di questa.
+ * Prendere il punto di fusione con main quando è più avanti taglia via quella
+ * parte e lascia esattamente il lavoro della card.
+ *
+ * «Non in linea» (nessuno dei due discende dall'altro) si tiene `a`, il padre
+ * del commit proprio: è il caso del ramo nato dall'HEAD di un'altra sessione,
+ * dove il punto di fusione con main è INDIETRO e usarlo rivendicherebbe i
+ * commit di quella sessione.
+ */
+async function furthest(run: GitRunner, cwd: string, a: string, b: string | null): Promise<string> {
+  if (!b || b === a) return a;
+  const aBeforeB = await run(cwd, ["merge-base", "--is-ancestor", a, b]);
+  return aBeforeB.code === 0 ? b : a;
+}
+
 function lines(out: string): string[] {
   return out.split("\n").map((s) => s.trim()).filter((s) => s.length > 0);
 }
@@ -116,10 +138,17 @@ export async function worktreeOwnRange(
   if (own === null) return null;
 
   const oldest = own.at(-1);
-  const base = oldest
+  let base = oldest
     ? await baseOf(run, cwd, oldest)
     : ((await revParse(run, cwd, "HEAD")) ?? (await emptyTree(run, cwd)));
   if (!base) return null;
+  if (oldest) {
+    // Il ramo può avere inglobato main dopo che la card ha cominciato: allora il
+    // «prima» giusto è il punto di fusione, non il padre del primo commit.
+    const mergeBase = await run(cwd, ["merge-base", mainRef, branch]);
+    const mb = mergeBase.code === 0 ? mergeBase.stdout.trim() : "";
+    base = await furthest(run, cwd, base, SHA_RE.test(mb) ? mb : null);
+  }
   return { source: "worktree", cwd, range: base, live: true };
 }
 

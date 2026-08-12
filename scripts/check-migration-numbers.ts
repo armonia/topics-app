@@ -31,6 +31,12 @@
  * stesso e si rompeva in produzione. Questo cancello e quel registro sono due
  * strati dello stesso problema: qui si evita l'ambiguità, lì si evita il danno.
  *
+ * La REGOLA (quali nomi si contendono un numero) non vive qui: sta in
+ * shared/migration-numbers.ts, perché la stessa domanda se la fa anche il land
+ * un attimo prima di pubblicare un ramo. Qui restano la lettura dal repo e il
+ * modo di dirlo a chi legge. Due copie della regola hanno già divergiuto una
+ * volta, e la copia sbagliata rifiutava ogni land.
+ *
  * Uso:
  *   bun run check:migrations                            # confronta con `main`
  *   MIGRATION_BASE_REF=origin/main bun run scripts/…    # base esplicita
@@ -39,90 +45,12 @@
  * da confrontare deve dirlo, non passare in verde (b8092abe).
  */
 import { execFileSync } from "child_process";
-import { basename } from "path";
+import { MIGRATIONS_DIR, findNumberCollisions, legacyNumbered, migrationFileNames } from "../shared/migration-numbers";
 
-/** Dove vivono le migration, relativo alla radice del repo. */
-export const MIGRATIONS_DIR = "server/db/migrations";
-
-/** `089-retirements.sql` → sì; `README.md`, `.gitkeep`, `draft.sql` → no. */
-const MIGRATION_FILE = /^(\d+)-.+\.sql$/;
-
-/**
- * Il prefisso delle migration NUOVE: 14 cifre, `YYYYMMDDHHMMSS` UTC.
- *
- * Sole cifre apposta: così `MIGRATION_FILE` qui sopra, il filtro di
- * server/db.ts e quello del manifest continuano a riconoscerle senza sapere
- * niente del cambio, e `parseInt` le ordina dopo i contatori a tre cifre.
- */
-const STAMP_FILE = /^\d{14}-.+\.sql$/;
-
-/** Chi usa ancora il contatore fra i file che questo branch AGGIUNGE. */
-export function legacyNumbered(branchFiles: string[], baseFiles: string[]): string[] {
-  const base = new Set(migrationFileNames(baseFiles));
-  return migrationFileNames(branchFiles).filter(f => !base.has(f) && !STAMP_FILE.test(f));
-}
-
-export interface Collision {
-  version: number;
-  /** Tutti i nomi file distinti che rivendicano il numero, ordinati. */
-  files: string[];
-  /** Quelli che NON sono sulla base: è ciò che questo branch aggiunge. */
-  introduced: string[];
-}
-
-/** Nomi file migration validi, deduplicati e ordinati. Ignora path e non-migration. */
-export function migrationFileNames(paths: string[]): string[] {
-  const names = new Set<string>();
-  for (const p of paths) {
-    const name = basename(p.trim());
-    if (MIGRATION_FILE.test(name)) names.add(name);
-  }
-  return [...names].sort();
-}
-
-export function versionOf(file: string): number {
-  return parseInt(file.match(MIGRATION_FILE)![1], 10);
-}
-
-/**
- * Un CONTATORE rivendicato da due NOMI diversi è una collisione, comunque sia
- * distribuita fra branch e base:
- *   · due file nuovi sullo stesso branch      → entrambi in `introduced`
- *   · un file nuovo su un numero già su main  → uno solo in `introduced`
- * Lo stesso file presente su entrambi i lati (il caso normale) non è nulla.
- *
- * I file col prefisso TIMESTAMP sono fuori da questo conto, e non è una svista.
- * Due contatori uguali sono un guasto perché almeno uno dei due ha scelto quel
- * numero credendolo libero: l'intenzione di ordinamento di qualcuno è già
- * saltata. Due timestamp uguali dicono un'altra cosa — che le due migration
- * sono state scritte nello stesso SECONDO, in due worktree che non potevano
- * vedersi. Nessuna delle due può dipendere dall'altra, quindi l'ordine fra loro
- * non significa niente, e il runner le applica comunque entrambe con il nome a
- * rompere il pareggio (server/db.ts, `byVersionThenName`): deterministico su
- * ogni macchina. Chiamarlo errore vorrebbe dire riportare la contesa proprio
- * dove la si è tolta.
- */
-export function findNumberCollisions(branchFiles: string[], baseFiles: string[]): Collision[] {
-  const branch = migrationFileNames(branchFiles).filter(f => !STAMP_FILE.test(f));
-  const base = migrationFileNames(baseFiles).filter(f => !STAMP_FILE.test(f));
-  const baseSet = new Set(base);
-
-  const byVersion = new Map<number, Set<string>>();
-  for (const file of [...branch, ...base]) {
-    const v = versionOf(file);
-    let set = byVersion.get(v);
-    if (!set) byVersion.set(v, (set = new Set()));
-    set.add(file);
-  }
-
-  const collisions: Collision[] = [];
-  for (const [version, set] of byVersion) {
-    if (set.size < 2) continue;
-    const files = [...set].sort();
-    collisions.push({ version, files, introduced: files.filter(f => !baseSet.has(f)) });
-  }
-  return collisions.sort((a, b) => a.version - b.version);
-}
+// La regola sta in shared/, i suoi nomi restano importabili da qui: i test del
+// cancello (tests/unit/migration-*.test.ts) chiedono la regola allo stesso
+// modulo che la ESEGUE, così una divergenza fra i due non può passare verde.
+export { MIGRATIONS_DIR, findNumberCollisions, legacyNumbered, migrationFileNames };
 
 // ── Lettura dal repo ────────────────────────────────────────────────────────
 

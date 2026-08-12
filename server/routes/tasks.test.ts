@@ -223,6 +223,33 @@ describe("tasks router (session-scoped)", () => {
     expect(back.parentTaskId).toBe(null);
   });
 
+  test("PATCH sullo SCATTO della consegna: 400, non un 200 che non applica niente", async () => {
+    // Lo stesso difetto di `parentTaskId` qui sopra, seconda occorrenza: chi
+    // chiamava `PATCH {deliveryCommit}` per dire alla card «il ramo è andato
+    // avanti» riceveva 200 e non cambiava niente. Misurato la notte del 12/08
+    // landando `ddf66270`, quando era l'unica via d'uscita rimasta.
+    const t = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "consegnata" }))!.json();
+    for (const patch of [
+      { deliveryCommit: "cafe1234" },
+      { delivery_commit: "cafe1234" },
+      { deliveryBranch: "topics/altro" },
+    ]) {
+      const res = (await call(router, "PATCH", `/api/boards/pX/tasks/${t.id}`, patch))!;
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.code).toBe("invalid_input");
+      // Il rifiuto dice cosa fare invece: il land riallinea e pubblica la punta.
+      expect(body.error).toContain("Landa su main");
+    }
+    // Anche dalla porta degli AGENTI: rifiutato da una e ingoiato dall'altra
+    // sarebbe di nuovo il 200 muto, da un'altra parte.
+    const viaAgente = (await call(router, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { deliveryCommit: "cafe1234" }))!;
+    expect(viaAgente.status).toBe(400);
+    // E una PATCH normale continua a passare: il cancello guarda solo quei campi.
+    const ok = await (await call(router, "PATCH", `/api/boards/pX/tasks/${t.id}`, { text: "rititolata" }))!.json();
+    expect(ok.text).toBe("rititolata");
+  });
+
   // L'incidente dell'11/08 riprodotto dalla porta che l'agent usa davvero: il
   // dispatcher rimette il task in coda MENTRE il turno gira (riavvio del server,
   // timeout, requeue) e `assigned_topic_id` va a NULL. Prima della provenienza,
@@ -1024,7 +1051,7 @@ describe("approve decoupled from landing", () => {
   const MERGED = {
     status: "merged", commit: "a5f83e0e", branch: "topics/wooly-saunter", repoPath: "/repo",
     touchedClient: false, touchedServer: false, touchedNative: false,
-    landedNotLive: false, checkoutBranch: "main", deliveryDrift: null,
+    landedNotLive: false, checkoutBranch: "main", deliveryDrift: null, realigned: null,
   };
 
   /**
@@ -1107,6 +1134,69 @@ describe("approve decoupled from landing", () => {
     expect(after.comments.some((c) => c.content.includes("Fermato l'agente"))).toBe(true);
     // L'ordine: quando lo stop parte, la card è GIÀ chiusa.
     expect(statusAlloStop).toBe("done");
+  });
+
+  test("il ramo riallineato dal land finisce nel thread, PRIMA del «Mergiato»", async () => {
+    // Sul ramo compare un commit di fusione che nessun umano ha fatto: se il
+    // thread non lo dice, chi rilegge la storia del ramo non sa da dove venga.
+    const d = freshDb(); const b: any[] = [];
+    const rt = createTasksRouter(makeCtx(d, b), undefined, {
+      autoMerge: {
+        tryMerge: async () => ({ ...MERGED, realigned: "il ramo era indietro di 2 commit su 'main': ci ho riportato main dentro" }),
+        buildClient: async () => ({ code: 0, stderr: "" }),
+      } as any,
+    });
+    const t = await (await call(rt, "POST", "/api/boards/pX/tasks", { text: "feature" }))!.json();
+    d.prepare("UPDATE tasks SET status='review' WHERE id = ?").run(t.id);
+    await call(rt, "POST", `/api/boards/pX/tasks/${t.id}/land`, {});
+    await new Promise((res) => setTimeout(res, 20));
+
+    const comments = createTaskService(d).get(t.id)!.comments.map((c) => c.content);
+    const riallineato = comments.findIndex((c) => c.includes("Riallineato prima del land"));
+    const mergiato = comments.findIndex((c) => c.includes("Mergiato su main"));
+    expect(riallineato).toBeGreaterThanOrEqual(0);
+    expect(riallineato).toBeLessThan(mergiato);
+    expect(comments[riallineato]).toContain("indietro di 2 commit");
+  });
+
+  test("conflitto nel RIALLINEAMENTO: nomina i file e chiede una fusione, non una rebase", async () => {
+    // Due conflitti diversi, due lavori diversi. Dire «rifai la base sul main
+    // aggiornato» a chi ha appena visto fallire quel merge lo manda a rifare a
+    // mano il tentativo che la macchina ha già fatto — senza dirgli su cosa.
+    const d = freshDb(); const b: any[] = []; const r: Array<[string, string]> = [];
+    const dispatcher = {
+      onEnterTodo() {}, onLeaveTodo() {}, onBlockerDone() {},
+      resume: async (id: string, msg: string) => { r.push([id, msg]); },
+    } as any;
+    const rt = createTasksRouter(makeCtx(d, b), dispatcher, {
+      autoMerge: {
+        tryMerge: async () => ({
+          status: "conflict", branch: "topics/ramo-vecchio",
+          realignConflict: { behind: 3, files: ["server/db.ts", "client/src/App.tsx"] },
+        }),
+        buildClient: async () => ({ code: 0, stderr: "" }),
+      } as any,
+    });
+    const t = await (await call(rt, "POST", "/api/boards/pX/tasks", { text: "feature" }))!.json();
+    d.prepare("UPDATE tasks SET status='review' WHERE id = ?").run(t.id);
+    await call(rt, "POST", `/api/boards/pX/tasks/${t.id}/land`, {});
+    await new Promise((res) => setTimeout(res, 20));
+
+    const after = createTaskService(d).get(t.id)!;
+    expect(after.task.status).toBe("in_progress");
+    // Il thread dice quali file, e che NON è stato landato niente.
+    const thread = after.comments.map((c) => c.content).join("\n");
+    expect(thread).toContain("server/db.ts");
+    expect(thread).toContain("client/src/App.tsx");
+    expect(thread).toContain("Non ho landato niente");
+    // La riga di storico distingue le due cause.
+    const ev = after.comments.filter((c) => c.kind === "status").at(-1)!;
+    expect(parseStatusEvent(ev.content)?.reason).toContain("riportare main nel ramo");
+    // E l'istruzione all'agente parla di `git merge main`, non di rebase.
+    expect(r).toHaveLength(1);
+    expect(r[0][1]).toContain("git merge main");
+    expect(r[0][1]).toContain("server/db.ts");
+    expect(r[0][1]).not.toContain("git rebase main");
   });
 
   test("nessun agente vivo → il land non chiama nessuno stop", async () => {
@@ -1214,7 +1304,7 @@ describe("approve decoupled from landing", () => {
         return { status: "merged", commit: "cafe123", branch: "topics/consegnato", repoPath: "/repo",
           touchedClient: false, touchedServer: false, touchedNative: false,
           landedNotLive: false, checkoutBranch: "main",
-          deliveryDrift: "il ramo porta 1 commit aggiunto DOPO la consegna" };
+          deliveryDrift: "il ramo porta 1 commit aggiunto DOPO la consegna", realigned: null };
       },
       buildClient: async () => ({ code: 0, stderr: "" }),
     } as any;
