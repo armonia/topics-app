@@ -1739,6 +1739,122 @@ describe("settleLanded / verdetto testimoniato", () => {
   });
 });
 
+/**
+ * Il segnale «chi lavora questo sottotask» esce da `rowToTask`, cioè da OGNI
+ * payload di task — non solo da `list`/`get`. Qui si pinna la risalita vera sul
+ * DB: la CTE, la guardia che la tiene spenta sul caso normale, e i due modi in
+ * cui la catena può essere storta (padre sparito, ciclo).
+ */
+describe("subtaskWork: chi lavora un sottotask senza agente suo", () => {
+  let db: Database;
+  let s: TaskService;
+  // `get` torna la busta {task, comments, children}: qui interessa solo il task.
+  const work = (id: string) => s.get(id)!.task.subtaskWork;
+  beforeEach(() => {
+    db = freshDb();
+    db.run("INSERT INTO topics (id) VALUES ('t-parent')");
+    s = svc(db);
+  });
+
+  // Un padre col suo agente dentro un turno: topic + chip + in_progress.
+  function workingParent(text = "il padre") {
+    const p = s.create({ projectId: PID, text, status: "backlog" });
+    db.run(
+      "UPDATE tasks SET status='in_progress', assigned_topic_id='t-parent', dispatch_state='working' WHERE id = ?",
+      [p.id],
+    );
+    return p;
+  }
+  // Uno step della checklist come lo crea l'agente: figlio, mai dispacciato.
+  function step(parentId: string, text = "lo step") {
+    const c = s.create({ projectId: PID, text, status: "backlog", parentTaskId: parentId });
+    db.run("UPDATE tasks SET status='in_progress' WHERE id = ?", [c.id]);
+    return c;
+  }
+
+  test("(a) lo step lo lavora il padre nel suo turno: il payload dice chi", () => {
+    const p = workingParent();
+    const c = step(p.id);
+    expect(work(c.id)).toEqual({
+      kind: "parent-turn", ancestor: { id: p.id, text: "il padre" },
+    });
+  });
+
+  test("(b) il padre è tornato indietro senza topic: nessuno lo lavora", () => {
+    const p = workingParent();
+    const c = step(p.id);
+    // Il caso misurato sul DB vivo: il padre torna in backlog e molla il topic.
+    db.run("UPDATE tasks SET status='backlog', assigned_topic_id=NULL, dispatch_state=NULL WHERE id = ?", [p.id]);
+    expect(work(c.id)).toEqual({ kind: "unattended" });
+  });
+
+  test("un padre archiviato non lavora niente", () => {
+    const p = workingParent();
+    const c = step(p.id);
+    db.run("UPDATE tasks SET archived=1 WHERE id = ?", [p.id]);
+    expect(work(c.id)).toEqual({ kind: "unattended" });
+  });
+
+  test("risale oltre il padre diretto: vince il primo antenato AL LAVORO", () => {
+    const nonno = workingParent("il nonno");
+    const padre = step(nonno.id, "lo step di mezzo");
+    const nipote = step(padre.id, "il sotto-step");
+    // Il padre diretto è a sua volta un sottotask senza agente: chi tiene il
+    // turno è il nonno, ed è lui che va nominato.
+    expect(work(nipote.id)).toEqual({
+      kind: "parent-turn", ancestor: { id: nonno.id, text: "il nonno" },
+    });
+  });
+
+  test("la domanda non si pone: con un topic suo, con un chip suo, o da fermo", () => {
+    const p = workingParent();
+    const own = step(p.id, "step con agente suo");
+    db.run("UPDATE tasks SET assigned_topic_id='t-parent', dispatch_state='working' WHERE id = ?", [own.id]);
+    // Ha già il deep-link e lo stato sulla card: `null` = niente da dire, che
+    // NON è «non lo lavora nessuno».
+    expect(work(own.id)).toBeNull();
+
+    const parked = step(p.id, "step fermo");
+    db.run("UPDATE tasks SET status='todo' WHERE id = ?", [parked.id]);
+    expect(work(parked.id)).toBeNull();
+
+    // Un task radice in corso senza chip non è questa storia.
+    const root = s.create({ projectId: PID, text: "radice", status: "backlog" });
+    db.run("UPDATE tasks SET status='in_progress' WHERE id = ?", [root.id]);
+    expect(work(root.id)).toBeNull();
+  });
+
+  test("il chip del padre vale solo se è ATTIVO: consegnato o in attesa non lavora", () => {
+    const p = workingParent();
+    const c = step(p.id);
+    for (const dead of ["delivered", "needs_input", "waiting", "failed"]) {
+      db.run("UPDATE tasks SET dispatch_state = ? WHERE id = ?", [dead, p.id]);
+      expect(work(c.id)).toEqual({ kind: "unattended" });
+    }
+    for (const alive of ["queued", "starting", "working"]) {
+      db.run("UPDATE tasks SET dispatch_state = ? WHERE id = ?", [alive, p.id]);
+      expect(work(c.id)!.kind).toBe("parent-turn");
+    }
+  });
+
+  test("catena storta: padre sparito e ciclo non appendono la lettura", () => {
+    // Edge orfano: il padre non c'è più (FK spenta a mano, come una riga vecchia).
+    db.run("PRAGMA foreign_keys = OFF");
+    const p = workingParent();
+    const c = step(p.id);
+    db.run("DELETE FROM tasks WHERE id = ?", [p.id]);
+    expect(work(c.id)).toEqual({ kind: "unattended" });
+
+    // Ciclo: due righe che si fanno da padre l'una all'altra. Non deve girare
+    // all'infinito — il tetto sulla profondità è lì per questo.
+    const a = s.create({ projectId: PID, text: "a", status: "backlog" });
+    const b = s.create({ projectId: PID, text: "b", status: "backlog", parentTaskId: a.id });
+    db.run("UPDATE tasks SET parent_task_id = ? WHERE id = ?", [b.id, a.id]);
+    db.run("UPDATE tasks SET status='in_progress' WHERE id IN (?, ?)", [a.id, b.id]);
+    expect(work(b.id)).toEqual({ kind: "unattended" });
+  });
+});
+
 // L'11/08 Attilio: «avevo visto il task fatto nella tab kanban, ora non lo vedo
 // più». Misurato: undici card uscite da `done` in sei ore, nessuna persa — ma la
 // board non lo diceva. Il motivo viveva nel thread; chi guarda la colonna vedeva

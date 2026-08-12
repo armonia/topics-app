@@ -5,6 +5,8 @@ import { Settings as SettingsIcon, ChevronDown, Search, Archive, List, RotateCcw
 import { useGlobalBoard } from './hooks/useGlobalBoard';
 import { useTaskTopicIndex } from './hooks/useTaskTopicIndex';
 import { openTaskInApp } from './lib/openTaskLink';
+import { runNotificationAction } from './lib/notify/notificationAction';
+import { boardApi } from './lib/board';
 import { SidebarToggleButton } from './components/Shared/SidebarToggleButton';
 import { UpdaterToast } from './components/UpdaterToast';
 import type { PaneType } from './types';
@@ -24,6 +26,7 @@ import { useSidebarAndLayout } from './hooks/useSidebarAndLayout';
 import { useFloatingVibrancy } from './hooks/useFloatingVibrancy';
 import { useSidebarFitCoalesce } from './hooks/useSidebarFitCoalesce';
 import { useSidebarFlipPush } from './hooks/useSidebarFlipPush';
+import { useSidebarSwipe, mobileDrawerStyle } from './hooks/useSidebarSwipe';
 import { isDesktop, isTauri } from './lib/shell';
 import { selectDirectory } from './lib/shell/app';
 import { initDevBundleReload } from './lib/devBundleReload';
@@ -317,10 +320,6 @@ function App() {
     toggleSidebar,
     handleSidebarResizeStart,
     handleSidebarDoubleClick,
-    handleSidebarTouchStart,
-    handleSidebarTouchEnd,
-    handleEdgeTouchStart,
-    handleEdgeTouchEnd,
     setSidebarCollapsed,
     setAppSettings,
   } = layout.handlers;
@@ -350,6 +349,11 @@ function App() {
   const mainContentRef = useRef<HTMLDivElement | null>(null);
   const contentFlipRef = useRef<HTMLDivElement | null>(null);
   useSidebarFlipPush(mainContentRef, contentFlipRef, { collapsed: sidebarCollapsed, expandedPad, enabled: sidebarFixed });
+  // IL CASSETTO SEGUE IL DITO (solo mobile): trascinamento vero, non una soglia
+  // letta a gesto finito. Vive tutto in `useSidebarSwipe` perché è codice
+  // imperativo su `document` — quello che React, coi suoi listener passivi, non
+  // può fare.
+  useSidebarSwipe({ enabled: isMobile, sidebarRef, collapsed: sidebarCollapsed, setCollapsed: setSidebarCollapsed });
   // Coalesce xterm fit() across the sidebar collapse/expand (held during the slide, one fit at
   // the settled size) — driven off the SIDEBAR's own transform transition, untouched by FLIP.
   useSidebarFitCoalesce();
@@ -469,6 +473,42 @@ function App() {
     (window as unknown as { __topicsOpenTask?: (id: string) => void }).__topicsOpenTask =
       (id: string) => { if (id) openTaskInApp({ taskId: id }); };
     return () => { delete (window as unknown as { __topicsOpenTask?: (id: string) => void }).__topicsOpenTask; };
+  }, []);
+
+  // Il gemello del precedente per i TASTI del banner nativo: il delegate Rust
+  // legge `actionIdentifier` e chiama qui. Il guscio trasporta, il client
+  // esegue — la chiamata vuole sessione, cookie ed endpoint della board, che
+  // vivono da questa parte.
+  //
+  // Il progetto si RISOLVE dall'id invece di viaggiare nella notifica: così un
+  // banner ancora appeso in Centro Notifiche resta premibile anche dopo un
+  // riavvio dell'app, che è precisamente quando una mappa in memoria avrebbe
+  // già dimenticato tutto.
+  //
+  // A risolvere è `boardApi.resolve`, la porta unica «da un id al suo task, a
+  // qualunque profondità». Prima si cercava nel feed globale — che è
+  // `rootsOnly`, quindi per un id di SOTTOTASK la find tornava `undefined`, il
+  // progetto restava `null` e il tasto ripiegava su «apri il task». Cioè:
+  // proprio i banner degli step, che sono la maggioranza di quelli che chiedono
+  // una risposta, non facevano mai la loro azione.
+  useEffect(() => {
+    type ActionGlobal = { __topicsNotificationAction?: (taskId: string, actionId: string) => void };
+    (window as unknown as ActionGlobal).__topicsNotificationAction = (taskId: string, actionId: string) => {
+      void runNotificationAction(taskId, actionId, {
+        resolveProjectId: async (id) => (await boardApi.resolve(id))?.projectId ?? null,
+        send: async (req) => {
+          const resp = await fetch(req.path, {
+            method: req.method,
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify(req.body),
+          });
+          return resp.ok;
+        },
+        openTask: (id) => openTaskInApp({ taskId: id }),
+      });
+    };
+    return () => { delete (window as unknown as ActionGlobal).__topicsNotificationAction; };
   }, []);
 
   // Task-owned browser fork → per-task tab store. Consumes the server's
@@ -1066,8 +1106,6 @@ function App() {
       // dynamic here and the demo chapter goes quietly dead — nothing breaks,
       // it just stops showing what it claims to show.
       className={`flex bg-app-bg overflow-hidden max-w-[100vw] ${appSettings.floatingSplits && isDesktop ? 'floating-splits' : ''}`}
-      onTouchStart={isMobile ? handleEdgeTouchStart : undefined}
-      onTouchEnd={isMobile ? handleEdgeTouchEnd : undefined}
       style={{
         fontSize: `${appSettings.fontSize}px`,
         // La misura di lettura della chat viaggia come variabile, non come
@@ -1086,10 +1124,19 @@ function App() {
       <a href="#main-content" className="sr-only focus:not-sr-only focus:absolute focus:z-[100] focus:top-2 focus:left-2 focus:bg-primary focus:text-white focus:px-4 focus:py-2 focus:rounded-lg focus:text-sm">
         Skip to main content
       </a>
-      {/* Mobile sidebar overlay */}
-      {isMobile && !sidebarCollapsed && (
+      {/* IL VELO del cassetto mobile. Sta montato SEMPRE (su mobile) e a riposo
+          lo spegne il CSS — `.sidebar-scrim[data-open="false"]` è opacità 0,
+          `visibility: hidden` e niente click. Prima si montava e smontava con
+          lo stato: durante il trascinamento della colonna (useSidebarSwipe) non
+          esisteva ancora, e compariva tutto insieme a gesto finito — cioè lo
+          scatto che il trascinamento serve a togliere. Adesso il gesto gli
+          scrive l'opacità in linea frame per frame, e a fine corsa la cancella
+          restituendo la decisione al CSS. */}
+      {isMobile && (
         <div
-          className="fixed inset-0 bg-black/50 z-40"
+          data-sidebar-scrim
+          data-open={!sidebarCollapsed}
+          className="fixed inset-0 bg-black/50 z-40 sidebar-scrim"
           onClick={() => setSidebarCollapsed(true)}
           aria-hidden="true"
         />
@@ -1098,8 +1145,6 @@ function App() {
       {/* Sidebar */}
       <div
         ref={sidebarRef}
-        onTouchStart={isMobile ? handleSidebarTouchStart : undefined}
-        onTouchEnd={isMobile ? handleSidebarTouchEnd : undefined}
         role="navigation"
         aria-label="Topics sidebar"
         // `group/sidebar`: alcune affordance della sidebar si accendono solo
@@ -1138,10 +1183,15 @@ function App() {
           // via a composited translateX, so the content area never resizes on toggle — the
           // reveal is the FLIP push on #main-content (useSidebarFlipPush). Mobile is a
           // full-width drawer that slides the same way.
-          width: isMobile
-            ? (sidebarCollapsed ? 0 : '100vw')
-            : `${sidebarWidth}px`,
-          transform: sidebarCollapsed ? 'translateX(-100%)' : 'translateX(0)',
+          //
+          // Su mobile le due misure arrivano da `mobileDrawerStyle`, che è la
+          // stessa funzione con cui `useSidebarSwipe` rimette la colonna a posto
+          // dopo un trascinamento: React e il gesto scrivono lo STESSO elemento,
+          // e due copie delle stesse stringhe divergerebbero al primo ritocco.
+          width: isMobile ? mobileDrawerStyle(sidebarCollapsed).width : `${sidebarWidth}px`,
+          transform: isMobile
+            ? mobileDrawerStyle(sidebarCollapsed).transform
+            : (sidebarCollapsed ? 'translateX(-100%)' : 'translateX(0)'),
           // Safe-area top inset applied UNCONDITIONALLY: env() self-zeroes when
           // there's no inset (desktop, non-notched), so gating it on isPWA was
           // the bug that left content clipped under the notch when the app is
@@ -1182,9 +1232,8 @@ function App() {
           <div className="flex items-center gap-2 flex-1 min-w-0">
             {/* NIENTE «X» accanto al titolo. Il cassetto mobile si chiude da
                 solo appena apri qualcosa (`if (isMobile) setSidebarCollapsed(true)`,
-                una dozzina di punti in usePanelLifecycle) e con lo swipe verso
-                sinistra sulla colonna (`handleSidebarTouchEnd`, delta < −60,
-                useSidebarAndLayout) — quindi la crocetta non era l'uscita, era
+                una dozzina di punti in usePanelLifecycle) e trascinandolo verso
+                sinistra col dito (`useSidebarSwipe`) — quindi la crocetta non era l'uscita, era
                 una terza copia della stessa uscita, messa dove l'occhio cerca il
                 titolo. Costava anche la colonna: `w-10 -ml-1 mr-1` + il `gap-2`
                 del contenitore spingevano «Topics» a x=60, cioè 46px più a
