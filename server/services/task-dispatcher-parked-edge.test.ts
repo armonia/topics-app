@@ -48,6 +48,14 @@ describe("parkedEdgeEvent", () => {
     expect(parkedEdgeEvent(TASK, { requeue: false })?.state).toBe("failed");
   });
 
+  test("parkState 'waited_out' ha uno stato SUO: non è un fallimento e non è un blocco", () => {
+    // Il chiodo della copy: se questo tornasse 'failed' il banner direbbe «non
+    // consegnato», se tornasse 'blocked' direbbe «da sistemare». Sono le due
+    // etichette sbagliate per un turno che ha fatto la cosa giusta, cioè
+    // dichiarare l'attesa invece di dormirci sopra.
+    expect(parkedEdgeEvent(TASK, { requeue: false, parkState: "waited_out" })?.state).toBe("waited_out");
+  });
+
   test("porta il reason quando c'è, e lo omette quando non c'è", () => {
     expect(parkedEdgeEvent(TASK, { requeue: false, reason: "max_turns" })?.reason).toBe("max_turns");
     expect(parkedEdgeEvent(TASK, { requeue: false })).not.toHaveProperty("reason");

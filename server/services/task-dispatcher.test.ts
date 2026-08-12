@@ -485,6 +485,40 @@ describe("task-dispatcher", () => {
     expect(h.dispatcher.isInFlight("t1")).toBe(false);
   });
 
+  it("sfondato il tetto delle attese il fronte `task:parked` ESCE: il park che dice «decidi tu» non può essere muto", async () => {
+    // Era l'unico park terminale senza fronte, e per una ragione strutturale:
+    // lo decide `deferForWait` dentro il service, quindi non passa da
+    // `releaseAndEmit` come gli altri nove siti che rilasciano. Il chip
+    // compariva sulla board in tempo reale e nessuno veniva avvisato.
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 2 });
+    seedTask(h.db, { id: "t1", status: "todo", text: "Aspetta che la CI torni su" });
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    // Un'attesa NORMALE non si annuncia: riparte da sola, e un banner per ogni
+    // attesa sarebbe rumore. È la stessa riga che separa il park dal requeue.
+    h.dispatcher.deferWait("t1", "la CI sta girando", 30);
+    expect(h.events.filter((e) => e.type === "task:parked")).toHaveLength(0);
+
+    // Serie a un passo dal tetto: la prossima sfonda.
+    h.db.run("UPDATE tasks SET wait_streak = ?, wait_reason = ?, wait_since = ? WHERE id = 't1'", [
+      WAIT_STREAK_CAP, "la ci sta girando", new Date().toISOString(),
+    ]);
+    h.dispatcher.deferWait("t1", "la CI sta girando", 30);
+
+    const parked = h.events.filter((e) => e.type === "task:parked");
+    expect(parked).toHaveLength(1);
+    expect(parked[0]).toMatchObject({
+      projectId: PID,
+      taskId: "t1",
+      taskTitle: "Aspetta che la CI torni su",
+      // Lo stato SUO, non 'failed' e non 'blocked': quei due titoli
+      // accuserebbero di un difetto un turno che ha fatto la cosa giusta.
+      state: PARKED_WAITED_OUT,
+    });
+  });
+
   it("books wall-clock + usage delta (billable + cache reads) on the task at each turn end", async () => {
     // Fake transcript usage: zeros before the turn, real numbers after it.
     let usage = { inputTokens: 0, outputTokens: 0, cacheWriteTokens: 0, cacheWrite1hTokens: 0, cacheReadTokens: 0, billableTokens: 0 };

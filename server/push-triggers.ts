@@ -248,7 +248,15 @@ export function maybeSendPush(message: Record<string, any>): void {
   // su una rimessa in coda che si auto-guarisce. `tag` keyed by taskId così un
   // re-emit sostituisce invece di impilare.
   if (type === "task:parked") {
-    const title = message.state === "blocked" ? "🔧 Task da sistemare" : "⛔️ Task non consegnato";
+    // Tre stati, tre titoli. `waited_out` (la serie di attese dichiarate ha
+    // sfondato il tetto) non è un fallimento e non ha niente da riparare: la
+    // condizione esterna non è arrivata e la decisione torna all'umano, quindi
+    // né 🔧 né ⛔️. Gemello del banner in useCompletionNotifier: stessa copy.
+    const title = message.state === "blocked"
+      ? "🔧 Task da sistemare"
+      : message.state === "waited_out"
+        ? "⏳ Task in attesa, decidi tu"
+        : "⛔️ Task non consegnato";
     const body = message.taskTitle || "Un task è stato parcheggiato";
     firePush(withActions({
       title,
