@@ -242,6 +242,63 @@ describe("task-automerge", () => {
     expect((await am.tryMerge("t1", "x")).status).toBe("merged");
   });
 
+  test("due timestamp DIVERSI non sono una collisione: il numero e' tutto il prefisso", async () => {
+    // Il difetto che chiude, misurato il 12/08 su `ddf66270` e `b06bb837`: il
+    // numero si leggeva con `file.slice(0, 3)`, e col prefisso timestamp
+    // introdotto lo stesso giorno OGNI migration del 2026 finiva sotto la chiave
+    // `202`. Bastava che main e il ramo avessero migration diverse — cioe' il
+    // caso NORMALE di un ramo in review mentre main va avanti — perche' il
+    // cancello gridasse collisione. Diciotto consegne sono rimaste fuori da main
+    // per questo, e il messaggio accusava un file che era gia' atterrato.
+    const run = async (_cwd: string, args: string[]) => {
+      const key = args.slice(0, 2).join(" ");
+      if (key === "symbolic-ref --short") return { code: 0, stdout: "main\n", stderr: "" };
+      if (key === "status --porcelain") return { code: 0, stdout: "", stderr: "" };
+      if (key === "rev-list --count") return { code: 0, stdout: "3\n", stderr: "" };
+      if (key === "ls-tree -r") {
+        const ref = args[3];
+        // main ha una migration in piu' del ramo: e' la vita normale di una card
+        // che aspetta la review.
+        return ref === "main"
+          ? {
+              code: 0,
+              stdout:
+                "server/db/migrations/20260812094300-notification-log.sql\n" +
+                "server/db/migrations/20260812120000-preview-retired.sql\n",
+              stderr: "",
+            }
+          : { code: 0, stdout: "server/db/migrations/20260812094300-notification-log.sql\n", stderr: "" };
+      }
+      if (key === "merge --no-ff") return { code: 0, stdout: "", stderr: "" };
+      if (key === "rev-parse --short") return { code: 0, stdout: "abc1234\n", stderr: "" };
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    const am = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: run });
+    expect((await am.tryMerge("t1", "x")).status).toBe("merged");
+  });
+
+  test("due timestamp UGUALI con nomi diversi restano una collisione", async () => {
+    // L'altro verso: il cancello deve continuare a scattare quando due rami
+    // scelgono davvero lo stesso numero, timestamp compreso.
+    const run = async (_cwd: string, args: string[]) => {
+      const key = args.slice(0, 2).join(" ");
+      if (key === "symbolic-ref --short") return { code: 0, stdout: "main\n", stderr: "" };
+      if (key === "status --porcelain") return { code: 0, stdout: "", stderr: "" };
+      if (key === "rev-list --count") return { code: 0, stdout: "3\n", stderr: "" };
+      if (key === "ls-tree -r") {
+        const ref = args[3];
+        return ref === "main"
+          ? { code: 0, stdout: "server/db/migrations/20260812094300-notification-log.sql\n", stderr: "" }
+          : { code: 0, stdout: "server/db/migrations/20260812094300-altra-cosa.sql\n", stderr: "" };
+      }
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    const am = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: run });
+    const res = await am.tryMerge("t1", "x");
+    expect(res.status).toBe("skipped");
+    if (res.status === "skipped") expect(res.reason).toContain("20260812094300");
+  });
+
   test("un branch che non porta NIENTE di suo resta rifiutato", async () => {
     // Il controllo del test qui sopra: raccogliere i propri commit non deve
     // diventare «landa comunque». Zero commit suoi = niente da landare.

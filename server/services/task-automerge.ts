@@ -458,8 +458,17 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
         if (r.code !== 0) return out;
         for (const path of r.stdout.split("\n")) {
           const file = path.trim().split("/").pop() ?? "";
-          const n = file.slice(0, 3);
-          if (/^\d{3}$/.test(n)) out.set(n, file);
+          // Il numero e' la RUN di cifre davanti al trattino, non i primi tre
+          // caratteri. Le due forme convivono: il contatore storico (`089-`) e il
+          // timestamp introdotto il 12/08 (`20260812094300-`), che e' la cura alle
+          // collisioni. Leggere `slice(0, 3)` mandava OGNI migration del 2026
+          // sotto la stessa chiave `202`: due rami con timestamp diversi si
+          // dichiaravano in collisione, e il cancello rifiutava ogni land in cui
+          // main e il ramo non avessero esattamente le stesse migration. Misurato
+          // stanotte su `ddf66270` e `b06bb837`, e con 18 consegne ferme fuori da
+          // main. Un cancello che scatta sempre non protegge: si aggira.
+          const m = /^(\d+)-/.exec(file);
+          if (m) out.set(m[1]!, file);
         }
         return out;
       };
