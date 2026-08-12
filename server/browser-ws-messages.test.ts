@@ -144,6 +144,17 @@ describe('browser-ws-messages: focus_field (server -> client)', () => {
   });
 });
 
+describe('browser-ws-messages: focus_query (client -> server)', () => {
+  it('accepts the bare question the video branch asks after a DataChannel click', () => {
+    // Il click non passa più dal server (va sul canale dati della
+    // PeerConnection), quindi la lettura del campo a fuoco va chiesta a voce:
+    // senza questa variante nell'union il pane resta con la tastiera generica.
+    const r = parseBrowserWsMessage({ type: 'focus_query' });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.data).toEqual({ type: 'focus_query' });
+  });
+});
+
 describe('browser-ws-messages: union still discriminates', () => {
   it('parses a frame and rejects an unknown type', () => {
     expect(parseBrowserWsMessage({ type: 'frame', data: 'abc', metadata: { timestamp: 1 } }).ok).toBe(true);
