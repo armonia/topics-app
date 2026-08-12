@@ -8,6 +8,7 @@ import type { Topic } from "./types";
 import type { IndexedElement } from "./browser-tools";
 import type { BrowserWsMessage } from "../shared/browser-ws-messages";
 import { DESCRIBE_ELEMENT_FN, type ElementDescription } from "../shared/element-describe";
+import type { RemoteField } from "../shared/browser-keyboard-field";
 import {
   extractIndexedElementsOnPage,
   captureAnnotatedScreenshotOnPage,
@@ -98,6 +99,58 @@ interface BrowserServiceOptions {
 }
 
 const MAX_CONSOLE_MESSAGES = 100;
+
+// ── Che campo è a fuoco: la risposta che il ramo video non può darsi da solo ──
+// Sul co-browse DOM il pane ha un mirror del DOM e se lo chiede in casa. Sul
+// flusso video ha pixel, quindi la domanda («che campo ho toccato?», cioè quale
+// tastiera deve aprire il telefono) arriva fin qui, dopo il click.
+/** Oltre questo tempo la risposta arriverebbe a tastiera già aperta: si lascia
+ *  perdere e il campo di cattura resta sulla tastiera generica. */
+const FOCUSED_FIELD_TIMEOUT_MS = 700;
+/** Quanti frame interrogare al massimo. Una pagina con cento iframe pubblicitari
+ *  non deve trasformare un click in cento round-trip CDP. */
+const MAX_FOCUS_FRAMES = 12;
+
+/**
+ * Gira DENTRO la pagina remota, un frame alla volta. Restituisce gli attributi
+ * del campo a fuoco, o `null` se questo documento non ha il fuoco o se a fuoco
+ * non c'è niente di scrivibile (un bottone, un link, il body).
+ *
+ * Legge attributi, non proprietà: `type` va preso com'è scritto nel sorgente.
+ * La proprietà `el.type` di un <input> normalizza un `type` sconosciuto in
+ * "text", e la distinzione fra «non dichiarato» e «dichiarato strano» è
+ * esattamente quella che decide la tastiera. Che cosa farne lo dice
+ * `shared/browser-keyboard-field`, uguale per il mirror e per il server.
+ */
+const FOCUSED_FIELD_FN = () => {
+  if (!document.hasFocus()) return null;
+  // Il fuoco può stare in uno shadow DOM: `activeElement` lì fuori mostra solo
+  // l'ospite, e l'ospite non è un campo. Si scende finché si scende.
+  let el: Element | null = document.activeElement;
+  for (let hops = 0; el && hops < 8; hops++) {
+    const inner = (el as HTMLElement).shadowRoot?.activeElement;
+    if (!inner) break;
+    el = inner;
+  }
+  if (!el || el === document.body || el === document.documentElement) return null;
+  const tag = el.tagName.toLowerCase();
+  const editable = tag === 'input' || tag === 'textarea' || tag === 'select'
+    || (el as HTMLElement).isContentEditable;
+  if (!editable) return null;
+  const attr = (name: string) => (el!.getAttribute(name) || '').trim().toLowerCase();
+  return {
+    tag,
+    type: tag === 'input' ? attr('type') : '',
+    inputMode: attr('inputmode'),
+    enterKeyHint: attr('enterkeyhint'),
+    autoCapitalize: attr('autocapitalize'),
+    autoCorrect: attr('autocorrect'),
+    spellCheck: attr('spellcheck'),
+    disabled: el.hasAttribute('disabled'),
+    readOnly: el.hasAttribute('readonly'),
+    inForm: !!el.closest('form'),
+  };
+};
 /** Cap on buffered incrementals kept for late-join bootstrap (a Meta+FullSnapshot
  *  resets this). ~4000 covers minutes of a busy page; older ones drop off. */
 const MAX_DOM_INCREMENTALS = 4000;
@@ -250,6 +303,12 @@ export interface BrowserService {
     action: 'click' | 'type' | 'scroll' | 'mousemove' | 'keypress',
     payload: { x?: number; y?: number; text?: string; key?: string; deltaX?: number; deltaY?: number; button?: 'left' | 'right' | 'middle' }
   ): Promise<void>;
+  /** Che campo è a fuoco ADESSO nella pagina remota, descritto negli attributi
+   *  che decidono la tastiera (`shared/browser-keyboard-field`). `null` quando
+   *  a fuoco non c'è niente di scrivibile, quando il contesto non esiste, o
+   *  quando la pagina non risponde in tempo: è una risposta best-effort, letta
+   *  subito dopo un click per far vestire il campo di cattura del pane. */
+  describeFocusedField(id: string): Promise<RemoteField | null>;
   /** T1 DOM co-browse: inject rrweb into this context's page (idempotent) and
    *  start broadcasting `dom_event`s to its viewers. Resolves with the bootstrap
    *  burst [meta, full, ...incrementals] for the requesting viewer, or null when
@@ -1625,6 +1684,32 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       }
       // getOrCreate already touched activity; the action is a real interaction
       // so the entry's lastActivity stays fresh.
+    },
+
+    async describeFocusedField(id) {
+      const entry = contexts.get(id);
+      // Nessun contesto: la domanda non ha oggetto. Di proposito NON si crea
+      // (a differenza di dispatchInput): questa è una lettura accessoria, e far
+      // nascere un Chromium per sapere che tastiera aprire sarebbe assurdo.
+      if (!entry) return null;
+      // La pagina può stare navigando proprio adesso (il click che ha preceduto
+      // questa lettura è il candidato numero uno), e allora `evaluate` aspetta
+      // il documento nuovo. Ma la risposta serve MENTRE la tastiera sale: se
+      // tarda, tanto vale non averla. Quindi la corsa contro un timer corto.
+      const deadline = new Promise<null>((resolve) => setTimeout(() => resolve(null), FOCUSED_FIELD_TIMEOUT_MS));
+      const read = (async (): Promise<RemoteField | null> => {
+        // Il fuoco può stare dentro un iframe, anche di un'altra origine, dove
+        // `document.activeElement` del frame principale mostra solo l'<iframe>.
+        // Playwright però parla con ogni frame, e `document.hasFocus()` dice
+        // quale dei documenti tiene davvero il fuoco: si chiede a tutti e si
+        // prende la prima risposta piena.
+        for (const frame of entry.page.frames().slice(0, MAX_FOCUS_FRAMES)) {
+          const field = await frame.evaluate(FOCUSED_FIELD_FN).catch(() => null);
+          if (field) return field as RemoteField;
+        }
+        return null;
+      })();
+      return await Promise.race([read, deadline]).catch(() => null);
     },
 
     // T1 DOM co-browse — enable DOM render mode for a context. Binds rrweb (once),
