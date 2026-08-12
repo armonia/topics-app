@@ -11,12 +11,14 @@
 // Il contratto della board sta in `shared/board.ts`, dichiarato UNA volta e
 // letto dai due lati del filo: `export … from` ri-esporta ma non porta i nomi
 // in scope locale, e qui sotto servono, quindi l'import gemello non è ridondante.
-export { MAX_FANOUT, TASK_STATUSES, ACTIVE_DISPATCH_STATES, isAgentWorking, parseStatusEvent, hasPlanApproveOption } from '../../../shared/board';
+export { MAX_FANOUT, TASK_STATUSES, ACTIVE_DISPATCH_STATES, isAgentWorking, parseStatusEvent, hasPlanApproveOption, parseQuestionBlock } from '../../../shared/board';
 export type {
   TaskStatus, TaskComment, ReviewCheck, CheckRun, BoardSettings, BoardSettingsPatch, DispatchCapacity, BlockerRef,
+  LandingTicket,
+  SubtaskWork,
 } from '../../../shared/board';
 import type {
-  TaskStatus, TaskComment, CheckRun, BoardSettings, BoardSettingsPatch, DispatchCapacity, BlockerRef,
+  TaskStatus, TaskComment, CheckRun, BoardSettings, BoardSettingsPatch, DispatchCapacity, BlockerRef, LandingTicket, SubtaskWork,
 } from '../../../shared/board';
 // Il tentativo di un fan-out: stesso contratto del server, stessa cartella condivisa.
 // Passa solo `attemptHasWork`, che è un predicato e non ha lingua. Il diffstat
@@ -145,6 +147,41 @@ export function blockedByChip(
 }
 
 /**
+ * Il chip «chi la lavora» di un sottotask senza agente proprio: cosa scriverci,
+ * o `null` se non va disegnato.
+ *
+ * Due chip e non uno, perché le due risposte servono a due persone diverse.
+ * `parent-turn` rassicura chi guarda la board — la card è in mano a qualcuno,
+ * dentro il turno di un antenato, ed è il flusso voluto. `unattended` è invece
+ * l'unico caso che chiede un intervento: nessuno la sta lavorando, e finora non
+ * lo diceva nessuno (il recupero orfani filtra sul chip di dispatch, che in
+ * questa forma non c'è). Tacere sul primo per non urlare il secondo lascerebbe
+ * la card ambigua com'era: è proprio la coppia che la disambigua.
+ *
+ * Il titolo dell'antenato lo risolve il server (`subtaskWork.ancestor`): la
+ * lista della board è un progetto solo, `rootsOnly`, non archiviati, e il padre
+ * di un sottotask quasi mai ci sta dentro.
+ */
+export function subtaskWorkChip(
+  task: Pick<BoardTask, 'subtaskWork'>,
+): { kind: SubtaskWork['kind']; label: string; title: string } | null {
+  const w = task.subtaskWork;
+  if (!w) return null;
+  if (w.kind === 'unattended') {
+    return {
+      kind: 'unattended',
+      label: 'nessuno la lavora',
+      title: 'In corso, ma senza agente suo e senza nessun antenato al lavoro: è rimasta qui. Rimettila in coda o chiudila.',
+    };
+  }
+  return {
+    kind: 'parent-turn',
+    label: 'nel turno del padre',
+    title: `La lavora l'agente di: ${w.ancestor.text}`,
+  };
+}
+
+/**
  * Il chip «riaperta»: una card che ERA fatta e non lo è più lo dice sulla card,
  * dove si guarda — non solo nel thread.
  *
@@ -233,6 +270,9 @@ export interface BoardTask {
    *  fonte del chip «in attesa di»: la lista fetchata non lo contiene sempre.
    *  null = nessun link, o la riga puntata non esiste più. */
   blockedBy: BlockerRef | null;
+  /** Chi lavora questo sottotask quando non ha un agente suo — derivato dalla
+   *  catena dei padri dal server. `null` = la domanda non si pone. */
+  subtaskWork: SubtaskWork | null;
   /** L'altra metà del legame, contata dal server: quanti task VIVI (non
    *  archiviati, non done) aspettano questo. È la fonte del chip «N in attesa»:
    *  contandoli nella lista fetchata sparivano i dipendenti che sono sottotask
@@ -293,69 +333,6 @@ export function boardIdForPath(projectPath: string): string {
     hash |= 0;
   }
   return dirName + '-' + Math.abs(hash).toString(36).slice(0, 6);
-}
-
-/**
- * Parse a task comment for an agent "question block" — the human-decision
- * request the board renders as a quick-reply:
- *
- *   ```question
- *   Which auth approach?
- *   - JWT in an httpOnly cookie
- *   - Short-lived bearer token
- *   ```
- *
- * The canonical block is composed SERVER-side (tasks service `questionOptions`)
- * so this layout is guaranteed for new comments — but the parser stays
- * tolerant of hand-written LLM variants: `\r\n`, missing newlines around the
- * fences, options inlined on one line. Returns the question + the (possibly
- * empty) option list, or null when the text has no such block. Pure + exported
- * so the "Serve te" card and the detail drawer share it and a bun:test can pin
- * both the canonical and the degenerate forms.
- */
-export function parseQuestionBlock(text: string): { question: string; options: string[] } | null {
-  if (!text) return null;
-  // \s+ (not \s*\n): tolerate a block whose newlines were lost/normalized —
-  // '```question Question? - a - b```' still parses.
-  const m = text.replace(/\r\n/g, '\n').match(/```question\s+([\s\S]*?)```/);
-  if (!m) return null;
-  const body = m[1].trim();
-  if (!body) return null;
-  const options: string[] = [];
-  const qLines: string[] = [];
-  if (body.includes('\n')) {
-    for (const raw of body.split('\n')) {
-      const line = raw.trim();
-      if (!line) continue;
-      const opt = line.match(/^[-*]\s+(.*)$/);
-      if (opt) options.push(opt[1].trim());
-      else qLines.push(line);
-    }
-  } else {
-    // Degenerate single-line body: split on ' - ' option markers. The first
-    // segment is the question; a leading '- ' marks an option-only block.
-    const segments = body.split(/\s+-\s+/);
-    const first = segments.shift()?.trim() ?? '';
-    if (first.startsWith('- ')) segments.unshift(first.slice(2));
-    else if (first) qLines.push(first);
-    for (const s of segments) { const v = s.trim(); if (v) options.push(v); }
-  }
-  const question = qLines.join(' ').trim();
-  if (!question) return null;
-  return { question, options: filterReservedOptions(options) };
-}
-
-/**
- * "Landa e pubblica" (go online = merge + push + deploy) is NEVER a per-task
- * quick-reply: publishing is a SEPARATE, human-only board action (the "Pubblica"
- * control) with a diff preview to review before pushing. The dispatcher used to
- * make agents offer it at delivery; drop it from the rendered options so old
- * deliveries that still carry it don't show a one-click merge+push button.
- * "Landa su main" (local merge, no push) stays.
- */
-function filterReservedOptions(options: string[]): string[] {
-  const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
-  return options.filter((o) => norm(o) !== 'landa e pubblica');
 }
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
@@ -565,9 +542,14 @@ export const boardApi = {
   review: (projectId: string, taskId: string, decision: 'approve' | 'reject', comment?: string, opts?: { force?: boolean }) =>
     req<BoardTask>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/review`, { method: 'POST', body: JSON.stringify({ decision, comment, force: opts?.force }) }),
   /** Land the task's branch on main (accept if still in review, then merge locally
-   *  + rebuild). Explicit, decoupled from approve — never pushes online. */
+   *  + rebuild). Explicit, decoupled from approve — never pushes online.
+   *  Risponde `202`: il land è ACCODATO, non ancora avvenuto — `landing` dice in
+   *  quanti ha davanti, e `landStatus` com'è finito. */
   land: (projectId: string, taskId: string) =>
-    req<BoardTask>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/land`, { method: 'POST', body: JSON.stringify({}) }),
+    req<BoardTask & { landing: LandingTicket }>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/land`, { method: 'POST', body: JSON.stringify({}) }),
+  /** L'esito del land richiesto per questo task (404 se non ne è mai stato chiesto uno). */
+  landStatus: (projectId: string, taskId: string) =>
+    req<{ landing: LandingTicket; pending: number }>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/land`),
   /** Move a root task (and its subtree) to another board. */
   move: (projectId: string, taskId: string, toProjectId: string) =>
     req<BoardTask>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/move`, { method: 'POST', body: JSON.stringify({ toProjectId }) }),
