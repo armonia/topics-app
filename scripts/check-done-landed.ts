@@ -19,13 +19,27 @@
  *
  * Due conti, non uno. Quello storico — le card chiuse col commit di consegna
  * fuori dal contenuto di main — e quello RECUPERABILE: le card chiuse il cui
- * RAMO esiste ancora e non è dentro main, cioè quelle che un click su «Landa su
- * main» rimette a posto adesso. Il secondo è la barra che deve dire zero: il
- * primo contiene anche rami già potati, che nessun bottone può più salvare.
+ * RAMO esiste ancora e non è dentro main, cioè quelle su cui si può ancora fare
+ * qualcosa. Il primo contiene anche rami già potati, che nessun bottone salva.
  *
- *   bun run check:landed              # esce ≠0 se una sola card done non è su main
+ * Il conto recuperabile si legge a TRE esiti, non a due (`landing-verdict.ts`),
+ * perché la discendenza mette storia e debito nella stessa lista. Misurato il
+ * 12/08 sui 6 rami vivi fuori da topics-app: 2 avevano il contenuto su main
+ * (il land ricopia, quindi lo sha non torna), 2 erano stati SUPERATI da un
+ * lavoro atterrato tre giorni dopo che risolveva la stessa cosa meglio, 2 erano
+ * debito vero. Sei righe identiche che dicevano tutte «landa prima del GC»
+ * erano un elenco che si smette di leggere, e infatti nessuno lo leggeva.
+ *
+ *   dentro    il contenuto è di là comunque ci sia arrivato: niente da fare;
+ *   superato  quei file su main li ha rifatti qualcun altro dopo. Stampato col
+ *             commit e la data, se no è un'opinione;
+ *   fuori     il DEBITO. Solo questo fa uscire il comando ≠0;
+ *   non decidibile   nessuna riga distintiva da cercare. Detto in fondo e a
+ *             parte: un forse in mezzo alle certezze le annacqua tutte.
+ *
+ *   bun run check:landed              # esce ≠0 solo se c'è del DEBITO vero
  *   bun run check:landed --json       # una riga JSON, per chi la vuole leggere a macchina
- *   bun run check:landed --strict     # fallisce anche sui commit SPARITI dal repo
+ *   bun run check:landed --strict     # fallisce anche sullo storico e sui commit SPARITI
  *   bun run check:landed --db <path>  # un altro database
  *
  * Sola lettura: apre il DB `{ readonly: true }` e gira solo comandi git di
@@ -43,6 +57,7 @@ import { join } from "path";
 import { Database } from "bun:sqlite";
 import { projectIdForPath } from "../server/services/tasks";
 import { branchExistsInRepo, commitStatusFromRepo, countCommitsAhead, resolveCommit, type BranchStatus } from "../server/services/branch-status";
+import { classifyBranchLanding, indiceRigheMain, type LandingEsito, type LandingVerdict } from "../server/services/landing-verdict";
 import { scanWorkspaceProjects } from "../server/services/project-path-resolver";
 
 const argv = process.argv.slice(2);
@@ -226,10 +241,23 @@ function turniPagatiDopoUnLand(): { turni: number; usd: number; ultimo: string |
  * comunque di là (il land RICOPIA i commit, quindi la discendenza da sola
  * accuserebbe lavoro già atterrato).
  */
-interface Alive { id: string; text: string; branch: string; ahead: number; repoPath: string }
+interface Alive {
+  id: string; text: string; branch: string; ahead: number; repoPath: string;
+  /**
+   * Il terzo esito. La discendenza sa dire solo «dentro» o «fuori», e sono
+   * pochi: misurato il 12/08 sui 6 rami vivi fuori da topics-app, questa lista
+   * conteneva 2 rami già su main per contenuto, 2 rami che qualcun altro aveva
+   * RIFATTO meglio tre giorni dopo, e 2 debiti veri. Presentati tutti e sei come
+   * «landa prima che il GC lo poti», l'elenco è diventato uno che non si legge.
+   */
+  verdetto: LandingVerdict;
+}
 
 async function liveBranchesOutsideMain(): Promise<Alive[]> {
   const alive: Alive[] = [];
+  // L'indice delle righe di main costa una `git grep` per REPO, non per ramo:
+  // sei di queste card stanno nello stesso checkout.
+  const indici = new Map<string, ReadonlySet<string>>();
   for (const v of verdicts) {
     if (!v.branch || !v.repoPath) continue;
     if (!(await branchExistsInRepo(v.repoPath, v.branch))) continue;
@@ -238,13 +266,29 @@ async function liveBranchesOutsideMain(): Promise<Alive[]> {
     const tip = await resolveCommit(v.repoPath, v.branch);
     if (!tip) continue;
     if ((await commitStatusFromRepo(v.repoPath, tip)) !== "unmerged") continue;
-    alive.push({ id: v.id, text: v.text, branch: v.branch, ahead, repoPath: v.repoPath });
+    let indiceMain = indici.get(v.repoPath);
+    if (!indiceMain) {
+      indiceMain = await indiceRigheMain(v.repoPath);
+      indici.set(v.repoPath, indiceMain);
+    }
+    const verdetto = await classifyBranchLanding(v.repoPath, v.branch, { indiceMain });
+    alive.push({ id: v.id, text: v.text, branch: v.branch, ahead, repoPath: v.repoPath, verdetto });
   }
   return alive;
 }
 
 const aliveOutside = await liveBranchesOutsideMain();
+const perEsito = (e: LandingEsito) => aliveOutside.filter((a) => a.verdetto.esito === e);
+/** Il debito vero: nessuno ha quel contenuto e nessuno ha rifatto quei file. */
+const debiti = perEsito("fuori");
+const superati = perEsito("superato");
+const dentroPerContenuto = perEsito("dentro");
+const indecisi = perEsito("non-decidibile");
 const outside = verdicts.filter((v) => v.status === "unmerged");
+// Le card fuori da main che NON hanno più un ramo vivo: la loro riga è cronaca,
+// non un'azione, e sta lontano dalle tre liste per non ingrossarle.
+const viveIds = new Set(aliveOutside.map((a) => a.id));
+const storico = outside.filter((v) => !viveIds.has(v.id));
 const pruned = verdicts.filter((v) => v.status === "gone");
 const unresolved = verdicts.filter((v) => v.status === "no-repo");
 const landed = verdicts.filter((v) => v.status === "merged");
@@ -256,9 +300,26 @@ if (JSON_OUT) {
     outsideMain: outside.length,
     pruned: pruned.length,
     unresolvedProject: unresolved.length,
-    // La misura che deve dire zero: chiuse, col ramo ancora lì, fuori da main.
     liveBranchOutsideMain: aliveOutside.length,
-    recoverable: aliveOutside.map((a) => ({ id: a.id, branch: a.branch, ahead: a.ahead, text: a.text.slice(0, 80) })),
+    // La misura che deve dire zero non è più la lista intera: è il DEBITO, cioè
+    // i rami vivi il cui contenuto non è su main e che nessuno ha rifatto.
+    debito: debiti.length,
+    superate: superati.length,
+    dentroPerContenuto: dentroPerContenuto.length,
+    nonDecidibili: indecisi.length,
+    recoverable: aliveOutside.map((a) => ({
+      id: a.id, branch: a.branch, ahead: a.ahead, text: a.text.slice(0, 80),
+      esito: a.verdetto.esito,
+      motivo: a.verdetto.motivo,
+      righe: a.verdetto.righe,
+      superatoDa: a.verdetto.superatoDa
+        ? {
+            commit: a.verdetto.superatoDa.sha,
+            data: a.verdetto.superatoDa.data,
+            subject: a.verdetto.superatoDa.subject,
+          }
+        : null,
+    })),
     witnessed: verdicts.filter((v) => v.fonte === "land").length,
     turniPagatiDopoUnLand: turniPagatiDopoUnLand(),
     cards: outside.map((v) => ({ id: v.id, commit: v.commit, branch: v.branch, fonte: v.fonte, text: v.text.slice(0, 80) })),
@@ -280,15 +341,50 @@ if (JSON_OUT) {
     `  esito registrato dal land: ${witnessed}/${verdicts.length} · ` +
     `dedotto qui dal solo commit: ${verdicts.length - witnessed}`,
   );
-  // La riga che si guarda per prima: queste si riparano con un click, e finché
-  // non è zero c'è del lavoro consegnato che sta aspettando di sparire col GC.
+  // Le tre liste. La discendenza da sola diceva «fuori» di tutte, e un elenco
+  // dove il debito sta in mezzo ai fossili è un elenco che si smette di leggere.
+  const capo = (a: Alive) => `    · ${a.id.slice(0, 8)} ${a.branch} (+${a.ahead}) — ${a.text.slice(0, 56)}`;
   console.log(
-    `  card done col RAMO ancora vivo e FUORI da main (landabili adesso): ${aliveOutside.length}` +
-    (aliveOutside.length === 0 ? "  ✓" : ""),
+    `  card done col RAMO ancora vivo e fuori da main per discendenza: ${aliveOutside.length}` +
+    ` → dentro ${dentroPerContenuto.length} · superate ${superati.length} · ` +
+    `DEBITO ${debiti.length}${debiti.length === 0 ? "  ✓" : ""} · non decidibili ${indecisi.length}`,
   );
-  for (const a of aliveOutside) {
-    console.log(`    · ${a.id.slice(0, 8)} ${a.branch} (+${a.ahead}) — ${a.text.slice(0, 60)}`);
+
+  if (debiti.length > 0) {
+    console.log(`\n  DEBITO (${debiti.length}) — il contenuto non è su main e nessuno ha rifatto quei file:`);
+    for (const a of debiti) {
+      console.log(capo(a));
+      console.log(`        ${a.verdetto.motivo}`);
+      console.log(`        prova: git -C '${a.repoPath}' diff main...${a.branch} --stat`);
+    }
+    console.log("\n  azione: landa il ramo (bottone «Landa su main» sulla card) prima che il GC lo poti, oppure cherry-picka il commit a mano");
   }
+
+  if (superati.length > 0) {
+    // Col commit e la data, sempre. Senza, «superato» è un'opinione, e a
+    // un'opinione che assolve del lavoro perso non ci si può appoggiare.
+    console.log(`\n  SUPERATE (${superati.length}) — su main quei file li ha rifatti qualcun altro, dopo:`);
+    for (const a of superati) {
+      const s = a.verdetto.superatoDa!;
+      console.log(capo(a));
+      console.log(`        superato da ${s.sha.slice(0, 8)} del ${s.data.slice(0, 10)}: ${s.subject.slice(0, 64)}`);
+      console.log(`        ${a.verdetto.motivo}`);
+      console.log(`        prova: git -C '${a.repoPath}' log main --oneline ${s.sha}~1..main -- ${a.verdetto.file.slice(0, 3).join(" ")}`);
+    }
+  }
+
+  if (dentroPerContenuto.length > 0) {
+    console.log(`\n  DENTRO (${dentroPerContenuto.length}) — il contenuto è su main, la discendenza mente (il land ricopia):`);
+    for (const a of dentroPerContenuto) console.log(`${capo(a)}\n        ${a.verdetto.motivo}`);
+  }
+
+  if (indecisi.length > 0) {
+    // Stanno in fondo e sono loro soli. Un forse messo fra le certezze le
+    // annacqua tutte, ed è il difetto per cui questa lista era diventata muta.
+    console.log(`\n  NON DECIDIBILI (${indecisi.length}) — guardare a mano, non sono contate fra i debiti:`);
+    for (const a of indecisi) console.log(`${capo(a)}\n        ${a.verdetto.motivo}`);
+  }
+
   const spreco = turniPagatiDopoUnLand();
   if (spreco.turni < 0) {
     console.log("  turni pagati dopo un land: non misurabile su questo database (niente costi sui messaggi)");
@@ -299,12 +395,15 @@ if (JSON_OUT) {
       "  (storico, non entra nel codice d'uscita: conta che la data smetta di avanzare)",
     );
   }
-  if (outside.length > 0) {
-    console.log(`\n  ${outside.length} card sono in Done col codice FUORI dal contenuto di main:`);
+  if (storico.length > 0) {
+    // Le card fuori da main il cui RAMO non c'è più: nessun bottone le rimette
+    // a posto, quindi non sono un'azione. Restano perché la loro data che smette
+    // di avanzare è la prova che il cancello del land ha smesso di perdere.
+    console.log(`\n  storico (${storico.length}) — fuori dal contenuto di main, ma senza un ramo vivo da landare:`);
     // Raggruppate per checkout: la prova si incolla in un terminale per NON
     // crederci, e una prova che nomina il repo di un'ALTRA card non si incolla.
     const byRepo = new Map<string, Verdict[]>();
-    for (const v of outside) byRepo.set(v.repoPath ?? "?", [...(byRepo.get(v.repoPath ?? "?") ?? []), v]);
+    for (const v of storico) byRepo.set(v.repoPath ?? "?", [...(byRepo.get(v.repoPath ?? "?") ?? []), v]);
     for (const [repo, group] of byRepo) {
       console.log(`\n  ${repo} — ${group.length}:`);
       for (const v of group) console.log(line(v));
@@ -314,7 +413,6 @@ if (JSON_OUT) {
         `git -C '${repo}' log main -F --grep="$(git -C '${repo}' log -1 --format=%s ${first.commit})"`,
       );
     }
-    console.log("\n  azione: landa il ramo (bottone «Landa su main» sulla card) prima che il GC lo poti, oppure cherry-picka il commit a mano");
   }
   if (pruned.length > 0) {
     // Non è un'assoluzione: il commit poteva essere stato potato PRIMA di
@@ -328,4 +426,14 @@ if (JSON_OUT) {
   }
 }
 
-process.exit(outside.length > 0 || aliveOutside.length > 0 || (STRICT && pruned.length > 0) ? 1 : 0);
+/**
+ * Fallisce sul DEBITO, non sulla lista. Prima bastava un ramo fuori da main per
+ * uscire rosso, e siccome nove volte su undici quel ramo era lavoro già dentro o
+ * un fossile, il rosso non voleva più dire niente. Quello che il codice d'uscita
+ * deve difendere è una cosa sola: che non ci sia lavoro consegnato che nessuno ha
+ * e che il GC può potare.
+ *
+ * `--strict` tiene la barra vecchia: fallisce anche sullo storico non più
+ * landabile e sui commit spariti dal repo, che sono «non lo so», non assoluzioni.
+ */
+process.exit(debiti.length > 0 || (STRICT && (storico.length > 0 || pruned.length > 0)) ? 1 : 0);
