@@ -41,6 +41,7 @@ import { linkNotes, proposeLink, type LinkKind } from "../services/task-intake";
 import { recordRetirement } from "../services/retirement";
 import { attemptHasWork, formatAttemptStat } from "../../shared/task-attempt";
 import { listOwnCommits } from "../services/own-commits";
+import { resolveTaskDiffRange } from "../services/task-diff-range";
 import { isTaskLabel, normalizeLabels } from "../../shared/task-labels";
 
 const ERROR_STATUS: Record<string, number> = {
@@ -324,6 +325,27 @@ const DIFF_PATCH_CAP = 200_000;
 const UNTRACKED_FILE_CAP = 500;
 
 /**
+ * Il path di DESTINAZIONE da una riga di `--numstat`.
+ *
+ * Su un rename git non stampa un path: stampa la trasformazione, in due forme —
+ * `vecchio => nuovo` quando cambia tutto, e `dir/{a => b}/f.ts` quando cambia un
+ * pezzo solo. Prese alla lettera nessuna delle due combacia con il `b/…` del
+ * patch, quindi la riga dello stat restava orfana: niente `+N −M` accanto al
+ * nome, e — da quando l'elenco dei file si costruisce dallo stat — lo stesso file
+ * elencato DUE volte, una per lo stat e una per il pezzo di patch.
+ */
+export function numstatPath(raw: string): string {
+  const path = raw.trim();
+  if (!path.includes("=>")) return path;
+  // Prima la forma con le graffe, che è annidata dentro il path: si sostituisce
+  // il gruppo con il suo lato destro (vuoto = il segmento sparisce).
+  const braced = path.replace(/\{([^{}]*?) => ([^{}]*?)\}/g, "$2");
+  if (braced !== path) return braced.replace(/\/{2,}/g, "/");
+  const arrow = path.split(" => ");
+  return (arrow[arrow.length - 1] ?? path).trim();
+}
+
+/**
  * Build a unified-diff bundle for `range` (any `git diff` selector — a `a..b`
  * range for a publish, or a base sha for a worktree). Returns the per-file stat
  * (additions/deletions/status, -1 count = binary) and the raw unified patch,
@@ -354,7 +376,7 @@ async function gitDiffBundle(cwd: string, range: string, gopts?: { includeUntrac
     const parts = line.split("\t");
     const add = parts[0] ?? "0";
     const del = parts[1] ?? "0";
-    const path = parts[parts.length - 1] ?? "";
+    const path = numstatPath(parts[parts.length - 1] ?? "");
     return {
       path,
       additions: add === "-" ? -1 : Number.parseInt(add, 10) || 0,
@@ -488,7 +510,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         : "";
       svc.addComment({
         taskId, author: "system",
-        content: `⚠️ Worktree NON ripulito: ${post.reason}. Il branch del task è stato conservato — recupera il lavoro o cancellalo a mano.${nota}`,
+        content: `⚠️ Worktree NON ripulito: ${post.reason}. Il branch del task è stato conservato. Recupera il lavoro o cancellalo a mano.${nota}`,
       });
       return;
     }
@@ -749,7 +771,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               taskId, author: "system",
               content: build.code === 0
                 ? "Client ricostruito: la modifica è visibile (hard refresh se non appare)."
-                : `Build client fallita (exit ${build.code}) — lancia \`bun run build:client\` a mano.`,
+                : `Build client fallita (exit ${build.code}). Lancia \`bun run build:client\` a mano.`,
             });
             if (build.code !== 0) console.error("[land] build:client failed for", taskId, build.stderr.slice(-2000));
           }
@@ -779,13 +801,13 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           patch: { status: "in_progress" },
           statusReason: "il land ha fatto conflitto con main",
         });
-        svc.addComment({ taskId, author: "system", content: "Merge automatico in conflitto con main — rimando all'agent per risolvere." });
+        svc.addComment({ taskId, author: "system", content: "Merge automatico in conflitto con main. Rimando all'agent per risolvere." });
         dispatcher?.resume(
           taskId,
           'Il merge automatico del tuo branch su main è andato in conflitto. Rifai la BASE del tuo ramo sul main aggiornato (`git fetch` se serve, poi `git rebase main`), NON un merge di main dentro il ramo: risolvi i conflitti durante la rebase, ricommitta, poi rimetti in review con update_task(status="review"). Resta vietato toccare main: niente push, niente merge verso main.',
         ).catch((err) => console.warn(`[Tasks] resume after merge-conflict failed for ${taskId}:`, err));
       } else if (res.status === "skipped") {
-        svc.addComment({ taskId, author: "system", content: `⚠️ Land NON riuscito: ${res.reason}. Il branch del task NON è su main — risolvi e rilancia "Landa su main".` });
+        svc.addComment({ taskId, author: "system", content: `⚠️ Land NON riuscito: ${res.reason}. Il branch del task NON è su main. Risolvi e rilancia "Landa su main".` });
         // Il thread lo diceva onestamente e lo STATO diceva il contrario: la card
         // restava in Done col codice fuori da main, cioè nell'unica colonna che
         // nessuno riapre — e il GC dei worktree può potare quel ramo. Misurato
@@ -854,7 +876,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       try {
         svc.addComment({
           taskId, author: "system",
-          content: `⚠️ Land NON riuscito (errore interno): ${msg}. Il branch del task NON è su main — rilancia "Landa su main" quando la causa è risolta.`,
+          content: `⚠️ Land NON riuscito (errore interno): ${msg}. Il branch del task NON è su main. Rilancia "Landa su main" quando la causa è risolta.`,
         });
       } catch (err) { console.warn("[land] impossibile commentare l'errore di", taskId, err); }
       try { await opts?.stampLanding?.(taskId, "unlanded"); } catch { /* la spia non fa fallire il resto */ }
@@ -885,7 +907,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     const path = dirs.find((d) => projectIdForPath(d) === projectId);
     if (!path) return { ok: false, error: "progetto non trovato" };
     const branch = (await runGitCap(path, ["symbolic-ref", "--short", "HEAD"])).out.trim();
-    if (!branch) return { ok: false, error: "HEAD staccato — niente da pubblicare" };
+    if (!branch) return { ok: false, error: "HEAD staccato: niente da pubblicare." };
     const push = await runGitCap(path, ["push", "origin", branch]);
     if (push.code !== 0) return { ok: false, branch, error: (push.err || push.out).trim().slice(-400) || "git push fallito" };
     return { ok: true, branch, output: (push.err + "\n" + push.out).trim().slice(-400) };
@@ -998,7 +1020,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     if (running < 1) return null;
     return json({
       error:
-        `this task is in fan-out: ${running} parallel attempts are working the same task. ${forbidden} — ` +
+        `this task is in fan-out: ${running} parallel attempts are working the same task. ${forbidden}. ` +
         "work in YOUR worktree, commit everything on your branch, and end your turn with 2-3 sentences " +
         "describing what you did: the board composes the comparison from those.",
       code: "fanout_running",
@@ -1169,17 +1191,28 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       return json({ branch, range, ...bundle });
     }
 
-    // GET /api/boards/:projectId/tasks/:taskId/diff — the unified diff of what a
-    // dispatched task changed in its own isolated worktree (vs the branch point).
-    // Resolves task → topic → worktree (same chain as auto-merge); returns an
-    // empty bundle with a code when the task has no isolated worktree yet.
+    // GET /api/boards/:projectId/tasks/:taskId/diff — il diff di ciò che questa
+    // card ha cambiato.
+    //
+    // Tre ancoraggi in ordine (`task-diff-range.ts`): il worktree VIVO — e lì la
+    // gamma è quella dei commit PROPRI della card, non `merge-base main HEAD`,
+    // che su un ramo nato dall'HEAD del checkout condiviso le intestava i commit
+    // di un'altra sessione — poi il merge che il land ha scritto su main, poi il
+    // commit di consegna. Gli ultimi due sono ciò che fa sopravvivere il pannello
+    // alla potatura del worktree: prima del land la risposta spariva a cose fatte.
+    //
+    // Quando non c'è un diff, il PERCHÉ viaggia in `code` e sono tre risposte
+    // diverse — `no_changes` (verificato: niente codice), `unreadable` (non
+    // ricostruibile) e `not_dispatched` (nessuno ci ha lavorato). Prima erano un
+    // silenzio solo, e chi rivedeva non poteva distinguerle.
     const bTaskDiff = matchRoute(pathname, "/api/boards/:projectId/tasks/:taskId/diff");
     if (bTaskDiff && method === "GET") {
-      const empty = { stat: [], patch: "", truncated: false };
+      const empty = { stat: [], patch: "", truncated: false, base: null, source: null };
+      const miss = (code: string, branch: string | null = null) => json({ code, branch, ...empty });
       let found: ReturnType<typeof svc.get> | null = null;
       try { found = svc.get(bTaskDiff.taskId, { projectId: bTaskDiff.projectId }) ?? null; }
       catch { found = null; }
-      if (!found) return json({ code: "no_worktree", branch: null, ...empty });
+      if (!found) return miss("not_dispatched");
       // `?attempt=<id>` → il diff di QUEL tentativo del fan-out invece che del
       // task: è come si confrontano N alternative prima di sceglierne una (il
       // task punta ancora al tentativo 1, che può non essere il vincitore).
@@ -1191,20 +1224,41 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         const a = attempts.get(attemptId);
         topicId = a && a.taskId === bTaskDiff.taskId ? a.topicId : null;
       }
-      if (!topicId) return json({ code: "no_worktree", branch: null, ...empty });
-      const worktreeId = ctx.getTopicById(topicId)?.worktreeId;
+      const worktreeId = topicId ? ctx.getTopicById(topicId)?.worktreeId : null;
       const wt = worktreeId ? ctx.worktreeStore.get(worktreeId) : null;
-      if (!wt || wt.mode !== "branch" || !wt.absPath || !existsSync(wt.absPath)) {
-        return json({ code: "no_worktree", branch: wt?.branchName ?? null, ...empty });
+      const live = wt && wt.mode === "branch" && wt.absPath && existsSync(wt.absPath)
+        ? { cwd: wt.absPath, branch: wt.branchName ?? null }
+        : null;
+
+      // Un TENTATIVO vive solo nel suo worktree: i riferimenti durevoli (il merge
+      // su main, il commit di consegna) parlano della CARD, cioè del tentativo
+      // scelto — mostrarli sotto un perdente sarebbe il diff di un altro.
+      let repoPath: string | null = null;
+      if (!attemptId) {
+        let dirs: string[] = [];
+        try { dirs = opts?.listProjectDirs?.() ?? []; } catch { /* best-effort */ }
+        repoPath = dirs.find((d) => projectIdForPath(d) === bTaskDiff.projectId) ?? null;
       }
-      // Diff against the branch point (merge-base) so the bundle is exactly what
-      // this task did — committed work on its branch AND any uncommitted edits —
-      // without noise from commits main gained meanwhile.
-      const base = (await runGitCap(wt.absPath, ["merge-base", "main", "HEAD"])).out.trim() || "main";
-      // includeUntracked: a task whose only deliverable is a brand-new (never
-      // committed) file must still show a diff, not an empty bundle.
-      const bundle = await gitDiffBundle(wt.absPath, base, { includeUntracked: true });
-      return json({ branch: wt.branchName, base, ...bundle });
+      const delivery = attemptId
+        ? null
+        : { branch: found.task.deliveryBranch, commit: found.task.deliveryCommit };
+
+      const range = await resolveTaskDiffRange({
+        taskId: bTaskDiff.taskId, worktree: live, repoPath, delivery, runGit: gitRunner,
+      });
+      const branch = live?.branch ?? wt?.branchName ?? found.task.deliveryBranch ?? null;
+      if (!range) {
+        const everWorked = attemptId
+          ? !!topicId
+          : !!topicId || !!found.task.deliveryBranch || !!found.task.deliveryCommit;
+        return miss(everWorked ? "unreadable" : "not_dispatched", branch);
+      }
+      // includeUntracked solo sulla gamma VIVA: una card il cui unico frutto è un
+      // file mai committato deve comunque mostrare un diff. Su due commit (un land
+      // è già storia) l'albero di lavoro non c'entra niente.
+      const bundle = await gitDiffBundle(range.cwd, range.range, { includeUntracked: range.live });
+      const body = { branch, base: range.range, source: range.source, ...bundle };
+      return json(bundle.stat.length === 0 ? { code: "no_changes", ...body } : body);
     }
 
     // PUT /api/boards/:projectId/tasks/:taskId/labels — la porta UMANA.
@@ -1221,7 +1275,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       const unknown = raw.filter((l: unknown) => typeof l === "string" && !isTaskLabel(l));
       if (unknown.length) {
         return json({
-          error: `etichette sconosciute: ${unknown.join(", ")} — il vocabolario è chiuso (shared/task-labels.ts)`,
+          error: `etichette sconosciute: ${unknown.join(", ")}. Il vocabolario è chiuso (shared/task-labels.ts).`,
           code: "invalid_input",
         }, 400);
       }
@@ -1311,7 +1365,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         // modi di scrivere lo stesso numero si leggono come due numeri diversi.
         const stat = attemptHasWork(winner)
           ? ` (${formatAttemptStat(winner)})`
-          : " — che però non ha modificato niente";
+          : ", che però non ha modificato niente";
         const tail = losers.length
           ? ` Gli altri ${losers.length} tentativi sono stati buttati: worktree, branch e chat.`
           : "";
@@ -1727,7 +1781,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               return json({
                 error:
                   `i checks pre-review sono ROSSI${red ? ` (\`${red.name}\`)` : ""}` +
-                  `${cur.checksAt ? ` — ultimo giro ${cur.checksAt}` : ""}. ` +
+                  `${cur.checksAt ? `, ultimo giro ${cur.checksAt}` : ""}. ` +
                   "Rimandalo all'agente, oppure approva comunque se il rosso non c'entra con questa consegna.",
                 code: "checks_failed",
               }, 409);
@@ -1756,7 +1810,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
                 taskId, author: "system",
                 content: pub.ok
                   ? `Pubblicato: push di \`${pub.branch}\` su origin (deploy CI dove configurato).`
-                  : `Pubblicazione FALLITA: ${pub.error}. Il merge locale (se avvenuto) resta — ripeti la pubblicazione col bottone Pubblica.`,
+                  : `Pubblicazione FALLITA: ${pub.error}. Il merge locale (se avvenuto) resta. Ripeti la pubblicazione col bottone Pubblica.`,
               });
               const cur = svc.get(taskId, { projectId })?.task;
               if (cur) broadcastToAll({ type: "task:updated", projectId, task: cur });
@@ -2046,7 +2100,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       // the model to summarize and retry.
       if (typeof body?.content === "string" && body.content.length > AGENT_COMMENT_MAX_CHARS) {
         return json({
-          error: `comment too long (${body.content.length} chars, max ${AGENT_COMMENT_MAX_CHARS}) — summarize: 1-2 short sentences, no logs or code dumps`,
+          error: `comment too long (${body.content.length} chars, max ${AGENT_COMMENT_MAX_CHARS}). Summarize: 1-2 short sentences, no logs or code dumps`,
           code: "comment_too_long",
         }, 400);
       }
@@ -2058,7 +2112,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       if (requestedMedia > 0 && (media?.length ?? 0) < requestedMedia) {
         return json({
           error:
-            "some attachments are outside the allowed dirs — copy the file(s) into ~/.topics/media/ (or the workspace) and re-attach from there",
+            "some attachments are outside the allowed dirs. Copy the file(s) into ~/.topics/media/ (or the workspace) and re-attach from there",
           code: "media_path_not_allowed",
         }, 400);
       }
@@ -2102,7 +2156,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       const unknown = raw.filter((l: unknown) => typeof l === "string" && !isTaskLabel(l));
       if (unknown.length) {
         return json({
-          error: `etichette sconosciute: ${unknown.join(", ")} — le etichette che un agente può scrivere sono visibile, decisione, bugfix, feature, chore, misura`,
+          error: `etichette sconosciute: ${unknown.join(", ")}. Le etichette che un agente può scrivere sono visibile, decisione, bugfix, feature, chore, misura`,
           code: "invalid_input",
         }, 400);
       }
@@ -2189,7 +2243,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
                 return json({
                   error:
                     `your worktree has ${dirt.length} uncommitted change${dirt.length === 1 ? "" : "s"} ` +
-                    `(${dirt.slice(0, 3).join(", ")}${dirt.length > 3 ? ", …" : ""}) — ` +
+                    `(${dirt.slice(0, 3).join(", ")}${dirt.length > 3 ? ", …" : ""}). ` +
                     "commit them on your branch (or discard leftovers), THEN set status='review'",
                   code: "review_needs_commit",
                 }, 409);

@@ -80,7 +80,7 @@ export function Select<T extends string>({
   onChange,
   ariaLabel,
   disabled = false,
-  placeholder = '—',
+  placeholder = '-',
   align = 'left',
   className = '',
   testId,

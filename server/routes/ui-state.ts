@@ -169,12 +169,12 @@ function assertMigration012(row: { payload_version: unknown; server_seq: unknown
   if (!row) return; // null row is a legitimate "not found"
   if (row.payload_version === undefined || row.payload_version === null) {
     throw new Error(
-      `[ui-state/${ctx}] migration 012 not applied — payload_version column missing. Run \`bun run db:migrate\`.`,
+      `[ui-state/${ctx}] migration 012 not applied: payload_version column missing. Run \`bun run db:migrate\`.`,
     );
   }
   if (row.server_seq === undefined || row.server_seq === null) {
     throw new Error(
-      `[ui-state/${ctx}] migration 012 not applied — server_seq column missing. Run \`bun run db:migrate\`.`,
+      `[ui-state/${ctx}] migration 012 not applied: server_seq column missing. Run \`bun run db:migrate\`.`,
     );
   }
 }
@@ -555,12 +555,12 @@ export function assertUiStateMigrationApplied(db: import("bun:sqlite").Database)
     "SELECT sql FROM sqlite_master WHERE type='table' AND name='ui_state'",
   ).get() as { sql: string } | null;
   if (!tableRow || !tableRow.sql) {
-    throw new Error("[ui-state] boot check: ui_state table missing — migrations did not run. Run `bun run db:migrate`.");
+    throw new Error("[ui-state] boot check: ui_state table missing. Migrations did not run. Run `bun run db:migrate`.");
   }
   if (!/payload_version/i.test(tableRow.sql)) {
-    throw new Error("[ui-state] boot check: migration 012 not applied — payload_version column missing. Run `bun run db:migrate`.");
+    throw new Error("[ui-state] boot check: migration 012 not applied: payload_version column missing. Run `bun run db:migrate`.");
   }
   if (!/server_seq/i.test(tableRow.sql)) {
-    throw new Error("[ui-state] boot check: migration 012 not applied — server_seq column missing. Run `bun run db:migrate`.");
+    throw new Error("[ui-state] boot check: migration 012 not applied: server_seq column missing. Run `bun run db:migrate`.");
   }
 }

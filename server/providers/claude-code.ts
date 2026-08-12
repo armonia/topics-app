@@ -819,7 +819,7 @@ export function renderReplayPrologue(turns: ReplayTurn[]): string {
   const kept = turns.length > REPLAY_TURN_CAP ? turns.slice(-REPLAY_TURN_CAP) : turns;
   const truncated = kept.length < turns.length;
   const lines: string[] = [
-    "[The CLI session was reset and lost its memory. Recap of the conversation so far — read carefully, then respond to the new message that follows.]",
+    "[The CLI session was reset and lost its memory. Recap of the conversation so far. Read it carefully, then respond to the new message that follows.]",
     "",
     "<conversation_recap>",
   ];
@@ -1466,13 +1466,13 @@ export class ClaudeCodeProvider implements AIProvider {
         );
         this.killProcess(pp);
         this.processes.delete(sessionKey);
-        handler.onError("Nessuna attività dal modello per 30 minuti — turno terminato");
+        handler.onError("Nessuna attività dal modello per 30 minuti. Turno terminato.");
         return { runId };
       }
 
       if (errMsg === "RATE_LIMIT") {
         console.warn(`[claude-code] Rate limited for ${sessionKey}`);
-        handler.onError("Rate limited — please try again later");
+        handler.onError("Rate limited. Please try again later.");
         return { runId };
       }
 
@@ -1496,7 +1496,7 @@ export class ClaudeCodeProvider implements AIProvider {
           const forFreshSession = resetFallbackContent ?? message;
           return this.sendChatInternal(sessionKey, forFreshSession, handler, true, resetFallbackContent);
         }
-        handler.onError("La sessione era scaduta ed è stata ripristinata — riprova.");
+        handler.onError("La sessione era scaduta ed è stata ripristinata. Riprova.");
         return { runId };
       }
 
@@ -3580,7 +3580,7 @@ export class ClaudeCodeProvider implements AIProvider {
       // Restore the entry so a retry from the route can succeed if the
       // stdin transient hiccups (rare; mostly here as defence-in-depth).
       pp.pendingInputs.set(toolCallId, pending);
-      throw new Error(`claude-code: stdin write failed — ${err?.message ?? err}`);
+      throw new Error(`claude-code: stdin write failed: ${err?.message ?? err}`);
     }
   }
 

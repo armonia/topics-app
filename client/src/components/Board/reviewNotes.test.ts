@@ -125,8 +125,8 @@ describe('formatReviewNotes', () => {
   });
 
   it('conta commenti e file nell\'intestazione', () => {
-    expect(formatReviewNotes(notes).split('\n')[0]).toBe('Revisione del diff — 3 commenti su 2 file.');
-    expect(formatReviewNotes([notes[0]]).split('\n')[0]).toBe('Revisione del diff — 1 commento su 1 file.');
+    expect(formatReviewNotes(notes).split('\n')[0]).toBe('Revisione del diff: 3 commenti su 2 file.');
+    expect(formatReviewNotes([notes[0]]).split('\n')[0]).toBe('Revisione del diff: 1 commento su 1 file.');
   });
 
   it('segnala le righe rimosse: quel numero non esiste nel file di adesso', () => {

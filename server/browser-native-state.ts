@@ -88,7 +88,7 @@ export async function nativeStateOp(
     };
     if (!localStorageCaptured) {
       out.warning =
-        "No localStorage captured — for token-in-localStorage logins (Firebase/Supabase/Auth0), save while ON the site so its origin is captured.";
+        "No localStorage captured. For token-in-localStorage logins (Firebase/Supabase/Auth0), save while ON the site so its origin is captured.";
     }
     return out;
   }
