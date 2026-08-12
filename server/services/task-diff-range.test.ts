@@ -71,6 +71,24 @@ describe("task-diff-range", () => {
     expect(await filesOf(dir, oldBase)).toEqual(["mio.ts", "roba-di-un-altro.ts"]);
   });
 
+  test("il ramo che ha INGLOBATO main non intesta a sé quello che main ha portato", async () => {
+    // Da quando il land riporta main dentro un ramo vecchio da sé
+    // (`task-automerge.ts`), un ramo con un merge di main è il caso NORMALE di
+    // ogni card che aspetta la review più di qualche ora. Il padre del primo
+    // commit della card è un punto della storia prima di quel merge: da lì il
+    // pannello mostrava anche il lavoro delle altre card, sotto questo nome.
+    await git(dir, ["checkout", "-q", "-b", "topics/card"]);
+    await commit(dir, "mio.ts", "mio\n", "lavoro della card");
+    await git(dir, ["checkout", "-q", "main"]);
+    await commit(dir, "di-un-altra-card.ts", "atterrato nel frattempo\n", "main avanza");
+    await git(dir, ["checkout", "-q", "topics/card"]);
+    await git(dir, ["merge", "-q", "--no-edit", "main"]);
+
+    const r = await worktreeOwnRange(dir, { branch: "topics/card" });
+    expect(r).not.toBeNull();
+    expect(await filesOf(dir, r!.range)).toEqual(["mio.ts"]);
+  });
+
   test("senza commit propri resta il lavoro NON committato, e solo quello", async () => {
     await git(dir, ["checkout", "-q", "-b", "topics/altra"]);
     await commit(dir, "roba-di-un-altro.ts", "non mia\n", "lavoro altrui");
