@@ -277,9 +277,19 @@ describe("task-automerge", () => {
     expect((await am.tryMerge("t1", "x")).status).toBe("merged");
   });
 
-  test("due timestamp UGUALI con nomi diversi restano una collisione", async () => {
-    // L'altro verso: il cancello deve continuare a scattare quando due rami
-    // scelgono davvero lo stesso numero, timestamp compreso.
+  test("due timestamp UGUALI con nomi diversi NON sono una collisione: il registro conta i nomi", async () => {
+    // Scritto al contrario la prima volta, il 12/08, e vale la pena dire perche':
+    // sembra ovvio che due file con lo stesso numero siano un guasto. Lo erano
+    // finche' `schema_migrations` aveva `version` come chiave primaria e il
+    // runner saltava per NUMERO. Oggi la chiave e' il NOME
+    // (`server/db.ts`: `name TEXT PRIMARY KEY`, e il salto e' `applied.has(file)`),
+    // quindi due migration nate nello stesso SECONDO in due worktree che non si
+    // vedevano si applicano ENTRAMBE: nessuna delle due dipende dall'altra, e non
+    // c'e' nessun ordine atteso da rompere.
+    //
+    // Il contatore a tre cifre resta un guasto, ed e' il test qui sopra: li' il
+    // numero uno se lo SCEGLIE credendolo libero, quindi due nomi sullo stesso
+    // numero vogliono dire che qualcuno contava su un ordine che e' gia' saltato.
     const run = async (_cwd: string, args: string[]) => {
       const key = args.slice(0, 2).join(" ");
       if (key === "symbolic-ref --short") return { code: 0, stdout: "main\n", stderr: "" };
@@ -291,12 +301,12 @@ describe("task-automerge", () => {
           ? { code: 0, stdout: "server/db/migrations/20260812094300-notification-log.sql\n", stderr: "" }
           : { code: 0, stdout: "server/db/migrations/20260812094300-altra-cosa.sql\n", stderr: "" };
       }
+      if (key === "merge --no-ff") return { code: 0, stdout: "", stderr: "" };
+      if (key === "rev-parse --short") return { code: 0, stdout: "abc1234\n", stderr: "" };
       return { code: 0, stdout: "", stderr: "" };
     };
     const am = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: run });
-    const res = await am.tryMerge("t1", "x");
-    expect(res.status).toBe("skipped");
-    if (res.status === "skipped") expect(res.reason).toContain("20260812094300");
+    expect((await am.tryMerge("t1", "x")).status).toBe("merged");
   });
 
   test("un branch che non porta NIENTE di suo resta rifiutato", async () => {
