@@ -231,24 +231,20 @@ export function evaluateAuth(i: AuthInput): AuthResult {
   return { allow: true };
 }
 
-/**
- * La sola decisione d'ORIGINE, senza l'asse identità. Tenuta esportata perché è
- * ciò che il gate faceva prima di `device-auth` e perché la matrice CSRF si
- * prova senza tirare dentro dispositivi e sessioni.
+/*
+ * NON esiste più un `evaluateOrigin` a parte, e la sua assenza è la regola.
+ *
+ * Era la copia dell'asse d'ORIGINE qui sopra, esportata «perché la matrice CSRF
+ * si prova senza tirare dentro dispositivi e sessioni». Ma quella prova la fa
+ * già `evaluateAuth` con `identity` omesso — è per questo che il campo è
+ * opzionale — ed è così che `auth-gate.test.ts` asserisce l'intera matrice
+ * d'origine. Nessuno la chiamava: né il gate (`server.ts:1706` → `evaluateAuth`,
+ * unico punto di decisione per `/api`, `/ws`, `/preview`, `/media`, `/uploads`,
+ * e lo stesso gestore serve anche l'ascoltatore del tunnel), né i test.
+ *
+ * Restava quindi una SECONDA copia della stessa regola CSRF in un file il cui
+ * commento di testa dichiara «la UNICA decisione»: due copie non si sommano, si
+ * scollano — e in questo repo un gate con due assi schiacciati in una riga sola
+ * ha già prodotto un buco misurato. Chi cerca la decisione d'origine la trova
+ * dentro `evaluateAuth`, dove è l'unica.
  */
-export function evaluateOrigin(i: AuthInput): AuthResult {
-  if (i.authOff) return { allow: true };
-
-  if (!MUTATING.has(i.method) && !isWebSocketPath(i.pathname)) return { allow: true };
-
-  // Nessun `Origin` ⇒ non è un browser (CLI, tool MCP, hook HTTP, sendBeacon di
-  // teardown). Il CSRF è un attacco da browser: chi può omettere l'header è già
-  // dentro la macchina o dentro la rete, e in entrambi i casi non è questo il
-  // confine che lo ferma — a fermarlo, da `device-auth`, è l'asse dell'identità.
-  if (!i.origin) return { allow: true };
-
-  if (isSameSite(i.origin, i.host)) return { allow: true };
-  if (i.allowedOrigins?.includes(i.origin)) return { allow: true };
-
-  return { allow: false, status: 403, reason: "cross-site origin blocked" };
-}

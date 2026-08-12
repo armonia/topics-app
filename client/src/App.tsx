@@ -5,6 +5,8 @@ import { Settings as SettingsIcon, ChevronDown, Search, Archive, List, RotateCcw
 import { useGlobalBoard } from './hooks/useGlobalBoard';
 import { useTaskTopicIndex } from './hooks/useTaskTopicIndex';
 import { openTaskInApp } from './lib/openTaskLink';
+import { runNotificationAction } from './lib/notify/notificationAction';
+import { boardNotificationDeps } from './lib/notify/boardActionDeps';
 import { SidebarToggleButton } from './components/Shared/SidebarToggleButton';
 import { UpdaterToast } from './components/UpdaterToast';
 import type { PaneType } from './types';
@@ -16,6 +18,7 @@ import { useTheme } from './hooks/useTheme';
 import { useClaudeSessionState } from './hooks/useClaudeSessionState';
 import { TopicsProvider } from './contexts/TopicsContext';
 import { useOpenClawAvailable } from './hooks/useOpenClawAvailable';
+import { useSplitLayoutAvailable } from './hooks/useSplitLayoutAvailable';
 import { useClaudeSkipPermissions } from './hooks/useClaudePrefs';
 import { useSidebarState, nextSidebarViewMode } from './hooks/useSidebarState';
 import { useSettingsSync } from './hooks/useSettingsSync';
@@ -23,6 +26,7 @@ import { useSidebarAndLayout } from './hooks/useSidebarAndLayout';
 import { useFloatingVibrancy } from './hooks/useFloatingVibrancy';
 import { useSidebarFitCoalesce } from './hooks/useSidebarFitCoalesce';
 import { useSidebarFlipPush } from './hooks/useSidebarFlipPush';
+import { useSidebarSwipe, mobileDrawerStyle } from './hooks/useSidebarSwipe';
 import { isDesktop, isTauri } from './lib/shell';
 import { selectDirectory } from './lib/shell/app';
 import { initDevBundleReload } from './lib/devBundleReload';
@@ -31,11 +35,17 @@ import { initDevHeapProbe, registerHeapOwner, roughBytes } from './lib/devHeapPr
 import { residencyHeapReport } from './state/pane/residency/registry';
 import { initChunkReloadGuard } from './lib/chunkReloadGuard';
 import { DevBundleToast } from './components/DevBundleToast';
+import { ReloadedFlash } from './components/ReloadedFlash';
 import { openTaskFromUrl, currentTaskTarget, subscribeServiceWorkerTaskOpen } from './lib/openTaskLink';
+import { subscribeServiceWorkerBanner } from './lib/push/swBridge';
+import { InAppBanners } from './components/Notifications/InAppBanners';
+import { PushEnrollPrompt } from './components/Notifications/PushEnrollPrompt';
 import { consumeTabLinkFromUrl, currentTabTarget, openTabInApp, openTabInAppWhenHydrated, tabAckReleasesIntent } from './lib/tabLink';
 import { TAB_PATH_PREFIX, type TabTarget } from '../../shared/tab-link';
 import { useDismissable } from './hooks/useDismissable';
-import { POPOVER_SURFACE, POPOVER_MARGIN, Z_POPOVER } from './lib/popoverStyles';
+import { POPOVER_SURFACE, POPOVER_MARGIN, POPOVER_SHEET, Z_POPOVER, Z_POPOVER_SCRIM } from './lib/popoverStyles';
+import { SidebarSystemMenu } from './components/Sidebar/SidebarSystemMenu';
+import { ChangelogModal } from './components/ChangelogModal';
 
 // Tauri-on-macOS chrome parity: like Electron, the traffic lights are HIDDEN by
 // default and revealed only while the Topics menu is open (the Rust shell hides
@@ -49,10 +59,10 @@ import { usePanelLifecycle } from './hooks/usePanelLifecycle';
 import { useRefMirror } from './hooks/useRefMirror';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { useBrowserContexts } from './hooks/useBrowserContexts';
-import { useClosedTabs, createPaneId, isProjectPaneId, getProjectPathFromPaneId, setPaneCapability } from './state/pane/adapters';
+import { useClosedTabs, createPaneId, isProjectPaneId, getProjectPathFromPaneId, setPaneCapability, newBrowserContextId } from './state/pane/adapters';
 
 import { TopicTree } from './components/Sidebar/TopicTree';
-import { groupChromeActive, isDetachedWindow, firstOtherLiveSpace } from './components/Layout/spaceHelpers';
+import { groupChromeActive, isDetachedWindow, firstOtherLiveSpace, tabsPerSpace } from './components/Layout/spaceHelpers';
 import { focusSpaceWindow, isSpaceClaimedLocally } from './lib/popOutSpace';
 import { useGoToSpace } from './components/Sidebar/useSpaceCards';
 import { spaceWindowId } from './lib/windowRole';
@@ -70,7 +80,8 @@ import { DRAG_REGION, NO_DRAG_REGION } from './lib/shell/dragRegion';
 import { flushPaneStoreNow, flushLocalPaneStoreNow } from './state/pane/middleware';
 import { usePaneStore } from './state/pane/store';
 import { useShallow } from 'zustand/react/shallow';
-import { resolvePaneSpace } from './state/pane/reducers/spaces';
+import { resolvePaneSpace, isLiveSpaceId } from './state/pane/reducers/spaces';
+import { DEFAULT_SPACE_ID } from './state/pane/types';
 import { useSignalsSync } from './state/useSignalsSync';
 import { useTaskBrowserTabsSync } from './hooks/useTaskBrowserTabsSync';
 import { PaneAddMenu } from './components/Shared/PaneAddMenu';
@@ -81,6 +92,8 @@ import { popOutTopic } from './lib/popOutTopic';
 import { ErrorBoundary } from './components/Shared/ErrorBoundary';
 import { SkeletonTopicList } from './components/Shared/Skeleton';
 import { SidebarStatusBar } from './components/Sidebar/SidebarStatusBar';
+import { NotificationHistoryButton } from './components/Sidebar/NotificationHistoryButton';
+import { MobileChromeBar } from './components/Sidebar/MobileChromeBar';
 
 // Lazy-load components that are only shown on demand
 const NewTopicModal = lazy(() => import('./components/Modals/NewTopicModal').then(m => ({ default: m.NewTopicModal })));
@@ -90,8 +103,16 @@ const GlobalSettings = lazy(() => import('./components/Settings/GlobalSettings')
 // instead of paying a ~25–40ms synchronous fetch+eval on the opening frame
 // (measured: cold open worst 41.7ms/1 frame >33ms; warmed open worst 9.4ms,
 // 0 frames >16.7ms).
-const importCommandPalette = () => import('./components/Shared/CommandPalette');
-const CommandPalette = lazy(() => importCommandPalette().then(m => ({ default: m.CommandPalette })));
+// La destrutturazione dentro l'`await` non è stile: è l'unica forma in cui il
+// cancello sul codice morto vede QUALI export usi. Un `import()` il cui
+// risultato non finisce in un `const { … } =` è opaco per knip, che assume di
+// usarli tutti e non può più segnalarne nessuno come morto.
+// Guardia: `bun run check:deadcode-blindspots`.
+const importCommandPalette = async () => {
+  const { CommandPalette: Component } = await import('./components/Shared/CommandPalette');
+  return { default: Component };
+};
+const CommandPalette = lazy(importCommandPalette);
 const KeyboardShortcuts = lazy(() => import('./components/Shared/KeyboardShortcuts').then(m => ({ default: m.KeyboardShortcuts })));
 const FileSearch = lazy(() => import('./components/Project/FileSearch').then(m => ({ default: m.FileSearch })));
 // BrowserSidebarControl replaced by useBrowserContexts hook + unified TopicTree
@@ -174,9 +195,10 @@ function App() {
   const [DevOverlay, setDevOverlay] = useState<ComponentType | null>(null);
   useEffect(() => {
     if (import.meta.env.DEV) {
-      import('./state/pane/devOverlay').then((m) => {
-        setDevOverlay(() => m.MutationLogOverlay);
-      });
+      void (async () => {
+        const { MutationLogOverlay } = await import('./state/pane/devOverlay');
+        setDevOverlay(() => MutationLogOverlay);
+      })();
     }
   }, []);
 
@@ -219,6 +241,10 @@ function App() {
   // mette a fuoco questa finestra e ci passa la destinazione, perché non può
   // navigarla senza ricaricare la SPA. Stessa via dei deep-link `/task/<id>`.
   useEffect(() => subscribeServiceWorkerTaskOpen(), []);
+  // Il gemello: con la preferenza «banner in Topics» il service worker NON mostra
+  // la notifica di sistema e manda qui il contenuto. Senza questo ascolto quella
+  // preferenza sarebbe un modo elaborato di dire «niente notifica».
+  useEffect(() => subscribeServiceWorkerBanner(), []);
 
   // Warm the ⌘K command-palette chunk on idle so its FIRST open is composited
   // from an already-parsed module (no fetch+eval on the opening frame). Idle-
@@ -285,6 +311,9 @@ function App() {
   // observe it for the macOS traffic-light effect (CRITIQUE C10: modal
   // state stays in App, but the side-effect lives in the layout hook).
   const [showTopicsMenu, setShowTopicsMenu] = useState(false);
+  // Il changelog aperto dal menu del telefono: sul desktop ci si arriva dal
+  // numero di versione nella barra di stato, che sotto i 768px non c'è più.
+  const [showChangelogFromMenu, setShowChangelogFromMenu] = useState<string | null>(null);
 
   // Sidebar + layout chrome (Phase 3 hook 1)
   const layout = useSidebarAndLayout({ isDetached, showTopicsMenu });
@@ -297,15 +326,15 @@ function App() {
     viewportTop,
     windowId,
   } = layout.state;
+  // «Un comando compare dove ha effetto»: sotto i 768px PanelGrid non disegna
+  // affatto gli split, quindi i comandi che li governano non si mostrano.
+  // La regola — e la misura che la giustifica — sta nell'hook, non qui.
+  const splitLayoutAvailable = useSplitLayoutAvailable();
   const { sidebarRef } = layout.refs;
   const {
     toggleSidebar,
     handleSidebarResizeStart,
     handleSidebarDoubleClick,
-    handleSidebarTouchStart,
-    handleSidebarTouchEnd,
-    handleEdgeTouchStart,
-    handleEdgeTouchEnd,
     setSidebarCollapsed,
     setAppSettings,
   } = layout.handlers;
@@ -335,6 +364,11 @@ function App() {
   const mainContentRef = useRef<HTMLDivElement | null>(null);
   const contentFlipRef = useRef<HTMLDivElement | null>(null);
   useSidebarFlipPush(mainContentRef, contentFlipRef, { collapsed: sidebarCollapsed, expandedPad, enabled: sidebarFixed });
+  // IL CASSETTO SEGUE IL DITO (solo mobile): trascinamento vero, non una soglia
+  // letta a gesto finito. Vive tutto in `useSidebarSwipe` perché è codice
+  // imperativo su `document` — quello che React, coi suoi listener passivi, non
+  // può fare.
+  useSidebarSwipe({ enabled: isMobile, sidebarRef, collapsed: sidebarCollapsed, setCollapsed: setSidebarCollapsed });
   // Coalesce xterm fit() across the sidebar collapse/expand (held during the slide, one fit at
   // the settled size) — driven off the SIDEBAR's own transform transition, untouched by FLIP.
   useSidebarFitCoalesce();
@@ -360,7 +394,7 @@ function App() {
   // La sezione da cui aprire le Impostazioni, quando si arriva da un punto
   // preciso (la riga dell'identità → Dispositivi). `undefined` = comportamento
   // normale, cioè «Aspetto».
-  const [settingsSection, setSettingsSection] = useState<'devices' | undefined>(undefined);
+  const [settingsSection, setSettingsSection] = useState<'devices' | 'notifications' | undefined>(undefined);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showFileSearch, setShowFileSearch] = useState<false | { projectPaths: string[]; mode: 'name' | 'content' }>(false);
   // The sidebar header "New" button used to track its dropdown via a
@@ -441,10 +475,11 @@ function App() {
   // "Board generale" sidebar row and shows its badge.
   const { activeCount: boardTaskCount, byStatus: boardByStatus } = useGlobalBoard(onWSMessage);
 
-  // topicId → task index for dispatched tasks. Due consumatori: il banner di
-  // completamento ci mette dentro il taskId (un click apre il drawer del task)
-  // e i due notificatori lo usano per NON bannerizzare la fine turno di un
-  // agente di board al lavoro — quella la annuncia `task:review-ready`.
+  // topicId → task index for dispatched tasks. Un consumatore solo, e apposta:
+  // `useCompletionNotifier` è l'unica porta dei banner. Ci mette dentro il
+  // taskId (un click apre il drawer del task) e lo legge per NON bannerizzare
+  // né la fine turno né i messaggi di un agente di board al lavoro — quelli li
+  // annuncia `task:review-ready`.
   const taskForTopic = useTaskTopicIndex(onWSMessage);
 
   // A stable global the native (Tauri) notification delegate can call on click to
@@ -453,6 +488,32 @@ function App() {
     (window as unknown as { __topicsOpenTask?: (id: string) => void }).__topicsOpenTask =
       (id: string) => { if (id) openTaskInApp({ taskId: id }); };
     return () => { delete (window as unknown as { __topicsOpenTask?: (id: string) => void }).__topicsOpenTask; };
+  }, []);
+
+  // Il gemello del precedente per i TASTI del banner nativo: il delegate Rust
+  // legge `actionIdentifier` e chiama qui. Il guscio trasporta, il client
+  // esegue — la chiamata vuole sessione, cookie ed endpoint della board, che
+  // vivono da questa parte.
+  //
+  // Il progetto si RISOLVE dall'id invece di viaggiare nella notifica: così un
+  // banner ancora appeso in Centro Notifiche resta premibile anche dopo un
+  // riavvio dell'app, che è precisamente quando una mappa in memoria avrebbe
+  // già dimenticato tutto.
+  //
+  // A risolvere è `boardApi.resolve` (dentro `boardNotificationDeps`), la porta
+  // unica «da un id al suo task, a qualunque profondità». Prima si cercava nel feed globale — che è
+  // `rootsOnly`, quindi per un id di SOTTOTASK la find tornava `undefined`, il
+  // progetto restava `null` e il tasto ripiegava su «apri il task». Cioè:
+  // proprio i banner degli step, che sono la maggioranza di quelli che chiedono
+  // una risposta, non facevano mai la loro azione.
+  useEffect(() => {
+    type ActionGlobal = { __topicsNotificationAction?: (taskId: string, actionId: string) => void };
+    (window as unknown as ActionGlobal).__topicsNotificationAction = (taskId: string, actionId: string) => {
+      // Le stesse dipendenze che usa il banner in pagina della push `in-app`
+      // (`InAppBanners`): due superfici, un esecutore e un cablaggio solo.
+      void runNotificationAction(taskId, actionId, boardNotificationDeps());
+    };
+    return () => { delete (window as unknown as ActionGlobal).__topicsNotificationAction; };
   }, []);
 
   // Task-owned browser fork → per-task tab store. Consumes the server's
@@ -546,7 +607,6 @@ function App() {
     },
     setSidebarCollapsed,
     removeClosedTab, closedTabs,
-    taskForTopic,
   });
   const {
     openPanels, visiblePanels, activeSpaceId,
@@ -584,14 +644,25 @@ function App() {
     () => new Map(openPanels.map((id, i) => [id, paneSpaces[i]])),
     [openPanels, paneSpaces],
   );
+  // I gruppi che vivono in una finestra loro. Serve due volte, e la prima è
+  // qui sotto: un gruppo staccato conta come "c'è" anche quando è a zero tab.
+  const spaceWindows = useSpaceWindows();
   // Vero quando l'intestazione del gruppo c'è: allora l'albero si divide in
   // "le tab di questo gruppo" e "fuori dai gruppi". Stessa risposta che dà
   // SpaceGroups per decidere se disegnarsi.
-  const spaceChrome = usePaneStore((s) => groupChromeActive(s.spaces, spaceWindowId()));
+  //
+  // Il selettore restituisce un BOOLEANO, quindi iscriversi qui a `s.panes` non
+  // ridisegna niente finché la risposta non cambia — la mappa dei conteggi
+  // nasce e muore dentro la chiamata.
+  const spaceChrome = usePaneStore((s) => groupChromeActive(
+    s.spaces,
+    spaceWindowId(),
+    tabsPerSpace(s.groups['group:default']?.paneIds ?? [], s.panes, s.spaces),
+    spaceWindows,
+  ));
   const goToSpace = useGoToSpace();
   // Il gruppo attivo vive in un'ALTRA finestra? Allora qui non si disegna: due
   // finestre sulla stessa griglia sono due copie degli stessi terminali vivi.
-  const spaceWindows = useSpaceWindows();
   const activeSpaceWindow = spaceWindows.get(activeSpaceId);
   // ── Il gruppo vive di là: NON si fa vedere un cartello, ci si sposta ──────
   // La cosa giusta da fare quando questa finestra si ritrova addosso un gruppo
@@ -614,6 +685,31 @@ function App() {
     const next = firstOtherLiveSpace(store.spaces, activeSpaceId, spaceWindows);
     if (next) store.dispatch({ type: 'SET_ACTIVE_SPACE', payload: { id: next } });
   }, [activeSpaceWindow, activeSpaceId, pinnedSpaceForHandoff, spaceWindows]);
+
+  // ── Il gruppo su cui sei si è svuotato: si torna a casa ───────────────────
+  // Un gruppo a zero tab non si disegna più (`useSpaceCards`), e restarci
+  // dentro sarebbe il vicolo cieco: griglia vuota, e nessuna card da cliccare
+  // per uscirne — proprio perché la sua non c'è più. Chiusa o portata via
+  // l'ultima tab, la finestra torna al Principale.
+  //
+  // I due `usePaneStore` qui restituiscono BOOLEANI: iscriversi a `s.panes`
+  // costa un confronto per scrittura, non un ridisegno.
+  const activeSpaceHasTabs = usePaneStore((s) => (
+    (tabsPerSpace(s.groups['group:default']?.paneIds ?? [], s.panes, s.spaces).get(s.activeSpaceId) ?? 0) > 0
+  ));
+  // Il gruppo attivo è un record VIVO della registry? Se no, la registry non è
+  // ancora arrivata (all'avvio `activeSpaceId` si ripristina da localStorage
+  // prima dello snapshot): senza questa guardia ogni ricarica dentro un gruppo
+  // finirebbe nel Principale.
+  const activeSpaceLive = usePaneStore((s) => isLiveSpaceId(s.activeSpaceId, s.spaces));
+  useEffect(() => {
+    if (pinnedSpaceForHandoff) return;      // la finestra-gruppo È il suo gruppo
+    if (activeSpaceWindow) return;          // ci pensa l'effetto qui sopra
+    if (activeSpaceId === DEFAULT_SPACE_ID) return;
+    if (!activeSpaceLive || activeSpaceHasTabs) return;
+    usePaneStore.getState().dispatch({ type: 'SET_ACTIVE_SPACE', payload: { id: DEFAULT_SPACE_ID } });
+  }, [activeSpaceId, activeSpaceHasTabs, activeSpaceLive, activeSpaceWindow, pinnedSpaceForHandoff]);
+
   const spaceScoped = spaceChrome && !isDetachedWindow();
 
   // Open / create a project via the native folder picker (select an existing
@@ -666,7 +762,7 @@ function App() {
     if (type === 'terminal') {
       handleQuickCreateTerminal(normalizeTerminalAgent(subType), claudeSkipPermissions);
     } else if (type === 'browser') {
-      openBrowserPane(`new-${Date.now()}`);
+      openBrowserPane(newBrowserContextId());
     } else if (type === 'board' || type === 'dashboard' || type === 'cron') {
       // Le tre pane UTILITY: id fisso (`__board__`, `__dashboard__`, `__cron__`)
       // e quindi non `createPaneId`, che ne sorteggerebbe uno nuovo a ogni
@@ -979,12 +1075,15 @@ function App() {
   const sidebarSearchButton = (
     <button
       onClick={() => { setSearchScope('all'); setShowSearch(true); }}
-      className={`edge-lit ${isMobile ? 'h-11 w-11 justify-center' : 'h-7'} flex items-center gap-1.5 rounded-lg ${RAISED_CONTROL} text-app-text-muted hover:text-app-text transition-colors flex-shrink-0 cursor-pointer app-no-drag`} {...NO_DRAG_REGION}
+      className={`edge-lit ${isMobile ? 'h-11 w-11 justify-center' : 'h-7'} flex items-center gap-1.5 rounded-lg ${RAISED_CONTROL} text-app-text transition-colors flex-shrink-0 cursor-pointer app-no-drag`} {...NO_DRAG_REGION}
       style={{ pointerEvents: 'auto', ...(isMobile ? null : GLYPH_KBD_PADDING) }}
       title="Search (⌘K)"
-      aria-label="Search — open the command palette"
+      aria-label="Search, open the command palette"
     >
-      <Search size={isMobile ? 18 : 14} className="flex-shrink-0" aria-hidden="true" />
+      {/* 16 e non 14: accanto a un'icona di sistema (il «+» di WhatsApp è il
+          metro che Attilio ha usato) un glifo da 14 in una scatola da 28 legge
+          come mezzo comando. Sedici riempie la scatola senza toccarne i bordi. */}
+      <Search size={isMobile ? 20 : 16} className="flex-shrink-0" aria-hidden="true" />
       {/* Col dito niente etichetta: il bottone sta ACCANTO al titolo, in una
           riga dove ogni pixel orizzontale è conteso, e la lente da sola si
           legge. L'etichetta serviva alla barra in fondo, dove i due comandi
@@ -1003,6 +1102,29 @@ function App() {
       triggerKbd="⌘N"
     />
   );
+
+  // LA BOARD SI APRE DA UN POSTO SOLO. La riga della sidebar e la porta in
+  // fondo al telefono chiamano QUESTA funzione: due copie dello stesso gesto
+  // (porta prima la finestra dov'è la sua tab, poi apri) divergono al primo
+  // ritocco, e la prima cosa che si perde è il `goToSpace` — cioè la board si
+  // aprirebbe in un gruppo che non stai guardando.
+  const handleOpenBoard = useCallback(() => {
+    const boardSpace = paneSpaceById.get('__board__');
+    if (boardSpace) goToSpace(boardSpace);
+    handleOpenAsPage('board');
+  }, [paneSpaceById, goToSpace, handleOpenAsPage]);
+
+  // L'INTERRUTTORE DELLA FILA IN BASSO — board ⇄ lista.
+  //
+  // «Davanti» vuol dire due cose insieme: la board è la pane a fuoco E il
+  // cassetto è chiuso. Guardare solo il fuoco farebbe leggere «Tab» sul tasto
+  // mentre a schermo c'è già la lista, cioè il tasto direbbe di portare dove
+  // sei — e il click successivo non avrebbe niente da fare.
+  const boardInFront = isMobile && sidebarCollapsed && focusedPanelId === '__board__';
+  const handleMobileBoardToggle = useCallback(() => {
+    if (boardInFront) setSidebarCollapsed(false);
+    else { handleOpenBoard(); setSidebarCollapsed(true); }
+  }, [boardInFront, handleOpenBoard, setSidebarCollapsed]);
 
   return (
     <TopicsProvider topics={topics} terminalSessions={terminalSessions} terminalRosterAuthoritative={terminals.rosterAuthoritative} workspaceProjects={workspaceProjects}>
@@ -1027,6 +1149,7 @@ function App() {
       focusedPanelId={focusedPanelId}
       terminalSessions={terminalSessions}
       taskForTopic={taskForTopic}
+      isOwnStream={isOwnStream}
     />
     {/*
       countdownMs=1500: soft-destructive close window. 3s was the original
@@ -1038,6 +1161,8 @@ function App() {
     */}
     <PendingActionProvider countdownMs={1500}>
     <PairingApproval />
+    <InAppBanners />
+    <PushEnrollPrompt />
       <div
       // NB: the landing demo (client/src/demo/landing-cursor.js, scene
       // "floating") toggles `.floating-splits` on THIS element from outside
@@ -1047,8 +1172,6 @@ function App() {
       // dynamic here and the demo chapter goes quietly dead — nothing breaks,
       // it just stops showing what it claims to show.
       className={`flex bg-app-bg overflow-hidden max-w-[100vw] ${appSettings.floatingSplits && isDesktop ? 'floating-splits' : ''}`}
-      onTouchStart={isMobile ? handleEdgeTouchStart : undefined}
-      onTouchEnd={isMobile ? handleEdgeTouchEnd : undefined}
       style={{
         fontSize: `${appSettings.fontSize}px`,
         // La misura di lettura della chat viaggia come variabile, non come
@@ -1057,6 +1180,13 @@ function App() {
         // l'utility `chat-measure` — un posto solo per quattro punti che
         // devono restare allineati.
         '--chat-measure': appSettings.chatMaxWidth > 0 ? `${appSettings.chatMaxWidth}px` : 'none',
+        // LA BANDA DELLA FILA IN BASSO, riservata UNA volta per tutti.
+        // L'altezza la pubblica la barra stessa (`--mobile-chrome-h`, vedi
+        // MobileChromeBar): qui si legge e basta. Vale 0px quando la barra non
+        // c'è — desktop, o tastiera aperta — quindi non c'è nessun ramo, e
+        // niente cambia fuori dal telefono. Senza questa riga la fila
+        // coprirebbe l'ultimo messaggio della chat e il composer.
+        paddingBottom: 'var(--mobile-chrome-h, 0px)',
         position: 'fixed',
         top: viewportHeight != null ? `${viewportTop}px` : 0, left: 0, right: 0,
         bottom: viewportHeight != null ? undefined : 0,
@@ -1067,10 +1197,19 @@ function App() {
       <a href="#main-content" className="sr-only focus:not-sr-only focus:absolute focus:z-[100] focus:top-2 focus:left-2 focus:bg-primary focus:text-white focus:px-4 focus:py-2 focus:rounded-lg focus:text-sm">
         Skip to main content
       </a>
-      {/* Mobile sidebar overlay */}
-      {isMobile && !sidebarCollapsed && (
+      {/* IL VELO del cassetto mobile. Sta montato SEMPRE (su mobile) e a riposo
+          lo spegne il CSS — `.sidebar-scrim[data-open="false"]` è opacità 0,
+          `visibility: hidden` e niente click. Prima si montava e smontava con
+          lo stato: durante il trascinamento della colonna (useSidebarSwipe) non
+          esisteva ancora, e compariva tutto insieme a gesto finito — cioè lo
+          scatto che il trascinamento serve a togliere. Adesso il gesto gli
+          scrive l'opacità in linea frame per frame, e a fine corsa la cancella
+          restituendo la decisione al CSS. */}
+      {isMobile && (
         <div
-          className="fixed inset-0 bg-black/50 z-40"
+          data-sidebar-scrim
+          data-open={!sidebarCollapsed}
+          className="fixed inset-0 bg-black/50 z-40 sidebar-scrim"
           onClick={() => setSidebarCollapsed(true)}
           aria-hidden="true"
         />
@@ -1079,8 +1218,6 @@ function App() {
       {/* Sidebar */}
       <div
         ref={sidebarRef}
-        onTouchStart={isMobile ? handleSidebarTouchStart : undefined}
-        onTouchEnd={isMobile ? handleSidebarTouchEnd : undefined}
         role="navigation"
         aria-label="Topics sidebar"
         // `group/sidebar`: alcune affordance della sidebar si accendono solo
@@ -1094,19 +1231,40 @@ function App() {
         // un gradino verso la barra di stato nera di iOS, e la fascia in cima
         // cambiava tinta aprendo e chiudendo la sidebar. Il token porta con sé
         // anche la trasparenza sulla shell mac: vedi --chrome-bg in index.css.
+        // UN'OMBRA SEPARA DUE PIANI, UN FILO SEPARA DUE ZONE DELLO STESSO PIANO.
+        //
+        // Su desktop la sidebar è `fixed` sopra il contenuto e proiettava uno
+        // `shadow-2xl`: venticinque pixel di sfumatura stesi SUL contenuto.
+        // Finché le due superfici avevano tinte diverse quella sfumatura si
+        // leggeva come profondità. Da quando il velo è uno solo hanno lo stesso
+        // pixel — misurato: sidebar #191b1e, contenuto #191b1e — e l'ombra resta
+        // l'unica cosa in mezzo: una banda scura senza bordo netto, che si legge
+        // come una spaziatura doppia e come una terza tinta (#17191c a x=211,
+        // che risale a #191b1e solo a x=236). «Non hanno bordo, c'è una doppia
+        // spaziatura e i colori non sono uguali» (Attilio, 09/08): sono tre
+        // sintomi di una cosa sola.
+        //
+        // Con le pane FLOTTANTI l'ombra è giusta e resta: lì la sidebar sta
+        // davvero su un piano diverso, staccata dal suo gap. Senza, i due piani
+        // sono uno, e ciò che serve è un confine — un pixel, non venticinque.
         className={`group/sidebar bg-app-chrome flex flex-col flex-shrink-0 sidebar-transition overflow-hidden ${
           isMobile ? 'fixed inset-y-0 left-0 z-50 w-full'
-            : 'fixed inset-y-0 left-0 z-40 shadow-2xl'
+            : `fixed inset-y-0 left-0 z-40 ${appSettings.floatingSplits ? 'shadow-2xl' : 'border-r border-app-border'}`
         }`}
         style={{
           // Non-mobile: the sidebar is position:fixed with a CONSTANT width and collapses
           // via a composited translateX, so the content area never resizes on toggle — the
           // reveal is the FLIP push on #main-content (useSidebarFlipPush). Mobile is a
           // full-width drawer that slides the same way.
-          width: isMobile
-            ? (sidebarCollapsed ? 0 : '100vw')
-            : `${sidebarWidth}px`,
-          transform: sidebarCollapsed ? 'translateX(-100%)' : 'translateX(0)',
+          //
+          // Su mobile le due misure arrivano da `mobileDrawerStyle`, che è la
+          // stessa funzione con cui `useSidebarSwipe` rimette la colonna a posto
+          // dopo un trascinamento: React e il gesto scrivono lo STESSO elemento,
+          // e due copie delle stesse stringhe divergerebbero al primo ritocco.
+          width: isMobile ? mobileDrawerStyle(sidebarCollapsed).width : `${sidebarWidth}px`,
+          transform: isMobile
+            ? mobileDrawerStyle(sidebarCollapsed).transform
+            : (sidebarCollapsed ? 'translateX(-100%)' : 'translateX(0)'),
           // Safe-area top inset applied UNCONDITIONALLY: env() self-zeroes when
           // there's no inset (desktop, non-notched), so gating it on isPWA was
           // the bug that left content clipped under the notch when the app is
@@ -1114,6 +1272,10 @@ function App() {
           // display-mode is 'browser', not 'standalone'). The mobile sidebar is
           // `position: fixed inset-y-0`, so it escapes the root and needs its own.
           paddingTop: 'env(safe-area-inset-top, 0px)',
+          // La colonna è `fixed inset-y-0`: sfugge al padding della radice,
+          // quindi la banda della fila in basso se la riserva da sé. Stessa
+          // variabile, stesso valore, un posto solo a deciderlo.
+          paddingBottom: 'var(--mobile-chrome-h, 0px)',
         }}
       >
 
@@ -1129,15 +1291,26 @@ function App() {
           // separa una card dal bordo e una riga dalla sua vicina. Col mouse i
           // bottoni sono 28 e la riga resta 40, che è la stessa identità:
           // 28 + 2 × 6 = 40.
-          className={`flex items-center justify-between border-b border-app-border flex-shrink-0 app-drag-region ${isMobile ? 'h-14' : 'h-10'}`} {...DRAG_REGION}
+          // NIENTE FILO SOTTO L'HEADER (Attilio, 08/08). Sopra e sotto c'è la
+          // stessa superficie — la colonna è chrome dall'alto in basso — quindi
+          // quella riga non separava due cose: ne disegnava il confine e basta.
+          // A dire dove finisce l'header ci pensano già i due comandi, che hanno
+          // un fondo proprio, e la prima card della lista, che è rientrata di 6.
+          //
+          // Nota per chi torna qui: la stessa cosa NON vale per il filo sotto la
+          // tabbar delle pane. Là ho misurato — barra e contenuto hanno lo
+          // STESSO fondo in tutte e quattro le combinazioni (telefono/desktop ×
+          // chiaro/scuro), quindi quel filo è l'unica separazione che esiste e
+          // toglierlo fonde le due zone. Qui invece l'header ha dentro di sé di
+          // che farsi riconoscere.
+          className={`flex items-center justify-between flex-shrink-0 app-drag-region ${isMobile ? 'h-14' : 'h-10'}`} {...DRAG_REGION}
           style={{ paddingRight: ROW_INSET, paddingLeft: ROW_INSET, gap: ROW_INSET }}
         >
           <div className="flex items-center gap-2 flex-1 min-w-0">
             {/* NIENTE «X» accanto al titolo. Il cassetto mobile si chiude da
                 solo appena apri qualcosa (`if (isMobile) setSidebarCollapsed(true)`,
-                una dozzina di punti in usePanelLifecycle) e con lo swipe verso
-                sinistra sulla colonna (`handleSidebarTouchEnd`, delta < −60,
-                useSidebarAndLayout) — quindi la crocetta non era l'uscita, era
+                una dozzina di punti in usePanelLifecycle) e trascinandolo verso
+                sinistra col dito (`useSidebarSwipe`) — quindi la crocetta non era l'uscita, era
                 una terza copia della stessa uscita, messa dove l'occhio cerca il
                 titolo. Costava anche la colonna: `w-10 -ml-1 mr-1` + il `gap-2`
                 del contenitore spingevano «Topics» a x=60, cioè 46px più a
@@ -1163,7 +1336,21 @@ function App() {
                 // 12 — 2px a sinistra dei nomi sotto, il near-miss che si legge
                 // peggio di una differenza netta. Con ROW_PX il titolo va a 14
                 // e il rialzo dell'hover resta a filo col bordo delle card.
-                className={`flex items-center ${isTauriMac ? 'gap-2' : 'gap-1'} ${ROW_PX} py-0.5 min-h-7 rounded-lg transition-colors cursor-pointer ${
+                // L'ALTEZZA LA DETTA LA RIGA, e la riga la dettano i suoi
+                // comandi: `h-14` col dito attorno a bottoni da 44, `h-10` col
+                // mouse attorno a bottoni da 28 (vedi il commento dell'header).
+                // Il titolo non seguiva né l'una né gli altri: `min-h-7` fisso,
+                // che col testo a 17px diventa 29,5 dentro una riga da 56 —
+                // misurato. Effetto: il suo rialzo finiva 13px sopra il fondo
+                // della riga mentre Cerca e «+», lì accanto, ci arrivano a 6.
+                // Da lontano legge come spazio in più sotto l'header, ed è metà
+                // della «doppia spaziatura» che si vedeva sul telefono. Di
+                // rimbalzo il bersaglio del menu passa da 29,5 a 44, cioè alla
+                // soglia che ogni altro comando di questa riga rispetta già.
+                // `isMobile` e non `md:`: nell'header decide quel predicato,
+                // e due meccanismi nella stessa riga divergono (è il difetto
+                // appena tolto dalla barra delle tab).
+                className={`flex items-center ${isTauriMac ? 'gap-2' : 'gap-1'} ${ROW_PX} py-0.5 ${isMobile ? 'min-h-11' : 'min-h-7'} rounded-lg transition-colors cursor-pointer ${
                   // Rialzo in ALPHA, non `bg-app-hover`: questo bottone sta sul
                   // chrome, e un opaco tarato su `--bg-surface` lì va nel verso
                   // sbagliato in tema chiaro. Vedi SIDEBAR_HOVER.
@@ -1184,8 +1371,20 @@ function App() {
                     6 contro 8. Tre elementi affiancati con tre forme diverse
                     non sono tre stili, sono un difetto: Aggiungi e Cerca sono
                     il riferimento (Attilio, 08/08). */}
-                <ChevronDown size={14} className={`text-app-text-muted transition-transform ${showTopicsMenu ? 'rotate-180' : ''}`} />
+                <ChevronDown size={14} className={`text-app-text-secondary transition-transform ${showTopicsMenu ? 'rotate-180' : ''}`} />
               </button>
+            </div>
+            {/* ACCANTO A TOPICS, e non in coda alla riga con Cerca e «+»: quei
+                due sono comandi che CREANO o CERCANO, questo è uno stato — dice
+                quante cose sono successe mentre non guardavi. Sta a fianco
+                dell'identità della colonna perché è la prima cosa che si guarda
+                tornando all'app, prima di decidere cosa aprire. */}
+            <div className="app-no-drag flex-shrink-0" {...NO_DRAG_REGION}>
+              <NotificationHistoryButton
+                onWSMessage={onWSMessage}
+                isMobile={isMobile}
+                onOpenSettings={() => { setSettingsSection('notifications'); setShowSettings(true); }}
+              />
             </div>
           </div>
           {/* CERCA E «+», in coda alla riga del titolo.
@@ -1196,7 +1395,14 @@ function App() {
               l'occhio cerca le scorciatoie. Sono sempre gli STESSI due bottoni,
               definiti una volta in App: cambia solo la misura, 44px col dito e
               28 col mouse. */}
-          <div
+          {/* SUL TELEFONO IN ALTO NON C'È NIENT'ALTRO.
+              «Da un lato topics, cliccabile; dall'altro nient'altro» (Attilio,
+              12/08). Cerca e «+» non spariscono: scendono nella fila in fondo
+              (`MobileChromeBar`), dove arriva il pollice e dove stanno insieme
+              alla terza porta, la board. Sono sempre gli STESSI due comandi
+              definiti una volta qui sopra — cambia dove si montano, non cosa
+              sono. */}
+          {!isMobile && <div
             className="flex items-center relative z-50 app-no-drag flex-shrink-0"
             {...NO_DRAG_REGION}
             // `gap: ROW_INSET`, non `gap-2` scritto a mano. La colonna ha UN
@@ -1210,7 +1416,7 @@ function App() {
           >
             {sidebarSearchButton}
             {sidebarAddMenu}
-          </div>
+          </div>}
         </div>
 
 
@@ -1253,7 +1459,7 @@ function App() {
             onProjectClick={handleProjectClick}
             stopSession={stopSession}
             onNewChat={() => handleQuickCreateTopic()}
-            onNewBrowser={() => openBrowserPane(`new-${Date.now()}`)}
+            onNewBrowser={() => openBrowserPane(newBrowserContextId())}
             terminalSessions={terminalSessions}
             browserContexts={browserCtx.contexts}
             onTerminalClick={handleTerminalClick}
@@ -1291,11 +1497,7 @@ function App() {
             // ogni gruppo — ma la sua TAB vive in un gruppo come tutte. Se è in
             // un altro, ci si porta prima la finestra: aprirla e basta la
             // farebbe comparire dove non stai guardando.
-            onOpenBoard={() => {
-              const boardSpace = paneSpaceById.get('__board__');
-              if (boardSpace) goToSpace(boardSpace);
-              handleOpenAsPage('board');
-            }}
+            onOpenBoard={handleOpenBoard}
             spaceScoped={spaceScoped}
             paneSpaceById={paneSpaceById}
           />
@@ -1318,6 +1520,15 @@ function App() {
             e l'avevo tolta sul telefono — è il «gli account che fine hanno
             fatto?». Torna con lei, e con la fascia dell'home indicator che
             questa barra dipinge di suo. */}
+        {/* SUL TELEFONO LA BARRA DI STATO NON È PIÙ UNA BARRA.
+            Identità + stato costavano 80px in fondo alla colonna (36 + 44) per
+            dire «Questo computer» a chi il computer ce l'ha in mano. Le stesse
+            cose — chi sei, come va, che versione è — stanno nel menu «Topics»
+            (`SidebarSystemMenu`), che è dove si va a cercarle: «è qualcosa che
+            l'utente raramente utilizzerà». Sul desktop, dove i pixel verticali
+            abbondano e il colpo d'occhio sullo stato serve, la barra resta
+            esattamente com'era. */}
+        {!isMobile && (
         <ErrorBoundary fallbackMessage="Status bar error">
         <SidebarStatusBar
           wsStatus={wsStatus}
@@ -1325,7 +1536,32 @@ function App() {
           onOpenDevices={() => { setSettingsSection('devices'); setShowSettings(true); }}
         />
         </ErrorBoundary>
+        )}
       </div>
+
+      {/* LE TRE PORTE DEL TELEFONO — cerca · aggiungi · board.
+          Sta FUORI dalla colonna, non dentro: la fila deve restare sotto le
+          dita anche col cassetto chiuso, altrimenti l'interruttore della board
+          sarebbe di sola andata (aperta la board, il tasto per tornare alla
+          lista se ne sarebbe andato con la colonna). È anche il motivo per cui
+          si dipinge da sé invece di ereditare il chrome della sidebar.
+          Il «+» è lo STESSO `PaneAddMenu` del desktop, con la faccia della
+          fila: l'elenco delle cose creabili è uno solo. */}
+      <MobileChromeBar
+        onSearch={() => { setSearchScope('all'); setShowSearch(true); }}
+        addSlot={
+          <PaneAddMenu
+            scope="standalone"
+            onNewChat={() => handleQuickCreateTopic()}
+            onAddPane={handleStandaloneAddPane}
+            triggerTitle="Aggiungi"
+            triggerVariant="bar"
+            triggerLabel="Aggiungi"
+          />
+        }
+        boardInFront={boardInFront}
+        onToggleBoard={handleMobileBoardToggle}
+      />
 
       {/* Sidebar resize handle. The sidebar is position:fixed (FLIP push), so a
           flex divider here would collapse to x=0 under the sidebar's LEFT edge —
@@ -1480,6 +1716,14 @@ function App() {
 
       {/* Portal dropdowns (rendered outside sidebar to escape overflow-hidden) */}
       {showTopicsMenu && createPortal(
+        <>
+        {/* Il velo del foglio dal basso, come in `Menu`: sotto i 768px questo
+            menu non è più un cartellino appeso al titolo ma un foglio, e un
+            foglio senza velo resta in piedi sul solo bordo (misurato altrove:
+            1,04:1 in tema chiaro). */}
+        {isMobile && (
+          <div className="fixed inset-0 bg-black/40" style={{ zIndex: Z_POPOVER_SCRIM }} onClick={() => setShowTopicsMenu(false)} />
+        )}
         <div
           ref={topicsDropdownRef}
           // Height cap + scroll, and a left clamp. This menu opened at
@@ -1488,26 +1732,58 @@ function App() {
           // rows unreachable. Capping to the space actually below the trigger
           // (and clamping the left edge to the shared POPOVER_MARGIN) keeps
           // every row reachable without a measure-then-place pass.
-          className={`${POPOVER_SURFACE} min-w-[200px] overflow-y-auto overscroll-contain`}
-          style={{
-            position: 'fixed',
-            top: topicsMenuPos.top,
-            left: Math.max(POPOVER_MARGIN, topicsMenuPos.left),
-            maxHeight: `calc(100vh - ${topicsMenuPos.top + POPOVER_MARGIN}px)`,
-            zIndex: Z_POPOVER,
-          }}
+          className={
+            isMobile
+              // FOGLIO DAL BASSO, e le voci scendono nella fascia invece di
+              // lasciarla vuota: è la stessa legge della barra di stato —
+              // `max(sab − 12, 8)` — non un `env()` appiccicato sotto, che
+              // lascerebbe una striscia morta alta un terzo di una riga.
+              // Sotto i 768px questo è IL menu del telefono: ci vive anche
+              // l'account, quindi deve arrivare col pollice.
+              ? `fixed bottom-0 left-0 right-0 ${POPOVER_SHEET} overflow-y-auto overscroll-contain`
+              : `${POPOVER_SURFACE} min-w-[200px] overflow-y-auto overscroll-contain`
+          }
+          style={
+            isMobile
+              ? {
+                  zIndex: Z_POPOVER,
+                  paddingBottom: 'max(calc(var(--sab) - 12px), 8px)',
+                  maxHeight: 'calc(100dvh - 3rem)',
+                }
+              : {
+                  position: 'fixed',
+                  top: topicsMenuPos.top,
+                  left: Math.max(POPOVER_MARGIN, topicsMenuPos.left),
+                  maxHeight: `calc(100vh - ${topicsMenuPos.top + POPOVER_MARGIN}px)`,
+                  zIndex: Z_POPOVER,
+                }
+          }
         >
+          {/* CHI SEI, COME VA, CHE VERSIONE È — solo sul telefono, dove la
+              barra in fondo alla colonna non c'è più. Sta in TESTA al menu:
+              l'account è la porta che prima non esisteva da nessuna parte, e
+              una porta in fondo a dieci voci è una porta che si trova per
+              caso. */}
+          {isMobile && (
+            <>
+              <SidebarSystemMenu
+                onOpenAccount={() => { setSettingsSection('devices'); setShowSettings(true); setShowTopicsMenu(false); }}
+                onOpenChangelog={(versione) => { setShowTopicsMenu(false); setShowChangelogFromMenu(versione); }}
+              />
+              <div className="my-1 border-t border-app-border" />
+            </>
+          )}
           {/* Sidebar controls relocated from the old <SidebarControls> row. */}
           <button
             onClick={() => { sidebar.toggleShowArchived(); }}
-            className={`w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-[12px] coarse:text-[14px] hover:bg-app-hover transition-colors ${sidebar.showArchived ? 'text-primary' : 'text-app-text'}`}
+            className={`w-full flex items-center gap-2 px-3 ${isMobile ? 'py-3 min-h-11 text-[14px]' : 'py-1.5 text-[12px] coarse:py-3 coarse:text-[14px]'} hover:bg-app-hover transition-colors ${sidebar.showArchived ? 'text-primary' : 'text-app-text'}`}
           >
             <Archive size={isMobile ? 18 : 14} className={sidebar.showArchived ? 'text-primary' : ''} />
             <span className="flex-1 text-left">Mostra archiviati</span>
           </button>
           <button
             onClick={() => { sidebar.toggleViewMode(); }}
-            className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-[12px] coarse:text-[14px] text-app-text hover:bg-app-hover transition-colors"
+            className={`w-full flex items-center gap-2 px-3 ${isMobile ? 'py-3 min-h-11 text-[14px]' : 'py-1.5 text-[12px] coarse:py-3 coarse:text-[14px]'} text-app-text hover:bg-app-hover transition-colors`}
           >
             {/* Icona ed etichetta descrivono il modo SUCCESSIVO — cosa fa il
                 click — e lo chiedono a `nextSidebarViewMode`, la stessa funzione
@@ -1522,6 +1798,13 @@ function App() {
               nextSidebarViewMode(sidebar.viewMode) === 'state' ? 'Vista per stato' : 'Vista timeline'
             }</span>
           </button>
+          {/* I due comandi sui pannelli compaiono SOLO dove i pannelli esistono
+              — vedi `useSplitLayoutAvailable`. Sotto i 768px PanelGrid rende una
+              colonna di celle senza divisori e senza larghezze salvate: lì
+              «Reimposta pannelli» e «Disponi automaticamente» non fallivano, non
+              facevano niente, ed erano le due voci che dal telefono facevano
+              sembrare complicato un menu che non lo è. */}
+          {splitLayoutAvailable && <>
           {/* "Reimposta pannelli" — same per-window action the ⌘K palette and
               the tab-bar context menu expose (the shared 'topics:reset-split-
               layout' CustomEvent bus). The standalone grid COLLAPSES every split
@@ -1533,7 +1816,7 @@ function App() {
               window.dispatchEvent(new CustomEvent('topics:reset-split-layout'));
               setShowTopicsMenu(false);
             }}
-            className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-[12px] coarse:text-[14px] text-app-text hover:bg-app-hover transition-colors"
+            className={`w-full flex items-center gap-2 px-3 ${isMobile ? 'py-3 min-h-11 text-[14px]' : 'py-1.5 text-[12px] coarse:py-3 coarse:text-[14px]'} text-app-text hover:bg-app-hover transition-colors`}
             title="Riunisce tutti i pannelli in uno solo (le schede restano aperte)"
           >
             <RotateCcw size={isMobile ? 18 : 14} />
@@ -1548,24 +1831,26 @@ function App() {
               window.dispatchEvent(new CustomEvent('topics:auto-tile-layout'));
               setShowTopicsMenu(false);
             }}
-            className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-[12px] coarse:text-[14px] text-app-text hover:bg-app-hover transition-colors"
+            className={`w-full flex items-center gap-2 px-3 ${isMobile ? 'py-3 min-h-11 text-[14px]' : 'py-1.5 text-[12px] coarse:py-3 coarse:text-[14px]'} text-app-text hover:bg-app-hover transition-colors`}
             title="Dispone tutte le schede aperte affiancate in una griglia bilanciata"
           >
             <Grid2x2 size={isMobile ? 18 : 14} />
             <span className="flex-1 text-left">Disponi automaticamente</span>
           </button>
+          </>}
           {/* Board / Dashboard / Cron stavano qui e ora stanno nel «+» (⌘N) —
               vedi il commento al posto di TOPICS_MENU_PAGES, in testa al file.
               Settings invece RESTA: è raggiungibile anche da ⌘K e da ⌘, ma
               sono tre porte per la stessa stanza, non tre stanze. */}
           <button
             onClick={() => { setShowSettings(true); setShowTopicsMenu(false); }}
-            className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-[12px] coarse:text-[14px] text-app-text hover:bg-app-hover transition-colors"
+            className={`w-full flex items-center gap-2 px-3 ${isMobile ? 'py-3 min-h-11 text-[14px]' : 'py-1.5 text-[12px] coarse:py-3 coarse:text-[14px]'} text-app-text hover:bg-app-hover transition-colors`}
           >
             <SettingsIcon size={isMobile ? 18 : 14} />
             <span className="flex-1 text-left">Settings</span>
           </button>
-        </div>,
+        </div>
+        </>,
         document.body
       )}
 
@@ -1664,8 +1949,13 @@ function App() {
             // automaticamente" (auto-tile into a balanced grid) — per-window
             // CustomEvent bus (same pattern as topics:open-project-picker); the
             // standalone PanelGrid listener performs each.
-            onResetPanels={() => window.dispatchEvent(new CustomEvent('topics:reset-split-layout'))}
-            onAutoTilePanels={() => window.dispatchEvent(new CustomEvent('topics:auto-tile-layout'))}
+            //
+            // `undefined` sotto i 768px, che nella palette è già il modo in cui
+            // una voce NON esiste (vedi `if (onResetPanels)` là dentro): stessa
+            // regola del menu ⋯ qui sopra, applicata alla stessa coppia di
+            // comandi da una sola sorgente di verità.
+            onResetPanels={splitLayoutAvailable ? () => window.dispatchEvent(new CustomEvent('topics:reset-split-layout')) : undefined}
+            onAutoTilePanels={splitLayoutAvailable ? () => window.dispatchEvent(new CustomEvent('topics:auto-tile-layout')) : undefined}
             onOpenFileSearch={() => {
               setShowSearch(false);
               // Stesso perimetro di ⌘F: progetto a fuoco più quelli aperti.
@@ -1726,12 +2016,22 @@ function App() {
       {/* In-page bundle refresh prompt (dev rebuilds + stale-chunk 404s) —
           the manual-reload replacement for the old silent auto-reload. */}
       <DevBundleToast />
+      {/* ACK «Ricaricata» dopo un reload chiesto dall'utente: un ricarico che
+          rifà lo stesso schermo, senza una parola, si legge come «non va». */}
+      <ReloadedFlash />
 
       {/* Root-level fallback outlet for global notifications (e.g. agent
           completion). When a scoped outlet (ProjectWindow's) is mounted,
           this one stays hidden to avoid double-rendering — the scoped
           outlet wins and toasts appear inside the project pane. */}
       <ToastOutlet fixed fallback />
+
+      {/* Il changelog, aperto dalla voce «Versione» del menu del telefono.
+          Stessa modale del desktop: sul Mac ci si arriva dal numero nella
+          barra di stato, che sotto i 768px non esiste più. */}
+      {showChangelogFromMenu !== null && (
+        <ChangelogModal currentVersion={showChangelogFromMenu} onClose={() => setShowChangelogFromMenu(null)} />
+      )}
     </div>
     </PendingActionProvider>
     </ConfirmProvider>

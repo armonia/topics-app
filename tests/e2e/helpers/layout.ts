@@ -5,7 +5,7 @@
  * Extracted from four near-identical copies (see git history) — keep this
  * the single source for these three so future specs don't re-fork them.
  */
-import { type Page, expect } from "@playwright/test";
+import { type Locator, type Page, expect } from "@playwright/test";
 
 /** Count column-resize (horizontal split) dividers in the main content area. */
 export async function countColDividers(page: Page): Promise<number> {
@@ -40,7 +40,12 @@ export async function countTabBars(page: Page): Promise<number> {
 
 /** Get the text of every visible tab label across all tab bars in the main area. */
 export async function getVisibleTabLabels(page: Page): Promise<string[]> {
-  const tabs = page.locator('[role="main"] .truncate.flex-1');
+  // `[data-testid="pane-tab-label"]` e non `.truncate.flex-1`: quelle due
+  // utility di layout le porta ora anche una riga dell'albero dei file e una
+  // riga di git, che vivono dentro `[role="main"]` — quindi il conteggio
+  // includeva cose che non sono tab e i test «no duplicate tabs» diventavano
+  // rossi su un'app corretta.
+  const tabs = page.locator('[role="main"] [data-testid="pane-tab-label"]');
   const count = await tabs.count();
   const labels: string[] = [];
   for (let i = 0; i < count; i++) {
@@ -105,4 +110,39 @@ export async function splitViaContextMenu(
       message: `"${direction}" non ha prodotto una nuova cella (tab bar ferme a ${before})`,
     })
     .toBeGreaterThan(before);
+}
+
+/**
+ * Chiude una tab col suo comando in coda, FACENDO IL GESTO CHE FA UN UMANO.
+ *
+ * `await tab.locator("button").last().click()` non funziona più, e il modo in
+ * cui fallisce merita di essere scritto perché non assomiglia a un difetto del
+ * prodotto.
+ *
+ * Dal 09/08 il comando in coda a una riga è un OVERLAY (`.row-actions` in
+ * `index.css`): fuori dal flusso, ancorato a destra, e — sotto `hover: hover` —
+ * `opacity: 0` **più `pointer-events: none`**, che diventano `1`/`auto` solo su
+ * `.row-card:hover`. È deliberato: un box da 36 trasparente e cliccabile sopra
+ * il badge si mangerebbe i clic diretti al badge senza che si veda perché.
+ *
+ * Per Playwright quello è uno STALLO, non una lentezza. `click()` prima fa
+ * l'hit-test nel punto del bersaglio e solo DOPO muove il mouse: finché il
+ * mouse non è entrato nella tab il binario resta `pointer-events: none`,
+ * quindi l'elemento più in alto in quel punto è l'etichetta, e Playwright
+ * riporta «<span data-testid="pane-tab-label"> intercepts pointer events» e
+ * riprova — per sempre, fino ai 30 s di timeout. Il mouse non si muove mai,
+ * quindi la condizione che sbloccherebbe il clic non si avvera mai.
+ *
+ * L'`hover()` sulla TAB è quindi il gesto mancante, non un rattoppo di attesa:
+ * è letteralmente ciò che fa una persona prima di vedere comparire la x.
+ * Precedenti nello stesso repo: `helpers/multi-client.ts:113` e
+ * `helpers/terminal-workspace.ts:131`.
+ *
+ * `[data-testid="pane-tab-close"]` e non `.locator("button").last()`: il
+ * secondo è posizionale e si rompe al primo bottone aggiunto in coda — la
+ * stessa lezione dei locator agganciati alle classi Tailwind.
+ */
+export async function closeTabViaCommand(tab: Locator): Promise<void> {
+  await tab.hover();
+  await tab.locator('[data-testid="pane-tab-close"]').last().click();
 }

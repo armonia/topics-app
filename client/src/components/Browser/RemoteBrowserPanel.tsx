@@ -1,6 +1,6 @@
 import { BrowserToolbar } from './BrowserToolbar';
 import { createPortal } from 'react-dom';
-import { Globe, Loader2, ChevronUp, ChevronDown, X, AlertTriangle, RotateCw, Check, Download, Puzzle, Boxes, MonitorPlay } from 'lucide-react';
+import { Globe, Loader2, ChevronUp, ChevronDown, X, AlertTriangle, RotateCw, Puzzle, Boxes, MonitorPlay } from 'lucide-react';
 import { lazy, Suspense } from 'react';
 import { useRemoteBrowser } from '../../hooks/useRemoteBrowser';
 import { useTauriBrowser } from '../../hooks/useTauriBrowser';
@@ -9,18 +9,32 @@ import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { SelectElementOverlay } from './SelectElementOverlay';
 import { NativeBrowserPlaceholder } from './NativeBrowserPlaceholder';
 import { ParkedPane } from './ParkedPane';
-import { DownloadStrip } from './DownloadStrip';
+import { BrowserNoticeStrip } from './BrowserNoticeStrip';
+import { ForgetSiteDialog } from './ForgetSiteDialog';
+import { siteHostOf } from '../../lib/browserForgetSite';
+import { BrowserPaneChip, ChipDot, type ChipTone } from './BrowserPaneChip';
+import { useBrowserDownloads } from '../../hooks/useBrowserDownloads';
+import type { DownloadsMenuProps } from './DownloadsMenu';
+import { formatSize } from './downloadsModel';
 import { useBrowserSpawner } from '../../state/browserSpawner';
 import { signalsActions } from '../../state/signals';
 import { isTauri } from '../../lib/shell';
 import { computeAutoShared, type ShareMode } from '../../lib/sharedAuto';
+import { installViewportZoomGuard } from '../../lib/viewportZoomGuard';
 import { useSharedViewerCount } from '../../hooks/useSharedViewerCount';
+import { useTaskTabLoginState } from '../../hooks/useTaskTabLoginState';
 import type { Topic } from '../../types';
 import { usePaneHold } from '../../state/pane/residency/holds';
+import BrowserKeyboardCapture, { type BrowserKeyboardCaptureHandle } from './BrowserKeyboardCapture';
 
 // T1 DOM co-browse — the native rrweb reconstruction view. Lazy so rrweb + its CSS
 // only load when a pane actually switches to DOM mode (default video path is free).
 const DomCoBrowse = lazy(() => import('./DomCoBrowse'));
+
+/** Sotto questo spostamento (px) un tocco sul video è un tap, non uno scroll.
+ *  Stessa soglia del co-browse DOM, per la stessa ragione: la tastiera non deve
+ *  salire mentre si trascina la pagina. */
+const VIDEO_TAP_SLOP = 8;
 
 /** Report a browser pane's busy state (page loading or an agent driving it)
  *  into the unified signals store, so its tab spinner + the project rollup
@@ -155,13 +169,19 @@ export function RemoteBrowserPanel({ contextId, initialUrl, navigateUrl, onUrlCh
   useEffect(() => {
     // Pinned mode: `shared` is derived from `mode`, not autoShared → nothing to do.
     if (!autoEnabled) return;
-    const want = computeAutoShared(viewerCount, autoShared);
+    // `isVisible`: whether the server is counting THIS pane. A shared pane that
+    // left the screen reports set_watching:false and drops out of the count, so
+    // subtracting itself anyway read "the phone is watching" as "nobody is
+    // here" — and the pane bounced shared→native→shared every 1200ms for as
+    // long as the phone looked. Under Tauri (the only place 'auto' runs) the
+    // iframe path never applies, so on-screen == counted.
+    const want = computeAutoShared(viewerCount, autoShared, isVisible);
     if (want === autoShared) return;
     // Debounce flaps (async, not a synchronous in-effect setState): a reconnecting
     // phone must not bounce the pane native↔shared.
     const t = setTimeout(() => setAutoShared(want), 1200);
     return () => clearTimeout(t);
-  }, [autoEnabled, viewerCount, autoShared]);
+  }, [autoEnabled, viewerCount, autoShared, isVisible]);
 
   // Effective render: pinned mode wins; in auto it follows the live decision.
   const shared = mode === 'shared' ? true : mode === 'native' ? false : autoShared;
@@ -270,7 +290,30 @@ function useBackToSpawner(
  */
 function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChange, onTitleChange, onNavigateConsumed, isVisible = true, onFocusPanel, topics, onSelfFocus, shared, shareMode, onToggleShare }: RemoteBrowserPanelProps) {
   const browser = useTauriBrowser(contextId, initialUrl, isVisible, onSelfFocus);
+  const dl = useBrowserDownloads(contextId);
+  // Le voci native portano un path su QUESTO computer: si aprono e si mostrano
+  // nel Finder. `detail` è il path stesso — «dov'è finito» è la domanda che la
+  // vecchia striscia non rispondeva.
+  const downloads = useMemo<DownloadsMenuProps>(() => ({
+    items: dl.downloads.map((d) => ({
+      id: d.id,
+      filename: d.filename,
+      state: d.state,
+      detail: d.savedPath,
+      savedPath: d.savedPath,
+    })),
+    activeCount: dl.activeCount,
+    startedCount: dl.startedCount,
+    onDismiss: dl.dismiss,
+    onClear: dl.clear,
+    onOpen: dl.openFile,
+    onReveal: dl.reveal,
+  }), [dl]);
   useReportBrowserActivity(contextId, browser.loading || browser.agentActive);
+  // Tab di un task con un login salvato dall'agente: rimettilo, così il reviewer
+  // atterra dentro invece che sul muro del login. Solo a pane viva (una URL
+  // vera ⟺ il contesto nativo esiste).
+  useTaskTabLoginState(contextId, !!browser.url && browser.url !== 'about:blank');
   // Niente sfratto mentre un agente sta guidando: smontare la pane toglie al
   // server l'esecutore delle sue operazioni (server/browser-native-delegate.ts).
   usePaneHold(browser.agentActive);
@@ -280,6 +323,7 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
   const [findOpen, setFindOpen] = useState(false);
   const [findText, setFindText] = useState('');
   const [findCount, setFindCount] = useState<number | null>(null);
+  const [forgetOpen, setForgetOpen] = useState(false);
 
   // Surface URL changes to the layout (tab title / persisted pane url) + record
   // in per-topic history. browser.url now tracks in-page nav via the poll.
@@ -386,8 +430,10 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
         onBack={browser.goBack}
         onForward={browser.goForward}
         onRefresh={browser.reload}
-        canGoBack={true}
-        canGoForward={true}
+        canGoBack={browser.canGoBack ?? true}
+        canGoForward={browser.canGoForward ?? true}
+        getNavEntries={browser.getNavEntries}
+        onGoToNavIndex={browser.goToNavIndex}
         loading={browser.loading}
         history={history}
         faviconUrl={browser.faviconUrl}
@@ -404,9 +450,11 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
         consoleEntries={browser.consoleEntries}
         consoleSummary={browser.consoleSummary}
         onClearConsole={browser.clearConsole}
+        downloads={downloads}
         shared={shared}
         shareMode={shareMode}
         onToggleShare={onToggleShare}
+        onForgetSite={siteHostOf(browser.url) ? () => setForgetOpen(true) : undefined}
       />
       {findOpen && (
         <div className="flex items-center gap-1.5 px-3 h-9 border-b border-app-border bg-app-bg flex-shrink-0">
@@ -432,53 +480,37 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
           <button className={findBtn} title="Chiudi (Esc)" onClick={closeFind}><X size={14} aria-hidden /></button>
         </div>
       )}
+      {/* La scheda non risponde più. Sta SOPRA l'errore di navigazione perché lo
+          scavalca: se la vista nativa non accetta comandi, «Riprova» non può
+          riprovare niente. Non si può nemmeno chiudere — un pane morto non
+          smette di esserlo perché uno ne ha nascosto l'avviso. */}
+      {browser.nativeFault && (
+        <BrowserNoticeStrip
+          testId="browser-native-fault"
+          message="Questa scheda non risponde più."
+          hint={`La vista nativa ha rifiutato ${browser.nativeFault.command} più volte di fila: quello che vedi è l'ultima pagina che è riuscita a disegnare.`}
+          action={{ label: 'Ricrea la scheda', onClick: () => { void browser.recreate?.(); } }}
+        />
+      )}
       {/* Navigation error strip — native-path parity with BRW-REL-02. Fed by the
-          Rust did-fail queue (browser_take_nav_errors). IN FLOW, not an absolute
-          overlay: the native WKWebView composites ABOVE the DOM, so an overlay
-          would be invisible — shrinking the placeholder repositions the native
-          view below the strip instead. The failed load leaves the previous page
-          alive, hence the explicit dismiss next to Riprova. */}
+          Rust did-fail queue (browser_take_nav_errors). The failed load leaves
+          the previous page alive, hence the explicit dismiss next to Riprova. */}
       {browser.navError && (
-        <div
-          className="flex items-center gap-2 px-3 py-1.5 bg-red-500/10 border-b border-red-500/30 text-red-700 dark:text-red-300 text-[12px] flex-shrink-0"
-          data-testid="browser-nav-error"
-          role="alert"
-        >
-          <AlertTriangle size={13} className="flex-shrink-0" />
-          {/* Due righe, non una troncata: la prima dice cosa è successo, la
-              seconda perché (vedi navErrorMessage). Il testo viene già scritto
-              corto apposta — `truncate` qui tagliava proprio la parte che
-              spiegava il problema. */}
-          <span className="flex-1 min-w-0 leading-tight" title={[browser.navError.message, browser.navError.hint].filter(Boolean).join('\n')}>
-            {/* `line-clamp-*` imposta già `display:-webkit-box`: aggiungerci
-                `block` metterebbe due utility sulla stessa proprietà, e a
-                decidere sarebbe l'ordine nel foglio di stile, non quello delle
-                classi. */}
-            <span className="line-clamp-2">{browser.navError.message}</span>
-            {browser.navError.hint && (
-              <span className="line-clamp-2 opacity-70">{browser.navError.hint}</span>
-            )}
-          </span>
-          {(browser.navError.url || browser.url) && (
-            <button
-              onClick={() => {
-                const target = browser.navError!.url || browser.url;
-                void (browser.retryNav ? browser.retryNav(target) : browser.navigate(target));
-              }}
-              className="flex items-center gap-1 px-2 py-0.5 rounded bg-red-500/15 hover:bg-red-500/25 font-medium transition-colors flex-shrink-0"
-            >
-              <RotateCw size={11} />
-              Riprova
-            </button>
-          )}
-          <button
-            onClick={() => browser.clearNavError?.()}
-            className="w-5 h-5 flex items-center justify-center rounded hover:bg-red-500/15 transition-colors flex-shrink-0"
-            title="Chiudi"
-          >
-            <X size={12} />
-          </button>
-        </div>
+        <BrowserNoticeStrip
+          testId="browser-nav-error"
+          message={browser.navError.message}
+          hint={browser.navError.hint}
+          action={(browser.navError.url || browser.url)
+            ? {
+                label: 'Riprova',
+                onClick: () => {
+                  const target = browser.navError!.url || browser.url;
+                  void (browser.retryNav ? browser.retryNav(target) : browser.navigate(target));
+                },
+              }
+            : undefined}
+          onDismiss={() => browser.clearNavError?.()}
+        />
       )}
       {/* Parcheggiata = nessuna webview nativa da posizionare, quindi al posto
           del placeholder ci va la schermata che spiega perché. Montare
@@ -493,7 +525,17 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
       ) : (
         <NativeBrowserPlaceholder browser={browser} isVisible={isVisible} />
       )}
-      <DownloadStrip contextId={contextId} />
+      {/* «Dimentica questo sito»: il dialogo sta QUI e non nel menu della
+          toolbar, che si chiude al clic e si porterebbe dietro il figlio. Copre
+          la WKWebView da sé: `MODAL_PANEL` porta `.native-occlude`. */}
+      {forgetOpen && (
+        <ForgetSiteDialog
+          contextId={contextId}
+          url={browser.url}
+          onClose={() => setForgetOpen(false)}
+          onForgotten={() => { void browser.reload(); }}
+        />
+      )}
     </div>
   );
 }
@@ -503,11 +545,34 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
   // the single-WKWebView Tauri renderer's memory in check — see useRemoteBrowser).
   const browser = useRemoteBrowser(contextId, isVisible);
   useReportBrowserActivity(contextId, browser.loading || browser.agentActive);
+  // Vedi il gemello nel ramo Tauri: login salvato dall'agente → reiniettato una
+  // volta, così la preview di un task protetto si apre già dentro.
+  useTaskTabLoginState(contextId, !!browser.url && browser.url !== 'about:blank');
   // Niente sfratto mentre un agente sta guidando: smontare la pane toglie al
   // server l'esecutore delle sue operazioni (server/browser-native-delegate.ts).
   usePaneHold(browser.agentActive);
   const { history, push: pushHistory } = useBrowserHistory(contextId);
   const backToSpawner = useBackToSpawner(contextId, onFocusPanel, topics);
+
+  // I download della pane CONDIVISA finiscono sul server, non su questo
+  // computer: la voce porta un link alla nostra origine (lo scarica il browser
+  // che sta guardando, anche il telefono) invece di un path da aprire. Stesso
+  // menu della pane nativa — vedi DownloadsMenu.
+  const dismissDownload = browser.dismissDownload;
+  const clearDownloads = browser.clearDownloads;
+  const streamDownloads = useMemo<DownloadsMenuProps>(() => ({
+    items: browser.downloads.map((d) => ({
+      id: d.href,
+      filename: d.filename,
+      state: d.state === 'completed' ? 'completed' : d.state === 'failed' ? 'interrupted' : 'progressing',
+      detail: d.state === 'completed' ? formatSize(d.size) : undefined,
+      href: d.href,
+    })),
+    activeCount: browser.downloads.filter((d) => d.state === 'started').length,
+    startedCount: browser.downloadsSeq,
+    onDismiss: dismissDownload,
+    onClear: clearDownloads,
+  }), [browser.downloads, browser.downloadsSeq, dismissDownload, clearDownloads]);
 
   // Same fresh/empty-pane URL-bar autofocus as the Tauri branch — see the
   // comment there. Wired through the toolbar's onRegisterFocus below.
@@ -585,6 +650,73 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [browser.webrtcError, browser.renderMode, browser.url, browser.setRenderMode]);
 
+  // ── LA TASTIERA SUL RAMO VIDEO ───────────────────────────────────────────────
+  //
+  // Qui la pagina remota è un flusso di pixel: non c'è nessun elemento da mettere
+  // a fuoco, e prima di questo blocco la digitazione passava solo dall'onKeyDown
+  // del contenitore. Su un computer con la tastiera fisica funzionava; da iPhone
+  // no, perché senza un campo a fuoco iOS non apre nessuna tastiera. Dal telefono
+  // il ramo video non si scriveva affatto.
+  //
+  // Quindi anche qui la cattura è un campo vero e nascosto, lo stesso componente
+  // del co-browse DOM. Cosa NON possiamo sapere: che campo hai toccato. Non c'è
+  // un mirror da interrogare. Perciò al tocco si alza la tastiera generica, che è
+  // l'unico momento in cui iOS la apre (dentro il gesto), e la si corregge quando
+  // il server risponde chi ha preso il fuoco di là.
+  const kbdRef = useRef<BrowserKeyboardCaptureHandle | null>(null);
+  const videoTouchRef = useRef<{ x: number; y: number; travel: number } | null>(null);
+  /** L'ultimo tocco era un tap (non uno strisciamento): lo consuma il click. */
+  const pendingTapRef = useRef(false);
+  const videoMode = browser.renderMode === 'video';
+  const registerFocusSink = browser.registerFocusSink;
+  useEffect(() => {
+    // Solo in modalità video: in DOM la cattura è quella di DomCoBrowse, e il
+    // sink accetta un iscritto alla volta.
+    if (!videoMode) return;
+    return registerFocusSink((field) => kbdRef.current?.applyRemoteField(field));
+  }, [videoMode, registerFocusSink]);
+
+  const onVideoTouchStart = useCallback((e: React.TouchEvent) => {
+    const t = e.touches[0];
+    videoTouchRef.current = t ? { x: t.clientX, y: t.clientY, travel: 0 } : null;
+  }, []);
+
+  const onVideoTouchMove = useCallback((e: React.TouchEvent) => {
+    const prev = videoTouchRef.current;
+    const t = e.touches[0];
+    if (!prev || !t) return;
+    prev.travel += Math.abs(prev.x - t.clientX) + Math.abs(prev.y - t.clientY);
+    prev.x = t.clientX;
+    prev.y = t.clientY;
+  }, []);
+
+  const onVideoTouchEnd = useCallback(() => {
+    const prev = videoTouchRef.current;
+    videoTouchRef.current = null;
+    // Uno strisciamento non è un tocco su un campo: la tastiera non c'entra.
+    pendingTapRef.current = !!prev && prev.travel <= VIDEO_TAP_SLOP;
+  }, []);
+
+  // Il fuoco si prende QUI, non al touchend, e la ragione è una corsa misurata:
+  // dopo il touchend il motore sintetizza mousedown+click, e il mousedown dà il
+  // fuoco al contenitore (che è `tabIndex=0`), scippandolo al campo di cattura.
+  // Il click viene dopo, è ancora dentro il gesto (quindi iOS apre la tastiera)
+  // ed è l'ultimo a parlare.
+  //
+  // Solo per i tocchi: col mouse il fuoco resta al contenitore, che è la presa
+  // dei tasti hardware e su quel ramo funziona da sempre.
+  const relayClick = browser.onClick;
+  const agentDriving = browser.agentActive;
+  const onVideoClick = useCallback((e: React.MouseEvent<HTMLVideoElement>) => {
+    relayClick(e);
+    const fromTap = pendingTapRef.current;
+    pendingTapRef.current = false;
+    if (!fromTap || agentDriving) return;
+    // Generica, perché qui non sappiamo che campo sia: la risposta del server la
+    // veste giusta subito dopo, o la fa rientrare se non era un campo.
+    kbdRef.current?.focusForField(null, { requireField: false });
+  }, [relayClick, agentDriving]);
+
   // Notify parent of URL changes + record in per-topic history.
   useEffect(() => {
     if (browser.url) {
@@ -653,6 +785,7 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
   // Chromium has no viewer: pause its screencast (keeps the WS open for
   // agent_active). Resume the instant we fall back to the stream.
   const setStreamActive = browser.setStreamActive;
+  const setWatching = browser.setWatching;
   // Stream ONLY when this pane is the visible tab AND we're not showing the
   // native <iframe>. A hidden pane (background tab / off-screen split, e.g. a
   // browser tab you left on your phone) pauses the server screencast entirely —
@@ -662,7 +795,27 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
   // (agent/nav still update); onopen re-asserts this on reconnect.
   useEffect(() => {
     setStreamActive(isVisible && !useIframe);
-  }, [isVisible, useIframe, setStreamActive]);
+    // And SEPARATELY: am I a watcher of this shared session? Same condition
+    // today, different meaning — the screencast also pauses when WebRTC or DOM
+    // co-browse carries the pixels, and those are viewers all the same. Only
+    // this frame feeds the cross-device viewer count.
+    setWatching(isVisible && !useIframe);
+  }, [isVisible, useIframe, setStreamActive, setWatching]);
+
+  // Zoom al focus, ramo <iframe>. Qui il campo che prende il fuoco è del SITO, e
+  // il suo CSS non è nostro: se ha un font sotto i 16px iOS ingrandisce l'intera
+  // shell al primo tocco e non la rimpicciolisce più. Non possiamo prevenirlo
+  // (l'iframe è cross-origin, non ci si inietta niente), quindi lo si annulla:
+  // la guardia vede la scala salire e la riporta a 1.
+  //
+  // Nel ramo DOM co-browse la stessa guardia non serve e non si monta: là il
+  // campo a fuoco è NOSTRO e sta a 16px, quindi lo zoom non parte proprio —
+  // meglio non far scattare niente che rincorrere.
+  useEffect(() => {
+    if (!useIframe) return;
+    return installViewportZoomGuard();
+  }, [useIframe]);
+
   if (useIframe) {
     return (
       <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
@@ -680,6 +833,7 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
           spawnerLabel={backToSpawner?.spawnerLabel}
           agentActive={browser.agentActive}
           agentAction={browser.agentAction}
+          downloads={streamDownloads}
           shared={shared}
           shareMode={shareMode}
           onToggleShare={onToggleShare}
@@ -716,14 +870,20 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
     browser.connectionState === 'connecting' ? 'Connecting...' :
     'Disconnected';
 
-  const connectionClassPill =
-    browser.connectionState === 'connected'
-      ? 'bg-green-500/15 text-green-600 dark:text-green-400 connection-live'
-      : browser.connectionState === 'fallback-http'
-      ? 'bg-yellow-500/15 text-yellow-600 dark:text-yellow-400 connection-fallback'
-      : browser.connectionState === 'connecting'
-      ? 'bg-yellow-500/15 text-yellow-600 dark:text-yellow-400 connection-connecting'
-      : 'bg-red-500/15 text-red-600 dark:text-red-400 connection-disconnected';
+  // Tone + the marker class E2E asserts on. The colours themselves now come from
+  // the measured tokens in BrowserPaneChip: `green-600`/`yellow-600` used to be
+  // written here by hand and measured 2,81:1 and 2,65:1 over their own tint in
+  // the light theme, against a 4,5 threshold for 11px text.
+  const connectionTone: ChipTone =
+    browser.connectionState === 'connected' ? 'ok'
+    : browser.connectionState === 'fallback-http' || browser.connectionState === 'connecting' ? 'warn'
+    : 'danger';
+
+  const connectionMarker =
+    browser.connectionState === 'connected' ? 'connection-live'
+    : browser.connectionState === 'fallback-http' ? 'connection-fallback'
+    : browser.connectionState === 'connecting' ? 'connection-connecting'
+    : 'connection-disconnected';
 
   const connectionDotClass =
     browser.connectionState === 'connected' ? 'bg-green-500 animate-pulse' :
@@ -764,6 +924,7 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
         spawnerLabel={backToSpawner?.spawnerLabel}
         agentActive={browser.agentActive}
         agentAction={browser.agentAction}
+        downloads={streamDownloads}
         shared={shared}
         shareMode={shareMode}
         onToggleShare={onToggleShare}
@@ -781,13 +942,15 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
         {/* Phase 30 BROWSER-CHAT-02 — connection indicator pillola (top-right).
             Hidden on the settled happy path (see hideConnectionPill). */}
         {!hideConnectionPill && (
-          <div
-            className={`absolute top-2 right-2 z-10 flex items-center gap-1 px-2 py-1 rounded-full text-[11px] font-medium pointer-events-none transition-colors browser-connection-indicator ${connectionClassPill}`}
-            data-testid="browser-connection-indicator"
+          <BrowserPaneChip
+            corner="top-right"
+            tone={connectionTone}
+            testId="browser-connection-indicator"
+            className={`browser-connection-indicator ${connectionMarker}`}
+            icon={<ChipDot className={connectionDotClass} />}
           >
-            <span className={`w-1.5 h-1.5 rounded-full ${connectionDotClass}`} />
             {connectionLabel}
-          </div>
+          </BrowserPaneChip>
         )}
 
         {/* Engine toggle (task 54601eeb) — Native ↔ real Chromium (extensions).
@@ -795,22 +958,18 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
             (un Chromium installato sulla macchina). Streaming-only:
             an iframe pane has no server-side engine. */}
         {browser.engineToggleAvailable && (
-          <button
-            type="button"
-            data-testid="browser-engine-toggle"
+          <BrowserPaneChip
+            corner="top-left"
+            tone={browser.engine === 'chromium' ? 'active' : 'neutral'}
+            testId="browser-engine-toggle"
             onClick={() => browser.setEngine(browser.engine === 'chromium' ? 'native' : 'chromium')}
-            className={`absolute top-2 left-2 z-10 flex items-center gap-1.5 px-2 py-1 rounded-full text-[11px] font-medium border transition-colors ${
-              browser.engine === 'chromium'
-                ? 'bg-primary/15 border-primary/40 text-primary hover:bg-primary/25'
-                : 'bg-surface/90 border-border text-muted hover:bg-surface hover:text-text'
-            }`}
+            icon={<Puzzle size={12} className="flex-shrink-0" aria-hidden />}
             title={browser.engine === 'chromium'
-              ? `Chromium reale · ${browser.engineExtensions} estensioni — clicca per tornare al motore nativo`
-              : 'Motore nativo — clicca per usare il tuo Chromium reale (con le estensioni)'}
+              ? `Chromium reale · ${browser.engineExtensions} estensioni · clicca per tornare al motore nativo`
+              : 'Motore nativo · clicca per usare il tuo Chromium reale (con le estensioni)'}
           >
-            <Puzzle size={12} className="flex-shrink-0" />
             {browser.engine === 'chromium' ? `Chromium · ${browser.engineExtensions}` : 'Nativo'}
-          </button>
+          </BrowserPaneChip>
         )}
 
         {/* T1 DOM co-browse toggle — DOM (native rrweb reconstruction) ↔ video (the
@@ -818,22 +977,21 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
             (Option A): the real browser, native + cross-device-sharp, no video. Video
             is the manual/auto fallback for canvas/WebGL/media the DOM can't rebuild. */}
         {!!browser.url && browser.url !== 'about:blank' && (
-          <button
-            type="button"
-            data-testid="browser-render-toggle"
+          <BrowserPaneChip
+            corner="bottom-left"
+            z={20} // above the co-browse surface, which paints its own layers
+            tone={browser.renderMode === 'dom' ? 'active' : 'neutral'}
+            testId="browser-render-toggle"
             onClick={() => browser.setRenderMode(browser.renderMode === 'dom' ? 'video' : 'dom')}
-            className={`absolute bottom-2 left-2 z-20 flex items-center gap-1.5 px-2 py-1 rounded-full text-[11px] font-medium border transition-colors ${
-              browser.renderMode === 'dom'
-                ? 'bg-primary/15 border-primary/40 text-primary hover:bg-primary/25'
-                : 'bg-surface/90 border-border text-muted hover:bg-surface hover:text-text'
-            }`}
+            icon={browser.renderMode === 'dom'
+              ? <Boxes size={12} className="flex-shrink-0" aria-hidden />
+              : <MonitorPlay size={12} className="flex-shrink-0" aria-hidden />}
             title={browser.renderMode === 'dom'
               ? 'Modalità DOM: browser vero ricostruito nativamente (cross-device). Clicca per tornare al video.'
               : 'Modalità video (stream a pixel). Clicca per la modalità DOM: il browser vero, nativo e cross-device.'}
           >
-            {browser.renderMode === 'dom' ? <Boxes size={12} className="flex-shrink-0" /> : <MonitorPlay size={12} className="flex-shrink-0" />}
             {browser.renderMode === 'dom' ? 'DOM' : 'Video'}
-          </button>
+          </BrowserPaneChip>
         )}
 
         {/* Navigation error strip (BRW-REL-02) — a failed goto/launch used to
@@ -872,9 +1030,19 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
             className={`absolute inset-0 w-full h-full object-contain bg-black transition-opacity ${
               browser.webrtcActive ? 'opacity-100 z-[1] cursor-default select-none' : 'opacity-0 pointer-events-none'
             }`}
-            onClick={browser.onClick}
+            onClick={onVideoClick}
             onWheel={browser.onWheel}
+            onTouchStart={onVideoTouchStart}
+            onTouchMove={onVideoTouchMove}
+            onTouchEnd={onVideoTouchEnd}
           />
+        )}
+
+        {/* La tastiera del telefono sul flusso di pixel. Montata solo in modalità
+            video: in DOM la cattura vive dentro DomCoBrowse, e due catture sulla
+            stessa pane si contenderebbero il fuoco. */}
+        {videoMode && (
+          <BrowserKeyboardCapture ref={kbdRef} sendInput={browser.sendInput} suppressed={browser.agentActive} />
         )}
 
         {/* T1 DOM co-browse — native rrweb reconstruction, overlaid above the (now
@@ -892,6 +1060,7 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
             <div className="absolute inset-0 z-[5]" data-testid="browser-dom-cobrowse">
               <DomCoBrowse
                 registerDomSink={browser.registerDomSink}
+                registerFocusSink={browser.registerFocusSink}
                 sendInput={browser.sendInput}
                 agentActive={browser.agentActive}
               />
@@ -1026,38 +1195,9 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
         />
       </div>
 
-      {/* Download strip — the web streaming pane has no native download shelf,
-          so headless-page downloads (saved server-side under our origin) surface
-          here as user-clickable links. Newest last, bounded by the hook. */}
-      {browser.downloads.length > 0 && (
-        <div
-          className="flex items-center gap-2 px-3 py-1.5 border-t border-app-border bg-app-bg flex-shrink-0 overflow-x-auto"
-          data-testid="browser-download-strip"
-        >
-          <Download size={13} className="text-app-text-muted flex-shrink-0" aria-hidden />
-          {browser.downloads.map((d) => (
-            <a
-              key={d.href}
-              href={d.href}
-              download
-              target="_blank"
-              rel="noreferrer"
-              title={d.state === 'failed' ? 'Download fallito' : d.filename}
-              className="flex items-center gap-1 px-2 py-0.5 rounded bg-surface border border-app-border text-[12px] text-app-text hover:bg-app-hover transition-colors flex-shrink-0 max-w-[220px]"
-              data-testid="browser-download-item"
-            >
-              {d.state === 'completed' ? (
-                <Check size={12} className="text-green-600 dark:text-green-400 flex-shrink-0" aria-hidden />
-              ) : d.state === 'failed' ? (
-                <X size={12} className="text-red-500 flex-shrink-0" aria-hidden />
-              ) : (
-                <Loader2 size={12} className="animate-spin text-app-spinner flex-shrink-0" aria-hidden />
-              )}
-              <span className="truncate">{d.filename}</span>
-            </a>
-          ))}
-        </div>
-      )}
+      {/* I download NON stanno più qui sotto: sono nel menu Download della
+          toolbar (DownloadsMenu), che è chiudibile, non fa scadere le voci e
+          non si mangia una riga della pagina. */}
     </div>
   );
 }

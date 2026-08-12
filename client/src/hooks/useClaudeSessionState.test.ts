@@ -14,7 +14,12 @@ function st(rev: number, phase: ClaudeSessionPhase, key = 'k1'): ClaudeSessionSt
     claudeSessionId: `cs-${key}`,
     phase,
     phaseUpdatedAt: rev,
+    // `jsonlOffset` e `createdAt` non li legge la guardia rev/fase, ma non sono
+    // opzionali: il tracker li scrive sempre. Una fixture che li ometteva
+    // descriveva una sessione che il server non emette.
+    jsonlOffset: 0,
     rev,
+    createdAt: rev,
     updatedAt: rev,
   };
 }

@@ -3,14 +3,18 @@ import { pushNetworkEntry, completeNetworkEntry, type NetworkEntry } from "./bro
 import { existsSync, mkdirSync, writeFileSync, readFileSync, statSync } from "fs";
 import { join } from "path";
 import { loadStorageState, saveStorageState, debouncedSaver, saveLastUrl, loadLastUrl, readLastUrlEntry } from "./browser-state-store";
+import { seedSharedFromNative } from "./browser-session-handoff";
 import type { Topic } from "./types";
 import type { IndexedElement } from "./browser-tools";
 import type { BrowserWsMessage } from "../shared/browser-ws-messages";
 import { DESCRIBE_ELEMENT_FN, type ElementDescription } from "../shared/element-describe";
+import type { RemoteField } from "../shared/browser-keyboard-field";
 import {
   extractIndexedElementsOnPage,
   captureAnnotatedScreenshotOnPage,
 } from "./browser-dom-walker";
+import { browserMarkArg } from "./lib/browser-orphan-sweep";
+import { reapOrphanBrowsersAtBoot } from "./services/browser-orphan-reap";
 
 interface BrowserContextEntry {
   context: BrowserContext;
@@ -94,9 +98,73 @@ interface BrowserServiceOptions {
    *  unit-tested without a live browser. Defaults to
    *  playwright chromium.connectOverCDP(endpoint). */
   connectOverCDP?: (endpoint: string) => Promise<Browser>;
+  /**
+   * Spazza i Chromium marchiati che un server morto sporco ha lasciato in giro
+   * (`server/services/browser-orphan-reap.ts`).
+   *
+   * SPENTO di serie, e lo accende SOLO server.ts. Non è timidezza: il fondo di
+   * quella catena è un SIGKILL su pid letti da `ps`, e una ventina di test
+   * unitari costruiscono un BrowserService per motivi che con i processi non
+   * c'entrano niente. Un segnale che parte come effetto collaterale di un
+   * costruttore è il tipo di cosa che si scopre dopo. L'interruttore a caldo,
+   * per chi ce l'ha già acceso, è `TOPICS_BROWSER_SWEEP=0` (o `=dry`).
+   */
+  sweepOrphansAtBoot?: boolean;
 }
 
 const MAX_CONSOLE_MESSAGES = 100;
+
+// ── Che campo è a fuoco: la risposta che il ramo video non può darsi da solo ──
+// Sul co-browse DOM il pane ha un mirror del DOM e se lo chiede in casa. Sul
+// flusso video ha pixel, quindi la domanda («che campo ho toccato?», cioè quale
+// tastiera deve aprire il telefono) arriva fin qui, dopo il click.
+/** Oltre questo tempo la risposta arriverebbe a tastiera già aperta: si lascia
+ *  perdere e il campo di cattura resta sulla tastiera generica. */
+const FOCUSED_FIELD_TIMEOUT_MS = 700;
+/** Quanti frame interrogare al massimo. Una pagina con cento iframe pubblicitari
+ *  non deve trasformare un click in cento round-trip CDP. */
+const MAX_FOCUS_FRAMES = 12;
+
+/**
+ * Gira DENTRO la pagina remota, un frame alla volta. Restituisce gli attributi
+ * del campo a fuoco, o `null` se questo documento non ha il fuoco o se a fuoco
+ * non c'è niente di scrivibile (un bottone, un link, il body).
+ *
+ * Legge attributi, non proprietà: `type` va preso com'è scritto nel sorgente.
+ * La proprietà `el.type` di un <input> normalizza un `type` sconosciuto in
+ * "text", e la distinzione fra «non dichiarato» e «dichiarato strano» è
+ * esattamente quella che decide la tastiera. Che cosa farne lo dice
+ * `shared/browser-keyboard-field`, uguale per il mirror e per il server.
+ */
+const FOCUSED_FIELD_FN = () => {
+  if (!document.hasFocus()) return null;
+  // Il fuoco può stare in uno shadow DOM: `activeElement` lì fuori mostra solo
+  // l'ospite, e l'ospite non è un campo. Si scende finché si scende.
+  let el: Element | null = document.activeElement;
+  for (let hops = 0; el && hops < 8; hops++) {
+    const inner = (el as HTMLElement).shadowRoot?.activeElement;
+    if (!inner) break;
+    el = inner;
+  }
+  if (!el || el === document.body || el === document.documentElement) return null;
+  const tag = el.tagName.toLowerCase();
+  const editable = tag === 'input' || tag === 'textarea' || tag === 'select'
+    || (el as HTMLElement).isContentEditable;
+  if (!editable) return null;
+  const attr = (name: string) => (el!.getAttribute(name) || '').trim().toLowerCase();
+  return {
+    tag,
+    type: tag === 'input' ? attr('type') : '',
+    inputMode: attr('inputmode'),
+    enterKeyHint: attr('enterkeyhint'),
+    autoCapitalize: attr('autocapitalize'),
+    autoCorrect: attr('autocorrect'),
+    spellCheck: attr('spellcheck'),
+    disabled: el.hasAttribute('disabled'),
+    readOnly: el.hasAttribute('readonly'),
+    inForm: !!el.closest('form'),
+  };
+};
 /** Cap on buffered incrementals kept for late-join bootstrap (a Meta+FullSnapshot
  *  resets this). ~4000 covers minutes of a busy page; older ones drop off. */
 const MAX_DOM_INCREMENTALS = 4000;
@@ -127,6 +195,8 @@ try {
 // start on the same document) and pipes each event to the host via __rrwebEmit.
 // The recorder's stop fn is stashed on window.__rrwebStop so instrumentation is
 // REVOCABLE (see RRWEB_STOP) — the mutation observers detach when no one is watching.
+// allow-emdash-block: sotto c'è sorgente JS iniettato nella pagina. I trattini
+// stanno nei suoi COMMENTI, che non si leggono da nessuna parte nella app.
 const RRWEB_RECORD_START = `(function(){
   function emit(p){ try { window.__rrwebEmit && window.__rrwebEmit(JSON.stringify(p)); } catch(_){} }
   if (window.__rrwebStarted) {
@@ -164,6 +234,7 @@ const RRWEB_RECORD_START = `(function(){
   else window.addEventListener('DOMContentLoaded', function(){ start(); }, { once:true });
 })();`;
 // Detach the recorder (stops all MutationObservers) and allow a clean restart.
+// end-allow-emdash
 const RRWEB_STOP = `(function(){ try { if (window.__rrwebStop) { window.__rrwebStop(); window.__rrwebStop = null; } window.__rrwebStarted = false; } catch(_){} })();`;
 
 export interface AccessibilityNode {
@@ -185,6 +256,14 @@ export interface BrowserService {
   getTargetId(id: string): Promise<string | null>;
   createContext(id: string, opts?: { viewport?: { width: number; height: number }; persistCookies?: boolean; deviceScaleFactor?: number; engine?: "default" | "chromium"; cdpEndpoint?: string }): Promise<void>;
   destroyContext(id: string): Promise<void>;
+  /** Scrivi ADESSO lo storageState di un contesto VIVO sul suo store, senza
+   *  chiuderlo. L'autosave normale è a 30s + un salvataggio finale in
+   *  `destroyContext`: chi deve LEGGERE quel barattolo mentre il contesto è
+   *  ancora acceso (il passaggio condivisa→nativa) leggerebbe roba vecchia di
+   *  mezzo minuto — cioè non il login che il telefono ha appena fatto.
+   *  `false` quando non c'è nessun contesto vivo con quell'id (nulla da fare:
+   *  il file su disco è già l'ultima parola) o quando il salvataggio fallisce. */
+  flushStorageState(id: string): Promise<boolean>;
   /** Engine switch (task 54601eeb): remember the engine a context must be
    *  (re)created on. Consulted by createContext — so a switch is: setEngineHint →
    *  destroyContext → (client remounts) → getOrCreate → createContext picks it up.
@@ -238,6 +317,12 @@ export interface BrowserService {
     action: 'click' | 'type' | 'scroll' | 'mousemove' | 'keypress',
     payload: { x?: number; y?: number; text?: string; key?: string; deltaX?: number; deltaY?: number; button?: 'left' | 'right' | 'middle' }
   ): Promise<void>;
+  /** Che campo è a fuoco ADESSO nella pagina remota, descritto negli attributi
+   *  che decidono la tastiera (`shared/browser-keyboard-field`). `null` quando
+   *  a fuoco non c'è niente di scrivibile, quando il contesto non esiste, o
+   *  quando la pagina non risponde in tempo: è una risposta best-effort, letta
+   *  subito dopo un click per far vestire il campo di cattura del pane. */
+  describeFocusedField(id: string): Promise<RemoteField | null>;
   /** T1 DOM co-browse: inject rrweb into this context's page (idempotent) and
    *  start broadcasting `dom_event`s to its viewers. Resolves with the bootstrap
    *  burst [meta, full, ...incrementals] for the requesting viewer, or null when
@@ -492,6 +577,12 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
         "--disable-setuid-sandbox",
         "--disable-dev-shm-usage",
         `--remote-debugging-port=${cdpPort}`,
+        // Il marchio. Chromium ignora gli switch che non conosce, `ps` invece
+        // ce lo restituisce: è così che il prossimo avvio riconosce questo
+        // processo come proprio se noi moriamo di SIGKILL e lui sopravvive.
+        // Il pid dentro è il NOSTRO, non il suo: è il padre di cui si verifica
+        // la morte. Vedi server/lib/browser-orphan-sweep.ts.
+        browserMarkArg("agent", process.pid),
       ],
     });
     console.log(`[BrowserService] Chromium launched (CDP port: ${cdpPort})`);
@@ -887,6 +978,22 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
         : (opts?.viewport || defaultViewport);
       const deviceScaleFactor = clampDsf(hint?.deviceScaleFactor ?? opts?.deviceScaleFactor);
 
+      // Un solo cassetto cookie. Se su QUESTO contesto c'è ancora una pane
+      // nativa viva (è il caso dell'auto-share: il telefono si affaccia, la
+      // sessione condivisa nasce, e solo 1200ms dopo il Mac lascia la
+      // WKWebView), versa il suo barattolo nel seme prima di leggerlo. Senza
+      // questo passaggio i due lati hanno cookie separati e chi era loggato di
+      // là si ritrova sloggato di qua. Non lancia mai e ha un tetto di 2s: al
+      // massimo la pane nasce sloggata com'era prima. Vedi
+      // browser-session-handoff.ts per le regole (fonde, non sovrascrive; non
+      // scrive mai il vuoto; solo nativa → condivisa).
+      const handoff = await seedSharedFromNative(id);
+      if (handoff.ok) {
+        console.log(`[BrowserService] cookie della pane nativa passati alla sessione condivisa ${id} (${handoff.cookies} cookie, ${handoff.origins} origini)`);
+      } else if (handoff.skipped !== "no-native-pane") {
+        console.warn(`[BrowserService] passaggio cookie nativa→condivisa saltato per ${id}: ${handoff.skipped}${handoff.error ? ` (${handoff.error})` : ""}`);
+      }
+
       // Load persisted storageState if available (cookies + localStorage).
       // null is fine — newContext accepts undefined storageState.
       const persistedState = await loadStorageState(id);
@@ -1014,6 +1121,22 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       const tracked = create.finally(() => pendingCreates.delete(id));
       pendingCreates.set(id, tracked);
       return tracked;
+    },
+
+    async flushStorageState(id) {
+      const entry = contexts.get(id);
+      // Nessun contesto vivo ⇒ niente da forzare: quello su disco è già l'ultimo
+      // (destroyContext salva prima di chiudere). Il motore chromium non ha uno
+      // stato per-contesto da tirare fuori (il profilo persistente è del
+      // sidecar), come già dice destroyContext.
+      if (!entry || entry.engine === "chromium") return false;
+      try {
+        await saveStorageState(id, await entry.context.storageState({ indexedDB: true }));
+        return true;
+      } catch (err: any) {
+        console.warn(`[BrowserService] flushStorageState(${id}) failed:`, err?.message ?? err);
+        return false;
+      }
     },
 
     async destroyContext(id) {
@@ -1583,6 +1706,32 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       // so the entry's lastActivity stays fresh.
     },
 
+    async describeFocusedField(id) {
+      const entry = contexts.get(id);
+      // Nessun contesto: la domanda non ha oggetto. Di proposito NON si crea
+      // (a differenza di dispatchInput): questa è una lettura accessoria, e far
+      // nascere un Chromium per sapere che tastiera aprire sarebbe assurdo.
+      if (!entry) return null;
+      // La pagina può stare navigando proprio adesso (il click che ha preceduto
+      // questa lettura è il candidato numero uno), e allora `evaluate` aspetta
+      // il documento nuovo. Ma la risposta serve MENTRE la tastiera sale: se
+      // tarda, tanto vale non averla. Quindi la corsa contro un timer corto.
+      const deadline = new Promise<null>((resolve) => setTimeout(() => resolve(null), FOCUSED_FIELD_TIMEOUT_MS));
+      const read = (async (): Promise<RemoteField | null> => {
+        // Il fuoco può stare dentro un iframe, anche di un'altra origine, dove
+        // `document.activeElement` del frame principale mostra solo l'<iframe>.
+        // Playwright però parla con ogni frame, e `document.hasFocus()` dice
+        // quale dei documenti tiene davvero il fuoco: si chiede a tutti e si
+        // prende la prima risposta piena.
+        for (const frame of entry.page.frames().slice(0, MAX_FOCUS_FRAMES)) {
+          const field = await frame.evaluate(FOCUSED_FIELD_FN).catch(() => null);
+          if (field) return field as RemoteField;
+        }
+        return null;
+      })();
+      return await Promise.race([read, deadline]).catch(() => null);
+    },
+
     // T1 DOM co-browse — enable DOM render mode for a context. Binds rrweb (once),
     // (re)starts recording on the current page, and returns the bootstrap burst
     // [meta, full, ...incrementals] for the requesting viewer. Resets the buffer
@@ -1823,6 +1972,15 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
   // Start the reaper now — the server uses lazy launch and never calls
   // launch(), so this is the only thing that arms context + Chromium cleanup.
   startCleanup();
+
+  // La spazzata dei Chromium che una MORTE SPORCA del server precedente ha
+  // lasciato in giro. gracefulShutdown copre l'uscita pulita; questo copre
+  // SIGKILL, i crash e i riavvii che non arrivano al gestore, dove il browser
+  // sopravvive reparentato a launchd e nessuno lo riconosce più come nostro.
+  // Gira PRIMA di qualunque lancio, ed è il presupposto della regola: un
+  // browser marchiato col nostro pid, adesso, può solo essere un residuo di un
+  // server morto di cui il sistema ha riciclato il numero.
+  if (opts.sweepOrphansAtBoot) reapOrphanBrowsersAtBoot();
 
   return service;
 }

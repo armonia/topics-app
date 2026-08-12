@@ -33,6 +33,8 @@ import { resolveCodexBin } from "../lib/codex-bin";
 import { resolveCodexReasoningEffort } from "../lib/topics-agent-prompt";
 import { topicsMcpBridgeSpec } from "./claude-code";
 import { buildCodexArgs, buildCodexOneshotArgs } from "./codex/args";
+import { getDatabase } from "../db";
+import { applyJobQuota } from "../services/agent-job-quota";
 import { contextTokensFromUsage } from "../usage/usage-update";
 
 // ============ Config ============
@@ -365,10 +367,28 @@ export class CodexProvider implements AIProvider {
       reasoningEffort,
     });
 
+    // La stessa quota di core di claude-code, per la stessa ragione: il
+    // provider si sceglie per INSTALLAZIONE (`AI_PROVIDER`), non per topic, e su
+    // una macchina a codex il dispatcher fa nascere agenti codex — che
+    // compilano esattamente come gli altri. Senza questa riga il recinto
+    // esisterebbe solo per metà delle installazioni.
+    //
+    // `buildSafeEnv()` qui sotto resta l'ambiente di OGNI sessione, chat
+    // interattive comprese: la quota si fonde SOPRA, e solo se questo topic è
+    // la chat di un task dispatchato (altrimenti `null`, e l'ambiente resta
+    // quello di prima).
+    const env = buildSafeEnv();
+    try {
+      const quota = applyJobQuota(getDatabase(), sessionKey, env);
+      if (quota != null) {
+        console.log(`[codex] job quota for dispatched ${sessionKey}: -j${quota} (rilettura viva attiva)`);
+      }
+    } catch { /* nessun recinto: la sessione parte comunque, com'è sempre stato */ }
+
     const child = spawn(bin, args, {
       cwd: workspace,
       stdio: ["pipe", "pipe", "pipe"],
-      env: buildSafeEnv(),
+      env,
     });
     // Keep a direct handle to THIS turn's state: the maps are keyed by
     // sessionKey and a newer turn overwrites both entries (e.g. the chat

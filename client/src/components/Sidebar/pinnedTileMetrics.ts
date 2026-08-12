@@ -10,24 +10,34 @@
  * trigger «+»), non solo dalla tessera: qui sono al loro posto, e nessuno deve
  * importare un componente per sapere quanto è alta una riga.
  */
+import { ROW_H } from '../../lib/selectionStyles';
 
 /**
- * L'altezza di una tessera, in classe Tailwind. Dichiarata QUI e importata dal
- * posto vuoto del drop: due numeri scritti a mano si allineano finché qualcuno
- * non ne cambia uno, e l'anteprima che salta di quattro pixel rispetto alla
- * tessera che sta annunciando è proprio il difetto che l'anteprima esiste per
- * non avere.
+ * L'altezza di una tessera — che è quella di una RIGA, perché una tessera è una
+ * riga: {@link ROW_H}, 44 col dito e 34 col mouse.
  *
- * 36 e non più 32. Il 07/08 il «+» era passato da 24 a `ROW_ACTION_BOX` (28) —
- * un comando di riga ha UNA misura in tutta la sidebar — e per non far crescere
- * la tessera si era schiacciato il rientro da 4 a 2: 28 dentro 32, due pixel di
- * respiro per parte, appoggiati su un nome che continuava sotto. Il difetto
- * riferito («il tastino è troppo stretto sulle tessere singole») non era una
- * larghezza sbagliata — il bottone è 28 in tutti i casi — era il rapporto con
- * quello che gli sta sotto. Qui si sceglie il verso giusto: il comando resta
- * alla misura condivisa e la tessera gli fa spazio, invece del contrario.
+ * Era `h-9 max-md:h-11`, cioè 36/44: d'accordo col dito e due pixel più alta
+ * col mouse. Due pixel nella stessa colonna, fra card impilate una sull'altra —
+ * la misura che «fa sembrare storta una colonna senza che si riesca a dire
+ * perché», che è la formula con cui questo repo ha già descritto mezzo pixel di
+ * glifo fuori asse.
+ *
+ * ── Perché era 36, e perché quel motivo non reggeva ─────────────────────────
+ * Da un'invariante scritta qui sotto: «altezza = box del comando + 2 × rientro»,
+ * 28 + 2×4 = 36. Faceva coincidere il rientro ORIZZONTALE del «+» con l'aria
+ * sopra e sotto di lui. Bello, e senza un fratello: NESSUNA altra superficie
+ * dell'app lo fa. Una riga della colonna è alta 34 con un comando da 28 a 8px
+ * dal bordo — 3 di aria verticale contro 8 di orizzontale — e sono due domande
+ * diverse: quanto il comando sta lontano dal BORDO (fatto orizzontale, ha già
+ * il suo numero, `ROW_PX`) e quanto respira nella riga (non si sceglie, cade
+ * fuori dal centraggio). Il repo lo dichiara già altrove: «il bordo è una
+ * domanda orizzontale e ha già il suo numero. Il respiro verticale è un'altra
+ * cosa e non si sceglie».
+ *
+ * Tenendo insieme le due, l'invariante decideva l'ALTEZZA della tessera a
+ * partire dal rientro del suo bottone: la coda che muove il cane.
  */
-export const PINNED_TILE_H = 'h-9 max-md:h-11';
+export const PINNED_TILE_H = ROW_H;
 
 /**
  * Il contenitore che la tessera MISURA per decidere se è una riga o un
@@ -63,21 +73,39 @@ export const PINNED_TILE_CONTAINER = '@container/tile';
 export const PINNED_TILE_ACTION_SLOT = 'w-9 md:w-7';
 
 /**
- * Il rientro del «+» dal bordo destro, e — perché il bottone è centrato in
- * verticale — anche lo spazio sopra e sotto di lui. I tre coincidono solo a
- * una condizione: `PINNED_TILE_H` = altezza del trigger + 2 × questo. Il
- * trigger «pill» di `PaneAddMenu` vale `ROW_ACTION_BOX`, cioè 28px sopra i
- * 768px e 36 sotto: 28 + 2 × 4 = 36 = `h-9`, e 36 + 2 × 4 = 44 = `h-11`.
- * Cambiare uno dei due senza l'altro rompe l'uguaglianza in silenzio: stanno
- * scritti vicini per questo, e `pinnedTileMetrics.test.ts` li rilegge.
+ * IL RIENTRO DEL «+» È L'ARIA CHE HA SOPRA E SOTTO — tre spazi uguali attorno a
+ * un comando che FLOTTA su una card.
  *
- * ERA DUE COSTANTI — 2 sul desktop, 4 col dito — perché la tessera era ferma a
- * 32 e il rientro doveva assorbire la differenza fra i due box. Portata la
- * tessera a 36 il conto torna con lo STESSO rientro su entrambe le larghezze,
- * quindi la costante è una: due numeri accoppiati da un'invariante che risulta
- * essere la stessa cifra non sono due numeri, sono uno scritto due volte.
+ * Ci sono passato per tre valori, e i primi due erano sbagliati per due ragioni
+ * opposte:
+ *
+ *  · **4**, dall'invariante che la tessera si era data da sola («altezza = box +
+ *    2 × rientro»). I tre spazi coincidevano, ma il conto girava al contrario:
+ *    era il rientro del bottone a decidere l'ALTEZZA della tessera, e per questo
+ *    la tessera stava a 36 contro i 34 di una riga.
+ *  · **8** (`ROW_ACTIONS_INSET_PX`, il rientro dei comandi in fila).
+ *    Coerente con le righe, e sbagliato qui: «sui pinned il + ha più spazio a
+ *    destra che sopra e sotto» (Attilio, 10/08). Vero — 8 contro 3 — e si vede
+ *    perché su una tessera il bottone flotta su una superficie piccola, dove
+ *    l'asimmetria si legge tutta. In una riga lunga non si legge, ed è per
+ *    questo che là 8 va bene.
+ *
+ * Il numero giusto è quello che il repo usa già per l'altro comando che flotta:
+ * il «+» della barra di chrome sta a `ROW_INSET` dal bordo e la riga gli lascia
+ * `chromeRowInset(box)` sopra e sotto — 6 e 6. Stessa idea, un piano più giù:
+ * qui l'aria verticale è `(altezza − box) / 2`, e il rientro destro la copia.
+ *
+ * Quindi **3 col mouse e 4 col dito**, e non è un ritorno alle due costanti di
+ * un tempo: allora erano due numeri per far tornare un'invariante scelta a
+ * mano, adesso sono lo stesso calcolo su due altezze diverse. Il verso è quello
+ * giusto — l'altezza la decide la RIGA, il rientro segue.
+ *
+ * Letterali per la ragione di sempre (Tailwind legge il sorgente come testo), e
+ * ricalcolati da `pinnedTileMetrics.test.ts` a partire da altezza e box.
  */
-export const PINNED_TILE_ACTION_INSET = 4;
+export const PINNED_TILE_ACTION_INSET_CLASS = 'right-[4px] md:right-[3px]';
+/** Gli stessi due numeri per l'aritmetica del test — vedi {@link PINNED_TILE_PX}. */
+export const PINNED_TILE_ACTION_INSET_PX = { wide: 3, compact: 4 } as const;
 
 /**
  * I numeri dietro le classi qui sopra, in pixel — l'unica forma in cui
@@ -90,8 +118,8 @@ export const PINNED_TILE_ACTION_INSET = 4;
  * rossi.
  */
 export const PINNED_TILE_PX = {
-  /** Sopra i 768px: `h-9` / `md:w-7` di `ROW_ACTION_BOX`. */
-  wide: { tile: 36, action: 28 },
-  /** Sotto i 768px: `max-md:h-11` / `w-9` di `ROW_ACTION_BOX`. */
+  /** Sopra i 768px: `md:h-[34px]` di `ROW_H` / `md:w-7` di `ROW_ACTION_BOX`. */
+  wide: { tile: 34, action: 28 },
+  /** Sotto i 768px: `h-11` di `ROW_H` / `w-9` di `ROW_ACTION_BOX`. */
   compact: { tile: 44, action: 36 },
 } as const;

@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach } from 'bun:test';
 import { Database } from 'bun:sqlite';
-import { readFileSync, readdirSync, mkdtempSync, writeFileSync, mkdirSync, utimesSync } from 'fs';
+import { readFileSync, readdirSync, mkdtempSync, writeFileSync, appendFileSync, mkdirSync, utimesSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { createClaudeSessionTracker, type ClaudeSessionTracker } from './claude-session-tracker';
@@ -20,11 +20,13 @@ function freshDb(): Database {
     )
   `);
   const migDir = join(import.meta.dir, '..', 'db', 'migrations');
-  const m027 = readdirSync(migDir).find((f) => f.startsWith('027-'))!;
-  const sql = readFileSync(join(migDir, m027), 'utf-8')
-    .split('\n').filter((l) => !l.trim().startsWith('--')).join('\n');
-  for (const stmt of sql.split(';').map((s) => s.trim()).filter(Boolean)) {
-    db.run(stmt);
+  for (const prefix of ['027-', '096-']) {
+    const file = readdirSync(migDir).find((f) => f.startsWith(prefix))!;
+    const sql = readFileSync(join(migDir, file), 'utf-8')
+      .split('\n').filter((l) => !l.trim().startsWith('--')).join('\n');
+    for (const stmt of sql.split(';').map((s) => s.trim()).filter(Boolean)) {
+      db.run(stmt);
+    }
   }
   return db;
 }
@@ -351,9 +353,11 @@ describe('ClaudeSessionTracker — live JSONL tail (tailOnce)', () => {
     const trk = makeTracker(freshDb(), makeRecorder(), { homeDir: home });
     trk.registerTerminalSession('term-1', { cwd, now: T0 });
 
-    // Nothing new → the sweep must consume nothing and move nothing.
+    // Nothing new → the sweep must consume nothing and move nothing. La fase è
+    // `dormant`, non `starting`: un transcript già scritto dice che questa è
+    // una riattaccata, non una nascita (vedi il test dedicato più sotto).
     expect(await trk.tailOnce(T0 + 1_000)).toBe(0);
-    expect(trk.getSession('term-1')!.phase).toBe('starting');
+    expect(trk.getSession('term-1')!.phase).toBe('dormant');
 
     // A line appended AFTER registration is consumed from the snapped offset.
     writeFileSync(file, history + taskNotifLine(T0 + 2_000));
@@ -361,6 +365,66 @@ describe('ClaudeSessionTracker — live JSONL tail (tailOnce)', () => {
     const s = trk.getSession('term-1')!;
     expect(s.phase).toBe('running');
     expect(s.jsonlOffset).toBe(history.length + taskNotifLine(T0 + 2_000).length);
+  });
+
+  // ── La fase iniziale di una RIATTACCATA ────────────────────────────────────
+  // `starting` è l'unica fase che il client non classifica né attiva né a
+  // riposo, ed è la condizione che apre il fallback pty di useCompletionNotifier
+  // — il ramo grezzo per le sessioni SENZA hook, che al primo frame di repaint
+  // spara «Lavoro completato». Dare `starting` a una tab riattaccata dopo un
+  // riavvio del server significa quel banner su lavoro chiuso da giorni, e
+  // nessuno la tira fuori da lì (il reaper salta `starting` per i terminali,
+  // l'offset è già a EOF). Il transcript è l'indizio: se ha già contenuto, non
+  // è una nascita.
+  it('registrare su un transcript già scritto parte da dormant, non da starting', () => {
+    const home = mkdtempSync(join(tmpdir(), 'tracker-home-'));
+    const dir = join(home, '.claude', 'projects', '-Users-x-proj');
+    mkdirSync(dir, { recursive: true });
+    const file = join(dir, 'term-1.jsonl');
+    writeFileSync(file, userLine(T0 - 60_000) + assistantLine(T0 - 50_000));
+    utimesSync(file, (T0 - 50_000) / 1000, (T0 - 50_000) / 1000);
+
+    const trk = makeTracker(freshDb(), makeRecorder(), { homeDir: home });
+    trk.registerTerminalSession('term-1', { cwd: '/Users/x/proj', now: T0 });
+
+    expect(trk.getSession('term-1')!.phase).toBe('dormant');
+  });
+
+  it('una sessione appena nata (transcript assente o vuoto) resta starting', () => {
+    const home = mkdtempSync(join(tmpdir(), 'tracker-home-'));
+    const dir = join(home, '.claude', 'projects', '-Users-x-proj');
+    mkdirSync(dir, { recursive: true });
+
+    // Nessun file: Claude lo crea qualche istante dopo lo spawn.
+    const trk = makeTracker(freshDb(), makeRecorder(), { homeDir: home });
+    trk.registerTerminalSession('term-1', { cwd: '/Users/x/proj', now: T0 });
+    expect(trk.getSession('term-1')!.phase).toBe('starting');
+
+    // File creato ma ancora vuoto: stessa cosa — è la popolazione che il
+    // fallback pty serve davvero (sessioni senza hook).
+    writeFileSync(join(dir, 'term-2.jsonl'), '');
+    trk.registerTerminalSession('term-2', { cwd: '/Users/x/proj', now: T0 });
+    expect(trk.getSession('term-2')!.phase).toBe('starting');
+  });
+
+  // Il prezzo di `dormant` è che il pane non mostra lo spinner finché non
+  // arriva un segnale vero — ed è già pagato: il primo frame pty non cosmetico
+  // la riporta a `running` (reviveOnPtyActivity), che è la ragione per cui
+  // quella funzione esiste.
+  it('una riattaccata dormant torna running al primo frame pty', () => {
+    const home = mkdtempSync(join(tmpdir(), 'tracker-home-'));
+    const dir = join(home, '.claude', 'projects', '-Users-x-proj');
+    mkdirSync(dir, { recursive: true });
+    const file = join(dir, 'term-1.jsonl');
+    writeFileSync(file, userLine(T0 - 60_000));
+    utimesSync(file, (T0 - 60_000) / 1000, (T0 - 60_000) / 1000);
+
+    const trk = makeTracker(freshDb(), makeRecorder(), { homeDir: home });
+    trk.registerTerminalSession('term-1', { cwd: '/Users/x/proj', now: T0 });
+    expect(trk.getSession('term-1')!.phase).toBe('dormant');
+
+    expect(trk.notePtyActivity('term-1', T0 + 1_000)).toBe(true);
+    expect(trk.getSession('term-1')!.phase).toBe('running');
   });
 
   it('a stale assistant line read after a fresher Stop hook is gated out (Stop-race)', async () => {
@@ -584,5 +648,305 @@ describe('ClaudeSessionTracker — terminal (topic-less) sessions', () => {
     expect(tracker.getSession('term-1')!.phase).toBe('running');
     tracker.registerTerminalSession('term-1', { now: T0 + 20 }); // should be a no-op
     expect(tracker.getSession('term-1')!.phase).toBe('running');
+  });
+});
+
+describe('ClaudeSessionTracker — message import sweep (adopted sessions)', () => {
+  let counter = 0;
+  function tmpTranscript(): string {
+    const dir = mkdtempSync(join(tmpdir(), 'import-sweep-'));
+    return join(dir, `sess-${counter++}.jsonl`);
+  }
+
+  const jline = (o: object) => JSON.stringify(o);
+
+  interface FakeSink {
+    append: any[][];
+    resolved: Array<{ id: string; result: string; isError: boolean }>;
+    lastId: string | null;
+    sink: NonNullable<Parameters<typeof createClaudeSessionTracker>[0]['importSink']>;
+  }
+  function makeSink(): FakeSink {
+    const state: FakeSink = { append: [], resolved: [], lastId: null, sink: null as any };
+    state.sink = {
+      getLastMessageId: () => state.lastId,
+      appendMessages: (_sk, msgs) => {
+        state.append.push(msgs);
+        if (msgs.length) state.lastId = msgs[msgs.length - 1]!.id; // mirror the DB tail
+      },
+      resolveToolResult: (_sk, toolUseId, result, isError) => state.resolved.push({ id: toolUseId, result, isError }),
+      topicIdForSessionKey: () => 'topic-x',
+    };
+    return state;
+  }
+
+  /** Seed an ADOPTED session: import_offset non-null + jsonl_path set. */
+  function seedAdopted(db: Database, sessionKey: string, csid: string, path: string, importOffset: number) {
+    db.prepare(`INSERT INTO topics VALUES (?)`).run(sessionKey);
+    db.prepare(`
+      INSERT INTO claude_code_sessions (session_key, claude_session_id, created_at, updated_at, phase, phase_updated_at, jsonl_path, import_offset)
+      VALUES (?, ?, ?, ?, 'dormant', ?, ?, ?)
+    `).run(sessionKey, csid, new Date(T0).toISOString(), new Date(T0).toISOString(), new Date(T0).toISOString(), path, importOffset);
+  }
+
+  it('appends a terminal turn that lands after adoption, advancing import_offset', async () => {
+    const db = freshDb();
+    const rec = makeRecorder();
+    const fake = makeSink();
+    fake.lastId = 'ADOPT-LAST'; // the last row the initial import wrote
+
+    const path = tmpTranscript();
+    const initial = jline({ type: 'user', message: { role: 'user', content: 'ciao' } }) + '\n';
+    writeFileSync(path, initial);
+    seedAdopted(db, 'topic-a', 'cli-a', path, Buffer.byteLength(initial, 'utf-8'));
+
+    const tracker = makeTracker(db, rec, { importSink: fake.sink });
+
+    // Nothing new yet.
+    expect(await tracker.importOnce()).toBe(0);
+    expect(fake.append).toEqual([]);
+
+    // A new turn is typed in the TERMINAL — appended to the same file.
+    const turn = [
+      jline({ type: 'user', message: { role: 'user', content: 'domanda-dal-terminale' } }),
+      jline({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'risposta-dal-terminale' }] } }),
+    ].join('\n') + '\n';
+    writeFileSync(path, initial + turn);
+
+    expect(await tracker.importOnce()).toBe(1);
+    expect(fake.append).toHaveLength(1);
+    const appended = fake.append[0]!;
+    expect(appended.map((m: any) => [m.role, m.content])).toEqual([
+      ['user', 'domanda-dal-terminale'],
+      ['assistant', 'risposta-dal-terminale'],
+    ]);
+    // first new message chains from the last already-saved row
+    expect(appended[0].parentId).toBe('ADOPT-LAST');
+    // import_offset advanced to EOF
+    const row = db.prepare(`SELECT import_offset FROM claude_code_sessions WHERE session_key = 'topic-a'`).get() as any;
+    expect(row.import_offset).toBe(Buffer.byteLength(initial + turn, 'utf-8'));
+    // and the open chat was nudged with message:new for both turns
+    const news = rec.events.filter((e: any) => e.type === 'message:new');
+    expect(news.map((e: any) => e.content)).toEqual(['domanda-dal-terminale', 'risposta-dal-terminale']);
+
+    // Idempotent: a second sweep with no growth does nothing.
+    expect(await tracker.importOnce()).toBe(0);
+    expect(fake.append).toHaveLength(1);
+  });
+
+  it('does NOT re-import while Topics drives the session, but advances the cursor', async () => {
+    const db = freshDb();
+    const rec = makeRecorder();
+    const fake = makeSink();
+
+    const path = tmpTranscript();
+    const initial = jline({ type: 'user', message: { role: 'user', content: 'ciao' } }) + '\n';
+    writeFileSync(path, initial);
+    seedAdopted(db, 'topic-b', 'cli-b', path, Buffer.byteLength(initial, 'utf-8'));
+
+    // Topics owns a live child for this session — its stream persists the turns.
+    const tracker = makeTracker(db, rec, { importSink: fake.sink, isSessionLocallyDriven: () => true });
+
+    const turn = jline({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'topics-authored' }] } }) + '\n';
+    writeFileSync(path, initial + turn);
+
+    expect(await tracker.importOnce()).toBe(0); // no import
+    expect(fake.append).toEqual([]);
+    // but the cursor moved past the Topics-authored bytes (no re-import later)
+    const row = db.prepare(`SELECT import_offset FROM claude_code_sessions WHERE session_key = 'topic-b'`).get() as any;
+    expect(row.import_offset).toBe(Buffer.byteLength(initial + turn, 'utf-8'));
+  });
+
+  it('resolves a tool_result whose tool_use arrived in an earlier sweep (cross-chunk)', async () => {
+    const db = freshDb();
+    const rec = makeRecorder();
+    const fake = makeSink();
+    fake.lastId = 'P0';
+
+    const path = tmpTranscript();
+    writeFileSync(path, ''); // empty transcript at adoption
+    seedAdopted(db, 'topic-c', 'cli-c', path, 0);
+    const tracker = makeTracker(db, rec, { importSink: fake.sink });
+
+    // Sweep 1: the assistant fires a long tool; the result has NOT landed yet.
+    const chunk1 = jline({
+      type: 'assistant',
+      message: { role: 'assistant', content: [{ type: 'text', text: 'eseguo' }, { type: 'tool_use', id: 'tX', name: 'Bash', input: { command: 'sleep' } }] },
+    }) + '\n';
+    writeFileSync(path, chunk1);
+    expect(await tracker.importOnce()).toBe(1);
+    expect(fake.append[0]![0].toolCalls[0]).toMatchObject({ id: 'tX', name: 'Bash' });
+    expect(fake.append[0]![0].toolCalls[0].result).toBeUndefined();
+    expect(fake.resolved).toEqual([]);
+
+    // Sweep 2: only the tool_result. No new message; the earlier row is patched.
+    const chunk2 = jline({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tX', content: 'done' }] } }) + '\n';
+    writeFileSync(path, chunk1 + chunk2);
+    await tracker.importOnce();
+    expect(fake.resolved).toEqual([{ id: 'tX', result: 'done', isError: false }]);
+    // no second append (pure tool_result carrier)
+    expect(fake.append).toHaveLength(1);
+  });
+});
+
+describe('ClaudeSessionTracker — seguire il FORK del transcript (sessione adottata)', () => {
+  const jline = (o: object) => JSON.stringify(o);
+  const user = (uuid: string, text: string) => jline({ type: 'user', uuid, message: { role: 'user', content: text } });
+  const asst = (uuid: string, text: string) => jline({ type: 'assistant', uuid, message: { role: 'assistant', content: [{ type: 'text', text }] } });
+
+  interface Sink {
+    append: any[][];
+    lastId: string | null;
+    sink: NonNullable<Parameters<typeof createClaudeSessionTracker>[0]['importSink']>;
+  }
+  function makeSink(): Sink {
+    const s: Sink = { append: [], lastId: 'ADOPT-LAST', sink: null as any };
+    s.sink = {
+      getLastMessageId: () => s.lastId,
+      appendMessages: (_sk, msgs) => { s.append.push(msgs); if (msgs.length) s.lastId = msgs[msgs.length - 1]!.id; },
+      resolveToolResult: () => {},
+      topicIdForSessionKey: () => 'topic-x',
+    };
+    return s;
+  }
+
+  function seedAdopted(db: Database, sessionKey: string, csid: string, path: string, importOffset: number) {
+    db.prepare(`INSERT INTO topics VALUES (?)`).run(sessionKey);
+    db.prepare(`
+      INSERT INTO claude_code_sessions (session_key, claude_session_id, created_at, updated_at, phase, phase_updated_at, jsonl_path, import_offset)
+      VALUES (?, ?, ?, ?, 'dormant', ?, ?, ?)
+    `).run(sessionKey, csid, new Date(T0).toISOString(), new Date(T0).toISOString(), new Date(T0).toISOString(), path, importOffset);
+  }
+
+  /** Un file nella cartella `dir` con un mtime di `agoSec` secondi fa. */
+  function write(dir: string, name: string, lines: string[], agoSec: number): string {
+    const p = join(dir, name);
+    writeFileSync(p, lines.join('\n') + '\n');
+    const t = Date.now() / 1000 - agoSec;
+    utimesSync(p, t, t);
+    return p;
+  }
+
+  const HISTORY = [user('u1', 'domanda-di-ieri'), asst('a1', 'risposta-di-ieri')];
+
+  /** Sessione adottata il cui transcript è FERMO da 60s (il fork è credibile). */
+  function seedFrozenAdoption(db: Database, sessionKey: string) {
+    const dir = mkdtempSync(join(tmpdir(), 'fork-sweep-'));
+    const parent = write(dir, '11111111-1111-1111-1111-111111111111.jsonl', HISTORY, 60);
+    seedAdopted(db, sessionKey, '11111111-1111-1111-1111-111111111111', parent, readFileSync(parent).length);
+    return { dir, parent };
+  }
+
+  const row = (db: Database, key: string) =>
+    db.prepare(`SELECT jsonl_path, jsonl_offset, import_offset, claude_session_id FROM claude_code_sessions WHERE session_key = ?`).get(key) as any;
+
+  it('la chat riparte: il resume forka su un nuovo file e i turni continuano ad arrivare', async () => {
+    const db = freshDb();
+    const rec = makeRecorder();
+    const fake = makeSink();
+    const { dir, parent } = seedFrozenAdoption(db, 'topic-fork');
+    const tracker = makeTracker(db, rec, { importSink: fake.sink });
+
+    // Il padre non cresce più: senza inseguire il fork, la chat è una foto.
+    // Il figlio ricopia la storia (stessi uuid) e ci aggiunge il turno nuovo.
+    const child = write(dir, '22222222-2222-2222-2222-222222222222.jsonl', [
+      ...HISTORY,
+      user('u2', 'domanda-DOPO-il-fork'),
+      asst('a2', 'risposta-DOPO-il-fork'),
+    ], 1);
+
+    expect(await tracker.importOnce()).toBe(1);
+    expect(fake.append).toHaveLength(1);
+    expect(fake.append[0]!.map((m: any) => [m.role, m.content])).toEqual([
+      ['user', 'domanda-DOPO-il-fork'],
+      ['assistant', 'risposta-DOPO-il-fork'],
+    ]);
+    // il primo messaggio nuovo si aggancia all'ultima riga già salvata
+    expect(fake.append[0]![0].parentId).toBe('ADOPT-LAST');
+
+    // La riga ora segue il figlio, con ENTRAMBI i cursori a fine copia.
+    const r = row(db, 'topic-fork');
+    expect(r.jsonl_path).toBe(child);
+    expect(r.claude_session_id).toBe('22222222-2222-2222-2222-222222222222');
+    expect(r.import_offset).toBe(readFileSync(child).length);
+    expect(r.jsonl_offset).toBeGreaterThan(0);
+
+    // Da qui in poi si taglia sul file nuovo, senza riscansioni.
+    appendFileSync(child, asst('a3', 'ancora-dal-terminale') + '\n');
+    expect(await tracker.importOnce()).toBe(1);
+    expect(fake.append[1]!.map((m: any) => m.content)).toEqual(['ancora-dal-terminale']);
+    expect(row(db, 'topic-fork').jsonl_path).toBe(child);
+    // niente doppioni: la storia ricopiata non è stata reimportata
+    expect(fake.append.flat().map((m: any) => m.content)).not.toContain('domanda-di-ieri');
+  });
+
+  it('non insegue nulla se il transcript è ancora CALDO (una pausa non è un fork)', async () => {
+    const db = freshDb();
+    const rec = makeRecorder();
+    const fake = makeSink();
+    const dir = mkdtempSync(join(tmpdir(), 'fork-sweep-'));
+    const parent = write(dir, '11111111-1111-1111-1111-111111111111.jsonl', HISTORY, 0); // scritto adesso
+    seedAdopted(db, 'topic-warm', '11111111-1111-1111-1111-111111111111', parent, readFileSync(parent).length);
+    write(dir, '22222222-2222-2222-2222-222222222222.jsonl', [...HISTORY, asst('a2', 'coda')], 0);
+
+    const tracker = makeTracker(db, rec, { importSink: fake.sink });
+    expect(await tracker.importOnce()).toBe(0);
+    expect(row(db, 'topic-warm').jsonl_path).toBe(parent);
+  });
+
+  it('non insegue mentre è Topics a guidare la sessione', async () => {
+    const db = freshDb();
+    const rec = makeRecorder();
+    const fake = makeSink();
+    const { dir, parent } = seedFrozenAdoption(db, 'topic-driven');
+    write(dir, '22222222-2222-2222-2222-222222222222.jsonl', [...HISTORY, asst('a2', 'coda')], 1);
+
+    const tracker = makeTracker(db, rec, { importSink: fake.sink, isSessionLocallyDriven: () => true });
+    expect(await tracker.importOnce()).toBe(0);
+    expect(row(db, 'topic-driven').jsonl_path).toBe(parent);
+  });
+
+  it('non ruba il transcript di un altro topic nella stessa cartella', async () => {
+    const db = freshDb();
+    const rec = makeRecorder();
+    const fake = makeSink();
+    const { dir, parent } = seedFrozenAdoption(db, 'topic-mio');
+    // Un altro topic adottato segue già questo file, che pure ricopia i miei uuid.
+    const altrui = write(dir, '33333333-3333-3333-3333-333333333333.jsonl', [...HISTORY, asst('a2', 'coda')], 1);
+    seedAdopted(db, 'topic-altrui', '33333333-3333-3333-3333-333333333333', altrui, readFileSync(altrui).length);
+
+    const tracker = makeTracker(db, rec, { importSink: fake.sink });
+    await tracker.importOnce();
+    expect(row(db, 'topic-mio').jsonl_path).toBe(parent);
+  });
+
+  it('un transcript estraneo (nessun uuid in comune) non aggancia', async () => {
+    const db = freshDb();
+    const rec = makeRecorder();
+    const fake = makeSink();
+    const { dir, parent } = seedFrozenAdoption(db, 'topic-solo');
+    write(dir, '44444444-4444-4444-4444-444444444444.jsonl', [user('z1', 'sessione di un altro')], 1);
+
+    const tracker = makeTracker(db, rec, { importSink: fake.sink });
+    expect(await tracker.importOnce()).toBe(0);
+    expect(row(db, 'topic-solo').jsonl_path).toBe(parent);
+  });
+
+  it('la scansione ha un freno: due sweep ravvicinati non rileggono la cartella', async () => {
+    const db = freshDb();
+    const rec = makeRecorder();
+    const fake = makeSink();
+    const { dir, parent } = seedFrozenAdoption(db, 'topic-cooldown');
+    write(dir, '44444444-4444-4444-4444-444444444444.jsonl', [user('z1', 'estraneo')], 1);
+
+    const tracker = makeTracker(db, rec, { importSink: fake.sink });
+    await tracker.importOnce();               // scansione fatta, candidato scartato
+    // il fork arriva ORA, ma il cooldown non è scaduto: si aspetta il prossimo giro
+    write(dir, '55555555-5555-5555-5555-555555555555.jsonl', [...HISTORY, asst('a2', 'coda')], 1);
+    expect(await tracker.importOnce()).toBe(0);
+    expect(row(db, 'topic-cooldown').jsonl_path).toBe(parent);
+    // passato il cooldown, lo insegue
+    expect(await tracker.importOnce(Date.now() + 60_000)).toBe(1);
+    expect(row(db, 'topic-cooldown').jsonl_path).toContain('55555555');
   });
 });

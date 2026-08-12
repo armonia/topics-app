@@ -27,6 +27,7 @@ import {
   BRIDGED_BROWSER_ENDPOINTS,
   type McpToolAnnotations,
 } from "../browser-tool-spec";
+import { PARKED_WAITED_OUT, PREVIEW_RULE } from "../../shared/board";
 
 interface JsonRpcRequest {
   jsonrpc: "2.0";
@@ -101,7 +102,7 @@ const TOOLS = [
   {
     name: "open_browser_pane",
     description:
-      "Open the topics-app browser pane and navigate it to the given URL. Use this whenever you need to surface a URL to the user (OAuth flows, dev servers, generated previews, documentation). The pane appears next to the current chat. Returns the final URL and page title after navigation.",
+      "Open the topics-app browser pane and navigate it to the given URL. Use this whenever you need to surface a URL to the user (OAuth flows, dev servers, generated previews, documentation). The pane appears next to the current chat. Inside a task, the pane IS a tab of that task and survives your turn: pass `name` to open one tab PER SURFACE you are delivering (e.g. 'App', 'Report') — same name reopened navigates that tab, a new name adds one. Returns the final URL and page title after navigation.",
     inputSchema: {
       type: "object",
       properties: {
@@ -109,6 +110,11 @@ const TOOLS = [
           type: "string",
           description:
             "Absolute URL to open (must include protocol — https://, http://, or file://). Examples: 'https://example.com', 'http://localhost:3000', 'https://accounts.google.com/oauth/authorize?...'.",
+        },
+        name: {
+          type: "string",
+          description:
+            "Short label for the tab, e.g. 'App' or 'Report Lighthouse'. Inside a task it also IDENTIFIES the tab: reusing a name navigates that tab, a new name opens another one, and the label is pinned (the page title no longer overwrites it). Omit for a single unnamed pane that just re-navigates.",
         },
       },
       required: ["url"],
@@ -267,7 +273,7 @@ const TOOLS = [
   {
     name: "update_task",
     description:
-      "Update a task on THIS session's project board: status, priority, assignee, and/or output_url. The project is derived from the session (no project id). NOTE: you CANNOT set status='done' on your MAIN task — that is a human review gate: set status='review' and a human approves it. Exception: subtask STEPS of the task assigned to you (created with parent_task_id) are your checklist — mark each done as you complete it. Set output_url (http/https) to give the reviewer something concrete to look at (dev server, rendered page, report).",
+      "Update a task on THIS session's project board: status, priority, assignee, title/description, preview_image. The project is derived from the session (no project id). NOTE: you CANNOT set status='done' on your MAIN task — that is a human review gate: set status='review' and a human approves it. Exception: subtask STEPS of the task assigned to you (created with parent_task_id) are your checklist — mark each done as you complete it. You also cannot REOPEN a card a human closed (approved in review, or moved to done on the board): that is their decision — comment the reason and ask. Your own steps, which you closed yourself, you may reopen. To give the reviewer something concrete to look at, do NOT reach for output_url: a live page goes in a TAB of the task (open_browser_pane) and files go in the task's download list (comment_task media[]).",
     inputSchema: {
       type: "object",
       properties: {
@@ -275,9 +281,13 @@ const TOOLS = [
         status: { type: "string", description: "backlog | todo | in_progress | review — plus done, but ONLY on subtask steps of your assigned task." },
         priority: { type: "number", description: "0–4." },
         assignee: { type: "string", description: "Agent/person to assign." },
-        output_url: { type: "string", description: "http(s) URL of the reviewable output, shown in the task's review panel. Empty string clears it." },
+        output_url: { type: "string", description: "LEGACY — seeds the task's first browser tab; prefer open_browser_pane, which opens the tab directly. Empty string clears it." },
         text: { type: "string", description: "Rewrite the task title (clear + concise) — use it to polish a raw composer-born title." },
         description: { type: "string", description: "Rewrite/fill the task description." },
+        // La descrizione È `PREVIEW_RULE`, verbatim: lo schema del tool è uno
+        // dei posti in cui l'agente legge la regola, e finché era un riassunto
+        // scritto qui diceva due rami mentre il protocollo ne diceva tre.
+        preview_image: { type: "string", description: PREVIEW_RULE },
       },
       required: ["task_id"],
     },
@@ -295,6 +305,24 @@ const TOOLS = [
         minutes: { type: "number", description: "Retry-after window in minutes (default 15, clamped 1–1440)." },
       },
       required: ["task_id", "reason"],
+    },
+    annotations: MODIFICA,
+  },
+  {
+    name: "label_task",
+    description:
+      "Set the labels on a task. Two families, and they do different things. KIND — `bugfix` `feature` `chore` `misura` — is how the board is filtered and read; set whichever fits. The CLOSER family decides WHO CLOSES the card and you do not get to declare it: the server derives it from the files YOUR commits touched — `visibile` (touches client/src outside tests), `decisione` (only docs/openspec/*.md, or no code at all), `invisibile` (code nobody sees: server, shared, scripts, tests). You may set `visibile` or `decisione` — both are RAISING YOUR HAND, handing the card to a person. `invisibile` is refused (403): marking your own work invisible would be signing your own release. Replaces the whole set, so send every label you want kept.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        task_id: { type: "string", description: "Task id from list_tasks." },
+        labels: {
+          type: "array",
+          items: { type: "string" },
+          description: "The FULL set to keep: any of bugfix, feature, chore, misura, visibile, decisione. `invisibile` is refused.",
+        },
+      },
+      required: ["task_id", "labels"],
     },
     annotations: MODIFICA,
   },
@@ -577,16 +605,28 @@ interface ParsedArgs {
  * Tools a dispatched board agent never needs — every schema here would ride
  * along in the agent's context on every API call for nothing. Excluded under
  * `--profile=dispatch`, BOTH from tools/list and (defense in depth) tools/call:
- * orchestration fan-out (spawn/steer sub-agents), cross-topic chat, topic/tab
- * navigation, project management, Chrome cookie import. The task tools, the
- * process tools (run_script &c.) and every browser_* verification tool stay.
+ * cross-topic chat, topic/tab navigation, project management, Chrome cookie
+ * import. The task tools, the process tools (run_script &c.) and every browser_*
+ * verification tool stay.
+ *
+ * IL FAN-OUT È TORNATO, e con lui la ragione per cui era stato tolto. La
+ * motivazione originale — «un agente di board non puo' fare fan-out: sarebbe un
+ * secondo dispatcher fuori dal governo dei tetti» — era giusta sul fatto e
+ * sbagliata sul rimedio: toglieva lo strumento invece di metterlo sotto
+ * governo. Il modello del coordinatore ha bisogno di quello strumento (la
+ * sessione del task DECIDE, il lavoro gira nelle figlie), e il governo ora
+ * esiste ed è alla porta, non qui:
+ *   · il tetto di concorrenza conta le figlie come chiunque altro
+ *     (`agent-census.ts`, letto sia dal claim che dalla rotta di spawn);
+ *   · il loro consumo si contabilizza sul task padre (`dispatch-usage.ts`);
+ *   · profondita' 1: una figlia non apre nipoti (`boardSpawnRefusal`);
+ *   · muoiono col padre (`orphanBoardChildSessions`, spazzata del dispatcher).
+ * `list_agents` resta fuori: chi ha aperto le figlie e' il coordinatore, che gli
+ * id ce li ha gia' dallo `spawn_agent`, e uno schema in meno e' un prefisso in
+ * meno moltiplicato per ogni chiamata del turno.
  */
 const DISPATCH_EXCLUDED_TOOLS = new Set([
-  "spawn_agent",
-  "send_to_agent",
-  "read_agent",
   "list_agents",
-  "stop_agent",
   "send_chat_message",
   "read_chat_messages",
   "new_topic",
@@ -694,9 +734,9 @@ function loopbackTlsInit(): RequestInit {
 
 export async function callOpenBrowserPane(
   args: ParsedArgs,
-  toolArgs: { url?: unknown },
+  toolArgs: { url?: unknown; name?: unknown },
   fetchImpl: typeof fetch = fetch,
-): Promise<{ url: string; title: string }> {
+): Promise<{ url: string; title: string; visible: boolean }> {
   if (typeof toolArgs?.url !== "string" || !toolArgs.url) {
     throw new Error("open_browser_pane: 'url' (string) is required");
   }
@@ -704,10 +744,13 @@ export async function callOpenBrowserPane(
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (args.gatewayToken) headers["X-Gateway-Token"] = args.gatewayToken;
 
+  // `name` viaggia solo se c'è: il body storico è `{url}`, e mandare `name:""`
+  // cambierebbe i byte di ogni chiamata esistente per niente.
+  const name = typeof toolArgs?.name === "string" ? toolArgs.name.trim() : "";
   const resp = await fetchImpl(endpoint, {
     method: "POST",
     headers,
-    body: JSON.stringify({ url: toolArgs.url }),
+    body: JSON.stringify(name ? { url: toolArgs.url, name } : { url: toolArgs.url }),
     // topics-app serves a self-signed cert on this loopback origin; skip
     // verification (Bun fetch extension). Safe: we only ever talk to 127.0.0.1.
     ...loopbackTlsInit(),
@@ -717,11 +760,14 @@ export async function callOpenBrowserPane(
     const text = await resp.text().catch(() => "");
     throw new Error(`topics-app HTTP ${resp.status}: ${text || resp.statusText}`);
   }
-  const body = (await resp.json()) as { url?: unknown; title?: unknown; error?: unknown };
+  const body = (await resp.json()) as { url?: unknown; title?: unknown; visible?: unknown; error?: unknown };
   if (body.error) throw new Error(String(body.error));
   return {
     url: typeof body.url === "string" ? body.url : toolArgs.url,
     title: typeof body.title === "string" ? body.title : "",
+    // Assente (server più vecchio del flag) ⇒ si tiene il messaggio storico:
+    // meglio non dire niente che dire «invisibile» a un server che non lo sa.
+    visible: body.visible !== false,
   };
 }
 
@@ -1270,7 +1316,7 @@ export async function callListTasks(
 
 export async function callUpdateTask(
   args: ParsedArgs,
-  toolArgs: { task_id?: unknown; status?: unknown; priority?: unknown; assignee?: unknown; output_url?: unknown; text?: unknown; description?: unknown },
+  toolArgs: { task_id?: unknown; status?: unknown; priority?: unknown; assignee?: unknown; output_url?: unknown; text?: unknown; description?: unknown; preview_image?: unknown; previewImage?: unknown },
   fetchImpl: typeof fetch = fetch,
 ): Promise<string> {
   if (typeof toolArgs?.task_id !== "string" || !toolArgs.task_id) {
@@ -1286,8 +1332,30 @@ export async function callUpdateTask(
   if (typeof toolArgs.output_url === "string") patch.output_url = toolArgs.output_url;
   if (typeof toolArgs.text === "string" && toolArgs.text.trim()) patch.text = toolArgs.text;
   if (typeof toolArgs.description === "string") patch.description = toolArgs.description;
+  // L'ANTEPRIMA. Mancava, e il protocollo la documentava: `docs/board-protocol.md`
+  // dice `update_task(previewImage=…)` e l'envelope di dispatch porta quel testo a
+  // ogni agente — ma lo schema di questo tool non aveva il campo, quindi il
+  // parametro veniva scartato in SILENZIO. Tre consegne di fila hanno scritto
+  // «anteprima allegata» con la card vuota, e sembravano bugie: erano agenti che
+  // seguivano il protocollo mentre lo strumento buttava via il valore.
+  // La rotta REST lo accettava gia' (routes/tasks.ts) e lo passa per l'allowlist
+  // `filterMedia`, che resta l'unico cancello: qui non si valida il path, si
+  // smette solo di perderlo per strada.
+  // DUE nomi accettati, e non e' pigrizia. Il protocollo canonico e i due
+  // envelope (kickoff e resume) insegnano `previewImage` in camelCase da sempre;
+  // lo schema di questo tool usa snake_case come tutti i suoi parametri. Un
+  // agente che obbedisce al testo che ha ricevuto scrive `previewImage`, e con
+  // un solo nome accettato tornerebbe a perdersi in silenzio — lo stesso guasto
+  // che ho appena chiuso, riaperto dal lato del nome. Il doctor l'ha trovato in
+  // questa forma: «il protocollo insegna previewImage, lo schema dichiara
+  // preview_image». Finche' le due parole convivono nei prompt, il tool le
+  // accetta entrambe.
+  const anteprima = typeof toolArgs.preview_image === "string" ? toolArgs.preview_image
+    : typeof (toolArgs as { previewImage?: unknown }).previewImage === "string" ? (toolArgs as { previewImage?: string }).previewImage
+    : undefined;
+  if (anteprima !== undefined) patch.previewImage = anteprima;
   if (Object.keys(patch).length === 0) {
-    throw new Error("update_task: provide at least one of 'status', 'priority', 'assignee', 'output_url', 'text', 'description'");
+    throw new Error("update_task: provide at least one of 'status', 'priority', 'assignee', 'output_url', 'text', 'description', 'preview_image'");
   }
   const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/tasks/${encodeURIComponent(toolArgs.task_id)}`;
   const body = await httpJson<UpdateTaskResp>(args, "PATCH", path, patch, fetchImpl);
@@ -1357,9 +1425,40 @@ export async function callWaitForCondition(
   const reqBody: Record<string, unknown> = { reason: toolArgs.reason };
   if (typeof toolArgs.minutes === "number" && Number.isFinite(toolArgs.minutes)) reqBody.minutes = toolArgs.minutes;
   const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/tasks/${encodeURIComponent(toolArgs.task_id)}/defer`;
-  const res = await httpJson<{ dispatchDeferredUntil?: string }>(args, "POST", path, reqBody, fetchImpl);
+  const res = await httpJson<{ dispatchDeferredUntil?: string; dispatchState?: string }>(args, "POST", path, reqBody, fetchImpl);
+  // Il server può RIFIUTARE l'attesa: troppe di fila sulla stessa condizione, o
+  // una serie troppo lunga, e il task si parcheggia perché decida un umano.
+  // Dirlo qui non è cortesia. La riga di prima prometteva «it will be
+  // re-dispatched automatically» in ogni caso, e un agente che la legge dopo un
+  // rifiuto crede di dover solo aspettare: chiude il turno convinto che il task
+  // riparta da solo, e quello resta fermo in backlog senza che nessuno lo sappia.
+  if (res?.dispatchState === PARKED_WAITED_OUT) {
+    return `task ${toolArgs.task_id} has waited on this same condition too many times, so it is now PARKED in the backlog for a human to decide. It will NOT be re-dispatched automatically. Your turn is done: do not move it to review, and do not call wait_for_condition again.`;
+  }
   const until = res?.dispatchDeferredUntil ? ` until ${res.dispatchDeferredUntil}` : "";
   return `task ${toolArgs.task_id} released to the queue, waiting${until}. It will be re-dispatched automatically. Your turn is done — do not move it to review.`;
+}
+
+export async function callLabelTask(
+  args: ParsedArgs,
+  toolArgs: { task_id?: unknown; labels?: unknown },
+  fetchImpl: typeof fetch = fetch,
+): Promise<string> {
+  if (typeof toolArgs?.task_id !== "string" || !toolArgs.task_id) {
+    throw new Error("label_task: 'task_id' (string) is required");
+  }
+  if (!Array.isArray(toolArgs?.labels)) {
+    throw new Error("label_task: 'labels' (array of strings) is required — send the FULL set to keep");
+  }
+  const labels = toolArgs.labels.filter((l): l is string => typeof l === "string" && !!l.trim());
+  const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/tasks/${encodeURIComponent(toolArgs.task_id)}/labels`;
+  // Il 403 di `invisibile` arriva da qui come errore del tool, con il testo del
+  // server: l'agente deve LEGGERE perché è stato rifiutato, non ritentare.
+  const res = await httpJson<{ labels?: Array<{ label: string }> }>(args, "PUT", path, { labels }, fetchImpl);
+  const set = (res?.labels ?? []).map((l) => l.label);
+  return set.length
+    ? `task ${toolArgs.task_id} labels: ${set.join(", ")}`
+    : `task ${toolArgs.task_id} has no labels`;
 }
 
 export async function callCommentTask(
@@ -1678,8 +1777,14 @@ const TOOL_HANDLERS: Record<
   (args: ParsedArgs, toolArgs: Record<string, unknown>, ctx?: ToolCallContext) => Promise<string>
 > = {
   open_browser_pane: async (a, t) => {
-    const r = await callOpenBrowserPane(a, t as { url?: unknown });
-    return `Opened browser pane at ${r.url}` + (r.title ? ` (title: ${r.title})` : "");
+    const r = await callOpenBrowserPane(a, t as { url?: unknown; name?: unknown });
+    const where = `${r.url}` + (r.title ? ` (title: ${r.title})` : "");
+    // I due esiti DEVONO leggersi diversi. Finché il messaggio era lo stesso,
+    // «pane aperta» e «contesto vivo che nessuno vede» erano indistinguibili da
+    // fuori: né l'agente né l'umano potevano accorgersi del guasto.
+    return r.visible
+      ? `Opened browser pane at ${where}`
+      : `Browser context ready at ${where} — but NO visible pane is mounted (no Topics window took it). The page is loaded and drivable with browser_*; call browser_focus_tab to surface it, or tell the user it is not on screen.`;
   },
   close_browser_pane: (a, t) => callCloseBrowserPane(a, t as { contextId?: unknown }),
   browser_list_tabs: (a, t) => callListBrowserTabs(a, t),
@@ -1694,6 +1799,7 @@ const TOOL_HANDLERS: Record<
   get_task: (a, t) => callGetTask(a, t),
   update_task: (a, t) => callUpdateTask(a, t),
   comment_task: (a, t) => callCommentTask(a, t),
+  label_task: (a, t) => callLabelTask(a, t),
   ask_user_question: (a, t, ctx) =>
     callAskUserQuestion(a, t as { questions?: unknown }, fetch, {
       onProgress: ctx?.onProgress

@@ -1,121 +1,156 @@
 # Piano — vedere le sessioni di un altro utente («amicizia») + incognito
 
-> Task `d6baaf5e`. Scritto il 04/08/2026. **È un piano da approvare, non una decisione presa**:
-> le due scelte che cambiano tutto sono in §1 e vanno fatte prima di scrivere una riga.
+> Task `d6baaf5e`. **Revisione 2 — 10/08/2026.** La prima stesura è del 04/08 e oggi è
+> in gran parte superata: tre delle sue sei fasi sono state costruite nel frattempo.
+> Questa revisione riparte da ciò che c'è **nel codice di oggi**, non da come stavano
+> le cose ad agosto. `git log docs/PIANO-amicizia-sessioni.md` per la versione vecchia.
 
 ---
 
-## 0. Da dove si parte davvero
+## 0. Cosa è cambiato dal 04/08 (misurato)
 
-Due fatti misurati sul codice di oggi, ed entrambi sono più duri di come suona il task.
+Il piano vecchio partiva da due fatti: «Topics non ha nessuna autenticazione» e
+«l'accesso remoto è un tunnel che espone il server intero». **Nessuno dei due è più
+vero.** Da allora sono atterrate quattro change:
 
-1. **Topics non ha nessuna autenticazione.** Non «ha un'autenticazione debole»: non ce l'ha
-   (`README`/`SECURITY`: *no built-in authentication*). Non esiste il concetto di utente.
-2. **L'accesso remoto è un tunnel che espone il server INTERO** (`server/routes/remote.ts`:
-   Tailscale Funnel, con rilevamento di cloudflared/ngrok). Chi ha l'URL **è te**: tutte le
-   chat, tutti i terminali, tutti i progetti, con pieno diritto di scrittura.
+| change | cosa ha portato | dove si vede |
+|---|---|---|
+| `device-auth` | identità del **dispositivo**: `devices`, cookie, approvazione, revoca | `080-devices.sql`, `server/lib/device-auth.ts` |
+| `task-sharing-guests` | il **gate ospite**: allowlist di percorsi, verbi, e frame WS | `server/lib/grants.ts`, `083-grants.sql` |
+| `sharing-orgs` | il soggetto diventa la **persona/organizzazione**, non il ferro | `084-people-orgs.sql`, `server/lib/principals.ts` |
+| `relay` | la macchina **chiama fuori**: Worker + Durable Object, payload ciechi | `relay/src/*`, `server/services/relay-client.ts` |
 
-Conseguenza: «vedere le sessioni di un amico» non è una funzione che si aggiunge sopra. Il
-90% del lavoro è **il livello che oggi non esiste** — identità e autorizzazione — e
-l'amicizia è l'ultimo 10%.
+Più: `share_links` (085), `tool_grants` (086), l'account via codice email
+(`server/lib/account.ts`, con `remote_id` come chiave fra due installazioni),
+e il tunnel Tailscale **rimosso** — `TOPICS_TUNNEL_PORT` oggi è la porta interna che
+il relay ricontatta, non un'esposizione.
 
----
-
-## 1. Le due decisioni da prendere prima
-
-> **DECISO DA ATTILIO IL 04/08: (A) → relay CIECO, cifratura end-to-end.** Parole
-> sue: «deve essere sicuro no? però sempre condivisibile». Le due cose stanno
-> insieme, ma non gratis, ed è giusto sapere il prezzo prima: **condividere resta
-> possibile — cambia CHI può leggere.** Con la cifratura end-to-end le chiavi
-> vivono sui dispositivi, il relay instrada byte che non sa aprire, e chi
-> condividi vede tutto come prima. Quello che sparisce sono le funzioni che
-> richiedono al SERVER di capire il contenuto: ricerca lato server sulle
-> conversazioni condivise, cronologia consultabile da un dispositivo nuovo senza
-> le chiavi, anteprime generate dal server. Se un giorno ne servirà una, non sarà
-> «una funzione in più»: sarà tornare indietro sulla scelta. Il piano qui sotto
-> vale lo stesso, con la fase 3 più costosa (scambio e recupero delle chiavi).
-
-**(A) Il relay vede i contenuti?**
-Il task dice «hosting: Hetzner», quindi un relay server-side. Vuol dire che le tue chat e
-l'output dei tuoi terminali **transitano da una macchina** — e lì sono in chiaro, salvo
-cifratura end-to-end. L'alternativa è un relay cieco (instrada byte cifrati fra i due
-dispositivi, non può leggerli), che costa parecchio di più in progettazione e rende
-impossibile qualunque funzione server-side (ricerca, cronologia condivisa, replay).
-**Raccomandazione: relay che vede, e detto chiaramente nell'interfaccia.** Un relay cieco è
-la scelta giusta per un prodotto che promette riservatezza a estranei; qui gli utenti sono
-persone che si sono aggiunte a vicenda, e la promessa onesta è «i tuoi dati passano dal
-nostro server», non una crittografia che poi non regge alle funzioni che vorrai.
-
-**(B) Chi è l'autorità dell'identità?**
-Serve un posto che dica «questo è Attilio» in modo che due macchine diverse siano d'accordo.
-Le opzioni pratiche: (i) account propri sul relay (email + magic link), (ii) OAuth di terzi
-(GitHub/Google), (iii) identità di Tailscale, che **molte installazioni già hanno** visto che
-il tunnel attuale la usa. **Raccomandazione: (iii) se accettabile, (ii) altrimenti.** Scrivere
-da zero registrazione, recupero password e verifica email è il modo più veloce per introdurre
-il primo vero buco di sicurezza in un prodotto che finora non ne aveva perché non aveva
-account.
+Tradotto sulle fasi del piano vecchio: **F1 fatta, F2 metà, F3 metà (il relay c'è,
+l'amicizia no), F4 fatta ma solo dentro casa** (condividi con chi è sulla tua rete o
+ha un dispositivo appaiato). Restano scoperti: l'amicizia fra **installazioni
+diverse**, la scrittura, la presenza per persona, l'incognito.
 
 ---
 
-## 2. Le fasi, ognuna utile da sola
+## 1. I cinque punti del task, contro il codice di oggi
 
-Il criterio dell'ordine: **nessuna fase esiste solo per abilitare la successiva.** Se il
-progetto si ferma dopo la 1, quello che c'è è comunque un miglioramento.
+**1) Richiesta/accettazione di amicizia — NON esiste, ed è l'unico pezzo che richiede
+un servizio nuovo.** Lo schema è già predisposto (`people.origin IN ('local','cloud')`,
+`remote_id`, `principals_rev` in `084`), ma il sincronizzatore non è mai stato scritto e
+`server/lib/account.ts:66` lo dice esplicitamente: `origin` resta `'local'` perché
+«nessun servizio ha mai scritto quella riga». Oggi due installazioni non hanno **nessun**
+modo di sapere l'una dell'altra. L'amicizia è **anagrafe**, quindi vive nel piano di
+controllo — e `limiti-accettati.md` di `sharing-orgs` ha già deciso il confine: il cloud
+trasporta solo `people`/`orgs`/`org_members`, **mai** i grants, che restano locali per
+sempre. Si condivide solo dalla macchina che ha la roba.
 
-### Fase 1 — Autenticare il tunnel (senza amici, senza relay)
-Il server chiede un'identità a chi arriva da remoto e rifiuta chi non ce l'ha.
-**Vale da sola**: oggi l'URL del tunnel è una chiave universale, e questo lo chiude.
-Nessun account di terzi ancora: basta un segreto per dispositivo, generato dall'app e
-approvato dalla macchina che ospita.
-Verifica: apri il tunnel da un dispositivo mai approvato → non entri. Da uno approvato → sì.
+**2) Scrittura per-sessione — il gate oggi nega tutto, ed è il verso giusto.**
+`isGuestAllowedMethod` (`grants.ts:102`) rifiuta ogni verbo mutante tranne il logout, e
+`grants.level` ammette solo `'read'|'deny'` (084). Manca il livello, ma il livello è la
+parte facile: il pezzo vero è che `/ws/terminal/:id` e `/ws/browser/:id` **non sono
+nell'allowlist**, e la nota `6.7` della change `relay` spiega perché non basta
+aggiungerli — spazi e tab vivono in un blob JSON da ~56 KB in una riga di `ui_state`, e
+vanno promossi a righe **prima**. È lavoro di fondamenta, non una voce in un enum.
 
-### Fase 2 — Identità e presenza per dispositivo
-Ogni dispositivo approvato ha un nome e uno stato (online/offline), visibile ovunque — è il
-punto 3 del task. **Vale da sola**: sapere da quale macchina stai lavorando risolve già un
-problema vero (le sessioni fantasma di [[project-topics-process-leaks]] partono da lì).
+**3) Presenza cross-device — c'è il mattone, manca il muro.** `server/presence.ts`
+elenca le **finestre** di questa installazione; `auth.ts:473` sa se un dispositivo è
+`connected`, ma solo dentro Impostazioni. Non esiste una presenza per **persona**
+(l'aggregato dei suoi dispositivi), e i frame `presence:*` non sono in
+`GUEST_SAFE_FRAMES` — quindi anche esistendo, a un amico non arriverebbero.
 
-### Fase 3 — Il relay e l'amicizia
-Registro sul relay, richiesta/accettazione, elenco degli amici. Nessuna condivisione ancora:
-**essere amici non mostra niente.** Questo è deliberato ed è il punto 2 del task — la
-condivisione è un gesto separato e per-sessione.
+**4) Incognito per progetto — non esiste.** `projects` (016) non ha la colonna, e non
+c'è stato bisogno finora: senza un grant esplicito nulla è visibile. Serve **adesso**,
+prima dell'amicizia, per una ragione precisa — quando condividere diventa un gesto
+frequente, l'unica difesa che regge è quella che rende la condivisione **impossibile**,
+non quella che la nasconde.
 
-### Fase 4 — Condivisione per sessione, in sola lettura
-L'owner sceglie UNA sessione e la condivide con UN amico. Sola lettura. Nessuna promozione a
-scrittura, ancora.
-
-### Fase 5 — Promozione a «può scrivere»
-Gesto esplicito dell'owner, per-sessione e revocabile. **Mai implicito nell'amicizia**, e mai
-per-utente-in-generale: il diritto di scrivere nel terminale di qualcun altro è il potere di
-eseguire comandi sulla sua macchina, e va chiesto ogni volta per la cosa specifica.
-
-### Fase 6 — Incognito
-Un progetto marcato incognito è **escluso alla sorgente**, non filtrato in vista: il relay non
-ne riceve i dati, non li ha e non può sbagliare a mostrarli. Il filtro in vista è la forma
-sbagliata dello stesso requisito — basta un percorso dimenticato e trapela.
-
----
-
-## 3. Le cose che si rompono, e vanno decise adesso
-
-- **Il modello a due stati** («aperta = tab, chiusa = archiviata») è per-installazione. Con due
-  persone sulla stessa sessione, *chi* la chiude e *per chi*? Proposta: la chiusura dell'ospite
-  chiude **la sua vista**, mai lo stato dell'owner.
-- **I terminali sono processi veri.** Una sessione condivisa in scrittura è una shell sulla
-  macchina dell'owner. Va detto nell'interfaccia con queste parole, non con «può scrivere».
-- **La cronologia condivisa è una copia.** Quando l'amicizia finisce, ciò che l'ospite ha già
-  visto l'ha visto. La revoca ferma il futuro, non il passato — e l'interfaccia deve dirlo,
-  altrimenti «rimuovi amico» promette una cosa che non fa.
-- **Chi paga il relay.** Su Hetzner c'è un costo ricorrente e un responsabile dei dati altrui:
-  è una decisione di prodotto, non di infrastruttura.
+**5) Hosting — già deciso, per il relay.** `openspec/changes/relay/proposal.md`:
+Cloudflare Workers + Durable Objects, non un VPS, «e la scelta è reversibile a costo
+quasi nullo». Hetzner non è più il candidato: il carico di un relay è fatto di
+connessioni ferme, che con l'ibernazione non costano e su un VPS sono RAM occupata h24.
+**Resta aperto solo per il piano di controllo** (§3).
 
 ---
 
-## 4. Quanto è grande
+## 2. Le fasi residue, in ordine
 
-Le fasi 1 e 2 sono lavoro contenuto e locale (il server c'è già, il tunnel anche). Dalla 3 in
-poi si introduce **un secondo sistema da gestire** — un servizio in rete, con account, dati di
-persone diverse e una superficie d'attacco che oggi non esiste. Non è un'estensione di Topics:
-è un prodotto affiancato.
+Il criterio dell'ordine non è cambiato: **nessuna fase esiste solo per abilitare la
+successiva.** Ognuna ha la sua barra.
 
-**La mia raccomandazione è di autorizzare la fase 1 e la 2 subito** — chiudono un buco reale e
-non impegnano su niente — e di trattare la 3 come una decisione a sé, dopo aver risposto a §1.
+**F0 — Chiudere il debito che sta sotto.** Non si costruisce l'amicizia sopra un relay
+con i buchi aperti già censiti: `share_links.key` è la chiave AES-256 **in chiaro a
+riposo** (6.1), l'ingresso ospite del Durable Object non autentica nessuno (6.2),
+`/agent/:installationId` è dirottabile (6.3), e `relay-do.ts` **non lo esegue nessun
+test** (6.4). Più i quattro punti aperti di `sharing-orgs` (5.2–5.4, 8.1).
+*Barra:* i test di `relay/` eseguono il DO davvero; nessuna chiave in chiaro nel DB.
+
+**F1 — Incognito per progetto.** `projects.incognito`, la spunta in fase di add-tab, e
+l'esclusione **alla sorgente**: non un filtro in vista ma un rifiuto in
+`grants-query.ts` (un grant su una risorsa di un progetto incognito non si può creare) e
+nel gate WS. Vale da sola, ed è la rete di sicurezza di tutto il resto.
+*Barra:* un test prova che condividere un topic di un progetto incognito **fallisce**, e
+che nessun frame di quel progetto esce verso un socket ospite.
+
+**F2 — Presenza per persona.** Aggregare i dispositivi in uno stato di persona, un frame
+dedicato nell'allowlist, e la resa in interfaccia. Dentro l'installazione vale già da
+sola (sapere da quale macchina stai lavorando); attraverso il relay diventa il punto 3
+del task. *Barra:* due dispositivi della stessa persona, uno spento → la persona resta
+online.
+
+**F3 — Il piano di controllo e l'amicizia.** Il servizio (§3), il registro delle
+persone, richiesta/accettazione, e il sincronizzatore dell'anagrafe con `remote_id` come
+chiave. **Essere amici non mostra niente**: è deliberato, ed è il punto 2 del task.
+*Barra:* due installazioni, due DB diversi, dopo l'accettazione la stessa persona ha lo
+stesso `remote_id` da entrambe le parti.
+
+**F4 — Sessione condivisa a un amico remoto, in sola lettura.** Qui non c'è quasi niente
+di nuovo: è il `grant` su `topic` che già esiste, con il destinatario che ora è
+raggiungibile. *Barra:* l'amico vede lo streaming di UNA chat e riceve `403` su tutto il
+resto.
+
+**F5 — Promozione a «può scrivere», per sessione.** Livello `'write'` nel CHECK, gate
+sul **verbo** e sui socket di terminale, firma di chi ha scritto nel messaggio, revoca
+istantanea. Gesto esplicito dell'owner, **mai implicito nell'amicizia**. Dipende dalle
+fondamenta di 6.7. *Barra:* un ospite `read` che tenta un input su un pty prende `403`
+anche col socket già aperto; promosso, l'input arriva e **compare firmato**.
+
+---
+
+## 3. L'unico bivio ancora aperto: dove vive il piano di controllo
+
+Serve un servizio che tenga account, indirizzi, richieste di amicizia e anagrafe
+sincronizzata. Due strade:
+
+- **Cloudflare Workers + D1** — stesso account, stesso dominio e stessa pipeline di
+  deploy del relay e del landing; nessuna amministrazione di sistema su un pezzo
+  critico. **È la raccomandazione**: il piano di controllo scrive poco e legge poco, e
+  non ha bisogno di un Postgres.
+- **Hetzner + Postgres** — se la fatturazione e i rapporti fra persone/organizzazioni
+  cresceranno oltre quello che D1 regge comodamente. Costo: una macchina da tenere
+  aggiornata, che custodisce i dati di persone diverse.
+
+In entrambi i casi vale il vincolo già scritto: **il piano di controllo non vede mai i
+task e i topic**, per costruzione e non per policy.
+
+---
+
+## 4. Ciò che si rompe, e va detto in interfaccia
+
+- **Chi chiude una sessione condivisa, e per chi.** La chiusura dell'ospite chiude **la
+  sua vista**, mai lo stato dell'owner.
+- **Un terminale condiviso in scrittura è una shell sulla macchina dell'owner.** Va
+  scritto con queste parole, non con «può scrivere».
+- **La revoca ferma il futuro, non il passato.** Ciò che l'ospite ha già visto l'ha
+  visto: «rimuovi amico» non può promettere altro.
+- **L'incognito non è retroattivo.** Marcare incognito un progetto già condiviso deve
+  **revocare** i grant esistenti, non solo impedirne di nuovi — altrimenti la spunta
+  mente.
+
+---
+
+## 5. Quanto è grande
+
+F1 e F2 sono lavoro locale e contenuto. F0 è debito già censito, quindi noto. **F3 è la
+soglia**: introduce un secondo sistema in rete, con account e dati di persone diverse —
+non è un'estensione di Topics, è un prodotto affiancato. F5 è la più costosa in
+proporzione a quanto sembra, perché prima chiede le fondamenta di `ui_state`.

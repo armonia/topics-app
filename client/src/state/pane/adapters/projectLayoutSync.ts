@@ -322,7 +322,9 @@ function flushAllPending(): void {
 
 let teardownWired = false;
 function ensureTeardownFlush(): void {
-  if (teardownWired || typeof window === 'undefined') return;
+  // Capability, non esistenza: un `window` finto e parziale (i test) passa
+  // l'`undefined` check ma non sa fare addEventListener.
+  if (teardownWired || typeof window === 'undefined' || typeof window.addEventListener !== 'function') return;
   teardownWired = true;
   // pagehide covers real navigations/close; visibilitychange(hidden) covers the
   // mobile/PWA background transition where pagehide may not fire.

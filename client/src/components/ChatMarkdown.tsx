@@ -1,6 +1,6 @@
 /**
  * chat-rendering-parity CHAT-RND-02 — the ONE markdown renderer every
- * chat-surface shares (MessageContent's five call sites + PlanView), so plugin
+ * chat-surface shares (MessageContent's five call sites + PlanCard), so plugin
  * config and math support can't drift between them. Replaces the old
  * lib/markdownPlugins.ts static plugin lists.
  *

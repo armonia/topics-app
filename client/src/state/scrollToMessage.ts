@@ -27,8 +27,13 @@ const targets = new Map<string, { messageId: string; at: number; firedAt?: numbe
 export function requestScrollToMessage(topicId: string, messageId: string): void {
   targets.set(topicId, { messageId, at: Date.now() });
   // Guarded so the pure register/peek/consume core stays testable under
-  // bun:test (no DOM there).
-  if (typeof window !== 'undefined') {
+  // bun:test (no DOM there). The guard asks for the CAPABILITY, not for the
+  // mere existence of `window`: unit-test files install partial `window`
+  // stubs on globalThis (some without `dispatchEvent`, and some without
+  // removing them afterwards), so `typeof window !== 'undefined'` can be true
+  // while the method we are about to call is missing. The notification is
+  // best-effort — the target store must register either way.
+  if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
     window.dispatchEvent(new CustomEvent(SCROLL_TO_MESSAGE_EVENT, { detail: { topicId } }));
   }
 }

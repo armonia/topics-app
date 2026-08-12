@@ -13,7 +13,10 @@
 import { watch, existsSync, statSync, readFileSync } from "fs";
 import { join, isAbsolute, dirname } from "path";
 import type { AppContext } from "./types";
-import { invalidateGitCache } from "./routes/files";
+// Dal modulo della cache, non dalla route che la riempie: importare
+// `./routes/files` da qui chiudeva il ciclo
+// file-watcher → git-watcher → routes/files → file-watcher.
+import { invalidateGitCache } from "./lib/git-status-cache";
 import { STATUS_ARGS, parsePorcelainZ, scopeToPrefix, repoPrefixOf } from "./lib/git-porcelain";
 import { attachNumstats, readNumstats, type Numstat } from "./lib/git-numstat";
 

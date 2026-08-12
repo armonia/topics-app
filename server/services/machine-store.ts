@@ -19,7 +19,7 @@ import type { Machine } from "../../shared/types";
 
 export class MachineInUseError extends Error {
   constructor(public readonly topicCount: number) {
-    super(`Machine has ${topicCount} topic(s) — clear or reassign them first`);
+    super(`Machine has ${topicCount} topic(s). Clear or reassign them first.`);
     this.name = "MachineInUseError";
   }
 }

@@ -500,8 +500,7 @@
  * stessi numeri, o il terziario e i capelli tornano sotto soglia esattamente
  * come erano tornati qui. */
 [role="navigation"][aria-label="Topics sidebar"],
-[data-testid="project-sidebar"],
-[data-testid="project-sidebar-rail"] {
+[data-testid="project-sidebar"] {
   --text-tertiary: hsl(220 2.8% 42%);
   --border: hsl(220 4.9% 84%);
   --border-subtle: hsl(220 4.9% 88%);
@@ -511,8 +510,7 @@
    scuro erediterebbe i valori CHIARI dentro la sidebar. I valori sono quelli
    di `.dark`, ripetuti solo per rivincere. */
 .dark [role="navigation"][aria-label="Topics sidebar"],
-.dark [data-testid="project-sidebar"],
-.dark [data-testid="project-sidebar-rail"] {
+.dark [data-testid="project-sidebar"] {
   --text-tertiary: #969ca6;
   --border: hsl(220 3.8% 18%);
   --border-subtle: hsl(220 4.2% 15%);
@@ -678,8 +676,7 @@
  * Solo la proprietà `color`: `bg-primary` resta #0066ff, perché lì il problema
  * è il bianco SOPRA e su un blu più scuro migliora, non peggiora. */
 html:not(.dark) [role="navigation"][aria-label="Topics sidebar"] .text-primary,
-html:not(.dark) [data-testid="project-sidebar"] .text-primary,
-html:not(.dark) [data-testid="project-sidebar-rail"] .text-primary {
+html:not(.dark) [data-testid="project-sidebar"] .text-primary {
   color: var(--primary-ink-chrome);
 }
 
@@ -820,6 +817,39 @@ html {
   background-color: rgba(100, 116, 139, 0.2);
 }
 
+/* IL PRIMO ELEMENTO DELLA COLONNA NON PORTA IL SUO MEZZO PASSO.
+ *
+ * Il ritmo della colonna è «ognuno porta metà passo»: mezzo dal contenitore che
+ * scorre, mezzo dal margine dell'elemento, e la somma fa sempre COLUMN_GAP.
+ * Regge fra due elementi. NON regge in cima, perché sopra la lista non c'è un
+ * bordo: c'è l'header, che è alto 40 (`h-10`, il contratto della riga di chrome)
+ * attorno a un contenuto da 28 — quindi porta già SEI pixel suoi sotto il
+ * proprio inchiostro. Sommati ai sei della lista fanno dodici fra due cose
+ * DIPINTE, dove fra due card ce ne sono sei.
+ *
+ * È la «doppia spaziatura sotto la topbar della sidebar» (Attilio, 08 e 09/08,
+ * tre volte). La sua diagnosi era esatta: «derivante forse dal fatto che prima
+ * c'era il bordo sotto» — con il filo si leggeva «spazio, linea, spazio», cioè
+ * un separatore; tolto il filo restano due spazi in fila.
+ *
+ * Si toglie quello della LISTA, non quello dell'header: l'header non può
+ * cedere i suoi 6 senza rompere l'allineamento con la barra delle tab (stessa
+ * altezza, stesso incasso — vedi CHROME_ROW_CONTENT_H).
+ *
+ * DUE livelli, e servono entrambi: il primo figlio della colonna è a volte la
+ * card stessa (la riga della board), a volte un contenitore (`SidebarRowList`,
+ * la sezione dei fissati) la cui prima card porta il margine. Il terzo livello
+ * NON si aggiunge: da lì in giù ci sono glifi ed etichette, e azzerarne il
+ * margine vorrebbe dire toccare cose che con il ritmo della colonna non
+ * c'entrano. Che la regola arrivi davvero fin dove serve non è affidato a
+ * questo commento: lo misura `tests/e2e/sidebar-header-gap.spec.ts`, sul primo
+ * elemento dipinto, qualunque esso sia.
+ */
+.sidebar-column > :first-child,
+.sidebar-column > :first-child > :first-child {
+  margin-top: 0;
+}
+
 /* Resize handle styles */
 .resize-handle {
   background-color: var(--resize-handle);
@@ -850,18 +880,14 @@ textarea, input[type="text"] {
   box-sizing: border-box;
 }
 
-/* Native <select> dropdowns — make the OS-rendered option popup follow the
- * theme. Chromium paints the popup from the control's own colors, so without an
- * explicit option background the list falls back to white — unreadable against
- * the cool dark palette. This one rule themes every native select (current and
- * future); per-component Tailwind classes can only reach the closed control. */
-select {
-  color: var(--text);
-}
-option {
-  background-color: var(--bg-surface);
-  color: var(--text);
-}
+/* Qui c'erano due regole per tingere il popup dei `<select>` di sistema, ed
+ * erano una toppa su un problema che non si risolve col CSS: il popup lo
+ * disegna il sistema operativo, quindi su iOS restava comunque la ruota nativa
+ * col suo carattere e i suoi margini, in mezzo a una UI disegnata. Sono morte
+ * insieme all'ultimo `<select>` nudo del client: il selettore a scelta singola
+ * dell'app è `components/Shared/Select.tsx` (sopra la primitiva `Menu`), e che
+ * non ne rientrino altri lo presidia `Shared/Select.test.tsx`, che fallisce se
+ * un `<select>` ricompare nei sorgenti. */
 
 /* Il lampo bianco dell'overscroll, e la fascia della safe-area: stesso colore,
    e quel colore è il CHROME.
@@ -907,6 +933,89 @@ html, body {
   border-radius: 8px;
 }
 
+/* Una card che ATTRAVERSA il confine verso Done. Chiudere un task — trascinandolo
+   o approvandolo dal drawer — non lasciava nessun segno visivo: la card riappariva
+   in una colonna che di norma sta fuori dal campo visivo, e non si sapeva se il
+   click avesse fatto qualcosa. Il lampo dura quanto serve a seguirla con l'occhio,
+   poi sparisce da solo.
+   Solo box-shadow: nessun transform (i vicini di un drag in corso non si devono
+   spostare) e nessun background-color, che sostituirebbe `bg-surface` e farebbe
+   sfarfallare la card sul finale. La tinta è un'ombra INSET a raggio enorme:
+   copre la card e si compone sopra il suo fondo invece di rimpiazzarlo. */
+/* TIENE, poi svanisce. Con una sola sfumata da 0% a 100% e `ease-out` quasi
+   tutto il calo avviene nei primi decimi: misurato sul video della spec, il
+   verde restava sopra soglia per ~0,2 s su 2,4 — un guizzo che si perde se
+   guardavi l'altra metà dello schermo. I due fotogrammi identici in testa sono
+   una pausa: 45% del tempo acceso e fermo, il resto per spegnersi. */
+@keyframes taskDoneFlash {
+  0%, 45% {
+    box-shadow: 0 0 0 2px rgb(52 211 153 / 0.9), 0 0 18px 2px rgb(52 211 153 / 0.45),
+                inset 0 0 0 999px rgb(52 211 153 / 0.16);
+  }
+  75% {
+    box-shadow: 0 0 0 2px rgb(52 211 153 / 0.5), 0 0 12px 1px rgb(52 211 153 / 0.2),
+                inset 0 0 0 999px rgb(52 211 153 / 0.08);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgb(52 211 153 / 0), 0 0 0 0 rgb(52 211 153 / 0),
+                inset 0 0 0 999px rgb(52 211 153 / 0);
+  }
+}
+
+.task-done-flash {
+  animation: taskDoneFlash 2.4s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Il segnale resta, il movimento no: l'anello si accende e si spegne quando il
+     timer toglie la classe, senza sfumare. */
+  .task-done-flash {
+    animation: none;
+    box-shadow: 0 0 0 2px rgb(52 211 153 / 0.6), inset 0 0 0 999px rgb(52 211 153 / 0.12);
+  }
+}
+
+/* Una card appena NATA. Stesso problema del lampo verde all'altro capo della
+   board: scrivi un task nel composer, quello sparisce, e la card atterra in
+   fondo a una colonna che spesso non stai guardando — quindi "ho premuto invio
+   e non è successo niente". Il lampo dice QUALE card è nata; a portarla sotto
+   gli occhi ci pensa lo scorrimento (vedi KanbanBoardPane), ma solo per chi
+   l'ha scritta.
+   Azzurro, non verde: il verde su questa board significa già "chiuso", e due
+   eventi opposti non possono avere lo stesso colore. È il `sky-400` che l'app
+   usa già come accento (link, chip attivi).
+   Stessa forma tecnica del verde e per le stesse ragioni: solo box-shadow —
+   nessun transform (i vicini di un drag in corso non si devono spostare) e
+   nessun background-color, che rimpiazzerebbe `bg-surface` invece di comporsi
+   col fondo. La tinta è un'ombra INSET a raggio enorme. E stessa curva: 45% del
+   tempo acceso e fermo, il resto per spegnersi — con una sfumata lineare quasi
+   tutto il calo cade nei primi decimi e il lampo si perde. */
+@keyframes taskCreatedFlash {
+  0%, 45% {
+    box-shadow: 0 0 0 2px rgb(56 189 248 / 0.9), 0 0 18px 2px rgb(56 189 248 / 0.45),
+                inset 0 0 0 999px rgb(56 189 248 / 0.16);
+  }
+  75% {
+    box-shadow: 0 0 0 2px rgb(56 189 248 / 0.5), 0 0 12px 1px rgb(56 189 248 / 0.2),
+                inset 0 0 0 999px rgb(56 189 248 / 0.08);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgb(56 189 248 / 0), 0 0 0 0 rgb(56 189 248 / 0),
+                inset 0 0 0 999px rgb(56 189 248 / 0);
+  }
+}
+
+.task-created-flash {
+  animation: taskCreatedFlash 2.4s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .task-created-flash {
+    animation: none;
+    box-shadow: 0 0 0 2px rgb(56 189 248 / 0.6), inset 0 0 0 999px rgb(56 189 248 / 0.12);
+  }
+}
+
 /* Skeleton loading animation */
 @keyframes shimmer {
   0% { background-position: -200% 0; }
@@ -948,6 +1057,25 @@ html, body {
 }
 .sidebar-transition[style*="width: 0"] {
   opacity: 0;
+}
+
+/* IL VELO DEL CASSETTO MOBILE, montato sempre e spento dal CSS.
+   Il riposo sta QUI e non in uno `style` di React perché durante il
+   trascinamento (useSidebarSwipe) l'opacità la scrive il gesto, in linea, frame
+   per frame — e a fine corsa la cancella. Cancellare un valore in linea
+   restituisce la decisione a questa regola; se il riposo fosse a sua volta in
+   linea, cancellarlo lascerebbe un rettangolo nero a schermo intero.
+   `visibility` e non solo `opacity`: un velo a opacità zero resta un bersaglio
+   per il dito e un nodo per chi legge lo schermo. Sta nella transizione così la
+   sparizione aspetta la dissolvenza invece di anticiparla. */
+.sidebar-scrim {
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 200ms ease, visibility 200ms;
+}
+.sidebar-scrim[data-open="true"] {
+  opacity: 1;
+  visibility: visible;
 }
 
 /* (Removed) The `html.sidebar-animating .xterm { content-visibility: hidden }` blank
@@ -1139,6 +1267,35 @@ input[type="range"] {
   border-radius: 3px;
 }
 
+/* ── IL CURSORE A SLITTA, SOTTO IL DITO ──────────────────────────────────────
+ *
+ * Sei pixel si prendono col mouse, non col dito: a 390×844 i due cursori delle
+ * Impostazioni misuravano 356×6 contro una soglia di 44.
+ *
+ * Qui l'elemento diventa alto 44 DAVVERO — è lui a ricevere il tocco — e la
+ * pista continua a dipingersi spessa 6, perché il fondo è ritagliato sul solo
+ * box del contenuto (`background-clip: content-box`), che il padding stringe a
+ * 6px in mezzo ai 44. Nessun rettangolo finto: il bersaglio misurato è 44 e a
+ * video non cambia un pixel. Il pollice resta centrato da sé: con
+ * `appearance: none` Chromium centra pista e pollice sul box del contenuto.
+ *
+ * Perché NON `.tap-expand`, che nasce per allargare i bersagli: gli
+ * pseudo-elementi non esistono sugli elementi SOSTITUITI, e un `<input>` lo è.
+ *
+ * E perché lo stesso selettore della regola qui sopra invece di una classe: una
+ * classe (0,1,0) perde contro `input[type="range"]` (0,1,1), quindi `height`
+ * restava 6 mentre il padding passava — misurato: il bersaglio veniva 38, cioè
+ * i soli 19+19 di padding attorno a un contenuto schiacciato a zero. Vale per
+ * TUTTI i cursori dell'app: sono tre, e il difetto è lo stesso in tutt'e tre. */
+@media (pointer: coarse) {
+  input[type="range"] {
+    box-sizing: border-box;
+    height: 44px;
+    padding-block: 19px;
+    background-clip: content-box;
+  }
+}
+
 input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
   width: 16px;
@@ -1324,6 +1481,157 @@ input[type="range"]::-webkit-slider-thumb {
   }
 }
 
+
+/* ── LA CODA DI UNA RIGA: il comando ci passa SOPRA, non in mezzo ────────────
+ *
+ * Attilio, 09/08: «il tasto chiusura deve essere sempre a fine tab, andando in
+ * hover sulle icone invece inutili». Sono due frasi, ed è la seconda a decidere
+ * la meccanica: il comando non CHIEDE un posto in fila, ci passa sopra, e ciò
+ * che copre in quel momento non serve.
+ *
+ * Cosa c'era prima, misurato su 8 superfici: sei su otto facevano CONTENDERE lo
+ * slot. Il caso peggiore è la riga chat — un solo `<span>` con QUATTRO occupanti
+ * («timestamp» `group-hover:hidden`, «archivia» `hidden group-hover:flex», il
+ * cerchio del conto alla rovescia, e lo spinner che sostituisce l'intero span) —
+ * e lo slot cambiava larghezza a ogni stato: l'inchiostro del timestamp, poi 36,
+ * poi 28. Cioè il tasto compariva ogni volta in una x diversa, dentro la stessa
+ * colonna. La riga di progetto faceva anche di peggio: il conto alla rovescia
+ * viveva dentro il ramo `group-hover`, quindi TOGLIENDO IL MOUSE il countdown
+ * spariva mentre continuava a scorrere.
+ *
+ * Adesso ci sono due elementi e un contratto:
+ *  · `.row-trail` — i segnali quieti in coda (ora, pin, badge, spunte di stato).
+ *    Restano dove sono, non si spostano MAI, e sbiadiscono sotto il comando.
+ *  · `.row-actions` — il binario dei comandi, fuori dal flusso, ancorato al
+ *    bordo destro. Stessa x su ogni superficie, per costruzione: non dipende più
+ *    da quanti segnali lo precedono. Dentro può starcene più d'uno (la riga di
+ *    progetto ha il «+» accanto al cerchio); quello che chiude è sempre
+ *    l'ULTIMO.
+ *
+ * IL CONTO ALLA ROVESCIA NON SI SPEGNE QUANDO ESCI DALLA RIGA (`data-pending`).
+ * È l'unico stato in cui il comando resta acceso senza il mouse sopra: un'azione
+ * che si può ancora annullare deve restare annullabile anche se sposti il
+ * puntatore, che era il difetto della riga di progetto.
+ *
+ * ── E SENZA HOVER TORNA IN FILA, che non è un'eccezione ─────────────────────
+ * Col dito non esiste un «passaggio»: un comando rivelato dall'hover sarebbe un
+ * comando che non esiste. Sotto `hover: none` `.row-actions` resta quindi un
+ * normale figlio flex — ultimo nel DOM, quindi sempre a fine riga, che è la
+ * stessa promessa — e `.row-trail` NON sbiadisce: sovrapporre per sempre il
+ * comando al badge vorrebbe dire spegnere il conteggio dei non letti sul
+ * telefono. La posizione è la stessa, cambia solo chi cede il posto: là il
+ * comando si prende la sua larghezza, qui la prende in prestito.
+ *
+ * `> .row-actions` è figlio DIRETTO: l'albero annida (un progetto contiene le sue
+ * chat), e senza il combinatore il passaggio su una riga figlia accenderebbe
+ * anche il comando del padre. */
+/* IL «+» DELLA BARRA: col mouse esce al passaggio, col dito resta.
+ *
+ * «Facciamo in modo che i + da desktop escano solo all'hover (tabbar)»
+ * (Attilio, 10/08). È la stessa idea di `.row-actions` un piano più su — un
+ * comando non deve stare acceso mentre non lo stai usando — con la stessa
+ * distinzione fra i due dispositivi: dove l'hover non esiste, un comando
+ * rivelato dall'hover è un comando che non esiste, quindi col dito resta
+ * visibile e basta.
+ *
+ * NON collassa: lo spazio in coda alla strip resta riservato
+ * (`CHROME_ROW_ACTION_RESERVE`), quindi l'ultima tab non si allunga per un
+ * istante quando il bottone appare. È la stessa promessa del binario di riga —
+ * il comando compare, il layout no.
+ *
+ * L'ambito è `.pane-chrome-bar`, cioè la riga intera: il bottone sta nel suo
+ * angolo, e pretendere il mouse ESATTAMENTE lì per farlo comparire vorrebbe
+ * dire non farlo trovare. Entrando nella barra si accende prima che tu ci
+ * arrivi. */
+@media (hover: hover) {
+  .bar-action-reveal {
+    opacity: 0;
+    transition: opacity 100ms ease;
+  }
+  .pane-chrome-bar:hover .bar-action-reveal,
+  .pane-chrome-bar:focus-within .bar-action-reveal {
+    opacity: 1;
+  }
+  /* Un menu APERTO non si spegne se il mouse esce dalla barra: il pannello vive
+   * in un portale fuori dalla barra, quindi muovendosi verso le sue voci si
+   * uscirebbe dall'ambito dell'hover e il trigger sparirebbe sotto il cursore. */
+  .bar-action-reveal:has([aria-expanded='true']) { opacity: 1; }
+}
+/* SOLO L'OPACITÀ, MAI `pointer-events`. È la differenza con `.row-actions`, e la
+ * ragione è diversa fra i due:
+ *
+ *  · nel binario di riga il comando è SOPRA i segnali quieti, quindi da spento
+ *    deve lasciarli cliccabili — un box da 36 trasparente sopra il badge se ne
+ *    mangerebbe i clic senza che si veda perché;
+ *  · qui sotto non c'è niente: lo spazio è riservato apposta
+ *    (`CHROME_ROW_ACTION_RESERVE`) e nessuna tab ci arriva. Spegnere anche i
+ *    clic aggiungerebbe solo un modo di mancare il bersaglio — il cursore che
+ *    arriva da fuori finestra, o un salto di trackpad, atterra sul bottone nello
+ *    stesso istante in cui l'hover lo accende, e il mousedown cadrebbe sul
+ *    nulla. Misurato al primo giro: due click di test andati a timeout.
+ *
+ * Un bottone invisibile ma cliccabile in un angolo non è una trappola qui:
+ * entrare nella barra lo accende PRIMA che tu possa raggiungerlo. */
+
+.row-actions {
+  display: flex; align-items: center; justify-content: center;
+  /* La SCATOLA del comando, in pixel: specchia `ROW_ACTION_BOX`
+   * (`w-9 h-9 md:w-7 md:h-7`). Serve qui perché l'incasso qui sotto si calcola
+   * a partire da essa, e nessuna media query può leggere una costante TS. */
+  --row-action-box: 36px;
+}
+@media (min-width: 768px) { .row-actions { --row-action-box: 28px; } }
+@media (hover: hover) {
+  .row-actions {
+    position: absolute;
+    /* SI ALLINEA IL GLIFO, NON LA SCATOLA.
+     *
+     * La promessa è sempre la stessa — «il comando finisce dove finiscono i
+     * segnali che copre», cioè a `ROW_PX` (8px) dal bordo interno — ma finora
+     * era la SCATOLA a fermarsi lì, e la scatola è 28 attorno a un glifo da 16.
+     * Risultato: il cerchietto disegnato finiva a 8 + (28 − 16) / 2 = 14px dal
+     * bordo, mentre il badge che sostituisce ne sta 8. Passando il mouse su una
+     * tab il pallino della notifica spariva e il cerchio di chiusura compariva
+     * SEI PIXEL PIÙ A SINISTRA — «il tasto, cerchietto per chiudere una tab, non
+     * è ben posizionato» (Attilio, 10/08). Due cose che si danno il cambio nello
+     * stesso posto devono stare nello stesso posto.
+     *
+     * Quindi si scala l'incasso di metà della differenza fra scatola e glifo, e
+     * il glifo atterra esattamente sul binario dei segnali quieti.
+     *
+     * `max(0px, …)`: sul ramo col dito la scatola è 36 e il conto darebbe −2px,
+     * cioè una scatola che sborda dalla riga — dentro una tab, che ha
+     * `overflow-hidden`, sarebbero 2px di bersaglio tagliati via. Là si resta a
+     * filo (glifo a 10 invece che a 8), che è il residuo accettabile: quel ramo
+     * è anche quello in cui l'hover, per definizione, quasi non esiste.
+     *
+     * 8px = `ROW_PX`, ricalcolato da `selectionStyles.test.ts` — vedi
+     * ROW_ACTIONS_INSET_PX. */
+    right: max(0px, calc(8px - (var(--row-action-box) - 16px) / 2));
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 20;
+    opacity: 0;
+    /* Invisibile E intoccabile: un box da 36 trasparente sopra il badge si
+     * mangerebbe i clic diretti al badge senza che si veda perché. */
+    pointer-events: none;
+    transition: opacity 100ms ease;
+  }
+  .row-trail { transition: opacity 100ms ease; }
+  .row-card:hover > .row-actions,
+  .row-card:focus-within > .row-actions,
+  .row-actions[data-pending='true'] {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .row-card:hover > .row-trail,
+  .row-card:focus-within > .row-trail,
+  .row-card:has(> .row-actions[data-pending='true']) > .row-trail {
+    opacity: 0;
+    pointer-events: none;
+  }
+}
+
 /* IL BORDO RIFLESSO — la luce che cade sul bordo alto di una card.
  *
  * Attilio, 07/08: «una sorta di bordo riflesso sulle card, molto minimo, non
@@ -1418,6 +1726,57 @@ html.electron-mac.dark .edge-lit::before {
     inset 0 1px 0 0 rgb(255 255 255 / 0.06),
     inset 0 -1px 0 0 rgb(0 0 0 / 0.18),
     inset 0 0 0 1px rgb(255 255 255 / 0.035);
+}
+
+/* LO STESSO RIFLESSO, MA SOLO DOVE C'È UNA CARD DA CHIUDERE.
+ *
+ * `edge-lit` disegna la FORMA di una superficie, quindi va messo solo su una
+ * card che un fondo ce l'ha: su una riga trasparente diventerebbe un rettangolo
+ * attorno a ogni voce dell'albero, cioè esattamente le linee divisorie che
+ * questo file esiste per togliere. È la regola scritta in `sidebarRowCard`, ed
+ * è giusta — sul DESKTOP.
+ *
+ * Sotto i 768px però la riga a riposo un fondo ce l'ha (RESTING_FILL_MOBILE:
+ * là pagina e chrome collassano in una superficie sola e senza campitura le
+ * card sparirebbero). Da quel momento tessera e tab hanno il riflesso e la riga
+ * no, pur essendo tre presentazioni della stessa cosa: il bordo della riga
+ * resta aperto in basso mentre quello della tessera accanto è chiuso.
+ *
+ * Una classe a parte e non una variante `max-md:` perché `edge-lit` è una
+ * classe vera con uno pseudo-elemento, e i prefissi di Tailwind non la
+ * raggiungono. La media query è la stessa di `max-md:` (48rem), scritta come
+ * `not all and (min-width: …)` per pareggiare ciò che Tailwind emette. */
+@media not all and (min-width: 48rem) {
+  .edge-lit-mobile { position: relative; }
+  .edge-lit-mobile::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    box-shadow:
+      inset 0 1px 0 0 rgb(255 255 255 / 0.4),
+      inset 0 -1px 0 0 rgb(0 0 0 / 0.05),
+      inset 0 0 0 1px rgb(0 0 0 / 0.04);
+  }
+  .dark .edge-lit-mobile::before {
+    box-shadow:
+      inset 0 1px 0 0 rgb(255 255 255 / 0.07),
+      inset 0 -1px 0 0 rgb(0 0 0 / 0.2),
+      inset 0 0 0 1px rgb(255 255 255 / 0.045);
+  }
+  html.electron-mac .edge-lit-mobile::before {
+    box-shadow:
+      inset 0 1px 0 0 rgb(255 255 255 / 0.32),
+      inset 0 -1px 0 0 rgb(0 0 0 / 0.045),
+      inset 0 0 0 1px rgb(0 0 0 / 0.03);
+  }
+  html.electron-mac.dark .edge-lit-mobile::before {
+    box-shadow:
+      inset 0 1px 0 0 rgb(255 255 255 / 0.06),
+      inset 0 -1px 0 0 rgb(0 0 0 / 0.18),
+      inset 0 0 0 1px rgb(255 255 255 / 0.035);
+  }
 }
 
 /* Il margine del composer, come variabile: serve a `max(…)` nel confronto con
@@ -1565,6 +1924,18 @@ html.electron-mac.dark :is(.raised-control-overlay .raised-control:hover, .raise
   /* Senza movimento resta il segnale, che è il punto: chi ha chiesto meno
      animazioni non ha chiesto meno feedback. */
   [data-pressing] { transform: none; }
+}
+
+/* Il composer che scende dal centro al fondo quando la chat smette di essere
+   vuota (ChatPane). Solo `transform`: nessun layout, nessuna rimisura della
+   lista virtualizzata: il compositore lo muove senza toccare il main thread.
+   La curva è quella delle superfici di sistema — parte decisa, arriva senza
+   rimbalzo. */
+.composer-dock-slide {
+  transition: transform 420ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .composer-dock-slide { transition: none; }
 }
 
 /* Mobile drawer animation */
@@ -1923,7 +2294,7 @@ html.electron-mac.dark :is(.raised-control-overlay .raised-control:hover, .raise
  * Keyframes from the reference desktop client we studied:
  *   · `timeline-blur-in`    — content swap entry (24px blur → 0 in 120ms)
  *   · `timeline-blur-out`   — exit (faster, 80ms)
- * (the "working now" cue is `grid-lit` below, defined with GridLoader.)
+ * (the "working now" cue is `wave-bar` below, defined with WaveLoader.)
  * Plus three Material easing curves.
  */
 @keyframes timeline-blur-in {
@@ -1939,22 +2310,60 @@ html.electron-mac.dark :is(.raised-control-overlay .raised-control:hover, .raise
 .animate-timeline-in { animation: timeline-blur-in 120ms cubic-bezier(0, 0, 0.2, 1) both; }
 .animate-timeline-out { animation: timeline-blur-out 80ms cubic-bezier(0.4, 0, 1, 1) both; }
 
-/* Grid loader — the canonical "working now" cue (GridLoader in
- * StreamingIndicator). A vertical 2-column × 3-row matrix of tiny squares where
- * ONE cell lights up at a time and the lit cell TRAVELS column-by-column,
- * top→bottom (the per-cell animation-delay sets the order). This drives the LIT
- * OVERLAY only: each cell has a permanent neutral base frame (the SplitMiniMap
- * "deactivated pane" wash) and a blue gradient overlay on top. The overlay pops
- * to full opacity, then snaps to 0 — a hard cut, NOT a soft fade — fully
- * revealing the neutral base, so it reads as cells activating one by one (the
- * metaphor: discrete computation steps) over an always-visible frame. The
- * on-window (~17%) ≈ one slot (1/6), so exactly one cell is lit through the
- * cycle. Opacity only → no layout reflow when it mounts. */
-@keyframes grid-lit {
-  0%, 17%      { opacity: 1; }
-  17.01%, 100% { opacity: 0; }
+/* L'ONDA — il cue «sto lavorando», rifatto (WaveLoader in StreamingIndicator).
+ *
+ * Prima erano sei quadratini da 3px accesi uno alla volta. Due difetti, uno
+ * estetico e uno misurabile:
+ *
+ *  · misurabile — la matrice era larga 7,5px dentro una scatola da 16, quindi
+ *    partiva a (16 − 7,5) / 2 = 4,25px. Un quadrato di 3px che nasce su un
+ *    quarto di pixel non ha un bordo: ha due colonne di sub-pixel sbiadite. Da
+ *    vicino il glifo si legge sfocato, ed è metà del «il loader non è ben
+ *    posizionato» (Attilio, 10/08). Adesso il glifo è 10×12: (16 − 10) / 2 = 3
+ *    e (16 − 12) / 2 = 2, tutti e due interi.
+ *  · estetico — un solo pixel acceso alla volta su uno spento è un segno
+ *    povero, e da fermo (l'attesa) diventava letteralmente «quel coso fermo».
+ *
+ * Adesso sono tre colonne in una traccia: ogni barra ha un fondo quieto sempre
+ * presente (la stessa acqua del 22% dello SplitMiniMap, così la parentela di
+ * famiglia resta) e dentro ci sale una barra col gradiente del primario. Le tre
+ * salgono sfalsate — è un misuratore che respira, non una spia che lampeggia.
+ *
+ * Si anima SOLO `transform` (scaleY con origine in basso): il compositore la
+ * muove senza toccare il main thread e senza un riflusso, che è la stessa regola
+ * già scritta qui sopra per `awaiting-pulse` e `turnDotGlow`.
+ *
+ * 1,05s e non mezzo secondo: sotto il secondo l'onda «corre» e legge come una
+ * barra di caricamento che si aspetta finisca a momenti; più lenta legge come
+ * qualcosa che pensa — che è quello che sta succedendo davvero. */
+@keyframes wave-bar {
+  0%, 100% { transform: scaleY(0.34); }
+  50%      { transform: scaleY(1); }
 }
-.animate-grid-lit { animation: grid-lit 1.1s linear infinite; }
+.animate-wave-bar {
+  transform-origin: 50% 100%;
+  animation: wave-bar 1.05s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+/* L'ATTESA: stesse barre, ferme a mezz'altezza e in ambra, che respirano piano.
+ * «Fermo» è l'informazione — un turno sospeso su una domanda non macina — ma
+ * fermo non vuol dire spento: il respiro lento dice che la sessione è ancora
+ * viva e la palla è tua. */
+@keyframes wave-breath {
+  0%, 100% { opacity: 0.5; }
+  50%      { opacity: 1; }
+}
+.animate-wave-breath { animation: wave-breath 2.4s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  /* Niente movimento, ma il segnale resta: le tre barre si fermano su altezze
+     diverse (lo sfalsamento diventa una forma invece che un tempo). */
+  .animate-wave-bar { animation: none; }
+  .animate-wave-bar[data-slot='0'] { transform: scaleY(0.5); }
+  .animate-wave-bar[data-slot='1'] { transform: scaleY(1); }
+  .animate-wave-bar[data-slot='2'] { transform: scaleY(0.68); }
+  .animate-wave-breath { animation: none; opacity: 0.9; }
+}
 
 /* Electric-blue "awaiting feedback" tab/row — a gentle breathe so a session
  * parked waiting for the user reads as "alive, expecting you".
@@ -2010,7 +2419,7 @@ html.electron-mac.dark :is(.raised-control-overlay .raised-control:hover, .raise
 /* Pause EVERY keyframe animation while the window is backgrounded (driven by
  * useAnimationPause, which toggles `.anims-paused` on <html> on blur/hide). On
  * the big transparent-vibrancy desktop window the always-running loaders
- * (grid-lit) and parked-session breathers (awaiting-pulse) otherwise keep the
+ * (wave-bar) and parked-session breathers (awaiting-pulse) otherwise keep the
  * compositor working every frame with nobody watching. `animation-play-state` is
  * compositor-safe: the toggle costs one style recalc on blur/focus, never a
  * per-frame cost, and CSS *transitions* are unaffected. */
@@ -2093,18 +2502,35 @@ html.electron-mac #root {
   overflow: hidden;
 }
 
-/* Chrome (sidebar / top bar / pane gutters use var(--bg)) → frosted glass.
- * Single translucent layer = clean frost, no compounding. */
+/* IL VELO UNICO DELLA FINESTRA È IL VELO DEL CHROME.
+ *
+ * Erano due mani: questa, stesa una volta dal guscio dell'app, e quella del
+ * chrome che le righe delle tab aggiungevano sopra. Il tono che ne usciva —
+ * #151519 — è quello che vale, ed era l'unico punto della finestra ad averlo:
+ * tutto il resto si fermava alla prima mano (#242426). Il gradino di quindici
+ * livelli sul bordo basso delle barre era esattamente la seconda mano.
+ * («Era meglio la versione più scura», Attilio 09/08, scegliendo il tono scuro
+ * PER TUTTO e non solo per le barre.)
+ *
+ * Quindi la seconda mano non si toglie e non si sposta: DIVENTA la prima. La
+ * tinta è quella del chrome, e l'alpha sale da 0,5 a 0,72 perché una mano sola
+ * deve arrivare dove due ne arrivavano insieme. Il conto, con la vibrancy
+ * misurata dietro la finestra (53,53,51):
+ *   due mani  0,55·(8,10,14) su [0,5·(19,21,27) su V] = 20,6 22,2 25,3
+ *   una mano  0,72·(8,10,14) su V                     = 20,6 22,0 24,4
+ * cioè lo stesso pixel, con la stessa vibrancy che continua a passare (28%
+ * contro il 22,5% di prima: la finestra non diventa opaca, cambia solo dove il
+ * velo sta).
+ *
+ * Il ramo chiaro ripete la tinta del suo chrome (hue 220, sat 16%, L 93%) con
+ * la stessa alpha: la convenzione di questo file è «stessa tinta, cambia solo
+ * il grado», e due tinte che si chiamano uguale sono la deriva che il commento
+ * precedente era già stato scritto per chiudere. */
 html.electron-mac.dark {
-  --bg: hsl(222 16% 9% / 0.5);
+  --bg: hsl(224 26% 4.5% / 0.72);
 }
 html.electron-mac:not(.dark) {
-  /* La stessa tinta di `:root` (hue 220, sat 16%, L 96%), come il ramo scuro qui
-   * sopra ripete quella del suo `.dark`: cambia solo l'alpha. Portava sat 24% e
-   * L 97% — un'altra tinta, non un altro grado di trasparenza — cioè la pagina
-   * del desktop e quella del web erano due colori diversi che si chiamavano
-   * uguale. */
-  --bg: hsl(220 16% 96% / 0.55);
+  --bg: hsl(220 16% 93% / 0.72);
 }
 
 /* The frosted backdrop is painted ONCE by the outer app wrapper (its `--bg` is
@@ -2180,32 +2606,177 @@ html.electron-mac:not(.dark) {
    * il chrome chiaro, una sul web e una sul desktop. */
   --chrome-bg: hsl(220 16% 93% / 0.55);
 }
-/* I due selettori restano SDOPPIATI per tema anche se il valore ora è un solo
-   token: scriverli come `html.electron-mac .chrome-glass` farebbe scendere la
-   specificità da (0,3,1) a (0,2,1), e a quel punto pareggerebbe con le quattro
-   regole `background-color: transparent !important` più sotto (pane terminale,
-   cella col browser nativo, `.pane-frost`, `[role="region"][aria-label$=" panel"]`),
-   che vincerebbero per ordine di sorgente. Oggi nessun nodo porta insieme
-   `.chrome-glass` e uno di quei selettori, quindi non si vedrebbe — ma è un
-   difetto latente che aspetta il primo che li fa incontrare. */
+/* NESSUNA SUPERFICIE DIPINGE, PERCHÉ IL VELO LO STENDE GIÀ LA FINESTRA.
+ *
+ * Qui ogni vetro di chrome — la sidebar dei topic, i gusci delle pane, la
+ * colonna del progetto — stendeva la sua mano di `--chrome-bg` sopra il velo
+ * del guscio. Con il velo della finestra portato al tono del chrome (blocco
+ * `--bg` più su) una seconda mano non è più «la tinta del chrome»: è la tinta
+ * del chrome DUE VOLTE, cioè una superficie più scura di tutte le altre. Il
+ * difetto che questo blocco produrrebbe è lo stesso che la regola
+ * anti-doppio-strato qui sotto esisteva per impedire — solo spostato di un
+ * livello.
+ *
+ * Quindi la regola annidata sparisce con la sua causa: non serve più spegnere
+ * il vetro DENTRO un altro vetro, perché non ne dipinge nessuno. Un velo, uno
+ * solo, steso una volta dal guscio dell'app; tutto il resto è trasparente e il
+ * vetro lo fa il `backdrop-filter`. Ciò che si guadagna non è un pixel: è che
+ * la tinta di una superficie non dipende più da DOVE sta nell'albero — che è
+ * stata la causa di ogni divergenza di questa famiglia (la barra di progetto
+ * contro quella di primo livello, il 09/08).
+ *
+ * I selettori restano sdoppiati per tema: `html.electron-mac .chrome-glass`
+ * scenderebbe da (0,3,1) a (0,2,1) e pareggerebbe con le quattro regole
+ * `transparent !important` più sotto (pane terminale, cella col browser nativo,
+ * `.pane-frost`, `[role="region"][aria-label$=" panel"]`), che vincerebbero per
+ * ordine di sorgente. Oggi dicono tutte la stessa cosa, quindi non si vedrebbe
+ * — ma è un difetto latente che aspetta il primo che le fa divergere. */
 html.electron-mac.dark [role="navigation"][aria-label="Topics sidebar"],
 html.electron-mac.dark .chrome-glass,
 html.electron-mac:not(.dark) [role="navigation"][aria-label="Topics sidebar"],
 html.electron-mac:not(.dark) .chrome-glass {
-  background-color: var(--chrome-bg) !important;
-}
-
-/* SINGLE translucent layer, always. A `.chrome-glass` nested inside another
- * `.chrome-glass` must NOT repaint its tint — only the OUTERMOST one in any
- * subtree paints. Otherwise the 0.55 alpha compounds (2 layers = darker than 1)
- * and surfaces drift apart: e.g. the project sidebar (sidebar + group-cell = 2)
- * vs a terminal (container + group-cell = 2) both ended up darker than intended,
- * and any deeper nesting darker still. Collapsing nested glass to transparent
- * makes every frosted chrome surface render exactly one identical tint over the
- * shared base frost. */
-html.electron-mac .chrome-glass .chrome-glass {
   background-color: transparent !important;
 }
+
+/* L'ALTRA RIGA DI CHROME: quella che sta NEL FLUSSO.
+ *
+ * `.pane-chrome-bar` è l'overlay sopra la conversazione. La barra degli
+ * indirizzi di una pane browser fa lo stesso mestiere — è la testata della pane,
+ * alta 40 come le altre — ma non può essere un overlay: sotto di lei c'è una
+ * pagina web vera, che non deve scorrerle sotto.
+ *
+ * Aveva quindi il solo `chrome-glass`, e sotto la shell mac finiva nella stessa
+ * trappola della barra del progetto: annidata dentro un altro vetro, la regola
+ * anti-doppio-strato la spegneva e la sua tinta usciva diversa da quella della
+ * riga sopra. «Ancora alcuni colori non sono uniformati (es. browser)»
+ * (Attilio, 09/08): era questo, e la causa è la stessa di prima — la posizione
+ * nel DOM, non una scelta.
+ *
+ * Sul web dipinge `--chrome-overlay-bg`, la stessa tinta della barra delle tab,
+ * che su una superficie chiara compone esattamente sullo stesso valore. Il
+ * `border-b` resta, e non è un'incoerenza con la barra delle tab che l'ha perso:
+ * là sotto c'è testo NOSTRO che deve passarci sotto, qui c'è una pagina di
+ * qualcun altro, e fra le due ci vuole un confine. */
+.chrome-row-solid {
+  background-color: var(--chrome-overlay-bg);
+}
+
+/* LA RIGA DELLE TAB È UN VETRO SOPRA IL CONTENUTO, NON UN RIPIANO SOPRA DI ESSO.
+ *
+ * Era un fratello nel flusso — barra, poi la pane sotto — separati da un
+ * `border-b`. Quel filo non era decorazione: l'avevo misurato, barra e
+ * contenuto hanno lo STESSO fondo in tutte e quattro le combinazioni
+ * (telefono/desktop × chiaro/scuro), quindi era l'UNICA cosa che diceva dove
+ * finiva l'una e cominciava l'altra. Toglierlo e basta avrebbe fuso le due zone.
+ *
+ * Quindi non si toglie e basta: si cambia il rapporto. La barra esce dal flusso
+ * (`absolute`), la conversazione parte da sopra e le passa SOTTO, e a separarle
+ * non c'è più una linea ma la PROFONDITÀ — il blur dice «questo è davanti»
+ * meglio di quanto un pixel di bordo dicesse «questo è un'altra zona».
+ * (Attilio, 08/08: «rimuovere la linea sotto la tab bar, togliendo anche
+ * l'eventuale sfondo, in modo da creare un effetto overlay».)
+ *
+ * IL FONDO NON SPARISCE, si fa vetro, ed è il punto che va capito prima di
+ * riabbassare l'alpha: sotto ci scorre TESTO. Senza velo, i nomi delle tab
+ * cadono su parole in movimento e il contrasto cambia riga per riga. Il velo
+ * è la stessa tinta del chrome di sempre (`--chrome-bg`) — la barra non
+ * diventa un'altra superficie, diventa la stessa superficie translucida.
+ *
+ * L'alpha è 0,72 e non 0,55 per la stessa ragione per cui i popover stanno a
+ * 0,72 (vedi `.glass-surface` più sotto): 0,55 è tarato su ciò che sale da
+ * DIETRO LA FINESTRA — la vibrancy di macOS, che è già sfocata e senza forma.
+ * Qui sotto c'è contenuto dell'app, cioè glifi ad alto contrasto, e il blur
+ * sfoca i contorni ma non abbassa il contrasto: serve corpo. Sulla shell mac
+ * l'alpha resta quella del chrome, perché lì la barra confina con la sidebar e
+ * due vetri della stessa famiglia a due opacità diverse si leggono come una
+ * giunta (è l'invariante «un solo strato» del blocco qui sopra).
+ *
+ * `@apply backdrop-blur-*` e non un `backdrop-filter` scritto a mano: Lightning
+ * CSS collassa la coppia grezza sul solo `-webkit-`, che Blink ignora, e il
+ * blur sparisce in silenzio (la stessa trappola documentata su `.glass-surface`). */
+/* IL VELO PORTA LA TINTA DELLA SUPERFICIE SU CUI GALLEGGIA, NON QUELLA DEL
+ * CHROME. È la differenza fra «la barra è la stessa superficie, translucida» —
+ * che è quello che il commento qui sopra dichiara — e «la barra è una lastra
+ * appoggiata sopra», che è quello che si vedeva.
+ *
+ * Il velo era la tinta del chrome (#080a0e in scuro, un quasi-nero), stesa su
+ * una superficie che è tutt'altra cosa (`--bg-surface`, #1b1c1d). Tinta ≠ base
+ * significa che il velo SPOSTA il colore, e lo scarto si legge come un gradino
+ * netto sul bordo basso della barra. Misurato campionando il pixel dipinto a
+ * y=0..73 (le due righe) contro y=74 (il contenuto), tutte e quattro le
+ * combinazioni:
+ *   scuro  web  #0e0f12 contro #1b1c1d  → 13
+ *   scuro  mac  #090b11 contro #0c0d12  →  3
+ *   chiaro web  #f1f2f3 contro #ffffff  → 14
+ *   chiaro mac  #eceff3 contro #f0f2f5  →  4
+ * e sulla finestra Tauri vera, dove sotto c'e la vibrancy vera invece del
+ * fondale di Chromium: #16181b contro #242527, cioe 14.
+ * («Dovrebbe esserci continuità di sfondi fra contenuto e tabbar», Attilio 09/08.)
+ *
+ * Con tinta = base l'errore è ZERO PER COSTRUZIONE, a qualunque alpha: stendere
+ * un colore su se stesso non lo sposta. L'alpha smette di essere un compromesso
+ * fra «si vede il gradino» e «si legge il testo sotto» e torna a fare una cosa
+ * sola — mascherare ciò che scorre — con il blur a fare il resto.
+ *
+ * `color-mix` e non il valore riscritto a mano: `--bg-surface` cambia con il
+ * tema, e una copia dei suoi canali qui diventerebbe una seconda verità che
+ * diverge al primo che tocca la prima. Lightning CSS non può risolverlo
+ * staticamente (dentro c'è una `var()`), quindi lo lascia passare intatto —
+ * la stessa ragione per cui la riga sopravvive alla compilazione. Un solo
+ * `:root`: la variante scura arriva da sé, perché arriva da `--bg-surface`. */
+/* NESSUN VELO, NEMMENO SUL WEB: le tab GALLEGGIANO sul contenuto.
+ *
+ * Il velo era la tinta del chrome, poi è diventato la tinta della superficie
+ * sotto (che è la ragione per cui il gradino è sparito), e a quel punto la
+ * domanda giusta è: a cosa serve stendere un colore su se stesso? A mascherare
+ * ciò che scorre — che è esattamente ciò che fa il `backdrop-filter`, senza
+ * dover scegliere un'opacità. «Il bg tabbar doveva essere trasparente così
+ * appariva tutto in floating» (Attilio, 09/08): tolto il fondo, quello che si
+ * vede sono le CARD delle tab appoggiate sul contenuto, che è la forma che
+ * questa barra ha sempre voluto avere.
+ *
+ * Un valore solo per tutti gli ambienti: sotto la shell era già così dal
+ * blocco `html.electron-mac`, e tenerne due significava che web e desktop
+ * mostravano due barre diverse per una decisione che è una sola. */
+:root { --chrome-overlay-bg: transparent; }
+.pane-chrome-bar {
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  /* Sopra il contenuto, sotto i popover (z-50) e le anteprime di split. */
+  z-index: 20;
+  background-color: var(--chrome-overlay-bg);
+  @apply backdrop-blur-xl backdrop-saturate-150;
+}
+/* IL TRASCRITTO SI RIPRENDE I 40px DELLA BARRA — ma solo se è lui il primo.
+ *
+ * La cella di ogni pane tiene un rientro pari all'altezza della barra
+ * (`paneCellTopInset`), così i blocchi che stanno in cima alla chat — banner,
+ * messaggi appuntati, la striscia di attività sul telefono — nascono SOTTO il
+ * vetro e si leggono. Il trascritto invece deve passarci sotto, quindi si
+ * riprende quel rientro con un margine negativo e lo restituisce come varco
+ * DENTRO il contenuto scrollato (l'`Header` di Virtuoso legge `--chat-gutter`).
+ *
+ * `:first-child` è la condizione, ed è esatta: quei blocchi o rendono un
+ * elemento o non rendono niente: quando non c'è nessuno sopra, il contenitore
+ * del trascritto È il primo figlio della colonna. Quando invece c'è un banner,
+ * il rientro della cella l'ha già speso lui — allora niente margine negativo e
+ * varco a zero, altrimenti i 40px si conterebbero due volte e sotto il banner
+ * si aprirebbe una fascia vuota.
+ *
+ * Due effetti, UNA condizione: se un giorno la regola cade, cadono insieme, e
+ * non si arriva mai allo stato misto (margine senza varco = prima riga
+ * coperta). Lo blocca `chrome-bar-overlay.spec.ts`. */
+.chat-under-chrome { --chat-gutter: 0px; }
+.chat-under-chrome:first-child {
+  margin-top: calc(-1 * var(--chrome-bar-h, 0px));
+  --chat-gutter: var(--chrome-bar-h, 0px);
+}
+
+/* La regola `!important` di `html.electron-mac .chrome-glass` (qui sopra)
+   batterebbe il fondo di `.pane-chrome-bar` — e va bene così, perché lì il
+   token che vogliamo È `--chrome-bg`. Scritto per esteso perché chi legge non
+   debba dedurlo dalla cascata. */
 
 /* Floating popovers — dropdowns, menus, context menus, autocompletes — read as
  * the SAME frosted glass as the chrome instead of an opaque `bg-surface` block.
@@ -2622,14 +3193,26 @@ html.electron-mac [role="region"][aria-label$=" panel"] > .bg-surface {
 .code-block-wrapper .hljs-meta { color: #d19a66; }
 .code-block-wrapper .hljs-title,
 .code-block-wrapper .hljs-title.function_ { color: #61afef; }
+/* IL SOLO TOKEN DELLA TAVOLOZZA CHE NON PASSAVA AA, e ora passa.
+ *
+ * `#e06c75` è il rosso di One Dark, e su questo fondo (`--code-bg`, #2a2b2d)
+ * misura 4,38:1 — sotto il 4,5 di WCAG AA per il testo piccolo, di un soffio.
+ * Gli altri sei token della tavolozza stanno fra 5,7 e 8,1: era l'unico fuori.
+ * Alzato quel tanto che basta (4,84:1) mantenendo tinta e carattere: a occhio è
+ * lo stesso rosso, al contrastometro non è più l'eccezione.
+ *
+ * È emerso di rimbalzo — il varco in cima al trascritto ha spostato la finestra
+ * virtualizzata di Virtuoso e ha fatto MONTARE un blocco di codice che il
+ * cancello a11y non aveva mai visto. Il difetto c'era da prima; a cambiare è
+ * stato solo chi lo guardava. */
 .code-block-wrapper .hljs-attr,
 .code-block-wrapper .hljs-attribute,
 .code-block-wrapper .hljs-variable,
 .code-block-wrapper .hljs-template-variable,
-.code-block-wrapper .hljs-property { color: #e06c75; }
+.code-block-wrapper .hljs-property { color: #e57781; }
 .code-block-wrapper .hljs-built_in,
 .code-block-wrapper .hljs-title.class_ { color: #e5c07b; }
-.code-block-wrapper .hljs-deletion { color: #e06c75; }
+.code-block-wrapper .hljs-deletion { color: #e57781; }
 .code-block-wrapper .hljs-emphasis { font-style: italic; }
 .code-block-wrapper .hljs-strong { font-weight: 600; }
 
@@ -2737,4 +3320,19 @@ html.electron-mac [role="region"][aria-label$=" panel"] > .bg-surface {
 
 @media (prefers-reduced-motion: reduce) {
   .space-frame { animation: none; }
+}
+
+/* IL DROP SOPRA UNA PANE BROWSER.
+ *
+ * Un `<iframe>` è un documento a sé: durante un drag HTML5 gli eventi finiscono
+ * DENTRO di lui, quindi il `dragover` della pane sotto non parte, l'anteprima di
+ * fusione non si dipinge e il rilascio cade nel vuoto. È perché «trascino un
+ * browser su un terminale e si raggruppano, su un altro BROWSER no».
+ *
+ * Per la sola durata del trascinamento di una tab (`data-pane-drag`, acceso da
+ * `lib/paneDragFlag`) gli iframe diventano trasparenti ai puntatori: l'hit test
+ * torna al div del gruppo, che è già un bersaglio di drop funzionante. Fuori dal
+ * gesto l'attributo non c'è e l'iframe è interattivo come sempre. */
+[data-pane-drag] iframe {
+  pointer-events: none;
 }

@@ -30,6 +30,7 @@
  * happen via stable callbacks or pure helpers.
  */
 
+import { findEmptyDraftPane, forgetDraft, isDraftDisposable, draftTextKey } from '../state/draftPane';
 import {
   useCallback,
   useEffect,
@@ -81,7 +82,7 @@ import { utilityPanelId } from '../components/Layout/UtilityPanel';
 import { UTILITY_PANEL_TYPES, type UtilityPanelType } from '../state/pane/adapters/utilityPanelId';
 import type { SendMessageOptions } from '@/hooks/useChat';
 import { DEFAULT_TOPIC_ICON } from '../lib/topicIcons';
-import { notifyNative, primeWebNotificationPermission } from '../lib/shell/app';
+import { primeWebNotificationPermission } from '../lib/shell/app';
 import { isTauri } from '../lib/shell';
 import { getBrowserContextFromPaneId } from '../state/pane/adapters/paneConfig';
 import { clearBrowserSpawner } from '../state/browserSpawner';
@@ -91,8 +92,6 @@ import { spaceWindowId } from '../lib/windowRole';
 import { markTabRestored } from '../lib/previewTabs';
 import { pushUndo } from '../contexts/UndoContext';
 import { useRefMirror } from './useRefMirror';
-import type { TopicTaskResolver } from './useTaskTopicIndex';
-import { isAgentWorking } from '../lib/board';
 import { tabAckReleasesIntent } from '../lib/tabLink';
 import { useShallow } from 'zustand/react/shallow';
 
@@ -244,11 +243,6 @@ export interface UsePanelLifecycleArgs {
    *  reopened pinned browser back into its owning project instead of a blank
    *  standalone pane (project browser url/affinity live only on the record). */
   closedTabs: ClosedTabRecord[];
-  /** topicId → il task dispatchato che ci gira (useTaskTopicIndex). Serve al
-   *  banner di `message:new`: mentre un agente di board lavora, i suoi messaggi
-   *  non sono un evento per l'umano — la consegna la annuncia
-   *  `task:review-ready` in useCompletionNotifier. */
-  taskForTopic?: TopicTaskResolver;
 }
 
 export interface UsePanelLifecycleReturn {
@@ -330,6 +324,18 @@ export interface UsePanelLifecycleReturn {
  *  no pane title can contain, so the encode/decode round-trip is total. */
 const PRESENCE_TAB_SEP = '\u0001';
 
+// Una bozza che non hai mai TOCCATO — nessun doppio clic sulla tab, nessun clic
+// dentro, nessun tasto — non l'hai scelta: l'hai aperta e basta. È un'anteprima,
+// e si richiude da sola quando passi ad altro. Dal momento in cui la tocchi
+// diventa tua e non se ne va più, come non se ne va una con del testo dentro.
+//
+// Questa è la regola CHIESTA, ed è più giusta di quella che avevo scritto io:
+// «hai smesso di guardarla» chiudeva anche le tab che stavi usando, e per due
+// giri ho dato la colpa a lei di una sparizione che era di un altro strato (le
+// pane filtrate per spazio). Il predicato ora è l'interazione, non lo sguardo.
+const DRAFT_CLOSE_DELAY_MS = 400;
+const DRAFT_MIN_LOOKED_AT_MS = 500;
+
 export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycleReturn {
   const {
     isDetached, detachedTopicId, detachedTopicIds, isMobile,
@@ -338,7 +344,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     terminalSessions, pruneStaleTerminalPanes, terminalOps,
     onWSMessage, sendWS, wsStatus, windowId,
     chatStreamHandlers,
-    setSidebarCollapsed, removeClosedTab, closedTabs, taskForTopic,
+    setSidebarCollapsed, removeClosedTab, closedTabs,
   } = args;
 
   // The full detached set — seeds openPanels; empty off-detach. `detachedTopicId`
@@ -373,8 +379,6 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   // guard — without these it would close over the first render's values.
   const workspaceProjectsRef = useRefMirror(workspaceProjects);
   const terminalSessionsRef = useRefMirror(terminalSessions);
-  // Letto dal Cluster 2 (banner di `message:new`), che si iscrive una volta sola.
-  const taskForTopicRef = useRefMirror(taskForTopic);
   // Gli handler di chat letti dai cluster WS, mirrorati. I cluster si iscrivono
   // UNA VOLTA e pescano da qui: metterli fra le dipendenze dell'effect voleva
   // dire rifare unsubscribe+subscribe a ogni cambio di identità, e
@@ -417,6 +421,10 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     useShallow((s) => filterVisiblePaneIds(openPanels, s.panes, s.spaces, s.activeSpaceId)),
   );
   const visiblePanels = isDetached ? openPanels : visibleFromStore;
+  // Mirrorata per i callback stabili (la «nuova chat» che riusa una bozza
+  // vuota già davanti): leggere `visiblePanels` da dentro un useCallback
+  // significherebbe leggerne la copia del primo render.
+  const visiblePanelsRef = useRefMirror(visiblePanels);
 
   // Finestra-GRUPPO (`?space=<id>`): lo Spazio lo decide la query, e va
   // RI-affermato. Al boot la registry può non contenerlo ancora (il gruppo
@@ -1207,35 +1215,20 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
           timestamp: new Date().toISOString(),
         });
       }
-      // Banner per un messaggio arrivato mentre la finestra è NASCOSTA.
+      // Il banner del messaggio a finestra nascosta NON sta più qui.
       //
-      // C'era anche `msg.topicId !== focusedPanelIdRef.current`, e NON era una
-      // condizione morta: le pane di chat di primo livello si mettono a fuoco
-      // col topicId nudo (`setFocusedPanelId(msg.topicId)` poco sotto, e altri
-      // quattro siti), quindi per la superficie principale il confronto era
-      // omogeneo e a volte falso. Via lo stesso, ma per il motivo giusto: tutto
-      // il blocco è già gated su `visibilityState === 'hidden'`, e a finestra
-      // nascosta l'utente non sta guardando NESSUNA tab — quale fosse l'ultima
-      // a fuoco non conta (è la stessa dottrina di `isTabActivelyVisible`).
-      // Tenerla significava zittire proprio il topic che stavi seguendo.
+      // Stava, e chiamava `notifyNative` di suo: fuori dall'unica porta delle
+      // notifiche e quindi fuori da tutti i suoi gate — suonava a topic
+      // silenziato, con un Focus attivo, e con l'interruttore generale spento.
+      // Per di più questo effetto è montato una volta PER FINESTRA e il frame è
+      // un broadcast, quindi con i gruppi staccati un messaggio solo faceva N
+      // banner. Ora vive in `useCompletionNotifier` insieme a tutti gli altri
+      // segnali, con una claim cross-finestra per messageId che ne fa consegnare
+      // uno solo (lib/notify/messageBannerClaim.ts).
       //
-      // Il gate che invece serviva non c'era: mentre un agente di board lavora
-      // il topic, i suoi messaggi non sono un evento per l'umano — la consegna
-      // la annuncia `task:review-ready`. Senza, una consegna sola faceva tre
-      // banner quasi identici (il nome del topic È il testo del task).
-      if (
-        msg.type === 'message:new' &&
-        msg.role === 'assistant' &&
-        document.visibilityState === 'hidden'
-      ) {
-        const topic = topicsRef.current[msg.topicId];
-        const task = taskForTopicRef.current?.(msg.topicId) ?? null;
-        if (topic && !isAgentWorking(task?.dispatchState)) {
-          // Shell bridge: web Notification on Electron/web, native `notify`
-          // command on Tauri (WKWebView's web Notification API is unreliable).
-          notifyNative(topic.name, msg.preview || 'New message', { tag: `topic-${msg.topicId}` });
-        }
-      }
+      // Attenzione a chi tocca il blocco `message:new` qui sopra: i suoi `return`
+      // uscivano dall'INTERO handler, quindi zittivano anche il banner. Quei due
+      // gate (isOwnStream, corpo vuoto) ora viaggiano espliciti nel notificatore.
       // message:media
       if (msg.type === 'message:media') {
         chatHandlersRef.current.appendMediaToLastAssistant(msg.sessionKey, msg.media);
@@ -1254,7 +1247,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
         if (cleared) clearTopicPreview(cleared.id);
       }
     });
-  }, [onWSMessage, topicsRef, chatHandlersRef, taskForTopicRef]);
+  }, [onWSMessage, topicsRef, chatHandlersRef]);
 
   // WS Cluster 3: topic switch + topic switch complete (CRITIQUE C13)
   // ownTopicSwitchesRef writer + reader co-located here.
@@ -1579,11 +1572,11 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   }, [openPanel]);
 
   // handleClosePanel (stable identity via ref-backed impl)
-  const handleClosePanelRef = useRef<(topicId: string) => void>(() => {});
+  const handleClosePanelRef = useRef<(topicId: string, opts?: { silent?: boolean }) => void>(() => {});
   // Intentional ref-backed stable-callback pattern: handleClosePanel (below, deps [])
   // stays stable while .current always holds the latest closure; only invoked from
   // event handlers / undo, never read during render.
-  handleClosePanelRef.current = (topicId: string) => {
+  handleClosePanelRef.current = (topicId: string, opts?: { silent?: boolean }) => {
     // Dedup rapid double-invokes: a fast double-click on a tab's close button
     // fires two discrete click events, and React flushes the first close between
     // them. openPanelsRef is a render-time mirror, so by the second call topicId
@@ -1670,12 +1663,17 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       return next;
     });
     if (isDraftPaneId(topicId)) {
+      forgetDraft(topicId);
       setDraftMeta(prev => {
         const next = { ...prev };
         delete next[topicId];
         return next;
       });
     }
+    // Chiusure che l'utente non ha chiesto (la bozza vuota che si congeda
+    // quando cambi tab) non entrano nella pila dell'annulla: ⌘Z deve disfare
+    // l'ultima cosa FATTA, non resuscitare un foglio bianco.
+    if (opts?.silent) return;
     pushUndo({
       description: `Close panel`,
       undo: () => {
@@ -2007,11 +2005,89 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       }
       return topic;
     }
+    // Una chat nuova alla volta. Chiedere «nuova chat» mentre un foglio bianco
+    // è già aperto non ne apre un secondo: riporta il fuoco su quello. Erano
+    // tab identiche e indistinguibili, e nessuna delle due era «quella
+    // giusta». Basta scriverci una parola perché la bozza smetta di essere
+    // vuota, e da lì in poi la prossima «nuova chat» ne apre davvero una nuova.
+    // Cercata fra le pane VISIBILI, non fra tutte: una bozza vuota lasciata in
+    // un altro spazio non è «la chat nuova che hai già aperto», e riusarla
+    // teleporterebbe la finestra su un altro gruppo per un ⌘N.
+    const alreadyOpen = findEmptyDraftPane(visiblePanelsRef.current);
+    if (alreadyOpen) {
+      // È già in openPanels: openPanel qui non duplica niente, le ridà solo il
+      // fuoco (e il composer di una chat vuota se lo prende da sé).
+      openPanel(alreadyOpen, 'permanent', true);
+      return alreadyOpen;
+    }
     const draftId = createDraftPaneId();
     setDraftMeta(prev => ({ ...prev, [draftId]: { createdAt: new Date().toISOString() } }));
     openPanel(draftId, 'permanent', true);
     return draftId;
-  }, [createTopic, openPanel]);
+  }, [createTopic, openPanel, visiblePanelsRef]);
+
+  // ── «Aperta ma non aperta»: la bozza vuota se ne va da sé ────────────────
+  //
+  // Apri la chat nuova, cambi idea, torni su una tab esistente: il foglio
+  // bianco non ha ragione di restare. Si chiude quando smetti di guardarlo — e
+  // SOLO se è ancora bianco: una parola scritta, un file allegato o
+  // un'immagine incollata lo rendono tuo, e da quel momento non se ne va più
+  // da solo (`state/draftPane.ts` è l'unico posto dove «vuota» è definita).
+  // «Ha perso il fuoco» non basta a dire che l'hai lasciata. Il fuoco di una
+  // pane appena nata RIMBALZA: React lo mette sulla bozza, il ponte
+  // store→React rimanda indietro quello vecchio dello store, e un istante dopo
+  // torna sulla bozza. Chiudere sul primo di quei fotogrammi vuol dire chiudere
+  // la chat che l'utente ha appena aperto — «mi si apre al volo ma poi mi si
+  // chiude subito». Due guardie, e nessuna delle due indovina:
+  //   • la chiusura è DIFFERITA: se il fuoco torna sulla bozza entro la
+  //     finestra, si annulla e non è successo niente;
+  //   • una bozza che non ha mai avuto il fuoco per almeno mezzo secondo non
+  //     è mai stata guardata, quindi non può essere stata lasciata.
+  const prevFocusedForDraftRef = useRef<string | null>(focusedPanelId);
+  const draftFocusedAtRef = useRef<Map<string, number>>(new Map());
+  const pendingDraftCloseRef = useRef<{ id: string; timer: ReturnType<typeof setTimeout> } | null>(null);
+  useEffect(() => {
+    const prev = prevFocusedForDraftRef.current;
+    prevFocusedForDraftRef.current = focusedPanelId;
+
+    if (focusedPanelId && isDraftPaneId(focusedPanelId) && !draftFocusedAtRef.current.has(focusedPanelId)) {
+      draftFocusedAtRef.current.set(focusedPanelId, Date.now());
+    }
+    // È tornata davanti mentre la chiusura era in volo: annullala.
+    const pending = pendingDraftCloseRef.current;
+    if (pending && pending.id === focusedPanelId) {
+      clearTimeout(pending.timer);
+      pendingDraftCloseRef.current = null;
+    }
+
+    if (!prev || prev === focusedPanelId) return;
+    if (!isDraftPaneId(prev)) return;
+    if (pendingDraftCloseRef.current?.id === prev) return;
+    const since = draftFocusedAtRef.current.get(prev);
+    if (since === undefined || Date.now() - since < DRAFT_MIN_LOOKED_AT_MS) return;
+
+    const timer = setTimeout(() => {
+      pendingDraftCloseRef.current = null;
+      // Rileggere TUTTO allo scadere, non fidarsi della fotografia: nel
+      // frattempo la bozza può essere tornata davanti, essere stata promossa
+      // (l'id cambia sotto), chiusa a mano, o aver ricevuto del testo.
+      if (focusedPanelIdRef.current === prev) return;
+      if (!openPanelsRef.current.includes(prev)) return;
+      if (!isDraftDisposable(prev)) return;
+      draftFocusedAtRef.current.delete(prev);
+      forgetDraft(prev);
+      // `silent`: la chiusura non l'hai chiesta tu, quindi non deve finire nella
+      // pila dell'annulla — ⌘Z deve disfare l'ultima cosa che hai FATTO, non
+      // riportare indietro un foglio bianco che avevi lasciato.
+      handleClosePanelRef.current(prev, { silent: true });
+    }, DRAFT_CLOSE_DELAY_MS);
+    pendingDraftCloseRef.current = { id: prev, timer };
+  }, [focusedPanelId, openPanelsRef, focusedPanelIdRef]);
+  // Nessun timer sopravvive allo smontaggio della finestra.
+  useEffect(() => () => {
+    if (pendingDraftCloseRef.current) clearTimeout(pendingDraftCloseRef.current.timer);
+  }, []);
+
 
   const promoteDraft = useCallback(async (draftId: string, firstMessage: string, options?: SendMessageOptions) => {
     const meta = draftMeta[draftId] || {};
@@ -2066,6 +2142,8 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       try { localStorage.removeItem(`draft-content-${draftId}`); } catch {}
       return next;
     });
+    try { localStorage.removeItem(draftTextKey(draftId)); } catch {}
+    forgetDraft(draftId);
     await sendMessage(topic.sessionKey, firstMessage, options);
   }, [draftMeta, createTopic, sendMessage, focusedPanelIdRef]);
 

@@ -1,8 +1,8 @@
 import { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { PenLine, Palette, Trash2, Pin, PinOff, ExternalLink, Link2, type LucideIcon } from 'lucide-react';
+import { PenLine, Palette, Archive, ArchiveRestore, Pin, PinOff, ExternalLink, Link2, type LucideIcon } from 'lucide-react';
 import type { Topic, UpdateTopicRequest } from '@/types';
-import { DANGER_TEXT, POPOVER_ITEM, POPOVER_ITEM_DANGER, POPOVER_SURFACE, Z_CONTEXT_MENU } from '@/lib/popoverStyles';
+import { POPOVER_ITEM, POPOVER_ITEM_DANGER, POPOVER_SURFACE, Z_CONTEXT_MENU } from '@/lib/popoverStyles';
 import { useDismissable } from '@/hooks/useDismissable';
 import { useCopyTabLink } from '@/hooks/useCopyTabLink';
 
@@ -12,7 +12,12 @@ interface ContextMenuProps {
   topic: Topic;
   onClose: () => void;
   onUpdate: (id: string, data: UpdateTopicRequest) => Promise<Topic | null>;
-  onDelete: (id: string) => Promise<boolean>;
+  /** Archivia o RIPRISTINA. Il secondo argomento c'era già nell'implementazione
+   *  (`archiveTopic(id, archived = true)`) ma non nel tipo, quindi da qui si
+   *  poteva solo archiviare — ed era il motivo per cui la riga doveva montarsi
+   *  un bottone «Ripristina» tutto suo: il menu, che è la porta buona per
+   *  gestire lo stato, quella parola non ce l'aveva. */
+  onDelete: (id: string, archived?: boolean) => Promise<boolean>;
   /** Pinning (Fissati) — current pin state + toggle ("Fissa" / "Rimuovi dai
    *  Fissati"). Optional so legacy hosts render without the entry. */
   isPinned?: boolean;
@@ -136,7 +141,24 @@ export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, isPinned
             />
           )}
           <div className="border-t border-app-border my-1" />
-          <MenuItem icon={Trash2} label="Archivia" onClick={() => setSubMenu('confirm-delete')} danger />
+          {/* NON È UN CESTINO, e per tre anni lo ha detto: `Trash2` in rosso,
+              con la stessa grammatica di «elimina». Archiviare qui è la stessa
+              identica cosa che fa il cerchio in coda alla riga — «fatto, togli
+              dalla lista» — e quel gesto è reversibile, ha tre secondi di
+              ripensamento e la sua controparte «Ripristina». Dipingerlo come
+              distruttivo faceva evitare la voce che invece serve.
+              Il glifo d'archivio resta legittimo QUI: in un menu accompagna
+              un'etichetta scritta, non deve dire uno stato da solo (che era il
+              suo problema quando stava in testa alla riga). */}
+          <MenuItem
+            icon={topic.archived ? ArchiveRestore : Archive}
+            label={topic.archived ? 'Ripristina' : 'Archivia'}
+            onClick={() => {
+              // Ripristinare è sicuro: nessuna conferma, come ovunque nell'app.
+              if (topic.archived) { void onDelete(topic.id, false); onClose(); return; }
+              setSubMenu('confirm-delete');
+            }}
+          />
         </>
       )}
 
@@ -179,16 +201,18 @@ export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, isPinned
 
       {subMenu === 'confirm-delete' && (
         <div className="p-3">
-          {/* `text-red-600` nudo faceva 4,22:1 sul fondo popover chiaro e 3,01
-              su quello scuro, per un 11px semibold: sotto AA in tutt'e due i
-              temi. La coppia sta in popoverStyles, coi numeri. */}
-          <div className={`text-[11px] font-semibold ${DANGER_TEXT} mb-2`}>Archiviare il topic?</div>
+          {/* IL ROSSO SE NE VA ANCHE DA QUI, e non è una questione di gusto: il
+              testo che sta due righe sotto dice «puoi riaprirlo quando vuoi»,
+              cioè dichiara che l'azione è reversibile, mentre il titolo in rosso
+              e il bottone rosso dicono il contrario. Delle due, quella vera è la
+              frase. Il colore d'allarme resta per ciò che non si può disfare. */}
+          <div className="text-[11px] font-semibold text-app-text mb-2">Archiviare il topic?</div>
           <p className="text-[12px] text-app-text-secondary mb-3">
             Vuoi archiviare <strong>{topic.name}</strong>? Verrà spostato tra gli archiviati (puoi riaprirlo quando vuoi).
           </p>
           <div className="flex justify-end gap-2">
             <button onClick={onClose} className="text-[12px] text-app-text-muted hover:text-app-text px-2 py-1 transition-colors">Annulla</button>
-            <button onClick={handleDelete} className="text-[12px] bg-red-600 text-white px-3 py-1 rounded-lg hover:bg-red-700 transition-colors">Archivia</button>
+            <button onClick={handleDelete} className="text-[12px] bg-primary text-white px-3 py-1 rounded-lg hover:bg-primary-hover transition-colors">Archivia</button>
           </div>
         </div>
       )}

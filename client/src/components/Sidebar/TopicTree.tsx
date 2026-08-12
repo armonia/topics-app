@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef, useMemo, type HTMLAttributes } from 'react';
 import { useT } from '../../hooks/useT';
 import type { TerminalAgentType } from '../../../../shared/terminal-session-types';
-import { ChevronRight, Archive, ArchiveRestore, TerminalSquare, Globe, FolderOpen, MoreHorizontal, Plus, X, CheckCheck, Pin, PinOff, LayoutGrid, Activity, BookOpen, Cpu, BarChart3, Clock, Kanban, Hourglass, BellOff, BellRing, type LucideIcon } from 'lucide-react';
+import { ChevronRight, Archive, ArchiveRestore, TerminalSquare, Globe, FolderOpen, MoreHorizontal, Plus, X, CheckCheck, Pin, PinOff, LayoutGrid, Activity, BookOpen, Cpu, BarChart3, Clock, Kanban, Hourglass, BellOff, BellRing, Eye, EyeOff, type LucideIcon } from 'lucide-react';
 import {
   usePendingActionStatus,
   useTerminalPendingStatus,
@@ -11,7 +11,7 @@ import { PendingActionRing } from '../Shared/PendingActionRing';
 import { PendingActionProgressOverlay } from '../Shared/PendingActionProgressOverlay';
 import { PaneAddMenu, PaneAddMenuItems } from '../Shared/PaneAddMenu';
 import { TopicItem } from './TopicItem';
-import { topicsApi } from '@/lib/api';
+import { topicsApi, projectsApi } from '@/lib/api';
 import { createPaneId, getTerminalSessionFromPaneId, pinKeyFromPaneId, resolvePinnedBrowserOrigin, useClosedTabs, type BrowserOrigin } from '@/state/pane/adapters';
 import { PinnedTiles, type PinnedTileMeta } from './PinnedTiles';
 import type { PinnedRow } from './pinnedLayout';
@@ -35,7 +35,7 @@ import { loadSettings, saveSettings } from '@/lib/settings';
 import { ContextMenuPortal } from '@/components/Shared/ContextMenuPortal';
 import { tauriInvoke } from '@/lib/shell/tauri';
 import { NotificationBadge } from '@/components/Shared/NotificationBadge';
-import { sidebarRowCard, ROW_PX, ROW_INSET, ROW_ACTION_BOX, ROW_ACTION_GLYPH, ROW_GLYPH, ROW_GLYPH_SLOT, SIDEBAR_INDENT_STEP, ON_FILL_TEXT, ON_FILL_TEXT_SOFT, SIDEBAR_HOVER } from '@/lib/selectionStyles';
+import { sidebarRowCard, ROW_PX, ROW_GAP, ROW_H, SECTION_H, ROW_INSET, COLUMN_GAP, ROW_ACTION_BOX, ROW_ACTION_GLYPH, ROW_GLYPH, ROW_GLYPH_SLOT, ROW_CARD, ROW_TRAIL, ROW_ACTIONS, ARCHIVED_ROW, SIDEBAR_INDENT_STEP, ON_FILL_TEXT, ON_FILL_TEXT_SOFT, SIDEBAR_HOVER, TAB_LABEL, TAB_LABEL_TYPE } from '@/lib/selectionStyles';
 import { spawnDragGhost } from '@/components/Layout/dragGhost';
 import { useLongPress, openContextMenuAt } from '@/hooks/useLongPress';
 import { SessionActivity } from '@/components/Shared/SessionActivity';
@@ -165,8 +165,28 @@ function boardSidebarItem(boardTaskCount: number, extra?: Partial<SidebarItem>):
  * perché è ancora il posto unico in cui impilare le righe di primo livello.
  */
 function SidebarRowList({ children, className = '', ...rest }: HTMLAttributes<HTMLDivElement>) {
+  // `flex flex-col`, e NON è cosmesi: è ciò che impedisce ai margini di
+  // COLLASSARE.
+  //
+  // Le card portano `my-[3px]` (mezzo COLUMN_GAP per lato, così due vicine ne
+  // fanno 6). Fra fratelli in flusso normale però i due margini adiacenti non
+  // si sommano: si collassano al maggiore. Risultato misurato a 390×844, riga
+  // contro riga: 3px. Nella stessa colonna le tessere fissate stavano a 6 veri
+  // (`gap: TILE_GAP`, PinnedTiles), quindi due ritmi a mezzo passo di distanza —
+  // «le spaziature non sono coerenti fra ogni tab e tipo tab» (Attilio, 09/08).
+  //
+  // I margini di un FLEX ITEM non collassano mai (CSS Box Model §8.3.1: il
+  // collasso vive solo nel block formatting context). Un `gap` avrebbe funzionato
+  // altrettanto, ma avrebbe spostato il numero dalla card al contenitore e
+  // lasciato `my-[3px]` a mentire in sei punti: così il valore resta uno solo,
+  // dichiarato dove la card lo dichiara, e qui si toglie solo ciò che glielo
+  // dimezzava.
+  //
+  // Il commento che stava qui diceva che questo contenitore «resta perché è
+  // ancora il posto unico in cui impilare le righe di primo livello». Appunto: è
+  // per questo che la correzione sta qui e vale per tutte e sei le viste.
   return (
-    <div className={className} {...rest}>
+    <div className={`flex flex-col ${className}`} {...rest}>
       {children}
     </div>
   );
@@ -189,8 +209,14 @@ function SidebarRowList({ children, className = '', ...rest }: HTMLAttributes<HT
  * cioè 32px anche su iPhone, sotto soglia e 12px più basse delle vicine — e la
  * chat per conto suo. Tre numeri per la stessa riga si vedono solo mettendole
  * una sopra l'altra, che è come la sidebar si guarda sempre.
+ *
+ * E adesso è UNA anche come costante: {@link ROW_H} vive in
+ * `lib/selectionStyles`, importata in cima. Ne esistevano TRE copie con lo
+ * stesso valore — qui, in `TopicItem`, e a mano dentro `SpaceGroups` — cioè
+ * tre posti che dicono la stessa cosa e divergono al primo che viene ritoccato
+ * da solo. Il commento di SpaceGroups lo scriveva già: «il posto suo è
+ * lib/selectionStyles, accanto a ROW_PX e ROW_INSET».
  */
-const ROW_H = 'h-11 md:h-[34px]';
 
 /** I fantasmi di trascinamento ancora attaccati al DOM. `spawnDragGhost` li
  *  aggiunge e li toglie da sé al frame dopo; il Set è il registro condiviso che
@@ -255,7 +281,7 @@ export interface TopicTreeProps {
   onNewTopicInProject?: (projectPath: string) => void;
   onAddProjectPane?: (projectPath: string, type: PaneType, subType?: string) => void;
   onProjectClick?: (projectPath: string) => void;
-  stopSession?: (sessionKey: string) => boolean;
+  stopSession?: (sessionKey: string) => Promise<boolean>;
   onNewChat?: () => void;
   onNewBrowser?: () => void;
   terminalSessions?: TerminalSessionInfo[];
@@ -750,7 +776,7 @@ export function TopicTree({
         <span className={ROW_GLYPH_SLOT}>
           <Icon size={ROW_GLYPH} className="text-app-text-secondary" />
         </span>
-        <span className="text-[12px] flex-1 text-left truncate">{item.name}</span>
+        <span className={`${TAB_LABEL_TYPE} flex-1 text-left truncate`}>{item.name}</span>
         {/* Was missing entirely: the row rendered no badge at all, so an agents
             pane could light up its TAB (pinned by tab-notifications.spec.ts
             TAB-BADGE-10/11) and stay silent here. Suppressed while focused, the
@@ -810,11 +836,16 @@ export function TopicTree({
         onContextMenu={(e) => onTopicContextMenu(e, topic)}
         onArchive={handleArchive}
         onStopStreaming={stopSession ? () => {
-          const isFirst = stopSession(topic.sessionKey);
-          // Route through the same deferred wrapper the row's Archive button
-          // uses (not a raw onArchiveTopic call) so both paths share one
-          // contract; surface a failed archive instead of dropping it silently.
-          if (isFirst) handleArchive(topic.id, true).catch(() => {});
+          // Si archivia solo se il server ha davvero buttato via la chat: qui
+          // lo Stop non ferma soltanto, fa SPARIRE il topic dalla sidebar, ed è
+          // la mossa che nell'incidente del 10 agosto il client si prendeva da
+          // solo su un turno che aveva già lavorato.
+          void stopSession(topic.sessionKey).then((discarded) => {
+            // Route through the same deferred wrapper the row's Archive button
+            // uses (not a raw onArchiveTopic call) so both paths share one
+            // contract; surface a failed archive instead of dropping it silently.
+            if (discarded) handleArchive(topic.id, true).catch(() => {});
+          });
         } : undefined}
         isArchived={item.archived}
         pinned={!!item.pinned}
@@ -822,8 +853,9 @@ export function TopicTree({
         /* Niente `onTogglePin`: la riga chat non ha più un menu suo dove
            metterlo — il «...» apre il menu del tasto destro, che il «Fissa» ce
            l'ha già (glielo passa App). Continuare a passarla la teneva viva
-           come prop dichiarata e destrutturata a vuoto in TopicItem. */
-        hideIcon={depth > 0}
+           come prop dichiarata e destrutturata a vuoto in TopicItem.
+           E niente `hideIcon`: spegneva il glifo `Archive` sulle sotto-righe, e
+           quel glifo non esiste più su nessuna riga (vedi ARCHIVED_ROW). */
       />
     );
     if (subAgents.length === 0) return row;
@@ -943,13 +975,11 @@ export function TopicTree({
           // ORA lo stesso menu del mouse (evento `contextmenu` sintetizzato,
           // stesso `onContextMenu` qui sotto): un menu solo, per costruzione.
           isTouch={isTouch}
-          // `pl-1 pr-2` (not the shared `px-2`): the accordion chevron is the
-          // leading control, and a full 8px left pad + the chevron button's own
-          // centring pushed it ~12px in from the card edge — too much dead space
-          // before the arrow. Tighten the LEFT only; the RIGHT keeps `pr-2`
-          // (= ROW_PX) so the trailing loader/badge stay column-aligned with the
-          // child rows.
-          className={`group/proj flex items-center ${ROW_H} ${ROW_PX} select-none ${
+          // `ROW_PX` su entrambi i lati. Il commento che stava qui descriveva un
+          // `pl-1 pr-2` che il codice non porta più da tempo: un'asimmetria
+          // documentata e non applicata è peggio di nessun commento, perché il
+          // prossimo che legge crede di sapere dove comincia la riga.
+          className={`group/proj ${ROW_CARD} flex items-center ${ROW_GAP} ${ROW_H} ${ROW_PX} select-none ${allArchived ? ARCHIVED_ROW : ''} ${
             // "Ho guardato un progetto" vuol dire: ho guardato ciò che stava
             // segnalando — guardarne l'INTESTAZIONE non è aver letto le chat che ci
             // stanno dentro. Quel pezzo ora sta dentro `projectAttentionTier`, che
@@ -1036,8 +1066,17 @@ export function TopicTree({
                 if (!isExpanded) toggleProject(item.id);
               }
             }}
-            className={`flex items-center gap-2 h-full flex-1 min-w-0 text-left text-[13px] font-medium transition-colors ${
-              projOnFill ? `${ON_FILL_TEXT} font-semibold` : isProjectFocused ? 'text-app-text' : allArchived ? 'text-app-text-muted' : 'text-app-text-secondary hover:text-app-text'
+            className={`flex items-center ${ROW_GAP} h-full flex-1 min-w-0 text-left ${TAB_LABEL} transition-colors ${
+              // Il colore di base lo porta `TAB_LABEL` (pieno). Resta una sola
+              // deroga: il testo su un fill di attenzione.
+              //
+              // «Archiviato» NON è più un tono del nome: è `ARCHIVED_ROW` sulla
+              // riga intera, lo stesso segnale della riga chat. Erano due
+              // vocabolari per lo stesso stato — là opacità sulla card, qui un
+              // grigio sul solo nome — e il secondo si vedeva anche meno,
+              // perché un nome più tenue in una colonna di nomi più tenui non
+              // dice niente.
+              projOnFill ? `${ON_FILL_TEXT} font-semibold` : ''
             }`}
             title={pp}
             aria-label={`${item.name} project`}
@@ -1047,50 +1086,43 @@ export function TopicTree({
                 / index.html <link rel=icon> (resolved by /api/projects/icon).
                 Folders without one render nothing — zero footprint, no fake
                 glyph, no monogram (decisione Attilio 2026-07-16). */}
-            <ProjectFavicon path={pp} size={14} className="mr-0.5" />
+            <ProjectFavicon path={pp} size={14} />
             <span className="truncate flex-1">{item.name}</span>
           </button>
-          <div className="flex items-center flex-shrink-0">
-            {/* Window-position mini-map: where THIS project's window sits in the
-                tiled top-level split (PanelGrid publishes it keyed by project
-                path). Only present when more than one window is open — a single
-                window has nothing to orient against. Lives on the sidebar row
-                only (user preference), never on the top tab bar. */}
-            <ProjectSplitMiniMap projectPath={pp} onFill={projOnFill} />
-            {/* Pin glyph — trailing rail, before the loader/badge (same fixed
+          {/* Window-position mini-map: where THIS project's window sits in the
+              tiled top-level split (PanelGrid publishes it keyed by project
+              path). Only present when more than one window is open — a single
+              window has nothing to orient against. Lives on the sidebar row
+              only (user preference), never on the top tab bar.
+              Fuori dal binario quieto: è un segnale di POSIZIONE, non di stato,
+              e sta a sinistra di quanto il comando può coprire. */}
+          <ProjectSplitMiniMap projectPath={pp} onFill={projOnFill} />
+          {/* Lo spinner sta fuori dal binario quieto, come su ogni riga. */}
+          <ProjectStreamingSpinner projectPath={pp} />
+          <div className={`${ROW_TRAIL} flex items-center ${ROW_GAP} flex-shrink-0`}>
+            {/* Pin glyph — trailing rail, before the badge (same fixed
                 Pin → … → NotificationBadge order as the chat rows). Inherits
                 the on-fill treatment on attention fills, never a hardcoded
                 colour. */}
             {item.pinned && (
               <span
-                className={`flex-shrink-0 flex items-center ml-0.5 ${projOnFill ? ON_FILL_TEXT_SOFT : 'text-app-text-tertiary'}`}
+                className={`flex-shrink-0 flex items-center ${projOnFill ? ON_FILL_TEXT_SOFT : 'text-app-text-tertiary'}`}
                 title={tr('sidebar.pinned')}
                 aria-label={tr('sidebar.pinned')}
               >
                 <Pin size={12} />
               </span>
             )}
-            {/* Project loading indicator — same component the project tab uses
-                (PaneTabBar): a spinner while any child is producing output.
-                "Needs you" (Claude awaiting, finished turns) is NOT a separate
-                dot anymore — it rolls up into the notification badge below, so
-                the sidebar row and the project tab show one consistent count.
-                `ml-0.5` (NOT `mr-1.5`): the trailing margin pushed this loader
-                6px in from the row edge, so the PROJECT row's spinner sat left of
-                the CHILD (terminal/browser) rows' spinners, which are flush. With
-                no right margin every sidebar loader lands at the same trailing
-                offset — the row's loaders line up in one column. */}
             {/* Last-update timestamp — the SAME trailing "agg. X fa" the chat,
                 terminal and browser rows all show (relativeTime of the row's real
-                last activity). The project row was the ONLY sidebar row without it,
-                so a project's last update wasn't visible at a glance. `item.lastActivity`
-                is the project's aggregate (max over its children, per buildSidebarItems).
-                Hidden on hover to free room for the action buttons, like the badge below. */}
+                last activity). `item.lastActivity` is the project's aggregate
+                (max over its children, per buildSidebarItems).
+                Niente `group-hover/proj:hidden`: non deve più liberare il posto
+                a nessuno — il comando gli passa sopra. */}
             <RelativeTime
               at={item.lastActivity}
-              className={`flex-shrink-0 text-[11px] tabular-nums group-hover/proj:hidden mr-1 ${projOnFill ? ON_FILL_TEXT_SOFT : 'text-app-text-tertiary'}`}
+              className={`flex-shrink-0 text-[11px] tabular-nums ${projOnFill ? ON_FILL_TEXT_SOFT : 'text-app-text-tertiary'}`}
             />
-            <ProjectStreamingSpinner projectPath={pp} className="ml-0.5" />
             {/* Numeric status indicators (git changed-files / ahead-behind /
                 running processes / open-chat count) were removed from the
                 sidebar project header — they read as cryptic numbers. Only the
@@ -1100,7 +1132,6 @@ export function TopicTree({
             {item.notificationCount > 0 && (
               <NotificationBadge
                 count={item.notificationCount}
-                className={`ml-0.5 ${isTouch ? '' : 'group-hover/proj:hidden'}`}
                 variant={projOnFill ? 'onFill' : 'default'}
                 // Il numero del progetto è una SOMMA sui figli, e il figlio che
                 // lo produce può non avere una riga sott'occhio (accordion
@@ -1110,54 +1141,28 @@ export function TopicTree({
                 title={describeChildAttention(item.children)}
               />
             )}
-            {/* Action buttons on hover */}
-            {!isTouch && (
-              <>
-                {onArchiveProject && (
-                  <ProjectArchiveButton
-                    projectPath={pp}
-                    allArchived={allArchived}
-                    onArchive={onArchiveProject}
-                  />
-                )}
-                {(onNewTopicInProject || onAddProjectPane) && (
-                  <div className={`relative ${isExpanded ? 'flex' : 'hidden'}`}>
-                    {/* Same canonical add-pane affordance as the top tab
-                        bar's "+" — single component, single rendering
-                        contract. Trigger button visibility is the only
-                        thing the parent customises (hover-revealed here,
-                        always-visible in the tab bar). */}
-                    <PaneAddMenu
-                      scope="project"
-                      onNewChat={onNewTopicInProject ? () => onNewTopicInProject(pp) : undefined}
-                      onAddPane={onAddProjectPane ? (type, subType) => onAddProjectPane(pp, type, subType) : undefined}
-                      triggerTitle="Add to project"
-                    />
-                  </div>
-                )}
-              </>
-            )}
-            {/* Touch: il «+» della riga. NON è il menu contestuale del progetto —
-                quello, con «Segna tutto come letto», «Fissa» e «Muta notifiche»,
-                si apre tenendo premuta la riga (vedi `LongPressRow` sopra) ed è
-                lo stesso del tasto destro. Qui ci sono le voci che sul desktop
-                stanno dietro il «+» che compare al passaggio del mouse, cioè
-                quelle che su touch non avrebbero altra strada. */}
-            {isTouch && (onNewTopicInProject || onAddProjectPane || onArchiveProject) && (
-              <TouchProjectAddMenu
-                pp={pp}
-                allArchived={allArchived}
-                onNewTopicInProject={onNewTopicInProject}
-                onAddProjectPane={onAddProjectPane}
-                onArchiveProject={onArchiveProject}
-              />
-            )}
           </div>
+          <ProjectRowActions
+            pp={pp}
+            allArchived={allArchived}
+            isExpanded={isExpanded}
+            isTouch={isTouch}
+            onArchiveProject={onArchiveProject}
+            onNewTopicInProject={onNewTopicInProject}
+            onAddProjectPane={onAddProjectPane}
+          />
         </LongPressRow>
 
         {/* Accordion children */}
         {isExpanded && children.length > 0 && (
-          <div>
+          // `flex flex-col`, e non un `<div>` nudo: in un contenitore a blocchi
+          // i margini verticali di due fratelli COLLASSANO, quindi i due
+          // `my-[3px]` delle card adiacenti diventavano 3px invece di 6 —
+          // MISURATO: le sotto-righe di un progetto respiravano metà delle
+          // righe di primo livello, che stanno dentro un contenitore flex.
+          // La classe dichiara mezzo passo per lato e il rendering ne dava uno
+          // solo: una spaziatura giusta nel codice e sbagliata sullo schermo.
+          <div className="flex flex-col">
             {children.map(child => {
               if (child.type === 'chat') return renderChatItem(child, 2);
               if (child.type === 'terminal') return renderTerminalItem(child, 2);
@@ -1212,15 +1217,28 @@ export function TopicTree({
             due px più a sinistra dei 6+8 delle righe con card, cioè un
             disallineamento troppo piccolo per vedersi e abbastanza grande per
             far sembrare storta la colonna. */}
-        <div className={`group flex items-center ${ROW_H} ${ROW_PX} ${sidebarRowCard({})}`}>
+        {/* `SECTION_H` e non `ROW_H`: un'intestazione alta quanto le righe che
+            introduce non si legge come un'intestazione. Le due intestazioni di
+            sezione dell'app — questa e quella della colonna di progetto — erano
+            34 e 28 col mouse: la stessa cosa, due misure, in due colonne che si
+            guardano affiancate. Col dito restano 44, il minimo iOS, perché qui
+            lo spazio c'è (vedi SECTION_H).
+
+            Il FONDO invece resta quello del riposo di una riga, e non
+            `RESTING_SURFACE` come nella colonna di progetto: là le sezioni sono
+            tre e non hanno righe-card attorno, qui un'intestazione DIPINTA in
+            mezzo a righe trasparenti si leggerebbe come una riga SELEZIONATA —
+            cioè l'ambiguità che tutto questo file esiste per togliere. A dire
+            «sono un'intestazione» ci pensa l'altezza. */}
+        <div className={`group flex items-center ${SECTION_H} ${ROW_PX} ${sidebarRowCard({})}`}>
           <button
             onClick={() => toggleSection(sectionKey)}
             aria-expanded={!isCollapsed}
             aria-label={`sezione ${label}`}
-            className="flex items-center gap-2 flex-1 min-w-0 h-full text-left"
+            className={`flex items-center ${ROW_GAP} flex-1 min-w-0 h-full text-left`}
           >
             <Icon size={14} className="text-app-text-secondary flex-shrink-0" />
-            <span className="text-[13px] text-app-text">{label}</span>
+            <span className={TAB_LABEL}>{label}</span>
             {items.length > 0 && (
               <span className="text-[11px] text-app-text-tertiary">{items.length}</span>
             )}
@@ -1505,11 +1523,21 @@ export function TopicTree({
             // `rounded-lg`), quindi la copia e l'originale potevano divergere —
             // e lo facevano.
             //
-            // `marginBottom: 0` sovrascrive il `my-px` della card, e non è un
-            // capriccio: lo spazio SOTTO appartiene a ciò che segue — il blocco
-            // dei fissati porta i suoi 6px (TILE_GAP) — e sommare i due margini
-            // fa 7px dove il ritmo ne vuole 6 (lo blocca `sidebar-pinned-tiles`
-            // TILE-14).
+            // NIENTE `marginBottom: 0`, e la ragione per cui c'era è decaduta.
+            //
+            // Serviva quando la zona in testa al blocco dei fissati valeva un
+            // passo INTERO: sommandoci il margine della card venivano 7px dove
+            // il ritmo ne vuole 6, e azzerarlo era il rimedio. Ma quella zona
+            // intera era essa stessa il difetto: quando sopra il blocco non
+            // c'era la board ma il contenitore che scorre — che porta il suo
+            // mezzo passo — si sommavano a 9, ed è la «doppia spaziatura sotto
+            // la topbar» (Attilio, 09/08).
+            //
+            // Ora la regola è UNA e non ha eccezioni: ognuno porta metà passo su
+            // ogni lato, e la somma fa sempre COLUMN_GAP. Il blocco dei fissati
+            // ne porta metà (`TILE_GAP / 2` sulla zona in testa, PinnedTiles),
+            // questa card l'altra metà — 3 + 3 = 6, che è quello che
+            // `sidebar-pinned-tiles` TILE-14 misura.
             // `gap-2` e non `gap-1.5`: è il passo che ogni altra riga con un
             // glifo usa fra l'icona e il nome, e sei px contro otto erano una
             // colonna del nome diversa da tutte le vicine.
@@ -1525,7 +1553,7 @@ export function TopicTree({
             className={`flex items-center gap-2 leading-none ${ROW_PX} ${ROW_H} select-none ${
               sidebarRowCard({ focused: boardOpen })
             }`}
-            style={{ width: `calc(100% - ${ROW_INSET * 2}px)`, marginBottom: 0 }}
+            style={{ width: `calc(100% - ${ROW_INSET * 2}px)` }}
           >
             {/* Glifo neutro come ogni altra riga: il verde faceva sembrare la
                 board un tipo a parte, e nella sidebar il colore è riservato a
@@ -1544,7 +1572,7 @@ export function TopicTree({
                 Il nome NON è l'elemento elastico: si prende quello che gli serve
                 e cede il resto al riassunto, che è la parte che cresce e che va
                 misurata. */}
-            <span className="flex-shrink-0 text-[12px] font-medium">{BOARD_LABEL}</span>
+            <span className={`flex-shrink-0 ${TAB_LABEL_TYPE}`}>{BOARD_LABEL}</span>
             {/* Di CHI sono quei task e a che punto stanno, con una sola misura e
                 una sola scala di priorità: vedi `BoardRowSummary`. */}
             <BoardRowSummary byStatus={boardByStatus} />
@@ -1553,13 +1581,37 @@ export function TopicTree({
 
   return (
     <div role="tree" aria-label={tr('sidebar.tree')} className="flex flex-col h-full min-h-0">
-      {/* paddingBlock (ROW_INSET − 1) + each card's my-px (1px) = ROW_INSET
-          above the first row and below the last — the SAME 6px the cards keep
-          laterally (mx-1.5) and the tab bar keeps around its tabs, so the
-          sidebar's padding reads identical on every axis. */}
+      {/* SOTTO NIENTE, SOPRA L'HEADER: il primo spazio non è come gli altri.
+          `sidebar-column` (index.css) azzera il mezzo passo del primo elemento;
+          qui si azzera l'altra metà, quella del contenitore. Sopra la lista non
+          c'è un bordo, c'è l'header: alto 40 attorno a un contenuto da 28,
+          quindi porta già SEI pixel suoi sotto il proprio inchiostro. La lista
+          che ne aggiungeva altri sei è la «doppia spaziatura sotto la topbar»
+          (Attilio, tre volte fra l'08 e il 09/08). Il perché per esteso — e
+          perché a cedere è la lista e non l'header — sta accanto alla regola in
+          index.css.
+
+          IN FONDO il mezzo passo resta: là sotto c'è davvero il bordo della
+          colonna, e vale la regola normale — metà qui, metà dal margine
+          dell'ultima card (`my-[3px]` in `sidebarRowCard`), che fa COLUMN_GAP.
+
+          Era `ROW_INSET − 1`, cioè 5, e il commento diceva «+ il my-px della
+          card = 6». Quel conto è scaduto quando il margine delle card è passato
+          da 1 a 3 (COLUMN_GAP/2, per dare a righe e tessere lo STESSO passo).
+
+          Derivato, non scritto: se COLUMN_GAP cambia, questo lo segue, e a
+          tenere in riga la metà scritta in classe Tailwind (`my-[3px]`, che
+          deve restare un letterale perché il JIT la trova nel sorgente) c'è
+          `selectionStyles.test.ts`. */}
+      {/* `flex flex-col` sul contenitore che scorre, per la stessa ragione dei
+          figli dell'accordion: senza, i margini verticali dei figli DIRETTI
+          collassano fra loro e il passo dichiarato (mezzo per lato, sei in
+          totale) ne rende tre. La riga della board era la vittima visibile —
+          figlia diretta di questo contenitore, quindi 3px dalla vicina mentre
+          ogni riga dentro `SidebarRowList` (che è già flex) ne aveva 6. */}
       <div
-        className="flex-1 min-h-0 overflow-y-auto sidebar-scroll"
-        style={{ paddingBlock: ROW_INSET - 1 }}
+        className="flex flex-col flex-1 min-h-0 overflow-y-auto sidebar-scroll sidebar-column"
+        style={{ paddingTop: 0, paddingBottom: COLUMN_GAP / 2 }}
         // IL GESTO INVERSO: una tessera lasciata sulla LISTA torna una riga.
         //
         // Sta qui, sul contenitore che scorre, e non su ogni vista: le viste
@@ -1654,11 +1706,13 @@ export function TopicTree({
                     (ROW_INSET), gli stessi delle card dei gruppi sotto e delle
                     tessere sopra. A 12px era l'unico elemento su una colonna
                     sua, e il blocco dei fissati sembrava debordare.
-                    Anche il respiro è quel numero, sopra e sotto (`my-1.5`): è
+                    Anche il respiro è quel numero, sopra e sotto — ma diviso
+                    diversamente sui due lati (`mt-1.5 mb-[3px]`), perché sotto la
+                    prima card porta gia' la sua meta': è
                     lo stesso passo che separa la riga della board dalle tessere
                     e le righe di tessere fra loro, così i quattro spazi che
                     l'occhio legge in fila sono davvero uno. */}
-                <div data-testid="pinned-divider" className="h-px bg-app-border mx-1.5 my-1.5" />
+                <div data-testid="pinned-divider" className="h-px bg-app-border mx-1.5 mt-1.5 mb-[3px]" />
               </>
             )}
             {/* NIENTE separatori fra le card dei gruppi: quelle un bordo ce
@@ -1694,7 +1748,7 @@ export function TopicTree({
                 {renderPinnedTiles()}
                 {/* Hairline divider between the pinned block and the timeline
                     (same grammar as POPOVER_DIVIDER). */}
-                {unpinnedItems.length > 0 && <div data-testid="pinned-divider" className="h-px bg-app-border mx-1.5 my-1.5" />}
+                {unpinnedItems.length > 0 && <div data-testid="pinned-divider" className="h-px bg-app-border mx-1.5 mt-1.5 mb-[3px]" />}
               </>
             )}
             <SidebarRowList data-testid="sidebar-timeline">{withUnpinPreview(unpinnedItems)}</SidebarRowList>
@@ -1711,7 +1765,7 @@ export function TopicTree({
                 {renderPinnedTiles()}
                 {/* Stesso filo della vista a lista: i fissati si staccano da ciò
                     che c'è sotto allo stesso modo in ogni vista. */}
-                {unpinnedItems.length > 0 && <div data-testid="pinned-divider" className="h-px bg-app-border mx-1.5 my-1.5" />}
+                {unpinnedItems.length > 0 && <div data-testid="pinned-divider" className="h-px bg-app-border mx-1.5 mt-1.5 mb-[3px]" />}
               </>
             )}
             {/* «Il resto» ha senso solo come CONTRASTO: dice «tutto ciò che non
@@ -1861,6 +1915,10 @@ export function TopicTree({
             {projectContextMenu.muted ? <BellRing size={14} /> : <BellOff size={14} />}
             <span>{projectContextMenu.muted ? 'Riattiva notifiche' : 'Muta notifiche'}</span>
           </button>
+          <VoceIncognito
+            projectPath={projectContextMenu.projectPath}
+            onDone={() => setProjectContextMenu(null)}
+          />
           {onArchiveProject && (
             <button
               onClick={() => {
@@ -1876,6 +1934,47 @@ export function TopicTree({
         </ContextMenuPortal>
       )}
     </div>
+  );
+}
+
+// ── «Incognito» sul progetto ───────────────────────────────────────────────────
+/**
+ * L'unica leva umana della 092: un progetto è dell'organizzazione a meno che
+ * qualcuno non dica di no.
+ *
+ * Si carica da sé perché la sidebar conosce i progetti per PATH (l'indice della
+ * board), non come righe di `projects`: il record con l'interruttore lo si
+ * chiede quando il menu si apre, e non un istante prima — un fetch per ogni riga
+ * di progetto disegnata sarebbe una richiesta a vuoto per ogni apertura
+ * dell'app.
+ *
+ * Finché non si sa, la voce NON si disegna. Disegnarla con uno stato indovinato
+ * significherebbe mostrare «Rendi incognito» su un progetto che lo è già, cioè
+ * offrire un gesto che non fa quello che dice.
+ */
+function VoceIncognito({ projectPath, onDone }: { projectPath: string; onDone: () => void }) {
+  const [progetto, setProgetto] = useState<{ id: string; incognito: boolean } | null>(null);
+  useEffect(() => {
+    let vivo = true;
+    projectsApi
+      .byPath(projectPath)
+      .then(p => { if (vivo && p) setProgetto({ id: p.id, incognito: p.incognito === true }); })
+      .catch(() => {});
+    return () => { vivo = false; };
+  }, [projectPath]);
+
+  if (!progetto) return null;
+  return (
+    <button
+      onClick={() => {
+        projectsApi.update(progetto.id, { incognito: !progetto.incognito }).catch(() => {});
+        onDone();
+      }}
+      className={POPOVER_ITEM}
+    >
+      {progetto.incognito ? <Eye size={14} /> : <EyeOff size={14} />}
+      <span>{progetto.incognito ? 'Mostra al gruppo' : 'Rendi incognito'}</span>
+    </button>
   );
 }
 
@@ -1951,7 +2050,7 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
       // `select-none`: chi monta un long-press lo vuole, o iOS ci mette sopra il
       // proprio callout di selezione mentre tieni premuto.
       className={[
-        `group/terminal flex items-center ${ROW_H} ${ROW_PX} select-none`,
+        `group/terminal ${ROW_CARD} flex items-center ${ROW_GAP} ${ROW_H} ${ROW_PX} ${TAB_LABEL_TYPE} select-none`,
         sidebarRowCard({ focused: isFocused, open: isOpen, attention: attentionTier }),
       ].filter(Boolean).join(' ')}
       style={{ marginLeft: ROW_INSET + depth * SIDEBAR_INDENT_STEP }}
@@ -1962,7 +2061,7 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
       <button
         onClick={() => { signalsActions.clearTerminalFinished(s.id); onTerminalClick?.(s.id, s.name); }}
         className="flex items-center gap-2 flex-1 min-w-0 h-full text-left"
-        title={`${s.name} — ${s.cwd}`}
+        title={`${s.name} · ${s.cwd}`}
       >
         {/* Nello slot condiviso: tre glifi diversi per lo stesso posto, e senza
             un contenitore fisso il nome partiva da una x diversa a seconda di
@@ -1979,11 +2078,11 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
             `truncate-tight` usa il margine verticale, e un `mt` sul figlio glielo
             porterebbe via. */}
         <span className="flex-1 min-w-0 flex flex-col justify-center gap-[3px]">
-          <span className={`text-[12px] truncate-tight ${onFill ? 'font-semibold' : ''}`}>{s.name}</span>
+          <span className={`truncate-tight ${onFill ? 'font-semibold' : ''}`}>{s.name}</span>
           <SessionActivity subjectId={s.id} onFill={onFill} />
         </span>
         {projectName && (
-          <span className={`text-[11px] truncate max-w-[80px] mr-1 ${onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-tertiary'}`} title={s.cwd}>
+          <span className={`text-[11px] truncate max-w-[80px] ${onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-tertiary'}`} title={s.cwd}>
             {projectName}
           </span>
         )}
@@ -1992,19 +2091,6 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
             number, same noise we already stripped from the project header
             (see the comment near the project row). The live socket count is
             still available server-side if a surface ever genuinely needs it. */}
-        {/* Relative last-activity — same trailing timestamp BrowserSidebarItem
-            shows, so it's visible AT A GLANCE why this row sorts above/below
-            another (real last touch, not frozen createdAt). */}
-        <RelativeTime
-          at={lastActivity}
-          className={`flex-shrink-0 text-[11px] tabular-nums group-hover/terminal:hidden mr-1 ${onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-tertiary'}`}
-        />
-        {/* Loading spinner + status pinned to the END of the row (after the cwd
-            metadata) so "what's working" reads at the trailing edge, mirroring
-            the tab bar. A finished turn surfaces as the notification badge, not
-            a separate dot. */}
-        <TerminalStreamingSpinner sessionId={s.id} className="ml-0.5" />
-        <NotificationBadge count={notificationCount} className="ml-0.5" variant={onFill ? 'onFill' : 'default'} />
       </button>
 
       {/* Split schematic — same placement/treatment as the chat row's minimap. */}
@@ -2013,20 +2099,39 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
           rows={splitPosition.rows}
           rowHeights={splitPosition.rowHeights}
           active={splitPosition.active}
-          className={`flex-shrink-0 mr-1.5 ${onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-tertiary'}`}
+          className={`flex-shrink-0 ${onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-tertiary'}`}
         />
       )}
 
-      {/* Pinned ("Fissato") trailing glyph — mirrors the chat row's rail. */}
-      {pinned && (
-        <span
-          className={`flex-shrink-0 flex items-center ${onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-tertiary'}`}
-          title={tr('sidebar.pinned')}
-          aria-label={tr('sidebar.pinned')}
-        >
-          <Pin size={12} />
-        </span>
-      )}
+      {/* Lo spinner sta fuori dal binario quieto: vedi la riga chat, stessa
+          ragione (fermare un turno ≠ chiudere la riga). */}
+      <TerminalStreamingSpinner sessionId={s.id} />
+
+      {/* IL BINARIO QUIETO. Erano dentro il `<button>` che occupa il `flex-1`,
+          quindi non erano nemmeno figli della riga: il tempo si nascondeva da sé
+          (`group-hover/terminal:hidden`) per far posto a un comando che stava in
+          un ALTRO elemento, due contenitori più in là. Adesso sono qui, sorelle
+          del comando, e sbiadiscono insieme sotto di lui. */}
+      <div className={`${ROW_TRAIL} flex items-center ${ROW_GAP} flex-shrink-0`}>
+        {/* Relative last-activity — same trailing timestamp BrowserSidebarItem
+            shows, so it's visible AT A GLANCE why this row sorts above/below
+            another (real last touch, not frozen createdAt). */}
+        <RelativeTime
+          at={lastActivity}
+          className={`flex-shrink-0 text-[11px] tabular-nums ${onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-tertiary'}`}
+        />
+        {/* Pinned ("Fissato") trailing glyph — mirrors the chat row's rail. */}
+        {pinned && (
+          <span
+            className={`flex-shrink-0 flex items-center ${onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-tertiary'}`}
+            title={tr('sidebar.pinned')}
+            aria-label={tr('sidebar.pinned')}
+          >
+            <Pin size={12} />
+          </span>
+        )}
+        <NotificationBadge count={notificationCount} variant={onFill ? 'onFill' : 'default'} />
+      </div>
 
       {/* Inline "Open as project" icon removed — it competed with the
           close-button slot for hover attention and made the row noisy.
@@ -2034,62 +2139,27 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
           touch si apre tenendo premuto o dal «...» qui accanto, e col mouse col
           tasto destro: è LO STESSO menu. */}
 
-      {(onCloseTerminal || (isTouch && hasMenu)) && (
-        // The close affordance only takes layout space on hover (or when a
-        // close is pending / on touch). At rest it's `hidden` → zero width, so
-        // the spinner + badge inside the flex-1 button above sit FLUSH at the
-        // row's trailing edge. Reserving it always (the old behaviour) pushed
-        // the loading spinner ~28px in from the edge — the "spinner non in
-        // fondo" bug. Same hover-reveal pattern the project row already uses.
-        // NIENTE `mr-1`, e il box e' quello CONDIVISO. Erano i due motivi per cui
-        // «la spunta non e' allineata ai piu' che ci sono sui progetti»: 4px di
-        // margine destro qui e nessuno sulla riga di progetto mettevano i due
-        // comandi su due colonne, e 24px contro 28 li rendevano anche di due
-        // misure. Vedi ROW_ACTION_BOX.
-        <span className={`flex-shrink-0 items-center justify-center relative ${ROW_ACTION_BOX} ${isTouch || pendingClose ? 'flex' : 'hidden group-hover/terminal:flex'}`}>
-          {/* IL «...» NON C'È PIÙ (decisione di Attilio, 07/08: col long-press non
-              serve). Ma toglierlo e basta lasciava la riga terminale SENZA
-              nessun comando di chiusura visibile: il suo slot su touch conteneva
-              solo quel bottone. Torna il cerchio di chiusura, sempre visibile
-              col dito — cioè esattamente la forma che la riga BROWSER già usa,
-              così le due righe sorelle non divergono di nuovo. Il menu (fissa,
-              apri come progetto, chiudi) resta identico tenendo premuto. */}
-          {isTouch ? (
-            <span className="flex items-center justify-center w-full h-full">
-              <PendingActionRing
-                status={null}
-                size={ROW_ACTION_GLYPH}
-                boxClassName={ROW_ACTION_BOX}
-                onIdleClick={onCloseTerminal ? () => onCloseTerminal(s.id) : undefined}
-                idleTitle="Chiudi terminale"
-                idleAriaLabel={`Chiudi terminale ${s.name}`}
-              />
-            </span>
-          ) : pendingClose ? (
-            <span className="flex items-center justify-center w-full h-full relative z-10">
-              <PendingActionRing
-                status={pendingClose}
-                size={ROW_ACTION_GLYPH}
-                boxClassName={ROW_ACTION_BOX}
-                pendingTitle="Annulla chiusura"
-                pendingAriaLabel={`Annulla chiusura ${s.name}`}
-              />
-            </span>
-          ) : (
-            <span className="hidden group-hover/terminal:flex items-center justify-center w-full h-full">
-              <PendingActionRing
-                status={null}
-                size={ROW_ACTION_GLYPH}
-                boxClassName={ROW_ACTION_BOX}
-                // Su desktop il cancello esterno pretende già `onCloseTerminal`
-                // (il ramo touch è l'unico che apre lo slot senza); il ternario
-                // lo ridice solo perché TS non lo restringe attraverso l'`||`.
-                onIdleClick={onCloseTerminal ? () => onCloseTerminal(s.id) : undefined}
-                idleTitle="Chiudi terminale"
-                idleAriaLabel={`Chiudi terminale ${s.name}`}
-              />
-            </span>
-          )}
+      {/* IL COMANDO, ULTIMO NEL DOM. Erano tre rami — `isTouch`, `pendingClose`,
+          hover — con tre wrapper e la stessa identica chiamata dentro, cioè tre
+          copie di un componente che aveva già tutti gli stati che servivano.
+          Quale dei tre si vede lo decide ora il CSS (vedi ROW_ACTIONS), che è il
+          posto dove quella domanda si può fare bene: `hover: hover` è una
+          proprietà del dispositivo, non un booleano che React ricalcola. */}
+      {onCloseTerminal && (
+        <span
+          className={`${ROW_ACTIONS} ${ROW_ACTION_BOX}`}
+          data-pending={pendingClose ? 'true' : undefined}
+        >
+          <PendingActionRing
+            status={pendingClose}
+            size={ROW_ACTION_GLYPH}
+            boxClassName={ROW_ACTION_BOX}
+            onIdleClick={() => onCloseTerminal(s.id)}
+            idleTitle="Chiudi terminale"
+            idleAriaLabel={`Chiudi terminale ${s.name}`}
+            pendingTitle="Annulla chiusura"
+            pendingAriaLabel={`Annulla chiusura ${s.name}`}
+          />
         </span>
       )}
 
@@ -2250,45 +2320,108 @@ function ProjectArchiveButton({ projectPath, allArchived, onArchive }: ProjectAr
   // immediate (consistent with TopicItem and the App-level wrappers).
   const status = usePendingActionStatus(allArchived ? null : `archive-project:${projectPath}`);
 
-  // Pending: filled check (cancels on click).
-  if (status) {
-    return (
-      <span className={`hidden group-hover/proj:flex flex-shrink-0 ${ROW_ACTION_BOX} items-center justify-center relative z-10`}>
-        <PendingActionRing
-          status={status}
-          size={ROW_ACTION_GLYPH}
-          boxClassName={ROW_ACTION_BOX}
-          pendingTitle="Annulla archiviazione"
-          pendingAriaLabel={`Annulla archiviazione progetto ${projectPath}`}
-        />
-      </span>
-    );
-  }
-
-  // Idle, archived → restore icon (no countdown — restoration is safe).
-  if (allArchived) {
-    return (
-      <button
-        onClick={(e) => { e.stopPropagation(); onArchive(projectPath, false); }}
-        className={`hidden group-hover/proj:flex flex-shrink-0 ${ROW_ACTION_BOX} items-center justify-center rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary hover:text-app-text transition-colors`}
-        title={tr('sidebar.restoreProject')}
-      >
-        <ArchiveRestore size={12} />
-      </button>
-    );
-  }
-
-  // Idle, not archived → empty "todo" circle. Click queues the soft-archive.
+  // TRE RAMI DIVENTANO UNO, e i due che sparivano erano quelli sbagliati.
+  //
+  // Erano tre `return` con tre wrapper diversi, e ognuno si portava dietro il
+  // proprio `hidden group-hover/proj:flex` — compreso quello del CONTO ALLA
+  // ROVESCIA. Cioè: archiviavi un progetto, partivano i 3 secondi per
+  // ripensarci, toglievi il mouse dalla riga e il cerchio da cui annullare
+  // spariva mentre il conto continuava a scorrere. Un ripensamento previsto dal
+  // disegno e irraggiungibile appena muovevi il puntatore.
+  //
+  // E il terzo ramo — «archiviato» — usava `ArchiveRestore` a 12px con un
+  // `bg-black/10` di hover che è il doppio di `SIDEBAR_HOVER`: dentro lo stesso
+  // binario, un glifo di misura diversa e un rialzo di intensità diversa
+  // rispetto ai due fratelli.
+  //
+  // Adesso il cerchio ha tutti e tre gli stati (vedi PendingActionRing) e la
+  // visibilità la decide il CSS del binario: `data-pending` lo tiene acceso
+  // finché il conto scorre, ovunque sia il mouse.
   return (
-    <span className={`hidden group-hover/proj:flex flex-shrink-0 ${ROW_ACTION_BOX} items-center justify-center relative z-10`}>
-      <PendingActionRing
-        status={null}
-        size={ROW_ACTION_GLYPH}
-        boxClassName={ROW_ACTION_BOX}
-        onIdleClick={() => onArchive(projectPath, true)}
-        idleTitle="Archivia progetto"
-        idleAriaLabel={`Archivia progetto ${projectPath}`}
-      />
+    <PendingActionRing
+      status={status}
+      done={allArchived}
+      size={ROW_ACTION_GLYPH}
+      boxClassName={ROW_ACTION_BOX}
+      onIdleClick={() => onArchive(projectPath, true)}
+      onDoneClick={() => onArchive(projectPath, false)}
+      idleTitle="Archivia progetto"
+      idleAriaLabel={`Archivia progetto ${projectPath}`}
+      pendingTitle="Annulla archiviazione"
+      pendingAriaLabel={`Annulla archiviazione progetto ${projectPath}`}
+      doneTitle={tr('sidebar.restoreProject')}
+      doneAriaLabel={`${tr('sidebar.restoreProject')} ${projectPath}`}
+    />
+  );
+}
+
+/**
+ * IL BINARIO DEI COMANDI della riga di progetto — il «+» e il cerchio.
+ *
+ * Sta in un componente suo per la stessa ragione di `ProjectArchiveButton` (le
+ * hook non possono vivere dentro il `projects.map(...)` del render), e ne serve
+ * uno perché il binario deve sapere se un conto alla rovescia sta scorrendo:
+ * `data-pending` è ciò che tiene il cerchio acceso quando il mouse se ne va, e
+ * senza quell'attributo l'annullamento tornerebbe irraggiungibile — che era il
+ * difetto vero di questa riga.
+ *
+ * L'ORDINE È FISSO E FINISCE COL CERCHIO: aggiungere sta prima di chiudere,
+ * ovunque. «Il tasto di chiusura deve essere sempre a fine tab» vale anche
+ * quando in coda ci sono due comandi.
+ *
+ * Col dito il «+» resta il MENU (`TouchProjectAddMenu`), non il popover del
+ * desktop: le sue voci sono le stesse, ma su touch il menu porta anche
+ * «Archivia progetto» — cioè la seconda porta, quella dei dropdown, che deve
+ * restare aperta accanto al cerchio e non al suo posto.
+ */
+function ProjectRowActions({
+  pp, allArchived, isExpanded, isTouch,
+  onArchiveProject, onNewTopicInProject, onAddProjectPane,
+}: {
+  pp: string;
+  allArchived: boolean;
+  isExpanded: boolean;
+  isTouch: boolean;
+  onArchiveProject?: (projectPath: string, archive: boolean) => Promise<boolean>;
+  onNewTopicInProject?: (projectPath: string) => void;
+  onAddProjectPane?: (projectPath: string, type: PaneType, subType?: string) => void;
+}) {
+  const status = usePendingActionStatus(allArchived ? null : `archive-project:${pp}`);
+  const hasAdd = !!(onNewTopicInProject || onAddProjectPane);
+  if (!hasAdd && !onArchiveProject) return null;
+  return (
+    <span className={ROW_ACTIONS} data-pending={status ? 'true' : undefined}>
+      {hasAdd && (
+        isTouch ? (
+          <TouchProjectAddMenu
+            pp={pp}
+            allArchived={allArchived}
+            onNewTopicInProject={onNewTopicInProject}
+            onAddProjectPane={onAddProjectPane}
+            onArchiveProject={onArchiveProject}
+          />
+        ) : (
+          // Il «+» compare solo a progetto APERTO: su una cartella chiusa
+          // «aggiungi qui dentro» apre una pane che non si vede.
+          isExpanded && (
+            /* Same canonical add-pane affordance as the top tab bar's "+" —
+               single component, single rendering contract. */
+            <PaneAddMenu
+              scope="project"
+              onNewChat={onNewTopicInProject ? () => onNewTopicInProject(pp) : undefined}
+              onAddPane={onAddProjectPane ? (type, subType) => onAddProjectPane(pp, type, subType) : undefined}
+              triggerTitle="Add to project"
+            />
+          )
+        )
+      )}
+      {onArchiveProject && (
+        <ProjectArchiveButton
+          projectPath={pp}
+          allArchived={allArchived}
+          onArchive={onArchiveProject}
+        />
+      )}
     </span>
   );
 }
@@ -2368,7 +2501,12 @@ function BrowserSidebarItem({ bc, itemName, depth, isFocused, isOpen, pinned, on
       className={[
         // `select-none`: chi monta un long-press lo vuole, o iOS ci mette sopra
         // il proprio callout di selezione mentre tieni premuto.
-        `group flex items-center ${ROW_H} cursor-pointer select-none text-[14px] md:text-[13px] ${ROW_PX}`,
+        // `TAB_LABEL_TYPE` e non la scala ricopiata a mano: questa riga aveva la
+        // misura giusta (14/13) ma NON il peso — `font-medium` mancava, quindi
+        // nella stessa colonna, alla stessa dimensione, un browser era più
+        // leggero di un progetto. Il peso non è un modo di dire «meno
+        // importante», è parte dell'identità del carattere.
+        `group ${ROW_CARD} flex items-center ${ROW_GAP} ${ROW_H} cursor-pointer select-none ${TAB_LABEL_TYPE} ${ROW_PX}`,
         sidebarRowCard({ focused: isFocused, open: isOpen }),
       ].filter(Boolean).join(' ')}
       style={{ marginLeft: ROW_INSET + depth * SIDEBAR_INDENT_STEP }}
@@ -2379,82 +2517,54 @@ function BrowserSidebarItem({ bc, itemName, depth, isFocused, isOpen, pinned, on
       onContextMenu={hasMenu ? (e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY }); } : undefined}
     >
       {pendingClose && <PendingActionProgressOverlay status={pendingClose} />}
-      {/* `mr-2` resta sullo SLOT e non sul glifo: questa riga non ha un `gap`
-          (i comandi in coda contano sul suo assenza), quindi lo spazio verso il
-          nome se lo porta il contenitore — che è anche ciò che mette il glifo
-          nella stessa colonna delle righe qui sopra. */}
-      <span className={`${ROW_GLYPH_SLOT} mr-2`}>
+      {/* Lo slot NON porta più `mr-2`: la riga ha ora il `gap` condiviso
+          (`ROW_GAP`, 8px) come ogni altra, quindi lo spazio verso il nome è
+          quello di tutti. Il margine a mano c'era perché i comandi in coda
+          contavano sull'assenza del gap — e non ci contano più, stanno fuori dal
+          flusso. */}
+      <span className={ROW_GLYPH_SLOT}>
         <Globe size={ROW_GLYPH} className="opacity-60" />
       </span>
       <span className="flex-1 truncate" title={bc.url}>
         {itemName}
       </span>
-      <RelativeTime
-        at={bc.lastActivity}
-        className="flex-shrink-0 text-[11px] text-app-text-tertiary tabular-nums group-hover:hidden mr-1"
-      />
-      {/* Loading spinner pinned to the row's trailing edge (after the
-          last-activity timestamp), mirroring the tab + terminal rows. Same
-          signal (useBrowserLoading) and component the browser TAB uses. No
-          right margin so it sits flush when the close slot is hidden. */}
-      <BrowserStreamingSpinner paneId={`browser:${bc.id}`} className="ml-0.5" />
-      {/* Pin glyph — same "Fissato" indicator as chat / terminal / project rows.
-          Placed as the trailing-most PERSISTENT element (after the timestamp +
-          spinner, before the hover-only close slot) so it lands in the SAME
-          column as the other rows' pins — putting it before the timestamp pushed
-          it left and broke the alignment. Applies to both project-nested and
-          top-level browser rows (same component). */}
-      {pinned && (
-        <span
-          className="flex-shrink-0 flex items-center text-app-text-tertiary ml-1"
-          title={tr('sidebar.pinned')}
-          aria-label={tr('sidebar.pinned')}
-        >
-          <Pin size={12} />
-        </span>
-      )}
+      {/* Loading spinner — fuori dal binario quieto, come sulle righe sorelle:
+          il segnale «sta caricando» non deve sparire per mostrare «chiudi». */}
+      <BrowserStreamingSpinner paneId={`browser:${bc.id}`} />
+      <div className={`${ROW_TRAIL} flex items-center ${ROW_GAP} flex-shrink-0`}>
+        <RelativeTime
+          at={bc.lastActivity}
+          className="flex-shrink-0 text-[11px] text-app-text-tertiary tabular-nums"
+        />
+        {/* Pin glyph — same "Fissato" indicator as chat / terminal / project
+            rows, nella stessa colonna perché ora sta nello stesso binario. */}
+        {pinned && (
+          <span
+            className="flex-shrink-0 flex items-center text-app-text-tertiary"
+            title={tr('sidebar.pinned')}
+            aria-label={tr('sidebar.pinned')}
+          >
+            <Pin size={12} />
+          </span>
+        )}
+      </div>
       {onCloseBrowser && (
-        // Hover-only close slot (or visible while a close is pending) so the
-        // spinner above sits FLUSH at the trailing edge at rest — reserving it
-        // always pushed the spinner ~28px in from the edge.
-        // SU TOUCH RESTA SEMPRE VISIBILE, come già fa la riga del terminale
-        // accanto (`isTouch || pendingClose ? 'flex' : …`): senza hover la X
-        // restava `hidden` per sempre e un browser aperto dalla sidebar non si
-        // chiudeva più.
-        // Box condiviso e nessun `mr-1`: vedi la riga del terminale qui sopra —
-        // le due sorelle stavano 4px piu' a sinistra di ogni altro comando.
-        <span className={`flex-shrink-0 ${ROW_ACTION_BOX} items-center justify-center relative z-10 ${isTouch || pendingClose ? 'flex' : 'hidden group-hover:flex'}`}>
-          {pendingClose ? (
-            <PendingActionRing
-              status={pendingClose}
-              size={ROW_ACTION_GLYPH}
-              boxClassName={ROW_ACTION_BOX}
-              pendingTitle="Annulla chiusura"
-              pendingAriaLabel={`Annulla chiusura browser ${itemName}`}
-            />
-          ) : (
-            <span className={`items-center justify-center w-full h-full ${isTouch ? 'flex' : 'hidden group-hover:flex'}`}>
-              <PendingActionRing
-                status={null}
-                size={ROW_ACTION_GLYPH}
-                // Il BOX del bottone viene dalle classi (36px col dito, 28 col
-                // mouse); il GLIFO resta piccolo: il bersaglio cresce, il
-                // disegno no.
-                boxClassName={ROW_ACTION_BOX}
-                onIdleClick={() => onCloseBrowser(bc.id)}
-                idleTitle="Chiudi browser"
-                idleAriaLabel={`Chiudi browser ${itemName}`}
-                // Il cerchio è 14px e l'area sensibile cresce solo in ALTEZZA
-                // (`tap-expand-y`, 44px): con `tap-expand` i 44 di LARGO
-                // sporgevano ~15px oltre il box e coprivano il glifo del pin
-                // qui accanto, quindi toccare il pin CHIUDEVA il browser invece
-                // di aprirlo. Larghezza: il bottone se la impone da sé via
-                // `style` (size=14), quindi qui il bersaglio resta 14×44 —
-                // stretto, ma suo.
-                className="tap-expand-y"
-              />
-            </span>
-          )}
+        <span
+          className={`${ROW_ACTIONS} ${ROW_ACTION_BOX}`}
+          data-pending={pendingClose ? 'true' : undefined}
+        >
+          <PendingActionRing
+            status={pendingClose}
+            size={ROW_ACTION_GLYPH}
+            // Il BOX del bottone viene dalle classi (36px col dito, 28 col
+            // mouse); il GLIFO resta piccolo: il bersaglio cresce, il disegno no.
+            boxClassName={ROW_ACTION_BOX}
+            onIdleClick={() => onCloseBrowser(bc.id)}
+            idleTitle="Chiudi browser"
+            idleAriaLabel={`Chiudi browser ${itemName}`}
+            pendingTitle="Annulla chiusura"
+            pendingAriaLabel={`Annulla chiusura browser ${itemName}`}
+          />
         </span>
       )}
       {ctxMenu && (

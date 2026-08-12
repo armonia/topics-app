@@ -22,6 +22,29 @@
 import { useSyncExternalStore, useEffect } from 'react';
 import { getTabId } from './pane/middleware/syncCrossTab';
 
+/**
+ * Chi ha deciso l'etichetta di una tab, in ordine di autorità crescente:
+ *
+ *  - `auto`  — il titolo della pagina, riletto a ogni navigazione;
+ *  - `agent` — il NOME prescritto dall'agente (`open_browser_pane({url, name})`):
+ *              è il manifesto della consegna, quindi la pagina non lo sovrascrive;
+ *  - `user`  — la rinomina fatta a mano, che vince su tutto.
+ *
+ * La regola è una sola e vale per ogni scrittore: una patch cambia il titolo
+ * SOLO se la sua autorità è ≥ di quella già registrata (vedi `titleRank`).
+ */
+export type TaskTabTitleSource = 'auto' | 'agent' | 'user';
+
+/** Autorità di una fonte di titolo. Assente ⟺ `auto` (il titolo della pagina). */
+export function titleRank(source: TaskTabTitleSource | undefined): number {
+  return source === 'user' ? 2 : source === 'agent' ? 1 : 0;
+}
+
+/** Etichetta decisa da qualcuno (agente o umano): il poll del titolo non la tocca. */
+export function isPinnedTitle(source: TaskTabTitleSource | undefined): boolean {
+  return titleRank(source) > 0;
+}
+
 export interface TaskBrowserTab {
   /** Canonical browser contextId: `task-<id8>-<seq>`. */
   contextId: string;
@@ -34,10 +57,18 @@ export interface TaskBrowserTab {
    * clickable preview under the task description, so closing a tab doesn't
    * destroy it — the user (or agent) can reopen it (`unparkTab`) to its last
    * url. `removeTab` is the explicit hard-delete (the preview's trash). Absent
-   * ⟺ live. `titleSource='user'` pins the label against the live-title poll.
+   * ⟺ live. A pinned `titleSource` (agent/user) holds the label against the
+   * live-title poll.
    */
   parked?: boolean;
-  titleSource?: 'auto' | 'user';
+  titleSource?: TaskTabTitleSource;
+  /**
+   * Handle di login salvato dall'agente su QUESTA tab (`browser_save_state`).
+   * Chi monta la tab lo inietta una volta (`browser_load_state`) e il reviewer
+   * atterra già dentro, invece di trovare il muro del login. Scritto dal server
+   * (`task-tab-persist`), qui è di sola lettura.
+   */
+  loginHandle?: string;
 }
 
 export interface TaskBrowserTabsState {
@@ -57,10 +88,11 @@ export function mintTaskContextId(taskId: string, seq: number): string {
   return `task-${taskId.slice(0, 8)}-${seq}`;
 }
 
-/** True for a task-owned browser contextId (label + routing heuristics). */
-export function isTaskContextId(contextId: string): boolean {
-  return typeof contextId === 'string' && contextId.startsWith('task-');
-}
+// Le altre due forme di contextId — quella coniata dal server per il manifesto
+// (`task-<id8>-n<slug>`) e il gemello nel workspace (`<ctx>_ws`) — stanno in
+// `shared/task-tab-context.ts`, che è la sola definizione condivisa con il
+// server. Qui si ri-esportano perché il client le nomina da questo modulo.
+export { isTaskContextId, workspaceTwinContextId } from '../../../shared/task-tab-context';
 
 // ── pure reducer ops (unit-tested; no I/O) ───────────────────────────────────
 
@@ -79,19 +111,35 @@ export function addTab(state: TaskBrowserTabsState, taskId: string, url: string,
  *  Idempotent: an existing ctx is refreshed (url/title), UN-PARKED (a re-open
  *  of a soft-closed tab brings it back live) + activated, never duplicated.
  *  `nextSeq` is advanced past any embedded seq so a later client mint can't
- *  collide. */
-export function upsertTab(state: TaskBrowserTabsState, contextId: string, url: string, title = ''): TaskBrowserTabsState {
+ *  collide. `titleSource` porta l'autorità dell'etichetta: un nome prescritto
+ *  dall'agente entra come `agent` e non viene più sovrascritto dal titolo della
+ *  pagina — ma una rinomina a mano lo batte comunque. */
+export function upsertTab(
+  state: TaskBrowserTabsState,
+  contextId: string,
+  url: string,
+  title = '',
+  titleSource: TaskTabTitleSource = 'auto',
+): TaskBrowserTabsState {
   const existing = state.tabs.find((t) => t.contextId === contextId);
   if (existing) {
+    const accepts = !!title && titleRank(titleSource) >= titleRank(existing.titleSource);
     return {
       ...state,
-      tabs: state.tabs.map((t) => (t.contextId === contextId ? { ...t, url: url || t.url, title: title || t.title, parked: false } : t)),
+      tabs: state.tabs.map((t) => (t.contextId === contextId
+        ? {
+            ...t,
+            url: url || t.url,
+            ...(accepts ? { title, titleSource } : {}),
+            parked: false,
+          }
+        : t)),
       activeContextId: contextId,
     };
   }
   const seq = state.nextSeq;
   return {
-    tabs: [...state.tabs, { contextId, url, title, seq }],
+    tabs: [...state.tabs, { contextId, url, title, seq, ...(title && titleSource !== 'auto' ? { titleSource } : {}) }],
     activeContextId: contextId,
     nextSeq: seq + 1,
   };
@@ -171,11 +219,12 @@ export function reorderTabs(state: TaskBrowserTabsState, from: number, to: numbe
  *  navigation, or a user rename (`titleSource:'user'` pins the label so the
  *  live page-title poll stops overwriting it — same contract as a pane's
  *  browser title). */
-export function updateTab(state: TaskBrowserTabsState, contextId: string, patch: { url?: string; title?: string; titleSource?: 'auto' | 'user' }): TaskBrowserTabsState {
+export function updateTab(state: TaskBrowserTabsState, contextId: string, patch: { url?: string; title?: string; titleSource?: TaskTabTitleSource }): TaskBrowserTabsState {
   const t = state.tabs.find((x) => x.contextId === contextId);
   if (!t) return state;
-  // A user-pinned title is not overwritten by an automatic (poll) title update.
-  const titleLocked = t.titleSource === 'user' && patch.titleSource !== 'user';
+  // Un'etichetta decisa (agente o umano) non viene sovrascritta da una fonte di
+  // autorità minore — il poll del titolo di pagina è `auto`, l'ultimo di tutti.
+  const titleLocked = titleRank(patch.titleSource) < titleRank(t.titleSource);
   const nextTitle = patch.title !== undefined && !titleLocked ? patch.title : t.title;
   const nextSource = patch.titleSource ?? t.titleSource;
   const nextUrl = patch.url ?? t.url;
@@ -204,7 +253,8 @@ export function sanitizeTaskTabs(v: unknown): TaskBrowserTabsState | null {
       title: typeof r.title === 'string' ? r.title : '',
       seq: typeof r.seq === 'number' ? r.seq : 0,
       ...(r.parked === true ? { parked: true } : {}),
-      ...(r.titleSource === 'user' ? { titleSource: 'user' as const } : {}),
+      ...(r.titleSource === 'user' || r.titleSource === 'agent' ? { titleSource: r.titleSource } : {}),
+      ...(typeof r.loginHandle === 'string' && r.loginHandle ? { loginHandle: r.loginHandle } : {}),
     });
   }
   // The active ctx must reference a LIVE (non-parked) tab; fall back to the
@@ -320,6 +370,27 @@ function applyRemote(taskId: string, value: unknown): boolean {
   return true;
 }
 
+/** Forget everything this client remembers about a task's tabs — called when the
+ *  task is archived (`task:deleted`), because the server has just DELETED its
+ *  ui-state row.
+ *
+ *  The pending write timer goes first: that debounced PUT is the only thing that
+ *  can resurrect the key, and it fires up to 800 ms after the last edit — well
+ *  past the archive. Dropping the cache is just memory (and stops a stale drawer
+ *  from rendering tabs whose browser contexts the server has already destroyed).
+ *
+ *  An initial GET still in flight can repopulate the cache with the pre-archive
+ *  value; it 404s once the row is gone, and either way it never PUTs, so the
+ *  server stays clean — and the boot sweep re-purges anything that slips. */
+export function forgetTaskTabs(taskId: string): void {
+  if (!taskId) return;
+  const key = keyFor(taskId);
+  const t = writeTimers.get(key);
+  if (t) { clearTimeout(t); writeTimers.delete(key); }
+  loaded.delete(taskId);
+  if (cache.delete(taskId)) notify();
+}
+
 /** Live-apply a single remote `ui-state:updated` for a task-browser-tabs key. The
  *  WS bridge drops this client's own echo (by sourceClientId) before calling, so a
  *  park/close/reorder/rename/remove on ANOTHER device updates this one in real time
@@ -330,13 +401,52 @@ export function applyRemoteTaskTabs(taskId: string, value: unknown): void {
 
 /** Live-apply the bulk `ui-state:init` snapshot on (re)connect: every
  *  task-browser-tabs key in `data`, coalesced into one notify. Resyncs closes the
- *  client missed while it was disconnected. */
-export function applyRemoteTaskTabsInit(data: Record<string, unknown>): void {
+ *  client missed while it was disconnected.
+ *
+ *  Un server aggiornato queste chiavi nello snapshot NON le manda più (erano il
+ *  30% del payload di ogni riconnessione e nessuno le leggeva da lì): resta per i
+ *  server vecchi, ed è il primo passo di `resyncTaskTabsFromServer`, che copre il
+ *  resto con dei GET mirati. Restituisce gli id già riallineati da qui. */
+export function applyRemoteTaskTabsInit(data: Record<string, unknown>): Set<string> {
+  const applied = new Set<string>();
   let changed = false;
   for (const [key, value] of Object.entries(data)) {
     const taskId = taskIdFromKey(key);
-    if (taskId && applyRemote(taskId, value)) changed = true;
+    if (!taskId) continue;
+    applied.add(taskId);
+    if (applyRemote(taskId, value)) changed = true;
   }
+  if (changed) notify();
+  return applied;
+}
+
+/** RESYNC DI RICONNESSIONE, mirato.
+ *
+ *  Prima lo snapshot `ui-state:init` faceva anche da resync: portava OGNI chiave
+ *  `task-browser-tabs:*` del db, così un client che era offline mentre un altro
+ *  device chiudeva una tab si riallineava alla riconnessione. Costava il 30% del
+ *  payload di ogni `ui-state:init` (91 righe / 31 KB su 172 / 101 KB, misurato
+ *  l'11/08) per riallineare, quasi sempre, ZERO task: un client tiene in cache
+ *  solo i task di cui ha davvero aperto il drawer.
+ *
+ *  Quindi il server non le manda più (`UI_STATE_INIT_EXCLUDED_PREFIXES`) e il
+ *  riallineamento lo chiede il client, per i soli task che ha in cache — uno o
+ *  due GET invece di novanta record. Un task MAI aperto non ha niente da
+ *  riallineare: la sua prima lettura è il GET pigro di `ensureTaskTabsLoaded`.
+ *
+ *  Le chiavi con una scrittura in coda restano fuori (`applyRemote` le protegge
+ *  già: l'edit locale non ancora flushato è più recente di qualsiasi valore
+ *  remoto). Una chiave sparita dal server (task archiviato mentre eravamo
+ *  offline) legge `null` e non cambia niente — identico a prima, quando la
+ *  chiave semplicemente mancava dallo snapshot; a cancellarla è il `task:deleted`
+ *  → `forgetTaskTabs`. */
+export async function resyncTaskTabsFromServer(snapshot?: Record<string, unknown>): Promise<void> {
+  const alreadyApplied = snapshot ? applyRemoteTaskTabsInit(snapshot) : new Set<string>();
+  const ids = [...loaded].filter((id) => !alreadyApplied.has(id) && !writeTimers.has(keyFor(id)));
+  if (!ids.length) return;
+  const values = await Promise.all(ids.map((id) => uiGet<unknown>(keyFor(id))));
+  let changed = false;
+  ids.forEach((id, i) => { if (values[i] != null && applyRemote(id, values[i])) changed = true; });
   if (changed) notify();
 }
 
@@ -350,7 +460,7 @@ export const taskBrowserTabs = {
     commit(taskId, next);
     return next.activeContextId!;
   },
-  upsertTab: (taskId: string, contextId: string, url: string, title?: string) => commit(taskId, upsertTab(getTaskTabs(taskId), contextId, url, title)),
+  upsertTab: (taskId: string, contextId: string, url: string, title?: string, titleSource?: TaskTabTitleSource) => commit(taskId, upsertTab(getTaskTabs(taskId), contextId, url, title, titleSource)),
   /** Soft-close (park as preview). */
   closeTab: (taskId: string, contextId: string) => commit(taskId, closeTab(getTaskTabs(taskId), contextId)),
   /** Reopen a parked tab from the preview strip. */
@@ -366,7 +476,7 @@ export const taskBrowserTabs = {
   },
   setActive: (taskId: string, contextId: string | null) => commit(taskId, setActiveTab(getTaskTabs(taskId), contextId)),
   reorder: (taskId: string, from: number, to: number) => commit(taskId, reorderTabs(getTaskTabs(taskId), from, to)),
-  updateTab: (taskId: string, contextId: string, patch: { url?: string; title?: string; titleSource?: 'auto' | 'user' }) => commit(taskId, updateTab(getTaskTabs(taskId), contextId, patch)),
+  updateTab: (taskId: string, contextId: string, patch: { url?: string; title?: string; titleSource?: TaskTabTitleSource }) => commit(taskId, updateTab(getTaskTabs(taskId), contextId, patch)),
 };
 
 export function subscribeTaskTabs(listener: () => void): () => void {

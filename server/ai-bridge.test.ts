@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import net from "node:net";
-import { mkdtempSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -196,6 +196,82 @@ describe("ai-bridge daemon", () => {
     expect(ack.exitCode).toBe(0);
     c.close(); c2.close();
   });
+});
+
+// Il replay non è più UN frame grande quanto lo store.
+//
+// Prima: `readFileSync` dell'intero file, `subarray`, base64 di tutto, una riga
+// JSON sola. Su uno store di produzione da 7 MB sono ~9,8 MB su una riga, ~25 MB
+// di stringhe temporanee per attach, e dall'altra parte un `JSON.parse` di quella
+// taglia prima che UN byte diventi utile. Misurato col banco
+// (`scripts/ai-bridge-replay-bench.ts`): sei attach così mettono in coda 44 MB su
+// un socket solo e le risposte escono a scaletta fino a 5s — mentre il daemon,
+// interrogato da un altro processo, risponde a un ping in 4 ms.
+//
+// Il contratto che questi test difendono è che tagliare non cambia NIENTE di
+// osservabile a parte la taglia dei frame: stessi byte, stesso ordine, offset
+// contigui, e zero byte quando non c'è niente da rimandare.
+describe("ai-bridge replay a fette", () => {
+  const SLICE = 1024 * 1024; // deve restare allineato a REPLAY_SLICE_BYTES
+
+  test("uno store da 3 MB arriva in più frame, contigui e byte-identici", async () => {
+    const id = "topic:slice1";
+    const riga = JSON.stringify({ type: "stream_event", text: "à".repeat(200) }) + "\n";
+    const contenuto = riga.repeat(Math.ceil((3 * 1024 * 1024) / Buffer.byteLength(riga)));
+    const big = join(storeDir, "big.ndjson");
+    writeFileSync(big, contenuto, "utf8");
+    const totale = Buffer.byteLength(contenuto);
+
+    const c = await connect();
+    c.send({ type: "spawn", id, cliPath: "/bin/sh", args: ["-c", `cat ${big}`], cwd: storeDir, env: {} });
+    await c.next((m) => m.type === "spawned" && m.id === id);
+    const exit = await c.next((m) => m.type === "exit" && m.id === id, 15_000);
+    expect(exit.endOffset).toBe(totale);
+
+    // Un client FRESCO riattacca da 0: è la fase 1 di `reattach`.
+    const c2 = await connect();
+    c2.send({ type: "attach", id, fromOffset: 0 });
+    const ack = await c2.next((m) => m.type === "attached" && m.id === id, 15_000);
+    expect(ack.endOffset).toBe(totale);
+
+    // I `data` precedono l'ack sullo stesso socket: a questo punto sono tutti
+    // già in coda, e si drenano finché non ne resta nessuno.
+    const frames: Array<{ offset: number; chunk: string }> = [];
+    for (;;) {
+      try { frames.push(await c2.next((m) => m.type === "data" && m.id === id, 500)); }
+      catch { break; }
+    }
+
+    expect(frames.length).toBeGreaterThanOrEqual(3);
+    let atteso = 0;
+    const pezzi: Buffer[] = [];
+    for (const f of frames) {
+      expect(f.offset).toBe(atteso);          // contigui: nessun buco, nessuna sovrapposizione
+      const buf = Buffer.from(f.chunk, "base64");
+      expect(buf.byteLength).toBeLessThanOrEqual(SLICE);
+      pezzi.push(buf);
+      atteso += buf.byteLength;
+    }
+    expect(atteso).toBe(totale);
+    expect(Buffer.concat(pezzi).equals(Buffer.from(contenuto, "utf8"))).toBe(true);
+
+    c.close(); c2.close();
+  }, 40_000);
+
+  test("attach dalla coda esatta non consegna nemmeno un byte", async () => {
+    const id = "topic:slice2";
+    const c = await connect();
+    c.send({ type: "spawn", id, cliPath: "/bin/sh", args: ["-c", "printf 'x\\ny\\n'"], cwd: storeDir, env: {} });
+    await c.next((m) => m.type === "spawned" && m.id === id);
+    const exit = await c.next((m) => m.type === "exit" && m.id === id);
+
+    const c2 = await connect();
+    c2.send({ type: "attach", id, fromOffset: exit.endOffset });
+    const ack = await c2.next((m) => m.type === "attached" && m.id === id);
+    expect(ack.endOffset).toBe(exit.endOffset);
+    await expect(c2.next((m) => m.type === "data" && m.id === id, 400)).rejects.toThrow("frame timeout");
+    c.close(); c2.close();
+  }, 20_000);
 });
 
 // The daemon is spawned detached and unref'd, so nothing in the OS will ever

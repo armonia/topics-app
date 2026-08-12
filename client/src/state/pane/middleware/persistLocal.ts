@@ -40,9 +40,12 @@ import { usePaneStore, type PaneStore } from '../store';
 import { resolveBootFocus, selectLocalSnapshot } from '../selectors';
 import { DEFAULT_SPACE_ID } from '../types';
 import { getTabId } from './syncCrossTab';
+import { PANE_STORE_LOCAL_KEY } from './storageKeys';
 import { spaceWindowId } from '../../../lib/windowRole';
 
-const LOCAL_KEY = 'pane-store-v2';
+// La chiave sta in `storageKeys.ts`: la legge anche `syncCrossTab`, e finché
+// viveva qui quei due moduli si importavano a vicenda (vedi il file).
+const LOCAL_KEY = PANE_STORE_LOCAL_KEY;
 const LOCAL_FOCUS_KEY = 'pane-store-focused-id';
 const LOCAL_ACTIVE_SPACE_KEY = 'pane-store-active-space';
 const DEBOUNCE_MS = 100;
@@ -213,4 +216,3 @@ export function initLocalPersistence(): void {
   });
 }
 
-export const PANE_STORE_LOCAL_KEY = LOCAL_KEY;

@@ -1,0 +1,265 @@
+import { describe, test, expect, beforeAll, afterAll } from "bun:test";
+import {
+  countOwnCommits,
+  deliveryPointer,
+  listOwnCommits,
+  otherLocalBranches,
+  splitAheadCommits,
+  type GitRunResult,
+} from "./own-commits";
+import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+
+function git(cwd: string, ...args: string[]): string {
+  const r = Bun.spawnSync(["git", "-C", cwd, ...args], { stdout: "pipe", stderr: "pipe" });
+  return new TextDecoder().decode(r.stdout).trim();
+}
+
+function commit(repo: string, file: string, body: string, msg: string): void {
+  writeFileSync(join(repo, file), body);
+  git(repo, "add", "-A");
+  git(repo, "commit", "-q", "-m", msg);
+}
+
+const subject = (repo: string, sha: string) => git(repo, "log", "-1", "--format=%s", sha);
+
+/**
+ * Un repo VERO, montato come si monta il difetto: una sessione umana che lavora
+ * sul checkout condiviso, e i branch delle card che nascono da lì e quindi
+ * ereditano i suoi commit.
+ *
+ *   main    base
+ *   dev     base ← A            (l'altra sessione)
+ *   card    base ← A ← M        (eredita A, produce M)
+ *   doppia  base ← A ← M1 ← M2  (eredita A, produce due commit)
+ *   vuota   base ← A            (eredita e basta: non ha prodotto niente)
+ */
+describe("own-commits — su git vero", () => {
+  let repo: string;
+  let shaA: string;
+  let shaM: string;
+
+  // Timeout largo: l'hook fa una ventina di `git` SINCRONI e i 5s di default di
+  // bun li coprono solo a macchina scarica (stessa ragione di branch-status).
+  beforeAll(() => {
+    repo = mkdtempSync(join(tmpdir(), "own-commits-"));
+    git(repo, "init", "-q", "-b", "main");
+    git(repo, "config", "user.email", "t@t.t");
+    git(repo, "config", "user.name", "t");
+    commit(repo, "a.txt", "base\n", "base");
+
+    git(repo, "checkout", "-q", "-b", "dev");
+    commit(repo, "wip.txt", "roba di un altro\n", "WIP di un'altra sessione");
+    shaA = git(repo, "rev-parse", "dev");
+
+    git(repo, "checkout", "-q", "-b", "topics/card", "dev");
+    commit(repo, "mio.txt", "il mio lavoro\n", "il mio lavoro");
+    shaM = git(repo, "rev-parse", "topics/card");
+
+    git(repo, "checkout", "-q", "-b", "topics/doppia", "dev");
+    commit(repo, "uno.txt", "1\n", "primo mio");
+    commit(repo, "due.txt", "2\n", "secondo mio");
+
+    // Nessun commit suo: la punta è il lavoro dell'altra sessione.
+    git(repo, "checkout", "-q", "-b", "topics/vuota", "dev");
+    // Un branch usa-e-getta, cancellato dentro il test che ne ha bisogno.
+    git(repo, "checkout", "-q", "-b", "topics/potata", "dev");
+    commit(repo, "potata.txt", "lavoro poi potato\n", "lavoro della potata");
+    git(repo, "checkout", "-q", "main");
+  }, 60_000);
+
+  afterAll(() => { rmSync(repo, { recursive: true, force: true }); });
+
+  test("il ramo che porta anche lavoro altrui consegna SOLO i suoi commit", async () => {
+    // Il controllo che rende il test capace di fallire: il ramo è avanti di DUE
+    // commit su main, quindi «tutto ciò che main non ha» sarebbe la risposta
+    // sbagliata, e la punta del ramo è un modo di darla.
+    expect(git(repo, "rev-list", "--count", "main..topics/card")).toBe("2");
+
+    const own = await listOwnCommits(repo, "topics/card");
+    expect(own).toEqual([shaM]);
+    expect(own).not.toContain(shaA);
+    expect(subject(repo, own![0])).toBe("il mio lavoro");
+    expect(await countOwnCommits(repo, "topics/card")).toBe(1);
+
+    const ptr = await deliveryPointer(repo, "topics/card");
+    expect(ptr).toEqual({ branch: "topics/card", commit: shaM });
+  });
+
+  test("i commit propri arrivano dal più recente: il primo è il puntatore di consegna", async () => {
+    const own = await listOwnCommits(repo, "topics/doppia");
+    expect(own?.map((sha) => subject(repo, sha))).toEqual(["secondo mio", "primo mio"]);
+    expect(await countOwnCommits(repo, "topics/doppia")).toBe(2);
+    const ptr = await deliveryPointer(repo, "topics/doppia");
+    expect(subject(repo, ptr!.commit!)).toBe("secondo mio");
+  });
+
+  test("nessun commit proprio → [] verificato, e la consegna è un puntatore VUOTO", async () => {
+    // «Non ho prodotto codice» è un'informazione; un puntatore al lavoro altrui
+    // manda chi rivede a leggere il diff sbagliato (dd2aa40d → 987cd8ae, 10/08).
+    expect(await listOwnCommits(repo, "topics/vuota")).toEqual([]);
+    expect(await countOwnCommits(repo, "topics/vuota")).toBe(0);
+
+    const ptr = await deliveryPointer(repo, "topics/vuota");
+    expect(ptr).toEqual({ branch: "topics/vuota", commit: null });
+    // Esplicito: NON la punta del ramo, che qui è il commit dell'altra sessione.
+    expect(ptr!.commit).not.toBe(shaA);
+  });
+
+  test("le due liste insieme: cosa porterebbe il land, e quanto di quello è suo", async () => {
+    const split = await splitAheadCommits(repo, "topics/card");
+    expect(split!.ahead).toEqual([shaM, shaA]);   // tutto ciò che main non ha
+    expect(split!.own).toEqual([shaM]);           // di suo, uno solo
+    // Il commit estraneo più recente è ciò che il doctor mostra come causa
+    // condivisa: esce dalla differenza fra le due liste, non da una terza domanda.
+    expect(split!.ahead.find((sha) => !split!.own.includes(sha))).toBe(shaA);
+    expect(split!.others).toContain("refs/heads/dev");
+    expect(split!.others).not.toContain("refs/heads/topics/card");
+  });
+
+  test("le due liste non divergono da `listOwnCommits`: è la STESSA sottrazione", async () => {
+    for (const branch of ["topics/card", "topics/doppia", "topics/vuota"]) {
+      const split = await splitAheadCommits(repo, branch);
+      expect(split!.own).toEqual((await listOwnCommits(repo, branch))!);
+      expect(await countOwnCommits(repo, branch)).toBe(split!.own.length);
+    }
+  });
+
+  test("le due liste, quando non si può guardare → null (mai `ahead` senza `own`)", async () => {
+    expect(await splitAheadCommits(repo, "topics/mai-esistito")).toBeNull();
+    expect(await splitAheadCommits(repo, "topics/card", { mainRef: "ramo-che-non-esiste" })).toBeNull();
+  });
+
+  test("branch cancellato o mai esistito → null, che non è «non ha niente»", async () => {
+    expect(await listOwnCommits(repo, "topics/mai-esistito")).toBeNull();
+    expect(await countOwnCommits(repo, "topics/mai-esistito")).toBeNull();
+    // Nessuna fotografia: una consegna già registrata non si cancella perché il
+    // branch è stato potato.
+    expect(await deliveryPointer(repo, "topics/mai-esistito")).toBeNull();
+
+    git(repo, "branch", "-q", "-D", "topics/potata");
+    expect(git(repo, "rev-parse", "--verify", "--quiet", "refs/heads/topics/potata")).toBe("");
+    expect(await listOwnCommits(repo, "topics/potata")).toBeNull();
+    expect(await deliveryPointer(repo, "topics/potata")).toBeNull();
+  });
+
+  test("main inesistente, o una cartella che non è un repo → null", async () => {
+    expect(await countOwnCommits(repo, "topics/card", { mainRef: "ramo-che-non-esiste" })).toBeNull();
+    expect(await listOwnCommits(repo, "topics/card", { mainRef: "ramo-che-non-esiste" })).toBeNull();
+
+    const nonRepo = mkdtempSync(join(tmpdir(), "own-commits-vuoto-"));
+    try {
+      expect(await otherLocalBranches(nonRepo, "topics/card")).toBeNull();
+      expect(await listOwnCommits(nonRepo, "topics/card")).toBeNull();
+      expect(await deliveryPointer(nonRepo, "topics/card")).toBeNull();
+    } finally { rmSync(nonRepo, { recursive: true, force: true }); }
+  });
+
+  test("gli altri branch locali: tutti tranne sé stesso e quello d'integrazione", async () => {
+    const others = await otherLocalBranches(repo, "topics/card");
+    expect(others).toContain("refs/heads/dev");
+    expect(others).toContain("refs/heads/topics/vuota");
+    expect(others).not.toContain("refs/heads/topics/card");
+    expect(others).not.toContain("refs/heads/main");
+    // Il nome si accetta anche già in forma di ref: è come lo passa la consegna.
+    expect(await otherLocalBranches(repo, "refs/heads/topics/card")).toEqual(others!);
+  });
+
+  test("un nome di branch che è anche un file non rende ambigua la domanda", async () => {
+    // `main..a.txt` sarebbe ambiguo per git: la normalizzazione a refs/heads/
+    // esiste per questo, e senza risposta il puntatore sarebbe nullo per il
+    // motivo sbagliato («git ha sbagliato» invece di «non ha commit propri»).
+    git(repo, "branch", "-q", "a.txt", "topics/card");
+    try {
+      expect(await countOwnCommits(repo, "a.txt")).toBe(0); // stessa punta di topics/card
+      expect(await listOwnCommits(repo, "a.txt")).toEqual([]);
+    } finally { git(repo, "branch", "-q", "-D", "a.txt"); }
+  });
+});
+
+describe("own-commits — il runner iniettato", () => {
+  const calls: string[][] = [];
+  const run = async (_cwd: string, args: string[]): Promise<GitRunResult> => {
+    calls.push(args);
+    if (args[0] === "for-each-ref") return { code: 0, stdout: "refs/heads/main\nrefs/heads/altro\nrefs/heads/mio\n", stderr: "" };
+    return { code: 0, stdout: args.includes("--count") ? "1\n" : "a".repeat(40) + "\n", stderr: "" };
+  };
+
+  test("gli `others` già noti non fanno ripetere il for-each-ref", async () => {
+    calls.length = 0;
+    const n = await countOwnCommits("/repo", "mio", { runGit: run, others: ["refs/heads/altro"] });
+    expect(n).toBe(1);
+    expect(calls.some((c) => c[0] === "for-each-ref")).toBe(false);
+    expect(calls[0]).toEqual(["rev-list", "--count", "refs/heads/main..refs/heads/mio", "--not", "refs/heads/altro"]);
+  });
+
+  test("senza altri branch il `--not` non compare affatto", async () => {
+    calls.length = 0;
+    await listOwnCommits("/repo", "mio", { runGit: run, others: [] });
+    expect(calls[0]).toEqual(["rev-list", "refs/heads/main..refs/heads/mio"]);
+  });
+
+  test("le due liste: `--not` solo se c'è da sottrarre, e una `rev-list` sola quando non c'è", async () => {
+    calls.length = 0;
+    const conAltri = await splitAheadCommits("/repo", "mio", { runGit: run, others: ["refs/heads/altro"] });
+    expect(calls.map((c) => c.join(" "))).toEqual([
+      "rev-list refs/heads/main..refs/heads/mio",
+      "rev-list refs/heads/main..refs/heads/mio --not refs/heads/altro",
+    ]);
+    expect(conAltri!.others).toEqual(["refs/heads/altro"]);
+
+    calls.length = 0;
+    const senza = await splitAheadCommits("/repo", "mio", { runGit: run, others: [] });
+    expect(calls).toHaveLength(1); // niente da sottrarre: la seconda domanda non si paga
+    expect(senza!.own).toEqual(senza!.ahead);
+  });
+
+  test("se `for-each-ref` fallisce non si ripiega su main..branch: null", async () => {
+    // Il ripiego sarebbe esattamente il difetto — rivendicare i commit ereditati
+    // perché non si è potuto sapere di chi fossero.
+    const rotto = async (_cwd: string, args: string[]): Promise<GitRunResult> =>
+      args[0] === "for-each-ref" ? { code: 128, stdout: "", stderr: "not a git repository" } : { code: 0, stdout: "beef\n", stderr: "" };
+    expect(await listOwnCommits("/repo", "mio", { runGit: rotto })).toBeNull();
+    expect(await countOwnCommits("/repo", "mio", { runGit: rotto })).toBeNull();
+    expect(await deliveryPointer("/repo", "mio", { runGit: rotto })).toBeNull();
+  });
+
+  test("un conteggio che non è un numero vale null, non zero", async () => {
+    const strano = async (_cwd: string, args: string[]): Promise<GitRunResult> =>
+      args[0] === "for-each-ref" ? { code: 0, stdout: "", stderr: "" } : { code: 0, stdout: "boh\n", stderr: "" };
+    expect(await countOwnCommits("/repo", "mio", { runGit: strano })).toBeNull();
+  });
+});
+
+/**
+ * I due punti in cui il server fotografa la consegna vivono dentro `server.ts`,
+ * che non si può montare in un test: senza questo cancello nessuno si accorge se
+ * uno dei due torna a leggere la PUNTA del ramo — che è esattamente la
+ * regressione da cui nasce questo file.
+ */
+describe("own-commits — il cablaggio della consegna in server.ts", () => {
+  const src = readFileSync(join(import.meta.dir, "..", "..", "server.ts"), "utf8");
+
+  function block(from: string, to: string): string {
+    const start = src.indexOf(from);
+    expect(start).toBeGreaterThan(-1);
+    const end = src.indexOf(to, start);
+    expect(end).toBeGreaterThan(start);
+    return src.slice(start, end);
+  }
+
+  test("la cattura in review chiede il commit PROPRIO, non la punta", () => {
+    const capture = block("taskDeliveryRef: async (taskId)", "taskCheckoutRef:");
+    expect(capture).toContain("deliveryPointer(");
+    expect(capture).not.toContain("resolveCommit(");
+  });
+
+  test("il backfill periodico dell'audit fa la stessa domanda", () => {
+    // Altrimenti ogni 30 minuti riscriverebbe la punta del ramo sopra le card
+    // senza consegna registrata, disfacendo la cattura.
+    const backfill = block("async function backfillDeliveries()", "const LANDING_AUDIT_INTERVAL_MS");
+    expect(backfill).toContain("deliveryPointer(");
+    expect(backfill).not.toContain("resolveCommit(");
+  });
+});

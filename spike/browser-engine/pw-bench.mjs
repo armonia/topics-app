@@ -5,7 +5,14 @@
 // raw --remote-debugging-port path). Measurements themselves are pure CDP.
 //
 // Usage: node pw-bench.mjs <engineKey>   (chromium-headless | headless-shell | chromium-headful)
-import pkg from "/Users/zorahrel/Projects/topics-app/node_modules/playwright-core/index.js";
+// Specificatore NUDO, non un percorso assoluto. Era
+// `/Users/<nome>/Projects/topics-app/node_modules/playwright-core/index.js`:
+// due difetti in una riga — il file girava solo sulla macchina di chi l'ha
+// scritto (e solo finché il repo restava in quella cartella), e scriveva il
+// nome utente dentro un repo pubblico. `playwright-core` è una dipendenza
+// dichiarata della radice, quindi la risoluzione di Node la trova risalendo i
+// `node_modules` da qui: è la stessa libreria, presa nel modo che vale ovunque.
+import pkg from "playwright-core";
 const { chromium } = pkg;
 import { treeRssMB, now, sleep } from "./lib/cdp.mjs";
 import { fileURLToPath } from "node:url";

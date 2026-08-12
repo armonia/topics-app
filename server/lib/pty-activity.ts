@@ -167,3 +167,37 @@ export function isResizeRepaint(
 ): boolean {
   return msSinceResize !== null && msSinceResize >= 0 && msSinceResize < windowMs;
 }
+
+// ───────────────────────────────────────────────────────────────────────────
+// La decisione, in un posto solo
+// ───────────────────────────────────────────────────────────────────────────
+
+/**
+ * Un frame conta come LAVORO DEL PROCESSO?
+ *
+ * I quattro modi di dire di no vivevano sparsi in una condizione dentro
+ * `handleBridgeMessage`; qui stanno insieme, e la loro somma è verificabile.
+ * La posta in gioco è alta perché questa riga alimenta DUE cose, non una: il
+ * segnale busy→`finished` (da cui il banner «Lavoro completato») e
+ * `reviveOnPtyActivity` (da cui lo spinner). Un falso positivo si vede due
+ * volte.
+ *
+ * @param baseline    primo frame dopo una RIATTACCATA: è il ridisegno di uno
+ *   schermo che esisteva già, non lavoro nuovo. È il caso che il riavvio del
+ *   server crea da sé — azzera le firme visibili, quindi `cosmetic` non può
+ *   accorgersene — e senza il quale una tab claude-code chiusa da giorni
+ *   annunciava «Lavoro completato» a ogni riattacco (misurato il 2026-08-09:
+ *   fase risvegliata alle 11:35 con transcript fermo alle 11:05 e zero byte da
+ *   consumare).
+ * @param cosmetic    ridisegno senza cambiamenti visibili (statusline animata).
+ * @param inputEcho   eco/redraw dell'input dell'utente (vedi isInputEcho).
+ * @param resizeEcho  repaint dopo un SIGWINCH (vedi isResizeRepaint).
+ */
+export function countsAsActivity(signals: {
+  baseline: boolean;
+  cosmetic: boolean;
+  inputEcho: boolean;
+  resizeEcho: boolean;
+}): boolean {
+  return !signals.baseline && !signals.cosmetic && !signals.inputEcho && !signals.resizeEcho;
+}

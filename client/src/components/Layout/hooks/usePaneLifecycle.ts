@@ -18,6 +18,7 @@ import {
   getBrowserContextFromPaneId,
   getTerminalSessionFromPaneId,
   addBrowserTombstone,
+  newBrowserContextId,
 } from '../../../state/pane/adapters';
 import { primaryFromSoloCellKey } from '../soloCells';
 import { canSplitPane, standaloneSplitSurface } from '../splitRules';
@@ -97,13 +98,22 @@ const PANE_KIND_HANDLERS: PaneKindHandler[] = [
         if (isTauri) {
           void tauriInvoke('browser_close', { id: ctx }).catch(() => {});
           // TRUE close (tombstone path, mai il re-key transitorio dell'auto-split):
-          // recupera anche il WKWebsiteDataStore su disco. `browser_close` svuota
-          // il CONTENUTO ma il silo cookie/localStorage/IndexedDB resta su disco per
-          // sempre — l'audit del 2026-08-02 ha trovato ~1,1 GB di store che nessuna
-          // pane riaprirà. Il purge cancella login/sessione: va bene SOLO qui, dove
-          // la pane se ne va davvero (col tombstone). Il comando fa da sé il close
-          // idempotente prima di rimuovere lo store.
-          void tauriInvoke('browser_purge_data_store', { id: ctx }).catch(() => {});
+          // recupera lo SPAZIO dello store su disco, non l'identità.
+          //
+          // Qui ci stava `browser_purge_data_store`, che cancella lo store INTERO:
+          // scelto dall'audit del 2026-08-02 per recuperare ~1,1 GB, e col contextId
+          // stabile per pane/topic il conto lo pagava chi riapriva la tab e si
+          // ritrovava sloggato. La misura del 2026-08-12 sui 45 store veri (2,32 GB)
+          // dice che quel baratto non esisteva: NetworkCache 1,65 GB (70%), cookie
+          // 44 KB IN TUTTO. Si buttava un chilobyte per liberarne cinquantamila.
+          //
+          // `browser_purge_cache` prende gli stessi byte — cache disco/fetch/memoria
+          // e registrazioni dei service worker — e lascia cookie, localStorage e
+          // IndexedDB. Chiudere una tab non disconnette più.
+          //
+          // Lo spazio della coda lunga (store che NESSUNA pane rivendica più) lo
+          // tiene corto il reaper a scadenza, vedi reapBrowserDataStores.
+          void tauriInvoke('browser_purge_cache', { id: ctx }).catch(() => {});
         }
       }
     },
@@ -151,11 +161,18 @@ export function usePaneLifecycle(args: UsePaneLifecycleArgs): UsePaneLifecycleRe
 
   const handleAddPane = useCallback(async (type: PaneType, subType?: string) => {
     if (type === 'browser') {
-      // Group-local singleton — but "this group" is the MAIN standalone pool:
-      // the pane persists to group:default and PanelGrid files it into the
-      // pool's tab bar. When the "+" belongs to a split cell, re-target the
-      // pane into that cell, mirroring the terminal branch below.
-      const paneId = ordering.ops.ensureBrowserPane();
+      // Un contesto NUOVO a ogni click, come la voce Browser della sidebar
+      // (App.handleStandaloneAddPane) e come il «+» dentro una finestra di
+      // progetto, che appende sempre una pane in più. Senza contesto il
+      // riduttore singleton riusava il primo browser del gruppo: il PRIMO click
+      // apriva la pane, il SECONDO non faceva niente — nessuna tab, nessun
+      // messaggio. Il riuso resta dov'è giusto: le navigazioni senza contextId
+      // (WS/DOM legacy), che vogliono la pane esistente, non una in più.
+      //
+      // La pane vive nel pool standalone (group:default) e PanelGrid la mette
+      // nella barra del pool. Quando il «+» appartiene a una cella splittata,
+      // la si ri-mira dentro quella cella, come fa il ramo terminale sotto.
+      const paneId = ordering.ops.ensureBrowserPane(newBrowserContextId());
       const browserTarget = primaryFromSoloCellKey(gridItemKey);
       if (paneId && browserTarget && onMergeIntoCell) {
         onMergeIntoCell(paneId, browserTarget);
@@ -226,12 +243,16 @@ export function usePaneLifecycle(args: UsePaneLifecycleArgs): UsePaneLifecycleRe
     }
   }, [ordering.ops, activePaneId, validatedOrderedIds, onFocusPanel, onClosePanel]);
 
+  // La pane si chiude solo se la chat è stata davvero buttata via, e a dirlo è
+  // il server (`stopSession` risolve sul suo `cleared`). Quando decideva il
+  // client, uno Stop su un primo turno che aveva già lavorato chiudeva la pane
+  // di una chat che il server teneva intatta.
   const handleStopStreaming = useCallback((paneId: string) => {
     const topic = topics[paneId];
-    if (topic) {
-      const isFirst = stopSession(topic.sessionKey);
-      if (isFirst) onClosePanel(paneId);
-    }
+    if (!topic) return;
+    void stopSession(topic.sessionKey).then((discarded) => {
+      if (discarded) onClosePanel(paneId);
+    });
   }, [topics, stopSession, onClosePanel]);
 
   const handleSettings = useCallback((paneId: string) => {

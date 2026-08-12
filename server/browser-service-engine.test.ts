@@ -123,3 +123,35 @@ describe("BrowserService chromium engine", () => {
     }
   });
 });
+
+/**
+ * `flushStorageState` sta sul percorso di MONTAGGIO di una pane nativa (il
+ * passaggio condivisa→nativa lo chiama prima di leggere il barattolo), e
+ * `storageState({indexedDB:true})` è la cosa cara che l'autosave fa apposta
+ * ogni 30s e solo se il contesto ha visto attività. Quindi il caso normale —
+ * nessun contesto server vivo, che è la stragrande maggioranza dei montaggi di
+ * una pane nativa — deve costare zero e uscire subito.
+ */
+describe("BrowserService.flushStorageState", () => {
+  it("non fa nulla quando non c'è nessun contesto vivo con quell'id", async () => {
+    const fake = makeFakeChromium();
+    const svc = await createBrowserService({ connectOverCDP: fake.connectOverCDP });
+    try {
+      expect(await svc.flushStorageState("mai-esistito")).toBe(false);
+      expect(fake.calls.connect).toBe(0); // e non ne fa nascere uno per scoprirlo
+    } finally {
+      await svc.close();
+    }
+  });
+
+  it("non tocca il motore chromium: il profilo persistente è del sidecar", async () => {
+    const fake = makeFakeChromium();
+    const svc = await createBrowserService({ connectOverCDP: fake.connectOverCDP });
+    try {
+      await svc.createContext("ctx-flush", { engine: "chromium", cdpEndpoint: "ws://e" });
+      expect(await svc.flushStorageState("ctx-flush")).toBe(false);
+    } finally {
+      await svc.close();
+    }
+  });
+});

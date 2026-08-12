@@ -11,10 +11,12 @@ const AUTONOMY_CHOICES: { value: AutonomyLevel; label: string; blurb: string }[]
   { value: 'yolo', label: 'Does everything', blurb: 'No questions asked. This is the long-standing behaviour.' },
 ];
 import { ShareControl } from '../Share/ShareControl';
+import { Select } from '../Shared/Select';
 import { MODAL_BACKDROP, MODAL_PANEL } from '../../lib/modalStyles';
 import { useModalDialog } from '../../hooks/useModalDialog';
 import { worktreesApi } from '../../lib/api';
 import { useToast } from '../Shared/Toast';
+import { SwitchTrack } from '../Shared/Switch';
 import { useConfirm } from '../../hooks/useConfirm';
 
 interface TopicSettingsModalProps {
@@ -283,9 +285,7 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
                   ? 'Muted: no banner and no sound at the end of a turn (it still counts in the badge).'
                   : 'On: banner and sound when an agent finishes in this topic.'}
               </span>
-              <span className={`relative shrink-0 inline-flex h-5 w-9 items-center rounded-full transition-colors ${muted ? 'bg-primary' : 'bg-app-border'}`}>
-                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${muted ? 'translate-x-4' : 'translate-x-0.5'}`} />
-              </span>
+              <SwitchTrack checked={muted} />
             </button>
           </div>
 
@@ -520,20 +520,26 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
             <p className="text-[11px] text-app-text-muted mb-2">
               Which AI provider handles conversations in this topic.
             </p>
-            <select
+            <Select
               value={provider || ''}
-              onChange={e => setProvider(e.target.value || null)}
-              className="w-full px-3 py-2 border border-app-border-light rounded-lg text-[13px] bg-surface dark:bg-elevated text-app-text focus:outline-none focus:ring-2 focus:ring-primary transition-colors"
-            >
-              <option value="">
-                Default{providers.find(p => p.isDefault) ? ` (${providers.find(p => p.isDefault)!.name})` : ''}
-              </option>
-              {providers.map(p => (
-                <option key={p.name} value={p.name}>
-                  {p.connected ? '\u25CF' : '\u25CB'} {p.name}
-                </option>
-              ))}
-            </select>
+              onChange={v => setProvider(v || null)}
+              ariaLabel="Provider"
+              className="w-full"
+              options={[
+                {
+                  value: '',
+                  label: `Default${providers.find(p => p.isDefault) ? ` (${providers.find(p => p.isDefault)!.name})` : ''}`,
+                },
+                ...providers.map(p => ({
+                  value: p.name,
+                  // Il pallino pieno/vuoto diceva \u00ABconnesso\u00BB senza dirlo: ora \u00E8
+                  // una glossa in chiaro, che il menu disegnato pu\u00F2 permettersi
+                  // e una `<option>` nativa no.
+                  label: p.name,
+                  hint: p.connected ? 'Connesso' : 'Non connesso',
+                })),
+              ]}
+            />
           </div>
 
           {/* Note about Context Inspector */}

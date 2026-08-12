@@ -66,6 +66,38 @@ const WATCHDOG_EVERY_MS = 15_000;
 const PONG_TIMEOUT_MS = 45_000;
 
 /**
+ * I tempi qui sopra sono deadline sul SILENZIO, non sul totale.
+ *
+ * Misurato (`scripts/ai-bridge-replay-bench.ts`): sei sessioni con store da
+ * 7 MB che riattaccano insieme mettono in coda ~44 MB su UN socket, e le
+ * risposte escono a scaletta — 0,2s, 2,0s, 3,4s, 4,4s, 4,9s, 5,2s. Il daemon
+ * risponde a un ping in 4 ms per tutto il tempo (sonda fuori processo) e
+ * l'event loop del server non si ferma mai oltre i 7 ms: nessuno dei due è
+ * bloccato. Ciò che scade è l'attesa di chi sta DIETRO ai megabyte degli
+ * altri sullo stesso tubo. Un `list` da 5s scade così, e a venti sessioni ci
+ * finisce anche il `pong` — con l'effetto peggiore di tutti, perché il
+ * watchdog lo legge come «daemon morto», ricicla il socket, e il riciclo
+ * stacca ogni attacco → `onReconnect` riattacca tutto → altri megabyte in
+ * coda. È il moltiplicatore che in produzione ha prodotto 51 timeout di fila.
+ *
+ * Quindi: finché ARRIVANO BYTE dal daemon, il ponte non è morto — è occupato.
+ * Un tetto assoluto resta, perché «occupato per sempre» va comunque chiuso.
+ */
+const MAX_ACK_WAIT_MS = 90_000;
+/** Ogni quanto il waiter si sveglia per chiedersi se il ponte è ancora muto. */
+const STALL_TICK_MS = 1_000;
+/**
+ * Un timer che scatta MOLTO più tardi del dovuto non racconta il ponte:
+ * racconta noi, fermi (un fold lungo, una GC, la macchina sotto carico). Quel
+ * ritardo non va addebitato al daemon, o basterebbe un blocco nostro per
+ * dichiarare perso un ack che stava per arrivare.
+ */
+const LOOP_STALL_FORGIVENESS_MS = 2_000;
+/** Tentativi totali per una richiesta (il primo più i ritentativi). */
+const REQUEST_ATTEMPTS = 3;
+const RETRY_BACKOFF_MS = 250;
+
+/**
  * Il guasto è la CONNESSIONE, non il daemon.
  *
  * Distinguerli è ciò che rende sensato un secondo tentativo: se il frame non è
@@ -83,11 +115,63 @@ export class BridgeConnectionLost extends Error {
   }
 }
 
+/**
+ * Il ponte è rimasto MUTO oltre la deadline: né l'ack né un solo byte per
+ * nessun'altra sessione.
+ *
+ * Separato da `BridgeConnectionLost` perché racconta un guasto diverso — lì il
+ * frame non è mai partito, qui è partito e non è tornato niente — ma condivide
+ * con esso l'unica proprietà che conta per chi lo cattura: si può RIPROVARE.
+ * Prima questa era una `Error` nuda, e nuda voleva dire definitiva: un solo ack
+ * scaduto e il turno moriva con «Riadozione del turno non riuscita» in chat,
+ * anche quando il figlio `claude` stava lavorando benissimo dentro il daemon.
+ */
+export class BridgeAckStalled extends Error {
+  /**
+   * Rimandare il frame ha senso? SÌ quando il ponte taceva davvero — NO quando
+   * a scadere è il tetto assoluto mentre i byte scorrevano ancora: lì rimandare
+   * un `attach` significa rifare da capo lo stesso replay da megabyte che stava
+   * già arrivando, cioè aggiungere benzina alla coda che ha causato l'attesa.
+   */
+  readonly retryable: boolean;
+  constructor(message: string, retryable: boolean) {
+    super(message);
+    this.name = "BridgeAckStalled";
+    this.retryable = retryable;
+  }
+}
+
+/** Vale la pena rimandare il frame? Vero per i due guasti di TRASPORTO — mai
+ *  per un `error` applicativo del daemon, che una seconda volta risponderebbe
+ *  la stessa cosa. */
+export function isRetryableBridgeError(e: unknown): boolean {
+  if (e instanceof BridgeConnectionLost) return true;
+  return e instanceof BridgeAckStalled && e.retryable;
+}
+
+/**
+ * Il verdetto del watchdog, estratto perché è UNA riga con due modi di
+ * sbagliare e nessuno dei due si può aspettare 45 secondi in un test.
+ *
+ * Un pong in ritardo NON basta a dichiarare morto il ponte: viaggia sulla
+ * stessa coda del resto e durante un riattacco pesante finisce dietro decine
+ * di MB di replay. Se nel frattempo sono arrivati BYTE, il daemon è vivo — e
+ * riciclare il socket lì è la mossa peggiore possibile, perché stacca ogni
+ * attacco e fa ripartire tutti i replay da capo.
+ */
+export function shouldRecycleSocket(now: number, lastPongAt: number, lastByteAt: number, pongTimeoutMs: number): boolean {
+  return now - lastPongAt > pongTimeoutMs && now - lastByteAt > pongTimeoutMs;
+}
+
 type Waiter = {
   pred: (m: any) => boolean;
   resolve: (m: any) => void;
   reject: (e: Error) => void;
   timer: ReturnType<typeof setTimeout>;
+  /** Da quando questo waiter considera il ponte muto. Riparte a ogni byte che
+   *  arriva dal daemon, e ogni volta che il ritardo del timer dimostra che a
+   *  essere fermi eravamo noi. */
+  silentSince: number;
 };
 
 export class AiBridgeClient {
@@ -100,6 +184,8 @@ export class AiBridgeClient {
   private readonly reconnectCbs = new Set<() => void>();
   private watchdog: ReturnType<typeof setInterval> | null = null;
   private lastPongAt = 0;
+  /** Ultimo byte ricevuto dal daemon, di chiunque fosse. Vedi `setupReader`. */
+  private lastByteAt = 0;
   private disposed = false;
 
   readonly socketPath: string;
@@ -190,6 +276,11 @@ export class AiBridgeClient {
   }
 
   private setupReader(socket: net.Socket): void {
+    // Il byte grezzo, non il frame: durante un replay lungo il daemon ci sta
+    // versando addosso megabyte e l'ack che aspettiamo è in fondo alla coda.
+    // Questo è il segnale «il ponte è VIVO» che distingue «tutto lento» da
+    // «daemon morto» — per i waiter (vedi `arm`) e per il watchdog.
+    socket.on("data", () => { this.lastByteAt = Date.now(); });
     const rl = createInterface({ input: socket });
     rl.on("line", (line: string) => {
       let msg: any;
@@ -239,16 +330,38 @@ export class AiBridgeClient {
     }
   }
 
-  /** Arma un waiter e restituisce anche la maniglia per ucciderlo: serve quando
-   *  il frame non parte, per non lasciarlo a scadere a vuoto. */
+  /**
+   * Arma un waiter e restituisce anche la maniglia per ucciderlo: serve quando
+   * il frame non parte, per non lasciarlo a scadere a vuoto.
+   *
+   * La deadline è sul SILENZIO. Il timer non è più un colpo solo a `timeoutMs`:
+   * si sveglia ogni secondo e si chiede due cose prima di dichiarare perso
+   * l'ack — il daemon ha mandato QUALCOSA di recente (anche per un'altra
+   * sessione: è la prova che è vivo e sta solo smaltendo la coda)? e questo
+   * risveglio è arrivato in orario, o eravamo fermi NOI? Solo se il ponte tace
+   * davvero per `timeoutMs` il waiter rigetta — e rigetta con un errore
+   * RITENTABILE, non più con una `Error` nuda che uccideva il turno.
+   */
   private arm(pred: (m: any) => boolean, timeoutMs: number, what: string): { promise: Promise<any>; cancel: (e: Error) => void } {
     let entry!: Waiter;
     const promise = new Promise<any>((res, rej) => {
-      const timer = setTimeout(() => {
+      const armedAt = Date.now();
+      const hardDeadline = armedAt + Math.max(MAX_ACK_WAIT_MS, timeoutMs);
+      let dueAt = armedAt + STALL_TICK_MS;
+      const tick = (): void => {
+        const now = Date.now();
+        // Il risveglio è in ritardo oltre ogni tolleranza ⇒ il processo era
+        // bloccato. Quel tempo non è silenzio del daemon: azzera il conto.
+        if (now - dueAt > LOOP_STALL_FORGIVENESS_MS) entry.silentSince = now;
+        dueAt = now + STALL_TICK_MS;
+        const mute = now - Math.max(entry.silentSince, this.lastByteAt);
+        if (mute < timeoutMs && now < hardDeadline) { entry.timer = setTimeout(tick, STALL_TICK_MS); return; }
         this.dropWaiter(entry);
-        rej(new Error(`ai-bridge: ack timeout (${what}, ${Math.round(timeoutMs / 1000)}s)`));
-      }, timeoutMs);
-      entry = { pred, resolve: res, reject: rej, timer };
+        const muto = mute >= timeoutMs;
+        const why = muto ? `muto da ${Math.round(mute / 1000)}s` : `tetto ${Math.round((hardDeadline - armedAt) / 1000)}s`;
+        rej(new BridgeAckStalled(`ai-bridge: ack timeout (${what}, ${why})`, muto));
+      };
+      entry = { pred, resolve: res, reject: rej, timer: setTimeout(tick, STALL_TICK_MS), silentSince: armedAt };
       this.waiters.push(entry);
     });
     return {
@@ -291,8 +404,8 @@ export class AiBridgeClient {
    * hot-reload del server, cioè quanto capita ogni giorno.
    */
   private async request(frame: object, pred: (m: any) => boolean, timeoutMs: number, what: string): Promise<any> {
-    let lost: Error | null = null;
-    for (let attempt = 0; attempt < 2; attempt++) {
+    let last: Error | null = null;
+    for (let attempt = 0; attempt < REQUEST_ATTEMPTS; attempt++) {
       await this.ensureConnected();
       const w = this.arm(pred, timeoutMs, what);
       if (!this.send(frame)) {
@@ -301,21 +414,24 @@ export class AiBridgeClient {
       try {
         return await w.promise;
       } catch (err: any) {
-        if (err instanceof BridgeConnectionLost && attempt === 0) {
-          lost = err;
-          console.warn(`[AI Bridge] ${what}: ${err.message} — riprovo`);
-          // Il socket va BUTTATO prima di riprovare. `ensureConnected` si fida
-          // di `ready` e di `destroyed`, e un socket può essere rotto senza
-          // essere nessuno dei due (write che fallisce, peer sparito senza
-          // FIN): senza questo, il secondo tentativo tornerebbe a scrivere
-          // sullo stesso tubo morto e il ritentativo sarebbe finto.
-          this.dropSocket();
-          continue;
-        }
-        throw err;
+        // Un ack scaduto non è più un verdetto. Le tre richieste del ponte —
+        // spawn, attach, list — sono idempotenti per costruzione (uno `spawn`
+        // su una sessione viva la RIPRENDE, un `attach` rirende dallo stesso
+        // offset), quindi rimandarle è sicuro; e visto che il waiter rigetta
+        // solo dopo un silenzio VERO, qui non si arriva mai per lentezza.
+        if (!isRetryableBridgeError(err) || attempt === REQUEST_ATTEMPTS - 1) throw err;
+        last = err;
+        console.warn(`[AI Bridge] ${what}: ${err.message} — riprovo (${attempt + 1}/${REQUEST_ATTEMPTS - 1})`);
+        // Il socket va BUTTATO prima di riprovare. `ensureConnected` si fida
+        // di `ready` e di `destroyed`, e un socket può essere rotto senza
+        // essere nessuno dei due (write che fallisce, peer sparito senza
+        // FIN): senza questo, il secondo tentativo tornerebbe a scrivere
+        // sullo stesso tubo morto e il ritentativo sarebbe finto.
+        this.dropSocket();
+        await new Promise((r) => setTimeout(r, RETRY_BACKOFF_MS * (attempt + 1)));
       }
     }
-    throw lost ?? new Error(`ai-bridge: ${what} fallito`);
+    throw last ?? new Error(`ai-bridge: ${what} fallito`);
   }
 
   /** `true` se il frame è davvero uscito sul filo. Un `false` va gestito dal
@@ -326,12 +442,27 @@ export class AiBridgeClient {
     try { s.write(JSON.stringify(msg) + "\n"); return true; } catch { return false; }
   }
 
+  /**
+   * Il ping/pong esiste per accorgersi di un daemon MORTO. Il pong però viaggia
+   * sulla stessa coda di tutto il resto: durante un riattacco pesante può
+   * restare dietro decine di MB di replay e non tornare per un minuto, e il
+   * watchdog leggeva quel ritardo come una morte.
+   *
+   * Il riciclo che ne seguiva era il moltiplicatore della raffica: buttare il
+   * socket stacca OGNI attacco lato daemon, `onReconnect` li riattacca tutti
+   * insieme, il nuovo socket si riempie degli stessi megabyte, e il pong
+   * successivo ritarda di nuovo. Nel log di produzione questo anello gira due
+   * volte dentro la raffica da 51 timeout.
+   *
+   * Un byte ricevuto di recente è la prova che serviva: il ponte c'è.
+   */
   private startWatchdog(): void {
     if (this.watchdog) return;
     this.watchdog = setInterval(() => {
       if (!this.ready) return;
-      if (Date.now() - this.lastPongAt > PONG_TIMEOUT_MS) {
-        console.warn("[AI Bridge] watchdog: no pong — recycling socket");
+      const now = Date.now();
+      if (shouldRecycleSocket(now, this.lastPongAt, this.lastByteAt, PONG_TIMEOUT_MS)) {
+        console.warn("[AI Bridge] watchdog: né pong né byte — riciclo il socket");
         try { this.socket?.destroy(); } catch { /* 'close' handles reconnect */ }
         return;
       }

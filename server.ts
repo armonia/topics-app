@@ -1,6 +1,6 @@
 import { basename, join, resolve, sep } from "path";
 import { finalizeOrphanTool } from "./server/lib/orphan-tool-sweep";
-import { existsSync, readFileSync, mkdirSync, statSync, writeFileSync } from "fs";
+import { existsSync, readFileSync, mkdirSync, statSync, writeFileSync, readlinkSync, realpathSync } from "fs";
 import { timingSafeEqual } from "crypto";
 import type { ServerWebSocket } from "bun";
 import type { WSData } from "./server/types";
@@ -16,8 +16,16 @@ import {
   startUiStateBackupTicker, snapshotUiStateNow,
 } from "./server/services/ui-state-backup";
 import { purgeOrphanTopicRefs } from "./server/services/ui-state-orphan-cleanup";
+import {
+  sweepArchivedTaskBrowserState,
+  teardownArchivedTaskBrowserState,
+} from "./server/services/task-tab-teardown";
 import { createTopicsRouter, purgeTopicFromUiState } from "./server/routes/topics";
 import { archiveTopicFully } from "./server/services/archive-topic";
+import { applyPaneCascade, reconcile, recordRetirement, retiredIds, type ReconcileDeps } from "./server/services/retirement";
+import { computeCascade } from "./server/services/pane-retirement-cascade";
+import { createOpenRouter } from "./server/routes/open";
+import { configureSessionParkingForTracker, parkTopicSession } from "./server/lib/session-parking";
 import { setUploadRootsProvider } from "./server/browser-tool-dispatcher";
 import { uploadAllowedRoots, parseExtraRoots } from "./server/lib/upload-allowlist";
 import { createVoiceRouter } from "./server/routes/voice";
@@ -27,11 +35,10 @@ import { createFilesRouter } from "./server/routes/files";
 import { createBrowserRouter } from "./server/routes/browser";
 import { createCronRouter } from "./server/routes/cron";
 import { createContextRouter } from "./server/routes/context";
-import { censusOnce, formatCensus } from "./server/services/orphan-census";
-import { createTerminalRouter, handleTerminalWebSocket, disconnectBridge, getClaudeSessionsForDetection, getClaudeSessionPtyIdleMs, setTerminalBrowserCloser, countAttachedTerminalSessions, listTerminalSessionSnapshot } from "./server/routes/terminal";
+import { createOrphanCensusRunner } from "./server/services/orphan-census";
+import { createTerminalRouter, handleTerminalWebSocket, disconnectBridge, getClaudeSessionsForDetection, getClaudeSessionPtyIdleMs, setTerminalBrowserCloser, countAttachedTerminalSessions, listTerminalSessionSnapshot, parkOrphanSessions, retireTerminalSession } from "./server/routes/terminal";
 import { createStatusRouter } from "./server/routes/status";
 import { createMemoryRouter } from "./server/routes/memory";
-import { createUsageRouter } from "./server/routes/usage";
 import { initUsageStore, rebuildSummary } from "./server/usage/store";
 import { createCheckpointsRouter } from "./server/routes/checkpoints";
 import { createGoalsRouter } from "./server/routes/goals";
@@ -39,20 +46,25 @@ import { createOpenClawContextRouter } from "./server/routes/openclaw-context";
 import { createContextPreviewRouter } from "./server/routes/context-preview";
 import { createTaskService, projectIdForPath } from "./server/services/tasks";
 import { createExternalSessionsService } from "./server/services/external-sessions";
+import { resolveWorktreeBaseRef } from "./server/services/worktree-base-ref";
 import { createExternalSessionsRouter } from "./server/routes/external-sessions";
 import { createTaskDispatcher } from "./server/services/task-dispatcher";
+import { refreshLiveJobQuotas } from "./server/services/agent-job-quota";
 import { computeDispatchCapacity } from "./server/services/dispatch-capacity";
-import { scanOrphanSessions, referencedSessionIdsIn } from "./server/lib/orphan-sessions";
 import { buildBranchInventory, summarizeInventory } from "./server/services/branch-inventory";
 import { createTaskAutoMerge, worktreeRealDirt } from "./server/services/task-automerge";
 import { createPreviewManager, type PreviewManager, type PreviewProcess } from "./server/services/preview-manager";
 import { registerPreviewProcess, unregisterPreviewProcess } from "./server/routes/processes";
 import { sweepWorktrees, type TaskStatus as GcTaskStatus } from "./server/services/worktree-gc";
+import { formatMb, parseSlimSkip, slimWorktree } from "./server/services/worktree-slim";
 import { branchStatusFromRepo, commitStatusFromRepo, resolveCommit, worktreeDiffStat } from "./server/services/branch-status";
+import { deliveryPointer } from "./server/services/own-commits";
 import { abandonNoticeFromRepo } from "./server/services/worktree-abandon-notice";
 import { createTaskAttemptStore } from "./server/services/task-attempts";
-import { auditLandings } from "./server/services/landing-audit";
-import { createTranscriptUsageReader, ZERO_USAGE } from "./server/services/transcript-usage";
+import { auditLandings, classifyLanding, type AuditTask, type LandingState } from "./server/services/landing-audit";
+import { createTranscriptUsageReader } from "./server/services/transcript-usage";
+import { createDispatchUsageReader } from "./server/services/dispatch-usage";
+import { orphanBoardChildSessions } from "./server/services/agent-census";
 import { createDetachedTopic, DETACHED_TOPIC_AUTONOMY } from "./server/lib/session-control-core";
 import { buildProjectCandidates, resolveProjectPath, isSelectableProjectDir } from "./server/services/project-path-resolver";
 import { homedir } from "os";
@@ -62,8 +74,10 @@ import { clearBrowserCaches } from "./server/browser-tools-handler";
 import { resetMoondreamCounter } from "./server/integrations/moondream-client";
 import { sendBrowserWsMessage, parseBrowserWsMessage, type BrowserWsMessage } from "./shared/browser-ws-messages";
 import { applyEngineSwitch } from "./server/browser-engine-switch";
-import { browserEngineRegistry, chromiumExtensionsCount } from "./server/browser-engine-registry";
+import { browserEngineRegistry, chromiumExtensionsCount, chromiumSidecar } from "./server/browser-engine-registry";
 import { nativeDelegateRegistry, handleNativeDelegationFrame } from "./server/browser-native-delegate";
+import { countSharedViewers } from "./server/browser-viewer-count";
+import { seedNativeFromShared } from "./server/browser-session-handoff";
 import { parseChatWsInbound } from "./server/schemas/chat-ws-inbound";
 import { buildPresenceSnapshot } from "./server/presence";
 import { SERVER_VERSION, SERVER_PROTOCOL_VERSION, SERVER_CAPABILITIES } from "./server/ws-capabilities";
@@ -79,26 +93,39 @@ import { hasGrant, holdsGrantOnTaskPreview, deviceP } from "./server/lib/grants-
 import { resolvePrincipals, principalsRev } from "./server/lib/principals";
 import { resolveIdentity } from "./server/lib/identity";
 import { creaRelayClient } from "./server/services/relay-client";
-import { leggiRelayConfig, leggiInstallationId } from "./server/services/relay-config";
+import { leggiRelayConfig, leggiInstallationId, leggiRelaySegreto } from "./server/services/relay-config";
 import { creaServizioLicenza, creaInterruttoreLicenza, baseUrlConcesso } from "./server/lib/licenza";
 import { createLicenseRouter } from "./server/routes/license";
 import { createBillingRouter, isBillingWebhookPath } from "./server/routes/billing";
 import { createAccountRouter } from "./server/routes/account";
+import { createPeopleRouter } from "./server/routes/people";
 import { getGatewayWS } from "./server/gateway-ws";
 import { initProvider, recomputeDefault, getDefaultProviderName, stopAllProviders, getProvider } from "./server/providers";
 import { aiBridgeEnabled } from "./server/providers/claude-code";
 import { cancelled, describeTurnEnd, type TurnEndInfo } from "./server/providers/stop-reason";
 import { recordTurnEnd, takeTurnEnd } from "./server/providers/turn-end-registry";
 import { getAiBridgeClient } from "./server/lib/ai-bridge-client";
-import { pickTaskModel } from "./server/services/task-model-picker";
+import { pickTaskPlan } from "./server/services/task-model-picker";
 import { FALLBACK_MODELS, newestOfFamily } from "./server/providers/claude-models";
 import { createProcessesRouter, startProcessDetection } from "./server/routes/processes";
 import { createTasksRouter } from "./server/routes/tasks";
 import { createPushRouter } from "./server/routes/push";
+import { createNotificationsRouter } from "./server/routes/notifications";
 import { createUiStateRouter, loadAllUiState, assertUiStateMigrationApplied } from "./server/routes/ui-state";
 import { createProvidersRouter } from "./server/routes/providers";
 import { createAppSettingsRouter } from "./server/routes/app-settings";
-import { resolveAiProvider, resolveClaudeModel, resolveOpenaiModel } from "./server/services/app-settings";
+import {
+  resolveAiProvider,
+  resolveClaudeModel,
+  resolveOpenaiModel,
+  getAppSettings,
+  resolveOutputLanguage,
+  resolveDiscordPresenceEnabled,
+  resolveDiscordDetailLevel,
+} from "./server/services/app-settings";
+import { createProfileRouter } from "./server/routes/profile";
+import { startDiscordPresence } from "./server/services/discord-presence";
+import { computePresenceCounts } from "./server/services/profile-stats";
 import { createClaudeHooksRouter } from "./server/routes/claude-hooks";
 import { createE2eRouter } from "./server/routes/e2e";
 import { createTabsRouter } from "./server/routes/tabs";
@@ -296,6 +323,27 @@ try {
   console.error("[Startup] ui_state orphan cleanup failed:", err);
 }
 
+// Ripasso al boot delle tab dei task ARCHIVIATI (`services/task-tab-teardown.ts`).
+// L'aggancio vero sta sull'archiviazione; questo è il backstop che ripara il
+// pregresso — i record lasciati prima che quel codice esistesse — e qualunque
+// chiave risuscitata da un client che era disconnesso mentre il task veniva
+// archiviato. Niente broadcast e niente `destroyContext`: qui non c'è ancora
+// nessun client collegato né nessun contesto browser vivo.
+try {
+  const swept = sweepArchivedTaskBrowserState({ db });
+  if (swept.keysDeleted.length > 0) {
+    console.log(
+      `[Startup] tab dei task archiviati: ${swept.keysDeleted.length} chiave/i ui_state via ` +
+        `(${swept.bytesFreed} byte, ${swept.taskIds.length} task)`,
+    );
+  } else {
+    console.log("[Startup] tab dei task archiviati: pulito");
+  }
+} catch (err) {
+  // Non-fatale come sopra: al massimo lo snapshot resta grasso un boot in più.
+  console.error("[Startup] tab dei task archiviati: ripasso fallito:", err);
+}
+
 // Init AI provider — pick the boot default:
 //   1. AI_PROVIDER env override (explicit, always wins)
 //   2. claude (Anthropic SDK) if ANTHROPIC_API_KEY → stateless, sub-friendly,
@@ -360,6 +408,10 @@ console.log(`[Server] AI provider: ${aiProvider.name} (capabilities: ${[...aiPro
 
 // Init browser service (lazy — Chromium launched on first use)
 const browserService = await createBrowserService({
+  // Questa è l'unica accensione della spazzata degli orfani: il posto dove il
+  // processo è davvero un server che sta partendo, e non un test che costruisce
+  // un servizio. Vedi il commento sull'opzione in server/browser-service.ts.
+  sweepOrphansAtBoot: true,
   onNavigate: (contextId, url, viewport) => {
     // Find the topic whose first 8 chars of id match contextId (matches
     // the convention at server/routes/topics.ts:1650). Topics are created with
@@ -425,33 +477,66 @@ rebuildSummary();
 // terminal sessions are tracked in-memory). Created before the terminal router
 // so the latter can register its sessions with it. See
 // openspec/changes/claude-session-tracker.
-const claudeSessionTracker = createClaudeSessionTracker({ db: ctx.db, broadcast: ctx.broadcastToAll, ptyIdleMs: getClaudeSessionPtyIdleMs });
+const claudeSessionTracker = createClaudeSessionTracker({
+  db: ctx.db,
+  broadcast: ctx.broadcastToAll,
+  ptyIdleMs: getClaudeSessionPtyIdleMs,
+  // Message-import sink for ADOPTED sessions: the sweep reads the transcript
+  // tail and appends the terminal's new turns into the topic's chat.
+  importSink: {
+    getLastMessageId: (sk) => {
+      const thread = ctx.loadLocalMessages(sk, { withBlocks: false });
+      return thread.length ? thread[thread.length - 1]!.id : null;
+    },
+    appendMessages: (sk, msgs) => ctx.appendImportedMessages(sk, msgs),
+    resolveToolResult: (sk, toolUseId, result, isError) =>
+      ctx.updateToolCallResult(sk, toolUseId, isError ? "" : result, isError ? result : undefined),
+    topicIdForSessionKey: (sk) => ctx.getTopicBySessionKey(sk)?.id ?? null,
+  },
+  // Double-import guard: while Topics owns a live claude child for the session,
+  // the chat provider streams + persists those turns itself.
+  isSessionLocallyDriven: (sk) => {
+    try {
+      const p = getProvider("claude-code") as unknown as { isTurnProcessAlive?: (s: string) => boolean };
+      return !!p?.isTurnProcessAlive?.(sk);
+    } catch { return false; }
+  },
+});
+
+// La porta unica del parcheggio (lib/session-parking.ts): archiviare un topic
+// deve anche mettere a riposo la sua sessione, o la fase resta viva per sempre
+// su una chat che non ha più né riga né tab. Configurata qui perché il tracker
+// nasce DOPO il contesto; i tre percorsi di archiviazione la chiamano.
+configureSessionParkingForTracker(claudeSessionTracker);
 
 // Shared-session WebRTC transport broker (spawns the Rust sidecar lazily on first
 // offer; no-op when its binary is missing → clients fall back to the JPEG stream).
 const webrtcBridge = createWebrtcBridge();
 
 // Create route handlers
-const topicsRouter = createTopicsRouter(ctx, browserService);
+// «Qualcuno sta VEDENDO questo contextId?» — un socket `/ws/browser/<ctx>`
+// aperto e vivo. Lo apre sia la pane nativa (che poi si registra come delegato)
+// sia quella web (che guarda lo screencast), quindi è il segnale più vicino a
+// «la pane è montata» che il server abbia: il contesto headless, da solo, esiste
+// anche quando nessuna pane si è montata. `open-pane` lo usa per armare il
+// ripiego `browser:force-open` e per rispondere la verità (`visible`).
+const paneAttachedTo = (contextId: string): boolean => {
+  const set = browserWsClients.get(contextId);
+  if (!set) return false;
+  for (const w of set) if (w.readyState === 1) return true;
+  return false;
+};
+const topicsRouter = createTopicsRouter(ctx, browserService, paneAttachedTo);
 const filesRouter = createFilesRouter(ctx);
 const voiceRouter = createVoiceRouter(ctx);
 const mediaRouter = createMediaRouter(ctx);
 const branchesRouter = createBranchesRouter(ctx);
-const browserRouter = createBrowserRouter(ctx, browserService, (c) => {
-  // Count only REAL streaming viewers of the shared session. A Tauri native pane
-  // holds a /ws/browser socket too (for register_native_executor delegation) but
-  // is NOT a viewer — excluding it keeps a solo native pane at 0 so 'auto' doesn't
-  // oscillate native↔shared (browser reset every ~2s).
-  const set = browserWsClients.get(c);
-  if (!set) return 0;
-  let n = 0;
-  // Count real viewers that are ACTIVELY streaming: exclude native delegates
-  // (never watchers) AND viewers that paused their stream (set_stream:false —
-  // e.g. their browser tab is off-screen). So a phone with the tab backgrounded
-  // no longer flips this desktop's 'auto' pane into the shared session.
-  for (const w of set) if (!w.data._nativeDelegate && w.data._streamActive !== false) n++;
-  return n;
-});
+// Chi conta come spettatore sta in browser-viewer-count.ts (puro, con i suoi
+// test): esclude i delegati nativi e chi ha la pane fuori dallo schermo, e NON
+// guarda la pausa dello screencast — vedi lì il perché.
+const browserRouter = createBrowserRouter(ctx, browserService, (c) =>
+  countSharedViewers(browserWsClients.get(c)),
+);
 const cronRouter = createCronRouter(ctx);
 const contextRouter = createContextRouter(ctx);
 const terminalRouter = createTerminalRouter(ctx, claudeSessionTracker);
@@ -465,7 +550,6 @@ setTerminalBrowserCloser((contextId) => {
 });
 const statusRouter = createStatusRouter(ctx);
 const memoryRouter = createMemoryRouter(ctx);
-const usageRouter = createUsageRouter(ctx);
 const checkpointsRouter = createCheckpointsRouter(ctx);
 const goalsRouter = createGoalsRouter(ctx);
 const openclawContextRouter = aiProvider.name === 'openclaw' ? createOpenClawContextRouter(ctx) : null;
@@ -495,6 +579,7 @@ const licenseRouter = createLicenseRouter(ctx);
 // l'interfaccia non offre nulla — e non è un cancello: nessun ramo di
 // `server/routes/account.ts` può togliere una capacità locale (ORG-08).
 const accountRouter = createAccountRouter(ctx);
+const peopleRouter = createPeopleRouter(ctx);
 // Il pagamento, che NON è ciò che è concesso: `server/routes/billing.ts` può
 // solo passare un gettone a `licenzaSvc.installa`, che lo riverifica con la
 // chiave pubblica. Nasce SPENTO — senza `STRIPE_SECRET_KEY` la rotta risponde
@@ -738,6 +823,15 @@ function dispatchExtraPaths(): string[] {
 // byte offsets so the dispatcher's 4s live ticker stays O(appended bytes).
 const transcriptUsageReader = createTranscriptUsageReader();
 
+// Lo stesso lettore, ma per una sessione DI TASK: somma le sessioni figlie che
+// il coordinatore ha lanciato, così `tasks.agent_tokens` porta il costo del
+// lavoro e non quello del solo coordinamento (vedi dispatch-usage.ts). Una
+// istanza sola: dentro c'è il ledger che tiene i token delle figlie gia' morte.
+const dispatchUsageReader = createDispatchUsageReader({
+  db: ctx.db,
+  read: (p) => transcriptUsageReader.read(p),
+});
+
 // Assigned just below (after worktreeOfTask is defined); the dispatcher only
 // calls it lazily at review-time, so the late binding is safe.
 let previewManager: PreviewManager | undefined;
@@ -789,6 +883,35 @@ const externalSessions = createExternalSessionsService({
 // valore che può divergere da quello.
 const DISPATCH_AUTONOMY = DETACHED_TOPIC_AUTONOMY;
 
+/**
+ * Le conseguenze di un ritiro, legate una volta sola.
+ *
+ * Le usano tre chiamanti — la potatura dei topic dei tentativi (dispatcher), la
+ * cascata di una tab chiusa e il riconcilio al boot. Se ognuno se le ricablasse,
+ * saremmo di nuovo dove il task e' cominciato: tre posti che dicono cosa
+ * significa «chiuso», e nessuno d'accordo con gli altri due.
+ */
+const retirementConsequences: ReconcileDeps = {
+  archiveTopic: (topicId) => {
+    const res = archiveTopicFully({
+      getTopicById: ctx.getTopicById,
+      saveSingleTopic: ctx.saveSingleTopic,
+      loadUnread: ctx.loadUnread,
+      saveUnread: ctx.saveUnread,
+      broadcastToAll: ctx.broadcastToAll,
+      purgeFromUiState: (id) => purgeTopicFromUiState(ctx.db, ctx.broadcastToAll, id),
+      parkClaudeSession: parkTopicSession,
+      recordRetirement: (id, at) => recordRetirement(ctx.db, "topic", id, at, "archive"),
+    }, topicId);
+    // Nessuna risposta HTTP da restituire qui: la purge fallita si logga, non
+    // può fermare il ritiro (il task è finito comunque).
+    if (res.purgeError) {
+      console.error(`[archive] purge di ui_state fallita per topicId=${topicId}:`, res.purgeError);
+    }
+  },
+  retireTerminal: (sessionId) => { retireTerminalSession(sessionId); },
+};
+
 const taskDispatcher = createTaskDispatcher({
   svc: dispatcherSvc,
   // Self-heal dead bindings: a todo task linked to a topic that was reaped
@@ -826,8 +949,12 @@ const taskDispatcher = createTaskDispatcher({
       const availableModels = cc?.models ?? [];
       // No snapshot yet → can't classify, but opus-first means we still hand the
       // agent opus (the human's default + this host's primary), never a downgrade.
-      if (availableModels.length === 0) return { model: staticOpus };
-      const model = await pickTaskModel(task, {
+      // Entrambi i null dicono «non lo so», e nessuno dei due viene inventato
+      // qui: l'effort ricade sulla board, il peso vale leggero — cioè lo
+      // scheduler si comporta come prima che il peso esistesse. Un giudice che
+      // non può parlare non deve poter fermare la coda della board.
+      if (availableModels.length === 0) return { model: staticOpus, effort: null, weight: null };
+      const plan = await pickTaskPlan(task, {
         // Force the cheapest tier for the classification itself.
         complete: (prompt) =>
           provider.complete([{ role: "user", content: prompt }], { model: "claude-haiku-4-5" }).then((r) => r.content ?? ""),
@@ -835,9 +962,11 @@ const taskDispatcher = createTaskDispatcher({
         fallback: newestOfFamily("opus", availableModels, { preferLong: true }) ?? staticOpus,
         log: (m) => console.log(`[dispatcher] ${m}`),
       });
-      return { model };
+      return plan;
     } catch {
-      return { model: staticOpus }; // any failure → opus-first, never a silent downgrade
+      // any failure → opus-first, never a silent downgrade; effort e peso null
+      // per la stessa ragione: la board decide l'uno, l'altro vale leggero.
+      return { model: staticOpus, effort: null, weight: null };
     }
   },
   // Auto concurrency cap: live machine capacity for boards on `maxAgentsAuto`.
@@ -903,30 +1032,25 @@ const taskDispatcher = createTaskDispatcher({
   attemptStats: async (worktreeId) => {
     const wt = ctx.worktreeStore.get(worktreeId);
     if (!wt || wt.mode !== "branch" || !wt.absPath || !existsSync(wt.absPath)) return null;
-    return worktreeDiffStat(wt.absPath);
+    // Il branch va DETTO: è la chiave con cui si separa il lavoro del tentativo
+    // da quello che ha soltanto ereditato dal checkout condiviso.
+    return worktreeDiffStat(wt.absPath, { branch: wt.branchName ?? undefined });
   },
   worktreeBranch: (worktreeId) => ctx.worktreeStore.get(worktreeId)?.branchName ?? null,
   // Potatura dei topic dei tentativi a fine task. Passa dal servizio condiviso,
   // non da una terza implementazione: qui si archiviava e basta, e ogni task
   // dispacciato lasciava dietro un badge di non letti su una conversazione non
   // più apribile e un id fantasma in `ui_state` che risuscitava al reload.
-  archiveTopic: (topicId) => {
-    const res = archiveTopicFully({
-      getTopicById: ctx.getTopicById,
-      saveSingleTopic: ctx.saveSingleTopic,
-      loadUnread: ctx.loadUnread,
-      saveUnread: ctx.saveUnread,
-      broadcastToAll: ctx.broadcastToAll,
-      purgeFromUiState: (id) => purgeTopicFromUiState(ctx.db, ctx.broadcastToAll, id),
-    }, topicId);
-    // Nessuna risposta HTTP da restituire qui: la purge fallita si logga, non
-    // può fermare la potatura (il task è finito comunque).
-    if (res.purgeError) {
-      console.error(`[archive] purge di ui_state fallita per topicId=${topicId}:`, res.purgeError);
-    }
-  },
+  archiveTopic: retirementConsequences.archiveTopic,
   createWorktree: async (projectStoreId) => {
-    const wt = await ctx.worktreeManager.create({ projectId: projectStoreId, mode: "branch", baseRef: "HEAD" });
+    // Il ramo di una card nasce da MAIN, non dall'HEAD del checkout condiviso:
+    // con `HEAD` il worktree ereditava il ramo di chi stava lavorando qui, e da
+    // lì arrivavano collisioni di migration, consegne su commit mai landati e
+    // land che pubblicavano lavoro di terzi. Il perché per esteso, e il ripiego
+    // su HEAD quando `main` non c'è, stanno in `worktree-base-ref.ts`.
+    const base = await resolveWorktreeBaseRef(ctx.projectStore.get(projectStoreId)?.path);
+    if (base.fallback) console.warn(`[dispatch] ${base.reason}: il worktree parte da HEAD`);
+    const wt = await ctx.worktreeManager.create({ projectId: projectStoreId, mode: "branch", baseRef: base.baseRef });
     const ready = await ctx.worktreeManager.awaitMaterialisation(wt.id, 120_000);
     if (ready.status !== "ready") {
       throw new Error(`worktree ${wt.id}: ${ready.status}${ready.errorMessage ? " " + ready.errorMessage : ""}`);
@@ -998,14 +1122,13 @@ const taskDispatcher = createTaskDispatcher({
   // Code writes one per content block; the old inline sum overcounted ~2.4x).
   // Best-effort — a missing/unparsable transcript reads as zeros, and the
   // dispatcher only books per-turn deltas.
-  getSessionUsage: (sessionKey: string) => {
-    const row = ctx.db
-      .prepare("SELECT jsonl_path FROM claude_code_sessions WHERE session_key = ?")
-      .get(sessionKey) as { jsonl_path?: string | null } | null;
-    const path = row?.jsonl_path;
-    if (!path) return ZERO_USAGE;
-    return transcriptUsageReader.read(path);
-  },
+  //
+  // LE FIGLIE SONO DENTRO. Il coordinatore delega il lavoro a sessioni proprie,
+  // e il loro consumo è consumo DI QUESTA CARD: senza sommarlo, la card che
+  // spende di più risulterebbe la più economica. Vedi dispatch-usage.ts, che
+  // tiene anche il ledger delle figlie ormai chiuse (una somma sulle sole vive
+  // scenderebbe, e un calo il dispatcher lo appiattisce a zero).
+  getSessionUsage: (sessionKey: string) => dispatchUsageReader.read(sessionKey),
   // Last assistant prose in the session — the dispatcher mirrors it into a task
   // comment at delivery when the agent forgot comment_task, so a review always
   // carries the agent's own summary. Reads the local message store (sync).
@@ -1024,6 +1147,11 @@ const taskDispatcher = createTaskDispatcher({
   // prod). Lazy — reads `previewManager` when a turn actually reaches review.
   preparePreview: (taskId) => previewManager?.prepareForReview(taskId) ?? Promise.resolve(),
   teardownPreview: (taskId) => previewManager?.teardown(taskId) ?? Promise.resolve(),
+  // Consegnata la card, il suo worktree smette di pesare per le dipendenze: via
+  // `node_modules` e le cache di build, restano cartella, branch e commit. È il
+  // momento giusto perché la maggior parte delle card NON landa subito, e sono
+  // proprio i giorni di attesa in review a costare ~260 MB l'una.
+  slimWorktree: (taskId) => slimWorktreeOfTask(taskId),
   broadcast: ctx.broadcastToAll,
 });
 
@@ -1042,8 +1170,25 @@ const worktreeOfTask = (taskId: string) => {
 // ── Review-ready previews ──────────────────────────────────────────────────
 // One preview server per task, booted from its branch worktree at review-time.
 // `previewManager` owns the lifecycle; the host wires HOW to start/probe/shoot.
-const PREVIEW_MEDIA_DIR = join(homedir(), ".openclaw", "media", "task-previews");
+// La cartella dell'anteprima deve stare DENTRO l'allowlist che poi la serve
+// (`isPathAllowed` → `${OPENCLAW_DIR}/media/`). Scritta con `homedir()` le due
+// coincidevano solo finché `APP_DATA_DIR`/`OPENCLAW_DIR` restavano al default:
+// spostata la cartella dati, il file veniva scritto dove nessuno può leggerlo e
+// la card mostrava un'immagine rotta.
+const PREVIEW_MEDIA_DIR = join(ctx.OPENCLAW_DIR, "media", "task-previews");
 const PREVIEW_SCRIPT_CANDIDATES = ["preview", "dev", "start"];
+
+/** `lsof` per le domande d'identità sulla porta (macOS non lo ha sempre nel PATH). */
+function lsofBin(): string { return Bun.which("lsof") ?? "/usr/sbin/lsof"; }
+
+/** stdout di un comando breve, "" se fallisce o sfora `ms`. Best-effort by design. */
+async function previewCmdOutput(cmd: string[], ms = 2000): Promise<string> {
+  try {
+    const proc = Bun.spawn(cmd, { stdout: "pipe", stderr: "ignore", stdin: "ignore" });
+    const t = setTimeout(() => { try { proc.kill(); } catch { /* già uscito */ } }, ms);
+    try { return await new Response(proc.stdout).text(); } finally { clearTimeout(t); }
+  } catch { return ""; }
+}
 
 previewManager = createPreviewManager({
   worktreeOf: (taskId) => {
@@ -1087,17 +1232,54 @@ previewManager = createPreviewManager({
       finally { clearTimeout(t); }
     } catch { return false; }
   },
+  // Cancello d'IDENTITÀ. `probe` dice solo che la porta parla; queste due dicono
+  // CHI parla. Il listener è quasi sempre un discendente del figlio che
+  // spawniamo (`bun run dev` → server), quindi il pid da solo non basta: il cwd
+  // ereditato (= worktree del task) è ciò che lo riconosce.
+  listenerPid: async (port) => {
+    const out = await previewCmdOutput([lsofBin(), "-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-t"]);
+    const pid = out.split(/\s+/).map(Number).find((n) => Number.isFinite(n) && n > 0);
+    return pid ?? null;
+  },
+  processCwd: async (pid) => {
+    if (process.platform === "linux") {
+      try { return readlinkSync(`/proc/${pid}/cwd`); } catch { /* lsof fallback */ }
+    }
+    const out = await previewCmdOutput([lsofBin(), "-a", "-p", String(pid), "-d", "cwd", "-Fn"]);
+    const line = out.split("\n").find((l) => l.startsWith("n/"));
+    return line ? line.slice(1) : null;
+  },
+  // `lsof` risponde col path REALE, il worktree porta quello con cui è nato: su
+  // macOS `/tmp` è un link a `/private/tmp`, e senza risolverli il cancello
+  // d'identità legge due nomi della stessa cartella come due cartelle diverse.
+  realPath: async (p) => { try { return realpathSync(p); } catch { return null; } },
+  // Cancello sul CONTENUTO: la pagina si LEGGE prima di fotografarla, così un
+  // 503 «Bundle not built yet» non finisce sulla card come evidenza del lavoro.
+  fetchPage: async (url) => {
+    try {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 5000);
+      try {
+        const res = await fetch(url, { signal: ctrl.signal, redirect: "follow" });
+        return { status: res.status, body: (await res.text()).slice(0, 200_000) };
+      } finally { clearTimeout(t); }
+    } catch { return null; }
+  },
   // Reuse the already-running headless Chromium (no extra launch) via a throwaway
   // context, sized to 1440px. Best-effort → boolean.
   screenshot: async (url, outPath, opts) => {
     let port = "0"; try { port = new URL(url).port || "0"; } catch { /* keep */ }
     const id = `preview-shot:${port}`;
     try {
-      await browserService.createContext(id, { viewport: { width: opts.width, height: 900 } });
+      // Viewport, non full-page: la card disegna l'anteprima in `object-cover`
+      // e un'immagine più alta di `PREVIEW_CARD_MAX_RATIO` (0.70) volte la
+      // larghezza la TAGLIA invece di rimpicciolirla — 1440×760 = 0.528 sta
+      // dentro con margine, una full-page no.
+      await browserService.createContext(id, { viewport: { width: opts.width, height: 760 } });
       const nav = await browserService.navigate(id, url);
       if (nav.error) return false;
       await new Promise((r) => setTimeout(r, 1500)); // let the first paint settle
-      const buf = await browserService.screenshot(id, { format: "png", fullPage: true });
+      const buf = await browserService.screenshot(id, { format: "png", fullPage: false });
       writeFileSync(outPath, buf);
       return true;
     } catch (err) {
@@ -1147,6 +1329,30 @@ const taskAutoMerge = createTaskAutoMerge({
     if (!repoPath) return null;
     return { repoPath, branch: wt.branchName, defaultBranch: "main" };
   },
+  // Il ripiego che NON passa dall'agente. `worktreeOfTask` risolve attraverso
+  // `assigned_topic_id`, che si svuota ogni volta che l'agente viene rilasciato
+  // — cosa di routine — e da lì in poi una consegna col ramo intatto diventava
+  // non-landabile. La card però il ramo lo dichiara da sé (`delivery_branch`,
+  // registrato quando è entrata in review), e il checkout del suo progetto si
+  // ricava dal board id come fa l'audit: invertendo l'hash del percorso.
+  declaredDelivery: (taskId) => {
+    const task = dispatcherSvc.get(taskId)?.task;
+    if (!task) return null;
+    const branch = task.deliveryBranch ?? null;
+    if (!branch) return null;
+    let repoPath: string | null = null;
+    try {
+      repoPath = resolveProjectPath(
+        task.projectId,
+        buildProjectCandidates({
+          projectStore: ctx.projectStore,
+          workspaceDir: DISPATCH_WORKSPACE_DIR,
+          extraPaths: dispatchExtraPaths,
+        }),
+      )?.path ?? null;
+    } catch (err) { console.warn("[land] checkout non risolto per", taskId, err); }
+    return { repoPath, branch };
+  },
   log: (msg, err) => console.error(msg, err ?? ""),
 });
 
@@ -1186,16 +1392,25 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
     if (!repoPath) return null;
     return branchStatusFromRepo(repoPath, wt.branchName);
   },
-  // Delivery snapshot, taken when the task enters review: branch + tip SHA. The
-  // branch dies with the reap, the commit survives (gc.pruneExpire=90d), so the
-  // landing audit holds the COMMIT.
+  // Delivery snapshot, taken when the task enters review: the branch plus the
+  // most recent commit that is the task's OWN. The branch dies with the reap,
+  // the commit survives (gc.pruneExpire=90d), so the landing audit holds it.
+  //
+  // NON la punta del ramo: un branch nato dall'HEAD del checkout condiviso
+  // eredita i commit di chi ci stava sopra, e la punta è di un altro — il 10/08
+  // `dd2aa40d` registrava `987cd8ae`, commit di un'altra card e già su main.
+  // `null` = domanda senza risposta ⇒ nessuna fotografia (meglio del ritratto
+  // sbagliato); `commit: null` = verificato, non ha prodotto codice.
   taskDeliveryRef: async (taskId) => {
     const wt = worktreeOfTask(taskId);
     if (!wt || wt.mode !== "branch" || !wt.branchName) return null;
     const repoPath = ctx.projectStore.get(wt.projectId)?.path;
     if (!repoPath) return null;
-    const commit = await resolveCommit(repoPath, `refs/heads/${wt.branchName}`);
-    return commit ? { branch: wt.branchName, commit } : null;
+    // NON la punta del ramo: l'ultimo commit SUO. Un ramo che eredita il lavoro
+    // di chi stava sul checkout condiviso ha una punta che non è della card, e
+    // chi rivede finirebbe a leggere il diff di un altro (misurato il 10/08).
+    // `deliveryPointer` è la stessa domanda che si fa l'automerge: una fonte sola.
+    return deliveryPointer(repoPath, wt.branchName).catch(() => null);
   },
   // Dove far girare i checks pre-review: la cartella del worktree del task e il
   // commit su cui sta. Solo worktree di branch — un task in-place girerebbe i
@@ -1206,6 +1421,31 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
     const commit = await resolveCommit(wt.absPath, "HEAD");
     return { cwd: wt.absPath, commit };
   },
+  // L'esito di atterraggio della card, timbrato SUBITO dopo un land: un verdetto
+  // concreto è ciò che il land ha visto e vale come fatto (`witnessed`), `"ask"`
+  // è il caso in cui non sa e si chiede al repo (`auditOneLanding`, più in basso).
+  stampLanding: async (taskId, verdict) => {
+    if (verdict === "ask") { await auditOneLanding(taskId); return; }
+    try {
+      dispatcherSvc.recordLandingState({
+        taskId, state: verdict, checkedAt: new Date().toISOString(), witnessed: true,
+      });
+    } catch (err) { console.warn("[landing-audit] timbro del land fallito", err); }
+  },
+  // Il land è stato CHIESTO ma non è ancora avvenuto. La card è già `done` (la
+  // rotta approva e risponde subito) e la fusione arriva dopo: senza questo
+  // timbro, in quella finestra una card chiusa è indistinguibile da una
+  // atterrata — ed è così che l'11/08 sedici card sono rimaste in Done col
+  // codice sul loro ramo, in silenzio. `witnessed: false` di proposito: è il
+  // vero di ADESSO, e la passata periodica resta libera di correggerlo se il
+  // land è morto a metà dopo aver mergiato davvero.
+  markLandPending: (taskId) => {
+    try {
+      dispatcherSvc.recordLandingState({
+        taskId, state: "unlanded", checkedAt: new Date().toISOString(),
+      });
+    } catch (err) { console.warn("[landing-audit] timbro di attesa fallito", err); }
+  },
   // Post-landing reap: merged (or empty) worktrees have no remaining value —
   // the manager path removes worktree + branch + row, serialized per project.
   deleteTaskWorktree: async (taskId) => {
@@ -1215,9 +1455,23 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
   },
   // Reap the task's live preview server on land / approve / close.
   teardownPreview: (taskId) => previewManager?.teardown(taskId) ?? Promise.resolve(),
-  // Fan-out: l'anteprima parte quando l'umano sceglie il vincitore, perché solo
-  // allora il worktree del task è quello giusto da mostrare.
-  preparePreview: (taskId) => previewManager?.prepareForReview(taskId) ?? Promise.resolve(),
+  // Archiviare un task porta via anche le sue tab: le due chiavi `ui_state` e i
+  // contesti browser dietro di esse. `browserService` è il servizio vivo, quindi
+  // la chiusura headless è reale; il broadcast chiude la pane su ogni device.
+  teardownTaskBrowserState: (taskId) =>
+    teardownArchivedTaskBrowserState(
+      {
+        db,
+        broadcastToAll: ctx.broadcastToAll,
+        destroyContext: (contextId) => browserService.destroyContext(contextId),
+      },
+      taskId,
+    ),
+  // Due chiamanti, stessa porta: il fan-out (l'anteprima parte quando l'umano
+  // sceglie il vincitore, perché solo allora il worktree del task è quello
+  // giusto da mostrare) e «Ricattura evidenza» su una card già in review, che
+  // passa `explain: true` per farsi motivare anche il no.
+  preparePreview: (taskId, o) => previewManager?.prepareForReview(taskId, o) ?? Promise.resolve(),
   // NOTE: the server no longer SELF-RESTARTS when an approve lands server code
   // (removed 2026-07-18, Attilio: "l'auto-riavvio sporca tutto"). A landed
   // server change goes live either via the opt-in graceful hot-reload watch
@@ -1244,10 +1498,63 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
 // Auto-register servers Claude starts inside its PTY sessions (bare `bun run dev`
 // etc.) into the Processes panel, attributing listening ports by PTY process tree.
 startProcessDetection(ctx, getClaudeSessionsForDetection);
+
+// Lo stato pubblicato su Discord, se l'interruttore è acceso (default: spento,
+// migration 102). Il servizio parte SEMPRE — è lui a rileggere le impostazioni
+// a ogni giro e a non aprire nessun filo finché non gli viene detto di sì —
+// così accendere non richiede un riavvio.
+//
+// Sostituisce il daemon launchd `claude-discord-presence`, che contava i
+// processi `claude` con `ps`: i numeri che passano di qui sono conteggi esatti
+// del server (`activeStreams` = i turni che stiamo trasmettendo ADESSO, non una
+// soglia sulla CPU di un processo).
+// Da quando questa installazione è in piedi: diventa il cronometro sotto la
+// card di Discord. È l'avvio del SERVER e non l'avvio della sessione, perché è
+// quello che «da quanto stai lavorando» significa per chi guarda.
+const SERVER_STARTED_AT = Date.now();
+startDiscordPresence({
+  getSnapshot: () => ({
+    ...computePresenceCounts(ctx.db, ctx.activeStreams.size),
+    since: SERVER_STARTED_AT,
+  }),
+  getSettings: () => {
+    const s = getAppSettings();
+    return {
+      enabled: resolveDiscordPresenceEnabled(s),
+      level: resolveDiscordDetailLevel(s),
+      language: resolveOutputLanguage(s),
+    };
+  },
+});
+
 const pushRouter = createPushRouter(ctx);
-const uiStateRouter = createUiStateRouter(ctx);
+// La CRONOLOGIA delle notifiche: leggerla, scriverci (il banner del client
+// registra qui la sua riga), segnarla vista. Vedi migration 101.
+const notificationsRouter = createNotificationsRouter(ctx);
+// Chiudere una tab E' il ritiro di cio' che contiene, deciso lato server.
+//
+// Il client gia' archivia la chat e chiude la sessione quando e' LUI a chiudere.
+// Questa e' la strada per tutte le volte in cui quelle chiamate non partono o
+// non arrivano — la tab chiusa su un altro dispositivo, la `keepalive` persa in
+// un `pagehide`, la finestra chiusa con la fetch in volo. Il tombstone, che e'
+// sincronizzato, arriva comunque: da qui in poi arrivano anche le conseguenze.
+// Vedi `services/pane-retirement-cascade.ts` per perche' il segnale e' il
+// tombstone e non «la pane non c'e' piu'».
+const uiStateRouter = createUiStateRouter(ctx, {
+  onPaneSnapshot: (prev, next) => {
+    const decision = computeCascade({ prev, next, alreadyRetired: retiredIds(ctx.db, "pane") });
+    if (decision.retire.length === 0 && decision.reopen.length === 0) return;
+    const applied = applyPaneCascade(ctx.db, retirementConsequences, decision);
+    if (applied.topics > 0 || applied.terminals > 0) {
+      console.log(`[retirement] tab chiuse: ${applied.panes} → ${applied.topics} chat archiviate, ${applied.terminals} sessioni ritirate`);
+    }
+  },
+});
+// `GET /api/open` — la query sola su «cosa è aperto». Sola lettura.
+const openRouter = createOpenRouter(ctx);
 const providersRouter = createProvidersRouter(ctx);
 const appSettingsRouter = createAppSettingsRouter(ctx);
+const profileRouter = createProfileRouter(ctx);
 // Risoluzione dei permalink alle tab (`/tab/…`) — SOLA LETTURA.
 const tabsRouter = createTabsRouter(ctx, browserService);
 // Reset della suite E2E. Si auto-disarma (risponde 404) se TOPICS_E2E ≠ "1",
@@ -1265,6 +1572,9 @@ claudeSessionTracker.recoverFromJsonl().catch((err) => {
 });
 claudeSessionTracker.startReaper();
 claudeSessionTracker.startJsonlTail();
+// Import sweep: pull terminal turns of ADOPTED sessions into their chat, so an
+// adopted conversation no longer freezes at the adoption snapshot.
+claudeSessionTracker.startImportSweep();
 const projectsRouter = createProjectsRouter(ctx);
 const worktreesRouter = createWorktreesRouter(ctx, {
   // I rami locali non su main, col task a cui appartengono. Due letture: git
@@ -1322,6 +1632,28 @@ function tickHeartbeat() {
 }
 tickHeartbeat();
 const heartbeatTimer = setInterval(tickHeartbeat, HEARTBEAT_INTERVAL_MS);
+
+// I registri d'accordo col fatto, a ogni avvio.
+//
+// È questo passo che rende vera la verifica del task: chiudi una tab, riavvia,
+// riapri — niente ricompare, niente processo resta. Una chiusura le cui
+// conseguenze si erano perse (la fetch morta col `pagehide`, l'altro
+// dispositivo) viene onorata qui, in ritardo ma una volta sola.
+//
+// Prima del ripristino del roster dei terminali: una sessione che il fatto sa
+// ritirata non va nemmeno rianimata, e a riga già cancellata `restoreSessions`
+// non ha niente da ricreare. Convergente — su uno stato pulito non scrive.
+try {
+  const rec = reconcile(ctx.db, retirementConsequences);
+  if (rec.examined > 0) {
+    console.log(
+      `[retirement] riconcilio: ${rec.examined} divergenze → ` +
+      `${rec.topicsArchived} chat chiuse, ${rec.terminalsRetired} sessioni ritirate, ${rec.topicsStamped} timbrate`,
+    );
+  }
+} catch (err) {
+  console.warn("[retirement] riconcilio al boot fallito:", err);
+}
 
 // Periodic ui_state backup — defence-in-depth against accidental wipes.
 // Snapshot once at startup so any pre-restart state is preserved on disk
@@ -1894,12 +2226,36 @@ const opzioniServer = {
       return new Response("WebSocket upgrade failed", { status: 400 });
     }
 
+    // LETTURA = GET **o HEAD**. Ogni ramo statico qui sotto era gated sul solo
+    // `method === "GET"`, così un HEAD scivolava fino in fondo e prendeva 404:
+    // misurato l'11/08 sul server vivo, `GET /assets/index-<hash>.js` → 200 e
+    // `HEAD` sullo stesso path → 404, `HEAD /` → 404. HEAD è il verbo di cache,
+    // proxy, link checker e sonde di salute — chi chiede «esiste? è cambiato?»
+    // si sentiva rispondere «non esiste» e agiva di conseguenza (invalida,
+    // riscarica, segnala un link morto). RFC 9110 §9.3.2: la risposta a HEAD è
+    // identica a quella di GET **senza il corpo**, header compresi.
+    // Il corpo non va tolto a mano: Bun.serve svuota da sé la risposta a un HEAD
+    // e conserva `Content-Length` (verificato con Bun.file e con una stringa) —
+    // quello che mancava era solo il montaggio del verbo.
+    const isRead = method === "GET" || method === "HEAD";
+    // La parità degli HEADER, non solo dello status. Quando il corpo è un
+    // `Bun.file` grande (misurato: 290 KB sì, 3 KB no — è il ramo sendfile) Bun
+    // aggiunge da sé un `Content-Disposition: filename="index-<hash>.js"`, che
+    // sull'HEAD non c'è: due risposte che dovrebbero essere identiche
+    // differivano di un header, e quello sul GET è pure malformato (RFC 6266
+    // vuole un tipo, `inline`/`attachment`, non un `filename` nudo). Dichiararlo
+    // NOI vince sull'iniezione e riallinea i due verbi.
+    // Solo per il bundle, che è roba NOSTRA e va renderizzata: gli allegati e i
+    // media restano senza dichiarazione, e i download del browser hanno già il
+    // loro `attachment` esplicito qualche riga più sotto.
     // Dev mode proxy: ?dev=true proxies to Topics Vite dev server on :3332
     const isDevMode = url.searchParams.get("dev") === "true" || req.headers.get("cookie")?.includes("topics-dev=true");
-    if (isDevMode && method === "GET" && !pathname.startsWith("/api/") && !pathname.startsWith("/ws")) {
+    if (isDevMode && isRead && !pathname.startsWith("/api/") && !pathname.startsWith("/ws")) {
       try {
         const viteUrl = `https://localhost:3332${pathname}${url.search}`;
-        const viteResp = await fetch(viteUrl, { headers: req.headers, tls: { rejectUnauthorized: false } } as any);
+        // `method` e non "GET" implicito: un HEAD proxato come GET tirerebbe giù
+        // da Vite l'intero modulo per poi buttarlo via.
+        const viteResp = await fetch(viteUrl, { method, headers: req.headers, tls: { rejectUnauthorized: false } } as any);
         if (viteResp.ok) {
           const respHeaders = new Headers(viteResp.headers);
           if (url.searchParams.get("dev") === "true") {
@@ -1918,7 +2274,7 @@ const opzioniServer = {
 
     // Static files
     const isDevPort = PORT === 3330;
-    if (method === "GET" && (pathname === "/" || pathname === "/index.html")) {
+    if (isRead && (pathname === "/" || pathname === "/index.html")) {
       // Last-known-good shell. /public is rewritten in place by the build-watch
       // agent (com.armonia.topics-build-watch), so a page load that lands mid
       // rebuild used to read a missing index.html, throw, and answer 500 — the
@@ -1960,27 +2316,27 @@ const opzioniServer = {
       // /assets/* stay immutable, so this costs one tiny HTML fetch, not the JS.
       return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
     }
-    if (method === "GET" && pathname.endsWith(".html")) {
+    if (isRead && pathname.endsWith(".html")) {
       const file = Bun.file(join(PUBLIC_DIR, pathname));
-      if (await file.exists()) return new Response(file, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
+      if (await file.exists()) return new Response(file, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "Content-Disposition": "inline" } });
     }
     // Asset del bundle. La decisione (quali file, con che cache) sta in
     // `classifyStaticAsset` (server/static-assets.ts) così è unit-testata —
     // stesso trattamento di `shouldServeSpaFallback`. Qui c'era un elenco di
     // nomi a mano in cui `/boot.js` mancava: la shell web caricava uno script
     // che rispondeva 404, e con lui perdeva tema pre-paint e service worker.
-    if (method === "GET") {
+    if (isRead) {
       const asset = classifyStaticAsset(pathname, PUBLIC_DIR);
       if (asset) {
         const file = Bun.file(asset.filePath);
         if (await file.exists()) {
-          return new Response(file, { headers: { "Content-Type": getMimeType(asset.filePath), "Cache-Control": asset.cacheControl } });
+          return new Response(file, { headers: { "Content-Type": getMimeType(asset.filePath), "Cache-Control": asset.cacheControl, "Content-Disposition": "inline" } });
         }
       }
     }
 
     // Serve uploaded files (screenshots, attachments)
-    if (method === "GET" && pathname.startsWith("/uploads/")) {
+    if (isRead && pathname.startsWith("/uploads/")) {
       const filePath = join(ctx.UPLOADS_DIR, pathname.slice("/uploads/".length));
       const file = Bun.file(filePath);
       if (await file.exists()) {
@@ -1991,7 +2347,7 @@ const opzioniServer = {
 
     // Serve OpenClaw media files (browser screenshots, etc.)
     // Handles paths like /media/browser/uuid.jpg → ~/.openclaw/media/browser/uuid.jpg
-    if (method === "GET" && pathname.startsWith("/media/") && !pathname.includes("..")) {
+    if (isRead && pathname.startsWith("/media/") && !pathname.includes("..")) {
       const mediaBase = join(process.env.HOME || "/tmp", ".openclaw", "media");
       const filePath = join(mediaBase, pathname.slice("/media/".length));
       // Security: ensure resolved path stays within media directory (match on a
@@ -2025,7 +2381,7 @@ const opzioniServer = {
     }
 
     // Preview endpoint: serve local files for browser panel
-    if (method === "GET" && pathname.startsWith("/preview/")) {
+    if (isRead && pathname.startsWith("/preview/")) {
       let filePath = decodeURIComponent(pathname.slice("/preview".length));
       if (!filePath.startsWith("/")) filePath = "/" + filePath;
       const resolved = resolve(filePath);
@@ -2079,21 +2435,24 @@ const opzioniServer = {
         || await terminalRouter(req, url, pathname, method)
         || await statusRouter(req, url, pathname, method)
         || await memoryRouter(req, url, pathname, method)
-        || await usageRouter(req, url, pathname, method)
         || await activityRouter(req, url, pathname, method)
         || await externalSessionsRouter(req, url, pathname, method)
         || await checkpointsRouter(req, url, pathname, method)
         || await goalsRouter(req, url, pathname, method)
+        || await openRouter(req, url, pathname, method)
         || (openclawContextRouter && await openclawContextRouter(req, url, pathname, method))
         || await contextPreviewRouter(req, url, pathname, method)
         || await authRouter(req, url, pathname, method)
         || await accountRouter(req, url, pathname, method)
+        || await peopleRouter(req, url, pathname, method)
         || await licenseRouter(req, url, pathname, method)
         || await billingRouter(req, url, pathname, method)
         || await dashboardRouter(req, url, pathname, method)
+        || await profileRouter(req, url, pathname, method)
         || await processesRouter(req, url, pathname, method)
         || await tasksRouter(req, url, pathname, method)
         || await pushRouter(req, url, pathname, method)
+        || await notificationsRouter(req, url, pathname, method)
         || await uiStateRouter(req, url, pathname, method)
         || await providersRouter(req, url, pathname, method)
         || await appSettingsRouter(req, url, pathname, method)
@@ -2454,19 +2813,41 @@ const opzioniServer = {
               // guarda lo stream) tiene il suo socket non-delegato e sopravvive.
               //
               // Di proposito NON si riusa il contatore dei viewer di
-              // `createBrowserRouter`: quello esclude anche chi ha messo lo
-              // stream in pausa (`_streamActive === false`), che per il flapping
+              // `createBrowserRouter`: quello esclude anche chi ha la pane fuori
+              // dallo schermo (`_watching === false`), che per il flapping
               // native↔shared e' giusto ma qui sarebbe un disastro — uno
-              // spettatore in pausa e' comunque uno spettatore, e distruggergli
-              // il contesto sotto lo lascerebbe a mani vuote alla ripresa.
+              // spettatore in secondo piano e' comunque uno spettatore, e
+              // distruggergli il contesto sotto lo lascerebbe a mani vuote
+              // quando torna a guardare.
               const watchers = [...(browserWsClients.get(ctxId) ?? [])]
                 .filter((w) => !w.data._nativeDelegate).length;
-              if (watchers > 0) return;
-              try {
-                await browserService.destroyContext(ctxId);
-                console.log(`[WS][browser] destroyed phantom context ${ctxId} (native pane delegates ops, 0 viewers)`);
-              } catch (err) {
-                console.warn(`[WS][browser] destroyContext(${ctxId}) failed:`, (err as Error).message);
+              if (watchers === 0) {
+                try {
+                  await browserService.destroyContext(ctxId);
+                  console.log(`[WS][browser] destroyed phantom context ${ctxId} (native pane delegates ops, 0 viewers)`);
+                } catch (err) {
+                  console.warn(`[WS][browser] destroyContext(${ctxId}) failed:`, (err as Error).message);
+                }
+              }
+              // IL VERSO OPPOSTO DEL CASSETTO COOKIE. Questa e' l'unica volta in
+              // cui una WKWebView nativa si annuncia viva su un contesto: se la
+              // sessione condivisa di quello stesso contesto ha un login (il
+              // telefono si e' loggato mentre il Mac era via), qui lo si versa
+              // nel suo barattolo. Senza, «mi loggo dal telefono e sul Mac sono
+              // ancora fuori» non aveva nessun codice che lo risolvesse.
+              //
+              // Il flush prima serve quando il contesto e' ancora VIVO (qualcuno
+              // guarda): l'autosave e' a 30s, e leggere il file cosi' com'e'
+              // vorrebbe dire perdersi il login appena fatto. Se il contesto e'
+              // stato appena distrutto, e' gia' stato salvato e il flush e' un
+              // no-op. Nessuna delle due puo' lanciare: sta davanti al primo
+              // fotogramma della pane nativa.
+              await browserService.flushStorageState(ctxId).catch(() => false);
+              const back = await seedNativeFromShared(ctxId);
+              if (back.ok) {
+                console.log(`[WS][browser] cookie della sessione condivisa passati alla pane nativa ${ctxId} (${back.cookies} cookie)`);
+              } else if (back.skipped !== "empty" && back.skipped !== "unchanged" && back.skipped !== "no-native-pane") {
+                console.warn(`[WS][browser] passaggio cookie condivisa→nativa saltato per ${ctxId}: ${back.skipped}${back.error ? ` (${back.error})` : ""}`);
               }
             })();
             console.log(`[WS][browser] native executor registered for ctx ${ctxId}`);
@@ -2480,9 +2861,48 @@ const opzioniServer = {
           }
           const parsed = result.data;
           if (parsed.type === 'input') {
-            browserService.dispatchInput(ctxId, parsed.action, parsed.payload).catch(err =>
-              console.warn(`[WS][browser] dispatchInput failed for ${ctxId}:`, err.message)
-            );
+            const relayed = browserService.dispatchInput(ctxId, parsed.action, parsed.payload).catch(err => {
+              console.warn(`[WS][browser] dispatchInput failed for ${ctxId}:`, err.message);
+              return 'failed' as const;
+            });
+            // DOPO IL CLICK, CHI HA PRESO IL FUOCO.
+            //
+            // Il pane deve vestire il proprio campo di cattura come il campo
+            // remoto, o dal telefono esce sempre la stessa tastiera (quella di
+            // testo) qualunque cosa si tocchi. Sul co-browse DOM la risposta è
+            // in casa, nel mirror; sul ramo video il pane vede pixel e la
+            // risposta può darla solo la pagina vera, qui.
+            //
+            // Va SOLO a chi ha cliccato: in una sessione condivisa gli altri non
+            // hanno toccato niente, e non devono ritrovarsi una tastiera aperta.
+            if (parsed.action === 'click') {
+              void relayed.then(async (outcome) => {
+                if (outcome === 'failed') return;
+                const field = await browserService.describeFocusedField(ctxId).catch(() => null);
+                try {
+                  sendBrowserWsMessage(ws, { type: 'focus_field', ...(field ? { field } : {}) });
+                } catch { /* socket gone — the keyboard question died with it */ }
+              });
+            }
+          } else if (parsed.type === 'focus_query') {
+            // LA STESSA RISPOSTA DEL CLICK, CHIESTA A VOCE.
+            //
+            // Sul ramo video il click non passa più di qui: da quando l'input
+            // viaggia sul DataChannel va dal pane al sidecar a CDP, e il ramo
+            // qui sopra — che è quello che nomina il campo a fuoco — non si
+            // sveglia mai. Il pane allora chiede, subito dopo aver spinto il
+            // click sul canale, e paga il round trip solo per la tastiera.
+            //
+            // Deliberatamente identico nel corpo al ramo del click, non
+            // fattorizzato: sono due domande diverse (una segue un click che
+            // abbiamo eseguito noi, l'altra un click che non abbiamo visto) e
+            // l'unica cosa che condividono è la risposta.
+            void (async () => {
+              const field = await browserService.describeFocusedField(ctxId).catch(() => null);
+              try {
+                sendBrowserWsMessage(ws, { type: 'focus_field', ...(field ? { field } : {}) });
+              } catch { /* socket gone — the keyboard question died with it */ }
+            })();
           } else if (parsed.type === 'nav' && parsed.phase === 'request') {
             browserService.navigate(ctxId, parsed.url).then((r) => {
               // goto failures resolve with `error` (page stayed on the old
@@ -2537,6 +2957,12 @@ const opzioniServer = {
             // Task 052f53ef — pause/resume this viewer's screencast when the pane
             // enters/leaves native iframe-mode (kills the wasted headless render).
             ws.data._browserSetStream?.(parsed.active);
+          } else if (parsed.type === 'set_watching') {
+            // «La mia pane è sullo schermo». È l'UNICO ingresso del conteggio
+            // spettatori (browser-viewer-count.ts) e sta apposta fuori da
+            // set_stream: quello è il transport, e il WebRTC lo mette in pausa
+            // mentre guarda eccome.
+            ws.data._watching = parsed.active;
           } else if (parsed.type === 'set_render') {
             // T1 DOM co-browse — switch THIS viewer between the pixel stream
             // ('video', default) and a native rrweb DOM reconstruction ('dom').
@@ -2998,11 +3424,34 @@ const staleStreamTimer = setInterval(() => {
 // Task auto-dispatch reconciliation: on boot, requeue any in-progress task whose
 // agent turn died with the previous process; then poll to fill free slots on
 // boards with auto_dispatch on (also the safety net if a →todo hook is missed).
-// reconcile() is a no-op for boards with auto_dispatch off, so this is cheap.
+// Con auto_dispatch OFF è il TICK a essere un no-op, non l'intera reconcile: il
+// recupero degli orfani gira comunque, ed è voluto — una board spenta non
+// reclama, ma deve poter liberare le sue card ferme (la riga qui diceva
+// "reconcile() is a no-op", e ha mandato a caccia nel posto sbagliato chi
+// cercava perché sette fantasmi `queued` non venissero mai recuperati).
 const DISPATCH_POLL_MS = 10_000;
 taskDispatcher.reconcile().catch((err) => console.error("[dispatcher] boot reconcile failed", err));
 const dispatchTimer = setInterval(() => {
   taskDispatcher.reconcile().catch((err) => console.error("[dispatcher] poll reconcile failed", err));
+  // LA QUOTA DI CORE SI RILEGGE QUI, sullo stesso giro che fa nascere e morire
+  // gli agenti — cioè l'unico momento in cui il denominatore («quanti stanno
+  // compilando accanto a me») può essere cambiato. L'ambiente di un processo si
+  // scrive una volta sola, allo spawn: senza questa riga un agente rimasto solo
+  // su dodici core continuerebbe a compilare con la fetta di quando erano in
+  // quattro, e il prezzo del recinto lo pagherebbe per niente.
+  // Sta in server.ts e non dentro `reconcile()` per la stessa ragione di tutto
+  // il resto del cablaggio: il dispatcher resta host-agnostico e testabile.
+  try { refreshLiveJobQuotas(ctx.db); }
+  catch (err) { console.error("[job-quota] rilettura viva fallita", err); }
+  // LE FIGLIE MUOIONO COL PADRE, e qui è dove si scopre che è morto. La cascata
+  // del bridge copre solo un padre TERMINALE; la sessione di un task è una chat,
+  // e nessun frame `exit` la riguarda. Una spazzata sullo stesso giro che fa
+  // nascere e morire gli agenti risponde alla domanda giusta — «il task ha
+  // ancora un agente vivo?» — su OGNI strada di uscita, invece che su quelle
+  // che ci siamo ricordati di agganciare.
+  try {
+    for (const id of orphanBoardChildSessions(ctx.db)) retireTerminalSession(id);
+  } catch (err) { console.error("[board] reap delle sessioni figlie fallito", err); }
 }, DISPATCH_POLL_MS);
 
 // Chat reload-resilience: adopt broker-surviving CHAT turns after a restart.
@@ -3048,8 +3497,13 @@ async function reattachSurvivingChatTurns(): Promise<void> {
     let brokerSays: "open" | "idle" | "unknown" = "unknown";
     if (adoptable && !midTurnAtBoot.has(s.id)) {
       try {
-        const prov = getProvider("claude-code") as { brokerTurnState?: (sk: string) => Promise<"open" | "idle" | "unknown"> } | undefined;
-        brokerSays = (await prov?.brokerTurnState?.(s.id)) ?? "unknown";
+        const prov = getProvider("claude-code") as { brokerTurnState?: (sk: string, opts?: { park?: boolean }) => Promise<"open" | "idle" | "unknown"> } | undefined;
+        // `park: true` è la promessa che qui sotto manteniamo davvero: se la
+        // risposta è «open» si riadotta, nella riga dopo. Senza, ogni sessione
+        // si faceva spedire l'intero store DUE volte al boot — una per questa
+        // sonda e una per la fase 1 della riadozione, tutte sull'unico socket
+        // del ponte e tutte prima che l'utente veda qualcosa.
+        brokerSays = (await prov?.brokerTurnState?.(s.id, { park: true })) ?? "unknown";
       } catch (err) {
         console.warn(`[chat-reattach] broker turn probe failed for ${s.id} (skipping reap for safety):`, err);
         brokerSays = "unknown";
@@ -3297,6 +3751,56 @@ function reconcileOrphanedTranscripts(): void {
   }
 }
 
+// ── Archived-topic reconcile — le fasi che nessuna superficie può spegnere ──
+// Il gemello di riparazione di `parkTopicSession` (lib/session-parking.ts): il
+// parcheggio all'archiviazione tiene pulito da qui in avanti, ma le sessioni
+// GIÀ trapelate non le ri-archivierà nessuno. Al 2026-08-09 erano 28 — 20 ferme
+// su `awaiting-user`, ultima attività a metà luglio — servite dentro le 206 di
+// `/api/claude-sessions` a ogni bootstrap del client.
+//
+// Diversamente dai due sweep qui sopra, questo NON consulta il broker: una fase
+// viva su un topic archiviato è sbagliata comunque, anche se un figlio fosse
+// vivo (nessuna superficie la mostra, nessun gesto la spegne). Resta però la
+// stessa cortesia verso il dispatcher: un task in corso possiede la sua
+// sessione, e un topic dei tentativi archiviato mentre il task lavora non va
+// toccato sotto i piedi. `noteDormant` è soft — non uccide niente, e il primo
+// hook o riga di transcript rianima.
+function reconcileArchivedTopicSessions(): void {
+  const dispatcherClaimed = new Set<string>();
+  try {
+    const rows = ctx.db.query(
+      "SELECT assigned_topic_id AS t FROM tasks WHERE status = 'in_progress' AND assigned_topic_id IS NOT NULL",
+    ).all() as Array<{ t: string }>;
+    for (const row of rows) dispatcherClaimed.add(`topic:${row.t.slice(0, 8)}`);
+  } catch (err) {
+    console.warn("[archived-sessions] dispatcher claim query failed — skipping for safety:", err);
+    return;
+  }
+
+  let rows: Array<{ sk: string; csid: string | null; phase: string }> = [];
+  try {
+    rows = ctx.db.query(
+      `SELECT s.session_key AS sk, s.claude_session_id AS csid, s.phase AS phase
+       FROM claude_code_sessions s
+       JOIN topics t ON t.session_key = s.session_key
+       WHERE t.archived = 1 AND s.phase NOT IN ('dormant', 'completed', 'error')`,
+    ).all() as Array<{ sk: string; csid: string | null; phase: string }>;
+  } catch (err) {
+    console.warn("[archived-sessions] query failed:", err);
+    return;
+  }
+
+  let parked = 0;
+  for (const row of rows) {
+    if (!row.csid) continue;
+    if (dispatcherClaimed.has(row.sk)) continue;
+    if (claudeSessionTracker.noteDormant(row.csid)) parked += 1;
+  }
+  if (rows.length > 0) {
+    console.log(`[archived-sessions] ${rows.length} sessione/i viva/e su topic archiviati, ${parked} parcheggiata/e → dormant`);
+  }
+}
+
 // Chain reconcile AFTER reattach: reattach adopts survivors (keeps their broker
 // child alive → they stay in the alive-set → reconcile skips them) and reaps
 // idle children (so reconcile's fresh list sees them dead → demotes their
@@ -3307,6 +3811,7 @@ function reconcileOrphanedTranscripts(): void {
 reattachSurvivingChatTurns()
   .then(() => reconcileOrphanedBusyPhases())
   .then(() => reconcileOrphanedTranscripts())
+  .then(() => reconcileArchivedTopicSessions())
   .catch((err) => console.error("[chat-reattach] boot sweep failed", err));
 
 // ── Worktree GC — origin fix for worktree pile-up ──────────────────────────
@@ -3381,6 +3886,56 @@ function taskIdleDays(taskId: string): number | null {
   }
 }
 
+/**
+ * Un preview server non può sopravvivere alla cartella da cui serve: sia il
+ * `reap` sia il `free-checkout` la portano via, quindi entrambi lo spengono
+ * prima. Best-effort — un preview ostinato non deve impedire di liberare spazio.
+ */
+/**
+ * Butta gli artefatti rigenerabili dal worktree di un task, tenendo la cartella.
+ *
+ * Tre condizioni prima di toccare qualsiasi cosa, e sono tutte «c'è ancora
+ * qualcuno lì dentro?»: la cartella esiste, nessun turno sta girando su quel
+ * task, nessuna anteprima viva ci sta servendo un `bun run dev`. La sicurezza
+ * di COSA si cancella sta invece tutta in `worktree-slim` (lista chiusa di nomi
+ * + doppio cancello letto da git), non qui.
+ *
+ * Un'anteprima viva è un rinvio, non un no: la passata del GC ripassa ogni 30
+ * minuti e la troverà spenta appena l'umano avrà approvato o chiuso.
+ */
+// Chi risparmiare, se l'umano non è d'accordo su un nome (di solito `target`:
+// vedi `parseSlimSkip`). Letto una volta sola: cambiarlo vuole un riavvio, come
+// ogni altra soglia di questo file.
+const WORKTREE_SLIM_SKIP = parseSlimSkip(process.env.TOPICS_WORKTREE_SLIM_SKIP);
+
+async function slimWorktreeOfTask(taskId: string): Promise<void> {
+  try {
+    const wt = worktreeOfTask(taskId);
+    if (!wt || !existsSync(wt.absPath)) return;
+    if (taskDispatcher.isInFlight(taskId)) return;
+    if (previewManager?.list().some((p) => p.taskId === taskId)) return;
+    const res = await slimWorktree(wt.absPath, WORKTREE_SLIM_SKIP);
+    if (res.removed.length > 0) {
+      console.log(
+        `[worktree-slim] ${wt.name}: ${formatMb(res.bytes)} liberati — ` +
+        res.removed.map((r) => `${r.relPath} (${formatMb(r.bytes)})`).join(", "),
+      );
+    }
+    for (const e of res.errors) console.warn(`[worktree-slim] ${wt.name}: ${e.relPath} non rimosso — ${e.message}`);
+  } catch (err) {
+    console.warn("[worktree-slim] fallito", err);
+  }
+}
+
+async function teardownPreviewOfWorktree(worktreeId: string): Promise<void> {
+  try {
+    const topic = ctx.db.prepare("SELECT id FROM topics WHERE worktree_id = ? LIMIT 1").get(worktreeId) as { id?: string } | undefined;
+    if (!topic?.id) return;
+    const t = ctx.db.prepare("SELECT id FROM tasks WHERE assigned_topic_id = ? LIMIT 1").get(topic.id) as { id?: string } | undefined;
+    if (t?.id) await previewManager?.teardown(t.id);
+  } catch { /* best-effort */ }
+}
+
 function runWorktreeGc() {
   return sweepWorktrees({
     listWorktrees: () => ctx.worktreeStore.list({ status: "ready" }).map((w) => ({
@@ -3401,9 +3956,62 @@ function runWorktreeGc() {
       if (!repoPath) return Promise.resolve("gone" as const);
       return branchStatusFromRepo(repoPath, w.branchName);
     },
-    autoMergeEnabled: (projectId) => { try { return !!dispatcherSvc.getBoardSettings(projectId).dispatchAutoMerge; } catch { return false; } },
+    // DUE NAMESPACE, UNO SOLO GIUSTO. `wt.projectId` è l'uuid del projectStore
+    // (`75e5098a-…`); `board_settings` è chiavata sull'id di BOARD, cioè
+    // `projectIdForPath(path)` (`topics-app-ar3jt5`). Passare il primo dove va il
+    // secondo non solleva niente: `getBoardSettings` non trova la riga e
+    // restituisce i default, dove `dispatchAutoMerge` è `false`.
+    //
+    // Effetto misurato l'11/08: `dispatch_auto_merge = 1` su entrambe le board, e
+    // il GC che stampava «77× commit non mergiati, AUTOMERGE NON DISPONIBILE».
+    // Il ramo `land-then-reap` — quello che porta su main il lavoro di un task
+    // chiuso prima di liberarne la cartella — non è mai partito, nemmeno una
+    // volta, da quando esiste. Un id sbagliato non fallisce: mente in silenzio.
+    autoMergeEnabled: (projectId) => {
+      try {
+        const path = ctx.projectStore.get(projectId)?.path;
+        if (!path) return false;
+        return !!dispatcherSvc.getBoardSettings(projectIdForPath(path)).dispatchAutoMerge;
+      } catch { return false; }
+    },
     abandonAfterDays: WORKTREE_ABANDON_DAYS,
     idleDays: (taskId) => taskIdleDays(taskId),
+    // «Il ramo non c'è più» va letto insieme a QUESTO, o dice il contrario del
+    // vero. Il commit di consegna si guarda per CONTENUTO (`commitStatusFromRepo`
+    // + `classifyLanding`, gli stessi dell'audit dei land): un land squashato non
+    // lascia un'ancestry, ma è atterrato lo stesso. `unverifiable` esce `null`,
+    // che non è `false`: non aver potuto guardare non è una prova di fallimento.
+    deliveryLanded: async (taskId, wt) => {
+      const commit = dispatcherSvc.get(taskId)?.task?.deliveryCommit;
+      if (!commit) return null;
+      const repoPath = ctx.projectStore.get(wt.projectId)?.path;
+      if (!repoPath) return null;
+      const state = classifyLanding(await commitStatusFromRepo(repoPath, commit));
+      return state === "unverifiable" ? null : state === "landed";
+    },
+    // Lo scioglimento che NON declassa: il legame col worktree morto se ne va, il
+    // checkout pure (il branch è già sparito, non c'è niente da conservare), ma
+    // la card resta nella sua colonna. `release` con `requeue: false` su una card
+    // in review la lascia in review apposta — vedi il commento in `tasks.ts`.
+    unbind: async (taskId, wt, reason, deliveryLanded) => {
+      const t = dispatcherSvc.get(taskId)?.task;
+      const notice = await abandonNoticeFromRepo({
+        reason,
+        repoPath: ctx.projectStore.get(wt.projectId)?.path ?? null,
+        branchName: wt.branchName,
+        deliveryCommit: t?.deliveryCommit ?? null,
+        deliveryLanded,
+        taskFate: "stays",
+      });
+      try {
+        dispatcherSvc.release({ taskId, requeue: false, keepStatus: true, by: "system", reason: notice });
+      } catch (err) {
+        console.warn("[worktree-gc] scioglimento del legame fallito", err);
+        return false;
+      }
+      try { await previewManager?.teardown(taskId); } catch { /* best-effort */ }
+      return ctx.worktreeManager.delete(wt.id, { deleteBranch: false });
+    },
     abandon: async (taskId, wt, reason) => {
       // PRIMA SI GUARDA, POI SI SCRIVE. Questa riga è quella che l'umano legge
       // per decidere se ha perso lavoro: fino al 04/08 era una formula fissa che
@@ -3438,20 +4046,40 @@ function runWorktreeGc() {
       return ctx.worktreeManager.delete(wt.id, { deleteBranch: false });
     },
     tryLand: async (taskId) => {
-      const text = dispatcherSvc.get(taskId)?.task.text ?? "";
-      const res = await taskAutoMerge.tryMerge(taskId, text);
+      const t = dispatcherSvc.get(taskId)?.task;
+      const text = t?.text ?? "";
+      const res = await taskAutoMerge.tryMerge(taskId, text, {
+        branch: t?.deliveryBranch ?? null,
+        commit: t?.deliveryCommit ?? null,
+      });
       return res.status === "merged" ? "landed" : res.status === "nothing" ? "nothing" : res.status === "conflict" ? "conflict" : "skipped";
     },
+    // Solo la cartella. `deleteBranch: false` è tutta la differenza con `reap`
+    // qui sotto: i commit restano raggiungibili dal ref, e il worktree smette di
+    // occupare ~400 MB per una copia di lavoro che nessuno riaprirà.
+    freeCheckout: async (worktreeId) => {
+      await teardownPreviewOfWorktree(worktreeId);
+      return ctx.worktreeManager.delete(worktreeId, { deleteBranch: false });
+    },
     reap: async (worktreeId) => {
-      // Reap-aware preview teardown: a GC'd worktree can't back a preview server.
-      try {
-        const topic = ctx.db.prepare("SELECT id FROM topics WHERE worktree_id = ? LIMIT 1").get(worktreeId) as { id?: string } | undefined;
-        if (topic?.id) {
-          const t = ctx.db.prepare("SELECT id FROM tasks WHERE assigned_topic_id = ? LIMIT 1").get(topic.id) as { id?: string } | undefined;
-          if (t?.id) await previewManager?.teardown(t.id);
-        }
-      } catch { /* best-effort */ }
+      await teardownPreviewOfWorktree(worktreeId);
       return ctx.worktreeManager.delete(worktreeId);
+    },
+    // Il recupero dell'arretrato: le card consegnate PRIMA che esistesse lo
+    // snellimento alla consegna, e quelle la cui anteprima era ancora viva
+    // quando ci abbiamo provato. Stesse tre condizioni di `slimWorktreeOfTask`
+    // — che è la funzione stessa, raggiunta via il task del worktree.
+    slim: async (wt) => {
+      // Un'anteprima viva è un `bun run dev` che gira LÌ DENTRO: rimandare.
+      if (previewManager?.list().some((p) => worktreeOfTask(p.taskId)?.id === wt.id)) return 0;
+      const res = await slimWorktree(wt.absPath, WORKTREE_SLIM_SKIP);
+      if (res.removed.length > 0) {
+        console.log(
+          `[worktree-slim] ${wt.branchName ?? wt.id}: ${formatMb(res.bytes)} liberati — ` +
+          res.removed.map((r) => r.relPath).join(", "),
+        );
+      }
+      return res.bytes;
     },
     // A reap refused because the work isn't provably on main must be VISIBLE:
     // the same class of loss went unnoticed for 8 days precisely because the
@@ -3464,57 +4092,6 @@ function runWorktreeGc() {
   }).catch((err) => { console.error("[worktree-gc] sweep failed", err); return null; });
 }
 // First pass 2 min after boot (let dispatch settle), then every 30 min.
-// ── Censimento delle sessioni orfane — SOLO LETTURA ────────────────────────
-//
-// Esistono sessioni claude-code vive che nessuna struttura di `ui_state`
-// referenzia: nessuna finestra le mostra, quindi non esiste un gesto umano per
-// chiuderle. Qui si CONTANO e basta.
-//
-// Perché non si agisce: «non referenziata» è un giudizio che attraversa quattro
-// strutture diverse, e un falso positivo ucciderebbe una sessione che qualcuno
-// stava usando. Un giro in sola lettura è il modo di scoprire i falsi positivi
-// PRIMA che costino — se il log nomina sessioni che stai usando, il censimento
-// è sbagliato e si vede senza aver perso niente.
-function censusOrphanSessions(): void {
-  try {
-    const snap = listTerminalSessionSnapshot();
-    if (snap.length === 0) return;
-    const referenced = new Set<string>();
-    try {
-      for (const row of ctx.db.prepare("SELECT value FROM ui_state").all() as Array<{ value: string }>) {
-        for (const id of referencedSessionIdsIn(String(row.value ?? ""))) referenced.add(id);
-      }
-    } catch (err) {
-      // Senza poter leggere `ui_state` NON si censisce: un insieme di
-      // referenze vuoto farebbe risultare orfane TUTTE le sessioni.
-      console.warn("[orfane] censimento saltato: ui_state illeggibile", err);
-      return;
-    }
-    const res = scanOrphanSessions({
-      liveSessionIds: snap.map((s) => s.id),
-      referencedIds: referenced,
-      attachedIds: new Set(snap.filter((s) => s.attached).map((s) => s.id)),
-      subAgentIds: new Set(snap.filter((s) => s.isSubAgent).map((s) => s.id)),
-    });
-    const motivi = Object.entries(res.sparedReasons).map(([k, n]) => `${n}× ${k}`).join("; ");
-    if (res.orphans.length > 0) {
-      console.log(
-        `[orfane] ${res.orphans.length} sessioni che NESSUNA interfaccia mostra (di ${res.examined} vive): ` +
-        res.orphans.map((id) => id.slice(0, 8)).join(", ") +
-        (motivi ? ` — risparmiate: ${motivi}` : "") +
-        " · SOLO CENSIMENTO, nessuna azione presa.",
-      );
-    } else {
-      console.log(`[orfane] nessuna orfana su ${res.examined} sessioni vive${motivi ? ` — ${motivi}` : ""}.`);
-    }
-  } catch (err) {
-    console.warn("[orfane] censimento fallito", err);
-  }
-}
-// Dopo il boot, quando il roster si è ripopolato: prima sarebbe un censimento
-// su una lista vuota, cioè zero orfane per il motivo sbagliato.
-const orphanCensusBoot = setTimeout(censusOrphanSessions, 180_000);
-
 const worktreeGcBoot = setTimeout(runWorktreeGc, 120_000);
 const worktreeGcTimer = setInterval(runWorktreeGc, WORKTREE_GC_INTERVAL_MS);
 
@@ -3525,9 +4102,9 @@ const worktreeGcTimer = setInterval(runWorktreeGc, WORKTREE_GC_INTERVAL_MS);
 //
 // Two steps per pass:
 //  1. BACKFILL — any review/done task with a live branch worktree but no
-//     recorded delivery gets its branch tip recorded now. Covers the paths that
-//     bypass the route PATCH (system-delivery from the dispatcher) and every
-//     task that predates the delivery snapshot.
+//     recorded delivery gets its own most recent commit recorded now. Covers the
+//     paths that bypass the route PATCH (system-delivery from the dispatcher) and
+//     every task that predates the delivery snapshot.
 //  2. AUDIT — compare each recorded commit against main by CONTENT and stamp
 //     the verdict; the edge into `unlanded` posts a comment on the task.
 async function backfillDeliveries(): Promise<void> {
@@ -3540,16 +4117,33 @@ async function backfillDeliveries(): Promise<void> {
     if (!wt || wt.mode !== "branch" || !wt.branchName) continue;
     const repoPath = ctx.projectStore.get(wt.projectId)?.path;
     if (!repoPath) continue;
+    // Stessa domanda della cattura in review: il commit PROPRIO più recente, non
+    // la punta del ramo — altrimenti questo giro riscriverebbe ogni 30 minuti il
+    // lavoro di un'altra sessione sopra le card senza consegna.
     // Awaited: the audit right below must see what we just recorded, otherwise
     // a backfilled task waits a full interval for its first verdict.
-    const commit = await resolveCommit(repoPath, `refs/heads/${wt.branchName}`).catch(() => null);
-    if (commit) dispatcherSvc.recordDelivery({ taskId: row.id, branch: wt.branchName, commit });
+    const ptr = await deliveryPointer(repoPath, wt.branchName).catch(() => null);
+    // Niente commit propri (o domanda senza risposta): non si scrive niente e si
+    // riprova al giro dopo — se intanto l'altro branch landa o sparisce, la
+    // stessa domanda cambia risposta da sola.
+    if (ptr?.commit) dispatcherSvc.recordDelivery({ taskId: row.id, branch: ptr.branch, commit: ptr.commit });
   }
 }
 
 const LANDING_AUDIT_INTERVAL_MS = 30 * 60_000;
-async function runLandingAudit() {
-  await backfillDeliveries().catch((err) => console.warn("[landing-audit] backfill failed", err));
+
+/**
+ * Le dipendenze dell'audit, meno la lista di chi guardare — così la passata
+ * periodica e il timbro su UNA card fanno lo stesso conto. Se divergessero, il
+ * verdetto istantaneo dopo un land e quello del giro dopo potrebbero
+ * contraddirsi, e il semaforo tornerebbe a non voler dire niente.
+ *
+ * `announce` è l'unica differenza legittima: la passata deve DIRE sulla card
+ * che una consegna non è su main (una riga, datata); il timbro post-land no —
+ * lì il thread ha appena scritto perché il land non è riuscito, e ripeterlo
+ * sarebbe il commento numero due sullo stesso fatto.
+ */
+function landingAuditDeps(listCandidates: () => AuditTask[], announce: boolean) {
   // `tasks.project_id` is the BOARD id — `projectIdForPath(path)`, a one-way
   // hash — not a ProjectStore UUID. Asking the store for it returns undefined
   // for every real board, and the audit reads a missing repo as "can't tell":
@@ -3562,30 +4156,59 @@ async function runLandingAudit() {
     workspaceDir: DISPATCH_WORKSPACE_DIR,
     extraPaths: dispatchExtraPaths,
   });
-  return auditLandings({
-    listCandidates: () => dispatcherSvc.listLandingAuditCandidates(),
-    repoPath: (projectId) => resolveProjectPath(projectId, candidates)?.path ?? null,
-    commitStatus: (repoPath, commit) => commitStatusFromRepo(repoPath, commit),
-    record: (taskId, state, checkedAt) => dispatcherSvc.recordLandingState({ taskId, state, checkedAt }),
-    previousState: (taskId) => dispatcherSvc.get(taskId)?.task.landingState ?? null,
+  return {
+    listCandidates,
+    repoPath: (projectId: string) => resolveProjectPath(projectId, candidates)?.path ?? null,
+    commitStatus: (repoPath: string, commit: string) => commitStatusFromRepo(repoPath, commit),
+    record: (taskId: string, state: LandingState, checkedAt: string) =>
+      dispatcherSvc.recordLandingState({ taskId, state, checkedAt }),
+    previousState: (taskId: string) => dispatcherSvc.get(taskId)?.task.landingState ?? null,
     // The whole point: a delivery that never reached main must SAY so, on the
     // task, once — not sit silently in a column for 8 days.
-    onNewlyUnlanded: (task) => {
-      try {
-        dispatcherSvc.addComment({
-          taskId: task.id, author: "system",
-          content:
-            `⚠️ Consegnato ma NON su main: il commit \`${task.deliveryCommit?.slice(0, 8)}\`` +
-            (task.deliveryBranch ? ` (branch \`${task.deliveryBranch}\`)` : "") +
-            " non risulta nel contenuto di main. Landa il branch, oppure recupera il commit prima che venga potato.",
-        });
-        const fresh = dispatcherSvc.get(task.id)?.task;
-        if (fresh) broadcastToAll({ type: "task:updated", projectId: task.projectId, task: fresh });
-      } catch (err) { console.warn("[landing-audit] comment failed", err); }
-    },
+    onNewlyUnlanded: announce
+      ? (task: AuditTask) => {
+          try {
+            dispatcherSvc.addComment({
+              taskId: task.id, author: "system",
+              // Una riga, non un paragrafo: lo STATO ha già una banda in cima al
+              // drawer e un badge sulla card (`landingState`), e questo commento
+              // serve solo a datare il momento in cui è successo. Ripeterci sopra
+              // l'intera spiegazione, a ogni oscillazione, era la parte brutta —
+              // 128 commenti su 97 card, uno lungo tre righe.
+              content: `Non è su main: \`${task.deliveryCommit?.slice(0, 8)}\`${task.deliveryBranch ? ` (${task.deliveryBranch})` : ""} — landa il ramo prima che venga potato.`,
+            });
+            const fresh = dispatcherSvc.get(task.id)?.task;
+            if (fresh) broadcastToAll({ type: "task:updated", projectId: task.projectId, task: fresh });
+          } catch (err) { console.warn("[landing-audit] comment failed", err); }
+        }
+      : undefined,
     now: () => new Date().toISOString(),
-    log: (msg) => console.log(msg),
-  }).catch((err) => { console.error("[landing-audit] sweep failed", err); return null; });
+    log: (msg: string) => console.log(msg),
+  };
+}
+
+async function runLandingAudit() {
+  await backfillDeliveries().catch((err) => console.warn("[landing-audit] backfill failed", err));
+  return auditLandings(
+    landingAuditDeps(() => dispatcherSvc.listLandingAuditCandidates(), /*announce*/ true),
+  ).catch((err) => { console.error("[landing-audit] sweep failed", err); return null; });
+}
+
+/**
+ * Il verdetto DEDOTTO per UNA card, subito. Lo chiama il land (`stampLanding`)
+ * quando l'esito non l'ha visto lui — nessun ramo da guardare, o «non c'era
+ * niente da portare». Dove invece l'ha visto scrive il fatto e non passa di
+ * qui: una deduzione sopra una testimonianza è un declassamento.
+ */
+async function auditOneLanding(taskId: string): Promise<void> {
+  const t = dispatcherSvc.get(taskId)?.task;
+  if (!t?.deliveryCommit) return; // niente fotografia della consegna: niente da verificare
+  const one: AuditTask = {
+    id: t.id, projectId: t.projectId,
+    deliveryBranch: t.deliveryBranch ?? null, deliveryCommit: t.deliveryCommit,
+  };
+  await auditLandings(landingAuditDeps(() => [one], /*announce*/ false))
+    .catch((err) => { console.warn("[landing-audit] verdetto singolo fallito", err); return null; });
 }
 // Offset from the GC pass so the two git sweeps don't collide on the same repo.
 const landingAuditBoot = setTimeout(runLandingAudit, 180_000);
@@ -3620,10 +4243,35 @@ const landingAuditTimer = setInterval(runLandingAudit, LANDING_AUDIT_INTERVAL_MS
 // Cade verso il locale per costruzione: senza licenza `baseUrl` è `null`, cioè
 // esattamente lo stato «relay non configurato» che l'app sa già gestire da
 // sempre, e non uno stato d'errore nuovo.
-const relayCfg = leggiRelayConfig(process.env, ctx.STATE_DIR);
+const relayCfg = await leggiRelayConfig(process.env, ctx.STATE_DIR);
 const relay = creaRelayClient({
   baseUrl: relayCfg.baseUrl,
-  installationId: relayCfg.installationId,
+  // Il NOME del punto d'incontro, che è il digest del segreto qui sotto. Non è
+  // `installationId`: quello resta legato alla licenza e non compare in nessun
+  // link. Vedi `shared/relay-identita.ts` per il motivo per cui erano lo stesso
+  // valore e non potevano restarlo.
+  relayId: relayCfg.relayId,
+  segreto: leggiRelaySegreto(ctx.STATE_DIR),
+  // Dove si rigioca ciò che arriva dal relay. `null` — cioè
+  // `TOPICS_TUNNEL_PORT` non impostata, che è il caso di default — fa rifiutare
+  // in modo dichiarato: senza l'ascoltatore dedicato l'unica porta a cui
+  // rigiocare sarebbe quella principale, dove ogni richiesta è LOCALE, cioè
+  // proprietaria senza credenziali.
+  portaTunnel: portaTunnel,
+  // L'ascoltatore del tunnel spande `opzioniServer`: se il server principale
+  // ha i certificati, anche quella porta parla TLS.
+  tunnelTls: useTls,
+  // Il certificato su loopback è AUTOFIRMATO, e `fetch` lo rifiuterebbe. Qui
+  // saltare la verifica non toglie niente: il capo dall'altra parte è questo
+  // stesso processo su `127.0.0.1`, il traffico non lascia il kernel, e ciò
+  // contro cui la verifica protegge — qualcuno in mezzo — su loopback non
+  // esiste. Sta cablato QUI, sul solo salto locale, invece che dentro il
+  // proxy: una deroga scritta accanto alla ragione non diventa un'abitudine
+  // che poi qualcuno ricopia dove conta.
+  ...(useTls ? {
+    fetchLocale: ((input: string | URL | Request, init?: RequestInit) =>
+      fetch(input as never, { ...init, tls: { rejectUnauthorized: false } } as never)) as typeof fetch,
+  } : {}),
   trovaLink: (ref) => {
     try {
       const r = ctx.db.query(
@@ -3658,6 +4306,7 @@ const relay = creaRelayClient({
 ctx.relayConfig = () => ({
   baseUrl: baseUrlConcesso(relayCfg.baseUrl, licenzaSvc.stato()),
   installationId: relayCfg.installationId,
+  relayId: relayCfg.relayId,
 });
 ctx.relayConnected = () => relay.collegato();
 
@@ -3697,37 +4346,65 @@ browserService.restoreAllContexts(Object.values(ctx.loadTopics().topics))
   .then(r => console.log(`[server] browser restore: ${r.restored} restored, ${r.failed} failed`))
   .catch(err => console.warn(`[server] browser restore failed (non-fatal):`, err.message));
 
-// Censimento delle sessioni orfane — SOLA LETTURA (task `90762124`, punto 2).
+// Sessioni orfane: censimento e PARCHEGGIO (task `90762124`).
 //
-// Prima di collegare qualunque azione si guarda il giudizio girare sul campo:
-// «nessuna interfaccia la referenzia» attraversa quattro strutture di `ui_state`,
-// e un falso positivo, il giorno in cui l'azione ci sarà, spegnerebbe una
-// sessione che qualcuno stava usando. Qui non si tocca niente: si logga cosa
-// SAREBBE stato parcheggiato, e l'azione (che sarà il parcheggio, non la
-// cancellazione) si collega solo quando questo log smette di nominare sessioni
-// vive.
+// Esistono sessioni claude-code vive che nessuna struttura di `ui_state`
+// referenzia — né il pane store, né un layout di progetto, né le pane di
+// progetto, né una tab standalone. Nessuna finestra le mostra, quindi non
+// esiste un gesto umano per chiuderle: restano finché non le si cancella a mano
+// o non si riavvia il server, e nel frattempo consumano.
+//
+// Il censimento ha girato in SOLA LETTURA prima di poter agire, ed era il punto:
+// «non referenziata» attraversa quattro strutture, e un falso positivo spegne
+// una sessione che qualcuno stava usando. Sessantotto giri fra il 04/08 e il
+// 10/08 non hanno mai nominato una sessione. Prova pulita, ma sottile: il roster
+// non ha mai avuto più di UNA sessione viva alla volta, quindi la scarsità dei
+// falsi positivi dice poco. Per questo l'azione non si fida di un censimento
+// solo — vedi `lib/orphan-park-policy.ts`, che pretende DUE avvistamenti
+// consecutivi e si rifiuta di agire se `ui_state` non ha restituito righe.
+//
+// E l'azione è il PARCHEGGIO, non la cancellazione: muore la PTY, la riga resta
+// `dormant`, `--resume` la riporta dov'era con lo scrollback. Un falso positivo
+// su un parcheggio costa un click, su una `DELETE` costa una conversazione.
+// `parkOrphanSessions` passa poi dagli stessi cancelli del giro di inattività
+// (`decidePark`): «orfana» non sa niente di un turno in corso.
 //
 // Il ritardo serve, e 90 secondi NON bastavano: le sessioni di terminale non
 // vengono ripristinate all'avvio, ma quando un client si attacca. Misurato il
 // 04/08 sul server vivo, il primo giro riportava «0 sessioni esaminate» — vero
 // e inutile. A quindici minuti l'app ha attaccato le sue pane e il censimento
-// guarda qualcosa. Poi ogni sei ore, che è la frequenza giusta per una cosa che
-// si legge nei log e non fa nulla.
+// guarda qualcosa. Poi ogni sei ore: è anche la distanza fra i due avvistamenti
+// che servono per parcheggiare, cioè un'orfana vera muore dopo mezza giornata di
+// conferme e una pane appena creata non rischia niente.
 const ORPHAN_CENSUS_DELAY_MS = 15 * 60_000;
 const ORPHAN_CENSUS_EVERY_MS = 6 * 60 * 60_000;
+// Quanto dev'essere muta la PTY. Non è ridondante con «nessuna interfaccia la
+// mostra»: il registro delle pane non sa se la sessione sta scrivendo ADESSO.
+const ORPHAN_PARK_IDLE_MS = 30 * 60_000;
+// Acceso di serie, spegnibile con `TOPICS_ORPHAN_PARK=0`. Al contrario del
+// parcheggio per inattività — spento di default perché una sessione parcheggiata
+// mostra «Sessione scaduta» finché la sua pane non la rianima — qui quella
+// ragione non esiste: un'orfana non ha una pane che possa mostrare alcunché.
+const ORPHAN_PARK_ENABLED = (process.env.TOPICS_ORPHAN_PARK ?? "1").trim() !== "0";
+// La catena vive in `services/orphan-census.ts` (dove un test la monta identica
+// a questa); qui restano solo le dipendenze vere e i timer.
+const orphanCensusRunner = createOrphanCensusRunner({
+  listSessions: () => listTerminalSessionSnapshot(),
+  listUiStateValues: () =>
+    (ctx.db.query("SELECT value FROM ui_state").all() as Array<{ value?: string }>)
+      .map((row) => row.value ?? "")
+      .filter(Boolean),
+  park: (ids) => { parkOrphanSessions(ids, ORPHAN_PARK_IDLE_MS); },
+  enabled: ORPHAN_PARK_ENABLED,
+});
 function runOrphanCensus(): void {
   try {
-    const r = censusOnce({
-      listSessions: () => listTerminalSessionSnapshot(),
-      listUiStateValues: () =>
-        (ctx.db.query("SELECT value FROM ui_state").all() as Array<{ value?: string }>)
-          .map((row) => row.value ?? "")
-          .filter(Boolean),
-    });
-    console.log(formatCensus(r));
+    orphanCensusRunner();
   } catch (err) {
     // Un censimento che non riesce non deve mai essere un problema del server:
-    // non serve a farlo funzionare, serve a farci sapere una cosa.
+    // non serve a farlo funzionare, serve a farci sapere una cosa. E un giro
+    // fallito non lascia conferme: la memoria del giro precedente resta com'era,
+    // quindi mezza lettura non può diventare un permesso.
     console.warn("[orphan-census] salto questo giro:", (err as Error).message);
   }
 }
@@ -3776,7 +4453,6 @@ async function gracefulShutdown(signal: string) {
   clearInterval(staleStreamTimer);
   clearInterval(dispatchTimer);
   clearTimeout(worktreeGcBoot);
-  clearTimeout(orphanCensusBoot);
   clearInterval(worktreeGcTimer);
   clearTimeout(landingAuditBoot);
   clearInterval(landingAuditTimer);
@@ -3787,6 +4463,12 @@ async function gracefulShutdown(signal: string) {
   disconnectBridge(); // Disconnect from bridge — bridge daemon stays alive, PTY sessions persist
   await webrtcBridge.shutdown();
   await browserService.close();
+  // Il sidecar Chromium NON è di browserService: il suo processo appartiene al
+  // registry degli engine, che lo tiene a conteggio di riferimenti. close() qui
+  // sopra chiude solo i client CDP, quindi finché mancava questa riga l'uscita
+  // PULITA lasciava comunque in piedi un Chromium sulla 19333, reparentato a
+  // launchd. È il gemello del leak da SIGKILL, ma sul cammino buono.
+  chromiumSidecar.dispose();
   // Stop all AI providers BEFORE closing the DB. claude-code's stop() sends
   // SIGTERM to the spawned `claude` CLI children so they flush session state
   // to ~/.claude/sessions/ — without this, `bun --watch` hot reloads left

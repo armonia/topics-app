@@ -14,7 +14,7 @@ Rimandarlo non aggiunge informazione — appende byte identici a un contesto che
 chiamata successiva rilegge per intero.
 
 **Misurato su una chat reale** (topic "quadra",
-`~/.claude/projects/-Users-zorahrel-Projects-quadra/f848fa16-….jsonl`, 663 risposte API,
+`~/.claude/projects/-Users-utente-Projects-quadra/f848fa16-….jsonl`, 663 risposte API,
 33 turni utente):
 
 | | |

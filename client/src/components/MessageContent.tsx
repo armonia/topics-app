@@ -19,10 +19,9 @@ import type { ToolCall } from '../types';
 import { LEGACY_ERROR_PREFIX, turnErrorOf } from './Chat/turnError';
 import { releaseAudio } from '../lib/releaseAudio';
 import { useModalDialog } from '../hooks/useModalDialog';
+import { MODAL_LAYER } from '../lib/modalStyles';
 import { hasDiffBlocks, parseMessageWithDiffs, type MessageSegment } from '../lib/diffParser';
 import { DiffBlock, type DiffBlockHandle } from './Chat/DiffBlock';
-import { PlanView } from './Chat/PlanView';
-import { isPlanResponse } from './Chat/planDetection';
 import { parseSlashInvocation } from '../../../shared/slash-invocation';
 import { isAwaitingHuman } from '../../../shared/types';
 
@@ -204,7 +203,12 @@ function ImageLightbox({ src, alt, onClose }: { src: string; alt: string; onClos
       aria-modal="true"
       aria-label={alt || 'Immagine'}
       data-testid="image-lightbox"
-      className="fixed inset-0 bg-black/90 z-[9999] flex items-center justify-center overflow-hidden"
+      // `MODAL_LAYER` e non `z-[9999]`: 9999 non è «sopra i popover», è lo
+      // STESSO piano (Z_POPOVER / Z_CONTEXT_MENU). A parità di z decide
+      // l'ordine nel DOM, e qui entrambi sono portal su `<body>`: il lightbox
+      // stava sopra per fortuna, non per contratto. La costante lo mette a
+      // 10000, che è dove i modali stanno per definizione.
+      className={`fixed inset-0 bg-black/90 ${MODAL_LAYER} flex items-center justify-center overflow-hidden`}
       style={{ touchAction: 'none' }}
       onClick={handleBackdropClick}
       onTouchStart={handleTouchStart}
@@ -535,19 +539,19 @@ const CodeBlock = memo(function CodeBlock({ children, className }: { children: R
       <div className="flex items-center justify-between bg-app-code-bg rounded-t-md px-2.5 py-1 border-b border-white/5">
         <div className="flex items-center gap-2">
           {language && <span className="text-[11px] uppercase tracking-wider text-indigo-300/70 font-medium">{language}</span>}
-          <span className="text-[11px] text-gray-500">{lineCount} lines</span>
+          <span className="text-[11px] text-gray-400">{lineCount} lines</span>
         </div>
         <div className="flex items-center gap-1">
           <button
             onClick={() => setShowLineNumbers(p => !p)}
-            className={`text-[11px] px-1.5 py-0.5 rounded transition-colors inline-flex items-center justify-center min-w-6 min-h-6 ${showLineNumbers ? 'bg-indigo-500/20 text-indigo-300' : 'text-gray-500 hover:text-gray-300'}`}
+            className={`text-[11px] px-1.5 py-0.5 rounded transition-colors inline-flex items-center justify-center min-w-6 min-h-6 ${showLineNumbers ? 'bg-indigo-500/20 text-indigo-300' : 'text-gray-400 hover:text-gray-200'}`}
             title="Toggle line numbers"
           >
             #
           </button>
           <button
             onClick={() => setWordWrap(p => !p)}
-            className={`text-[11px] px-1.5 py-0.5 rounded transition-colors inline-flex items-center justify-center min-w-6 min-h-6 ${wordWrap ? 'bg-indigo-500/20 text-indigo-300' : 'text-gray-500 hover:text-gray-300'}`}
+            className={`text-[11px] px-1.5 py-0.5 rounded transition-colors inline-flex items-center justify-center min-w-6 min-h-6 ${wordWrap ? 'bg-indigo-500/20 text-indigo-300' : 'text-gray-400 hover:text-gray-200'}`}
             title="Toggle word wrap"
           >
             ↩
@@ -603,7 +607,7 @@ const CodeBlock = memo(function CodeBlock({ children, className }: { children: R
   );
 });
 
-// Shared markdown components config (exported for reuse in PlanView)
+// Shared markdown components config (exported for reuse in the editor panes)
 /**
  * Process React children to highlight @mentions in text nodes.
  */
@@ -997,14 +1001,11 @@ interface MessageContentProps {
   cacheCreation1hTokens?: number | null;
   usageCompletionTokens?: number | null;
   costCents?: number | null;
-  // Plan mode
-  onPlanApprove?: () => void;
   /** La decisione presa su un piano proposto — vedi <ToolCallRow>. */
   onPlanDecision?: (approved: boolean) => void;
   /** Il comando che ha aperto QUESTO turno, quando l'utente l'ha digitato:
    *  la CLI lo espande prima del turno e sul filo non resta traccia. */
   invokedCommand?: { command: string; args?: string } | null;
-  onPlanReject?: () => void;
   // Session viewer
   /**
    * The session key this message belongs to. Threaded down to
@@ -1046,7 +1047,7 @@ function TurnErrorBanner({ text }: { text: string }) {
   );
 }
 
-export const MessageContent = memo(function MessageContent({ content, role, thinking, toolCalls, blocks, media, partial, isLast, turnStartedAt, usagePromptTokens, usageCompletionTokens, costCents, cacheReadTokens, cacheCreationTokens, cacheCreation1hTokens, onPlanApprove, onPlanReject, onPlanDecision, invokedCommand, sessionKey, onMessage }: MessageContentProps) {
+export const MessageContent = memo(function MessageContent({ content, role, thinking, toolCalls, blocks, media, partial, isLast, turnStartedAt, usagePromptTokens, usageCompletionTokens, costCents, cacheReadTokens, cacheCreationTokens, cacheCreation1hTokens, onPlanDecision, invokedCommand, sessionKey, onMessage }: MessageContentProps) {
   const { cleanText: rawCleanText, mediaPaths: extractedMediaPaths, voicePaths } = useMemo(() => {
     const result = extractMediaPaths(content);
     return result;
@@ -1107,10 +1108,6 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
     const tools = (blocks ?? []).flatMap((b) => (b.kind === 'tool' ? [b.toolCall] : [])).concat(toolCalls ?? []);
     return !tools.some((t) => /^(skill|slashcommand|slash_command)$/i.test(t.name));
   }, [invokedCommand, role, blocks, toolCalls]);
-
-  // Plan detection is reused at both legacy-path gates below; cleanText is
-  // already memoized so this dependency is stable.
-  const planResp = useMemo(() => isPlanResponse(cleanText), [cleanText]);
 
   // Il turno è fermo su una domanda a schermo? Guarda entrambe le sorgenti: la
   // timeline `blocks` (percorso attuale) e il vecchio secchio `toolCalls`, così
@@ -1342,18 +1339,16 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
               </div>
             )}
 
-            {/* Plan view - detect plan-format responses */}
-            {cleanText && !partial && planResp && onPlanApprove && (
-              <PlanView
-                content={cleanText}
-                onApprove={onPlanApprove}
-                onReject={onPlanReject || (() => {})}
-                isStreaming={partial}
-              />
-            )}
-
             {/* Main content - inline tool calls or plain */}
-            {cleanText && (!planResp || !onPlanApprove || partial) && (
+            {/* Il piano NON ha più una vista sua qui. Quando un turno propone e
+                aspetta, la decisione sta in due posti che dicono la stessa cosa:
+                il pannello sulla riga del tool e la barra sopra il composer
+                (`PlanApprovalBar`). Una terza superficie — che si accendeva a
+                fiuto su qualunque prosa con «## Plan» e due passi numerati, e
+                approvando NON alzava l'autonomia — rimandava il turno nella
+                stessa plan mode da cui non poteva uscire. Vedi
+                `shared/plan-decision.ts`. */}
+            {cleanText && (
               hasDiffBlocks(cleanText) ? (
                 <DiffBlocksWithApplyAll segments={parseMessageWithDiffs(cleanText)} />
               ) : hasInline ? (

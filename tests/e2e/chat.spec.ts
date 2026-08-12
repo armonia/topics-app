@@ -254,9 +254,16 @@ test.describe.serial("Chat", () => {
     await goToApp(page);
     await openTestChat(page);
 
+    // Il testo si prende la riga; sotto, la riga dei controlli: «+», i
+    // permessi, e in coda microfono e invio. La graffetta non è più un bottone
+    // sciolto — sta nel «+», che è l'unico posto da cui si aggiunge qualcosa
+    // alla conversazione. Il microfono sì: è la seconda strada per riempire il
+    // campo, e sta dove il campo finisce di riempirsi.
+    const addMenu = page.getByRole("button", { name: "Tools & commands" });
+    await expect(addMenu).toBeVisible({ timeout: 10_000 });
     await expect(
-      page.getByRole("button", { name: /Attach file/ })
-    ).toBeVisible({ timeout: 10_000 });
+      page.getByRole("button", { name: /Record voice/ })
+    ).toBeVisible({ timeout: 5_000 });
     // Il piano non è più un interruttore accanto alla graffetta: è un LIVELLO
     // di autonomia, e questo è il controllo che lo porta. C'erano due modi di
     // chiederlo — un flag di prompt in localStorage e questo, che passa
@@ -265,14 +272,15 @@ test.describe.serial("Chat", () => {
       page.getByRole("button", { name: /Autonomia/ })
     ).toBeVisible({ timeout: 5_000 });
     await expect(
-      page.getByRole("button", { name: /Record voice/ })
-    ).toBeVisible({ timeout: 5_000 });
-    await expect(page.getByRole("button", { name: /Tools/ })).toBeVisible({
-      timeout: 5_000,
-    });
-    await expect(
       page.getByRole("button", { name: /Send message/ })
     ).toBeVisible({ timeout: 5_000 });
+
+    // …e la graffetta è dentro il «+», con la sua scorciatoia.
+    await addMenu.click();
+    await expect(
+      page.getByRole("button", { name: /Attach file/ })
+    ).toBeVisible({ timeout: 5_000 });
+    await page.keyboard.press("Escape");
   });
 
   test("Shift+Enter creates multiline input", async ({ page }) => {
@@ -345,75 +353,6 @@ test.describe("Chat — Rich Content Rendering", () => {
 
     // CHAT-RND-03 — mermaid fence becomes an SVG diagram (lazy chunk)
     await expect(page.locator('[data-testid="mermaid-diagram"] svg').first()).toBeVisible({ timeout: 20_000 });
-  });
-
-  test("plan mode shows plan view with approve/reject", async ({ page }) => {
-    test.info().annotations.push({ type: "spec", description: "CHAT-02" });
-    // Intercept WebSocket to prevent real-time updates from resetting component state
-    await page.routeWebSocket(/ws/, ws => {
-      const server = ws.connectToServer();
-      // Allow initial connection but filter out chat-related broadcasts
-      server.onMessage(msg => {
-        const text = typeof msg === "string" ? msg : "";
-        // Block history/message update broadcasts that would cause re-renders
-        if (text.includes('"type":"message"') || text.includes('"type":"stream"')) return;
-        ws.send(msg);
-      });
-      ws.onMessage(msg => server.send(msg));
-    });
-
-    // Set up SSE mock and history mock BEFORE navigation
-    const planContent = "## Implementation Plan\n\n1. First step of the plan\n2. Second step of the plan\n3. Third step of the plan";
-    await page.route(/\/api\/chat$/, async (route) => {
-      if (route.request().method() !== "POST") return route.fallback();
-      const data = JSON.stringify({ choices: [{ index: 0, delta: { content: planContent } }] });
-      await route.fulfill({
-        status: 200,
-        headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" },
-        body: `data: ${data}\n\ndata: [DONE]\n\n`,
-      });
-    });
-
-    // Mock history endpoint to return the plan message (prevents overwrite after stream)
-    await page.route(/\/api\/history\//, async (route) => {
-      if (route.request().method() !== "POST") return route.fallback();
-      await route.fulfill({
-        status: 200,
-        json: {
-          messages: [
-            { id: "mock-user-1", role: "user", content: "Make a plan", timestamp: new Date().toISOString() },
-            { id: "mock-assistant-1", role: "assistant", content: planContent, timestamp: new Date().toISOString() },
-          ],
-        },
-      });
-    });
-
-    await goToApp(page);
-
-    // Open test chat
-    await ensureTopicVisible(page, /Web Search Test/);
-    const chatItem = page.getByRole("treeitem", { name: /Web Search Test/ });
-    await chatItem.waitFor({ state: "visible", timeout: 10_000 });
-    await chatItem.click({ force: true });
-    await page.locator('[role="main"]').waitFor({ state: "visible", timeout: 10_000 });
-    const textarea = page.getByRole("textbox", { name: /Message input/ });
-    await textarea.waitFor({ state: "visible", timeout: 10_000 });
-
-    await textarea.fill("Make a plan");
-    await textarea.press("Control+Enter");
-
-    // Wait for PlanView to render (it shows after stream completes)
-    const planView = page.locator(".plan-view");
-    await expect(planView).toBeVisible({ timeout: 15_000 });
-
-    // Assert Execute Plan and Reject buttons are visible
-    const executePlanBtn = page.getByRole("button", { name: /Execute Plan/ });
-    const rejectBtn = page.getByRole("button", { name: /Reject/ });
-    await expect(executePlanBtn).toBeVisible();
-    await expect(rejectBtn).toBeVisible();
-
-    // Verify plan content renders (structural assertion: step text visible)
-    await expect(page.getByText("First step of the plan")).toBeVisible({ timeout: 5_000 });
   });
 
   test("renders diff block with file path and code", async ({ page }) => {

@@ -1,6 +1,6 @@
 import type { LucideIcon } from 'lucide-react';
-import { PackageCheck, Hourglass } from 'lucide-react';
-import { MAX_FANOUT } from '../../lib/board';
+import { PackageCheck, Hourglass, Square, TimerOff } from 'lucide-react';
+import { MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT } from '../../lib/board';
 import type { TaskStatus } from '../../lib/board';
 import { EFFORT_TIERS } from '../../lib/effortTiers';
 
@@ -85,11 +85,21 @@ export const STATUS_ICON_COLOR: Record<TaskStatus, string> = {
 
 // Card chip for the dispatch lifecycle (server: tasks.dispatch_state).
 export const DISPATCH_CHIP: Record<string, { text: string; cls: string; title?: string; Icon?: LucideIcon }> = {
+  // RIPIEGO, non la voce principale: da quando ogni card in `todo` porta la sua
+  // ragione (`task.queueReason`, risolta dal server) questi due si disegnano solo
+  // se quella manca — cioè se il server non è riuscito a calcolarla. Restano
+  // perché un chip vuoto sarebbe peggio, ma «in coda» da solo è esattamente la
+  // parola che non dice niente.
   queued: { text: 'in coda', cls: 'bg-white/10 text-app-text-heading' },
   // The agent DECLARED an external-condition wait: back in the queue, slot freed,
   // re-dispatched when its window elapses. NOT a delivery — never in review. The
   // reason rides in task.dispatchError → shown as the chip tooltip.
-  waiting: { text: 'in attesa', cls: 'bg-indigo-500/15 text-indigo-300', title: "In attesa di una condizione esterna: lo slot è libero, riparte da solo", Icon: Hourglass },
+  //
+  // «rinviata» e non «in attesa»: quella parola sulla card significa già il
+  // CONTRARIO — «altri aspettano questa» (vedi `waitingOnThisChip`) — e due
+  // fatti opposti non possono condividere un'etichetta, qualunque cosa dica il
+  // tooltip. Un tooltip, poi, su un telefono non esiste.
+  waiting: { text: 'rinviata', cls: 'bg-indigo-500/15 text-indigo-300', title: "Aspetta una condizione esterna: lo slot è libero, riparte da sola", Icon: Hourglass },
   starting: { text: 'avvio…', cls: 'bg-amber-500/15 text-amber-300' },
   working: { text: 'al lavoro', cls: 'bg-sky-500/15 text-sky-300' },
   // Both live in Review, but they ask different things of the human:
@@ -104,10 +114,38 @@ export const DISPATCH_CHIP: Record<string, { text: string; cls: string; title?: 
   // The specific reason rides in task.dispatchError → shown as the chip tooltip.
   failed: { text: 'fallito', cls: 'bg-rose-500/25 text-rose-200 ring-1 ring-rose-400/40' },
   blocked: { text: 'da sistemare', cls: 'bg-amber-500/15 text-amber-300' },
+  // 'stopped' = l'ha fermato una PERSONA (menu della card o bottone del
+  // drawer). Neutro per costruzione: non è un fallimento e non c'è niente da
+  // sistemare — il turno è stato tagliato e il task aspetta che tu lo rimetta
+  // in Todo. Senza questa voce un park umano restava a NULL, cioè una card
+  // muta indistinguibile da una mai dispacciata.
+  // Il motivo NON è scritto qui: come per 'failed'/'blocked' viaggia in
+  // `task.dispatchError` («Fermato da te: … Rimetti il task in Todo per
+  // ripartire») e diventa il tooltip. Un titolo fisso lo coprirebbe.
+  [PARKED_STOPPED]: { text: 'fermato', cls: 'bg-white/10 text-app-text-secondary', Icon: Square },
+  // 'waited_out' = la SERIE di attese dichiarate ha sfondato il tetto. Il task è
+  // in Backlog e non riparte da solo, ma non ha fallito niente: aspettava, e
+  // quello che aspettava non è arrivato. Perciò indigo come 'in attesa' (è la
+  // stessa storia, un capitolo dopo) e non rosso come 'fallito' — con l'anello
+  // di 'fallito', che è ciò che distingue un park da un chip di passaggio.
+  // Il motivo NON è scritto qui: viaggia in `task.dispatchError` (quante attese,
+  // per cosa, da quanto) e diventa il tooltip. Un titolo fisso lo coprirebbe.
+  [PARKED_WAITED_OUT]: { text: 'troppa attesa', cls: 'bg-indigo-500/25 text-indigo-200 ring-1 ring-indigo-400/40', Icon: TimerOff },
 };
 
 // Single shared new-task draft → single caret key (board composer is global).
 export const COMPOSER_CURSOR_KEY = 'board:composer';
+
+/**
+ * Quanto resta acceso il lampo su una card appena creata. Uguale al keyframe
+ * `taskCreatedFlash` in index.css — se i due divergono la classe se ne va prima
+ * che l'animazione finisca (taglio secco) o resta dopo (card ferma e accesa).
+ *
+ * È anche la finestra entro cui la board accetta di scorrere fino alla card
+ * nuova: passata quella, il gesto che l'ha creata non è più "appena successo" e
+ * portare a schermo qualcosa sarebbe uno strattone che risponde a niente.
+ */
+export const CREATED_FLASH_MS = 2400;
 
 /**
  * One tab of a task's surface tab group. The Thread is the always-present body;
@@ -132,7 +170,13 @@ export interface LiveUsage { turnStartedAt: number; baseMs: number; liveTokens: 
 // ── Board settings (auto-dispatch config) ───────────────────────────────────
 // La scala effort vive in `shared/effort.ts` (via lib/effortTiers): il
 // selettore del dispatch e lo slider della chat leggono la STESSA scala ordinata.
-export const EFFORTS = EFFORT_TIERS;
+//
+// `auto` sta in TESTA e non in coda perché è il default consigliato: fissare un
+// effort per tutta una board significa pagare lo stesso sforzo su un typo e su
+// un refactor, e la differenza non è teorica (stesso micro-task: `medium` 61,1k
+// token di lavoro, `xhigh` 108,8k). Su `auto` lo sceglie il classificatore task
+// per task, con pavimento `medium`.
+export const EFFORTS = ["auto", ...EFFORT_TIERS] as const;
 
 /** 1..MAX_FANOUT — le scelte del selettore fan-out, DERIVATE dal tetto condiviso
  *  (`shared/board.ts`): alzare il tetto allunga la fila da solo. */

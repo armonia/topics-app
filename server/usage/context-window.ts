@@ -51,7 +51,7 @@ import {
   worseLevel,
 } from "../../shared/context-thresholds";
 import type { ContextLevel } from "../../shared/context-thresholds";
-import { contextWindowFor } from "../../shared/context-window";
+import { contextWindowFor, windowCoveringMeasure } from "../../shared/context-window";
 import type { ContextWindow } from "../../shared/context-window";
 
 // Si ri-esporta SOLO ciò che qualcuno importa da qui (i test di questo modulo e
@@ -60,7 +60,7 @@ import type { ContextWindow } from "../../shared/context-window";
 // (`formatContextWindow`) si prendono da `shared/context-window`: è dove sono
 // dichiarati ed è già da lì che li importa chi li usa davvero (la UI del picker).
 export { DEFAULT_CONTEXT_WINDOW } from "../../shared/context-thresholds";
-export { contextWindowFor, windowModelFor } from "../../shared/context-window";
+export { contextWindowFor, windowCoveringMeasure, windowModelFor } from "../../shared/context-window";
 export type { ContextWindow } from "../../shared/context-window";
 
 /**
@@ -90,9 +90,15 @@ export type { ContextWindow } from "../../shared/context-window";
  * riportando indietro proprio il bug che il ricalcolo esiste per chiudere. Serve
  * una colonna che registri l'origine del denominatore; finché non c'è, la tabella
  * vince e questo commento è il posto dove è scritto.
+ *
+ * Qualunque strada prenda, il risultato passa da `windowCoveringMeasure`: se il
+ * contesto misurato non ci sta nella finestra che abbiamo risolto, la finestra è
+ * sbagliata e la misura ha ragione — quella chiamata ha ricevuto risposta. È
+ * l'ultima rete, quella che tiene anche quando il nome del modello si perde per
+ * strada (pin vuoto + nome nudo negli eventi della CLI = 288% sul ring).
  */
 export function windowForMeasure(
-  measure: { model: string | null; windowTokens: number; estimated: boolean },
+  measure: { model: string | null; windowTokens: number; estimated: boolean; usedTokens: number },
   currentModel: string | null | undefined,
 ): ContextWindow {
   // Il modello del TOPIC vince, e non è la stessa scelta di `windowModelFor`.
@@ -102,13 +108,18 @@ export function windowForMeasure(
   // che servirà il turno successivo, perché è lui che dovrà reggere questi token.
   // È anche il ramo che recupera il suffisso `[1m]`: la misura porta il nome nudo
   // che la CLI riporta nei suoi eventi, il topic porta la modalità scelta.
+  const covering = (window: ContextWindow, model: string | null | undefined) =>
+    windowCoveringMeasure(window, model, measure.usedTokens);
   if (currentModel) {
     const current = contextWindowFor(currentModel);
-    if (current.known) return current;
+    if (current.known) return covering(current, currentModel);
   }
   const fromMeasure = contextWindowFor(measure.model);
-  if (fromMeasure.known) return fromMeasure;
-  return { tokens: measure.windowTokens, known: !measure.estimated };
+  if (fromMeasure.known) return covering(fromMeasure, measure.model);
+  return covering(
+    { tokens: measure.windowTokens, known: !measure.estimated },
+    currentModel ?? measure.model,
+  );
 }
 
 // Le soglie e la funzione di livello vivono in `shared/context-thresholds.ts`:

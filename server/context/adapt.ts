@@ -80,7 +80,7 @@ function estimateTokens(text: string): number {
  * guardando l'inizio del messaggio e qualunque preambolo davanti glieli nasconde.
  *
  * È un'ALLOWLIST, non «inizia per slash»: quel predicato prendeva anche un path
- * incollato — `/Users/zorahrel/…`, `/tmp da controllare` — e a quel messaggio
+ * incollato — `/Users/utente/…`, `/tmp da controllare` — e a quel messaggio
  * toglieva tutto il contesto. Su un primo turno o subito dopo una compattazione
  * significava un turno intero senza sapere in che progetto si sta lavorando.
  */
@@ -400,10 +400,10 @@ function buildInlineSystemNotes(
   }
   if (withdrawn.length > 0) {
     const labels = withdrawn.map((s) => SLOT_LABELS[s as SystemSlotId] ?? s).join(", ");
-    notes.push(`${withdrawn.length} slot withdrawn — declared no longer in effect: ${labels}`);
+    notes.push(`${withdrawn.length} slot withdrawn, declared no longer in effect: ${labels}`);
   }
   notes.push(
-    `Provider does NOT receive the history field — the CLI session preserves prior turns process-side`,
+    `Provider does NOT receive the history field. The CLI session preserves prior turns process-side.`,
   );
   notes.push(
     `Inspector History tab reflects the topics-app DB; the live CLI session may have additional state from --resume`,

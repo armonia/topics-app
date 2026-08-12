@@ -1,3 +1,4 @@
+import { markDraftTouched } from '../../state/draftPane';
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import { X, MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, ExternalLink, Edit3, Settings, BarChart3, Kanban, Columns2, Rows2, Cloud, RotateCw, LayoutGrid, Combine, Layers, Plus, Check, ChevronRight, Pin, PinOff, Clock, Link2 } from 'lucide-react';
@@ -15,19 +16,20 @@ import { ClaudeIcon } from '../Shared/ClaudeIcon';
 import { CodexIcon } from '../Shared/CodexIcon';
 import { getFileIconDef } from '../../lib/fileIcons';
 import { rememberDraggedPane } from '../../lib/dragPayload';
-import { DND_TYPES, paneTabScopeType, paneTabSoloSrcType, dragMatchesScope } from '../../lib/dndTypes';
+import { DND_TYPES, paneTabScopeType, paneTabSoloSrcType, dragMatchesScope, STANDALONE_SCOPE } from '../../lib/dndTypes';
+import { BoardTabCounts } from './BoardTabCounts';
 import { EDGE_DROP_PX } from './constants';
 import { SplitRegion, InsertCaret } from './DropOverlay';
 import { useMobile } from '../../hooks/useMobile';
+import { useSplitLayoutAvailable } from '../../hooks/useSplitLayoutAvailable';
 import { useLongPress } from '../../hooks/useLongPress';
-import { useHoverReveal } from '../../hooks/useHoverReveal';
 import { TopicStreamingSpinner, ProjectStreamingSpinner, TerminalStreamingSpinner, BrowserStreamingSpinner } from './StreamingIndicator';
 import { NotificationBadge } from '../Shared/NotificationBadge';
 import { SessionElapsed } from '../Shared/SessionActivity';
 import { useTabNotifications } from '../../hooks/useTabNotifications';
 import { useT } from '../../hooks/useT';
 import { useSpawnedBrowserMap } from '../../state/browserSpawner';
-import { SELECTED_SURFACE, SELECTED_SURFACE_SOFT, RESTING_SURFACE, ROW_PX, ROW_INSET, ROW_ACTION_GLYPH, CHROME_ROW_ACTION_INSET, CHROME_ROW_ACTION_RESERVE, attentionSurface, ON_FILL_TEXT_SOFT } from '../../lib/selectionStyles';
+import { SELECTED_SURFACE, SELECTED_SURFACE_SOFT, RESTING_SURFACE, ROW_PX, ROW_GAP, CARD_H, ROW_ACTION_BOX, ROW_ACTION_GLYPH, ROW_CARD, ROW_TRAIL, ROW_ACTIONS, CHROME_ROW_ACTION_INSET, CHROME_ROW_ACTION_RESERVE, CHROME_ROW_ACTION_RESERVE_LEFT, TAB_GAP_CLASS, attentionSurface, ON_FILL_TEXT_SOFT, TAB_LABEL } from '../../lib/selectionStyles';
 import { POPOVER_SURFACE, Z_CONTEXT_MENU, POPOVER_MARGIN } from '@/lib/popoverStyles';
 import { computeMenuPosition, type AnchorRect } from '@/lib/popoverPosition';
 import { ensurePaneUsageFresh, formatPaneUsageLine, subscribePaneUsage, getPaneUsageVersion } from '@/lib/paneUsage';
@@ -197,6 +199,12 @@ interface PaneTabBarProps {
   tabNotifications?: Map<string, number>;
   /** Reserve left padding for a floating sidebar toggle overlay */
   hasLeftOverlay?: boolean;
+  /** C'è un blocco IN TESTA alla riga, prima della strip — la card del progetto,
+   *  che `GroupLayout` monta nel suo `leadingSlot`. La barra non lo disegna e
+   *  non lo può misurare: deve solo sapere che c'è, per non sommare il proprio
+   *  incasso a quello che quel blocco ha già messo. Vedi il commento sulla
+   *  strip. */
+  hasLeadingBlock?: boolean;
   /**
    * Whether THIS group currently owns focus. When false, the tab-bar still
    * renders `activePaneId` as the local-active fallback (for content render
@@ -218,9 +226,15 @@ interface PaneTabBarProps {
    *  actions); project tab bars (GroupLayout) default to 'project'. The
    *  variant's items/order/icons live in <PaneAddMenu> — see its docs. */
   addMenuScope?: PaneScope;
+  /**
+   * Questa barra sta SOTTO un'altra riga di chrome (le tab di un progetto sotto
+   * la tab del progetto). Vedi {@link CHROME_BAR_SUB}: la riga è più bassa e
+   * l'aria in cima l'ha già messa la riga sopra.
+   */
+  subordinate?: boolean;
 }
 
-export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseImmediate, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, onEdgeSplitDrop, dndScope, className, onContextRingClick: _onContextRingClick, onCloseOthers, onDetach, onReattach, onSplitRight, onSplitDown, onResetLayout, canMoveToSpace, onRenameChat, onRenameBrowser, onSettings, onPopOut, onPopOutGroup, onStopStreaming, onPinPane, onToggleFissato, isFissato, projectPinKey, tabNotifications, hasLeftOverlay, groupIsFocused = true, groupIsAppFocused, addMenuScope = 'project', nonClosablePaneIds, linkContext }: PaneTabBarProps) {
+export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseImmediate, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, onEdgeSplitDrop, dndScope, className, onContextRingClick: _onContextRingClick, onCloseOthers, onDetach, onReattach, onSplitRight, onSplitDown, onResetLayout, canMoveToSpace, onRenameChat, onRenameBrowser, onSettings, onPopOut, onPopOutGroup, onStopStreaming, onPinPane, onToggleFissato, isFissato, projectPinKey, tabNotifications, hasLeftOverlay, hasLeadingBlock, groupIsFocused = true, groupIsAppFocused, addMenuScope = 'project', nonClosablePaneIds, linkContext, subordinate = false }: PaneTabBarProps) {
   // Le voci del menu passano dal dizionario (`lib/i18n.ts`): sono fra le
   // stringhe più viste dell'app, ed erano gia' in italiano — quindi la
   // conversione non cambia una virgola di cio' che vedi in italiano, e in
@@ -332,6 +346,11 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
   const dropConsumedRef = useRef(false);
 
   const { isTouch } = useMobile();
+  // «Un comando compare dove ha effetto»: sotto i 768px non ci sono split, e le
+  // tre voci che li governano — Dividi a destra, Dividi in basso, Reimposta
+  // pannelli — non facevano niente. Il gate è qui, sul menu, e non sui
+  // chiamanti: le callback restano quelle, cambia solo chi le mostra.
+  const splitLayoutAvailable = useSplitLayoutAvailable();
 
   // Context menu state. Si tiene il RETTANGOLO della tab, non un punto: la
   // posizione va ricalcolata ogni volta che il pannello cambia altezza da sé
@@ -428,12 +447,14 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
       // chiesto al sistema di ridurre il movimento se lo prendeva lo stesso,
       // ogni volta che cambiava tab.
       //
-      // Nessuna spec lo esercita, e non per dimenticanza: accendere
-      // `contextOptions.reducedMotion` nella config di Playwright fa cadere
-      // `reopen-closed-tab` (misurato l'08/08 — un `raised-control-overlay`
-      // finisce a coprire l'angolo del tab bar e intercetta il click). E' un
-      // difetto vero del percorso «movimento ridotto», ha il suo task, e finche'
-      // non e' chiuso la suite non puo' girare in quella modalita'.
+      // Adesso lo esercita la suite intera: `reducedMotion: "reduce"` sta nel
+      // `use` di playwright.config.ts, quindi OGNI spec che cambia tab passa di
+      // qui col ramo istantaneo. Restava chiuso da un difetto che sembrava di
+      // questa famiglia e non lo era — `reopen-closed-tab` andava in timeout sul
+      // click all'angolo della barra — ma la causa era mezzo pixel di inset del
+      // comando in testa alla riga, identico nelle due modalita': vedi
+      // `tests/e2e/reduced-motion-chrome-controls.spec.ts`, che ora misura
+      // posizione e cliccabilita' con e senza movimento ridotto.
       const riduciMovimento =
         typeof window !== 'undefined' &&
         window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
@@ -784,8 +805,8 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
   // che contiene `app-drag-region`, e legarsi alla presenza della prop lasciava
   // proprio quella scoperta. Beccato da `tests/e2e/drag-regions.spec.ts`.
   //
-  // Il `py-1` sparisce su touch, e non è cosmesi: le tab passano a `h-9` (36px)
-  // sotto, e la riga di chrome che le ospita è alta 40px FISSI con
+  // Il `py-1` c'è solo sopra i 768px, e non è cosmesi: le tab passano a `h-9`
+  // (36px) sotto, e la riga di chrome che le ospita è alta 40px FISSI con
   // `overflow-hidden` (GroupLayout, quattro punti). Il conto era 36 + 2 di
   // padding della strip + 8 di `py-1` = 46 dentro 40: `items-center` centra e
   // il clipping mangia 3px sopra e 3px sotto, quindi gli angoli arrotondati
@@ -794,7 +815,19 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
   // (GroupLayout.tsx:30) è l'`edgeOffset` dello strip di drop superiore, che
   // finirebbe 8px fuori posto — e andrebbe rialzato in lockstep anche l'header
   // della sidebar progetto, o l'allineamento fra rail e tab si spezza di nuovo.
-  const barClass = className ?? `flex-initial ${isTouch ? '' : 'py-1'} pr-0 min-w-0 app-drag-region`;
+  // `md:py-1` SPARISCE nella riga subordinata, e non è cosmesi: là la scatola
+  // del contenuto vale 28 (34 meno l'incasso in coda), e una radice da 38 —
+  // 28 + 2 di padding della strip + 8 di `py-1` — sborda di 5px per lato. La
+  // tab ci starebbe lo stesso (`items-center` la centra a 40..68), ma il suo
+  // alone `edge-lit` e l'anello di fuoco dipingono FUORI dalla scatola e li
+  // taglierebbe l'`overflow-hidden` della barra. Senza `py-1` la radice è 30 e
+  // sborda di uno.
+  //
+  // Visivamente non toglie niente nemmeno nella riga normale: 38 centrato in 40
+  // e 30 centrato in 40 mettono la tab nello stesso posto (misurato: 6..34 in
+  // entrambi i casi). Resta dov'era perché la radice porta `app-drag-region`, e
+  // una fascia trascinabile più stretta di 4px per lato è un cambiamento vero.
+  const barClass = className ?? `flex-initial ${subordinate ? '' : 'md:py-1'} pr-0 min-w-0 app-drag-region`;
 
   return (
     // `flex-initial` (flex: 0 1 auto), NOT `flex-shrink-0`: as a flex child the
@@ -812,23 +845,50 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
       {/* Scrollable tab area */}
       <div
         ref={scrollContainerRef}
-        // LA RISERVA A DESTRA È L'INGOMBRO DEL «+», non un numero tondo: il suo
-        // box più il suo incasso, entrambi da `selectionStyles`
-        // (CHROME_ROW_ACTION_RESERVE). Erano 30px scritti a mano e non
-        // bastavano — l'ultima tab passava sotto il bottone anche a riposo,
-        // cioè prima ancora di scorrere.
+        // DOVE SI FERMA LA STRIP, ai due capi, con la stessa regola.
         //
-        // Senza «+» la strip si ferma a `ROW_INSET`, che è l'incasso con cui la
-        // riga sta lontana dal bordo quando non c'è nessun comando a occuparlo.
-        className={`flex items-center gap-0.5 min-w-0 min-h-7 overflow-x-auto scrollbar-topbar ${
+        // Con un comando: `ROW_INSET + box + ROW_INSET`
+        // (CHROME_ROW_ACTION_RESERVE) — il bottone sta 6 dal bordo e la tab si
+        // ferma altri 6 prima di lui. Senza: `pl-1.5`/`pr-1.5`, cioè gli stessi
+        // 6 con cui ogni riga della colonna sta lontana dal bordo, così le due
+        // liste si allineano ai lati.
+        //
+        // Ci sono voluti tre giri, e ognuno ha sbagliato un pezzo diverso:
+        //  1. `paddingLeft: 30` inline a sinistra contro una riserva derivata a
+        //     destra — 30 contro 34 col mouse, 30 contro 38 col dito: due
+        //     grammatiche per due capi della stessa barra;
+        //  2. specchiate ma ancora `box + incasso VERTICALE`, cioè la strip che
+        //     finiva ESATTAMENTE sul bordo del bottone: zero aria fra la tab e
+        //     il comando;
+        //  3. il comando rimpicciolito a 28 fisso per far tornare il verticale
+        //     — «hai fatto i tasti più piccoli ma non dovevi» (Attilio, 09/08).
+        // Il verticale non era un problema di box ma di predicato, e sta nella
+        // classe della tab qui sotto.
+        // …e il quarto giro: DUE SEI IN FILA, che singolarmente sono giusti.
+        //
+        // «Il + della tabbar progetto è troppo lontano dal trigger sidebar
+        // (quando chiuso)» (Attilio, 10/08). Misurato: trigger a 442, «+» a 454
+        // — DODICI, dove ogni altra coppia della barra ne ha sei. Non è un
+        // numero sbagliato, è una somma: 6 di incasso della strip dal blocco che
+        // la precede, PIÙ i 6 che la riserva lascia fra l'ultima tab e il
+        // comando. Con delle tab in mezzo i due 6 misurano due cose diverse e il
+        // conto è giusto; con la strip VUOTA misurano lo stesso vuoto due volte,
+        // e il bottone si stacca dal trigger del doppio.
+        //
+        // Quindi l'incasso sinistro cade solo in quel caso: c'è un blocco in
+        // testa (la card del progetto) e non c'è nessuna tab a separarlo dal
+        // comando. È la stessa regola della colonna — «il primo non porta la sua
+        // metà perché sopra c'è chi l'ha già messa» — applicata in orizzontale.
+        className={`flex items-center ${TAB_GAP_CLASS} min-w-0 min-h-7 overflow-x-auto scrollbar-topbar ${
           hasMenuItems ? CHROME_ROW_ACTION_RESERVE : 'pr-1.5'
+        } ${
+          hasLeftOverlay
+            ? CHROME_ROW_ACTION_RESERVE_LEFT
+            : hasLeadingBlock && panes.length === 0
+              ? 'pl-0'
+              : 'pl-1.5'
         }`}
-        // Left inset = ROW_INSET, the SAME edge inset the sidebar rows use, so
-        // the tab list and the sidebar list line up at the sides (was 5px left
-        // + a stray 4px root `pl-1` = 9px on project group bars). The 30px
-        // override stays for when a floating sidebar-toggle overlays the
-        // leftmost bar.
-        style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x', paddingTop: 1, paddingBottom: 1, paddingLeft: hasLeftOverlay ? 30 : ROW_INSET }}
+        style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x', paddingTop: 1, paddingBottom: 1 }}
         onDragOver={(e) => {
           if (!e.dataTransfer.types.includes(DND_TYPES.PANE_TAB)) return;
           // Scope guard: ignore drags from another window/project entirely (no
@@ -1054,7 +1114,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             // title qui aprirebbe un tooltip sopra una tab il cui nome è già
             // scritto accanto, e duplicherebbe i title dei figli (spinner,
             // SessionActivity) che dicono la loro parte.
-            aria-label={[label, statoTab, dettaglioProgetto].filter(Boolean).join(' — ')}
+            aria-label={[label, statoTab, dettaglioProgetto].filter(Boolean).join(' · ')}
             style={{ width: 150, minWidth: 150, maxWidth: 150, flexShrink: 0 }}
             // overflow-hidden clips a tab whose trailing widgets (project git
             // status + spinner + notification badge + close) would otherwise
@@ -1070,14 +1130,28 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             // leggere la tab come una superficie rialzata anche quando NON è
             // selezionata. È lo stesso trattamento del «+», del cerca e delle
             // tessere fissate: un elemento arrotondato che flotta lo porta.
-            className={`group edge-lit flex items-center gap-1.5 ${ROW_PX} ${isTouch ? 'h-9' : 'h-7'} text-[11px] font-medium transition-all relative cursor-pointer select-none rounded-lg overflow-hidden app-no-drag ${
+            // L'ALTEZZA È UNA DOMANDA DI LARGHEZZA, non di dito: `h-9 md:h-7`.
+            //
+            // Era `isTouch ? 'h-9' : 'h-7'`, cioè un predicato JS, mentre il
+            // comando in coda alla stessa riga (`ROW_ACTION_BOX`) usa il
+            // breakpoint CSS `md:`. Due meccanismi per la stessa domanda
+            // divergono appena i due non coincidono: in una finestra stretta
+            // senza touch la tab veniva 28 e il «+» accanto 36 — nella stessa
+            // riga da 40, 6 di aria contro 2. `useMobile` lo dice già: le
+            // affordance del dito seguono `isTouch`, quante-colonne-e-quanto-
+            // alto seguono la larghezza.
+            className={`group ${ROW_CARD} edge-lit flex items-center ${ROW_GAP} ${ROW_PX} ${CARD_H} ${TAB_LABEL} transition-all relative cursor-pointer select-none rounded-lg overflow-hidden app-no-drag ${
               attentionTier
                 ? attentionSurface(attentionTier)
                 : isFullyActive
                   ? SELECTED_SURFACE
                   : isActiveDimmed
                     ? SELECTED_SURFACE_SOFT
-                    : `text-app-text-tertiary hover:text-app-text ${RESTING_SURFACE}`
+                    // NESSUN colore qui: il testo lo porta `TAB_LABEL` ed è
+                    // pieno per tutte. A dire quale tab è quella corrente ci
+                    // pensa la superficie — spegnere anche il testo lo diceva
+                    // due volte, e la seconda male.
+                    : RESTING_SURFACE
             } ${isDragged ? 'opacity-40' : ''}`}
             // Fuori dal trascinamento della finestra, SINCRONAMENTE al montaggio.
             // Questa riga era già scritta a mano proprio qui, e il commento che
@@ -1093,7 +1167,11 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             // tab switch isn't swallowed by the pane. No-op off Tauri / fire-and-forget.
             onPointerDown={() => releaseNativeFocus()}
             onClick={() => { if (tabLongPress.consumeClick()) return; if (pane.type === 'terminal') { const sid = pane.terminalSessionId ?? getTerminalSessionFromPaneId(pane.id); if (sid) signalsActions.clearTerminalFinished(sid); } onActivate(pane.id); }}
-            onDoubleClick={() => { if (pane.preview && onPinPane) onPinPane(pane.id); }}
+            // Il doppio clic è il gesto con cui si dice «questa la tengo»: vale
+            // anche per una chat nuova, che da quel momento non si richiude più
+            // da sola (`state/draftPane.ts`). Vale ANCHE quando non c'è niente
+            // da fissare: il gesto conta di per sé.
+            onDoubleClick={() => { markDraftTouched(pane.id); if (pane.preview && onPinPane) onPinPane(pane.id); }}
             onContextMenu={handleContextMenu(pane.id)}
             data-testid={`pane-tab-${pane.id}`}
             // Il feedback della pressione vale SOLO per la tab premuta: l'hook è
@@ -1176,6 +1254,15 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 richiesta ogni N secondi (e la fetch è condivisa fra tutte le
                 tab bar, vedi `paneUsage.ts`). */}
             <span
+              // Ancora stabile per chi conta le tab da fuori. `.truncate.flex-1`
+              // non lo è: sono due utility di layout che oggi porta anche una
+              // riga dell'albero dei file e una riga di git — entrambe dentro
+              // `[role="main"]` — quindi un locator agganciato lì conta come
+              // «tab» cose che tab non sono. Il repo lo dichiara già altrove:
+              // «i locator dei test erano agganciati alle classi Tailwind, e
+              // rinominarne una li faceva passare a verde-vuoto senza che nulla
+              // fosse rotto. Un data-attribute è il vero appiglio».
+              data-testid="pane-tab-label"
               className={`truncate flex-1 min-w-0 ${pane.preview ? 'italic' : ''}`}
               onMouseEnter={ensurePaneUsageFresh}
               title={`${label}${formatPaneUsageLine(
@@ -1194,23 +1281,16 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 same: icon + name + notification badge + loading spinner. Git /
                 process status lives in the git & terminal panes where it's
                 actionable. */}
-            {/* Close / ⌘N affordance sits BEFORE the loading + status widgets so
-                the spinner and notification badge are the trailing-most things on
-                the tab ("loading e stato a fine tab"). The close X is revealed on
-                hover in this slot; idle it shows the ⌘N index (Electron). */}
-            {/* Anche una tab FISSATA si chiude. Il fissaggio non è un
-                lucchetto: è una scorciatoia che resta — chiusa la tab, la
-                tessera nei Fissati rimane e riaprirla la riporta dov'era
-                (riaprendo si disarchivia). Il lucchetto restava solo finché non
-                toglievi il pin, cioè chiedeva di smontare la scorciatoia per
-                fare la cosa più comune che ci si fa. */}
-            {!nonClosablePaneIds?.has(pane.id) && (
-              <PaneCloseButton
-                paneId={pane.id}
-                onClose={onClose}
-                isTouch={isTouch}
-              />
-            )}
+            {/* LA CHIUSURA NON STA PIÙ QUI, ed è la correzione di una regola che
+                questo commento dichiarava: «sta PRIMA dei widget di caricamento
+                e stato, così spinner e badge sono le cose più in coda alla tab».
+                Era coerente con sé stessa e sbagliata dal lato dell'uso: il
+                comando finiva in mezzo ai glifi, e la sua x dipendeva da quanti
+                ce n'erano — una tab con lo spinner e una senza mettevano la X in
+                due punti diversi. «Il tasto chiusura deve essere sempre a fine
+                tab, andando in hover sulle icone invece inutili» (Attilio,
+                09/08). Adesso è l'ULTIMO elemento e sta fuori dal flusso: vedi
+                ROW_ACTIONS, in fondo alla tab. */}
             {/* Loading spinner — one canonical widget per pane kind.
                 All three read from StreamingContext; rendering only when
                 the corresponding signal is on. Chat is interruptible
@@ -1233,6 +1313,30 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
               return sid ? <TerminalStreamingSpinner sessionId={sid} /> : null;
             })()}
             {pane.type === 'browser' && <BrowserStreamingSpinner paneId={pane.id} />}
+            {/* IL BINARIO QUIETO — i segnali che il comando può coprire. Lo
+                spinner resta FUORI (sopra): fermare un turno e chiudere la tab
+                sono due azioni diverse nello stesso istante.
+
+                I `ml-0.5` scritti a mano su ognuno se ne vanno: erano 2px sopra
+                il `gap` del contenitore, cioè 8 effettivi fra due cue e 6 fra la
+                X e lo spinner — due passi nella stessa tab. Adesso l'aria la
+                mette il contenitore, una volta. */}
+            <div className={`${ROW_TRAIL} flex items-center ${ROW_GAP} flex-shrink-0`}>
+            {/* Quanto lavoro c'è su questa board, per stato. Vale per le DUE
+                tab che aprono una kanban — quella generale (`board`) e quella
+                di un progetto (`kanban`) — e la seconda conta solo i suoi: il
+                progetto è quello della finestra, che questa barra conosce come
+                `dndScope` (per il main è `STANDALONE_SCOPE`, cioè nessuno).
+                Vedi BoardTabCounts per il perché di quali stati e da dove. */}
+            {(pane.type === 'board' || pane.type === 'kanban') && (
+              <BoardTabCounts
+                projectPath={
+                  pane.type === 'kanban'
+                    ? (pane.projectPath ?? (dndScope && dndScope !== STANDALONE_SCOPE ? dndScope : undefined))
+                    : undefined
+                }
+              />
+            )}
             {/* Quiet cue: this chat/terminal tab opened a browser. A third,
                 independent signal — not attention (NotificationBadge) and not
                 loading (spinner) — so it stays muted. Keyed by topicId (chat)
@@ -1300,7 +1404,6 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 The tab bar deliberately renders no split schematic. */}
             <NotificationBadge
               count={badgeCount}
-              className="ml-0.5"
               variant={onFill ? 'onFill' : 'default'}
               // Il numero di un PROGETTO è un aggregato: dice quanto, mai di chi.
               // E i suoi figli possono benissimo non mostrare niente — quello
@@ -1314,6 +1417,20 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                   : undefined
               }
             />
+            </div>
+            {/* IL COMANDO, ULTIMO NEL DOM E FUORI DAL FLUSSO.
+                Anche una tab FISSATA si chiude. Il fissaggio non è un
+                lucchetto: è una scorciatoia che resta — chiusa la tab, la
+                tessera nei Fissati rimane e riaprirla la riporta dov'era
+                (riaprendo si disarchivia). Il lucchetto restava solo finché non
+                toglievi il pin, cioè chiedeva di smontare la scorciatoia per
+                fare la cosa più comune che ci si fa. */}
+            {!nonClosablePaneIds?.has(pane.id) && (
+              <PaneCloseButton
+                paneId={pane.id}
+                onClose={onClose}
+              />
+            )}
             {showRightIndicator && <InsertCaret side="right" />}
           </div>
         );
@@ -1348,13 +1465,16 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
           // passa sotto si legge attraverso il bottone. La variante non lo
           // rende opaco: sfoca ciò che gli passa sotto, così resta di vetro
           // senza diventare un velo. Vedi index.css.
-          // L'incasso a destra è lo STESSO che il bottone ha sopra e sotto —
-          // `CHROME_ROW_ACTION_INSET`, che lo ricava dall'altezza della riga e
-          // dal box del comando invece di ripetere il 6 orizzontale delle
-          // righe di sidebar. Vedi selectionStyles: erano due numeri con due
-          // origini diverse per lo stesso bottone, e col dito la differenza
-          // arrivava a quattro pixel e mezzo.
-          className={`raised-control-overlay absolute ${CHROME_ROW_ACTION_INSET} top-1/2 -translate-y-1/2 flex items-center app-no-drag z-10`}
+          // L'incasso a destra è `ROW_INSET` (CHROME_ROW_ACTION_INSET), lo
+          // stesso 6 con cui ogni riga e ogni tab stanno lontane dal loro
+          // bordo. C'è stato un giro in cui lo ricavava dall'altezza della riga
+          // (`chromeRowInset`): col dito veniva DUE, e il bottone stava
+          // incollato al bordo mentre la strip senza comando si ferma a 6.
+          // Il bordo è una domanda orizzontale e ha già il suo numero.
+          // `bar-action-reveal`: col mouse esce al passaggio sulla barra, col
+          // dito resta acceso. Vedi index.css — lo spazio resta riservato in
+          // ogni caso, quindi l'ultima tab non balla quando compare.
+          className={`bar-action-reveal raised-control-overlay absolute ${CHROME_ROW_ACTION_INSET} top-1/2 -translate-y-1/2 flex items-center app-no-drag z-10`}
           {...NO_DRAG_REGION}
         >
           <PaneAddMenu
@@ -1621,7 +1741,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
               <span>{tr('tab.menu.closeOthers')}</span>
             </button>
           )}
-          {(onSplitRight || onSplitDown) && (
+          {splitLayoutAvailable && (onSplitRight || onSplitDown) && (
             <>
               <div className="h-px bg-app-border my-1" />
               {onSplitRight && (
@@ -1650,11 +1770,11 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
           {(() => {
             const ctxPane = panes.find(p => p.id === ctxMenu.paneId);
             const showPopOutHere = ctxPane?.type === 'chat' && !!onPopOut;
-            return (onResetLayout || showMoveToSpace || showPopOutHere);
+            return ((onResetLayout && splitLayoutAvailable) || showMoveToSpace || showPopOutHere);
           })() && (
             <>
               <div className="h-px bg-app-border my-1" />
-              {onResetLayout && (
+              {onResetLayout && splitLayoutAvailable && (
                 <button
                   onClick={() => { onResetLayout(); setCtxMenu(null); }}
                   className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-[12px] coarse:text-[14px] text-app-text hover:bg-app-hover transition-colors"
@@ -1826,11 +1946,10 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
  * `usePanePendingStatus` — hooks can't run inside `panes.map(...)`.
  */
 function PaneCloseButton({
-  paneId, onClose, isTouch,
+  paneId, onClose,
 }: {
   paneId: string;
   onClose: (id: string) => void;
-  isTouch: boolean;
 }) {
   // v3 sidebar↔topbar sync: usePanePendingStatus also picks up the
   // sidebar-side keys (`archive-topic:<id>` for chat panes,
@@ -1838,11 +1957,13 @@ function PaneCloseButton({
   // the same countdown regardless of which surface kicked it off.
   const pendingStatus = usePanePendingStatus(paneId);
 
-  // Chiudere una tab non ha un altro percorso col dito (il tasto centrale è del
-  // mouse), quindi senza puntatore la X si VEDE: `touch: 'shown'`. La domanda è
-  // `hasHover`, non `isTouch` — su un portatile touch l'hover c'è, e il ramo
-  // gated su `isTouch` lasciava la X permanentemente accesa su ogni tab.
-  const closeReveal = useHoverReveal('self', { touch: 'shown' });
+  // La regola che stava qui — «chiudere una tab non ha un altro percorso col
+  // dito, quindi senza puntatore il cerchio si VEDE» — è ancora quella, ma non
+  // la implementa più un hook: la scrive il CSS del binario, una volta per tutte
+  // le superfici (`@media (hover: hover)` in index.css). Un `useHoverReveal` per
+  // superficie erano N copie della stessa domanda, e infatti rispondevano
+  // diversamente: qui `hasHover`, sulle righe di sidebar `isTouch`, sul progetto
+  // un `group-hover` che spegneva anche il conto alla rovescia.
 
   // IL BERSAGLIO STA SUL BOTTONE, NON SULLO SPAN.
   //
@@ -1903,39 +2024,49 @@ function PaneCloseButton({
   // sopra si sposta di 4px, non di 8: l'etichetta scende da 88 a 84 — meno di
   // quanto era già costato allargare il bersaglio col dito, e il motivo è lo
   // stesso: «il tasto per poter spuntare una tab e chiuderla è troppo piccolo».
-  const slot = `${isTouch ? 'w-7 h-7' : 'w-6 h-6'} flex items-center justify-center flex-shrink-0 relative z-10`;
-
-  // While pending, the slot is the filled check (cancels on click).
-  if (pendingStatus) {
-    return (
-      <span className={slot}>
-        <PendingActionRing
-          status={pendingStatus}
-          size={ROW_ACTION_GLYPH}
-          boxClassName="w-full h-full"
-          className="tap-expand-y"
-          pendingTitle="Annulla chiusura"
-          pendingAriaLabel="Annulla chiusura"
-        />
-      </span>
-    );
-  }
-
-  // Idle, soft-destructive: empty "todo" circle on hover (always shown on
-  // touch). Click triggers the deferred close (auto-tick → 3 s countdown).
+  // Stesso breakpoint della tab che lo contiene (`h-9 md:h-7`): con due
+  // meccanismi diversi uno slot da 28 finiva dentro una tab da 28, cioè a filo
+  // dei bordi, ogni volta che larghezza e touch non coincidevano.
+  //
+  // ── E TUTTO IL CONTO QUI SOPRA È DECADUTO, perché lo slot non è più in fila ─
+  //
+  // Ogni riga di quell'aritmetica pesava lo stesso pezzo: quanti px il comando
+  // toglie all'ETICHETTA dentro i 134 utili della tab. 14 → 20 → 24 → 28, e
+  // ogni volta l'etichetta scendeva (88 → 84 → 80) e ogni volta bisognava
+  // decidere se valeva. Il paragrafo che si chiude con «i 44 di Apple non ci
+  // sono e non si possono avere senza rubarli allo Stop» era vero: in una fila,
+  // allargare un bersaglio vuol dire stringerne un altro.
+  //
+  // Fuori dal flusso quel conto sparisce. Il binario è `absolute` (vedi
+  // ROW_ACTIONS), quindi il box può essere quello CONDIVISO — 36 col dito, 28
+  // col mouse, `ROW_ACTION_BOX` come ogni altro comando dell'app — e l'etichetta
+  // non paga niente: anzi, riprende i 24-28px che lo slot le toglieva. La
+  // docstring di `ROW_ACTION_BOX` dichiarava già «vale ANCHE nella barra delle
+  // tab», e per tre giri era stata l'unica superficie a non rispettarla, con
+  // 28/24 contro 36/28.
+  //
+  // Niente `useHoverReveal` e niente ternario sul pending: la visibilità la
+  // decide il CSS del binario, che è dove `hover: hover` si può chiedere bene —
+  // è una proprietà del dispositivo, non un booleano che React ricalcola. E
+  // `data-pending` tiene il cerchio acceso mentre il conto scorre, anche se il
+  // mouse se ne va.
   return (
-    <span className={slot}>
-      <span className={`absolute inset-0 flex items-center justify-center ${closeReveal}`}>
-        <PendingActionRing
-          status={null}
-          size={ROW_ACTION_GLYPH}
-          boxClassName="w-full h-full"
-          className="tap-expand-y"
-          onIdleClick={() => onClose(paneId)}
-          idleTitle="Chiudi tab"
-          idleAriaLabel={`Chiudi tab ${paneId}`}
-        />
-      </span>
+    <span
+      className={`${ROW_ACTIONS} ${ROW_ACTION_BOX}`}
+      data-pending={pendingStatus ? 'true' : undefined}
+    >
+      <PendingActionRing
+        status={pendingStatus}
+        size={ROW_ACTION_GLYPH}
+        boxClassName={ROW_ACTION_BOX}
+        className="tap-expand-y"
+        testId="pane-tab-close"
+        onIdleClick={() => onClose(paneId)}
+        idleTitle="Chiudi tab"
+        idleAriaLabel={`Chiudi tab ${paneId}`}
+        pendingTitle="Annulla chiusura"
+        pendingAriaLabel="Annulla chiusura"
+      />
     </span>
   );
 }

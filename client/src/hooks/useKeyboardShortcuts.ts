@@ -53,7 +53,7 @@ export interface UseKeyboardShortcutsArgs {
   /** Session-key selector — read fresh via ref, not mirrored as a snapshot. */
   isSessionStreaming: (sessionKey: string) => boolean;
   /** Aborts the current turn (SIGINT-style) without killing the session. */
-  stopSession: (sessionKey: string) => boolean;
+  stopSession: (sessionKey: string) => Promise<boolean>;
   // Modal setters (React useState setters — stable identity).
   setShowSearch: Dispatch<SetStateAction<boolean>>;
   /** Palette scope — ⌘K apre 'all', ⌘⇧P apre 'projects' (salta a un progetto). */
@@ -324,6 +324,13 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
       // reload directly. Electron's native menu reload works, and the web build
       // wants the browser's own reload, so this is gated to Tauri.
       //
+      // Su macOS questo ramo NON scatta: il monitor NSEvent di lib.rs vede ⌘R
+      // prima della webview e ingoia l'evento (`return nil`), perché deve
+      // vincere anche quando il fuoco sta in una pane browser o in un terminale.
+      // Resta la strada di Windows/Linux e la rete di sicurezza se quel monitor
+      // sparisce — e chiama `reloadAllWindows`, cioè la stessa semantica
+      // «riparti tutta» che il nativo applica con `reload_all_ui_windows`.
+      //
       // `!e.shiftKey`: ⌘⇧R è "Record voice" — lo dice il pannello delle
       // scorciatoie, lo dice il tooltip del microfono, e ChatInput lo ascolta.
       // Questo ramo lo prendeva prima (capture, su window) e RICARICAVA L'APP:
@@ -456,7 +463,7 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
         const sessionKey = sessionKeyForPaneId(focusedPanelIdRef.current, topicsRef.current);
         if (sessionKey && isSessionStreaming(sessionKey)) {
           e.preventDefault();
-          stopSession(sessionKey);
+          void stopSession(sessionKey);
           return;
         }
       }

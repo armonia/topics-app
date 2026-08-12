@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
-import { Check, ChevronDown, ClipboardList, Loader2, Send, Sparkles } from 'lucide-react';
+import { Check, ChevronDown, ClipboardList, CornerDownRight, Link2, Loader2, Lock, Send, Sparkles, X } from 'lucide-react';
 import { Menu } from '../Shared/Menu';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
-import { boardApi, boardDrafts, AUTO_PROJECT_ID, UNASSIGNED_PROJECT_ID, type BoardProjectRef } from '../../lib/board';
+import { boardApi, boardDrafts, AUTO_PROJECT_ID, STATUS_LABEL, UNASSIGNED_PROJECT_ID, type BoardProjectRef, type LinkProposal } from '../../lib/board';
 import { addBoardProject, projectNameFromId, useBoardProjects, useNewProjectDir } from '../../lib/boardProjectsStore';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
 import { writeCursor, markActiveComposer, restoreCursor } from '../../lib/composerCursor';
@@ -18,13 +18,33 @@ import { POPOVER_ITEM } from '@/lib/popoverStyles';
  * and eases back on blur. The task is born in Todo (the dispatch signal);
  * title = first line, full text goes to the description, and the dispatched
  * agent polishes the wording (kickoff rule) — no model to pick, ever.
+ *
+ * Non si smonta MAI mentre la board è viva: il testo a metà, il cursore, i chip
+ * scelti e l'altezza del textarea vivono in questo componente, e la bozza dal
+ * server si ricarica in modo asincrono — un remount li fa sfarfallare o
+ * sparire. Quando serve toglierlo di mezzo (un campo che gli si sovrappone, il
+ * drawer a tutto schermo del telefono) lo si NASCONDE con `hidden`/`hiddenBelowLg`.
  */
-export function FloatingTaskComposer({ projectId, global, onCreated, onError }: {
+export function FloatingTaskComposer({ projectId, global, onCreated, onError, hidden, hiddenBelowLg }: {
   projectId: string;
   /** Cross-project mode: no implicit board — the project picker chip appears. */
   global: boolean;
-  onCreated: () => void;
+  /**
+   * Il gesto è andato a buon fine: la board si rinfresca.
+   *
+   * L'id del task creato viaggia insieme, quando ce n'è uno: è il modo in cui
+   * la board sa che quella card l'ha voluta CHI STA QUI — e quindi che può
+   * scorrere fino a lei — invece di scoprirla dal broadcast, dove una creazione
+   * propria e una di un agent dall'altra parte del mondo sono indistinguibili.
+   * La porta dell'orchestratore chiama senza id: lì non nasce nessuna card, la
+   * risposta è una sessione di chat.
+   */
+  onCreated: (createdTaskId?: string) => void;
   onError: (e: string) => void;
+  /** Fuori dalla vista (ma vivo): un campo della board gli sta sopra. */
+  hidden?: boolean;
+  /** Nascosto solo sotto `lg`, dove il drawer del task è un overlay a tutto schermo. */
+  hiddenBelowLg?: boolean;
 }) {
   const [text, setText] = useState('');
   const [focused, setFocused] = useState(false);
@@ -110,6 +130,17 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError }: 
     });
   };
   useEffect(() => () => { modelsSubRef.current?.(); }, []);
+  // ── Intake: dove va questo testo? ────────────────────────────────────────
+  // Il composer chiede alla board se il testo che stai scrivendo somiglia a un
+  // lavoro già aperto. Quello che torna è una PROPOSTA e basta: finché non la
+  // scegli il task nasce libero, esattamente come prima. Un intake che sbaglia
+  // è peggio di nessun intake — quindi propone, mostra il perché, e disfarlo
+  // costa un click.
+  const [proposal, setProposal] = useState<LinkProposal | null>(null);
+  const [link, setLink] = useState<{ kind: 'subtask' | 'chain'; proposal: LinkProposal } | null>(null);
+  // Proposte già scartate PER QUESTA scrittura: in un ref, così ignorarne una
+  // non fa ripartire la richiesta che la ripescherebbe.
+  const dismissedRef = useRef<Set<string>>(new Set());
   const taRef = useRef<HTMLTextAreaElement | null>(null);
   const saveCursor = () => { const ta = taRef.current; if (ta) writeCursor(COMPOSER_CURSOR_KEY, ta.selectionStart, ta.selectionEnd); };
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -148,6 +179,44 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError }: 
   };
 
   const target = global ? targetProject : projectId;
+
+  // Interroga la board mentre scrivi, ma solo quando c'è abbastanza testo da
+  // giudicare (sotto una manciata di caratteri qualunque somiglianza è un caso)
+  // e solo finché non hai deciso: una scelta fatta non si ridiscute a ogni
+  // tasto. Errore di rete = nessuna proposta, mai un blocco: l'intake è un
+  // aiuto, non un passaggio obbligato.
+  useEffect(() => {
+    const raw = text.trim();
+    if (link) return;
+    if (raw.length < 12 || !target || target === UNASSIGNED_PROJECT_ID) { setProposal(null); return; }
+    let alive = true;
+    const timer = setTimeout(() => {
+      boardApi.suggestLink(target, raw)
+        .then((p) => { if (alive) setProposal(p && !dismissedRef.current.has(p.targetTaskId) ? p : null); })
+        .catch(() => { if (alive) setProposal(null); });
+    }, 450);
+    return () => { alive = false; clearTimeout(timer); };
+  }, [text, target, link]);
+
+  // Cambiare board azzera la scelta: un collegamento vive su UNA board, e
+  // trascinarlo altrove vorrebbe dire attaccare il task a una card che su quel
+  // progetto non esiste.
+  useEffect(() => { setLink(null); setProposal(null); dismissedRef.current.clear(); }, [target]);
+
+  const acceptProposal = (kind: 'subtask' | 'chain') => {
+    if (!proposal) return;
+    setLink({ kind, proposal });
+    setProposal(null);
+  };
+  const dismissProposal = () => {
+    if (proposal) dismissedRef.current.add(proposal.targetTaskId);
+    setProposal(null);
+  };
+  const clearLink = () => {
+    if (link) dismissedRef.current.add(link.proposal.targetTaskId);
+    setLink(null);
+  };
+
   const noneTarget = targetProject === UNASSIGNED_PROJECT_ID;
   const autoTarget = targetProject === AUTO_PROJECT_ID;
   const targetRef = projects?.find((p) => p.projectId === targetProject) ?? null;
@@ -193,21 +262,38 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError }: 
     const description = firstLine.length > 80 ? raw : rest || null;
     setSubmitting(true);
     try {
-      await boardApi.create(target, { text: title, description, status: 'todo', planFirst, model: model ?? undefined, priority: prio ?? undefined });
+      // Il collegamento viaggia DENTRO la create: non esiste un istante in cui
+      // il task è nato e il link non c'è ancora (o peggio, c'è senza che
+      // nessuno l'abbia scelto). `intakeLink` dice al server di scrivere il
+      // perché nei thread di entrambe le card.
+      const created = await boardApi.create(target, {
+        text: title, description, status: 'todo', planFirst,
+        model: model ?? undefined, priority: prio ?? undefined,
+        ...(link?.kind === 'subtask' ? { parentTaskId: link.proposal.targetTaskId } : {}),
+        ...(link?.kind === 'chain' ? { blockedByTaskId: link.proposal.targetTaskId, reuseBlockerContext: true } : {}),
+        ...(link ? { intakeLink: true, intakeReason: link.proposal.reason } : {}),
+      });
       setText('');
       setPlanFirst(false);
       setModel(null);
       setPrio(null);
+      setLink(null);
+      setProposal(null);
+      dismissedRef.current.clear();
       boardDrafts.clearComposer();
       if (taRef.current) taRef.current.style.height = 'auto';
-      onCreated();
+      onCreated(created.id);
     } catch (e) { onError(e instanceof Error ? e.message : 'create failed'); }
     finally { setSubmitting(false); }
   };
 
   return (
     <div
-      className="pointer-events-none absolute inset-x-0 bottom-6 z-10 flex justify-center px-4 transition-transform duration-150 ease-out"
+      // `hidden` batte il breakpoint: display è UNA proprietà, quindi le due
+      // classi non si sommano — vanno scelte, non concatenate.
+      className={`pointer-events-none absolute inset-x-0 bottom-6 z-10 justify-center px-4 transition-transform duration-150 ease-out ${
+        hidden ? 'hidden' : hiddenBelowLg ? 'hidden lg:flex' : 'flex'
+      }`}
       style={kbInset ? { transform: `translateY(-${kbInset}px)` } : undefined}
     >
       <div
@@ -238,6 +324,69 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError }: 
             expanded ? 'min-h-[4.5rem]' : 'min-h-0'
           }`}
         />
+        {/* Intake. Una riga sola, sopra i chip: la proposta con il PERCHÉ a
+            portata di occhio (title = la frase intera), e due bottoni — quello
+            consigliato acceso, l'altro a un click. Il terzo bottone è "no": il
+            task nasce libero, che è anche ciò che succede se non tocchi niente. */}
+        {expanded && (proposal || link) && (
+          <div
+            data-testid="composer-intake"
+            className="mx-2.5 mb-2 flex items-center gap-2 overflow-x-auto rounded-lg border border-app-border bg-black/5 px-2 py-1.5 text-[11px] scrollbar-hide dark:bg-white/5"
+          >
+            {link ? (
+              <>
+                {link.kind === 'subtask'
+                  ? <CornerDownRight className="h-3 w-3 shrink-0 text-emerald-400" />
+                  : <Lock className="h-3 w-3 shrink-0 text-amber-400" />}
+                <span className="min-w-0 flex-1 truncate text-app-text" title={link.proposal.reason}>
+                  {link.kind === 'subtask'
+                    ? <>Sottotask di <span className="text-app-text-heading">«{link.proposal.targetText}»</span></>
+                    : <>Parte quando chiude <span className="text-app-text-heading">«{link.proposal.targetText}»</span>, riprendendo quel filo</>}
+                </span>
+                <button
+                  onClick={clearLink}
+                  data-testid="composer-intake-unlink"
+                  title="Togli il collegamento: il task nasce libero"
+                  className="shrink-0 rounded p-0.5 text-app-text-muted hover:bg-black/10 hover:text-app-text dark:hover:bg-white/10"
+                ><X className="h-3 w-3" /></button>
+              </>
+            ) : proposal && (
+              <>
+                <Link2 className="h-3 w-3 shrink-0 text-app-text-muted" />
+                <span className="min-w-0 flex-1 truncate text-app-text-secondary" title={proposal.reason}>
+                  Sembra legato a <span className="text-app-text-heading">«{proposal.targetText}»</span>
+                  <span className="text-app-text-muted"> ({STATUS_LABEL[proposal.targetStatus].toLowerCase()})</span>
+                </span>
+                <button
+                  onClick={() => acceptProposal('chain')}
+                  data-testid="composer-intake-chain"
+                  title="Non parte finché quella card non chiude, poi riprende il suo filo"
+                  className={`shrink-0 rounded-md px-2 py-1 transition-colors ${
+                    proposal.recommended === 'chain'
+                      ? 'bg-amber-500/25 text-amber-200'
+                      : 'bg-black/5 text-app-text-secondary hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10'
+                  }`}
+                >Incatena</button>
+                <button
+                  onClick={() => acceptProposal('subtask')}
+                  data-testid="composer-intake-subtask"
+                  title="Diventa un pezzo di quella card (compare nel suo elenco)"
+                  className={`shrink-0 rounded-md px-2 py-1 transition-colors ${
+                    proposal.recommended === 'subtask'
+                      ? 'bg-emerald-500/25 text-emerald-200'
+                      : 'bg-black/5 text-app-text-secondary hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10'
+                  }`}
+                >Sottotask</button>
+                <button
+                  onClick={dismissProposal}
+                  data-testid="composer-intake-dismiss"
+                  title="No: task nuovo, senza collegamenti"
+                  className="shrink-0 rounded p-0.5 text-app-text-muted hover:bg-black/10 hover:text-app-text dark:hover:bg-white/10"
+                ><X className="h-3 w-3" /></button>
+              </>
+            )}
+          </div>
+        )}
         <div className={`flex items-center gap-2 overflow-hidden px-2.5 transition-all duration-200 ease-out ${expanded ? 'max-h-12 pb-2 opacity-100' : 'max-h-0 pb-0 opacity-0'}`}>
           {/* Cluster dei chip: `min-w-0 flex-1` gli lascia stringersi sotto la
               larghezza del contenuto e `overflow-x-auto` lo fa SCORRERE invece

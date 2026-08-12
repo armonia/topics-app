@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { TREE_ROW_CARD } from '@/lib/selectionStyles';
 import { Play, Square } from 'lucide-react';
 import { scriptsApi } from '../../lib/api';
 import { useDetectedScripts } from '../../hooks/useDetectedScripts';
@@ -178,7 +179,7 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
               // «test» esatto non trova «testCargo.toml».
               data-script-id={id}
               data-script-from={from}
-              className={`flex items-center gap-1.5 px-3 py-1 transition-colors group cursor-pointer ${isStopping ? 'opacity-60' : 'hover:bg-app-hover'}`}
+              className={`flex items-center gap-1.5 ${TREE_ROW_CARD} px-2 py-1 group cursor-pointer ${isStopping ? 'opacity-60' : ''}`}
               onClick={() => {
                 if (isStopping) return;
                 if (running) {
@@ -259,7 +260,7 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
           return (
             <div key={sp.processId}>
               <div
-                className={`flex items-center gap-1.5 px-3 py-1 transition-colors group cursor-pointer ${isStopping ? 'opacity-60' : 'hover:bg-app-hover'}`}
+                className={`flex items-center gap-1.5 ${TREE_ROW_CARD} px-2 py-1 group cursor-pointer ${isStopping ? 'opacity-60' : ''}`}
                 onClick={() => { if (!isStopping) onOpenProcessLog?.(sp.processId, sp.scriptName); }}
                 title={sp.command}
               >
@@ -316,7 +317,7 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
             <div
               data-testid="shell-process-row"
               data-shell-id={sp.shellId}
-              className={`flex items-center gap-1.5 px-3 py-1 transition-colors group cursor-pointer ${isStopping ? 'opacity-60' : 'hover:bg-app-hover'}`}
+              className={`flex items-center gap-1.5 ${TREE_ROW_CARD} px-2 py-1 group cursor-pointer ${isStopping ? 'opacity-60' : ''}`}
               onClick={() => { if (!isStopping) onOpenProcessLog?.(sp.processId, sp.scriptName); }}
               title={sp.command}
             >
@@ -330,7 +331,7 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
               <span className={`truncate ${isStopping ? 'text-red-500/70' : 'text-green-500 font-medium'}`}>{sp.scriptName}</span>
               <span
                 className="text-[9px] uppercase tracking-wide px-1 py-px rounded bg-primary/15 text-primary flex-shrink-0"
-                title="Shell lasciata in background dall'agente — l'output arriva dai suoi BashOutput"
+                title="Shell lasciata in background dall'agente. L'output arriva dai suoi BashOutput."
               >
                 shell
               </span>
@@ -357,7 +358,7 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
                   className={`p-0.5 rounded transition-colors ${sp.pid
                     ? 'hover:bg-red-500/20 text-app-text-faint hover:text-red-500 opacity-40 group-hover:opacity-100'
                     : 'text-app-text-faint opacity-20 cursor-default'}`}
-                  title={sp.pid ? 'Stop' : "Processo non ancora individuato — fermala dalla chat con KillShell"}
+                  title={sp.pid ? 'Stop' : "Processo non ancora individuato. Fermala dalla chat con KillShell."}
                 >
                   <Square size={10} />
                 </button>

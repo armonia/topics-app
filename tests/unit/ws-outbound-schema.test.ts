@@ -154,6 +154,13 @@ describe('outbound registry contract', () => {
     // i sotto-agenti di un turno sono sessioni di terminale con un
     // `parentSessionKey` — viaggiano sui frame `terminal:*`.
     //
+    // 2026-08-09, +1 → `task:awaiting-human`: un task che aspetta una persona.
+    // Aggiunto da `e8cf7799` («L'attesa è un evento, non una colonna: il chip
+    // persistito congelava il task») insieme al suo schema e ai suoi test, ma
+    // senza il conteggio — e il conteggio è proprio ciò che obbliga a guardare
+    // che la superficie in uscita è cresciuta. Guardato: è un evento, non uno
+    // stato persistito, ed è per questo che viaggia come frame.
+    //
     // 2026-07-30, +1 → `stream:usage`: il CONSUMO del turno mentre cresce.
     // Fratello di `stream:context` e distinto da lui apposta — quello è il
     // serbatoio (sale e SCENDE con le compattazioni), questo è la bolletta (solo
@@ -195,6 +202,8 @@ describe('outbound registry contract', () => {
       'message',
       'message:media',
       'message:new',
+      'notification:new',
+      'notification:seen',
       'open-project',
       'pane:focus-suggest',
       'pong',
@@ -233,6 +242,7 @@ describe('outbound registry contract', () => {
       'stream:tool_usage',
       'stream:tool_user_input_required',
       'stream:usage',
+      'task:awaiting-human',
       'task:created',
       'task:deleted',
       'task:parked',
@@ -342,8 +352,17 @@ describe('outbound registry contract', () => {
   // serve di più. Per lo stesso motivo viaggia MIRATO (`ctx.sendToDevice`) e
   // non in broadcast. Mittente `server/routes/auth.ts`, ascoltatore
   // `useWebSocket` → `GuestView`.
-  test('all 92 v3 outbound types are present', () => {
-    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(92);
+  // 93 → 95: entrano `notification:new` e `notification:seen`, i due fronti
+  // della CRONOLOGIA delle notifiche (migration 101). Non sono un doppione dei
+  // fronti che già esistono: `task:review-ready` & co. dicono «è successa una
+  // cosa», questi dicono «è stata NOTIFICATA, ecco la riga e il conteggio».
+  // Servono perché il contatore accanto a Topics è per definizione live, e
+  // perché il «visto» è globale: guardare la lista su una finestra deve
+  // spegnere il pallino sulle altre — senza un fronte ognuna resterebbe col suo
+  // numero fino al ricaricamento. Mittente `server/routes/notifications.ts`,
+  // ascoltatore `useNotificationHistory`.
+  test('all 95 v3 outbound types are present', () => {
+    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(95);
   });
 });
 
@@ -709,11 +728,13 @@ describe('validateOutbound — board + task', () => {
     }).ok).toBe(true);
   });
 
-  // Lo `state` è chiuso di proposito: sono i DUE park terminali del dispatcher
-  // (`failed` = l'agente si è arreso, `blocked` = serve una mano umana). Un
-  // terzo valore vorrebbe dire che qualcuno ha aggiunto un esito senza decidere
-  // che fronte mostrargli.
-  test('task:parked accetta failed e blocked, rifiuta il resto', () => {
+  // Lo `state` è chiuso di proposito: sono i TRE park terminali del dispatcher
+  // (`failed` = l'agente si è arreso, `blocked` = serve una mano umana,
+  // `waited_out` = la serie di attese dichiarate ha sfondato il tetto). Un
+  // quarto valore vorrebbe dire che qualcuno ha aggiunto un esito senza decidere
+  // che fronte mostrargli: la copy del banner e della push si legge di qui, e
+  // un esito senza copy propria eredita quella di un altro.
+  test('task:parked accetta failed, blocked e waited_out, rifiuta il resto', () => {
     expect(validateOutbound({
       type: 'task:parked', projectId: 'p-1', taskId: 't-1', taskTitle: 'Fai la cosa', state: 'failed',
     }).ok).toBe(true);
@@ -722,7 +743,13 @@ describe('validateOutbound — board + task', () => {
       state: 'blocked', reason: 'max_turns',
     }).ok).toBe(true);
     expect(validateOutbound({
+      type: 'task:parked', projectId: 'p-1', taskId: 't-1', taskTitle: 'Fai la cosa', state: 'waited_out',
+    }).ok).toBe(true);
+    expect(validateOutbound({
       type: 'task:parked', projectId: 'p-1', taskId: 't-1', taskTitle: 'Fai la cosa', state: 'queued',
+    }).ok).toBe(false);
+    expect(validateOutbound({
+      type: 'task:parked', projectId: 'p-1', taskId: 't-1', taskTitle: 'Fai la cosa', state: 'waiting',
     }).ok).toBe(false);
     expect(validateOutbound({
       type: 'task:parked', projectId: 'p-1', taskId: 't-1', taskTitle: 'Fai la cosa',

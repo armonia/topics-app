@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ShieldQuestion, Loader2, Check, ShieldCheck, Ban } from 'lucide-react';
+import { ShieldQuestion, Loader2, Check, ShieldCheck, ShieldOff, Ban } from 'lucide-react';
 import type { PermissionDecision, ToolPermissionOutcome, ToolPermissionRequest } from '../../types';
 import { PERMISSION_CHOICES, PERMISSION_HINTS, PERMISSION_LABELS, summarizeToolInput } from '../../../../shared/permission-decision';
 
@@ -20,6 +20,14 @@ import { PERMISSION_CHOICES, PERMISSION_HINTS, PERMISSION_LABELS, summarizeToolI
  * interpretare. Un click = una decisione, senza il passaggio «scegli poi
  * invia» — su tre esiti esatti quel secondo gesto non aggiunge una scelta,
  * aggiunge un'occasione di lasciare il pannello a metà.
+ *
+ * ── E una quarta azione, che non sta in fila ────────────────────────────────
+ * «Passa a libero» (`allow_free`) consente QUESTA richiesta e porta la sessione
+ * in modalità libera: da lì in poi non si chiede più. È l'unica pressione che
+ * cambia il regime invece dell'esito, quindi vive sotto una linea, con un
+ * trattamento suo e la riga che dice cosa comporta e da dove si torna indietro.
+ * Metterla accanto a «Consenti» avrebbe reso la decisione più pesante del
+ * pannello la più facile da prendere per sbaglio.
  */
 interface Props {
   request: ToolPermissionRequest;
@@ -34,6 +42,7 @@ const DECISION_ICON = {
   allow: Check,
   allow_always: ShieldCheck,
   deny: Ban,
+  allow_free: ShieldOff,
 } as const;
 
 export function ToolPermissionRow({ request, outcome, onDecide, toolCallId }: Props) {
@@ -45,14 +54,21 @@ export function ToolPermissionRow({ request, outcome, onDecide, toolCallId }: Pr
   // invitare un click dopo che la decisione è partita è un pannello che mente.
   if (outcome) {
     const Icon = DECISION_ICON[outcome.decision];
+    const freed = outcome.decision === 'allow_free';
     return (
       <div
         className="mt-1.5 flex items-center gap-1.5 rounded-md bg-app-hover/30 px-3 py-1.5 text-[12px] text-app-text-muted"
         data-testid={`tool-permission-outcome-${toolCallId}`}
       >
-        <Icon size={12} className={outcome.decision === 'deny' ? 'text-red-500' : 'text-emerald-500'} />
+        <Icon
+          size={12}
+          className={outcome.decision === 'deny' ? 'text-red-500' : freed ? 'text-amber-500' : 'text-emerald-500'}
+        />
         <span>
           {PERMISSION_LABELS[outcome.decision]} · <span className="font-mono">{request.toolName}</span>
+          {/* Chi ha deciso si scrive solo dove cambia il regime: su un
+              «Consenti» non c'è niente da attribuire. */}
+          {freed && outcome.actor && <> · da {outcome.actor}</>}
         </span>
       </div>
     );
@@ -125,6 +141,35 @@ export function ToolPermissionRow({ request, outcome, onDecide, toolCallId }: Pr
       </div>
 
       <div className="text-[11px] leading-snug text-app-text-muted">{PERMISSION_HINTS.allow_always}</div>
+
+      {/* ── «Passa a libero» ────────────────────────────────────────────────
+          Sotto una linea, e non in fila con gli altri tre, perché non è un
+          quarto esito della stessa domanda: gli altri decidono di QUESTA
+          richiesta, questo decide di tutte quelle che verranno. Un bottone
+          uguale agli altri, a un pollice di distanza da «Consenti», sarebbe
+          esattamente il modo in cui si toglie una barriera di sicurezza per
+          sbaglio.
+
+          Il testo dice le due cose che servono per premerlo con cognizione:
+          cosa smette di succedere, e da dove si torna indietro. */}
+      <div className="border-t border-app-border-light pt-2 space-y-1">
+        <button
+          type="button"
+          onClick={() => void decide('allow_free')}
+          disabled={sending !== null}
+          title={PERMISSION_HINTS.allow_free}
+          data-testid={`tool-permission-allow_free-${toolCallId}`}
+          className={
+            'flex w-full items-center gap-1.5 rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-1.5 ' +
+            'text-[12.5px] font-medium text-amber-600 dark:text-amber-400 transition-colors ' +
+            'hover:bg-amber-500/15 disabled:opacity-40 disabled:cursor-not-allowed'
+          }
+        >
+          {sending === 'allow_free' ? <Loader2 size={13} className="animate-spin" /> : <ShieldOff size={13} />}
+          {PERMISSION_LABELS.allow_free}
+        </button>
+        <div className="text-[11px] leading-snug text-app-text-muted">{PERMISSION_HINTS.allow_free}</div>
+      </div>
     </div>
   );
 }

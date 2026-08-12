@@ -1,12 +1,15 @@
-import { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, memo } from 'react';
 import { isOwnFrame } from '@/state/wsIdentity';
 import { adoptLegacyQueue, clearQueue, removeTurn, updateTurn, useChatQueue } from '@/state/chatQueue';
 import { X } from 'lucide-react';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, CompactionMarker } from '../../types';
 import type { SendMessageOptions } from '../../hooks/useChat';
 import { uploadApi, filesApi, autoNameApi, commandApi, memoryApi, contextAnalysisApi, topicsApi, chatApi } from '../../lib/api';
-import { findPendingAsk } from '../../state/pendingAsk';
-import { isPlanApprovalSchema, PLAN_APPROVAL_QUESTION, PLAN_APPROVE_LABEL, PLAN_REJECT_LABEL } from '../../../../shared/plan-decision';
+import { claimCenteredHandoff } from '../../state/composerHandoff';
+import { markDraftTouched, setDraftDirty } from '../../state/draftPane';
+import { ChatEmptyState } from './ChatEmptyState';
+import { findPendingPlan } from './planDetection';
+import { PLAN_APPROVAL_QUESTION, PLAN_APPROVE_LABEL, PLAN_REJECT_LABEL } from '../../../../shared/plan-decision';
 import { useConfirm } from '../../hooks/useConfirm';
 import { DND_TYPES } from '../../lib/dndTypes';
 import { sendFocusTopic } from '../../lib/focusMessaging';
@@ -20,6 +23,7 @@ import { GoalBar } from './GoalBar';
 import { PlanApprovalBar } from './PlanApprovalBar';
 import { useGoal } from '@/hooks/useGoal';
 import { SubAgentsStrip } from './SubAgentsStrip';
+import { TaskCardStrip } from './TaskCardStrip';
 import { selectLatestTodo } from './selectLatestTodo';
 import { useVoiceRecording } from './useVoiceRecording';
 import { usePaneStore } from '../../state/pane/store';
@@ -30,16 +34,16 @@ import { usePaneHold } from '../../state/pane/residency/holds';
 import { useSessionMessages } from '../../state/useSessionMessages';
 
 const SLASH_COMMANDS_HELP = [
-  '/status — Show session status',
-  '/context — Show context-window usage (tokens, budget, sources)',
-  '/compact — Compatta il contesto ora (riassume la storia e libera spazio)',
-  '/clear — Clear conversation',
-  '/model — Change model (e.g. /model claude-opus-5[1m])',
-  '/effort — Set reasoning effort (low|medium|high|xhigh|max)',
-  '/reasoning — Toggle reasoning (openclaw) / → /effort on claude-code',
-  "/goal <testo> — Dichiara l'obiettivo della chat (sopravvive alla compattazione)",
-  '/goal fatto | basta — Chiudi l\'obiettivo (raggiunto / abbandonato)',
-  '/help — Show available commands',
+  '/status: mostra lo stato della sessione',
+  '/context: uso della finestra di contesto (token, budget, sorgenti)',
+  '/compact: compatta il contesto ora (riassume la storia e libera spazio)',
+  '/clear: svuota la conversazione',
+  '/model: cambia modello (es. /model claude-opus-5[1m])',
+  '/effort: imposta lo sforzo di ragionamento (low|medium|high|xhigh|max)',
+  '/reasoning: accende o spegne il ragionamento (openclaw). Su claude-code usa /effort',
+  "/goal <testo>: dichiara l'obiettivo della chat (sopravvive alla compattazione)",
+  '/goal fatto | basta: chiude l\'obiettivo (raggiunto o abbandonato)',
+  '/help: elenca i comandi disponibili',
 ];
 
 /** Extract a human-readable message from an unknown thrown value. */
@@ -67,7 +71,7 @@ export interface ChatPaneProps {
    * agent owns the turn. See `composerAction.ts` for the decision rules
    * and `stopSessionPolicy.ts` for the wipe-safety guard.
    */
-  stopSession: (sk: string) => boolean;
+  stopSession: (sk: string) => Promise<boolean>;
   sendMessage: (sk: string, content: string, options?: SendMessageOptions) => Promise<boolean>;
   loadHistory: (sk: string) => Promise<boolean>;
   chatError: string | null;
@@ -122,9 +126,44 @@ function ChatPaneComponent({
   useEffect(() => {
     try { if (message) localStorage.setItem(draftKey, message); else localStorage.removeItem(draftKey); } catch {}
   }, [message, draftKey]);
+  /**
+   * Qualcuno ha messo del testo nella bozza di QUESTA chat mentre era già
+   * montata — oggi: una missione scelta dalla board accanto (`ProjectWindow`).
+   * L'effetto qui sopra che rilegge `draft:<id>` dipende da `topic.id`, quindi
+   * su una pane già aperta non ripartirebbe e la missione resterebbe scritta su
+   * localStorage senza comparire mai. Il fuoco va con essa: il testo è davanti
+   * a chi lo deve mandare, e a mandarlo è lui.
+   */
+  useEffect(() => {
+    const onSeed = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { topicId?: string; text?: string } | undefined;
+      if (!detail || detail.topicId !== topic.id || !detail.text) return;
+      setMessage(detail.text);
+      requestAnimationFrame(() => textareaRef.current?.focus());
+    };
+    window.addEventListener('topics:seed-composer', onSeed);
+    return () => window.removeEventListener('topics:seed-composer', onSeed);
+  }, [topic.id]);
   const [pendingImages, setPendingImages] = useState<{ dataUrl: string; mimeType: string }[]>([]);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [mentionedFiles, setMentionedFiles] = useState<MentionedFile[]>([]);
+  // Una BOZZA vuota si chiude da sé quando smetti di guardarla, e questa riga
+  // è la sola cosa che le impedisce di portarsi via del lavoro: allegati e
+  // immagini incollate vivono in memoria, non su localStorage, quindi chi
+  // decide la chiusura (usePanelLifecycle) non potrebbe vederli. Vedi
+  // `state/draftPane.ts`.
+  // Nessuna pulizia allo smontaggio, di proposito: una pane non davanti può
+  // essere smontata, e proprio in quell'istante qualcuno sta decidendo se
+  // chiuderla. Dimenticare qui vorrebbe dire farlo decidere sul solo testo
+  // salvato, cioè su una bozza con un'immagine incollata dentro e nient'altro
+  // che sembrerebbe vuota. Il registro lo svuota chi chiude o promuove.
+  useEffect(() => {
+    if (!topic.id.startsWith('draft:')) return;
+    setDraftDirty(
+      topic.id,
+      message.trim().length > 0 || pendingFiles.length > 0 || pendingImages.length > 0 || mentionedFiles.length > 0,
+    );
+  }, [topic.id, message, pendingFiles.length, pendingImages.length, mentionedFiles.length]);
   const [uploading, setUploading] = useState(false);
   const [fileDragOver, setFileDragOver] = useState(false);
   const [replyingTo, setReplyingTo] = useState<ChatMessage | null>(null);
@@ -210,6 +249,12 @@ function ChatPaneComponent({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const inputAreaRef = useRef<HTMLDivElement>(null);
   const [inputAreaHeight, setInputAreaHeight] = useState(0);
+  const paneRootRef = useRef<HTMLDivElement>(null);
+  const [paneHeight, setPaneHeight] = useState(0);
+  // L'invito della chat vuota sta DENTRO il blocco misurato, ma non deve
+  // contare nella centratura: si misura a parte per poterlo scalare.
+  const greetingRef = useRef<HTMLDivElement>(null);
+  const [greetingHeight, setGreetingHeight] = useState(0);
 
   // Persist the caret/selection of the chat composer so a hot reload (bundle-rev
   // or dev HMR) restores it exactly, not just the draft text. Listeners live here
@@ -279,6 +324,22 @@ function ChatPaneComponent({
     if (!el) return;
     const observer = new ResizeObserver(([entry]) => {
       setInputAreaHeight(entry.contentRect.height);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  // L'altezza della pane: serve a centrare il composer quando la chat è vuota
+  // (`(altezzaPane − altezzaBlocco) / 2`) e a decidere quanto del blocco vuoto
+  // ci sta. Un solo ResizeObserver, sulla radice; il blocco di fondo è
+  // posizionato rispetto a lei, quindi è la misura giusta — non quella del
+  // contenitore che scorre, che può avere sopra di sé strisce ed esiti di
+  // comandi.
+  useEffect(() => {
+    const el = paneRootRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(([entry]) => {
+      setPaneHeight(entry.contentRect.height);
     });
     observer.observe(el);
     return () => observer.disconnect();
@@ -539,7 +600,25 @@ function ChatPaneComponent({
 
   // Scroll management is handled entirely by Virtuoso in MessageList
   // (followOutput="smooth" for new items, explicit scrollToIndex for streaming updates)
-  useEffect(() => { loadHistory(topic.sessionKey); setReplyingTo(null); setAutoNameTriggered(false); }, [topic.sessionKey, loadHistory]);
+  //
+  // `historyProbed` esiste per una ragione sola: senza, il composer sfarfalla a
+  // OGNI apertura di chat. Al primo render i messaggi sono `[]` e
+  // `currentLoading` è ancora false — `loadHistory` parte da questo effetto,
+  // cioè dopo il primo paint — quindi qualunque chat, anche piena, sembrerebbe
+  // vuota per un frame: il composer salterebbe al centro e tornerebbe giù. Una
+  // BOZZA non ha storia da caricare, quindi nasce già sondata (ed è l'unico
+  // caso in cui il centro si vede subito, che è poi quello che conta).
+  const [historyProbed, setHistoryProbed] = useState(() => topic.id.startsWith('draft:'));
+  useEffect(() => {
+    let alive = true;
+    setHistoryProbed(topic.id.startsWith('draft:'));
+    void loadHistory(topic.sessionKey)
+      .catch(() => false)
+      .finally(() => { if (alive) setHistoryProbed(true); });
+    setReplyingTo(null);
+    setAutoNameTriggered(false);
+    return () => { alive = false; };
+  }, [topic.sessionKey, topic.id, loadHistory]);
   // `preventScroll` perché il composer è ancorato in fondo alla pane ed è già
   // in vista: lo scroll-into-view implicito di `focus()` non lo sposta di un
   // pixel, ma per stabilirlo il browser deve calcolare il layout di tutti gli
@@ -570,6 +649,97 @@ function ChatPaneComponent({
     // in volo focus() diretti a una pane che non è più quella davanti.
     return () => clearTimeout(t);
   }, [isFocused]);
+
+  // ── Il composer di una chat VUOTA sta al centro ────────────────────────
+  //
+  // Una chat senza messaggi non ha niente da leggere: tenere il campo di testo
+  // incollato in fondo, con mezzo schermo di vuoto sopra, metteva l'unica cosa
+  // da fare il più lontano possibile dagli occhi. Da vuota il blocco si centra;
+  // al primo messaggio scende in fondo, dove resta per sempre.
+  //
+  // Il movimento è una `translateY` e basta: nessun layout, nessuna rimisura
+  // della lista virtualizzata, il compositore fa tutto da sé.
+  const [handoffCentered, setHandoffCentered] = useState(() => claimCenteredHandoff(topic.id));
+  // Le transizioni si accendono un frame DOPO il montaggio: al primo paint la
+  // posizione va assunta, non raggiunta scivolando (una chat aperta da zero non
+  // deve vedere il composer arrivare da fuori).
+  const [transitionsOn, setTransitionsOn] = useState(false);
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => setTransitionsOn(true));
+    return () => cancelAnimationFrame(raf);
+  }, []);
+  // Misura SINCRONA al montaggio: i due ResizeObserver più sopra riportano solo
+  // dal frame dopo, e una bozza deve nascere già centrata — non centrarsi un
+  // frame dopo essere apparsa in fondo.
+  useLayoutEffect(() => {
+    const root = paneRootRef.current;
+    const block = inputAreaRef.current;
+    if (root) setPaneHeight(root.getBoundingClientRect().height);
+    if (block) setInputAreaHeight(block.getBoundingClientRect().height);
+  }, []);
+  // La consegna dalla bozza dura due frame: il primo accende le transizioni, il
+  // secondo lascia scendere il composer. In un frame solo il browser vedrebbe
+  // cambiare la proprietà e la sua transizione nello stesso ricalcolo, e
+  // l'animazione potrebbe non partire affatto.
+  useEffect(() => {
+    if (!handoffCentered) return;
+    let second = 0;
+    const first = requestAnimationFrame(() => {
+      second = requestAnimationFrame(() => setHandoffCentered(false));
+    });
+    return () => { cancelAnimationFrame(first); cancelAnimationFrame(second); };
+  }, [handoffCentered]);
+
+  const chatIsEmpty = historyProbed && !currentLoading && currentMessages.length === 0;
+  const composerCentered = chatIsEmpty || handoffCentered;
+  // A centrarsi è LA BARRA, non il blocco. Centrando l'insieme — invito più
+  // composer — la barra finiva sotto la metà di quanto pesa l'invito, e si
+  // vedeva: «non è ben centrata verticalmente rispetto alla pagina, non deve
+  // pesare l'intro». L'invito resta sopra come sporgenza e non entra nel conto:
+  // si toglie la sua altezza da quella del blocco e si centra il resto.
+  const barHeight = Math.max(0, inputAreaHeight - greetingHeight);
+  const composerOffset = composerCentered && paneHeight > 0 && barHeight > 0
+    ? Math.max(0, Math.round((paneHeight - barHeight) / 2))
+    : 0;
+
+  // Il blocco vuoto resta montato per la durata della dissolvenza, ma FUORI dal
+  // flusso (vedi `ChatEmptyState`): sparisce dal conto dell'altezza subito, e
+  // la lista dei messaggi non si vede spingere in su e poi tornare giù.
+  const [greetingLeaving, setGreetingLeaving] = useState(false);
+  const wasCenteredRef = useRef(composerCentered);
+  useEffect(() => {
+    if (wasCenteredRef.current === composerCentered) return;
+    wasCenteredRef.current = composerCentered;
+    if (composerCentered) { setGreetingLeaving(false); return; }
+    setGreetingLeaving(true);
+    const t = setTimeout(() => setGreetingLeaving(false), 220);
+    return () => clearTimeout(t);
+  }, [composerCentered]);
+  const showGreeting = composerCentered || greetingLeaving;
+  // L'invito compare e sparisce, quindi l'osservatore si riattacca: un RO su un
+  // nodo smontato non riporta lo zero, riporta l'ultimo valore e basta — e
+  // quello, sottratto per sempre, terrebbe la barra troppo in basso.
+  useLayoutEffect(() => {
+    const el = greetingRef.current;
+    if (!el) { setGreetingHeight(0); return; }
+    setGreetingHeight(el.getBoundingClientRect().height);
+    const ro = new ResizeObserver(([entry]) => setGreetingHeight(entry.contentRect.height));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [showGreeting]);
+
+  // Una chat NUOVA nasce per essere scritta, e il fuoco al campo di testo non è
+  // un furto: in una chat vuota non c'è nient'altro in questa pane su cui
+  // l'utente possa averlo messo apposta. La guardia qui sopra — «procedi solo
+  // se nessuno ha preso il fuoco nel frattempo» — protegge il picker del
+  // modello e faceva cadere proprio questo caso: il menu che ha creato la chat
+  // restituisce il fuoco al suo trigger mentre il timer da 50 ms è in volo, la
+  // fotografia non torna più e il campo restava spento.
+  useEffect(() => {
+    if (!isFocused || !composerCentered) return;
+    const raf = requestAnimationFrame(() => textareaRef.current?.focus({ preventScroll: true }));
+    return () => cancelAnimationFrame(raf);
+  }, [isFocused, composerCentered]);
   // Mark topic as read when this chat pane gains focus (covers ProjectWindow usage)
   // Solo il ping di focus: l'azzeramento locale e la POST di lettura li fa
   // `sendWS`, e solo quando c'è davvero qualcosa di non letto.
@@ -624,8 +794,11 @@ function ChatPaneComponent({
     return () => { unsub(); if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current); };
   }, [onWSMessage, topic.id]);
 
-  const resizeTextarea = useCallback(() => { const ta = textareaRef.current; if (!ta) return; ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 140) + 'px'; }, []);
-  useEffect(() => { resizeTextarea(); }, [message, resizeTextarea]);
+  // L'auto-crescita del campo di testo sta in ChatInput, non qui: dipende anche
+  // dalla LARGHEZZA del campo, che cambia quando i controlli scendono sulla
+  // seconda riga — e quella condizione la conosce solo il composer. Misurata da
+  // qui, l'altezza restava quella calcolata alla larghezza di prima e sotto il
+  // testo avanzava una riga vuota.
 
   const uploadFiles = useCallback(async (files: File[]) => {
     const paths: string[] = []; const failed: string[] = [];
@@ -644,7 +817,7 @@ function ChatPaneComponent({
         const k = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}k` : `${n}`);
         const lines = [`Contesto: ${k(a.totalTokens)} / ${k(a.budgetLimit)} token (${Math.round(a.budgetPercent)}%)`];
         const top = [...a.sources].filter((s) => s.enabled && s.tokens > 0).sort((x, y) => y.tokens - x.tokens).slice(0, 6);
-        for (const s of top) lines.push(`  • ${s.category} · ${s.label} — ${k(s.tokens)}`);
+        for (const s of top) lines.push(`  • ${s.category} · ${s.label}: ${k(s.tokens)}`);
         if (a.warnings && a.warnings.length > 0) lines.push(`⚠ ${a.warnings.length} avviso${a.warnings.length === 1 ? '' : 'i'}`);
         setCommandResult({ type: 'success', message: lines.join('\n') });
       } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); }
@@ -792,14 +965,6 @@ function ChatPaneComponent({
     }
   }, [topic.id, onUpdateTopic]);
 
-  const handlePlanApprove = useCallback(() => {
-    sendMessage(topic.sessionKey, 'Execute the approved plan.');
-  }, [sendMessage, topic.sessionKey]);
-
-  const handlePlanReject = useCallback(() => {
-    sendMessage(topic.sessionKey, 'Plan rejected. Please propose an alternative approach.');
-  }, [sendMessage, topic.sessionKey]);
-
   /**
    * La decisione presa sul piano che il turno ha proposto senza poterlo
    * consegnare (plan mode senza `ExitPlanMode` — vedi server/lib/plan-approval.ts).
@@ -814,11 +979,18 @@ function ChatPaneComponent({
    */
   // Il piano che aspetta una risposta, se c'è: alimenta la barra sopra il
   // composer. Stessa lettura del pannello inline (`findPendingAsk`), così le
-  // due superfici non possono dire cose diverse.
-  const pendingPlan = useMemo(() => {
-    const ask = findPendingAsk(currentMessages);
-    return ask && isPlanApprovalSchema(ask.schema) ? ask : null;
-  }, [currentMessages]);
+  // due superfici non possono dire cose diverse — più il ripiego sul piano
+  // scritto solo in prosa, che di riga a cui appendersi non ne ha
+  // (`findPendingPlan`). In entrambi i casi la scelta è la stessa e fa la
+  // stessa cosa.
+  const pendingPlan = useMemo(
+    () => findPendingPlan({
+      messages: currentMessages,
+      autonomy,
+      busy: currentStreaming || currentLoading,
+    }),
+    [currentMessages, autonomy, currentStreaming, currentLoading],
+  );
   const [planBusy, setPlanBusy] = useState(false);
 
   const handlePlanDecision = useCallback(async (approved: boolean) => {
@@ -848,11 +1020,16 @@ function ChatPaneComponent({
     if (!pendingPlan || planBusy) return;
     setPlanBusy(true);
     try {
-      await chatApi.toolResponse(topic.sessionKey, pendingPlan.toolCallId, {
-        kind: 'questions',
-        answers: { [PLAN_APPROVAL_QUESTION]: approved ? PLAN_APPROVE_LABEL : PLAN_REJECT_LABEL },
-        submittedAt: new Date().toISOString(),
-      });
+      // Un piano scritto solo in prosa non ha una riga che aspetta: non c'è
+      // niente da chiudere, e postare una risposta a un tool inesistente
+      // tornerebbe 404 mandando in errore una scelta che è invece valida.
+      if (pendingPlan.toolCallId) {
+        await chatApi.toolResponse(topic.sessionKey, pendingPlan.toolCallId, {
+          kind: 'questions',
+          answers: { [PLAN_APPROVAL_QUESTION]: approved ? PLAN_APPROVE_LABEL : PLAN_REJECT_LABEL },
+          submittedAt: new Date().toISOString(),
+        });
+      }
       await handlePlanDecision(approved);
     } catch {
       toast.error('Non sono riuscito a registrare la scelta. Riprova.');
@@ -922,7 +1099,7 @@ function ChatPaneComponent({
     const lines: string[] = [`# ${topic.name}`, ''];
     for (const m of currentMessages) {
       const who = m.role === 'user' ? 'You' : 'Assistant';
-      const when = m.timestamp ? ` — ${new Date(m.timestamp).toLocaleString()}` : '';
+      const when = m.timestamp ? ` · ${new Date(m.timestamp).toLocaleString()}` : '';
       lines.push(`### ${who}${when}`, '', m.content || '', '');
     }
     const blob = new Blob([lines.join('\n')], { type: 'text/markdown' });
@@ -1106,17 +1283,29 @@ function ChatPaneComponent({
   );
 
   return (
-    <div className="relative flex flex-col min-w-0 min-h-0 overflow-hidden flex-1 w-full max-w-full">
+    <div
+      ref={paneRootRef}
+      className="relative flex flex-col min-w-0 min-h-0 overflow-hidden flex-1 w-full max-w-full"
+      // Un clic QUALUNQUE dentro la pane la rende tua: da lì in poi una chat
+      // nuova non si richiude più da sola. In cattura, perché deve valere anche
+      // per i clic che un figlio si tiene per sé. Vedi `state/draftPane.ts`.
+      onPointerDownCapture={() => markDraftTouched(topic.id)}
+      onKeyDownCapture={() => markDraftTouched(topic.id)}
+    >
       {commandResult && (
         <div className={`chat-measure px-3 py-2 border-b flex items-center gap-2 flex-shrink-0 transition-all ${commandResult.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-red-500/10 border-red-500/20'}`}>
           <div className={`text-[12px] flex-1 whitespace-pre-wrap font-mono ${commandResult.type === 'success' ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>{commandResult.message}</div>
-          <button onClick={() => setCommandResult(null)} className="text-app-text-muted hover:text-app-text p-1">
+          <button aria-label="Chiudi il messaggio del comando" onClick={() => setCommandResult(null)} className="text-app-text-muted hover:text-app-text p-1">
             <X size={12} />
           </button>
         </div>
       )}
+      {/* Il verso di ritorno: questa chat è la SESSIONE di un task? Allora da
+          qui si torna alla sua SCHEDA, che è dove si decide. Muta in ogni
+          altra chat. */}
+      <TaskCardStrip topicId={topic.id} />
       <PinnedMessages show={showPinned} pinnedMessages={pinnedMessages} />
-      <MessageList isMobile={isMobile} topic={topic} currentMessages={currentMessages} compactionMarkers={currentMarkers} currentLoading={currentLoading} currentStreaming={currentStreaming} copiedMsgId={copiedMsgId} fileDragOver={fileDragOver} chatContainerRef={chatContainerRef} messagesEndRef={messagesEndRef} textareaRef={textareaRef} onReply={setReplyingTo} onCopy={handleCopyMessage} onTogglePin={handleTogglePin} onFileDragOver={handleFileDragOver} onFileDragLeave={handleFileDragLeave} onFileDrop={handleFileDrop} setMessage={setMessage} onPlanApprove={handlePlanApprove} onPlanReject={handlePlanReject} onPlanDecision={handlePlanDecision} onRemember={handleRememberMessage} onEdit={editMessage ? handleEditMessage : undefined} onRegenerate={regenerateMessage && !currentStreaming ? handleRegenerateMessage : undefined} onDeleteMessage={deleteMessage && !currentStreaming ? handleDeleteMessage : undefined} onSwitchBranch={switchBranch ? handleSwitchBranch : undefined} onMessage={onWSMessage} onRetry={handleRetry} inputAreaHeight={inputAreaHeight} initialScrollOffset={initialScrollOffset} onScrollOffsetChange={handleScrollOffsetChange} />
+      <MessageList isMobile={isMobile} topic={topic} currentMessages={currentMessages} compactionMarkers={currentMarkers} currentLoading={currentLoading} currentStreaming={currentStreaming} copiedMsgId={copiedMsgId} fileDragOver={fileDragOver} chatContainerRef={chatContainerRef} messagesEndRef={messagesEndRef} onReply={setReplyingTo} onCopy={handleCopyMessage} onTogglePin={handleTogglePin} onFileDragOver={handleFileDragOver} onFileDragLeave={handleFileDragLeave} onFileDrop={handleFileDrop} onPlanDecision={handlePlanDecision} onRemember={handleRememberMessage} onEdit={editMessage ? handleEditMessage : undefined} onRegenerate={regenerateMessage && !currentStreaming ? handleRegenerateMessage : undefined} onDeleteMessage={deleteMessage && !currentStreaming ? handleDeleteMessage : undefined} onSwitchBranch={switchBranch ? handleSwitchBranch : undefined} onMessage={onWSMessage} onRetry={handleRetry} inputAreaHeight={inputAreaHeight} composerCentered={composerCentered} initialScrollOffset={initialScrollOffset} onScrollOffsetChange={handleScrollOffsetChange} />
       {/* The composer docks at the bottom with only its natural margin — no
           home-indicator reservation (the user wants minimal bottom space), so it
           reaches the bottom edge and the OS indicator simply overlays it. */}
@@ -1128,7 +1317,23 @@ function ChatPaneComponent({
           blocco si centra invece di allargarsi. `inputAreaHeight` continua a
           misurare giusto: il ResizeObserver legge `contentRect.height`, che è
           l'altezza, non la larghezza. */}
-      <div ref={inputAreaRef} className="absolute bottom-0 left-0 right-0 chat-measure">
+      <div
+        ref={inputAreaRef}
+        data-testid="chat-input-area"
+        data-composer-centered={composerCentered ? 'true' : 'false'}
+        className={`absolute bottom-0 left-0 right-0 chat-measure${transitionsOn ? ' composer-dock-slide' : ''}`}
+        style={composerOffset ? { transform: `translateY(-${composerOffset}px)` } : undefined}
+      >
+        {showGreeting && (
+          <div ref={greetingRef}>
+            <ChatEmptyState
+              topic={topic}
+              paneHeight={paneHeight}
+              fading={!composerCentered}
+              onPick={(msg) => { setMessage(msg); textareaRef.current?.focus(); }}
+            />
+          </div>
+        )}
         {pendingPlan && (
           <PlanApprovalBar
             busy={planBusy}
@@ -1149,7 +1354,7 @@ function ChatPaneComponent({
         <SubAgentsStrip topicSessionKey={topic.sessionKey} />
         {aboveInputSlot}
         <CheckpointTimeline topicId={topic.id} onRollback={() => loadHistory(topic.sessionKey)} />
-        <ChatInput autonomy={autonomy} onAutonomyChange={handleAutonomyChange} isMobile={isMobile} isFocused={isFocused} topic={topic} currentMessages={currentMessages} currentStreaming={currentStreaming} stoppedByUser={currentStoppedByUser} message={message} setMessage={setMessage} pendingFiles={pendingFiles} pendingImages={pendingImages} setPendingImages={setPendingImages} uploading={isUploading} replyingTo={replyingTo} setReplyingTo={setReplyingTo} isRecording={isRecording} recordingTime={recordingTime} fileInputRef={fileInputRef} textareaRef={textareaRef} onSubmit={handleSendMessage} onStop={() => { stopSession(topic.sessionKey); }} onKeyDown={handleKeyDown} onFileSelect={handleFileSelect} removePendingFile={removePendingFile} onPaste={handlePaste} startRecording={startRecording} stopRecording={stopRecording} formatRecordingTime={formatRecordingTime} isImageFile={isImageFile} chatError={chatError} sendMessageDirect={async (c: string) => {
+        <ChatInput autonomy={autonomy} onAutonomyChange={handleAutonomyChange} isMobile={isMobile} isFocused={isFocused} topic={topic} currentMessages={currentMessages} currentStreaming={currentStreaming} stoppedByUser={currentStoppedByUser} message={message} setMessage={setMessage} pendingFiles={pendingFiles} pendingImages={pendingImages} setPendingImages={setPendingImages} uploading={isUploading} replyingTo={replyingTo} setReplyingTo={setReplyingTo} isRecording={isRecording} recordingTime={recordingTime} fileInputRef={fileInputRef} textareaRef={textareaRef} onSubmit={handleSendMessage} onStop={() => { void stopSession(topic.sessionKey); }} onKeyDown={handleKeyDown} onFileSelect={handleFileSelect} removePendingFile={removePendingFile} onPaste={handlePaste} startRecording={startRecording} stopRecording={stopRecording} formatRecordingTime={formatRecordingTime} isImageFile={isImageFile} chatError={chatError} sendMessageDirect={async (c: string) => {
           // Passa dall'imbuto degli slash: il bottone «Compact now» e
           // l'azione dell'anello mandavano `/compact` come messaggio nudo,
           // quindi non vedevano il banner di stato ne' l'esito. Ora le tre

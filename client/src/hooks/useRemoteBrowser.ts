@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { parseBrowserWsMessage, type BrowserWsMessage } from '../../../shared/browser-ws-messages';
 import type { ElementDescription } from '../../../shared/element-describe';
+import type { RemoteField } from '../../../shared/browser-keyboard-field';
 import { serverWsBase } from '@/lib/shell/net';
 import { mapCoordinates } from './browserCoords';
 
@@ -41,6 +42,11 @@ interface RemoteBrowserState {
   pageScaleFactor: number;
   /** Downloads the headless page triggered (server-saved, surfaced as links). */
   downloads: DownloadInfo[];
+  /** Quanti download sono PARTITI da quando la pane è viva. Solo cresce — anche
+   *  quando una voce viene tolta dall'elenco — perché è il segnale con cui il
+   *  menu Download della toolbar decide di aprirsi da sé: se contasse le voci
+   *  presenti, svuotare l'elenco spegnerebbe l'annuncio del prossimo file. */
+  downloadsSeq: number;
   /** T2: whether the CURRENT url allows being framed (probed server-side). The
    *  panel renders a native <iframe> when framable AND no agent is driving. */
   framable: boolean;
@@ -94,6 +100,10 @@ interface RemoteBrowser extends RemoteBrowserState, InteractionHandlers {
   setEngine: (engine: 'native' | 'chromium') => void;
   /** Task 052f53ef: pause/resume the server screencast (iframe-mode ⇒ false). */
   setStreamActive: (active: boolean) => void;
+  /** Is this pane ON SCREEN? Separate from setStreamActive on purpose: this is
+   *  the ONLY input of the cross-device viewer count, and the screencast pauses
+   *  for transport reasons (WebRTC, DOM co-browse) while still watching. */
+  setWatching: (active: boolean) => void;
   /** Retry the WebRTC transport after a `webrtcError` (the pane's Riprova button). */
   retryWebrtc: () => void;
   /** T1 DOM co-browse: request 'video' (pixel stream) or 'dom' (native rrweb
@@ -103,6 +113,10 @@ interface RemoteBrowser extends RemoteBrowserState, InteractionHandlers {
   /** T1 DOM co-browse: register the live rrweb-event sink (the DomCoBrowse view's
    *  Replayer). Returns an unsubscribe. Only one sink at a time. */
   registerDomSink: (cb: (event: unknown) => void) => () => void;
+  /** Registra chi riceve il campo a fuoco riportato dal server dopo un click
+   *  (null = a fuoco non c'è niente di scrivibile). Uno solo alla volta, come il
+   *  sink rrweb; restituisce la disiscrizione. */
+  registerFocusSink: (cb: (field: RemoteField | null) => void) => () => void;
   /** Low-level input relay (page-CSS px). The <img>/<video> handlers use it via
    *  their own mapping; the DomCoBrowse view calls it directly with coords it maps
    *  from the reconstructed iframe. */
@@ -110,6 +124,9 @@ interface RemoteBrowser extends RemoteBrowserState, InteractionHandlers {
     action: 'click' | 'type' | 'scroll' | 'mousemove' | 'keypress',
     payload: { x?: number; y?: number; text?: string; key?: string; deltaX?: number; deltaY?: number; button?: 'left' | 'right' | 'middle' },
   ) => void;
+  /** Menu Download della toolbar: togli UNA voce (per href) / svuota l'elenco. */
+  dismissDownload: (href: string) => void;
+  clearDownloads: () => void;
 }
 
 const IDLE_INTERVAL = 2000;
@@ -156,6 +173,12 @@ const WEBRTC_RETRY_DELAY_MS = 1500;
 // take several seconds, and tearing the pc down mid-'checking' causes retry churn.
 const WEBRTC_NO_ANSWER_TIMEOUT_MS = 6000;
 const WEBRTC_CONNECT_TIMEOUT_MS = 15000;
+// Quanto si aspetta la ricevuta di un click sul canale dati prima di chiedere
+// lo stesso al server chi ha il fuoco. Largo rispetto al giro vero (un hop
+// SCTP sulla stessa PeerConnection dei pixel), stretto rispetto ai 700 ms che
+// il server si dà per leggere il campo: chi arriva qui ha già perso la corsa
+// con la tastiera, e insistere non la fa salire prima.
+const INPUT_ACK_TIMEOUT_MS = 250;
 
 const SPECIAL_KEYS = new Set([
   'Enter', 'Tab', 'Escape', 'Backspace', 'Delete',
@@ -196,6 +219,7 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     selectedElement: null,
     pageScaleFactor: 1,
     downloads: [],
+    downloadsSeq: 0,
     framable: false,
     engine: 'native',
     engineToggleAvailable: false,
@@ -217,6 +241,15 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
   // that falls back to JPEG if the PC never connects.
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
+  // Il canale su cui viaggia l'input (punto 6). Aperto insieme alla PC, chiuso con
+  // lei: finché non è 'open', sendInput usa il WebSocket come ha sempre fatto.
+  const inputChannelRef = useRef<RTCDataChannel | null>(null);
+  // Numeratore dei messaggi di input a cui vogliamo una ricevuta, e chi aspetta
+  // quella ricevuta. Serve a UN caso solo: un click sul canale dati va spinto su
+  // CDP PRIMA di chiedere al server chi ha preso il fuoco, o la risposta
+  // descrive la pagina di un istante fa. Vedi `sendInput`.
+  const inputSeqRef = useRef(0);
+  const inputAckWaitersRef = useRef(new Map<number, () => void>());
   const webrtcActiveRef = useRef(false);
   const webrtcWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Renegotiation attempts + retry timer (the CDP target may not exist on the first
@@ -235,6 +268,11 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
   // and the live rrweb-event sink (registered by the DomCoBrowse view's Replayer).
   const renderModeRef = useRef<'video' | 'dom'>('dom');
   const domSinkRef = useRef<((event: unknown) => void) | null>(null);
+  // Chi ha preso il fuoco nella pagina remota dopo il nostro ultimo click. Lo
+  // consuma la superficie visibile (video o mirror) per vestire il campo di
+  // cattura della tastiera. Di proposito SENZA buffer, al contrario degli eventi
+  // rrweb: un fuoco vecchio applicato tardi è peggio di nessun fuoco.
+  const focusSinkRef = useRef<((field: RemoteField | null) => void) | null>(null);
   // Buffer events that arrive before the DomCoBrowse view registers its sink (the
   // bootstrap burst can land in the same tick the pane mounts). Flushed on register.
   const domEventBufferRef = useRef<unknown[]>([]);
@@ -273,6 +311,12 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
   // it renders a native <iframe> so the headless Chromium stops rendering; the WS
   // stays open. Re-asserted on every (re)connect (the server defaults to active).
   const streamActiveRef = useRef(true);
+  // Is this pane on screen? The ONLY thing the cross-device viewer count reads.
+  // Kept apart from streamActiveRef because the screencast pauses for transport
+  // reasons (WebRTC took the pixels, DOM co-browse, iframe) while the pane is
+  // very much being watched. Re-asserted on every (re)connect (server default:
+  // watching).
+  const watchingRef = useRef(true);
   // See NAV_LOADING_TIMEOUT_MS — force-clears a stuck `loading` if the nav
   // completion signal never arrives.
   const loadingWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -407,11 +451,66 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     return false;
   }, [encodedId]);
 
-  // sendInput — WS-first, REST fallback. Switches based on live connection state.
+  // sendInput — DataChannel-first, poi WS, poi REST. Tre gradini, e si scende solo
+  // se quello sopra non c'è.
+  //
+  // Il DataChannel è il gradino nuovo (punto 6 del piano WebRTC): viaggia sulla
+  // STESSA PeerConnection dei pixel e finisce dritto sulla sessione CDP che il
+  // sidecar ha già aperta per lo screencast. Il WS invece passa dal server Bun e da
+  // Playwright: due processi in mezzo per muovere un mouse, mentre il video della
+  // stessa pane era già in linea diretta.
+  //
+  // Il messaggio è IDENTICO nei due tubi, di proposito: cambia il trasporto, non il
+  // protocollo, così il percorso del WebSocket resta valido e collaudato come rete
+  // di sotto — un canale non ancora aperto (o caduto) non fa perdere un click.
+  //
+  // Un click che scende dal canale dati si porta dietro una coda: `focus_query`.
+  // Il ramo del click nel server è anche il posto da cui parte `focus_field`, la
+  // risposta che dice al telefono CHE tastiera aprire; scavalcando il server
+  // quella risposta non partiva più e sul ramo video tornava su la tastiera
+  // generica. La domanda viaggia da sola sul WS, dove il round trip lo pagava
+  // già, e il click resta sul canale veloce — che è il punto di tutto questo.
+  const askFocusField = useCallback(() => {
+    if (wsRef.current?.readyState !== WebSocket.OPEN) return;
+    try {
+      const msg: BrowserWsMessage = { type: 'focus_query' };
+      wsRef.current.send(JSON.stringify(msg));
+    } catch { /* socket caduto — la tastiera resta quella generica */ }
+  }, []);
+
+  // Una ricevuta è arrivata (o non arriverà): sveglia chi la aspettava, una volta sola.
+  const settleInputAck = useCallback((id: number) => {
+    const waiter = inputAckWaitersRef.current.get(id);
+    if (!waiter) return;
+    inputAckWaitersRef.current.delete(id);
+    waiter();
+  }, []);
+
   const sendInput = useCallback((
     action: 'click' | 'type' | 'scroll' | 'mousemove' | 'keypress',
     payload: { x?: number; y?: number; text?: string; key?: string; deltaX?: number; deltaY?: number; button?: 'left' | 'right' | 'middle' },
   ) => {
+    const dc = inputChannelRef.current;
+    if (dc?.readyState === 'open') {
+      try {
+        if (action === 'click') {
+          // L'`id` chiede la ricevuta al sidecar: quando torna, i comandi CDP
+          // del click sono già sul socket del target. Solo allora ha senso
+          // domandare chi ha il fuoco. Se la ricevuta non arriva si chiede lo
+          // stesso dopo il timeout: una tastiera forse sbagliata è meglio di
+          // nessuna tastiera.
+          const id = ++inputSeqRef.current;
+          inputAckWaitersRef.current.set(id, askFocusField);
+          setTimeout(() => settleInputAck(id), INPUT_ACK_TIMEOUT_MS);
+          dc.send(JSON.stringify({ type: 'input', action, payload, id }));
+        } else {
+          dc.send(JSON.stringify({ type: 'input', action, payload }));
+        }
+        return;
+      } catch {
+        // Canale chiuso fra il controllo e l'invio — si scende al WS.
+      }
+    }
     if (connectionStateRef.current === 'connected' && wsRef.current?.readyState === WebSocket.OPEN) {
       const msg: BrowserWsMessage = { type: 'input', action, payload };
       try {
@@ -424,7 +523,7 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     // Fallback: REST interact. Map action to the REST shape (the existing
     // /api/browsers/:id/interact endpoint expects { action, ...payload }).
     interact({ action, ...payload });
-  }, [interact]);
+  }, [interact, askFocusField, settleInputAck]);
 
   // WebSocket lifecycle with exponential-backoff auto-reconnect. `connect()` is
   // (re)invoked by the mount effect, the backoff timer, and focus/online wake —
@@ -501,6 +600,13 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
       // (or the initial open) doesn't silently resume the headless render.
       if (!streamActiveRef.current) {
         try { ws.send(JSON.stringify({ type: 'set_stream', active: false } satisfies BrowserWsMessage)); } catch { /* dropped */ }
+      }
+      // Same for "am I on screen": a fresh socket counts as watching, so a
+      // hidden pane that reconnects must say otherwise or it would silently
+      // re-enter the viewer count and pin every other device to the shared
+      // session.
+      if (!watchingRef.current) {
+        try { ws.send(JSON.stringify({ type: 'set_watching', active: false } satisfies BrowserWsMessage)); } catch { /* dropped */ }
       }
       // Option A: DOM is the default surface, so RE-ASSERT it on every (re)connect —
       // the server defaults a fresh connection to the pixel stream. This makes the
@@ -618,7 +724,7 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
               const i = next.findIndex(d => d.href === msg.href);
               const info: DownloadInfo = { filename: msg.filename, href: msg.href, size: msg.size, state: msg.state };
               if (i >= 0) next[i] = info; else next.push(info);
-              return { ...s, downloads: next.slice(-8) };
+              return { ...s, downloads: next.slice(-8), downloadsSeq: s.downloadsSeq + (i >= 0 ? 0 : 1) };
             });
             break;
           case 'engine': {
@@ -667,6 +773,13 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
             if (domSinkRef.current) domSinkRef.current(msg.event);
             else domEventBufferRef.current.push(msg.event);
             break;
+          case 'focus_field':
+            // Il campo che ha preso il fuoco di là dopo il nostro click (assente
+            // = niente di scrivibile). Serve a far uscire la tastiera GIUSTA sul
+            // telefono, ed è l'unica risposta possibile sul ramo video, dove non
+            // c'è nessun mirror da interrogare.
+            focusSinkRef.current?.(msg.field ?? null);
+            break;
           default:
             break;
         }
@@ -712,6 +825,11 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     // (the target may not exist yet), then surface an error + Riprova.
     const closePc = () => {
       if (webrtcWatchdogRef.current) { clearTimeout(webrtcWatchdogRef.current); webrtcWatchdogRef.current = null; }
+      // Prima il canale: se resta puntato a una PC chiusa, sendInput lo vedrebbe
+      // ancora non-null e ci spedirebbe dentro i click invece di scendere sul WS.
+      const dc = inputChannelRef.current;
+      inputChannelRef.current = null;
+      if (dc) { try { dc.close(); } catch { /* già chiuso */ } }
       const pc = pcRef.current;
       pcRef.current = null;
       if (pc) { try { pc.close(); } catch { /* already closed */ } }
@@ -767,6 +885,27 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
       // Mount the <video> now so ontrack (fires before ICE connects) can attach the
       // stream; visible only once webrtcActive (spinner shows during negotiation).
       setState(s => (s.webrtcMounted && !s.webrtcError ? s : { ...s, webrtcMounted: true, webrtcError: false }));
+      // Il canale di input va creato PRIMA di createOffer, o la sezione dati non
+      // entra nell'SDP e il sidecar non ha niente a cui rispondere. Ordinato e
+      // affidabile: un click perso è peggio di un click in ritardo, e su una
+      // sessione condivisa un evento fuori ordine muoverebbe il mouse a caso.
+      try {
+        const dc = pc.createDataChannel('input', { ordered: true });
+        inputChannelRef.current = dc;
+        // L'unica cosa che torna indietro su questo canale: la ricevuta di un
+        // input che ne aveva chiesta una. Sblocca la domanda sulla tastiera
+        // (vedi `sendInput`); tutto il resto non è roba nostra e si ignora.
+        dc.onmessage = (ev) => {
+          if (typeof ev.data !== 'string') return;
+          try {
+            const m = JSON.parse(ev.data) as { t?: unknown; id?: unknown };
+            if (m?.t === 'ack' && typeof m.id === 'number') settleInputAck(m.id);
+          } catch { /* non è JSON nostro */ }
+        };
+        dc.onclose = () => { if (inputChannelRef.current === dc) inputChannelRef.current = null; };
+      } catch {
+        inputChannelRef.current = null; // niente canale → sendInput resta sul WS
+      }
       pc.addTransceiver('video', { direction: 'recvonly' });
       pc.ontrack = (ev) => { const v = videoRef.current; if (v && ev.streams[0]) v.srcObject = ev.streams[0]; };
       pc.onicecandidate = (ev) => {
@@ -858,7 +997,7 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     };
     // engineEpoch: a change (engine switch) tears down + reopens the WS so the
     // server recreates the context on the newly-selected engine.
-  }, [contextId, encodedId, updateConnectionState, clearLoadingWatchdog, fetchInfo, sendResize, engineEpoch]);
+  }, [contextId, encodedId, updateConnectionState, clearLoadingWatchdog, fetchInfo, sendResize, engineEpoch, settleInputAck]);
 
   // P3-3b: a hidden pane must also drop the WebRTC pixel track — set_stream only
   // pauses the JPEG screencast, not the H.264 transport. Pause the peer when the
@@ -1136,6 +1275,20 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     }
   }, []);
 
+  // "My pane is on screen" — the ONLY input of the cross-device viewer count
+  // (GET /api/browsers/:id/viewers → computeAutoShared). Idempotent; the desired
+  // state lives in a ref so onopen re-asserts it after a reconnect.
+  const setWatching = useCallback((active: boolean) => {
+    if (watchingRef.current === active) return;
+    watchingRef.current = active;
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      try {
+        const msg: BrowserWsMessage = { type: 'set_watching', active };
+        wsRef.current.send(JSON.stringify(msg));
+      } catch { /* socket gone — re-asserted on next onopen */ }
+    }
+  }, []);
+
   // WebRTC error → Riprova: reset the retry budget, clear the error, renegotiate.
   const retryWebrtc = useCallback(() => {
     webrtcAttemptRef.current = 0;
@@ -1173,6 +1326,14 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     return () => { if (domSinkRef.current === cb) domSinkRef.current = null; };
   }, []);
 
+  // La superficie visibile dichiara qui chi vuole sapere che campo è a fuoco di
+  // là. Uno alla volta, come il sink rrweb: la superficie viva è una sola (video
+  // o mirror), e due destinatari vorrebbero dire due tastiere.
+  const registerFocusSink = useCallback((cb: (field: RemoteField | null) => void) => {
+    focusSinkRef.current = cb;
+    return () => { if (focusSinkRef.current === cb) focusSinkRef.current = null; };
+  }, []);
+
   // Engine switch (task 54601eeb): ask the server to move this pane to `engine`.
   // Server-orchestrated over the WS — the reply is an `engine` broadcast that
   // flips state + remounts. Streaming-mode only (no WS ⇒ silent no-op).
@@ -1183,6 +1344,19 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
         wsRef.current.send(JSON.stringify(msg));
       } catch { /* socket gone — no-op */ }
     }
+  }, []);
+
+  // Download: togli UNA voce / svuota l'elenco. Il menu della toolbar è
+  // chiudibile e le sue voci si tolgono a mano — quindi lo stato deve poterle
+  // togliere. Prima l'elenco poteva solo crescere (fino al tetto), il che è
+  // metà del motivo per cui la vecchia striscia in fondo dava fastidio.
+  const dismissDownload = useCallback((href: string) => {
+    setState(s => (s.downloads.some(d => d.href === href)
+      ? { ...s, downloads: s.downloads.filter(d => d.href !== href) }
+      : s));
+  }, []);
+  const clearDownloads = useCallback(() => {
+    setState(s => (s.downloads.length ? { ...s, downloads: [] } : s));
   }, []);
 
   // After every commit: if the <img> (re)mounted it carries the stale
@@ -1213,9 +1387,13 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     setSelectedElement,
     setEngine,
     setStreamActive,
+    setWatching,
     retryWebrtc,
     setRenderMode,
     registerDomSink,
+    registerFocusSink,
     sendInput,
-  }), [state, navigate, goBack, goForward, reload, goHome, onClick, onWheel, onKeyDown, containerRef, takeControl, enterSelectMode, exitSelectMode, setSelectedElement, setEngine, setStreamActive, retryWebrtc, setRenderMode, registerDomSink, sendInput]);
+    dismissDownload,
+    clearDownloads,
+  }), [state, navigate, goBack, goForward, reload, goHome, onClick, onWheel, onKeyDown, containerRef, takeControl, enterSelectMode, exitSelectMode, setSelectedElement, setEngine, setStreamActive, setWatching, retryWebrtc, setRenderMode, registerDomSink, registerFocusSink, sendInput, dismissDownload, clearDownloads]);
 }

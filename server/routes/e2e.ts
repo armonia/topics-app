@@ -14,7 +14,8 @@
  * Più un verbo di SETUP, per lo stesso motivo (arrivare a uno stato che le API
  * pubbliche non sanno costruire):
  *
- *   POST /api/test/tasks/:id/bind-topic   lega un task alla topic dell'agente,
+ *   POST /api/test/tasks/:id/bind-topic   lega un task alla topic dell'agente
+ *                                         (+ `dispatchState` opzionale),
  *                              come il dispatcher — così si può testare la
  *                              superficie dei task dispatchati senza agente.
  *   POST /api/test/tasks/:id/landing      semina la fotografia di consegna
@@ -22,10 +23,27 @@
  *                              nel mondo vero richiedono un repo git e la
  *                              passata periodica — così la superficie «chiuso
  *                              ma non su main» si testa senza aspettarla.
+ *   POST /api/test/tasks/:id/dispatch-gate  mette una card in uno dei modi in
+ *                              cui il dispatcher la tiene ferma (tentativi
+ *                              esauriti, finestra d'attesa aperta). Ci si arriva
+ *                              solo con un agente vero che fallisce o che
+ *                              dichiara un'attesa: senza questo verbo il chip
+ *                              che dice PERCHÉ una card è ferma sarebbe
+ *                              testabile solo su metà dei suoi rami.
+ *   POST /api/test/tasks/:id/dispatch-state  mette il chip di dispatch come il
+ *                              dispatcher (l'unico che lo scrive) — così una
+ *                              card «in corso, agente al lavoro» si può vedere
+ *                              senza far girare un agente vero.
  *   POST /api/test/tasks/:id/attempts     semina i tentativi di un fan-out già
  *                              chiuso, come il dispatcher a fine giro — così il
  *                              pannello "Tentativi" e la scelta del vincitore si
  *                              testano senza far girare N agenti veri.
+ *   POST /api/test/background-shell       registra/aggiorna una shell lasciata
+ *                              in background, come fa `routes/chat.ts` leggendo
+ *                              il risultato di una `Bash`. Senza un agente vero
+ *                              non c'è modo di popolare quel registro, e senza
+ *                              popolarlo non si può guardare la card della chat
+ *                              aggiornarsi.
  *   POST /api/test/terminal/park-idle     fa girare SUBITO lo sweep che
  *                              parcheggia le sessioni ferme. In produzione è un
  *                              timer al minuto con una soglia di mezz'ora:
@@ -61,6 +79,9 @@ import { restoreDb, snapshotDb, type DbSnapshot } from "../services/db-snapshot"
 import { createTaskService } from "../services/tasks";
 import { createTaskAttemptStore } from "../services/task-attempts";
 import { parkIdleClaudeSessions } from "./terminal";
+import { noteBackgroundShellOutput, registerBackgroundShell } from "./processes";
+import { shellProcessKey } from "../../shared/background-shell-registry";
+import { setSessionCliPid } from "../providers/session-pids";
 
 /** Attivo solo dove `start-test-server.sh` lo dichiara. */
 export function e2eRoutesEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
@@ -157,6 +178,53 @@ export function createE2eRouter(ctx: AppContext): RouteHandler {
       return json({ ok: true, ...result });
     }
 
+    // POST /api/test/background-shell — muove il registro delle shell come lo
+    // muoverebbe un turno vero.
+    //
+    // Una shell in background nasce SOLO dentro un turno dell'agente: la
+    // registra `routes/chat.ts` leggendo il risultato della `Bash`, e le
+    // attacca output a ogni `BashOutput` successivo. Senza un agente vero non
+    // c'è modo di arrivarci dalle API pubbliche — e senza arrivarci non si può
+    // guardare la card della chat crescere, che è tutto il punto.
+    //
+    // Chiama le STESSE funzioni del registro (`routes/processes.ts`), non una
+    // copia: quello che il test vede è il registro vero, letto dalla route vera.
+    if (method === "POST" && pathname === "/api/test/background-shell") {
+      const body = (await req.json().catch(() => null)) as {
+        sessionKey?: string; shellId?: string; command?: string; cwd?: string; topicId?: string | null;
+        output?: string; status?: "running" | "completed" | "failed" | "killed"; exitCode?: number;
+      } | null;
+      if (!body?.sessionKey || !body?.shellId) {
+        return json({ error: "sessionKey and shellId required" }, 400);
+      }
+      // `command` presente ⇒ è l'avvio; assente ⇒ è un aggiornamento su una
+      // shell già registrata (output nuovo e/o esito).
+      if (body.command) {
+        // Il CLI padre. Senza, lo sweep chiude la shell al primo giro (4s) —
+        // e ha ragione: «nessun CLI vivo ⇒ la shell è morta con lui» è la
+        // regola vera del registro, non un dettaglio da aggirare. Qui si
+        // dichiara un padre vivo (il server stesso) invece di disarmare lo
+        // sweep, così il test cammina sulla strada di produzione.
+        setSessionCliPid(body.sessionKey, process.pid);
+        registerBackgroundShell({
+          sessionKey: body.sessionKey,
+          topicId: body.topicId ?? null,
+          shellId: body.shellId,
+          command: body.command,
+          cwd: body.cwd || process.cwd(),
+          ownerPid: null,
+        });
+      }
+      if (body.output != null || body.status || body.exitCode != null) {
+        noteBackgroundShellOutput(body.sessionKey, body.shellId, {
+          ...(body.output != null ? { output: body.output } : {}),
+          ...(body.status ? { status: body.status } : {}),
+          ...(body.exitCode != null ? { exitCode: body.exitCode } : {}),
+        });
+      }
+      return json({ ok: true, processId: shellProcessKey(body.sessionKey, body.shellId) });
+    }
+
     // POST /api/test/tasks/:taskId/bind-topic {topicId} — lega un task alla
     // topic dell'agente, come farebbe il dispatcher.
     //
@@ -170,12 +238,80 @@ export function createE2eRouter(ctx: AppContext): RouteHandler {
     // logica che possa invecchiare.
     const bind = /^\/api\/test\/tasks\/([^/]+)\/bind-topic$/.exec(pathname);
     if (method === "POST" && bind) {
-      const body = (await req.json().catch(() => null)) as { topicId?: string } | null;
+      const body = (await req.json().catch(() => null)) as { topicId?: string; dispatchState?: string | null } | null;
       if (!body?.topicId) return json({ error: "topicId required" }, 400);
       try {
-        const task = createTaskService(db).bindTopic({
-          taskId: decodeURIComponent(bind[1]),
-          topicId: body.topicId,
+        const svc = createTaskService(db);
+        const taskId = decodeURIComponent(bind[1]);
+        let task = svc.bindTopic({ taskId, topicId: body.topicId });
+        // `dispatchState` opzionale, per la stessa ragione del topic qui sopra:
+        // quella colonna la scrive SOLO il dispatcher, e senza di essa un test
+        // non può mettere in scena un task con l'agente dentro un turno — che è
+        // il presupposto di tutto ciò che si legge dalla catena dei padri.
+        // Passa dal servizio vero (`setDispatchState`), non da una UPDATE a mano.
+        if (body.dispatchState !== undefined) {
+          task = svc.setDispatchState({ taskId, state: body.dispatchState });
+        }
+        return json({ ok: true, task });
+      } catch (e) {
+        return json({ error: (e as Error).message }, 400);
+      }
+    }
+
+    // POST /api/test/tasks/:taskId/dispatch-gate {attempts?, deferMinutes?} —
+    // porta un task in uno dei modi in cui il dispatcher lo tiene fermo.
+    //
+    // Stessa ragione di `bind-topic`: sono stati che nessuna API pubblica sa
+    // costruire. Il budget dei tentativi lo consuma solo un agente vero che
+    // fallisce N turni; la finestra d'attesa la scrive solo `wait_for_condition`
+    // dalla sessione di un agente dispacciato. Senza questi due, il chip che
+    // dice PERCHÉ una card è ferma resta testabile su due rami su sei.
+    //
+    // `deferMinutes` passa dal servizio vero (`deferForWait`), che scrive anche
+    // la nota e il chip. I tentativi no: il verbo vero (`bumpDispatchAttempt`)
+    // vuole un claim vivo, cioè esattamente l'agente che qui non c'è — quindi
+    // la colonna si scrive a mano, ed è l'unico punto in cui questo file lo fa.
+    const gate = /^\/api\/test\/tasks\/([^/]+)\/dispatch-gate$/.exec(pathname);
+    if (method === "POST" && gate) {
+      const body = (await req.json().catch(() => null)) as { attempts?: number; deferMinutes?: number; deferReason?: string } | null;
+      const taskId = decodeURIComponent(gate[1]);
+      try {
+        const svc = createTaskService(db);
+        if (typeof body?.attempts === "number") {
+          db.prepare("UPDATE tasks SET dispatch_attempts = ? WHERE id = ?").run(body.attempts, taskId);
+        }
+        if (typeof body?.deferMinutes === "number") {
+          svc.deferForWait({
+            taskId,
+            reason: body.deferReason ?? "attesa dichiarata da un test",
+            minutes: body.deferMinutes,
+          });
+        }
+        const task = svc.get(taskId)?.task ?? null;
+        if (!task) return json({ error: "task_not_found" }, 404);
+        return json({ ok: true, task });
+      } catch (e) {
+        return json({ error: (e as Error).message }, 400);
+      }
+    }
+
+    // POST /api/test/tasks/:taskId/dispatch-state {state, error?} — mette il
+    // chip di dispatch come lo metterebbe il dispatcher.
+    //
+    // Stessa ragione di `bind-topic`: `dispatch_state` lo scrive SOLO il
+    // dispatcher lanciando un agente vero, e da fuori non c'è nessuna API che lo
+    // tocchi (la PATCH del task non lo accetta, di proposito). Senza, una card
+    // «in corso» — con l'agente al lavoro, che è lo stato in cui l'umano vuole
+    // poter dire «fermati» — non è raggiungibile da nessun test end-to-end.
+    // Passa dal servizio vero (`setDispatchState`), nessuna seconda copia.
+    const dispatchState = /^\/api\/test\/tasks\/([^/]+)\/dispatch-state$/.exec(pathname);
+    if (method === "POST" && dispatchState) {
+      const body = (await req.json().catch(() => null)) as { state?: string | null; error?: string | null } | null;
+      try {
+        const task = createTaskService(db).setDispatchState({
+          taskId: decodeURIComponent(dispatchState[1]),
+          state: body?.state ?? null,
+          error: body?.error ?? null,
         });
         return json({ ok: true, task });
       } catch (e) {
