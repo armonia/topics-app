@@ -520,7 +520,9 @@ export function deriveSubtaskWork(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * I motivi per cui un task in `todo` non parte. Uno per ramo del dispatcher.
+ * I motivi per cui un task non si muove. Uno per ramo del dispatcher, più uno
+ * (`checklist_frozen`) per la card che è già uscita dalla coda e si è fermata
+ * dall'altra parte, in review, su una checklist che nessuno lavorerà.
  *
  * Esistono come UNIONE e non come booleani sparsi perché la card ne mostra uno
  * solo, e quale sia è una precedenza: un task senza board non parte nemmeno se
@@ -538,6 +540,7 @@ export type QueueReasonKind =
   | 'parent_turn'    // è uno step e l'agente del padre lo lavora nel suo turno
   | 'parent_idle'    // è uno step e il padre non è al lavoro: non lo lavora nessuno
   | 'heavy_hold'     // è PESANTE, aspetta margine, e intanto tiene ferma la coda
+  | 'checklist_frozen' // in review senza domande aperte, ma con la checklist aperta: approvarla non la chiude
   | 'unknown';       // il server non è riuscito a calcolarla: il buco, dichiarato
 
 /**
@@ -602,6 +605,16 @@ export interface QueueContext {
   /** Vero quando il task non ha una board con una directory (`_none`). */
   projectless: boolean;
   /**
+   * Quanti sottotask aperti (non chiusi, non archiviati) ha questa card.
+   *
+   * Il client non lo ha: la sua lista è un progetto solo, `rootsOnly`, non
+   * archiviati, e i figli non ci stanno dentro. `subtaskCount` sul payload non
+   * risponde nemmeno lui: lo riempiono soltanto `list` e `get`, DOPO
+   * `rowToTask`, quindi su ogni scrittura sarebbe zero proprio mentre l'umano
+   * guarda la card che ha appena mosso.
+   */
+  openSubtasks: number;
+  /**
    * Come si scrive un orario. Iniettabile perché il ramo «riprende alle 06:40»
    * dipende dal fuso della macchina, e un test che ci gira sopra non deve
    * dipendere da dove gira.
@@ -651,8 +664,10 @@ function shortId(id: string): string {
  * decisione di non dispacciare; il client riceve `head`/`detail`/`title` già
  * scritti e li disegna.
  *
- * Torna `null` quando la domanda non si pone: la card non è in `todo`, oppure
- * un agente ci sta già girando sopra (lì il chip di dispatch dice già tutto).
+ * Torna `null` quando la domanda non si pone: la card non è né in `todo` né in
+ * `review` con la checklist aperta, oppure un agente ci sta già girando sopra
+ * (lì il chip di dispatch dice già tutto), oppure la card sta già CHIEDENDO
+ * qualcosa a chi guarda (`needs_input`) e quella domanda è la mossa da fare.
  *
  * L'ORDINE È QUELLO DEL DISPATCHER, e non è cosmetico:
  *  1. uno step non viene mai reclamato (il tick lista `rootsOnly`): la sua
@@ -678,6 +693,45 @@ export function deriveQueueReason(
   },
   ctx: QueueContext,
 ): QueueReason | null {
+  // REVIEW CON LA CHECKLIST APERTA: l'unico stato fuori da `todo` in cui la
+  // domanda si pone, perché è l'unico in cui «ferma» ha una causa che la card
+  // non mostra. Sembra una consegna che aspetta una persona, ma quella persona
+  // non ha mosse: approvare porta a `done`, e `done` con un sottotask aperto è
+  // rifiutato (`open_subtasks`); i sottotask non li dispaccia nessuno da solo,
+  // li lavora l'agente del padre dentro un turno che qui è già finito. Otto
+  // card così nella notte del 12/08, e il motivo viveva solo nel log di una
+  // sonda che nessuno lancia.
+  if (task.status === 'review') {
+    if (ctx.openSubtasks <= 0) return null;
+    // LA CARD CHE STA GIÀ CHIEDENDO NON SI ZITTISCE. `needs_input` è l'unico
+    // stato in cui la card porta addosso una DOMANDA con una risposta possibile:
+    // quella di sistema sui figli parcheggiati, che arriva coi due bottoni
+    // («rimettili in coda» / «archiviali»), o quella vera dell'agente, che si
+    // risponde nella sessione. Il chip rosa «serve te» dice esattamente quella
+    // mossa; qui si legge «ferma», e il tooltip consiglia o cose che sono già
+    // sullo schermo o, sulla domanda dell'agente, tutto tranne rispondere.
+    //
+    // È anche l'unica riga su cui questa funzione e la sonda
+    // (`scripts/stalled-parents.ts`) potevano dare risposta OPPOSTA: la sonda
+    // esclude `review + delivered_reason = 'parked_children'` dicendo «sta già
+    // chiedendo». I due predicati restano diversi perché rispondono a due
+    // domande diverse — «ha una mossa sullo schermo» contro «è uno stallo muto»
+    // — ma il primo CONTIENE il secondo: `askParkedChildren` scrive
+    // `needs_input` e `parked_children` nella stessa UPDATE. Il contenimento è
+    // provato, non sperato, in `tasks.queue-reason.test.ts`.
+    //
+    // `delivered` invece perde il suo chip verde, ed è voluto: quello non chiede
+    // niente, dice che si può chiudere — e con un sottotask aperto approvare
+    // viene rifiutato (`open_subtasks`). È esattamente la bugia da togliere.
+    if (task.dispatchState === 'needs_input') return null;
+    const n = ctx.openSubtasks;
+    return {
+      kind: 'checklist_frozen', tone: 'stalled', head: 'ferma',
+      detail: n === 1 ? '1 sottotask aperto' : `${n} sottotask aperti`,
+      title: `In review con ${n === 1 ? 'un sottotask ancora aperto' : `${n} sottotask ancora aperti`}: approvarla non la chiude, perché una card con un sottotask aperto non può andare in done. E quei passi non li prende nessun dispatcher: li lavora solo l'agente di questa card, dentro il proprio turno. Chiudili o archiviali, oppure rimetti questa card in coda e falla finire.`,
+    };
+  }
+
   if (task.status !== 'todo') return null;
   // Un agente già in volo su questa riga: il chip del ciclo di vita
   // («avvio…», «al lavoro») dice più di qualunque ragione di coda.
