@@ -196,7 +196,7 @@ describe("il riepilogo dei rifiuti — una passata deve dire PERCHE'", () => {
       { reason: "watched" },
       { reason: "phase-active" },
     ]);
-    expect(riga).toBe("3 non parcheggiate — 2 turno in corso, 1 qualcuno la sta guardando");
+    expect(riga).toBe("3 non parcheggiate: 2 turno in corso, 1 qualcuno la sta guardando");
   });
 
   test("niente da dire quando non c'e' niente da dire", () => {

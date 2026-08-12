@@ -109,13 +109,14 @@ jobs:
       #    `check:copy` — girano su `landing/dist`, cioè su un sito GIÀ
       #    costruito che nessun workflow costruisce: vivono nel deploy manuale
       #    del sito, non nella CI dell'app.
-      - name: Static guard rails (any / NUL / dead code / eslint-disable / test skip)
+      - name: Static guard rails (any / NUL / dead code / eslint-disable / test skip / long dash)
         run: |
           bun run check:any
           bun run check:nul
           bun run check:deadcode
           bun run check:eslint-disable
           bun run check:test-skips
+          bun run check:emdash
 
       # `check:deadcode` dice «zero export morti». Non dice su quanti file
       # l'ha guardato, e la differenza non era teorica: su `client/src/lib/api.ts`

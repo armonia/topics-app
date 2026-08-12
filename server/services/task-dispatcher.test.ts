@@ -1513,6 +1513,26 @@ describe("task-dispatcher", () => {
     expect(kickoff).toContain("scripts/disk-report.ts!");
   });
 
+  /**
+   * Il bump di versione è UN comando, e il kickoff lo nomina.
+   *
+   * `tests/unit/version-lockstep.test.ts` prendeva già i bump fatti a mano — due
+   * volte nella notte dell'11-12/08, sul `Cargo.lock` entrambe le volte — ma un
+   * cancello che non nomina il rimedio si paga con un riallineamento a mano ogni
+   * volta. I nomi si scrivono qui a mano, non interpolati da `VERSION_BUMP_RULE`.
+   */
+  it("kickoff nomina il GESTO del bump (un comando), non i file da aprire", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    const kickoff = h.turns[0].content;
+    expect(kickoff).toContain("bun run bump");
+    expect(kickoff).toContain("bun run bump sync");
+    expect(kickoff).toContain("lockfile");
+  });
+
   it("kickoff carries the OPEN subtasks already on the board (accorpare non fa sparire il lavoro)", async () => {
     const h = harness();
     h.svc.updateBoardSettings(PID, { autoDispatch: true });

@@ -331,7 +331,7 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
               <span className={`truncate ${isStopping ? 'text-red-500/70' : 'text-green-500 font-medium'}`}>{sp.scriptName}</span>
               <span
                 className="text-[9px] uppercase tracking-wide px-1 py-px rounded bg-primary/15 text-primary flex-shrink-0"
-                title="Shell lasciata in background dall'agente — l'output arriva dai suoi BashOutput"
+                title="Shell lasciata in background dall'agente. L'output arriva dai suoi BashOutput."
               >
                 shell
               </span>
@@ -358,7 +358,7 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
                   className={`p-0.5 rounded transition-colors ${sp.pid
                     ? 'hover:bg-red-500/20 text-app-text-faint hover:text-red-500 opacity-40 group-hover:opacity-100'
                     : 'text-app-text-faint opacity-20 cursor-default'}`}
-                  title={sp.pid ? 'Stop' : "Processo non ancora individuato — fermala dalla chat con KillShell"}
+                  title={sp.pid ? 'Stop' : "Processo non ancora individuato. Fermala dalla chat con KillShell."}
                 >
                   <Square size={10} />
                 </button>

@@ -334,7 +334,7 @@ function LabeledLoader({
   const tip = waiting
     ? `Ferma da ${formatElapsedCompact(elapsedMs)} in attesa di una tua risposta.${stopHint}`
     : isStale
-      ? `Nessun aggiornamento da ${formatElapsedCompact(elapsedMs)} — potrebbe essere ferma o in attesa di un processo in background.${stopHint}`
+      ? `Nessun aggiornamento da ${formatElapsedCompact(elapsedMs)}. Potrebbe essere ferma, o in attesa di un processo in background.${stopHint}`
       : showElapsed
         ? `Ultimo aggiornamento ${formatElapsedCompact(elapsedMs)} fa`
         : baseTip;

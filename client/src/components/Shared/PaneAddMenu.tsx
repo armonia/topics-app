@@ -164,7 +164,7 @@ export function PaneAddMenuItems({
                 onClick={(e) => { e.stopPropagation(); setClaudeSkipPermissions(!claudeSkipPermissions); }}
                 role="checkbox"
                 aria-checked={claudeSkipPermissions}
-                aria-label="yolo — salta le richieste di permesso"
+                aria-label="yolo: salta le richieste di permesso"
                 tabIndex={-1}
               >
                 <span
