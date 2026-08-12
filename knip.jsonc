@@ -76,6 +76,10 @@
     "scripts/disk-report.ts!",        // `bun run report:disk`
         "scripts/token-live.ts!",         // diagnostica a mano: `bun scripts/token-live.ts [filtro] [--watch]`
         "scripts/orphan-park-dryrun.ts!", // `bun run orphan:dryrun` — prova a vuoto sul db vero
+        // `bun run browser:dryrun [--tutti]` — la spazzata dei chromium orfani
+        // provata a vuoto sul `ps` vero: dice chi ucciderebbe e chi si salva,
+        // senza inviare un segnale. Si lancia a mano, nessuno la importa.
+        "scripts/browser-orphan-dryrun.ts!",
         "scripts/skill-listing-probe.ts!", // misura a mano: `bun run scripts/skill-listing-probe.ts`
         // Estrazione a mano della fixture della BARRA di `cost-probe.test.ts`,
         // contro il database VIVO in sola lettura: si rilancia solo se quella
