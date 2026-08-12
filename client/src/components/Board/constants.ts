@@ -85,11 +85,21 @@ export const STATUS_ICON_COLOR: Record<TaskStatus, string> = {
 
 // Card chip for the dispatch lifecycle (server: tasks.dispatch_state).
 export const DISPATCH_CHIP: Record<string, { text: string; cls: string; title?: string; Icon?: LucideIcon }> = {
+  // RIPIEGO, non la voce principale: da quando ogni card in `todo` porta la sua
+  // ragione (`task.queueReason`, risolta dal server) questi due si disegnano solo
+  // se quella manca — cioè se il server non è riuscito a calcolarla. Restano
+  // perché un chip vuoto sarebbe peggio, ma «in coda» da solo è esattamente la
+  // parola che non dice niente.
   queued: { text: 'in coda', cls: 'bg-white/10 text-app-text-heading' },
   // The agent DECLARED an external-condition wait: back in the queue, slot freed,
   // re-dispatched when its window elapses. NOT a delivery — never in review. The
   // reason rides in task.dispatchError → shown as the chip tooltip.
-  waiting: { text: 'in attesa', cls: 'bg-indigo-500/15 text-indigo-300', title: "In attesa di una condizione esterna: lo slot è libero, riparte da solo", Icon: Hourglass },
+  //
+  // «rinviata» e non «in attesa»: quella parola sulla card significa già il
+  // CONTRARIO — «altri aspettano questa» (vedi `waitingOnThisChip`) — e due
+  // fatti opposti non possono condividere un'etichetta, qualunque cosa dica il
+  // tooltip. Un tooltip, poi, su un telefono non esiste.
+  waiting: { text: 'rinviata', cls: 'bg-indigo-500/15 text-indigo-300', title: "Aspetta una condizione esterna: lo slot è libero, riparte da sola", Icon: Hourglass },
   starting: { text: 'avvio…', cls: 'bg-amber-500/15 text-amber-300' },
   working: { text: 'al lavoro', cls: 'bg-sky-500/15 text-sky-300' },
   // Both live in Review, but they ask different things of the human:

@@ -15,7 +15,7 @@ export { MAX_FANOUT, TASK_STATUSES, ACTIVE_DISPATCH_STATES, PARKED_STOPPED, isAg
 export type {
   TaskStatus, TaskComment, ReviewCheck, CheckRun, BoardSettings, BoardSettingsPatch, DispatchCapacity, BlockerRef,
   LandingTicket,
-  SubtaskWork,
+  SubtaskWork, QueueReason, QueueTone,
 } from '../../../shared/board';
 // Le etichette: stessa cartella condivisa, stesso vocabolario chiuso. Il client
 // non ne tiene una copia — un'etichetta in più qui e non lì è un filtro che non
@@ -25,6 +25,7 @@ export type { TaskLabel, TaskLabelRow } from '../../../shared/task-labels';
 import type { TaskLabel, TaskLabelRow } from '../../../shared/task-labels';
 import type {
   TaskStatus, TaskComment, CheckRun, BoardSettings, BoardSettingsPatch, DispatchCapacity, BlockerRef, LandingTicket, SubtaskWork,
+  QueueReason,
 } from '../../../shared/board';
 // Il tentativo di un fan-out: stesso contratto del server, stessa cartella condivisa.
 // Passa solo `attemptHasWork`, che è un predicato e non ha lingua. Il diffstat
@@ -124,8 +125,26 @@ export const SYSTEM_DELIVERY_CHIP: Record<'retries_exhausted' | 'model_refused' 
   fanout: 'scegli il tentativo',
 };
 
+/*
+ * ─────────────────────────────────────────────────────────────────────────────
+ * I DUE VERSI DELL'ATTESA, e perché non possono condividere una parola.
+ *
+ * Fino al 12/08 la stessa card poteva portare «in attesa di: X» e «3 in
+ * attesa», che sono fatti OPPOSTI: il primo è «io aspetto un altro», il
+ * secondo è «altri tre aspettano me» — e chiudere questa card, nel secondo
+ * caso, ne sblocca tre. L'unico indizio era il numero davanti, e la
+ * disambiguazione stava nel `title`: cioè in un tooltip, che vede solo chi ha
+ * un mouse e sa di doverlo cercare. Su un telefono non esisteva proprio.
+ *
+ * Quindi i due verbi ora si scrivono qui, uno accanto all'altro, e non
+ * condividono nemmeno una parola: **«aspetta …»** = io aspetto. **«… la
+ * aspettano»** = altri aspettano me. Il test in `board.test.ts` pinna che
+ * restino disgiunti — è l'unica cosa che impedisce alla parola di tornare.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
 /**
- * Il chip «in attesa di» di un task: cosa scriverci, o `null` se non va disegnato.
+ * IO ASPETTO un altro task: cosa scriverci, o `null` se non va disegnato.
  *
  * Decide dal LINK (`blockedByTaskId`), non da chi c'è nella lista che il client
  * ha in mano. La card lo derivava cercando il bloccante fra i task fetchati —
@@ -145,11 +164,33 @@ export function blockedByChip(
   const b = task.blockedBy;
   if (b && (b.status === 'done' || b.archived)) return null;
   return b
-    ? { label: `in attesa di: ${b.text}`, title: `In attesa di: ${b.text}` }
+    ? {
+      label: `aspetta: ${b.text}`,
+      title: `Questa card aspetta «${b.text}»: non parte finché quella non chiude.`,
+    }
     : {
-      label: 'in attesa di un altro task',
-      title: 'In attesa di un altro task: non parte finché quello non chiude. Il titolo non è disponibile qui.',
+      label: 'aspetta un altro task',
+      title: 'Questa card aspetta un altro task: non parte finché quello non chiude. Il titolo non è disponibile qui.',
     };
+}
+
+/**
+ * ALTRI ASPETTANO ME: quanti, e cosa succede quando chiudo. `null` = nessuno.
+ *
+ * Il verbo è coniugato apposta al plurale con la card come oggetto — «3 la
+ * aspettano» — perché è la forma che NON si può leggere al contrario. «3 in
+ * attesa», che c'era prima, si legge benissimo come «questa card sta
+ * aspettando tre cose», ed è il rovescio esatto della verità: qui la card è
+ * quella che sblocca, non quella bloccata.
+ */
+export function waitingOnThisChip(
+  task: Pick<BoardTask, 'waitingOnCount' | 'status'>,
+): { label: string; title: string } | null {
+  const n = task.waitingOnCount;
+  if (n <= 0 || task.status === 'done') return null;
+  return n === 1
+    ? { label: '1 la aspetta', title: 'Un task aspetta questa card: parte da solo quando la chiudi.' }
+    : { label: `${n} la aspettano`, title: `${n} task aspettano questa card: partono da soli quando la chiudi.` };
 }
 
 /**
@@ -284,6 +325,18 @@ export interface BoardTask {
    *  contandoli nella lista fetchata sparivano i dipendenti che sono sottotask
    *  o stanno in un altro progetto. */
   waitingOnCount: number;
+  /**
+   * PERCHÉ questa card è ferma in `todo`, in una frase GIÀ SCRITTA dal server.
+   * `null` fuori da `todo`, o con un agente già in volo.
+   *
+   * Qui non c'è niente da derivare, ed è apposta: la decisione di non
+   * dispacciare la prende il dispatcher, e due dei suoi ingredienti non stanno
+   * nemmeno sulla card (l'interruttore di dispatch, e la posizione in una coda
+   * che è machine-wide mentre questa lista è un progetto solo). Dedurla qui
+   * vorrebbe dire dire la regola di ieri con la faccia sicura, il giorno che il
+   * dispatcher cambia — lo stesso conto già pagato con `waitingOnCount`.
+   */
+  queueReason: QueueReason | null;
   /** When blocked, hand the new agent the blocker's session context instead of a cold start. */
   reuseBlockerContext: boolean;
   /** Branch the task delivered on, snapshot at review-time (diagnostics). */
