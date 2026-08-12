@@ -149,10 +149,10 @@ export function PerfSection() {
   // culprits, so the user reads it directly instead of being told.
   let verdict: { text: string; color: string } | null = null;
   if (perf && accelerated === false) {
-    verdict = { text: 'Accelerazione hardware OFF — causa principale dei pochi FPS', color: 'text-red-500' };
+    verdict = { text: 'Accelerazione hardware OFF. È la causa principale dei pochi FPS.', color: 'text-red-500' };
   } else if (compressedMB > 2048) {
     verdict = {
-      text: `${(compressedMB / 1024).toFixed(1)} GB compressi/in swap — chiudi qualche pannello browser`,
+      text: `${(compressedMB / 1024).toFixed(1)} GB compressi o in swap. Chiudi qualche pannello browser.`,
       color: 'text-amber-500',
     };
     // Soglia su scala 0-100 dell'intera macchina (vedi `usePerfMetrics`): metà
@@ -172,8 +172,8 @@ export function PerfSection() {
           <Activity size={12} /> FPS Topics
         </span>
         <span className="flex items-baseline gap-2 tabular-nums">
-          <span className={`text-[15px] font-semibold leading-none ${fpsColor(fps)}`}>{fps || '—'}</span>
-          <span className="text-[10px] text-app-text-muted">avg {avg || '—'}</span>
+          <span className={`text-[15px] font-semibold leading-none ${fpsColor(fps)}`}>{fps || '-'}</span>
+          <span className="text-[10px] text-app-text-muted">avg {avg || '-'}</span>
         </span>
       </div>
       <FpsSparkline data={history} />
@@ -191,7 +191,7 @@ export function PerfSection() {
             className="col-span-4"
             value={`${formatCpuPercent(perf.cpu.total)}%`}
             color={perf.cpu.total > 50 ? 'text-amber-500' : 'text-app-text'}
-            title="CPU del processo shell di Topics — non include i processi WKWebView dei pannelli · può superare 100% (per core)"
+            title="CPU del processo shell di Topics · non include i processi WKWebView dei pannelli · può superare 100% (per core)"
           />
         </div>
       )}
@@ -203,7 +203,7 @@ export function PerfSection() {
             value={`${formatCpuPercent(perf.cpu.total)}%`}
             color={perf.cpu.total > 50 ? 'text-amber-500' : 'text-app-text'}
             title={[
-              `CPU di TUTTI i processi di Topics (${mem?.processCount ?? '?'}) — somma per-core, può superare 100% come in Activity Monitor`,
+              `CPU di TUTTI i processi di Topics (${mem?.processCount ?? '?'}) · somma per-core, può superare 100% come in Activity Monitor`,
               perf.cpu.pids > 0 && perf.cpu.sampled < perf.cpu.pids
                 ? `misura su ${perf.cpu.sampled}/${perf.cpu.pids} processi: gli altri sono appena comparsi e non hanno ancora un delta`
                 : null,
@@ -212,7 +212,7 @@ export function PerfSection() {
           <PerfStat
             label="Renderer"
             value={`${formatCpuPercent(perf.cpu.renderer)}%`}
-            title="CPU dei processi WKWebView di contenuto — uno per pannello browser"
+            title="CPU dei processi WKWebView di contenuto · uno per pannello browser"
           />
           <PerfStat
             label="GPU"
@@ -258,7 +258,7 @@ export function PerfSection() {
         title={(isPartial
           ? 'Memoria del processo shell di Topics (RSS). NON include i processi WKWebView (contenuto browser dei pannelli).'
           : memLabel === 'footprint'
-            ? `Footprint di TUTTI i ${mem?.processCount ?? '?'} processi della shell (finestra + WKWebView dei pannelli) — lo stesso valore della colonna "Memoria" di Activity Monitor.`
+            ? `Footprint di TUTTI i ${mem?.processCount ?? '?'} processi della shell (finestra + WKWebView dei pannelli) · lo stesso valore della colonna "Memoria" di Activity Monitor.`
             : 'Memoria residente (RSS) dei processi della shell. Activity Monitor mostra un valore più alto (footprint).')
           + ` PIÙ ${serverSideTitle.charAt(0).toLowerCase()}${serverSideTitle.slice(1)}.`}
       >
@@ -271,7 +271,7 @@ export function PerfSection() {
           </span>
         </span>
         <span className="tabular-nums text-[13px] font-semibold text-app-text">
-          {totalMemMB !== null ? `${totalMemMB} MB` : '—'}
+          {totalMemMB !== null ? `${totalMemMB} MB` : '-'}
         </span>
       </div>
       {/* The resident slice. Without it the footprint headline is unreadable: the
@@ -300,7 +300,7 @@ export function PerfSection() {
               label="Topics (shell)"
               className="col-span-2"
               value={`${mem.totalMB}MB`}
-              title="RSS del processo shell di Topics — i processi WKWebView dei pannelli non sono inclusi (macOS li scorpora)"
+              title="RSS del processo shell di Topics · i processi WKWebView dei pannelli non sono inclusi (macOS li scorpora)"
             />
             <PerfStat
               label={fleet ? `Lato server ×${serverSideProcs}` : 'Server Bun'}
@@ -314,7 +314,7 @@ export function PerfSection() {
             <PerfStat
               label="Renderer"
               value={`${mem.rendererMB}MB`}
-              title="Memoria dei processi renderer — finestre + ogni pannello browser nativo"
+              title="Memoria dei processi renderer · finestre e ogni pannello browser nativo"
             />
             <PerfStat label="GPU" value={`${mem.gpuMB}MB`} title="Memoria del processo GPU/compositor" />
             <PerfStat label="Altri" value={`${mem.otherMB}MB`} title="Processo main + utility (network, storage, audio)" />

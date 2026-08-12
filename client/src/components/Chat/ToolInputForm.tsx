@@ -267,7 +267,7 @@ function QuestionsForm({
             <div key={`${toolCallId}-recap-${i}`} className="truncate">
               <span className="uppercase tracking-wide">{q.header || `Domanda ${i + 1}`}</span>
               <span className="mx-1.5">→</span>
-              <span className="text-app-text">{resolveAnswerFor(q) || '—'}</span>
+              <span className="text-app-text">{resolveAnswerFor(q) || '-'}</span>
             </div>
           ))}
         </div>
@@ -331,7 +331,7 @@ function QuestionsForm({
                     {showRec && (
                       <span
                         data-testid="ask-recommended"
-                        title="È la strada che l'agente consiglia — la scelta resta tua"
+                        title="È la strada che l'agente consiglia. La scelta resta tua."
                         className="text-[10px] leading-none uppercase tracking-wide px-1.5 py-0.5 rounded bg-primary/12 text-primary"
                       >
                         consigliato
@@ -519,7 +519,7 @@ function ElicitationForm({ requestedSchema, message, toolCallId, submitting, err
                 ariaLabel={f.name}
                 className="w-full"
                 options={[
-                  { value: '', label: '—' },
+                  { value: '', label: '-' },
                   ...f.enum!.map((opt) => ({ value: opt, label: opt })),
                 ]}
               />

@@ -2,7 +2,7 @@ import { memo, useState, useEffect, useMemo } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { AlertTriangle, ArrowUpRight, ClipboardList, Copy, Hourglass, Lock, MessageSquare, Plus, RotateCcw, Send, ShieldCheck, ShieldX, Square, Trash2, UserRound } from 'lucide-react';
+import { AlertTriangle, ClipboardList, Copy, Hourglass, Lock, MessageSquare, Plus, RotateCcw, Send, ShieldCheck, ShieldX, Square, Trash2, UserRound } from 'lucide-react';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
@@ -14,15 +14,22 @@ import { PreviewMedia } from './PreviewMedia';
 import { stripMarkdown } from '../../lib/stripMarkdown';
 import { PRIORITY_DOT, PRIORITY_LABEL, DISPATCH_CHIP, COMPACT_MD_CLS, mediaPaneIdFor, type LiveUsage, type OpenTask } from './constants';
 import { copyText } from '../../lib/clipboard';
+import { canOpenTaskSession, shouldExplainMissingSession, type TaskSessionState } from '../../lib/taskSession';
 import { fmtMs, fmtLive, fmtTok, fmtModel, fmtUpdatedAt, taskCopyText } from './format';
 import { StatusIcon, DispatchChip, TaskIdChip, LabelChip } from './atoms';
 import { POPOVER_DIVIDER, POPOVER_ITEM, POPOVER_ITEM_DANGER } from '@/lib/popoverStyles';
 
 // ── Column ────────────────────────────────────────────────────────────────
-export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject, onError, onRefetch, onOpenTopic, tasksById, projectPathById, liveById, awaitingHuman, justDone, justCreated }: {
+export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject, onError, onRefetch, onOpenTopic, resolveSession, tasksById, projectPathById, liveById, awaitingHuman, justDone, justCreated }: {
   status: TaskStatus; tasks: BoardTask[]; onOpen: OpenTask; onCreate: (text: string) => void;
   canCreate: boolean; showProject: boolean; onError: (e: string) => void; onRefetch: () => void;
-  onOpenTopic?: (topicId: string) => void; tasksById: Map<string, BoardTask>; projectPathById: Map<string, string>;
+  onOpenTopic?: (topicId: string) => void;
+  /** La sessione dell'agente esiste ancora? Risolta QUI e passata alla card come
+   *  stringa, non come funzione: una card memoizzata confronta le props in modo
+   *  superficiale, e un risolutore nuovo a ogni render della board le
+   *  ridisegnerebbe tutte. Vedi `lib/taskSession.ts`. */
+  resolveSession?: (assignedTopicId: string | null | undefined) => TaskSessionState;
+  tasksById: Map<string, BoardTask>; projectPathById: Map<string, string>;
   /** Live per-turn usage keyed by task id (ticking chip on working cards). */
   liveById: Map<string, LiveUsage>;
   /** Task che in questo momento aspettano una persona (evento transitorio). */
@@ -105,6 +112,7 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
           {tasks.map((t) => (
             <Card
               key={t.id} task={t} onOpen={onOpen} showProject={showProject} onError={onError} onRefetch={onRefetch} onOpenTopic={onOpenTopic}
+              sessionState={resolveSession?.(t.assignedTopicId) ?? 'unknown'}
               parentTitle={t.parentTaskId ? tasksById.get(t.parentTaskId)?.text : undefined}
               projectPath={projectPathById.get(t.projectId)}
               live={liveById.get(t.id)}
@@ -143,9 +151,11 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
 // props from the parent (onOpen/onError/onRefetch/onOpenTopic) are stable
 // (useCallback / state setters), and task/parentTitle come from tasks-keyed
 // memos, so the shallow prop compare holds for idle cards.
-export const Card = memo(function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, parentTitle, projectPath, live, awaiting, justDone, justCreated }: {
+export const Card = memo(function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, sessionState = 'unknown', parentTitle, projectPath, live, awaiting, justDone, justCreated }: {
   task: BoardTask; onOpen: OpenTask; showProject: boolean;
   onError: (e: string) => void; onRefetch: () => void; onOpenTopic?: (topicId: string) => void;
+  /** Stato della SESSIONE dell'agente (non della scheda): vedi `lib/taskSession.ts`. */
+  sessionState?: TaskSessionState;
   /** Text of the parent task when this card is a subtask (context chip). */
   parentTitle?: string;
   /** Real filesystem path of task.projectId, for the favicon (cross-project board only). */
@@ -272,8 +282,13 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
   // renders BOTH the steer input and the review feedback input (two boxes).
   const agentBusy = task.status !== 'review' && isAgentWorking(task.dispatchState);
   // Agent cluster in the card's top-right slot: dispatch state + model/effort +
-  // "apri tab" all live up there — the body below stays pure content.
-  const hasOpenTab = !!(task.assignedTopicId && onOpenTopic);
+  // "apri la sessione" all live up there — the body below stays pure content.
+  //
+  // Il gesto e la SCHEDA sono due cose diverse (il click nudo sulla card apre la
+  // scheda), quindi qui si offre solo ciò che esiste davvero: la sessione viva
+  // si apre, la sessione finita si DICE e non si apre. Vedi `lib/taskSession.ts`.
+  const canOpenSession = !!onOpenTopic && canOpenTaskSession(sessionState);
+  const sessionEnded = shouldExplainMissingSession(sessionState);
   // Always shown: the eyebrow row carries the click-to-copy task id on every card
   // (plus project/state/model/tab when present).
   const showTopRow = true;
@@ -350,7 +365,10 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
             // esiste per togliere.
             <span
               className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium bg-rose-500/15 text-rose-300"
-              title="Il turno e' vivo ma aspetta te: apri il tab del task per rispondere"
+              // Per RISPONDERE serve la sessione, non la scheda: il testo diceva
+              // «il tab del task», che è l'altra superficie e non ha un campo
+              // dove rispondere a un turno vivo.
+              title="Il turno e' vivo ma aspetta te: apri la sessione dell'agente per rispondere"
             >aspetta te</span>
           ) : (live && task.dispatchState === 'working') ? null : (task.dispatchState && DISPATCH_CHIP[task.dispatchState]) ? (
             <DispatchChip state={task.dispatchState} error={task.dispatchError} />
@@ -371,12 +389,22 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
               className="shrink-0 whitespace-nowrap rounded bg-white/10 px-1.5 py-0.5 text-xs md:text-[11px] text-app-text-secondary"
             >{fmtModel(task.model)}{(task.agentMs > 0 || task.agentTokens > 0) && ` · ⏱ ${fmtMs(task.agentMs)}${task.agentTokens > 0 ? ` · ${fmtTok(task.agentTokens)}` : ''}`}</span>
           ) : null}
-          {hasOpenTab && (
+          {canOpenSession && (
             <button
               onClick={(e) => { e.stopPropagation(); onOpenTopic!(task.assignedTopicId!); }}
+              data-testid="card-open-session"
               className="shrink-0 rounded bg-white/10 p-1 text-app-text hover:bg-white/20"
-              title="Apri la tab dell'agent"
-            ><ArrowUpRight className="h-3 w-3" /></button>
+              title="Apri la sessione dell'agente: la chat dove sta lavorando (chiuderla NON la ferma)"
+            ><MessageSquare className="h-3 w-3" /></button>
+          )}
+          {/* La sessione c'era e non c'è più. Non si nasconde e non si apre il
+              vuoto: si dice, spento, così il gesto mancante ha una ragione. */}
+          {sessionEnded && (
+            <span
+              data-testid="card-session-gone"
+              className="shrink-0 rounded bg-white/5 p-1 text-app-text-faint"
+              title="L'agente non è più vivo: la sua sessione non esiste più. Quello che ha fatto resta qui, sulla scheda."
+            ><MessageSquare className="h-3 w-3" /></span>
           )}
         </div>
       )}
@@ -427,7 +455,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
             <button
               key={s.id}
               onClick={() => onOpen(s.id)}
-              title={`${STATUS_LABEL[s.status]} — apri il sottotask`}
+              title={`${STATUS_LABEL[s.status]} · apri il sottotask`}
               className="flex w-full items-center gap-1.5 rounded px-0.5 text-left hover:bg-white/5"
             >
               <StatusIcon status={s.status} />
@@ -453,6 +481,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
           {checklist.length > 5 && (
             <button
               onClick={() => onOpen(task.id)}
+              title="Apri la scheda del task: la checklist per intero"
               className="px-0.5 text-xs md:text-[11px] text-app-text-secondary hover:text-app-text"
             >+{checklist.length - 5}… Vedi tutti</button>
           )}
@@ -508,7 +537,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
           {task.parentTaskId && (
             <button
               onClick={(e) => { e.stopPropagation(); onOpen(task.parentTaskId!); }}
-              title={parentTitle ? `Sottotask di: ${parentTitle}` : 'Apri il task padre'}
+              title={parentTitle ? `Apri la scheda del padre: ${parentTitle}` : 'Apri la scheda del task padre'}
               className="max-w-[9rem] truncate rounded bg-violet-500/15 px-1.5 py-0.5 text-xs md:text-[11px] text-violet-300 hover:bg-violet-500/25"
             >⤴ {parentTitle ?? 'padre'}</button>
           )}
@@ -571,7 +600,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
           />
           <button
             disabled={busy || !freeText.trim()} onClick={() => steer(freeText)}
-            title="Invia all'agent — lo riceve al prossimo turno (come Claude Code)"
+            title="Invia all'agent. Lo riceve al prossimo turno, come Claude Code."
             className="flex shrink-0 items-center gap-1 rounded-md bg-sky-500/80 px-2.5 py-1.5 text-xs text-white hover:bg-sky-500 disabled:opacity-50"
           ><Send className="h-3.5 w-3.5" /></button>
         </div>
@@ -625,12 +654,12 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
             ><Send className="h-3.5 w-3.5" /></button>
             <button
               disabled={busy} onClick={() => review('approve', freeText.trim() || undefined)}
-              title={freeText.trim() ? 'Accetta e completa il task — il testo scritto finisce nel thread' : 'Accetta e completa il task'}
+              title={freeText.trim() ? 'Accetta e completa il task. Il testo scritto finisce nel thread.' : 'Accetta e completa il task'}
               className="flex items-center gap-1 rounded-md bg-emerald-500/80 px-2.5 py-1.5 text-xs text-white hover:bg-emerald-500 disabled:opacity-50"
             ><ShieldCheck className="h-3.5 w-3.5" /></button>
             <button
               disabled={busy} onClick={() => review('reject', freeText.trim() || undefined)}
-              title={freeText.trim() ? "Rifiuta — l'agent riparte col testo scritto come indicazione" : "Rifiuta (l'agent riparte senza indicazioni — scrivi nel campo per dargliene)"}
+              title={freeText.trim() ? "Rifiuta. L'agent riparte col testo scritto come indicazione." : "Rifiuta (l'agent riparte senza indicazioni, scrivi nel campo per dargliene)"}
               className="flex items-center gap-1 rounded-md bg-white/10 px-2.5 py-1.5 text-xs text-app-text hover:bg-white/20 disabled:opacity-50"
             ><ShieldX className="h-3.5 w-3.5" /></button>
           </div>
@@ -652,7 +681,10 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
             role="menuitem"
             onClick={(e) => { e.stopPropagation(); setCtxMenu(null); onOpen(task.id); }}
             className={POPOVER_ITEM}
-          ><ClipboardList className="h-3.5 w-3.5 text-app-text-secondary" /> Apri</button>
+            // «Apri» da solo non diceva QUALE delle due superfici: questa è la
+            // scheda, l'altra voce qui sotto è la sessione.
+            title="Apri la scheda del task: descrizione, checklist, consegna, thread"
+          ><ClipboardList className="h-3.5 w-3.5 text-app-text-secondary" /> Apri la scheda</button>
           {/* Stesso testo che copia il bottone del drawer (`taskCopyText`):
               titolo + descrizione. Qui è a portata di tasto destro perché il
               gesto — «prendo questo task e lo incollo altrove» — parte quasi
@@ -662,12 +694,19 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
             onClick={(e) => { e.stopPropagation(); setCtxMenu(null); void copyText(taskCopyText(task)); }}
             className={POPOVER_ITEM}
           ><Copy className="h-3.5 w-3.5 text-app-text-secondary" /> Copia task</button>
-          {task.assignedTopicId && onOpenTopic && (
+          {canOpenSession && (
             <button
               role="menuitem"
-              onClick={(e) => { e.stopPropagation(); setCtxMenu(null); onOpenTopic(task.assignedTopicId!); }}
+              onClick={(e) => { e.stopPropagation(); setCtxMenu(null); onOpenTopic!(task.assignedTopicId!); }}
               className={POPOVER_ITEM}
-            ><ArrowUpRight className="h-3.5 w-3.5 text-app-text-secondary" /> Apri tab agent</button>
+              title="Apri la sessione dell'agente: la chat dove sta lavorando (chiuderla NON la ferma)"
+            ><MessageSquare className="h-3.5 w-3.5 text-app-text-secondary" /> Apri la sessione</button>
+          )}
+          {sessionEnded && (
+            <span
+              className={`${POPOVER_ITEM} cursor-default text-app-text-faint`}
+              title="L'agente non è più vivo: la sua sessione non esiste più. Quello che ha fatto resta qui, sulla scheda."
+            ><MessageSquare className="h-3.5 w-3.5" /> Sessione finita</span>
           )}
           {/* Solo quando c'è davvero un turno da tagliare: su una card ferma la
               voce sarebbe un bottone che risponde 409. `agentBusy` è la stessa
@@ -715,7 +754,7 @@ export function LiveEffortChip({ usage }: { usage: LiveUsage }) {
   const ms = usage.baseMs + Math.max(0, Date.now() - usage.turnStartedAt);
   return (
     <span
-      title={`In esecuzione — modello ${fmtModel(usage.model)}, ${fmtLive(ms)} di lavoro${usage.liveTokens ? `, ${usage.liveTokens.toLocaleString('it-IT')} token` : ''} (aggiornamento live)`}
+      title={`In esecuzione · modello ${fmtModel(usage.model)}, ${fmtLive(ms)} di lavoro${usage.liveTokens ? `, ${usage.liveTokens.toLocaleString('it-IT')} token` : ''} (aggiornamento live)`}
       className="flex items-center gap-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-xs md:text-[11px] text-sky-300 tabular-nums"
     >
       <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-sky-400" />

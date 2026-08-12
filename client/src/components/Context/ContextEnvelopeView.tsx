@@ -198,7 +198,7 @@ function SnapshotsTab({ snapshots, onClear }: { snapshots: ContextEnvelope[]; on
   if (snapshots.length === 0) {
     return (
       <div className="px-3 text-xs text-gray-500 dark:text-gray-400">
-        No snapshots yet. Snapshots are kept in memory only — they reset on server restart.
+        No snapshots yet. Snapshots are kept in memory only. They reset on server restart.
         Send a message to capture one.
       </div>
     );

@@ -875,8 +875,8 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
             onClick={() => browser.setEngine(browser.engine === 'chromium' ? 'native' : 'chromium')}
             icon={<Puzzle size={12} className="flex-shrink-0" aria-hidden />}
             title={browser.engine === 'chromium'
-              ? `Chromium reale · ${browser.engineExtensions} estensioni — clicca per tornare al motore nativo`
-              : 'Motore nativo — clicca per usare il tuo Chromium reale (con le estensioni)'}
+              ? `Chromium reale · ${browser.engineExtensions} estensioni · clicca per tornare al motore nativo`
+              : 'Motore nativo · clicca per usare il tuo Chromium reale (con le estensioni)'}
           >
             {browser.engine === 'chromium' ? `Chromium · ${browser.engineExtensions}` : 'Nativo'}
           </BrowserPaneChip>
