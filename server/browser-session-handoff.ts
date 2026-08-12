@@ -247,11 +247,3 @@ export async function seedNativeFromShared(
   const applied = (raw as { cookies?: unknown } | null)?.cookies;
   return { ok: true, cookies: typeof applied === "number" ? applied : cookies.length };
 }
-
-/** Dimentica cosa è stato posato su un contesto. Va chiamato quando la pane se
- *  ne va DAVVERO (chiusura vera): lì sparisce anche il suo `WKWebsiteDataStore`
- *  e il barattolo condiviso, quindi la prossima pane su quell'id riparte da
- *  capo e non deve trovare una memoria che dice «già fatto». */
-export function forgetNativeSeed(contextId: string): void {
-  posato.delete(contextId);
-}

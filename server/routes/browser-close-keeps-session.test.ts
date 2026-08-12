@@ -1,25 +1,16 @@
 /**
- * CHIUDERE UNA PANE DIMENTICA LA SESSIONE — da tutte e due le parti.
+ * CHIUDERE UNA PANE NON DISCONNETTE — purge selettivo, non totale.
  *
- * La chiusura VERA di una pane browser (quella col tombstone, non il re-key
- * transitorio dell'auto-split) fa tre cose dal client: `DELETE /api/browsers/:id`
- * per il contesto server, `browser_close` per la WKWebView, e
- * `browser_purge_data_store` che cancella il `WKWebsiteDataStore` di quel
- * contesto — cioè cookie, localStorage e IndexedDB della pane nativa.
+ * Decisione (cb1f588f): la chiusura di una pane browser toglie SOLO la cache
+ * (il lato nativo cancella `WKWebsiteDataStore` via `browser_purge_data_store`
+ * in `usePaneLifecycle`), ma il barattolo della SESSIONE CONDIVISA su
+ * `data/browser-state/<ctx>/storage.json` resta: cookie e localStorage
+ * sopravvivono, così riaprire lo stesso contesto non richiede un nuovo login.
  *
- * Il barattolo della SESSIONE CONDIVISA, però, sopravviveva: `destroyContext`
- * fa un ultimo salvataggio di `storageState` su
- * `data/browser-state/<ctx>/storage.json`, e `deleteStorageState` — che quel
- * file lo toglie — non aveva NESSUN chiamante di produzione. Chiudevi una pane
- * credendo di aver buttato via la sessione (il lato nativo lo faceva davvero) e
- * il login restava su disco per sempre, pronto a tornare in vita al primo
- * contesto riaperto con lo stesso id.
- *
- * Qui si prova sulla rotta vera. Si guarda attraverso i lettori dello store
- * (`loadStorageState` / `loadLastUrl`) e non con `existsSync` su un percorso
- * ricostruito a mano: `BASE_DIR` si fissa all'import del modulo, e in una suite
- * dove altri file spostano `DATA_DIR` un percorso indovinato dà rossi che non
- * parlano del guasto.
+ * `DELETE /api/browsers/:id` aveva guadagnato un `deleteStorageState` (task
+ * 7fb737a9) che rendeva la chiusura simmetrica sulla politica VECCHIA
+ * (disconnetti sempre). Con la politica nuova è il difetto: va tolto, e
+ * questo test lo blocca se torna.
  */
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { createBrowserRouter } from "./browser";
@@ -94,7 +85,7 @@ afterEach(async () => {
 });
 
 describe("DELETE /api/browsers/:id", () => {
-  test("cancella il barattolo della sessione condivisa, non solo il contesto", async () => {
+  test("distrugge il contesto ma lascia intatto il barattolo della sessione condivisa", async () => {
     expect(await loadStorageState(CTX)).not.toBeNull();
 
     const { del, destroyed } = harness();
@@ -102,16 +93,17 @@ describe("DELETE /api/browsers/:id", () => {
 
     expect(res?.status).toBe(200);
     expect(destroyed).toEqual([CTX]);
-    // IL PUNTO: i cookie della sessione condivisa se ne sono andati con la
-    // pane, come il WKWebsiteDataStore nativo (browser_purge_data_store).
-    expect(await loadStorageState(CTX)).toBeNull();
+    // IL PUNTO: la chiusura è purge selettivo. Il lato nativo butta la cache
+    // (WKWebsiteDataStore), ma cookie/localStorage condivisi restano su
+    // disco: riaprire lo stesso contesto ritrova il login.
+    expect(await loadStorageState(CTX)).not.toBeNull();
   });
 
-  test("porta via anche l'ultima url: una pane chiusa non risuscita la sua pagina", async () => {
+  test("lascia intatta anche l'ultima url: una pane chiusa resta riprendibile", async () => {
     expect(loadLastUrl(CTX)).toBe("https://example.com/dashboard");
     const { del } = harness();
     await del(CTX);
-    expect(loadLastUrl(CTX)).toBeNull();
+    expect(loadLastUrl(CTX)).toBe("https://example.com/dashboard");
   });
 
   test("è idempotente: una seconda DELETE non esplode", async () => {
@@ -119,7 +111,6 @@ describe("DELETE /api/browsers/:id", () => {
     await del(CTX);
     const res = await del(CTX);
     expect(res?.status).toBe(200);
-    expect(await loadStorageState(CTX)).toBeNull();
   });
 
   test("tocca SOLO il contesto chiesto", async () => {
