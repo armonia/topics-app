@@ -364,6 +364,21 @@ bun run test             # E2E Playwright, seriale (~35 min)
 bun run test:e2e:shards  # E2E in parallelo sulla stessa macchina  ← usa questo
 ```
 
+**Tocchi lo shell Tauri?** Il pane browser nativo ha tre backend scelti da
+`cfg(target_os)`, cioe WKWebView, WebView2 e WebKitGTK. Su un Mac il compilatore
+guarda solo il primo: gli altri due possono essere rotti da mesi senza che
+nessuno lo veda, perche la build cross-platform parte sui tag `tauri-v*`, cioe
+alla release. Prima di consegnare:
+
+```bash
+scripts/check-cross-shell.sh    # compila i rami Windows e Linux (~4 min)
+```
+
+Vuole `brew install mingw-w64` per il ramo Windows e Docker per quello Linux; se
+manca l'uno o l'altro, lancia solo `windows` o solo `linux`. Lo stesso controllo
+gira in CI su tre runner nativi (job `tauri` di `ci.yml`), quindi saltarlo non
+nasconde niente. Costa solo un giro.
+
 **Aggiungi uno script che si lancia a mano** (una sonda, un banco, una misura)?
 Dichiaralo in `knip.jsonc` col suffisso `!` — `"scripts/webrtc-probe.ts!", // misura a
 mano: bun run scripts/webrtc-probe.ts` — nello **stesso commit** che aggiunge il file,

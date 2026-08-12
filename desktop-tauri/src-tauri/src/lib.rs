@@ -18,6 +18,17 @@ use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 #[cfg(target_os = "macos")]
 mod shortcuts_generated;
 
+/// I tre backend del pane browser nativo. `browser_eval` e la parte che NON
+/// dipende dal motore (attesa delle promise, forma del risultato) e si compila
+/// ovunque perche e l'unica testabile qui; gli altri due sono le chiamate vere a
+/// WebView2 e WebKitGTK, che il Mac non guarda mai. Il ramo macOS e ancora
+/// inline piu sotto, insieme al resto dell'FFI AppKit.
+mod browser_eval;
+#[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+mod browser_linux;
+#[cfg(target_os = "windows")]
+mod browser_win;
+
 /// objc2 compatibility shims for the AppKit FFI throughout this file.
 ///
 /// Migrated off the deprecated `objc` + `cocoa` crates (759 of the shell's 761
@@ -4586,16 +4597,29 @@ fn browser_open_inner(
         // primo passaggio del mouse il numero c'è già. Il campionamento resta
         // come rete: copre i reload (WebContent nuovo) e le webview aperte prima
         // che questo hook esistesse.
-        .on_page_load(|webview, _payload| {
-            let label = webview.label().to_string();
-            let _ = webview.with_webview(move |platform| {
-                let pid = unsafe { web_process_identifier(platform.inner() as *mut crate::mac::Object) };
-                if pid > 0 {
-                    if let Ok(mut m) = webview_content_pid_map().lock() {
-                        m.insert(label, pid);
+        //
+        // Il corpo e macOS-only per forza: legge `_webProcessIdentifier`, che e
+        // una SPI di WebKit. Il gate pero mancava, e non su una riga qualsiasi:
+        // `platform.inner()` su Windows non esiste proprio (li si chiama
+        // `controller()`), quindi questo blocco NON COMPILAVA ne su Linux ne su
+        // Windows. Non se n'era accorto nessuno perche il Mac guarda solo il
+        // proprio ramo e la CI cross-platform parte sui tag `tauri-v*`: la prima
+        // release a toccarla sarebbe morta in build. Lo becca ora
+        // `scripts/check-cross-shell.sh`.
+        .on_page_load(|_webview, _payload| {
+            #[cfg(target_os = "macos")]
+            {
+                let label = _webview.label().to_string();
+                let _ = _webview.with_webview(move |platform| {
+                    let pid =
+                        unsafe { web_process_identifier(platform.inner() as *mut crate::mac::Object) };
+                    if pid > 0 {
+                        if let Ok(mut m) = webview_content_pid_map().lock() {
+                            m.insert(label, pid);
+                        }
                     }
-                }
-            });
+                });
+            }
         })
         .on_new_window(move |url, _features| {
             let scheme = url.scheme();
@@ -5790,10 +5814,13 @@ async fn browser_eval_js(app: tauri::AppHandle, id: String, js: String, preserve
         {
             return eval_js_blocking(&wv, js, preserve_focus);
         }
-        #[allow(unreachable_code)]
+        #[cfg(target_os = "windows")]
         {
-            let _ = (wv, js);
-            Err("browser_eval_js: macOS only".to_string())
+            return crate::browser_win::eval_js_blocking(&wv, js, preserve_focus);
+        }
+        #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+        {
+            return crate::browser_linux::eval_js_blocking(&wv, js, preserve_focus);
         }
     })
     .await
@@ -5881,10 +5908,13 @@ async fn browser_screenshot(app: tauri::AppHandle, id: String) -> Result<String,
         {
             return screenshot_blocking(&wv);
         }
-        #[allow(unreachable_code)]
+        #[cfg(target_os = "windows")]
         {
-            let _ = wv;
-            Err("browser_screenshot: macOS only".to_string())
+            return crate::browser_win::screenshot_blocking(&wv);
+        }
+        #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+        {
+            return crate::browser_linux::screenshot_blocking(&wv);
         }
     })
     .await
@@ -6134,10 +6164,13 @@ async fn browser_pane_get_cookies(app: tauri::AppHandle, id: String) -> Result<S
         {
             return cookies_get_blocking(&wv);
         }
-        #[allow(unreachable_code)]
+        #[cfg(target_os = "windows")]
         {
-            let _ = wv;
-            Err("browser_pane_get_cookies: macOS only".to_string())
+            return crate::browser_win::cookies_get_blocking(&wv);
+        }
+        #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+        {
+            return crate::browser_linux::cookies_get_blocking(&wv);
         }
     })
     .await
@@ -6163,10 +6196,13 @@ async fn browser_pane_set_cookies(
         {
             return cookies_set_blocking(&wv, cookies);
         }
-        #[allow(unreachable_code)]
+        #[cfg(target_os = "windows")]
         {
-            let _ = (wv, cookies);
-            Err("browser_pane_set_cookies: macOS only".to_string())
+            return crate::browser_win::cookies_set_blocking(&wv, cookies);
+        }
+        #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+        {
+            return crate::browser_linux::cookies_set_blocking(&wv, cookies);
         }
     })
     .await
@@ -6217,10 +6253,18 @@ fn browser_back(app: tauri::AppHandle, id: String) -> Result<(), String> {
         use tauri::Manager;
         let wv = app.get_webview(&browser_label(&id)).ok_or("no such browser pane")?;
         #[cfg(target_os = "macos")]
-        wk_nav(&wv, 0);
-        #[cfg(not(target_os = "macos"))]
-        let _ = wv;
-        Ok(())
+        {
+            wk_nav(&wv, 0);
+            Ok(())
+        }
+        #[cfg(target_os = "windows")]
+        {
+            crate::browser_win::go_back(&wv)
+        }
+        #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+        {
+            crate::browser_linux::go_back(&wv)
+        }
     })
 }
 
@@ -6231,10 +6275,18 @@ fn browser_forward(app: tauri::AppHandle, id: String) -> Result<(), String> {
         use tauri::Manager;
         let wv = app.get_webview(&browser_label(&id)).ok_or("no such browser pane")?;
         #[cfg(target_os = "macos")]
-        wk_nav(&wv, 1);
-        #[cfg(not(target_os = "macos"))]
-        let _ = wv;
-        Ok(())
+        {
+            wk_nav(&wv, 1);
+            Ok(())
+        }
+        #[cfg(target_os = "windows")]
+        {
+            crate::browser_win::go_forward(&wv)
+        }
+        #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+        {
+            crate::browser_linux::go_forward(&wv)
+        }
     })
 }
 
@@ -6245,10 +6297,18 @@ fn browser_reload(app: tauri::AppHandle, id: String) -> Result<(), String> {
         use tauri::Manager;
         let wv = app.get_webview(&browser_label(&id)).ok_or("no such browser pane")?;
         #[cfg(target_os = "macos")]
-        wk_nav(&wv, 2);
-        #[cfg(not(target_os = "macos"))]
-        let _ = wv;
-        Ok(())
+        {
+            wk_nav(&wv, 2);
+            Ok(())
+        }
+        #[cfg(target_os = "windows")]
+        {
+            crate::browser_win::reload(&wv)
+        }
+        #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+        {
+            crate::browser_linux::reload(&wv)
+        }
     })
 }
 
@@ -7063,8 +7123,16 @@ fn browser_set_user_agent_inner(app: tauri::AppHandle, id: String, ua: String) -
             }
         });
     }
-    #[cfg(not(target_os = "macos"))]
+    // WebView2 lo espone sulle impostazioni (`ICoreWebView2Settings2`), ma quel
+    // ramo non e ancora scritto: resta un no-op, non un errore, perche il
+    // chiamante lo usa per «prova a farti passare per un altro browser» e
+    // fallire la navigazione sarebbe peggio che navigare con lo UA di serie.
+    #[cfg(target_os = "windows")]
     let _ = (wv, ua);
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    {
+        let _ = crate::browser_linux::set_user_agent(&wv, ua);
+    }
     Ok(())
 }
 
@@ -7185,10 +7253,13 @@ async fn browser_nav_entries(app: tauri::AppHandle, id: String) -> Result<String
         {
             return nav_entries_blocking(&wv);
         }
-        #[allow(unreachable_code)]
+        #[cfg(target_os = "windows")]
         {
-            let _ = wv;
-            Err("browser_nav_entries: macOS only".to_string())
+            return crate::browser_win::nav_entries(&wv);
+        }
+        #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+        {
+            return crate::browser_linux::nav_entries(&wv);
         }
     })
     .await
@@ -7204,10 +7275,22 @@ fn browser_go_to_index(app: tauri::AppHandle, id: String, index: i64) -> Result<
             .get_webview(&browser_label(&id))
             .ok_or("no such browser pane")?;
         #[cfg(target_os = "macos")]
-        go_to_index_blocking(&wv, index);
-        #[cfg(not(target_os = "macos"))]
-        let _ = (wv, index);
-        Ok(())
+        {
+            go_to_index_blocking(&wv, index);
+            Ok(())
+        }
+        // WebView2 non ha la lista della cronologia, quindi non c'e un indice a
+        // cui saltare: `browser_win::nav_entries` restituisce una lista vuota e
+        // la UI non offre nemmeno la voce. Resta un no-op dichiarato.
+        #[cfg(target_os = "windows")]
+        {
+            let _ = (wv, index);
+            Ok(())
+        }
+        #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+        {
+            crate::browser_linux::go_to_index(&wv, index)
+        }
     })
 }
 
