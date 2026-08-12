@@ -528,7 +528,7 @@ export type QueueReasonKind =
   | 'parent_review'  // è uno step e il padre aspetta una decisione umana
   | 'parent_turn'    // è uno step e l'agente del padre lo lavora nel suo turno
   | 'parent_idle'    // è uno step e il padre non è al lavoro: non lo lavora nessuno
-  | 'checklist_frozen' // in review con la checklist aperta: approvarla non la chiude
+  | 'checklist_frozen' // in review senza domande aperte, ma con la checklist aperta: approvarla non la chiude
   | 'unknown';       // il server non è riuscito a calcolarla: il buco, dichiarato
 
 /**
@@ -643,7 +643,8 @@ function shortId(id: string): string {
  *
  * Torna `null` quando la domanda non si pone: la card non è né in `todo` né in
  * `review` con la checklist aperta, oppure un agente ci sta già girando sopra
- * (lì il chip di dispatch dice già tutto).
+ * (lì il chip di dispatch dice già tutto), oppure la card sta già CHIEDENDO
+ * qualcosa a chi guarda (`needs_input`) e quella domanda è la mossa da fare.
  *
  * L'ORDINE È QUELLO DEL DISPATCHER, e non è cosmetico:
  *  1. uno step non viene mai reclamato (il tick lista `rootsOnly`): la sua
@@ -679,6 +680,27 @@ export function deriveQueueReason(
   // sonda che nessuno lancia.
   if (task.status === 'review') {
     if (ctx.openSubtasks <= 0) return null;
+    // LA CARD CHE STA GIÀ CHIEDENDO NON SI ZITTISCE. `needs_input` è l'unico
+    // stato in cui la card porta addosso una DOMANDA con una risposta possibile:
+    // quella di sistema sui figli parcheggiati, che arriva coi due bottoni
+    // («rimettili in coda» / «archiviali»), o quella vera dell'agente, che si
+    // risponde nella sessione. Il chip rosa «serve te» dice esattamente quella
+    // mossa; qui si legge «ferma», e il tooltip consiglia o cose che sono già
+    // sullo schermo o, sulla domanda dell'agente, tutto tranne rispondere.
+    //
+    // È anche l'unica riga su cui questa funzione e la sonda
+    // (`scripts/stalled-parents.ts`) potevano dare risposta OPPOSTA: la sonda
+    // esclude `review + delivered_reason = 'parked_children'` dicendo «sta già
+    // chiedendo». I due predicati restano diversi perché rispondono a due
+    // domande diverse — «ha una mossa sullo schermo» contro «è uno stallo muto»
+    // — ma il primo CONTIENE il secondo: `askParkedChildren` scrive
+    // `needs_input` e `parked_children` nella stessa UPDATE. Il contenimento è
+    // provato, non sperato, in `tasks.queue-reason.test.ts`.
+    //
+    // `delivered` invece perde il suo chip verde, ed è voluto: quello non chiede
+    // niente, dice che si può chiudere — e con un sottotask aperto approvare
+    // viene rifiutato (`open_subtasks`). È esattamente la bugia da togliere.
+    if (task.dispatchState === 'needs_input') return null;
     const n = ctx.openSubtasks;
     return {
       kind: 'checklist_frozen', tone: 'stalled', head: 'ferma',
