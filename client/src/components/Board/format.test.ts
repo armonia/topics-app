@@ -51,7 +51,7 @@ describe('attemptStat', () => {
     expect(attemptStat(attempt({ state: 'running', commit: null, filesChanged: null }), en)).toBe('running…');
     expect(attemptStat(attempt({ commit: null, filesChanged: null }), en)).toBe('no changes');
     expect(attemptStat(attempt({ commit: null, filesChanged: null, state: 'failed', error: 'timeout' }), en))
-      .toBe('no changes — timeout');
+      .toBe('no changes (timeout)');
   });
 });
 

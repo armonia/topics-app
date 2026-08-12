@@ -133,7 +133,7 @@ describe("linkNotes", () => {
       reason: "Stesso tema.",
     });
     expect(n.onNewTask).toContain("Feedback grafici sulla landing");
-    expect(n.onNewTask).toContain("non parte finché");
+    expect(n.onNewTask).toContain("Non parte finché");
     expect(n.onTargetTask).toContain("Altri feedback grafici");
     expect(n.onTargetTask).toContain("in attesa di questa card");
   });

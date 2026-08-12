@@ -231,7 +231,7 @@ test.describe.serial("Coda dei messaggi", () => {
    */
   test.describe("il batch", () => {
   // L'anteprima di un task viene resa a 268px: oltre un rapporto
-  // altezza/larghezza di 0.537 la card TAGLIA invece di rimpicciolire.
+  // altezza/larghezza di 0.70 la card TAGLIA invece di rimpicciolire.
   // 1440×760 → video 800×422 (0.528), ci sta intero. Nessuna asserzione qui
   // dipende dalla larghezza.
   test.use({ viewport: { width: 1440, height: 760 } });

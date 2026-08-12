@@ -79,7 +79,7 @@ export function composeAbandonNotice(input: AbandonNoticeInput): string {
     // c'è e si indica dove un commit può ancora essere (reflog / oggetti
     // irraggiungibili), invece di mandare a un nome morto.
     middle =
-      `⚠️ Verificato ora: \`git rev-parse --verify ${b}\` non risolve — il branch NON c'è, ` +
+      `⚠️ Verificato ora: \`git rev-parse --verify ${b}\` non risolve: il branch NON c'è, ` +
       `quindi non posso dire che il lavoro committato sia salvo. ` +
       `Dove guardare: \`git reflog\` e \`git fsck --lost-found\` nel repo del progetto.`;
   } else if (input.branchState === "unverified") {
@@ -97,7 +97,7 @@ export function composeAbandonNotice(input: AbandonNoticeInput): string {
     } else if (ahead === 0) {
       // «C'è» non vuol dire «contiene qualcosa»: un branch a zero commit oltre
       // main è la differenza fra «riprendi da lì» e «non c'era niente».
-      middle = `Verificato ora: il branch \`${b}\` c'è ma non ha commit oltre main — non c'è lavoro committato da recuperare.`;
+      middle = `Verificato ora: il branch \`${b}\` c'è ma non ha commit oltre main, quindi non c'è lavoro committato da recuperare.`;
     } else {
       middle =
         `Verificato ora: il branch \`${b}\` c'è, con ${ahead} commit oltre main. ` +

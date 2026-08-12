@@ -136,7 +136,7 @@ export function FriendsSection() {
                 </span>
                 <span className="flex-shrink-0 text-right text-[11px] leading-tight text-app-text-muted">
                   <span className="block">
-                    {p.stats.prompts > 0 ? `${compatto(p.stats.prompts)} prompt` : '—'}
+                    {p.stats.prompts > 0 ? `${compatto(p.stats.prompts)} prompt` : '-'}
                   </span>
                   <span className="block">
                     {p.stats.prompts > 0

@@ -57,7 +57,7 @@ export function ExternalSessionsBadge({ sessions, showProject, onOpenTopic }: {
         ref={btnRef}
         data-testid="external-sessions-badge"
         onClick={() => setOpen((o) => !o)}
-        title={`${sessions.length} sessioni Claude fuori dalla kanban${active ? ` — ${active} attive ora` : ''}`}
+        title={`${sessions.length} sessioni Claude fuori dalla kanban${active ? ` · ${active} attive ora` : ''}`}
         className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] ${tone}`}
       >
         <TerminalSquare className="h-3.5 w-3.5" />
