@@ -146,7 +146,7 @@ export function SidebarSystemMenu({ onOpenAccount, onOpenChangelog }: SidebarSys
       <button type="button" onClick={() => onOpenChangelog(versione)} className={VOCE} data-testid="menu-version">
         <Tag size={18} className="flex-shrink-0" />
         <span className="flex-1 text-left">Versione</span>
-        <span className="flex-shrink-0 text-[12px] tabular-nums text-app-text-secondary">{versione || '—'}</span>
+        <span className="flex-shrink-0 text-[12px] tabular-nums text-app-text-secondary">{versione || '-'}</span>
       </button>
     </div>
   );
