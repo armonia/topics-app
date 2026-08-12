@@ -1193,13 +1193,27 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
       )}
       {/* Verdetto dell'audit di landing: un task chiuso il cui lavoro non è su
           main. Sta QUI, in cima al drawer, e non solo come commento nel thread —
-          il commento si perde, la banda no. */}
+          il commento si perde, la banda no.
+          E porta la SUA azione. Prima diceva «landa il branch» e non c'era
+          niente da premere: il bottone «Landa su main» viveva solo nella zona
+          review, cioè in uno stato che il task si è già lasciato alle spalle.
+          Una banda che nomina un rimedio irraggiungibile assegna un compito
+          invece di offrire una via d'uscita, ed è il motivo per cui otto card
+          sono rimaste così per settimane. */}
       {task?.status === 'done' && task.landingState === 'unlanded' && (
-        <div className="shrink-0 border-b border-rose-500/20 bg-rose-500/10 px-3 py-1.5 text-[11px] text-rose-300">
-          ⚠️ Chiuso ma <strong>{tr('board.task.notOnMain')}</strong>: il commit consegnato
-          {task.deliveryCommit ? <> <code className="rounded bg-black/30 px-1">{task.deliveryCommit.slice(0, 8)}</code></> : null}
-          {task.deliveryBranch ? <> (branch <code className="rounded bg-black/30 px-1">{task.deliveryBranch}</code>)</> : null}
-          {' '}non risulta nel contenuto di main. Landa il branch, o recupera il commit prima che venga potato.
+        <div data-testid="task-not-landed-banner" className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-rose-500/20 bg-rose-500/10 px-3 py-1.5 text-[11px] text-rose-300">
+          <span className="min-w-0">
+            ⚠️ Chiuso ma <strong>{tr('board.task.notOnMain')}</strong>: il commit consegnato
+            {task.deliveryCommit ? <> <code className="rounded bg-black/30 px-1">{task.deliveryCommit.slice(0, 8)}</code></> : null}
+            {task.deliveryBranch ? <> (branch <code className="rounded bg-black/30 px-1">{task.deliveryBranch}</code>)</> : null}
+            {' '}non risulta nel contenuto di main.
+          </span>
+          <button
+            data-testid="task-not-landed-land"
+            disabled={busy} onClick={doLand}
+            title="Fa il merge del branch su main (locale, nessun push). L'esito arriva nel thread: se il worktree è già stato potato il land non riesce e te lo dice, così resta il commit da recuperare a mano."
+            className="flex shrink-0 items-center gap-1 rounded border border-rose-400/40 bg-rose-500/20 px-2 py-0.5 font-medium text-rose-100 hover:bg-rose-500/30 disabled:opacity-50"
+          ><GitMerge className="h-3 w-3" /> {tr('board.task.landOnMain')}</button>
         </div>
       )}
       {!task ? (
