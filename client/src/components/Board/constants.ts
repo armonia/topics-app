@@ -1,6 +1,6 @@
 import type { LucideIcon } from 'lucide-react';
-import { PackageCheck, Hourglass, Square } from 'lucide-react';
-import { MAX_FANOUT, PARKED_STOPPED } from '../../lib/board';
+import { PackageCheck, Hourglass, Square, TimerOff } from 'lucide-react';
+import { MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT } from '../../lib/board';
 import type { TaskStatus } from '../../lib/board';
 import { EFFORT_TIERS } from '../../lib/effortTiers';
 
@@ -113,6 +113,14 @@ export const DISPATCH_CHIP: Record<string, { text: string; cls: string; title?: 
   // `task.dispatchError` («Fermato da te: … Rimetti il task in Todo per
   // ripartire») e diventa il tooltip. Un titolo fisso lo coprirebbe.
   [PARKED_STOPPED]: { text: 'fermato', cls: 'bg-white/10 text-app-text-secondary', Icon: Square },
+  // 'waited_out' = la SERIE di attese dichiarate ha sfondato il tetto. Il task è
+  // in Backlog e non riparte da solo, ma non ha fallito niente: aspettava, e
+  // quello che aspettava non è arrivato. Perciò indigo come 'in attesa' (è la
+  // stessa storia, un capitolo dopo) e non rosso come 'fallito' — con l'anello
+  // di 'fallito', che è ciò che distingue un park da un chip di passaggio.
+  // Il motivo NON è scritto qui: viaggia in `task.dispatchError` (quante attese,
+  // per cosa, da quanto) e diventa il tooltip. Un titolo fisso lo coprirebbe.
+  [PARKED_WAITED_OUT]: { text: 'troppa attesa', cls: 'bg-indigo-500/25 text-indigo-200 ring-1 ring-indigo-400/40', Icon: TimerOff },
 };
 
 // Single shared new-task draft → single caret key (board composer is global).

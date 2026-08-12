@@ -11,7 +11,7 @@
 // Il contratto della board sta in `shared/board.ts`, dichiarato UNA volta e
 // letto dai due lati del filo: `export … from` ri-esporta ma non porta i nomi
 // in scope locale, e qui sotto servono, quindi l'import gemello non è ridondante.
-export { MAX_FANOUT, TASK_STATUSES, ACTIVE_DISPATCH_STATES, PARKED_STOPPED, isAgentWorking, parseStatusEvent, hasPlanApproveOption, parseQuestionBlock } from '../../../shared/board';
+export { MAX_FANOUT, TASK_STATUSES, ACTIVE_DISPATCH_STATES, PARKED_STOPPED, PARKED_WAITED_OUT, isAgentWorking, parseStatusEvent, hasPlanApproveOption, parseQuestionBlock } from '../../../shared/board';
 export type {
   TaskStatus, TaskComment, ReviewCheck, CheckRun, BoardSettings, BoardSettingsPatch, DispatchCapacity, BlockerRef,
   LandingTicket,
@@ -627,6 +627,17 @@ export const boardApi = {
   /** L'esito del land richiesto per questo task (404 se non ne è mai stato chiesto uno). */
   landStatus: (projectId: string, taskId: string) =>
     req<{ landing: LandingTicket; pending: number }>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/land`),
+  /**
+   * «Ricattura evidenza» su una card GIÀ in review: riavvia l'anteprima dal suo
+   * worktree e la rifotografa. Non sveglia l'agent, non consuma un tentativo, non
+   * muove il task di colonna — e se non è possibile, il motivo arriva nel thread
+   * come review-note. Può metterci decine di secondi (boot + screenshot).
+   */
+  recapturePreview: (projectId: string, taskId: string) =>
+    req<{ task: BoardTask; previewImage: string | null; outputUrl: string | null }>(
+      `/boards/${enc(projectId)}/tasks/${enc(taskId)}/preview`,
+      { method: 'POST', body: JSON.stringify({}) },
+    ),
   /** Move a root task (and its subtree) to another board. */
   move: (projectId: string, taskId: string, toProjectId: string) =>
     req<BoardTask>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/move`, { method: 'POST', body: JSON.stringify({ toProjectId }) }),
