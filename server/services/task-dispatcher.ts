@@ -215,6 +215,32 @@ export interface DispatcherDeps {
    */
   topicExists?: (topicId: string) => boolean;
   /**
+   * Il lavoro che questa card ha consegnato è già DENTRO il ramo d'integrazione
+   * del suo repo?
+   *
+   * Serve al cancello che impedisce di rifare lavoro già atterrato. Il difetto è
+   * misurato: 32 card ridispacciate in un giorno, e due sole (`4ec47331`,
+   * `e54a9be6`) hanno bruciato 3,26M token per riprodurre codice che su main
+   * c'era già. Il land ha il suo cancello, ma una card torna in coda anche per
+   * altre strade — un trascinamento, un `done→todo`, un orfano recuperato — e da
+   * lì nessuno riguardava il repo prima di far partire un agente.
+   *
+   * Due cose che la risposta deve fare, e nessuna delle due è ovvia:
+   *  - chiedere del COMMIT, non del ramo: dopo il land il ramo è potato, e
+   *    chiedere di lui risponderebbe «non c'è» su un lavoro atterrato;
+   *  - guardare il CONTENUTO, non la sola discendenza: il land RICOPIA i commit
+   *    (`cherry-pick -C <sha>`), quindi dopo un land riuscito il commit di
+   *    consegna non è antenato di main. Un cancello basato sull'ancestry sarebbe
+   *    quasi sempre inerte — proprio sul caso normale. L'ospite lo risolve con la
+   *    stessa strada dell'audit degli atterraggi (`commitStatusFromRepo`).
+   *
+   * Tre valori: `true` dentro, `false` fuori, `null` non contabile. Solo il
+   * `true` chiude la card — su «non lo so» si dispaccia come sempre, perché
+   * chiudere una card sul dubbio significa buttare via il lavoro che manca.
+   * Assente (test/host degradato) ⇒ cancello spento, comportamento storico.
+   */
+  deliveryLanded?: (repoPath: string, commit: string) => Promise<boolean | null>;
+  /**
    * Claude sessions running OUTSIDE Topics right now at/under a directory
    * (see services/external-sessions.ts). The dispatcher can only see its OWN
    * agents, so without this a task lands in a repo the human is editing by
@@ -2385,6 +2411,66 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // its OWN scheduled tick (which deletes the timer first), never by a poll
       // firing mid-grace — otherwise a quick drag-through could still spawn.
       if (graceTimers.has(t.id)) continue;
+      // ── Il lavoro di questa card è GIÀ su main: si chiude, non riparte ────
+      //
+      // Una card che ha consegnato porta lo scatto della consegna
+      // (`deliveryCommit`), e quello sopravvive alla potatura del ramo. Se è
+      // dentro il ramo d'integrazione non c'è niente da rifare: rimandarci un
+      // agente vuol dire pagare due volte lo stesso lavoro, e in più farglielo
+      // riscrivere sopra a mano con i conflitti che ne seguono. Misurato l'11 e
+      // il 12/08: 32 ridispacci in un giorno, e le sole `4ec47331` e `e54a9be6`
+      // valgono 3,26M token e 91M di cache read.
+      //
+      // Il land ha già il suo cancello all'approvazione (`settleLanded`); questo
+      // copre le strade da cui la card rientra in coda DOPO — trascinata a mano,
+      // riaperta da `done→todo`, recuperata come orfana — dove nessuno guardava
+      // il repo prima di far partire un agente.
+      //
+      // Prima del claim e dentro il ciclo, non nel filtro sopra: qui la domanda
+      // si fa solo per le card che stanno per partire davvero, e solo per quelle
+      // che hanno una consegna registrata. Su tutte le altre non c'è nessuna
+      // chiamata a git.
+      //
+      // DUE cose che il cancello non tocca, e che senza guardia trasformano una
+      // difesa contro il lavoro rifatto in un modo per buttare via lavoro vero:
+      //
+      //  1. Una card che un UMANO ha rimesso in coda. È lo specchio esatto
+      //     dell'invariante che il repo si è già dato l'11/08 (tasks.ts, «una
+      //     card chiusa da un UMANO non la riapre un agente»): se la decisione
+      //     di una persona non la ribalta la macchina in un verso, non la
+      //     ribalta nemmeno nell'altro. Chi riapre una card atterrata sta
+      //     chiedendo un SEGUITO, e richiuderla gli risponde con una riga di
+      //     storico che non leggerà. Costa un turno crederci; costa una
+      //     richiesta buttata non crederci.
+      //  2. Un padre con sottotask ancora aperti. `done` con figli aperti è
+      //     rifiutato da tutte le porte normali (`update`, l'approvazione in
+      //     review) perché è uno stato che la board non sa raccontare, e questa
+      //     chiusura passa da `settleLanded`, che scrive SQL grezzo e non
+      //     ripassa da quel controllo. I conti dei sottotask arrivano già con la
+      //     lista (`withSubtaskCounts`): nessuna query in più.
+      const riapertaDaUnUmano = t.reopenedActor === "human";
+      const conFigliAperti = t.subtaskCount - t.subtaskDoneCount > 0;
+      if (t.deliveryCommit && deps.deliveryLanded && !riapertaDaUnUmano && !conFigliAperti) {
+        let landed: boolean | null = null;
+        try { landed = await deps.deliveryLanded(resolved.path, t.deliveryCommit); }
+        catch (err) { log(`sonda del commit di consegna fallita per ${t.id}`, err); }
+        // SOLO il `true` chiude: `null` è ignoranza (repo irraggiungibile, sha
+        // potato) e chiudere una card sull'ignoranza butterebbe via il lavoro
+        // che manca — l'errore opposto, e più caro, di quello che si ripara qui.
+        if (landed === true) {
+          try {
+            const closed = deps.svc.settleLanded({
+              taskId: t.id,
+              by: "system",
+              reason:
+                `il lavoro consegnato (${t.deliveryCommit.slice(0, 8)}) è già dentro main: ` +
+                "niente da rifare, la card si chiude invece di ripartire",
+            });
+            if (closed) emit(closed);
+          } catch (err) { log(`chiusura della card già atterrata fallita per ${t.id}`, err); }
+          continue;
+        }
+      }
       // The claim is the status CAS (todo → in_progress + chip 'starting');
       // the topic binding arrives in launch() via bindTopic() once the real
       // topic exists (assigned_topic_id has a FK to topics(id) — a placeholder
