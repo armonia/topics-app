@@ -104,7 +104,8 @@ import m095 from "./migrations/097-task-plan-comment.sql" with { type: "text" };
 import m096 from "./migrations/098-task-reopen-trace.sql" with { type: "text" };
 import m097 from "./migrations/099-landing-witnessed.sql" with { type: "text" };
 import m098 from "./migrations/100-task-labels.sql" with { type: "text" };
-import m099 from "./migrations/102-discord-presence.sql" with { type: "text" };
+import m099 from "./migrations/101-push-device-prefs.sql" with { type: "text" };
+import m100 from "./migrations/102-discord-presence.sql" with { type: "text" };
 
 export interface EmbeddedMigration {
   version: number;
@@ -213,5 +214,6 @@ export const EMBEDDED_MIGRATIONS: EmbeddedMigration[] = [
   { version: 98, name: "098-task-reopen-trace.sql", sql: m096 },
   { version: 99, name: "099-landing-witnessed.sql", sql: m097 },
   { version: 100, name: "100-task-labels.sql", sql: m098 },
-  { version: 102, name: "102-discord-presence.sql", sql: m099 },
+  { version: 101, name: "101-push-device-prefs.sql", sql: m099 },
+  { version: 102, name: "102-discord-presence.sql", sql: m100 },
 ];
