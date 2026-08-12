@@ -36,6 +36,7 @@ import { liveAgentCount } from "./agent-census";
 // chi la vuole la prende da `shared/board`.
 export type { TaskStatus, TaskComment, BoardSettings, BoardSettingsPatch, BlockerRef, SubtaskWork, QueueReason } from "../../shared/board";
 import {
+  DISPATCH_CHIP_QUEUED,
   MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PREVIEW_CARD_MAX_RATIO, QUEUE_REASON_UNKNOWN,
   TASK_STATUSES, WAIT_SERIES_MAX_MS, WAIT_STREAK_CAP,
   deriveQueueReason, deriveSubtaskWork, formatStatusEvent, hasPlanApproveOption, isAgentWorking,
@@ -1130,7 +1131,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           // dispaccia, e una ragione che dipendesse dalla memoria del
           // dispatcher sparirebbe proprio quando la card la si apre da un'altra
           // finestra.
-          heavyHeld: !r.parent_task_id && readTaskWeight(r.dispatch_weight) === "heavy" && r.dispatch_state === "queued",
+          heavyHeld: !r.parent_task_id && readTaskWeight(r.dispatch_weight) === "heavy" && r.dispatch_state === DISPATCH_CHIP_QUEUED,
           behind: r.parent_task_id ? 0 : countBehind(r, nowIso),
           parentStatus,
           projectless: r.project_id === UNASSIGNED_PROJECT_ID,
