@@ -1025,13 +1025,16 @@ export interface WSTaskReviewReadyMessage {
 /** Il gemello di FALLIMENTO: il task è stato PARCHEGGIATO e non riparte da
  *  solo. Emesso solo sul park terminale (mai su una rimessa in coda, che si
  *  auto-guarisce). `state`: 'failed' = l'agent non ha prodotto niente,
- *  'blocked' = c'è una configurazione da sistemare. */
+ *  'blocked' = c'è una configurazione da sistemare, 'waited_out' = la serie di
+ *  attese dichiarate ha sfondato il tetto (niente da riparare: una condizione
+ *  che non arriva). Tre stati perché sono tre domande diverse per l'umano, e la
+ *  copy del banner cambia su questo campo. */
 export interface WSTaskParkedMessage {
   type: 'task:parked';
   projectId: string;
   taskId: string;
   taskTitle: string;
-  state: 'failed' | 'blocked';
+  state: 'failed' | 'blocked' | 'waited_out';
   reason?: string;
 }
 
