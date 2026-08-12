@@ -815,6 +815,24 @@ const taskReviewReadySchema = z.looseObject({
   taskId: z.string(),
   taskTitle: z.string(),
   reason: z.optional(z.string()),
+  // La domanda pendente dell'agente, quando la consegna È una domanda. Viaggia
+  // QUI e non la si va a cercare dopo: è il dato che trasforma il banner in una
+  // risposta (le opzioni diventano i tasti — shared/notify-actions), e chi lo
+  // legge sono due superfici che non possono interrogare il DB (il service
+  // worker della push) o che pagherebbero un fetch in più per ogni consegna
+  // (il notificatore del client).
+  // NULLABLE e non semplicemente opzionale: `null` = «questo server ha
+  // guardato e domanda non ce n'è», assente = «server che non sa rispondere
+  // alla domanda» (uno vecchio). Il client si comporta diversamente nei due
+  // casi — vedi il commento in `emitReviewReadyEdge`.
+  question: z.optional(
+    z.nullable(
+      z.looseObject({
+        text: z.string(),
+        options: z.array(z.string()),
+      }),
+    ),
+  ),
 });
 
 // Il gemello di FALLIMENTO del fronte qui sopra: il task è stato PARCHEGGIATO e
