@@ -364,7 +364,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                   } else {
                     const projectName = targetDir.split("/").pop() || arg;
                     if (matchedTopic) bindTopicToProject(matchedTopic.id, targetDir, { focus: true });
-                    response = `Opened project **${projectName}** — bound to this topic.`;
+                    response = `Opened project **${projectName}**. It is now bound to this topic.`;
                   }
                 } else {
                   // No subcommand: show current + list
@@ -379,7 +379,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                     lines.push("", "**Workspace projects:**");
                     for (const p of wsProjects) {
                       const name = p.split("/").pop();
-                      lines.push(`- \`${name}\` — ${p}`);
+                      lines.push(`- \`${name}\` · ${p}`);
                     }
                   }
                   response = lines.join("\n");
@@ -1461,7 +1461,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // di testo, riadottato dopo un hot-reload del server. Il fix
             // precedente guardava le colonne giuste ma nel momento sbagliato.
             if (reason === "done" && !fullContent.trim() && !rowHasWorkDopoMerge() && !askingPlanApproval) {
-              const emptyErrorMsg = "⚠️ Nessuna risposta: il turno si è chiuso senza produrre niente. Il tuo messaggio è ancora qui — «Riprova» lo rimanda.";
+              const emptyErrorMsg = "⚠️ Nessuna risposta: il turno si è chiuso senza produrre niente. Il tuo messaggio è ancora qui: «Riprova» lo rimanda.";
               fullContent = emptyErrorMsg;
               blocks.push({ kind: "error", text: "Nessuna risposta: il turno si è chiuso senza produrre niente." });
               console.warn(`[StreamWS] Empty response for ${sessionKey}`);

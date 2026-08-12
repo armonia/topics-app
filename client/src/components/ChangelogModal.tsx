@@ -90,7 +90,7 @@ export function ChangelogModal({
         <div className="flex items-center gap-2 px-4 h-12 shrink-0 border-b border-app-border">
           <Sparkles size={15} className="text-primary" />
           <span className="text-[13px] font-semibold text-app-text">Novità</span>
-          <span className="text-[11px] text-app-text-muted">— cosa è cambiato, versione per versione</span>
+          <span className="text-[11px] text-app-text-muted">cosa è cambiato, versione per versione</span>
           <button
             onClick={onClose}
             className="ml-auto p-1 rounded hover:bg-app-hover text-app-text-muted hover:text-app-text transition-colors"
