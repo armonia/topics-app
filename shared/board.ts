@@ -106,37 +106,17 @@ export function statusEventEnters(content: string, status: TaskStatus): boolean 
  *
  * Ora il tetto è espresso come RAPPORTO della larghezza vera del riquadro
  * (unità di container query, `70cqw`), quindi la soglia è la stessa a ogni
- * larghezza di colonna e su mobile — e a tenerla tale è
- * `PREVIEW_CARD_MAX_WIDTH_PX`, che ferma la crescita della miniatura senza
- * toccarne le proporzioni. È anche la stessa soglia che misura il gate di
+ * larghezza di colonna e su mobile. La miniatura RIEMPIE la card: nessun tetto
+ * in px sul riquadro, perché una fascia vuota a destra in una colonna larga si
+ * legge come un difetto (Attilio, 12/08). Il prezzo è dichiarato: l'altezza
+ * cresce col rapporto, cioè 0.7 x 474 = 332px in review a 1280.
+ * È anche la stessa soglia che misura il gate di
  * promozione: due numeri diversi per la stessa immagine erano un odore, non
  * una politica.
  * @see client/src/components/Board/PreviewMedia.tsx
  */
 export const PREVIEW_CARD_MAX_RATIO = 0.7;
 
-/**
- * A crescere è la LARGHEZZA della miniatura, e si ferma qui.
- *
- * Serve un secondo tetto, perché il rapporto da solo non ne è uno: nella
- * colonna review, larga fino a 666px di riquadro, `0.7 × 666` sono 466px di
- * anteprima — una card che si mangia la colonna e nasconde le altre, cioè
- * esattamente il motivo per cui un tetto esiste.
- *
- * Il tetto poteva essere sull'ALTEZZA (`max-h: Npx`), ed è la strada che è
- * stata provata e scartata MISURANDO: un tetto in px sull'altezza rimette
- * dentro il difetto che questo cambio toglie — sopra una certa larghezza
- * comanda lui e il rapporto effettivo torna a scendere, quindi il numero del
- * protocollo tornerebbe a essere vero solo in certe colonne.
- *
- * Sulla LARGHEZZA invece no: oltre 380px la miniatura smette di crescere, la
- * larghezza in più della colonna va al testo, e il rapporto resta 0.7 a
- * QUALSIASI larghezza di colonna. Il tetto sull'altezza esiste comunque, ma
- * come conseguenza: `0.7 × 380` = 266px, che a 1280×800 è ~2/3 del corpo
- * colonna — la card si vede intera senza scorrere, e in una colonna di lavoro
- * (miniatura 250px) se ne vedono due.
- */
-export const PREVIEW_CARD_MAX_WIDTH_PX = 380;
 
 /**
  * Come si sceglie l'anteprima di una consegna. **Questa stringa è la copia
@@ -318,6 +298,58 @@ export function isAgentWorking(
  * tabella delle chip del client).
  */
 export const PARKED_STOPPED = 'stopped';
+
+/**
+ * «Aspetta da troppo», scritto — e deliberatamente NON `failed`.
+ *
+ * Un'attesa dichiarata (`wait_for_condition`) è la cosa giusta da fare: l'agent
+ * ha capito che la condizione non dipende da lui e ha restituito lo slot invece
+ * di dormirci sopra. Quando la serie di attese sfonda il tetto, il task si ferma
+ * lo stesso — ma ciò che si è esaurito è la PAZIENZA, non l'agent: la decisione
+ * torna all'umano perché la condizione non arriva, non perché qualcosa è rotto.
+ *
+ * Ha gli stessi tre lettori di `PARKED_STOPPED`, ed è per questo che vive qui:
+ * chi lo SCRIVE (`deferForWait`, quando la serie sfonda), chi lo PRESERVA (la
+ * coda di `onTurnEnd`, che senza guardia riazzera la chip del turno che si è
+ * appena parcheggiato da solo) e chi lo DISEGNA (la tabella delle chip).
+ */
+export const PARKED_WAITED_OUT = 'waited_out';
+
+/**
+ * Quante attese di FILA per la stessa ragione, prima che decida un umano.
+ *
+ * Sei e non due, che è il tetto dei tentativi di dispatch: quel numero frena i
+ * turni MORTI, e per quelli due è generoso. Un'attesa non è un turno morto, e
+ * col default di 15 minuti sei attese sono un'ora e mezza di condizione che non
+ * arriva. Sotto quella soglia fermare il task vorrebbe dire chiedere all'umano
+ * di guardare una cosa che stava per sistemarsi da sola.
+ */
+export const WAIT_STREAK_CAP = 6;
+
+/**
+ * Il tetto sull'ALTRA grandezza: quanto è lunga la serie in orologio.
+ *
+ * Serve perché `minutes` lo sceglie l'agent e arriva a 1440: due attese da
+ * dodici ore non sfondano mai il tetto sul conteggio, ma sono un giorno in cui
+ * nessuno ha guardato la card. Si misura dall'inizio della serie a ORA, non
+ * sommando le finestre chieste: la finestra è una promessa, il tempo passato è
+ * un fatto.
+ */
+export const WAIT_SERIES_MAX_MS = 4 * 60 * 60 * 1000;
+
+/**
+ * La ragione ridotta alla sua identità: è questo che decide se un'attesa
+ * CONTINUA la serie o ne apre una nuova.
+ *
+ * Minuscole e spazi compattati perché la stessa attesa, ridichiarata da un turno
+ * nuovo che non ha in mano il testo esatto di prima, si riscrive a mano quasi
+ * uguale. «Aspetto che CI finisca» e «aspetto che ci finisca  » sono la stessa
+ * condizione, e contarle come due serie diverse azzererebbe il contatore a ogni
+ * giro. Cioè lo renderebbe un contatore che non conta niente.
+ */
+export function waitReasonKey(reason: string): string {
+  return reason.trim().toLowerCase().replace(/\s+/g, ' ');
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Blocco `question` — il formato, dichiarato dove SCRITTURA e LETTURA lo vedono
