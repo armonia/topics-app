@@ -27,6 +27,7 @@ import {
   type ScrollEvent,
 } from './scrollAuthority';
 import { coalesceToolRuns, type CoalescedMessage } from './coalesceToolRun';
+import { SkeletonChatMessages } from '../Shared/Skeleton';
 
 /**
  * La LISTA di Virtuoso, cappata alla misura di lettura.
@@ -647,6 +648,98 @@ export function MessageList({
     openVerifyTimersRef.current.forEach(window.clearTimeout);
     openVerifyTimersRef.current = [];
   }, []);
+
+  // ── IL SIPARIO ────────────────────────────────────────────────────────────
+  /**
+   * La lista non si guarda mentre si monta.
+   *
+   * MISURATO al refresh (sonda `tests/e2e/refresh-cls.spec.ts`, 390×844): il
+   * blocco dell'ultimo messaggio si sposta TRE volte fra i 138 e i 178ms —
+   * y 40 → 264 → 694 → 504 — e da solo vale un CLS di 0,296, cioè il 100% del
+   * movimento dell'intera pagina. Non è lentezza né rete: i messaggi sono già in
+   * cache locale. È Virtuoso che monta con le altezze ancora da misurare, le
+   * misura a più riprese e ri-ancora al fondo; l'assestamento è corretto, ma
+   * finora si svolgeva SOTTO GLI OCCHI, ed è esattamente il «cose che caricano
+   * dopo, quando in realtà c'erano già prima del refresh».
+   *
+   * Qui non si accelera l'assestamento — non si può, le altezze vere si sanno
+   * solo misurandole — si smette di darlo in scena: la lista resta
+   * `visibility: hidden` (che ha layout, quindi Virtuoso misura eccome) finché
+   * la geometria non sta ferma, e al suo posto c'è lo scheletro, ancorato in
+   * fondo com'è ancorata la chat. Chi guarda vede una superficie ferma che
+   * diventa la conversazione, non una conversazione che si assembla.
+   *
+   * SI CHIUDE SEMPRE, e in fretta: due frame con `scrollHeight` e `scrollTop`
+   * identici, oppure il tetto duro qui sotto. Non c'è nessuno stato in cui
+   * possa restare aperto — un sipario che non si alza è peggio di uno spinner.
+   */
+  /** Quanti frame di geometria IMMOBILE bastano a dire «si è posata». Due e non
+   *  uno: una singola coincidenza fra due frame capita a metà di un
+   *  assestamento, due di fila no. */
+  const LIST_REVEAL_STABLE_FRAMES = 2;
+  /**
+   * Prima di tanto non si alza MAI, anche a geometria ferma.
+   *
+   * Il primo dei tre controlli a scoppio ritardato dell'apertura
+   * (`OPEN_VERIFY_MS[0]`, 250ms) è l'ultima cosa che può ancora spostare la
+   * vista, e lo fa per davvero: misurato dopo il sipario a due frame, la lista
+   * stava ferma, si scopriva, e a 250ms dal montaggio quel controllo la portava
+   * al fondo vero — 190px di salto, in scena. Il pavimento sta appena oltre quel
+   * controllo, così il salto avviene dietro lo scheletro. È il prezzo dichiarato
+   * di questa card: la chat compare un terzo di secondo dopo, e compare FERMA.
+   */
+  const LIST_REVEAL_FLOOR_MS = 320;
+  /** Oltre questo, si alza comunque. Copre il caso in cui la geometria non stia
+   *  ferma per un motivo legittimo (uno stream che scrive mentre apri): lì
+   *  l'attesa non finirebbe mai, e vedere la lista muoversi è meglio che non
+   *  vederla. */
+  const LIST_REVEAL_HARD_CAP_MS = 600;
+  /** Fin qui dall'apertura, una lista che si popola è ancora «la chat che si
+   *  apre». Dopo, è un messaggio che arriva — e un messaggio che arriva non
+   *  deve far lampeggiare uno scheletro (era il caso della prima riga scritta
+   *  in una chat vuota). */
+  const CURTAIN_ARM_WINDOW_MS = 1200;
+  const [listSettled, setListSettled] = useState(false);
+  /** Quando questa chat si è aperta. Lo scrive l'effetto qui sotto, che gira
+   *  al montaggio e a ogni cambio di topic — cioè in tutti e soli i momenti in
+   *  cui «apertura» vuol dire qualcosa. */
+  const openedAtRef = useRef(performance.now());
+  useEffect(() => {
+    openedAtRef.current = performance.now();
+    setListSettled(false);
+  }, [topic.id]);
+  useEffect(() => {
+    if (listSettled) return;
+    if (!scrollerEl || filteredMessages.length === 0) return;
+    // Non è un'apertura: è la chat che stavi già guardando e a cui è arrivato
+    // qualcosa. Niente sipario.
+    if (performance.now() - openedAtRef.current > CURTAIN_ARM_WINDOW_MS) {
+      setListSettled(true);
+      return;
+    }
+    const inizio = performance.now();
+    let raf = 0;
+    let ultimaH = -1;
+    let ultimoTop = -1;
+    let fermi = 0;
+    const guarda = () => {
+      const el = scrollerElRef.current;
+      if (!el) { raf = requestAnimationFrame(guarda); return; }
+      const h = el.scrollHeight;
+      const top = Math.round(el.scrollTop);
+      if (h === ultimaH && top === ultimoTop) fermi += 1; else fermi = 0;
+      ultimaH = h;
+      ultimoTop = top;
+      const trascorso = performance.now() - inizio;
+      if ((fermi >= LIST_REVEAL_STABLE_FRAMES && trascorso >= LIST_REVEAL_FLOOR_MS) || trascorso > LIST_REVEAL_HARD_CAP_MS) {
+        setListSettled(true);
+        return;
+      }
+      raf = requestAnimationFrame(guarda);
+    };
+    raf = requestAnimationFrame(guarda);
+    return () => cancelAnimationFrame(raf);
+  }, [listSettled, scrollerEl, filteredMessages.length, topic.id]);
 
   // Scroll to bottom after messages load for a new topic.
   // Skipped while a palette jump target is pending (peekScrollToMessage): the
@@ -1325,21 +1418,13 @@ export function MessageList({
 
       <NewMessageBanner show={showNewBanner} onClick={scrollToBottom} />
 
+      {/* Lo scheletro, UNO SOLO per i due momenti in cui serve: la chat che non
+          ha ancora niente da mostrare (primo avvio vero, nessuna cache) e la
+          lista che si sta ancora posando (il sipario, sopra). Erano due
+          disegni diversi — tre bolle allineate IN CIMA con misure inventate —
+          e il passaggio dall'uno all'altra era esso stesso un salto. */}
       {currentLoading && currentMessages.length === 0 ? (
-        <div className={`chat-measure ${isMobile ? 'px-2' : 'px-4'} ${isCompact ? 'space-y-1' : 'space-y-2'} overflow-hidden`}>
-          {[1,2,3].map(i => (
-            <div key={i} className={`flex gap-1.5 ${i % 2 === 0 ? 'justify-end' : 'justify-start'} animate-pulse`}>
-              <div className={`rounded-lg px-3 py-2 max-w-[85%] ${
-                i % 2 === 0 
-                  ? 'bg-primary/20' 
-                  : 'bg-app-hover'
-              }`}>
-                <div className="h-3 rounded w-32 mb-1.5 bg-black/10 dark:bg-white/10" />
-                <div className="h-3 rounded w-20 bg-black/5 dark:bg-white/5" />
-              </div>
-            </div>
-          ))}
-        </div>
+        <SkeletonChatMessages isMobile={isMobile} />
       ) : filteredMessages.length === 0 ? (
         /* Niente. Il vuoto di una chat lo disegna `ChatEmptyState`, dentro il
            blocco del composer: i due si centrano insieme e scivolano insieme in
@@ -1348,6 +1433,8 @@ export function MessageList({
            e non c'era modo di muoverli come una cosa sola. */
         null
       ) : (
+        <>
+        {!listSettled && <SkeletonChatMessages isMobile={isMobile} />}
         <Virtuoso
           data-testid="chat-message-list"
           key={topic.id}
@@ -1558,8 +1645,14 @@ export function MessageList({
             );
           }}
           components={virtuosoComponents}
-          style={{ height: '100%' }}
+          // `visibility` e non `opacity`: un elemento a opacità zero VIENE
+          // DIPINTO (e i suoi spostamenti contano lo stesso nel CLS), uno
+          // `hidden` no — ma tiene il layout, quindi Virtuoso continua a
+          // misurare le altezze mentre il sipario è chiuso. È l'unica delle due
+          // che fa entrambe le cose.
+          style={{ height: '100%', visibility: listSettled ? undefined : 'hidden' }}
         />
+        </>
       )}
 
       <div ref={messagesEndRef} />
