@@ -215,6 +215,26 @@ export interface DispatcherDeps {
    */
   topicExists?: (topicId: string) => boolean;
   /**
+   * Il commit che questa card ha consegnato è già DENTRO il ramo d'integrazione
+   * del suo repo? (`commitIsIn`, cioè `merge-base --is-ancestor`.)
+   *
+   * Serve al cancello che impedisce di rifare lavoro già atterrato. Il difetto è
+   * misurato: 32 card ridispacciate in un giorno, e due sole (`4ec47331`,
+   * `e54a9be6`) hanno bruciato 3,26M token per riprodurre codice che su main
+   * c'era già. Il land ha il suo cancello, ma una card torna in coda anche per
+   * altre strade — un trascinamento, un `done→todo`, un orfano recuperato — e da
+   * lì nessuno riguardava il repo prima di far partire un agente.
+   *
+   * La domanda si fa sul COMMIT e non sul ramo apposta: dopo il land il ramo è
+   * potato, e chiedere di lui risponderebbe «non c'è» su un lavoro atterrato.
+   *
+   * Tre valori: `true` dentro, `false` fuori, `null` non contabile. Solo il
+   * `true` chiude la card — su «non lo so» si dispaccia come sempre, perché
+   * chiudere una card sul dubbio significa buttare via il lavoro che manca.
+   * Assente (test/host degradato) ⇒ cancello spento, comportamento storico.
+   */
+  deliveryLanded?: (repoPath: string, commit: string) => Promise<boolean | null>;
+  /**
    * Claude sessions running OUTSIDE Topics right now at/under a directory
    * (see services/external-sessions.ts). The dispatcher can only see its OWN
    * agents, so without this a task lands in a repo the human is editing by
@@ -2385,6 +2405,46 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // its OWN scheduled tick (which deletes the timer first), never by a poll
       // firing mid-grace — otherwise a quick drag-through could still spawn.
       if (graceTimers.has(t.id)) continue;
+      // ── Il lavoro di questa card è GIÀ su main: si chiude, non riparte ────
+      //
+      // Una card che ha consegnato porta lo scatto della consegna
+      // (`deliveryCommit`), e quello sopravvive alla potatura del ramo. Se è
+      // dentro il ramo d'integrazione non c'è niente da rifare: rimandarci un
+      // agente vuol dire pagare due volte lo stesso lavoro, e in più farglielo
+      // riscrivere sopra a mano con i conflitti che ne seguono. Misurato l'11 e
+      // il 12/08: 32 ridispacci in un giorno, e le sole `4ec47331` e `e54a9be6`
+      // valgono 3,26M token e 91M di cache read.
+      //
+      // Il land ha già il suo cancello all'approvazione (`settleLanded`); questo
+      // copre le strade da cui la card rientra in coda DOPO — trascinata a mano,
+      // riaperta da `done→todo`, recuperata come orfana — dove nessuno guardava
+      // il repo prima di far partire un agente.
+      //
+      // Prima del claim e dentro il ciclo, non nel filtro sopra: qui la domanda
+      // si fa solo per le card che stanno per partire davvero, e solo per quelle
+      // che hanno una consegna registrata. Su tutte le altre non c'è nessuna
+      // chiamata a git.
+      if (t.deliveryCommit && deps.deliveryLanded) {
+        let landed: boolean | null = null;
+        try { landed = await deps.deliveryLanded(resolved.path, t.deliveryCommit); }
+        catch (err) { log(`sonda del commit di consegna fallita per ${t.id}`, err); }
+        // SOLO il `true` chiude: `null` è ignoranza (repo irraggiungibile, sha
+        // potato) e chiudere una card sull'ignoranza butterebbe via il lavoro
+        // che manca — l'errore opposto, e più caro, di quello che si ripara qui.
+        if (landed === true) {
+          try {
+            const closed = deps.svc.settleLanded({
+              taskId: t.id,
+              by: "system",
+              reason:
+                `il lavoro consegnato (${t.deliveryCommit.slice(0, 8)}) è già dentro main: ` +
+                "niente da rifare, la card si chiude invece di ripartire",
+            });
+            if (closed) emit(closed);
+          } catch (err) { log(`chiusura della card già atterrata fallita per ${t.id}`, err); }
+          continue;
+        }
+      }
       // The claim is the status CAS (todo → in_progress + chip 'starting');
       // the topic binding arrives in launch() via bindTopic() once the real
       // topic exists (assigned_topic_id has a FK to topics(id) — a placeholder
