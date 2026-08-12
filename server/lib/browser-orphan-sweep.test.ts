@@ -11,6 +11,12 @@ import {
   type ProcRow,
 } from "./browser-orphan-sweep";
 
+
+/** La home nelle fixture e' neutra apposta: le righe vengono da un `ps` vero,
+ *  ma questo repo e' PUBBLICO e il nome utente non ci deve finire (il cancello
+ *  e' `tests/unit/no-home-paths-tracked.test.ts`). Per la regola il percorso non
+ *  conta: conta la FORMA della riga. */
+const CASA = "/Users/utente";
 // ─────────────────────────────────────────────────────────────────────────────
 // Le righe di comando qui sotto sono COPIATE da un `ps -axo pid=,ppid=,command=`
 // vero (macchina di Attilio, 12/08/2026), accorciate solo nei percorsi lunghi.
@@ -28,10 +34,10 @@ import {
 //     della regola.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const PW = "/Users/zorahrel/Library/Caches/ms-playwright/chromium-1217/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing";
-const HELPER = "/Users/zorahrel/Library/Caches/ms-playwright/chromium-1217/chrome-mac-arm64/Google Chrome for Testing.app/Contents/Frameworks/Google Chrome for Testing Framework.framework/Versions/147.0.7727.15/Helpers/Google Chrome for Testing Helper.app/Contents/MacOS/Google Chrome for Testing Helper";
-const CRASHPAD = "/Users/zorahrel/Library/Caches/ms-playwright/chromium-1217/chrome-mac-arm64/Google Chrome for Testing.app/Contents/Frameworks/Google Chrome for Testing Framework.framework/Versions/147.0.7727.15/Helpers/chrome_crashpad_handler";
-const SIDECAR_PROFILE = "/Users/zorahrel/.openclaw/chromium-sidecar";
+const PW = `${CASA}/Library/Caches/ms-playwright/chromium-1217/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing`;
+const HELPER = `${CASA}/Library/Caches/ms-playwright/chromium-1217/chrome-mac-arm64/Google Chrome for Testing.app/Contents/Frameworks/Google Chrome for Testing Framework.framework/Versions/147.0.7727.15/Helpers/Google Chrome for Testing Helper.app/Contents/MacOS/Google Chrome for Testing Helper`;
+const CRASHPAD = `${CASA}/Library/Caches/ms-playwright/chromium-1217/chrome-mac-arm64/Google Chrome for Testing.app/Contents/Frameworks/Google Chrome for Testing Framework.framework/Versions/147.0.7727.15/Helpers/chrome_crashpad_handler`;
+const SIDECAR_PROFILE = `${CASA}/.openclaw/chromium-sidecar`;
 const TMP_A = "/var/folders/d8/0rlg1q2x64gbx_cn5y2qjf8w0000gn/T/playwright_chromiumdev_profile-aaaaaa";
 const TMP_B = "/var/folders/d8/0rlg1q2x64gbx_cn5y2qjf8w0000gn/T/playwright_chromiumdev_profile-bbbbbb";
 
@@ -71,7 +77,7 @@ describe("i due discriminanti letti dalla riga di comando", () => {
   });
 
   test("crashpad NON è un helper per --type=, e non è attribuibile a nessun profilo", () => {
-    const line = `${CRASHPAD} --monitor-self --monitor-self-annotation=ptype=crashpad-handler --database=/Users/zorahrel/Library/Application Support/Google/Chrome for Testing/Crashpad --annotation=plat=OS X`;
+    const line = `${CRASHPAD} --monitor-self --monitor-self-annotation=ptype=crashpad-handler --database=${CASA}/Library/Application Support/Google/Chrome for Testing/Crashpad --annotation=plat=OS X`;
     expect(isChromiumHelper(line)).toBe(false);
     expect(userDataDirOf(line)).toBeNull();
     expect(parseBrowserMark(line)).toBeNull();
@@ -90,7 +96,7 @@ describe("i due discriminanti letti dalla riga di comando", () => {
 describe("parseProcSnapshot", () => {
   test("legge il formato vero di ps, spazi di allineamento compresi", () => {
     const out = [
-      "59415     1 /Users/zorahrel/Library/Caches/ms-playwright/chromium-1217/chrome-mac-arm64/x --headless=new --remote-debugging-port=9333",
+      `59415     1 ${CASA}/Library/Caches/ms-playwright/chromium-1217/chrome-mac-arm64/x --headless=new --remote-debugging-port=9333`,
       " 8157 53649 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome Helper --type=renderer",
       "",
       "  312     1 /sbin/launchd",
@@ -100,7 +106,7 @@ describe("parseProcSnapshot", () => {
         pid: 59415,
         ppid: 1,
         command:
-          "/Users/zorahrel/Library/Caches/ms-playwright/chromium-1217/chrome-mac-arm64/x --headless=new --remote-debugging-port=9333",
+          `${CASA}/Library/Caches/ms-playwright/chromium-1217/chrome-mac-arm64/x --headless=new --remote-debugging-port=9333`,
       },
       {
         pid: 8157,
@@ -124,7 +130,7 @@ function scenario(): ProcRow[] {
   return [
     { pid: 1, ppid: 0, command: "/sbin/launchd" },
     // Il nostro server VIVO.
-    { pid: 500, ppid: 400, command: "bun run /Users/zorahrel/Projects/topics-app/server.ts" },
+    { pid: 500, ppid: 400, command: `bun run ${CASA}/Projects/topics-app/server.ts` },
     // Il browser dell'agente di QUEL server: vivo e legittimo.
     {
       pid: 600,
@@ -159,14 +165,14 @@ function scenario(): ProcRow[] {
     {
       pid: 703,
       ppid: 1,
-      command: `${CRASHPAD} --monitor-self --database=/Users/zorahrel/Library/Application Support/Google/Chrome for Testing/Crashpad`,
+      command: `${CRASHPAD} --monitor-self --database=${CASA}/Library/Application Support/Google/Chrome for Testing/Crashpad`,
     },
     // ── ESTRANEI, da non toccare mai ──
     // Il chromium di wigolo (Playwright, profilo temporaneo, nessun marchio).
     {
       pid: 800,
       ppid: 799,
-      command: `/Users/zorahrel/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell --remote-debugging-pipe --user-data-dir=/var/folders/d8/T/playwright_chromiumdev_profile-dV2en6`,
+      command: `${CASA}/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell --remote-debugging-pipe --user-data-dir=/var/folders/d8/T/playwright_chromiumdev_profile-dV2en6`,
     },
     // L'headless su 9333 di origine non attribuita, ppid 1 da 17 ore.
     { pid: 810, ppid: 1, command: `${PW} --headless=new --remote-debugging-port=9333 --user-data-dir=/tmp/cft-profile` },
@@ -175,7 +181,7 @@ function scenario(): ProcRow[] {
       pid: 820,
       ppid: 1,
       command:
-        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome --user-data-dir=/Users/zorahrel/.cache/cdp-mcp/skill-profile --remote-debugging-port=19223",
+        `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome --user-data-dir=${CASA}/.cache/cdp-mcp/skill-profile --remote-debugging-port=19223`,
     },
   ];
 }
@@ -285,7 +291,7 @@ describe("i casi limite che decidono se la regola è sicura", () => {
     // nessuno lo governa più. Una regola su ppid == 1 qui lo lascia lì.
     const rows: ProcRow[] = [
       { pid: 1, ppid: 0, command: "/sbin/launchd" },
-      { pid: 400, ppid: 1, command: "/bin/bash /Users/zorahrel/Projects/topics-app/scripts/start-prod.sh" },
+      { pid: 400, ppid: 1, command: `/bin/bash ${CASA}/Projects/topics-app/scripts/start-prod.sh` },
       { pid: 500, ppid: 400, command: "bun run server.ts" }, // il server NUOVO
       {
         pid: 600,
@@ -342,7 +348,7 @@ describe("i casi limite che decidono se la regola è sicura", () => {
     // Testing» ce l'hanno. Due famiglie, due sole strade per raggiungere i
     // pezzi: il profilo per una, il padre per l'altra. Servono entrambe.
     const SHELL =
-      "/Users/zorahrel/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell";
+      `${CASA}/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell`;
     const rows: ProcRow[] = [
       { pid: 1, ppid: 0, command: "/sbin/launchd" },
       {
