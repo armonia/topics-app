@@ -477,6 +477,8 @@ export interface MergeOutcome {
   merged: Task;
   movedComments: number;
   movedChildren: number;
+  /** Quante card che aspettavano l'assorbita ora aspettano la superstite. */
+  movedBlockers: number;
 }
 
 export interface TaskService {
@@ -1636,6 +1638,24 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     }
   }
 
+  /**
+   * Archiviazione a cascata: archiviare un padre archivia TUTTO il sottoalbero
+   * (soft-delete voluto: un sottotask orfano di un padre archiviato sarebbe una
+   * riga irraggiungibile, che la board non può più mostrare in contesto).
+   * Unica implementazione, condivisa da `archive()` e da `merge()`: due copie
+   * significherebbero due semantiche che divergono al primo ritocco.
+   */
+  function archiveSubtree(taskId: string, ts: string): void {
+    db.prepare(
+      `WITH RECURSIVE subtree(id) AS (
+         SELECT id FROM tasks WHERE id = ?
+         UNION ALL
+         SELECT t.id FROM tasks t JOIN subtree s ON t.parent_task_id = s.id
+       )
+       UPDATE tasks SET archived = 1, updated_at = ? WHERE id IN (SELECT id FROM subtree)`,
+    ).run(taskId, ts);
+  }
+
   return {
     create(input: CreateTaskInput): Task {
       const text = (input.text ?? "").trim();
@@ -2187,15 +2207,15 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
      *
      * La promessa, scritta com'e' verificata in `task-merge.test.ts`: NIENTE
      * viene cancellato. La card assorbita resta come riga archiviata, il suo
-     * thread e i suoi sottotask passano alla superstite, e le due card si
-     * scrivono a vicenda dove e' finito il lavoro.
+     * thread, i suoi sottotask e chi la aspettava passano alla superstite, e le
+     * due card si scrivono a vicenda dove e' finito il lavoro.
      *
-     * L'ordine dentro la transazione non e' negoziabile. I sottotask si
-     * staccano PRIMA dell'archiviazione, perche' `archive()` cascata su tutto
-     * il sottoalbero (e' un soft-delete voluto: un sottotask orfano di un padre
-     * archiviato sarebbe una riga irraggiungibile). Staccarli dopo vorrebbe
-     * dire archiviarli e poi riesumarli, cioe' una finestra in cui il lavoro di
-     * qualcun altro risulta sparito.
+     * L'ordine dentro la transazione non e' negoziabile, e si puo' falsificare:
+     * l'archiviazione passa da `archiveSubtree`, la stessa cascata di
+     * `archive()`, quindi i sottotask vanno staccati PRIMA. Spostare la riga
+     * `archiveSubtree` sopra `moveChildren` fa diventare rosso «i sottotask
+     * passano sotto la superstite, VIVI»: finirebbero sotto la superstite gia'
+     * archiviati, cioe' invisibili.
      *
      * Il limite, detto chiaro: la fusione NON e' reversibile con un tasto. Non
      * si perde niente, ma per tornare indietro bisogna sapere quali commenti
@@ -2242,6 +2262,21 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         throw new TaskServiceError("invalid_transition", "la superstite e' un sottotask della card da fondere: fondi al contrario");
       }
 
+      // Chi NON va ripuntato sulla superstite: la superstite stessa (si
+      // bloccherebbe da sola) e chiunque stia già nella SUA catena di attesa
+      // (survivor ← ponte ← assorbita: ripuntare il ponte chiuderebbe l'anello
+      // survivor ← ponte ← survivor, e i due resterebbero fermi per sempre).
+      // Chi resta escluso continua a puntare la card archiviata, cioè risulta
+      // sbloccato: giusto, perché il suo prerequisito è diventato la superstite
+      // che lo aspetta a sua volta.
+      const noRipunta = new Set<string>([intoTaskId]);
+      let risalita: string | null = winner.blocked_by_task_id ?? null;
+      for (let hops = 0; risalita && hops < 100; hops++) {
+        noRipunta.add(risalita);
+        risalita = (getTaskRow(risalita)?.blocked_by_task_id ?? null) as string | null;
+      }
+      const esclusi = [...noRipunta];
+
       const ts = now();
       const run = db.transaction(() => {
         const moveChildren = db.prepare(
@@ -2250,11 +2285,33 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         // I commenti mantengono created_at: il thread della superstite resta in
         // ordine cronologico invece di avere un blocco appiccicato in fondo.
         const moveComments = db.prepare("UPDATE task_comments SET task_id = ? WHERE task_id = ?").run(intoTaskId, taskId);
-        db.prepare("UPDATE tasks SET archived = 1, updated_at = ? WHERE id = ?").run(ts, taskId);
+        // Il puntatore `bloccata da` passa alla superstite. Senza questo, la
+        // card assorbita risulta ARCHIVIATA, e `isDispatchBlocked` legge
+        // `status='done' OR archived=1`: chi la aspettava crede che il
+        // prerequisito sia finito e parte, mentre il lavoro è appena stato
+        // spostato altrove e non l'ha ancora fatto nessuno.
+        const moveBlockers = db.prepare(
+          `UPDATE tasks SET blocked_by_task_id = ?, updated_at = ?
+            WHERE blocked_by_task_id = ? AND archived = 0
+              AND id NOT IN (${esclusi.map(() => "?").join(", ")})`,
+        ).run(intoTaskId, ts, taskId, ...esclusi);
+        // Caso a parte: la superstite aspettava proprio la card che assorbe. Il
+        // prerequisito è diventato lei stessa, quindi non resta niente da
+        // aspettare, e un puntatore a una riga archiviata è solo un rudere.
+        db.prepare(
+          "UPDATE tasks SET blocked_by_task_id = NULL, updated_at = ? WHERE id = ? AND blocked_by_task_id = ?",
+        ).run(ts, intoTaskId, taskId);
+        // L'archiviazione passa dalla stessa cascata di `archive()`, e per
+        // questo l'ordine qui sopra NON è negoziabile: i sottotask si staccano
+        // PRIMA, altrimenti la cascata li archivia e finiscono sotto la
+        // superstite già invisibili. Invertire le due righe fa diventare rosso
+        // «i sottotask passano sotto la superstite, VIVI».
+        archiveSubtree(taskId, ts);
         db.prepare("UPDATE tasks SET updated_at = ? WHERE id = ?").run(ts, intoTaskId);
         return {
           children: Number(moveChildren.changes ?? 0),
           comments: Number(moveComments.changes ?? 0),
+          blockers: Number(moveBlockers.changes ?? 0),
         };
       });
       const moved = run();
@@ -2263,7 +2320,15 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // macchina. Non conta come ultima parola dell'agente e non sveglia
       // nessuno, ma resta nel thread di entrambe le card.
       const short = (id: string) => id.slice(0, 8);
-      addNote(intoTaskId, by, `Assorbita la card ${short(taskId)}, «${loser.text}». Commenti e sottotask sono qui.`);
+      // Il ripuntamento dei bloccanti cambia CHI aspetta questa card: senza
+      // scriverlo, un umano lo scopre solo quando un dispatch parte prima del
+      // previsto.
+      const anche = moved.blockers === 1
+        ? " Anche 1 card che aspettava quella ora aspetta questa."
+        : moved.blockers > 1
+          ? ` Anche ${moved.blockers} card che aspettavano quella ora aspettano questa.`
+          : "";
+      addNote(intoTaskId, by, `Assorbita la card ${short(taskId)}, «${loser.text}». Commenti e sottotask sono qui.${anche}`);
       addNote(taskId, by, `Fusa nella card ${short(intoTaskId)}, «${winner.text}».`);
 
       const [survivor] = withSubtaskCounts([rowToTask(getTaskRow(intoTaskId))]);
@@ -2272,6 +2337,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         merged: rowToTask(getTaskRow(taskId)),
         movedComments: moved.comments,
         movedChildren: moved.children,
+        movedBlockers: moved.blockers,
       };
     },
 
@@ -2299,17 +2365,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         throw new TaskServiceError("not_found", `task ${taskId} not found`);
       }
       const ts = now();
-      // Cascade: archiving a parent archives its whole subtree (soft-delete,
-      // unlimited depth) — orphan subtasks of an archived parent would be
-      // unreachable rows the board can never show in context.
-      db.prepare(
-        `WITH RECURSIVE subtree(id) AS (
-           SELECT id FROM tasks WHERE id = ?
-           UNION ALL
-           SELECT t.id FROM tasks t JOIN subtree s ON t.parent_task_id = s.id
-         )
-         UPDATE tasks SET archived = 1, updated_at = ? WHERE id IN (SELECT id FROM subtree)`,
-      ).run(taskId, ts);
+      archiveSubtree(taskId, ts);
       return rowToTask(getTaskRow(taskId));
     },
 
