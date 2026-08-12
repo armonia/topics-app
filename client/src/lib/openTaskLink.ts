@@ -226,6 +226,18 @@ export function subscribePopstateTask(cb: (target: TaskTarget | null) => void): 
  *  and by self-origin link interception (a buildTaskLink URL pasted in a comment
  *  points back at this app — open the drawer instead of spawning a browser). */
 export function openTaskInApp(target: TaskTarget): void {
+  // PRIMA la URL, poi gli eventi. L'ordine è load-bearing quando la board non è
+  // ancora montata — il caso della cronologia delle notifiche, dove il click
+  // parte dalla colonna e non da una board già aperta.
+  //
+  // `topics:open-task` lo ascolta la board GLOBALE, cioè un componente che in
+  // quel momento non esiste: l'evento cade nel vuoto e `topics:open-utility`
+  // monta la pane un istante dopo, quando l'unica cosa che il drawer può
+  // leggere è `currentTaskTarget()` — la URL. Senza questa riga il pannello si
+  // apriva e restava sulla lista, senza drawer, e il click della notifica non
+  // portava «alla cosa». Con la board già aperta non cambia niente: l'evento
+  // arriva comunque e `reflectPath` non spinge un duplicato.
+  reflectTaskOpen(target);
   window.dispatchEvent(new CustomEvent('topics:open-utility', { detail: { type: 'board' } }));
   window.dispatchEvent(new CustomEvent('topics:open-task', { detail: target }));
 }
@@ -236,6 +248,27 @@ export function openTaskInApp(target: TaskTarget): void {
  *  `mode: 'permanent'` perché è una destinazione voluta, non un'anteprima. */
 export function openTopicInApp(target: TopicTarget): void {
   window.dispatchEvent(new CustomEvent('topics:open-topic', { detail: { topicId: target.topicId, mode: 'permanent' } }));
+}
+
+/**
+ * Apri IN-APP la destinazione di una notifica. UNA regola per tutte le
+ * superfici che hanno un click da portare da qualche parte: la web-push (via
+ * service worker), il banner nativo, e la CRONOLOGIA delle notifiche — che
+ * altrimenti sarebbe la terza copia dello stesso `if`.
+ *
+ * Accetta sia una URL assoluta (quella che arriva dal service worker) sia il
+ * path relativo che il registro salva (`/task/<id>`, `/topic/<id>`): `new URL`
+ * risolve il secondo contro l'origine della pagina, che è già la nostra.
+ *
+ * Torna `false` quando non c'è niente da aprire — così una riga di cronologia
+ * senza bersaglio può dirlo invece di fingere un click che non fa niente.
+ */
+export function openDeepLinkInApp(url: string): boolean {
+  const task = selfTaskLinkTarget(url);
+  if (task) { openTaskInApp(task); return true; }
+  const topic = selfTopicLinkTarget(url);
+  if (topic) { openTopicInApp(topic); return true; }
+  return false;
 }
 
 // ── Service worker → app (click su una web-push) ─────────────────────────────
@@ -256,11 +289,10 @@ export function subscribeServiceWorkerTaskOpen(): () => void {
   const handler = (ev: MessageEvent) => {
     const data = ev.data as { type?: string; url?: string } | null;
     if (!data || data.type !== SW_OPEN_URL_MESSAGE || typeof data.url !== 'string') return;
-    const task = selfTaskLinkTarget(data.url);
-    if (task) { openTaskInApp(task); return; }
-    // Il gemello per la CHAT: `/topic/<id>` dalla push di fine risposta.
-    const topic = selfTopicLinkTarget(data.url);
-    if (topic) openTopicInApp(topic);
+    // La regola («task, poi topic, poi niente») sta in `openDeepLinkInApp`: la
+    // cronologia delle notifiche deve atterrare ESATTAMENTE dove atterra la
+    // notifica che l'ha generata, e due copie dello stesso `if` divergono.
+    openDeepLinkInApp(data.url);
   };
   navigator.serviceWorker.addEventListener('message', handler);
   return () => navigator.serviceWorker.removeEventListener('message', handler);
