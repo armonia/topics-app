@@ -58,7 +58,7 @@ import { registerPreviewProcess, unregisterPreviewProcess } from "./server/route
 import { sweepWorktrees, type TaskStatus as GcTaskStatus } from "./server/services/worktree-gc";
 import { formatMb, parseSlimSkip, slimWorktree } from "./server/services/worktree-slim";
 import { branchStatusFromRepo, commitStatusFromRepo, resolveCommit, worktreeDiffStat } from "./server/services/branch-status";
-import { deliveryPointer } from "./server/services/own-commits";
+import { commitIsIn, deliveryPointer } from "./server/services/own-commits";
 import { abandonNoticeFromRepo } from "./server/services/worktree-abandon-notice";
 import { createTaskAttemptStore } from "./server/services/task-attempts";
 import { auditLandings, classifyLanding, type AuditTask, type LandingState } from "./server/services/landing-audit";
@@ -918,6 +918,10 @@ const taskDispatcher = createTaskDispatcher({
   // (agent tab deleted after a prior run) would never dispatch. tick() clears
   // the dead link so the task runs again.
   topicExists: (id) => !!ctx.getTopicById(id),
+  // Il cancello contro il lavoro rifatto: se il commit della consegna è già
+  // dentro main, la card si chiude invece di far ripartire un agente sopra
+  // codice che c'è già. Stessa domanda che si fa il land — una sola copia.
+  deliveryLanded: (repoPath, commit) => commitIsIn(repoPath, commit, "main"),
   // Must match the catch-all dir tasks.ts scaffolds (join(workspaceDir,
   // "generale")): a session resolved here renders standalone, not as a project.
   catchAllProjectPath: join(DISPATCH_WORKSPACE_DIR, "generale"),

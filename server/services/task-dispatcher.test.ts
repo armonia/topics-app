@@ -52,16 +52,16 @@ const PID = "alpha-abc123";
 let seq = 0;
 function seedTask(
   db: Database,
-  o: { id?: string; status?: string; attempts?: number; assignedTopicId?: string | null; dispatchState?: string | null; createdAt?: string; parentTaskId?: string | null; text?: string } = {},
+  o: { id?: string; status?: string; attempts?: number; assignedTopicId?: string | null; dispatchState?: string | null; createdAt?: string; parentTaskId?: string | null; text?: string; deliveryBranch?: string | null; deliveryCommit?: string | null } = {},
 ): string {
   const id = o.id ?? `t${++seq}`;
   const ts = o.createdAt ?? new Date(Date.now() + seq).toISOString();
   // FK: a seeded binding needs its topics row, like in prod.
   if (o.assignedTopicId) db.run("INSERT OR IGNORE INTO topics (id) VALUES (?)", [o.assignedTopicId]);
   db.run(
-    `INSERT INTO tasks (id, project_id, text, status, created_at, updated_at, dispatch_attempts, assigned_topic_id, dispatch_state, parent_task_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [id, PID, o.text ?? ("task " + id), o.status ?? "todo", ts, ts, o.attempts ?? 0, o.assignedTopicId ?? null, o.dispatchState ?? null, o.parentTaskId ?? null],
+    `INSERT INTO tasks (id, project_id, text, status, created_at, updated_at, dispatch_attempts, assigned_topic_id, dispatch_state, parent_task_id, delivery_branch, delivery_commit)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, PID, o.text ?? ("task " + id), o.status ?? "todo", ts, ts, o.attempts ?? 0, o.assignedTopicId ?? null, o.dispatchState ?? null, o.parentTaskId ?? null, o.deliveryBranch ?? null, o.deliveryCommit ?? null],
   );
   return id;
 }
@@ -2341,5 +2341,111 @@ describe("la coda deve dire il vero", () => {
     expect(rotateFrom(["solo"], 5)).toEqual(["solo"]);
     expect(rotateFrom([], 2)).toEqual([]);
     expect(rotateFrom(b, -1)).toEqual(["gamma", "alpha", "beta"]);
+  });
+});
+
+describe("cancello: non si ridispaccia lavoro già su main", () => {
+  /** Banco di prova con la sonda del commit di consegna sotto controllo. */
+  function conSonda(risposta: boolean | null | (() => Promise<never>)) {
+    const chieste: Array<{ repoPath: string; commit: string }> = [];
+    const h = harness({
+      deliveryLanded: async (repoPath, commit) => {
+        chieste.push({ repoPath, commit });
+        if (typeof risposta === "function") return risposta();
+        return risposta;
+      },
+    });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 2 });
+    return { h, chieste };
+  }
+
+  it("card con delivery_commit già antenato di main: NON parte, e si chiude", async () => {
+    // Il difetto misurato l'11 e il 12/08: 32 ridispacci in un giorno, e le sole
+    // `4ec47331` e `e54a9be6` hanno bruciato 3,26M token e 91M di cache read per
+    // riprodurre codice che su main c'era già. Il land ha il suo cancello; qui si
+    // copre la strada da cui la card RIENTRA in coda dopo essere atterrata.
+    const { h, chieste } = conSonda(true);
+    seedTask(h.db, { id: "t1", status: "todo", deliveryBranch: "topics/ardent-grouse", deliveryCommit: "c2d20879ffffffffffffffffffffffffffffffff" });
+
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    // Nessun agente: niente worktree, niente topic, nessun turno pagato.
+    expect(h.turns.length).toBe(0);
+    expect(h.worktreesCreated).toEqual([]);
+    expect(h.topicsCreated).toEqual([]);
+    expect(h.dispatcher.isInFlight("t1")).toBe(false);
+    // E la card è CHIUSA, non lasciata in coda a ripresentarsi al giro dopo.
+    const t = h.task("t1")!;
+    expect(t.status).toBe("done");
+    expect(t.dispatchState).toBeNull();
+    expect(t.dispatchAttempts).toBe(0);
+    // La domanda è stata fatta al repo del progetto, sul COMMIT (non sul ramo,
+    // che dopo il land è potato).
+    expect(chieste).toEqual([{ repoPath: "/Users/x/Projects/alpha", commit: "c2d20879ffffffffffffffffffffffffffffffff" }]);
+    // …e DICE perché: la riga di storico porta la ragione, non un `done` muto.
+    const storico = h.svc.get("t1")!.comments.filter((c) => c.kind === "status").map((c) => c.content).join("\n");
+    expect(storico).toContain("c2d20879");
+    expect(storico).toContain("già dentro main");
+    h.dispatcher.shutdown();
+  });
+
+  it("stessa card, commit NON su main: parte come sempre", async () => {
+    // La controprova. Senza, «non parte» potrebbe essere vero per un'altra
+    // ragione (la sonda mai chiamata, il claim rotto) e il test sopra passerebbe
+    // lo stesso.
+    const { h, chieste } = conSonda(false);
+    seedTask(h.db, { id: "t1", status: "todo", deliveryCommit: "deadbeef00000000000000000000000000000000" });
+
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    expect(chieste.length).toBe(1);
+    expect(h.turns.length).toBe(1);
+    expect(h.task("t1")!.status).toBe("in_progress");
+    expect(h.task("t1")!.dispatchState).toBe("working");
+    h.dispatcher.shutdown();
+  });
+
+  it("«non lo so» non chiude niente: sull'ignoranza si dispaccia", async () => {
+    // Chiudere una card su un `null` (sha potato, repo irraggiungibile) sarebbe
+    // l'errore opposto e più caro: butta via il lavoro che manca davvero.
+    const { h } = conSonda(null);
+    seedTask(h.db, { id: "t1", status: "todo", deliveryCommit: "0000000000000000000000000000000000000000" });
+
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    expect(h.task("t1")!.status).toBe("in_progress");
+    expect(h.turns.length).toBe(1);
+    h.dispatcher.shutdown();
+  });
+
+  it("una sonda che ESPLODE non ferma il dispatch", async () => {
+    const { h } = conSonda(() => Promise.reject(new Error("git è esploso")));
+    seedTask(h.db, { id: "t1", status: "todo", deliveryCommit: "abc1230000000000000000000000000000000000" });
+
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    expect(h.task("t1")!.status).toBe("in_progress");
+    expect(h.turns.length).toBe(1);
+    h.dispatcher.shutdown();
+  });
+
+  it("card senza consegna registrata: a git non si chiede niente", async () => {
+    // Il cancello costa una chiamata a git, e la stragrande maggioranza delle
+    // card in coda non ha mai consegnato nulla: su quelle non deve costare poco,
+    // deve costare NIENTE.
+    const { h, chieste } = conSonda(true);
+    seedTask(h.db, { id: "t1", status: "todo" });
+
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    expect(chieste).toEqual([]);
+    expect(h.task("t1")!.status).toBe("in_progress");
+    expect(h.turns.length).toBe(1);
+    h.dispatcher.shutdown();
   });
 });
