@@ -998,6 +998,19 @@ describe("approve decoupled from landing", () => {
     expect(r).toEqual([]);
   });
 
+  /**
+   * Il terzo verso dello stesso difetto, misurato il 12/08 su `ee5ebbb4`: la
+   * card DICHIARAVA un ramo (`delivery_branch`, esistente) ma il land non
+   * riusciva a risolvere dove atterrarlo. Finché quel caso rispondeva
+   * `no-branch` la card restava chiusa col codice fuori da main; adesso ha un
+   * codice suo, e il codice suo la ritira.
+   */
+  test("ramo dichiarato ma checkout introvabile: la card NON resta in done", async () => {
+    const { id, db: d, resumed: r } = await landSkipping("repo-unresolved");
+    expect(createTaskService(d).get(id)!.task.status).toBe("review");
+    expect(r).toEqual([]);
+  });
+
   test("«non c'era niente da atterrare» lascia la card chiusa: è l'unico skip innocuo", async () => {
     // Il controllo dei due test qui sopra. Se il ritiro scattasse su ogni skip,
     // una nota chiusa a mano rimbalzerebbe fuori da Done a ogni gesto.

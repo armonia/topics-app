@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { createTaskAutoMerge, landFallout, worktreeRealDirt, type GitRunResult, type LandSkipCode, type TaskMergeTarget } from "./task-automerge";
+import { chooseMergeTarget, createTaskAutoMerge, landFallout, worktreeRealDirt, type GitRunResult, type LandSkipCode, type TaskMergeTarget } from "./task-automerge";
 
 const TARGET: TaskMergeTarget = { repoPath: "/repo", branch: "topics/lyrical-cobra", defaultBranch: "main" };
 
@@ -589,8 +589,8 @@ describe("landFallout — un land fallito non lascia la card in Done", () => {
 
   test("ogni altro esito TOGLIE la card da Done, con una ragione da scrivere nello stato", () => {
     const codes: LandSkipCode[] = [
-      "unisolable", "foreign-commits", "branch-missing", "dirty-checkout",
-      "worktree-add-failed", "internal-error",
+      "unisolable", "foreign-commits", "branch-missing", "repo-unresolved",
+      "dirty-checkout", "worktree-add-failed", "internal-error",
     ];
     for (const code of codes) {
       const f = landFallout(code);
@@ -611,8 +611,9 @@ describe("landFallout — un land fallito non lascia la card in Done", () => {
       // sono rimaste incastrate quando l'istruzione lo suggeriva.
       expect(f.resume).not.toContain("git merge main");
     }
-    // Albero sporco, worktree non creabile: l'agente non può farci niente.
-    for (const code of ["dirty-checkout", "worktree-add-failed", "branch-missing"] as LandSkipCode[]) {
+    // Albero sporco, worktree non creabile, checkout introvabile: l'agente non
+    // può farci niente.
+    for (const code of ["dirty-checkout", "worktree-add-failed", "branch-missing", "repo-unresolved"] as LandSkipCode[]) {
       const f = landFallout(code);
       expect(f.status).toBe("review");
       expect(f.resume).toBeUndefined();
@@ -624,5 +625,107 @@ describe("landFallout — un land fallito non lascia la card in Done", () => {
     // di qui: il difetto da non ripetere è una card chiusa col codice fuori.
     expect(landFallout(undefined).status).toBe("review");
     expect(landFallout("qualcosa-di-nuovo" as LandSkipCode).status).toBe("review");
+  });
+});
+
+/**
+ * L'agente è UN MODO di trovare il ramo, non l'unico.
+ *
+ * Misurato la notte del 12/08 su `ee5ebbb4`: `delivery_branch` esisteva
+ * (`topics/transient-berry`, 7fd16448), il suo worktree esisteva, mancava solo
+ * `assigned_topic_id` — l'agente rilasciato a fine turno. Il land ha risposto
+ * «nessun worktree/branch per il task (in-place o non dispatchato)», codice
+ * `no-branch`, e la card è rimasta in Done col codice fuori da main.
+ */
+describe("chooseMergeTarget — il ramo si trova dalla CARD, non solo dall'agente", () => {
+  const LIVE: TaskMergeTarget = { repoPath: "/repo", branch: "topics/lyrical-cobra", defaultBranch: "main" };
+
+  test("il worktree vivo vince quando c'è", () => {
+    const c = chooseMergeTarget(LIVE, { repoPath: "/repo", branch: "topics/altro" });
+    expect(c.target).toEqual(LIVE);
+    if (c.target) expect(c.via).toBe("worktree");
+  });
+
+  test("agente rilasciato ma ramo dichiarato → si atterra lo stesso, via consegna", () => {
+    const c = chooseMergeTarget(null, { repoPath: "/repo", branch: "topics/transient-berry" });
+    expect(c.target).toEqual({ repoPath: "/repo", branch: "topics/transient-berry", defaultBranch: "main" });
+    if (c.target) expect(c.via).toBe("delivery");
+  });
+
+  test("ramo dichiarato ma checkout introvabile → NON è «no-branch»: la card lascia Done", () => {
+    const c = chooseMergeTarget(null, { repoPath: null, branch: "topics/transient-berry" });
+    expect(c.target).toBe(null);
+    if (c.target === null) {
+      expect(c.code).toBe("repo-unresolved");
+      // Il messaggio deve dire cosa manca DAVVERO: il ramo c'è, il checkout no.
+      expect(c.reason).toContain("topics/transient-berry");
+      expect(landFallout(c.code).status).toBe("review");
+    }
+  });
+
+  test("né worktree né ramo dichiarato → «no-branch», l'unico caso che resta chiuso", () => {
+    for (const declared of [null, undefined, { repoPath: "/repo", branch: null }, { repoPath: "/repo", branch: "  " }]) {
+      const c = chooseMergeTarget(null, declared);
+      expect(c.target).toBe(null);
+      if (c.target === null) expect(c.code).toBe("no-branch");
+    }
+  });
+});
+
+describe("tryMerge senza agente — la consegna col ramo intatto resta landabile", () => {
+  const DECLARED = { repoPath: "/repo", branch: "topics/transient-berry" };
+
+  test("assigned_topic_id NULL + delivery_branch valido → merged", async () => {
+    const git = fakeGit({
+      ...CLEAN_PRECONDITIONS,
+      "merge --no-ff": { code: 0 },
+      "rev-parse --short": { stdout: "abc1234\n" },
+    });
+    const am = createTaskAutoMerge({
+      resolveTaskMerge: () => null,          // l'agente non c'è più
+      declaredDelivery: () => DECLARED,      // ma la card il ramo lo dichiara
+      runGit: git.run,
+    });
+    const res = await am.tryMerge("t1", "Land in raffica", { branch: DECLARED.branch, commit: null });
+    expect(res.status).toBe("merged");
+    if (res.status === "merged") {
+      expect(res.branch).toBe(DECLARED.branch);
+      expect(res.repoPath).toBe("/repo");
+      // Ramo vivo e ramo consegnato coincidono: niente da segnalare al reviewer.
+      expect(res.deliveryDrift).toBe(null);
+    }
+  });
+
+  test("ramo dichiarato che nel repo non esiste più → 'branch-missing', non 'no-branch'", async () => {
+    const git = fakeGit({
+      "symbolic-ref --short": { stdout: "main\n" },
+      "status --porcelain": { stdout: "" },
+      "rev-list --count": { code: 128, stderr: "fatal: unknown revision" },
+    });
+    const am = createTaskAutoMerge({
+      resolveTaskMerge: () => null,
+      declaredDelivery: () => DECLARED,
+      runGit: git.run,
+    });
+    const res = await am.tryMerge("t1", "x", { branch: DECLARED.branch, commit: null });
+    expect(res.status).toBe("skipped");
+    // Il land davvero impossibile NON lascia la card in Done.
+    if (res.status === "skipped") expect(landFallout(res.code).status).toBe("review");
+  });
+
+  test("niente agente e niente ramo → resta «no-branch», e il messaggio non parla più di worktree inesistenti", async () => {
+    const git = fakeGit({});
+    const am = createTaskAutoMerge({
+      resolveTaskMerge: () => null,
+      declaredDelivery: () => ({ repoPath: "/repo", branch: null }),
+      runGit: git.run,
+    });
+    const res = await am.tryMerge("t1", "x");
+    expect(res.status).toBe("skipped");
+    if (res.status === "skipped") {
+      expect(res.code).toBe("no-branch");
+      expect(landFallout(res.code).status).toBe(null);
+    }
+    expect(git.calls.length).toBe(0);
   });
 });
