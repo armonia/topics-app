@@ -11,6 +11,22 @@
  * a rispondere è il modello e non l'aritmetica: la stessa sequenza, e alla fine
  * la stessa domanda, di cui la risposta deve restare ESATTA.
  *
+ * ── Cosa ha risposto, sul vivo (12/08, cap 25.000, bundle 1, 5 per turno) ───
+ * Quattro bracci, stessa sequenza, `claude-opus-5[1m]`, marcatori esatti in
+ * tutti e quattro. Il verdetto dipende da DOVE si ferma la sessione:
+ *
+ *              picco    token                dollari
+ *   15 fetch   122k     -17,9%               +25,5%   compattare COSTA
+ *   30 fetch   215k     -47,1%               -10,9%   compattare rende
+ *
+ * Le due righe non si contraddicono: il risparmio in token è quasi tutto
+ * risparmio di cache-read, che si paga 0,1×, mentre ogni compattazione rifà il
+ * prefisso a 1,25×. Sotto i 150k il secondo conto batte il primo, e la soglia
+ * peggiora il totale pur avendo tagliato un quinto dei token. Il sorpasso, sul
+ * costo cumulato per fase della corsa a 30, cade fra la 20ª e la 25ª fetch:
+ * contesto di controllo fra 152k e 185k, cioè dove il controfattuale sulle 351
+ * sessioni lo dava. Il disegno è in `soglia-viva.svg`.
+ *
  * ── Perché a più turni ──────────────────────────────────────────────────────
  * Una compattazione non si può infilare a metà di un turno: `/compact` è un
  * messaggio, e i messaggi si mandano fra un turno e l'altro. Quindi la sessione
@@ -53,23 +69,34 @@ const FETCH = Number(flag("--fetch", "20"));
 /** Quante per turno: più corto il turno, più fitto il controllo sulla soglia. */
 const PER_TURNO = Number(flag("--per-turno", "5"));
 /**
- * Il tetto ai risultati MCP, uguale nei due bracci.
+ * Il tetto ai risultati MCP, uguale nei due bracci. Si passa SEMPRE esplicito, e
+ * il valore di default non è più `0`.
  *
- * Spegnerlo NON basta a fare un contesto grasso, ed è la cosa che questo banco
- * ha imparato per prima: la CLI 2.1.228 versa su disco QUALUNQUE risultato di
- * tool troppo grande, tetto MCP o no. Misurato il 12/08 con `--cap 0` e pacchetti
- * da quattro pagine (57-66 KB): tornava `<persisted-output> Output too large`, e
- * il contesto cresceva di ~1k a fetch invece dei ~14k del risultato.
+ * `--cap 0` vuol dire «nessun override», e sembra la scelta neutra. Non lo è: la
+ * CLI senza `MAX_MCP_OUTPUT_TOKENS` non applica il default da 25.000 token che
+ * ha documentato, versa su disco anche UNA pagina sola. Misurato il 12/08 alle
+ * 23, stessa sequenza a `--bundle 1` (pagine da 8-18 KB):
  *
- * Quindi il contesto si ingrassa con risultati che stanno SOTTO quella soglia,
- * molti invece che grossi — vedi `--bundle`.
+ *     --cap 0      contesto 29k dopo 5 fetch, e i 30 risultati sono TUTTI lo
+ *                  stub «result (8.608 characters) exceeds maximum allowed
+ *                  tokens. Output has been saved to …» (1,4 KB l'uno)
+ *     --cap 25000  contesto 59k dopo le stesse 5 fetch: le pagine ci sono
+ *
+ * Il banco a `--cap 0` misurava quindi una sessione di STUB: girava, tornava
+ * verde, i marcatori tornavano (il modello rileggeva i file da disco) e non
+ * misurava niente di ciò che la card chiede. È il motivo del controllo qui
+ * sotto, che ora ALZA invece di lasciar passare.
  */
-const CAP = Number(flag("--cap", "0"));
+const CAP = Number(flag("--cap", "25000"));
 const ARM = SOGLIA == null ? "senza" : `${Math.round(SOGLIA / 1000)}k`;
 const OUT = join(BENCH_DIR, `compact-${ARM}.json`);
 const LOG = join(BENCH_DIR, `compact-${ARM}.jsonl`);
 
-/** Quante pagine per risultato: è la manopola che fa il contesto grasso. */
+/**
+ * Quante pagine per risultato. NON è la manopola del contesto grasso: quella è
+ * `--cap`. Un pacchetto da quattro pagine (57-66 KB) supera il tetto e finisce
+ * su disco esattamente come lo superava la pagina singola a `--cap 0`.
+ */
 const BUNDLE = Number(flag("--bundle", "4"));
 
 /** Le due pagine di cui si chiede il marcatore: scaricate presto, quindi a rischio taglio. */
@@ -93,10 +120,24 @@ interface TurnResult {
   fresh: number;
   output: number;
   text: string;
+  /** Quanti risultati di tool la CLI ha versato su disco invece di lasciarli in contesto. */
+  suDisco: number;
+  /** Il turno ha attraversato una compattazione (evento `compact_boundary`). */
+  compattato: boolean;
 }
 
+/** Le tre facce dello stesso guasto: il risultato non è in contesto, è un puntatore. */
+const SU_DISCO = /exceeds maximum allowed tokens|Output has been saved to|persisted-output/;
+
+/**
+ * La HOME finta è per BRACCIO, non una sola per il banco. I due bracci si
+ * girano volentieri in parallelo (stesso provider, stessa ora: è il modo di non
+ * farsi confondere da un 529 che capita a metà del secondo), e due CLI vive
+ * nella stessa HOME si scrivono addosso lo stato di sessione, la cronologia e i
+ * file di telemetria. La cartella costa niente; una corsa da rifare sì.
+ */
 function prepareHome(): string {
-  const home = join(tmpdir(), "compact-bench-home");
+  const home = join(tmpdir(), `compact-bench-home-${ARM}`);
   mkdirSync(join(home, ".claude"), { recursive: true });
   const cred = join(homedir(), ".claude", ".credentials.json");
   if (existsSync(cred)) copyFileSync(cred, join(home, ".claude", ".credentials.json"));
@@ -197,7 +238,15 @@ async function turn(
     JSON.stringify({ type: "user", message: { role: "user", content: [{ type: "text", text }] } }) + "\n",
   );
 
-  const res: TurnResult = { contexts: [], cacheRead: 0, cacheCreate: 0, fresh: 0, output: 0, text: "" };
+  const res: TurnResult = {
+    contexts: [], cacheRead: 0, cacheCreate: 0, fresh: 0, output: 0, text: "", suDisco: 0, compattato: false,
+  };
+  /**
+   * Il totale del turno secondo la CLI: l'unico conto che esista sul turno di
+   * `/compact`. Non è `... | null` perché lo riempie una callback, e l'analisi
+   * di flusso di TS non la vede: fuori resterebbe `null` per sempre.
+   */
+  const daResult = { fresh: 0, read: 0, create: 0, out: 0, visto: false };
   let apiError = "";
   // Lo stderr va LETTO, per due motivi: quando la CLI muore prima di parlare la
   // ragione sta solo lì, e una pipe che nessuno svuota si riempie e blocca il
@@ -234,7 +283,30 @@ async function turn(
           res.fresh += fresh;
           res.output += u.output_tokens ?? 0;
         }
+        // I risultati dei tool tornano dentro eventi `user`, ed è l'unico punto
+        // in cui si vede se in contesto è finita la pagina o il suo puntatore.
+        if (ev.type === "user" && Array.isArray(ev.message?.content)) {
+          for (const b of ev.message.content as Record<string, any>[]) {
+            if (b?.type !== "tool_result") continue;
+            const corpo = typeof b.content === "string" ? b.content : JSON.stringify(b.content ?? "");
+            if (SU_DISCO.test(corpo)) res.suDisco++;
+          }
+        }
+        if (ev.type === "system" && ev.subtype === "compact_boundary") res.compattato = true;
         if (ev.type === "result") {
+          // `usage` sul turno di `/compact` è tutto a zero; `modelUsage` no, ed
+          // è la somma del turno (verificato su un turno normale: 4 + 103.475 +
+          // 670 = 104.149, gli stessi token contati dai `message_delta`).
+          const mu = ev.modelUsage as Record<string, Record<string, number>> | undefined;
+          if (mu) {
+            for (const m of Object.values(mu)) {
+              daResult.fresh += m.inputTokens ?? 0;
+              daResult.read += m.cacheReadInputTokens ?? 0;
+              daResult.create += m.cacheCreationInputTokens ?? 0;
+              daResult.out += m.outputTokens ?? 0;
+            }
+            daResult.visto = true;
+          }
           res.text = typeof ev.result === "string" ? ev.result : "";
           if (ev.is_error === true || /^API Error/i.test(res.text)) apiError = res.text.slice(0, 200);
           clearTimeout(bail);
@@ -247,6 +319,20 @@ async function turn(
     child.on("exit", () => { clearTimeout(bail); resolve(); });
   });
 
+  // IL TURNO DI `/compact` NON PASSA DAI `message_delta`: la richiesta che
+  // riassume la sessione la fa la CLI per conto suo e non la mette sullo
+  // stream. Contarlo come «non è successo niente» costava caro due volte: il
+  // banco chiamava fallimento una compattazione RIUSCITA, e il ritento
+  // ricompattava una sessione già compattata (tre `compact_boundary` in fila
+  // il 12/08). Il conto del turno c'è, sta in `modelUsage` del `result`.
+  if (!res.contexts.length && res.compattato && daResult.visto && !apiError) {
+    res.fresh = daResult.fresh;
+    res.cacheRead = daResult.read;
+    res.cacheCreate = daResult.create;
+    res.output = daResult.out;
+    res.contexts.push(daResult.fresh + daResult.read + daResult.create);
+  }
+
   // UN TURNO SENZA RICHIESTE NON È UN TURNO A ZERO: è un turno che non è
   // successo. Il 12/08 il provider rispondeva 529 Overloaded, la CLI ritentava
   // e poi mollava — e il banco tirava dritto sommando zeri, cioè preparava un
@@ -258,6 +344,18 @@ async function turn(
     // modello, quindi lo stato della sessione non si è mosso.
     const pulito = !res.contexts.length ? " — non è successo niente" : "";
     throw new Error(`turno fallito: ${perche}${pulito}`);
+  }
+
+  // UN RISULTATO SU DISCO NON È UN RISULTATO PIÙ PICCOLO: è un altro banco.
+  // Il contesto cresce di ~1k a fetch invece di ~8k, la soglia non viene mai
+  // raggiunta, i due bracci finiscono identici e il confronto sembra dire
+  // «compattare non cambia niente» mentre non ha mai compattato. Si alza qui,
+  // e senza ritento: il rimedio è una flag, non un altro tentativo.
+  if (res.suDisco > 0) {
+    throw new Error(
+      `turno fallito: la CLI ha versato ${res.suDisco} risultati su disco, in contesto c'è ` +
+        `il puntatore e non la pagina. Il tetto MCP è troppo basso: rilancia con --cap 25000.`,
+    );
   }
   return res;
 }
@@ -317,6 +415,10 @@ async function main() {
 
     if (SOGLIA != null && ctx >= SOGLIA) {
       const c = await turnConRitenti("/compact", sessionId, false, home, cfg);
+      // Il braccio con la soglia vale solo se ha COMPATTATO: un `/compact` che
+      // non lascia il suo `compact_boundary` ha speso un turno per niente, e il
+      // confronto finale racconterebbe due bracci uguali chiamandoli diversi.
+      if (!c.compattato) throw new Error("/compact non ha compattato: nessun compact_boundary nel turno");
       compattazioni++;
       conta(`/compact #${compattazioni}`, c);
     }
