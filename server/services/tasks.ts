@@ -1099,7 +1099,11 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
   }
 
   function resolveQueueReason(r: any): QueueReason | null {
-    if (r.status !== "todo") return null;
+    // `review` entra qui insieme a `todo` per un caso solo: la checklist
+    // congelata. Non è una ragione di coda ed è giusto che stia nella stessa
+    // funzione — è la stessa domanda, «perché questa card non si muove», e
+    // averla in due posti significherebbe due risposte che possono divergere.
+    if (r.status !== "todo" && r.status !== "review") return null;
     const nowIso = new Date().toISOString();
     try {
       const parentStatus = r.parent_task_id
@@ -1156,6 +1160,12 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           behind: r.parent_task_id ? 0 : countBehind(r, nowIso),
           parentStatus,
           projectless: r.project_id === UNASSIGNED_PROJECT_ID,
+          // Il conto si paga SOLO in review, ed è la stessa disciplina di
+          // `resolveSubtaskWork`: `rowToTask` gira su ogni riga di ogni lista, e
+          // una COUNT per riga la pagherebbe l'intera board per rispondere a
+          // una manciata di card. In `todo` la risposta non serve — lì i rami
+          // sono quelli del dispatcher — quindi resta zero senza toccare il DB.
+          openSubtasks: r.status === "review" ? countOpenChildren(r.id) : 0,
         },
       );
     } catch {
@@ -1392,12 +1402,24 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     return (r?.c ?? 0) > 0;
   }
 
-  /** True when the task has non-done, non-archived direct children. */
-  function hasActiveChildren(taskId: string): boolean {
+  /**
+   * Quanti figli diretti aperti (non chiusi, non archiviati) ha il task.
+   *
+   * È il predicato del cancello su `done`, e la card in review lo legge per dire
+   * PERCHÉ approvarla non la chiuderebbe. Uno solo, non due: se il conto e il
+   * cancello divergessero, la card direbbe «pronta» su un `done` che il server
+   * rifiuta — cioè esattamente la bugia che quel chip esiste per togliere.
+   */
+  function countOpenChildren(taskId: string): number {
     const r = db.prepare(
       "SELECT COUNT(*) AS c FROM tasks WHERE parent_task_id = ? AND archived = 0 AND status != 'done'",
     ).get(taskId) as any;
-    return (r?.c ?? 0) > 0;
+    return r?.c ?? 0;
+  }
+
+  /** True when the task has non-done, non-archived direct children. */
+  function hasActiveChildren(taskId: string): boolean {
+    return countOpenChildren(taskId) > 0;
   }
 
   /**

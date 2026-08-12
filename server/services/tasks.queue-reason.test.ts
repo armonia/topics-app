@@ -162,7 +162,123 @@ describe("la ragione della coda arriva dal server, con la card", () => {
     mv(s, t.id, "in_progress");
     expect(s.get(t.id)!.task.queueReason).toBeNull();
     mv(s, t.id, "review");
+    // In review SENZA sottotask aperti resta null: la review è una consegna
+    // normale, e il chip di stato dice già tutto.
     expect(s.get(t.id)!.task.queueReason).toBeNull();
+  });
+
+  /**
+   * Il conto dei sottotask aperti è l'ingrediente che il client NON ha: la sua
+   * lista è un progetto solo, `rootsOnly`, non archiviati, e i figli non ci
+   * stanno dentro. `subtaskCount` esiste sul payload, ma lo riempiono solo
+   * `list`/`get` — dopo `rowToTask`, cioè dopo che la ragione è già stata
+   * scritta — quindi nemmeno quello risponderebbe sulle scritture.
+   */
+  test("in review con la checklist aperta la card dice PERCHÉ è ferma", () => {
+    const padre = s.create({ projectId: PID, text: "Il padre" });
+    s.create({ projectId: PID, text: "Passo uno", parentTaskId: padre.id });
+    s.create({ projectId: PID, text: "Passo due", parentTaskId: padre.id });
+    mv(s, padre.id, "review");
+    const r = s.get(padre.id)!.task.queueReason!;
+    expect(r).toMatchObject({ kind: "checklist_frozen", tone: "stalled" });
+    expect(r.detail).toBe("2 sottotask aperti");
+  });
+
+  test("chiusi i sottotask, la stessa card in review torna muta", () => {
+    const padre = s.create({ projectId: PID, text: "Il padre" });
+    const figlio = s.create({ projectId: PID, text: "Passo uno", parentTaskId: padre.id });
+    mv(s, padre.id, "review");
+    expect(s.get(padre.id)!.task.queueReason!.kind).toBe("checklist_frozen");
+    mv(s, figlio.id, "done");
+    expect(s.get(padre.id)!.task.queueReason).toBeNull();
+  });
+
+  /**
+   * IL PERCORSO VERO DELLA DOMANDA DI SISTEMA, non una riga costruita a mano.
+   *
+   * `askParkedChildren` è il codice che porta il padre in review coi due
+   * bottoni («rimettili in coda» / «archiviali»). La card lì sta GIÀ chiedendo,
+   * e il chip rosa «serve te» dice l'unica mossa che esiste: sostituirlo con
+   * «ferma» la toglie di mezzo e consiglia cose che sono già sullo schermo.
+   *
+   * È anche la riga su cui la sonda `scripts/stalled-parents.ts` e
+   * `deriveQueueReason` si davano risposta OPPOSTA: la sonda esclude
+   * `review + delivered_reason = 'parked_children'` («sta già chiedendo»), la
+   * card diceva `checklist_frozen`, `tone: 'stalled'`.
+   */
+  test("la domanda sui figli parcheggiati non si fa zittire dal chip nuovo", () => {
+    const padre = s.create({ projectId: PID, text: "Il padre" });
+    s.create({ projectId: PID, text: "Passo uno", parentTaskId: padre.id });
+    mv(s, padre.id, "in_progress");
+
+    const chiesto = s.askParkedChildren({ taskId: padre.id, by: "test" })!;
+    // La firma della domanda, letta sul payload: è il predicato della sonda.
+    expect(chiesto.status).toBe("review");
+    expect(chiesto.deliveredReason).toBe("parked_children");
+    // …e il chip che l'umano deve vedere resta il suo.
+    expect(chiesto.dispatchState).toBe("needs_input");
+    expect(chiesto.queueReason).toBeNull();
+    // Anche riletta da `get`, non solo sul payload della scrittura.
+    expect(s.get(padre.id)!.task.queueReason).toBeNull();
+  });
+
+  /**
+   * CONTENIMENTO, provato invece che sperato: tutto ciò che la sonda esclude
+   * come «sta già chiedendo» è anche muto qui. Le due funzioni usano predicati
+   * diversi — la sonda `delivered_reason = 'parked_children'`, questa
+   * `dispatch_state = 'needs_input'` — e vanno bene diversi SOLO finché il
+   * primo implica il secondo. `askParkedChildren` scrive i due campi nella
+   * stessa UPDATE, quindi oggi è vero: il giorno che qualcuno li separa, questo
+   * test diventa rosso invece della card.
+   */
+  test("ciò che la sonda chiama «sta già chiedendo» qui non dice mai «ferma»", () => {
+    const padre = s.create({ projectId: PID, text: "Il padre" });
+    s.create({ projectId: PID, text: "Passo uno", parentTaskId: padre.id });
+    mv(s, padre.id, "in_progress");
+    s.askParkedChildren({ taskId: padre.id, by: "test" });
+
+    const r = db.prepare("SELECT status, dispatch_state, delivered_reason FROM tasks WHERE id = ?")
+      .get(padre.id) as { status: string; dispatch_state: string; delivered_reason: string };
+    const escluseDallaSonda = r.status === "review" && r.delivered_reason === "parked_children";
+    expect(escluseDallaSonda).toBe(true);
+    expect(r.dispatch_state).toBe("needs_input");
+    expect(s.get(padre.id)!.task.queueReason).toBeNull();
+  });
+
+  /**
+   * L'altra domanda che `needs_input` copre: quella dell'agente. Qui la mossa è
+   * rispondere nella sessione, e il tooltip di `checklist_frozen` non la nomina
+   * nemmeno — dice di chiudere i sottotask o rimettere la card in coda.
+   */
+  test("una domanda dell'agente in review non viene coperta da «ferma»", () => {
+    const padre = s.create({ projectId: PID, text: "Il padre" });
+    s.create({ projectId: PID, text: "Passo uno", parentTaskId: padre.id });
+    mv(s, padre.id, "review");
+    expect(s.get(padre.id)!.task.queueReason!.kind).toBe("checklist_frozen");
+
+    // La stessa riga, con la domanda addosso: il chip di stato torna a vincere.
+    db.prepare("UPDATE tasks SET dispatch_state = 'needs_input' WHERE id = ?").run(padre.id);
+    expect(s.get(padre.id)!.task.queueReason).toBeNull();
+  });
+
+  /**
+   * E la popolazione che il chip serve davvero: in review senza nessuna
+   * domanda addosso (`waiting`, il caso delle card misurate sulla board viva).
+   */
+  test("in review senza domanda il chip nuovo resta, ed è il caso per cui esiste", () => {
+    const padre = s.create({ projectId: PID, text: "Il padre" });
+    s.create({ projectId: PID, text: "Passo uno", parentTaskId: padre.id });
+    mv(s, padre.id, "review");
+    db.prepare("UPDATE tasks SET dispatch_state = 'waiting' WHERE id = ?").run(padre.id);
+    expect(s.get(padre.id)!.task.queueReason).toMatchObject({
+      kind: "checklist_frozen", tone: "stalled", detail: "1 sottotask aperto",
+    });
+  });
+
+  test("la ragione viaggia sulla SCRITTURA che porta la card in review", () => {
+    const padre = s.create({ projectId: PID, text: "Il padre" });
+    s.create({ projectId: PID, text: "Passo uno", parentTaskId: padre.id });
+    expect(mv(s, padre.id, "review").queueReason).toMatchObject({ kind: "checklist_frozen" });
   });
 
   test("la ragione viaggia anche sul payload di una SCRITTURA, non solo su list/get", () => {

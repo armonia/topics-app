@@ -57,6 +57,7 @@ const FRASI = [
   ['parent_review', { parentTaskId: 'p' }, { parentStatus: 'review' }],
   ['parent_turn', { parentTaskId: 'p' }, { parentStatus: 'in_progress' }],
   ['parent_idle', { parentTaskId: 'p' }, { parentStatus: 'done' }],
+  ['checklist_frozen', { status: 'review' }, { openSubtasks: 2 }],
 ] as const;
 
 const base = {
@@ -65,7 +66,7 @@ const base = {
 };
 const ctx = {
   now: '2026-08-12T10:00:00.000Z', autoDispatch: true, retryCap: 2, ahead: 0,
-  parentStatus: null, projectless: false,
+  parentStatus: null, projectless: false, openSubtasks: 0,
 };
 
 describe('la ragione della coda non ha una copia nel client', () => {
