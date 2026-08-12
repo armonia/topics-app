@@ -1,7 +1,10 @@
 import { test, expect, describe } from "bun:test";
 import {
   STATUS_EVENT_REASON_MAX,
+  deriveSubtaskWork,
   formatStatusEvent,
+  isAncestorAtWork,
+  isUnattributedSubtask,
   parseStatusEvent,
   statusEventEnters,
 } from "./board";
@@ -54,5 +57,83 @@ describe("evento di stato: from→to (· ragione)", () => {
     // Un commento che PARLA di in_progress non è un inizio di turno: era il
     // rischio della lettura per suffisso (`endsWith`).
     expect(statusEventEnters("ho messo il task in in_progress", "in_progress")).toBe(false);
+  });
+});
+
+/**
+ * Una card `in_progress` senza topic e senza chip è ambigua: o la lavora un
+ * antenato dentro il proprio turno (il flusso voluto, e la norma), o è rimasta
+ * lì e non la lavora nessuno. Qui si pinna che le due risposte restino DUE — il
+ * modo in cui questo si rompe è collassare su una sola, e collassa in silenzio.
+ */
+describe("chi lavora un sottotask senza agente suo", () => {
+  const parent = (over: Partial<{ id: string; text: string; status: string; dispatchState: string | null; archived: boolean }> = {}) => ({
+    id: "p1", text: "il padre", status: "in_progress", dispatchState: "working", archived: false, ...over,
+  });
+  const child = (over: Partial<{ status: string; parentTaskId: string | null; assignedTopicId: string | null; dispatchState: string | null }> = {}) => ({
+    status: "in_progress", parentTaskId: "p1", assignedTopicId: null, dispatchState: null, ...over,
+  });
+
+  test("la forma ambigua è UNA sola: in corso, figlio, senza topic e senza chip", () => {
+    expect(isUnattributedSubtask(child())).toBe(true);
+    // Un topic suo: la card ha già il deep-link, la domanda non si pone.
+    expect(isUnattributedSubtask(child({ assignedTopicId: "t1" }))).toBe(false);
+    // Un chip suo: lo stato è già scritto sulla card.
+    expect(isUnattributedSubtask(child({ dispatchState: "working" }))).toBe(false);
+    expect(isUnattributedSubtask(child({ dispatchState: "needs_input" }))).toBe(false);
+    // Non è un sottotask: un task radice fermo è un altro problema.
+    expect(isUnattributedSubtask(child({ parentTaskId: null }))).toBe(false);
+    // Non è in corso: in backlog o in review nessuno si aspetta che qualcuno la tenga.
+    expect(isUnattributedSubtask(child({ status: "todo" }))).toBe(false);
+    expect(isUnattributedSubtask(child({ status: "review" }))).toBe(false);
+  });
+
+  test("un antenato è al lavoro solo se è VIVO, in corso e con un agente dentro", () => {
+    expect(isAncestorAtWork(parent())).toBe(true);
+    expect(isAncestorAtWork(parent({ dispatchState: "queued" }))).toBe(true);
+    expect(isAncestorAtWork(parent({ dispatchState: "starting" }))).toBe(true);
+    // Fermo: consegnato, in attesa di risposta, mai partito.
+    expect(isAncestorAtWork(parent({ dispatchState: "delivered" }))).toBe(false);
+    expect(isAncestorAtWork(parent({ dispatchState: "needs_input" }))).toBe(false);
+    expect(isAncestorAtWork(parent({ dispatchState: null }))).toBe(false);
+    // `dispatch_state` resta scritto anche su righe che nel frattempo si sono
+    // mosse: da solo direbbe «al lavoro» su un padre già chiuso o archiviato.
+    expect(isAncestorAtWork(parent({ status: "review" }))).toBe(false);
+    expect(isAncestorAtWork(parent({ status: "backlog" }))).toBe(false);
+    expect(isAncestorAtWork(parent({ archived: true }))).toBe(false);
+  });
+
+  test("(a) il padre la lavora nel proprio turno: la card lo dice, e dice chi", () => {
+    expect(deriveSubtaskWork(child(), [parent()])).toEqual({
+      kind: "parent-turn", ancestor: { id: "p1", text: "il padre" },
+    });
+  });
+
+  test("(b) nessun antenato al lavoro: la card lo dice, così il triage la vede", () => {
+    // Il caso misurato: il padre è tornato in backlog/blocked senza topic.
+    expect(deriveSubtaskWork(child(), [parent({ status: "backlog", dispatchState: null })]))
+      .toEqual({ kind: "unattended" });
+    // Catena vuota: il padre non c'è più (edge orfano). Nessuno la lavora.
+    expect(deriveSubtaskWork(child(), [])).toEqual({ kind: "unattended" });
+  });
+
+  test("vince il primo antenato AL LAVORO, non il padre diretto", () => {
+    // Il padre diretto è a sua volta un sottotask fermo; chi tiene il turno è il nonno.
+    const chain = [
+      parent({ id: "p1", text: "lo step", status: "in_progress", dispatchState: null }),
+      parent({ id: "g1", text: "il nonno" }),
+    ];
+    expect(deriveSubtaskWork(child(), chain)).toEqual({
+      kind: "parent-turn", ancestor: { id: "g1", text: "il nonno" },
+    });
+  });
+
+  test("`null` vuol dire «niente da dire», mai «non la lavora nessuno»", () => {
+    // La distinzione che conta: con un topic suo non si disegna NIENTE — non il
+    // chip rosso. Collassare i due su un falsy è il modo in cui questo si rompe.
+    expect(deriveSubtaskWork(child({ assignedTopicId: "t1" }), [])).toBeNull();
+    expect(deriveSubtaskWork(child({ dispatchState: "working" }), [])).toBeNull();
+    expect(deriveSubtaskWork(child({ status: "done" }), [])).toBeNull();
+    expect(deriveSubtaskWork(child({ parentTaskId: null }), [])).toBeNull();
   });
 });
