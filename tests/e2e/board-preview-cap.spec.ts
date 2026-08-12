@@ -13,7 +13,7 @@
  *   1. RAPPORTO — l'altezza del riquadro non supera mai
  *      `PREVIEW_CARD_MAX_RATIO` × la sua larghezza, a QUALSIASI larghezza di
  *      colonna e su mobile;
- *   2. TETTO — la miniatura smette di crescere a `PREVIEW_CARD_MAX_WIDTH_PX`:
+ *   2. RIEMPIMENTO: la miniatura occupa tutto il suo riquadro, nessuna fascia vuota
  *      è il tetto che tiene il rapporto costante invece di sovrascriverlo (un
  *      `max-h` in px, misurato, riportava il rapporto a scendere colonna per
  *      colonna — cioè il difetto di partenza);
@@ -34,7 +34,7 @@ import { mkdirSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import { hermetic } from "./fixtures/hermetic";
 import { E2E_BASE, E2E_DATA_DIR } from "./helpers/test-server";
-import { PREVIEW_CARD_MAX_RATIO, PREVIEW_CARD_MAX_WIDTH_PX } from "../../shared/board";
+import { PREVIEW_CARD_MAX_RATIO } from "../../shared/board";
 
 hermetic(test);
 
@@ -155,6 +155,7 @@ type Box = {
   naturalH: number;
   cardH: number;
   columnBodyH: number;
+  wrapW: number;
 };
 
 /** I rettangoli VERI di ogni anteprima sulla board, presi dal DOM. */
@@ -177,6 +178,7 @@ async function previewBoxes(page: Page): Promise<Box[]> {
         naturalH: img.naturalHeight,
         cardH: card?.getBoundingClientRect().height ?? 0,
         columnBodyH: column?.clientHeight ?? 0,
+        wrapW: wrap.getBoundingClientRect().width,
       });
     }
     return out;
@@ -208,12 +210,16 @@ function assertCapContract(boxes: Box[], where: string) {
         `atteso ${Math.round(want)} (tetto ${Math.round(cap)}, naturale ${Math.round(natural)})`,
     ).toBeGreaterThan(want - 2);
     expect(b.boxH).toBeLessThan(want + 2);
-    // (2) la miniatura smette di crescere: è QUESTO il tetto, e da lui discende
-    // quello in altezza (0.7 × 380 = 266px).
+    // (2) la miniatura RIEMPIE la card: nessun tetto in larghezza, perché una
+    // fascia vuota a destra in una colonna larga si legge come un difetto
+    // (Attilio, 12/08). Il tetto vero è il rapporto, verificato qui sopra, e
+    // vale a QUALSIASI larghezza — che è ciò che il protocollo promette agli
+    // agenti. Qui si presidia il verso opposto: la miniatura non deve restare
+    // più stretta della colonna che la ospita.
     expect(
       b.boxW,
-      `${where} · ${b.shape}: la miniatura non deve superare ${PREVIEW_CARD_MAX_WIDTH_PX}px di larghezza`,
-    ).toBeLessThanOrEqual(PREVIEW_CARD_MAX_WIDTH_PX + 1);
+      `${where} · ${b.shape}: la miniatura deve riempire il suo riquadro (${Math.round(b.wrapW)}px)`,
+    ).toBeGreaterThan(b.wrapW - 2);
   }
 }
 
