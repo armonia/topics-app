@@ -67,6 +67,14 @@ export async function launch(engineKey, port) {
     `--user-data-dir=${userDataDir}`,
     "--no-first-run",
     "--no-default-browser-check",
+    // Portachiavi FINTO. Senza, Chromium interroga il portachiavi VERO di macOS
+    // e a ogni avvio compare il dialogo di autenticazione del sistema: il 12/08
+    // due alberi di questo banco sono sopravvissuti al loro giro (22 ore e 15
+    // ore, profilo fisso /tmp/cft-profile, porta 9333) e hanno riempito lo
+    // schermo di richieste. Playwright il flag lo passa di suo — questo lancio
+    // e' a mano, quindi tocca a noi. Vedi il gemello in
+    // server/browser-chromium-sidecar.ts.
+    "--use-mock-keychain",
     "--disable-background-timer-throttling",
     "--disable-renderer-backgrounding",
     "--disable-backgrounding-occluded-windows",
