@@ -33,7 +33,18 @@ export function Switch({ checked, onChange, label, disabled, className = '' }: S
       aria-label={label}
       disabled={disabled}
       onClick={() => onChange(!checked)}
-      className={`shrink-0 rounded-full disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 ${className}`}
+      // Sotto il dito il BOTTONE diventa 44×44 e la pista resta 36×20 al suo
+      // centro: il disegno dell'interruttore non cambia di un pixel, ma il
+      // bersaglio smette di essere sotto la soglia iOS (misurato: 36×20 nelle
+      // Impostazioni a 390px).
+      //
+      // Perché una scatola vera e non `.tap-expand`, che nasce per questo: quel
+      // pseudo-elemento sporge di 4px per lato oltre il bottone e, dove nessun
+      // antenato ritaglia, ALLARGA `scrollWidth` — misurato, era la riga delle
+      // impostazioni che guadagnava 4px di scorrimento orizzontale. Qui lo
+      // spazio per crescere c'è (l'interruttore sta in fondo a una riga larga),
+      // quindi la scatola si prende davvero invece di proiettarsi.
+      className={`shrink-0 rounded-full disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 coarse:flex coarse:h-11 coarse:w-11 coarse:items-center coarse:justify-center ${className}`}
     >
       <SwitchTrack checked={checked} />
     </button>
