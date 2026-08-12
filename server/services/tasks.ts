@@ -1069,6 +1069,34 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     return row?.n ?? 0;
   }
 
+  /**
+   * Lo specchio di `countAhead`: quanti idonei stanno DIETRO a questa riga.
+   *
+   * Serve solo a un pesante trattenuto, ed è per questo che non è `ahead` letto
+   * al contrario: il ramo trattenuto del tick fa `break`, quindi questi non
+   * stanno aspettando il loro turno, stanno aspettando LUI. Stesso insieme e
+   * stessa disciplina di coda, con il confronto girato.
+   */
+  function countBehind(r: any, nowIso: string): number {
+    const row = db.prepare(
+      `SELECT COUNT(*) AS n
+         FROM tasks t
+         LEFT JOIN board_settings bs ON bs.project_id = t.project_id
+        WHERE t.archived = 0 AND t.status = 'todo'
+          AND t.parent_task_id IS NULL
+          AND t.project_id != ?
+          AND t.id != ?
+          AND t.assigned_topic_id IS NULL
+          AND t.dispatch_attempts < COALESCE(bs.dispatch_retry_cap, 2)
+          AND (t.dispatch_deferred_until IS NULL OR t.dispatch_deferred_until <= ?)
+          AND (t.blocked_by_task_id IS NULL OR EXISTS (
+                 SELECT 1 FROM tasks bk
+                  WHERE bk.id = t.blocked_by_task_id AND (bk.status = 'done' OR bk.archived = 1)))
+          AND (t.priority < ? OR (t.priority = ? AND t.created_at > ?))`,
+    ).get(UNASSIGNED_PROJECT_ID, r.id, nowIso, r.priority, r.priority, r.created_at) as { n: number } | undefined;
+    return row?.n ?? 0;
+  }
+
   function resolveQueueReason(r: any): QueueReason | null {
     if (r.status !== "todo") return null;
     const nowIso = new Date().toISOString();
@@ -1095,6 +1123,15 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           // Il conto della fila si paga solo per chi la fila la sta davvero
           // facendo: uno step non ci entra mai, e la sua ragione è un'altra.
           ahead: r.parent_task_id ? 0 : countAhead(r, nowIso),
+          // Un pesante con il chip `queued` addosso È un pesante trattenuto: il
+          // dispatcher mette quel chip solo quando decide di non farlo partire
+          // (`noteHeavyHold`). Si legge dalla riga e non da uno stato vivo del
+          // tick apposta: `rowToTask` gira anche fuori dal processo che
+          // dispaccia, e una ragione che dipendesse dalla memoria del
+          // dispatcher sparirebbe proprio quando la card la si apre da un'altra
+          // finestra.
+          heavyHeld: !r.parent_task_id && readTaskWeight(r.dispatch_weight) === "heavy" && r.dispatch_state === "queued",
+          behind: r.parent_task_id ? 0 : countBehind(r, nowIso),
           parentStatus,
           projectless: r.project_id === UNASSIGNED_PROJECT_ID,
         },
