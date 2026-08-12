@@ -182,12 +182,18 @@ describe('WS-04 contract: browserWsMessageSchema (Phase 30)', () => {
     //   set_render / render_mode            — pixel vs DOM co-browse render toggle + status
     //   dom_event                           — rrweb DOM co-browse event
     //   webrtc_offer / webrtc_answer / webrtc_ice — shared-session WebRTC transport
+    //   focus_field                         — che campo ha preso il fuoco di là
+    //                                         dopo il click, cioè quale tastiera
+    //                                         deve aprire il telefono sul ramo
+    //                                         video (dove non c'è nessun mirror
+    //                                         DOM da interrogare)
     expect([...types].sort()).toEqual([
       'agent_active',
       'console',
       'dom_event',
       'download',
       'engine',
+      'focus_field',
       'frame',
       'input',
       'nav',
