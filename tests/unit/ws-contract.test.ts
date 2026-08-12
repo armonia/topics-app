@@ -169,7 +169,7 @@ describe('WS-04 contract: browserWsMessageSchema (Phase 30)', () => {
     const types = variantsOf(browserWsMessageSchema).map((opt) =>
       objectSignature(opt).literalKeys.type,
     );
-    // Eleven variants joined the browser WS protocol since the 6-variant
+    // Twelve variants joined the browser WS protocol since the 6-variant
     // freeze, all additive (server↔pane co-browse control channel):
     //   resize                              — pane viewport resize
     //   download                            — a file download the pane offers
@@ -187,6 +187,11 @@ describe('WS-04 contract: browserWsMessageSchema (Phase 30)', () => {
     //                                         deve aprire il telefono sul ramo
     //                                         video (dove non c'è nessun mirror
     //                                         DOM da interrogare)
+    //   focus_query                         — la stessa domanda chiesta a voce.
+    //                                         Da quando l'input del ramo video
+    //                                         va sul DataChannel, il click non
+    //                                         passa più dal server e il campo a
+    //                                         fuoco nessuno lo leggeva più
     expect([...types].sort()).toEqual([
       'agent_active',
       'console',
@@ -194,6 +199,7 @@ describe('WS-04 contract: browserWsMessageSchema (Phase 30)', () => {
       'download',
       'engine',
       'focus_field',
+      'focus_query',
       'frame',
       'input',
       'nav',
