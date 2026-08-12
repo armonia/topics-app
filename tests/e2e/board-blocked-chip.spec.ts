@@ -1,5 +1,5 @@
 /**
- * board-blocked-chip.spec.ts — «in attesa di» si vede anche quando il bloccante
+ * board-blocked-chip.spec.ts — «aspetta: …» si vede anche quando il bloccante
  * non è nella lista della board.
  *
  * Il caso che rompeva: la card disegnava il chip cercando il bloccante fra i
@@ -84,7 +84,7 @@ async function openProjectBoard(page: Page) {
 const beat = (page: Page, ms = 1400) =>
   process.env.E2E_EVIDENCE === "1" ? page.waitForTimeout(ms) : Promise.resolve();
 
-test.describe("Chip «in attesa di» · bloccante fuori dalla lista", () => {
+test.describe("Chip «aspetta: …» · bloccante fuori dalla lista", () => {
   test.describe.configure({ timeout: 90_000 });
 
   test.beforeAll(async ({ request }) => {
@@ -125,7 +125,7 @@ test.describe("Chip «in attesa di» · bloccante fuori dalla lista", () => {
     // Sulla board ci sono DUE card (l'epica e la dipendente): il bloccante non è
     // fra i task fetchati, eppure il chip lo nomina — cioè non viene da lì.
     await expect(page.locator("[data-task-card]")).toHaveCount(2);
-    await expect(card.getByTestId("card-blocked-by")).toContainText(`in attesa di: ${STEP}`);
+    await expect(card.getByTestId("card-blocked-by")).toContainText(`aspetta: ${STEP}`);
     await beat(page, 2200);
 
     // Nel drawer il chip sta IN RIGA, non sepolto nel menu ⋯, e apre il picker.
@@ -133,7 +133,7 @@ test.describe("Chip «in attesa di» · bloccante fuori dalla lista", () => {
     const drawer = page.getByTestId("task-detail-drawer");
     await expect(drawer).toBeVisible({ timeout: 10000 });
     const chip = drawer.getByTestId("task-blocked-by-chip");
-    await expect(chip).toContainText(`in attesa di: ${STEP}`);
+    await expect(chip).toContainText(`aspetta: ${STEP}`);
     await beat(page, 2000);
     await chip.click();
     await expect(page.getByTestId("task-blocker-picker")).toBeVisible({ timeout: 5000 });

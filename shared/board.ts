@@ -504,6 +504,239 @@ export function deriveSubtaskWork(
   return at ? { kind: 'parent-turn', ancestor: { id: at.id, text: at.text } } : { kind: 'unattended' };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// PERCHÉ questa card è ferma — la ragione, calcolata dove la si conosce.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * I motivi per cui un task in `todo` non parte. Uno per ramo del dispatcher.
+ *
+ * Esistono come UNIONE e non come booleani sparsi perché la card ne mostra uno
+ * solo, e quale sia è una precedenza: un task senza board non parte nemmeno se
+ * il suo bloccante chiude, e dirgli «aspetta una card» sarebbe una bugia con la
+ * faccia sicura. L'ordine di `deriveQueueReason` è quello del dispatcher.
+ */
+export type QueueReasonKind =
+  | 'slot'           // idoneo: aspetta solo il suo turno nella coda
+  | 'blocked'        // `blocked_by_task_id` ancora aperto
+  | 'deferred'       // `dispatch_deferred_until` nel futuro
+  | 'attempts'       // `dispatch_attempts >= dispatchRetryCap`
+  | 'dispatch_off'   // interruttore di dispatch spento
+  | 'no_project'     // nessuna board con una directory: nessun cwd, nessun agente
+  | 'parent_review'  // è uno step e il padre aspetta una decisione umana
+  | 'parent_turn'    // è uno step e l'agente del padre lo lavora nel suo turno
+  | 'parent_idle'    // è uno step e il padre non è al lavoro: non lo lavora nessuno
+  | 'unknown';       // il server non è riuscito a calcolarla: il buco, dichiarato
+
+/**
+ * COSA SUCCEDE DOPO, in tre pezzi. Il tono è la parte che si legge a un metro.
+ *
+ * `queued` = la coda scorre, non devi fare niente. `waiting` = ferma ma
+ * riparte da sola (una condizione esterna, un altro task, un turno altrui).
+ * `stalled` = non riparte finché non decidi tu. È la distinzione che oggi non
+ * si vede: «aspetta uno slot» e «non partirà mai» sono la stessa parola «in
+ * coda», e chi guarda non sa se aspettare o intervenire.
+ */
+export type QueueTone = 'queued' | 'waiting' | 'stalled';
+
+/**
+ * La ragione, pronta da scrivere. `head · detail` è il testo del chip, `title`
+ * il tooltip che dice per esteso cosa succede dopo.
+ *
+ * La FRASE viaggia già composta, non i campi da cui dedurla: il client la
+ * rende, non la calcola. È lo stesso conto già pagato con `waitingOnCount` —
+ * il giorno che il dispatcher cambia una regola, un client che deduce continua
+ * a rispondere, con sicurezza, la risposta di ieri.
+ */
+export interface QueueReason {
+  kind: QueueReasonKind;
+  tone: QueueTone;
+  /** Prima parola del chip: «in coda», «ferma», «rinviata». */
+  head: string;
+  /** Il seguito: «3 davanti», «riprende alle 06:40», «tentativi finiti». */
+  detail: string;
+  /** Per esteso, nel tooltip: cosa succede dopo e cosa devi fare tu. */
+  title: string;
+}
+
+/** Il contesto che la ragione non può leggere dalla riga del task. */
+export interface QueueContext {
+  /** Adesso, in ISO — la finestra di rinvio si misura da qui. */
+  now: string;
+  /** L'interruttore di dispatch della board (o quello globale). */
+  autoDispatch: boolean;
+  /** Il tetto dei tentativi della board (`BoardSettings.dispatchRetryCap`). */
+  retryCap: number;
+  /**
+   * Quanti task idonei il dispatcher servirebbe PRIMA di questo. Contato sul
+   * DB con la stessa disciplina di coda del tick (priorità, poi anzianità):
+   * dalla lista che il client ha in mano non si può contare, perché quella è
+   * un progetto solo, `rootsOnly`, non archiviati.
+   */
+  ahead: number;
+  /** Lo stato del padre, per uno step. `null` = non è uno step, o padre sparito. */
+  parentStatus: TaskStatus | string | null;
+  /** Vero quando il task non ha una board con una directory (`_none`). */
+  projectless: boolean;
+  /**
+   * Come si scrive un orario. Iniettabile perché il ramo «riprende alle 06:40»
+   * dipende dal fuso della macchina, e un test che ci gira sopra non deve
+   * dipendere da dove gira.
+   */
+  formatTime?: (iso: string) => string;
+}
+
+/**
+ * IL BUCO, DICHIARATO. Quando il server non riesce a calcolare la ragione, la
+ * card lo dice invece di ripiegare su una parola generica.
+ *
+ * «In coda» al posto di una ragione mancante non è un ripiego prudente: è la
+ * stessa bugia di prima, con l'aggravante di sembrare una risposta. Un buco
+ * detto ad alta voce è informazione — chi guarda sa che deve aprire il task, e
+ * chi legge un rosso sa che c'è un guasto da guardare.
+ */
+export const QUEUE_REASON_UNKNOWN: QueueReason = {
+  kind: 'unknown', tone: 'stalled', head: 'ferma', detail: 'motivo non registrato',
+  title: 'Ferma, e il motivo non risulta: il server non è riuscito a calcolarlo. Non è «in coda». Apri il task e guarda il thread.',
+};
+
+/** Ore e minuti, 24h — il default di `QueueContext.formatTime`. */
+export function formatClock(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+/**
+ * Sotto questa soglia il rinvio si dice in minuti («fra 12 min») invece che con
+ * l'orologio. Un'attesa breve la si misura, non la si legge sul quadrante — e
+ * «riprende alle 06:52» a un'attesa di due minuti fa sembrare fermo qualcosa
+ * che sta per ripartire.
+ */
+const NEAR_DEFERRAL_MIN = 90;
+
+/** Le prime otto lettere dell'id: quanto basta a riconoscerlo sulla board. */
+function shortId(id: string): string {
+  return id.slice(0, 8);
+}
+
+/**
+ * PERCHÉ questa card è ferma, in una frase.
+ *
+ * Pura per costruzione: prende la riga e il contesto, non tocca né DB né
+ * orologio (l'adesso arriva in `ctx.now`). La CHIAMA il server, dove vive la
+ * decisione di non dispacciare; il client riceve `head`/`detail`/`title` già
+ * scritti e li disegna.
+ *
+ * Torna `null` quando la domanda non si pone: la card non è in `todo`, oppure
+ * un agente ci sta già girando sopra (lì il chip di dispatch dice già tutto).
+ *
+ * L'ORDINE È QUELLO DEL DISPATCHER, e non è cosmetico:
+ *  1. uno step non viene mai reclamato (il tick lista `rootsOnly`): la sua
+ *     ragione è sempre il padre, qualunque altra cosa abbia addosso;
+ *  2. senza board non c'è cwd, e il tick esce prima di guardare qualsiasi cosa;
+ *  3. rinvio e bloccante vengono PRIMA del budget dei tentativi — è lo stesso
+ *     ordine che il tick applica, e invertirlo ucciderebbe una card che sta
+ *     solo aspettando (già successo, l'11/08, a una card in attesa di UAT);
+ *  4. l'interruttore spento viene per ULTIMO, appena prima della coda: è una
+ *     proprietà della board e non della card, e messo per primo cancellerebbe
+ *     da quaranta card la sola cosa vera di ciascuna.
+ */
+export function deriveQueueReason(
+  task: {
+    status: TaskStatus | string;
+    parentTaskId: string | null | undefined;
+    dispatchState: string | null | undefined;
+    dispatchAttempts: number;
+    dispatchDeferredUntil: string | null | undefined;
+    dispatchError?: string | null;
+    blockedByTaskId: string | null | undefined;
+    blockedBy: BlockerRef | null | undefined;
+  },
+  ctx: QueueContext,
+): QueueReason | null {
+  if (task.status !== 'todo') return null;
+  // Un agente già in volo su questa riga: il chip del ciclo di vita
+  // («avvio…», «al lavoro») dice più di qualunque ragione di coda.
+  if (task.dispatchState === 'starting' || task.dispatchState === 'working') return null;
+
+  if (task.parentTaskId) {
+    if (ctx.parentStatus === 'review') {
+      return {
+        kind: 'parent_review', tone: 'stalled', head: 'ferma', detail: 'il padre aspetta te',
+        title: 'È uno step: parte solo dentro il turno del padre, e il padre è in review. Finché non approvi o rimandi indietro, questo step non lo lavora nessuno.',
+      };
+    }
+    if (ctx.parentStatus === 'in_progress') {
+      return {
+        kind: 'parent_turn', tone: 'waiting', head: 'ferma', detail: 'la lavora il padre',
+        title: "È uno step: lo spunta l'agente del padre dentro il proprio turno. Non parte da solo, e non deve.",
+      };
+    }
+    return {
+      kind: 'parent_idle', tone: 'stalled', head: 'ferma', detail: 'il padre non è al lavoro',
+      title: 'È uno step, e il padre non ha nessun agente al lavoro. Nessuno lo prenderà: fai partire il padre, oppure staccalo e rendilo un task suo.',
+    };
+  }
+
+  if (ctx.projectless) {
+    return {
+      kind: 'no_project', tone: 'stalled', head: 'ferma', detail: 'nessun progetto',
+      title: "Senza una board legata a una directory l'agente non ha una cartella in cui girare: non partirà mai. Assegna il task a un progetto.",
+    };
+  }
+
+  const until = task.dispatchDeferredUntil;
+  if (until && until > ctx.now) {
+    const min = Math.max(1, Math.round((new Date(until).getTime() - new Date(ctx.now).getTime()) / 60000));
+    const when = min <= NEAR_DEFERRAL_MIN ? `fra ${min} min` : `alle ${(ctx.formatTime ?? formatClock)(until)}`;
+    return {
+      kind: 'deferred', tone: 'waiting', head: 'rinviata', detail: `riprende ${when}`,
+      title: `L'agente aspetta una condizione esterna e ha liberato lo slot: torna in coda ${when}${task.dispatchError ? `. Motivo: ${task.dispatchError}` : ''}`,
+    };
+  }
+
+  const b = task.blockedBy;
+  const blockerOpen = !!task.blockedByTaskId && !(b && (b.status === 'done' || b.archived));
+  if (blockerOpen) {
+    const who = b ? `«${b.text}»` : 'un altro task';
+    return {
+      kind: 'blocked', tone: 'waiting', head: 'ferma',
+      detail: `aspetta ${shortId(task.blockedByTaskId!)}`,
+      title: `Non parte finché ${who} non chiude. Quando quello va in done questa torna in coda da sé: non devi rimetterla tu.`,
+    };
+  }
+
+  if (task.dispatchAttempts >= ctx.retryCap) {
+    return {
+      kind: 'attempts', tone: 'stalled', head: 'ferma',
+      detail: 'tentativi finiti, rimettila in coda',
+      title: `Budget dei tentativi finito (${task.dispatchAttempts}/${ctx.retryCap}): non riparte da sola. Trascinala di nuovo in Todo per ridarle i tentativi, oppure guarda cosa la fa fallire.`,
+    };
+  }
+
+  // L'interruttore viene DOPO le ragioni della card, e non prima. È una
+  // proprietà della board, non di questa riga: scriverlo per primo lo
+  // stamperebbe identico su quaranta card e coprirebbe l'unica cosa che di
+  // ognuna è vera in proprio. Quello che sostituisce è la sola risposta che a
+  // interruttore spento sarebbe una bugia: «in coda, N davanti» — non c'è
+  // nessuna coda che scorre.
+  if (!ctx.autoDispatch) {
+    return {
+      kind: 'dispatch_off', tone: 'stalled', head: 'ferma', detail: 'dispatch spento',
+      title: "Idonea, ma l'auto-dispatch è spento: questa colonna è una lista, non una coda. Non partirà nessuno finché non riaccendi l'interruttore.",
+    };
+  }
+
+  return {
+    kind: 'slot', tone: 'queued', head: 'in coda',
+    detail: ctx.ahead === 0 ? 'la prossima' : `${ctx.ahead} davanti`,
+    title: ctx.ahead === 0
+      ? 'Idonea e prima della fila: parte appena si libera uno slot agente.'
+      : `Idonea: aspetta uno slot agente, con ${ctx.ahead} task davanti nella coda. Parte da sola, non devi fare niente.`,
+  };
+}
+
 export interface TaskComment {
   id: string;
   taskId: string;

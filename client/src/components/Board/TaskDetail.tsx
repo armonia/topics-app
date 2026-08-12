@@ -30,7 +30,7 @@ import { collectTaskMediaPaths } from './taskMedia';
 import { formatReviewNotes } from './reviewNotes';
 import { COMPACT_MD_CLS, PLAN_MD_CLS, PRIORITY_DOT, PRIORITY_LABEL, PRIORITY_ORDER, DISPATCH_CHIP, EFFORTS, FANOUT_CHOICES, mediaPaneIdFor, type TaskSurface } from './constants';
 import { friendlyModelLabel, fmtModel, commentTime, fmtMs, fmtLive, fmtTok, fmtUpdatedAt, autoGrow, attemptStat, taskCopyText, descSummary, fmtCount } from './format';
-import { StatusIcon, DispatchChip } from './atoms';
+import { StatusIcon, DispatchChip, QueueReasonChip } from './atoms';
 import { ProjectPickerBody } from './ProjectPicker';
 import { addBoardProject, projectNameFromId, useBoardProjects } from '../../lib/boardProjectsStore';
 import { GroupLayout } from '../Layout/GroupLayout';
@@ -1699,7 +1699,11 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                   <span className="min-w-0 truncate font-medium">{projectLabel}</span>
                   <ChevronDown className="h-3 w-3 shrink-0 text-app-text-faint" />
                 </button>
-                {(task.dispatchState && DISPATCH_CHIP[task.dispatchState]) ? (
+                {/* Stessa precedenza della card: la ragione della coda batte il
+                    chip di stato, e le due superfici restano in passo. */}
+                {task.queueReason ? (
+                  <QueueReasonChip reason={task.queueReason} />
+                ) : (task.dispatchState && DISPATCH_CHIP[task.dispatchState]) ? (
                   <DispatchChip state={task.dispatchState} error={task.dispatchError} />
                 ) : (!task.dispatchState && task.dispatchError) ? (
                   <span className="shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-[11px] text-rose-300" title={task.dispatchError}>{tr('board.task.stopped')}</span>
