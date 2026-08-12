@@ -143,5 +143,26 @@ queste regole.
      `misura`, che non decidono niente). `invisibile` è **rifiutato con 403**:
      marcare invisibile il proprio lavoro sarebbe firmarsi il permesso di
      chiudersi le card da solo.
+   - **Anche il GENERE si deriva alla consegna** (`deriveKind`, stessi file dei
+     commit propri). Al 12/08/2026 `task_labels` aveva 50 righe e **zero** di
+     genere: il vocabolario esisteva e il filtro sulla board era già disegnato,
+     ma nessuno scriveva il dato, quindi il filtro girava a vuoto. Chiederlo
+     all'agente era la scommessa che aveva già perso una volta.
+     · **`misura`** — la card tocca SOLO test (`tests/**`, `*.test.*`, `*.spec.*`).
+     · **`chore`** — SOLO impalcatura (`package.json`, i lock, `tsconfig*`,
+       `*.config.*`, `Cargo.toml`, `.github/**`).
+     · **`feature`** — fra i file di prodotto ce n'è uno **nato** in questi
+       commit (`A` in `--name-status`); ne basta uno.
+     · **`bugfix`** — solo modifiche a codice che esisteva già.
+     Test e config non spostano il genere quando c'è del prodotto sotto,
+     altrimenti ogni card sarebbe `chore` per via di `bun.lock`. Una card di
+     soli documenti, o senza diff, **non prende genere**: è una `decisione`, e
+     `chore` su un piano sarebbe una bugia che il filtro poi propaga.
+   - **Il limite, detto:** `feature`/`bugfix` guarda se un file è nato in quei
+     commit, che è una misura e non una diagnosi. Una funzionalità scritta per
+     intero dentro file che esistevano già esce `bugfix`. Per questo il genere si
+     scrive `derived`: è un default su cui filtrare, e la correzione a mano vince.
    - **L'umano corregge sempre**, dal chip nel drawer, `invisibile` compreso — e
      una correzione a mano non viene più sovrascritta dalla consegna successiva.
+     Vale per famiglia: chi chiude e che genere è sono due domande indipendenti,
+     e correggere la prima non congela la seconda.
