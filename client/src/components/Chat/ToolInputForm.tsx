@@ -3,6 +3,7 @@ import { clearAskDraft, readAskDraft, writeAskDraft } from './askDraft';
 import { HelpCircle, Send, Loader2, ChevronRight } from 'lucide-react';
 import type { ToolUserResponse, UserInputSchema, AskUserQuestionItem } from '../../types';
 import { isPlanApprovalSchema } from '../../../../shared/plan-decision';
+import { Select } from '../Shared/Select';
 
 /** Extract a human-readable message from a rejected submit. `onSubmit`
  *  rejects with `{ status, message }` on HTTP errors, but a thrown Error or
@@ -490,8 +491,12 @@ function ElicitationForm({ requestedSchema, message, toolCallId, submitting, err
       data-testid={`tool-input-form-${toolCallId}`}
     >
       {message && <div className="text-[13px] leading-snug text-app-text">{message}</div>}
+      {/* `<div>` e non `<label>`: da quando il campo `enum` è il `Select`
+          dell'app — un bottone che apre un menu, non un elemento di modulo — una
+          `<label>` avvolgente renderebbe il nome del campo un secondo grilletto.
+          Ogni controllo porta quindi il proprio nome accessibile a mano. */}
       {fields.map((f) => (
-        <label key={f.name} className="block text-[13px]">
+        <div key={f.name} className="block text-[13px]">
           <span className="text-app-text">
             {f.name}
             {f.required && <span className="text-red-500 ml-0.5">*</span>}
@@ -502,18 +507,23 @@ function ElicitationForm({ requestedSchema, message, toolCallId, submitting, err
               checked={values[f.name] === true}
               onChange={(e) => setValues((prev) => ({ ...prev, [f.name]: e.target.checked }))}
               disabled={submitting}
+              aria-label={f.name}
               className="ml-2"
             />
           ) : f.type === 'enum' ? (
-            <select
-              value={(values[f.name] as string) || ''}
-              onChange={(e) => setValues((prev) => ({ ...prev, [f.name]: e.target.value }))}
-              disabled={submitting}
-              className="mt-0.5 w-full text-[13px] bg-surface border border-app-border rounded px-2 py-1.5"
-            >
-              <option value="">—</option>
-              {f.enum!.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
-            </select>
+            <div className="mt-0.5">
+              <Select
+                value={(values[f.name] as string) || ''}
+                onChange={(v) => setValues((prev) => ({ ...prev, [f.name]: v }))}
+                disabled={submitting}
+                ariaLabel={f.name}
+                className="w-full"
+                options={[
+                  { value: '', label: '—' },
+                  ...f.enum!.map((opt) => ({ value: opt, label: opt })),
+                ]}
+              />
+            </div>
           ) : (
             <input
               type={f.type === 'number' ? 'number' : 'text'}
@@ -526,10 +536,11 @@ function ElicitationForm({ requestedSchema, message, toolCallId, submitting, err
                 }));
               }}
               disabled={submitting}
+              aria-label={f.name}
               className="mt-0.5 w-full text-[13px] bg-surface border border-app-border rounded px-2 py-1.5"
             />
           )}
-        </label>
+        </div>
       ))}
       {error && <div className="text-[12px] text-red-500">{error}</div>}
       <div className="flex justify-end">
