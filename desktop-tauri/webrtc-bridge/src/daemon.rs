@@ -19,7 +19,7 @@
 // compiles this module in on unix and a no-op stub elsewhere, so the Tauri externalBin
 // bundle resolves a binary for every target — see scripts/build-webrtc-bridge.sh.
 
-use crate::{cdp, encode};
+use crate::{cdp, encode, input};
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
@@ -38,6 +38,8 @@ use webrtc::api::interceptor_registry::register_default_interceptors;
 use webrtc::api::media_engine::{MediaEngine, MIME_TYPE_H264};
 use webrtc::api::setting_engine::SettingEngine;
 use webrtc::api::{APIBuilder, API};
+use webrtc::data_channel::data_channel_message::DataChannelMessage;
+use webrtc::data_channel::RTCDataChannel;
 use webrtc::ice::mdns::MulticastDnsMode;
 use webrtc::ice_transport::ice_candidate::RTCIceCandidateInit;
 use webrtc::interceptor::registry::Registry;
@@ -88,6 +90,11 @@ fn exe_stamp() -> u64 {
 struct TargetStream {
     track: Arc<TrackLocalStaticSample>,
     need_keyframe: Arc<AtomicBool>,
+    /// La sessione CDP del target, riusabile per mandarci `Input.*` (punto 6:
+    /// l'input arriva dal DataChannel del peer, non più dal WebSocket del server).
+    /// È del TARGET e non del peer perché la sessione è una sola e condivisa: chi
+    /// guarda in due muove lo stesso mouse, esattamente come già succede oggi.
+    input: Arc<cdp::CdpInput>,
     /// Refcount degli spettatori. Si incrementa in `acquire_target` e si
     /// decrementa in `release_target`, entrambi sotto il lock di `targets`: è
     /// quel lock a renderlo un refcount vero e non un contatore ottimistico.
@@ -202,16 +209,18 @@ impl Hub {
         // sistema resta auto-riparante — la prossima offer ricrea il pipeline da zero —
         // e lo spettatore rimasto vede il video fermo esattamente come già oggi, ma
         // senza risorse appese dietro.
+        let cdp_input = cdp::CdpInput::new();
         let cdp_task = {
             let target_id = target_id.to_string();
             let hub = Arc::downgrade(self);
+            let cdp_input = cdp_input.clone();
             tokio::spawn(async move {
                 const CDP_GIVE_UP: Duration = Duration::from_secs(300);
                 let mut backoff = Duration::from_secs(1);
                 let mut dry = Duration::ZERO;
                 let mut last_err: Option<String> = None;
                 loop {
-                    match cdp::attach_and_stream(target_id.clone(), 1, jpeg_tx.clone()).await {
+                    match cdp::attach_and_stream(target_id.clone(), 1, jpeg_tx.clone(), cdp_input.clone()).await {
                         Ok(()) => {
                             backoff = Duration::from_secs(1);
                             dry = Duration::ZERO;
@@ -251,6 +260,7 @@ impl Hub {
         let ts = Arc::new(TargetStream {
             track,
             need_keyframe,
+            input: cdp_input,
             peers: AtomicUsize::new(0),
             cdp_abort: cdp_task.abort_handle(),
             writer_abort: writer.abort_handle(),
@@ -331,6 +341,47 @@ impl Hub {
             pc.on_ice_connection_state_change(Box::new(move |s| {
                 eprintln!("[peer {peer_id}] ice-state {s}");
                 Box::pin(async {})
+            }));
+        }
+
+        // Punto 6 — il canale "input". Il client lo apre PRIMA dell'offer, quindi
+        // arriva già negoziato dentro l'SDP e non serve una seconda tornata.
+        // Ogni messaggio è lo stesso `{type:"input",action,payload}` che prima
+        // andava sul WebSocket: qui scende dritto sulla sessione CDP del target.
+        {
+            let peer_id = peer.to_string();
+            let cdp_input = ts.input.clone();
+            pc.on_data_channel(Box::new(move |dc: Arc<RTCDataChannel>| {
+                let label = dc.label().to_string();
+                let peer_id = peer_id.clone();
+                let cdp_input = cdp_input.clone();
+                Box::pin(async move {
+                    if label != "input" {
+                        // Un canale che non conosciamo non si tocca: aprire una
+                        // strada verso CDP per qualunque etichetta sarebbe una
+                        // superficie in più senza motivo.
+                        eprintln!("[peer {peer_id}] datachannel '{label}' ignorato");
+                        return;
+                    }
+                    eprintln!("[peer {peer_id}] datachannel input aperto");
+                    let dc2 = dc.clone();
+                    dc.on_message(Box::new(move |msg: DataChannelMessage| {
+                        let cdp_input = cdp_input.clone();
+                        let dc2 = dc2.clone();
+                        Box::pin(async move {
+                            let Ok(v) = serde_json::from_slice::<Value>(&msg.data) else { return };
+                            let ok = input::dispatch(&cdp_input, &v);
+                            // Eco dell'`id` quando c'è: è ciò che permette a chi
+                            // guarda di MISURARE il proprio round trip invece di
+                            // fidarsi. Silenzio quando l'id non c'è, così il caso
+                            // normale non paga un pacchetto in più.
+                            if let Some(id) = v.get("id") {
+                                let reply = json!({ "t": "ack", "id": id, "ok": ok });
+                                let _ = dc2.send_text(reply.to_string()).await;
+                            }
+                        })
+                    }));
+                })
             }));
         }
 
