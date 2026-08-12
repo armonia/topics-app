@@ -59,6 +59,10 @@
         // mano (`bun scripts/board-doctor.mutants.ts`), non lo importa nessuno
         // e non deve — mentre gira riscrive il file che sta mutando.
         "scripts/board-doctor.mutants.ts!",
+        // La sonda degli stalli muti: `bun run probe:stalls [--db <file>]
+        // [--json] [--gate]`. Sola lettura sul DB della board, si lancia a mano
+        // (o da un cron) e non la importa nessuno tranne il suo test.
+        "scripts/stalled-parents.ts!",
         "scripts/effort-variance.ts!",
     "scripts/disk-report.ts!",        // `bun run report:disk`
         "scripts/token-live.ts!",         // diagnostica a mano: `bun scripts/token-live.ts [filtro] [--watch]`

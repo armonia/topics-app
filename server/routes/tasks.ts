@@ -28,7 +28,7 @@ import { isAgentWorking, PARKED_STOPPED, PARKED_WAITED_OUT, pendingQuestion, typ
 import { isPreviewablePath } from "../../shared/media-kind";
 import { parseTaskPatch, unapplicableFieldsBody, type FieldRead } from "./task-patch";
 import { getTerminalSessionById } from "./terminal";
-import { AUTO_PROJECT_ID, createTaskService, isLandActionLabel, isPublishActionLabel, projectIdForPath, TaskServiceError, UNASSIGNED_PROJECT_ID, type Task } from "../services/tasks";
+import { AUTO_PROJECT_ID, createTaskService, isArchiveParkedLabel, isLandActionLabel, isPublishActionLabel, isRequeueParkedLabel, projectIdForPath, TaskServiceError, UNASSIGNED_PROJECT_ID, type Task } from "../services/tasks";
 import { computeDispatchCapacity } from "../services/dispatch-capacity";
 import { newProjectParentDir } from "../services/project-path-resolver";
 import { parkedEdgeEvent, type TaskDispatcher } from "../services/task-dispatcher";
@@ -1858,6 +1858,30 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           // approve the task and run the land — never a reject. This is the ONLY
           // place approve is coupled to a merge, and it happens because YOU chose
           // the land option; a plain approve below is task-only, no "azioni da sotto".
+          // LE DUE RISPOSTE ALLO STALLO DEI SOTTOTASK PARCHEGGIATI. Arrivano
+          // qui come un rifiuto che porta l'etichetta, esattamente come «Landa
+          // su main» — ma non sono né un rifiuto né un'approvazione: sono la
+          // risposta a una domanda che il SISTEMA ha fatto, e la esegue il
+          // sistema. Rimandarle all'agent (il ramo `reject` sotto) avrebbe fatto
+          // ripartire un turno per spostare due card, cioè avrebbe pagato un
+          // agente per fare un UPDATE.
+          if (isRequeueParkedLabel(comment) || isArchiveParkedLabel(comment)) {
+            const decision = isRequeueParkedLabel(comment) ? "requeue" as const : "archive" as const;
+            const esito = svc.resolveParkedChildren({ taskId: bReview.taskId, decision, by: HUMAN });
+            if (!esito) {
+              return json({
+                error: "questo task non ha più sottotask parcheggiati: la domanda è già stata risolta",
+                code: "no_parked_children",
+              }, 409);
+            }
+            broadcastToAll({ type: "task:updated", projectId: bReview.projectId, task: esito.task });
+            // I figli non viaggiano nel feed della board (`rootsOnly`), ma il
+            // drawer aperto sul padre sì: senza questo, chi guarda vede il padre
+            // ripartire e i sottotask ancora parcheggiati finché non ricarica.
+            for (const c of esito.children) broadcastToAll({ type: "task:updated", projectId: bReview.projectId, task: c });
+            if (dispatcher && esito.task.status === "todo") dispatcher.onEnterTodo(bReview.projectId, bReview.taskId);
+            return json(esito.task);
+          }
           if (isLandActionLabel(comment)) {
             const approved = svc.reviewDecision({ taskId: bReview.taskId, by: HUMAN, decision: "approve", projectId: bReview.projectId });
             broadcastToAll({ type: "task:updated", projectId: bReview.projectId, task: approved });
