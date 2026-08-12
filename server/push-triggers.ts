@@ -1,5 +1,12 @@
 import { sendPushToAll } from "./push-service";
 import { buildNotifyActionBundle, type NotifyAction, type NotifyActionRequest, type NotifyEvent } from "../shared/notify-actions";
+import {
+  approvalNotificationKey,
+  chatNotificationKey,
+  taskParkedNotificationKey,
+  taskReviewNotificationKey,
+  type NotificationRecordInput,
+} from "../shared/notification-log";
 
 // Il modulo è puro (nessuna dipendenza dal DB), ma la push di fine chat vuole il
 // NOME del topic, non il suo id: senza, la notifica ti sveglia senza dirti DI
@@ -8,6 +15,7 @@ import { buildNotifyActionBundle, type NotifyAction, type NotifyActionRequest, t
 // resta testabile in isolamento.
 let resolveTopicName: ((topicId: string) => string | null | undefined) | null = null;
 let resolveTopicSilenced: ((topicId: string) => boolean) | null = null;
+let recordSent: ((input: NotificationRecordInput) => void) | null = null;
 
 export function configurePushTriggers(opts: {
   getTopicName: (topicId: string) => string | null | undefined;
@@ -28,9 +36,31 @@ export function configurePushTriggers(opts: {
    * topic e `mutedProjects` letto da `ui_state.settings`.
    */
   isTopicSilenced: (topicId: string) => boolean;
+  /**
+   * Scrivi la notifica nel REGISTRO (migration 102). Opzionale perché un
+   * contesto ridotto — i test di questo modulo — non ha un DB: senza, la push
+   * parte lo stesso e semplicemente non lascia traccia, che è il verso giusto
+   * in cui mancare (una cronologia incompleta è meglio di una notifica persa).
+   *
+   * La chiave di dedup è la STESSA che usa il client per il banner dello stesso
+   * evento (shared/notification-log.ts): un `task:review-ready` esce da due
+   * porte e deve lasciare una riga sola.
+   */
+  recordNotification?: (input: NotificationRecordInput) => void;
 }): void {
   resolveTopicName = opts.getTopicName;
   resolveTopicSilenced = opts.isTopicSilenced;
+  recordSent = opts.recordNotification ?? null;
+}
+
+/** Registra la push appena mandata. Best-effort: il registro non deve mai
+ *  poter rompere la consegna. */
+function logSent(input: NotificationRecordInput): void {
+  try {
+    recordSent?.(input);
+  } catch (err) {
+    console.warn("[Push] registro notifiche:", (err as Error)?.message || err);
+  }
 }
 
 /**
@@ -167,11 +197,15 @@ export function maybeSendPush(message: Record<string, any>): void {
   // Approval created — someone needs to review
   if (type === "approval:created") {
     const approval = message.approval;
-    firePush({
-      title: "Approval needed",
-      body: approval?.description || "A new approval request is waiting",
-      tag: `approval-${approval?.id || "new"}`,
-      url: "/",
+    const title = "Approval needed";
+    const body = approval?.description || "A new approval request is waiting";
+    firePush({ title, body, tag: `approval-${approval?.id || "new"}`, url: "/" });
+    logSent({
+      kind: "approval",
+      title,
+      body,
+      dedupeKey: approvalNotificationKey(String(approval?.id || "new")),
+      source: "push",
     });
     return;
   }
@@ -187,12 +221,25 @@ export function maybeSendPush(message: Record<string, any>): void {
     // realtà ti stanno CHIEDENDO una cosa è la stessa notifica per due eventi
     // diversi — e quello che chiede è l'unico che non può aspettare.
     const question = readQuestion(message.question);
+    const title = question ? "❓ L'agent ti sta chiedendo una cosa" : "📋 Task pronto per la review";
+    const body = question?.text || message.taskTitle || "Un task è pronto per la review";
     firePush(withActions({
-      title: question ? "❓ L'agent ti sta chiedendo una cosa" : "📋 Task pronto per la review",
-      body: question?.text || message.taskTitle || "Un task è pronto per la review",
+      title,
+      body,
       tag: `task-review-${message.taskId || "new"}`,
       url: taskUrl(message.taskId),
     }, { kind: "review-ready", question }, message));
+    if (typeof message.taskId === "string" && message.taskId) {
+      logSent({
+        kind: "task-review",
+        title,
+        body,
+        targetKind: "task",
+        targetId: message.taskId,
+        dedupeKey: taskReviewNotificationKey(message.taskId),
+        source: "push",
+      });
+    }
     return;
   }
 
@@ -201,12 +248,25 @@ export function maybeSendPush(message: Record<string, any>): void {
   // su una rimessa in coda che si auto-guarisce. `tag` keyed by taskId così un
   // re-emit sostituisce invece di impilare.
   if (type === "task:parked") {
+    const title = message.state === "blocked" ? "🔧 Task da sistemare" : "⛔️ Task non consegnato";
+    const body = message.taskTitle || "Un task è stato parcheggiato";
     firePush(withActions({
-      title: message.state === "blocked" ? "🔧 Task da sistemare" : "⛔️ Task non consegnato",
-      body: message.taskTitle || "Un task è stato parcheggiato",
+      title,
+      body,
       tag: `task-park-${message.taskId || "new"}`,
       url: taskUrl(message.taskId),
     }, { kind: "parked" }, message));
+    if (typeof message.taskId === "string" && message.taskId) {
+      logSent({
+        kind: "task-parked",
+        title,
+        body,
+        targetKind: "task",
+        targetId: message.taskId,
+        dedupeKey: taskParkedNotificationKey(message.taskId),
+        source: "push",
+      });
+    }
     return;
   }
 
@@ -235,11 +295,20 @@ export function maybeSendPush(message: Record<string, any>): void {
     // conversazione che l'interfaccia non mostra più.
     if (resolveTopicSilenced?.(topicId)) return;
     const name = resolveTopicName?.(topicId);
-    firePush({
-      title: name ? `💬 ${name}` : "💬 Risposta pronta",
-      body: "Claude ha finito di rispondere",
-      tag: `chat-end-${topicId}`,
-      url: topicUrl(topicId),
+    const title = name ? `💬 ${name}` : "💬 Risposta pronta";
+    const body = "Claude ha finito di rispondere";
+    firePush({ title, body, tag: `chat-end-${topicId}`, url: topicUrl(topicId) });
+    // Stessa chiave del banner di `message:new` lato client: per chi la riceve
+    // «Claude ha risposto in questo topic» è UN evento, non due, anche se le
+    // superfici sono due (banner sul desktop aperto, push sul telefono).
+    logSent({
+      kind: "chat-message",
+      title,
+      body,
+      targetKind: "topic",
+      targetId: topicId,
+      dedupeKey: chatNotificationKey(topicId),
+      source: "push",
     });
     return;
   }

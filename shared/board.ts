@@ -106,37 +106,17 @@ export function statusEventEnters(content: string, status: TaskStatus): boolean 
  *
  * Ora il tetto è espresso come RAPPORTO della larghezza vera del riquadro
  * (unità di container query, `70cqw`), quindi la soglia è la stessa a ogni
- * larghezza di colonna e su mobile — e a tenerla tale è
- * `PREVIEW_CARD_MAX_WIDTH_PX`, che ferma la crescita della miniatura senza
- * toccarne le proporzioni. È anche la stessa soglia che misura il gate di
+ * larghezza di colonna e su mobile. La miniatura RIEMPIE la card: nessun tetto
+ * in px sul riquadro, perché una fascia vuota a destra in una colonna larga si
+ * legge come un difetto (Attilio, 12/08). Il prezzo è dichiarato: l'altezza
+ * cresce col rapporto, cioè 0.7 x 474 = 332px in review a 1280.
+ * È anche la stessa soglia che misura il gate di
  * promozione: due numeri diversi per la stessa immagine erano un odore, non
  * una politica.
  * @see client/src/components/Board/PreviewMedia.tsx
  */
 export const PREVIEW_CARD_MAX_RATIO = 0.7;
 
-/**
- * A crescere è la LARGHEZZA della miniatura, e si ferma qui.
- *
- * Serve un secondo tetto, perché il rapporto da solo non ne è uno: nella
- * colonna review, larga fino a 666px di riquadro, `0.7 × 666` sono 466px di
- * anteprima — una card che si mangia la colonna e nasconde le altre, cioè
- * esattamente il motivo per cui un tetto esiste.
- *
- * Il tetto poteva essere sull'ALTEZZA (`max-h: Npx`), ed è la strada che è
- * stata provata e scartata MISURANDO: un tetto in px sull'altezza rimette
- * dentro il difetto che questo cambio toglie — sopra una certa larghezza
- * comanda lui e il rapporto effettivo torna a scendere, quindi il numero del
- * protocollo tornerebbe a essere vero solo in certe colonne.
- *
- * Sulla LARGHEZZA invece no: oltre 380px la miniatura smette di crescere, la
- * larghezza in più della colonna va al testo, e il rapporto resta 0.7 a
- * QUALSIASI larghezza di colonna. Il tetto sull'altezza esiste comunque, ma
- * come conseguenza: `0.7 × 380` = 266px, che a 1280×800 è ~2/3 del corpo
- * colonna — la card si vede intera senza scorrere, e in una colonna di lavoro
- * (miniatura 250px) se ne vedono due.
- */
-export const PREVIEW_CARD_MAX_WIDTH_PX = 380;
 
 /**
  * Come si sceglie l'anteprima di una consegna. **Questa stringa è la copia
