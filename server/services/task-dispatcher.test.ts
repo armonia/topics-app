@@ -2,13 +2,14 @@ import { describe, it, expect } from "bun:test";
 import { Database } from "bun:sqlite";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { PREVIEW_RULE, PREVIEW_CARD_MAX_RATIO, extractPreviewRule, formatStatusEvent } from "../../shared/board";
+import { PREVIEW_RULE, PREVIEW_CARD_MAX_RATIO, PREVIEW_CARD_MAX_WIDTH_PX, extractPreviewRule, formatStatusEvent } from "../../shared/board";
 import { toolsForProfile } from "../mcp/topics-mcp-server";
 import { createTaskService, type TaskService } from "./tasks";
 import { createTaskDispatcher, rotateFrom, type DispatcherDeps } from "./task-dispatcher";
 import { cancelled, type TurnEndInfo } from "../providers/stop-reason";
 import { beginAsk, endAsk } from "../lib/ask-user-bridge";
 import { beginPermission, endPermission } from "../lib/permission-bridge";
+import { TASK_LABELS_DDL } from "../db/test-schema";
 
 // Self-contained schema (mirrors migrations 001 + 026 + 031, tasks-relevant
 // subset). PRAGMA foreign_keys + the assigned_topic_id FK are faithful to prod
@@ -35,6 +36,7 @@ function freshDb(): Database {
     delivered_by TEXT, delivered_reason TEXT, created_by_topic_id TEXT,
     done_actor TEXT, reopened_at TEXT, reopened_by TEXT, reopened_actor TEXT
   )`);
+  db.run(TASK_LABELS_DDL); // migration 100 — rowToTask la legge per OGNI task
   db.run(`CREATE TABLE board_settings (
     project_id TEXT PRIMARY KEY, require_approval_for_done INTEGER DEFAULT 0,
     require_review_before_done INTEGER DEFAULT 0, block_status_with_pending INTEGER DEFAULT 0,
@@ -610,6 +612,28 @@ describe("task-dispatcher", () => {
     const notes = h.svc.get("t1")!.comments.map((c) => c.content).join("\n");
     expect(notes).toContain("Turno fermato a mano");
     expect(notes).toContain("non conteggiato");
+  });
+
+  it("lo STOP dalla board parcheggia e la chip «fermato» sopravvive al turno tagliato", async () => {
+    // L'ordine dello stop umano: la route PARCHEGGIA prima (release → backlog,
+    // chip 'stopped') e taglia il turno DOPO. Qui si simula esattamente quello,
+    // perché è l'`onTurnEnd` del turno abortito il punto in cui la cosa poteva
+    // rompersi in due modi: rimettere in coda un task che l'umano ha fermato, o
+    // riazzerare la chip e lasciare la card muta in Backlog.
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchRetryCap: 3 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.task("t1")!.dispatchAttempts).toBe(1);
+    h.svc.release({ taskId: "t1", requeue: false, by: "user", parkState: "stopped" });
+    h.finishTurnWith(cancelled("user"));
+    await flush();
+    const t = h.task("t1")!;
+    expect(t.status).toBe("backlog");
+    expect(t.dispatchState).toBe("stopped"); // né null (muta) né 'failed' (accusa)
+    expect(t.dispatchAttempts).toBe(1);      // fermare non consuma un tentativo
+    expect(h.turns.length).toBe(1);          // e non riparte da solo
   });
 
   it("una raffica di errori del PROVIDER non brucia i tentativi (ma un guasto cronico sì)", async () => {
@@ -2060,12 +2084,37 @@ describe("PREVIEW_RULE — una stringa sola, in tutti gli envelope", () => {
   });
 
   it("i criteri sono MISURABILI: la soglia della card esce dal numero, non da un aggettivo", () => {
-    // 144/268 = il riquadro `max-h-36 object-cover` della card. Se qualcuno
-    // cambia il layout e non la costante, la regola mente agli agenti.
-    expect(PREVIEW_CARD_MAX_RATIO).toBeCloseTo(0.537, 3);
-    expect(PREVIEW_RULE).toContain(PREVIEW_CARD_MAX_RATIO.toFixed(3));
+    // 0.7 = il tetto `max-h-[min(70cqw,320px)] object-cover` della card. Era
+    // 144/268 quando il tetto era un'altezza fissa: un numero vero in una sola
+    // larghezza di colonna su tre. Se qualcuno cambia il layout e non la
+    // costante, la regola mente agli agenti.
+    expect(PREVIEW_CARD_MAX_RATIO).toBeCloseTo(0.7, 3);
+    expect(PREVIEW_RULE).toContain(PREVIEW_CARD_MAX_RATIO.toFixed(2));
     expect(PREVIEW_RULE).toContain("≤20s");        // il tetto del video
     expect(PREVIEW_RULE).toContain("DUE O PIÙ STATI"); // il criterio del ramo video
+  });
+
+  it("la soglia del protocollo È il CSS della card, non un numero che gli somiglia", () => {
+    // Il buco che questo chiude: la costante e la classe Tailwind vivevano in
+    // due file e nessuno le confrontava, quindi `max-h-36` poteva restare 144px
+    // mentre `PREVIEW_CARD_MAX_RATIO` diceva tutt'altro — ed è esattamente ciò
+    // che era successo. Qui il tetto scritto nel componente si legge e si
+    // misura contro le costanti che il protocollo dà agli agenti.
+    const src = readFileSync(
+      join(import.meta.dir, "..", "..", "client", "src", "components", "Board", "PreviewMedia.tsx"),
+      "utf-8",
+    );
+    const ratio = /max-h-\[(\d+)cqw\]/.exec(src);
+    expect(ratio, "il tetto della card deve essere un rapporto in `cqw`").not.toBeNull();
+    expect(Number(ratio![1]) / 100).toBeCloseTo(PREVIEW_CARD_MAX_RATIO, 3);
+
+    const width = /max-w-\[(\d+)px\]/.exec(src);
+    expect(width, "e la miniatura deve smettere di crescere a un certo punto").not.toBeNull();
+    expect(Number(width![1])).toBe(PREVIEW_CARD_MAX_WIDTH_PX);
+
+    // `cqw` senza un contenitore dichiarato risale al VIEWPORT: il tetto
+    // tornerebbe a guardare la finestra invece del riquadro, in silenzio.
+    expect(src).toContain("@container");
   });
 
   it("nessuna sesta copia: il testo dei rami esiste solo in shared/board.ts", () => {

@@ -473,6 +473,7 @@ describe("handleMessage", () => {
       "get_task",
       "update_task",
       "wait_for_condition",
+      "label_task",
       "comment_task",
       "ask_user_question",
       // Il canale di permesso: pubblicato sempre. Lo designa
@@ -552,7 +553,7 @@ describe("handleMessage", () => {
       "browser_act", "browser_eval", "browser_save_state", "browser_load_state",
       "browser_upload",
       "run_script", "stop_process",
-      "create_task", "update_task", "comment_task", "wait_for_condition",
+      "create_task", "update_task", "comment_task", "label_task", "wait_for_condition",
       "move_session_to_project", "spawn_agent", "send_to_agent", "stop_agent",
       "switch_topic", "new_topic", "create_project", "open_project",
       "send_chat_message",
