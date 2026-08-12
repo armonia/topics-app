@@ -34,6 +34,7 @@ import { createTasksRouter } from "../../server/routes/tasks";
 import { resolvePrincipals } from "../../server/lib/principals";
 import { grantedByType } from "../../server/lib/grants-query";
 import type { RouteHandler } from "../../server/types";
+import { TASK_LABELS_DDL } from "../../server/db/test-schema";
 
 const RADICE = join(import.meta.dir, "..", "..");
 const MIGRAZIONI = ["080-devices.sql", "082-task-shares.sql", "083-grants.sql", "084-people-orgs.sql"];
@@ -66,6 +67,7 @@ const DDL_TASKS = `CREATE TABLE tasks (
 function db084(): Database {
   const db = new Database(":memory:");
   db.run(DDL_TASKS);
+  db.run(TASK_LABELS_DDL); // migration 100 — rowToTask la legge per OGNI task
   db.run(`CREATE TABLE task_comments (
     id TEXT PRIMARY KEY, task_id TEXT NOT NULL, author TEXT NOT NULL DEFAULT 'user',
     content TEXT NOT NULL, mentions TEXT, media TEXT, created_at TEXT NOT NULL,
