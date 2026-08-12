@@ -260,6 +260,45 @@ describe("freno del peso — l'attesa ha una fine", () => {
     expect(h.task("l1")!.queueReason!.kind).toBe("slot");
   });
 
+  it("aspettare un ALTRO pesante non consuma il tetto dell'attesa sul carico", async () => {
+    // Due attese diverse che il tetto non deve confondere. «Aspetto che finisca
+    // il pesante in volo» dura quanto dura quel turno ed è una regola sana;
+    // «aspetto che la macchina si liberi» è quella che poteva non finire mai.
+    // Contando la prima nella seconda, il pesante successivo uscirebbe dal
+    // blocco gia' scaduto e partirebbe senza aver mai guardato il carico.
+    let now = Date.UTC(2026, 7, 12, 22, 0, 0);
+    const h = harness({
+      capacity: () => ({ load1: 42, cores: 12 }),
+      ownLoad: () => ({ coreUnits: 11, cores: 12 }),
+      now: () => now,
+    });
+    board(h);
+    // Un pesante gia' al lavoro, e un secondo pesante in coda dietro di lui.
+    h.db.run("INSERT OR IGNORE INTO topics (id) VALUES ('topic-x')");
+    h.db.run(
+      `INSERT INTO tasks (id, project_id, text, status, created_at, updated_at, dispatch_attempts, priority, dispatch_weight, dispatch_state, assigned_topic_id)
+       VALUES ('inflight', ?, 'gia in volo', 'in_progress', '2026-08-12T21:00:00.000Z', '2026-08-12T21:00:00.000Z', 0, 4, 'heavy', 'working', 'topic-x')`,
+      [PID],
+    );
+    seedTask(h.db, { id: "heavy", priority: 4, weight: "heavy" });
+
+    // Mezz'ora di turno del primo: ben oltre il tetto dell'attesa sul carico.
+    await h.dispatcher.tick(PID);
+    await flush();
+    now += 30 * 60_000;
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    // Il primo finisce. Il secondo NON deve risultare gia' scaduto: la macchina
+    // e' ancora occupata da noi, quindi tocca al freno del carico, da capo.
+    h.db.run("UPDATE tasks SET status = 'done', dispatch_state = NULL WHERE id = 'inflight'");
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    expect(h.task("heavy")!.status).toBe("todo");
+    expect(h.task("heavy")!.dispatchState).toBe("queued");
+  });
+
   it("la nota dice che è LUI a tenere ferma la coda, non solo «in coda»", async () => {
     const h = harness({
       capacity: () => ({ load1: 42, cores: 12 }),

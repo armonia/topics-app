@@ -405,8 +405,9 @@ const HEAVY_MAX_LOAD_PER_CORE = 1.0;
  * Più severo dell'1,0 sul load di sistema, e deve esserlo: quello contava anche
  * i processi di chiunque altro, quindi la stessa soglia applicata a una misura
  * che vede solo noi sarebbe un freno che non frena quasi mai. Su questo host
- * (12 core) sono 6 core-unità, cioè 600% nella scala di `ps`, contro gli 0,06
- * misurati la notte del 12/08 con la board ferma.
+ * (12 core) sono 6 core-unità, cioè 600% nella scala di `ps`, contro le 0,75
+ * misurate la notte del 12/08 con la board ferma: due ordini di grandezza di
+ * margine, che è quanto serviva e non c'era.
  */
 const HEAVY_MAX_OWN_LOAD_PER_CORE = 0.5;
 
@@ -2414,6 +2415,28 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       catch (err) { log("lettura dei task pesanti in volo fallita", err); return false; }
     })();
     const loadGate = heavyLoadGate();
+    if (heavyBusy) {
+      // Un pesante in volo blocca OGNI claim, non solo gli altri pesanti: è il
+      // senso stesso del peso — quel task si prende la macchina da solo. Niente
+      // di questa board parte finché non ha finito, e la coda riparte da sé al
+      // reconcile successivo.
+      //
+      // Si esce PRIMA di far partire l'orologio del freno, e non è un dettaglio
+      // di ordine: questa attesa non è quella del carico. Aspettare che un
+      // pesante finisca è una regola senza tetto (il turno dura quanto dura), e
+      // contarla nel tetto del CARICO significherebbe che il pesante successivo
+      // esce dal blocco già «scaduto», cioè parte senza aver mai guardato se la
+      // macchina si è liberata. Il tetto esiste per l'attesa che potrebbe non
+      // finire mai, non per quella che finisce quando finisce un turno.
+      for (const t of todos) {
+        noteHeavyHold(
+          t,
+          "In coda: c'è un task PESANTE al lavoro e si prende la macchina da solo. " +
+            "Riparto appena ha finito. Non devi fare nulla.",
+        );
+      }
+      return;
+    }
     const nowMs = clock();
     // La chiamata del freno, decisa UNA volta per tick e per task.
     //
@@ -2445,21 +2468,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     const heldForMs = (t: Task) => { const s = heavyHoldSince.get(t.id); return s == null ? 0 : Math.max(0, nowMs - s); };
     // Chi NON è più trattenuto dal peso dimentica l'episodio, così una prossima
     // attesa lo dice di nuovo invece di restare muta.
-    if (!heavyBusy) for (const t of todos) { if (!heldForLoad(t)) heavyHeldNoted.delete(t.id); }
-    if (heavyBusy) {
-      // Un pesante in volo blocca OGNI claim, non solo gli altri pesanti: è il
-      // senso stesso del peso — quel task si prende la macchina da solo. Niente
-      // di questa board parte finché non ha finito, e la coda riparte da sé al
-      // reconcile successivo.
-      for (const t of todos) {
-        noteHeavyHold(
-          t,
-          "In coda: c'è un task PESANTE al lavoro e si prende la macchina da solo. " +
-            "Riparto appena ha finito. Non devi fare nulla.",
-        );
-      }
-      return;
-    }
+    for (const t of todos) { if (!heldForLoad(t)) heavyHeldNoted.delete(t.id); }
 
     // Effective concurrency cap for this tick: ONE machine-wide budget counted
     // across EVERY board (scope 'global'), so N boards can't multiply into N×cap
