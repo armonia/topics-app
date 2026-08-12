@@ -118,9 +118,9 @@ export function SessionConfigPopover({
         }`}
         title={shownTier
           ? effort
-            ? `Effort: ${effort} — impostato per questa chat${defaultTier ? ` (default del provider: ${defaultTier})` : ''}`
-            : `Effort: ${shownTier} — default del provider`
-          : 'Configurazione della chat — effort'}
+            ? `Effort: ${effort} · impostato per questa chat${defaultTier ? ` (default del provider: ${defaultTier})` : ''}`
+            : `Effort: ${shownTier} · default del provider`
+          : 'Configurazione della chat: effort'}
         aria-label={shownTier
           ? `Configurazione della chat, effort ${shownTier}${effort ? ' impostato per questa chat' : ' di default'}`
           : 'Configurazione della chat'}
@@ -232,7 +232,7 @@ export function SessionConfigPopover({
               </div>
               <div className="mt-1 text-[10px] text-app-text-muted">
                 {effort
-                  ? `Override per questa chat${defaultTier ? ` — default ${defaultTier}` : ''}`
+                  ? `Override per questa chat${defaultTier ? ` · default ${defaultTier}` : ''}`
                   : defaultTier
                     ? `Default del provider (${defaultTier})`
                     : 'Default del provider'}

@@ -1507,8 +1507,8 @@ export function createAppContext(baseDir: string): AppContext {
             if (tc.endedAt == null) tc.endedAt = endedAt;
             if (!tc.error) {
               tc.error = eraPermesso
-                ? 'Interrotto: il turno è finito mentre il permesso era ancora a schermo — la decisione non avrebbe più raggiunto nessuno'
-                : 'Interrotto: il turno è finito mentre la domanda era ancora a schermo — la risposta non avrebbe più raggiunto nessuno';
+                ? 'Interrotto: il turno è finito mentre il permesso era ancora a schermo. La decisione non avrebbe più raggiunto nessuno.'
+                : 'Interrotto: il turno è finito mentre la domanda era ancora a schermo. La risposta non avrebbe più raggiunto nessuno.';
             }
             releaseHumanHold(sessionKey, 'il turno è terminato mentre il pannello era a schermo');
             return true;

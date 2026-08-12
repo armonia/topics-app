@@ -1308,6 +1308,12 @@ test.describe("Sidebar — il riordino si vede muovere", () => {
   }
 
   test("TILE-28: riordinando dentro la riga le celle attraversano lo spazio", async ({ page, request }) => {
+    // La config della suite chiede `reducedMotion: "reduce"` a TUTTI i contesti, e
+    // `useCellFlip` in quel caso salta l'animazione apposta. Questo test misura
+    // proprio l'animazione, quindi deve chiedere il movimento per se stesso: senza,
+    // `animati.length` e' zero per costruzione e il rosso non dice niente sul
+    // codice. Il fratello TILE-28b copre il ramo opposto.
+    await page.emulateMedia({ reducedMotion: "no-preference" });
     const ids = await treSuUnaRiga(page, request, "Flip");
     // C va in testa: A scivola di un posto a destra, e deve vedersi scivolare.
     const { frames, ordine } = await campiona(page, ids[2], ids[0]);

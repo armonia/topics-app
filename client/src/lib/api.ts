@@ -282,7 +282,7 @@ export const chatApi = {
       });
     } catch (err) {
       if (ac.signal.aborted) {
-        throw new Error("Il server non ha confermato entro 30 secondi — la risposta non è partita. Riprova.");
+        throw new Error("Il server non ha confermato entro 30 secondi: la risposta non è partita. Riprova.");
       }
       throw err;
     } finally {

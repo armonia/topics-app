@@ -50,9 +50,22 @@ test("embedded manifest matches disk 1:1 on version + name + SQL content", () =>
   }
 });
 
-test("embedded migration versions are unique and ascending", () => {
-  const versions = EMBEDDED_MIGRATIONS.map((m) => m.version);
-  const sorted = versions.slice().sort((a, b) => a - b);
-  expect(versions).toEqual(sorted);
-  expect(new Set(versions).size).toBe(versions.length);
+// L'ORDINE dell'array non è un'asserzione, e non è una dimenticanza.
+// `resolveMigrations` (server/db.ts) riordina sempre per (numero, nome) prima di
+// applicare, e il manifest è marcato `merge=union` in .gitattributes apposta
+// perché due card in parallelo possano aggiungere una riga ciascuna senza
+// conflitto: subito dopo quel merge le ultime due righe possono stare in
+// qualsiasi ordine. Preteserlo crescente qui renderebbe rosso proprio il caso
+// che si è voluto rendere possibile.
+//
+// Il NOME invece è l'identità (il registro `schema_migrations` è indicizzato
+// così): due entry con lo stesso nome sarebbero una migration applicata due
+// volte, ed è quello che si controlla.
+test("ogni migration compare UNA volta nel manifest, e il numero è quello del nome", () => {
+  const names = EMBEDDED_MIGRATIONS.map((m) => m.name);
+  expect(new Set(names).size).toBe(names.length);
+  for (const m of EMBEDDED_MIGRATIONS) {
+    expect(m.version, `numero incoerente col nome per ${m.name}`)
+      .toBe(parseInt(m.name.match(/^(\d+)-/)![1], 10));
+  }
 });

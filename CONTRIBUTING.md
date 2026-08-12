@@ -99,8 +99,8 @@ channel. The Electron channel (`v*`) was **archived in v2.0.0**: its build autom
 ### Tauri (primary — the v2 channel)
 
 Tag `tauri-vX.Y.Z` — it must match the `version` in
-`desktop-tauri/src-tauri/tauri.conf.json` (kept in lockstep with the root
-`package.json` and `desktop-tauri/src-tauri/Cargo.toml`). CI
+`desktop-tauri/src-tauri/tauri.conf.json`, which is kept in lockstep with the other
+three places the number is written (see **Bumping the version** below). CI
 (`.github/workflows/tauri-release.yml`) builds a **Universal macOS** app plus Windows
 and Linux installers with `tauri-apps/tauri-action`, and publishes them to a **draft**
 GitHub Release together with the `latest.json` auto-update manifest.
@@ -110,6 +110,43 @@ scripts/ship.sh          # tags origin/main's version + pushes → builds the dr
 # then publish the draft (this is what pushes the update to users):
 gh release edit tauri-v<version> --draft=false
 ```
+
+#### Bumping the version — one gesture, never by hand
+
+The version is written in **four** places, and the fourth is the one that gets
+forgotten:
+
+| | |
+|---|---|
+| `package.json` | `"version"` — the canonical number (also baked into the client bundle as `__APP_VERSION__`) |
+| `desktop-tauri/src-tauri/tauri.conf.json` | `"version"` — what the release tag must match |
+| `desktop-tauri/src-tauri/Cargo.toml` | the `[package]` version |
+| `desktop-tauri/src-tauri/Cargo.lock` | the `[[package]] name = "app"` stanza |
+
+**Never open those files.** One command writes all four:
+
+```bash
+bun run bump              # patch (also: minor, major)
+bun run bump 2.3.0        # exactly this version
+bun run bump sync         # repair: realign the other three to package.json
+```
+
+The first three are configuration files you open on purpose; the lock is generated
+by cargo and nobody edits it by hand — which is exactly why a hand-made bump touches
+three of four. It happened twice in one night (`d18b2db5`, `b1f4d6ff`); both times
+`bun run test:unit` caught it (`tests/unit/version-lockstep.test.ts`) and both times
+it was patched by hand before landing. The gate isn't the missing piece — the gesture
+was. `bun run bump sync` is the one to reach for when the gate is already red.
+
+What it costs to skip: `Cargo.toml` wins over the lock anyway, so nothing breaks at
+build time. What breaks is the tree — anyone running `cargo check` in `desktop-tauri/`
+finds `Cargo.lock` modified without having touched anything, and that stray line is
+how a version ends up inside a commit about something else.
+
+Derivation instead of a script was considered and doesn't close the hole: Tauri can
+point `version` at `package.json`, but Cargo needs a literal in `Cargo.toml` and the
+lock follows `Cargo.toml`. A single source removes at most one of the four — never
+the one that is actually forgotten.
 
 #### La firma macOS: perché conta anche senza pagare Apple
 
@@ -219,16 +256,37 @@ Two things the sidecar needs that a naïve `--compile` drops, both handled:
   (`bun run scripts/gen-migrations-manifest.ts` — the sidecar build script also runs
   it, so CI ships a current schema).
 
-  **Numbering.** The number in front of a migration is *ordering*, not identity: the
-  applied-migrations registry (`schema_migrations`) is keyed by **file name**, so two
-  files that happen to share a number both apply, in `(number, name)` order. That is
-  the net under the real failure — on 2026-08-10 two branches developed in parallel
-  both produced an `089`, and the old number-keyed registry skipped the second one
-  **silently, forever**, while the code that assumed those columns landed anyway.
-  A shared number is still ambiguous to read, so `bun run check:migrations` fails when
-  your branch introduces a number that already exists on `main` (it runs in CI, and it
-  tells you the first free number). Never renumber a migration that is already on
-  `main`: it is applied on live databases, and renaming it would make it re-run.
+  **Never write the file name by hand — run `bun run migration:new <slug>`.** It
+  creates `server/db/migrations/<UTC timestamp>-<slug>.sql` and regenerates the
+  manifest for you.
+
+  The prefix is a UTC timestamp (`YYYYMMDDHHMMSS`, e.g.
+  `20260812050317-notification-log.sql`), **not a counter**. A counter is picked when
+  the migration is *born* and only verified when it *lands*, and in between the other
+  cards land: on 2026-08-10 two parallel branches both produced an `089`, and on the
+  night of 08-11/12 three more collided in a row (097, 100, 101). With six agents in
+  parallel that is the normal outcome, not anyone's slip. A timestamp is contended by
+  nobody, so the collision cannot happen. Two migrations written in the same *second*
+  share a prefix and that is fine: they come from worktrees that could not see each
+  other, so neither can depend on the other, and the runner applies both in
+  `(number, name)` order — deterministic on every machine.
+
+  The digits-only shape is deliberate: every reader filters with `/^\d+-.+\.sql$/` and
+  orders with `parseInt`, so they all keep working untouched, and `20260812050317` >
+  `101` puts the new era after the old one by construction. A letter in the prefix
+  would make an unnoticed reader skip the migration *silently* — the 089 failure.
+
+  The number is *ordering*, not identity: the applied-migrations registry
+  (`schema_migrations`) is keyed by **file name**, so two files sharing a number both
+  apply. That is the net under the real failure: the old number-keyed registry skipped
+  the second `089` **silently, forever**, while the code that assumed those columns
+  landed anyway.
+
+  `bun run check:migrations` (also in CI) fails if your branch adds a migration that
+  still uses a counter, or if two counters claim the same number. **Never renumber or
+  rename a migration that is already on `main`:** it is applied on live databases, and
+  renaming it would make it re-run. The old counter-named migrations stay exactly as
+  they are; the two eras coexist, ordered by number.
 - **playwright-core / chromium-bidi / electron** are marked `--external` in the compile
   (optional server-side CDP fallback with unresolvable optional deps; the native
   WKWebView pane is the primary browser).

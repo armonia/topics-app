@@ -46,7 +46,7 @@ export function attemptHasWork(a: TaskAttempt): boolean {
 /** `3 file · +120 −8`, oppure il perché non c'è niente da contare. */
 export function formatAttemptStat(a: TaskAttempt): string {
   if (a.state === 'running') return 'in corso…';
-  if (!attemptHasWork(a)) return a.error ? `nessuna modifica — ${a.error}` : 'nessuna modifica';
+  if (!attemptHasWork(a)) return a.error ? `nessuna modifica (${a.error})` : 'nessuna modifica';
   // "file" è invariante in italiano: 1 file, 3 file.
   return `${a.filesChanged ?? 0} file · +${a.insertions ?? 0} −${a.deletions ?? 0}`;
 }
@@ -68,7 +68,7 @@ export function formatFanoutComment(attempts: TaskAttempt[]): string {
   lines.push(
     withWork.length === 0
       ? `Fan-out chiuso: ${ordered.length} tentativi, **nessuno ha prodotto modifiche**.`
-      : `Fan-out chiuso: ${ordered.length} tentativi, ${withWork.length} con modifiche. Scegli quale tenere — gli altri (worktree e branch) vengono ripuliti.`,
+      : `Fan-out chiuso: ${ordered.length} tentativi, ${withWork.length} con modifiche. Scegli quale tenere. Gli altri (worktree e branch) vengono ripuliti.`,
   );
 
   for (const a of ordered) {
