@@ -20,6 +20,15 @@
   // as the commit pin did: the bundle sat tracked in git and drifted. `build:site`
   // rebuilds it now, so `deploy:landing` cannot ship a demo older than the client
   // it was built from — and landing/public/app/ is gitignored.
+  //
+  // The changelog caught the same disease from the same cause. It is generated
+  // from git by `bun run changelog` into landing/src/data/changelog.json, and
+  // regenerating it was a manual step. On 2026-08-12 the file's newest entry was
+  // v2.2.12 while the app was at v2.2.103: 91 versions behind, in the repo, so a
+  // deploy made that day would have published a frozen changelog anyway. Two
+  // manual steps had now drifted for the same reason, so this one moved too:
+  // `build:site` regenerates the changelog before it builds. What ships is what
+  // git says, for the demo and for the changelog alike.
   // ─────────────────────────────────────────────────────────────────────────
   "name": "topics-landing",
   "compatibility_date": "2026-08-01",
