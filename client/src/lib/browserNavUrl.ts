@@ -38,3 +38,26 @@ export function resolveBrowserNavigateUrl(raw: string): string {
   }
   return raw;
 }
+
+/**
+ * Best-effort URL/search normalisation for the address bar.
+ *
+ * Full URLs (any `scheme://…`) and `about:` pass through untouched; a bare host
+ * (`github.com`) gets `https://`; anything else (spaces, or no dot) becomes a
+ * Google search. Shared by the address-bar submit (`BrowserToolbar`) and the
+ * native hook's `navigate()` so the two agree.
+ *
+ * The bug this closes: the toolbar's submit used to force `http://` onto ANY
+ * scheme-less text, which (a) shadowed the search fallback — typing "come fare
+ * la pasta" navigated to `http://come fare la pasta` (a broken load) instead of
+ * searching — and (b) downgraded bare hosts to `http://` where a browser
+ * defaults to `https://`.
+ */
+export function normalizeUrl(input: string): string {
+  const s = input.trim();
+  if (!s) return 'about:blank';
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(s) || s.startsWith('about:')) return s;
+  // looks like a domain (has a dot, no spaces) → https://
+  if (/^[^\s]+\.[^\s]+$/.test(s) && !s.includes(' ')) return `https://${s}`;
+  return `https://www.google.com/search?q=${encodeURIComponent(s)}`;
+}
