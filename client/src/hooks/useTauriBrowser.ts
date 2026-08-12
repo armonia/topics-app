@@ -1248,12 +1248,17 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
   );
 
   // Find-in-page via WebKit's window.find (highlights + scrolls to the match).
+  // Firma reale: window.find(testo, maiuscoleContano, indietro, avvolgi).
+  // `matchCase` era inchiodato a `false` mentre l'interfaccia lo dichiarava
+  // (browserDevTypes): la barra poteva chiedere la ricerca esatta e riceveva
+  // sempre quella insensibile, senza niente a dirlo. Il quarto argomento resta
+  // `true` (avvolgi) ed è il ciclo che `stepMatchIndex` rispecchia lato client.
   const findInPage = useCallback(
-    async (text: string, opts?: { forward?: boolean; findNext?: boolean }) => {
+    async (text: string, opts?: { forward?: boolean; matchCase?: boolean; findNext?: boolean }) => {
       const fwd = opts?.forward !== false;
       await tauriInvoke('browser_exec_js', {
         id,
-        js: `try{window.find(${JSON.stringify(text)},false,${!fwd},true)}catch(e){}`,
+        js: `try{window.find(${JSON.stringify(text)},${opts?.matchCase === true},${!fwd},true)}catch(e){}`,
       }).catch(() => {});
     },
     [id],
@@ -1262,13 +1267,18 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     await tauriInvoke('browser_exec_js', { id, js: 'try{getSelection().removeAllRanges()}catch(e){}' }).catch(() => {});
   }, [id]);
 
-  // window.find gives no count, so count case-insensitive occurrences in the page
-  // text ourselves (browser_eval_js returns the number stringified).
-  const countMatches = useCallback(async (text: string): Promise<number> => {
+  // window.find gives no count, so count occurrences in the page text ourselves
+  // (browser_eval_js returns the number stringified). Il conteggio DEVE seguire
+  // lo stesso `matchCase` della ricerca: con la ricerca esatta accesa e il conto
+  // insensibile, «3/12» diceva un totale che WebKit non avrebbe mai raggiunto e
+  // il ciclo tornava a 1 in anticipo.
+  const countMatches = useCallback(async (text: string, opts?: { matchCase?: boolean }): Promise<number> => {
     if (!text) return 0;
     const js =
-      `(function(q){try{var t=(document.body&&document.body.innerText)||'';var lq=q.toLowerCase();` +
-      `if(!t||!lq)return 0;var lc=t.toLowerCase(),n=0,i=0;while((i=lc.indexOf(lq,i))!==-1){n++;i+=lq.length}return n}catch(e){return 0}})(${JSON.stringify(text)})`;
+      `(function(q,cs){try{var t=(document.body&&document.body.innerText)||'';if(!t||!q)return 0;` +
+      `var h=cs?t:t.toLowerCase(),n2=cs?q:q.toLowerCase(),n=0,i=0;if(!n2)return 0;` +
+      `while((i=h.indexOf(n2,i))!==-1){n++;i+=n2.length}return n}catch(e){return 0}})(` +
+      `${JSON.stringify(text)},${opts?.matchCase === true})`;
     try {
       const raw = await tauriInvoke<string>('browser_eval_js', { id, js });
       const n = parseInt(raw, 10);
