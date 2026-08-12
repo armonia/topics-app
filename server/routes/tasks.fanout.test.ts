@@ -233,7 +233,13 @@ describe("route del fan-out", () => {
     attempts.bind(alien.id, { topicId: "topic-2", worktreeId: "wt-9" });
 
     const r = (await call(router, "GET", `/api/boards/${PID}/tasks/T/diff?attempt=${alien.id}`))!;
-    expect((await r.json()).code).toBe("no_worktree");
+    const body = await r.json();
+    // Il tentativo non si risolve, quindi non c'è niente da leggere — e con un
+    // `?attempt` in mano NON si ripiega sui riferimenti durevoli del task, che
+    // parlerebbero del vincitore: sarebbe il diff di un altro.
+    expect(body.code).toBe("not_dispatched");
+    expect(body.stat).toEqual([]);
+    expect(body.patch).toBe("");
   });
 
   test("un tentativo senza sessione non si può scegliere (non c'è niente da tenere)", async () => {
