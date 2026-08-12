@@ -1,0 +1,38 @@
+-- 20260812092918-wait-streak-counter.sql: l'attesa dichiarata ha un contatore
+-- SUO, separato dai tentativi di dispatch.
+--
+-- Il prefisso è un timestamp UTC (YYYYMMDDHHMMSS), non un contatore: è quello
+-- che rende impossibile la collisione fra card in parallelo. Non rinominarlo.
+--
+-- IL GUASTO. `wait_for_condition` mette il task in coda con una finestra, ma il
+-- tentativo se l'era già preso la claim del turno che l'ha dichiarata. Con
+-- `dispatch_retry_cap` a 2 un agente poteva dichiarare DUE attese, e alla terza
+-- il task non veniva più reclamato: la spazzata dei tentativi esauriti lo
+-- parcheggiava col chip `failed` e la riga «guarda cosa lo fa fallire». Per
+-- un'attesa deliberata e corretta. Successo davvero: card e285d5d8 sulla board
+-- quadra, due volte nello stesso giorno.
+--
+-- PERCHÉ UNA GRANDEZZA NUOVA e non un secondo tetto sui tentativi. I tentativi
+-- contano i turni MORTI: crash, timeout, un avvio che non riesce. Servono a
+-- fermare un task che gira in tondo. Un'attesa non è un turno morto, è un turno
+-- che ha fatto la cosa giusta e ha restituito lo slot. Metterle sullo stesso
+-- contatore obbliga a scegliere un numero solo per due domande diverse, e il
+-- numero giusto per i crash (2) è assurdo per le attese.
+--
+-- I TRE CAMPI, e perché servono tutti e tre:
+--   · `wait_streak` → quante attese di FILA. Da solo basterebbe se ogni attesa
+--     durasse uguale, ma `minutes` lo sceglie l'agente e va da 1 a 1440.
+--   · `wait_since`  → quando è cominciata la serie. È l'altra grandezza: sei
+--     attese da un giorno l'una non sono sei attese da un quarto d'ora l'una,
+--     e solo il tempo totale le distingue.
+--   · `wait_reason` → la ragione che IDENTIFICA la serie. Senza, «aspetto che
+--     CI finisca» e «aspetto che l'utente risponda» si sommerebbero nello
+--     stesso conteggio: sono due attese diverse, e la seconda ricomincia da uno.
+--     È normalizzata alla scrittura (minuscole, spazi compattati), perché la
+--     stessa ragione riscritta a mano da un turno nuovo non è una ragione nuova.
+--
+-- Le righe esistenti partono a zero, che è il valore giusto: nessun task in giro
+-- adesso ha una serie di attese aperta, e il primo `wait_for_condition` la apre.
+ALTER TABLE tasks ADD COLUMN wait_streak INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE tasks ADD COLUMN wait_reason TEXT;
+ALTER TABLE tasks ADD COLUMN wait_since TEXT;
