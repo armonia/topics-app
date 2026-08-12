@@ -2870,6 +2870,25 @@ const opzioniServer = {
                 } catch { /* socket gone — the keyboard question died with it */ }
               });
             }
+          } else if (parsed.type === 'focus_query') {
+            // LA STESSA RISPOSTA DEL CLICK, CHIESTA A VOCE.
+            //
+            // Sul ramo video il click non passa più di qui: da quando l'input
+            // viaggia sul DataChannel va dal pane al sidecar a CDP, e il ramo
+            // qui sopra — che è quello che nomina il campo a fuoco — non si
+            // sveglia mai. Il pane allora chiede, subito dopo aver spinto il
+            // click sul canale, e paga il round trip solo per la tastiera.
+            //
+            // Deliberatamente identico nel corpo al ramo del click, non
+            // fattorizzato: sono due domande diverse (una segue un click che
+            // abbiamo eseguito noi, l'altra un click che non abbiamo visto) e
+            // l'unica cosa che condividono è la risposta.
+            void (async () => {
+              const field = await browserService.describeFocusedField(ctxId).catch(() => null);
+              try {
+                sendBrowserWsMessage(ws, { type: 'focus_field', ...(field ? { field } : {}) });
+              } catch { /* socket gone — the keyboard question died with it */ }
+            })();
           } else if (parsed.type === 'nav' && parsed.phase === 'request') {
             browserService.navigate(ctxId, parsed.url).then((r) => {
               // goto failures resolve with `error` (page stayed on the old
