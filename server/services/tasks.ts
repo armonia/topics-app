@@ -651,8 +651,19 @@ export interface TaskService {
    *   Ignored on a requeue (which always shows 'queued'). Default null.
    * - `rollbackAttempt`: decrement dispatch_attempts by 1 (floored at 0). Used by
    *   the restart-orphan requeue so a server restart never erodes the retry budget.
+   *
+   * - `keepStatus`: il park scioglie il legame ma NON sposta la card di colonna
+   *   (né stampa un timbro). Per chi ha accertato che non è successo niente di
+   *   male — il GC che libera la riga fantasma di una card la cui consegna è già
+   *   su main. Ignorato su un requeue.
+   *
+   * UNA CARD IN `review` NON SI PARCHEGGIA, `keepStatus` o meno. Il park le
+   * scioglie comunque il legame col topic (l'unica cosa che serviva), ma la
+   * lascia in review e senza timbro: in review non aspetta un agente, aspetta
+   * una persona, e il backlog non lo dispaccia nessuno. Vedi il commento nel
+   * corpo per il guasto del 12/08.
    */
-  release(args: { taskId: string; requeue: boolean; reason?: string; by?: string; parkState?: string | null; rollbackAttempt?: boolean }): Task;
+  release(args: { taskId: string; requeue: boolean; reason?: string; by?: string; parkState?: string | null; rollbackAttempt?: boolean; keepStatus?: boolean }): Task;
   /**
    * Agent-declared external-condition wait: release the slot and put the task
    * back in `todo` with chip `waiting` and a `dispatch_deferred_until` window,
@@ -2213,7 +2224,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return !!r;
     },
 
-    release({ taskId, requeue, reason, by, parkState, rollbackAttempt }): Task {
+    release({ taskId, requeue, reason, by, parkState, rollbackAttempt, keepStatus }): Task {
       const row = getTaskRow(taskId);
       if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
       // Note first (so the "worked in topic X" trail survives clearing the link).
@@ -2221,19 +2232,45 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         try { this.addComment({ taskId, author: by ?? "system", content: reason }); } catch { /* dedupe/best-effort */ }
       }
       const ts = now();
-      const status: TaskStatus = requeue ? "todo" : "backlog";
+      // IN REVIEW NON ASPETTA UN AGENTE, ASPETTA UNA PERSONA.
+      //
+      // Un park (`requeue: false`) scriveva `backlog` senza guardare da dove
+      // veniva la card. Il 12/08 quattro card in `review` sono finite in backlog
+      // marcate `failed` con la stessa riga — «il branch del worktree non esiste
+      // più» — perché il loro lavoro ERA ATTERRATO: il land pota il ramo, il GC
+      // trova la riga fantasma e parcheggia. Il backlog non lo dispaccia
+      // nessuno, quindi la decisione umana non era rimandata: era sparita dalla
+      // colonna dove l'umano la guarda, e proprio per le card chiuse bene.
+      //
+      // Il park continua a fare l'unica cosa che serviva davvero — sciogliere il
+      // legame col topic, così niente riprende in una cartella che non c'è più —
+      // ma lo stato resta `review`. Nemmeno il timbro `failed` ci va: non è
+      // fallito niente, e dipingere di rosso una card in attesa dice il falso a
+      // chi la guarda per decidere.
+      //
+      // `keepStatus` è la stessa risposta chiesta esplicitamente: il GC che
+      // scioglie una riga fantasma di una card la cui consegna è GIÀ SU MAIN non
+      // ha trovato un guasto, ha trovato la fine normale della storia — e quella
+      // card può stare in qualunque colonna.
+      const parkKeepsStatus = !requeue && (keepStatus === true || row.status === "review");
+      const status: TaskStatus = requeue ? "todo" : parkKeepsStatus ? (row.status as TaskStatus) : "backlog";
       // Requeue shows the 'in coda' chip; a park carries an EXPLICIT state so the
       // board can tell a genuine FAILURE ('failed') from a config BLOCK ('blocked')
       // — both used to collapse to null and read as a manual "fermato".
-      const state = requeue ? "queued" : (parkState ?? null);
+      const state = requeue ? "queued" : parkKeepsStatus ? null : (parkState ?? null);
       // A restart-orphan requeue rolls back the interrupted attempt: the server
       // restarting is never the agent's fault, so it must not erode the retry
       // budget (that was the "il task torna in backlog per errore" after deploys).
       const rollbackSql = rollbackAttempt ? "dispatch_attempts = MAX(dispatch_attempts - 1, 0), " : "";
+      // La ragione è già nel thread come commento, qui sopra. Su una card che
+      // resta in review non va anche in `dispatch_error`: quel campo è il tooltip
+      // di un chip che non c'è, e una card in attesa di una persona non porta
+      // addosso un errore.
+      const errText = parkKeepsStatus ? null : (reason ?? null);
       db.prepare(
         `UPDATE tasks SET assigned_topic_id = NULL, assigned_agent_id = NULL, ${rollbackSql}
             status = ?, dispatch_state = ?, dispatch_error = ?, updated_at = ? WHERE id = ?`,
-      ).run(status, state, reason ?? null, ts, taskId);
+      ).run(status, state, errText, ts, taskId);
       if (row.status !== status) logStatus(taskId, row.status, status, by ?? "dispatcher");
       markReopened(taskId, row.status, status, "system", by ?? "dispatcher");
       return rowToTask(getTaskRow(taskId));
