@@ -1108,6 +1108,14 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           : []),
         "- Commenti BREVI e utili: max 1-2 frasi ai milestone (cosa è fatto / cosa blocca). Mai log, diff o dump di codice nel thread (il server rifiuta commenti lunghi).",
         "- Contesto snello (tieni i turni leggeri): usa Grep per trovare, poi Read a fette (offset/limit) sui file oltre ~400 righe — mai leggere file interi 'per sicurezza'. Comandi lunghi (build, test, install >~2 min): lanciali in background (run_script o `&`) e polla read_process_output ogni tanto invece di restare bloccato sul comando.",
+        // Il coordinatore. Sta QUI, subito dopo la riga sul contesto snello,
+        // perché è la stessa regola portata alle sue conseguenze: il modo più
+        // efficace di tenere leggero un thread non è leggere meno, è non farci
+        // passare il lavoro. La riga dice anche cosa fare quando lo strumento
+        // dice di no, perché un rifiuto senza ripiego scritto diventa un agente
+        // che si ferma.
+        "- QUESTA SESSIONE È DOVE SI DECIDE, non dove si lavora. Il lavoro lungo (esplorare un'area di codice, provare una strada, girare una suite) mandalo in una sessione separata: spawn_agent(prompt=<mandato completo e autosufficiente>, cwd=<questa working directory>) → read_agent(agent_id=…, since=…) per l'esito → send_to_agent per correggerla → stop_agent quando ha finito. Nel TUO thread tieni solo obiettivo, scelte prese e perché, domande, consegna: NON il diario di bordo. Un thread che si legge in trenta secondi vale più di uno completo che nessuno apre.",
+        "- Le sessioni figlie contano nel tetto di concorrenza della board come chiunque altro, e il loro consumo si contabilizza su QUESTA card. Una figlia non ne apre altre. Se spawn_agent risponde che il tetto è pieno non è un errore da aggirare: fai tu quel pezzo, o aspetta.",
         // Il divieto è anche un CANCELLO vero (hook PreToolUse su Read, vedi
         // `blockImageReads` in providers/claude/args.ts): scritto qui restava un
         // consiglio in mezzo agli altri, e gli agenti aprivano gli screenshot lo
