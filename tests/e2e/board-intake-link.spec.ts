@@ -4,7 +4,7 @@
  * Il giro completo, come lo fa una persona: c'è una card aperta su un tema, si
  * scrive un feedback nuovo sullo stesso tema nel composer, compare una
  * PROPOSTA (non un'attribuzione), la si accetta, e il collegamento si vede su
- * ENTRAMBE le card — quella nuova dice "in attesa di", quella vecchia dice "1
+ * ENTRAMBE le card — quella nuova dice "aspetta:", quella vecchia dice "1
  * in attesa". È anche la clip di consegna: il comportamento non si dimostra con
  * uno screenshot.
  */
@@ -147,9 +147,9 @@ test.describe("Intake che collega", () => {
     // Il collegamento si vede su ENTRAMBE le card.
     const nuova = page.locator("[data-task-card]").filter({ hasText: /Altri feedback grafici/ });
     await expect(nuova).toBeVisible({ timeout: 10000 });
-    await expect(nuova).toContainText(/in attesa di/);
+    await expect(nuova).toContainText(/aspetta:/);
     const vecchia = page.locator(`[data-task-card="${aperta.id}"]`);
-    await expect(vecchia.getByTestId("card-waiting-on-this")).toContainText("1 in attesa");
+    await expect(vecchia.getByTestId("card-waiting-on-this")).toContainText("1 la aspetta");
     await beat(page, 2200);
 
     // E il perché sta scritto nel thread, da entrambi i lati.
