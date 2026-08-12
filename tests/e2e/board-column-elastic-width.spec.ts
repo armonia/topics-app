@@ -38,6 +38,10 @@ const FLOOR = { working: 18 * REM, reviewSm: 22 * REM, reviewLg: 32 * REM };
 const CEIL = { working: 26 * REM, reviewSm: 34 * REM, reviewLg: 44 * REM };
 const LG = 1024;
 
+// Sotto `sm` il pavimento di review non è un numero: è la larghezza VISIBILE
+// della riga (Card.tsx, `basis-full`). Vedi COLUMN-WIDTH-04.
+const SM = 640;
+
 function bounds(status: string, viewportWidth: number) {
   if (status !== "review") return { floor: FLOOR.working, ceil: CEIL.working };
   return viewportWidth >= LG
@@ -234,5 +238,45 @@ test.describe("Kanban — larghezza elastica delle colonne", () => {
     for (const c of working) {
       expect(Math.round(c.width), `colonna ${c.status} al pavimento quando la riga eccede`).toBe(FLOOR.working);
     }
+  });
+
+  test("COLUMN-WIDTH-04: sul telefono la colonna Review vale UNA SCHERMATA, non 22rem", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto("/");
+    await openProjectBoard(page);
+
+    // Tre telefoni veri, uno più stretto del vecchio pavimento fisso (22rem =
+    // 352px): è lì che il numero cablato smetteva di essere una larghezza e
+    // diventava un taglio.
+    for (const width of [430, 390, 360]) {
+      await page.setViewportSize({ width, height: 844 });
+      await page.waitForTimeout(250);
+      const m = await rowMetrics(page);
+      const review = m.columns.find((c) => c.status === "review")!;
+      const visibile = m.clientWidth - m.paddingX;
+      expect(
+        Math.round(review.width),
+        `a ${width}px la review deve valere la riga visibile (${Math.round(visibile)}px): da mobile è UNA slide intera`,
+      ).toBe(Math.round(visibile));
+      expect(
+        Math.round(review.width),
+        `a ${width}px la review non può essere più larga della finestra`,
+      ).toBeLessThanOrEqual(width);
+      // Le colonne di lavoro NON cambiano: restano il carosello con lo sbircio.
+      for (const c of m.columns.filter((x) => x.status !== "review")) {
+        expect(Math.round(c.width), `colonna ${c.status} resta al suo pavimento`).toBe(FLOOR.working);
+      }
+      // Da `sm` in su nulla si muove: il pavimento torna il numero di prima.
+      expect(width, "questi tre casi devono stare sotto sm, o non provano niente").toBeLessThan(SM);
+    }
+
+    // La riprova del confine: appena sopra `sm` la review torna 22rem esatti.
+    await page.setViewportSize({ width: 700, height: 844 });
+    await page.waitForTimeout(250);
+    const sopra = await rowMetrics(page);
+    expect(
+      Math.round(sopra.columns.find((c) => c.status === "review")!.width),
+      "sopra sm il pavimento torna quello di sempre (22rem)",
+    ).toBe(FLOOR.reviewSm);
   });
 });
