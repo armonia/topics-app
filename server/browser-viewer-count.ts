@@ -1,0 +1,61 @@
+/**
+ * Chi conta come SPETTATORE di una sessione condivisa.
+ *
+ * È il numero che `GET /api/browsers/:id/viewers` restituisce, ed è l'unico
+ * ingresso della decisione auto-share sul desktop (`computeAutoShared`): una
+ * pane Tauri in 'auto' disegna la WKWebView nativa quando è sola e passa alla
+ * sessione condivisa appena un ALTRO dispositivo guarda lo stesso contesto.
+ * Sbagliare questo conteggio non dà un errore: dà una pane che rimbalza fra
+ * nativa e condivisa, o un telefono che nessuno vede.
+ *
+ * Due esclusioni, e nessun'altra:
+ *
+ *  - IL DELEGATO NATIVO. Una pane nativa tiene comunque un socket
+ *    `/ws/browser/:id` (le serve per ricevere le tool-call dell'agente), ma non
+ *    guarda un bel niente della sessione condivisa. Contarla voleva dire che
+ *    ogni pane nativa vedeva se stessa come «un altro dispositivo» e passava a
+ *    condivisa a ogni poll — «il browser si resetta ogni 2 secondi».
+ *
+ *  - CHI HA LA PANE FUORI DALLO SCHERMO (`set_watching:false`). Un telefono con
+ *    la scheda in secondo piano non è un motivo per tenere il Mac nella
+ *    sessione condivisa.
+ *
+ * E in particolare NON si guarda `set_stream`. Quella è la pausa del
+ * TRANSPORT, e una pane la manda per ragioni che non c'entrano con lo
+ * spettatore: il WebRTC ha preso in carico i pixel (ed è il transport di
+ * default), il co-browse DOM sta portando la pagina, un <iframe> nativo la sta
+ * mostrando. Il campo che c'era prima (`_streamActive`) prometteva questa
+ * esclusione nel commento, non veniva scritto da nessuno — e cablarlo a
+ * `set_stream` sarebbe stato peggio del campo morto: avrebbe reso invisibile
+ * proprio il telefono che guarda via WebRTC, cioè il caso per cui l'auto-share
+ * esiste.
+ *
+ * Assente ⇒ spettatore. Un client che non manda mai `set_watching` (versione
+ * vecchia, o un socket dell'agente) resta contato com'era prima del frame.
+ */
+
+/** I soli due campi del `ws.data` che decidono. Tenuto stretto apposta: questa
+ *  funzione non deve poter leggere altro. */
+export interface ViewerFlags {
+  /** Registrato con `register_native_executor`: esegue, non guarda. */
+  _nativeDelegate?: boolean;
+  /** Ultimo `set_watching` ricevuto. Assente = sta guardando. */
+  _watching?: boolean;
+}
+
+/** Questo socket è uno spettatore vivo della sessione condivisa? */
+export function isSharedViewer(data: ViewerFlags | undefined | null): boolean {
+  if (!data) return false;
+  if (data._nativeDelegate) return false;
+  return data._watching !== false;
+}
+
+/** Quanti spettatori ha il contesto. `undefined` (nessun socket) ⇒ 0. */
+export function countSharedViewers(
+  clients: Iterable<{ data: ViewerFlags }> | undefined | null,
+): number {
+  if (!clients) return 0;
+  let n = 0;
+  for (const c of clients) if (isSharedViewer(c.data)) n++;
+  return n;
+}

@@ -18,14 +18,16 @@
  * prova anche la riga di comando) e verifica col modulo VERO.
  *
  * ── PERCHÉ IN PRODUZIONE NON CAMBIA NIENTE ──────────────────────────────────
- * Le chiavi qui sono generate al volo e vivono quanto il test. `CHIAVI_INTEGRATE`
- * resta vuota: nessun gettone coniato qui vale su una macchina vera, e nessuna
- * macchina vera esce dal piano gratuito per colpa di questo file.
+ * Le chiavi qui sono generate al volo e vivono quanto il test: ogni verifica
+ * riceve `[]` al posto di `CHIAVI_INTEGRATE`, così questo file prova l'accordo
+ * fra i due lati e non tocca la chiave con cui firmiamo davvero. Nessun gettone
+ * coniato qui vale su una macchina vera — e l'ultimo caso lo controlla invece
+ * di darlo per scontato.
  */
 import { describe, expect, it } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
-import { caricaChiavi, verificaGettone } from "../../server/lib/licenza";
+import { CHIAVI_INTEGRATE, caricaChiavi, verificaGettone } from "../../server/lib/licenza";
 
 const RADICE = join(import.meta.dir, "..", "..");
 const STRUMENTO = join(RADICE, "scripts", "licenza.ts");
@@ -65,7 +67,7 @@ describe("licenza · chi conia e chi verifica parlano la stessa lingua", () => {
     expect(r.status, r.stderr).toBe(0);
     expect(gettone, "lo strumento non ha stampato nessun gettone").toBeTruthy();
 
-    const chiavi = caricaChiavi({ TOPICS_LICENSE_PUBKEYS: pub });
+    const chiavi = caricaChiavi({ TOPICS_LICENSE_PUBKEYS: pub }, []);
     expect(chiavi.length, "la chiave pubblica stampata non è caricabile").toBe(1);
 
     const esito = verificaGettone(gettone!, { chiavi, installationId: IID, ora: Date.now() });
@@ -82,7 +84,7 @@ describe("licenza · chi conia e chi verifica parlano la stessa lingua", () => {
     const { pub, priv } = coppia();
     const { gettone } = conia(priv, [IID, "5", "365"]);
     const esito = verificaGettone(gettone!, {
-      chiavi: caricaChiavi({ TOPICS_LICENSE_PUBKEYS: pub }),
+      chiavi: caricaChiavi({ TOPICS_LICENSE_PUBKEYS: pub }, []),
       installationId: "ffffffffffffffffffffffff",
       ora: Date.now(),
     });
@@ -96,7 +98,7 @@ describe("licenza · chi conia e chi verifica parlano la stessa lingua", () => {
     const b = coppia();
     const { gettone } = conia(a.priv, [IID, "3", "30"]);
     const esito = verificaGettone(gettone!, {
-      chiavi: caricaChiavi({ TOPICS_LICENSE_PUBKEYS: b.pub }),
+      chiavi: caricaChiavi({ TOPICS_LICENSE_PUBKEYS: b.pub }, []),
       installationId: IID,
       ora: Date.now(),
     });
@@ -109,7 +111,7 @@ describe("licenza · chi conia e chi verifica parlano la stessa lingua", () => {
     const { gettone } = conia(priv, [IID, "5", "1"]);
     const fraDueGiorni = Date.now() + 2 * 86_400_000;
     const esito = verificaGettone(gettone!, {
-      chiavi: caricaChiavi({ TOPICS_LICENSE_PUBKEYS: pub }),
+      chiavi: caricaChiavi({ TOPICS_LICENSE_PUBKEYS: pub }, []),
       installationId: IID,
       ora: fraDueGiorni,
     });
@@ -131,10 +133,23 @@ describe("licenza · chi conia e chi verifica parlano la stessa lingua", () => {
     }
   });
 
-  it("in produzione non c'è nessuna chiave: questo file non sblocca niente", () => {
-    // La rete di sicurezza del test stesso. Se un giorno una chiave finisse
-    // qui dentro per comodità, questo caso muore.
-    const chiavi = caricaChiavi({});
-    expect(chiavi.length).toBe(0);
+  it("le chiavi usate qui non sono quelle di produzione", () => {
+    // La rete di sicurezza del test stesso. Le coppie di questo file nascono
+    // al volo e muoiono col processo: nessun gettone coniato qui deve poter
+    // valere su una macchina vera, e ciò che lo garantisce è che la sua
+    // pubblica non finisca mai in `CHIAVI_INTEGRATE`.
+    const { pub } = coppia();
+    const b64 = pub.slice(pub.indexOf(":") + 1);
+    expect(CHIAVI_INTEGRATE.some((k) => k.includes(b64))).toBe(false);
+
+    // E il verso opposto: la chiave integrata NON verifica un gettone di prova.
+    const { gettone } = conia(coppia().priv, [IID, "5", "365"]);
+    const esito = verificaGettone(gettone!, {
+      chiavi: caricaChiavi({}, CHIAVI_INTEGRATE),
+      installationId: IID,
+      ora: Date.now(),
+    });
+    expect(esito.motivo).toBe("bad_signature");
+    expect(esito.piano).toBe("free");
   });
 });

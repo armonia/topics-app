@@ -182,6 +182,29 @@ test.describe("Shared browser session — state fan-out (Mac ↔ PWA)", () => {
     for (let i = 0; i < 40 && after !== 1; i++) { after = await readCount(); if (after !== 1) await page.waitForTimeout(150); }
     expect(after).toBe(1);
 
+    // The surviving viewer says its pane left the screen (set_watching:false) —
+    // WITHOUT closing the socket. It must drop out of the count: a phone with
+    // the tab in the background is not a reason to hold this desktop's 'auto'
+    // pane in the shared session. Note it already sent set_stream:false above
+    // and was still counted: the transport pause is NOT this signal (the
+    // default transport, WebRTC, pauses the screencast while watching).
+    await page.evaluate(() => {
+      (window as unknown as { __viewers: WebSocket[] }).__viewers[1]
+        .send(JSON.stringify({ type: "set_watching", active: false }));
+    });
+    let hidden = -1;
+    for (let i = 0; i < 40 && hidden !== 0; i++) { hidden = await readCount(); if (hidden !== 0) await page.waitForTimeout(150); }
+    expect(hidden).toBe(0);
+
+    // Back on screen → counted again (the same socket, no reconnect).
+    await page.evaluate(() => {
+      (window as unknown as { __viewers: WebSocket[] }).__viewers[1]
+        .send(JSON.stringify({ type: "set_watching", active: true }));
+    });
+    let shown = -1;
+    for (let i = 0; i < 40 && shown !== 1; i++) { shown = await readCount(); if (shown !== 1) await page.waitForTimeout(150); }
+    expect(shown).toBe(1);
+
     // Clean up.
     await page.evaluate(() => {
       const w = window as unknown as { __viewers: WebSocket[]; __delegate: WebSocket };

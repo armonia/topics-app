@@ -23,6 +23,8 @@ import { useProjectLayout } from './hooks/useProjectLayout';
 import { useProjectChatSync } from './hooks/useProjectChatSync';
 import { useProjectPersistenceSave } from './hooks/useProjectPersistenceSave';
 import type { SendMessageOptions } from '@/hooks/useChat';
+import { missionPrompt, type Mission } from '../../lib/missions';
+import { pickMissionSession } from '../../lib/missionTarget';
 
 const RemoteBrowserPanel = lazy(() => import('../Browser/RemoteBrowserPanel').then(m => ({ default: m.RemoteBrowserPanel })));
 const SingleTerminalPane = lazy(() => import('../Terminal/SingleTerminalPane').then(m => ({ default: m.SingleTerminalPane })));
@@ -47,7 +49,7 @@ export interface ProjectWindowPaneProps {
   isSessionLoading: (sk: string) => boolean;
   isSessionStreaming: (sk: string) => boolean;
   wasSessionStopped: (sk: string) => boolean;
-  stopSession: (sk: string) => boolean;
+  stopSession: (sk: string) => Promise<boolean>;
   sendMessage: (sk: string, content: string, options?: SendMessageOptions) => Promise<boolean>;
   editMessage?: (sk: string, messageId: string, newContent: string) => Promise<boolean>;
   regenerateMessage?: (sk: string, messageId: string) => Promise<boolean>;
@@ -176,6 +178,25 @@ export function ProjectWindowPane({
   });
   const { panes, groups, rows, rowHeights, focusedGroupId, sidebarCollapsed } = layout.state;
 
+  /**
+   * IL POSTO DELLA BARRA CHIUSA, dentro la riga delle tab.
+   *
+   * Un nodo solo, creato qui e passato a due componenti: `GroupLayout` lo
+   * AGGANCIA in testa alla prima barra, `ProjectSidebar` ci SCRIVE dentro col
+   * suo portale quando è collassata. Chiusa, la barra di progetto smette di
+   * essere una colonna verticale con un filo laterale e diventa una fila di
+   * card in linea con le tab.
+   *
+   * Un `HTMLElement` e non uno stato con una ref: il nodo esiste già al primo
+   * render, quindi non c'è il fotogramma in cui la rail vecchia compare e poi
+   * sparisce. `useMemo` con dipendenze vuote e non `useRef` perché serve un
+   * valore stabile da PASSARE, non da leggere.
+   */
+  const railSlot = useMemo(() => document.createElement('div'), []);
+  /** Dove finiscono i tre comandi quando la colonna è chiusa: SOTTO la barra
+   *  delle tab, non in fila con esse. Vedi `GroupLayoutProps.belowSlot`. */
+  const sottoSlot = useMemo(() => document.createElement('div'), []);
+
   // Publish this project's internal split extent (leaf columns/rows) into the
   // module registry so the STANDALONE grid can weight this project's cell when
   // the user double-clicks an outer divider to equalize — see projectGridWeights.
@@ -303,6 +324,42 @@ export function ProjectWindowPane({
     focusedGroupId,
     onOpenPanesChange,
   });
+
+  /**
+   * UNA MISSIONE ALLA SESSIONE LATERALE.
+   *
+   * Tre gesti in uno, e sono tutti gesti che esistevano già: si sceglie la chat
+   * di progetto (`pickMissionSession`), le si mette il testo nella bozza —
+   * `draft:<topicId>`, la stessa che ChatPane salva e ricarica da sola — e la si
+   * apre accanto alla board (`reopenTopic`, la stessa chiamata di quando si
+   * clicca una sessione). Nessun tipo di sessione nuovo, nessuna route: la
+   * missione è testo davanti a una chat normale.
+   *
+   * A MANDARE È L'UMANO. Non è timidezza: la missione dà compiti IN PIÙ, e una
+   * board da cui partono turni al click è di nuovo il posto da cui si lavora —
+   * l'esatta cosa che questa feature non deve diventare.
+   *
+   * Se c'è già una bozza, la missione si ACCODA invece di sostituirla: quel
+   * testo è lavoro di qualcuno, e cancellarlo per un click su un menu sarebbe
+   * un furto silenzioso.
+   */
+  const startMission = useCallback((mission: Mission): string | null => {
+    const topicId = pickMissionSession({ projectPath, topics, panes, groups, focusedGroupId });
+    if (!topicId) return 'Nessuna chat di progetto a cui dare la missione: aprine una e riprova.';
+    const text = missionPrompt(mission, projectPath.split('/').filter(Boolean).pop() || projectPath);
+    let seeded = text;
+    try {
+      const existing = localStorage.getItem(`draft:${topicId}`) || '';
+      seeded = existing.trim() ? `${existing.trimEnd()}\n\n${text}` : text;
+      localStorage.setItem(`draft:${topicId}`, seeded);
+    } catch { /* private mode: la bozza vive comunque nell'evento qui sotto */ }
+    // La pane può essere GIÀ montata su quel topic, e in quel caso l'effetto che
+    // rilegge la bozza (dipende da `topic.id`) non riparte: senza questo evento
+    // la missione resterebbe scritta su localStorage e invisibile.
+    window.dispatchEvent(new CustomEvent('topics:seed-composer', { detail: { topicId, text: seeded } }));
+    chatSync.reopenTopic(topicId);
+    return null;
+  }, [projectPath, topics, panes, groups, focusedGroupId, chatSync]);
 
   const handleNewChatInGroup = useCallback((groupId: string) => {
     // Pass the clicked group's id so the new chat lands as a tab in THAT group
@@ -451,6 +508,7 @@ export function ProjectWindowPane({
               projectPath={projectPath}
               onMessage={onWSMessage}
               onOpenTopic={chatSync.reopenTopic}
+              onStartMission={startMission}
             />
           </LazyPane>
         );
@@ -468,7 +526,7 @@ export function ProjectWindowPane({
     getSessionMessages, getCompactionMarkers, isSessionLoading, isSessionStreaming, wasSessionStopped, stopSession,
     sendMessage, editMessage, regenerateMessage, deleteMessage, switchBranch, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
     handleOpenFile, pinPaneById, onFocusPanel, browserNavigate, chatSync.reopenTopic, updatePane,
-    windowVisible,
+    windowVisible, startMission,
   ]);
 
   return (
@@ -491,6 +549,8 @@ export function ProjectWindowPane({
           onOpenFile={handleOpenFile}
           onWSMessage={onWSMessage}
           onOpenProcessLog={handleOpenProcessLog}
+          inlineSlot={railSlot}
+          belowSlot={sottoSlot}
         />
         <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
           <GroupLayout
@@ -542,6 +602,28 @@ export function ProjectWindowPane({
             // updatePane, not the global store, so we can't use the store helper).
             onRenameChat={(tid, name) => { void onUpdateTopic(tid, { name }); }}
             onRenameBrowser={(id, name) => updatePane(id, { title: name, titleSource: 'user' })}
+            leadingSlot={railSlot}
+            // SOLO da sidebar CHIUSA, ed è la differenza fra «lo slot esiste» e
+            // «nello slot c'è qualcosa».
+            //
+            // `sottoSlot` è un `document.createElement('div')` in un `useMemo`:
+            // esiste SEMPRE, aperta o chiusa. La riga dei comandi ci finisce
+            // dentro solo da chiusa. Passandolo sempre, `GroupLayout` credeva di
+            // avere una riga sotto la barra anche quando non c'era — e quindi
+            // azzerava il rientro delle celle (`CHROME_BAR_CONSUMED`) per una
+            // riga inesistente: il contenuto risaliva SOTTO la barra di vetro e
+            // ci si leggeva attraverso, sfocato. «Ora vedo uno sfondo blur sotto
+            // le tabbar» (Attilio, 10/08), ed era un difetto introdotto da me
+            // mezz'ora prima.
+            //
+            // Il predicato è lo STESSO che decide cosa disegna la sidebar
+            // (`collapsed={sidebarCollapsed}`, qui sopra), quindi i due non
+            // possono separarsi: o c'è la riga e c'è il reset, o nessuno dei due.
+            belowSlot={sidebarCollapsed ? sottoSlot : undefined}
+            // La finestra di progetto vive SOTTO la tab del progetto nella barra
+            // dell'app: la sua prima riga di chrome non ripete l'aria che quella
+            // sopra ha gia messo. Vedi CHROME_BAR_SUB.
+            subordinate
           />
         </div>
       </div>

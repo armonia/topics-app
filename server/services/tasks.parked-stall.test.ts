@@ -1,0 +1,214 @@
+/**
+ * LO STALLO DEI SOTTOTASK PARCHEGGIATI È UNA DOMANDA, NON UN BLOCCO.
+ *
+ * Il guasto misurato il 12/08/2026: cinque card ferme e nessuna lo diceva. Il
+ * figlio in backlog non lo prende nessun dispatcher, il padre che lo aspetta
+ * veniva fermato per non girare a vuoto, e finiva PARCHEGGIATO IN BACKLOG con la
+ * spiegazione dentro `dispatch_error` — cioè nel drawer di una card in fondo alla
+ * colonna dove «ferma» è l'aspetto normale. Nessuno dei due pezzi era sbagliato
+ * da solo; insieme erano un vicolo cieco che si apriva solo a mano.
+ *
+ * Qui si prova l'altra strada: la card va in REVIEW con le due risposte, e ognuna
+ * delle due rimette il padre in coda senza toccare nient'altro.
+ */
+import { test, expect, describe, beforeEach } from "bun:test";
+import { Database } from "bun:sqlite";
+import { createTaskService, type TaskService } from "./tasks";
+
+function freshDb(): Database {
+  const db = new Database(":memory:");
+  db.run("PRAGMA foreign_keys = ON");
+  db.run(`CREATE TABLE topics (id TEXT PRIMARY KEY, effort TEXT)`);
+  db.run(`CREATE TABLE tasks (
+    id TEXT PRIMARY KEY, project_id TEXT NOT NULL, text TEXT NOT NULL, description TEXT,
+    status TEXT NOT NULL DEFAULT 'todo', priority INTEGER NOT NULL DEFAULT 2,
+    kanban_order INTEGER NOT NULL DEFAULT 0, assigned_to TEXT, due_date TEXT, chat_id TEXT,
+    created_at TEXT NOT NULL, completed_at TEXT, updated_at TEXT NOT NULL,
+    claude_task_id TEXT, assigned_topic_id TEXT REFERENCES topics(id), assigned_agent_id TEXT,
+    archived INTEGER NOT NULL DEFAULT 0, in_progress_at TEXT,
+    dispatch_attempts INTEGER NOT NULL DEFAULT 0, dispatch_state TEXT, dispatch_error TEXT,
+    dispatch_deferred_until TEXT, dispatch_weight TEXT,
+    parent_task_id TEXT REFERENCES tasks(id), plan_first INTEGER NOT NULL DEFAULT 0,
+    agent_ms INTEGER NOT NULL DEFAULT 0, agent_tokens INTEGER NOT NULL DEFAULT 0,
+    agent_cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+    priority_auto INTEGER NOT NULL DEFAULT 1, reuse_blocker_context INTEGER NOT NULL DEFAULT 0,
+    wait_streak INTEGER NOT NULL DEFAULT 0, wait_reason TEXT, wait_since TEXT,
+    blocked_by_task_id TEXT REFERENCES tasks(id), output_url TEXT, preview_image TEXT,
+    preview_retired_at TEXT, preview_retired_reason TEXT,
+    checks_state TEXT, checks_at TEXT, checks_commit TEXT, checks_json TEXT,
+    delivery_branch TEXT, delivery_commit TEXT, landing_state TEXT, landing_checked_at TEXT,
+    landing_witnessed INTEGER NOT NULL DEFAULT 0,
+    delivered_by TEXT, delivered_reason TEXT,
+    done_actor TEXT, reopened_at TEXT, reopened_by TEXT, reopened_actor TEXT,
+    model TEXT, created_by_topic_id TEXT
+  )`);
+  db.run(`CREATE TABLE board_settings (
+    project_id TEXT PRIMARY KEY, auto_dispatch INTEGER NOT NULL DEFAULT 0,
+    max_agents INTEGER DEFAULT 3, dispatch_retry_cap INTEGER
+  )`);
+  db.run(`CREATE TABLE task_comments (
+    id TEXT PRIMARY KEY, task_id TEXT NOT NULL, author TEXT NOT NULL DEFAULT 'user',
+    content TEXT NOT NULL, mentions TEXT, media TEXT, created_at TEXT NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'comment'
+  )`);
+  db.run(`CREATE TABLE task_labels (
+    task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    label TEXT NOT NULL, source TEXT NOT NULL DEFAULT 'human',
+    created_at TEXT NOT NULL, PRIMARY KEY (task_id, label)
+  )`);
+  db.run(`CREATE TABLE approvals (
+    id TEXT PRIMARY KEY, task_id TEXT NOT NULL, requested_by TEXT NOT NULL,
+    approval_type TEXT NOT NULL, from_status TEXT, to_status TEXT, confidence_score REAL,
+    rubric_scores TEXT, justification TEXT, status TEXT NOT NULL DEFAULT 'pending',
+    reviewed_by TEXT, review_comment TEXT, created_at TEXT NOT NULL, reviewed_at TEXT, expires_at TEXT
+  )`);
+  db.run("INSERT INTO board_settings (project_id, auto_dispatch) VALUES ('*', 1)");
+  return db;
+}
+
+const PID = "topics-app-abc123";
+
+let clock = 0;
+function svc(db: Database): TaskService {
+  let n = 0;
+  return createTaskService(db, {
+    now: () => new Date(Date.UTC(2026, 7, 12, 9, clock++)).toISOString(),
+    uuid: () => `id-${++n}`,
+    // Due domande identiche a distanza di un minuto NON sono un doppione da
+    // sopprimere in questi test: la finestra di dedupe si azzera apposta.
+    commentDedupeMs: 0,
+  });
+}
+
+/** Il padre col figlio parcheggiato, nella forma esatta in cui è stato misurato. */
+function padreConFiglioParcheggiato(s: TaskService): { padre: string; figlio: string } {
+  const padre = s.create({ projectId: PID, text: "Il padre", status: "in_progress" });
+  const figlio = s.create({ projectId: PID, text: "Il sottotask rimandato", parentTaskId: padre.id });
+  return { padre: padre.id, figlio: figlio.id };
+}
+
+/** `archived` non viaggia sul Task: si legge dove sta, sulla riga. */
+const archiviato = (db: Database, id: string) =>
+  (db.prepare("SELECT archived FROM tasks WHERE id = ?").get(id) as { archived: number }).archived;
+
+const ultimoCommento = (s: TaskService, id: string) => {
+  const c = s.get(id)!.comments.filter((x) => x.kind !== "status");
+  return c[c.length - 1]!.content;
+};
+
+describe("un padre fermo solo su figli parcheggiati fa una DOMANDA", () => {
+  let db: Database; let s: TaskService;
+  beforeEach(() => { clock = 0; db = freshDb(); s = svc(db); });
+
+  test("il turno finito porta il padre in review con le due risposte, non in backlog", () => {
+    const { padre } = padreConFiglioParcheggiato(s);
+    const t = s.deliverToReviewBySystem({ taskId: padre, reason: "tentativi esauriti" });
+
+    expect(t.status).toBe("review");
+    expect(t.dispatchState).toBe("needs_input");
+    expect(t.deliveredBy).toBe("system");
+    expect(t.deliveredReason).toBe("parked_children");
+    // Le due risposte, nel blocco che il client rende come bottoni.
+    const testo = ultimoCommento(s, padre);
+    expect(testo).toContain("```question");
+    expect(testo).toContain("- Rimetti in coda i sottotask");
+    expect(testo).toContain("- Archivia i sottotask");
+    expect(testo).toContain("Il sottotask rimandato");
+  });
+
+  test("un figlio IN VOLO non è uno stallo: il padre torna in coda ad aspettare", () => {
+    const padre = s.create({ projectId: PID, text: "Il padre", status: "in_progress" }).id;
+    const figlio = s.create({ projectId: PID, text: "Un figlio vivo", parentTaskId: padre }).id;
+    s.update({ taskId: figlio, actor: "human", by: "attilio", patch: { status: "todo" } });
+
+    const t = s.deliverToReviewBySystem({ taskId: padre, reason: "tentativi esauriti" });
+    expect(t.status).toBe("todo");
+    expect(t.dispatchState).toBe("waiting");
+    expect(t.deliveredReason).not.toBe("parked_children");
+  });
+
+  test("la domanda non si ripete: due giri, una sola domanda", () => {
+    const { padre } = padreConFiglioParcheggiato(s);
+    s.deliverToReviewBySystem({ taskId: padre, reason: "primo giro" });
+    expect(s.askParkedChildren({ taskId: padre })).toBeNull();
+    const domande = s.get(padre)!.comments.filter((c) => c.content.includes("```question"));
+    expect(domande).toHaveLength(1);
+  });
+
+  test("parcheggiare il figlio alza la domanda SUBITO, senza aspettare un turno", () => {
+    // Il caso misurato: padre già fermo in backlog, figlio che ci finisce dopo.
+    const padre = s.create({ projectId: PID, text: "Il padre fermo" }).id;
+    const figlio = s.create({ projectId: PID, text: "Un figlio", parentTaskId: padre }).id;
+    s.update({ taskId: figlio, actor: "human", by: "attilio", patch: { status: "todo" } });
+    expect(s.get(padre)!.task.status).toBe("backlog");
+
+    s.update({ taskId: figlio, actor: "human", by: "attilio", patch: { status: "backlog" } });
+
+    const t = s.get(padre)!.task;
+    expect(t.status).toBe("review");
+    expect(t.dispatchState).toBe("needs_input");
+    expect(ultimoCommento(s, padre)).toContain("- Rimetti in coda i sottotask");
+  });
+
+  test("se il padre STA LAVORANDO l'avviso è una riga nel thread, non un turno tagliato", () => {
+    const padre = s.create({ projectId: PID, text: "Il padre al lavoro", status: "in_progress" }).id;
+    const figlio = s.create({ projectId: PID, text: "Uno step", parentTaskId: padre }).id;
+    s.update({ taskId: figlio, actor: "human", by: "attilio", patch: { status: "todo" } });
+
+    s.update({ taskId: figlio, actor: "agent", by: "agent", patch: { status: "backlog" } });
+
+    expect(s.get(padre)!.task.status).toBe("in_progress");
+    expect(ultimoCommento(s, padre)).toContain("Sottotask parcheggiato in backlog");
+  });
+});
+
+describe("le due risposte, e cosa fanno davvero", () => {
+  let db: Database; let s: TaskService;
+  beforeEach(() => { clock = 0; db = freshDb(); s = svc(db); });
+
+  test("«rimetti in coda»: i figli in todo, il padre in coda col chip queued", () => {
+    const { padre, figlio } = padreConFiglioParcheggiato(s);
+    s.deliverToReviewBySystem({ taskId: padre, reason: "tentativi esauriti" });
+
+    const esito = s.resolveParkedChildren({ taskId: padre, decision: "requeue", by: "attilio" })!;
+    expect(esito.children.map((c) => c.status)).toEqual(["todo"]);
+    expect(s.get(figlio)!.task.status).toBe("todo");
+    expect(esito.task.status).toBe("todo");
+    expect(esito.task.dispatchState).toBe("queued");
+    // Mandato nuovo = budget nuovo: senza, il padre tornerebbe in una coda che
+    // non lo serve più.
+    expect(esito.task.dispatchAttempts).toBe(0);
+    // «senza toccare altro»: il figlio non è archiviato, il padre non è chiuso.
+    expect(archiviato(db, figlio)).toBe(0);
+  });
+
+  test("«archivia»: i figli spariscono e il padre riparte da solo", () => {
+    const { padre } = padreConFiglioParcheggiato(s);
+    s.deliverToReviewBySystem({ taskId: padre, reason: "tentativi esauriti" });
+
+    const { figlio } = { figlio: s.get(padre)!.children[0]!.id };
+    const esito = s.resolveParkedChildren({ taskId: padre, decision: "archive", by: "attilio" })!;
+    expect(esito.children).toHaveLength(1);
+    expect(archiviato(db, figlio)).toBe(1);
+    expect(esito.task.status).toBe("todo");
+    expect(esito.task.dispatchState).toBe("queued");
+    // E ora è chiudibile: era l'unica cosa che glielo impediva.
+    const chiuso = s.update({ taskId: padre, actor: "human", by: "attilio", patch: { status: "done" } });
+    expect(chiuso.status).toBe("done");
+  });
+
+  test("rispondere due volte non inventa un secondo esito", () => {
+    const { padre } = padreConFiglioParcheggiato(s);
+    s.deliverToReviewBySystem({ taskId: padre, reason: "tentativi esauriti" });
+    expect(s.resolveParkedChildren({ taskId: padre, decision: "requeue", by: "attilio" })).not.toBeNull();
+    expect(s.resolveParkedChildren({ taskId: padre, decision: "requeue", by: "attilio" })).toBeNull();
+  });
+
+  test("la risposta chiude l'approvazione pendente: il task non è più in review", () => {
+    const { padre } = padreConFiglioParcheggiato(s);
+    s.deliverToReviewBySystem({ taskId: padre, reason: "tentativi esauriti" });
+    s.resolveParkedChildren({ taskId: padre, decision: "requeue", by: "attilio" });
+    const r = db.prepare("SELECT status FROM approvals WHERE task_id = ?").get(padre) as { status: string };
+    expect(r.status).toBe("expired");
+  });
+});

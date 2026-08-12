@@ -64,13 +64,19 @@ export interface WSData {
    *  set_stream(true) when it switches back to the stream (agent attaches / frame
    *  not framable). Keeps the WS open so agent_active still reaches the pane. */
   _browserSetStream?: (active: boolean) => void;
-  /** Mirror of this viewer's current stream state (set by _browserSetStream).
-   *  A viewer that paused its stream (set_stream:false — e.g. its browser tab
-   *  went off-screen) is NOT an active watcher, so it's excluded from the
-   *  cross-device viewer count: a phone with the tab in the background must not
-   *  keep the desktop's 'auto' pane in the shared session. Absent = active (a
-   *  fresh viewer streams by default). */
-  _streamActive?: boolean;
+  /** Is this viewer's pane ON SCREEN (`set_watching`)? This — and NOT the
+   *  screencast pause — is what the cross-device viewer count
+   *  (GET /api/browsers/:id/viewers) counts, so a phone with the tab in the
+   *  background stops keeping the desktop's 'auto' pane in the shared session.
+   *
+   *  It used to be `_streamActive`, a mirror of set_stream that NOTHING ever
+   *  wrote (declared, read by the count, never assigned — so the count silently
+   *  included every socket). Wiring it to set_stream would have been worse than
+   *  the dead field: WebRTC is the default transport and pauses the screencast
+   *  while very much watching, which would have made a phone invisible and the
+   *  auto-share never fire. Absent = watching (older client, or an agent
+   *  socket). */
+  _watching?: boolean;
   /** T1 DOM co-browse — true while THIS viewer renders the pane as a native rrweb
    *  DOM reconstruction (set_render:'dom') instead of the pixel stream. Used to
    *  ref-count DOM viewers per context so `dom_event` emission stops once the last
@@ -113,6 +119,18 @@ export type { ToolCallDetail, ToolCall, ContentBlock } from "../shared/types";
 // Solo i due che servono in scope qui sotto: `ToolCallDetail` lo consumano
 // altri moduli via il re-export sopra, non questo file.
 import type { ToolCall, ContentBlock } from "../shared/types";
+
+/**
+ * La riga su cui un turno RIADOTTATO continuerà a scrivere, più la sola cosa
+ * che il chiamante non può dedurre da solo: se quella riga porta già un corpo
+ * scritto prima del riavvio (`reusedBody`) o è nata adesso. È il flag che
+ * decide se il client deve svuotare la BOLLA prima che il replay la ricostruisca
+ * — perché il RECORD non viene più svuotato. Vedi
+ * `reuseOrCreatePartialForReattach`.
+ */
+export interface ReattachedPartial extends StoredMessage {
+  reusedBody: boolean;
+}
 
 export interface StoredMessage {
   id: string;
@@ -184,6 +202,20 @@ export interface StoredMessage {
   cacheCreationTokens?: number;
   /** Scritture in cache a UN'ORA (2×), quota disgiunta dalla precedente. */
   cacheCreation1hTokens?: number;
+  /**
+   * CHI ha scritto questo messaggio (migration 095).
+   *
+   * La persona è il soggetto, il dispositivo è il credenziale da cui il
+   * messaggio è entrato: `server/lib/message-author.ts` li ricava insieme
+   * dall'identità della richiesta.
+   *
+   * `undefined` ≠ «di nessuno»: vuol dire NON LO SAPPIAMO — una risposta
+   * dell'assistente (l'autore è un modello), un turno importato da un
+   * transcript della CLI, una riga scritta prima della 095. Un profilo che
+   * conta i prompt di una persona deve saltarle, non attribuirsele.
+   */
+  authorPersonId?: string | null;
+  authorDeviceId?: string | null;
 }
 
 // ─── Entità di dominio: dichiarate in shared/, non qui ─────────────────
@@ -198,7 +230,7 @@ export interface StoredMessage {
 export type { Topic, Project, Worktree, TopicsData, UnreadData } from "../shared/types";
 // `export type { … } from` ri-esporta ma NON porta i nomi in scope locale, e
 // qui sotto `AppContext` li usa. Import separato, non è una ridondanza.
-import type { Topic, TopicsData, UnreadData } from "../shared/types";
+import type { Topic, Project, TopicsData, UnreadData } from "../shared/types";
 import type { ServizioLicenza } from "./lib/licenza";
 
 export interface ActiveStream {
@@ -262,9 +294,17 @@ export interface AppContext {
    *  filtrato: si usa quando il destinatario è noto e il frame non porta
    *  un'entità su cui filtrare (vedi `auth:shares-changed`). */
   sendToDevice: (deviceId: string, message: OutboundMessage) => void;
-  /** Dove vive il relay e come si chiama questa installazione. `null` = spento,
-   *  e allora il gesto «condividi fuori rete» non si offre affatto. */
-  relayConfig?: () => { baseUrl: string | null; installationId: string };
+  /**
+   * Dove vive il relay, e i due nomi di questa macchina. `baseUrl: null` =
+   * spento, e allora il gesto «condividi fuori rete» non si offre affatto.
+   *
+   * `relayId` è quello che va nei link; `installationId` è quello a cui è
+   * legata la licenza e non deve finire in un URL. Sono separati apposta:
+   * quando erano lo stesso valore, mostrarne uno regalava l'altro
+   * (`shared/relay-identita.ts`). Il SEGRETO non è qui, e non deve arrivarci —
+   * questo oggetto viene servito da `/api/auth/relay`.
+   */
+  relayConfig?: () => { baseUrl: string | null; installationId: string; relayId: string };
   /** Il relay è collegato ADESSO. Diverso da «configurato»: serve a dire a chi
    *  crea un link se quel link funzionerà subito o solo quando torna la rete. */
   relayConnected?: () => boolean;
@@ -299,6 +339,15 @@ export interface AppContext {
    */
   requestIdentity?: (req: Request) => { role: 'owner' | 'guest'; deviceId: string | null } | null;
   broadcastToAll: (message: OutboundMessage) => void;
+  /**
+   * I tre frame che portano una riga di `projects` per intero. NON passano da
+   * `broadcastToAll`: quel payload è uno solo per tutte le socket, e questi
+   * portano nome e path — cioè proprio ciò che `GET /api/projects` filtra per
+   * organizzazione e incognito. Qui la riga esce solo verso chi `vedeProgetto`
+   * dice, e a tutti gli altri parte la ritratta (`project:deleted`, il solo id).
+   * `project:deleted` vero resta su `broadcastToAll`: porta già solo l'id.
+   */
+  broadcastProject: (type: import("./lib/project-visibility").TipoFrameProgetto, project: Project) => void;
   broadcastToTopic: (topicId: string, message: OutboundMessage, exclude?: ServerWebSocket<WSData>) => void;
   broadcastToTopicSubscribers: (topicId: string, message: OutboundMessage, exclude?: ServerWebSocket<WSData>) => void;
   loadTopics: () => TopicsData;
@@ -319,10 +368,21 @@ export interface AppContext {
   loadUnread: () => UnreadData;
   saveUnread: (data: UnreadData) => void;
   loadLocalMessages: (sessionKey: string, opts?: { withBlocks?: boolean }) => StoredMessage[];
+  /** Righe della sessione INTERA (rami morti compresi) — ciò che una
+   *  cancellazione colpisce davvero. */
+  countMessagesBySession: (sessionKey: string) => number;
   saveLocalMessages: (sessionKey: string, msgs: StoredMessage[]) => void;
-  appendLocalMessage: (sessionKey: string, role: "user" | "assistant", content: string) => StoredMessage;
+  appendLocalMessage: (
+    sessionKey: string,
+    role: "user" | "assistant",
+    content: string,
+    autore?: { authorPersonId?: string | null; authorDeviceId?: string | null },
+  ) => StoredMessage;
+  /** Append pre-formed messages (id/parentId/toolCalls fixed by the caller) to
+   *  the tail — the incremental-import complement to `saveLocalMessages`. */
+  appendImportedMessages: (sessionKey: string, msgs: StoredMessage[]) => void;
   createPartialMessage: (sessionKey: string, role: "user" | "assistant") => StoredMessage;
-  reuseOrCreatePartialForReattach: (sessionKey: string) => StoredMessage;
+  reuseOrCreatePartialForReattach: (sessionKey: string) => ReattachedPartial;
   updateLastMessage: (sessionKey: string, updates: Partial<StoredMessage>) => StoredMessage | null;
   appendToLastMessage: (sessionKey: string, contentDelta: string, thinkingDelta?: string) => StoredMessage | null;
   finalizeLastMessage: (sessionKey: string) => StoredMessage | null;
@@ -368,7 +428,13 @@ export interface AppContext {
   // Branching
   getMessageById: (id: string) => StoredMessage | null;
   getMessageSessionKey: (id: string) => string | null;
-  createBranchMessage: (sessionKey: string, parentId: string, role: "user" | "assistant", content: string) => StoredMessage;
+  createBranchMessage: (
+    sessionKey: string,
+    parentId: string,
+    role: "user" | "assistant",
+    content: string,
+    autore?: { authorPersonId?: string | null; authorDeviceId?: string | null },
+  ) => StoredMessage;
   createBranchPartialMessage: (sessionKey: string, parentId: string) => StoredMessage;
   /** Cancella messaggio + sottoalbero e ripara la numerazione dei rami. */
   deleteMessageSubtree: (sessionKey: string, messageId: string) => boolean;

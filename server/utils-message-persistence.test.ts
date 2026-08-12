@@ -223,7 +223,7 @@ describe("message field-ownership on updateMessage", () => {
 });
 
 describe("reuseOrCreatePartialForReattach — reload-survival (no duplicate turn, no ghost)", () => {
-  test("reuses the surviving partial row IN PLACE, clears its body, rebuilds cleanly", () => {
+  test("reuses the surviving partial row IN PLACE, keeps its body, rebuilds cleanly", () => {
     const sk = "topic:reatt01";
     const original = ctx.createPartialMessage(sk, "assistant");
     ctx.appendToLastMessage(sk, "contenuto pre-restart");
@@ -232,15 +232,48 @@ describe("reuseOrCreatePartialForReattach — reload-survival (no duplicate turn
     // Boot reattach path: continue the SAME bubble.
     const reused = ctx.reuseOrCreatePartialForReattach(sk);
     expect(reused.id).toBe(original.id); // same bubble — no duplicate, no ghost
+    expect(reused.reusedBody).toBe(true); // il client saprà di dover svuotare la BOLLA
 
-    const cleared = ctx.getMessageById(original.id)!;
-    expect(cleared.partial).toBeTruthy(); // still streaming
-    expect(cleared.content).toBe(""); // body cleared for a clean JSONL replay
-    expect(cleared.toolCalls == null || cleared.toolCalls.length === 0).toBe(true);
+    const adottata = ctx.getMessageById(original.id)!;
+    expect(adottata.partial).toBeTruthy(); // still streaming
+    expect(adottata.content).toBe("contenuto pre-restart"); // il record non si svuota
+    expect(adottata.toolCalls?.[0]?.id).toBe("rt1");
+    expect(adottata.streamedAt).toBe(reused.streamedAt!); // ma il turno riparte da adesso
 
     // The replay rebuilds the same row in place.
-    ctx.appendToLastMessage(sk, "turno ricostruito dal replay");
+    ctx.updateLastMessage(sk, { content: "turno ricostruito dal replay" });
     expect(ctx.getMessageById(original.id)!.content).toBe("turno ricostruito dal replay");
+  });
+
+  test("la gamba di riadozione muore prima di finalizzare: la riga resta com'era", () => {
+    // Il guasto vero, letto dal DB di produzione (topic:dc2b90d0, 10 agosto):
+    // riga nata alle 15:46:22.678, `streamed_at` 15:47:29.751 — l'ora di un
+    // riattacco — e corpo VUOTO, `latency_ms` NULL: il finalize non è mai
+    // arrivato. La riadozione aveva svuotato la riga per riusarla e la copia di
+    // ciò che aveva cancellato viveva solo in RAM, dentro la richiesta che poi
+    // è morta. A schermo: il messaggio dell'utente e una bolla vuota, per
+    // sempre.
+    //
+    // La regola che questo modulo dichiara — «una riadozione non può
+    // SOTTRARRE» — deve valere anche quando la riadozione non finisce. Quindi
+    // l'adozione non tocca il corpo: chi ricostruisce ci scrive sopra, chi
+    // muore non lascia il vuoto.
+    const sk = "topic:reatt05-crash";
+    const original = ctx.createPartialMessage(sk, "assistant");
+    ctx.appendToLastMessage(sk, "mezz'ora di lavoro");
+    ctx.addToolCallToLastMessage(sk, tool("crash1"));
+    ctx.updateLastMessage(sk, { blocks: [{ kind: "text", text: "mezz'ora di lavoro" }] });
+
+    // Il server riparte e adotta il turno sopravvissuto…
+    const reused = ctx.reuseOrCreatePartialForReattach(sk);
+    expect(reused.id).toBe(original.id);
+    // …e qui la gamba muore: nessun replay, nessun merge, nessun finalize.
+
+    const after = ctx.getMessageById(original.id)!;
+    expect(after.content).toBe("mezz'ora di lavoro");
+    expect(after.toolCalls?.[0]?.id).toBe("crash1");
+    expect(after.blocks?.length).toBe(1);
+    expect(after.partial).toBeTruthy(); // ancora in volo: il prossimo boot lo riprende
   });
 
   test("un replay MUTO non porta via il pannello: quel che c'era torna al suo posto", () => {
@@ -269,7 +302,6 @@ describe("reuseOrCreatePartialForReattach — reload-survival (no duplicate turn
 
     const reused = ctx.reuseOrCreatePartialForReattach(sk);
     expect(reused.id).toBe(original.id);
-    expect(ctx.getMessageById(original.id)!.toolCalls?.length ?? 0).toBe(0); // svuotata
 
     // Replay muto: solo il testo finale, nessun tool visto da questo handler.
     const merged = mergeReattachedRow(snapshot, { content: "Ho una domanda per te.", trackedTools: 0, blocks: [] });

@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { contextWindowFor } from "../../shared/context-window";
 import {
+  defaultChatModel,
   FALLBACK_MODELS,
   familyOf,
   longVariantOf,
@@ -129,6 +131,18 @@ describe("FALLBACK_MODELS", () => {
 
   test("offers the 1M window, which is what the hand-typed list never did", () => {
     expect(FALLBACK_MODELS).toContain("claude-opus-5[1m]");
+  });
+});
+
+describe("defaultChatModel", () => {
+  test("un pin vuoto vale la FINESTRA LUNGA, non un id nudo da 200k", () => {
+    // È la risposta a «su cosa gira una chat senza modello scelto», e non la usa
+    // solo lo spawn: chiunque debba dimensionare il ring del contesto di una
+    // chat senza pin deve arrivare qui. Se questo id perde il suffisso, il
+    // denominatore torna a 200k su una sessione da un milione — il 288% del
+    // 10 agosto 2026.
+    expect(contextWindowFor(defaultChatModel())).toEqual({ tokens: 1_000_000, known: true });
+    expect(familyOf(defaultChatModel())).toBe("opus");
   });
 });
 

@@ -26,10 +26,16 @@
  * WKWebView, and never navigates. Pointer events map to source-page CSS px through
  * the known fit `scale` (the overlay is sized to the scaled mirror, pinned
  * top-left, so `sourcePx = localPx / scale`) and relay via `sendInput` (→ CDP).
- * Keyboard is captured by a hidden, always-refocused <textarea>: `keydown` covers
- * hardware keys, `beforeinput`/composition cover mobile soft keyboards, paste and
- * IME — so an iPhone PWA follower can type into the shared session too. This is
- * the same input primitive the follower/video path will reuse.
+ * Keyboard is captured by a hidden field (`BrowserKeyboardCapture`): `keydown`
+ * covers hardware keys, `beforeinput`/composition cover mobile soft keyboards,
+ * paste and IME — so an iPhone PWA follower can type into the shared session too.
+ *
+ * E la tastiera che iOS apre è quella del CAMPO DI CATTURA, non del campo che hai
+ * toccato: finché la cattura è stata una <textarea> nuda, email/numero/password
+ * davano tutti la tastiera di testo. Quindi prima del fuoco si guarda chi c'è
+ * sotto il dito — nel mirror, con le stesse coordinate che rilanciamo come click
+ * — e la cattura si veste come quel campo. Il mirror è il DOM vero della pagina:
+ * la risposta è già qui, senza chiedere niente al server.
  *
  * Local selection on demand: holding Option (Alt) flips the mirror iframe back to
  * interactive so the user can natively select + copy text; releasing reverts to
@@ -43,6 +49,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { Replayer } from 'rrweb';
 import 'rrweb/dist/rrweb.min.css';
+import { BrowserPaneChip } from './BrowserPaneChip';
+import BrowserKeyboardCapture, {
+  type BrowserKeyboardCaptureHandle,
+  type SendInput,
+} from './BrowserKeyboardCapture';
+import type { RemoteField } from '../../lib/browserKeyboardProfile';
 
 /** Minimal shape of an rrweb event we rely on (Meta carries the recorded size). */
 type RrwebEvent = {
@@ -54,13 +66,6 @@ type RrwebEvent = {
 /** rrweb constants we depend on (avoid importing the full enum surface). */
 const EVENT_META = 4;
 
-/** Named keys relayed to the source as key presses (the rest go through as text). */
-const RELAYED_KEYS = new Set([
-  'Enter', 'Backspace', 'Delete', 'Tab', 'Escape',
-  'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
-  'Home', 'End', 'PageUp', 'PageDown',
-]);
-
 /** Senza eventi per questo tempo il timer live si parcheggia: una pagina remota
  *  ferma non deve tenere sveglio il renderer. Abbastanza largo da non tagliare la
  *  coda di applicazione di rrweb (che lavora ~100ms dietro il tempo reale). */
@@ -71,24 +76,23 @@ const SCROLL_RELAY_INTERVAL = 60;
 /** Below this touch travel a touch is treated as a tap (→ click), not a scroll. */
 const TAP_SLOP = 8;
 
-type SendInput = (
-  action: 'click' | 'type' | 'scroll' | 'mousemove' | 'keypress',
-  payload: { x?: number; y?: number; text?: string; key?: string; deltaX?: number; deltaY?: number; button?: 'left' | 'right' | 'middle' },
-) => void;
-
 interface Props {
   /** Register the single live rrweb-event sink; returns an unsubscribe. */
   registerDomSink: (cb: (event: unknown) => void) => () => void;
+  /** Il campo a fuoco riportato dal server dopo un click. Rete di sicurezza per
+   *  quando il mirror non è interrogabile (WKWebView + scheme custom): lì la
+   *  tastiera si alza generica e la corregge questa risposta. */
+  registerFocusSink: (cb: (field: RemoteField | null) => void) => () => void;
   /** Relay input to the source page (page-CSS px). */
   sendInput: SendInput;
   /** Agent lock — while true, this viewer's input is suppressed (take-control parity). */
   agentActive: boolean;
 }
 
-export default function DomCoBrowse({ registerDomSink, sendInput, agentActive }: Props) {
+export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendInput, agentActive }: Props) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const overlayRef = useRef<HTMLDivElement | null>(null);
-  const kbdRef = useRef<HTMLTextAreaElement | null>(null);
+  const kbdRef = useRef<BrowserKeyboardCaptureHandle | null>(null);
   const replayerRef = useRef<Replayer | null>(null);
   /** Riallinea il parcheggio del timer live (definita nell'effetto sotto). Sta
    *  in una ref perché `handle` può correre prima che la closure esista. */
@@ -99,10 +103,15 @@ export default function DomCoBrowse({ registerDomSink, sendInput, agentActive }:
   const dimsRef = useRef<{ w: number; h: number }>({ w: 0, h: 0 });
   const scaleRef = useRef(1);
   const agentActiveRef = useRef(agentActive);
-  // Latest sendInput for the native (non-React) keyboard listeners below.
-  const sendInputRef = useRef(sendInput);
   useEffect(() => { agentActiveRef.current = agentActive; }, [agentActive]);
-  useEffect(() => { sendInputRef.current = sendInput; }, [sendInput]);
+
+  // Il descrittore del campo a fuoco che il server manda dopo ogni click. Qui è
+  // una rete, non la via maestra: quando il mirror risponde la tastiera è già
+  // giusta prima che il dito si alzi, e `applyRemoteField` se ne accorge e non
+  // tocca niente.
+  useEffect(() => registerFocusSink((field) => {
+    kbdRef.current?.applyRemoteField(field);
+  }), [registerFocusSink]);
 
   // ── Interaction state (refs: the handlers live outside React's render) ───────
   const scrollAccRef = useRef<{ dx: number; dy: number; x: number; y: number; timer: ReturnType<typeof setTimeout> | null }>(
@@ -176,19 +185,62 @@ export default function DomCoBrowse({ registerDomSink, sendInput, agentActive }:
     }, SCROLL_RELAY_INTERVAL);
   }, [sendInput]);
 
-  const focusKbd = useCallback(() => {
-    // Focusing inside the pointer gesture pops the mobile soft keyboard (iOS).
-    try { kbdRef.current?.focus({ preventScroll: true }); } catch { kbdRef.current?.focus(); }
+  // Che cosa c'è, nella pagina remota, sotto questo punto.
+  //
+  // La risposta ce l'abbiamo GIÀ in casa: il mirror rrweb è il DOM vero della
+  // pagina, ricostruito qui, e l'interroghiamo con le stesse coordinate che
+  // rilanciamo come click — quindi l'elemento che troviamo è lo stesso che
+  // riceverà il click di là. Niente andata e ritorno col server: la tastiera
+  // deve essere già giusta quando il dito si alza, e un round-trip la
+  // farebbe uscire sbagliata e poi correggere sotto gli occhi.
+  //
+  // Best-effort per costruzione: sotto WKWebView il documento dell'iframe
+  // sandboxed non è sempre interrogabile (la stessa ragione per cui l'input non
+  // si cattura là dentro). Quando non risponde si ricade sulla tastiera di
+  // testo, che è ciò che c'era prima per tutti i campi.
+  //
+  // `readable` separa le due risposte che prima erano lo stesso `null`: «lì non
+  // c'è niente» e «questo documento non me lo fa guardare». La prima chiude la
+  // questione (nessuna tastiera), la seconda no: apre quella generica e aspetta
+  // il descrittore del campo a fuoco che il server manda dopo il click.
+  const mirrorElementAt = useCallback((sx: number, sy: number): { readable: boolean; el: Element | null } => {
+    try {
+      const doc = (replayerRef.current?.iframe as HTMLIFrameElement | undefined)?.contentDocument;
+      if (!doc) return { readable: false, el: null };
+      return { readable: true, el: doc.elementFromPoint(sx, sy) };
+    } catch {
+      return { readable: false, el: null };
+    }
   }, []);
+
+  /**
+   * Veste la cattura sul campo remoto sotto il punto, poi le dà il fuoco.
+   *
+   * Quando il mirror non è interrogabile (WKWebView + scheme custom: la stessa
+   * ragione per cui l'input non si cattura dentro l'iframe) col dito si alza
+   * comunque la tastiera generica. È l'unico momento in cui si può: iOS apre la
+   * tastiera solo dentro un gesto, e la risposta del server arriva dopo. Se poi
+   * dirà che a fuoco non c'è niente di scrivibile, `applyRemoteField` la fa
+   * rientrare.
+   */
+  const focusKbdAt = useCallback((clientX: number, clientY: number, requireField: boolean) => {
+    const c = toSource(clientX, clientY);
+    if (!c) { kbdRef.current?.focusForField(null, { requireField }); return; }
+    const { readable, el } = mirrorElementAt(c.x, c.y);
+    kbdRef.current?.focusForField(el, { requireField: requireField && readable });
+  }, [toSource, mirrorElementAt]);
 
   // ── Pointer / wheel / touch on the overlay ───────────────────────────────────
   const onPointerDown = useCallback((e: React.PointerEvent) => {
     if (selectingRef.current) return;
-    focusKbd();
+    // Col dito decide onTouchStart: lì sappiamo che è un tocco, e col tocco la
+    // tastiera va alzata SOLO su un campo di scrittura. Qui (mouse, penna) la
+    // cattura resta sempre viva perché è anche la presa dei tasti hardware.
+    if (e.pointerType !== 'touch') focusKbdAt(e.clientX, e.clientY, false);
     // Let the host app see the gesture (pane/tab activation).
     rootRef.current?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
     e.preventDefault();
-  }, [focusKbd]);
+  }, [focusKbdAt]);
 
   const onClick = useCallback((e: React.MouseEvent) => {
     if (selectingRef.current || agentActiveRef.current) return;
@@ -212,11 +264,15 @@ export default function DomCoBrowse({ registerDomSink, sendInput, agentActive }:
 
   const onTouchStart = useCallback((e: React.TouchEvent) => {
     if (selectingRef.current) return;
-    focusKbd();
     const t = e.touches[0];
-    if (t) touchRef.current = { x: t.clientX, y: t.clientY, travel: 0 };
+    // Il fuoco va preso DENTRO il gesto, o iOS non apre la tastiera: quindi qui,
+    // non al touchend. Ed è vestito sul campo toccato — è tutto il punto.
+    if (t) {
+      focusKbdAt(t.clientX, t.clientY, true);
+      touchRef.current = { x: t.clientX, y: t.clientY, travel: 0 };
+    }
     rootRef.current?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-  }, [focusKbd]);
+  }, [focusKbdAt]);
 
   const onTouchMove = useCallback((e: React.TouchEvent) => {
     if (selectingRef.current) return;
@@ -243,68 +299,6 @@ export default function DomCoBrowse({ registerDomSink, sendInput, agentActive }:
     const c = toSource(t.clientX, t.clientY);
     if (c) sendInput('click', { x: c.x, y: c.y, button: 'left' });
   }, [toSource, sendInput]);
-
-  // ── Keyboard (hidden textarea kept focused; relays to the source page) ───────
-  const onKbdKeyDown = useCallback((e: React.KeyboardEvent) => {
-    e.stopPropagation(); // don't double-relay via the panel's onKeyDown
-    if (agentActiveRef.current) { e.preventDefault(); return; }
-    // Meta/Ctrl combos stay native: ⌘C copies a (selection-mode) selection, ⌘V
-    // paste lands in beforeinput below and is relayed there.
-    if (e.metaKey || e.ctrlKey) return;
-    if (RELAYED_KEYS.has(e.key)) {
-      e.preventDefault();
-      sendInput('keypress', { key: e.key });
-    } else if (e.key.length === 1) {
-      e.preventDefault();
-      sendInput('type', { text: e.key });
-    }
-    // Dead/Process/Unidentified fall through: IME composes; the composition +
-    // soft-keyboard text lands in beforeinput / compositionend below.
-  }, [sendInput]);
-
-  // `beforeinput` carries the real InputEvent.inputType (React's synthetic
-  // onBeforeInput does not), and covers mobile soft keyboards + paste + IME — so
-  // it's attached as a NATIVE listener on the textarea.
-  useEffect(() => {
-    const ta = kbdRef.current;
-    if (!ta) return;
-    const onBeforeInput = (ev: Event) => {
-      const ie = ev as InputEvent;
-      ev.stopPropagation();
-      // insertCompositionText is not cancelable per spec — relayed at compositionend.
-      if (ie.inputType === 'insertCompositionText') return;
-      ev.preventDefault();
-      if (agentActiveRef.current) return;
-      const send = sendInputRef.current;
-      switch (ie.inputType) {
-        case 'insertText':
-        case 'insertFromPaste':
-          if (ie.data) send('type', { text: ie.data });
-          break;
-        case 'insertParagraph':
-        case 'insertLineBreak':
-          send('keypress', { key: 'Enter' });
-          break;
-        case 'deleteContentBackward':
-          send('keypress', { key: 'Backspace' });
-          break;
-        case 'deleteContentForward':
-          send('keypress', { key: 'Delete' });
-          break;
-      }
-    };
-    ta.addEventListener('beforeinput', onBeforeInput);
-    return () => ta.removeEventListener('beforeinput', onBeforeInput);
-  }, []);
-
-  const onKbdCompositionEnd = useCallback((e: React.CompositionEvent<HTMLTextAreaElement>) => {
-    e.stopPropagation();
-    if (!agentActiveRef.current && e.data) sendInput('type', { text: e.data });
-    if (kbdRef.current) kbdRef.current.value = '';
-  }, [sendInput]);
-
-  // Keep the capture textarea empty so it never accumulates / scrolls.
-  const onKbdInput = useCallback(() => { if (kbdRef.current) kbdRef.current.value = ''; }, []);
 
   // ── Option/Alt hold → native local selection in the mirror ───────────────────
   // The mirror iframe is made interactive ONCE (enableInteract) but sits UNDER the
@@ -494,25 +488,11 @@ export default function DomCoBrowse({ registerDomSink, sendInput, agentActive }:
           with their OWN native cursor, so the replayed one is only round-trip lag. */}
       <style>{`.topics-dom-cobrowse .replayer-mouse,.topics-dom-cobrowse .replayer-mouse-tail{display:none!important}`}</style>
 
-      {/* Hidden keyboard capture: kept focused on pointer/touch so hardware keys
-          (keydown), mobile soft keyboards + paste + IME (beforeinput/composition)
-          all reach the source page. aria-hidden + transparent caret + 1px box so
-          it's invisible and never shifts layout. */}
-      <textarea
-        ref={kbdRef}
-        data-testid="browser-dom-kbd"
-        aria-hidden="true"
-        tabIndex={-1}
-        autoCapitalize="off"
-        autoCorrect="off"
-        autoComplete="off"
-        spellCheck={false}
-        className="absolute left-0 top-0 z-0 opacity-0 pointer-events-none"
-        style={{ width: 1, height: 1, resize: 'none', border: 0, padding: 0, caretColor: 'transparent', background: 'transparent' }}
-        onKeyDown={onKbdKeyDown}
-        onCompositionEnd={onKbdCompositionEnd}
-        onInput={onKbdInput}
-      />
+      {/* Hidden keyboard capture: focused inside the pointer/touch gesture so
+          hardware keys, mobile soft keyboards, paste and IME all reach the source
+          page. Si veste sul campo remoto toccato prima di prendere il fuoco — è
+          da lì che iOS decide QUALE tastiera aprire. */}
+      <BrowserKeyboardCapture ref={kbdRef} sendInput={sendInput} suppressed={agentActive} />
 
       {/* Parent-frame capture overlay — the robust input surface. Sized to the
           scaled mirror (applyScale), pinned top-left. Disabled while the user
@@ -533,13 +513,12 @@ export default function DomCoBrowse({ registerDomSink, sendInput, agentActive }:
 
       {/* Local text-selection mode indicator (Option toggles it). While active the
           overlay yields to the interactive mirror so text is natively selectable. */}
+      {/* Era `bg-black/70 text-white`, l'unico dei quattro chip del pane che non
+          seguiva il tema: in chiaro restava una pastiglia nera. */}
       {selecting && !agentActive && (
-        <div
-          data-testid="browser-dom-select-mode"
-          className="absolute top-2 left-1/2 -translate-x-1/2 z-[3] px-2 py-0.5 rounded-full bg-black/70 text-white text-[11px] font-medium pointer-events-none select-none"
-        >
+        <BrowserPaneChip corner="top-center" tone="active" z={3} testId="browser-dom-select-mode">
           Selezione testo · ⌥ per tornare
-        </div>
+        </BrowserPaneChip>
       )}
 
       {/* Nothing reconstructed yet — say so instead of showing a white void. This

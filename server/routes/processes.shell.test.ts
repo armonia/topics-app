@@ -11,11 +11,13 @@
  */
 
 import { describe, expect, it } from "bun:test";
+import { shellProcessKey } from "../../shared/background-shell-registry";
 import {
   closeBackgroundShell,
   listBackgroundShells,
   noteBackgroundShellOutput,
   registerBackgroundShell,
+  getScriptsSnapshot,
 } from "./processes";
 
 let n = 0;
@@ -133,5 +135,49 @@ describe("registro delle shell in background", () => {
     closeBackgroundShell(sessionKey, "bash_mai_visto", "completed");
 
     expect(shellOf(sessionKey, "bash_mai_visto")).toBeUndefined();
+  });
+});
+
+/**
+ * Lo snapshot che viaggia sulla WS è ciò che arriva PER PRIMO quando una shell
+ * nasce o cambia stato: la risposta HTTP arriva al prossimo poll, cioè fino a
+ * 15s dopo. La card della chat cerca la sua shell per chiave, quindi se la
+ * chiave manca dallo snapshot la card resta ferma proprio nel momento in cui
+ * c'era qualcosa da mostrare — e nessun test lo vedrebbe, perché l'HTTP la
+ * chiave ce l'ha sempre avuta.
+ */
+describe("snapshot broadcast delle shell", () => {
+  it("porta la chiave del processo, lo shellId e la topic", () => {
+    const sessionKey = freshSession();
+    registerBackgroundShell({
+      sessionKey, topicId: "topic-broadcast", shellId: "bash_ws",
+      command: "bun run dev", cwd: "/tmp/proj", ownerPid: 7,
+    });
+
+    const row = getScriptsSnapshot().find((s: any) => s.processId === shellProcessKey(sessionKey, "bash_ws"));
+    expect(row).toBeDefined();
+    expect(row.shellId).toBe("bash_ws");
+    expect(row.topicId).toBe("topic-broadcast");
+    expect(row.source).toBe("shell");
+    expect(row.status).toBe("running");
+  });
+
+  it("una shell finita resta nello snapshot con il suo esito", () => {
+    const sessionKey = freshSession();
+    registerBackgroundShell({
+      sessionKey, topicId: null, shellId: "bash_ws2",
+      command: "bun test", cwd: "/tmp/proj", ownerPid: 8,
+    });
+    noteBackgroundShellOutput(sessionKey, "bash_ws2", { status: "completed", exitCode: 0 });
+
+    const row = getScriptsSnapshot().find((s: any) => s.processId === shellProcessKey(sessionKey, "bash_ws2"));
+    expect(row?.shellId).toBe("bash_ws2");
+    expect(row?.status).toBe("done");
+    expect(row?.exitCode).toBe(0);
+  });
+
+  it("un processo che non è una shell non si porta dietro uno shellId", () => {
+    const rows = getScriptsSnapshot().filter((s: any) => s.source !== "shell");
+    for (const r of rows) expect(r.shellId).toBeUndefined();
   });
 });

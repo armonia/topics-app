@@ -88,8 +88,6 @@ interface MessageBubbleProps {
   onReply: (msg: ChatMessage) => void;
   onCopy: (msg: ChatMessage) => void;
   onTogglePin: (msg: ChatMessage) => void;
-  onPlanApprove?: () => void;
-  onPlanReject?: () => void;
   /** La decisione presa su un piano proposto — arriva fino a <ToolCallRow>. */
   onPlanDecision?: (approved: boolean) => void;
   onRemember?: (msg: ChatMessage) => void;
@@ -122,8 +120,6 @@ export const MessageBubble = memo(function MessageBubble({
   onReply,
   onCopy,
   onTogglePin,
-  onPlanApprove,
-  onPlanReject,
   onPlanDecision,
   onRemember,
   onEdit,
@@ -387,8 +383,6 @@ export const MessageBubble = memo(function MessageBubble({
                 cacheCreation1hTokens={msg.cacheCreation1hTokens}
                 usageCompletionTokens={msg.usageCompletionTokens}
                 costCents={msg.costCents}
-                onPlanApprove={onPlanApprove}
-                onPlanReject={onPlanReject}
                 onPlanDecision={onPlanDecision}
                 invokedCommand={invokedCommand}
                 sessionKey={topic.sessionKey}

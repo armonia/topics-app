@@ -10,6 +10,29 @@ Thanks for your interest in contributing! Here's how you can help.
 4. Start the server: `bun run server.ts`
 5. Build the client: `cd client && bun run build`
 
+### Se il terminale non parte: `posix_spawnp failed`
+
+Sintomo: apri una shell e non compare niente, e nel log del ponte
+(`/tmp/topics-pty-bridge-*.log`) c'è
+
+```
+[PTY Bridge] Self-test failed: posix_spawnp failed.. Exiting.
+```
+
+Causa: `node_modules/node-pty/prebuilds/*/spawn-helper` senza bit di esecuzione.
+Arriva così dal tarball npm di node-pty (`npm pack node-pty@1.1.0 && tar tvzf
+node-pty-1.1.0.tgz | grep spawn-helper` → `-rw-r--r--`), e senza quel bit ogni
+`pty.spawn()` fallisce: il ponte PTY muore al proprio self-test e con lui ogni
+terminale, app e banco E2E. La app impacchettata non lo vede perché il guscio
+Tauri usa il ponte Rust (`desktop-tauri/pty-bridge`), che node-pty non lo tocca.
+
+Cura: `scripts/fix-node-pty-exec-bit.ts`, agganciato al `postinstall`, quindi un
+`bun install` basta. **Chi ha installato prima che quello script esistesse deve
+rifare `bun install`** (o lanciarlo a mano: `bun run
+scripts/fix-node-pty-exec-bit.ts`), altrimenti vedrà il ponte morire allo stesso
+modo con node_modules già in casa. L'invariante è controllata da
+`tests/unit/pty-bridge-e2e-isolation.test.ts`, dentro `test:unit`.
+
 ## Development Workflow
 
 ### Hot reload (recommended)
@@ -99,8 +122,8 @@ channel. The Electron channel (`v*`) was **archived in v2.0.0**: its build autom
 ### Tauri (primary — the v2 channel)
 
 Tag `tauri-vX.Y.Z` — it must match the `version` in
-`desktop-tauri/src-tauri/tauri.conf.json` (kept in lockstep with the root
-`package.json` and `desktop-tauri/src-tauri/Cargo.toml`). CI
+`desktop-tauri/src-tauri/tauri.conf.json`, which is kept in lockstep with the other
+three places the number is written (see **Bumping the version** below). CI
 (`.github/workflows/tauri-release.yml`) builds a **Universal macOS** app plus Windows
 and Linux installers with `tauri-apps/tauri-action`, and publishes them to a **draft**
 GitHub Release together with the `latest.json` auto-update manifest.
@@ -110,6 +133,43 @@ scripts/ship.sh          # tags origin/main's version + pushes → builds the dr
 # then publish the draft (this is what pushes the update to users):
 gh release edit tauri-v<version> --draft=false
 ```
+
+#### Bumping the version — one gesture, never by hand
+
+The version is written in **four** places, and the fourth is the one that gets
+forgotten:
+
+| | |
+|---|---|
+| `package.json` | `"version"` — the canonical number (also baked into the client bundle as `__APP_VERSION__`) |
+| `desktop-tauri/src-tauri/tauri.conf.json` | `"version"` — what the release tag must match |
+| `desktop-tauri/src-tauri/Cargo.toml` | the `[package]` version |
+| `desktop-tauri/src-tauri/Cargo.lock` | the `[[package]] name = "app"` stanza |
+
+**Never open those files.** One command writes all four:
+
+```bash
+bun run bump              # patch (also: minor, major)
+bun run bump 2.3.0        # exactly this version
+bun run bump sync         # repair: realign the other three to package.json
+```
+
+The first three are configuration files you open on purpose; the lock is generated
+by cargo and nobody edits it by hand — which is exactly why a hand-made bump touches
+three of four. It happened twice in one night (`d18b2db5`, `b1f4d6ff`); both times
+`bun run test:unit` caught it (`tests/unit/version-lockstep.test.ts`) and both times
+it was patched by hand before landing. The gate isn't the missing piece — the gesture
+was. `bun run bump sync` is the one to reach for when the gate is already red.
+
+What it costs to skip: `Cargo.toml` wins over the lock anyway, so nothing breaks at
+build time. What breaks is the tree — anyone running `cargo check` in `desktop-tauri/`
+finds `Cargo.lock` modified without having touched anything, and that stray line is
+how a version ends up inside a commit about something else.
+
+Derivation instead of a script was considered and doesn't close the hole: Tauri can
+point `version` at `package.json`, but Cargo needs a literal in `Cargo.toml` and the
+lock follows `Cargo.toml`. A single source removes at most one of the four — never
+the one that is actually forgotten.
 
 #### La firma macOS: perché conta anche senza pagare Apple
 
@@ -218,6 +278,38 @@ Two things the sidecar needs that a naïve `--compile` drops, both handled:
   dir is absent. **Regenerate the manifest whenever you add or rename a migration**
   (`bun run scripts/gen-migrations-manifest.ts` — the sidecar build script also runs
   it, so CI ships a current schema).
+
+  **Never write the file name by hand — run `bun run migration:new <slug>`.** It
+  creates `server/db/migrations/<UTC timestamp>-<slug>.sql` and regenerates the
+  manifest for you.
+
+  The prefix is a UTC timestamp (`YYYYMMDDHHMMSS`, e.g.
+  `20260812050317-notification-log.sql`), **not a counter**. A counter is picked when
+  the migration is *born* and only verified when it *lands*, and in between the other
+  cards land: on 2026-08-10 two parallel branches both produced an `089`, and on the
+  night of 08-11/12 three more collided in a row (097, 100, 101). With six agents in
+  parallel that is the normal outcome, not anyone's slip. A timestamp is contended by
+  nobody, so the collision cannot happen. Two migrations written in the same *second*
+  share a prefix and that is fine: they come from worktrees that could not see each
+  other, so neither can depend on the other, and the runner applies both in
+  `(number, name)` order — deterministic on every machine.
+
+  The digits-only shape is deliberate: every reader filters with `/^\d+-.+\.sql$/` and
+  orders with `parseInt`, so they all keep working untouched, and `20260812050317` >
+  `101` puts the new era after the old one by construction. A letter in the prefix
+  would make an unnoticed reader skip the migration *silently* — the 089 failure.
+
+  The number is *ordering*, not identity: the applied-migrations registry
+  (`schema_migrations`) is keyed by **file name**, so two files sharing a number both
+  apply. That is the net under the real failure: the old number-keyed registry skipped
+  the second `089` **silently, forever**, while the code that assumed those columns
+  landed anyway.
+
+  `bun run check:migrations` (also in CI) fails if your branch adds a migration that
+  still uses a counter, or if two counters claim the same number. **Never renumber or
+  rename a migration that is already on `main`:** it is applied on live databases, and
+  renaming it would make it re-run. The old counter-named migrations stay exactly as
+  they are; the two eras coexist, ordered by number.
 - **playwright-core / chromium-bidi / electron** are marked `--external` in the compile
   (optional server-side CDP fallback with unresolvable optional deps; the native
   WKWebView pane is the primary browser).
@@ -258,13 +350,41 @@ page but are no longer built, signed, or updated.
 
 ## Testing
 
+**I quattro cancelli** — verdi tutti e quattro prima di consegnare, non tre su quattro:
+
 ```bash
-bun run typecheck        # client + server + e2e
-bun run lint             # eslint (client)
+bun run typecheck        # client + server + e2e (~20s)
+bun run lint             # eslint (client) (~17s)
+bun run check:deadcode   # knip — un file che nessuno importa È codice morto (~5s)
 bun run test:unit        # bun:test — moduli puri (~70s, ~4100 test)
+```
+
+```bash
 bun run test             # E2E Playwright, seriale (~35 min)
 bun run test:e2e:shards  # E2E in parallelo sulla stessa macchina  ← usa questo
 ```
+
+**Tocchi lo shell Tauri?** Il pane browser nativo ha tre backend scelti da
+`cfg(target_os)`, cioe WKWebView, WebView2 e WebKitGTK. Su un Mac il compilatore
+guarda solo il primo: gli altri due possono essere rotti da mesi senza che
+nessuno lo veda, perche la build cross-platform parte sui tag `tauri-v*`, cioe
+alla release. Prima di consegnare:
+
+```bash
+scripts/check-cross-shell.sh    # compila i rami Windows e Linux (~4 min)
+```
+
+Vuole `brew install mingw-w64` per il ramo Windows e Docker per quello Linux; se
+manca l'uno o l'altro, lancia solo `windows` o solo `linux`. Lo stesso controllo
+gira in CI su tre runner nativi (job `tauri` di `ci.yml`), quindi saltarlo non
+nasconde niente. Costa solo un giro.
+
+**Aggiungi uno script che si lancia a mano** (una sonda, un banco, una misura)?
+Dichiaralo in `knip.jsonc` col suffisso `!` — `"scripts/webrtc-probe.ts!", // misura a
+mano: bun run scripts/webrtc-probe.ts` — nello **stesso commit** che aggiunge il file,
+con accanto la riga che dice come si lancia. Senza, `check:deadcode` è rosso: l'11/08
+tre card di fila hanno lasciato `main` rosso esattamente così. Il cancello aveva ragione
+ogni volta — la dichiarazione mancava davvero.
 
 **E2E in parallelo.** Playwright gira con `workers: 1` e `fullyParallel: false`
 perché i test condividono UN server e UN SQLite: dentro un singolo processo la

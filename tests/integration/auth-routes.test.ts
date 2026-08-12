@@ -28,8 +28,11 @@ import { join } from "node:path";
 
 import {
   createAuthRouter, __resetLiveSocketsForTests, __resetPendingForTests,
+  __invecchiaPendingPerTests,
 } from "../../server/routes/auth";
+import { PAIRING_CODE_TTL_MS } from "../../server/lib/device-auth";
 import { hashToken, readSessionCookie } from "../../server/lib/device-auth";
+import { TASKS_DDL } from "../../server/db/test-schema";
 
 const RADICE = join(import.meta.dir, "..", "..");
 const MIGRAZIONI = ["080-devices.sql", "082-task-shares.sql", "083-grants.sql"];
@@ -38,10 +41,7 @@ function dbFresco(): Database {
   const db = new Database(":memory:");
   // Le due tabelle a cui le migration si agganciano con una FK, e da cui
   // `/api/auth/shared` va a prendere il contenuto vero.
-  db.run(`CREATE TABLE tasks (
-    id TEXT PRIMARY KEY, text TEXT, status TEXT,
-    project_id TEXT, preview_image TEXT
-  )`);
+  db.run(TASKS_DDL);
   db.run(`CREATE TABLE topics (
     id TEXT PRIMARY KEY, name TEXT, updated_at INTEGER
   )`);
@@ -233,6 +233,41 @@ describe("rotte auth · dispositivi", () => {
   });
 });
 
+describe("rotte auth · la scadenza si annuncia da sola", () => {
+  // Attilio l'ha visto per primo: «sono passati tre minuti ma sta ancora là».
+  // Il server la scadenza la applicava — `sweep` gira a ogni richiesta
+  // `/api/auth/*` — ma il cartello di approvazione vive nella memoria del
+  // CLIENT, messo lì da un broadcast. Senza l'annuncio contrario restava sullo
+  // schermo per sempre, e cliccarlo dava 404. Su un endpoint esposto a Internet
+  // è la richiesta di uno sconosciuto che continua a invitare un clic molto
+  // dopo che sarebbe dovuta sparire.
+  test("una richiesta scaduta viene ANNUNCIATA, non solo dimenticata", async () => {
+    const db = dbFresco();
+    const { ctx, inviati } = creaCtx(db);
+    const router = createAuthRouter(ctx);
+    const req = await (await chiama(router, "/api/auth/pair/request", "POST"))!.json() as { requestId: string };
+
+    // Il cartello è comparso: controllo positivo, altrimenti il resto non
+    // proverebbe niente.
+    expect(inviati.some((f) => (f as { type?: string }).type === "auth:pair-requested")).toBe(true);
+
+    // Si invecchia la richiesta oltre il tetto e si tocca una rotta qualunque.
+    __invecchiaPendingPerTests(req.requestId, PAIRING_CODE_TTL_MS + 1);
+    await chiama(router, "/api/auth/pair/pending");
+
+    const annuncio = inviati.find((f) => {
+      const x = f as { type?: string; requestId?: string; approved?: boolean };
+      return x.type === "auth:pair-resolved" && x.requestId === req.requestId;
+    }) as { approved?: boolean } | undefined;
+    expect(annuncio, "chi ha messo il cartello deve anche toglierlo").toBeTruthy();
+    expect(annuncio!.approved, "scaduta non è approvata").toBe(false);
+
+    // E non è più approvabile: la scadenza è un fatto, non una decorazione.
+    const tardi = await chiama(router, "/api/auth/pair/approve", "POST", { body: { requestId: req.requestId } });
+    expect(tardi?.status).toBe(404);
+  });
+});
+
 describe("rotte auth · il segreto di ritiro", () => {
   // Il `requestId` GIRA: `auth:pair-requested` lo porta alle socket perché il
   // cartello di approvazione compaia. Il gettone no. Tenere separate le due
@@ -286,8 +321,8 @@ describe("rotte auth · condivisione", () => {
   async function scena() {
     const db = dbFresco();
     const router = createAuthRouter(creaCtx(db).ctx);
-    db.run("INSERT INTO tasks (id, text, status) VALUES ('t1','La scheda condivisa','todo')");
-    db.run("INSERT INTO tasks (id, text, status) VALUES ('t2','La scheda PRIVATA','todo')");
+    db.run("INSERT INTO tasks (id, text, status, project_id, created_at, updated_at) VALUES ('t1','La scheda condivisa','todo', 'p-test', '2026-01-01', '2026-01-01')");
+    db.run("INSERT INTO tasks (id, text, status, project_id, created_at, updated_at) VALUES ('t2','La scheda PRIVATA','todo', 'p-test', '2026-01-01', '2026-01-01')");
     db.run("INSERT INTO topics (id, name, updated_at) VALUES ('c1','La chat condivisa',1)");
     db.run("INSERT INTO topics (id, name, updated_at) VALUES ('c2','La chat PRIVATA',2)");
 
@@ -348,12 +383,12 @@ describe("rotte auth · condivisione", () => {
     // Serve la 084: prima di quella migration il CHECK di `grants` ammette solo
     // `device`, e una persona non ci si può nemmeno scrivere.
     const db = new Database(":memory:");
-    db.run("CREATE TABLE tasks (id TEXT PRIMARY KEY, text TEXT, status TEXT, project_id TEXT, preview_image TEXT)");
+    db.run(TASKS_DDL);
     db.run("CREATE TABLE topics (id TEXT PRIMARY KEY, name TEXT, updated_at INTEGER)");
     for (const m of [...MIGRAZIONI, "084-people-orgs.sql"]) {
       db.run(readFileSync(join(RADICE, "server", "db", "migrations", m), "utf8"));
     }
-    db.run("INSERT INTO tasks (id, text, status) VALUES ('t1','La scheda condivisa','todo')");
+    db.run("INSERT INTO tasks (id, text, status, project_id, created_at, updated_at) VALUES ('t1','La scheda condivisa','todo', 'p-test', '2026-01-01', '2026-01-01')");
     const router = createAuthRouter(creaCtx(db).ctx);
 
     // Il PRIMO dispositivo di un'installazione è il proprietario, e a un
@@ -455,7 +490,7 @@ describe("rotte auth · condividere con un soggetto che non è un dispositivo", 
   test("`deviceId` resta accettato come alias legacy", async () => {
     const db = dbFresco();
     const router = createAuthRouter(creaCtx(db).ctx);
-    db.run("INSERT INTO tasks (id, text, status) VALUES ('t1','x','todo')");
+    db.run("INSERT INTO tasks (id, text, status, project_id, created_at, updated_at) VALUES ('t1','x','todo', 'p-test', '2026-01-01', '2026-01-01')");
     const a = await (await chiama(router, "/api/auth/pair/request", "POST"))!.json() as { requestId: string; claim: string };
     await chiama(router, "/api/auth/pair/approve", "POST", { body: { requestId: a.requestId, role: "guest" } });
     const id = (db.query("SELECT id FROM devices").get() as { id: string }).id;
@@ -472,7 +507,7 @@ describe("rotte auth · condividere con un soggetto che non è un dispositivo", 
   test("un tipo di soggetto inventato è rifiutato", async () => {
     const db = dbFresco();
     const router = createAuthRouter(creaCtx(db).ctx);
-    db.run("INSERT INTO tasks (id, text, status) VALUES ('t1','x','todo')");
+    db.run("INSERT INTO tasks (id, text, status, project_id, created_at, updated_at) VALUES ('t1','x','todo', 'p-test', '2026-01-01', '2026-01-01')");
     const r = await chiama(router, "/api/auth/shares", "POST", {
       body: { resourceType: "task", resourceId: "t1", subjectType: "team", subjectId: "x" },
     });
@@ -485,7 +520,7 @@ describe("rotte auth · condividere con un soggetto che non è un dispositivo", 
     // condiviso.
     const db = dbFresco();
     const router = createAuthRouter(creaCtx(db).ctx);
-    db.run("INSERT INTO tasks (id, text, status) VALUES ('t1','x','todo')");
+    db.run("INSERT INTO tasks (id, text, status, project_id, created_at, updated_at) VALUES ('t1','x','todo', 'p-test', '2026-01-01', '2026-01-01')");
     const r = await chiama(router, "/api/auth/shares", "POST", {
       body: { resourceType: "task", resourceId: "t1", subjectType: "person", subjectId: "p1" },
     });
@@ -535,7 +570,7 @@ describe("rotte auth · spostare un dispositivo su un'altra persona", () => {
   /** Uno schema con la 084, che è dove vivono le persone. */
   function db084(): Database {
     const db = new Database(":memory:");
-    db.run("CREATE TABLE tasks (id TEXT PRIMARY KEY, text TEXT, status TEXT, project_id TEXT, preview_image TEXT)");
+    db.run(TASKS_DDL);
     db.run("CREATE TABLE topics (id TEXT PRIMARY KEY, name TEXT, updated_at INTEGER)");
     for (const m of [...MIGRAZIONI, "084-people-orgs.sql"]) {
       db.run(readFileSync(join(RADICE, "server", "db", "migrations", m), "utf8"));
@@ -551,7 +586,7 @@ describe("rotte auth · spostare un dispositivo su un'altra persona", () => {
     const db = db084();
     const router = createAuthRouter(creaCtx(db).ctx);
     db.run("INSERT INTO people (id, display_name, created_at, origin, rev, updated_at) VALUES ('p2','Altra',1,'local',1,1)");
-    db.run("INSERT INTO tasks (id, text, status) VALUES ('t1','x','todo')");
+    db.run("INSERT INTO tasks (id, text, status, project_id, created_at, updated_at) VALUES ('t1','x','todo', 'p-test', '2026-01-01', '2026-01-01')");
 
     const a = await (await chiama(router, "/api/auth/pair/request", "POST"))!.json() as { requestId: string; claim: string };
     await chiama(router, "/api/auth/pair/approve", "POST", { body: { requestId: a.requestId, role: "guest" } });
@@ -604,7 +639,7 @@ describe("rotte auth · spostare un dispositivo su un'altra persona", () => {
 describe("rotte auth · il ruolo DISCENDE dalla persona", () => {
   function db084(): Database {
     const db = new Database(":memory:");
-    db.run("CREATE TABLE tasks (id TEXT PRIMARY KEY, text TEXT, status TEXT, project_id TEXT, preview_image TEXT)");
+    db.run(TASKS_DDL);
     db.run("CREATE TABLE topics (id TEXT PRIMARY KEY, name TEXT, updated_at INTEGER)");
     for (const m of [...MIGRAZIONI, "084-people-orgs.sql"]) {
       db.run(readFileSync(join(RADICE, "server", "db", "migrations", m), "utf8"));
@@ -662,12 +697,12 @@ describe("rotte auth · il ruolo DISCENDE dalla persona", () => {
 describe("rotte auth · i link di condivisione", () => {
   function db085(): Database {
     const db = new Database(":memory:");
-    db.run("CREATE TABLE tasks (id TEXT PRIMARY KEY, text TEXT, status TEXT, project_id TEXT, preview_image TEXT)");
+    db.run(TASKS_DDL);
     db.run("CREATE TABLE topics (id TEXT PRIMARY KEY, name TEXT, updated_at INTEGER)");
     for (const m of [...MIGRAZIONI, "084-people-orgs.sql", "085-share-links.sql"]) {
       db.run(readFileSync(join(RADICE, "server", "db", "migrations", m), "utf8"));
     }
-    db.run("INSERT INTO tasks (id, text, status) VALUES ('t1','x','todo')");
+    db.run("INSERT INTO tasks (id, text, status, project_id, created_at, updated_at) VALUES ('t1','x','todo', 'p-test', '2026-01-01', '2026-01-01')");
     return db;
   }
 
@@ -762,7 +797,7 @@ describe("rotte auth · i link di condivisione", () => {
 describe("rotte auth · i membri dell'organizzazione", () => {
   function db084(): Database {
     const db = new Database(":memory:");
-    db.run("CREATE TABLE tasks (id TEXT PRIMARY KEY, text TEXT, status TEXT, project_id TEXT, preview_image TEXT)");
+    db.run(TASKS_DDL);
     db.run("CREATE TABLE topics (id TEXT PRIMARY KEY, name TEXT, updated_at INTEGER)");
     for (const m of [...MIGRAZIONI, "084-people-orgs.sql"]) {
       db.run(readFileSync(join(RADICE, "server", "db", "migrations", m), "utf8"));
@@ -968,7 +1003,7 @@ describe("rotte auth · i membri dell'organizzazione", () => {
 describe("rotte auth · le organizzazioni: crearle, cancellarle, e chi comanda", () => {
   function db084(): Database {
     const db = new Database(":memory:");
-    db.run("CREATE TABLE tasks (id TEXT PRIMARY KEY, text TEXT, status TEXT, project_id TEXT, preview_image TEXT)");
+    db.run(TASKS_DDL);
     db.run("CREATE TABLE topics (id TEXT PRIMARY KEY, name TEXT, updated_at INTEGER)");
     for (const m of [...MIGRAZIONI, "084-people-orgs.sql"]) {
       db.run(readFileSync(join(RADICE, "server", "db", "migrations", m), "utf8"));
@@ -1242,12 +1277,12 @@ describe("rotte auth · le organizzazioni: crearle, cancellarle, e chi comanda",
 describe("rotte auth · la rubrica e il cancello non possono divergere", () => {
   function db084(): Database {
     const db = new Database(":memory:");
-    db.run("CREATE TABLE tasks (id TEXT PRIMARY KEY, text TEXT, status TEXT, project_id TEXT, preview_image TEXT)");
+    db.run(TASKS_DDL);
     db.run("CREATE TABLE topics (id TEXT PRIMARY KEY, name TEXT, updated_at INTEGER)");
     for (const m of [...MIGRAZIONI, "084-people-orgs.sql"]) {
       db.run(readFileSync(join(RADICE, "server", "db", "migrations", m), "utf8"));
     }
-    db.run("INSERT INTO tasks (id, text, status) VALUES ('t1','La scheda','todo')");
+    db.run("INSERT INTO tasks (id, text, status, project_id, created_at, updated_at) VALUES ('t1','La scheda','todo', 'p-test', '2026-01-01', '2026-01-01')");
     return db;
   }
   const miaOrg = (db: Database) => (db.query("SELECT org_id AS id FROM installation").get() as { id: string }).id;
@@ -1338,7 +1373,7 @@ describe("rotte auth · la rubrica e il cancello non possono divergere", () => {
 describe("rotte auth · cancellare una persona dalla rubrica", () => {
   function db084(): Database {
     const db = new Database(":memory:");
-    db.run("CREATE TABLE tasks (id TEXT PRIMARY KEY, text TEXT, status TEXT, project_id TEXT, preview_image TEXT)");
+    db.run(TASKS_DDL);
     db.run("CREATE TABLE topics (id TEXT PRIMARY KEY, name TEXT, updated_at INTEGER)");
     for (const m of [...MIGRAZIONI, "084-people-orgs.sql"]) {
       db.run(readFileSync(join(RADICE, "server", "db", "migrations", m), "utf8"));

@@ -204,3 +204,41 @@ export function drainProjectBrowserNavigates(projectPath: string): PendingBrowse
   pendingNavigates.delete(projectPath);
   return list;
 }
+
+/**
+ * Quali finestre di progetto sono MONTATE adesso, in questo client.
+ *
+ * È la «consapevolezza del contesto-finestra» che manca a chi vuole promuovere
+ * qualcosa nel workspace: senza, l'unica mossa possibile è sparare
+ * `topics:open-project` a ogni click e sperare — cioè APRIRE (o rialzare) la
+ * finestra del progetto anche quando era già lì, e parcheggiare una navigazione
+ * che poi rischia di rispuntare a un mount successivo. Con questo registro chi
+ * apre può distinguere i due casi: finestra già montata ⇒ basta l'evento, niente
+ * apertura forzata e niente parcheggio; finestra chiusa ⇒ parcheggia e chiedi
+ * l'apertura (ed è il solo caso in cui la finestra si apre).
+ *
+ * Conteggio, non booleano: la stessa cartella può essere montata da due
+ * superfici (una finestra staccata, una seconda istanza), e la smontatura della
+ * prima non deve dichiarare chiusa la seconda.
+ */
+const mountedProjectWindows = new Map<string, number>();
+
+/** Dichiara montata la finestra di `projectPath`. Torna la sua de-registrazione
+ *  (da usare come cleanup dell'effetto che l'ha chiamata). */
+export function registerProjectWindow(projectPath: string): () => void {
+  if (!projectPath) return () => {};
+  mountedProjectWindows.set(projectPath, (mountedProjectWindows.get(projectPath) ?? 0) + 1);
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    const n = (mountedProjectWindows.get(projectPath) ?? 1) - 1;
+    if (n > 0) mountedProjectWindows.set(projectPath, n);
+    else mountedProjectWindows.delete(projectPath);
+  };
+}
+
+/** C'è una finestra montata per questo progetto in questo client? */
+export function isProjectWindowMounted(projectPath: string): boolean {
+  return (mountedProjectWindows.get(projectPath) ?? 0) > 0;
+}

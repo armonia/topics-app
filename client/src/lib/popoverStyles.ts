@@ -49,7 +49,16 @@ export const POPOVER_MARGIN = 8;
 export const Z_POPOVER = 9999;
 export const Z_CONTEXT_MENU = 9999; // same plane as popovers, by design
 export const Z_POPOVER_SCRIM = 9998; // mobile bottom-sheet backdrop, just under the sheet
-/** Palette e dialoghi a schermo intero: SOPRA ogni popover, per definizione. */
+/**
+ * Palette e dialoghi a schermo intero: SOPRA ogni popover, per definizione.
+ *
+ * È QUI che il piano dei modali è dichiarato, e da qui lo prende `MODAL_LAYER`
+ * (`lib/modalStyles.ts`) — che è la forma con cui i modali lo usano davvero,
+ * una classe Tailwind. Il legame è nel tipo di `MODAL_LAYER`, così cambiare
+ * questo numero non compila finché non è cambiato anche là: prima erano due
+ * letterali indipendenti tenuti insieme da un commento, ed è esattamente il
+ * modo in cui `z-[60]` era finito 9939 sotto un dropdown.
+ */
 export const Z_MODAL = 10000;
 
 /**
@@ -122,6 +131,36 @@ export const POPOVER_ITEM =
  */
 export const DANGER_TEXT = 'text-red-700 dark:text-red-400';
 export const WARNING_TEXT = 'text-amber-800 dark:text-amber-400';
+
+/**
+ * Il verde dello stato «tutto a posto», misurato come i suoi fratelli — ma sul
+ * fondo VERO, cioè col velo `/15` già steso sotto.
+ *
+ * Il velo è il punto. Un velo del 15% della stessa tinta sposta il fondo VERSO
+ * il testo, quindi misurare su bianco puro conta un contrasto che a video non
+ * c'è. Su questa scala la scelta ovvia sbaglia:
+ *   green-600 su green-500/15  2,81 · 7,79   → il valore in uso, sotto di quasi la metà
+ *   green-700 su green-500/15  4,32 · 7,79   → manca la soglia per un pelo
+ *   green-800 su green-500/15  6,20 · 7,79   → giusto in entrambi i temi
+ * Soglia 4,5:1: questi chip sono da 11px, cioè testo normale, non testo grande.
+ */
+export const SUCCESS_TEXT = 'text-green-800 dark:text-green-400';
+
+/**
+ * Il tono «attivo» dei chip del pane browser (toggle motore/render, hint
+ * co-browse) usava `text-primary` (`#0066ff`) grezzo, senza passare dal
+ * fratello misurato qui sopra. Sul velo `bg-primary/15` che quei chip
+ * disegnano sotto, in tema chiaro fa 3,90:1 — sotto la soglia 4,5 dei suoi
+ * 11px. Misurato con lo stesso metodo (canvas per convertire l'oklch di
+ * Tailwind, veil composto sul bianco):
+ *   text-primary (attuale)  3,90  → sotto
+ *   blue-700                5,51  → sopra
+ *   blue-800                7,12  → sopra, stesso gradino di SUCCESS_TEXT
+ * In tema scuro `text-primary` va già bene (5,68 su questi chip, per via
+ * della regola `.dark .text-primary { color: var(--primary-dark) }` in
+ * `index.css`), quindi il buio non cambia.
+ */
+export const ACTIVE_TEXT = 'text-blue-800 dark:text-primary';
 
 /** Destructive variant of POPOVER_ITEM (delete / clear / discard). Stesso ritmo
  *  verticale del suo fratello non distruttivo: se divergessero, un menu con una

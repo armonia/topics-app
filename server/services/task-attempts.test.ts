@@ -3,6 +3,7 @@ import { Database } from "bun:sqlite";
 import { readFileSync } from "fs";
 import { join } from "path";
 import { createTaskAttemptStore, type TaskAttemptStore } from "./task-attempts";
+import { TASKS_DDL, TASKS_FK_STUBS_DDL } from "../db/test-schema";
 
 // Lo schema vero, letto dalla migration: se qualcuno cambia 065 e non questo
 // modulo, il test si rompe qui invece che in produzione. (La DDL a mano di
@@ -13,11 +14,12 @@ const MIGRATION = join(import.meta.dir, "../db/migrations/065-task-fanout.sql");
 function freshDb(): Database {
   const db = new Database(":memory:");
   db.run("PRAGMA foreign_keys = ON");
-  db.run("CREATE TABLE tasks (id TEXT PRIMARY KEY)");
+  db.run(TASKS_DDL);
+  db.run(TASKS_FK_STUBS_DDL);
   // La migration fa anche ALTER su board_settings: serve che la tabella esista.
   db.run("CREATE TABLE board_settings (project_id TEXT PRIMARY KEY)");
   db.run(readFileSync(MIGRATION, "utf-8"));
-  db.run("INSERT INTO tasks (id) VALUES ('t1'), ('t2')");
+  db.run("INSERT INTO tasks (id, project_id, text, created_at, updated_at) VALUES ('t1', 'p-test', 'x', '2026-01-01', '2026-01-01'), ('t2', 'p-test', 'x', '2026-01-01', '2026-01-01')");
   return db;
 }
 

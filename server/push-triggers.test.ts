@@ -14,11 +14,30 @@ mock.module("./push-service", () => ({
   sendPushToAll: async (payload: any) => { pushCalls.push(payload); },
 }));
 
-const { maybeSendPush, configurePushTriggers } = await import("./push-triggers");
+const { maybeSendPush, configurePushTriggers, isTopicSilenced } = await import("./push-triggers");
 
-// Resolver del nome topic iniettato (in prod è un lookup sul DB in
-// createAppContext). Qui finto: `tp1` → nome, resto → null.
-configurePushTriggers({ getTopicName: (id: string) => (id === "tp1" ? "Rifai la migration" : null) });
+/**
+ * Finto "DB": la tabella dei topic e le AppSettings del server. I resolver
+ * iniettati portano solo QUESTI dati — la decisione la prende il gate vero
+ * (`isTopicSilenced`), non il finto. Un fake che rispondesse `id === "arch"`
+ * testerebbe se stesso: passerebbe anche con il gate rotto.
+ *
+ * `zzz` esiste ma non ha nome: serve al caso «push senza nome risolto». Senza
+ * la riga sarebbe un topic inesistente, che il gate zittisce (fail-closed).
+ */
+const TOPICS: Record<string, { name?: string | null; archived?: boolean; muted?: boolean; projectPath?: string | null }> = {
+  tp1:   { name: "Rifai la migration", projectPath: "/w/alfa" },
+  zzz:   { name: null, projectPath: "/w/alfa" },
+  arch:  { name: "Vecchia chat", archived: true },
+  quiet: { name: "Dentro il progetto zittito", projectPath: "/w/muto" },
+};
+/** Lo specchio di `AppSettings.mutedProjects` (in prod: `ui_state.settings`). */
+const MUTED_PROJECTS = ["/w/muto"];
+
+configurePushTriggers({
+  getTopicName: (id: string) => TOPICS[id]?.name ?? null,
+  isTopicSilenced: (id: string) => isTopicSilenced(TOPICS[id] ?? null, MUTED_PROJECTS),
+});
 
 describe("maybeSendPush — task:review-ready", () => {
   beforeEach(() => { pushCalls.length = 0; });
@@ -59,6 +78,82 @@ describe("maybeSendPush — task:review-ready", () => {
 });
 
 /**
+ * I TASTI della push. La regola sotto tutto: un tasto è la chiamata che fa la
+ * board, già composta, perché il service worker non può importare niente e non
+ * deve decidere niente — se dovesse ricomporre gli endpoint, la copia dentro
+ * sw.js sarebbe l'unica non coperta da un test.
+ */
+describe("maybeSendPush — i tasti di azione", () => {
+  beforeEach(() => { pushCalls.length = 0; });
+
+  const REVIEW = { type: "task:review-ready", projectId: "proj-x", taskId: "t9", taskTitle: "Rifai lo schema" };
+
+  test("la domanda dell'agente diventa i tasti, e la richiesta viaggia già composta", () => {
+    maybeSendPush({ ...REVIEW, question: { text: "Lando su main?", options: ["Landa su main", "Aspetta"] } });
+    const p = pushCalls[0] as any;
+    expect(p.actions.map((a: any) => a.title)).toEqual(["Landa su main", "Aspetta"]);
+    // Il corpo dice la DOMANDA: il titolo del task non è ciò che ti sta
+    // chiedendo, e con due tasti sotto sarebbe l'unica riga che non lo spiega.
+    expect(p.body).toBe("Lando su main?");
+    expect(p.title).toContain("chiedendo");
+    expect(p.requests[p.actions[0].id]).toEqual({
+      method: "POST",
+      path: "/api/boards/proj-x/tasks/t9/review",
+      body: { decision: "reject", comment: "Landa su main" },
+    });
+  });
+
+  test("consegna senza domanda → un solo tasto: Approva", () => {
+    maybeSendPush(REVIEW);
+    const p = pushCalls[0] as any;
+    expect(p.actions).toEqual([{ id: "approve", title: "Approva" }]);
+    expect(p.requests.approve).toEqual({
+      method: "POST",
+      path: "/api/boards/proj-x/tasks/t9/review",
+      body: { decision: "approve" },
+    });
+    expect(p.body).toBe("Rifai lo schema");
+  });
+
+  test("domanda con troppe opzioni → nessun tasto, ma la push parte lo stesso", () => {
+    maybeSendPush({ ...REVIEW, question: { text: "Quale?", options: ["a", "b", "c"] } });
+    const p = pushCalls[0] as any;
+    expect(p.actions).toBeUndefined();
+    expect(p.url).toBe("/task/t9"); // resta il click che apre il task
+  });
+
+  test("una `question` malformata NON diventa «nessuna domanda» (niente Approva)", () => {
+    // Il caso che conta: un campo storto che passasse per assente metterebbe un
+    // tasto "Approva" su un task che sta aspettando una risposta.
+    maybeSendPush({ ...REVIEW, question: { text: 42, options: "non un array" } });
+    expect((pushCalls[0] as any).actions).toBeUndefined();
+  });
+
+  test("parcheggiato → «Rimetti in coda», che è la PATCH dello stato", () => {
+    maybeSendPush({ type: "task:parked", projectId: "proj-x", taskId: "t4", taskTitle: "x", state: "failed" });
+    const p = pushCalls[0] as any;
+    expect(p.actions).toEqual([{ id: "requeue", title: "Rimetti in coda" }]);
+    expect(p.requests.requeue).toEqual({
+      method: "PATCH",
+      path: "/api/boards/proj-x/tasks/t4",
+      body: { status: "todo" },
+    });
+  });
+
+  test("senza taskId non si disegna nessun tasto (non saprebbe a chi parlare)", () => {
+    maybeSendPush({ type: "task:review-ready", projectId: "proj-x", taskTitle: "x" });
+    expect((pushCalls[0] as any).actions).toBeUndefined();
+    maybeSendPush({ type: "task:parked", taskId: "t4", taskTitle: "x", state: "failed" });
+    expect((pushCalls[1] as any).actions).toBeUndefined();
+  });
+
+  test("la push della chat resta senza tasti: non c'è un click che risponda", () => {
+    maybeSendPush({ type: "stream:end", topicId: "tp1", completed: true });
+    expect((pushCalls[0] as any).actions).toBeUndefined();
+  });
+});
+
+/**
  * Il gemello di fallimento. `task:review-ready` copre l'esito buono; il park
  * terminale (l'agente si è arreso / serve una mano) era muto ad app chiusa —
  * cioè proprio quando NON puoi accorgertene guardando la board. I due stati
@@ -81,6 +176,15 @@ describe("maybeSendPush — task:parked", () => {
     expect(pushCalls).toHaveLength(1);
     expect(pushCalls[0].title).toContain("sistemare");
     expect(pushCalls[0].tag).toBe("task-park-t5");
+  });
+
+  test("waited_out → né «non consegnato» né «da sistemare»: chiede una decisione", () => {
+    maybeSendPush({ type: "task:parked", projectId: "p", taskId: "t8", taskTitle: "Aspetta la CI", state: "waited_out" });
+    expect(pushCalls).toHaveLength(1);
+    expect(pushCalls[0].title).toContain("decidi tu");
+    expect(pushCalls[0].title).not.toContain("consegnato");
+    expect(pushCalls[0].title).not.toContain("sistemare");
+    expect(pushCalls[0].tag).toBe("task-park-t8");
   });
 
   test("degrada senza titolo", () => {
@@ -145,5 +249,73 @@ describe("maybeSendPush — fine risposta della chat", () => {
   test("MUTA senza topicId (non saprebbe DI COSA né DOVE mandarti)", () => {
     maybeSendPush({ type: "stream:end", sessionKey: "topic:tp1", messageId: "m1", completed: true });
     expect(pushCalls).toHaveLength(0);
+  });
+
+  // Il cancello che questa superficie non aveva. Il banner in-app lo ha da
+  // sempre (`isTopicMuted` in useCompletionNotifier); la push no, e una chat
+  // ARCHIVIATA che chiude un turno — il dispatcher che pota, un reattach che
+  // finisce un giro — ti svegliava col nome di una conversazione che
+  // l'interfaccia non mostra più.
+  test("MUTA su un topic archiviato o mutato", () => {
+    maybeSendPush({ type: "stream:end", sessionKey: "topic:arch", topicId: "arch", messageId: "m1", completed: true });
+    expect(pushCalls).toHaveLength(0);
+  });
+
+  // La terza sorgente di mute, quella che il gate non guardava: il topic è
+  // sano — non archiviato, non mutato — ma il suo PROGETTO è in
+  // `AppSettings.mutedProjects`. Muti un progetto intero dalla sidebar, il
+  // banner in-app tace (`isTopicMuted`) e la push partiva lo stesso.
+  test("MUTA un topic NON mutato il cui PROGETTO è mutato", () => {
+    maybeSendPush({ type: "stream:end", sessionKey: "topic:quiet", topicId: "quiet", messageId: "m1", completed: true });
+    expect(pushCalls).toHaveLength(0);
+  });
+
+  // Il controllo che rende falsificabile quello sopra: stesso percorso, stessa
+  // forma di topic, progetto NON mutato → la push parte. Senza questo, un gate
+  // che zittisce tutto passerebbe il test precedente.
+  test("un topic in un progetto NON mutato manda la push", () => {
+    maybeSendPush({ type: "stream:end", sessionKey: "topic:tp1", topicId: "tp1", messageId: "m1", completed: true });
+    expect(pushCalls).toHaveLength(1);
+  });
+});
+
+/**
+ * Il gate, da solo. `maybeSendPush` lo esercita attraverso l'iniezione; qui si
+ * fissano i casi limite che in prod arrivano dal DB e da un JSON scritto dal
+ * client — inclusi i due versi di sicurezza, che sono opposti apposta.
+ */
+describe("isTopicSilenced — il gate puro", () => {
+  test("topic sano in un progetto non mutato → parla", () => {
+    expect(isTopicSilenced({ projectPath: "/w/alfa" }, ["/w/muto"])).toBe(false);
+  });
+
+  test("archiviato o mutato → zitto, qualunque sia il progetto", () => {
+    expect(isTopicSilenced({ archived: true, projectPath: "/w/alfa" }, [])).toBe(true);
+    expect(isTopicSilenced({ muted: true, projectPath: "/w/alfa" }, [])).toBe(true);
+  });
+
+  test("progetto in mutedProjects → zitto", () => {
+    expect(isTopicSilenced({ projectPath: "/w/muto" }, ["/w/alfa", "/w/muto"])).toBe(true);
+  });
+
+  test("confronto per path ESATTO: un prefisso non è il progetto", () => {
+    expect(isTopicSilenced({ projectPath: "/w/muto-bis" }, ["/w/muto"])).toBe(false);
+  });
+
+  test("topic senza projectPath → il mute per progetto non lo tocca", () => {
+    expect(isTopicSilenced({ projectPath: null }, ["/w/muto"])).toBe(false);
+  });
+
+  test("lista assente o vuota = nessun progetto mutato (si sbaglia verso la push)", () => {
+    expect(isTopicSilenced({ projectPath: "/w/muto" }, undefined)).toBe(false);
+    expect(isTopicSilenced({ projectPath: "/w/muto" }, [])).toBe(false);
+  });
+
+  // Verso di sicurezza OPPOSTO al gemello client (`muteGate.ts`, dove un topic
+  // sconosciuto NON è mutato): una push è un'interruzione su un telefono, e di
+  // un topic che non esiste non sapremmo nemmeno il nome da metterci.
+  test("topic inesistente → zitto (fail-closed)", () => {
+    expect(isTopicSilenced(null, [])).toBe(true);
+    expect(isTopicSilenced(undefined, [])).toBe(true);
   });
 });

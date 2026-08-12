@@ -1,0 +1,38 @@
+{
+  // I test del client — il progetto TypeScript che prima non esisteva.
+  //
+  // `tsconfig.app.json` ESCLUDE esplicitamente i `*.test.ts` / `*.test.tsx` di
+  // `src` e i `*.test.ts` di `../shared`: oltre 170 file di test, con migliaia
+  // di test dentro, non erano typecheckati da NESSUNA delle tre barre (client,
+  // server, e2e). Ed e' anche il motivo per cui l'editor segnalava
+  // `Cannot find module 'bun:test'` su tutti quanti.
+  //
+  // Perche' un progetto SEPARATO invece di togliere l'`exclude` da
+  // tsconfig.app.json:
+  //  - `tsconfig.app.json` e' `composite: true` e alimenta `tsc -b` (e quindi
+  //    il build): i test non devono entrare in quel grafo;
+  //  - i test girano sotto `bun test`, quindi vogliono `types: ["bun"]`
+  //    (`bun:test`, `Bun.sleep`, `import.meta.dir`, `node:fs`), mentre il
+  //    codice dell'app gira nel browser e non deve vedere quei globali.
+  //
+  // `include` elenca SOLO i file di test: le sorgenti di produzione entrano per
+  // import transitivo, cosi' il progetto copre i test e la superficie che
+  // toccano, non l'app intera (che ha gia' la sua barra).
+  //
+  // `noUnusedLocals`/`noUnusedParameters` spenti: in un test una fixture
+  // dichiarata e non usata in quel ramo e' normale, ed e' rumore che non dice
+  // niente sulla correttezza.
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    "composite": false,
+    // Non viene scritto (composite off + noEmit), ma se un domani lo fosse
+    // deve avere il SUO file: ereditare quello di tsconfig.app.json
+    // significherebbe sovrascrivere lo stato incrementale di `tsc -b`.
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.test.tsbuildinfo",
+    "types": ["bun", "vite/client"],
+    "noUnusedLocals": false,
+    "noUnusedParameters": false
+  },
+  "include": ["src/**/*.test.ts", "src/**/*.test.tsx", "../shared/**/*.test.ts"],
+  "exclude": []
+}

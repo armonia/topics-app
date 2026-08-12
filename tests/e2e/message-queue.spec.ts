@@ -18,9 +18,11 @@ const BASE = E2E_BASE;
  * viveva in un effetto di `ChatPane` la cui unica condizione era «non sta più
  * streammando» — e lo stop è esattamente questo. Si premeva stop per fermare
  * l'agente e partiva il messaggio successivo, senza che nessuno l'avesse
- * chiesto. Gli altri due che si provano qui: un comando col cancelletto scritto
- * durante lo streaming finiva in coda e poi partiva come TESTO, e chi scriveva
- * dopo uno stop scavalcava quello che aveva scritto prima.
+ * chiesto. Gli altri che si provano qui: un comando col cancelletto scritto
+ * durante lo streaming finiva in coda e poi partiva come TESTO, chi scriveva
+ * dopo uno stop scavalcava quello che aveva scritto prima, e la coda si drenava
+ * UNO ALLA VOLTA — tre righe scritte di fila diventavano tre turni, e il primo
+ * partiva senza aver mai visto gli altri due.
  *
  * È COMPORTAMENTO, non layout: video acceso, il .webm è la prova.
  * La logica pura sta in `client/src/state/chatQueue.ts` coi suoi test di unità;
@@ -81,6 +83,39 @@ test.describe.serial("Coda dei messaggi", () => {
 
   const queueBadge = (page: import("@playwright/test").Page) =>
     page.getByTestId("message-queue-badge");
+
+  /** Pausa che serve SOLO alla clip di consegna (E2E_EVIDENCE=1). Zero a suite normale. */
+  const beat = (page: import("@playwright/test").Page, ms = 1200) =>
+    process.env.E2E_EVIDENCE === "1" ? page.waitForTimeout(ms) : Promise.resolve();
+
+  /**
+   * Didascalia sulla clip — SOLO sotto E2E_EVIDENCE, zero effetto sulla suite.
+   * A 268px di larghezza una chat non si legge: il titolo grande sì, e dice da
+   * sé cosa sta provando. `pointer-events:none` così non intercetta un click.
+   *
+   * 64px e non 44: il video esce a 800px e l'anteprima lo riduce a 268, cioè un
+   * terzo. Misurato con `tesseract` sul fotogramma ridotto, a 44px la riga non
+   * si legge più (zero caratteri riconosciuti); a 64 sì. Il cancello è quello,
+   * non il gusto.
+   */
+  async function didascalia(page: import("@playwright/test").Page, testo: string) {
+    if (process.env.E2E_EVIDENCE !== "1") return;
+    await page.evaluate((t) => {
+      let el = document.getElementById("__e2e_caption__");
+      if (!el) {
+        el = document.createElement("div");
+        el.id = "__e2e_caption__";
+        el.setAttribute(
+          "style",
+          "position:fixed;left:0;right:0;bottom:0;z-index:2147483647;pointer-events:none;" +
+          "background:rgba(10,10,12,.92);color:#fff;font:700 64px/1.2 system-ui,sans-serif;" +
+          "padding:18px 24px;letter-spacing:-.01em;border-top:4px solid #8b5cf6;",
+        );
+        document.body.appendChild(el);
+      }
+      el.textContent = t;
+    }, testo);
+  }
 
   async function openChat(page: import("@playwright/test").Page, chatPage: { messageInput: import("@playwright/test").Locator }) {
     await goToApp(page);
@@ -173,9 +208,97 @@ test.describe.serial("Coda dei messaggi", () => {
     await chatPage.messageInput.fill("quattro");
     await chatPage.messageInput.press("Enter");
 
-    // "quattro" è l'ULTIMO: quello che era in coda da prima parte per primo.
-    await expect.poll(() => sent, { timeout: 20_000 }).toEqual(["uno", "due", "tre", "quattro"]);
+    // "quattro" è l'ULTIMO: quello che era in coda da prima parte per primo —
+    // e parte INSIEME a lui, in un turno solo, non tre turni in fila.
+    await expect.poll(() => sent, { timeout: 20_000 }).toEqual(["uno", "due\n\ntre\n\nquattro"]);
     await expect(queueBadge(page)).toBeHidden({ timeout: 10_000 });
+  });
+
+  /**
+   * IL GUASTO DI QUESTO GIRO: la coda si drenava UNO ALLA VOLTA.
+   *
+   * Tre righe scritte mentre l'agente lavora sono UN pensiero in tre pezzi.
+   * `claimHead` ne estraeva una sola: l'agente ripartiva sulla prima senza aver
+   * mai visto le altre due, lavorava su una domanda a metà, e le altre due
+   * diventavano altri due turni in fila — tre giri di modello, tre volte il
+   * contesto, per una cosa sola. Adesso `claimBatch` prende tutta la testa
+   * omogenea e `mergeBatch` la spedisce come UN prompt.
+   *
+   * È anche la CLIP DI CONSEGNA di questo lavoro, e per quello sta in un
+   * describe suo: gli serve un viewport più largo (vedi sotto). Sotto
+   * `E2E_EVIDENCE=1` prende le pause e le didascalie che rendono il video
+   * leggibile a 268px; a suite normale non cambia un millisecondo.
+   */
+  test.describe("il batch", () => {
+  // L'anteprima di un task viene resa a 268px: oltre un rapporto
+  // altezza/larghezza di 0.70 la card TAGLIA invece di rimpicciolire.
+  // 1440×760 → video 800×422 (0.528), ci sta intero. Nessuna asserzione qui
+  // dipende dalla larghezza.
+  test.use({ viewport: { width: 1440, height: 760 } });
+
+  test("tre messaggi accodati partono INSIEME, in un turno solo", async ({ page, chatPage }) => {
+    const sent: string[] = [];
+    // Ogni turno resta aperto finché non lo si lascia andare. Il PRIMO cancello
+    // è la finestra in cui l'umano scrive i tre pezzi; il SECONDO tiene aperto
+    // il turno unito il tempo di guardarlo in pagina — a turno chiuso la chat si
+    // riallinea alla storia del server, che qui non ha mai visto niente perché
+    // `/api/chat` è intercettata.
+    const cancelli: Array<() => void> = [];
+    const apre = (i: number) => new Promise<void>((r) => { cancelli[i] = r; });
+    const primoTurno = apre(0);
+    const turnoUnito = apre(1);
+    let n = 0;
+    await page.route("**/api/chat", async (route) => {
+      if (route.request().method() !== "POST") return route.fallback();
+      const body = route.request().postDataJSON() as { messages?: { content?: string }[] };
+      sent.push(body?.messages?.[body.messages.length - 1]?.content ?? "");
+      const mio = n++;
+      if (mio === 0) await primoTurno;
+      else if (mio === 1) await turnoUnito;
+      await route.fulfill({
+        status: 200,
+        headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" },
+        body: "data: [DONE]\n\n",
+      });
+    });
+
+    await openChat(page, chatPage);
+    if (await queueBadge(page).isVisible().catch(() => false)) {
+      await queueBadge(page).click();
+      await page.getByRole("button", { name: "Svuota" }).click();
+    }
+    await expect(queueBadge(page)).toBeHidden();
+
+    await didascalia(page, "L'agente sta rispondendo…");
+    await chatPage.messageInput.fill("uno");
+    await chatPage.messageInput.press("Enter");
+    await expect(chatPage.streamingIndicator).toBeVisible({ timeout: 15_000 });
+    await beat(page);
+
+    await didascalia(page, "…e intanto scrivo altre 3 righe");
+    for (const testo of ["due", "tre", "quattro"]) {
+      await chatPage.messageInput.fill(testo);
+      await chatPage.messageInput.press("Enter");
+      await beat(page, 500);
+    }
+    await expect(queueBadge(page)).toHaveText(/3\s*da inviare/, { timeout: 10_000 });
+    await beat(page);
+
+    // Il turno in volo finisce da sé: nessuno stop, nessun freno.
+    await didascalia(page, "Fine turno → partono INSIEME");
+    cancelli[0]();
+
+    // IL PUNTO: UN solo invio in più, col testo dei tre pezzi unito.
+    await expect.poll(() => sent, { timeout: 20_000 }).toEqual(["uno", "due\n\ntre\n\nquattro"]);
+    await expect(queueBadge(page)).toBeHidden({ timeout: 10_000 });
+    // E in chat c'è UNA bolla utente, non tre: è quello che il modello ha visto.
+    const bolla = page.locator('[data-testid="chat-message"][data-role="user"]').filter({ hasText: "due" });
+    await expect(bolla).toHaveCount(1);
+    await expect(bolla).toContainText("quattro");
+    await didascalia(page, "Un turno solo, con dentro tutte e 3");
+    await beat(page, 2000);
+    cancelli[1]();
+  });
   });
 
   test("un comando col cancelletto non si accoda: agisce subito", async ({ page, chatPage }) => {

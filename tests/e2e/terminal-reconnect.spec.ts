@@ -21,6 +21,42 @@ hermetic(test);
  * navigazione, quindi non puo' usare la scorciatoia `navigateAndOpenTerminal`
  * degli altri: apre il progetto e la shell in due passi separati.
  *
+ * PERCHE' I BUDGET QUI SONO LARGHI. Questo test è stato rosso 1 volta su 6 con
+ * xterm a schermo ma vuoto, e il sospetto scritto sulla card era il proxy WS
+ * qui sotto: i primi frame del server, quelli che portano il prompt, sembravano
+ * perdersi passando dall'intercettazione. Misurato il 12/08/2026, il sospetto è
+ * FALSO. Stessa apertura di shell, 10 giri alternati con e senza
+ * `routeWebSocket`, mentre la board dispacciava altri agenti (load 27-51): dal
+ * click al prompt sono passati da 2,2 s a 75 s, e senza proxy è andata se mai
+ * PEGGIO (75 s contro 60 s). Il prompt è arrivato tutte e dieci le volte, mai
+ * perso: 4 volte su 10 solo più tardi dei 15 s che il test concedeva.
+ *
+ * Quindi il rosso non era un frame perduto, era il muro del cronometro su una
+ * macchina occupata. I 15 s di default restano dove sono per tutte le altre
+ * spec (un prompt che non arriva DEVE restare un rosso rapido); qui l'attesa
+ * sale a `SLOW_BOX_MS` e il test si dichiara lento, così una macchina carica
+ * non produce un rosso che parla di lei e non del prodotto. Su una macchina
+ * scarica non cambia niente: le attese sono condizionali, il test resta sui
+ * suoi ~16 secondi.
+ *
+ * CONTROPROVA, la stessa sera. Dieci giri isolati per braccio, vecchio e nuovo
+ * alternati sulla stessa macchina e in ENTRAMBI gli ordini (chi gira per primo
+ * dentro il giro paga la macchina fredda, e senza invertire l'ordine quel
+ * ritardo si legge come se fosse del codice), retry spenti perché un retry
+ * nasconde proprio la cosa che si sta misurando: 10 su 10 verdi col fix, 4 su
+ * 10 senza.
+ *
+ * Due cose che la misura ha detto e che a occhio non si vedevano. Primo: i sei
+ * rossi non muoiono su una singola attesa, muoiono sul TETTO, «Test timeout of
+ * 30000ms exceeded», con la pane xterm mai comparsa entro i suoi 15 s. Secondo,
+ * e conta di più: TUTTI E DIECI i giri verdi hanno superato i 30 s (da 33,9 a
+ * 52,4 s a load 23-45). Quindi `test.slow()` qui non è un margine di comodo, è
+ * la metà del fix che porta il peso, e le due metà non si separano: allargare
+ * le attese senza alzare il tetto sposta soltanto il punto in cui il cronometro
+ * taglia. Il sintomo della card si è fatto vedere vivo una volta su dieci:
+ * xterm a schermo dopo 0,4 s e il prompt arrivato 22,0 s più tardi, cioè verde
+ * con 45 s e rosso con 15 s.
+ *
  * La famiglia terminale sta in tre file — `terminal`, `terminal-reconnect`,
  * `terminal-multi` — che prima erano tre `describe` dentro un unico file da 76
  * secondi. Poiche' Playwright distribuisce gli shard PER FILE, quei 76 secondi
@@ -29,6 +65,15 @@ hermetic(test);
  * aspetta il prompt) vive in `helpers/terminal-workspace.ts`: era ricopiata
  * tre volte, gia' divergente fra le copie.
  */
+/**
+ * Il budget di UNA attesa su una macchina occupata. Vedi la nota in testa al
+ * file per la misura: il peggiore dei 10 giri ha messo 75 s dal click al
+ * prompt, quindi 45 s non è la garanzia di non essere mai più flaky, è il
+ * punto dove il rosso torna a significare «il prodotto è rotto» invece di
+ * «la macchina era sotto carico».
+ */
+const SLOW_BOX_MS = 45_000;
+
 test.describe("Terminal Reconnect", () => {
   let topicId = "";
   let topicName = "";
@@ -50,6 +95,11 @@ test.describe("Terminal Reconnect", () => {
     terminalPage,
   }) => {
     test.info().annotations.push({ type: "spec", description: "TERM-01" });
+    // Tre volte i 30 s di default. Il tetto del test è l'altra metà del budget:
+    // allargare le singole attese senza toccarlo sposta solo il punto in cui il
+    // cronometro taglia, e il rosso diventa «Test timeout exceeded», che non
+    // dice nemmeno quale attesa non è arrivata in fondo.
+    test.slow();
     // Set up WS interception BEFORE navigation to capture terminal WS connections
     type WsRoute = {
       close: (options?: { code?: number; reason?: string }) => void | Promise<void>;
@@ -76,13 +126,13 @@ test.describe("Terminal Reconnect", () => {
     // essere installata prima di `goto`, quindi questo test non puo' usare
     // `navigateAndOpenTerminal` (che fa entrambe le cose in una volta).
     await gotoTerminalProject(page, topicName);
-    await openShellViaSidebar(page, terminalPage);
+    await openShellViaSidebar(page, terminalPage, SLOW_BOX_MS);
 
     // Verify terminal works before disconnect
     const marker1 = `pre-disconnect-${Date.now()}`;
     await terminalPage.focus();
     await terminalPage.typeCommand(`echo ${marker1}`);
-    await terminalPage.waitForOutput(marker1);
+    await terminalPage.waitForOutput(marker1, SLOW_BOX_MS);
 
     // Capture current server connection count
     const connectionsBefore = serverConnections.length;
@@ -97,7 +147,7 @@ test.describe("Terminal Reconnect", () => {
     // Wait for client to auto-reconnect — a new server connection should appear
     await expect(async () => {
       expect(serverConnections.length).toBeGreaterThan(connectionsBefore);
-    }).toPass({ timeout: 15_000 });
+    }).toPass({ timeout: SLOW_BOX_MS });
 
     // Wait for terminal to stabilize after reconnect
     // The PTY process survives the WS disconnect; only the WS link broke
@@ -105,6 +155,6 @@ test.describe("Terminal Reconnect", () => {
     await terminalPage.focus();
     const marker2 = `post-reconnect-${Date.now()}`;
     await terminalPage.typeCommand(`echo ${marker2}`);
-    await terminalPage.waitForOutput(marker2, 15_000);
+    await terminalPage.waitForOutput(marker2, SLOW_BOX_MS);
   });
 });

@@ -349,7 +349,7 @@ test.describe("File Explorer — albero, editor e ricerca", () => {
     await expect(cmContent).toContainText('hello', { timeout: 5000 });
   });
 
-  test("FILE-04: file search with Cmd+Shift+F", async ({
+  test("FILE-04: ricerca nel contenuto con ⌘F", async ({
     fileExplorerPage,
     page,
   }) => {
@@ -377,7 +377,7 @@ test.describe("File Explorer — albero, editor e ricerca", () => {
 
     // Type a search query for unique content in our test files
     const searchInput = fileExplorerPage.fileSearch.locator(
-      'input[placeholder*="Search"]'
+      '[data-testid="file-search-input"]'
     );
     await expect(searchInput).toBeVisible();
     await searchInput.fill("e2e-test-project");
@@ -424,7 +424,7 @@ test.describe("File Explorer — albero, editor e ricerca", () => {
 
     // Type an invalid regex pattern
     const searchInput = fileExplorerPage.fileSearch.locator(
-      'input[placeholder*="Search"]'
+      '[data-testid="file-search-input"]'
     );
     await expect(searchInput).toBeVisible();
     await searchInput.fill("[invalid(");

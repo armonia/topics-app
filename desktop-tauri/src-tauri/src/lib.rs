@@ -18,6 +18,17 @@ use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 #[cfg(target_os = "macos")]
 mod shortcuts_generated;
 
+/// I tre backend del pane browser nativo. `browser_eval` e la parte che NON
+/// dipende dal motore (attesa delle promise, forma del risultato) e si compila
+/// ovunque perche e l'unica testabile qui; gli altri due sono le chiamate vere a
+/// WebView2 e WebKitGTK, che il Mac non guarda mai. Il ramo macOS e ancora
+/// inline piu sotto, insieme al resto dell'FFI AppKit.
+mod browser_eval;
+#[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+mod browser_linux;
+#[cfg(target_os = "windows")]
+mod browser_win;
+
 /// objc2 compatibility shims for the AppKit FFI throughout this file.
 ///
 /// Migrated off the deprecated `objc` + `cocoa` crates (759 of the shell's 761
@@ -895,6 +906,117 @@ async fn probe_topics_server(port: u16, tls: bool) -> bool {
         .unwrap_or(false)
 }
 
+/// How long a NON-document connection (XHR, SSE, WebSocket) waits for the upstream
+/// to come back before we give up on it. A `launchctl kickstart -k` of the external
+/// server is down for ~2s; holding the connection open across that gap means the
+/// running app never sees the outage at all.
+const UPSTREAM_GRACE: std::time::Duration = std::time::Duration::from_secs(15);
+/// Same, for a DOCUMENT navigation. Much shorter: we have something better than
+/// waiting — the reconnect page, which paints immediately and reloads itself.
+const UPSTREAM_GRACE_DOC: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// Read an HTTP request head (everything up to the blank line) off `s`, with a cap
+/// and a timeout. Returns the bytes actually read — they MUST be replayed to the
+/// upstream once we connect, since they're already out of the socket. An empty
+/// return means the peer opened a connection and said nothing yet (speculative
+/// preconnect): we then pipe blind, exactly like before.
+async fn read_request_head(s: &mut tokio::net::TcpStream) -> Vec<u8> {
+    use tokio::io::AsyncReadExt;
+    let mut head = Vec::with_capacity(1024);
+    let mut buf = [0u8; 1024];
+    let deadline = std::time::Duration::from_millis(2000);
+    let fut = async {
+        loop {
+            match s.read(&mut buf).await {
+                Ok(0) => break,
+                Ok(n) => {
+                    head.extend_from_slice(&buf[..n]);
+                    if head.windows(4).any(|w| w == b"\r\n\r\n") || head.len() >= 16 * 1024 {
+                        break;
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+    };
+    let _ = tokio::time::timeout(deadline, fut).await;
+    head
+}
+
+/// Is this request head a WebSocket upgrade? Those must never be answered with an
+/// HTML body — the client would just log a handshake error. We let them fail.
+fn is_websocket_head(head: &[u8]) -> bool {
+    let s = String::from_utf8_lossy(head).to_ascii_lowercase();
+    s.contains("upgrade: websocket")
+}
+
+/// Is this request head a top-level DOCUMENT navigation? That's the one case where
+/// a dead upstream turns into "the window is empty": a transparent, titlebar-less
+/// window whose webview has nothing to paint is INVISIBLE, not white. Detected from
+/// `Sec-Fetch-Dest: document` (WebKit always sends it) with an `Accept: text/html`
+/// fallback for anything that doesn't.
+fn is_document_head(head: &[u8]) -> bool {
+    let s = String::from_utf8_lossy(head).to_ascii_lowercase();
+    if is_websocket_head(head) {
+        return false;
+    }
+    if s.contains("sec-fetch-dest: document") {
+        return true;
+    }
+    s.lines()
+        .find(|l| l.starts_with("accept:"))
+        .is_some_and(|l| l.contains("text/html"))
+}
+
+/// The page the shell serves INSTEAD of a dead navigation. Two jobs, both of which
+/// the "nothing" we served before could not do: it PAINTS (opaque background, so
+/// the transparent window stops being invisible and the user sees a state instead
+/// of a ghost), and it RELOADS ITSELF every second — so the moment the server is
+/// back the real app returns with no human in the loop. `no-store` keeps WebKit
+/// from ever caching this in place of the app.
+fn reconnect_page_response() -> Vec<u8> {
+    let body = "<!doctype html><html><head><meta charset=\"utf-8\">\
+<title>Topics</title>\
+<style>html,body{height:100%;margin:0;background:#1c1c1e;color:#98989d;\
+font:13px/1.5 -apple-system,system-ui,sans-serif;\
+display:flex;align-items:center;justify-content:center;-webkit-user-select:none}\
+.d{width:6px;height:6px;border-radius:50%;background:#98989d;margin-right:8px;\
+animation:p 1.2s ease-in-out infinite}\
+@keyframes p{0%,100%{opacity:.25}50%{opacity:1}}</style></head>\
+<body><div class=\"d\"></div>In attesa del server\u{2026}\
+<script>setTimeout(function(){location.reload()},1000)</script></body></html>";
+    format!(
+        "HTTP/1.1 503 Service Unavailable\r\n\
+Content-Type: text/html; charset=utf-8\r\n\
+Content-Length: {}\r\n\
+Cache-Control: no-store\r\n\
+Connection: close\r\n\r\n{}",
+        body.len(),
+        body
+    )
+    .into_bytes()
+}
+
+/// Connect to the upstream, RETRYING until `grace` runs out. The old code gave up on
+/// the first `ECONNREFUSED`, which is exactly what a server restart looks like for
+/// the second or two it takes to rebind — one unlucky reload in that window left the
+/// window permanently empty.
+async fn connect_upstream_retrying(
+    port: u16,
+    grace: std::time::Duration,
+) -> Option<tokio::net::TcpStream> {
+    let deadline = std::time::Instant::now() + grace;
+    loop {
+        match tokio::net::TcpStream::connect(("127.0.0.1", port)).await {
+            Ok(s) => return Some(s),
+            Err(_) if std::time::Instant::now() < deadline => {
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            }
+            Err(_) => return None,
+        }
+    }
+}
+
 /// Loopback origination proxy: accept plain TCP on 127.0.0.1:PROXY_PORT and pipe it,
 /// byte-for-byte, to the chosen upstream. When the upstream is the external server
 /// (`tls=true`) we ADD TLS — WKWebView won't trust the server's local-CA cert but
@@ -906,8 +1028,7 @@ async fn probe_topics_server(port: u16, tls: bool) -> bool {
 /// server's CORS still matches. Reads the boot-decided `UPSTREAM` (defaults to the
 /// external TLS server if `decide_upstream` never ran, e.g. probe race).
 async fn run_tls_proxy() {
-    use tokio::io::copy_bidirectional;
-    use tokio::net::{TcpListener, TcpStream};
+    use tokio::net::TcpListener;
 
     let listener = match TcpListener::bind(("127.0.0.1", PROXY_PORT)).await {
         Ok(l) => l,
@@ -917,6 +1038,15 @@ async fn run_tls_proxy() {
         }
     };
     let up = *UPSTREAM.get().unwrap_or(&Upstream { port: DEFAULT_UPSTREAM_PORT, tls: true });
+    proxy_loop(listener, up).await
+}
+
+/// The accept loop, split out from `run_tls_proxy` so the outage behaviour (hold →
+/// reconnect page → self-recovery) can be driven end-to-end in a test against a real
+/// browser, on an ephemeral port, without touching :13333 or a live server.
+async fn proxy_loop(listener: tokio::net::TcpListener, up: Upstream) {
+    use tokio::io::copy_bidirectional;
+
     let tls = match native_tls::TlsConnector::builder()
         // The server presents a local-CA cert for 127.0.0.1; we originate the TLS
         // ourselves to a hard-coded loopback address, so cert/hostname validation
@@ -932,7 +1062,11 @@ async fn run_tls_proxy() {
         }
     };
     println!(
-        "[proxy] loopback proxy 127.0.0.1:{PROXY_PORT} -> {}127.0.0.1:{}",
+        "[proxy] loopback proxy {} -> {}127.0.0.1:{}",
+        listener
+            .local_addr()
+            .map(|a| a.to_string())
+            .unwrap_or_default(),
         if up.tls { "https://" } else { "http://" },
         up.port
     );
@@ -944,10 +1078,24 @@ async fn run_tls_proxy() {
         };
         let tls = tls.clone();
         tauri::async_runtime::spawn(async move {
-            let upstream = match TcpStream::connect(("127.0.0.1", up.port)).await {
-                Ok(s) => s,
-                Err(e) => {
-                    eprintln!("[proxy] upstream connect failed: {e}");
+            use tokio::io::AsyncWriteExt;
+            // Read the request head FIRST so we can tell a document navigation from
+            // an XHR/WebSocket. Whatever we read is replayed to the upstream below —
+            // it's already out of the socket, `copy_bidirectional` can't see it.
+            let head = read_request_head(&mut inbound).await;
+            let doc = is_document_head(&head);
+            let grace = if doc { UPSTREAM_GRACE_DOC } else { UPSTREAM_GRACE };
+            let upstream = match connect_upstream_retrying(up.port, grace).await {
+                Some(s) => s,
+                None => {
+                    eprintln!("[proxy] upstream :{} unreachable for {:?}", up.port, grace);
+                    if doc {
+                        // Paint SOMETHING and keep retrying by itself. Without this the
+                        // transparent window has no pixels at all — "sparita" and "vuota"
+                        // are the same state, with no way back short of a relaunch.
+                        let _ = inbound.write_all(&reconnect_page_response()).await;
+                        let _ = inbound.flush().await;
+                    }
                     return;
                 }
             };
@@ -959,9 +1107,15 @@ async fn run_tls_proxy() {
                         return;
                     }
                 };
+                if !head.is_empty() && tls_stream.write_all(&head).await.is_err() {
+                    return;
+                }
                 let _ = copy_bidirectional(&mut inbound, &mut tls_stream).await;
             } else {
                 let mut plain = upstream;
+                if !head.is_empty() && plain.write_all(&head).await.is_err() {
+                    return;
+                }
                 let _ = copy_bidirectional(&mut inbound, &mut plain).await;
             }
         });
@@ -1046,6 +1200,43 @@ fn bundled_pty_bridge_bin() -> Option<std::path::PathBuf> {
     Some(bin)
 }
 
+/// Resolve the bundled **Rust WebRTC bridge** sidecar (`binaries/webrtc-bridge-<triple>`
+/// → bundled beside the app binary in `Contents/MacOS/webrtc-bridge`). It streams a
+/// server-side headless-Chromium pane as one shared H.264 WebRTC track to N viewers —
+/// the transport the browser pane's `<video>` renders (see server/webrtc-bridge.ts +
+/// client/src/hooks/useRemoteBrowser.ts). The compiled Bun server can't hold an
+/// openh264 encoder / webrtc-rs stack in-process, so it spawns this binary.
+///
+/// Same shape as `bundled_pty_bridge_bin`: `Some` only when the binary exists (Windows
+/// ships a no-op stub, so we don't advertise one there → the server keeps
+/// `available() == false` and the pane falls back to DOM rendering instead of hanging
+/// on a negotiation nobody answers). On unix the packaged binary can lose its exec bit,
+/// so we re-assert it.
+fn bundled_webrtc_bridge_bin() -> Option<std::path::PathBuf> {
+    // Windows ships only a no-op stub (the wire protocol is a Unix socket).
+    if cfg!(windows) {
+        return None;
+    }
+    let exe = std::env::current_exe().ok()?;
+    let dir = exe.parent()?;
+    let bin = dir.join("webrtc-bridge");
+    if !bin.exists() {
+        return None;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(meta) = std::fs::metadata(&bin) {
+            let mut perm = meta.permissions();
+            if perm.mode() & 0o111 == 0 {
+                perm.set_mode(perm.mode() | 0o755);
+                let _ = std::fs::set_permissions(&bin, perm);
+            }
+        }
+    }
+    Some(bin)
+}
+
 /// Boot decision: if a Topics server already answers on :3333 (external launchd /
 /// dev — try TLS first, then plain), defer to it. Otherwise spawn the bundled
 /// sidecar on a free plain-HTTP port with an isolated data dir, wait until it's
@@ -1091,6 +1282,10 @@ async fn decide_upstream_and_spawn(app: tauri::AppHandle) {
     // shell/claude-code tabs work on a virgin install. Absent (Windows stub / older
     // bundle / dev build without the sidecar) → None, keeping today's kill-switch.
     let bridge_bin = bundled_pty_bridge_bin();
+    // Same story for the WebRTC bridge: present → the browser pane's shared-session
+    // <video> transport works on a virgin install; absent → server/webrtc-bridge.ts
+    // reports available()==false and the pane uses the DOM fallback.
+    let webrtc_bin = bundled_webrtc_bridge_bin();
     let cmd = match app.shell().sidecar("topics-server") {
         Ok(c) => {
             let mut c = c
@@ -1135,6 +1330,19 @@ async fn decide_upstream_and_spawn(app: tauri::AppHandle) {
                 // run one itself, so terminals answer 503.
                 None => {
                     c = c.env("TOPICS_DISABLE_PTY_BRIDGE", "1");
+                }
+            }
+            match &webrtc_bin {
+                // Bundled WebRTC bridge present: hand the server the binary to spawn
+                // lazily on the first SDP offer (resolveBin() in webrtc-bridge.ts).
+                Some(bin) => {
+                    c = c.env("TOPICS_WEBRTC_BRIDGE_BIN", bin.to_string_lossy().to_string());
+                }
+                // No bundled bridge (Windows stub / older bundle): say so explicitly
+                // rather than letting the server probe a dev-checkout path that only
+                // exists on a developer's machine.
+                None => {
+                    c = c.env("TOPICS_DISABLE_WEBRTC_BRIDGE", "1");
                 }
             }
             c
@@ -1208,12 +1416,99 @@ async fn decide_upstream_and_spawn(app: tauri::AppHandle) {
         // Nudge the webview to reload now that the upstream is live, so a client
         // that connected during the cold start (and cached a failed fetch) re-fetches.
         if healthy {
-            use tauri::Manager;
-            if let Some(w) = app_health.get_webview_window("main") {
-                let _ = w.eval("window.location.reload()");
-            }
+            let h = app_health.clone();
+            let _ = app_health.run_on_main_thread(move || {
+                eval_in_main_webview(&h, COLD_START_RELOAD_JS);
+            });
         }
     });
+}
+
+/// L'UNICO reload SILENZIOSO e INCONDIZIONATO della app: parte senza che nessuno
+/// abbia premuto niente, non lascia segno, e ricarica quello che c'è sullo schermo
+/// qualunque cosa sia. Ha una sola licenza, ed è la finestra in cui viene sparato:
+/// il cold start. L'upstream è appena salito, il client si è collegato mentre il
+/// server ancora non rispondeva e ha in cache una fetch fallita — non c'è nessuna
+/// sessione viva da buttare via e nessun «hai premuto» da confermare.
+///
+/// Fuori da quella finestra un reload muto è un difetto, non una feature: lo
+/// schermo sbatte, il lavoro sparisce e l'utente conclude «è crashato». Gli altri
+/// tre reload del guscio sono di categorie diverse e restano legittimi:
+/// `RELOAD_WITH_FLASH_JS` è ANNUNCIATO (⌘R lascia il toast), `RELOAD_IF_BLANK_JS` e
+/// la pagina di `reconnect_page_response` sono AUTO-LIMITATI (ricaricano solo un
+/// documento che non ha niente da perdere). Un secondo membro di QUESTA categoria
+/// non si aggiunge: `reloadFlash.test.ts` conta i siti di reload uno per uno e
+/// diventa rosso — se ti serve davvero, cambia la guardia spiegando perché, non il
+/// numero.
+const COLD_START_RELOAD_JS: &str = "window.location.reload()";
+
+/// JS that reloads the main document ONLY IF it has nothing on screen. Sent by the
+/// upstream watchdog after the server comes back: a live app (mounted `#root`) is
+/// left alone — it reconnects its own WebSocket and a forced reload would throw away
+/// a working session — while an empty document (WebKit error page, our reconnect
+/// page, a webview that lost its content) is put back on its feet. Wrapped in
+/// try/catch that reloads on failure: if we can't even inspect the DOM, the document
+/// is not in a state worth preserving.
+const RELOAD_IF_BLANK_JS: &str = "(function(){try{\
+var r=document.getElementById('root');\
+if(r&&r.childElementCount>0)return;\
+location.reload()}catch(e){location.reload()}})()";
+
+/// Run `js` in the MAIN webview. Not `get_webview_window` — once native browser panes
+/// are mounted the main window is multi-webview and that lookup returns None (see the
+/// `TlWindow` note), which is precisely the state a recovery path must survive.
+/// Falls back to the webview-window lookup for the single-webview case.
+fn eval_in_main_webview(app: &tauri::AppHandle, js: &str) -> bool {
+    use tauri::Manager;
+    if let Some(wv) = app.get_webview("main") {
+        return wv.eval(js).is_ok();
+    }
+    if let Some(w) = app.get_webview_window("main") {
+        return w.eval(js).is_ok();
+    }
+    false
+}
+
+/// Watch the upstream forever and put the window back when the server returns.
+///
+/// This is THE recovery path, and it runs in BOTH boot branches — the old
+/// `window.location.reload()` lived inside the sidecar branch only, so on a machine
+/// with an external launchd server on :3333 (the reported case) production had no
+/// recovery at all: the shell `return`ed before ever reaching it.
+///
+/// Edge-triggered on down→up: we only nudge after having actually SEEN the server
+/// down, so a healthy machine never gets a spurious reload. The nudge itself is
+/// conservative (see `RELOAD_IF_BLANK_JS`).
+async fn watch_upstream(app: tauri::AppHandle) {
+    let up = *UPSTREAM
+        .get()
+        .unwrap_or(&Upstream { port: DEFAULT_UPSTREAM_PORT, tls: true });
+    let mut was_down = false;
+    loop {
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        let alive = probe_topics_server(up.port, up.tls).await;
+        if !alive {
+            if !was_down {
+                eprintln!("[watchdog] upstream :{} is DOWN", up.port);
+            }
+            was_down = true;
+            continue;
+        }
+        if was_down {
+            eprintln!("[watchdog] upstream :{} is back — nudging the webview", up.port);
+            was_down = false;
+            // Give the server a beat to finish binding its routes before the reload
+            // fires, so the nudged navigation doesn't race the very restart it's
+            // recovering from.
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            let app2 = app.clone();
+            let _ = app.run_on_main_thread(move || {
+                if !eval_in_main_webview(&app2, RELOAD_IF_BLANK_JS) {
+                    eprintln!("[watchdog] no main webview to nudge");
+                }
+            });
+        }
+    }
 }
 
 /// Kill the sidecar if we spawned one. Called on app exit so no orphan server
@@ -1631,12 +1926,23 @@ mod macos_notifications {
     use objc2::rc::Retained;
     use objc2::runtime::{Bool, ProtocolObject};
     use objc2::{define_class, msg_send, AllocAnyThread, DefinedClass};
-    use objc2_foundation::{NSBundle, NSError, NSObject, NSObjectProtocol, NSString};
+    use objc2_foundation::{NSArray, NSBundle, NSError, NSObject, NSObjectProtocol, NSSet, NSString};
     use objc2_user_notifications::{
-        UNAuthorizationOptions, UNMutableNotificationContent, UNNotification,
+        UNAuthorizationOptions, UNMutableNotificationContent, UNNotification, UNNotificationAction,
+        UNNotificationActionOptions, UNNotificationCategory, UNNotificationCategoryOptions,
         UNNotificationPresentationOptions, UNNotificationRequest, UNNotificationResponse,
         UNUserNotificationCenter, UNUserNotificationCenterDelegate,
     };
+
+    /// Un tasto del banner: l'id che torna indietro al click + l'etichetta.
+    /// L'id lo compone il client (`shared/notify-actions`) e CODIFICA l'azione
+    /// per intero — qui dentro non si sa (e non serve sapere) cosa significhi:
+    /// il guscio lo trasporta e lo restituisce, la decisione resta di là.
+    #[derive(Clone, serde::Deserialize)]
+    pub struct NotifyAction {
+        pub id: String,
+        pub title: String,
+    }
 
     /// True when running from a real .app bundle (`bundleIdentifier` set).
     pub fn is_bundled() -> bool {
@@ -1892,6 +2198,31 @@ mod macos_notifications {
         app: tauri::AppHandle,
     }
 
+    /// È un tasto NOSTRO? macOS riusa `actionIdentifier` anche per il click sul
+    /// corpo e per lo scarto della notifica (`com.apple.UNNotification…`), e
+    /// quei due devono restare quello che sono sempre stati.
+    ///
+    /// Il riconoscimento è per PREFISSO e non per lista esatta: i verbi li
+    /// decide `shared/notify-actions.ts` e uno nuovo non deve richiedere una
+    /// modifica al guscio nativo — che è il pezzo che l'utente aggiorna meno
+    /// spesso (un guscio vecchio con un client nuovo è la forma classica del
+    /// bug qui). Il gate che conta sta comunque di là: il client esegue solo
+    /// gli id che sa decodificare.
+    fn is_our_action(id: &str) -> bool {
+        id.starts_with("answer:") || id == "approve" || id == "requeue"
+    }
+
+    /// Una stringa Rust come LETTERALE JavaScript, virgolette comprese.
+    ///
+    /// Gli id dei tasti portano dentro il testo dell'opzione scritta
+    /// dall'agente: apici, virgolette, a capo, qualunque cosa. Interpolarli
+    /// dentro `w.eval` tra apici a mano — com'è per il task id, che però è un
+    /// UUID passato al setaccio dei caratteri — vorrebbe dire far scrivere JS a
+    /// un LLM. `serde_json` produce un letterale valido per definizione.
+    fn js_string(value: &str) -> String {
+        serde_json::to_string(value).unwrap_or_else(|_| "\"\"".to_string())
+    }
+
     define_class!(
         #[unsafe(super(NSObject))]
         #[name = "TopicsNotificationDelegate"]
@@ -1921,6 +2252,12 @@ mod macos_notifications {
             /// Click on a banner → surface the main window (parity with the old
             /// terminal-notifier `-activate`). Delegate callbacks arrive on a
             /// private queue; window work must hop to the main thread.
+            ///
+            /// Con un TASTO premuto il giro è un altro: non si apre niente, si
+            /// ESEGUE. Chi esegue è il client (`window.__topicsNotificationAction`),
+            /// non questo modulo — la chiamata vuole la sessione, i cookie e gli
+            /// endpoint della board, cioè tre cose che vivono nel webview e che
+            /// riportare qui dentro significherebbe tenerne una seconda copia.
             #[unsafe(method(userNotificationCenter:didReceiveNotificationResponse:withCompletionHandler:))]
             fn did_receive(
                 &self,
@@ -1940,16 +2277,40 @@ mod macos_notifications {
                         .filter(|t| t.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'))
                         .map(|t| t.to_string())
                 };
+                // Il tasto premuto, se è uno dei NOSTRI. macOS usa lo stesso
+                // campo anche per il click sul corpo e per lo scarto
+                // (`com.apple.UNNotification*ActionIdentifier`): si tiene solo
+                // ciò che abbiamo registrato noi, così quei due restano il
+                // comportamento di sempre invece di diventare azioni a caso.
+                let action_id: Option<String> = {
+                    let id = response.actionIdentifier().to_string();
+                    if is_our_action(&id) { Some(id) } else { None }
+                };
                 let app = self.ivars().app.clone();
                 let app2 = app.clone();
                 let _ = app.run_on_main_thread(move || {
                     use tauri::Manager;
                     if let Some(w) = app2.get_webview_window("main") {
-                        super::ensure_window_visible(&w);
-                        if let Some(tid) = task_id {
-                            let _ = w.eval(&format!(
-                                "window.__topicsOpenTask && window.__topicsOpenTask('{tid}');"
-                            ));
+                        match (&task_id, &action_id) {
+                            // Tasto premuto su un banner legato a un task: si
+                            // esegue e basta. Niente `ensure_window_visible`:
+                            // portare in faccia la finestra vanificherebbe il
+                            // senso del tasto, che è NON dover aprire l'app.
+                            (Some(tid), Some(aid)) => {
+                                let _ = w.eval(&format!(
+                                    "window.__topicsNotificationAction && window.__topicsNotificationAction({}, {});",
+                                    js_string(tid),
+                                    js_string(aid),
+                                ));
+                            }
+                            _ => {
+                                super::ensure_window_visible(&w);
+                                if let Some(tid) = &task_id {
+                                    let _ = w.eval(&format!(
+                                        "window.__topicsOpenTask && window.__topicsOpenTask('{tid}');"
+                                    ));
+                                }
+                            }
                         }
                     }
                 });
@@ -2046,12 +2407,89 @@ mod macos_notifications {
 
     static NOTIF_SEQ: AtomicU64 = AtomicU64::new(0);
 
+    /// Le categorie ancora registrate, come DATO Rust e non come oggetti ObjC.
+    ///
+    /// I tasti di un banner vivono in una `UNNotificationCategory`, e le loro
+    /// etichette sono il testo delle opzioni dell'agente: cioè cambiano a ogni
+    /// notifica, quindi la categoria non può essere una sola registrata al boot.
+    /// `setNotificationCategories` però SOSTITUISCE l'intero insieme: registrare
+    /// solo l'ultima farebbe scadere i tasti delle notifiche ancora appese in
+    /// Centro Notifiche. Qui si tiene una coda corta e si ri-registra tutta.
+    ///
+    /// Perché `(String, Vec<(String, String)>)` e non i `Retained<…>` già
+    /// costruiti: `Retained` non è `Send`, quindi non può stare in uno static
+    /// condiviso. Ricostruire gli oggetti a ogni post costa qualche allocazione
+    /// per una cosa che succede quando finisce un task, non in un ciclo.
+    static CATEGORIES: OnceLock<std::sync::Mutex<std::collections::VecDeque<(String, Vec<(String, String)>)>>> =
+        OnceLock::new();
+
+    /// Quante categorie si tengono vive. Copre abbondantemente le notifiche
+    /// ancora appese in Centro Notifiche senza far crescere senza fine un
+    /// insieme che va ri-registrato per intero a ogni post.
+    const MAX_LIVE_CATEGORIES: usize = 16;
+
+    /// Registra la categoria di QUESTO banner (e ri-registra le precedenti).
+    /// Torna l'identificatore da mettere sul contenuto.
+    fn register_category(actions: &[NotifyAction]) -> String {
+        let ident = format!(
+            "topics-actions-{}-{}",
+            std::process::id(),
+            NOTIF_SEQ.fetch_add(1, Ordering::Relaxed)
+        );
+        let store = CATEGORIES.get_or_init(|| std::sync::Mutex::new(std::collections::VecDeque::new()));
+        let snapshot = {
+            let Ok(mut q) = store.lock() else { return ident };
+            q.push_back((
+                ident.clone(),
+                actions.iter().map(|a| (a.id.clone(), a.title.clone())).collect(),
+            ));
+            while q.len() > MAX_LIVE_CATEGORIES {
+                q.pop_front();
+            }
+            q.iter().cloned().collect::<Vec<_>>()
+        };
+
+        let mut categories: Vec<Retained<UNNotificationCategory>> = Vec::with_capacity(snapshot.len());
+        for (cat_id, acts) in &snapshot {
+            let built: Vec<Retained<UNNotificationAction>> = acts
+                .iter()
+                .map(|(id, title)| {
+                    UNNotificationAction::actionWithIdentifier_title_options(
+                        &NSString::from_str(id),
+                        &NSString::from_str(title),
+                        // Nessuna opzione: il tasto NON porta in primo piano
+                        // l'app e non richiede lo sblocco. È il punto — premere
+                        // "Landa su main" dal banner deve costare un gesto, non
+                        // un gesto più una finestra che si apre in faccia.
+                        UNNotificationActionOptions::empty(),
+                    )
+                })
+                .collect();
+            let refs: Vec<&UNNotificationAction> = built.iter().map(|a| &**a).collect();
+            categories.push(UNNotificationCategory::categoryWithIdentifier_actions_intentIdentifiers_options(
+                &NSString::from_str(cat_id),
+                &NSArray::from_slice(&refs),
+                &NSArray::from_slice(&[]),
+                UNNotificationCategoryOptions::empty(),
+            ));
+        }
+        let cat_refs: Vec<&UNNotificationCategory> = categories.iter().map(|c| &**c).collect();
+        UNUserNotificationCenter::currentNotificationCenter()
+            .setNotificationCategories(&NSSet::from_slice(&cat_refs));
+        ident
+    }
+
     /// Post one banner. Unique identifier per request — completion banners must
     /// stack in the Notification Center, never coalesce/replace each other.
     /// When macOS never authorized the app (unsigned build, see UN_AUTHORIZED),
     /// posting as ourselves is a guaranteed silent drop — ride the signed
     /// helper instead.
-    pub fn post(title: &str, body: &str, task_id: Option<&str>) {
+    ///
+    /// `actions` sono i tasti. Il ripiego `terminal-notifier` li IGNORA e non è
+    /// una svista: la 2.0.0 di Homebrew non ha `-actions` (`-execute`/`-open`
+    /// sono tutto ciò che offre), quindi là un banner resta un link. Meglio un
+    /// banner senza tasti che un tasto che non esiste.
+    pub fn post(title: &str, body: &str, task_id: Option<&str>, actions: &[NotifyAction]) {
         if !is_bundled() {
             return;
         }
@@ -2062,6 +2500,19 @@ mod macos_notifications {
         let content = UNMutableNotificationContent::new();
         content.setTitle(&NSString::from_str(title));
         content.setBody(&NSString::from_str(body));
+        if !actions.is_empty() {
+            let cat = register_category(actions);
+            // Nel log per lo stesso motivo di tutto il resto in questo modulo:
+            // un tasto che non compare non ha nessun altro modo di dirlo. Le
+            // cause sono almeno tre e nessuna produce un errore — il client non
+            // le ha mandate, la categoria non si è registrata, macOS non
+            // disegna i bottoni con lo stile "banner". Qui si legge la prima.
+            diag(&format!(
+                "post: category={cat} actions=[{}]",
+                actions.iter().map(|a| a.id.as_str()).collect::<Vec<_>>().join(", ")
+            ));
+            content.setCategoryIdentifier(&NSString::from_str(&cat));
+        }
         // The task id (when the banner is task-bound) rides in the request
         // IDENTIFIER — a plain string we read back verbatim from the click
         // response in the delegate (no NSDictionary/userInfo plumbing). A stable
@@ -2243,16 +2694,51 @@ fn spawn_focus_watcher(app: tauri::AppHandle) {
 /// no-op — same observable contract as the web API, never an error to the caller.
 /// macOS posts via `macos_notifications` (UserNotifications framework); the
 /// plugin/notify-rust path remains for Windows/Linux and un-bundled dev runs.
+/// I tasti di un banner, come arrivano dal client. Dichiarato anche fuori da
+/// macOS perché è nella firma del comando: gli altri host lo ricevono e lo
+/// ignorano, invece di avere una firma diversa per piattaforma (che è come si
+/// ottiene un client che invoca un comando inesistente).
+#[derive(serde::Deserialize)]
+pub struct NotifyActionArg {
+    pub id: String,
+    pub title: String,
+}
+
+/// Fire a native OS notification (completion / idle toasts). The renderer's web
+/// `Notification` API is unreliable in a WKWebView shell, so the client routes
+/// through here under Tauri. Fire-and-forget: a denied/failed show is a silent
+/// no-op — same observable contract as the web API, never an error to the caller.
+/// macOS posts via `macos_notifications` (UserNotifications framework); the
+/// plugin/notify-rust path remains for Windows/Linux and un-bundled dev runs.
+///
+/// `actions` sono i TASTI (rispondi alla domanda dell'agente, approva, rimetti
+/// in coda). Solo macOS li disegna: il percorso plugin di Windows/Linux non
+/// espone azioni, e là un banner resta il link di sempre.
 #[tauri::command]
-fn notify(app: tauri::AppHandle, title: String, body: String, task_id: Option<String>) {
+fn notify(
+    app: tauri::AppHandle,
+    title: String,
+    body: String,
+    task_id: Option<String>,
+    actions: Option<Vec<NotifyActionArg>>,
+) {
     #[cfg(target_os = "macos")]
     if macos_notifications::is_bundled() {
-        macos_notifications::post(&title, &body, task_id.as_deref());
+        let acts: Vec<macos_notifications::NotifyAction> = actions
+            .as_deref()
+            .unwrap_or_default()
+            .iter()
+            // Un tasto senza etichetta o senza id non si disegna: comparirebbe
+            // come un bottone vuoto, che è peggio di un tasto in meno.
+            .filter(|a| !a.id.trim().is_empty() && !a.title.trim().is_empty())
+            .map(|a| macos_notifications::NotifyAction { id: a.id.clone(), title: a.title.clone() })
+            .collect();
+        macos_notifications::post(&title, &body, task_id.as_deref(), &acts);
         return;
     }
     // Windows/Linux plugin path: no click→task routing yet (the web Notification
     // API covers those hosts); just show the banner.
-    let _ = &task_id;
+    let _ = (&task_id, &actions);
     use tauri_plugin_notification::NotificationExt;
     let _ = app.notification().builder().title(title).body(body).show();
 }
@@ -2311,7 +2797,7 @@ fn notification_status() -> serde_json::Value {
 /// intermediate child `_exit(0)`s immediately and stays `<defunct>` forever,
 /// one zombie per link opened. Same launcher command, but the handle goes to
 /// `child_reaper` instead of the floor. The plugin stays registered — the
-/// download strip's `reveal_item_in_dir` still uses it.
+/// Download menu's `reveal_item_in_dir` / `open_path` still use it.
 ///
 /// Only `http`/`https`/`mailto` are accepted. Without that check this command
 /// would be a "run anything" primitive reachable from the webview, since the
@@ -3157,6 +3643,151 @@ fn unwire_live_resize_cover(wkey: usize) {
     }
 }
 
+// ─────────────── Recompose on display change / wake (Electron parity) ───────────────
+//
+// The Electron shell had `recomposeWindow`, hung off `display-metrics-changed` and
+// `powerMonitor`: re-anchor the window onto a screen that still exists, then bounce
+// its bounds by 1px to force AppKit/WebKit to recompose. Only the "re-anchor" half
+// survived the Tauri port (PORTING-PLAN T1.3), so a display swap or a sleep/wake
+// could leave a window that the system reports as perfectly healthy — right position,
+// right size, not minimised — with nothing painted in it. On a `transparent: true`
+// window with no titlebar that reads as GONE, not as blank.
+
+/// The app handle, stashed at setup so AppKit notification callbacks (which get no
+/// user data) can reach the window. `OnceLock` because setup runs once.
+static SHELL_APP: std::sync::OnceLock<tauri::AppHandle> = std::sync::OnceLock::new();
+
+/// Does `rect` (logical points, top-left origin) overlap ANY currently-attached
+/// monitor? Pure geometry so it can be unit-tested without a screen: `monitors` is
+/// the list of monitor rects in the same space. A window that overlaps nothing is
+/// stranded on a display that no longer exists — the classic "the app is running but
+/// I can't see it" after unplugging the ultrawide.
+fn rect_intersects_any(rect: (f64, f64, f64, f64), monitors: &[(f64, f64, f64, f64)]) -> bool {
+    let (x, y, w, h) = rect;
+    monitors.iter().any(|&(mx, my, mw, mh)| {
+        x < mx + mw && mx < x + w && y < my + mh && my < y + h
+    })
+}
+
+/// Re-anchor + bounce the main window so the compositor is forced to produce a frame.
+///
+/// Re-anchor: if the saved geometry now sits entirely off every attached screen, pull
+/// the window back onto the primary one. We do NOT touch a window that is still on a
+/// screen — `-797,-1410` is where Attilio KEEPS this window on his ultrawide, and
+/// "fixing" a position the user chose is the bug, not the cure.
+///
+/// Bounce: grow the outer size by 1px and put it back a beat later. That is the half
+/// that was missing, and it's the half that actually repaints.
+fn recompose_main_window(app: &tauri::AppHandle, why: &str) {
+    use tauri::Manager;
+    let Some(win) = app.get_window("main") else { return };
+    if !win.is_visible().unwrap_or(true) || win.is_minimized().unwrap_or(false) {
+        return; // hidden to tray / minimised: nothing to recompose, and a bounce
+                // would be a visible glitch when it comes back.
+    }
+    // Read the geometry off the plain `Window` (not `window_logical_geometry`, which
+    // takes a WebviewWindow — a lookup that returns None once browser panes are up).
+    let Ok(sf) = win.scale_factor() else { return };
+    let Ok(pos) = win.outer_position() else { return };
+    let Ok(size) = win.outer_size() else { return };
+    let pos = pos.to_logical::<f64>(sf);
+    let size = size.to_logical::<f64>(sf);
+    let (x, y, w, h) = (pos.x, pos.y, size.width, size.height);
+    if w <= 0.0 || h <= 0.0 {
+        return;
+    }
+    let monitors: Vec<(f64, f64, f64, f64)> = win
+        .available_monitors()
+        .unwrap_or_default()
+        .iter()
+        .map(|m| {
+            let sf = m.scale_factor();
+            let p = m.position().to_logical::<f64>(sf);
+            let s = m.size().to_logical::<f64>(sf);
+            (p.x, p.y, s.width, s.height)
+        })
+        .collect();
+    if !monitors.is_empty() && !rect_intersects_any((x, y, w, h), &monitors) {
+        let (mx, my, _, _) = monitors[0];
+        eprintln!("[recompose] {why}: window off every screen — re-anchoring to {mx},{my}");
+        let _ = win.set_position(tauri::LogicalPosition::new(mx + 30.0, my + 80.0));
+    }
+    eprintln!("[recompose] {why}: bouncing bounds to force a redraw");
+    let _ = win.set_size(tauri::LogicalSize::new(w + 1.0, h));
+    let app2 = app.clone();
+    let (bw, bh) = (w, h);
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(120));
+        let app3 = app2.clone();
+        let _ = app2.run_on_main_thread(move || {
+            use tauri::Manager;
+            if let Some(w2) = app3.get_window("main") {
+                let _ = w2.set_size(tauri::LogicalSize::new(bw, bh));
+            }
+            // A window that came back from a dead display can also have lost its
+            // document; same conservative nudge the watchdog uses.
+            eval_in_main_webview(&app3, RELOAD_IF_BLANK_JS);
+        });
+    });
+}
+
+/// `NSApplicationDidChangeScreenParameters` / `NSWorkspaceDidWake` callback.
+#[cfg(target_os = "macos")]
+extern "C" fn on_recompose_event(
+    _this: &objc2::runtime::AnyObject,
+    _sel: objc2::runtime::Sel,
+    _notif: *mut objc2::runtime::AnyObject,
+) {
+    if let Some(app) = SHELL_APP.get() {
+        recompose_main_window(app, "display/wake");
+    }
+}
+
+/// Register the display-change and wake observers. Called ONCE from setup — the
+/// grep that found "zero listeners for display change, sleep or wake" was pointing
+/// at the absence of exactly this function.
+#[cfg(target_os = "macos")]
+fn wire_recompose_observers() {
+    use crate::mac::*;
+    use objc2::runtime::ClassBuilder;
+    #[link(name = "AppKit", kind = "framework")]
+    extern "C" {
+        static NSApplicationDidChangeScreenParametersNotification: id;
+        static NSWorkspaceDidWakeNotification: id;
+    }
+    static PTR: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    let class_ptr = *PTR.get_or_init(|| {
+        let mut decl = ClassBuilder::new(c"TopicsRecomposeObserver", class!(NSObject))
+            .expect("register TopicsRecomposeObserver");
+        unsafe {
+            decl.add_method(
+                sel!(onRecompose:),
+                on_recompose_event as extern "C" fn(_, _, _),
+            );
+        }
+        decl.register() as *const Class as usize
+    });
+    unsafe {
+        let cls = class_ptr as *const Class;
+        let obs: id = msg_send![cls, new];
+        // Screen parameters live on the DEFAULT centre; sleep/wake lives on
+        // NSWorkspace's OWN centre — registering wake on the default one is the
+        // classic silent no-op.
+        let nc: id = msg_send![class!(NSNotificationCenter), defaultCenter];
+        let _: () = msg_send![nc, addObserver: obs,
+                                   selector: sel!(onRecompose:),
+                                   name: NSApplicationDidChangeScreenParametersNotification,
+                                   object: nil];
+        let ws: id = msg_send![class!(NSWorkspace), sharedWorkspace];
+        let wnc: id = msg_send![ws, notificationCenter];
+        let _: () = msg_send![wnc, addObserver: obs,
+                                    selector: sel!(onRecompose:),
+                                    name: NSWorkspaceDidWakeNotification,
+                                    object: nil];
+    }
+    eprintln!("[recompose] observers wired (screen params + wake)");
+}
+
 // ───────────────────────── Native browser pane ─────────────────────────
 //
 // Electron parity: each browser pane is a real native child webview (own
@@ -3169,18 +3800,86 @@ fn unwire_live_resize_cover(wkey: usize) {
 // command when a popover overlaps it (the Electron shell hides the view the same
 // way during resize / when chrome covers it).
 
+/// Prefisso di ogni etichetta di pane browser. Distintivo apposta: non deve
+/// collidere con la webview della UI ("main") né con nessuna etichetta di
+/// finestra presente o futura.
+const BROWSER_LABEL_PREFIX: &str = "browserpane-";
+
+/// Pane la cui etichetta è BRUCIATA: id → generazione (assente = 0).
+///
+/// Una WKWebView il cui dispatcher ha il mutex avvelenato non si può più
+/// chiudere — `Webview::close()` passa dallo stesso `window_id.lock().unwrap()`
+/// di tutto il resto e panica. La vista resta quindi REGISTRATA nel manager di
+/// tauri, e `browser_open` sullo stesso id ci ricadeva sopra col suo ramo di
+/// riuso: «Ricrea la scheda» riconsegnava la stessa vista morta, cioè non
+/// ricreava niente proprio nel caso per cui il pulsante esiste.
+///
+/// L'etichetta è l'unica cosa che si può cambiare: bruciata quella, la pane
+/// conserva il suo id (che è come la chiamano il client, gli agenti e ogni
+/// cache) e la prossima apertura nasce sotto un'etichetta nuova, quindi come
+/// webview NUOVA. La vecchia resta appesa al manager finché la finestra non
+/// muore: è già irrecuperabile, e non poterla nemmeno spostare è la ragione per
+/// cui non la si può salvare, non un effetto di questa scelta.
+static BURNED_PANE_LABELS: std::sync::OnceLock<
+    std::sync::Mutex<std::collections::HashMap<String, u32>>,
+> = std::sync::OnceLock::new();
+fn burned_pane_labels() -> &'static std::sync::Mutex<std::collections::HashMap<String, u32>> {
+    BURNED_PANE_LABELS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+/// Generazione corrente dell'etichetta di una pane. 0 = mai bruciata.
+fn pane_label_generation(id: &str) -> u32 {
+    let m = burned_pane_labels().lock().unwrap_or_else(|e| e.into_inner());
+    m.get(id).copied().unwrap_or(0)
+}
+
+/// Brucia l'etichetta corrente di una pane e restituisce la generazione nuova.
+/// Da qui in poi `browser_label(id)` indica un'etichetta LIBERA, quindi
+/// `browser_open` crea invece di riusare.
+fn burn_pane_label(id: &str) -> u32 {
+    let mut m = burned_pane_labels().lock().unwrap_or_else(|e| e.into_inner());
+    let next = m.get(id).copied().unwrap_or(0).saturating_add(1);
+    m.insert(id.to_string(), next);
+    next
+}
+
 /// Per-pane webview label. Keep the prefix distinctive so it never collides with
 /// the main UI webview ("main") or any future window label.
+///
+/// La generazione va in TESTA all'id e dentro il prefisso (`browserpane-~2~<id>`)
+/// per due motivi: `browser_list` filtra per prefisso, che così continua a
+/// vedere anche le pane rigenerate; e `~` non compare negli id (uuid/contextId),
+/// quindi l'inverso `pane_id_from_label` resta senza ambiguità.
 fn browser_label(id: &str) -> String {
-    format!("browserpane-{id}")
+    match pane_label_generation(id) {
+        0 => format!("{BROWSER_LABEL_PREFIX}{id}"),
+        gen => format!("{BROWSER_LABEL_PREFIX}~{gen}~{id}"),
+    }
+}
+
+/// Inverso di `browser_label`: dall'etichetta all'id della pane. `None` se
+/// l'etichetta non è di una pane browser.
+fn pane_id_from_label(label: &str) -> Option<&str> {
+    let rest = label.strip_prefix(BROWSER_LABEL_PREFIX)?;
+    let Some(after) = rest.strip_prefix('~') else {
+        return Some(rest);
+    };
+    // `~<gen>~<id>` — se il secondo `~` manca, l'etichetta non è nostra da
+    // interpretare: meglio restituire il resto così com'è che inventare un id.
+    match after.split_once('~') {
+        Some((gen, id)) if !gen.is_empty() && gen.chars().all(|c| c.is_ascii_digit()) => Some(id),
+        _ => Some(rest),
+    }
 }
 
 // ── Downloads ────────────────────────────────────────────────────────────────
 // wry exposes WKWebView's download delegate via WebviewBuilder::on_download, but
 // gives only Requested + Finished (no progress, and on macOS the final path is
-// empty). We choose the save path (~/Downloads/<name>) on Requested and queue
-// start/done events the client drains (browser_take_download_events) to drive the
-// DownloadStrip — a start spinner then a done check, no %.
+// empty). The save path is the one wry proposes (system Downloads folder +
+// suggested filename + `(n)` on collision) — see the comment on Requested for why
+// rewriting it broke downloads outright. We queue start/done events the client
+// drains (browser_take_download_events) to drive the toolbar's Download menu —
+// a start spinner then a done check, no %.
 #[derive(Clone, Serialize)]
 struct DownloadEventMsg {
     kind: String, // "start" | "done"
@@ -3193,7 +3892,7 @@ struct DownloadEventMsg {
     saved_path: String,
     // Pane this download belongs to. The queue is a single GLOBAL Vec shared by
     // every open browser webview, so draining it whole (the old behaviour) let
-    // whichever DownloadStrip happened to poll first steal every other pane's
+    // whichever pane's Download menu happened to poll first steal every other pane's
     // events. Internal bookkeeping only — not serialized to the client, which
     // already scoped its poll by passing its own contextId.
     #[serde(skip)]
@@ -3201,10 +3900,10 @@ struct DownloadEventMsg {
 }
 
 static DOWNLOAD_EVENTS: std::sync::Mutex<Vec<DownloadEventMsg>> = std::sync::Mutex::new(Vec::new());
-static DOWNLOAD_PENDING: std::sync::Mutex<Vec<(String, i64, String, String)>> = std::sync::Mutex::new(Vec::new()); // (url, id, savedPath, paneId)
+static DOWNLOAD_PENDING: std::sync::Mutex<Vec<(String, i64, String, String, String)>> = std::sync::Mutex::new(Vec::new()); // (url, id, savedPath, paneId, filename)
 static DOWNLOAD_ID: AtomicI64 = AtomicI64::new(1);
 
-/// Drain queued download start/done events for `id`'s DownloadStrip to apply.
+/// Drain queued download start/done events for `id`'s Download menu to apply.
 /// Scoped to that pane — other panes' events stay queued for their own poll.
 #[tauri::command]
 fn browser_take_download_events(id: String) -> Vec<DownloadEventMsg> {
@@ -3898,16 +4597,29 @@ fn browser_open_inner(
         // primo passaggio del mouse il numero c'è già. Il campionamento resta
         // come rete: copre i reload (WebContent nuovo) e le webview aperte prima
         // che questo hook esistesse.
-        .on_page_load(|webview, _payload| {
-            let label = webview.label().to_string();
-            let _ = webview.with_webview(move |platform| {
-                let pid = unsafe { web_process_identifier(platform.inner() as *mut crate::mac::Object) };
-                if pid > 0 {
-                    if let Ok(mut m) = webview_content_pid_map().lock() {
-                        m.insert(label, pid);
+        //
+        // Il corpo e macOS-only per forza: legge `_webProcessIdentifier`, che e
+        // una SPI di WebKit. Il gate pero mancava, e non su una riga qualsiasi:
+        // `platform.inner()` su Windows non esiste proprio (li si chiama
+        // `controller()`), quindi questo blocco NON COMPILAVA ne su Linux ne su
+        // Windows. Non se n'era accorto nessuno perche il Mac guarda solo il
+        // proprio ramo e la CI cross-platform parte sui tag `tauri-v*`: la prima
+        // release a toccarla sarebbe morta in build. Lo becca ora
+        // `scripts/check-cross-shell.sh`.
+        .on_page_load(|_webview, _payload| {
+            #[cfg(target_os = "macos")]
+            {
+                let label = _webview.label().to_string();
+                let _ = _webview.with_webview(move |platform| {
+                    let pid =
+                        unsafe { web_process_identifier(platform.inner() as *mut crate::mac::Object) };
+                    if pid > 0 {
+                        if let Ok(mut m) = webview_content_pid_map().lock() {
+                            m.insert(label, pid);
+                        }
                     }
-                }
-            });
+                });
+            }
         })
         .on_new_window(move |url, _features| {
             let scheme = url.scheme();
@@ -3936,19 +4648,42 @@ fn browser_open_inner(
                     match event {
                         DownloadEvent::Requested { url, destination } => {
                             let url_s = url.to_string();
-                            let filename = url
-                                .path_segments()
-                                .and_then(|mut s| s.next_back().map(|x| x.to_string()))
+                            // LA DESTINAZIONE ARRIVA GIÀ DECISA, E RISCRIVERLA ERA IL
+                            // MOTIVO PER CUI «I DOWNLOAD NON VANNO».
+                            //
+                            // wry la calcola in `download_policy` (wkwebview/download.rs):
+                            // cartella Download di sistema + il nome SUGGERITO dalla
+                            // risposta (cioè Content-Disposition, quando c'è) + un
+                            // contatore `(1)`, `(2)`… finché il path è libero.
+                            //
+                            // Qui sopra la si buttava via per ricomporla dall'ultimo
+                            // pezzo dell'URL, e si perdevano entrambe le cose. Misurato
+                            // con una probe wry isolata, stessa versione:
+                            //   · `…/files?id=42` con Content-Disposition report-2026.zip
+                            //     → salvato come «files», senza estensione;
+                            //   · stesso file due volte → WKDownload NON sovrascrive:
+                            //     fallisce con «cancelled», nessun file su disco. Cioè
+                            //     il secondo download di qualunque cosa non arriva.
+                            // Rispettando il path di wry: nome giusto e «report-2026 (1).zip».
+                            //
+                            // Se il path proposto fosse relativo (nessuna cartella
+                            // Download rilevata: wry ripiega sulla cwd) lo si àncora a
+                            // ~/Downloads, che è dove l'utente lo va a cercare.
+                            if destination.is_relative() {
+                                if let Ok(home) = std::env::var("HOME") {
+                                    let name = destination
+                                        .file_name()
+                                        .map(std::ffi::OsStr::to_os_string)
+                                        .unwrap_or_else(|| std::ffi::OsString::from("download"));
+                                    *destination = std::path::PathBuf::from(home).join("Downloads").join(name);
+                                }
+                            }
+                            let saved = destination.to_string_lossy().to_string();
+                            let filename = destination
+                                .file_name()
+                                .map(|n| n.to_string_lossy().to_string())
                                 .filter(|s| !s.is_empty())
                                 .unwrap_or_else(|| "download".to_string());
-                            let saved = if let Ok(home) = std::env::var("HOME") {
-                                let dest = std::path::PathBuf::from(home).join("Downloads").join(&filename);
-                                let s = dest.to_string_lossy().to_string();
-                                *destination = dest;
-                                s
-                            } else {
-                                String::new()
-                            };
                             let id = DOWNLOAD_ID.fetch_add(1, Ordering::SeqCst);
                             if let Ok(mut p) = DOWNLOAD_PENDING.lock() {
                                 // Bound the pending set: an orphaned Requested (cancelled /
@@ -3959,7 +4694,7 @@ fn browser_open_inner(
                                     let overflow = p.len() - 63;
                                     p.drain(0..overflow);
                                 }
-                                p.push((url_s.clone(), id, saved.clone(), dl_pane_id.clone()));
+                                p.push((url_s.clone(), id, saved.clone(), dl_pane_id.clone(), filename.clone()));
                             }
                             if let Ok(mut v) = DOWNLOAD_EVENTS.lock() {
                                 // Bounded like DOWNLOAD_PENDING: a pane that downloads
@@ -3982,13 +4717,13 @@ fn browser_open_inner(
                         }
                         DownloadEvent::Finished { url, path: _, success } => {
                             let url_s = url.to_string();
-                            let (id, saved, pane_id) = {
+                            let (id, saved, pane_id, name) = {
                                 let mut p = DOWNLOAD_PENDING.lock().unwrap_or_else(|e| e.into_inner());
-                                if let Some(pos) = p.iter().position(|(u, _, _, _)| *u == url_s) {
-                                    let (_, i, s, pid) = p.remove(pos);
-                                    (i, s, pid)
+                                if let Some(pos) = p.iter().position(|(u, _, _, _, _)| *u == url_s) {
+                                    let (_, i, s, pid, n) = p.remove(pos);
+                                    (i, s, pid, n)
                                 } else {
-                                    (DOWNLOAD_ID.fetch_add(1, Ordering::SeqCst), String::new(), dl_pane_id.clone())
+                                    (DOWNLOAD_ID.fetch_add(1, Ordering::SeqCst), String::new(), dl_pane_id.clone(), String::new())
                                 }
                             };
                             if let Ok(mut v) = DOWNLOAD_EVENTS.lock() {
@@ -3998,9 +4733,13 @@ fn browser_open_inner(
                                 }
                                 v.push(DownloadEventMsg {
                                     kind: "done".into(),
+                                    // Il nome viaggia anche nel «done»: se la pane è
+                                    // stata ricreata fra i due eventi il client non ha
+                                    // più lo «start» da cui prenderlo, e una voce senza
+                                    // nome è una voce che non dice niente.
                                     id: id.to_string(),
                                     url: url_s,
-                                    filename: String::new(),
+                                    filename: name,
                                     success,
                                     state: if success { "completed".into() } else { "interrupted".into() },
                                     saved_path: saved,
@@ -4235,12 +4974,18 @@ fn browser_animate_bounds(
 fn browser_list(app: tauri::AppHandle) -> Result<Vec<String>, String> {
     no_abort("browser_list", move || {
         use tauri::Manager;
-        let prefix = browser_label("");
-        Ok(app
+        // Deduplicato: una pane la cui etichetta è stata BRUCIATA (vedi
+        // `burn_pane_label`) lascia dietro di sé una webview morta registrata
+        // sotto la generazione vecchia, e quella e la nuova risalgono allo
+        // stesso id. Elencarlo due volte direbbe «due pane» dove ce n'è una.
+        let mut ids: Vec<String> = app
             .webviews()
             .keys()
-            .filter_map(|label| label.strip_prefix(prefix.as_str()).map(str::to_string))
-            .collect())
+            .filter_map(|label| pane_id_from_label(label).map(str::to_string))
+            .collect();
+        ids.sort();
+        ids.dedup();
+        Ok(ids)
     })
 }
 
@@ -4250,9 +4995,24 @@ fn browser_close(app: tauri::AppHandle, id: String) -> Result<(), String> {
     no_abort("browser_close", move || browser_close_inner(app, id))
 }
 
+/// Chiude la vista di una pane e dice la VERITÀ su com'è andata.
+///
+/// Ogni passo che tocca il dispatcher di wry ha il suo `no_abort`, non uno
+/// solo attorno a tutto: col mutex avvelenato panicava già `navigate()` — la
+/// prima riga — e il `?` che seguiva portava fuori dalla funzione prima della
+/// chiusura E prima della pulizia delle cache. Isolati, un passo morto non si
+/// porta via i successivi.
+///
+/// L'esito è `Err` quando l'etichetta è ancora registrata alla fine, cioè
+/// quando la vista NON è morta: `Webview::close()` toglie l'etichetta dal
+/// manager in modo sincrono (è la distruzione dell'NSView a essere asincrona),
+/// quindi trovarla ancora lì significa che la chiusura non è mai atterrata. In
+/// quel caso l'etichetta si brucia, così la prossima `browser_open` sullo stesso
+/// id crea una vista nuova invece di riusare quella morta.
 fn browser_close_inner(app: tauri::AppHandle, id: String) -> Result<(), String> {
     use tauri::Manager;
-    if let Some(wv) = app.get_webview(&browser_label(&id)) {
+    let label = browser_label(&id);
+    if let Some(wv) = app.get_webview(&label) {
         // SVUOTA PRIMA DI CHIUDERE. `close()` non libera il processo WebContent:
         // wry non dealloca mai la WKWebView — `impl Drop for InnerWebView`
         // (wry 0.55.1, `src/wkwebview/mod.rs:1413`) chiama `self.webview.retain()`
@@ -4272,12 +5032,14 @@ fn browser_close_inner(app: tauri::AppHandle, id: String) -> Result<(), String> 
         // termine un caricamento anche su una view staccata dalla sua superview
         // (e' la stessa proprieta' su cui contavano le pane nascoste).
         if let Ok(blank) = "about:blank".parse::<tauri::Url>() {
-            let _ = wv.navigate(blank);
+            let _ = no_abort("browser_close/navigate", || {
+                wv.navigate(blank).map_err(|e| e.to_string())
+            });
         }
         // La pane non esiste più: l'appunto sulla sua URL nemmeno, o una pane
         // nuova con lo stesso id erediterebbe la posizione della vecchia.
-        forget_pane_url(&browser_label(&id));
-        wv.close().map_err(|e| e.to_string())?;
+        forget_pane_url(&label);
+        let _ = no_abort("browser_close/close", || wv.close().map_err(|e| e.to_string()));
     }
     // Drop the cache entries so a re-opened pane on the same id re-applies move + mask.
     if let Ok(mut g) = browser_bounds_cache().lock() {
@@ -4301,7 +5063,24 @@ fn browser_close_inner(app: tauri::AppHandle, id: String) -> Result<(), String> 
     if let Ok(mut v) = DOWNLOAD_EVENTS.lock() {
         v.retain(|e| e.pane_id != id);
     }
-    Ok(())
+    // La vista è ancora registrata? Allora non è morta.
+    close_verdict(&id, app.get_webview(&label).is_some())
+}
+
+/// Il verdetto della chiusura, separato dal guscio per poterlo provare.
+///
+/// `still_registered` è `app.get_webview(&browser_label(id)).is_some()` dopo il
+/// tentativo. Vero = la vista è sopravvissuta: si brucia la sua etichetta (così
+/// il ramo di riuso di `browser_open` non la ritrova più) e si dichiara il
+/// fallimento, invece di mentire con un `Ok` che manda il client a riaprire
+/// sopra un morto.
+fn close_verdict(id: &str, still_registered: bool) -> Result<(), String> {
+    if !still_registered {
+        return Ok(());
+    }
+    let gen = burn_pane_label(id);
+    eprintln!("[browser_close] {id}: la vista ha rifiutato di chiudersi, etichetta bruciata (gen {gen})");
+    Err(format!("browser_close: pane {id} refused to close"))
 }
 
 /// Purge a browser pane's PERSISTENT on-disk `WKWebsiteDataStore` — the cookie/
@@ -4310,10 +5089,20 @@ fn browser_close_inner(app: tauri::AppHandle, id: String) -> Result<(), String> 
 /// an audit on 2026-08-02 found ~1.1 GB accumulated across contexts that no pane
 /// will ever reopen. This reclaims it.
 ///
-/// ⚠️ DESTRUCTIVE + IRREVERSIBLE: this deletes the login/session for `id`. Call it
-/// ONLY on a pane's TRUE close (the tombstone path in `usePaneLifecycle`), NEVER on
-/// the transient re-key of an auto-split or a hide — those must keep the store so
-/// the pane comes back logged in. The client contract enforces that.
+/// ⚠️ DESTRUCTIVE + IRREVERSIBLE: this deletes the login/session for `id`.
+///
+/// NON è più il comando della chiusura. Lo era, ed era il baratto sbagliato: la
+/// misura del 2026-08-12 sui 45 store veri (2,32 GB) dice che i cookie sono
+/// **44 KB IN TUTTO** — un chilobyte a store — mentre il 70% dello spazio è
+/// NetworkCache. Cancellare la sessione «per fare posto» buttava via un
+/// chilobyte per liberarne cinquantamila, e il conto lo pagava chi riapriva la
+/// tab e si ritrovava sloggato. La chiusura ora chiama `browser_purge_cache`,
+/// che prende gli stessi byte lasciando l'identità.
+///
+/// Restano due chiamanti legittimi, ed entrambi hanno un permesso che la
+/// chiusura non aveva: il reaper a scadenza (`browser_reap_data_stores`, uno
+/// store che NESSUNA pane rivendica più) e — quando ci sarà — il comando
+/// esplicito «Dimentica questo sito», dove a chiedere di dimenticare è l'utente.
 ///
 /// macOS 14+ (`removeDataStoreForIdentifier:completionHandler:`); older systems
 /// no-op via `respondsToSelector:`. Caveat: wry never deallocates the WKWebView
@@ -4364,6 +5153,550 @@ fn browser_purge_data_store(app: tauri::AppHandle, id: String) -> Result<(), Str
         let _ = id;
         Ok(())
     })
+}
+
+/// Svuota la CACHE dello store di una pane e lascia stare l'identità.
+///
+/// È il comando della chiusura, e sostituisce `browser_purge_data_store` in quel
+/// ruolo. Misurato il 2026-08-12 su 45 store veri (2,32 GB su disco):
+///
+///   NetworkCache   1,65 GB   70%   ← rigenerabile, va via
+///   Origins          685 MB   29%   ← localStorage/IndexedDB, RESTA
+///   Cookies           44 KB    0%   ← il login, RESTA
+///
+/// Il 70% torna a ogni chiusura senza toccare il chilobyte che ti tiene dentro
+/// il sito: il baratto «o il login o lo spazio» non esisteva, erano due
+/// cassetti diversi dello stesso mobile.
+///
+/// I tipi rimossi sono le sole cache: disco, fetch, memoria e le registrazioni
+/// dei service worker (una registrazione senza la sua CacheStorage è zavorra, e
+/// si riscrive alla prima visita). NON tocca `Cookies`, `LocalStorage`,
+/// `SessionStorage`, `IndexedDB` — sono l'identità sul sito.
+///
+/// macOS 14+ (`dataStoreForIdentifier:`, lo STESSO cancello di
+/// `removeDataStoreForIdentifier:` che il purge totale già usa); più vecchio =
+/// no-op via `respondsToSelector:`. Fire-and-forget come il fratello: non
+/// aspettiamo la completion asincrona.
+#[tauri::command]
+fn browser_purge_cache(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    no_abort("browser_purge_cache", move || {
+        #[cfg(target_os = "macos")]
+        {
+            use crate::mac::*;
+            let bytes = data_store_uuid_for(&id);
+            let id_for_log = id.clone();
+            let _ = app.run_on_main_thread(move || unsafe {
+                let cls = class!(WKWebsiteDataStore);
+                let sel = sel!(dataStoreForIdentifier:);
+                let responds: BOOL = msg_send![cls, respondsToSelector: sel];
+                if responds != YES {
+                    return; // pre-macOS-14: nessuno store per identifier.
+                }
+                let uuid_alloc: id = msg_send![class!(NSUUID), alloc];
+                let uuid: id = msg_send![uuid_alloc, initWithUUIDBytes: bytes.as_ptr()];
+                if uuid == nil {
+                    return;
+                }
+                let store: id = msg_send![cls, dataStoreForIdentifier: uuid];
+                if store == nil {
+                    return;
+                }
+                let types = cache_only_data_types();
+                if types == nil {
+                    return;
+                }
+                // `distantPast` = tutta la cache, non solo la recente.
+                let since: id = msg_send![class!(NSDate), distantPast];
+                let handler = block2::RcBlock::new(move || {
+                    let _ = &id_for_log; // il blocco possiede l'id solo per il log
+                });
+                let _: () = msg_send![store, removeDataOfTypes: types, modifiedSince: since, completionHandler: &*handler];
+            });
+        }
+        #[cfg(not(target_os = "macos"))]
+        let _ = (&app, &id);
+        Ok(())
+    })
+}
+
+/// L'insieme `NSSet` dei soli tipi-cache di WebKit.
+///
+/// Le costanti sono simboli esterni del framework WebKit (già linkato da wry),
+/// non stringhe che ci scriviamo noi: se un giorno cambiassero valore, un
+/// letterale sbagliato non cancellerebbe NULLA e nessuno se ne accorgerebbe —
+/// il link, invece, o regge o non compila.
+#[cfg(target_os = "macos")]
+unsafe fn cache_only_data_types() -> crate::mac::id {
+    use crate::mac::*;
+    extern "C" {
+        static WKWebsiteDataTypeDiskCache: id;
+        static WKWebsiteDataTypeFetchCache: id;
+        static WKWebsiteDataTypeMemoryCache: id;
+        static WKWebsiteDataTypeServiceWorkerRegistrations: id;
+    }
+    let items: [id; 4] = [
+        WKWebsiteDataTypeDiskCache,
+        WKWebsiteDataTypeFetchCache,
+        WKWebsiteDataTypeMemoryCache,
+        WKWebsiteDataTypeServiceWorkerRegistrations,
+    ];
+    msg_send![class!(NSSet), setWithObjects: items.as_ptr(), count: items.len()]
+}
+
+/// Un record dello store: il nome del silo WebKit e i tipi di dato che tiene.
+///
+/// `displayName` NON è l'host della pagina: WebKit raggruppa per dominio
+/// registrabile (su `mail.google.com` il record si chiama `google.com` e copre
+/// tutti i sottodomini). È il nome vero della cosa che si cancella, quindi è
+/// quello che il dialogo mostra e quello che la rimozione riceve indietro.
+#[cfg(target_os = "macos")]
+#[derive(Serialize)]
+struct SiteDataRecordJson {
+    #[serde(rename = "displayName")]
+    display_name: String,
+    types: Vec<String>,
+}
+
+/// La chiave stabile di un `WKWebsiteDataType`, per il client.
+///
+/// Il confronto è con i simboli del framework, non con letterali nostri: stessa
+/// ragione di `cache_only_data_types` — un letterale sbagliato non
+/// corrisponderebbe a niente e nessuno se ne accorgerebbe, mentre il link o
+/// regge o non compila. Un tipo che non conosciamo torna col suo nome grezzo:
+/// il client lo mette nel mucchio «dati del sito» invece di perderlo.
+#[cfg(target_os = "macos")]
+unsafe fn site_data_type_key(t: crate::mac::id) -> String {
+    use crate::mac::*;
+    extern "C" {
+        static WKWebsiteDataTypeCookies: id;
+        static WKWebsiteDataTypeLocalStorage: id;
+        static WKWebsiteDataTypeSessionStorage: id;
+        static WKWebsiteDataTypeIndexedDBDatabases: id;
+        static WKWebsiteDataTypeWebSQLDatabases: id;
+        static WKWebsiteDataTypeDiskCache: id;
+        static WKWebsiteDataTypeMemoryCache: id;
+        static WKWebsiteDataTypeFetchCache: id;
+        static WKWebsiteDataTypeOfflineWebApplicationCache: id;
+        static WKWebsiteDataTypeServiceWorkerRegistrations: id;
+    }
+    let known: [(id, &str); 10] = [
+        (WKWebsiteDataTypeCookies, "cookies"),
+        (WKWebsiteDataTypeLocalStorage, "localStorage"),
+        (WKWebsiteDataTypeSessionStorage, "sessionStorage"),
+        (WKWebsiteDataTypeIndexedDBDatabases, "indexedDB"),
+        (WKWebsiteDataTypeWebSQLDatabases, "webSql"),
+        (WKWebsiteDataTypeDiskCache, "diskCache"),
+        (WKWebsiteDataTypeMemoryCache, "memoryCache"),
+        (WKWebsiteDataTypeFetchCache, "fetchCache"),
+        (WKWebsiteDataTypeOfflineWebApplicationCache, "offlineAppCache"),
+        (WKWebsiteDataTypeServiceWorkerRegistrations, "serviceWorkers"),
+    ];
+    for (constant, key) in known {
+        let same: BOOL = msg_send![t, isEqual: constant];
+        if same == YES {
+            return key.to_string();
+        }
+    }
+    nsobject_to_string(t)
+}
+
+/// Elenca i record dello store della pane: `[{displayName, types:[…]}, …]`.
+///
+/// Ponte async-objc identico a `cookies_get_blocking` (il completion handler di
+/// `fetchDataRecordsOfTypes:` gira SUL MAIN, il risultato torna su un canale),
+/// quindi va chiamata fuori dal main thread.
+///
+/// Store e insieme dei tipi si ri-derivano DENTRO il handler invece di
+/// catturarli: sono oggetti autoreleased del giro corrente, e il handler
+/// arriva dopo che quel pool si è svuotato. La WKWebView, che è viva quanto la
+/// pane, si cattura e basta.
+#[cfg(target_os = "macos")]
+fn site_data_records_blocking(wv: &tauri::Webview) -> Result<String, String> {
+    use std::sync::mpsc;
+    use std::time::Duration;
+    let (tx, rx) = mpsc::channel::<Result<String, String>>();
+    wv.with_webview(move |platform| {
+        use crate::mac::*;
+        unsafe {
+            let wk = platform.inner() as id; // WKWebView
+            let config: id = msg_send![wk, configuration];
+            let store: id = msg_send![config, websiteDataStore];
+            let all: id = msg_send![class!(WKWebsiteDataStore), allWebsiteDataTypes];
+            let handler = block2::RcBlock::new(move |records: id| {
+                let mut out: Vec<SiteDataRecordJson> = Vec::new();
+                if records != nil {
+                    let count: usize = msg_send![records, count];
+                    for i in 0..count {
+                        let rec: id = msg_send![records, objectAtIndex: i];
+                        if rec == nil {
+                            continue;
+                        }
+                        let name: id = msg_send![rec, displayName];
+                        let types: id = msg_send![rec, dataTypes];
+                        let mut keys: Vec<String> = Vec::new();
+                        if types != nil {
+                            let list: id = msg_send![types, allObjects];
+                            let n: usize = msg_send![list, count];
+                            for j in 0..n {
+                                let t: id = msg_send![list, objectAtIndex: j];
+                                if t != nil {
+                                    keys.push(site_data_type_key(t));
+                                }
+                            }
+                        }
+                        keys.sort();
+                        out.push(SiteDataRecordJson {
+                            display_name: nsobject_to_string(name),
+                            types: keys,
+                        });
+                    }
+                }
+                let _ = tx.send(serde_json::to_string(&out).map_err(|e| e.to_string()));
+            });
+            let _: () = msg_send![store, fetchDataRecordsOfTypes: all, completionHandler: &*handler];
+        }
+    })
+    .map_err(|e| e.to_string())?;
+    rx.recv_timeout(Duration::from_secs(8))
+        .map_err(|_| "site data records timeout".to_string())?
+}
+
+/// Rimuove dallo store della pane SOLO i record che si chiamano come uno dei
+/// `names`, con tutti i loro tipi di dato. Ritorna quanti record ha tolto.
+///
+/// Il filtro sta qui e non in `removeDataOfTypes:modifiedSince:` perché quello
+/// è per-store, e lo store è per-pane: userebbe il martello di
+/// `browser_purge_data_store` per un chiodo per-sito.
+///
+/// I nomi arrivano da un `browser_site_data_records` che il client ha già
+/// mostrato all'utente: si cancella l'elenco che è stato letto, non «tutto ciò
+/// che assomiglia a quell'host». Un record comparso nel frattempo non è nella
+/// lista, quindi non muore per sbaglio.
+#[cfg(target_os = "macos")]
+fn forget_site_blocking(wv: &tauri::Webview, names: Vec<String>) -> Result<usize, String> {
+    use std::sync::mpsc;
+    use std::time::Duration;
+    let (tx, rx) = mpsc::channel::<Result<usize, String>>();
+    wv.with_webview(move |platform| {
+        use crate::mac::*;
+        unsafe {
+            let wk = platform.inner() as id; // WKWebView
+            let config: id = msg_send![wk, configuration];
+            let store: id = msg_send![config, websiteDataStore];
+            let all: id = msg_send![class!(WKWebsiteDataStore), allWebsiteDataTypes];
+            let handler = block2::RcBlock::new(move |records: id| {
+                let victims: id = msg_send![class!(NSMutableArray), array];
+                let mut hit = 0usize;
+                if records != nil {
+                    let count: usize = msg_send![records, count];
+                    for i in 0..count {
+                        let rec: id = msg_send![records, objectAtIndex: i];
+                        if rec == nil {
+                            continue;
+                        }
+                        let name: id = msg_send![rec, displayName];
+                        if names.contains(&nsobject_to_string(name)) {
+                            let _: () = msg_send![victims, addObject: rec];
+                            hit += 1;
+                        }
+                    }
+                }
+                if hit == 0 {
+                    let _ = tx.send(Ok(0));
+                    return;
+                }
+                // Il pool corrente non è ancora sceso: store e tipi si
+                // ri-derivano qui e restano validi per la chiamata.
+                let config: id = msg_send![wk, configuration];
+                let store: id = msg_send![config, websiteDataStore];
+                let all: id = msg_send![class!(WKWebsiteDataStore), allWebsiteDataTypes];
+                let tx_done = tx.clone();
+                let done = block2::RcBlock::new(move || {
+                    let _ = tx_done.send(Ok(hit));
+                });
+                let _: () = msg_send![store, removeDataOfTypes: all, forDataRecords: victims, completionHandler: &*done];
+            });
+            let _: () = msg_send![store, fetchDataRecordsOfTypes: all, completionHandler: &*handler];
+        }
+    })
+    .map_err(|e| e.to_string())?;
+    rx.recv_timeout(Duration::from_secs(15))
+        .map_err(|_| "forget site timeout".to_string())?
+}
+
+/// Elenca cosa c'è nello store di questa pane, per sito. JSON:
+/// `[{"displayName":"github.com","types":["cookies","localStorage",…]}, …]`.
+///
+/// È la metà «dire prima» del comando «Dimentica questo sito»: senza questa
+/// lista il dialogo direbbe soltanto «cancello i dati», che è la frase per cui
+/// un comando distruttivo si preme una volta e non si preme mai più.
+///
+/// Async + spawn_blocking per lo stesso motivo di `browser_pane_get_cookies`
+/// (completion handler sul main; un comando sincrono bloccherebbe il main).
+#[tauri::command]
+async fn browser_site_data_records(app: tauri::AppHandle, id: String) -> Result<String, String> {
+    let label = browser_label(&id);
+    tauri::async_runtime::spawn_blocking(move || {
+        use tauri::Manager;
+        let wv = app
+            .get_webview(&label)
+            .ok_or_else(|| "no such browser pane".to_string())?;
+        #[cfg(target_os = "macos")]
+        {
+            return site_data_records_blocking(&wv);
+        }
+        #[allow(unreachable_code)]
+        {
+            let _ = wv;
+            Err("browser_site_data_records: macOS only".to_string())
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Dimentica i siti nominati in `display_names`: sessione, cookie, dati e cache
+/// dei loro record, e nient'altro. Ritorna quanti record ha rimosso.
+///
+/// ⚠️ DISTRUTTIVO E IRREVERSIBILE, ma per-SITO: lo store della pane resta, con
+/// dentro tutti gli altri siti. Il fratello che butta lo store intero è
+/// `browser_purge_data_store`, e ha un solo chiamante rimasto (il reaper).
+#[tauri::command]
+async fn browser_forget_site(
+    app: tauri::AppHandle,
+    id: String,
+    display_names: Vec<String>,
+) -> Result<usize, String> {
+    if display_names.is_empty() {
+        return Ok(0);
+    }
+    let label = browser_label(&id);
+    tauri::async_runtime::spawn_blocking(move || {
+        use tauri::Manager;
+        let wv = app
+            .get_webview(&label)
+            .ok_or_else(|| "no such browser pane".to_string())?;
+        #[cfg(target_os = "macos")]
+        {
+            return forget_site_blocking(&wv, display_names);
+        }
+        #[allow(unreachable_code)]
+        {
+            let _ = (wv, display_names);
+            Err("browser_forget_site: macOS only".to_string())
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Il reaper della coda lunga: rimuove per INTERO gli store che nessuna pane
+/// rivendica più e che nessuno tocca da `max_age_days` giorni.
+///
+/// È la seconda metà della politica: da quando la chiusura conserva il login,
+/// gli store non se ne vanno più da soli, e senza uno spazzino il disco
+/// crescerebbe per sempre. Ma «vecchio» da solo non basta come permesso —
+/// il sito che apri due volte l'anno è proprio quello di cui NON vuoi rifare il
+/// login. Servono due condizioni insieme:
+///
+///   1. ORFANO — `keep_ids` è la lista dei contextId che hanno ancora una pane,
+///      e la manda il client, che è l'unico ad averla per intero (il suo pane
+///      store è sincronizzato tra i device, quindi copre anche le pane aperte
+///      sul telefono). Uno store nella lista è intoccabile a QUALSIASI età.
+///   2. FERMO — nessun file suo modificato da `max_age_days` giorni.
+///
+/// `max_age_days` ha un pavimento di 7 giorni (`MIN_REAP_AGE_DAYS`): se un
+/// giorno un chiamante sbagliasse a passare 0, il peggio che può fare è
+/// rimuovere store fermi da una settimana e orfani — non svuotare il browser.
+///
+/// Ritorna quanti store ha rimosso.
+#[tauri::command]
+fn browser_reap_data_stores(
+    app: tauri::AppHandle,
+    keep_ids: Vec<String>,
+    max_age_days: u64,
+) -> Result<usize, String> {
+    no_abort("browser_reap_data_stores", move || {
+        #[cfg(target_os = "macos")]
+        {
+            let dir = match website_data_store_dir() {
+                Some(d) => d,
+                None => return Ok(0),
+            };
+            let victims = stale_store_uuids(&dir, &keep_ids, max_age_days, std::time::SystemTime::now());
+            let n = victims.len();
+            for uuid_str in victims {
+                let bytes = match uuid_bytes_from_str(&uuid_str) {
+                    Some(b) => b,
+                    None => continue,
+                };
+                let name = uuid_str.clone();
+                let _ = app.run_on_main_thread(move || unsafe {
+                    use crate::mac::*;
+                    let cls = class!(WKWebsiteDataStore);
+                    let sel = sel!(removeDataStoreForIdentifier:completionHandler:);
+                    let responds: BOOL = msg_send![cls, respondsToSelector: sel];
+                    if responds != YES {
+                        return;
+                    }
+                    let uuid_alloc: id = msg_send![class!(NSUUID), alloc];
+                    let uuid: id = msg_send![uuid_alloc, initWithUUIDBytes: bytes.as_ptr()];
+                    if uuid == nil {
+                        return;
+                    }
+                    let handler = block2::RcBlock::new(move |err: id| {
+                        if err != nil {
+                            let desc: id = msg_send![err, localizedDescription];
+                            eprintln!(
+                                "[browser_reap_data_stores] {}: {}",
+                                name,
+                                nsobject_to_string(desc)
+                            );
+                        }
+                    });
+                    let _: () = msg_send![cls, removeDataStoreForIdentifier: uuid, completionHandler: &*handler];
+                });
+            }
+            Ok(n)
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = (&app, &keep_ids, &max_age_days);
+            Ok(0)
+        }
+    })
+}
+
+/// Pavimento sull'età del reaper — vedi `browser_reap_data_stores`.
+#[cfg(target_os = "macos")]
+const MIN_REAP_AGE_DAYS: u64 = 7;
+
+/// La cartella dove WebKit tiene gli store per identifier.
+///
+/// Il nome della sottocartella è l'identificatore del bundle quando l'app è
+/// impacchettata e il nome del processo quando gira da `cargo run`: lo chiede a
+/// NSBundle invece di indovinarlo, o in sviluppo il reaper spazzerebbe la
+/// cartella dell'app installata (o viceversa).
+#[cfg(target_os = "macos")]
+fn website_data_store_dir() -> Option<std::path::PathBuf> {
+    use crate::mac::*;
+    let name = unsafe {
+        let bundle: id = msg_send![class!(NSBundle), mainBundle];
+        let ident: id = if bundle == nil { nil } else { msg_send![bundle, bundleIdentifier] };
+        if ident != nil {
+            nsobject_to_string(ident)
+        } else {
+            let pi: id = msg_send![class!(NSProcessInfo), processInfo];
+            let pn: id = if pi == nil { nil } else { msg_send![pi, processName] };
+            if pn == nil {
+                return None;
+            }
+            nsobject_to_string(pn)
+        }
+    };
+    if name.is_empty() {
+        return None;
+    }
+    let home = std::env::var_os("HOME")?;
+    Some(
+        std::path::PathBuf::from(home)
+            .join("Library/WebKit")
+            .join(name)
+            .join("WebsiteDataStore"),
+    )
+}
+
+/// Quali store sono da rimuovere: orfani E fermi. Separata dal guscio ObjC per
+/// poterla provare su una cartella finta — la decisione È il pezzo rischioso,
+/// la chiamata a WebKit no.
+#[cfg(target_os = "macos")]
+fn stale_store_uuids(
+    dir: &std::path::Path,
+    keep_ids: &[String],
+    max_age_days: u64,
+    now: std::time::SystemTime,
+) -> Vec<String> {
+    let age = std::time::Duration::from_secs(max_age_days.max(MIN_REAP_AGE_DAYS) * 86_400);
+    let keep: std::collections::HashSet<String> = keep_ids
+        .iter()
+        .map(|id| uuid_str_from_bytes(&data_store_uuid_for(id)))
+        .collect();
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return Vec::new(),
+    };
+    let mut out = Vec::new();
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
+        if uuid_bytes_from_str(&name).is_none() {
+            continue; // non è uno store per identifier: non è roba nostra.
+        }
+        if keep.contains(&name) {
+            continue; // una pane lo rivendica: intoccabile a qualsiasi età.
+        }
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        // L'mtime della cartella radice non si muove quando cambia un file in
+        // fondo a `Origins/`: si prende il PIÙ RECENTE tra la radice e i suoi
+        // figli diretti (Cookies/, NetworkCache/, Origins/…). Un livello basta a
+        // non dichiarare fermo uno store vivo, e costa una readdir.
+        let touched = newest_mtime_shallow(&path);
+        match now.duration_since(touched) {
+            Ok(elapsed) if elapsed >= age => out.push(name),
+            _ => {}
+        }
+    }
+    out.sort();
+    out
+}
+
+/// L'mtime più recente tra una cartella e i suoi figli diretti.
+#[cfg(target_os = "macos")]
+fn newest_mtime_shallow(path: &std::path::Path) -> std::time::SystemTime {
+    let mut newest = std::fs::metadata(path)
+        .and_then(|m| m.modified())
+        .unwrap_or(std::time::UNIX_EPOCH);
+    if let Ok(children) = std::fs::read_dir(path) {
+        for child in children.flatten() {
+            if let Ok(m) = child.metadata().and_then(|m| m.modified()) {
+                if m > newest {
+                    newest = m;
+                }
+            }
+        }
+    }
+    newest
+}
+
+/// I 16 byte di un UUID scritto `8-4-4-4-12`, o `None` se non lo è.
+#[cfg(target_os = "macos")]
+fn uuid_bytes_from_str(s: &str) -> Option<[u8; 16]> {
+    let hex: String = s.chars().filter(|c| *c != '-').collect();
+    if hex.len() != 32 || s.len() != 36 || !hex.chars().all(|c| c.is_ascii_hexdigit()) {
+        return None;
+    }
+    let mut out = [0u8; 16];
+    for (i, byte) in out.iter_mut().enumerate() {
+        *byte = u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16).ok()?;
+    }
+    Some(out)
+}
+
+/// L'inverso: i 16 byte nella forma minuscola `8-4-4-4-12` con cui WebKit
+/// nomina la cartella dello store.
+#[cfg(target_os = "macos")]
+fn uuid_str_from_bytes(b: &[u8; 16]) -> String {
+    let h: Vec<String> = b.iter().map(|x| format!("{x:02x}")).collect();
+    format!(
+        "{}-{}-{}-{}-{}",
+        h[0..4].concat(),
+        h[4..6].concat(),
+        h[6..8].concat(),
+        h[8..10].concat(),
+        h[10..16].concat()
+    )
 }
 
 /// Run `js` in a webview and return its result stringified — the read-side agent
@@ -4481,10 +5814,13 @@ async fn browser_eval_js(app: tauri::AppHandle, id: String, js: String, preserve
         {
             return eval_js_blocking(&wv, js, preserve_focus);
         }
-        #[allow(unreachable_code)]
+        #[cfg(target_os = "windows")]
         {
-            let _ = (wv, js);
-            Err("browser_eval_js: macOS only".to_string())
+            return crate::browser_win::eval_js_blocking(&wv, js, preserve_focus);
+        }
+        #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+        {
+            return crate::browser_linux::eval_js_blocking(&wv, js, preserve_focus);
         }
     })
     .await
@@ -4572,10 +5908,13 @@ async fn browser_screenshot(app: tauri::AppHandle, id: String) -> Result<String,
         {
             return screenshot_blocking(&wv);
         }
-        #[allow(unreachable_code)]
+        #[cfg(target_os = "windows")]
         {
-            let _ = wv;
-            Err("browser_screenshot: macOS only".to_string())
+            return crate::browser_win::screenshot_blocking(&wv);
+        }
+        #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+        {
+            return crate::browser_linux::screenshot_blocking(&wv);
         }
     })
     .await
@@ -4825,10 +6164,13 @@ async fn browser_pane_get_cookies(app: tauri::AppHandle, id: String) -> Result<S
         {
             return cookies_get_blocking(&wv);
         }
-        #[allow(unreachable_code)]
+        #[cfg(target_os = "windows")]
         {
-            let _ = wv;
-            Err("browser_pane_get_cookies: macOS only".to_string())
+            return crate::browser_win::cookies_get_blocking(&wv);
+        }
+        #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+        {
+            return crate::browser_linux::cookies_get_blocking(&wv);
         }
     })
     .await
@@ -4854,10 +6196,13 @@ async fn browser_pane_set_cookies(
         {
             return cookies_set_blocking(&wv, cookies);
         }
-        #[allow(unreachable_code)]
+        #[cfg(target_os = "windows")]
         {
-            let _ = (wv, cookies);
-            Err("browser_pane_set_cookies: macOS only".to_string())
+            return crate::browser_win::cookies_set_blocking(&wv, cookies);
+        }
+        #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+        {
+            return crate::browser_linux::cookies_set_blocking(&wv, cookies);
         }
     })
     .await
@@ -4908,10 +6253,18 @@ fn browser_back(app: tauri::AppHandle, id: String) -> Result<(), String> {
         use tauri::Manager;
         let wv = app.get_webview(&browser_label(&id)).ok_or("no such browser pane")?;
         #[cfg(target_os = "macos")]
-        wk_nav(&wv, 0);
-        #[cfg(not(target_os = "macos"))]
-        let _ = wv;
-        Ok(())
+        {
+            wk_nav(&wv, 0);
+            Ok(())
+        }
+        #[cfg(target_os = "windows")]
+        {
+            crate::browser_win::go_back(&wv)
+        }
+        #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+        {
+            crate::browser_linux::go_back(&wv)
+        }
     })
 }
 
@@ -4922,10 +6275,18 @@ fn browser_forward(app: tauri::AppHandle, id: String) -> Result<(), String> {
         use tauri::Manager;
         let wv = app.get_webview(&browser_label(&id)).ok_or("no such browser pane")?;
         #[cfg(target_os = "macos")]
-        wk_nav(&wv, 1);
-        #[cfg(not(target_os = "macos"))]
-        let _ = wv;
-        Ok(())
+        {
+            wk_nav(&wv, 1);
+            Ok(())
+        }
+        #[cfg(target_os = "windows")]
+        {
+            crate::browser_win::go_forward(&wv)
+        }
+        #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+        {
+            crate::browser_linux::go_forward(&wv)
+        }
     })
 }
 
@@ -4936,10 +6297,18 @@ fn browser_reload(app: tauri::AppHandle, id: String) -> Result<(), String> {
         use tauri::Manager;
         let wv = app.get_webview(&browser_label(&id)).ok_or("no such browser pane")?;
         #[cfg(target_os = "macos")]
-        wk_nav(&wv, 2);
-        #[cfg(not(target_os = "macos"))]
-        let _ = wv;
-        Ok(())
+        {
+            wk_nav(&wv, 2);
+            Ok(())
+        }
+        #[cfg(target_os = "windows")]
+        {
+            crate::browser_win::reload(&wv)
+        }
+        #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+        {
+            crate::browser_linux::reload(&wv)
+        }
     })
 }
 
@@ -5562,6 +6931,38 @@ fn logical_monitors(win: &tauri::WebviewWindow) -> Vec<(i32, i32, u32, u32)> {
 
 /// The window's outer geometry in LOGICAL points: `((x, y), (w, h))`.
 /// Unscales tao's per-current-monitor "physical" values back to AppKit points.
+///
+/// ── DIFETTO APERTO, MISURATO IL 2026-08-10 ──────────────────────────────────
+/// Su questa macchina (retina scale 2 come primario + DUE ultrawide scale 1)
+/// quello che finisce nel file NON è la geometria vera, e sbaglia in modo
+/// ASIMMETRICO — che è l'indizio, perché un fattore di scala sbagliato
+/// sbaglierebbe tutto allo stesso modo:
+///
+///   finestra vera (System Events / CGDisplayBounds, punti logici):
+///       x = -797   y = -1410   w = 3440   h = 1410
+///   topics-win-size.json:
+///       lx = -797  ly =  -705  w = 1720   h =  705
+///
+/// `w`, `h` e `ly` sono ESATTAMENTE la metà; `lx` no. Cioè `to_logical(sf)` ha
+/// diviso per 2 dei valori che erano già logici, mentre la x arrivava già
+/// raddoppiata e la divisione la rimetteva a posto per caso. Ne segue che
+/// `win.scale_factor()` qui vale 2 mentre la finestra sta su un display scale 1,
+/// e che la "physical" che tao restituisce per la posizione non è coerente fra i
+/// due assi (probabilmente perché il ribaltamento origine-in-basso di AppKit usa
+/// l'altezza del PRIMARIO, con la sua scala, mentre la x resta nello spazio
+/// della finestra).
+///
+/// EFFETTO: al prossimo cold-start la finestra si riapre a un quarto dell'area.
+/// Non è il difetto off-screen già chiuso in 2.1.4 — la posizione salvata cade
+/// dentro un display vivo, quindi `clamp_position_to_monitors` la accetta, ed è
+/// giusto che la accetti.
+///
+/// NON L'HO CORRETTO, e la ragione è che non si può provare da qui: qualunque
+/// cura (usare la scala di `current_monitor()`, oppure leggere `NSWindow.frame`
+/// da objc2, che darebbe punti AppKit senza nessuna conversione) va verificata
+/// facendo girare il guscio su QUESTA disposizione di monitor, cioè
+/// ricostruendo e sostituendo la app in uso. Le due misure qui sopra sono il
+/// punto di partenza: chi ci mette mano le rilegga dopo, non prima.
 fn window_logical_geometry(win: &tauri::WebviewWindow) -> Option<((i32, i32), (u32, u32))> {
     let sf = win.scale_factor().ok()?;
     let pos = win.outer_position().ok()?.to_logical::<f64>(sf);
@@ -5697,9 +7098,11 @@ fn ensure_window_visible(win: &tauri::WebviewWindow) {
     let _ = win.set_focus();
 }
 
-/// Override the pane's User-Agent (device emulation). WKWebView
-/// `setCustomUserAgent:` — empty string resets to the default. Takes effect on
-/// the next load, so the client reloads after setting it. macOS only.
+/// Override the pane's User-Agent (device emulation). Empty string resets to the
+/// default. Takes effect on the next load, so the client reloads after setting
+/// it. Tutti e tre i motori: `setCustomUserAgent:` su WKWebView,
+/// `ICoreWebView2Settings2::UserAgent` su WebView2, `WebKitSettings:user-agent`
+/// su WebKitGTK.
 #[tauri::command]
 fn browser_set_user_agent(app: tauri::AppHandle, id: String, ua: String) -> Result<(), String> {
     no_abort("browser_set_user_agent", move || browser_set_user_agent_inner(app, id, ua))
@@ -5707,7 +7110,8 @@ fn browser_set_user_agent(app: tauri::AppHandle, id: String, ua: String) -> Resu
 
 fn browser_set_user_agent_inner(app: tauri::AppHandle, id: String, ua: String) -> Result<(), String> {
     use tauri::Manager;
-    let wv = app.get_webview(&browser_label(&id)).ok_or("no such browser pane")?;
+    let label = browser_label(&id);
+    let wv = app.get_webview(&label).ok_or("no such browser pane")?;
     #[cfg(target_os = "macos")]
     {
         let _ = wv.with_webview(move |platform| unsafe {
@@ -5722,8 +7126,18 @@ fn browser_set_user_agent_inner(app: tauri::AppHandle, id: String, ua: String) -
             }
         });
     }
-    #[cfg(not(target_os = "macos"))]
-    let _ = (wv, ua);
+    // Su Windows serve anche l'etichetta, e il motivo e che WebView2 non sa
+    // tornare indietro: la stringa vuota che qui sopra resetta WKWebView, li
+    // viene rifiutata dal setter. Il default va quindi ricordato per pane, e
+    // l'etichetta e la sua chiave.
+    #[cfg(target_os = "windows")]
+    {
+        let _ = crate::browser_win::set_user_agent(&wv, label, ua);
+    }
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    {
+        let _ = crate::browser_linux::set_user_agent(&wv, ua);
+    }
     Ok(())
 }
 
@@ -5844,10 +7258,13 @@ async fn browser_nav_entries(app: tauri::AppHandle, id: String) -> Result<String
         {
             return nav_entries_blocking(&wv);
         }
-        #[allow(unreachable_code)]
+        #[cfg(target_os = "windows")]
         {
-            let _ = wv;
-            Err("browser_nav_entries: macOS only".to_string())
+            return crate::browser_win::nav_entries(&wv);
+        }
+        #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+        {
+            return crate::browser_linux::nav_entries(&wv);
         }
     })
     .await
@@ -5863,10 +7280,22 @@ fn browser_go_to_index(app: tauri::AppHandle, id: String, index: i64) -> Result<
             .get_webview(&browser_label(&id))
             .ok_or("no such browser pane")?;
         #[cfg(target_os = "macos")]
-        go_to_index_blocking(&wv, index);
-        #[cfg(not(target_os = "macos"))]
-        let _ = (wv, index);
-        Ok(())
+        {
+            go_to_index_blocking(&wv, index);
+            Ok(())
+        }
+        // WebView2 non ha la lista della cronologia, quindi non c'e un indice a
+        // cui saltare: `browser_win::nav_entries` restituisce una lista vuota e
+        // la UI non offre nemmeno la voce. Resta un no-op dichiarato.
+        #[cfg(target_os = "windows")]
+        {
+            let _ = (wv, index);
+            Ok(())
+        }
+        #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+        {
+            crate::browser_linux::go_to_index(&wv, index)
+        }
     })
 }
 
@@ -5961,11 +7390,19 @@ fn install_shortcut_forwarder(app: &tauri::AppHandle) {
             // terminal eats the menu accelerator's key-equivalent, so ⌘R never
             // reloaded unless the main chrome itself held focus ("premo reload e
             // non succede nulla"). The NSEvent monitor sees the key first — so we
-            // handle it HERE, BEFORE the inside-UI gate below, and reload the
-            // event window's own UI webview directly, then swallow the original
-            // so neither the pane nor the terminal also acts on it. `location.
-            // reload()` re-fetches index.html + bundle = the app reload the user
-            // expects. (Only ⌘R without Ctrl — leaves ⌃R and page shortcuts alone.)
+            // handle it HERE, BEFORE the inside-UI gate below, riparte TUTTA la
+            // app (`reload_all_ui_windows`, la stessa logica di `app_reload_all`),
+            // poi ingoia l'originale così né la pane né il terminale agiscono
+            // anche loro. `location.reload()` re-fetches index.html + bundle = the
+            // app reload the user expects. (Only ⌘R without Ctrl — leaves ⌃R and
+            // page shortcuts alone.)
+            //
+            // TUTTE le finestre, non solo quella dell'evento: siccome qui si
+            // ingoia il keydown, `useKeyboardShortcuts` — che chiamava
+            // `reloadAllWindows` — non vede mai ⌘R, quindi questo ramo È il ⌘R
+            // del desktop. Ricaricarne una sola lasciava i gruppi staccati sul
+            // bundle vecchio, due versioni dello stesso client sullo stesso
+            // pane-store.
             //
             // E senza Shift: ⌘⇧R è "Record voice" (lo dicono il tooltip del
             // microfono e il pannello delle scorciatoie). Togliere l'acceleratore
@@ -5981,21 +7418,10 @@ fn install_shortcut_forwarder(app: &tauri::AppHandle) {
                 let chars_r_id: id = msg_send![event, charactersIgnoringModifiers];
                 let chars_r = ns_string_to_rust(chars_r_id).to_lowercase();
                 if cmd_r && !ctrl_r && !shift_r && chars_r == "r" {
-                    let mut done = false;
-                    for (label, w) in app.webview_windows() {
-                        if w.ns_window().map(|p| p as usize).ok() == Some(ev_window_ptr) {
-                            if let Some(wv) = app.get_webview(&label) {
-                                let _ = wv.eval("window.location.reload()");
-                                done = true;
-                            }
-                            break;
-                        }
-                    }
-                    if !done {
-                        if let Some(mw) = app.get_webview("main") {
-                            let _ = mw.eval("window.location.reload()");
-                        }
-                    }
+                    // no_abort: si sta girando dentro un blocco NSEvent, dove un
+                    // panic non ha nessuno che lo raccolga — sarebbe un abort
+                    // dell'intera app su una pressione di ⌘R.
+                    let _ = no_abort("cmd_r_reload_all", || Ok(reload_all_ui_windows(&app)));
                     return nil; // swallow — the pane/terminal must not also see ⌘R
                 }
             }
@@ -6593,25 +8019,51 @@ fn window_focus_label(app: tauri::AppHandle, label: String) -> bool {
     .unwrap_or(false)
 }
 
+/// JS che ricarica il documento UI LASCIANDO UN SEGNO che il client mostra al
+/// boot successivo (`ReloadedFlash` → toast «Ricaricata»).
+///
+/// Un reload che rifà lo stesso contenuto è indistinguibile dal nulla: premi
+/// ⌘R, lo schermo torna identico, e l'unica conclusione possibile è «non va».
+/// È già successo. Il segno sta in `sessionStorage` perché è l'unico posto che
+/// sopravvive a `location.reload()` senza sopravvivere alla finestra: la
+/// prossima sessione non si porta dietro un toast fossile.
+///
+/// `try/catch` perché in un documento con storage negato `sessionStorage` LANCIA
+/// al solo accesso: senza guardia l'eccezione ucciderebbe la riga e il reload —
+/// cioè il feedback si mangerebbe la funzione che deve annunciare.
+const RELOAD_WITH_FLASH_JS: &str =
+    "try{sessionStorage.setItem('topics:reloaded','1')}catch(e){}window.location.reload()";
+
 /// Ricarica TUTTE le finestre della app (chrome inclusa), non solo quella che
 /// chiede. Il bundle è uno solo: dopo un build, una finestra ricaricata e le
 /// altre ferme sono due versioni dello stesso client che si parlano — e chi
 /// preme ⌘R non sta chiedendo "ricarica questa", sta chiedendo "riparti".
 /// Le pane native dei browser non si toccano: si ricarica il documento UI.
+///
+/// QUESTA è l'unica implementazione del gesto «riparti», e ci passano tutte e
+/// tre le porte: il monitor NSEvent che intercetta ⌘R su macOS, la voce Reload /
+/// Force Reload del menu, e il comando `app_reload_all` chiamato dal renderer.
+/// Prima erano tre: il monitor ingoia l'evento (`return nil`), quindi
+/// `useKeyboardShortcuts` non vedeva mai ⌘R e il ramo "ricarica tutto" era di
+/// fatto morto sul desktop — il nativo ricaricava la sola finestra dell'evento e
+/// i gruppi staccati restavano sul bundle vecchio. Una semantica sola, in un
+/// posto solo: se cambia, cambia per tutti e tre i gesti.
+fn reload_all_ui_windows(app: &tauri::AppHandle) -> usize {
+    use tauri::Manager;
+    let mut n = 0usize;
+    for (label, win) in app.webview_windows() {
+        // Le pane native del browser sono webview a sé: si saltano, o si
+        // ricaricherebbe la pagina che l'utente sta guardando.
+        if label.starts_with("browserpane-") { continue; }
+        if win.eval(RELOAD_WITH_FLASH_JS).is_ok() { n += 1; }
+    }
+    n
+}
+
+/// Il gesto «riparti» esposto al renderer. Vedi `reload_all_ui_windows`.
 #[tauri::command]
 fn app_reload_all(app: tauri::AppHandle) -> usize {
-    use tauri::Manager;
-    no_abort("app_reload_all", || {
-        let mut n = 0usize;
-        for (label, win) in app.webview_windows() {
-            // Le pane native del browser sono webview a sé: si saltano, o si
-            // ricaricherebbe la pagina che l'utente sta guardando.
-            if label.starts_with("browserpane-") { continue; }
-            if win.eval("location.reload()").is_ok() { n += 1; }
-        }
-        Ok(n)
-    })
-    .unwrap_or(0)
+    no_abort("app_reload_all", || Ok(reload_all_ui_windows(&app))).unwrap_or(0)
 }
 
 /// Chiude la finestra `label` (una finestra-gruppo, di solito): è il "riporta
@@ -7396,20 +8848,14 @@ pub fn run() {
             use tauri::Manager;
             match event.id().0.as_str() {
                 "reload" | "force-reload" => {
-                    // Ricarica la finestra FOCUSSATA, non sempre "main": con le
-                    // finestre progetto aperte il vecchio target fisso lasciava
-                    // quelle col bundle stantìo per sempre ("Cmd+R non va").
-                    // Stesso pattern di reset-split-layout qui sotto.
-                    let label = app
-                        .get_focused_window()
-                        .map(|w| w.label().to_string())
-                        .unwrap_or_else(|| "main".to_string());
-                    if let Some(win) = app
-                        .get_webview_window(&label)
-                        .or_else(|| app.get_webview_window("main"))
-                    {
-                        let _ = win.eval("window.location.reload()");
-                    }
+                    // Il menu e la scorciatoia sono lo stesso gesto, quindi
+                    // chiamano la stessa funzione: riparte TUTTA la app, non la
+                    // sola finestra focussata. Il bundle è uno; ricaricarne una
+                    // lasciava le altre (gruppi staccati, finestre progetto) su
+                    // quello vecchio, a parlarsi sullo stesso pane-store.
+                    // Non serve più risolvere la finestra focussata: le prende
+                    // tutte, quella inclusa.
+                    let _ = no_abort("menu_reload_all", || Ok(reload_all_ui_windows(app)));
                 }
                 "app-quit" => {
                     QUITTING.store(true, Ordering::Relaxed);
@@ -7906,10 +9352,20 @@ pub fn run() {
             // sets `UPSTREAM` then RETURNS (its up-to-20s sidecar health wait is now
             // fire-and-forget), so run_tls_proxy binds :13333 immediately — the virgin
             // machine no longer sits on "connecting" for the whole cold start.
+            // Reachable from AppKit notification callbacks, which carry no user data.
+            let _ = SHELL_APP.set(app.handle().clone());
+            // Display change / wake → re-anchor + bounce (PORTING-PLAN T1.3).
+            #[cfg(target_os = "macos")]
+            wire_recompose_observers();
+
             {
                 let app_for_boot = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
-                    decide_upstream_and_spawn(app_for_boot).await;
+                    decide_upstream_and_spawn(app_for_boot.clone()).await;
+                    // The recovery path, started for BOTH upstreams (external server
+                    // and bundled sidecar) — see `watch_upstream`. Spawned before the
+                    // proxy because `run_tls_proxy` never returns.
+                    tauri::async_runtime::spawn(watch_upstream(app_for_boot));
                     run_tls_proxy().await;
                 });
             }
@@ -8146,6 +9602,10 @@ pub fn run() {
             browser_animate_bounds,
             browser_close,
             browser_purge_data_store,
+            browser_purge_cache,
+            browser_site_data_records,
+            browser_forget_site,
+            browser_reap_data_stores,
             browser_list,
             browser_eval_js,
             browser_screenshot,
@@ -8714,5 +10174,434 @@ mod bundle_rev_tests {
         let out = stamp_bundle_rev("<body>x</body>", "/assets/index-Aa.js");
         assert!(out.starts_with("<meta name=\"topics-bundle-rev\""));
         assert!(out.ends_with("<body>x</body>"));
+    }
+}
+
+#[cfg(test)]
+mod window_recovery_tests {
+    use super::{
+        connect_upstream_retrying, is_document_head, is_websocket_head, rect_intersects_any,
+        reconnect_page_response, RELOAD_IF_BLANK_JS,
+    };
+    use std::time::Duration;
+
+    /// A current-thread runtime for the two socket tests (the crate's tokio has no
+    /// `macros` feature, so there is no `#[tokio::test]`).
+    fn rt() -> tokio::runtime::Runtime {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+    }
+
+    const DOC: &[u8] = b"GET / HTTP/1.1\r\nHost: 127.0.0.1:13333\r\n\
+Accept: text/html,application/xhtml+xml\r\nSec-Fetch-Dest: document\r\n\r\n";
+    const XHR: &[u8] = b"GET /api/topics HTTP/1.1\r\nHost: 127.0.0.1:13333\r\n\
+Accept: application/json\r\nSec-Fetch-Dest: empty\r\n\r\n";
+    const WS: &[u8] = b"GET /ws HTTP/1.1\r\nHost: 127.0.0.1:13333\r\n\
+Upgrade: websocket\r\nConnection: Upgrade\r\nAccept: */*\r\n\r\n";
+
+    /// Only a top-level navigation may be answered with the reconnect page: an XHR
+    /// gets HTML where it wanted JSON, and a WebSocket gets a broken handshake.
+    #[test]
+    fn only_documents_get_the_reconnect_page() {
+        assert!(is_document_head(DOC));
+        assert!(!is_document_head(XHR));
+        assert!(!is_document_head(WS));
+        assert!(is_websocket_head(WS));
+        assert!(!is_websocket_head(DOC));
+    }
+
+    /// A browser that sends no `Sec-Fetch-Dest` must still be recognised by Accept.
+    #[test]
+    fn accept_html_is_enough_without_sec_fetch_dest() {
+        let head = b"GET / HTTP/1.1\r\nHost: x\r\nAccept: text/html\r\n\r\n";
+        assert!(is_document_head(head));
+    }
+
+    /// The whole point of the page is that it PAINTS (opaque background — the window
+    /// is transparent, so "nothing" is invisible, not white) and comes back BY ITSELF.
+    #[test]
+    fn reconnect_page_paints_and_self_reloads() {
+        let r = String::from_utf8(reconnect_page_response()).unwrap();
+        assert!(r.starts_with("HTTP/1.1 503 "));
+        assert!(r.contains("Content-Type: text/html"));
+        assert!(r.contains("Cache-Control: no-store"), "must never be cached over the app");
+        assert!(r.contains("location.reload()"), "must recover with no human in the loop");
+        assert!(r.contains("background:#1c1c1e"), "must paint opaque pixels");
+        let len: usize = r
+            .split("Content-Length: ")
+            .nth(1)
+            .and_then(|s| s.split("\r\n").next())
+            .unwrap()
+            .parse()
+            .unwrap();
+        let body = r.split("\r\n\r\n").nth(1).unwrap();
+        assert_eq!(len, body.len(), "Content-Length must match the body");
+    }
+
+    /// The nudge must be a no-op on a LIVE app (a forced reload would throw away a
+    /// working session) and must fire on an empty document.
+    #[test]
+    fn blank_guard_spares_a_mounted_app() {
+        assert!(RELOAD_IF_BLANK_JS.contains("childElementCount>0)return"));
+        assert!(RELOAD_IF_BLANK_JS.contains("catch(e){location.reload()}"));
+    }
+
+    /// A server restart is ~2s of ECONNREFUSED. The old code gave up on the first
+    /// one; this must hold on and succeed when the port comes back.
+    #[test]
+    fn connect_retries_across_a_restart() {
+        rt().block_on(async {
+        let probe = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = probe.local_addr().unwrap().port();
+        drop(probe); // port now closed — exactly like a server mid-restart
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(600)).await;
+            let _l = tokio::net::TcpListener::bind(("127.0.0.1", port)).await.unwrap();
+            tokio::time::sleep(Duration::from_secs(3)).await;
+        });
+        let got = connect_upstream_retrying(port, Duration::from_secs(5)).await;
+        assert!(got.is_some(), "must survive a port that comes back after 600ms");
+        });
+    }
+
+    /// ...but it must still give up, so a document request falls through to the
+    /// reconnect page instead of hanging forever on a server that is truly gone.
+    #[test]
+    fn connect_gives_up_after_the_grace() {
+        rt().block_on(async {
+        let probe = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = probe.local_addr().unwrap().port();
+        drop(probe);
+        let t0 = std::time::Instant::now();
+        let got = connect_upstream_retrying(port, Duration::from_millis(500)).await;
+        assert!(got.is_none());
+        assert!(t0.elapsed() < Duration::from_secs(3), "must not hang past the grace");
+        });
+    }
+
+    /// Re-anchor only when the window is on NO screen. Attilio keeps this window at
+    /// -797,-1410 on an ultrawide: negative is not "wrong", it's his choice.
+    #[test]
+    fn negative_position_on_a_real_monitor_is_left_alone() {
+        let ultrawide = (-1720.0, -1440.0, 3440.0, 1440.0);
+        let builtin = (0.0, 0.0, 1512.0, 982.0);
+        let mons = [builtin, ultrawide];
+        assert!(rect_intersects_any((-797.0, -1410.0, 1200.0, 800.0), &mons));
+        // Same window after the ultrawide is unplugged: stranded, must be re-anchored.
+        assert!(!rect_intersects_any((-797.0, -1410.0, 1200.0, 800.0), &[builtin]));
+    }
+
+    /// Touching edges only (x + w == mx) is NOT overlap — a window flush against a
+    /// monitor's left edge from outside shows zero pixels.
+    #[test]
+    fn touching_edges_does_not_count_as_on_screen() {
+        let mon = (0.0, 0.0, 1000.0, 800.0);
+        assert!(!rect_intersects_any((-500.0, 0.0, 500.0, 400.0), &[mon]));
+        assert!(rect_intersects_any((-499.0, 0.0, 500.0, 400.0), &[mon]));
+    }
+}
+
+/// The end-to-end PROOF for the empty-window bug, kept out of the normal run
+/// (`#[ignore]`) because it drives a real browser and takes ~15s:
+///
+///   cargo test --lib demo_window_recovers -- --ignored --nocapture
+///
+/// It serves a fake app through the SHIPPED `proxy_loop`, kills the upstream
+/// mid-clip, and lets Playwright record what a user would see. The reload that
+/// happens while the server is down is exactly the move that used to leave a
+/// transparent, titlebar-less window with nothing to paint — i.e. invisible.
+#[cfg(test)]
+mod window_recovery_demo {
+    use super::{proxy_loop, Upstream};
+
+    /// Minimal HTTP server standing in for the Topics server: one fixed page whose
+    /// marker (`TOPICS`) the browser checks for. Killed by aborting its task, which
+    /// drops the listener — the same abrupt disappearance as a server restart.
+    async fn fake_app_server(port: u16) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = match tokio::net::TcpListener::bind(("127.0.0.1", port)).await {
+            Ok(l) => l,
+            Err(e) => panic!("fake upstream bind :{port}: {e}"),
+        };
+        loop {
+            let Ok((mut s, _)) = listener.accept().await else { continue };
+            tokio::spawn(async move {
+                let mut buf = [0u8; 2048];
+                let _ = s.read(&mut buf).await;
+                let body = "<!doctype html><html><body style=\"background:#0b3d2e;color:#eafff5;\
+font:24px/1.4 -apple-system,system-ui,sans-serif;display:flex;align-items:center;\
+justify-content:center;height:100vh;margin:0\"><div id=\"root\">TOPICS \u{2014} app viva</div></body></html>";
+                let resp = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n\
+Content-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n{}",
+                    body.len(), body);
+                let _ = s.write_all(resp.as_bytes()).await;
+                let _ = s.flush().await;
+            });
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn demo_window_recovers_after_server_restart() {
+        let out_dir = std::env::var("DEMO_OUT")
+            .unwrap_or_else(|_| "/tmp/topics-window-recovery".to_string());
+        let _ = std::fs::create_dir_all(&out_dir);
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        rt.block_on(async move {
+            let up_port = {
+                let l = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+                l.local_addr().unwrap().port()
+            };
+            let proxy_listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+            let proxy_port = proxy_listener.local_addr().unwrap().port();
+
+            let server = tokio::spawn(fake_app_server(up_port));
+            tokio::spawn(proxy_loop(proxy_listener, Upstream { port: up_port, tls: false }));
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+
+            // The camera + browser, on its own clock (see window-recovery-demo.mjs).
+            let script = concat!(env!("CARGO_MANIFEST_DIR"), "/../scripts/window-recovery-demo.mjs");
+            let repo_root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
+            let mut child = std::process::Command::new("node")
+                .arg(script)
+                .arg(proxy_port.to_string())
+                .arg(&out_dir)
+                .current_dir(repo_root)
+                .spawn()
+                .expect("spawn node (playwright-core must be installed)");
+
+            // t=3s: the server goes down (a `launchctl kickstart -k`, a crash, an update).
+            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+            server.abort();
+            eprintln!("[demo] upstream :{up_port} DOWN");
+            // t=9s: it comes back. Nothing else happens — no human, no click.
+            tokio::time::sleep(std::time::Duration::from_secs(6)).await;
+            tokio::spawn(fake_app_server(up_port));
+            eprintln!("[demo] upstream :{up_port} BACK");
+
+            let status = tokio::task::spawn_blocking(move || child.wait())
+                .await
+                .unwrap()
+                .expect("node exited");
+            assert!(status.success(), "the window did not come back by itself");
+            eprintln!("[demo] clip in {out_dir}");
+        });
+    }
+}
+
+/// L'etichetta di una pane browser, e cosa succede quando la sua vista rifiuta
+/// di morire.
+///
+/// La catena che questi test chiudono: col mutex del dispatcher avvelenato
+/// `Webview::close()` panica, quindi `on_webview_close` non gira mai e
+/// l'etichetta resta REGISTRATA nel manager di tauri; `browser_open` sullo
+/// stesso id trovava quella webview e prendeva il ramo di RIUSO, riconsegnando
+/// la stessa vista morta. «Ricrea la scheda» non ricreava niente.
+#[cfg(test)]
+mod browser_label_tests {
+    use super::{browser_label, burn_pane_label, close_verdict, pane_id_from_label, pane_label_generation};
+    use std::collections::HashSet;
+
+    // Il registro delle bruciature è un globale di processo: ogni test usa un id
+    // suo, così l'ordine di esecuzione non conta.
+
+    #[test]
+    fn una_pane_sana_ha_l_etichetta_semplice() {
+        assert_eq!(pane_label_generation("sana"), 0);
+        assert_eq!(browser_label("sana"), "browserpane-sana");
+    }
+
+    /// Il cuore della cura: dopo la bruciatura l'etichetta è DIVERSA, quindi
+    /// `app.get_webview(&browser_label(id))` non trova più la vista morta e
+    /// `browser_open` cade nel ramo di CREAZIONE invece che in quello di riuso.
+    #[test]
+    fn bruciare_cambia_l_etichetta_cosi_open_non_puo_riusare() {
+        let id = "bruciata";
+        let prima = browser_label(id);
+        assert_eq!(burn_pane_label(id), 1);
+        let dopo = browser_label(id);
+        assert_ne!(prima, dopo, "l'etichetta bruciata non va riusata");
+        assert_eq!(dopo, "browserpane-~1~bruciata");
+    }
+
+    /// Una vista può morire due volte: la generazione sale, e ogni giro dà
+    /// un'etichetta ancora libera.
+    #[test]
+    fn bruciature_ripetute_salgono_di_generazione() {
+        let id = "due-volte";
+        assert_eq!(burn_pane_label(id), 1);
+        let g1 = browser_label(id);
+        assert_eq!(burn_pane_label(id), 2);
+        assert_eq!(pane_label_generation(id), 2);
+        assert_ne!(g1, browser_label(id));
+    }
+
+    /// L'id resta l'id: è come chiamano la pane il client, gli agenti e le cache
+    /// (bounds, corner, nav-error). Bruciare l'etichetta non deve rinominarla.
+    #[test]
+    fn l_id_sopravvive_alla_bruciatura() {
+        let id = "id-stabile";
+        assert_eq!(pane_id_from_label(&browser_label(id)), Some(id));
+        burn_pane_label(id);
+        assert_eq!(pane_id_from_label(&browser_label(id)), Some(id));
+    }
+
+    /// `browser_list` filtra per prefisso: una pane rigenerata deve restare
+    /// visibile, e la sua etichetta vecchia (webview morta ancora registrata)
+    /// deve risalire allo STESSO id — è così che la lista le collassa in una.
+    #[test]
+    fn vecchia_e_nuova_etichetta_danno_lo_stesso_id() {
+        assert!(browser_label("prefisso").starts_with("browserpane-"));
+        assert_eq!(pane_id_from_label("browserpane-x"), Some("x"));
+        assert_eq!(pane_id_from_label("browserpane-~3~x"), Some("x"));
+    }
+
+    /// Etichette che non sono di una pane browser non vanno interpretate.
+    #[test]
+    fn le_etichette_altrui_non_sono_pane() {
+        assert_eq!(pane_id_from_label("main"), None);
+        assert_eq!(pane_id_from_label("popout-1"), None);
+    }
+
+    /// Un id che comincia per `~` senza generazione valida non viene mutilato:
+    /// meglio restituire il resto così com'è che inventare un id.
+    #[test]
+    fn una_tilde_che_non_e_una_generazione_resta_nell_id() {
+        assert_eq!(pane_id_from_label("browserpane-~strano"), Some("~strano"));
+        assert_eq!(pane_id_from_label("browserpane-~~x"), Some("~~x"));
+    }
+
+    /// Una chiusura riuscita non brucia niente: l'etichetta è libera e la pane
+    /// riapre esattamente dov'era, che è il caso di gran lunga più comune.
+    #[test]
+    fn una_chiusura_riuscita_non_brucia_niente() {
+        let id = "chiusa-bene";
+        assert!(close_verdict(id, false).is_ok());
+        assert_eq!(pane_label_generation(id), 0);
+    }
+
+    /// LA CATENA, in miniatura. `manager` è il registro di tauri: `browser_open`
+    /// prende il ramo di riuso esattamente quando contiene `browser_label(id)`.
+    ///
+    /// Col mutex avvelenato `Webview::close()` panica prima di
+    /// `on_webview_close`, quindi l'etichetta resta dentro. Prima: la
+    /// riapertura la ritrovava e riconsegnava la vista morta — «Ricrea la
+    /// scheda» non ricreava niente. Adesso l'etichetta è bruciata e quel
+    /// `contains` è falso: `browser_open` CREA.
+    #[test]
+    fn una_vista_che_non_muore_brucia_l_etichetta_e_open_deve_creare() {
+        let id = "avvelenata";
+        let mut manager: HashSet<String> = HashSet::new();
+        manager.insert(browser_label(id)); // la vista viva, prima della chiusura
+
+        let verdict = close_verdict(id, manager.contains(&browser_label(id)));
+        assert!(verdict.is_err(), "una vista sopravvissuta non è una chiusura riuscita");
+
+        assert!(
+            !manager.contains(&browser_label(id)),
+            "browser_open deve CREARE una vista nuova, non riusare quella morta"
+        );
+        // La morta è ancora appesa al manager sotto l'etichetta vecchia — e
+        // risale allo stesso id, così `browser_list` non conta due pane per una.
+        let ids: Vec<&str> = manager.iter().filter_map(|l| pane_id_from_label(l)).collect();
+        assert_eq!(ids, vec![id]);
+    }
+}
+
+/// Il reaper decide con due permessi, non uno: ORFANO e FERMO. Ogni test qui
+/// toglie UNO dei due e pretende che lo store sopravviva — è l'unico modo di
+/// provare che nessuno dei due è decorativo.
+///
+/// Il tempo si inietta (`now`) invece di riscrivere gli mtime: una cartella
+/// creata ora, guardata da un `now` spostato avanti di un mese, è vecchia di un
+/// mese, e il test non dipende da quali syscall per i timestamp esistono.
+#[cfg(all(test, target_os = "macos"))]
+mod reaper_degli_store {
+    use super::{data_store_uuid_for, stale_store_uuids, uuid_bytes_from_str, uuid_str_from_bytes};
+    use std::time::{Duration, SystemTime};
+
+    /// Una cartella temporanea con dentro uno store per ciascun contextId.
+    fn store_dir(ids: &[&str]) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "topics-reap-test-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        for id in ids {
+            let uuid = uuid_str_from_bytes(&data_store_uuid_for(id));
+            std::fs::create_dir_all(dir.join(&uuid).join("Cookies")).expect("mkdir store");
+        }
+        dir
+    }
+
+    fn fra(giorni: u64) -> SystemTime {
+        SystemTime::now() + Duration::from_secs(giorni * 86_400)
+    }
+
+    #[test]
+    fn orfano_e_fermo_se_ne_va() {
+        let dir = store_dir(&["browser:abbandonato"]);
+        let victims = stale_store_uuids(&dir, &[], 30, fra(60));
+        assert_eq!(victims.len(), 1, "orfano da 60 giorni: è la coda lunga");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn una_pane_lo_rivendica_e_non_si_tocca_a_nessuna_eta() {
+        let dir = store_dir(&["browser:vivo"]);
+        // Fermo da DIECI ANNI, ma una pane esiste ancora: il sito che apri due
+        // volte l'anno è proprio quello di cui non vuoi rifare il login.
+        let victims = stale_store_uuids(&dir, &["browser:vivo".to_string()], 30, fra(3650));
+        assert!(victims.is_empty(), "keep_ids vince sull'età, sempre");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn orfano_ma_ancora_caldo_resta() {
+        let dir = store_dir(&["browser:di-ieri"]);
+        // Orfano nella lista, ma toccato adesso: chiudere una tab e riaprirla
+        // fra un minuto non deve passare dallo spazzino.
+        let victims = stale_store_uuids(&dir, &[], 30, SystemTime::now());
+        assert!(victims.is_empty(), "l'età manca: nessun permesso");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn un_max_age_a_zero_non_fa_piazza_pulita() {
+        let dir = store_dir(&["browser:qualunque"]);
+        // Il pavimento di 7 giorni è la rete sotto un chiamante sbagliato:
+        // con 0 il peggio che può fare è rimuovere roba ferma da una settimana.
+        let victims = stale_store_uuids(&dir, &[], 0, fra(3));
+        assert!(victims.is_empty(), "0 giorni deve valere MIN_REAP_AGE_DAYS");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn quello_che_non_e_un_uuid_non_e_roba_nostra() {
+        let dir = store_dir(&[]);
+        std::fs::create_dir_all(dir.join("Default")).expect("mkdir");
+        std::fs::write(dir.join("salt"), b"x").expect("write");
+        let victims = stale_store_uuids(&dir, &[], 30, fra(999));
+        assert!(victims.is_empty(), "solo le cartelle-UUID sono store");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn i_byte_dell_uuid_fanno_andata_e_ritorno() {
+        // Se scrittura e lettura del nome cartella divergessero, il reaper
+        // guarderebbe uno store e ne cancellerebbe un altro.
+        let bytes = data_store_uuid_for("browser:andata-e-ritorno");
+        let s = uuid_str_from_bytes(&bytes);
+        assert_eq!(s.len(), 36);
+        assert_eq!(uuid_bytes_from_str(&s), Some(bytes));
+        assert_eq!(uuid_bytes_from_str("non-un-uuid"), None);
     }
 }

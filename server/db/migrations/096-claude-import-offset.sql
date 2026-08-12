@@ -1,0 +1,18 @@
+-- 096-claude-import-offset.sql: give an ADOPTED Claude Code session its own
+-- byte watermark into the transcript, distinct from the phase tracker's
+-- `jsonl_offset`.
+--
+-- WHY a SECOND offset. Two independent consumers tail the SAME `<id>.jsonl`:
+--   - the phase state-machine (jsonl_offset) — advances every consumed line,
+--     owned by claude-session-tracker's live tail;
+--   - the MESSAGE importer (import_offset, this column) — advances only when
+--     new turns have been reflected into the topic's `messages` rows.
+-- They read at different rates, so sharing one offset would make each clobber
+-- the other's progress.
+--
+-- NULL is the marker "this session does NOT need JSONL message import" — the
+-- default for every native Topics session, whose messages arrive through the
+-- streaming provider. Only `adopt-claude` sets it (to the end of the initial
+-- import), enrolling that session in the import sweep. Existing rows stay NULL
+-- and are untouched.
+ALTER TABLE claude_code_sessions ADD COLUMN import_offset INTEGER;

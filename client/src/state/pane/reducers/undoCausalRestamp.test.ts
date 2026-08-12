@@ -2,6 +2,7 @@ import { describe, test, expect } from "bun:test";
 import { paneReducer } from "./panes";
 import { undoReducer } from "./undo";
 import type { PaneState, Pane } from "../types";
+import { blankPaneState as blank } from "../testSupport";
 
 /**
  * UNDO_CLOSE deve ristampare il seq CAUSALE, non solo l'orologio.
@@ -30,15 +31,6 @@ import type { PaneState, Pane } from "../types";
  * ancora nei `panes` (resuscitata da un hydrate) e quella da reinserire.
  */
 
-const blank = (): PaneState => ({
-  panes: {},
-  groups: {},
-  closedStack: [],
-  focusedPaneId: null,
-  groupOrder: [],
-  lastSeq: 0,
-  lastServerSeq: 0,
-});
 
 const chat = (id: string): Pane => ({ id, type: "chat", title: id, topicId: id });
 

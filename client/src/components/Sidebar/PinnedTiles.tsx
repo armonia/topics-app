@@ -7,7 +7,7 @@ import { DND_TYPES } from '../../lib/dndTypes';
 import { draggedPaneId } from '../../lib/dragPayload';
 import { pinKeyFromPaneId } from '../../state/pane/adapters/paneConfig';
 import { PinnedTile } from './PinnedTile';
-import { PINNED_TILE_H, PINNED_TILE_CONTAINER, PINNED_TILE_ACTION_INSET } from './pinnedTileMetrics';
+import { PINNED_TILE_H, PINNED_TILE_CONTAINER, PINNED_TILE_ACTION_INSET_CLASS } from './pinnedTileMetrics';
 import { useMobile } from '@/hooks/useMobile';
 import {
   flattenPinnedLayout,
@@ -631,7 +631,29 @@ export function PinnedTiles({
           ? { paddingTop: TILE_GAP, paddingBottom: TILE_GAP }
           : attiva
             ? undefined
-            : { height: trailing ? 0 : TILE_GAP }
+            // LA ZONA IN TESTA VALE MEZZO PASSO, ed è un MARGINE, non un'altezza.
+            //
+            // Fra due righe di tessere questa zona e' l'UNICO separatore, quindi
+            // vale TILE_GAP pieno. Sopra la PRIMA riga no: li' sopra c'e' gia' il
+            // mezzo passo di chi precede — il contenitore che scorre, o la card
+            // che sta sopra la sezione — e i due si sommavano (misurato 9px
+            // sotto l'header della colonna contro i 6 di ogni altro stacco).
+            //
+            // Mezzo passo scritto come `margin-top` e non come `height` perché
+            // quando la sezione dei fissati è il PRIMO blocco della colonna
+            // anche questa metà deve sparire, e a toglierla è la regola
+            // `.sidebar-column > :first-child > :first-child` (index.css), che
+            // sa azzerare un margine e non un'altezza. Il comportamento visivo
+            // è identico — un div vuoto alto 0 con 3px di margine occupa i
+            // soliti 3 — e quello di trascinamento pure: durante un drag questa
+            // zona prende `h-2`/`h-5` da `attiva`, e questo stile non si applica.
+            //
+            // In coda resta 0 perche' lo spazio sotto lo porta il filo.
+            : trailing
+              ? { height: 0 }
+              : at === 0
+                ? { height: 0, marginTop: TILE_GAP / 2 }
+                : { height: TILE_GAP }
       }
     >
       {/* La riga nuova si vede per quello che sarà: la tessera vera, a tutta
@@ -860,14 +882,15 @@ export function PinnedTiles({
                         essere un velo. Vedi index.css. */}
                     {actions && (
                       <div
-                        className="raised-control-overlay absolute top-1/2 -translate-y-1/2 z-10 hidden group-hover/cell:flex"
-                        // Il rientro da destra è lo STESSO numero che lo separa
-                        // dal bordo alto e da quello basso — lì ci pensa
-                        // `PINNED_TILE_H`, che è l'altezza del trigger più due
-                        // volte questo. Tre distanze uguali, un numero solo —
-                        // e da quando la tessera è `h-9` quel numero è 4 su
-                        // entrambe le larghezze, non più due costanti.
-                        style={{ right: PINNED_TILE_ACTION_INSET }}
+                        // Il rientro da destra è lo STESSO spazio che il bottone
+                        // ha sopra e sotto — ma ora è DERIVATO da quello, non il
+                        // contrario: `(altezza tessera − box) / 2`, che con la
+                        // tessera alta come una riga fa 3 col mouse e 4 col dito.
+                        // Vedi PINNED_TILE_ACTION_INSET_CLASS, dove c'è anche il
+                        // giro che ho fatto per arrivarci.
+                        // In CLASSE e non più in `style`: serve un ramo `md:`, e
+                        // uno stile in linea nessuna media query lo raggiunge.
+                        className={`raised-control-overlay absolute top-1/2 -translate-y-1/2 z-10 hidden group-hover/cell:flex ${PINNED_TILE_ACTION_INSET_CLASS}`}
                       >
                         {actions}
                       </div>

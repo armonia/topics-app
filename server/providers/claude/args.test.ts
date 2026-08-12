@@ -11,7 +11,7 @@
  * la domanda giusta al momento giusto.
  */
 import { describe, expect, test } from "bun:test";
-import { buildClaudeArgs, buildClaudeOneshotArgs } from "./args";
+import { buildClaudeArgs, buildClaudeOneshotArgs, TRIMMED_TOOLS } from "./args";
 import { buildCodexArgs, buildCodexOneshotArgs } from "../codex/args";
 
 const BASE = {
@@ -49,7 +49,162 @@ describe("buildClaudeArgs — il deferral degli schemi MCP", () => {
 
   test("null non emette la flag: la CLI resta ai suoi settings", () => {
     expect(buildClaudeArgs({ ...BASE, toolSearch: null })).not.toContain("--settings");
+  });
+});
+
+describe("buildClaudeArgs — il cancello sulle immagini nel contesto", () => {
+  // La voce di spesa piu' grossa misurata il 10/08 sugli agenti dispacciati: il
+  // 95% del volume dei transcript sono tool_result, il 97% di quelli e' Read, e
+  // i Read grossi sono SCREENSHOT (~132 kB l'uno). 7 task su 12, il 25% del
+  // volume totale. Il prompt lo vietava gia' (per il browser) e non e' bastato.
+  function guard(opts: Record<string, unknown>) {
+    const args = buildClaudeArgs({ ...BASE, ...opts } as never);
+    const i = args.indexOf("--settings");
+    return i < 0 ? null : JSON.parse(args[i + 1]!);
+  }
+
+  test("acceso: hook PreToolUse su Read, e il deferral NON viene perso", () => {
+    const s = guard({ toolSearch: "1", blockImageReads: true });
+    expect(s.hooks.PreToolUse[0].matcher).toBe("Read");
+    // Un solo `--settings` (la CLI prende l'ultimo): il deferral vale -71,5% di
+    // prefisso, perderlo per il cancello sarebbe uno scambio in perdita.
+    expect(s.env.ENABLE_TOOL_SEARCH).toBe("1");
+    expect(buildClaudeArgs({ ...BASE, toolSearch: "1", blockImageReads: true })
+      .filter((a) => a === "--settings").length).toBe(1);
+  });
+
+  test("spento per le chat: nessun hook quando non e' un agente del board", () => {
+    // Una persona in chat puo' volere aprire un'immagine; un agente che consegna
+    // una prova di review no, gli basta il path.
+    expect(guard({ toolSearch: "1", blockImageReads: false })?.hooks).toBeUndefined();
+  });
+
+  test("il comando dell'hook rifiuta le immagini e lascia passare il codice", async () => {
+    // Un cancello che non ha mai detto di no non e' un cancello: qui si esegue
+    // davvero, con l'argv vero.
+    const cmd = guard({ blockImageReads: true }).hooks.PreToolUse[0].hooks[0].command;
+    const run = async (path: string) => {
+      const p = Bun.spawn(["sh", "-c", cmd], { stdin: new TextEncoder().encode(JSON.stringify({ tool_input: { file_path: path } })), stdout: "pipe", stderr: "pipe" });
+      return await p.exited;
+    };
+    expect(await run("/x/shot.png")).toBe(2);
+    expect(await run("/x/clip.webm")).toBe(2);
+    expect(await run("/x/server.ts")).toBe(0);
+    expect(await run("")).toBe(0);
     expect(buildClaudeArgs({ ...BASE })).not.toContain("--settings");
+  });
+});
+
+describe("buildClaudeArgs — gli schemi dei tool che il differimento non tocca", () => {
+  // Decomposto per ablazione appaiata il 11/08/2026 (CLI 2.1.227, HOME reale,
+  // rumore di fondo 0-4 token): dei 34.845 token di prefisso su opus-5[1m],
+  // `Workflow` da solo ne vale 7.856 — il 22,5%, più di CLAUDE.md e del
+  // catalogo skill messi insieme — ed è un tool che la sua stessa descrizione
+  // vieta senza un consenso umano esplicito, che a un agente dispacciato non
+  // arriva. I quattro insieme: −13.176 a ogni richiesta.
+  test("acceso: UN argomento a virgole, non un variadico", () => {
+    const args = buildClaudeArgs({ ...BASE, trimUnusedTools: true } as never);
+    const i = args.indexOf("--disallowed-tools");
+    expect(i).toBeGreaterThan(-1);
+    // Il valore è UNA stringa sola. `--disallowed-tools A B C` è variadico e in
+    // mezzo all'argv si mangerebbe la flag successiva.
+    expect(args[i + 1]).toBe("Workflow,Artifact,ReportFindings,ListAgents");
+    expect(args[i + 2]).toStartWith("--");
+  });
+
+  test("i quattro nomi sono esportati: il banco confronta il registro dei bracci con QUESTA lista", () => {
+    // Se qualcuno aggiunge un nome qui senza che il banco lo sappia, il
+    // cancello «stesso registro nei due bracci» diventa rosso — che è il modo
+    // giusto di accorgersene.
+    expect([...TRIMMED_TOOLS]).toEqual(["Workflow", "Artifact", "ReportFindings", "ListAgents"]);
+  });
+
+  test("spento (default): nessuna deny, il registro resta intero", () => {
+    expect(buildClaudeArgs({ ...BASE })).not.toContain("--disallowed-tools");
+    expect(buildClaudeArgs({ ...BASE, trimUnusedTools: false } as never)).not.toContain("--disallowed-tools");
+  });
+
+  test("`Task` e `Read` NON sono nella lista: sono ciò che rende capace l'agente", () => {
+    // Il criterio del taglio non è «pesa tanto» — `Task` vale quanto
+    // `Artifact` — è «l'agente non lo può usare comunque». Un agente del board
+    // i sotto-agenti li usa per le ricerche larghe.
+    expect(TRIMMED_TOOLS).not.toContain("Task" as never);
+    expect(TRIMMED_TOOLS).not.toContain("Read" as never);
+  });
+});
+
+describe("buildClaudeArgs — il catalogo delle skill fuori dal prefisso", () => {
+  // Misurato il 10/08/2026 con l'argv del dispatch vero (CLI 2.1.226, opus,
+  // stessa cwd e stesso config MCP): l'elenco delle skill dell'utente pesa
+  // 14.067 byte e vale 4.210 token di PREFISSO — che un task da ~40 turni
+  // ripaga ogni volta, per una lista che l'agente non usa.
+  function settings(opts: Record<string, unknown>) {
+    const args = buildClaudeArgs({ ...BASE, ...opts } as never);
+    const i = args.indexOf("--settings");
+    return i < 0 ? null : JSON.parse(args[i + 1]!);
+  }
+
+  test("acceso: soli NOMI nell'elenco, e il deferral resta nello STESSO `--settings`", () => {
+    const s = settings({ toolSearch: "1", slimSkillListing: true });
+    expect(s.skillListingMaxDescChars).toBe(1);
+    // La CLI prende l'ULTIMO `--settings`: un secondo flag farebbe sparire in
+    // silenzio il deferral degli schemi (-71,5% di prefisso).
+    expect(buildClaudeArgs({ ...BASE, toolSearch: "1", slimSkillListing: true })
+      .filter((a) => a === "--settings").length).toBe(1);
+    expect(s.env.ENABLE_TOOL_SEARCH).toBe("1");
+  });
+
+  test("1 e non 0: lo zero la CLI lo ignora e l'elenco resta intero", () => {
+    // Misurato: `skillListingMaxDescChars: 0` lascia l'attachment `skill_listing`
+    // identico al default (9.096 B), `1` lo porta a 2.130.
+    expect(settings({ slimSkillListing: true })!.skillListingMaxDescChars).toBe(1);
+  });
+
+  test("da sola accende `--settings`: non dipende dal deferral", () => {
+    const s = settings({ slimSkillListing: true });
+    expect(s).toEqual({ skillListingMaxDescChars: 1 });
+  });
+
+  test("spento per le chat: una persona le skill le sceglie leggendo cosa fanno", () => {
+    expect(settings({ toolSearch: "1", slimSkillListing: false })).toEqual({ env: { ENABLE_TOOL_SEARCH: "1" } });
+    expect(buildClaudeArgs({ ...BASE })).not.toContain("--settings");
+  });
+
+  test("il tetto ai risultati MCP viaggia nello STESSO `--settings`, accanto al deferral", () => {
+    // Default della CLI: 25.000 token (~100 kB) per singolo risultato — una
+    // soglia che nella pratica non scatta mai. Misurato sui 15.464 risultati
+    // MCP dei transcript reali: a 4.000 il volume cala del 73,6% e finisce su
+    // file una chiamata su undici (a 25.000 il taglio è −27,8%).
+    const s = settings({ toolSearch: "1", mcpOutputTokens: 4000 });
+    expect(s.env).toEqual({ ENABLE_TOOL_SEARCH: "1", MAX_MCP_OUTPUT_TOKENS: "4000" });
+    // Un solo `--settings`: la CLI prende l'ultimo, e perdere il deferral
+    // (−71,5% di prefisso) per il tetto sarebbe uno scambio in perdita.
+    expect(buildClaudeArgs({ ...BASE, toolSearch: "1", mcpOutputTokens: 4000 })
+      .filter((a) => a === "--settings").length).toBe(1);
+  });
+
+  test("il tetto da solo accende `--settings`, e non porta con sé il deferral", () => {
+    expect(settings({ mcpOutputTokens: 2500 })).toEqual({ env: { MAX_MCP_OUTPUT_TOKENS: "2500" } });
+  });
+
+  test("null/assente: nessun tetto imposto, e il gate può essere visto FALLIRE", () => {
+    // `TOPICS_MCP_OUTPUT_TOKENS=off` deve poter riportare la sessione al
+    // comportamento della CLI: senza questa via d'uscita la misura "prima"
+    // non si può rifare.
+    expect(settings({ toolSearch: "1", mcpOutputTokens: null })).toEqual({ env: { ENABLE_TOOL_SEARCH: "1" } });
+    expect(buildClaudeArgs({ ...BASE, mcpOutputTokens: null })).not.toContain("--settings");
+  });
+
+  test("stringa e non numero: la CLI legge il blocco `env`, dove i valori sono testo", () => {
+    const args = buildClaudeArgs({ ...BASE, mcpOutputTokens: 4000 });
+    expect(args.join(" ")).toContain('"MAX_MCP_OUTPUT_TOKENS":"4000"');
+  });
+
+  test("le skill NON spariscono: `--disable-slash-commands` non compare", () => {
+    // Il cambio toglie il CATALOGO, non la capacità: i nomi restano nell'elenco
+    // e `Skill` resta chiamabile.
+    expect(buildClaudeArgs({ ...BASE, slimSkillListing: true })).not.toContain("--disable-slash-commands");
+    expect(buildClaudeArgs({ ...BASE, slimSkillListing: true })).not.toContain("--bare");
   });
 });
 

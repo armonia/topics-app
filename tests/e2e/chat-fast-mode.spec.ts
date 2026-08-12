@@ -44,7 +44,7 @@ test.describe.serial("Chat — Fast Mode toggle", () => {
     await resetPaneStore(request, [topicId]);
   });
 
-  test("toggle is positioned between Plan and Context ring, flips on click", async ({ page }) => {
+  test("toggle sits between the + menu and the context ring, flips on click", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "FAST-MODE-01" });
     await goToApp(page);
     await page.keyboard.press("Escape");
@@ -56,17 +56,20 @@ test.describe.serial("Chat — Fast Mode toggle", () => {
     const fastBtn = page.getByTestId("chat-input-fast-mode");
     await expect(fastBtn).toBeVisible();
 
-    // Ordine: graffetta → Fast (⚡) → anello del contesto. Il vecchio
-    // interruttore «Plan» stava fra i primi due ed è sparito: il piano è un
-    // LIVELLO di autonomia (il controllo `composer-autonomy`, più a destra),
-    // non un flag di prompt accanto alla graffetta.
-    const attachBtn = page.getByRole("button", { name: /Attach file/i });
+    // Ordine sulla riga: «+» → Fast (⚡) → anello del contesto. La graffetta
+    // stava qui in mezzo ed è finita DENTRO il «+», con il microfono; il
+    // vecchio interruttore «Plan» è sparito prima ancora — il piano è un
+    // LIVELLO di autonomia (`composer-autonomy`, in coda alla riga), non un
+    // flag di prompt.
+    const addMenu = page.getByTestId("composer-add-menu");
     const ringBtn = page.getByTestId("chat-input-context-ring");
-    await expect(attachBtn).toBeVisible();
+    await expect(addMenu).toBeVisible();
     await expect(ringBtn).toBeVisible();
     await expect(page.getByRole("button", { name: /toggle plan mode/i })).toHaveCount(0);
+    // La graffetta non è più un bottone della riga: è una voce del «+».
+    await expect(page.getByRole("button", { name: /Attach file/i })).toHaveCount(0);
     const positions = await Promise.all(
-      [attachBtn, fastBtn, ringBtn].map(async (loc) => {
+      [addMenu, fastBtn, ringBtn].map(async (loc) => {
         const box = await loc.boundingBox();
         return box?.x ?? -1;
       }),

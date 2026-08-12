@@ -1,4 +1,4 @@
-import { useRef, useMemo, useState, useCallback, useEffect } from 'react';
+import { useRef, useMemo, useState, useCallback, useEffect, useLayoutEffect } from 'react';
 import type { Pane, PaneGroup, PaneGroupType, PaneType, GroupLayoutRow } from '../../types';
 import { PaneTabBar, type TabLinkContext } from './PaneTabBar';
 import { CellSubStack } from './CellSubStack';
@@ -7,7 +7,8 @@ import { flattenGroupRows } from './flattenLayout';
 import { spawnDragGhost } from './dragGhost';
 import { equalizeWidths, weightedWidths } from './gridWidths';
 import { DND_TYPES, dragMatchesScope, paneTabSoloSrcType } from '../../lib/dndTypes';
-import { paneCellBg } from '../../lib/paneCellBg';
+import { paneCellBg, paneCellTopInset } from '../../lib/paneCellBg';
+import { CHROME_BAR, CHROME_BAR_CONSUMED, CHROME_BAR_H_VAR, CHROME_BAR_SUB, CHROME_BAR_SUB_H_CLASS } from '../../lib/selectionStyles';
 import { PaneKeepAlive } from './PaneKeepAlive';
 import { usePaneResidency } from './hooks/usePaneResidency';
 import { usePaneAlive } from '../../state/paneLiveness';
@@ -111,11 +112,83 @@ interface GroupLayoutProps {
    * vedi TabLinkContext, che spiega perché non è un campo del Pane.
    */
   linkContext?: TabLinkContext;
+  /**
+   * UN NODO DA OSPITARE IN TESTA ALLA PRIMA BARRA.
+   *
+   * Ci vive la barra di progetto CHIUSA (`ProjectSidebar`, ramo collassato):
+   * chiusa non è più una colonna verticale accanto alla riga di chrome, è una
+   * fila di card DENTRO di essa, davanti alle tab.
+   *
+   * È un `HTMLElement`, non un `ReactNode`: il nodo lo crea il chiamante una
+   * volta sola e ci scrive dentro col suo portale, quindi esiste già al primo
+   * render e non c'è il fotogramma in cui la vecchia rail lampeggia. Qui lo si
+   * aggancia e basta — nessuno stato, nessuna corsa fra ref e render.
+   *
+   * SOLO la prima barra lo ospita: con uno split ci sono N righe di chrome, ma
+   * il progetto è uno. «Prima» = il primo gruppo della prima riga, e in
+   * mancanza di righe la barra vuota.
+   */
+  leadingSlot?: HTMLElement;
+  /**
+   * Il fratello di {@link GroupLayoutProps.leadingSlot}, un piano più sotto: un
+   * nodo agganciato SUBITO DOPO la riga di chrome del gruppo di testa, cioè
+   * dentro la cella e non dentro la barra.
+   *
+   * Serve alla barra di progetto chiusa: la card del titolo sta in fila con le
+   * tab (`leadingSlot`), i suoi tre comandi vanno «sotto il trigger» (Attilio,
+   * 09/08). Dentro la barra non ci starebbero — è alta 34 e ne conterrebbe due
+   * righe — quindi escono da lei e si appoggiano sotto, allineati al bordo
+   * sinistro della card.
+   */
+  belowSlot?: HTMLElement;
+  /**
+   * Questa superficie sta DENTRO un'altra riga di chrome — è il caso della
+   * finestra di progetto, che vive sotto la tab del progetto nella barra
+   * dell'app. La sua prima riga diventa {@link CHROME_BAR_SUB}: più bassa, e
+   * senza l'aria in cima che la riga sopra ha già messo.
+   *
+   * SOLO la prima riga. Sotto un divisore (rowIdx ≥ 1) quell'aria non l'ha
+   * pagata nessuno, e una barra più bassa lì sarebbe inchiostro appeso.
+   */
+  subordinate?: boolean;
+}
+
+/**
+ * L'ospite di {@link GroupLayoutProps.leadingSlot}: un div nel flusso, in testa
+ * alla barra, dentro cui viene spostato il nodo del chiamante.
+ *
+ * Nel FLUSSO e non in overlay: il blocco di sinistra ha una larghezza che
+ * dipende dal nome del progetto, e una riserva `padding-left` fissa — la strada
+ * che usa la barra standalone per il suo unico bottone — qui non saprebbe quanto
+ * riservare. Stando in fila, le tab si spostano da sole.
+ */
+function LeadingSlot({ node }: { node: HTMLElement }) {
+  const host = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const h = host.current;
+    if (!h) return;
+    // IL PRIMO CHE LO PRENDE SE LO TIENE.
+    //
+    // Il nodo è UNO, e gli ospiti possono essere più d'uno: il ramo a griglia
+    // rende una volta PER GRUPPO, quindi in un progetto in split due ospiti si
+    // contendevano lo stesso nodo. `appendChild` lo SPOSTA, quindi vinceva
+    // l'ultimo che montava e gli altri restavano scatole vuote — e i comandi
+    // finivano in un gruppo qualsiasi invece che nel primo. Sintomo: «vedo una
+    // barra grigia ma non vedo i tasti» (Attilio, 09/08).
+    //
+    // Chi arriva secondo non ruba: rende una scatola vuota e alta zero, che non
+    // si vede. Il cleanup toglie il nodo SOLO se è ancora suo, quindi lo
+    // smontaggio dell'ospite che non l'ha mai avuto non lo strappa a chi ce l'ha.
+    if (node.parentNode && node.parentNode !== h && node.parentNode.isConnected) return;
+    h.appendChild(node);
+    return () => { if (node.parentNode === h) h.removeChild(node); };
+  }, [node]);
+  return <div ref={host} className="flex items-center min-w-0 empty:hidden" />;
 }
 
 
 export function GroupLayout({
-  panes, groups, rows, rowHeights, focusedGroupId, dndScope, isAppFocused = true,
+  panes, groups, rows, rowHeights, focusedGroupId, dndScope, isAppFocused = true, leadingSlot, belowSlot, subordinate = false,
   onActivatePane, onClosePane, onClosePaneImmediate, onAddPaneToGroup, onNewChatInGroup, onAddPaneWhenEmpty, onReorderGroupPanes,
   onMovePaneBetweenGroups, onSplitGroup, onReorderRows,
   onUpdateRows, onUpdateRowHeights,
@@ -763,15 +836,41 @@ export function GroupLayout({
     return () => window.removeEventListener('topics:reset-split-layout', handler);
   }, [handleResetLayout]);
 
+  // CHI E' SUBORDINATO: TUTTA la prima riga, non solo il primo gruppo.
+  //
+  // La condizione era `rowIdx === 0 && gid === leadingGid`, cioe' la sola barra
+  // che ospita anche il blocco di testa. Sbagliata: in uno SPLIT i gruppi della
+  // prima riga stanno fianco a fianco alla STESSA quota, e una barra da 34
+  // accanto a una da 40 e' esattamente il disallineamento segnalato («in uno
+  // split progetto la seconda tabbar esce disallineata», Attilio 09/08).
+  // Lo slot di testa resta invece del solo primo gruppo: il progetto e' uno.
+  //
+  // Dalla riga 1 in giu' si torna a 40, e non e' un'eccezione: sopra quelle
+  // barre c'e' un DIVISORE, non una riga di chrome — l'aria in cima non l'ha
+  // messa nessuno, quindi va messa da loro.
+  //
+  // La riga di chrome subordinata, e la variabile che la accompagna. Vanno
+  // SEMPRE insieme: `--chrome-bar-h` alimenta il rientro delle celle e il varco
+  // in cima alla conversazione, quindi una barra a 34 con la variabile a 40
+  // aprirebbe una fascia vuota sotto la barra. La classe va al POSTO dello stile
+  // in linea, che altrimenti la batte.
+  const barraSub = (primo: boolean) => (subordinate && primo ? CHROME_BAR_SUB : CHROME_BAR);
+  const cardVar = (primo: boolean) =>
+    subordinate && primo
+      ? ({ className: CHROME_BAR_SUB_H_CLASS, style: undefined } as const)
+      : ({ className: '', style: CHROME_BAR_H_VAR } as const);
+
   if (rows.length === 0) {
     const emptyAvailableTypes = availableTypesForGroup('chat', '');
     return (
-      <div className="flex-1 flex flex-col min-h-0 min-w-0">
+      <div className={`relative flex-1 flex flex-col min-h-0 min-w-0 ${cardVar(true).className}`} style={cardVar(true).style}>
         {/* Match the populated branch's chrome row (h-10) so the empty
             project tab bar aligns with the sidebar header. */}
-        <div className="chrome-glass flex items-center h-10 border-b border-app-border flex-shrink-0 overflow-hidden min-w-0">
+        <div className={barraSub(true)}>
+          {leadingSlot && <LeadingSlot node={leadingSlot} />}
           <div className="flex-1 flex items-center min-w-0 overflow-hidden">
             <PaneTabBar
+              hasLeadingBlock={!!leadingSlot}
               panes={[]}
               activePaneId={null}
               onActivate={() => {}}
@@ -784,6 +883,7 @@ export function GroupLayout({
             />
           </div>
         </div>
+        {belowSlot && <LeadingSlot node={belowSlot} />}
         <div className="flex-1 flex flex-col items-center justify-center gap-3 text-app-text-muted">
           <div className="text-sm">No chats open</div>
           {onNewChatInGroup && (
@@ -803,6 +903,11 @@ export function GroupLayout({
   // a column's primary group AND for each group vertically stacked under it via
   // cellStacks. `rowIdx` drives the last-row gutter inset; `seenPaneIds` is
   // threaded so a duplicated pane id never paints twice.
+  // Il gruppo la cui barra ospita il blocco di testa (vedi `leadingSlot`): il
+  // primo della prima riga. Con uno split le righe di chrome sono N, il
+  // progetto uno solo.
+  const leadingGid = rows[0]?.groupIds[0];
+
   const renderGroupBlock = (gid: string, rowIdx: number, seenPaneIds: Set<string>): React.ReactNode => {
     const group = groupMap.get(gid);
     if (!group) return null;
@@ -842,12 +947,15 @@ export function GroupLayout({
     // (handleSplitGroup used to just console.warn).
     const groupCanSplit = canSplitPane({ surface: 'project', groupSize: group.paneIds.length });
     return (
-      <div data-split-card className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
+      <div data-split-card className={`relative flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden ${cardVar(rowIdx === 0).className}`} style={cardVar(rowIdx === 0).style}>
         {/* Per-group tab bar — h-10 to match the project sidebar header
             and the StandaloneChatGroup header (consistent chrome row). */}
-        <div className="chrome-glass flex items-center h-10 border-b border-app-border flex-shrink-0 overflow-hidden min-w-0" onDragOverCapture={handleTabBarDragOver(gid)}>
+        <div className={barraSub(rowIdx === 0)} onDragOverCapture={handleTabBarDragOver(gid)}>
+          {leadingSlot && gid === leadingGid && <LeadingSlot node={leadingSlot} />}
           <div className="flex-1 flex items-center min-w-0 overflow-hidden">
           <PaneTabBar
+              hasLeadingBlock={!!leadingSlot}
+            subordinate={subordinate && rowIdx === 0}
             panes={groupPanes}
             activePaneId={group.activePaneId}
             groupIsFocused={isFocusedGroup}
@@ -911,9 +1019,14 @@ export function GroupLayout({
           />
           </div>
         </div>
+        {belowSlot && gid === leadingGid && <LeadingSlot node={belowSlot} />}
         {/* Active pane content */}
+        {/* La riga dei comandi ha già scavalcato la barra: da qui in giù non va
+            riservata una seconda volta. Vedi CHROME_BAR_CONSUMED — erano 38px
+            di fascia vuota, misurati. La condizione è la STESSA della riga qui
+            sopra, o si azzererebbe in gruppi che la riga non ce l'hanno. */}
         <div
-          className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden relative"
+          className={`flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden relative ${belowSlot && gid === leadingGid ? CHROME_BAR_CONSUMED : ''}`}
           onMouseDownCapture={() => {
             if (!isFocusedGroup && group.activePaneId) {
               onActivatePane(gid, group.activePaneId);
@@ -961,7 +1074,7 @@ export function GroupLayout({
                   // fully transparent (they frost themselves), chat + kanban
                   // in the frosted tier (`pane-frost`), the rest opaque
                   // `bg-surface` so dense text stays crisp over the vibrancy.
-                  className={`flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden ${paneCellBg(pane.type)}`}
+                  className={`flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden ${paneCellBg(pane.type)} ${paneCellTopInset(pane.type)}`}
                 >
                   {renderPane(pane, isFocusedGroup && isPaneActive, isPaneActive)}
                 </PaneKeepAlive>
@@ -1071,10 +1184,12 @@ export function GroupLayout({
 
     if (flatPanes.length === 0) {
       return (
-        <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
-          <div className="chrome-glass flex items-center h-10 border-b border-app-border flex-shrink-0 overflow-hidden min-w-0">
+        <div className={`relative flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden ${cardVar(true).className}`} style={cardVar(true).style}>
+          <div className={barraSub(true)}>
+            {leadingSlot && <LeadingSlot node={leadingSlot} />}
             <div className="flex-1 flex items-center min-w-0 overflow-hidden">
               <PaneTabBar
+              hasLeadingBlock={!!leadingSlot}
                 panes={[]}
                 activePaneId={null}
                 onActivate={() => {}}
@@ -1086,6 +1201,7 @@ export function GroupLayout({
               />
             </div>
           </div>
+          {belowSlot && <LeadingSlot node={belowSlot} />}
         </div>
       );
     }
@@ -1098,10 +1214,12 @@ export function GroupLayout({
     }
 
     return (
-      <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
-        <div className="chrome-glass flex items-center h-10 border-b border-app-border flex-shrink-0 overflow-hidden min-w-0">
+      <div className={`relative flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden ${cardVar(true).className}`} style={cardVar(true).style}>
+        <div className={barraSub(true)}>
+          {leadingSlot && <LeadingSlot node={leadingSlot} />}
           <div className="flex-1 flex items-center min-w-0 overflow-hidden">
             <PaneTabBar
+              hasLeadingBlock={!!leadingSlot}
               panes={flatPanes}
               activePaneId={activePaneId}
               groupIsFocused
@@ -1131,7 +1249,9 @@ export function GroupLayout({
             />
           </div>
         </div>
-        <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden relative">
+        {belowSlot && <LeadingSlot node={belowSlot} />}
+        {/* Stessa cosa nella vista piatta: vedi CHROME_BAR_CONSUMED. */}
+        <div className={`flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden relative ${belowSlot ? CHROME_BAR_CONSUMED : ''}`}>
           {flatPanes
             .filter((p) => isResidentPane(p) || p.id === activePaneId)
             .map((pane) => {
@@ -1141,7 +1261,7 @@ export function GroupLayout({
                   key={stableKeyOf(pane)}
                   paneKey={stableKeyOf(pane)}
                   isVisible={isPaneActive}
-                  className={`flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden ${paneCellBg(pane.type)}`}
+                  className={`flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden ${paneCellBg(pane.type)} ${paneCellTopInset(pane.type)}`}
                 >
                   {renderPane(pane, isPaneActive, isPaneActive)}
                 </PaneKeepAlive>

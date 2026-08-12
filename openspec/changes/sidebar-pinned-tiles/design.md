@@ -5,9 +5,9 @@
 **Bug pre-esistente, verificato.** Lo stesso progetto ha due chiavi di pin diverse a
 seconda di *dove* lo fissi:
 
-- dalla **sidebar** → `project:/Users/zorahrel/Projects/X` (path **grezzo**,
+- dalla **sidebar** → `project:/Users/utente/Projects/X` (path **grezzo**,
   `buildSidebarItems.ts:509,544`);
-- dalla **tab bar** → `project:%2FUsers%2Fzorahrel%2FProjects%2FX` (path **codificato**:
+- dalla **tab bar** → `project:%2FUsers%2Futente%2FProjects%2FX` (path **codificato**:
   `pinKeyForPane` restituisce `pane.id`, `paneConfig.ts:158-171`).
 
 La divergenza è già scritta nero su bianco a `buildSidebarItems.ts:695-704` — «confonderli

@@ -388,6 +388,93 @@ test.describe("Kanban board", () => {
     );
   });
 
+  /**
+   * LA TAB DELLA BOARD DICE A CHE PUNTO STA IL LAVORO.
+   *
+   * Una tab «Board» portava icona + nome e basta: dentro un gruppo di split, o
+   * semplicemente non selezionata, non diceva niente di ciò che c'è dietro —
+   * mentre la riga della sidebar lo dice da sempre. Adesso porta gli stessi due
+   * stati che riassume la sidebar (review, in corso), dallo STESSO feed.
+   *
+   * Il numero non è scritto a mano nel test: si confronta con quello che l'API
+   * risponde nello stesso istante. Un'asserzione su una costante proverebbe che
+   * la tab sa contare fino a due; questa prova che la tab e la board sono
+   * d'accordo, che è l'invariante vero.
+   */
+  test("BOARD-15: la tab «Board generale» mostra i conteggi per stato", async ({ page }) => {
+    const stamp = Date.now();
+    const t1 = await apiCreateTask(page.request, { text: `Tab count A ${stamp}`, status: "in_progress" });
+    const patch = await page.request.patch(`${BASE}/api/boards/${PROJECT_ID}/tasks/${t1.id}`, {
+      data: { status: "review" },
+    });
+    expect(patch.ok()).toBe(true);
+    await apiCreateTask(page.request, { text: `Tab count B ${stamp}`, status: "in_progress" });
+
+    await resetPaneStore(page.request, []);
+    await page.goto("/");
+    await page.getByTestId("pane-add-menu-trigger").first().click();
+    await page.getByTestId("pane-add-menu-board").click();
+    await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 15000 });
+
+    // Quanti ne conta il server, adesso, su TUTTE le board (root soltanto: è lo
+    // stesso feed che alimenta la tab).
+    const atteso = async (status: string) => {
+      const r = await page.request.get(`${BASE}/api/all-boards/tasks`);
+      const { tasks } = (await r.json()) as { tasks: { status: string }[] };
+      return tasks.filter((t) => t.status === status).length;
+    };
+
+    const tab = page.locator('[data-pane-id="__board__"]');
+    await expect(tab).toBeVisible({ timeout: 10000 });
+    for (const status of ["review", "in_progress"]) {
+      const cue = tab.getByTestId(`tab-board-count-${status}`);
+      await expect(cue, `manca il conteggio ${status} sulla tab`).toBeVisible({ timeout: 10000 });
+      await expect.poll(async () => (await cue.innerText()).trim(), { timeout: 10000 })
+        .toBe(String(await atteso(status)));
+      // …e con una larghezza VERA: dentro una tab a larghezza fissa un
+      // contenitore che collassa lascia elementi «visibili» e larghi zero — è
+      // così che il raggruppamento della sidebar era già sparito una volta
+      // (BOARD-14). Il glifo da solo è 14px.
+      const box = await cue.boundingBox();
+      expect(Math.round(box?.width ?? 0), `il conteggio ${status} è largo zero`).toBeGreaterThanOrEqual(14);
+    }
+  });
+
+  /**
+   * E la tab di UN PROGETTO conta solo i suoi.
+   *
+   * È la parte che può rompersi in silenzio: il progetto non sta sul pane, la
+   * barra lo conosce come scope della finestra. Se quella risoluzione salta, la
+   * tab di progetto mostrerebbe il totale di TUTTI i progetti — un numero
+   * plausibile e sbagliato. Qui il secondo progetto esiste apposta perché i due
+   * numeri NON coincidano.
+   */
+  test("BOARD-16: la tab della board di progetto conta solo i task di quel progetto", async ({ page }) => {
+    const stamp = Date.now();
+    const ALTRO_ID = boardIdForPath(`/tmp/e2e-board-altro-${stamp}`);
+    await apiCreateTask(page.request, { text: `Solo mio ${stamp}`, status: "in_progress" });
+    await apiCreateTask(page.request, { text: `Di un altro ${stamp}`, status: "in_progress" }, ALTRO_ID);
+
+    await page.goto("/");
+    await openProjectBoard(page);
+
+    const perProgetto = async (projectId: string) => {
+      const r = await page.request.get(`${BASE}/api/boards/${projectId}/tasks`);
+      const { tasks } = (await r.json()) as { tasks: { status: string; parentTaskId: string | null }[] };
+      return tasks.filter((t) => t.status === "in_progress" && !t.parentTaskId).length;
+    };
+    const mio = await perProgetto(PROJECT_ID);
+    const altro = await perProgetto(ALTRO_ID);
+    expect(altro, "il secondo progetto serve a rendere i due numeri diversi").toBeGreaterThan(0);
+
+    const cue = page.getByTestId("project-window").getByTestId("tab-board-count-in_progress");
+    await expect(cue).toBeVisible({ timeout: 15000 });
+    // `mio`, non `mio + altro`: con un task in corso su ciascun progetto i due
+    // numeri sono diversi, quindi questa uguaglianza è anche il rosso che
+    // scatta se la tab di progetto ricadesse sul totale globale.
+    await expect.poll(async () => (await cue.innerText()).trim(), { timeout: 10000 }).toBe(String(mio));
+  });
+
   test("BOARD-12: a persisted Board generale pane survives hydrate/render (persistence regression)", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "KANBAN-01" });
     // Regression: `KNOWN_PANE_TYPES` omitted 'board', so `sanitizePane` dropped
@@ -567,7 +654,12 @@ test.describe("Kanban board", () => {
     await expect(board.getByText(a)).toBeVisible({ timeout: 10000 });
     await expect(board.getByText(b)).toBeVisible();
     // Project badge on cross-project cards (label = dirName before the hash).
-    await expect(board.getByText("otherproj", { exact: true })).toBeVisible();
+    // Cercato DENTRO la card e non nella board intera: da quando la barra
+    // mostra i progetti come chip filtro (`project-filter-chip-*`), lo stesso
+    // nome compare due volte sulla superficie e un `getByText` largo cadeva su
+    // strict mode — accusando la card, che invece il badge ce l'ha.
+    const colonne = board.locator('[data-testid^="kanban-column-body-"]');
+    await expect(colonne.getByText("otherproj", { exact: true })).toBeVisible();
   });
 
   test("BOARD-14: trascinare una card cambia colonna e riordina, e resta dopo un reload", async ({ page }) => {

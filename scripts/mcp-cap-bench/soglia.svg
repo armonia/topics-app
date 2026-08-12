@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 620" width="900" height="620" font-family="Helvetica, Arial, sans-serif">
+  <rect width="900" height="620" fill="#0f1115"/>
+
+  <text x="40" y="62" fill="#f2f4f8" font-size="38" font-weight="700">La soglia e' 200k, non 100k</text>
+  <text x="40" y="98" fill="#98a2b3" font-size="21">351 sessioni vere, picco &#8805;150k. Compattare a 100k fa SALIRE il conto del 39%.</text>
+
+  <!-- assi -->
+  <line x1="120" y1="180" x2="120" y2="470" stroke="#3a4150" stroke-width="2"/>
+  <line x1="120" y1="325" x2="820" y2="325" stroke="#5b6472" stroke-width="2"/>
+  <text x="128" y="317" fill="#8b94a3" font-size="17">pari</text>
+
+  <text x="60" y="200" fill="#8b94a3" font-size="17">+50%</text>
+  <text x="60" y="462" fill="#8b94a3" font-size="17">-50%</text>
+  <text x="26" y="270" fill="#8b94a3" font-size="17" transform="rotate(-90 40 300)">risparmio</text>
+
+  <!-- x: 80k..700k mappato 150..800 -->
+  <g fill="#8b94a3" font-size="17" text-anchor="middle">
+    <text x="150" y="497">80k</text>
+    <text x="215" y="497">100k</text>
+    <text x="345" y="497">150k</text>
+    <text x="455" y="497">200k</text>
+    <text x="600" y="497">300k</text>
+    <text x="800" y="497">700k</text>
+  </g>
+  <text x="470" y="530" fill="#98a2b3" font-size="19" text-anchor="middle">soglia a cui si compatta</text>
+
+  <!-- token: sempre in risparmio, e non e' la domanda -->
+  <polyline fill="none" stroke="#5b8def" stroke-width="3.5" stroke-dasharray="7 5"
+    points="150,170 215,172 345,164 455,169 520,182 600,194 690,214 745,229 800,262"/>
+  <text x="808" y="266" fill="#5b8def" font-size="19">token</text>
+
+  <!-- dollari: sotto lo zero fino a 150k -->
+  <polyline fill="none" stroke="#e5484d" stroke-width="4"
+    points="150,472 215,439"/>
+  <polyline fill="none" stroke="#30a46c" stroke-width="4"
+    points="215,439 345,242 455,206 520,213 600,228 690,251 745,270 800,301"/>
+  <text x="808" y="305" fill="#30a46c" font-size="19">dollari</text>
+
+  <!-- i due punti che decidono -->
+  <circle cx="215" cy="439" r="9" fill="#e5484d"/>
+  <text x="232" y="452" fill="#e5484d" font-size="21" font-weight="700">100k: -39% (peggio)</text>
+  <text x="232" y="476" fill="#8b94a3" font-size="17">quello che chiedeva la card</text>
+
+  <circle cx="455" cy="206" r="9" fill="#30a46c"/>
+  <text x="472" y="199" fill="#30a46c" font-size="21" font-weight="700">200k: +41%</text>
+  <text x="472" y="223" fill="#8b94a3" font-size="17">il minimo, ed e' gia' il numero in codice</text>
+
+  <!-- il perche', in una riga -->
+  <rect x="40" y="552" width="820" height="46" rx="10" fill="#171a21" stroke="#2a3040"/>
+  <text x="60" y="582" fill="#c9d1de" font-size="20">Compattare brucia la cache: toglie token da 0,1x e ne scrive a 1,25x.</text>
+</svg>

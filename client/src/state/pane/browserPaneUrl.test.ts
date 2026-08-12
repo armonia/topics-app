@@ -9,16 +9,7 @@ import { paneReducer } from "./reducers/panes";
 import { sanitizeSnapshot } from "./reducers/sanitizeSnapshot";
 import { selectSyncableSnapshot } from "./selectors";
 import type { PaneState } from "./types";
-
-const blankState = (): PaneState => ({
-  panes: {},
-  groups: {},
-  closedStack: [],
-  focusedPaneId: null,
-  groupOrder: [],
-  lastSeq: 0,
-  lastServerSeq: 0,
-});
+import { blankPaneState as blankState } from "./testSupport";
 
 function withBrowserPane(): PaneState {
   const state = blankState();

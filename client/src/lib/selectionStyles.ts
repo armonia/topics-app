@@ -10,13 +10,30 @@
  * Tabs are rounded pills and add their own `rounded-md`; sidebar rows apply
  * these classes full-width. The shared part is the fill + ring + shadow + text.
  */
+import type { CSSProperties } from 'react';
 import type { AttentionTier } from '../types';
 // A clean FILL only — no ring/shadow. On full-width sidebar rows a ring+shadow
 // bled onto neighbours (focused folder + its active child read as "overlapping"
 // rows), and made merely-open rows look selected. A single solid fill is
 // unambiguous and never collides with an adjacent row.
+/* IL RAMO `max-md:` VA DATO A TUTTA LA SCALA, non a metà.
+ *
+ * Sotto i 768px il riposo sale a 0.08/0.10 (RESTING_FILL_MOBILE): là il fondo
+ * della pagina collassa sul chrome e a 0.05 una card non si stacca più. Ma il
+ * rialzo era arrivato solo al riposo, e la selezione era rimasta ai valori
+ * pensati per un riposo TRASPARENTE — 0.06 in chiaro, cioè MENO del riposo
+ * stesso: sul telefono, in tema chiaro, la riga selezionata era più chiara di
+ * quelle a riposo. Il verso della scala si invertiva.
+ *
+ * I valori mobile non sono inventati: sono il gradino del desktop (dove il
+ * riposo è trasparente, quindi selezione = 0.06 chiaro / 0.14 scuro) sommato al
+ * riposo mobile. 0.08+0.06 = 0.14 e 0.10+0.14 = 0.24, arrotondato a 0.22 perché
+ * oltre il bianco comincia a leggersi come un fill di attenzione. Stessa
+ * aritmetica per il gradino «attiva ma non a fuoco».
+ */
 export const SELECTED_SURFACE =
-  'bg-black/[0.06] dark:bg-white/[0.14] text-app-text';
+  'bg-black/[0.06] dark:bg-white/[0.14] text-app-text ' +
+  'max-md:bg-black/[0.14] max-md:dark:bg-white/[0.22]';
 
 /**
  * Softer sibling of SELECTED_SURFACE: a tab that is the active one in a SPLIT
@@ -24,7 +41,8 @@ export const SELECTED_SURFACE =
  * a step below the focused surface so only ONE thing reads as "current".
  */
 export const SELECTED_SURFACE_SOFT =
-  'bg-black/[0.03] dark:bg-white/[0.06] text-app-text-secondary';
+  'bg-black/[0.03] dark:bg-white/[0.06] text-app-text-secondary ' +
+  'max-md:bg-black/[0.11] max-md:dark:bg-white/[0.16]';
 
 /**
  * The RESTING state of the same card grammar: an interactive surface that is
@@ -40,6 +58,27 @@ export const SELECTED_SURFACE_SOFT =
  * risale a 1,115 e 1,122. Sulla pagina (`--bg`, dove vivono le tab) il rialzo
  * diventa un filo più netto: è un guadagno, non un effetto collaterale.
  */
+/**
+ * IL FONDO DI UNA TAB A RIPOSO SUL TELEFONO, e adesso è UNO.
+ *
+ * Ce n'erano due, e non erano due gusti: erano lo stesso valore prima e dopo una
+ * correzione, applicata a metà delle superfici. Il commento qui sotto lo dice
+ * già — a 0.05/0.06 il fondo di una tab stacca di 1,10:1 in scuro e 1,12:1 in
+ * chiaro, cioè è appoggiato sulla soglia di percettibilità, e a 0.08/0.10 sale
+ * a 1,18 e 1,25. Quella correzione è arrivata a `RESTING_SURFACE`, quindi alle
+ * tessere fissate e alle tab della barra; le RIGHE della colonna, che il fondo
+ * mobile se lo scrivevano a mano dentro `sidebarRowCard`, sono rimaste a
+ * 0.05/0.07 — cioè al valore già misurato come troppo debole su questo schermo.
+ *
+ * Misurato a 390×844 prima di toccare niente: tessera `oklab(0 0 0 / 0.08)`,
+ * riga `oklab(0 0 0 / 0.05)`, una accanto all'altra nella stessa colonna. È «i
+ * colori non sono coerenti fra le tab» (Attilio, 09/08), ed era vero.
+ *
+ * Sta qui come costante e non come stringa ricopiata perché il difetto era
+ * esattamente la copia: due posti che dicono la stessa cosa divergono al primo
+ * che viene corretto da solo.
+ */
+export const RESTING_FILL_MOBILE = 'max-md:bg-black/[0.08] max-md:dark:bg-white/[0.10]';
 export const RESTING_SURFACE =
   'bg-black/[0.05] dark:bg-white/[0.06] hover:bg-black/[0.08] dark:hover:bg-white/[0.10] ' +
   // SOTTO I 768px IL RIALZO CRESCE, e prende il posto di una linea.
@@ -60,7 +99,7 @@ export const RESTING_SURFACE =
   // A 0.08/0.10 sale a 1,18:1 e 1,25:1, e i bordi si leggono senza aggiungere
   // un tratto. Solo sotto i 768px: sul desktop il fondo è più chiaro e il
   // rialzo attuale si vede già.
-  'max-md:bg-black/[0.08] max-md:dark:bg-white/[0.10] ' +
+  RESTING_FILL_MOBILE + ' ' +
   'max-md:hover:bg-black/[0.12] max-md:dark:hover:bg-white/[0.14]';
 
 /**
@@ -227,6 +266,106 @@ export const ON_FILL_TEXT_SOFT = 'text-inherit opacity-70';
 export const ROW_PX = 'px-2';
 
 /**
+ * L'ARIA FRA I PEZZI DENTRO UNA RIGA — il glifo e il nome, il nome e i comandi.
+ *
+ * Il gemello interno di {@link ROW_PX}: quello dice quanto la riga rientra dai
+ * suoi bordi, questo quanto respirano le cose che ci stanno dentro. Erano tre
+ * numeri per la stessa distanza — 8 (`gap-2`) su otto superfici, 6 (`gap-1.5`)
+ * su quattro, 4 (`gap-1`) su due — e otto contro sei si vede benissimo mettendo
+ * una tessera fissata sopra una riga, che è come la colonna si guarda sempre.
+ *
+ * Otto, e non sei, per due ragioni che tirano nello stesso verso:
+ *
+ *  · è la MAGGIORANZA di ciò che l'app disegna davvero, e il commento di
+ *    `TopicTree` lo dichiarava già lo standard («il passo che ogni altra riga con
+ *    un glifo usa fra l'icona e il nome») mentre {@link SECTION_CARD} — cioè la
+ *    costante — stava a sei: la libreria era in minoranza rispetto ai suoi
+ *    clienti;
+ *  · la lamentela da cui viene questo giro è che le cose sono strette, non
+ *    larghe. Fra due valori si sale, come si era già saliti a 13px per
+ *    {@link TAB_LABEL}.
+ *
+ * NON è {@link TAB_GAP_CLASS} (6): quello è lo spazio FRA due card, questo è lo
+ * spazio DENTRO una. Sono due domande diverse e possono avere due risposte
+ * diverse — il difetto era che ognuna ne aveva tre.
+ */
+export const ROW_GAP = 'gap-2';
+
+/**
+ * IL TESTO DI UNA TAB, ovunque una tab si presenti: la barra delle pane, la
+ * tessera fissata, la riga di un progetto nella colonna.
+ *
+ * Erano tre tipografie diverse per tre presentazioni della STESSA cosa —
+ * misurate: la tab a 11px medium, la tessera a 11px normale, la riga di
+ * progetto a 13px medium — più tre colori diversi a riposo. «Le tab progetti
+ * sono ancora grige e sono diverse anche in peso, allineiamo tutto» (Attilio,
+ * 08/08).
+ *
+ * Tre decisioni, e una sola ragione dietro tutte:
+ *
+ *  · **13px**, che è la misura più GRANDE delle tre e non un compromesso a
+ *    metà: la lamentela era che i corpi sembrano piccoli, quindi si sale.
+ *  · **medium** per tutte: il peso non è un modo di dire «questa è meno
+ *    importante», è parte dell'identità del carattere.
+ *  · **testo pieno** per tutte. A dire quale tab è quella corrente ci pensa la
+ *    SUPERFICIE — è la regola che questo file già dichiara («at rest the card is
+ *    transparent, so only the current/hovered/needy row reads as a filled
+ *    tab»). Spegnere anche il testo diceva la stessa cosa due volte, e la
+ *    seconda la diceva male: una tab a riposo diventava illeggibile da lontano.
+ *
+ * Chi ha bisogno di un tono diverso — un progetto tutto archiviato, una riga
+ * dentro un fill di attenzione — lo aggiunge DOPO, sovrascrivendo: qui c'è la
+ * base, non l'ultima parola.
+ */
+/*
+ * E LA MISURA È DUE, PERCHÉ GLI SCHERMI SONO DUE — ma le superfici no.
+ *
+ * Sopra c'è scritto «13px, che è la misura più GRANDE delle tre». Era vero fra
+ * quelle tre, ma ne mancava una: le RIGHE della colonna, che non passavano di
+ * qui e stavano già a `text-[14px] md:text-[13px]` (TopicItem, TopicTree). Cioè
+ * sul telefono una riga era 14 e la tessera fissata accanto a lei 13 — misurato
+ * a 390×844, nella stessa colonna, una sopra l'altra.
+ *
+ * Si allinea verso l'ALTO, non verso il basso: la lamentela da cui viene questo
+ * blocco era che i corpi sembrano piccoli, quindi a muoversi è la tessera che
+ * sale a 14, non la riga che scende a 13. Sul desktop restano tutte 13, dove
+ * quel numero era già stato scelto e misurato.
+ */
+/**
+ * LA SCALA E IL PESO, SENZA IL COLORE — e i due assi vanno separati.
+ *
+ * `TAB_LABEL` porta anche `text-app-text`, e va benissimo per una tab o una
+ * tessera, che il proprio tono se lo scelgono lì. Non va bene per le RIGHE
+ * dell'albero: là il tono lo decide `sidebarRowCard` in funzione dello stato
+ * (`text-app-text-secondary` a riposo, `text-app-text` da aperta, `text-inherit`
+ * su un fill di attenzione). Mettendo le due stringhe sullo stesso elemento
+ * finiscono ENTRAMBE nel `class`, e a specificità pari vince chi il bundle
+ * emette per ultimo — non chi viene dopo nella stringa. È lo stesso baco che
+ * `sidebarRowCard` documenta in testa («l'ordine della stringa non è la
+ * cascata»), e lì era costato quattro stati dipinti con un fondo solo.
+ *
+ * Quindi: chi ha un tono suo prende {@link TAB_LABEL}, chi lo calcola prende
+ * questo. Un asse per volta.
+ */
+/**
+ * `leading-5` NON è cosmesi: è ciò che rende la centratura verticale un numero
+ * INTERO. Senza interlinea esplicita l'etichetta eredita quella del body (1.5),
+ * cioè 19,5px su un carattere da 13 — e in una tab alta 28 il conto è
+ * (28 − 19,5) / 2 = 4,25. La riga di testo nasce su un quarto di pixel: il
+ * rasterizzatore la spalma su due righe di sub-pixel e il testo si legge
+ * «leggermente più su» e più molle, che è esattamente il difetto riportato
+ * («il testo della tab non è ben centrato verticalmente», Attilio, 10/08).
+ * Con 20 il conto fa 4 tondi in una tab da 28, 8 in una da 36 e 7 nella riga di
+ * sidebar da 34 — le tre superfici che condividono questa classe.
+ *
+ * 20 e non meno: `truncate` porta `overflow:hidden`, e un'interlinea più stretta
+ * dell'altezza del carattere taglia le discendenti (già successo, vedi la nota
+ * su truncate + leading-none). 1,21em di Inter a 14px fanno 16,9 < 20.
+ */
+export const TAB_LABEL_TYPE = 'text-[14px] md:text-[13px] font-medium leading-5';
+export const TAB_LABEL = `${TAB_LABEL_TYPE} text-app-text`;
+
+/**
  * The single horizontal inset (px) of a list of tabs/rows from its panel edge —
  * SHARED by the sidebar AND the tab bar so the two lists line up at the sides
  * AND so a list item's side gap equals a tab's TOP/BOTTOM gap (the spacing reads
@@ -256,6 +395,104 @@ export const ROW_INSET = 6;
  * numeri d'accordo per caso.
  */
 export const COLUMN_GAP = 6;
+/**
+ * LO STESSO PASSO, GIRATO DI NOVANTA GRADI — e adesso è davvero lo stesso.
+ *
+ * Fra due tab della barra c'era `gap-0.5`, cioè DUE pixel, e fra due card della
+ * colonna sei. Non erano due scelte: erano lo stesso numero prima e dopo una
+ * correzione applicata a metà. Il commento di `sidebarRowCard` lo dice ancora
+ * («il ritmo verticale segue il passo stretto della tabbar, gap-0.5 = 2px»),
+ * ma quel passo verticale è passato a `COLUMN_GAP` il 09/08 mentre l'orizzontale
+ * è rimasto indietro: la stessa card, messa in fila, respirava un terzo di
+ * quanto respira impilata.
+ *
+ * «Normalizza spaziature e dimensioni in tutte le tab sia verticali che
+ * orizzontali» (Attilio, 09/08). È lo stesso valore, e per questo è la stessa
+ * costante: un `gap-1.5` scritto a mano nella barra tornerebbe a poter divergere
+ * al primo che tocca uno dei due.
+ */
+export const TAB_GAP_CLASS = 'gap-1.5';
+
+/**
+ * LE DUE ALTEZZE, E SONO DUE APPOSTA.
+ *
+ * Misurate su tutte le superfici tab-like dell'app, le altezze erano SEI: 44/34,
+ * 44/36, 36/28, 28/28, `auto`, e due copie a mano di 44/34. Non erano sei
+ * decisioni: erano due famiglie legittime più quattro derive.
+ *
+ *  · {@link ROW_H} — la RIGA: porta un nome PIÙ una subline, quindi 34 sopra i
+ *    768px (la misura che regge due righe di testo) e 44 sotto, che è il minimo
+ *    di tap target di iOS.
+ *  · {@link CARD_H} — la CARD COMPATTA: una riga sola di testo, nessuna subline.
+ *    È la tab della barra, l'intestazione di una sezione, ed è la stessa misura
+ *    di {@link ROW_ACTION_BOX} — 36 col dito, 28 col mouse — perché un comando e
+ *    la card che gli sta accanto nella stessa riga di chrome devono lasciare lo
+ *    stesso respiro (il conto sta in `chromeRowInset`).
+ *
+ * Il difetto non era avere due famiglie: era che NESSUNA delle due aveva un
+ * nome. `ROW_H` viveva locale in `TopicItem.tsx`, ricopiata a mano in
+ * `SpaceGroups.tsx` con un commento che ammetteva la copia («è lo stesso numero
+ * di ROW_H in TopicTree, scritto qui perché importarlo da lì chiuderebbe un
+ * ciclo — il posto suo è lib/selectionStyles»). Eccolo, il posto suo. `CARD_H`
+ * stava scritta a mano dentro {@link SECTION_CARD} e una seconda volta in
+ * `PaneTabBar`.
+ *
+ * IL PREDICATO È LA LARGHEZZA, SEMPRE. Nessuna delle due si sceglie con
+ * `isTouch`: quanto è alta una riga è una domanda di LAYOUT. `isTouch` resta ai
+ * comportamenti — long-press, drag nativo, un comando che l'hover nasconderebbe.
+ * Era già la regola scritta in `useMobile`, e la stessa riga la violava
+ * scegliendo il ramo con `isTouch` e il box del comando con `md:`.
+ */
+export const ROW_H = 'h-11 md:h-[34px]';
+/** L'altra famiglia — vedi {@link ROW_H}. Uguale a {@link ROW_ACTION_BOX} in
+ *  altezza, e l'uguaglianza la blocca `selectionStyles.test.ts`. */
+export const CARD_H = 'h-9 md:h-7';
+
+/**
+ * L'INTESTAZIONE DI UNA SEZIONE — e i due numeri vengono da due vincoli diversi,
+ * che è il motivo per cui non poteva prendere né l'una né l'altra famiglia.
+ *
+ *  · 28 col mouse, come {@link CARD_H}: una riga di testo sola, nessuna subline.
+ *    Un'intestazione alta quanto le righe che introduce non si legge come
+ *    un'intestazione — e le DUE intestazioni di sezione dell'app stavano a
+ *    34 (colonna principale, che usava `ROW_H`) e 28 (colonna di progetto, che
+ *    usa `SECTION_CARD`): la stessa cosa, due misure, in due colonne che si
+ *    guardano affiancate.
+ *  · 44 col dito, come {@link ROW_H}: è un bersaglio che si preme, e sta in una
+ *    colonna, dove i 44px del minimo iOS ci stanno. `SECTION_CARD` era a 36 —
+ *    otto sotto la soglia — e in quella colonna era l'unica cosa premibile a
+ *    esserlo.
+ *
+ * Perché {@link CARD_H} resta 36 col dito e non sale anche lei: la tab della
+ * barra vive DENTRO la riga di chrome, che è alta 40 ({@link CHROME_ROW_CONTENT_H}).
+ * Una tab da 44 non ci sta — la taglierebbe l'`overflow-hidden` della barra — e
+ * i 44 lì si recuperano con `tap-expand-y`, che proietta l'area senza toccare il
+ * box. Cioè: non sono due gusti, è che una delle due superfici ha un soffitto.
+ */
+export const SECTION_H = 'h-11 md:h-7';
+
+/**
+ * L'INTESTAZIONE DI UNA SEZIONE È UNA CARD, come tutto il resto.
+ *
+ * «Facciamo diventare gli accordion della sidebar progetto delle card, come le
+ * tab» (Attilio, 09/08). Erano tre righe a tutta larghezza — `h-8 px-3`, testo a
+ * 12px secondario, un `border-b` sotto quella chiusa e due `h-[1px]` fra le
+ * sezioni — cioè l'ULTIMA superficie dell'app rimasta fuori dalla grammatica
+ * delle card: rientrata da nessun lato, con la sua tipografia e i suoi fili.
+ *
+ * Adesso è la stessa card di una tab e di una riga della colonna: stesso fondo a
+ * riposo, stesso corpo, stesso incasso laterale (`mx-1.5` = ROW_INSET), stesso
+ * mezzo passo verticale (`my-[3px]` = COLUMN_GAP/2), stesso raggio. E i fili se
+ * ne vanno da soli: fra card impilate una linea ripete ciò che fondo e distanza
+ * dicono già — è la regola che questo file dichiara in testa a `sidebarRowCard`.
+ *
+ * Vive qui e non in `ProjectSidebar` perché le intestazioni sono TRE e stanno in
+ * DUE file (Git ha la sua dentro `GitChanges`): due copie della stessa
+ * grammatica divergono al primo che viene ritoccato da solo.
+ */
+export const SECTION_CARD =
+  `group edge-lit flex items-center ${ROW_GAP} ${ROW_PX} ${SECTION_H} ${TAB_LABEL} ${RESTING_SURFACE} ` +
+  'rounded-lg mx-1.5 my-[3px] transition-colors cursor-pointer select-none flex-shrink-0 overflow-hidden';
 /** Indent added per nesting level for sidebar child rows (px). */
 export const SIDEBAR_INDENT_STEP = 16;
 
@@ -305,32 +542,41 @@ export const ROW_GLYPH_SLOT = 'w-[18px] shrink-0 flex items-center justify-cente
  * `tap-expand-y` porta l'AREA a 44 in altezza senza rubare larghezza ai vicini
  * (vedi index.css). Il glifo dentro resta piccolo: cresce il bersaglio, non il
  * disegno.
+ *
+ * VALE ANCHE NELLA BARRA DELLE TAB, e le due misure sono le stesse della tab
+ * perché ora seguono lo STESSO breakpoint. C'è stato un giro in cui il comando
+ * della barra era stato rimpicciolito a 28 fisso per far tornare l'aria
+ * verticale: sbagliato due volte. Primo, «hai fatto i tasti più piccoli ma non
+ * dovevi» (Attilio, 09/08) — il difetto era orizzontale. Secondo, i 2px di aria
+ * misurati non venivano dal box ma da un DISACCORDO DI PREDICATO: la tab
+ * decideva la propria altezza con `isTouch` (JS) e il comando col breakpoint
+ * `md:` (larghezza), quindi in una finestra stretta SENZA touch — un desktop
+ * ristretto, e la sonda di misura — la tab era 28 e il comando 36 nella stessa
+ * riga. Adesso anche la tab è `h-9 md:h-7`: l'altezza è una domanda di LAYOUT e
+ * la decide la larghezza, come dice `useMobile` («affordance touch → isTouch;
+ * quante colonne → larghezza»). `isTouch` resta dove serve davvero: long-press,
+ * drag nativo, comandi che l'hover nasconderebbe.
  */
 export const ROW_ACTION_BOX = 'w-9 h-9 md:w-7 md:h-7';
 
 /**
- * IL RESPIRO ATTORNO A UN COMANDO NELLA RIGA DI CHROME — e perché non è 6.
+ * L'ALTEZZA UTILE DELLA RIGA DI CHROME, e il respiro che lascia a ciò che ci sta
+ * dentro.
  *
- * Attilio, 08/08: «la spaziatura del tasto di aggiunta … a destra verso la fine
- * della tabbar dovrebbe essere uguale a quella che ha sopra e sotto».
+ * ED È 40, NON PIÙ 39, da quando la riga non porta il `border-b`: quel pixel di
+ * bordo mangiava l'altezza del contenuto e rompeva la divisione — (39 − 28)/2 =
+ * 5,5 sopra e sotto contro i 6 di lato, cioè mezzo pixel di scarto fra il
+ * respiro verticale e quello orizzontale dello STESSO bottone. Con la barra
+ * diventata vetro (`.pane-chrome-bar`) il contenuto vale 40 e il conto torna.
  *
- * Misurato prima di toccarlo, il «+» della barra delle tab stava così:
- *   · desktop  sopra 5,5 · sotto 5,5 · a destra 6
- *   · touch    sopra 1,5 · sotto 1,5 · a destra 6
- * Lo spazio VERTICALE non è una scelta: cade fuori dall'aritmetica della riga
- * — `h-10` meno il `border-b` fa 39px di contenuto, meno il box del comando,
- * diviso due. Quello ORIZZONTALE invece era `ROW_INSET`, un 6 scritto a mano
- * perché è l'incasso con cui le righe della sidebar stanno lontane dal bordo.
- * Due numeri con due origini diverse per lo stesso bottone: su touch la
- * differenza arriva a quattro pixel e mezzo, cioè il bottone galleggia lontano
- * dal bordo mentre le tab accanto a lui ci stanno a filo.
- *
- * Adesso il numero è UNO e lo dice l'aritmetica. Non è una costante ma una
- * funzione del box, perché il box cambia col breakpoint (28 desktop / 36
- * touch): scriverlo come due numeri li rimetterebbe a poter divergere, che è
- * esattamente il difetto da cui si esce.
+ * `chromeRowInset` NON decide niente: RIPORTA. Lo spazio verticale attorno a un
+ * box dentro questa riga non è una scelta, cade fuori dall'aritmetica — e serve
+ * saperlo per una ragione sola, controllare che il comando e la TAB che gli sta
+ * accanto lascino lo stesso respiro. Ci stanno entrambi a 28 col mouse (6 e 6) e
+ * a 36 col dito (2 e 2), perché ora hanno la stessa misura e lo stesso
+ * breakpoint: il bloccaggio è in `selectionStyles.test.ts`.
  */
-export const CHROME_ROW_CONTENT_H = 39;
+export const CHROME_ROW_CONTENT_H = 40;
 export function chromeRowInset(box: number): number {
   return (CHROME_ROW_CONTENT_H - box) / 2;
 }
@@ -343,28 +589,166 @@ export function chromeRowInset(box: number): number {
 export const ROW_ACTION_BOX_PX = { touch: 36, desktop: 28 } as const;
 
 /**
- * L'incasso del comando in coda alla riga di chrome, sui tre lati esposti:
- * `chromeRowInset(36)` = 1,5 col dito · `chromeRowInset(28)` = 5,5 col mouse.
+ * QUANTO IL COMANDO STA LONTANO DAL BORDO DELLA RIGA — ed è {@link ROW_INSET},
+ * non il respiro verticale.
+ *
+ * Era `chromeRowInset(box)`: 2 col dito, 6 col mouse. Cioè sul telefono il «+»
+ * e il tasto che riapre la colonna stavano DUE pixel dal bordo — incollati —
+ * mentre la strip senza comando si ferma a 6 (`pl-1.5`/`pr-1.5`). Il bordo è
+ * un fatto ORIZZONTALE e ha già il suo numero: quello con cui ogni riga della
+ * colonna e ogni tab stanno lontane dal loro bordo. Il respiro verticale è
+ * un'altra cosa e non si sceglie — lo lascia la riga.
  *
  * Le classi sono scritte PER ESTESO e non composte in un template: Tailwind
  * genera le utility leggendo i sorgenti come TESTO, quindi un
  * `right-[${n}px]` non produce nessuna regola e il bottone finirebbe
  * semplicemente a `right: 0`. L'aritmetica non resta però appesa a un commento
  * — la ricalcola `selectionStyles.test.ts`, che confronta questi letterali con
- * `chromeRowInset` e fallisce appena i due si separano.
+ * `ROW_INSET` e fallisce appena i due si separano.
  */
-export const CHROME_ROW_ACTION_INSET = 'right-[1.5px] md:right-[5.5px]';
+export const CHROME_ROW_ACTION_INSET = 'right-[6px]';
 /** Lo stesso incasso, specchiato: il comando che apre la sidebar sta in TESTA
  *  alla riga come il «+» sta in coda. Era `pl-1` su un box da 24px forzato con
  *  due `!important` — «è troppo piccolo e deve essere allineato graficamente al
  *  tasto di aggiunta» (Attilio, 08/08). Stesso box, stesso incasso, stessa
  *  scatola rialzata: le due estremità della riga si leggono come una coppia. */
-export const CHROME_ROW_ACTION_INSET_LEFT = 'left-[1.5px] md:left-[5.5px]';
-/** Lo spazio che la strip delle tab deve tenersi libero a destra: l'ingombro
- *  del comando più il suo incasso (36+1,5 · 28+5,5). Una tab che ci passa sotto
- *  a riposo — cioè prima ancora di scorrere — è il difetto che questa riserva
- *  esiste per non fare. Letterali per la stessa ragione di qui sopra. */
-export const CHROME_ROW_ACTION_RESERVE = 'pr-[37.5px] md:pr-[33.5px]';
+export const CHROME_ROW_ACTION_INSET_LEFT = 'left-[6px]';
+/**
+ * DOVE SI FERMA LA STRIP: bordo + comando + un'aria uguale a quella del bordo.
+ *
+ * `ROW_INSET + box + ROW_INSET` — 6+36+6 = 48 col dito, 6+28+6 = 40 col mouse.
+ * I tre pezzi ci sono tutti e nessuno è arrotondato: il comando sta 6 dal bordo
+ * (CHROME_ROW_ACTION_INSET), occupa il suo box, e la tab si ferma altri 6 prima
+ * di lui.
+ *
+ * Prima erano `box + chromeRowInset(box)` = 38 col dito e 34 col mouse, cioè il
+ * VERTICALE riusato come orizzontale: la strip finiva ESATTAMENTE sul bordo
+ * della scatola del comando, zero aria fra la tab e il bottone. «Il + e apri
+ * sidebar … senza aria giusta rispetto ai bordi e alle tab» (Attilio, 09/08):
+ * i due difetti erano questi due, e sono lo stesso errore preso da due lati.
+ *
+ * La riserva cambia col breakpoint perché il box cambia col breakpoint
+ * ({@link ROW_ACTION_BOX}: `w-9` sotto i 768px, `md:w-7` sopra), e ha quindi la
+ * forma `base + md:`. Letterali per la ragione di sempre — Tailwind legge il
+ * sorgente come testo — e ricalcolati da `selectionStyles.test.ts`, che li
+ * confronta con `ROW_ACTION_BOX_PX` e `ROW_INSET`.
+ */
+export const CHROME_ROW_ACTION_RESERVE = 'pr-[48px] md:pr-[40px]';
+/**
+ * LO STESSO SPAZIO, SPECCHIATO — e prima non lo era.
+ *
+ * In testa alla strip sta il comando che riapre la colonna, in coda il «+»:
+ * due bottoni gemelli, stesso box e stesso incasso (`CHROME_ROW_ACTION_INSET`
+ * e il suo gemello sinistro lo dicono già). La riserva però era scritta con due
+ * grammatiche diverse: a destra questa costante, che segue il box; a sinistra
+ * un `paddingLeft: 30` inline in PaneTabBar — un numero fisso, uguale sui due
+ * breakpoint, che non seguiva niente.
+ *
+ * Misurato a schermo: strip `padding-left: 30px` contro `padding-right: 34px`
+ * col mouse, e 30 contro 38 col dito. Cioè la prima tab stava 4px (desktop) e
+ * 8px (touch) più vicina al suo comando di quanto l'ultima stesse al «+» —
+ * «dovrebbero avere aria intorno uguale, anche rispetto alle tab a inizio e
+ * fine scroll» (Attilio, 09/08).
+ *
+ * Letterali per la stessa ragione dell'altra: Tailwind legge il sorgente come
+ * testo. E come l'altra, `selectionStyles.test.ts` ricalcola i due numeri dal
+ * box e dall'incasso, così non possono più separarsi in silenzio.
+ */
+export const CHROME_ROW_ACTION_RESERVE_LEFT = 'pl-[48px] md:pl-[40px]';
+
+/**
+ * LA RIGA DELLE TAB, UNA VOLTA SOLA — e ora che è un vetro conta il doppio.
+ *
+ * Era la stessa stringa ricopiata in cinque punti (quattro rami di
+ * `GroupLayout`, uno in `StandaloneChatGroup`). Finché era «una riga con un
+ * filo sotto» la copia costava poco; adesso porta anche il posizionamento
+ * `absolute` di `.pane-chrome-bar`, e un ramo che se lo scorda non è una
+ * differenza estetica: è una barra che torna dentro il flusso e spinge giù la
+ * pane di 40px mentre le sorelle no.
+ *
+ * Chi la monta deve fare DUE cose, e nessuna delle due è opzionale:
+ *  1. dare `relative` alla card che la contiene (senza, la barra si ancora al
+ *     primo antenato posizionato, che è un'altra cella);
+ *  2. dichiarare {@link CHROME_BAR_H_VAR} sulla stessa card — da lì la leggono
+ *     sia il rientro delle pane che NON passano sotto (`paneCellTopInset`) sia
+ *     il varco in cima alla conversazione (l'`Header` di Virtuoso).
+ */
+export const CHROME_BAR = 'pane-chrome-bar chrome-glass flex items-center h-10 flex-shrink-0 overflow-hidden min-w-0';
+
+/** L'altezza della riga di chrome come variabile CSS, da mettere sulla card che
+ *  possiede la barra. `h-10` = 40: il valore vive qui perché sia UN numero e non
+ *  tre, e {@link CHROME_ROW_CONTENT_H} è lo stesso numero visto dall'aritmetica
+ *  dell'incasso — l'uguaglianza la controlla `selectionStyles.test.ts`. */
+export const CHROME_BAR_H = 40;
+export const CHROME_BAR_H_VAR = { '--chrome-bar-h': `${CHROME_BAR_H}px` } as CSSProperties;
+
+/**
+ * LA RIGA SUBORDINATA: l'aria fra due barre impilate è UNA, e la seconda non la
+ * ripete.
+ *
+ * Dentro una finestra di progetto le righe di chrome sono due — quella dell'app
+ * con la TAB del progetto, e sotto quella del progetto con le sue pane. Ognuna
+ * portava i suoi 6 di aria, quindi fra la tab sopra (finisce a y=34) e la card
+ * sotto (cominciava a y=46) passavano DODICI px, mentre ogni altra coppia di
+ * card dell'app ne ha sei. «Ancora vedo le tabbar troppo lontane» (Attilio,
+ * 09/08), e aveva ragione: era il passo dell'app raddoppiato.
+ *
+ * La regola è quella che la colonna usa già un piano più giù — «ognuno porta
+ * metà passo, e il primo non porta la sua perché sopra c'è chi l'ha già messa»
+ * (vedi `.sidebar-column` in index.css). Qui: l'aria SOTTO la tab dell'app e
+ * l'aria SOPRA la card del progetto sono la stessa aria. La riga figlia non la
+ * paga: tiene solo la propria, in coda.
+ *
+ * Quindi 34 = box(28) + ROW_INSET(6), con l'incasso solo SOTTO. La scatola del
+ * contenuto vale 28, `items-center` la centra su se stessa, e la card cade a
+ * 40..68: sei px dall'inchiostro di sopra, sei sotto prima del contenuto.
+ *
+ * SOLO SOPRA I 768px, e non per prudenza: col dito la tab è 36 e la riga ne
+ * lascia già 2 per lato — non c'è aria ripetuta da togliere, e 36 in 34 non ci
+ * starebbe comunque (lo taglierebbe l'`overflow-hidden` della barra). Là resta
+ * 40, e il varco fra le due righe è 4.
+ *
+ * `--chrome-bar-h` NON può restare lo stile in linea di {@link CHROME_BAR_H_VAR}:
+ * uno stile in linea nessuna media query lo raggiunge, e quella variabile
+ * alimenta il rientro delle celle (`paneCellTopInset`) e il varco in cima alla
+ * conversazione. Diventa quindi una coppia di utility con lo STESSO breakpoint
+ * di `md:h-[34px]` — non un `@media (min-width: 768px)` scritto a mano: `md:` è
+ * 48rem, e con una root-font diversa i due predicati divergerebbero. È lo stesso
+ * disaccordo già pagato una volta (tab 28 e comando 36 sulla stessa riga).
+ */
+export const CHROME_ROW_SUB_H = ROW_ACTION_BOX_PX.desktop + ROW_INSET;
+export const CHROME_BAR_SUB =
+  'pane-chrome-bar chrome-glass flex items-center h-10 md:h-[34px] md:pb-[6px] flex-shrink-0 overflow-hidden min-w-0';
+/** La variabile, per la card che possiede una barra subordinata. Va al POSTO di
+ *  {@link CHROME_BAR_H_VAR}: uno stile in linea batte la classe, quindi i due
+ *  insieme lascerebbero la riga a 40 con l'inchiostro appeso in cima. */
+export const CHROME_BAR_SUB_H_CLASS = '[--chrome-bar-h:40px] md:[--chrome-bar-h:34px]';
+
+/**
+ * LA BARRA È GIÀ STATA SCAVALCATA: da qui in giù non va più riservata.
+ *
+ * `--chrome-bar-h` esiste perché `.pane-chrome-bar` è ASSOLUTA — non occupa
+ * spazio nel flusso — quindi chi le sta sotto deve farsi il posto da sé: le
+ * celle col rientro (`paneCellTopInset`) e la conversazione col varco in cima.
+ * Un solo numero, due lettori.
+ *
+ * Poi è arrivato un terzo elemento IN MEZZO: la riga dei comandi del progetto,
+ * che sta nel flusso e si scavalca la barra da sola con `mt-[var(--chrome-bar-h)]`.
+ * Da quel momento i lettori erano tre e il conto si faceva DUE volte — la riga
+ * scendeva di 34, e la cella sotto di lei ne aggiungeva altri 34 per una barra
+ * che non aveva più niente sopra la testa.
+ *
+ * MISURATO sulla finestra vera, in scuro, a 1720×1410: fra la fine dei tre
+ * comandi (y=105) e il primo pixel di contenuto (y=144) c'erano TRENTOTTO pixel
+ * di niente. «C'era però una riga extra a caso» (Attilio, 10/08): non era una
+ * riga, era la stessa barra contata due volte.
+ *
+ * La regola è quindi: chi ha già scavalcato la barra la AZZERA per ciò che ha
+ * sotto. Vale per entrambi i lettori insieme, ed è giusto che li spenga
+ * entrambi — se fra la barra e la chat c'è una riga, la chat non passa più sotto
+ * la barra e nemmeno il suo varco serve.
+ */
+export const CHROME_BAR_CONSUMED = '[--chrome-bar-h:0px]';
 
 /**
  * Il diametro DISEGNATO del cerchio «fatto / chiudi» (`PendingActionRing`).
@@ -373,6 +757,105 @@ export const CHROME_ROW_ACTION_RESERVE = 'pr-[37.5px] md:pr-[33.5px]';
  * toccare.
  */
 export const ROW_ACTION_GLYPH = 16;
+
+/**
+ * IL COMANDO IN CODA — le tre classi che lo mettono d'accordo ovunque.
+ *
+ * La meccanica, col perché e i numeri, sta accanto alle regole in `index.css`
+ * (cerca `.row-actions`): là c'è anche la ragione per cui col dito il comando
+ * torna in fila invece di sovrapporsi. Qui c'è solo il contratto d'uso, che è
+ * di tre pezzi e non ne ammette due:
+ *
+ *  1. {@link ROW_CARD} sulla riga/tab/tessera. Vuole `relative` — `sidebarRowCard`
+ *     e la tab lo portano già.
+ *  2. {@link ROW_TRAIL} sul contenitore dei segnali quieti in coda (ora, pin,
+ *     finestra, badge). NON ci va lo spinner: fermare un turno e chiudere la tab
+ *     sono due azioni diverse nello stesso istante, e sbiadire la prima per
+ *     mostrare la seconda toglierebbe l'unico modo di fermare un turno vivo dalla
+ *     colonna.
+ *  3. {@link ROW_ACTIONS} sul BINARIO dei comandi, ULTIMO nel DOM. L'ordine conta
+ *     solo dove il binario resta nel flusso (senza hover), ma sbagliarlo là lo
+ *     manderebbe in mezzo ai segnali — cioè esattamente il difetto da cui
+ *     veniamo.
+ *
+ * È un binario e non un tasto perché alcune righe hanno DUE comandi: quella di
+ * progetto porta il «+» accanto al cerchio. Dentro, l'ordine è fisso e finisce
+ * sempre allo stesso modo — «il tasto di chiusura deve essere sempre a fine
+ * tab» (Attilio, 09/08) vuol dire ULTIMO, non «da solo». Un comando nuovo entra
+ * PRIMA del cerchio, mai dopo.
+ */
+export const ROW_CARD = 'row-card';
+export const ROW_TRAIL = 'row-trail';
+export const ROW_ACTIONS = 'row-actions';
+/** L'incasso destro del GLIFO di {@link ROW_ACTIONS}, scritto in `index.css`
+ *  come letterale (nessuna media query legge una costante TS). Vale
+ *  {@link ROW_PX} risolto in pixel — il bordo interno del contenuto, dove si
+ *  fermano anche i segnali quieti che il comando copre — e il CSS ci sottrae
+ *  metà della differenza fra scatola e glifo, così è il cerchio disegnato ad
+ *  atterrare lì, non la sua scatola. L'uguaglianza la ricalcola
+ *  `selectionStyles.test.ts`: se il padding della riga cambia, il test indica il
+ *  CSS invece di lasciarli separare. */
+export const ROW_ACTIONS_INSET_PX = 8;
+
+/**
+ * ARCHIVIATO È FATTO, ED È UNO STATO SOLO.
+ *
+ * Attilio, 09/08: «assicurandoci ci sia solo uno stato che è archiviato/fatto,
+ * ma non icona archivia — sempre pallino — e comunque gestito poi dai relativi
+ * dropdown».
+ *
+ * Erano tre vocabolari per la stessa cosa, misurati sulle 14 superfici:
+ *  · la riga chat: glifo `Archive` in testa + `opacity-60` + un `ArchiveRestore`
+ *    in coda, e i primi due su un predicato (`isArchived`, prop) diverso dal
+ *    terzo (`topic.archived`) — se i due divergono la riga si dipinge da
+ *    archiviata e in coda ti offre «Archivia»;
+ *  · la riga di progetto: nessun glifo, solo il nome più tenue;
+ *  · la tessera fissata: NIENTE, in nessuna forma.
+ * E in mezzo, il cerchio di `PendingActionRing` — che il suo stesso file
+ * dichiara essere «sempre semanticamente *completa questa cosa*, che sia la
+ * chiusura di una tab o l'archiviazione di un topic» — usato già da quattro
+ * superfici su sette. Il pallino non è una scelta nuova: è la maggioranza, e le
+ * icone d'archivio erano la minoranza rimasta indietro.
+ *
+ * Il vocabolario, adesso, è uno e ha due parole:
+ *   ○  cerchio vuoto  → aperto. Un clic archivia (con i 3 s per ripensarci).
+ *   ◉  cerchio pieno + spunta → archiviato/fatto. Un clic ripristina.
+ * Nessun `Archive`, nessun `ArchiveRestore` DENTRO UNA RIGA. I due glifi restano
+ * legittimi nei MENU, dove un'icona accompagna un'etichetta scritta e non deve
+ * portare da sola il peso di dire uno stato.
+ *
+ * Questa costante è il terzo segnale, quello che vale per la riga intera: il
+ * tono. Sta qui e non scritto a mano perché era scritto a mano in un posto solo
+ * — e le altre superfici, semplicemente, non lo dicevano.
+ */
+export const ARCHIVED_ROW = 'opacity-60';
+
+/**
+ * LA RIGA DI UN ALBERO DENSO — la forma della card senza il suo ritmo.
+ *
+ * «Rivediamo tutte le cose residue come hover a righe invece che a card come
+ * design system, es. sotto gli accordion Processi, Git, File» (Attilio, 10/08).
+ * Erano le ULTIME tre superfici fuori dalla grammatica: righe a tutta larghezza,
+ * incasso ZERO, hover dipinto da bordo a bordo. Sotto un'intestazione che è una
+ * card rientrata, un hover full-bleed si legge come una fascia — cioè
+ * esattamente ciò che questo file esiste per togliere.
+ *
+ * Prende della card DUE cose su tre:
+ *  · l'INCASSO (`mx-1.5` = {@link ROW_INSET}) e il RAGGIO, che sono ciò che fa
+ *    leggere il rialzo come una superficie invece che come una banda;
+ *  · l'hover in ALPHA ({@link SIDEBAR_HOVER}) invece di `hover:bg-app-hover`.
+ *    Quest'ultimo è un opaco tarato su `--bg-surface`, e la colonna di progetto
+ *    è `--chrome-bg`: un gradino sotto. In tema chiaro l'opaco SCHIARISCE dove
+ *    la selezione SCURISCE — due stati della stessa riga in direzioni opposte.
+ *    È la stessa correzione già scritta per le righe della colonna principale.
+ *
+ * E NON prende il passo verticale (`my-[3px]`), che è la terza. Un albero di
+ * file ha centinaia di righe: sei pixel fra l'una e l'altra lo renderebbero
+ * lungo il doppio, e la densità lì è una funzione, non una svista. La card è la
+ * FORMA, non l'interlinea — e il passo di una lista di card e quello di un
+ * albero rispondono a due domande diverse.
+ */
+export const TREE_ROW_CARD = `mx-1.5 rounded-md transition-colors ${SIDEBAR_HOVER}`;
 
 /**
  * Shared "card" styling for EVERY sidebar row (topics, terminals, browsers,
@@ -407,9 +890,14 @@ export function sidebarRowCard(
   // stays calm and only the current/hovered/needy row reads as a filled tab.
   // Horizontal inset (mx-1.5 = 6px = ROW_INSET) keeps the card off the
   // sidebar edges by the SAME amount as a tab's top/bottom gap in the tab bar
-  // ((40 − 28)/2), so the side gap reads identical to the vertical one. The
-  // VERTICAL rhythm matches the tab bar's tight tab gap (gap-0.5 = 2px) — a
-  // small my-px so adjacent cards sit close like tabbar tabs, not spread out.
+  // ((40 − 28)/2), so the side gap reads identical to the vertical one. Il passo
+  // FRA due card è {@link COLUMN_GAP}, mezzo per ciascuna (`my-[3px]`), ed è lo
+  // stesso della barra delle tab: là lo scrive {@link TAB_GAP_CLASS}.
+  //
+  // Qui c'era scritto il contrario — «il ritmo verticale segue il passo stretto
+  // della tabbar, gap-0.5 = 2px» — ed è rimasto vero per un giorno: il passo
+  // verticale è salito a sei, quello orizzontale no, e la stessa card in fila
+  // respirava un terzo di quanto respira impilata. Adesso il numero è uno solo.
   // Sotto i 768px la card porta anche il FONDO DEL RIPOSO, e i valori sono
   // quelli di `RESTING_SURFACE` (ramo `max-md:`): nella stessa colonna una
   // tessera fissata e una riga devono essere la stessa cosa, ed era la loro
@@ -421,11 +909,33 @@ export function sidebarRowCard(
   // qui, sulla scatola che è già rientrata e arrotondata: stesso colore, ma
   // disegnato dove c'è una card e non una fascia.
   //
-  // Sta nel `base` e non fra i rami del fill, quindi selezione, attenzione e
-  // hover — che arrivano dopo nella stringa — lo coprono senza gare di
-  // specificità.
-  const base = 'mx-1.5 my-[3px] rounded-lg overflow-hidden transition-colors duration-100 relative'
-    + (nested ? '' : ' max-md:bg-black/[0.05] dark:max-md:bg-white/[0.07]');
+  // STAVA NEL `base`, E ERA UN BACO: L'ORDINE DELLA STRINGA NON È LA CASCATA.
+  //
+  // Qui c'era scritto «sta nel base e non fra i rami del fill, quindi
+  // selezione, attenzione e hover — che arrivano dopo nella stringa — lo
+  // coprono senza gare di specificità». Falso, e verificabile: `cn()` è clsx
+  // puro (nessun tailwind-merge), quindi base e fill restano ENTRAMBI
+  // sull'elemento, e a specificità pari vince chi il bundle emette per ultimo.
+  // Le utility `max-md:` stanno in fondo al foglio, dentro la loro media query;
+  // `bg-black/[0.06]` (selezione), `bg-amber-500` e `bg-[#0a84ff]` (attenzione)
+  // stanno migliaia di byte più su. Vinceva il riposo.
+  //
+  // Effetto, sul telefono e solo lì: quattro stati e UN fondo. La riga
+  // selezionata, quella che ti aspetta in ambra e quella finita in blu si
+  // dipingevano tutte come una a riposo. L'ho visto nella mia stessa misura a
+  // 390×844 senza riconoscerlo — una riga in semibold (cioè su un fill di
+  // attenzione) con fondo `oklab(0 0 0 / 0.08)`, identico alle vicine.
+  //
+  // Il riposo scende quindi nei DUE rami che non dipingono niente, ed è la
+  // stessa forma che tessera e tab hanno sempre avuto: un ternario che sceglie
+  // UNA superficie, mutuamente esclusiva (PinnedTile, PaneTabBar). Le righe
+  // concatenavano: stessa grammatica, due meccanismi.
+  const base = 'mx-1.5 my-[3px] rounded-lg overflow-hidden transition-colors duration-100 relative';
+  // Il fondo del riposo si porta dietro il suo BORDO, e solo dove il fondo c'è:
+  // `edge-lit-mobile` (index.css) vive dentro la stessa media query di
+  // `max-md:`, quindi sul desktop — dove la riga a riposo è trasparente — non
+  // disegna niente. Senza, tessera e tab avevano la card chiusa e la riga no.
+  const riposo = nested ? '' : ` ${RESTING_FILL_MOBILE} edge-lit-mobile`;
   // L'ATTENZIONE PRECEDE la selezione, e non è un cambio di priorità: è che
   // FOCUS WINS non si decide più qui.
   //
@@ -446,6 +956,6 @@ export function sidebarRowCard(
   // Con un fill sotto, invece, è la stessa card della tab selezionata.
   if (attention) return `${base} edge-lit ${attentionSurface(attention)}`;
   if (focused) return `${base} edge-lit ${SELECTED_SURFACE}`;
-  if (open) return `${base} text-app-text ${SIDEBAR_HOVER}`;
-  return `${base} text-app-text-secondary ${SIDEBAR_HOVER} hover:text-app-text`;
+  if (open) return `${base}${riposo} text-app-text ${SIDEBAR_HOVER}`;
+  return `${base}${riposo} text-app-text-secondary ${SIDEBAR_HOVER} hover:text-app-text`;
 }

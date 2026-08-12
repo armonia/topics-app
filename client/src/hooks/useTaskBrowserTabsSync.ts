@@ -15,8 +15,10 @@
  * and the server broadcast `ui-state:updated`, but no client applied it: the tab
  * stayed live on the other device until a full reload re-ran the initial GET. This
  * hook now also applies `ui-state:updated` (single key, own echo dropped by
- * sourceClientId) and the `ui-state:init` snapshot (reconnect resync) into the
- * store, so closing a task browser tab on the Mac closes it on the PWA live.
+ * sourceClientId) into the store, so closing a task browser tab on the Mac
+ * closes it on the PWA live. Alla riconnessione l'`ui-state:init` fa da segnale
+ * e il resync è mirato (`resyncTaskTabsFromServer`): le chiavi `task-browser-*`
+ * non viaggiano più nello snapshot.
  *
  * Mounted once at App level (like useGlobalBoard / CompletionNotifierBridge)
  * so it's active whenever the app is running, regardless of which task drawer — if
@@ -28,9 +30,11 @@ import type { WSMessage } from '../types';
 import {
   taskBrowserTabs,
   applyRemoteTaskTabs,
-  applyRemoteTaskTabsInit,
+  resyncTaskTabsFromServer,
+  forgetTaskTabs,
   taskIdFromKey,
 } from '../state/taskBrowserTabs';
+import { forgetTaskLayout } from '../state/taskBrowserLayout';
 import { getTabId } from '../state/pane/middleware/syncCrossTab';
 
 export function useTaskBrowserTabsSync(
@@ -40,14 +44,16 @@ export function useTaskBrowserTabsSync(
     return onWSMessage((msg: WSMessage) => {
       // Server-fork OPEN — an agent's open_browser_pane on its dispatch topic.
       if (msg.type === 'browser:open-task-tab') {
-        const { taskId, contextId, url } = msg;
+        const { taskId, contextId, url, title } = msg;
         if (!taskId || !contextId) return;
         // Load the task's persisted tabs first so the upsert merges rather than
         // committing a lone tab over a populated ui-state record. ensureLoaded is
         // idempotent; the upsert both refreshes/creates the tab and activates it,
         // so a live drawer on this task surfaces the agent's browser immediately.
+        // `title` è il nome prescritto dall'agente: entra come `agent`, cioè
+        // pinnato contro il poll del titolo di pagina ma non contro una rinomina.
         void taskBrowserTabs.ensureLoaded(taskId).then(() => {
-          taskBrowserTabs.upsertTab(taskId, contextId, url ?? '');
+          taskBrowserTabs.upsertTab(taskId, contextId, url ?? '', title ?? '', title ? 'agent' : 'auto');
         });
         return;
       }
@@ -61,9 +67,27 @@ export function useTaskBrowserTabsSync(
         applyRemoteTaskTabs(taskId, msg.value);
         return;
       }
-      // Reconnect resync — the ui-state:init snapshot carries every ui-state key.
-      if (msg.type === 'ui-state:init' && msg.data) {
-        applyRemoteTaskTabsInit(msg.data);
+      // Reconnect resync — MIRATO. L'`ui-state:init` non porta più le chiavi
+      // `task-browser-*` (erano il 30% del payload di ogni riconnessione e il
+      // client le legge per-task); qui l'init vale solo come SEGNALE di
+      // riconnessione: si ri-GETtano le sole chiavi dei task in cache. Lo
+      // snapshot si passa lo stesso, così un server vecchio che le manda ancora
+      // le fa applicare direttamente, senza GET.
+      if (msg.type === 'ui-state:init') {
+        void resyncTaskTabsFromServer(msg.data);
+        return;
+      }
+      // ARCHIVED — the server has just deleted this task's two ui-state rows
+      // (services/task-tab-teardown.ts) and closed its browser contexts. Forget
+      // them here or our debounced PUT recreates the key seconds later, which is
+      // exactly how these records became immortal in the first place. `taskIds`
+      // carries the whole archived subtree (archiving cascades); older servers
+      // omit it, so fall back to the root.
+      if (msg.type === 'task:deleted') {
+        for (const id of msg.taskIds?.length ? msg.taskIds : [msg.taskId]) {
+          forgetTaskTabs(id);
+          forgetTaskLayout(id);
+        }
         return;
       }
     });

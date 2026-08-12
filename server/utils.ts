@@ -7,14 +7,20 @@ import type { ServerWebSocket } from "bun";
 import { clientReceivesTopicDelta } from "./lib/ws-topic-routing";
 import { warnThrottled } from "./lib/warn-throttled";
 import type {
-  WSData, GuestBroadcastFilter, StoredMessage, ToolCall, Topic, TopicsData, UnreadData,
-  ActiveStream, ErrorResponseOptions, AppContext,
+  WSData, GuestBroadcastFilter, StoredMessage, ReattachedPartial, ToolCall, Topic, TopicsData, UnreadData,
+  ActiveStream, ErrorResponseOptions, AppContext, Project,
 } from "./types";
 import { initDatabase } from "./db";
 import { isGuestSocketData } from "./lib/grants";
+import {
+  osservatoreDaDispositivo, envelopeProgettoPer,
+  type Osservatore, type TipoFrameProgetto,
+} from "./lib/project-visibility";
+import { readMutedProjects } from "./lib/muted-projects";
 import { resolveStateDir } from "./lib/data-dir";
 import { knownProjectDirs, isInsideKnownProject } from "./services/known-project-dirs";
-import { maybeSendPush, configurePushTriggers } from "./push-triggers";
+import { maybeSendPush, configurePushTriggers, isTopicSilenced } from "./push-triggers";
+import { configureNotificationRegistry, recordAndAnnounce } from "./notification-registry";
 import { createProjectStore } from "./services/project-store";
 import { createWorktreeStore } from "./services/worktree-store";
 import { createWorktreeManager } from "./services/worktree-manager";
@@ -235,8 +241,8 @@ export function createAppContext(baseDir: string): AppContext {
     appendMessageContent: db.prepare(`UPDATE messages SET content = ? WHERE id = ?`),
     getMaxSortOrder: db.prepare(`SELECT COALESCE(MAX(sort_order), -1) as max_order FROM messages WHERE session_key = ?`),
     insertMessage: db.prepare(`
-      INSERT INTO messages (id, session_key, role, content, thinking, tool_calls, blocks, media, partial, streamed_at, plan_status, timestamp, sort_order, parent_id, branch_index, latency_ms, usage_prompt_tokens, usage_completion_tokens, cost_cents, cache_read_tokens, cache_creation_tokens, cache_creation_1h_tokens, model)
-      VALUES ($id, $session_key, $role, $content, $thinking, $tool_calls, $blocks, $media, $partial, $streamed_at, $plan_status, $timestamp, $sort_order, $parent_id, $branch_index, $latency_ms, $usage_prompt_tokens, $usage_completion_tokens, $cost_cents, $cache_read_tokens, $cache_creation_tokens, $cache_creation_1h_tokens, $model)
+      INSERT INTO messages (id, session_key, role, content, thinking, tool_calls, blocks, media, partial, streamed_at, plan_status, timestamp, sort_order, parent_id, branch_index, latency_ms, usage_prompt_tokens, usage_completion_tokens, cost_cents, cache_read_tokens, cache_creation_tokens, cache_creation_1h_tokens, model, author_person_id, author_device_id)
+      VALUES ($id, $session_key, $role, $content, $thinking, $tool_calls, $blocks, $media, $partial, $streamed_at, $plan_status, $timestamp, $sort_order, $parent_id, $branch_index, $latency_ms, $usage_prompt_tokens, $usage_completion_tokens, $cost_cents, $cache_read_tokens, $cache_creation_tokens, $cache_creation_1h_tokens, $model, $author_person_id, $author_device_id)
     `),
     updateMessage: db.prepare(`
       UPDATE messages SET
@@ -253,10 +259,15 @@ export function createAppContext(baseDir: string): AppContext {
         usage_prompt_tokens = COALESCE($usage_prompt_tokens, usage_prompt_tokens),
         usage_completion_tokens = COALESCE($usage_completion_tokens, usage_completion_tokens),
         cost_cents = COALESCE($cost_cents, cost_cents),
-        model = COALESCE($model, model)
+        model = COALESCE($model, model),
+        author_person_id = COALESCE($author_person_id, author_person_id),
+        author_device_id = COALESCE($author_device_id, author_device_id)
       WHERE id = $id
     `),
     deleteMessagesBySession: db.prepare(`DELETE FROM messages WHERE session_key = ?`),
+    /** Quante righe ha la sessione INTERA, rami morti compresi. È ciò che la
+     *  cancellazione colpisce davvero: il ramo attivo è un sottoinsieme. */
+    countMessagesBySession: db.prepare(`SELECT COUNT(*) AS n FROM messages WHERE session_key = ?`),
 
     // Branching
     getMessageById: db.prepare(`SELECT * FROM messages WHERE id = ?`),
@@ -530,6 +541,9 @@ export function createAppContext(baseDir: string): AppContext {
     if (row.cache_read_tokens !== undefined && row.cache_read_tokens !== null) msg.cacheReadTokens = row.cache_read_tokens;
     if (row.cache_creation_tokens !== undefined && row.cache_creation_tokens !== null) msg.cacheCreationTokens = row.cache_creation_tokens;
     if (row.cache_creation_1h_tokens !== undefined && row.cache_creation_1h_tokens !== null) msg.cacheCreation1hTokens = row.cache_creation_1h_tokens;
+    // Idem: senza questa lettura il giro carica→salva perderebbe l'autore.
+    if (row.author_person_id !== undefined && row.author_person_id !== null) msg.authorPersonId = row.author_person_id;
+    if (row.author_device_id !== undefined && row.author_device_id !== null) msg.authorDeviceId = row.author_device_id;
     return msg;
   }
 
@@ -547,6 +561,13 @@ export function createAppContext(baseDir: string): AppContext {
       $cache_creation_tokens: msg.cacheCreationTokens ?? null,
       $cache_creation_1h_tokens: msg.cacheCreation1hTokens ?? null,
       $model: msg.model ?? null,
+      // L'autore (095) passa di QUI e non da un parametro a parte perche'
+      // `saveLocalMessages` RIMPIAZZA l'intera sessione: se questo blocco non lo
+      // portasse, ogni salvataggio successivo — una troncatura, un import, una
+      // riscrittura di ramo — cancellerebbe l'attribuzione di tutti i messaggi
+      // gia' scritti, in silenzio. Su `updateMessage` il COALESCE lo tiene fermo.
+      $author_person_id: msg.authorPersonId ?? null,
+      $author_device_id: msg.authorDeviceId ?? null,
       $blocks: msg.blocks ? JSON.stringify(msg.blocks) : null,
     };
   }
@@ -615,6 +636,68 @@ export function createAppContext(baseDir: string): AppContext {
       // Push is best-effort, but a persistent throw here means notifications
       // are silently dead — surface it (throttled) instead of never knowing.
       warnThrottled("maybeSendPush", `[Push] maybeSendPush threw:`, err);
+    }
+  }
+
+  /**
+   * I frame che portano una RIGA di `projects`, uno per socket.
+   *
+   * `broadcastToAll` manda a tutti lo stesso payload, e per questi tre frame
+   * quel payload è nome + path del progetto: con la 092 `GET /api/projects`
+   * filtra per organizzazione e incognito, ma il broadcast subito dopo la stessa
+   * mutazione rimetteva in chiaro a OGNI socket connessa ciò che l'elenco aveva
+   * appena nascosto. Un filtro che vale su una porta e non sull'altra non è un
+   * filtro.
+   *
+   * Qui la decisione è PER SOCKET, e non può essere altrimenti: `vedeProgetto`
+   * dipende dalla persona, e la persona sta sulla socket (`ws.data.deviceId`,
+   * timbrato all'upgrade), non nel frame.
+   *
+   * Chi non vede riceve la RITRATTA, non il silenzio — il perché sta su
+   * `envelopeProgettoPer`, insieme alla regola.
+   *
+   * L'ordine con gli ospiti: il filtro degli ospiti resta il PRIMO. `project:*`
+   * non è fra i tipi ammessi, quindi a un ospite non parte né la riga né la
+   * ritratta, esattamente come prima che questa fan-out esistesse.
+   *
+   * Niente `maybeSendPush`: nessun `project:*` è fra i tipi che fanno partire una
+   * notifica (`server/push-triggers.ts`), e chiamarlo qui vorrebbe dire che il
+   * giorno in cui uno ci finisse la notifica uscirebbe senza passare da questo
+   * filtro — cioè col nome del progetto sopra. Se serve, si aggiunge di qui
+   * DOPO aver deciso a chi.
+   */
+  function broadcastProject(type: TipoFrameProgetto, project: Project): void {
+    const guests = guestSocketFilter();
+    // Un osservatore per DISPOSITIVO e non per socket: risolverlo costa due
+    // query, e più finestre dello stesso dispositivo sono la norma, non il caso
+    // limite. La cache dura questa sola fan-out: fuori di qui un'appartenenza
+    // può cambiare, e una cache più lunga sarebbe una revoca che non arriva.
+    const osservatori = new Map<string, Osservatore>();
+    // Le forme possibili sono due — la riga e la ritratta — quindi si validano e
+    // si serializzano una volta ciascuna, non una per socket.
+    const serializzati = new Map<string, string>();
+    for (const ws of wsClients) {
+      if (ws.readyState !== 1) continue;
+      const deviceId = ws.data.deviceId ?? null;
+      // La stringa vuota non è un id di dispositivo valido: qui è il loopback,
+      // cioè la macchina stessa.
+      const chiave = deviceId ?? "";
+      let chi = osservatori.get(chiave);
+      if (!chi) {
+        chi = osservatoreDaDispositivo(db, deviceId);
+        osservatori.set(chiave, chi);
+      }
+      const message = envelopeProgettoPer(chi, type, project);
+      if (guests && isGuestSocket(ws) && !guests.mayReceiveFrame(ws.data.deviceId!, message)) continue;
+      let payload = serializzati.get(message.type);
+      if (payload === undefined) {
+        devValidateOutbound(message);
+        payload = JSON.stringify(message);
+        serializzati.set(message.type, payload);
+      }
+      try { ws.send(payload); } catch (err) {
+        console.error(`[WS] Send error to ${ws.data.id}:`, err);
+      }
     }
   }
 
@@ -779,9 +862,33 @@ export function createAppContext(baseDir: string): AppContext {
     }
   }
 
-  // Il modulo push-triggers è puro; qui gli passiamo l'unico aggancio al DB che
-  // gli serve — il nome del topic per il titolo della push di fine risposta.
-  configurePushTriggers({ getTopicName: (topicId) => getTopicById(topicId)?.name ?? null });
+  // Il modulo push-triggers è puro; qui gli passiamo i dati che gli servono e
+  // che vivono sul DB — il nome del topic per il titolo della push di fine
+  // risposta, e la riga + le impostazioni su cui `isTopicSilenced` decide il
+  // silenzio (archiviato, mutato, o dentro un progetto mutato). Un topic che
+  // non esiste più conta come zittito: non c'è niente da nominare e nessuno da
+  // svegliare.
+  //
+  // `mutedProjects` si LEGGE al momento della push, non si memorizza qui: muti
+  // un progetto e un valore preso al bootstrap resterebbe quello di ore prima.
+  // Una SELECT per chiave vale la freschezza, tanto più che le push di fine
+  // risposta sono rare (una per turno di chat umana, già a valle di cinque gate).
+  configurePushTriggers({
+    getTopicName: (topicId) => getTopicById(topicId)?.name ?? null,
+    isTopicSilenced: (topicId) => isTopicSilenced(getTopicById(topicId), readMutedProjects(db)),
+    // Ogni push mandata lascia una riga nel registro (migration 102). La push è
+    // la metà "ad app chiusa" della notifica: senza questo aggancio la
+    // cronologia avrebbe un buco proprio dove serve di più — quando torni al
+    // computer e vuoi sapere cosa è successo mentre non c'eri.
+    recordNotification: (input) => { recordAndAnnounce(input); },
+  });
+
+  // Il registro delle notifiche: come sopra, i due dati che gli mancano — dove
+  // annunciare la riga nuova, e se il topic bersaglio è archiviato.
+  configureNotificationRegistry({
+    announce: (row, unseen) => broadcastToAll({ type: "notification:new", row, unseen }),
+    isTopicArchived: (topicId) => !!getTopicById(topicId)?.archived,
+  });
 
   /**
    * Load a single topic by sessionKey. Same constant-time read as
@@ -943,6 +1050,19 @@ export function createAppContext(baseDir: string): AppContext {
   }
 
   /**
+   * Quante righe ha la sessione INTERA — rami abbandonati compresi.
+   *
+   * Serve a chi deve DECIDERE su una cancellazione: `loadLocalMessages` dà il
+   * ramo attivo, ma `saveLocalMessages(sk, [])` cancella tutta la session_key.
+   * Decidere sul sottoinsieme e distruggere l'insieme è come contare le stanze
+   * di un piano e demolire il palazzo.
+   */
+  function countMessagesBySession(sessionKey: string): number {
+    const row = stmts.countMessagesBySession.get(sessionKey) as { n?: number } | undefined;
+    return row?.n ?? 0;
+  }
+
+  /**
    * RIMPIAZZA l'intera sessione con `msgs`: cancella ogni messaggio e ogni
    * scelta di ramo, poi reinserisce quello che gli si passa.
    *
@@ -982,13 +1102,24 @@ export function createAppContext(baseDir: string): AppContext {
     })();
   }
 
-  function appendLocalMessage(sessionKey: string, role: "user" | "assistant", content: string): StoredMessage {
+  function appendLocalMessage(
+    sessionKey: string,
+    role: "user" | "assistant",
+    content: string,
+    /** Chi l'ha scritto (migration 095). Assente = non lo sappiamo, e resta NULL:
+     *  è il caso dei turni importati da un transcript e di ogni risposta. */
+    autore?: { authorPersonId?: string | null; authorDeviceId?: string | null },
+  ): StoredMessage {
     const maxOrder = (stmts.getMaxSortOrder.get(sessionKey) as any).max_order;
     // Find the last message in the active thread to set as parent
     const activeThread = loadActiveThread(sessionKey);
     const lastMsg = activeThread.length > 0 ? activeThread[activeThread.length - 1] : null;
     const parentId = lastMsg?.id || null;
-    const stored: StoredMessage = { id: crypto.randomUUID(), role, content, timestamp: new Date().toISOString(), parentId, branchIndex: 0 };
+    const stored: StoredMessage = {
+      id: crypto.randomUUID(), role, content, timestamp: new Date().toISOString(), parentId, branchIndex: 0,
+      authorPersonId: autore?.authorPersonId ?? null,
+      authorDeviceId: autore?.authorDeviceId ?? null,
+    };
     stmts.insertMessage.run({
       $id: stored.id,
       $session_key: sessionKey,
@@ -1004,9 +1135,47 @@ export function createAppContext(baseDir: string): AppContext {
       $sort_order: maxOrder + 1,
       $parent_id: parentId,
       $branch_index: 0,
-      ...metaParams({}),
+      ...metaParams(stored),
     });
     return stored;
+  }
+
+  /**
+   * APPENDE un blocco di messaggi già formati (id/parentId/branchIndex/toolCalls
+   * decisi dal chiamante) in coda alla sessione, senza toccare quelli esistenti.
+   *
+   * È il complemento di `saveLocalMessages` (che RIMPIAZZA tutto): serve
+   * all'import incrementale di una sessione adottata, che a ogni sweep aggiunge i
+   * turni nuovi letti dal transcript conservando i tool call e il thinking. I
+   * `sort_order` proseguono dal massimo attuale; i `parentId` li ha già cablati
+   * il parser delta (il primo punta all'ultima riga salvata). Transazionale: o
+   * entrano tutti, o nessuno.
+   */
+  function appendImportedMessages(sessionKey: string, msgs: StoredMessage[]): void {
+    if (msgs.length === 0) return;
+    db.transaction(() => {
+      const base = (stmts.getMaxSortOrder.get(sessionKey) as any).max_order as number;
+      for (let i = 0; i < msgs.length; i++) {
+        const msg = msgs[i]!;
+        stmts.insertMessage.run({
+          $id: msg.id,
+          $session_key: sessionKey,
+          $role: msg.role,
+          $content: msg.content || '',
+          $thinking: msg.thinking || null,
+          $tool_calls: msg.toolCalls ? JSON.stringify(msg.toolCalls) : null,
+          $media: msg.media ? JSON.stringify(msg.media) : null,
+          $partial: 0,
+          $streamed_at: null,
+          $plan_status: msg.planStatus || null,
+          $timestamp: msg.timestamp,
+          $sort_order: base + 1 + i,
+          $parent_id: msg.parentId || null,
+          $branch_index: msg.branchIndex || 0,
+          ...metaParams(msg),
+        });
+      }
+    })();
   }
 
   function createPartialMessage(sessionKey: string, role: "user" | "assistant"): StoredMessage {
@@ -1041,24 +1210,40 @@ export function createAppContext(baseDir: string): AppContext {
 
   /** Reattach after a server restart: REUSE the surviving partial assistant row
    *  for this session (the exact bubble the client was watching before the
-   *  restart) and clear its body so the JSONL replay rebuilds it IN PLACE — no
-   *  duplicate turn, no ghost spinner, and the client's `stream:catchup` targets
-   *  the same messageId so the bubble updates seamlessly. Falls back to a fresh
-   *  partial row when nothing survived. Only used on the reattach boot path. */
-  function reuseOrCreatePartialForReattach(sessionKey: string): StoredMessage {
+   *  restart) so the JSONL replay rebuilds it IN PLACE — no duplicate turn, no
+   *  ghost spinner, and the client's `stream:catchup` targets the same
+   *  messageId so the bubble updates seamlessly. Falls back to a fresh partial
+   *  row when nothing survived. Only used on the reattach boot path.
+   *
+   *  IL CORPO NON SI TOCCA. Prima si svuotava qui (`content=''`, tool e blocchi
+   *  a NULL) contando sul replay per riscriverlo, e la copia di quel che si
+   *  cancellava viveva solo in RAM, dentro la richiesta di riadozione. Ma la
+   *  riadozione ha tre uscite e due non ri-emettono niente, e la richiesta può
+   *  morire prima di rimettere a posto: un secondo riavvio del watcher, il
+   *  provider giù, un timeout. Quando succede la cancellazione è definitiva.
+   *  Misurato su topic:dc2b90d0 il 10 agosto: riga nata alle 15:46:22.678,
+   *  `streamed_at` 15:47:29.751 (l'ora del riattacco), corpo vuoto e
+   *  `latency_ms` NULL — il finalize non è mai arrivato. A schermo restava il
+   *  messaggio dell'utente e una bolla vuota, per sempre.
+   *
+   *  Adesso l'adozione è una scrittura sola: `streamed_at` riparte (la riga è
+   *  di nuovo viva, e lo spazzino degli stream fermi la deve misurare da
+   *  adesso). Chi ricostruisce ci scrive SOPRA — le scritture del turno sono
+   *  assolute, e i tool si fondono per id — e chi muore non lascia il vuoto.
+   *  Ad azzerarsi è la VISTA, non il record: `stream:start` porta
+   *  `reattached`, e il client svuota la bolla prima di riempirla col replay. */
+  function reuseOrCreatePartialForReattach(sessionKey: string): ReattachedPartial {
     const row = stmts.getLastMessage.get(sessionKey) as any;
     if (row && row.role === "assistant" && (row.partial === 1 || row.partial === true)) {
       const now = new Date().toISOString();
-      db.run(
-        "UPDATE messages SET content = '', thinking = NULL, tool_calls = NULL, blocks = NULL, streamed_at = ?, partial = 1 WHERE id = ?",
-        [now, String(row.id)],
-      );
+      db.run("UPDATE messages SET streamed_at = ?, partial = 1 WHERE id = ?", [now, String(row.id)]);
       return {
-        id: String(row.id), role: "assistant", content: "", timestamp: String(row.timestamp),
+        id: String(row.id), role: "assistant", content: String(row.content ?? ""), timestamp: String(row.timestamp),
         partial: true, streamedAt: now, parentId: row.parent_id ?? null, branchIndex: row.branch_index ?? 0,
+        reusedBody: true,
       };
     }
-    return createPartialMessage(sessionKey, "assistant");
+    return { ...createPartialMessage(sessionKey, "assistant"), reusedBody: false };
   }
 
   /** Get the last message in the active thread (or by sort_order as fallback for streaming). */
@@ -1335,8 +1520,8 @@ export function createAppContext(baseDir: string): AppContext {
             if (tc.endedAt == null) tc.endedAt = endedAt;
             if (!tc.error) {
               tc.error = eraPermesso
-                ? 'Interrotto: il turno è finito mentre il permesso era ancora a schermo — la decisione non avrebbe più raggiunto nessuno'
-                : 'Interrotto: il turno è finito mentre la domanda era ancora a schermo — la risposta non avrebbe più raggiunto nessuno';
+                ? 'Interrotto: il turno è finito mentre il permesso era ancora a schermo. La decisione non avrebbe più raggiunto nessuno.'
+                : 'Interrotto: il turno è finito mentre la domanda era ancora a schermo. La risposta non avrebbe più raggiunto nessuno.';
             }
             releaseHumanHold(sessionKey, 'il turno è terminato mentre il pannello era a schermo');
             return true;
@@ -1770,11 +1955,23 @@ export function createAppContext(baseDir: string): AppContext {
     return row?.session_key || null;
   }
 
-  function createBranchMessage(sessionKey: string, parentId: string, role: "user" | "assistant", content: string): StoredMessage {
+  function createBranchMessage(
+    sessionKey: string,
+    parentId: string,
+    role: "user" | "assistant",
+    content: string,
+    /** Chi l'ha scritto (095). Un prompt CORRETTO è un prompt: senza questo, chi
+     *  riscrive una domanda invece di ribatterla sparisce dai conteggi. */
+    autore?: { authorPersonId?: string | null; authorDeviceId?: string | null },
+  ): StoredMessage {
     const maxOrder = (stmts.getMaxSortOrder.get(sessionKey) as any).max_order;
     const maxBranch = (stmts.getMaxBranchIndex.get(parentId) as any).max_idx;
     const branchIndex = maxBranch + 1;
-    const stored: StoredMessage = { id: crypto.randomUUID(), role, content, timestamp: new Date().toISOString(), parentId, branchIndex };
+    const stored: StoredMessage = {
+      id: crypto.randomUUID(), role, content, timestamp: new Date().toISOString(), parentId, branchIndex,
+      authorPersonId: autore?.authorPersonId ?? null,
+      authorDeviceId: autore?.authorDeviceId ?? null,
+    };
     stmts.insertMessage.run({
       $id: stored.id,
       $session_key: sessionKey,
@@ -1790,7 +1987,7 @@ export function createAppContext(baseDir: string): AppContext {
       $sort_order: maxOrder + 1,
       $parent_id: parentId,
       $branch_index: branchIndex,
-      ...metaParams({}),
+      ...metaParams(stored),
     });
     // Set this new branch as active
     stmts.upsertActiveBranch.run(parentId, sessionKey, branchIndex);
@@ -1942,11 +2139,11 @@ export function createAppContext(baseDir: string): AppContext {
     TOPICS_FILE, UNREAD_FILE, PUBLIC_DIR, UPLOADS_DIR, CONTEXT_DIR,
     OPENCLAW_DIR, SESSIONS_DIR, MESSAGES_DIR, BASE_DIR: baseDir, STATE_DIR,
     activeStreams, wsClients,
-    broadcast, broadcastToAll, broadcastToTopic, broadcastToTopicSubscribers, sendToDevice, closeDeviceSockets, setGuestBroadcastFilter,
+    broadcast, broadcastToAll, broadcastProject, broadcastToTopic, broadcastToTopicSubscribers, sendToDevice, closeDeviceSockets, setGuestBroadcastFilter,
     loadTopics, saveTopics, saveSingleTopic,
     getTopicById, getTopicBySessionKey, setTopicBrowserState,
     loadUnread, saveUnread,
-    loadLocalMessages, saveLocalMessages, appendLocalMessage,
+    loadLocalMessages, countMessagesBySession, saveLocalMessages, appendLocalMessage, appendImportedMessages,
     createPartialMessage, reuseOrCreatePartialForReattach, updateLastMessage, appendToLastMessage,
     finalizeLastMessage, addToolCallToLastMessage, updateToolCallResult, updateToolCallFields,
     startStream, updateStreamActivity, updateStreamContent, getStreamContent, endStream, isStreaming,

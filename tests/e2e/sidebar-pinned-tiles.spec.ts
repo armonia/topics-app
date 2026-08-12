@@ -1308,6 +1308,12 @@ test.describe("Sidebar — il riordino si vede muovere", () => {
   }
 
   test("TILE-28: riordinando dentro la riga le celle attraversano lo spazio", async ({ page, request }) => {
+    // La config della suite chiede `reducedMotion: "reduce"` a TUTTI i contesti, e
+    // `useCellFlip` in quel caso salta l'animazione apposta. Questo test misura
+    // proprio l'animazione, quindi deve chiedere il movimento per se stesso: senza,
+    // `animati.length` e' zero per costruzione e il rosso non dice niente sul
+    // codice. Il fratello TILE-28b copre il ramo opposto.
+    await page.emulateMedia({ reducedMotion: "no-preference" });
     const ids = await treSuUnaRiga(page, request, "Flip");
     // C va in testa: A scivola di un posto a destra, e deve vedersi scivolare.
     const { frames, ordine } = await campiona(page, ids[2], ids[0]);
@@ -1523,21 +1529,25 @@ test.describe("Sidebar — le distanze attorno al «+»", () => {
     }).catch(() => {});
   });
 
-  test("TILE-20: sopra, a destra e sotto il «+» c'e' la stessa distanza", async ({ page, request }) => {
-    // Non e' una preferenza estetica scritta a mano: e' un'identita' fra due
-    // costanti. La tessera e' alta quanto il trigger piu' DUE volte il suo
-    // rientro, quindi centrandolo in verticale i tre spazi coincidono. Se
-    // qualcuno cambia l'altezza senza il rientro (o viceversa) questo rosso lo
-    // dice subito, invece di lasciare una tessera «troppo alta».
+  test("TILE-20: il «+» sta dal bordo quanto ogni altro comando, e respira quanto la sua riga", async ({ page, request }) => {
+    // QUI SI ASSERIVA CHE I TRE SPAZI COINCIDONO (sopra, a destra, sotto), e
+    // l'identita' che li produceva era «altezza della tessera = trigger + 2 ×
+    // rientro». Reggeva, ed era una regola che NESSUN'ALTRA superficie
+    // dell'app segue: una riga della colonna e' alta 34 con un comando da 28 a
+    // 8px dal bordo, cioe' 3 di aria verticale contro 8 di orizzontale. Sono
+    // due domande diverse — quanto il comando sta lontano dal BORDO (fatto
+    // orizzontale, ha gia' il suo numero, `ROW_PX`) e quanto respira nella riga
+    // (non si sceglie, cade fuori dal centraggio) — e tenerle insieme faceva
+    // decidere l'ALTEZZA della tessera dal rientro del suo bottone: la coda che
+    // muove il cane. Il prezzo era 36 contro i 34 di una riga, nella stessa
+    // colonna, con le due card una sopra l'altra.
     //
-    // SI ASSERISCE L'IDENTITA', NON IL NUMERO. Prima qui c'era `{4, 4, 4}`
-    // scritto a mano, cioe' una TERZA copia di una costante che vive gia' in
-    // due posti (`PINNED_TILE_H` e `PINNED_TILE_ACTION_INSET`): il 07/08 il
-    // trigger e' passato da 24 a 28px — un comando di riga ora ha una misura
-    // sola in tutta la sidebar — l'inset l'ha seguito da 4 a 2 come
-    // l'uguaglianza impone, e questo test e' diventato rosso pur essendo la
-    // proprieta' INTATTA. Un test che si rompe quando il codice resta corretto
-    // non sta proteggendo l'invariante: sta ricopiando un valore.
+    // Le due proprieta' si asseriscono ancora, separate:
+    //  · il rientro DESTRO e' quello canonico di ogni comando in coda;
+    //  · l'aria sopra e sotto e' uguale FRA LORO (il bottone e' centrato) e vale
+    //    quanto ne lascia la riga, non quanto ne chiede il bottone.
+    // Si continua a non scrivere numeri a mano: si legge il rientro dalla
+    // tessera stessa e lo si confronta col padding della card.
     const projectPath = "/tmp/e2e-tile-inset";
     const chat = await createTopic(request, `E2E-Inset-${Date.now()}`, { projectPath });
     created.push(chat.id);
@@ -1557,13 +1567,26 @@ test.describe("Sidebar — le distanze attorno al «+»", () => {
     const sotto = Math.round((t.y + t.height) - (p.y + p.height));
     const destra = Math.round((t.x + t.width) - (p.x + p.width));
 
-    // I tre spazi coincidono…
-    expect({ destra, sotto }).toEqual({ destra: sopra, sotto: sopra });
-    // …e non sono zero (un trigger a filo della tessera li farebbe coincidere
-    // tutti e tre su 0, cioe' passare per il verso sbagliato).
+    // Il bottone e' CENTRATO: sopra e sotto restano uguali fra loro, e questo
+    // non dipende da nessuna costante — lo fa `top-1/2 -translate-y-1/2`.
+    expect(sotto).toBe(sopra);
+    // Nessuno dei due e' zero: un trigger a filo della tessera li farebbe
+    // coincidere passando per il verso sbagliato.
     expect(sopra).toBeGreaterThan(0);
-    // …e l'identita' che li produce regge: altezza = trigger + 2 × rientro.
-    expect(Math.round(t.height)).toBe(Math.round(p.height) + 2 * sopra);
+
+    // I TRE SPAZI COINCIDONO — ed e' il VERSO a essere cambiato, non la
+    // proprieta'. Prima l'uguaglianza c'era ma girava al contrario: era il
+    // rientro del bottone a decidere l'altezza della tessera (36 contro i 34 di
+    // una riga). Poi il rientro e' passato al canonico dei comandi in fila
+    // (`ROW_PX`, 8) e l'uguaglianza si e' rotta dall'altra parte: «sui pinned il
+    // + ha piu' spazio a destra che sopra e sotto» (Attilio, 10/08) — 8 contro
+    // 3, e su una tessera l'asimmetria si legge tutta perche' il bottone flotta
+    // su una superficie piccola.
+    //
+    // Adesso: l'aria verticale la lascia il centraggio, `(altezza − box) / 2`, e
+    // il rientro destro la COPIA. L'altezza la decide la riga, il rientro segue.
+    expect(destra, `il «+» sta ${destra}px dal bordo e ${sopra} sopra`).toBe(sopra);
+    expect(sopra).toBe(Math.round((t.height - p.height) / 2));
   });
 });
 

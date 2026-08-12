@@ -48,6 +48,23 @@ export interface AbandonNoticeInput {
    * `main` inesistente, git in errore). Vale solo con `branchState: "present"`.
    */
   aheadOfMain?: number | null;
+  /**
+   * Il commit di consegna del task risulta su main (per CONTENUTO, come
+   * `landing-audit`). Cambia il senso di `branchState: "gone"` e basta, ma lo
+   * cambia del tutto: un ref che non risolve perché il land l'ha POTATO è la
+   * fine normale della storia, non la perdita di un branch.
+   */
+  deliveryLanded?: boolean;
+  /** Il commit di consegna, per poterlo nominare quando è lui la prova. */
+  deliveryCommit?: string | null;
+  /**
+   * Dove finisce il task. `"backlog"` = parcheggiato (il caso storico: la
+   * sessione non c'è più e nessuno la riprenderà). `"stays"` = resta nella sua
+   * colonna, perché il dispatcher non aveva niente da dire su di lui — una card
+   * in `review` aspetta una persona, e il land che le pota il ramo non è un suo
+   * fallimento. Default `"backlog"`.
+   */
+  taskFate?: "backlog" | "stays";
 }
 
 /** Un conteggio si stampa solo se è un intero non negativo davvero letto da git. */
@@ -66,11 +83,26 @@ export function composeAbandonNotice(input: AbandonNoticeInput): string {
   // porta punteggiatura: si normalizza qui perché il punto lo mette la frase.
   const reason = input.reason.trim().replace(/[.\s]+$/, "");
   const head = reason ? `Worktree liberato: ${reason}.` : "Worktree liberato.";
-  const tail = "Il task torna in backlog perché la sessione non c'è più.";
+  const tail = input.taskFate === "stays"
+    ? "Il task resta dov'è: il dispatcher non lo sposta di colonna, la decisione è di chi lo guarda."
+    : "Il task torna in backlog perché la sessione non c'è più.";
   const b = input.branchName;
 
   let middle: string;
-  if (!b) {
+  if (b && input.branchState === "gone" && input.deliveryLanded) {
+    // «IL RAMO NON C'È PIÙ» HA DUE SIGNIFICATI OPPOSTI, e per un anno ne ha detto
+    // uno solo. Se il commit di consegna è su main, il ref è stato potato DOPO un
+    // atterraggio riuscito: è la fine normale della storia di una card, non un
+    // branch perso. È la stessa distinzione per CONTENUTO che il land ha già
+    // imparato in `landing-audit` (un land squashato non è un'ancestry, ma è
+    // atterrato lo stesso). Qui l'allarme sarebbe un falso positivo garantito, e
+    // per giunta proprio sulle card che hanno funzionato.
+    const short = input.deliveryCommit ? input.deliveryCommit.slice(0, 8) : null;
+    middle =
+      `Verificato ora: il branch \`${b}\` non c'è più perché il lavoro è ATTERRATO. ` +
+      (short ? `Il commit di consegna \`${short}\` risulta su main.` : "La consegna risulta su main.") +
+      " Il ramo è stato potato dal land: non c'è niente da recuperare.";
+  } else if (!b) {
     // Nessun branch proprio: non c'è niente da promettere e niente da recuperare
     // per nome — dirlo è più utile che tacere.
     middle = "Questo worktree non aveva un branch proprio: non c'è un ref da cui ripartire.";
@@ -79,7 +111,7 @@ export function composeAbandonNotice(input: AbandonNoticeInput): string {
     // c'è e si indica dove un commit può ancora essere (reflog / oggetti
     // irraggiungibili), invece di mandare a un nome morto.
     middle =
-      `⚠️ Verificato ora: \`git rev-parse --verify ${b}\` non risolve — il branch NON c'è, ` +
+      `⚠️ Verificato ora: \`git rev-parse --verify ${b}\` non risolve: il branch NON c'è, ` +
       `quindi non posso dire che il lavoro committato sia salvo. ` +
       `Dove guardare: \`git reflog\` e \`git fsck --lost-found\` nel repo del progetto.`;
   } else if (input.branchState === "unverified") {
@@ -97,7 +129,7 @@ export function composeAbandonNotice(input: AbandonNoticeInput): string {
     } else if (ahead === 0) {
       // «C'è» non vuol dire «contiene qualcosa»: un branch a zero commit oltre
       // main è la differenza fra «riprendi da lì» e «non c'era niente».
-      middle = `Verificato ora: il branch \`${b}\` c'è ma non ha commit oltre main — non c'è lavoro committato da recuperare.`;
+      middle = `Verificato ora: il branch \`${b}\` c'è ma non ha commit oltre main, quindi non c'è lavoro committato da recuperare.`;
     } else {
       middle =
         `Verificato ora: il branch \`${b}\` c'è, con ${ahead} commit oltre main. ` +
@@ -125,13 +157,23 @@ export async function abandonNoticeFromRepo(args: {
   reason: string;
   repoPath: string | null;
   branchName: string | null;
+  /**
+   * Esito del land della consegna, già letto da chi chiama (`classifyLanding` sul
+   * `delivery_commit`). Serve solo sul ramo `gone`, dove decide se la frase è un
+   * allarme o il resoconto di un atterraggio riuscito.
+   */
+  deliveryLanded?: boolean;
+  deliveryCommit?: string | null;
+  /** Dove finisce il task: vedi `AbandonNoticeInput.taskFate`. */
+  taskFate?: "backlog" | "stays";
 }): Promise<string> {
-  const { reason, repoPath, branchName } = args;
+  const { reason, repoPath, branchName, deliveryLanded, deliveryCommit, taskFate } = args;
+  const extra = { deliveryLanded, deliveryCommit, taskFate };
   if (!repoPath || !branchName || !existsSync(repoPath)) {
-    return composeAbandonNotice({ reason, branchName, branchState: "unverified" });
+    return composeAbandonNotice({ reason, branchName, branchState: "unverified", ...extra });
   }
   const present = await branchExistsInRepo(repoPath, branchName);
-  if (!present) return composeAbandonNotice({ reason, branchName, branchState: "gone" });
+  if (!present) return composeAbandonNotice({ reason, branchName, branchState: "gone", ...extra });
   const aheadOfMain = await countCommitsAhead(repoPath, branchName);
-  return composeAbandonNotice({ reason, branchName, branchState: "present", aheadOfMain });
+  return composeAbandonNotice({ reason, branchName, branchState: "present", aheadOfMain, ...extra });
 }

@@ -27,6 +27,7 @@ import {
   type ScrollEvent,
 } from './scrollAuthority';
 import { coalesceToolRuns, type CoalescedMessage } from './coalesceToolRun';
+import { SkeletonChatMessages } from '../Shared/Skeleton';
 
 /**
  * La LISTA di Virtuoso, cappata alla misura di lettura.
@@ -55,6 +56,28 @@ import { coalesceToolRuns, type CoalescedMessage } from './coalesceToolRun';
  */
 const CHAT_BOTTOM_GUTTER_PX = 24;
 
+/**
+ * LA FASCIA DIETRO L'INPUT NON È UN POSTO DOVE VA IL TESTO.
+ *
+ * Il composer galleggia sopra il trascritto (`absolute bottom-0` in ChatPane) e
+ * il trascritto ci passa sotto: è il punto dell'overlay. Il difetto era cosa
+ * succedeva AL BORDO — la scatola opaca del composer tagliava di netto la riga
+ * che gli scorreva dietro, e restava lì una mezza riga illeggibile: né presente
+ * né assente.
+ *
+ * Qui il testo non viene tagliato: si SPEGNE. Una maschera sullo scroller porta
+ * l'inchiostro a zero PRIMA del bordo superiore del composer, così la fascia
+ * dietro l'input non contiene mai pittura — non è una tinta stesa sopra (che
+ * dovrebbe indovinare il colore del vetro che ha dietro, e sbaglierebbe), è
+ * l'alfa del contenuto stesso.
+ *
+ * La rampa vale ESATTAMENTE il varco che il Footer già riserva: da fermo, sotto
+ * l'ultima riga, quei 24px sono vuoti per costruzione — quindi da fermo la
+ * maschera non sbiadisce nulla, e si vede solo quando scorri. Allungarla
+ * significherebbe scolorire l'ultima risposta di una chat ferma.
+ */
+const INK_FADE_RAMP_PX = CHAT_BOTTOM_GUTTER_PX;
+
 const ChatList = forwardRef<HTMLDivElement, ComponentProps<'div'>>(
   function ChatList({ className, ...props }, ref) {
     return <div {...props} ref={ref} className={`${className ?? ''} chat-measure`} />;
@@ -74,16 +97,12 @@ interface MessageListProps {
   fileDragOver: boolean;
   chatContainerRef: React.RefObject<HTMLDivElement | null>;
   messagesEndRef: React.RefObject<HTMLDivElement | null>;
-  textareaRef: React.RefObject<HTMLTextAreaElement | null>;
   onReply: (msg: ChatMessage) => void;
   onCopy: (msg: ChatMessage) => void;
   onTogglePin: (msg: ChatMessage) => void;
   onFileDragOver: (e: React.DragEvent) => void;
   onFileDragLeave: (e: React.DragEvent) => void;
   onFileDrop: (e: React.DragEvent) => void;
-  setMessage: (v: string) => void;
-  onPlanApprove?: () => void;
-  onPlanReject?: () => void;
   onPlanDecision?: (approved: boolean) => void;
   onRemember?: (msg: ChatMessage) => void;
   onEdit?: (msg: ChatMessage) => void;
@@ -93,6 +112,12 @@ interface MessageListProps {
   onMessage?: (handler: (msg: WSMessage) => void) => () => void;
   onRetry?: () => void;
   inputAreaHeight?: number;
+  /**
+   * Vero quando il composer è al CENTRO della pane (chat vuota / handoff): lì
+   * `inputAreaHeight` comprende anche l'invito, non è la fascia in fondo, e
+   * spegnere l'inchiostro su quella misura cancellerebbe mezza pane.
+   */
+  composerCentered?: boolean;
   /**
    * PANE-03 scroll restore (review I1). When set to a finite positive value
    * at mount, the scroller's scrollTop is restored to it (clamped to content
@@ -118,16 +143,12 @@ export function MessageList({
   fileDragOver,
   chatContainerRef,
   messagesEndRef,
-  textareaRef,
   onReply,
   onCopy,
   onTogglePin,
   onFileDragOver,
   onFileDragLeave,
   onFileDrop,
-  setMessage,
-  onPlanApprove,
-  onPlanReject,
   onPlanDecision,
   onRemember,
   onEdit,
@@ -137,6 +158,7 @@ export function MessageList({
   onMessage,
   onRetry,
   inputAreaHeight = 0,
+  composerCentered = false,
   initialScrollOffset,
   onScrollOffsetChange,
 }: MessageListProps) {
@@ -193,6 +215,25 @@ export function MessageList({
   }, []);
   const isCompact = settings.messageDensity === 'compact';
 
+  /**
+   * Lo stile dello SCROLLER, maschera compresa (vedi `INK_FADE_RAMP_PX`).
+   *
+   * La maschera sta sullo scroller e non sul contenuto perché il suo riquadro
+   * di riferimento è la scatola dell'elemento, non il contenuto: resta ferma in
+   * fondo alla viewport mentre i messaggi ci scorrono dentro. Sul contenitore
+   * esterno non si può: lì dentro vive anche il bottone «torna in fondo», che
+   * si spegnerebbe con lui.
+   *
+   * Niente maschera quando la fascia non esiste (composer al centro, altezza
+   * non ancora misurata): un `undefined` lascia lo scroller esattamente com'era.
+   */
+  const scrollerStyle = useMemo(() => {
+    const band = Math.round(inputAreaHeight);
+    if (composerCentered || band <= 0) return { height: '100%' };
+    const mask = `linear-gradient(to bottom, #000 0, #000 calc(100% - ${band + INK_FADE_RAMP_PX}px), transparent calc(100% - ${band}px))`;
+    return { height: '100%', maskImage: mask, WebkitMaskImage: mask };
+  }, [inputAreaHeight, composerCentered]);
+
   // Stable Virtuoso `components` map: a fresh object + Footer fn identity every
   // render defeats Virtuoso's bailout, so the footer churned per streaming
   // token. The footer only depends on inputAreaHeight.
@@ -212,6 +253,33 @@ export function MessageList({
     // pixel: poco, dentro la banda in cui stanno le superfici di chat serie, e
     // abbastanza da non far mai toccare le due cose.
     Footer: () => <div style={{ height: inputAreaHeight + CHAT_BOTTOM_GUTTER_PX }} />,
+    // IL VARCO IN CIMA È IL GEMELLO DEL FOOTER, e nasce dallo stesso fatto: la
+    // conversazione confina con del CHROME, non con il bordo della finestra.
+    //
+    // Da quando la barra delle tab è un vetro fuori dal flusso
+    // (`.pane-chrome-bar`), la cella della chat comincia SOTTO di lei: senza
+    // questo varco il primo messaggio nascerebbe già coperto. Con, a riposo non
+    // c'è niente di nascosto — e scorrendo i messaggi le passano sotto, che è
+    // tutto il punto dell'overlay.
+    //
+    // Altezza in `var()` e non in pixel, al contrario del Footer, e la
+    // differenza è chi conosce il numero. L'altezza del composer la MISURA
+    // JavaScript (`inputAreaHeight`), quindi tanto vale sommarla lì; quella
+    // della barra è una costante dichiarata dalla card che la possiede
+    // (CHROME_BAR_H_VAR), e leggerla in CSS evita di ricopiarla in un terzo
+    // posto. Virtuoso misura l'Header col suo ResizeObserver, quindi il numero
+    // risolto lo scopre da sé.
+    //
+    // La variabile è `--chat-gutter` e NON `--chrome-bar-h`, e la differenza è
+    // il caso in cui sopra il trascritto c'è un banner: lì il rientro se l'è
+    // già preso la cella, e questo varco deve valere zero o i 40px si contano
+    // due volte. A deciderlo è UNA regola CSS (`.chat-under-chrome:first-child`,
+    // index.css) che accende insieme il margine negativo e il varco: da qui non
+    // si vede la condizione, si legge solo il risultato.
+    //
+    // Il default è 0: una lista montata dove non c'è nessuna barra sopra —
+    // oggi nessuna, domani chissà — non si prende un buco per sbaglio.
+    Header: () => <div data-testid="chat-top-gutter" style={{ height: 'var(--chat-gutter, 0px)' }} />,
     List: ChatList,
   }), [inputAreaHeight]);
 
@@ -628,6 +696,98 @@ export function MessageList({
     openVerifyTimersRef.current.forEach(window.clearTimeout);
     openVerifyTimersRef.current = [];
   }, []);
+
+  // ── IL SIPARIO ────────────────────────────────────────────────────────────
+  /**
+   * La lista non si guarda mentre si monta.
+   *
+   * MISURATO al refresh (sonda `tests/e2e/refresh-cls.spec.ts`, 390×844): il
+   * blocco dell'ultimo messaggio si sposta TRE volte fra i 138 e i 178ms —
+   * y 40 → 264 → 694 → 504 — e da solo vale un CLS di 0,296, cioè il 100% del
+   * movimento dell'intera pagina. Non è lentezza né rete: i messaggi sono già in
+   * cache locale. È Virtuoso che monta con le altezze ancora da misurare, le
+   * misura a più riprese e ri-ancora al fondo; l'assestamento è corretto, ma
+   * finora si svolgeva SOTTO GLI OCCHI, ed è esattamente il «cose che caricano
+   * dopo, quando in realtà c'erano già prima del refresh».
+   *
+   * Qui non si accelera l'assestamento — non si può, le altezze vere si sanno
+   * solo misurandole — si smette di darlo in scena: la lista resta
+   * `visibility: hidden` (che ha layout, quindi Virtuoso misura eccome) finché
+   * la geometria non sta ferma, e al suo posto c'è lo scheletro, ancorato in
+   * fondo com'è ancorata la chat. Chi guarda vede una superficie ferma che
+   * diventa la conversazione, non una conversazione che si assembla.
+   *
+   * SI CHIUDE SEMPRE, e in fretta: due frame con `scrollHeight` e `scrollTop`
+   * identici, oppure il tetto duro qui sotto. Non c'è nessuno stato in cui
+   * possa restare aperto — un sipario che non si alza è peggio di uno spinner.
+   */
+  /** Quanti frame di geometria IMMOBILE bastano a dire «si è posata». Due e non
+   *  uno: una singola coincidenza fra due frame capita a metà di un
+   *  assestamento, due di fila no. */
+  const LIST_REVEAL_STABLE_FRAMES = 2;
+  /**
+   * Prima di tanto non si alza MAI, anche a geometria ferma.
+   *
+   * Il primo dei tre controlli a scoppio ritardato dell'apertura
+   * (`OPEN_VERIFY_MS[0]`, 250ms) è l'ultima cosa che può ancora spostare la
+   * vista, e lo fa per davvero: misurato dopo il sipario a due frame, la lista
+   * stava ferma, si scopriva, e a 250ms dal montaggio quel controllo la portava
+   * al fondo vero — 190px di salto, in scena. Il pavimento sta appena oltre quel
+   * controllo, così il salto avviene dietro lo scheletro. È il prezzo dichiarato
+   * di questa card: la chat compare un terzo di secondo dopo, e compare FERMA.
+   */
+  const LIST_REVEAL_FLOOR_MS = 320;
+  /** Oltre questo, si alza comunque. Copre il caso in cui la geometria non stia
+   *  ferma per un motivo legittimo (uno stream che scrive mentre apri): lì
+   *  l'attesa non finirebbe mai, e vedere la lista muoversi è meglio che non
+   *  vederla. */
+  const LIST_REVEAL_HARD_CAP_MS = 600;
+  /** Fin qui dall'apertura, una lista che si popola è ancora «la chat che si
+   *  apre». Dopo, è un messaggio che arriva — e un messaggio che arriva non
+   *  deve far lampeggiare uno scheletro (era il caso della prima riga scritta
+   *  in una chat vuota). */
+  const CURTAIN_ARM_WINDOW_MS = 1200;
+  const [listSettled, setListSettled] = useState(false);
+  /** Quando questa chat si è aperta. Lo scrive l'effetto qui sotto, che gira
+   *  al montaggio e a ogni cambio di topic — cioè in tutti e soli i momenti in
+   *  cui «apertura» vuol dire qualcosa. */
+  const openedAtRef = useRef(performance.now());
+  useEffect(() => {
+    openedAtRef.current = performance.now();
+    setListSettled(false);
+  }, [topic.id]);
+  useEffect(() => {
+    if (listSettled) return;
+    if (!scrollerEl || filteredMessages.length === 0) return;
+    // Non è un'apertura: è la chat che stavi già guardando e a cui è arrivato
+    // qualcosa. Niente sipario.
+    if (performance.now() - openedAtRef.current > CURTAIN_ARM_WINDOW_MS) {
+      setListSettled(true);
+      return;
+    }
+    const inizio = performance.now();
+    let raf = 0;
+    let ultimaH = -1;
+    let ultimoTop = -1;
+    let fermi = 0;
+    const guarda = () => {
+      const el = scrollerElRef.current;
+      if (!el) { raf = requestAnimationFrame(guarda); return; }
+      const h = el.scrollHeight;
+      const top = Math.round(el.scrollTop);
+      if (h === ultimaH && top === ultimoTop) fermi += 1; else fermi = 0;
+      ultimaH = h;
+      ultimoTop = top;
+      const trascorso = performance.now() - inizio;
+      if ((fermi >= LIST_REVEAL_STABLE_FRAMES && trascorso >= LIST_REVEAL_FLOOR_MS) || trascorso > LIST_REVEAL_HARD_CAP_MS) {
+        setListSettled(true);
+        return;
+      }
+      raf = requestAnimationFrame(guarda);
+    };
+    raf = requestAnimationFrame(guarda);
+    return () => cancelAnimationFrame(raf);
+  }, [listSettled, scrollerEl, filteredMessages.length, topic.id]);
 
   // Scroll to bottom after messages load for a new topic.
   // Skipped while a palette jump target is pending (peekScrollToMessage): the
@@ -1094,7 +1254,17 @@ export function MessageList({
     // `_currentStreaming` NON sta qui: lo legge `streamingRef`. Vedi il commento
     // sul ref — rimontare i listener a ogni transizione di stream faceva
     // ripartire l'osservazione iniziale del ResizeObserver, e con essa il pin.
-  }, [scrollerEl, topic.id, dispatchScroll, pinToBottom, OPEN_SETTLE_FRAMES]);
+    //
+    // `syncArrow` invece ci sta, e NON riapre quella porta: è un
+    // `useCallback(..., [])` che chiude solo su `arrowShownRef`, su
+    // `setIsScrolledUp` e su due `const` primitive — quindi la sua identità è
+    // costante per tutta la vita del componente e questa dipendenza non può
+    // rieseguire l'effetto nemmeno una volta. Elencarla è l'unico modo per far
+    // sì che, se un giorno le si desse una dipendenza vera, il difetto si
+    // presenti qui invece di restare una closure stantia che misura la freccia
+    // sulla geometria sbagliata. Se quel giorno arriva, la cura è stabilizzarla
+    // di nuovo (ref), non toglierla da questa lista.
+  }, [scrollerEl, topic.id, dispatchScroll, pinToBottom, OPEN_SETTLE_FRAMES, syncArrow]);
 
   // Auto-scroll to bottom when a NEW message is APPENDED while streaming is
   // NOT active — an inbound system message, or a peer's message in a shared
@@ -1280,7 +1450,7 @@ export function MessageList({
       role="log"
       aria-live="polite"
       aria-label={`Messages for ${topic.name}`}
-      className={`flex-1 overflow-y-auto relative min-h-0 ${fileDragOver ? 'bg-primary/3' : ''}`}
+      className={`chat-under-chrome flex-1 overflow-y-auto relative min-h-0 ${fileDragOver ? 'bg-primary/3' : ''}`}
       onDragOver={onFileDragOver}
       onDragLeave={onFileDragLeave}
       onDrop={onFileDrop}
@@ -1296,62 +1466,23 @@ export function MessageList({
 
       <NewMessageBanner show={showNewBanner} onClick={scrollToBottom} />
 
+      {/* Lo scheletro, UNO SOLO per i due momenti in cui serve: la chat che non
+          ha ancora niente da mostrare (primo avvio vero, nessuna cache) e la
+          lista che si sta ancora posando (il sipario, sopra). Erano due
+          disegni diversi — tre bolle allineate IN CIMA con misure inventate —
+          e il passaggio dall'uno all'altra era esso stesso un salto. */}
       {currentLoading && currentMessages.length === 0 ? (
-        <div className={`chat-measure ${isMobile ? 'px-2' : 'px-4'} ${isCompact ? 'space-y-1' : 'space-y-2'} overflow-hidden`}>
-          {[1,2,3].map(i => (
-            <div key={i} className={`flex gap-1.5 ${i % 2 === 0 ? 'justify-end' : 'justify-start'} animate-pulse`}>
-              <div className={`rounded-lg px-3 py-2 max-w-[85%] ${
-                i % 2 === 0 
-                  ? 'bg-primary/20' 
-                  : 'bg-app-hover'
-              }`}>
-                <div className="h-3 rounded w-32 mb-1.5 bg-black/10 dark:bg-white/10" />
-                <div className="h-3 rounded w-20 bg-black/5 dark:bg-white/5" />
-              </div>
-            </div>
-          ))}
-        </div>
+        <SkeletonChatMessages isMobile={isMobile} />
       ) : filteredMessages.length === 0 ? (
-        <div className={`chat-measure text-center ${'py-3 px-3 md:py-8 md:px-4'}`}>
-          <p className="text-[14px] font-medium text-app-text-secondary">{topic.name}</p>
-          {topic.systemPrompt && (
-            <p className="text-[11px] text-purple-400 mt-1 flex items-center justify-center gap-1">
-              <span>✨</span> Custom system prompt active
-            </p>
-          )}
-          {!topic.projectPath && (
-            <p className="text-[12px] text-app-text-muted mt-2 mb-2">Start a conversation</p>
-          )}
-          <div className="flex flex-wrap gap-2 justify-center mt-4">
-            {(topic.projectPath ? [
-                { label: '📋 Describe this project', msg: 'Give me a brief overview of this project — what it does, the tech stack, and the main files.' },
-                { label: '🔄 Recent changes', msg: 'Show me the recent git changes in this project and summarize what was modified.' },
-                { label: '🐛 Find issues', msg: 'Review this project for potential bugs, code smells, or improvements.' },
-              ] : [
-                { label: '💡 Brainstorm ideas', msg: 'Help me brainstorm some ideas.' },
-                { label: '📝 Write something', msg: 'Help me write ' },
-                { label: '🔍 Research a topic', msg: 'Research ' },
-              ]).map(q => (
-                <button
-                  key={q.label}
-                  onClick={() => { setMessage(q.msg); textareaRef.current?.focus(); }}
-                  className="px-3 py-1.5 text-[12px] rounded-full border border-app-border-light text-app-text-secondary hover:bg-app-hover hover:border-primary hover:text-primary transition-all hover-lift"
-                >
-                  {q.label}
-                </button>
-              ))}
-          </div>
-          <div className="mt-6 flex flex-wrap gap-x-5 gap-y-2 justify-center text-[11px] text-app-text-faint">
-            <span className="flex items-center gap-1.5"><kbd className="kbd">⌘K</kbd> commands</span>
-            <span className="flex items-center gap-1.5"><kbd className="kbd">/</kbd> slash commands</span>
-            {topic.projectPath && <span className="flex items-center gap-1.5"><kbd className="kbd">@</kbd> mention file</span>}
-            <span className="flex items-center gap-1.5"><kbd className="kbd">⌘?</kbd> all shortcuts</span>
-          </div>
-          {/* Stesso varco del Footer: l'empty state sta FUORI da Virtuoso e
-              senza questo la chat vuota respira diversamente da quella piena. */}
-          <div style={{ height: inputAreaHeight + CHAT_BOTTOM_GUTTER_PX }} />
-        </div>
+        /* Niente. Il vuoto di una chat lo disegna `ChatEmptyState`, dentro il
+           blocco del composer: i due si centrano insieme e scivolano insieme in
+           fondo al primo messaggio. Stando qui — in cima al contenitore che
+           scorre — era lontano mezzo schermo dalla riga di testo di cui parla,
+           e non c'era modo di muoverli come una cosa sola. */
+        null
       ) : (
+        <>
+        {!listSettled && <SkeletonChatMessages isMobile={isMobile} />}
         <Virtuoso
           data-testid="chat-message-list"
           key={topic.id}
@@ -1541,8 +1672,6 @@ export function MessageList({
                   onReply={onReply}
                   onCopy={onCopy}
                   onTogglePin={onTogglePin}
-                  onPlanApprove={isLastAssistant ? onPlanApprove : undefined}
-                  onPlanReject={isLastAssistant ? onPlanReject : undefined}
                   // La decisione sul piano NON è gatata sull'ultimo messaggio:
                   // il pannello sta sulla riga del tool che ha proposto, che può
                   // essere più su se nel frattempo è arrivato altro.
@@ -1564,8 +1693,19 @@ export function MessageList({
             );
           }}
           components={virtuosoComponents}
-          style={{ height: '100%' }}
+          // `visibility` e non `opacity`: un elemento a opacità zero VIENE
+          // DIPINTO (e i suoi spostamenti contano lo stesso nel CLS), uno
+          // `hidden` no — ma tiene il layout, quindi Virtuoso continua a
+          // misurare le altezze mentre il sipario è chiuso. È l'unica delle due
+          // che fa entrambe le cose.
+          //
+          // Si somma alla maschera del composer (`scrollerStyle`): quella
+          // spegne l'inchiostro dietro l'input, questo tiene chiuso il sipario
+          // finché la lista non si è assestata. Sono due cose diverse e
+          // servono entrambe.
+          style={{ ...scrollerStyle, visibility: listSettled ? undefined : 'hidden' }}
         />
+        </>
       )}
 
       <div ref={messagesEndRef} />

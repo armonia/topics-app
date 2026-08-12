@@ -27,6 +27,21 @@ import { useLayoutEffect, useRef, type RefObject } from 'react';
  * cella entrata o uscita, e tutte le altre si stanno stringendo. Lì una
  * `translate` mentirebbe (mostrerebbe la cella vecchia scivolare nella misura
  * nuova), quindi si lascia stare.
+ *
+ * ── E SI MISURA RISPETTO ALLA GRIGLIA, NON AL VIEWPORT ──────────────────────
+ * Attilio, 12/08, dal telefono: «mentre scrollo sulla sidebar si sminchiano i
+ * pinnati, si muovono e fanno scatti strani». Non era il tocco: era questo.
+ * `getBoundingClientRect` dice dove la cella sta rispetto alla FINESTRA, quindi
+ * scorrere la colonna di 40px cambia quel numero di 40 SENZA che niente si sia
+ * riordinato. Il confronto però è fra due render, non fra due istanti: finché
+ * nessuno ri-renderizza, nessuno guarda. Ma questa app ri-renderizza di
+ * continuo (un frame di stream, una fase che cambia, una notifica), e il primo
+ * render che capita a metà scorrimento trova `p.top - fine.top = 40` su OGNI
+ * tessera e le anima tutte insieme di 40px all'indietro: lo scatto.
+ *
+ * La posizione che conta per un riordino è quella DENTRO la griglia, ed è
+ * invariante allo scorrimento perché la radice scorre con le sue celle. Quindi
+ * si sottrae il riquadro della radice, e resta solo il movimento vero.
  */
 
 const DURATA_MS = 150;
@@ -82,6 +97,11 @@ export function useCellFlip(root: RefObject<HTMLElement | null>): void {
       typeof window.matchMedia === 'function' &&
       window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+    // L'origine del sistema di riferimento: la griglia stessa. Vedi il blocco
+    // in cima — misurare dal viewport fa passare uno scorrimento per un
+    // riordino.
+    const origine = radice.getBoundingClientRect();
+
     const dopo = new Map<string, Riquadro>();
     for (const cella of radice.querySelectorAll<HTMLElement>('[data-pinned-cell]')) {
       const chiave = cella.dataset.pinnedCell;
@@ -91,7 +111,11 @@ export function useCellFlip(root: RefObject<HTMLElement | null>): void {
       const r = cella.getBoundingClientRect();
       // Il rettangolo misurato include la traslazione in volo: toglierla dà la
       // posizione di LAYOUT, che è quella da confrontare e da ricordare.
-      const fine: Riquadro = { left: r.left - tx, top: r.top - ty, width: r.width };
+      const fine: Riquadro = {
+        left: r.left - tx - origine.left,
+        top: r.top - ty - origine.top,
+        width: r.width,
+      };
       dopo.set(chiave, fine);
 
       const p = prima.current.get(chiave);

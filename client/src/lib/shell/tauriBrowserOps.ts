@@ -64,7 +64,7 @@ export interface NativeOpOutcome {
 // through server/browser-native-state.ts + the cases below, so in practice this
 // is the "unknown/new tool" fallback.
 const STREAMING_HINT =
-  'this action needs the server browser stack, which the native pane can\'t run in-page yet — use it on a streaming/CDP browser pane instead';
+  'this action needs the server browser stack, which the native pane can\'t run in-page yet. Use it on a streaming/CDP browser pane instead';
 
 /**
  * Per-pane previous snapshot, so `browser_observe`/`browser_act` can return an
@@ -373,7 +373,7 @@ export async function executeNativeBrowserOp(
         if (!state || !Array.isArray(state.cookies)) {
           return {
             error:
-              "browser_load_state: missing resolved 'state' — the server resolves the handle before delegating to the native pane",
+              "browser_load_state: missing resolved 'state'. The server resolves the handle before delegating to the native pane.",
           };
         }
         let origUrl = '';
@@ -430,7 +430,7 @@ export async function executeNativeBrowserOp(
         if (!list.length) {
           return {
             error:
-              "browser_import_chrome: missing decrypted 'cookies' — the server reads the Chrome store before delegating to the native pane",
+              "browser_import_chrome: missing decrypted 'cookies'. The server reads the Chrome store before delegating to the native pane.",
           };
         }
         const imported = await setPaneCookies(
@@ -455,7 +455,7 @@ export async function executeNativeBrowserOp(
       }
       default:
         return {
-          error: `browser tool '${tool}' is not supported on the native Tauri pane yet — ${STREAMING_HINT}.`,
+          error: `browser tool '${tool}' is not supported on the native Tauri pane yet. ${STREAMING_HINT}.`,
         };
     }
   } catch (e) {

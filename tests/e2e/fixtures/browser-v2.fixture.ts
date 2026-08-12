@@ -53,6 +53,13 @@ export class BrowserProcessPageV2 extends BrowserProcessPage {
   // the pane must gracefully fall back to the pixel (WebRTC) surface.
   private domUnsupported = false;
 
+  // Che campo è a fuoco nella pagina remota dopo un click: la risposta che il
+  // vero server manda leggendo `document.activeElement` con Playwright. È
+  // l'unica via che il ramo video ha per sapere quale tastiera aprire (lì non
+  // c'è nessun mirror da interrogare). `undefined` = il mock non risponde
+  // affatto (server vecchio); `null` = risponde «niente di scrivibile».
+  private focusFieldReply: Record<string, unknown> | null | undefined = undefined;
+
   constructor(page: Page) {
     super(page);
   }
@@ -101,6 +108,19 @@ export class BrowserProcessPageV2 extends BrowserProcessPage {
               engine,
               ...(engine === 'chromium' ? { extensions: this.engineReplyExtensions } : {}),
             }));
+          } catch { /* ignore */ }
+        }
+        // Dopo un click relayato, il vero server legge chi ha preso il fuoco
+        // nella pagina e lo rimanda a CHI ha cliccato: è così che il ramo video
+        // sa quale tastiera far aprire al telefono. Il mock fa lo stesso, con la
+        // risposta che il test ha preparato.
+        if (this.focusFieldReply !== undefined
+          && parsed && typeof parsed === 'object'
+          && (parsed as { type?: string }).type === 'input'
+          && (parsed as { action?: string }).action === 'click') {
+          const field = this.focusFieldReply;
+          try {
+            ws.send(JSON.stringify({ type: 'focus_field', ...(field ? { field } : {}) }));
           } catch { /* ignore */ }
         }
         // WebRTC shared-session: answer the client's offer so the fake peer
@@ -256,6 +276,15 @@ export class BrowserProcessPageV2 extends BrowserProcessPage {
    */
   mockDomUnsupported(): void {
     this.domUnsupported = true;
+  }
+
+  /**
+   * Che campo il server dirà a fuoco dopo il prossimo click (e i successivi,
+   * finché non si richiama). Passare `null` per la risposta «a fuoco non c'è
+   * niente di scrivibile», che è quella che fa rientrare la tastiera.
+   */
+  mockFocusField(field: Record<string, unknown> | null): void {
+    this.focusFieldReply = field;
   }
 
   /**
