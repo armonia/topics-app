@@ -2,8 +2,9 @@
  * Larghezza e altezza di un'immagine, lette dall'INTESTAZIONE.
  *
  * Serve al gate di forma dell'anteprima (`promoteReviewPreview`): la card della
- * board disegna l'anteprima in un riquadro `object-cover` da 268×144, quindi
- * un'immagine molto più alta che larga non viene rimpicciolita — viene tagliata,
+ * board disegna l'anteprima in un riquadro `object-cover` alto al massimo
+ * `PREVIEW_CARD_MAX_RATIO` volte la propria larghezza, quindi un'immagine molto
+ * più alta che larga non viene rimpicciolita — viene tagliata,
  * e il reviewer si ritrova la fascia alta di un documento invece della consegna.
  * Per deciderlo servono due numeri, non un giudizio.
  *

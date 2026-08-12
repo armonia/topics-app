@@ -95,10 +95,31 @@ export function PreviewMedia({ path, variant, onOpenTab }: {
   const expandable = variant === 'drawer' && isPreviewablePath(path);
   const openLightbox = useCallback(() => setLightbox(true), []);
 
-  // `max-h-36` = 144px in una colonna da 268: è la misura da cui esce
-  // `PREVIEW_CARD_MAX_RATIO` (144/268), la soglia che il protocollo dà agli
-  // agenti. `object-cover` NON rimpicciolisce l'eccedenza, la TAGLIA — cambiare
-  // questo numero senza cambiare la costante fa mentire la regola.
+  // IL TETTO È UN RAPPORTO, non un'altezza.
+  //
+  // Era `max-h-36`: 144px fissi. Ma la colonna è larga un INTERVALLO (Card.tsx
+  // `widthCls`), quindi un'altezza fissa diventa un rapporto DIVERSO a ogni
+  // larghezza — 144/250 = 0.58 nella colonna di lavoro stretta, 144/474 = 0.30
+  // nella review a 1280, 144/666 = 0.22 su un board molto largo. Il protocollo
+  // però promette agli agenti UN numero (`PREVIEW_CARD_MAX_RATIO`), e la
+  // colonna dove si decide davvero — la review — era quella che tagliava di
+  // più. È questo lo «schiacciato»: non il tetto, il tetto che si stringe da
+  // solo man mano che la card si allarga.
+  //
+  // `cqw` = percentuale della larghezza del CONTAINER (il wrapper qui sotto ha
+  // `@container`, ed è lui a portare anche il `max-w`). `70cqw` è quindi
+  // letteralmente `PREVIEW_CARD_MAX_RATIO` applicato alla larghezza VERA della
+  // miniatura, uguale a ogni larghezza di colonna e su mobile.
+  //
+  // Il secondo tetto sta sulla LARGHEZZA del wrapper (380px), non sull'altezza:
+  // un `max-h` in px, misurato, rimetteva dentro il difetto appena tolto —
+  // oltre una certa larghezza avrebbe ripreso il comando e il rapporto sarebbe
+  // tornato a scendere colonna per colonna (in review: 320px su 474 = 0.67, e
+  // 0.48 su un board largo). Fermando la LARGHEZZA, il rapporto resta 0.7
+  // ovunque e il tetto in altezza esiste lo stesso, come conseguenza: 266px.
+  // I due numeri stanno in `shared/board.ts` perché li cita il testo del
+  // protocollo — cambiarli qui e basta fa mentire la regola che leggono gli
+  // agenti, e c'è un test che confronta questa classe con le costanti.
   //
   // DRAWER — perché non più `max-h-[50vh] object-contain`:
   //  · il tetto in `vh` guarda la FINESTRA, non il riquadro: un'anteprima
@@ -110,16 +131,19 @@ export function PreviewMedia({ path, variant, onOpenTab }: {
   //    tab): la miniatura non deve fare quel lavoro.
   //  · `object-cover object-top` — lo STESSO ritaglio della card: quello che
   //    hai visto sulla card è quello che ritrovi qui, e una copertina bassa non
-  //    viene stirata (il tetto taglia, non deforma).
-  // Il `min(px, vh)`: il px è la misura di lettura, il vh è la garanzia che su
-  // una finestra bassa l'anteprima resti una FETTA del drawer e non il drawer.
+  //    viene stirata (il tetto taglia, non deforma). «Lo stesso» ora lo è per
+  //    davvero: prima card e drawer avevano due tetti in px diversi (144 e 220)
+  //    su due larghezze diverse, quindi due ritagli diversi; con lo stesso
+  //    `70cqw` il ritaglio coincide, e il `vh` resta solo come garanzia che su
+  //    una finestra bassa l'anteprima sia una FETTA del drawer e non il drawer.
   // Un video tiene `object-contain` (ritagliarlo nasconderebbe l'azione) e un
-  // tetto più alto: sotto ~150px i controlli nativi diventano inusabili.
+  // tetto in px più alto: sotto ~150px i controlli nativi diventano inusabili,
+  // e un rapporto glieli toglierebbe proprio in un drawer stretto.
   const mediaCls = variant === 'card'
-    ? 'block w-full max-h-36 rounded border border-app-border object-cover object-top'
+    ? 'block w-full max-h-[70cqw] rounded border border-app-border object-cover object-top'
     : video
       ? 'block w-full max-h-[min(280px,32vh)] rounded border border-app-border bg-black/20 object-contain'
-      : 'block w-full max-h-[min(220px,24vh)] rounded border border-app-border bg-black/20 object-cover object-top';
+      : 'block w-full max-h-[min(70cqw,32vh)] rounded border border-app-border bg-black/20 object-cover object-top';
 
   // Terzo caso: un file che NESSUN elemento sa mostrare (un `.pdf`, un `.zip`
   // — roba fuori dai tre rami di `PREVIEW_RULE`). Prima finiva nel ramo `<img>`
@@ -167,7 +191,18 @@ export function PreviewMedia({ path, variant, onOpenTab }: {
   );
 
   return (
-    <div className={`group/preview relative ${variant === 'card' ? 'mb-1.5' : 'mt-2'}`}>
+    // `@container`: è QUESTO wrapper la larghezza contro cui si misura il
+    // `70cqw` del tetto. Senza, `cqw` risalirebbe al primo antenato con
+    // `container-type` — nessuno, quindi il viewport — e il tetto tornerebbe a
+    // guardare la finestra invece del riquadro.
+    // `max-w-[380px]` (`PREVIEW_CARD_MAX_WIDTH_PX`) sta QUI e non sull'`img`
+    // per lo stesso motivo: dev'essere il container a fermarsi, altrimenti il
+    // `cqw` continuerebbe a misurare la card intera mentre l'immagine è più
+    // stretta, e i due numeri divergerebbero di nuovo.
+    <div
+      data-testid={`preview-${variant}`}
+      className={`group/preview relative @container max-w-[380px] ${variant === 'card' ? 'mb-1.5' : 'mt-2'}`}
+    >
       {media}
       {/* I gesti stanno nello stesso angolo, in colonna: "apri come tab" per
           primo perché è quello che porta l'evidenza dentro il flusso di lavoro.
