@@ -2,10 +2,11 @@ import { useState, useEffect, useMemo, useRef, useCallback, type TouchEvent as R
 import { useT } from '../../hooks/useT';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { NightModeCard } from './NightModeCard';
-import { ArrowUpRight, Bot, Camera, Check, ChevronDown, ChevronRight, Clock, Copy, Download, ExternalLink, Footprints, GitMerge, Globe, Hourglass, Link2, Lock, Maximize2, Minimize2, MoreHorizontal, Paperclip, Plus, Send, ShieldCheck, ShieldX, Sparkles, Square, X } from 'lucide-react';
+import { AlertTriangle, ArrowUpRight, Bot, Camera, Check, ChevronDown, ChevronRight, Clock, Copy, Download, ExternalLink, Footprints, GitMerge, Globe, Hourglass, Link2, Lock, Maximize2, Minimize2, MoreHorizontal, Paperclip, Plus, Send, ShieldCheck, ShieldX, Sparkles, Square, Tag, UserRound, X } from 'lucide-react';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ReasoningRow } from '../Chat/ReasoningRow';
 import { Menu } from '../Shared/Menu';
+import { Select } from '../Shared/Select';
 import { ShareControl } from '../Share/ShareControl';
 import { Spinner } from '../Shared/Spinner';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
@@ -19,7 +20,7 @@ import { useTaskBrowserTabs, liveTabs, workspaceTwinContextId } from '../../stat
 import { noteAutoOpenedPreview, releaseAutoOpenedPreview } from '../../state/taskWorkspacePreviews';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
 import { writeCursor, markActiveComposer, restoreCursor } from '../../lib/composerCursor';
-import { boardApi, STATUS_LABEL, TASK_STATUSES, isAgentWorking, parseQuestionBlock, parseStatusEvent, hasPlanApproveOption, isProjectlessId, boardDrafts, systemDeliveryNote, blockedByChip, reopenedChip, attemptHasWork, type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch, type BoardProjectRef, type DiffBundle, type DiffNote, type ReviewCheck, type CheckRun, type TaskAttempt } from '../../lib/board';
+import { boardApi, STATUS_LABEL, TASK_STATUSES, isAgentWorking, parseQuestionBlock, parseStatusEvent, hasPlanApproveOption, isProjectlessId, boardDrafts, systemDeliveryNote, blockedByChip, subtaskWorkChip, reopenedChip, attemptHasWork, CLOSER_LABELS, KIND_LABELS, type TaskLabel, type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch, type BoardProjectRef, type DiffBundle, type DiffNote, type ReviewCheck, type CheckRun, type TaskAttempt, type LandingTicket } from '../../lib/board';
 import { PreviewMedia } from './PreviewMedia';
 import { UnifiedDiff } from './UnifiedDiff';
 import { collectTaskMediaPaths } from './taskMedia';
@@ -505,6 +506,8 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   // behind the drawer. The 409 open_subtasks on Approva is the load-bearing
   // case: swallowing it made the click look dead.
   const [error, setError] = useState<string | null>(null);
+  /** La ricevuta del land chiesto da QUESTO client, finché non si chiude. */
+  const [landing, setLanding] = useState<LandingTicket | null>(null);
   const showError = (e: unknown) => {
     const raw = e instanceof Error ? e.message : String(e);
     setError(/open subtasks/i.test(raw)
@@ -731,13 +734,46 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   // Land = accept + merge the branch on main (local, no push). Explicit, separate
   // from Approva (which only accepts the task). The merge/build runs server-side
   // and surfaces its outcome as system comments in the thread.
+  //
+  // Il server risponde `202`: il land è ACCODATO. La ricevuta va TENUTA e
+  // seguita, perché è la sola cosa che distingue «sta per succedere» da «è
+  // successo» — e senza quella distinzione una raffica di land sembra riuscita
+  // mentre non lo è.
   const doLand = async () => {
     if (busy) return;
     setBusy(true);
-    try { await boardApi.land(projectId, taskId); setError(null); await load(); onChanged(); }
+    try {
+      const res = await boardApi.land(projectId, taskId);
+      setLanding(res.landing ?? null);
+      setError(null); await load(); onChanged();
+    }
     catch (e) { showError(e); }
     finally { setBusy(false); }
   };
+
+  // Il ticket si SEGUE finché non si chiude. Senza qualcuno che chieda «e poi?»,
+  // il 202 sarebbe l'onestà del server sprecata: la richiesta è andata a buon
+  // fine e l'esito non arriva comunque mai a chi l'ha chiesto.
+  useEffect(() => {
+    if (!landing || (landing.phase !== 'queued' && landing.phase !== 'running')) return;
+    let alive = true;
+    const id = setInterval(async () => {
+      try {
+        const res = await boardApi.landStatus(projectId, taskId);
+        if (!alive) return;
+        // Stesso oggetto quando niente è cambiato: altrimenti ogni giro
+        // rimonterebbe questo effetto e riazzererebbe l'intervallo.
+        setLanding((prev) =>
+          prev && prev.phase === res.landing.phase && prev.ahead === res.landing.ahead ? prev : res.landing);
+        if (res.landing.phase === 'settled' || res.landing.phase === 'failed') { await load(); onChanged(); }
+      } catch {
+        // Il ticket è caduto fuori dalla finestra interrogabile (o la board non
+        // risponde): la banda sparisce invece di mentire.
+        if (alive) setLanding(null);
+      }
+    }, 2000);
+    return () => { alive = false; clearInterval(id); };
+  }, [landing, projectId, taskId, load, onChanged]);
 
   // Quick-add a nested subtask. Born in backlog (intake), like agent creates —
   // dragging it to Todo is the explicit "vai" gesture.
@@ -809,6 +845,25 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   useEffect(() => subscribeProvidersSnapshot((state) => {
     setModels(state.snapshot?.providers.find((p) => p.name === 'claude-code')?.models ?? []);
   }), []);
+  // Le etichette del drawer: toggle, e una sola visibilita' per volta (accendere
+  // `invisibile` spegne `visibile`, che e' cio' che fa `normalizeLabels` anche
+  // lato server — qui si evita solo il viaggio con una richiesta contraddittoria).
+  const labelBtnRef = useRef<HTMLButtonElement>(null);
+  const [labelMenuOpen, setLabelMenuOpen] = useState(false);
+  const toggleLabel = async (l: TaskLabel) => {
+    if (!task || busy) return;
+    const on = task.labels.some((x) => x.label === l);
+    const isCloser = l === 'visibile' || l === 'decisione' || l === 'invisibile';
+    const next = task.labels
+      .map((x) => x.label)
+      .filter((x) => (on ? x !== l : !(isCloser && (x === 'visibile' || x === 'decisione' || x === 'invisibile'))));
+    if (!on) next.push(l);
+    setBusy(true);
+    try { await boardApi.setLabels(projectId, taskId, next); setError(null); await load(); onChanged(); }
+    catch (e) { showError(e); }
+    finally { setBusy(false); }
+  };
+
   const changeModel = async (model: string | null) => {
     setModelMenuOpen(false);
     if (!task || (task.model ?? null) === model || busy) return;
@@ -996,6 +1051,11 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   // chip muto (o un «Bloccato da…» generico) su un task che un bloccante ce
   // l'aveva — e per un bloccante archiviato o di un altro taglio, per sempre.
   const blockedChip = task ? blockedByChip(task) : null;
+  // Chi lavora un sottotask che non ha un agente suo: il server lo risolve
+  // risalendo i padri, qui si sceglie solo come dirlo.
+  const workChip = task ? subtaskWorkChip(task) : null;
+  const workAncestorId = task?.subtaskWork?.kind === 'parent-turn' ? task.subtaskWork.ancestor.id : null;
+
   // Era in Done e non c'è più: stessa lettura del chip sulla card, qui in forma
   // di banda (chi e quando). Vive finché la card non torna `done`.
   const reopened = task ? reopenedChip(task) : null;
@@ -1397,6 +1457,21 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
           <button aria-label={tr('board.task.closeError')} onClick={() => setError(null)} className="shrink-0 rounded p-0.5 hover:bg-white/10"><X className="h-3 w-3" /></button>
         </div>
       )}
+      {/* Land ACCODATO, non ancora avvenuto. Sta sopra la banda «non su main»
+          perché in questa finestra quella banda dice il vero ma non dice tutto:
+          il codice non è su main E qualcuno ci sta già lavorando. */}
+      {landing && (landing.phase === 'queued' || landing.phase === 'running') && (
+        <div className="shrink-0 border-b border-amber-500/20 bg-amber-500/10 px-3 py-1.5 text-[11px] text-amber-300">
+          {landing.ahead > 0
+            ? <>Land <strong>in coda</strong>: {landing.ahead} {landing.ahead === 1 ? 'fusione' : 'fusioni'} davanti su questa board (toccano tutte main nello stesso checkout).</>
+            : <>Land <strong>in corso</strong>: la fusione su main sta girando adesso — l'esito arriva nel thread.</>}
+        </div>
+      )}
+      {landing?.phase === 'failed' && (
+        <div className="shrink-0 border-b border-rose-500/20 bg-rose-500/10 px-3 py-1.5 text-[11px] text-rose-300">
+          ⚠️ Land <strong>fallito</strong>: {landing.error ?? 'errore sconosciuto'}
+        </div>
+      )}
       {/* Verdetto dell'audit di landing: un task chiuso il cui lavoro non è su
           main. Sta QUI, in cima al drawer, e non solo come commento nel thread —
           il commento si perde, la banda no. */}
@@ -1582,6 +1657,51 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                     </button>
                   ))}
                 </Menu>
+                {/* Etichette — la correzione a mano di un umano. Qui `invisibile`
+                    si puo' scrivere (l'agente non puo': il server lo rifiuta), e
+                    una volta scritta a mano la derivazione non la sovrascrive
+                    piu' alla consegna successiva. */}
+                <button
+                  ref={labelBtnRef}
+                  onClick={() => setLabelMenuOpen(true)}
+                  data-testid="task-labels-chip"
+                  title={task.labels.some((l) => l.label === 'invisibile')
+                    ? 'Invisibile: non tocca client/src — con la barra verde la puo\' chiudere il conduttore'
+                    : task.labels.some((l) => l.label === 'visibile')
+                      ? 'Visibile: tocca una superficie che si vede — resta in review finche\' non la guarda un umano'
+                      : task.labels.some((l) => l.label === 'decisione')
+                        ? 'Decisione: un piano, una ricerca, un documento — la decide un umano, sempre'
+                        : 'Nessuna etichetta di chiusura: la chiude un umano'}
+                  className="flex min-w-0 items-center gap-1.5 rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-app-text-secondary hover:bg-white/20"
+                >
+                  <Tag className="h-3 w-3 shrink-0 text-app-text-muted" />
+                  <span className="truncate">{task.labels.length ? task.labels.map((l) => l.label).join(', ') : 'etichette'}</span>
+                  <ChevronDown className="h-3 w-3 shrink-0 text-app-text-muted" />
+                </button>
+                <Menu open={labelMenuOpen} anchorRef={labelBtnRef} onClose={() => setLabelMenuOpen(false)} minWidth={220} role="listbox">
+                  <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">Chi la chiude</p>
+                  {CLOSER_LABELS.map((l) => (
+                    <button
+                      key={l} role="option" aria-selected={task.labels.some((x) => x.label === l)}
+                      disabled={busy} onClick={() => toggleLabel(l)}
+                      className={`${POPOVER_ITEM} disabled:opacity-40`}
+                    >
+                      <span className="min-w-0 flex-1">{l}</span>
+                      {task.labels.some((x) => x.label === l) && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
+                    </button>
+                  ))}
+                  <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">Genere</p>
+                  {KIND_LABELS.map((l) => (
+                    <button
+                      key={l} role="option" aria-selected={task.labels.some((x) => x.label === l)}
+                      disabled={busy} onClick={() => toggleLabel(l)}
+                      className={`${POPOVER_ITEM} disabled:opacity-40`}
+                    >
+                      <span className="min-w-0 flex-1">{l}</span>
+                      {task.labels.some((x) => x.label === l) && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
+                    </button>
+                  ))}
+                </Menu>
                 <button
                   ref={modelBtnRef}
                   onClick={() => setModelMenuOpen(true)}
@@ -1634,6 +1754,37 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                     <ChevronDown className="h-3 w-3 shrink-0 text-amber-300/70" />
                   </button>
                 )}
+                {/* «Chi la lavora» sta in riga accanto al bloccante, e per lo
+                    stesso motivo: su una card in corso senza topic né chip è lo
+                    stato che decide se c'è da intervenire. Quando la tiene un
+                    antenato il chip ci porta — la domanda successiva è sempre
+                    «e chi sarebbe?». */}
+                {workChip && (workAncestorId && onOpenTask ? (
+                  <button
+                    onClick={() => onOpenTask(workAncestorId)}
+                    data-testid="task-subtask-work-chip"
+                    data-kind="parent-turn"
+                    title={`${workChip.title} — clicca per aprirlo`}
+                    className="flex min-w-0 items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-app-text-muted hover:bg-white/20"
+                  >
+                    <UserRound className="h-3 w-3 shrink-0" />
+                    <span className="max-w-[14rem] truncate">{workChip.label}</span>
+                  </button>
+                ) : (
+                  <span
+                    data-testid="task-subtask-work-chip"
+                    data-kind={workChip.kind}
+                    title={workChip.title}
+                    className={workChip.kind === 'unattended'
+                      ? 'flex min-w-0 items-center gap-1 rounded bg-rose-500/20 px-1.5 py-0.5 text-[11px] text-rose-300'
+                      : 'flex min-w-0 items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-app-text-muted'}
+                  >
+                    {workChip.kind === 'unattended'
+                      ? <AlertTriangle className="h-3 w-3 shrink-0" />
+                      : <UserRound className="h-3 w-3 shrink-0" />}
+                    <span className="max-w-[14rem] truncate">{workChip.label}</span>
+                  </span>
+                ))}
                 {/* Plan-first / reuse-context vivono nel ⋯ header menu. Il PICKER
                     del bloccante resta qui — portaled, ancorato a chi l'ha
                     aperto (il chip qui sopra, o il ⋯ quando il chip non c'è). */}
@@ -2008,6 +2159,16 @@ export function SubtaskNode({ projectId, node, depth, onOpenTask }: {
   // in the drawer — no click affordance, so it doesn't look openable when it
   // isn't.
   const openable = !!node.description || hasKids || !!node.assignedTopicId;
+  // Questa riga è dove il triage guarda davvero: le colonne mostrano solo le
+  // radici (`rootsOnly`), quindi uno step non è MAI una card — l'albero del
+  // padre è l'unico posto in cui si vede senza averlo cercato per id.
+  //
+  // Asimmetrico di proposito. `unattended` è raro e va notato: marcatore rosso.
+  // `parent-turn` è la norma (243 step chiusi così in un giorno): un chip su
+  // ognuno sarebbe rumore su tutta la checklist, e per giunta ridondante — il
+  // padre che la lavora è il drawer che stai guardando. Resta come icona muta,
+  // che risponde al passaggio del mouse.
+  const work = subtaskWorkChip(node);
   const toggle = async () => {
     if (!open && kids === null) {
       try { const { children } = await boardApi.get(projectId, node.id); setKids(children ?? []); }
@@ -2036,6 +2197,21 @@ export function SubtaskNode({ projectId, node, depth, onOpenTask }: {
         ) : (
           <span className={`min-w-0 flex-1 truncate text-xs ${node.status === 'done' ? 'text-app-text-muted line-through' : 'text-app-text-secondary'}`}>{node.text}</span>
         )}
+        {work && (work.kind === 'unattended' ? (
+          <span
+            data-testid={`subtask-work-${node.id}`}
+            data-kind="unattended"
+            title={work.title}
+            className="flex shrink-0 items-center gap-1 rounded bg-rose-500/20 px-1 py-0.5 text-[10px] text-rose-300"
+          ><AlertTriangle className="h-2.5 w-2.5 shrink-0" /> {work.label}</span>
+        ) : (
+          <span
+            data-testid={`subtask-work-${node.id}`}
+            data-kind="parent-turn"
+            title={work.title}
+            className="flex shrink-0 text-app-text-muted"
+          ><UserRound className="h-2.5 w-2.5" /></span>
+        ))}
         {hasKids && <span className="shrink-0 text-[10px] text-app-text-muted">↳ {node.subtaskDoneCount}/{node.subtaskCount}</span>}
       </div>
       {open && kids?.map((k) => (
@@ -2399,41 +2575,49 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
         </div>
       </div>
 
-      <label className="flex items-center justify-between gap-2" title={tr('board.settings.modelTitle')}>
+      {/* `<label>` → `<div>`: da quando il controllo è il `Select` dell'app e
+          non un elemento di modulo nativo non c'è più niente da associare, e
+          una `<label>` intorno a un bottone renderebbe cliccabile — cioè
+          apribile — anche il testo della riga. */}
+      <div className="flex items-center justify-between gap-2" title={tr('board.settings.modelTitle')}>
         <span>{tr('board.settings.model')}</span>
-        <select
+        <Select
           value={s.dispatchModel || 'auto'}
-          onChange={(e) => patch({ dispatchModel: e.target.value })}
-          className="max-w-[55%] rounded bg-black/5 dark:bg-white/5 px-1.5 py-0.5 text-app-text outline-none"
-        >
-          <option value="auto">{tr('board.settings.modelAuto')}</option>
-          {models.map((m) => (
-            <option key={m} value={m}>{friendlyModelLabel(m)}</option>
-          ))}
-        </select>
-      </label>
+          onChange={(v) => patch({ dispatchModel: v })}
+          ariaLabel={tr('board.settings.model')}
+          align="right"
+          className="max-w-[55%]"
+          options={[
+            { value: 'auto', label: tr('board.settings.modelAuto') },
+            ...models.map((m) => ({ value: m, label: friendlyModelLabel(m) })),
+          ]}
+        />
+      </div>
 
       {/* Gemella della tendina in Impostazioni → Aspetto, e per «gemella» si
           intende lo stesso VALORE EFFETTIVO: «Come le Impostazioni» non copia
           la scelta globale, la EREDITA (il ripiego lo fa il server, in un punto
           solo). Copiare il valore vorrebbe dire che cambiare la preferenza
           globale non muove le board che l'avevano già letta. */}
-      <label
+      <div
         className="flex items-center justify-between gap-2"
         title={tr('board.settings.responseLanguageTitle')}
       >
         <span>{tr('board.settings.responseLanguage')}</span>
-        <select
+        <Select
           value={s.language || 'inherit'}
-          onChange={(e) => patch({ language: e.target.value })}
-          className="max-w-[55%] rounded bg-black/5 dark:bg-white/5 px-1.5 py-0.5 text-app-text outline-none"
-          data-testid="board-language"
-        >
-          <option value="inherit">{tr('board.settings.langInherit')}</option>
-          <option value="it">Italiano</option>
-          <option value="en">English</option>
-        </select>
-      </label>
+          onChange={(v) => patch({ language: v })}
+          ariaLabel={tr('board.settings.responseLanguage')}
+          align="right"
+          className="max-w-[55%]"
+          testId="board-language"
+          options={[
+            { value: 'inherit', label: tr('board.settings.langInherit') },
+            { value: 'it', label: 'Italiano' },
+            { value: 'en', label: 'English' },
+          ]}
+        />
+      </div>
 
       <label className="flex cursor-pointer items-center justify-between">
         <span>{tr('board.settings.isolateWorktree')}</span>
