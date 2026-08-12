@@ -20,6 +20,7 @@ import { isPortListening, loopbackPortOf } from "../lib/loopback-probe";
 import type { BrowserActAction } from "../browser-tools";
 import { browserEngineRegistry, chromiumEngineInfo } from "../browser-engine-registry";
 import { findTaskTabOwner } from "../services/task-tab-persist";
+import { collectBrowserContextIds } from "../browser-store-keep-list";
 import { dispatchBrowserToolCallByContext } from "../browser-tool-dispatcher";
 
 export function createBrowserRouter(
@@ -545,6 +546,20 @@ export function createBrowserRouter(
     const consoleMatch = matchRoute(pathname, "/api/browsers/:id/console");
     if (method === "GET" && consoleMatch) {
       return json(browserService.getConsoleMessages(consoleMatch.id));
+    }
+
+    // --- Chi NON si può reapare ---
+    // La lista dei contextId ancora rivendicati da qualcosa, per il reaper
+    // degli store nativi (`browser_reap_data_stores`). Sta sul server perché
+    // `ui_state` ha TUTTE le righe — il layout di ogni progetto, le tab
+    // consegnate dai task, anche quelle di un device spento — mentre un client
+    // in esecuzione conosce bene solo la sua finestra. Vedi
+    // browser-store-keep-list.ts per il perché il taglio è grossolano.
+    if (method === "GET" && pathname === "/api/browsers/data-store-keep-list") {
+      const rows = ctx.db
+        .query("SELECT value FROM ui_state")
+        .all() as Array<{ value: string }>;
+      return json({ contextIds: collectBrowserContextIds(rows.map((r) => r.value)) });
     }
 
     // --- Delete context ---
