@@ -2,7 +2,7 @@
 import { describe, test, expect } from 'bun:test';
 import { enabledToSelect, selectToEnabled } from './behaviorDefaults';
 
-// The <select> reports AUTO as null (SettingSelect maps its '__auto__' option to
+// Il selettore riporta AUTO come null (SettingSelect mappa la sua opzione '__auto__' su
 // null before calling onChange); reproduce that here.
 const fromSelect = (raw: string | null) => selectToEnabled(raw);
 

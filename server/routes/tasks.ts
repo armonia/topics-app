@@ -40,6 +40,8 @@ import { createTaskAttemptStore, type TaskAttempt } from "../services/task-attem
 import { linkNotes, proposeLink, type LinkKind } from "../services/task-intake";
 import { recordRetirement } from "../services/retirement";
 import { attemptHasWork, formatAttemptStat } from "../../shared/task-attempt";
+import { listOwnCommits } from "../services/own-commits";
+import { isTaskLabel, normalizeLabels } from "../../shared/task-labels";
 
 const ERROR_STATUS: Record<string, number> = {
   not_found: 404,
@@ -56,6 +58,10 @@ const ERROR_STATUS: Record<string, number> = {
   // 409 come gli altri rifiuti di stato, non 403 — non e un permesso mancante,
   // e una decisione che esiste gia sulla card.
   reopen_needs_human: 409,
+  // 403 e non 409: qui NON è uno stato cambiato sotto, è un permesso che non
+  // esiste e non esisterà al prossimo tentativo. Un agente non marca
+  // `invisibile` il proprio lavoro, punto.
+  label_forbidden: 403,
 };
 
 /**
@@ -257,6 +263,55 @@ async function runGitCap(cwd: string, args: string[]): Promise<{ code: number; o
     return { code: 1, out: "", err: String((e as Error)?.message ?? e) };
   }
 }
+
+/**
+ * `?labels=visibile,bugfix` → la lista, filtrata dal vocabolario chiuso. Ciò che
+ * non è un'etichetta nota si scarta in silenzio: un filtro sconosciuto deve
+ * restituire "tutto", non un 400 che rompe una board aperta da una versione
+ * precedente. Il servizio lo rifiltra comunque (una porta sola non basta se
+ * l'altra la si può aprire da fuori).
+ */
+function parseLabelsParam(raw: string | null): string[] | undefined {
+  if (!raw) return undefined;
+  const wanted = raw.split(",").map((s) => s.trim()).filter(isTaskLabel);
+  return wanted.length ? wanted : undefined;
+}
+
+/**
+ * I file che i commit PROPRI del task hanno toccato — la base su cui si deriva
+ * `visibile`/`invisibile`.
+ *
+ * PROPRI e non `main...HEAD`: un ramo nato dall'HEAD di un checkout condiviso
+ * eredita i commit di chi ci stava sopra, e su quei file la regola risponde alla
+ * domanda di un'altra card. Ricostruendo a mano la coda dell'11/08, le due basi
+ * davano risposte diverse su 6 card su 29 — fra cui una ricerca che aveva
+ * prodotto un solo `.md` e che, letta sul ramo intero, sembrava toccare 83 file
+ * di client.
+ *
+ * `null` = non contabile (niente worktree, git muto): chi chiama non scrive
+ * niente. `[]` = verificato, nessun file — che NON è invisibilità (vedi
+ * `deriveCloser`): una card senza codice è una DECISIONE, e la chiude un umano.
+ */
+async function ownCommitFiles(cwd: string, mainRef = "main"): Promise<string[] | null> {
+  const head = await runGitCap(cwd, ["rev-parse", "--abbrev-ref", "HEAD"]);
+  const branch = head.code === 0 ? head.out.trim() : "";
+  if (!branch || branch === "HEAD") return null; // detached: non c'è un ramo di cui dire "suo"
+  const commits = await listOwnCommits(cwd, branch, { mainRef, runGit: gitRunner });
+  if (commits === null) return null;
+  const files = new Set<string>();
+  for (const sha of commits) {
+    const r = await runGitCap(cwd, ["show", "--name-only", "--format=", "--no-renames", sha]);
+    if (r.code !== 0) return null;
+    for (const line of r.out.split("\n")) { const f = line.trim(); if (f) files.add(f); }
+  }
+  return [...files];
+}
+
+/** Adattatore fra `runGitCap` e la firma del runner di `own-commits.ts`. */
+const gitRunner = async (cwd: string, args: string[]) => {
+  const r = await runGitCap(cwd, args);
+  return { code: r.code, stdout: r.out, stderr: r.err };
+};
 
 /** Payload cap for a diff patch (~200 KB): a huge range renders the first slice
  *  and flags `truncated` so the UI shows a "…troncato" note rather than shipping
@@ -489,11 +544,33 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       const ref = await opts.taskDeliveryRef(task.id);
       if (!ref) return task; // in-place task: nothing to compare against main
       svc.recordDelivery({ taskId: task.id, branch: ref.branch, commit: ref.commit });
+      await deriveDeliveryLabels(task.id);
       // Return the REFRESHED row so the response and the broadcast already carry
       // the snapshot — otherwise the board only learns about it on a refetch.
       return (svc.get(task.id)?.task as T | undefined) ?? task;
     } catch { /* best-effort: never block a delivery on git */ }
     return task;
+  }
+
+  /**
+   * Chi CHIUDERÀ questa card, deciso sull'edge verso `review` e non dopo: la
+   * board deve poter mostrare la coda «visibili in review» già al primo
+   * disegno, e l'etichetta è ciò che ci mette dentro (o fuori) la card.
+   *
+   * Nessun agente la dichiara. Qui si guardano i file dei suoi commit PROPRI e
+   * si applica la regola di `shared/task-labels.ts`. Best-effort come la
+   * fotografia di consegna: se git non risponde, la card resta senza etichetta —
+   * e senza etichetta la chiude un umano, che è il default sicuro.
+   */
+  async function deriveDeliveryLabels(taskId: string): Promise<void> {
+    if (!opts?.taskCheckoutRef) return;
+    try {
+      const ref = await opts.taskCheckoutRef(taskId).catch(() => null);
+      if (!ref) return;
+      const files = await ownCommitFiles(ref.cwd);
+      if (files === null) return; // non contabile: non si scrive un verdetto a caso
+      svc.deriveLabelsFromDiff({ taskId, files });
+    } catch { /* l'etichetta non può far fallire una consegna */ }
   }
 
   /**
@@ -1130,6 +1207,37 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       return json({ branch: wt.branchName, base, ...bundle });
     }
 
+    // PUT /api/boards/:projectId/tasks/:taskId/labels — la porta UMANA.
+    //
+    // PUT e non PATCH: la board manda l'insieme che vuole vedere, così togliere
+    // l'ultima etichetta è una richiesta come le altre e non un verbo a parte.
+    // Attilio può correggere qualunque etichetta, `invisibile` compresa — è il
+    // punto: la derivazione è una misura, non un verdetto, e la sua correzione
+    // resta (`source: 'human'` la mette al riparo dalla consegna successiva).
+    const bLabels = matchRoute(pathname, "/api/boards/:projectId/tasks/:taskId/labels");
+    if (bLabels && (method === "PUT" || method === "POST")) {
+      const body = (await readJSON(req)) as any;
+      const raw = Array.isArray(body?.labels) ? body.labels : [];
+      const unknown = raw.filter((l: unknown) => typeof l === "string" && !isTaskLabel(l));
+      if (unknown.length) {
+        return json({
+          error: `etichette sconosciute: ${unknown.join(", ")} — il vocabolario è chiuso (shared/task-labels.ts)`,
+          code: "invalid_input",
+        }, 400);
+      }
+      try {
+        const task = svc.setLabels({
+          taskId: bLabels.taskId,
+          projectId: bLabels.projectId,
+          labels: normalizeLabels(raw),
+          actor: "human",
+          source: "human",
+        });
+        broadcastToAll({ type: "task:updated", projectId: bLabels.projectId, task });
+        return json(task);
+      } catch (e) { return fail(e); }
+    }
+
     // GET /api/boards/:projectId/tasks/:taskId/attempts — i tentativi di un
     // fan-out. Lista vuota per un task dispatchato normalmente: il drawer non
     // disegna il pannello e nessuno si accorge che questa route esiste.
@@ -1474,9 +1582,17 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       if (bCol) {
         const projectId = bCol.projectId;
         if (method === "GET") {
-          const status = new URL(req.url).searchParams.get("status") || undefined;
+          const params = new URL(req.url).searchParams;
+          const status = params.get("status") || undefined;
           // Root tasks only: a step never renders as its own card (drawer tree).
-          try { return json({ tasks: svc.list({ scope: "project", projectId, status: status as any, rootsOnly: true }) }); }
+          try {
+            return json({
+              tasks: svc.list({
+                scope: "project", projectId, status: status as any, rootsOnly: true,
+                labels: parseLabelsParam(params.get("labels")),
+              }),
+            });
+          }
           catch (e) { return fail(e); }
         }
         if (method === "POST") {
@@ -1964,6 +2080,42 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         const task = svc.get(commentsRoute.taskId, { projectId: sess.projectId })?.task;
         broadcastToAll({ type: "task:updated", projectId: sess.projectId, task });
         return json(comment, 201);
+      } catch (e) { return fail(e); }
+    }
+
+    // PUT /api/sessions/:sessionKey/tasks/:taskId/labels — la porta dell'AGENTE.
+    //
+    // Esiste per UNA cosa: alzare la mano. Un agente che ha toccato solo il
+    // server ma sa che il suo lavoro cambia qualcosa che si vede può chiedere
+    // `visibile`, e `decisione` se quello che ha prodotto è un giudizio da far
+    // dare a una persona — e le etichette di genere (`bugfix`…) le mette come
+    // gli pare, perché non decidono niente. `invisibile` no, mai: il servizio risponde
+    // `label_forbidden` → 403. Se un agente potesse marcare invisibile il
+    // proprio lavoro, l'etichetta non sarebbe una misura di ciò che si vede:
+    // sarebbe il modulo con cui si autorizza a chiudersi le card da solo.
+    const sLabels = matchRoute(pathname, "/api/sessions/:sessionKey/tasks/:taskId/labels");
+    if (sLabels && (method === "PUT" || method === "POST")) {
+      const sess = resolveSession(decodeURIComponent(sLabels.sessionKey));
+      if (!sess) return json({ error: "session is not bound to a project", code: "no_project" }, 400);
+      const body = (await readJSON(req)) as any;
+      const raw = Array.isArray(body?.labels) ? body.labels : [];
+      const unknown = raw.filter((l: unknown) => typeof l === "string" && !isTaskLabel(l));
+      if (unknown.length) {
+        return json({
+          error: `etichette sconosciute: ${unknown.join(", ")} — le etichette che un agente può scrivere sono visibile, decisione, bugfix, feature, chore, misura`,
+          code: "invalid_input",
+        }, 400);
+      }
+      try {
+        const task = svc.setLabels({
+          taskId: sLabels.taskId,
+          projectId: sess.projectId,
+          labels: normalizeLabels(raw),
+          actor: "agent",
+          source: "agent",
+        });
+        broadcastToAll({ type: "task:updated", projectId: sess.projectId, task });
+        return json(task);
       } catch (e) { return fail(e); }
     }
 
