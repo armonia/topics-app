@@ -205,6 +205,26 @@ describe("freno del peso — quale carico guarda", () => {
     expect(h.started()).toEqual([]);
     expect(h.task("heavy")!.dispatchState).toBe("queued");
   });
+
+  it("sonda della flotta fredda: si ripiega sul load di sistema, non su «via libera»", async () => {
+    // `fleetLoadSync` torna `null` finché la prima misura non è pronta (spawna
+    // uno `ps`, e il tick non può aspettarlo). In quella finestra il freno deve
+    // valere il vecchio comportamento, non sparire: senza sapere cosa c'è sulla
+    // macchina, far partire un pesante accanto agli altri è la scelta peggiore.
+    const h = harness({
+      capacity: () => ({ load1: 42, cores: 12 }),
+      ownLoad: () => null,
+    });
+    board(h);
+    codaConPesanteInTesta(h);
+
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    expect(h.started()).toEqual([]);
+    // E la nota parla di load, non di core nostri: dice la misura che ha usato.
+    expect(h.comments("heavy").join("\n")).toContain("load 42.0");
+  });
 });
 
 describe("freno del peso — l'attesa ha una fine", () => {
