@@ -24,6 +24,8 @@
  * su «verificato vuoto» si registra il vuoto.
  */
 
+import type { TaskFile } from "../../shared/task-labels";
+
 export interface GitRunResult {
   code: number;
   stdout: string;
@@ -228,4 +230,41 @@ export async function deliveryPointer(
   const own = await listOwnCommits(repoPath, branch, opts);
   if (own === null) return null;
   return { branch, commit: own[0] ?? null };
+}
+
+/**
+ * I file toccati dai commit propri, uniti in una lista sola, con l'unica cosa
+ * che il path da solo non dice: se il file è NATO in questi commit.
+ *
+ * Prende l'uscita di `git show --name-status --format= --no-renames` — una riga
+ * `<stato>\t<path>` per file — un'uscita per commit, dal più recente al più
+ * vecchio. Serve a `deriveKind`, che senza il flag non può distinguere una
+ * funzionalità nuova da una modifica a codice che esisteva già.
+ *
+ * `added` è vero se ANCHE UN SOLO commit proprio ha il file come `A`: nato qui e
+ * poi modificato tre volte resta nato qui. È esattamente il perché non basta
+ * guardare l'ultimo commit.
+ *
+ * `--no-renames` è dell'invocazione, non di questo parser, e serve: con i rename
+ * git stampa `R100` e DUE path sulla stessa riga, e un file rinominato passerebbe
+ * per un file nuovo, cioè trasformerebbe ogni riordino in una `feature`.
+ */
+export function mergeNameStatus(outputs: readonly string[]): TaskFile[] {
+  const order: string[] = [];
+  const added = new Set<string>();
+  const seen = new Set<string>();
+  for (const out of outputs) {
+    for (const line of out.split("\n")) {
+      const tab = line.indexOf("\t");
+      if (tab < 0) continue; // le righe senza stato non sono file (`--format=` lascia dei vuoti)
+      const status = line.slice(0, tab).trim();
+      const path = line.slice(tab + 1).trim();
+      if (!status || !path) continue;
+      if (!seen.has(path)) { seen.add(path); order.push(path); }
+      // `A` e non `startsWith('A')`: `AM` non esiste in `show`, ma un `A` di
+      // troppo scriverebbe «nuovo» su un file che non lo è.
+      if (status === "A") added.add(path);
+    }
+  }
+  return order.map((path) => ({ path, added: added.has(path) }));
 }
