@@ -58,7 +58,7 @@ const SORGENTI = join(RADICE, "client", "src");
  */
 const CHROME_LEGITTIMO = new Map<string, string>([
   [
-    "client/src/App.tsx :: fixed inset-0 bg-black/50 z-40",
+    "client/src/App.tsx :: fixed inset-0 bg-black/50 z-40 sidebar-scrim",
     "velo della sidebar su mobile, sotto la sidebar stessa",
   ],
   [

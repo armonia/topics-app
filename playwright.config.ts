@@ -165,6 +165,7 @@ export default defineConfig({
       // gate esiste apposta per non guardare. La lista va quindi RIPETUTA qui.
       testIgnore: [
         "**/sidebar-touch-audit.spec.ts",
+        "**/sidebar-finger-follow.spec.ts",
         "**/hover-reveal-touch-audit.spec.ts",
         ...(IS_PR ? NIGHTLY_ONLY_SPECS : []),
       ],
@@ -185,7 +186,10 @@ export default defineConfig({
      */
     {
       name: "chromium-touch",
-      testMatch: "**/sidebar-touch-audit.spec.ts",
+      // Due spec, stessa popolazione: la prima misura le SUPERFICI col dito
+      // (bersagli, menu, seconda riga), la seconda i GESTI (il cassetto che
+      // segue il dito, le tessere fissate che non scattano quando scorri).
+      testMatch: ["**/sidebar-touch-audit.spec.ts", "**/sidebar-finger-follow.spec.ts"],
       use: {
         browserName: "chromium",
         hasTouch: true,
