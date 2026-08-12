@@ -5,6 +5,7 @@ import { ZoomControl, DeviceSwitcher, ConsoleBadge } from './BrowserDevControls'
 import { DownloadsMenu, type DownloadsMenuProps } from './DownloadsMenu';
 import type { DeviceMode, BrowserConsoleEntry, NavHistoryEntry } from './browserDevTypes';
 import { POPOVER_ITEM, POPOVER_DIVIDER } from '../../lib/popoverStyles';
+import { normalizeUrl } from '../../lib/browserNavUrl';
 import type { ShareMode } from '../../lib/sharedAuto';
 import { DropdownPortal } from '../Shared/DropdownPortal';
 import { Menu } from '../Shared/Menu';
@@ -234,14 +235,15 @@ export function BrowserToolbar({
 
   const handleSubmit = useCallback((e: React.SubmitEvent) => {
     e.preventDefault();
-    let finalUrl = editUrl.trim();
-    if (finalUrl && !finalUrl.startsWith('http://') && !finalUrl.startsWith('https://')) {
-      finalUrl = 'http://' + finalUrl;
-    }
-    if (finalUrl) {
-      onUrlChange(finalUrl);
-      setEditing(false);
-    }
+    // An omnibox: a bare host becomes https://, and anything that isn't a URL
+    // (spaces, no dot) becomes a web search. The old code force-prepended
+    // `http://` to any scheme-less text, which turned "come fare la pasta" into
+    // a broken `http://come fare la pasta` nav and downgraded bare hosts to
+    // http. normalizeUrl is the single source of truth, shared with the hook's
+    // navigate() so the two never disagree.
+    if (!editUrl.trim()) return;
+    onUrlChange(normalizeUrl(editUrl));
+    setEditing(false);
   }, [editUrl, onUrlChange]);
 
   const handleOpenExternal = useCallback(() => {
