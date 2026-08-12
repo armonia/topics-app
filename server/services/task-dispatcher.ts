@@ -27,7 +27,7 @@ import { ZERO_USAGE, type SessionUsage } from "./transcript-usage";
 import { onHumanHoldChange } from "../lib/human-hold-events";
 import type { TaskAttemptStore } from "./task-attempts";
 import { attemptHasWork, formatFanoutComment } from "../../shared/task-attempt";
-import { CODE_GATES_RULE, MAX_FANOUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_RULE, readTaskWeight, statusEventEnters } from "../../shared/board";
+import { CODE_GATES_RULE, MAX_FANOUT, PARKED_STOPPED, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_RULE, readTaskWeight, statusEventEnters } from "../../shared/board";
 import { decideNight, deadlineFrom } from "./night-mode";
 import { effectiveDispatchCap } from "./dispatch-capacity";
 import type { OutboundMessage } from "../../shared/ws-outbound";
@@ -1924,6 +1924,12 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       });
       return;
     }
+    // Lo stop umano passa PROPRIO di qui, ed è l'unico park che si annuncia da
+    // solo: la route parcheggia PRIMA e taglia il turno DOPO, quindi questo
+    // `onTurnEnd` è quello del turno appena abortito e trova la card già
+    // `stopped`. Azzerarla riporterebbe la card muta — che è il difetto che
+    // `stopped` esiste per togliere.
+    if (cur.dispatchState === PARKED_STOPPED) return;
     // Human moved it elsewhere (backlog/todo/done) mid-turn → just drop our chip.
     try { emit(deps.svc.setDispatchState({ taskId, state: null })); } catch { /* best-effort */ }
   }

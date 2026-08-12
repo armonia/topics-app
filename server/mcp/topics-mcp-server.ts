@@ -309,6 +309,24 @@ const TOOLS = [
     annotations: MODIFICA,
   },
   {
+    name: "label_task",
+    description:
+      "Set the labels on a task. Two families, and they do different things. KIND — `bugfix` `feature` `chore` `misura` — is how the board is filtered and read; set whichever fits. The CLOSER family decides WHO CLOSES the card and you do not get to declare it: the server derives it from the files YOUR commits touched — `visibile` (touches client/src outside tests), `decisione` (only docs/openspec/*.md, or no code at all), `invisibile` (code nobody sees: server, shared, scripts, tests). You may set `visibile` or `decisione` — both are RAISING YOUR HAND, handing the card to a person. `invisibile` is refused (403): marking your own work invisible would be signing your own release. Replaces the whole set, so send every label you want kept.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        task_id: { type: "string", description: "Task id from list_tasks." },
+        labels: {
+          type: "array",
+          items: { type: "string" },
+          description: "The FULL set to keep: any of bugfix, feature, chore, misura, visibile, decisione. `invisibile` is refused.",
+        },
+      },
+      required: ["task_id", "labels"],
+    },
+    annotations: MODIFICA,
+  },
+  {
     name: "comment_task",
     description:
       "Add a comment to a task's discussion thread (progress notes, questions, handoff). Signed as this agent server-side. To ask the human a decision, pass `options`: content becomes the question and the board renders one quick-reply button per option — then move the task to status 'review' so the human sees it.",
@@ -1400,6 +1418,28 @@ export async function callWaitForCondition(
   return `task ${toolArgs.task_id} released to the queue, waiting${until}. It will be re-dispatched automatically. Your turn is done — do not move it to review.`;
 }
 
+export async function callLabelTask(
+  args: ParsedArgs,
+  toolArgs: { task_id?: unknown; labels?: unknown },
+  fetchImpl: typeof fetch = fetch,
+): Promise<string> {
+  if (typeof toolArgs?.task_id !== "string" || !toolArgs.task_id) {
+    throw new Error("label_task: 'task_id' (string) is required");
+  }
+  if (!Array.isArray(toolArgs?.labels)) {
+    throw new Error("label_task: 'labels' (array of strings) is required — send the FULL set to keep");
+  }
+  const labels = toolArgs.labels.filter((l): l is string => typeof l === "string" && !!l.trim());
+  const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/tasks/${encodeURIComponent(toolArgs.task_id)}/labels`;
+  // Il 403 di `invisibile` arriva da qui come errore del tool, con il testo del
+  // server: l'agente deve LEGGERE perché è stato rifiutato, non ritentare.
+  const res = await httpJson<{ labels?: Array<{ label: string }> }>(args, "PUT", path, { labels }, fetchImpl);
+  const set = (res?.labels ?? []).map((l) => l.label);
+  return set.length
+    ? `task ${toolArgs.task_id} labels: ${set.join(", ")}`
+    : `task ${toolArgs.task_id} has no labels`;
+}
+
 export async function callCommentTask(
   args: ParsedArgs,
   toolArgs: { task_id?: unknown; content?: unknown; mentions?: unknown; options?: unknown; media?: unknown },
@@ -1738,6 +1778,7 @@ const TOOL_HANDLERS: Record<
   get_task: (a, t) => callGetTask(a, t),
   update_task: (a, t) => callUpdateTask(a, t),
   comment_task: (a, t) => callCommentTask(a, t),
+  label_task: (a, t) => callLabelTask(a, t),
   ask_user_question: (a, t, ctx) =>
     callAskUserQuestion(a, t as { questions?: unknown }, fetch, {
       onProgress: ctx?.onProgress
