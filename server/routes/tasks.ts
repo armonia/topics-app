@@ -24,13 +24,13 @@ import type { AppContext, RouteHandler } from "../types";
 import { grantedResourceIds } from "../lib/grants-query";
 import { resolvePrincipals } from "../lib/principals";
 import type { OutboundMessage } from "../../shared/ws-outbound";
-import { isAgentWorking, PARKED_STOPPED, pendingQuestion, type PendingQuestionComment } from "../../shared/board";
+import { isAgentWorking, PARKED_STOPPED, PARKED_WAITED_OUT, pendingQuestion, type PendingQuestionComment } from "../../shared/board";
 import { isPreviewablePath } from "../../shared/media-kind";
 import { getTerminalSessionById } from "./terminal";
 import { AUTO_PROJECT_ID, createTaskService, isLandActionLabel, isPublishActionLabel, projectIdForPath, TaskServiceError, UNASSIGNED_PROJECT_ID, type Task } from "../services/tasks";
 import { computeDispatchCapacity } from "../services/dispatch-capacity";
 import { newProjectParentDir } from "../services/project-path-resolver";
-import type { TaskDispatcher } from "../services/task-dispatcher";
+import { parkedEdgeEvent, type TaskDispatcher } from "../services/task-dispatcher";
 import { landFallout, type TaskAutoMerge } from "../services/task-automerge";
 import type { LandingState } from "../services/landing-audit";
 import { createLandingQueue, type LandingTicket } from "../services/landing-queue";
@@ -2243,7 +2243,17 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         const task = dispatcher
           ? dispatcher.deferWait(deferRoute.taskId, body.reason, minutes)
           : svc.deferForWait({ taskId: deferRoute.taskId, reason: body.reason, minutes, by: "agent" });
-        if (!dispatcher) broadcastToAll({ type: "task:updated", projectId: sess.projectId, task });
+        if (!dispatcher) {
+          broadcastToAll({ type: "task:updated", projectId: sess.projectId, task });
+          // Anche l'host degradato annuncia il park: qui la board è l'unico
+          // posto dove il task si ferma, quindi restare muti sarebbe peggio che
+          // altrove. Stessa funzione del dispatcher, così la decisione su
+          // «cosa è un fronte terminale» resta in un punto solo.
+          const parked = task.dispatchState === PARKED_WAITED_OUT
+            ? parkedEdgeEvent(task, { requeue: false, parkState: PARKED_WAITED_OUT })
+            : null;
+          if (parked) broadcastToAll(parked);
+        }
         return json(task);
       } catch (e) { return fail(e); }
     }
