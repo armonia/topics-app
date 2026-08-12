@@ -24,8 +24,22 @@
 export type { ReviewCheck, CheckRun } from "../../shared/board";
 import type { ReviewCheck, CheckRun } from "../../shared/board";
 
-/** Quanti check al massimo: oltre, la "verifica" diventa una pipeline CI travestita. */
-export const MAX_CHECKS = 5;
+/**
+ * Quanti check al massimo: oltre, la "verifica" diventa una pipeline CI travestita.
+ *
+ * Sei, non cinque, dal 12/08. I cancelli di questo repo sono diventati sei
+ * (`typecheck`, `lint`, `check:deadcode`, `check:emdash`, `check:migrations`,
+ * `test:unit`) e con il tetto a cinque l'ultimo veniva TRONCATO in silenzio: la
+ * board dichiarava sei comandi, ne salvava cinque, e la consegna arrivava in
+ * review "verde" senza che la suite fosse mai girata. In quella notte tre
+ * consegne su cinque erano rosse proprio sulla suite, e il rosso l'ha trovato un
+ * umano al momento del land invece del cancello al momento della consegna.
+ *
+ * Il costo si regge perche' i check sono SEQUENZIALI e ci si ferma al primo
+ * rosso: la suite, che e' l'ultima e la sola lenta, gira solo quando le cinque
+ * veloci sono passate.
+ */
+export const MAX_CHECKS = 6;
 /** Righe di output tenute per ogni check. Bastano a vedere l'errore, non riempiono il DB. */
 export const TAIL_LINES = 40;
 /** Tetto per comando. Un check che ci mette più di così non è un gate, è un blocco. */
