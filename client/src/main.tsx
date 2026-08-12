@@ -10,6 +10,7 @@ import { bootstrapPaneStore } from './state/pane/bootstrap';
 import { initWindowPresence } from './state/windowPresence';
 import { installNetShim } from './lib/shell/net';
 import { isInternalDrag } from './lib/dndTypes';
+import { installPaneDragFlag } from './lib/paneDragFlag';
 import { SessionRoot } from './components/Share/SessionRoot';
 
 // Shim di rete: sotto Tauri riscrive le fetch relative verso l'origine del data
@@ -40,6 +41,11 @@ document.addEventListener('dragover', (e) => {
 // niente a nessuno, toglie solo la navigazione. E per una trascinata nostra non
 // arriva nemmeno — il browser emette `drop` solo dove il `dragover` ha detto sì.
 document.addEventListener('drop', (e) => e.preventDefault());
+
+// Mentre una TAB è in volo, gli iframe delle pane browser diventano trasparenti
+// ai puntatori: senza, l'iframe si mangia il `dragover` e lasciare un browser
+// sopra un altro browser non raggruppa niente. Vedi `lib/paneDragFlag`.
+installPaneDragFlag();
 
 // Self-heal stale bundles. build:watch rebuilds /public with NEW content hashes
 // and deletes the old chunks; a client still running against the OLD index (Mac
