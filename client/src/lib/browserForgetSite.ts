@@ -26,6 +26,13 @@
  * record si chiama `google.com` e vale per tutti i sottodomini. Il dialogo
  * mostra i nomi dei record e non l'host proprio per questo: cancellare la posta
  * cancella anche il resto di google.com, e va detto prima.
+ *
+ * DUE POSTI, UN DIALOGO SOLO. La stessa pane esiste in due incarnazioni: la
+ * WKWebView privata di questo Mac e la sessione CONDIVISA che gira sul browser
+ * del server (quella che il telefono vede). Sono due magazzini diversi, con due
+ * modi di nominare i silo, ma la domanda dell'utente è una: «togli questo sito
+ * da questa scheda». Quindi il piano, l'elenco e il patto stanno qui una volta
+ * sola, e quello che cambia è solo il `SiteDataBackend` che li alimenta.
  */
 import { tauriInvoke } from './shell/tauri';
 
@@ -35,6 +42,26 @@ type Invoke = <T = unknown>(cmd: string, args?: Record<string, unknown>) => Prom
 export interface SiteDataRecord {
   displayName: string;
   types: string[];
+}
+
+/**
+ * Da dove arrivano i silo e chi li cancella. Le due implementazioni sono
+ * `nativeSiteData` (WKWebsiteDataStore, solo Tauri) e `sharedSiteData` (lo
+ * `storageState` del contesto Playwright sul server).
+ *
+ * `records()` torna TUTTI i record del contesto, non solo quelli del sito: il
+ * filtro per host è `matchSiteRecords` e sta qui sopra, uguale per tutti e due.
+ * Un backend che filtrasse per conto suo sarebbe una seconda regola da tenere
+ * allineata alla prima, ed è il tipo di divergenza che nessuno nota finché non
+ * cancella la cosa sbagliata.
+ */
+export interface SiteDataBackend {
+  /** `supported:false` = questo magazzino esiste ma non è nostro (il profilo di
+   *  un Chromium esterno): il dialogo lo dice invece di elencare zero record e
+   *  far credere che non ci sia niente da dimenticare. */
+  records(contextId: string): Promise<{ supported: boolean; records: SiteDataRecord[] }>;
+  /** Rimuove i silo NOMINATI e ritorna quanti ne ha tolti. */
+  forget(contextId: string, displayNames: string[]): Promise<number>;
 }
 
 /** Le tre famiglie in cui si raggruppano i tipi, in ordine di gravità. */
@@ -55,6 +82,9 @@ export interface ForgetSitePlan {
   displayNames: string[];
   /** Le voci leggibili. Vuoto = per questo sito non c'è niente da dimenticare. */
   items: SiteDataItem[];
+  /** `false` = i dati di questa pane non li teniamo noi, quindi da qui non si
+   *  cancellano. Diverso da «non c'è niente»: il dialogo dice cose diverse. */
+  supported: boolean;
 }
 
 /**
@@ -139,13 +169,9 @@ export function siteRecordNames(records: SiteDataRecord[]): string[] {
   return [...new Set(records.map((r) => r.displayName).filter(Boolean))].sort();
 }
 
-function parseRecords(raw: string): SiteDataRecord[] {
-  let data: unknown;
-  try {
-    data = JSON.parse(raw);
-  } catch {
-    return [];
-  }
+/** Normalizza una lista di record da qualunque provenienza (JSON del nativo,
+ *  corpo della risposta HTTP): scarta ciò che non ha un nome. */
+function parseRecords(data: unknown): SiteDataRecord[] {
   if (!Array.isArray(data)) return [];
   return data.flatMap((entry) => {
     const rec = entry as { displayName?: unknown; types?: unknown };
@@ -156,6 +182,61 @@ function parseRecords(raw: string): SiteDataRecord[] {
 }
 
 /**
+ * La WKWebView privata di questo Mac. I nomi sono quelli di WebKit, cioè per
+ * dominio registrabile: `google.com` anche quando sei su `mail.google.com`.
+ * Il nativo risponde con una stringa JSON, non con un array.
+ */
+export function nativeSiteData(invoke: Invoke = tauriInvoke): SiteDataBackend {
+  return {
+    async records(contextId) {
+      const raw = await invoke<string>('browser_site_data_records', { id: contextId });
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        parsed = null;
+      }
+      return { supported: true, records: parseRecords(parsed) };
+    },
+    async forget(contextId, displayNames) {
+      return await invoke<number>('browser_forget_site', { id: contextId, displayNames });
+    },
+  };
+}
+
+/**
+ * La sessione CONDIVISA: il contesto Playwright del server e il suo
+ * `storage.json`. Qui i nomi sono PRECISI (dominio del cookie senza il punto
+ * iniziale, hostname dell'origin), quindi `mail.google.com` è un silo suo e si
+ * vede nell'elenco accanto a `google.com` invece di sparirci dentro.
+ *
+ * Manca una famiglia rispetto al nativo, ed è voluto: la cache HTTP del
+ * browser del server non è per-sito, quindi non compare fra i tipi e il
+ * dialogo non la promette.
+ */
+export function sharedSiteData(): SiteDataBackend {
+  const base = (contextId: string) => `/api/browsers/${encodeURIComponent(contextId)}`;
+  return {
+    async records(contextId) {
+      const res = await fetch(`${base(contextId)}/site-data`);
+      if (!res.ok) throw new Error(`site-data ${res.status}`);
+      const body = (await res.json()) as { supported?: unknown; records?: unknown };
+      return { supported: body?.supported !== false, records: parseRecords(body?.records) };
+    },
+    async forget(contextId, displayNames) {
+      const res = await fetch(`${base(contextId)}/forget-site`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ displayNames }),
+      });
+      if (!res.ok) throw new Error(`forget-site ${res.status}`);
+      const body = (await res.json()) as { removed?: unknown };
+      return typeof body?.removed === 'number' ? body.removed : 0;
+    },
+  };
+}
+
+/**
  * Cosa sparirebbe se si dimenticasse il sito aperto in questa pane. `null` =
  * non c'è un sito (pane vuota, pagina non http). Lo store non viene toccato:
  * questa chiamata legge e basta.
@@ -163,20 +244,21 @@ function parseRecords(raw: string): SiteDataRecord[] {
 export async function planForgetSite(
   contextId: string,
   url: string,
-  invoke: Invoke = tauriInvoke,
+  backend: SiteDataBackend,
 ): Promise<ForgetSitePlan | null> {
   const host = siteHostOf(url);
   if (!host) return null;
-  let records: SiteDataRecord[] = [];
+  let answer: { supported: boolean; records: SiteDataRecord[] };
   try {
-    records = parseRecords(await invoke<string>('browser_site_data_records', { id: contextId }));
+    answer = await backend.records(contextId);
   } catch {
     // Store illeggibile: il piano resta vuoto e il dialogo lo dice, invece di
     // offrire un tasto che promette di cancellare qualcosa che non ha visto.
-    return { host, displayNames: [], items: [] };
+    return { host, displayNames: [], items: [], supported: true };
   }
-  const mine = matchSiteRecords(records, host);
-  return { host, displayNames: siteRecordNames(mine), items: describeSiteData(mine) };
+  if (!answer.supported) return { host, displayNames: [], items: [], supported: false };
+  const mine = matchSiteRecords(answer.records, host);
+  return { host, displayNames: siteRecordNames(mine), items: describeSiteData(mine), supported: true };
 }
 
 /**
@@ -187,8 +269,8 @@ export async function planForgetSite(
 export async function forgetSite(
   contextId: string,
   displayNames: string[],
-  invoke: Invoke = tauriInvoke,
+  backend: SiteDataBackend,
 ): Promise<number> {
   if (displayNames.length === 0) return 0;
-  return await invoke<number>('browser_forget_site', { id: contextId, displayNames });
+  return await backend.forget(contextId, displayNames);
 }
