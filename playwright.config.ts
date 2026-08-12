@@ -168,6 +168,7 @@ export default defineConfig({
         "**/sidebar-finger-follow.spec.ts",
         "**/hover-reveal-touch-audit.spec.ts",
         "**/browser-mobile-keyboard.spec.ts",
+        "**/mobile-chrome-bar.spec.ts",
         ...(IS_PR ? NIGHTLY_ONLY_SPECS : []),
       ],
     },
@@ -220,6 +221,25 @@ export default defineConfig({
      * remoto, e la soglia dei 16px) non dipende dalla larghezza: si prova dove
      * la superficie esiste, invece di pilotare la navigazione del telefono.
      */
+    /**
+     * IL TELEFONO INTERO, non solo il dito.
+     *
+     * La chrome mobile decisa il 12/08 — «Topics» solo in alto, tre porte in
+     * basso, la fila che segue la curva dello schermo — esiste SOLO sotto i
+     * 768px e solo col dito: nel progetto `chromium` a 1280 non c'è proprio, e
+     * un test che gira lì passerebbe misurando l'assenza. Stessi segnali della
+     * spec touch (`hasTouch` + `isMobile`), viewport di un iPhone 14.
+     */
+    {
+      name: "chromium-phone",
+      testMatch: "**/mobile-chrome-bar.spec.ts",
+      use: {
+        browserName: "chromium",
+        hasTouch: true,
+        isMobile: true,
+        viewport: { width: 390, height: 844 },
+      },
+    },
     {
       name: "chromium-touch-wide",
       // `board-card-stop` gira in DUE progetti (qui e in `chromium`): è lo stesso
