@@ -3321,3 +3321,18 @@ html.electron-mac [role="region"][aria-label$=" panel"] > .bg-surface {
 @media (prefers-reduced-motion: reduce) {
   .space-frame { animation: none; }
 }
+
+/* IL DROP SOPRA UNA PANE BROWSER.
+ *
+ * Un `<iframe>` è un documento a sé: durante un drag HTML5 gli eventi finiscono
+ * DENTRO di lui, quindi il `dragover` della pane sotto non parte, l'anteprima di
+ * fusione non si dipinge e il rilascio cade nel vuoto. È perché «trascino un
+ * browser su un terminale e si raggruppano, su un altro BROWSER no».
+ *
+ * Per la sola durata del trascinamento di una tab (`data-pane-drag`, acceso da
+ * `lib/paneDragFlag`) gli iframe diventano trasparenti ai puntatori: l'hit test
+ * torna al div del gruppo, che è già un bersaglio di drop funzionante. Fuori dal
+ * gesto l'attributo non c'è e l'iframe è interattivo come sempre. */
+[data-pane-drag] iframe {
+  pointer-events: none;
+}
