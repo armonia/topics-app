@@ -4,7 +4,7 @@
  * live turn and degrade to keep on a landing that can't complete.
  */
 import { describe, test, it, expect } from "bun:test";
-import { decidePostLandReap, decideWorktreeReap, normalizeKeepReason, shouldSlimOnKeep, sweepWorktrees, type GcWorktree, type WorktreeGcDeps } from "./worktree-gc";
+import { decideGhostRow, decidePostLandReap, decideWorktreeReap, normalizeKeepReason, shouldSlimOnKeep, sweepWorktrees, type GcWorktree, type WorktreeGcDeps } from "./worktree-gc";
 
 describe("decideWorktreeReap — safety contract", () => {
   const base = {
@@ -517,6 +517,110 @@ describe("sweepWorktrees — riga fantasma sotto un task ancora attivo", () => {
     }));
     expect(reaped).toEqual(["ghost"]);
     expect(s.reaped).toBe(1);
+  });
+
+  // IL GUASTO DEL 12/08. Quattro card in `review` — d6baaf5e, 3bde1ab0, c8ea8173,
+  // 5472e584 — sono finite in backlog marcate `failed` nella stessa ora, con la
+  // stessa riga «il branch del worktree non esiste più». Nessuna aveva fallito:
+  // il land aveva potato il loro ramo. Il park le toglieva dalla colonna dove
+  // l'umano guarda, e il backlog non lo dispaccia nessuno.
+  test("card in review + branch sparito → si scioglie il legame, MAI un park", async () => {
+    const parked: string[] = [];
+    const unbound: string[] = [];
+    const s = await sweepWorktrees(ghost({
+      resolveTask: () => ({ taskId: "d6baaf5e", status: "review", archived: false }),
+      abandon: async (taskId) => { parked.push(taskId); return true; },
+      unbind: async (taskId, _w, reason) => { unbound.push(`${taskId}:${reason}`); return true; },
+    }));
+    expect(parked).toEqual([]);
+    expect(unbound).toEqual(["d6baaf5e:il branch del worktree non esiste più"]);
+    expect(s.unbound).toBe(1);
+    expect(s.abandoned).toBe(0);
+  });
+
+  test("consegna già su main → non è un fallimento, qualunque sia la colonna", async () => {
+    const parked: string[] = [];
+    const unbound: Array<{ reason: string; landed: boolean }> = [];
+    const s = await sweepWorktrees(ghost({
+      resolveTask: () => ({ taskId: "t-landed", status: "in_progress", archived: false }),
+      deliveryLanded: async () => true,
+      abandon: async (taskId) => { parked.push(taskId); return true; },
+      unbind: async (_t, _w, reason, landed) => { unbound.push({ reason, landed }); return true; },
+    }));
+    expect(parked).toEqual([]);
+    expect(unbound).toEqual([{ reason: "il ramo è stato potato dopo un atterraggio riuscito", landed: true }]);
+    expect(s.unbound).toBe(1);
+  });
+
+  // `null` non è `false`: non aver potuto guardare non prova un atterraggio, e
+  // un task che dichiara di starci lavorando dentro ha davvero perso la sessione.
+  test("consegna non verificabile su un task attivo → park come sempre", async () => {
+    const parked: string[] = [];
+    const s = await sweepWorktrees(ghost({
+      deliveryLanded: async () => null,
+      abandon: async (taskId) => { parked.push(taskId); return true; },
+      unbind: async () => { throw new Error("non deve slegare"); },
+    }));
+    expect(parked).toEqual(["t-live"]);
+    expect(s.abandoned).toBe(1);
+  });
+
+  test("una sonda del land che esplode non declassa nessuno: vale come 'non so'", async () => {
+    const parked: string[] = [];
+    const s = await sweepWorktrees(ghost({
+      deliveryLanded: async () => { throw new Error("git offline"); },
+      abandon: async (taskId) => { parked.push(taskId); return true; },
+    }));
+    expect(parked).toEqual(["t-live"]);
+    expect(s.errors).toBe(0);
+  });
+
+  test("host senza `unbind` → si TIENE la riga, non si ripiega sul park", async () => {
+    const parked: string[] = [];
+    const reaped: string[] = [];
+    const s = await sweepWorktrees(ghost({
+      resolveTask: () => ({ taskId: "t-review", status: "review", archived: false }),
+      unbind: undefined,
+      abandon: async (taskId) => { parked.push(taskId); return true; },
+      reap: async (id) => { reaped.push(id); return true; },
+    }));
+    expect(parked).toEqual([]);
+    expect(reaped).toEqual([]);
+    expect(s.kept).toBe(1);
+  });
+});
+
+describe("decideGhostRow", () => {
+  const base = { taskStatus: "in_progress" as const, taskArchived: false, deliveryLanded: null };
+
+  test("nessun task vivo → la riga è peso morto e basta", () => {
+    expect(decideGhostRow({ ...base, taskStatus: null }).task).toBe("none");
+    expect(decideGhostRow({ ...base, taskStatus: "done" }).task).toBe("none");
+    expect(decideGhostRow({ ...base, taskArchived: true }).task).toBe("none");
+  });
+
+  test("consegna su main → unbind, e il motivo dice che è atterrata", () => {
+    const d = decideGhostRow({ ...base, deliveryLanded: true });
+    expect(d.task).toBe("unbind");
+    expect(d.reason).toContain("atterraggio riuscito");
+  });
+
+  test("review → unbind anche quando il ramo è sparito davvero", () => {
+    expect(decideGhostRow({ ...base, taskStatus: "review", deliveryLanded: false }).task).toBe("unbind");
+    expect(decideGhostRow({ ...base, taskStatus: "review", deliveryLanded: null }).task).toBe("unbind");
+  });
+
+  test("un task che dichiara di lavorarci dentro si parcheggia come prima", () => {
+    for (const s of ["backlog", "todo", "in_progress"] as const) {
+      expect(decideGhostRow({ ...base, taskStatus: s }).task).toBe("park");
+    }
+  });
+
+  // La regola 1 vince sulla 2, e l'ordine si vede solo qui: una card in review
+  // la cui consegna È su main deve leggere «atterrato», non «il ramo non c'è».
+  test("review + consegna su main → il motivo è l'atterraggio, non la sparizione", () => {
+    expect(decideGhostRow({ ...base, taskStatus: "review", deliveryLanded: true }).reason)
+      .toContain("atterraggio riuscito");
   });
 });
 

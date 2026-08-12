@@ -147,6 +147,65 @@ export function decideWorktreeReap(input: WorktreeReapInput): WorktreeReapDecisi
 
 // ─────────────────────────────────────────────────────────────────────────
 
+/**
+ * Cosa fare del TASK quando la sua riga di worktree è fantasma (branch sparito):
+ *  • `none`    — nessun task vivo da toccare: la riga è peso morto e basta;
+ *  • `park`    — un task che diceva di lavorarci ha perso il suo ramo: si
+ *                parcheggia, perché la sua sessione non esiste più;
+ *  • `unbind`  — si scioglie il legame col worktree morto e LO STATO NON SI
+ *                TOCCA. Il task non ha fallito niente.
+ */
+export type GhostRowTaskAction = "none" | "park" | "unbind";
+
+export interface GhostRowInput {
+  /** Stato del task legato al worktree, `null` se orfano. */
+  taskStatus: TaskStatus | null;
+  taskArchived: boolean;
+  /**
+   * Il commit di consegna del task risulta su main, per CONTENUTO
+   * (`classifyLanding`): `true` atterrato, `false` provatamente no, `null` non
+   * si può dire (nessuna consegna registrata, repo non leggibile). `null` non è
+   * un sinonimo di `false` — stessa regola di `AbandonBranchState.unverified`.
+   */
+  deliveryLanded: boolean | null;
+}
+
+/**
+ * LA RIGA FANTASMA HA DUE CAUSE OPPOSTE, e per un anno ne ha vista una sola.
+ *
+ * Un worktree in modo `branch` il cui branch non esiste più poteva significare
+ * «il ramo è andato perduto» oppure «il ramo è stato POTATO perché il lavoro è
+ * atterrato». Il GC leggeva sempre la prima, parcheggiava il task come `failed`
+ * e lo scaricava in backlog. Il 12/08 è successo a quattro card su quattro nella
+ * stessa ora — tutte in `review`, tutte appena landate: il land pota il ramo,
+ * la spazzata trova la riga fantasma, e la decisione umana sparisce dalla
+ * colonna dove l'umano la guarda. Capitava alle card CHIUSE BENE.
+ *
+ * Due regole, in quest'ordine, e nessuna delle due è nuova al progetto:
+ *  1. se la consegna è su main, il ramo è stato potato dopo un atterraggio
+ *     riuscito — è la fine normale della storia (la stessa lettura per contenuto
+ *     di `landing-audit`, che regge anche un land squashato);
+ *  2. una card in `review` non aspetta un agente, aspetta una PERSONA: il
+ *     dispatcher non ha niente da dire su di lei, nemmeno quando davvero non sa
+ *     dove sia finito il ramo. Si scioglie il legame, lo si scrive nel thread, e
+ *     la card resta dove l'umano la sta guardando.
+ * Tutto il resto — un task che dichiara di starci lavorando dentro — si
+ * parcheggia come prima: lì la sessione non c'è più davvero.
+ */
+export function decideGhostRow(input: GhostRowInput): { task: GhostRowTaskAction; reason: string } {
+  const terminal = input.taskStatus === null || input.taskStatus === "done" || input.taskArchived;
+  if (terminal) return { task: "none", reason: "branch già sparito (riga fantasma)" };
+  if (input.deliveryLanded === true) {
+    return { task: "unbind", reason: "il ramo è stato potato dopo un atterraggio riuscito" };
+  }
+  if (input.taskStatus === "review") {
+    return { task: "unbind", reason: "il branch del worktree non esiste più" };
+  }
+  return { task: "park", reason: "il branch del worktree non esiste più" };
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+
 export type LandOutcome = "landed" | "nothing" | "conflict" | "skipped";
 
 export interface PostLandInput {
@@ -262,6 +321,22 @@ export interface WorktreeGcDeps {
    * Returns false if it couldn't complete (kept, then).
    */
   abandon?: (taskId: string, wt: GcWorktree, reason: string) => Promise<boolean>;
+  /**
+   * Il park che NON declassa: scioglie il legame col worktree morto, ne rimuove
+   * il checkout (branch già sparito, non c'è niente da conservare) e lascia il
+   * task nella sua colonna. È la risposta per una card in `review` e per
+   * qualunque card la cui consegna sia già su main — vedi `decideGhostRow`.
+   *
+   * Assente ⇒ la decisione degrada a `keep`, come per `abandon`: senza il mezzo
+   * per farlo in sicurezza, non si fa.
+   */
+  unbind?: (taskId: string, wt: GcWorktree, reason: string, deliveryLanded: boolean) => Promise<boolean>;
+  /**
+   * Il commit di consegna del task è su main, letto per CONTENUTO. `null` quando
+   * non si può dire (nessuna consegna registrata, repo non leggibile) — e
+   * `null` non autorizza a chiamarlo fallimento.
+   */
+  deliveryLanded?: (taskId: string, wt: GcWorktree) => Promise<boolean | null>;
   /** Land the task's branch. Returns the coarse outcome. */
   tryLand: (taskId: string) => Promise<LandOutcome>;
   /** Reap worktree + branch + row (worktreeManager.delete). */
@@ -317,6 +392,13 @@ export interface WorktreeGcSummary {
   landed: number;
   /** Checkouts freed under a task abandoned in `in_progress` (branch kept). */
   abandoned: number;
+  /**
+   * Righe fantasma sciolte da un task che NON è stato declassato: la sua
+   * consegna è su main, o sta in review ad aspettare una persona. Contate a
+   * parte da `abandoned` apposta — sommarle direbbe che quattro card sono
+   * fallite mentre quattro card avevano appena funzionato.
+   */
+  unbound: number;
   /** Cartelle liberate su task CHIUSI, con il branch conservato (`free-checkout`). */
   freed: number;
   kept: number;
@@ -362,7 +444,7 @@ export function normalizeKeepReason(reason: string): string {
 export async function sweepWorktrees(deps: WorktreeGcDeps): Promise<WorktreeGcSummary> {
   const worktrees = deps.listWorktrees();
   const summary: WorktreeGcSummary = {
-    total: worktrees.length, reaped: 0, landed: 0, abandoned: 0, freed: 0, kept: 0,
+    total: worktrees.length, reaped: 0, landed: 0, abandoned: 0, unbound: 0, freed: 0, kept: 0,
     slimmed: 0, slimmedBytes: 0, errors: 0, keptReasons: {},
   };
   /** Un keep senza motivo registrato e' un keep che nessuno puo' spiegare. */
@@ -434,17 +516,33 @@ export async function sweepWorktrees(deps: WorktreeGcDeps): Promise<WorktreeGcSu
       if (wt.mode === "branch" && branch === "gone") {
         // …unless a task still claims to be working in it. Deleting the row
         // under a live binding leaves the task pointing at a cwd that no longer
-        // resolves, and its next resume would run in the base repo. Park it
-        // first, same as an abandonment — the branch is already gone, so there
-        // is nothing left to preserve but the task's honesty.
+        // resolves, and its next resume would run in the base repo. Slegarlo
+        // prima è obbligatorio in ogni caso; se sia anche un FALLIMENTO lo
+        // decide `decideGhostRow`, non il fatto che il ref non risolva.
         const status = taskId ? (t as { status: TaskStatus }).status : null;
-        const stillClaimed = status !== null && status !== "done" && !(t as { archived?: boolean }).archived;
-        if (taskId && stillClaimed && deps.abandon) {
-          const ok = await deps.abandon(taskId, wt, "il branch del worktree non esiste più");
+        const landed = taskId && deps.deliveryLanded
+          ? await deps.deliveryLanded(taskId, wt).catch(() => null)
+          : null;
+        const ghost = decideGhostRow({
+          taskStatus: status,
+          taskArchived: taskId ? !!(t as { archived?: boolean }).archived : false,
+          deliveryLanded: landed,
+        });
+        if (taskId && ghost.task === "park" && deps.abandon) {
+          const ok = await deps.abandon(taskId, wt, ghost.reason);
           if (ok) { summary.abandoned += 1; deps.log(`[worktree-gc] abbandonato ${wt.branchName ?? wt.id} — branch sparito sotto un task '${status}'`); }
           else keep("parcheggio fallito su branch sparito");
           continue;
         }
+        if (taskId && ghost.task === "unbind" && deps.unbind) {
+          const ok = await deps.unbind(taskId, wt, ghost.reason, landed === true);
+          if (ok) { summary.unbound += 1; deps.log(`[worktree-gc] slegato ${wt.branchName ?? wt.id} — ${ghost.reason} (task '${status}' fermo dov'era)`); }
+          else keep("scioglimento fallito su branch sparito");
+          continue;
+        }
+        // Un task vivo senza il mezzo per slegarlo in sicurezza: si tiene la
+        // riga, che è l'unica cosa che ancora dice dove stava.
+        if (taskId && ghost.task !== "none") { keep(`branch sparito ma l'host non sa ${ghost.task === "park" ? "parcheggiare" : "slegare"}`); continue; }
         const ok = await deps.reap(wt.id);
         if (ok) { summary.reaped += 1; deps.log(`[worktree-gc] reaped ${wt.branchName ?? wt.id} — branch già sparito (riga fantasma)`); }
         else summary.errors += 1;

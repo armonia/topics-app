@@ -61,7 +61,7 @@ import { branchStatusFromRepo, commitStatusFromRepo, resolveCommit, worktreeDiff
 import { deliveryPointer } from "./server/services/own-commits";
 import { abandonNoticeFromRepo } from "./server/services/worktree-abandon-notice";
 import { createTaskAttemptStore } from "./server/services/task-attempts";
-import { auditLandings, type AuditTask, type LandingState } from "./server/services/landing-audit";
+import { auditLandings, classifyLanding, type AuditTask, type LandingState } from "./server/services/landing-audit";
 import { createTranscriptUsageReader } from "./server/services/transcript-usage";
 import { createDispatchUsageReader } from "./server/services/dispatch-usage";
 import { orphanBoardChildSessions } from "./server/services/agent-census";
@@ -3976,6 +3976,42 @@ function runWorktreeGc() {
     },
     abandonAfterDays: WORKTREE_ABANDON_DAYS,
     idleDays: (taskId) => taskIdleDays(taskId),
+    // «Il ramo non c'è più» va letto insieme a QUESTO, o dice il contrario del
+    // vero. Il commit di consegna si guarda per CONTENUTO (`commitStatusFromRepo`
+    // + `classifyLanding`, gli stessi dell'audit dei land): un land squashato non
+    // lascia un'ancestry, ma è atterrato lo stesso. `unverifiable` esce `null`,
+    // che non è `false`: non aver potuto guardare non è una prova di fallimento.
+    deliveryLanded: async (taskId, wt) => {
+      const commit = dispatcherSvc.get(taskId)?.task?.deliveryCommit;
+      if (!commit) return null;
+      const repoPath = ctx.projectStore.get(wt.projectId)?.path;
+      if (!repoPath) return null;
+      const state = classifyLanding(await commitStatusFromRepo(repoPath, commit));
+      return state === "unverifiable" ? null : state === "landed";
+    },
+    // Lo scioglimento che NON declassa: il legame col worktree morto se ne va, il
+    // checkout pure (il branch è già sparito, non c'è niente da conservare), ma
+    // la card resta nella sua colonna. `release` con `requeue: false` su una card
+    // in review la lascia in review apposta — vedi il commento in `tasks.ts`.
+    unbind: async (taskId, wt, reason, deliveryLanded) => {
+      const t = dispatcherSvc.get(taskId)?.task;
+      const notice = await abandonNoticeFromRepo({
+        reason,
+        repoPath: ctx.projectStore.get(wt.projectId)?.path ?? null,
+        branchName: wt.branchName,
+        deliveryCommit: t?.deliveryCommit ?? null,
+        deliveryLanded,
+        taskFate: "stays",
+      });
+      try {
+        dispatcherSvc.release({ taskId, requeue: false, keepStatus: true, by: "system", reason: notice });
+      } catch (err) {
+        console.warn("[worktree-gc] scioglimento del legame fallito", err);
+        return false;
+      }
+      try { await previewManager?.teardown(taskId); } catch { /* best-effort */ }
+      return ctx.worktreeManager.delete(wt.id, { deleteBranch: false });
+    },
     abandon: async (taskId, wt, reason) => {
       // PRIMA SI GUARDA, POI SI SCRIVE. Questa riga è quella che l'umano legge
       // per decidere se ha perso lavoro: fino al 04/08 era una formula fissa che
