@@ -6,6 +6,7 @@ import { enabledToSelect, selectToEnabled } from './behaviorDefaults';
 import { EFFORT_TIERS, CODEX_REASONING_EFFORTS } from '../../../../shared/effort';
 import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
 import { PermissionsSection } from './PermissionsSection';
+import { Select } from '../Shared/Select';
 import {
   AUTO,
   STATUS_COLORS,
@@ -327,25 +328,31 @@ function SettingSelect({
   disabled?: boolean;
   autoLabel?: string;
 }) {
+  // `<label>` → `<div>`: il controllo non è più un elemento di modulo nativo,
+  // quindi non c'è niente da etichettare per associazione — il nome accessibile
+  // viaggia sull'`aria-label` del grilletto. Lasciando la `<label>` il click sul
+  // testo avrebbe attivato il bottone, cioè aperto il menu, che è un aggancio
+  // che nessuno cerca su una riga di descrizione.
+  //
+  // `flex-wrap` + `min-w-0`: a 390px la riga etichetta+controllo non ci sta in
+  // orizzontale, e senza il ritorno a capo il pannello guadagnava una barra di
+  // scorrimento laterale.
   return (
-    <label className="flex items-center justify-between gap-3 py-1">
-      <span className="flex flex-col min-w-0">
+    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 py-1">
+      <span className="flex min-w-0 flex-col">
         <span className="text-[12px] text-app-text">{label}</span>
         {hint && <span className="text-[11px] text-app-text-muted break-words">{hint}</span>}
       </span>
-      <select
-        aria-label={label}
+      <Select
+        ariaLabel={label}
         disabled={disabled}
+        align="right"
         value={value ?? AUTO}
-        onChange={(e) => onChange(e.target.value === AUTO ? null : e.target.value)}
-        className="flex-shrink-0 text-[12px] bg-surface border border-app-border rounded-md px-2 py-1 min-w-[140px] max-w-[220px]"
-      >
-        <option value={AUTO}>{autoLabel}</option>
-        {options.map((o) => (
-          <option key={o.value} value={o.value}>{o.label}</option>
-        ))}
-      </select>
-    </label>
+        onChange={(v) => onChange(v === AUTO ? null : v)}
+        className="max-w-full flex-shrink-0 min-w-[140px]"
+        options={[{ value: AUTO, label: autoLabel }, ...options]}
+      />
+    </div>
   );
 }
 
@@ -391,7 +398,7 @@ function ProviderCard({
     <div className={`rounded-lg border ${entry.isDefault ? 'border-primary/40 bg-primary/5' : 'border-app-border bg-app-hover/40'}`}>
       <button
         onClick={onToggle}
-        className="w-full flex items-center gap-2 px-3 py-2 text-left"
+        className="w-full flex items-center gap-2 px-3 py-2 text-left coarse:min-h-11"
       >
         {expanded ? <ChevronDown size={13} className="text-app-text-muted flex-shrink-0" /> : <ChevronRight size={13} className="text-app-text-muted flex-shrink-0" />}
         <span className={`w-2 h-2 rounded-full flex-shrink-0 ${STATUS_COLORS[entry.status]}`} />
