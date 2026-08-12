@@ -63,6 +63,20 @@ function firmaGrezza(privata: KeyObject, carico: Record<string, unknown>): strin
   return `${p}.${sign(null, Buffer.from(p, "ascii"), privata).toString("base64url")}`;
 }
 
+/**
+ * Il TESTIMONE: un gettone coniato una volta sola con la chiave privata di
+ * produzione — quella vera, quella in cassaforte — per l'installazione
+ * `000000000000000000000000`, che non esiste e non esisterà.
+ *
+ * Sta qui in chiaro perché non è un segreto: un gettone dice «questa macchina,
+ * fino a questa data», e quella macchina non è nessuna. Serve a una domanda
+ * sola, che nessun'altra prova può porre: la chiave pubblica dentro
+ * `CHIAVI_INTEGRATE` è davvero la metà di quella con cui firmiamo?
+ */
+const GETTONE_TESTIMONE =
+  "eyJ2IjoxLCJpaWQiOiIwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAiLCJwbGFuIjoidGVhbSIsInNlYXRzIjo1LCJleHAiOjQ5Mzk5NzI4ODA4OTYsImlhdCI6MTc4NjM3Mjg4MDg5Niwia2lkIjoiYXJtb25pYS0xIn0" +
+  ".mfxTxb8S4EHmBbRX5lHnUDYNOTiWLjb1rWvOaO9ByIORdLiJGxEmn9s_Fw8heZjsuPbMUFFN96PnALzCw9L9CQ";
+
 const servizio = nuovaCoppia();
 const ENV_CHIAVE = { TOPICS_LICENSE_PUBKEYS: `k1:${servizio.pubblicaB64}` };
 const chiaviBuone = () => caricaChiavi(ENV_CHIAVE, []);
@@ -251,12 +265,47 @@ describe("licenza · la firma si controlla OFFLINE", () => {
 });
 
 describe("licenza · le chiavi di verifica", () => {
-  it("oggi non c'è nessuna chiave integrata, e va detto invece che finto", () => {
-    // Una chiave inventata qui sarebbe un cancello che sembra chiuso e non lo
-    // è. Finché la lista è vuota, un gettone perfetto resta sul gratuito col
-    // motivo che lo spiega — verificato sopra in `ogniModoDiAndareMale`.
-    expect(CHIAVI_INTEGRATE).toEqual([]);
-    expect(caricaChiavi({}, CHIAVI_INTEGRATE)).toEqual([]);
+  it("la build spedita HA con cosa verificare, senza variabili d'ambiente", () => {
+    // Una lista vuota qui è un'app che non vende: `verificaGettone` risponde
+    // `no_verification_key` prima di guardare la firma e ogni installazione
+    // resta sul gratuito. L'ambiente è vuoto apposta — è la condizione della
+    // macchina di un cliente, non di quella di chi sviluppa.
+    expect(CHIAVI_INTEGRATE.length).toBeGreaterThan(0);
+    const k = caricaChiavi({}, CHIAVI_INTEGRATE);
+    expect(k.length, "una riga di CHIAVI_INTEGRATE non è una chiave Ed25519 caricabile").toBe(CHIAVI_INTEGRATE.length);
+    expect(k.every((x) => x.kid), "ogni chiave integrata deve avere un `kid`, o ruotarla diventa indistinguibile").toBe(true);
+  });
+
+  it("la chiave integrata è la METÀ di quella con cui firmiamo davvero", () => {
+    // Il testimone: un gettone coniato una volta con la privata di produzione,
+    // per un'installazione che non esiste (tutti zeri) e quindi senza potere.
+    // Vale finché la pubblica qui dentro e la privata in cassaforte sono la
+    // stessa coppia. Se qualcuno sostituisce la pubblica senza la privata —
+    // una rotazione fatta a metà, un copia-incolla da un'altra generazione —
+    // questo caso muore adesso, invece che alla prima licenza venduta, dove il
+    // sintomo sarebbe `bad_signature` su un gettone che abbiamo emesso noi.
+    const esito = verificaGettone(GETTONE_TESTIMONE, {
+      chiavi: caricaChiavi({}, CHIAVI_INTEGRATE),
+      installationId: "000000000000000000000000",
+      // Un'ora fissa: la scadenza del testimone è lontana, ma un test non deve
+      // dipendere da che giorno è.
+      ora: Date.UTC(2026, 7, 10),
+    });
+    expect(esito.motivo).toBe("valid");
+    expect(esito.piano).toBe("team");
+  });
+
+  it("il testimone non vale su NESSUNA macchina vera", () => {
+    // La rete di sicurezza del testimone stesso: è un gettone firmato di
+    // verità, committato in chiaro. Non deve poter abilitare niente. Ciò che
+    // glielo impedisce è `iid`, non il fatto che sia in un file di test.
+    const esito = verificaGettone(GETTONE_TESTIMONE, {
+      chiavi: caricaChiavi({}, CHIAVI_INTEGRATE),
+      installationId: IID,
+      ora: Date.UTC(2026, 7, 10),
+    });
+    expect(esito.motivo).toBe("other_installation");
+    expect(esito.piano).toBe("free");
   });
 
   it("una riga storta non spegne le chiavi buone che le stanno accanto", () => {

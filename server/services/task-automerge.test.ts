@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { createTaskAutoMerge, worktreeRealDirt, type GitRunResult, type TaskMergeTarget } from "./task-automerge";
+import { chooseMergeTarget, createTaskAutoMerge, landFallout, worktreeRealDirt, type GitRunResult, type LandSkipCode, type TaskMergeTarget } from "./task-automerge";
 
 const TARGET: TaskMergeTarget = { repoPath: "/repo", branch: "topics/lyrical-cobra", defaultBranch: "main" };
 
@@ -79,6 +79,372 @@ describe("task-automerge", () => {
     // The shared checkout is NEVER merged into; the throwaway worktree is added then removed.
     expect(git.calls.some((c) => c[0] === "worktree" && c[1] === "add")).toBe(true);
     expect(git.calls.some((c) => c[0] === "worktree" && c[1] === "remove")).toBe(true);
+  });
+
+  test("il branch porta commit di UN'ALTRA sessione → landa SOLO i suoi, senza mergiare il branch", async () => {
+    // La prima versione si rifiutava e basta: main restava pulito e la consegna
+    // finiva in un limbo. Misurato: 12 consegne accettate vivevano solo sul loro
+    // branch, fra cui uno scorporo da 800 righe. «Accettata» deve voler dire
+    // «atterrata», quindi si prendono i suoi commit e si lascia il resto.
+    const calls: string[][] = [];
+    const run = async (_cwd: string, args: string[]) => {
+      calls.push(args);
+      const key = args.slice(0, 2).join(" ");
+      if (key === "symbolic-ref --short") return { code: 0, stdout: "feature/x\n", stderr: "" };
+      if (key === "for-each-ref --format=%(refname)") {
+        return { code: 0, stdout: "refs/heads/main\nrefs/heads/topics/altra-sessione\nrefs/heads/topics/t1\n", stderr: "" };
+      }
+      if (key === "rev-list --count") return { code: 0, stdout: args.includes("--not") ? "1\n" : "13\n", stderr: "" };
+      if (key === "rev-list --reverse") return { code: 0, stdout: "aaa111\n", stderr: "" };
+      // Codice 1 = c'e' roba in stage, cioe' quel commit porta davvero qualcosa.
+      // Senza questa riga il pick verrebbe saltato come «gia' applicato» e il
+      // test passerebbe per il motivo sbagliato.
+      if (key === "diff --cached") return { code: 1, stdout: "", stderr: "" };
+      if (key === "rev-parse --short") return { code: 0, stdout: "abc1234\n", stderr: "" };
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    const am = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: run });
+    const res = await am.tryMerge("t1", "x");
+    expect(res.status).toBe("merged");
+    // Il suo commit e' stato raccolto e COMMITTATO; il branch NON e' stato mergiato.
+    expect(calls.some((c) => c[0] === "cherry-pick" && c.includes("aaa111"))).toBe(true);
+    expect(calls.some((c) => c[0] === "commit" && c.includes("-C") && c.includes("aaa111"))).toBe(true);
+    expect(calls.some((c) => c[0] === "merge")).toBe(false);
+  });
+
+  test("un commit che non porta NIENTE in stage è già landato: si salta, niente commit vuoto", async () => {
+    // Il land RICOPIA invece di fondere, quindi la copia atterrata ha un altro
+    // sha e il commit resta nel range: rilandare la stessa card lasciava un
+    // commit VUOTO su main. Misurato il 10/08: lo stesso lavoro QUATTRO volte.
+    // Ne' il patch-id (`git cherry`) ne' la patch a rovescio lo riconoscono —
+    // il pick adatta il commit, e appena altri toccano quei file il contorno non
+    // combacia piu'. Solo il merge di git sa rispondere: applica e guarda se
+    // resta qualcosa.
+    const calls: string[][] = [];
+    const run = async (_cwd: string, args: string[]) => {
+      calls.push(args);
+      const key = args.slice(0, 2).join(" ");
+      if (key === "symbolic-ref --short") return { code: 0, stdout: "feature/x\n", stderr: "" };
+      if (key === "for-each-ref --format=%(refname)") {
+        return { code: 0, stdout: "refs/heads/main\nrefs/heads/topics/altra\nrefs/heads/topics/t1\n", stderr: "" };
+      }
+      if (key === "rev-list --count") return { code: 0, stdout: args.includes("--not") ? "1\n" : "13\n", stderr: "" };
+      if (key === "rev-list --reverse") return { code: 0, stdout: "aaa111\n", stderr: "" };
+      if (key === "diff --cached") return { code: 0, stdout: "", stderr: "" }; // niente da portare
+      if (key === "rev-parse --short") return { code: 0, stdout: "abc1234\n", stderr: "" };
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    const am = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: run });
+    // Il lavoro E' su main: consegna riuscita, non un fallimento da rimandare.
+    expect((await am.tryMerge("t1", "x")).status).toBe("merged");
+    expect(calls.some((c) => c[0] === "commit")).toBe(false);
+    // E l'albero non resta a metà: il pick a vuoto viene ripulito.
+    expect(calls.some((c) => c[0] === "cherry-pick" && c.includes("--quit"))).toBe(true);
+  });
+
+  test("il pick fallisce perché MANCA un pezzo sotto: si dice quello, non «conflitto»", async () => {
+    // Il worktree della card nasce dall'HEAD del checkout condiviso, quindi il
+    // suo lavoro può poggiare su commit di un'altra sessione — che il pick
+    // selettivo esclude apposta, per non pubblicarli. Il pick allora fallisce su
+    // un file che su main non esiste ancora: non c'è niente da riconciliare, e
+    // rimandarlo all'agente come «conflitto» lo manda a cercare una cosa che non
+    // c'è. Misurato il 10/08 su 473da2db (02fd8bac modifica browserPaneFault.ts,
+    // creato da un commit di un'altra sessione mai landato).
+    const run = async (_cwd: string, args: string[]) => {
+      const key = args.slice(0, 2).join(" ");
+      if (key === "symbolic-ref --short") return { code: 0, stdout: "feature/x\n", stderr: "" };
+      if (key === "for-each-ref --format=%(refname)") {
+        return { code: 0, stdout: "refs/heads/main\nrefs/heads/topics/altra\nrefs/heads/topics/t1\n", stderr: "" };
+      }
+      if (key === "rev-list --count") return { code: 0, stdout: args.includes("--not") ? "2\n" : "9\n", stderr: "" };
+      if (key === "rev-list --reverse") return { code: 0, stdout: "aaa111\nbbb222\n", stderr: "" };
+      if (args[0] === "cherry-pick" && args[1] === "-n") return { code: 1, stdout: "", stderr: "CONFLICT (modify/delete): browserPaneFault.ts deleted in HEAD" };
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    const am = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: run });
+    const res = await am.tryMerge("t1", "x");
+    expect(res.status).toBe("skipped");
+    // 9 sul branch, 2 suoi → 7 sotto di lui che non sono su main.
+    if (res.status === "skipped") {
+      expect(res.reason).toContain("7 commit");
+      expect(res.reason).toContain("manca un pezzo sotto");
+    }
+  });
+
+  test("pick fallito SENZA dipendenze estranee resta un conflitto vero", async () => {
+    // Il controllo del test qui sopra: la diagnosi nuova non deve mangiarsi il
+    // caso normale, o un conflitto vero non tornerebbe più all'agente.
+    const run = async (_cwd: string, args: string[]) => {
+      const key = args.slice(0, 2).join(" ");
+      if (key === "symbolic-ref --short") return { code: 0, stdout: "feature/x\n", stderr: "" };
+      if (key === "for-each-ref --format=%(refname)") {
+        return { code: 0, stdout: "refs/heads/main\nrefs/heads/topics/altra\nrefs/heads/topics/t1\n", stderr: "" };
+      }
+      if (key === "rev-list --count") return { code: 0, stdout: args.includes("--not") ? "2\n" : "9\n", stderr: "" };
+      if (key === "rev-list --reverse") return { code: 0, stdout: "aaa111\nbbb222\n", stderr: "" };
+      // Stessi 7 commit estranei del test sopra, ma il fallimento e' di
+      // CONTENUTO: due modifiche che si pestano, non un file che manca.
+      if (args[0] === "cherry-pick" && args[1] === "-n") {
+        return { code: 1, stdout: "", stderr: "CONFLICT (content): Merge conflict in src/a.ts" };
+      }
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    const am = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: run });
+    expect((await am.tryMerge("t1", "x")).status).toBe("conflict");
+  });
+
+  test("due migration con lo STESSO numero: il land si ferma prima di rompere il DB in silenzio", async () => {
+    // `schema_migrations.version` e' chiave primaria intera e il runner fa
+    // `if (applied.has(version)) continue`: salta per NUMERO, senza dire niente.
+    // La seconda 089 non si applicherebbe MAI, mentre il codice che la presuppone
+    // atterra lo stesso — guasto invisibile al land, visibile in produzione.
+    // Misurato il 10/08: DUE collisioni in una sera, con N card in parallelo.
+    const calls: string[][] = [];
+    const run = async (_cwd: string, args: string[]) => {
+      calls.push(args);
+      const key = args.slice(0, 2).join(" ");
+      if (key === "symbolic-ref --short") return { code: 0, stdout: "main\n", stderr: "" };
+      if (key === "status --porcelain") return { code: 0, stdout: "", stderr: "" };
+      if (key === "rev-list --count") return { code: 0, stdout: "3\n", stderr: "" };
+      if (key === "ls-tree -r") {
+        const ref = args[3];
+        return ref === "main"
+          ? { code: 0, stdout: "server/db/migrations/089-retirements.sql\n", stderr: "" }
+          : { code: 0, stdout: "server/db/migrations/089-task-dispatch-weight.sql\n", stderr: "" };
+      }
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    const am = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: run });
+    const res = await am.tryMerge("t1", "x");
+    expect(res.status).toBe("skipped");
+    if (res.status === "skipped") {
+      expect(res.reason).toContain("089");
+      expect(res.reason).toContain("Rinumera");
+    }
+    // E si ferma PRIMA di toccare main.
+    expect(calls.some((c) => c[0] === "merge" || c[0] === "cherry-pick")).toBe(false);
+  });
+
+  test("stesso numero, stesso file: e' lo storico condiviso, non una collisione", async () => {
+    // Il controllo del test qui sopra: un ramo che eredita le migration di main
+    // senza aggiungerne deve passare, o il cancello bloccherebbe ogni land.
+    const run = async (_cwd: string, args: string[]) => {
+      const key = args.slice(0, 2).join(" ");
+      if (key === "symbolic-ref --short") return { code: 0, stdout: "main\n", stderr: "" };
+      if (key === "status --porcelain") return { code: 0, stdout: "", stderr: "" };
+      if (key === "rev-list --count") return { code: 0, stdout: "3\n", stderr: "" };
+      if (key === "ls-tree -r") return { code: 0, stdout: "server/db/migrations/089-retirements.sql\n", stderr: "" };
+      if (key === "merge --no-ff") return { code: 0, stdout: "", stderr: "" };
+      if (key === "rev-parse --short") return { code: 0, stdout: "abc1234\n", stderr: "" };
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    const am = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: run });
+    expect((await am.tryMerge("t1", "x")).status).toBe("merged");
+  });
+
+  test("due timestamp DIVERSI non sono una collisione: il numero e' tutto il prefisso", async () => {
+    // Il difetto che chiude, misurato il 12/08 su `ddf66270` e `b06bb837`: il
+    // numero si leggeva con `file.slice(0, 3)`, e col prefisso timestamp
+    // introdotto lo stesso giorno OGNI migration del 2026 finiva sotto la chiave
+    // `202`. Bastava che main e il ramo avessero migration diverse — cioe' il
+    // caso NORMALE di un ramo in review mentre main va avanti — perche' il
+    // cancello gridasse collisione. Diciotto consegne sono rimaste fuori da main
+    // per questo, e il messaggio accusava un file che era gia' atterrato.
+    const run = async (_cwd: string, args: string[]) => {
+      const key = args.slice(0, 2).join(" ");
+      if (key === "symbolic-ref --short") return { code: 0, stdout: "main\n", stderr: "" };
+      if (key === "status --porcelain") return { code: 0, stdout: "", stderr: "" };
+      if (key === "rev-list --count") return { code: 0, stdout: "3\n", stderr: "" };
+      if (key === "ls-tree -r") {
+        const ref = args[3];
+        // main ha una migration in piu' del ramo: e' la vita normale di una card
+        // che aspetta la review.
+        return ref === "main"
+          ? {
+              code: 0,
+              stdout:
+                "server/db/migrations/20260812094300-notification-log.sql\n" +
+                "server/db/migrations/20260812120000-preview-retired.sql\n",
+              stderr: "",
+            }
+          : { code: 0, stdout: "server/db/migrations/20260812094300-notification-log.sql\n", stderr: "" };
+      }
+      if (key === "merge --no-ff") return { code: 0, stdout: "", stderr: "" };
+      if (key === "rev-parse --short") return { code: 0, stdout: "abc1234\n", stderr: "" };
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    const am = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: run });
+    expect((await am.tryMerge("t1", "x")).status).toBe("merged");
+  });
+
+  test("due timestamp UGUALI con nomi diversi NON sono una collisione: il registro conta i nomi", async () => {
+    // Scritto al contrario la prima volta, il 12/08, e vale la pena dire perche':
+    // sembra ovvio che due file con lo stesso numero siano un guasto. Lo erano
+    // finche' `schema_migrations` aveva `version` come chiave primaria e il
+    // runner saltava per NUMERO. Oggi la chiave e' il NOME
+    // (`server/db.ts`: `name TEXT PRIMARY KEY`, e il salto e' `applied.has(file)`),
+    // quindi due migration nate nello stesso SECONDO in due worktree che non si
+    // vedevano si applicano ENTRAMBE: nessuna delle due dipende dall'altra, e non
+    // c'e' nessun ordine atteso da rompere.
+    //
+    // Il contatore a tre cifre resta un guasto, ed e' il test qui sopra: li' il
+    // numero uno se lo SCEGLIE credendolo libero, quindi due nomi sullo stesso
+    // numero vogliono dire che qualcuno contava su un ordine che e' gia' saltato.
+    const run = async (_cwd: string, args: string[]) => {
+      const key = args.slice(0, 2).join(" ");
+      if (key === "symbolic-ref --short") return { code: 0, stdout: "main\n", stderr: "" };
+      if (key === "status --porcelain") return { code: 0, stdout: "", stderr: "" };
+      if (key === "rev-list --count") return { code: 0, stdout: "3\n", stderr: "" };
+      if (key === "ls-tree -r") {
+        const ref = args[3];
+        return ref === "main"
+          ? { code: 0, stdout: "server/db/migrations/20260812094300-notification-log.sql\n", stderr: "" }
+          : { code: 0, stdout: "server/db/migrations/20260812094300-altra-cosa.sql\n", stderr: "" };
+      }
+      if (key === "merge --no-ff") return { code: 0, stdout: "", stderr: "" };
+      if (key === "rev-parse --short") return { code: 0, stdout: "abc1234\n", stderr: "" };
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    const am = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: run });
+    expect((await am.tryMerge("t1", "x")).status).toBe("merged");
+  });
+
+  test("un branch che non porta NIENTE di suo resta rifiutato", async () => {
+    // Il controllo del test qui sopra: raccogliere i propri commit non deve
+    // diventare «landa comunque». Zero commit suoi = niente da landare.
+    const calls: string[][] = [];
+    const run = async (_cwd: string, args: string[]) => {
+      calls.push(args);
+      const key = args.slice(0, 2).join(" ");
+      if (key === "symbolic-ref --short") return { code: 0, stdout: "feature/x\n", stderr: "" };
+      if (key === "for-each-ref --format=%(refname)") {
+        return { code: 0, stdout: "refs/heads/main\nrefs/heads/topics/altra\nrefs/heads/topics/t1\n", stderr: "" };
+      }
+      if (key === "rev-list --count") return { code: 0, stdout: args.includes("--not") ? "0\n" : "13\n", stderr: "" };
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    const am = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: run });
+    const res = await am.tryMerge("t1", "x");
+    expect(res.status).toBe("skipped");
+    if (res.status === "skipped") expect(res.reason).toContain("NESSUNO");
+    expect(calls.some((c) => c[0] === "cherry-pick" || c[0] === "merge")).toBe(false);
+  });
+
+  test("il branch porta SOLO i suoi commit → il cancello lascia passare", async () => {
+    // Il controllo del test qui sopra: se il cancello scattasse sempre, questo
+    // fallirebbe. Stessa forma, ma nessun commit ereditato.
+    const calls: string[][] = [];
+    const run = async (_cwd: string, args: string[]) => {
+      calls.push(args);
+      const key = args.slice(0, 2).join(" ");
+      if (key === "symbolic-ref --short") return { code: 0, stdout: "main\n", stderr: "" };
+      if (key === "status --porcelain") return { code: 0, stdout: "", stderr: "" };
+      if (key === "for-each-ref --format=%(refname)") {
+        return { code: 0, stdout: "refs/heads/main\nrefs/heads/topics/altra-sessione\nrefs/heads/topics/t1\n", stderr: "" };
+      }
+      if (key === "rev-list --count") return { code: 0, stdout: "3\n", stderr: "" }; // own === total
+      if (key === "rev-parse --short") return { code: 0, stdout: "abc1234\n", stderr: "" };
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    const am = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: run });
+    const res = await am.tryMerge("t1", "x");
+    expect(res.status).toBe("merged");
+    expect(calls.some((c) => c[0] === "merge")).toBe(true);
+  });
+
+  /**
+   * Il guasto dell'11/08 (card `2e6964cb`), nella sua forma minima.
+   *
+   * Il branch è AVANTI rispetto a main, ma togliendo i commit raggiungibili
+   * dagli altri rami non ne resta nessuno — succede appena un ramo nasce da un
+   * altro, o due card lavorano vicine. Quella risposta vuota veniva letta come
+   * «niente da fare», e la card restava in Done col codice fuori da main.
+   */
+  test("commit propri VUOTI ma branch avanti → skipped 'unisolable', non un merge e non 'nothing'", async () => {
+    const calls: string[][] = [];
+    const run = async (_cwd: string, args: string[]) => {
+      calls.push(args);
+      const key = args.slice(0, 2).join(" ");
+      if (key === "symbolic-ref --short") return { code: 0, stdout: "main\n", stderr: "" };
+      if (key === "status --porcelain") return { code: 0, stdout: "", stderr: "" };
+      if (key === "for-each-ref --format=%(refname)") {
+        return { code: 0, stdout: "refs/heads/main\nrefs/heads/topics/vicina\nrefs/heads/topics/lyrical-cobra\n", stderr: "" };
+      }
+      // 27 commit avanti, ZERO dopo la sottrazione: la forma esatta del guasto.
+      if (key === "rev-list --count") return { code: 0, stdout: args.includes("--not") ? "0\n" : "27\n", stderr: "" };
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    const am = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: run });
+    const res = await am.tryMerge("t1", "x");
+    expect(res.status).toBe("skipped");
+    if (res.status !== "skipped") throw new Error("expected skipped");
+    // Il codice è ciò che la board legge per decidere dove finisce la card.
+    expect(res.code).toBe("unisolable");
+    // E la frase deve DISTINGUERE le due cose che prima collassavano in una.
+    expect(res.reason).toContain("non so quali siano i suoi");
+    expect(res.reason).toContain("niente da portare");
+    expect(calls.some((c) => c[0] === "merge")).toBe(false);
+    expect(calls.some((c) => c[0] === "worktree")).toBe(false);
+  });
+
+  test("«non lo so» ≠ «già tutto dentro»: due esiti diversi per due domande diverse", async () => {
+    // Il controllo del test qui sopra. Stesso repo, unica differenza: il branch
+    // non è avanti. Quella è la consegna già dentro main — `nothing`, e la card
+    // resta legittimamente chiusa.
+    const git = fakeGit({
+      "symbolic-ref --short": { stdout: "main\n" },
+      "status --porcelain": { stdout: "" },
+      "for-each-ref --format=%(refname)": { stdout: "refs/heads/main\nrefs/heads/topics/vicina\n" },
+      "rev-list --count": { stdout: "0\n" },
+    });
+    const am = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: git.run });
+    const res = await am.tryMerge("t1", "x");
+    expect(res.status).toBe("nothing");
+  });
+
+  test("la sottrazione non risponde (git in errore) → 'unisolable', mai un merge alla cieca", async () => {
+    // `null` = non contabile. Prima cadeva nel silenzio e il land proseguiva a
+    // mergiare il branch INTERO: cioè, se git singhiozzava, si pubblicava anche
+    // il lavoro di un'altra sessione — l'esatto contrario del cancello.
+    const calls: string[][] = [];
+    const run = async (_cwd: string, args: string[]) => {
+      calls.push(args);
+      const key = args.slice(0, 2).join(" ");
+      if (key === "symbolic-ref --short") return { code: 0, stdout: "main\n", stderr: "" };
+      if (key === "status --porcelain") return { code: 0, stdout: "", stderr: "" };
+      if (key === "for-each-ref --format=%(refname)") {
+        return { code: 0, stdout: "refs/heads/main\nrefs/heads/topics/vicina\n", stderr: "" };
+      }
+      if (key === "rev-list --count") {
+        return args.includes("--not")
+          ? { code: 128, stdout: "", stderr: "fatal: bad revision" }
+          : { code: 0, stdout: "13\n", stderr: "" };
+      }
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    const am = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: run });
+    const res = await am.tryMerge("t1", "x");
+    if (res.status !== "skipped") throw new Error(`expected skipped, got ${res.status}`);
+    expect(res.code).toBe("unisolable");
+    expect(calls.some((c) => c[0] === "merge")).toBe(false);
+  });
+
+  test("nemmeno gli ALTRI branch sono elencabili → 'unisolable'", async () => {
+    const calls: string[][] = [];
+    const run = async (_cwd: string, args: string[]) => {
+      calls.push(args);
+      const key = args.slice(0, 2).join(" ");
+      if (key === "symbolic-ref --short") return { code: 0, stdout: "main\n", stderr: "" };
+      if (key === "status --porcelain") return { code: 0, stdout: "", stderr: "" };
+      if (key === "for-each-ref --format=%(refname)") return { code: 1, stdout: "", stderr: "fatal: not a git repository" };
+      if (key === "rev-list --count") return { code: 0, stdout: "3\n", stderr: "" };
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    const am = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: run });
+    const res = await am.tryMerge("t1", "x");
+    if (res.status !== "skipped") throw new Error(`expected skipped, got ${res.status}`);
+    expect(res.code).toBe("unisolable");
+    expect(calls.some((c) => c[0] === "merge")).toBe(false);
   });
 
   test("in-place land on main reports landedNotLive false", async () => {
@@ -276,5 +642,198 @@ describe("task-automerge", () => {
     const am = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: run });
     await Promise.all([am.tryMerge("a", "x"), am.tryMerge("b", "y"), am.tryMerge("c", "z")]);
     expect(maxActive).toBe(1);
+  });
+});
+
+/**
+ * La regola che chiude il guasto, provata senza un repo e senza una board: dal
+ * PERCHÉ il land non è riuscito a DOVE finisce la card.
+ */
+describe("landFallout — un land fallito non lascia la card in Done", () => {
+  test("l'unico esito che lascia la card chiusa è «non c'era niente da atterrare»", () => {
+    expect(landFallout("no-branch").status).toBe(null);
+  });
+
+  test("ogni altro esito TOGLIE la card da Done, con una ragione da scrivere nello stato", () => {
+    const codes: LandSkipCode[] = [
+      "unisolable", "foreign-commits", "branch-missing", "repo-unresolved",
+      "dirty-checkout", "worktree-add-failed", "internal-error",
+    ];
+    for (const code of codes) {
+      const f = landFallout(code);
+      expect(f.status).not.toBe(null);
+      // La ragione finisce nella riga di storico: vuota vorrebbe dire di nuovo
+      // «lo stato non dice perché», cioè il guasto.
+      expect(f.reason.length).toBeGreaterThan(0);
+    }
+  });
+
+  test("colpa del RAMO → torna all'agente con l'istruzione di rebase; colpa dell'OSPITE → torna all'umano", () => {
+    // Il ramo è riparabile dall'agente: stessa strada del conflitto.
+    for (const code of ["unisolable", "foreign-commits"] as LandSkipCode[]) {
+      const f = landFallout(code);
+      expect(f.status).toBe("in_progress");
+      expect(f.resume).toContain("git rebase main");
+      // Il merge di main dentro il ramo NON toglie il problema: tre card ci
+      // sono rimaste incastrate quando l'istruzione lo suggeriva.
+      expect(f.resume).not.toContain("git merge main");
+    }
+    // Albero sporco, worktree non creabile, checkout introvabile: l'agente non
+    // può farci niente.
+    for (const code of ["dirty-checkout", "worktree-add-failed", "branch-missing", "repo-unresolved"] as LandSkipCode[]) {
+      const f = landFallout(code);
+      expect(f.status).toBe("review");
+      expect(f.resume).toBeUndefined();
+    }
+  });
+
+  test("un codice sconosciuto sbaglia verso il RITIRO, mai verso il lasciarla chiusa", () => {
+    // Uno `skipped` costruito altrove, o un codice nuovo aggiunto senza passare
+    // di qui: il difetto da non ripetere è una card chiusa col codice fuori.
+    expect(landFallout(undefined).status).toBe("review");
+    expect(landFallout("qualcosa-di-nuovo" as LandSkipCode).status).toBe("review");
+  });
+});
+
+/**
+ * L'agente è UN MODO di trovare il ramo, non l'unico.
+ *
+ * Misurato la notte del 12/08 su `ee5ebbb4`: `delivery_branch` esisteva
+ * (`topics/transient-berry`, 7fd16448), il suo worktree esisteva, mancava solo
+ * `assigned_topic_id` — l'agente rilasciato a fine turno. Il land ha risposto
+ * «nessun worktree/branch per il task (in-place o non dispatchato)», codice
+ * `no-branch`, e la card è rimasta in Done col codice fuori da main.
+ */
+describe("chooseMergeTarget — il ramo si trova dalla CARD, non solo dall'agente", () => {
+  const LIVE: TaskMergeTarget = { repoPath: "/repo", branch: "topics/lyrical-cobra", defaultBranch: "main" };
+
+  test("il worktree vivo vince quando c'è", () => {
+    const c = chooseMergeTarget(LIVE, { repoPath: "/repo", branch: "topics/altro" });
+    expect(c.target).toEqual(LIVE);
+    if (c.target) expect(c.via).toBe("worktree");
+  });
+
+  test("agente rilasciato ma ramo dichiarato → si atterra lo stesso, via consegna", () => {
+    const c = chooseMergeTarget(null, { repoPath: "/repo", branch: "topics/transient-berry" });
+    expect(c.target).toEqual({ repoPath: "/repo", branch: "topics/transient-berry", defaultBranch: "main" });
+    if (c.target) expect(c.via).toBe("delivery");
+  });
+
+  test("ramo dichiarato ma checkout introvabile → NON è «no-branch»: la card lascia Done", () => {
+    const c = chooseMergeTarget(null, { repoPath: null, branch: "topics/transient-berry" });
+    expect(c.target).toBe(null);
+    if (c.target === null) {
+      expect(c.code).toBe("repo-unresolved");
+      // Il messaggio deve dire cosa manca DAVVERO: il ramo c'è, il checkout no.
+      expect(c.reason).toContain("topics/transient-berry");
+      expect(landFallout(c.code).status).toBe("review");
+    }
+  });
+
+  test("né worktree né ramo dichiarato → «no-branch», l'unico caso che resta chiuso", () => {
+    for (const declared of [null, undefined, { repoPath: "/repo", branch: null }, { repoPath: "/repo", branch: "  " }]) {
+      const c = chooseMergeTarget(null, declared);
+      expect(c.target).toBe(null);
+      if (c.target === null) expect(c.code).toBe("no-branch");
+    }
+  });
+});
+
+describe("tryMerge senza agente — la consegna col ramo intatto resta landabile", () => {
+  const DECLARED = { repoPath: "/repo", branch: "topics/transient-berry" };
+
+  test("assigned_topic_id NULL + delivery_branch valido → merged", async () => {
+    const git = fakeGit({
+      ...CLEAN_PRECONDITIONS,
+      "merge --no-ff": { code: 0 },
+      "rev-parse --short": { stdout: "abc1234\n" },
+    });
+    const am = createTaskAutoMerge({
+      resolveTaskMerge: () => null,          // l'agente non c'è più
+      declaredDelivery: () => DECLARED,      // ma la card il ramo lo dichiara
+      runGit: git.run,
+    });
+    const res = await am.tryMerge("t1", "Land in raffica", { branch: DECLARED.branch, commit: null });
+    expect(res.status).toBe("merged");
+    if (res.status === "merged") {
+      expect(res.branch).toBe(DECLARED.branch);
+      expect(res.repoPath).toBe("/repo");
+      // Ramo vivo e ramo consegnato coincidono: niente da segnalare al reviewer.
+      expect(res.deliveryDrift).toBe(null);
+    }
+  });
+
+  test("ramo dichiarato che nel repo non esiste più → 'branch-missing', non 'no-branch'", async () => {
+    const git = fakeGit({
+      "symbolic-ref --short": { stdout: "main\n" },
+      "status --porcelain": { stdout: "" },
+      "rev-list --count": { code: 128, stderr: "fatal: unknown revision" },
+    });
+    const am = createTaskAutoMerge({
+      resolveTaskMerge: () => null,
+      declaredDelivery: () => DECLARED,
+      runGit: git.run,
+    });
+    const res = await am.tryMerge("t1", "x", { branch: DECLARED.branch, commit: null });
+    expect(res.status).toBe("skipped");
+    // Il land davvero impossibile NON lascia la card in Done.
+    if (res.status === "skipped") expect(landFallout(res.code).status).toBe("review");
+  });
+
+  test("ramo POTATO ma commit dentro main: e' atterrato, non e' un land fallito", async () => {
+    // Il difetto, misurato il 12/08 su `d0777424`: dopo un land riuscito il ramo
+    // viene potato. Da quel momento chiudere la card faceva ripartire un land
+    // che non trovava piu' il ramo, rispondeva `branch-missing` e la rimandava in
+    // review. La card non si poteva chiudere, e restava li' a sembrare una
+    // decisione da prendere. Il commit sopravvive al ramo ed e' la prova.
+    const git = fakeGit({
+      "symbolic-ref --short": { stdout: "main\n" },
+      "status --porcelain": { stdout: "" },
+      "rev-list --count": { code: 128, stderr: "fatal: unknown revision" },
+      "merge-base --is-ancestor": { code: 0, stdout: "" },
+    });
+    const am = createTaskAutoMerge({
+      resolveTaskMerge: () => null,
+      declaredDelivery: () => DECLARED,
+      runGit: git.run,
+    });
+    const res = await am.tryMerge("t1", "x", { branch: DECLARED.branch, commit: "c2d20879aaaabbbbccccddddeeeeffff00001111" });
+    expect(res.status).toBe("nothing");
+  });
+
+  test("ramo potato e commit NON su main: resta un land fallito", async () => {
+    // Il controllo del test qui sopra: la prova per commit non deve diventare
+    // «chiudi comunque». Se il contenuto non e' su main, il lavoro e' davvero
+    // fuori e la card deve tornare indietro.
+    const git = fakeGit({
+      "symbolic-ref --short": { stdout: "main\n" },
+      "status --porcelain": { stdout: "" },
+      "rev-list --count": { code: 128, stderr: "fatal: unknown revision" },
+      "merge-base --is-ancestor": { code: 1, stdout: "" },
+    });
+    const am = createTaskAutoMerge({
+      resolveTaskMerge: () => null,
+      declaredDelivery: () => DECLARED,
+      runGit: git.run,
+    });
+    const res = await am.tryMerge("t1", "x", { branch: DECLARED.branch, commit: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef" });
+    expect(res.status).toBe("skipped");
+    if (res.status === "skipped") expect(res.code).toBe("branch-missing");
+  });
+
+  test("niente agente e niente ramo → resta «no-branch», e il messaggio non parla più di worktree inesistenti", async () => {
+    const git = fakeGit({});
+    const am = createTaskAutoMerge({
+      resolveTaskMerge: () => null,
+      declaredDelivery: () => ({ repoPath: "/repo", branch: null }),
+      runGit: git.run,
+    });
+    const res = await am.tryMerge("t1", "x");
+    expect(res.status).toBe("skipped");
+    if (res.status === "skipped") {
+      expect(res.code).toBe("no-branch");
+      expect(landFallout(res.code).status).toBe(null);
+    }
+    expect(git.calls.length).toBe(0);
   });
 });

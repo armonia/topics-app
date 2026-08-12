@@ -3,7 +3,7 @@
  * animated TUI statusline from pinning a session "busy" forever.
  */
 import { describe, test, expect } from "bun:test";
-import { visibleSignature, classifyFrame, isInputEcho, INPUT_ECHO_WINDOW_MS, isResizeRepaint, RESIZE_REPAINT_WINDOW_MS } from "./pty-activity";
+import { visibleSignature, classifyFrame, countsAsActivity, isInputEcho, INPUT_ECHO_WINDOW_MS, isResizeRepaint, RESIZE_REPAINT_WINDOW_MS } from "./pty-activity";
 
 const ESC = "\x1b";
 
@@ -128,5 +128,31 @@ describe("isResizeRepaint", () => {
   test("honours a custom window", () => {
     expect(isResizeRepaint(120, 100)).toBe(false);
     expect(isResizeRepaint(80, 100)).toBe(true);
+  });
+});
+
+describe("countsAsActivity", () => {
+  const none = { baseline: false, cosmetic: false, inputEcho: false, resizeEcho: false };
+
+  test("un frame senza nessuna attenuante è lavoro del processo", () => {
+    expect(countsAsActivity(none)).toBe(true);
+  });
+
+  // Il caso che il riavvio del server crea da sé: `lastVisibleSig` è azzerato,
+  // quindi il ridisegno di una tab riattaccata NON può risultare cosmetico e
+  // passava come lavoro — da lì il `finished` fasullo (banner «Lavoro
+  // completato» su una tab chiusa da giorni) e la revive fasulla dello spinner.
+  test("il primo frame di una riattaccata è baseline, non lavoro", () => {
+    expect(countsAsActivity({ ...none, baseline: true })).toBe(false);
+  });
+
+  test("ognuna delle altre tre attenuanti basta da sola", () => {
+    expect(countsAsActivity({ ...none, cosmetic: true })).toBe(false);
+    expect(countsAsActivity({ ...none, inputEcho: true })).toBe(false);
+    expect(countsAsActivity({ ...none, resizeEcho: true })).toBe(false);
+  });
+
+  test("più attenuanti insieme restano un no", () => {
+    expect(countsAsActivity({ baseline: true, cosmetic: true, inputEcho: true, resizeEcho: true })).toBe(false);
   });
 });

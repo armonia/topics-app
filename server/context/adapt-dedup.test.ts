@@ -235,7 +235,7 @@ describe("comandi built-in della CLI", () => {
     // di un file toglieva tutto il preambolo — su un primo turno, un turno intero
     // senza sapere in che progetto si sta.
     for (const testo of [
-      "/Users/zorahrel/Projects/topics-app/server/context/adapt.ts va rivisto",
+      "/Users/utente/Projects/topics-app/server/context/adapt.ts va rivisto",
       "/tmp da controllare",
       "/etc/hosts",
       "/ ",

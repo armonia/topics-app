@@ -8,34 +8,41 @@
  * project-scoped board API (client/src/lib/board.ts).
  */
 import { useT } from '../../hooks/useT';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { DndContext, DragOverlay, KeyboardSensor, MouseSensor, TouchSensor, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
+import { DndContext, DragOverlay, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
+import { KeyboardSensorGentile, MouseSensorGentile, TouchSensorGentile } from './dndSensors';
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
-import { AlertTriangle, Bot, Check, ChevronDown, ChevronRight, Loader2, Search, Settings, UploadCloud, X } from 'lucide-react';
+import { AlertTriangle, Bot, Check, ChevronDown, ChevronRight, Loader2, Search, Settings, Tag, Target, UploadCloud, X } from 'lucide-react';
 import type { WSMessage } from '../../types';
 import { Menu } from '../Shared/Menu';
 import { ExternalSessionsBadge } from './ExternalSessionsBadge';
 import { useExternalSessions } from '../../hooks/useExternalSessions';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
 import { currentTaskTarget, reflectTaskOpen, reflectTaskClose, subscribePopstateTask } from '../../lib/openTaskLink';
+import { useTaskSessionResolver } from '../../hooks/useTaskSession';
 import {
   boardApi, boardIdForPath, isProjectlessId, TASK_STATUSES, UNASSIGNED_PROJECT_ID,
-  type BoardProjectRef, type BoardTask, type TaskStatus, type BoardSettings,
+  CLOSER_LABELS, KIND_LABELS,
+  type BoardProjectRef, type BoardTask, type TaskStatus, type BoardSettings, type TaskLabel,
   type PublishProject, type DiffBundle, type DispatchCapacity, type GlobalSettings,
 } from '../../lib/board';
 import { groupByStatus, planDrop, type DropPlan, type OrderScope } from '../../lib/boardOrder';
+import { DONE_FLASH_MS, landedInDone, statusSnapshot } from '../../lib/justDone';
+import { scrollDelta } from '../../lib/scrollDelta';
 import { resolveProjectRefs, useBoardProjects } from '../../lib/boardProjectsStore';
 import { ProjectPickerBody } from './ProjectPicker';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { UnifiedDiff } from './UnifiedDiff';
 import { useConfirm } from '../../hooks/useConfirm';
-import { PRIORITY_DOT, PRIORITY_ORDER, PRIORITY_LABEL, type LiveUsage, type OpenTask } from './constants';
+import { CREATED_FLASH_MS, PRIORITY_DOT, PRIORITY_ORDER, PRIORITY_LABEL, type LiveUsage, type OpenTask } from './constants';
 import { boardCollision } from './format';
 import { FloatingTaskComposer } from './FloatingTaskComposer';
 import { Column } from './Card';
 import { TaskDetail, BoardSettingsPanel } from './TaskDetail';
 import { POPOVER_ITEM } from '@/lib/popoverStyles';
+import { MISSIONS, type Mission } from '../../lib/missions';
+import { useDevInstall } from '../../hooks/useDevInstall';
 
 interface Props {
   /** Absent in the global ('Board generale') pane — there is no single project. */
@@ -45,6 +52,15 @@ interface Props {
   onMessage?: (handler: (msg: WSMessage) => void) => () => void;
   /** Deep-link a task's bound agent tab into focus (wired to handleTopicClick). */
   onOpenTopic?: (topicId: string) => void;
+  /**
+   * Consegna una MISSIONE alla sessione laterale del progetto: apre la chat
+   * accanto alla board e le mette il testo davanti. Restituisce il motivo per
+   * cui non si è potuto fare, o `null` se è andata.
+   *
+   * Assente = niente missioni: la board generale non ha UN progetto di cui
+   * parlare, e senza quello la sessione laterale non esiste.
+   */
+  onStartMission?: (mission: Mission) => string | null;
 }
 
 /** Publish control: lists projects with unpushed commits on their current branch
@@ -169,15 +185,159 @@ function PublishControl() {
   );
 }
 
-/** Visible overload signal in the board header. The dispatch cap is advisory
- *  when set to a fixed number (a human can knowingly run more agents than the
- *  machine recommends) — but the only place that recommendation lived was the
- *  /api/system/dispatch-capacity JSON and the settings popover. This surfaces it
- *  where the human already is: a pill that lights up when the 1-min load average
- *  approaches/exceeds the core count. It never blocks dispatch — it just makes
- *  "the box is on its knees" impossible to miss. Polls every 15s (cheap probe). */
-function OverloadBadge() {
+/**
+ * «NON SU MAIN» — accanto a Pubblica, perché parla della stessa cosa.
+ *
+ * Due cambi rispetto a prima, e sono lo stesso ragionamento:
+ *
+ * 1. **Sta accanto a «Pubblica».** Pubblica ha già il suo contatore ambra e
+ *    dice «lavoro che non è ancora uscito»; questo dice «lavoro che non è
+ *    nemmeno arrivato su main». Sono i due gradini della stessa scala, e
+ *    tenerli a due estremi opposti della barra li faceva leggere come due
+ *    allarmi scollegati.
+ * 2. **Il click apre l'ELENCO, non il primo della lista.** Saltare al primo
+ *    task è un gesto strano quando ce ne sono sei: non c'è modo di vederli come
+ *    INSIEME, che è esattamente la domanda che si fa chi legge il numero
+ *    («quali?»). L'elenco risponde, e da lì si apre quello che si vuole.
+ */
+function UnlandedControl({ tasks, onOpen }: { tasks: BoardTask[]; onOpen: (id: string) => void }) {
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
+  if (tasks.length === 0) return null;
+  return (
+    <>
+      <button
+        ref={btnRef}
+        onClick={() => setOpen((o) => !o)}
+        data-testid="unlanded-badge"
+        /* h-6 come i chip dei filtri: 24px è il minimo WCAG 2.2 AA per un
+           bersaglio, ed è quanto una riga di 36px può dare. */
+        className="flex h-6 items-center gap-1 rounded bg-rose-500/20 px-2 text-[11px] font-medium text-rose-300 hover:bg-rose-500/30"
+      ><AlertTriangle className="h-3 w-3 shrink-0" /> {tasks.length} non su main</button>
+      <Menu open={open} anchorRef={btnRef} onClose={() => setOpen(false)} minWidth={320}>
+        <div className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">
+          Task chiusi, lavoro non su main
+        </div>
+        {tasks.map((t) => (
+          <button
+            key={t.id}
+            data-testid="unlanded-item"
+            onClick={() => { setOpen(false); onOpen(t.id); }}
+            className={`${POPOVER_ITEM} !items-start`}
+          >
+            <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${PRIORITY_DOT[t.priority] ?? PRIORITY_DOT[2]}`} />
+            <span className="min-w-0 flex-1 truncate text-left">{t.text}</span>
+          </button>
+        ))}
+        <p className="border-t border-app-border px-3 py-1.5 text-[11px] leading-snug text-app-text-muted">
+          Chiusi, ma la loro consegna non risulta su main. Aprine uno per landarlo, o per scoprire perché quel lavoro non c'è.
+        </p>
+      </Menu>
+    </>
+  );
+}
+
+/**
+ * LE CARTELLE DI LAVORO — il numero che diceva soltanto sé stesso.
+ *
+ * Era un `<span>` con dentro «7 worktree» e la spiegazione nel `title`: un
+ * numero nudo in una barra non dice di cosa è, e «worktree» è una parola che
+ * chi guarda la board non ha nessun motivo di conoscere. Qui diventa un
+ * comando: l'etichetta dice la cosa in italiano, e il click apre l'unico posto
+ * che risponde alle due domande vere — che cosa sono, e come si liberano.
+ *
+ * Dentro ci sta anche il GC («Pulisci landati») col suo esito, che prima erano
+ * due elementi in più IN BARRA, sempre presenti, per un'azione che si fa una
+ * volta ogni tanto. La barra ci guadagna lo spazio, e la spiegazione ci
+ * guadagna il posto giusto: accanto al bottone che la mette in pratica.
+ *
+ * I due accumuli restano DUE numeri distinti, ed è il punto: un branch landato
+ * libera la sua cartella, ma una cartella tenuta perché il task è ancora aperto
+ * non ha nessun branch da landare. Con un numero solo non si capisce quale dei
+ * due sta crescendo — ed è cresciuto in silenzio fino a ~40 cartelle il 21/07.
+ */
+function WorktreeControl({ count, branches, gcRunning, gcResult, onGc }: {
+  count: number;
+  branches: { total: number; orphan: number; onOpenTasks: number } | null;
+  gcRunning: boolean;
+  gcResult: string | null;
+  onGc: () => void;
+}) {
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
+  if (count === 0) return null;
+  const orphan = branches?.orphan ?? 0;
+  return (
+    <>
+      <button
+        ref={btnRef}
+        onClick={() => setOpen((o) => !o)}
+        data-testid="worktree-count-badge"
+        className={`flex h-6 items-center gap-1 rounded px-2 text-[11px] ${orphan > 0
+          ? 'bg-amber-500/15 text-amber-300 hover:bg-amber-500/25'
+          : 'bg-white/10 text-app-text-secondary hover:bg-white/20'}`}
+      >{count} cartelle di lavoro{orphan > 0 && <span className="tabular-nums">· {orphan} rami orfani</span>}</button>
+      <Menu open={open} anchorRef={btnRef} onClose={() => setOpen(false)} minWidth={320}>
+        <div className="space-y-1.5 px-3 py-2.5 text-[11px] leading-snug text-app-text-secondary">
+          <p className="text-[12px] font-medium text-app-text-heading">{count} cartelle di lavoro aperte</p>
+          <p>Ogni task dispacciato lavora su una COPIA del repo, in una cartella sua (un <span className="font-mono">git worktree</span>). Resta lì finché il lavoro non è su main o il task non è chiuso.</p>
+          {branches && branches.total > 0 && (
+            <p data-testid="worktree-branches-line">
+              Accanto ci sono <span className="text-app-text-heading">{branches.total} rami</span> non su main:
+              {branches.orphan > 0 && <> <span className="text-amber-300">{branches.orphan}</span> non li reclama nessun task, e quel lavoro non lo riprenderà nessuno;</>}
+              {branches.onOpenTasks > 0 && <> {branches.onOpenTasks} sono di task ancora aperti: quel lavoro esiste già.</>}
+            </p>
+          )}
+          <p className="text-app-text-muted">Sono due accumuli diversi: un ramo landato libera la sua cartella, una cartella tenuta per un task aperto non ha niente da landare.</p>
+        </div>
+        <div className="flex items-center gap-2 border-t border-app-border px-3 py-2">
+          <button
+            onClick={onGc}
+            disabled={gcRunning}
+            className="shrink-0 rounded bg-white/10 px-2 py-1 text-[11px] text-app-text-secondary hover:bg-white/20 disabled:opacity-50"
+            data-testid="worktree-gc-button"
+          >{gcRunning ? 'Pulisco…' : 'Pulisci landati'}</button>
+          <span className="text-[10px] leading-snug text-app-text-muted">
+            Anticipa la passata automatica dei 30 minuti. Ripulisce SOLO ciò che è provabilmente sicuro: la stessa regola, non una più aggressiva.
+          </span>
+        </div>
+        {gcResult && (
+          <p className="border-t border-app-border px-3 py-1.5 text-[11px] leading-snug text-app-text-secondary" data-testid="worktree-gc-result">{gcResult}</p>
+        )}
+      </Menu>
+    </>
+  );
+}
+
+/**
+ * IL CARICO, DETTO COME UNA FRASE.
+ *
+ * La versione precedente diceva «Carico critico · max 1», e nessuna delle due
+ * metà si spiegava da sola: «carico critico» è un fatto sulla macchina che non
+ * chiede niente a chi legge, e «max 1» sembra un LIMITE imposto mentre è un
+ * CONSIGLIO — due cose molto diverse per chi le legge in una barra. La
+ * spiegazione c'era, ma stava nel `title`: su un telefono non esiste, e col
+ * mouse va cercata. Un tooltip non è una spiegazione.
+ *
+ * Quindi due regole:
+ *
+ * 1. **Compare solo quando c'è qualcosa da fare.** Il chip vive sullo SCARTO
+ *    fra gli agent che stanno girando (`running`, dal dispatcher) e quelli che
+ *    la macchina regge adesso (`recommended`). Scarto ≤ 0 → niente chip, anche
+ *    con la macchina in ginocchio: se non c'è niente da fermare, un allarme è
+ *    solo rumore. È anche il motivo per cui `running` è stato aggiunto alla
+ *    capacità: senza, «max N» non poteva sapere se c'era uno scarto.
+ * 2. **Quello che si vede è già l'azione.** «Meglio fermare N agent», non un
+ *    aggettivo. Il dettaglio (load, core, perché) sta nel popover, che è
+ *    apribile col dito — e dice a chiare lettere che è un consiglio e non un
+ *    tetto.
+ *
+ * Sonda ogni 15s (probe da poco).
+ */
+function LoadAdviceChip() {
   const [cap, setCap] = useState<DispatchCapacity | null>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
   useEffect(() => {
     let alive = true;
     const tick = () => boardApi.dispatchCapacity().then((c) => { if (alive) setCap(c); }).catch(() => { /* optional */ });
@@ -186,22 +346,86 @@ function OverloadBadge() {
     return () => { alive = false; clearInterval(id); };
   }, []);
   if (!cap) return null;
+  const over = (cap.running ?? 0) - cap.recommended;
+  if (over <= 0) return null; // niente da fermare → niente chip
   // load1 vs cores is the honest live saturation signal (see dispatch-capacity.ts).
   const ratio = cap.cores > 0 ? cap.load1 / cap.cores : 0;
-  if (ratio < 0.9) return null; // healthy — say nothing
-  const severe = ratio >= 1.3;
+  const severe = ratio >= 1.3 || over >= 2;
   const cls = severe
-    ? 'bg-rose-500/15 text-rose-300 ring-1 ring-rose-500/30'
-    : 'bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/30';
+    ? 'bg-rose-500/15 text-rose-300 ring-1 ring-rose-500/30 hover:bg-rose-500/25'
+    : 'bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/30 hover:bg-amber-500/25';
   return (
-    <span
-      className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium tabular-nums ${cls}`}
-      title={`Load ${cap.load1.toFixed(1)} su ${cap.cores} core — la macchina è sotto carico. Consigliati ${cap.recommended} agent in parallelo${severe ? '. Valuta se fermare qualche agente.' : '.'}`}
-    >
-      <AlertTriangle className="h-3 w-3" />
-      {severe ? 'Carico critico' : 'Carico alto'}
-      <span className="text-app-text-muted">· max {cap.recommended}</span>
-    </span>
+    <>
+      <button
+        ref={btnRef}
+        onClick={() => setOpen((o) => !o)}
+        data-testid="load-advice-chip"
+        className={`flex h-6 items-center gap-1 rounded px-2 text-[11px] font-medium ${cls}`}
+      >
+        <AlertTriangle className="h-3 w-3 shrink-0" />
+        Macchina carica: meglio fermare {over} agent
+      </button>
+      <Menu open={open} anchorRef={btnRef} onClose={() => setOpen(false)} minWidth={288}>
+        <div className="space-y-1.5 px-3 py-2.5 text-[11px] leading-snug text-app-text-secondary">
+          <p className="text-[12px] font-medium text-app-text-heading">
+            {cap.running} agent al lavoro, ne reggo {cap.recommended}
+          </p>
+          <p>Load {cap.load1.toFixed(1)} su {cap.cores} core: la macchina è satura, e ogni agent in più rallenta anche gli altri.</p>
+          <p className="text-app-text-muted">{cap.reason}</p>
+          <p>È un <span className="text-app-text-heading">consiglio</span>, non un tetto: puoi lasciarli girare tutti. Il tetto vero è quello del menu qui accanto.</p>
+        </div>
+      </Menu>
+    </>
+  );
+}
+
+/**
+ * LE MISSIONI — l'unico comando che la board ha verso la sessione laterale.
+ *
+ * Tre cose, e sono tutte deliberate:
+ *
+ * 1. **Non è una superficie sulla board.** È un bottone che apre un menu e
+ *    consegna il testo a una chat di progetto NORMALE, quella che c'è già. La
+ *    versione precedente (5f39a2c1) faceva l'opposto — un chip dentro il
+ *    composer, cioè dentro il punto da cui nasce ogni card, che cambiava il
+ *    significato dell'intera riga — ed è il motivo per cui è stata bocciata.
+ * 2. **Fuori dallo sviluppo non esiste** (`useDevInstall`): non è nascosto, non
+ *    è disabilitato, non è renderizzato. Chi usa Topics per lavorare non deve
+ *    trovarsi un pannello di governo della sua board.
+ * 3. **La barra si legge PRIMA di scegliere** (`doneWhen` sotto ogni nome): è
+ *    ciò che distingue una missione da un prompt, e metterla solo dentro il
+ *    testo vorrebbe dire sceglierla senza sapere quando finisce.
+ */
+function MissionsMenu({ onStart }: { onStart: (m: Mission) => void }) {
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button
+        ref={btnRef}
+        onClick={() => setOpen((o) => !o)}
+        data-testid="missions-button"
+        title="Missioni: compiti in più per la sessione di progetto, accanto alla board. Il testo arriva nel suo composer: a mandarlo sei tu."
+        className={`flex items-center gap-1 rounded px-2 py-0.5 text-[11px] ${open ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/10'}`}
+      ><Target className="h-3 w-3 shrink-0" /><span className="hidden sm:inline">Missioni</span></button>
+      <Menu open={open} anchorRef={btnRef} onClose={() => setOpen(false)} minWidth={330}>
+        <div className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">
+          Alla sessione di progetto, accanto alla board
+        </div>
+        {MISSIONS.map((m) => (
+          <button
+            key={m.id}
+            data-testid={`mission-${m.id}`}
+            onClick={() => { setOpen(false); onStart(m); }}
+            className={`${POPOVER_ITEM} flex-col !items-start gap-0.5 py-1.5`}
+          >
+            <span className="font-medium text-app-text">{m.name}</span>
+            <span className="text-[11px] leading-snug text-app-text-secondary">{m.summary}</span>
+            <span className="text-[11px] leading-snug text-app-text-muted">finita quando: {m.doneWhen}</span>
+          </button>
+        ))}
+      </Menu>
+    </>
   );
 }
 
@@ -257,14 +481,14 @@ function GlobalSettingsMenu({ onMessage }: { onMessage?: (handler: (msg: WSMessa
       <button
         ref={btnRef}
         onClick={() => { setOpen((o) => !o); if (!open) load(); }}
-        title="Impostazioni dispatch — globali (tutte le board)"
+        title="Impostazioni dispatch, globali (tutte le board)"
         className={`-ml-1 flex items-center bg-transparent p-0 ${open ? 'text-app-text' : 'text-app-text-muted hover:text-app-text-heading'}`}
       ><ChevronDown className={`h-3 w-3 transition-transform ${open ? 'rotate-180' : ''}`} /></button>
       <Menu open={open} anchorRef={btnRef} onClose={() => setOpen(false)} minWidth={288} unmanagedFocus>
         <div className="space-y-2.5 px-3 py-2.5 text-xs text-app-text-heading">
           <p className="text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.dispatch.allBoards')}</p>
           <label className="flex cursor-pointer items-center justify-between gap-3">
-            <span className="flex items-center gap-1.5"><Bot className="h-3.5 w-3.5 text-app-text-secondary" /> Auto-dispatch</span>
+            <span className="flex items-center gap-1.5"><Bot className="h-3.5 w-3.5 text-app-text-secondary" /> {tr('board.settings.autoDispatch')}</span>
             <input type="checkbox" checked={!!g?.autoDispatch} onChange={(e) => toggleAuto(e.target.checked)} className="h-3.5 w-3.5 accent-emerald-500" />
           </label>
           <div className="space-y-1 border-t border-app-border-subtle pt-2">
@@ -274,7 +498,7 @@ function GlobalSettingsMenu({ onMessage }: { onMessage?: (handler: (msg: WSMessa
             </label>
             {g?.maxAgentsAuto ? (
               <p className="text-[11px] leading-snug text-app-text-muted">
-                <b className="text-emerald-300">{cap ? cap.recommended : '…'}</b> agent in parallelo su tutta la macchina{cap && <span className="text-app-text-faint"> — {cap.reason}</span>}
+                <b className="text-emerald-300">{cap ? cap.recommended : '…'}</b> agent in parallelo su tutta la macchina{cap && <span className="text-app-text-faint"> · {cap.reason}</span>}
               </p>
             ) : (
               <label className="flex items-center justify-between gap-3">
@@ -294,9 +518,13 @@ function GlobalSettingsMenu({ onMessage }: { onMessage?: (handler: (msg: WSMessa
   );
 }
 
+interface BoardFilters {
+  priority: number[]; assignedTo: string[]; text: string; projectId: string[]; labels: TaskLabel[];
+}
+
 interface FilterPanelProps {
-  filters: { priority: number[]; assignedTo: string[]; text: string; projectId: string[] };
-  onFiltersChange: (filters: { priority: number[]; assignedTo: string[]; text: string; projectId: string[] }) => void;
+  filters: BoardFilters;
+  onFiltersChange: (filters: BoardFilters) => void;
   tasks: BoardTask[];
   mode: 'project' | 'all';
 }
@@ -331,6 +559,8 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
   const [prioOpen, setPrioOpen] = useState(false);
   const [asgOpen, setAsgOpen] = useState(false);
   const [projOpen, setProjOpen] = useState(false);
+  const lblBtnRef = useRef<HTMLButtonElement>(null);
+  const [lblOpen, setLblOpen] = useState(false);
 
   const togglePriority = (p: number) => {
     const updated = filters.priority.includes(p)
@@ -344,7 +574,11 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
       : [...filters.assignedTo, a];
     onFiltersChange({ ...filters, assignedTo: updated });
   };
-  const reset = () => onFiltersChange({ priority: [], assignedTo: [], text: '', projectId: [] });
+  const toggleLabel = (l: TaskLabel) => {
+    const updated = filters.labels.includes(l) ? filters.labels.filter((x) => x !== l) : [...filters.labels, l];
+    onFiltersChange({ ...filters, labels: updated });
+  };
+  const reset = () => onFiltersChange({ priority: [], assignedTo: [], text: '', projectId: [], labels: [] });
 
   const assignees = Array.from(new Set(tasks.map((t) => t.assignedTo).filter(Boolean) as string[])).sort();
 
@@ -402,7 +636,62 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
   );
   const soleProject = pickedProjects.length === 1 ? pickedProjects[0]! : null;
 
-  const anyActive = filters.priority.length + filters.assignedTo.length + filters.projectId.length + (filters.text ? 1 : 0) > 0;
+  const anyActive = filters.priority.length + filters.assignedTo.length + filters.projectId.length + filters.labels.length + (filters.text ? 1 : 0) > 0;
+
+  // ── I PROGETTI NELLO SPAZIO CHE AVANZA ────────────────────────────────────
+  //
+  // Il menu resta la porta canonica (ha la ricerca, e regge cento progetti),
+  // ma finché nella riga c'è larghezza libera i progetti stanno FUORI, come
+  // filtri a un click. La regola è che la barra non si deforma mai per farceli
+  // stare: niente a capo (spingerebbe giù la board), niente compressione fino
+  // all'illeggibile. Chi non entra torna dietro il chip «Progetto».
+  //
+  // Il conto si fa sulla geometria vera, non su una stima di caratteri: i chip
+  // sono TUTTI renderizzati in una riga `nowrap` dentro un contenitore che
+  // occupa lo spazio residuo, e quelli il cui bordo destro cade oltre il bordo
+  // del contenitore diventano `invisible`. Due proprietà, ed è per questo che
+  // il modo è questo:
+  //   · `visibility:hidden` tiene la posizione, quindi le misure dei chip
+  //     precedenti non cambiano quando l'ultimo sparisce — nessun ciclo in cui
+  //     nascondere un chip libera lo spazio che lo rifà comparire.
+  //   · il contenitore ha `min-w-0` + `overflow-hidden`, quindi la sua larghezza
+  //     MINIMA è zero: quando la riga è affollata collassa a 0, nessun chip
+  //     entra, e non allarga la barra di un pixel. È lo stesso motivo per cui
+  //     un chip a metà non si vede mai: sotto il taglio è invisibile, non
+  //     tagliato.
+  //   · la riga dei chip è ASSOLUTA (`w-max`), e questo non è un dettaglio di
+  //     stile: un figlio in flusso con `basis-0` contribuisce lo stesso la sua
+  //     larghezza MAX-CONTENT al calcolo intrinseco del genitore, e il genitore
+  //     qui sta dentro una barra che scorre. Misurato: con la riga in flusso, a
+  //     1000px la barra eccedeva di 243px — cioè i chip si prendevano lo spazio
+  //     invece di aspettare quello che avanza, ed è esattamente il difetto che
+  //     questa striscia esiste per non avere. Fuori flusso contribuisce zero, e
+  //     la striscia riceve SOLO ciò che resta.
+  const stripRef = useRef<HTMLDivElement>(null);
+  const stripRowRef = useRef<HTMLDivElement>(null);
+  const [inlineProjects, setInlineProjects] = useState(0);
+  useLayoutEffect(() => {
+    const strip = stripRef.current;
+    if (!showProjects || !strip) { setInlineProjects(0); return; }
+    const measure = () => {
+      const row = stripRowRef.current;
+      if (!row) return;
+      const avail = strip.clientWidth;
+      let fit = 0;
+      for (const child of Array.from(row.children) as HTMLElement[]) {
+        // +0.5: le larghezze sono frazionarie, e un mezzo pixel di
+        // arrotondamento non è un chip che non ci sta.
+        if (child.offsetLeft + child.offsetWidth <= avail + 0.5) fit++;
+        else break;
+      }
+      setInlineProjects((n) => (n === fit ? n : fit));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(strip);
+    ro.observe(stripRowRef.current!);
+    return () => ro.disconnect();
+  }, [showProjects, projectOptions]);
 
   // Same chip look the composer uses for its model/priority/project pickers.
   // Explicit h-6 (not py-*) so the search <input> — which renders taller from
@@ -414,10 +703,15 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
   const menuHeader = 'px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted';
 
   return (
-    <div className="flex min-w-0 items-center gap-1.5">
+    /* `grow` e NON `flex-1`: la riga dei filtri deve arrivare fino al gruppo di
+       destra quando c'è spazio, ma la sua base resta il CONTENUTO. Con
+       `flex-1` (base 0) una barra affollata la calcolava larga zero e i suoi
+       stessi chip finivano a disegnarsi sopra i comandi accanto — la striscia
+       dei progetti si guadagnava lo spazio togliendolo ai filtri veri. */
+    <div className="flex min-w-0 grow items-center gap-1.5">
       {/* Search — always visible */}
       <div className="relative">
-        <Search className="pointer-events-none absolute left-1.5 top-1/2 h-3 w-3 -translate-y-1/2 text-app-text-muted" />
+        <Search className="pointer-events-none absolute left-1.5 top-1/2 h-3 w-3 -translate-y-1/2 text-app-text-secondary" />
         <input
           value={filters.text}
           onChange={(e) => onFiltersChange({ ...filters, text: e.target.value })}
@@ -490,24 +784,92 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
         </>
       )}
 
+      {/* Etichette — chip + Menu. Il caso d'uso che le ha fatte nascere si
+          compone qui: «visibile» acceso mentre si guarda la colonna Review è
+          esattamente la lista che un umano deve guardare. */}
+      <button
+        ref={lblBtnRef} onClick={() => setLblOpen(true)}
+        data-testid="filter-labels-chip"
+        title="Filtra per etichetta"
+        className={chip(filters.labels.length > 0)}
+      >
+        <Tag className="h-3 w-3 shrink-0" />
+        {filters.labels.length === 1 ? filters.labels[0] : 'Etichette'}
+        {filters.labels.length > 1 && <span className="tabular-nums text-app-text-secondary">·{filters.labels.length}</span>}
+        <ChevronDown className="h-3 w-3 text-app-text-muted" />
+      </button>
+      <Menu open={lblOpen} anchorRef={lblBtnRef} onClose={() => setLblOpen(false)} minWidth={200} role="listbox">
+        <p className={menuHeader}>Chi la chiude</p>
+        {CLOSER_LABELS.map((l) => (
+          <FilterOption
+            key={l} selected={filters.labels.includes(l)} onClick={() => toggleLabel(l)} label={l}
+            title={l === 'visibile'
+              ? 'Tocca client/src: la guarda un umano prima di chiuderla'
+              : l === 'decisione'
+                ? 'Un piano, una ricerca, un documento, o nessun codice: la decide un umano, sempre'
+                : 'Non tocca niente che si veda: con la barra verde la chiude il conduttore'}
+          />
+        ))}
+        <p className={menuHeader}>Genere</p>
+        {KIND_LABELS.map((l) => (
+          <FilterOption key={l} selected={filters.labels.includes(l)} onClick={() => toggleLabel(l)} label={l} />
+        ))}
+      </Menu>
+
       {/* Reset — only when something is active */}
       {anyActive && (
         <button onClick={reset} title="Resetta filtri" className="rounded p-0.5 text-app-text-muted hover:bg-white/10 hover:text-app-text">
           <X className="h-3 w-3" />
         </button>
       )}
+
+      {/* I PROGETTI NELLO SPAZIO CHE AVANZA — vedi `useLayoutEffect` sopra. */}
+      {showProjects && (
+        <div ref={stripRef} className="relative ml-1.5 h-6 min-w-0 grow basis-0 overflow-hidden" data-testid="project-filter-strip">
+          <div ref={stripRowRef} className="absolute inset-y-0 left-0 flex w-max flex-nowrap items-center gap-1.5 [&>*]:shrink-0">
+            {projectOptions.map((p, i) => {
+              const on = selectedProjectIds.includes(p.projectId);
+              const shown = i < inlineProjects;
+              return (
+                <button
+                  key={p.projectId}
+                  onClick={() => toggleProject(p)}
+                  aria-hidden={!shown}
+                  tabIndex={shown ? 0 : -1}
+                  data-testid={`project-filter-chip-${p.projectId}`}
+                  title={`Filtra per ${p.name}`}
+                  className={`${chip(on)} max-w-[10rem] ${shown ? '' : 'invisible'}`}
+                >
+                  {p.path ? <ProjectFavicon path={p.path} size={12} /> : <span className="h-1.5 w-1.5 shrink-0 rounded-full border border-app-text-faint" />}
+                  <span className="min-w-0 truncate">{p.name}</span>
+                  {on && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpenTopic }: Props) {
+export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpenTopic, onStartMission }: Props) {
   const projectId = useMemo(() => (projectPath ? boardIdForPath(projectPath) : ''), [projectPath]);
   // The project/all toggle only makes sense inside a project window. The global
   // pane has no project, so it locks to 'all'.
   const canToggle = !!projectPath && !global;
+  // La scheda del task esiste sempre; la SESSIONE dell'agente no. Risolto una
+  // volta qui e distribuito già deciso a card e drawer, così nessuno dei due
+  // deve iscriversi all'indice dei topic. Vedi `lib/taskSession.ts`.
+  const resolveSession = useTaskSessionResolver();
   // Per-board dispatch settings only exist for a single project (the global board
   // aggregates many), so the gear only shows inside a project window.
   const hasProject = !!projectPath && !global;
+  // Le missioni sono una superficie interna: esistono solo in un'installazione
+  // di sviluppo, e solo dentro un progetto (la board generale non ha UNA
+  // sessione laterale di cui parlare).
+  const devInstall = useDevInstall();
+  const canRunMissions = hasProject && devInstall && !!onStartMission;
   // 'project' = this project only · 'all' = the global cross-project board.
   const [mode, setMode] = useState<'project' | 'all'>(canToggle ? 'project' : 'all');
   const [tasks, setTasks] = useState<BoardTask[]>([]);
@@ -597,13 +959,19 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
     assignedTo: string[];
     text: string;
     projectId: string[];
+    /** Etichette in AND — «solo le visibili in review» è questo più la colonna. */
+    labels: TaskLabel[];
   }
   const storageKey = `board:filters-${mode === 'all' ? 'all' : projectId}`;
   const [filters, setFilters] = useState<Filters>(() => {
     try {
       const stored = localStorage.getItem(storageKey);
-      return stored ? JSON.parse(stored) : { priority: [], assignedTo: [], text: '', projectId: [] };
-    } catch { return { priority: [], assignedTo: [], text: '', projectId: [] }; }
+      // `labels` è arrivato dopo: un filtro salvato da una versione precedente
+      // non ce l'ha, e senza il default `filters.labels.length` esploderebbe al
+      // primo render su ogni board già usata.
+      const parsed = stored ? JSON.parse(stored) : null;
+      return { priority: [], assignedTo: [], text: '', projectId: [], labels: [], ...(parsed ?? {}) };
+    } catch { return { priority: [], assignedTo: [], text: '', projectId: [], labels: [] }; }
   });
   useEffect(() => {
     try { localStorage.setItem(storageKey, JSON.stringify(filters)); } catch { /* private mode */ }
@@ -645,6 +1013,57 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
 
   useEffect(() => { setLoading(true); refetch(); }, [refetch]);
 
+  // ── Un task appena NATO ────────────────────────────────────────────────────
+  // Scrivevi nel composer, quello si svuotava, e la card atterrava in fondo a
+  // una colonna che spesso non stavi guardando: nessun modo di sapere QUALE
+  // card fosse, né se ce ne fosse una. Due segnali distinti, e apposta con due
+  // regole diverse:
+  //
+  //  · il LAMPO risponde a «è nato un task»: vale per chiunque l'abbia creato,
+  //    quindi la sorgente è l'evento WS `task:created` — anche quando arriva da
+  //    un agent o dall'MCP, su un'altra macchina.
+  //  · lo SCORRIMENTO risponde a «l'ho appena scritto io»: muove la board sotto
+  //    gli occhi di chi guarda, e farlo per una creazione altrui vorrebbe dire
+  //    strappargli via la colonna che stava leggendo. Quindi lo arma SOLO il
+  //    ritorno della POST fatta da questo client, mai il broadcast.
+  //
+  // Il broadcast torna indietro anche a chi ha creato: `flashCreated` è
+  // idempotente finché il lampo è acceso, così l'eco non riarma il timer e non
+  // allunga la durata.
+  const [justCreated, setJustCreated] = useState<Set<string>>(() => new Set());
+  const createdFlashTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const flashCreated = useCallback((id: string) => {
+    if (createdFlashTimers.current.has(id)) return; // già acceso: non riarmare
+    setJustCreated((prev) => {
+      if (prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+    createdFlashTimers.current.set(id, setTimeout(() => {
+      createdFlashTimers.current.delete(id);
+      setJustCreated((prev) => {
+        if (!prev.has(id)) return prev;
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    }, CREATED_FLASH_MS));
+  }, []);
+  // Smontando la pane a lampo acceso i timer resterebbero appesi a chiamare un
+  // setState su un componente che non c'è più.
+  useEffect(() => {
+    const timers = createdFlashTimers.current;
+    return () => { for (const t of timers.values()) clearTimeout(t); timers.clear(); };
+  }, []);
+  /** La card che questo client vuole vedere: creata QUI, non ancora inquadrata. */
+  const [scrollTarget, setScrollTarget] = useState<string | null>(null);
+  /** Creazione partita da questa finestra: lampo + la board ci va sopra. */
+  const onCreatedHere = useCallback((taskId?: string) => {
+    if (taskId) { flashCreated(taskId); setScrollTarget(taskId); }
+    refetch();
+  }, [flashCreated, refetch]);
+
   // Live updates. In 'all' mode any task event is relevant; in 'project' mode
   // only events for this project (or project-less broadcasts) trigger a refetch.
   // board:settings keeps the header pill honest when another client toggles it.
@@ -657,6 +1076,12 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
   // fed by `task:usage-live` and dropped when the turn ends. Drives the ticking
   // chip on working cards; the persisted agent_ms/agent_tokens take over after.
   const [liveUsage, setLiveUsage] = useState<Map<string, LiveUsage>>(new Map());
+  // «Questo task aspetta TE», mentre il turno e' ancora vivo: un pannello di
+  // domanda o un permesso aperti a meta' turno. Transitorio come liveUsage, e
+  // per una ragione in piu': l'attesa vive nelle mappe in memoria del server, e
+  // a server riavviato NON esiste piu'. Persisterla in dispatch_state la farebbe
+  // sopravvivere a cio' che la sostiene — ed e' gia' costata un task congelato.
+  const [awaitingHuman, setAwaitingHuman] = useState<Set<string>>(new Set());
   const draggingRef = useRef(false);
   const pendingRefetch = useRef(false);
   const safeRefetch = useCallback(() => {
@@ -667,9 +1092,18 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
     if (!onMessage) return;
     return onMessage((msg) => {
       const m = msg as { type?: string; projectId?: string; settings?: BoardSettings; autoDispatch?: boolean; task?: BoardTask;
-        taskId?: string; turnStartedAt?: number; baseMs?: number; liveTokens?: number; model?: string | null };
+        taskId?: string; turnStartedAt?: number; baseMs?: number; liveTokens?: number; model?: string | null;
+        waiting?: boolean };
       if (m.type === 'task:created' || m.type === 'task:updated' || m.type === 'task:deleted') {
         if (mode === 'all' || m.projectId === undefined || m.projectId === projectId) safeRefetch();
+        // Il lampo è il segnale «è nato un task», e non ha un autore
+        // privilegiato: qui passano anche le creazioni remote (agent, MCP, un
+        // altro device), che sono proprio quelle che altrimenti comparirebbero
+        // in silenzio. L'eco della propria POST rientra da qui ed è innocua.
+        if (m.type === 'task:created' && typeof m.task?.id === 'string'
+          && (mode === 'all' || m.projectId === undefined || m.projectId === projectId)) {
+          flashCreated(m.task.id);
+        }
         // A turn that ended (or a task that left 'working') drops its live chip;
         // the refetched task then carries the final agent_ms/agent_tokens.
         if (m.task && m.task.dispatchState !== 'working') {
@@ -686,11 +1120,30 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
           return n;
         });
       }
+      if (m.type === 'task:awaiting-human' && typeof m.taskId === 'string'
+        && (mode === 'all' || m.projectId === undefined || m.projectId === projectId)) {
+        setAwaitingHuman((prev) => {
+          const has = prev.has(m.taskId!);
+          if (m.waiting === has) return prev; // nessun cambio: niente re-render
+          const n = new Set(prev);
+          if (m.waiting) n.add(m.taskId!); else n.delete(m.taskId!);
+          return n;
+        });
+      }
       if (m.type === 'board:settings' && m.projectId === projectId && m.settings) setSettings(m.settings);
       // Global switch flipped anywhere (any board, any client) → this pill too.
-      if (m.type === 'board:dispatch' && typeof m.autoDispatch === 'boolean') setDispatchOn(m.autoDispatch);
+      // E anche le CARD: da quando ognuna porta la ragione per cui è ferma
+      // (`queueReason`, risolta dal server), l'interruttore è un ingrediente di
+      // quella frase. Senza il refetch le card resterebbero a «ferma · dispatch
+      // spento» dopo che l'hai riacceso — nessuna riga di task è cambiata,
+      // quindi nessun `task:updated` arriva a correggerle, e la board direbbe
+      // una bugia proprio nell'istante in cui la guardi per vedere l'effetto.
+      if (m.type === 'board:dispatch' && typeof m.autoDispatch === 'boolean') {
+        setDispatchOn(m.autoDispatch);
+        safeRefetch();
+      }
     });
-  }, [onMessage, projectId, safeRefetch, mode]);
+  }, [onMessage, projectId, safeRefetch, mode, flashCreated]);
 
   // Wake-up refresh: a window coming back from sleep/background has yesterday's
   // board (WS events happened while it slept) — and the live "ci sta mettendo"
@@ -716,12 +1169,13 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
 
   // Quanti CHECKOUT vivi tiene questo progetto.
   //
-  // Il chip «non su main» accanto conta i BRANCH non landati; questo conta le
-  // cartelle. Sono due accumuli diversi e si spostano separatamente: un branch
-  // landato libera il suo worktree, ma un worktree tenuto perche' il task e'
-  // ancora aperto non ha nessun branch da landare. Con un numero solo non si
-  // capisce quale dei due sta crescendo — ed e' cresciuto in silenzio fino a
-  // ~40 worktree il 21/07.
+  // Il chip «non su main» (accanto a Pubblica) conta i BRANCH non landati;
+  // questo conta le cartelle. Sono due accumuli diversi e si spostano
+  // separatamente: un branch landato libera il suo worktree, ma un worktree
+  // tenuto perche' il task e' ancora aperto non ha nessun branch da landare.
+  // Con un numero solo non si capisce quale dei due sta crescendo — ed e'
+  // cresciuto in silenzio fino a ~40 worktree il 21/07. Li mostra
+  // `WorktreeControl`, che li tiene distinti e li spiega a parole.
   const [worktreeCount, setWorktreeCount] = useState(0);
   const [gcRunning, setGcRunning] = useState(false);
   /** Rami locali non su main: quanti, e quanti non li reclama nessun task. */
@@ -747,7 +1201,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
 
   // I RAMI non su main, col task che li reclama.
   //
-  // Il chip «N non su main» accanto conta solo i task CHIUSI: un ramo di un task
+  // Il chip «N non su main» conta solo i task CHIUSI: un ramo di un task
   // ancora in backlog — o di nessun task — non compariva da nessuna parte. È
   // così che quattro rami con lavoro fatto sono rimasti invisibili per
   // settimane, mentre la board riproponeva come «da fare» cose già scritte lì
@@ -777,14 +1231,24 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
     setGcResult(null);
     try {
       const r = await fetch('/api/worktrees/gc', { method: 'POST' });
-      const b = (await r.json()) as { summary?: { reaped?: number; landed?: number; kept?: number; keptReasons?: Record<string, number> } };
+      const b = (await r.json()) as { summary?: { reaped?: number; landed?: number; freed?: number; kept?: number; slimmed?: number; slimmedBytes?: number; keptReasons?: Record<string, number> } };
       const sm = b?.summary;
       if (!sm) { setGcResult('Il GC non ha risposto'); return; }
       const motivi = Object.entries(sm.keptReasons ?? {}).sort((a, b2) => b2[1] - a[1]).slice(0, 2)
         .map(([m, n]) => `${n}× ${m}`).join('; ');
+      // `liberati` è la voce che oggi fa quasi tutto il lavoro (cartella via,
+      // branch conservato): senza, la passata che ne libera 77 direbbe «0
+      // ripuliti, 0 landati» e sembrerebbe non aver fatto niente.
+      //
+      // Lo stesso vale per gli `snelliti`: una passata che tiene TUTTI i
+      // worktree può comunque aver liberato qualche giga di `node_modules`, e
+      // senza questa voce direbbe solo «0, 0, 0, N tenuti».
+      const snelliti = (sm.slimmed ?? 0) > 0
+        ? `, ${sm.slimmed} snelliti (${Math.round((sm.slimmedBytes ?? 0) / 1_048_576)} MB)`
+        : '';
       setGcResult(
-        `${sm.reaped ?? 0} ripuliti, ${sm.landed ?? 0} landati, ${sm.kept ?? 0} tenuti`
-        + (motivi ? ` — ${motivi}` : ''),
+        `${sm.reaped ?? 0} ripuliti, ${sm.freed ?? 0} liberati (branch salvo), ${sm.landed ?? 0} landati${snelliti}, ${sm.kept ?? 0} tenuti`
+        + (motivi ? `: ${motivi}` : ''),
       );
       // Il conteggio accanto deve riflettere la passata appena fatta.
       if (projectPath) {
@@ -813,15 +1277,199 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
       if (filters.assignedTo.length > 0 && !filters.assignedTo.includes(t.assignedTo || '')) return false;
       if (filters.text && !t.text.toLowerCase().includes(filters.text.toLowerCase())) return false;
       if (filters.projectId.length > 0 && !filters.projectId.includes(t.projectId)) return false;
+      // AND, come gli altri: «bugfix E visibile» è una lista sola, non due.
+      if (filters.labels.length > 0) {
+        const on = new Set(t.labels.map((l) => l.label));
+        if (!filters.labels.every((l) => on.has(l))) return false;
+      }
       return true;
     });
     return groupByStatus(visible, orderScope);
   }, [tasks, filters, orderScope]);
 
-  // Task lookup by id for card-level context chips: parent title ("⤴ epic…")
-  // and blocked-by ("in attesa di…", needs the blocker's status too). Best
-  // effort: a referenced task not in the current fetch (e.g. filtered) just
-  // shows no chip.
+  // Le card appena CHIUSE, per il lampo verde. Si guarda `tasks` (la lista
+  // grezza), non `byStatus`: un filtro attivo può nascondere la card, e il lampo
+  // non deve dipendere da cosa si sta guardando — quando riappare l'ha già
+  // consumato, che è giusto, ma la transizione resta registrata una volta sola.
+  //
+  // Vale per OGNI via di chiusura, perché nessuna passa di qui direttamente: il
+  // trascinamento, l'approvazione dal drawer e un altro device finiscono tutti e
+  // tre nello stesso refetch. Il confronto è con lo stato precedente (vedi
+  // `lib/justDone`), non con la freschezza di `completedAt`.
+  const [justDone, setJustDone] = useState<Set<string>>(() => new Set());
+  const prevStatusRef = useRef<Map<string, TaskStatus> | null>(null);
+  const flashTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  useEffect(() => {
+    const landed = landedInDone(prevStatusRef.current, tasks);
+    prevStatusRef.current = statusSnapshot(tasks);
+    if (landed.length === 0) return;
+    setJustDone((prev) => {
+      const next = new Set(prev);
+      for (const id of landed) next.add(id);
+      return next;
+    });
+    for (const id of landed) {
+      clearTimeout(flashTimers.current.get(id));
+      flashTimers.current.set(id, setTimeout(() => {
+        flashTimers.current.delete(id);
+        setJustDone((prev) => {
+          if (!prev.has(id)) return prev;
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
+      }, DONE_FLASH_MS));
+    }
+  }, [tasks]);
+  // Smontando la pane a lampo acceso i timer resterebbero appesi a chiamare un
+  // setState su un componente che non c'è più.
+  useEffect(() => {
+    const timers = flashTimers.current;
+    return () => { for (const t of timers.values()) clearTimeout(t); timers.clear(); };
+  }, []);
+
+  // …e portare Done DOVE SI GUARDA. Il lampo da solo non bastava: nel layout
+  // normale — sidebar più cinque colonne, con Review più larga delle altre —
+  // Done sta oltre il bordo destro. Misurato: a 1600×900 il bordo destro della
+  // card appena chiusa cadeva a 2195px, cioè quasi 600 fuori dalla finestra. La
+  // card arrivava, lampeggiava e si spegneva senza che nessuno la vedesse.
+  //
+  // Si scorre la riga delle colonne per la sua PROPRIA `scrollLeft`, mai
+  // `element.scrollIntoView()`: la sua risalita automatica degli antenati può
+  // uscire da questa preoccupazione (orizzontale) e portarsi dietro un antenato
+  // verticale — vedi la nota sull'effetto della selezione qui sopra.
+  useEffect(() => {
+    if (justDone.size === 0) return;
+    // rAF: l'effetto parte nello stesso commit in cui la card entra in colonna,
+    // e il rettangolo di Done va misurato a layout fatto.
+    const raf = requestAnimationFrame(() => {
+      const container = columnsScrollRef.current;
+      const col = container?.querySelector('[data-testid="kanban-column-done"]');
+      if (!container || !col) return;
+      const cRect = container.getBoundingClientRect();
+      const dRect = col.getBoundingClientRect();
+      if (dRect.left >= cRect.left && dRect.right <= cRect.right) return; // già in vista
+      container.scrollBy({ left: dRect.right - cRect.right, behavior: 'smooth' });
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [justDone]);
+
+  // …e lo stesso all'altro capo: la card appena creata va PORTATA A SCHERMO.
+  // Il lampo da solo non basta per la nascita ancora meno che per la chiusura —
+  // un task nuovo prende `kanban_order = max + 1`, cioè atterra in FONDO alla
+  // colonna, che su una colonna piena è già fuori dal corpo scrollabile; e se la
+  // colonna di destinazione è a sua volta oltre il bordo della riga, la card
+  // nasce, lampeggia e si spegne in un pezzo di DOM che nessuno sta guardando.
+  //
+  // DUE assi, DUE contenitori distinti, ed è il punto: la riga delle colonne
+  // scorre in orizzontale, il corpo della colonna in verticale. `scrollIntoView`
+  // li farebbe entrambi da sola — ma anche parecchi altri, risalendo gli
+  // antenati fin dove non deve (vedi la nota sull'effetto della selezione).
+  // Quindi ognuno per la sua `scrollBy`, con il delta calcolato da `scrollDelta`.
+  //
+  // In orizzontale si inquadra la COLONNA, non la card: sono `snap-center` e
+  // portare a filo la sola card lascerebbe la colonna tagliata a metà. In
+  // verticale la card, che è esattamente ciò che si vuole leggere.
+  useEffect(() => {
+    if (!scrollTarget) return;
+    // La card entra nel DOM solo quando il refetch ha rimpiazzato `tasks`: fino
+    // ad allora questo effetto non trova niente e riprova al giro dopo. Se un
+    // filtro attivo la tiene fuori, non arriva nessun giro — ci pensa la
+    // scadenza qui sotto a non lasciare un bersaglio appeso.
+    if (!tasks.some((t) => t.id === scrollTarget)) return;
+    // DUE frame, non uno. L'effetto parte nello stesso commit in cui la card
+    // entra in colonna, e i rettangoli vanno letti a layout FATTO — ma il primo
+    // frame non basta: la card esiste già e la colonna sta ancora assestando la
+    // propria altezza (chip, anteprime, il resto del contenuto della card che
+    // prende posto). Misurato lì, il rettangolo era ~55px più in alto del vero,
+    // lo scorrimento partiva corto di altrettanto e la card si fermava dietro al
+    // composer una volta su due — un rosso a intermittenza che non parlava del
+    // meccanismo ma di QUANDO lo si era interrogato. Il secondo frame legge
+    // numeri che non si muovono più, e lo scorrimento morbido parte una volta
+    // sola dalla posizione giusta.
+    let raf2 = 0;
+    const raf = requestAnimationFrame(() => { raf2 = requestAnimationFrame(() => {
+      const row = columnsScrollRef.current;
+      const card = row?.querySelector(`[data-task-card="${CSS.escape(scrollTarget)}"]`);
+      setScrollTarget(null);
+      if (!row || !card) return;
+      const cardRect = card.getBoundingClientRect();
+      const column = card.closest('[data-testid^="kanban-column-"]');
+      if (column) {
+        const rowRect = row.getBoundingClientRect();
+        const colRect = column.getBoundingClientRect();
+        const dx = scrollDelta({ start: rowRect.left, end: rowRect.right }, { start: colRect.left, end: colRect.right });
+        if (dx !== 0) {
+          // Quanto scorrere non è «il minimo per rientrare»: la riga è un
+          // carosello `snap-x snap-mandatory`, e i suoi punti di riposo sono le
+          // colonne CENTRATE. Chiedendo il minimo, lo snap corregge di sua
+          // iniziativa verso il punto più vicino — che è la colonna ACCANTO — e
+          // quella appena inquadrata torna fuori, tagliata dal lato da cui era
+          // arrivata. Quindi si chiede direttamente una posizione che lo snap
+          // accetta: la colonna al centro. `scrollDelta` qui decide SE muoversi,
+          // non di quanto. Una colonna più larga della riga (Review in una pane
+          // stretta) non ha un centro utile: lì vale il minimo, e lo snap si
+          // rilassa da solo perché nessun punto di riposo la conterrebbe.
+          const centered = (colRect.left + colRect.right - rowRect.left - rowRect.right) / 2;
+          row.scrollBy({ left: colRect.width >= rowRect.width ? dx : centered, behavior: 'smooth' });
+        }
+      }
+      const body = card.closest('[data-testid^="kanban-column-body-"]');
+      if (body) {
+        const bodyRect = body.getBoundingClientRect();
+        // Il fondo UTILE della colonna non è il suo bordo inferiore. Il composer
+        // («Descrivi un task per l'agent…») è un overlay ancorato in basso
+        // sull'area della board, e la fascia che copre è esattamente dove un
+        // task nuovo atterra: prende `kanban_order = max + 1`, quindi va in
+        // fondo alla colonna. Fermarsi al bordo mette la card appena creata
+        // DIETRO al riquadro in cui l'hai scritta — rettangolo giusto, e non la
+        // vedi. È lo stesso motivo per cui il corpo colonna porta `pb-16`.
+        //
+        // Il composer si MISURA invece di ricopiarne l'altezza in una costante:
+        // cresce col testo, si alza quando è a fuoco, e sparisce del tutto in
+        // alcuni stati (`hidden`, drawer a tutto schermo sotto lg) — un numero
+        // fisso sarebbe sbagliato in tutti e tre i casi. Nascosto ha un rect di
+        // zeri, ed è l'unico caso da scartare: `height > 0`.
+        //
+        // NIENTE test di sovrapposizione orizzontale, per quanto sembri la cosa
+        // giusta da fare. Qui siamo in un rAF che parte quando la card entra nel
+        // DOM: lo scorrimento orizzontale è stato CHIESTO due righe sopra, ma è
+        // morbido e non è ancora avvenuto, quindi la colonna sta ancora dov'era
+        // — fuori schermo, che è tutto il motivo per cui la stiamo spostando.
+        // Un `compRect.left < bodyRect.right` letto in quell'istante confronta
+        // il composer con una posizione che sta per non esistere più e risponde
+        // sempre «non si sovrappongono»: misurato, la card tornava esattamente a
+        // `bordo - 8`, cioè dietro al composer. E la domanda è comunque oziosa,
+        // perché la colonna la stiamo CENTRANDO — cioè portando esattamente
+        // dove il composer, anche lui centrato, sta.
+        const composer = document.querySelector('[data-testid="board-task-composer"]');
+        const compRect = composer?.getBoundingClientRect();
+        const covers = !!compRect && compRect.height > 0;
+        const usableBottom = covers ? Math.min(bodyRect.bottom, compRect.top) : bodyRect.bottom;
+        // Un filo di margine: appoggiata al bordo la card è tecnicamente in
+        // vista e sembra tagliata.
+        const dy = scrollDelta({ start: bodyRect.top, end: usableBottom }, { start: cardRect.top, end: cardRect.bottom }, 8);
+        if (dy !== 0) body.scrollBy({ top: dy, behavior: 'smooth' });
+      }
+    }); });
+    return () => { cancelAnimationFrame(raf); cancelAnimationFrame(raf2); };
+  }, [scrollTarget, tasks]);
+  // Un bersaglio che non atterra (filtro attivo, creazione in un'altra board)
+  // non resta armato per sempre: scorrere mezzo minuto dopo sarebbe uno
+  // strattone che non risponde a niente di quello che stai facendo ORA.
+  useEffect(() => {
+    if (!scrollTarget) return;
+    const t = setTimeout(() => setScrollTarget(null), CREATED_FLASH_MS);
+    return () => clearTimeout(t);
+  }, [scrollTarget]);
+
+  // Task lookup by id for the parent chip ("⤴ epic…"). Best effort: a parent
+  // not in the current fetch just shows the generic label.
+  //
+  // Il chip «in attesa di» NON passa più di qui: il bloccante lo risolve il
+  // server (`task.blockedBy`), perché questa lista è un progetto solo,
+  // `rootsOnly`, non archiviati — e un bloccante fuori da quel taglio faceva
+  // sparire il chip da una card che il dispatcher teneva ferma comunque.
   const tasksById = useMemo(() => {
     const m = new Map<string, BoardTask>();
     for (const t of tasks) m.set(t.id, t);
@@ -870,22 +1518,23 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
 
   const [activeId, setActiveId] = useState<string | null>(null);
   // Hide the floating "Descrivi un task" composer while the human is typing in
-  // ANY other field — a card's quick-reply / "Scrivi all'agent" box (which sit
-  // low on screen, right under the composer) or the drawer thread. Tracked from
-  // document focus so it covers every feedback input without wiring each one.
+  // a field that SITS ON IT: a card's quick-reply / "Scrivi all'agent" box,
+  // which opens low in a column, right under the composer.
+  //
+  // Il gate è ristretto alle COLONNE della board. Prima il listener era su
+  // `window` e il predicato «un campo qualsiasi ha il fuoco»: mettere il cursore
+  // nella chat di un'altra pane, in un terminale o in una ricerca faceva sparire
+  // il composer di qua — un focus-out dalla board non sovrappone proprio niente.
   const [typingElsewhere, setTypingElsewhere] = useState(false);
   useEffect(() => {
     const sync = () => {
       const el = document.activeElement as HTMLElement | null;
       const isField = !!el && (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT');
-      const inComposer = !!el?.closest('[data-testid="board-task-composer"]');
-      // Un campo dentro un MENU fluttuante non è «scrivere altrove»: il menu è
-      // portalato su <body>, quindi `closest` non lo riconduce mai al composer
-      // che lo ha aperto. Senza questa condizione, digitare nella ricerca del
-      // picker progetto smontava il composer — e con lui il menu stesso, che ne
-      // è figlio React: il popover spariva al primo carattere.
-      const inFloatingMenu = !!el?.closest('[data-popover]');
-      setTypingElsewhere(isField && !inComposer && !inFloatingMenu);
+      // Solo i campi DENTRO il carosello delle colonne si sovrappongono al
+      // composer. Il composer stesso e i menu portalati su <body> ne sono fuori
+      // per costruzione, quindi non serve escluderli a mano.
+      const inColumns = !!el && !!columnsScrollRef.current?.contains(el);
+      setTypingElsewhere(isField && inColumns);
     };
     window.addEventListener('focusin', sync);
     window.addEventListener('focusout', sync);
@@ -898,10 +1547,12 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
   // Esc annulla. Senza questo sensore riordinare una colonna era possibile SOLO
   // col mouse — cambiare stato no (il selettore nel drawer c'è), ma la posizione
   // dentro la colonna non era raggiungibile in nessun altro modo.
+  // Sensori SORDI ai campi e ai comandi: un click nell'input di risposta non
+  // deve diventare un trascinamento (vedi `dndSensors.ts` per il perché).
   const sensors = useSensors(
-    useSensor(MouseSensor, { activationConstraint: { distance: 4 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+    useSensor(MouseSensorGentile, { activationConstraint: { distance: 4 } }),
+    useSensor(TouchSensorGentile, { activationConstraint: { delay: 200, tolerance: 8 } }),
+    useSensor(KeyboardSensorGentile, { coordinateGetter: sortableKeyboardCoordinates }),
   );
   const flushDrag = useCallback(() => {
     draggingRef.current = false;
@@ -931,11 +1582,27 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
   const create = useCallback(async (status: TaskStatus, text: string) => {
     // A task can't be created directly in Done — land it in Todo instead.
     const target: TaskStatus = status === 'done' ? 'todo' : status;
-    try { await boardApi.create(projectId, { text, status: target }); refetch(); }
+    // L'id arriva dalla POST, non dal broadcast: è quello che distingue «l'ho
+    // creato io» da «è comparso», e solo il primo autorizza a muovere la board.
+    try { const created = await boardApi.create(projectId, { text, status: target }); onCreatedHere(created.id); }
     catch (e) { setError(e instanceof Error ? e.message : 'create failed'); }
-  }, [projectId, refetch]);
+  }, [projectId, onCreatedHere]);
 
-  const selected = tasks.find((t) => t.id === selectedId) || null;
+  // Il task che il drawer mostra quando l'id NON è nel feed. Il feed è
+  // `rootsOnly` — le colonne mostrano le radici, gli step vivono nell'albero del
+  // genitore — quindi un id di SOTTOTASK non ci sarà mai, e `tasks.find(...)` da
+  // solo restituiva `undefined`: il click su uno step CHIUDEVA il drawer invece
+  // di aprirlo, e un deep-link `/task/<id-di-sottotask>` restava appeso per
+  // sempre. Lo risolve `boardApi.resolve`, la porta unica «da un id al suo task,
+  // a qualunque profondità».
+  const [outsider, setOutsider] = useState<BoardTask | null>(null);
+  const selected = tasks.find((t) => t.id === selectedId)
+    || (outsider && outsider.id === selectedId ? outsider : null);
+
+  // L'id che il drawer deve mostrare: la selezione, o il deep-link ancora in
+  // volo. Uno solo dei due è valorizzato nel caso normale.
+  const wantId = selectedId ?? pendingSelect;
+  const inFeed = !!wantId && tasks.some((t) => t.id === wantId);
 
   // Promote a deep-link target to the selection once the task lands in the
   // loaded list (the global board loads every project's tasks, so it will).
@@ -949,6 +1616,45 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
       window.dispatchEvent(new CustomEvent('topics:task-opened'));
     }
   }, [pendingSelect, tasks]);
+
+  // Un id fuori dal feed passa comunque: la porta unica lo risolve e il drawer
+  // si apre. Rigira a ogni cambio di `tasks` — la board rifetcha su ogni evento
+  // `task:*`, quindi è anche il battito che tiene fresco `updatedAt` (il `bump`
+  // con cui il drawer ricarica il suo thread) per un task che nel feed non c'è.
+  const resolvedRef = useRef<{ id: string; feed: BoardTask[] } | null>(null);
+  useEffect(() => {
+    if (!wantId) { setOutsider(null); resolvedRef.current = null; return; }
+    if (inFeed) return; // il feed ce l'ha: nessuna porta da aprire
+    // Una sola richiesta per (id, feed): sciogliere il deep-link cambia
+    // `pendingSelect`, e senza questo la rifarebbe subito a vuoto.
+    if (resolvedRef.current?.id === wantId && resolvedRef.current.feed === tasks) return;
+    resolvedRef.current = { id: wantId, feed: tasks };
+    // Vero solo se stiamo sciogliendo un deep-link, non un click su uno step:
+    // `topics:task-opened` rilascia l'intento di fuoco della board, e va emesso
+    // per quello e basta.
+    const deepLink = pendingSelect === wantId;
+    let alive = true;
+    boardApi.resolve(wantId)
+      .then((t) => {
+        if (!alive) return;
+        if (t) {
+          setOutsider(t);
+          if (deepLink) {
+            setSelectedId(wantId);
+            setPendingSelect(null);
+            window.dispatchEvent(new CustomEvent('topics:task-opened'));
+          }
+          return;
+        }
+        // Quell'id non esiste: chiudere è l'unica risposta onesta — restare
+        // appesi in attesa di un task che non arriverà è il guasto di prima.
+        if (deepLink) setPendingSelect(null);
+        setSelectedId((s) => (s === wantId ? null : s));
+      })
+      .catch(() => { resolvedRef.current = null; /* trasporto caduto: il prossimo refetch riprova */ });
+    return () => { alive = false; };
+    // `outsider` fuori dalle dipendenze di proposito: lo SCRIVE questo effetto.
+  }, [wantId, inFeed, tasks, pendingSelect]);
 
   // URL ⇄ drawer reflection (GLOBAL board only — `/task/<id>` points at the
   // global board, matching buildTaskLink). Opening a drawer pushes `/task/<id>`;
@@ -1003,7 +1709,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
           continues past the right edge — it tracks live scroll position and
           disappears once fully scrolled. */}
       <div className="relative shrink-0 border-b border-app-border">
-      <div ref={toolbarScrollRef} className="flex items-center gap-1 overflow-x-auto px-2 py-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&>*]:shrink-0 sm:px-3">
+      <div ref={toolbarScrollRef} data-testid="board-toolbar" className="flex items-center gap-1 overflow-x-auto px-2 py-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&>*]:shrink-0 sm:px-3">
         {canToggle ? (
           <>
             <button
@@ -1019,45 +1725,19 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
           <span className="text-xs font-semibold text-app-text">Board<span className="hidden sm:inline"> generale</span></span>
         )}
         <GlobalSettingsMenu onMessage={onMessage} />
-        <OverloadBadge />
-        {/* Landing audit: task chiusi il cui lavoro NON è su main. Zero = il
-            badge sparisce. Un click apre il primo, così il contatore è una
-            porta e non un numero da guardare. */}
-        {unlandedTasks.length > 0 && (
-          <button
-            onClick={() => setSelectedId(unlandedTasks[0]!.id)}
-            title={`${unlandedTasks.length} task chiusi il cui lavoro non risulta su main:\n${unlandedTasks.slice(0, 8).map((t) => `• ${t.text}`).join('\n')}`}
-            className="flex items-center gap-1 rounded bg-rose-500/20 px-2 py-0.5 text-[11px] font-medium text-rose-300 hover:bg-rose-500/30"
-            data-testid="unlanded-badge"
-          ><AlertTriangle className="h-3 w-3 shrink-0" /> {unlandedTasks.length} non su main</button>
-        )}
-        {worktreeCount > 0 && (
-          <span
-            title={`${worktreeCount} worktree vivi per questo progetto.\nIl GC ne ripulisce solo quelli provabilmente sicuri, e scrive nel log dei motivi perche' tiene gli altri.`}
-            className="flex items-center gap-1 rounded bg-white/10 px-2 py-0.5 text-[11px] text-app-text-secondary"
-            data-testid="worktree-count-badge"
-          >{worktreeCount} worktree</span>
-        )}
-        {branchInv && branchInv.total > 0 && (branchInv.orphan > 0 || branchInv.onOpenTasks > 0) && (
-          <span
-            title={`${branchInv.total} rami locali non su main.\n${branchInv.orphan} non appartengono a nessun task — nessuno li reclamerà.\n${branchInv.onOpenTasks} sono di task ancora aperti: quel lavoro esiste già.`}
-            className="flex shrink-0 items-center gap-1 rounded bg-amber-500/15 px-2 py-0.5 text-[11px] text-amber-300"
-            data-testid="branch-inventory-badge"
-          >{branchInv.orphan > 0 ? `${branchInv.orphan} rami orfani` : `${branchInv.onOpenTasks} rami su task aperti`}</span>
-        )}
-        {worktreeCount > 0 && (
-          <button
-            onClick={runGc}
-            disabled={gcRunning}
-            title={gcResult ?? "Anticipa la passata del GC. Reapa SOLO cio che e provabilmente sicuro — la stessa regola della passata automatica ogni 30 minuti, non una piu aggressiva."}
-            className="shrink-0 rounded bg-white/10 px-2 py-0.5 text-[11px] text-app-text-secondary hover:bg-white/20 disabled:opacity-50"
-            data-testid="worktree-gc-button"
-          >{gcRunning ? 'Pulisco…' : 'Pulisci landati'}</button>
-        )}
-        {gcResult && (
-          <span className="shrink-0 text-[11px] text-app-text-muted" data-testid="worktree-gc-result">{gcResult}</span>
-        )}
-        <div className="ml-2 min-w-0">
+        <LoadAdviceChip />
+        <WorktreeControl
+          count={worktreeCount}
+          branches={branchInv}
+          gcRunning={gcRunning}
+          gcResult={gcResult}
+          onGc={runGc}
+        />
+        {/* `grow`: la barra dei filtri è anche il posto in cui vive lo spazio
+            libero della riga. Quando ce n'è, i progetti ci diventano chip; se
+            manca, la striscia resta a zero e restano nel menu — senza che i
+            filtri veri perdano un pixel (vedi la nota dentro `InlineFilters`). */}
+        <div className="ml-2 flex min-w-0 grow items-center">
           <InlineFilters filters={filters} onFiltersChange={setFilters} tasks={tasks} mode={mode} />
         </div>
         <div className="ml-auto flex items-center gap-2">
@@ -1066,6 +1746,13 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
               bare `claude` sessions and no cards reads as "fermo". */}
           <ExternalSessionsBadge sessions={externalSessions} showProject={mode === 'all'} onOpenTopic={onOpenTopic} />
           {/* Auto-dispatch on/off lives in GlobalSettingsMenu now — no duplicate pill. */}
+          {canRunMissions && (
+            <MissionsMenu onStart={(m) => setError(onStartMission!(m))} />
+          )}
+          {/* Accanto a Pubblica, e prima: «non su main» è il gradino sotto —
+              lavoro che non è nemmeno arrivato a main, mentre Pubblica parla di
+              lavoro che è su main e non è ancora uscito. */}
+          <UnlandedControl tasks={unlandedTasks} onOpen={setSelectedId} />
           <PublishControl />
           {hasProject && (
             <button
@@ -1119,9 +1806,13 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
                   onError={setError}
                   onRefetch={refetch}
                   onOpenTopic={onOpenTopic}
+                  resolveSession={resolveSession}
                   tasksById={tasksById}
                   projectPathById={projectPathById}
                   liveById={liveUsage}
+                  awaitingHuman={awaitingHuman}
+                  justDone={justDone}
+                  justCreated={justCreated}
                 />
               ))}
             </div>
@@ -1144,17 +1835,20 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
             )}
           </DndContext>
           {/* New-task composer, anchored to the board AREA (centered on the
-              visible columns). Hidden while a task is open: the drawer is where
-              you review and write feedback, and the floating "Descrivi un task"
-              box otherwise sits on top of that input — reappears on close. */}
-          {!selected && !typingElsewhere && (
-            <FloatingTaskComposer
-              projectId={projectId}
-              global={mode === 'all'}
-              onCreated={refetch}
-              onError={setError}
-            />
-          )}
+              visible columns). SEMPRE montato: quello che ci hai scritto dentro
+              non deve evaporare perché hai guardato altrove o hai aperto un
+              task. Si nasconde soltanto quando qualcosa gli sta davvero sopra —
+              un campo aperto in una colonna, o (sotto lg) il drawer del task,
+              che lì è un overlay a tutto schermo. Su desktop il drawer è un
+              fratello in-flow accanto alle colonne: non lo copre, resta. */}
+          <FloatingTaskComposer
+            projectId={projectId}
+            global={mode === 'all'}
+            onCreated={onCreatedHere}
+            onError={setError}
+            hidden={typingElsewhere}
+            hiddenBelowLg={!!selected}
+          />
         </div>
         {selected && (
           <TaskDetail
@@ -1166,7 +1860,15 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
             onChanged={refetch}
             onOpenTask={openTask}
             onOpenTopic={onOpenTopic}
+            sessionState={resolveSession(selected.assignedTopicId)}
             focusPaneId={pendingPaneId ?? undefined}
+            /* Apertura automatica nel workspace: SOLO dalla board globale, che
+               è una superficie a sé. Dentro una finestra di progetto la board è
+               una pane di quella stessa finestra, e promuovere lì il risultato
+               vorrebbe dire togliere spazio al drawer che stai leggendo — e
+               rifare lo split a ogni card. Il bottone «Apri nel workspace»
+               resta comunque, in entrambi i casi. */
+            autoOpenInWorkspace={global}
           />
         )}
       </div>

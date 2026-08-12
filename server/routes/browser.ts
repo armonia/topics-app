@@ -19,6 +19,9 @@ import { probeFraming } from "../browser-framing";
 import { isPortListening, loopbackPortOf } from "../lib/loopback-probe";
 import type { BrowserActAction } from "../browser-tools";
 import { browserEngineRegistry, chromiumEngineInfo } from "../browser-engine-registry";
+import { findTaskTabOwner } from "../services/task-tab-persist";
+import { collectBrowserContextIds } from "../browser-store-keep-list";
+import { dispatchBrowserToolCallByContext } from "../browser-tool-dispatcher";
 
 export function createBrowserRouter(
   ctx: AppContext,
@@ -93,6 +96,47 @@ export function createBrowserRouter(
     const viewersMatch = matchRoute(pathname, "/api/browsers/:id/viewers");
     if (method === "GET" && viewersMatch) {
       return json({ count: getViewerCount(viewersMatch.id) });
+    }
+
+    // --- «Questa tab aveva un login salvato? allora rimettilo» ---
+    //
+    // Metà finale del "login auto": l'agente che consegna una pagina protetta ci
+    // entra una volta e chiama `browser_save_state`; il server lega quell'handle
+    // alla TAB del task (`task-tab-persist`). Quando la tab viene montata — nel
+    // drawer o promossa nel workspace del progetto — la pane batte qui una volta
+    // e il server reinietta cookie + localStorage: il reviewer atterra dentro
+    // invece di trovare il muro del login.
+    //
+    // L'handle NON arriva dal client: lo rilegge il server dal record della tab.
+    // Accettarlo dal body vorrebbe dire lasciar iniettare a chiunque una
+    // qualsiasi sessione salvata dentro un qualsiasi contesto.
+    //
+    // Uscita anticipata quando non c'è niente da fare (contextId non di un task,
+    // o tab senza handle): così un mount qualunque non sveglia il dispatcher né
+    // accende l'overlay «agente al volante» per nulla. Il dispatcher, invece, è
+    // proprio il motivo per cui non si chiama `handleBrowserLoadState` a mano:
+    // instrada anche la pane NATIVA di Tauri, dove Playwright non arriva.
+    const loginApplyMatch = matchRoute(pathname, "/api/browsers/:id/login-state/apply");
+    if (method === "POST" && loginApplyMatch) {
+      const id = loginApplyMatch.id;
+      if (!id.startsWith("task-")) return json({ applied: false, handle: null });
+      const owner = findTaskTabOwner(ctx.db, id);
+      const handle = owner?.tab.loginHandle ?? null;
+      if (!handle) return json({ applied: false, handle: null });
+      try {
+        const result = await dispatchBrowserToolCallByContext(
+          "browser_load_state",
+          { handle },
+          id,
+          browserService,
+        ) as { error?: string };
+        if (result?.error) return json({ applied: false, handle, error: result.error });
+        return json({ applied: true, handle });
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[Routes/browser] /login-state/apply failed:`, msg);
+        return json({ applied: false, handle, error: msg });
+      }
     }
 
     // --- Get context info ---
@@ -502,6 +546,20 @@ export function createBrowserRouter(
     const consoleMatch = matchRoute(pathname, "/api/browsers/:id/console");
     if (method === "GET" && consoleMatch) {
       return json(browserService.getConsoleMessages(consoleMatch.id));
+    }
+
+    // --- Chi NON si può reapare ---
+    // La lista dei contextId ancora rivendicati da qualcosa, per il reaper
+    // degli store nativi (`browser_reap_data_stores`). Sta sul server perché
+    // `ui_state` ha TUTTE le righe — il layout di ogni progetto, le tab
+    // consegnate dai task, anche quelle di un device spento — mentre un client
+    // in esecuzione conosce bene solo la sua finestra. Vedi
+    // browser-store-keep-list.ts per il perché il taglio è grossolano.
+    if (method === "GET" && pathname === "/api/browsers/data-store-keep-list") {
+      const rows = ctx.db
+        .query("SELECT value FROM ui_state")
+        .all() as Array<{ value: string }>;
+      return json({ contextIds: collectBrowserContextIds(rows.map((r) => r.value)) });
     }
 
     // --- Delete context ---

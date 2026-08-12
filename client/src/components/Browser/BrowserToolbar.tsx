@@ -1,9 +1,11 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import { ArrowLeft, ArrowRight, RotateCw, ExternalLink, Clock, Code2, CornerUpLeft, MoreHorizontal, MonitorSmartphone } from 'lucide-react';
+import { ArrowLeft, ArrowRight, RotateCw, ExternalLink, Clock, Code2, CornerUpLeft, MoreHorizontal, MonitorSmartphone, Trash2 } from 'lucide-react';
 import { AgentActivityPill } from './AgentActivityPill';
 import { ZoomControl, DeviceSwitcher, ConsoleBadge } from './BrowserDevControls';
+import { DownloadsMenu, type DownloadsMenuProps } from './DownloadsMenu';
 import type { DeviceMode, BrowserConsoleEntry, NavHistoryEntry } from './browserDevTypes';
-import { POPOVER_ITEM, POPOVER_DIVIDER } from '../../lib/popoverStyles';
+import { POPOVER_ITEM, POPOVER_ITEM_DANGER, POPOVER_DIVIDER } from '../../lib/popoverStyles';
+import { normalizeUrl } from '../../lib/browserNavUrl';
 import type { ShareMode } from '../../lib/sharedAuto';
 import { DropdownPortal } from '../Shared/DropdownPortal';
 import { Menu } from '../Shared/Menu';
@@ -70,6 +72,10 @@ interface BrowserToolbarProps {
   consoleEntries?: BrowserConsoleEntry[];
   consoleSummary?: { errors: number; warnings: number };
   onClearConsole?: () => void;
+  /** Download della pane: l'elenco + le sue azioni, così come li vuole
+   *  `DownloadsMenu`. Le due pane li riempiono da sorgenti diverse (coda Rust
+   *  per quella nativa, messaggi WS per quella condivisa) e il menu è lo stesso. */
+  downloads?: DownloadsMenuProps;
   /** Back/forward history (Chrome-style right-click / long-press menu). */
   getNavEntries?: () => Promise<{ entries: NavHistoryEntry[]; activeIndex: number }>;
   onGoToNavIndex?: (index: number) => void;
@@ -83,6 +89,10 @@ interface BrowserToolbarProps {
   shared?: boolean;
   shareMode?: ShareMode;
   onToggleShare?: () => void;
+  /** «Dimentica questo sito» (solo pane nativa, e solo su una pagina vera).
+   *  La toolbar non cancella niente: apre il dialogo che ELENCA cosa sparisce,
+   *  e quello vive nella pane, che sopravvive alla chiusura del popover. */
+  onForgetSite?: () => void;
 }
 
 export function BrowserToolbar({
@@ -109,11 +119,13 @@ export function BrowserToolbar({
   consoleEntries,
   consoleSummary,
   onClearConsole,
+  downloads,
   getNavEntries,
   onGoToNavIndex,
   shared,
   shareMode,
   onToggleShare,
+  onForgetSite,
 }: BrowserToolbarProps) {
   const [editUrl, setEditUrl] = useState(url);
   const [editing, setEditing] = useState(false);
@@ -228,14 +240,15 @@ export function BrowserToolbar({
 
   const handleSubmit = useCallback((e: React.SubmitEvent) => {
     e.preventDefault();
-    let finalUrl = editUrl.trim();
-    if (finalUrl && !finalUrl.startsWith('http://') && !finalUrl.startsWith('https://')) {
-      finalUrl = 'http://' + finalUrl;
-    }
-    if (finalUrl) {
-      onUrlChange(finalUrl);
-      setEditing(false);
-    }
+    // An omnibox: a bare host becomes https://, and anything that isn't a URL
+    // (spaces, no dot) becomes a web search. The old code force-prepended
+    // `http://` to any scheme-less text, which turned "come fare la pasta" into
+    // a broken `http://come fare la pasta` nav and downgraded bare hosts to
+    // http. normalizeUrl is the single source of truth, shared with the hook's
+    // navigate() so the two never disagree.
+    if (!editUrl.trim()) return;
+    onUrlChange(normalizeUrl(editUrl));
+    setEditing(false);
   }, [editUrl, onUrlChange]);
 
   const handleOpenExternal = useCallback(() => {
@@ -248,7 +261,13 @@ export function BrowserToolbar({
   }, [url]);
 
   return (
-    <div ref={toolbarRef} className="relative flex items-center gap-1 px-2 py-1.5 chrome-glass border-b border-app-border">
+    // `chrome-row-solid` + `h-10`: è una riga di chrome come le altre, e ora lo
+    // dice anche il suo fondo. Era `chrome-glass` e basta, cioè sotto la shell
+    // mac una tinta decisa da chi la contiene invece che da lei (vedi index.css);
+    // e `py-1.5` la faceva alta quanto il suo contenuto, cioè 40 finché i
+    // bottoni sono 28 e un altro numero al primo che cambia. L'altezza della
+    // riga di chrome è una costante dell'app, non un risultato.
+    <div ref={toolbarRef} className="relative flex items-center gap-1 px-2 h-10 flex-shrink-0 chrome-row-solid border-b border-app-border">
       {/* Phase 30.1 polish — Chrome-style indeterminate progress bar at the
           bottom of the toolbar while loading. Inline keyframes + minimal
           DOM (single absolutely-positioned bar, ~3 LOC). */}
@@ -422,6 +441,11 @@ export function BrowserToolbar({
       {consoleSummary && consoleEntries && onClearConsole && (
         <ConsoleBadge entries={consoleEntries} summary={consoleSummary} onClear={onClearConsole} />
       )}
+      {/* Download — inline a ogni larghezza, come il badge della console: il suo
+          menu si ancora al proprio bottone, e piegato dentro l'overflow si
+          ancorerebbe alla voce di un altro popover. Il bottone esiste solo
+          quando c'è almeno un download, quindi a riposo non toglie niente. */}
+      {downloads && <DownloadsMenu {...downloads} />}
       {deviceMode && onSetDevice && (
         <DeviceSwitcher mode={deviceMode} onSet={onSetDevice} />
       )}
@@ -433,7 +457,7 @@ export function BrowserToolbar({
           deliberate action (leave the shared server session for the private
           native browser), not a primary toolbar button. So the menu renders
           whenever the pane is compact OR there's a session switch to host. */}
-      {(compact || !!onToggleShare) && (
+      {(compact || !!onToggleShare || !!onForgetSite) && (
         <>
           <button
             ref={overflowBtnRef}
@@ -520,6 +544,26 @@ export function BrowserToolbar({
                   className={`${POPOVER_ITEM} disabled:opacity-40`}
                 >
                   <ExternalLink size={13} className="shrink-0 text-app-text-tertiary" /> Apri nel browser di sistema
+                </button>
+              </>
+            )}
+            {/* Dimentica questo sito. Ultima voce e separata dal resto: è
+                l'unica del menu che distrugge qualcosa. I puntini di sospensione
+                sono una promessa, non decorazione: il clic apre l'elenco di cosa
+                sparisce, non cancella. */}
+            {onForgetSite && (
+              <>
+                {(compact || !!onToggleShare) && <div className={POPOVER_DIVIDER} />}
+                <button
+                  type="button"
+                  onClick={() => { onForgetSite(); setOverflowOpen(false); }}
+                  className={POPOVER_ITEM_DANGER}
+                  data-testid="browser-forget-site"
+                  title={urlParts
+                    ? `Cancella sessione, dati e cache di ${urlParts.host} da questa tab`
+                    : 'Cancella sessione, dati e cache di questo sito da questa tab'}
+                >
+                  <Trash2 size={13} className="shrink-0" /> Dimentica questo sito…
                 </button>
               </>
             )}

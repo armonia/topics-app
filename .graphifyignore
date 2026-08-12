@@ -5,12 +5,13 @@
 # "god nodes" came out as `n()`, `r()`, `e()` — the report was structurally
 # useless and the node count (22.9k) blew past the 5k HTML-viz limit.
 #
-# graphify already honours .gitignore, which covers `public/assets/` and
-# `landing/dist/`. What it could not know is that `landing/public/app/` is a
-# COMMITTED snapshot of the built client app (a static demo the landing site
-# serves), so it is tracked, not ignored — and it was the bulk of the noise.
+# graphify already honours .gitignore, which covers `public/assets/`,
+# `landing/dist/` and — since the demo stopped being a tracked snapshot —
+# `landing/public/app/` too. The entry below is kept anyway: the directory is
+# still on disk after every `build:site`, it was the bulk of the god-node noise,
+# and a rule that survives a change of ignore file costs nothing.
 
-# Committed build snapshot of the client app served by the landing site.
+# Build output of the client app that the landing site serves as its demo.
 landing/public/app/
 
 # Vendored minified libraries — bundled third-party code, not our source.

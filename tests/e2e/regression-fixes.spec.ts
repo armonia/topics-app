@@ -410,7 +410,7 @@ test.describe("Panel validation: archived topic panels are removed", () => {
       ).toBeVisible({ timeout: 5000 });
 
       // Click the search box to verify the page is responsive
-      const searchBox = page.locator('input[placeholder*="Search"]');
+      const searchBox = page.locator('[data-testid="file-search-input"]');
       if ((await searchBox.count()) > 0) {
         await searchBox.click();
         await expect(searchBox).toBeFocused();

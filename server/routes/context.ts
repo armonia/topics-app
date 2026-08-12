@@ -3,6 +3,7 @@ import type { AppContext, RouteHandler } from "../types";
 import { getSessionContext } from "../db/session-context";
 import { classifyContext, contextWindowFor, windowForMeasure } from "../usage/context-window";
 import { contextUpdateFromUsage } from "../usage/usage-update";
+import { probeSessionCost } from "../usage/cost-probe";
 import { assembleTopicContext, getProviderStrategy } from "../context";
 import { getProvider, getDefaultProvider } from "../providers";
 
@@ -72,6 +73,25 @@ export function createContextRouter(ctx: AppContext): RouteHandler {
       // l'app a turno finito legge lo stesso oggetto di chi era collegato.
       const update = contextUpdateFromUsage(usage, row.model);
       return json({ context: { ...update, measuredAt: row.measuredAt } });
+    }
+
+    // Il MOLTIPLICATORE: contesto × chiamate.
+    //
+    // `/api/context/live` risponde «quanto ha in pancia il modello», che è UN
+    // fattore. Questo risponde alla domanda che decide la spesa: quanto costa
+    // una chiamata in più, quante ne sono già state fatte, e quanto fa il
+    // prodotto. I due numeri esistevano da sempre in due posti diversi — la
+    // riga di `session_context` e i `tool_calls` sui messaggi — e nessuno li
+    // moltiplicava, quindi il costo si scopriva a spesa avvenuta.
+    if (method === "GET" && pathname === "/api/context/cost") {
+      const sessionKey = url.searchParams.get("sessionKey");
+      if (!sessionKey) return json({ error: "sessionKey required" }, 400);
+      // `messages` taglia la sessione ai primi N messaggi. Non è un lusso: è il
+      // modo in cui una misura presa a mano su una chat che nel frattempo è
+      // cresciuta resta confrontabile con quello che dice la sonda.
+      const limitParam = Number(url.searchParams.get("messages"));
+      const limitMessages = Number.isFinite(limitParam) && limitParam > 0 ? Math.floor(limitParam) : undefined;
+      return json({ cost: probeSessionCost(ctx.db, sessionKey, limitMessages ? { limitMessages } : undefined) });
     }
 
     if (method === "GET" && pathname === "/api/context") {

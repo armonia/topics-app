@@ -208,8 +208,14 @@ export const chatApi = {
     return response.body;
   },
 
-  async abort(sessionKey: string, clearMessages?: boolean): Promise<{ ok: boolean }> {
-    return request<{ ok: boolean }>('/chat/abort', {
+  /**
+   * Ferma il turno in volo. `clearMessages` è una PROPOSTA: la chat si butta
+   * solo se la risposta torna `cleared: true` — il server ricontrolla sul DB
+   * (vedi `shared/clear-messages-policy.ts`) e vede anche le righe fuori dal
+   * ramo attivo, che il client non ha.
+   */
+  async abort(sessionKey: string, clearMessages?: boolean): Promise<{ ok: boolean; cleared?: boolean }> {
+    return request<{ ok: boolean; cleared?: boolean }>('/chat/abort', {
       method: 'POST',
       body: JSON.stringify({ sessionKey, clearMessages }),
     });
@@ -276,7 +282,7 @@ export const chatApi = {
       });
     } catch (err) {
       if (ac.signal.aborted) {
-        throw new Error("Il server non ha confermato entro 30 secondi — la risposta non è partita. Riprova.");
+        throw new Error("Il server non ha confermato entro 30 secondi: la risposta non è partita. Riprova.");
       }
       throw err;
     } finally {
@@ -1083,20 +1089,17 @@ export const contextAnalysisApi = {
 // costruisce. Fino al 29/07 erano ricopiati a mano qui sotto — sette interfacce
 // rinominate `Envelope*` (perché `ChatMessage` era già preso da tutt'altro) con
 // il `diagnostics` espanso inline e un commento "Mirrors server/…" per campo.
-// I nomi vecchi restano come alias: cambiare 40 import non era il punto.
+// I nomi vecchi restavano come alias: cambiare 40 import non era il punto.
+//
+// Di quegli alias ne sono rimasti DUE. Gli altri sette non li importava più
+// nessuno da qui, e nessuno se n'era accorto: il cancello sul codice morto era
+// cieco su questo file — un `import('../../lib/api')` opaco in CommandPalette
+// rendeva usato per costruzione ogni suo export. Guardia contro il ritorno del
+// buco: `bun run check:deadcode-blindspots`.
 export type {
-  SystemBlockCategory as EnvelopeSystemBlockCategory,
-  SystemBlock as EnvelopeSystemBlock,
   HistoryEntryDiagnostic as EnvelopeHistoryEntry,
-  SessionMeta as EnvelopeSessionMeta,
-  ContextDiagnostics,
   ContextEnvelope,
-  ProviderPayload as EnvelopeProviderPayload,
 } from '../../../shared/context-envelope';
-export type {
-  ProviderChatMessage as EnvelopeChatMessage,
-  ProviderContextStrategy as EnvelopeProviderStrategy,
-} from '../../../shared/types';
 
 import type { ContextEnvelope, ProviderPayload } from '../../../shared/context-envelope';
 
@@ -1156,11 +1159,6 @@ export const dashboardApi = {
     return data.points;
   },
 };
-
-// ── Board Memory ─────────────────────────────────────────────────────────────
-
-// Entità di dominio: dichiarate in `shared/types.ts` insieme a Topic/Project.
-export type { BoardMemory, AgentActionLog } from '../../../shared/types';
 
 // Providers API
 export interface ProviderListEntry {
@@ -1277,6 +1275,12 @@ export interface AppBehaviorSettings {
   claudeCodePermissionMode: string | null;
   codexApprovalMode: string | null;
   claudeCodeEnabled: boolean | null;
+  /** Topics pubblica il tuo stato su Discord (migration 102). `null` = mai
+   *  toccato, che qui vale SPENTO — non «default acceso». */
+  discordPresenceEnabled: boolean | null;
+  /** Quanto se ne vede: `minimal` | `activity` | `detailed`. `null` = il
+   *  default del server, `activity`. */
+  discordDetailLevel: DiscordDetailLevel | null;
 }
 
 /**
@@ -1287,7 +1291,8 @@ export interface AppBehaviorSettings {
  * La superficie è in Impostazioni → Permessi.
  */
 export type { ToolGrant } from '../../../shared/types';
-import type { ToolGrant } from '../../../shared/types';
+import type { ToolGrant, DiscordDetailLevel } from '../../../shared/types';
+export type { DiscordDetailLevel } from '../../../shared/types';
 
 export const toolGrantsApi = {
   async list(): Promise<ToolGrant[]> {
@@ -1318,6 +1323,46 @@ export const appSettingsApi = {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Profilo — chi sei qui dentro, cosa è passato di qui, e cosa ne vede Discord.
+//
+// Le statistiche NON vengono da `usage_records`/`agent_sessions`: quelle due
+// tabelle non hanno un solo scrittore in tutto il server, e un numero letto da
+// lì sarebbe zero per sempre. La fonte sono `messages`/`tasks`/`topics` — la
+// storia sta in cima a `server/services/profile-stats.ts`.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Le forme vivono in `shared/types.ts` e si RI-ESPORTANO: sono le stesse che
+// il server manda sul filo, e una copia di qua sarebbe l'ennesimo «KEEP IN
+// SYNC» che non tiene in sync niente (`tests/unit/no-type-mirrors.test.ts`).
+// `DiscordActivityPreview` è un alias locale: da questo lato l'attività è
+// sempre e solo un'anteprima da disegnare, mai qualcosa da pubblicare.
+export type {
+  ProfileStats,
+  DiscordPresenceStatus,
+  DiscordActivity as DiscordActivityPreview,
+} from '../../../shared/types';
+import type {
+  ProfileStats,
+  DiscordPresenceStatus,
+  DiscordActivity as DiscordActivityPreview,
+} from '../../../shared/types';
+
+export const profileApi = {
+  async stats(): Promise<{ stats: ProfileStats; name: string | null }> {
+    return request<{ stats: ProfileStats; name: string | null }>('/profile/stats');
+  },
+  /** Stato del filo + l'anteprima di OGNI livello: la card le mostra tutte e
+   *  tre, così la scelta si fa guardando il risultato invece di leggendo una
+   *  descrizione. */
+  async discord(): Promise<{
+    status: DiscordPresenceStatus;
+    preview: Record<DiscordDetailLevel, DiscordActivityPreview | null>;
+  }> {
+    return request('/profile/discord');
+  },
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Phase A — Project + Worktree domain (migrations 016-018)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1344,7 +1389,7 @@ export const projectsApi = {
   },
   async update(
     id: string,
-    patch: { name?: string; color?: string | null; icon?: string | null },
+    patch: { name?: string; color?: string | null; icon?: string | null; incognito?: boolean },
   ): Promise<Project> {
     return request<Project>(`/projects/${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
   },
@@ -1356,6 +1401,58 @@ export const projectsApi = {
   },
   async delete(id: string): Promise<{ ok: boolean }> {
     return request<{ ok: boolean }>(`/projects/${id}`, { method: 'DELETE' });
+  },
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Le PERSONE della mia organizzazione, coi profili GitHub (migration 094)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface ProfiloGitHubClient {
+  login: string;
+  name: string | null;
+  avatarUrl: string | null;
+  htmlUrl: string | null;
+  bio: string | null;
+  company: string | null;
+  location: string | null;
+  publicRepos: number | null;
+  followers: number | null;
+  fetchedAt: number | null;
+}
+
+export interface StatistichePersonaClient {
+  prompts: number;
+  inputTokens: number;
+  outputTokens: number;
+  costCents: number;
+  ultimoPrompt: string | null;
+}
+
+export interface PersonaConProfilo {
+  id: string;
+  displayName: string;
+  email: string | null;
+  githubLogin: string | null;
+  github: ProfiloGitHubClient | null;
+  stats: StatistichePersonaClient;
+  isMe: boolean;
+}
+
+export const peopleApi = {
+  /** La rubrica. NON tocca GitHub: le facce arrivano dalla cache del server. */
+  async list(): Promise<{ people: PersonaConProfilo[] }> {
+    return request<{ people: PersonaConProfilo[] }>('/people');
+  },
+  /** Una persona sola — QUI il server va a prendere il profilo fresco. */
+  async get(id: string): Promise<PersonaConProfilo> {
+    return request<PersonaConProfilo>(`/people/${id}`);
+  },
+  async setGithubLogin(id: string, githubLogin: string | null) {
+    return request<{ id: string; githubLogin: string | null; github: ProfiloGitHubClient | null }>(
+      `/people/${id}`,
+      { method: 'PATCH', body: JSON.stringify({ githubLogin }) },
+    );
   },
 };
 

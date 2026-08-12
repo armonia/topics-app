@@ -34,8 +34,30 @@ import {
   DEFAULT_REAPER_CONFIG,
 } from './claude-session-state';
 import { createClaudeSessionRepo } from './claude-session-repo';
+import { findForkContinuation } from './transcript-fork';
+import { basename } from 'path';
+import { parseTranscriptDelta } from './claude-transcript-import';
+import type { StoredMessage } from '../types';
 
 export type Broadcaster = (msg: OutboundMessage) => void;
+
+/**
+ * The message store the import sweep writes through. Injected so the tracker
+ * stays free of DB-message plumbing and unit-testable with a fake. All four
+ * ops are keyed by the topic's session_key.
+ */
+export interface ImportSink {
+  /** id of the last row in the session's active thread, or null when empty —
+   *  the parent the first newly-imported message chains from. */
+  getLastMessageId(sessionKey: string): string | null;
+  /** Append already-chained messages (id/parentId/toolCalls decided upstream). */
+  appendMessages(sessionKey: string, msgs: StoredMessage[]): void;
+  /** Patch a tool_result onto the tool call in the session's LAST message —
+   *  the cross-chunk case where a tool_use was imported in an earlier sweep. */
+  resolveToolResult(sessionKey: string, toolUseId: string, result: string, isError: boolean): void;
+  /** Topic id for the WS `message:new` fan-out, or null if unmapped. */
+  topicIdForSessionKey(sessionKey: string): string | null;
+}
 
 export interface ClaudeSessionTrackerOptions {
   db: Database;
@@ -78,6 +100,33 @@ export interface ClaudeSessionTrackerOptions {
    * os.homedir(); tests point it at a temp dir.
    */
   homeDir?: string;
+  /**
+   * Message store for the ADOPTED-session import sweep. Omitted ⇒ the import
+   * sweep is a no-op (the phase tracker still runs). Wired by the server from
+   * the topic message store.
+   */
+  importSink?: ImportSink;
+  /**
+   * True while Topics owns a LIVE claude child for this session_key (the chat
+   * provider's `isTurnProcessAlive`). The import sweep uses it as the
+   * double-import guard: while Topics drives the session it also streams +
+   * persists the turns, so the sweep must NOT re-import the same JSONL bytes —
+   * it advances the cursor past them instead. Omitted ⇒ treated as "not driven"
+   * (pure terminal), which is the common adopted case.
+   */
+  isSessionLocallyDriven?: (sessionKey: string) => boolean;
+  /**
+   * Quanto deve essere FERMO il transcript di una sessione adottata prima che
+   * lo sweep si chieda "ha forkato?" (ms). Una sessione viva scrive di
+   * continuo; solo un file che ha smesso di crescere merita la scansione.
+   * Default 8s.
+   */
+  forkStaleMs?: number;
+  /**
+   * Intervallo minimo tra due scansioni di fork per la STESSA sessione (ms).
+   * La scansione legge i transcript vicini: va fatta di rado. Default 10s.
+   */
+  forkScanCooldownMs?: number;
 }
 
 interface DedupEntry {
@@ -128,6 +177,12 @@ export interface ClaudeSessionTracker {
    * session; if the file already exists (a `--resume`, a server-restart
    * re-registration) the offset snaps to its current size — only lines written
    * AFTER tracking starts are ever consumed (no history replay).
+   *
+   * La fase iniziale segue lo stesso indizio: transcript già scritto ⇒
+   * riattaccata ⇒ `dormant` (a riposo, risvegliabile); file assente o vuoto ⇒
+   * nascita vera ⇒ `starting`. Vedi il commento esteso nell'implementazione:
+   * `starting` è la fase che sul client apre il fallback pty, e regalarla a
+   * una tab vecchia fa partire banner di lavoro chiuso da giorni.
    */
   registerTerminalSession(claudeSessionId: string, opts?: { cwd?: string; now?: number }): void;
   /**
@@ -164,6 +219,20 @@ export interface ClaudeSessionTracker {
    */
   startJsonlTail(intervalMs?: number): () => void;
   /**
+   * One MESSAGE-import sweep over every adopted session (import_offset set): read
+   * the transcript tail, append the new turns to the topic's chat (with tool
+   * calls + thinking), patch cross-chunk tool_results, advance import_offset.
+   * While Topics drives the session, the cursor is advanced WITHOUT importing
+   * (the stream already persisted those turns). Returns sessions that changed.
+   */
+  importOnce(now?: number): Promise<number>;
+  /**
+   * Start the recurring import sweep. Returns a stop fn. No-op without an
+   * `importSink`. This is what unfreezes an adopted chat: turns typed in the
+   * TERMINAL land in Topics within one interval.
+   */
+  startImportSweep(intervalMs?: number): () => void;
+  /**
    * Start the recurring reaper interval. Returns a stop fn.
    */
   startReaper(intervalMs?: number): () => void;
@@ -186,6 +255,10 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
   const reaperConfig = opts.reaperConfig ?? DEFAULT_REAPER_CONFIG;
   const ptyIdleMs = opts.ptyIdleMs;
   const homeDir = opts.homeDir ?? homedir();
+  const importSink = opts.importSink;
+  const isSessionLocallyDriven = opts.isSessionLocallyDriven ?? (() => false);
+  const forkStaleMs = opts.forkStaleMs ?? 8_000;
+  const forkScanCooldownMs = opts.forkScanCooldownMs ?? 10_000;
 
   // Dedup map: claudeSessionId|event → DedupEntry
   const dedupMap = new Map<string, DedupEntry>();
@@ -197,6 +270,11 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
   // design: terminal.ts re-registers on reconcile after a restart and the next
   // hook re-establishes phase.
   const terminalStates = new Map<string, ClaudeSessionState>();
+  // Stato del "seguire il fork", per sessionKey adottata: quando abbiamo
+  // guardato l'ultima volta e quali file vicini abbiamo già scartato (con il
+  // loro mtime, così un file che cambia torna candidabile). Volatile: al
+  // riavvio si riparte a guardare, che è il comportamento giusto.
+  const forkWatch = new Map<string, { lastScanAt: number; rejected: Map<string, number> }>();
 
   function dedupKey(claudeSessionId: string, event: string): string {
     return `${claudeSessionId}|${event}`;
@@ -379,7 +457,33 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
     const t = regOpts?.now ?? now();
     const state = makeInitialState(claudeSessionId, null, t, jsonlPath);
     if (jsonlPath) {
-      state.jsonlOffset = fileSizeOrZero(jsonlPath);
+      const size = fileSizeOrZero(jsonlPath);
+      state.jsonlOffset = size;
+      // Un transcript che ha GIÀ del contenuto vuol dire che questa non è una
+      // nascita: è una riattaccata (il riavvio del server ha svuotato
+      // `terminalStates`, che è solo in memoria) o un `--resume`. Dire
+      // `starting` lì è una bugia con un costo preciso, e non è cosmetico:
+      // `starting` è l'UNICA fase che il client non classifica né attiva né a
+      // riposo (ACTIVE_CLAUDE_PHASES / RESTING_CLAUDE_PHASES in
+      // client/src/state/signals.ts), ed è esattamente la condizione che apre
+      // la guardia del fallback pty in `useCompletionNotifier` — il ramo
+      // grezzo pensato per le sessioni SENZA hook. Risultato misurato il
+      // 2026-08-09: dopo 161 riattacchi, una tab claude-code finita giorni
+      // prima stava a `starting` con `rev 0`, e da lì bastava un frame di
+      // repaint (il `lastVisibleSig` si azzera con lo stesso riavvio, quindi
+      // il primo frame non può mai essere classificato cosmetico) per far
+      // partire il banner «Lavoro completato» di un lavoro chiuso da giorni.
+      // Nessuno la tirava fuori da lì: il reaper salta `starting` per i
+      // terminali e l'offset è già a EOF.
+      //
+      // `dormant` è la fase onesta per «il PTY c'è ma non abbiamo alcun
+      // segnale, e l'ultima scrittura è vecchia»: è a riposo (niente banner,
+      // niente spinner bugiardo) e resta risvegliabile — il primo frame pty
+      // vero la riporta a `running` via reviveOnPtyActivity, un hook o una
+      // riga di transcript la muovono comunque. Una sessione appena nata (file
+      // ancora inesistente o vuoto) resta `starting`: è la popolazione che il
+      // fallback pty serve davvero.
+      if (size > 0) state.phase = 'dormant';
       // This branch fires both for a brand-new session AND for reattaching to
       // one that already existed before a server restart wiped terminalStates
       // (it's in-memory only — see the module doc). For the reattach case `t`
@@ -570,6 +674,193 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
     return () => clearInterval(handle);
   }
 
+  /**
+   * Il transcript seguito non cresce più: la sessione ha forkato? Un `--resume`
+   * può ripartire da un file NUOVO (`<nuovo-id>.jsonl`) in cui la CLI ricopia la
+   * storia del padre. Chi taillava il padre resterebbe fermo per sempre e la
+   * chat si ricongelerebbe. Il figlio però copia gli uuid del padre: cerchiamo
+   * nella cartella di progetto un transcript più recente che contenga le righe
+   * che abbiamo già consumato e ci riagganciamo al punto in cui la copia
+   * finisce (così non reimportiamo nulla).
+   *
+   * Percorso di RECUPERO, non principale: gira solo su una sessione adottata,
+   * solo quando il file è fermo da `forkStaleMs`, al più una volta ogni
+   * `forkScanCooldownMs`, e non riesamina candidati già scartati e immutati.
+   * Ritorna lo stato riletto dopo il relink, o null se non c'è nulla da seguire.
+   */
+  async function maybeFollowFork(sess: ClaudeSessionState, t: number): Promise<ClaudeSessionState | null> {
+    const sessionKey = sess.sessionKey;
+    if (!sessionKey || !sess.jsonlPath || sess.importOffset == null) return null;
+    // Mentre Topics guida la sessione è il provider a decidere resume e path:
+    // un relink euristico gli si metterebbe di traverso.
+    if (isSessionLocallyDriven(sessionKey)) return null;
+
+    let watch = forkWatch.get(sessionKey);
+    if (!watch) { watch = { lastScanAt: 0, rejected: new Map() }; forkWatch.set(sessionKey, watch); }
+    if (t - watch.lastScanAt < forkScanCooldownMs) return null;
+    const mtime = fileMtimeMs(sess.jsonlPath);
+    // Ancora caldo: una pausa dentro un turno non è un fork.
+    if (mtime !== undefined && t - mtime < forkStaleMs) return null;
+    watch.lastScanAt = t;
+
+    const currentPath = sess.jsonlPath;
+    const { found, rejected } = await findForkContinuation({
+      currentPath,
+      consumedBytes: sess.importOffset,
+      isPathTaken: (p) => repo.isTranscriptPathTaken(p, sessionKey),
+      skip: (p, m) => watch!.rejected.get(p) === m,
+    });
+    for (const r of rejected) watch.rejected.set(r.path, r.mtimeMs);
+    if (!found) return null;
+    // Il nome del file diventa il claude_session_id con cui faremo `--resume`:
+    // stesso guardrail di charset dell'adozione, niente path traversal.
+    if (!/^[A-Za-z0-9][A-Za-z0-9-]{0,127}$/.test(found.sessionId)) return null;
+
+    const moved = repo.relinkTranscript({
+      sessionKey,
+      fromPath: currentPath,
+      toPath: found.path,
+      claudeSessionId: found.sessionId,
+      offset: found.offset,
+      updatedAt: t,
+    });
+    // CAS perso: un hook ha già stabilito il path del figlio. Va bene così —
+    // la prova diretta batte l'euristica, e il prossimo sweep legge la sua.
+    if (!moved) return null;
+    watch.rejected.clear();
+    console.log(
+      `[claude-session-tracker] fork seguito per ${sessionKey}: ${basename(currentPath)} → ` +
+      `${basename(found.path)} (${found.matched} righe già note, riprendo da ${found.offset})`
+    );
+    return repo.loadBySessionKey(sessionKey);
+  }
+
+  /**
+   * Import the unconsumed tail of ONE adopted session's transcript into its
+   * chat. Returns the number of messages imported (0 when nothing new, or when
+   * the cursor was merely advanced past Topics-authored bytes). Mirrors
+   * `readSessionTail`'s byte accounting so import_offset always lands on a
+   * complete-line boundary. `followFork` è false nella chiamata ricorsiva dopo
+   * un relink: si segue un fork alla volta, mai a catena dentro uno sweep.
+   */
+  async function importSessionTail(sess: ClaudeSessionState, t: number, followFork = true): Promise<number> {
+    if (!importSink || !sess.sessionKey || !sess.jsonlPath || sess.importOffset == null) return 0;
+    const sessionKey = sess.sessionKey;
+    const fromOffset = sess.importOffset;
+    let consumedText: string;
+    let nextOffset: number;
+    try {
+      const stat = await fsp.stat(sess.jsonlPath);
+      if (stat.size <= fromOffset) {
+        // Fermo. O la sessione è solo silenziosa, o è ripartita altrove.
+        if (!followFork) return 0;
+        const relinked = await maybeFollowFork(sess, t);
+        return relinked ? importSessionTail(relinked, t, false) : 0;
+      }
+      const fh = await fsp.open(sess.jsonlPath, 'r');
+      try {
+        const len = stat.size - fromOffset;
+        const buf = Buffer.alloc(len);
+        await fh.read(buf, 0, len, fromOffset);
+        const { lines, remainder } = splitJsonlChunk(buf.toString('utf-8'));
+        // Advance past complete lines only; the partial tail waits for the next
+        // sweep (same rule the phase tail uses).
+        const consumedBytes = len - Buffer.byteLength(remainder, 'utf-8');
+        nextOffset = fromOffset + consumedBytes;
+        if (nextOffset === fromOffset) return 0; // no complete new line yet
+        consumedText = lines.join('\n');
+      } finally {
+        await fh.close();
+      }
+    } catch {
+      // File sparito o illeggibile. Non si segue nessun fork da qui: senza gli
+      // uuid già consumati non c'è prova di parentela, e agganciarsi al file
+      // più recente della cartella vorrebbe dire rubare la sessione di un
+      // altro topic. Si lascia il cursore; uno sweep successivo riprova.
+      return 0;
+    }
+
+    // Double-import guard: while Topics owns a live child for this session, the
+    // chat provider already streamed + persisted these turns into the SAME
+    // JSONL. Skip the import but advance the cursor so that, once the child
+    // dies, only genuinely-external (terminal) turns remain to import.
+    if (isSessionLocallyDriven(sessionKey)) {
+      repo.setImportOffset(sessionKey, nextOffset);
+      return 0;
+    }
+
+    const parentId = importSink.getLastMessageId(sessionKey);
+    const { messages, resolutions } = parseTranscriptDelta(consumedText, { parentId });
+
+    // Cross-chunk tool_results FIRST: they patch the session's current last
+    // message (a tool_use imported in an earlier sweep), which must still be the
+    // last row when we patch — before we append this chunk's new turns.
+    for (const r of resolutions) {
+      try { importSink.resolveToolResult(sessionKey, r.toolUseId, r.result, r.isError); }
+      catch (err) { console.error('[claude-session-tracker] resolveToolResult failed', err); }
+    }
+    if (messages.length) importSink.appendMessages(sessionKey, messages);
+    repo.setImportOffset(sessionKey, nextOffset);
+
+    // Push the new turns to any open chat + sidebar preview, reusing the same
+    // `message:new` the streaming paths emit (the client appends by messageId).
+    // Text-only, like every other emitter; a reload hydrates tool cards from the
+    // rows we just wrote.
+    if (messages.length) {
+      const topicId = importSink.topicIdForSessionKey(sessionKey);
+      for (const m of messages) {
+        const content = m.content ?? '';
+        if (!content) continue; // pure tool-call rows carry no preview text
+        broadcast({
+          type: 'message:new',
+          topicId: topicId ?? undefined,
+          sessionKey,
+          role: m.role,
+          messageId: m.id,
+          content,
+          preview: content.slice(0, 100),
+        } as OutboundMessage);
+      }
+    }
+    return messages.length;
+  }
+
+  async function importOnce(overrideNow?: number): Promise<number> {
+    if (!importSink) return 0;
+    const t = overrideNow ?? now();
+    let changed = 0;
+    const live = new Set<string>();
+    for (const sess of repo.listImportable()) {
+      if (sess.sessionKey) live.add(sess.sessionKey);
+      try {
+        if ((await importSessionTail(sess, t)) > 0) changed += 1;
+      } catch (err) {
+        console.error('[claude-session-tracker] import sweep error', err);
+      }
+    }
+    // Una sessione uscita dallo sweep (topic cancellato) non deve lasciarsi
+    // dietro la sua cache di fork.
+    if (forkWatch.size > live.size) {
+      for (const key of [...forkWatch.keys()]) if (!live.has(key)) forkWatch.delete(key);
+    }
+    return changed;
+  }
+
+  function startImportSweep(intervalMs = 1_500): () => void {
+    if (!importSink) return () => {};
+    let sweeping = false; // re-entrancy guard: a slow sweep must not stack
+    const handle = setInterval(() => {
+      if (sweeping) return;
+      sweeping = true;
+      importOnce()
+        .catch((err) => console.error('[claude-session-tracker] import sweep error', err))
+        .finally(() => { sweeping = false; });
+    }, intervalMs);
+    // Don't keep the event loop alive just for the import sweep.
+    if (typeof handle.unref === 'function') handle.unref();
+    return () => clearInterval(handle);
+  }
+
   function startReaper(intervalMs = 30_000): () => void {
     const handle = setInterval(() => {
       try { reapOnce(); } catch (err) { console.error('[claude-session-tracker] reaper error', err); }
@@ -593,6 +884,8 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
     recoverFromJsonl,
     tailOnce,
     startJsonlTail,
+    importOnce,
+    startImportSweep,
     startReaper,
   };
 }

@@ -2,6 +2,7 @@ import { describe, test, expect } from "bun:test";
 import { paneReducer } from "./panes";
 import { selectLocalSnapshot } from "../selectors";
 import { DEFAULT_SPACE_ID } from "../types";
+import { overTheWire } from "../testSupport";
 import type { PaneState, Pane } from "../types";
 
 /**
@@ -49,7 +50,7 @@ const closePane = (state: PaneState, id: string, groupIndex = 0) =>
 // (warm-boot: lastServerSeq 0, empty panes → the reducer's warm-boot escape
 // lets a server_seq-0 snapshot apply).
 const reload = (prev: PaneState): PaneState => {
-  const snap = selectLocalSnapshot(prev);
+  const snap = overTheWire(selectLocalSnapshot(prev));
   const fresh = blank();
   paneReducer(fresh, {
     type: "HYDRATE_FROM_SNAPSHOT",

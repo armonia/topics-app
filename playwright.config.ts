@@ -117,6 +117,36 @@ export default defineConfig({
     // voci del menu tab, 8 test caddero su «Dividi a destra» perche' l'app
     // rendeva «Split right», correttamente.
     locale: "it-IT",
+    // MOVIMENTO RIDOTTO PER TUTTA LA SUITE.
+    //
+    // Non è una preferenza estetica del runner: è il modo pulito di togliere di
+    // mezzo una classe intera di rossi da «elemento mai stable». Playwright,
+    // prima di ogni click, aspetta che la scatola del bersaglio sia ferma per
+    // due frame consecutivi; con le transizioni accese, su un runner carico —
+    // quattro shard sulla stessa macchina — una tab che scorre o un pannello che
+    // scivola può non arrivarci dentro il timeout, e il test muore su
+    // un'animazione invece che su un difetto. Spente, la geometria è quella
+    // finale dal primo frame.
+    //
+    // Ciò che si perde è coperto altrove: le transizioni che sono LA cosa da
+    // provare (il composer che scende, il drawer) hanno le loro spec, e chi
+    // vuole vedere l'app muoversi ha `E2E_EVIDENCE=1`.
+    //
+    // Restava chiusa da un difetto: fino al 09/08 il comando in testa alla riga
+    // di chrome stava a `md:left-[5.5px]`, mezzo pixel dentro il punto (5, 5)
+    // che `reopen-closed-tab` usa per spostare il fuoco — e l'hit-test di
+    // Chromium arrotondava DENTRO la scatola, mandando il click a timeout. Il
+    // mezzo pixel è sparito (ab8d7514, inset a 6) e ora c'è una guardia che
+    // misura la cosa nelle due modalità:
+    // `tests/e2e/reduced-motion-chrome-controls.spec.ts`.
+    //
+    // `contextOptions` è la sola porta: fino alla 1.59 `reducedMotion` non è
+    // un'opzione di primo livello di `use` (lo è `colorScheme`, non questa).
+    // Conseguenza per chi scrive una spec che vuole l'altra modalità:
+    // `contextOptions` è UN fixture solo, quindi un `test.use` che lo tocca
+    // SOSTITUISCE l'oggetto invece di aggiungerci una chiave — la guardia infatti
+    // si apre i due contesti a mano con `browser.newContext`.
+    contextOptions: { reducedMotion: "reduce" },
   },
   outputDir: "test-results/artifacts",
   projects: [
@@ -135,7 +165,10 @@ export default defineConfig({
       // gate esiste apposta per non guardare. La lista va quindi RIPETUTA qui.
       testIgnore: [
         "**/sidebar-touch-audit.spec.ts",
+        "**/sidebar-finger-follow.spec.ts",
         "**/hover-reveal-touch-audit.spec.ts",
+        "**/browser-mobile-keyboard.spec.ts",
+        "**/mobile-chrome-bar.spec.ts",
         ...(IS_PR ? NIGHTLY_ONLY_SPECS : []),
       ],
     },
@@ -155,7 +188,10 @@ export default defineConfig({
      */
     {
       name: "chromium-touch",
-      testMatch: "**/sidebar-touch-audit.spec.ts",
+      // Due spec, stessa popolazione: la prima misura le SUPERFICI col dito
+      // (bersagli, menu, seconda riga), la seconda i GESTI (il cassetto che
+      // segue il dito, le tessere fissate che non scattano quando scorri).
+      testMatch: ["**/sidebar-touch-audit.spec.ts", "**/sidebar-finger-follow.spec.ts"],
       use: {
         browserName: "chromium",
         hasTouch: true,
@@ -175,10 +211,42 @@ export default defineConfig({
      * `isTouch: true, hasHover: false, isMobile: false`, che è esattamente la
      * combinazione di un tablet con la tastiera staccata — e la popolazione su
      * cui i comandi nascosti dietro l'hover sparivano.
+     *
+     * Qui gira anche `browser-mobile-keyboard.spec.ts` (quale tastiera esce
+     * toccando un campo nel pane browser, e la scala che non si muove), per la
+     * stessa ragione: serve il DITO, non la larghezza. A 390px il pane browser
+     * sta dietro la navigazione mobile e il tocco atterra sulla colonna dei
+     * topic — misurato, l'hit-test in quel punto restituisce `sidebar-column`.
+     * Il contratto sotto esame (il campo di cattura che si veste come il campo
+     * remoto, e la soglia dei 16px) non dipende dalla larghezza: si prova dove
+     * la superficie esiste, invece di pilotare la navigazione del telefono.
+     */
+    /**
+     * IL TELEFONO INTERO, non solo il dito.
+     *
+     * La chrome mobile decisa il 12/08 — «Topics» solo in alto, tre porte in
+     * basso, la fila che segue la curva dello schermo — esiste SOLO sotto i
+     * 768px e solo col dito: nel progetto `chromium` a 1280 non c'è proprio, e
+     * un test che gira lì passerebbe misurando l'assenza. Stessi segnali della
+     * spec touch (`hasTouch` + `isMobile`), viewport di un iPhone 14.
      */
     {
+      name: "chromium-phone",
+      testMatch: "**/mobile-chrome-bar.spec.ts",
+      use: {
+        browserName: "chromium",
+        hasTouch: true,
+        isMobile: true,
+        viewport: { width: 390, height: 844 },
+      },
+    },
+    {
       name: "chromium-touch-wide",
-      testMatch: "**/hover-reveal-touch-audit.spec.ts",
+      // `board-card-stop` gira in DUE progetti (qui e in `chromium`): è lo stesso
+      // menu aperto da due gesti, e i suoi due test si escludono a vicenda con
+      // `test.skip(isMobile)`. A 390px la board è appiattita e la card non c'è —
+      // serve il dito su schermo largo, che è esattamente questo progetto.
+      testMatch: ["**/hover-reveal-touch-audit.spec.ts", "**/browser-mobile-keyboard.spec.ts", "**/board-card-stop.spec.ts"],
       use: {
         browserName: "chromium",
         hasTouch: true,

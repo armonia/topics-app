@@ -73,7 +73,7 @@ function ContextPill({ file, excluded, onToggle, onRemove }: {
         </span>
       )}
       {onRemove && (
-        <button
+        <button aria-label="Rimuovi dal contesto"
           onClick={(e) => { e.stopPropagation(); onRemove(); }}
           className="ml-0.5 opacity-40 hover:opacity-100 transition-opacity flex-shrink-0"
         >

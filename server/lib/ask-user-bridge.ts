@@ -23,6 +23,8 @@
  * vous race-free in both directions.
  */
 
+import { emitHumanHoldChange } from './human-hold-events';
+
 export interface AskUserBridgeOptions {
   /** How long THIS wait blocks before giving up (ms). One poll leg, not the ask. */
   timeoutMs?: number;
@@ -121,6 +123,10 @@ export function beginAsk(sessionKey: string, ttlMs = DEFAULT_ASK_TTL_MS, now = D
   const startedAt = activeAsks.get(sessionKey);
   if (startedAt === undefined) {
     activeAsks.set(sessionKey, now);
+    // Da qui in poi il turno è fermo su una persona. Chi guarda la BOARD non ha
+    // modo di accorgersene da sé: il task resterebbe `working` sotto un pannello
+    // aperto. Vedi human-hold-events.ts.
+    emitHumanHoldChange({ sessionKey, phase: "held", source: "ask" });
     return true;
   }
   return now - startedAt < ttlMs;
@@ -128,7 +134,11 @@ export function beginAsk(sessionKey: string, ttlMs = DEFAULT_ASK_TTL_MS, now = D
 
 /** Close an ask: answered, cancelled, or expired. Idempotent. */
 export function endAsk(sessionKey: string): void {
-  activeAsks.delete(sessionKey);
+  // Solo se c'era davvero un'attesa: un `released` a vuoto farebbe rimettere il
+  // chip a «in corso» su una sessione che non ha mai smesso di esserlo.
+  if (activeAsks.delete(sessionKey)) {
+    emitHumanHoldChange({ sessionKey, phase: "released", source: "ask" });
+  }
 }
 
 /**

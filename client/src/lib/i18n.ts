@@ -4,7 +4,7 @@
  * ── Perché un dizionario e non una traduzione a tappeto ──────────────────────
  * Oggi l'interfaccia è mescolata: ~98 stringhe in italiano e ~91 in inglese
  * (misurate il 04/08). Tradurle tutte in un colpo solo significherebbe cambiare
- * ~190 testi visibili in una volta — e la suite e2e ANCORA quei testi («Chiudi
+ * ~190 testi visibili in una volta, e la suite e2e ANCORA quei testi («Chiudi
  * ora», «Dividi a destra», «Rimuovi dai Fissati»). Il risultato sarebbe decine
  * di rossi tutti insieme, in cui un errore vero è indistinguibile da una stringa
  * spostata. Quindi: prima il meccanismo, poi una superficie alla volta, con i
@@ -13,7 +13,7 @@
  * ── Perché non una libreria ──────────────────────────────────────────────────
  * Serve questo: una chiave, due lingue, l'interpolazione di qualche valore. Una
  * libreria porterebbe plurali per lingue slave, caricamento asincrono dei
- * bundle, contesti e namespace — e un peso e una configurazione che non
+ * bundle, contesti e namespace, oltre a un peso e una configurazione che non
  * ripagano finché le lingue sono due.
  *
  * ── Il ripiego è deliberato ──────────────────────────────────────────────────
@@ -38,7 +38,7 @@ type Dict = Record<string, string>;
 const IT: Dict = {
   'board.night.title': 'Modalità notturna',
   'board.night.blurb':
-    "Mentre sei via, la coda parte solo a macchina libera — e si spegne da sola all'orario di fine, invece di restare armata addosso a chi lavora.",
+    "Mentre sei via, la coda parte solo a macchina libera. Si spegne da sola all'orario di fine, invece di restare armata addosso a chi lavora.",
   'board.night.until': 'Si ferma alle',
   'board.night.state.off': 'Spenta',
   'board.night.state.off.detail': 'La board dispaccia come sempre, senza guardare il carico.',
@@ -71,10 +71,24 @@ const IT: Dict = {
   'tab.menu.unpin': 'Rimuovi dai Fissati',
   'board.task.movedToReviewBySystem': 'Portato in review dal sistema.',
   'board.task.reject': 'Rifiuta',
-  'board.task.openChat': 'Apri la chat',
+  // ── SCHEDA contro SESSIONE. Sono due superfici diverse e da qui in poi si
+  //    chiamano diversamente, ovunque. La SCHEDA del task è dove si decide
+  //    (descrizione, checklist, consegna, thread) ed esiste sempre; la SESSIONE
+  //    è la chat viva dell'agente, dove si lavora, e può non esserci più.
+  //    Chi legge l'etichetta deve sapere quale delle due otterrà PRIMA del
+  //    click — vedi `lib/taskSession.ts`. Regola per chi aggiunge chiavi qui:
+  //    mai «apri il task» e mai «tab dell'agent», che non dicono quale delle due.
+  'board.task.openCard': 'Apri la scheda',
+  'board.task.openCardTitle': 'Apri la scheda del task: descrizione, checklist, consegna, thread',
+  'board.task.openParentCardTitle': 'Apri la scheda del task padre',
+  'board.task.openSubtaskCardTitle': 'Apri la scheda del sottotask',
+  'board.task.openSession': 'Apri la sessione',
+  'board.task.openSessionTitle': "Apri la sessione dell'agente: la chat dove sta lavorando (chiuderla NON la ferma)",
+  'board.task.sessionGone': 'Sessione finita',
+  'board.task.sessionGoneTitle': "L'agente non è più vivo: la sua sessione non esiste più. Quello che ha fatto resta qui, sulla scheda.",
+  'board.task.awaitingYouTitle': "Il turno è vivo ma aspetta te: apri la sessione dell'agente per rispondere",
   'board.task.loadingDiff': 'carico il diff…',
   'board.task.diffUnreadable': 'Diff non leggibile.',
-  'board.task.noChanges': 'Nessuna modifica da mostrare.',
   'board.task.noComments': 'Nessun commento.',
   'board.task.moveTo': 'Sposta in…',
   'board.task.options': 'Opzioni task',
@@ -93,19 +107,177 @@ const IT: Dict = {
   'board.task.proposedPlan': 'Piano proposto',
   'board.task.noPreviewForType': 'Nessuna anteprima per questo tipo di file.',
   'board.task.openInBrowser': 'Apri nel browser',
+  // ── TaskDetail (drawer): azioni, chip, sottotask, pannello impostazioni board.
+  //    I valori IT sono IDENTICI ai letterali di prima, così l'app in italiano
+  //    non cambia una virgola e le spec e2e che ancorano quel testo restano
+  //    verdi; l'inglese è il nuovo. Chi arriva dopo aggiunge chiavi, non riscrive.
+  'board.task.stopAgent': 'Ferma',
+  'board.task.stopAgentTitle': "Ferma l'agent (il task torna in Backlog con il motivo)",
+  'board.task.dispatch.queued': 'in coda…',
+  'board.task.dispatch.starting': 'avvio agent…',
+  'board.task.dispatch.working': 'agent al lavoro…',
+  'board.task.loading': 'Carico…',
+  'board.task.changeStatusTitle': 'Cambia lo stato del task',
+  'board.task.optionsTitle': 'Altre opzioni: piano prima, bloccato da, sottotask…',
+  'board.task.reuseBlockerTitle': "Quando parte, l'agent riceve il contesto della sessione del task bloccante invece di uno start a freddo",
+  'board.task.blockedByText': 'Bloccato da: {text}',
+  'board.task.blockedByUnknown': 'Bloccato da un altro task',
+  'board.task.openResultWorkspaceTitle': 'Apri il risultato come tab nel workspace del progetto',
+  'board.task.copyText': 'Copia il task',
+  'board.task.copyTextTitle': 'Copia il task (titolo + descrizione) negli appunti',
+  'board.task.copyTextDone': 'Task copiato',
+  'board.task.copyLink': 'Copia il link',
+  'board.task.copyLinkTitle': 'Copia il link al task (deep-link apribile, per debug/condivisione)',
+  'board.task.copyLinkDone': 'Link copiato',
+  'board.task.closeDetail': 'Chiudi il dettaglio del task',
+  'board.task.closeError': "Chiudi l'errore",
+  'board.task.parentTask': 'Task padre',
+  'board.task.projectChipTitle': 'Progetto: {label}. Sposta, apri o creane uno nuovo.',
+  'board.task.moveProjectTo': 'Sposta su…',
+  'board.task.openProjectWindow': 'Apri la finestra di {name}',
+  'board.task.projectUnresolvable': 'Percorso del progetto non risolvibile',
+  'board.task.stopped': 'fermato',
+  'board.task.editTitleTitle': 'Clicca per modificare il titolo',
+  'board.task.priorityAuto': 'Priorità auto',
+  'board.task.descPlaceholder': 'Descrizione…',
+  'board.task.descLabel': 'Descrizione',
+  'board.task.editDescTitle': 'Clicca per modificare la descrizione',
+  'board.task.addDesc': '+ descrizione…',
+  'board.task.descChars': '{n} caratteri',
+  'board.task.descExpandTitle': 'Apri la descrizione',
+  'board.task.previewRetired': 'Anteprima ritirata',
+  'board.task.openAsTabTitle': 'Apri come tab nel workspace del task',
+  'board.task.downloadFileTitle': 'Scarica il file',
+  'board.task.newTab': 'Nuova scheda',
+  'board.task.closedTab': 'chiusa',
+  'board.task.reopenTabTitle': 'Riapri questa scheda',
+  'board.task.removeTabTitle': 'Rimuovi la scheda',
+  'board.task.subtasksLabel': 'Sottotask',
+  'board.task.addSubtaskPlaceholder': '+ sottotask…',
+  'board.task.approve': 'Approva',
+  'board.task.approveAnyway': 'Approva comunque',
+  'board.task.removeAttachmentTitle': 'Rimuovi allegato',
+  'board.task.attachFileTitle': "Allega file (o incolla un'immagine nel campo)",
+  // La riga di ritorno in cima alla chat di una sessione di board: da dove si
+  //    LAVORA a dove si DECIDE. Il verso opposto della board.
+  'chat.session.taskLabel': 'Task',
+  'chat.session.openTaskCard': 'Apri la scheda',
+  'chat.session.openTaskCardTitle': 'Torna alla scheda del task: descrizione, checklist, consegna, thread',
+  'board.task.pdfPreviewTitle': 'anteprima PDF',
+  'board.task.collapse': 'Comprimi',
+  'board.task.showSteps': 'Mostra i passaggi che la sessione ha fatto qui',
+  'board.task.steps': 'Passaggi',
+  'board.task.streamPreviewTitle': 'Anteprima live di ciò che sta streammando ora',
+  'board.task.approveTitle': "Accetta e completa il task. NON fa il merge. Per landare il branch su main usa 'Landa su main'.",
+  'board.task.approveFailTitle': "I checks pre-review sono rossi: approvando lo accetti comunque. La strada normale è Rifiuta, che rimanda l'output all'agent.",
+  'board.task.rejectTitle': "Rifiuta (l'agent riparte senza indicazioni)",
+  'board.task.landTitle': "Accetta e fai il merge del branch su main (locale, nessun push online). La build gira lato server; l'esito appare nel thread.",
+  'board.task.recapturePreview': 'Ricattura evidenza',
+  'board.task.recapturePreviewTitle': "Rifà l'anteprima di questa card: riavvia il server dal suo worktree e la rifotografa. NON sveglia l'agent e non consuma un tentativo. Se non è possibile, il motivo arriva nel thread.",
+  'board.task.replyPlaceholder': "Rispondi all'agent…",
+  'board.task.steerPlaceholder': "Scrivi all'agent mentre lavora. Lo riceve al prossimo turno.",
+  'board.task.commentPlaceholder': 'Commenta…',
+  'board.task.workspaceLabel': 'Spazio di lavoro',
+  // «Consegna» e non «Anteprima»: è la cosa CONSEGNATA, la sezione in cima al
+  // brief per cui il drawer si apre (e che ora si chiude da sé).
+  'board.task.deliveryLabel': 'Consegna',
+  'board.task.noWorkspaceTabs': 'Nessuna tab aperta su questo task.',
+  'board.task.openTab': 'Apri una tab',
+  'board.task.reviewPreview': 'Anteprima',
+  // ── TaskDetail: i tre sotto-pannelli CONDIZIONALI (Checks, Modifiche,
+  //    Tentativi). Si vedono solo in stati precisi (checks girati, worktree con
+  //    diff, fan-out con più tentativi), e per questo lo scanner di copertura
+  //    non li contava: il loro testo sta dentro espressioni JSX multi-riga.
+  //    I valori IT sono IDENTICI ai letterali di prima (li ancorano
+  //    board-fanout.spec.ts e board-diff-review.spec.ts).
+  //
+  //    Sui plurali: due chiavi `.one`/`.many` e il ramo lo sceglie chi chiama.
+  //    Con due lingue che pluralizzano allo stesso modo, un plurale a regole
+  //    (Intl.PluralRules, categorie `few`/`many`) sarebbe macchinario per una
+  //    distinzione che qui è un `=== 1`.
+  'board.task.checks.running': 'Checks pre-review in corso…',
+  'board.task.checks.pass': 'Checks verdi',
+  'board.task.checks.fail': 'Checks ROSSI',
+  'board.task.checks.at': 'alle {t}',
+  'board.task.checks.notStarted': 'non è partito',
+  'board.task.checks.timedOut': 'oltre il tempo massimo',
+  // Il consiglio è spezzato in due perché in mezzo c'è <b>Rifiuta</b>, che è la
+  // STESSA etichetta del bottone (`board.task.reject`): ripeterla dentro una
+  // frase intera vorrebbe dire poterla tradurre in due modi diversi.
+  'board.task.checks.hintLead': 'La strada normale è',
+  'board.task.checks.hintTail': ": l'agent riparte con questo output. Approvare qui significa accettarlo rosso.",
+  'board.task.changes': 'Modifiche',
+  'board.task.changes.files.one': '{n} file',
+  'board.task.changes.files.many': '{n} file',
+  'board.task.changes.pending': '{n} in sospeso',
+  'board.task.changes.notes.one': '{n} commento sul diff, non ancora inviati',
+  'board.task.changes.notes.many': '{n} commenti sul diff, non ancora inviati',
+  'board.task.changes.discard': 'Scarta',
+  'board.task.changes.send': "Invia all'agente",
+  'board.task.changes.sendFailed': 'invio fallito',
+  'board.task.changes.sendFailedInline': 'Invio fallito: {msg}: le note sono ancora qui, riprova.',
+  // I tre modi di non avere un diff. Erano lo stesso silenzio, e non lo sono.
+  'board.task.changes.empty': 'Nessun codice prodotto: la card non ha lasciato modifiche.',
+  'board.task.changes.unreadable': "Diff non ricostruibile: il worktree non c'è più e non ho trovato un riferimento durevole su main.",
+  'board.task.changes.notDispatched': 'Nessun agente ha lavorato su questa card: non c\'è codice da mostrare.',
+  'board.task.changes.fromMerge': 'dal merge su main',
+  'board.task.changes.fromDelivery': 'dal commit di consegna',
+  'board.task.attempts': 'Tentativi',
+  'board.task.attempts.parallel': '{n} in parallelo',
+  'board.task.attempts.running': '{n} in corso',
+  'board.task.attempts.pickHint': 'Scegline uno: il task prende il suo branch, gli altri (worktree e chat) vengono buttati.',
+  'board.task.attempts.pickFailed': 'scelta fallita',
+  'board.task.attempt.n': 'Tentativo {n}',
+  'board.task.attempt.selected': 'scelto',
+  'board.task.attempt.discarded': 'scartato',
+  'board.task.attempt.openDiff': 'Vedi il diff',
+  'board.task.attempt.closeDiff': 'Chiudi il diff',
+  'board.task.attempt.pick': 'Scegli questo',
+  'board.task.attempt.emptyTitle': 'Questo tentativo non ha modificato niente: tenerlo significa consegnare un branch vuoto.',
+  // Il diffstat accanto a ogni tentativo. Esiste già in `shared/task-attempt.ts`
+  // (`formatAttemptStat`), ma quella copia resta in italiano di proposito: la
+  // usa il SERVER per scrivere il confronto nel thread, e `shared/` non può
+  // vedere il dizionario del client. Qui la stessa forma, tradotta.
+  'board.task.attempt.stat.running': 'in corso…',
+  'board.task.attempt.stat.noChanges': 'nessuna modifica',
+  'board.task.attempt.stat.noChangesError': 'nessuna modifica ({error})',
+  'board.task.attempt.stat.files.one': '{n} file · +{ins} −{del}',
+  'board.task.attempt.stat.files.many': '{n} file · +{ins} −{del}',
+  'board.settings.close': 'Chiudi le impostazioni della board',
+  'board.settings.dispatchOnTitle': 'Interruttore globale, vale per tutte le board. Il cap di agent in parallelo si imposta dal ▾ accanto al titolo della board.',
+  'board.settings.effort': 'Effort',
+  'board.settings.model': 'Modello',
+  'board.settings.modelTitle': 'Auto: un classificatore sceglie il modello per ogni task. Un modello fisso forza OGNI dispatch di questa board su quel modello (un task con modello esplicito vince comunque).',
+  'board.settings.modelAuto': 'Auto (sceglie il classificatore)',
+  'board.settings.responseLanguage': 'Lingua delle risposte',
+  'board.settings.responseLanguageTitle': 'In che lingua rispondono gli agent dispatchati su questa board. «Come le Impostazioni» segue la preferenza globale, la stessa di chat e terminale. Vale dal prossimo dispatch: la lingua entra nel prompt di sistema, e cambiarlo sotto una sessione viva è peggio del ritardo.',
+  'board.settings.langInherit': 'Come le Impostazioni',
+  'board.settings.isolateWorktree': 'Isola ogni agent in un git worktree',
+  'board.settings.fanout': 'Tentativi in parallelo',
+  'board.settings.fanoutTitle': 'Quanti agent lavorano LO STESSO task in parallelo, ognuno nel suo worktree. A fine giro il task entra in review con il confronto dei tentativi e scegli tu quale tenere: gli altri (worktree, branch e chat) vengono buttati. Costa N volte: N agent veri, N slot del tetto di concorrenza. Richiede il worktree attivo.',
+  'board.settings.fanoutWarn': 'Ogni task in Todo parte {n} volte e occupa {n} slot del tetto: il conto dei token si moltiplica per {n}.',
+  'board.settings.notRepoWarn': 'Questo progetto non è un repo git: con «worktree isolato» acceso ogni task verrà bloccato. Spegnilo per eseguire in-place, oppure inizializza un repo nella cartella del progetto.',
+  'board.settings.autoMerge': 'Auto-merge su Approva',
+  'board.settings.autoMergeTitle': "Su Approva, mergia il branch del task in main nel checkout principale. Merge pulito → landa in locale (niente push); conflitto → rimanda all'agent del task; checkout sporco o non su main → salta con un commento. Richiede il worktree attivo.",
+  'board.settings.fullMcp': 'Fleet MCP completa per gli agent',
+  'board.settings.fullMcpTitle': "Bridge only: l'agent ha solo i tool di Topics (task + browser), quindi meno token per turno. Fleet completa: eredita tutti gli MCP dell'utente (exa, gateway e gli altri), utile solo se i task usano quei tool.",
+  'board.settings.dispatchOnActive': 'Attivo: spostare un task in Todo avvierà un agent con permessi pieni.',
+  'board.settings.checks': 'Checks pre-review',
+  'board.settings.checksTitle': "Eseguiti dal server nel worktree del task quando l'agent consegna. Uno rosso = review rifiutata, con l'output rimandato all'agent. Vuoto = nessun controllo. Tienili veloci: un gate da venti minuti lo spegni il primo giorno.",
   'board.settings.autoDispatch': 'Auto-dispatch',
-  'board.publish.toPublish': 'Da pubblicare — controlla i commit prima',
-  'board.publish.nothing': 'Niente da pubblicare — tutto già su remoto.',
+  'board.settings.title': 'Impostazioni della board',
+  'board.publish.toPublish': 'Da pubblicare',
+  'board.publish.nothing': 'Niente da pubblicare. Tutto è già sul remoto.',
   'board.publish.diffTitle': 'Diff che verrà pubblicato',
   'board.publish.loadingDiff': 'Carico il diff…',
   'board.publish.diffError': 'Errore nel caricare il diff.',
-  'board.dispatch.allBoards': 'Dispatch — tutte le board',
-  'board.dispatch.parallelAuto': 'Agent in parallelo — auto',
+  'board.dispatch.allBoards': 'Dispatch di tutte le board',
+  'board.dispatch.parallelAuto': 'Numero automatico',
   'board.dispatch.oneMachine': 'Vale su TUTTE le board (una sola macchina, un solo limite).',
   'board.filter.assignee': 'Assegnatario',
   'common.project': 'Progetto',
   'chat.turnStopped': 'Turno interrotto',
-  'chat.turnStopped.detail': "L'hai fermato tu — il messaggio è ancora qui",
+  'chat.turnStopped.detail': "L'hai fermato tu. Il messaggio è ancora qui.",
   'chat.noAnswer': 'Nessuna risposta',
   'chat.noAnswer.detail': 'La connessione può essersi interrotta',
   'git.noRepoInitialized': 'Nessun repository git inizializzato',
@@ -137,6 +309,7 @@ const IT: Dict = {
   'project.sidebar.files': 'File',
   'project.sidebar.gitChanges': 'Modifiche git',
   'project.sidebar.processes': 'Processi',
+  'project.sidebar.sections': 'Sezioni del progetto',
   'project.sidebar.newFile': 'Nuovo file',
   'project.sidebar.newFolder': 'Nuova cartella',
   'project.sidebar.refresh': 'Aggiorna',
@@ -154,7 +327,7 @@ const IT: Dict = {
   'sidebar.moreOptions': 'Altre opzioni',
   // Il «+» della riga di progetto su touch. NON è «altre opzioni»: quel bottone
   // apre il menu di AGGIUNTA (nuova chat, terminale, browser…), non il menu
-  // contestuale — che col dito si apre tenendo premuto. Portava l'etichetta
+  // contestuale, che col dito si apre tenendo premuto. Portava l'etichetta
   // sbagliata insieme al glifo sbagliato.
   'sidebar.newInProject': 'Aggiungi nel progetto',
   'sidebar.restoreProject': 'Ripristina il progetto',
@@ -163,7 +336,7 @@ const IT: Dict = {
   // Trascinare una tessera sulla lista di solito la rimette in lista. Ma se il
   // pin era l'unica cosa che la teneva su, di riga non ne nasce nessuna: e
   // allora l'anteprima deve dire QUESTO, prima che si lasci il dito.
-  'sidebar.unpinVanishes': '{nome} esce dai Fissati — in lista non resta',
+  'sidebar.unpinVanishes': '{nome} esce dai Fissati e non resta in lista',
   'sidebar.unpinnedGone': '{nome} non è più fissato, e non ha una riga in lista',
   'sidebar.undo': 'Annulla',
   // ── Persone e gruppi (Impostazioni → Identità).
@@ -171,7 +344,7 @@ const IT: Dict = {
   // La parola «organizzazione» compare in UNA chiave sola, e solo nella riga
   // che si mostra quando i membri sono più di uno: ORG-07 dice di non nominare
   // il concetto a chi ha un gruppo di una persona. «Gruppo» invece si dice
-  // sempre — nasconderlo del tutto voleva dire che non si vedeva, non si
+  // sempre. Nasconderlo del tutto voleva dire che non si vedeva, non si
   // rinominava, e chi lo cercava concludeva che non esistesse.
   'identity.title': 'Persone',
   'identity.blurb.solo': 'Per adesso ci sei solo tu. Aggiungi qualcuno per poter condividere con lui, anche prima che colleghi un suo dispositivo.',
@@ -191,12 +364,28 @@ const IT: Dict = {
   'identity.role.member': 'Membro',
   'identity.save': 'Salva',
   'identity.cancel': 'Annulla',
+  // ── L'APPAIAMENTO: la prima schermata che vede chi apre Topics da un telefono.
+  //
+  // Il titolo INVITA, non respinge. Prima diceva «Dispositivo non autorizzato»
+  // anche al primo accesso: la schermata che serve ad autorizzarti apriva
+  // dicendoti che non sei autorizzato, e chi la leggeva concludeva che fosse
+  // un errore invece che un passo. «Revocato» e «scaduta» restano rifiuti,
+  // perché lì lo sono davvero.
+  'pair.title.new': 'Autorizza questo dispositivo',
+  'pair.title.revoked': 'Accesso revocato',
+  'pair.title.expired': 'Sessione scaduta',
+  'pair.blurb.new': 'Sul computer dove Topics è già aperto comparirà una richiesta: confermala e questo dispositivo entra.',
+  'pair.blurb.revoked': 'Questo dispositivo è stato rimosso da Topics. Puoi chiedere di nuovo accesso.',
+  'pair.unreachable': 'Non riesco a contattare Topics. Il computer è acceso?',
+  'pair.denied': 'Richiesta rifiutata dal computer.',
+  'pair.retry': 'Chiedi di nuovo',
+  'pair.codeHint': 'Sul computer comparirà una richiesta con questo codice.',
   'identity.add': 'Aggiungi',
   'identity.addPerson': 'Aggiungi una persona',
   // Il rifiuto DICE cosa si può ancora fare, e non solo cosa no: condividere
-  // con quella persona resta possibile sul piano gratuito — quello che serve
+  // con quella persona resta possibile sul piano gratuito. Quello che serve
   // pagare è metterla nel GRUPPO, cioè condividere con tutti in un colpo.
-  'identity.noSeats': 'Il piano gratuito ha un posto solo, e sei tu. Per mettere qualcuno nel gruppo serve un piano a pagamento — ma puoi già condividere con lui autorizzando un suo dispositivo.',
+  'identity.noSeats': 'Il piano gratuito ha un posto solo, e sei tu. Per mettere qualcuno nel gruppo serve un piano a pagamento. Puoi però già condividere con quella persona autorizzando un suo dispositivo.',
   'identity.addFailed': 'Non è riuscito. Riprova.',
   'identity.nameLabel': 'Nome',
   'identity.emailLabel': 'Email',
@@ -212,10 +401,10 @@ const IT: Dict = {
   'identity.removedHeading': 'Tolti',
   'identity.deletePerson': 'Cancella {nome}',
   'identity.deletePersonConfirm': 'Cancellare «{nome}» dalla rubrica? Togliere dal gruppo è reversibile, questo no: sparisce da ogni elenco e non la si può più rimettere dentro.',
-  'identity.footnote': 'Aggiungere una persona non le dà accesso a questa macchina: le dà un nome con cui condividere. Per entrare deve comunque collegare un suo dispositivo e tu approvarlo, e resterà un ospite — vedrà solo ciò che le hai condiviso. L’email è un’etichetta, non un accesso.',
+  'identity.footnote': 'Aggiungere una persona non le dà accesso a questa macchina: le dà un nome con cui condividere. Per entrare deve comunque collegare un suo dispositivo e tu approvarlo. Resterà un ospite e vedrà solo ciò che le hai condiviso. L’email è un’etichetta, non un accesso.',
   // ── L'account: agganciare un'identità remota alla persona che è già qui.
   'account.title': 'Account',
-  'account.blurb': 'Un account serve a essere raggiunti da FUORI dalla tua rete e a ritrovare le stesse persone su un’altra installazione. Tutto ciò che fai su questa macchina — e dalla tua rete di casa — continua a funzionare senza.',
+  'account.blurb': 'Un account serve a essere raggiunti da FUORI dalla tua rete e a ritrovare le stesse persone su un’altra installazione. Tutto ciò che fai su questa macchina e dalla tua rete di casa continua a funzionare senza.',
   'account.notLinked': 'Nessun account collegato',
   'account.emailLabel': 'Email',
   'account.emailPlaceholder': 'La tua email',
@@ -231,6 +420,49 @@ const IT: Dict = {
   'account.linkedTo': 'Agganciato a {nome}, la persona che era già qui.',
   'account.offline': 'Il servizio degli account non risponde adesso. Il collegamento resta valido e nulla, qui, cambia.',
   'account.footnote': 'Collegare un account non crea una seconda persona: aggancia la tua identità remota a quella che questa installazione ha già. Non serve per installare, per il primo avvio, per usare l’app o per raggiungerla dalla tua rete.',
+  // ── Il profilo: le tue statistiche d'uso, lette da ciò che è successo qui.
+  'profile.stats.title': 'Le tue statistiche',
+  'profile.stats.blurb': 'Contate su ciò che è successo davvero qui: sessioni, messaggi, task della board. Restano su questa macchina.',
+  'profile.stats.blurbSince': 'Da {data}, contate su ciò che è successo davvero qui: sessioni, messaggi, task della board. Restano su questa macchina.',
+  'profile.stats.loading': 'Sto contando…',
+  'profile.stats.unavailable': 'Le statistiche non sono disponibili adesso.',
+  'profile.stats.sessions': 'Sessioni',
+  'profile.stats.open': '{n} aperte',
+  'profile.stats.tasksDone': 'Task chiusi',
+  'profile.stats.ofTotal': 'su {n}',
+  'profile.stats.tokens': 'Token',
+  'profile.stats.cacheIncluded': 'cache compresa',
+  'profile.stats.agentHours': 'Ore d’agente',
+  'profile.stats.activeDays': '{n} giorni attivi',
+  'profile.stats.projects': 'Progetti',
+  'profile.stats.streak': '{n} giorni di fila',
+  'profile.stats.spend': 'Speso e misurato: ${v}',
+  'profile.stats.uncertain': '{n} righe escluse: costo non attendibile (scritte prima dello scorporo della cache)',
+  'profile.banner.label': 'Banner',
+  'profile.banner.open': 'Apri (scuro)',
+  'profile.banner.light': 'Chiaro',
+  'profile.banner.hint': 'SVG con questi numeri, da salvare e mettere in un README.',
+  // ── Discord: cosa dice di te questa app, e con quanto dettaglio.
+  'discord.title': 'Stato su Discord',
+  'discord.blurb': 'Topics può mostrare sul tuo profilo Discord cosa sta lavorando. I numeri sono quelli esatti di questa installazione, non una stima sui processi.',
+  'discord.toggle': 'Mostra il mio stato su Discord',
+  'discord.level': 'Quanto se ne vede',
+  'discord.level.minimal': 'Solo che Topics è aperto',
+  'discord.level.minimal.hint': 'Nessun numero, nessun nome.',
+  'discord.level.activity': 'Anche quante sessioni e quante al lavoro',
+  'discord.level.activity.hint': 'Numeri, che non nominano nessun cliente.',
+  'discord.level.detailed': 'Anche il nome del progetto',
+  'discord.level.detailed.hint': 'È l’unico livello che fa uscire di qui una parola che non hai scelto per quel pubblico.',
+  'discord.preview': 'Cosa vedono gli altri',
+  'discord.previewEmpty': 'Con nessuna sessione aperta la presence si svuota: non resta appesa.',
+  'discord.previewNote': 'È la stessa cosa che viene pubblicata, non un’imitazione. La lingua segue quella scelta per l’app.',
+  'discord.state.off': 'Spento',
+  'discord.state.connecting': 'Mi collego…',
+  'discord.state.connected': 'Collegato',
+  'discord.state.no_discord': 'Discord desktop non è aperto',
+  'discord.state.error': 'Discord ha rifiutato il collegamento',
+  'discord.unreachable': 'Il server non risponde.',
+  'discord.saveFailed': 'Non sono riuscito a salvare. Riprova.',
   'account.err.generic': 'Non è riuscito. Riprova.',
   'account.err.not_configured': 'Su questa installazione non c’è nessun servizio degli account.',
   'account.err.service_unreachable': 'Il servizio non risponde. Riprova più tardi: qui non cambia niente.',
@@ -244,6 +476,46 @@ const IT: Dict = {
   'account.err.belongs_to_other_person': 'Quell’indirizzo è già di un’altra persona della rubrica di questa macchina. Sistema quella scheda in Persone, poi riprova.',
   'account.err.person_revoked': 'Quell’indirizzo appartiene a una persona che è stata rimossa da qui.',
   'account.err.unavailable': 'Gli account non sono disponibili su questo database.',
+  // ── Il piano: cosa questa installazione può fare, e come si cambia.
+  //
+  // Il gratuito NON è una mancanza: il confine del listino è ORG-08, cioè tutto il
+  // locale e tutta la rete di casa, per sempre e senza account. Quindi queste
+  // frasi dicono cosa hai, non cosa ti manca.
+  'plan.title': 'Piano',
+  'plan.blurb': 'Sulla tua macchina e dalla tua rete di casa funziona tutto, per sempre e senza account. Si paga l’essere raggiunti da un’ALTRA rete, e i posti per chi lavora con te.',
+  'plan.current.free': 'Piano gratuito · 1 posto',
+  'plan.current.team': 'Piano team · {posti} posti',
+  'plan.remote.on': 'Questa installazione può essere raggiunta da fuori dalla tua rete.',
+  'plan.remote.off': 'Raggiungibile dalla tua macchina e dalla tua rete di casa. Da fuori, no.',
+  'plan.expiresIn': 'La licenza scade fra {giorni} giorni.',
+  'plan.expiredSince': 'La licenza è scaduta da {giorni} giorni. Tutto il locale continua a funzionare.',
+  'plan.seatsLabel': 'Posti',
+  'plan.subscribe': 'Abbonati',
+  'plan.tokenHint': 'Hai ricevuto una licenza? Incollala qui.',
+  'plan.tokenLabel': 'Gettone di licenza',
+  'plan.tokenPlaceholder': 'Incolla il gettone',
+  'plan.install': 'Installa',
+  'plan.installationId': 'Installazione',
+  'plan.copyId': 'Copia l’identificativo',
+  'plan.remove': 'Togli la licenza',
+  'plan.removeConfirm': 'Togliere la licenza da questa macchina? Serve a spostarla su un’altra. Si torna al piano gratuito: il lavoro locale non cambia, si perde la raggiungibilità da fuori rete.',
+  'plan.footnote': 'La licenza si controlla qui, senza chiamare nessuno: funziona anche senza rete. Toglierla è il modo di spostarla su un’altra macchina.',
+  // I sette motivi restano SETTE fin qui. `valid` e `no_token` non si mostrano
+  // (sono i due casi normali) ma la chiave esiste: `chiaveMotivo` la costruisce
+  // per tutti, e una mancante darebbe la chiave nuda in mezzo alla pagina.
+  'plan.reason.valid': 'Licenza valida.',
+  'plan.reason.no_token': 'Nessuna licenza installata.',
+  'plan.reason.no_verification_key': 'Questa versione dell’app non ha con cosa verificare una licenza, quindi nessun gettone può funzionare qui. Non è un tuo errore: scrivici.',
+  'plan.reason.malformed': 'Questo gettone non ha la forma di una licenza. Controlla di averlo copiato per intero.',
+  'plan.reason.bad_signature': 'La firma di questo gettone non torna. Non l’abbiamo emesso noi, oppure si è rovinato nella copia.',
+  'plan.reason.other_installation': 'Questa licenza è per un’altra installazione. Serve un gettone intestato a questa macchina: l’identificativo è qui sotto.',
+  'plan.reason.expired': 'Questa licenza è scaduta. Il lavoro locale continua a funzionare esattamente com’è.',
+  'plan.checkoutErr.generic': 'Non è riuscito. Riprova.',
+  'plan.checkoutErr.not_configured': 'Su questa installazione il pagamento non è configurato.',
+  'plan.checkoutErr.no_installation': 'Non sappiamo per quale installazione stiamo comprando.',
+  'plan.checkoutErr.bad_seats': 'Quel numero di posti non va bene.',
+  'plan.checkoutErr.upstream_error': 'Il servizio di pagamento ha risposto male. Riprova fra poco.',
+  'plan.checkoutErr.unreachable': 'Non si riesce a parlare col servizio di pagamento. Qui non cambia niente.',
   // ── I rifiuti di `/api/auth/**` (`shared/auth-codes.ts`).
   //
   // Il server manda un CODICE e la frase la scrive qui l'interfaccia. Prima
@@ -317,7 +589,7 @@ const IT: Dict = {
   'devices.when.hours': '{n} h fa',
   'devices.when.days': '{n} g fa',
   // Qui c'erano quattro `settings.language*`: nessuna superficie le ha mai
-  // chiamate — il selettore della lingua in Impostazioni scrive le sue etichette
+  // chiamate. Il selettore della lingua in Impostazioni scrive le sue etichette
   // in chiaro, bilingui, perché è l'unico posto che si deve poter leggere anche
   // quando la lingua scelta è quella sbagliata. Chiavi che nessuno risolve non
   // sono un dizionario pronto: sono due traduzioni da tenere allineate a mano.
@@ -326,7 +598,7 @@ const IT: Dict = {
 const EN: Dict = {
   'board.night.title': 'Night mode',
   'board.night.blurb':
-    'While you are away, the queue only starts on an idle machine — and it switches itself off at the end time instead of staying armed over whoever is working.',
+    'While you are away, the queue only starts on an idle machine. It switches itself off at the end time instead of staying armed over whoever is working.',
   'board.night.until': 'Stops at',
   'board.night.state.off': 'Off',
   'board.night.state.off.detail': 'The board dispatches as usual, ignoring machine load.',
@@ -359,10 +631,20 @@ const EN: Dict = {
   'tab.menu.unpin': 'Unpin',
   'board.task.movedToReviewBySystem': 'Moved to review by the system.',
   'board.task.reject': 'Reject',
-  'board.task.openChat': 'Open the chat',
+  // CARD vs SESSION — see the Italian block for the rule. The card is where you
+  // decide and always exists; the session is the agent's live chat, where the
+  // work happens, and it can be gone.
+  'board.task.openCard': 'Open the card',
+  'board.task.openCardTitle': "Open the task card: description, checklist, delivery, thread",
+  'board.task.openParentCardTitle': 'Open the parent task card',
+  'board.task.openSubtaskCardTitle': 'Open the subtask card',
+  'board.task.openSession': 'Open the session',
+  'board.task.openSessionTitle': "Open the agent's session: the chat it is working in (closing it does NOT stop it)",
+  'board.task.sessionGone': 'Session ended',
+  'board.task.sessionGoneTitle': "The agent is no longer alive: its session is gone. What it did stays here, on the card.",
+  'board.task.awaitingYouTitle': "The turn is alive but waiting on you: open the agent's session to answer",
   'board.task.loadingDiff': 'loading the diff…',
   'board.task.diffUnreadable': 'Diff not readable.',
-  'board.task.noChanges': 'No changes to show.',
   'board.task.noComments': 'No comments.',
   'board.task.moveTo': 'Move to…',
   'board.task.options': 'Task options',
@@ -381,19 +663,151 @@ const EN: Dict = {
   'board.task.proposedPlan': 'Proposed plan',
   'board.task.noPreviewForType': 'No preview for this file type.',
   'board.task.openInBrowser': 'Open in the browser',
+  'board.task.stopAgent': 'Stop',
+  'board.task.stopAgentTitle': 'Stop the agent (the task goes back to Backlog with the reason)',
+  'board.task.dispatch.queued': 'queued…',
+  'board.task.dispatch.starting': 'starting agent…',
+  'board.task.dispatch.working': 'agent working…',
+  'board.task.loading': 'Loading…',
+  'board.task.changeStatusTitle': 'Change the task status',
+  'board.task.optionsTitle': 'More options: plan first, blocked by, subtasks…',
+  'board.task.reuseBlockerTitle': "When it starts, the agent gets the blocking task's session context instead of a cold start",
+  'board.task.blockedByText': 'Blocked by: {text}',
+  'board.task.blockedByUnknown': 'Blocked by another task',
+  'board.task.openResultWorkspaceTitle': 'Open the result as a tab in the project workspace',
+  'board.task.copyText': 'Copy the task',
+  'board.task.copyTextTitle': 'Copy the task (title + description) to the clipboard',
+  'board.task.copyTextDone': 'Task copied',
+  'board.task.copyLink': 'Copy the link',
+  'board.task.copyLinkTitle': 'Copy the link to the task (openable deep-link, for debug/sharing)',
+  'board.task.copyLinkDone': 'Link copied',
+  'board.task.closeDetail': 'Close the task detail',
+  'board.task.closeError': 'Close the error',
+  'board.task.parentTask': 'Parent task',
+  'board.task.projectChipTitle': 'Project: {label}. Move, open, or create a new one.',
+  'board.task.moveProjectTo': 'Move to…',
+  'board.task.openProjectWindow': 'Open the {name} window',
+  'board.task.projectUnresolvable': 'Project path not resolvable',
+  'board.task.stopped': 'stopped',
+  'board.task.editTitleTitle': 'Click to edit the title',
+  'board.task.priorityAuto': 'Auto priority',
+  'board.task.descPlaceholder': 'Description…',
+  'board.task.descLabel': 'Description',
+  'board.task.editDescTitle': 'Click to edit the description',
+  'board.task.addDesc': '+ description…',
+  'board.task.descChars': '{n} characters',
+  'board.task.descExpandTitle': 'Open the description',
+  'board.task.previewRetired': 'Preview withdrawn',
+  'board.task.openAsTabTitle': 'Open as a tab in the task workspace',
+  'board.task.downloadFileTitle': 'Download the file',
+  'board.task.newTab': 'New tab',
+  'board.task.closedTab': 'closed',
+  'board.task.reopenTabTitle': 'Reopen this tab',
+  'board.task.removeTabTitle': 'Remove the tab',
+  'board.task.subtasksLabel': 'Subtasks',
+  'board.task.addSubtaskPlaceholder': '+ subtask…',
+  'board.task.approve': 'Approve',
+  'board.task.approveAnyway': 'Approve anyway',
+  'board.task.removeAttachmentTitle': 'Remove attachment',
+  'board.task.attachFileTitle': 'Attach a file (or paste an image into the field)',
+  'chat.session.taskLabel': 'Task',
+  'chat.session.openTaskCard': 'Open the card',
+  'chat.session.openTaskCardTitle': 'Back to the task card: description, checklist, delivery, thread',
+  'board.task.pdfPreviewTitle': 'PDF preview',
+  'board.task.collapse': 'Collapse',
+  'board.task.showSteps': 'Show the steps this session took here',
+  'board.task.steps': 'Steps',
+  'board.task.streamPreviewTitle': 'Live preview of what it is streaming now',
+  'board.task.approveTitle': "Accept and complete the task. It does NOT merge. To land the branch on main use 'Land on main'.",
+  'board.task.approveFailTitle': "The pre-review checks are red: approving accepts it anyway. The normal path is Reject, which sends the output back to the agent.",
+  'board.task.rejectTitle': 'Reject (the agent restarts with no guidance)',
+  'board.task.landTitle': 'Accept and merge the branch into main (local, no online push). The build runs server-side; the result shows up in the thread.',
+  'board.task.recapturePreview': 'Recapture evidence',
+  'board.task.recapturePreviewTitle': "Rebuild this card's preview: reboot the server from its worktree and shoot it again. It does NOT wake the agent and burns no attempt. If it can't be done, the reason lands in the thread.",
+  'board.task.replyPlaceholder': 'Reply to the agent…',
+  'board.task.steerPlaceholder': 'Write to the agent while it works. It gets it on the next turn.',
+  'board.task.commentPlaceholder': 'Comment…',
+  'board.task.workspaceLabel': 'Workspace',
+  'board.task.deliveryLabel': 'Delivery',
+  'board.task.noWorkspaceTabs': 'No tab open on this task.',
+  'board.task.openTab': 'Open a tab',
+  'board.task.reviewPreview': 'Preview',
+  // ── TaskDetail: the three CONDITIONAL sub-panels (Checks, Changes, Attempts).
+  'board.task.checks.running': 'Pre-review checks running…',
+  'board.task.checks.pass': 'Checks green',
+  'board.task.checks.fail': 'Checks RED',
+  'board.task.checks.at': 'at {t}',
+  'board.task.checks.notStarted': 'did not start',
+  'board.task.checks.timedOut': 'past the time limit',
+  'board.task.checks.hintLead': 'The normal path is',
+  'board.task.checks.hintTail': ': the agent restarts with this output. Approving here means accepting it red.',
+  'board.task.changes': 'Changes',
+  'board.task.changes.files.one': '{n} file',
+  'board.task.changes.files.many': '{n} files',
+  'board.task.changes.pending': '{n} pending',
+  'board.task.changes.notes.one': '{n} comment on the diff, not sent yet',
+  'board.task.changes.notes.many': '{n} comments on the diff, not sent yet',
+  'board.task.changes.discard': 'Discard',
+  'board.task.changes.send': 'Send to the agent',
+  'board.task.changes.sendFailed': 'sending failed',
+  'board.task.changes.sendFailedInline': 'Sending failed: {msg}: the notes are still here, try again.',
+  'board.task.changes.empty': 'No code produced: this card left no changes.',
+  'board.task.changes.unreadable': 'Diff not reconstructible: the worktree is gone and no durable reference was found on main.',
+  'board.task.changes.notDispatched': 'No agent worked on this card: there is no code to show.',
+  'board.task.changes.fromMerge': 'from the merge on main',
+  'board.task.changes.fromDelivery': 'from the delivery commit',
+  'board.task.attempts': 'Attempts',
+  'board.task.attempts.parallel': '{n} in parallel',
+  'board.task.attempts.running': '{n} running',
+  'board.task.attempts.pickHint': 'Pick one: the task takes its branch, the others (worktree and chat) are thrown away.',
+  'board.task.attempts.pickFailed': 'the pick failed',
+  'board.task.attempt.n': 'Attempt {n}',
+  'board.task.attempt.selected': 'picked',
+  'board.task.attempt.discarded': 'discarded',
+  'board.task.attempt.openDiff': 'See the diff',
+  'board.task.attempt.closeDiff': 'Close the diff',
+  'board.task.attempt.pick': 'Pick this one',
+  'board.task.attempt.emptyTitle': 'This attempt changed nothing: keeping it means delivering an empty branch.',
+  'board.task.attempt.stat.running': 'running…',
+  'board.task.attempt.stat.noChanges': 'no changes',
+  'board.task.attempt.stat.noChangesError': 'no changes ({error})',
+  'board.task.attempt.stat.files.one': '{n} file · +{ins} −{del}',
+  'board.task.attempt.stat.files.many': '{n} files · +{ins} −{del}',
+  'board.settings.close': 'Close the board settings',
+  'board.settings.dispatchOnTitle': 'Global switch, applies to every board. The parallel-agents cap is set from the ▾ next to the board title.',
+  'board.settings.effort': 'Effort',
+  'board.settings.model': 'Model',
+  'board.settings.modelTitle': 'Auto: a classifier picks the model for each task. A fixed model forces EVERY dispatch on this board onto that model (a task with an explicit model still wins).',
+  'board.settings.modelAuto': 'Auto (the classifier picks)',
+  'board.settings.responseLanguage': 'Response language',
+  'board.settings.responseLanguageTitle': 'What language the agents dispatched on this board answer in. «As in Settings» follows the global preference, the same as chat and terminal. It applies from the next dispatch: the language goes into the system prompt, and changing it under a live session is worse than the delay.',
+  'board.settings.langInherit': 'As in Settings',
+  'board.settings.isolateWorktree': 'Isolate each agent in a git worktree',
+  'board.settings.fanout': 'Parallel attempts',
+  'board.settings.fanoutTitle': 'How many agents work the SAME task in parallel, each in its own worktree. At the end the task enters review with the attempts side by side and you pick which to keep: the others (worktree, branch and chat) are thrown away. It costs N times over: N real agents, N slots of the concurrency cap. Requires the worktree active.',
+  'board.settings.fanoutWarn': 'Each task in Todo starts {n} times and takes {n} slots of the cap: the token bill multiplies by {n}.',
+  'board.settings.notRepoWarn': 'This project is not a git repo: with «isolated worktree» on, every task will be blocked. Turn it off to run in-place, or initialize a repo in the project folder.',
+  'board.settings.autoMerge': 'Auto-merge on Approve',
+  'board.settings.autoMergeTitle': "On Approve, merges the task's branch into main in the primary checkout. Clean merge → lands locally (no push); conflict → sends it back to the task's agent; dirty checkout or not on main → skips with a comment. Requires the worktree active.",
+  'board.settings.fullMcp': 'Full Fleet MCP for the agents',
+  'board.settings.fullMcpTitle': "Bridge only: the agent has only Topics' tools (task + browser), so fewer tokens per turn. Full fleet: inherits all of the user's MCPs (exa, gateway and the rest), useful only if the tasks use those tools.",
+  'board.settings.dispatchOnActive': 'Active: moving a task to Todo will start an agent with full permissions.',
+  'board.settings.checks': 'Pre-review checks',
+  'board.settings.checksTitle': "Run by the server in the task's worktree when the agent delivers. One red = review rejected, with the output sent back to the agent. Empty = no checks. Keep them fast: a twenty-minute gate gets turned off on day one.",
   'board.settings.autoDispatch': 'Auto-dispatch',
-  'board.publish.toPublish': 'To publish — check the commits first',
-  'board.publish.nothing': 'Nothing to publish — everything is already on the remote.',
+  'board.settings.title': 'Board settings',
+  'board.publish.toPublish': 'To publish',
+  'board.publish.nothing': 'Nothing to publish. Everything is already on the remote.',
   'board.publish.diffTitle': 'Diff that will be published',
   'board.publish.loadingDiff': 'Loading the diff…',
   'board.publish.diffError': 'Could not load the diff.',
-  'board.dispatch.allBoards': 'Dispatch — every board',
-  'board.dispatch.parallelAuto': 'Agents in parallel — auto',
+  'board.dispatch.allBoards': 'Dispatch for every board',
+  'board.dispatch.parallelAuto': 'Automatic count',
   'board.dispatch.oneMachine': 'Applies to EVERY board (one machine, one limit).',
   'board.filter.assignee': 'Assignee',
   'common.project': 'Project',
   'chat.turnStopped': 'Turn stopped',
-  'chat.turnStopped.detail': 'You stopped it — the message is still here',
+  'chat.turnStopped.detail': 'You stopped it. The message is still here.',
   'chat.noAnswer': 'No answer',
   'chat.noAnswer.detail': 'The connection may have dropped',
   'git.noRepoInitialized': 'No git repository initialized',
@@ -425,6 +839,7 @@ const EN: Dict = {
   'project.sidebar.files': 'Files',
   'project.sidebar.gitChanges': 'Git changes',
   'project.sidebar.processes': 'Processes',
+  'project.sidebar.sections': 'Project sections',
   'project.sidebar.newFile': 'New file',
   'project.sidebar.newFolder': 'New folder',
   'project.sidebar.refresh': 'Refresh',
@@ -444,7 +859,7 @@ const EN: Dict = {
   'sidebar.restoreProject': 'Restore project',
   'sidebar.markAllRead': 'Mark all as read',
   'sidebar.openAsProject': 'Open as project',
-  'sidebar.unpinVanishes': '{nome} leaves Pinned — no row in the list',
+  'sidebar.unpinVanishes': '{nome} leaves Pinned and keeps no row in the list',
   'sidebar.unpinnedGone': '{nome} is no longer pinned, and has no row in the list',
   'sidebar.undo': 'Undo',
   'identity.title': 'People',
@@ -465,9 +880,18 @@ const EN: Dict = {
   'identity.role.member': 'Member',
   'identity.save': 'Save',
   'identity.cancel': 'Cancel',
+  'pair.title.new': 'Authorise this device',
+  'pair.title.revoked': 'Access revoked',
+  'pair.title.expired': 'Session expired',
+  'pair.blurb.new': 'A request will appear on the computer where Topics is already open: confirm it and this device is in.',
+  'pair.blurb.revoked': 'This device was removed from Topics. You can ask for access again.',
+  'pair.unreachable': 'I can’t reach Topics. Is the computer switched on?',
+  'pair.denied': 'The computer turned the request down.',
+  'pair.retry': 'Ask again',
+  'pair.codeHint': 'A request with this code will appear on the computer.',
   'identity.add': 'Add',
   'identity.addPerson': 'Add a person',
-  'identity.noSeats': 'The free plan has one seat, and it is yours. Putting someone in the group needs a paid plan — but you can already share with them by authorising one of their devices.',
+  'identity.noSeats': 'The free plan has one seat, and it is yours. Putting someone in the group needs a paid plan. You can already share with them by authorising one of their devices.',
   'identity.addFailed': 'That did not work. Try again.',
   'identity.nameLabel': 'Name',
   'identity.emailLabel': 'Email',
@@ -483,10 +907,10 @@ const EN: Dict = {
   'identity.removedHeading': 'Removed',
   'identity.deletePerson': 'Delete {nome}',
   'identity.deletePersonConfirm': 'Delete “{nome}” from the address book? Removing from a group can be undone, this cannot: they disappear from every list and cannot be put back.',
-  'identity.footnote': 'Adding a person does not give them access to this machine: it gives them a name to share with. To get in they still have to connect a device of their own and you have to approve it, and they stay a guest — they see only what you shared with them. The email is a label, not a login.',
+  'identity.footnote': 'Adding a person does not give them access to this machine: it gives them a name to share with. To get in they still have to connect a device of their own and you have to approve it. They stay a guest and see only what you shared with them. The email is a label, not a login.',
   // ── The account: attaching a remote identity to the person already here.
   'account.title': 'Account',
-  'account.blurb': 'An account is for being reached from OUTSIDE your network, and for finding the same people again on another installation. Everything you do on this machine — and from your home network — keeps working without one.',
+  'account.blurb': 'An account is for being reached from OUTSIDE your network, and for finding the same people again on another installation. Everything you do on this machine and from your home network keeps working without one.',
   'account.notLinked': 'No account linked',
   'account.emailLabel': 'Email',
   'account.emailPlaceholder': 'Your email',
@@ -502,6 +926,49 @@ const EN: Dict = {
   'account.linkedTo': 'Attached to {nome}, the person who was already here.',
   'account.offline': 'The account service is not answering right now. The link still holds and nothing changes here.',
   'account.footnote': 'Linking an account does not create a second person: it attaches your remote identity to the one this installation already has. It is not needed to install, to start up the first time, to use the app, or to reach it from your own network.',
+  // ── The profile: your usage stats, counted from what actually happened here.
+  'profile.stats.title': 'Your stats',
+  'profile.stats.blurb': 'Counted from what actually happened here: sessions, messages, board tasks. They stay on this machine.',
+  'profile.stats.blurbSince': 'Since {data}, counted from what actually happened here: sessions, messages, board tasks. They stay on this machine.',
+  'profile.stats.loading': 'Counting…',
+  'profile.stats.unavailable': 'Stats are not available right now.',
+  'profile.stats.sessions': 'Sessions',
+  'profile.stats.open': '{n} open',
+  'profile.stats.tasksDone': 'Tasks done',
+  'profile.stats.ofTotal': 'of {n}',
+  'profile.stats.tokens': 'Tokens',
+  'profile.stats.cacheIncluded': 'cache included',
+  'profile.stats.agentHours': 'Agent hours',
+  'profile.stats.activeDays': '{n} active days',
+  'profile.stats.projects': 'Projects',
+  'profile.stats.streak': '{n}-day streak',
+  'profile.stats.spend': 'Measured spend: ${v}',
+  'profile.stats.uncertain': '{n} rows excluded: cost not trustworthy (written before cache was split out)',
+  'profile.banner.label': 'Banner',
+  'profile.banner.open': 'Open (dark)',
+  'profile.banner.light': 'Light',
+  'profile.banner.hint': 'An SVG with these numbers, to save and drop into a README.',
+  // ── Discord: what this app says about you, and in how much detail.
+  'discord.title': 'Discord status',
+  'discord.blurb': 'Topics can show on your Discord profile what it is working on. The numbers are this installation’s exact counts, not a guess based on processes.',
+  'discord.toggle': 'Show my status on Discord',
+  'discord.level': 'How much shows',
+  'discord.level.minimal': 'Only that Topics is open',
+  'discord.level.minimal.hint': 'No numbers, no names.',
+  'discord.level.activity': 'Also how many sessions, and how many working',
+  'discord.level.activity.hint': 'Numbers, which name no client.',
+  'discord.level.detailed': 'Also the project name',
+  'discord.level.detailed.hint': 'The only level that lets out a word you did not choose for that audience.',
+  'discord.preview': 'What others see',
+  'discord.previewEmpty': 'With no session open the presence is cleared: it does not stay hanging.',
+  'discord.previewNote': 'This is the very thing that gets published, not an imitation. The language follows the app’s.',
+  'discord.state.off': 'Off',
+  'discord.state.connecting': 'Connecting…',
+  'discord.state.connected': 'Connected',
+  'discord.state.no_discord': 'Discord desktop is not running',
+  'discord.state.error': 'Discord refused the connection',
+  'discord.unreachable': 'The server is not responding.',
+  'discord.saveFailed': 'Could not save. Try again.',
   'account.err.generic': 'That did not work. Try again.',
   'account.err.not_configured': 'This installation has no account service.',
   'account.err.service_unreachable': 'The service is not answering. Try again later: nothing changes here.',
@@ -515,6 +982,40 @@ const EN: Dict = {
   'account.err.belongs_to_other_person': 'That address already belongs to another person in this machine’s address book. Fix that entry under People, then try again.',
   'account.err.person_revoked': 'That address belongs to a person who was removed from here.',
   'account.err.unavailable': 'Accounts are not available on this database.',
+  // ── The plan. Free is not a lack: the paid line is ORG-08, i.e. everything local
+  // and everything on your own network is free, forever and without an account.
+  'plan.title': 'Plan',
+  'plan.blurb': 'On your machine and from your own network everything works, forever and without an account. What you pay for is being reached from ANOTHER network, and seats for the people who work with you.',
+  'plan.current.free': 'Free plan · 1 seat',
+  'plan.current.team': 'Team plan · {posti} seats',
+  'plan.remote.on': 'This installation can be reached from outside your network.',
+  'plan.remote.off': 'Reachable from your machine and your own network. Not from outside.',
+  'plan.expiresIn': 'The licence expires in {giorni} days.',
+  'plan.expiredSince': 'The licence expired {giorni} days ago. Everything local keeps working.',
+  'plan.seatsLabel': 'Seats',
+  'plan.subscribe': 'Subscribe',
+  'plan.tokenHint': 'Got a licence? Paste it here.',
+  'plan.tokenLabel': 'Licence token',
+  'plan.tokenPlaceholder': 'Paste the token',
+  'plan.install': 'Install',
+  'plan.installationId': 'Installation',
+  'plan.copyId': 'Copy the identifier',
+  'plan.remove': 'Remove the licence',
+  'plan.removeConfirm': 'Remove the licence from this machine? This is how you move it to another one. You go back to the free plan: local work is unchanged, you lose reachability from outside your network.',
+  'plan.footnote': 'The licence is checked here, without calling anyone: it works offline too. Removing it is how you move it to another machine.',
+  'plan.reason.valid': 'Licence valid.',
+  'plan.reason.no_token': 'No licence installed.',
+  'plan.reason.no_verification_key': 'This build of the app has nothing to verify a licence with, so no token can work here. This is not your mistake: write to us.',
+  'plan.reason.malformed': 'This token does not have the shape of a licence. Check you copied all of it.',
+  'plan.reason.bad_signature': 'The signature on this token does not check out. Either we did not issue it, or it was damaged in the copy.',
+  'plan.reason.other_installation': 'This licence is for another installation. You need a token issued for this machine: the identifier is below.',
+  'plan.reason.expired': 'This licence has expired. Local work keeps running exactly as it is.',
+  'plan.checkoutErr.generic': 'That did not work. Try again.',
+  'plan.checkoutErr.not_configured': 'Payment is not configured on this installation.',
+  'plan.checkoutErr.no_installation': 'We do not know which installation we would be buying for.',
+  'plan.checkoutErr.bad_seats': 'That seat count is not valid.',
+  'plan.checkoutErr.upstream_error': 'The payment service answered badly. Try again shortly.',
+  'plan.checkoutErr.unreachable': 'We cannot reach the payment service. Nothing changes here.',
   'auth.err.generic': 'That did not work. Try again.',
   'auth.err.db_unavailable': 'This installation does not have the tables this action needs yet.',
   'auth.err.unknown_device': 'That device no longer exists, or it was revoked.',
@@ -587,7 +1088,7 @@ export const FALLBACK_LOCALE: Locale = 'it';
 
 /**
  * Risolve la preferenza in una lingua vera. `auto` guarda il browser e ricade
- * sull'italiano — che è la lingua di questa casa, non un default universale.
+ * sull'italiano, che è la lingua di questa casa, non un default universale.
  */
 export function resolveLocale(pref: LocalePreference | undefined, navigatorLanguage?: string): Locale {
   if (pref === 'it' || pref === 'en') return pref;
@@ -628,7 +1129,7 @@ export function missingKeys(locale: Locale): string[] {
 
 /**
  * «Lingua» è UNA preferenza sola: governa le stringhe qui sopra E la lingua in
- * cui il modello risponde. Ma i due lati hanno bisogni incompatibili — `t()` è
+ * cui il modello risponde. Ma i due lati hanno bisogni incompatibili. `t()` è
  * SINCRONA e deve dipingere il primo frame senza aspettare la rete, quindi la
  * copia dell'interfaccia vive in localStorage; il server invece deve poterla
  * leggere quando costruisce un prompt, e localStorage non ce l'ha.
@@ -641,7 +1142,7 @@ export function missingKeys(locale: Locale): string[] {
  * Non passa da `appSettingsApi` per una ragione sola e temporanea: quel modulo
  * non è nella proprietà di questa modifica, quindi il tipo `AppBehaviorSettings`
  * non conosce ancora `outputLanguage`. La chiamata è identica a quella che
- * farebbe `request()` (stessa base `/api`, stesso verbo, stesso corpo) — quando
+ * farebbe `request()` (stessa base `/api`, stesso verbo, stesso corpo), quando
  * il campo entrerà nel tipo, queste due funzioni diventano due righe che
  * chiamano `appSettingsApi`.
  */
@@ -649,7 +1150,7 @@ export function missingKeys(locale: Locale): string[] {
  * Cosa dice il server sulla lingua. TRE stati e non due, perché due non
  * bastano: «la riga è vuota» e «non sono riuscito a leggerla» portano a
  * decisioni opposte. Chi riallinea i due depositi scrive la preferenza locale
- * SOLO sul primo — trattare un errore di rete come «vuoto» significherebbe
+ * SOLO sul primo. Trattare un errore di rete come «vuoto» significherebbe
  * sovrascrivere con il localStorage di questa finestra una scelta appena fatta
  * da un'altra, proprio nel momento in cui non se ne sa niente.
  */

@@ -1,0 +1,95 @@
+{
+  "schemaVersion": 1,
+  "workId": "token-live-json",
+  "replicate": 3,
+  "replicatesTotal": 3,
+  "armsBundle": "scripts/board-vs-chat.arms.json",
+  "work": "t1 — Aggiungi l'opzione `--json` a `scripts/token-live.ts`.\n\nCon `--json` lo script deve stampare su stdout UN SOLO oggetto JSON valido, e nient'altro:\nnessun colore ANSI, nessuna intestazione di tabella, nessuna riga di legenda. I dati sono\ngli STESSI che già stampa nella tabella — una voce per chat, con nome, fase, contesto\ndell'ultima chiamata, dimensione della finestra, token letti, costo in dollari, numero di\npreamboli e numero di chiamate. Senza `--json` il comportamento attuale non cambia.\n\nAggiungi un test in `scripts/token-live.test.ts` che verifica che `--json` produca un JSON\nparsabile con i campi attesi. Il test deve passare con `bun test scripts/token-live.test.ts`.\n\nNota: in questa working directory non c'è `data/topics.db`; lo script accetta `DATA_DIR`.",
+  "generatedAt": "2026-08-09T21:03:29.332Z",
+  "runs": [
+    {
+      "arm": "cli",
+      "label": "CLI nuda (`claude -p`)",
+      "model": "claude-opus-5[1m]",
+      "transcriptPath": "~/.claude/projects/-private-tmp-board-arms-run4-cli/3bfa9129-369f-4189-965c-405166bbd654.jsonl",
+      "humanActions": 1,
+      "humanActionsStructural": 1,
+      "humanActionsStructuralBasis": "Un solo gesto: scrivere il prompt. Il ciclo di feedback (leggere, correggere, riapprovare) non è misurato qui — `-p` lo collassa a zero giri.",
+      "delivered": true,
+      "wallMs": 208783,
+      "notes": [
+        "MCP: flotta MCP globale ereditata (~/.claude.json)",
+        "effort medium, prompt 773 caratteri, 22 chiamate al modello",
+        "azioni umane MISURATE in questa corsa headless: 1. Il conto STRUTTURALE dell'interfaccia (1) è a mano, sta in humanActionsStructural e non è un numero uscito da qui — Un solo gesto: scrivere il prompt. Il ciclo di feedback (leggere, correggere, riapprovare) non è misurato qui — `-p` lo collassa a zero giri.",
+        "consegna verificata: bun test scripts/token-live.test.ts → exit 0; DATA_DIR=~/Projects/topics-app/data bun scripts/token-live.ts --json → JSON parsabile=true",
+        "sandbox /private/tmp/board-arms-run4/cli (tree db608ba9502ff4f4d203a43dd282d2f4cbd4c371)"
+      ]
+    },
+    {
+      "arm": "chat",
+      "label": "Chat Topics (preambolo + bridge, senza dispatch)",
+      "model": "claude-opus-5[1m]",
+      "transcriptPath": "~/.claude/projects/-private-tmp-board-arms-run4-chat/a1bbb923-514b-475f-ac54-9cf5997712ec.jsonl",
+      "humanActions": 1,
+      "humanActionsStructural": 1,
+      "humanActionsStructuralBasis": "Un solo gesto: scrivere il messaggio in chat. Stessa avvertenza della CLI sul ciclo di feedback.",
+      "delivered": true,
+      "wallMs": 184384,
+      "notes": [
+        "MCP: flotta globale + bridge Topics (profilo chat, stub)",
+        "effort medium, prompt 17736 caratteri, 20 chiamate al modello",
+        "azioni umane MISURATE in questa corsa headless: 1. Il conto STRUTTURALE dell'interfaccia (1) è a mano, sta in humanActionsStructural e non è un numero uscito da qui — Un solo gesto: scrivere il messaggio in chat. Stessa avvertenza della CLI sul ciclo di feedback.",
+        "consegna verificata: bun test scripts/token-live.test.ts → exit 0; DATA_DIR=~/Projects/topics-app/data bun scripts/token-live.ts --json → JSON parsabile=true",
+        "sandbox /private/tmp/board-arms-run4/chat (tree db608ba9502ff4f4d203a43dd282d2f4cbd4c371)",
+        "SIMULATO — Nessun topic creato sul server vivo: il preambolo `<context>` è quello REALE catturato da /api/topics/:id/context-preview, ma inserito a mano nel prompt.",
+        "SIMULATO — Il bridge Topics è lo STUB con gli schemi reali (profilo chat): stesso costo di prefisso, nessun effetto.",
+        "SIMULATO — `--effort medium` come la board; una chat Topics reale parte a xhigh (resolveClaudeEffort), quindi questo braccio SOTTOSTIMA la chat."
+      ]
+    },
+    {
+      "arm": "chat-xhigh",
+      "label": "Chat Topics a xhigh (come parte davvero)",
+      "model": "claude-opus-5[1m]",
+      "transcriptPath": "~/.claude/projects/-private-tmp-board-arms-run4-chat-xhigh/aea9d047-6811-4cdb-bac9-2c2d21d04ab3.jsonl",
+      "humanActions": 1,
+      "humanActionsStructural": 1,
+      "humanActionsStructuralBasis": "Un solo gesto: scrivere il messaggio in chat. Stessa avvertenza della CLI sul ciclo di feedback.",
+      "delivered": true,
+      "wallMs": 390123,
+      "notes": [
+        "MCP: flotta globale + bridge Topics (profilo chat, stub)",
+        "effort xhigh, prompt 17736 caratteri, 26 chiamate al modello",
+        "azioni umane MISURATE in questa corsa headless: 1. Il conto STRUTTURALE dell'interfaccia (1) è a mano, sta in humanActionsStructural e non è un numero uscito da qui — Un solo gesto: scrivere il messaggio in chat. Stessa avvertenza della CLI sul ciclo di feedback.",
+        "consegna verificata: bun test scripts/token-live.test.ts → exit 0; DATA_DIR=~/Projects/topics-app/data bun scripts/token-live.ts --json → JSON parsabile=true",
+        "sandbox /private/tmp/board-arms-run4/chat-xhigh (tree db608ba9502ff4f4d203a43dd282d2f4cbd4c371)",
+        "SIMULATO — Nessun topic creato sul server vivo: il preambolo `<context>` è quello REALE catturato da /api/topics/:id/context-preview, ma inserito a mano nel prompt.",
+        "SIMULATO — Il bridge Topics è lo STUB con gli schemi reali (profilo chat): stesso costo di prefisso, nessun effetto.",
+        "SIMULATO — `--effort xhigh`: il default di `resolveClaudeEffort()` per un topic senza override, cioè come parte una chat vera. È QUESTO il termine di paragone della board, non il braccio a medium."
+      ]
+    },
+    {
+      "arm": "board",
+      "label": "Board (dispatch SIMULATO)",
+      "model": "claude-opus-5[1m]",
+      "transcriptPath": "~/.claude/projects/-private-tmp-board-arms-run4-board-sim/b763dff2-bd6f-49cb-97e6-acfa7961d4ce.jsonl",
+      "humanActions": 1,
+      "humanActionsStructural": 3,
+      "humanActionsStructuralBasis": "Percorso reale in interfaccia, contato a mano (non misurato qui): creare la card, dispatchare (auto_dispatch=0 su questa board), approvare la review. Il landing su main è un quarto click, separato per protocollo.",
+      "delivered": true,
+      "wallMs": 342129,
+      "notes": [
+        "MCP: bridge-only (profilo dispatch, stub) con --strict-mcp-config",
+        "effort medium, prompt 23719 caratteri, 34 chiamate al modello",
+        "azioni umane MISURATE in questa corsa headless: 1. Il conto STRUTTURALE dell'interfaccia (3) è a mano, sta in humanActionsStructural e non è un numero uscito da qui — Percorso reale in interfaccia, contato a mano (non misurato qui): creare la card, dispatchare (auto_dispatch=0 su questa board), approvare la review. Il landing su main è un quarto click, separato per protocollo.",
+        "consegna verificata: bun test scripts/token-live.test.ts → exit 0; DATA_DIR=~/Projects/topics-app/data bun scripts/token-live.ts --json → JSON parsabile=true",
+        "sandbox /private/tmp/board-arms-run4/board-sim (tree db608ba9502ff4f4d203a43dd282d2f4cbd4c371)",
+        "SIMULATO — Nessuna card creata sulla board vera: nessun claim, nessuna coda, nessuno slot max_agents, nessun retry/timeout del dispatcher.",
+        "SIMULATO — I tool del bridge (update_task, comment_task, create_task, …) sono serviti da uno STUB stdio con gli schemi REALI di toolsForProfile('dispatch') ma handler che rispondono ok senza scrivere: il costo di prefisso è quello vero, l'effetto no.",
+        "SIMULATO — Worktree: sandbox `git init` in /tmp con un solo commit, non un `git worktree` del repo vivo — quindi niente main da cui divergere, niente merge, niente reap.",
+        "SIMULATO — Il role prompt viaggia in `--append-system-prompt` e come blocco del preambolo, mentre il dispatcher lo mette come system prompt del topic.",
+        "SIMULATO — Il gate pre-review del server (review_needs_commit, reviewChecks) non gira: la board `topics-app-ar3jt5` non ha reviewChecks configurati, quindi l'envelope non ne parla, ma il rifiuto della review con worktree sporco qui non esiste.",
+        "SIMULATO — Nessun classifier di modello: il modello è pinnato uguale nei tre bracci, mentre il dispatcher con dispatch_model=null lo farebbe scegliere al classifier."
+      ]
+    }
+  ]
+}

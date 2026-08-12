@@ -15,28 +15,17 @@ import { parseUnifiedDiff, buildPatch, summarizeHunks } from "../lib/git-hunks";
 import { stagedEntries, buildSystemPrompt, buildUserPrompt, rulesFallback, usableMessage } from "../lib/commit-message";
 import { getProvider } from "../providers";
 import { IgnoreSet } from "../lib/gitignore";
-
-// ── Git status server-side cache (5s TTL, invalidated by git-watcher) ──
-const GIT_STATUS_CACHE_TTL = 5000;
-interface GitStatusFile { path: string; status: string; }
-interface GitStatusResult {
-  branch: string;
-  lastCommit: { hash: string; message: string; author: string; ago: string };
-  files: GitStatusFile[];
-  ahead: number;
-  behind: number;
-}
-const gitStatusCache = new Map<string, { data: GitStatusResult; timestamp: number }>();
+// La cache dello stato git vive in `lib/` e non qui: la riempie questa route,
+// ma a invalidarla è `git-watcher`, e finché la funzione stava in questo file
+// il watcher doveva importare una ROUTE — chiudendo il ciclo
+// file-watcher → git-watcher → routes/files → file-watcher.
+import { readGitStatusCache, writeGitStatusCache, invalidateGitCache } from "../lib/git-status-cache";
 
 // Conservative git ref/remote name validation (mirrors worktrees.ts BASE_REF_REGEX)
 const GIT_REF_MAX = 200;
 const GIT_REF_REGEX = /^[A-Za-z0-9_./\-]+$/;
 function isValidGitRef(ref: unknown): ref is string {
   return typeof ref === "string" && ref.length > 0 && ref.length <= GIT_REF_MAX && GIT_REF_REGEX.test(ref);
-}
-
-export function invalidateGitCache(projectPath: string) {
-  gitStatusCache.delete(projectPath);
 }
 
 // Backup store persisted to disk for undo support
@@ -457,11 +446,9 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       const resolvedDir = resolveProjectPath(dirPath);
       if (!resolvedDir) return errorResponse(400, "Invalid path");
       try {
-        // Server-side cache check (5s TTL)
-        const cached = gitStatusCache.get(resolvedDir);
-        if (cached && Date.now() - cached.timestamp < GIT_STATUS_CACHE_TTL) {
-          return json(cached.data);
-        }
+        // Server-side cache check (TTL e sfratto stanno nel modulo della cache)
+        const cached = readGitStatusCache(resolvedDir);
+        if (cached) return json(cached);
         // Check if path is a git repo
         const checkProc = Bun.spawn(["git", "rev-parse", "--git-dir"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
         await checkProc.exited;
@@ -519,16 +506,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         // dentro. Va DETTO, non elencato — vedi `statusOfPrefix`.
         const folderUntracked = statusOfPrefix(parsed, relativePrefix) === "??";
         const result = { branch, lastCommit: { hash, message, author, ago }, files, ahead, behind, folderUntracked, repoName };
-        // Bound the cache: the key is the caller-supplied ?path= (resolved, no
-        // allowlist), so it grows with every distinct git repo ever queried and
-        // is only ever invalidated for paths a watcher fires on. Evict the
-        // oldest entry past a cap so this can't grow without limit.
-        if (gitStatusCache.size >= 500) {
-          let oldestKey: string | undefined; let oldestTs = Infinity;
-          for (const [k, v] of gitStatusCache) { if (v.timestamp < oldestTs) { oldestTs = v.timestamp; oldestKey = k; } }
-          if (oldestKey !== undefined) gitStatusCache.delete(oldestKey);
-        }
-        gitStatusCache.set(resolvedDir, { data: result, timestamp: Date.now() });
+        writeGitStatusCache(resolvedDir, result);
         return json(result);
       } catch (err: any) { return json({ error: "Git error: " + err.message }, 500); }
     }

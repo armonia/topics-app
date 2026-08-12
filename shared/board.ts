@@ -32,6 +32,227 @@ export const MAX_FANOUT = 5;
 
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Evento di transizione (`kind='status'`) — il formato, in UN posto solo.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Separatore fra la transizione e la sua RAGIONE dentro `content`.
+ *
+ * Il contenuto di un evento di stato era `from→to` e basta, e tre lettori lo
+ * spacchettavano ognuno a modo suo: una `LIKE '%in_progress'` in SQL (l'inizio
+ * del turno, che arma il gate della consegna muta), un `endsWith("in_progress")`
+ * nel dispatcher, e uno `split('→')[1]` nel client. Appendere una ragione senza
+ * toccarli avrebbe rotto tutti e tre in silenzio — il gate avrebbe letto un
+ * turno più vecchio e una consegna muta sarebbe passata. Quindi il formato ha
+ * un writer solo (`formatStatusEvent`) e un parser solo (`parseStatusEvent`).
+ */
+export const STATUS_EVENT_SEP = ' · ';
+
+/** Quanto può essere lunga la ragione: è una riga di timeline, non un thread. */
+export const STATUS_EVENT_REASON_MAX = 160;
+
+/** `from→to` (+ ` · ragione`). Unico posto che SCRIVE il formato. */
+export function formatStatusEvent(from: string, to: string, reason?: string | null): string {
+  // A capo e spazi doppi diventano uno spazio: la riga della timeline è una
+  // riga sola, e un `\n` a metà romperebbe anche il `title` del tooltip.
+  const clean = (reason ?? '').replace(/\s+/g, ' ').trim().slice(0, STATUS_EVENT_REASON_MAX).trim();
+  return clean ? `${from}→${to}${STATUS_EVENT_SEP}${clean}` : `${from}→${to}`;
+}
+
+/**
+ * `content` → transizione. `null` se non è un evento di stato (nessuna freccia).
+ * Legge la destinazione FINO al separatore, così una ragione che contiene una
+ * freccia o un altro `·` non sposta il confine.
+ */
+export function parseStatusEvent(content: string): { from: string; to: string; reason: string | null } | null {
+  if (typeof content !== 'string') return null;
+  const arrow = content.indexOf('→');
+  if (arrow < 0) return null;
+  const rest = content.slice(arrow + 1);
+  const sep = rest.indexOf(STATUS_EVENT_SEP);
+  const reason = sep < 0 ? null : rest.slice(sep + STATUS_EVENT_SEP.length).trim() || null;
+  return {
+    from: content.slice(0, arrow).trim(),
+    to: (sep < 0 ? rest : rest.slice(0, sep)).trim(),
+    reason,
+  };
+}
+
+/** La transizione è ENTRATA in questo stato? (il "quando inizia il turno"). */
+export function statusEventEnters(content: string, status: TaskStatus): boolean {
+  return parseStatusEvent(content)?.to === status;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Anteprima di consegna — la regola, in UN posto solo.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * La card mostra l'anteprima con `object-cover object-top`: ciò che eccede il
+ * riquadro non viene rimpicciolito, viene TAGLIATO in basso. Questa è la soglia
+ * oltre la quale «ho messo l'anteprima» e «il reviewer vede la cosa» smettono
+ * di coincidere. Vive qui perché la stessa cifra la cita il testo del protocollo
+ * (`PREVIEW_RULE`) e la misura il gate di `promoteReviewPreview`.
+ *
+ * ERA `144 / 268` = 0.537, e quel numero era vero in UNA sola configurazione.
+ * Il tetto sulla card era `max-h-36`, un'altezza ASSOLUTA in 144px, dentro una
+ * colonna la cui larghezza è un INTERVALLO (Card.tsx `widthCls`: lavoro
+ * 18→26rem, review 22→44rem). Il rapporto che il reviewer vede davvero è
+ * 144/larghezza, quindi scendeva man mano che la colonna cresceva — misurato:
+ * 0.58 nella colonna di lavoro stretta, 0.30 nella colonna review a 1280,
+ * 0.22 su un board molto largo. Proprio la review — la colonna su cui si
+ * decide — tagliava il doppio di quanto il protocollo dichiarasse.
+ *
+ * Ora il tetto è espresso come RAPPORTO della larghezza vera del riquadro
+ * (unità di container query, `70cqw`), quindi la soglia è la stessa a ogni
+ * larghezza di colonna e su mobile. La miniatura RIEMPIE la card: nessun tetto
+ * in px sul riquadro, perché una fascia vuota a destra in una colonna larga si
+ * legge come un difetto (Attilio, 12/08). Il prezzo è dichiarato: l'altezza
+ * cresce col rapporto, cioè 0.7 x 474 = 332px in review a 1280.
+ * È anche la stessa soglia che misura il gate di
+ * promozione: due numeri diversi per la stessa immagine erano un odore, non
+ * una politica.
+ * @see client/src/components/Board/PreviewMedia.tsx
+ */
+export const PREVIEW_CARD_MAX_RATIO = 0.7;
+
+
+/**
+ * Come si sceglie l'anteprima di una consegna. **Questa stringa è la copia
+ * canonica**: la citano l'envelope di kickoff, quello di resume, la descrizione
+ * di `preview_image` nello schema del tool MCP, il braccio `board-sim` del
+ * benchmark e §4 di `docs/board-protocol.md`.
+ *
+ * Prima erano cinque testi liberi di divergere, e divergevano: due soli rami,
+ * entrambi su UI («statica» → screenshot, «dinamica» → video). Una consegna che
+ * non ha nessuna superficie renderizzata — un piano, un'architettura, una
+ * migrazione — non sta in nessuno dei due, così cadeva nel ramo «statica» e
+ * l'agente FOTOGRAFAVA il documento: la card del piano-amicizia aveva come
+ * anteprima l'immagine dell'intero piano, illeggibile a 268px.
+ *
+ * Da qui i tre rami e, soprattutto, criteri che si possono MISURARE invece di
+ * aggettivi ("statica", "dinamica") su cui due agenti danno due risposte.
+ * `server/services/task-dispatcher.test.ts` verifica che le copie siano ancora
+ * la stessa stringa.
+ */
+// allow-emdash-block: da qui alla fine dei cancelli è il BRIEFING dell'agent,
+// un prompt letto da un modello e non un testo della app.
+export const PREVIEW_RULE = [
+  "EVIDENZA DI REVIEW = un'ANTEPRIMA durevole nel task — update_task(preview_image=<path assoluto sotto ~/.topics/media/ o nel workspace del task; stringa vuota = azzera>), che compare come card sulla board e nel drawer. Tre rami, e a scegliere è il criterio, non l'abitudine:",
+  `· SCREENSHOT .png — la consegna HA una superficie renderizzata che entra in una schermata. Catturala a viewport ≤1440×900 e con altezza/larghezza ≤ ${PREVIEW_CARD_MAX_RATIO.toFixed(2)} (la card ritaglia l'eccedenza dal basso invece di rimpicciolirla). Mai un full-page.`,
+  "· VIDEO .webm/.mp4 ≤20s — dimostrare la consegna richiede DUE O PIÙ STATI (appare, resta, sparisce; scroll, apri/chiudi, streaming, un flusso a più passi): uno screenshot statico non prova un comportamento. Clip Playwright breve (`recordVideo: { dir }` sul context) o, se il progetto ha spec-flow, il .webm dello scenario.",
+  "· DIAGRAMMA .svg — la consegna NON ha una superficie renderizzata (un piano, un'architettura, un protocollo, una migrazione): si disegna la STRUTTURA — riquadri, frecce, cinque parole per nodo — non si fotografa il documento.",
+  "Una TAB del task (open_browser_pane) NON sostituisce l'anteprima: la pagina viva muore col server che la serve, l'anteprima resta.",
+  "Cancello unico, e vale per tutti e tre: a 268px di larghezza (`sips -Z 268 <file>`) devi ancora saper dire cosa mostra.",
+].join("\n");
+
+// ─────────────────────────────────────────────────────────────────────────────
+// I cancelli del codice — la regola, in UN posto solo.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Cosa deve essere verde prima di consegnare codice, e la regola dello script
+ * che nessuno importa.
+ *
+ * Misurato l'11/08: tre card nello stesso pomeriggio hanno lasciato `main` con
+ * `check:deadcode` rosso (`scripts/mcp-cap-bench/`, `decompose.ts` +
+ * `prefix-probe.ts`, `scripts/webrtc-probe.ts`), sempre per la stessa forma —
+ * un agente aggiunge uno script che si lancia A MANO, nessuno lo importa, e per
+ * il gate del codice morto un file non importato È codice morto. Il cancello
+ * aveva ragione ogni volta: la dichiarazione mancava davvero.
+ *
+ * La causa non era la distrazione: il kickoff nominava i cancelli SOLO quando la
+ * board dichiarava dei comandi (`reviewChecks`), e nessuna board li dichiarava.
+ * Un cancello che nessuno nomina è un cancello che si scopre a valle — cioè a
+ * mano, dall'umano, tre volte.
+ *
+ * I nomi degli script sono quelli convenzionali di questo repo e valgono come
+ * ESEMPIO: la riga dice esplicitamente di leggerli in `package.json`, perché
+ * quello che non cambia da progetto a progetto sono i quattro CANCELLI, non i
+ * loro nomi. I comandi che il server esegue davvero restano quelli dichiarati
+ * per board (`reviewChecks`) — questa stringa non li sostituisce, li precede.
+ */
+export const CODE_GATES_RULE = [
+  "I CINQUE CANCELLI del codice, e valgono TUTTI prima di consegnare — i nomi degli script li leggi in `package.json`, i cancelli no: tipi (`bun run typecheck`), lint (`bun run lint`), codice morto (`bun run check:deadcode`), test unitari (`bun run test:unit`), prosa (`bun run check:emdash`).",
+  "Il quinto è nuovo e sorprende: `check:emdash` rifiuta il trattino lungo in QUALUNQUE testo del repo, comprese le stringhe di protocollo e i commenti che scrivi nel codice. Non si sostituisce con un trattino corto: la frase che il trattino teneva insieme erano due frasi, e si spezzano. Se il carattere E' il dato, la riga finisce con `// allow-emdash: <ragione>`.",
+  "Il terzo è quello che si dimentica sempre: per il gate del codice morto un file che NESSUNO IMPORTA è codice morto. Quindi uno script che si lancia a mano (una sonda, un banco, una misura) va DICHIARATO fra gli entry del progetto nello stesso commit che lo aggiunge — con knip: la voce col suffisso `!` in `knip.jsonc` (come `scripts/disk-report.ts!`), e accanto la riga di commento che dice come si lancia.",
+].join("\n");
+
+// end-allow-emdash
+
+/**
+ * Il bump di versione è UN GESTO, non quattro modifiche a mano.
+ *
+ * Misurato nella notte dell'11-12/08: due card diverse (`d18b2db5`, `b1f4d6ff`)
+ * hanno bumpato la versione toccando TRE posti su quattro, e in entrambi i casi
+ * quello lasciato indietro era `Cargo.lock`. Il cancello
+ * (`tests/unit/version-lockstep.test.ts`) le ha prese entrambe, e in entrambi i
+ * casi l'umano ha riallineato il numero a mano prima di landare.
+ *
+ * La causa non è la distrazione ed è la stessa forma di `CODE_GATES_RULE`: chi
+ * bumpa apre i file di CONFIGURAZIONE, e il quarto posto è un lockfile generato
+ * dal build system che nessuno apre mai a mano. Un gesto manuale su un file che
+ * nessuno modifica a mano si dimentica per costruzione, non per svista — e un
+ * cancello che ha ragione ma non nomina il rimedio costa un giro ogni volta.
+ *
+ * Perciò la riga nomina il GESTO, non i file: i posti da toccare cambiano da
+ * repo a repo, «non aprirli a mano» no. I nomi degli script valgono come
+ * ESEMPIO, esattamente come nei cancelli: la riga dice di leggerli in
+ * `package.json`.
+ */
+export const VERSION_BUMP_RULE =
+  "BUMP DI VERSIONE = UN COMANDO, mai i file a mano. Il nome lo leggi in `package.json` (qui `bun run bump [patch|X.Y.Z]`, e `bun run bump sync` per riallineare un albero già scollato). Il numero è scritto in PIÙ posti e uno è un file GENERATO (un lockfile): è l'unico che non si apre mai a mano, quindi è l'unico che un bump manuale dimentica: è già successo due volte in una notte.";
+
+/**
+ * Ritaglia il blocco `PREVIEW_RULE` da un envelope già composto, per STRUTTURA
+ * (prima riga «EVIDENZA DI REVIEW…», ultima «Cancello unico…») e non
+ * cercandovi la costante: un test che cerca la costante che ha appena
+ * interpolato non può fallire, e questo invece deve fallire il giorno in cui
+ * qualcuno riscrive il testo a mano dentro un envelope.
+ */
+export function extractPreviewRule(envelope: string): string | null {
+  const lines = envelope.split('\n');
+  const from = lines.findIndex((l) => l.startsWith('EVIDENZA DI REVIEW'));
+  if (from < 0) return null;
+  const to = lines.findIndex((l, i) => i >= from && l.startsWith('Cancello unico'));
+  if (to < 0) return null;
+  return lines.slice(from, to + 1).join('\n');
+}
+
+/**
+ * Il PESO di un task: quanto MORDE LA MACCHINA mentre gira, non quanto è
+ * difficile. Sono due assi diversi e vanno tenuti separati — un algoritmo
+ * ambiguo è `fable` e non consuma niente; un `bun run build` è banale da
+ * decidere e si prende tutti i core per due minuti. Il modello dice quanto
+ * l'agente deve PENSARE; il peso dice quanto l'esecuzione COSTA alla macchina
+ * su cui gira, che è la cosa che lo scheduler deve sapere.
+ *
+ * Due valori e non una scala: quello che serve allo scheduler è una domanda
+ * binaria («questo task può stare accanto ad altri, sì o no?»), e ogni gradino
+ * in mezzo sarebbe un valore che nessun gate legge.
+ *
+ * `light` è il DEFAULT in ogni senso: è il valore di ripiego quando il
+ * classificatore non risponde, ed è come si legge un `null` in colonna (vedi
+ * migration 090). Senza una risposta letta, niente cambia rispetto a prima.
+ */
+export const TASK_WEIGHTS = ['light', 'heavy'] as const;
+
+export type TaskWeight = (typeof TASK_WEIGHTS)[number];
+
+/**
+ * Legge il peso da una colonna/valore libero. Tutto ciò che non è uno dei due
+ * valori noti — `null`, stringa vuota, un valore vecchio o storto — torna
+ * `null`, cioè «mai classificato», che ogni gate tratta come `light`.
+ *
+ * `null` NON viene normalizzato a `'light'` di proposito: distinguere «non l'ho
+ * mai chiesto» da «ho chiesto e ha detto leggero» è l'unico modo per accorgersi
+ * che il classificatore ha smesso di rispondere.
+ */
+export function readTaskWeight(raw: unknown): TaskWeight | null {
+  return (TASK_WEIGHTS as readonly unknown[]).includes(raw) ? (raw as TaskWeight) : null;
+}
+
 /**
  * Gli stati di `dispatch_state` in cui un agente sta LAVORANDO il task adesso:
  * è in coda per partire, sta partendo, o è dentro un turno. Fuori da questi tre
@@ -62,6 +283,460 @@ export function isAgentWorking(
   return (ACTIVE_DISPATCH_STATES as readonly string[]).includes(dispatchState ?? '');
 }
 
+/**
+ * «L'ha fermato una persona», scritto — non dedotto dall'assenza di chip.
+ *
+ * Un park umano finiva a `dispatch_state = NULL`, cioè identico a un task mai
+ * dispacciato: la card tornava in Backlog muta e l'unico modo di sapere perché
+ * era aprire il thread. Le due alternative già in tabella dicono altro:
+ * `failed` accusa l'agent di un fallimento che non c'è stato, `blocked` promette
+ * una configurazione da sistemare.
+ *
+ * Vive qui perché ha tre lettori su due lati del filo — chi lo SCRIVE (lo stop
+ * della route), chi lo PRESERVA (la coda del `onTurnEnd`, che senza guardia
+ * riazzera la chip del turno che ha appena tagliato) e chi lo DISEGNA (la
+ * tabella delle chip del client).
+ */
+export const PARKED_STOPPED = 'stopped';
+
+/**
+ * «Aspetta da troppo», scritto — e deliberatamente NON `failed`.
+ *
+ * Un'attesa dichiarata (`wait_for_condition`) è la cosa giusta da fare: l'agent
+ * ha capito che la condizione non dipende da lui e ha restituito lo slot invece
+ * di dormirci sopra. Quando la serie di attese sfonda il tetto, il task si ferma
+ * lo stesso — ma ciò che si è esaurito è la PAZIENZA, non l'agent: la decisione
+ * torna all'umano perché la condizione non arriva, non perché qualcosa è rotto.
+ *
+ * Ha gli stessi tre lettori di `PARKED_STOPPED`, ed è per questo che vive qui:
+ * chi lo SCRIVE (`deferForWait`, quando la serie sfonda), chi lo PRESERVA (la
+ * coda di `onTurnEnd`, che senza guardia riazzera la chip del turno che si è
+ * appena parcheggiato da solo) e chi lo DISEGNA (la tabella delle chip).
+ */
+export const PARKED_WAITED_OUT = 'waited_out';
+
+/**
+ * Quante attese di FILA per la stessa ragione, prima che decida un umano.
+ *
+ * Sei e non due, che è il tetto dei tentativi di dispatch: quel numero frena i
+ * turni MORTI, e per quelli due è generoso. Un'attesa non è un turno morto, e
+ * col default di 15 minuti sei attese sono un'ora e mezza di condizione che non
+ * arriva. Sotto quella soglia fermare il task vorrebbe dire chiedere all'umano
+ * di guardare una cosa che stava per sistemarsi da sola.
+ */
+export const WAIT_STREAK_CAP = 6;
+
+/**
+ * Il tetto sull'ALTRA grandezza: quanto è lunga la serie in orologio.
+ *
+ * Serve perché `minutes` lo sceglie l'agent e arriva a 1440: due attese da
+ * dodici ore non sfondano mai il tetto sul conteggio, ma sono un giorno in cui
+ * nessuno ha guardato la card. Si misura dall'inizio della serie a ORA, non
+ * sommando le finestre chieste: la finestra è una promessa, il tempo passato è
+ * un fatto.
+ */
+export const WAIT_SERIES_MAX_MS = 4 * 60 * 60 * 1000;
+
+/**
+ * La ragione ridotta alla sua identità: è questo che decide se un'attesa
+ * CONTINUA la serie o ne apre una nuova.
+ *
+ * Minuscole e spazi compattati perché la stessa attesa, ridichiarata da un turno
+ * nuovo che non ha in mano il testo esatto di prima, si riscrive a mano quasi
+ * uguale. «Aspetto che CI finisca» e «aspetto che ci finisca  » sono la stessa
+ * condizione, e contarle come due serie diverse azzererebbe il contatore a ogni
+ * giro. Cioè lo renderebbe un contatore che non conta niente.
+ */
+export function waitReasonKey(reason: string): string {
+  return reason.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Blocco `question` — il formato, dichiarato dove SCRITTURA e LETTURA lo vedono
+// entrambe (`addComment` lo compone, `parseQuestionBlock` lo legge).
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * IL BLOCCO ```question È UN CONTRATTO, non una formattazione.
+ *
+ * Lo compone il server (unico scrittore, `addComment`) in una forma fissa —
+ * fence, la domanda su UNA riga, poi le opzioni come righe `- …` — e lo legge
+ * `parseQuestionBlock` per disegnare le risposte rapide. Cambiare quel layout
+ * non è un dettaglio estetico: è una card che perde i bottoni, e le risposte
+ * rapide devono esserci SEMPRE finché il task non è chiuso.
+ *
+ * Da qui la conseguenza che vale la pena scrivere: dentro la fence il corpo
+ * resta appiattito, perché una riga `- …` del corpo non sarebbe distinguibile
+ * da un'opzione. Un testo lungo che vuole tenersi l'impaginazione (un piano)
+ * viaggia FUORI dalla fence, nello stesso commento: il parser lascia intatto
+ * ciò che sta attorno al blocco, e le tre superfici (thread, card, tab Piano)
+ * lo rendono come markdown. Il posto dove separare corpo e opzioni è il
+ * RENDER, non il testo salvato — questo modulo dichiara solo la forma.
+ */
+
+/** Etichette senza punteggiatura/emoji/spaziatura: due opzioni si confrontano
+ *  per SIGNIFICATO, non per byte (il modello aggiunge volentieri un ✅). */
+export function normalizeActionLabel(s: string): string {
+  return s.replace(/[^\p{L}\s]/gu, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+/**
+ * Le due opzioni del protocollo piano-prima. Sono un CONTRATTO, non un testo di
+ * cortesia: il dispatcher le scrive nell'envelope, e la loro presenza è ciò che
+ * dice al servizio «questo commento È il piano» (→ `tasks.plan_comment_id`).
+ * Prima il piano si indovinava — «l'ultimo commento non-utente» — e su 13 task
+ * piano-prima l'euristica sbagliava 13 volte su 13: il commento di rettifica,
+ * o la consegna con «Landa su main», rubavano il posto al piano.
+ */
+export const PLAN_APPROVE_LABEL = 'Approva il piano';
+export const PLAN_REVISE_LABEL = 'Da rivedere';
+
+/** Vero quando fra le opzioni c'è l'approvazione di un piano (match tollerante). */
+export function hasPlanApproveOption(options: readonly string[]): boolean {
+  const want = normalizeActionLabel(PLAN_APPROVE_LABEL);
+  return options.some((o) => normalizeActionLabel(o) === want);
+}
+
+/**
+ * L'antenato al lavoro che spiega un sottotask senza agente proprio: chi lo sta
+ * lavorando, e con che titolo dirlo. Risolto dal server come `BlockerRef` e per
+ * lo stesso motivo — la lista della board è un progetto solo, `rootsOnly`, non
+ * archiviati, quindi il padre di un sottotask spesso NON è fra i task che il
+ * client ha in mano, e cercarcelo dentro dava «nessuno lo lavora» proprio quando
+ * qualcuno lo stava lavorando.
+ */
+export interface AncestorAtWork {
+  id: string;
+  text: string;
+}
+
+/**
+ * Chi lavora un sottotask `in_progress` che non ha né topic né chip di dispatch.
+ *
+ * `parent-turn` = lo lavora un antenato dentro il PROPRIO turno: è il flusso
+ * voluto — l'agente si crea la checklist come sottotask e la spunta mentre va —
+ * ed è la norma schiacciante (misurato l'11/08/2026 sul DB vivo: 243 figli
+ * chiusi in quella forma in un giorno, 281 il giorno prima).
+ *
+ * `unattended` = nessun antenato è al lavoro: la card è rimasta lì e non la
+ * lavora nessuno. Rara (1 card viva su ~1.276 al momento della misura) ma reale,
+ * e oggi invisibile: il recupero orfani filtra sul chip di dispatch, che qui non
+ * c'è, quindi non vede né questo caso né l'altro.
+ */
+export type SubtaskWork =
+  | { kind: 'parent-turn'; ancestor: AncestorAtWork }
+  | { kind: 'unattended' };
+
+/**
+ * Un antenato sta lavorando ADESSO?
+ *
+ * `isAgentWorking` da solo non basta: `dispatch_state` resta scritto anche su
+ * righe che nel frattempo sono state archiviate o mosse fuori da `in_progress`,
+ * e leggerlo da solo farebbe passare per «al lavoro» un padre già chiuso.
+ *
+ * NON guarda `topics.archived`: i topic che il dispatcher crea per un agente
+ * NASCONO archiviati (sono worker di sfondo, non tab da mostrare in sidebar).
+ * Misurato l'11/08/2026: 755 topic archiviati su 767, e tutti e 7 i task con un
+ * agente vivo in quel momento — compreso quello che stava girando — avevano il
+ * topic `archived = 1`. Usare quel bit come segno di vita inverte la risposta
+ * sul 100% dei casi sani.
+ */
+export function isAncestorAtWork(a: {
+  status: TaskStatus | string;
+  dispatchState: string | null | undefined;
+  archived: boolean;
+}): boolean {
+  return !a.archived && a.status === 'in_progress' && isAgentWorking(a.dispatchState);
+}
+
+/**
+ * La forma ambigua: un sottotask `in_progress` MAI dispacciato — niente topic,
+ * niente chip. È l'unica in cui la domanda «chi lo lavora?» non ha già risposta
+ * sulla card: con un topic c'è il deep-link, con un chip c'è lo stato.
+ */
+export function isUnattributedSubtask(t: {
+  status: TaskStatus | string;
+  parentTaskId: string | null | undefined;
+  assignedTopicId: string | null | undefined;
+  dispatchState: string | null | undefined;
+}): boolean {
+  return t.status === 'in_progress' && !!t.parentTaskId && !t.assignedTopicId && !t.dispatchState;
+}
+
+/**
+ * Il segnale, DERIVATO dalla catena dei padri: nessuna migration e nessun
+ * `assigned_topic_id` ereditato — quella colonna pesa su quota, dispatcher e
+ * deep-link, e riempirla per dire una cosa che si può leggere sarebbe pagare
+ * tre conti per un'etichetta.
+ *
+ * Nemmeno `created_by_topic_id` (migration 093) risponde: sembra la scorciatoia
+ * — «chi mi ha creato è il topic che mi lavora» — ma è scritto solo su una
+ * parte delle righe. Misurato l'11/08/2026 sui figli chiusi in giornata nella
+ * forma ambigua: 90 su 249 ce l'hanno, 159 no. Leggerlo come segnale darebbe
+ * «non la lavora nessuno» sui due terzi dei casi sani.
+ *
+ * `ancestors` arriva ordinata dal padre in su. Vince il PRIMO antenato al
+ * lavoro, non il padre diretto: l'agente che lavora un task si crea la checklist
+ * come figli, e quei figli possono avere figli loro — la catena misurata arriva
+ * a due livelli, e chi tiene il turno può stare più in alto del padre.
+ *
+ * Torna `null` quando la domanda non si pone (non è un sottotask, non è in
+ * corso, o ha già un agente suo): un `null` qui vuol dire «niente da dire»,
+ * mai «non lo lavora nessuno» — quello è `unattended`, ed è un'altra cosa.
+ */
+export function deriveSubtaskWork(
+  task: {
+    status: TaskStatus | string;
+    parentTaskId: string | null | undefined;
+    assignedTopicId: string | null | undefined;
+    dispatchState: string | null | undefined;
+  },
+  ancestors: ReadonlyArray<{
+    id: string;
+    text: string;
+    status: TaskStatus | string;
+    dispatchState: string | null | undefined;
+    archived: boolean;
+  }>,
+): SubtaskWork | null {
+  if (!isUnattributedSubtask(task)) return null;
+  const at = ancestors.find(isAncestorAtWork);
+  return at ? { kind: 'parent-turn', ancestor: { id: at.id, text: at.text } } : { kind: 'unattended' };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PERCHÉ questa card è ferma — la ragione, calcolata dove la si conosce.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * I motivi per cui un task in `todo` non parte. Uno per ramo del dispatcher.
+ *
+ * Esistono come UNIONE e non come booleani sparsi perché la card ne mostra uno
+ * solo, e quale sia è una precedenza: un task senza board non parte nemmeno se
+ * il suo bloccante chiude, e dirgli «aspetta una card» sarebbe una bugia con la
+ * faccia sicura. L'ordine di `deriveQueueReason` è quello del dispatcher.
+ */
+export type QueueReasonKind =
+  | 'slot'           // idoneo: aspetta solo il suo turno nella coda
+  | 'blocked'        // `blocked_by_task_id` ancora aperto
+  | 'deferred'       // `dispatch_deferred_until` nel futuro
+  | 'attempts'       // `dispatch_attempts >= dispatchRetryCap`
+  | 'dispatch_off'   // interruttore di dispatch spento
+  | 'no_project'     // nessuna board con una directory: nessun cwd, nessun agente
+  | 'parent_review'  // è uno step e il padre aspetta una decisione umana
+  | 'parent_turn'    // è uno step e l'agente del padre lo lavora nel suo turno
+  | 'parent_idle'    // è uno step e il padre non è al lavoro: non lo lavora nessuno
+  | 'unknown';       // il server non è riuscito a calcolarla: il buco, dichiarato
+
+/**
+ * COSA SUCCEDE DOPO, in tre pezzi. Il tono è la parte che si legge a un metro.
+ *
+ * `queued` = la coda scorre, non devi fare niente. `waiting` = ferma ma
+ * riparte da sola (una condizione esterna, un altro task, un turno altrui).
+ * `stalled` = non riparte finché non decidi tu. È la distinzione che oggi non
+ * si vede: «aspetta uno slot» e «non partirà mai» sono la stessa parola «in
+ * coda», e chi guarda non sa se aspettare o intervenire.
+ */
+export type QueueTone = 'queued' | 'waiting' | 'stalled';
+
+/**
+ * La ragione, pronta da scrivere. `head · detail` è il testo del chip, `title`
+ * il tooltip che dice per esteso cosa succede dopo.
+ *
+ * La FRASE viaggia già composta, non i campi da cui dedurla: il client la
+ * rende, non la calcola. È lo stesso conto già pagato con `waitingOnCount` —
+ * il giorno che il dispatcher cambia una regola, un client che deduce continua
+ * a rispondere, con sicurezza, la risposta di ieri.
+ */
+export interface QueueReason {
+  kind: QueueReasonKind;
+  tone: QueueTone;
+  /** Prima parola del chip: «in coda», «ferma», «rinviata». */
+  head: string;
+  /** Il seguito: «3 davanti», «riprende alle 06:40», «tentativi finiti». */
+  detail: string;
+  /** Per esteso, nel tooltip: cosa succede dopo e cosa devi fare tu. */
+  title: string;
+}
+
+/** Il contesto che la ragione non può leggere dalla riga del task. */
+export interface QueueContext {
+  /** Adesso, in ISO — la finestra di rinvio si misura da qui. */
+  now: string;
+  /** L'interruttore di dispatch della board (o quello globale). */
+  autoDispatch: boolean;
+  /** Il tetto dei tentativi della board (`BoardSettings.dispatchRetryCap`). */
+  retryCap: number;
+  /**
+   * Quanti task idonei il dispatcher servirebbe PRIMA di questo. Contato sul
+   * DB con la stessa disciplina di coda del tick (priorità, poi anzianità):
+   * dalla lista che il client ha in mano non si può contare, perché quella è
+   * un progetto solo, `rootsOnly`, non archiviati.
+   */
+  ahead: number;
+  /** Lo stato del padre, per uno step. `null` = non è uno step, o padre sparito. */
+  parentStatus: TaskStatus | string | null;
+  /** Vero quando il task non ha una board con una directory (`_none`). */
+  projectless: boolean;
+  /**
+   * Come si scrive un orario. Iniettabile perché il ramo «riprende alle 06:40»
+   * dipende dal fuso della macchina, e un test che ci gira sopra non deve
+   * dipendere da dove gira.
+   */
+  formatTime?: (iso: string) => string;
+}
+
+/**
+ * IL BUCO, DICHIARATO. Quando il server non riesce a calcolare la ragione, la
+ * card lo dice invece di ripiegare su una parola generica.
+ *
+ * «In coda» al posto di una ragione mancante non è un ripiego prudente: è la
+ * stessa bugia di prima, con l'aggravante di sembrare una risposta. Un buco
+ * detto ad alta voce è informazione — chi guarda sa che deve aprire il task, e
+ * chi legge un rosso sa che c'è un guasto da guardare.
+ */
+export const QUEUE_REASON_UNKNOWN: QueueReason = {
+  kind: 'unknown', tone: 'stalled', head: 'ferma', detail: 'motivo non registrato',
+  title: 'Ferma, e il motivo non risulta: il server non è riuscito a calcolarlo. Non è «in coda». Apri il task e guarda il thread.',
+};
+
+/** Ore e minuti, 24h — il default di `QueueContext.formatTime`. */
+export function formatClock(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+/**
+ * Sotto questa soglia il rinvio si dice in minuti («fra 12 min») invece che con
+ * l'orologio. Un'attesa breve la si misura, non la si legge sul quadrante — e
+ * «riprende alle 06:52» a un'attesa di due minuti fa sembrare fermo qualcosa
+ * che sta per ripartire.
+ */
+const NEAR_DEFERRAL_MIN = 90;
+
+/** Le prime otto lettere dell'id: quanto basta a riconoscerlo sulla board. */
+function shortId(id: string): string {
+  return id.slice(0, 8);
+}
+
+/**
+ * PERCHÉ questa card è ferma, in una frase.
+ *
+ * Pura per costruzione: prende la riga e il contesto, non tocca né DB né
+ * orologio (l'adesso arriva in `ctx.now`). La CHIAMA il server, dove vive la
+ * decisione di non dispacciare; il client riceve `head`/`detail`/`title` già
+ * scritti e li disegna.
+ *
+ * Torna `null` quando la domanda non si pone: la card non è in `todo`, oppure
+ * un agente ci sta già girando sopra (lì il chip di dispatch dice già tutto).
+ *
+ * L'ORDINE È QUELLO DEL DISPATCHER, e non è cosmetico:
+ *  1. uno step non viene mai reclamato (il tick lista `rootsOnly`): la sua
+ *     ragione è sempre il padre, qualunque altra cosa abbia addosso;
+ *  2. senza board non c'è cwd, e il tick esce prima di guardare qualsiasi cosa;
+ *  3. rinvio e bloccante vengono PRIMA del budget dei tentativi — è lo stesso
+ *     ordine che il tick applica, e invertirlo ucciderebbe una card che sta
+ *     solo aspettando (già successo, l'11/08, a una card in attesa di UAT);
+ *  4. l'interruttore spento viene per ULTIMO, appena prima della coda: è una
+ *     proprietà della board e non della card, e messo per primo cancellerebbe
+ *     da quaranta card la sola cosa vera di ciascuna.
+ */
+export function deriveQueueReason(
+  task: {
+    status: TaskStatus | string;
+    parentTaskId: string | null | undefined;
+    dispatchState: string | null | undefined;
+    dispatchAttempts: number;
+    dispatchDeferredUntil: string | null | undefined;
+    dispatchError?: string | null;
+    blockedByTaskId: string | null | undefined;
+    blockedBy: BlockerRef | null | undefined;
+  },
+  ctx: QueueContext,
+): QueueReason | null {
+  if (task.status !== 'todo') return null;
+  // Un agente già in volo su questa riga: il chip del ciclo di vita
+  // («avvio…», «al lavoro») dice più di qualunque ragione di coda.
+  if (task.dispatchState === 'starting' || task.dispatchState === 'working') return null;
+
+  if (task.parentTaskId) {
+    if (ctx.parentStatus === 'review') {
+      return {
+        kind: 'parent_review', tone: 'stalled', head: 'ferma', detail: 'il padre aspetta te',
+        title: 'È uno step: parte solo dentro il turno del padre, e il padre è in review. Finché non approvi o rimandi indietro, questo step non lo lavora nessuno.',
+      };
+    }
+    if (ctx.parentStatus === 'in_progress') {
+      return {
+        kind: 'parent_turn', tone: 'waiting', head: 'ferma', detail: 'la lavora il padre',
+        title: "È uno step: lo spunta l'agente del padre dentro il proprio turno. Non parte da solo, e non deve.",
+      };
+    }
+    return {
+      kind: 'parent_idle', tone: 'stalled', head: 'ferma', detail: 'il padre non è al lavoro',
+      title: 'È uno step, e il padre non ha nessun agente al lavoro. Nessuno lo prenderà: fai partire il padre, oppure staccalo e rendilo un task suo.',
+    };
+  }
+
+  if (ctx.projectless) {
+    return {
+      kind: 'no_project', tone: 'stalled', head: 'ferma', detail: 'nessun progetto',
+      title: "Senza una board legata a una directory l'agente non ha una cartella in cui girare: non partirà mai. Assegna il task a un progetto.",
+    };
+  }
+
+  const until = task.dispatchDeferredUntil;
+  if (until && until > ctx.now) {
+    const min = Math.max(1, Math.round((new Date(until).getTime() - new Date(ctx.now).getTime()) / 60000));
+    const when = min <= NEAR_DEFERRAL_MIN ? `fra ${min} min` : `alle ${(ctx.formatTime ?? formatClock)(until)}`;
+    return {
+      kind: 'deferred', tone: 'waiting', head: 'rinviata', detail: `riprende ${when}`,
+      title: `L'agente aspetta una condizione esterna e ha liberato lo slot: torna in coda ${when}${task.dispatchError ? `. Motivo: ${task.dispatchError}` : ''}`,
+    };
+  }
+
+  const b = task.blockedBy;
+  const blockerOpen = !!task.blockedByTaskId && !(b && (b.status === 'done' || b.archived));
+  if (blockerOpen) {
+    const who = b ? `«${b.text}»` : 'un altro task';
+    return {
+      kind: 'blocked', tone: 'waiting', head: 'ferma',
+      detail: `aspetta ${shortId(task.blockedByTaskId!)}`,
+      title: `Non parte finché ${who} non chiude. Quando quello va in done questa torna in coda da sé: non devi rimetterla tu.`,
+    };
+  }
+
+  if (task.dispatchAttempts >= ctx.retryCap) {
+    return {
+      kind: 'attempts', tone: 'stalled', head: 'ferma',
+      detail: 'tentativi finiti, rimettila in coda',
+      title: `Budget dei tentativi finito (${task.dispatchAttempts}/${ctx.retryCap}): non riparte da sola. Trascinala di nuovo in Todo per ridarle i tentativi, oppure guarda cosa la fa fallire.`,
+    };
+  }
+
+  // L'interruttore viene DOPO le ragioni della card, e non prima. È una
+  // proprietà della board, non di questa riga: scriverlo per primo lo
+  // stamperebbe identico su quaranta card e coprirebbe l'unica cosa che di
+  // ognuna è vera in proprio. Quello che sostituisce è la sola risposta che a
+  // interruttore spento sarebbe una bugia: «in coda, N davanti» — non c'è
+  // nessuna coda che scorre.
+  if (!ctx.autoDispatch) {
+    return {
+      kind: 'dispatch_off', tone: 'stalled', head: 'ferma', detail: 'dispatch spento',
+      title: "Idonea, ma l'auto-dispatch è spento: questa colonna è una lista, non una coda. Non partirà nessuno finché non riaccendi l'interruttore.",
+    };
+  }
+
+  return {
+    kind: 'slot', tone: 'queued', head: 'in coda',
+    detail: ctx.ahead === 0 ? 'la prossima' : `${ctx.ahead} davanti`,
+    title: ctx.ahead === 0
+      ? 'Idonea e prima della fila: parte appena si libera uno slot agente.'
+      : `Idonea: aspetta uno slot agente, con ${ctx.ahead} task davanti nella coda. Parte da sola, non devi fare niente.`,
+  };
+}
+
 export interface TaskComment {
   id: string;
   taskId: string;
@@ -84,6 +759,24 @@ export interface TaskComment {
    * svegliare l'agente.
    */
   kind: 'comment' | 'status' | 'review-note';
+}
+
+/**
+ * Il bloccante di un task, RISOLTO dal server leggendolo dal DB.
+ *
+ * Esiste perché il chip «in attesa di» non può dipendere da chi c'è nella lista
+ * che il client ha in mano: la board fetcha UN progetto, `rootsOnly`, non
+ * archiviati — un bloccante fuori da quel taglio (un sottotask, un task di un
+ * altro progetto, uno archiviato) non si trovava, e il chip spariva anche se il
+ * legame c'era eccome. `status` e `archived` sono i due bit che decidono se il
+ * chip va ancora disegnato: chiuso o archiviato = non blocca più (lo stesso
+ * predicato del gate di dispatch, `isDispatchBlocked`).
+ */
+export interface BlockerRef {
+  id: string;
+  text: string;
+  status: TaskStatus;
+  archived: boolean;
 }
 
 /** Un comando del gate pre-review dichiarato nelle impostazioni della board. */
@@ -226,4 +919,161 @@ export interface DispatchCapacity {
   load1: number;
   /** Spiegazione in una riga di come `recommended` è stato derivato. */
   reason: string;
+  /**
+   * Quanti agenti stanno girando ADESSO su questa macchina (i turni in volo del
+   * dispatcher). È il termine che manca per trasformare `recommended` da numero
+   * in consiglio: senza sapere quanti ne stanno girando, «max 2» non dice se
+   * c'è qualcosa da fare o no. Zero anche quando il dispatcher non c'è (un
+   * router montato senza, i test): un conteggio assente vale «nessuno».
+   */
+  running: number;
+}
+
+/** Le due primitive di collegamento dell'intake. */
+export type LinkKind = "subtask" | "chain";
+
+/**
+ * La PROPOSTA dell'intake: dove andrebbe un testo nuovo.
+ * Vive qui perche' la calcola il server e la disegna il client — due copie
+ * libere di divergere erano esattamente cio' che il cancello sui doppioni
+ * di tipo esiste per impedire.
+ */
+export interface LinkProposal {
+  targetTaskId: string;
+  targetText: string;
+  targetStatus: TaskStatus;
+  /**
+   * Quale delle due primitive il motore consiglia. NON è una decisione: la UI
+   * evidenzia questa e lascia l'altra a un click di distanza.
+   * - `chain` quando la card sta ancora girando (in_progress/review): il testo
+   *   nuovo è un SEGUITO, e riparte dentro la conversazione del bloccante.
+   * - `subtask` quando la card non è ancora partita (backlog/todo): il testo
+   *   nuovo è un PEZZO di quel lavoro.
+   */
+  recommended: LinkKind;
+  /** 0..1 — copertura pesata dei termini del testo nuovo sulla card. */
+  score: number;
+  /** Le parole che hanno fatto il punteggio, dalla più rara alla più comune. */
+  sharedTerms: string[];
+  /** Frase leggibile: va sotto al composer E nel thread delle due card. */
+  reason: string;
+}
+
+/**
+ * Parse a task comment for an agent "question block" — the human-decision
+ * request the board renders as a quick-reply:
+ *
+ *   ```question
+ *   Which auth approach?
+ *   - JWT in an httpOnly cookie
+ *   - Short-lived bearer token
+ *   ```
+ *
+ * The canonical block is composed SERVER-side (tasks service `questionOptions`)
+ * so this layout is guaranteed for new comments — but the parser stays
+ * tolerant of hand-written LLM variants: `\r\n`, missing newlines around the
+ * fences, options inlined on one line. Returns the question + the (possibly
+ * empty) option list, or null when the text has no such block.
+ *
+ * Sta in `shared/` e non più solo nel client perché ora ha un secondo lettore:
+ * il SERVER, che deve sapere se il task che entra in review porta una domanda
+ * per poterla mettere nei tasti della notifica (`emitReviewReadyEdge` →
+ * `push-triggers`). Due parser sarebbero due verità: un'opzione che la board
+ * mostra e il banner no è peggio di nessun banner.
+ */
+export function parseQuestionBlock(text: string): { question: string; options: string[] } | null {
+  if (!text) return null;
+  // \s+ (not \s*\n): tolerate a block whose newlines were lost/normalized —
+  // '```question Question? - a - b```' still parses.
+  const m = text.replace(/\r\n/g, '\n').match(/```question\s+([\s\S]*?)```/);
+  if (!m) return null;
+  const body = m[1].trim();
+  if (!body) return null;
+  const options: string[] = [];
+  const qLines: string[] = [];
+  if (body.includes('\n')) {
+    for (const raw of body.split('\n')) {
+      const line = raw.trim();
+      if (!line) continue;
+      const opt = line.match(/^[-*]\s+(.*)$/);
+      if (opt) options.push(opt[1].trim());
+      else qLines.push(line);
+    }
+  } else {
+    // Degenerate single-line body: split on ' - ' option markers. The first
+    // segment is the question; a leading '- ' marks an option-only block.
+    const segments = body.split(/\s+-\s+/);
+    const first = segments.shift()?.trim() ?? '';
+    if (first.startsWith('- ')) segments.unshift(first.slice(2));
+    else if (first) qLines.push(first);
+    for (const s of segments) { const v = s.trim(); if (v) options.push(v); }
+  }
+  const question = qLines.join(' ').trim();
+  if (!question) return null;
+  // "Landa e pubblica" (go online = merge + push + deploy) is NEVER a per-task
+  // quick-reply: publishing is a SEPARATE, human-only board action (the "Pubblica"
+  // control) with a diff preview to review before pushing. The dispatcher used to
+  // make agents offer it at delivery; drop it from the rendered options so old
+  // deliveries that still carry it don't show a one-click merge+push button.
+  // "Landa su main" (local merge, no push) stays.
+  const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
+  const filtered = options.filter((o) => norm(o) !== 'landa e pubblica');
+  return { question, options: filtered };
+}
+
+/** Il minimo che serve per riconoscere una domanda in coda al thread. */
+export type PendingQuestionComment = { content: string; kind?: string | null };
+
+/**
+ * La domanda pendente di un task: l'ULTIMA parola dell'agente, se è un blocco
+ * ```question.
+ *
+ * Stessa lettura della card e del drawer (`parseQuestionBlock` sull'ultimo
+ * commento, righe `kind: 'status'` escluse perché sono cronologia delle
+ * transizioni, non parole di nessuno). Se il banner mostrasse opzioni diverse
+ * da quelle della card, quale delle due superfici crede non sarebbe più una
+ * domanda con risposta.
+ *
+ * Due lettori su due lati del filo: il server, che mette la domanda nel fronte
+ * `task:review-ready`; e il client, che se la ricava da sé quando il fronte non
+ * la porta (server più vecchio del client).
+ */
+export function pendingQuestion(
+  comments: readonly PendingQuestionComment[] | null | undefined,
+): { text: string; options: string[] } | null {
+  if (!comments || comments.length === 0) return null;
+  const speech = comments.filter((c) => c && c.kind !== 'status');
+  const last = speech[speech.length - 1];
+  if (!last) return null;
+  const parsed = parseQuestionBlock(last.content ?? '');
+  // Una domanda senza opzioni non ha tasti da offrire, ma resta una domanda: la
+  // si dichiara comunque, così chi legge sa che il task ASPETTA una risposta e
+  // non è una consegna da approvare.
+  return parsed ? { text: parsed.question, options: parsed.options } : null;
+}
+
+/**
+ * La ricevuta di un land — il server risponde `202` (accodato), non `200`
+ * (fatto).
+ *
+ * Esiste perché `POST …/tasks/:id/land` rispondeva `200` con la card e faceva
+ * la fusione dopo (`void landTask(...)`): chi chiamava riceveva la card, non
+ * l'esito. Misurato l'11/08, ~20 land in raffica ⇒ 4 fusioni riuscite e 16 card
+ * chiuse col codice ancora sul loro branch, senza una riga che lo dicesse.
+ *
+ * `ahead` è quante fusioni ci sono davanti sulla stessa board: toccano tutte
+ * main nello stesso checkout, quindi vanno in fila — e mettersi in fila si dice.
+ */
+export type LandingPhase = 'queued' | 'running' | 'settled' | 'failed';
+
+export interface LandingTicket {
+  taskId: string;
+  phase: LandingPhase;
+  /** Quanti land ci sono DAVANTI a questo nella stessa fila. 0 = tocca a lui. */
+  ahead: number;
+  queuedAt: string;
+  /** ISO in cui il ticket si è chiuso, `null` finché non è finito. */
+  settledAt: string | null;
+  /** Il motivo del `failed`. `null` in ogni altra fase. */
+  error: string | null;
 }

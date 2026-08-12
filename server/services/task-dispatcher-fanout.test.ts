@@ -14,28 +14,16 @@ import { createTaskService, type TaskService } from "./tasks";
 import { createTaskDispatcher, type DispatcherDeps } from "./task-dispatcher";
 import { createTaskAttemptStore, type TaskAttempt } from "./task-attempts";
 import type { TurnEndInfo } from "../providers/stop-reason";
+import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL } from "../db/test-schema";
 
 /** Schema autoportante: sottoinsieme delle migration rilevanti + la 065. */
 function freshDb(): Database {
   const db = new Database(":memory:");
   db.run("PRAGMA foreign_keys = ON");
   db.run(`CREATE TABLE topics (id TEXT PRIMARY KEY)`);
-  db.run(`CREATE TABLE tasks (
-    id TEXT PRIMARY KEY, project_id TEXT NOT NULL, text TEXT NOT NULL, description TEXT,
-    status TEXT NOT NULL DEFAULT 'todo', priority INTEGER NOT NULL DEFAULT 2,
-    kanban_order INTEGER NOT NULL DEFAULT 0, assigned_to TEXT, fingerprint TEXT, due_date TEXT,
-    chat_id TEXT, created_at TEXT NOT NULL, completed_at TEXT, updated_at TEXT NOT NULL,
-    claude_task_id TEXT, assigned_topic_id TEXT REFERENCES topics(id), archived INTEGER NOT NULL DEFAULT 0,
-    assigned_agent_id TEXT, in_progress_at TEXT,
-    dispatch_attempts INTEGER NOT NULL DEFAULT 0, dispatch_state TEXT, dispatch_error TEXT,
-    dispatch_deferred_until TEXT,
-    parent_task_id TEXT REFERENCES tasks(id), output_url TEXT, plan_first INTEGER NOT NULL DEFAULT 0,
-    agent_ms INTEGER NOT NULL DEFAULT 0, agent_tokens INTEGER NOT NULL DEFAULT 0,
-    agent_cache_read_tokens INTEGER NOT NULL DEFAULT 0,
-    model TEXT, blocked_by_task_id TEXT REFERENCES tasks(id), reuse_blocker_context INTEGER NOT NULL DEFAULT 0,
-    priority_auto INTEGER NOT NULL DEFAULT 1,
-    delivered_by TEXT, delivered_reason TEXT
-  )`);
+  db.run(TASKS_DDL);
+  db.run(TASKS_FK_STUBS_DDL);
+  db.run(TASK_LABELS_DDL); // migration 100 — rowToTask la legge per OGNI task
   db.run(`CREATE TABLE board_settings (
     project_id TEXT PRIMARY KEY, require_approval_for_done INTEGER DEFAULT 0,
     require_review_before_done INTEGER DEFAULT 0, block_status_with_pending INTEGER DEFAULT 0,
@@ -204,9 +192,66 @@ describe("task-dispatcher fan-out", () => {
     expect(k).toContain("NON spostare il task di stato");
     expect(k).toContain("NON scrivere nel thread del task");
     expect(k).toContain("COMMITTA tutto sul tuo branch");
+    // Il divieto è su main, non sulla BASE del proprio ramo. La vecchia formula
+    // ("nessun rebase su main") vietava anche il gesto che RISOLVE il conflitto
+    // di land, e tre card in un pomeriggio ci sono rimaste incastrate.
+    expect(k).toContain("NON TOCCARE main");
+    expect(k).toContain("git rebase main");
+    expect(k).not.toContain("nessun rebase");
     // Il contratto normale ("sei l'owner, porta in review") NON deve comparire:
     // due contratti opposti nello stesso prompt = il modello ne sceglie uno a caso.
     expect(k).not.toContain("owner esclusivo del task");
+  });
+
+  /**
+   * I QUATTRO cancelli, su una board che NON dichiara nessun comando.
+   *
+   * È la regressione dell'11/08: il kickoff nominava i cancelli solo dentro il
+   * ramo `reviewChecks`, nessuna board ne dichiarava, quindi tre card di fila
+   * hanno lasciato main con `check:deadcode` rosso — sempre per uno script che
+   * si lancia a mano e che nessuno importa. `boardWithFanOut` non tocca
+   * `reviewChecks`: se questo test passa, i quattro nomi ci sono per default.
+   *
+   * I nomi si scrivono a mano e non si interpolano da `CODE_GATES_RULE`: un
+   * test che cerca la costante che ha appena interpolato non può fallire.
+   */
+  it("il kickoff del tentativo nomina i QUATTRO cancelli anche senza check dichiarati", async () => {
+    const h = harness();
+    boardWithFanOut(h, 2);
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    const k = h.turns[0].content;
+    for (const gate of ["typecheck", "lint", "check:deadcode", "test:unit"]) expect(k).toContain(gate);
+    // E la regola che rende verde il terzo: lo script a mano si DICHIARA.
+    expect(k).toContain("knip.jsonc");
+    expect(k).toContain("scripts/disk-report.ts!");
+  });
+
+  /**
+   * Il bump di versione, nominato come GESTO nel kickoff.
+   *
+   * Stessa forma della regressione qui sopra, un giorno dopo: il cancello
+   * `version-lockstep` prendeva i bump fatti a mano (due volte in una notte, sul
+   * `Cargo.lock` entrambe le volte) ma nessun testo diceva quale comando li
+   * evita, quindi l'umano riallineava a mano e il giro si ripeteva.
+   *
+   * Anche qui i nomi si scrivono a mano invece di interpolare `VERSION_BUMP_RULE`:
+   * un test che cerca la costante che ha appena interpolato non può fallire.
+   */
+  it("il kickoff nomina il gesto del bump, non i file da aprire", async () => {
+    const h = harness();
+    boardWithFanOut(h, 2);
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    const k = h.turns[0].content;
+    expect(k).toContain("bun run bump");
+    expect(k).toContain("bun run bump sync");
+    // Il PERCHÉ, non solo il comando: il posto dimenticato è quello generato.
+    expect(k).toContain("lockfile");
   });
 
   it("il confronto si scrive quando ha finito l'ULTIMO tentativo, non il primo", async () => {
@@ -308,7 +353,7 @@ describe("task-dispatcher fan-out", () => {
 
     expect(h.turns.length).toBe(2);
     expect(h.rows("t1").length).toBe(2);
-    expect(h.comments("t1").join("\n")).toContain("Fan-out ridotto da 3 a 2");
+    expect(h.comments("t1").join("\n")).toContain("Fan-out 3→2");
   });
 
   it("senza worktree il fan-out non parte: un agente solo, in-place, con una nota", async () => {
@@ -322,7 +367,7 @@ describe("task-dispatcher fan-out", () => {
     expect(h.turns.length).toBe(1);
     expect(h.rows("t1").length).toBe(0);              // nessun tentativo: path storico
     expect(h.turns[0].content).toContain("owner esclusivo del task");
-    expect(h.comments("t1").join("\n")).toContain("dispaccia IN-PLACE");
+    expect(h.comments("t1").join("\n")).toContain("board IN-PLACE");
   });
 
   it("host senza store dei tentativi: fanOut resta 1, nessuno se ne accorge", async () => {

@@ -1,15 +1,15 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { uploadApi } from '../../lib/api';
-
-/**
- * Floor under which a recording carries no speech: an accidental start/stop
- * (the ⌘⇧R chord toggling twice, a pane unmounting mid-record) yields zero data
- * chunks or a container header with no audio in it. Uploading those posted a
- * real `[Voice message: …]` bubble into the transcript that played silence —
- * the "random empty voice note at the end of a chat". Opus at ~24kbps clears
- * this in well under half a second, so no genuine note is dropped.
- */
-const MIN_VOICE_BLOB_BYTES = 512;
+import {
+  transcribeAudio,
+  pickRecorderMimeType,
+  extForMime,
+  micErrorMessage,
+  MIN_VOICE_BLOB_BYTES,
+  SPEECH_AUDIO_CONSTRAINTS,
+  SPEECH_BITS_PER_SECOND,
+  fetchSttCapabilities,
+} from '../../lib/stt';
 
 export function useVoiceRecording(
   sendMessage: (sessionKey: string, content: string) => Promise<boolean>,
@@ -45,19 +45,18 @@ export function useVoiceRecording(
   // delivered into B's history.
   const recordingSessionKeyRef = useRef<string | null>(null);
 
-  const getSupportedMimeType = useCallback((): string => {
-    // Safari supports mp4/aac, Chrome/Firefox support webm/opus
-    const types = ['audio/mp4', 'audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/webm'];
-    for (const type of types) { if (MediaRecorder.isTypeSupported(type)) return type; }
-    return '';
-  }, []);
+  const onErrorRef = useRef(onError);
+  useEffect(() => { onErrorRef.current = onError; }, [onError]);
 
   const startRecording = useCallback(async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: SPEECH_AUDIO_CONSTRAINTS });
       streamRef.current = stream;
-      const mimeType = getSupportedMimeType();
-      const options: MediaRecorderOptions = mimeType ? { mimeType } : {};
+      const mimeType = pickRecorderMimeType();
+      const options: MediaRecorderOptions = {
+        ...(mimeType ? { mimeType } : {}),
+        audioBitsPerSecond: SPEECH_BITS_PER_SECOND,
+      };
       const recorder = new MediaRecorder(stream, options);
       mediaRecorderRef.current = recorder;
       audioChunksRef.current = [];
@@ -69,15 +68,9 @@ export function useVoiceRecording(
       recordingTimerRef.current = setInterval(() => setRecordingTime(t => t + 1), 1000);
     } catch (err) {
       console.error('Failed to start recording:', err);
-      // On mobile Safari over HTTP, getUserMedia is blocked silently
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes('secure') || msg.includes('NotAllowed') || msg.includes('Permission')) {
-        onError?.('Microfono non disponibile: serve HTTPS (o il permesso è stato negato).');
-      } else {
-        onError?.(`Registrazione non partita: ${msg}`);
-      }
+      onErrorRef.current?.(micErrorMessage(err));
     }
-  }, [getSupportedMimeType, sessionKey, onError]);
+  }, [sessionKey]);
 
   const stopRecording = useCallback(async (): Promise<void> => {
     return new Promise((resolve) => {
@@ -87,7 +80,7 @@ export function useVoiceRecording(
         if (recordingTimerRef.current) { clearInterval(recordingTimerRef.current); recordingTimerRef.current = null; }
         if (streamRef.current) { streamRef.current.getTracks().forEach(track => track.stop()); streamRef.current = null; }
         const mimeType = recorder.mimeType || 'audio/webm';
-        const ext = mimeType.includes('mp4') ? 'm4a' : mimeType.includes('ogg') ? 'ogg' : 'webm';
+        const ext = extForMime(mimeType);
         const blob = new Blob(audioChunksRef.current, { type: mimeType });
         const file = new File([blob], `voice-${Date.now()}.${ext}`, { type: mimeType });
         setIsRecording(false);
@@ -103,20 +96,45 @@ export function useVoiceRecording(
         }
         setUploading(true);
         try {
-          const result = await uploadApi.uploadFile(file);
+          // Caricamento e trascrizione IN PARALLELO: sono due viaggi indipendenti
+          // e in serie raddoppiavano l'attesa fra «stop» e la bolla in chat.
+          //
+          // La trascrizione è il punto della faccenda: un agente da terminale —
+          // Claude Code, Codex — NON sente l'audio. Fin qui la nota vocale gli
+          // arrivava come `[Voice message: /…/voice-173…webm]`, cioè un percorso a
+          // un file che nessun modello può aprire: l'agente rispondeva al nulla, o
+          // provava a leggerlo come testo. Il messaggio è quello che hai DETTO; il
+          // marcatore col file resta in coda perché la bolla mantenga il suo
+          // lettore audio (MessageContent lo riconosce e lo stacca dal testo).
+          const [upload, transcription] = await Promise.all([
+            uploadApi.uploadFile(file),
+            (await fetchSttCapabilities()).available
+              ? transcribeAudio(blob, { filename: file.name }).catch((err: unknown) => {
+                  console.error('[voice] transcription failed:', err);
+                  return null;
+                })
+              : Promise.resolve(null),
+          ]);
+          const spoken = transcription?.transcript.trim() ?? '';
+          const marker = `[Voice message: ${upload.path}]`;
+          if (!spoken) {
+            onErrorRef.current?.(
+              'Nota vocale inviata senza trascrizione: l\'agente riceve solo il file audio, che non può ascoltare.',
+            );
+          }
           // Deliver to the session the recording STARTED on, not whatever
           // topic is active at stop time (see recordingSessionKeyRef above).
-          await sendMessage(recordingSessionKeyRef.current ?? sessionKey, `[Voice message: ${result.path}]`);
+          await sendMessage(recordingSessionKeyRef.current ?? sessionKey, spoken ? `${spoken}\n\n${marker}` : marker);
         } catch (err) {
           console.error('Voice upload failed:', err);
-          onError?.(`Invio del vocale fallito: ${err instanceof Error ? err.message : 'errore sconosciuto'}`);
+          onErrorRef.current?.(`Invio del vocale fallito: ${err instanceof Error ? err.message : 'errore sconosciuto'}`);
         }
         finally { setUploading(false); recordingSessionKeyRef.current = null; }
         resolve();
       };
       recorder.stop();
     });
-  }, [sendMessage, sessionKey, onError]);
+  }, [sendMessage, sessionKey]);
 
   useEffect(() => {
     return () => {

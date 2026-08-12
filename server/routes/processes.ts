@@ -8,6 +8,7 @@ import { augmentEnv, wrapPty, stripAnsi } from "../utils/path-env";
 import { resolveStateDir } from "../lib/data-dir";
 import { getTerminalSessionById } from "./terminal";
 import { getSessionCliPid } from "../providers/session-pids";
+import { backgroundShellBanner, shellProcessKey } from "../../shared/background-shell-registry";
 
 interface ScriptProcess {
   processId: string;
@@ -184,11 +185,11 @@ function loadState() {
               if (sp.output.length && sp.output[sp.output.length - 1] === "") sp.output.pop();
               sp.outputBytes = logContent.length;
             } else {
-              sp.output = ["[server restarted — previous output lost]"];
+              sp.output = ["[server restarted: previous output lost]"];
               sp.outputBytes = 40;
             }
           } catch {
-            sp.output = ["[server restarted — previous output lost]"];
+            sp.output = ["[server restarted: previous output lost]"];
             sp.outputBytes = 40;
           }
           runningScripts.set(r.processId, sp);
@@ -541,7 +542,9 @@ function invalidateScriptsCache() {
 }
 
 // Build current scripts list (without port detection for WS broadcasts — ports are fetched on GET)
-function getScriptsSnapshot(): any[] {
+// Esportata per i test: è la lista che viaggia sulla WS, e deve dire le stesse
+// cose della risposta HTTP — se le due divergono la divergenza si vede solo dal vivo.
+export function getScriptsSnapshot(): any[] {
   const running = Array.from(runningScripts.values()).map(sp => ({
     processId: sp.processId,
     scriptName: sp.scriptName,
@@ -553,6 +556,11 @@ function getScriptsSnapshot(): any[] {
     completedAt: sp.completedAt,
     exitCode: sp.exitCode,
     source: sp.source ?? "script",
+    // Lo shellId viaggia anche qui, non solo sulla risposta HTTP: le card della
+    // chat trovano la loro shell PER id, e il broadcast è ciò che arriva per
+    // primo quando la shell nasce o cambia stato. Senza, la card restava
+    // ferma fino al prossimo poll — cioè fino a 15s dopo.
+    ...(sp.shell ? { shellId: sp.shell.shellId, topicId: sp.shell.topicId } : {}),
     ports: [] as number[],
   }));
   const recent = recentScripts.map(sp => ({
@@ -566,6 +574,7 @@ function getScriptsSnapshot(): any[] {
     completedAt: sp.completedAt,
     exitCode: sp.exitCode,
     source: sp.source ?? "script",
+    ...(sp.shell ? { shellId: sp.shell.shellId, topicId: sp.shell.topicId } : {}),
     ports: [] as number[],
   }));
   return [...running, ...recent];
@@ -610,7 +619,7 @@ export function registerPreviewProcess(entry: { taskId: string; port: number; pi
     status: "running",
     pid: entry.pid,
     startedAt: new Date().toISOString(),
-    output: [`[anteprima task ${entry.taskId.slice(0, 8)} — http://localhost:${entry.port}]`],
+    output: [`[anteprima task ${entry.taskId.slice(0, 8)} · http://localhost:${entry.port}]`],
     outputBytes: 0,
     proc: null,
     source: "script",
@@ -638,12 +647,6 @@ export function unregisterPreviewProcess(taskId: string): void {
 // sessione; finché non si trova, la voce c'è lo stesso — sapere che una shell
 // è viva vale anche senza poterla fermare, e il contrario (un bottone che non
 // fa niente) sarebbe peggio del bottone assente.
-
-function shellProcessKey(sessionKey: string, shellId: string): string {
-  const s = sessionKey.replace(/[^A-Za-z0-9_.:-]/g, "-");
-  const id = shellId.replace(/[^A-Za-z0-9_.-]/g, "-");
-  return `shell:${s}:${id}`;
-}
 
 /** Etichetta corta per la riga del pannello: il comando, senza il romanzo. */
 function shellLabel(command: string): string {
@@ -675,7 +678,7 @@ export function registerBackgroundShell(entry: {
     status: "running",
     pid: null,
     startedAt: new Date().toISOString(),
-    output: [`[shell in background dell'agente — id ${entry.shellId}]`],
+    output: [backgroundShellBanner(entry.shellId)],
     outputBytes: 0,
     proc: null,
     source: "shell",
@@ -1162,7 +1165,7 @@ async function runDetectionCycle(ctx: AppContext): Promise<boolean> {
       status: "running",
       pid: d.pid,
       startedAt: new Date().toISOString(),
-      output: ["[auto-detected running server — Topics did not launch it, so its logs are not captured here]"],
+      output: ["[auto-detected running server. Topics did not launch it, so its logs are not captured here]"],
       outputBytes: 0,
       proc: null,
       source: "detected",
@@ -1289,7 +1292,7 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
     const topic = ctx.getTopicBySessionKey(sessionKey);
     if (topic) {
       const path = ctx.resolveTopicCwd(topic);
-      if (!path) return { error: json({ error: "This topic has no project directory — bind it to a project first" }, 400) };
+      if (!path) return { error: json({ error: "This topic has no project directory. Bind it to a project first." }, 400) };
       return { path };
     }
     // Terminal-driven: a Claude Code *terminal* tab spawns its MCP bridge with the

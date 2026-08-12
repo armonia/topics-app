@@ -24,12 +24,38 @@
 export type { ReviewCheck, CheckRun } from "../../shared/board";
 import type { ReviewCheck, CheckRun } from "../../shared/board";
 
-/** Quanti check al massimo: oltre, la "verifica" diventa una pipeline CI travestita. */
-export const MAX_CHECKS = 5;
+/**
+ * Quanti check al massimo: oltre, la "verifica" diventa una pipeline CI travestita.
+ *
+ * Sei, non cinque, dal 12/08. I cancelli di questo repo sono diventati sei
+ * (`typecheck`, `lint`, `check:deadcode`, `check:emdash`, `check:migrations`,
+ * `test:unit`) e con il tetto a cinque l'ultimo veniva TRONCATO in silenzio: la
+ * board dichiarava sei comandi, ne salvava cinque, e la consegna arrivava in
+ * review "verde" senza che la suite fosse mai girata. In quella notte tre
+ * consegne su cinque erano rosse proprio sulla suite, e il rosso l'ha trovato un
+ * umano al momento del land invece del cancello al momento della consegna.
+ *
+ * Il costo si regge perche' i check sono SEQUENZIALI e ci si ferma al primo
+ * rosso: la suite, che e' l'ultima e la sola lenta, gira solo quando le cinque
+ * veloci sono passate.
+ */
+export const MAX_CHECKS = 6;
 /** Righe di output tenute per ogni check. Bastano a vedere l'errore, non riempiono il DB. */
 export const TAIL_LINES = 40;
-/** Tetto per comando. Un check che ci mette più di così non è un gate, è un blocco. */
-export const DEFAULT_TIMEOUT_MS = 10 * 60_000;
+/**
+ * Tetto per comando. Un check che ci mette più di così non è un gate, è un blocco.
+ *
+ * Venti minuti, non dieci, da quando `test:unit` è il sesto cancello. La suite
+ * da sola ne impiega tre o quattro; il 12/08, con cinque agenti al lavoro sulla
+ * stessa macchina, è stata fermata al tetto di dieci — e la consegna
+ * (`b2a3e511`) risultava bocciata per una ragione che col suo codice non
+ * c'entrava niente. Il tetto deve stare sopra il caso CARICO, altrimenti misura
+ * il traffico invece del lavoro.
+ *
+ * Restare comunque un tetto conta: oltre venti minuti il comando non è lento,
+ * è appeso, e va fermato per non tenere occupata una worktree per sempre.
+ */
+export const DEFAULT_TIMEOUT_MS = 20 * 60_000;
 
 /**
  * Legge la colonna `board_settings.review_checks`.
@@ -188,15 +214,26 @@ export function formatChecksComment(runs: CheckRun[], opts?: { commit?: string |
   const where = opts?.commit ? ` su \`${opts.commit.slice(0, 8)}\`` : "";
   const line = (r: CheckRun) => `${r.ok ? "✓" : "✗"} \`${r.name}\` (${fmtMs(r.ms)})`;
   if (!failed) {
-    return `**Checks pre-review verdi**${where} — ${runs.map(line).join(", ")}.`;
+    return `**Checks pre-review verdi**${where}: ${runs.map(line).join(", ")}.`;
   }
-  const why = failed.spawnError
-    ? `non è partito: ${failed.spawnError}`
-    : failed.timedOut
-      ? `oltre il tempo massimo`
-      : `exit ${failed.code}`;
+  // Un comando SCADUTO non ha misurato niente, e chiamarlo «rosso» manda a
+  // cercare un guasto che non c'è. Misurato il 12/08 su `b2a3e511`: cinque
+  // cancelli verdi e `test:unit` fermato al tetto mentre cinque agenti
+  // lavoravano — la suite da sola ne impiega tre o quattro. Il codice non
+  // c'entrava: era piena la macchina.
+  if (failed.timedOut) {
+    return [
+      `**Checks pre-review NON MISURATI**${where}: \`${failed.name}\` è stato fermato oltre il tempo massimo.`,
+      runs.map(line).join("\n"),
+      `Comando: \`${failed.cmd}\``,
+      failed.tail ? "```\n" + failed.tail + "\n```" : "(nessun output)",
+      "Non è un fallimento: è un comando che non è arrivato in fondo, quasi sempre perché la macchina era carica. " +
+        "Rimetti il task in review quando c'è meno traffico, oppure fallo girare a mano e allega l'esito.",
+    ].join("\n\n");
+  }
+  const why = failed.spawnError ? `non è partito: ${failed.spawnError}` : `exit ${failed.code}`;
   return [
-    `**Checks pre-review ROSSI**${where} — \`${failed.name}\` ${why}.`,
+    `**Checks pre-review ROSSI**${where}: \`${failed.name}\` ${why}.`,
     runs.map(line).join("\n"),
     `Comando: \`${failed.cmd}\``,
     failed.tail ? "```\n" + failed.tail + "\n```" : "(nessun output)",

@@ -39,8 +39,19 @@
  * l'identificatore della riga di tool già a schermo.
  */
 
-/** Cosa torna alla CLI. `allow_always` consente ORA e scrive un grant. */
-export type PermissionDecision = 'allow' | 'allow_always' | 'deny';
+import { emitHumanHoldChange } from './human-hold-events';
+import type { CliPermissionDecision as PermissionDecision } from '../../shared/permission-decision';
+
+/**
+ * Cosa torna ALLA CLI. `allow_always` consente ORA e scrive un grant.
+ *
+ * Tre valori, non quattro: `allow_free` — «consenti e libera la sessione» — è
+ * una decisione dell'interfaccia, e da qui in giù non deve nemmeno essere
+ * dicibile. La rotta la converte in `allow` sul confine (`cliDecisionFor`), e
+ * questo tipo fa sì che dimenticarsene sia un errore di compilazione invece che
+ * una parola sconosciuta consegnata a un processo figlio.
+ */
+export type { CliPermissionDecision as PermissionDecision } from '../../shared/permission-decision';
 
 export interface PermissionWaitOptions {
   /** Quanto blocca QUESTA gamba (ms). Una gamba, non la richiesta. */
@@ -129,7 +140,11 @@ export function beginPermission(
   const key = permissionKey(sessionKey, toolUseId);
   const open = activeRequests.get(key);
   if (open === undefined) {
+    const wasHeld = sessionHasPendingPermission(sessionKey);
     activeRequests.set(key, { sessionKey, toolUseId, startedAt: now });
+    // Il primo permesso aperto e' quello che ferma il turno agli occhi di chi
+    // guarda la board; i successivi non cambiano il fatto.
+    if (!wasHeld) emitHumanHoldChange({ sessionKey, phase: 'held', source: 'permission' });
     return true;
   }
   return now - open.startedAt < ttlMs;
@@ -137,9 +152,14 @@ export function beginPermission(
 
 /** Chiude una richiesta: decisa, annullata o scaduta. Idempotente. */
 export function endPermission(sessionKey: string, toolUseId: string): void {
-  activeRequests.delete(permissionKey(sessionKey, toolUseId));
+  const removed = activeRequests.delete(permissionKey(sessionKey, toolUseId));
   for (const [alias, target] of [...aliases]) {
     if (target === toolUseId && alias.startsWith(`${sessionKey}\u0000`)) aliases.delete(alias);
+  }
+  // `released` solo quando cade l'ULTIMO: con due pannelli aperti, chiuderne uno
+  // non rimette il turno a lavorare.
+  if (removed && !sessionHasPendingPermission(sessionKey)) {
+    emitHumanHoldChange({ sessionKey, phase: 'released', source: 'permission' });
   }
 }
 
@@ -254,6 +274,38 @@ export function resolvePendingPermission(sessionKey: string, toolUseId: string):
   return aliased && hasPendingPermission(sessionKey, aliased) ? aliased : null;
 }
 
+/**
+ * Consente IN BLOCCO ogni richiesta ancora aperta su questa sessione, e dice
+ * quali erano — con gli id delle righe a schermo, alias compresi, perché chi
+ * chiama deve poterle richiudere anche graficamente.
+ *
+ * Esiste per una sola strada: la sessione passa in modalità libera mentre più
+ * pannelli sono a schermo. La CLI può emettere più `tool_use` nello stesso
+ * messaggio e chiedere per ognuno (misurati a 170 ms di distanza), quindi
+ * rispondere solo a quello premuto lascerebbe gli altri appesi: la loro gamba
+ * successiva verrebbe cortocircuitata dalla rotta — «questa sessione non chiede
+ * più» — e nessuno chiuderebbe MAI la richiesta aperta. Il pannello resterebbe
+ * a schermo su un permesso già superato, e con lui `humanHold`, che tiene
+ * lontani watchdog e reaper: un turno che nessuno sorveglia più.
+ *
+ * Gli alias si leggono PRIMA di consegnare: `endPermission` li cancella.
+ */
+export function allowPendingPermissions(sessionKey: string): { toolUseId: string; rowIds: string[] }[] {
+  const prefix = `${sessionKey}\u0000`;
+  const served: { toolUseId: string; rowIds: string[] }[] = [];
+  for (const entry of [...activeRequests.values()]) {
+    if (entry.sessionKey !== sessionKey) continue;
+    const rowIds: string[] = [];
+    for (const [aliasKey, target] of aliases) {
+      if (target === entry.toolUseId && aliasKey.startsWith(prefix)) rowIds.push(aliasKey.slice(prefix.length));
+    }
+    if (deliverDecision(sessionKey, entry.toolUseId, 'allow')) {
+      served.push({ toolUseId: entry.toolUseId, rowIds });
+    }
+  }
+  return served;
+}
+
 /** C'è ALMENO una richiesta di permesso aperta su questa sessione? */
 export function sessionHasPendingPermission(sessionKey: string): boolean {
   for (const entry of activeRequests.values()) if (entry.sessionKey === sessionKey) return true;
@@ -279,7 +331,14 @@ export function pendingPermissionAgeMs(sessionKey: string, now = Date.now()): nu
 /** Sblocca UNA richiesta con un errore (scaduta, o la sua riga è sparita). */
 export function cancelPermission(sessionKey: string, toolUseId: string, reason = 'cancelled'): void {
   const key = permissionKey(sessionKey, toolUseId);
-  activeRequests.delete(key);
+  // Terza uscita, e la piu' facile da dimenticare: e' quella che scatta quando
+  // la richiesta SCADE (topics.ts, `if (!beginPermission(...)) cancelPermission(...)`).
+  // Senza l'annuncio qui, chi guarda resterebbe su «aspetta te» mentre l'agente
+  // ha gia' ripreso a lavorare — la stessa bugia che il canale esiste per
+  // togliere, girata al contrario. E non la salva la pulizia di fine turno:
+  // `cancelPermissionsForSession` legge `wasHeld` DOPO che questa ha gia'
+  // cancellato la voce, quindi non trova piu' niente da annunciare.
+  const removed = activeRequests.delete(key);
   const w = waiters.get(key);
   if (w) {
     clearTimeout(w.timer);
@@ -291,6 +350,9 @@ export function cancelPermission(sessionKey: string, toolUseId: string, reason =
     clearTimeout(buf.timer);
     buffered.delete(key);
   }
+  if (removed && !sessionHasPendingPermission(sessionKey)) {
+    emitHumanHoldChange({ sessionKey, phase: 'released', source: 'permission' });
+  }
 }
 
 /**
@@ -301,6 +363,7 @@ export function cancelPermission(sessionKey: string, toolUseId: string, reason =
  * in `server/lib/human-hold.ts`.
  */
 export function cancelPermissionsForSession(sessionKey: string, reason = 'cancelled'): void {
+  const wasHeld = sessionHasPendingPermission(sessionKey);
   for (const [key, entry] of [...activeRequests]) {
     if (entry.sessionKey !== sessionKey) continue;
     activeRequests.delete(key);
@@ -316,4 +379,8 @@ export function cancelPermissionsForSession(sessionKey: string, reason = 'cancel
       buffered.delete(key);
     }
   }
+  // Un solo annuncio per l'intera sessione, e solo se c'era davvero qualcosa da
+  // annullare: questa funzione viene chiamata anche a fine turno su sessioni che
+  // non hanno mai aperto un pannello.
+  if (wasHeld) emitHumanHoldChange({ sessionKey, phase: 'released', source: 'permission' });
 }

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { X, Bell, Cpu, Palette, UserRound } from 'lucide-react';
+import { X, Bell, Cpu, CreditCard, Palette, UserRound } from 'lucide-react';
 import type { AppSettings, ThemeMode } from '../../types';
 import { saveSettings } from '../../lib/settings';
 import { MODAL_OVERLAY, MODAL_PANEL } from '../../lib/modalStyles';
@@ -9,6 +9,10 @@ import { AIProvidersSection } from './AIProvidersSection';
 import { DevicesSection } from './DevicesSection';
 import { IdentitySection } from './IdentitySection';
 import { AccountSection } from './AccountSection';
+import { PlanSection } from './PlanSection';
+import { ProfileStatsSection } from './ProfileStatsSection';
+import { DiscordSection } from './DiscordSection';
+import { FriendsSection } from './FriendsSection';
 import { useModalDialog } from '../../hooks/useModalDialog';
 
 interface GlobalSettingsProps {
@@ -46,17 +50,27 @@ interface GlobalSettingsProps {
 // vuoto — un pannello vuoto per default non merita un posto fisso nel menu —
 // mentre il controllo che si cerca pensando «permessi», il livello di autonomia,
 // è per-chat e sta nel composer.
-type SectionId = 'appearance' | 'notifications' | 'providers' | 'devices';
+type SectionId = 'appearance' | 'notifications' | 'providers' | 'devices' | 'plan';
 
 // L'id resta `devices` — è la chiave interna a cui punta il deep-link della
 // riga d'identità nella sidebar (`onOpenDevices` in App.tsx). L'ETICHETTA no:
-// la scheda porta il profilo (nome, email, organizzazione, membri) prima dei
-// dispositivi, e chi cerca «come mi chiamo qui» non apre uno smartphone.
+// la scheda porta il profilo (chi sei, le tue statistiche d'uso, lo stato
+// pubblicato su Discord) prima delle persone e dei dispositivi, e chi cerca
+// «come mi chiamo qui» non apre uno smartphone. Da «Account» a «Profile»
+// perché l'account è ormai UNA delle cose che ci sono dentro, e nemmeno la
+// prima: su un'installazione senza servizio degli account quella sezione non
+// si disegna affatto, mentre le statistiche ci sono sempre.
+// `plan` è una voce di PRIMO livello e non un riquadro dentro «Profile», per
+// due ragioni. La prima: non è mai vuota — c'è sempre un piano, e sul gratuito
+// dice cosa hai invece di cosa ti manca, quindi l'obiezione qui sopra non la
+// tocca. La seconda: quanto paghi e chi sei sono domande diverse, e chi cerca
+// «dove si paga» non apre la scheda dell'identità.
 const SECTIONS: Array<{ id: SectionId; label: string; icon: typeof Palette }> = [
   { id: 'appearance', label: 'Appearance', icon: Palette },
   { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'providers', label: 'AI Providers', icon: Cpu },
-  { id: 'devices', label: 'Account', icon: UserRound },
+  { id: 'devices', label: 'Profile', icon: UserRound },
+  { id: 'plan', label: 'Plan', icon: CreditCard },
 ];
 
 export function GlobalSettings({ isOpen, onClose, settings, onSettingsChange, themeMode = 'system', onThemeChange, onOpenShortcuts, initialSection }: GlobalSettingsProps & { initialSection?: SectionId }) {
@@ -97,33 +111,67 @@ export function GlobalSettings({ isOpen, onClose, settings, onSettingsChange, th
         role="dialog"
         aria-modal="true"
         aria-labelledby="settings-title"
-        className={`w-full max-w-[760px] mx-4 h-[80vh] max-h-[640px] flex flex-col ${MODAL_PANEL}`}
+        // A DUE FORME, e il cardine è il `md:` (768px) — la stessa soglia con
+        // cui il resto dell'app decide quante colonne stanno sullo schermo.
+        //
+        //  · da 768 in su: la finestra di sempre — 760px al centro, la colonna
+        //    di navigazione a sinistra, 80vh di altezza.
+        //  · sotto: un FOGLIO A TUTTO SCHERMO. Non è un vezzo: il pannello era
+        //    `max-w-[760px] mx-4` con dentro una nav larga 180 FISSI, quindi su
+        //    un telefono da 390 restavano 178px di contenuto — misurati, non
+        //    stimati — e i controlli uscivano dal bordo destro. Sotto i 768 la
+        //    navigazione passa in ALTO come riga scorrevole e tutta la larghezza
+        //    va al contenuto.
+        //
+        // `100dvh` e non `100vh`: su iOS la barra degli indirizzi entra ed esce
+        // dal viewport, e `vh` conta la finestra grande — cioè il fondo del
+        // pannello finirebbe sotto la barra proprio quando è visibile.
+        //
+        // `max-md:rounded-none` e non `rounded-none`: `MODAL_PANEL` porta già
+        // `rounded-xl`, e fra due utility DELLO STESSO gruppo senza variante a
+        // vincere è l'ordine nel foglio generato, non quello nell'attributo. La
+        // variante `max-md:` toglie l'ambiguità — a schermo intero gli angoli
+        // tondi taglierebbero i pixel del bordo dello schermo.
+        className={`flex w-full flex-col ${MODAL_PANEL} h-[100dvh] max-h-none max-md:rounded-none md:mx-4 md:h-[80vh] md:max-h-[640px] md:max-w-[760px]`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3 border-b border-app-border">
+        <div
+          className="flex flex-shrink-0 items-center justify-between border-b border-app-border px-5 py-3"
+          // La tacca. Il foglio parte da `inset-0`, quindi senza questo il
+          // titolo finisce SOTTO la status bar di iOS.
+          style={{ paddingTop: 'max(env(safe-area-inset-top, 0px), 0.75rem)' }}
+        >
           <h2 id="settings-title" className="text-[15px] font-semibold text-app-text">Settings</h2>
-          <button
+          {/* 44px dove c'è un dito: era 28×28, cioè sotto la soglia proprio nel
+              punto in cui il gesto «esci» non ha alternative — a schermo intero
+              non c'è più un velo attorno da toccare. */}
+          <button aria-label="Chiudi le impostazioni"
             onClick={onClose}
-            className="w-7 h-7 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 text-app-text-tertiary hover:text-app-text-secondary transition-colors"
+            className="flex h-7 w-7 items-center justify-center rounded text-app-text-tertiary transition-colors hover:bg-black/5 hover:text-app-text-secondary coarse:h-11 coarse:w-11 dark:hover:bg-white/5"
           >
-            <X size={14} />
+            <X size={14} className="coarse:h-5 coarse:w-5" />
           </button>
         </div>
 
         {/* Body */}
-        <div className="flex flex-1 min-h-0">
-          {/* Sidebar */}
-          <nav className="w-[180px] flex-shrink-0 border-r border-app-border py-3 px-2 space-y-0.5 bg-app-hover/30">
+        <div className="flex min-h-0 flex-1 flex-col md:flex-row">
+          {/* Sidebar (desktop) / riga di schede scorrevole (mobile) */}
+          <nav className="flex flex-shrink-0 gap-1 overflow-x-auto overscroll-x-contain border-b border-app-border bg-app-hover/30 px-2 py-2 md:w-[180px] md:flex-col md:gap-0.5 md:overflow-x-visible md:border-b-0 md:border-r md:py-3">
             {SECTIONS.map(({ id, label, icon: Icon }) => (
               <button
                 key={id}
                 onClick={() => setSection(id)}
-                className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-[12.5px] text-left transition-colors ${
+                // `whitespace-nowrap` + `flex-shrink-0`: in riga le etichette
+                // non devono andare a capo né stringersi, altrimenti la riga
+                // smette di scorrere e comincia a impilarsi.
+                // `min-h-11` sotto il dito = i 44px della soglia.
+                className={`flex flex-shrink-0 items-center gap-2 whitespace-nowrap rounded-md px-3 py-1.5 text-left text-[12.5px] transition-colors coarse:min-h-11 md:w-full md:px-2.5 ${
                   section === id
                     ? 'bg-primary/10 text-primary font-medium'
                     : 'text-app-text-secondary hover:bg-app-hover hover:text-app-text'
                 }`}
+                aria-current={section === id ? 'page' : undefined}
               >
                 <Icon size={14} className="flex-shrink-0" />
                 {label}
@@ -132,7 +180,14 @@ export function GlobalSettings({ isOpen, onClose, settings, onSettingsChange, th
           </nav>
 
           {/* Content */}
-          <div className="flex-1 px-5 py-4 overflow-y-auto">
+          {/* `min-w-0`: senza, un figlio incomprimibile (una riga lunga, una
+              tabella) allarga la colonna oltre il pannello e si porta dietro
+              una barra di scorrimento ORIZZONTALE — che a 390px era il difetto
+              visibile. Il padding di fondo tiene conto della barra gesti. */}
+          <div
+            className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-4 py-4 md:px-5"
+            style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 1rem)' }}
+          >
             {section === 'appearance' && (
               <AppearanceSection
                 settings={localSettings}
@@ -146,11 +201,19 @@ export function GlobalSettings({ isOpen, onClose, settings, onSettingsChange, th
               <NotificationsSection settings={localSettings} onChange={handleChange} />
             )}
             {section === 'providers' && <AIProvidersSection />}
+            {section === 'plan' && <PlanSection />}
             {section === 'devices' && (
               // Chi sei viene PRIMA di che ferri hai: i dispositivi fanno capo
               // a una persona, e leggere l'elenco senza sapere di chi sono è
               // leggere una lista di oggetti.
               <div className="space-y-6">
+                {/* Le statistiche aprono la scheda perché sono l'unica cosa
+                    che c'è SEMPRE: l'account può non essere configurato, le
+                    persone possono essere una sola, i dispositivi zero. */}
+                <ProfileStatsSection />
+                {/* Lo stato pubblicato fuori viene subito dopo le misure che
+                    pubblica: è la stessa materia, vista da chi non è qui. */}
+                <DiscordSection />
                 {/* L'account viene prima delle persone perché risponde a una
                     domanda che le precede — «chi sono io fuori da questa
                     macchina» — e perché su un'installazione senza servizio
@@ -158,6 +221,9 @@ export function GlobalSettings({ isOpen, onClose, settings, onSettingsChange, th
                     schermata resta esattamente com'era. */}
                 <AccountSection />
                 <IdentitySection />
+                {/* I profili vengono DOPO l'elenco delle persone: quello dice chi
+                    c'è, questo dice chi sono. */}
+                <FriendsSection />
                 <DevicesSection />
               </div>
             )}

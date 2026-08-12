@@ -17,3 +17,49 @@ export function paneCellBg(type: PaneType): string {
   if (type === 'chat' || type === 'kanban' || type === 'board') return 'pane-frost';
   return 'bg-surface';
 }
+
+/**
+ * CHI PASSA SOTTO LA BARRA DELLE TAB E CHI NO.
+ *
+ * Da quando la barra è un vetro fuori dal flusso (`.pane-chrome-bar`,
+ * index.css), la cella di una pane comincia in cima alla card — cioè DIETRO la
+ * barra. Per la conversazione è esattamente ciò che si vuole: i messaggi le
+ * scorrono sotto e il varco in cima lo mette la lista (l'`Header` di Virtuoso
+ * in MessageList), così a riposo non c'è niente di nascosto e in movimento
+ * c'è la profondità.
+ *
+ * ATTENZIONE, e l'ho scoperto misurando: «la chat» non è solo il trascritto.
+ * Sopra di lui, nella stessa colonna, ci stanno dei blocchi che compaiono e
+ * spariscono — il banner «collego questo progetto?», l'esito di un comando, i
+ * messaggi appuntati, e sul telefono la striscia di attività della sessione.
+ * Lasciando la cella senza rientro finivano DIETRO il vetro: un banner che
+ * chiede una cosa e non si vede è peggio di un banner che non c'è.
+ *
+ * Quindi il rientro ce l'hanno TUTTE le celle, chat compresa, e a passare sotto
+ * la barra è il solo trascritto — che se lo riprende con un margine negativo, e
+ * solo quando è davvero lui il primo della colonna (`.chat-under-chrome`,
+ * index.css). Se sopra di lui c'è un banner, il varco vale zero e il rientro
+ * della cella fa già il suo lavoro: nessuno dei due conta due volte.
+ *
+ * Per tutte le altre pane il rientro basta e avanza, e non è prudenza: è che
+ * non potrebbero passare sotto nemmeno volendo.
+ *
+ *  · **terminale** — xterm è una griglia di righe misurata sul contenitore. Non
+ *    esiste un «contenuto scrollato» a cui aggiungere un varco: ogni riga che
+ *    finisce sotto la barra è una riga persa, e la prima è quella che stai
+ *    scrivendo.
+ *  · **browser** — sulla shell Tauri la pane è una WKWebView NATIVA, disegnata
+ *    SOPRA tutto il DOM. Lì «passare sotto» si inverte: sarebbe la barra a
+ *    sparire dietro la webview. È l'unico caso in cui il difetto non è estetico.
+ *  · **tabelle e alberi densi** (dashboard, file, sessioni) — hanno la loro
+ *    intestazione sticky in cima. Due intestazioni sovrapposte non sono un
+ *    effetto, sono un pasticcio.
+ *
+ * Il rientro è espresso in `var(--chrome-bar-h)` e non in un `pt-10` scritto a
+ * mano: l'altezza la dichiara UNA volta la card che possiede la barra, e la
+ * stessa variabile la legge anche il varco della chat. Un numero solo, due
+ * lettori — se la riga di chrome cambia altezza, si muovono insieme.
+ */
+export function paneCellTopInset(_type: PaneType): string {
+  return 'pt-[var(--chrome-bar-h,0px)]';
+}

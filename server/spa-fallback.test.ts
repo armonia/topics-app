@@ -31,9 +31,22 @@ describe("shouldServeSpaFallback", () => {
     expect(shouldServeSpaFallback({ method: "GET", pathname: "/ws/terminal/abc", accept: HTML })).toBe(false);
   });
 
-  test("non-GET methods never get the shell", () => {
+  test("i metodi che non leggono non prendono mai la shell", () => {
     expect(shouldServeSpaFallback({ method: "POST", pathname: "/task/x", accept: HTML })).toBe(false);
-    expect(shouldServeSpaFallback({ method: "HEAD", pathname: "/task/x", accept: HTML })).toBe(false);
+    expect(shouldServeSpaFallback({ method: "DELETE", pathname: "/task/x", accept: HTML })).toBe(false);
+  });
+
+  // HEAD stava nella lista qui sopra insieme a POST: un link checker che chiedeva
+  // «esiste /task/<uuid>?» leggeva 404 mentre il GET sullo stesso path dava 200.
+  // RFC 9110 §9.3.2: HEAD = GET senza corpo, stesso status e stessi header.
+  test("HEAD si comporta come GET (RFC 9110): stessa decisione su ogni path", () => {
+    const paths = ["/task/d8ea2ff3-d412-4771-810d-401faa1d1754", "/settings", "/tab/project/my.app", "/assets/missing.js", "/api/does-not-exist", "/ws/terminal/abc"];
+    for (const pathname of paths) {
+      expect(shouldServeSpaFallback({ method: "HEAD", pathname, accept: HTML }))
+        .toBe(shouldServeSpaFallback({ method: "GET", pathname, accept: HTML }));
+    }
+    // …e la decisione non è "false per tutti": la navigazione riceve la shell.
+    expect(shouldServeSpaFallback({ method: "HEAD", pathname: "/settings", accept: HTML })).toBe(true);
   });
 
   test("a non-HTML client (no text/html Accept) does not get the shell", () => {
@@ -55,7 +68,7 @@ describe("shouldServeSpaFallback — permalink alle tab (/tab/)", () => {
   });
 
   test("/tab/file/<b64>/<b64> — i due segmenti encodati passano", () => {
-    const path = buildTabPath({ kind: "file", key: "client/src/App.tsx", projectPath: "/Users/zorahrel/Projects/my.app" })!;
+    const path = buildTabPath({ kind: "file", key: "client/src/App.tsx", projectPath: "/Users/utente/Projects/my.app" })!;
     // Pre-condizione della grammatica: l'encoding non ha prodotto punti.
     expect(path).not.toContain(".");
     expect(nav(path)).toBe(true);

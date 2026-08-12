@@ -3,7 +3,10 @@ import { useT } from '../../hooks/useT';
 import { createPortal } from 'react-dom';
 import { ChevronRight, FolderTree, GitBranch, CirclePlay, RefreshCw, PanelLeftOpen, PanelLeftClose, FilePlus, FolderPlus, ChevronsDownUp } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { SidebarToggleButton } from '../Shared/SidebarToggleButton';
+import { NO_DRAG_REGION } from '../../lib/shell/dragRegion';
+import { RAISED_CONTROL, RESTING_SURFACE, ROW_ACTION_BOX, ROW_PX, SECTION_CARD, TAB_GAP_CLASS, TAB_LABEL } from '../../lib/selectionStyles';
+import { capSezione } from './projectSidebarHeights';
+import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { ScriptRunner } from './ScriptRunner';
 import { FileExplorer, type FileExplorerHandle } from './FileExplorer';
 import { useScripts } from '../../hooks/useScripts';
@@ -26,6 +29,45 @@ interface ProjectSidebarProps {
   onOpenFile?: (path: string) => void;
   onWSMessage?: (handler: (msg: WSMessage) => void) => () => void;
   onOpenProcessLog?: (processId: string, scriptName: string) => void;
+  /**
+   * DOVE VA LA BARRA CHIUSA: dentro la riga delle tab, non accanto a essa.
+   *
+   * «Facciamo diventare la sidebar chiusa direttamente parte della tabbar
+   * progetto, in linea e non disposte verticalmente ma orizzontalmente, usando
+   * il design a card e riportando anche titolo progetto, così da togliere linea
+   * laterale inutile quando collassata» (Attilio, 09/08).
+   *
+   * Chiusa, questa colonna era una rail verticale da 40px col suo `border-r`:
+   * una seconda superficie accanto alla riga di chrome, con una tinta sua e un
+   * filo che scendeva per tutta l'altezza della finestra per contenere tre
+   * icone. Adesso i suoi comandi vivono NELLA barra, in fila con le tab e con la
+   * loro stessa grammatica — e la colonna, chiusa, non esiste proprio.
+   *
+   * Arriva come NODO e non come ref perché il nodo lo crea `ProjectWindow` una
+   * volta sola (`document.createElement`) e `GroupLayout` lo aggancia dentro la
+   * prima barra: esiste già al primo render, quindi il portale ha subito dove
+   * scrivere e non c'è il fotogramma in cui la rail vecchia lampeggia prima di
+   * sparire.
+   *
+   * OBBLIGATORIO, e non e' pignoleria di tipi: finche' era opzionale restava in
+   * piedi una rail verticale «di ripiego» per l'ospite che non lo passasse.
+   * Di ospiti ce n'e' UNO (`ProjectWindow`) e lo passa sempre — quindi quel
+   * ramo non lo eseguiva nessuno, ed era la TERZA presentazione della stessa
+   * testata: `h-10 + border-b + bottone col solo glifo`, senza card e senza
+   * nome, cioe' l'ultima copia divergente. Il tipo la chiude: chi monta questa
+   * colonna deve dire dove va la sua forma chiusa.
+   */
+  inlineSlot: HTMLElement;
+  /**
+   * Dove vanno i TRE COMANDI da colonna chiusa: una riga sotto la card del
+   * titolo, non in fila con lei. «Devono proprio trovarsi a tasti come prima,
+   * la riga sotto il titolo quando la sidebar è chiusa» (Attilio, 09/08).
+   *
+   * Sono due nodi e non uno perché stanno su due piani diversi: la card vive
+   * DENTRO la riga delle tab (è una tab fra le tab), i comandi sotto di essa —
+   * e in una riga alta 34 due file non ci stanno.
+   */
+  belowSlot: HTMLElement;
 }
 
 type SectionId = 'files' | 'git' | 'processes';
@@ -50,15 +92,91 @@ const MAX_SIDEBAR_W = 560;
  * Processi non ha piede: per lui 96 resta giusto.
  */
 const MIN_USEFUL_H: Record<'git' | 'processes', number> = { git: 160, processes: 96 };
+/** Una riga d'albero: il pavimento di Files quando è APERTA. Chiusa non serve —
+ *  lì il contenuto non c'è per scelta, e il divisore può salire fino alla card. */
+const MIN_FILES_CONTENT = 24;
 const DEFAULT_HEIGHTS: Record<'git' | 'processes', number> = { git: 200, processes: 150 };
 
+
 /**
- * Un'icona della rail collassata, con la sua pastiglia.
+ * LA CARD DEL PROGETTO — una sola, per tutti e due gli stati della colonna.
  *
- * La rail è larga 40px: qui non ci sta una parola, ci sta un numero. La regola
- * è che ogni bottone porti AL PIÙ un sovrapposto — pastiglia numerica oppure
- * punto, mai entrambi — e che tutto il resto (il ramo, il conteggio esteso, il
- * perché) viva nel `title`, che è l'unico posto in cui c'è spazio davvero.
+ * «Metti il titolo del progetto nell'apertore di sidebar progetto … e tieni la
+ * stessa card per quando si apre» (Attilio, 09/08).
+ *
+ * Erano due cose diverse per la stessa informazione: chiusa, un bottone quadrato
+ * col solo glifo (e il nome del progetto da nessuna parte); aperta, una riga a
+ * tutta larghezza con un `<span>` a 12px semibold più un bottone separato in
+ * coda. Due tipografie, due forme, due bersagli — per dire sempre «questo è il
+ * progetto, e di qui si apre e si chiude».
+ *
+ * Adesso è UNA card della famiglia delle tab: stesso fondo a riposo, stesso
+ * corpo, stesso incasso, stessa altezza, stesso raggio. Cambia solo il verso del
+ * glifo in coda, che è l'unica cosa che cambia davvero fra i due stati.
+ *
+ * Il nome accessibile resta «Espandi / Nascondi la barra» perché è il gesto che
+ * la card compie — ed è anche l'appiglio con cui le spec la trovano. Il nome del
+ * progetto vive nel testo, che è dove si legge.
+ */
+function ProjectCard({
+  projectPath,
+  name,
+  collapsed,
+  onToggle,
+  className = '',
+}: {
+  projectPath: string;
+  name: string;
+  collapsed: boolean;
+  onToggle: () => void;
+  className?: string;
+}) {
+  const tr = useT();
+  const etichetta = collapsed ? tr('project.sidebar.expand') : tr('project.sidebar.hide');
+  return (
+    <button
+      onClick={onToggle}
+      title={`${name} · ${etichetta}`}
+      aria-label={etichetta}
+      aria-expanded={!collapsed}
+      data-testid="project-card"
+      className={`group edge-lit flex items-center gap-1.5 ${ROW_PX} h-9 md:h-7 ${TAB_LABEL} ${RESTING_SURFACE} rounded-lg transition-colors cursor-pointer select-none min-w-0 ${className}`}
+    >
+      {/* L'icona c'è solo se il progetto ne spedisce una davvero: `ProjectFavicon`
+          senza `fallback` non rende NIENTE e non occupa larghezza (decisione di
+          prodotto, vedi il suo file). Qui va bene così: senza icona la card è il
+          nome, che è già l'informazione. */}
+      <ProjectFavicon path={projectPath} size={14} width={18} />
+      {/* Il nome prende lo spazio, il glifo sta a DESTRA. Senza `flex-1` il
+          nome si stringe sul suo testo e il glifo lo segue a ruota: da colonna
+          aperta, dove la card è larga quanto la barra, finiva a mezz'aria in
+          mezzo alla riga invece che sul bordo. «L'icona per richiudere la
+          sidebar sia allineata a destra sul tasto dove si trova anche il titolo
+          del progetto» (Attilio, 09/08). */}
+      <span className="truncate flex-1 text-left">{name}</span>
+      {/* I due glifi veri, non uno ruotato: `PanelLeftOpen` girato di 180 gradi
+          non e `PanelLeftClose` — ribalta anche il pannello, e il verso finisce
+          per dire il contrario. */}
+      {collapsed
+        ? <PanelLeftOpen size={14} aria-hidden className="flex-shrink-0 text-app-text-tertiary" />
+        : <PanelLeftClose size={14} aria-hidden className="flex-shrink-0 text-app-text-tertiary" />}
+    </button>
+  );
+}
+
+/**
+ * Un comando della barra di progetto CHIUSA, con la sua pastiglia.
+ *
+ * Su un bottone non ci sta una parola, ci sta un numero: la regola è che ne
+ * porti AL PIÙ uno — pastiglia numerica oppure punto, mai entrambi — e che tutto
+ * il resto (il ramo, il conteggio esteso, il perché) viva nel `title`, che è
+ * l'unico posto in cui c'è spazio davvero.
+ *
+ * IL BOX È QUELLO DELLA RIGA, non quello del dito: sta in fila con le tab,
+ * quindi la sua misura è quella della tab accanto ({@link ROW_ACTION_BOX}, 36
+ * col dito e 28 col mouse). C'è stata una seconda variante — `w-7 h-7` in una
+ * colonna verticale da 40px — finché la barra chiusa era una rail; non c'è più,
+ * e con la rail se n'è andato anche il ramo che la disegnava.
  */
 function RailButton({
   icon: Icon,
@@ -87,29 +205,32 @@ function RailButton({
       onClick={onClick}
       title={title}
       aria-label={title}
-      // Acceso qui significa «questa sezione è APERTA»: è la stessa cosa che
-      // dice l'evidenziazione, e a barra chiusa è l'unica anteprima di cosa
-      // troverai riaprendola. Per questo restano accese anche tutte e tre.
       aria-expanded={active}
-      className={`relative w-7 h-7 flex items-center justify-center rounded transition-colors ${
-        active
-          ? 'text-primary bg-primary/10'
-          : 'text-app-text-muted hover:text-app-text-hover hover:bg-black/5 dark:hover:bg-white/5'
+      className={`relative ${ROW_ACTION_BOX} flex items-center justify-center rounded-lg edge-lit transition-colors flex-shrink-0 ${
+        active ? 'text-primary bg-primary/10' : `${RAISED_CONTROL} text-app-text`
       }`}
     >
       <Icon size={16} />
+      {/* LA PASTIGLIA STA IN BASSO, e senza anello.
+          Stava a `-top-1`, cioè un pixel SOPRA il bottone. Finché la riga era
+          alta 40 e il bottone centrato, quel pixel cadeva dentro i 6 di aria; da
+          quando la riga subordinata è 34 con il contenuto a filo in cima (vedi
+          CHROME_BAR_SUB) cade a y=39 contro una scatola che comincia a 40, e
+          l'`overflow-hidden` della barra lo taglia. In basso invece c'è
+          l'incasso in coda: 68+4 = 72 dentro una scatola che finisce a 74.
+          «I contatori vengono tagliati dalla top bar; li potremmo mettere verso
+          il basso, e senza un bordo extra bianco intorno» (Attilio, 09/08).
+          L'anello serviva a staccare la pastiglia dal TRATTO dell'icona quando
+          le stava sopra: sull'angolo basso non ha più niente da attraversare, e
+          un cerchio chiaro attorno a un numero colorato è una terza cosa che non
+          dice niente. */}
       {badge !== null && badge > 0 && (
-        // `ring` del colore della rail: senza, la pastiglia appoggiata
-        // sull'icona si confonde col tratto sottostante e il numero perde il
-        // bordo. Con l'anello resta leggibile anche sovrapposta.
-        <span
-          className={`absolute -top-1 -right-1 min-w-[15px] h-[15px] px-[3px] flex items-center justify-center rounded-full text-[9px] font-bold leading-none tabular-nums ring-2 ring-app-chrome ${toneClass}`}
-        >
+        <span className={`absolute -bottom-1 -right-1 min-w-[15px] h-[15px] px-[3px] flex items-center justify-center rounded-full text-[9px] font-bold leading-none tabular-nums ${toneClass}`}>
           {badge > 99 ? '99+' : badge}
         </span>
       )}
       {badge === null && dot && (
-        <span className={`absolute -top-0.5 -right-0.5 w-[7px] h-[7px] rounded-full ring-2 ring-app-chrome ${toneClass}`} />
+        <span className={`absolute -bottom-0.5 -right-0.5 w-[7px] h-[7px] rounded-full ${toneClass}`} />
       )}
     </button>
   );
@@ -123,6 +244,8 @@ export function ProjectSidebar({
   onOpenFile,
   onWSMessage,
   onOpenProcessLog,
+  inlineSlot,
+  belowSlot,
 }: ProjectSidebarProps) {
   const tr = useT();
   // I quattro comandi dell'intestazione «Files» (nuovo file, nuova cartella,
@@ -147,7 +270,10 @@ export function ProjectSidebar({
   // scambiavano apertura e altezze, e ciò che avevi stretto su uno arrivava
   // stretto sull'altro senza averlo mai toccato lì.
   const SECTIONS_KEY = `sidebar-sections:${projectPath}`;
-  const HEIGHTS_KEY = `project-sidebar-bottom-heights:${projectPath}`;
+  // `:auto` e non la chiave vecchia: là dentro ci sono NUMERI nati dal default,
+  // non da una scelta dell'utente. Onorarli terrebbe tutti sull'altezza fissa
+  // per sempre, cioè esattamente ciò che stiamo togliendo.
+  const HEIGHTS_KEY = `project-sidebar-bottom-heights:auto:${projectPath}`;
   const [expandedSections, setExpandedSections] = useState<Record<SectionId, boolean>>(() => {
     try {
       const saved = sessionStorage.getItem(SECTIONS_KEY) ?? sessionStorage.getItem('sidebar-sections');
@@ -192,7 +318,14 @@ export function ProjectSidebar({
       // chevron ruotava e non compariva niente). Se l'altezza salvata non
       // lascia spazio, si riapre alla misura di partenza.
       if (opening && (section === 'git' || section === 'processes')) {
-        setBottomHeights(h => (h[section] >= MIN_USEFUL_H[section] ? h : { ...h, [section]: DEFAULT_HEIGHTS[section] }));
+        setBottomHeights(h => {
+          // `null` = altezza automatica: è già utile per costruzione, non c'è
+          // niente da sbloccare. Il cancello serve solo a chi ha un'altezza
+          // FISSA trascinata così stretta da non contenere più niente.
+          const a = h[section];
+          if (a === null || a >= MIN_USEFUL_H[section]) return h;
+          return { ...h, [section]: DEFAULT_HEIGHTS[section] };
+        });
       }
       return { ...prev, [section]: opening };
     });
@@ -215,14 +348,24 @@ export function ProjectSidebar({
     try { sessionStorage.setItem(WIDTH_KEY, String(sidebarWidth)); } catch {}
   }, [WIDTH_KEY, sidebarWidth]);
 
-  // ── Bottom sections (Git, Processes) — anchored at bottom with pixel heights ──
-  // Files fills remaining space (flex-1). Git/Processes pinned at bottom.
-  const [bottomHeights, setBottomHeights] = useState<Record<'git' | 'processes', number>>(() => {
+  // ── Bottom sections (Git, Processes) — ancorate in fondo, altezza AUTOMATICA ──
+  //
+  // `null` vuol dire «la decide il contenuto» (col tetto di `capSezione`), un
+  // numero vuol dire «l'ho decisa io trascinando». È la distinzione che prima
+  // non c'era: l'altezza era SEMPRE un numero, quindi non si poteva sapere se
+  // veniva da una scelta dell'utente o dal valore con cui era nata, e l'unica
+  // risposta possibile era tenerla ferma per sempre.
+  //
+  // Il trascinamento resta, ed è una DEROGA esplicita: chi tira il divisore sta
+  // dicendo «questa la voglio così», e da lì in poi la sezione non si adatta
+  // più. Doppio clic sul divisore torna all'automatico — stessa convenzione del
+  // divisore della larghezza, che col doppio clic torna al default.
+  const [bottomHeights, setBottomHeights] = useState<Record<'git' | 'processes', number | null>>(() => {
     try {
       const saved = sessionStorage.getItem(HEIGHTS_KEY);
       if (saved) return JSON.parse(saved);
     } catch {}
-    return { ...DEFAULT_HEIGHTS };
+    return { git: null, processes: null };
   });
 
   useEffect(() => {
@@ -231,13 +374,32 @@ export function ProjectSidebar({
 
   const widthDragRef = useRef<{ startX: number; startWidth: number } | null>(null);
 
+  // Un divisore ha SEMPRE un sotto e un sopra, e alzarlo fa crescere quello
+  // SOTTO: la colonna è ancorata in fondo (Files prende ciò che avanza, Git e
+  // Processi hanno un'altezza in pixel). Il campo si chiamava `section` e non
+  // diceva da che parte stesse, così il divisore Git↔Processi passava `git` —
+  // cioè quello SOPRA — e il trascinamento usciva rovesciato.
+  //
+  // `above` assente = il vicino di sopra è Files, che non ha un'altezza sua:
+  // assorbe con `flex-1`, e il fermo è quanto le resta da cedere (`slack`).
   const dragRef = useRef<{
-    section: 'git' | 'processes';
-    otherSection?: 'git' | 'processes';
+    below: 'git' | 'processes';
+    above?: 'git' | 'processes';
     startY: number;
-    startHeight: number;
-    otherStartHeight?: number;
+    startBelow: number;
+    startAbove?: number;
+    slack: number;
   } | null>(null);
+
+  // Files non ha un'altezza in stato: quanto può cedere si MISURA quando parte
+  // il trascinamento. Da una costante non si potrebbe — la sua intestazione è
+  // una card e cambia altezza col breakpoint.
+  const filesBoxRef = useRef<HTMLDivElement>(null);
+  /** Le scatole di Git e Processi, per misurarne l'altezza VERA quando è
+   *  automatica (vedi `startBottomResize`). Un oggetto e non due ref separate:
+   *  chi trascina le indicizza per nome. */
+  const sezioniRef = useRef<Record<'git' | 'processes', HTMLDivElement | null>>({ git: null, processes: null });
+  const filesHeaderRef = useRef<HTMLDivElement>(null);
 
   // Full-viewport drag chrome (same protocol as useGridResize): keeps the
   // pointer out of iframes in the main area mid-drag and lets native Electron
@@ -286,15 +448,33 @@ export function ProjectSidebar({
       const delta = e.clientY - r.startY;
       if (!dragOverlay.current && Math.abs(delta) <= DRAG_SLOP_PX) return;
       raiseChrome('row-resize');
-      if (r.otherSection) {
-        // Redistributing between git ↔ processes
-        const newTop = Math.max(minDi(r.section), r.startHeight - delta);
-        const newBottom = Math.max(minDi(r.otherSection ?? r.section), (r.otherStartHeight || 0) + delta);
-        setBottomHeights(prev => ({ ...prev, [r.section]: newTop, [r.otherSection!]: newBottom }));
-      } else {
-        // Resizing files ↔ bottom section
-        setBottomHeights(prev => ({ ...prev, [r.section]: Math.max(minDi(r.section), r.startHeight - delta) }));
-      }
+      // Si stringe il DELTA, non le due altezze una per una. Tagliandole a
+      // valle con due `Math.max` indipendenti la somma non si conserva: quando
+      // una tocca il suo minimo l'altra continua a crescere, la coppia sfonda
+      // la colonna e il tetto — cioè il fondo di Files — se ne va per i fatti
+      // suoi. Misurato: tirando a fondo corsa la coppia passava da 350 a 696.
+      // I MINIMI SONO PAVIMENTI PER CHI SI STRINGE, MAI OBIETTIVI PER CHI CRESCE.
+      //
+      // Da quando l'altezza è automatica una sezione può stare SOTTO il suo
+      // `MIN_USEFUL_H` in modo del tutto legittimo: il minimo nasce per impedire
+      // che la si TRASCINI fino a non mostrare più niente, non per pretendere
+      // che una sezione con poco contenuto si gonfi. Senza il taglio a zero,
+      // `minDi(above) - startAbove` diventava POSITIVO — «il vicino deve
+      // crescere di 42 per arrivare al suo minimo» — e vinceva su un delta
+      // negativo: il divisore SCENDEVA di 42 mentre lo tiravi su. Misurato,
+      // RESIZE-1: 631,75 → 674.
+      //
+      // Con i due `Math`, chi è già sotto il proprio minimo semplicemente non ha
+      // più niente da cedere (margine zero) e il gesto resta nel verso giusto.
+      const giu = Math.max(0, r.startBelow - minDi(r.below)); // quanto si può scendere
+      const su = r.above !== undefined
+        ? Math.min(0, minDi(r.above) - r.startAbove!)         // fin dove cede il vicino
+        : -r.slack;                                           // fin dove cede Files
+      const d = su > giu ? 0 : Math.min(giu, Math.max(su, delta));
+      // Alzare il divisore (d < 0) fa crescere ciò che gli sta SOTTO.
+      setBottomHeights(prev => r.above
+        ? { ...prev, [r.below]: r.startBelow - d, [r.above]: r.startAbove! + d }
+        : { ...prev, [r.below]: r.startBelow - d });
     };
     const onUp = () => {
       if (!dragRef.current && !widthDragRef.current) return;
@@ -331,18 +511,74 @@ export function ProjectSidebar({
     setSidebarWidth(DEFAULT_SIDEBAR_W);
   }, []);
 
-  const startBottomResize = useCallback((section: 'git' | 'processes', otherSection?: 'git' | 'processes') => (e: React.MouseEvent) => {
+  /**
+   * `below` è la sezione SOTTO il divisore: è quella che cresce tirando in su.
+   * `above` è il vicino di sopra quando ne ha uno con un'altezza sua; senza,
+   * il vicino è Files e il fermo lo dà `slack`.
+   */
+  /**
+   * Doppio clic su un divisore: le sezioni che governa tornano AUTOMATICHE.
+   *
+   * È il gemello di `resetWidth` sul bordo destro della colonna, e serve perché
+   * il trascinamento è una deroga senza scadenza: una volta tirato, quel
+   * pannello non si adatta più al contenuto e non c'era modo di dirgli
+   * «ricomincia ad adattarti» — se non ricaricando la finestra.
+   */
+  const resetBottomAuto = useCallback((...sezioni: ('git' | 'processes')[]) => () => {
+    setBottomHeights(h => {
+      const next = { ...h };
+      for (const s of sezioni) next[s] = null;
+      return next;
+    });
+  }, []);
+
+  const startBottomResize = useCallback((below: 'git' | 'processes', above?: 'git' | 'processes') => (e: React.MouseEvent) => {
     e.preventDefault();
+    // Quanto Files può ancora cedere: la sua scatola meno ciò che deve restare
+    // visibile. Aperta lascia almeno una riga d'albero, chiusa basta la card —
+    // è lo stesso principio del minimo di Git e Processi, che non si stringono
+    // mai fino a diventare la sola intestazione.
+    const box = filesBoxRef.current?.offsetHeight ?? 0;
+    const testa = filesHeaderRef.current?.offsetHeight ?? 0;
+    const pavimento = testa + (expandedSections.files ? MIN_FILES_CONTENT : 0);
+    // L'ALTEZZA DI PARTENZA SI MISURA, non si legge dallo stato: da automatica lo
+    // stato dice `null` — è il contenuto a decidere — e un trascinamento che
+    // partisse da lì salterebbe di colpo al primo numero. Si legge il pixel che
+    // c'è adesso sullo schermo, che è anche quello che l'utente sta afferrando.
+    const altezzaVera = (sez: 'git' | 'processes') =>
+      bottomHeights[sez] ?? sezioniRef.current[sez]?.offsetHeight ?? DEFAULT_HEIGHTS[sez];
+    const partenzaSotto = altezzaVera(below);
+    const partenzaSopra = above ? altezzaVera(above) : undefined;
+    // E SI FISSANO SUBITO, prima che il gesto cominci.
+    //
+    // Il primo taglio le misurava e basta, lasciando lo stato su `null` finché
+    // il primo movimento non scriveva un numero. In mezzo c'era un fotogramma in
+    // cui `startBelow` era l'altezza MISURATA mentre l'elemento si disegnava
+    // ancora in automatico: due verità per la stessa scatola, e la sottrazione
+    // del delta partiva da quella sbagliata. Misurato: il divisore SCENDEVA di
+    // 42px mentre lo tiravi su (RESIZE-1).
+    //
+    // Materializzando qui, dal primo fotogramma il rendering e l'aritmetica
+    // guardano lo stesso numero — ed è anche il momento giusto perché è
+    // esattamente quando l'utente prende il divisore che smette di volere
+    // l'automatico.
+    setBottomHeights(h => {
+      const next = { ...h };
+      if (h[below] === null) next[below] = partenzaSotto;
+      if (above && h[above] === null) next[above] = partenzaSopra!;
+      return next;
+    });
     dragRef.current = {
-      section,
+      below,
+      above,
       startY: e.clientY,
-      startHeight: bottomHeights[section],
-      otherSection,
-      otherStartHeight: otherSection ? bottomHeights[otherSection] : undefined,
+      startBelow: partenzaSotto,
+      startAbove: partenzaSopra,
+      slack: Math.max(0, box - pavimento),
     };
     document.body.style.cursor = 'row-resize';
     document.body.style.userSelect = 'none';
-  }, [bottomHeights]);
+  }, [bottomHeights, expandedSections.files]);
 
   if (effectiveCollapsed) {
     const open = (section: SectionId) => () => {
@@ -350,7 +586,14 @@ export function ProjectSidebar({
       // Stesso cancello del toggle: una sezione stretta a zero deve tornare
       // utile anche quando la si apre dalla rail, non solo dall'intestazione.
       if (section === 'git' || section === 'processes') {
-        setBottomHeights(h => (h[section] >= MIN_USEFUL_H[section] ? h : { ...h, [section]: DEFAULT_HEIGHTS[section] }));
+        setBottomHeights(h => {
+          // `null` = altezza automatica: è già utile per costruzione, non c'è
+          // niente da sbloccare. Il cancello serve solo a chi ha un'altezza
+          // FISSA trascinata così stretta da non contenere più niente.
+          const a = h[section];
+          if (a === null || a >= MIN_USEFUL_H[section]) return h;
+          return { ...h, [section]: DEFAULT_HEIGHTS[section] };
+        });
       }
       setExpandedSections(prev => ({ ...prev, [section]: true }));
     };
@@ -373,53 +616,109 @@ export function ProjectSidebar({
       : runningCount > 0
         ? `${tr('project.sidebar.processes')}\n${plural('project.sidebar.processesRunning', runningCount)}`
         : tr('project.sidebar.processes');
-    return (
-      <div data-testid="project-sidebar-rail" className="chrome-glass w-10 flex-shrink-0 border-r border-app-border bg-app-chrome flex flex-col overflow-hidden">
-        {/* Header — stessa riga di chrome della tab bar delle pane (h-10 +
-            border-b, vedi GroupLayout) e dell'header espanso qui sotto: il
-            bottone di espansione cade sulla STESSA linea mediana dei tab, e il
-            bordo attraversa tutta la rail invece di essere un trattino w-6. */}
-        <div data-testid="project-sidebar-rail-header" className="flex items-center justify-center h-10 border-b border-app-border flex-shrink-0">
-          <SidebarToggleButton onClick={onToggleCollapse} size="sm" title={tr('project.sidebar.expand')} icon={PanelLeftOpen} />
-        </div>
-        <div className="flex flex-col items-center py-2 gap-1">
-          <RailButton
-            icon={FolderTree}
-            active={expandedSections.files}
-            onClick={open('files')}
-            title={tr('project.sidebar.files')}
-          />
-          <RailButton
-            icon={GitBranch}
-            active={expandedSections.git}
-            onClick={open('git')}
-            title={gitTitle}
-            // Il NOME DEL RAMO non entra e non ci va: 40px sono ~5 caratteri, e
-            // nei tool seri il ramo vive nella status bar, non nella rail. Qui
-            // ci va il numero che VS Code mette sulla stessa icona — quante
-            // modifiche non committate — e il ramo sta nel tooltip, per intero.
-            badge={git && git.fileCount > 0 ? git.fileCount : null}
-            tone="primary"
-            // Nessuna modifica ma divergenza col remoto: un punto, non un
-            // secondo numero addosso al primo. Due pastiglie su un bottone da
-            // 28px diventano rumore e non si leggono più né l'una né l'altra.
-            dot={!!git && git.fileCount === 0 && (git.ahead > 0 || git.behind > 0)}
-          />
-          <RailButton
-            icon={CirclePlay}
-            active={expandedSections.processes}
-            onClick={open('processes')}
-            title={procTitle}
-            // Il rosso è il motivo per cui questo badge esiste: un processo
-            // uscito male, oggi, non lo vedi da nessuna parte se la sidebar è
-            // chiusa. Vince sul verde perché è l'unico dei due che chiede di
-            // fare qualcosa.
-            badge={failedCount > 0 ? failedCount : runningCount > 0 ? runningCount : null}
-            tone={failedCount > 0 ? 'danger' : 'success'}
-          />
-        </div>
-      </div>
+    // I TRE COMANDI, in un posto solo. Sono nati come coppia — una lista per la
+    // rail verticale e una per la striscia in linea — e la rail non c'e' piu':
+    // resta la lista, che e' anche il motivo per cui non ne sono mai divergite
+    // due al primo badge aggiunto.
+    const comandi = () => (
+      <>
+        <RailButton
+          icon={FolderTree}
+          active={expandedSections.files}
+          onClick={open('files')}
+          title={tr('project.sidebar.files')}
+        />
+        <RailButton
+          icon={GitBranch}
+          active={expandedSections.git}
+          onClick={open('git')}
+          title={gitTitle}
+          // Il NOME DEL RAMO non entra e non ci va: nei tool seri il ramo vive
+          // nella status bar. Qui ci va il numero che VS Code mette sulla stessa
+          // icona — quante modifiche non committate — e il ramo sta nel
+          // tooltip, per intero.
+          badge={git && git.fileCount > 0 ? git.fileCount : null}
+          tone="primary"
+          // Nessuna modifica ma divergenza col remoto: un punto, non un secondo
+          // numero addosso al primo. Due pastiglie su un bottone da 28px
+          // diventano rumore e non si leggono più né l'una né l'altra.
+          dot={!!git && git.fileCount === 0 && (git.ahead > 0 || git.behind > 0)}
+        />
+        <RailButton
+          icon={CirclePlay}
+          active={expandedSections.processes}
+          onClick={open('processes')}
+          title={procTitle}
+          // Il rosso è il motivo per cui questo badge esiste: un processo uscito
+          // male, oggi, non lo vedi da nessuna parte se la sidebar è chiusa.
+          // Vince sul verde perché è l'unico dei due che chiede di fare
+          // qualcosa.
+          badge={failedCount > 0 ? failedCount : runningCount > 0 ? runningCount : null}
+          tone={failedCount > 0 ? 'danger' : 'success'}
+        />
+      </>
     );
+
+    // ANCHE COL DITO, e ci si arriva togliendo il nome. Con la card del titolo
+    // la striscia faceva ~330px su uno schermo da 390: la barra intera, senza
+    // più posto per le tab, e per questo il primo taglio la teneva spenta sul
+    // telefono. Senza nome sono quattro box da 36 con 6 di aria — ~160px — e
+    // «sulla versione mobile anche doveva essere aggiornata» (Attilio, 09/08)
+    // diventa una cosa che ci sta.
+    const striscia = createPortal(
+        <div
+          data-testid="project-rail-inline"
+          // In fila con le tab e con la loro grammatica: `gap-0.5` come fra due
+          // tab, `pl-1.5` cioè ROW_INSET dal bordo della riga. NIENTE filo di
+          // separazione verso le tab — in questa colonna una linea fra card
+          // ripete ciò che fondo e distanza dicono già (è la regola di
+          // `selectionStyles`), ed era proprio la linea di troppo da togliere.
+          // NON `flex-shrink-0`: con molte tab aperte qualcosa deve cedere, e a
+          // cedere dev'essere il NOME (che tronca), non i comandi (che
+          // sparirebbero). I bottoni sono `flex-shrink-0` da soli, quindi la
+          // pressione arriva tutta sulla card del titolo.
+          className={`flex items-center ${TAB_GAP_CLASS} pl-1.5 min-w-0 app-no-drag`}
+          {...NO_DRAG_REGION}
+        >
+          {/* IL NOME STA DENTRO L'APERTORE, non accanto a lui.
+              C'è stato un giro con due card — un bottone quadrato per aprire e
+              una card col nome accanto — e Attilio ha tolto la seconda: due
+              card a 6px di distanza per dire la stessa cosa. La forma giusta
+              era una sola: il titolo È il bottone che apre. */}
+          <ProjectCard
+            projectPath={projectPath}
+            name={projectName}
+            collapsed
+            onToggle={onToggleCollapse}
+            className="max-w-[180px] flex-shrink"
+          />
+        </div>,
+        inlineSlot,
+    );
+
+    // I TRE COMANDI, UNA RIGA SOTTO. La card del titolo sta in fila con le tab;
+    // i comandi escono dalla barra e si appoggiano sotto di lei, allineati al
+    // suo bordo sinistro (`pl-1.5` = lo stesso ROW_INSET della striscia).
+    // «Ora sono sulla destra, ma devono essere sotto il trigger sidebar
+    // progetto» (Attilio, 09/08): erano a destra perché stavano DENTRO la
+    // striscia, in fila dopo la card.
+    const riga = createPortal(
+      <div
+        data-testid="project-rail-row"
+        // `pb-[6px]` e non il mezzo passo: le pastiglie stanno a `-bottom-1`, cioè
+        // quattro pixel SOTTO la scatola del bottone (ci sono finite per non
+        // essere tagliate dalla barra in cima, 09/08). Con tre soli pixel di
+        // coda sbordavano dalla riga di uno; sei le contengono e sono anche il
+        // passo pieno della colonna.
+        className={`flex items-center ${TAB_GAP_CLASS} pl-1.5 pb-[6px] mt-[var(--chrome-bar-h,0px)] flex-shrink-0 app-no-drag`}
+        {...NO_DRAG_REGION}
+      >
+        {comandi()}
+      </div>,
+      belowSlot,
+    );
+
+    return <>{striscia}{riga}</>;
   }
 
   // On mobile: render as overlay on top of content.
@@ -438,7 +737,7 @@ export function ProjectSidebar({
           // dei token del chrome in index.css — agganciata a QUESTO selettore —
           // valga anche sul telefono, dove il fondo è identico.
           data-testid="project-sidebar"
-          className="chrome-glass fixed inset-y-0 left-0 z-50 w-[280px] bg-app-chrome flex flex-col overflow-hidden shadow-lg border-r border-app-border"
+          className="chrome-glass fixed inset-y-0 left-0 z-50 w-[280px] bg-app-chrome flex flex-col overflow-hidden shadow-lg"
           // IL FONDO SI FERMA SOPRA L'HOME INDICATOR. Il pannello è
           // `inset-y-0`, quindi la sua ultima riga finiva sotto il trattino:
           // uno spazio da cui non si può toccare niente, occupato da qualcosa
@@ -450,20 +749,32 @@ export function ProjectSidebar({
           style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
         >
           {/* Header */}
-          <div className="flex items-center justify-between gap-2 px-3 h-10 border-b border-app-border flex-shrink-0">
-            <span className="text-[12px] font-semibold text-app-text truncate" title={projectName}>{projectName}</span>
-            <SidebarToggleButton onClick={onToggleCollapse} size="sm" title={tr('project.sidebar.hide')} icon={PanelLeftClose} />
+          {/* LA STESSA CARD DELLA BARRA CHIUSA. Era un `<span>` a 12px semibold
+              piu un bottone separato in coda: due elementi, due tipografie, per
+              dire cio che la card dice in uno. Niente `border-b`: sotto c'e la
+              card, e in questa colonna una linea ripete cio che fondo e
+              distanza dicono gia. L'incasso e ROW_INSET come ogni altra card. */}
+          <div className="flex items-center h-10 px-1.5 flex-shrink-0">
+            <ProjectCard projectPath={projectPath} name={projectName} collapsed={false} onToggle={onToggleCollapse} className="flex-1" />
           </div>
-          {/* Sections — Files fills top, Git/Processes anchored at bottom */}
-          <div className="flex-1 flex flex-col min-h-0">
-            <div className={`flex flex-col ${expandedSections.files ? 'flex-1 min-h-0' : 'flex-shrink-0'}`}>
+          {/* Sections — Files fills top, Git/Processes anchored at bottom (vedi il
+              gemello desktop per il mezzo passo in fondo). */}
+          {/* `sidebar-column`: la PRIMA card non porta il suo mezzo passo in cima.
+          L'intestazione chiude già con `md:pb-[6px]` — il passo pieno — e la
+          card sotto ci aggiungeva i suoi 3, facendo 9 dove ne servono 6.
+          «Doppia spaziatura fra trigger, Files e tabbar» (Attilio, 09/08). La
+          regola è la stessa della colonna principale (index.css), non una
+          seconda: due posti che dicono la stessa cosa divergono al primo che
+          viene corretto da solo. */}
+      <div className="flex-1 flex flex-col min-h-0 pb-[3px] sidebar-column">
+            <div className={`flex flex-col ${expandedSections.files ? 'flex-1 min-h-0 pb-[3px]' : 'flex-shrink-0'}`}>
               <div
                 onClick={() => toggleSection('files')}
                 // Stessa ancora della variante desktop qui sotto.
                 data-testid="project-sidebar-files"
                 role="button"
                 aria-expanded={expandedSections.files}
-                className="w-full flex items-center gap-2 px-3 h-8 text-[12px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0 cursor-pointer select-none group/files"
+                className={`${SECTION_CARD} group/files`}
               >
                 <FolderTree size={14} className="flex-shrink-0" />
                 <span>{tr('project.sidebar.files')}</span>
@@ -483,13 +794,26 @@ export function ProjectSidebar({
                 </div>
               )}
             </div>
-            <div className="h-[1px] flex-shrink-0 bg-app-border" />
             <div
-              className={`flex flex-col overflow-hidden ${expandedSections.git ? 'min-h-0' : 'flex-shrink-0'}`}
-              style={expandedSections.git ? { height: bottomHeights.git } : undefined}
+              ref={el => { sezioniRef.current.git = el; }}
+              className={`flex flex-col overflow-hidden ${expandedSections.git ? 'min-h-0 pb-[3px]' : 'flex-shrink-0'}`}
+              style={expandedSections.git
+              // Automatica: l'altezza la dà il contenuto, con il tetto di
+              // `capSezione`. Trascinata: il numero vince, ed è una deroga
+              // esplicita — chi ha tirato il divisore ha detto «così».
+              ? (bottomHeights.git === null
+                  // Fra il MINIMO UTILE e il tetto: «si adatta al contenuto»
+                  // non vuol dire «può diventare una fessura». Il pavimento
+                  // è quello che già esisteva per il trascinamento
+                  // (`MIN_USEFUL_H`), ed è per sezione perché il chrome delle
+                  // due è diverso: sotto quella misura il pannello non
+                  // conterrebbe nemmeno se stesso.
+                  ? { minHeight: MIN_USEFUL_H.git, maxHeight: capSezione() }
+                  : { height: bottomHeights.git })
+              : undefined}
             >
               <Suspense fallback={
-                <div onClick={() => toggleSection('git')} className="w-full flex items-center h-8 px-3 text-[12px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0 cursor-pointer select-none">
+                <div onClick={() => toggleSection('git')} className={SECTION_CARD}>
                   <div className="flex items-center gap-2 flex-1 min-w-0">
                     <GitBranch size={14} className={`flex-shrink-0 ${git ? '' : 'text-app-text-muted'}`} />
                     <span>{tr('project.sidebar.gitChanges')}</span>
@@ -500,10 +824,23 @@ export function ProjectSidebar({
                 <GitChanges projectPath={projectPath} compact expanded={expandedSections.git} onToggle={() => toggleSection('git')} />
               </Suspense>
             </div>
-            <div className="h-[1px] flex-shrink-0 bg-app-border" />
             <div
-              className={`flex flex-col overflow-hidden ${expandedSections.processes ? 'min-h-0' : 'flex-shrink-0'}`}
-              style={expandedSections.processes ? { height: bottomHeights.processes } : undefined}
+              ref={el => { sezioniRef.current.processes = el; }}
+              className={`flex flex-col overflow-hidden ${expandedSections.processes ? 'min-h-0 pb-[3px]' : 'flex-shrink-0'}`}
+              style={expandedSections.processes
+              // Automatica: l'altezza la dà il contenuto, con il tetto di
+              // `capSezione`. Trascinata: il numero vince, ed è una deroga
+              // esplicita — chi ha tirato il divisore ha detto «così».
+              ? (bottomHeights.processes === null
+                  // Fra il MINIMO UTILE e il tetto: «si adatta al contenuto»
+                  // non vuol dire «può diventare una fessura». Il pavimento
+                  // è quello che già esisteva per il trascinamento
+                  // (`MIN_USEFUL_H`), ed è per sezione perché il chrome delle
+                  // due è diverso: sotto quella misura il pannello non
+                  // conterrebbe nemmeno se stesso.
+                  ? { minHeight: MIN_USEFUL_H.processes, maxHeight: capSezione() }
+                  : { height: bottomHeights.processes })
+              : undefined}
             >
               <button
                 onClick={() => toggleSection('processes')}
@@ -514,7 +851,7 @@ export function ProjectSidebar({
                 // gemello nella rail lo dichiara già (RailButton).
                 data-testid="project-sidebar-processes"
                 aria-expanded={expandedSections.processes}
-                className="w-full flex items-center gap-2 px-3 h-8 text-[12px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0"
+                className={SECTION_CARD}
               >
                 <CirclePlay size={14} className="flex-shrink-0" />
                 <span>{tr('project.sidebar.processes')}</span>
@@ -555,7 +892,13 @@ export function ProjectSidebar({
       // alla CLASSE (`.chrome-glass .chrome-glass { transparent !important }`),
       // e sotto la shell il `!important` di quelle regole batte comunque questa
       // utility. Qui si corregge il ramo che la shell non attraversa.
-      className="chrome-glass flex-shrink-0 border-r border-app-border bg-app-chrome flex flex-col overflow-hidden relative"
+      // IL FILO TORNA, ed è la stessa conclusione della sidebar principale: da
+      // quando il velo è uno solo, colonna e contenuto hanno lo stesso pixel, e
+      // due zone dello stesso piano le separa un filo — non un'ombra, non una
+      // differenza di tinta che non c'è più. «Mostriamo bordo sidebar, mi sa non
+      // abbiamo altre soluzioni pulite» (Attilio, 09/08): non è un ripiego, è
+      // l'unica cosa che resta quando le due superfici sono identiche.
+      className="chrome-glass flex-shrink-0 bg-app-chrome border-r border-app-border flex flex-col overflow-hidden relative"
       style={{ width: sidebarWidth }}
     >
       {/* Maniglia sul bordo destro: invisibile, si annuncia col cursore.
@@ -570,20 +913,55 @@ export function ProjectSidebar({
         onMouseDown={startWidthResize}
         onDoubleClick={resetWidth}
         title={tr('project.sidebar.resize')}
-        className="absolute inset-y-0 right-0 w-2 z-20 cursor-col-resize"
+        className="absolute top-10 md:top-[34px] bottom-0 right-0 w-2 z-20 cursor-col-resize"
       />
       {/* Header — height matches the pane tab bar (h-10) */}
-      <div className="flex items-center justify-between gap-2 px-3 h-10 border-b border-app-border flex-shrink-0">
-        <span className="text-[12px] font-semibold text-app-text-secondary truncate" title={projectName}>{projectName}</span>
-        <SidebarToggleButton onClick={onToggleCollapse} size="sm" title={tr('project.sidebar.hide')} icon={PanelLeftClose} />
+      {/* LA STESSA CARD DELLA BARRA CHIUSA — vedi ProjectCard. E la STESSA RIGA
+          della barra delle tab che le sta accanto, quindi ne segue la geometria
+          alla lettera: sopra i 768px la riga subordinata e alta 34 con l'incasso
+          solo sotto (CHROME_BAR_SUB), perche l'aria in cima l'ha gia messa la
+          barra dell'app. Se questa testata restasse `h-10`, la card e la prima
+          sotto-tab si scollerebbero di sei pixel — e sarebbero due meta della
+          stessa riga. */}
+      <div className="flex items-center h-10 md:h-[34px] md:pb-[6px] px-1.5 flex-shrink-0">
+        <ProjectCard projectPath={projectPath} name={projectName} collapsed={false} onToggle={onToggleCollapse} className="flex-1" />
       </div>
 
-      {/* Sections — Files fills top (flex-1), Git/Processes anchored at bottom */}
-      <div className="flex-1 flex flex-col min-h-0">
+      {/* Sections — Files fills top (flex-1), Git/Processes anchored at bottom.
+          IL MEZZO PASSO IN FONDO: le sezioni sono card, e l'ultima si fermava a
+          3px dal bordo della colonna invece dei 6 che ogni altra card ha su ogni
+          lato — «sono attaccate in fondo» (Attilio, 09/08). Metà la porta il
+          margine della card (`my-[3px]` in SECTION_CARD), metà questo padding:
+          è la stessa regola della colonna principale. */}
+      {/* `sidebar-column` MANCAVA QUI, e c'era invece nel gemello mobile: la
+          correzione era stata applicata a metà.
+          Il conto, da aperta: l'intestazione chiude con `md:pb-[6px]` — il passo
+          PIENO — e la card «File» sotto ci aggiunge il suo mezzo (`my-[3px]` di
+          SECTION_CARD), quindi fra il trigger e File passavano NOVE pixel dove
+          ogni altra coppia di card ne ha sei. «Trigger aperto e File hanno
+          distanza non conforme» (Attilio, 10/08) — e l'ipotesi che ci fosse
+          stato un bordo lì è vicina: quello che c'è è il residuo di due passi
+          sommati, uno del contenitore e uno della card.
+          La classe azzera il mezzo passo della PRIMA card, che è esattamente la
+          regola già scritta per la colonna principale e per il drawer: «ognuno
+          porta metà passo, e il primo non porta la sua perché sopra c'è chi
+          l'ha già messa». */}
+      <div className="flex-1 flex flex-col min-h-0 pb-[3px] sidebar-column">
 
         {/* Files Section — always flex-1 to push Git/Processes to bottom */}
-        <div className="flex flex-col flex-1 min-h-0">
+        {/* `pb-[3px]` da APERTA: mezzo passo, come ogni card della colonna.
+            Misurato prima di toccarlo — fra due intestazioni CHIUSE passavano 7px
+            (i due mezzi passi delle card più il pixel del divisore di
+            ridimensionamento, che è nel flusso) e fra il contenuto di una sezione
+            aperta e la card successiva solo 4, perché il contenuto non chiudeva
+            con niente e restava il solo mezzo passo di chi veniva dopo. Due
+            distanze diverse per la stessa cosa, e la seconda era quella che si
+            vede di più: è esattamente il punto da cui è partito questo giro —
+            «quando aperta, trigger e trigger degli altri accordion si trovano
+            alla stessa distanza» (Attilio, 09/08). Adesso ci si trovano. */}
+        <div ref={filesBoxRef} className={`flex flex-col flex-1 min-h-0 ${expandedSections.files ? 'pb-[3px]' : ''}`}>
           <div
+            ref={filesHeaderRef}
             onClick={() => toggleSection('files')}
             // Ancora stabile, come per Git e Processi: l'etichetta e' testo
             // tradotto e questo e' un TOGGLE — chi lo clicca alla cieca su una
@@ -608,9 +986,7 @@ export function ProjectSidebar({
             // `--text-secondary` (#5a5a5a) contro un `--border` di #e8e8e8:
             // la linea compariva quasi nera e ci metteva 150ms a schiarirsi.
             // Tenendo il colore sempre acceso non c'è più niente da animare.
-            className={`w-full flex items-center gap-2 px-3 h-8 text-[12px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0 cursor-pointer select-none group/files border-app-border ${
-              expandedSections.files ? '' : 'border-b'
-            }`}
+            className={`${SECTION_CARD} group/files`}
           >
             <FolderTree size={14} className="flex-shrink-0" />
             <span>{tr('project.sidebar.files')}</span>
@@ -637,8 +1013,13 @@ export function ProjectSidebar({
           const active = !!firstBottom;
           return (
             <div
-              className={`h-[1px] flex-shrink-0 relative bg-app-border transition-colors z-10 ${active ? 'cursor-row-resize hover:bg-primary' : ''}`}
+              data-testid="project-sidebar-split-files"
+              data-resize-active={active ? 'true' : 'false'}
+              className={`h-[1px] flex-shrink-0 relative z-10 ${active ? 'cursor-row-resize' : ''}`}
               onMouseDown={active ? startBottomResize(firstBottom!) : undefined}
+              // Doppio clic: la sezione torna ad adattarsi al contenuto.
+              onDoubleClick={active ? resetBottomAuto(firstBottom!) : undefined}
+              title={active ? 'Trascina per ridimensionare · doppio clic per adattare al contenuto' : undefined}
             >
               {active && <div className="absolute inset-x-0 -top-[3px] -bottom-[3px]" />}
             </div>
@@ -647,13 +1028,27 @@ export function ProjectSidebar({
 
         {/* Git Section — anchored at bottom, fixed pixel height */}
         <div
-          className={`flex flex-col overflow-hidden ${expandedSections.git ? 'min-h-0' : 'flex-shrink-0'}`}
-          style={expandedSections.git ? { height: bottomHeights.git } : undefined}
+          ref={el => { sezioniRef.current.git = el; }}
+          className={`flex flex-col overflow-hidden ${expandedSections.git ? 'min-h-0 pb-[3px]' : 'flex-shrink-0'}`}
+          style={expandedSections.git
+              // Automatica: l'altezza la dà il contenuto, con il tetto di
+              // `capSezione`. Trascinata: il numero vince, ed è una deroga
+              // esplicita — chi ha tirato il divisore ha detto «così».
+              ? (bottomHeights.git === null
+                  // Fra il MINIMO UTILE e il tetto: «si adatta al contenuto»
+                  // non vuol dire «può diventare una fessura». Il pavimento
+                  // è quello che già esisteva per il trascinamento
+                  // (`MIN_USEFUL_H`), ed è per sezione perché il chrome delle
+                  // due è diverso: sotto quella misura il pannello non
+                  // conterrebbe nemmeno se stesso.
+                  ? { minHeight: MIN_USEFUL_H.git, maxHeight: capSezione() }
+                  : { height: bottomHeights.git })
+              : undefined}
         >
           <Suspense fallback={
             <div
               onClick={() => toggleSection('git')}
-              className="w-full flex items-center h-8 px-3 text-[12px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0 cursor-pointer select-none"
+              className={SECTION_CARD}
             >
               <div className="flex items-center gap-2 flex-1 min-w-0">
                 <GitBranch size={14} className={`flex-shrink-0 ${git ? '' : 'text-app-text-muted'}`} />
@@ -701,8 +1096,14 @@ export function ProjectSidebar({
           const active = expandedSections.git && expandedSections.processes;
           return (
             <div
-              className={`h-[1px] flex-shrink-0 relative bg-app-border transition-colors z-10 ${active ? 'cursor-row-resize hover:bg-primary' : ''}`}
-              onMouseDown={active ? startBottomResize('git', 'processes') : undefined}
+              data-testid="project-sidebar-split-git-processes"
+              data-resize-active={active ? 'true' : 'false'}
+              className={`h-[1px] flex-shrink-0 relative z-10 ${active ? 'cursor-row-resize' : ''}`}
+              // SOTTO il divisore ci sono i Processi: sono loro a crescere
+              // quando lo si alza. Qui c'era `('git','processes')`.
+              onMouseDown={active ? startBottomResize('processes', 'git') : undefined}
+              onDoubleClick={active ? resetBottomAuto('processes', 'git') : undefined}
+              title={active ? 'Trascina per ridimensionare · doppio clic per adattare al contenuto' : undefined}
             >
               {active && <div className="absolute inset-x-0 -top-[3px] -bottom-[3px]" />}
             </div>
@@ -711,8 +1112,22 @@ export function ProjectSidebar({
 
         {/* Processes Section — anchored at bottom, fixed pixel height */}
         <div
-          className={`flex flex-col overflow-hidden ${expandedSections.processes ? 'min-h-0' : 'flex-shrink-0'}`}
-          style={expandedSections.processes ? { height: bottomHeights.processes } : undefined}
+          ref={el => { sezioniRef.current.processes = el; }}
+          className={`flex flex-col overflow-hidden ${expandedSections.processes ? 'min-h-0 pb-[3px]' : 'flex-shrink-0'}`}
+          style={expandedSections.processes
+              // Automatica: l'altezza la dà il contenuto, con il tetto di
+              // `capSezione`. Trascinata: il numero vince, ed è una deroga
+              // esplicita — chi ha tirato il divisore ha detto «così».
+              ? (bottomHeights.processes === null
+                  // Fra il MINIMO UTILE e il tetto: «si adatta al contenuto»
+                  // non vuol dire «può diventare una fessura». Il pavimento
+                  // è quello che già esisteva per il trascinamento
+                  // (`MIN_USEFUL_H`), ed è per sezione perché il chrome delle
+                  // due è diverso: sotto quella misura il pannello non
+                  // conterrebbe nemmeno se stesso.
+                  ? { minHeight: MIN_USEFUL_H.processes, maxHeight: capSezione() }
+                  : { height: bottomHeights.processes })
+              : undefined}
         >
           <button
             onClick={() => toggleSection('processes')}
@@ -721,7 +1136,7 @@ export function ProjectSidebar({
             // «quale controllo» e `aria-expanded` dice «è già aperto?».
             data-testid="project-sidebar-processes"
             aria-expanded={expandedSections.processes}
-            className="w-full flex items-center gap-2 px-3 h-8 text-[12px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0"
+            className={SECTION_CARD}
           >
             <CirclePlay size={14} className="flex-shrink-0" />
             <span>{tr('project.sidebar.processes')}</span>

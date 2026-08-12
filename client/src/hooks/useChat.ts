@@ -7,16 +7,21 @@ import { decideClientWipeOnStop } from './stopSessionPolicy';
 // vorrebbero dire bolla via da una parte e ancora lì dall'altra.
 import { isEmptyAssistantTurn } from '../../../shared/empty-turn';
 import { mergeCatchupIntoPartial } from './streamCatchupMerge';
+import { clearPartialForReattach } from './streamReattachReset';
+import { decideCacheWrite } from './messageCacheWrite';
 import { useRefMirror } from './useRefMirror';
+import { reconcileMessages } from './reconcileMessages';
 import { reconcileOrphanStreams } from '../state/signals';
 import { answerFromText, findPendingAsk } from '../state/pendingAsk';
+import { armPushAsk } from '../state/pushAsk';
 import {
-  claimHead as claimQueuedTurn,
+  claimBatch as claimQueuedTurns,
   decideSend,
   enqueueTurn,
   getQueue as getTurnQueue,
   isHeld as isQueueHeld,
   holdQueue,
+  mergeBatch,
   releaseClaim,
   releaseHold,
   requeueFront,
@@ -260,18 +265,52 @@ function evictCacheSpace(targetBytes: number): void {
  *
  * Falliva in silenzio perche' qui c'era un `catch {}` nudo. Adesso l'errore di
  * quota si riconosce, si fa spazio, e si riprova una volta.
+ *
+ * IL SECONDO GUASTO, misurato il 2026-08-11: la quota e' un tetto, ma il COSTO
+ * non e' quanta cache tieni, e' quante volte la riscrivi. 1,52 GB di giornale
+ * WAL su 3,2 GB di store WebKit, e un checkpoint su copia lo riassorbe in 5,1
+ * MB: 166 volte piu' piccolo. Il tetto per voce non c'entra, perche' ogni
+ * `setItem` riappende l'intero insieme di pagine toccate e WebKit non fa
+ * checkpoint finche' la sessione vive. Percio' la decisione di scrivere e'
+ * passata a `decideCacheWrite`, che nega le due riscritture inutili: il blob che
+ * sfora il tetto anche con UN solo messaggio, e quello identico a cio' che c'e'
+ * gia'. Il perche' di ognuna sta nell'intestazione di quel modulo.
  */
 function cacheMessages(sessionKey: string, msgs: ChatMessage[]) {
-  const settled = msgs.filter((m) => !m.partial);
-  // Taglia dalla CODA: i messaggi recenti sono quelli che l'utente si aspetta di
-  // rivedere aprendo la chat. Si scende finche' la voce non sta nel suo tetto.
-  let take = Math.min(settled.length, CACHE_MAX_MESSAGES);
-  let payload = JSON.stringify(settled.slice(-take));
-  while (take > 1 && payload.length > CACHE_MAX_BYTES) {
-    take = Math.floor(take / 2);
-    payload = JSON.stringify(settled.slice(-take));
-  }
   const key = CACHE_PREFIX + sessionKey;
+
+  // Si LEGGE prima di scrivere, e non e' uno spreco: `getItem` copia al massimo
+  // il tetto di una voce, mentre `setItem` riappende al giornale WAL tutte le
+  // pagine toccate. Il confronto e' esatto e vale anche fra finestre diverse,
+  // dove una mappa in memoria non vedrebbe la scrittura dell'altra.
+  let previous: string | null;
+  try {
+    previous = localStorage.getItem(key);
+  } catch {
+    return; // niente localStorage: non c'e' nessuna cache da tenere
+  }
+
+  const decision = decideCacheWrite({
+    settled: msgs.filter((m) => !m.partial),
+    previous,
+    maxMessages: CACHE_MAX_MESSAGES,
+    maxBytes: CACHE_MAX_BYTES,
+  });
+
+  if (decision.action === 'skip') return;
+
+  if (decision.action === 'drop') {
+    // Un solo messaggio piu' grande del tetto: 821 KB contro 256 KB, misurato.
+    // La voce se ne va invece di restare li' a farsi riscrivere a ogni turno.
+    try { localStorage.removeItem(key); } catch { /* storage negato */ }
+    console.info(
+      `[chat] cache dei messaggi rimossa: un singolo messaggio supera il tetto di ${Math.round(CACHE_MAX_BYTES / 1024)} KB`,
+      { sessionKey },
+    );
+    return;
+  }
+
+  const payload = decision.payload;
   try {
     localStorage.setItem(key, payload);
   } catch {
@@ -1052,12 +1091,24 @@ export function useChat() {
       case 'stream:start':
         beginStreaming(sessionKey);
         resetStreamTimeout(sessionKey); // Start timeout watchdog
+        // Le delta del turno di PRIMA non devono atterrare dopo l'azzeramento:
+        // sono già dentro la bolla che stiamo per svuotare, e ricomparirebbero
+        // in testa al replay.
+        if (event.reattached) liveDeltaBufferRef.current.delete(sessionKey);
         // Only create assistant placeholder if there isn't already a partial one
         // (sendMessage creates one via SSE, so WS broadcast to OTHER windows only)
         setMessages(prev => {
           const sessionMessages = prev[sessionKey] || [];
           const lastMsg = sessionMessages[sessionMessages.length - 1];
           if (lastMsg?.role === 'assistant' && lastMsg.partial) {
+            // Riadozione dopo un riavvio del server: la bolla c'è già ed è
+            // PIENA di quello che il turno aveva scritto prima. Il replay sta
+            // per ridettarlo tutto in delta, che qui si appendono: senza questo
+            // azzeramento il turno uscirebbe doppio. Vedi streamReattachReset.ts.
+            if (event.reattached) {
+              const cleared = clearPartialForReattach(sessionMessages);
+              return cleared === sessionMessages ? prev : { ...prev, [sessionKey]: cleared };
+            }
             // Already have a partial assistant message — skip duplicate
             return prev;
           }
@@ -1886,7 +1937,7 @@ export function useChat() {
           }
           return prev;
         });
-        setError('Message queued — will send when reconnected');
+        setError('Message queued. It will send when reconnected.');
         return false;
       }
 
@@ -1927,7 +1978,10 @@ export function useChat() {
   }, [addMessage, addToolCallToLastMessage, updateLastMessage, bufferLiveDelta, flushLiveDeltas, clearSSEFailsafe, beginStreaming]);
 
   /**
-   * Fa partire il messaggio in cima alla coda, se è il momento.
+   * Fa partire quello che è in coda, se è il momento — TUTTO INSIEME, in un
+   * turno solo. Chi ha scritto tre righe mentre l'agente lavorava non voleva
+   * tre turni in fila: voleva che l'agente le leggesse tutte prima di partire
+   * (`claimBatch`/`mergeBatch` in `state/chatQueue.ts`).
    *
    * È l'UNICO drenaggio della coda del turno. Prima ce n'erano tre — un effetto
    * dentro `ChatPane` (che quindi funzionava solo a pane montata, e scattava al
@@ -1950,9 +2004,10 @@ export function useChat() {
       setTimeout(() => drainTurnQueueRef.current?.(sessionKey, attempt + 1), TURN_DRAIN_RETRY_MS);
       return;
     }
-    const head = claimQueuedTurn(sessionKey, CLAIM_CLIENT_ID);
-    if (!head) return;
-    void performSend(sessionKey, head.content, head.options, () => requeueFront(sessionKey, head))
+    const batch = claimQueuedTurns(sessionKey, CLAIM_CLIENT_ID);
+    if (batch.length === 0) return;
+    const turn = mergeBatch(batch);
+    void performSend(sessionKey, turn.content, turn.options, () => requeueFront(sessionKey, batch))
       .finally(() => releaseClaim(sessionKey, CLAIM_CLIENT_ID));
   }, [performSend, streamingRef]); // `streamingRef` e' uno specchio (useRefMirror): stesso oggetto a ogni render, quindi elencarlo non ridichiara nulla — serve solo a non lasciare un avviso exhaustive-deps che coprirebbe quelli veri.
   // In un effetto, non in fase di render, come il gemello `sendMessageRef` qui
@@ -1966,6 +2021,12 @@ export function useChat() {
    * altro posto (`state/chatQueue.ts` → `decideSend`).
    */
   const sendMessage = useCallback(async (sessionKey: string, content: string, options?: SendMessageOptions): Promise<boolean> => {
+    // IL MOMENTO GIUSTO per chiedere le notifiche: hai appena creato un'attesa.
+    // Non apre niente da solo — arma soltanto l'invito, che compare solo se
+    // chiedere non sarebbe una bugia (permesso non ancora negato, push
+    // disponibile, «non ora» mai detto). Vedi `state/pushAsk.ts`.
+    armPushAsk();
+
     // Una domanda a schermo si risponde anche SCRIVENDO, non solo dal pannello.
     //
     // Il turno parcheggiato su un ask resta "in volo": `/api/chat` risponde 409
@@ -2006,12 +2067,14 @@ export function useChat() {
 
     if (decision === 'queue-then-drain') {
       // C'era già una coda ferma (tipico dopo uno stop): questo messaggio va in
-      // fondo e riparte la TESTA, altrimenti scavalcherebbe quello che l'umano
-      // aveva scritto prima.
+      // FONDO e riparte dalla testa, altrimenti scavalcherebbe quello che
+      // l'umano aveva scritto prima. Parte tutta la coda in un turno solo — il
+      // nuovo messaggio compreso, se le opzioni combaciano.
       enqueueTurn(sessionKey, content, options);
-      const head = claimQueuedTurn(sessionKey, CLAIM_CLIENT_ID);
-      if (!head) return true;
-      return performSend(sessionKey, head.content, head.options, () => requeueFront(sessionKey, head))
+      const batch = claimQueuedTurns(sessionKey, CLAIM_CLIENT_ID);
+      if (batch.length === 0) return true;
+      const turn = mergeBatch(batch);
+      return performSend(sessionKey, turn.content, turn.options, () => requeueFront(sessionKey, batch))
         .finally(() => releaseClaim(sessionKey, CLAIM_CLIENT_ID));
     }
 
@@ -2060,8 +2123,20 @@ export function useChat() {
     return stoppedByUser[sessionKey] || false;
   }, [stoppedByUser]);
 
-  /** Stop streaming. Returns true if this was the first message (chat can be discarded). */
-  const stopSession = useCallback((sessionKey: string): boolean => {
+  /**
+   * Ferma lo stream. Risolve a `true` SOLO se il server ha davvero buttato via
+   * la chat: è quel `true` che fa chiudere la pane a chi chiama, e archiviare
+   * il topic alla riga in sidebar.
+   *
+   * La frenata è immediata e sincrona (freno della coda, `stoppedByUser`,
+   * abort dell'SSE): quello che aspetta la risposta è solo il ramo DISTRUTTIVO.
+   * Prima non aspettava, e decideva da sé con un predicato più permissivo di
+   * quello del server: il 10 agosto 2026 lo Stop su un primo turno lungo otto
+   * minuti ha svuotato la pagina e chiuso la pane mentre il server rifiutava
+   * («il turno aveva già prodotto lavoro») e teneva tutto su disco. Vedi
+   * `stopSessionPolicy.ts` e `shared/clear-messages-policy.ts`.
+   */
+  const stopSession = useCallback(async (sessionKey: string): Promise<boolean> => {
     // PRIMA di tutto il resto: «ferma» vuol dire fermo. L'abort qui sotto fa
     // finire lo stream, e la fine di uno stream è ciò che fa partire la coda —
     // per questo il freno si alza per primo e in modo DUREVOLE (le altre
@@ -2079,22 +2154,29 @@ export function useChat() {
       controller.abort();
     }
 
-    // Decide whether this is a brand-new chat that can be wiped client-side.
-    // We MUST consult `hydratedSessionsRef`: until `loadHistory` has run for
-    // this session, `messagesRef.current[sessionKey]` is empty for non-content
-    // reasons (initial mount race, hot reload, WS reconnect) and would
-    // falsely claim "first message" on a thread the server has on disk.
-    // See `stopSessionPolicy.ts` for the full rationale and the matching
-    // server-side guard in `server/routes/abortClearPolicy.ts`.
+    // Proposta di cancellazione, non decisione. Serve `hydratedSessionsRef`:
+    // finché `loadHistory` non è passata, `messagesRef.current[sessionKey]` è
+    // vuota per ragioni che non c'entrano col contenuto (mount iniziale, hot
+    // reload, riaggancio del WS) e direbbe «primo messaggio» su un thread che
+    // il server ha su disco. Il predicato è quello del server, importato:
+    // `shared/clear-messages-policy.ts`.
     const hydrated = hydratedSessionsRef.current.has(sessionKey);
     const msgs = messagesRef.current[sessionKey] || [];
-    const userMsgs = msgs.filter(m => m.role === 'user');
-    const isFirstMessage = decideClientWipeOnStop(hydrated, userMsgs.length);
+    const proposeWipe = decideClientWipeOnStop(hydrated, msgs);
 
     // Tell the server to abort — also clear server-side messages if first message
-    chatApi.abort(sessionKey, isFirstMessage).catch(() => {});
+    let clearedByServer = false;
+    try {
+      const res = await chatApi.abort(sessionKey, proposeWipe);
+      // `cleared` è l'unica parola che conta: il server ricontrolla sul DB e
+      // vede anche le righe fuori dal ramo attivo, che qui non si vedono.
+      // Assente (server vecchio, richiesta fallita) ⇒ non si butta niente.
+      clearedByServer = proposeWipe && (res as { cleared?: boolean })?.cleared === true;
+    } catch {
+      clearedByServer = false;
+    }
 
-    if (isFirstMessage) {
+    if (clearedByServer) {
       // Clear session entirely — the chat is brand new
       setMessages(prev => ({ ...prev, [sessionKey]: [] }));
       clearCachedMessages(sessionKey);
@@ -2109,7 +2191,7 @@ export function useChat() {
       updateLastMessage(sessionKey, { partial: false });
     }
 
-    return isFirstMessage;
+    return clearedByServer;
   }, [updateLastMessage, dropEmptyTurn]);
 
   const loadHistory = useCallback(async (sessionKey: string): Promise<boolean> => {
@@ -2159,7 +2241,13 @@ export function useChat() {
         const merged = localOnly.length > 0
           ? [...chatMessages, ...localOnly]
           : chatMessages;
-        return { ...prev, [sessionKey]: merged };
+        // La storia che arriva è quasi sempre quella che è già a schermo: se lo
+        // è, questa riga restituisce l'array PRECEDENTE e React salta il render
+        // — niente ri-misura delle altezze, niente lista che si ri-assembla
+        // sotto gli occhi un secondo dopo il ricarico. Vedi reconcileMessages.
+        const riconciliato = reconcileMessages(existing, merged);
+        if (riconciliato === existing) return prev;
+        return { ...prev, [sessionKey]: riconciliato };
       });
 
       // Compaction dividers (CHAT-COMPACT-01) — replace the session's set with

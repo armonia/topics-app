@@ -12,8 +12,12 @@ import fs from 'fs';
  * as the first <head> script. The shim seeds localStorage (dark theme + a
  * multi-pane split layout) and stubs fetch/WebSocket with generic mock data, so
  * the embedded hero demo IS the real app — no forked component tree, no
- * module-mock drift. Output is committed to landing/public/app/ and served by the
- * Cloudflare Worker. Rebuild: `npm run build:landing`.
+ * module-mock drift. Output goes to landing/public/app/ — a gitignored build
+ * directory, not a committed snapshot — from where `astro build` copies it into
+ * landing/dist/app/, which is what the Cloudflare Worker serves. `bun run
+ * build:site` (and therefore `deploy:landing`) runs this build first, so the
+ * published demo is always the current client; run it by hand with `bun run
+ * build:landing` when you want the demo in a local `dev:site`.
  */
 function inlineBootShim(): Plugin {
   return {

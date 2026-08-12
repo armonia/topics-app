@@ -11,6 +11,7 @@ import { spawn, ChildProcess } from "child_process";
 import { join } from "path";
 import { createInterface, Interface } from "readline";
 import { getAiBridgeClient, type AiBridgeClient } from "../lib/ai-bridge-client";
+import { createLineFolder } from "../lib/ndjson-lines";
 import { readdirSync, existsSync, mkdirSync, writeFileSync, unlinkSync, readFileSync, chmodSync } from "fs";
 import { tmpdir } from "os";
 import type {
@@ -28,6 +29,7 @@ import { SidechainTracker } from "./claude/sidechain-tracker";
 import { parseCompactBoundary } from "./claude/compaction";
 import { buildClaudeArgs, buildClaudeOneshotArgs } from "./claude/args";
 import { checkClaudeCliCompat, type ClaudeCliCompat } from "./claude/cli-compat";
+import { applyJobQuota } from "../services/agent-job-quota";
 // La decodifica degli eventi `stream-json` — campi INTERNI della CLI, non
 // un'API pubblicata — vive in un modulo puro, provato su fixture registrate.
 import {
@@ -50,7 +52,7 @@ import { modelPrice } from "../usage/pricing";
 import { getSnapshotManager } from "./snapshot-manager";
 import { skillBodyFromInjectedText } from "./claude/user-event-text";
 import { toolResultText } from "../../shared/tool-result-text";
-import { topicsAgentSystemPrompt, resolveClaudeEffort } from "../lib/topics-agent-prompt";
+import { topicsAgentSystemPrompt, resolveClaudeEffort, resolveMcpOutputTokens } from "../lib/topics-agent-prompt";
 import { resolveClaudeCodeModel } from "../services/app-settings";
 import { detectUserInputRequest } from "./ask-user-detector";
 import { endAsk, ASK_TTL_MS } from "../lib/ask-user-bridge";
@@ -61,7 +63,7 @@ import { armTurnDeadline, type TurnDeadline } from "../lib/turn-deadline";
 import { cancelled, classifyResultEvent } from "./stop-reason";
 import { warnThrottled } from "../lib/warn-throttled";
 import { clearSessionCliPid, setSessionCliPid } from "./session-pids";
-import { cachedClaudeModels, discoverClaudeModels, newestOfFamily, FALLBACK_MODELS } from "./claude-models";
+import { defaultChatModel, discoverClaudeModels } from "./claude-models";
 
 // ============ Config ============
 
@@ -74,27 +76,6 @@ export interface ClaudeCodeProviderConfig {
 
 // ============ Constants ============
 
-/**
- * Il modello di una CHAT quando nessuno ne ha scelto uno: né il topic, né il
- * picker, né le impostazioni. Era `claude-sonnet-5`, cioè ogni conversazione
- * aperta senza toccare il selettore partiva un gradino sotto lo standard
- * dichiarato ovunque nel repo («l'umano lavora normalmente su opus») — e in
- * silenzio, perché il picker mostra il modello scelto, non quello ripiegato.
- *
- * Opus più recente **con la finestra da 1M**, non da 200k: un id nudo è da 200k
- * anche sulla generazione 5, e il default deve essere la finestra grande (scelta
- * esplicita di Attilio, 3 agosto 2026). L'id non è scritto a mano — famiglia +
- * `preferLong` sulla lista che la CLI annuncia davvero, con `FALLBACK_MODELS`
- * solo a cache fredda.
- */
-function defaultChatModel(): string {
-  const available = cachedClaudeModels() ?? FALLBACK_MODELS;
-  return (
-    newestOfFamily("opus", available, { preferLong: true })
-    ?? newestOfFamily("opus", FALLBACK_MODELS, { preferLong: true })
-    ?? "claude-opus-5[1m]"
-  );
-}
 /** I one-shot (auto-titolo, digest, fallback SSE) NON sono lavoro d'agente e
  *  restano dov'erano: pagarli come una chat non serve a nessuno. */
 const DEFAULT_ONESHOT_MODEL = "claude-sonnet-5";
@@ -111,6 +92,12 @@ const INACTIVITY_TIMEOUT_MS = 15 * 60 * 1000;   // 15 min
 const MAX_LIFETIME_MS = 2 * 60 * 60 * 1000;      // 2 hours
 /** Ogni quanto il tetto di vita ricontrolla, mentre una domanda è a schermo. */
 const LIFETIME_REARM_MS = 60 * 1000;
+/** Quanto uno scan PARCHEGGIATO aspetta chi lo adotterà prima di smontarsi da
+ *  solo. Il varco reale è un round-trip HTTP verso noi stessi (il setaccio di
+ *  boot sonda e subito dopo riadotta), quindi il minuto è tutto margine: è la
+ *  rete per il caso in cui la riadozione non parta MAI — altrimenti resterebbe
+ *  un attacco al daemon senza padrone per tutta la vita del processo. */
+const PARKED_SCAN_TTL_MS = 60_000;
 const MESSAGE_TIMEOUT_MS = 30 * 60 * 1000;        // 30 min
 const RATE_LIMIT_GRACE_MS = 10_000;               // 10s grace after rate limit detection
 
@@ -586,12 +573,26 @@ function peekClaudeSessionId(sessionKey: string): string | null {
  * narrow row read (not the full `getTopicBySessionKey`) to avoid a circular
  * import with utils.ts.
  */
-function getTopicSpawnOverridesForSession(sessionKey: string): { effort: string | null; model: string | null; mcpPolicy: string | null; autonomy: string | null } {
+function getTopicSpawnOverridesForSession(sessionKey: string): { effort: string | null; model: string | null; mcpPolicy: string | null; autonomy: string | null; dispatched: boolean } {
   try {
     const row = getDatabase()
-      .prepare("SELECT effort, model, provider, mcp_policy, autonomy_level FROM topics WHERE session_key = ? LIMIT 1")
-      .get(sessionKey) as { effort?: string | null; model?: string | null; provider?: string | null; mcp_policy?: string | null; autonomy_level?: string | null } | undefined;
-    if (!row) return { effort: null, model: null, mcpPolicy: null, autonomy: null };
+      .prepare("SELECT id, effort, model, provider, mcp_policy, autonomy_level FROM topics WHERE session_key = ? LIMIT 1")
+      .get(sessionKey) as { id?: string; effort?: string | null; model?: string | null; provider?: string | null; mcp_policy?: string | null; autonomy_level?: string | null } | undefined;
+    if (!row) return { effort: null, model: null, mcpPolicy: null, autonomy: null, dispatched: false };
+    // «Questo topic è l'agente di un task?» Risponde a DUE domande insieme: il
+    // cancello sulle immagini (la chat di una persona può volerne aprire una,
+    // un agente che consegna una prova di review no — gli basta il path) e il
+    // catalogo delle skill coi soli nomi. E non si chiede a `mcp_policy`:
+    // 'bridge-only' è la scelta sullo SCOPING MCP, e un board può metterla su
+    // 'inherit' (`dispatch_mcp`) restando dispacciato — sono assi diversi.
+    // Lettura stretta, come il resto qui, per non ricreare l'import circolare
+    // con utils.ts.
+    let dispatched = false;
+    try {
+      dispatched = !!getDatabase()
+        .prepare("SELECT 1 FROM tasks WHERE assigned_topic_id = ? LIMIT 1")
+        .get(row.id ?? "");
+    } catch { /* board assente: resta una chat come le altre */ }
     const provider = row.provider ?? null;
     const providerIsUs = provider === null || provider === "claude-code" || provider === "claude-code-team";
     // Loose shape guard only (argv array — no shell involved): the CLI is the
@@ -603,9 +604,9 @@ function getTopicSpawnOverridesForSession(sessionKey: string): { effort: string 
     const model = providerIsUs && typeof row.model === "string" && /^[A-Za-z0-9._[\]-]{1,64}$/.test(row.model)
       ? row.model
       : null;
-    return { effort: row.effort ?? null, model, mcpPolicy: row.mcp_policy ?? null, autonomy: row.autonomy_level ?? null };
+    return { effort: row.effort ?? null, model, mcpPolicy: row.mcp_policy ?? null, autonomy: row.autonomy_level ?? null, dispatched };
   } catch {
-    return { effort: null, model: null, mcpPolicy: null, autonomy: null };
+    return { effort: null, model: null, mcpPolicy: null, autonomy: null, dispatched: false };
   }
 }
 
@@ -818,7 +819,7 @@ export function renderReplayPrologue(turns: ReplayTurn[]): string {
   const kept = turns.length > REPLAY_TURN_CAP ? turns.slice(-REPLAY_TURN_CAP) : turns;
   const truncated = kept.length < turns.length;
   const lines: string[] = [
-    "[The CLI session was reset and lost its memory. Recap of the conversation so far — read carefully, then respond to the new message that follows.]",
+    "[The CLI session was reset and lost its memory. Recap of the conversation so far. Read it carefully, then respond to the new message that follows.]",
     "",
     "<conversation_recap>",
   ];
@@ -928,6 +929,11 @@ interface PersistentProcess {
   /** Scan outcome: consumed-store offset right after the last `result` —
    *  where the LIVE second attach starts so old turns are never re-emitted. */
   replayAfterLastResultOffset?: number;
+  /** Offset assoluto appena DOPO l'ultima riga NDJSON piegata. Non è
+   *  `consumedOffset`, che si muove a CHUNK e per giunta solo a fold finito:
+   *  qui si è precisi alla riga, mentre la riga passa. È ciò che fa ripartire
+   *  la fase 2 esattamente dopo il `result`. Vedi `createLineFolder`. */
+  lineEndOffset?: number;
   /** Accumulated stderr tail for the rate-limit / missing-session scan. */
   stderrBuf: string;
   /** Spawn-time facts the stderr scan + reattach need. */
@@ -1137,6 +1143,17 @@ export class ClaudeCodeProvider implements AIProvider {
 
   private config: ClaudeCodeProviderConfig;
   private processes = new Map<string, PersistentProcess>();
+  /**
+   * Gli scan della sonda TENUTI IN VITA per chi li adotterà — deliberatamente
+   * fuori da `this.processes`, che è la mappa di chi sta GUIDANDO una sessione.
+   *
+   * Un `pp` qui dentro è attaccato al broker e muto: continua a piegare i byte
+   * che arrivano (quindi `replayTailOpen` resta vero DAL VIVO) ma non emette
+   * niente verso nessun handler, perché non ne ha uno. Ci finisce solo lo scan
+   * di una sonda che ha risposto «open» a un chiamante che ha dichiarato di
+   * voler riadottare subito; `reattach` lo reclama e salta la fase 1.
+   */
+  private parkedScans = new Map<string, { pp: PersistentProcess; evict: ReturnType<typeof setTimeout> }>();
   private queues = new Map<string, Promise<void>>();
   private started = false;
   /** Unsubscribe for the broker reconnect hook armed in start(). */
@@ -1185,9 +1202,21 @@ export class ClaudeCodeProvider implements AIProvider {
           const live = [...this.processes.keys()].filter((k) => this.processes.get(k)?.alive);
           if (live.length === 0) return;
           console.warn(`[claude-code] Broker socket reconnected — re-attaching ${live.length} live session(s)`);
-          for (const key of live) {
-            this.resyncStream(key).catch((err) => console.warn(`[claude-code] Re-attach after reconnect failed for ${key}:`, err));
-          }
+          // UNO ALLA VOLTA. Il ponte è un socket solo: N riattacchi sparati
+          // insieme mettono in coda i replay uno dietro l'altro e ogni ack
+          // aspetta i megabyte di tutti quelli davanti — le risposte escono a
+          // scaletta (misurato: 0,2s → 5,2s per sei sessioni da 7 MB). Ma le
+          // deadline partono tutte insieme, quindi la coda le brucia in blocco:
+          // è la RAFFICA di «ack timeout» del log, 51 di fila su topic diversi.
+          // In fila indiana ognuno spende il proprio tempo sul proprio turno, e
+          // il totale non cambia di un millisecondo.
+          void live.reduce(
+            (chain, key) => chain.then(() =>
+              this.resyncStream(key)
+                .then(() => undefined)
+                .catch((err) => console.warn(`[claude-code] Re-attach after reconnect failed for ${key}:`, err))),
+            Promise.resolve(),
+          );
         });
       } catch (err) {
         console.warn("[claude-code] Could not arm the broker reconnect hook:", err);
@@ -1217,6 +1246,10 @@ export class ClaudeCodeProvider implements AIProvider {
         this.killProcess(pp);
       }
     }
+    // Gli scan parcheggiati non sono in `this.processes` — e proprio per questo
+    // nessuno li staccherebbe: uno spegnimento che li dimentica lascia al daemon
+    // un attacco per una sessione che nessuno guiderà mai più.
+    for (const key of [...this.parkedScans.keys()]) this.evictParkedScan(key);
     this.processes.clear();
     this.queues.clear();
     console.log("[claude-code] Provider stopped");
@@ -1433,13 +1466,13 @@ export class ClaudeCodeProvider implements AIProvider {
         );
         this.killProcess(pp);
         this.processes.delete(sessionKey);
-        handler.onError("Nessuna attività dal modello per 30 minuti — turno terminato");
+        handler.onError("Nessuna attività dal modello per 30 minuti. Turno terminato.");
         return { runId };
       }
 
       if (errMsg === "RATE_LIMIT") {
         console.warn(`[claude-code] Rate limited for ${sessionKey}`);
-        handler.onError("Rate limited — please try again later");
+        handler.onError("Rate limited. Please try again later.");
         return { runId };
       }
 
@@ -1463,7 +1496,7 @@ export class ClaudeCodeProvider implements AIProvider {
           const forFreshSession = resetFallbackContent ?? message;
           return this.sendChatInternal(sessionKey, forFreshSession, handler, true, resetFallbackContent);
         }
-        handler.onError("La sessione era scaduta ed è stata ripristinata — riprova.");
+        handler.onError("La sessione era scaduta ed è stata ripristinata. Riprova.");
         return { runId };
       }
 
@@ -1901,6 +1934,39 @@ export class ClaudeCodeProvider implements AIProvider {
       // `TOPICS_TOOL_SEARCH=off` lo spegne senza toccare il codice, per il
       // giorno in cui una release della CLI cambia il significato del valore.
       toolSearch: process.env.TOPICS_TOOL_SEARCH === "off" ? null : (process.env.TOPICS_TOOL_SEARCH || "1"),
+      // Solo gli agenti del board: una chat può volere aprire un'immagine, un
+      // agente che consegna una prova di review no — gli basta il path. È la
+      // voce di spesa più grossa misurata (25% del contesto dei task); il perché
+      // sta accanto all'opzione, in `claude/args.ts`.
+      blockImageReads: overrides.dispatched,
+      // Solo gli agenti del board: il catalogo delle skill dell'UTENTE
+      // (14.067 byte, ~4.200 token di prefisso misurati il 10/08) sta nel
+      // prefisso e si ripaga a ogni turno, per un elenco che un agente col
+      // compito già scritto nel task non legge. Restano i nomi: `Skill` non
+      // sparisce, sparisce la descrizione — stessa forma del deferral degli
+      // schemi MCP. Il perché sta accanto all'opzione, in `claude/args.ts`.
+      // `TOPICS_SKILL_LISTING=full` lo rimette intero senza toccare il codice.
+      slimSkillListing: overrides.dispatched && process.env.TOPICS_SKILL_LISTING !== "full",
+      // Sempre solo gli agenti del board, e per lo stesso motivo del catalogo
+      // skill: gli schemi di `Workflow`, `Artifact`, `ReportFindings` e
+      // `ListAgents` stanno inline in testa a OGNI richiesta (il deferral non
+      // li tocca) e valgono 13.176 token, di cui 7.856 il solo `Workflow` — un
+      // tool che la sua stessa descrizione vieta senza un consenso esplicito
+      // dell'umano, che a un agente dispacciato non può arrivare. Una chat li
+      // tiene tutti: lì l'umano c'è, e può darlo.
+      // `TOPICS_TOOL_TRIM=off` lo spegne senza toccare il codice.
+      trimUnusedTools: overrides.dispatched && process.env.TOPICS_TOOL_TRIM !== "off",
+      // Il tetto per singolo risultato di tool MCP. Vale per OGNI sessione, non
+      // solo per gli agenti del board: la chat che ha fatto nascere la misura
+      // (29,5M token di prompt, $23,86) era una chat guidata da una persona, e
+      // il 65% del suo payload erano venti risposte di un tool di ricerca web
+      // da 21 kB l'una — nessuna vicina al tetto di 25.000 token della CLI.
+      // Non toglie niente al modello: sopra la soglia la CLI mette il risultato
+      // su file e lascia il puntatore, quindi chi ha davvero bisogno del corpo
+      // intero se lo rilegge. Il perché del numero sta accanto all'opzione, in
+      // `claude/args.ts`. `TOPICS_MCP_OUTPUT_TOKENS=off` lo spegne, un numero
+      // lo sposta — per il giorno in cui una release cambia la semantica.
+      mcpOutputTokens: resolveMcpOutputTokens(),
       claudeSessionId,
       isNewSession,
     });
@@ -1910,6 +1976,33 @@ export class ClaudeCodeProvider implements AIProvider {
     );
 
     const env = buildSafeEnv();
+
+    // La QUOTA DI CORE, e solo per gli agenti dispatchati.
+    //
+    // È la cintura per i pesi che il classificatore non riconosce: un task
+    // «leggero» che però ricompila si prende comunque tutti i core, perché è il
+    // default di cargo, e quattro agenti così lasciano la macchina senza
+    // padrone. Qui ognuno parte con la sua fetta (core ÷ tetto di concorrenza),
+    // e un `heavy` — che lo scheduler tiene già solo — la allarga.
+    //
+    // Sta QUI e non in `buildSafeEnv()` di proposito: quello è l'ambiente di
+    // ogni sessione, chat interattive comprese, e recintare la build che
+    // l'umano lancia a mano nella sua chat è un rallentamento che nessuno ha
+    // chiesto. Il canale è lo stesso di effort/modello/policy MCP — la riga del
+    // topic — e `applyJobQuota` torna `null` per una chat che non è la
+    // sessione di un task: in quel caso l'ambiente resta byte per byte quello
+    // di prima. Il numero si rilegge a ogni spawn, come le altre scelte
+    // per-topic, e da qui in poi anche A METÀ SESSIONE: `applyJobQuota` lascia
+    // sul disco un file col numero e due shim di cargo/make in testa al PATH
+    // che lo rileggono a ogni invocazione, perché una sessione vive ore e la
+    // macchina che aveva intorno alla nascita non è quella di due ore dopo.
+    try {
+      const quota = applyJobQuota(getDatabase(), sessionKey, env);
+      if (quota != null) {
+        console.log(`[claude-code] job quota for dispatched ${sessionKey}: -j${quota} (rilettura viva attiva)`);
+      }
+    } catch { /* nessun recinto: la sessione parte comunque, com'è sempre stato */ }
+
     // Dispatch sessions: defer MCP tool schemas so caricano on-demand via
     // ToolSearch invece di viaggiare nel contesto di ogni chiamata.
     //
@@ -1981,6 +2074,10 @@ export class ClaudeCodeProvider implements AIProvider {
       // `client.attach` resolves, the replayed NDJSON is fully processed —
       // determinism the four-case reattach branch relies on.
       const client = getAiBridgeClient();
+      // Uno scan parcheggiato su questa chiave ha appena perso il suo scopo: il
+      // padrone della sessione è questo `pp`. Si lascia cadere SENZA staccare —
+      // `registerHandlers` qui sotto ha già preso il suo posto sul socket.
+      this.dropParkedScan(sessionKey);
       this.wireBrokerHandlers(pp, client, sessionKey, onLine);
       pp.io = brokerIO(client, sessionKey);
       // Fire the spawn; expose readiness so the first stdin write (sendChat)
@@ -2036,16 +2133,21 @@ export class ClaudeCodeProvider implements AIProvider {
     sessionKey: string,
     onLine: (line: string) => void,
   ): void {
-    let lineBuf = "";
+    // Il taglia-righe sta in `lib/ndjson-lines`: lineare invece che quadratico
+    // sulla dimensione del chunk, e con `StringDecoder` al posto di
+    // `chunk.toString()` — i frame ora arrivano a fette e una fetta può cadere
+    // in mezzo a una sequenza UTF-8.
+    const fold = createLineFolder((line, endOffset) => {
+      pp.lineEndOffset = endOffset;
+      onLine(line);
+    });
     client.registerHandlers(sessionKey, {
       onData: (chunk, offset) => {
-        lineBuf += chunk.toString();
-        let nl: number;
-        while ((nl = lineBuf.indexOf("\n")) !== -1) {
-          const line = lineBuf.slice(0, nl);
-          lineBuf = lineBuf.slice(nl + 1);
-          onLine(line);
-        }
+        // La consegna riparte da un punto diverso (un `attach` da un offset:
+        // la fase 2 della riadozione fa esattamente questo). Il mezzo pezzo di
+        // riga tenuto da parte apparteneva a un'altra regione dello store.
+        if (offset !== pp.consumedOffset) fold.reset(offset);
+        fold(chunk);
         pp.consumedOffset = offset + chunk.byteLength;
       },
       onStderr: (chunk) => this.handleStderrData(pp, sessionKey, chunk),
@@ -2122,34 +2224,131 @@ export class ClaudeCodeProvider implements AIProvider {
    * fallita) NON è `idle` — chi decide di uccidere deve avere una prova, non
    * l'assenza di una risposta.
    */
-  async brokerTurnState(sessionKey: string): Promise<"open" | "idle" | "unknown"> {
+  async brokerTurnState(
+    sessionKey: string,
+    /**
+     * `park: true` = «se dici "open" io RIADOTTO subito, tienimi lo scan».
+     *
+     * È opt-in perché la sonda ha due chiamanti con bisogni opposti. Il
+     * setaccio di boot, quando sente «open», parte con la riadozione nella
+     * riga dopo: parcheggiare gli risparmia il secondo replay integrale dello
+     * store. La rotta della storia invece sonda a OGNI caricamento della chat e
+     * non riadotta niente: lì un parcheggio sarebbe solo un attacco al daemon
+     * lasciato in giro, uno per ricarica di pagina.
+     */
+    opts?: { park?: boolean },
+  ): Promise<"open" | "idle" | "unknown"> {
     if (!USE_AI_BRIDGE) return "unknown";
     // Sessione già guidata da questo processo: la verità è in memoria, e una
     // seconda scansione dello store le passerebbe sopra.
     const existing = this.processes.get(sessionKey);
     if (existing) return existing.alive && existing.streamHandler ? "open" : "idle";
 
-    const client = getAiBridgeClient();
+    // Uno scan già parcheggiato per questa chiave È la risposta, e non costa un
+    // byte: resta attaccato e muto, quindi la sua coda continua a seguire lo
+    // store DAL VIVO. Se nel frattempo si è chiusa, il turno è finito mentre lo
+    // scan aspettava: non c'è più niente da adottare e il parcheggio va sciolto.
+    const parked = this.parkedScans.get(sessionKey);
+    if (parked) {
+      if (parked.pp.replayTailOpen) return "open";
+      this.evictParkedScan(sessionKey);
+      return "idle";
+    }
+
     const pp = this.adoptBrokerProcess(sessionKey);
+    let park = false;
+    try {
+      const scan = await this.scanBrokerStore(getAiBridgeClient(), sessionKey, pp);
+      if (scan.missing || !scan.alive) return "idle";
+      if (!pp.replayTailOpen) return "idle";
+      // «open» è l'unica risposta che porta a una riadozione, quindi l'unica in
+      // cui vale la pena tenere lo scan. Tutte le altre smontano come prima.
+      park = opts?.park === true;
+      return "open";
+    } catch {
+      return "unknown";
+    } finally {
+      // O il pp resta parcheggiato per chi lo adotterà, o la sonda non lascia
+      // niente dietro: nessun pp in mappa, nessun timer, nessun attacco.
+      if (park) this.parkScan(sessionKey, pp);
+      else this.teardownScan(sessionKey, pp);
+    }
+  }
+
+  /**
+   * La scansione MUTA dello store: un `attach(0)` che si fa consegnare tutto e
+   * non emette niente, per imparare la forma della coda. La fanno in due — la
+   * sonda e la fase 1 della riadozione — ed è esattamente per non farla due
+   * volte di fila che esiste il parcheggio.
+   */
+  private async scanBrokerStore(
+    client: AiBridgeClient,
+    sessionKey: string,
+    pp: PersistentProcess,
+  ): Promise<{ missing: boolean; alive: boolean }> {
     pp.replayMute = true;
     pp.replayTailOpen = false;
     pp.replayLastResult = undefined;
     pp.replayAfterLastResultOffset = 0;
-    try {
-      const scan = await client.attach(sessionKey, 0);
-      if (scan.missing || !scan.alive) return "idle";
-      return pp.replayTailOpen ? "open" : "idle";
-    } catch {
-      return "unknown";
-    } finally {
-      // La sonda non lascia niente dietro: nessun pp in mappa (chi adotta
-      // davvero se lo ricostruisce), nessun timer, nessun attacco al daemon.
-      pp.replayMute = false;
-      pp.alive = false;
-      this.cleanupTimers(pp);
-      try { client.detach(sessionKey); } catch { /* daemon andato */ }
-      try { client.unregister(sessionKey); } catch { /* idem */ }
-    }
+    const scan = await client.attach(sessionKey, 0);
+    return { missing: scan.missing === true, alive: scan.alive === true };
+  }
+
+  /** Mette lo scan appena fatto in attesa di un adottante: resta ATTACCATO e
+   *  MUTO, con uno sfratto a TTL come rete per la riadozione che non arriva. */
+  private parkScan(sessionKey: string, pp: PersistentProcess): void {
+    this.evictParkedScan(sessionKey); // mai due attacchi sulla stessa chiave
+    const evict = setTimeout(() => {
+      if (this.parkedScans.get(sessionKey)?.pp !== pp) return; // già reclamato
+      console.warn(`[claude-code] scan parcheggiato scaduto su ${sessionKey}: nessuna riadozione in ${PARKED_SCAN_TTL_MS}ms — lo smonto`);
+      this.evictParkedScan(sessionKey);
+    }, PARKED_SCAN_TTL_MS);
+    evict.unref?.();
+    this.parkedScans.set(sessionKey, { pp, evict });
+  }
+
+  /**
+   * Reclamo ATOMICO dello scan parcheggiato: chi lo prende lo toglie dalla
+   * mappa nello stesso giro di event loop in cui lo legge, quindi due
+   * riadozioni in corsa non possono guidare lo stesso `pp` — la seconda trova
+   * `null` e si ricostruisce il suo, com'è sempre stato.
+   */
+  private claimParkedScan(sessionKey: string): PersistentProcess | null {
+    const entry = this.parkedScans.get(sessionKey);
+    if (!entry) return null;
+    this.parkedScans.delete(sessionKey);
+    clearTimeout(entry.evict);
+    return entry.pp;
+  }
+
+  /** Sfratta lo scan parcheggiato e lo smonta (stacca dal daemon). */
+  private evictParkedScan(sessionKey: string): void {
+    const pp = this.claimParkedScan(sessionKey);
+    if (pp) this.teardownScan(sessionKey, pp);
+  }
+
+  /**
+   * Lo scan parcheggiato ha un padrone NUOVO (uno spawn, o una riadozione che
+   * si è ricostruita il suo `pp`): si lascia cadere senza staccare.
+   *
+   * `detach` e `unregister` lavorano per CHIAVE su un socket solo, quindi qui
+   * chiuderebbero la consegna del subentrante invece di quella del morto.
+   */
+  private dropParkedScan(sessionKey: string): void {
+    const pp = this.claimParkedScan(sessionKey);
+    if (!pp) return;
+    pp.replayMute = false;
+    pp.alive = false;
+    this.cleanupTimers(pp);
+  }
+
+  private teardownScan(sessionKey: string, pp: PersistentProcess): void {
+    pp.replayMute = false;
+    pp.alive = false;
+    this.cleanupTimers(pp);
+    const client = getAiBridgeClient();
+    try { client.detach(sessionKey); } catch { /* daemon andato */ }
+    try { client.unregister(sessionKey); } catch { /* idem */ }
   }
 
   /**
@@ -2246,7 +2445,17 @@ export class ClaudeCodeProvider implements AIProvider {
     // sotto), il pannello moriva a un quarto d'ora dalla riadozione con
     // «il turno è finito mentre la domanda era ancora a schermo».
     if (existing) this.cleanupTimers(existing);
-    const pp = this.adoptBrokerProcess(sessionKey);
+
+    // Lo scan che la sonda ha PARCHEGGIATO, se c'è. È lo stesso store, già
+    // piegato dalla stessa scansione muta che farebbe la fase 1 qui sotto:
+    // adottarlo la salta, ed è tutto il punto del parcheggio — al boot lo store
+    // di ogni sessione viaggiava DUE volte, una per la sonda e una per questa.
+    // Con un `existing` in mappa si lascia cadere invece: quale dei due tenga
+    // l'attacco vivo dipende da chi ha registrato per ultimo, e la fase 1
+    // completa rimette tutto a posto da sola.
+    if (existing) this.dropParkedScan(sessionKey);
+    const parked = existing ? null : this.claimParkedScan(sessionKey);
+    const pp = parked ?? this.adoptBrokerProcess(sessionKey);
     this.processes.set(sessionKey, pp);
 
     // La rete. Il corpo qui sotto parla col broker in quattro punti e ognuno può
@@ -2257,7 +2466,7 @@ export class ClaudeCodeProvider implements AIProvider {
     // essere riusata e la rifusione dello snapshot vive dentro `finalizeStream`,
     // che quel `.catch` non chiama mai. Vedi `finalizeFailedReattach`.
     try {
-      return await this.reattachDrive(sessionKey, handler, pp);
+      return await this.reattachDrive(sessionKey, handler, pp, parked !== null);
     } catch (err) {
       return this.finalizeFailedReattach(sessionKey, pp, handler, err);
     }
@@ -2272,6 +2481,13 @@ export class ClaudeCodeProvider implements AIProvider {
     sessionKey: string,
     handler: StreamHandler,
     pp: PersistentProcess,
+    /**
+     * Il `pp` arriva da uno scan PARCHEGGIATO: la fase 1 è già stata fatta —
+     * dalla sonda, sugli stessi byte — ed è già piegata dentro di lui. Rifarla
+     * significherebbe farsi spedire lo store una seconda volta per riscoprire
+     * quello che sappiamo già.
+     */
+    preScanned: boolean,
   ): Promise<"completed" | "live" | "awaiting-input" | "dead"> {
     const client = getAiBridgeClient();
 
@@ -2280,11 +2496,14 @@ export class ClaudeCodeProvider implements AIProvider {
     // replay from 0 learns the tail shape without re-emitting old turns:
     // does anything follow the last `result` (open turn), and what was that
     // last result (to deliver it if the turn completed while detached)?
-    pp.replayMute = true;
-    pp.replayTailOpen = false;
-    pp.replayLastResult = undefined;
-    pp.replayAfterLastResultOffset = 0;
-    const scan = await client.attach(sessionKey, 0);
+    //
+    // Su un pp parcheggiato non si attacca niente: lo scan è già suo, e restando
+    // attaccato e muto ha continuato a seguire la coda dal vivo. `alive` è la
+    // verità corrente (`onSessionClosed` lo abbassa se il figlio è morto nel
+    // frattempo), e «missing» non può esserlo: il daemon ce l'aveva un attimo fa.
+    const scan = preScanned
+      ? { missing: false, alive: pp.alive }
+      : await this.scanBrokerStore(client, sessionKey, pp);
     pp.replayMute = false;
     if (scan.missing) {
       pp.streamHandler = handler;
@@ -2579,7 +2798,15 @@ export class ClaudeCodeProvider implements AIProvider {
         if (rt && rt !== "waiting for message") {
           pp.replayTailOpen = false;
           pp.replayLastResult = event;
-          pp.replayAfterLastResultOffset = pp.consumedOffset;
+          // Alla RIGA, non alla fetta — e la fetta era anche peggio di come
+          // suona. `consumedOffset` si aggiorna DOPO il fold dell'intero chunk,
+          // quindi mentre le righe scorrono qui dentro vale ancora quello del
+          // giro precedente: su un replay consegnato in un frame solo (che è il
+          // caso normale) è ZERO. Il punto di ripartenza della fase 2 non era la
+          // fine della fetta, era il suo inizio — misurato: la riadozione si
+          // rispediva l'intero store una TERZA volta, e la rifoldava non muta.
+          // Vedi `createLineFolder`.
+          pp.replayAfterLastResultOffset = pp.lineEndOffset ?? pp.consumedOffset;
         }
       } else {
         pp.replayTailOpen = true;
@@ -3353,7 +3580,7 @@ export class ClaudeCodeProvider implements AIProvider {
       // Restore the entry so a retry from the route can succeed if the
       // stdin transient hiccups (rare; mostly here as defence-in-depth).
       pp.pendingInputs.set(toolCallId, pending);
-      throw new Error(`claude-code: stdin write failed — ${err?.message ?? err}`);
+      throw new Error(`claude-code: stdin write failed: ${err?.message ?? err}`);
     }
   }
 

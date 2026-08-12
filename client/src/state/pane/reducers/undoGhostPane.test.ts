@@ -1,6 +1,7 @@
 import { describe, test, expect } from "bun:test";
 import { paneReducer } from "./panes";
 import type { PaneState, Pane } from "../types";
+import { blankPaneState as blank } from "../testSupport";
 
 /**
  * UNDO_CLOSE non deve mai lasciare una GHOST PANE: un'entità in `panes` che
@@ -21,16 +22,6 @@ import type { PaneState, Pane } from "../types";
  * pane senza posto: invisibile allo store, visibile alla UI attraverso
  * `openPanels`, e appesa in fondo invece che al suo indice.
  */
-
-const blank = (): PaneState => ({
-  panes: {},
-  groups: {},
-  closedStack: [],
-  focusedPaneId: null,
-  groupOrder: [],
-  lastSeq: 0,
-  lastServerSeq: 0,
-});
 
 const chat = (id: string): Pane => ({ id, type: "chat", title: id, topicId: id });
 

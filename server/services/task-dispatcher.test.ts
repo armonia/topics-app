@@ -1,33 +1,28 @@
 import { describe, it, expect } from "bun:test";
 import { Database } from "bun:sqlite";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { PARKED_WAITED_OUT, PREVIEW_CARD_MAX_RATIO, PREVIEW_RULE, WAIT_STREAK_CAP, extractPreviewRule, formatStatusEvent } from "../../shared/board";
+import { toolsForProfile } from "../mcp/topics-mcp-server";
 import { createTaskService, type TaskService } from "./tasks";
-import { createTaskDispatcher, type DispatcherDeps } from "./task-dispatcher";
+import { createTaskDispatcher, rotateFrom, type DispatcherDeps } from "./task-dispatcher";
 import { cancelled, type TurnEndInfo } from "../providers/stop-reason";
+import { beginAsk, endAsk } from "../lib/ask-user-bridge";
+import { beginPermission, endPermission } from "../lib/permission-bridge";
+import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL } from "../db/test-schema";
 
-// Self-contained schema (mirrors migrations 001 + 026 + 031, tasks-relevant
-// subset). PRAGMA foreign_keys + the assigned_topic_id FK are faithful to prod
-// on purpose: the "pending:<taskId>" placeholder bug only reproduced with the
-// FK enforced.
+// Lo schema di `tasks` arriva da TASKS_DDL: è la catena delle migration, e una
+// colonna nuova non fa più rosso QUI alla fusione. PRAGMA foreign_keys e la FK
+// su assigned_topic_id sono fedeli alla produzione apposta: il guasto del
+// segnaposto "pending:<taskId>" si riproduceva solo con le FK accese, e con le
+// FK accese la tabella-genitore deve esistere (TASKS_FK_STUBS_DDL).
 function freshDb(): Database {
   const db = new Database(":memory:");
   db.run("PRAGMA foreign_keys = ON");
   db.run(`CREATE TABLE topics (id TEXT PRIMARY KEY)`);
-  db.run(`CREATE TABLE tasks (
-    id TEXT PRIMARY KEY, project_id TEXT NOT NULL, text TEXT NOT NULL, description TEXT,
-    status TEXT NOT NULL DEFAULT 'todo', priority INTEGER NOT NULL DEFAULT 2,
-    kanban_order INTEGER NOT NULL DEFAULT 0, assigned_to TEXT, fingerprint TEXT, due_date TEXT,
-    chat_id TEXT, created_at TEXT NOT NULL, completed_at TEXT, updated_at TEXT NOT NULL,
-    claude_task_id TEXT, assigned_topic_id TEXT REFERENCES topics(id), archived INTEGER NOT NULL DEFAULT 0,
-    assigned_agent_id TEXT, in_progress_at TEXT,
-    dispatch_attempts INTEGER NOT NULL DEFAULT 0, dispatch_state TEXT, dispatch_error TEXT,
-    dispatch_deferred_until TEXT,
-    parent_task_id TEXT REFERENCES tasks(id), output_url TEXT, plan_first INTEGER NOT NULL DEFAULT 0,
-    agent_ms INTEGER NOT NULL DEFAULT 0, agent_tokens INTEGER NOT NULL DEFAULT 0,
-    agent_cache_read_tokens INTEGER NOT NULL DEFAULT 0,
-    model TEXT, blocked_by_task_id TEXT REFERENCES tasks(id), reuse_blocker_context INTEGER NOT NULL DEFAULT 0,
-    priority_auto INTEGER NOT NULL DEFAULT 1,
-    delivered_by TEXT, delivered_reason TEXT
-  )`);
+  db.run(TASKS_DDL);
+  db.run(TASKS_FK_STUBS_DDL);
+  db.run(TASK_LABELS_DDL); // migration 100 — rowToTask la legge per OGNI task
   db.run(`CREATE TABLE board_settings (
     project_id TEXT PRIMARY KEY, require_approval_for_done INTEGER DEFAULT 0,
     require_review_before_done INTEGER DEFAULT 0, block_status_with_pending INTEGER DEFAULT 0,
@@ -57,16 +52,16 @@ const PID = "alpha-abc123";
 let seq = 0;
 function seedTask(
   db: Database,
-  o: { id?: string; status?: string; attempts?: number; assignedTopicId?: string | null; dispatchState?: string | null; createdAt?: string } = {},
+  o: { id?: string; status?: string; attempts?: number; assignedTopicId?: string | null; dispatchState?: string | null; createdAt?: string; parentTaskId?: string | null; text?: string } = {},
 ): string {
   const id = o.id ?? `t${++seq}`;
   const ts = o.createdAt ?? new Date(Date.now() + seq).toISOString();
   // FK: a seeded binding needs its topics row, like in prod.
   if (o.assignedTopicId) db.run("INSERT OR IGNORE INTO topics (id) VALUES (?)", [o.assignedTopicId]);
   db.run(
-    `INSERT INTO tasks (id, project_id, text, status, created_at, updated_at, dispatch_attempts, assigned_topic_id, dispatch_state)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [id, PID, "task " + id, o.status ?? "todo", ts, ts, o.attempts ?? 0, o.assignedTopicId ?? null, o.dispatchState ?? null],
+    `INSERT INTO tasks (id, project_id, text, status, created_at, updated_at, dispatch_attempts, assigned_topic_id, dispatch_state, parent_task_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, PID, o.text ?? ("task " + id), o.status ?? "todo", ts, ts, o.attempts ?? 0, o.assignedTopicId ?? null, o.dispatchState ?? null, o.parentTaskId ?? null],
   );
   return id;
 }
@@ -105,6 +100,12 @@ function harness(overrides: Partial<DispatcherDeps> = {}) {
   const dispatcher = createTaskDispatcher(deps);
   return {
     db, svc, dispatcher, events, worktreesCreated, topicsCreated, turns,
+    /**
+     * Un RIAVVIO del server: stesso DB, memoria nuova. Tutto ciò che vive solo
+     * nel processo (turni in volo, timer, attese di uno slot) non c'è più —
+     * ed è l'unica differenza che distingue un fantasma da un'attesa viva.
+     */
+    restart: () => { dispatcher.shutdown(); return createTaskDispatcher(deps); },
     finishTurn: () => { resolveTurn?.(); },
     /** Chiude il turno DICENDO perché è finito (0.4) — come fa il provider vero. */
     finishTurnWith: (info: TurnEndInfo) => { resolveTurn?.(info); },
@@ -148,6 +149,138 @@ describe("task-dispatcher", () => {
     expect(h.turns[0].sessionKey).toBe("topic:sk1");
     expect(h.turns[0].content).toContain("owner esclusivo del task");
     expect(h.dispatcher.isInFlight("t1")).toBe(true);
+  });
+
+  it("una domanda a META' TURNO porta il chip a needs_input, e il rilascio lo riporta a working", async () => {
+    // Il buco piu' caro trovato dal confronto board/chat: `ask_user_question`
+    // aperta mentre il turno e' vivo lasciava la card su `working`. La board
+    // diceva «sto lavorando» sopra una sessione ferma su una persona.
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 2 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    const sk = h.turns[0].sessionKey;
+    expect(h.task("t1")!.dispatchState).toBe("working");
+
+    const awaiting = () => h.events.filter((e) => e.type === "task:awaiting-human");
+    beginAsk(sk);
+    await flush();
+    expect(awaiting().at(-1)).toMatchObject({ taskId: "t1", waiting: true, source: "ask" });
+    // E NON in DB: `needs_input` persistito farebbe uscire il task dalla porta
+    // del recupero orfani (ACTIVE_DISPATCH_STATES), congelandolo dopo un riavvio.
+    expect(h.task("t1")!.dispatchState).toBe("working");
+
+    endAsk(sk);
+    await flush();
+    expect(awaiting().at(-1)).toMatchObject({ taskId: "t1", waiting: false });
+    h.dispatcher.shutdown();
+  });
+
+  it("lo stesso vale per un PERMESSO, ed e' lo stesso chip", async () => {
+    // Per chi guarda la board «domanda» e «permesso» sono lo stesso fatto:
+    // il turno aspetta una persona. Un secondo vocabolario sarebbe rumore.
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 2 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    const sk = h.turns[0].sessionKey;
+
+    const awaiting = () => h.events.filter((e) => e.type === "task:awaiting-human");
+    beginPermission(sk, "tool-1");
+    await flush();
+    expect(awaiting().at(-1)).toMatchObject({ taskId: "t1", waiting: true, source: "permission" });
+    expect(h.task("t1")!.dispatchState).toBe("working");
+
+    endPermission(sk, "tool-1");
+    await flush();
+    expect(awaiting().at(-1)).toMatchObject({ taskId: "t1", waiting: false });
+    h.dispatcher.shutdown();
+  });
+
+  it("dopo shutdown() il chip NON si muove piu': l'iscrizione e' la causa", async () => {
+    // La controprova dei due test qui sopra. Senza, "il chip diventa
+    // needs_input" potrebbe essere vero per un'altra ragione e i test
+    // passerebbero comunque: qui si toglie l'unica causa possibile e si pretende
+    // che l'effetto sparisca. Pinna anche l'unsubscribe di shutdown(), senza il
+    // quale un dispatcher spento continuerebbe a scrivere su un DB non suo.
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 2 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    const sk = h.turns[0].sessionKey;
+    expect(h.task("t1")!.dispatchState).toBe("working");
+
+    h.dispatcher.shutdown();
+    const before = h.events.filter((e) => e.type === "task:awaiting-human").length;
+    beginAsk(sk);
+    await flush();
+    expect(h.events.filter((e) => e.type === "task:awaiting-human")).toHaveLength(before); // nessuno ascolta piu'
+    endAsk(sk);
+  });
+
+  it("l'attesa di una sessione ESTRANEA non tocca nessun chip", async () => {
+    // Le chat normali passano dalle stesse due porte: se il dispatcher
+    // reagisse a tutte, una domanda in una chat qualunque muoverebbe la card
+    // di un task che non c'entra niente.
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 2 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    beginAsk("topic:una-chat-qualunque");
+    await flush();
+    expect(h.events.filter((e) => e.type === "task:awaiting-human")).toHaveLength(0);
+    expect(h.task("t1")!.dispatchState).toBe("working");
+    endAsk("topic:una-chat-qualunque");
+    h.dispatcher.shutdown();
+  });
+
+  it("board su effort 'auto': lo sforzo lo sceglie il classificatore, task per task", async () => {
+    // La leva piu' pesante che abbiamo: sullo stesso micro-task `medium` costa
+    // 61,1k token di lavoro e `xhigh` 108,8k. Fissarla per tutta una board vuol
+    // dire pagarla uguale su un typo e su un refactor.
+    const h = harness({
+      pickAutoModel: async () => ({ model: "claude-opus-5[1m]", effort: "xhigh" }),
+    });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 2, dispatchEffort: "auto" });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.topicsCreated[0].effort).toBe("xhigh");
+    expect(h.topicsCreated[0].model).toBe("claude-opus-5[1m]");
+    h.dispatcher.shutdown();
+  });
+
+  it("board con un effort FISSATO: comanda la board, il classificatore non la scavalca", async () => {
+    // Il controllo del test qui sopra: senza, un classificatore che risponde
+    // sempre farebbe passare entrambi i casi e nessuno dei due proverebbe niente.
+    const h = harness({
+      pickAutoModel: async () => ({ model: "claude-opus-5[1m]", effort: "xhigh" }),
+    });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 2, dispatchEffort: "high" });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.topicsCreated[0].effort).toBe("high");
+    h.dispatcher.shutdown();
+  });
+
+  it("board su 'auto' ma giudice muto: resta medium, cioe' come stavano le cose", async () => {
+    // `effort: null` significa «non lo so», e un «non lo so» non deve spostare
+    // niente: si ricade su cio' che la board faceva prima che l'auto esistesse.
+    const h = harness({
+      pickAutoModel: async () => ({ model: "claude-opus-5[1m]", effort: null }),
+    });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 2, dispatchEffort: "auto" });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.topicsCreated[0].effort).toBe("medium");
+    h.dispatcher.shutdown();
   });
 
   it("self-heals a DEAD binding: a todo bound to a reaped topic dispatches again", async () => {
@@ -274,6 +407,103 @@ describe("task-dispatcher", () => {
     expect(h.turns.length).toBe(turnsAfterWait + 1);
   });
 
+  it("con cap 2, TRE attese dichiarate di fila ripartono tutte: nessuna finisce `failed`", async () => {
+    // IL GUASTO, end-to-end. La claim spende il tentativo prima che l'agent
+    // possa sapere di dover aspettare: senza rimborso, alla terza passata
+    // `dispatch_attempts` era 2, il task non veniva più reclamato e la spazzata
+    // dei tentativi esauriti lo parcheggiava `failed` con «guarda cosa lo fa
+    // fallire». Per un'attesa dichiarata bene (card e285d5d8, board quadra).
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 2, dispatchRetryCap: 2 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+
+    for (let giro = 1; giro <= 3; giro++) {
+      await h.dispatcher.tick(PID);
+      await flush();
+      // Il terzo giro è quello che prima non partiva nemmeno.
+      expect(h.task("t1")!.dispatchState).toBe("working");
+
+      h.dispatcher.deferWait("t1", "il servizio X è giù", 30);
+      h.finishTurn();
+      await flush();
+      const dopo = h.task("t1")!;
+      expect(dopo.status).toBe("todo");
+      expect(dopo.dispatchState).toBe("waiting");
+      expect(dopo.dispatchAttempts).toBe(0);  // rimborsato ogni volta
+      expect(dopo.waitStreak).toBe(giro);     // conta la grandezza SUA
+      h.db.run("UPDATE tasks SET dispatch_deferred_until = ? WHERE id = 't1'", [
+        new Date(Date.now() - 1000).toISOString(),
+      ]);
+    }
+    const finale = h.task("t1")!;
+    expect(finale.dispatchState).not.toBe("failed");
+    expect(finale.status).not.toBe("backlog");
+  });
+
+  it("sfondato il tetto delle attese la card resta `waited_out`: onTurnEnd non la azzera", async () => {
+    // La trappola di `PARKED_STOPPED`, di nuovo: `deferForWait` parcheggia la
+    // card DA SÉ a metà turno, e il turno finisce subito dopo. Senza guardia, la
+    // coda di `onTurnEnd` rimette il chip a null e la card torna muta in
+    // Backlog, indistinguibile da una fermata a mano.
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 2 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    // La serie è già a un passo dal tetto (la chiave è normalizzata: minuscole).
+    h.db.run("UPDATE tasks SET wait_streak = ?, wait_reason = ?, wait_since = ? WHERE id = 't1'", [
+      WAIT_STREAK_CAP, "il servizio x è giù", new Date().toISOString(),
+    ]);
+
+    const parked = h.dispatcher.deferWait("t1", "il servizio X è giù", 30);
+    expect(parked.status).toBe("backlog");
+    expect(parked.dispatchState).toBe(PARKED_WAITED_OUT);
+    expect(parked.dispatchDeferredUntil).toBeNull();
+
+    h.finishTurn();
+    await flush();
+    const t = h.task("t1")!;
+    expect(t.dispatchState).toBe(PARKED_WAITED_OUT);
+    expect(t.dispatchState).not.toBeNull();
+    expect(t.status).toBe("backlog");
+    expect(h.dispatcher.isInFlight("t1")).toBe(false);
+  });
+
+  it("sfondato il tetto delle attese il fronte `task:parked` ESCE: il park che dice «decidi tu» non può essere muto", async () => {
+    // Era l'unico park terminale senza fronte, e per una ragione strutturale:
+    // lo decide `deferForWait` dentro il service, quindi non passa da
+    // `releaseAndEmit` come gli altri nove siti che rilasciano. Il chip
+    // compariva sulla board in tempo reale e nessuno veniva avvisato.
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 2 });
+    seedTask(h.db, { id: "t1", status: "todo", text: "Aspetta che la CI torni su" });
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    // Un'attesa NORMALE non si annuncia: riparte da sola, e un banner per ogni
+    // attesa sarebbe rumore. È la stessa riga che separa il park dal requeue.
+    h.dispatcher.deferWait("t1", "la CI sta girando", 30);
+    expect(h.events.filter((e) => e.type === "task:parked")).toHaveLength(0);
+
+    // Serie a un passo dal tetto: la prossima sfonda.
+    h.db.run("UPDATE tasks SET wait_streak = ?, wait_reason = ?, wait_since = ? WHERE id = 't1'", [
+      WAIT_STREAK_CAP, "la ci sta girando", new Date().toISOString(),
+    ]);
+    h.dispatcher.deferWait("t1", "la CI sta girando", 30);
+
+    const parked = h.events.filter((e) => e.type === "task:parked");
+    expect(parked).toHaveLength(1);
+    expect(parked[0]).toMatchObject({
+      projectId: PID,
+      taskId: "t1",
+      taskTitle: "Aspetta che la CI torni su",
+      // Lo stato SUO, non 'failed' e non 'blocked': quei due titoli
+      // accuserebbero di un difetto un turno che ha fatto la cosa giusta.
+      state: PARKED_WAITED_OUT,
+    });
+  });
+
   it("books wall-clock + usage delta (billable + cache reads) on the task at each turn end", async () => {
     // Fake transcript usage: zeros before the turn, real numbers after it.
     let usage = { inputTokens: 0, outputTokens: 0, cacheWriteTokens: 0, cacheWrite1hTokens: 0, cacheReadTokens: 0, billableTokens: 0 };
@@ -314,6 +544,70 @@ describe("task-dispatcher", () => {
     // stale "working" nor a false "serve te".
     expect(t.dispatchState).toBe("delivered");
     expect(h.dispatcher.isInFlight("t1")).toBe(false);
+  });
+
+  // ── snellimento del worktree alla consegna ────────────────────────────
+  //
+  // Una card consegnata aspetta un umano per giorni tenendosi ~260 MB di
+  // dipendenze. Alla consegna quel peso se ne va — ma DOPO l'anteprima, che è
+  // un `bun run dev` dentro quello stesso worktree.
+
+  async function deliver(h: ReturnType<typeof harness>) {
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    h.svc.addComment({ taskId: "t1", author: "claude", content: "fatto" });
+    h.svc.update({ taskId: "t1", actor: "agent", by: "claude", patch: { status: "review" } });
+    h.finishTurn();
+    await flush();
+  }
+
+  it("consegna → il worktree si snellisce, ma solo DOPO l'anteprima", async () => {
+    const ordine: string[] = [];
+    let sbloccaAnteprima: (() => void) | null = null;
+    const h = harness({
+      preparePreview: (id) => new Promise<void>((res) => {
+        ordine.push(`anteprima:${id}`);
+        sbloccaAnteprima = () => res();
+      }),
+      slimWorktree: async (id) => { ordine.push(`slim:${id}`); },
+    });
+    await deliver(h);
+    // L'anteprima è ancora in piedi: togliere `node_modules` ora la ucciderebbe.
+    expect(ordine).toEqual(["anteprima:t1"]);
+    sbloccaAnteprima!();
+    await flush();
+    expect(ordine).toEqual(["anteprima:t1", "slim:t1"]);
+  });
+
+  it("un'anteprima che fallisce non impedisce di liberare lo spazio", async () => {
+    const slimmed: string[] = [];
+    const h = harness({
+      preparePreview: async () => { throw new Error("porta occupata"); },
+      slimWorktree: async (id) => { slimmed.push(id); },
+    });
+    await deliver(h);
+    expect(slimmed).toEqual(["t1"]);
+  });
+
+  it("uno slim che esplode non tocca la consegna", async () => {
+    const h = harness({ slimWorktree: async () => { throw new Error("permessi"); } });
+    await deliver(h);
+    expect(h.task("t1")!.status).toBe("review");
+    expect(h.task("t1")!.dispatchState).toBe("delivered");
+  });
+
+  it("un turno che NON consegna non snellisce niente", async () => {
+    const slimmed: string[] = [];
+    const h = harness({ slimWorktree: async (id) => { slimmed.push(id); } });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    h.finishTurn();   // finito senza arrivare in review
+    await flush();
+    expect(slimmed).toEqual([]);
   });
 
   it("a question as the agent's last word flips the chip to needs_input ('serve te')", async () => {
@@ -401,6 +695,52 @@ describe("task-dispatcher", () => {
     const notes = h.svc.get("t1")!.comments.map((c) => c.content).join("\n");
     expect(notes).toContain("Turno fermato a mano");
     expect(notes).toContain("non conteggiato");
+  });
+
+  it("lo STOP dalla board parcheggia e la chip «fermato» sopravvive al turno tagliato", async () => {
+    // L'ordine dello stop umano: la route PARCHEGGIA prima (release → backlog,
+    // chip 'stopped') e taglia il turno DOPO. Qui si simula esattamente quello,
+    // perché è l'`onTurnEnd` del turno abortito il punto in cui la cosa poteva
+    // rompersi in due modi: rimettere in coda un task che l'umano ha fermato, o
+    // riazzerare la chip e lasciare la card muta in Backlog.
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchRetryCap: 3 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.task("t1")!.dispatchAttempts).toBe(1);
+    h.svc.release({ taskId: "t1", requeue: false, by: "user", parkState: "stopped" });
+    h.finishTurnWith(cancelled("user"));
+    await flush();
+    const t = h.task("t1")!;
+    expect(t.status).toBe("backlog");
+    expect(t.dispatchState).toBe("stopped"); // né null (muta) né 'failed' (accusa)
+    expect(t.dispatchAttempts).toBe(1);      // fermare non consuma un tentativo
+    expect(h.turns.length).toBe(1);          // e non riparte da solo
+  });
+
+  it("una raffica di errori del PROVIDER non brucia i tentativi (ma un guasto cronico sì)", async () => {
+    // Misurato il 10/08: durante una raffica di dispatch paralleli, VENTI task
+    // sono finiti in review a mano vuote — «Errore del provider: riprovo tra 60s
+    // (tentativo 2/2)» e poi consegna forzata. Con il tetto a 2, due singhiozzi
+    // del provider uccidono una card che non ha ancora scritto una riga: lavoro
+    // zero, review sporca, e i token dello spawn pagati per niente.
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchRetryCap: 2 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    for (let i = 0; i < 3; i++) {
+      h.finishTurnWith({ end: "error" } as TurnEndInfo);
+      await flush();
+      // Il backoff dell'outage rimanda il resume: qui lo si lascia scattare.
+      await flush();
+    }
+    const t = h.task("t1")!;
+    // Tre errori, tetto 2: senza il perdono la card sarebbe già in review vuota.
+    expect(t.status).toBe("in_progress");
+    expect(t.dispatchAttempts).toBe(1);
+    expect(h.svc.get("t1")!.comments.some((c) => c.content.includes("non conteggiato"))).toBe(true);
   });
 
   it("…ma il TETTO A OROLOGIO sì, o il freno non frenerebbe mai", async () => {
@@ -535,6 +875,35 @@ describe("task-dispatcher", () => {
     expect(t.deliveredReason).toBeNull();
   });
 
+  it("l'inizio del turno si legge anche quando la transizione porta la sua RAGIONE", async () => {
+    // La forma vera del land in conflitto: l'agent aveva consegnato (commento),
+    // l'umano ha cliccato «Landa su main», il merge è andato in conflitto e la
+    // card è tornata `in_progress` con la causa scritta sulla transizione.
+    // Quel commento è del turno PRIMA: se il confine del turno si legge col
+    // suffisso (`…in_progress`), la riga con la ragione non viene vista, il
+    // confine resta indietro e la consegna vecchia passa per fresca — cioè
+    // l'ultima parola dell'agent di QUESTO turno non viene recuperata.
+    const h = harness({ getLastAgentText: () => "Ho risolto i conflitti col main." });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    h.svc.addComment({ taskId: "t1", author: "claude", content: "Consegna del turno prima del land." });
+    // Il nuovo turno si apre DOPO quel commento, e la sua riga porta la ragione.
+    h.db.prepare(
+      "INSERT INTO task_comments (id, task_id, author, content, kind, created_at) VALUES ('s-land', 't1', 'system', ?, 'status', ?)",
+    ).run(
+      formatStatusEvent("done", "in_progress", "il land ha fatto conflitto con main"),
+      new Date(Date.now() + 1000).toISOString(),
+    );
+    h.finishTurn(); await flush();
+    h.finishTurn(); await flush();
+    const comments = h.svc.get("t1")!.comments;
+    // Nessun riepilogo per QUESTO turno → le ultime parole finiscono nella nota
+    // di sistema, invece di lasciare al reviewer la consegna pre-conflitto.
+    expect(comments.some((c) => c.author === "system" && c.content.includes("Ho risolto i conflitti"))).toBe(true);
+  });
+
   it("does NOT recover into the note when the agent already left a fresh comment", async () => {
     // Recovery is a fallback for the system-delivery path only: an agent that DID
     // leave a fresh comment must not get its last session message duplicated.
@@ -566,6 +935,80 @@ describe("task-dispatcher", () => {
     expect(h.task("t1")!.status).toBe("in_progress"); // oldest claimed
     expect(h.task("t2")!.status).toBe("todo");         // cap hit → stays queued
     expect(h.turns.length).toBe(1);
+  });
+
+  it("il tetto vale anche sul RESUME: un rifiuto non apre un agente in più", async () => {
+    // Il tetto viveva dentro tick(), quindi governava solo i dispatch: ogni
+    // rifiuto in review faceva ripartire un agente FUORI dal tetto. Misurato il
+    // 09/08: 12 task in corso col tetto a 6, e metà erano rifiuti in fila.
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    h.svc.setGlobalCap({ auto: false, max: 1 });
+    seedTask(h.db, { id: "t1", status: "todo", createdAt: "2020-01-01T00:00:00.000Z" });
+    seedTask(h.db, { id: "t2", status: "todo", createdAt: "2020-01-02T00:00:00.000Z" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.turns.length).toBe(1); // t1 occupa l'unico posto, t1 è ancora in volo
+
+    // t2 arriva in review e viene rifiutato: prima ripartiva subito, tetto o no.
+    h.svc.update({ taskId: "t2", actor: "human", by: "u", patch: { status: "in_progress" } });
+    h.db.run("INSERT OR IGNORE INTO topics (id) VALUES (?)", ["topic-2"]);
+    h.db.run("UPDATE tasks SET assigned_topic_id = ? WHERE id = ?", ["topic-2", "t2"]);
+    await h.dispatcher.resume("t2", "riprova");
+    await flush();
+
+    expect(h.turns.length).toBe(1); // nessun secondo turno: il posto è uno
+    // E non è perso in silenzio: la card lo dice, nel thread E nel chip.
+    expect(h.svc.get("t2")!.comments.some((c) => c.content.includes("In attesa di uno slot"))).toBe(true);
+    // Senza il chip la card resta `in_progress` senza turno vivo: il tempo non
+    // scorre e sembra piantata — una coda invisibile.
+    expect(h.task("t2")!.dispatchState).toBe("queued");
+  });
+
+  it("il resume che rinuncia perché la card è chiusa non lascia residui", async () => {
+    // Una card in attesa di posto può essere approvata mentre aspetta. Il
+    // ritentativo la ritrova chiusa e rinuncia — giusto — ma se non ripulisce
+    // l'insieme di chi aspetta, la PROSSIMA attesa vera di quella card non
+    // verrebbe più annunciata: il commento «in coda» è guardato da lì.
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    h.svc.setGlobalCap({ auto: false, max: 1 });
+    seedTask(h.db, { id: "t1", status: "todo", createdAt: "2020-01-01T00:00:00.000Z" });
+    seedTask(h.db, { id: "t2", status: "todo", createdAt: "2020-01-02T00:00:00.000Z" });
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    h.db.run("INSERT OR IGNORE INTO topics (id) VALUES (?)", ["topic-2"]);
+    const legaT2 = () => {
+      h.svc.update({ taskId: "t2", actor: "human", by: "u", patch: { status: "in_progress" } });
+      h.db.run("UPDATE tasks SET assigned_topic_id = ? WHERE id = ?", ["topic-2", "t2"]);
+    };
+    legaT2();
+    await h.dispatcher.resume("t2", "riprova");   // aspetta un posto, lo annuncia
+    await flush();
+    const primo = h.svc.get("t2")!.comments.filter((c) => c.content.includes("In attesa di uno slot")).length;
+    expect(primo).toBe(1);
+
+    // Approvata mentre aspettava: il ritentativo rinuncia.
+    h.db.run("UPDATE tasks SET status = 'done' WHERE id = ?", ["t2"]);
+    await h.dispatcher.resume("t2", "riprova");
+    await flush();
+
+    // Ora torna in lavorazione e aspetta di nuovo: deve tornare a dirlo.
+    // Il tetto cambia apposta — `addComment` deduplica i testi identici, quindi
+    // con lo stesso numero il secondo annuncio sparirebbe per un motivo che non
+    // c'entra con ciò che stiamo misurando.
+    h.svc.setGlobalCap({ auto: false, max: 2 });
+    seedTask(h.db, { id: "t3", status: "todo", createdAt: "2020-01-03T00:00:00.000Z" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.turns.length).toBe(2); // due posti, due turni vivi: il tetto e' pieno
+    legaT2();
+    await h.dispatcher.resume("t2", "riprova ancora");
+    await flush();
+    const testi = h.svc.get("t2")!.comments.filter((c) => c.content.includes("In attesa di uno slot")).map((c) => c.content);
+    expect(testi.length).toBe(2);
+    expect(testi.some((t) => t.includes("(2)"))).toBe(true);
   });
 
   it("parks (does not run in-place) when a worktree is required but unavailable", async () => {
@@ -744,6 +1187,43 @@ describe("task-dispatcher", () => {
     expect(t.dispatchAttempts).toBe(2);       // 3 → 2 (refunded), gets a fair retry
   });
 
+  it("un task fermo su una DOMANDA tiene un chip che il recupero orfani ACCETTA", async () => {
+    // La regressione che questo test esiste per impedire, trovata da un critico
+    // e non da me. La prima versione dell'annuncio scriveva `needs_input` in
+    // dispatch_state; ma la porta del recupero orfani e' ACTIVE_DISPATCH_STATES
+    // = {working, starting} (task-dispatcher.ts:356, usata a :2052), perche'
+    // `needs_input` significava «l'ha messa qui una persona, non toccarla». Un
+    // task fermo su un pannello usciva quindi da quella porta: server riavviato
+    // — e con TOPICS_SERVER_WATCH=1 basta salvare un file sotto server/ — e
+    // restava in_progress PER SEMPRE, senza reattach ne' resume ne' un commento
+    // che lo dicesse. Prima della modifica veniva ripreso.
+    //
+    // L'invariante che lo impedisce: mentre l'attesa e' aperta, lo stato
+    // PERSISTITO (l'unica cosa che sopravvive a un riavvio) deve restare uno di
+    // quelli che il recupero accetta. Che poi da quello stato il task venga
+    // davvero ripreso lo prova il test "reconcile ALWAYS requeues a restart
+    // orphan" qui sopra, che parte esattamente da dispatchState: "working".
+    const RECUPERABILI = ["working", "starting"];
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 2 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    const sk = h.turns[0].sessionKey;
+
+    beginAsk(sk);
+    await flush();
+    expect(RECUPERABILI).toContain(h.task("t1")!.dispatchState ?? "");
+
+    beginPermission(sk, "tool-1"); // anche l'altra porta dell'attesa
+    await flush();
+    expect(RECUPERABILI).toContain(h.task("t1")!.dispatchState ?? "");
+
+    endAsk(sk);
+    endPermission(sk, "tool-1");
+    h.dispatcher.shutdown();
+  });
+
   it("reconcile leaves a human-moved bound task alone (chip not active)", async () => {
     // A human dragged a review/done card (dispatch_state null) into In Progress —
     // it's bound but NOT a dead dispatch, so reconcile must not "orphan" it.
@@ -802,7 +1282,7 @@ describe("task-dispatcher", () => {
     expect(h.turns.length).toBe(0);                 // NO resume/continuation turn
     expect(h.task("t1")!.dispatchAttempts).toBe(1); // a restart consumes nothing
     const comments = h.svc.get("t1")!.comments;
-    expect(comments.some((c) => c.author === "system" && c.content.includes("Ripreso in diretta"))).toBe(true);
+    expect(comments.some((c) => c.author === "system" && c.content.includes("ripreso in diretta"))).toBe(true);
   });
 
   it("reconcile is idempotent under the poll: a resumed turn is never doubled", async () => {
@@ -854,6 +1334,136 @@ describe("task-dispatcher", () => {
     expect(t.dispatchAttempts).toBe(1);   // interrupted attempt refunded
     expect(t.dispatchState).toBeNull();   // no stranded 'queued'
     expect(h.turns.length).toBe(0);
+  });
+
+  it("reconcile LIBERA un orfano fermo su `queued` con la board SPENTA", async () => {
+    // Il fantasma misurato l'11/08: sette card in_progress col chip `queued`,
+    // ferme da 40 minuti, nessun turno vivo. Nascono da un'attesa che vive in
+    // memoria (il rinvio del resume quando il tetto è pieno): il riavvio si
+    // porta via il timer e lascia il chip, e la card resta in_progress PER
+    // SEMPRE — il recupero orfani la saltava perché guardava solo
+    // {working, starting}.
+    //
+    // La board spenta è il caso duro: non reclama nulla, ma deve comunque
+    // poter LIBERARE la card (e con lei lo slot che l'umano le vede occupare).
+    const h = harness({ topicExists: () => true });
+    seedTask(h.db, { id: "t1", status: "in_progress", assignedTopicId: "topic-live", attempts: 1, dispatchState: "queued" });
+
+    await h.dispatcher.reconcile();
+    await flush();
+
+    const t = h.task("t1")!;
+    expect(t.status).toBe("todo");
+    expect(t.assignedTopicId).toBeNull();
+    expect(t.dispatchAttempts).toBe(0);   // il riavvio non consuma un tentativo
+    expect(t.dispatchState).toBeNull();   // niente chip arenato su una board che non dispaccia
+    expect(h.turns.length).toBe(0);       // spenta: nessun agente riparte
+  });
+
+  it("reconcile LIBERA un orfano fermo su `queued` anche con la board ACCESA", async () => {
+    // Stesso fantasma, board accesa. Il passaggio da `todo` c'è ma non si
+    // fotografa: la STESSA reconcile, dopo il requeue, ticca la board e la
+    // riclaima — ed è il punto, perché è così che lo slot torna a lavorare
+    // invece di restare occupato da una card ferma.
+    const h = harness({ topicExists: () => true });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "in_progress", assignedTopicId: "topic-live", attempts: 1, dispatchState: "queued" });
+
+    await h.dispatcher.reconcile();
+    await flush();
+
+    const t = h.task("t1")!;
+    // L'invariante, in entrambe le modalità: nessuna card sopravvive come
+    // in_progress + `queued` senza un turno.
+    expect(t.status === "in_progress" && t.dispatchState === "queued").toBe(false);
+    expect(t.assignedTopicId).toBe("topic-1");                       // topic NUOVO, il fantasma era sbindato
+    expect(t.dispatchAttempts).toBe(1);                              // rimborsato (1→0) e riclaimato (0→1)
+    expect(h.turns.length).toBe(1);                                  // lo slot lavora davvero
+    expect(h.turns[0].content).toContain("owner esclusivo del task"); // kickoff, non un turno fantasma
+  });
+
+  it("un'attesa di slot VIVA non è un orfano: reconcile la lascia stare, il riavvio no", async () => {
+    // La collisione fra due pezzi che presi da soli sono giusti: il rinvio del
+    // resume a tetto pieno lascia la card `in_progress` col chip `queued`, e il
+    // recupero orfani ha imparato ad accettare `queued` proprio per liberare le
+    // card che quel rinvio si lascia dietro quando il processo muore.
+    //
+    // Ma un'attesa VIVA non ha un turno, quindi non compare in `inFlight`: da
+    // fuori è identica al fantasma. Senza il registro, il poll di reconcile (10s)
+    // se la mangerebbe prima ancora che i 5s del ritentativo siano passati — e
+    // sarebbe il guasto di prima al contrario: il messaggio dell'umano muore col
+    // timer e la card riparte su un topic nuovo.
+    const h = harness({ topicExists: () => true });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    h.svc.setGlobalCap({ auto: false, max: 1 });
+    seedTask(h.db, { id: "t1", status: "todo", createdAt: "2020-01-01T00:00:00.000Z" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.turns.length).toBe(1); // t1 si prende l'unico posto e lo tiene
+
+    // t2 rifiutato in review: il resume non trova posto e si mette in attesa.
+    seedTask(h.db, { id: "t2", status: "in_progress", assignedTopicId: "topic-live", attempts: 1, dispatchState: "working", createdAt: "2020-01-02T00:00:00.000Z" });
+    await h.dispatcher.resume("t2", "riprova da qui");
+    await flush();
+    expect(h.turns.length).toBe(1);                     // il posto è ancora uno
+    expect(h.task("t2")!.dispatchState).toBe("queued"); // l'attesa è viva, e lo dice
+
+    // Il poll passa MENTRE l'attesa è viva.
+    await h.dispatcher.reconcile();
+    await flush();
+
+    const waiting = h.task("t2")!;
+    expect(waiting.status).toBe("in_progress");             // non requeuata
+    expect(waiting.assignedTopicId).toBe("topic-live");     // stessa sessione: il messaggio è ancora suo
+    expect(waiting.dispatchState).toBe("queued");
+    expect(waiting.dispatchAttempts).toBe(1);               // nessun tentativo toccato
+    expect(h.turns.length).toBe(1);                         // e nessun agente in più
+    expect(waiting.dispatchState === "queued" && h.svc.get("t2")!.comments.some((c) => c.content.includes("rimesso in coda"))).toBe(false);
+
+    // Riavvio: il processo nuovo non ha né il timer né il registro. ADESSO la
+    // stessa card è orfana per davvero, e reconcile deve liberarla.
+    const restarted = h.restart();
+    await restarted.reconcile();
+    await flush();
+
+    const ghost = h.task("t2")!;
+    expect(ghost.status).toBe("todo");                      // rimessa in coda
+    expect(ghost.assignedTopicId).toBeNull();               // sbindata: la sessione non ha più nessuno
+    expect(ghost.dispatchAttempts).toBe(0);                 // il riavvio non consuma un tentativo
+    expect(h.svc.get("t2")!.comments.some((c) => c.content.includes("aspettava uno slot libero"))).toBe(true);
+    restarted.shutdown();
+  });
+
+  it("un resume che parte EREDITA il messaggio dell'attesa che spegne", async () => {
+    // Il registro tiene una attesa sola per task, quindi un resume che trova il
+    // posto libero spegne il timer di quella pendente. Il timer aveva in mano un
+    // messaggio dell'umano: spegnerlo e basta lo perderebbe — la stessa perdita
+    // che il registro esiste per evitare, solo per un'altra strada. Va dove
+    // vanno i messaggi arrivati a turno vivo, e `onTurnEnd` lo consegna.
+    const h = harness({ topicExists: () => true });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    h.svc.setGlobalCap({ auto: false, max: 1 });
+    seedTask(h.db, { id: "t1", status: "todo", createdAt: "2020-01-01T00:00:00.000Z" });
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    seedTask(h.db, { id: "t2", status: "in_progress", assignedTopicId: "topic-live", attempts: 1, dispatchState: "working", createdAt: "2020-01-02T00:00:00.000Z" });
+    await h.dispatcher.resume("t2", "il PRIMO messaggio");
+    await flush();
+    expect(h.turns.length).toBe(1); // in attesa: il posto è di t1
+
+    // Si libera posto (il tetto sale) e arriva un secondo messaggio.
+    h.svc.setGlobalCap({ auto: false, max: 5 });
+    void h.dispatcher.resume("t2", "il SECONDO messaggio"); // parte davvero: il turno resta in volo
+    await flush();
+    expect(h.turns.length).toBe(2);
+    expect(h.turns[1].content).toContain("il SECONDO messaggio");
+
+    // E il primo non è morto col timer: arriva col turno successivo.
+    h.finishTurn();
+    await flush();
+    expect(h.turns.length).toBe(3);
+    expect(h.turns[2].content).toContain("il PRIMO messaggio");
   });
 
   it("reconcile requeues a starting orphan (kickoff may never have reached the CLI)", async () => {
@@ -951,7 +1561,7 @@ describe("task-dispatcher", () => {
     expect(h2.turns[0].content).not.toContain("PLAN FIRST");
   });
 
-  it("kickoff teaches the step checklist (nested subtasks, self-closable) and output_url", async () => {
+  it("kickoff teaches the step checklist (nested subtasks, self-closable) and the tab+file delivery model", async () => {
     const h = harness();
     h.svc.updateBoardSettings(PID, { autoDispatch: true });
     seedTask(h.db, { id: "t1", status: "todo" });
@@ -961,7 +1571,65 @@ describe("task-dispatcher", () => {
     expect(kickoff).toContain('parent_task_id="t1"');
     expect(kickoff).toContain('status="done"'); // marca ogni step done
     expect(kickoff).toContain("TUTTI i tuoi step devono essere done");
-    expect(kickoff).toContain("output_url");
+    // Consegna = tab del task + file consegnati, niente concetto "Output":
+    // l'agente deve sapere che una pagina viva si apre come TAB, non si dichiara
+    // come url in un campo a parte.
+    expect(kickoff).toContain("open_browser_pane");
+    expect(kickoff).toContain("FILE CONSEGNATI");
+    expect(kickoff).not.toContain("output_url");
+  });
+
+  /**
+   * Il gemello del test omonimo in `task-dispatcher-fanout.test.ts`: qui la board
+   * NON dichiara `reviewChecks` (nessuna board lo faceva l'11/08, ed è per questo
+   * che tre card di fila hanno lasciato main con `check:deadcode` rosso).
+   */
+  it("kickoff nomina i QUATTRO cancelli e la regola dello script che nessuno importa", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    const kickoff = h.turns[0].content;
+    for (const gate of ["typecheck", "lint", "check:deadcode", "test:unit"]) expect(kickoff).toContain(gate);
+    expect(kickoff).toContain("knip.jsonc");
+    expect(kickoff).toContain("scripts/disk-report.ts!");
+  });
+
+  /**
+   * Il bump di versione è UN comando, e il kickoff lo nomina.
+   *
+   * `tests/unit/version-lockstep.test.ts` prendeva già i bump fatti a mano — due
+   * volte nella notte dell'11-12/08, sul `Cargo.lock` entrambe le volte — ma un
+   * cancello che non nomina il rimedio si paga con un riallineamento a mano ogni
+   * volta. I nomi si scrivono qui a mano, non interpolati da `VERSION_BUMP_RULE`.
+   */
+  it("kickoff nomina il GESTO del bump (un comando), non i file da aprire", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    const kickoff = h.turns[0].content;
+    expect(kickoff).toContain("bun run bump");
+    expect(kickoff).toContain("bun run bump sync");
+    expect(kickoff).toContain("lockfile");
+  });
+
+  it("kickoff carries the OPEN subtasks already on the board (accorpare non fa sparire il lavoro)", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    seedTask(h.db, { id: "kid1", status: "todo", parentTaskId: "t1", text: "cassetto cookie al contrario" });
+    seedTask(h.db, { id: "kid2", status: "done", parentTaskId: "t1", text: "già chiuso" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    const kickoff = h.turns[0].content;
+    expect(kickoff).toContain("cassetto cookie al contrario");
+    expect(kickoff).toContain("[kid1]");
+    expect(kickoff).toContain("1 sottotask aperti");
+    // I figli chiusi sono storia: ripassarli invita a rifarli.
+    expect(kickoff).not.toContain("già chiuso");
   });
 
   it("buffers a resume landing while the turn is in flight and delivers it on the same tab at turn end", async () => {
@@ -1465,5 +2133,213 @@ describe("task-dispatcher — rete di sicurezza sulla liveness", () => {
     expect(h.task("t1")!.status).toBe("review");
     expect(h.turns.length).toBe(1);                   // nessun turno in più: budget finito
     expect(h.dispatcher.isInFlight("t1")).toBe(false); // slot libero
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// La regola dell'anteprima vive in UN posto solo.
+//
+// Era scritta cinque volte — protocollo, kickoff, resume, schema del tool MCP,
+// commento del componente — e divergeva: gli envelope dicevano DUE rami
+// (UI statica → screenshot, UI dinamica → video), così una consegna senza
+// superficie renderizzata (un piano, un'architettura) cadeva nel ramo
+// «statica» e l'agente fotografava il documento. Ora la stringa è
+// `PREVIEW_RULE` in shared/board.ts e questi test sono ciò che impedisce alla
+// sesta copia di nascere.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("PREVIEW_RULE — una stringa sola, in tutti gli envelope", () => {
+  it("il kickoff porta la regola VERBATIM (tre rami, non due)", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    const kickoff = h.turns[0].content;
+    // Estratta per STRUTTURA (dalla riga «EVIDENZA DI REVIEW» a «Cancello
+    // unico»), non cercando la costante: un test che cerca la stringa che ha
+    // appena interpolato non può fallire.
+    const kickoffPreviewRule = extractPreviewRule(kickoff);
+    expect(kickoffPreviewRule).toBe(PREVIEW_RULE);
+    // E una sola volta: due blocchi nello stesso envelope sarebbero già la
+    // divergenza che ricomincia.
+    expect(kickoff.split(PREVIEW_RULE).length - 1).toBe(1);
+    expect(kickoff).toContain("· DIAGRAMMA");
+    expect(kickoff).not.toContain("UI STATICA"); // il vecchio ramo a due vie è sparito
+  });
+
+  it("il resume porta la STESSA regola, non un riassunto che perde un ramo", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "in_progress", assignedTopicId: "topic-42", attempts: 1 });
+
+    void h.dispatcher.resume("t1", "riprendi");
+    await flush();
+
+    const resumePreviewRule = extractPreviewRule(h.turns[0].content);
+    expect(resumePreviewRule).toBe(PREVIEW_RULE);
+  });
+
+  it("lo schema del tool MCP `update_task.preview_image` È la regola", () => {
+    const updateTask = toolsForProfile("dispatch").find((t) => t.name === "update_task");
+    const mcpToolSchema = updateTask!.inputSchema.properties as Record<string, { description: string }>;
+    expect(mcpToolSchema.preview_image.description).toBe(PREVIEW_RULE);
+  });
+
+  it("i criteri sono MISURABILI: la soglia della card esce dal numero, non da un aggettivo", () => {
+    // 0.7 = il tetto `max-h-[min(70cqw,320px)] object-cover` della card. Era
+    // 144/268 quando il tetto era un'altezza fissa: un numero vero in una sola
+    // larghezza di colonna su tre. Se qualcuno cambia il layout e non la
+    // costante, la regola mente agli agenti.
+    expect(PREVIEW_CARD_MAX_RATIO).toBeCloseTo(0.7, 3);
+    expect(PREVIEW_RULE).toContain(PREVIEW_CARD_MAX_RATIO.toFixed(2));
+    expect(PREVIEW_RULE).toContain("≤20s");        // il tetto del video
+    expect(PREVIEW_RULE).toContain("DUE O PIÙ STATI"); // il criterio del ramo video
+  });
+
+  it("la soglia del protocollo È il CSS della card, non un numero che gli somiglia", () => {
+    // Il buco che questo chiude: la costante e la classe Tailwind vivevano in
+    // due file e nessuno le confrontava, quindi `max-h-36` poteva restare 144px
+    // mentre `PREVIEW_CARD_MAX_RATIO` diceva tutt'altro — ed è esattamente ciò
+    // che era successo. Qui il tetto scritto nel componente si legge e si
+    // misura contro le costanti che il protocollo dà agli agenti.
+    const src = readFileSync(
+      join(import.meta.dir, "..", "..", "client", "src", "components", "Board", "PreviewMedia.tsx"),
+      "utf-8",
+    );
+    const ratio = /max-h-\[(\d+)cqw\]/.exec(src);
+    expect(ratio, "il tetto della card deve essere un rapporto in `cqw`").not.toBeNull();
+    expect(Number(ratio![1]) / 100).toBeCloseTo(PREVIEW_CARD_MAX_RATIO, 3);
+
+    // NESSUN tetto in larghezza: la miniatura riempie la card. Una fascia vuota
+    // a destra in una colonna larga si legge come un difetto (Attilio, 12/08),
+    // e il rapporto da solo tiene già la promessa fatta agli agenti. Questa
+    // asserzione presidia il verso: se qualcuno rimette un `max-w` in px sul
+    // riquadro, il rapporto smette di valere a ogni larghezza e il numero del
+    // protocollo torna vero solo in certe colonne.
+    expect(/max-w-\[(\d+)px\]/.test(src), "nessun tetto in px sul riquadro dell'anteprima").toBe(false);
+
+    // `cqw` senza un contenitore dichiarato risale al VIEWPORT: il tetto
+    // tornerebbe a guardare la finestra invece del riquadro, in silenzio.
+    expect(src).toContain("@container");
+  });
+
+  it("nessuna sesta copia: il testo dei rami esiste solo in shared/board.ts", () => {
+    // Il marcatore è una riga della costante. Chi riscrive la regola a mano in
+    // un altro file la ricopia quasi certamente da qui — e questo test lo vede.
+    const MARK = "· DIAGRAMMA .svg";
+    const roots = ["server", "scripts", "shared", "client/src"];
+    const repo = join(import.meta.dir, "..", "..");
+    const hits: string[] = [];
+    const walk = (dir: string) => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        if (e.name === "node_modules" || e.name.startsWith(".")) continue;
+        const p = join(dir, e.name);
+        if (e.isDirectory()) { walk(p); continue; }
+        if (!/\.(ts|tsx)$/.test(e.name)) continue;
+        if (readFileSync(p, "utf8").includes(MARK)) hits.push(p.slice(repo.length + 1));
+      }
+    };
+    for (const r of roots) walk(join(repo, r));
+    expect(hits.sort()).toEqual(["server/services/task-dispatcher.test.ts", "shared/board.ts"]);
+  });
+});
+
+describe("la coda deve dire il vero", () => {
+  it("budget finito = parcheggiata con la ragione, non ferma in coda a fingersi lavorabile", async () => {
+    // Misurato l'11/08: 19 card in colonna «coda», interruttore acceso, macchina
+    // libera, zero agenti. Il tick le scartava in silenzio perché avevano finito
+    // i tentativi — nessun chip, nessuna riga — e il board contava come lavoro
+    // ciò che era fermo per sempre.
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchRetryCap: 2 });
+    seedTask(h.db, { id: "t1", status: "todo", attempts: 2 });
+    await h.dispatcher.tick(PID);
+    await flush();
+    const t = h.task("t1")!;
+    expect(t.status).toBe("backlog");        // fuori dalla coda
+    expect(t.dispatchState).toBe("failed");  // e lo dice
+    const riga = h.svc.get("t1")!.comments.map((c) => c.content).join("\n");
+    expect(riga).toContain("Budget dei tentativi finito");
+    // La riga dice cosa è successo e cosa fare. NON manda a cercare un guasto:
+    // «guarda cosa lo fa fallire» presumeva un difetto da trovare, e ci finiva
+    // dentro anche chi aveva soltanto dichiarato due attese.
+    expect(riga).toContain("senza arrivare in review");
+    expect(riga).toContain("Rimettilo in Todo");
+    expect(riga).not.toContain("guarda cosa lo fa fallire");
+    expect(h.turns.length).toBe(0);          // nessun turno sprecato
+  });
+
+  it("…ma chi ASPETTA non è esaurito: la finestra scorre, il parcheggio no", async () => {
+    // L'11/08, dal vivo: un agente aveva dichiarato «UAT su CI, 8 shard, ~14
+    // minuti, riprovo fra 15» e il parcheggio degli esauriti — messo prima del
+    // cancello dell'attesa — l'ha ucciso mentre la finestra scorreva. Il bound
+    // sugli aspettatori eterni resta: scatta quando la finestra è passata.
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchRetryCap: 2 });
+    seedTask(h.db, { id: "t1", status: "todo", attempts: 2, dispatchState: "waiting" });
+    const fra10min = new Date(Date.now() + 10 * 60_000).toISOString();
+    h.db.run("UPDATE tasks SET dispatch_deferred_until = ? WHERE id = ?", [fra10min, "t1"]);
+    await h.dispatcher.tick(PID);
+    await flush();
+    const t = h.task("t1")!;
+    expect(t.status).toBe("todo");            // aspetta ancora, non parcheggiato
+    expect(t.dispatchState).toBe("waiting");
+    expect(h.turns.length).toBe(0);           // e nemmeno reclamato
+  });
+
+  it("il padre che finisce il turno coi figli aperti non paga il tentativo, e aspetta", () => {
+    // Era questo a fabbricare le 19 zombie: il rimando in coda del padre
+    // lasciava il contatore com'era, e al secondo giro la card rientrava già al
+    // tetto — invisibile, senza chip, mai più reclamabile.
+    const h = harness();
+    seedTask(h.db, { id: "padre", status: "in_progress", attempts: 2, assignedTopicId: "topic-padre" });
+    seedTask(h.db, { id: "figlio", status: "todo", parentTaskId: "padre" });
+    h.svc.deliverToReviewBySystem({ taskId: "padre", reason: "turno finito" });
+    const p = h.task("padre")!;
+    expect(p.status).toBe("todo");
+    expect(p.dispatchAttempts).toBe(1);          // il tentativo torna indietro
+    expect(p.dispatchState).toBe("waiting");     // e il board dice perché
+    expect(p.dispatchDeferredUntil).toBeTruthy(); // niente giro a vuoto immediato
+  });
+
+  it("…ma se i figli sono SOLO parcheggiati non c'è nulla da aspettare: CHIEDE", () => {
+    // Nessuno dispaccia dal backlog: rimandarlo in coda sarebbe un giro
+    // perpetuo ogni 10 minuti. Parcheggiarlo in backlog, però, lo nascondeva
+    // nella colonna dove «ferma» è l'aspetto normale — cinque card così il
+    // 12/08. Non è un blocco, è una domanda: va dove si vedono le domande.
+    const h = harness();
+    seedTask(h.db, { id: "padre", status: "in_progress", assignedTopicId: "topic-padre" });
+    seedTask(h.db, { id: "figlio", status: "backlog", parentTaskId: "padre" });
+    h.svc.deliverToReviewBySystem({ taskId: "padre", reason: "turno finito" });
+    const p = h.task("padre")!;
+    expect(p.status).toBe("review");
+    expect(p.dispatchState).toBe("needs_input");
+    expect(p.deliveredReason).toBe("parked_children");
+  });
+
+  it("l'ordine dei board gira a ogni giro, o il tetto globale affama chi sta in fondo", () => {
+    // Il tetto dei posti è GLOBALE: chi viene interrogato per primo li riempie.
+    // Misurato l'11/08 sul DB vivo: una board 26 claim su 31 in un'ora, un'altra
+    // con tre card in coda ZERO — non per priorità, per posizione nella lista,
+    // che era sempre la stessa a ogni reconcile.
+    //
+    // Qui si fissa la sola aritmetica dell'ordine, e una versione inerte (che
+    // restituisse la lista com'è) fallirebbe ogni riga con cursore > 0. NON
+    // copre il giro intero reconcile→claim: il banco di prova non riesce a far
+    // reclamare una seconda board, quindi la fame vera resta dimostrata dalla
+    // misura sul DB, non da un test — ed è bene saperlo invece di crederla
+    // coperta.
+    const b = ["alpha", "beta", "gamma"];
+    expect(rotateFrom(b, 0)).toEqual(["alpha", "beta", "gamma"]);
+    expect(rotateFrom(b, 1)).toEqual(["beta", "gamma", "alpha"]);
+    expect(rotateFrom(b, 2)).toEqual(["gamma", "alpha", "beta"]);
+    expect(rotateFrom(b, 3)).toEqual(["alpha", "beta", "gamma"]);
+    // Ogni board apre il giro esattamente una volta ogni tre.
+    expect(new Set([0, 1, 2].map((c) => rotateFrom(b, c)[0])).size).toBe(3);
+    // Casi limite: una board sola, lista vuota, cursore negativo.
+    expect(rotateFrom(["solo"], 5)).toEqual(["solo"]);
+    expect(rotateFrom([], 2)).toEqual([]);
+    expect(rotateFrom(b, -1)).toEqual(["gamma", "alpha", "beta"]);
   });
 });

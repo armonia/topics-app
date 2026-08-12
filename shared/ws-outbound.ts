@@ -331,6 +331,17 @@ const streamStartSchema = z.looseObject({
   sessionKey: z.string(),
   topicId: z.optional(z.string()),
   messageId: z.string(),
+  /**
+   * Il turno non comincia: RIPRENDE. `messageId` punta a una bolla che il
+   * client ha già piena — quella di prima del riavvio — e il replay sta per
+   * ridettarla da capo. Chi la vede la svuota adesso, o le delta si sommano a
+   * quello che c'è e il testo esce doppio.
+   *
+   * Prima questo azzeramento si faceva cancellando il corpo della riga in DB, e
+   * bastava che la riadozione morisse prima di rimetterlo a posto per perderlo
+   * per sempre. La vista si può rifare; il record no.
+   */
+  reattached: z.optional(z.boolean()),
 });
 
 const streamContentChunkSchema = z.looseObject({
@@ -529,6 +540,10 @@ const streamToolPermissionResolvedSchema = z.looseObject({
   outcome: z.looseObject({
     decision: z.string(),
     decidedAt: z.string(),
+    // Chi ha deciso. C'è solo su `allow_free`, l'unica decisione che cambia il
+    // regime della sessione e quindi l'unica che qualcuno andrà a chiedere «e
+    // chi è stato?».
+    actor: z.optional(z.string()),
   }),
 });
 
@@ -617,11 +632,14 @@ const browserOpenNearPaneSchema = z.looseObject({
 // Browser di proprietà del TASK (dietro TOPICS_TASK_BROWSER): i layout globali
 // ignorano di proposito questo frame, così la tab non finisce nel pane-store
 // condiviso — la consuma solo il gruppo in-drawer del task.
+// `title` è il NOME che l'agente ha prescritto alla tab (il manifesto), assente
+// quando non ne ha dato uno — allora l'etichetta resta il titolo della pagina.
 const browserOpenTaskTabSchema = z.looseObject({
   type: z.literal('browser:open-task-tab'),
   taskId: z.string(),
   contextId: z.string(),
   url: z.string(),
+  title: z.optional(z.string()),
 });
 
 // "Porta in primo piano la pane di questo topic". `projectPath` arriva inline
@@ -776,6 +794,16 @@ const taskDeletedSchema = z.looseObject({
   type: z.literal('task:deleted'),
   projectId: z.string(),
   taskId: z.string(),
+  /**
+   * L'INTERO sottoalbero archiviato (root compresa): archiviare un task
+   * archivia in cascata i suoi sottotask, e chi tiene stato per-task deve
+   * dimenticarli tutti, non solo la root. Oggi lo usa il client per buttare via
+   * `task-browser-tabs:<id>` / `task-browser-layout:<id>` dalla sua cache
+   * (`useTaskBrowserTabsSync`): il server ha appena cancellato quelle righe, e
+   * un client che se le ricorda le ri-PUTterebbe al primo debounce.
+   * Assente ⇒ ricadi su `[taskId]`.
+   */
+  taskIds: z.optional(z.array(z.string())),
 });
 
 // Il fronte "task ENTRATO in review", emesso IN AGGIUNTA a `task:updated` e solo
@@ -787,6 +815,24 @@ const taskReviewReadySchema = z.looseObject({
   taskId: z.string(),
   taskTitle: z.string(),
   reason: z.optional(z.string()),
+  // La domanda pendente dell'agente, quando la consegna È una domanda. Viaggia
+  // QUI e non la si va a cercare dopo: è il dato che trasforma il banner in una
+  // risposta (le opzioni diventano i tasti — shared/notify-actions), e chi lo
+  // legge sono due superfici che non possono interrogare il DB (il service
+  // worker della push) o che pagherebbero un fetch in più per ogni consegna
+  // (il notificatore del client).
+  // NULLABLE e non semplicemente opzionale: `null` = «questo server ha
+  // guardato e domanda non ce n'è», assente = «server che non sa rispondere
+  // alla domanda» (uno vecchio). Il client si comporta diversamente nei due
+  // casi — vedi il commento in `emitReviewReadyEdge`.
+  question: z.optional(
+    z.nullable(
+      z.looseObject({
+        text: z.string(),
+        options: z.array(z.string()),
+      }),
+    ),
+  ),
 });
 
 // Il gemello di FALLIMENTO del fronte qui sopra: il task è stato PARCHEGGIATO e
@@ -794,13 +840,17 @@ const taskReviewReadySchema = z.looseObject({
 // su un rimessa-in-coda, dove il task si auto-guarisce e un banner sarebbe
 // rumore su un ritentativo. `state` distingue le due domande che pone
 // all'umano: 'failed' = l'agent non ha prodotto niente, 'blocked' = c'è una
-// configurazione da sistemare (worktree, directory del progetto).
+// configurazione da sistemare (worktree, directory del progetto), 'waited_out'
+// = la serie di attese dichiarate ha sfondato il tetto, quindi non c'è niente
+// di rotto: c'è una condizione che non arriva e la decisione torna all'umano.
+// Il terzo valore esiste perché riusare 'blocked' farebbe dire al banner «da
+// sistemare» su un task che non ha niente da sistemare.
 const taskParkedSchema = z.looseObject({
   type: z.literal('task:parked'),
   projectId: z.string(),
   taskId: z.string(),
   taskTitle: z.string(),
-  state: z.union([z.literal('failed'), z.literal('blocked')]),
+  state: z.union([z.literal('failed'), z.literal('blocked'), z.literal('waited_out')]),
   reason: z.optional(z.string()),
 });
 
@@ -815,6 +865,25 @@ const taskUsageLiveSchema = z.looseObject({
   baseMs: z.number(),
   liveTokens: z.number(),
   model: z.nullable(z.string()),
+});
+
+// «Questo task sta aspettando una PERSONA», mentre il turno è ancora vivo: un
+// pannello di domanda o una richiesta di permesso aperti a metà turno.
+//
+// Transitorio come `task:usage-live`, e per la stessa ragione più una in più.
+// La ragione in più: l'attesa vive nelle mappe in memoria di `ask-user-bridge` e
+// `permission-bridge`, quindi a server riavviato NON esiste più. Scriverla in
+// `dispatch_state` la farebbe sopravvivere a chi la sostiene — e, provato sul
+// campo, farebbe anche uscire il task dalla porta del recupero orfani
+// (`ACTIVE_DISPATCH_STATES`), lasciandolo `in_progress` per sempre.
+const taskAwaitingHumanSchema = z.looseObject({
+  type: z.literal('task:awaiting-human'),
+  projectId: z.string(),
+  taskId: z.string(),
+  /** true quando l'attesa comincia, false quando finisce. */
+  waiting: z.boolean(),
+  /** Da quale porta arriva. Per chi guarda la board sono lo stesso fatto: serve nei log. */
+  source: z.enum(['ask', 'permission']),
 });
 
 // L'interruttore auto-dispatch è GLOBALE, non per progetto: ogni header di board
@@ -981,6 +1050,51 @@ const authSharesChangedSchema = z.object({
   type: z.literal('auth:shares-changed'),
 });
 
+// ---- Cronologia delle notifiche --------------------------------------------
+
+/**
+ * Una notifica è appena stata REGISTRATA (migration 102 · db/notification-log).
+ * Emesso una volta sola per evento, dopo il taglio del dedup: se due porte —
+ * banner nativo e web-push — o N finestre staccate riportano la stessa notifica,
+ * la riga è una e questo frame parte una volta.
+ *
+ * Porta la riga INTERA e non solo il conteggio, perché il tastino accanto a
+ * Topics deve poter mostrare l'ultima voce senza rileggere l'elenco: il
+ * contatore che si aggiorna «dal vivo» e una lista che si aggiorna solo
+ * all'apertura sono due promesse diverse.
+ */
+const notificationNewSchema = z.looseObject({
+  type: z.literal('notification:new'),
+  row: z.looseObject({
+    id: z.string(),
+    createdAt: z.string(),
+    kind: z.string(),
+    title: z.string(),
+    body: z.string(),
+    targetKind: z.nullable(z.string()),
+    targetId: z.nullable(z.string()),
+    targetUrl: z.nullable(z.string()),
+    source: z.string(),
+    groupKey: z.nullable(z.string()),
+    seenAt: z.nullable(z.string()),
+  }),
+  unseen: z.number(),
+});
+
+/**
+ * Il «visto» è stato applicato: il contatore vale ORA questo.
+ *
+ * Il frame porta solo il numero perché il «visto» è GLOBALE, non per
+ * dispositivo: guardare la cronologia su una finestra deve spegnere il pallino
+ * anche sulle altre e sul telefono. Senza questo frame ogni finestra resterebbe
+ * con il suo conteggio vecchio fino al ricaricamento — cioè col difetto che il
+ * contatore live doveva togliere.
+ */
+const notificationSeenSchema = z.looseObject({
+  type: z.literal('notification:seen'),
+  unseen: z.number(),
+});
+
 // ---- Registry --------------------------------------------------------------
 
 const OUTBOUND_SCHEMAS = {
@@ -1080,6 +1194,7 @@ const OUTBOUND_SCHEMAS = {
   'task:review-ready': taskReviewReadySchema,
   'task:parked': taskParkedSchema,
   'task:usage-live': taskUsageLiveSchema,
+  'task:awaiting-human': taskAwaitingHumanSchema,
   'board:dispatch': boardDispatchSchema,
   'board:global-cap': boardGlobalCapSchema,
   'board:settings': boardSettingsSchema,
@@ -1101,6 +1216,9 @@ const OUTBOUND_SCHEMAS = {
   'auth:pair-resolved': authPairResolvedSchema,
   'auth:device-revoked': authDeviceRevokedSchema,
   'auth:shares-changed': authSharesChangedSchema,
+  // Cronologia delle notifiche
+  'notification:new': notificationNewSchema,
+  'notification:seen': notificationSeenSchema,
 } as const;
 
 /**

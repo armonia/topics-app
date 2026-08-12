@@ -116,7 +116,7 @@ function sanitizePane(raw: unknown): Pane | null {
   // Browser title provenance (auto page-title vs a user rename). Whitelisted so
   // a `user`-pinned tab name survives a server round-trip and the poll doesn't
   // resurrect the page title over it after a reload.
-  if (raw.titleSource === 'auto' || raw.titleSource === 'user') pane.titleSource = raw.titleSource;
+  if (raw.titleSource === 'auto' || raw.titleSource === 'agent' || raw.titleSource === 'user') pane.titleSource = raw.titleSource;
   if (typeof raw.diff === 'boolean') pane.diff = raw.diff;
   if (typeof raw.diffProjectPath === 'string') pane.diffProjectPath = raw.diffProjectPath;
   if (typeof raw.preview === 'boolean') pane.preview = raw.preview;

@@ -35,7 +35,7 @@ interface ChatPanelProps {
    * the unified composer button can offer Stop without going through the
    * sidebar `TopicItem` route. See `composerAction.ts`.
    */
-  stopSession: (sk: string) => boolean;
+  stopSession: (sk: string) => Promise<boolean>;
   editMessage?: (sk: string, messageId: string, newContent: string) => Promise<boolean>;
   regenerateMessage?: (sk: string, messageId: string) => Promise<boolean>;
   deleteMessage?: (sk: string, messageId: string) => Promise<boolean>;
@@ -221,7 +221,7 @@ export function ChatPanel({
         {commandResult && (
           <div className={`px-3 py-2 border-b flex items-center gap-2 flex-shrink-0 transition-all ${commandResult.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-red-500/10 border-red-500/20'}`}>
             <div className={`text-[12px] flex-1 whitespace-pre-wrap font-mono ${commandResult.type === 'success' ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>{commandResult.message}</div>
-            <button onClick={() => setCommandResult(null)} className="text-app-text-muted hover:text-app-text p-1"><X size={12} /></button>
+            <button aria-label="Chiudi il messaggio del comando" onClick={() => setCommandResult(null)} className="text-app-text-muted hover:text-app-text p-1"><X size={12} /></button>
           </div>
         )}
 

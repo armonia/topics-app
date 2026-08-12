@@ -19,12 +19,13 @@
 import { useCallback, useEffect, useMemo } from 'react';
 import type { Pane, PaneType, PaneGroupType, GroupLayoutRow, PaneGroup } from '../../types';
 import { RemoteBrowserPanel } from '../Browser/RemoteBrowserPanel';
-import { useTaskBrowserTabs, taskBrowserTabs, liveTabs, getTaskTabs, type TaskBrowserTab } from '../../state/taskBrowserTabs';
+import { useTaskBrowserTabs, taskBrowserTabs, liveTabs, getTaskTabs, isPinnedTitle, type TaskBrowserTab } from '../../state/taskBrowserTabs';
 import { mediaPaneIdFor } from './constants';
 import {
   usePersistedTaskLayout,
   taskBrowserLayout,
   reconcileTaskLayout,
+  syncRowsWithGroups,
   tabToPane,
   paneIdToContextId,
 } from '../../state/taskBrowserLayout';
@@ -60,10 +61,28 @@ export interface TaskDrawerLayoutInput {
   mediaPaths: string[];
   /** Renders thread/plan/media pane bodies (closure from TaskDetail). */
   renderSurface: RenderSurface;
+  /**
+   * Il drawer a due colonne monta la SESSIONE a sinistra, da sé: qui la pane
+   * `thread:` va tolta dalla barra, o la stessa sessione starebbe in due posti.
+   *
+   * Si toglie dalla VISTA, non dallo stato: l'identità della pane e la sua
+   * posizione nei gruppi restano nel layout persistito (che è cross-device),
+   * così stringere e riallargare non è una scrittura — e non riordina le tab di
+   * chi sta guardando il task dall'altro dispositivo.
+   */
+  threadInline?: boolean;
 }
 
 export interface TaskBrowserGroupLayout {
   liveCount: number;
+  /** L'url della tab viva in primo piano (o la prima viva se nessuna è attiva),
+   *  `null` senza tab vive. È IL risultato del task nel modello «tab + file»:
+   *  serve a «Apri nel workspace», che promuove QUESTA tab nella finestra del
+   *  progetto invece del solo `output_url` (che è solo il seme della prima). */
+  activeUrl: string | null;
+  /** Le tab VIVE, nell'ordine in cui sono nate: È il manifesto della consegna.
+   *  Chi promuove il risultato nel workspace le apre TUTTE, non solo la prima. */
+  live: TaskBrowserTab[];
   /** The soft-closed browser tabs for the closed-tab tray under the description. */
   parkedTabs: TaskBrowserTab[];
   /** Open a fresh browser tab (tray "+" / empty-state affordance). */
@@ -114,7 +133,7 @@ export interface TaskBrowserGroupLayout {
 }
 
 export function useTaskBrowserGroupLayout(taskId: string, input: TaskDrawerLayoutInput): TaskBrowserGroupLayout {
-  const { planActive, mediaPaths, renderSurface } = input;
+  const { planActive, mediaPaths, renderSurface, threadInline = false } = input;
   const tabsState = useTaskBrowserTabs(taskId);
   const persisted = usePersistedTaskLayout(taskId);
 
@@ -158,6 +177,37 @@ export function useTaskBrowserGroupLayout(taskId: string, input: TaskDrawerLayou
   useEffect(() => {
     if (reconciled !== persisted) taskBrowserLayout.set(taskId, reconciled);
   }, [taskId, reconciled, persisted]);
+
+  // La VISTA che GroupLayout riceve. Uguale a `reconciled`, tranne che in modo
+  // due-colonne, dove la pane `thread:` esce di scena (TaskDetail monta la
+  // sessione a sinistra). Derivata a ogni render, MAI persistita: vedi
+  // `threadInline`.
+  //
+  // Un gruppo rimasto senza pane sparisce dalla vista, e con lui la sua cella:
+  // se spariscono tutti la colonna di destra resta senza gruppi — caso reale su
+  // un task senza tab, senza piano e senza allegati — e TaskDetail lo riconosce
+  // da `panes.length === 0` per mostrare uno stato vuoto invece di un rettangolo.
+  const view = useMemo(() => {
+    const tid = threadPaneId(taskId);
+    if (!threadInline) return reconciled;
+    const groups = reconciled.groups
+      .map((g) => {
+        if (!g.paneIds.includes(tid)) return g;
+        const paneIds = g.paneIds.filter((id) => id !== tid);
+        return { ...g, paneIds, activePaneId: paneIds.includes(g.activePaneId) ? g.activePaneId : (paneIds[0] ?? g.activePaneId) };
+      })
+      .filter((g) => g.paneIds.length > 0);
+    if (groups.length === reconciled.groups.length && groups.every((g, i) => g === reconciled.groups[i])) return reconciled;
+    const r = syncRowsWithGroups(groups, reconciled.rows, reconciled.rowHeights);
+    const focusedGroupId = groups.some((g) => g.id === reconciled.focusedGroupId)
+      ? reconciled.focusedGroupId
+      : (groups[0]?.id ?? null);
+    return { groups, rows: r.rows, rowHeights: r.rowHeights, focusedGroupId };
+  }, [reconciled, threadInline, taskId]);
+  const viewPanes = useMemo(
+    () => (threadInline ? panes.filter((p) => p.id !== threadPaneId(taskId)) : panes),
+    [panes, threadInline, taskId],
+  );
 
   const onActivatePane = useCallback((groupId: string, paneId: string) => taskBrowserLayout.activatePane(taskId, groupId, paneId), [taskId]);
   // Close routing: a browser tab parks (soft-close → reopenable tray); the
@@ -230,13 +280,18 @@ export function useTaskBrowserGroupLayout(taskId: string, input: TaskDrawerLayou
     const live = liveTabs(getTaskTabs(taskId));
     if (live.length !== 1) return;
     const t = live[0];
-    if (t.titleSource === 'user') return;                       // reviewer pinned it
+    // Etichetta decisa da qualcuno: il reviewer l'ha rinominata, oppure è il
+    // NOME che l'agente le ha dato nel manifesto. In entrambi i casi non è il
+    // seme automatico dell'output_url, quindi non si ritira.
+    if (isPinnedTitle(t.titleSource)) return;
     if (opts?.loginWallOnly && !isLoginWall(t.url)) return;     // keep a legit live server
     taskBrowserTabs.closeTab(taskId, t.contextId);
   }, [taskId]);
 
   return {
     liveCount: live.length,
+    live,
+    activeUrl: (live.find((t) => t.contextId === tabsState.activeContextId) ?? live[0])?.url || null,
     parkedTabs: useMemo(() => tabsState.tabs.filter((t) => t.parked), [tabsState.tabs]),
     addBrowserTab,
     reopenTab,
@@ -245,11 +300,11 @@ export function useTaskBrowserGroupLayout(taskId: string, input: TaskDrawerLayou
     seedFromUrl,
     retireLoneSeed,
     groupLayoutProps: {
-      panes,
-      groups: reconciled.groups,
-      rows: reconciled.rows,
-      rowHeights: reconciled.rowHeights,
-      focusedGroupId: reconciled.focusedGroupId,
+      panes: viewPanes,
+      groups: view.groups,
+      rows: view.rows,
+      rowHeights: view.rowHeights,
+      focusedGroupId: view.focusedGroupId,
       dndScope: `task:${taskId}`,
       linkContext: { taskId },
       nonClosablePaneIds,

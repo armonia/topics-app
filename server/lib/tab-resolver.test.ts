@@ -12,13 +12,14 @@ import {
   projectDirOnDisk,
   type TabResolverDeps,
 } from "./tab-resolver";
+import { TASKS_DDL, TASK_LABELS_DDL } from "../db/test-schema";
 
 // ── Un DB sintetico, con solo le colonne che il resolver legge ───────────────
 // (stesso pattern di claude-session-repo.test.ts: schema minimo in :memory:,
 // così il test dice quali colonne sono davvero il contratto).
 
-const PROJ = "/Users/zorahrel/Projects/topics-app";
-const OTHER_PROJ = "/Users/zorahrel/Projects/darkroom";
+const PROJ = "/Users/utente/Projects/topics-app";
+const OTHER_PROJ = "/Users/utente/Projects/darkroom";
 
 let db: Database;
 
@@ -39,10 +40,8 @@ function freshDb(): Database {
   d.run(`CREATE TABLE worktrees (
     id TEXT PRIMARY KEY, name TEXT NOT NULL, abs_path TEXT NOT NULL, status TEXT NOT NULL
   )`);
-  d.run(`CREATE TABLE tasks (
-    id TEXT PRIMARY KEY, text TEXT NOT NULL, status TEXT NOT NULL,
-    archived INTEGER NOT NULL DEFAULT 0, project_id TEXT, assigned_topic_id TEXT
-  )`);
+  d.run(TASKS_DDL);
+  d.run(TASK_LABELS_DDL); // migration 100 — rowToTask la legge per OGNI task
   d.run(`CREATE TABLE terminal_sessions (
     id TEXT PRIMARY KEY, name TEXT NOT NULL, cwd TEXT NOT NULL, type TEXT NOT NULL,
     topic_id TEXT, status TEXT NOT NULL DEFAULT 'active'
@@ -89,7 +88,7 @@ describe("resolveTabRef — ref che non sono permalink", () => {
   });
 
   test("gli alias storici /task/<id> e /topic/<id> risolvono", () => {
-    db.run("INSERT INTO tasks (id, text, status) VALUES ('k-1', 'Fai la cosa', 'todo')");
+    db.run("INSERT INTO tasks (id, text, status, project_id, created_at, updated_at) VALUES ('k-1', 'Fai la cosa', 'todo', 'p-test', '2026-01-01', '2026-01-01')");
     expect(resolveTabRef("/task/k-1", deps())?.kind).toBe("task");
     expect(resolveTabRef("/topic/t-1", deps())?.kind).toBe("chat");
   });
@@ -321,7 +320,7 @@ describe("resolveTabRef — file e diff", () => {
   });
 
   test("un path di progetto con un PUNTO sopravvive al giro completo", () => {
-    const weird = "/Users/zorahrel/Projects/my.app";
+    const weird = "/Users/utente/Projects/my.app";
     const ref = buildTabPath({ kind: "file", key: "src/main.ts", projectPath: weird })!;
     expect(ref).not.toContain(".");
     const r = resolveTabRef(`http://127.0.0.1:3333${ref}`, deps())!;
@@ -372,7 +371,7 @@ describe("resolveTabRef — task", () => {
     // board GuidoAI porta `[cliente]-v1skoz`. Si ricalcola l'id sui path noti.
     const boardId = projectIdForPath(PROJ);
     expect(boardId).not.toBe("p1");
-    db.run("INSERT INTO tasks (id, text, status, project_id) VALUES ('k-1', 'Permalink alle tab', 'review', ?)", [boardId]);
+    db.run("INSERT INTO tasks (id, text, status, project_id, created_at, updated_at) VALUES ('k-1', 'Permalink alle tab', 'review', ?, '2026-01-01', '2026-01-01')", [boardId]);
     putUi("task-browser-layout:k-1", { groups: [] });
     const r = resolveTabRef("/tab/task/k-1", deps())!;
     expect(r.title).toBe("Permalink alle tab");
@@ -383,12 +382,12 @@ describe("resolveTabRef — task", () => {
   });
 
   test("la forma legacy (project_id = projects.id) continua a risolvere", () => {
-    db.run("INSERT INTO tasks (id, text, status, project_id) VALUES ('k-3', 'Vecchio schema', 'todo', 'p1')");
+    db.run("INSERT INTO tasks (id, text, status, project_id, created_at, updated_at) VALUES ('k-3', 'Vecchio schema', 'todo', 'p1', '2026-01-01', '2026-01-01')");
     expect(resolveTabRef("/tab/task/k-3", deps())!.pointers.projectPath).toBe(PROJ);
   });
 
   test("un project_id speciale (`_none`) non produce un path inventato", () => {
-    db.run("INSERT INTO tasks (id, text, status, project_id) VALUES ('k-4', 'Senza progetto', 'todo', '_none')");
+    db.run("INSERT INTO tasks (id, text, status, project_id, created_at, updated_at) VALUES ('k-4', 'Senza progetto', 'todo', '_none', '2026-01-01', '2026-01-01')");
     const r = resolveTabRef("/tab/task/k-4", deps())!;
     expect(r.pointers.projectPath).toBeUndefined();
     expect(r.pointers.cwd).toBeUndefined();
@@ -398,7 +397,7 @@ describe("resolveTabRef — task", () => {
     db.run("INSERT INTO worktrees (id, name, abs_path, status) VALUES ('w9', 'task-wt', '/tmp/wt-task', 'ready')");
     db.run("UPDATE topics SET worktree_id = 'w9' WHERE id = 't-1'");
     db.run(
-      "INSERT INTO tasks (id, text, status, project_id, assigned_topic_id) VALUES ('k-5', 'Dispatchato', 'in_progress', ?, 't-1')",
+      "INSERT INTO tasks (id, text, status, project_id, assigned_topic_id, created_at, updated_at) VALUES ('k-5', 'Dispatchato', 'in_progress', ?, 't-1', '2026-01-01', '2026-01-01')",
       [projectIdForPath(PROJ)],
     );
     const r = resolveTabRef("/tab/task/k-5", deps())!;
@@ -408,7 +407,7 @@ describe("resolveTabRef — task", () => {
   });
 
   test("task archiviato ⇒ archived; task inesistente ⇒ unknown", () => {
-    db.run("INSERT INTO tasks (id, text, status, archived) VALUES ('k-2', 'Vecchio', 'done', 1)");
+    db.run("INSERT INTO tasks (id, text, status, archived, project_id, created_at, updated_at) VALUES ('k-2', 'Vecchio', 'done', 1, 'p-test', '2026-01-01', '2026-01-01')");
     expect(resolveTabRef("/tab/task/k-2", deps())!.state).toBe("archived");
     expect(resolveTabRef("/tab/task/k-ignoto", deps())!.state).toBe("unknown");
   });
@@ -429,7 +428,7 @@ describe("resolveTabRef — task", () => {
 describe("resolveTabRef — project/file esistono se la CARTELLA esiste", () => {
   // Una directory VERA, non un mock: il criterio è il filesystem, e un fake
   // proverebbe solo che il fake funziona. `mkdtemp` la rende indipendente
-  // dalla macchina (su CI `/Users/zorahrel/...` non esiste).
+  // dalla macchina (su CI `/Users/utente/...` non esiste).
   const scratch = mkdtempSync(join(tmpdir(), "tabresolve-"));
   afterAll(() => { rmSync(scratch, { recursive: true, force: true }); });
 

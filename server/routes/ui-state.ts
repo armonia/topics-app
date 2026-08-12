@@ -39,6 +39,23 @@ export const MAX_UI_STATE_BYTES = 256 * 1024;
 /** La chiave `ui_state` delle preferenze applicative (client: `SETTINGS_SERVER_KEY`). */
 export const SETTINGS_KEY = "settings";
 
+/** La chiave del pane store (client: `middleware/syncServer.ts#REMOTE_KEY`).
+ *  E' l'unica che porta i tombstone, cioe' l'unica da cui nasce una cascata. */
+export const PANE_STORE_KEY = "pane-store-v2";
+
+export interface UiStateRouterOptions {
+  /**
+   * Le conseguenze di una tab chiusa, decise sul PRIMA e il DOPO dello snapshot
+   * (`services/pane-retirement-cascade.ts` per la decisione, il chiamante per
+   * l'applicazione). Chiamata solo per `pane-store-v2` e solo dopo che la
+   * scrittura ha COMMITTATO: una cascata su una scrittura poi rifiutata dal
+   * gate CAS avrebbe archiviato chat per uno snapshot che il server ha scartato.
+   *
+   * Assente ⇒ il router si comporta esattamente come prima (test, fixture).
+   */
+  onPaneSnapshot?: (prev: unknown, next: unknown) => void;
+}
+
 /** I campi di `AppSettings` che restano su QUESTO dispositivo — gemelli di
  *  `DEVICE_LOCAL_SETTING_KEYS` in `client/src/lib/settings.ts`. */
 export const DEVICE_LOCAL_SETTINGS_FIELDS = ["sidebarWidth", "sidebarCollapsed"] as const;
@@ -152,18 +169,34 @@ function assertMigration012(row: { payload_version: unknown; server_seq: unknown
   if (!row) return; // null row is a legitimate "not found"
   if (row.payload_version === undefined || row.payload_version === null) {
     throw new Error(
-      `[ui-state/${ctx}] migration 012 not applied — payload_version column missing. Run \`bun run db:migrate\`.`,
+      `[ui-state/${ctx}] migration 012 not applied: payload_version column missing. Run \`bun run db:migrate\`.`,
     );
   }
   if (row.server_seq === undefined || row.server_seq === null) {
     throw new Error(
-      `[ui-state/${ctx}] migration 012 not applied — server_seq column missing. Run \`bun run db:migrate\`.`,
+      `[ui-state/${ctx}] migration 012 not applied: server_seq column missing. Run \`bun run db:migrate\`.`,
     );
   }
 }
 
-export function createUiStateRouter(ctx: AppContext): RouteHandler {
+export function createUiStateRouter(ctx: AppContext, opts?: UiStateRouterOptions): RouteHandler {
   const { db, json, broadcastToAll } = ctx;
+
+  /** Il valore attuale di una chiave, gia' parsato. `null` = non c'era. */
+  function readUiStateValue(key: string): unknown {
+    const row = db.query("SELECT value FROM ui_state WHERE key = ?").get(key) as { value: string } | null;
+    if (!row) return null;
+    try { return JSON.parse(row.value); } catch { return null; }
+  }
+
+  /** La cascata, isolata: un errore qui non deve mai far fallire un PUT — il
+   *  pane store dell'utente e' piu' importante di una conseguenza in ritardo,
+   *  che il riconcilio al boot recupera comunque. */
+  function fireCascade(prev: unknown, next: unknown): void {
+    if (!opts?.onPaneSnapshot) return;
+    try { opts.onPaneSnapshot(prev, next); }
+    catch (err) { console.error("[ui-state] cascata del ritiro fallita:", err); }
+  }
 
   function getAllUiStateEnvelope(): UiStateEnvelope {
     const rows = db.query("SELECT key, value, payload_version, server_seq FROM ui_state").all() as { key: string; value: string; payload_version: number; server_seq: number }[];
@@ -292,7 +325,11 @@ export function createUiStateRouter(ctx: AppContext): RouteHandler {
       // guaranteeing distinct, monotonically increasing server_seq values.
       // The CAS check lives INSIDE the same transaction, so the read of the
       // current seq and the write are atomic with respect to other writers.
-      const outcome = db.transaction((): { written: boolean; server_seq: number } => {
+      const outcome = db.transaction((): { written: boolean; server_seq: number; prev?: unknown } => {
+        // Il PRIMA va letto DENTRO la transazione, o due PUT concorrenti
+        // leggerebbero lo stesso «prima» e il secondo ricalcolerebbe una
+        // cascata su uno stato che non esiste piu'.
+        const prev = key === PANE_STORE_KEY && opts?.onPaneSnapshot ? readUiStateValue(key) : undefined;
         if (base !== null) {
           const cur = db.query(
             "SELECT server_seq FROM ui_state WHERE key = ?",
@@ -315,7 +352,7 @@ export function createUiStateRouter(ctx: AppContext): RouteHandler {
              updated_at = datetime('now')`,
           [key, value, nextSeq],
         );
-        return { written: true, server_seq: nextSeq };
+        return { written: true, server_seq: nextSeq, prev };
       }).immediate();
 
       if (!outcome.written) {
@@ -327,6 +364,7 @@ export function createUiStateRouter(ctx: AppContext): RouteHandler {
       }
 
       const server_seq = outcome.server_seq;
+      if (key === PANE_STORE_KEY) fireCascade(outcome.prev, sanitized);
       broadcastToAll({ type: "ui-state:updated", key, value: sanitized, payload_version: 2, server_seq, sourceClientId });
       return json({ ok: true, payload_version: 2, server_seq });
     }
@@ -378,7 +416,13 @@ export function createUiStateRouter(ctx: AppContext): RouteHandler {
       // Race-fix (Phase 30): BEGIN IMMEDIATE — same rationale as the single-key
       // path above.
       const server_seqs: Record<string, number> = {};
+      // Il pane store passa anche di qui: e' la strada del `sendBeacon` di
+      // `pagehide`, cioe' proprio la chiusura di finestra in cui le conseguenze
+      // lato client si perdono. Saltarla avrebbe lasciato scoperto il caso che
+      // il guasto misurato produceva piu' spesso.
+      let panePrev: unknown;
       const run = db.transaction(() => {
+        if (PANE_STORE_KEY in cleaned && opts?.onPaneSnapshot) panePrev = readUiStateValue(PANE_STORE_KEY);
         const current = (db.query(
           "SELECT COALESCE(MAX(server_seq), 0) AS maxSeq FROM ui_state",
         ).get() as { maxSeq: number }).maxSeq;
@@ -399,6 +443,7 @@ export function createUiStateRouter(ctx: AppContext): RouteHandler {
         }
       });
       run.immediate();
+      if (PANE_STORE_KEY in cleaned) fireCascade(panePrev, cleaned[PANE_STORE_KEY].sanitized);
 
       // Finding #11: broadcast a DELTA (`ui-state:patch`) that only carries the
       // keys this request actually modified, instead of the full `ui-state:init`
@@ -433,10 +478,46 @@ export function createUiStateRouter(ctx: AppContext): RouteHandler {
   };
 }
 
-/** Helper to load all ui_state for WS init push — returns Option-A envelope { data, meta }. */
+/**
+ * I prefissi che l'`ui-state:init` NON porta — le chiavi per-task del browser.
+ *
+ * PERCHÉ. Lo snapshot va a OGNI client a OGNI riconnessione, e queste chiavi
+ * crescono di una coppia per ogni task che apre un browser, per sempre (un task
+ * non si cancella, si archivia — vedi `services/task-tab-teardown.ts`). Misura
+ * sul db vivo dell'11/08: 91 righe `task-browser-*` su 172 di `ui_state`, 31 KB
+ * su 101 KB — il 30,8% di uno snapshot che nessuno legge da lì.
+ *
+ * PERCHÉ SI PUÒ. Il client queste due chiavi le carica GIÀ da sé, con un GET
+ * per-task (`ensureTaskTabsLoaded` / `ensureTaskLayoutLoaded`) quando apre quel
+ * task: lo snapshot le portava solo perché la query non filtrava. Il layout non
+ * ha nessun consumer di `ui-state:init`; le tab lo usavano come RESYNC di
+ * riconnessione, e quel resync ora è mirato lato client — ri-GETta le sole
+ * chiavi dei task che ha davvero in cache (`resyncTaskTabsFromServer`), di norma
+ * zero o due invece di novanta.
+ *
+ * NON È UNA CANCELLAZIONE: le righe restano, il GET singolo le serve identiche.
+ * `GET /api/ui-state` (all-keys) resta completo di proposito — è la porta di
+ * servizio per chi vuole davvero tutto.
+ */
+export const UI_STATE_INIT_EXCLUDED_PREFIXES = ["task-browser-tabs:", "task-browser-layout:"] as const;
+
+/** Vero se la chiave è esclusa dallo snapshot `ui-state:init` (gemello JS del WHERE sotto). */
+export function isExcludedFromUiStateInit(key: string): boolean {
+  return UI_STATE_INIT_EXCLUDED_PREFIXES.some((p) => key.startsWith(p));
+}
+
+// Nessun `_` o `%` nei prefissi ⇒ nessun escape da fare nel LIKE.
+const INIT_EXCLUSION_WHERE = UI_STATE_INIT_EXCLUDED_PREFIXES.map(() => "key NOT LIKE ?").join(" AND ");
+const INIT_EXCLUSION_PARAMS = UI_STATE_INIT_EXCLUDED_PREFIXES.map((p) => `${p}%`);
+
+/** Helper to load all ui_state for WS init push — returns Option-A envelope { data, meta }.
+ *  Le chiavi in `UI_STATE_INIT_EXCLUDED_PREFIXES` sono filtrate: il client le
+ *  legge per-task, non da qui. */
 export function loadAllUiState(db: import("bun:sqlite").Database): UiStateEnvelope {
   try {
-    const rows = db.query("SELECT key, value, payload_version, server_seq FROM ui_state").all() as { key: string; value: string; payload_version: number; server_seq: number }[];
+    const rows = db.query(
+      `SELECT key, value, payload_version, server_seq FROM ui_state WHERE ${INIT_EXCLUSION_WHERE}`,
+    ).all(...INIT_EXCLUSION_PARAMS) as { key: string; value: string; payload_version: number; server_seq: number }[];
     const data: Record<string, unknown> = {};
     const meta: Record<string, UiStateMeta> = {};
     for (const row of rows) {
@@ -474,12 +555,12 @@ export function assertUiStateMigrationApplied(db: import("bun:sqlite").Database)
     "SELECT sql FROM sqlite_master WHERE type='table' AND name='ui_state'",
   ).get() as { sql: string } | null;
   if (!tableRow || !tableRow.sql) {
-    throw new Error("[ui-state] boot check: ui_state table missing — migrations did not run. Run `bun run db:migrate`.");
+    throw new Error("[ui-state] boot check: ui_state table missing. Migrations did not run. Run `bun run db:migrate`.");
   }
   if (!/payload_version/i.test(tableRow.sql)) {
-    throw new Error("[ui-state] boot check: migration 012 not applied — payload_version column missing. Run `bun run db:migrate`.");
+    throw new Error("[ui-state] boot check: migration 012 not applied: payload_version column missing. Run `bun run db:migrate`.");
   }
   if (!/server_seq/i.test(tableRow.sql)) {
-    throw new Error("[ui-state] boot check: migration 012 not applied — server_seq column missing. Run `bun run db:migrate`.");
+    throw new Error("[ui-state] boot check: migration 012 not applied: server_seq column missing. Run `bun run db:migrate`.");
   }
 }

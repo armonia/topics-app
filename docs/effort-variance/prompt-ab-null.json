@@ -1,0 +1,370 @@
+{
+  "schema": "prompt-ab@1",
+  "judge": "claude-haiku-4-5",
+  "n": 20,
+  "arms": [
+    {
+      "id": "v1",
+      "label": "prompt del giudice fino al 2026-08-10 (congelato)",
+      "promptSha256": "0e185f466d50713e"
+    },
+    {
+      "id": "live",
+      "label": "CLASSIFIER_PROMPT — quello vero, importato",
+      "promptSha256": "0e185f466d50713e"
+    }
+  ],
+  "calls": 160,
+  "wallClockMs": 330329,
+  "cells": [
+    {
+      "arm": "v1",
+      "case": "token-live-json",
+      "expect": "opus",
+      "n": 20,
+      "model": {
+        "opus": 10,
+        "sonnet": 10
+      },
+      "effort": {
+        "medium": 13,
+        "high": 7
+      },
+      "offTarget": 0.5,
+      "offTargetCI": [
+        0.29929800815870233,
+        0.7007019918412977
+      ],
+      "disagreement": {
+        "model": 0.5263157894736843,
+        "effort": 0.4789473684210527
+      },
+      "raws": [
+        "opus medium",
+        "opus high",
+        "opus high",
+        "sonnet medium",
+        "sonnet medium",
+        "opus high",
+        "opus high",
+        "opus high",
+        "opus high",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "opus medium",
+        "opus high",
+        "sonnet medium",
+        "sonnet medium",
+        "opus medium"
+      ]
+    },
+    {
+      "arm": "live",
+      "case": "token-live-json",
+      "expect": "opus",
+      "n": 20,
+      "model": {
+        "opus": 14,
+        "sonnet": 6
+      },
+      "effort": {
+        "medium": 16,
+        "high": 4
+      },
+      "offTarget": 0.3,
+      "offTargetCI": [
+        0.14547724484243416,
+        0.5189728184040686
+      ],
+      "disagreement": {
+        "model": 0.4421052631578948,
+        "effort": 0.33684210526315794
+      },
+      "raws": [
+        "opus medium",
+        "opus high",
+        "opus medium",
+        "sonnet medium",
+        "opus medium",
+        "sonnet medium",
+        "opus high",
+        "sonnet medium",
+        "opus medium",
+        "sonnet medium",
+        "opus high",
+        "opus medium",
+        "opus medium",
+        "opus medium",
+        "opus medium",
+        "sonnet medium",
+        "sonnet medium",
+        "opus medium",
+        "opus high",
+        "opus medium"
+      ]
+    },
+    {
+      "arm": "v1",
+      "case": "typo-readme",
+      "expect": "sonnet",
+      "n": 20,
+      "model": {
+        "sonnet": 20
+      },
+      "effort": {
+        "medium": 20
+      },
+      "offTarget": 0,
+      "offTargetCI": [
+        0,
+        0.16112515811625733
+      ],
+      "disagreement": {
+        "model": 0,
+        "effort": 0
+      },
+      "raws": [
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium"
+      ]
+    },
+    {
+      "arm": "live",
+      "case": "typo-readme",
+      "expect": "sonnet",
+      "n": 20,
+      "model": {
+        "sonnet": 20
+      },
+      "effort": {
+        "medium": 20
+      },
+      "offTarget": 0,
+      "offTargetCI": [
+        0,
+        0.16112515811625733
+      ],
+      "disagreement": {
+        "model": 0,
+        "effort": 0
+      },
+      "raws": [
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium"
+      ]
+    },
+    {
+      "arm": "v1",
+      "case": "bump-version",
+      "expect": "sonnet",
+      "n": 20,
+      "model": {
+        "sonnet": 20
+      },
+      "effort": {
+        "medium": 20
+      },
+      "offTarget": 0,
+      "offTargetCI": [
+        0,
+        0.16112515811625733
+      ],
+      "disagreement": {
+        "model": 0,
+        "effort": 0
+      },
+      "raws": [
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium"
+      ]
+    },
+    {
+      "arm": "live",
+      "case": "bump-version",
+      "expect": "sonnet",
+      "n": 20,
+      "model": {
+        "sonnet": 20
+      },
+      "effort": {
+        "medium": 20
+      },
+      "offTarget": 0,
+      "offTargetCI": [
+        0,
+        0.16112515811625733
+      ],
+      "disagreement": {
+        "model": 0,
+        "effort": 0
+      },
+      "raws": [
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium",
+        "sonnet medium"
+      ]
+    },
+    {
+      "arm": "v1",
+      "case": "debug-scroll",
+      "expect": "opus",
+      "n": 20,
+      "model": {
+        "opus": 20
+      },
+      "effort": {
+        "xhigh": 20
+      },
+      "offTarget": 0,
+      "offTargetCI": [
+        0,
+        0.16112515811625733
+      ],
+      "disagreement": {
+        "model": 0,
+        "effort": 0
+      },
+      "raws": [
+        "opus xhigh",
+        "opus xhigh",
+        "opus xhigh",
+        "opus xhigh",
+        "opus xhigh",
+        "opus xhigh",
+        "opus xhigh",
+        "opus xhigh",
+        "opus xhigh",
+        "opus xhigh",
+        "opus xhigh",
+        "opus xhigh",
+        "opus xhigh",
+        "opus xhigh",
+        "opus xhigh",
+        "opus xhigh",
+        "opus xhigh",
+        "opus xhigh",
+        "opus xhigh",
+        "opus xhigh"
+      ]
+    },
+    {
+      "arm": "live",
+      "case": "debug-scroll",
+      "expect": "opus",
+      "n": 20,
+      "model": {
+        "opus": 20
+      },
+      "effort": {
+        "xhigh": 19,
+        "high": 1
+      },
+      "offTarget": 0,
+      "offTargetCI": [
+        0,
+        0.16112515811625733
+      ],
+      "disagreement": {
+        "model": 0,
+        "effort": 0.09999999999999998
+      },
+      "raws": [
+        "opus xhigh",
+        "opus xhigh",
+        "opus xhigh",
+        "opus xhigh",
+        "opus xhigh",
+        "opus xhigh",
+        "opus xhigh",
+        "opus xhigh",
+        "opus high",
+        "opus xhigh",
+        "opus xhigh",
+        "opus xhigh",
+        "opus xhigh",
+        "opus xhigh",
+        "opus xhigh",
+        "opus xhigh",
+        "opus xhigh",
+        "opus xhigh",
+        "opus xhigh",
+        "opus xhigh"
+      ]
+    }
+  ]
+}

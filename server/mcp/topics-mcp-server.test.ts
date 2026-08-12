@@ -27,6 +27,7 @@ import {
   callGetTask,
   callUpdateTask,
   callCommentTask,
+  callWaitForCondition,
   callAskUserQuestion,
   callSpawnAgent,
   callSendToAgent,
@@ -107,6 +108,38 @@ function stubFetch(impl: (input: RequestInfo | URL, init?: RequestInit) => Promi
   return impl as typeof fetch;
 }
 
+describe("callWaitForCondition", () => {
+  const args = { baseUrl: "http://x", sessionKey: "s" };
+
+  test("attesa accettata: dice all'agent che il task riparte da solo", async () => {
+    const fetchImpl = stubFetch(async () =>
+      new Response(JSON.stringify({ dispatchState: "waiting", dispatchDeferredUntil: "2026-08-12T10:00:00.000Z" }), {
+        status: 200, headers: { "content-type": "application/json" },
+      }),
+    );
+    const out = await callWaitForCondition(args, { task_id: "t1", reason: "la CI sta girando" }, fetchImpl);
+    expect(out).toContain("re-dispatched automatically");
+    expect(out).toContain("2026-08-12T10:00:00.000Z");
+  });
+
+  test("attesa RIFIUTATA: non promette un rientro in coda che non ci sarà", async () => {
+    // Il server ha parcheggiato il task (serie di attese oltre il tetto). La
+    // riga di prima diceva «it will be re-dispatched automatically» comunque, e
+    // un agente che la legge chiude il turno convinto di dover solo aspettare:
+    // il task resta in backlog e nessuno lo sa.
+    const fetchImpl = stubFetch(async () =>
+      new Response(JSON.stringify({ dispatchState: "waited_out", dispatchDeferredUntil: null }), {
+        status: 200, headers: { "content-type": "application/json" },
+      }),
+    );
+    const out = await callWaitForCondition(args, { task_id: "t1", reason: "la CI sta girando" }, fetchImpl);
+    expect(out).toContain("PARKED");
+    expect(out).toContain("NOT be re-dispatched");
+    expect(out).toContain("do not call wait_for_condition again");
+    expect(out).not.toContain("It will be re-dispatched automatically");
+  });
+});
+
 describe("callOpenBrowserPane", () => {
   test("POSTs to the session-keyed open-pane endpoint", async () => {
     const seen: { url?: string; init?: RequestInit } = {};
@@ -133,7 +166,7 @@ describe("callOpenBrowserPane", () => {
     expect(headers["Content-Type"]).toBe("application/json");
     expect(headers["X-Gateway-Token"]).toBeUndefined();
     expect(seen.init?.body).toBe(JSON.stringify({ url: "https://example.com" }));
-    expect(result).toEqual({ url: "https://example.com/final", title: "Example Domain" });
+    expect(result).toEqual({ url: "https://example.com/final", title: "Example Domain", visible: true });
   });
 
   test("forwards gateway-token as X-Gateway-Token header", async () => {
@@ -185,7 +218,9 @@ describe("callOpenBrowserPane", () => {
       { url: "https://example.com/foo" },
       fetchImpl,
     );
-    expect(result).toEqual({ url: "https://example.com/foo", title: "" });
+    // `visible` assente ⇒ true: un server più vecchio del flag non deve far
+    // dire all'agente «non si vede» di un pannello che magari si vede benissimo.
+    expect(result).toEqual({ url: "https://example.com/foo", title: "", visible: true });
   });
 
   test("surfaces server-side { error } as throw", async () => {
@@ -471,6 +506,7 @@ describe("handleMessage", () => {
       "get_task",
       "update_task",
       "wait_for_condition",
+      "label_task",
       "comment_task",
       "ask_user_question",
       // Il canale di permesso: pubblicato sempre. Lo designa
@@ -550,7 +586,7 @@ describe("handleMessage", () => {
       "browser_act", "browser_eval", "browser_save_state", "browser_load_state",
       "browser_upload",
       "run_script", "stop_process",
-      "create_task", "update_task", "comment_task", "wait_for_condition",
+      "create_task", "update_task", "comment_task", "label_task", "wait_for_condition",
       "move_session_to_project", "spawn_agent", "send_to_agent", "stop_agent",
       "switch_topic", "new_topic", "create_project", "open_project",
       "send_chat_message",
@@ -586,13 +622,20 @@ describe("handleMessage", () => {
       { ...ARGS, profile: "dispatch" },
     );
     const names = ((resp!.result as any).tools as Array<{ name: string }>).map((t) => t.name);
-    // Excluded: sub-agent fan-out, cross-topic chat, topic/tab nav, projects, chrome import.
+    // Excluded: cross-topic chat, topic/tab nav, projects, chrome import.
     for (const gone of [
-      "spawn_agent", "send_to_agent", "read_agent", "list_agents", "stop_agent",
+      "list_agents",
       "send_chat_message", "read_chat_messages", "new_topic", "switch_topic",
       "import_chrome", "move_session_to_project", "create_project", "open_project",
     ]) {
       expect(names).not.toContain(gone);
+    }
+    // Il FAN-OUT resta, ed e' il modello del coordinatore: la sessione del task
+    // decide e delega, il lavoro gira nelle figlie. Non e' fuori governo — il
+    // tetto le conta (agent-census.ts), il costo si contabilizza sul task
+    // (dispatch-usage.ts), profondita' 1, e muoiono col padre.
+    for (const kept of ["spawn_agent", "send_to_agent", "read_agent", "stop_agent"]) {
+      expect(names).toContain(kept);
     }
     // Kept: the task tools, processes, and every browser_* verification tool.
     // `resolve_tab` stays ON PURPOSE: a dispatched board agent also gets links
@@ -605,7 +648,7 @@ describe("handleMessage", () => {
 
   test("tools/call refuses a profile-excluded tool (defense in depth)", async () => {
     const resp = await handleMessage(
-      { jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "spawn_agent", arguments: { prompt: "x" } } },
+      { jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "list_agents", arguments: {} } },
       { ...ARGS, profile: "dispatch" },
     );
     expect((resp!.error as any)?.code).toBe(-32601);
@@ -640,6 +683,32 @@ describe("handleMessage", () => {
       expect(result.isError).toBeUndefined();
       expect(result.content[0].text).toContain("processId=p1");
       expect(seenUrl).toContain("/api/sessions/s/scripts/run");
+    } finally {
+      (globalThis as any).fetch = orig;
+    }
+  });
+
+  test("open_browser_pane: i due esiti si LEGGONO diversi (visibile vs contesto invisibile)", async () => {
+    // Finché il messaggio era lo stesso, «pannello aperto» e «contesto vivo che
+    // nessuno vede» erano indistinguibili da fuori: l'agente diceva all'umano
+    // «l'ho aperta» mentre sullo schermo non compariva niente (11/08/2026).
+    const orig = globalThis.fetch;
+    const call = async (visible: boolean) => {
+      (globalThis as any).fetch = stubFetch(async () =>
+        new Response(JSON.stringify({ url: "https://example.com/", title: "T", visible }), { status: 200 }),
+      );
+      const resp = await handleMessage(
+        { jsonrpc: "2.0", id: 77, method: "tools/call", params: { name: "open_browser_pane", arguments: { url: "https://example.com/" } } },
+        ARGS,
+      );
+      return (resp!.result as any).content[0].text as string;
+    };
+    try {
+      expect(await call(true)).toContain("Opened browser pane at https://example.com/");
+      const invisibile = await call(false);
+      expect(invisibile).toContain("NO visible pane");
+      expect(invisibile).toContain("browser_focus_tab");
+      expect(invisibile).not.toContain("Opened browser pane");
     } finally {
       (globalThis as any).fetch = orig;
     }
@@ -1000,6 +1069,60 @@ describe("callUpdateTask", () => {
     expect(seen.init?.method).toBe("PATCH");
     expect(seen.init?.body).toBe(JSON.stringify({ status: "in_progress" }));
     expect(text).toBe("task t1 → in_progress");
+  });
+
+  test("preview_image arriva al server invece di essere buttato via", async () => {
+    // Il protocollo (docs/board-protocol.md) dice `update_task(previewImage=…)` e
+    // l'envelope lo porta a ogni agente, ma il campo non era nello schema: il
+    // valore veniva scartato in SILENZIO. Tre consegne di fila hanno scritto
+    // «anteprima allegata» con la card vuota — sembravano bugie, erano agenti
+    // che seguivano il protocollo mentre lo strumento perdeva il valore.
+    const seen: { init?: RequestInit } = {};
+    const fetchImpl = stubFetch(async (_url, init) => {
+      seen.init = init;
+      return new Response(JSON.stringify({ id: "t1", status: "review" }), { status: 200 });
+    });
+    await callUpdateTask(
+      { baseUrl: "http://x", sessionKey: "s" },
+      { task_id: "t1", status: "review", preview_image: "/Users/x/.topics/media/prova.webm" },
+      fetchImpl,
+    );
+    expect(JSON.parse(String(seen.init?.body))).toEqual({
+      status: "review",
+      previewImage: "/Users/x/.topics/media/prova.webm",
+    });
+  });
+
+  test("anche `previewImage` in camelCase arriva: e' il nome che insegnano i prompt", async () => {
+    // Il doctor della board ha trovato questo mentre la correzione era fresca:
+    // «il protocollo insegna previewImage, lo schema dichiara preview_image».
+    // Con un solo nome accettato, un agente che obbedisce al testo ricevuto
+    // perde l'anteprima in silenzio — lo stesso guasto, riaperto dal lato del nome.
+    const seen: { init?: RequestInit } = {};
+    const fetchImpl = stubFetch(async (_url, init) => {
+      seen.init = init;
+      return new Response(JSON.stringify({ id: "t1", status: "review" }), { status: 200 });
+    });
+    await callUpdateTask(
+      { baseUrl: "http://x", sessionKey: "s" },
+      { task_id: "t1", previewImage: "/Users/x/.topics/media/camel.png" } as never,
+      fetchImpl,
+    );
+    expect(JSON.parse(String(seen.init?.body))).toEqual({ previewImage: "/Users/x/.topics/media/camel.png" });
+  });
+
+  test("preview_image da solo basta: non serve accompagnarlo a uno stato", async () => {
+    const seen: { init?: RequestInit } = {};
+    const fetchImpl = stubFetch(async (_url, init) => {
+      seen.init = init;
+      return new Response(JSON.stringify({ id: "t1", status: "in_progress" }), { status: 200 });
+    });
+    await callUpdateTask(
+      { baseUrl: "http://x", sessionKey: "s" },
+      { task_id: "t1", preview_image: "/Users/x/.topics/media/p.png" },
+      fetchImpl,
+    );
+    expect(JSON.parse(String(seen.init?.body))).toEqual({ previewImage: "/Users/x/.topics/media/p.png" });
   });
 
   test("sends only the provided patch fields", async () => {

@@ -4,10 +4,10 @@ Autonomous, unattended run that hardens and completes the Electron→Tauri migra
 in **isolation**, so the main checkout (a concurrent browser-pane session + the
 user's daily setup) is never disturbed.
 
-- **Worktree (work HERE only):** `/Users/zorahrel/Projects/topics-app-tauri-migration`
+- **Worktree (work HERE only):** `/Users/utente/Projects/topics-app-tauri-migration`
 - **Branch:** `feat/tauri-migration-overnight` (off `main` @ e5026f7)
 - **Deadline:** **2026-06-26 10:00 Europe/Rome** (string compare key `202606261000`)
-- **NEVER touch** `/Users/zorahrel/Projects/topics-app` (main checkout).
+- **NEVER touch** `/Users/utente/Projects/topics-app` (main checkout).
 
 ## Loop protocol (every wake-up)
 

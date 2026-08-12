@@ -85,6 +85,17 @@ function formatBuildDate(iso: string): string {
   } catch { return iso; }
 }
 
+// Fabbrica condivisa fra il prefetch (hover sul trigger) e il confine `lazy()`
+// più in basso, così risolvono lo STESSO modulo — stesso motivo per cui App.tsx
+// ha `importCommandPalette`. La destrutturazione dentro l'`await` è anche
+// l'unica forma in cui il cancello sul codice morto vede quali export usi: con
+// un `import()` opaco nessun export di questo modulo può più risultare morto
+// (`bun run check:deadcode-blindspots`).
+const importSystemStatusPanel = async () => {
+  const { SystemStatusPanel: Component } = await import('./SystemStatusPanel');
+  return { default: Component };
+};
+
 // Prefetch the lazy status panel chunk so the dropdown opens instantly instead
 // of flashing a "Loading…" while the chunk downloads on first click. Triggered
 // on hover/focus of the trigger button. Vite dedupes with the lazy() import().
@@ -92,7 +103,7 @@ let _statusPanelPrefetched = false;
 function prefetchStatusPanel() {
   if (_statusPanelPrefetched) return;
   _statusPanelPrefetched = true;
-  import('./SystemStatusPanel').catch(() => { _statusPanelPrefetched = false; });
+  importSystemStatusPanel().catch(() => { _statusPanelPrefetched = false; });
 }
 
 // Track last code update time — updates on HMR in dev, uses __BUILD_TIME__ in prod
@@ -141,7 +152,7 @@ function formatBuildTime(iso: string): string {
   } catch { return iso; }
 }
 
-const SystemStatusPanel = lazy(() => import('./SystemStatusPanel').then(m => ({ default: m.SystemStatusPanel })));
+const SystemStatusPanel = lazy(importSystemStatusPanel);
 
 export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
   wsStatus?: ConnectionStatus;
@@ -275,14 +286,14 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
     isMobile ? 'Questo telefono' : 'Questo computer',
     appMemMB !== null
       ? (isPartialMem
-          ? `Topics (processo shell): ${appMemMB} MB — ${memMetric === 'footprint' ? 'footprint' : 'memoria residente (RSS)'}\n· NON include i processi WKWebView (contenuto browser dei pannelli)`
-          : `Topics, ${procCount ?? '?'} processi: ${appMemMB} MB di footprint — lo stesso valore di Monitoraggio Attività\n· di cui in RAM adesso: ${residentMemMB ?? '—'} MB (il resto è compresso o in swap)`)
+          ? `Topics (processo shell): ${appMemMB} MB di ${memMetric === 'footprint' ? 'footprint' : 'memoria residente (RSS)'}\n· NON include i processi WKWebView (contenuto browser dei pannelli)`
+          : `Topics, ${procCount ?? '?'} processi: ${appMemMB} MB di footprint, lo stesso valore di Monitoraggio Attività\n· di cui in RAM adesso: ${residentMemMB ?? '-'} MB (il resto è compresso o in swap)`)
       : 'memoria e CPU non misurabili qui: il browser non espone i processi. Sono disponibili solo dentro l’app desktop.',
     shellCpu !== null
-      ? `CPU: ${formatCpuPercent(shellCpu)}% — può superare 100% (per core)`
+      ? `CPU: ${formatCpuPercent(shellCpu)}% · può superare 100% (per core)`
       : null,
     perf && perf.cpu.pids > 0 && perf.cpu.sampled < perf.cpu.pids
-      ? `misurata su ${perf.cpu.sampled}/${perf.cpu.pids} processi — gli altri non hanno ancora un delta`
+      ? `misurata su ${perf.cpu.sampled}/${perf.cpu.pids} processi · gli altri non hanno ancora un delta`
       : null,
     fps > 0 ? `${fps} fotogrammi al secondo, misurati in questa finestra` : null,
   ].filter(Boolean).join('\n· ');
@@ -295,8 +306,8 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
     fleet
       ? `${fleet.processCount} processi: ${fleet.memoryMB} MB`
         + (fleet.memMetric === 'footprint' ? ' di footprint' : fleet.memMetric === 'mixed' ? ' (footprint parziale)' : ' (RSS, stima alta)')
-      : `processo Bun: ${serverMemMB ?? '—'} MB` + (status ? ` (heap ${status.server.heapUsedMB} MB)` : ''),
-    fleetCpu !== null ? `CPU: ${formatCpuPercent(fleetCpu)}% — può superare 100% (per core)` : 'CPU: non misurata',
+      : `processo Bun: ${serverMemMB ?? '-'} MB` + (status ? ` (heap ${status.server.heapUsedMB} MB)` : ''),
+    fleetCpu !== null ? `CPU: ${formatCpuPercent(fleetCpu)}% · può superare 100% (per core)` : 'CPU: non misurata',
     ...(fleet
       ? fleet.roots
           .filter(r => r.kind !== 'server' && r.memoryMB > 0)
@@ -527,7 +538,7 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
           onMouseEnter={prefetchStatusPanel}
           onFocus={prefetchStatusPanel}
           className={`tap-expand-y flex items-center gap-1.5 text-[11px] ${SIDEBAR_HOVER} rounded px-1 py-1 transition-colors min-w-0 overflow-hidden ${showStatusDropdown ? SIDEBAR_ACTIVE : ''}`}
-          title="Performance & stato sistema — apri per FPS live"
+          title="Performance e stato sistema · apri per FPS live"
         >
           {openclawAvailable ? (
             <>
@@ -570,16 +581,16 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
               title={deviceTitle}
             >
               {isMobile
-                ? <Smartphone size={10} className="flex-shrink-0 text-app-text-muted" />
-                : <Monitor size={10} className="flex-shrink-0 text-app-text-muted" />}
+                ? <Smartphone size={10} className="flex-shrink-0 text-app-text-secondary" />
+                : <Monitor size={10} className="flex-shrink-0 text-app-text-secondary" />}
               {appMemMB !== null && (
-                <span className={`text-app-text-muted ${deviceMemHigh ? SEGNALE_ATTESA : ''}`}>{fmtMB(appMemMB)}</span>
+                <span className={`text-app-text-secondary ${deviceMemHigh ? SEGNALE_ATTESA : ''}`}>{fmtMB(appMemMB)}</span>
               )}
               {shellCpu !== null && (
-                <span className={`text-app-text-muted ${shellCpu > 50 ? SEGNALE_ATTESA : ''}`}>{formatCpuPercent(shellCpu)}%</span>
+                <span className={`text-app-text-secondary ${shellCpu > 50 ? SEGNALE_ATTESA : ''}`}>{formatCpuPercent(shellCpu)}%</span>
               )}
               {fps > 0 && (
-                <span className={`text-app-text-muted ${fps < 30 ? SEGNALE_GUASTO : fps < 50 ? SEGNALE_ATTESA : ''}`}>{fps}fps</span>
+                <span className={`text-app-text-secondary ${fps < 30 ? SEGNALE_GUASTO : fps < 50 ? SEGNALE_ATTESA : ''}`}>{fps}fps</span>
               )}
             </span>
           )}
@@ -589,12 +600,12 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
               className="flex flex-shrink-0 items-center gap-1 tabular-nums"
               title={serverTitle}
             >
-              <Server size={10} className="flex-shrink-0 text-app-text-muted" />
+              <Server size={10} className="flex-shrink-0 text-app-text-secondary" />
               {serverSideMemMB !== null && (
-                <span className={`text-app-text-muted ${serverMemHigh ? SEGNALE_ATTESA : ''}`}>{fmtMB(serverSideMemMB)}</span>
+                <span className={`text-app-text-secondary ${serverMemHigh ? SEGNALE_ATTESA : ''}`}>{fmtMB(serverSideMemMB)}</span>
               )}
               {fleetCpu !== null && (
-                <span className={`text-app-text-muted ${fleetCpu > 50 ? SEGNALE_ATTESA : ''}`}>{formatCpuPercent(fleetCpu)}%</span>
+                <span className={`text-app-text-secondary ${fleetCpu > 50 ? SEGNALE_ATTESA : ''}`}>{formatCpuPercent(fleetCpu)}%</span>
               )}
             </span>
           )}
@@ -686,7 +697,7 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
           </span>
         )}
 
-        <span className="ml-auto flex-shrink-0 flex items-center gap-1.5 text-[11px] text-app-text-muted tabular-nums whitespace-nowrap">
+        <span className="ml-auto flex-shrink-0 flex items-center gap-1.5 text-[11px] text-app-text-secondary tabular-nums whitespace-nowrap">
           {appVersion && (
             <button
               data-version-anchor
@@ -885,8 +896,8 @@ function DeviceIdentityRow({ onOpenDevices }: { onOpenDevices?: () => void }) {
       title="Apri l\u2019elenco dei dispositivi autorizzati"
     >
       {locale
-        ? <Monitor size={10} className="flex-shrink-0 text-app-text-muted" />
-        : <Smartphone size={10} className="flex-shrink-0 text-app-text-muted" />}
+        ? <Monitor size={10} className="flex-shrink-0 text-app-text-secondary" />
+        : <Smartphone size={10} className="flex-shrink-0 text-app-text-secondary" />}
       <span className="truncate">{session.name}</span>
       {altri && altri.totali > 0 && (
         <span className="ml-auto flex flex-shrink-0 items-center gap-1 text-app-text-muted">

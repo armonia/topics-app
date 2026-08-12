@@ -1,5 +1,5 @@
 import { useCallback, memo } from 'react';
-import { ChevronRight, Archive, ArchiveRestore, Cloud, Pin, AppWindow } from 'lucide-react';
+import { ChevronRight, Cloud, Pin, AppWindow } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { Topic } from '@/types';
 import { useTopicPendingStatus } from '@/contexts/PendingActionContext';
@@ -15,21 +15,19 @@ import { NotificationBadge } from '@/components/Shared/NotificationBadge';
 import { TopicSubline } from '@/components/Shared/SessionActivity';
 import { RelativeTime } from '@/components/Shared/RelativeTime';
 import { TopicStreamingSpinner } from '@/components/Layout/StreamingIndicator';
-import { sidebarRowCard, ROW_PX, ROW_INSET, ROW_ACTION_BOX, ROW_ACTION_GLYPH, SIDEBAR_INDENT_STEP, ON_FILL_TEXT, ON_FILL_TEXT_SOFT } from '@/lib/selectionStyles';
+import { sidebarRowCard, ROW_PX, ROW_GAP, ROW_H, ROW_INSET, ROW_ACTION_BOX, ROW_ACTION_GLYPH, ROW_CARD, ROW_TRAIL, ROW_ACTIONS, ARCHIVED_ROW, TAB_LABEL_TYPE, SIDEBAR_INDENT_STEP, ON_FILL_TEXT, ON_FILL_TEXT_SOFT } from '@/lib/selectionStyles';
 import { SplitMiniMap } from '@/components/Shared/SplitMiniMap';
 import { useSplitPosition } from '@/contexts/SplitPositionContext';
 import { useMobile } from '@/hooks/useMobile';
 import { useLongPress, openContextMenuAt } from '@/hooks/useLongPress';
 
-/** Altezza della riga: 44px SOTTO i 768px (il minimo di tap target iOS), 34
- *  sopra (regge il nome più la subline). DEVE restare uguale al `ROW_H` di
- *  TopicTree: tre altezze diverse fra righe sorelle erano il difetto di prima.
- *
- *  Detto senza abbellirlo: la soglia è la LARGHEZZA (`md:`), non il tipo di
- *  puntatore. Su un iPad in orizzontale — dito, ma 1024px — la riga è 34 e la
- *  card la ritaglia (`overflow-hidden` in sidebarRowCard), quindi lì i 44px NON
- *  ci sono e nessun bersaglio dentro la riga può prometterli. */
-const ROW_H = 'h-11 md:h-[34px]';
+/* L'altezza della riga NON è più dichiarata qui: è {@link ROW_H} in
+ * `lib/selectionStyles`, importata sopra. Stava in questo file come costante di
+ * modulo — quindi TopicTree la ridichiarava e SpaceGroups la ricopiava a mano —
+ * e il commento che portava lo ammetteva già («il posto suo è
+ * lib/selectionStyles, accanto a ROW_PX e ROW_INSET», SpaceGroups.tsx). Il
+ * perché dei due numeri, e perché il predicato è la larghezza e mai `isTouch`,
+ * sta accanto alla costante. */
 
 interface TopicItemProps {
   topic: Topic;
@@ -65,7 +63,10 @@ interface TopicItemProps {
    *  the trailing AppWindow glyph; the row click focuses that window. */
   detachedWindowLabel?: string;
   sortable?: boolean;
-  hideIcon?: boolean;
+  /* `hideIcon` non c'è più: il suo unico compito era spegnere il glifo
+     `Archive` sulle sotto-righe di un progetto, e quel glifo non esiste più
+     (vedi ARCHIVED_ROW). Una prop che governa una cosa sparita è zavorra in due
+     file — quello che la dichiara e quello che continua a passarla. */
 }
 
 /** I nodi del ripiego ancora attaccati, per drenarli se la riga si smonta a
@@ -92,7 +93,6 @@ export const TopicItem = memo(function TopicItem({
   pinned,
   detachedWindowLabel,
   sortable,
-  hideIcon,
 }: TopicItemProps) {
   // Depth indent lives on the LEFT MARGIN, not padding — so a sub-tab's CARD
   // shifts right (leaving an empty gutter) instead of just indenting its text
@@ -146,21 +146,35 @@ export const TopicItem = memo(function TopicItem({
   // solo, per costruzione, che non può più divergere.
   const lp = useLongPress(openContextMenuAt, { enabled: isTouch });
 
+  // UN PREDICATO SOLO PER «ARCHIVIATA», e prima erano due.
+  //
+  // La riga leggeva `isArchived` (la prop, che TopicTree calcola dall'item) per
+  // il tono e per il glifo in testa, e `topic.archived` (il campo) per il
+  // comando in coda. Coincidono quasi sempre, ed è proprio questo il guaio: nel
+  // momento in cui divergono — un aggiornamento ottimistico, una riga costruita
+  // da una lista non ancora riconciliata — la riga si dipinge da ARCHIVIATA e in
+  // coda ti offre «Archivia». Due sorgenti per un booleano non sono ridondanza,
+  // sono un bug che aspetta.
+  const archived = isArchived ?? !!topic.archived;
+
   // v3 foundations sidebar↔topbar sync: aggregate the topic-level closing
   // countdown across BOTH surfaces. The sidebar row shows the progress
   // overlay whether the close was initiated from:
-  //   - the archive icon next to the row     → `archive-topic:<id>`
+  //   - il cerchio in coda alla riga         → `archive-topic:<id>`
   //   - the X on the open chat tab (topbar)  → `close-tab:chat:<id>`
   // Without this aggregation the sidebar stays static when the user closes
   // the tab from the topbar, even though the chat-pane countdown is running.
   const pendingArchiveStatus = useTopicPendingStatus(topic.id, {
-    isArchived: topic.archived,
+    isArchived: archived,
   });
 
-  const handleArchiveClick = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation();
-    onArchive?.(topic.id, !topic.archived);
-  }, [topic.id, topic.archived, onArchive]);
+  // Un solo verso, deciso dallo stato: aperta → archivia, archiviata →
+  // ripristina. Prima erano due handler con due etichette e due glifi; il
+  // cerchio non ha bisogno di sapere quale dei due sta facendo, perché la sua
+  // forma lo dice già.
+  const toggleArchive = useCallback(() => {
+    onArchive?.(topic.id, !archived);
+  }, [topic.id, archived, onArchive]);
 
   // Native HTML5 drag SOURCE for the sidebar row (restores the drag that a
   // dnd-kit migration + DndContext removal left dead — see PanelGrid's sidebar
@@ -199,7 +213,7 @@ export const TopicItem = memo(function TopicItem({
       // sono inerti e resta solo `handleDragStart`. Trascinare una chat nella
       // griglia diventava impossibile con il mouse, su una macchina che il mouse
       // ce l'ha. Con `hasHover` il dito ha il suo gesto e il mouse il suo.
-      draggable={(hasHover || !isTouch) && !isArchived}
+      draggable={(hasHover || !isTouch) && !archived}
       onDragStart={handleDragStart}
       role="treeitem"
       aria-selected={isFocused}
@@ -242,11 +256,15 @@ export const TopicItem = memo(function TopicItem({
         // L'altezza è quella di TUTTE le righe d'albero (ROW_H): questa faceva
         // eccezione con 40/34 mentre le sorelle stavano a 44/32, e su touch 40px
         // sono sotto il minimo di tap target di iOS.
-        `group flex items-center gap-2 ${ROW_H} ${ROW_PX} cursor-pointer text-[14px] md:text-[13px] font-medium select-none`,
+        // `ROW_CARD` è il primo dei tre pezzi del contratto della coda (vedi
+        // ROW_ACTIONS in selectionStyles): senza, il comando in coda non si
+        // accende al passaggio del mouse. Il `relative` che gli serve lo porta
+        // già `sidebarRowCard`.
+        `group ${ROW_CARD} flex items-center ${ROW_GAP} ${ROW_H} ${ROW_PX} cursor-pointer ${TAB_LABEL_TYPE} select-none`,
         sidebarRowCard({ focused: isFocused, open: isOpen, attention: attentionTier, nested: depth > 0 }),
         // Preview panels show italic name
         isPreview && 'italic',
-        isArchived && 'opacity-60',
+        archived && ARCHIVED_ROW,
         isDragging && 'opacity-50'
       )}
       style={sortableStyle}
@@ -270,6 +288,8 @@ export const TopicItem = memo(function TopicItem({
       {hasChildren && (
         <button
           onClick={(e) => { e.stopPropagation(); onToggle(); }}
+          aria-label={isExpanded ? 'Comprimi' : 'Espandi'}
+          aria-expanded={isExpanded}
           className="flex items-center justify-center w-4 h-4 rounded hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0"
         >
           <ChevronRight
@@ -279,15 +299,18 @@ export const TopicItem = memo(function TopicItem({
         </button>
       )}
 
-      {/* Icon — archived rows keep the Archive glyph; live topic chats carry NO
-          leading icon (name flush-left). Brand marks (Claude / Codex) live only
-          on the agent sessions themselves — the Claude Code / Codex terminal
-          rows — never on topic chats. */}
-      {!hideIcon && isArchived && (
-        <span className="flex-shrink-0 leading-none flex items-center justify-center w-5 h-5">
-          <Archive size={14} className={onFill ? ON_FILL_TEXT_SOFT : "text-app-text-tertiary"} />
-        </span>
-      )}
+      {/* IL GLIFO D'ARCHIVIO IN TESTA NON C'È PIÙ, ed è la metà visibile della
+          decisione «uno stato solo» (vedi ARCHIVED_ROW in selectionStyles).
+          Diceva una terza volta ciò che il tono della riga e il cerchio in coda
+          dicono già, e lo diceva nell'unico posto che costa una COLONNA: con
+          quel glifo il nome di una chat archiviata partiva a 36px dal bordo
+          della card e quello di una chat viva a 8 — due incolonnamenti nella
+          stessa lista, per una differenza che non è di tipo ma di stato.
+          Adesso ogni chat comincia allo stesso pixel, archiviata o no.
+
+          Una chat viva non ha e non ha mai avuto un glifo di testa: i marchi
+          (Claude / Codex) stanno solo sulle sessioni agente vere — le righe
+          terminale — mai su una chat. */}
 
       {/* Nome + subline. La subline dice SEMPRE qualcosa (vedi TopicSubline):
           lo stato live mentre la sessione è viva, l'ultimo messaggio quando è
@@ -335,16 +358,17 @@ export const TopicItem = memo(function TopicItem({
         />
       )}
 
-      {/* Streaming spinner (when working) XOR timestamp/archive (at rest).
-          Pinned AFTER the split-map so the "working" cue sits at
-          the END of the row — matching the tab bar and the terminal/browser
-          sidebar rows. The notification badge below is the only trailing
-          element after it. */}
-      {isStreaming ? (
-        /* The SAME shared loader the tab bar renders (GridLoader + hover-stop via
-           LoaderSlot), just a bigger 28px box for the sidebar hit target — so the
-           sidebar chat row and its tab can't drift in glyph, animation, or stop
-           affordance. */
+      {/* Lo spinner sta FUORI dal binario quieto, ed è l'unica eccezione del
+          contratto (vedi ROW_TRAIL in selectionStyles): fermare un turno e
+          archiviare la chat sono due azioni diverse nello stesso istante, e
+          sbiadire la prima per far posto alla seconda toglierebbe l'unico modo
+          di fermare un turno vivo dalla colonna.
+
+          The SAME shared loader the tab bar renders (WaveLoader + hover-stop via
+          LoaderSlot), just a bigger 28px box for the sidebar hit target — so the
+          sidebar chat row and its tab can't drift in glyph, animation, or stop
+          affordance. */}
+      {isStreaming && (
         <TopicStreamingSpinner
           topicId={topic.id}
           onStop={onStopStreaming}
@@ -356,165 +380,78 @@ export const TopicItem = memo(function TopicItem({
           quiet
           className="flex-shrink-0"
         />
-      ) : (
-        isTouch ? (
-          /* Touch: il timestamp — MA se un'archiviazione è in corso, il cerchio
-             per ANNULLARLA. Senza questo ramo su touch non c'era: il ring viveva
-             solo nel ramo desktop, quindi archiviando una chat col dito partiva
-             il conto alla rovescia di 3 secondi e non esisteva modo di fermarlo.
-             Un'azione con un ripensamento previsto dal disegno, ma il
-             ripensamento raggiungibile solo col mouse. Il box è quello del
-             binario (36px sotto i 768px), non i 14 del glifo. */
-          pendingArchiveStatus ? (
-            <span className={`flex-shrink-0 flex items-center justify-center ${ROW_ACTION_BOX} relative z-10`}>
-              <PendingActionRing
-                status={pendingArchiveStatus}
-                size={ROW_ACTION_GLYPH}
-                boxClassName={ROW_ACTION_BOX}
-                pendingTitle="Annulla archiviazione"
-                pendingAriaLabel={`Annulla archiviazione ${topic.name}`}
-              />
-            </span>
-          ) : (
-            <RelativeTime
-              at={topic.updatedAt}
-              className={cn("flex-shrink-0 text-[11px] tabular-nums", onFill ? ON_FILL_TEXT_SOFT : "text-app-text-tertiary")}
-            />
-          )
-        ) : (
-          /* Desktop: timestamp at rest, ARCHIVE control on hover.
-             For NOT-archived topics the hover control is an explicit Archive
-             icon (NOT a checkbox/empty-circle): the empty ring read as "close
-             this tab / mark done", but it actually archives the topic — a
-             confusing conflation of two orthogonal states (open/closed tab vs
-             archived). Closing a tab is done from the tab bar (X / Cmd+W) and
-             never archives. Clicking this still triggers the 3s soft-archive
-             countdown (the PendingActionRing in the `pendingArchiveStatus`
-             branch above). For archived topics the action is restorative. */
-          <span className={`flex-shrink-0 flex items-center justify-center ${ROW_ACTION_BOX} relative z-10`}>
-            {pendingArchiveStatus ? (
-              <PendingActionRing
-                status={pendingArchiveStatus}
-                size={ROW_ACTION_GLYPH}
-                boxClassName={ROW_ACTION_BOX}
-                pendingTitle="Annulla archiviazione"
-                pendingAriaLabel={`Annulla archiviazione ${topic.name}`}
-              />
-            ) : (
-              <>
-                <RelativeTime
-                  at={topic.updatedAt}
-                  className={cn("text-[11px] tabular-nums group-hover:hidden", onFill ? ON_FILL_TEXT_SOFT : "text-app-text-tertiary")}
-                />
-                {onArchive && !topic.archived && (
-                  <button
-                    onClick={(e) => { e.stopPropagation(); onArchive(topic.id, true); }}
-                    className="hidden group-hover:flex items-center justify-center w-full h-full rounded hover:bg-black/10 dark:hover:bg-white/10 transition-all"
-                    title="Archivia (non chiude la tab)"
-                    aria-label={`Archivia ${topic.name}`}
-                  >
-                    <Archive size={12} className="text-app-text-tertiary" />
-                  </button>
-                )}
-                {onArchive && topic.archived && (
-                  <button
-                    onClick={handleArchiveClick}
-                    className="hidden group-hover:flex items-center justify-center w-full h-full rounded hover:bg-black/10 dark:hover:bg-white/10 transition-all"
-                    title="Unarchive"
-                    aria-label={`Unarchive ${topic.name}`}
-                  >
-                    <ArchiveRestore size={12} className="text-app-text-tertiary" />
-                  </button>
-                )}
-              </>
-            )}
+      )}
+
+      {/* IL BINARIO QUIETO — ora, fissata, finestra, badge. Ordine fisso; un
+          nuovo segnale in coda entra QUI, non inventa uno slot (ruling 3.1).
+          I glifi ereditano il trattamento su fill via ON_FILL_TEXT_SOFT — mai un
+          colore fisso su un fill di attenzione.
+
+          Questi quattro NON si spostano e non spariscono a turno: sbiadiscono
+          insieme sotto il comando, che ci passa sopra. Prima il timestamp era
+          `group-hover:hidden` DENTRO lo stesso span del comando — quattro
+          occupanti per una posizione, e lo slot cambiava larghezza a ogni stato
+          (l'inchiostro dell'ora, poi 36, poi 28), cioè il tasto compariva ogni
+          volta in una x diversa. */}
+      <div className={`${ROW_TRAIL} flex items-center ${ROW_GAP} flex-shrink-0`}>
+        {!isStreaming && (
+          <RelativeTime
+            at={topic.updatedAt}
+            className={cn('flex-shrink-0 text-[11px] tabular-nums', onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-tertiary')}
+          />
+        )}
+        {pinned && (
+          <span
+            className={cn('flex-shrink-0 flex items-center', onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-tertiary')}
+            title="Fissato"
+            aria-label="Fissato"
+          >
+            <Pin size={12} />
           </span>
-        )
-      )}
+        )}
+        {detachedWindowLabel !== undefined && (
+          <span
+            className={cn('flex-shrink-0 flex items-center', onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-tertiary')}
+            title="Aperto in un'altra finestra"
+            aria-label="Aperto in un'altra finestra"
+          >
+            <AppWindow size={12} />
+          </span>
+        )}
+        {/* Notification badge — hidden when focused so the user doesn't see a
+            count for the topic they're actively looking at. */}
+        {!isFocused && <NotificationBadge count={notificationCount} variant={onFill ? 'onFill' : 'default'} />}
+      </div>
 
-      {/* Touch: i comandi della riga, SEMPRE presenti — anche mentre la chat
-          lavora. Prima vivevano nel ramo «a riposo» del ternario qui sopra,
-          quindi sparivano esattamente quando servono di più (una chat che
-          macina è quella che vuoi fermare, fissare o archiviare).
+      {/* IL COMANDO, ULTIMO NEL DOM E SEMPRE ALLA STESSA x.
+          ○ vuoto = aperta, un clic archivia (3 s per ripensarci) · ◉ pieno =
+          archiviata, un clic ripristina. Niente `Archive` e niente
+          `ArchiveRestore`: quei due glifi restano nel MENU, dove accompagnano
+          un'etichetta scritta invece di dover dire uno stato da soli.
 
-          Il «...» non apre più un menu suo: apre LO STESSO menu del tasto
-          destro, quello che il long-press sulla riga apre già. Un menu a 2 voci
-          accanto a uno da 6 non è una scorciatoia, è un secondo prodotto che
-          diverge — ma il bottone resta, VISIBILE, perché un gesto nascosto non
-          si scopre da solo.
-
-          IL BERSAGLIO NON RUBA PIÙ AI VICINI. `tap-expand` proiettava 44×44
-          attorno a un box da 24: su una riga archiviata i due comandi del
-          binario stanno a `gap-2` (8px), quindi con i centri a 32px le due aree
-          si sovrapponevano di 12px — e vinceva l'ultimo nel DOM, cioè il bordo
-          destro del «...» apriva il «Ripristina». I 10px che avanzavano a destra
-          coprivano poi i glifi Pin / finestra / badge, e toccarli apriva il menu
-          invece della chat. `tap-expand-y` cresce SOLO in altezza (larghezza
-          100%): nessun vicino perde un pixel. In larghezza si recupera dal box
-          vero — 36px (`w-9`) dentro una riga da 44 ci sta con 4px di aria per
-          lato. Sopra i 768px il box torna a 24 (`md:w-6`), perché lì la riga è
-          alta 34 e un box da 36 lo taglierebbe l'`overflow-hidden` della card. */}
-      {/* IL «...» NON C'È PIÙ, ed è una decisione di Attilio (07/08): «da mobile
-          non c'è bisogno di mettere il menu a 3 puntini visto che c'è il long
-          press». In una passata precedente l'avevo tenuto argomentando che un
-          gesto nascosto non si scopre; ora «tieni premuto» è il gesto STANDARD
-          di tutta l'app — righe, tab, gruppi, tessere, messaggi, file, git — e
-          si impara una volta. Un promemoria stampato su ogni riga di un gesto
-          che già conosci è rumore, non affordance.
-          Il menu resta raggiungibile identico: `useLongPress` + `openContextMenuAt`
-          sulla riga qui sopra aprono LO STESSO `ContextMenu` del tasto destro. */}
-      {/* Ripristina, per le sole righe archiviate. È l'unica voce che il menu
-          contestuale NON ha (parla solo di «Archivia»), quindi qui serve un
-          bottone suo — il gemello touch del controllo che su desktop compare
-          al passaggio del mouse.
-
-          Stesso box del «...» qui sopra (36 sotto i 768px, 24 sopra) e stessa
-          `tap-expand-y`: sono i DUE bersagli che si sovrapponevano di 12px, e
-          due comandi affiancati nello stesso binario con due misure diverse
-          sarebbero la prossima divergenza.
-
-          Il conto, adesso: due box da 36 separati da `gap-2` hanno i centri a
-          44px e i bordi a 8px l'uno dall'altro; le aree sensibili sono larghe
-          quanto i box (36), quindi la sovrapposizione è ZERO — prima erano due
-          aree da 44 con i centri a 32, cioè 12px in comune. */}
-      {isTouch && onArchive && topic.archived && (
-        <button
-          onClick={handleArchiveClick}
-          className={`tap-expand-y flex-shrink-0 flex items-center justify-center ${ROW_ACTION_BOX} rounded hover:bg-black/10 dark:hover:bg-white/10 transition-all text-app-text-tertiary`}
-          title="Ripristina"
-          aria-label={`Ripristina ${topic.name}`}
-        >
-          <ArchiveRestore size={12} />
-        </button>
-      )}
-
-      {/* Trailing-glyph RAIL — fixed order: Pin → AppWindow (detached, future
-          pop-out slice inserts here) → NotificationBadge. New trailing glyphs
-          join THIS rail, they don't invent a new slot (ruling 3.1). Glyphs
-          inherit the on-fill treatment via ON_FILL_TEXT_SOFT — never a
-          hardcoded colour on an attention fill. */}
-      {pinned && (
+          `data-pending` tiene acceso il comando mentre il conto scorre: un'azione
+          ancora annullabile deve restare annullabile anche se sposti il mouse. */}
+      {onArchive && (
         <span
-          className={cn('flex-shrink-0 flex items-center', onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-tertiary')}
-          title="Fissato"
-          aria-label="Fissato"
+          className={`${ROW_ACTIONS} ${ROW_ACTION_BOX}`}
+          data-pending={pendingArchiveStatus ? 'true' : undefined}
         >
-          <Pin size={12} />
+          <PendingActionRing
+            status={pendingArchiveStatus}
+            done={archived}
+            size={ROW_ACTION_GLYPH}
+            boxClassName={ROW_ACTION_BOX}
+            onIdleClick={toggleArchive}
+            onDoneClick={toggleArchive}
+            idleTitle="Archivia (non chiude la tab)"
+            idleAriaLabel={`Archivia ${topic.name}`}
+            pendingTitle="Annulla archiviazione"
+            pendingAriaLabel={`Annulla archiviazione ${topic.name}`}
+            doneTitle="Ripristina"
+            doneAriaLabel={`Ripristina ${topic.name}`}
+          />
         </span>
       )}
-      {detachedWindowLabel !== undefined && (
-        <span
-          className={cn('flex-shrink-0 flex items-center', onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-tertiary')}
-          title="Aperto in un'altra finestra"
-          aria-label="Aperto in un'altra finestra"
-        >
-          <AppWindow size={12} />
-        </span>
-      )}
-      {/* Notification badge — hidden when focused so the user doesn't see a
-          count for the topic they're actively looking at. The last element of
-          the trailing rail, so "working" reads at the row end. */}
-      {!isFocused && <NotificationBadge count={notificationCount} variant={onFill ? 'onFill' : 'default'} />}
     </div>
   );
 });

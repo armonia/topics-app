@@ -18,6 +18,7 @@ import type {
   WSProvidersSnapshotMessage,
   WSGoalUpdatedMessage,
 } from '../../../shared/types';
+import type { NotificationRow } from '../../../shared/notification-log';
 
 // ─── Entità di dominio: dichiarate in shared/, non qui ─────────────────
 //
@@ -375,6 +376,13 @@ export interface WSStreamStartMessage {
   type: 'stream:start';
   sessionKey: string;
   messageId?: string;
+  /**
+   * Il turno RIPRENDE dopo un riavvio del server: `messageId` è la bolla che
+   * abbiamo già a schermo, piena, e il replay sta per ridettarla da capo. Va
+   * svuotata qui, prima delle delta, o il replay si somma a quello che c'è.
+   * Il record in DB non viene più toccato — vedi `reuseOrCreatePartialForReattach`.
+   */
+  reattached?: boolean;
 }
 
 export interface WSStreamEndMessage {
@@ -580,6 +588,10 @@ export interface ContextUsage {
  * nostra e vive fuori dal blocco.
  */
 export type { AcpUsageUpdate } from '../../../shared/types';
+/** La sonda del costo (`GET /api/context/cost`): contesto × chiamate, e il
+ *  prodotto. Il contratto sta in shared/ perché è la stessa forma che scrive il
+ *  server — vedi `server/usage/cost-probe.ts`. */
+export type { SessionCostProbe } from '../../../shared/types';
 /** Payload sul filo: blocco ACP + presentazione. `useRealContext` lo appiattisce
  *  in `ContextUsage` per la UI, che di ACP non deve sapere niente. */
 export interface ContextUpdatePayload {
@@ -873,6 +885,10 @@ export interface WSBrowserOpenTaskTabMessage {
   /** Canonical task-scoped browser contextId (`task-<id8>-…`). */
   contextId: string;
   url: string;
+  /** Il NOME prescritto dall'agente per questa tab (`open_browser_pane({url,
+   *  name})`). Assente quando non ne ha dato uno: l'etichetta resta il titolo
+   *  della pagina. Presente ⇒ entra come `titleSource:'agent'`, cioè pinnato. */
+  title?: string;
 }
 /**
  * Remote pane close (close_browser_pane MCP tool / REST): every window that
@@ -993,22 +1009,71 @@ export interface WSTaskReviewReadyMessage {
   taskId: string;
   taskTitle: string;
   reason?: string;
+  /**
+   * La domanda pendente dell'agente, quando la consegna È una domanda: le sue
+   * opzioni diventano i TASTI del banner (shared/notify-actions).
+   *
+   * Tre stati, non due: l'oggetto = c'è una domanda · `null` = il server ha
+   * guardato e domanda non ce n'è · ASSENTE = un server che questo campo non lo
+   * manda (più vecchio del client — il guscio desktop e il demone si aggiornano
+   * separatamente). Nel terzo caso il client se la va a prendere invece di
+   * indovinare: vedi useCompletionNotifier.
+   */
+  question?: { text: string; options: string[] } | null;
 }
 
 /** Il gemello di FALLIMENTO: il task è stato PARCHEGGIATO e non riparte da
  *  solo. Emesso solo sul park terminale (mai su una rimessa in coda, che si
  *  auto-guarisce). `state`: 'failed' = l'agent non ha prodotto niente,
- *  'blocked' = c'è una configurazione da sistemare. */
+ *  'blocked' = c'è una configurazione da sistemare, 'waited_out' = la serie di
+ *  attese dichiarate ha sfondato il tetto (niente da riparare: una condizione
+ *  che non arriva). Tre stati perché sono tre domande diverse per l'umano, e la
+ *  copy del banner cambia su questo campo. */
 export interface WSTaskParkedMessage {
   type: 'task:parked';
   projectId: string;
   taskId: string;
   taskTitle: string;
-  state: 'failed' | 'blocked';
+  state: 'failed' | 'blocked' | 'waited_out';
   reason?: string;
 }
 
+/** A board task was ARCHIVED (the board's soft-delete). `taskIds` carries the
+ *  whole archived subtree — archiving a parent cascades to its children, and
+ *  anything holding per-task state must forget all of them, not just the root.
+ *  Older servers omit it; fall back to `[taskId]`.
+ *
+ *  Typed here because `useTaskBrowserTabsSync` acts on it: the server has just
+ *  deleted `task-browser-tabs:<id>` / `task-browser-layout:<id>`, so the client
+ *  must drop its cache AND its pending debounced PUT. */
+export interface WSTaskDeletedMessage {
+  type: 'task:deleted';
+  projectId: string;
+  taskId: string;
+  taskIds?: string[];
+}
+
+/** Una notifica è appena stata REGISTRATA (migration 102). Porta la riga intera
+ *  e il conteggio: il tastino accanto a Topics si aggiorna dal vivo senza
+ *  rileggere l'elenco. */
+export interface WSNotificationNewMessage {
+  type: 'notification:new';
+  row: NotificationRow;
+  unseen: number;
+}
+
+/** Il «visto» è stato applicato — il contatore vale ORA questo. Il «visto» è
+ *  globale, quindi guardare la cronologia da una finestra spegne il pallino su
+ *  tutte le altre. */
+export interface WSNotificationSeenMessage {
+  type: 'notification:seen';
+  unseen: number;
+}
+
 export type WSMessage =
+  | WSNotificationNewMessage
+  | WSNotificationSeenMessage
+  | WSTaskDeletedMessage
   | WSProvidersSnapshotMessage
   | WSGoalUpdatedMessage
   | WSGatewayStatusMessage
@@ -1356,13 +1421,6 @@ export interface PanelGridRow {
    */
   cellStacks?: Record<string, PanelGridCellStack>;
 }
-
-// Discriminant for the topics-menu "expanded tool" popover. Only `'remote'`
-// is ever produced (the other former menu entries open as full pages via
-// handleOpenAsPage, not as an expanded tool), so the union is intentionally
-// a single literal — widening it back to the old 7-member set just creates
-// dead, untyped surface.
-export type SidebarTab = 'remote';
 
 /** Preferenze della UI. Omonimo ma NON parente dell'`AppSettings` di
  *  `server/services/app-settings.ts`, che è la config dei provider AI

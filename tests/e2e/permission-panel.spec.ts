@@ -64,6 +64,14 @@ test.describe.serial("Pannello di permesso", () => {
   test.beforeEach(async ({ request }) => {
     await resetPaneStore(request, [topicId]);
     await request.delete(`${BASE}/api/tool-grants/${encodeURIComponent(TOOL)}`, { ignoreHTTPSErrors: true });
+    // Il livello di autonomia torna a quello di una chat normale — cioè una che
+    // CHIEDE. Senza, il caso di «Passa a libero» lascerebbe la topic in `yolo`
+    // e i casi che vengono dopo (stesso topic, `describe.serial`) vedrebbero il
+    // canale consentire da solo: verdi senza che nessuno abbia premuto niente.
+    await request.patch(`${BASE}/api/topics/${topicId}`, {
+      data: { autonomyLevel: "auto-apply" },
+      ignoreHTTPSErrors: true,
+    });
   });
 
   /**
@@ -236,6 +244,87 @@ test.describe.serial("Pannello di permesso", () => {
       ignoreHTTPSErrors: true,
     });
     expect((await second.json()).decision).toBe("allow");
+  });
+
+  /**
+   * «PASSA A LIBERO» — l'unica azione del pannello che cambia il regime della
+   * sessione, e l'unica che si prova solo guardandola: un turno che PROSEGUE.
+   *
+   * Il difetto che chiude: la modalità di permessi si decide allo spawn
+   * (`--permission-mode`), quindi cambiarla dal selettore mentre un turno
+   * aspetta non serviva a niente fino al turno dopo — e per smettere di essere
+   * interrogati bisognava comunque uscire dal pannello, aprire il selettore e
+   * cambiare una cosa che avrebbe avuto effetto più tardi.
+   */
+  test("«Passa a libero»: consente ORA, libera la sessione, e il pannello dopo non compare", async ({ page, chatPage, request }) => {
+    const toolCallId = "toolu_perm_free";
+    await seedPermission(request, toolCallId);
+    const bridge = registerBridgePermission(request, toolCallId);
+
+    await openChat(page, chatPage);
+    const panel = page.locator(`[data-testid="tool-permission-${toolCallId}"]`);
+    await expect(panel).toBeVisible({ timeout: 15_000 });
+
+    // Non è un quarto bottone in fila con gli altri tre: sta sotto una linea,
+    // con scritto cosa comporta e da dove si torna indietro.
+    const free = panel.locator(`[data-testid="tool-permission-allow_free-${toolCallId}"]`);
+    await expect(free).toBeVisible();
+    await expect(panel.getByText("modalità libera")).toBeVisible();
+    await page.waitForTimeout(1200);
+    await free.click();
+
+    // (a) La richiesta in corso è CONSENTITA, e alla CLI arriva un `allow`:
+    // `allow_free` è una parola di Topics, non del processo figlio.
+    expect((await bridge).decision).toBe("allow");
+
+    // (c) Nel thread resta scritto cosa è stato fatto — e si legge senza aprire
+    // niente, perché non è l'esito di una riga: è il regime della chat.
+    const traccia = page.locator(`[data-testid="session-freed-${toolCallId}"]`);
+    await expect(traccia).toBeVisible({ timeout: 10_000 });
+    await expect(traccia).toContainText("modalità libera");
+
+    // (b) La sessione è libera, e il comando da cui si torna indietro lo dice:
+    // il selettore nel composer mostra «Libero» senza che nessuno ricarichi.
+    await expect(page.locator('[data-testid="composer-autonomy"]').first()).toHaveAttribute("data-level", "yolo", {
+      timeout: 10_000,
+    });
+    const topics = (await (await request.get(`${BASE}/api/topics`, { ignoreHTTPSErrors: true })).json()) as {
+      topics: Record<string, { id: string; autonomyLevel?: string }>;
+    };
+    expect(Object.values(topics.topics).find((t) => t.id === topicId)?.autonomyLevel).toBe("yolo");
+
+    // E la prova che il turno PROSEGUE: lo strumento successivo — con il figlio
+    // CLI ancora nato in una modalità che chiede — passa senza pannello.
+    const dopo = await request.post(`${BASE}/api/sessions/${encodeURIComponent(sessionKey)}/permission`, {
+      data: { toolName: "Write", input: { file_path: "/tmp/x" }, toolUseId: "toolu_perm_free_2", legMs: 800 },
+      ignoreHTTPSErrors: true,
+    });
+    expect((await dopo.json()).decision).toBe("allow");
+    await page.waitForTimeout(1500);
+    await expect(page.locator('[data-testid="tool-permission-toolu_perm_free_2"]')).toHaveCount(0);
+  });
+
+  test("liberare QUESTA chat non libera le altre", async ({ request }) => {
+    // «Consenti sempre» scrive una regola per tutta l'app; «passa a libero» no:
+    // vale per la sessione, e una chat vicina deve continuare a chiedere. È la
+    // differenza fra togliere una barriera dove serve e toglierla ovunque.
+    const vicina = await createTopic(request, `permission-vicina-${Date.now()}`);
+    try {
+      await request.patch(`${BASE}/api/topics/${topicId}`, { data: { autonomyLevel: "yolo" }, ignoreHTTPSErrors: true });
+      const res = await request.get(`${BASE}/api/topics`, { ignoreHTTPSErrors: true });
+      const { topics } = (await res.json()) as { topics: Record<string, { id: string; sessionKey: string }> };
+      const skVicina = Object.values(topics).find((t) => t.id === vicina.id)!.sessionKey;
+
+      const suo = await request.post(`${BASE}/api/sessions/${encodeURIComponent(skVicina)}/permission`, {
+        data: { toolName: TOOL, input: TOOL_INPUT, toolUseId: "toolu_vicina", legMs: 400 },
+        ignoreHTTPSErrors: true,
+      });
+      const body = await suo.json();
+      expect(body.decision).toBeUndefined();
+      expect(body.pending).toBe(true);
+    } finally {
+      await deleteTopic(request, vicina.id);
+    }
   });
 
   test("«Nega» torna alla CLI come un no, non come un silenzio", async ({ page, chatPage, request }) => {

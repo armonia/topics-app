@@ -246,6 +246,13 @@ export function FileSearch({ projectPaths, mode, onModeChange, onOpenFile, onClo
           <Search size={16} className="text-app-text-muted flex-shrink-0" />
           <input
             ref={inputRef}
+            // Ancora stabile per chi guarda da fuori. Il `placeholder` non lo è:
+            // è testo, e per giunta testo che cambia col MODO e con lo scope
+            // («Apri un file in X…» / «Cerca in X…»). Tre spec lo usavano come
+            // locator quando era ancora inglese — `input[placeholder*="Search"]`
+            // — e sono diventate rosse alla traduzione, dicendo «element(s) not
+            // found» su un input che c'era eccome.
+            data-testid="file-search-input"
             value={query}
             onChange={e => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
@@ -314,7 +321,7 @@ export function FileSearch({ projectPaths, mode, onModeChange, onOpenFile, onClo
               ricerca. */}
           {failed && !loading && !regexError && (
             <div data-testid="file-search-error" className="text-center text-red-400 text-xs py-6 px-3">
-              Ricerca non riuscita — il progetto è ancora raggiungibile?
+              Ricerca non riuscita. Il progetto è ancora raggiungibile?
             </div>
           )}
           {!loading && !regexError && !failed && query && results.length === 0 && (
@@ -370,7 +377,7 @@ export function FileSearch({ projectPaths, mode, onModeChange, onOpenFile, onClo
               cose diverse e vanno dette diverse. */}
           {!loading && truncated && (
             <div className="text-center text-amber-500 text-[11px] py-2">
-              Ricerca interrotta al tempo massimo — i risultati sono parziali
+              Ricerca interrotta al tempo massimo, i risultati sono parziali
             </div>
           )}
           {!loading && !truncated && mode === 'content' && results.length >= 100 && (
