@@ -21,6 +21,7 @@ import { existsSync, readFileSync, readdirSync, unlinkSync, statSync } from "fs"
 import { homedir } from "os";
 import { join } from "path";
 import { Database } from "bun:sqlite";
+import { DUPLICATE_EVIDENCE_REASON } from "../shared/preview-retirement";
 
 const argv = process.argv.slice(2);
 const flag = (name: string): string | null => {
@@ -85,8 +86,13 @@ for (const [digest, group] of dupes) {
   if (!FIX) continue;
   for (const c of cards) {
     try {
-      db!.prepare("UPDATE tasks SET preview_image = NULL WHERE id = ?").run(c.id);
       const ts = new Date().toISOString();
+      // Il ritiro è uno STATO della card: la nota qui sotto resta (è la storia),
+      // ma il fatto «non ha anteprima, e il motivo è che ne aveva una falsa»
+      // vive in colonna, dove si spegne da solo quando l'anteprima torna.
+      db!.prepare(
+        "UPDATE tasks SET preview_image = NULL, preview_retired_at = ?, preview_retired_reason = ? WHERE id = ?",
+      ).run(ts, DUPLICATE_EVIDENCE_REASON, c.id);
       const note =
         `⚠️ Anteprima RITIRATA: era byte per byte identica a quella di altre ${cards.length - 1} card ` +
         `(md5 \`${digest.slice(0, 8)}\`), cioè non era evidenza di questo lavoro. ` +

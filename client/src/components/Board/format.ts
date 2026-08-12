@@ -144,6 +144,46 @@ export const fmtModel = (m: string | null | undefined): string => {
 };
 
 /**
+ * Un conteggio con i separatori delle migliaia SEMPRE, anche a quattro cifre.
+ *
+ * `toLocaleString` da solo non basta: in italiano (e in spagnolo, e in polacco)
+ * ICU applica `minimumGroupingDigits = 2`, quindi 2578 esce «2578» e 12578 esce
+ * «12.578». Qui il numero non è una quantità qualsiasi, è la MISURA che dice
+ * «sotto c'è un piano, non due righe»: deve leggersi a colpo d'occhio, e due
+ * formati diversi a seconda dell'ordine di grandezza sono il contrario.
+ */
+export const fmtCount = (n: number, locale: string): string =>
+  n.toLocaleString(locale === 'en' ? 'en-US' : 'it-IT', { useGrouping: 'always' } as Intl.NumberFormatOptions);
+
+/**
+ * L'accenno che si vede quando la descrizione è CHIUSA: la prima riga di prosa,
+ * ripulita dal markdown, tagliata corta.
+ *
+ * Serve perché il difetto non era l'accordion, era che **chiuso non si
+ * distingueva da vuoto**: la scelta di chiudere è ricordata in `localStorage`
+ * per tutte le card, quindi una descrizione da 2.578 caratteri si leggeva come
+ * «non c'è una descrizione utile». Il chevron da solo non è evidenza di
+ * contenuto; una riga del contenuto sì.
+ *
+ * Le intestazioni (`## …`), le liste e il grassetto perdono i marcatori: qui il
+ * markdown non si rende, e `**Cosa** verificare` letto crudo sembra un errore
+ * di battitura. Le righe di sola decorazione (`---`, un fence ```) non sono
+ * l'accenno di niente e si saltano.
+ */
+export function descSummary(desc: string | null | undefined, max = 120): string {
+  const line = (desc ?? '')
+    .split('\n')
+    .map((l) => l
+      .replace(/^\s*[#>]+\s*/, '')          // intestazioni e citazioni
+      .replace(/^\s*[-*+]\s+/, '')           // punti elenco
+      .replace(/^\s*\d+[.)]\s+/, '')         // elenchi numerati
+      .replace(/[*_`]/g, '')                 // enfasi e codice inline
+      .trim())
+    .find((l) => l.length > 0 && !/^[-=–—■□•]+$/.test(l)) ?? ''; // allow-emdash: i trattini QUI sono il dato, sono le righe di decorazione da saltare
+  return line.length > max ? `${line.slice(0, max - 1).trimEnd()}…` : line;
+}
+
+/**
  * Il TESTO del task per gli appunti: titolo, riga vuota, descrizione.
  *
  * Serve al bottone «Copia task» del drawer, che esiste per un gesto solo:

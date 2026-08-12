@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback, type TouchEvent as ReactTouchEvent } from 'react';
-import { useT } from '../../hooks/useT';
+import { useT, useLocale } from '../../hooks/useT';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { NightModeCard } from './NightModeCard';
 import { AlertTriangle, ArrowUpRight, Bot, Camera, Check, ChevronDown, ChevronRight, Clock, Copy, Download, ExternalLink, Footprints, GitMerge, Globe, Hourglass, Link2, Lock, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Paperclip, Plus, Send, ShieldCheck, ShieldX, Sparkles, Square, Tag, UserRound, X } from 'lucide-react';
@@ -12,6 +12,7 @@ import { Spinner } from '../Shared/Spinner';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { getMediaUrl } from '../../lib/api';
 import { isImagePath, isPdfPath, isVideoPath } from '../../lib/mediaKind';
+import { isSupersededPreviewNote } from '../../../../shared/preview-retirement';
 import { copyText } from '../../lib/clipboard';
 import { openExternalOnce } from '../../lib/openExternal';
 import { buildTaskLink } from '../../lib/openTaskLink';
@@ -28,7 +29,7 @@ import { UnifiedDiff } from './UnifiedDiff';
 import { collectTaskMediaPaths } from './taskMedia';
 import { formatReviewNotes } from './reviewNotes';
 import { COMPACT_MD_CLS, PLAN_MD_CLS, PRIORITY_DOT, PRIORITY_LABEL, PRIORITY_ORDER, DISPATCH_CHIP, EFFORTS, FANOUT_CHOICES, mediaPaneIdFor, type TaskSurface } from './constants';
-import { friendlyModelLabel, fmtModel, commentTime, fmtMs, fmtLive, fmtTok, fmtUpdatedAt, autoGrow, attemptStat, taskCopyText } from './format';
+import { friendlyModelLabel, fmtModel, commentTime, fmtMs, fmtLive, fmtTok, fmtUpdatedAt, autoGrow, attemptStat, taskCopyText, descSummary, fmtCount } from './format';
 import { StatusIcon, DispatchChip } from './atoms';
 import { ProjectPickerBody } from './ProjectPicker';
 import { addBoardProject, projectNameFromId, useBoardProjects } from '../../lib/boardProjectsStore';
@@ -528,6 +529,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   autoOpenInWorkspace?: boolean;
 }) {
   const tr = useT();
+  const locale = useLocale();
   // Le tab del task, lette QUI e non dalla `browser` più in basso: il manifesto
   // serve a callback definiti molto prima di quel hook.
   const taskTabsState = useTaskBrowserTabs(taskId);
@@ -702,6 +704,19 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   const mediaPaths = useMemo(
     () => collectTaskMediaPaths(task?.previewImage, comments),
     [comments, task?.previewImage],
+  );
+  /**
+   * Il thread senza le note che ha già smentito la card.
+   *
+   * «⚠️ Anteprima RITIRATA…» è uno stato scritto come messaggio: su 3 card
+   * l'anteprima è tornata e la nota continuava a dire il contrario. La riga
+   * NON si cancella dal DB — è la storia di cosa è successo — semplicemente il
+   * thread smette di mostrarla quando non vale più. Il fatto, finché vale, si
+   * vede nello slot della consegna qui sopra (`task-preview-retired`).
+   */
+  const threadComments = useMemo(
+    () => (task ? comments.filter((c) => !isSupersededPreviewNote(c, task)) : comments),
+    [comments, task],
   );
   const isAgentReview = !!task && task.status === 'review' && !!task.assignedTopicId;
   // Pending question = the agent's last word is a question block: its options
@@ -1289,18 +1304,18 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
     if (!task) return null;
     return (
       <div className="flex-1 space-y-2 overflow-y-auto px-3 py-3">
-        {comments.length === 0 && !task.assignedTopicId && <p className="text-xs text-app-text-muted">{tr('board.task.noComments')}</p>}
-        {comments.map((c, i) => (
+        {threadComments.length === 0 && !task.assignedTopicId && <p className="text-xs text-app-text-muted">{tr('board.task.noComments')}</p>}
+        {threadComments.map((c, i) => (
           <div key={c.id} className="space-y-2">
             {task.assignedTopicId && (
-              <SessionSlice msgs={sliceBetween(comments[i - 1]?.createdAt ?? null, c.createdAt)} />
+              <SessionSlice msgs={sliceBetween(threadComments[i - 1]?.createdAt ?? null, c.createdAt)} />
             )}
             {c.kind === 'status' ? <StatusEventRow comment={c} /> : <CommentBubble comment={c} onPreview={(p) => browserRef.current?.focusPane(`media:${p}`)} />}
           </div>
         ))}
         {task.assignedTopicId && (
           <SessionSlice
-            msgs={sliceBetween(comments[comments.length - 1]?.createdAt ?? null, null)}
+            msgs={sliceBetween(threadComments[threadComments.length - 1]?.createdAt ?? null, null)}
             label={agentBusy ? 'Sta lavorando' : undefined}
             preview={streamPreview}
           />
@@ -1331,7 +1346,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
       </div>
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps -- stopAgent/bottomRef are stable enough; the meaningful inputs are listed
-  }, [task, comments, sliceBetween, agentBusy, streamPreview, busy]);
+  }, [task, threadComments, sliceBetween, agentBusy, streamPreview, busy]);
 
   const renderSurface = useCallback<RenderSurface>((pane, _isVisible) => {
     if (pane.id.startsWith('thread:')) return renderThread();
@@ -1641,6 +1656,25 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               )}
             </div>
           )}
+          {/* L'anteprima MANCA, e c'è un motivo: lo slot della consegna lo dice
+              qui, dove si guarderebbe l'immagine. È uno STATO letto dalla card
+              (`previewRetiredAt`), non una nota nel thread — quindi sparisce da
+              solo appena qualcuno allega un'anteprima nuova, invece di restare
+              a dire il contrario come faceva la nota della bonifica. */}
+          {!task?.previewImage && task?.previewRetiredAt && (
+            <div className="border-b border-app-border px-3 py-2" data-testid="task-preview-retired">
+              <div className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-app-text-muted">
+                {tr('board.task.deliveryLabel')}
+              </div>
+              <div className="mt-1.5 flex items-start gap-2 rounded-md bg-amber-500/10 px-2 py-1.5 text-xs text-amber-200/90">
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <p className="min-w-0">
+                  <span className="font-medium">{tr('board.task.previewRetired')}</span>
+                  {task.previewRetiredReason && <span className="text-amber-200/70">: {task.previewRetiredReason}</span>}
+                </p>
+              </div>
+            </div>
+          )}
           <div className="border-b border-app-border px-3 py-3">
             {task?.parentTaskId && onOpenTask && (
               <button
@@ -1929,12 +1963,34 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               />
             ) : task?.description ? (
               <>
+                {/* CHIUSO ≠ VUOTO. La scelta di chiudere è ricordata in
+                    localStorage e vale per OGNI card: chiusa una volta, una
+                    descrizione da 2.578 caratteri si legge come «non c'è una
+                    descrizione utile» (il rilievo su `d4fcce17`). Il chevron non
+                    è evidenza di contenuto, quindi da chiuso la maniglia porta
+                    con sé la MISURA (quanto testo c'è) e la prima riga vera. */}
                 <button
                   onClick={toggleDescOpen}
                   className="flex w-full items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-app-text-muted hover:text-app-text-heading"
                 >
                   {descOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />} {tr('board.task.descLabel')}
                 </button>
+                {/* La misura sta FUORI dal bottone di proposito: il nome
+                    accessibile della maniglia resta «Descrizione» esatto, che è
+                    come la cercano le spec e chi naviga a voce. Qui dentro
+                    invece serve il numero, perché è il numero a dire che sotto
+                    c'è un piano e non due righe. */}
+                {!descOpen && (
+                  <p
+                    onClick={toggleDescOpen}
+                    title={tr('board.task.descExpandTitle')}
+                    className="mt-1 cursor-pointer truncate text-xs leading-5 text-app-text-secondary hover:text-app-text-heading"
+                    data-testid="task-desc-summary"
+                  >
+                    <span className="text-app-text-faint">{tr('board.task.descChars', { n: fmtCount(task.description.length, locale) })}</span>
+                    {descSummary(task.description) && <> · {descSummary(task.description)}</>}
+                  </p>
+                )}
                 {descOpen && (
                   <div
                     onClick={() => { setDescDraft(task.description ?? ''); setEditingDesc(true); }}

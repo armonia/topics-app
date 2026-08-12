@@ -111,6 +111,13 @@ export interface PreviewManagerDeps {
   setOutputUrl(taskId: string, url: string | null): void;
   /** Path assoluto dell'anteprima; stringa vuota = AZZERA (evidenza ritirata). */
   setPreviewImage(taskId: string, absPath: string): void;
+  /**
+   * Toglie l'anteprima e scrive sulla CARD perché — lo stato che la nota nel
+   * thread non sa aggiornare (`shared/preview-retirement.ts`). Opzionale: se
+   * l'host non lo fornisce si ricade su `setPreviewImage(taskId, "")`, cioè il
+   * comportamento di prima.
+   */
+  retirePreview?(taskId: string, reason: string): void;
   /** Add a `review-note` comment (does NOT wake the agent). */
   addReviewNote(taskId: string, args: { content: string; media?: string[] }): void;
   /** Surface the preview in the Processes panel (Stop button + logs). Optional. */
@@ -445,10 +452,16 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
       // di nessuna evidenza, quindi qui si AZZERA anche l'anteprima vecchia.
       const page = deps.fetchPage ? await deps.fetchPage(url).catch(() => null) : null;
       if (page && !isEvidencePage(page)) {
-        try { deps.setPreviewImage(taskId, ""); } catch (err) { log(`[preview] clearPreviewImage failed for ${taskId}`, err); }
         const why = page.status >= 400
           ? `ha risposto ${page.status}`
           : "mostra una pagina di placeholder (nessun contenuto del task)";
+        // Il ritiro va sulla CARD (motivo compreso), non solo nel thread: una
+        // nota resterebbe a dire «non c'è anteprima» anche dopo che ne è
+        // arrivata una nuova.
+        try {
+          if (deps.retirePreview) deps.retirePreview(taskId, `l'anteprima viva ${why}`);
+          else deps.setPreviewImage(taskId, "");
+        } catch (err) { log(`[preview] clearPreviewImage failed for ${taskId}`, err); }
         deps.addReviewNote(taskId, {
           content: `⚠️ Nessuna anteprima allegata: ${url} ${why}. ` +
             "Un'evidenza falsa è peggio di nessuna evidenza. Se il worktree serve un bundle, costruiscilo (`cd client && bun run build`) e allega tu l'anteprima.",
