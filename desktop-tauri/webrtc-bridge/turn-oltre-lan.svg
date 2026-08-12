@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="560" viewBox="0 0 820 560" font-family="Helvetica Neue, Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="a" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+      <path d="M0,0 L9,4.5 L0,9 z" fill="#fbbf24"/>
+    </marker>
+    <marker id="r" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+      <path d="M0,0 L9,4.5 L0,9 z" fill="#f87171"/>
+    </marker>
+  </defs>
+  <rect width="820" height="560" fill="#0f1115"/>
+
+  <text x="34" y="62" fill="#f2f4f8" font-size="44" font-weight="700">TURN oltre LAN?</text>
+  <text x="360" y="62" fill="#4ade80" font-size="44" font-weight="700">NO, non ora</text>
+
+  <!-- tre figure -->
+  <rect x="34" y="96" width="242" height="132" rx="12" fill="#171b22" stroke="#2b3240" stroke-width="2"/>
+  <text x="54" y="132" fill="#f2f4f8" font-size="26" font-weight="700">Ospite</text>
+  <text x="54" y="164" fill="#9aa3b2" font-size="19">niente /ws/browser</text>
+  <text x="54" y="204" fill="#4ade80" font-size="23" font-weight="700">nessuna pane</text>
+
+  <rect x="289" y="96" width="242" height="132" rx="12" fill="#171b22" stroke="#2b3240" stroke-width="2"/>
+  <text x="309" y="132" fill="#f2f4f8" font-size="26" font-weight="700">Relay</text>
+  <text x="309" y="164" fill="#9aa3b2" font-size="19">tunnel WebSocket</text>
+  <text x="309" y="204" fill="#fbbf24" font-size="23" font-weight="700">ICE fallisce</text>
+
+  <rect x="544" y="96" width="242" height="132" rx="12" fill="#171b22" stroke="#2b3240" stroke-width="2"/>
+  <text x="564" y="132" fill="#f2f4f8" font-size="26" font-weight="700">Tailscale</text>
+  <text x="564" y="164" fill="#9aa3b2" font-size="19">IP 100.x = host cand.</text>
+  <text x="564" y="204" fill="#4ade80" font-size="23" font-weight="700">video OK</text>
+
+  <path d="M 410 228 L 410 268" stroke="#fbbf24" stroke-width="4" fill="none" marker-end="url(#a)"/>
+
+  <rect x="140" y="268" width="540" height="104" rx="12" fill="#14261c" stroke="#4ade80" stroke-width="3"/>
+  <text x="166" y="310" fill="#4ade80" font-size="30" font-weight="700">Fallback: co-browse DOM</text>
+  <text x="166" y="348" fill="#c8d2c8" font-size="21">rrweb sopra la WS, gia' automatico</text>
+
+  <path d="M 410 372 L 410 410" stroke="#f87171" stroke-width="4" fill="none" marker-end="url(#r)"/>
+
+  <rect x="140" y="410" width="540" height="104" rx="12" fill="#26161a" stroke="#f87171" stroke-width="3"/>
+  <text x="166" y="452" fill="#f87171" font-size="30" font-weight="700">Buco: rrweb non regge</text>
+  <text x="166" y="490" fill="#e8cdd2" font-size="21">frequenza non misurata</text>
+
+  <text x="34" y="546" fill="#8b93a3" font-size="20">Se mai servisse: Cloudflare Realtime TURN, non Coturn.</text>
+</svg>
