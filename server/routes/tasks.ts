@@ -26,6 +26,7 @@ import { resolvePrincipals } from "../lib/principals";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import { isAgentWorking, PARKED_STOPPED, pendingQuestion, type PendingQuestionComment } from "../../shared/board";
 import { isPreviewablePath } from "../../shared/media-kind";
+import { parseTaskPatch, unapplicableFieldsBody, type FieldRead } from "./task-patch";
 import { getTerminalSessionById } from "./terminal";
 import { AUTO_PROJECT_ID, createTaskService, isLandActionLabel, isPublishActionLabel, projectIdForPath, TaskServiceError, UNASSIGNED_PROJECT_ID, type Task } from "../services/tasks";
 import { computeDispatchCapacity } from "../services/dispatch-capacity";
@@ -931,8 +932,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
   }
 
   /**
-   * Il valore da scrivere in `previewImage`, o `undefined` per «non toccare il
-   * campo». Due cancelli, non uno:
+   * Il valore da scrivere in `previewImage`, o il MOTIVO del rifiuto. Due
+   * cancelli, non uno:
    *
    *  · il PATH, come per ogni allegato (`filterMedia`, allowlist di sicurezza);
    *  · il TIPO — deve esistere un elemento che lo mostri. `PREVIEW_RULE` ne
@@ -945,11 +946,16 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
    *
    * Stringa vuota = azzera (gesto esplicito, resta valido).
    */
-  function acceptPreview(raw: unknown): string | undefined {
-    if (typeof raw !== "string") return undefined;
-    if (raw.trim() === "") return "";
-    if (!filterMedia([raw])?.length) return undefined;
-    return isPreviewablePath(raw) ? raw : undefined;
+  function acceptPreview(raw: unknown): FieldRead {
+    if (raw === null) return { ok: true, value: null }; // azzera, come la stringa vuota
+    if (typeof raw !== "string") return { ok: false, reason: "atteso il path (string) di uno screenshot, video o diagramma" };
+    if (raw.trim() === "") return { ok: true, value: "" };
+    if (!filterMedia([raw])?.length) {
+      return { ok: false, reason: "path fuori dalle cartelle consentite (~/.topics/media, ~/.openclaw/media, workspace)" };
+    }
+    return isPreviewablePath(raw)
+      ? { ok: true, value: raw }
+      : { ok: false, reason: "estensione non mostrabile: servono .png/.jpg, un video o un .svg" };
   }
 
   /**
@@ -1946,41 +1952,17 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         }
         if (method === "PATCH") {
           const body = (await readJSON(req)) as any;
+          // Ogni chiave la legge `parseTaskPatch`, che conosce i nomi doppi
+          // (`parent_task_id`, `output_url`) e rifiuta con 400 ciò che questa
+          // rotta non sa applicare: `archived` archiviava zero card rispondendo
+          // 200, ed è indistinguibile dall'aver funzionato. Vedi task-patch.ts.
+          const parsed = parseTaskPatch(body, "human", acceptPreview);
+          if (!parsed.ok) return json(unapplicableFieldsBody(parsed.errors), 400);
           try {
             const prevStatus = svc.get(taskId, { projectId })?.task.status;
             let task = svc.update({
               taskId, actor: "human", by: HUMAN, projectId,
-              patch: {
-                status: typeof body?.status === "string" ? body.status : undefined,
-                priority: typeof body?.priority === "number" ? body.priority : undefined,
-                assignedTo: typeof body?.assignee === "string" ? body.assignee : undefined,
-                text: typeof body?.text === "string" ? body.text : undefined,
-                description: body?.description !== undefined ? body.description : undefined,
-                kanbanOrder: typeof body?.kanbanOrder === "number" ? body.kanbanOrder : undefined,
-                outputUrl: typeof body?.outputUrl === "string" ? body.outputUrl : undefined,
-                // Card preview: stesso fence dei media commenti — un path fuori
-                // allowlist è scartato QUI (la patch non arriva al service).
-                previewImage: acceptPreview(body?.previewImage),
-                model: body?.model !== undefined ? (typeof body.model === "string" ? body.model : null) : undefined,
-                blockedByTaskId: body?.blockedByTaskId !== undefined
-                  ? (typeof body.blockedByTaskId === "string" && body.blockedByTaskId ? body.blockedByTaskId : null)
-                  : undefined,
-                reuseBlockerContext: typeof body?.reuseBlockerContext === "boolean" ? body.reuseBlockerContext : undefined,
-                planFirst: typeof body?.planFirst === "boolean" ? body.planFirst : undefined,
-                // Accetta anche `parent_task_id` (il nome MCP): la PATCH la
-                // chiamano sia il client sia gli agenti, e un nome scartato in
-                // silenzio qui risponde 200 senza aver spostato niente.
-                // La chiave si guarda per PRESENZA, non con `??`: `null` è il
-                // modo di staccare un sottotask, e `??` lo scambierebbe per
-                // "campo assente" — di nuovo un 200 che non sposta nulla.
-                parentTaskId: ((): string | null | undefined => {
-                  const raw = body?.parentTaskId !== undefined ? body.parentTaskId
-                    : body?.parent_task_id !== undefined ? body.parent_task_id
-                    : undefined;
-                  if (raw === undefined) return undefined;
-                  return typeof raw === "string" && raw ? raw : null;
-                })(),
-              },
+              patch: parsed.patch,
             });
             task = await captureDelivery(task, prevStatus);
             broadcastToAll({ type: "task:updated", projectId, task });
@@ -2262,6 +2244,17 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             }
           }
         }
+        // La superficie AGENTE ha meno campi di quella umana (ordine in colonna,
+        // modello, dipendenze e annidamento sono leve dell'umano): finivano
+        // scartati in silenzio, il che li faceva sembrare disponibili. Ora sono
+        // un 400 che li nomina, come `archived` sulla rotta della board.
+        // L'ANTEPRIMA passa dallo stesso fence della rotta umana
+        // (`acceptPreview`: allowlist dei path E tipo mostrabile, stringa vuota
+        // = azzera) e i due nomi che circolano nei prompt, `previewImage` e
+        // `preview_image`, valgono entrambi: era già sparita una volta perché
+        // la rotta leggeva solo l'altro.
+        const parsed = parseTaskPatch(body, "agent", acceptPreview);
+        if (!parsed.ok) return json(unapplicableFieldsBody(parsed.errors), 400);
         try {
           const prevStatus = svc.get(item.taskId, { projectId: sess.projectId })?.task.status;
           let task = svc.update({
@@ -2272,26 +2265,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             by: sess.actor,
             projectId: sess.projectId,
             agentTopicId: sess.topicId,
-            patch: {
-              status: typeof body?.status === "string" ? body.status : undefined,
-              priority: typeof body?.priority === "number" ? body.priority : undefined,
-              assignedTo: typeof body?.assignee === "string" ? body.assignee : undefined,
-              outputUrl: typeof body?.output_url === "string" ? body.output_url : undefined,
-              // The agent may refine wording (a raw composer-born title →
-              // clear, concise one). Same projectId guard as everything else.
-              text: typeof body?.text === "string" && body.text.trim() ? body.text : undefined,
-              description: typeof body?.description === "string" ? body.description : undefined,
-              // L'ANTEPRIMA, di nuovo persa per strada — un piano più sotto.
-              // Il tool MCP era stato riparato (`callUpdateTask` manda
-              // `previewImage`), ma QUESTA rotta — quella che usa ogni agente
-              // dispacciato — non leggeva il campo: 200 OK, card vuota. Cioè
-              // esattamente il guasto che quella riparazione descriveva, un
-              // livello più giù. Verificato sul server vivo: `update_task`
-              // rispondeva ok e `previewImage` restava null.
-              // Stesso fence della rotta umana: `acceptPreview` (allowlist dei
-              // path E tipo mostrabile), stringa vuota = azzera.
-              previewImage: acceptPreview(body?.previewImage),
-            },
+            patch: parsed.patch,
           });
           task = await captureDelivery(task, prevStatus);
           broadcastToAll({ type: "task:updated", projectId: sess.projectId, task });
