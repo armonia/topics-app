@@ -1420,7 +1420,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     if (pathname === "/api/all-boards/tasks" && method === "GET") {
       const status = new URL(req.url).searchParams.get("status") || undefined;
       // Columns show ROOT tasks only — steps live in the parent's detail tree.
-      try { return json({ tasks: svc.list({ scope: "all", status: status as any, rootsOnly: true }) }); }
+      // Tranne gli ORFANI (padre chiuso, archiviato o sparito): quello non è
+      // l'albero di nessuno, e fuori dalle colonne non lo guarda più niente.
+      try { return json({ tasks: svc.list({ scope: "all", status: status as any, rootsOnly: true, includeOrphanSubtasks: true }) }); }
       catch (e) { return fail(e); }
     }
 
@@ -1999,10 +2001,15 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           // non una colonna in più.
           const archived = params.get("archived") === "1" || params.get("archived") === "true";
           // Root tasks only: a step never renders as its own card (drawer tree).
+          // PIÙ gli step orfani: un padre chiuso non ha più una checklist, e
+          // quello che ci era rimasto dentro non lo dispaccia nessuno e non lo
+          // apre più nessuno. Tenerlo fuori dalla colonna non lo rimanda, lo
+          // perde — è la metà opposta dello stesso difetto.
           try {
             return json({
               tasks: svc.list({
                 scope: "project", projectId, status: status as any, rootsOnly: true,
+                includeOrphanSubtasks: true,
                 labels: parseLabelsParam(params.get("labels")),
                 archived,
               }),
