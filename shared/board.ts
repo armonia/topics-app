@@ -221,7 +221,7 @@ export const CODE_GATES_RULE = [
  * `package.json`.
  */
 export const VERSION_BUMP_RULE =
-  "BUMP DI VERSIONE = UN COMANDO, mai i file a mano — il nome lo leggi in `package.json` (qui `bun run bump [patch|X.Y.Z]`, e `bun run bump sync` per riallineare un albero già scollato). Il numero è scritto in PIÙ posti e uno è un file GENERATO (un lockfile): è l'unico che non si apre mai a mano, quindi è l'unico che un bump manuale dimentica — già successo due volte in una notte.";
+  "BUMP DI VERSIONE = UN COMANDO, mai i file a mano. Il nome lo leggi in `package.json` (qui `bun run bump [patch|X.Y.Z]`, e `bun run bump sync` per riallineare un albero già scollato). Il numero è scritto in PIÙ posti e uno è un file GENERATO (un lockfile): è l'unico che non si apre mai a mano, quindi è l'unico che un bump manuale dimentica: è già successo due volte in una notte.";
 
 /**
  * Ritaglia il blocco `PREVIEW_RULE` da un envelope già composto, per STRUTTURA
