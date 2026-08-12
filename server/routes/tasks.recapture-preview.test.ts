@@ -24,29 +24,14 @@ import type { AppContext } from "../types";
 import { createTasksRouter } from "./tasks";
 import { createTaskService } from "../services/tasks";
 import { createPreviewManager, type PreviewProcess, type PreviewWorktree } from "../services/preview-manager";
-import { TASK_LABELS_DDL } from "../db/test-schema";
+import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL } from "../db/test-schema";
 
 function freshDb(): Database {
   const db = new Database(":memory:");
   db.run("PRAGMA foreign_keys = ON");
   db.run(`CREATE TABLE topics (id TEXT PRIMARY KEY)`);
-  db.run(`CREATE TABLE tasks (
-    id TEXT PRIMARY KEY, project_id TEXT NOT NULL, text TEXT NOT NULL, description TEXT,
-    status TEXT NOT NULL DEFAULT 'todo', priority INTEGER NOT NULL DEFAULT 2,
-    kanban_order INTEGER NOT NULL DEFAULT 0, assigned_to TEXT, fingerprint TEXT, due_date TEXT,
-    chat_id TEXT, created_at TEXT NOT NULL, completed_at TEXT, updated_at TEXT NOT NULL,
-    claude_task_id TEXT, assigned_topic_id TEXT REFERENCES topics(id), archived INTEGER NOT NULL DEFAULT 0,
-    assigned_agent_id TEXT, in_progress_at TEXT,
-    dispatch_attempts INTEGER NOT NULL DEFAULT 0, dispatch_state TEXT, dispatch_error TEXT,
-    parent_task_id TEXT REFERENCES tasks(id), output_url TEXT, plan_first INTEGER NOT NULL DEFAULT 0,
-    agent_ms INTEGER NOT NULL DEFAULT 0, agent_tokens INTEGER NOT NULL DEFAULT 0,
-    model TEXT, blocked_by_task_id TEXT REFERENCES tasks(id), reuse_blocker_context INTEGER NOT NULL DEFAULT 0,
-    priority_auto INTEGER NOT NULL DEFAULT 1, preview_image TEXT,
-    preview_retired_at TEXT, preview_retired_reason TEXT,
-    delivery_branch TEXT, delivery_commit TEXT, landing_state TEXT, landing_checked_at TEXT,
-    checks_state TEXT, checks_at TEXT, checks_commit TEXT, checks_json TEXT,
-    delivered_by TEXT, delivered_reason TEXT, created_by_topic_id TEXT
-  )`);
+  db.run(TASKS_DDL);
+  db.run(TASKS_FK_STUBS_DDL);
   db.run(`CREATE TABLE board_settings (
     project_id TEXT PRIMARY KEY, require_approval_for_done INTEGER DEFAULT 0,
     require_review_before_done INTEGER DEFAULT 0, block_status_with_pending INTEGER DEFAULT 0,
