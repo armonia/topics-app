@@ -25,7 +25,7 @@
 import { tmpdir } from "os";
 import { join } from "path";
 import { createHash } from "crypto";
-import { countOwnCommits, otherLocalBranches } from "./own-commits";
+import { commitIsIn, countOwnCommits, otherLocalBranches } from "./own-commits";
 import { MIGRATIONS_DIR, findNumberCollisions } from "../../shared/migration-numbers";
 
 export type AutoMergeResult =
@@ -730,10 +730,14 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
           // La prova la porta il COMMIT della consegna, che sopravvive al ramo: se
           // è dentro il ramo di destinazione non c'è niente da landare, ed è lo
           // stesso esito di un ramo senza commit propri (il caso qui sotto).
+          //
+          // La domanda sta in `commitIsIn` e non qui: il cancello del dispatch
+          // decide sulla STESSA affermazione (non ripartire su lavoro già
+          // atterrato), e due copie che divergono vorrebbero dire ridispacciare
+          // proprio ciò che questo ramo ha appena chiuso.
           const sha = delivery?.commit?.trim();
-          if (sha) {
-            const dentro = await runGit(repoPath, ["merge-base", "--is-ancestor", sha, defaultBranch]);
-            if (dentro.code === 0) return { status: "nothing", branch, deliveryDrift: drift };
+          if (sha && (await commitIsIn(repoPath, sha, defaultBranch, { runGit })) === true) {
+            return { status: "nothing", branch, deliveryDrift: drift };
           }
           return { status: "skipped", code: "branch-missing", reason: `branch '${branch}' non trovato o non confrontabile con '${defaultBranch}'` };
         }
