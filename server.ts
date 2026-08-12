@@ -1,6 +1,6 @@
 import { basename, join, resolve, sep } from "path";
 import { finalizeOrphanTool } from "./server/lib/orphan-tool-sweep";
-import { existsSync, readFileSync, mkdirSync, statSync, writeFileSync, readlinkSync } from "fs";
+import { existsSync, readFileSync, mkdirSync, statSync, writeFileSync, readlinkSync, realpathSync } from "fs";
 import { timingSafeEqual } from "crypto";
 import type { ServerWebSocket } from "bun";
 import type { WSData } from "./server/types";
@@ -1235,6 +1235,10 @@ previewManager = createPreviewManager({
     const line = out.split("\n").find((l) => l.startsWith("n/"));
     return line ? line.slice(1) : null;
   },
+  // `lsof` risponde col path REALE, il worktree porta quello con cui è nato: su
+  // macOS `/tmp` è un link a `/private/tmp`, e senza risolverli il cancello
+  // d'identità legge due nomi della stessa cartella come due cartelle diverse.
+  realPath: async (p) => { try { return realpathSync(p); } catch { return null; } },
   // Cancello sul CONTENUTO: la pagina si LEGGE prima di fotografarla, così un
   // 503 «Bundle not built yet» non finisce sulla card come evidenza del lavoro.
   fetchPage: async (url) => {
