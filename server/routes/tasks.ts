@@ -722,6 +722,12 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         branch: task.deliveryBranch ?? null,
         commit: task.deliveryCommit ?? null,
       });
+      // Il ramo era vecchio e il land l'ha riportato al passo con main da sé: è
+      // un commit che nessun umano ha fatto, quindi lo si dice — e per PRIMO,
+      // perché è successo prima di tutto il resto.
+      if (res.status === "merged" && res.realigned) {
+        svc.addComment({ taskId, author: "system", content: `Riallineato prima del land: ${res.realigned}.` });
+      }
       // Ciò che è atterrato non era lo scatto approvato: chi ha cliccato «Landa»
       // deve leggerlo, altrimenti crede di aver pubblicato quello che ha visto.
       // Prima del «Mergiato»: la riga che spiega vale solo se si legge per prima.
@@ -801,15 +807,32 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         // porta l'istruzione all'agent, non la sola causa.
         // `actor: "human"` è l'asse dei PERMESSI (nessun agente potrebbe
         // riportare indietro un task chiuso), non quello dell'attribuzione.
+        //
+        // DUE conflitti diversi, e all'agente servono due istruzioni diverse. Il
+        // land prova prima a riportare main DENTRO il ramo vecchio: se è lì che
+        // si è rotto, il lavoro non è «pubblicare» ma «riconciliare», e i file
+        // in conflitto sono già noti — dirglieli gli risparmia di riscoprirli.
+        const rc = res.realignConflict;
+        const files = rc?.files ?? [];
+        const elenco = files.length > 0 ? files.slice(0, 20).join(", ") : "nessun file elencabile";
         svc.update({
           taskId, actor: "human", by: "system", projectId,
           patch: { status: "in_progress" },
-          statusReason: "il land ha fatto conflitto con main",
+          statusReason: rc
+            ? `riportare main nel ramo (indietro di ${rc.behind}) ha fatto conflitto`
+            : "il land ha fatto conflitto con main",
         });
-        svc.addComment({ taskId, author: "system", content: "Merge automatico in conflitto con main. Rimando all'agent per risolvere." });
+        svc.addComment({
+          taskId, author: "system",
+          content: rc
+            ? `Il ramo era indietro di ${rc.behind} commit su main e riportare main dentro il ramo ha fatto conflitto su ${files.length} file: ${elenco}. Non ho landato niente. Rimando all'agent per riconciliare.`
+            : "Merge automatico in conflitto con main. Rimando all'agent per risolvere.",
+        });
         dispatcher?.resume(
           taskId,
-          'Il merge automatico del tuo branch su main è andato in conflitto. Rifai la BASE del tuo ramo sul main aggiornato (`git fetch` se serve, poi `git rebase main`), NON un merge di main dentro il ramo: risolvi i conflitti durante la rebase, ricommitta, poi rimetti in review con update_task(status="review"). Resta vietato toccare main: niente push, niente merge verso main.',
+          rc
+            ? `Il tuo ramo è indietro di ${rc.behind} commit su main e il land ha provato a riportare main dentro il ramo: ha fatto CONFLITTO su questi file: ${elenco}. Nel tuo worktree fai \`git merge main\`, risolvi quei file (non ce ne sono altri: il merge è stato annullato, quindi riparti da zero), committa la fusione, poi rimetti in review con update_task(status="review"). Il commit di consegna resta un antenato del ramo, quindi il land ripartirà da solo dalla punta. Resta vietato toccare main: niente push, niente merge verso main.`
+            : 'Il merge automatico del tuo branch su main è andato in conflitto. Rifai la BASE del tuo ramo sul main aggiornato (`git fetch` se serve, poi `git rebase main`), NON un merge di main dentro il ramo: risolvi i conflitti durante la rebase, ricommitta, poi rimetti in review con update_task(status="review"). Resta vietato toccare main: niente push, niente merge verso main.',
         ).catch((err) => console.warn(`[Tasks] resume after merge-conflict failed for ${taskId}:`, err));
       } else if (res.status === "skipped") {
         svc.addComment({ taskId, author: "system", content: `⚠️ Land NON riuscito: ${res.reason}. Il branch del task NON è su main. Risolvi e rilancia "Landa su main".` });
@@ -960,6 +983,40 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     return isPreviewablePath(raw)
       ? { ok: true, value: raw }
       : { ok: false, reason: "estensione non mostrabile: servono .png/.jpg, un video o un .svg" };
+  }
+
+  /**
+   * Lo SCATTO della consegna (`deliveryBranch` / `deliveryCommit`) non si
+   * riscrive da una PATCH: torna la risposta 400 da restituire, o `null` se la
+   * richiesta non lo tocca.
+   *
+   * È la descrizione di ciò che il reviewer ha guardato prima di cliccare «Landa
+   * su main», e la deriva fra quello scatto e la punta del ramo è precisamente
+   * ciò che il land mette nel thread — poterlo correggere vorrebbe dire
+   * cancellare l'unica prova che le due cose differiscono.
+   *
+   * Ma un campo non applicabile va RIFIUTATO, non ignorato. Qui la PATCH
+   * rispondeva 200 senza spostare niente (seconda occorrenza dello stesso
+   * difetto, dopo `parentTaskId` sulla card `b06bb837`), e chi la chiamava per
+   * «dire alla card che il ramo è andato avanti» credeva di esserci riuscito.
+   * Serviva a un solo scopo, e quello scopo non esiste più: il land riallinea il
+   * ramo su main da sé e pubblica la PUNTA quando il commit registrato è un suo
+   * antenato. Una porta sola per tutte e due le PATCH (l'umana e quella degli
+   * agenti): un campo rifiutato da una e ingoiato dall'altra è di nuovo il 200
+   * muto, da un'altra parte.
+   */
+  function rejectDeliveryPatch(body: any): Response | null {
+    const touched = ["deliveryCommit", "delivery_commit", "deliveryBranch", "delivery_branch"]
+      .filter((k) => body?.[k] !== undefined);
+    if (touched.length === 0) return null;
+    return json({
+      error:
+        `${touched.join(", ")}: lo scatto della consegna non si modifica da qui. È ciò che il reviewer ha ` +
+        "approvato, e la differenza fra quello e la punta del ramo è un'informazione, non un errore da " +
+        "correggere. Se il ramo è andato avanti, o è indietro su main, ripremi «Landa su main»: il land " +
+        "riallinea il ramo da sé e pubblica la punta, dicendo nel thread cosa ha riallineato.",
+      code: "invalid_input",
+    }, 400);
   }
 
   /**
@@ -2042,7 +2099,13 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         }
         if (method === "PATCH") {
           const body = (await readJSON(req)) as any;
-          // Ogni chiave la legge `parseTaskPatch`, che conosce i nomi doppi
+          // I campi della CONSEGNA per primi: `parseTaskPatch` li rifiuterebbe
+          // comunque, ma come "campo sconosciuto". Qui il rifiuto dice anche cosa
+          // fare al posto suo (ripremere «Landa su main», che riallinea il ramo da
+          // sé), e quella riga vale più del codice di stato.
+          const noDelivery = rejectDeliveryPatch(body);
+          if (noDelivery) return noDelivery;
+          // Ogni altra chiave la legge `parseTaskPatch`, che conosce i nomi doppi
           // (`parent_task_id`, `output_url`) e rifiuta con 400 ciò che questa
           // rotta non sa applicare: `archived` archiviava zero card rispondendo
           // 200, ed è indistinguibile dall'aver funzionato. Vedi task-patch.ts.
@@ -2301,6 +2364,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         const gatedPatch = fanOutGate(item.taskId, "do NOT change the task's status, title or assignee");
         if (gatedPatch) return gatedPatch;
         const body = (await readJSON(req)) as any;
+        const noDelivery = rejectDeliveryPatch(body);
+        if (noDelivery) return noDelivery;
         // Structural review gate: a DELIVERY with work still uncommitted in the
         // task's worktree is not reviewable — approve would find nothing to
         // merge and the work would strand ("implementato, NON committato").
