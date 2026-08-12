@@ -130,7 +130,7 @@ export function summarizeRefusals(skipped: ReadonlyArray<{ reason: ParkRefusal }
   const voci = [...perMotivo.entries()]
     .sort((a, b) => b[1] - a[1])
     .map(([reason, n]) => `${n} ${refusalLabel(reason)}`);
-  return `${skipped.length} non parcheggiate — ${voci.join(", ")}`;
+  return `${skipped.length} non parcheggiate: ${voci.join(", ")}`;
 }
 
 /**

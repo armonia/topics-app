@@ -105,16 +105,16 @@ export const SYSTEM_DELIVERY_REASON: Record<'retries_exhausted' | 'model_refused
   retries_exhausted:
     "L'agent ha finito i tentativi senza mettere in review da solo: sotto può non esserci un deliverable. Rimandandolo indietro riparte sulla stessa sessione.",
   model_refused:
-    "Il modello si è rifiutato di proseguire: nessun ritentativo automatico può sbloccarlo. Serve una decisione tua — rimandarlo indietro identico otterrebbe lo stesso rifiuto.",
+    "Il modello si è rifiutato di proseguire: nessun ritentativo automatico può sbloccarlo. Serve una decisione tua: rimandarlo indietro identico otterrebbe lo stesso rifiuto.",
   fanout:
-    "Fan-out: più agenti hanno lavorato lo stesso task in parallelo, ognuno nel suo worktree. Scegli quale tentativo tenere dal pannello Tentativi — gli altri vengono buttati.",
+    "Fan-out: più agenti hanno lavorato lo stesso task in parallelo, ognuno nel suo worktree. Scegli quale tentativo tenere dal pannello Tentativi. Gli altri vengono buttati.",
 };
 
 /** Il testo giusto per una consegna di sistema, causa nota o meno. */
 export function systemDeliveryNote(reason: BoardTask['deliveredReason']): string {
   return reason
     ? SYSTEM_DELIVERY_REASON[reason]
-    : "Non l'ha consegnato l'agent: ce l'ha portato il sistema a fine turno. Sotto può non esserci un deliverable — guarda il thread prima di aprire il diff.";
+    : "Non l'ha consegnato l'agent: ce l'ha portato il sistema a fine turno. Sotto può non esserci un deliverable. Guarda il thread prima di aprire il diff.";
 }
 
 /** Etichetta corta per la chip sulla card (la prosa lunga è nel title). */

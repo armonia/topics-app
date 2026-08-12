@@ -125,6 +125,8 @@ export const PREVIEW_PROMOTE_MAX_RATIO = 0.7;
  * `server/services/task-dispatcher.test.ts` verifica che le copie siano ancora
  * la stessa stringa.
  */
+// allow-emdash-block: da qui alla fine dei cancelli è il BRIEFING dell'agent,
+// un prompt letto da un modello e non un testo della app.
 export const PREVIEW_RULE = [
   "EVIDENZA DI REVIEW = un'ANTEPRIMA durevole nel task — update_task(preview_image=<path assoluto sotto ~/.topics/media/ o nel workspace del task; stringa vuota = azzera>), che compare come card sulla board e nel drawer. Tre rami, e a scegliere è il criterio, non l'abitudine:",
   `· SCREENSHOT .png — la consegna HA una superficie renderizzata che entra in una schermata. Catturala a viewport ≤1440×900 e con altezza/larghezza ≤ ${PREVIEW_CARD_MAX_RATIO.toFixed(3)} (=144/268: oltre quella soglia la card TAGLIA invece di rimpicciolire). Mai un full-page.`,
@@ -164,6 +166,8 @@ export const CODE_GATES_RULE = [
   "I QUATTRO CANCELLI del codice, e valgono TUTTI prima di consegnare — i nomi degli script li leggi in `package.json`, i cancelli no: tipi (`bun run typecheck`), lint (`bun run lint`), codice morto (`bun run check:deadcode`), test unitari (`bun run test:unit`).",
   "Il terzo è quello che si dimentica sempre: per il gate del codice morto un file che NESSUNO IMPORTA è codice morto. Quindi uno script che si lancia a mano (una sonda, un banco, una misura) va DICHIARATO fra gli entry del progetto nello stesso commit che lo aggiunge — con knip: la voce col suffisso `!` in `knip.jsonc` (come `scripts/disk-report.ts!`), e accanto la riga di commento che dice come si lancia.",
 ].join("\n");
+
+// end-allow-emdash
 
 /**
  * Ritaglia il blocco `PREVIEW_RULE` da un envelope già composto, per STRUTTURA

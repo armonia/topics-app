@@ -269,7 +269,7 @@ export function useCompletionNotifier({
         fire(
           'ok',
           question ? 'Serve una tua risposta' : 'Task pronto per la review',
-          question?.text ? `${title} — ${question.text}`.slice(0, 220) : title,
+          question?.text ? `${title} · ${question.text}`.slice(0, 220) : title,
           cfg.notificationsSound,
           taskId,
           undefined,

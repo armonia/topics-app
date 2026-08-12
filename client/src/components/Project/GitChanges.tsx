@@ -1201,7 +1201,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                     >
                       <AlertCircle size={11} className="flex-shrink-0 mt-[1px]" />
                       <span className="min-w-0 flex-1 break-words whitespace-pre-wrap font-mono">
-                        Commit non riuscito — niente è stato committato. {commitError}
+                        Commit non riuscito, niente è stato committato. {commitError}
                       </span>
                       <button
                         onClick={() => setCommitError(null)}
@@ -1217,7 +1217,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                       descrizione, ed è esattamente per questo che va detto. */}
                   {msgSource === 'rules' && (
                     <div data-testid="commit-message-source" className="px-2 pb-1 text-[10px] text-app-text-muted flex-shrink-0">
-                      dalle regole — nessun modello collegato
+                      dalle regole, nessun modello collegato
                     </div>
                   )}
 
@@ -1519,7 +1519,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
             </div>
             {msgSource === 'rules' && (
               <div data-testid="commit-message-source" className="text-[10px] text-app-text-muted">
-                dalle regole — nessun modello collegato
+                dalle regole, nessun modello collegato
               </div>
             )}
             <button
@@ -1707,7 +1707,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                 >
                   <div className="text-[12px] text-app-text-tertiary">
                     {diffBlock.kind === 'binary'
-                      ? 'File binario — git non ne fa un diff testuale.'
+                      ? 'File binario: git non ne fa un diff testuale.'
                       : 'File troppo grande per il confronto affiancato (oltre 100 KB).'}
                   </div>
                 </div>

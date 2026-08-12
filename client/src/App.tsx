@@ -1037,7 +1037,7 @@ function App() {
       className={`edge-lit ${isMobile ? 'h-11 w-11 justify-center' : 'h-7'} flex items-center gap-1.5 rounded-lg ${RAISED_CONTROL} text-app-text transition-colors flex-shrink-0 cursor-pointer app-no-drag`} {...NO_DRAG_REGION}
       style={{ pointerEvents: 'auto', ...(isMobile ? null : GLYPH_KBD_PADDING) }}
       title="Search (⌘K)"
-      aria-label="Search — open the command palette"
+      aria-label="Search, open the command palette"
     >
       {/* 16 e non 14: accanto a un'icona di sistema (il «+» di WhatsApp è il
           metro che Attilio ha usato) un glifo da 14 in una scatola da 28 legge
