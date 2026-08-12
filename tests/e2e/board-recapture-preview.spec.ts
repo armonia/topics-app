@@ -14,7 +14,11 @@
  * spawnando un agente: `POST /api/test/tasks/:id/bind-topic` fa quel solo passo.
  *
  * Il comportamento ha DUE stati e uno screenshot non lo direbbe: card senza
- * anteprima → click → anteprima. Ed è anche la clip di consegna.
+ * anteprima → click → anteprima. Ed è anche la clip di consegna: RECAPTURE-01
+ * gira dentro `clipDiConsegna` (helpers/clip.ts), che sotto `E2E_CLIP=1` accende
+ * un contesto DEDICATO sul solo tratto utile, misura il .webm e alza se sfora i
+ * 20s del protocollo. Il setup — l'app che parte, il progetto che si apre, la
+ * board che si monta — sta nel `prologo`, su una pagina il cui video si butta.
  *
  * Il secondo test è il ramo onesto: un worktree senza niente da avviare non
  * produce un'anteprima finta, produce una review-note col MOTIVO. E in nessuno
@@ -30,11 +34,14 @@ import {
   resetPaneStore,
   resetProjectPanes,
   seedProjectPane,
+  waitForProjectPaneType,
 } from "./helpers/api-fixtures";
 import { execFileSync } from "child_process";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "fs";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
+import { clipDiConsegna } from "./helpers/clip";
+import { beat, didascalia } from "./helpers/evidence";
 
 hermetic(test);
 
@@ -197,10 +204,6 @@ async function openProjectBoard(page: Page, nomeCartella: RegExp) {
   await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 10000 });
 }
 
-/** Pausa che serve SOLO alla clip di consegna (E2E_EVIDENCE=1). Zero a suite normale. */
-const beat = (page: Page, ms = 1400) =>
-  process.env.E2E_EVIDENCE === "1" ? page.waitForTimeout(ms) : Promise.resolve();
-
 test.describe("Board · «Ricattura evidenza» su una card in review", () => {
   test.describe.configure({ timeout: 180_000 });
   // 1280×680 = 0.531: la clip di consegna finisce dentro una card, che sopra
@@ -249,44 +252,74 @@ test.describe("Board · «Ricattura evidenza» su una card in review", () => {
     await resetPaneStore(page.request, []);
   });
 
-  test("RECAPTURE-01: card senza evidenza → un click → l'anteprima sulla card", async ({ page, request }) => {
+  test("RECAPTURE-01: card senza evidenza → un click → l'anteprima sulla card", async ({ request }) => {
     const taskId = seeded!.taskId;
-    await resetProjectPanes(page.request, REPO);
-    await seedProjectPane(page.request, REPO);
-    await page.goto("/");
-    await openProjectBoard(page, /topics-e2e-recapture-\d/);
+    await resetProjectPanes(request, REPO);
+    await seedProjectPane(request, REPO);
 
-    const card = page.locator(`[data-task-card="${taskId}"]`);
-    await expect(card).toBeVisible({ timeout: 15000 });
-    // PRIMO STATO: la card non ha niente da mostrare.
-    await expect(card.getByTestId("preview-card")).toHaveCount(0);
-    await beat(page, 1600);
+    await clipDiConsegna({
+      nome: "board-recapture-preview",
+      // Il contesto è NOSTRO: niente di `use` arriva qui da solo. `locale`
+      // perché le asserzioni sono in italiano e senza l'app risponde in
+      // inglese; 1280×680 = 0,531 di rapporto, perché sopra 0,70 la card
+      // taglia la clip dal basso invece di rimpicciolirla.
+      context: {
+        baseURL: BASE,
+        locale: "it-IT",
+        viewport: { width: 1280, height: 680 },
+        reducedMotion: "reduce",
+      },
+      // FUORI DALLA REGISTRAZIONE. Aprire il progetto e montare la board è
+      // lavoro di scena, non la scena: sta su una pagina il cui video si
+      // butta. Il layout resta scritto sul server (e nel localStorage del
+      // contesto, che la scena condivide), quindi la pagina dopo lo ritrova
+      // già aperto e non lo rimonta davanti alla telecamera.
+      prologo: async (p) => {
+        await p.goto("/");
+        await openProjectBoard(p, /topics-e2e-recapture-\d/);
+        await expect(p.locator(`[data-task-card="${taskId}"]`)).toBeVisible({ timeout: 15000 });
+        await waitForProjectPaneType(request, REPO, "kanban");
+      },
+      scena: async (page) => {
+        await page.goto("/");
+        const card = page.locator(`[data-task-card="${taskId}"]`);
+        await expect(card).toBeVisible({ timeout: 20000 });
+        // PRIMO STATO: la card non ha niente da mostrare.
+        await expect(card.getByTestId("preview-card")).toHaveCount(0);
+        await didascalia(page, "Card in review, nessuna evidenza");
+        await beat(page, 1300);
 
-    await card.click();
-    const drawer = page.getByTestId("task-detail-drawer");
-    await expect(drawer).toBeVisible({ timeout: 10000 });
+        await card.click();
+        const drawer = page.getByTestId("task-detail-drawer");
+        await expect(drawer).toBeVisible({ timeout: 10000 });
 
-    const bottone = drawer.getByTestId("task-recapture-preview");
-    await expect(bottone).toBeVisible({ timeout: 10000 });
-    await beat(page, 1800);
-    await bottone.click();
+        const bottone = drawer.getByTestId("task-recapture-preview");
+        await expect(bottone).toBeVisible({ timeout: 10000 });
+        await didascalia(page, "Un click su «Ricattura evidenza»");
+        await beat(page, 1300);
+        await bottone.click();
 
-    // SECONDO STATO: l'immagine arriva. Il tempo è quello vero (boot del dev
-    // server nel worktree + primo paint + screenshot), non una soglia scelta.
-    await expect(drawer.getByTestId("preview-drawer").locator("img")).toBeVisible({ timeout: 90_000 });
-    await expect(card.getByTestId("preview-card").locator("img")).toBeVisible({ timeout: 15000 });
-    await beat(page, 2200);
+        // SECONDO STATO: l'immagine arriva. Il tempo è quello vero (boot del dev
+        // server nel worktree + primo paint + screenshot), non una soglia scelta.
+        await didascalia(page, "Il worktree si avvia e si fotografa da solo");
+        await expect(drawer.getByTestId("preview-drawer").locator("img")).toBeVisible({ timeout: 90_000 });
+        await expect(card.getByTestId("preview-card").locator("img")).toBeVisible({ timeout: 15000 });
+        await didascalia(page, "L'anteprima è sulla card");
+        await beat(page, 1800);
 
-    // L'immagine si VEDE: il server la serve (l'allowlist dei media la copre) e
-    // ha pixel dentro. Un `<img>` rotto sarebbe visibile lo stesso.
-    const misura = await card.getByTestId("preview-card").locator("img").evaluate((el) => {
-      const img = el as HTMLImageElement;
-      return { w: img.naturalWidth, h: img.naturalHeight };
+        // L'immagine si VEDE: il server la serve (l'allowlist dei media la copre) e
+        // ha pixel dentro. Un `<img>` rotto sarebbe visibile lo stesso.
+        const misura = await card.getByTestId("preview-card").locator("img").evaluate((el) => {
+          const img = el as HTMLImageElement;
+          return { w: img.naturalWidth, h: img.naturalHeight };
+        });
+        expect(misura.w, "l'anteprima deve avere pixel, non essere un'immagine rotta").toBeGreaterThan(100);
+      },
     });
-    expect(misura.w, "l'anteprima deve avere pixel, non essere un'immagine rotta").toBeGreaterThan(100);
 
     // E NON è successo nient'altro: stessa colonna, stessi tentativi, nessun
-    // commento umano (che farebbe reject+resume, cioè il risveglio).
+    // commento umano (che farebbe reject+resume, cioè il risveglio). Sta fuori
+    // dalla scena: sono letture d'API, non hanno niente da far vedere.
     const body = await readTask(request, PROJECT_ID, taskId);
     const task = taskOf(body);
     expect(task.status, "il task resta in review").toBe("review");
