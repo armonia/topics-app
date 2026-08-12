@@ -71,7 +71,22 @@ const IT: Dict = {
   'tab.menu.unpin': 'Rimuovi dai Fissati',
   'board.task.movedToReviewBySystem': 'Portato in review dal sistema.',
   'board.task.reject': 'Rifiuta',
-  'board.task.openChat': 'Apri la chat',
+  // ── SCHEDA contro SESSIONE. Sono due superfici diverse e da qui in poi si
+  //    chiamano diversamente, ovunque. La SCHEDA del task è dove si decide
+  //    (descrizione, checklist, consegna, thread) ed esiste sempre; la SESSIONE
+  //    è la chat viva dell'agente, dove si lavora, e può non esserci più.
+  //    Chi legge l'etichetta deve sapere quale delle due otterrà PRIMA del
+  //    click — vedi `lib/taskSession.ts`. Regola per chi aggiunge chiavi qui:
+  //    mai «apri il task» e mai «tab dell'agent», che non dicono quale delle due.
+  'board.task.openCard': 'Apri la scheda',
+  'board.task.openCardTitle': 'Apri la scheda del task: descrizione, checklist, consegna, thread',
+  'board.task.openParentCardTitle': 'Apri la scheda del task padre',
+  'board.task.openSubtaskCardTitle': 'Apri la scheda del sottotask',
+  'board.task.openSession': 'Apri la sessione',
+  'board.task.openSessionTitle': "Apri la sessione dell'agente: la chat dove sta lavorando (chiuderla NON la ferma)",
+  'board.task.sessionGone': 'Sessione finita',
+  'board.task.sessionGoneTitle': "L'agente non è più vivo: la sua sessione non esiste più. Quello che ha fatto resta qui, sulla scheda.",
+  'board.task.awaitingYouTitle': "Il turno è vivo ma aspetta te: apri la sessione dell'agente per rispondere",
   'board.task.loadingDiff': 'carico il diff…',
   'board.task.diffUnreadable': 'Diff non leggibile.',
   'board.task.noChanges': 'Nessuna modifica da mostrare.',
@@ -108,7 +123,6 @@ const IT: Dict = {
   'board.task.reuseBlockerTitle': "Quando parte, l'agent riceve il contesto della sessione del task bloccante invece di uno start a freddo",
   'board.task.blockedByText': 'Bloccato da: {text}',
   'board.task.blockedByUnknown': 'Bloccato da un altro task',
-  'board.task.openSessionTabTitle': "Apri la tab dell'agent (chiuderla NON ferma la sessione)",
   'board.task.openResultWorkspaceTitle': 'Apri il risultato come tab nel workspace del progetto',
   'board.task.copyText': 'Copia il task',
   'board.task.copyTextTitle': 'Copia il task (titolo + descrizione) negli appunti',
@@ -142,7 +156,11 @@ const IT: Dict = {
   'board.task.approveAnyway': 'Approva comunque',
   'board.task.removeAttachmentTitle': 'Rimuovi allegato',
   'board.task.attachFileTitle': "Allega file (o incolla un'immagine nel campo)",
-  'board.task.openSubtaskTitle': 'Apri il sottotask',
+  // La riga di ritorno in cima alla chat di una sessione di board: da dove si
+  //    LAVORA a dove si DECIDE. Il verso opposto della board.
+  'chat.session.taskLabel': 'Task',
+  'chat.session.openTaskCard': 'Apri la scheda',
+  'chat.session.openTaskCardTitle': 'Torna alla scheda del task: descrizione, checklist, consegna, thread',
   'board.task.pdfPreviewTitle': 'anteprima PDF',
   'board.task.collapse': 'Comprimi',
   'board.task.showSteps': 'Mostra i passaggi che la sessione ha fatto qui',
@@ -560,7 +578,18 @@ const EN: Dict = {
   'tab.menu.unpin': 'Unpin',
   'board.task.movedToReviewBySystem': 'Moved to review by the system.',
   'board.task.reject': 'Reject',
-  'board.task.openChat': 'Open the chat',
+  // CARD vs SESSION — see the Italian block for the rule. The card is where you
+  // decide and always exists; the session is the agent's live chat, where the
+  // work happens, and it can be gone.
+  'board.task.openCard': 'Open the card',
+  'board.task.openCardTitle': "Open the task card: description, checklist, delivery, thread",
+  'board.task.openParentCardTitle': 'Open the parent task card',
+  'board.task.openSubtaskCardTitle': 'Open the subtask card',
+  'board.task.openSession': 'Open the session',
+  'board.task.openSessionTitle': "Open the agent's session: the chat it is working in (closing it does NOT stop it)",
+  'board.task.sessionGone': 'Session ended',
+  'board.task.sessionGoneTitle': "The agent is no longer alive: its session is gone. What it did stays here, on the card.",
+  'board.task.awaitingYouTitle': "The turn is alive but waiting on you: open the agent's session to answer",
   'board.task.loadingDiff': 'loading the diff…',
   'board.task.diffUnreadable': 'Diff not readable.',
   'board.task.noChanges': 'No changes to show.',
@@ -593,7 +622,6 @@ const EN: Dict = {
   'board.task.reuseBlockerTitle': "When it starts, the agent gets the blocking task's session context instead of a cold start",
   'board.task.blockedByText': 'Blocked by: {text}',
   'board.task.blockedByUnknown': 'Blocked by another task',
-  'board.task.openSessionTabTitle': "Open the agent's tab (closing it does NOT stop the session)",
   'board.task.openResultWorkspaceTitle': 'Open the result as a tab in the project workspace',
   'board.task.copyText': 'Copy the task',
   'board.task.copyTextTitle': 'Copy the task (title + description) to the clipboard',
@@ -627,7 +655,9 @@ const EN: Dict = {
   'board.task.approveAnyway': 'Approve anyway',
   'board.task.removeAttachmentTitle': 'Remove attachment',
   'board.task.attachFileTitle': 'Attach a file (or paste an image into the field)',
-  'board.task.openSubtaskTitle': 'Open the subtask',
+  'chat.session.taskLabel': 'Task',
+  'chat.session.openTaskCard': 'Open the card',
+  'chat.session.openTaskCardTitle': 'Back to the task card: description, checklist, delivery, thread',
   'board.task.pdfPreviewTitle': 'PDF preview',
   'board.task.collapse': 'Collapse',
   'board.task.showSteps': 'Show the steps this session took here',
