@@ -258,6 +258,33 @@ describe("identity gate — chi risponde sulla porta dev'essere il nostro", () =
     expect(res!.url).toBe("http://localhost:3400/");
   });
 
+  it("due NOMI della stessa cartella non sono un intruso (/tmp → /private/tmp)", async () => {
+    // Il caso vero, misurato su macOS: `lsof` risponde sempre col path REALE,
+    // il worktree porta quello con cui è nato. Confrontate come stringhe, la
+    // stessa cartella risultava «un altro processo» e l'anteprima appena
+    // avviata veniva uccisa. Il cancello confronta path CANONICI.
+    const h = harness({
+      listenerPid: async () => 5555,
+      processCwd: async () => "/private/tmp/wt1",
+      realPath: async (p) => (p.startsWith("/tmp/") ? p.replace("/tmp/", "/private/tmp/") : p),
+    });
+    const pm = createPreviewManager(h.deps);
+    const res = await pm.ensurePreview("t1");
+    expect(res, "il worktree è lo stesso: l'anteprima va accettata").not.toBeNull();
+    expect(h.procs[0].killed).toBe(false);
+  });
+
+  it("con i path canonici un ESTRANEO resta estraneo", async () => {
+    const h = harness({
+      listenerPid: async () => 5555,
+      processCwd: async () => "/private/tmp/wt2",
+      realPath: async (p) => (p.startsWith("/tmp/") ? p.replace("/tmp/", "/private/tmp/") : p),
+    });
+    const pm = createPreviewManager(h.deps);
+    expect(await pm.ensurePreview("t1")).toBeNull();
+    expect(h.procs[0].killed).toBe(true);
+  });
+
   it("NON riusa un output_url locale che risponde ma non è l'anteprima di questo task", async () => {
     const h = harness();                       // nessun listenerPid ⇒ identità non verificabile
     h.outputUrl.v = "http://localhost:3400/";  // porta del pool, oggi di chissà chi

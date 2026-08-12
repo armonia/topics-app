@@ -7,8 +7,11 @@
  */
 import { usePaneStore } from '../../state/pane/store';
 import { selectVisiblePaneIds } from '../../state/pane/selectors';
-import { resolvePaneSpace } from '../../state/pane/reducers/spaces';
-import { DEFAULT_SPACE_ID, type SpaceMeta } from '../../state/pane/types';
+import { resolvePaneSpace, isLiveSpaceId } from '../../state/pane/reducers/spaces';
+import { DEFAULT_SPACE_ID, type SpaceMeta, type Pane } from '../../state/pane/types';
+import { spaceWindowsNow } from '../../state/windowPresence';
+import { spaceWindowId } from '../../lib/windowRole';
+import { clearPanelGridStorage } from './usePanelGridPersistence';
 import { generateUUID } from '../../utils/uuid';
 
 /** Label for the implicit default space (never stored in the registry). */
@@ -23,20 +26,63 @@ export function liveSpacesOrdered(spaces: Record<string, SpaceMeta>): SpaceMeta[
 }
 
 /**
- * C'è il gruppo, a schermo? Vero quando esiste almeno un gruppo creato
- * dall'utente, o quando la finestra È un gruppo staccato (`?space=`).
+ * Quante tab tiene ciascun gruppo, contate sulle pane a livello app.
+ *
+ * È IL NUMERO CHE DECIDE SE UN GRUPPO SI DISEGNA. Un gruppo esiste finché
+ * tiene qualcosa: la sua ragione d'essere è raccogliere tab, e a zero non
+ * raccoglie niente — resta una scatola vuota che occupa la colonna e chiede di
+ * essere sciolta a mano. La regola vale in due posti che devono dire la stessa
+ * cosa (la card in `useSpaceCards` e il cancello `groupChromeActive` qui
+ * sotto), e per questo il conteggio è UNO solo, qui.
+ *
+ * `paneIds` è la fila delle tab a livello app (`group:default`), la stessa che
+ * legge `selectVisiblePaneIds`: una pane che non è nella fila non è una tab.
+ */
+export function tabsPerSpace(
+  paneIds: readonly string[],
+  panes: Record<string, Pane>,
+  spaces: Record<string, SpaceMeta> | undefined,
+): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const id of paneIds) {
+    const spaceId = resolvePaneSpace(panes[id], spaces);
+    counts.set(spaceId, (counts.get(spaceId) ?? 0) + 1);
+  }
+  return counts;
+}
+
+/**
+ * C'è il gruppo, a schermo? Vero quando almeno un gruppo creato dall'utente
+ * TIENE una tab, o quando la finestra È un gruppo staccato (`?space=`).
  *
  * Una risposta sola per due domande che devono coincidere: se SpaceGroups
  * disegna l'intestazione, l'albero deve dividersi in "tab di questo gruppo" e
  * "fuori dai gruppi"; se non la disegna, la sidebar resta la lista unica di
  * sempre. Rispondere due volte, in due file, è il modo per farle divergere —
  * un filo senza intestazione, o un'intestazione attorno a tutto.
+ *
+ * ESISTERE NON BASTA, e prima bastava: `liveSpacesOrdered(spaces).length > 0`
+ * teneva accesa tutta l'impalcatura dei gruppi per un record nella registry,
+ * anche dopo che l'ultima tab se n'era andata. Il risultato era una sidebar
+ * fatta di scatole vuote — «Nessuna tab» dentro una card, e sopra il gruppo
+ * principale incorniciato per niente — cioè esattamente ciò che rende
+ * illeggibile una lista che senza gruppi si leggeva bene. Con zero gruppi
+ * PIENI si torna alla lista di sempre, senza una scatola in più.
+ *
+ * `elsewhere` sono i gruppi che vivono in un'altra finestra: quelli contano
+ * anche a zero tab, altrimenti la finestra resterebbe aperta e il gruppo che
+ * ci abita sparirebbe da qui — l'unico posto da cui lo si richiama.
  */
 export function groupChromeActive(
   spaces: Record<string, SpaceMeta>,
   pinnedSpaceId: string | null,
+  tabsBySpace: ReadonlyMap<string, number>,
+  elsewhere?: ReadonlyMap<string, unknown> | ReadonlySet<string>,
 ): boolean {
-  return !!pinnedSpaceId || liveSpacesOrdered(spaces).length > 0;
+  if (pinnedSpaceId) return true;
+  return liveSpacesOrdered(spaces).some(
+    (s) => (tabsBySpace.get(s.id) ?? 0) > 0 || !!elsewhere?.has(s.id),
+  );
 }
 
 /**
@@ -128,7 +174,8 @@ export function movePaneToSpace(paneId: string, targetSpaceId: string): void {
   const s = usePaneStore.getState();
   const pane = s.panes[paneId];
   if (!pane) return;
-  if (resolvePaneSpace(pane, s.spaces) === targetSpaceId) return; // already there
+  const from = resolvePaneSpace(pane, s.spaces);
+  if (from === targetSpaceId) return; // already there
   s.dispatch({
     type: 'UPDATE_PANE',
     payload: {
@@ -141,4 +188,46 @@ export function movePaneToSpace(paneId: string, targetSpaceId: string): void {
     const visible = selectVisiblePaneIds(after);
     after.dispatch({ type: 'FOCUS_PANE', payload: { id: visible[0] ?? null } });
   }
+  dissolveIfEmptied(from);
+}
+
+/**
+ * Il gruppo da cui è appena uscita l'ultima tab si scioglie da sé.
+ *
+ * NON è una cancellazione di lavoro: un gruppo non contiene niente di suo, è
+ * l'insieme delle tab che ci hai messo. Svuotato, ciò che resta è un nome in
+ * una registry — e un nome che continua a comparire nel menu «Sposta nel
+ * gruppo» accanto a gruppi veri è un posto dove mandare una tab che nella
+ * sidebar non si vede: la stessa scatola vuota, spostata in un menu.
+ *
+ * Si scioglie SOLO come conseguenza di un gesto esplicito che sposta una tab
+ * fuori, mai come controllo periodico dell'invariante: la cancellazione è una
+ * lapide ASSORBENTE (vedi `mergeSpaces`), quindi un giro di reaper che partisse
+ * prima che le pane siano idratate ucciderebbe un gruppo pieno, e per sempre.
+ * Per la stessa ragione la CHIUSURA dell'ultima tab non scioglie niente: la tab
+ * è nel closedStack e ⌘Z la riporta indietro, nel suo gruppo — che nel
+ * frattempo la sidebar ha smesso di disegnare (`groupChromeActive`), che è
+ * quanto serve a non vedere scatole vuote.
+ *
+ * Due deroghe, ed è la stessa: il gruppo che vive in una finestra sua non si
+ * tocca, né visto da qui (`spaceWindowsNow`) né visto da lì (`spaceWindowId`) —
+ * scioglierlo lascerebbe aperta una finestra senza più il gruppo che disegna.
+ */
+function dissolveIfEmptied(spaceId: string): void {
+  if (spaceId === DEFAULT_SPACE_ID) return;
+  if (spaceWindowId() === spaceId) return;
+  const s = usePaneStore.getState();
+  if (!isLiveSpaceId(spaceId, s.spaces)) return;
+  const order = s.groups['group:default']?.paneIds ?? [];
+  if ((tabsPerSpace(order, s.panes, s.spaces).get(spaceId) ?? 0) > 0) return;
+  if (spaceWindowsNow().has(spaceId)) return;
+  s.dispatch({ type: 'SPACE_DELETE', payload: { id: spaceId } });
+  // La griglia di quel gruppo vive su una chiave localStorage suffissata: il
+  // reducer è puro e non può toccarla (stessa pulizia di «Sciogli nel
+  // principale», in SpaceGroups).
+  clearPanelGridStorage(spaceId);
+  const after = usePaneStore.getState();
+  if (after.activeSpaceId !== spaceId) return;
+  const next = firstOtherLiveSpace(after.spaces, spaceId, spaceWindowsNow());
+  if (next) after.dispatch({ type: 'SET_ACTIVE_SPACE', payload: { id: next } });
 }
