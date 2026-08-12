@@ -21,6 +21,7 @@ import { BoardTabCounts } from './BoardTabCounts';
 import { EDGE_DROP_PX } from './constants';
 import { SplitRegion, InsertCaret } from './DropOverlay';
 import { useMobile } from '../../hooks/useMobile';
+import { useSplitLayoutAvailable } from '../../hooks/useSplitLayoutAvailable';
 import { useLongPress } from '../../hooks/useLongPress';
 import { TopicStreamingSpinner, ProjectStreamingSpinner, TerminalStreamingSpinner, BrowserStreamingSpinner } from './StreamingIndicator';
 import { NotificationBadge } from '../Shared/NotificationBadge';
@@ -345,6 +346,11 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
   const dropConsumedRef = useRef(false);
 
   const { isTouch } = useMobile();
+  // «Un comando compare dove ha effetto»: sotto i 768px non ci sono split, e le
+  // tre voci che li governano — Dividi a destra, Dividi in basso, Reimposta
+  // pannelli — non facevano niente. Il gate è qui, sul menu, e non sui
+  // chiamanti: le callback restano quelle, cambia solo chi le mostra.
+  const splitLayoutAvailable = useSplitLayoutAvailable();
 
   // Context menu state. Si tiene il RETTANGOLO della tab, non un punto: la
   // posizione va ricalcolata ogni volta che il pannello cambia altezza da sé
@@ -1735,7 +1741,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
               <span>{tr('tab.menu.closeOthers')}</span>
             </button>
           )}
-          {(onSplitRight || onSplitDown) && (
+          {splitLayoutAvailable && (onSplitRight || onSplitDown) && (
             <>
               <div className="h-px bg-app-border my-1" />
               {onSplitRight && (
@@ -1764,11 +1770,11 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
           {(() => {
             const ctxPane = panes.find(p => p.id === ctxMenu.paneId);
             const showPopOutHere = ctxPane?.type === 'chat' && !!onPopOut;
-            return (onResetLayout || showMoveToSpace || showPopOutHere);
+            return ((onResetLayout && splitLayoutAvailable) || showMoveToSpace || showPopOutHere);
           })() && (
             <>
               <div className="h-px bg-app-border my-1" />
-              {onResetLayout && (
+              {onResetLayout && splitLayoutAvailable && (
                 <button
                   onClick={() => { onResetLayout(); setCtxMenu(null); }}
                   className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-[12px] coarse:text-[14px] text-app-text hover:bg-app-hover transition-colors"
