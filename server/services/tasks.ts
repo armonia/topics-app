@@ -1826,6 +1826,26 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           const reopenedActor = signature === "system" || signature === "dispatcher" ? "system" : actor;
           put("reopened_at", now()); put("reopened_by", signature); put("reopened_actor", reopenedActor);
         }
+        // Una card che RIENTRA in coda non porta con sé la consegna di prima.
+        //
+        // Lo scatto della consegna (`delivery_branch` / `delivery_commit`) e il
+        // verdetto sull'atterraggio descrivono un lavoro CONSEGNATO. Da `done` o
+        // da `review` verso la coda quel lavoro non è più ciò che la card sta
+        // chiedendo: o è stato rifiutato, o l'umano l'ha riaperta per chiedere
+        // dell'altro. Tenerlo vuol dire far parlare la card di un frutto che non
+        // le appartiene più, e chi legge quel campo decide cose grosse — il
+        // dispatcher ci CHIUDE sopra una card («è già su main, niente da
+        // rifare»), e senza questa riga la richiesta nuova moriva sul commit
+        // vecchio: chiusa a ogni tick, e senza via d'uscita, perché solo una
+        // nuova consegna riscrive quel campo e per consegnare serve il dispatch
+        // che il cancello blocca.
+        //
+        // Stessa lista che azzera `recordDelivery`: la TESTIMONIANZA cade col
+        // suo commit, altrimenti il prossimo verdetto nascerebbe già «visto».
+        if ((current === "done" || current === "review") && patch.status !== "done" && patch.status !== "review") {
+          put("delivery_branch", null); put("delivery_commit", null);
+          put("landing_state", null); put("landing_checked_at", null); put("landing_witnessed", 0);
+        }
         // A card leaving the flow keeps no live chip: dragging review → done
         // used to strand "delivered"/"serve te" on a closed card (only
         // reviewDecision cleared it).
@@ -2735,9 +2755,22 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // la stessa cosa che una card approvata in review si tiene. A fare danno
       // non era il legame, era il chip di dispatch vivo e la finestra di
       // ri-tentativo — da lì la card è claimabile e l'agente riparte.
+      //
+      // Chiudere è chiudere: questa porta scrive `done` a SQL grezzo, quindi le
+      // due colonne che la board legge per raccontare la colonna vanno messe qui
+      // a mano o restano quelle di prima. Una card ferma su `done` con
+      // `reopened_actor` acceso e `done_actor` vuoto si legge «riaperta da
+      // attilio» sopra una card chiusa: uno stato che `update()` non produce
+      // mai, e che dice il contrario di quel che è successo.
+      //
+      // `COALESCE` e non un'assegnazione: se la card era già stata chiusa da una
+      // persona, quel verdetto è suo e non lo si riscrive a nome del sistema.
       db.prepare(
         `UPDATE tasks SET status = 'done', completed_at = ?, dispatch_state = NULL,
-            dispatch_error = NULL, dispatch_deferred_until = NULL, updated_at = ? WHERE id = ?`,
+            dispatch_error = NULL, dispatch_deferred_until = NULL,
+            done_actor = COALESCE(done_actor, 'system'),
+            reopened_at = NULL, reopened_by = NULL, reopened_actor = NULL,
+            updated_at = ? WHERE id = ?`,
       ).run(row.completed_at ?? ts, ts, taskId);
       if (row.status !== "done") logStatus(taskId, row.status, "done", by ?? "system", reason);
       return rowToTask(getTaskRow(taskId));
