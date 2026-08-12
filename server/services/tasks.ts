@@ -209,6 +209,24 @@ export interface Task {
   /** Perché, in forma leggibile da codice. Solo per `deliveredBy === 'system'`;
    *  la prosa completa resta nel commento di sistema del thread. */
   deliveredReason: "retries_exhausted" | "model_refused" | "fanout" | null;
+  /**
+   * Chi ha portato la card a `done` l'ultima volta. `'human'` = una decisione di
+   * Attilio (approvazione in review o trascinamento sulla board), e vale come
+   * tale: un agente non la scavalca. `'agent'` = uno step di checklist che
+   * l'agente ha chiuso da sé, mai passato da una review — quello resta suo e
+   * può riaprirlo. null = mai chiusa, oppure storico senza approvazione (la
+   * migration 097 riempie solo ciò che può provare).
+   */
+  doneActor: "human" | "agent" | "system" | null;
+  /**
+   * La card è USCITA da `done`: quando, per mano di chi e con che ruolo. Vive
+   * finché non torna `done` (allora il ciclo si chiude e il segno si azzera).
+   * È la traccia che mancava — il motivo di una riapertura stava nel thread, e
+   * chi guardava la colonna vedeva solo un buco dove c'era una cosa fatta.
+   */
+  reopenedAt: string | null;
+  reopenedBy: string | null;
+  reopenedActor: "human" | "agent" | "system" | null;
   /** Dispatch in the BLOCKER agent's conversation instead of a fresh topic. */
   reuseBlockerContext: boolean;
   /** Direct-children counters (filled by list/get for board badges). */
@@ -965,6 +983,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       checks: parseChecksJson(r.checks_json),
       deliveredBy: r.delivered_by ?? null,
       deliveredReason: r.delivered_reason ?? null,
+      doneActor: r.done_actor ?? null,
+      reopenedAt: r.reopened_at ?? null,
+      reopenedBy: r.reopened_by ?? null,
+      reopenedActor: r.reopened_actor ?? null,
       reuseBlockerContext: !!r.reuse_blocker_context,
       subtaskCount: 0,
       subtaskDoneCount: 0,
@@ -1133,6 +1155,21 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (latest === null || r.created_at > latest) latest = r.created_at;
     }
     return latest;
+  }
+
+  /**
+   * Segna che una card è USCITA da `done`, per le porte che scrivono lo status
+   * a SQL grezzo (release, deferForWait, deliverToReviewBySystem). `update()`
+   * scrive le stesse colonne dentro la sua unica UPDATE — qui non passa.
+   * No-op quando non si stava uscendo da `done`.
+   */
+  function markReopened(taskId: string, from: string, to: string, actor: "human" | "agent" | "system", by: string): void {
+    if (from !== "done" || to === "done") return;
+    try {
+      db.prepare(
+        "UPDATE tasks SET done_actor = NULL, reopened_at = ?, reopened_by = ?, reopened_actor = ? WHERE id = ?",
+      ).run(now(), by || "system", actor, taskId);
+    } catch { /* la traccia è best-effort — non fa fallire la transizione */ }
   }
 
   function getTaskRow(taskId: string): any {
@@ -1336,6 +1373,27 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
             "agents deliver to 'review' for human approval; only a human moves 'review' → 'done' (exception: subtask steps of YOUR assigned task). Set status to 'review' instead.",
           );
         }
+        // Una card chiusa da un UMANO non la riapre un agente.
+        //
+        // Misurato l'11/08: undici card uscite da `done` in sei ore, quasi tutte
+        // per mano di agenti. Nessuna persa, ma `done` è la colonna su cui ci si
+        // fida: se una decisione presa da Attilio (approvare la review, o
+        // trascinare la card) viene ribaltata da un turno che sta girando, la
+        // fiducia va — e l'umano non l'ha nemmeno saputo.
+        //
+        // Il discrimine è CHI aveva chiuso, non che tipo di task sia: uno step
+        // di checklist chiuso dall'agente stesso (`done_actor = 'agent'`, mai
+        // passato da una review) resta suo e si riapre senza attriti; è il caso
+        // legittimo e frequente — il padre che rifà un proprio sottotask.
+        if (
+          current === "done" && patch.status !== "done"
+          && actor === "agent" && row.done_actor === "human"
+        ) {
+          throw new TaskServiceError(
+            "reopen_needs_human",
+            "questa card è stata chiusa da una decisione umana (approvazione in review o spostamento sulla board): non puoi riaprirla. Se il lavoro va rifatto, scrivi un commento con il motivo e chiedi la riapertura.",
+          );
+        }
         // A parent is not done while its subtasks are open — for ANY actor.
         // Complete or archive the children first (structural invariant, not a
         // board setting).
@@ -1442,6 +1500,24 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (patch.status !== undefined) {
         put("status", patch.status);
         put("completed_at", patch.status === "done" ? now() : null);
+        // Chi chiude, e chi riapre — i due fatti che la board deve poter dire da
+        // sé (il thread non basta: chi guarda la colonna vede solo il buco).
+        if (patch.status === "done") {
+          put("done_actor", actor);
+          // Ciclo chiuso: la card è di nuovo fatta, non è più «riaperta».
+          put("reopened_at", null); put("reopened_by", null); put("reopened_actor", null);
+        } else if (current === "done") {
+          put("done_actor", null);
+          // `actor` è l'asse dei PERMESSI, non quello dell'attribuzione: il land
+          // andato in conflitto ritira la card da `done` con `actor: "human"`
+          // proprio per poterlo fare (routes/tasks.ts, ramo "conflict"), ma la
+          // firma vera è `by: "system"`. Leggendo l'attore, il chip avrebbe detto
+          // «riaperta da te» di un ritiro che l'umano non ha deciso — cioè la
+          // stessa bugia che questa card esiste per togliere, un livello più giù.
+          const signature = by || "system";
+          const reopenedActor = signature === "system" || signature === "dispatcher" ? "system" : actor;
+          put("reopened_at", now()); put("reopened_by", signature); put("reopened_actor", reopenedActor);
+        }
         // A card leaving the flow keeps no live chip: dragging review → done
         // used to strand "delivered"/"serve te" on a closed card (only
         // reviewDecision cleared it).
@@ -1617,8 +1693,13 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         db.prepare("UPDATE tasks SET status = ?, completed_at = NULL, dispatch_state = NULL, dispatch_attempts = 0, updated_at = ? WHERE id = ?")
           .run(target, ts, taskId);
       } else {
-        db.prepare("UPDATE tasks SET status = ?, completed_at = ?, dispatch_state = NULL, updated_at = ? WHERE id = ?")
-          .run(target, ts, ts, taskId);
+        // `done_actor = 'human'`: è LA decisione di Attilio, ed è ciò che il
+        // cancello di riapertura legge (un agente non la ribalta). Il segno di
+        // «riaperta» si azzera: il ciclo si è chiuso qui.
+        db.prepare(
+          "UPDATE tasks SET status = ?, completed_at = ?, dispatch_state = NULL, done_actor = 'human', " +
+            "reopened_at = NULL, reopened_by = NULL, reopened_actor = NULL, updated_at = ? WHERE id = ?",
+        ).run(target, ts, ts, taskId);
       }
       logStatus(taskId, "review", target, by);
       return rowToTask(getTaskRow(taskId));
@@ -1834,6 +1915,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
             status = ?, dispatch_state = ?, dispatch_error = ?, updated_at = ? WHERE id = ?`,
       ).run(status, state, reason ?? null, ts, taskId);
       if (row.status !== status) logStatus(taskId, row.status, status, by ?? "dispatcher");
+      markReopened(taskId, row.status, status, "system", by ?? "dispatcher");
       return rowToTask(getTaskRow(taskId));
     },
 
@@ -1859,6 +1941,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
             dispatch_deferred_until = ?, updated_at = ? WHERE id = ?`,
       ).run(note, until, ts, taskId);
       if (row.status !== "todo") logStatus(taskId, row.status, "todo", by ?? "agent");
+      markReopened(taskId, row.status, "todo", "agent", by ?? "agent");
       return rowToTask(getTaskRow(taskId));
     },
 
@@ -1932,6 +2015,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           "delivered_by = 'system', delivered_reason = ?, updated_at = ? WHERE id = ?",
       ).run(cause ?? null, ts, taskId);
       if (row.status !== "review") logStatus(taskId, row.status, "review", "dispatcher");
+      markReopened(taskId, row.status, "review", "system", "dispatcher");
       // Open the pending review approval so the review decision flow works, just
       // like an agent-initiated hand-off would.
       try {

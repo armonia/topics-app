@@ -14,11 +14,11 @@
 export { MAX_FANOUT, TASK_STATUSES, ACTIVE_DISPATCH_STATES, isAgentWorking, parseStatusEvent, hasPlanApproveOption } from '../../../shared/board';
 export type {
   TaskStatus, TaskComment, ReviewCheck, CheckRun, BoardSettings, BoardSettingsPatch, DispatchCapacity, BlockerRef,
+  LandingTicket,
   SubtaskWork,
 } from '../../../shared/board';
 import type {
-  TaskStatus, TaskComment, CheckRun, BoardSettings, BoardSettingsPatch, DispatchCapacity, BlockerRef,
-  SubtaskWork,
+  TaskStatus, TaskComment, CheckRun, BoardSettings, BoardSettingsPatch, DispatchCapacity, BlockerRef, LandingTicket, SubtaskWork,
 } from '../../../shared/board';
 // Il tentativo di un fan-out: stesso contratto del server, stessa cartella condivisa.
 // Passa solo `attemptHasWork`, che è un predicato e non ha lingua. Il diffstat
@@ -181,6 +181,35 @@ export function subtaskWorkChip(
   };
 }
 
+/**
+ * Il chip «riaperta»: una card che ERA fatta e non lo è più lo dice sulla card,
+ * dove si guarda — non solo nel thread.
+ *
+ * Misurato l'11/08: undici card uscite da `done` in sei ore. Non se n'era persa
+ * nessuna, ma dalla colonna si vedeva solo un buco al posto di una cosa fatta, e
+ * il motivo (che c'era sempre) viveva nel commento. `null` = la card non è mai
+ * uscita da done, o ci è tornata (allora il ciclo è chiuso e il segno cade).
+ */
+export function reopenedChip(
+  task: Pick<BoardTask, 'reopenedAt' | 'reopenedBy' | 'reopenedActor'>,
+): { label: string; title: string; detail: string } | null {
+  if (!task.reopenedAt) return null;
+  const when = new Date(task.reopenedAt);
+  const quando = Number.isNaN(when.getTime()) ? task.reopenedAt : when.toLocaleString('it-IT');
+  const chi = task.reopenedActor === 'human'
+    ? 'da te'
+    : task.reopenedActor === 'system'
+      ? 'dal sistema'
+      : `da un agent${task.reopenedBy ? ` (${task.reopenedBy})` : ''}`;
+  // `detail` è la stessa frase senza preamboli: la banda del drawer ha già la
+  // parola «Riaperta» in grassetto e ripeterla la renderebbe illeggibile.
+  return {
+    label: 'riaperta',
+    detail: `${chi} il ${quando}`,
+    title: `Era in Done: riaperta ${chi} il ${quando}. Il motivo è nel thread della card.`,
+  };
+}
+
 export interface BoardTask {
   id: string;
   projectId: string;
@@ -270,6 +299,15 @@ export interface BoardTask {
   deliveredBy: 'agent' | 'human' | 'system' | null;
   /** Perché, quando `deliveredBy === 'system'`. La prosa sta nel thread. */
   deliveredReason: 'retries_exhausted' | 'model_refused' | 'fanout' | null;
+  /** Chi ha chiuso la card l'ultima volta: 'human' = una decisione di Attilio
+   *  (approvazione o trascinamento) e un agent non la riapre. */
+  doneActor: 'human' | 'agent' | 'system' | null;
+  /** La card è USCITA da done: quando, per mano di chi, con che ruolo. Resta
+   *  finché non torna done. È il chip «riaperta»: senza, la colonna mostrava
+   *  solo un buco dove c'era una cosa fatta. */
+  reopenedAt: string | null;
+  reopenedBy: string | null;
+  reopenedActor: 'human' | 'agent' | 'system' | null;
 }
 
 export interface TaskWithThread {
@@ -567,9 +605,14 @@ export const boardApi = {
   review: (projectId: string, taskId: string, decision: 'approve' | 'reject', comment?: string, opts?: { force?: boolean }) =>
     req<BoardTask>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/review`, { method: 'POST', body: JSON.stringify({ decision, comment, force: opts?.force }) }),
   /** Land the task's branch on main (accept if still in review, then merge locally
-   *  + rebuild). Explicit, decoupled from approve — never pushes online. */
+   *  + rebuild). Explicit, decoupled from approve — never pushes online.
+   *  Risponde `202`: il land è ACCODATO, non ancora avvenuto — `landing` dice in
+   *  quanti ha davanti, e `landStatus` com'è finito. */
   land: (projectId: string, taskId: string) =>
-    req<BoardTask>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/land`, { method: 'POST', body: JSON.stringify({}) }),
+    req<BoardTask & { landing: LandingTicket }>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/land`, { method: 'POST', body: JSON.stringify({}) }),
+  /** L'esito del land richiesto per questo task (404 se non ne è mai stato chiesto uno). */
+  landStatus: (projectId: string, taskId: string) =>
+    req<{ landing: LandingTicket; pending: number }>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/land`),
   /** Move a root task (and its subtree) to another board. */
   move: (projectId: string, taskId: string, toProjectId: string) =>
     req<BoardTask>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/move`, { method: 'POST', body: JSON.stringify({ toProjectId }) }),
