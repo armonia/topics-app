@@ -4133,6 +4133,228 @@ fn browser_take_nav_errors(id: String) -> Vec<NavErrorMsg> {
     }
 }
 
+// ── Navigation state, straight from WebKit ───────────────────────────────────
+// url/title/loading used to come from a JS eval every 800ms. That reads the
+// PAGE, so it only ever worked on a page willing to answer: a hung host, a
+// document mid-swap or a load that never committed left the toolbar showing the
+// previous URL with a spinner that kept turning. It also lied about timing,
+// because the poll saw a navigation up to 800ms after it happened.
+//
+// WKWebView already publishes all three as KVO-observable properties, so we
+// observe `URL`, `title` and `loading` and let WebKit tell us. Same queue and
+// scoped-drain contract as NAV_ERROR_EVENTS above, with one difference: this is
+// STATE, not a log of events, so the queue keeps at most ONE entry per pane (the
+// latest). A page that fires twenty KVO notifications during a load must not
+// hand the client twenty stale drains to replay.
+#[derive(Clone, Serialize)]
+struct NavStateMsg {
+    url: String,
+    title: String,
+    loading: bool,
+    // Pane this state belongs to — internal scoping only, like NavErrorMsg.
+    #[serde(skip)]
+    pane_id: String,
+}
+
+static NAV_STATE_EVENTS: std::sync::Mutex<Vec<NavStateMsg>> = std::sync::Mutex::new(Vec::new());
+
+/// The shared observer instance, as a raw pointer. Teardown needs to reach the
+/// exact object that registered, and it is the same one for every pane.
+#[cfg(target_os = "macos")]
+static NAV_STATE_OBSERVER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// KVO callback for all three key paths. WebKit tells us WHICH key changed, but
+/// we ignore it and re-read the whole triple off the webview: the three change
+/// together during a load, and one read of the live object is cheaper and more
+/// coherent than reassembling a consistent state from three notifications that
+/// arrive separately.
+#[cfg(target_os = "macos")]
+extern "C" fn nav_state_observe_imp(
+    _this: &objc2::runtime::AnyObject,
+    _sel: objc2::runtime::Sel,
+    _key_path: *mut objc2::runtime::AnyObject,
+    object: *mut objc2::runtime::AnyObject,
+    _change: *mut objc2::runtime::AnyObject,
+    _context: *mut std::ffi::c_void,
+) {
+    nav_record_state(object);
+}
+
+/// Read the current URL/title/loading off `webview` and park it as the owning
+/// pane's latest state. Unmapped pointers are ignored, exactly like the failure
+/// path: the observer is only ever attached to browser panes, but the map stays
+/// the single source of truth for "is this one of ours".
+#[cfg(target_os = "macos")]
+fn nav_record_state(webview: *mut objc2::runtime::AnyObject) {
+    use crate::mac::*;
+    if webview == nil {
+        return;
+    }
+    let pane_id = match nav_pane_by_webview().lock() {
+        Ok(g) => match g.get(&(webview as usize)) {
+            Some(p) => p.clone(),
+            None => return, // main UI webview / unknown — not ours
+        },
+        Err(_) => return,
+    };
+    unsafe {
+        // `URL` is an NSURL, not an NSString, and absoluteString is the round-trip
+        // the client's address bar expects. It is nil during teardown.
+        let url_obj: id = msg_send![webview, URL];
+        let url = if url_obj == nil {
+            String::new()
+        } else {
+            ns_string_to_rust(msg_send![url_obj, absoluteString])
+        };
+        let title = ns_string_to_rust(msg_send![webview, title]);
+        // The KVO key is `loading`; the getter is `isLoading`.
+        let loading: BOOL = msg_send![webview, isLoading];
+        if let Ok(mut v) = NAV_STATE_EVENTS.lock() {
+            let next = NavStateMsg { url, title, loading, pane_id: pane_id.clone() };
+            // Coalesce: replace this pane's pending state instead of appending.
+            // The queue is therefore bounded by the number of live panes, which is
+            // why it needs none of the 64-entry eviction the event queues carry.
+            match v.iter_mut().find(|e| e.pane_id == pane_id) {
+                Some(slot) => *slot = next,
+                None => v.push(next),
+            }
+        }
+    }
+}
+
+/// WKWebView pointers we hold a KVO registration on. An observed object that
+/// deallocates while still observed raises («… was deallocated while key value
+/// observers were still registered»), so browser_close removes the observer
+/// BEFORE closing the webview, and this set is how it knows which pointers still
+/// carry one.
+#[cfg(target_os = "macos")]
+fn nav_state_observed() -> &'static std::sync::Mutex<std::collections::HashSet<usize>> {
+    static M: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<usize>>> =
+        std::sync::OnceLock::new();
+    M.get_or_init(|| std::sync::Mutex::new(std::collections::HashSet::new()))
+}
+
+/// Attach the KVO observer for `URL`/`title`/`loading` to this pane's WKWebView.
+///
+/// The observer is ONE shared process-wide instance of a class we declare
+/// ourselves. A brand-new class, so ClassBuilder works here, unlike the failure
+/// hook which had to graft methods onto a class wry already owns. It is never
+/// released: it outlives every pane by construction, which is the cheapest way to
+/// guarantee it is still alive whenever WebKit calls back.
+#[cfg(target_os = "macos")]
+fn install_nav_state_observer(wv: &tauri::Webview, pane_id: &str) {
+    let pane = pane_id.to_string();
+    let _ = wv.with_webview(move |platform| unsafe {
+        use crate::mac::*;
+        use objc2::runtime::ClassBuilder;
+        let wk = platform.inner() as id;
+        if wk == nil {
+            return;
+        }
+        // Belt and braces: install_nav_failure_hook maps the pointer already, but
+        // this hook must not depend on which of the two is called first.
+        if let Ok(mut g) = nav_pane_by_webview().lock() {
+            g.insert(wk as usize, pane.clone());
+        }
+        static PTR: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+        let class_ptr = *PTR.get_or_init(|| {
+            let mut decl = ClassBuilder::new(c"TopicsNavStateObserver", class!(NSObject))
+                .expect("register TopicsNavStateObserver");
+            decl.add_method(
+                sel!(observeValueForKeyPath:ofObject:change:context:),
+                nav_state_observe_imp as extern "C" fn(_, _, _, _, _, _),
+            );
+            decl.register() as *const Class as usize
+        });
+        let observer = {
+            let existing = NAV_STATE_OBSERVER.load(Ordering::SeqCst);
+            if existing != 0 {
+                existing as id
+            } else {
+                let cls = class_ptr as *const Class;
+                let obs: id = msg_send![cls, new];
+                NAV_STATE_OBSERVER.store(obs as usize, Ordering::SeqCst);
+                obs
+            }
+        };
+        // Registering the same observer twice for the same key path would need
+        // two removals, and a pane that re-runs this (a reused webview) would
+        // then leak one. The set is the guard.
+        if let Ok(mut g) = nav_state_observed().lock() {
+            if !g.insert(wk as usize) {
+                return;
+            }
+        } else {
+            return;
+        }
+        // NSKeyValueObservingOptionNew (0x01) | Initial (0x04). `Initial` fires the
+        // callback once at registration, so a pane that never navigates again (a
+        // restored tab, an agent-opened page that already finished loading) still
+        // hands the client a first state instead of waiting for a change that
+        // never comes.
+        let options: usize = 0x01 | 0x04;
+        for key in ["URL", "title", "loading"] {
+            let key_ns = nsstring(key);
+            let key_ptr: id = objc2::rc::Retained::as_ptr(&key_ns) as id;
+            let _: () = msg_send![wk, addObserver: observer,
+                                      forKeyPath: key_ptr,
+                                      options: options,
+                                      context: std::ptr::null_mut::<std::ffi::c_void>()];
+        }
+    });
+}
+
+/// Drop the KVO registration for every WKWebView mapped to `pane_id`. Must run
+/// BEFORE the webview is closed — see nav_state_observed for what happens if it
+/// does not.
+#[cfg(target_os = "macos")]
+fn remove_nav_state_observer(pane_id: &str) {
+    use crate::mac::*;
+    let observer = NAV_STATE_OBSERVER.load(Ordering::SeqCst) as id;
+    if observer == nil {
+        return; // no pane ever registered, so nothing can be observed
+    }
+    let ptrs: Vec<usize> = match nav_pane_by_webview().lock() {
+        Ok(g) => g.iter().filter(|(_, v)| v.as_str() == pane_id).map(|(k, _)| *k).collect(),
+        Err(_) => return,
+    };
+    // Only remove from pointers we actually registered on, and forget them in the
+    // same pass so a second close is a no-op rather than an over-removal (which
+    // raises just as loudly as a missing one).
+    let live: Vec<usize> = match nav_state_observed().lock() {
+        Ok(mut g) => ptrs.into_iter().filter(|p| g.remove(p)).collect(),
+        Err(_) => return,
+    };
+    unsafe {
+        for wk_ptr in live {
+            let wk = wk_ptr as id;
+            if wk == nil {
+                continue;
+            }
+            for key in ["URL", "title", "loading"] {
+                let key_ns = nsstring(key);
+                let key_ptr: id = objc2::rc::Retained::as_ptr(&key_ns) as id;
+                let _: () = msg_send![wk, removeObserver: observer, forKeyPath: key_ptr];
+            }
+        }
+    }
+}
+
+/// Drain this pane's latest navigation state. Empty when nothing changed since
+/// the last drain, and ALWAYS empty off macOS (no observer is installed there),
+/// which is what keeps the client's eval poll load-bearing on other platforms.
+#[tauri::command]
+fn browser_take_nav_state(id: String) -> Vec<NavStateMsg> {
+    match NAV_STATE_EVENTS.lock() {
+        Ok(mut v) => {
+            let (mine, rest): (Vec<_>, Vec<_>) = v.drain(..).partition(|e| e.pane_id == id);
+            *v = rest;
+            mine
+        }
+        Err(_) => Vec::new(),
+    }
+}
+
 /// Injected before any page script, on every navigation: a tiny console proxy so
 /// the toolbar's console badge can show page log/warn/error counts (WKWebView has
 /// no console-message delegate bridged). Buffers into `window.__topicsConsole`,
@@ -4807,6 +5029,9 @@ fn browser_open_inner(
     if let Some(wv) = app.get_webview(&label) {
         disable_layer_implicit_animations(&wv);
         install_nav_failure_hook(&wv, &id);
+        // After the failure hook: that one populates the pointer→pane map both
+        // read, and the KVO callback drops anything it cannot resolve to a pane.
+        install_nav_state_observer(&wv, &id);
         if let Some((win_w, win_h)) = webview_window_logical_size(&wv) {
             // Card radius unknown at create; the client's first bounds push carries it.
             apply_browser_corner_mask(&wv, &id, x, y, width, height, win_w, win_h, 0.0);
@@ -5085,6 +5310,12 @@ fn browser_close_inner(app: tauri::AppHandle, id: String) -> Result<(), String> 
         // La pane non esiste più: l'appunto sulla sua URL nemmeno, o una pane
         // nuova con lo stesso id erediterebbe la posizione della vecchia.
         forget_pane_url(&label);
+        // BEFORE the close, never after: a WKWebView that deallocates while a KVO
+        // registration is still on it raises, and the raise happens inside AppKit
+        // where we cannot catch it. The pointer→pane map this reads is only
+        // cleared further down, so the order here is load-bearing.
+        #[cfg(target_os = "macos")]
+        remove_nav_state_observer(&id);
         let _ = no_abort("browser_close/close", || wv.close().map_err(|e| e.to_string()));
     }
     // Drop the cache entries so a re-opened pane on the same id re-applies move + mask.
@@ -5102,6 +5333,9 @@ fn browser_close_inner(app: tauri::AppHandle, id: String) -> Result<(), String> 
         g.retain(|_, v| v != &id);
     }
     if let Ok(mut v) = NAV_ERROR_EVENTS.lock() {
+        v.retain(|e| e.pane_id != id);
+    }
+    if let Ok(mut v) = NAV_STATE_EVENTS.lock() {
         v.retain(|e| e.pane_id != id);
     }
     // Symmetric with NAV_ERROR_EVENTS: drop queued download events nobody
@@ -9677,6 +9911,7 @@ pub fn run() {
             focus_report,
             browser_take_download_events,
             browser_take_nav_errors,
+            browser_take_nav_state,
             updater_check,
             updater_install,
             window_detach,
