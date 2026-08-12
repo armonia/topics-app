@@ -39,6 +39,24 @@ hermetic(test);
  * scarica non cambia niente: le attese sono condizionali, il test resta sui
  * suoi ~16 secondi.
  *
+ * CONTROPROVA, la stessa sera. Dieci giri isolati per braccio, vecchio e nuovo
+ * alternati sulla stessa macchina e in ENTRAMBI gli ordini (chi gira per primo
+ * dentro il giro paga la macchina fredda, e senza invertire l'ordine quel
+ * ritardo si legge come se fosse del codice), retry spenti perché un retry
+ * nasconde proprio la cosa che si sta misurando: 10 su 10 verdi col fix, 4 su
+ * 10 senza.
+ *
+ * Due cose che la misura ha detto e che a occhio non si vedevano. Primo: i sei
+ * rossi non muoiono su una singola attesa, muoiono sul TETTO, «Test timeout of
+ * 30000ms exceeded», con la pane xterm mai comparsa entro i suoi 15 s. Secondo,
+ * e conta di più: TUTTI E DIECI i giri verdi hanno superato i 30 s (da 33,9 a
+ * 52,4 s a load 23-45). Quindi `test.slow()` qui non è un margine di comodo, è
+ * la metà del fix che porta il peso, e le due metà non si separano: allargare
+ * le attese senza alzare il tetto sposta soltanto il punto in cui il cronometro
+ * taglia. Il sintomo della card si è fatto vedere vivo una volta su dieci:
+ * xterm a schermo dopo 0,4 s e il prompt arrivato 22,0 s più tardi, cioè verde
+ * con 45 s e rosso con 15 s.
+ *
  * La famiglia terminale sta in tre file — `terminal`, `terminal-reconnect`,
  * `terminal-multi` — che prima erano tre `describe` dentro un unico file da 76
  * secondi. Poiche' Playwright distribuisce gli shard PER FILE, quei 76 secondi
