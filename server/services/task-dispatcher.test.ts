@@ -1,7 +1,11 @@
 import { describe, it, expect } from "bun:test";
 import { Database } from "bun:sqlite";
-import { readdirSync, readFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { commitIsIn } from "./own-commits";
+import { commitStatusFromRepo } from "./branch-status";
+import { classifyLanding } from "./landing-audit";
 import { PARKED_WAITED_OUT, PREVIEW_CARD_MAX_RATIO, PREVIEW_RULE, WAIT_STREAK_CAP, extractPreviewRule, formatStatusEvent } from "../../shared/board";
 import { toolsForProfile } from "../mcp/topics-mcp-server";
 import { createTaskService, type TaskService } from "./tasks";
@@ -2432,6 +2436,69 @@ describe("cancello: non si ridispaccia lavoro già su main", () => {
     expect(h.turns.length).toBe(1);
     h.dispatcher.shutdown();
   });
+
+  it("il caso VERO: il land RICOPIA i commit, e il cancello lo riconosce lo stesso", async () => {
+    // Il land non fonde, ricopia (`cherry-pick -C <sha>`, task-automerge.ts): dopo
+    // un land riuscito il commit di consegna NON è antenato di main. Un cancello
+    // basato sulla sola discendenza sarebbe quindi inerte proprio sul caso
+    // normale — e passerebbe lo stesso i test con la sonda finta. Qui la sonda è
+    // quella VERA dell'ospite, su un repo vero in cui la consegna è stata
+    // ricopiata e il ramo poi potato.
+    const repo = mkdtempSync(join(tmpdir(), "redispatch-"));
+    const git = (...args: string[]) => {
+      const r = Bun.spawnSync(["git", "-C", repo, ...args], { stdout: "pipe", stderr: "pipe" });
+      return new TextDecoder().decode(r.stdout).trim();
+    };
+    try {
+      git("init", "-q", "-b", "main");
+      git("config", "user.email", "t@t.t");
+      git("config", "user.name", "t");
+      writeFileSync(join(repo, "base.txt"), "base\n");
+      git("add", "-A"); git("commit", "-q", "-m", "base");
+
+      git("checkout", "-q", "-b", "topics/consegna");
+      writeFileSync(join(repo, "lavoro.ts"), "export const fatto = true;\n");
+      git("add", "-A"); git("commit", "-q", "-m", "il lavoro della card");
+      const consegna = git("rev-parse", "HEAD");
+
+      // Main intanto è andato avanti — è la norma, non un caso limite: è per
+      // questo che il land ricopia invece di fondere. Serve anche a rendere il
+      // test DETERMINISTICO: ricopiare sullo stesso genitore, nello stesso
+      // secondo e con la stessa identità rigenererebbe lo SHA identico (un
+      // commit è l'hash di albero+genitore+autore+data+messaggio), e la consegna
+      // risulterebbe antenata di main per coincidenza invece che per contenuto.
+      git("checkout", "-q", "main");
+      writeFileSync(join(repo, "altro.txt"), "un'altra card\n");
+      git("add", "-A"); git("commit", "-q", "-m", "lavoro di un'altra card");
+
+      // Il land: si ricopia su main, e il ramo si pota.
+      git("cherry-pick", consegna);
+      git("branch", "-q", "-D", "topics/consegna");
+
+      // IL PUNTO: per la discendenza la consegna è FUORI da main. Se il cancello
+      // si fermasse qui non scatterebbe mai nel caso normale.
+      expect(await commitIsIn(repo, consegna, "main")).toBe(false);
+
+      const h = harness({
+        resolveProject: () => ({ path: repo, projectStoreId: "store-1" }),
+        // La stessa composizione che server.ts passa al dispatcher.
+        deliveryLanded: async (repoPath, commit) => {
+          const state = classifyLanding(await commitStatusFromRepo(repoPath, commit));
+          return state === "unverifiable" ? null : state === "landed";
+        },
+      });
+      h.svc.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 2 });
+      seedTask(h.db, { id: "t1", status: "todo", deliveryBranch: "topics/consegna", deliveryCommit: consegna });
+
+      await h.dispatcher.tick(PID);
+      await flush();
+
+      expect(h.turns.length).toBe(0);
+      expect(h.worktreesCreated).toEqual([]);
+      expect(h.task("t1")!.status).toBe("done");
+      h.dispatcher.shutdown();
+    } finally { rmSync(repo, { recursive: true, force: true }); }
+  }, 60_000);
 
   it("card senza consegna registrata: a git non si chiede niente", async () => {
     // Il cancello costa una chiamata a git, e la stragrande maggioranza delle
