@@ -43,9 +43,9 @@ import { createTaskAttemptStore, type TaskAttempt } from "../services/task-attem
 import { linkNotes, proposeLink, type LinkKind } from "../services/task-intake";
 import { recordRetirement } from "../services/retirement";
 import { attemptHasWork, formatAttemptStat } from "../../shared/task-attempt";
-import { listOwnCommits } from "../services/own-commits";
+import { listOwnCommits, mergeNameStatus } from "../services/own-commits";
 import { resolveTaskDiffRange } from "../services/task-diff-range";
-import { isTaskLabel, normalizeLabels } from "../../shared/task-labels";
+import { isTaskLabel, normalizeLabels, type TaskFile } from "../../shared/task-labels";
 
 const ERROR_STATUS: Record<string, number> = {
   not_found: 404,
@@ -286,8 +286,8 @@ function parseLabelsParam(raw: string | null): string[] | undefined {
 }
 
 /**
- * I file che i commit PROPRI del task hanno toccato — la base su cui si deriva
- * `visibile`/`invisibile`.
+ * I file che i commit PROPRI del task hanno toccato — la base su cui si derivano
+ * `visibile`/`invisibile` e il GENERE della card.
  *
  * PROPRI e non `main...HEAD`: un ramo nato dall'HEAD di un checkout condiviso
  * eredita i commit di chi ci stava sopra, e su quei file la regola risponde alla
@@ -296,23 +296,27 @@ function parseLabelsParam(raw: string | null): string[] | undefined {
  * prodotto un solo `.md` e che, letta sul ramo intero, sembrava toccare 83 file
  * di client.
  *
+ * `--name-status` e non `--name-only`: il path dice DOVE sta il file, non se è
+ * nato qui, e senza quel flag `deriveKind` non può separare una funzionalità
+ * nuova da una modifica a codice che esisteva già.
+ *
  * `null` = non contabile (niente worktree, git muto): chi chiama non scrive
  * niente. `[]` = verificato, nessun file — che NON è invisibilità (vedi
  * `deriveCloser`): una card senza codice è una DECISIONE, e la chiude un umano.
  */
-async function ownCommitFiles(cwd: string, mainRef = "main"): Promise<string[] | null> {
+async function ownCommitFiles(cwd: string, mainRef = "main"): Promise<TaskFile[] | null> {
   const head = await runGitCap(cwd, ["rev-parse", "--abbrev-ref", "HEAD"]);
   const branch = head.code === 0 ? head.out.trim() : "";
   if (!branch || branch === "HEAD") return null; // detached: non c'è un ramo di cui dire "suo"
   const commits = await listOwnCommits(cwd, branch, { mainRef, runGit: gitRunner });
   if (commits === null) return null;
-  const files = new Set<string>();
+  const outputs: string[] = [];
   for (const sha of commits) {
-    const r = await runGitCap(cwd, ["show", "--name-only", "--format=", "--no-renames", sha]);
+    const r = await runGitCap(cwd, ["show", "--name-status", "--format=", "--no-renames", sha]);
     if (r.code !== 0) return null;
-    for (const line of r.out.split("\n")) { const f = line.trim(); if (f) files.add(f); }
+    outputs.push(r.out);
   }
-  return [...files];
+  return mergeNameStatus(outputs);
 }
 
 /** Adattatore fra `runGitCap` e la firma del runner di `own-commits.ts`. */
