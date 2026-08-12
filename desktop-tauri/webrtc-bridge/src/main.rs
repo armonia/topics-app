@@ -13,9 +13,23 @@ mod cdp;
 mod daemon;
 #[cfg(unix)]
 mod encode;
+#[cfg(unix)]
+mod input;
+#[cfg(all(unix, target_os = "macos"))]
+mod vt;
 
 #[cfg(unix)]
 fn main() -> anyhow::Result<()> {
+    // `--bench <frame.jpg> [n]`: misura gli encoder uno contro l'altro sullo stesso
+    // fotogramma e stampa ms e CPU. Non è un modo di funzionare del daemon, è il
+    // banco che regge il punto 5 del piano — vive qui perché deve girare contro il
+    // BINARIO spedito, non contro una copia del codice.
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if let Some(i) = args.iter().position(|a| a == "--bench") {
+        let path = args.get(i + 1).cloned().ok_or_else(|| anyhow::anyhow!("--bench <frame.jpg> [n]"))?;
+        let n = args.get(i + 2).and_then(|s| s.parse::<usize>().ok()).unwrap_or(120);
+        return encode::bench(&path, n);
+    }
     daemon::run()
 }
 
