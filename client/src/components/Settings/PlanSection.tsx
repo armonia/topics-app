@@ -135,8 +135,8 @@ export function PlanSection() {
 
   if (!piano) return null;
 
-  const campo = 'flex-1 min-w-0 rounded border border-app-border bg-app-bg px-2 py-1 text-[12px] text-app-text outline-none focus:border-app-accent';
-  const bottone = 'flex-shrink-0 rounded border border-app-border px-2 py-1 text-[11px] text-app-text hover:bg-app-hover disabled:opacity-50';
+  const campo = 'flex-1 min-w-0 rounded border border-app-border bg-app-bg px-2 py-1 text-[12px] text-app-text outline-none focus:border-app-accent coarse:min-h-11';
+  const bottone = 'flex-shrink-0 rounded border border-app-border px-2 py-1 text-[11px] text-app-text hover:bg-app-hover disabled:opacity-50 coarse:min-h-11 coarse:min-w-11';
 
   const giorni = giorniAllaScadenza(piano.expiresAt, Date.now());
   const avvisaScadenza = scadenzaVicina(piano.expiresAt, Date.now());
@@ -196,7 +196,7 @@ export function PlanSection() {
               value={posti}
               onChange={(e) => setPosti(Number(e.target.value))}
               onBlur={() => setPosti(postiValidi(posti))}
-              className="w-16 rounded border border-app-border bg-app-bg px-2 py-1 text-[12px] text-app-text outline-none focus:border-app-accent"
+              className="w-16 rounded border border-app-border bg-app-bg px-2 py-1 text-[12px] text-app-text outline-none focus:border-app-accent coarse:min-h-11"
             />
             <button disabled={inCorso} onClick={() => void compra()} className={`${bottone} ml-auto`}>
               {t('plan.subscribe')}

@@ -6,6 +6,7 @@ import { MODAL_BACKDROP, MODAL_PANEL } from '../../lib/modalStyles';
 import { useModalDialog } from '../../hooks/useModalDialog';
 import { projectsApi, worktreesApi } from '../../lib/api';
 import { useWorktrees } from '../../hooks/useWorktrees';
+import { Select } from '../Shared/Select';
 
 const TEMPLATES: TopicTemplate[] = [
   {
@@ -336,19 +337,21 @@ export function NewTopicModal({ isOpen, onClose, onCreate, projectPath, onMessag
                   </span>
                 </label>
                 {wtMode === 'pick-existing' && hasReadyWorktrees && (
-                  <select
+                  <Select
                     value={pickedWorktreeId}
-                    onChange={e => setPickedWorktreeId(e.target.value)}
+                    onChange={setPickedWorktreeId}
                     disabled={submitting}
-                    className="w-full ml-5 px-2 py-1.5 text-[12px] border border-app-border-light rounded-md bg-surface dark:bg-elevated text-app-text focus:outline-none focus:ring-2 focus:ring-primary"
-                  >
-                    <option value="">Choose…</option>
-                    {readyWorktrees.map(wt => (
-                      <option key={wt.id} value={wt.id}>
-                        {wt.name}{wt.branchName ? ` · ${wt.branchName}` : ''}
-                      </option>
-                    ))}
-                  </select>
+                    ariaLabel="Worktree"
+                    className="w-[calc(100%-1.25rem)] ml-5"
+                    options={[
+                      { value: '', label: 'Choose…' },
+                      ...readyWorktrees.map(wt => ({
+                        value: wt.id,
+                        label: wt.name,
+                        hint: wt.branchName ?? undefined,
+                      })),
+                    ]}
+                  />
                 )}
                 <label className="flex items-start gap-2 cursor-pointer">
                   <input
