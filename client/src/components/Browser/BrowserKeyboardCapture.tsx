@@ -9,12 +9,14 @@
  * Finché è stato una <textarea> nuda, email/numero/password davano tutti la
  * tastiera di testo — il difetto segnalato il 12/08.
  *
- * Due regole, e sono entrambe qui dentro:
+ * Tre regole, e sono tutte qui dentro:
  *  1. prima del focus il campo si veste come il campo remoto
  *     (`keyboardProfileFor` → `applyKeyboardProfile`);
  *  2. il font non scende MAI sotto 16px, perché sotto quella soglia iOS ingrandisce
  *     la pagina per «adattare» il campo a fuoco e non la rimpicciolisce più —
- *     ed era un campo da 1×1px, quindi lo zoom era quello massimo.
+ *     ed era un campo da 1×1px, quindi lo zoom era quello massimo;
+ *  3. i campi di cattura sono DUE, e sono due per la ragione spiegata su
+ *     `applyRemoteField`: è il solo modo di cambiare tastiera a tastiera aperta.
  *
  * Sta in un componente condiviso perché le due superfici (mirror DOM e video)
  * devono comportarsi uguale: quando la cattura viveva dentro una sola delle due,
@@ -25,7 +27,10 @@ import {
   DEFAULT_KEYBOARD_PROFILE,
   applyKeyboardProfile,
   keyboardProfileFor,
+  keyboardProfileForField,
+  sameKeyboardProfile,
   type KeyboardProfile,
+  type RemoteField,
 } from '../../lib/browserKeyboardProfile';
 
 /** Named keys relayed to the source as key presses (the rest go through as text). */
@@ -55,8 +60,28 @@ export interface BrowserKeyboardCaptureHandle {
    * `requireField` distingue le due mani: col dito la tastiera deve salire SOLO
    * su un campo di scrittura (toccare un bottone non deve aprirla), col mouse
    * la cattura resta sempre viva perché è anche la presa dei tasti hardware.
+   * Col dito su una superficie CIECA (il video, o un mirror non interrogabile)
+   * si passa `requireField: false` e si accetta la tastiera generica: è quella
+   * che `applyRemoteField` correggerà quando il server dirà chi c'è davvero.
    */
   focusForField(target: Element | null, opts?: { requireField?: boolean }): void;
+  /**
+   * La risposta del server: ecco chi ha preso il fuoco di là dopo il click
+   * (`null` = niente di scrivibile).
+   *
+   * Arriva DOPO il gesto, e questo detta tutto il comportamento:
+   *  · se la cattura non ha il fuoco non si fa niente. Fuori da un gesto iOS
+   *    non aprirebbe comunque la tastiera, e su desktop rubare il fuoco al
+   *    contenitore spegnerebbe i tasti hardware.
+   *  · se il profilo è già quello giusto non si tocca niente: il mirror aveva
+   *    già risposto bene, e rifare il fuoco farebbe sfarfallare la tastiera.
+   *  · se è diverso si veste l'ALTRO campo e si sposta lì il fuoco. Gli
+   *    attributi iOS li fotografa quando la tastiera sale, e cambiarli sul
+   *    campo già a fuoco non la ridisegna; spostare il fuoco fra due campi
+   *    mentre la tastiera è aperta invece sì, e senza farla rientrare (cosa
+   *    che un blur, senza un nuovo gesto, renderebbe irreversibile).
+   */
+  applyRemoteField(field: RemoteField | null): void;
   /** Toglie il fuoco — su mobile è ciò che fa RIENTRARE la tastiera. */
   blur(): void;
 }
@@ -74,7 +99,12 @@ interface Props {
  */
 const BrowserKeyboardCapture = forwardRef<BrowserKeyboardCaptureHandle, Props>(
   function BrowserKeyboardCapture({ sendInput, suppressed }, ref) {
-    const kbdRef = useRef<HTMLInputElement | null>(null);
+    // Due campi identici, e uno solo alla volta è quello vivo (vedi
+    // `applyRemoteField`). L'indice dice quale.
+    const fieldsRef = useRef<(HTMLInputElement | null)[]>([null, null]);
+    const liveRef = useRef(0);
+    /** Il profilo con cui il campo vivo è stato vestito l'ultima volta. */
+    const profileRef = useRef<KeyboardProfile | null>(null);
     const suppressedRef = useRef(suppressed);
     const sendInputRef = useRef(sendInput);
     useEffect(() => { suppressedRef.current = suppressed; }, [suppressed]);
@@ -82,7 +112,7 @@ const BrowserKeyboardCapture = forwardRef<BrowserKeyboardCaptureHandle, Props>(
 
     useImperativeHandle(ref, () => ({
       focusForField(target, opts) {
-        const el = kbdRef.current;
+        const el = fieldsRef.current[liveRef.current];
         if (!el) return;
         // `null` NON vuol dire «campo di testo»: vuol dire «non lo so». Col dito
         // si tace, col mouse si riprende comunque la presa dei tasti hardware.
@@ -91,15 +121,39 @@ const BrowserKeyboardCapture = forwardRef<BrowserKeyboardCaptureHandle, Props>(
           // Toccato qualcosa che non si scrive: nessuna tastiera, e se ne era
           // aperta una si chiude — com'è in un browser vero.
           if (document.activeElement === el) el.blur();
+          profileRef.current = null;
           return;
         }
         // Gli attributi vanno scritti PRIMA del focus: iOS li legge quando apre
         // la tastiera, e a tastiera aperta non la ridisegna.
-        applyKeyboardProfile(el, profile || DEFAULT_KEYBOARD_PROFILE);
+        const applied = profile || DEFAULT_KEYBOARD_PROFILE;
+        applyKeyboardProfile(el, applied);
+        profileRef.current = applied;
         try { el.focus({ preventScroll: true }); } catch { el.focus(); }
       },
+      applyRemoteField(field) {
+        const live = fieldsRef.current[liveRef.current];
+        // Fuori da un gesto la tastiera non si apre e il fuoco non si ruba.
+        if (!live || document.activeElement !== live) return;
+        const profile = keyboardProfileForField(field);
+        if (!profile) {
+          // Di là non c'è niente di scrivibile: il tocco era su un bottone, un
+          // link, il vuoto. La tastiera rientra, com'è in un browser vero.
+          live.blur();
+          profileRef.current = null;
+          return;
+        }
+        if (sameKeyboardProfile(profile, profileRef.current)) return;
+        const spare = fieldsRef.current[1 - liveRef.current];
+        if (!spare) return;
+        applyKeyboardProfile(spare, profile);
+        profileRef.current = profile;
+        liveRef.current = 1 - liveRef.current;
+        try { spare.focus({ preventScroll: true }); } catch { spare.focus(); }
+      },
       blur() {
-        kbdRef.current?.blur();
+        fieldsRef.current[liveRef.current]?.blur();
+        profileRef.current = null;
       },
     }), []);
 
@@ -122,10 +176,10 @@ const BrowserKeyboardCapture = forwardRef<BrowserKeyboardCaptureHandle, Props>(
 
     // `beforeinput` carries the real InputEvent.inputType (React's synthetic
     // onBeforeInput does not), and covers mobile soft keyboards + paste + IME — so
-    // it's attached as a NATIVE listener on the field.
+    // it's attached as a NATIVE listener on both fields.
     useEffect(() => {
-      const input = kbdRef.current;
-      if (!input) return;
+      const inputs = fieldsRef.current.filter((el): el is HTMLInputElement => !!el);
+      if (!inputs.length) return;
       const onBeforeInput = (ev: Event) => {
         const ie = ev as InputEvent;
         ev.stopPropagation();
@@ -151,47 +205,57 @@ const BrowserKeyboardCapture = forwardRef<BrowserKeyboardCaptureHandle, Props>(
             break;
         }
       };
-      input.addEventListener('beforeinput', onBeforeInput);
-      return () => input.removeEventListener('beforeinput', onBeforeInput);
+      for (const el of inputs) el.addEventListener('beforeinput', onBeforeInput);
+      return () => { for (const el of inputs) el.removeEventListener('beforeinput', onBeforeInput); };
     }, []);
 
     const onCompositionEnd = useCallback((e: React.CompositionEvent<HTMLInputElement>) => {
       e.stopPropagation();
       if (!suppressedRef.current && e.data) sendInput('type', { text: e.data });
-      if (kbdRef.current) kbdRef.current.value = '';
+      e.currentTarget.value = '';
     }, [sendInput]);
 
-    // Keep the capture field empty so it never accumulates — and, quando il campo
+    // Keep the capture field empty so it never accumulates — e quando il campo
     // remoto è una password, so che non ne resta traccia da nessuna parte.
-    const onInput = useCallback(() => { if (kbdRef.current) kbdRef.current.value = ''; }, []);
+    const onInput = useCallback((e: React.SyntheticEvent<HTMLInputElement>) => {
+      e.currentTarget.value = '';
+    }, []);
 
+    // I due campi sono identici in tutto: quale sia «quello vero» cambia a ogni
+    // cambio di tastiera, e nessuno dei due può essere il secondario.
     return (
-      <input
-        ref={kbdRef}
-        type="text"
-        data-testid="browser-dom-kbd"
-        aria-hidden="true"
-        tabIndex={-1}
-        autoCapitalize="off"
-        autoCorrect="off"
-        autoComplete="off"
-        spellCheck={false}
-        className="absolute left-0 top-0 z-0 opacity-0 pointer-events-none"
-        style={{
-          width: 1,
-          height: 1,
-          border: 0,
-          padding: 0,
-          caretColor: 'transparent',
-          background: 'transparent',
-          // 16px = la soglia sotto la quale iOS ingrandisce la pagina al focus.
-          // È l'intera ragione per cui questa riga esiste: vedi CAPTURE_FONT_SIZE_PX.
-          fontSize: `${CAPTURE_FONT_SIZE_PX}px`,
-        }}
-        onKeyDown={onKeyDown}
-        onCompositionEnd={onCompositionEnd}
-        onInput={onInput}
-      />
+      <>
+        {[0, 1].map((i) => (
+          <input
+            key={i}
+            ref={(el) => { fieldsRef.current[i] = el; }}
+            type="text"
+            data-testid={i === 0 ? 'browser-dom-kbd' : 'browser-dom-kbd-alt'}
+            data-kbd-capture=""
+            aria-hidden="true"
+            tabIndex={-1}
+            autoCapitalize="off"
+            autoCorrect="off"
+            autoComplete="off"
+            spellCheck={false}
+            className="absolute left-0 top-0 z-0 opacity-0 pointer-events-none"
+            style={{
+              width: 1,
+              height: 1,
+              border: 0,
+              padding: 0,
+              caretColor: 'transparent',
+              background: 'transparent',
+              // 16px = la soglia sotto la quale iOS ingrandisce la pagina al focus.
+              // È l'intera ragione per cui questa riga esiste: vedi CAPTURE_FONT_SIZE_PX.
+              fontSize: `${CAPTURE_FONT_SIZE_PX}px`,
+            }}
+            onKeyDown={onKeyDown}
+            onCompositionEnd={onCompositionEnd}
+            onInput={onInput}
+          />
+        ))}
+      </>
     );
   },
 );
