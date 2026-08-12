@@ -162,7 +162,41 @@ describe("la ragione della coda arriva dal server, con la card", () => {
     mv(s, t.id, "in_progress");
     expect(s.get(t.id)!.task.queueReason).toBeNull();
     mv(s, t.id, "review");
+    // In review SENZA sottotask aperti resta null: la review è una consegna
+    // normale, e il chip di stato dice già tutto.
     expect(s.get(t.id)!.task.queueReason).toBeNull();
+  });
+
+  /**
+   * Il conto dei sottotask aperti è l'ingrediente che il client NON ha: la sua
+   * lista è un progetto solo, `rootsOnly`, non archiviati, e i figli non ci
+   * stanno dentro. `subtaskCount` esiste sul payload, ma lo riempiono solo
+   * `list`/`get` — dopo `rowToTask`, cioè dopo che la ragione è già stata
+   * scritta — quindi nemmeno quello risponderebbe sulle scritture.
+   */
+  test("in review con la checklist aperta la card dice PERCHÉ è ferma", () => {
+    const padre = s.create({ projectId: PID, text: "Il padre" });
+    s.create({ projectId: PID, text: "Passo uno", parentTaskId: padre.id });
+    s.create({ projectId: PID, text: "Passo due", parentTaskId: padre.id });
+    mv(s, padre.id, "review");
+    const r = s.get(padre.id)!.task.queueReason!;
+    expect(r).toMatchObject({ kind: "checklist_frozen", tone: "stalled" });
+    expect(r.detail).toBe("2 sottotask aperti");
+  });
+
+  test("chiusi i sottotask, la stessa card in review torna muta", () => {
+    const padre = s.create({ projectId: PID, text: "Il padre" });
+    const figlio = s.create({ projectId: PID, text: "Passo uno", parentTaskId: padre.id });
+    mv(s, padre.id, "review");
+    expect(s.get(padre.id)!.task.queueReason!.kind).toBe("checklist_frozen");
+    mv(s, figlio.id, "done");
+    expect(s.get(padre.id)!.task.queueReason).toBeNull();
+  });
+
+  test("la ragione viaggia sulla SCRITTURA che porta la card in review", () => {
+    const padre = s.create({ projectId: PID, text: "Il padre" });
+    s.create({ projectId: PID, text: "Passo uno", parentTaskId: padre.id });
+    expect(mv(s, padre.id, "review").queueReason).toMatchObject({ kind: "checklist_frozen" });
   });
 
   test("la ragione viaggia anche sul payload di una SCRITTURA, non solo su list/get", () => {
