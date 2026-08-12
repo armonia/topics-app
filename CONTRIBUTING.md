@@ -256,16 +256,37 @@ Two things the sidecar needs that a naïve `--compile` drops, both handled:
   (`bun run scripts/gen-migrations-manifest.ts` — the sidecar build script also runs
   it, so CI ships a current schema).
 
-  **Numbering.** The number in front of a migration is *ordering*, not identity: the
-  applied-migrations registry (`schema_migrations`) is keyed by **file name**, so two
-  files that happen to share a number both apply, in `(number, name)` order. That is
-  the net under the real failure — on 2026-08-10 two branches developed in parallel
-  both produced an `089`, and the old number-keyed registry skipped the second one
-  **silently, forever**, while the code that assumed those columns landed anyway.
-  A shared number is still ambiguous to read, so `bun run check:migrations` fails when
-  your branch introduces a number that already exists on `main` (it runs in CI, and it
-  tells you the first free number). Never renumber a migration that is already on
-  `main`: it is applied on live databases, and renaming it would make it re-run.
+  **Never write the file name by hand — run `bun run migration:new <slug>`.** It
+  creates `server/db/migrations/<UTC timestamp>-<slug>.sql` and regenerates the
+  manifest for you.
+
+  The prefix is a UTC timestamp (`YYYYMMDDHHMMSS`, e.g.
+  `20260812050317-notification-log.sql`), **not a counter**. A counter is picked when
+  the migration is *born* and only verified when it *lands*, and in between the other
+  cards land: on 2026-08-10 two parallel branches both produced an `089`, and on the
+  night of 08-11/12 three more collided in a row (097, 100, 101). With six agents in
+  parallel that is the normal outcome, not anyone's slip. A timestamp is contended by
+  nobody, so the collision cannot happen. Two migrations written in the same *second*
+  share a prefix and that is fine: they come from worktrees that could not see each
+  other, so neither can depend on the other, and the runner applies both in
+  `(number, name)` order — deterministic on every machine.
+
+  The digits-only shape is deliberate: every reader filters with `/^\d+-.+\.sql$/` and
+  orders with `parseInt`, so they all keep working untouched, and `20260812050317` >
+  `101` puts the new era after the old one by construction. A letter in the prefix
+  would make an unnoticed reader skip the migration *silently* — the 089 failure.
+
+  The number is *ordering*, not identity: the applied-migrations registry
+  (`schema_migrations`) is keyed by **file name**, so two files sharing a number both
+  apply. That is the net under the real failure: the old number-keyed registry skipped
+  the second `089` **silently, forever**, while the code that assumed those columns
+  landed anyway.
+
+  `bun run check:migrations` (also in CI) fails if your branch adds a migration that
+  still uses a counter, or if two counters claim the same number. **Never renumber or
+  rename a migration that is already on `main`:** it is applied on live databases, and
+  renaming it would make it re-run. The old counter-named migrations stay exactly as
+  they are; the two eras coexist, ordered by number.
 - **playwright-core / chromium-bidi / electron** are marked `--external` in the compile
   (optional server-side CDP fallback with unresolvable optional deps; the native
   WKWebView pane is the primary browser).
