@@ -222,7 +222,11 @@ export default defineConfig({
      */
     {
       name: "chromium-touch-wide",
-      testMatch: ["**/hover-reveal-touch-audit.spec.ts", "**/browser-mobile-keyboard.spec.ts"],
+      // `board-card-stop` gira in DUE progetti (qui e in `chromium`): è lo stesso
+      // menu aperto da due gesti, e i suoi due test si escludono a vicenda con
+      // `test.skip(isMobile)`. A 390px la board è appiattita e la card non c'è —
+      // serve il dito su schermo largo, che è esattamente questo progetto.
+      testMatch: ["**/hover-reveal-touch-audit.spec.ts", "**/browser-mobile-keyboard.spec.ts", "**/board-card-stop.spec.ts"],
       use: {
         browserName: "chromium",
         hasTouch: true,

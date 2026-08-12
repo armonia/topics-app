@@ -19,6 +19,7 @@ import { ExternalSessionsBadge } from './ExternalSessionsBadge';
 import { useExternalSessions } from '../../hooks/useExternalSessions';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
 import { currentTaskTarget, reflectTaskOpen, reflectTaskClose, subscribePopstateTask } from '../../lib/openTaskLink';
+import { useTaskSessionResolver } from '../../hooks/useTaskSession';
 import {
   boardApi, boardIdForPath, isProjectlessId, TASK_STATUSES, UNASSIGNED_PROJECT_ID,
   CLOSER_LABELS, KIND_LABELS,
@@ -611,6 +612,10 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
   // The project/all toggle only makes sense inside a project window. The global
   // pane has no project, so it locks to 'all'.
   const canToggle = !!projectPath && !global;
+  // La scheda del task esiste sempre; la SESSIONE dell'agente no. Risolto una
+  // volta qui e distribuito già deciso a card e drawer, così nessuno dei due
+  // deve iscriversi all'indice dei topic. Vedi `lib/taskSession.ts`.
+  const resolveSession = useTaskSessionResolver();
   // Per-board dispatch settings only exist for a single project (the global board
   // aggregates many), so the gear only shows inside a project window.
   const hasProject = !!projectPath && !global;
@@ -1565,6 +1570,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
                   onError={setError}
                   onRefetch={refetch}
                   onOpenTopic={onOpenTopic}
+                  resolveSession={resolveSession}
                   tasksById={tasksById}
                   projectPathById={projectPathById}
                   liveById={liveUsage}
@@ -1618,6 +1624,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
             onChanged={refetch}
             onOpenTask={openTask}
             onOpenTopic={onOpenTopic}
+            sessionState={resolveSession(selected.assignedTopicId)}
             focusPaneId={pendingPaneId ?? undefined}
             /* Apertura automatica nel workspace: SOLO dalla board globale, che
                è una superficie a sé. Dentro una finestra di progetto la board è
