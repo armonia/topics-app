@@ -4335,11 +4335,22 @@ fn nav_record_state(webview: *mut objc2::runtime::AnyObject) {
     }
 }
 
-/// WKWebView pointers we hold a KVO registration on. An observed object that
-/// deallocates while still observed raises («… was deallocated while key value
-/// observers were still registered»), so browser_close removes the observer
-/// BEFORE closing the webview, and this set is how it knows which pointers still
-/// carry one.
+/// WKWebView pointers we hold a KVO registration on.
+///
+/// The classic way to die here is an observed object that deallocates while
+/// still observed («… was deallocated while key value observers were still
+/// registered»), which raises inside AppKit where we cannot catch it. That
+/// cannot happen to us, and it is worth writing down why rather than leaving the
+/// next reader to worry about it: wry's `impl Drop for InnerWebView` calls
+/// `self.webview.retain()`, incrementing the refcount while it tears down (a
+/// deliberate use-after-free workaround, tauri-apps/wry#1733, still present on
+/// 0.56 and on `dev`). The WKWebView is therefore never deallocated, by anyone,
+/// including on window close.
+///
+/// So removal is hygiene, not a crash guard: it stops the callbacks for a pane
+/// that is gone. The set is what makes both halves idempotent, which DOES matter
+/// here, because browser_open reuses live webviews: without it a reused pane
+/// would register a second time and need two removals.
 #[cfg(target_os = "macos")]
 fn nav_state_observed() -> &'static std::sync::Mutex<std::collections::HashSet<usize>> {
     static M: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<usize>>> =
