@@ -235,6 +235,9 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
   // that falls back to JPEG if the PC never connects.
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
+  // Il canale su cui viaggia l'input (punto 6). Aperto insieme alla PC, chiuso con
+  // lei: finché non è 'open', sendInput usa il WebSocket come ha sempre fatto.
+  const inputChannelRef = useRef<RTCDataChannel | null>(null);
   const webrtcActiveRef = useRef(false);
   const webrtcWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Renegotiation attempts + retry timer (the CDP target may not exist on the first
@@ -436,11 +439,31 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     return false;
   }, [encodedId]);
 
-  // sendInput — WS-first, REST fallback. Switches based on live connection state.
+  // sendInput — DataChannel-first, poi WS, poi REST. Tre gradini, e si scende solo
+  // se quello sopra non c'è.
+  //
+  // Il DataChannel è il gradino nuovo (punto 6 del piano WebRTC): viaggia sulla
+  // STESSA PeerConnection dei pixel e finisce dritto sulla sessione CDP che il
+  // sidecar ha già aperta per lo screencast. Il WS invece passa dal server Bun e da
+  // Playwright: due processi in mezzo per muovere un mouse, mentre il video della
+  // stessa pane era già in linea diretta.
+  //
+  // Il messaggio è IDENTICO nei due tubi, di proposito: cambia il trasporto, non il
+  // protocollo, così il percorso del WebSocket resta valido e collaudato come rete
+  // di sotto — un canale non ancora aperto (o caduto) non fa perdere un click.
   const sendInput = useCallback((
     action: 'click' | 'type' | 'scroll' | 'mousemove' | 'keypress',
     payload: { x?: number; y?: number; text?: string; key?: string; deltaX?: number; deltaY?: number; button?: 'left' | 'right' | 'middle' },
   ) => {
+    const dc = inputChannelRef.current;
+    if (dc?.readyState === 'open') {
+      try {
+        dc.send(JSON.stringify({ type: 'input', action, payload }));
+        return;
+      } catch {
+        // Canale chiuso fra il controllo e l'invio — si scende al WS.
+      }
+    }
     if (connectionStateRef.current === 'connected' && wsRef.current?.readyState === WebSocket.OPEN) {
       const msg: BrowserWsMessage = { type: 'input', action, payload };
       try {
@@ -755,6 +778,11 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     // (the target may not exist yet), then surface an error + Riprova.
     const closePc = () => {
       if (webrtcWatchdogRef.current) { clearTimeout(webrtcWatchdogRef.current); webrtcWatchdogRef.current = null; }
+      // Prima il canale: se resta puntato a una PC chiusa, sendInput lo vedrebbe
+      // ancora non-null e ci spedirebbe dentro i click invece di scendere sul WS.
+      const dc = inputChannelRef.current;
+      inputChannelRef.current = null;
+      if (dc) { try { dc.close(); } catch { /* già chiuso */ } }
       const pc = pcRef.current;
       pcRef.current = null;
       if (pc) { try { pc.close(); } catch { /* already closed */ } }
@@ -810,6 +838,17 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
       // Mount the <video> now so ontrack (fires before ICE connects) can attach the
       // stream; visible only once webrtcActive (spinner shows during negotiation).
       setState(s => (s.webrtcMounted && !s.webrtcError ? s : { ...s, webrtcMounted: true, webrtcError: false }));
+      // Il canale di input va creato PRIMA di createOffer, o la sezione dati non
+      // entra nell'SDP e il sidecar non ha niente a cui rispondere. Ordinato e
+      // affidabile: un click perso è peggio di un click in ritardo, e su una
+      // sessione condivisa un evento fuori ordine muoverebbe il mouse a caso.
+      try {
+        const dc = pc.createDataChannel('input', { ordered: true });
+        inputChannelRef.current = dc;
+        dc.onclose = () => { if (inputChannelRef.current === dc) inputChannelRef.current = null; };
+      } catch {
+        inputChannelRef.current = null; // niente canale → sendInput resta sul WS
+      }
       pc.addTransceiver('video', { direction: 'recvonly' });
       pc.ontrack = (ev) => { const v = videoRef.current; if (v && ev.streams[0]) v.srcObject = ev.streams[0]; };
       pc.onicecandidate = (ev) => {
