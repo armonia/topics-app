@@ -6,6 +6,7 @@ import { AlertTriangle, ArrowUpRight, Bot, Camera, Check, ChevronDown, ChevronRi
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ReasoningRow } from '../Chat/ReasoningRow';
 import { Menu } from '../Shared/Menu';
+import { Select } from '../Shared/Select';
 import { ShareControl } from '../Share/ShareControl';
 import { Spinner } from '../Shared/Spinner';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
@@ -2574,41 +2575,49 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
         </div>
       </div>
 
-      <label className="flex items-center justify-between gap-2" title={tr('board.settings.modelTitle')}>
+      {/* `<label>` → `<div>`: da quando il controllo è il `Select` dell'app e
+          non un elemento di modulo nativo non c'è più niente da associare, e
+          una `<label>` intorno a un bottone renderebbe cliccabile — cioè
+          apribile — anche il testo della riga. */}
+      <div className="flex items-center justify-between gap-2" title={tr('board.settings.modelTitle')}>
         <span>{tr('board.settings.model')}</span>
-        <select
+        <Select
           value={s.dispatchModel || 'auto'}
-          onChange={(e) => patch({ dispatchModel: e.target.value })}
-          className="max-w-[55%] rounded bg-black/5 dark:bg-white/5 px-1.5 py-0.5 text-app-text outline-none"
-        >
-          <option value="auto">{tr('board.settings.modelAuto')}</option>
-          {models.map((m) => (
-            <option key={m} value={m}>{friendlyModelLabel(m)}</option>
-          ))}
-        </select>
-      </label>
+          onChange={(v) => patch({ dispatchModel: v })}
+          ariaLabel={tr('board.settings.model')}
+          align="right"
+          className="max-w-[55%]"
+          options={[
+            { value: 'auto', label: tr('board.settings.modelAuto') },
+            ...models.map((m) => ({ value: m, label: friendlyModelLabel(m) })),
+          ]}
+        />
+      </div>
 
       {/* Gemella della tendina in Impostazioni → Aspetto, e per «gemella» si
           intende lo stesso VALORE EFFETTIVO: «Come le Impostazioni» non copia
           la scelta globale, la EREDITA (il ripiego lo fa il server, in un punto
           solo). Copiare il valore vorrebbe dire che cambiare la preferenza
           globale non muove le board che l'avevano già letta. */}
-      <label
+      <div
         className="flex items-center justify-between gap-2"
         title={tr('board.settings.responseLanguageTitle')}
       >
         <span>{tr('board.settings.responseLanguage')}</span>
-        <select
+        <Select
           value={s.language || 'inherit'}
-          onChange={(e) => patch({ language: e.target.value })}
-          className="max-w-[55%] rounded bg-black/5 dark:bg-white/5 px-1.5 py-0.5 text-app-text outline-none"
-          data-testid="board-language"
-        >
-          <option value="inherit">{tr('board.settings.langInherit')}</option>
-          <option value="it">Italiano</option>
-          <option value="en">English</option>
-        </select>
-      </label>
+          onChange={(v) => patch({ language: v })}
+          ariaLabel={tr('board.settings.responseLanguage')}
+          align="right"
+          className="max-w-[55%]"
+          testId="board-language"
+          options={[
+            { value: 'inherit', label: tr('board.settings.langInherit') },
+            { value: 'it', label: 'Italiano' },
+            { value: 'en', label: 'English' },
+          ]}
+        />
+      </div>
 
       <label className="flex cursor-pointer items-center justify-between">
         <span>{tr('board.settings.isolateWorktree')}</span>
