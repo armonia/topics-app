@@ -14,12 +14,6 @@
  * MOSTRARE una nota quando quello che afferma non è più vero.
  */
 
-/** Il fatto sulla card: quando l'anteprima è stata ritirata, e perché. */
-export interface PreviewRetirement {
-  previewRetiredAt: string | null;
-  previewRetiredReason: string | null;
-}
-
 /**
  * Le note che affermano «questa card NON ha un'anteprima».
  *
