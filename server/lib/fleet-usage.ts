@@ -439,6 +439,41 @@ function finish(
   return usage;
 }
 
+/**
+ * Oltre questa età una lettura non serve più a decidere: dice cosa faceva la
+ * flotta mezzo minuto fa, e il freno del peso decide su ADESSO. Più larga del
+ * TTL della misura (4s) di proposito, perché qui non si vuole una lettura
+ * fresca a ogni chiamata, si vuole non decidere su una vecchia.
+ */
+const FLEET_LOAD_MAX_AGE_MS = 30_000;
+
+/**
+ * Il carico della NOSTRA flotta in unità di core, letto SENZA aspettare.
+ *
+ * Serve al freno del peso del dispatcher (`ownLoad` in `task-dispatcher.ts`),
+ * che decide dentro un tick sincrono e non può fermarsi ad aspettare uno `ps`.
+ * Torna l'ultima misura se è ancora attuale; altrimenti innesca un
+ * aggiornamento in sottofondo e torna `null`, che per il freno vuol dire «non
+ * lo so» e non «via libera»: chi chiama ripiega sul load di sistema.
+ *
+ * `cpuPercent` è già normalizzato sulla scala 0-100 dell'INTERA macchina, quindi
+ * si torna a moltiplicare per i core per avere la stessa unità del load average
+ * (1 = un core saturo). Le due misure vanno confrontate con soglie diverse: vedi
+ * `HEAVY_MAX_OWN_LOAD_PER_CORE`.
+ */
+export function fleetLoadSync(): { coreUnits: number; cores: number } | null {
+  if (isWindows) return null;
+  if (!cached || Date.now() - cachedAt >= FLEET_LOAD_MAX_AGE_MS) {
+    // Scalda la cache per il prossimo giro. Non si aspetta e non si propaga:
+    // un errore qui deve valere «non lo so», mai far cadere un tick di dispatch.
+    void getFleetUsage().catch(() => {});
+    return null;
+  }
+  if (!cached.supported) return null;
+  const cores = Math.max(1, cached.cpuCores);
+  return { coreUnits: (cached.cpuPercent / 100) * cores, cores };
+}
+
 export async function getFleetUsage(): Promise<FleetUsage> {
   const unsupported: FleetUsage = { processCount: 0, memoryMB: 0, cpuPercent: 0, cpuCores: CPU_CORES, memMetric: "rss", roots: [], sessions: [], supported: false };
   if (isWindows) return unsupported;
