@@ -60,6 +60,24 @@ queste regole.
    EFFIMERA — muore col server che la serve: la prova che resta è l'anteprima.
    Un URL o una descrizione scritti solo nel thread non bastano.
 
+   **Come nasce un video ≤20s, senza tagliarlo dopo.** `tests/e2e/helpers/clip.ts`:
+   `clipDiConsegna` apre un contesto DEDICATO con `recordVideo` acceso sul solo
+   tratto utile. Il setup — l'app che parte, il progetto che si apre — sta nel
+   `prologo`, su una pagina il cui video viene buttato; il browser è suo, perché
+   `slowMo` è un'opzione di LANCIO e non di contesto e nessun `newContext` se la
+   toglie di dosso. Alla fine MISURA il `.webm` (`helpers/webm-duration.ts`, EBML
+   letto a mano: `ffprobe` non è garantito su nessuna macchina) e ALZA se sfora
+   il tetto. Si accende con `E2E_CLIP=1`, che non è `E2E_EVIDENCE=1`:
+
+       E2E_CLIP=1 ./node_modules/.bin/playwright test board-recapture-preview -g RECAPTURE-01
+
+   `E2E_EVIDENCE=1` resta il modo storico — `slowMo: 300` e video su OGNI test —
+   e produce clip che contengono il setup. Con quello `board-recapture-preview`
+   usciva a 26,9s ed è finita tagliata a mano con `ffmpeg`, scegliendo a occhio
+   l'istante di partenza: chi taglia male consegna una clip che comincia dopo il
+   click, e non lo scopre nessuno. Con `E2E_CLIP=1` la stessa scena esce a
+   13-15s misurati, senza nessun taglio.
+
 5. **Azioni sull'ambiente dell'umano: mai senza ok esplicito.** Relaunch dell'app,
    deploy in prod, uso di credenziali → prima si chiede. Le credenziali non si
    scrivono MAI in chiaro (thread, file, commit): se ne servono, ci si ferma e si
