@@ -7,15 +7,21 @@
  */
 import { test, expect, describe } from "bun:test";
 import { Database } from "bun:sqlite";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { findStalls, render } from "./stalled-parents";
+
+const SCHEMA = `CREATE TABLE tasks (
+    id TEXT PRIMARY KEY, text TEXT NOT NULL, status TEXT NOT NULL,
+    parent_task_id TEXT, archived INTEGER NOT NULL DEFAULT 0,
+    dispatch_state TEXT, delivered_reason TEXT, dispatch_deferred_until TEXT,
+    created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+  )`;
 
 function freshDb(): Database {
   const db = new Database(":memory:");
-  db.run(`CREATE TABLE tasks (
-    id TEXT PRIMARY KEY, text TEXT NOT NULL, status TEXT NOT NULL,
-    parent_task_id TEXT, archived INTEGER NOT NULL DEFAULT 0,
-    dispatch_state TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
-  )`);
+  db.run(SCHEMA);
   return db;
 }
 
@@ -24,12 +30,21 @@ function card(
   db: Database,
   id: string,
   status: string,
-  opts: { parent?: string; dispatchState?: string | null; archived?: boolean } = {},
+  opts: {
+    parent?: string;
+    dispatchState?: string | null;
+    archived?: boolean;
+    deliveredReason?: string | null;
+    deferredUntil?: string | null;
+  } = {},
 ): string {
   const ts = new Date(Date.UTC(2026, 7, 12, 3, seq++)).toISOString();
   db.prepare(
-    "INSERT INTO tasks (id, text, status, parent_task_id, archived, dispatch_state, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-  ).run(id, `card ${id}`, status, opts.parent ?? null, opts.archived ? 1 : 0, opts.dispatchState ?? null, ts, ts);
+    "INSERT INTO tasks (id, text, status, parent_task_id, archived, dispatch_state, delivered_reason, dispatch_deferred_until, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  ).run(
+    id, `card ${id}`, status, opts.parent ?? null, opts.archived ? 1 : 0,
+    opts.dispatchState ?? null, opts.deliveredReason ?? null, opts.deferredUntil ?? null, ts, ts,
+  );
   return id;
 }
 
@@ -72,7 +87,10 @@ describe("la sonda degli stalli muti", () => {
 
   test("un padre che STA GIÀ CHIEDENDO non è muto: è in review con la domanda", () => {
     const db = freshDb();
-    card(db, "chiede", "review", { dispatchState: "needs_input" });
+    // `delivered_reason` è il marchio che scrive `askParkedChildren`, ed è
+    // l'UNICO segno che la domanda sulla card è proprio questa: `needs_input`
+    // da solo lo scrive anche `deliverToReviewBySystem` per qualunque causa.
+    card(db, "chiede", "review", { dispatchState: "needs_input", deliveredReason: "parked_children" });
     card(db, "sotto", "backlog", { parent: "chiede" });
     expect(findStalls(db).parents).toBe(0);
   });
@@ -94,11 +112,129 @@ describe("la sonda degli stalli muti", () => {
     expect(findStalls(db).parents).toBe(0);
   });
 
-  test("basta UN figlio in volo e non è stallo: gli altri parcheggiati aspettano lui", () => {
+  test("basta UN figlio col PROPRIO agente e non è stallo: quello si muove davvero", () => {
     const db = freshDb();
     card(db, "padre", "backlog");
-    card(db, "vivo", "todo", { parent: "padre" });
+    card(db, "vivo", "in_progress", { parent: "padre", dispatchState: "working" });
     card(db, "parcheggiato", "backlog", { parent: "padre" });
     expect(findStalls(db).parents).toBe(0);
+  });
+});
+
+/**
+ * IL CASO CHE LA SONDA NON VEDEVA — otto card in una notte, il 12/08/2026.
+ *
+ * Un figlio in `todo` sembrava «in volo» e bastava a far tacere la sonda. Non lo
+ * è: uno step non lo dispaccia MAI nessuno da solo (`rootsOnly` nel tick,
+ * «Steps are never dispatch-eligible» in `onEnterTodo`), lo lavora solo l'agente
+ * del padre DENTRO il proprio turno. Se il padre non ha un turno vivo, un figlio
+ * in `todo` è fermo esattamente quanto uno in `backlog` — e `deriveQueueReason`
+ * lo dice già, con `tone: 'stalled'`, mentre la sonda diceva il contrario.
+ *
+ * Il padre in `review` chiudeva il vicolo: sembra «aspetta l'umano», ma l'umano
+ * non ha nessuna mossa — approvare porta a `done`, e `done` con un sottotask
+ * aperto è rifiutato (`open_subtasks`). La checklist è congelata e la card tace.
+ */
+describe("il padre in review con la checklist congelata", () => {
+  test("figli in TODO sotto un padre in review: è uno stallo, e la sonda lo conta", () => {
+    const db = freshDb();
+    card(db, "review1", "review", { dispatchState: "needs_input" });
+    card(db, "step1", "todo", { parent: "review1" });
+    card(db, "step2", "todo", { parent: "review1" });
+    const r = findStalls(db);
+    expect(r.parents).toBe(1);
+    expect(r.cards).toBe(3);
+    expect(r.stalls[0]!.parked.map((c) => c.id).sort()).toEqual(["step1", "step2"]);
+  });
+
+  test("il figlio in todo NON è in volo nemmeno sotto un padre in backlog", () => {
+    const db = freshDb();
+    card(db, "fermo", "backlog");
+    card(db, "step", "todo", { parent: "fermo" });
+    expect(findStalls(db).parents).toBe(1);
+  });
+
+  test("il padre AL LAVORO resta escluso: quel turno la checklist la lavora davvero", () => {
+    const db = freshDb();
+    card(db, "vivo", "in_progress", { dispatchState: "working" });
+    card(db, "step", "todo", { parent: "vivo" });
+    expect(findStalls(db).parents).toBe(0);
+  });
+
+  test("finestra di rinvio ancora APERTA: non è ferma, sta per rientrare in coda", () => {
+    const db = freshDb();
+    // `deferForWait` e il ramo dei sottotask aperti rimandano il padre di 10
+    // minuti: dentro quella finestra il turno è previsto, e `deriveQueueReason`
+    // la chiama `deferred`, `tone: 'waiting'`. Dirla ferma sarebbe un allarme.
+    card(db, "rinviato", "todo", { dispatchState: "waiting", deferredUntil: "2026-08-12T19:05:00.000Z" });
+    card(db, "step", "todo", { parent: "rinviato" });
+    expect(findStalls(db, "2026-08-12T19:00:00.000Z").parents).toBe(0);
+  });
+
+  test("finestra di rinvio SCADUTA: nessuno è tornato, ed è ferma", () => {
+    const db = freshDb();
+    card(db, "scaduto", "todo", { dispatchState: "waiting", deferredUntil: "2026-08-12T17:54:00.000Z" });
+    card(db, "step", "todo", { parent: "scaduto" });
+    expect(findStalls(db, "2026-08-12T19:00:00.000Z").parents).toBe(1);
+  });
+
+  test("la riga del padre dice lo stato in cui è fermo, non solo l'id", () => {
+    const db = freshDb();
+    card(db, "review1", "review", { dispatchState: "needs_input" });
+    card(db, "step1", "todo", { parent: "review1" });
+    const testo = render(findStalls(db));
+    expect(testo).toContain("review");
+    expect(testo).toContain("review1");
+    expect(testo).toContain("step1");
+  });
+});
+
+/**
+ * LA BARRA, sulla porta vera: non la funzione esportata, il comando.
+ * `bun run probe:stalls --gate` deve uscire NON-ZERO su questa board.
+ */
+describe("probe:stalls --gate", () => {
+  function seedFile(seed: (db: Database) => void): { dir: string; path: string } {
+    const dir = mkdtempSync(join(tmpdir(), "stalls-"));
+    const path = join(dir, "topics.db");
+    const db = new Database(path);
+    db.run(SCHEMA);
+    seed(db);
+    db.close();
+    return { dir, path };
+  }
+
+  function runProbe(path: string, ...args: string[]) {
+    return Bun.spawnSync({
+      cmd: ["bun", join(import.meta.dir, "stalled-parents.ts"), "--db", path, ...args],
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+  }
+
+  test("padre in review + figli in todo: esce 1 e li nomina", () => {
+    const { dir, path } = seedFile((db) => {
+      card(db, "abcdef0123", "review", { dispatchState: "needs_input" });
+      card(db, "9876543210", "todo", { parent: "abcdef0123" });
+    });
+    try {
+      const r = runProbe(path, "--gate");
+      const out = r.stdout.toString();
+      expect(r.exitCode).not.toBe(0);
+      expect(out).toContain("abcdef01");
+      expect(out).toContain("98765432");
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  test("board sana: esce 0", () => {
+    const { dir, path } = seedFile((db) => {
+      card(db, "vivo", "in_progress", { dispatchState: "working" });
+      card(db, "step", "todo", { parent: "vivo" });
+    });
+    try {
+      const r = runProbe(path, "--gate");
+      expect(r.exitCode).toBe(0);
+      expect(r.stdout.toString()).toContain("Nessuno stallo muto");
+    } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 });
