@@ -336,4 +336,47 @@ describe("freno del peso — l'attesa ha una fine", () => {
     expect(nota).toContain("2 task");
     expect(nota.toLowerCase()).toContain("coda");
   });
+
+  it("un pesante in coda dietro un ALTRO pesante in volo NON è il tappo", async () => {
+    // Il caso più comune, e quello in cui la card mentiva peggio di quando
+    // diceva soltanto «in coda». Il chip `queued` su un pesante ha DUE
+    // scritture, non una: il ramo del carico, e il ramo `heavyBusy` — che gira
+    // su OGNI todo ed esce PRIMA del ciclo, quindi l'ordine della coda non
+    // c'entra niente. Letto dal solo chip, il secondo caso si travestiva da
+    // primo, e la card affermava quattro cose false in fila: che tiene la testa
+    // della coda (no: il `return` su heavyBusy ignora l'ordine), che aspetta
+    // margine di macchina (qui il margine c'è tutto), che parte entro il tetto
+    // (a QUESTA attesa il tetto non si applica, per scelta esplicita), e che
+    // abbassargli la priorità sbloccherebbe la fila (non sblocca nulla).
+    const h = harness({
+      // Macchina LIBERA: il freno del carico è fuori discussione, l'unica cosa
+      // che tiene ferma la board è il pesante che sta già girando.
+      capacity: () => ({ load1: 0.1, cores: 12 }),
+      ownLoad: () => ({ coreUnits: 0.1, cores: 12 }),
+    });
+    board(h);
+    h.db.run("INSERT OR IGNORE INTO topics (id) VALUES ('topic-x')");
+    h.db.run(
+      `INSERT INTO tasks (id, project_id, text, status, created_at, updated_at, dispatch_attempts, priority, dispatch_weight, dispatch_state, assigned_topic_id)
+       VALUES ('inflight', ?, 'gia in volo', 'in_progress', '2026-08-12T21:00:00.000Z', '2026-08-12T21:00:00.000Z', 0, 4, 'heavy', 'working', 'topic-x')`,
+      [PID],
+    );
+    codaConPesanteInTesta(h);
+
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    // Il chip `queued` c'è (il ramo heavyBusy lo scrive su tutti), e la nota
+    // del thread è giusta com'è: dice che c'è un pesante al lavoro.
+    expect(h.task("heavy")!.dispatchState).toBe("queued");
+    expect(h.comments("heavy").join("\n")).toContain("PESANTE al lavoro");
+
+    // Ma la CARD non deve accusare questa riga di tenere ferma la coda.
+    const r = h.task("heavy")!.queueReason!;
+    expect(r.kind).not.toBe("heavy_hold");
+    expect(r.title).not.toContain("tetto");
+    expect(r.title).not.toContain("priorità");
+    // I leggeri dietro non cambiano: la loro ragione era ed è la fila.
+    expect(h.task("l1")!.queueReason!.kind).toBe("slot");
+  });
 });
