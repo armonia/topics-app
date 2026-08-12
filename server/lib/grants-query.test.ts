@@ -12,6 +12,7 @@ import { describe, expect, it, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { TASKS_DDL } from "../db/test-schema";
 import {
   hasGrant, grantedResourceIds, grantedByType, reasonsFor, subjectsOf,
   holdsGrantOnTaskPreview, escapeLike, putGrant, dropGrant, deviceP,
@@ -21,7 +22,7 @@ const RADICE = join(import.meta.dir, "..", "..");
 
 function dbFresco(): Database {
   const db = new Database(":memory:");
-  db.run("CREATE TABLE tasks (id TEXT PRIMARY KEY, preview_image TEXT)");
+  db.run(TASKS_DDL);
   db.run("CREATE TABLE devices (id TEXT PRIMARY KEY, name TEXT, token_hash TEXT, created_at INTEGER, revoked_at INTEGER)");
   db.run(readFileSync(join(RADICE, "server/db/migrations/083-grants.sql"), "utf8").replace(
     // La 083 travasa da `task_shares`, che qui non esiste: si tiene lo schema e
@@ -154,8 +155,8 @@ describe("porta unica · tutte le ragioni, non la prima", () => {
 describe("porta unica · l'anteprima di un task", () => {
   it("passa solo l'anteprima di un task concesso", () => {
     const db = dbFresco();
-    db.run("INSERT INTO tasks (id, preview_image) VALUES ('t1','/Users/x/.topics/media/mio.png')");
-    db.run("INSERT INTO tasks (id, preview_image) VALUES ('t2','/Users/x/.topics/media/altrui.png')");
+    db.run("INSERT INTO tasks (id, preview_image, project_id, text, created_at, updated_at) VALUES ('t1','/Users/x/.topics/media/mio.png', 'p-test', 'x', '2026-01-01', '2026-01-01')");
+    db.run("INSERT INTO tasks (id, preview_image, project_id, text, created_at, updated_at) VALUES ('t2','/Users/x/.topics/media/altrui.png', 'p-test', 'x', '2026-01-01', '2026-01-01')");
     putGrant(db, { kind: "device", id: "d1" }, "task", "t1", { grantedAt: 1 });
     expect(holdsGrantOnTaskPreview(db, deviceP("d1"), "/mio.png")).toBe(true);
     expect(holdsGrantOnTaskPreview(db, deviceP("d1"), "/altrui.png")).toBe(false);
@@ -165,9 +166,9 @@ describe("porta unica · l'anteprima di un task", () => {
     // Senza l'escape, `%` nel percorso richiesto trasformerebbe «questa
     // anteprima» in «una qualunque anteprima».
     const db = dbFresco();
-    db.run("INSERT INTO tasks (id, preview_image) VALUES ('t2','/Users/x/.topics/media/segreta.png')");
+    db.run("INSERT INTO tasks (id, preview_image, project_id, text, created_at, updated_at) VALUES ('t2','/Users/x/.topics/media/segreta.png', 'p-test', 'x', '2026-01-01', '2026-01-01')");
     putGrant(db, { kind: "device", id: "d1" }, "task", "t1", { grantedAt: 1 });
-    db.run("INSERT INTO tasks (id, preview_image) VALUES ('t1','/Users/x/.topics/media/mia.png')");
+    db.run("INSERT INTO tasks (id, preview_image, project_id, text, created_at, updated_at) VALUES ('t1','/Users/x/.topics/media/mia.png', 'p-test', 'x', '2026-01-01', '2026-01-01')");
     expect(holdsGrantOnTaskPreview(db, deviceP("d1"), "%")).toBe(false);
     expect(holdsGrantOnTaskPreview(db, deviceP("d1"), "%.png")).toBe(false);
   });

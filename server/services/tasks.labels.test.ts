@@ -10,35 +10,19 @@
 import { test, expect, describe, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import { createTaskService, TaskServiceError, type TaskService } from "./tasks";
+import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL } from "../db/test-schema";
 
 function freshDb(): Database {
   const db = new Database(":memory:");
   db.run("PRAGMA foreign_keys = ON");
-  db.run(`CREATE TABLE tasks (
-    id TEXT PRIMARY KEY, project_id TEXT NOT NULL, text TEXT NOT NULL, description TEXT,
-    status TEXT NOT NULL DEFAULT 'todo', priority INTEGER NOT NULL DEFAULT 2,
-    kanban_order INTEGER NOT NULL DEFAULT 0, assigned_to TEXT, due_date TEXT, chat_id TEXT,
-    created_at TEXT NOT NULL, completed_at TEXT, updated_at TEXT NOT NULL,
-    claude_task_id TEXT, archived INTEGER NOT NULL DEFAULT 0, in_progress_at TEXT,
-    dispatch_attempts INTEGER NOT NULL DEFAULT 0, parent_task_id TEXT REFERENCES tasks(id),
-    plan_first INTEGER NOT NULL DEFAULT 0, agent_ms INTEGER NOT NULL DEFAULT 0,
-    agent_tokens INTEGER NOT NULL DEFAULT 0, agent_cache_read_tokens INTEGER NOT NULL DEFAULT 0,
-    priority_auto INTEGER NOT NULL DEFAULT 1, reuse_blocker_context INTEGER NOT NULL DEFAULT 0,
-    blocked_by_task_id TEXT REFERENCES tasks(id), checks_state TEXT,
-    model TEXT, created_by_topic_id TEXT
-  )`);
+  db.run(TASKS_DDL);
+  db.run(TASKS_FK_STUBS_DDL);
   db.run(`CREATE TABLE task_comments (
     id TEXT PRIMARY KEY, task_id TEXT NOT NULL, author TEXT NOT NULL DEFAULT 'user',
     content TEXT NOT NULL, mentions TEXT, media TEXT, created_at TEXT NOT NULL,
     kind TEXT NOT NULL DEFAULT 'comment'
   )`);
-  db.run(`CREATE TABLE task_labels (
-    task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
-    label TEXT NOT NULL,
-    source TEXT NOT NULL DEFAULT 'human' CHECK(source IN ('derived', 'human', 'agent')),
-    created_at TEXT NOT NULL,
-    PRIMARY KEY (task_id, label)
-  )`);
+  db.run(TASK_LABELS_DDL);
   return db;
 }
 
