@@ -28,6 +28,8 @@ import { isAgentWorking, PARKED_STOPPED, PARKED_WAITED_OUT, pendingQuestion, typ
 import { isPreviewablePath } from "../../shared/media-kind";
 import { parseTaskPatch, unapplicableFieldsBody, type FieldRead } from "./task-patch";
 import { getTerminalSessionById } from "./terminal";
+import { deliverAnswer } from "../lib/ask-user-bridge";
+import { answerRoutedAsk, pendingRoutedAsk } from "../services/board-ask-routing";
 import { AUTO_PROJECT_ID, createTaskService, isArchiveParkedLabel, isLandActionLabel, isPublishActionLabel, isRequeueParkedLabel, projectIdForPath, TaskServiceError, UNASSIGNED_PROJECT_ID, type Task } from "../services/tasks";
 import { computeDispatchCapacity } from "../services/dispatch-capacity";
 import { newProjectParentDir } from "../services/project-path-resolver";
@@ -427,6 +429,15 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
   const { db, json, readJSON, matchRoute, broadcastToAll, getTopicBySessionKey, isPathAllowed } = ctx;
   const svc = createTaskService(db);
   const attempts = createTaskAttemptStore(db);
+
+  // Il lato «risposta» dell'instradamento delle domande (board-ask-routing.ts).
+  // Qui serve solo `deliver`: il commento con la domanda lo scrive l'altra
+  // sponda, la gamba dell'attesa in routes/permission.ts.
+  const askRouting = {
+    db,
+    comment: () => false,
+    deliver: (sessionKey: string, answers: Record<string, string>) => deliverAnswer(sessionKey, answers),
+  };
 
   /**
    * Project "Auto" → the REAL board. Resolve a known project name mentioned in
@@ -2052,6 +2063,24 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           });
           const task = svc.get(bComments.taskId, { projectId: bComments.projectId })?.task;
           broadcastToAll({ type: "task:updated", projectId: bComments.projectId, task });
+          // C'È UNA DOMANDA APERTA SU QUESTO TASK? Allora questo commento è la
+          // RISPOSTA, e va a chi sta fermo ad aspettarla — che può essere il
+          // coordinatore o una delle sue sessioni di lavoro. La consegna sblocca
+          // quel rendez-vous e il turno riparte da solo: nessun tab da aprire,
+          // nessun re-kick.
+          //
+          // ESCE QUI E NON PROSEGUE. Il blocco sotto è la strada dei commenti
+          // normali, e per un task in review passa da `reviewDecision(reject)`:
+          // su una sessione che sta già aspettando questa risposta sarebbe un
+          // secondo canale che dice la stessa cosa in un altro modo, cioè la
+          // risposta consegnata due volte.
+          {
+            const root = dispatcher ? svc.boundRootOf(bComments.taskId) : null;
+            const target = root?.id ?? bComments.taskId;
+            if (pendingRoutedAsk(target) && answerRoutedAsk(askRouting, target, String(body?.content ?? ""))) {
+              return json(comment);
+            }
+          }
           // Answering on a STEP is answering the agent: when the subtree's
           // dispatch root sits in review ("serve te"), a human comment anywhere
           // under it re-kicks the same agent tab with the step reference — the
