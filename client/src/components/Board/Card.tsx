@@ -2,11 +2,11 @@ import { memo, useState, useEffect, useMemo } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { AlertTriangle, ArrowUpRight, ClipboardList, Copy, Hourglass, Lock, MessageSquare, Plus, RotateCcw, Send, ShieldCheck, ShieldX, Trash2 } from 'lucide-react';
+import { AlertTriangle, ArrowUpRight, ClipboardList, Copy, Hourglass, Lock, MessageSquare, Plus, RotateCcw, Send, ShieldCheck, ShieldX, Trash2, UserRound } from 'lucide-react';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
-import { boardApi, STATUS_LABEL, isAgentWorking, parseQuestionBlock, isProjectlessId, systemDeliveryNote, blockedByChip, reopenedChip, SYSTEM_DELIVERY_CHIP, type BoardTask, type TaskComment, type TaskStatus } from '../../lib/board';
+import { STATUS_LABEL, SYSTEM_DELIVERY_CHIP, blockedByChip, boardApi, isAgentWorking, isProjectlessId, parseQuestionBlock, reopenedChip, subtaskWorkChip, systemDeliveryNote, type BoardTask, type TaskComment, type TaskStatus } from '../../lib/board';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useLongPress, openContextMenuAt } from '../../hooks/useLongPress';
 import { useMobile } from '../../hooks/useMobile';
@@ -402,7 +402,14 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
           columns keep the compact done/total chip. */}
       {checklist.length > 0 ? (
         <div className="mt-1 space-y-0.5" onClick={(e) => e.stopPropagation()}>
-          {checklist.slice(0, 5).map((s) => (
+          {checklist.slice(0, 5).map((s) => {
+            // L'unico posto in cui un sottotask si vede sulla BOARD: le colonne
+            // mostrano solo le radici (`rootsOnly`), la checklist si apre sulla
+            // card in Review. Ed è il momento giusto per dirlo — è lì che si
+            // decide se approvare, e uno step «in corso» che non sta lavorando
+            // nessuno è esattamente ciò che tiene aperto il task.
+            const work = subtaskWorkChip(s);
+            return (
             <button
               key={s.id}
               onClick={() => onOpen(s.id)}
@@ -411,8 +418,24 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
             >
               <StatusIcon status={s.status} />
               <span className={`min-w-0 flex-1 truncate text-xs ${s.status === 'done' ? 'text-app-text-muted line-through' : 'text-app-text-heading'}`}>{s.text}</span>
+              {work && (work.kind === 'unattended' ? (
+                <span
+                  data-testid={`card-subtask-work-${s.id}`}
+                  data-kind="unattended"
+                  title={work.title}
+                  className="flex shrink-0 items-center gap-1 rounded bg-rose-500/20 px-1 py-0.5 text-[10px] text-rose-300"
+                ><AlertTriangle className="h-2.5 w-2.5 shrink-0" /> {work.label}</span>
+              ) : (
+                <span
+                  data-testid={`card-subtask-work-${s.id}`}
+                  data-kind="parent-turn"
+                  title={work.title}
+                  className="flex shrink-0 text-app-text-muted"
+                ><UserRound className="h-2.5 w-2.5" /></span>
+              ))}
             </button>
-          ))}
+            );
+          })}
           {checklist.length > 5 && (
             <button
               onClick={() => onOpen(task.id)}
