@@ -160,14 +160,26 @@ export function useSpaceCards(): SpaceCard[] {
     // principale. Cliccare un altro gruppo porta davanti la sua finestra se ce
     // l'ha, altrimenti se lo prende questa (vedi `useGoToSpace`).
     void pinnedSpace;
-    return rows.map((r) => ({
-      id: r.id,
-      name: r.name,
-      active: r.id === activeSpaceId,
-      count: countBySpace.get(r.id) ?? 0,
-      tier: spaceAttentionTier(r.id, panes, spaces, sig, topics, terminalSessions),
-      detachedLabel: spaceWindows.get(r.id),
-    }));
+    return rows
+      .map((r) => ({
+        id: r.id,
+        name: r.name,
+        active: r.id === activeSpaceId,
+        count: countBySpace.get(r.id) ?? 0,
+        tier: spaceAttentionTier(r.id, panes, spaces, sig, topics, terminalSessions),
+        detachedLabel: spaceWindows.get(r.id),
+      }))
+      // UN GRUPPO SI DISEGNA FINCHÉ TIENE QUALCOSA. A zero tab la card diceva
+      // «Nessuna tab» e restava lì finché non la scioglievi a mano: una scatola
+      // vuota, cioè il modo più veloce di rendere illeggibile una colonna che
+      // senza gruppi si leggeva bene.
+      //
+      // Due eccezioni. Il PRINCIPALE resta sempre: è la casa delle tab che non
+      // stanno in nessun gruppo ed è il bersaglio su cui si lascia cadere una
+      // tab per tirarla FUORI da un gruppo — senza, il gesto non avrebbe dove
+      // atterrare. E un gruppo che vive in una finestra sua resta anche a zero:
+      // è da qui che lo si porta davanti o lo si richiama indietro.
+      .filter((c) => c.id === DEFAULT_SPACE_ID || c.count > 0 || !!c.detachedLabel);
   }, [ordered, pinnedSpace, activeSpaceId, countBySpace, panes, spaces, sig, topics, terminalSessions, spaceWindows]);
 }
 

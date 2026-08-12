@@ -136,17 +136,19 @@ jobs:
       - name: Il cancello sul codice morto non è cieco su nessun file
         run: bun run check:deadcode-blindspots
 
-      # Il numero di una migration non è una scelta libera di chi scrive il
-      # file: è un'identità, e due card in parallelo se la prendono uguale senza
-      # potersene accorgere (il 10/08: due `089`, il secondo ramo tagliato prima
-      # che il primo atterrasse). Il registro ora è indicizzato per NOME, quindi
-      # il danno non è più silenzioso — ma il numero doppio resta ambiguo per
-      # chiunque legga, e qui costa un secondo fermarlo.
+      # Il prefisso di una migration non è una scelta libera di chi scrive il
+      # file. Col contatore due card in parallelo se lo prendevano uguale senza
+      # potersene accorgere: il numero si sceglie alla NASCITA e si verifica
+      # all'ATTERRAGGIO, e in mezzo atterrano gli altri (il 10/08 due `089`;
+      # l'11-12/08 altre tre di fila, 097 100 101). Da qui in avanti il prefisso
+      # è un timestamp UTC che nessuno deve contendere a nessuno
+      # (`bun run migration:new`), e questo cancello ferma sia chi torna al
+      # contatore sia i contatori duplicati rimasti.
       #
       # `fetch-depth` di default è 1, quindi `main` NON esiste in questo
       # checkout: senza il fetch mirato il cancello non avrebbe con cosa
       # confrontarsi (e uscirebbe 1 dicendolo, invece di passare a vuoto).
-      - name: Nessun numero di migration duplicato
+      - name: Le migration nuove usano il timestamp, e nessun numero è doppio
         run: |
           git fetch --no-tags --depth=1 origin main:refs/remotes/origin/main
           MIGRATION_BASE_REF=refs/remotes/origin/main bun run check:migrations

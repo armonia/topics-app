@@ -255,11 +255,19 @@ function runMigrations(db: Database, baseDir: string): void {
     } catch {}
   }
 
-  // Un numero condiviso non è più un guasto silenzioso, ma resta un segnale che
-  // il cancello di consegna (scripts/check-migration-numbers.ts) è stato
+  // Un CONTATORE condiviso non è più un guasto silenzioso, ma resta un segnale
+  // che il cancello di consegna (scripts/check-migration-numbers.ts) è stato
   // aggirato: dirlo costa una riga di log e fa risparmiare mezz'ora a chi legge.
+  //
+  // I nomi col prefisso timestamp (`20260812050317-…`, 14 cifre) sono esclusi:
+  // lì due numeri uguali vogliono dire "stesso secondo, due worktree che non si
+  // vedevano", che è previsto e innocuo — si applicano entrambe in ordine di
+  // nome. Vedi scripts/new-migration.ts.
   const perNumero = new Map<number, string[]>();
-  for (const m of migrations) perNumero.set(m.version, [...(perNumero.get(m.version) ?? []), m.name]);
+  for (const m of migrations) {
+    if (/^\d{14}-/.test(m.name)) continue;
+    perNumero.set(m.version, [...(perNumero.get(m.version) ?? []), m.name]);
+  }
   for (const [version, files] of perNumero) {
     if (files.length > 1) {
       console.warn(

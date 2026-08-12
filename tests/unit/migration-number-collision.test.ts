@@ -20,8 +20,8 @@ import {
   MIGRATIONS_DIR,
   branchMigrations,
   findNumberCollisions,
+  legacyNumbered,
   migrationFileNames,
-  nextFreeVersion,
   resolveBase,
 } from "../../scripts/check-migration-numbers";
 
@@ -114,8 +114,14 @@ describe("numeri di migration", () => {
     ])).toEqual(["089-retirements.sql"]);
   });
 
-  it("suggerisce il primo numero libero sopra a tutti", () => {
-    expect(nextFreeVersion(["089-b.sql"], ["088-a.sql", "089-a.sql"])).toBe(90);
+  it("una migration NUOVA col contatore è rifiutata; quelle già su main no", () => {
+    const main = ["088-board-language.sql", "089-retirements.sql"];
+    // Il branch non tocca niente: i contatori già sulla base restano legittimi.
+    expect(legacyNumbered(main, main)).toEqual([]);
+    // Un file nuovo col contatore è esattamente ciò che si vuole impedire.
+    expect(legacyNumbered([...main, "090-nuova.sql"], main)).toEqual(["090-nuova.sql"]);
+    // Con il timestamp passa.
+    expect(legacyNumbered([...main, "20260812050317-nuova.sql"], main)).toEqual([]);
   });
 
   it("ROSSO su un repo di prova con due 089 — exit 1, e dice quale rinominare", () => {
@@ -128,19 +134,36 @@ describe("numeri di migration", () => {
       expect(code).toBe(1);
       expect(out).toContain("089-project-org-incognito.sql");
       expect(out).toContain("089-retirements.sql");
-      expect(out).toContain("090"); // il numero libero da usare
+      expect(out).toContain("migration:new"); // come si rimedia
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   });
 
-  it("VERDE sullo stesso repo appena i numeri sono distinti — exit 0", () => {
+  it("VERDE sullo stesso repo appena il file nuovo ha il prefisso timestamp — exit 0", () => {
+    const dir = repoDiProva(
+      ["088-board-language.sql", "089-retirements.sql"],
+      ["088-board-language.sql", "089-retirements.sql", "20260812050317-project-org-incognito.sql"],
+    );
+    try {
+      expect(eseguiCancello(dir).code).toBe(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("ROSSO se il file nuovo usa ancora un contatore, anche senza collisione — exit 1", () => {
+    // 090 è libero su main: il vecchio cancello sarebbe stato verde, ed è
+    // esattamente il verde che il 12/08 è diventato rosso tre volte all'atterraggio.
     const dir = repoDiProva(
       ["088-board-language.sql", "089-retirements.sql"],
       ["088-board-language.sql", "089-retirements.sql", "090-project-org-incognito.sql"],
     );
     try {
-      expect(eseguiCancello(dir).code).toBe(0);
+      const { code, out } = eseguiCancello(dir);
+      expect(code).toBe(1);
+      expect(out).toContain("090-project-org-incognito.sql");
+      expect(out).toContain("CONTATORE");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
