@@ -304,3 +304,75 @@ describe("la ragione della coda arriva dal server, con la card", () => {
     expect(dopo.queueReason).toMatchObject({ kind: "slot", head: "in coda" });
   });
 });
+
+/**
+ * IL PESANTE IN VOLO, LETTO DALLE RIGHE.
+ *
+ * `shared/board.test.ts` prova la regola; qui si prova che il server la
+ * ALIMENTA — cioè che `heavyInFlight` esce dalle stesse due colonne che il tick
+ * legge per prendere quella strada (`status = 'in_progress'` + `dispatch_state`
+ * in starting/working + `dispatch_weight = 'heavy'`), e non da uno stato vivo
+ * del dispatcher che un'altra finestra non avrebbe.
+ *
+ * La sera del 12/08 questo era il motivo di tre card ferme, scritto nel thread
+ * di ognuna e in nessun altro posto: sulla card c'era «in coda».
+ */
+describe("il motivo dell'attesa arriva sulla card, non solo nel thread", () => {
+  let db: Database;
+  let s: TaskService;
+  beforeEach(() => { db = freshDb(); s = svc(db); clock = 0; });
+
+  /** Un pesante con un agente vivo: le due colonne che il tick guarda. */
+  function pesanteInVolo(): string {
+    const t = s.create({ projectId: PID, text: "Il pesante" });
+    db.prepare(
+      "UPDATE tasks SET status = 'in_progress', dispatch_state = 'working', dispatch_weight = 'heavy' WHERE id = ?",
+    ).run(t.id);
+    return t.id;
+  }
+
+  test("con un pesante in volo la card dice PERCHÉ, invece di «in coda»", () => {
+    const ferma = s.create({ projectId: PID, text: "Una qualunque" });
+    mv(s, ferma.id, "todo");
+    // Prima: nessun pesante, la fila scorre e la frase è quella della fila.
+    expect(s.get(ferma.id)!.task.queueReason).toMatchObject({ kind: "slot", head: "in coda" });
+
+    pesanteInVolo();
+    // Il tick chipa `queued` su OGNI todo quando esce da quel ramo.
+    db.prepare("UPDATE tasks SET dispatch_state = 'queued' WHERE id = ?").run(ferma.id);
+
+    const r = s.get(ferma.id)!.task.queueReason!;
+    expect(r.kind).toBe("heavy_busy");
+    expect(r.tone).toBe("waiting");
+    expect(r.detail).not.toContain("davanti");
+  });
+
+  test("la frase del CARICO resta diversa da quella del turno altrui", () => {
+    // Ramo del carico: questa card È il pesante trattenuto, e nessun altro
+    // pesante sta girando.
+    const tappo = s.create({ projectId: PID, text: "Il tappo" });
+    mv(s, tappo.id, "todo");
+    db.prepare("UPDATE tasks SET dispatch_state = 'queued', dispatch_weight = 'heavy' WHERE id = ?").run(tappo.id);
+    const carico = s.get(tappo.id)!.task.queueReason!;
+    expect(carico.kind).toBe("heavy_hold");
+
+    // Ramo del turno altrui: adesso un pesante gira davvero. La stessa riga
+    // cambia frase, perché è cambiato il motivo.
+    pesanteInVolo();
+    const altrui = s.get(tappo.id)!.task.queueReason!;
+    expect(altrui.kind).toBe("heavy_busy");
+    expect(altrui.detail).not.toBe(carico.detail);
+    expect(altrui.title).not.toBe(carico.title);
+  });
+
+  test("uno STEP non prende la frase del pesante: la sua ragione è il padre", () => {
+    const padre = s.create({ projectId: PID, text: "Il padre" });
+    mv(s, padre.id, "in_progress");
+    const step = s.create({ projectId: PID, text: "Passo uno", parentTaskId: padre.id });
+    mv(s, step.id, "todo");
+    db.prepare("UPDATE tasks SET dispatch_state = 'queued' WHERE id = ?").run(step.id);
+    pesanteInVolo();
+
+    expect(s.get(step.id)!.task.queueReason!.kind).toBe("parent_turn");
+  });
+});
