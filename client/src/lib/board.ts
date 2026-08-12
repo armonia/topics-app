@@ -20,7 +20,7 @@ export type {
 // Le etichette: stessa cartella condivisa, stesso vocabolario chiuso. Il client
 // non ne tiene una copia — un'etichetta in più qui e non lì è un filtro che non
 // filtra niente, sullo stesso modello di `BoardSettings`.
-export { VISIBILITY_LABELS, KIND_LABELS, whoCloses } from '../../../shared/task-labels';
+export { CLOSER_LABELS, KIND_LABELS, whoCloses } from '../../../shared/task-labels';
 export type { TaskLabel, TaskLabelRow } from '../../../shared/task-labels';
 import type { TaskLabel, TaskLabelRow } from '../../../shared/task-labels';
 import type {

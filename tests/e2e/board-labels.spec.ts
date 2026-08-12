@@ -43,6 +43,7 @@ const PROJECT_ID = boardIdForPath(PROJECT_PATH);
 const VISIBILE = "Il chip del drawer non entra sotto i 320px";
 const INVISIBILE = "Il dispatcher interroga i board a turno";
 const ALTRA = "Bench del tetto MCP: 3 sonde e una tabella";
+const PIANO = "Piano: amicizia fra installazioni";
 
 let projectTopicId: string | null = null;
 const createdTasks: string[] = [];
@@ -120,20 +121,24 @@ test.describe("Etichette · chi chiude la card, e il filtro che la trova", () =>
     const visibile = await createTask(request, { text: VISIBILE, status: "review" });
     const invisibile = await createTask(request, { text: INVISIBILE, status: "review" });
     const altra = await createTask(request, { text: ALTRA, status: "review" });
+    const piano = await createTask(request, { text: PIANO, status: "review" });
     await setLabels(request, visibile.id, ["visibile", "bugfix"]);
     await setLabels(request, invisibile.id, ["invisibile", "chore"]);
     await setLabels(request, altra.id, ["invisibile", "misura"]);
+    // La terza classe: un piano non è invisibile, la decide una persona.
+    await setLabels(request, piano.id, ["decisione"]);
 
     await page.goto("/");
     await openProjectBoard(page);
 
-    // 1° stato: tre card in review, ognuna con le sue etichette addosso.
-    await expect(page.locator("[data-task-card]")).toHaveCount(3);
+    // 1° stato: quattro card in review, ognuna con le sue etichette addosso.
+    await expect(page.locator("[data-task-card]")).toHaveCount(4);
     const cardVis = page.locator(`[data-task-card="${visibile.id}"]`);
     const cardInv = page.locator(`[data-task-card="${invisibile.id}"]`);
     await expect(cardVis.getByTestId("card-label-visibile")).toBeVisible();
     await expect(cardVis.getByTestId("card-label-bugfix")).toBeVisible();
     await expect(cardInv.getByTestId("card-label-invisibile")).toBeVisible();
+    await expect(page.locator(`[data-task-card="${piano.id}"]`).getByTestId("card-label-decisione")).toBeVisible();
     await beat(page, 2400);
 
     // 2° stato: il filtro `visibile` acceso. Resta UNA card — la lista che un
@@ -146,7 +151,7 @@ test.describe("Etichette · chi chiude la card, e il filtro che la trova", () =>
     await expect(cardInv).toHaveCount(0);
     await beat(page, 2600);
 
-    // E il filtro si inverte: le invisibili sono le altre due.
+    // E il filtro si inverte: le invisibili sono due, il piano non è fra loro.
     await page.getByTestId("filter-labels-chip").click();
     await page.getByRole("option", { name: "visibile", exact: true }).click();
     await page.getByRole("option", { name: "invisibile", exact: true }).click();

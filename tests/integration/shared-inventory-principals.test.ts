@@ -67,7 +67,7 @@ const DDL_TASKS = `CREATE TABLE tasks (
 function db084(): Database {
   const db = new Database(":memory:");
   db.run(DDL_TASKS);
-  db.run(TASK_LABELS_DDL); // migration 097 — rowToTask la legge per OGNI task
+  db.run(TASK_LABELS_DDL); // migration 100 — rowToTask la legge per OGNI task
   db.run(`CREATE TABLE task_comments (
     id TEXT PRIMARY KEY, task_id TEXT NOT NULL, author TEXT NOT NULL DEFAULT 'user',
     content TEXT NOT NULL, mentions TEXT, media TEXT, created_at TEXT NOT NULL,
