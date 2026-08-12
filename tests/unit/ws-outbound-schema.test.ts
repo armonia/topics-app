@@ -202,6 +202,8 @@ describe('outbound registry contract', () => {
       'message',
       'message:media',
       'message:new',
+      'notification:new',
+      'notification:seen',
       'open-project',
       'pane:focus-suggest',
       'pong',
@@ -350,8 +352,17 @@ describe('outbound registry contract', () => {
   // serve di più. Per lo stesso motivo viaggia MIRATO (`ctx.sendToDevice`) e
   // non in broadcast. Mittente `server/routes/auth.ts`, ascoltatore
   // `useWebSocket` → `GuestView`.
-  test('all 93 v3 outbound types are present', () => {
-    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(93);
+  // 93 → 95: entrano `notification:new` e `notification:seen`, i due fronti
+  // della CRONOLOGIA delle notifiche (migration 101). Non sono un doppione dei
+  // fronti che già esistono: `task:review-ready` & co. dicono «è successa una
+  // cosa», questi dicono «è stata NOTIFICATA, ecco la riga e il conteggio».
+  // Servono perché il contatore accanto a Topics è per definizione live, e
+  // perché il «visto» è globale: guardare la lista su una finestra deve
+  // spegnere il pallino sulle altre — senza un fronte ognuna resterebbe col suo
+  // numero fino al ricaricamento. Mittente `server/routes/notifications.ts`,
+  // ascoltatore `useNotificationHistory`.
+  test('all 95 v3 outbound types are present', () => {
+    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(95);
   });
 });
 

@@ -10,6 +10,8 @@ import { DevicesSection } from './DevicesSection';
 import { IdentitySection } from './IdentitySection';
 import { AccountSection } from './AccountSection';
 import { PlanSection } from './PlanSection';
+import { ProfileStatsSection } from './ProfileStatsSection';
+import { DiscordSection } from './DiscordSection';
 import { FriendsSection } from './FriendsSection';
 import { useModalDialog } from '../../hooks/useModalDialog';
 
@@ -52,9 +54,13 @@ type SectionId = 'appearance' | 'notifications' | 'providers' | 'devices' | 'pla
 
 // L'id resta `devices` — è la chiave interna a cui punta il deep-link della
 // riga d'identità nella sidebar (`onOpenDevices` in App.tsx). L'ETICHETTA no:
-// la scheda porta il profilo (nome, email, organizzazione, membri) prima dei
-// dispositivi, e chi cerca «come mi chiamo qui» non apre uno smartphone.
-// `plan` è una voce di PRIMO livello e non un riquadro dentro «Account», per
+// la scheda porta il profilo (chi sei, le tue statistiche d'uso, lo stato
+// pubblicato su Discord) prima delle persone e dei dispositivi, e chi cerca
+// «come mi chiamo qui» non apre uno smartphone. Da «Account» a «Profile»
+// perché l'account è ormai UNA delle cose che ci sono dentro, e nemmeno la
+// prima: su un'installazione senza servizio degli account quella sezione non
+// si disegna affatto, mentre le statistiche ci sono sempre.
+// `plan` è una voce di PRIMO livello e non un riquadro dentro «Profile», per
 // due ragioni. La prima: non è mai vuota — c'è sempre un piano, e sul gratuito
 // dice cosa hai invece di cosa ti manca, quindi l'obiezione qui sopra non la
 // tocca. La seconda: quanto paghi e chi sei sono domande diverse, e chi cerca
@@ -63,7 +69,7 @@ const SECTIONS: Array<{ id: SectionId; label: string; icon: typeof Palette }> = 
   { id: 'appearance', label: 'Appearance', icon: Palette },
   { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'providers', label: 'AI Providers', icon: Cpu },
-  { id: 'devices', label: 'Account', icon: UserRound },
+  { id: 'devices', label: 'Profile', icon: UserRound },
   { id: 'plan', label: 'Plan', icon: CreditCard },
 ];
 
@@ -201,6 +207,13 @@ export function GlobalSettings({ isOpen, onClose, settings, onSettingsChange, th
               // a una persona, e leggere l'elenco senza sapere di chi sono è
               // leggere una lista di oggetti.
               <div className="space-y-6">
+                {/* Le statistiche aprono la scheda perché sono l'unica cosa
+                    che c'è SEMPRE: l'account può non essere configurato, le
+                    persone possono essere una sola, i dispositivi zero. */}
+                <ProfileStatsSection />
+                {/* Lo stato pubblicato fuori viene subito dopo le misure che
+                    pubblica: è la stessa materia, vista da chi non è qui. */}
+                <DiscordSection />
                 {/* L'account viene prima delle persone perché risponde a una
                     domanda che le precede — «chi sono io fuori da questa
                     macchina» — e perché su un'installazione senza servizio
