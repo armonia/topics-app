@@ -145,6 +145,35 @@ export function blockedByChip(
     };
 }
 
+/**
+ * Il chip «riaperta»: una card che ERA fatta e non lo è più lo dice sulla card,
+ * dove si guarda — non solo nel thread.
+ *
+ * Misurato l'11/08: undici card uscite da `done` in sei ore. Non se n'era persa
+ * nessuna, ma dalla colonna si vedeva solo un buco al posto di una cosa fatta, e
+ * il motivo (che c'era sempre) viveva nel commento. `null` = la card non è mai
+ * uscita da done, o ci è tornata (allora il ciclo è chiuso e il segno cade).
+ */
+export function reopenedChip(
+  task: Pick<BoardTask, 'reopenedAt' | 'reopenedBy' | 'reopenedActor'>,
+): { label: string; title: string; detail: string } | null {
+  if (!task.reopenedAt) return null;
+  const when = new Date(task.reopenedAt);
+  const quando = Number.isNaN(when.getTime()) ? task.reopenedAt : when.toLocaleString('it-IT');
+  const chi = task.reopenedActor === 'human'
+    ? 'da te'
+    : task.reopenedActor === 'system'
+      ? 'dal sistema'
+      : `da un agent${task.reopenedBy ? ` (${task.reopenedBy})` : ''}`;
+  // `detail` è la stessa frase senza preamboli: la banda del drawer ha già la
+  // parola «Riaperta» in grassetto e ripeterla la renderebbe illeggibile.
+  return {
+    label: 'riaperta',
+    detail: `${chi} il ${quando}`,
+    title: `Era in Done: riaperta ${chi} il ${quando}. Il motivo è nel thread della card.`,
+  };
+}
+
 export interface BoardTask {
   id: string;
   projectId: string;
@@ -231,6 +260,15 @@ export interface BoardTask {
   deliveredBy: 'agent' | 'human' | 'system' | null;
   /** Perché, quando `deliveredBy === 'system'`. La prosa sta nel thread. */
   deliveredReason: 'retries_exhausted' | 'model_refused' | 'fanout' | null;
+  /** Chi ha chiuso la card l'ultima volta: 'human' = una decisione di Attilio
+   *  (approvazione o trascinamento) e un agent non la riapre. */
+  doneActor: 'human' | 'agent' | 'system' | null;
+  /** La card è USCITA da done: quando, per mano di chi, con che ruolo. Resta
+   *  finché non torna done. È il chip «riaperta»: senza, la colonna mostrava
+   *  solo un buco dove c'era una cosa fatta. */
+  reopenedAt: string | null;
+  reopenedBy: string | null;
+  reopenedActor: 'human' | 'agent' | 'system' | null;
 }
 
 export interface TaskWithThread {
