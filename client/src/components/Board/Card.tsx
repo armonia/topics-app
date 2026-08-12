@@ -645,12 +645,18 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
           <TaskChoiceRow task={task} disabled={busy} onDone={onRefetch} onError={onError} />
         </div>
       )}
-      {task.status === 'review' && showsQuestion && (
+      {/* OGNI card in review, non solo quelle di un agente. `showsQuestion`
+          seleziona chi ha una PAROLA da mostrare (l'agente, o il sistema sui
+          figli parcheggiati); le SCELTE invece nascono dallo stato e valgono
+          anche per una consegna che nessun agente ha fatto. Tenerle sotto lo
+          stesso gate lasciava quella card con la sola casella di testo, che è
+          esattamente il difetto che `taskChoices` ha chiuso. */}
+      {task.status === 'review' && (
         <div className="mt-2 space-y-1.5" onClick={(e) => e.stopPropagation()}>
           {/* The agent's last word, ALWAYS on the card — a formatted question
               with quick-reply buttons when it's a question block, plain text
               otherwise. Approving/rejecting blind was the bug. */}
-          {!isAgentReview ? null : pending ? (
+          {!showsQuestion ? null : pending ? (
             <p className="break-words text-xs leading-snug text-app-text">{stripMarkdown(pending.question)}</p>
           ) : lastComment ? (
             // Render the agent's last word as REAL markdown (bold/headings/lists
