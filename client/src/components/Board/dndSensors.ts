@@ -1,4 +1,4 @@
-import { MouseSensor, TouchSensor } from '@dnd-kit/core';
+import { KeyboardSensor, MouseSensor, TouchSensor } from '@dnd-kit/core';
 
 /**
  * I sensori del drag della board, sordi a ciò con cui si INTERAGISCE.
@@ -48,6 +48,44 @@ export class TouchSensorGentile extends TouchSensor {
     {
       eventName: 'onTouchStart' as const,
       handler: ({ nativeEvent }: { nativeEvent: TouchEvent }) => !suUnElementoInterattivo(nativeEvent),
+    },
+  ];
+}
+
+/**
+ * Tastiera: ed è QUESTO il sensore che faceva partire il trascinamento mentre si
+ * scriveva, non il mouse.
+ *
+ * Segnalato da Attilio il 12/08 dopo la cura al mouse: «appena scrivo parte il
+ * dnd o l'invio, non capisco». Il colpevole è la BARRA SPAZIATRICE. Il
+ * `KeyboardSensor` di dnd-kit parte su `Space` o `Enter`, e la sua unica
+ * protezione è questa (core.cjs.development.js:1362):
+ *
+ *     const activator = active.activatorNode.current;
+ *     if (activator && event.target !== activator) return false;
+ *     event.preventDefault();
+ *
+ * La guardia vale solo se esiste un NODO ATTIVATORE dedicato. `Card.tsx` sparge
+ * `{...listeners}` sulla radice della card e non usa `setActivatorNodeRef`,
+ * quindi `activatorNode.current` è `null`, la guardia si salta, e ogni spazio
+ * battuto dentro la textarea di risposta apre un trascinamento da tastiera —
+ * con `preventDefault`, che è il motivo per cui lo spazio non compariva e
+ * l'invio si comportava in modo strano.
+ *
+ * Stessa regola degli altri due: se si sta scrivendo in un campo o si sta per
+ * premere un comando, il tasto è del campo, non della board.
+ */
+export class KeyboardSensorGentile extends KeyboardSensor {
+  static activators = [
+    {
+      eventName: 'onKeyDown' as const,
+      handler: (event: { nativeEvent: KeyboardEvent }, options: unknown, context: unknown): boolean => {
+        if (suUnElementoInterattivo(event.nativeEvent)) return false;
+        // Per tutto il resto vale il comportamento della libreria: qui si toglie
+        // un caso, non si riscrive il sensore.
+        const originale = (KeyboardSensor.activators[0] as { handler: (...a: unknown[]) => boolean }).handler;
+        return originale(event, options, context);
+      },
     },
   ];
 }
