@@ -90,6 +90,16 @@ export interface PreviewManagerDeps {
    */
   processCwd?(pid: number): Promise<string | null>;
   /**
+   * Il path CANONICO di una cartella, symlink risolti. Serve al cancello
+   * d'identità e non è un dettaglio: `lsof` risponde sempre col path REALE,
+   * mentre il worktree porta con sé il path con cui è stato creato. Su macOS
+   * `/tmp` è un link a `/private/tmp`, quindi le due stringhe divergono per la
+   * stessa cartella e l'anteprima appena avviata veniva scambiata per un
+   * processo estraneo e uccisa. Assente ⇒ confronto fra stringhe (il vecchio
+   * comportamento).
+   */
+  realPath?(p: string): Promise<string | null>;
+  /**
    * Scarica la pagina per il cancello sul CONTENUTO: `{ status, body }`, o
    * null se irraggiungibile. Assente ⇒ cancello disattivato (si fotografa).
    */
@@ -275,7 +285,19 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
     if (!cwd) return "foreign";
     // Il listener è quasi sempre un DISCENDENTE del figlio (`bun run dev` →
     // server): non condivide il pid, ma eredita il cwd = worktree del task.
-    return cwd.replace(/\/+$/, "") === expect.cwd.replace(/\/+$/, "") ? "own" : "foreign";
+    // Il confronto è fra path CANONICI, non fra stringhe: `lsof` risponde col
+    // path reale e il worktree con quello di creazione, e due nomi della stessa
+    // cartella non sono un intruso.
+    const [a, b] = await Promise.all([canonical(cwd), canonical(expect.cwd)]);
+    return a === b ? "own" : "foreign";
+  }
+
+  /** Path senza slash finali e con i symlink risolti, quando si può. */
+  async function canonical(p: string): Promise<string> {
+    const trimmed = p.replace(/\/+$/, "");
+    if (!deps.realPath) return trimmed;
+    try { return (await deps.realPath(trimmed))?.replace(/\/+$/, "") ?? trimmed; }
+    catch { return trimmed; }
   }
 
   /**
