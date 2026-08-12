@@ -50,6 +50,7 @@
     "check:deadcode": "./node_modules/.bin/knip-bun",
     "check:deadcode-blindspots": "bun run scripts/check-deadcode-blindspots.ts",
     "check:previews": "bun run scripts/check-preview-evidence.ts",
+    "probe:stalls": "bun run scripts/stalled-parents.ts",
     "check:landed": "bun run scripts/check-done-landed.ts",
     "check:occlusion": "node scripts/check-occlusion.mjs",
     "check:bundle": "bun run scripts/check-bundle-size.ts",
