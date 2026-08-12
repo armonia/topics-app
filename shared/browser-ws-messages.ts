@@ -6,7 +6,7 @@
  *   - frame, agent_active, console, download, engine, webrtc_answer,
  *     render_mode, dom_event, focus_field:  server → client
  *   - input, take_control, resize, set_engine, set_stream, set_watching,
- *     set_render, webrtc_offer: client → server
+ *     set_render, webrtc_offer, focus_query: client → server
  *   - nav, webrtc_ice:         entrambe (richiesta da un lato, broadcast dall'altro)
  *
  * Fino al 29/07 questo schema esisteva DUE volte — `server/browser-ws-messages.ts`
@@ -186,6 +186,23 @@ const focusFieldMessageSchema = z.object({
   field: z.optional(remoteFieldSchema),
 });
 
+/**
+ * Client -> server: «chi ha il fuoco adesso?». Stessa risposta di un click
+ * relayato (`focus_field`, solo a chi chiede), chiesta a voce.
+ *
+ * Esiste perché il click ha cambiato strada. Da quando l'input del ramo video
+ * viaggia sul DataChannel della PeerConnection, va dal pane al sidecar a CDP e
+ * il server non lo vede passare: la lettura del campo, che era agganciata al
+ * click sul WS, non partiva più e dal telefono tornava su la tastiera generica.
+ *
+ * Il click resta dov'è, sul canale veloce. Qui viaggia solo la domanda sulla
+ * tastiera, che il round trip col server lo pagava già prima e non è nel
+ * percorso che il punto 6 voleva accorciare.
+ */
+const focusQueryMessageSchema = z.object({
+  type: z.literal('focus_query'),
+});
+
 /** Client -> server (webrtc shared-session transport): viewer SDP offer. */
 const webrtcOfferMessageSchema = z.object({
   type: z.literal('webrtc_offer'),
@@ -226,6 +243,7 @@ export const browserWsMessageSchema = z.discriminatedUnion('type', [
   renderModeMessageSchema,
   domEventMessageSchema,
   focusFieldMessageSchema,
+  focusQueryMessageSchema,
   webrtcOfferMessageSchema,
   webrtcAnswerMessageSchema,
   webrtcIceMessageSchema,

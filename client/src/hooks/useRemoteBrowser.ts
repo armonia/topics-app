@@ -173,6 +173,12 @@ const WEBRTC_RETRY_DELAY_MS = 1500;
 // take several seconds, and tearing the pc down mid-'checking' causes retry churn.
 const WEBRTC_NO_ANSWER_TIMEOUT_MS = 6000;
 const WEBRTC_CONNECT_TIMEOUT_MS = 15000;
+// Quanto si aspetta la ricevuta di un click sul canale dati prima di chiedere
+// lo stesso al server chi ha il fuoco. Largo rispetto al giro vero (un hop
+// SCTP sulla stessa PeerConnection dei pixel), stretto rispetto ai 700 ms che
+// il server si dà per leggere il campo: chi arriva qui ha già perso la corsa
+// con la tastiera, e insistere non la fa salire prima.
+const INPUT_ACK_TIMEOUT_MS = 250;
 
 const SPECIAL_KEYS = new Set([
   'Enter', 'Tab', 'Escape', 'Backspace', 'Delete',
@@ -238,6 +244,12 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
   // Il canale su cui viaggia l'input (punto 6). Aperto insieme alla PC, chiuso con
   // lei: finché non è 'open', sendInput usa il WebSocket come ha sempre fatto.
   const inputChannelRef = useRef<RTCDataChannel | null>(null);
+  // Numeratore dei messaggi di input a cui vogliamo una ricevuta, e chi aspetta
+  // quella ricevuta. Serve a UN caso solo: un click sul canale dati va spinto su
+  // CDP PRIMA di chiedere al server chi ha preso il fuoco, o la risposta
+  // descrive la pagina di un istante fa. Vedi `sendInput`.
+  const inputSeqRef = useRef(0);
+  const inputAckWaitersRef = useRef(new Map<number, () => void>());
   const webrtcActiveRef = useRef(false);
   const webrtcWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Renegotiation attempts + retry timer (the CDP target may not exist on the first
@@ -451,6 +463,29 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
   // Il messaggio è IDENTICO nei due tubi, di proposito: cambia il trasporto, non il
   // protocollo, così il percorso del WebSocket resta valido e collaudato come rete
   // di sotto — un canale non ancora aperto (o caduto) non fa perdere un click.
+  //
+  // Un click che scende dal canale dati si porta dietro una coda: `focus_query`.
+  // Il ramo del click nel server è anche il posto da cui parte `focus_field`, la
+  // risposta che dice al telefono CHE tastiera aprire; scavalcando il server
+  // quella risposta non partiva più e sul ramo video tornava su la tastiera
+  // generica. La domanda viaggia da sola sul WS, dove il round trip lo pagava
+  // già, e il click resta sul canale veloce — che è il punto di tutto questo.
+  const askFocusField = useCallback(() => {
+    if (wsRef.current?.readyState !== WebSocket.OPEN) return;
+    try {
+      const msg: BrowserWsMessage = { type: 'focus_query' };
+      wsRef.current.send(JSON.stringify(msg));
+    } catch { /* socket caduto — la tastiera resta quella generica */ }
+  }, []);
+
+  // Una ricevuta è arrivata (o non arriverà): sveglia chi la aspettava, una volta sola.
+  const settleInputAck = useCallback((id: number) => {
+    const waiter = inputAckWaitersRef.current.get(id);
+    if (!waiter) return;
+    inputAckWaitersRef.current.delete(id);
+    waiter();
+  }, []);
+
   const sendInput = useCallback((
     action: 'click' | 'type' | 'scroll' | 'mousemove' | 'keypress',
     payload: { x?: number; y?: number; text?: string; key?: string; deltaX?: number; deltaY?: number; button?: 'left' | 'right' | 'middle' },
@@ -458,7 +493,19 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     const dc = inputChannelRef.current;
     if (dc?.readyState === 'open') {
       try {
-        dc.send(JSON.stringify({ type: 'input', action, payload }));
+        if (action === 'click') {
+          // L'`id` chiede la ricevuta al sidecar: quando torna, i comandi CDP
+          // del click sono già sul socket del target. Solo allora ha senso
+          // domandare chi ha il fuoco. Se la ricevuta non arriva si chiede lo
+          // stesso dopo il timeout: una tastiera forse sbagliata è meglio di
+          // nessuna tastiera.
+          const id = ++inputSeqRef.current;
+          inputAckWaitersRef.current.set(id, askFocusField);
+          setTimeout(() => settleInputAck(id), INPUT_ACK_TIMEOUT_MS);
+          dc.send(JSON.stringify({ type: 'input', action, payload, id }));
+        } else {
+          dc.send(JSON.stringify({ type: 'input', action, payload }));
+        }
         return;
       } catch {
         // Canale chiuso fra il controllo e l'invio — si scende al WS.
@@ -476,7 +523,7 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     // Fallback: REST interact. Map action to the REST shape (the existing
     // /api/browsers/:id/interact endpoint expects { action, ...payload }).
     interact({ action, ...payload });
-  }, [interact]);
+  }, [interact, askFocusField, settleInputAck]);
 
   // WebSocket lifecycle with exponential-backoff auto-reconnect. `connect()` is
   // (re)invoked by the mount effect, the backoff timer, and focus/online wake —
@@ -845,6 +892,16 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
       try {
         const dc = pc.createDataChannel('input', { ordered: true });
         inputChannelRef.current = dc;
+        // L'unica cosa che torna indietro su questo canale: la ricevuta di un
+        // input che ne aveva chiesta una. Sblocca la domanda sulla tastiera
+        // (vedi `sendInput`); tutto il resto non è roba nostra e si ignora.
+        dc.onmessage = (ev) => {
+          if (typeof ev.data !== 'string') return;
+          try {
+            const m = JSON.parse(ev.data) as { t?: unknown; id?: unknown };
+            if (m?.t === 'ack' && typeof m.id === 'number') settleInputAck(m.id);
+          } catch { /* non è JSON nostro */ }
+        };
         dc.onclose = () => { if (inputChannelRef.current === dc) inputChannelRef.current = null; };
       } catch {
         inputChannelRef.current = null; // niente canale → sendInput resta sul WS
@@ -940,7 +997,7 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     };
     // engineEpoch: a change (engine switch) tears down + reopens the WS so the
     // server recreates the context on the newly-selected engine.
-  }, [contextId, encodedId, updateConnectionState, clearLoadingWatchdog, fetchInfo, sendResize, engineEpoch]);
+  }, [contextId, encodedId, updateConnectionState, clearLoadingWatchdog, fetchInfo, sendResize, engineEpoch, settleInputAck]);
 
   // P3-3b: a hidden pane must also drop the WebRTC pixel track — set_stream only
   // pauses the JPEG screencast, not the H.264 transport. Pause the peer when the
