@@ -32,12 +32,27 @@ const describeHeavy = HEAVY ? describe : describe.skip;
 
 // DATA_DIR va messo PRIMA di importare browser-state-store: la sua BASE_DIR è
 // una const di modulo, letta una volta sola al caricamento.
-const DATA = mkdtempSync(join(tmpdir(), "site-data-heavy-"));
-process.env.DATA_DIR = join(DATA, "data");
+//
+// E va messo SOLO nella corsia pesante, dentro l'`if`. `process.env` è di tutto
+// il processo, e `bun run test:unit` carica anche questo file — per saltarlo,
+// ma caricarlo basta a eseguire quello che sta qui fuori. Spostare DATA_DIR
+// mentre gli altri file lo leggono sposta il barattolo sotto ai loro piedi:
+// `browser-state-store.test.ts` calcola la sua BASE_DIR proprio da lì, e si
+// ritrovava a cercare in una cartella dove il modulo non stava più scrivendo.
+// Sei suoi test rossi, e nessuno di questo file: il tipo di guasto che si
+// incolpa a chiunque tranne che a chi l'ha fatto.
+let DATA = "";
+let createBrowserService!: (typeof import("./browser-service"))["createBrowserService"];
+let loadStorageState!: (typeof import("./browser-state-store"))["loadStorageState"];
+let siteDataRecords!: (typeof import("./browser-site-data"))["siteDataRecords"];
 
-const { createBrowserService } = await import("./browser-service");
-const { loadStorageState } = await import("./browser-state-store");
-const { siteDataRecords } = await import("./browser-site-data");
+if (HEAVY) {
+  DATA = mkdtempSync(join(tmpdir(), "site-data-heavy-"));
+  process.env.DATA_DIR = join(DATA, "data");
+  ({ createBrowserService } = await import("./browser-service"));
+  ({ loadStorageState } = await import("./browser-state-store"));
+  ({ siteDataRecords } = await import("./browser-site-data"));
+}
 
 /** Un sito che dice se ti riconosce, e che al `/login` ti dà il cookie. */
 function startSite() {
