@@ -20,7 +20,20 @@ const SKELETON_WIDTHS = [78, 56, 88, 64, 72, 50, 84, 60];
  *  nome: stesso ciclo, spostato, così le due righe non finiscono mai pari. */
 const SKELETON_SUB_WIDTHS = [52, 71, 44, 63, 38, 58, 49, 67];
 
-const BAR = 'rounded bg-black/8 dark:bg-white/8';
+/**
+ * La barretta grigia, e il suo rialzo è quello DI CASA: la coppia
+ * `bg-black/N dark:bg-white/N` che `index.css` fissa come rialzo tema-agnostico
+ * (un `bg-white/N` bare sparirebbe in tema chiaro).
+ *
+ * `/10` e non `/8`: `board-theme.spec.ts` verifica quella coppia iniettandola a
+ * runtime e dando per scontato che sia già nel bundle — e con Tailwind JIT una
+ * classe sta nel bundle solo se QUALCUNO la scrive. Finora l'unico a scriverla
+ * in tutto il client era lo scheletro inline della chat, che questo file ha
+ * sostituito: passare a `/8` l'ha fatta sparire dal CSS compilato e quel test è
+ * diventato rosso senza che nessuno avesse toccato un tema. Se un giorno serve
+ * cambiarla, si controlla prima `git grep dark:bg-white/10`.
+ */
+const BAR = 'rounded bg-black/10 dark:bg-white/10';
 
 /**
  * L'elenco delle chat in sidebar mentre arriva.
