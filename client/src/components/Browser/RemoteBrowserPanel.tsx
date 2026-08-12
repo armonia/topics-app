@@ -1,6 +1,6 @@
 import { BrowserToolbar } from './BrowserToolbar';
 import { createPortal } from 'react-dom';
-import { Globe, Loader2, ChevronUp, ChevronDown, X, AlertTriangle, RotateCw, Puzzle, Boxes, MonitorPlay } from 'lucide-react';
+import { Globe, Loader2, ChevronUp, ChevronDown, X, AlertTriangle, RotateCw, Puzzle, Boxes, MonitorPlay, CaseSensitive } from 'lucide-react';
 import { lazy, Suspense } from 'react';
 import { useRemoteBrowser } from '../../hooks/useRemoteBrowser';
 import { useTauriBrowser } from '../../hooks/useTauriBrowser';
@@ -16,6 +16,7 @@ import { BrowserPaneChip, ChipDot, type ChipTone } from './BrowserPaneChip';
 import { useBrowserDownloads } from '../../hooks/useBrowserDownloads';
 import type { DownloadsMenuProps } from './DownloadsMenu';
 import { formatSize } from './downloadsModel';
+import { stepMatchIndex, formatMatchCounter } from './findInPageModel';
 import { useBrowserSpawner } from '../../state/browserSpawner';
 import { signalsActions } from '../../state/signals';
 import { isTauri } from '../../lib/shell';
@@ -323,6 +324,16 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
   const [findOpen, setFindOpen] = useState(false);
   const [findText, setFindText] = useState('');
   const [findCount, setFindCount] = useState<number | null>(null);
+  // Su QUALE corrispondenza siamo (1-based, 0 = nessun ⏎ ancora). Non ha una
+  // sorgente nativa: `window.find` sposta la selezione e torna un booleano,
+  // quindi l'indice lo tiene il client e la regola sta in `stepMatchIndex`
+  // (pura, ciclica nei due versi come il wrap di window.find).
+  const [findIndex, setFindIndex] = useState(0);
+  const [findMatchCase, setFindMatchCase] = useState(false);
+  // Il totale letto DENTRO il gestore di ⏎, che non può aspettare il render
+  // successivo per saperlo.
+  const findCountRef = useRef<number | null>(findCount);
+  findCountRef.current = findCount;
   const [forgetOpen, setForgetOpen] = useState(false);
 
   // Surface URL changes to the layout (tab title / persisted pane url) + record
@@ -400,25 +411,40 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
   }, [browser]);
 
   const runFind = useCallback(
-    (forward: boolean) => { if (findText) void browser.findInPage(findText, { forward, findNext: true }); },
-    [browser, findText],
+    async (forward: boolean) => {
+      if (!findText) return;
+      await browser.findInPage(findText, { forward, findNext: true, matchCase: findMatchCase });
+      // Il totale può non essere ancora arrivato: il conteggio ha 150ms di
+      // debounce e il primo ⏎ arriva prima. Chiederlo qui è ciò che rende «1/12»
+      // vero già al primo invio, invece di uno «0/12» che si corregge dopo.
+      let total = findCountRef.current;
+      if (total === null) {
+        total = (await browser.countMatches?.(findText, { matchCase: findMatchCase })) ?? 0;
+        setFindCount(total);
+      }
+      setFindIndex((i) => stepMatchIndex(i, total ?? 0, forward));
+    },
+    [browser, findText, findMatchCase],
   );
   const closeFind = useCallback(() => {
     setFindOpen(false);
     setFindText('');
     setFindCount(null);
+    setFindIndex(0);
     void browser.stopFind();
   }, [browser]);
 
   // Live match count (window.find gives none, so countMatches walks the page text).
+  // Il conteggio passa lo STESSO matchCase della ricerca: due letture della
+  // stessa cosa con due regole diverse fanno ciclare il contatore in anticipo.
   useEffect(() => {
     if (!findOpen || !findText) { setFindCount(null); return; }
     let cancelled = false;
     const t = setTimeout(() => {
-      void browser.countMatches?.(findText).then((n) => { if (!cancelled) setFindCount(n); });
+      void browser.countMatches?.(findText, { matchCase: findMatchCase }).then((n) => { if (!cancelled) setFindCount(n); });
     }, 150);
     return () => { cancelled = true; clearTimeout(t); };
-  }, [findOpen, findText, browser]);
+  }, [findOpen, findText, findMatchCase, browser]);
 
   const findBtn = 'w-6 h-6 flex items-center justify-center rounded text-app-text-muted hover:text-app-text hover:bg-app-hover transition-colors flex-shrink-0';
 
@@ -461,9 +487,14 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
           <input
             autoFocus
             value={findText}
-            onChange={(e) => setFindText(e.target.value)}
+            onChange={(e) => {
+              setFindText(e.target.value);
+              // Testo nuovo, ricerca nuova: l'indice riparte da fermo, altrimenti
+              // il primo ⏎ mostrerebbe «4/9» su una ricerca appena cominciata.
+              setFindIndex(0);
+            }}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') { e.preventDefault(); runFind(!e.shiftKey); }
+              if (e.key === 'Enter') { e.preventDefault(); void runFind(!e.shiftKey); }
               else if (e.key === 'Escape') { e.preventDefault(); closeFind(); }
             }}
             placeholder="Trova nella pagina"
@@ -471,12 +502,23 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
             className="flex-1 h-6 px-2 text-[12px] rounded bg-surface border border-app-border text-app-text placeholder:text-app-text-faint focus:outline-none focus:border-primary"
           />
           {findCount !== null && (
-            <span className="text-[11px] text-app-text-muted tabular-nums flex-shrink-0 min-w-[3ch] text-right" data-testid="browser-find-count">
-              {findCount}
+            <span className="text-[11px] text-app-text-muted tabular-nums flex-shrink-0 min-w-[4ch] text-right" data-testid="browser-find-count">
+              {formatMatchCounter(findIndex, findCount)}
             </span>
           )}
-          <button className={findBtn} title="Precedente (⇧⏎)" onClick={() => runFind(false)}><ChevronUp size={14} aria-hidden /></button>
-          <button className={findBtn} title="Successivo (⏎)" onClick={() => runFind(true)}><ChevronDown size={14} aria-hidden /></button>
+          {/* Maiuscole/minuscole. Serviva anche a rendere vero il parametro:
+              `findInPage` dichiarava `matchCase` e nessuno glielo passava. */}
+          <button
+            className={`${findBtn} ${findMatchCase ? 'text-app-text bg-app-hover' : ''}`}
+            title={findMatchCase ? 'Maiuscole/minuscole: attivo' : 'Maiuscole/minuscole'}
+            aria-pressed={findMatchCase}
+            data-testid="browser-find-matchcase"
+            onClick={() => { setFindMatchCase((v) => !v); setFindIndex(0); }}
+          >
+            <CaseSensitive size={14} aria-hidden />
+          </button>
+          <button className={findBtn} title="Precedente (⇧⏎)" onClick={() => void runFind(false)}><ChevronUp size={14} aria-hidden /></button>
+          <button className={findBtn} title="Successivo (⏎)" onClick={() => void runFind(true)}><ChevronDown size={14} aria-hidden /></button>
           <button className={findBtn} title="Chiudi (Esc)" onClick={closeFind}><X size={14} aria-hidden /></button>
         </div>
       )}
