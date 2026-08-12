@@ -1008,6 +1008,17 @@ export interface WSTaskReviewReadyMessage {
   taskId: string;
   taskTitle: string;
   reason?: string;
+  /**
+   * La domanda pendente dell'agente, quando la consegna È una domanda: le sue
+   * opzioni diventano i TASTI del banner (shared/notify-actions).
+   *
+   * Tre stati, non due: l'oggetto = c'è una domanda · `null` = il server ha
+   * guardato e domanda non ce n'è · ASSENTE = un server che questo campo non lo
+   * manda (più vecchio del client — il guscio desktop e il demone si aggiornano
+   * separatamente). Nel terzo caso il client se la va a prendere invece di
+   * indovinare: vedi useCompletionNotifier.
+   */
+  question?: { text: string; options: string[] } | null;
 }
 
 /** Il gemello di FALLIMENTO: il task è stato PARCHEGGIATO e non riparte da
