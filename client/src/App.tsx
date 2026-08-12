@@ -57,7 +57,7 @@ import { usePanelLifecycle } from './hooks/usePanelLifecycle';
 import { useRefMirror } from './hooks/useRefMirror';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { useBrowserContexts } from './hooks/useBrowserContexts';
-import { useClosedTabs, createPaneId, isProjectPaneId, getProjectPathFromPaneId, setPaneCapability } from './state/pane/adapters';
+import { useClosedTabs, createPaneId, isProjectPaneId, getProjectPathFromPaneId, setPaneCapability, newBrowserContextId } from './state/pane/adapters';
 
 import { TopicTree } from './components/Sidebar/TopicTree';
 import { groupChromeActive, isDetachedWindow, firstOtherLiveSpace, tabsPerSpace } from './components/Layout/spaceHelpers';
@@ -756,7 +756,7 @@ function App() {
     if (type === 'terminal') {
       handleQuickCreateTerminal(normalizeTerminalAgent(subType), claudeSkipPermissions);
     } else if (type === 'browser') {
-      openBrowserPane(`new-${Date.now()}`);
+      openBrowserPane(newBrowserContextId());
     } else if (type === 'board' || type === 'dashboard' || type === 'cron') {
       // Le tre pane UTILITY: id fisso (`__board__`, `__dashboard__`, `__cron__`)
       // e quindi non `createPaneId`, che ne sorteggerebbe uno nuovo a ogni
@@ -1412,7 +1412,7 @@ function App() {
             onProjectClick={handleProjectClick}
             stopSession={stopSession}
             onNewChat={() => handleQuickCreateTopic()}
-            onNewBrowser={() => openBrowserPane(`new-${Date.now()}`)}
+            onNewBrowser={() => openBrowserPane(newBrowserContextId())}
             terminalSessions={terminalSessions}
             browserContexts={browserCtx.contexts}
             onTerminalClick={handleTerminalClick}

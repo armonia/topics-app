@@ -18,6 +18,7 @@ import {
   getBrowserContextFromPaneId,
   getTerminalSessionFromPaneId,
   addBrowserTombstone,
+  newBrowserContextId,
 } from '../../../state/pane/adapters';
 import { primaryFromSoloCellKey } from '../soloCells';
 import { canSplitPane, standaloneSplitSurface } from '../splitRules';
@@ -151,11 +152,18 @@ export function usePaneLifecycle(args: UsePaneLifecycleArgs): UsePaneLifecycleRe
 
   const handleAddPane = useCallback(async (type: PaneType, subType?: string) => {
     if (type === 'browser') {
-      // Group-local singleton — but "this group" is the MAIN standalone pool:
-      // the pane persists to group:default and PanelGrid files it into the
-      // pool's tab bar. When the "+" belongs to a split cell, re-target the
-      // pane into that cell, mirroring the terminal branch below.
-      const paneId = ordering.ops.ensureBrowserPane();
+      // Un contesto NUOVO a ogni click, come la voce Browser della sidebar
+      // (App.handleStandaloneAddPane) e come il «+» dentro una finestra di
+      // progetto, che appende sempre una pane in più. Senza contesto il
+      // riduttore singleton riusava il primo browser del gruppo: il PRIMO click
+      // apriva la pane, il SECONDO non faceva niente — nessuna tab, nessun
+      // messaggio. Il riuso resta dov'è giusto: le navigazioni senza contextId
+      // (WS/DOM legacy), che vogliono la pane esistente, non una in più.
+      //
+      // La pane vive nel pool standalone (group:default) e PanelGrid la mette
+      // nella barra del pool. Quando il «+» appartiene a una cella splittata,
+      // la si ri-mira dentro quella cella, come fa il ramo terminale sotto.
+      const paneId = ordering.ops.ensureBrowserPane(newBrowserContextId());
       const browserTarget = primaryFromSoloCellKey(gridItemKey);
       if (paneId && browserTarget && onMergeIntoCell) {
         onMergeIntoCell(paneId, browserTarget);

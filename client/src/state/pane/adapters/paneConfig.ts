@@ -156,6 +156,26 @@ export function createPaneId(type: PaneType, key?: string): string {
   return `${type}:${generateUUID()}`;
 }
 
+/**
+ * Il contesto di un browser che l'UTENTE ha appena chiesto — «+ → Browser», o
+ * la voce Browser del menu della sidebar.
+ *
+ * Fresco a ogni chiamata, di proposito. Un gesto esplicito deve aprire un
+ * browser NUOVO: senza un contesto, `browserSingletonReducer` cade nel ramo
+ * «riusa il primo browser che trovi» e il secondo click non fa NIENTE — nessuna
+ * tab, nessun errore, il no-op silenzioso che è il difetto più difficile da
+ * vedere. Le porte automatiche (WS `browser:navigate`, evento DOM) passano il
+ * PROPRIO contextId, oppure nessuno e tengono il riuso: quella è una
+ * navigazione, non una richiesta di aprire una superficie in più.
+ *
+ * Una sola funzione perché le due porte utente non possano più divergere: la
+ * sidebar mintava già un contesto nuovo (`new-<timestamp>`) mentre il «+» della
+ * barra non ne passava nessuno, ed è da lì che veniva l'asimmetria.
+ */
+export function newBrowserContextId(): string {
+  return `new-${generateUUID()}`;
+}
+
 export function isProjectPaneId(id: string): boolean {
   return id.startsWith('project:');
 }
