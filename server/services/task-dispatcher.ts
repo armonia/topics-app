@@ -215,8 +215,8 @@ export interface DispatcherDeps {
    */
   topicExists?: (topicId: string) => boolean;
   /**
-   * Il commit che questa card ha consegnato è già DENTRO il ramo d'integrazione
-   * del suo repo? (`commitIsIn`, cioè `merge-base --is-ancestor`.)
+   * Il lavoro che questa card ha consegnato è già DENTRO il ramo d'integrazione
+   * del suo repo?
    *
    * Serve al cancello che impedisce di rifare lavoro già atterrato. Il difetto è
    * misurato: 32 card ridispacciate in un giorno, e due sole (`4ec47331`,
@@ -225,8 +225,14 @@ export interface DispatcherDeps {
    * altre strade — un trascinamento, un `done→todo`, un orfano recuperato — e da
    * lì nessuno riguardava il repo prima di far partire un agente.
    *
-   * La domanda si fa sul COMMIT e non sul ramo apposta: dopo il land il ramo è
-   * potato, e chiedere di lui risponderebbe «non c'è» su un lavoro atterrato.
+   * Due cose che la risposta deve fare, e nessuna delle due è ovvia:
+   *  - chiedere del COMMIT, non del ramo: dopo il land il ramo è potato, e
+   *    chiedere di lui risponderebbe «non c'è» su un lavoro atterrato;
+   *  - guardare il CONTENUTO, non la sola discendenza: il land RICOPIA i commit
+   *    (`cherry-pick -C <sha>`), quindi dopo un land riuscito il commit di
+   *    consegna non è antenato di main. Un cancello basato sull'ancestry sarebbe
+   *    quasi sempre inerte — proprio sul caso normale. L'ospite lo risolve con la
+   *    stessa strada dell'audit degli atterraggi (`commitStatusFromRepo`).
    *
    * Tre valori: `true` dentro, `false` fuori, `null` non contabile. Solo il
    * `true` chiude la card — su «non lo so» si dispaccia come sempre, perché
