@@ -94,7 +94,39 @@ export const TASKS_DDL = `CREATE TABLE IF NOT EXISTS tasks (
 )`;
 
 /**
- * Le tabelle-genitore citate dalle FK di `TASKS_DDL`, ridotte alla chiave.
+ * `terminal_sessions` — la 008 più le colonne aggiunte dopo (028
+ * `parent_session_key`, 029 `status`, 066 `name_source`), ridotta a ciò che il
+ * codice dei task le chiede.
+ *
+ * NON è più una tabella «di terminale» soltanto: il censimento degli agenti
+ * (`agent-census.ts`) la legge dentro il CLAIM, perché le sessioni figlie di un
+ * coordinatore contano nel tetto di concorrenza. Da lì in poi un harness della
+ * board senza questa tabella non fa fallire un test di sub-agenti: fa fallire
+ * ogni `claim` con un `no such table`, cioè cento asserzioni in una decina di
+ * file. È lo stesso guasto di `task_labels`, e per la stessa ragione la
+ * dichiarazione sta qui invece che ricopiata in ogni harness.
+ */
+export const TERMINAL_SESSIONS_DDL = `CREATE TABLE IF NOT EXISTS terminal_sessions (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  cwd TEXT NOT NULL,
+  command TEXT,
+  type TEXT NOT NULL DEFAULT 'shell',
+  topic_id TEXT,
+  cols INTEGER NOT NULL DEFAULT 120,
+  rows INTEGER NOT NULL DEFAULT 30,
+  skip_permissions INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  claude_session_id TEXT,
+  status TEXT NOT NULL DEFAULT 'active',
+  parent_session_key TEXT,
+  name_source TEXT NOT NULL DEFAULT 'default'
+)`;
+
+/**
+ * Le tabelle-genitore citate dalle FK di `TASKS_DDL`, ridotte alla chiave, PIÙ
+ * `terminal_sessions` — che non è una FK ma una lettura del claim, e la sua
+ * assenza si manifesta esattamente come quella di un genitore mancante.
  *
  * Serve SOLO agli harness che accendono `PRAGMA foreign_keys = ON`: lì un
  * genitore assente non è un vincolo che non si applica, è un `no such table:
@@ -103,7 +135,8 @@ export const TASKS_DDL = `CREATE TABLE IF NOT EXISTS tasks (
  * sovrascriverla (e senza obbligare chi non ce l'ha a inventarsela).
  */
 export const TASKS_FK_STUBS_DDL = `CREATE TABLE IF NOT EXISTS agent_profiles (id TEXT PRIMARY KEY);
-CREATE TABLE IF NOT EXISTS topics (id TEXT PRIMARY KEY);`;
+CREATE TABLE IF NOT EXISTS topics (id TEXT PRIMARY KEY);
+${TERMINAL_SESSIONS_DDL}`;
 
 /** `task_labels` — identica alla 097, meno i commenti. */
 export const TASK_LABELS_DDL = `CREATE TABLE IF NOT EXISTS task_labels (

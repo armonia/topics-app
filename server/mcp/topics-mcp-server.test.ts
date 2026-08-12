@@ -622,13 +622,20 @@ describe("handleMessage", () => {
       { ...ARGS, profile: "dispatch" },
     );
     const names = ((resp!.result as any).tools as Array<{ name: string }>).map((t) => t.name);
-    // Excluded: sub-agent fan-out, cross-topic chat, topic/tab nav, projects, chrome import.
+    // Excluded: cross-topic chat, topic/tab nav, projects, chrome import.
     for (const gone of [
-      "spawn_agent", "send_to_agent", "read_agent", "list_agents", "stop_agent",
+      "list_agents",
       "send_chat_message", "read_chat_messages", "new_topic", "switch_topic",
       "import_chrome", "move_session_to_project", "create_project", "open_project",
     ]) {
       expect(names).not.toContain(gone);
+    }
+    // Il FAN-OUT resta, ed e' il modello del coordinatore: la sessione del task
+    // decide e delega, il lavoro gira nelle figlie. Non e' fuori governo — il
+    // tetto le conta (agent-census.ts), il costo si contabilizza sul task
+    // (dispatch-usage.ts), profondita' 1, e muoiono col padre.
+    for (const kept of ["spawn_agent", "send_to_agent", "read_agent", "stop_agent"]) {
+      expect(names).toContain(kept);
     }
     // Kept: the task tools, processes, and every browser_* verification tool.
     // `resolve_tab` stays ON PURPOSE: a dispatched board agent also gets links
@@ -641,7 +648,7 @@ describe("handleMessage", () => {
 
   test("tools/call refuses a profile-excluded tool (defense in depth)", async () => {
     const resp = await handleMessage(
-      { jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "spawn_agent", arguments: { prompt: "x" } } },
+      { jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "list_agents", arguments: {} } },
       { ...ARGS, profile: "dispatch" },
     );
     expect((resp!.error as any)?.code).toBe(-32601);

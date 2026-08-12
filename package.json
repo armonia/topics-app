@@ -1,6 +1,6 @@
 {
   "name": "topics-app",
-  "version": "2.2.110",
+  "version": "2.2.111",
   "description": "Companion app for OpenClaw — organize AI conversations into focused topics with project context",
   "author": "Armonia",
   "license": "MIT",
@@ -58,6 +58,7 @@
     "report:disk": "bun run scripts/disk-report.ts",
     "report:branches": "bun run scripts/branch-audit.ts",
     "measure:task-tabs": "bun run scripts/measure-task-tab-teardown.ts",
+    "measure:thread": "bun run scripts/thread-vs-work.ts",
     "measure:ui-state-init": "bun run scripts/measure-ui-state-init.ts",
     "bench:ai-bridge": "bun run scripts/ai-bridge-replay-bench.ts",
     "orphan:dryrun": "bun run scripts/orphan-park-dryrun.ts",
