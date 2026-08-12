@@ -178,6 +178,15 @@ describe("maybeSendPush — task:parked", () => {
     expect(pushCalls[0].tag).toBe("task-park-t5");
   });
 
+  test("waited_out → né «non consegnato» né «da sistemare»: chiede una decisione", () => {
+    maybeSendPush({ type: "task:parked", projectId: "p", taskId: "t8", taskTitle: "Aspetta la CI", state: "waited_out" });
+    expect(pushCalls).toHaveLength(1);
+    expect(pushCalls[0].title).toContain("decidi tu");
+    expect(pushCalls[0].title).not.toContain("consegnato");
+    expect(pushCalls[0].title).not.toContain("sistemare");
+    expect(pushCalls[0].tag).toBe("task-park-t8");
+  });
+
   test("degrada senza titolo", () => {
     maybeSendPush({ type: "task:parked", projectId: "p", taskId: "t6", state: "failed" });
     expect(pushCalls).toHaveLength(1);
