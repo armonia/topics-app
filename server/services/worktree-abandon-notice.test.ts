@@ -159,7 +159,7 @@ describe("abandonNoticeFromRepo — verifica su un repo vero", () => {
     });
     expect(m).toBe(
       "Worktree liberato: il branch del worktree non esiste più. " +
-      "⚠️ Verificato ora: `git rev-parse --verify topics/vibrant-creek` non risolve — il branch NON c'è, " +
+      "⚠️ Verificato ora: `git rev-parse --verify topics/vibrant-creek` non risolve: il branch NON c'è, " +
       "quindi non posso dire che il lavoro committato sia salvo. " +
       "Dove guardare: `git reflog` e `git fsck --lost-found` nel repo del progetto. " +
       "Il task torna in backlog perché la sessione non c'è più.",
