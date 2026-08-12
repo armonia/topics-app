@@ -14,6 +14,13 @@ import { decideMessageBanner } from '../lib/notify/messageBanner';
 import { buildNotifyActions, type NotifyAction } from '../../../shared/notify-actions';
 import { resolveReviewQuestion } from '../lib/notify/reviewQuestion';
 import { boardApi, isAgentWorking } from '../lib/board';
+import { recordNotificationSent } from '../lib/notify/history';
+import {
+  chatNotificationKey,
+  taskParkedNotificationKey,
+  taskReviewNotificationKey,
+  type NotificationKind,
+} from '../../../shared/notification-log';
 import type { TopicTaskResolver } from './useTaskTopicIndex';
 
 interface CompletionNotifierProps {
@@ -184,10 +191,24 @@ export function useCompletionNotifier({
     _level: 'ok' | 'warn',
     title: string,
     body: string,
-    sound: boolean,
-    taskId?: string | null,
-    tag?: string,
-    actions?: NotifyAction[],
+    opts: {
+      sound: boolean;
+      /**
+       * La RIGA DI REGISTRO di questa notifica. Obbligatoria: `fire` è l'unica
+       * uscita dei banner, quindi è l'unico punto dove «cosa è stato mandato»
+       * si sa per certo. Renderla facoltativa vorrebbe dire che la cronologia
+       * ha buchi che nessun test può vedere.
+       */
+      log: {
+        kind: NotificationKind;
+        dedupeKey: string;
+        targetKind?: 'task' | 'topic' | null;
+        targetId?: string | null;
+      };
+      taskId?: string | null;
+      tag?: string;
+      actions?: NotifyAction[];
+    },
   ) => {
     // Gate su Focus/Non disturbare. Se il sistema ci dice CON CERTEZZA che c'è un
     // Focus attivo, l'app tace del tutto — banner E suono. L'informazione non si
@@ -195,8 +216,25 @@ export function useCompletionNotifier({
     // solo il rumore. `isFocusSilencing()` è false su web e ovunque lo stato non
     // sia leggibile → di default si notifica normalmente (nessun falso silenzio).
     if (isFocusSilencing()) return;
-    notifyNative(title, body, { silent: true, taskId: taskId ?? undefined, tag, actions });
-    if (sound) playCompletionTone();
+    notifyNative(title, body, { silent: true, taskId: opts.taskId ?? undefined, tag: opts.tag, actions: opts.actions });
+    if (opts.sound) playCompletionTone();
+    // IL REGISTRO. Dopo la consegna e mai prima: si registra ciò che è stato
+    // MANDATO, non ciò che si aveva intenzione di mandare — un Focus attivo
+    // (il `return` qui sopra) non lascia riga, perché quel banner non è mai
+    // esistito.
+    //
+    // È una POST fire-and-forget, e il server deduplica: lo stesso evento esce
+    // da N finestre (i gruppi staccati ricevono tutti lo stesso frame) e in più
+    // può uscire anche dalla push. Una riga per evento, non una per superficie.
+    recordNotificationSent({
+      kind: opts.log.kind,
+      title,
+      body,
+      targetKind: opts.log.targetKind ?? null,
+      targetId: opts.log.targetId ?? null,
+      dedupeKey: opts.log.dedupeKey,
+      source: 'banner',
+    });
   }, []);
 
   // Refs let us read the latest values inside the WS handler without
@@ -270,10 +308,14 @@ export function useCompletionNotifier({
           'ok',
           question ? 'Serve una tua risposta' : 'Task pronto per la review',
           question?.text ? `${title} — ${question.text}`.slice(0, 220) : title,
-          cfg.notificationsSound,
-          taskId,
-          undefined,
-          actions,
+          {
+            sound: cfg.notificationsSound,
+            taskId,
+            actions,
+            // Stessa chiave della push gemella (server/push-triggers.ts): un
+            // task entrato in review esce da due porte e lascia UNA riga.
+            log: { kind: 'task-review', dedupeKey: taskReviewNotificationKey(taskId), targetKind: 'task', targetId: taskId },
+          },
         );
       });
   });
@@ -304,12 +346,14 @@ export function useCompletionNotifier({
         'warn',
         msg.state === 'blocked' ? 'Task da sistemare' : 'Task non consegnato',
         title,
-        cfg.notificationsSound,
-        taskId,
-        undefined,
-        // Un parcheggiato non riparte da solo: il tasto è la mossa che lo fa
-        // ripartire, cioè rimetterlo in Todo.
-        buildNotifyActions({ kind: 'parked' }),
+        {
+          sound: cfg.notificationsSound,
+          taskId,
+          // Un parcheggiato non riparte da solo: il tasto è la mossa che lo fa
+          // ripartire, cioè rimetterlo in Todo.
+          actions: buildNotifyActions({ kind: 'parked' }),
+          log: { kind: 'task-parked', dedupeKey: taskParkedNotificationKey(taskId), targetKind: 'task', targetId: taskId },
+        },
       );
   });
 
@@ -358,7 +402,14 @@ export function useCompletionNotifier({
       // mangiare la consegna di una che invece parlerebbe.
       void claimMessageBanner(bannerClaimKey(msg), bannerClaimant()).then((mine) => {
         if (!mine) return;
-        fire('ok', decision.title, decision.body, cfg.notificationsSound, null, decision.tag);
+        fire('ok', decision.title, decision.body, {
+          sound: cfg.notificationsSound,
+          tag: decision.tag,
+          // Il click porta alla CHAT: `/topic/<id>`, la stessa destinazione
+          // della push di fine risposta — che condivide anche la chiave,
+          // perché per chi la riceve è lo stesso evento.
+          log: { kind: 'chat-message', dedupeKey: chatNotificationKey(msg.topicId), targetKind: 'topic', targetId: msg.topicId },
+        });
       });
   });
 
@@ -472,7 +523,20 @@ export function useCompletionNotifier({
           for (const k of keep) ledger.add(k);
         }
 
-        fire(decision.level === 'warn' ? 'warn' : 'ok', decision.title, decision.body, cfg.notificationsSound);
+        fire(decision.level === 'warn' ? 'warn' : 'ok', decision.title, decision.body, {
+          sound: cfg.notificationsSound,
+          // Il bersaglio è il TOPIC che ospita il terminale, quando c'è: il
+          // click non può selezionare la singola tab di terminale (non esiste
+          // una rotta per quello), ma atterrare nel topic giusto è la
+          // differenza fra una riga viva e una riga morta. Senza topic —
+          // terminale slegato — la riga resta leggibile e non cliccabile.
+          log: {
+            kind: 'terminal',
+            dedupeKey: `terminal:${decision.dedupeKey}`,
+            targetKind: ts.topicId ? 'topic' : null,
+            targetId: ts.topicId ?? null,
+          },
+        });
         return;
       }
 
@@ -559,20 +623,42 @@ export function useCompletionNotifier({
 
       // Dispatched-task topic → the banner carries the taskId so a click opens it.
       const taskId = task?.taskId ?? null;
+
+      // LA RIGA DI REGISTRO di questo banner.
+      //
+      // Il bersaglio: il TASK se la topic ne lavora uno (il click apre il suo
+      // drawer, come fa il banner), altrimenti la TOPIC.
+      //
+      // La chiave ha due forme, e la differenza non è estetica. `awaiting-user`
+      // e `completed` sono «il turno è finito», cioè lo STESSO evento che la
+      // push di fine risposta annuncia sul telefono: chiave condivisa
+      // (`chat:<topicId>`) e una riga sola per i due mezzi. `awaiting-approval`
+      // e `error` invece la push non li manda affatto, e collassarli con la
+      // fine turno perderebbe la notizia più importante delle due — quindi
+      // chiave propria, per fase.
+      const turnEnded = phase === 'awaiting-user' || phase === 'completed';
+      const logRef = {
+        kind: 'session' as NotificationKind,
+        dedupeKey: topicId && turnEnded
+          ? chatNotificationKey(topicId)
+          : `session:${topicId || state.claudeSessionId || sessionKey}:${phase}`,
+        targetKind: taskId ? ('task' as const) : topicId ? ('topic' as const) : null,
+        targetId: taskId ?? topicId ?? null,
+      };
       // Il corpo lo scrive `statusBody`, la stessa funzione del ramo terminale:
       // una frase sola per due superfici.
       switch (phase) {
         case 'awaiting-user':
-          fire('ok', label, statusBody('awaiting-user'), cfg.notificationsSound, taskId);
+          fire('ok', label, statusBody('awaiting-user'), { sound: cfg.notificationsSound, taskId, log: logRef });
           break;
         case 'awaiting-approval':
-          fire('warn', label, statusBody('awaiting-approval'), cfg.notificationsSound, taskId);
+          fire('warn', label, statusBody('awaiting-approval'), { sound: cfg.notificationsSound, taskId, log: logRef });
           break;
         case 'completed':
-          fire('ok', label, statusBody('completed'), cfg.notificationsSound, taskId);
+          fire('ok', label, statusBody('completed'), { sound: cfg.notificationsSound, taskId, log: logRef });
           break;
         case 'error':
-          fire('warn', label, statusBody('error'), cfg.notificationsSound, taskId);
+          fire('warn', label, statusBody('error'), { sound: cfg.notificationsSound, taskId, log: logRef });
           break;
       }
   });
@@ -636,7 +722,18 @@ export function useCompletionNotifier({
 
       const topicName = ts?.topicId ? topicsRef.current[ts.topicId]?.name : undefined;
       const label = ts?.name || topicName || 'Claude Code';
-      fire('ok', label, statusBody('completed'), cfg.notificationsSound);
+      fire('ok', label, statusBody('completed'), {
+        sound: cfg.notificationsSound,
+        // Stessa chiave della cooldown qui sopra: questo ripiego e il percorso
+        // phase-based non devono poter lasciare due righe per la stessa fine
+        // turno, esattamente come non lasciano due banner.
+        log: {
+          kind: 'terminal',
+          dedupeKey: `terminal:${cooldownKey}`,
+          targetKind: ts?.topicId ? 'topic' : null,
+          targetId: ts?.topicId ?? null,
+        },
+      });
   });
 }
 
