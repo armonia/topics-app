@@ -7,6 +7,7 @@ import type { AppContext } from "../types";
 import { createTasksRouter } from "./tasks";
 import { createTaskService, LAND_ACTION_LABEL, PUBLISH_ACTION_LABEL } from "../services/tasks";
 import { parseStatusEvent } from "../../shared/board";
+import { TASK_LABELS_DDL } from "../db/test-schema";
 
 function freshDb(): Database {
   const db = new Database(":memory:");
@@ -30,6 +31,7 @@ function freshDb(): Database {
     delivered_by TEXT, delivered_reason TEXT, created_by_topic_id TEXT,
     done_actor TEXT, reopened_at TEXT, reopened_by TEXT, reopened_actor TEXT
   )`);
+  db.run(TASK_LABELS_DDL); // migration 100 — rowToTask la legge per OGNI task
   db.run(`CREATE UNIQUE INDEX idx_tasks_claude_task_id ON tasks(claude_task_id) WHERE claude_task_id IS NOT NULL`);
   db.run(`CREATE TABLE board_settings (
     project_id TEXT PRIMARY KEY, require_approval_for_done INTEGER DEFAULT 0,

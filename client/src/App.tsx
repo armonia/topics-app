@@ -18,6 +18,7 @@ import { useTheme } from './hooks/useTheme';
 import { useClaudeSessionState } from './hooks/useClaudeSessionState';
 import { TopicsProvider } from './contexts/TopicsContext';
 import { useOpenClawAvailable } from './hooks/useOpenClawAvailable';
+import { useSplitLayoutAvailable } from './hooks/useSplitLayoutAvailable';
 import { useClaudeSkipPermissions } from './hooks/useClaudePrefs';
 import { useSidebarState, nextSidebarViewMode } from './hooks/useSidebarState';
 import { useSettingsSync } from './hooks/useSettingsSync';
@@ -310,6 +311,10 @@ function App() {
     viewportTop,
     windowId,
   } = layout.state;
+  // «Un comando compare dove ha effetto»: sotto i 768px PanelGrid non disegna
+  // affatto gli split, quindi i comandi che li governano non si mostrano.
+  // La regola — e la misura che la giustifica — sta nell'hook, non qui.
+  const splitLayoutAvailable = useSplitLayoutAvailable();
   const { sidebarRef } = layout.refs;
   const {
     toggleSidebar,
@@ -1627,6 +1632,13 @@ function App() {
               nextSidebarViewMode(sidebar.viewMode) === 'state' ? 'Vista per stato' : 'Vista timeline'
             }</span>
           </button>
+          {/* I due comandi sui pannelli compaiono SOLO dove i pannelli esistono
+              — vedi `useSplitLayoutAvailable`. Sotto i 768px PanelGrid rende una
+              colonna di celle senza divisori e senza larghezze salvate: lì
+              «Reimposta pannelli» e «Disponi automaticamente» non fallivano, non
+              facevano niente, ed erano le due voci che dal telefono facevano
+              sembrare complicato un menu che non lo è. */}
+          {splitLayoutAvailable && <>
           {/* "Reimposta pannelli" — same per-window action the ⌘K palette and
               the tab-bar context menu expose (the shared 'topics:reset-split-
               layout' CustomEvent bus). The standalone grid COLLAPSES every split
@@ -1659,6 +1671,7 @@ function App() {
             <Grid2x2 size={isMobile ? 18 : 14} />
             <span className="flex-1 text-left">Disponi automaticamente</span>
           </button>
+          </>}
           {/* Board / Dashboard / Cron stavano qui e ora stanno nel «+» (⌘N) —
               vedi il commento al posto di TOPICS_MENU_PAGES, in testa al file.
               Settings invece RESTA: è raggiungibile anche da ⌘K e da ⌘, ma
@@ -1769,8 +1782,13 @@ function App() {
             // automaticamente" (auto-tile into a balanced grid) — per-window
             // CustomEvent bus (same pattern as topics:open-project-picker); the
             // standalone PanelGrid listener performs each.
-            onResetPanels={() => window.dispatchEvent(new CustomEvent('topics:reset-split-layout'))}
-            onAutoTilePanels={() => window.dispatchEvent(new CustomEvent('topics:auto-tile-layout'))}
+            //
+            // `undefined` sotto i 768px, che nella palette è già il modo in cui
+            // una voce NON esiste (vedi `if (onResetPanels)` là dentro): stessa
+            // regola del menu ⋯ qui sopra, applicata alla stessa coppia di
+            // comandi da una sola sorgente di verità.
+            onResetPanels={splitLayoutAvailable ? () => window.dispatchEvent(new CustomEvent('topics:reset-split-layout')) : undefined}
+            onAutoTilePanels={splitLayoutAvailable ? () => window.dispatchEvent(new CustomEvent('topics:auto-tile-layout')) : undefined}
             onOpenFileSearch={() => {
               setShowSearch(false);
               // Stesso perimetro di ⌘F: progetto a fuoco più quelli aperti.

@@ -124,7 +124,7 @@ export function FriendsSection() {
             <li key={p.id} className="rounded-md border border-app-border">
               <button
                 onClick={() => void apri(p)}
-                className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-app-hover"
+                className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-app-hover coarse:min-h-11"
                 data-testid={`friend-row-${p.id}`}
               >
                 <Avatar p={p} />

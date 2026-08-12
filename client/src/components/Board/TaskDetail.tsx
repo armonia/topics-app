@@ -2,10 +2,11 @@ import { useState, useEffect, useMemo, useRef, useCallback, type TouchEvent as R
 import { useT } from '../../hooks/useT';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { NightModeCard } from './NightModeCard';
-import { AlertTriangle, ArrowUpRight, Bot, Camera, Check, ChevronDown, ChevronRight, Clock, Copy, Download, ExternalLink, Footprints, GitMerge, Globe, Hourglass, Link2, Lock, Maximize2, Minimize2, MoreHorizontal, Paperclip, Plus, Send, ShieldCheck, ShieldX, Sparkles, Square, UserRound, X } from 'lucide-react';
+import { AlertTriangle, ArrowUpRight, Bot, Camera, Check, ChevronDown, ChevronRight, Clock, Copy, Download, ExternalLink, Footprints, GitMerge, Globe, Hourglass, Link2, Lock, Maximize2, Minimize2, MoreHorizontal, Paperclip, Plus, Send, ShieldCheck, ShieldX, Sparkles, Square, Tag, UserRound, X } from 'lucide-react';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ReasoningRow } from '../Chat/ReasoningRow';
 import { Menu } from '../Shared/Menu';
+import { Select } from '../Shared/Select';
 import { ShareControl } from '../Share/ShareControl';
 import { Spinner } from '../Shared/Spinner';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
@@ -19,7 +20,7 @@ import { useTaskBrowserTabs, liveTabs, workspaceTwinContextId } from '../../stat
 import { noteAutoOpenedPreview, releaseAutoOpenedPreview } from '../../state/taskWorkspacePreviews';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
 import { writeCursor, markActiveComposer, restoreCursor } from '../../lib/composerCursor';
-import { boardApi, STATUS_LABEL, TASK_STATUSES, isAgentWorking, parseQuestionBlock, parseStatusEvent, hasPlanApproveOption, isProjectlessId, boardDrafts, systemDeliveryNote, blockedByChip, subtaskWorkChip, reopenedChip, attemptHasWork, type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch, type BoardProjectRef, type DiffBundle, type DiffNote, type ReviewCheck, type CheckRun, type TaskAttempt, type LandingTicket } from '../../lib/board';
+import { boardApi, STATUS_LABEL, TASK_STATUSES, isAgentWorking, parseQuestionBlock, parseStatusEvent, hasPlanApproveOption, isProjectlessId, boardDrafts, systemDeliveryNote, blockedByChip, subtaskWorkChip, reopenedChip, attemptHasWork, CLOSER_LABELS, KIND_LABELS, type TaskLabel, type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch, type BoardProjectRef, type DiffBundle, type DiffNote, type ReviewCheck, type CheckRun, type TaskAttempt, type LandingTicket } from '../../lib/board';
 import { PreviewMedia } from './PreviewMedia';
 import { UnifiedDiff } from './UnifiedDiff';
 import { collectTaskMediaPaths } from './taskMedia';
@@ -844,6 +845,25 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   useEffect(() => subscribeProvidersSnapshot((state) => {
     setModels(state.snapshot?.providers.find((p) => p.name === 'claude-code')?.models ?? []);
   }), []);
+  // Le etichette del drawer: toggle, e una sola visibilita' per volta (accendere
+  // `invisibile` spegne `visibile`, che e' cio' che fa `normalizeLabels` anche
+  // lato server — qui si evita solo il viaggio con una richiesta contraddittoria).
+  const labelBtnRef = useRef<HTMLButtonElement>(null);
+  const [labelMenuOpen, setLabelMenuOpen] = useState(false);
+  const toggleLabel = async (l: TaskLabel) => {
+    if (!task || busy) return;
+    const on = task.labels.some((x) => x.label === l);
+    const isCloser = l === 'visibile' || l === 'decisione' || l === 'invisibile';
+    const next = task.labels
+      .map((x) => x.label)
+      .filter((x) => (on ? x !== l : !(isCloser && (x === 'visibile' || x === 'decisione' || x === 'invisibile'))));
+    if (!on) next.push(l);
+    setBusy(true);
+    try { await boardApi.setLabels(projectId, taskId, next); setError(null); await load(); onChanged(); }
+    catch (e) { showError(e); }
+    finally { setBusy(false); }
+  };
+
   const changeModel = async (model: string | null) => {
     setModelMenuOpen(false);
     if (!task || (task.model ?? null) === model || busy) return;
@@ -1634,6 +1654,51 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                       <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${PRIORITY_DOT[p]}`} />
                       <span className="min-w-0 flex-1">{PRIORITY_LABEL[p]}</span>
                       {p === task?.priority && !task?.priorityAuto && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
+                    </button>
+                  ))}
+                </Menu>
+                {/* Etichette — la correzione a mano di un umano. Qui `invisibile`
+                    si puo' scrivere (l'agente non puo': il server lo rifiuta), e
+                    una volta scritta a mano la derivazione non la sovrascrive
+                    piu' alla consegna successiva. */}
+                <button
+                  ref={labelBtnRef}
+                  onClick={() => setLabelMenuOpen(true)}
+                  data-testid="task-labels-chip"
+                  title={task.labels.some((l) => l.label === 'invisibile')
+                    ? 'Invisibile: non tocca client/src — con la barra verde la puo\' chiudere il conduttore'
+                    : task.labels.some((l) => l.label === 'visibile')
+                      ? 'Visibile: tocca una superficie che si vede — resta in review finche\' non la guarda un umano'
+                      : task.labels.some((l) => l.label === 'decisione')
+                        ? 'Decisione: un piano, una ricerca, un documento — la decide un umano, sempre'
+                        : 'Nessuna etichetta di chiusura: la chiude un umano'}
+                  className="flex min-w-0 items-center gap-1.5 rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-app-text-secondary hover:bg-white/20"
+                >
+                  <Tag className="h-3 w-3 shrink-0 text-app-text-muted" />
+                  <span className="truncate">{task.labels.length ? task.labels.map((l) => l.label).join(', ') : 'etichette'}</span>
+                  <ChevronDown className="h-3 w-3 shrink-0 text-app-text-muted" />
+                </button>
+                <Menu open={labelMenuOpen} anchorRef={labelBtnRef} onClose={() => setLabelMenuOpen(false)} minWidth={220} role="listbox">
+                  <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">Chi la chiude</p>
+                  {CLOSER_LABELS.map((l) => (
+                    <button
+                      key={l} role="option" aria-selected={task.labels.some((x) => x.label === l)}
+                      disabled={busy} onClick={() => toggleLabel(l)}
+                      className={`${POPOVER_ITEM} disabled:opacity-40`}
+                    >
+                      <span className="min-w-0 flex-1">{l}</span>
+                      {task.labels.some((x) => x.label === l) && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
+                    </button>
+                  ))}
+                  <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">Genere</p>
+                  {KIND_LABELS.map((l) => (
+                    <button
+                      key={l} role="option" aria-selected={task.labels.some((x) => x.label === l)}
+                      disabled={busy} onClick={() => toggleLabel(l)}
+                      className={`${POPOVER_ITEM} disabled:opacity-40`}
+                    >
+                      <span className="min-w-0 flex-1">{l}</span>
+                      {task.labels.some((x) => x.label === l) && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
                     </button>
                   ))}
                 </Menu>
@@ -2510,41 +2575,49 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
         </div>
       </div>
 
-      <label className="flex items-center justify-between gap-2" title={tr('board.settings.modelTitle')}>
+      {/* `<label>` → `<div>`: da quando il controllo è il `Select` dell'app e
+          non un elemento di modulo nativo non c'è più niente da associare, e
+          una `<label>` intorno a un bottone renderebbe cliccabile — cioè
+          apribile — anche il testo della riga. */}
+      <div className="flex items-center justify-between gap-2" title={tr('board.settings.modelTitle')}>
         <span>{tr('board.settings.model')}</span>
-        <select
+        <Select
           value={s.dispatchModel || 'auto'}
-          onChange={(e) => patch({ dispatchModel: e.target.value })}
-          className="max-w-[55%] rounded bg-black/5 dark:bg-white/5 px-1.5 py-0.5 text-app-text outline-none"
-        >
-          <option value="auto">{tr('board.settings.modelAuto')}</option>
-          {models.map((m) => (
-            <option key={m} value={m}>{friendlyModelLabel(m)}</option>
-          ))}
-        </select>
-      </label>
+          onChange={(v) => patch({ dispatchModel: v })}
+          ariaLabel={tr('board.settings.model')}
+          align="right"
+          className="max-w-[55%]"
+          options={[
+            { value: 'auto', label: tr('board.settings.modelAuto') },
+            ...models.map((m) => ({ value: m, label: friendlyModelLabel(m) })),
+          ]}
+        />
+      </div>
 
       {/* Gemella della tendina in Impostazioni → Aspetto, e per «gemella» si
           intende lo stesso VALORE EFFETTIVO: «Come le Impostazioni» non copia
           la scelta globale, la EREDITA (il ripiego lo fa il server, in un punto
           solo). Copiare il valore vorrebbe dire che cambiare la preferenza
           globale non muove le board che l'avevano già letta. */}
-      <label
+      <div
         className="flex items-center justify-between gap-2"
         title={tr('board.settings.responseLanguageTitle')}
       >
         <span>{tr('board.settings.responseLanguage')}</span>
-        <select
+        <Select
           value={s.language || 'inherit'}
-          onChange={(e) => patch({ language: e.target.value })}
-          className="max-w-[55%] rounded bg-black/5 dark:bg-white/5 px-1.5 py-0.5 text-app-text outline-none"
-          data-testid="board-language"
-        >
-          <option value="inherit">{tr('board.settings.langInherit')}</option>
-          <option value="it">Italiano</option>
-          <option value="en">English</option>
-        </select>
-      </label>
+          onChange={(v) => patch({ language: v })}
+          ariaLabel={tr('board.settings.responseLanguage')}
+          align="right"
+          className="max-w-[55%]"
+          testId="board-language"
+          options={[
+            { value: 'inherit', label: tr('board.settings.langInherit') },
+            { value: 'it', label: 'Italiano' },
+            { value: 'en', label: 'English' },
+          ]}
+        />
+      </div>
 
       <label className="flex cursor-pointer items-center justify-between">
         <span>{tr('board.settings.isolateWorktree')}</span>
