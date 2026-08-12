@@ -20,7 +20,7 @@ import { useTaskBrowserTabs, liveTabs, workspaceTwinContextId } from '../../stat
 import { noteAutoOpenedPreview, releaseAutoOpenedPreview } from '../../state/taskWorkspacePreviews';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
 import { writeCursor, markActiveComposer, restoreCursor } from '../../lib/composerCursor';
-import { boardApi, STATUS_LABEL, TASK_STATUSES, isAgentWorking, parseQuestionBlock, parseStatusEvent, hasPlanApproveOption, isProjectlessId, boardDrafts, systemDeliveryNote, blockedByChip, subtaskWorkChip, reopenedChip, attemptHasWork, CLOSER_LABELS, KIND_LABELS, type TaskLabel, type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch, type BoardProjectRef, type DiffBundle, type DiffNote, type ReviewCheck, type CheckRun, type TaskAttempt, type LandingTicket } from '../../lib/board';
+import { boardApi, diffTotals, hasCodeQuestion, STATUS_LABEL, TASK_STATUSES, isAgentWorking, parseQuestionBlock, parseStatusEvent, hasPlanApproveOption, isProjectlessId, boardDrafts, systemDeliveryNote, blockedByChip, subtaskWorkChip, reopenedChip, attemptHasWork, CLOSER_LABELS, KIND_LABELS, type TaskLabel, type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch, type BoardProjectRef, type DiffBundle, type DiffNote, type ReviewCheck, type CheckRun, type TaskAttempt, type LandingTicket } from '../../lib/board';
 import { PreviewMedia } from './PreviewMedia';
 import { UnifiedDiff } from './UnifiedDiff';
 import { collectTaskMediaPaths } from './taskMedia';
@@ -147,12 +147,19 @@ function ChecksSection({ task }: { task: BoardTask }) {
   );
 }
 
-/** Collapsible "Modifiche" panel in the task drawer: the unified diff of what
- *  the task's dispatched agent changed in its isolated worktree, so a reviewer
- *  can see the actual changes before approving. Renders NOTHING when there's no
- *  worktree or the diff is empty ("non mostrare modifiche se non ci sono") — it
- *  probes eagerly and owns its own section chrome so an unchanged task shows no
- *  bar at all. */
+/**
+ * Il pannello «Modifiche» del drawer: cosa ha cambiato QUESTA card.
+ *
+ * Si disegna sempre, per una card di cui la domanda ha senso (`hasCodeQuestion`),
+ * e questo è il cambio di contratto rispetto a prima: finché il pannello spariva
+ * quando non c'erano file, «la card non ha prodotto codice» e «non ho potuto
+ * guardare» erano lo stesso vuoto — su una consegna in review sono due verdetti
+ * opposti. Ora il perché arriva dal server in `code` e sta scritto in chiaro.
+ *
+ * Il diff che disegna è quello dei commit PROPRI della card, e dopo il land
+ * arriva dal merge su main: sopravvive alla potatura del worktree, che è
+ * esattamente quando un reviewer vuole ancora poterlo leggere.
+ */
 export function TaskChangesSection({ projectId, taskId, bump, onSent }: {
   projectId: string; taskId: string; bump?: string | number;
   /** Le note sono partite come commento: il thread ha una riga in più. */
@@ -160,13 +167,15 @@ export function TaskChangesSection({ projectId, taskId, bump, onSent }: {
 }) {
   const tr = useT();
   const [open, setOpen] = useState(false);
-  const [state, setState] = useState<DiffBundle | 'loading' | 'error' | null>(null);
+  const [state, setState] = useState<DiffBundle | 'error' | null>(null);
   const [notes, setNotes] = useState<DiffNote[]>([]);
   const [sendingNotes, setSendingNotes] = useState(false);
   const [notesError, setNotesError] = useState<string | null>(null);
   const notesLoaded = useRef(false);
   const fetchDiff = useCallback(() => {
-    setState('loading');
+    // Il bundle precedente NON si azzera mentre si ricarica: `bump` scatta a ogni
+    // aggiornamento del task, e svuotare qui faceva sparire e riapparire il
+    // pannello sotto le mani di chi stava leggendo.
     boardApi.taskDiff(projectId, taskId).then(setState).catch(() => setState('error'));
   }, [projectId, taskId]);
   // Eager (not lazy): visibility depends on whether the worktree has changes, so
@@ -219,15 +228,45 @@ export function TaskChangesSection({ projectId, taskId, bump, onSent }: {
   };
 
   const bundle = state && typeof state === 'object' ? state : null;
-  const fileCount = bundle && bundle.code !== 'no_worktree' ? bundle.stat.length : 0;
-  // Nothing to show → nothing at all (no empty bar): still probing, errored, no
-  // worktree, or a zero-file diff.
-  if (!bundle || bundle.code === 'no_worktree' || fileCount === 0) return null;
+  const totals = bundle ? diffTotals(bundle.stat) : null;
+  // Il primo giro non ha ancora una risposta: una barra che compare e sparisce
+  // dice meno di niente. Da lì in poi si disegna sempre.
+  if (!state) return null;
+  const label = tr('board.task.changes');
+  if (!bundle || !totals || totals.files === 0) {
+    // Le tre risposte del server, più il caso in cui è saltata la richiesta.
+    const why = state === 'error'
+      ? tr('board.task.diffUnreadable')
+      : bundle?.code === 'not_dispatched' ? tr('board.task.changes.notDispatched')
+      : bundle?.code === 'unreadable' ? tr('board.task.changes.unreadable')
+      : tr('board.task.changes.empty');
+    return (
+      <div className="shrink-0 border-b border-app-border px-3 py-2">
+        <div className="flex items-baseline gap-1.5">
+          <span className="shrink-0 text-[11px] font-semibold uppercase tracking-wide text-app-text-muted">{label}</span>
+          <span className="min-w-0 flex-1 text-[11px] text-app-text-secondary">{why}</span>
+        </div>
+      </div>
+    );
+  }
+  const fileCount = totals.files;
+  const from = bundle.source === 'landed-merge' ? tr('board.task.changes.fromMerge')
+    : bundle.source === 'delivery-commit' ? tr('board.task.changes.fromDelivery')
+    : null;
   return (
     <div className="shrink-0 border-b border-app-border px-3 py-2">
       <button onClick={() => setOpen((s) => !s)} className="flex w-full items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-app-text-muted hover:text-app-text-heading">
         {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-        {tr('board.task.changes')} <span className="normal-case tracking-normal text-app-text-faint">· {tr(fileCount === 1 ? 'board.task.changes.files.one' : 'board.task.changes.files.many', { n: fileCount })}</span>
+        {label} <span className="normal-case tracking-normal text-app-text-faint">· {tr(fileCount === 1 ? 'board.task.changes.files.one' : 'board.task.changes.files.many', { n: fileCount })}</span>
+        {/* Il totale sta in TESTA perché è la prima domanda di chi rivede
+            («quanto è grosso?») e perché è l'unico numero completo: la lista si
+            può troncare, questo no. */}
+        <span className="font-mono normal-case tracking-normal tabular-nums">
+          <span className="text-emerald-400">+{totals.additions}</span> <span className="text-red-400">−{totals.deletions}</span>
+        </span>
+        {from && (
+          <span className="truncate rounded bg-white/5 px-1 text-[9px] normal-case tracking-normal text-app-text-faint">{from}</span>
+        )}
         {notes.length > 0 && (
           <span className="ml-1 rounded bg-indigo-500/20 px-1 text-[9px] normal-case tracking-normal text-indigo-300">
             {tr('board.task.changes.pending', { n: notes.length })}
@@ -412,7 +451,15 @@ function AttemptDiff({ projectId, taskId, attemptId }: { projectId: string; task
   }, [projectId, taskId, attemptId]);
   if (state === 'loading') return <div className="mt-1.5 flex items-center gap-1 text-[11px] text-app-text-muted"><Spinner size="sm" tone="current" /> {tr('board.task.loadingDiff')}</div>;
   if (state === 'error') return <p className="mt-1.5 text-[11px] text-rose-300">{tr('board.task.diffUnreadable')}</p>;
-  if (state.code === 'no_worktree' || state.stat.length === 0) return <p className="mt-1.5 text-[11px] text-app-text-muted">{tr('board.task.noChanges')}</p>;
+  // Un tentativo si legge SOLO dal suo worktree (i riferimenti durevoli parlano
+  // del vincitore), quindi qui i codici sono due: «non ha prodotto niente» e
+  // «non ricostruibile» — e restano distinti anche in una riga sola.
+  if (state.stat.length === 0) {
+    const why = state.code === 'no_changes' || !state.code
+      ? tr('board.task.changes.empty')
+      : tr('board.task.changes.unreadable');
+    return <p className="mt-1.5 text-[11px] text-app-text-muted">{why}</p>;
+  }
   return (
     // Accordion puro (vedi TaskChangesSection): il tetto in vh era il surrogato
     // dello scroll che il drawer non aveva.
@@ -1966,7 +2013,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               scelto il diff del task è quello del tentativo 1 — che può non
               essere quello che si tiene. Prima si sceglie, poi si revisiona. */}
           <TaskAttemptsSection projectId={projectId} taskId={taskId} bump={bump} onChanged={onChanged} onOpenTopic={onOpenTopic} />
-          {task.assignedTopicId && <TaskChangesSection projectId={projectId} taskId={taskId} bump={bump} onSent={onChanged} />}
+          {hasCodeQuestion(task) && <TaskChangesSection projectId={projectId} taskId={taskId} bump={bump} onSent={onChanged} />}
         </div>
         {/* ── fine del solo scroll verticale ─────────────────────────────── */}
           {/* LA SESSIONE, in modo largo: sta a SINISTRA col task, stretta, dove
