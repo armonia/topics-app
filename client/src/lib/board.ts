@@ -244,6 +244,11 @@ export interface BoardTask {
   /** Screenshot della consegna (path assoluto allowlistato) — thumbnail
    *  sulla card, servito via /api/media. */
   previewImage: string | null;
+  /** L'anteprima è stata RITIRATA perché non era evidenza (duplicata, un
+   *  placeholder, un errore). Stato della card, non messaggio nel thread: si
+   *  spegne da solo appena ne arriva una nuova. `null` = mai successo. */
+  previewRetiredAt: string | null;
+  previewRetiredReason: string | null;
   /** Dispatch contract: agent delivers a PLAN to review before implementing. */
   planFirst: boolean;
   /** IL commento che È il piano — scritto dal server quando il piano arriva
