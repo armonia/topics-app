@@ -2,7 +2,7 @@ import { describe, it, expect } from "bun:test";
 import { Database } from "bun:sqlite";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { PREVIEW_RULE, PREVIEW_CARD_MAX_RATIO, PREVIEW_CARD_MAX_WIDTH_PX, extractPreviewRule, formatStatusEvent } from "../../shared/board";
+import { PARKED_WAITED_OUT, PREVIEW_RULE, PREVIEW_CARD_MAX_RATIO, PREVIEW_CARD_MAX_WIDTH_PX, WAIT_STREAK_CAP, extractPreviewRule, formatStatusEvent } from "../../shared/board";
 import { toolsForProfile } from "../mcp/topics-mcp-server";
 import { createTaskService, type TaskService } from "./tasks";
 import { createTaskDispatcher, rotateFrom, type DispatcherDeps } from "./task-dispatcher";
@@ -28,6 +28,7 @@ function freshDb(): Database {
     assigned_agent_id TEXT, in_progress_at TEXT,
     dispatch_attempts INTEGER NOT NULL DEFAULT 0, dispatch_state TEXT, dispatch_error TEXT,
     dispatch_deferred_until TEXT, dispatch_weight TEXT,
+    wait_streak INTEGER NOT NULL DEFAULT 0, wait_reason TEXT, wait_since TEXT,
     parent_task_id TEXT REFERENCES tasks(id), output_url TEXT, plan_first INTEGER NOT NULL DEFAULT 0,
     agent_ms INTEGER NOT NULL DEFAULT 0, agent_tokens INTEGER NOT NULL DEFAULT 0,
     agent_cache_read_tokens INTEGER NOT NULL DEFAULT 0,
@@ -419,6 +420,69 @@ describe("task-dispatcher", () => {
     expect(t.dispatchState).toBe("working");
     expect(t.dispatchDeferredUntil).toBeNull();           // cleared on re-claim
     expect(h.turns.length).toBe(turnsAfterWait + 1);
+  });
+
+  it("con cap 2, TRE attese dichiarate di fila ripartono tutte: nessuna finisce `failed`", async () => {
+    // IL GUASTO, end-to-end. La claim spende il tentativo prima che l'agent
+    // possa sapere di dover aspettare: senza rimborso, alla terza passata
+    // `dispatch_attempts` era 2, il task non veniva più reclamato e la spazzata
+    // dei tentativi esauriti lo parcheggiava `failed` con «guarda cosa lo fa
+    // fallire». Per un'attesa dichiarata bene (card e285d5d8, board quadra).
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 2, dispatchRetryCap: 2 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+
+    for (let giro = 1; giro <= 3; giro++) {
+      await h.dispatcher.tick(PID);
+      await flush();
+      // Il terzo giro è quello che prima non partiva nemmeno.
+      expect(h.task("t1")!.dispatchState).toBe("working");
+
+      h.dispatcher.deferWait("t1", "il servizio X è giù", 30);
+      h.finishTurn();
+      await flush();
+      const dopo = h.task("t1")!;
+      expect(dopo.status).toBe("todo");
+      expect(dopo.dispatchState).toBe("waiting");
+      expect(dopo.dispatchAttempts).toBe(0);  // rimborsato ogni volta
+      expect(dopo.waitStreak).toBe(giro);     // conta la grandezza SUA
+      h.db.run("UPDATE tasks SET dispatch_deferred_until = ? WHERE id = 't1'", [
+        new Date(Date.now() - 1000).toISOString(),
+      ]);
+    }
+    const finale = h.task("t1")!;
+    expect(finale.dispatchState).not.toBe("failed");
+    expect(finale.status).not.toBe("backlog");
+  });
+
+  it("sfondato il tetto delle attese la card resta `waited_out`: onTurnEnd non la azzera", async () => {
+    // La trappola di `PARKED_STOPPED`, di nuovo: `deferForWait` parcheggia la
+    // card DA SÉ a metà turno, e il turno finisce subito dopo. Senza guardia, la
+    // coda di `onTurnEnd` rimette il chip a null e la card torna muta in
+    // Backlog, indistinguibile da una fermata a mano.
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 2 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    // La serie è già a un passo dal tetto (la chiave è normalizzata: minuscole).
+    h.db.run("UPDATE tasks SET wait_streak = ?, wait_reason = ?, wait_since = ? WHERE id = 't1'", [
+      WAIT_STREAK_CAP, "il servizio x è giù", new Date().toISOString(),
+    ]);
+
+    const parked = h.dispatcher.deferWait("t1", "il servizio X è giù", 30);
+    expect(parked.status).toBe("backlog");
+    expect(parked.dispatchState).toBe(PARKED_WAITED_OUT);
+    expect(parked.dispatchDeferredUntil).toBeNull();
+
+    h.finishTurn();
+    await flush();
+    const t = h.task("t1")!;
+    expect(t.dispatchState).toBe(PARKED_WAITED_OUT);
+    expect(t.dispatchState).not.toBeNull();
+    expect(t.status).toBe("backlog");
+    expect(h.dispatcher.isInFlight("t1")).toBe(false);
   });
 
   it("books wall-clock + usage delta (billable + cache reads) on the task at each turn end", async () => {
@@ -2172,7 +2236,14 @@ describe("la coda deve dire il vero", () => {
     const t = h.task("t1")!;
     expect(t.status).toBe("backlog");        // fuori dalla coda
     expect(t.dispatchState).toBe("failed");  // e lo dice
-    expect(h.svc.get("t1")!.comments.map((c) => c.content).join("\n")).toContain("Budget dei tentativi finito");
+    const riga = h.svc.get("t1")!.comments.map((c) => c.content).join("\n");
+    expect(riga).toContain("Budget dei tentativi finito");
+    // La riga dice cosa è successo e cosa fare. NON manda a cercare un guasto:
+    // «guarda cosa lo fa fallire» presumeva un difetto da trovare, e ci finiva
+    // dentro anche chi aveva soltanto dichiarato due attese.
+    expect(riga).toContain("senza arrivare in review");
+    expect(riga).toContain("Rimettilo in Todo");
+    expect(riga).not.toContain("guarda cosa lo fa fallire");
     expect(h.turns.length).toBe(0);          // nessun turno sprecato
   });
 
