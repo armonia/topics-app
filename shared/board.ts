@@ -89,23 +89,54 @@ export function statusEventEnters(content: string, status: TaskStatus): boolean 
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * La card mostra l'anteprima in un riquadro `max-h-36` (144px) con
- * `object-cover object-top` dentro una colonna da 268px: un'immagine più ALTA
- * di questo rapporto non viene rimpicciolita, viene TAGLIATA in basso. È la
- * soglia oltre la quale «ho messo l'anteprima» e «il reviewer vede la cosa»
- * smettono di coincidere. Vive qui perché la stessa cifra la cita il testo del
- * protocollo (`PREVIEW_RULE`) e la misura il gate di `promoteReviewPreview`.
+ * La card mostra l'anteprima con `object-cover object-top`: ciò che eccede il
+ * riquadro non viene rimpicciolito, viene TAGLIATO in basso. Questa è la soglia
+ * oltre la quale «ho messo l'anteprima» e «il reviewer vede la cosa» smettono
+ * di coincidere. Vive qui perché la stessa cifra la cita il testo del protocollo
+ * (`PREVIEW_RULE`) e la misura il gate di `promoteReviewPreview`.
+ *
+ * ERA `144 / 268` = 0.537, e quel numero era vero in UNA sola configurazione.
+ * Il tetto sulla card era `max-h-36`, un'altezza ASSOLUTA in 144px, dentro una
+ * colonna la cui larghezza è un INTERVALLO (Card.tsx `widthCls`: lavoro
+ * 18→26rem, review 22→44rem). Il rapporto che il reviewer vede davvero è
+ * 144/larghezza, quindi scendeva man mano che la colonna cresceva — misurato:
+ * 0.58 nella colonna di lavoro stretta, 0.30 nella colonna review a 1280,
+ * 0.22 su un board molto largo. Proprio la review — la colonna su cui si
+ * decide — tagliava il doppio di quanto il protocollo dichiarasse.
+ *
+ * Ora il tetto è espresso come RAPPORTO della larghezza vera del riquadro
+ * (unità di container query, `70cqw`), quindi la soglia è la stessa a ogni
+ * larghezza di colonna e su mobile — e a tenerla tale è
+ * `PREVIEW_CARD_MAX_WIDTH_PX`, che ferma la crescita della miniatura senza
+ * toccarne le proporzioni. È anche la stessa soglia che misura il gate di
+ * promozione: due numeri diversi per la stessa immagine erano un odore, non
+ * una politica.
  * @see client/src/components/Board/PreviewMedia.tsx
  */
-export const PREVIEW_CARD_MAX_RATIO = 144 / 268;
+export const PREVIEW_CARD_MAX_RATIO = 0.7;
 
 /**
- * Il gate di PROMOZIONE è più largo della soglia della card (0.7 contro 0.537):
- * promuovere è un favore che il server fa a una consegna già valida, non un
- * cancello di review, quindi taglia solo ciò che è palesemente illeggibile in
- * una card — la pagina intera fotografata — e lascia passare il quasi-quadrato.
+ * A crescere è la LARGHEZZA della miniatura, e si ferma qui.
+ *
+ * Serve un secondo tetto, perché il rapporto da solo non ne è uno: nella
+ * colonna review, larga fino a 666px di riquadro, `0.7 × 666` sono 466px di
+ * anteprima — una card che si mangia la colonna e nasconde le altre, cioè
+ * esattamente il motivo per cui un tetto esiste.
+ *
+ * Il tetto poteva essere sull'ALTEZZA (`max-h: Npx`), ed è la strada che è
+ * stata provata e scartata MISURANDO: un tetto in px sull'altezza rimette
+ * dentro il difetto che questo cambio toglie — sopra una certa larghezza
+ * comanda lui e il rapporto effettivo torna a scendere, quindi il numero del
+ * protocollo tornerebbe a essere vero solo in certe colonne.
+ *
+ * Sulla LARGHEZZA invece no: oltre 380px la miniatura smette di crescere, la
+ * larghezza in più della colonna va al testo, e il rapporto resta 0.7 a
+ * QUALSIASI larghezza di colonna. Il tetto sull'altezza esiste comunque, ma
+ * come conseguenza: `0.7 × 380` = 266px, che a 1280×800 è ~2/3 del corpo
+ * colonna — la card si vede intera senza scorrere, e in una colonna di lavoro
+ * (miniatura 250px) se ne vedono due.
  */
-export const PREVIEW_PROMOTE_MAX_RATIO = 0.7;
+export const PREVIEW_CARD_MAX_WIDTH_PX = 380;
 
 /**
  * Come si sceglie l'anteprima di una consegna. **Questa stringa è la copia
@@ -127,7 +158,7 @@ export const PREVIEW_PROMOTE_MAX_RATIO = 0.7;
  */
 export const PREVIEW_RULE = [
   "EVIDENZA DI REVIEW = un'ANTEPRIMA durevole nel task — update_task(preview_image=<path assoluto sotto ~/.topics/media/ o nel workspace del task; stringa vuota = azzera>), che compare come card sulla board e nel drawer. Tre rami, e a scegliere è il criterio, non l'abitudine:",
-  `· SCREENSHOT .png — la consegna HA una superficie renderizzata che entra in una schermata. Catturala a viewport ≤1440×900 e con altezza/larghezza ≤ ${PREVIEW_CARD_MAX_RATIO.toFixed(3)} (=144/268: oltre quella soglia la card TAGLIA invece di rimpicciolire). Mai un full-page.`,
+  `· SCREENSHOT .png — la consegna HA una superficie renderizzata che entra in una schermata. Catturala a viewport ≤1440×900 e con altezza/larghezza ≤ ${PREVIEW_CARD_MAX_RATIO.toFixed(2)} (la card ritaglia l'eccedenza dal basso invece di rimpicciolirla). Mai un full-page.`,
   "· VIDEO .webm/.mp4 ≤20s — dimostrare la consegna richiede DUE O PIÙ STATI (appare, resta, sparisce; scroll, apri/chiudi, streaming, un flusso a più passi): uno screenshot statico non prova un comportamento. Clip Playwright breve (`recordVideo: { dir }` sul context) o, se il progetto ha spec-flow, il .webm dello scenario.",
   "· DIAGRAMMA .svg — la consegna NON ha una superficie renderizzata (un piano, un'architettura, un protocollo, una migrazione): si disegna la STRUTTURA — riquadri, frecce, cinque parole per nodo — non si fotografa il documento.",
   "Una TAB del task (open_browser_pane) NON sostituisce l'anteprima: la pagina viva muore col server che la serve, l'anteprima resta.",
