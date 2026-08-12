@@ -24,7 +24,7 @@ import type { AppContext, RouteHandler } from "../types";
 import { grantedResourceIds } from "../lib/grants-query";
 import { resolvePrincipals } from "../lib/principals";
 import type { OutboundMessage } from "../../shared/ws-outbound";
-import { isAgentWorking, pendingQuestion, type PendingQuestionComment } from "../../shared/board";
+import { isAgentWorking, PARKED_STOPPED, pendingQuestion, type PendingQuestionComment } from "../../shared/board";
 import { isPreviewablePath } from "../../shared/media-kind";
 import { getTerminalSessionById } from "./terminal";
 import { AUTO_PROJECT_ID, createTaskService, isLandActionLabel, isPublishActionLabel, projectIdForPath, TaskServiceError, UNASSIGNED_PROJECT_ID, type Task } from "../services/tasks";
@@ -1483,7 +1483,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         reason: string,
       ): Task | null => {
         if (!cutLiveTurn(t, reason)) return null;
-        return svc.release({ taskId: t.id, requeue: false, by: HUMAN, reason });
+        // `stopped` e non NULL: un park senza stato è indistinguibile da un task
+        // mai dispacciato, e la card tornava in Backlog senza dire perché.
+        return svc.release({ taskId: t.id, requeue: false, by: HUMAN, reason, parkState: PARKED_STOPPED });
       };
 
       // GET/PATCH /api/boards/:projectId/settings — per-board dispatch config
