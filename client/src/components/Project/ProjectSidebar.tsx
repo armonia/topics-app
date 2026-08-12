@@ -136,7 +136,7 @@ function ProjectCard({
   return (
     <button
       onClick={onToggle}
-      title={`${name} — ${etichetta}`}
+      title={`${name} · ${etichetta}`}
       aria-label={etichetta}
       aria-expanded={!collapsed}
       data-testid="project-card"

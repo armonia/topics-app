@@ -55,7 +55,14 @@ function refName(name: string): string {
   return name.startsWith("refs/") ? name : `refs/heads/${name}`;
 }
 
-async function defaultRunGit(cwd: string, args: string[]): Promise<GitRunResult> {
+/**
+ * Il runner vero, esportato perché la sottrazione non è l'unica domanda che si
+ * fa a git su un branch di card: chi compone una GAMMA a partire dai commit
+ * propri (`task-diff-range.ts`) deve poter passare QUESTO runner a
+ * `listOwnCommits` e usarlo anche per le sue chiamate, altrimenti i test che ne
+ * iniettano uno finto si troverebbero metà delle domande sul git vero.
+ */
+export async function defaultRunGit(cwd: string, args: string[]): Promise<GitRunResult> {
   try {
     const proc = Bun.spawn(["git", "-C", cwd, ...args], { stdout: "pipe", stderr: "pipe" });
     const [stdout, stderr] = await Promise.all([

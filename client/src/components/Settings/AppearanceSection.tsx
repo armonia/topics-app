@@ -205,7 +205,7 @@ export function AppearanceSection({ settings, themeMode, onThemeChange, onChange
           <p className="text-[12px] text-app-text-muted mb-3">
             Detach every window split and the sidebar into rounded floating
             cards with a small gap between them, revealing the desktop
-            vibrancy underneath — making the split layout easier to read.
+            vibrancy underneath. It makes the split layout easier to read.
           </p>
 
           <ToggleRow

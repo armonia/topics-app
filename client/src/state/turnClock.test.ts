@@ -19,7 +19,7 @@ describe('turnClock', () => {
     expect(v.primaryMs).toBe(30_000);
     expect(v.workedMs).toBe(30_000);
     expect(v.title).toContain('in attesa di te');
-    expect(v.title).toContain('lavorato');
+    expect(v.title).toContain('Lavorato');
   });
 
   test('mentre aspetta il numero NON cresce col passare del tempo', () => {
