@@ -22,6 +22,9 @@ const NIGHTLY_ONLY_SPECS = [
   // e il test accusa il broadcast, che non c'entra — non c'era nessun browser da
   // cui potesse partire. Nel notturno gira senza sharding e passa.
   "browser-shared-session",
+  // Stessa famiglia, stessa ragione: il prologo aspetta che il server lanci un
+  // Chromium headless e ci navighi dentro due volte prima di poter filmare.
+  "browser-forget-site-shared",
   "terminal-session-resume",
   "worktree-domain",
   "screenshot-evidence",
