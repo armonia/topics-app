@@ -2,11 +2,11 @@ import { memo, useState, useEffect, useMemo } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { AlertTriangle, ArrowUpRight, ClipboardList, Copy, Hourglass, Lock, MessageSquare, Plus, RotateCcw, Send, ShieldCheck, ShieldX, Trash2, UserRound } from 'lucide-react';
+import { AlertTriangle, ArrowUpRight, ClipboardList, Copy, Hourglass, Lock, MessageSquare, Plus, RotateCcw, Send, ShieldCheck, ShieldX, Square, Trash2, UserRound } from 'lucide-react';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
-import { STATUS_LABEL, SYSTEM_DELIVERY_CHIP, blockedByChip, boardApi, isAgentWorking, isProjectlessId, parseQuestionBlock, reopenedChip, subtaskWorkChip, systemDeliveryNote, type BoardTask, type TaskComment, type TaskStatus } from '../../lib/board';
+import { STATUS_LABEL, SYSTEM_DELIVERY_CHIP, blockedByChip, boardApi, isAgentWorking, isProjectlessId, parseQuestionBlock, reopenedChip, subtaskWorkChip, systemDeliveryNote, whoCloses, type BoardTask, type TaskComment, type TaskStatus } from '../../lib/board';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useLongPress, openContextMenuAt } from '../../hooks/useLongPress';
 import { useMobile } from '../../hooks/useMobile';
@@ -15,7 +15,7 @@ import { stripMarkdown } from '../../lib/stripMarkdown';
 import { PRIORITY_DOT, PRIORITY_LABEL, DISPATCH_CHIP, COMPACT_MD_CLS, mediaPaneIdFor, type LiveUsage, type OpenTask } from './constants';
 import { copyText } from '../../lib/clipboard';
 import { fmtMs, fmtLive, fmtTok, fmtModel, fmtUpdatedAt, taskCopyText } from './format';
-import { StatusIcon, DispatchChip, TaskIdChip } from './atoms';
+import { StatusIcon, DispatchChip, TaskIdChip, LabelChip } from './atoms';
 import { POPOVER_DIVIDER, POPOVER_ITEM, POPOVER_ITEM_DANGER } from '@/lib/popoverStyles';
 
 // ── Column ────────────────────────────────────────────────────────────────
@@ -236,6 +236,20 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
     try { await boardApi.archive(task.projectId, task.id); onRefetch(); }
     catch (e) { onError(e instanceof Error ? e.message : 'archive failed'); }
   };
+  // «Aspetta» senza buttare via: interrompe il turno e basta. Prima l'unica
+  // voce del menu era «Archivia», che su un task vivo chiede «Archivia e
+  // ferma» — un gesto solo per due intenzioni, con quella distruttiva
+  // obbligatoria per chi voleva solo guardare. Stesso endpoint del bottone nel
+  // drawer, quindi stesso esito: il task viene PARCHEGGIATO in Backlog (chip
+  // «fermato», non «fallito») e non riparte da solo — chi ferma vuole vedere
+  // dove stava andando, non farlo ripartire mentre guarda.
+  const stop = async () => {
+    if (busy) return;
+    setBusy(true);
+    try { await boardApi.stop(task.projectId, task.id); onRefetch(); }
+    catch (e) { onError(e instanceof Error ? e.message : 'stop failed'); }
+    finally { setBusy(false); }
+  };
   // Steer a WORKING agent: a comment on an in_progress task is buffered by the
   // dispatcher and handed over at the next turn (Claude-Code style). Same
   // /comments endpoint as the drawer composer — the server routes it to resume().
@@ -287,7 +301,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
   // fatto del DB, non della lista fetchata — un dipendente che è un sottotask o
   // sta in un altro progetto non è fra le card, ma aspetta lo stesso.
   const waitingOnThis = task.waitingOnCount;
-  const hasMetaRow = !!(blockedChip || reopened || (waitingOnThis > 0 && task.status !== 'done') || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo || notLanded || checksRed || systemDelivered);
+  const hasMetaRow = !!(blockedChip || reopened || (waitingOnThis > 0 && task.status !== 'done') || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo || notLanded || checksRed || systemDelivered || task.labels.length);
 
   return (
     <div
@@ -529,6 +543,19 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
             >piano</span>
           )}
           {task.assignedTo && <span className="rounded bg-white/10 px-1.5 py-0.5 text-xs md:text-[11px] text-app-text-heading">@{task.assignedTo}</span>}
+          {/* Le etichette in coda alla riga: quelle di visibilità dicono CHI
+              CHIUDE la card, le altre servono a leggere la board. */}
+          {task.labels.map((l) => <LabelChip key={l.label} label={l.label} source={l.source} />)}
+          {/* La CONSEGUENZA, detta dove si decide: una card invisibile con la
+              barra verde per intero non aspetta Attilio. Solo in review — nelle
+              altre colonne non c'è ancora niente da chiudere. */}
+          {task.status === 'review' && whoCloses(task.labels.map((l) => l.label), task.checksState) === 'conductor' && (
+            <span
+              data-testid="card-conductor-closes"
+              title="Invisibile e barra verde: questa card la può chiudere il conduttore senza passare da te."
+              className="flex items-center gap-1 rounded bg-emerald-500/15 px-1.5 py-0.5 text-xs md:text-[11px] text-emerald-300"
+            ><ShieldCheck className="h-3 w-3 shrink-0" /> la chiude il conduttore</span>
+          )}
         </div>
       )}
       {/* Steer a WORKING agent right from the card ("anche da kanban"): the
@@ -641,6 +668,22 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
               onClick={(e) => { e.stopPropagation(); setCtxMenu(null); onOpenTopic(task.assignedTopicId!); }}
               className={POPOVER_ITEM}
             ><ArrowUpRight className="h-3.5 w-3.5 text-app-text-secondary" /> Apri tab agent</button>
+          )}
+          {/* Solo quando c'è davvero un turno da tagliare: su una card ferma la
+              voce sarebbe un bottone che risponde 409. `agentBusy` è la stessa
+              domanda che accende il bottone «Ferma» del drawer, così le due
+              superfici compaiono e spariscono insieme. */}
+          {agentBusy && (
+            <>
+              <div className={POPOVER_DIVIDER} />
+              <button
+                role="menuitem"
+                disabled={busy}
+                onClick={(e) => { e.stopPropagation(); setCtxMenu(null); stop(); }}
+                title="Interrompe il turno dell'agent. Il task resta sulla board, parcheggiato: riparte solo se lo rimetti in Todo."
+                className={POPOVER_ITEM}
+              ><Square className="h-3.5 w-3.5 fill-current text-rose-400" /> Ferma</button>
+            </>
           )}
           <div className={POPOVER_DIVIDER} />
           <button
