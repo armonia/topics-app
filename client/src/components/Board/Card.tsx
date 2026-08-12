@@ -57,8 +57,19 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
   // The floor holds because the item is already `shrink-0`.
   // Review is the approval surface — roomier floor AND roomier ceiling than the
   // working columns on every viewport.
+  //
+  // SUL TELEFONO IL PAVIMENTO DI REVIEW È LO SCHERMO, non un numero.
+  // Sotto `sm` la riga eccede sempre (cinque colonne non ci stanno mai), quindi
+  // `grow` non ha avanzo da spendere e ogni colonna vale il suo `basis`: con un
+  // basis fisso da 22rem la colonna dell'approvazione restava 352px comunque —
+  // su un 390 un'unghia di margine, su un 360 già più larga della finestra, e
+  // in nessuno dei due casi una slide che coincide con lo schermo. `basis-full`
+  // la lega alla larghezza VISIBILE della riga, che è ciò che cambia da telefono
+  // a telefono: la review è la superficie su cui si decide, e da mobile è UNA
+  // slide intera. Il tetto (`max-w`) resta il limite di leggibilità.
+  // Da `sm` in su non cambia niente: 22rem, e 32rem da `lg`.
   const widthCls = isReview
-    ? 'grow basis-[22rem] max-w-[34rem] lg:basis-[32rem] lg:max-w-[44rem]'
+    ? 'grow basis-full sm:basis-[22rem] max-w-[34rem] lg:basis-[32rem] lg:max-w-[44rem]'
     : 'grow basis-72 max-w-[26rem]';
   const borderCls = isOver ? 'border-emerald-400/60' : 'border-app-border';
   const bgCls = isOver ? 'bg-emerald-400/5' : 'bg-white/5';
