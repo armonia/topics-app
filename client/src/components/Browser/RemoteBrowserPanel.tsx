@@ -23,10 +23,16 @@ import { useSharedViewerCount } from '../../hooks/useSharedViewerCount';
 import { useTaskTabLoginState } from '../../hooks/useTaskTabLoginState';
 import type { Topic } from '../../types';
 import { usePaneHold } from '../../state/pane/residency/holds';
+import BrowserKeyboardCapture, { type BrowserKeyboardCaptureHandle } from './BrowserKeyboardCapture';
 
 // T1 DOM co-browse — the native rrweb reconstruction view. Lazy so rrweb + its CSS
 // only load when a pane actually switches to DOM mode (default video path is free).
 const DomCoBrowse = lazy(() => import('./DomCoBrowse'));
+
+/** Sotto questo spostamento (px) un tocco sul video è un tap, non uno scroll.
+ *  Stessa soglia del co-browse DOM, per la stessa ragione: la tastiera non deve
+ *  salire mentre si trascina la pagina. */
+const VIDEO_TAP_SLOP = 8;
 
 /** Report a browser pane's busy state (page loading or an agent driving it)
  *  into the unified signals store, so its tab spinner + the project rollup
@@ -627,6 +633,73 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [browser.webrtcError, browser.renderMode, browser.url, browser.setRenderMode]);
 
+  // ── LA TASTIERA SUL RAMO VIDEO ───────────────────────────────────────────────
+  //
+  // Qui la pagina remota è un flusso di pixel: non c'è nessun elemento da mettere
+  // a fuoco, e prima di questo blocco la digitazione passava solo dall'onKeyDown
+  // del contenitore. Su un computer con la tastiera fisica funzionava; da iPhone
+  // no, perché senza un campo a fuoco iOS non apre nessuna tastiera. Dal telefono
+  // il ramo video non si scriveva affatto.
+  //
+  // Quindi anche qui la cattura è un campo vero e nascosto, lo stesso componente
+  // del co-browse DOM. Cosa NON possiamo sapere: che campo hai toccato. Non c'è
+  // un mirror da interrogare. Perciò al tocco si alza la tastiera generica, che è
+  // l'unico momento in cui iOS la apre (dentro il gesto), e la si corregge quando
+  // il server risponde chi ha preso il fuoco di là.
+  const kbdRef = useRef<BrowserKeyboardCaptureHandle | null>(null);
+  const videoTouchRef = useRef<{ x: number; y: number; travel: number } | null>(null);
+  /** L'ultimo tocco era un tap (non uno strisciamento): lo consuma il click. */
+  const pendingTapRef = useRef(false);
+  const videoMode = browser.renderMode === 'video';
+  const registerFocusSink = browser.registerFocusSink;
+  useEffect(() => {
+    // Solo in modalità video: in DOM la cattura è quella di DomCoBrowse, e il
+    // sink accetta un iscritto alla volta.
+    if (!videoMode) return;
+    return registerFocusSink((field) => kbdRef.current?.applyRemoteField(field));
+  }, [videoMode, registerFocusSink]);
+
+  const onVideoTouchStart = useCallback((e: React.TouchEvent) => {
+    const t = e.touches[0];
+    videoTouchRef.current = t ? { x: t.clientX, y: t.clientY, travel: 0 } : null;
+  }, []);
+
+  const onVideoTouchMove = useCallback((e: React.TouchEvent) => {
+    const prev = videoTouchRef.current;
+    const t = e.touches[0];
+    if (!prev || !t) return;
+    prev.travel += Math.abs(prev.x - t.clientX) + Math.abs(prev.y - t.clientY);
+    prev.x = t.clientX;
+    prev.y = t.clientY;
+  }, []);
+
+  const onVideoTouchEnd = useCallback(() => {
+    const prev = videoTouchRef.current;
+    videoTouchRef.current = null;
+    // Uno strisciamento non è un tocco su un campo: la tastiera non c'entra.
+    pendingTapRef.current = !!prev && prev.travel <= VIDEO_TAP_SLOP;
+  }, []);
+
+  // Il fuoco si prende QUI, non al touchend, e la ragione è una corsa misurata:
+  // dopo il touchend il motore sintetizza mousedown+click, e il mousedown dà il
+  // fuoco al contenitore (che è `tabIndex=0`), scippandolo al campo di cattura.
+  // Il click viene dopo, è ancora dentro il gesto (quindi iOS apre la tastiera)
+  // ed è l'ultimo a parlare.
+  //
+  // Solo per i tocchi: col mouse il fuoco resta al contenitore, che è la presa
+  // dei tasti hardware e su quel ramo funziona da sempre.
+  const relayClick = browser.onClick;
+  const agentDriving = browser.agentActive;
+  const onVideoClick = useCallback((e: React.MouseEvent<HTMLVideoElement>) => {
+    relayClick(e);
+    const fromTap = pendingTapRef.current;
+    pendingTapRef.current = false;
+    if (!fromTap || agentDriving) return;
+    // Generica, perché qui non sappiamo che campo sia: la risposta del server la
+    // veste giusta subito dopo, o la fa rientrare se non era un campo.
+    kbdRef.current?.focusForField(null, { requireField: false });
+  }, [relayClick, agentDriving]);
+
   // Notify parent of URL changes + record in per-topic history.
   useEffect(() => {
     if (browser.url) {
@@ -940,9 +1013,19 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
             className={`absolute inset-0 w-full h-full object-contain bg-black transition-opacity ${
               browser.webrtcActive ? 'opacity-100 z-[1] cursor-default select-none' : 'opacity-0 pointer-events-none'
             }`}
-            onClick={browser.onClick}
+            onClick={onVideoClick}
             onWheel={browser.onWheel}
+            onTouchStart={onVideoTouchStart}
+            onTouchMove={onVideoTouchMove}
+            onTouchEnd={onVideoTouchEnd}
           />
+        )}
+
+        {/* La tastiera del telefono sul flusso di pixel. Montata solo in modalità
+            video: in DOM la cattura vive dentro DomCoBrowse, e due catture sulla
+            stessa pane si contenderebbero il fuoco. */}
+        {videoMode && (
+          <BrowserKeyboardCapture ref={kbdRef} sendInput={browser.sendInput} suppressed={browser.agentActive} />
         )}
 
         {/* T1 DOM co-browse — native rrweb reconstruction, overlaid above the (now
@@ -960,6 +1043,7 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
             <div className="absolute inset-0 z-[5]" data-testid="browser-dom-cobrowse">
               <DomCoBrowse
                 registerDomSink={browser.registerDomSink}
+                registerFocusSink={browser.registerFocusSink}
                 sendInput={browser.sendInput}
                 agentActive={browser.agentActive}
               />
