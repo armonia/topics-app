@@ -239,7 +239,7 @@ export function SpaceGroupCard({ card, expanded, onToggle, children }: SpaceGrou
           onClick={() => goToSpace(card.id)}
           className="min-w-0 flex-1 truncate text-left"
           title={card.detachedLabel
-            ? `${card.name} — in una finestra sua (clic per portarla davanti)`
+            ? `${card.name} · in una finestra sua (clic per portarla davanti)`
             : card.active ? `${card.name}: è il gruppo che stai usando` : `Passa a ${card.name}`}
         >
           {card.name}

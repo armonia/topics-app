@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef, useCallback, type TouchEvent as R
 import { useT } from '../../hooks/useT';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { NightModeCard } from './NightModeCard';
-import { AlertTriangle, ArrowUpRight, Bot, Camera, Check, ChevronDown, ChevronRight, Clock, Copy, Download, ExternalLink, Footprints, GitMerge, Globe, Hourglass, Link2, Lock, Maximize2, Minimize2, MoreHorizontal, Paperclip, Plus, Send, ShieldCheck, ShieldX, Sparkles, Square, Tag, UserRound, X } from 'lucide-react';
+import { AlertTriangle, ArrowUpRight, Bot, Camera, Check, ChevronDown, ChevronRight, Clock, Copy, Download, ExternalLink, Footprints, GitMerge, Globe, Hourglass, Link2, Lock, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Paperclip, Plus, Send, ShieldCheck, ShieldX, Sparkles, Square, Tag, UserRound, X } from 'lucide-react';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ReasoningRow } from '../Chat/ReasoningRow';
 import { Menu } from '../Shared/Menu';
@@ -15,12 +15,14 @@ import { isImagePath, isPdfPath, isVideoPath } from '../../lib/mediaKind';
 import { copyText } from '../../lib/clipboard';
 import { openExternalOnce } from '../../lib/openExternal';
 import { buildTaskLink } from '../../lib/openTaskLink';
+import { canOpenTaskSession, shouldExplainMissingSession, type TaskSessionState } from '../../lib/taskSession';
+import { useTaskSessionResolver } from '../../hooks/useTaskSession';
 import { enqueueProjectBrowserNavigate, isProjectWindowMounted } from '../../state/pane/adapters';
 import { useTaskBrowserTabs, liveTabs, workspaceTwinContextId } from '../../state/taskBrowserTabs';
 import { noteAutoOpenedPreview, releaseAutoOpenedPreview } from '../../state/taskWorkspacePreviews';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
 import { writeCursor, markActiveComposer, restoreCursor } from '../../lib/composerCursor';
-import { boardApi, STATUS_LABEL, TASK_STATUSES, isAgentWorking, parseQuestionBlock, parseStatusEvent, hasPlanApproveOption, isProjectlessId, boardDrafts, systemDeliveryNote, blockedByChip, subtaskWorkChip, reopenedChip, attemptHasWork, CLOSER_LABELS, KIND_LABELS, type TaskLabel, type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch, type BoardProjectRef, type DiffBundle, type DiffNote, type ReviewCheck, type CheckRun, type TaskAttempt, type LandingTicket } from '../../lib/board';
+import { boardApi, diffTotals, hasCodeQuestion, STATUS_LABEL, TASK_STATUSES, isAgentWorking, parseQuestionBlock, parseStatusEvent, hasPlanApproveOption, isProjectlessId, boardDrafts, systemDeliveryNote, blockedByChip, subtaskWorkChip, reopenedChip, attemptHasWork, CLOSER_LABELS, KIND_LABELS, type TaskLabel, type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch, type BoardProjectRef, type DiffBundle, type DiffNote, type ReviewCheck, type CheckRun, type TaskAttempt, type LandingTicket } from '../../lib/board';
 import { PreviewMedia } from './PreviewMedia';
 import { UnifiedDiff } from './UnifiedDiff';
 import { collectTaskMediaPaths } from './taskMedia';
@@ -107,7 +109,7 @@ function ChecksSection({ task }: { task: BoardTask }) {
       <div className="flex items-center gap-1.5 rounded bg-emerald-500/10 px-2 py-1.5 text-[11px] text-emerald-200">
         <Check className="h-3 w-3 shrink-0" />
         <span className="min-w-0 flex-1 truncate">
-          {tr('board.task.checks.pass')}{at}{runs.length ? ` — ${runs.map((r) => r.name).join(', ')}` : ''}
+          {tr('board.task.checks.pass')}{at}{runs.length ? `: ${runs.map((r) => r.name).join(', ')}` : ''}
         </span>
       </div>
     );
@@ -121,7 +123,7 @@ function ChecksSection({ task }: { task: BoardTask }) {
       >
         {open ? <ChevronDown className="h-3 w-3 shrink-0" /> : <ChevronRight className="h-3 w-3 shrink-0" />}
         <span className="min-w-0 flex-1 truncate">
-          {tr('board.task.checks.fail')}{at}{failed ? ` — ${failed.name} (${short(failed)})` : ''}
+          {tr('board.task.checks.fail')}{at}{failed ? `: ${failed.name} (${short(failed)})` : ''}
         </span>
       </button>
       {open && (
@@ -129,7 +131,7 @@ function ChecksSection({ task }: { task: BoardTask }) {
           {runs.map((r, i) => (
             <div key={i}>
               <div className={r.ok ? 'text-emerald-300' : 'text-rose-200'}>
-                {r.ok ? '✓' : '✗'} <code className="font-mono">{r.cmd}</code>{r.ok ? '' : ` — ${short(r)}`}
+                {r.ok ? '✓' : '✗'} <code className="font-mono">{r.cmd}</code>{r.ok ? '' : `: ${short(r)}`}
               </div>
               {!r.ok && (r.tail || r.spawnError) && (
                 <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded bg-black/40 p-1.5 font-mono text-[10px] leading-snug text-app-text-heading">
@@ -147,12 +149,19 @@ function ChecksSection({ task }: { task: BoardTask }) {
   );
 }
 
-/** Collapsible "Modifiche" panel in the task drawer: the unified diff of what
- *  the task's dispatched agent changed in its isolated worktree, so a reviewer
- *  can see the actual changes before approving. Renders NOTHING when there's no
- *  worktree or the diff is empty ("non mostrare modifiche se non ci sono") — it
- *  probes eagerly and owns its own section chrome so an unchanged task shows no
- *  bar at all. */
+/**
+ * Il pannello «Modifiche» del drawer: cosa ha cambiato QUESTA card.
+ *
+ * Si disegna sempre, per una card di cui la domanda ha senso (`hasCodeQuestion`),
+ * e questo è il cambio di contratto rispetto a prima: finché il pannello spariva
+ * quando non c'erano file, «la card non ha prodotto codice» e «non ho potuto
+ * guardare» erano lo stesso vuoto — su una consegna in review sono due verdetti
+ * opposti. Ora il perché arriva dal server in `code` e sta scritto in chiaro.
+ *
+ * Il diff che disegna è quello dei commit PROPRI della card, e dopo il land
+ * arriva dal merge su main: sopravvive alla potatura del worktree, che è
+ * esattamente quando un reviewer vuole ancora poterlo leggere.
+ */
 export function TaskChangesSection({ projectId, taskId, bump, onSent }: {
   projectId: string; taskId: string; bump?: string | number;
   /** Le note sono partite come commento: il thread ha una riga in più. */
@@ -160,13 +169,15 @@ export function TaskChangesSection({ projectId, taskId, bump, onSent }: {
 }) {
   const tr = useT();
   const [open, setOpen] = useState(false);
-  const [state, setState] = useState<DiffBundle | 'loading' | 'error' | null>(null);
+  const [state, setState] = useState<DiffBundle | 'error' | null>(null);
   const [notes, setNotes] = useState<DiffNote[]>([]);
   const [sendingNotes, setSendingNotes] = useState(false);
   const [notesError, setNotesError] = useState<string | null>(null);
   const notesLoaded = useRef(false);
   const fetchDiff = useCallback(() => {
-    setState('loading');
+    // Il bundle precedente NON si azzera mentre si ricarica: `bump` scatta a ogni
+    // aggiornamento del task, e svuotare qui faceva sparire e riapparire il
+    // pannello sotto le mani di chi stava leggendo.
     boardApi.taskDiff(projectId, taskId).then(setState).catch(() => setState('error'));
   }, [projectId, taskId]);
   // Eager (not lazy): visibility depends on whether the worktree has changes, so
@@ -219,15 +230,45 @@ export function TaskChangesSection({ projectId, taskId, bump, onSent }: {
   };
 
   const bundle = state && typeof state === 'object' ? state : null;
-  const fileCount = bundle && bundle.code !== 'no_worktree' ? bundle.stat.length : 0;
-  // Nothing to show → nothing at all (no empty bar): still probing, errored, no
-  // worktree, or a zero-file diff.
-  if (!bundle || bundle.code === 'no_worktree' || fileCount === 0) return null;
+  const totals = bundle ? diffTotals(bundle.stat) : null;
+  // Il primo giro non ha ancora una risposta: una barra che compare e sparisce
+  // dice meno di niente. Da lì in poi si disegna sempre.
+  if (!state) return null;
+  const label = tr('board.task.changes');
+  if (!bundle || !totals || totals.files === 0) {
+    // Le tre risposte del server, più il caso in cui è saltata la richiesta.
+    const why = state === 'error'
+      ? tr('board.task.diffUnreadable')
+      : bundle?.code === 'not_dispatched' ? tr('board.task.changes.notDispatched')
+      : bundle?.code === 'unreadable' ? tr('board.task.changes.unreadable')
+      : tr('board.task.changes.empty');
+    return (
+      <div className="shrink-0 border-b border-app-border px-3 py-2">
+        <div className="flex items-baseline gap-1.5">
+          <span className="shrink-0 text-[11px] font-semibold uppercase tracking-wide text-app-text-muted">{label}</span>
+          <span className="min-w-0 flex-1 text-[11px] text-app-text-secondary">{why}</span>
+        </div>
+      </div>
+    );
+  }
+  const fileCount = totals.files;
+  const from = bundle.source === 'landed-merge' ? tr('board.task.changes.fromMerge')
+    : bundle.source === 'delivery-commit' ? tr('board.task.changes.fromDelivery')
+    : null;
   return (
     <div className="shrink-0 border-b border-app-border px-3 py-2">
       <button onClick={() => setOpen((s) => !s)} className="flex w-full items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-app-text-muted hover:text-app-text-heading">
         {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-        {tr('board.task.changes')} <span className="normal-case tracking-normal text-app-text-faint">· {tr(fileCount === 1 ? 'board.task.changes.files.one' : 'board.task.changes.files.many', { n: fileCount })}</span>
+        {label} <span className="normal-case tracking-normal text-app-text-faint">· {tr(fileCount === 1 ? 'board.task.changes.files.one' : 'board.task.changes.files.many', { n: fileCount })}</span>
+        {/* Il totale sta in TESTA perché è la prima domanda di chi rivede
+            («quanto è grosso?») e perché è l'unico numero completo: la lista si
+            può troncare, questo no. */}
+        <span className="font-mono normal-case tracking-normal tabular-nums">
+          <span className="text-emerald-400">+{totals.additions}</span> <span className="text-red-400">−{totals.deletions}</span>
+        </span>
+        {from && (
+          <span className="truncate rounded bg-white/5 px-1 text-[9px] normal-case tracking-normal text-app-text-faint">{from}</span>
+        )}
         {notes.length > 0 && (
           <span className="ml-1 rounded bg-indigo-500/20 px-1 text-[9px] normal-case tracking-normal text-indigo-300">
             {tr('board.task.changes.pending', { n: notes.length })}
@@ -289,6 +330,10 @@ export function TaskAttemptsSection({ projectId, taskId, bump, onChanged, onOpen
   onOpenTopic?: (topicId: string) => void;
 }) {
   const tr = useT();
+  // Ogni tentativo ha la SUA sessione, quindi qui il risolutore serve per riga
+  // e non basta lo `sessionState` del task. Una sola istanza in tutto il drawer:
+  // nessuna lista memoizzata da svegliare.
+  const resolveSession = useTaskSessionResolver();
   const [attempts, setAttempts] = useState<TaskAttempt[]>([]);
   const [openDiff, setOpenDiff] = useState<string | null>(null);
   const [picking, setPicking] = useState<string | null>(null);
@@ -366,11 +411,20 @@ export function TaskAttemptsSection({ projectId, taskId, bump, onChanged, onOpen
                     className="rounded bg-white/5 px-1.5 py-0.5 text-[11px] text-app-text-heading hover:bg-white/10"
                   >{tr(openDiff === a.id ? 'board.task.attempt.closeDiff' : 'board.task.attempt.openDiff')}</button>
                 )}
-                {a.topicId && onOpenTopic && !dead && (
+                {/* «Apri la chat» diceva meno di quel che fa: è la SESSIONE di
+                    QUESTO tentativo, e come ogni sessione può non esserci più. */}
+                {a.topicId && onOpenTopic && !dead && canOpenTaskSession(resolveSession(a.topicId)) && (
                   <button
                     onClick={() => onOpenTopic(a.topicId!)}
+                    title={tr('board.task.openSessionTitle')}
                     className="rounded bg-white/5 px-1.5 py-0.5 text-[11px] text-app-text-heading hover:bg-white/10"
-                  >{tr('board.task.openChat')}</button>
+                  >{tr('board.task.openSession')}</button>
+                )}
+                {a.topicId && !dead && shouldExplainMissingSession(resolveSession(a.topicId)) && (
+                  <span
+                    title={tr('board.task.sessionGoneTitle')}
+                    className="rounded bg-white/5 px-1.5 py-0.5 text-[11px] text-app-text-faint"
+                  >{tr('board.task.sessionGone')}</span>
                 )}
                 {!decided && running === 0 && a.topicId && (
                   <button
@@ -412,7 +466,15 @@ function AttemptDiff({ projectId, taskId, attemptId }: { projectId: string; task
   }, [projectId, taskId, attemptId]);
   if (state === 'loading') return <div className="mt-1.5 flex items-center gap-1 text-[11px] text-app-text-muted"><Spinner size="sm" tone="current" /> {tr('board.task.loadingDiff')}</div>;
   if (state === 'error') return <p className="mt-1.5 text-[11px] text-rose-300">{tr('board.task.diffUnreadable')}</p>;
-  if (state.code === 'no_worktree' || state.stat.length === 0) return <p className="mt-1.5 text-[11px] text-app-text-muted">{tr('board.task.noChanges')}</p>;
+  // Un tentativo si legge SOLO dal suo worktree (i riferimenti durevoli parlano
+  // del vincitore), quindi qui i codici sono due: «non ha prodotto niente» e
+  // «non ricostruibile» — e restano distinti anche in una riga sola.
+  if (state.stat.length === 0) {
+    const why = state.code === 'no_changes' || !state.code
+      ? tr('board.task.changes.empty')
+      : tr('board.task.changes.unreadable');
+    return <p className="mt-1.5 text-[11px] text-app-text-muted">{why}</p>;
+  }
   return (
     // Accordion puro (vedi TaskChangesSection): il tetto in vh era il surrogato
     // dello scroll che il drawer non aveva.
@@ -424,7 +486,7 @@ function AttemptDiff({ projectId, taskId, attemptId }: { projectId: string; task
 
 // ── Detail: drawer by default, expandable review surface ────────────────────
 
-export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, onOpenTopic, focusPaneId, autoOpenInWorkspace = false }: {
+export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, onOpenTopic, sessionState = 'unknown', focusPaneId, autoOpenInWorkspace = false }: {
   projectId: string; taskId: string; onClose: () => void; onChanged: () => void;
   /**
    * Change signal (the task's updatedAt from the board's live list): any WS
@@ -434,8 +496,14 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   bump?: string;
   /** Navigate the drawer to another task (subtask ↔ parent). */
   onOpenTask?: (taskId: string) => void;
-  /** Deep-link the agent's chat tab (output panel fallback). */
+  /** Apre la SESSIONE dell'agente (la sua chat), che non è questa scheda. */
   onOpenTopic?: (topicId: string) => void;
+  /**
+   * La sessione dell'agente esiste ancora? Il drawer è la SCHEDA e vive per
+   * conto suo; il gesto verso la sessione va offerto solo se c'è qualcosa da
+   * aprire, e quando non c'è più va DETTO. Vedi `lib/taskSession.ts`.
+   */
+  sessionState?: TaskSessionState;
   /**
    * Tab del task da mettere davanti all'apertura (`media:<path>`): la chiede
    * chi ha aperto il drawer con un gesto MIRATO — il bottone «apri in una tab»
@@ -1420,13 +1488,27 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               className="rounded p-1.5 text-app-text-secondary hover:bg-white/10"
             >{copied === 'link' ? <Check className="h-4 w-4 text-emerald-400" /> : <Link2 className="h-4 w-4" />}</button>
           )}
-          {task?.assignedTopicId && onOpenTopic && (
+          {/* Dalla SCHEDA alla SESSIONE. Il drawer non è la chat dell'agente: è
+              la superficie dove si decide, e questo è l'unico gesto che porta
+              dall'una all'altra. Quando la sessione non c'è più il bottone non
+              sparisce — resta, spento, con la ragione: sparendo lascerebbe
+              credere che quel task non sia mai stato lavorato. */}
+          {onOpenTopic && canOpenTaskSession(sessionState) && task?.assignedTopicId && (
             <button
               onClick={() => onOpenTopic(task.assignedTopicId!)}
               data-testid="task-open-session-tab"
-              title={tr('board.task.openSessionTabTitle')}
+              title={tr('board.task.openSessionTitle')}
+              aria-label={tr('board.task.openSession')}
               className="rounded p-1.5 text-app-text-secondary hover:bg-white/10"
-            ><ArrowUpRight className="h-4 w-4" /></button>
+            ><MessageSquare className="h-4 w-4" /></button>
+          )}
+          {shouldExplainMissingSession(sessionState) && (
+            <span
+              data-testid="task-session-gone"
+              title={tr('board.task.sessionGoneTitle')}
+              aria-label={tr('board.task.sessionGone')}
+              className="rounded p-1.5 text-app-text-faint"
+            ><MessageSquare className="h-4 w-4" /></span>
           )}
           {/* Le TAB vincono su `outputUrl`: su un task DISPATCHATO il risultato
               sono le tab che l'agente ha aperto con open_browser_pane — anche
@@ -1464,7 +1546,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
         <div className="shrink-0 border-b border-amber-500/20 bg-amber-500/10 px-3 py-1.5 text-[11px] text-amber-300">
           {landing.ahead > 0
             ? <>Land <strong>in coda</strong>: {landing.ahead} {landing.ahead === 1 ? 'fusione' : 'fusioni'} davanti su questa board (toccano tutte main nello stesso checkout).</>
-            : <>Land <strong>in corso</strong>: la fusione su main sta girando adesso — l'esito arriva nel thread.</>}
+            : <>Land <strong>in corso</strong>: la fusione su main sta girando adesso. L'esito arriva nel thread.</>}
         </div>
       )}
       {landing?.phase === 'failed' && (
@@ -1491,7 +1573,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
           data-testid="task-reopened-notice"
           className="shrink-0 border-b border-amber-500/20 bg-amber-500/10 px-3 py-1.5 text-[11px] text-amber-200"
         >
-          ↩︎ <strong>Riaperta</strong> {reopened.detail} — era in Done. Il motivo è nel thread qui sotto.
+          ↩︎ <strong>Riaperta</strong> {reopened.detail}. Era in Done, e il motivo è nel thread qui sotto.
         </div>
       )}
       {/* IL GUSCIO — chi possiede l'altezza, e dove sta il solo scroll.
@@ -1550,6 +1632,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             {task?.parentTaskId && onOpenTask && (
               <button
                 onClick={() => onOpenTask(task.parentTaskId!)}
+                title={tr('board.task.openParentCardTitle')}
                 className="mb-1.5 flex items-center gap-1 rounded bg-violet-500/15 px-1.5 py-0.5 text-[11px] text-violet-300 hover:bg-violet-500/25"
               >⤴ {tr('board.task.parentTask')}</button>
             )}
@@ -1666,11 +1749,11 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                   onClick={() => setLabelMenuOpen(true)}
                   data-testid="task-labels-chip"
                   title={task.labels.some((l) => l.label === 'invisibile')
-                    ? 'Invisibile: non tocca client/src — con la barra verde la puo\' chiudere il conduttore'
+                    ? 'Invisibile: non tocca client/src. Con la barra verde la puo\' chiudere il conduttore.'
                     : task.labels.some((l) => l.label === 'visibile')
-                      ? 'Visibile: tocca una superficie che si vede — resta in review finche\' non la guarda un umano'
+                      ? 'Visibile: tocca una superficie che si vede. Resta in review finche\' non la guarda un umano.'
                       : task.labels.some((l) => l.label === 'decisione')
-                        ? 'Decisione: un piano, una ricerca, un documento — la decide un umano, sempre'
+                        ? 'Decisione: un piano, una ricerca, un documento. La decide un umano, sempre.'
                         : 'Nessuna etichetta di chiusura: la chiude un umano'}
                   className="flex min-w-0 items-center gap-1.5 rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-app-text-secondary hover:bg-white/20"
                 >
@@ -1707,8 +1790,8 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                   onClick={() => setModelMenuOpen(true)}
                   data-testid="task-model-chip"
                   title={(task.agentMs > 0 || task.agentTokens > 0)
-                    ? `Modello ${task.model ? fmtModel(task.model) : 'Auto'}${task.effort ? ` · sforzo ${task.effort}` : ''} · tempo ${fmtMs(task.agentMs)}${task.agentTokens ? `, ${task.agentTokens.toLocaleString('it-IT')} token` : ''}${task.agentCacheReadTokens > 0 ? ` (+${fmtTok(task.agentCacheReadTokens)} cache read)` : ''} — clicca per cambiare modello`
-                    : "Modello dell'agent — Auto = il classificatore opus-first sceglie per task"}
+                    ? `Modello ${task.model ? fmtModel(task.model) : 'Auto'}${task.effort ? ` · sforzo ${task.effort}` : ''} · tempo ${fmtMs(task.agentMs)}${task.agentTokens ? `, ${task.agentTokens.toLocaleString('it-IT')} token` : ''}${task.agentCacheReadTokens > 0 ? ` (+${fmtTok(task.agentCacheReadTokens)} cache read)` : ''} · clicca per cambiare modello`
+                    : "Modello dell'agent. Auto = il classificatore opus-first sceglie per task."}
                   className="flex min-w-0 items-center gap-1.5 rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-app-text-secondary hover:bg-white/20"
                 >
                   <Sparkles className="h-3 w-3 shrink-0 text-app-text-muted" />
@@ -1746,7 +1829,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                     ref={blockerChipRef}
                     onClick={() => openBlockerMenu(blockerChipRef.current)}
                     data-testid="task-blocked-by-chip"
-                    title={`${blockedChip.title} — clicca per cambiare il bloccante`}
+                    title={`${blockedChip.title} · clicca per cambiare il bloccante`}
                     className="flex min-w-0 items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-[11px] text-amber-300 hover:bg-amber-500/25"
                   >
                     <Lock className="h-3 w-3 shrink-0" />
@@ -1764,7 +1847,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                     onClick={() => onOpenTask(workAncestorId)}
                     data-testid="task-subtask-work-chip"
                     data-kind="parent-turn"
-                    title={`${workChip.title} — clicca per aprirlo`}
+                    title={`${workChip.title}: clicca per aprire la sua scheda`}
                     className="flex min-w-0 items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-app-text-muted hover:bg-white/20"
                   >
                     <UserRound className="h-3 w-3 shrink-0" />
@@ -1966,7 +2049,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               scelto il diff del task è quello del tentativo 1 — che può non
               essere quello che si tiene. Prima si sceglie, poi si revisiona. */}
           <TaskAttemptsSection projectId={projectId} taskId={taskId} bump={bump} onChanged={onChanged} onOpenTopic={onOpenTopic} />
-          {task.assignedTopicId && <TaskChangesSection projectId={projectId} taskId={taskId} bump={bump} onSent={onChanged} />}
+          {hasCodeQuestion(task) && <TaskChangesSection projectId={projectId} taskId={taskId} bump={bump} onSent={onChanged} />}
         </div>
         {/* ── fine del solo scroll verticale ─────────────────────────────── */}
           {/* LA SESSIONE, in modo largo: sta a SINISTRA col task, stretta, dove
@@ -2104,7 +2187,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               />
               <button
                 onClick={send} disabled={sending || (!draft.trim() && attachments.length === 0)}
-                title={isAgentReview ? "Rispondi (l'agent riparte con la tua risposta)" : agentBusy ? "Invia all'agent — lo riceve al prossimo turno (come Claude Code)" : 'Commenta'}
+                title={isAgentReview ? "Rispondi (l'agent riparte con la tua risposta)" : agentBusy ? "Invia all'agent. Lo riceve al prossimo turno (come Claude Code)" : 'Commenta'}
                 className={`rounded p-1.5 text-white disabled:opacity-50 ${isAgentReview || agentBusy ? 'bg-sky-500/80 hover:bg-sky-500' : 'bg-emerald-500/80 hover:bg-emerald-500'}`}
               >{sending ? <Spinner size="md" tone="current" /> : <Send className="h-4 w-4" />}</button>
             </div>
@@ -2191,7 +2274,7 @@ export function SubtaskNode({ projectId, node, depth, onOpenTask }: {
           <button
             onClick={() => onOpenTask?.(node.id)}
             data-testid={`subtask-open-${node.id}`}
-            title={tr('board.task.openSubtaskTitle')}
+            title={tr('board.task.openSubtaskCardTitle')}
             className={`min-w-0 flex-1 truncate text-left text-xs ${node.status === 'done' ? 'text-app-text-muted line-through' : 'text-app-text'}`}
           >{node.text}</button>
         ) : (

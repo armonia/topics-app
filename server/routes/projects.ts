@@ -341,7 +341,7 @@ export function createProjectsRouter(ctx: AppContext): RouteHandler {
             if (err instanceof ProjectInUseError) {
               return errorResponse(
                 409,
-                `Project has ${err.worktreeCount} worktree(s) — delete them first`,
+                `Project has ${err.worktreeCount} worktree(s). Delete them first.`,
               );
             }
             throw err;

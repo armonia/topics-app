@@ -25,6 +25,18 @@
 //                      history si peserebbero addosso.
 //   /topic/<topicId> → { kind: 'chat' }   — la push di fine turno.
 //
+// ── `task` è la SCHEDA, `chat` è la SESSIONE: non sono la stessa tab ─────────
+// Di un task dispatchato esistono DUE destinazioni, con due chiavi diverse e due
+// vite diverse, e la grammatica le tiene già separate — è il nome umano che le
+// confondeva («apri il task» diceva sia l'una sia l'altra).
+//   • `/tab/task/<taskId>`  = la SCHEDA: descrizione, checklist, consegna,
+//     thread. È dove si DECIDE, ed esiste sempre, anche a agente morto.
+//   • `/tab/chat/<topicId>` = la SESSIONE: la chat viva dell'agente
+//     (`tasks.assigned_topic_id`). È dove si LAVORA, e può non esserci più.
+// Chi aggiunge una superficie che porta all'una o all'altra la nomini di
+// conseguenza: mai «apri il task», che non dice quale delle due. Il predicato
+// che decide se la seconda esiste ancora è `client/src/lib/taskSession.ts`.
+//
 // ── Perché la chat porta il TOPIC e non l'id della pane ──────────────────────
 // La stessa chat ha DUE id di pane a seconda di dove sta: `<topicId>` nudo a
 // livello App, `chat:<topicId>` dentro una finestra di progetto. Un link che
@@ -279,6 +291,7 @@ export function parseTabRef(ref: string): TabTarget | null {
  *  `topics.name`, `tasks.text`, il roster dei terminali). */
 export function describeTabTarget(target: TabTarget): string {
   switch (target.kind) {
+    // La SESSIONE di lavoro, quando quel topic è l'agente di un task.
     case 'chat': return `chat ${target.key}`;
     case 'terminal': return `terminale ${target.key}`;
     case 'browser': return `browser ${target.key}`;
@@ -286,7 +299,10 @@ export function describeTabTarget(target: TabTarget): string {
     case 'file': return `file ${target.key} (in ${target.projectPath})`;
     case 'diff': return `diff ${target.key} (in ${target.projectPath})`;
     case 'panel': return `pannello ${target.key}`;
-    case 'task': return `task ${target.key}`;
+    // «task» da solo era ambiguo esattamente quanto il bottone che apriva:
+    // questo kind è la SCHEDA (il drawer), mai la sessione dell'agente — quella
+    // è `chat`, e ha un id diverso. Vedi la nota in testa al file.
+    case 'task': return `scheda del task ${target.key}`;
     default: return String(target.kind);
   }
 }

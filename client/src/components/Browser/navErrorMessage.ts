@@ -85,7 +85,7 @@ export function navErrorMessage(e: RawNavError): NavErrorText {
   if (e.code === CANNOT_CONNECT || e.code === CONNECTION_LOST) {
     if (loopback && where) {
       return {
-        message: `Nessuno risponde su ${where} — su quella porta non c'è nessun server in ascolto.`,
+        message: `Nessuno risponde su ${where}. Su quella porta non c'è nessun server in ascolto.`,
         hint: "Se era l'anteprima di un task, quel server si è spento a fine sessione: riaprirla non lo riaccende.",
       };
     }

@@ -25,7 +25,7 @@ export class SlugConflictError extends Error {
 
 export class ProjectInUseError extends Error {
   constructor(public readonly worktreeCount: number) {
-    super(`Project has ${worktreeCount} worktree(s) — delete them first`);
+    super(`Project has ${worktreeCount} worktree(s). Delete them first.`);
     this.name = "ProjectInUseError";
   }
 }

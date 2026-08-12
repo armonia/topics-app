@@ -2061,7 +2061,7 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
       <button
         onClick={() => { signalsActions.clearTerminalFinished(s.id); onTerminalClick?.(s.id, s.name); }}
         className="flex items-center gap-2 flex-1 min-w-0 h-full text-left"
-        title={`${s.name} — ${s.cwd}`}
+        title={`${s.name} · ${s.cwd}`}
       >
         {/* Nello slot condiviso: tre glifi diversi per lo stesso posto, e senza
             un contenitore fisso il nome partiva da una x diversa a seconda di
