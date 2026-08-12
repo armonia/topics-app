@@ -270,6 +270,17 @@ export const ACTIVE_DISPATCH_STATES = ['queued', 'starting', 'working'] as const
 export type ActiveDispatchState = (typeof ACTIVE_DISPATCH_STATES)[number];
 
 /**
+ * Il chip che il dispatcher mette quando DECIDE di non far partire un task.
+ *
+ * Sta qui perché adesso ha due lettori che devono concordare: il dispatcher che
+ * lo scrive (`CHIP_QUEUED`) e `rowToTask`, che da quel chip più il peso deduce
+ * «questa card è il tappo della coda». Due letterali `'queued'` in due file
+ * sarebbero andati in deriva nel modo peggiore: la ragione sulla card non
+ * sarebbe sparita con un errore, sarebbe tornata a dire «in coda».
+ */
+export const DISPATCH_CHIP_QUEUED = 'queued';
+
+/**
  * True se su questo task c'è un agente al lavoro ADESSO (vedi ACTIVE_DISPATCH_STATES).
  *
  * È un type guard, non un `boolean`: così `ActiveDispatchState` ha un
@@ -526,6 +537,7 @@ export type QueueReasonKind =
   | 'parent_review'  // è uno step e il padre aspetta una decisione umana
   | 'parent_turn'    // è uno step e l'agente del padre lo lavora nel suo turno
   | 'parent_idle'    // è uno step e il padre non è al lavoro: non lo lavora nessuno
+  | 'heavy_hold'     // è PESANTE, aspetta margine, e intanto tiene ferma la coda
   | 'unknown';       // il server non è riuscito a calcolarla: il buco, dichiarato
 
 /**
@@ -574,6 +586,17 @@ export interface QueueContext {
    * un progetto solo, `rootsOnly`, non archiviati.
    */
   ahead: number;
+  /**
+   * Questo task è PESANTE e il dispatcher lo sta trattenendo (chip `queued`).
+   *
+   * Non è «aspetta il suo turno»: il ramo trattenuto del tick fa `break`, quindi
+   * finché aspetta lui non parte NESSUNO. È la differenza che la board non
+   * sapeva dire, e costava ore: la notte del 12/08 quaranta card idonee e due
+   * `in_progress` col tetto a 9, tutte con lo stesso chip «in coda» addosso.
+   */
+  heavyHeld?: boolean;
+  /** Quanti task idonei stanno DIETRO: quelli che il `break` sta fermando. */
+  behind?: number;
   /** Lo stato del padre, per uno step. `null` = non è uno step, o padre sparito. */
   parentStatus: TaskStatus | string | null;
   /** Vero quando il task non ha una board con una directory (`_none`). */
@@ -725,6 +748,23 @@ export function deriveQueueReason(
     return {
       kind: 'dispatch_off', tone: 'stalled', head: 'ferma', detail: 'dispatch spento',
       title: "Idonea, ma l'auto-dispatch è spento: questa colonna è una lista, non una coda. Non partirà nessuno finché non riaccendi l'interruttore.",
+    };
+  }
+
+  // Un pesante trattenuto non «aspetta uno slot»: è il tappo. Viene dopo
+  // l'interruttore (a dispatch spento non c'è nessuna coda da tappare) e prima
+  // della fila, perché «in coda, 0 davanti» su una board immobile è vero alla
+  // lettera e completamente fuorviante: fa sembrare che manchi un posto, mentre
+  // il posto c'è e a non muoversi è la fila intera per colpa di questa riga.
+  if (ctx.heavyHeld) {
+    const dietro = ctx.behind ?? 0;
+    return {
+      kind: 'heavy_hold', tone: 'waiting', head: 'ferma la coda',
+      detail: dietro === 0 ? 'pesante, aspetta margine' : `pesante, ${dietro} dietro`,
+      title: dietro === 0
+        ? 'È un task PESANTE: parte da solo, quindi aspetta che la macchina abbia margine. Riparte da sé, non devi fare niente.'
+        : `È un task PESANTE e tiene la testa della coda: ${dietro} task dietro di lui non partono finché non parte questo. ` +
+          "Aspetta che la macchina abbia margine, e comunque parte entro il tetto d'attesa. Se ti serve prima la coda dietro, abbassagli la priorità.",
     };
   }
 
