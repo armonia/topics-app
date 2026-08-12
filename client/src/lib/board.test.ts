@@ -1,5 +1,5 @@
 import { test, expect, describe } from 'bun:test';
-import { blockedByChip, reopenedChip, boardIdForPath, diffTotals, hasCodeQuestion, TASK_STATUSES, parseQuestionBlock, type BoardTask } from './board';
+import { blockedByChip, reopenedChip, boardIdForPath, diffTotals, hasCodeQuestion, TASK_STATUSES, parseQuestionBlock, waitingOnThisChip, type BoardTask } from './board';
 
 describe('boardIdForPath', () => {
   // Parity lock with the server (services/tasks.ts:projectIdForPath). Must stay
@@ -85,7 +85,10 @@ describe('blockedByChip', () => {
 
   test('bloccante risolto: il titolo finisce nel chip', () => {
     expect(chip({ blockedBy: { id: 'blk', text: 'Rifai la scheda', status: 'todo', archived: false } }))
-      .toEqual({ label: 'in attesa di: Rifai la scheda', title: 'In attesa di: Rifai la scheda' });
+      .toEqual({
+        label: 'aspetta: Rifai la scheda',
+        title: 'Questa card aspetta «Rifai la scheda»: non parte finché quella non chiude.',
+      });
   });
 
   // Il caso per cui esiste tutto questo: il bloccante non è nella lista fetchata
@@ -93,7 +96,7 @@ describe('blockedByChip', () => {
   // Prima il chip spariva e la card sembrava libera; ora resta, degradato.
   test('titolo mancante: il chip resta, con il testo degradato', () => {
     const c = chip({ blockedBy: null });
-    expect(c?.label).toBe('in attesa di un altro task');
+    expect(c?.label).toBe('aspetta un altro task');
     expect(c?.title).toContain('non parte finché');
   });
 
@@ -177,5 +180,55 @@ describe('hasCodeQuestion', () => {
   test('review e done hanno SEMPRE la domanda, anche senza topic', () => {
     expect(hasCodeQuestion(t({ status: 'review' }))).toBe(true);
     expect(hasCodeQuestion(t({ status: 'done' }))).toBe(true);
+  });
+});
+
+/**
+ * I DUE VERSI DELL'ATTESA — il cricchetto che impedisce alla parola di tornare.
+ *
+ * Fino al 12/08 la stessa card diceva «in attesa di: X» e «3 in attesa», cioè
+ * usava una parola sola per due fatti OPPOSTI: «io aspetto un altro» e «altri
+ * tre aspettano me» (chiudere questa card ne sblocca tre). L'unico indizio era
+ * il numero davanti, e la disambiguazione viveva nel tooltip: su un telefono,
+ * nessuna.
+ *
+ * Qui si pinna la cosa più semplice e più difficile da tenere: che le due
+ * frasi non condividano una parola piena. Un giorno qualcuno riscriverà una
+ * delle due e la parola generica tornerà — questo test è quel giorno.
+ */
+describe('«io aspetto» e «altri aspettano me» non condividono una parola', () => {
+  const parole = (s: string) =>
+    new Set(
+      s.toLowerCase().replace(/[«»:,.]/g, ' ').split(/\s+/)
+        // Articoli e pronomi non contano: «la» sta in entrambe e non dice niente.
+        .filter((w) => w.length > 2 && !['che', 'del', 'della', 'una', 'uno'].includes(w)),
+    );
+
+  test('le etichette dei due chip sono disgiunte', () => {
+    const io = blockedByChip({
+      blockedByTaskId: 'blk',
+      blockedBy: { id: 'blk', text: 'Migrare le foto', status: 'todo', archived: false },
+    } as BoardTask)!;
+    const altri = waitingOnThisChip({ waitingOnCount: 3, status: 'todo' } as BoardTask)!;
+    // Il titolo del bloccante non fa parte del vocabolario: è un dato.
+    const mie = parole(io.label.replace('Migrare le foto', ''));
+    const loro = parole(altri.label);
+    const comuni = [...mie].filter((w) => loro.has(w));
+    expect(comuni, `parole in comune fra i due versi: ${comuni.join(', ')}`).toEqual([]);
+  });
+
+  test('nessuna delle due usa più «in attesa», la parola ambigua', () => {
+    const io = blockedByChip({ blockedByTaskId: 'blk', blockedBy: null } as BoardTask)!;
+    const altri = waitingOnThisChip({ waitingOnCount: 2, status: 'todo' } as BoardTask)!;
+    expect(io.label).not.toContain('in attesa');
+    expect(altri.label).not.toContain('in attesa');
+  });
+
+  test('«altri aspettano me» si coniuga sul numero, e tace quando è chiusa', () => {
+    expect(waitingOnThisChip({ waitingOnCount: 1, status: 'todo' } as BoardTask)?.label).toBe('1 la aspetta');
+    expect(waitingOnThisChip({ waitingOnCount: 4, status: 'todo' } as BoardTask)?.label).toBe('4 la aspettano');
+    expect(waitingOnThisChip({ waitingOnCount: 0, status: 'todo' } as BoardTask)).toBeNull();
+    // Su una card chiusa il legame è già stato sciolto: dirlo sarebbe archeologia.
+    expect(waitingOnThisChip({ waitingOnCount: 3, status: 'done' } as BoardTask)).toBeNull();
   });
 });

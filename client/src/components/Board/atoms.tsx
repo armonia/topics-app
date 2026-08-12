@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Check, Hash, Pencil, Sigma } from 'lucide-react';
-import type { TaskStatus, TaskLabel } from '../../lib/board';
+import type { TaskStatus, TaskLabel, QueueReason, QueueTone } from '../../lib/board';
 import type { LabelSource } from '../../../../shared/task-labels';
 import { STATUS_ICON_COLOR, DISPATCH_CHIP } from './constants';
 import { memorableId } from '../../lib/memorableId';
@@ -177,10 +177,53 @@ export function DispatchChip({ state, error }: { state: string; error?: string |
       data-testid="dispatch-chip"
       data-state={state}
       className={`inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs md:text-[11px] ${chip.cls}`}
-      title={chip.title ?? error ?? undefined}
+      // Il buco si dichiara: uno stato di park senza `dispatch_error` è una card
+      // ferma di cui NESSUNO ha scritto il motivo, e un tooltip assente si legge
+      // come «non c'è niente da sapere». C'è, e non lo sappiamo.
+      title={chip.title ?? error ?? 'Motivo non registrato: la card è ferma qui e nessuno ha scritto perché. Guarda il thread.'}
     >
       {Icon && <Icon className="h-3 w-3" aria-hidden />}
       {chip.text}
+    </span>
+  );
+}
+
+/**
+ * Il TONO decide il colore, e il colore è la risposta alla sola domanda che
+ * conta guardando una colonna ferma: devo aspettare o devo fare qualcosa?
+ *
+ * `queued` neutro come la coda che scorre (non è un problema, è una fila);
+ * `waiting` indaco, come il chip «in attesa» del ciclo di vita — riparte da
+ * sola; `stalled` ambra con anello, il solo che chiede te. Prima erano tutti la
+ * stessa parola grigia, «in coda», e i due estremi — «aspetta uno slot» e «non
+ * partirà mai» — si leggevano identici.
+ */
+const QUEUE_TONE_CLS: Record<QueueTone, string> = {
+  queued: 'bg-white/10 text-app-text-secondary',
+  waiting: 'bg-indigo-500/15 text-indigo-300',
+  stalled: 'bg-amber-500/15 text-amber-300 ring-1 ring-amber-400/30',
+};
+
+/**
+ * PERCHÉ questa card è ferma: la frase, così com'è arrivata.
+ *
+ * Non c'è nessuna logica qui, e non deve essercene: `head`, `detail` e `title`
+ * li scrive il server insieme alla decisione di non dispacciare
+ * (`shared/board.deriveQueueReason`, chiamata da `rowToTask`). Se un giorno
+ * questo componente si mettesse a dedurre la ragione dai campi del task,
+ * direbbe la regola di ieri con la faccia sicura il giorno che il dispatcher
+ * cambia — ed è esattamente il difetto che il chip chiude.
+ */
+export function QueueReasonChip({ reason }: { reason: QueueReason }) {
+  return (
+    <span
+      data-testid="queue-reason-chip"
+      data-kind={reason.kind}
+      data-tone={reason.tone}
+      className={`inline-flex min-w-0 shrink items-center rounded px-1.5 py-0.5 text-xs md:text-[11px] ${QUEUE_TONE_CLS[reason.tone]}`}
+      title={reason.title}
+    >
+      <span className="truncate">{reason.head} · {reason.detail}</span>
     </span>
   );
 }

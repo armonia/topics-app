@@ -18,6 +18,13 @@
  *                                         (+ `dispatchState` opzionale),
  *                              come il dispatcher — così si può testare la
  *                              superficie dei task dispatchati senza agente.
+ *   POST /api/test/tasks/:id/dispatch-gate  mette una card in uno dei modi in
+ *                              cui il dispatcher la tiene ferma (tentativi
+ *                              esauriti, finestra d'attesa aperta). Ci si arriva
+ *                              solo con un agente vero che fallisce o che
+ *                              dichiara un'attesa: senza questo verbo il chip
+ *                              che dice PERCHÉ una card è ferma sarebbe
+ *                              testabile solo su metà dei suoi rami.
  *   POST /api/test/tasks/:id/attempts     semina i tentativi di un fan-out già
  *                              chiuso, come il dispatcher a fine giro — così il
  *                              pannello "Tentativi" e la scelta del vincitore si
@@ -236,6 +243,43 @@ export function createE2eRouter(ctx: AppContext): RouteHandler {
         if (body.dispatchState !== undefined) {
           task = svc.setDispatchState({ taskId, state: body.dispatchState });
         }
+        return json({ ok: true, task });
+      } catch (e) {
+        return json({ error: (e as Error).message }, 400);
+      }
+    }
+
+    // POST /api/test/tasks/:taskId/dispatch-gate {attempts?, deferMinutes?} —
+    // porta un task in uno dei modi in cui il dispatcher lo tiene fermo.
+    //
+    // Stessa ragione di `bind-topic`: sono stati che nessuna API pubblica sa
+    // costruire. Il budget dei tentativi lo consuma solo un agente vero che
+    // fallisce N turni; la finestra d'attesa la scrive solo `wait_for_condition`
+    // dalla sessione di un agente dispacciato. Senza questi due, il chip che
+    // dice PERCHÉ una card è ferma resta testabile su due rami su sei.
+    //
+    // `deferMinutes` passa dal servizio vero (`deferForWait`), che scrive anche
+    // la nota e il chip. I tentativi no: il verbo vero (`bumpDispatchAttempt`)
+    // vuole un claim vivo, cioè esattamente l'agente che qui non c'è — quindi
+    // la colonna si scrive a mano, ed è l'unico punto in cui questo file lo fa.
+    const gate = /^\/api\/test\/tasks\/([^/]+)\/dispatch-gate$/.exec(pathname);
+    if (method === "POST" && gate) {
+      const body = (await req.json().catch(() => null)) as { attempts?: number; deferMinutes?: number; deferReason?: string } | null;
+      const taskId = decodeURIComponent(gate[1]);
+      try {
+        const svc = createTaskService(db);
+        if (typeof body?.attempts === "number") {
+          db.prepare("UPDATE tasks SET dispatch_attempts = ? WHERE id = ?").run(body.attempts, taskId);
+        }
+        if (typeof body?.deferMinutes === "number") {
+          svc.deferForWait({
+            taskId,
+            reason: body.deferReason ?? "attesa dichiarata da un test",
+            minutes: body.deferMinutes,
+          });
+        }
+        const task = svc.get(taskId)?.task ?? null;
+        if (!task) return json({ error: "task_not_found" }, 404);
         return json({ ok: true, task });
       } catch (e) {
         return json({ error: (e as Error).message }, 400);
