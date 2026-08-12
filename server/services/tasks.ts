@@ -47,6 +47,7 @@ import { EFFORT_TIERS } from "../../shared/effort";
 // Il vocabolario delle etichette e la regola che le deriva: una sola
 // dichiarazione, letta anche dal client e dalla derivazione alla consegna.
 import { CLOSER_LABELS, KIND_LABELS, deriveCloser, deriveKind, isCloserLabel, isKindLabel, isTaskLabel, normalizeLabels, type LabelSource, type TaskFile, type TaskLabel, type TaskLabelRow } from "../../shared/task-labels";
+import { findNeighbours, type Neighbour } from "../../shared/task-similarity";
 import type { TaskStatus, TaskComment, BoardSettings, BoardSettingsPatch, BlockerRef, QueueReason, SubtaskWork, TaskWeight } from "../../shared/board";
 
 export type Actor = "human" | "agent";
@@ -469,6 +470,15 @@ interface ServiceOpts {
   fileExists?: (p: string) => boolean;
 }
 
+/** Cosa e' stato spostato da una fusione. I conti servono a chi la annuncia. */
+export interface MergeOutcome {
+  survivor: Task;
+  /** La card assorbita, com'e' rimasta: archiviata, con la sua ricevuta. */
+  merged: Task;
+  movedComments: number;
+  movedChildren: number;
+}
+
 export interface TaskService {
   create(input: CreateTaskInput): Task;
   get(taskId: string, opts?: { projectId?: string }): { task: Task; comments: TaskComment[]; children: Task[] } | null;
@@ -562,6 +572,26 @@ export interface TaskService {
    */
   deriveLabelsFromDiff(args: { taskId: string; files: readonly TaskFile[] }): Task | null;
   /** Soft-delete (archive) — the row stays for history but drops off the board. */
+  /**
+   * Fonde `taskId` dentro `intoTaskId`: il thread e i sottotask passano alla
+   * superstite, la card assorbita viene ARCHIVIATA (mai cancellata). Vedi
+   * l'implementazione per la promessa esatta su cosa si perde e cosa no.
+   */
+  merge(args: { taskId: string; intoTaskId: string; by: string; projectId?: string }): MergeOutcome;
+
+  /**
+   * Le card VIVE di una board che dicono gia' quello che sta per essere creato.
+   * Da chiamare prima di aprire la card, non dopo.
+   */
+  findDuplicates(args: {
+    projectId: string;
+    text: string;
+    excludeTaskId?: string;
+    limit?: number;
+    /** Solo le card di primo livello: i passi ripetuti sotto padri diversi non sono doppioni. */
+    rootsOnly?: boolean;
+  }): Neighbour[];
+
   archive(args: { taskId: string; projectId?: string }): Task;
   /**
    * Nearest self-or-ancestor bound to an agent topic — the dispatch root of the
@@ -1550,6 +1580,21 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
   }
 
   /**
+   * Nota della macchina nel thread (kind='review-note'): informa senza svegliare
+   * l'agente e senza contare come sua ultima parola. INSERT diretto, come
+   * `logStatus`: qui non servono dedupe, allegati o composizione di domande, e
+   * passare dal path umano farebbe di una ricevuta un messaggio a cui
+   * rispondere.
+   */
+  function addNote(taskId: string, author: string, content: string): void {
+    try {
+      db.prepare(
+        "INSERT INTO task_comments (id, task_id, author, content, kind, created_at) VALUES (?, ?, ?, ?, 'review-note', ?)",
+      ).run(uuid(), taskId, author || "system", content, now());
+    } catch { /* la ricevuta è un di più: non deve far fallire l'operazione */ }
+  }
+
+  /**
    * Validate a blocked-by edge `taskId → blockerId`. The blocker must exist
    * and be alive; self-blocks and cycles (walking the blockers' own chain)
    * are rejected — a cycle would deadlock the whole dispatch queue.
@@ -2135,6 +2180,117 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       }
       logStatus(taskId, "review", target, by);
       return rowToTask(getTaskRow(taskId));
+    },
+
+    /**
+     * Fonde due card che dicono la stessa cosa.
+     *
+     * La promessa, scritta com'e' verificata in `task-merge.test.ts`: NIENTE
+     * viene cancellato. La card assorbita resta come riga archiviata, il suo
+     * thread e i suoi sottotask passano alla superstite, e le due card si
+     * scrivono a vicenda dove e' finito il lavoro.
+     *
+     * L'ordine dentro la transazione non e' negoziabile. I sottotask si
+     * staccano PRIMA dell'archiviazione, perche' `archive()` cascata su tutto
+     * il sottoalbero (e' un soft-delete voluto: un sottotask orfano di un padre
+     * archiviato sarebbe una riga irraggiungibile). Staccarli dopo vorrebbe
+     * dire archiviarli e poi riesumarli, cioe' una finestra in cui il lavoro di
+     * qualcun altro risulta sparito.
+     *
+     * Il limite, detto chiaro: la fusione NON e' reversibile con un tasto. Non
+     * si perde niente, ma per tornare indietro bisogna sapere quali commenti
+     * erano di chi, e questo schema non ha dove scriverlo (servirebbe una
+     * tabella, cioe' una migration). Per questo il verdetto lo propone la
+     * macchina e il tasto lo preme una persona: vedi `shared/task-similarity.ts`,
+     * dove c'e' anche il falso positivo noto.
+     */
+    merge({ taskId, intoTaskId, by, projectId }): MergeOutcome {
+      const loser = getTaskRow(taskId);
+      const winner = getTaskRow(intoTaskId);
+      if (!loser || (projectId && loser.project_id !== projectId)) {
+        throw new TaskServiceError("not_found", `task ${taskId} not found`);
+      }
+      if (!winner || (projectId && winner.project_id !== projectId)) {
+        throw new TaskServiceError("not_found", `task ${intoTaskId} not found`);
+      }
+      if (taskId === intoTaskId) {
+        throw new TaskServiceError("invalid_input", "una card non si fonde con se stessa");
+      }
+      if (loser.archived || winner.archived) {
+        throw new TaskServiceError("invalid_transition", "una card archiviata non si fonde");
+      }
+      if (loser.project_id !== winner.project_id) {
+        throw new TaskServiceError("invalid_transition", "le due card stanno su board diverse");
+      }
+      // Stesso gate di moveToProject: un agente vivo lavora un worktree legato
+      // a QUESTA card. Archiviarla sotto di lui lascia il worktree orfano.
+      if (loser.assigned_topic_id || isAgentWorking(loser.dispatch_state)) {
+        throw new TaskServiceError("invalid_transition", "la card ha un agente vivo: falla arrivare in review, o parcheggiala, prima di fonderla");
+      }
+      // La superstite non puo' stare nel sottoalbero della card che sparisce:
+      // finirebbe genitore di se stessa, e il ciclo renderebbe irraggiungibile
+      // tutto il ramo.
+      const dentro = db.prepare(
+        `WITH RECURSIVE subtree(id) AS (
+           SELECT id FROM tasks WHERE id = ?
+           UNION ALL
+           SELECT t.id FROM tasks t JOIN subtree s ON t.parent_task_id = s.id
+         )
+         SELECT COUNT(*) AS c FROM subtree WHERE id = ?`,
+      ).get(taskId, intoTaskId) as any;
+      if ((dentro?.c ?? 0) > 0) {
+        throw new TaskServiceError("invalid_transition", "la superstite e' un sottotask della card da fondere: fondi al contrario");
+      }
+
+      const ts = now();
+      const run = db.transaction(() => {
+        const moveChildren = db.prepare(
+          "UPDATE tasks SET parent_task_id = ?, updated_at = ? WHERE parent_task_id = ?",
+        ).run(intoTaskId, ts, taskId);
+        // I commenti mantengono created_at: il thread della superstite resta in
+        // ordine cronologico invece di avere un blocco appiccicato in fondo.
+        const moveComments = db.prepare("UPDATE task_comments SET task_id = ? WHERE task_id = ?").run(intoTaskId, taskId);
+        db.prepare("UPDATE tasks SET archived = 1, updated_at = ? WHERE id = ?").run(ts, taskId);
+        db.prepare("UPDATE tasks SET updated_at = ? WHERE id = ?").run(ts, intoTaskId);
+        return {
+          children: Number(moveChildren.changes ?? 0),
+          comments: Number(moveComments.changes ?? 0),
+        };
+      });
+      const moved = run();
+
+      // Le ricevute: kind 'review-note' perche' e' evidenza scritta dalla
+      // macchina. Non conta come ultima parola dell'agente e non sveglia
+      // nessuno, ma resta nel thread di entrambe le card.
+      const short = (id: string) => id.slice(0, 8);
+      addNote(intoTaskId, by, `Assorbita la card ${short(taskId)}, «${loser.text}». Commenti e sottotask sono qui.`);
+      addNote(taskId, by, `Fusa nella card ${short(intoTaskId)}, «${winner.text}».`);
+
+      const [survivor] = withSubtaskCounts([rowToTask(getTaskRow(intoTaskId))]);
+      return {
+        survivor: survivor!,
+        merged: rowToTask(getTaskRow(taskId)),
+        movedComments: moved.comments,
+        movedChildren: moved.children,
+      };
+    },
+
+    findDuplicates({ projectId, text, excludeTaskId, limit, rootsOnly }): Neighbour[] {
+      const body = (text ?? "").trim();
+      if (!body || !projectId) return [];
+      // Solo le card VIVE della propria board: una card archiviata e' gia'
+      // fuori, e proporla come doppione riporterebbe in vita una decisione
+      // che qualcuno ha gia' preso.
+      const rows = db.prepare(
+        `SELECT id, text, created_at FROM tasks
+          WHERE project_id = ? AND archived = 0 AND id != ?
+          ${rootsOnly ? "AND parent_task_id IS NULL" : ""}`,
+      ).all(projectId, excludeTaskId ?? "") as Array<{ id: string; text: string; created_at: string }>;
+      return findNeighbours(
+        body,
+        rows.map((r) => ({ id: r.id, text: r.text ?? "", createdAt: r.created_at })),
+        { limit },
+      );
     },
 
     archive({ taskId, projectId }): Task {
