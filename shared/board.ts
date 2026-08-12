@@ -653,6 +653,14 @@ export interface DispatchCapacity {
   load1: number;
   /** Spiegazione in una riga di come `recommended` è stato derivato. */
   reason: string;
+  /**
+   * Quanti agenti stanno girando ADESSO su questa macchina (i turni in volo del
+   * dispatcher). È il termine che manca per trasformare `recommended` da numero
+   * in consiglio: senza sapere quanti ne stanno girando, «max 2» non dice se
+   * c'è qualcosa da fare o no. Zero anche quando il dispatcher non c'è (un
+   * router montato senza, i test): un conteggio assente vale «nessuno».
+   */
+  running: number;
 }
 
 /** Le due primitive di collegamento dell'intake. */
