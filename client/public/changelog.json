@@ -1,5 +1,3264 @@
 [
   {
+    "version": "2.2.112",
+    "date": "2026-08-12",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Chiudere una pane non deve più cancellare la sessione condivisa",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Dimenticare un sito ora e' un comando, e dice cosa cancella prima di farlo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il kickoff dice che un sottotask in backlog e' un vicolo cieco",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "browser_*: backend WebView2 e WebKitGTK, e un cancello che li guarda",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Tre forme sbagliate nei backend nuovi, e lo user-agent che mancava",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Landare una card in review non la butta piu' in backlog come failed",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.111",
+    "date": "2026-08-12",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il segnaposto della versione usa il trattino corto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La barra distingue le due gambe, e tiene due testimoni invece di uno",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le fixture del ps non portano piu' il nome utente",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il sidecar Chromium usa il portachiavi finto: niente piu' dialoghi di sistema",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il TURN oltre-LAN resta fuori roadmap, e il README non mente piu'",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Anche il banco dei motori browser usa il portachiavi finto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le scelte tornano su OGNI card in review, non solo su quelle di un agente",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un cancello SCADUTO non e' un rosso: non ha misurato niente",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il verdetto che autorizza a cancellare guarda il contenuto, non la discendenza",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il click sul canale dati aveva portato via la tastiera del telefono",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un ramo potato dopo il proprio land non e' un land fallito",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Chiudere una tab non slogga più: via la cache, resta il login",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il fan-out torna al profilo dispatch, sotto il governo della board",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.110",
+    "date": "2026-08-12",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il padre fermo sui figli parcheggiati CHIEDE invece di sparire in backlog",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il banco A/B del giudice: dichiarato a knip, e senza byte NUL nel sorgente",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La soglia di compattazione e' 200k, non 100k: misurata su 351 sessioni vere",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il timeout di 5s tingeva di rosso la card di chi passava di li'",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il test del land segue il contratto vivo: due timestamp uguali si applicano entrambi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lo spazio dentro la risposta a una card non trascina piu' la card",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I chromium che apriamo portano un marchio, e all'avvio si spazzano quelli senza padre",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.109",
+    "date": "2026-08-12",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il numero della migration e' tutto il prefisso, non le prime tre cifre",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "TERM-03 non perdeva frame: il prompt arrivava tardi, e 15s erano il muro",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "landed: tre esiti invece di due, e il rosso resta solo sul debito",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "L'harness della ragione di coda dichiara anche le colonne arrivate da main",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La prova per contenuto si legge in due modi, e vale anche senza il ramo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La controprova di TERM-03: non era la singola attesa, era il tetto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Sei cancelli entrano tutti in review, e il settimo e' un 400 invece di sparire",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il land riallinea il ramo su main da sé, e il cancello migration smette di leggere i timestamp come «202»",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La DDL di tasks sta in un posto solo, e una colonna nuova fa rosso UN test",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La clip di consegna nasce corta invece di essere tagliata dopo",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.108",
+    "date": "2026-08-12",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "il secondo «+ → Browser» apriva niente",
+          "en": "the second «+ → Browser» opened nothing",
+          "scope": "browser",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "L'anteprima riempie la card: il tetto in larghezza se ne va",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'attesa dichiarata non costa un tentativo: le attese hanno un contatore loro",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il cancello d'identita' confronta cartelle, non stringhe",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Versione 2.2.107",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Sul ramo video non c'era nessun campo: la tastiera la nomina il server",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La metà server del fuoco, provata su un Chromium vero",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il drawer smette di mentire: chiuso non è vuoto, e uno stato non è un messaggio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un campo che la PATCH non sa applicare ora è un 400, non un 200 muto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il tipo che nessuno usa non è un contratto: via l'interfaccia esportata a vuoto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il park dell'attesa sfondata adesso avvisa",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Dichiarare le colonne del ritiro anche nell'harness della ricattura",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "«In coda» non dice perché: la ragione viaggia con la card, e i due «in attesa» si separano",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.107",
+    "date": "2026-08-12",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "TILE-28 chiede il movimento per sé: la config lo spegneva per tutti",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Ricattura evidenza: rifare l'anteprima di una card gia' in review",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La ricattura si consegna: cancelli verdi, cartella giusta, clip di prova",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un click nell'input non è un trascinamento: i sensori del drag diventano sordi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il WAL non lo gonfia quanta cache tieni, ma quante volte la riscrivi",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.106",
+    "date": "2026-08-12",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il pannello \"Modifiche\" mostra i file DELLA CARD, e continua dopo il land",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Fuori il trattino lungo dai testi che si leggono, spezzando le frasi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I cancelli tornano verdi, e la scheda Profile regge il dito",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La prova del pannello Modifiche: tre stati, su un repo e un worktree veri",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il land trova il ramo dalla CARD, non solo dall'agente",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il bump di versione è un gesto solo: `bun run bump` scrive tutti e quattro i posti",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La cronologia delle notifiche esiste perché adesso qualcuno registra cosa manda",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La regola del bump non usa il trattino che la regola vieta",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un gruppo si disegna finché tiene una tab: svuotato, sparisce",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il gruppo si crea con le mani: l'iframe non si mangia più il drop",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Top bar della kanban: i numeri diventano frasi, e i progetti diventano filtri",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il kickoff nomina CINQUE cancelli: `check:emdash` era il quinto e nessuno lo diceva",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il numero della migration lo dà l'orologio, non un contatore",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.105",
+    "date": "2026-08-12",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "il tetto dell'anteprima è un rapporto, non 144px fissi",
+          "en": "the preview cap is a ratio, not a fixed 144px",
+          "scope": "board",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il land in raffica non perde più le chiamate: coda serializzata + esito interrogabile",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La tastiera del pane browser segue il campo che tocchi, e la pagina non si scala",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "via la sonda della scala che nessuno chiama",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Da mobile: la review vale una schermata, e il testo non si taglia dietro l'input",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il refresh è un ritorno: niente si assembla sotto gli occhi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Su mobile il dito comanda: il cassetto lo segue, i pinnati stanno fermi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le etichette che decidono chi chiude la card: `visibile` la deriva il diff, `invisibile` non se la scrive l'agente",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le Impostazioni dal telefono: un pannello che ci sta, e zero componenti di sistema",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La chrome del telefono: in alto solo «Topics», in basso tre porte che seguono la curva dello schermo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le etichette sono TRE, non due: un piano non è invisibile — è invisibile il suo effetto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lo scheletro usa il rialzo di casa (guarded-10), che era anche l'unico nel bundle",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il riferimento al task sulla card è un segno, non una parola",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "«Ferma» nel menu della card: fermare un agente senza archiviare il task",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Scheda del task e sessione dell'agente: due gesti, due nomi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "statistiche d'uso reali + Rich Presence Discord gestita da Topics",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Le due guardie tornano verdi: niente nome utente nei test, tipi in shared/",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le due funzioni della notifica convivono: i tasti su ENTRAMBE le voci, e la voce la sceglie il dispositivo",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.103",
+    "date": "2026-08-12",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il tetto ai risultati MCP era 25.000 token: quasi nessuno lo toccava",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La coda del turno parte TUTTA INSIEME, non uno alla volta",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il task si copia: titolo + descrizione negli appunti dal drawer e dal tasto destro sulla card",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La barra si sposta dove la misura la mette: −30% token, −50% costo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il finto server MCP del banco legge stdin con un reader tipato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il drop dalla sidebar ignorava la cella su cui cadeva: apriva sempre nel serbatoio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "`done` deve voler dire ATTERRATO: chiudere una card ora landa il suo lavoro",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "«Non è su main» è una riga, non un paragrafo allarmato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'interruttore spento non si vedeva, e lo stesso interruttore aveva due nomi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un padre con sottotask aperti torna in coda, non in review",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La coda non deve contenere card che non partiranno mai",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Chi aspetta non è esaurito: il parcheggio guarda la finestra",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un padre non aspetta figli che nessuno prenderà",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il doc di protocollo assente fa ROSSO, non una riga in `skipped`",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il ramo di una card nasce da main, non dall'HEAD di chi sta lavorando",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I board si interrogano a turno, o il tetto globale ne affama uno",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "open_browser_pane apriva un contesto vivo senza montare nessun pannello: il frame cadeva fra i due consumatori",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il banco del tetto MCP è dichiarato in knip: era codice morto per il cancello",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il 65% che il tetto non tocca è prefisso all'88%: decomposizione che chiude al 100%",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'encode H.264 passa al SoC: -74% di CPU a 720p, -82% a 1080p",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le due sonde nuove sono dichiarate in knip",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La sonda WebRTC è dichiarata in knip",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "`ffmpeg` sta fra i binari esterni, come pkill e sqlite3",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il pezzo più grosso del prefisso è UN tool: Workflow, 7.856 token a ogni richiesta",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il client non ri-esporta un'etichetta che nessuno gli chiede",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il flush sul percorso di montaggio costa zero quando non c'e' niente da salvare",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La card nuova esce da dietro il composer: il fondo utile della colonna è il vetro, non il bordo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Smetti di tracciare il symlink `node_modules`, che portava un path assoluto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Copri anche un SYMLINK chiamato node_modules, non solo la cartella",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un'anteprima è ciò che qualcuno sa MOSTRARE: chiudi la porta al resto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "HEAD risponde come GET (era 404 su ogni path)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Confina la spec della parità HEAD: mancava hermetic(test)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Anteprima di review: due cancelli (identità della porta, contenuto della pagina)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Iscrizione Apple: chi può farla e cosa Apple chiede, scritto dove sta il resto della firma",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il quarto cancello entra nella barra: il kickoff nomina tutti e quattro",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il browser che serve solo all'agent non ruba una pane: proposta della card inline in chat",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un land fallito toglie la card da Done, e «non lo so» smette di somigliare a «niente da fare»",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'esito del land arriva allo stato della card, nei DUE versi — e si registra invece di dedurlo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il terminale non partiva nel banco: spawn-helper di node-pty senza bit +x",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "chi ha node_modules vecchie deve rifare bun install",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "La guardia del mezzo pixel misura invece di confrontare: rossa a 5,5px, verde a 6",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un land riuscito FERMA l'agente che sta ancora lavorando su quella card",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una card che esce da Done lo dice, e chi l'ha chiusa decide chi la riapre",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il secondo download di qualunque cosa non arrivava: riscrivevamo la destinazione",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il menu si aggiustava dentro un effetto: ora si aggiusta durante il render",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un sottotask in corso dice se lo lavora il padre o nessuno",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La prima asserzione non aspetta: il padre finto lo raccoglie il server",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una notifica di Topics smette di essere solo un link: porta i tasti",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I tasti del banner risolvono il progetto dalla porta unica, non dal feed roots-only",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La prova del tasto: un banner di SOTTOTASK esegue davvero, e senza il fix muore",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "2.2.103",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.102",
+    "date": "2026-08-11",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il cancello sul codice morto non è più cieco su api.ts (né su altri 21 file)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il contatore «N in attesa» lo risolve il server, non la lista fetchata",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il pannello del permesso ha una terza via: consente ORA e libera la sessione",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "`bun run lint` torna verde su main: due errori atterrati senza che nessun cancello girasse",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le tab di un task archiviato si smontano — record ui_state compresi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il tetto di concorrenza vale anche sul resume, non solo sui dispatch",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una card che aspetta uno slot lo dice anche sul chip, non solo nel thread",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un'attesa di slot viva non è un orfano: il recupero non se la mangia",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Mezzo pixel, non movimento ridotto: l'angolo della barra torna cliccabile e la suite gira a movimento ridotto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il registro dei banner non tiene un reset che nessun test chiama",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un cassetto cookie solo, e un flip che non balla",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le graffe in eccesso che il commit del merge si era portato dietro",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il broadcast dei progetti impara l'incognito: una fan-out che valuta per socket",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una card che esce da `done` dice perché: il land in conflitto firma la sua transizione",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il finto fetch del test ha i tipi veri, non due `any`",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'orchestratore non è un modo del composer: via il chip, la route e il tipo di sessione",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il land pubblica il ramo CONSEGNATO, e dice cosa non coincide",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Al boot lo store di una sessione viaggia UNA volta: la sonda parcheggia lo scan, la riadozione lo adotta",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le missioni: compiti a preset per la sessione di progetto accanto alla board",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una porta unica «da un id al suo task, a qualunque profondità»",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il vecchio offset di ripartenza non era la fine della fetta: era il suo inizio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il task appena creato si accende sulla board — e la board lo porta a schermo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il finto store parla la lingua di quello vero",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Clip di consegna: viewport 1440x760 (sotto la soglia di taglio 0.537) e didascalie sotto E2E_EVIDENCE",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una card non chiusa offre SCELTE: opzioni ricavate dallo stato, il testo libero in coda",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Via la direttiva eslint che non serve più",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un codice di chiusura chiesto su un socket che sta ancora nascendo si dice all'apertura, non si perde",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il drawer del task prende UN solo scroll, e la consegna diventa una sezione",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il blocco question torna byte-identico: il separatore sta nel RENDER, non nel salvato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il guscio del drawer ha un test che misura il caso peggiore, non 'un' task",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lo stat del tentativo conta solo il lavoro PROPRIO, non quello ereditato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il conflitto di land si risolve rifacendo la BASE del proprio ramo, non portandoci dentro main",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "board-doctor: i commit propri li chiede a own-commits.ts, non se li ricalcola",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "ui-state:init non porta piu' le tab dei task: -36,8% di payload a ogni riconnessione",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il protocollo di consegna era in .gitignore: nessuna worktree lo aveva",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Sessione adottata: seguire il FORK del transcript invece di ricongelarsi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Dettatura provata parlando: mic finto alimentato da voce vera, ⌘⇧D e ⌘⇧R end-to-end",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il costo non è quanto si è parlato: è contesto × chiamate, e adesso si vede mentre lavora",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.101",
+    "date": "2026-08-11",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "La spec chiedeva l'apertura forzata: ora chiede il manifesto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Mandare all'orchestratore e non vedere niente tornare indietro è il muto che qui è vietato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "In modalità orchestratore l'intake non ha oggetto: tace",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un padre non aspetta figli che nessuno prenderà",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il manifesto ritrovava main spostato: il ponte MCP non è più in topics.ts",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La consegna registra i commit PROPRI della card, non la punta del ramo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Chiudere un task si vede: Done in ordine di chiusura, e la card lampeggia",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "WSOPEN-03 non si accontenta dell'evento: guarda la pane",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Dettatura e note vocali sui modelli allo stato dell'arte",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Sessione adottata: la chat non si congela più sullo snapshot dell'adozione",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il resume che rinuncia si toglie dalla lista di chi aspetta",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Chi aspetta non è esaurito: il parcheggio guarda la finestra",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I board si interrogano a turno, o il tetto globale ne affama uno",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il banner di message:new passa dall'unica porta, e consegna una volta sola",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La quota di core si rilegge a metà sessione, invece di morire con lo spawn",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.100",
+    "date": "2026-08-10",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il sorvegliante dice la sua una volta, e al secondo giro tace",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Dieci card, una sola decisione: il rapporto le legge in un blocco",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Due guasti di oggi diventano due controlli: il parametro buttato e la consegna non sua",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Due cassetti cookie: la sessione condivisa nasceva sloggata accanto a una pane nativa già dentro",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il servizio poteva smettere di chiamarlo e i test restavano verdi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lo script della prova era codice morto per knip: ora è un comando",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il merge cancellava l'IndexedDB, e il separatore era un byte NUL",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "storage.json aveva i cookie in chiaro e i permessi di umask",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "«Vince chi arriva» sloggava: un cookie nativo vecchio ma non scaduto buttava fuori un login più fresco",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "TaskDetail parla due lingue: i letterali nel dizionario, l'italiano byte-identico così le spec e2e restano verdi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il piano si approvava a fiuto sulla prosa, e il blocco era un <pre>",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le orfane ora si parcheggiano, ma solo alla seconda conferma",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le due riconciliazioni del layout erano corpi di useEffect: ora sono funzioni con dei test",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il roster dei terminali e la vita delle pane browser escono da useProjectLayout",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Aprire un file, un diff o un log erano tre copie della stessa regola: ora è una, con i test",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La tab È il risultato del task, e a app chiusa non la scriveva nessuno",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Address bar cerca invece di rompersi; le frecce si spengono ai bordi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un task può diventare sottotask: la PATCH sposta invece di rispondere 200 a vuoto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il kickoff del padre porta i suoi sottotask aperti",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Nidificare una card in CODA non è lavoro in volo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Rilandare una card non lascia più un commit vuoto su main",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il topic dice claude-code, ma senza quella CLI /model andava al gateway",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La prova che il lavoro è già landato è la patch a rovescio, non il patch-id",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un padre con sottotask aperti torna in coda, non in review",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Rigenerate le prove dei casi limite: l'impronta seguiva sei file che ho cambiato oggi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "⌘R è un gesto solo: monitor, menu e comando ricaricano tutte le finestre",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il pick a vuoto lo riconosce solo git: si applica senza committare e si guarda lo stage",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un agente del board non tira più immagini dentro il contesto: cancello, non consiglio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "«Manca un pezzo sotto» non è un conflitto, e all'agente serve saperlo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una raffica di errori del provider non brucia più i tentativi di un task",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il tetto di concorrenza vale anche sul resume, non solo sui dispatch",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La finestra vuota adesso torna da sola: il proxy aspetta, il guscio guarda, la finestra rimbalza",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Chi paga riceve il gettone: il conio lo fa un servizio, non il terminale di Attilio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "«Ricrea la scheda» riconsegnava la stessa vista morta: l'etichetta si brucia",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "«Aperto» aveva tre registri e nessuna autorità: ora il fatto è uno",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una spec che confronta le tre risposte, che è la cosa che nessuno faceva",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un tipo esportato che nessuno legge è codice morto, e il cancello lo dice",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La card di una shell in background legge il registro, non il ricordo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il giudice declassava per la qualità della descrizione, non per la taglia del lavoro",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le colonne del board hanno un pavimento, crescono nello spazio libero e si fermano dove la card smette di leggersi meglio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il land si ferma quando due migration si prendono lo stesso numero",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il comando allineava la scatola, non il cerchio: sei pixel di salto sotto il dito",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il numero della migration non è più l'identità: due 089 si applicano entrambe",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una card che aspetta uno slot lo dice anche sul chip, non solo nel thread",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I messaggi di sistema dicono la stessa cosa in metà delle parole",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il box «Descrivi un task» non evapora se guardi altrove o apri un task",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La prova che il composer resta: tre casi, e sul codice vecchio erano rossi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La tab della board non diceva niente: adesso dice quanti aspettano te",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Due asserzioni del fan-out inseguono i messaggi accorciati in 76ea5396",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le asserzioni del fan-out inseguono i messaggi accorciati",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "`done` deve voler dire ATTERRATO: chiudere una card ora landa il suo lavoro",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "«Sei in fondo» era vero a vuoto: la lista non si era ancora misurata",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Muti un progetto intero e il telefono suonava lo stesso",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Rimetti le asserzioni del fan-out d'accordo col codice che sta QUI",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il ramo di una card nasce da main, non dall'HEAD di chi sta lavorando",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "0966af52 riconciliata: il cancello sulle fasi vive torna su main",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "il refactor del pane browser (card e718349b) torna su main",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "81bd4494 riconciliata: lo spinner immortale del browser Tauri si spegne",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "3ffbc11c riconciliata: il tono active del chip pane browser sale sopra 4,5",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "«Non è su main» è una riga, non un paragrafo allarmato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il byte NUL in board-doctor rendeva il file invisibile a grep -r",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il modale entra da opacity 0, ed è esattamente lì che veniva misurato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Chi si riattacca a un turno non lo cancella prima di sapere se saprà riscriverlo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La clip di consegna fa vedere le tre fasi: solo in E2E_EVIDENCE, la run normale non aspetta",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il typecheck del server diceva «0 errori» senza aver mai lanciato tsc",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "LinkProposal vive in shared/, non due volte",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'anteprima si poteva chiedere ma non arrivava: il campo veniva buttato via",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La regola dell'anteprima ha tre rami, criteri misurabili e un posto solo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'anteprima che l'agente imposta arrivava a una rotta che non la leggeva",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le attese del fan-out tornano al testo che main dice davvero",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una cartella non e' un commit: il checkout si libera, il branch resta",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il rosso deve nominare il danno, non il contatore",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La guardia sui reload muti cercava una forma, ora conta i siti",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "«Ricrea la scheda» diceva «risolto» senza aver ricreato niente",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il peso entra nello scheduler: un task che compila prende il turno da solo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'interruttore spento non si vedeva, e lo stesso interruttore aveva due nomi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il test delle sessioni shell salta anche sul 503, non solo sul 502",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I tre pannelli che si vedono solo in certi stati parlavano ancora italiano",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lo Stop non butta più una chat che ha già lavorato: un predicato solo, e l'ultima parola è del server",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il ponte del browser esce da topics.ts, e scegliere il pannello giusto ha finalmente dei test",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il chip «in attesa di» nasce dal legame, non dalla lista: il bloccante lo risolve il server",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il cancello sul codice morto era senza versione: `bunx knip` prendeva l'ultima, e due versioni davano due verdetti",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La clip di consegna mostrava i Checks sotto il bordo: verde non vuol dire in quadro",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Gli agenti del board vedono i nomi delle skill, non il catalogo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il recupero orfani guarda anche `queued`: una card che aspettava uno slot non resta ferma per sempre",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La checklist dell'agent resta sua anche quando il dispatcher rimescola",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La consegna registra il commit PROPRIO della card, non la punta del ramo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Progetti d'org + incognito, autore sui messaggi, profili amici da GitHub",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Alla consegna il worktree della card perde le dipendenze, non il lavoro",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Porta sul ramo vivo il recupero degli orfani `queued` (già su main)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una quota di core ai SOLI agenti dispatchati: la build di uno non è più la macchina di tutti",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Porta sul ramo vivo la rotta che legge l'anteprima (già su main)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "ai-bridge: l'ack scaduto non uccide più il turno — il ponte è saturo, non morto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il recinto si apriva da solo sotto carico: il divisore era la leva sbagliata",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La differenza fra le due capacità è ora un test, non solo un commento",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il report della misura: mediane per configurazione, corse rotte scartate",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il recinto valeva solo per metà delle installazioni: anche codex lo attraversa",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La coda non deve contenere card che non partiranno mai",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'orchestratore non è un pannello: è una sessione, e la board gliela si rilegge ogni turno",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il risultato di un task è più di una tab, e ognuna ha un nome",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.99",
+    "date": "2026-08-10",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Un feedback nuovo non nasce piu orfano: l'intake propone dove va",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il giro completo, in video: si scrive, compare la proposta, si accetta",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una build spedita non aveva con cosa verificare una licenza",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "2.2.99 — la prima versione che può verificare una licenza dove non c'è l'ambiente",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.98",
+    "date": "2026-08-10",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "L'effort lo sceglie il task, non la board",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il nome che sta nel link non è più la chiave di casa",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il server sapeva già rispondere sul piano, e nello schermo non c'era la domanda",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I sette motivi erano scritti due volte, e due elenchi divergono",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il pane browser non poteva fallire a voce alta, e lo zoom moriva a ogni pagina",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Uno sforzo scelto dal classificatore deve potersi leggere",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "2.2.98 — 288% di contesto: il numeratore era vero, la finestra no",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il giudice non classificava: gli arrivava un messaggio rotto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Chi accende la barra non sa se la view è nata, e nessuno la spegneva",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il tono active del chip pane browser mordeva a 3,90 sul proprio velo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Muti un progetto intero e il telefono suonava lo stesso",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un dispatch su tre pagava uno sforzo diverso per lo stesso task",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Rigenera la matrice dopo il giro di cherry-pick",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'anteprima si poteva chiedere ma non arrivava: il campo veniva buttato via",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un cancello sulle fasi vive: la catena, non i pezzi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "«Sei in fondo» era vero a vuoto: la lista non si era ancora misurata",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il piano dell'amicizia parlava di un server che nel frattempo era cambiato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "refresh Ago-2026 generative-UI landscape + correzioni anchor in-code (Fase 1)",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "Il nome dell'anteprima era due: il doctor l'ha trovato appena acceso",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il land prende i commit della card invece di rifiutare tutto il branch",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il canale che ferma il turno su una persona viveva in mezzo a quaranta rotte",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il video della pane condivisa non era nel pacchetto, e usciva solo dal checkout",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La demo del sito si ricostruisce al deploy, invece di stare vecchia in git",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.97",
+    "date": "2026-08-10",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Diciassette bottoni si annunciavano «button» e basta, e quasi tutti chiudevano qualcosa",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "2.2.97 — le etichette accessibili sono nella app, non solo in git",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.96",
+    "date": "2026-08-10",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il poll aspettava, ma dereferenziava: un boundingBox nullo e' «non ancora», non un errore",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il cancello del codice morto era rosso, e per due motivi diversi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La versione stava in quattro file e ne bastavano tre per crederla allineata",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il piano dei modali era una regola scritta e non fatta rispettare",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le guardie chiedevano l'esistenza, e a servire era la capacità",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le dipendenze dei due effetti dicevano il falso, in due direzioni opposte",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il registro delle prove viveva solo sulla macchina di chi l'aveva scritto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un codice che arriva dal filo non è ancora un `CodiceAccount`",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Oltre 170 file di test non erano typecheckati da nessuna delle tre barre",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Due cicli di import sciolti nel punto in cui c'era davvero qualcosa in comune",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La MSRV dichiarata era una promessa che il codice non manteneva",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il nome di chi lavora qui non deve viaggiare in un repo pubblico",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un clic che non parte non è lentezza: è uno stallo, e va rotto con l'hover",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "`.space-y-1 > div` prendeva il secondo div di SEI contenitori diversi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il cerchio di chiusura si mangiava lo «Stop» del turno che stava streamando",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Contare le voci prima di toccarne una: il flake dei checkpoint era un'attesa mancante",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La geometria salvata è dimezzata su tre valori su quattro, e la misura resta scritta",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Quattro rotte HTTP che nessuno chiamava, e il motivo per cui knip non le vedeva",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "2.2.96 — e stavolta i file in lockstep sono quattro",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.95",
+    "date": "2026-08-10",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "I quattro rossi erano i test, non il prodotto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "2.2.95",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.94",
+    "date": "2026-08-10",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Le sezioni aperte prendono l'altezza del loro contenuto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "2.2.94",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.93",
+    "date": "2026-08-10",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il rientro segue l'aria, non la detta",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Pagina bianca dal telefono, e un titolo che respingeva chi doveva entrare",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "«Non riesco a contattare Topics» era il cancello CSRF, e da curl non si vedeva",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Chiudi il rosso di tipi che avevo appena consegnato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le ultime tre superfici fuori dalla grammatica delle card",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "2.2.93",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.92",
+    "date": "2026-08-10",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "La pane si toglie di mezzo su dove STA, non su dove le era stato detto di andare",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.91",
+    "date": "2026-08-10",
+    "sections": {
+      "new": [
+        {
+          "it": "dopo un ⌘R la app dice «Ricaricata»",
+          "en": "after a ⌘R the app says «Reloaded»",
+          "scope": "shell",
+          "breaking": false
+        }
+      ],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Misura board contro chat: l'attrezzo, e i due codici d'uscita",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La domanda a meta' turno adesso arriva sulla card",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Allungare una campagna richiede di dire da DOVE",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La controprova del chip: dopo shutdown() l'effetto deve sparire",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il comando non chiede un posto in fila: ci passa sopra",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La stessa card in sei posti diceva sei misure",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Contro la chat che useresti davvero, la board costa MENO",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La prova che il comando sta in coda, misurata dove viene disegnata",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il passo era giusto nel codice e sbagliato sullo schermo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le due misure che decidevano se stesse invece di seguire la colonna",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un test che non puo' fallire non e' un test",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'attesa e' un evento, non una colonna: il chip persistito congelava il task",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il land non pubblica i commit di un'altra sessione",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "token-live: --json, la stessa misura senza la tabella intorno",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Rigenera la matrice dopo il cancello del land",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Non era una riga in piu': era la stessa barra contata due volte",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lo slot esisteva sempre, la riga dentro no",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.90",
+    "date": "2026-08-09",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il filo torna sulla colonna, e la prima card non porta due mezzi passi",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.89",
+    "date": "2026-08-09",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "La riga era DIETRO la barra, non assente: la barra è un overlay e comincia a zero",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.88",
+    "date": "2026-08-09",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "il parcheggio failed non viaggia con il task fra board",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "Il nodo è uno: il primo ospite che lo prende se lo tiene",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.87",
+    "date": "2026-08-09",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "I tre comandi scendono di un piano: una riga sotto il titolo, non in fila con lui",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.86",
+    "date": "2026-08-09",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Rimetti i tre TASTI: la tendina era la risposta a una domanda che non era quella",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.85",
+    "date": "2026-08-09",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Chi apre il link non deve leggere «relay»",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le tre sezioni stanno in una riga, e ne vive una alla volta",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Revert \"Le tre sezioni stanno in una riga, e ne vive una alla volta\"",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Da chiusa i tre comandi stanno in una tendina sotto il titolo, e la barra non dipinge",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.84",
+    "date": "2026-08-09",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il cartello di approvazione diceva «viene dalla tua macchina» a chi arrivava da Internet",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Chi mette il cartello deve anche toglierlo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il menu sotto la webview: la sonda che distingue le due strade rimaste",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.83",
+    "date": "2026-08-09",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Un'ombra separa due piani, un filo separa due zone dello stesso piano",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.82",
+    "date": "2026-08-09",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il velo unico della finestra è il velo del chrome, e non lo stende nessun altro",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.81",
+    "date": "2026-08-09",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il velo porta la tinta della superficie su cui galleggia, non quella del chrome",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.80",
+    "date": "2026-08-09",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Un divisore si porta dietro quello che sta SOTTO, non quello che sta sopra",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.79",
+    "date": "2026-08-09",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Subordinata è la RIGA, non il primo gruppo — e l'ultima card non tocca il fondo",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.78",
+    "date": "2026-08-09",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il filo era l'unica cosa che faceva sembrare diversa una tinta identica",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.77",
+    "date": "2026-08-09",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il ponte fra il browser e la macchina, e due guardie che nessuno reggeva",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il ponte non arrivava: lo schema del salto locale era cablato a http",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'aria fra due righe di chrome è UNA, e la seconda non la ripete",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.76",
+    "date": "2026-08-09",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "La rail di ripiego non la eseguiva nessuno: era la terza copia della stessa testata",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.75",
+    "date": "2026-08-09",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il titolo È l'apertore, e la card è una sola per tutti e due gli stati",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.74",
+    "date": "2026-08-09",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Un passo solo, in tutte e due le direzioni — e il nome del progetto se ne va",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.73",
+    "date": "2026-08-09",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il sito si carica ma non si aggiorna: mancava il socket, e il filo si spezzava allo sfratto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La barra chiusa non è una colonna: è una fila di card dentro la riga delle tab",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.72",
+    "date": "2026-08-09",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "La card torna una riga: «+», testo, microfono, invio",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.71",
+    "date": "2026-08-09",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "I tasti tornano grandi: mancava l'aria, non i pixel",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.70",
+    "date": "2026-08-09",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il box di un comando lo detta la RIGA, non il dito: 6 di aria come una tab",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il cookie di una installazione non finisce piu' addosso alle altre",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una tab che non hai toccato non l'hai scelta: è un'anteprima",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.69",
+    "date": "2026-08-09",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Una regola sola per il ritmo: ognuno porta metà passo, e la somma fa sempre sei",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il tubo aveva due capi e nessuna porta: adesso un browser puo' bussare",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il testimone guardava un solo strato, e la tab sparisce in altri due",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.68",
+    "date": "2026-08-09",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Un testimone al posto della quarta ipotesi: chi ha tolto la bozza lascia il nome",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.67",
+    "date": "2026-08-09",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Smetto di indovinare: la tab resta finché non so chi la chiude",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.66",
+    "date": "2026-08-09",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Sul telefono una tab è una tab: fondo, corpo e incasso tornano uno",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Sul telefono la riga selezionata era indistinguibile: il rialzo mobile andava a metà scala",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una tab riattaccata non ha ricominciato a lavorare: sta solo ridisegnando",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il passo fra due righe era mezzo: i margini collassano, e un test che non poteva fallire non se n'era accorto",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.65",
+    "date": "2026-08-09",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Due righe portanti che la suite non sapeva di avere, e una corsa persa",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Perdere il fuoco per un fotogramma non vuol dire essere stati lasciati",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "v2.2.65",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.64",
+    "date": "2026-08-09",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "L'ospite resta l'ospite anche entrando dal relay, non solo dalla porta del tunnel",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La barra delle tab non è più un ripiano: è un vetro, e la chat ci passa sotto",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.63",
+    "date": "2026-08-09",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Entrare è un evento: il ruolo arriva col capo, e un posto resta a chi è di casa",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Dentro il recinto ciò che agisce sul messaggio; fuori, i termini con cui parte",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.62",
+    "date": "2026-08-09",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il bordo recinta quello che scrivi, non gli interruttori della sessione",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "v2.2.62",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.61",
+    "date": "2026-08-08",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "«Sotto» era letterale: il testo si prende la riga, i controlli stanno sotto",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.60",
+    "date": "2026-08-08",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Un tetto che si consuma è una scadenza: il canale torna indietro a ogni socket chiuso",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il centro non è un'opinione: si misura dove sta il composer prima e dopo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Via il filo sotto l'header della sidebar: lì non separava niente",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I permessi in testa, e a centrarsi è la barra — non il blocco",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.59",
+    "date": "2026-08-08",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Una sessione non è più una corsia sola: la busta interna che il relay non vede",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La finestra che invia non e' piu' cieca al proprio pannello di permesso",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un reset sulla propria corsia chiudeva in faccia a tutta l'altra",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il relay conosceva un verbo solo: adesso rigioca una richiesta intera",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il relay impara una terza porta, e per la prima volta qualcuno lo esegue",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Due byte invisibili rendevano il file di test illeggibile a grep e rosso al cancello",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le pastiglie scendono al passo della colonna: 6, che è anche il pavimento",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Si decide su cio' che la cancellazione colpisce, non su un suo sottoinsieme",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Ogni pastiglia larga quanto il SUO numero: il vuoto in coda falsava le distanze",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il testo pieno torna dove serve leggere: comandi e nome delle tessere",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il primo piano si schiarisce: titoli delle tab, footer, glifi di ricerca",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un socket dentro il tubo, e il «fermati» che prima nessuno poteva dire",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il «+» e il cerca al testo pieno: non sono un gradino di gerarchia",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una tab è una tab: un contratto solo per barra, tessere fissate e progetti",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Due difetti che passavano: il credito che si paga due volte e le intestazioni che l'ospite si scriveva addosso",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il composer è una riga, e la chat vuota comincia dove guardi",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.58",
+    "date": "2026-08-08",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "La documentazione mandava i clienti a un menu che non esiste più",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'autonomia era l'unico selettore che non sapeva delle bozze",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lo Stop non cancella piu' una chat che ha gia' lavorato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il nome del ramo iniziale lo decide il test, non la config della macchina",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una tool call E' attivita', e un PERMESSO a schermo e' attesa quanto una domanda",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.57",
+    "date": "2026-08-08",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il fondo stava sulla RIGA, non sulla card: le righe erano fasce a tutta larghezza",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La rubrica offriva e il cancello concedeva: erano due risposte alla stessa domanda",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un passo solo per la colonna, e le sotto-tab smettono di essere card dentro card",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Togli l'env del deferral: da quel canale non si accendeva affatto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La coda dei tolti stava dentro il JSX: si poteva cancellare senza rompere niente",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un numero tagliato è un numero sbagliato, e la riga della board ha un passo solo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il pagamento non è ciò che è concesso: Stripe passa un gettone, non un permesso",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Tre passi, tre parentele: la coppia, le pastiglie, i gruppi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Due dei tre gruppi non erano nemmeno nello stesso flex",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un'icona senza il suo numero non dice niente: o la coppia intera, o il «+N»",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I progetti si stringono in un blocco: 8 fra le pastiglie, non 12",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il tab bar rispetta prefers-reduced-motion anche nello scroll",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.56",
+    "date": "2026-08-08",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Misura il prefisso invece di discuterne: scripts/prefix-budget.ts",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La fascia si assorbe invece di sommarsi, e gli estremi escono dall'angolo tondo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Gli schemi dei tool MCP non viaggiano piu' nel prefisso di ogni richiesta",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.55",
+    "date": "2026-08-08",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Grigi veri, la safe-area abitata, e tre forme diverse sulla stessa riga",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il pannello prometteva una provenienza che nessuno scriveva, e l'elenco dell'ospite non era coperto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le bozze non si condividono, e ora togliere quella regola fa rosso",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il contatore torna attaccato alla sua icona, e la safe-area si abita a metà",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Fattura una volta per chiamata API, non una per blocco di contenuto",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.54",
+    "date": "2026-08-08",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Dentro un progetto le cose fissabili sono due, e il menu non ne offriva nessuna",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.53",
+    "date": "2026-08-08",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Le pastiglie della board non sono bottoni: via il fondo, icone alla misura standard",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Condividere una chat: il pannello c'era, ma solo le schede sapevano dove trovarlo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'identita' git viaggia col comando, non con la macchina di chi scrive il test",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.52",
+    "date": "2026-08-08",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il bagliore non c'era perché UN tetto doveva servire l'eroe e 14.000px di prosa",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Via i contatori che si ammirano da soli, e due etichette che tenevano l'eroe al buio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le impostazioni si scompongono, e la scheda che mentiva esce",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'aura esce di scena, e si porta via l'asse che serviva solo a lei",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "⌘N apre il menu, N è la cosa che crea — e la Shell si chiama Terminale",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le icone dei progetti sparivano per ARITMETICA, non per un bug di stato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Dei «due capelli» ne era rimasto uno, e la card si leggeva come coperchio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Quindici flag della CLI, zero test: il punto che si rompe a ogni release",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un default solo, sulla riga del provider — e il modello smette di essere del browser",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le tre spuntine tornavano perché il permesso si chiedeva una volta PER FINESTRA",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il dropdown non apre più pane: è il mestiere del «+»",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "«Sistema» rileggeva noi stessi, e il tema chiaro era misurato una volta sola",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La lingua era una preferenza di sola facciata: il modello non la vedeva mai",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Spegnere la condivisione pubblica nascondeva il bottone, non il gesto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Sembrava un'ombra perché era una RAMPA: la reference è un solido, e la differenza è la distribuzione",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un ospite poteva diventare il dispositivo appena approvato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'alone era tenuto basso da DUE etichette e un bottone di vetro, non dal tetto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il «tre quarti» era un morso da quattro pixel: la famiglia si ridisegna su una griglia pari",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Quattro numeri in fila, e uno non aveva né nome né glifo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La riga della Board era in corsa con la rete, e la rete vinceva sempre",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Due numeri con due origini per lo stesso bottone: a destra 6, sopra e sotto 5,5",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La barra dei progetti diceva di essere chrome e dipingeva la superficie più chiara della finestra",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una quinta fan-out senza filtro non passerà più in silenzio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un logo largo diventava una scheggia alta sei pixel, e sembrava «l'icona non c'è»",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il glifo di stato torna alla misura di tutti gli altri, e i numeri salgono sopra il minimo leggibile",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Nella stessa colonna convivevano due grammatiche: le tessere separate da una superficie, le righe da un filo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "«Se non ci entra la parola e c'è già l'icona, togliamola»: la soglia diceva 72 e servivano 104",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una costante che si chiamava DIVIDERS e non disegna più nessuna linea",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il gruppo esisteva e non si vedeva, e tu comparivi due volte",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Chi toglievi restava, e riaggiungerlo scavalcava la licenza",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'indice dei progetti aveva UNA sola occasione, e se la perdeva l'icona non tornava più",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il conteggio torna nelle pastiglie, e il posto lo libera il numero che non cambiava nessuna decisione",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il tema scuro era «slavato» perché metà finestra non la dipingiamo noi, e non le avevamo detto niente",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lo slot dell'icona passa a 20×12: in un quadrato da 12 un logo-scritta è quattro pixel di inchiostro",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il blur campiona ciò che sta dietro la finestra, e il tema era nostro solo per metà",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'installazione smetteva di sapere chi era alla seconda organizzazione",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un gruppo cancellato si lasciava ancora rinominare, e la sua rubrica si leggeva",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Da «ho pagato Apple» a «la CI firma e notarizza», in quattro comandi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'alpha era la leva sbagliata: il grigio è la finestra bianca che hai dietro, misurata",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La misura che giustificava l'alpha non valeva: screencapture appiattisce il vetro",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La licenza sta sulla macchina, si legge senza chiedere a nessuno, e non può spegnerla",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un disco che non scrive non è un acquisto rifiutato, e i posti li chiede chi aggiunge",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Quattro rifiuti che nessuno guardava: un gettone scaduto sul disco, una versione altrui letta come nostra",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il tetto dei posti falliva in silenzio, e il silenzio somiglia a un guasto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La macchina delle licenze era completa e inerte: mancava chi conia",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'account si aggancia alla persona che c'era, e il servizio giù non toglie niente",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'icona era scaricata e INVISIBILE: `load` non torna per un'immagine già in cache",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Dichiara la sola lettura su tutti i tool, non solo sul pannello domande",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'attivazione atterrava su una riga e la lettura ne guardava un'altra",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una cifra sola rispondeva a due domande: il dispositivo e il server sono due letture",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La riga della board è un colpo d'occhio: solo icone e numero, niente nome né divisore",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.51",
     "date": "2026-08-08",
     "sections": {
@@ -9,6 +3268,11 @@
       "internal": [
         {
           "it": "Le tendine si aprivano VUOTE: il flip mancava, e il tetto veniva dal lato sbagliato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un comando nascosto dietro l'hover, col dito, non esisteva — e restava cliccabile alla cieca",
           "en": "",
           "scope": null
         },
@@ -49,6 +3313,11 @@
         },
         {
           "it": "«Flaky solo sotto sharding» era una spiegazione comoda: il browser non partiva",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "2.2.51 — il gate torna verde",
           "en": "",
           "scope": null
         }
@@ -398,6 +3667,16 @@
         },
         {
           "it": "Col dito il gesto e' uno solo, e le cose che non servono se ne vanno",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un git status di sfondo non ha il diritto di prendere l'indice sotto un commit",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una sezione Git chiusa non ha bottoni da cliccare",
           "en": "",
           "scope": null
         },
@@ -2587,6 +5866,11 @@
         },
         {
           "it": "Il gruppo staccato si VEDE, e il click va alla sua finestra: ora è un test",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un agente dispacciato nasce libero, non nella modalita' che gli vieta di lavorare",
           "en": "",
           "scope": null
         },
