@@ -45,6 +45,7 @@ function freshDb(): Database {
     agent_cache_read_tokens INTEGER NOT NULL DEFAULT 0,
     model TEXT, blocked_by_task_id TEXT REFERENCES tasks(id), reuse_blocker_context INTEGER NOT NULL DEFAULT 0,
     priority_auto INTEGER NOT NULL DEFAULT 1, preview_image TEXT,
+    preview_retired_at TEXT, preview_retired_reason TEXT,
     checks_state TEXT, checks_at TEXT, checks_commit TEXT, checks_json TEXT,
     delivery_branch TEXT, delivery_commit TEXT, landing_state TEXT, landing_checked_at TEXT,
     landing_witnessed INTEGER NOT NULL DEFAULT 0,
@@ -1577,6 +1578,66 @@ describe("anteprima: ramo diagramma, gate di forma, duplicati", () => {
   };
   const svg = (name: string, w: number, h: number): string =>
     write(name, `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}"><rect width="40" height="20"/></svg>`);
+
+  // ── Il ritiro è uno STATO, non un messaggio ───────────────────────────────
+  // La bonifica delle anteprime false ha scritto «⚠️ Anteprima RITIRATA…» nel
+  // thread di 23 card. Un messaggio non invecchia: dove l'anteprima è tornata
+  // continua a dire il contrario. Il fatto vive in colonna, e quello che si
+  // prova qui è che si SPEGNE da solo — perché è quella la differenza fra uno
+  // stato e una nota.
+  const retired = (id: string) =>
+    db.prepare("SELECT preview_retired_at AS at, preview_retired_reason AS why FROM tasks WHERE id = ?").get(id) as
+      { at: string | null; why: string | null };
+
+  test("ritirare l'anteprima toglie l'immagine E scrive il motivo sulla card", () => {
+    const s = mk();
+    const t = s.create({ projectId: PID, text: "consegna con evidenza falsa" });
+    const shot = png("schermata.png", 1440, 760);
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { previewImage: shot } });
+    expect(preview(t.id)).toBe(shot);
+
+    const dopo = s.retirePreview({ taskId: t.id, reason: "identica a quella di altre 12 card" });
+    expect(preview(t.id)).toBeNull();
+    expect(dopo.previewImage).toBeNull();
+    expect(dopo.previewRetiredAt).not.toBeNull();
+    expect(dopo.previewRetiredReason).toBe("identica a quella di altre 12 card");
+    expect(retired(t.id).why).toBe("identica a quella di altre 12 card");
+  });
+
+  test("un'anteprima NUOVA spegne il ritiro: lo stato non sopravvive al fatto", () => {
+    const s = mk();
+    const t = s.create({ projectId: PID, text: "riconsegna" });
+    s.retirePreview({ taskId: t.id, reason: "placeholder, non evidenza" });
+    expect(retired(t.id).at).not.toBeNull();
+
+    const buona = png("vera.png", 1440, 760);
+    const dopo = s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { previewImage: buona } });
+    expect(dopo.previewImage).toBe(buona);
+    expect(dopo.previewRetiredAt).toBeNull();
+    expect(dopo.previewRetiredReason).toBeNull();
+  });
+
+  test("anche l'adozione automatica dal commento di consegna spegne il ritiro", () => {
+    const s = mk();
+    const t = s.create({ projectId: PID, text: "consegna via allegato" });
+    s.retirePreview({ taskId: t.id, reason: "503, non evidenza" });
+    const buona = png("consegnata.png", 1440, 760);
+    s.addComment({ taskId: t.id, author: "claude", content: "consegna", media: [buona] });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    expect(preview(t.id)).toBe(buona);
+    expect(retired(t.id).at).toBeNull();
+  });
+
+  // Azzerare a mano NON è un ritiro: chi toglie l'immagine senza dare un motivo
+  // non sta dicendo «era falsa», e la card non deve inventarsi una spiegazione.
+  test("azzerare l'anteprima con una stringa vuota non accende nessuno stato", () => {
+    const s = mk();
+    const t = s.create({ projectId: PID, text: "ripensamento" });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { previewImage: png("a.png", 1440, 760) } });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { previewImage: "" } });
+    expect(preview(t.id)).toBeNull();
+    expect(retired(t.id).at).toBeNull();
+  });
 
   test("un .svg allegato al commento di consegna DIVENTA l'anteprima della card", () => {
     const s = mk();
