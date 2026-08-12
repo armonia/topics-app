@@ -19,7 +19,7 @@ import { useTaskBrowserTabs, liveTabs, workspaceTwinContextId } from '../../stat
 import { noteAutoOpenedPreview, releaseAutoOpenedPreview } from '../../state/taskWorkspacePreviews';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
 import { writeCursor, markActiveComposer, restoreCursor } from '../../lib/composerCursor';
-import { boardApi, STATUS_LABEL, TASK_STATUSES, isAgentWorking, parseQuestionBlock, parseStatusEvent, hasPlanApproveOption, isProjectlessId, boardDrafts, systemDeliveryNote, blockedByChip, attemptHasWork, type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch, type BoardProjectRef, type DiffBundle, type DiffNote, type ReviewCheck, type CheckRun, type TaskAttempt, type LandingTicket } from '../../lib/board';
+import { boardApi, STATUS_LABEL, TASK_STATUSES, isAgentWorking, parseQuestionBlock, parseStatusEvent, hasPlanApproveOption, isProjectlessId, boardDrafts, systemDeliveryNote, blockedByChip, reopenedChip, attemptHasWork, type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch, type BoardProjectRef, type DiffBundle, type DiffNote, type ReviewCheck, type CheckRun, type TaskAttempt, type LandingTicket } from '../../lib/board';
 import { PreviewMedia } from './PreviewMedia';
 import { UnifiedDiff } from './UnifiedDiff';
 import { collectTaskMediaPaths } from './taskMedia';
@@ -1031,6 +1031,9 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   // chip muto (o un «Bloccato da…» generico) su un task che un bloccante ce
   // l'aveva — e per un bloccante archiviato o di un altro taglio, per sempre.
   const blockedChip = task ? blockedByChip(task) : null;
+  // Era in Done e non c'è più: stessa lettura del chip sulla card, qui in forma
+  // di banda (chi e quando). Vive finché la card non torna `done`.
+  const reopened = task ? reopenedChip(task) : null;
 
   // Overflow "⋯" menu (header): the less-frequent task config lives here instead
   // of as always-on chips in the meta row — blocked-by, plan-first, reuse
@@ -1453,6 +1456,17 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
           {task.deliveryCommit ? <> <code className="rounded bg-black/30 px-1">{task.deliveryCommit.slice(0, 8)}</code></> : null}
           {task.deliveryBranch ? <> (branch <code className="rounded bg-black/30 px-1">{task.deliveryBranch}</code>)</> : null}
           {' '}non risulta nel contenuto di main. Landa il branch, o recupera il commit prima che venga potato.
+        </div>
+      )}
+      {/* Era in Done e non c'è più: la banda lo dice appena apri la card, con
+          chi e quando. Il MOTIVO sta sotto, nel thread — ma il fatto non deve
+          più dipendere dal fatto che qualcuno scorra i commenti. */}
+      {reopened && (
+        <div
+          data-testid="task-reopened-notice"
+          className="shrink-0 border-b border-amber-500/20 bg-amber-500/10 px-3 py-1.5 text-[11px] text-amber-200"
+        >
+          ↩︎ <strong>Riaperta</strong> {reopened.detail} — era in Done. Il motivo è nel thread qui sotto.
         </div>
       )}
       {/* IL GUSCIO — chi possiede l'altezza, e dove sta il solo scroll.

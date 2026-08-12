@@ -27,7 +27,8 @@ function freshDb(): Database {
     delivery_branch TEXT, delivery_commit TEXT, landing_state TEXT, landing_checked_at TEXT,
     landing_witnessed INTEGER NOT NULL DEFAULT 0, dispatch_deferred_until TEXT,
     checks_state TEXT, checks_at TEXT, checks_commit TEXT, checks_json TEXT,
-    delivered_by TEXT, delivered_reason TEXT, created_by_topic_id TEXT
+    delivered_by TEXT, delivered_reason TEXT, created_by_topic_id TEXT,
+    done_actor TEXT, reopened_at TEXT, reopened_by TEXT, reopened_actor TEXT
   )`);
   db.run(`CREATE UNIQUE INDEX idx_tasks_claude_task_id ON tasks(claude_task_id) WHERE claude_task_id IS NOT NULL`);
   db.run(`CREATE TABLE board_settings (
@@ -1538,6 +1539,57 @@ describe("tasks routes — anteprima dalla sessione dell'agente", () => {
   });
 });
 
+// L'incidente dell'11/08 dalla porta vera: una card sparita da Done senza che la
+// board lo dicesse. Le due domande separate — il SEGNO (leggibile dall'API, non
+// solo dai commenti) e il PERMESSO (chi ha chiuso decide chi riapre).
+describe("uscita da Done: il segno sulla card e chi può riaprirla", () => {
+  let db: Database; let broadcasts: any[]; let router: any;
+  beforeEach(() => {
+    db = freshDb(); broadcasts = [];
+    router = createTasksRouter(makeCtx(db, broadcasts));
+  });
+
+  /** Consegna dell'agent + approvazione umana: il done di Attilio. */
+  async function approvedByHuman(): Promise<{ id: string; pid: string }> {
+    const t = await (await call(router, "POST", "/api/sessions/s1/tasks", { text: "lavoro" }))!.json();
+    await call(router, "POST", `/api/sessions/s1/tasks/${t.id}/comments`, { content: "consegnato" });
+    await call(router, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review" });
+    const ok = (await call(router, "POST", `/api/boards/${t.projectId}/tasks/${t.id}/review`, { decision: "approve" }))!;
+    expect((await ok.json()).status).toBe("done");
+    return { id: t.id, pid: t.projectId };
+  }
+
+  test("l'agent che riapre una card approvata da un umano prende 409 e la card non si muove", async () => {
+    const { id, pid } = await approvedByHuman();
+    const resp = (await call(router, "PATCH", `/api/sessions/s1/tasks/${id}`, { status: "in_progress" }))!;
+    expect(resp.status).toBe(409);
+    expect((await resp.json()).code).toBe("reopen_needs_human");
+    const { tasks } = await (await call(router, "GET", `/api/boards/${pid}/tasks`))!.json();
+    const card = tasks.find((x: any) => x.id === id);
+    expect(card.status).toBe("done");
+    expect(card.doneActor).toBe("human");
+    expect(card.reopenedAt).toBeNull();
+  });
+
+  test("quando la card ESCE da done, l'API della board lo dice: reopenedAt/By/Actor sulla card", async () => {
+    const { id, pid } = await approvedByHuman();
+    // L'umano la riapre: legittimo — ma la board deve dirlo lo stesso.
+    const back = (await call(router, "PATCH", `/api/boards/${pid}/tasks/${id}`, { status: "in_progress" }))!;
+    expect(back.status).toBe(200);
+
+    const { tasks } = await (await call(router, "GET", `/api/boards/${pid}/tasks`))!.json();
+    const card = tasks.find((x: any) => x.id === id);
+    expect(card.status).toBe("in_progress");
+    expect(typeof card.reopenedAt).toBe("string");
+    expect(card.reopenedActor).toBe("human");
+    expect(card.reopenedBy).toBeTruthy();
+    expect(card.doneActor).toBeNull();
+    // Il segno vive sulla CARD, non nei commenti: chi disegna la colonna lo vede.
+    const detail = await (await call(router, "GET", `/api/boards/${pid}/tasks/${id}`))!.json();
+    expect(detail.task.reopenedAt).toBe(card.reopenedAt);
+  });
+});
+
 /**
  * La raffica di land — il guasto misurato l'11/08 a mezzanotte.
  *
@@ -1683,6 +1735,5 @@ describe("land in raffica: N chiamate ⇒ N esiti", () => {
   test("GET …/land su una card mai landata è 404, non un falso «tutto a posto»", async () => {
     const b = bench();
     const [id] = await b.seed(1);
-    expect((await call(b.router, "GET", `/api/boards/pX/tasks/${id}/land`))!.status).toBe(404);
-  });
+    expect((await call(b.router, "GET", `/api/boards/pX/tasks/${id}/land`))!.status).toBe(404);  });
 });
