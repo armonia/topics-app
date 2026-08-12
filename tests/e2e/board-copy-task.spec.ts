@@ -87,7 +87,7 @@ const clipboard = (page: Page) => page.evaluate(() => navigator.clipboard.readTe
 test.describe("Copia task · il contenuto della card negli appunti", () => {
   test.describe.configure({ timeout: 90_000 });
   // Finestra più bassa del default (1280×800) per un motivo solo: la clip di
-  // consegna finisce nella card della board, che sopra 0.537 di altezza/larghezza
+  // consegna finisce nella card della board, che sopra 0.70 di altezza/larghezza
   // TAGLIA invece di rimpicciolire. 1280×680 → 0.531, e il drawer ci sta tutto.
   test.use({ viewport: { width: 1280, height: 680 } });
 

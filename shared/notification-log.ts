@@ -11,7 +11,7 @@
 // i test lo montano in isolamento e il client può importarlo senza tirarsi
 // dietro mezzo server.
 
-/** Il genere dell'evento. Non è un CHECK in SQL — vedi migration 101 sul perché. */
+/** Il genere dell'evento. Non è un CHECK in SQL — vedi migration 102 sul perché. */
 export type NotificationKind =
   | 'task-review'
   | 'task-parked'

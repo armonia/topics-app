@@ -1,4 +1,4 @@
--- 101: il REGISTRO delle notifiche. Quello che finora non esisteva.
+-- 102: il REGISTRO delle notifiche. Quello che finora non esisteva.
 --
 -- Fino a qui una notifica era spara-e-dimentica: `notifyNative` in
 -- client/src/lib/shell/app.ts posta il banner del sistema, `maybeSendPush` in
@@ -10,9 +10,14 @@
 -- un'altra cosa — le menzioni dentro i messaggi — e `activity_log` non registra
 -- ciò che è stato MOSTRATO all'utente).
 --
--- IL NUMERO è 101 perché main sta a 100 (`task-labels`). Due file con lo stesso
+-- IL NUMERO è 102, ed è già stato 101 per mezza giornata: mentre questo ramo era
+-- in volo, main si è presa la 101 (`push-device-prefs`). Due file con lo stesso
 -- numero e il runner applica il primo e SALTA il secondo, in silenzio — vedi il
--- commento in testa alla 100 e `scripts/check-migration-numbers.ts`.
+-- commento in testa alla 100 e `scripts/check-migration-numbers.ts`. La regola
+-- che se ne ricava, e che è costata tre collisioni in una notte: il numero si
+-- sceglie sull'ULTIMO main, non su quello da cui il ramo è partito, e la
+-- rinumerazione si chiude rigenerando il manifest
+-- (`scripts/gen-migrations-manifest.ts`), mai correggendolo a mano nel conflitto.
 --
 -- ── COSA REGISTRA, E PERCHÉ QUESTE COLONNE ──────────────────────────────────
 --

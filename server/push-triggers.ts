@@ -37,7 +37,7 @@ export function configurePushTriggers(opts: {
    */
   isTopicSilenced: (topicId: string) => boolean;
   /**
-   * Scrivi la notifica nel REGISTRO (migration 101). Opzionale perché un
+   * Scrivi la notifica nel REGISTRO (migration 102). Opzionale perché un
    * contesto ridotto — i test di questo modulo — non ha un DB: senza, la push
    * parte lo stesso e semplicemente non lascia traccia, che è il verso giusto
    * in cui mancare (una cronologia incompleta è meglio di una notifica persa).

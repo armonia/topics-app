@@ -998,6 +998,19 @@ describe("approve decoupled from landing", () => {
     expect(r).toEqual([]);
   });
 
+  /**
+   * Il terzo verso dello stesso difetto, misurato il 12/08 su `ee5ebbb4`: la
+   * card DICHIARAVA un ramo (`delivery_branch`, esistente) ma il land non
+   * riusciva a risolvere dove atterrarlo. Finché quel caso rispondeva
+   * `no-branch` la card restava chiusa col codice fuori da main; adesso ha un
+   * codice suo, e il codice suo la ritira.
+   */
+  test("ramo dichiarato ma checkout introvabile: la card NON resta in done", async () => {
+    const { id, db: d, resumed: r } = await landSkipping("repo-unresolved");
+    expect(createTaskService(d).get(id)!.task.status).toBe("review");
+    expect(r).toEqual([]);
+  });
+
   test("«non c'era niente da atterrare» lascia la card chiusa: è l'unico skip innocuo", async () => {
     // Il controllo dei due test qui sopra. Se il ritiro scattasse su ogni skip,
     // una nota chiusa a mano rimbalzerebbe fuori da Done a ogni gesto.
@@ -1445,7 +1458,7 @@ describe("intake: propone e mostra, non attribuisce", () => {
 
     // E LO DICE, da entrambi i lati — niente attribuzione muta.
     const mine = await (await call(router, "GET", `/api/boards/${PID}/tasks/${t.id}`))!.json();
-    expect(mine.comments.some((c: any) => c.author === "system" && c.content.includes("non parte finché"))).toBe(true);
+    expect(mine.comments.some((c: any) => c.author === "system" && c.content.includes("Non parte finché"))).toBe(true);
     expect(mine.comments.some((c: any) => c.content.includes(proposal.reason))).toBe(true);
     const target = await (await call(router, "GET", `/api/boards/${PID}/tasks/${card.id}`))!.json();
     expect(target.comments.some((c: any) => c.author === "system" && c.content.includes("in attesa di questa card"))).toBe(true);

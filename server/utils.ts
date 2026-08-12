@@ -876,7 +876,7 @@ export function createAppContext(baseDir: string): AppContext {
   configurePushTriggers({
     getTopicName: (topicId) => getTopicById(topicId)?.name ?? null,
     isTopicSilenced: (topicId) => isTopicSilenced(getTopicById(topicId), readMutedProjects(db)),
-    // Ogni push mandata lascia una riga nel registro (migration 101). La push è
+    // Ogni push mandata lascia una riga nel registro (migration 102). La push è
     // la metà "ad app chiusa" della notifica: senza questo aggancio la
     // cronologia avrebbe un buco proprio dove serve di più — quando torni al
     // computer e vuoi sapere cosa è successo mentre non c'eri.
@@ -1520,8 +1520,8 @@ export function createAppContext(baseDir: string): AppContext {
             if (tc.endedAt == null) tc.endedAt = endedAt;
             if (!tc.error) {
               tc.error = eraPermesso
-                ? 'Interrotto: il turno è finito mentre il permesso era ancora a schermo — la decisione non avrebbe più raggiunto nessuno'
-                : 'Interrotto: il turno è finito mentre la domanda era ancora a schermo — la risposta non avrebbe più raggiunto nessuno';
+                ? 'Interrotto: il turno è finito mentre il permesso era ancora a schermo. La decisione non avrebbe più raggiunto nessuno.'
+                : 'Interrotto: il turno è finito mentre la domanda era ancora a schermo. La risposta non avrebbe più raggiunto nessuno.';
             }
             releaseHumanHold(sessionKey, 'il turno è terminato mentre il pannello era a schermo');
             return true;

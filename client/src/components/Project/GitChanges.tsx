@@ -28,6 +28,7 @@ import { useMobile } from '../../hooks/useMobile';
 import { ConfirmDialog } from '../Shared/ConfirmDialog';
 import { SECTION_CARD, SELECTED_SURFACE, SELECTED_SURFACE_SOFT, TREE_ROW_CARD } from '@/lib/selectionStyles';
 import { Spinner } from '../Shared/Spinner';
+import { SkeletonRows } from '../Shared/Skeleton';
 
 interface GitChangesProps {
   projectPath: string;
@@ -861,13 +862,16 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
   // Non-compact early returns for loading/error
   if (!compact) {
     if (loading && !gitStatus) {
+      // Come nel file explorer: quello che arriva è un ELENCO DI FILE, e uno
+      // scheletro con le misure della riga vera (`px-2 py-[3px]`, glifo del
+      // badge di stato) lo dice; un anello centrato prometteva solo attesa, e
+      // la lista poi compariva di colpo.
       return (
-        <div className="flex items-center justify-center py-4">
-          <div className="flex items-center gap-2 text-app-text-tertiary text-[11px]">
-            <Spinner size="sm" />
-            Loading...
-          </div>
-        </div>
+        <SkeletonRows
+          count={6}
+          rowClassName={`flex items-center gap-1.5 ${TREE_ROW_CARD} px-2 py-[3px]`}
+          glyph={14}
+        />
       );
     }
     if (error) {
@@ -1201,7 +1205,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                     >
                       <AlertCircle size={11} className="flex-shrink-0 mt-[1px]" />
                       <span className="min-w-0 flex-1 break-words whitespace-pre-wrap font-mono">
-                        Commit non riuscito — niente è stato committato. {commitError}
+                        Commit non riuscito, niente è stato committato. {commitError}
                       </span>
                       <button
                         onClick={() => setCommitError(null)}
@@ -1217,7 +1221,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                       descrizione, ed è esattamente per questo che va detto. */}
                   {msgSource === 'rules' && (
                     <div data-testid="commit-message-source" className="px-2 pb-1 text-[10px] text-app-text-muted flex-shrink-0">
-                      dalle regole — nessun modello collegato
+                      dalle regole, nessun modello collegato
                     </div>
                   )}
 
@@ -1519,7 +1523,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
             </div>
             {msgSource === 'rules' && (
               <div data-testid="commit-message-source" className="text-[10px] text-app-text-muted">
-                dalle regole — nessun modello collegato
+                dalle regole, nessun modello collegato
               </div>
             )}
             <button
@@ -1707,7 +1711,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                 >
                   <div className="text-[12px] text-app-text-tertiary">
                     {diffBlock.kind === 'binary'
-                      ? 'File binario — git non ne fa un diff testuale.'
+                      ? 'File binario: git non ne fa un diff testuale.'
                       : 'File troppo grande per il confronto affiancato (oltre 100 KB).'}
                   </div>
                 </div>
