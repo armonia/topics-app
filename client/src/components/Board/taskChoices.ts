@@ -144,3 +144,40 @@ export function taskChoices(
   const excluded = opts?.exclude;
   return excluded && excluded.length ? out.filter((c) => !excluded.includes(c.id)) : out;
 }
+
+/** Normalised form used to compare a quick-reply option with a choice label. */
+function sameLabel(a: string, b: string): boolean {
+  const norm = (s: string) =>
+    s.trim().toLowerCase().replace(/[.!…]+$/u, '').replace(/\s+/gu, ' ');
+  return norm(a) === norm(b);
+}
+
+/**
+ * The agent's quick-reply options, minus the ones that collide with a real
+ * choice for this task.
+ *
+ * A quick reply and a choice look identical and do OPPOSITE things: the reply is
+ * a reject carrying that text, so the agent restarts; the choice performs the
+ * action. Measured on card c57e1aa4 (2026-08-13): the agent's question block
+ * offered "Landa su main" as its only option, and the card drew it right above
+ * the green "Landa su main" that actually merges the branch. Pressing the top
+ * one did not land anything, it bounced the card back to the agent with the
+ * words "Landa su main" as an instruction.
+ *
+ * Dropping the collision is safe by construction: the real button is already
+ * there, one row below, doing what its label says.
+ *
+ * `exclude` means "this surface does not render that action AT ALL", which is
+ * rarer than it looks: the drawer excludes `land` from its choice row only
+ * because it draws its own bigger Landa button, so it must pass NOTHING here or
+ * the collision it actually has would survive.
+ */
+export function usableQuestionOptions(
+  task: Pick<BoardTask,
+    'status' | 'assignedTopicId' | 'deliveryBranch' | 'dispatchState' | 'blockedByTaskId' | 'blockedBy'>,
+  options: readonly string[],
+  opts?: { exclude?: TaskChoiceId[] },
+): string[] {
+  const labels = taskChoices(task, opts).map((c) => c.label);
+  return options.filter((o) => !labels.some((l) => sameLabel(o, l)));
+}
