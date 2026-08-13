@@ -2183,6 +2183,100 @@ describe("uscita da done: la traccia sulla card e chi può riaprirla", () => {
     s.deliverToReviewBySystem({ taskId: vivo.id, reason: "boh", cause: "retries_exhausted" });
     expect(s.get(vivo.id)!.task.reopenedAt).toBeNull();
   });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // USCIRE DA REVIEW VALE QUANTO USCIRE DA DONE
+  //
+  // Il 12/08 alle 18:26 Attilio ha chiesto un cambio di rotta e ha trascinato
+  // `d6baaf5e` da `review` a `in corso`. Il segno di riapertura si accendeva
+  // solo uscendo da `done`, quindi per il campo nessuno aveva riaperto niente:
+  // il mattino dopo la chiusura automatica del dispatcher ha chiuso la card
+  // sopra la consegna di CINQUE GIORNI prima, e la richiesta è finita
+  // archiviata dentro una card `done`. Il segnale non può dipendere da quale
+  // casella ha attraversato il dito.
+  // ───────────────────────────────────────────────────────────────────────────
+
+  /** Una card in review con una consegna registrata: lo stato di `d6baaf5e`. */
+  function inReviewConConsegna(text: string): string {
+    const t = s.create({ projectId: PID, text, status: "in_progress" });
+    s.addComment({ taskId: t.id, author: "claude", content: "consegnato" });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    s.recordDelivery({ taskId: t.id, branch: "topics/x", commit: "f".repeat(40) });
+    return t.id;
+  }
+
+  test.each(["in_progress", "todo", "backlog"] as const)(
+    "trascinata da review a %s: è una riapertura umana, e la consegna vecchia non la segue",
+    (destinazione: "in_progress" | "todo" | "backlog") => {
+      const id = inReviewConConsegna(`review → ${destinazione}`);
+      expect(s.get(id)!.task.deliveryCommit).not.toBeNull();
+
+      s.update({ taskId: id, actor: "human", by: "attilio", patch: { status: destinazione } });
+
+      const after = s.get(id)!.task;
+      expect(after.status).toBe(destinazione);
+      expect(after.reopenedActor).toBe("human");
+      expect(after.reopenedBy).toBe("attilio");
+      expect(after.reopenedAt).not.toBeNull();
+      expect(after.deliveryCommit).toBeNull();
+    },
+  );
+
+  test("il rifiuto in review lascia lo stesso segno: è la quarta uscita umana", () => {
+    const id = inReviewConConsegna("rifiutata");
+    // Un commento umano su una card in review arriva qui come reject-con-testo
+    // (routes/tasks.ts): è LA porta da cui è passato Attilio alle 18:25.
+    const rejected = s.reviewDecision({ taskId: id, by: "attilio", decision: "reject", comment: "cambia rotta" });
+    expect(rejected.status).toBe("in_progress");
+
+    const after = s.get(id)!.task;
+    expect(after.reopenedActor).toBe("human");
+    expect(after.reopenedBy).toBe("attilio");
+    expect(after.deliveryCommit).toBeNull();
+    expect(after.landingState).toBeNull();
+  });
+
+  test("uscire da review non spegne un done_actor che quel salto non tocca", () => {
+    // `done_actor` racconta chi ha CHIUSO. Una card in review non ne ha uno, e
+    // azzerarlo da qui riscriverebbe una decisione presa da un'altra parte.
+    const id = doneByHuman();
+    expect(s.get(id)!.task.doneActor).toBe("human");
+    s.update({ taskId: id, actor: "human", by: "attilio", patch: { status: "review" } });
+    expect(s.get(id)!.task.doneActor).toBeNull(); // uscita da done: quello sì
+
+    s.update({ taskId: id, actor: "human", by: "attilio", patch: { status: "done" } });
+    s.update({ taskId: id, actor: "human", by: "attilio", patch: { status: "review" } });
+    db.run("UPDATE tasks SET done_actor = 'human' WHERE id = ?", [id]);
+    s.update({ taskId: id, actor: "human", by: "attilio", patch: { status: "todo" } });
+    expect(s.get(id)!.task.doneActor).toBe("human"); // review → todo non lo tocca
+  });
+
+  test("consegnare di nuovo chiude il ciclo: rientrare in review spegne il segno", () => {
+    const id = inReviewConConsegna("riconsegnata");
+    s.update({ taskId: id, actor: "human", by: "attilio", patch: { status: "in_progress" } });
+    expect(s.get(id)!.task.reopenedActor).toBe("human");
+
+    s.addComment({ taskId: id, author: "claude", content: "rifatto" });
+    s.update({ taskId: id, actor: "agent", by: "claude", patch: { status: "review" } });
+    // Il rientro non riaccende il segno su sé stesso…
+    expect(s.get(id)!.task.reopenedActor).toBe("human");
+    s.reviewDecision({ taskId: id, by: "attilio", decision: "approve" });
+    // …e l'approvazione lo spegne: il ciclo si è chiuso.
+    expect(s.get(id)!.task.reopenedAt).toBeNull();
+  });
+
+  test("un rientro in coda deciso dalla MACCHINA non si firma «umano» e tiene la consegna", () => {
+    // È l'altro errore, e costa quanto il primo: la chiusura automatica esiste
+    // proprio per riconoscere il lavoro già atterrato quando una card rientra da
+    // sola (orfana rilasciata). Cancellarle il commit sotto le mani la
+    // spegnerebbe su tutte le strade della macchina.
+    const id = inReviewConConsegna("orfana rilasciata");
+    s.release({ taskId: id, requeue: true, reason: "server ripartito", by: "dispatcher" });
+    const after = s.get(id)!.task;
+    expect(after.status).toBe("todo");
+    expect(after.reopenedActor).toBe("system");
+    expect(after.deliveryCommit).not.toBeNull();
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
