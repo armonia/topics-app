@@ -35,13 +35,16 @@
  * separarle, perché condividono lo stesso processo.
  */
 
-import { cpus } from "node:os";
+import { machineCores } from "./machine-cores";
 
 const isWindows = process.platform === "win32";
 
-/** Core logici della macchina, letti una volta: non cambiano a runtime, e
- *  `cpus()` è una syscall che non ha senso rifare a ogni campionamento. */
-const CPU_CORES = Math.max(1, cpus().length);
+/** Core logici della macchina. Passa da `machine-cores.ts` e non da `cpus()`
+ *  perché quella lettura, sotto carico, sa tornare vuota: qui il danno sarebbe
+ *  silenzioso e al contrario: `cpuPercent` è normalizzato su questo numero,
+ *  quindi una macchina creduta da un core fa SOTTOSTIMARE la CPU della flotta,
+ *  e il freno che la legge resterebbe largo proprio quando deve stringere. */
+const CPU_CORES = () => machineCores();
 
 /** Sidecars that hold the server-side fleet. Kept as a closed union so a typo
  *  in a registration site is a type error, not a silently missing 4 GB. */
@@ -130,7 +133,7 @@ export interface FleetUsage {
    *  qui, alla sorgente, così ogni consumatore parla la stessa lingua.
    *  `cpuCores` resta esposto per poter risalire al numero per-core. */
   cpuPercent: number;
-  /** Core logici su cui è normalizzato `cpuPercent` (`os.cpus().length`). */
+  /** Core logici su cui è normalizzato `cpuPercent` (vedi `machine-cores.ts`). */
   cpuCores: number;
   /** Per-root split, so the dropdown can say WHERE the memory is. */
   roots: FleetRootUsage[];
@@ -205,7 +208,7 @@ export function summarizeFleet(
   instantCpu?: (row: PsRow) => number | null,
   /** Core logici su cui normalizzare la CPU. Default 1 = scala `ps` grezza
    *  (per-core), che è ciò che i test qui sotto verificano; `getFleetUsage`
-   *  passa `os.cpus().length` per restituire la scala 0-100 della macchina. */
+   *  passa i core della macchina per restituire la scala 0-100. */
   cpuCores = 1,
   /** Sessioni da attribuire dentro l'albero già coperto dai root. Vuoto =
    *  nessuna attribuzione, e ogni altro numero resta identico. */
@@ -427,7 +430,7 @@ function finish(
       rows,
       resolveFleetRoots(rows, process.pid),
       makeInstantCpu(base, nowMs),
-      CPU_CORES,
+      CPU_CORES(),
       // Una sorgente che esplode non deve portarsi dietro tutta la misura: senza
       // sessioni si perde la lente, non il totale.
       (() => { try { return sessionSource?.() ?? []; } catch { return []; } })(),
@@ -475,7 +478,7 @@ export function fleetLoadSync(): { coreUnits: number; cores: number } | null {
 }
 
 export async function getFleetUsage(): Promise<FleetUsage> {
-  const unsupported: FleetUsage = { processCount: 0, memoryMB: 0, cpuPercent: 0, cpuCores: CPU_CORES, memMetric: "rss", roots: [], sessions: [], supported: false };
+  const unsupported: FleetUsage = { processCount: 0, memoryMB: 0, cpuPercent: 0, cpuCores: CPU_CORES(), memMetric: "rss", roots: [], sessions: [], supported: false };
   if (isWindows) return unsupported;
   const now = Date.now();
   if (cached && now - cachedAt < FLEET_TTL_MS) return cached;

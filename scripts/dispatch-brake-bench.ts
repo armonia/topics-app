@@ -44,8 +44,17 @@ const CORES = Math.max(1, os.cpus().length);
  *  farlo onestamente il load average deve avere avuto il tempo di salire. */
 const WARMUP_DEFAULT_S = 60;
 
-/** La finestra su cui la sonda calcola la CPU istantanea (due letture di `ps`). */
-const CAMPIONE_MS = 3000;
+/**
+ * La finestra su cui la sonda calcola la CPU istantanea (due letture di `ps`).
+ *
+ * Deve stare SOPRA la cache di `getFleetUsage` (4s, `FLEET_TTL_MS` in
+ * `server/lib/fleet-usage.ts`), altrimenti la seconda lettura arriva dalla
+ * cache e non campiona niente: la misura resterebbe quella del delta
+ * precedente, cioè una media lunga che ingloba anche il tempo PRIMA che il
+ * carico partisse. Sotto i 4s il banco crederebbe di misurare 3 secondi di
+ * macchina satura e ne misurerebbe sessanta mezzi vuoti.
+ */
+const CAMPIONE_MS = 5000;
 
 /** Dopo quanto i bruciatori si spengono da soli, anche se il banco muore male. */
 const AUTO_SPEGNIMENTO_S = 240;
@@ -114,13 +123,59 @@ function caricoAltrui(): { pids: number[]; spegni: () => void } {
   }
   // La rete di sicurezza: se il banco muore di brutto (SIGKILL, terminale
   // chiuso) questi burner resterebbero a girare per sempre su una macchina che
-  // nessuno sta guardando. Un guardiano staccato li spegne comunque.
-  if (pids.length) sh(`( sleep ${AUTO_SPEGNIMENTO_S}; kill ${pids.join(" ")} 2>/dev/null ) & echo ok`);
+  // nessuno sta guardando. È già successo, e il carico orfano ha strozzato il
+  // dispatch per ore. Un guardiano staccato li spegne comunque.
+  //
+  // Il guardiano NON uccide a scatola chiusa. Fra adesso e il suo risveglio
+  // questi pid possono essere già morti e RIASSEGNATI a un processo di
+  // qualcun altro, e un banco che si porta dietro un `kill` cieco a scoppio
+  // ritardato è peggio del carico che doveva ripulire. Prima di ognuno guarda
+  // che quel pid sia ancora un `yes`.
+  let guardiano = 0;
+  if (pids.length) {
+    const r = sh(
+      `( sleep ${AUTO_SPEGNIMENTO_S}; for p in ${pids.join(" ")}; do ` +
+      `case "$(ps -o comm= -p $p 2>/dev/null)" in *yes) kill $p 2>/dev/null;; esac; done ) & echo $!`,
+    );
+    guardiano = Number.parseInt(new TextDecoder().decode(r.stdout).trim(), 10) || 0;
+  }
   return {
     pids,
-    spegni: () => { if (pids.length) sh(`kill ${pids.join(" ")} 2>/dev/null; exit 0`); },
+    // Si spegne anche il guardiano: finito il banco non ha più niente da
+    // sorvegliare, e lasciarlo dormire quattro minuti su una macchina viva
+    // significa lasciare in giro un `kill` differito che non serve più.
+    spegni: () => {
+      if (pids.length) sh(`kill ${pids.join(" ")} 2>/dev/null; exit 0`);
+      if (guardiano) sh(`kill ${guardiano} 2>/dev/null; exit 0`);
+    },
   };
 }
+
+/**
+ * Quanti bruciatori accende la seconda gamba: uno per core, e non di più.
+ *
+ * Il numero sembra il posto dove mettere una formula, e non lo è. La prima
+ * versione ne accendeva sei fissi e ne misurava 1,9, perché il tempo di CPU si
+ * spartisce fra tutti i processi pronti e su una macchina occupata sei
+ * bruciatori non valgono sei core. La correzione ovvia era accenderne di più in
+ * proporzione alla contesa. È stata misurata, e fa PEGGIO:
+ *
+ *     8 bruciatori  -> 4,3 core nostri
+ *    20 bruciatori  -> 2,0 core nostri
+ *    36 bruciatori  -> 2,5 core nostri
+ *
+ * Oltre il numero di core la macchina non spartisce meglio, thrasha: la coda si
+ * allunga per tutti, gli altri processi si accumulano, e la NOSTRA fetta scende
+ * invece di salire. Un banco che per far passare la sua barra mette la macchina
+ * in ginocchio non misura più niente, e intanto sotto c'è il Mac di una persona
+ * e ci sono gli altri agenti.
+ *
+ * Quindi: `CORES` bruciatori, che su una macchina libera bastano a prendersela
+ * tutta, e su una macchina occupata non la peggiorano. Se non arrivano alla
+ * quota, la risposta giusta non è accenderne altri: è dire che qui e adesso lo
+ * scenario non si costruisce.
+ */
+const BRUCIATORI = CORES;
 
 /**
  * CARICO NOSTRO: N «agenti» figli del banco, ognuno con `perAgente` bruciatori.
@@ -133,14 +188,19 @@ function caricoAltrui(): { pids: number[]; spegni: () => void } {
  * quella la forma che si riproduce qui.
  */
 function caricoNostro(agenti: number, perAgente: number): { procs: Bun.Subprocess[]; spegni: () => void } {
+  // Il guardiano finisce nella trappola insieme ai bruciatori: se resta vivo
+  // dopo che l'agente è morto, al risveglio spara un `kill` su pid che nel
+  // frattempo possono essere di chiunque. Un cane da guardia senza più niente
+  // da sorvegliare è solo un'arma con un timer.
   const script = `
     pids=''
     for i in $(seq 1 ${perAgente}); do
       ( while :; do :; done ) &
       pids="$pids $!"
     done
-    trap 'kill $pids 2>/dev/null; exit 0' TERM INT
     ( sleep ${AUTO_SPEGNIMENTO_S}; kill $pids 2>/dev/null; kill $$ 2>/dev/null ) &
+    guardiano=$!
+    trap 'kill $pids $guardiano 2>/dev/null; exit 0' TERM INT
     wait
   `;
   const procs = Array.from({ length: agenti }, () =>
@@ -159,6 +219,17 @@ const riga = (m: Misura) =>
 
 async function main(): Promise<number> {
   const warmup = Number.parseInt(arg("warmup") ?? String(WARMUP_DEFAULT_S), 10);
+  // Quale gamba: `--gamba=1`, `--gamba=2`, o tutte e due (il default).
+  //
+  // Serve perché le due gambe hanno bisogno di macchine diverse. La prima vuole
+  // una macchina CARICA di roba altrui, e la trova da sola. La seconda vuole
+  // poter vincere metà macchina, quindi vuole il contrario: una macchina in cui
+  // gli altri non stanno correndo. Rieseguire la seconda da sola, più tardi,
+  // costa un minuto invece di tre, e non c'è ragione di rifare una gamba che è
+  // già passata per aspettare quella che non poteva passare.
+  const solo = arg("gamba");
+  const fai1 = solo == null || solo === "1";
+  const fai2 = solo == null || solo === "2";
   const strutturale = structuralDispatchCapacity();
   console.log(`Banco del freno del dispatch — ${CORES} core, tetto strutturale ${strutturale}, riscaldamento ${warmup}s per gamba.`);
   if (strutturale < 3) {
@@ -171,55 +242,109 @@ async function main(): Promise<number> {
   misure.push(aRiposo);
   console.log(riga(aRiposo));
 
-  // ── Gamba 1: la macchina è satura, ma non per colpa nostra ────────────────
-  const altrui = caricoAltrui();
-  let gamba1: Misura;
-  try {
-    console.log(`  carico altrui:   ${altrui.pids.length} processi \`yes\` fuori dal nostro albero, ${warmup}s...`);
-    await attesa(warmup * 1000);
-    gamba1 = await misura("carico ALTRUI", 0);
-  } finally {
-    altrui.spegni();
+  // «A riposo» è il nome che gli si dà, non una garanzia: il banco gira sulla
+  // stessa macchina dove sta lavorando la flotta vera, e la sonda conta anche
+  // quella. Se il tetto è già sotto 3 PRIMA di fabbricare qualunque carico, la
+  // prima gamba non può dimostrare niente: fallirebbe per il lavoro degli
+  // altri agenti, non per il freno. Quello non è un rosso, è un banco che non
+  // si può eseguire qui adesso, e le due cose devono avere due esiti diversi
+  // o il primo rosso vero verrà letto come rumore.
+  if (aRiposo.tetto < 3) {
+    console.log(
+      `  Il tetto è già ${aRiposo.tetto} a macchina scarica (la flotta vera tiene ` +
+      `${aRiposo.nostriCore?.toFixed(2) ?? "n/d"} core): la prima gamba non è misurabile ora. ` +
+      "Rilancia quando la board è ferma.",
+    );
+    return 2;
   }
-  misure.push(gamba1);
-  console.log(riga(gamba1));
-  await attesa(5000); // la macchina si sgombra prima della gamba successiva
+
+  // ── Gamba 1: la macchina è satura, ma non per colpa nostra ────────────────
+  let gamba1: Misura | null = null;
+  if (fai1) {
+    const altrui = caricoAltrui();
+    try {
+      console.log(`  carico altrui:   ${altrui.pids.length} processi \`yes\` fuori dal nostro albero, ${warmup}s...`);
+      await attesa(warmup * 1000);
+      gamba1 = await misura("carico ALTRUI", 0);
+    } finally {
+      altrui.spegni();
+    }
+    misure.push(gamba1);
+    console.log(riga(gamba1));
+    await attesa(5000); // la macchina si sgombra prima della gamba successiva
+  }
 
   // ── Gamba 2: il carico è NOSTRO, e il freno deve mordere ──────────────────
-  const AGENTI = 2, PER_AGENTE = 3;
-  const nostro = caricoNostro(AGENTI, PER_AGENTE);
-  let gamba2: Misura;
-  try {
-    console.log(`  carico nostro:   ${AGENTI} agent con ${PER_AGENTE} bruciatori l'uno, dentro l'albero della flotta, ${warmup}s...`);
-    await attesa(warmup * 1000);
-    gamba2 = await misura("carico NOSTRO", AGENTI);
-  } finally {
-    nostro.spegni();
+  //
+  // Due «agenti», perché `running` è 2 e il conto deve avere qualcuno a cui
+  // attribuire i posti già occupati. Quanti bruciatori dentro, e perché non di
+  // più, sta in `BRUCIATORI`.
+  const AGENTI = 2;
+  const quota = CORES / 2;
+  let gamba2: Misura | null = null;
+  let bruciatori = 0;
+  if (fai2) {
+    const perAgente = Math.max(1, Math.ceil(BRUCIATORI / AGENTI));
+    bruciatori = AGENTI * perAgente;
+    const nostro = caricoNostro(AGENTI, perAgente);
+    try {
+      console.log(
+        `  carico nostro:   ${AGENTI} agent con ${perAgente} bruciatori l'uno ` +
+        `(${bruciatori} in tutto, dentro l'albero della flotta), ${warmup}s...`,
+      );
+      await attesa(warmup * 1000);
+      gamba2 = await misura("carico NOSTRO", AGENTI);
+    } finally {
+      nostro.spegni();
+    }
+    misure.push(gamba2);
+    console.log(riga(gamba2));
   }
-  misure.push(gamba2);
-  console.log(riga(gamba2));
+
+  // Se il nostro albero non è riuscito a prendersi più della sua quota, la
+  // seconda gamba non ha una premessa: il freno non deve mordere, perché
+  // davvero stiamo sotto quota. Non è un rosso della barra, è un banco che non
+  // ha potuto costruire lo scenario. Distinguerlo conta: un rosso che vuol dire
+  // «macchina troppo contesa» insegna a ignorare i rossi.
+  const nostriCore = gamba2?.nostriCore ?? 0;
+  const premessaGamba2 = gamba2 != null && nostriCore > 4;
 
   // ── La barra ──────────────────────────────────────────────────────────────
   const esiti = [
-    {
+    gamba1 && {
       barra: "carico ALTRUI: ne partono almeno 3",
       ok: gamba1.tetto >= 3,
       detta: `tetto ${gamba1.tetto} con la flotta a ${gamba1.nostriCore?.toFixed(2) ?? "n/d"} core e load ${gamba1.load1.toFixed(1)}`,
     },
-    {
+    gamba2 && premessaGamba2 && {
       barra: "carico NOSTRO: il freno morde ancora",
       ok: gamba2.tetto < strutturale,
       detta: `tetto ${gamba2.tetto} contro lo strutturale ${strutturale}, flotta a ${gamba2.nostriCore?.toFixed(2) ?? "n/d"} core`,
     },
-  ];
+  ].filter((e): e is { barra: string; ok: boolean; detta: string } => !!e);
   console.log("");
   for (const e of esiti) console.log(`  ${e.ok ? "OK  " : "ROTT"} ${e.barra} — ${e.detta}`);
   for (const m of misure) console.log(`  · ${m.gamba}: ${m.reason}`);
 
   const dove = arg("json");
   if (dove) {
-    writeFileSync(dove, JSON.stringify({ cores: CORES, strutturale, warmup, misure, esiti }, null, 2));
+    writeFileSync(dove, JSON.stringify({ cores: CORES, strutturale, warmup, premessaGamba2, misure, esiti }, null, 2));
     console.log(`\n  misure in ${dove}`);
+  }
+
+  // Se la flotta finta non è riuscita a prendersi più della sua quota, la
+  // seconda gamba non aveva una premessa: sotto quota il freno NON deve
+  // mordere, quindi quel «rotto» non parla del freno, parla di quanto era
+  // contesa la macchina. Esito a parte, e non un rosso: un rosso che vuol dire
+  // «rilancia più tardi» insegna a ignorare i rossi.
+  if (fai2 && !premessaGamba2) {
+    console.log(
+      `\n  Seconda gamba NON MISURABILE: la flotta finta ha tenuto ${nostriCore.toFixed(2)} core ` +
+      `sui ${quota} di quota, con ${gamba2?.load1.toFixed(1) ?? "n/d"} di carico sulla macchina e ` +
+      `${bruciatori} bruciatori. Sotto quota il freno non deve mordere. ` +
+      "Rilancia quando la macchina è più libera.",
+    );
+    return 2;
   }
   return esiti.every((e) => e.ok) ? 0 : 1;
 }
