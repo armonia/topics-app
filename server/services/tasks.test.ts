@@ -3,8 +3,8 @@ import { Database } from "bun:sqlite";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createTaskService, isLandActionLabel, isPublishActionLabel, LAND_ACTION_LABEL, PUBLISH_ACTION_LABEL, projectIdForPath, TaskServiceError, type TaskService } from "./tasks";
-import { PARKED_WAITED_OUT, WAIT_SERIES_MAX_MS, WAIT_STREAK_CAP } from "../../shared/board";
+import { ARCHIVE_PARKED_LABEL, commentAsksHuman, createTaskService, isLandActionLabel, isPublishActionLabel, LAND_ACTION_LABEL, PUBLISH_ACTION_LABEL, projectIdForPath, REQUEUE_PARKED_LABEL, TaskServiceError, type TaskService } from "./tasks";
+import { PARKED_WAITED_OUT, WAIT_SERIES_MAX_MS, WAIT_STREAK_CAP, parseQuestionBlock } from "../../shared/board";
 import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL } from "../db/test-schema";
 
 describe("reserved action labels", () => {
@@ -21,6 +21,78 @@ describe("reserved action labels", () => {
     expect(isPublishActionLabel("🚀 Landa e pubblica")).toBe(true);
     expect(isPublishActionLabel(LAND_ACTION_LABEL)).toBe(false); // land only, no push
     expect(isPublishActionLabel("")).toBe(false);
+  });
+  // `isBoardActionLabel` and the option-level rule now live in shared/board.ts,
+  // because the client needs the same verdict for the review banner's title;
+  // they are pinned in shared/board.test.ts. What stays here is the TEXT-level
+  // entry point, which owns one rule of its own: the unparseable fence.
+});
+
+/**
+ * A DELIVERY THAT WEARS A QUESTION'S CLOTHES IS STILL A DELIVERY.
+ *
+ * The kickoff envelope orders a landable delivery to attach
+ * `options=["Landa su main"]`, and `addComment` wraps any options in a
+ * ```question fence. So every reader that asked "does this contain a question
+ * block" answered yes on finished work. Measured on 13/08 against the live
+ * board db: of the 437 agent comments carrying that fence, 331 are deliveries.
+ */
+describe("commentAsksHuman", () => {
+  /** Same shape addComment composes, so the test reads what production writes. */
+  const block = (question: string, ...options: string[]) =>
+    ["```question", question, ...options.map((o) => `- ${o}`), "```"].join("\n");
+
+  test("a delivery whose only option is a board action is NOT a question", () => {
+    expect(commentAsksHuman(block("Fatto: sei cancelli verdi.", LAND_ACTION_LABEL))).toBe(false);
+    // Tolerant on the label, like the predicates it delegates to.
+    expect(commentAsksHuman(block("Fatto.", "🚀  landa su  main."))).toBe(false);
+    // The two answers to the parked-subtask stall come out the same way: the
+    // board runs both. That block is written by `author: 'system'`, and both
+    // readers of this predicate look at the AGENT's last word only, so the
+    // verdict never reaches a card. Pinned here so a future reader who wires
+    // this predicate to a system-authored surface sees what it says first.
+    expect(commentAsksHuman(block("Fermo su 2 sottotask.", REQUEUE_PARKED_LABEL, ARCHIVE_PARKED_LABEL))).toBe(false);
+  });
+
+  test("MIXED stays a question: one option the board cannot run needs a person", () => {
+    expect(commentAsksHuman(block("Ho finito, ma il nome del flag non mi convince.", LAND_ACTION_LABEL, "Aspetta, ho un dubbio"))).toBe(true);
+    expect(commentAsksHuman(block("Che approccio uso?", "JWT in cookie", "Bearer token"))).toBe(true);
+    // A plan waiting for its verdict is the case this must never swallow.
+    expect(commentAsksHuman(block("Ecco il piano.", "Approva il piano", "Da rivedere"))).toBe(true);
+  });
+
+  test("no options at all is still a question, and no block at all is not", () => {
+    expect(commentAsksHuman(block("E adesso?"))).toBe(true);
+    expect(commentAsksHuman("Fatto, guarda demo/. Niente da decidere.")).toBe(false);
+    expect(commentAsksHuman("")).toBe(false);
+    expect(commentAsksHuman(null)).toBe(false);
+  });
+
+  test("prose around the block does not change the verdict", () => {
+    const testo = `Consegna: rifatto il gate.\n\n${block("Landa?", LAND_ACTION_LABEL)}`;
+    expect(commentAsksHuman(testo)).toBe(false);
+  });
+
+  /**
+   * AN UNREADABLE FENCE IS A QUESTION, and this is the regression that reading
+   * the parsed options alone would have introduced.
+   *
+   * `parseQuestionBlock` returns null for a body that is all bullets and no
+   * question line — a shape only a hand-written `comment_task` produces, since
+   * `addComment` composes the canonical block whenever `options` is non-empty.
+   * The rule this replaced was `content.includes("```question")`, so that shape
+   * counted as a question and was exempt from the two review gates. Falling
+   * through to "no block ⇒ delivery" would have given a legitimate mid-work
+   * question a `delivered` chip and two 409s.
+   */
+  test("a question fence that does not parse stays a question", () => {
+    const malformed = "```question\n- Sì\n- No\n```";
+    expect(parseQuestionBlock(malformed)).toBeNull(); // the shape, pinned
+    expect(commentAsksHuman(malformed)).toBe(true);
+    // An empty fence is the same story: there IS a fence, we just cannot read it.
+    expect(commentAsksHuman("Ho un dubbio.\n```question\n```")).toBe(true);
+    // And a fence that is not a question fence must not be swept in.
+    expect(commentAsksHuman("```ts\nconst x = 1;\n```")).toBe(false);
   });
 });
 
