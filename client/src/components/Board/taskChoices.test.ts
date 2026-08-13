@@ -112,9 +112,11 @@ describe('taskChoices', () => {
     }
   });
 
-  it('review con ramo: landare, rimandare indietro, prenderselo', () => {
+  it('review con ramo: landare, rimandare indietro, approvare, prenderselo', () => {
+    // `accept` e' entrato dopo: landare e chiudere non sono la stessa cosa, e
+    // una card il cui lavoro non e' un ramo di questo repo restava senza uscite.
     expect(ids(task({ status: 'review', assignedTopicId: 't', deliveryBranch: 'task/abc' })))
-      .toEqual(['land', 'send-back', 'take-over']);
+      .toEqual(['land', 'send-back', 'accept', 'take-over']);
   });
 
   it('review senza ramo: approva, rifai così, archivia', () => {
@@ -185,7 +187,9 @@ describe('taskChoices', () => {
   });
 
   it('exclude toglie le voci che il drawer ha già come bottoni suoi', () => {
-    expect(ids(task({ status: 'review', assignedTopicId: 't', deliveryBranch: 'task/abc' }), { exclude: ['land', 'send-back'] }))
+    // I bottoni PROPRI del drawer sono tre (`reviewDecisionButtons`): approva,
+    // rimanda, landa. Escluderne due su tre lasciava passare il terzo doppio.
+    expect(ids(task({ status: 'review', assignedTopicId: 't', deliveryBranch: 'task/abc' }), { exclude: ['land', 'send-back', 'accept'] }))
       .toEqual(['take-over']);
   });
 
@@ -358,6 +362,22 @@ describe('review portata dal sistema: le scelte non sono quelle di una consegna'
     expect(taskChoiceState(task({ ...reaper, deliveredReason: 'parked_children' }))).toBe('review-branch');
   });
 
+  it('una consegna col ramo offre anche APPROVA: landare e chiudere non sono la stessa cosa', () => {
+    // Il buco misurato il 13/08 su 487ddf94, il cui lavoro sta in un ALTRO repo
+    // (`remotion-scenes`): le scelte erano landa / rimanda / serve-a-me, e
+    // l'unica cosa da fare — chiuderla — non c'era. «Landa su main» fonde un
+    // ramo; su una card cosi' non significa niente.
+    //
+    // È la stessa regola che questo file gia' pretende per `review-unfinished`:
+    // togliere un'uscita a chi decide è l'errore opposto.
+    const ids = taskChoices(consegnata).map((c) => c.id);
+    expect(ids).toContain('accept');
+    expect(ids).toContain('land');
+    // Il verde resta il land: su una consegna col ramo il gesto normale è farla
+    // atterrare, e «Approva» è l'uscita accanto, non quella in testa.
+    expect(taskChoices(consegnata).find((c) => c.id === 'accept')).toMatchObject({ tone: 'neutral' });
+  });
+
   it('il verde non è più «Landa su main»: è la sola uscita che fa avanzare il lavoro', () => {
     expect(taskChoices(consegnata)[0]).toMatchObject({ id: 'land', tone: 'primary' });
     expect(taskChoices(reaper)[0]).toMatchObject({ id: 'send-back', tone: 'primary' });
@@ -486,7 +506,11 @@ describe('usableQuestionOptions', () => {
     // them. The drawer draws it anyway, big: without `surfaceLabels` the
     // identical quick reply survived, and pressing it REJECTED the task.
     const disegnate = [taskActionWord('accept').label, taskActionWord('send-back').label, taskActionWord('land').label];
-    expect(usableQuestionOptions(consegnata, ['Approva'])).toEqual(['Approva']);
+    // Da quando la card OFFRE «Approva» fra le sue scelte, il doppione cade da
+    // solo: non serve piu' che il drawer dichiari i propri bottoni perche' la
+    // risposta rapida identica sparisca. `surfaceLabels` resta la rete per le
+    // parole che solo il drawer disegna (es. «Approva comunque» sui check rossi).
+    expect(usableQuestionOptions(consegnata, ['Approva'])).toEqual([]);
     expect(usableQuestionOptions(consegnata, ['Approva'], { surfaceLabels: disegnate })).toEqual([]);
     // «Approva il piano» is ANOTHER thing: an answer to the agent, not the
     // decision button. A de-duplicator that cut this one too would remove the

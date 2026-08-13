@@ -114,10 +114,21 @@ export function taskChoices(
   const toAgent = !!task.assignedTopicId;
   let out: TaskChoice[] = [];
   switch (state) {
+    // Consegnata, con un ramo. `accept` STA QUI, e la sua assenza era un buco:
+    // «Landa su main» e «Approva» non sono la stessa cosa — il primo fonde, il
+    // secondo chiude e basta — e una card il cui lavoro NON è un ramo di questo
+    // repo restava senza nessuna uscita utile. Misurato su 487ddf94, dove il
+    // lavoro sta in `remotion-scenes`: le tre scelte offerte erano landa,
+    // rimanda, serve-a-me, e l'unica cosa da fare (chiuderla) non c'era.
+    //
+    // È la stessa regola già scritta due casi più sotto per `review-unfinished`:
+    // togliere un'uscita a chi decide è l'errore opposto. Neutro e dopo il land,
+    // perché su una consegna col ramo il gesto normale resta far atterrare.
     case 'review-branch':
       out = [
         say('land', 'primary'),
         { id: 'send-back', tone: 'neutral', ...sendBackWord(sendBackDest(task), tr) },
+        say('accept', 'neutral'),
         say('take-over', 'neutral'),
       ];
       break;
