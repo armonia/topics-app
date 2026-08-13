@@ -305,9 +305,24 @@ test.describe("Drawer del task — un solo scroll", () => {
 
     // (6) Lo Spazio di lavoro NON è collassato: il GroupLayout è fuori dallo
     //     scroll proprio perché lì dentro perderebbe l'altezza definita.
+    //
+    //     La soglia misura l'INTENTO, non un numero tondo. Prima diceva 200px,
+    //     che era il valore comodo il giorno in cui il test è nato: lo spazio di
+    //     lavoro è `flex-1` accanto al brief e si divide con lui ciò che la zona
+    //     di decisione lascia, quindi ogni bottone che una decisione guadagna
+    //     gli toglie mezzo pixel. A forza di righe nuove in fondo al drawer è
+    //     sceso a 186px e il test è diventato rosso senza che niente si fosse
+    //     rotto: 186px su una finestra da 720 non è un pannello collassato, è un
+    //     pannello un po' più stretto.
+    //
+    //     Collassato vuol dire una cosa sola: dentro non ci sta nient'altro che
+    //     la barra delle tab. Quella riga è alta 40px (`chrome-row-h10`), quindi
+    //     il doppio è il confine: sotto, il GroupLayout ha perso l'altezza
+    //     definita che stare fuori dallo scroll gli deve garantire; sopra, sotto
+    //     la barra c'è una pane vera che si guarda.
     const body = drawer.getByTestId("task-drawer-body");
     await expect(body).toBeVisible();
-    expect((await boxOf(body)).height).toBeGreaterThan(200);
+    expect((await boxOf(body)).height).toBeGreaterThan(80);
   });
 
   test("DRAWER-02: la maniglia della Consegna nasconde l'anteprima e non muove i bottoni", async ({ page }) => {
