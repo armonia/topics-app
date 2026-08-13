@@ -19,10 +19,29 @@ const SCHEMA = `CREATE TABLE tasks (
     created_at TEXT NOT NULL, updated_at TEXT NOT NULL
   )`;
 
+/**
+ * La sonda legge anche il THREAD, da quando il padre che chiede senza potersi
+ * firmare (consegna vera in review, domanda posata fra i commenti) va escluso:
+ * senza questa tabella la fixture morirebbe con «no such table», che è il modo
+ * più silenzioso di non provare niente.
+ */
+const SCHEMA_COMMENTI = `CREATE TABLE task_comments (
+    id TEXT PRIMARY KEY, task_id TEXT NOT NULL, author TEXT NOT NULL,
+    content TEXT NOT NULL, created_at TEXT NOT NULL
+  )`;
+
 function freshDb(): Database {
   const db = new Database(":memory:");
   db.run(SCHEMA);
+  db.run(SCHEMA_COMMENTI);
   return db;
+}
+
+/** Un commento di sistema nel thread, con l'ora che decide se la domanda vale. */
+function comment(db: Database, taskId: string, content: string, createdAt: string): void {
+  db.prepare(
+    "INSERT INTO task_comments (id, task_id, author, content, created_at) VALUES (?, ?, 'system', ?, ?)",
+  ).run(`c${seq++}`, taskId, content, createdAt);
 }
 
 let seq = 0;
@@ -93,6 +112,26 @@ describe("la sonda degli stalli muti", () => {
     card(db, "chiede", "review", { dispatchState: "needs_input", deliveredReason: "parked_children" });
     card(db, "sotto", "backlog", { parent: "chiede" });
     expect(findStalls(db).parents).toBe(0);
+  });
+
+  test("il padre che chiede dal THREAD non è muto, anche senza il marchio sulla riga", () => {
+    // Su una consegna vera dell'agente la domanda si posa fra i commenti e la
+    // card non si muove: scriverle `delivered_by = 'system'` sopra sarebbe una
+    // bugia al reviewer. Il marchio è la domanda stessa.
+    const db = freshDb();
+    card(db, "consegnato", "review", { dispatchState: "delivered" });
+    card(db, "rimandato", "backlog", { parent: "consegnato" });
+    expect(findStalls(db).parents).toBe(1);
+    comment(db, "consegnato", "```question\nRestano passi parcheggiati\n- Rimetti in coda i sottotask\n- Archivia i sottotask\n```", "2027-01-01T00:00:00.000Z");
+    expect(findStalls(db).parents).toBe(0);
+  });
+
+  test("una domanda più VECCHIA del parcheggio non copre il parcheggio nuovo", () => {
+    const db = freshDb();
+    card(db, "consegnato", "review", { dispatchState: "delivered" });
+    card(db, "rimandato", "backlog", { parent: "consegnato" });
+    comment(db, "consegnato", "```question\n- Rimetti in coda i sottotask\n```", "2020-01-01T00:00:00.000Z");
+    expect(findStalls(db).parents).toBe(1);
   });
 
   test("un padre MAI dispacciato conta lo stesso: dispatch_state NULL non lo nasconde", () => {
@@ -199,6 +238,7 @@ describe("probe:stalls --gate", () => {
     const path = join(dir, "topics.db");
     const db = new Database(path);
     db.run(SCHEMA);
+    db.run(SCHEMA_COMMENTI);
     seed(db);
     db.close();
     return { dir, path };
