@@ -1242,13 +1242,26 @@ const DICTS: Record<Locale, Dict> = { it: IT, en: EN };
 export const FALLBACK_LOCALE: Locale = 'it';
 
 /**
- * Risolve la preferenza in una lingua vera. `auto` guarda il browser e ricade
- * sull'italiano, che è la lingua di questa casa, non un default universale.
+ * Risolve la preferenza in una lingua vera.
+ *
+ * `auto` NON guarda più il browser, e la ragione è misurata. La migrazione
+ * delle stringhe è PER SUPERFICIE (lo dice il pannello Aspetto), e tutto ciò
+ * che NON è chrome del client — i chip che arrivano dal server, il testo che
+ * scrivono gli agenti, i blocchi domanda, il contenuto delle card — è italiano
+ * comunque. Quindi scegliere `en` da soli, perché il Mac è in inglese, non
+ * produce una app inglese: produce una schermata METÀ inglese e metà italiana.
+ *
+ * Visto il 13/08 sulla board di questa casa: preferenza salvata `"auto"`,
+ * sistema in inglese, e sulla stessa card «consegnato» accanto a «Land on
+ * main», «Send it back», «I take it». Nessuna delle due lingue era quella
+ * giusta, e chi guardava non aveva scelto niente.
+ *
+ * L'inglese resta raggiungibile, ma va CHIESTO: `pref === 'en'`. Una scelta
+ * esplicita accetta il misto; un'inferenza dal sistema operativo lo impone a
+ * chi non sapeva nemmeno di aver deciso.
  */
-export function resolveLocale(pref: LocalePreference | undefined, navigatorLanguage?: string): Locale {
+export function resolveLocale(pref: LocalePreference | undefined, _navigatorLanguage?: string): Locale {
   if (pref === 'it' || pref === 'en') return pref;
-  const lang = (navigatorLanguage ?? '').toLowerCase();
-  if (lang.startsWith('en')) return 'en';
   return FALLBACK_LOCALE;
 }
 
