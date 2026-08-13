@@ -11,13 +11,14 @@
  * È lo stesso difetto che la 095 esiste per evitare, ma dal lato del codice
  * invece che dello schema.
  */
-import { describe, expect, test, beforeAll } from "bun:test";
-import { setupTestDataDir, createTestAppContext } from "./helpers";
+import { describe, expect, test, beforeAll, afterAll } from "bun:test";
+import { setupTestDataDir, createTestAppContext, testTmpDir, cleanupTestDataDir } from "./helpers";
 import type { AppContext } from "../../server/types";
 import { autoreDaIdentita } from "../../server/lib/message-author";
 
-const TEST_DATA = "/tmp/topics-message-author-data";
+const TEST_DATA = testTmpDir("message-author-data");
 beforeAll(() => setupTestDataDir(TEST_DATA));
+afterAll(() => cleanupTestDataDir(TEST_DATA));
 
 const SK = "author-roundtrip-1";
 

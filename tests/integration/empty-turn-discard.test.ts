@@ -14,13 +14,14 @@
  * Il predicato è `shared/empty-turn.ts`, con i suoi test di unità; la prova che
  * la bolla sparisce anche in pagina sta nell'E2E `empty-turn-on-stop.spec.ts`.
  */
-import { describe, expect, test, beforeAll } from "bun:test";
-import { setupTestDataDir, createTestAppContext } from "./helpers";
+import { describe, expect, test, beforeAll, afterAll } from "bun:test";
+import { setupTestDataDir, createTestAppContext, testTmpDir, cleanupTestDataDir } from "./helpers";
 import type { AppContext, StoredMessage } from "../../server/types";
 
-const TEST_DATA = "/tmp/topics-empty-turn-data";
+const TEST_DATA = testTmpDir("empty-turn-data");
 
 beforeAll(() => setupTestDataDir(TEST_DATA));
+afterAll(() => cleanupTestDataDir(TEST_DATA));
 
 let seq = 0;
 function msg(p: Partial<StoredMessage> & Pick<StoredMessage, "id" | "role" | "content">): StoredMessage {

@@ -20,18 +20,20 @@
 
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import * as fs from "node:fs";
+import { join } from "node:path";
 import { execFileSync } from "node:child_process";
-import { PROJECT_ROOT } from "./helpers";
+import { PROJECT_ROOT, testTmpDir, cleanupTestDataDir } from "./helpers";
 
 // Isolation: must set env before the first import that calls initDatabase.
-const TEST_REPO = "/tmp/topics-phase-a-test-repo";
-const TEST_DATA = "/tmp/topics-phase-a-test-data";
-const TEST_WT = "/tmp/topics-phase-a-test-wt";
+// Una radice sola per i tre alberi, cosi' la pulizia e' una riga e due run in
+// parallelo non condividono ne' il repo, ne' il DB, ne' i worktree.
+const ROOT = testTmpDir("phase-a");
+const TEST_REPO = join(ROOT, "repo");
+const TEST_DATA = join(ROOT, "data");
+const TEST_WT = join(ROOT, "wt");
 
 function rmAll() {
-  fs.rmSync(TEST_REPO, { recursive: true, force: true });
-  fs.rmSync(TEST_DATA, { recursive: true, force: true });
-  fs.rmSync(TEST_WT, { recursive: true, force: true });
+  fs.rmSync(ROOT, { recursive: true, force: true });
 }
 
 function gitInit(dir: string) {
@@ -52,9 +54,7 @@ beforeAll(() => {
   process.env.DATA_DIR = TEST_DATA;
   process.env.TOPICS_WORKTREES_DIR = TEST_WT;
 });
-afterAll(() => {
-  rmAll();
-});
+afterAll(() => cleanupTestDataDir(ROOT));
 
 // Defer imports until env is set so initDatabase respects DATA_DIR.
 // I nomi sono elencati invece di tenere il namespace del modulo: un `import()`

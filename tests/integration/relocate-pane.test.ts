@@ -10,13 +10,14 @@
  * moved tab straight back — duplicated standalone+project, with closes coupled
  * (same session id on both surfaces).
  */
-import { describe, expect, test, beforeAll } from "bun:test";
-import { setupTestDataDir, createTestAppContext } from "./helpers";
+import { describe, expect, test, beforeAll, afterAll } from "bun:test";
+import { setupTestDataDir, createTestAppContext, testTmpDir, cleanupTestDataDir } from "./helpers";
 import { moveTerminalPaneToProject } from "../../server/lib/relocate-pane";
 
-const TEST_DATA = "/tmp/topics-relocate-data";
+const TEST_DATA = testTmpDir("relocate-data");
 
 beforeAll(() => setupTestDataDir(TEST_DATA));
+afterAll(() => cleanupTestDataDir(TEST_DATA));
 
 function readUi(db: any, key: string): any {
   const row = db.query("SELECT value, server_seq FROM ui_state WHERE key = ?").get(key) as

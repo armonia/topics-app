@@ -11,13 +11,13 @@
  * Il test esegue il FILE della migration, non una sua copia: se il predicato
  * cambia, cambia sotto questi casi.
  */
-import { describe, expect, test, beforeAll } from "bun:test";
+import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import * as fs from "node:fs";
 import path from "node:path";
-import { setupTestDataDir, createTestAppContext, PROJECT_ROOT } from "./helpers";
+import { setupTestDataDir, createTestAppContext, testTmpDir, cleanupTestDataDir, PROJECT_ROOT } from "./helpers";
 import type { AppContext } from "../../server/types";
 
-const TEST_DATA = "/tmp/topics-migration-071-data";
+const TEST_DATA = testTmpDir("migration-071-data");
 
 const MIGRATION_SQL = fs.readFileSync(
   path.join(PROJECT_ROOT, "server/db/migrations/071-drop-empty-assistant-turns.sql"),
@@ -25,6 +25,7 @@ const MIGRATION_SQL = fs.readFileSync(
 );
 
 beforeAll(() => setupTestDataDir(TEST_DATA));
+afterAll(() => cleanupTestDataDir(TEST_DATA));
 
 type Row = {
   id: string;

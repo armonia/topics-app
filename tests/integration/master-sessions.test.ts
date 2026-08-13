@@ -6,10 +6,10 @@
  * creates fresh test sessions in an isolated DATA_DIR and deletes them.
  */
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
-import { setupTestDataDir, createTestAppContext } from "./helpers";
+import { setupTestDataDir, createTestAppContext, testTmpDir, cleanupTestDataDir } from "./helpers";
 import type { RouteHandler } from "../../server/types";
 
-const TEST_DATA = "/tmp/topics-master-sessions-test";
+const TEST_DATA = testTmpDir("master-sessions");
 // /send + /buffer are token-gated (agentAuthOk checks process.env.GATEWAY_TOKEN);
 // set a known token for this in-process router and present it on every call().
 const TEST_TOKEN = "test-token";
@@ -17,10 +17,11 @@ const PRIOR_GATEWAY_TOKEN = process.env.GATEWAY_TOKEN;
 beforeAll(() => { process.env.GATEWAY_TOKEN = TEST_TOKEN; setupTestDataDir(TEST_DATA); });
 
 let disconnect: (() => void) | null = null;
-afterAll(() => {
+afterAll(async () => {
   if (PRIOR_GATEWAY_TOKEN === undefined) delete process.env.GATEWAY_TOKEN;
   else process.env.GATEWAY_TOKEN = PRIOR_GATEWAY_TOKEN;
   try { disconnect?.(); } catch {}
+  await cleanupTestDataDir(TEST_DATA);
 });
 
 function call(router: RouteHandler, method: string, path: string, body?: unknown) {

@@ -20,8 +20,9 @@ import * as fs from "node:fs";
 import { join } from "node:path";
 
 import { purgeOrphanTopicRefs } from "../../server/services/ui-state-orphan-cleanup";
+import { testTmpDir } from "./helpers";
 
-const TEST_DIR = "/tmp/topics-orphan-cleanup-test";
+const TEST_DIR = testTmpDir("orphan-cleanup");
 const DB_PATH = join(TEST_DIR, "db.sqlite");
 
 function freshDb(): Database {

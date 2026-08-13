@@ -27,6 +27,36 @@ import type { AppContext } from "../../../server/types";
 export const PROJECT_ROOT = path.resolve(import.meta.dirname, "../../..");
 
 /**
+ * Una cartella temporanea UNICA per processo, sotto `/tmp/topics-test/`.
+ *
+ * PERCHE' ESISTE. Un path fisso non isola niente: isola dagli ALTRI programmi,
+ * non da un'altra copia di questa suite. Due run in parallelo aprono lo stesso
+ * file SQLite, lo stesso HOME finto e lo stesso repo git, e la prima `rmSync` di
+ * un `beforeAll` porta via i dati dell'altra mentre sta lavorando. Misurato: 3
+ * run concorrenti, circa 65 test rossi fra `SQLITE_IOERR_VNODE` e lock contesi,
+ * tutti verdi presi da soli. Il caso peggiore e' il broker ai-bridge, il cui
+ * socket unix deriva da un hash di `DATA_DIR`: un `DATA_DIR` fisso mette due run
+ * sullo stesso socket, cioe' a parlare con lo stesso demone.
+ *
+ * PERCHE' `/tmp` E NON `os.tmpdir()`. Su macOS `tmpdir()` e' un
+ * `/var/folders/xx/…/T/` da una cinquantina di caratteri. Un socket unix ha un
+ * tetto duro di 104 caratteri di path (`sun_path`), e i test che ne creano uno
+ * lo mettono dentro la cartella che ricevono da qui: con una radice corta il
+ * socket resta legale, con quella di sistema si rischia un ENAMETOOLONG che non
+ * parla di niente.
+ *
+ * Esempio di risultato: `/tmp/topics-test/live-phase-gate-a3Xk9Z`.
+ *
+ * Chi la chiede la cancella: `afterAll(() => rmSync(dir, { recursive: true,
+ * force: true }))`, o `/tmp/topics-test` cresce a ogni run.
+ */
+export function testTmpDir(label: string): string {
+  const root = "/tmp/topics-test";
+  fs.mkdirSync(root, { recursive: true });
+  return fs.mkdtempSync(path.join(root, `${label}-`));
+}
+
+/**
  * Wipe `testDataDir` and point `process.env.DATA_DIR` at it. Call from
  * `beforeAll`. The cleanup is intentionally only the directory wipe —
  * letting each test owning DATA_DIR keeps the global env mutation
@@ -35,6 +65,25 @@ export const PROJECT_ROOT = path.resolve(import.meta.dirname, "../../..");
 export function setupTestDataDir(testDataDir: string): void {
   fs.rmSync(testDataDir, { recursive: true, force: true });
   process.env.DATA_DIR = testDataDir;
+}
+
+/**
+ * Il gemello di `setupTestDataDir`: chiude il DB e porta via la cartella.
+ * Chiamalo da `afterAll`, passando la RADICE che il file ha creato con
+ * `testTmpDir` (non la sola `data/`, se ne ha derivate altre).
+ *
+ * L'ordine non e' un dettaglio, e' tutto il punto. `server/db.ts` tiene un
+ * singleton `_db` di PROCESSO, e `bun test` fa girare ogni file nello stesso
+ * processo: cancellare la cartella lasciando la maniglia aperta consegna al file
+ * successivo un DB che punta a un albero che non esiste piu', e il primo
+ * `.all()` esce con `SQLITE_IOERR_VNODE`. Misurato: 35 test rossi, tutti verdi
+ * presi da soli. `closeDatabase` e' idempotente, quindi chiamarlo qui va bene
+ * anche se un test lo aveva gia' chiuso per conto suo.
+ */
+export async function cleanupTestDataDir(dir: string): Promise<void> {
+  const { closeDatabase } = await import("../../../server/db");
+  closeDatabase();
+  fs.rmSync(dir, { recursive: true, force: true });
 }
 
 /**
