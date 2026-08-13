@@ -823,18 +823,34 @@ describe("board settings route", () => {
   let db: Database; let broadcasts: any[]; let router: any;
   beforeEach(() => { db = freshDb(); broadcasts = []; router = createTasksRouter(makeCtx(db, broadcasts)); });
 
-  test("GET returns defaults (auto off, cap 2)", async () => {
+  test("GET returns defaults (auto off) and NO per-board cap", async () => {
     const s = await (await call(router, "GET", "/api/boards/pX/settings"))!.json();
     expect(s.autoDispatch).toBe(false);
-    expect(s.maxAgents).toBe(2);
+    // Un tetto per board non esiste più: mostrarne uno qui è ciò che il 13/08
+    // ha fatto dispacciare una persona su "max 9" mentre il tetto vero era 8.
+    expect(s.maxAgents).toBeUndefined();
+  });
+
+  // La rotta ACCETTAVA `maxAgents`, lo salvava e lo rimostrava: un numero che
+  // si scriveva e non limitava niente. Ora lo ignora, e soprattutto non lo
+  // restituisce — e il tetto vero (riga '*') non si muove di un'unità.
+  test("PATCH ignora un maxAgents per board e non tocca il tetto globale", async () => {
+    const prima = await (await call(router, "GET", "/api/all-boards/settings"))!.json();
+    expect(prima.maxAgents).toBe(3); // default della riga '*': mai impostata
+    const resp = (await call(router, "PATCH", "/api/boards/pX/settings", { maxAgents: 9 }))!;
+    expect(resp.status).toBe(200);
+    expect((await resp.json()).maxAgents).toBeUndefined();
+    const dopo = await (await call(router, "GET", "/api/all-boards/settings"))!.json();
+    expect(dopo.maxAgents).toBe(3);
+    expect(dopo.maxAgentsAuto).toBe(true);
   });
 
   test("PATCH upserts + broadcasts board:settings", async () => {
-    const resp = (await call(router, "PATCH", "/api/boards/pX/settings", { autoDispatch: true, maxAgents: 3 }))!;
+    const resp = (await call(router, "PATCH", "/api/boards/pX/settings", { autoDispatch: true, dispatchTimeoutMin: 30 }))!;
     expect(resp.status).toBe(200);
     const s = await resp.json();
     expect(s.autoDispatch).toBe(true);
-    expect(s.maxAgents).toBe(3);
+    expect(s.dispatchTimeoutMin).toBe(30);
     expect(broadcasts.some((b) => b.type === "board:settings" && b.projectId === "pX")).toBe(true);
     // autoDispatch is global → the pill on EVERY board must hear about it.
     expect(broadcasts.some((b) => b.type === "board:dispatch" && b.autoDispatch === true)).toBe(true);
