@@ -116,7 +116,10 @@ function freshDb(): Database {
     dispatch_use_worktree INTEGER NOT NULL DEFAULT 1, dispatch_timeout_min INTEGER NOT NULL DEFAULT 20,
     dispatch_mcp TEXT,
     dispatch_retry_cap INTEGER, dispatch_retry_backoff_s INTEGER, review_checks TEXT,
-    dispatch_fanout INTEGER
+    dispatch_fanout INTEGER,
+    -- migration 053: mancava qui, e senza di lei ogni lettura del tetto VERO
+    -- (riga '*', readGlobalCap) esplode invece di misurare.
+    max_agents_auto INTEGER
   )`);
   db.run(`CREATE TABLE task_comments (
     id TEXT PRIMARY KEY, task_id TEXT NOT NULL, author TEXT NOT NULL DEFAULT 'user',
@@ -1033,19 +1036,33 @@ describe("board settings", () => {
   let db: Database; let s: TaskService;
   beforeEach(() => { db = freshDb(); s = svc(db); });
 
-  test("defaults when no row exists (auto off, cap 2, worktree on)", () => {
+  test("defaults when no row exists (auto off, worktree on)", () => {
     const bs = s.getBoardSettings(PID);
     expect(bs.autoDispatch).toBe(false);
-    expect(bs.maxAgents).toBe(2);
     expect(bs.dispatchEffort).toBe("medium");
     expect(bs.dispatchUseWorktree).toBe(true);
   });
 
+  // Il tetto NON è per board: la board non ne espone uno, e il default di
+  // un'installazione nuova è quello della riga '*' — auto, che è come la
+  // macchina si protegge da sé finché nessuno sceglie un numero.
+  test("il tetto di default è quello GLOBALE, non un campo della board", () => {
+    expect(s.getGlobalCap()).toEqual({ auto: true, max: 3 });
+  });
+
   test("upsert persists + clamps + reads back", () => {
-    const bs = s.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 99, dispatchTimeoutMin: 20 });
+    const bs = s.updateBoardSettings(PID, { autoDispatch: true, dispatchTimeoutMin: 999 });
     expect(bs.autoDispatch).toBe(true);
-    expect(bs.maxAgents).toBe(10); // clamped 1..10
+    expect(bs.dispatchTimeoutMin).toBe(120); // clamped 1..120
     expect(s.getBoardSettings(PID).autoDispatch).toBe(true);
+  });
+
+  // Il clamp del tetto viveva su un campo per board che non limitava niente:
+  // qui misura la leva che comanda davvero (riga '*'), e il suo intervallo è
+  // 1..20, non l'1..10 di quel campo morto.
+  test("il tetto si clampa dove vive DAVVERO: riga '*', 1..20", () => {
+    expect(s.setGlobalCap({ auto: false, max: 99 })).toEqual({ auto: false, max: 20 });
+    expect(s.getGlobalCap()).toEqual({ auto: false, max: 20 });
   });
 
   test("rejects an invalid effort", () => {
@@ -1075,10 +1092,12 @@ describe("board settings", () => {
     expect(s.getBoardSettings(PID).dispatchEffort).toBe("auto");
   });
 
-  test("enabling auto-dispatch alone keeps the cap at 2 (not the legacy column default 5)", () => {
-    const bs = s.updateBoardSettings(PID, { autoDispatch: true });
-    expect(bs.maxAgents).toBe(2);
-    expect(s.getBoardSettings(PID).maxAgents).toBe(2);
+  // Accendere l'interruttore MATERIALIZZA la riga '*', che è dove sta il tetto
+  // vero: se nascesse sul default 5 della colonna legacy, un semplice ON
+  // alzerebbe il tetto della macchina senza che nessuno lo abbia chiesto.
+  test("enabling auto-dispatch alone keeps the GLOBAL cap at 2 (not the legacy column default 5)", () => {
+    s.updateBoardSettings(PID, { autoDispatch: true });
+    expect(s.getGlobalCap()).toEqual({ auto: true, max: 2 });
   });
 
   test("auto-dispatch is GLOBAL: flipping it from one board flips every board", () => {
@@ -1093,10 +1112,10 @@ describe("board settings", () => {
   });
 
   test("global switch does not leak per-board config across boards", () => {
-    s.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 7, dispatchEffort: "max" });
+    s.updateBoardSettings(PID, { autoDispatch: true, dispatchTimeoutMin: 45, dispatchEffort: "max" });
     const other = s.getBoardSettings("other-board-zzz999");
     expect(other.autoDispatch).toBe(true); // global
-    expect(other.maxAgents).toBe(2); // per-board default, untouched
+    expect(other.dispatchTimeoutMin).toBe(20); // per-board default, untouched
     expect(other.dispatchEffort).toBe("medium");
   });
 
