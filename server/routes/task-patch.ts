@@ -117,8 +117,8 @@ export type ParsedTaskPatch =
  * dove si fa davvero quel gesto, invece di un generico "chiave sconosciuta".
  */
 const REDIRECTED: Record<string, string> = {
-  archived: "la PATCH non archivia. Per archiviare usa DELETE sulla stessa risorsa",
-  archivedAt: "la PATCH non archivia. Per archiviare usa DELETE sulla stessa risorsa",
+  archived: "la PATCH non archivia. DELETE sulla stessa risorsa archivia, POST .../restore riporta indietro",
+  archivedAt: "la PATCH non archivia. DELETE sulla stessa risorsa archivia, POST .../restore riporta indietro",
   id: "l'id di un task non si cambia",
   projectId: "il progetto di un task non si cambia da qui",
   project_id: "il progetto di un task non si cambia da qui",

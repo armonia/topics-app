@@ -641,10 +641,13 @@ export interface NightStatus {
 }
 
 export const boardApi = {
-  list: (projectId: string, status?: TaskStatus, labels?: readonly TaskLabel[]) => {
+  /** `archived: true` = SOLO l'archivio di questa board (come `list({archived})`
+   *  sui progetti). Assente = i vivi, cioè la board di sempre. */
+  list: (projectId: string, status?: TaskStatus, labels?: readonly TaskLabel[], opts?: { archived?: boolean }) => {
     const qs = new URLSearchParams();
     if (status) qs.set('status', status);
     if (labels?.length) qs.set('labels', labels.join(','));
+    if (opts?.archived) qs.set('archived', '1');
     const q = qs.toString();
     return req<{ tasks: BoardTask[] }>(`/boards/${enc(projectId)}/tasks${q ? `?${q}` : ''}`).then(r => r.tasks);
   },
@@ -691,6 +694,11 @@ export const boardApi = {
     req<BoardTask>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   archive: (projectId: string, taskId: string) =>
     req<{ ok: boolean }>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}`, { method: 'DELETE' }),
+  /** Il ritorno dalla DELETE: riporta la card sulla board, col suo sottoalbero e
+   *  la sua colonna. Rotta a sé, come per i progetti — la PATCH non archivia e
+   *  quindi non disarchivia. */
+  restore: (projectId: string, taskId: string) =>
+    req<BoardTask>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/restore`, { method: 'POST' }),
   comment: (projectId: string, taskId: string, content: string, opts?: { mentions?: string[]; media?: string[] }) =>
     req<TaskComment>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/comments`, { method: 'POST', body: JSON.stringify({ content, mentions: opts?.mentions, media: opts?.media }) }),
   /** `force` scavalca il gate sui checks rossi: è una scelta esplicita dell'umano,

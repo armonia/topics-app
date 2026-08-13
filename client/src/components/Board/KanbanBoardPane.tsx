@@ -13,7 +13,7 @@ import { createPortal } from 'react-dom';
 import { DndContext, DragOverlay, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
 import { KeyboardSensorGentile, MouseSensorGentile, TouchSensorGentile } from './dndSensors';
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
-import { AlertTriangle, Bot, Check, ChevronDown, ChevronRight, Loader2, Search, Settings, Tag, Target, UploadCloud, X } from 'lucide-react';
+import { AlertTriangle, Archive, Bot, Check, ChevronDown, ChevronRight, Loader2, Search, Settings, Tag, Target, UploadCloud, X } from 'lucide-react';
 import type { WSMessage } from '../../types';
 import { Menu } from '../Shared/Menu';
 import { ExternalSessionsBadge } from './ExternalSessionsBadge';
@@ -41,6 +41,8 @@ import { CREATED_FLASH_MS, PRIORITY_DOT, PRIORITY_ORDER, PRIORITY_LABEL, type Li
 import { boardCollision } from './format';
 import { FloatingTaskComposer } from './FloatingTaskComposer';
 import { Column } from './Card';
+import { taskActionErrorMessage } from './taskActionError';
+import { taskActionWord } from './taskActionWords';
 import { TaskDetail, BoardSettingsPanel } from './TaskDetail';
 import { GlobalOnlySettingsPanel } from './BoardSettingsSections';
 import { POPOVER_ITEM } from '@/lib/popoverStyles';
@@ -330,10 +332,13 @@ function WorktreeControl({ count, branches, gcRunning, gcResult, onGc }: {
  *    con la macchina in ginocchio: se non c'è niente da fermare, un allarme è
  *    solo rumore. È anche il motivo per cui `running` è stato aggiunto alla
  *    capacità: senza, «max N» non poteva sapere se c'era uno scarto.
- * 2. **Quello che si vede è già l'azione.** «Meglio fermare N agent», non un
- *    aggettivo. Il dettaglio (load, core, perché) sta nel popover, che è
- *    apribile col dito — e dice a chiare lettere che è un consiglio e non un
- *    tetto.
+ * 2. **Quello che si vede è già l'azione, in due parole.** «Fermane 2», non un
+ *    aggettivo e non una frase. La barra è una fila di controlli, non un posto
+ *    dove si legge: «Macchina carica: meglio fermare 2 agent» erano trentotto
+ *    caratteri che spingevano fuori i filtri dei progetti, e la parte che
+ *    contava era il numero. Il verbo resta perché un numero da solo non dice
+ *    cosa farne. Il dettaglio (CPU, core, perché) sta nel popover, apribile col
+ *    dito, che dice anche che è un consiglio e non un tetto.
  *
  * La sonda (ogni 15s) è quella dello store del tetto globale, non una seconda
  * per chip: la stessa lettura serve il chip, il menu del titolo e il pannello
@@ -346,9 +351,11 @@ function LoadAdviceChip() {
   if (!cap) return null;
   const over = (cap.running ?? 0) - cap.recommended;
   if (over <= 0) return null; // niente da fermare → niente chip
-  // load1 vs cores is the honest live saturation signal (see dispatch-capacity.ts).
-  const ratio = cap.cores > 0 ? cap.load1 / cap.cores : 0;
-  const severe = ratio >= 1.3 || over >= 2;
+  // La CPU che la FLOTTA sta bruciando è il segnale onesto (dispatch-capacity.ts):
+  // il load average della macchina intera parla soprattutto delle app di chi sta
+  // al computer, e usarlo qui coloravamo di rosso un Mac che sta benissimo.
+  const oltreQuota = cap.oursCores != null && cap.budgetCores > 0 && cap.oursCores >= cap.budgetCores;
+  const severe = oltreQuota || over >= 2 || (cap.oursCores == null && cap.cores > 0 && cap.load1 / cap.cores >= 1.3);
   const cls = severe
     ? 'bg-rose-500/15 text-rose-300 ring-1 ring-rose-500/30 hover:bg-rose-500/25'
     : 'bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/30 hover:bg-amber-500/25';
@@ -361,14 +368,21 @@ function LoadAdviceChip() {
         className={`flex h-6 items-center gap-1 rounded px-2 text-[11px] font-medium ${cls}`}
       >
         <AlertTriangle className="h-3 w-3 shrink-0" />
-        Macchina carica: meglio fermare {over} agent
+        Fermane {over}
       </button>
       <Menu open={open} anchorRef={btnRef} onClose={() => setOpen(false)} minWidth={288}>
         <div className="space-y-1.5 px-3 py-2.5 text-[11px] leading-snug text-app-text-secondary">
           <p className="text-[12px] font-medium text-app-text-heading">
             {cap.running} agent al lavoro, ne reggo {cap.recommended}
           </p>
-          <p>Load {cap.load1.toFixed(1)} su {cap.cores} core: la macchina è satura, e ogni agent in più rallenta anche gli altri.</p>
+          {cap.oursCores != null ? (
+            <p>
+              Gli agent tengono {cap.oursCores.toFixed(1)} core sui {cap.budgetCores.toFixed(0)} che
+              spettano loro, su {cap.cores}. Ogni agent in più si prende una fetta di quella quota.
+            </p>
+          ) : (
+            <p>Load {cap.load1.toFixed(1)} su {cap.cores} core: la macchina è carica, e ogni agent in più rallenta anche gli altri.</p>
+          )}
           <p className="text-app-text-muted">{cap.reason}</p>
           <p>È un <span className="text-app-text-heading">consiglio</span>, non un tetto: puoi lasciarli girare tutti. Il tetto vero sta nelle impostazioni della board, con quanti ne stanno girando.</p>
         </div>
@@ -830,6 +844,15 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
   const externalSessions = useExternalSessions(onMessage, mode === 'project' ? projectId : undefined);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // L'errore di UNA card sta sulla card, non nella barra qui sopra: quella vive
+  // in cima al pannello, mentre la card che ha rifiutato il click può essere
+  // dieci righe più giù in una colonna scrollata. Ne teniamo uno solo, l'ultimo:
+  // due card non falliscono nello stesso istante, e un errore per card che non
+  // scade mai diventerebbe arredamento.
+  const [cardError, setCardError] = useState<{ taskId: string; message: string } | null>(null);
+  const onCardError = useCallback((taskId: string, message: string | null) => {
+    setCardError((prev) => (message ? { taskId, message } : prev?.taskId === taskId ? null : prev));
+  }, []);
   // A move that did NOT land where it was aimed says so here. Not an error
   // (nothing failed) and not a toast (it belongs to the board it happened on):
   // one line under the toolbar.
@@ -963,16 +986,25 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
     return () => { alive = false; };
   }, [hasProject, projectId]);
 
+  // L'ARCHIVIO È UNA VISTA, non una colonna: stessa board, stesse colonne, ma
+  // popolate da `?archived=1`. Sta nello stato della pane e non nei `filters`
+  // perché non è un filtro sull'insieme già scaricato — è un'altra fetch, ed è
+  // l'unico modo di rivedere una card archiviata (prima non ce n'era nessuno).
+  // Solo su una board di progetto: il feed globale è `listAll`, che di archivio
+  // non parla.
+  const [showArchived, setShowArchived] = useState(false);
   const refetch = useCallback(async () => {
     try {
-      setTasks(mode === 'all' ? await boardApi.listAll() : await boardApi.list(projectId));
+      setTasks(mode === 'all'
+        ? await boardApi.listAll()
+        : await boardApi.list(projectId, undefined, undefined, { archived: showArchived }));
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'failed to load board');
     } finally {
       setLoading(false);
     }
-  }, [projectId, mode]);
+  }, [projectId, mode, showArchived]);
 
   useEffect(() => { setLoading(true); refetch(); }, [refetch]);
 
@@ -1479,16 +1511,21 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
         await boardApi.update(task.projectId, r.id, { kanbanOrder: r.kanbanOrder });
       }
       await boardApi.update(task.projectId, task.id, plan.patch);
+      onCardError(task.id, null);
     } catch (e) {
       // The notice was written before the PATCH (it explains the GESTURE, and
       // waiting for the round trip would make it arrive late). If the write
       // failed the card is where it was, so the notice is now false: it goes,
       // and the error speaks alone.
       setDropNotice(null);
-      setError(e instanceof Error ? e.message : 'update failed');
+      // E parla SULLA CARD. Trascinare in Done un padre con figli aperti è lo
+      // stesso rifiuto del bottone Approva: il refetch riporta la card al suo
+      // posto, e il perché la aspetta lì invece che in cima al pannello, dove
+      // con la colonna scrollata non lo leggeva nessuno.
+      onCardError(task.id, taskActionErrorMessage(e, 'spostamento non riuscito'));
       refetch();
     }
-  }, [patchLocal, refetch]);
+  }, [patchLocal, refetch, onCardError]);
 
   const [activeId, setActiveId] = useState<string | null>(null);
   // Hide the floating "Descrivi un task" composer while the human is typing in
@@ -1758,6 +1795,18 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
               lavoro che è su main e non è ancora uscito. */}
           <UnlandedControl tasks={unlandedTasks} onOpen={setSelectedId} />
           <PublishControl />
+          {/* L'archivio, accanto alle impostazioni: un interruttore, come la
+              lente degli archiviati in sidebar. Acceso = la board mostra ciò che
+              è stato archiviato, e da lì lo si può riportare indietro. */}
+          {hasProject && mode === 'project' && (
+            <button
+              data-testid="board-archived-toggle"
+              aria-pressed={showArchived}
+              onClick={() => setShowArchived((v) => !v)}
+              className={`rounded p-1 ${showArchived ? 'bg-white/15 text-primary' : 'text-app-text-secondary hover:bg-white/5'}`}
+              title={showArchived ? tr('board.archive.hide') : tr('board.archive.show')}
+            ><Archive className="h-3.5 w-3.5" /></button>
+          )}
           {/* On EVERY board, project or not. Without a project there are no
               per-board rows, but the machine-wide cap still applies here — and
               gating this button on `hasProject` is what left the general board
@@ -1781,6 +1830,16 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
       {error && <div className="shrink-0 bg-rose-500/10 px-3 py-1.5 text-xs text-rose-300">{error}</div>}
       {dropNotice && (
         <div data-testid="board-drop-notice" className="shrink-0 bg-sky-500/10 px-3 py-1.5 text-xs text-sky-300">{dropNotice}</div>
+      )}
+      {/* La striscia dice DUE cose, e la seconda è quella che mancava: dove sta
+          il gesto. Un archivio in cui si guarda soltanto è il punto da cui
+          siamo partiti. */}
+      {showArchived && mode === 'project' && (
+        <div data-testid="board-archived-banner" className="flex shrink-0 items-center gap-2 bg-amber-400/10 px-3 py-1.5 text-xs text-amber-200">
+          <Archive className="h-3.5 w-3.5 shrink-0" />
+          <span>{tr('board.archive.banner', { count: tasks.length, restore: taskActionWord('restore', tr).label })}</span>
+          <button onClick={() => setShowArchived(false)} className="ml-auto rounded px-2 py-0.5 text-amber-100 hover:bg-white/10">{tr('board.archive.hide')}</button>
+        </div>
       )}
       {showSettings && (hasProject ? (
         <BoardSettingsPanel
@@ -1816,9 +1875,10 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
                   tasks={byStatus[status]}
                   onOpen={openTask}
                   onCreate={(text) => create(status, text)}
-                  canCreate={mode === 'project'}
+                  canCreate={mode === 'project' && !showArchived}
                   showProject={mode === 'all'}
-                  onError={setError}
+                  cardError={cardError}
+                  onCardError={onCardError}
                   onRefetch={refetch}
                   onOpenTopic={onOpenTopic}
                   resolveSession={resolveSession}
@@ -1828,6 +1888,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
                   awaitingHuman={awaitingHuman}
                   justDone={justDone}
                   justCreated={justCreated}
+                  archived={showArchived}
                 />
               ))}
             </div>
