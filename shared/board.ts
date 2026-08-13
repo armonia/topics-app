@@ -326,6 +326,59 @@ export const PARKED_STOPPED = 'stopped';
  */
 export const PARKED_WAITED_OUT = 'waited_out';
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Machine notes stamped with the HUMAN's signature.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The author every comment posted through the human board surface carries.
+ *
+ * It is also the signature `release()` puts on its own narration when a PERSON
+ * pulled the lever: the status trail must say the human moved the card, and
+ * `by` drives both the trail and the note. So `author === HUMAN_AUTHOR` alone
+ * does not mean "a person typed this".
+ */
+export const HUMAN_AUTHOR = 'user';
+
+/** Stop button: the machine narrates the cut turn under the human's name. */
+export const NOTE_STOPPED_BY_HUMAN =
+  'Fermato da te: agent interrotto. Rimetti il task in Todo per ripartire.';
+
+/** Archiving a task with a live agent: same shape, same signature. */
+export const NOTE_ARCHIVED_BY_HUMAN =
+  'Archiviato da te mentre l\'agent lavorava: turno interrotto.';
+
+/** The note `resolveParkedChildren` writes after the human picked an option. */
+export function noteParkedChildrenResolved(decision: 'requeue' | 'archive', count: number): string {
+  return decision === 'requeue'
+    ? `Sbloccato: ${count} sottotask rimessi in coda. Torno in coda anch'io e riparto quando hanno finito.`
+    : `Sbloccato: ${count} sottotask archiviati. Torno in coda: non c'è più niente ad aspettarmi.`;
+}
+
+/** The shape of `noteParkedChildrenResolved`, matched without rebuilding it. */
+const PARKED_CHILDREN_NOTE = /^Sbloccato: \d+ sottotask (?:rimessi in coda|archiviati)\./;
+
+/**
+ * Prose the SERVER wrote, even though the comment is signed `user`.
+ *
+ * The board reads `author: 'user'` as "a person typed this" in the one place
+ * where it matters: a card back in review quotes the last human request above
+ * the answer, because commenting a card in review rejects it and wakes the
+ * agent, so that request is what the delivery below is answering. A stop or an
+ * archive is not a request. Left in, the card hands you back "Fermato da te:
+ * agent interrotto." as your own words on the very next delivery.
+ *
+ * The sentences live here, next to the only functions that write them, so the
+ * reader and the writers cannot drift apart: change the copy on one side and
+ * the other side follows, because there is only one side.
+ */
+export function isMachineNote(content: string): boolean {
+  const text = content.trim();
+  return text === NOTE_STOPPED_BY_HUMAN
+    || text === NOTE_ARCHIVED_BY_HUMAN
+    || PARKED_CHILDREN_NOTE.test(text);
+}
+
 /**
  * Quante attese di FILA per la stessa ragione, prima che decida un umano.
  *
