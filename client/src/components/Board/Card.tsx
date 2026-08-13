@@ -6,7 +6,8 @@ import { AlertTriangle, ClipboardList, Copy, Hourglass, Lock, MessageSquare, Plu
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
-import { STATUS_LABEL, SYSTEM_DELIVERY_CHIP, blockedByChip, boardApi, isAgentWorking, isProjectlessId, parseQuestionBlock, reopenedChip, subtaskWorkChip, systemDeliveryNote, waitingOnThisChip, whoCloses, type BoardTask, type TaskComment, type TaskStatus } from '../../lib/board';
+import { STATUS_LABEL, SYSTEM_DELIVERY_CHIP, blockedByChip, boardApi, isAgentWorking, isProjectlessId, parseQuestionBlock, reopenedChip, subtaskWorkChip, systemDeliveryNote, waitingOnThisChip, whoCloses, type BoardTask, type TaskStatus } from '../../lib/board';
+import { selectCardComments, type CardComments } from './cardComments';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useLongPress, openContextMenuAt } from '../../hooks/useLongPress';
 import { useMobile } from '../../hooks/useMobile';
@@ -181,12 +182,14 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
   const { attributes, listeners, setNodeRef, isDragging, transform, transition } = useSortable({ id: task.id });
 
   // Review context, lazily loaded from the task detail (one GET, two uses):
-  // for an agent-driven task the LAST comment — a quick-reply with option
-  // buttons when it's a question block, plain text otherwise (the human must
-  // never be asked Approva/Rifiuta blind); for ANY review card with steps the
-  // direct CHILDREN, expanded on the card as the delivery checklist. Subtasks
-  // never ride the board feed (rootsOnly), so the card fetches them itself.
-  const [lastComment, setLastComment] = useState<TaskComment | null>(null);
+  // for an agent-driven task the comment PAIR (`selectCardComments`) — the
+  // thread's last word as a quick-reply with option buttons when it's a
+  // question block and plain text otherwise, plus the human request it answers
+  // (the human must never be asked Approva/Rifiuta blind, nor read an answer
+  // whose question is off the card); for ANY review card with steps the direct
+  // CHILDREN, expanded on the card as the delivery checklist. Subtasks never
+  // ride the board feed (rootsOnly), so the card fetches them itself.
+  const [thread, setThread] = useState<CardComments | null>(null);
   const [children, setChildren] = useState<BoardTask[]>([]);
   const [freeText, setFreeText] = useState('');
   const [busy, setBusy] = useState(false);
@@ -215,27 +218,29 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
   const showsQuestion = isAgentReview || isSystemQuestion;
   const wantDetail = showsQuestion || (task.status === 'review' && task.subtaskCount > 0);
   useEffect(() => {
-    if (!wantDetail) { setLastComment(null); setChildren([]); return; }
+    if (!wantDetail) { setThread(null); setChildren([]); return; }
     let alive = true;
     boardApi.get(task.projectId, task.id)
       .then(({ comments, children: kids }) => {
         if (!alive) return;
-        // Status events are history rows, not the agent's word — skip them.
-        const speech = comments.filter((c) => c.kind !== 'status');
-        setLastComment(showsQuestion ? speech[speech.length - 1] ?? null : null);
+        setThread(showsQuestion ? selectCardComments(comments) : null);
         setChildren(kids ?? []);
       })
-      .catch(() => { if (alive) { setLastComment(null); setChildren([]); } });
+      .catch(() => { if (alive) { setThread(null); setChildren([]); } });
     return () => { alive = false; };
     // Re-check when the task changes (a re-kick bumps updatedAt).
   }, [wantDetail, showsQuestion, task.projectId, task.id, task.updatedAt]);
+  const lastComment = thread?.latest ?? null;
+  // Plain text: the context row is a single clamped line, so markdown blocks
+  // would only leak their syntax into it.
+  const humanContextText = thread?.humanContext ? stripMarkdown(thread.humanContext.content) : '';
   const pending = lastComment ? parseQuestionBlock(lastComment.content) : null;
 
   // Route mutations by the task's own projectId (works in the global board too).
   const review = async (decision: 'approve' | 'reject', comment?: string) => {
     if (busy) return;
     setBusy(true);
-    try { await boardApi.review(task.projectId, task.id, decision, comment); setLastComment(null); setFreeText(''); onRefetch(); }
+    try { await boardApi.review(task.projectId, task.id, decision, comment); setThread(null); setFreeText(''); onRefetch(); }
     catch (e) { onError(e instanceof Error ? e.message : 'review failed'); }
     finally { setBusy(false); }
   };
@@ -666,6 +671,19 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
           esattamente il difetto che `taskChoices` ha chiuso. */}
       {task.status === 'review' && (
         <div className="mt-2 space-y-1.5" onClick={(e) => e.stopPropagation()}>
+          {/* The human request the answer below is answering, kept to ONE line.
+              On a card that bounced back through review it is the rework note,
+              and without it the answer arrives with its question missing. It is
+              context, not content: muted, clamped, and quoted only when a real
+              reply followed it (`selectCardComments`). No human word, no row:
+              nothing empty is ever reserved here. */}
+          {showsQuestion && humanContextText && (
+            <p
+              data-testid="card-human-context"
+              className="truncate border-l-2 border-sky-400/40 pl-1.5 text-xs md:text-[11px] leading-relaxed text-app-text-muted"
+              title={`La tua richiesta: ${humanContextText}`}
+            >{humanContextText}</p>
+          )}
           {/* The agent's last word, ALWAYS on the card — a formatted question
               with quick-reply buttons when it's a question block, plain text
               otherwise. Approving/rejecting blind was the bug. */}
