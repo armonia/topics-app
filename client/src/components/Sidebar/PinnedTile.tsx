@@ -519,7 +519,12 @@ export function PinnedTile({
         // qualcos'altro — «le schede pinnate non sono effettivamente bianche»
         // (Attilio, 08/08). Il secondo colore resta, ma per le cose meno
         // importanti: non per il nome della cosa che stai guardando.
-        className={`relative min-w-0 flex-1 truncate-tight text-center @min-[200px]/tile:text-left ${TAB_LABEL} ${
+        // `flex-auto max-w-full` e non `flex-1`: con base 0 il nome prende
+        // tutto lo spazio che AVANZA dopo lo slot, quindi si taglia anche
+        // quando il «+» non c'è. Con base sul contenuto (limitata alla
+        // tessera) il nome dichiara quanto gli serve, e chi cede è lo slot.
+        // Vedi lo slot in fondo per la metà mancante della regola.
+        className={`relative min-w-0 max-w-full flex-auto truncate-tight text-center @min-[200px]/tile:text-left ${TAB_LABEL} ${
           hasRealIcon ? 'hidden @min-[104px]/tile:block' : ''
         }`}
       >
@@ -556,8 +561,21 @@ export function PinnedTile({
           attraverso: metà del «tastino troppo stretto» era questo, non una
           larghezza sbagliata.
 
-          Riservato SEMPRE, non solo mentre il mouse è sopra: uno slot che nasce
-          all'hover farebbe saltare il nome ogni volta che ci passi accanto.
+          C'È SEMPRE ma CEDE finché il «+» non si vede davvero. Riservarlo e
+          basta tagliava il nome ventiquattro ore su ventiquattro per un
+          bottone che compare solo al passaggio del mouse: «non dovremmo
+          tagliare il testo finché non mostriamo effettivamente il +»
+          (Attilio, 13/08). Farlo NASCERE all'hover era l'altro estremo, e
+          faceva saltare il nome ogni volta che ci passavi accanto.
+
+          La via di mezzo è tutta nei fattori di contrazione. A riposo lo slot
+          si stringe per primo (`shrink-[9999]` contro l'1 del nome): se il
+          nome ci sta, lo slot resta largo e non cambia niente rispetto a
+          prima; se non ci sta, lo slot si chiude e il nome arriva al bordo.
+          All'hover torna rigido (`shrink-0`), così il bottone che sta per
+          apparire trova il suo posto. Chi si muove è quindi solo un nome
+          troppo lungo, e solo nell'istante in cui il «+» arriva a coprirlo.
+
           E solo in forma RIGA — sotto la soglia la tessera è larga quanto il
           bottone, e lì lo slot sarebbe tutto lo spazio che c'è.
 
@@ -568,7 +586,7 @@ export function PinnedTile({
         <span
           aria-hidden="true"
           data-testid="pinned-tile-action-slot"
-          className={`hidden flex-shrink-0 @min-[104px]/tile:block ${PINNED_TILE_ACTION_SLOT}`}
+          className={`hidden shrink-[9999] group-hover/cell:shrink-0 @min-[104px]/tile:block ${PINNED_TILE_ACTION_SLOT}`}
         />
       )}
     </button>
