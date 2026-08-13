@@ -833,6 +833,14 @@ const taskReviewReadySchema = z.looseObject({
       }),
     ),
   ),
+  // Se l'ULTIMA parola dell'agente sta davvero chiedendo qualcosa a un
+  // umano (`commentAsksHuman`, legge le opzioni non la fence). Distinto da
+  // `question`, che porta anche le opzioni di una consegna landabile: senza
+  // questo campo il titolo del banner e la lista dei tasti dovrebbero
+  // condividere lo stesso predicato, e una consegna con la sola opzione
+  // "Landa su main" si presenterebbe come una domanda. Opzionale per lo
+  // stesso motivo di `question`: assente = server vecchio che non lo sa dire.
+  isAsk: z.optional(z.boolean()),
 });
 
 // Il gemello di FALLIMENTO del fronte qui sopra: il task è stato PARCHEGGIATO e
