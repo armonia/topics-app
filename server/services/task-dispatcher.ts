@@ -922,14 +922,6 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   // il task parte o smette di essere trattenuto, così una prossima attesa
   // riparte dal suo inizio invece di ereditare quella di ieri.
   const heavyHoldSince = new Map<string, number>();
-  // Task a cui si è già detto «il tetto è pieno, e questi sono i numeri».
-  //
-  // Era l'attesa MUTA: delle tre ragioni per cui una card resta ferma, il
-  // pesante lo diceva e la sessione esterna lo diceva, il tetto pieno no. Da
-  // fuori restavano card su `queued` senza una riga, e l'unico modo di sapere
-  // perché era leggere il tick. Stessa disciplina degli altri due insiemi: una
-  // nota per EPISODIO, si svuota appena la card smette di essere trattenuta.
-  const capHeldNoted = new Set<string>();
   /** L'orologio del freno, iniettabile per i test (vedi `DispatcherDeps.now`). */
   const clock = (): number => deps.now?.() ?? Date.now();
   // Board a cui si è già detto "il fan-out qui non si applica" (worktree off).
@@ -1024,24 +1016,6 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     noteHold(capHeldNoted, task, why);
   }
 
-  /**
-   * «Aspetti perché non c'è posto», con i numeri che lo producono.
-   *
-   * Stessa disciplina di `noteHeavyHold`: una nota per episodio, e l'episodio
-   * finisce quando la card smette di essere trattenuta. La riga dice sempre TRE
-   * cose: quanti agenti stanno girando, qual è il tetto, e da dove esce quel
-   * tetto (core, RAM, quanta CPU si sta mangiando la flotta). Senza il perché,
-   * «tetto pieno» è solo un altro modo di scrivere «fermo».
-   */
-  function noteCapHold(task: Task, why: string): void {
-    if (inFlight.has(task.id) || graceTimers.has(task.id)) return;
-    if (capHeldNoted.has(task.id)) return;
-    capHeldNoted.add(task.id);
-    try {
-      emit(deps.svc.setDispatchState({ taskId: task.id, state: CHIP_QUEUED }));
-      deps.svc.addComment({ taskId: task.id, author: "system", content: why, kind: "service" });
-    } catch { /* il task può essersi mosso sotto i piedi */ }
-  }
 
   /**
    * Il peso appena letto dal classificatore, applicato al task — e la decisione
@@ -2881,7 +2855,6 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       }
       void launch(t.id, { useWorktree: settings.dispatchUseWorktree, ...launchSettings }, resolved);
     }
-    for (const t of todos) { if (!capHeld.includes(t.id)) capHeldNoted.delete(t.id); }
   }
 
   function onEnterTodo(projectId: string, taskId: string): void {
