@@ -30,14 +30,19 @@
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import * as fs from "node:fs";
 import * as net from "node:net";
+import { join } from "node:path";
 import { createInterface } from "node:readline";
-import { setupTestDataDir, createTestAppContext } from "./helpers";
+import { setupTestDataDir, createTestAppContext, testTmpDir } from "./helpers";
 import type { AppContext } from "../../server/types";
 import type { ClaudeSessionTracker } from "../../server/lib/claude-session-tracker";
 
-const TEST_DATA = "/tmp/topics-live-phase-gate/data";
-const FAKE_HOME = "/tmp/topics-live-phase-gate/home";
-const SOCKET_PATH = "/tmp/topics-live-phase-gate.sock";
+// Una radice sola per tutto quello che questo file mette sul disco. Il socket
+// vive DENTRO di lei: la radice e' corta apposta, cosi' il path resta sotto i
+// 104 caratteri che un socket unix consente (vedi `testTmpDir`).
+const ROOT = testTmpDir("live-phase-gate");
+const TEST_DATA = join(ROOT, "data");
+const FAKE_HOME = join(ROOT, "home");
+const SOCKET_PATH = join(ROOT, "bridge.sock");
 
 // Il terminale dichiara `finished` dopo TERMINAL_IDLE_MS (1500) di silenzio.
 const IDLE_MS = 1500;
@@ -45,7 +50,7 @@ const AFTER_IDLE_MS = IDLE_MS + 400;
 
 const TERM_ID = "term-reattached-1";
 const CSID = "11111111-2222-4333-8444-555555555555";
-const CWD = "/tmp/topics-live-phase-gate/wt";
+const CWD = join(ROOT, "wt");
 
 /** Il transcript canonico che `deriveTranscriptPath` cerca per (home, cwd, csid). */
 function transcriptPath(): string {
@@ -150,7 +155,7 @@ async function seedTopicWithLivePhase(name: string, projectPath: string, csid: s
 }
 
 beforeAll(async () => {
-  fs.rmSync("/tmp/topics-live-phase-gate", { recursive: true, force: true });
+  fs.rmSync(ROOT, { recursive: true, force: true });
   setupTestDataDir(TEST_DATA);
   fs.mkdirSync(CWD, { recursive: true });
   // Il bridge del test è SUO: mai quello del server vero. L'env non basta —
@@ -192,6 +197,7 @@ afterAll(async () => {
   await bridge?.close();
   const { closeDatabase } = await import("../../server/db");
   closeDatabase();
+  fs.rmSync(ROOT, { recursive: true, force: true });
 });
 
 // ───────────────────────────────────────────────────────────────────────────

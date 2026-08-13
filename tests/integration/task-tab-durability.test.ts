@@ -16,10 +16,12 @@
  */
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import * as fs from "node:fs";
-import { setupTestDataDir, createTestAppContext } from "./helpers";
+import { join } from "node:path";
+import { setupTestDataDir, createTestAppContext, testTmpDir } from "./helpers";
 import type { AppContext } from "../../server/types";
 
-const TEST_DATA = "/tmp/topics-task-tab-durability/data";
+const ROOT = testTmpDir("task-tab-durability");
+const TEST_DATA = join(ROOT, "data");
 
 let ctx: AppContext;
 let broadcasts: any[] = [];
@@ -58,7 +60,7 @@ async function seedDispatchedTask(taskId: string, name: string): Promise<{ topic
 }
 
 beforeAll(async () => {
-  fs.rmSync("/tmp/topics-task-tab-durability", { recursive: true, force: true });
+  fs.rmSync(ROOT, { recursive: true, force: true });
   setupTestDataDir(TEST_DATA);
   // Il bridge PTY non c'entra con questa catena: spento, o il router terminali
   // proverebbe a connettersi e il rosso parlerebbe d'altro.
@@ -79,6 +81,7 @@ beforeAll(async () => {
 afterAll(async () => {
   const { closeDatabase } = await import("../../server/db");
   closeDatabase();
+  fs.rmSync(ROOT, { recursive: true, force: true });
 });
 
 describe("open-pane di un agente su un task: la tab sopravvive senza client", () => {

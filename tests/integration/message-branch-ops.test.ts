@@ -8,13 +8,14 @@
  *  · createBranchPartialMessage — allocates the NEXT branch index and
  *    activates it (was hardcoded 0: fine for edit, colliding for regenerate).
  */
-import { describe, expect, test, beforeAll } from "bun:test";
-import { setupTestDataDir, createTestAppContext } from "./helpers";
+import { describe, expect, test, beforeAll, afterAll } from "bun:test";
+import { setupTestDataDir, createTestAppContext, testTmpDir, cleanupTestDataDir } from "./helpers";
 import type { AppContext, StoredMessage } from "../../server/types";
 
-const TEST_DATA = "/tmp/topics-branch-ops-data";
+const TEST_DATA = testTmpDir("branch-ops-data");
 
 beforeAll(() => setupTestDataDir(TEST_DATA));
+afterAll(() => cleanupTestDataDir(TEST_DATA));
 
 let seq = 0;
 function msg(p: Partial<StoredMessage> & Pick<StoredMessage, "id" | "role" | "content">): StoredMessage {

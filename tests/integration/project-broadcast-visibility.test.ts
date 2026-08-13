@@ -23,11 +23,13 @@ import * as fs from "node:fs";
 import type { Database } from "bun:sqlite";
 import type { AppContext, RouteHandler } from "../../server/types";
 import { isGuestSafeFrameType, frameResource } from "../../server/lib/grants";
-import { PROJECT_ROOT, setupTestDataDir } from "./helpers";
+import { join } from "node:path";
+import { PROJECT_ROOT, setupTestDataDir, testTmpDir } from "./helpers";
 
-const TEST_DATA = "/tmp/topics-project-broadcast-data";
-const DIR_CONDIVISO = "/tmp/topics-project-broadcast-condiviso";
-const DIR_SEGRETO = "/tmp/topics-project-broadcast-segreto";
+const ROOT = testTmpDir("project-broadcast");
+const TEST_DATA = join(ROOT, "data");
+const DIR_CONDIVISO = join(ROOT, "condiviso");
+const DIR_SEGRETO = join(ROOT, "segreto");
 
 // ── Socket finte ───────────────────────────────────────────────────────────
 
@@ -140,8 +142,7 @@ describe("i frame di un progetto sanno chi hanno davanti", () => {
   afterAll(async () => {
     const { closeDatabase } = await import("../../server/db");
     closeDatabase();
-    fs.rmSync(TEST_DATA, { recursive: true, force: true });
-    for (const d of [DIR_CONDIVISO, DIR_SEGRETO]) fs.rmSync(d, { recursive: true, force: true });
+    fs.rmSync(ROOT, { recursive: true, force: true });
   });
 
   beforeEach(() => {

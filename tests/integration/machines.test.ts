@@ -3,10 +3,10 @@
  * Covers MachineStore upsertLocal idempotence, REST routes, and the FK
  * SET NULL on `topics.machine_id` when a machine is deleted.
  */
-import { describe, expect, test, beforeAll, beforeEach } from "bun:test";
-import { setupTestDataDir, createTestAppContext } from "./helpers";
+import { describe, expect, test, beforeAll, beforeEach, afterAll } from "bun:test";
+import { setupTestDataDir, createTestAppContext, testTmpDir, cleanupTestDataDir } from "./helpers";
 
-const TEST_DATA = "/tmp/topics-phase-d-data";
+const TEST_DATA = testTmpDir("phase-d-data");
 
 beforeAll(async () => {
   setupTestDataDir(TEST_DATA);
@@ -20,6 +20,8 @@ beforeAll(async () => {
   const { closeDatabase } = await import("../../server/db");
   closeDatabase();
 });
+
+afterAll(() => cleanupTestDataDir(TEST_DATA));
 
 describe("Phase D · multi-machine", () => {
   // Each test in this describe block builds its own AppContext, but they
