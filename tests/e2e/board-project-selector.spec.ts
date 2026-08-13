@@ -258,7 +258,10 @@ test.describe("Selettore progetto della board", () => {
 
     const composer = await expandComposer(page);
     await composer.locator("textarea").fill("Un task qualsiasi");
-    const send = page.getByTitle("Crea il task (l'agent parte da Todo)");
+    // Il testid, non il `title`: da quando l'avvio è una scelta (Todo o
+    // Backlog) il titolo del bottone CAMBIA con la colonna scelta, quindi
+    // cercarlo per titolo lega la prova a una copy che non è un'identità.
+    const send = page.getByTestId("composer-send");
     await expect(send).toBeVisible();
     await expect(send).toBeEnabled();
 
