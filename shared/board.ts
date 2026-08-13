@@ -462,6 +462,57 @@ export function hasPlanApproveOption(options: readonly string[]): boolean {
 }
 
 /**
+ * THE RESERVED QUICK-REPLY LABELS — the ones the BOARD executes by itself.
+ *
+ * They live in `shared/` and not in the task service because FIVE surfaces have
+ * to agree on them, and three of them are in the client: the dispatch chip and
+ * the two review gates (server), the push notification (server), the in-app
+ * banner (client) and the quick-reply de-duplicator (client). The notification
+ * pair was left reading a different rule and kept announcing finished work as a
+ * question — one vocabulary, or the split comes back.
+ *
+ * They are deliberately NOT translated. The option text travels to the server
+ * and is matched BY VALUE, so the de-duplicator has to compare against this
+ * constant and not against the button's translation: under locale `en` the
+ * button reads "Land on main" while the option still says "Landa su main", and
+ * comparing the translation let the rejecting twin back in.
+ */
+export const LAND_ACTION_LABEL = 'Landa su main';
+export const PUBLISH_ACTION_LABEL = 'Landa e pubblica';
+export const REQUEUE_PARKED_LABEL = 'Rimetti in coda i sottotask';
+export const ARCHIVE_PARKED_LABEL = 'Archivia i sottotask';
+
+/** Tolerant match (ignores emoji/punctuation/spacing the model may add). */
+export function isLandActionLabel(text: string | undefined | null): boolean {
+  return !!text && normalizeActionLabel(text) === normalizeActionLabel(LAND_ACTION_LABEL);
+}
+export function isPublishActionLabel(text: string | undefined | null): boolean {
+  return !!text && normalizeActionLabel(text) === normalizeActionLabel(PUBLISH_ACTION_LABEL);
+}
+export function isRequeueParkedLabel(text: string | undefined | null): boolean {
+  return !!text && normalizeActionLabel(text) === normalizeActionLabel(REQUEUE_PARKED_LABEL);
+}
+export function isArchiveParkedLabel(text: string | undefined | null): boolean {
+  return !!text && normalizeActionLabel(text) === normalizeActionLabel(ARCHIVE_PARKED_LABEL);
+}
+
+/**
+ * A quick-reply label the BOARD executes by itself, as opposed to an answer
+ * that steers the agent.
+ *
+ * These four are exactly the labels `POST …/tasks/:id/review` runs server-side
+ * (publish, requeue/archive parked children, land): picking one is an ORDER to
+ * the system, and nothing about the work is still undecided. Every other option
+ * (a plan's "Approva il piano", a free "Aspetta, ho un dubbio") resumes the
+ * AGENT with the human's words, which is what "the card is waiting for a
+ * person" means.
+ */
+export function isBoardActionLabel(text: string | undefined | null): boolean {
+  return isLandActionLabel(text) || isPublishActionLabel(text)
+    || isRequeueParkedLabel(text) || isArchiveParkedLabel(text);
+}
+
+/**
  * L'antenato al lavoro che spiega un sottotask senza agente proprio: chi lo sta
  * lavorando, e con che titolo dirlo. Risolto dal server come `BlockerRef` e per
  * lo stesso motivo — la lista della board è un progetto solo, `rootsOnly`, non
@@ -957,19 +1008,22 @@ export interface CheckRun {
 export interface BoardSettings {
   projectId: string;
   /**
-   * Interruttore GLOBALE (riga riservata `project_id='*'`), esposto qui perché
-   * ogni lettura per-board continui a gattare il dispatch senza sapere della
-   * riga globale. Scriverlo via updateBoardSettings lo ribalta per TUTTE le board.
+   * The GLOBAL switch (reserved row `project_id='*'`), surfaced here so every
+   * per-board read keeps gating dispatch without having to know about the global
+   * row. Writing it through updateBoardSettings flips it for EVERY board.
    */
   autoDispatch: boolean;
-  /** Tetto di concorrenza = quanti task possono avere un agente vivo su questa board. */
-  maxAgents: number;
-  /**
-   * Se true il tetto è auto-dimensionato dalla capacità viva della macchina
-   * (dispatch-capacity.ts) e `maxAgents` è ignorato dal dispatch (resta come
-   * valore manuale di ripiego).
-   */
-  maxAgentsAuto: boolean;
+  //
+  // NO per-board concurrency cap. There is ONE cap, machine-wide, living on the
+  // reserved row `project_id='*'` (`readGlobalCap` -> `getGlobalCap`): the one
+  // the dispatcher reads in `currentCap()` and the one the spawn core quota
+  // divides. A per-board `maxAgents` existed here until 2026-08-13: the route
+  // wrote it, the panel read it back, and it decided NOTHING. Measured on the
+  // live DB that day: the topics-app row said 9 while the real cap (row '*') was
+  // 8, so the panel showed a limit one higher than the one being enforced.
+  // The `max_agents` column stays in the DB for boards (dropping a column needs
+  // a migration): it stays, and nothing writes or reads it any more.
+  //
   dispatchEffort: string;
   dispatchUseWorktree: boolean;
   /**
@@ -1083,6 +1137,102 @@ export interface DispatchCapacity {
   running: number;
 }
 
+/** Il tetto globale come sta scritto: `auto` (dimensionato dalla macchina) o il
+ *  numero fisso. Gemello della riga riservata `board_settings['*']`. */
+export interface GlobalDispatchCap {
+  auto: boolean;
+  max: number;
+}
+
+/** Bounds of the fixed number. The same ones `readGlobalCap` clamps what it
+ *  reads from the DB with: a field that accepts 40 and saves 20 lies to whoever
+ *  fills it in. */
+export const GLOBAL_CAP_MIN = 1;
+export const GLOBAL_CAP_MAX = 20;
+
+/**
+ * NO CEILING AT ALL, written as a fixed cap of zero.
+ *
+ * Zero rather than a new column because a column costs a migration, and because
+ * "zero agents allowed" is a setting nobody can want — the value was free.
+ *
+ * It is admissible only because the expensive thing is fenced elsewhere.
+ * Measured with 8 agents in flight: the agents summed to 5.7% CPU (they wait on
+ * the API), while their gates — seven concurrent full test suites, eslint, three
+ * tsc — took the machine to a load of 38 on 12 cores. Capping agents was
+ * throttling the cheap side. `scripts/slot.ts` now bounds the expensive side,
+ * machine-wide and across worktrees, so the number of agents can stop standing
+ * in for it.
+ */
+export const GLOBAL_CAP_OFF = 0;
+
+/** True when the human asked for no ceiling (a FIXED zero — `auto` is a
+ *  different answer, and means "you decide"). */
+export function isGlobalCapOff(cap: GlobalDispatchCap): boolean {
+  return !cap.auto && cap.max === GLOBAL_CAP_OFF;
+}
+
+/**
+ * The fixed number, inside the bounds and integral. NaN means the minimum: an
+ * emptied number field must never be able to write "no agents at all".
+ *
+ * TRUNCATION, not rounding, and that is not a detail. Three places turn this
+ * value into an integer and they have to agree: here (the optimistic value the
+ * client shows), `clampInt` on the way into the DB (`server/services/tasks.ts`,
+ * `Math.trunc`) and `Math.floor` on the way back out
+ * (`server/services/dispatch-capacity.ts`). `<input type="number">` happily
+ * hands over 3.6; rounding here showed 4 while the server stored 3, so the
+ * field disagreed with itself until a reload. All three floor now, and for
+ * values >= 1 trunc and floor are the same function.
+ */
+export function clampGlobalCap(n: number): number {
+  if (!Number.isFinite(n)) return GLOBAL_CAP_MIN;
+  // Zero passes through untouched: it is the "no ceiling" sentinel, not a small
+  // number to be pulled up to the minimum. Clamping it to 1 would silently turn
+  // "run as many as you like" into "run one", which is the opposite setting.
+  if (Math.trunc(n) === GLOBAL_CAP_OFF) return GLOBAL_CAP_OFF;
+  return Math.max(GLOBAL_CAP_MIN, Math.min(GLOBAL_CAP_MAX, Math.trunc(n)));
+}
+
+/**
+ * Quanti agenti insieme, davvero, adesso: `auto` prende la raccomandazione
+ * viva della macchina, il resto prende il numero fisso. Mai sotto 1 (un tetto
+ * di zero non è una board prudente, è una board ferma).
+ *
+ * `recommended` a `null` significa «nessuna sonda»: si ricade sul numero fisso
+ * anche in auto, che è il comportamento dei test e degli host degradati.
+ *
+ * STA QUI e non solo nel server perché ora ha due lettori: il dispatcher, che
+ * lo applica, e il pannello impostazioni della board, che scrive «3 di 8» sotto
+ * gli occhi di una persona. Due copie della stessa formula sono il modo in cui
+ * il numero mostrato e il numero applicato iniziano a divergere.
+ */
+export function effectiveDispatchCap(cap: GlobalDispatchCap, recommended: number | null): number {
+  if (isGlobalCapOff(cap)) return Infinity;
+  return cap.auto && recommended != null ? Math.max(1, recommended) : Math.max(1, cap.max);
+}
+
+/**
+ * THE OTHER QUESTION, and it is not the same one.
+ *
+ * `effectiveDispatchCap` answers "may one more agent start", so "no ceiling" is
+ * a real answer there. This one answers "how much of the machine does each agent
+ * get" — it is the DIVISOR of the core quota — and infinity is not an answer to
+ * that: it would hand every agent a slice of zero. Nor is the raw zero, which
+ * `Math.max(1, 0)` would turn into 1 and give each of them the whole machine,
+ * which is the same inversion the reactive recommendation already caused once
+ * (measured: `-j11` per agent under load 45).
+ *
+ * With no ceiling the sizing question falls back to the STRUCTURAL number: how
+ * many this machine sustains in regime, which is exactly what the divisor wants
+ * to know and the one number that does not move with the load the agents are
+ * themselves making.
+ */
+export function sizingDispatchCap(cap: GlobalDispatchCap, structural: number | null): number {
+  if (isGlobalCapOff(cap) || cap.auto) return Math.max(1, structural ?? 3);
+  return Math.max(1, cap.max);
+}
+
 /** Le due primitive di collegamento dell'intake. */
 export type LinkKind = "subtask" | "chain";
 
@@ -1173,6 +1323,34 @@ export function parseQuestionBlock(text: string): { question: string; options: s
   const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
   const filtered = options.filter((o) => norm(o) !== 'landa e pubblica');
   return { question, options: filtered };
+}
+
+/**
+ * Does this parsed block ASK the human something, or is it a DELIVERY that
+ * merely offers the next board action as a button?
+ *
+ * The presence of the fence answered neither question. The kickoff envelope
+ * tells a delivering agent to attach `options=["Landa su main"]`, and the
+ * server wraps any `options` in a ```question block, so EVERY landable delivery
+ * came out shaped like a question. Measured on 13/08 against the live board db:
+ * of the 437 agent comments carrying a question fence, 331 are deliveries, not
+ * questions — three out of four.
+ *
+ * So read the OPTIONS instead. All of them board actions ⇒ delivery. A mixed
+ * block ("Landa su main" + "Aspetta, ho un dubbio") is still a QUESTION: one
+ * option the system cannot execute means a person has to choose.
+ *
+ * No options at all stays a question, which is this module's own reading
+ * (`pendingQuestion`): a question with no buttons has nothing to click but is
+ * still waiting for an answer. One legacy shape falls on that side and should
+ * not — a delivery whose ONLY option was "Landa e pubblica", which
+ * `parseQuestionBlock` filters out of the rendered list. The envelope no longer
+ * prompts for that option, so that shape only survives on old cards.
+ */
+export function questionAsksHuman(q: { options: readonly string[] } | null | undefined): boolean {
+  if (!q) return false;
+  if (q.options.length === 0) return true;
+  return !q.options.every(isBoardActionLabel);
 }
 
 /** Il minimo che serve per riconoscere una domanda in coda al thread. */

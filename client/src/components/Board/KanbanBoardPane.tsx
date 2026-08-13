@@ -25,9 +25,11 @@ import {
   boardApi, boardIdForPath, isProjectlessId, TASK_STATUSES, UNASSIGNED_PROJECT_ID,
   CLOSER_LABELS, KIND_LABELS,
   type BoardProjectRef, type BoardTask, type TaskStatus, type BoardSettings, type TaskLabel,
-  type PublishProject, type DiffBundle, type DispatchCapacity, type GlobalSettings,
+  type PublishProject, type DiffBundle,
 } from '../../lib/board';
-import { groupByStatus, planDrop, type DropPlan, type OrderScope } from '../../lib/boardOrder';
+import { useGlobalDispatchCap } from '../../state/globalDispatchCap';
+import { GlobalCapControl } from './GlobalCapControl';
+import { groupByStatus, manualStatusTarget, planDrop, type DropPlan, type OrderScope } from '../../lib/boardOrder';
 import { DONE_FLASH_MS, landedInDone, statusSnapshot } from '../../lib/justDone';
 import { scrollDelta } from '../../lib/scrollDelta';
 import { resolveProjectRefs, useBoardProjects } from '../../lib/boardProjectsStore';
@@ -41,6 +43,7 @@ import { FloatingTaskComposer } from './FloatingTaskComposer';
 import { Column } from './Card';
 import { taskActionErrorMessage } from './taskActionError';
 import { TaskDetail, BoardSettingsPanel } from './TaskDetail';
+import { GlobalOnlySettingsPanel } from './BoardSettingsSections';
 import { POPOVER_ITEM } from '@/lib/popoverStyles';
 import { MISSIONS, type Mission } from '../../lib/missions';
 import { useDevInstall } from '../../hooks/useDevInstall';
@@ -333,19 +336,14 @@ function WorktreeControl({ count, branches, gcRunning, gcResult, onGc }: {
  *    apribile col dito — e dice a chiare lettere che è un consiglio e non un
  *    tetto.
  *
- * Sonda ogni 15s (probe da poco).
+ * La sonda (ogni 15s) è quella dello store del tetto globale, non una seconda
+ * per chip: la stessa lettura serve il chip, il menu del titolo e il pannello
+ * delle impostazioni.
  */
 function LoadAdviceChip() {
-  const [cap, setCap] = useState<DispatchCapacity | null>(null);
+  const cap = useGlobalDispatchCap().capacity;
   const btnRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
-  useEffect(() => {
-    let alive = true;
-    const tick = () => boardApi.dispatchCapacity().then((c) => { if (alive) setCap(c); }).catch(() => { /* optional */ });
-    tick();
-    const id = setInterval(tick, 15000);
-    return () => { alive = false; clearInterval(id); };
-  }, []);
   if (!cap) return null;
   const over = (cap.running ?? 0) - cap.recommended;
   if (over <= 0) return null; // niente da fermare → niente chip
@@ -373,7 +371,7 @@ function LoadAdviceChip() {
           </p>
           <p>Load {cap.load1.toFixed(1)} su {cap.cores} core: la macchina è satura, e ogni agent in più rallenta anche gli altri.</p>
           <p className="text-app-text-muted">{cap.reason}</p>
-          <p>È un <span className="text-app-text-heading">consiglio</span>, non un tetto: puoi lasciarli girare tutti. Il tetto vero è quello del menu qui accanto.</p>
+          <p>È un <span className="text-app-text-heading">consiglio</span>, non un tetto: puoi lasciarli girare tutti. Il tetto vero sta nelle impostazioni della board, con quanti ne stanno girando.</p>
         </div>
       </Menu>
     </>
@@ -431,51 +429,22 @@ function MissionsMenu({ onStart }: { onStart: (m: Mission) => void }) {
 }
 
 /** Machine-wide dispatch settings, reachable from EVERY board header (incl. the
- *  general board): the global auto-dispatch switch + the auto concurrency cap
- *  that is sized from live capacity and enforced across ALL boards. Per-board
- *  overrides still live in the project board's ⚙ inline panel. */
-function GlobalSettingsMenu({ onMessage }: { onMessage?: (handler: (msg: WSMessage) => void) => () => void }) {
+ *  general board): the global auto-dispatch switch + the ONE concurrency cap
+ *  enforced across ALL boards. The cap block is `GlobalCapControl`, the same
+ *  component the board settings panel mounts: one store, one writer, and a
+ *  change made here shows up there without a reload. Per-board overrides still
+ *  live in the project board's ⚙ inline panel. */
+function GlobalSettingsMenu() {
   const tr = useT();
   const btnRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
-  const [g, setG] = useState<GlobalSettings | null>(null);
-  const [cap, setCap] = useState<DispatchCapacity | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [autoDispatch, setAutoDispatch] = useState<boolean | null>(null);
   const load = () => {
-    boardApi.getGlobalSettings().then(setG).catch(() => { /* keep last */ });
-    boardApi.dispatchCapacity().then(setCap).catch(() => { /* optional */ });
+    boardApi.getGlobalDispatch().then(setAutoDispatch).catch(() => { /* keep last */ });
   };
-  // Il cap globale vale per TUTTE le board, quindi cambiarlo in una finestra
-  // riguarda anche le altre — ed e' per questo che il server manda
-  // `board:global-cap` (`server/routes/tasks.ts`). Nessuno lo ascoltava: la
-  // finestra che lo cambiava si aggiornava dalla propria risposta, le altre
-  // restavano sul valore vecchio finche' non riaprivano il menu.
-  useEffect(() => {
-    if (!onMessage) return;
-    return onMessage((msg: WSMessage) => {
-      const m = msg as { type?: string; maxAgentsAuto?: boolean; maxAgents?: number };
-      if (m.type !== 'board:global-cap') return;
-      setG((p) => (p ? {
-        ...p,
-        ...(typeof m.maxAgentsAuto === 'boolean' ? { maxAgentsAuto: m.maxAgentsAuto } : {}),
-        ...(typeof m.maxAgents === 'number' ? { maxAgents: m.maxAgents } : {}),
-      } : p));
-    });
-  }, [onMessage]);
-
   const toggleAuto = async (v: boolean) => {
-    setG((p) => (p ? { ...p, autoDispatch: v } : p));
+    setAutoDispatch(v);
     try { await boardApi.setGlobalDispatch(v); } catch { load(); }
-  };
-  const toggleCap = async (v: boolean) => {
-    setBusy(true);
-    setG((p) => (p ? { ...p, maxAgentsAuto: v } : p));
-    try { setG(await boardApi.setGlobalCap({ auto: v })); } catch { load(); } finally { setBusy(false); }
-  };
-  const setManual = async (n: number) => {
-    const max = Math.max(1, Math.min(20, Math.round(n)));
-    setG((p) => (p ? { ...p, maxAgents: max } : p));
-    try { setG(await boardApi.setGlobalCap({ max })); } catch { load(); }
   };
   return (
     <>
@@ -490,28 +459,10 @@ function GlobalSettingsMenu({ onMessage }: { onMessage?: (handler: (msg: WSMessa
           <p className="text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.dispatch.allBoards')}</p>
           <label className="flex cursor-pointer items-center justify-between gap-3">
             <span className="flex items-center gap-1.5"><Bot className="h-3.5 w-3.5 text-app-text-secondary" /> {tr('board.settings.autoDispatch')}</span>
-            <input type="checkbox" checked={!!g?.autoDispatch} onChange={(e) => toggleAuto(e.target.checked)} className="h-3.5 w-3.5 accent-emerald-500" />
+            <input type="checkbox" checked={!!autoDispatch} onChange={(e) => toggleAuto(e.target.checked)} className="h-3.5 w-3.5 accent-emerald-500" />
           </label>
-          <div className="space-y-1 border-t border-app-border-subtle pt-2">
-            <label className="flex cursor-pointer items-center justify-between gap-3">
-              <span>{tr('board.dispatch.parallelAuto')}</span>
-              <input type="checkbox" checked={!!g?.maxAgentsAuto} disabled={busy} onChange={(e) => toggleCap(e.target.checked)} className="h-3.5 w-3.5 accent-emerald-500" />
-            </label>
-            {g?.maxAgentsAuto ? (
-              <p className="text-[11px] leading-snug text-app-text-muted">
-                <b className="text-emerald-300">{cap ? cap.recommended : '…'}</b> agent in parallelo su tutta la macchina{cap && <span className="text-app-text-faint"> · {cap.reason}</span>}
-              </p>
-            ) : (
-              <label className="flex items-center justify-between gap-3">
-                <span className="text-[11px] text-app-text-muted">Numero fisso{cap && <span className="text-app-text-faint"> (consigliato {cap.recommended})</span>}</span>
-                <input
-                  type="number" min={1} max={20} value={g?.maxAgents ?? 3}
-                  onChange={(e) => setManual(Number(e.target.value))}
-                  className="w-14 rounded bg-white/5 px-1.5 py-0.5 text-right text-app-text outline-none"
-                />
-              </label>
-            )}
-            <p className="text-[10px] leading-snug text-app-text-faint">{tr('board.dispatch.oneMachine')}</p>
+          <div className="border-t border-app-border-subtle pt-2">
+            <GlobalCapControl />
           </div>
         </div>
       </Menu>
@@ -855,6 +806,7 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
 }
 
 export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpenTopic, onStartMission }: Props) {
+  const tr = useT();
   const projectId = useMemo(() => (projectPath ? boardIdForPath(projectPath) : ''), [projectPath]);
   // The project/all toggle only makes sense inside a project window. The global
   // pane has no project, so it locks to 'all'.
@@ -888,6 +840,17 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
   const onCardError = useCallback((taskId: string, message: string | null) => {
     setCardError((prev) => (message ? { taskId, message } : prev?.taskId === taskId ? null : prev));
   }, []);
+  // A move that did NOT land where it was aimed says so here. Not an error
+  // (nothing failed) and not a toast (it belongs to the board it happened on):
+  // one line under the toolbar.
+  //
+  // It is cleared when the NEXT gesture starts, not when the next one ends: a
+  // drag that gets cancelled, or lands on a card that vanished under the
+  // fingers, used to leave the previous drop's blue line on screen explaining a
+  // move that was no longer the last one. And it is cleared again if the write
+  // fails, because by then the line claims a destination the card never
+  // reached, right next to the red error saying so.
+  const [dropNotice, setDropNotice] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // Quale tab del task mettere davanti all'apertura, quando ad aprirlo è stato
   // un gesto mirato (il bottone «apri in una tab» sull'anteprima della card).
@@ -1513,6 +1476,9 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
    * rifetcha e la verità torna dal server.
    */
   const dropTo = useCallback(async (task: BoardTask, plan: DropPlan) => {
+    // A redirected drop onto a card that is already where the redirect sends it
+    // has nothing to write: the plan exists only to carry the notice.
+    if (Object.keys(plan.patch).length === 0 && !plan.renumber?.length) return;
     for (const r of plan.renumber ?? []) patchLocal(r.id, { kanbanOrder: r.kanbanOrder });
     patchLocal(task.id, plan.patch); // optimistic
     try {
@@ -1525,9 +1491,15 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
       await boardApi.update(task.projectId, task.id, plan.patch);
       onCardError(task.id, null);
     } catch (e) {
-      // Trascinare in Done un padre con figli aperti è lo STESSO rifiuto del
-      // bottone Approva: il refetch riporta la card al suo posto, e il perché
-      // la aspetta lì sopra invece che in cima al pannello.
+      // The notice was written before the PATCH (it explains the GESTURE, and
+      // waiting for the round trip would make it arrive late). If the write
+      // failed the card is where it was, so the notice is now false: it goes,
+      // and the error speaks alone.
+      setDropNotice(null);
+      // E parla SULLA CARD. Trascinare in Done un padre con figli aperti è lo
+      // stesso rifiuto del bottone Approva: il refetch riporta la card al suo
+      // posto, e il perché la aspetta lì invece che in cima al pannello, dove
+      // con la colonna scrollata non lo leggeva nessuno.
       onCardError(task.id, taskActionErrorMessage(e, 'spostamento non riuscito'));
       refetch();
     }
@@ -1578,6 +1550,10 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
   const onDragStart = useCallback((e: DragStartEvent) => {
     draggingRef.current = true;
     setActiveId(String(e.active.id));
+    // A new gesture retires the previous one's explanation, whatever this drag
+    // turns out to do (including being cancelled, or ending on a card that is
+    // no longer in the list).
+    setDropNotice(null);
   }, []);
   // Cosa produce un drop sta in `lib/boardOrder` — puro e testato (bun:test):
   // qui resta solo il raccordo fra dnd-kit e la PATCH.
@@ -1592,18 +1568,30 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
       byStatus,
       scope: orderScope,
     });
+    // The card did not land where the hand let it go: say it, or the gesture
+    // reads as a bug. `onDragStart` already cleared the previous one, so this
+    // only ever adds.
+    if (plan?.redirectedFrom === 'in_progress') setDropNotice(tr('board.drop.inProgressRedirected'));
     if (plan) dropTo(task, plan);
-  }, [tasks, byStatus, dropTo, flushDrag, orderScope]);
+  }, [tasks, byStatus, dropTo, flushDrag, orderScope, tr]);
   const activeTask = activeId ? tasks.find((t) => t.id === activeId) ?? null : null;
 
   const create = useCallback(async (status: TaskStatus, text: string) => {
     // A task can't be created directly in Done — land it in Todo instead.
-    const target: TaskStatus = status === 'done' ? 'todo' : status;
+    // In Progress is the same story for a different reason (`manualStatusTarget`):
+    // a task being born has no agent by definition, so writing it straight into
+    // In Progress creates it already stuck. This is the second of the three
+    // doors, and it is the worst of them, because a card that was never
+    // dispatched has nothing on it to explain why nobody picks it up.
+    const aim = manualStatusTarget(status === 'done' ? 'todo' : status, null);
     // L'id arriva dalla POST, non dal broadcast: è quello che distingue «l'ho
     // creato io» da «è comparso», e solo il primo autorizza a muovere la board.
-    try { const created = await boardApi.create(projectId, { text, status: target }); onCreatedHere(created.id); }
-    catch (e) { setError(e instanceof Error ? e.message : 'create failed'); }
-  }, [projectId, onCreatedHere]);
+    try {
+      const created = await boardApi.create(projectId, { text, status: aim.status });
+      if (aim.redirectedFrom === 'in_progress') setDropNotice(tr('board.drop.inProgressRedirected'));
+      onCreatedHere(created.id);
+    } catch (e) { setError(e instanceof Error ? e.message : 'create failed'); }
+  }, [projectId, onCreatedHere, tr]);
 
   // Il task che il drawer mostra quando l'id NON è nel feed. Il feed è
   // `rootsOnly` — le colonne mostrano le radici, gli step vivono nell'albero del
@@ -1755,7 +1743,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
         ) : (
           <span className="text-xs font-semibold text-app-text">Board<span className="hidden sm:inline"> generale</span></span>
         )}
-        <GlobalSettingsMenu onMessage={onMessage} />
+        <GlobalSettingsMenu />
         <LoadAdviceChip />
         <WorktreeControl
           count={worktreeCount}
@@ -1785,13 +1773,15 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
               lavoro che è su main e non è ancora uscito. */}
           <UnlandedControl tasks={unlandedTasks} onOpen={setSelectedId} />
           <PublishControl />
-          {hasProject && (
-            <button
-              onClick={() => setShowSettings((s) => !s)}
-              className={`rounded p-1 ${showSettings ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/5'}`}
-              title="Impostazioni auto-dispatch"
-            ><Settings className="h-3.5 w-3.5" /></button>
-          )}
+          {/* On EVERY board, project or not. Without a project there are no
+              per-board rows, but the machine-wide cap still applies here — and
+              gating this button on `hasProject` is what left the general board
+              with the ▾ as its only way to see the limit. */}
+          <button
+            onClick={() => setShowSettings((s) => !s)}
+            className={`rounded p-1 ${showSettings ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/5'}`}
+            title="Impostazioni auto-dispatch"
+          ><Settings className="h-3.5 w-3.5" /></button>
         </div>
       </div>
       {toolbarOverflowRight && (
@@ -1804,7 +1794,10 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
       )}
       </div>
       {error && <div className="shrink-0 bg-rose-500/10 px-3 py-1.5 text-xs text-rose-300">{error}</div>}
-      {showSettings && hasProject && (
+      {dropNotice && (
+        <div data-testid="board-drop-notice" className="shrink-0 bg-sky-500/10 px-3 py-1.5 text-xs text-sky-300">{dropNotice}</div>
+      )}
+      {showSettings && (hasProject ? (
         <BoardSettingsPanel
           projectId={projectId}
           settings={settings}
@@ -1815,7 +1808,13 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
           onClose={() => setShowSettings(false)}
           onError={setError}
         />
-      )}
+      ) : (
+        <GlobalOnlySettingsPanel
+          dispatchOn={dispatchOn}
+          onToggleDispatch={toggleDispatch}
+          onClose={() => setShowSettings(false)}
+        />
+      ))}
       {/* Board area + drawer share a flex row: an open (narrow) drawer SHRINKS
           the columns viewport instead of covering it, so every column stays
           reachable through the row's own horizontal scroll — nothing is ever
@@ -1823,7 +1822,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
           (the drawer positions itself; out of flow, the board re-expands). */}
       <div className="flex min-h-0 flex-1">
         <div className="relative flex min-w-0 flex-1 flex-col">
-          <DndContext sensors={sensors} collisionDetection={boardCollision} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => { setActiveId(null); flushDrag(); }}>
+          <DndContext sensors={sensors} collisionDetection={boardCollision} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => { setActiveId(null); flushDrag(); setDropNotice(null); }}>
             <div ref={columnsScrollRef} className="flex h-full min-w-0 snap-x snap-mandatory scroll-smooth gap-2 overflow-x-auto px-2 py-3 sm:gap-3 sm:px-3">
               {TASK_STATUSES.map((status) => (
                 <Column

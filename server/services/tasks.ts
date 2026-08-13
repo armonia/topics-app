@@ -36,12 +36,12 @@ import { liveAgentCount } from "./agent-census";
 // chi la vuole la prende da `shared/board`.
 export type { TaskStatus, TaskComment, BoardSettings, BoardSettingsPatch, BlockerRef, SubtaskWork, QueueReason } from "../../shared/board";
 import {
-  DISPATCH_CHIP_QUEUED,
+  ARCHIVE_PARKED_LABEL, DISPATCH_CHIP_QUEUED, clampGlobalCap,
   MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PREVIEW_CARD_MAX_RATIO, QUEUE_REASON_UNKNOWN,
-  TASK_STATUSES, WAIT_SERIES_MAX_MS, WAIT_STREAK_CAP,
+  REQUEUE_PARKED_LABEL, TASK_STATUSES, WAIT_SERIES_MAX_MS, WAIT_STREAK_CAP,
   deriveQueueReason, deriveSubtaskWork, formatStatusEvent, hasPlanApproveOption, isAgentWorking,
-  isUnattributedSubtask, normalizeActionLabel, noteParkedChildrenResolved, parseQuestionBlock, readTaskWeight,
-  statusEventEnters, waitReasonKey,
+  isUnattributedSubtask, noteParkedChildrenResolved, parseQuestionBlock, questionAsksHuman,
+  readTaskWeight, statusEventEnters, waitReasonKey,
 } from "../../shared/board";
 import { EFFORT_TIERS } from "../../shared/effort";
 // Il vocabolario delle etichette e la regola che le deriva: una sola
@@ -70,70 +70,52 @@ export const UNASSIGNED_PROJECT_ID = "_none";
 export const AUTO_PROJECT_ID = "_auto";
 
 /**
- * Reserved quick-reply label the AGENT is prompted to offer at delivery when its
- * work is landable. The board route matches a human's pick of exactly this option
- * and runs the land (approve + merge to main) instead of resuming the agent —
- * that's how "the agent proposes the next step, the human decides, the system
- * executes" works without the merge riding on every approve. Keep in sync with
- * the prompt in task-dispatcher.ts (both import this constant).
+ * The reserved quick-reply vocabulary now lives in `shared/board.ts`, because
+ * the same verdict has to be reached in the CLIENT too (the in-app review
+ * banner picks its title from it) and the client cannot import from `server/`.
+ * Re-exported here so the ~20 call sites that read it from the task service
+ * keep one import, and so there is still exactly one definition.
+ *
+ * - LAND_ACTION_LABEL: the agent is prompted to offer it at delivery when its
+ *   work is landable; the review route matches a human's pick and runs the land
+ *   instead of resuming the agent. Keep in sync with task-dispatcher.ts (both
+ *   import this constant).
+ * - PUBLISH_ACTION_LABEL: land AND publish (push → deploy CI). "Going online"
+ *   stays a human pick; the agent never pushes.
+ * - REQUEUE/ARCHIVE_PARKED_LABEL: the two answers to the PARKED SUBTASK STALL.
+ *   Measured on 12/08 across five cards: a child in backlog is dispatched by
+ *   nobody (deliberate, `hasChildrenInFlight`), the parent waiting on it gets
+ *   stopped so it does not spin (deliberate too), and it ended up parked in
+ *   backlog — where "still" is a card's NORMAL look. The stall was
+ *   indistinguishable from rest, and only a human could unstick it.
  */
-export const LAND_ACTION_LABEL = "Landa su main";
-/**
- * Reserved option for "go online": land (merge to main) AND publish (push →
- * deploy CI). The agent may offer it at delivery too; picking it runs the whole
- * chain server-side. "Andare online" stays a human pick — the agent never pushes.
- */
-export const PUBLISH_ACTION_LABEL = "Landa e pubblica";
-const normLabel = normalizeActionLabel;
-/** Tolerant match (ignores emoji/punctuation/spacing the model may add). */
-export function isLandActionLabel(text: string | undefined | null): boolean {
-  return !!text && normLabel(text) === normLabel(LAND_ACTION_LABEL);
-}
-export function isPublishActionLabel(text: string | undefined | null): boolean {
-  return !!text && normLabel(text) === normLabel(PUBLISH_ACTION_LABEL);
-}
+export {
+  ARCHIVE_PARKED_LABEL, LAND_ACTION_LABEL, PUBLISH_ACTION_LABEL, REQUEUE_PARKED_LABEL,
+  isArchiveParkedLabel, isLandActionLabel, isPublishActionLabel, isRequeueParkedLabel,
+} from "../../shared/board";
 
 /**
- * Le due risposte allo STALLO DEI SOTTOTASK PARCHEGGIATI, e sono riservate come
- * «Landa su main»: la board le mostra come bottoni, il server le esegue.
+ * Does this comment ASK the human something, or is it a DELIVERY that merely
+ * offers the next board action as a button?
  *
- * Il giro che chiudono, misurato il 12/08 su cinque card: il figlio in backlog
- * non lo dispaccia nessuno (voluto, `hasChildrenInFlight`), il padre che lo
- * aspetta viene fermato per non girare a vuoto (voluto anche questo), e finiva
- * parcheggiato in backlog — dove «fermo» è l'aspetto NORMALE di una card. Lo
- * stallo era indistinguibile dal riposo, e si apriva solo a mano.
+ * The rule itself is `questionAsksHuman` in shared/board.ts — read it there.
+ * This is its text-level entry point, and it adds the one thing a parsed block
+ * cannot express: a fence that DID NOT PARSE.
  *
- * Un padre bloccato SOLO da figli parcheggiati non è bloccato: è una DOMANDA
- * con due risposte, e nessuna delle due è «aspetta ancora».
+ * `parseQuestionBlock` returns null for a hand-written block whose body is all
+ * bullets and no question line (```question / - Sì / - No). The old rule was
+ * `content.includes("```question")`, so that shape counted as a question and
+ * was exempt from the two review gates; reading the parsed options alone
+ * silently reclassified it as a DELIVERY — a `delivered` chip and two 409s on a
+ * legitimate mid-work question. An unreadable fence is not evidence of a
+ * delivery: it is a fence we failed to read, and the safe reading of that is
+ * the one that stops and asks.
  */
-export const REQUEUE_PARKED_LABEL = "Rimetti in coda i sottotask";
-export const ARCHIVE_PARKED_LABEL = "Archivia i sottotask";
-/**
- * L'ultima parola dell'agente sta CHIEDENDO qualcosa a una persona?
- *
- * Legge le OPZIONI, non la fence. Il blocco ```question avvolge anche le
- * consegne, perché l'envelope ordina di allegare "Landa su main" a ogni
- * consegna landabile: guardare solo la fence faceva presentare ogni delivery
- * finita come una domanda (titolo del banner "L'agent ti sta chiedendo una
- * cosa" su un task che non chiede niente).
- *
- * Quindi: c'è una domanda se resta ALMENO un'opzione che non sia una delle due
- * azioni di consegna. Una fence senza opzioni è una domanda aperta e conta come
- * tale. Le due risposte allo stallo dei sottotask parcheggiati sono domande a
- * tutti gli effetti, e passano.
- */
-export function commentAsksHuman(content: string | undefined | null): boolean {
-  const parsed = parseQuestionBlock(content ?? "");
-  if (!parsed) return false;
-  if (parsed.options.length === 0) return true;
-  return parsed.options.some((o) => !isLandActionLabel(o) && !isPublishActionLabel(o));
-}
-
-export function isRequeueParkedLabel(text: string | undefined | null): boolean {
-  return !!text && normLabel(text) === normLabel(REQUEUE_PARKED_LABEL);
-}
-export function isArchiveParkedLabel(text: string | undefined | null): boolean {
-  return !!text && normLabel(text) === normLabel(ARCHIVE_PARKED_LABEL);
+export function commentAsksHuman(content: string | null | undefined): boolean {
+  const text = content ?? "";
+  const parsed = parseQuestionBlock(text);
+  if (!parsed) return text.includes("```question");
+  return questionAsksHuman(parsed);
 }
 
 export interface Task {
@@ -3005,7 +2987,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         db.prepare("UPDATE board_settings SET max_agents_auto = ? WHERE project_id = ?").run(patch.auto ? 1 : 0, GLOBAL_SETTINGS_KEY);
       }
       if (patch.max !== undefined) {
-        db.prepare("UPDATE board_settings SET max_agents = ? WHERE project_id = ?").run(clampInt(patch.max, 1, 20), GLOBAL_SETTINGS_KEY);
+        // `clampGlobalCap`, non `clampInt(…, 1, 20)`: lo zero di «nessun tetto»
+        // deve arrivare al DB com'è. Il clamp a 1 lo trasformava nel tetto più
+        // stretto possibile, cioè nell'impostazione opposta a quella chiesta.
+        db.prepare("UPDATE board_settings SET max_agents = ? WHERE project_id = ?").run(clampGlobalCap(patch.max), GLOBAL_SETTINGS_KEY);
       }
       return this.getGlobalCap();
     },
@@ -3015,8 +3000,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return {
         projectId,
         autoDispatch: readGlobalDispatch(),
-        maxAgents: r ? (r.max_agents ?? 2) : 2,
-        maxAgentsAuto: r ? !!r.max_agents_auto : false,
+        // Nessun tetto per board: quello vero è UNO solo e si legge con
+        // `getGlobalCap()` (riga '*'). Vedi `BoardSettings` in shared/board.ts.
         dispatchEffort: r?.dispatch_effort ?? "medium",
         dispatchUseWorktree: r ? !!r.dispatch_use_worktree : true,
         dispatchAutoMerge: r ? !!r.dispatch_auto_merge : false,
@@ -3046,10 +3031,11 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (patch.dispatchMcp !== undefined && !VALID_DISPATCH_MCP.has(patch.dispatchMcp)) {
         throw new TaskServiceError("invalid_input", `invalid dispatchMcp "${patch.dispatchMcp}"`);
       }
-      // Ensure a row exists. Seed max_agents at the dispatch default (2), NOT the
-      // legacy board_settings column default (5) — otherwise merely toggling
-      // auto_dispatch would materialise the row at cap 5 and silently over-run the
-      // "2" shown in the panel. INSERT OR IGNORE only sets it on first creation.
+      // Ensure a row exists. `max_agents` is seeded, never patched: on a project
+      // row the column is DEAD (no reader — the one cap lives on the '*' row),
+      // and the explicit 2 only matters when `projectId` IS the reserved '*'
+      // key, where it must land on the same global default as
+      // `setGlobalAutoDispatch` instead of the legacy column default of 5.
       db.prepare("INSERT OR IGNORE INTO board_settings (project_id, max_agents) VALUES (?, 2)").run(projectId);
       // autoDispatch is the GLOBAL switch: route it to the '*' row so flipping
       // it from any board (or the global board) flips it everywhere.
@@ -3061,8 +3047,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       }
       const sets: string[] = [];
       const params: any[] = [];
-      if (patch.maxAgents !== undefined) { sets.push("max_agents = ?"); params.push(clampInt(patch.maxAgents, 1, 10)); }
-      if (patch.maxAgentsAuto !== undefined) { sets.push("max_agents_auto = ?"); params.push(patch.maxAgentsAuto ? 1 : 0); }
+      // Nessun `max_agents` / `max_agents_auto` qui: il tetto si scrive con
+      // `setGlobalCap` sulla riga '*', ed è l'unico che decide qualcosa.
       if (patch.dispatchEffort !== undefined) { sets.push("dispatch_effort = ?"); params.push(patch.dispatchEffort); }
       if (patch.dispatchUseWorktree !== undefined) { sets.push("dispatch_use_worktree = ?"); params.push(patch.dispatchUseWorktree ? 1 : 0); }
       if (patch.dispatchAutoMerge !== undefined) { sets.push("dispatch_auto_merge = ?"); params.push(patch.dispatchAutoMerge ? 1 : 0); }

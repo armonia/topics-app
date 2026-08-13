@@ -30,6 +30,7 @@ import {
   handleBrowserUpload,
   handleBrowserStatus,
   writeAgentScreenshot,
+  resolveAgentNavUrl,
 } from "./browser-tools-handler";
 import type { BrowserActAction } from "./browser-tools";
 import { describeImage, pointObject } from "./integrations/moondream-client";
@@ -289,6 +290,22 @@ export async function dispatchBrowserToolCallByContext(
   // this is a best-effort UX side-effect, so a partial/legacy service (or a test
   // mock) without setAgentAction must never break actual tool dispatch.
   browserService.setAgentAction?.(contextId, describeBrowserAction(toolName, args));
+  // Dove va la pane lo si decide QUI, prima di sapere che pane è.
+  //
+  // `browser_open` su una pane NATIVA non passava da handleBrowserOpen — scende
+  // dritto a delegateOp poco sotto — quindi la guardia sugli schemi valeva per
+  // il ramo Playwright e non per quello Tauri: stesso tool, stesso agente, due
+  // regole. Sul nativo restava a fermarlo solo il nav-guard del Rust, che nega
+  // senza dire niente e lascia la pane BIANCA. Un file locale diventa un URL
+  // http di /api/media (browser-local-file-url.ts) e tutto il resto incontra la
+  // guardia di sempre: un punto solo, prima della biforcazione, per entrambi.
+  if (toolName === "browser_open" && typeof args.url === "string") {
+    // Alla pane nativa va il RIFERIMENTO relativo: la sua origine è il proxy in
+    // chiaro dell'app (13333), non il server in TLS (3333), e solo lei la
+    // conosce. All'headless, che naviga da qui, l'assoluto.
+    const form = nativeDelegateRegistry.isDelegated(contextId) ? "relative" : "absolute";
+    args = { ...args, url: resolveAgentNavUrl(args.url, "browser_open", form) };
+  }
   // browser_upload: read the file bytes ONCE here (neither the WKWebView nor the
   // Playwright page can read local disk), then hand the base64 to whichever
   // surface renders the pane — the native executor evals UPLOAD_FN on Tauri, the
