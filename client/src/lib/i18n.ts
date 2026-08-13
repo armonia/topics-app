@@ -230,7 +230,19 @@ const IT: Dict = {
   'board.task.streamPreviewTitle': 'Anteprima live di ciò che sta streammando ora',
   'board.task.recapturePreview': 'Ricattura evidenza',
   'board.task.recapturePreviewTitle': "Rifà l'anteprima di questa card: riavvia il server dal suo worktree e la rifotografa. NON sveglia l'agent e non consuma un tentativo. Se non è possibile, il motivo arriva nel thread.",
-  'board.task.replyPlaceholder': "Rispondi all'agent…",
+  // I DUE GESTI DELLA CARD IN REVIEW, detti prima che uno scriva.
+  //
+  // Un commento su una card in review la RIMANDA all'agent (reject + resume):
+  // giusto per «rispondi», ma il bottone diceva solo «Commenta» e chi voleva
+  // annotare una consegna la rigettava senza saperlo. Ora i due gesti si
+  // chiamano come il loro effetto, e il placeholder li nomina entrambi.
+  'board.task.replyPlaceholder': "Scrivi una nota. «Rimanda» risveglia l'agent, «Nota» la lascia sulla card.",
+  /** Stessa frase per il campo stretto della card, dove la lunga non ci sta. */
+  'board.task.replyPlaceholderShort': '…nota: «Rimanda» risveglia, «Nota» no',
+  'board.task.sendBackReply': 'Rimanda',
+  'board.task.sendBackReplyTitle': "Rimanda il task all'agent con questa nota. Riparte e la card torna In Progress.",
+  'board.task.quietNote': 'Nota',
+  'board.task.quietNoteTitle': "Salva la nota sulla card. L'agent non riparte e il task resta in Review.",
   'board.task.steerPlaceholder': "Scrivi all'agent mentre lavora. Lo riceve al prossimo turno.",
   'board.task.commentPlaceholder': 'Commenta…',
   'board.task.workspaceLabel': 'Spazio di lavoro',
@@ -845,7 +857,12 @@ const EN: Dict = {
   'board.task.streamPreviewTitle': 'Live preview of what it is streaming now',
   'board.task.recapturePreview': 'Recapture evidence',
   'board.task.recapturePreviewTitle': "Rebuild this card's preview: reboot the server from its worktree and shoot it again. It does NOT wake the agent and burns no attempt. If it can't be done, the reason lands in the thread.",
-  'board.task.replyPlaceholder': 'Reply to the agent…',
+  'board.task.replyPlaceholder': 'Write a note. «Send back» wakes the agent up, «Note» leaves it on the card.',
+  'board.task.replyPlaceholderShort': '…note: «Send back» wakes it up, «Note» does not',
+  'board.task.sendBackReply': 'Send back',
+  'board.task.sendBackReplyTitle': 'Send the task back to the agent with this note. It restarts and the card returns to In Progress.',
+  'board.task.quietNote': 'Note',
+  'board.task.quietNoteTitle': 'Save the note on the card. The agent does not restart and the task stays in Review.',
   'board.task.steerPlaceholder': 'Write to the agent while it works. It gets it on the next turn.',
   'board.task.commentPlaceholder': 'Comment…',
   'board.task.workspaceLabel': 'Workspace',
