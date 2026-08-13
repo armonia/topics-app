@@ -42,9 +42,12 @@ function freshDb(): Database {
     done_actor TEXT, reopened_at TEXT, reopened_by TEXT, reopened_actor TEXT,
     model TEXT, created_by_topic_id TEXT
   )`);
+  // See the note in tasks.queue-reason.test.ts: `readGlobalCap` SELECTs
+  // `max_agents_auto`, so leaving it out of this DDL arms a "no such column"
+  // throw for the first test here that touches the machine-wide cap.
   db.run(`CREATE TABLE board_settings (
     project_id TEXT PRIMARY KEY, auto_dispatch INTEGER NOT NULL DEFAULT 0,
-    max_agents INTEGER DEFAULT 3, dispatch_retry_cap INTEGER
+    max_agents INTEGER DEFAULT 3, max_agents_auto INTEGER, dispatch_retry_cap INTEGER
   )`);
   db.run(`CREATE TABLE task_comments (
     id TEXT PRIMARY KEY, task_id TEXT NOT NULL, author TEXT NOT NULL DEFAULT 'user',

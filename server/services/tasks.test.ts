@@ -1100,6 +1100,16 @@ describe("board settings", () => {
     expect(s.getGlobalCap()).toEqual({ auto: true, max: 2 });
   });
 
+  // The OTHER way the reserved row gets created: `INSERT OR IGNORE ... VALUES
+  // (?, 2)`, which runs for any patch at all, not just the auto-dispatch one.
+  // It carries the same explicit 2 and had lost its only guard — the test that
+  // pinned it was rewritten onto the upsert above, so mutating this literal to 5
+  // went unnoticed by the whole suite. Two seeds, two guards.
+  test("ANY patch on the reserved row seeds the cap at 2, never the column default", () => {
+    s.updateBoardSettings("*", { dispatchEffort: "high" });
+    expect(s.getGlobalCap()).toEqual({ auto: true, max: 2 });
+  });
+
   test("auto-dispatch is GLOBAL: flipping it from one board flips every board", () => {
     expect(s.getGlobalAutoDispatch()).toBe(false);
     s.updateBoardSettings(PID, { autoDispatch: true });

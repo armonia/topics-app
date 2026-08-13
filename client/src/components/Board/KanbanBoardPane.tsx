@@ -42,6 +42,7 @@ import { boardCollision } from './format';
 import { FloatingTaskComposer } from './FloatingTaskComposer';
 import { Column } from './Card';
 import { TaskDetail, BoardSettingsPanel } from './TaskDetail';
+import { GlobalOnlySettingsPanel } from './BoardSettingsSections';
 import { POPOVER_ITEM } from '@/lib/popoverStyles';
 import { MISSIONS, type Mission } from '../../lib/missions';
 import { useDevInstall } from '../../hooks/useDevInstall';
@@ -1757,13 +1758,15 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
               lavoro che è su main e non è ancora uscito. */}
           <UnlandedControl tasks={unlandedTasks} onOpen={setSelectedId} />
           <PublishControl />
-          {hasProject && (
-            <button
-              onClick={() => setShowSettings((s) => !s)}
-              className={`rounded p-1 ${showSettings ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/5'}`}
-              title="Impostazioni auto-dispatch"
-            ><Settings className="h-3.5 w-3.5" /></button>
-          )}
+          {/* On EVERY board, project or not. Without a project there are no
+              per-board rows, but the machine-wide cap still applies here — and
+              gating this button on `hasProject` is what left the general board
+              with the ▾ as its only way to see the limit. */}
+          <button
+            onClick={() => setShowSettings((s) => !s)}
+            className={`rounded p-1 ${showSettings ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/5'}`}
+            title="Impostazioni auto-dispatch"
+          ><Settings className="h-3.5 w-3.5" /></button>
         </div>
       </div>
       {toolbarOverflowRight && (
@@ -1779,7 +1782,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
       {dropNotice && (
         <div data-testid="board-drop-notice" className="shrink-0 bg-sky-500/10 px-3 py-1.5 text-xs text-sky-300">{dropNotice}</div>
       )}
-      {showSettings && hasProject && (
+      {showSettings && (hasProject ? (
         <BoardSettingsPanel
           projectId={projectId}
           settings={settings}
@@ -1790,7 +1793,13 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
           onClose={() => setShowSettings(false)}
           onError={setError}
         />
-      )}
+      ) : (
+        <GlobalOnlySettingsPanel
+          dispatchOn={dispatchOn}
+          onToggleDispatch={toggleDispatch}
+          onClose={() => setShowSettings(false)}
+        />
+      ))}
       {/* Board area + drawer share a flex row: an open (narrow) drawer SHRINKS
           the columns viewport instead of covering it, so every column stays
           reachable through the row's own horizontal scroll — nothing is ever

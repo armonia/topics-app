@@ -330,8 +330,10 @@ const IT: Dict = {
   // «perché la coda non si muove». Il tetto da solo non lo dice: servono
   // entrambi i numeri, e vanno letti in un colpo d'occhio.
   'board.dispatch.running': '{running} di {cap} agent al lavoro adesso',
+  'board.dispatch.runningOver': '{running} al lavoro, tetto {cap}',
   'board.dispatch.runningLoading': 'Leggo il limite…',
   'board.dispatch.capFull': 'Tetto pieno: i task in Todo aspettano uno slot.',
+  'board.dispatch.capOver': 'Sopra il tetto: nessun turno viene tagliato a metà, rientra da solo appena finiscono.',
   // Detto per esteso e non in una nota a piè di pagina: il numero qui sopra non
   // è «di questa board», è quello di tutta la macchina.
   'board.dispatch.oneMachine': 'Un tetto solo, per tutta la macchina: vale su ogni board.',
@@ -887,8 +889,10 @@ const EN: Dict = {
   'board.dispatch.fixed': 'Fixed number',
   'board.dispatch.recommended': 'recommended {n}',
   'board.dispatch.running': '{running} of {cap} agents working right now',
+  'board.dispatch.runningOver': '{running} working, cap {cap}',
   'board.dispatch.runningLoading': 'Reading the limit…',
   'board.dispatch.capFull': 'Cap is full: tasks in Todo are waiting for a slot.',
+  'board.dispatch.capOver': 'Over the cap: no turn is cut short, it comes back down as the running ones finish.',
   'board.dispatch.oneMachine': 'One cap for the whole machine: it applies to every board.',
   'board.filter.assignee': 'Assignee',
   'common.project': 'Project',
