@@ -256,6 +256,27 @@ export function trimmedTools(trim: ToolTrim): readonly string[] {
   return trim === "dispatched" ? TRIMMED_TOOLS_DISPATCHED : TRIMMED_TOOLS_CHAT;
 }
 
+/**
+ * Quale taglio spetta a una sessione, e la via d'uscita per spegnerlo.
+ *
+ * Vive qui, accanto alle due liste e al ragionamento che le separa, e non inline
+ * nello spawn: inline era una ternaria dentro un metodo privato che prende solo
+ * un `sessionKey`, cioè irraggiungibile da un test. Il braccio «dispacciato» si
+ * poteva controllare guardando l'argv di un agente vivo; quello della CHAT no,
+ * perché richiede che una chat stia girando proprio in quel momento — provato,
+ * e in venti minuti non ne è partita nessuna. Una decisione che si può
+ * verificare solo con un colpo di fortuna non è verificata.
+ */
+export function resolveToolTrim(args: {
+  dispatched: boolean;
+  /** Iniettabile nei test; di default l'ambiente del processo. */
+  env?: { TOPICS_TOOL_TRIM?: string | undefined };
+}): ToolTrim | null {
+  const env = args.env ?? process.env;
+  if (env.TOPICS_TOOL_TRIM === "off") return null;
+  return args.dispatched ? "dispatched" : "chat";
+}
+
 /** Ciò che serve per un completamento usa-e-getta (auto-titolo, digest, SSE). */
 export interface ClaudeOneshotArgsOptions {
   permissionMode: string;
