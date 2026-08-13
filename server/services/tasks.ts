@@ -683,6 +683,16 @@ export interface TaskService {
    */
   hasHeavyInFlight(): boolean;
   /**
+   * Quanti agenti sono VIVI adesso su questa macchina (`projectId: null`) o su
+   * una board sola.
+   *
+   * Lo stesso conteggio che il CAS di `claim` fa valere in silenzio, esposto
+   * perché il dispatcher possa DIRE sulla card «sei in coda perché il tetto è
+   * pieno, e siamo N su M» invece di lasciarla ferma senza spiegazione. Non
+   * decide niente: la decisione resta del CAS, che è l'unico punto atomico.
+   */
+  liveAgents(scope?: { projectId?: string | null }): number;
+  /**
    * Bump the attempt counter of a LIVE claim (in_progress + bound topic) —
    * the dispatcher's resume-continuation after a timed-out turn. Returns the
    * updated Task, or null when the cap is hit or the claim is gone (caller
@@ -2587,6 +2597,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
 
     hasHeavyInFlight(): boolean {
       return heavyInFlight();
+    },
+
+    liveAgents(scope): number {
+      return liveAgentCount(db, scope?.projectId ?? null);
     },
 
     claim({ taskId, cap, maxAttempts, agentId, scope, machineIdle }): Task | null {
