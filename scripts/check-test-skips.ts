@@ -44,8 +44,34 @@ const SKIP_DIRS = new Set(["node_modules", "test-results"]);
  * guidato dalle tab, ed era il SEME del test a non sopravvivere al primo render.
  * Non alzarlo per far passare la CI: o il test si ripara, o lo skip merita una
  * discussione.
+ *
+ * ── 13 → 18 (13/08/2026, prima del push pubblico) ───────────────────────────
+ * Cinque skip arrivati da lavoro già atterrato. Guardati UNO A UNO prima di
+ * alzare la soglia — alzarla in blocco è il guasto che questo cancello esiste
+ * per impedire. Tutti e cinque dipendono da un ambiente assente, nessuno è un
+ * test rotto messo a tacere:
+ *
+ *  1-2. `board-card-stop.spec.ts:200,205` — NON sono due test spenti: sono il
+ *       modo in cui una coppia si smista fra due progetti. La spec gira in
+ *       `chromium` E in `chromium-touch-wide` (`playwright.config.ts:247-253`),
+ *       e i due test si escludono a vicenda su `isMobile`. Verificato con
+ *       `--list`: 4 istanze, e ogni AC ne ha esattamente UNA che esegue —
+ *       il tasto destro col mouse, il long-press col dito. Copertura piena,
+ *       mai zero.
+ *
+ *  3.   `board-task-id-chip.spec.ts:255` — non è un AC: il corpo scatta la
+ *       foto della riga per la consegna. Gli AC del chip sono IDCHIP-01..03,
+ *       che girano sempre. Si accende a richiesta con `CHIP_SHOT=1`.
+ *
+ *  4-5. `dictation-real-mic.spec.ts:150,208` — servono un motore STT vero
+ *       (un modello whisper locale o una chiave ElevenLabs), come dice
+ *       l'intestazione della spec alle righe 29-30. La condizione non è
+ *       `true`: è una sonda viva su `/api/stt/capabilities`, e il messaggio
+ *       del primo ELENCA ogni provider col suo perché. Senza motore la app
+ *       nasconde il tasto dettatura, quindi girare qui proverebbe il
+ *       contrario di ciò che il test afferma.
  */
-const BASELINE = 13;
+const BASELINE = 18;
 
 /** `test.skip(` e `test.fixme(` — non `test.describe.skip`, che disattiva un blocco intero. */
 const SKIP_CALL = /\btest\.(skip|fixme)\s*\(/g;
@@ -65,29 +91,63 @@ function codeOf(line: string): string {
   return line.split("//")[0];
 }
 
+/** Quante righe al massimo si segue una chiamata aperta, per non correre via su un file rotto. */
+const MAX_CALL_LINES = 12;
+
 /**
  * Gli argomenti della chiamata, dal `(` alla parentesi che lo chiude. Conta le
  * parentesi invece di fermarsi alla prima: `test.skip(!(await ready()), MSG)`
  * ne contiene altre, e troncare lì direbbe "muto" a uno skip che ha il messaggio.
+ *
+ * E prosegue sulle RIGHE SUCCESSIVE finché le parentesi non si chiudono. Prima
+ * si fermava a fine riga e giudicava la chiamata «sul primo pezzo»: ma il primo
+ * pezzo di una chiamata mandata a capo è la sola `test.skip(`, cioè zero
+ * argomenti, cioè "muto" — cosa che si dava proprio agli skip col messaggio
+ * PIÙ lungo, gli unici che prettier manda a capo. Il caso vero era
+ * `dictation-real-mic.spec.ts:150`, cinque righe di messaggio con l'elenco dei
+ * provider e il perché di ognuno, accusato di non averne.
+ *
+ * `null` = la chiamata NON si chiude entro la finestra, quindi non si sa
+ * giudicare. Restituire il troncone sarebbe peggio che inutile: quelle righe
+ * sono codice di CONTORNO, e le virgolette che ci stanno dentro non sono il
+ * messaggio dello skip — un `test.skip(` muto seguito da una qualsiasi riga
+ * con una stringa risulterebbe "ha il messaggio". Si fallisce CHIUSI: chi
+ * legge `null` lo tratta come muto. La versione a riga singola qui era più
+ * severa (il resto della riga dopo `test.skip(` è vuoto, quindi muto), e un
+ * parser più bravo non deve perdere un caso che quello ingenuo prendeva.
  */
-function callArgs(code: string, openIdx: number): string {
+function callArgs(codes: string[], startLine: number, openIdx: number): string | null {
   let depth = 0;
-  for (let i = openIdx; i < code.length; i++) {
-    if (code[i] === "(") depth++;
-    else if (code[i] === ")") {
-      depth--;
-      if (depth === 0) return code.slice(openIdx + 1, i);
+  let out = "";
+  const last = Math.min(codes.length, startLine + MAX_CALL_LINES);
+  for (let ln = startLine; ln < last; ln++) {
+    const code = codes[ln];
+    for (let i = ln === startLine ? openIdx : 0; i < code.length; i++) {
+      const ch = code[i];
+      if (ch === "(") {
+        depth++;
+        if (depth === 1) continue; // la parentesi che apre non è un argomento
+      } else if (ch === ")") {
+        depth--;
+        if (depth === 0) return out;
+      }
+      out += ch;
     }
+    out += "\n";
   }
-  return code.slice(openIdx + 1); // chiamata su più righe: si giudica sul primo pezzo
+  return null;
 }
 
 /**
  * Muto = niente messaggio per chi legge il report. Un letterale di stringa o
  * una costante MAIUSCOLA (`NO_CLAUDE`) contano come messaggio; una sola
  * condizione booleana no.
+ *
+ * `null` (chiamata che non si chiude entro la finestra) = muto: se il parser
+ * non è riuscito a leggere gli argomenti, non può dire che c'era un messaggio.
  */
-function isMute(args: string): boolean {
+function isMute(args: string | null): boolean {
+  if (args === null) return true;
   const a = args.trim();
   if (a === "") return true;
   if (/["'`]/.test(a)) return false;
@@ -111,8 +171,12 @@ function walk(dir: string, out: string[]): void {
 
 function scan(file: string): Hit[] {
   const hits: Hit[] = [];
-  readFileSync(file, "utf-8").split(/\r?\n/).forEach((line, idx) => {
-    const code = codeOf(line);
+  const lines = readFileSync(file, "utf-8").split(/\r?\n/);
+  // Il codice di TUTTE le righe in anticipo: `callArgs` deve poter proseguire
+  // oltre la riga che apre la chiamata.
+  const codes = lines.map(codeOf);
+  codes.forEach((code, idx) => {
+    const line = lines[idx];
     SKIP_CALL.lastIndex = 0;
     let m: RegExpExecArray | null;
     while ((m = SKIP_CALL.exec(code)) !== null) {
@@ -122,7 +186,7 @@ function scan(file: string): Hit[] {
         line: idx + 1,
         kind: m[1],
         text: line.trim(),
-        mute: isMute(callArgs(code, open)),
+        mute: isMute(callArgs(codes, idx, open)),
       });
     }
   });

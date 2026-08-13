@@ -74,10 +74,10 @@ describe("createDraftPaneId / createGroupId", () => {
 
 describe("pane-id prefix predicates + extractors round-trip", () => {
   test("project: is* predicate + path extractor decode round-trip", () => {
-    const id = createPaneId("project", "/work/[cliente]");
+    const id = createPaneId("project", "/work/demoapp");
     expect(isProjectPaneId(id)).toBe(true);
     expect(isBrowserPaneId(id)).toBe(false);
-    expect(getProjectPathFromPaneId(id)).toBe("/work/[cliente]");
+    expect(getProjectPathFromPaneId(id)).toBe("/work/demoapp");
   });
 
   test("browser: is* predicate + context extractor round-trip", () => {

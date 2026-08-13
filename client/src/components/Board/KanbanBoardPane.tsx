@@ -1072,6 +1072,9 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
   }, []);
   /** La card che questo client vuole vedere: creata QUI, non ancora inquadrata. */
   const [scrollTarget, setScrollTarget] = useState<string | null>(null);
+  /** Spegne la sorveglianza «la card resta fuori dal composer» (vedi sotto). */
+  const keepClearRef = useRef<(() => void) | null>(null);
+  useEffect(() => () => keepClearRef.current?.(), []);
   /** Creazione partita da questa finestra: lampo + la board ci va sopra. */
   const onCreatedHere = useCallback((taskId?: string) => {
     if (taskId) { flashCreated(taskId); setScrollTarget(taskId); }
@@ -1414,6 +1417,9 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
     // numeri che non si muovono più, e lo scorrimento morbido parte una volta
     // sola dalla posizione giusta.
     let raf2 = 0;
+    // Vive OLTRE questo effetto: la sorveglianza qui sotto continua dopo che
+    // `setScrollTarget(null)` ha fatto ripulire l'effetto, quindi il suo
+    // spegnimento sta in un ref e non nel cleanup del turno.
     const raf = requestAnimationFrame(() => { raf2 = requestAnimationFrame(() => {
       const row = columnsScrollRef.current;
       const card = row?.querySelector(`[data-task-card="${CSS.escape(scrollTarget)}"]`);
@@ -1468,14 +1474,44 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
         // `bordo - 8`, cioè dietro al composer. E la domanda è comunque oziosa,
         // perché la colonna la stiamo CENTRANDO — cioè portando esattamente
         // dove il composer, anche lui centrato, sta.
-        const composer = document.querySelector('[data-testid="board-task-composer"]');
-        const compRect = composer?.getBoundingClientRect();
-        const covers = !!compRect && compRect.height > 0;
-        const usableBottom = covers ? Math.min(bodyRect.bottom, compRect.top) : bodyRect.bottom;
+        const usableBottom = () => {
+          const composer = document.querySelector('[data-testid="board-task-composer"]');
+          const compRect = composer?.getBoundingClientRect();
+          const covers = !!compRect && compRect.height > 0;
+          return covers ? Math.min(body.getBoundingClientRect().bottom, compRect.top) : body.getBoundingClientRect().bottom;
+        };
         // Un filo di margine: appoggiata al bordo la card è tecnicamente in
         // vista e sembra tagliata.
-        const dy = scrollDelta({ start: bodyRect.top, end: usableBottom }, { start: cardRect.top, end: cardRect.bottom }, 8);
+        const dy = scrollDelta({ start: bodyRect.top, end: usableBottom() }, { start: cardRect.top, end: cardRect.bottom }, 8);
         if (dy !== 0) body.scrollBy({ top: dy, behavior: 'smooth' });
+        // …e poi si RESTA liberi, perché il composer che abbiamo appena misurato
+        // non ha ancora l'altezza che avrà. Il gesto che crea la card è un invio
+        // DAL composer: quello si svuota, la sua textarea torna a una riga e
+        // subito dopo riprende il fuoco e si riapre (`min-h-[4.5rem]`, più il
+        // mezzo passo di `-translate-y-2`) con una transizione di 200ms. I due
+        // frame di attesa qui sopra cadono dentro quella transizione, non dopo:
+        // misurato, il bordo superiore del composer passava da 625 a 578 — 47px
+        // di fascia coperta in più — e la card, parcheggiata correttamente sopra
+        // al 625 di allora, finiva dietro al riquadro in cui l'avevi scritta.
+        // La corsa non c'entrava: `pb-36` lasciava ancora 91px di scorrimento
+        // inutilizzato.
+        //
+        // Quindi la posizione non si decide una volta sola: si ricontrolla a
+        // ogni cambio di misura di composer e card, finché dura il lampo. Solo
+        // in DISCESA (`d > 0`): risalire vorrebbe dire riprendersi lo
+        // scorrimento che intanto ha fatto chi guarda.
+        const ro = new ResizeObserver(() => {
+          const c = card.getBoundingClientRect();
+          const d = scrollDelta({ start: body.getBoundingClientRect().top, end: usableBottom() }, { start: c.top, end: c.bottom }, 8);
+          if (d > 0) body.scrollBy({ top: d, behavior: 'smooth' });
+        });
+        const composerEl = document.querySelector('[data-testid="board-task-composer"]');
+        if (composerEl) ro.observe(composerEl);
+        ro.observe(card);
+        keepClearRef.current?.();
+        let stop = 0 as unknown as ReturnType<typeof setTimeout>;
+        keepClearRef.current = () => { clearTimeout(stop); ro.disconnect(); keepClearRef.current = null; };
+        stop = setTimeout(() => keepClearRef.current?.(), CREATED_FLASH_MS);
       }
     }); });
     return () => { cancelAnimationFrame(raf); cancelAnimationFrame(raf2); };

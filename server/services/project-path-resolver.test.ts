@@ -55,9 +55,9 @@ describe("buildProjectCandidates", () => {
     const out = buildProjectCandidates({
       projectStore: fakeStore([]),
       workspaceDir: NO_WORKSPACE,
-      extraPaths: () => ["/Users/x/Projects/[cliente]"],
+      extraPaths: () => ["/Users/x/Projects/demoapp"],
     });
-    expect(out).toEqual([{ path: "/Users/x/Projects/[cliente]", projectStoreId: null }]);
+    expect(out).toEqual([{ path: "/Users/x/Projects/demoapp", projectStoreId: null }]);
   });
 
   it("normalizes trailing slashes and rejects non-absolute extras", () => {
@@ -91,9 +91,9 @@ describe("buildProjectCandidates", () => {
   });
 
   it("maps a board id back to an ad-hoc project dir that only extras know about", () => {
-    // The exact failure seen live: a board created for ~/Projects/[cliente] — a
+    // The exact failure seen live: a board created for ~/Projects/demoapp — a
     // project opened ad-hoc, never registered, outside the workspace dir.
-    const path = "/Users/x/Projects/[cliente]";
+    const path = "/Users/x/Projects/demoapp";
     const candidates = buildProjectCandidates({
       projectStore: fakeStore([]),
       workspaceDir: NO_WORKSPACE,
@@ -111,7 +111,7 @@ describe("isSelectableProjectDir (display filter)", () => {
   // internal/husk dirs. Non-workspace projects need no marker; workspace-nested
   // ones must carry one (dashboard does, the husk does not).
   const real = new Set([
-    "/Users/x/Projects/[cliente]",
+    "/Users/x/Projects/demoapp",
     "/Users/x/.openclaw/workspace/generale",
     "/Users/x/.openclaw/workspace/tasks/ab12cd34",
     "/Users/x/.openclaw/workspace/dashboard",
@@ -125,7 +125,7 @@ describe("isSelectableProjectDir (display filter)", () => {
   const ok = (p: string) => isSelectableProjectDir(p, opts);
 
   it("keeps real projects, incl. a marker-bearing workspace/<name> child", () => {
-    expect(ok("/Users/x/Projects/[cliente]")).toBe(true);
+    expect(ok("/Users/x/Projects/demoapp")).toBe(true);
     expect(ok("/Users/x/.openclaw/workspace/dashboard")).toBe(true);
   });
 
@@ -152,7 +152,7 @@ describe("isSelectableProjectDir (display filter)", () => {
   });
 
   it("tolerates a trailing slash", () => {
-    expect(ok("/Users/x/Projects/[cliente]/")).toBe(true);
+    expect(ok("/Users/x/Projects/demoapp/")).toBe(true);
     expect(ok("/Users/x/.openclaw/workspace/generale/")).toBe(false);
   });
 });

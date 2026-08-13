@@ -188,10 +188,10 @@ export interface ClaudeSpawnArgsOptions {
    * ~100 kB a chiamata, cioè una soglia che nella pratica non scatta mai.
    *
    * E un risultato di tool non si paga una volta: resta nella finestra e ogni
-   * chiamata successiva lo rispedisce. Misurato l'11/08 sulla chat
-   * `topic:4c8de758` (48 messaggi, 29,5M token di prompt, $23,86): il 65% del
-   * payload dei tool erano 20 chiamate a un tool di ricerca web MCP, 21,3 kB
-   * l'una. Nessuna di esse toccava il tetto da 25.000.
+   * chiamata successiva lo rispedisce. Misurato su una chat reale (48 messaggi,
+   * 29,5M token di prompt, $23,86): il 65% del payload dei tool erano 20
+   * chiamate a un tool di ricerca web MCP, 21,3 kB l'una. Nessuna di esse
+   * toccava il tetto da 25.000.
    *
    * Il numero viene da una simulazione sui 15.464 risultati MCP dei transcript
    * reali (138,5 MB in tutto):

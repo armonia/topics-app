@@ -112,7 +112,7 @@ describe('buildTaskLink / parseTaskLocation (path-based)', () => {
 describe('parseTaskLocation — legacy ?task= back-compat', () => {
   test('reads the taskId from the old ?task=<slug>~<uuid> form', () => {
     const uuid = 'd8ea1091-c9e3-4064-a098-2383bd37f2fe';
-    expect(parseTaskLocation('/', `?task=[cliente]-v1skoz~${uuid}`)).toEqual({ taskId: uuid });
+    expect(parseTaskLocation('/', `?task=demoapp-v1skoz~${uuid}`)).toEqual({ taskId: uuid });
   });
 
   test('splits on the FIRST ~ (defensive: slug should never contain one)', () => {
