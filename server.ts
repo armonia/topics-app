@@ -27,6 +27,7 @@ import { computeCascade } from "./server/services/pane-retirement-cascade";
 import { createOpenRouter } from "./server/routes/open";
 import { configureSessionParkingForTracker, parkTopicSession } from "./server/lib/session-parking";
 import { setUploadRootsProvider } from "./server/browser-tool-dispatcher";
+import { setLocalFileServing } from "./server/browser-local-file-url";
 import { uploadAllowedRoots, parseExtraRoots } from "./server/lib/upload-allowlist";
 import { createVoiceRouter } from "./server/routes/voice";
 import { createMediaRouter } from "./server/routes/media";
@@ -3205,6 +3206,25 @@ const opzioniServer = {
 } satisfies Parameters<typeof Bun.serve<WSData>>[0];
 
 const server = Bun.serve<WSData>(opzioniServer);
+
+// Da qui in poi un file locale si può MOSTRARE senza che nessuno navighi su
+// `file://`: l'agente chiede il file, la pane va su `/api/media` di questo
+// server (browser-local-file-url.ts). Cablato DOPO Bun.serve perché la porta va
+// chiesta al server — con `PORT=0` quella in configurazione non esiste, e un
+// URL con la porta sbagliata sarebbe di nuovo una pane bianca, solo più
+// difficile da capire. Il permesso non è nuovo: è quello di `/api/media`.
+// Senza una porta vera non si cabla niente: meglio il rifiuto di prima che un
+// URL con la porta sbagliata, che sarebbe di nuovo una pane bianca.
+if (typeof server.port === "number") {
+  setLocalFileServing({
+    isPathAllowed: (p: string) => ctx.isPathAllowed(p),
+    resolveProjectPath: (p: string) => ctx.resolveProjectPath(p),
+    exists: (p: string) => existsSync(p),
+    // Lo schema segue `useTls`: qui il server è in TLS, e un `http://` verso
+    // 3333 non risponde affatto (ERR_EMPTY_RESPONSE, cioè pane bianca).
+    origin: `${useTls ? "https" : "http"}://127.0.0.1:${server.port}`,
+  });
+}
 
 /**
  * L'ascoltatore del TUNNEL, se configurato.
