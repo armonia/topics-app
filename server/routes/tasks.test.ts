@@ -981,7 +981,12 @@ describe("approve decoupled from landing", () => {
     // that is the whole reason this note exists. Rename either label in i18n.ts
     // and this test falls.
     expect(note).toContain(label("board.settings.autoMerge", "it"));
-    expect(note).toContain(label("board.task.landOnMain", "it"));
+    // `board.action.land` and NOT the retired `board.task.landOnMain`: the
+    // branch that gave every action one word moved the button's text into the
+    // single action table. Reading the dead key made this assertion pass on
+    // nothing, which is how a note could start quoting a control that no longer
+    // says that.
+    expect(note).toContain(label("board.action.land", "it"));
   });
 
   test("the skipped-merge note reaches the LIVE card without waiting for git", async () => {
