@@ -29,6 +29,7 @@ import {
 } from "../browser-tool-spec";
 import { PARKED_WAITED_OUT, PREVIEW_RULE } from "../../shared/board";
 import { commentAuthorLabel } from "../../shared/comment-author";
+import { CHECKS_LEG_MS } from "../services/checks-gate";
 
 interface JsonRpcRequest {
   jsonrpc: "2.0";
@@ -877,7 +878,11 @@ interface TaskRow {
   assigned_to?: string;
 }
 interface TasksResp { tasks?: TaskRow[] }
-interface UpdateTaskResp { status?: string; id?: string }
+/**
+ * `pending` = i check pre-review stanno ancora girando (202). Non e' un esito:
+ * il task non si e' mosso, e sta a noi rimetterci in fila con un'altra gamba.
+ */
+interface UpdateTaskResp { status?: string; id?: string; pending?: boolean }
 interface CommentRow { id?: string; author?: string; content?: string }
 interface GetTaskResp { task?: TaskRow; comments?: CommentRow[] }
 interface CreateTaskResp { id?: string; status?: string }
@@ -1330,6 +1335,19 @@ export async function callUpdateTask(
   args: ParsedArgs,
   toolArgs: { task_id?: unknown; status?: unknown; priority?: unknown; assignee?: unknown; output_url?: unknown; text?: unknown; description?: unknown; preview_image?: unknown; previewImage?: unknown },
   fetchImpl: typeof fetch = fetch,
+  /**
+   * Le manopole del ciclo a gambe: servono quando la consegna fa girare i check
+   * pre-review, che durano minuti. I test le accorciano per non dormirci dentro.
+   */
+  opts: {
+    legMs?: number;
+    maxLegs?: number;
+    transportGraceMs?: number;
+    backoffMs?: number[];
+    now?: () => number;
+    /** Una riga per gamba mentre i check girano: e' cio' che tiene vivo il client. */
+    onProgress?: (leg: number) => void;
+  } = {},
 ): Promise<string> {
   if (typeof toolArgs?.task_id !== "string" || !toolArgs.task_id) {
     throw new Error("update_task: 'task_id' (string) is required");
@@ -1370,9 +1388,70 @@ export async function callUpdateTask(
     throw new Error("update_task: provide at least one of 'status', 'priority', 'assignee', 'output_url', 'text', 'description', 'preview_image'");
   }
   const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/tasks/${encodeURIComponent(toolArgs.task_id)}`;
-  const body = await httpJson<UpdateTaskResp>(args, "PATCH", path, patch, fetchImpl);
-  return `task ${toolArgs.task_id} → ${body?.status ?? (typeof patch.status === "string" ? patch.status : "updated")}`;
+  // La gamba viaggia nel corpo e il server la strappa via prima di leggere la
+  // patch: e' trasporto, non un campo del task.
+  const legMs = opts.legMs ?? CHECKS_LEG_MS;
+  // Solo la consegna può far girare i check, quindi solo la consegna porta la
+  // gamba: ogni altra patch resta identica al byte a com'era prima.
+  const payload = patch.status === "review" ? { ...patch, legMs } : patch;
+  const maxLegs = opts.maxLegs ?? CHECKS_MAX_LEGS;
+  const graceMs = opts.transportGraceMs ?? ASK_TRANSPORT_GRACE_MS;
+  const backoff = opts.backoffMs ?? ASK_RETRY_BACKOFF_MS;
+  const now = opts.now ?? Date.now;
+
+  let transportFailures = 0;
+  let firstFailureAt: number | null = null;
+  for (let leg = 0; leg < maxLegs; leg++) {
+    let body: UpdateTaskResp | undefined;
+    try {
+      body = await httpJson<UpdateTaskResp>(args, "PATCH", path, payload, fetchImpl);
+      transportFailures = 0;
+      firstFailureAt = null;
+    } catch (err) {
+      // Il server HA parlato (un 409 di check rossi, un 400): quello e' l'esito,
+      // e ritentarlo sarebbe solo rumore. Si ritenta il silenzio, e solo mentre
+      // c'e' una corsa da non buttare via: alla prima gamba il comportamento
+      // resta quello di sempre, l'errore esce subito.
+      const spoke = err instanceof Error && /^HTTP \d/.test(err.message);
+      if (spoke || leg === 0) throw err;
+      transportFailures++;
+      if (firstFailureAt === null) firstFailureAt = now();
+      const downMs = now() - firstFailureAt;
+      if (downMs > graceMs) {
+        throw new Error(
+          `update_task: lost contact with topics-app for ${Math.round(downMs / 1000)}s over ${transportFailures} attempts (${err instanceof Error ? err.message : String(err)})`,
+        );
+      }
+      await sleep(backoff[Math.min(transportFailures - 1, backoff.length - 1)] ?? 0);
+      continue;
+    }
+
+    if (body?.pending) {
+      // I check pre-review stanno ancora girando nel worktree. Dirlo AD ALTA
+      // VOCE a ogni gamba: il silenzio e' cio' che un client MCP legge come
+      // chiamata piantata, ed e' l'unica moneta con cui un gate da dieci minuti
+      // si compra il tempo che gli serve.
+      opts.onProgress?.(leg + 1);
+      continue;
+    }
+    return `task ${toolArgs.task_id} → ${body?.status ?? (typeof patch.status === "string" ? patch.status : "updated")}`;
+  }
+  throw new Error(
+    `update_task: i check pre-review girano da oltre ${Math.round((maxLegs * legMs) / 60_000)} minuti e non hanno ancora un esito. Guarda la card: lo stato dei check e' su di lei.`,
+  );
 }
+
+/**
+ * Tetto ANTI-GIRO A VUOTO sulle gambe di `update_task`, non la vita dei check.
+ *
+ * A dire che i check sono finiti e' il SERVER, che risponde con l'esito (verde:
+ * il task passa in review; rosso: un 409 con l'output). Questo numero esiste
+ * solo perche' un server incastrato che risponde `pending` per sempre non faccia
+ * girare qui dentro un ciclo eterno. 120 gambe da 25s fanno 50 minuti, cioe'
+ * cinque volte il giro piu' lento misurato (~10 minuti di `test:unit` a macchina
+ * carica).
+ */
+export const CHECKS_MAX_LEGS = 120;
 
 export async function callCreateTask(
   args: ParsedArgs,
@@ -1817,7 +1896,15 @@ const TOOL_HANDLERS: Record<
   list_tasks: (a, t) => callListTasks(a, t),
   create_task: (a, t) => callCreateTask(a, t),
   get_task: (a, t) => callGetTask(a, t),
-  update_task: (a, t) => callUpdateTask(a, t),
+  // `onProgress` come per le domande all'umano, e per lo stesso motivo: una
+  // consegna fa girare i check pre-review, che durano minuti, e un client MCP
+  // che non sente niente dichiara piantata la chiamata.
+  update_task: (a, t, ctx) =>
+    callUpdateTask(a, t, fetch, {
+      onProgress: ctx?.onProgress
+        ? (leg) => ctx.onProgress?.(leg, "i check pre-review stanno girando")
+        : undefined,
+    }),
   comment_task: (a, t) => callCommentTask(a, t),
   label_task: (a, t) => callLabelTask(a, t),
   ask_user_question: (a, t, ctx) =>
