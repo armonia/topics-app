@@ -169,6 +169,7 @@ export default defineConfig({
       testIgnore: [
         "**/sidebar-touch-audit.spec.ts",
         "**/sidebar-finger-follow.spec.ts",
+        "**/sheet-finger-follow.spec.ts",
         "**/hover-reveal-touch-audit.spec.ts",
         "**/browser-mobile-keyboard.spec.ts",
         "**/mobile-chrome-bar.spec.ts",
@@ -191,10 +192,16 @@ export default defineConfig({
      */
     {
       name: "chromium-touch",
-      // Due spec, stessa popolazione: la prima misura le SUPERFICI col dito
-      // (bersagli, menu, seconda riga), la seconda i GESTI (il cassetto che
-      // segue il dito, le tessere fissate che non scattano quando scorri).
-      testMatch: ["**/sidebar-touch-audit.spec.ts", "**/sidebar-finger-follow.spec.ts"],
+      // Tre spec, stessa popolazione: la prima misura le SUPERFICI col dito
+      // (bersagli, menu, seconda riga), la seconda i GESTI del cassetto (che
+      // segue il dito, le tessere fissate che non scattano quando scorri), la
+      // terza i FOGLI dal basso (si spingono giù col dito, e il tocco che li
+      // chiude non aziona ciò che sta sotto).
+      testMatch: [
+        "**/sidebar-touch-audit.spec.ts",
+        "**/sidebar-finger-follow.spec.ts",
+        "**/sheet-finger-follow.spec.ts",
+      ],
       use: {
         browserName: "chromium",
         hasTouch: true,
