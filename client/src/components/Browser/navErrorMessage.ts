@@ -70,6 +70,13 @@ const FILE_NOT_FOUND = -1100;
 const ATS_BLOCKED = -1022;
 /** Famiglia TLS: handshake fallito, certificato scaduto / non fidato / non ancora valido. */
 const TLS_CODES = new Set([-1200, -1201, -1202, -1203, -1204, -1205, -1206]);
+/**
+ * Non è di Cocoa: è il codice con cui il guscio dice «quella navigazione l'ho
+ * rifiutata io» (`NAV_ERR_SCHEME_REFUSED` in desktop-tauri/src-tauri/src/lib.rs).
+ * Sta fuori dagli intervalli di NSURLErrorDomain (-998…-1200) e di
+ * WebKitErrorDomain (100…204), quindi non può essere scambiato per nessuno.
+ */
+const SCHEME_REFUSED = -7001;
 
 /**
  * L'errore grezzo → il testo da mostrare.
@@ -81,6 +88,21 @@ export function navErrorMessage(e: RawNavError): NavErrorText {
   const where = hostLabel(e.url);
   const loopback = isLoopbackUrl(e.url);
   const fallback = e.description || `Caricamento fallito (codice ${e.code})`;
+
+  // Il rifiuto che prima non si vedeva. Non è un fallimento della rete: la
+  // navigazione non è mai partita, quindi WKWebView non ha nulla da riportare e
+  // la pane restava com'era — vuota, se appena nata. È il «è tutto bianco».
+  if (e.code === SCHEME_REFUSED) {
+    const localFile = /^file:/i.test(e.url);
+    return {
+      message: localFile
+        ? 'Un file sul disco non si apre dal pannello.'
+        : 'Questo indirizzo non si apre in un pannello.',
+      hint: localFile
+        ? 'I file locali si aprono comunque: vengono serviti dall’app. Chiedilo in chat, oppure scrivi il percorso nella barra qui sopra.'
+        : `Il pannello apre solo pagine web (http, https). Indirizzo: ${e.url}`,
+    };
+  }
 
   if (e.code === CANNOT_CONNECT || e.code === CONNECTION_LOST) {
     if (loopback && where) {

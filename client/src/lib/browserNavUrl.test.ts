@@ -1,13 +1,18 @@
 import { describe, it, expect, afterEach } from 'bun:test';
-import { resolveBrowserNavigateUrl, normalizeUrl } from './browserNavUrl';
+import { resolveBrowserNavigateUrl, normalizeUrl, displayUrl, toNavigableUrl } from './browserNavUrl';
 
 // Stub the parts of `window` the resolver reads. Each case sets its own.
 function setWindow(opts: {
   hostname: string;
   protocol?: string;
+  origin?: string;
 }) {
   (globalThis as { window?: unknown }).window = {
-    location: { hostname: opts.hostname, protocol: opts.protocol ?? 'https:' },
+    location: {
+      hostname: opts.hostname,
+      protocol: opts.protocol ?? 'https:',
+      origin: opts.origin ?? `${opts.protocol ?? 'https:'}//${opts.hostname}`,
+    },
   };
 }
 
@@ -77,5 +82,57 @@ describe('normalizeUrl (address-bar omnibox)', () => {
   it('maps empty/whitespace input to about:blank', () => {
     expect(normalizeUrl('')).toBe('about:blank');
     expect(normalizeUrl('   ')).toBe('about:blank');
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// La barra dell'indirizzo di un file locale
+//
+// Il documento viaggia come `/api/media?path=…` perché è così che lo si serve
+// senza aprire `file://` a chi non è fidato — ma quello è il TRASPORTO. Nella
+// barra ci va il file, come in Chrome quando apre un PDF locale. `displayUrl` e
+// `toNavigableUrl` sono i due versi della stessa traduzione e vanno provati in
+// coppia: se si scollano, premere Invio sulla riga che si sta leggendo porta
+// altrove — o su un divieto.
+// ---------------------------------------------------------------------------
+
+describe('barra indirizzo di un file locale', () => {
+  const PDF = '/Users/x/Documents/contratto firmato.pdf';
+  const REF = `/api/media?path=${encodeURIComponent(PDF)}`;
+
+  it('mostra il file, non la rotta che lo serve', () => {
+    expect(displayUrl(`http://127.0.0.1:13333${REF}`)).toBe(`file://${PDF}`);
+    expect(displayUrl(REF)).toBe(`file://${PDF}`);
+  });
+
+  it('lascia stare gli indirizzi veri', () => {
+    for (const u of ['https://example.com/', 'about:blank', 'https://x.com/api/mediaset']) {
+      expect(displayUrl(u)).toBe(u);
+    }
+  });
+
+  it('non si fa ingannare da un sito che ci somiglia nella query', () => {
+    const u = 'https://tizio.it/x?u=/api/media?path=%2Fetc%2Fpasswd';
+    expect(displayUrl(u)).toBe(u);
+  });
+
+  it('Invio sulla riga mostrata riporta allo stesso documento', () => {
+    setWindow({ hostname: '127.0.0.1', protocol: 'http:', origin: 'http://127.0.0.1:13333' });
+    const shown = displayUrl(`http://127.0.0.1:13333${REF}`);
+    expect(toNavigableUrl(shown)).toBe(`http://127.0.0.1:13333${REF}`);
+    // Andata e ritorno: quello che si naviga si rilegge com'era.
+    expect(displayUrl(toNavigableUrl(shown))).toBe(shown);
+  });
+
+  it('accetta anche un percorso incollato senza schema', () => {
+    setWindow({ hostname: '127.0.0.1', protocol: 'http:', origin: 'http://127.0.0.1:13333' });
+    expect(toNavigableUrl(PDF)).toBe(`http://127.0.0.1:13333${REF}`);
+  });
+
+  it('una ricerca resta una ricerca, un host resta un host', () => {
+    setWindow({ hostname: '127.0.0.1', protocol: 'http:', origin: 'http://127.0.0.1:13333' });
+    expect(toNavigableUrl('come fare la pasta')).toContain('google.com/search');
+    expect(toNavigableUrl('github.com')).toBe('https://github.com');
   });
 });
