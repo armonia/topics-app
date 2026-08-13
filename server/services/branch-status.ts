@@ -46,6 +46,39 @@ async function gitOut(cwd: string, args: string[]): Promise<string> {
   } catch { return ""; }
 }
 
+/**
+ * «QUEL commit è dentro `mainRef`?» — la domanda che un land deve fare su se
+ * stesso prima di dichiararsi riuscito.
+ *
+ * Ancestralità pura, nessuna euristica di contenuto: qui non si indovina se un
+ * lavoro sia stato riportato altrove (per quello c'è `commitStatusFromRepo`), si
+ * chiede se ESATTAMENTE il commit di fusione appena creato sia raggiungibile da
+ * main. Un `git merge` uscito zero non lo dice: dice che una fusione è riuscita,
+ * non su quale ramo — e un checkout parcheggiato altrove, o un worktree
+ * usa-e-getta mai ricucito, fanno la differenza fra il lavoro nel prodotto e il
+ * lavoro perso in silenzio (13/08, tre card).
+ *
+ * `null` = git non ha risposto (commit sconosciuto, `mainRef` assente, repo
+ * illeggibile): «non lo so», mai un sì. Il `1` di git è invece un no vero e
+ * proprio, e per questo qui non si passa da `gitExit`, che sul fallimento dello
+ * spawn restituirebbe 1 — cioè trasformerebbe un «non lo so» in un'accusa.
+ */
+export async function commitIsAncestor(
+  repoPath: string,
+  commit: string,
+  mainRef = "main",
+): Promise<boolean | null> {
+  try {
+    const proc = Bun.spawn(["git", "-C", repoPath, "merge-base", "--is-ancestor", commit, mainRef], {
+      stdout: "ignore", stderr: "ignore",
+    });
+    const code = await proc.exited;
+    if (code === 0) return true;
+    if (code === 1) return false;
+    return null;
+  } catch { return null; }
+}
+
 export type BranchStatus = "gone" | "merged" | "unmerged";
 
 export async function branchStatusFromRepo(
