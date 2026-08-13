@@ -772,7 +772,7 @@ describe('validateOutbound — board + task', () => {
     expect(validateOutbound({ type: 'board:dispatch', autoDispatch: false }).ok).toBe(true);
     expect(validateOutbound({ type: 'board:dispatch', autoDispatch: 'no' }).ok).toBe(false);
     expect(validateOutbound({
-      type: 'board:settings', projectId: 'p-1', settings: { autoDispatch: true, maxAgents: 2 },
+      type: 'board:settings', projectId: 'p-1', settings: { autoDispatch: true, dispatchTimeoutMin: 20 },
     }).ok).toBe(true);
   });
 });

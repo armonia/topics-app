@@ -1,6 +1,7 @@
 import { test, expect, describe } from "bun:test";
 import { Database } from "bun:sqlite";
-import { computeDispatchCapacity, effectiveDispatchCap, readGlobalCap, structuralDispatchCapacity } from "./dispatch-capacity";
+import { DISPATCH_DISK_FLOOR_GB, computeDispatchCapacity, dispatchResourceBlock, effectiveDispatchCap, freeDiskGB, readGlobalCap, sizingDispatchCap, structuralDispatchCapacity } from "./dispatch-capacity";
+import { GLOBAL_CAP_MAX, GLOBAL_CAP_MIN, GLOBAL_CAP_OFF, clampGlobalCap, isGlobalCapOff } from "../../shared/board";
 
 function dbConImpostazioni(): Database {
   const db = new Database(":memory:");
@@ -29,8 +30,19 @@ describe("readGlobalCap — il tetto globale come sta scritto", () => {
     const db = dbConImpostazioni();
     db.run("INSERT INTO board_settings (project_id, max_agents, max_agents_auto) VALUES ('*', 999, 0)");
     expect(readGlobalCap(db).max).toBe(20);
-    db.run("UPDATE board_settings SET max_agents = 0 WHERE project_id = '*'");
+    db.run("UPDATE board_settings SET max_agents = -5 WHERE project_id = '*'");
     expect(readGlobalCap(db).max).toBe(1);
+  });
+
+  test("lo ZERO e' l'eccezione alla banda: e' «nessun tetto», non «tetto a uno»", () => {
+    // Prima questo test pretendeva `1`, ed era giusto finché lo zero non voleva
+    // dire niente. Ora lo vuole dire: e' il sentinella di «nessun limite»
+    // (`GLOBAL_CAP_OFF`), e stringerlo a 1 lo trasformerebbe nel tetto piu'
+    // stretto esistente — l'impostazione opposta a quella salvata.
+    const db = dbConImpostazioni();
+    db.run("INSERT INTO board_settings (project_id, max_agents, max_agents_auto) VALUES ('*', 0, 0)");
+    expect(readGlobalCap(db)).toEqual({ auto: false, max: 0 });
+    expect(effectiveDispatchCap(readGlobalCap(db), 4)).toBe(Infinity);
   });
 
   test("legge la riga riservata '*', non quella di una board", () => {
@@ -78,5 +90,103 @@ describe("structuralDispatchCapacity — quanti ne regge in REGIME, non adesso",
     // viva scende SOTTO la strutturale. Mai il contrario: la strutturale è il
     // tetto, la viva è il tetto meno quello che il carico si è già preso.
     expect(computeDispatchCapacity().recommended).toBeLessThanOrEqual(structuralDispatchCapacity());
+  });
+});
+
+/**
+ * NESSUN TETTO, e le DUE domande che quel «nessuno» separa.
+ *
+ * `effectiveDispatchCap` risponde a «ne ammetto un altro?»: senza tetto la
+ * risposta è sì, sempre, e Infinity è la forma giusta. `sizingDispatchCap`
+ * risponde a «quanta macchina tocca a ciascuno?», ed è il DIVISORE della quota
+ * di core: lì Infinity darebbe una fetta di zero, e lo zero grezzo passato per
+ * `Math.max(1, 0)` darebbe la macchina INTERA a ognuno — la stessa inversione
+ * già misurata una volta con la raccomandazione viva (`-j11` a testa con load
+ * 45). Le due funzioni esistono separate per questo, e questi test sono l'unica
+ * cosa che impedisce di riunirle per distrazione.
+ */
+describe("il tetto disattivato", () => {
+  const off = { auto: false, max: GLOBAL_CAP_OFF };
+
+  test("ammette senza limite", () => {
+    expect(effectiveDispatchCap(off, 4)).toBe(Infinity);
+  });
+
+  test("ma NON dimensiona senza limite: il divisore resta un numero", () => {
+    const n = sizingDispatchCap(off, structuralDispatchCapacity());
+    expect(Number.isFinite(n)).toBe(true);
+    expect(n).toBeGreaterThanOrEqual(2);
+  });
+
+  test("e nemmeno 1, che darebbe a ognuno la macchina intera", () => {
+    // 1 vuol dire «sono solo qui»: è la fetta piena. Senza tetto è la risposta
+    // piu' sbagliata possibile, perché senza tetto gli altri sono tanti.
+    expect(sizingDispatchCap(off, structuralDispatchCapacity())).not.toBe(1);
+  });
+
+  test("un tetto fisso continua a dimensionare su se stesso", () => {
+    expect(sizingDispatchCap({ auto: false, max: 5 }, 3)).toBe(5);
+  });
+
+  test("lo zero sopravvive al giro attraverso il clamp", () => {
+    // Il clamp storico era 1..20: avrebbe riletto «nessun tetto» come «tetto a
+    // uno», cioè l'impostazione opposta a quella chiesta.
+    expect(clampGlobalCap(0)).toBe(0);
+    expect(clampGlobalCap(-3)).toBe(GLOBAL_CAP_MIN);
+    expect(clampGlobalCap(99)).toBe(GLOBAL_CAP_MAX);
+  });
+
+  test("isGlobalCapOff non confonde «nessun tetto» con «deciderlo tu»", () => {
+    expect(isGlobalCapOff(off)).toBe(true);
+    expect(isGlobalCapOff({ auto: true, max: 0 })).toBe(false);
+    expect(isGlobalCapOff({ auto: false, max: 1 })).toBe(false);
+  });
+});
+
+/**
+ * IL PAVIMENTO. Esiste perché il tetto ora si può togliere: senza, «nessun
+ * limite» significa che la coda si ferma quando il disco è pieno, e un disco
+ * pieno non rallenta — fa fallire le scritture SQLite del server.
+ *
+ * Il verso di ogni caso è lo stesso: **non sapere non è un motivo per bloccare**.
+ * Una guardia che si chiude su una lettura fallita fermerebbe la board per un
+ * path sbagliato, cioè causerebbe un guasto peggiore di quello che previene.
+ */
+describe("il pavimento sulle risorse", () => {
+  test("con spazio non blocca", () => {
+    expect(dispatchResourceBlock("/")).toBeNull();
+  });
+
+  test("un path che non si legge NON blocca: non sapere non è sapere di no", () => {
+    expect(dispatchResourceBlock("/percorso/che/non/esiste/davvero")).toBeNull();
+    expect(freeDiskGB("/percorso/che/non/esiste/davvero")).toBeNull();
+  });
+
+  test("misura GB veri, non blocchi", () => {
+    const gb = freeDiskGB("/");
+    expect(gb).not.toBeNull();
+    // Un errore di unità qui (blocchi al posto di byte) darebbe un numero enorme
+    // e il pavimento non morderebbe mai — il modo silenzioso in cui una guardia
+    // diventa decorazione.
+    expect(gb!).toBeLessThan(100_000);
+    expect(gb!).toBeGreaterThan(0);
+  });
+
+  test("sotto il pavimento BLOCCA, e la frase porta il numero", () => {
+    // Misura iniettata: il caso che conta è il disco quasi pieno, e aspettarlo
+    // sul serio vorrebbe dire non provarlo mai.
+    const msg = dispatchResourceBlock("/qualunque", () => 3.5);
+    expect(msg).not.toBeNull();
+    expect(msg!).toContain("3.5 GB liberi");
+    expect(msg!).toContain(String(DISPATCH_DISK_FLOOR_GB));
+    // Una coda senza il perché è la coda invisibile: la frase deve dire anche
+    // che non si è perso niente, o chi legge pensa che la card sia morta.
+    expect(msg!).toContain("Riprendo");
+  });
+
+  test("un solo GB sopra il pavimento non blocca: la soglia è una soglia", () => {
+    expect(dispatchResourceBlock("/qualunque", () => DISPATCH_DISK_FLOOR_GB + 1)).toBeNull();
+    expect(dispatchResourceBlock("/qualunque", () => DISPATCH_DISK_FLOOR_GB)).toBeNull();
+    expect(dispatchResourceBlock("/qualunque", () => DISPATCH_DISK_FLOOR_GB - 0.1)).not.toBeNull();
   });
 });

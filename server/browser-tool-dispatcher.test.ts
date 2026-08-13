@@ -18,6 +18,7 @@ import {
   dispatchBrowserToolCall,
   resolveContextIdForTopic,
 } from "./browser-tool-dispatcher";
+import { setLocalFileServing } from "./browser-local-file-url";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -173,13 +174,53 @@ describe("dispatchBrowserToolCall", () => {
     ).rejects.toThrow(/url.*required/i);
   });
 
-  test("browser_open rejects disallowed schemes (file://) for agent navigation", async () => {
-    const { service } = makeMockService();
-    const topic = makeTopic();
+  // La proprietà da difendere non è il TESTO del rifiuto, è che nessun
+  // `file://` arrivi mai a `navigate` per mano dell'agente. Prima il test
+  // guardava il messaggio: leggeva verde anche se un domani la difesa fosse
+  // diventata «lo dico e poi navigo lo stesso». Qui si guarda dove la pane va a
+  // finire, nei tre stati in cui il server può trovarsi.
+  describe("browser_open non porta MAI l'agente su file://", () => {
+    test("senza allowlist cablata: rifiuta", async () => {
+      setLocalFileServing(null);
+      const { service, calls } = makeMockService();
+      await expect(
+        dispatchBrowserToolCall("browser_open", { url: "file:///etc/passwd" }, makeTopic(), service)
+      ).rejects.toThrow();
+      expect(calls.filter((c) => c.method === "navigate")).toHaveLength(0);
+    });
 
-    await expect(
-      dispatchBrowserToolCall("browser_open", { url: "file:///etc/passwd" }, topic, service)
-    ).rejects.toThrow(/scheme.*not allowed/i);
+    test("con allowlist, ma percorso non servibile: rifiuta, e dice perché", async () => {
+      setLocalFileServing({
+        isPathAllowed: (p: string) => p.startsWith("/Users/x/.topics/media/"),
+        exists: () => true,
+        origin: "https://127.0.0.1:3333",
+      });
+      const { service, calls } = makeMockService();
+      await expect(
+        dispatchBrowserToolCall("browser_open", { url: "file:///etc/passwd" }, makeTopic(), service)
+      ).rejects.toThrow(/outside the paths/i);
+      expect(calls.filter((c) => c.method === "navigate")).toHaveLength(0);
+    });
+
+    test("percorso servibile: la pane va su http, non su file://", async () => {
+      setLocalFileServing({
+        isPathAllowed: (p: string) => p.startsWith("/Users/x/.topics/media/"),
+        exists: () => true,
+        origin: "https://127.0.0.1:3333",
+      });
+      const { service, calls } = makeMockService();
+      await dispatchBrowserToolCall(
+        "browser_open",
+        { url: "file:///Users/x/.topics/media/contratto.pdf" },
+        makeTopic(),
+        service,
+      );
+      const nav = calls.find((c) => c.method === "navigate");
+      expect(nav?.args?.[1]).toBe(
+        "https://127.0.0.1:3333/api/media?path=%2FUsers%2Fx%2F.topics%2Fmedia%2Fcontratto.pdf",
+      );
+      expect(String(nav?.args?.[1])).not.toContain("file:");
+    });
   });
 
   test("agent_active broadcast still fires false when navigate throws", async () => {
