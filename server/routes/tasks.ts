@@ -31,7 +31,7 @@ import { parseTaskPatch, unapplicableFieldsBody, type FieldRead } from "./task-p
 import { getTerminalSessionById } from "./terminal";
 import { deliverAnswer } from "../lib/ask-user-bridge";
 import { answerRoutedAsk, pendingRoutedAsk } from "../services/board-ask-routing";
-import { AUTO_PROJECT_ID, createTaskService, isArchiveParkedLabel, isLandActionLabel, isPublishActionLabel, isRequeueParkedLabel, projectIdForPath, TaskServiceError, UNASSIGNED_PROJECT_ID, type Task } from "../services/tasks";
+import { AUTO_PROJECT_ID, commentAsksHuman, createTaskService, isArchiveParkedLabel, isLandActionLabel, isPublishActionLabel, isRequeueParkedLabel, projectIdForPath, TaskServiceError, UNASSIGNED_PROJECT_ID, type Task } from "../services/tasks";
 import { computeDispatchCapacity } from "../services/dispatch-capacity";
 import { newProjectParentDir } from "../services/project-path-resolver";
 import { parkedEdgeEvent, type TaskDispatcher } from "../services/task-dispatcher";
@@ -2402,6 +2402,13 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         // Questions are exempt: an agent asking mid-work legitimately has a
         // dirty worktree. Prompt instructions alone never fixed this; the 409
         // coaches the retry like review_needs_summary does.
+        //
+        // "Is it a question" is `commentAsksHuman`, NOT the presence of the
+        // ```question fence: the kickoff envelope orders a landable delivery to
+        // attach `options=["Landa su main"]`, and the server wraps options in
+        // that fence, so the exemption swallowed the deliveries it exists to
+        // check. Measured on 13/08: 13 of 17 committed deliveries reached review
+        // without either gate running.
         if (body?.status === "review") {
           let isDelivery = false;
           try {
@@ -2409,7 +2416,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             const lastOwn = got ? [...got.comments].reverse().find(
               (c) => c.author !== "user" && c.author !== "system" && c.kind === "comment",
             ) : null;
-            const isQuestion = !!lastOwn?.content?.includes("```question");
+            const isQuestion = commentAsksHuman(lastOwn?.content);
             isDelivery = !!got && got.task.status !== "review" && !isQuestion;
           } catch { /* gate is best-effort: a git/store hiccup must never block a delivery */ }
 

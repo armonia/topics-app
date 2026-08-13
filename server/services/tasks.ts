@@ -40,8 +40,8 @@ import {
   MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PREVIEW_CARD_MAX_RATIO, QUEUE_REASON_UNKNOWN,
   TASK_STATUSES, WAIT_SERIES_MAX_MS, WAIT_STREAK_CAP,
   deriveQueueReason, deriveSubtaskWork, formatStatusEvent, hasPlanApproveOption, isAgentWorking,
-  isUnattributedSubtask, normalizeActionLabel, noteParkedChildrenResolved, readTaskWeight,
-  statusEventEnters, waitReasonKey,
+  isUnattributedSubtask, normalizeActionLabel, noteParkedChildrenResolved, parseQuestionBlock,
+  readTaskWeight, statusEventEnters, waitReasonKey,
 } from "../../shared/board";
 import { EFFORT_TIERS } from "../../shared/effort";
 // Il vocabolario delle etichette e la regola che le deriva: una sola
@@ -113,6 +113,52 @@ export function isRequeueParkedLabel(text: string | undefined | null): boolean {
 }
 export function isArchiveParkedLabel(text: string | undefined | null): boolean {
   return !!text && normLabel(text) === normLabel(ARCHIVE_PARKED_LABEL);
+}
+
+/**
+ * A quick-reply label the BOARD executes by itself, as opposed to an answer
+ * that steers the agent.
+ *
+ * The four of them are exactly the labels `POST …/tasks/:id/review` runs
+ * server-side (routes/tasks.ts: publish, requeue/archive parked children,
+ * land): picking one is an ORDER to the system, and nothing about the work is
+ * still undecided. Every other option (a plan's "Approva il piano", a free
+ * "Aspetta, ho un dubbio") resumes the AGENT with the human's words, which is
+ * what "the card is waiting for a person" means.
+ */
+export function isBoardActionLabel(text: string | undefined | null): boolean {
+  return isLandActionLabel(text) || isPublishActionLabel(text)
+    || isRequeueParkedLabel(text) || isArchiveParkedLabel(text);
+}
+
+/**
+ * Does this comment ASK the human something, or is it a DELIVERY that merely
+ * offers the next board action as a button?
+ *
+ * The presence of the fence answered neither question. The kickoff envelope
+ * tells a delivering agent to attach `options=["Landa su main"]`, and the
+ * server wraps any `options` in a ```question block, so EVERY landable
+ * delivery came out shaped like a question. Measured on 13/08: 10 of the 13
+ * cards sitting on the `needs_input` chip were finished deliveries, and 13 of
+ * 17 committed deliveries skipped the worktree-dirt and the checks gate
+ * because the delivery route read the same fence and exempted them.
+ *
+ * So read the OPTIONS instead. All of them board actions ⇒ delivery. A mixed
+ * block ("Landa su main" + "Aspetta, ho un dubbio") is still a QUESTION: one
+ * option the system cannot execute means a person has to choose.
+ *
+ * No options at all stays a question too, which is the codebase's own reading
+ * (`pendingQuestion`): a question with no buttons has nothing to click but is
+ * still waiting for an answer. One legacy shape falls on that side and should
+ * not: a delivery whose ONLY option was "Landa e pubblica", which
+ * `parseQuestionBlock` filters out of the rendered list. The dispatcher has
+ * not prompted for that option since 09/08, so those cards are historical.
+ */
+export function commentAsksHuman(content: string | null | undefined): boolean {
+  const parsed = parseQuestionBlock(content ?? "");
+  if (!parsed) return false;
+  if (parsed.options.length === 0) return true;
+  return !parsed.options.every(isBoardActionLabel);
 }
 
 export interface Task {

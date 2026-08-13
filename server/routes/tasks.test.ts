@@ -1444,6 +1444,68 @@ describe("checks pre-review (gate review_needs_green_checks)", () => {
     expect((await resp.json()).checksState).toBeNull();
   });
 
+  // Il buco che l'esenzione «è una domanda» apriva su sé stessa: l'envelope
+  // ORDINA alla consegna landabile di allegare `options=["Landa su main"]`, e il
+  // server avvolge ogni `options` nella stessa fence che qui valeva come
+  // esenzione. Misurate il 13/08: 13 consegne committate su 17 sono entrate in
+  // review senza che girasse nessuno dei comandi dichiarati.
+  test("consegna che offre solo «Landa su main»: i checks girano lo stesso", async () => {
+    const r = mk();
+    const t = await (await call(r, "POST", "/api/sessions/s1/tasks", { text: "x" }))!.json();
+    await declare(r, t.projectId, ["echo rosso-della-consegna >&2; exit 3"]);
+    await call(r, "POST", `/api/sessions/s1/tasks/${t.id}/comments`, {
+      content: "Fatto: rifatto il gate, commit sul branch.", options: [LAND_ACTION_LABEL],
+    });
+    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review" }))!;
+    expect(resp.status).toBe(409);
+    const err = await resp.json();
+    expect(err.code).toBe("review_needs_green_checks");
+    expect(err.error).toContain("rosso-della-consegna");
+    const got = await (await call(r, "GET", `/api/sessions/s1/tasks/${t.id}`))!.json();
+    expect(got.task.status).not.toBe("review");
+  });
+
+  test("domanda MISTA: basta un'opzione che il sistema non esegue e i checks restano fermi", async () => {
+    const r = mk();
+    const t = await (await call(r, "POST", "/api/sessions/s1/tasks", { text: "x" }))!.json();
+    await declare(r, t.projectId, ["exit 1"]);
+    await call(r, "POST", `/api/sessions/s1/tasks/${t.id}/comments`, {
+      content: "Ho finito, ma il nome del flag non mi convince.",
+      options: [LAND_ACTION_LABEL, "Aspetta, ho un dubbio"],
+    });
+    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review" }))!;
+    expect(resp.status).toBe(200);
+    expect((await resp.json()).checksState).toBeNull();
+  });
+
+  // L'ALTRO cancello che leggeva la stessa fence: `review_needs_commit`. Una
+  // consegna col lavoro ancora nel worktree non è rivedibile (approvare non
+  // troverebbe niente da fondere), ma «è una domanda» la esentava — e la sola
+  // opzione «Landa su main» bastava a farla sembrare tale.
+  test("consegna sporca che offre «Landa su main»: 409 review_needs_commit", async () => {
+    const r = mk({ taskWorktreeDirt: async () => ["server/routes/tasks.ts", "server/services/tasks.ts"] });
+    const t = await (await call(r, "POST", "/api/sessions/s1/tasks", { text: "x" }))!.json();
+    await call(r, "POST", `/api/sessions/s1/tasks/${t.id}/comments`, {
+      content: "Fatto: rifatto il gate.", options: [LAND_ACTION_LABEL],
+    });
+    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review" }))!;
+    expect(resp.status).toBe(409);
+    const err = await resp.json();
+    expect(err.code).toBe("review_needs_commit");
+    expect(err.error).toContain("2 uncommitted changes");
+  });
+
+  test("domanda MISTA col worktree sporco: legittimo, nessun 409", async () => {
+    const r = mk({ taskWorktreeDirt: async () => ["server/routes/tasks.ts"] });
+    const t = await (await call(r, "POST", "/api/sessions/s1/tasks", { text: "x" }))!.json();
+    await call(r, "POST", `/api/sessions/s1/tasks/${t.id}/comments`, {
+      content: "Ho finito, ma il nome del flag non mi convince.",
+      options: [LAND_ACTION_LABEL, "Aspetta, ho un dubbio"],
+    });
+    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review" }))!;
+    expect(resp.status).toBe(200);
+  });
+
   test("un git rotto non può rifiutare una consegna", async () => {
     const r = mk({ taskCheckoutRef: async () => { throw new Error("git esploso"); } });
     const t = await delivered(r);

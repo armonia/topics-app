@@ -8,7 +8,7 @@ import { commitStatusFromRepo } from "./branch-status";
 import { classifyLanding } from "./landing-audit";
 import { PARKED_WAITED_OUT, PREVIEW_CARD_MAX_RATIO, PREVIEW_RULE, WAIT_STREAK_CAP, extractPreviewRule, formatStatusEvent } from "../../shared/board";
 import { toolsForProfile } from "../mcp/topics-mcp-server";
-import { createTaskService, type TaskService } from "./tasks";
+import { createTaskService, LAND_ACTION_LABEL, type TaskService } from "./tasks";
 import { createTaskDispatcher, rotateFrom, type DispatcherDeps } from "./task-dispatcher";
 import { cancelled, type TurnEndInfo } from "../providers/stop-reason";
 import { beginAsk, endAsk } from "../lib/ask-user-bridge";
@@ -2638,6 +2638,54 @@ describe("cancello: non si ridispaccia lavoro già su main", () => {
     expect(chieste).toEqual([]);
     expect(h.task("t1")!.status).toBe("in_progress");
     expect(h.turns.length).toBe(1);
+    h.dispatcher.shutdown();
+  });
+});
+
+/**
+ * IL CHIP DELLA CONSEGNA — e la ragione per cui diceva quasi sempre «serve te».
+ *
+ * L'envelope ordina all'agente di allegare alla consegna landabile
+ * `options=["Landa su main"]`, e il servizio avvolge OGNI `options` in un blocco
+ * ```question. Il chip si decideva cercando quella fence, quindi ogni consegna
+ * finita si presentava come una domanda: misurate il 13/08, 10 delle 13 card
+ * ferme su `needs_input` erano consegne complete, e chi guardava la board non
+ * aveva modo di distinguere le tre vere dalle dieci finte.
+ */
+describe("chip alla consegna: consegna contro domanda", () => {
+  /** Porta una card fino a fine turno in review, con l'ultima parola dell'agente. */
+  async function consegna(h: ReturnType<typeof harness>, content: string, options?: string[]) {
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    h.svc.addComment({ taskId: "t1", author: "claude", content, questionOptions: options });
+    h.svc.update({ taskId: "t1", actor: "agent", by: "claude", patch: { status: "review" } });
+    h.finishTurn();
+    await flush();
+  }
+
+  it("la sola opzione «Landa su main»: è una CONSEGNA, chip `delivered`", async () => {
+    const h = harness();
+    await consegna(h, "Fatto: sei cancelli verdi, commit sul branch.", [LAND_ACTION_LABEL]);
+    expect(h.task("t1")!.status).toBe("review");
+    expect(h.task("t1")!.dispatchState).toBe("delivered");
+    h.dispatcher.shutdown();
+  });
+
+  it("domanda MISTA: un'opzione che il sistema non esegue e il chip resta `needs_input`", async () => {
+    // Il caso che il rimedio non deve travolgere: «Landa su main» insieme a
+    // un'opzione che chiede una scelta resta una domanda, e la card lo dice.
+    const h = harness();
+    await consegna(h, "Ho finito, ma il nome del flag non mi convince.", [LAND_ACTION_LABEL, "Aspetta, ho un dubbio"]);
+    expect(h.task("t1")!.dispatchState).toBe("needs_input");
+    h.dispatcher.shutdown();
+  });
+
+  it("una domanda vera senza etichette d'azione resta `needs_input`", async () => {
+    const h = harness();
+    await consegna(h, "Quale approccio uso?", ["JWT in cookie", "Bearer token"]);
+    expect(h.task("t1")!.dispatchState).toBe("needs_input");
     h.dispatcher.shutdown();
   });
 });
