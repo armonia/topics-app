@@ -2,6 +2,7 @@ import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import {
   branchExistsInRepo,
   branchStatusFromRepo,
+  commitIsAncestor,
   commitStatusFromRepo,
   countCommitsAhead,
   filterUniqueSourceFiles,
@@ -347,5 +348,51 @@ describe("worktreeDiffStat", () => {
     expect(await worktreeDiffStat(repo, { branch: "topics/non-esiste" })).toBeNull();
     expect(await worktreeDiffStat(repo, { branch: "topics/card", mainRef: "ramo-che-non-esiste" })).toBeNull();
     expect(await worktreeDiffStat(join(tmpdir(), "wtstat-non-esiste-affatto"), { branch: "topics/card" })).toBeNull();
+  });
+});
+
+/**
+ * LA PROVA CHE UN LAND HA ATTERRATO, e la ragione per cui non basta il codice
+ * di uscita di `git merge`: il 13/08 tre card sono passate a `done` col ramo
+ * mai arrivato su main. Una fusione riuscita dice che una fusione è riuscita,
+ * non su quale ramo — qui si chiede a main, con un repo vero.
+ */
+describe("commitIsAncestor", () => {
+  let repo: string;
+  let suMain: string;
+  let fuori: string;
+
+  beforeAll(() => {
+    repo = mkdtempSync(join(tmpdir(), "anc-"));
+    git(repo, "init", "-q", "-b", "main");
+    git(repo, "config", "user.email", "t@t.t");
+    git(repo, "config", "user.name", "t");
+    writeFileSync(join(repo, "a.txt"), "base\n");
+    git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", "base");
+    suMain = git(repo, "rev-parse", "HEAD");
+
+    // Un commit su un ALTRO ramo: è esattamente il caso del land che fonde su
+    // un checkout parcheggiato altrove, o su un worktree mai ricucito.
+    git(repo, "checkout", "-q", "-b", "topics/altrove");
+    writeFileSync(join(repo, "b.txt"), "lavoro\n");
+    git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", "fuso ma non su main");
+    fuori = git(repo, "rev-parse", "HEAD");
+    git(repo, "checkout", "-q", "main");
+  });
+
+  afterAll(() => { rmSync(repo, { recursive: true, force: true }); });
+
+  test("dentro main = true · fuori da main = false", async () => {
+    expect(await commitIsAncestor(repo, suMain, "main")).toBe(true);
+    expect(await commitIsAncestor(repo, fuori, "main")).toBe(false);
+  });
+
+  test("git che non sa rispondere vale «non lo so», non un no", async () => {
+    // Il no e il non-lo-so si comportano in modo diverso a valle: il no ferma il
+    // land, il non-lo-so lascia il verdetto «non verificabile». Confonderli
+    // rimetterebbe in circolo un'accusa (o un'assoluzione) inventata.
+    expect(await commitIsAncestor(repo, "0".repeat(40), "main")).toBeNull();
+    expect(await commitIsAncestor(repo, suMain, "ramo-che-non-esiste")).toBeNull();
+    expect(await commitIsAncestor(join(tmpdir(), "anc-non-esiste-affatto"), suMain, "main")).toBeNull();
   });
 });
