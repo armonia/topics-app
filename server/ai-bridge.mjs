@@ -341,12 +341,75 @@ function probeBridge(timeoutMs = 1500) {
   });
 }
 
+const lockPath = `${socketPath}.lock`;
+
+/**
+ * Lucchetto sulla PRESA DI POSSESSO del socket.
+ *
+ * Serve perche' `listen()` su un path appena scollegato non da' EADDRINUSE: crea
+ * un file nuovo. Quindi N demoni partiti nello stesso secondo possono trovare
+ * tutti il socket libero, cancellarlo tutti e mettersi tutti in ascolto, ognuno
+ * su un file che il successivo scollega subito dopo. Il risultato non e' un
+ * conflitto rumoroso: sono N processi VIVI e nessuno raggiungibile.
+ *
+ * `wx` e' O_CREAT|O_EXCL: lo prende uno solo. Un lucchetto lasciato da un demone
+ * morto viene rilevato dal pid che contiene e rimosso, o il primo incidente lo
+ * bloccherebbe per sempre.
+ */
+function acquireTakeoverLock() {
+  for (let tentativo = 0; tentativo < 2; tentativo++) {
+    try {
+      const fd = fs.openSync(lockPath, 'wx');
+      try { fs.writeSync(fd, String(process.pid)); } finally { fs.closeSync(fd); }
+      return true;
+    } catch (err) {
+      if (err?.code !== 'EEXIST') return false;
+      let holder = null;
+      try { holder = Number(fs.readFileSync(lockPath, 'utf8').trim()); } catch {}
+      if (holder && holder !== process.pid && pidAlive(holder)) return false;
+      try { fs.unlinkSync(lockPath); } catch { return false; }
+    }
+  }
+  return false;
+}
+
+function releaseTakeoverLock() {
+  let holder = null;
+  try { holder = Number(fs.readFileSync(lockPath, 'utf8').trim()); } catch { return; }
+  if (holder !== process.pid) return;
+  try { fs.unlinkSync(lockPath); } catch {}
+}
+
+/**
+ * Verdetto su chi possiede gia' il socket. TRE esiti, non due.
+ *
+ * La distinzione che mancava e' fra «non risponde perche' e' morto» e «non
+ * risponde perche' la macchina e' in ginocchio». `probeBridge` da' `timeout`
+ * in entrambi i casi, e questa funzione li trattava uguale: ammazzava il
+ * proprietario registrato, scollegava il socket e si metteva in ascolto al suo
+ * posto. Con la macchina carica ogni demone nuovo lo faceva al precedente.
+ *
+ * Misurato il 13/08/2026: 1.612 demoni sullo stesso socket, tutti vivi, nessuno
+ * raggiungibile, swap a 36 GB su 32 di RAM e la macchina inutilizzabile. Un
+ * timeout di 1,5 s su una macchina a load 400 non e' una diagnosi di morte:
+ * il proprietario aveva ACCETTATO la connessione, non aveva fatto in tempo a
+ * rispondere.
+ */
 async function checkExistingBridge() {
   let recordedPid = null;
   try { if (fs.existsSync(pidPath)) recordedPid = Number(fs.readFileSync(pidPath, 'utf8').trim()); } catch {}
   const probe = await probeBridge();
-  if (probe.ok) return true;
-  if (recordedPid && pidAlive(recordedPid) && recordedPid !== process.pid) {
+  if (probe.ok) return 'healthy';
+
+  const ownerAlive = !!recordedPid && recordedPid !== process.pid && pidAlive(recordedPid);
+
+  // Il proprietario e' vivo e ha accettato la connessione: e' lento, non morto.
+  // Si cede il passo. Chi ci ha lanciati ritentera' la connessione a LUI, che e'
+  // esattamente cio' che vogliamo, invece di sfrattarlo e diventare il prossimo
+  // a essere sfrattato.
+  if (probe.reason === 'timeout' && ownerAlive) return 'busy';
+
+  if (ownerAlive) {
     console.error(`[AI Bridge] Recorded owner ${recordedPid} unreachable (${probe.reason}). SIGTERM.`);
     try { process.kill(recordedPid, 'SIGTERM'); } catch {}
     await new Promise((r) => setTimeout(r, 1000));
@@ -354,7 +417,7 @@ async function checkExistingBridge() {
   }
   try { fs.unlinkSync(socketPath); } catch {}
   try { fs.unlinkSync(pidPath); } catch {}
-  return false;
+  return 'free';
 }
 
 // Reap store files whose session is gone and whose file is older than retention.
@@ -371,8 +434,23 @@ function sweepStore() {
 }
 
 async function start() {
-  if (await checkExistingBridge()) {
+  // Il lucchetto si prende PRIMA di guardare chi c'e', perche' e' proprio quel
+  // controllo a scollegare il socket: due demoni che lo attraversano insieme
+  // finiscono entrambi in ascolto su file diversi con lo stesso nome.
+  if (!acquireTakeoverLock()) {
+    console.error(`[AI Bridge] Un altro demone sta gia' prendendo ${socketPath}. Esco.`);
+    process.exit(1);
+  }
+
+  const verdetto = await checkExistingBridge();
+  if (verdetto === 'healthy') {
+    releaseTakeoverLock();
     console.error(`[AI Bridge] Another healthy bridge already on ${socketPath}`);
+    process.exit(1);
+  }
+  if (verdetto === 'busy') {
+    releaseTakeoverLock();
+    console.error(`[AI Bridge] Il proprietario di ${socketPath} e' vivo ma lento a rispondere. NON lo sfratto: esco e lascio che ci si riconnetta a lui.`);
     process.exit(1);
   }
 
@@ -396,10 +474,13 @@ async function start() {
   });
 
   server.listen(socketPath, () => {
+    // Il pid PRIMA del rilascio: chi prende il lucchetto subito dopo deve poter
+    // leggere un proprietario valido, o ricadrebbe nel ramo che sfratta.
     fs.writeFileSync(pidPath, String(process.pid));
+    releaseTakeoverLock();
     console.error(`[AI Bridge] Listening on ${socketPath} (PID ${process.pid}), store ${storeDir}`);
   });
-  server.on('error', (err) => { console.error(`[AI Bridge] Server error: ${err.message}`); process.exit(1); });
+  server.on('error', (err) => { console.error(`[AI Bridge] Server error: ${err.message}`); releaseTakeoverLock(); process.exit(1); });
 
   setInterval(sweepStore, SWEEP_EVERY_MS).unref();
 
@@ -410,6 +491,7 @@ async function start() {
     server.close();
     try { fs.unlinkSync(socketPath); } catch {}
     try { fs.unlinkSync(pidPath); } catch {}
+    releaseTakeoverLock();
     process.exit(0);
   }
   process.on('SIGTERM', () => shutdown('SIGTERM'));
