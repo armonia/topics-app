@@ -27,7 +27,7 @@ import {
   type BoardProjectRef, type BoardTask, type TaskStatus, type BoardSettings, type TaskLabel,
   type PublishProject, type DiffBundle, type DispatchCapacity, type GlobalSettings,
 } from '../../lib/board';
-import { groupByStatus, planDrop, type DropPlan, type OrderScope } from '../../lib/boardOrder';
+import { groupByStatus, manualStatusTarget, planDrop, type DropPlan, type OrderScope } from '../../lib/boardOrder';
 import { DONE_FLASH_MS, landedInDone, statusSnapshot } from '../../lib/justDone';
 import { scrollDelta } from '../../lib/scrollDelta';
 import { resolveProjectRefs, useBoardProjects } from '../../lib/boardProjectsStore';
@@ -854,6 +854,7 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
 }
 
 export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpenTopic, onStartMission }: Props) {
+  const tr = useT();
   const projectId = useMemo(() => (projectPath ? boardIdForPath(projectPath) : ''), [projectPath]);
   // The project/all toggle only makes sense inside a project window. The global
   // pane has no project, so it locks to 'all'.
@@ -878,6 +879,17 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
   const externalSessions = useExternalSessions(onMessage, mode === 'project' ? projectId : undefined);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // A move that did NOT land where it was aimed says so here. Not an error
+  // (nothing failed) and not a toast (it belongs to the board it happened on):
+  // one line under the toolbar.
+  //
+  // It is cleared when the NEXT gesture starts, not when the next one ends: a
+  // drag that gets cancelled, or lands on a card that vanished under the
+  // fingers, used to leave the previous drop's blue line on screen explaining a
+  // move that was no longer the last one. And it is cleared again if the write
+  // fails, because by then the line claims a destination the card never
+  // reached, right next to the red error saying so.
+  const [dropNotice, setDropNotice] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // Quale tab del task mettere davanti all'apertura, quando ad aprirlo è stato
   // un gesto mirato (il bottone «apri in una tab» sull'anteprima della card).
@@ -1503,6 +1515,9 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
    * rifetcha e la verità torna dal server.
    */
   const dropTo = useCallback(async (task: BoardTask, plan: DropPlan) => {
+    // A redirected drop onto a card that is already where the redirect sends it
+    // has nothing to write: the plan exists only to carry the notice.
+    if (Object.keys(plan.patch).length === 0 && !plan.renumber?.length) return;
     for (const r of plan.renumber ?? []) patchLocal(r.id, { kanbanOrder: r.kanbanOrder });
     patchLocal(task.id, plan.patch); // optimistic
     try {
@@ -1513,7 +1528,15 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
         await boardApi.update(task.projectId, r.id, { kanbanOrder: r.kanbanOrder });
       }
       await boardApi.update(task.projectId, task.id, plan.patch);
-    } catch (e) { setError(e instanceof Error ? e.message : 'update failed'); refetch(); }
+    } catch (e) {
+      // The notice was written before the PATCH (it explains the GESTURE, and
+      // waiting for the round trip would make it arrive late). If the write
+      // failed the card is where it was, so the notice is now false: it goes,
+      // and the error speaks alone.
+      setDropNotice(null);
+      setError(e instanceof Error ? e.message : 'update failed');
+      refetch();
+    }
   }, [patchLocal, refetch]);
 
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -1561,6 +1584,10 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
   const onDragStart = useCallback((e: DragStartEvent) => {
     draggingRef.current = true;
     setActiveId(String(e.active.id));
+    // A new gesture retires the previous one's explanation, whatever this drag
+    // turns out to do (including being cancelled, or ending on a card that is
+    // no longer in the list).
+    setDropNotice(null);
   }, []);
   // Cosa produce un drop sta in `lib/boardOrder` — puro e testato (bun:test):
   // qui resta solo il raccordo fra dnd-kit e la PATCH.
@@ -1575,18 +1602,30 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
       byStatus,
       scope: orderScope,
     });
+    // The card did not land where the hand let it go: say it, or the gesture
+    // reads as a bug. `onDragStart` already cleared the previous one, so this
+    // only ever adds.
+    if (plan?.redirectedFrom === 'in_progress') setDropNotice(tr('board.drop.inProgressRedirected'));
     if (plan) dropTo(task, plan);
-  }, [tasks, byStatus, dropTo, flushDrag, orderScope]);
+  }, [tasks, byStatus, dropTo, flushDrag, orderScope, tr]);
   const activeTask = activeId ? tasks.find((t) => t.id === activeId) ?? null : null;
 
   const create = useCallback(async (status: TaskStatus, text: string) => {
     // A task can't be created directly in Done — land it in Todo instead.
-    const target: TaskStatus = status === 'done' ? 'todo' : status;
+    // In Progress is the same story for a different reason (`manualStatusTarget`):
+    // a task being born has no agent by definition, so writing it straight into
+    // In Progress creates it already stuck. This is the second of the three
+    // doors, and it is the worst of them, because a card that was never
+    // dispatched has nothing on it to explain why nobody picks it up.
+    const aim = manualStatusTarget(status === 'done' ? 'todo' : status, null);
     // L'id arriva dalla POST, non dal broadcast: è quello che distingue «l'ho
     // creato io» da «è comparso», e solo il primo autorizza a muovere la board.
-    try { const created = await boardApi.create(projectId, { text, status: target }); onCreatedHere(created.id); }
-    catch (e) { setError(e instanceof Error ? e.message : 'create failed'); }
-  }, [projectId, onCreatedHere]);
+    try {
+      const created = await boardApi.create(projectId, { text, status: aim.status });
+      if (aim.redirectedFrom === 'in_progress') setDropNotice(tr('board.drop.inProgressRedirected'));
+      onCreatedHere(created.id);
+    } catch (e) { setError(e instanceof Error ? e.message : 'create failed'); }
+  }, [projectId, onCreatedHere, tr]);
 
   // Il task che il drawer mostra quando l'id NON è nel feed. Il feed è
   // `rootsOnly` — le colonne mostrano le radici, gli step vivono nell'albero del
@@ -1787,6 +1826,9 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
       )}
       </div>
       {error && <div className="shrink-0 bg-rose-500/10 px-3 py-1.5 text-xs text-rose-300">{error}</div>}
+      {dropNotice && (
+        <div data-testid="board-drop-notice" className="shrink-0 bg-sky-500/10 px-3 py-1.5 text-xs text-sky-300">{dropNotice}</div>
+      )}
       {showSettings && hasProject && (
         <BoardSettingsPanel
           projectId={projectId}
@@ -1806,7 +1848,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
           (the drawer positions itself; out of flow, the board re-expands). */}
       <div className="flex min-h-0 flex-1">
         <div className="relative flex min-w-0 flex-1 flex-col">
-          <DndContext sensors={sensors} collisionDetection={boardCollision} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => { setActiveId(null); flushDrag(); }}>
+          <DndContext sensors={sensors} collisionDetection={boardCollision} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => { setActiveId(null); flushDrag(); setDropNotice(null); }}>
             <div ref={columnsScrollRef} className="flex h-full min-w-0 snap-x snap-mandatory scroll-smooth gap-2 overflow-x-auto px-2 py-3 sm:gap-3 sm:px-3">
               {TASK_STATUSES.map((status) => (
                 <Column

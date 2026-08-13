@@ -464,12 +464,18 @@ export function hasPlanApproveOption(options: readonly string[]): boolean {
 /**
  * THE RESERVED QUICK-REPLY LABELS — the ones the BOARD executes by itself.
  *
- * They live in `shared/` and not in the task service because FOUR surfaces have
- * to agree on them, and two of them are in the client: the dispatch chip and
- * the two review gates (server), the push notification (server) and the
- * in-app banner (client). The last two were left reading a different rule and
- * kept announcing finished work as a question — one vocabulary, or the split
- * comes back.
+ * They live in `shared/` and not in the task service because FIVE surfaces have
+ * to agree on them, and three of them are in the client: the dispatch chip and
+ * the two review gates (server), the push notification (server), the in-app
+ * banner (client) and the quick-reply de-duplicator (client). The notification
+ * pair was left reading a different rule and kept announcing finished work as a
+ * question — one vocabulary, or the split comes back.
+ *
+ * They are deliberately NOT translated. The option text travels to the server
+ * and is matched BY VALUE, so the de-duplicator has to compare against this
+ * constant and not against the button's translation: under locale `en` the
+ * button reads "Land on main" while the option still says "Landa su main", and
+ * comparing the translation let the rejecting twin back in.
  */
 export const LAND_ACTION_LABEL = 'Landa su main';
 export const PUBLISH_ACTION_LABEL = 'Landa e pubblica';
