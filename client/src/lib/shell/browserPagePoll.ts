@@ -127,6 +127,72 @@ export function parsePageState(raw: string | null | undefined): PageState | null
   };
 }
 
+/* ------------------------------------- precedence with the native drain --- */
+
+/** What the native drain (`browser_take_nav_state`) says about the VIEW. */
+export interface NativeNavState {
+  /** '' when the view reports `about:blank`, same rule as {@link parsePageState}. */
+  url: string;
+  title: string;
+  loading: boolean;
+}
+
+/**
+ * The last usable entry of a `browser_take_nav_state` drain, or null.
+ *
+ * The Rust queue is coalesced (at most one entry per pane, the most recent), but
+ * reading the LAST one anyway costs nothing and keeps this side right if that
+ * ever changes. Anything that isn't an object carrying the three fields is
+ * dropped: an older shell answering something else must degrade to "the eval
+ * poll is the only source", never to a blank address bar.
+ *
+ * Outside macOS the command answers with an EMPTY array by contract, so this
+ * returns null forever there and the eval poll stays the authority without
+ * needing to know which host it runs on.
+ */
+export function pickNavState(events: unknown): NativeNavState | null {
+  if (!Array.isArray(events)) return null;
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i] as { url?: unknown; title?: unknown; loading?: unknown } | null;
+    if (!e || typeof e !== 'object' || typeof e.loading !== 'boolean') continue;
+    const url = typeof e.url === 'string' ? e.url : '';
+    return {
+      url: url === 'about:blank' ? '' : url,
+      title: typeof e.title === 'string' ? e.title : '',
+      loading: e.loading,
+    };
+  }
+  return null;
+}
+
+/**
+ * How long the last native delivery keeps url/title/loading.
+ *
+ * The two authorities do not read the same thing. KVO reports the VIEW (what
+ * WKWebView is navigating to, right now); an eval reports the DOCUMENT that is
+ * committed at that instant. WebKit keeps the previous document on screen until
+ * the next one commits, so mid-load the page truthfully answers with the OLD
+ * url and a `complete` readyState. That answer is not wrong, it is just older
+ * than what KVO already told us, and last-writer-wins is how the address bar
+ * could snap back to the previous page for a tick.
+ *
+ * So the rule has a direction: while a native delivery is this fresh, the eval
+ * polls do not touch url/title/loading. They keep carrying favicon, zoom, the
+ * focus counter and the console drain, which KVO does not give at all.
+ *
+ * 2500ms = ten drain ticks (250ms) and three foreground eval ticks (800ms). A
+ * WINDOW and not a latch, because the window is also the fallback: with no
+ * native source the value stays 0 and this is false forever.
+ */
+export const NATIVE_NAV_TRUST_MS = 2500;
+
+/** Does the native drain still own url/title/loading? `lastNativeAt <= 0` means
+ *  it has never delivered anything (every non-macOS host, always). */
+export function nativeNavIsFresh(lastNativeAt: number, now: number, trustMs = NATIVE_NAV_TRUST_MS): boolean {
+  if (!Number.isFinite(lastNativeAt) || lastNativeAt <= 0) return false;
+  return now - lastNativeAt < trustMs;
+}
+
 /**
  * Is the page still loading?
  *

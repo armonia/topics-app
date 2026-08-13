@@ -20,8 +20,12 @@
  * Agent control: observe/act/extract/get_text(ref) run natively via tauriBrowserOps
  * (injected snapshot/act), read_screen/point via the server's Moondream on a native
  * screenshot. Still on streaming: save/load/import login state (no WKHTTPCookieStore
- * bridge yet). url/title/loading are reflected by an 800ms eval poll (WKNavigationDelegate
- * not bridged; see PORTING-PLAN §8.1), gated on visibility so only the active pane polls.
+ * bridge yet). url/title/loading arrivano dai NATIVI: WebKit li spinge via KVO, il
+ * Rust li mette in coda e il drain di `browser_take_nav_state` la svuota a 250ms su
+ * ogni pane, visibile o no. I due poll eval (800ms in primo piano, 2500ms di sfondo)
+ * restano come ripiego, unica sorgente fuori da macOS, e portano quello che KVO non
+ * dà: favicon, zoom, contatore di fuoco, console. Chi vince quando parlano entrambi
+ * sta in `nativeNavIsFresh` (lib/shell/browserPagePoll).
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { tauriInvoke, currentWindowLabel } from '../lib/shell/tauri';
@@ -39,9 +43,25 @@ import {
 import { cropToElement } from '../lib/imageCrop';
 import { deadLoopbackNotice, isLoopbackUrl, navErrorMessage } from '../components/Browser/navErrorMessage';
 import { loopbackAlive } from '../lib/loopbackAlive';
-import type { NativeBrowserHandle, DeviceMode, BrowserConsoleEntry } from '@/components/Browser/browserDevTypes';
+import type { NativeBrowserHandle, DeviceMode, BrowserConsoleEntry, PaneContextTarget } from '@/components/Browser/browserDevTypes';
 import { DEVICE_PRESETS, deviceModeFromUserAgent } from '@/components/Browser/browserDevTypes';
-import { buildReadJs, META_JS, parsePageState, isPageLoading } from '../lib/shell/browserPagePoll';
+import {
+  PANE_CONTEXT_HOOK_JS,
+  PANE_CONTEXT_TAKE_EXPR,
+  PANE_SELECTION_JS,
+  IMAGE_COPY_READ_JS,
+  imageCopyStartJs,
+  parsePaneContextRequest,
+  paneToHostPoint,
+} from '@/components/Browser/paneContextModel';
+import {
+  buildReadJs,
+  META_JS,
+  parsePageState,
+  isPageLoading,
+  pickNavState,
+  nativeNavIsFresh,
+} from '../lib/shell/browserPagePoll';
 import { NO_FAULT, recordPaneOk, recordPaneError, recreatePane, STRUCTURAL_COMMANDS, type FaultState } from '../lib/shell/browserPaneFault';
 import { attemptNativeOpen } from '../lib/shell/nativeBrowserOpen';
 import { normalizeUrl } from '@/lib/browserNavUrl';
@@ -129,6 +149,15 @@ function onDocumentVisible(fn: () => void): () => void {
 const pendingBrowserCloses = new Map<string, ReturnType<typeof setTimeout>>();
 const BROWSER_CLOSE_GRACE_MS = 350;
 
+/** Quanto un fallimento di navigazione appena letto (drain di
+ *  `browser_take_nav_errors`) tiene la barra SPENTA contro un `loading: true`
+ *  che arriva dietro di lui. Quel drain gira a 1000ms, quello dello stato nav a
+ *  250ms: senza questa finestra la coda coalescata poteva riaccendere una barra
+ *  che l'errore aveva appena spento, e a spegnerla non sarebbe più tornato
+ *  nessuno finché la pagina non ricaricava. Il fallimento resta l'autorità: è
+ *  l'unica cosa che sa che non c'è nessuna pagina in arrivo. */
+const NAV_FAIL_GRACE_MS = 1500;
+
 // Live-pane refcount per contextId. A native WKWebView is keyed by contextId and
 // SHARED by every pane that mounts under the same id (e.g. the chat tab and a
 // co-browse mirror of the same context, or a transient double-mount). Without a
@@ -191,6 +220,9 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
   deviceModeRef.current = deviceMode;
   const [responsiveSize, setResponsiveSizeState] = useState<{ width: number; height: number } | null>(null);
   const [selectMode, setSelectMode] = useState(false);
+  // Il tasto destro raccolto dentro la pagina, già in coordinate della finestra.
+  // Lo riempie il poll veloce (120ms), lo svuota chi chiude il menu.
+  const [paneContext, setPaneContext] = useState<PaneContextTarget | null>(null);
   const [agentActive, setAgentActive] = useState(false);
   const [agentAction, setAgentAction] = useState<string | null>(null);
   // Page zoom percent (CSS-driven via exec_js). Reactive so the toolbar's zoom
@@ -906,10 +938,18 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
       try {
         const s = parsePageState(await tauriInvoke<string>('browser_eval_js', { id, js: READ }));
         if (stop || !s) return;
-        if (s.url) setUrl(s.url);
-        setTitle(s.title);
+        // PRECEDENZA. Se il drain nativo ha consegnato di recente, url/title/
+        // loading sono suoi e questo tick NON li tocca: l'eval legge il documento
+        // COMMITTATO, che su una pagina lenta è ancora quello di prima, e
+        // riscriverlo qui farebbe tornare la barra all'indirizzo precedente. Il
+        // resto del tick vale comunque, ed è il motivo per cui il poll non si
+        // spegne: favicon, zoom, contatore di fuoco e console non passano da KVO.
+        if (!nativeNavIsFresh(nativeNavAtRef.current, Date.now())) {
+          if (s.url) setUrl(s.url);
+          setTitle(s.title);
+          setLoading(isPageLoading(s.readyState));
+        }
         if (s.favicon) setFaviconUrl(s.favicon);
-        setLoading(isPageLoading(s.readyState));
         reassertZoom(s.zoomStyle);
         // A growing pointerdown counter means the user clicked inside this native
         // pane — activate its tab (the click never reached React otherwise). First
@@ -965,10 +1005,15 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
       try {
         const s = parsePageState(await tauriInvoke<string>('browser_eval_js', { id, js: META_JS }));
         if (stop || !s) return;
-        if (s.url) setUrl(s.url);
-        if (s.title) setTitle(s.title);
+        // Stessa precedenza del poll in primo piano: il nativo, se ha parlato di
+        // recente, è la verità. Vale anche qui perché il drain non è gated su
+        // `isVisible`, quindi una pane di sfondo ha davvero due sorgenti.
+        if (!nativeNavIsFresh(nativeNavAtRef.current, Date.now())) {
+          if (s.url) setUrl(s.url);
+          if (s.title) setTitle(s.title);
+          setLoading(isPageLoading(s.readyState));
+        }
         if (s.favicon) setFaviconUrl(s.favicon);
-        setLoading(isPageLoading(s.readyState));
         reassertZoom(s.zoomStyle);
       } catch { /* pane closing / eval timeout — next tick retries */ }
       finally { inFlight = false; }
@@ -978,6 +1023,62 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     const offVis = onDocumentVisible(() => { void tick(); });
     return () => { stop = true; offVis(); window.clearInterval(iv); };
   }, [id, ready, isVisible, reassertZoom]);
+
+  // ── Stato nav dai NATIVI (KVO su URL/title/loading) ───────────────────────
+  //
+  // Fin qui l'indirizzo, il titolo e la barra di caricamento li leggeva un eval
+  // in pagina, a 800ms sulla pane visibile e 2500ms su quella di sfondo. Un poll
+  // si VEDE: clicchi un link e la barra resta sull'indirizzo di prima per
+  // mezzo secondo. Adesso WebKit lo dice da sé via KVO e il Rust lo mette in
+  // coda; questo drain la svuota a 250ms.
+  //
+  // NON è gated su `isVisible`, come il drain degli errori di navigazione qui
+  // sotto: una pane di sfondo naviga (un agente la guida, un redirect arriva) e
+  // la sua tab deve convergere sull'etichetta giusta. Costa un mutex vuoto per
+  // tick, non un eval in un altro processo.
+  //
+  // Il poll eval RESTA: fuori da macOS la coda è vuota per contratto, quindi lì
+  // è l'unica sorgente e deve bastare da sola. La precedenza quando ci sono
+  // entrambe sta in `nativeNavIsFresh` (una finestra di fiducia, non un
+  // interruttore) ed è applicata dentro i due poll.
+  const nativeNavAtRef = useRef(0);
+  /** Quando la strip d'errore ha spento la barra per un fallimento noto. */
+  const navFailedAtRef = useRef(0);
+
+  useEffect(() => {
+    if (!ready) return;
+    let stop = false;
+    const iv = window.setInterval(() => {
+      void tauriInvoke<Array<{ url: string; title: string; loading: boolean }>>(
+        'browser_take_nav_state',
+        { id },
+      )
+        .then((events) => {
+          if (stop) return;
+          const s = pickNavState(events);
+          if (!s) return; // coda vuota (o guscio senza il comando): niente da applicare
+          nativeNavAtRef.current = Date.now();
+          if (s.url) setUrl(s.url);
+          // Un titolo VUOTO non si scrive: WebKit lo azzera all'inizio di ogni
+          // navigazione, e scriverlo qui farebbe perdere l'etichetta alla tab a
+          // ogni click. Quando la pagina nuova davvero non ha un <title>, a
+          // ripulirlo pensa il poll eval appena la fiducia scade: lì `setTitle`
+          // è senza guardia.
+          if (s.title) setTitle(s.title);
+          // Un fallimento noto batte tutto (vedi `setLoading(false)` nel drain
+          // degli errori): se la strip ha appena spento la barra, un
+          // `loading: true` che arriva dietro di lui non la riaccende.
+          if (!(s.loading && Date.now() - navFailedAtRef.current < NAV_FAIL_GRACE_MS)) {
+            setLoading(s.loading);
+          }
+        })
+        .catch(() => {});
+    }, 250);
+    return () => {
+      stop = true;
+      window.clearInterval(iv);
+    };
+  }, [id, ready]);
 
   // Navigation failures — drain the Rust did-fail queue (browser_take_nav_errors,
   // scoped to this pane, same contract as the download queue). A pure mutex
@@ -1001,7 +1102,11 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
           // server.» — muta su quale server, su cosa manca e sul fatto che
           // «Riprova» non può bastare.
           setNavError({ ...navErrorMessage(last), url: last.url });
-          setLoading(false); // a known failure outranks whatever the last tick read
+          // A known failure outranks whatever the last tick read — eval poll AND
+          // native drain. Il timestamp è come lo dice al drain dello stato nav,
+          // che gira quattro volte più spesso di questo (vedi NAV_FAIL_GRACE_MS).
+          navFailedAtRef.current = Date.now();
+          setLoading(false);
         })
         .catch(() => {});
     }, 1000);
@@ -1020,20 +1125,45 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
   // Shares __topicsFocusBump + lastFocusBumpRef with the data poll: whichever
   // observes the increment first fires onFocused; the other sees no change (the
   // compare+set is synchronous, no await between, so no double-fire).
+  //
+  // PORTA ANCHE IL TASTO DESTRO, e non per comodità: il menu contestuale deve
+  // comparire alla cadenza del gesto, e questo è l'unico poll che gira a 120ms.
+  // Il payload diventa un JSON con due campi invece di un numero; l'eval è lo
+  // stesso, quindi non c'è nessun giro di IPC in più. L'installazione dell'hook
+  // sta qui dentro per la stessa ragione per cui ci sta `INSTALL_FOCUS_HOOK`:
+  // ogni navigazione rimpiazza il documento e con lui la guardia, e un eval che
+  // gira sempre è ciò che lo reinstalla senza che nessuno debba accorgersi della
+  // navigazione. Il gate su `isVisible` è corretto: una pane che non si vede non
+  // si può nemmeno cliccare col destro.
   useEffect(() => {
     if (!ready || !isVisible) return;
     let stop = false;
     let inFlight = false;
     const FAST =
-      "(function(){" + INSTALL_FOCUS_HOOK +
-      "return String(window.__topicsFocusBump||0)})()";
+      "(function(){" + INSTALL_FOCUS_HOOK + PANE_CONTEXT_HOOK_JS +
+      "try{return JSON.stringify({k:window.__topicsFocusBump||0,m:" + PANE_CONTEXT_TAKE_EXPR + "})}" +
+      "catch(e){return ''}})()";
     const tick = async () => {
       if (stop || inFlight || !docVisible()) return;
       inFlight = true;
       try {
         const raw = await tauriInvoke<string>('browser_eval_js', { id, js: FAST });
-        if (stop || raw == null) return;
-        maybeFireSelfFocus(parseInt(raw, 10) || 0);
+        if (stop || !raw) return;
+        let payload: { k?: unknown; m?: unknown } | null = null;
+        try { payload = JSON.parse(raw) as { k?: unknown; m?: unknown }; } catch { return; }
+        if (!payload) return;
+        maybeFireSelfFocus(typeof payload.k === 'number' ? payload.k : 0);
+        const req = parsePaneContextRequest(payload.m);
+        if (req) {
+          // Il punto arriva in coordinate della PAGINA. Lo slot VIVO dal DOM (la
+          // stessa fonte con cui si decide l'occlusione), lo zoom e le dimensioni
+          // dell'emulazione lo portano nelle coordinate della finestra, dove il
+          // menu vive.
+          setPaneContext(paneToHostPoint(req, liveSlotRect(id) ?? pendingRectRef.current, {
+            zoomPercent: zoomRef.current,
+            deviceDims: deviceDimsRef.current,
+          }));
+        }
       } catch { /* pane closing / eval timeout — next tick retries */ }
       finally { inFlight = false; }
     };
@@ -1047,6 +1177,48 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
 
   const toggleDevTools = useCallback(async () => {
     await tauriInvoke('browser_toggle_devtools', { id }).catch(() => {});
+  }, [id]);
+
+  // ── Le tre letture che servono al menu contestuale ────────────────────────
+  const clearPaneContext = useCallback(() => setPaneContext(null), []);
+
+  /** La selezione INTERA. `paneContext.selection` è tagliata a 200 caratteri per
+   *  non far viaggiare mezza pagina dentro un poll che gira a 120ms; qui si paga
+   *  un eval solo quando l'utente sceglie «Copia». La pane è congelata mentre il
+   *  menu è aperto, ma congelare parcheggia la VISTA: il documento resta vivo e
+   *  la sua selezione con lui. */
+  const readSelection = useCallback(async (): Promise<string> => {
+    try {
+      return (await tauriInvoke<string>('browser_eval_js', { id, js: PANE_SELECTION_JS })) || '';
+    } catch {
+      return '';
+    }
+  }, [id]);
+
+  /**
+   * I byte di un'immagine della pagina, come data URL PNG.
+   *
+   * L'estrazione è asincrona (l'immagine si ricarica dentro la pagina con
+   * `crossOrigin`) mentre `browser_eval_js` risponde subito: quindi si avvia e
+   * poi si aspetta il globale, come fa il picker dell'elemento con
+   * `__topicsPick`. Il tetto è 3 secondi, dopo i quali si torna null e chi ha
+   * chiesto la copia lo dice: senza CORS il canvas resta contaminato e nessuna
+   * attesa più lunga cambierebbe l'esito.
+   */
+  const readImageDataUrl = useCallback(async (src: string): Promise<string | null> => {
+    if (!src) return null;
+    const started = await tauriInvoke('browser_exec_js', { id, js: imageCopyStartJs(src) })
+      .then(() => true, () => false);
+    if (!started) return null;
+    const deadline = Date.now() + 3000;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 120));
+      const raw = await tauriInvoke<string>('browser_eval_js', { id, js: IMAGE_COPY_READ_JS })
+        .catch(() => '');
+      if (raw === 'ERR') return null;
+      if (raw && raw.startsWith('data:image/')) return raw;
+    }
+    return null;
   }, [id]);
 
   // Select-element: inspect the DOM node at page coords (document.elementFromPoint)
@@ -1248,12 +1420,17 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
   );
 
   // Find-in-page via WebKit's window.find (highlights + scrolls to the match).
+  // Firma reale: window.find(testo, maiuscoleContano, indietro, avvolgi).
+  // `matchCase` era inchiodato a `false` mentre l'interfaccia lo dichiarava
+  // (browserDevTypes): la barra poteva chiedere la ricerca esatta e riceveva
+  // sempre quella insensibile, senza niente a dirlo. Il quarto argomento resta
+  // `true` (avvolgi) ed è il ciclo che `stepMatchIndex` rispecchia lato client.
   const findInPage = useCallback(
-    async (text: string, opts?: { forward?: boolean; findNext?: boolean }) => {
+    async (text: string, opts?: { forward?: boolean; matchCase?: boolean; findNext?: boolean }) => {
       const fwd = opts?.forward !== false;
       await tauriInvoke('browser_exec_js', {
         id,
-        js: `try{window.find(${JSON.stringify(text)},false,${!fwd},true)}catch(e){}`,
+        js: `try{window.find(${JSON.stringify(text)},${opts?.matchCase === true},${!fwd},true)}catch(e){}`,
       }).catch(() => {});
     },
     [id],
@@ -1262,13 +1439,18 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     await tauriInvoke('browser_exec_js', { id, js: 'try{getSelection().removeAllRanges()}catch(e){}' }).catch(() => {});
   }, [id]);
 
-  // window.find gives no count, so count case-insensitive occurrences in the page
-  // text ourselves (browser_eval_js returns the number stringified).
-  const countMatches = useCallback(async (text: string): Promise<number> => {
+  // window.find gives no count, so count occurrences in the page text ourselves
+  // (browser_eval_js returns the number stringified). Il conteggio DEVE seguire
+  // lo stesso `matchCase` della ricerca: con la ricerca esatta accesa e il conto
+  // insensibile, «3/12» diceva un totale che WebKit non avrebbe mai raggiunto e
+  // il ciclo tornava a 1 in anticipo.
+  const countMatches = useCallback(async (text: string, opts?: { matchCase?: boolean }): Promise<number> => {
     if (!text) return 0;
     const js =
-      `(function(q){try{var t=(document.body&&document.body.innerText)||'';var lq=q.toLowerCase();` +
-      `if(!t||!lq)return 0;var lc=t.toLowerCase(),n=0,i=0;while((i=lc.indexOf(lq,i))!==-1){n++;i+=lq.length}return n}catch(e){return 0}})(${JSON.stringify(text)})`;
+      `(function(q,cs){try{var t=(document.body&&document.body.innerText)||'';if(!t||!q)return 0;` +
+      `var h=cs?t:t.toLowerCase(),n2=cs?q:q.toLowerCase(),n=0,i=0;if(!n2)return 0;` +
+      `while((i=h.indexOf(n2,i))!==-1){n++;i+=n2.length}return n}catch(e){return 0}})(` +
+      `${JSON.stringify(text)},${opts?.matchCase === true})`;
     try {
       const raw = await tauriInvoke<string>('browser_eval_js', { id, js });
       const n = parseInt(raw, 10);
@@ -1488,6 +1670,10 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     zoom,
     countMatches,
     inspectAt,
+    paneContext,
+    clearPaneContext,
+    readSelection,
+    readImageDataUrl,
     selectMode,
     enterSelectMode,
     exitSelectMode,
@@ -1508,7 +1694,8 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     url, title, loading, agentActive, agentAction, ready, viewId, faviconUrl, frozenImage,
     navError, clearNavError, retryNav, parked, parkedChecking, retryParked,
     navigate, goBack, goForward, reload, goHome, setBounds, animateBounds, toggleDevTools, findInPage, stopFind,
-    setZoom, zoom, countMatches, inspectAt, selectMode, enterSelectMode, exitSelectMode,
+    setZoom, zoom, countMatches, inspectAt, paneContext, clearPaneContext, readSelection,
+    readImageDataUrl, selectMode, enterSelectMode, exitSelectMode,
     deviceMode, setDevice, responsiveSize, setResponsiveSize, consoleEntries, consoleSummary,
     clearConsole, getNavEntries, goToNavIndex, fault, recreate, canGoBack, canGoForward,
   ]);
