@@ -23,7 +23,7 @@ import { useTaskBrowserTabs, liveTabs, workspaceTwinContextId } from '../../stat
 import { noteAutoOpenedPreview, releaseAutoOpenedPreview } from '../../state/taskWorkspacePreviews';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
 import { writeCursor, markActiveComposer, restoreCursor } from '../../lib/composerCursor';
-import { boardApi, diffTotals, hasCodeQuestion, STATUS_LABEL, TASK_STATUSES, isAgentWorking, parseQuestionBlock, parseStatusEvent, hasPlanApproveOption, isProjectlessId, boardDrafts, systemDeliveryNote, blockedByChip, subtaskWorkChip, reopenedChip, attemptHasWork, CLOSER_LABELS, KIND_LABELS, type TaskLabel, type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch, type BoardProjectRef, type DiffBundle, type DiffNote, type ReviewCheck, type CheckRun, type TaskAttempt, type LandingTicket } from '../../lib/board';
+import { boardApi, commentAuthorLabel, diffTotals, hasCodeQuestion, STATUS_LABEL, TASK_STATUSES, isAgentWorking, parseQuestionBlock, parseStatusEvent, hasPlanApproveOption, isProjectlessId, boardDrafts, systemDeliveryNote, blockedByChip, subtaskWorkChip, reopenedChip, attemptHasWork, CLOSER_LABELS, KIND_LABELS, type TaskLabel, type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch, type BoardProjectRef, type DiffBundle, type DiffNote, type ReviewCheck, type CheckRun, type TaskAttempt, type LandingTicket } from '../../lib/board';
 import { PreviewMedia } from './PreviewMedia';
 import { UnifiedDiff } from './UnifiedDiff';
 import { collectTaskMediaPaths } from './taskMedia';
@@ -2558,7 +2558,7 @@ export interface SessionMsg { role: string; content: string; timestamp: string; 
 /**
  * A status transition in the timeline: "chi l'ha spostato e quando", rendered
  * as a thin event row between the speech bubbles (content = "from→to",
- * author = the actor — user, agent name, or dispatcher).
+ * author = the actor — user, agent id, or dispatcher).
  */
 export function StatusEventRow({ comment }: { comment: TaskComment }) {
   // Lo stesso parser del server: la destinazione si legge fino al separatore,
@@ -2568,15 +2568,18 @@ export function StatusEventRow({ comment }: { comment: TaskComment }) {
   const to = ev?.to as TaskStatus | undefined;
   const valid = !!to && TASK_STATUSES.includes(to);
   const at = new Date(comment.createdAt);
+  // The actor is an id, not a label. Printed raw it was 42 characters of uuid
+  // in a row that truncates, so the timestamp on the right won every time.
+  const who = commentAuthorLabel(comment.author);
   return (
     <div
       className="flex items-center gap-1.5 px-1 text-[11px] text-app-text-muted"
-      title={`${comment.content} · ${at.toLocaleString('it-IT')}`}
+      title={`${who.agentId ?? who.label} · ${comment.content} · ${at.toLocaleString('it-IT')}`}
       data-testid="task-status-event"
     >
       {valid ? <StatusIcon status={to} /> : <span className="h-1 w-1 shrink-0 rounded-full bg-app-text-faint" />}
       <span className="min-w-0 truncate">
-        <span className="text-app-text-secondary">{comment.author}</span> → {valid ? STATUS_LABEL[to] : comment.content}
+        <span className="text-app-text-secondary">{who.label}</span> → {valid ? STATUS_LABEL[to] : comment.content}
         {/* La ragione: perché la card si è mossa, sulla riga che la muove. */}
         {valid && ev?.reason && <span className="text-app-text-faint"> · {ev.reason}</span>}
       </span>
@@ -2679,10 +2682,13 @@ export function CommentBubble({ comment, onPreview }: { comment: TaskComment; on
       </div>
     );
   }
-  if (comment.author !== 'user') {
-    const system = comment.author === 'system';
+  const who = commentAuthorLabel(comment.author);
+  if (who.kind !== 'user') {
+    const system = who.kind === 'system';
+    // The tooltip is the only place the speaker appears in this bubble, so it
+    // gets the derived label, not the stored author.
     return (
-      <div className="pr-8" title={comment.author}>
+      <div className="pr-8" title={who.label}>
         <div className={`text-sm ${system ? 'text-app-text-muted' : 'text-app-text'}`}>
           <CommentBody content={comment.content} />
         </div>
