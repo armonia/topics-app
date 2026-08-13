@@ -59,7 +59,7 @@ import { createPreviewManager, type PreviewManager, type PreviewProcess } from "
 import { registerPreviewProcess, unregisterPreviewProcess } from "./server/routes/processes";
 import { sweepWorktrees, type TaskStatus as GcTaskStatus } from "./server/services/worktree-gc";
 import { formatMb, parseSlimSkip, slimWorktree } from "./server/services/worktree-slim";
-import { branchExistsInRepo, branchStatusFromRepo, commitStatusFromRepo, resolveCommit, worktreeDiffStat } from "./server/services/branch-status";
+import { branchExistsInRepo, branchStatusFromRepo, commitIsAncestor, commitStatusFromRepo, resolveCommit, worktreeDiffStat } from "./server/services/branch-status";
 import { deliveryPointer } from "./server/services/own-commits";
 import { abandonNoticeFromRepo } from "./server/services/worktree-abandon-notice";
 import { createTaskAttemptStore } from "./server/services/task-attempts";
@@ -1481,6 +1481,11 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
   // codice sul loro ramo, in silenzio. `witnessed: false` di proposito: è il
   // vero di ADESSO, e la passata periodica resta libera di correggerlo se il
   // land è morto a metà dopo aver mergiato davvero.
+  // La PROVA che il land è avvenuto: il commit di fusione dev'essere dentro
+  // `main` di quel checkout, riletto da git dopo il merge. `defaultBranch` è
+  // "main" ovunque qui (vedi `resolveTaskMerge` sopra), quindi la domanda è
+  // esattamente quella che il land ha provato a rendere vera.
+  confirmLandedOnMain: (repoPath, commit) => commitIsAncestor(repoPath, commit, "main"),
   markLandPending: (taskId) => {
     try {
       dispatcherSvc.recordLandingState({
