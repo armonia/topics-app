@@ -32,8 +32,24 @@ export interface GitRunResult {
   stderr?: string;
 }
 
-/** Stessa firma del runner iniettabile dell'automerge, così i due la condividono. */
-export type GitRunner = (cwd: string, args: string[]) => Promise<GitRunResult>;
+/**
+ * L'ambiente di UNA chiamata a git. Serve a una domanda sola, e per quella non
+ * c'è altra strada: `git apply --cached` lavora sull'INDICE, e per chiedergli
+ * «questo contenuto sta già nell'albero di main?» l'indice dev'essere quello di
+ * main, non quello del checkout — che è su un altro branch, o sporco, o
+ * entrambe. `GIT_INDEX_FILE` punta a un indice temporaneo e la domanda smette di
+ * dipendere da com'è messo il checkout in quel momento.
+ */
+export interface GitRunEnv {
+  env?: Record<string, string>;
+}
+
+/**
+ * Stessa firma del runner iniettabile dell'automerge, così i due la condividono.
+ * Il terzo parametro è opzionale da entrambi i lati: un doppio di test scritto
+ * `(cwd, args) => …` resta assegnabile, e semplicemente non lo guarda.
+ */
+export type GitRunner = (cwd: string, args: string[], opts?: GitRunEnv) => Promise<GitRunResult>;
 
 export interface OwnCommitsOptions {
   /** Il branch d'integrazione, cioè il «da dove in poi» della domanda. Default `main`. */
@@ -64,9 +80,13 @@ function refName(name: string): string {
  * `listOwnCommits` e usarlo anche per le sue chiamate, altrimenti i test che ne
  * iniettano uno finto si troverebbero metà delle domande sul git vero.
  */
-export async function defaultRunGit(cwd: string, args: string[]): Promise<GitRunResult> {
+export async function defaultRunGit(cwd: string, args: string[], opts?: GitRunEnv): Promise<GitRunResult> {
   try {
-    const proc = Bun.spawn(["git", "-C", cwd, ...args], { stdout: "pipe", stderr: "pipe" });
+    const proc = Bun.spawn(["git", "-C", cwd, ...args], {
+      stdout: "pipe",
+      stderr: "pipe",
+      ...(opts?.env ? { env: { ...process.env, ...opts.env } } : {}),
+    });
     const [stdout, stderr] = await Promise.all([
       new Response(proc.stdout).text(),
       new Response(proc.stderr).text(),
