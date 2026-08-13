@@ -1494,7 +1494,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     }
 
     // POST /api/boards/:projectId/publish — push the project's current branch to
-    // its remote. On repos with deploy CI ([cliente]'s deploy.yml runs on push to
+    // its remote. On repos with deploy CI (demoapp's deploy.yml runs on push to
     // main) this IS the deploy trigger — a deliberate, human-initiated action
     // (the board UI gates it behind a confirm).
     const bPublish = matchRoute(pathname, "/api/boards/:projectId/publish");

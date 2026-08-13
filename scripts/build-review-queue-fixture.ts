@@ -2,6 +2,14 @@
 /**
  * Congela la coda di review dell'11/08/2026 come fixture della derivazione.
  *
+ * NON RIGENERARE. `tests/fixtures/review-queue-2026-08-11.json` è stato
+ * ANONIMIZZATO a mano: id e titoli delle 29 card sono sintetici, perché questo
+ * repo è pubblico e quei titoli erano la roadmap vera di una persona. La forma
+ * misurata (29 card, i file dei loro commit propri, il verdetto atteso) è
+ * intatta, ed è l'unica cosa su cui il test asserisce. Far girare questo script
+ * contro il DB vivo rimetterebbe dentro i dati reali: tienilo come documento di
+ * COME la misura è stata presa, non come un comando da eseguire.
+ *
  * PERCHÉ ESISTE. La regola «tocca `client/src` fuori dai test ⇒ visibile» è
  * nata da uno smistamento A MANO: 29 card in review, aperte una per una,
  * guardando il diff. La BARRA di quel lavoro è che la derivazione automatica
@@ -12,10 +20,14 @@
  *
  * COME RICOSTRUISCE, e perché così:
  *  · L'INSIEME — le card in `review` all'istante in cui è nata la card delle
- *    etichette (2026-08-11T17:51:42Z), ricostruito dagli eventi di stato del
- *    thread (`task_comments.kind='status'`, `da→a`): l'ultima transizione fino a
+ *    etichette, ricostruito dagli eventi di stato del thread
+ *    (`task_comments.kind='status'`, `da→a`): l'ultima transizione fino a
  *    quell'istante finisce in `review`. Root, non archiviate. Sono 29, che è
- *    esattamente il numero contato a mano.
+ *    esattamente il numero contato a mano. L'istante ESATTO non è scritto qui:
+ *    era un dato personale (dice a che ora lavorava una persona) ed è stato
+ *    normalizzato a mezzanotte, come il campo `at` della fixture. Il che
+ *    significa anche che `AT` qui sotto NON ricostruisce più quelle 29 card —
+ *    un motivo in più per non rigenerare (vedi il divieto in cima).
  *  · I FILE — quelli dei commit PROPRI della card (`main..ramo --not <altri
  *    rami>`), non `main...ramo`. Il ramo di una card nasceva dall'HEAD di un
  *    checkout condiviso ed EREDITA il lavoro di chi ci stava sopra: sulle stesse
@@ -24,7 +36,8 @@
  *    client. Per le card già atterrate il ramo non c'è più: si legge il commit
  *    di merge su main (`merge task <id>: …`).
  *
- * Uso (rigenerazione; serve il DB vero e il checkout principale):
+ * Uso (storico, e vedi il divieto qui sopra: serviva il DB vero e il checkout
+ * principale):
  *   bun run scripts/build-review-queue-fixture.ts > tests/fixtures/review-queue-2026-08-11.json
  */
 
@@ -33,7 +46,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
-const AT = "2026-08-11T17:51:42.720Z";
+/** Normalizzato a mezzanotte, non l'istante vero della misura: vedi sopra. */
+const AT = "2026-08-11T00:00:00.000Z";
 const REPO = process.env.FIXTURE_REPO ?? join(homedir(), "Projects", "topics-app");
 const DB_PATH = process.env.FIXTURE_DB ?? join(REPO, "data", "topics.db");
 /** Il file già congelato, letto per non impoverirlo (vedi `frozen`). */
@@ -77,7 +91,7 @@ const others = git(["for-each-ref", "--format=%(refname)", "refs/heads/"]).split
  * PERCHÉ SERVE. Questa ricostruzione DECADE: il ramo di una card vive finché
  * qualcuno non lo landa, e da quel momento `main..ramo --not <altri>` non ha più
  * niente da dire. Misurato addosso: fra la prima generazione e la seconda — un
- * rebase su main, qualche ora — la card `5bfd7356` è passata da 20 file (8 di
+ * rebase su main, qualche ora — la card `0a1b2c22` è passata da 20 file (9 di
  * client) a ZERO, e con essa il verdetto da `visibile` a `decisione`. Una fixture
  * che si rigenera più povera ogni volta non è una misura congelata: è una misura
  * che si scioglie, e il test che ci sta sopra racconterebbe la storia sbagliata
