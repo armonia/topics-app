@@ -3,9 +3,9 @@
  * Pure integration: no UI, no WS roundtrip needed.
  */
 import { describe, expect, test, beforeAll } from "bun:test";
-import { setupTestDataDir, createTestAppContext } from "./helpers";
+import { setupTestDataDir, createTestAppContext, testTmpDir } from "./helpers";
 
-const TEST_DATA = "/tmp/topics-phase-c-data";
+const TEST_DATA = testTmpDir("phase-c-data");
 
 beforeAll(() => setupTestDataDir(TEST_DATA));
 
