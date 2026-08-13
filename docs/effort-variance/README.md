@@ -2,9 +2,11 @@
 
 Da quando l'effort è `auto` (commit `7e074543`), lo sforzo di un task dispatchato
 lo sceglie una chiamata haiku one-shot. È la leva di costo più pesante che
-abbiamo — sullo stesso micro-task, `medium` costa 61,1k token di lavoro e
-`xhigh` 108,8k — quindi se quella chiamata balla, lo stesso task costa di più per
-un lancio di dado.
+abbiamo: sullo stesso micro-task, `medium` costa 61,1k token di lavoro e `xhigh`
+108,8k, cioè **1,8×**, e la rilettura di cache raddoppia. Sull'indice di costo di
+[board-vs-chat](../board-vs-chat/README.md) quei due sforzi valgono `1,24` e
+`2,07`. Quindi se quella chiamata balla, lo stesso task costa di più per un
+lancio di dado.
 
 Il sospetto veniva da tre chiamate di fila sullo stesso testo: `opus medium`,
 `opus high`, `opus medium`. Tre non sono una misura. Questi sono i numeri.

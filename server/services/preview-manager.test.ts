@@ -57,7 +57,7 @@ describe("isLocalUrl", () => {
     }
   });
   it("rejects prod / non-loopback hosts and garbage", () => {
-    for (const u of ["https://[cliente].[cliente].it/", "http://example.com", "not a url", ""]) {
+    for (const u of ["https://demoapp.example.com/", "http://example.com", "not a url", ""]) {
       expect(isLocalUrl(u)).toBe(false);
     }
   });
@@ -169,7 +169,7 @@ describe("prepareForReview", () => {
 
   it("NEVER keeps a prod output_url when no preview is possible", async () => {
     const h = harness({ resolveCommand: () => null });
-    h.outputUrl.v = "https://[cliente].[cliente].it/";
+    h.outputUrl.v = "https://demoapp.example.com/";
     const pm = createPreviewManager(h.deps);
     await pm.prepareForReview("t1");
     expect(h.outputUrl.v).toBeNull();

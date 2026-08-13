@@ -22,14 +22,20 @@ Le licenze sono gettoni Ed25519. La coppia è nata il 2026-08-10, `kid`
 
 Due copie, e nessuna delle due è un file nel repo.
 
-1. **La copia durevole: il gestore di password** (1Password, voce «Topics —
-   chiave licenze `armonia-1`»). È quella che sopravvive a un disco che muore, e
-   l'unica che vale se un giorno la macchina di chi conia non è più questa.
-2. **La copia di lavoro: `~/.topics/signing/licenza-privata.key`**, permessi
-   `0600`, accanto al certificato di firma dell'app (`topics-signing.p12`) — che
-   è già il posto dove vivono i segreti di rilascio di questo progetto, e quindi
-   non ne inventa uno nuovo. È comodità, non archivio: se sparisce si rimette dal
+1. **La copia durevole: il gestore di password dell'organizzazione**, in una voce
+   dedicata alla chiave di conio. È quella che sopravvive a un disco che muore, e
+   l'unica che vale se un giorno la macchina di chi conia non è più quella di
+   oggi.
+2. **La copia di lavoro: un file locale, permessi `0600`**, tenuto dove il
+   progetto tiene già gli altri segreti di rilascio — così non nasce un posto
+   nuovo da ricordare. È comodità, non archivio: se sparisce si rimette dal
    punto 1.
+
+**Dove stiano di preciso quella voce e quel file, questo documento non lo dice**,
+ed è voluto: un manuale versionato in un repo non è il posto in cui scrivere
+l'indirizzo di una chiave privata. Nei comandi qui sotto la copia di lavoro si
+chiama `$CHIAVE_LICENZE`; chi conia sa a quale percorso corrisponde sulla propria
+macchina, e lo esporta prima di eseguire.
 
 Cosa NON è un posto dove vive: un `.env` del progetto, una variabile in CI, un
 allegato su una board, un messaggio. `TOPICS_LICENSE_PRIVKEY` esiste per passarla
@@ -70,7 +76,9 @@ Stripe resta un corriere. Chi bucasse l'account potrebbe scrivere
 ### Accenderlo
 
 ```
-TOPICS_LICENSE_PRIVKEY="$(cat ~/.topics/signing/licenza-privata.key)" \
+CHIAVE_LICENZE="…/percorso/della/copia/di/lavoro"   # vedi «Dove vive la privata»
+
+TOPICS_LICENSE_PRIVKEY="$(cat "$CHIAVE_LICENZE")" \
 CONIO_WEBHOOK_SECRET=whsec_… \
 STRIPE_SECRET_KEY=sk_live_… \
   bun scripts/conio-licenze.ts 4444
@@ -124,10 +132,11 @@ Il cliente legge il proprio identificativo in **Impostazioni → Piano**
 curl -sk https://127.0.0.1:3333/api/license
 ```
 
-Poi, sulla macchina che ha la chiave:
+Poi, sulla macchina che ha la chiave, con `CHIAVE_LICENZE` che punta alla copia
+di lavoro (vedi «Dove vive la privata»):
 
 ```
-TOPICS_LICENSE_PRIVKEY="$(cat ~/.topics/signing/licenza-privata.key)" \
+TOPICS_LICENSE_PRIVKEY="$(cat "$CHIAVE_LICENZE")" \
   bun scripts/licenza.ts conia <installationId> <posti> <giorni>
 ```
 
