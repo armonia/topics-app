@@ -12,6 +12,12 @@
 // letto dai due lati del filo: `export … from` ri-esporta ma non porta i nomi
 // in scope locale, e qui sotto servono, quindi l'import gemello non è ridondante.
 export { MAX_FANOUT, TASK_STATUSES, ACTIVE_DISPATCH_STATES, PARKED_STOPPED, PARKED_WAITED_OUT, isAgentWorking, isThreadSpeech, parseStatusEvent, hasPlanApproveOption, parseQuestionBlock } from '../../../shared/board';
+// Il tetto globale di concorrenza: estremi, arrotondamento e formula del numero
+// EFFETTIVO. Stessa cartella condivisa e stesso motivo del resto: il dispatcher
+// applica questo calcolo, il pannello impostazioni della board lo scrive sotto
+// gli occhi di una persona, e due copie inizierebbero a dire numeri diversi.
+export { GLOBAL_CAP_MIN, GLOBAL_CAP_MAX, GLOBAL_CAP_OFF, clampGlobalCap, effectiveDispatchCap } from '../../../shared/board';
+export type { GlobalDispatchCap } from '../../../shared/board';
 // The comparison the SERVER matches a picked option with, and the one reserved
 // label the client has to recognise by name. The board de-duplicates an agent's
 // quick reply against the button beside it, and once the buttons became
