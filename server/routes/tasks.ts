@@ -2405,6 +2405,23 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           });
           const task = svc.get(bComments.taskId, { projectId: bComments.projectId })?.task;
           broadcastToAll({ type: "task:updated", projectId: bComments.projectId, task });
+          // `quiet` = il commento è una ANNOTAZIONE, non una consegna all'agent.
+          //
+          // Tutto ciò che viene dopo questa riga esiste per DARE il commento a
+          // chi lavora: la risposta a una domanda aperta, e per un task in
+          // review il reject+resume che rimette la card in In Progress. È il
+          // comportamento giusto per «rispondi all'agent», ed è l'unico che
+          // c'era: chi voleva solo lasciare traccia di aver verificato una
+          // consegna la rigettava senza saperlo, perché il bottone diceva
+          // «Commenta» e faceva un'altra cosa.
+          //
+          // Con `quiet` il commento si salva e si trasmette (le due righe qui
+          // sopra restano: la nota si vede sulla card e su ogni device) e la
+          // rotta si ferma. Nessun reviewDecision, nessun resume, per qualunque
+          // stato del root — il gesto quieto è quieto anche quando il task è in
+          // corso o quando c'è una domanda in sospeso, perché una nota non è la
+          // risposta a una domanda che nessuno ha detto di voler chiudere.
+          if (body?.quiet === true) return json(comment, 201);
           // C'È UNA DOMANDA APERTA SU QUESTO TASK? Allora questo commento è la
           // RISPOSTA, e va a chi sta fermo ad aspettarla — che può essere il
           // coordinatore o una delle sue sessioni di lavoro. La consegna sblocca
