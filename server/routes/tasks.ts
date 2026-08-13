@@ -747,7 +747,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         taskId, author: "system",
         content:
           "Chiusa SENZA fondere: il merge automatico è spento per questa board " +
-          `(Impostazioni della board, «Merge automatico alla chiusura»). Il lavoro resta sul branch \`${branch}\`. ` +
+          `(impostazioni della board, «Auto-merge su Approva»). Il lavoro resta sul branch \`${branch}\`. ` +
           "Per portarlo su main premi «Landa su main» sulla card, oppure fondilo a mano: " +
           `\`git merge --no-ff ${branch}\`.`,
       });
