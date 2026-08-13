@@ -18,6 +18,7 @@ import { mkdirSync, rmSync, writeFileSync, appendFileSync, utimesSync } from "fs
 import { E2E_BASE, E2E_HOME } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { beat, didascalia } from "./helpers/evidence";
+import { claudeProjectDirName } from "../../server/lib/claude-transcript-path";
 
 hermetic(test);
 
@@ -32,8 +33,8 @@ const LIVE_ASSISTANT = "import-live-risposta-DAL-TERMINALE";
 const FORK_USER = "import-fork-domanda-DOPO-IL-FORK";
 const FORK_ASSISTANT = "import-fork-risposta-DOPO-IL-FORK";
 
-/** Claude Code encodes the cwd by replacing every `/` and `.` with `-`. */
-const encode = (p: string) => p.replace(/[/.]/g, "-");
+/** Il server usa questa, e la usa anche il fixture: una regola sola. */
+const encode = claudeProjectDirName;
 const transcriptPath = (cwd: string, sessionId: string) =>
   `${TEST_HOME}/.claude/projects/${encode(cwd)}/${sessionId}.jsonl`;
 

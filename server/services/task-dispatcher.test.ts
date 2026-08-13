@@ -2550,6 +2550,36 @@ describe("cancello: non si ridispaccia lavoro già su main", () => {
     h.dispatcher.shutdown();
   });
 
+  it("trascinata fuori da REVIEW da un umano: il cancello la lascia ripartire come da done", async () => {
+    // Il guasto del 12-13/08 su `d6baaf5e`. Il marchio della riapertura si
+    // accendeva solo uscendo da `done`, e Attilio era passato da `review` a
+    // `in corso` dopo aver chiesto un cambio di rotta: per il campo nessuno
+    // aveva riaperto niente, e il mattino dopo il cancello ha chiuso la card
+    // sopra una consegna di cinque giorni prima. Due salti, un solo esito.
+    for (const passaggio of ["in_progress", "todo"] as const) {
+      const { h, chieste } = conSonda(true);
+      seedTask(h.db, { id: "t1", status: "review", deliveryBranch: "topics/x", deliveryCommit: "dddd6666".repeat(5) });
+
+      h.svc.update({ taskId: "t1", actor: "human", by: "attilio", patch: { status: passaggio } });
+      expect(h.task("t1")!.reopenedActor).toBe("human");
+      if (passaggio === "in_progress") {
+        // Il dispatcher reclama solo dai `todo`: la card trascinata «in corso»
+        // resta ferma finché qualcuno non la rimette in coda (14 ore, quel
+        // giorno), ed è LÌ che il cancello la incontra.
+        h.svc.update({ taskId: "t1", actor: "human", by: "attilio", patch: { status: "todo" } });
+      }
+
+      await h.dispatcher.tick(PID);
+      await flush();
+
+      expect(h.task("t1")!.status).toBe("in_progress");
+      expect(h.turns.length).toBe(1);
+      // A git non si chiede nemmeno: la risposta non cambierebbe la decisione.
+      expect(chieste).toEqual([]);
+      h.dispatcher.shutdown();
+    }
+  });
+
   it("il marchio dell'umano vale anche quando in coda ce l'ha rimessa la macchina", async () => {
     // La riapertura pulisce lo scatto della consegna, ma il marchio `reopened_actor`
     // resta finché la card non richiude il ciclo. Quindi lo stato «consegna
