@@ -854,6 +854,12 @@ export interface ComposerDraft {
   model: string | null;
   prio: number | null;
   planFirst: boolean;
+  /**
+   * La colonna in cui nascerà il task (Todo o Backlog). Facoltativo: le bozze
+   * scritte prima che la scelta esistesse non ce l'hanno, e per loro l'assenza
+   * vale Todo, cioè quello che il composer faceva sempre.
+   */
+  status?: TaskStatus;
 }
 
 async function uiGet<T>(key: string): Promise<T | null> {
@@ -891,7 +897,7 @@ export const boardDrafts = {
   getComposer: () => uiGet<ComposerDraft>('board-composer-draft'),
   putComposer: (d: ComposerDraft) => uiPutDebounced('board-composer-draft', d),
   /** Immediate clear (submit) — no debounce window to resurrect the sent text. */
-  clearComposer: () => uiPutDebounced('board-composer-draft', { text: '', model: null, prio: null, planFirst: false }, 0),
+  clearComposer: () => uiPutDebounced('board-composer-draft', { text: '', model: null, prio: null, planFirst: false, status: 'todo' }, 0),
 
   async getTaskDraft(taskId: string): Promise<string> {
     if (!taskDraftsCache) taskDraftsCache = (await uiGet<Record<string, string>>(TASK_DRAFTS_KEY)) ?? {};
