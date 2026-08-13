@@ -2640,6 +2640,40 @@ describe("cancello: non si ridispaccia lavoro già su main", () => {
     expect(h.turns.length).toBe(1);
     h.dispatcher.shutdown();
   });
+
+  it("RIFIUTATA in review: la consegna cade, il marchio resta, e il cancello la lascia ripartire", async () => {
+    // La quinta porta, e l'unica che scriveva lo status a SQL grezzo:
+    // `reviewDecision(reject)`. Il rifiuto lasciava addosso lo scatto della
+    // consegna e non marcava la riapertura, quindi il cancello vedeva una card
+    // ancora consegnata e atterrata. Misurato il 13/08 su `d6baaf5e`: richiusa
+    // dal sistema SEI SECONDI dopo che l'umano l'aveva rimessa in coda.
+    //
+    // Le altre quattro uscite da review passano da `update()` e hanno il loro
+    // test in tasks.test.ts; qui si chiude il giro fino al cancello, che è il
+    // punto in cui il danno si vedeva.
+    const { h, chieste } = conSonda(true);
+    seedTask(h.db, { id: "t1", status: "review", deliveryBranch: "topics/x", deliveryCommit: "cccc7777".repeat(5) });
+
+    const rifiutata = h.svc.reviewDecision({ taskId: "t1", by: "attilio", decision: "reject", comment: "cambia rotta" });
+    expect(rifiutata.status).toBe("in_progress");
+    expect(rifiutata.deliveryCommit).toBeNull();
+    expect(rifiutata.deliveryBranch).toBeNull();
+    expect(rifiutata.reopenedActor).toBe("human");
+    expect(rifiutata.reopenedBy).toBe("attilio");
+
+    // Il dispatcher reclama solo dai `todo`: è lì che la card incontra il
+    // cancello, come quel giorno.
+    h.svc.update({ taskId: "t1", actor: "human", by: "attilio", patch: { status: "todo" } });
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    expect(h.task("t1")!.status).toBe("in_progress");
+    expect(h.turns.length).toBe(1);
+    // A git non si chiede nemmeno: due guardie indipendenti (niente consegna,
+    // riapertura umana) e nessuna delle due ha bisogno della risposta.
+    expect(chieste).toEqual([]);
+    h.dispatcher.shutdown();
+  });
 });
 
 /**
