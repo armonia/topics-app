@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="540" viewBox="0 0 760 540" font-family="Helvetica, Arial, sans-serif">
+  <rect width="760" height="540" fill="#0f172a"/>
+
+  <text x="380" y="52" fill="#f8fafc" font-size="36" font-weight="700" text-anchor="middle">Fuori dalla consegna = RIAPERTA</text>
+
+  <!-- le due partenze -->
+  <rect x="40" y="86" width="330" height="84" rx="12" fill="#1e293b" stroke="#38bdf8" stroke-width="3"/>
+  <text x="205" y="126" fill="#f8fafc" font-size="34" font-weight="700" text-anchor="middle">REVIEW</text>
+  <text x="205" y="156" fill="#94a3b8" font-size="20" text-anchor="middle">trascina · rimetti in coda · rifiuta</text>
+
+  <rect x="390" y="86" width="330" height="84" rx="12" fill="#1e293b" stroke="#38bdf8" stroke-width="3"/>
+  <text x="555" y="126" fill="#f8fafc" font-size="34" font-weight="700" text-anchor="middle">DONE</text>
+  <text x="555" y="156" fill="#94a3b8" font-size="20" text-anchor="middle">riapri</text>
+
+  <!-- quattro porte, una sola strada -->
+  <path d="M120 170 L120 232" stroke="#38bdf8" stroke-width="4" fill="none"/>
+  <path d="M205 170 L205 232" stroke="#38bdf8" stroke-width="4" fill="none"/>
+  <path d="M290 170 L290 232" stroke="#38bdf8" stroke-width="4" fill="none"/>
+  <path d="M555 170 L555 232" stroke="#38bdf8" stroke-width="4" fill="none"/>
+  <path d="M110 232 L120 246 L130 232 Z" fill="#38bdf8"/>
+  <path d="M195 232 L205 246 L215 232 Z" fill="#38bdf8"/>
+  <path d="M280 232 L290 246 L300 232 Z" fill="#38bdf8"/>
+  <path d="M545 232 L555 246 L565 232 Z" fill="#38bdf8"/>
+
+  <rect x="40" y="252" width="680" height="86" rx="12" fill="#0c4a6e" stroke="#7dd3fc" stroke-width="3"/>
+  <text x="380" y="292" fill="#f0f9ff" font-size="32" font-weight="700" text-anchor="middle">reopened_actor = human</text>
+  <text x="380" y="322" fill="#bae6fd" font-size="20" text-anchor="middle">e lo scatto della consegna cade</text>
+
+  <path d="M380 338 L380 396" stroke="#7dd3fc" stroke-width="4" fill="none"/>
+  <path d="M370 396 L380 410 L390 396 Z" fill="#7dd3fc"/>
+
+  <rect x="40" y="416" width="680" height="80" rx="12" fill="#3f1d1d" stroke="#f87171" stroke-width="3"/>
+  <text x="380" y="452" fill="#fee2e2" font-size="30" font-weight="700" text-anchor="middle">chiusura automatica: NON chiude</text>
+  <text x="380" y="480" fill="#fca5a5" font-size="20" text-anchor="middle">chi riapre sta chiedendo un seguito</text>
+
+  <text x="380" y="522" fill="#64748b" font-size="19" text-anchor="middle">prima solo da DONE: d6baaf5e chiusa su un commit di cinque giorni prima</text>
+</svg>

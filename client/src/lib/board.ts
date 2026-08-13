@@ -11,7 +11,7 @@
 // Il contratto della board sta in `shared/board.ts`, dichiarato UNA volta e
 // letto dai due lati del filo: `export … from` ri-esporta ma non porta i nomi
 // in scope locale, e qui sotto servono, quindi l'import gemello non è ridondante.
-export { MAX_FANOUT, TASK_STATUSES, ACTIVE_DISPATCH_STATES, PARKED_STOPPED, PARKED_WAITED_OUT, isAgentWorking, parseStatusEvent, hasPlanApproveOption, parseQuestionBlock } from '../../../shared/board';
+export { MAX_FANOUT, TASK_STATUSES, ACTIVE_DISPATCH_STATES, PARKED_STOPPED, PARKED_WAITED_OUT, isAgentWorking, isThreadSpeech, parseStatusEvent, hasPlanApproveOption, parseQuestionBlock } from '../../../shared/board';
 export type {
   TaskStatus, TaskComment, ReviewCheck, CheckRun, BoardSettings, BoardSettingsPatch, DispatchCapacity, BlockerRef,
   LandingTicket,
@@ -27,6 +27,11 @@ import type {
   TaskStatus, TaskComment, CheckRun, BoardSettings, BoardSettingsPatch, DispatchCapacity, BlockerRef, LandingTicket, SubtaskWork,
   QueueReason,
 } from '../../../shared/board';
+// Who spoke on a comment. The stored `author` is an identity, so the label a
+// person reads is derived from it, on the same rule the server uses. Keeping a
+// second rule in the client is how the card and the thread would start
+// disagreeing about who said something.
+export { commentAuthorLabel } from '../../../shared/comment-author';
 // Il tentativo di un fan-out: stesso contratto del server, stessa cartella condivisa.
 // Passa solo `attemptHasWork`, che è un predicato e non ha lingua. Il diffstat
 // (`formatAttemptStat`) NON passa più di qui: la UI lo vuole tradotto, e la sua
@@ -232,13 +237,18 @@ export function subtaskWorkChip(
 }
 
 /**
- * Il chip «riaperta»: una card che ERA fatta e non lo è più lo dice sulla card,
- * dove si guarda — non solo nel thread.
+ * Il chip «riaperta»: una card che ERA consegnata e non lo è più lo dice sulla
+ * card, dove si guarda — non solo nel thread.
  *
  * Misurato l'11/08: undici card uscite da `done` in sei ore. Non se n'era persa
  * nessuna, ma dalla colonna si vedeva solo un buco al posto di una cosa fatta, e
  * il motivo (che c'era sempre) viveva nel commento. `null` = la card non è mai
- * uscita da done, o ci è tornata (allora il ciclo è chiuso e il segno cade).
+ * uscita dalla consegna, o ci è tornata (allora il ciclo è chiuso e il segno
+ * cade).
+ *
+ * Il tooltip non nomina più la colonna di partenza: adesso il segno si accende
+ * anche uscendo da `review`, e «Era in Done» sarebbe stato falso su tre uscite
+ * su quattro.
  */
 export function reopenedChip(
   task: Pick<BoardTask, 'reopenedAt' | 'reopenedBy' | 'reopenedActor'>,
@@ -256,7 +266,7 @@ export function reopenedChip(
   return {
     label: 'riaperta',
     detail: `${chi} il ${quando}`,
-    title: `Era in Done: riaperta ${chi} il ${quando}. Il motivo è nel thread della card.`,
+    title: `Aveva consegnato: riaperta ${chi} il ${quando}. Il motivo è nel thread della card.`,
   };
 }
 
