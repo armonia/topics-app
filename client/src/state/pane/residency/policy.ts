@@ -73,58 +73,41 @@ export interface ResidencyDecision {
  * comportamento di prima (tutto ciò che è stato visitato resta montato).
  */
 export const RESIDENCY_BUDGET: Readonly<Record<ResidencyClass, number>> = {
-  // `native` = una pane che possiede una WKWebView. NON si sfratta MAI, e il
-  // motivo non e' che sia preziosa: e' che sfrattarla e' in PERDITA SECCA.
+  // `native` = una pane che possiede una WKWebView. NON si sfratta MAI. Il
+  // motivo storico era che sfrattarla fosse in PERDITA SECCA. Quel motivo dal
+  // 2026-08-13 non vale piu': resta il numero, cambia la ragione.
   //
-  // wry non distrugge la webview quando la chiudi. In `wry-0.55.1`,
-  // `impl Drop for InnerWebView` chiama `self.webview.retain()` — INCREMENTA il
+  // COM'ERA. wry non distrugge la webview quando la chiudi. In `wry-0.55.1`,
+  // `impl Drop for InnerWebView` chiama `self.webview.retain()`: INCREMENTA il
   // conteggio dei riferimenti mentre distrugge. E' deliberato, e' il workaround
   // per un use-after-free durante il dealloc (tauri-apps/wry#1733), ed e' lo
-  // stesso sintomo di wry#536 e tauri#5397: "does not terminate its process and
-  // not release memory when closed". Quindi `browser_close` toglie la view dallo
-  // schermo e dallo store di Tauri, ma il processo WebContent resta vivo per
-  // sempre.
+  // stesso sintomo di wry#536 e tauri#5397. Ogni ciclo sfratto -> rientro non
+  // liberava niente e AGGIUNGEVA un processo permanente: misurato sull'app viva
+  // il 2026-07-29, 61 processi e 4,1 GB in un'ora e mezza con lo sfratto
+  // attivo, contro 65 processi accumulati in DICIOTTO ore senza tetto.
   //
-  // Conseguenza: ogni ciclo sfratto -> rientro non libera niente e AGGIUNGE un
-  // processo permanente. Misurato sull'app viva il 2026-07-29, ed e' il motivo
-  // per cui questo numero e' Infinity: con lo sfratto attivo, 61 processi e
-  // 4,1 GB in un'ora e mezza, contro i 65 processi accumulati in DICIOTTO ore
-  // quando le pane restavano semplicemente montate. Il tetto, che esisteva per
-  // contenere la memoria, la faceva crescere dodici volte piu' in fretta.
+  // A MONTE NON E' CAMBIATO NIENTE, verificato il 2026-08-12: il `retain()` sta
+  // ancora nel `Drop` sia in wry 0.56.0 (l'ultima release, 2026-07-30) sia sul
+  // branch `dev` (src/wkwebview/mod.rs), wry#1733 e' aperta e la PR wry#1734
+  // non tocca quella riga. Alzare la versione non recupera un byte.
+  //
+  // COM'E' ADESSO. Il guscio si libera lo stesso, senza passare da wry:
+  // `browser_close` chiama `-[WKWebView _close]`, che e' il teardown di WebKit,
+  // e il processo WebContent muore (`free_native_webview` in
+  // `desktop-tauri/src-tauri/src/lib.rs`). Misurato: 5 pane aperte e chiuse,
+  // 108 MB -> 0 MB con zero processi vivi, dove prima erano 101 MB con tutti e
+  // cinque ancora in piedi. Uno sfratto ci passa: smontare la pane fa scattare
+  // `browser_close` nella cleanup di `useTauriBrowser`.
+  //
+  // PERCHE' RESTA `Infinity`. Perche' un numero finito non c'e' ancora.
+  // Quello vecchio non si riusa (era tarato su uno sfratto che non liberava
+  // niente) e uno nuovo va misurato con il costo che il rientro ha OGGI: la
+  // pane ricarica la pagina da capo, che e' l'unica cosa che il retain di wry
+  // rendeva gratis.
   //
   // Una pane browser nascosta non e' comunque a costo pieno: il guscio le
   // consegna `isVisible=false` e `useTauriBrowser` spegne la WKWebView
   // (`setNativeVisible(false)`), quindi smette di comporre e di ridisegnare.
-  // Resta la sua memoria — che sfrattandola non recupereremmo comunque.
-  //
-  // VERIFICATO IL 2026-08-12, e la strada e' ancora chiusa. `retain()` sta
-  // ancora nel `Drop` sia in wry 0.56.0 (l'ultima release, 2026-07-30) sia sul
-  // branch `dev`: src/wkwebview/mod.rs, `impl Drop for InnerWebView`. A monte
-  // wry#1733 e' aperta, e la PR wry#1734 che toglierebbe l'use-after-free
-  // aggirato dal retain non tocca il retain. Alzare la versione di tauri/wry
-  // oggi non recupera un byte: non e' una dipendenza da aggiornare, e' un
-  // difetto da aspettare.
-  //
-  // Da rivedere SOLO quando wry deallochera' davvero: allora questo torna un
-  // numero finito e il tetto ricomincia a valere anche qui. Il segnale da
-  // guardare e' il retain in quel `Drop`, non il changelog: la 0.56.0 non lo
-  // menziona ne' in un senso ne' nell'altro.
-  //
-  // RIVERIFICATO IL 2026-08-13: il segnale e' arrivato, ma non qui. `_close`
-  // (commit f65c0d28, branch `topics/plucky-banner`) e' il teardown definitivo
-  // che rende reale lo sfratto, ma quel commit non e' mai atterrato su `main`:
-  // `git show main:desktop-tauri/src-tauri/src/lib.rs | grep -n
-  // "close_web_view\|free_native_webview"` non trova niente su questo branch,
-  // riverificato quattro volte in quattro turni distinti sulla stessa card. Due
-  // sottotask del board (6ab16dc3, 0e4c1c9b) segnano "done" un porting di quel
-  // fix e una rimisura, ma senza un commit dietro: lo stato della card non e'
-  // prova, lo e' solo il grep sul codice.
-  //
-  // Finche' resta cosi', lo sfratto QUI perde ancora il processo per sempre:
-  // il numero non cambia, e il motivo scritto sopra e' ancora quello vero PER
-  // QUESTO CODICE. La ritaratura (un numero misurato sul costo del reload
-  // della pagina, non piu' sulla perdita del processo) va rifatta solo dopo
-  // che `_close` e' davvero su `main` e c'e' un'app viva su cui misurarlo.
   native: Infinity,
   heavy: 3,
   light: 12,
