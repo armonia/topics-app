@@ -2,7 +2,7 @@
  * board-card-action-error.spec.ts — il perché un click non ha fatto niente sta
  * SULLA card, non in una barra fuori dallo schermo.
  *
- * Il caso portante è uno solo, ed è quello vero: «Va bene» su un padre in review
+ * Il caso portante è uno solo, ed è quello vero: l'approvazione su un padre in review
  * che ha ancora un sottotask aperto. Il server rifiuta (409, `open_subtasks`),
  * il task resta dov'è, e finché il messaggio finiva nella barra rossa in cima al
  * board pane — con la colonna scrollata, cioè quasi sempre — il bottone sembrava
@@ -17,7 +17,7 @@
  * si monta — sta nel `prologo`, su una pagina il cui video si butta. Senza
  * `E2E_CLIP` il percorso di codice è lo stesso, semplicemente non registra.
  *
- * Il padre nasce SENZA ramo consegnato: è ciò che fa uscire «Va bene»
+ * Il padre nasce SENZA ramo consegnato: è ciò che fa uscire l'approvazione
  * (`task-choice-accept`) invece di «Landa su main», che è un'altra chiamata e un
  * altro rifiuto.
  */
@@ -134,7 +134,7 @@ test.describe("Board · l'errore di un'azione sta sulla card che l'ha presa", ()
     topicId = topic.id;
 
     // Il padre CONSEGNATO: in review, senza ramo — è l'unico stato in cui la
-    // card offre «Va bene» (`accept`). Con un ramo uscirebbe «Landa su main»,
+    // card offre l'approvazione (`accept`). Con un ramo uscirebbe «Landa su main»,
     // che è un'altra chiamata e un altro rifiuto.
     padreId = await createTask(request, { text: PADRE, status: "review" });
     // Il figlio APERTO. `backlog` di proposito: conta per il cancello
@@ -161,7 +161,7 @@ test.describe("Board · l'errore di un'azione sta sulla card che l'ha presa", ()
     await resetPaneStore(page.request, []);
   });
 
-  test("CARD-ERRORE-01: «Va bene» su un padre con un sottotask aperto → la striscia rossa sulla CARD", async ({ request }) => {
+  test("CARD-ERRORE-01: approvare un padre con un sottotask aperto → la striscia rossa sulla CARD", async ({ request }) => {
     await resetProjectPanes(request, PROJECT_PATH);
     await seedProjectPane(request, PROJECT_PATH);
 
@@ -207,9 +207,13 @@ test.describe("Board · l'errore di un'azione sta sulla card che l'ha presa", ()
         await didascalia(page, "Card in review, un sottotask ancora aperto");
         await beat(page, 1400);
 
+        // La PAROLA del bottone non si ricopia qui: viene dalla tabella unica
+        // delle azioni (`taskActionWords.ts`), e ricopiarla farebbe fallire
+        // questo test il giorno in cui la si cambia in un posto solo. Quello
+        // che conta è che sia il bottone dell'approvazione, cioè il testid.
         const approva = card.getByTestId("task-choice-accept");
-        await expect(approva).toHaveText("Va bene");
-        await didascalia(page, "Un click su «Va bene»");
+        await expect(approva).toBeVisible();
+        await didascalia(page, "Un click sull'approvazione");
         await beat(page, 1200);
         await approva.click();
 

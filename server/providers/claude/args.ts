@@ -150,6 +150,20 @@ export interface ClaudeSpawnArgsOptions {
    * ciò che rende capace l'agente: tagliarli sposta il costo sui turni sprecati
    * invece di toglierlo.
    *
+   * ── E perché la chat ne taglia TRE, non quattro ────────────────────────────
+   * Lo stesso criterio, applicato a una chat, dà una risposta diversa su una
+   * sola voce. `Artifact`, `ReportFindings` e `ListAgents` restano inusabili
+   * anche lì: Topics non rende artefatti, non ospita la UI di code review, e
+   * `SendMessage` è differito comunque. Quelle tre valgono ~9.600 token per
+   * richiesta su opus, e a spegnerle non si perde niente.
+   *
+   * `Workflow` no. Il motivo per cui si taglia a un agente è che il consenso
+   * esplicito dell'umano non può raggiungerlo; ma in una chat l'umano c'è, e
+   * quel consenso lo può dare nel messaggio. Tagliarlo lì non sarebbe un
+   * risparmio, sarebbe togliere all'utente una leva che la sua stessa
+   * descrizione gli dice come usare. Vale 7.856 token su opus: la voce più cara
+   * delle quattro, e l'unica che si paga per una ragione.
+   *
    * Su haiku, misurato insieme a `slimSkillListing`: 32.123 → 20.383 token di
    * prefisso, −11.742 a ogni richiesta, e i pezzi sommano (6.024 + 3.171 + 608
    * + 257 + 1.683 = 11.743): l'ablazione è additiva, non c'è doppio conteggio.
@@ -157,8 +171,12 @@ export interface ClaudeSpawnArgsOptions {
    *
    * Un solo argomento separato da virgole, non un variadico: `--disallowed-tools
    * A B C` in mezzo all'argv si mangerebbe la flag successiva.
+   *
+   * `"chat"` taglia le tre voci irraggiungibili ovunque, `"dispatched"` ci
+   * aggiunge `Workflow`. `null`/assente non taglia niente (la via d'uscita è
+   * `TOPICS_TOOL_TRIM=off`).
    */
-  trimUnusedTools?: boolean;
+  toolTrim?: ToolTrim | null;
   /**
    * Il TETTO in token di un singolo risultato di tool MCP, o null per lasciare
    * quello della CLI (`MAX_MCP_OUTPUT_TOKENS`, default **25.000**).
@@ -217,13 +235,26 @@ export const IMAGE_READ_GUARD_SETTINGS = {
   },
 } as const;
 
+/** Quale dei due tagli applicare. Il perché sta accanto a `toolTrim`. */
+export type ToolTrim = "chat" | "dispatched";
+
 /**
- * I tool integrati che `trimUnusedTools` toglie dal registro. Sta qui e non
- * dentro la funzione perché è la LISTA che il banco deve poter confrontare col
+ * I tool integrati che `toolTrim` toglie dal registro. Stanno qui e non dentro
+ * la funzione perché sono le LISTE che il banco deve poter confrontare col
  * registro dei due bracci: un taglio che la CLI ignorasse in silenzio darebbe
  * un risparmio di zero travestito da configurazione corretta.
+ *
+ * `CHAT` è il sottoinsieme che nessuna sessione di Topics può usare, chi la
+ * guida non cambia niente. `DISPATCHED` aggiunge `Workflow`, che a un agente è
+ * vietato per costruzione e a una persona no.
  */
-export const TRIMMED_TOOLS = ["Workflow", "Artifact", "ReportFindings", "ListAgents"] as const;
+export const TRIMMED_TOOLS_CHAT = ["Artifact", "ReportFindings", "ListAgents"] as const;
+export const TRIMMED_TOOLS_DISPATCHED = ["Workflow", ...TRIMMED_TOOLS_CHAT] as const;
+
+/** La lista che corrisponde a un taglio. */
+export function trimmedTools(trim: ToolTrim): readonly string[] {
+  return trim === "dispatched" ? TRIMMED_TOOLS_DISPATCHED : TRIMMED_TOOLS_CHAT;
+}
 
 /** Ciò che serve per un completamento usa-e-getta (auto-titolo, digest, SSE). */
 export interface ClaudeOneshotArgsOptions {
@@ -267,8 +298,8 @@ export function buildClaudeArgs(opts: ClaudeSpawnArgsOptions): string[] {
     // all'argv si porterebbe via quella dopo. Verificato che le due forme
     // danno lo stesso taglio (−11.742 contro −11.743): la virgola non è
     // ignorata in silenzio. Il perché dei quattro nomi sta accanto a
-    // `trimUnusedTools` in `ClaudeSpawnArgsOptions`.
-    ...(opts.trimUnusedTools ? ["--disallowed-tools", TRIMMED_TOOLS.join(",")] : []),
+    // `toolTrim` in `ClaudeSpawnArgsOptions`.
+    ...(opts.toolTrim ? ["--disallowed-tools", trimmedTools(opts.toolTrim).join(",")] : []),
     // Gli schemi dei tool MCP viaggiano nel PREFISSO, cioè nella parte di prompt
     // che ogni richiesta del turno ripaga: un turno da 4 round-trip li paga 4
     // volte. Con il deferral la CLI manda i soli NOMI e carica lo schema quando

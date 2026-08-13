@@ -91,6 +91,24 @@ async function takeSnapshot(id: string, invoke: Invoke, max: number): Promise<Sn
 const REF_ACTION_SET = new Set<string>(REF_ACTIONS);
 
 /**
+ * Un file locale non arriva mai come `file://` — arriva come `/api/media?path=…`,
+ * cioè un riferimento da risolvere sulla NOSTRA origine (server/browser-local-file-url.ts).
+ *
+ * Risolverlo qui e non sul server è il punto: la stessa app si serve su porte
+ * diverse a seconda di chi guarda — il proxy in chiaro del guscio desktop, il
+ * server in TLS, l'host che vede un telefono in LAN. `window.location.origin` è
+ * l'unica risposta giusta per QUESTO client, e la sa solo lui.
+ */
+function absolutizeMediaRef(url: string): string {
+  if (!url.startsWith('/api/media?path=')) return url;
+  try {
+    return new URL(url, window.location.origin).toString();
+  } catch {
+    return url;
+  }
+}
+
+/**
  * Poll until the pane's document is at `origin` (when given) and past 'loading' —
  * the native stand-in for Playwright's goto(waitUntil:'domcontentloaded'), since
  * `browser_navigate` returns before WKWebView finishes the load. Checks first,
@@ -169,7 +187,7 @@ export async function executeNativeBrowserOp(
   try {
     switch (tool) {
       case 'browser_open': {
-        const url = typeof a.url === 'string' ? a.url : 'about:blank';
+        const url = absolutizeMediaRef(typeof a.url === 'string' ? a.url : 'about:blank');
         await invoke('browser_navigate', { id, url });
         // Page navigated → any cached refs are stale.
         clearNativeSnapshotCache(id);

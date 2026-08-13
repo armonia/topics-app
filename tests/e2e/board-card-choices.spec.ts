@@ -12,8 +12,8 @@
  * È anche la clip di consegna: quattro card nei quattro stati, e per ognuna una
  * decisione presa con UN click, senza scrivere niente.
  *   · review con ramo    → «Serve a me» (la card esce dalla review, @io)
- *   · review senza ramo  → «Va bene» (la card chiude)
- *   · in corso           → «Fermati» (l'agente si stacca, la card si parcheggia)
+ *   · review senza ramo  → «Approva» (la card chiude)
+ *   · in corso           → «Ferma» (l'agente si stacca, la card si parcheggia)
  *   · bloccata           → «Sblocca: <bloccante>» (il legame cade, la card parte)
  */
 import { test } from "./fixtures/layout.fixture";
@@ -199,11 +199,13 @@ test.describe("Scelte sempre presenti sulla card", () => {
     await expect(ramo).toContainText("@io");
     await beat(page);
 
-    // ── 2. Review SENZA ramo: va bene / rifai così… / non serve più ───────────
+    // ── 2. Review SENZA ramo: approva / rifai così… / archivia ────────────────
+    // The words come from the one table (`taskActionWords`): the same ones the
+    // card's context menu and the drawer's own buttons say.
     const piano = card(taskIds.piano);
-    await expect(choice(taskIds.piano, "accept")).toHaveText("Va bene");
+    await expect(choice(taskIds.piano, "accept")).toHaveText("Approva");
     await expect(choice(taskIds.piano, "redo")).toHaveText("Rifai così…");
-    await expect(choice(taskIds.piano, "drop")).toHaveText("Non serve più");
+    await expect(choice(taskIds.piano, "drop")).toHaveText("Archivia");
     // Il commento libero RESTA — ultima opzione, non l'unica.
     await expect(piano.getByPlaceholder("…oppure commenta")).toBeVisible();
     await beat(page);
@@ -224,7 +226,7 @@ test.describe("Scelte sempre presenti sulla card", () => {
       await page.request.patch(`${API}/boards/${PROJECT_ID}/tasks/${taskIds.corso}`, { data: { priority: 2 } });
       return await choice(taskIds.corso, "stop").count();
     }, { timeout: 30_000, intervals: [400, 800, 1500] }).toBeGreaterThan(0);
-    await expect(choice(taskIds.corso, "stop")).toHaveText("Fermati");
+    await expect(choice(taskIds.corso, "stop")).toHaveText("Ferma");
     await expect(choice(taskIds.corso, "deliver-now")).toHaveText("Consegna quello che hai");
     await choice(taskIds.corso, "stop").click();
     // Fermare stacca l'agente e PARCHEGGIA il task: esce da In Progress.
