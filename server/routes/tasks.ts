@@ -24,7 +24,7 @@ import type { AppContext, RouteHandler } from "../types";
 import { grantedResourceIds } from "../lib/grants-query";
 import { resolvePrincipals } from "../lib/principals";
 import type { OutboundMessage } from "../../shared/ws-outbound";
-import { isAgentWorking, PARKED_STOPPED, PARKED_WAITED_OUT, pendingQuestion, type PendingQuestionComment } from "../../shared/board";
+import { isAgentWorking, NOTE_ARCHIVED_BY_HUMAN, NOTE_STOPPED_BY_HUMAN, PARKED_STOPPED, PARKED_WAITED_OUT, pendingQuestion, type PendingQuestionComment } from "../../shared/board";
 import { isPreviewablePath } from "../../shared/media-kind";
 import { parseTaskPatch, unapplicableFieldsBody, type FieldRead } from "./task-patch";
 import { getTerminalSessionById } from "./terminal";
@@ -1837,10 +1837,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         try {
           const got = svc.get(bStop.taskId, { projectId: bStop.projectId });
           if (!got) return json({ error: "task not found", code: "not_found" }, 404);
-          const parked = detachLiveAgent(
-            got.task,
-            "Fermato da te: agent interrotto. Rimetti il task in Todo per ripartire.",
-          );
+          const parked = detachLiveAgent(got.task, NOTE_STOPPED_BY_HUMAN);
           if (!parked) return json({ error: "no active agent on this task", code: "invalid_transition" }, 409);
           broadcastToAll({ type: "task:updated", projectId: bStop.projectId, task: parked });
           return json(parked);
@@ -2187,10 +2184,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             // nessuno (vedi `detachLiveAgent`). Prima di archiviare, quindi.
             const got = svc.get(taskId, { projectId });
             if (got) {
-              detachLiveAgent(
-                got.task,
-                "Archiviato da te mentre l'agent lavorava: turno interrotto.",
-              );
+              detachLiveAgent(got.task, NOTE_ARCHIVED_BY_HUMAN);
             }
             const task = svc.archive({ taskId, projectId });
             void opts?.teardownPreview?.(taskId).catch(() => {}); // reap preview on close
