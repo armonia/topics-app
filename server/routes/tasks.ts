@@ -26,6 +26,7 @@ import { resolvePrincipals } from "../lib/principals";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import { isAgentWorking, isThreadSpeech, NOTE_ARCHIVED_BY_HUMAN, NOTE_STOPPED_BY_HUMAN, PARKED_STOPPED, PARKED_WAITED_OUT, pendingQuestion, type PendingQuestionComment } from "../../shared/board";
 import { AGENT_AUTHOR, AGENT_AUTHOR_PREFIX } from "../../shared/comment-author";
+import { findDuplicateGroups } from "../../shared/task-similarity";
 import { isPreviewablePath } from "../../shared/media-kind";
 import { parseTaskPatch, unapplicableFieldsBody, type FieldRead } from "./task-patch";
 import { getTerminalSessionById } from "./terminal";
@@ -1961,6 +1962,54 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         } catch (e) { return fail(e); }
       }
 
+      // POST /api/boards/:projectId/tasks/:taskId/merge — fonde questa card
+      // dentro `intoTaskId`. La card fusa esce dalla board (archiviata), quindi
+      // il client la toglie sull'evento e ridisegna la superstite col thread
+      // cresciuto.
+      const bMerge = matchRoute(pathname, "/api/boards/:projectId/tasks/:taskId/merge");
+      if (bMerge && method === "POST") {
+        const body = (await readJSON(req)) as any;
+        const into = typeof body?.intoTaskId === "string" ? body.intoTaskId : "";
+        if (!into) return json({ error: "intoTaskId is required", code: "invalid_input" }, 400);
+        try {
+          const esito = svc.merge({
+            taskId: bMerge.taskId,
+            intoTaskId: into,
+            projectId: bMerge.projectId,
+            by: HUMAN,
+          });
+          broadcastToAll({ type: "task:deleted", projectId: bMerge.projectId, taskId: bMerge.taskId });
+          broadcastToAll({ type: "task:updated", projectId: bMerge.projectId, task: esito.survivor });
+          return json(esito);
+        } catch (e) { return fail(e); }
+      }
+
+      // GET /api/boards/:projectId/duplicates — i gruppi di card che dicono la
+      // stessa cosa, superstite in testa. È una LETTURA: non fonde niente.
+      const bDupes = matchRoute(pathname, "/api/boards/:projectId/duplicates");
+      if (bDupes && method === "GET") {
+        const params = new URL(req.url).searchParams;
+        // Di default solo le card APERTE. Misurato il 12/08: sulle 1.447 vive di
+        // topics-app tutti i 14 gruppi stanno fra le `done`, cioè fra la storia.
+        // Fondere la storia non alleggerisce il lavoro di nessuno, e allunga la
+        // lista che un umano deve leggere prima di premere.
+        const includeDone = params.get("includeDone") === "1";
+        try {
+          const tasks = svc.list({ scope: "project", projectId: bDupes.projectId });
+          const scope = includeDone ? tasks : tasks.filter((t) => t.status !== "done");
+          const groups = findDuplicateGroups(scope.map((t) => ({ id: t.id, text: t.text, createdAt: t.createdAt })));
+          return json({
+            groups: groups.map((g) => ({
+              survivor: { id: g.survivor.id, text: g.survivor.text },
+              duplicates: g.duplicates.map((d) => ({ id: d.id, text: d.text })),
+              minScore: Number(g.minScore.toFixed(3)),
+            })),
+            scanned: scope.length,
+            includeDone,
+          });
+        } catch (e) { return fail(e); }
+      }
+
       const bReview = matchRoute(pathname, "/api/boards/:projectId/tasks/:taskId/review");
       if (bReview && method === "POST") {
         const body = (await readJSON(req)) as any;
@@ -2316,6 +2365,46 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       }
       if (method === "POST") {
         const body = (await readJSON(req)) as any;
+        // Il cancello contro la 321esima card. In 24h gli agenti ne hanno
+        // aperte 320 contro le 45 dell'umano, e il modo in cui il backlog
+        // cresce non è che qualcuno chiuda male: è che nessuno CERCA prima di
+        // aprire. Qui la ricerca è obbligatoria, e la risposta dice quale card
+        // lo dice già, così l'agente può commentare quella invece di clonarla.
+        //
+        // Non è un divieto: `allow_duplicate: true` passa comunque, perché il
+        // giudizio ha un falso positivo noto (vedi shared/task-similarity.ts) e
+        // un cancello che non si può scavalcare diventa un cancello che si
+        // aggira scrivendo il titolo storto. La differenza è che scavalcarlo
+        // ora è una SCELTA scritta nella richiesta.
+        //
+        // Vale solo per le card di PRIMO LIVELLO, e per due motivi. Il primo è
+        // di merito: i sottotask sono i passi di un lavoro, e passi identici
+        // sotto padri diversi sono la norma, non un doppione ("cancelli",
+        // "barra verde", "prova video" tornano a ogni tornata). Il secondo è di
+        // precedenza: un `parent_task_id` di un'altra board deve rispondere 404
+        // come ha sempre fatto, e un cancello che parla per primo trasformava
+        // quel 404 in un 409 (preso da `tasks.test.ts`, che era verde).
+        const wantsParent = typeof body?.parent_task_id === "string" && body.parent_task_id;
+        if (body?.allow_duplicate !== true && !wantsParent && typeof body?.text === "string" && body.text.trim()) {
+          const twins = svc
+            .findDuplicates({ projectId: sess.projectId, text: body.text, limit: 3, rootsOnly: true })
+            .filter((n) => n.duplicate);
+          if (twins.length > 0) {
+            return json(
+              {
+                // Gli id NON stanno in questa stringa: stanno in `duplicates[]`,
+                // e il client MCP li appende al messaggio (`httpJson`). Qui si
+                // dice cosa FARE, e si nomina il parametro esatto: un agente che
+                // legge «rimanda con allow_duplicate» e non sa come si scrive
+                // finisce per riscrivere il titolo storto finché passa.
+                error: `una card lo dice già: «${twins[0]!.task.text}». Leggi quella e commentala con add_comment; se è davvero un altro lavoro, ricrea con allow_duplicate: true.`,
+                code: "duplicate",
+                duplicates: twins.map((n) => ({ id: n.task.id, text: n.task.text, score: Number(n.score.toFixed(3)) })),
+              },
+              409,
+            );
+          }
+        }
         try {
           const task = svc.create({
             projectId: sess.projectId,
