@@ -36,7 +36,7 @@ import { liveAgentCount } from "./agent-census";
 // chi la vuole la prende da `shared/board`.
 export type { TaskStatus, TaskComment, BoardSettings, BoardSettingsPatch, BlockerRef, SubtaskWork, QueueReason } from "../../shared/board";
 import {
-  DISPATCH_CHIP_QUEUED,
+  ARCHIVE_PARKED_LABEL, DISPATCH_CHIP_QUEUED, LAND_ACTION_LABEL, PUBLISH_ACTION_LABEL, REQUEUE_PARKED_LABEL,
   MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PREVIEW_CARD_MAX_RATIO, QUEUE_REASON_UNKNOWN,
   TASK_STATUSES, WAIT_SERIES_MAX_MS, WAIT_STREAK_CAP,
   deriveQueueReason, deriveSubtaskWork, formatStatusEvent, hasPlanApproveOption, isAgentWorking,
@@ -70,20 +70,24 @@ export const UNASSIGNED_PROJECT_ID = "_none";
 export const AUTO_PROJECT_ID = "_auto";
 
 /**
- * Reserved quick-reply label the AGENT is prompted to offer at delivery when its
- * work is landable. The board route matches a human's pick of exactly this option
- * and runs the land (approve + merge to main) instead of resuming the agent —
- * that's how "the agent proposes the next step, the human decides, the system
- * executes" works without the merge riding on every approve. Keep in sync with
- * the prompt in task-dispatcher.ts (both import this constant).
+ * The four reserved quick-reply labels now live in `shared/board.ts` and are
+ * re-exported here so every existing importer keeps working.
+ *
+ * They moved because they have a reader on the OTHER side of the wire: the
+ * board de-duplicates an agent's quick reply against the button beside it, and
+ * once those buttons became translatable the client could no longer recognise
+ * "Landa su main" by comparing its own label ("Land on main" under locale `en`).
+ * A second literal in the client would have been the drift this file spends
+ * three comments warning about, so there is ONE declaration and both sides read
+ * it. The predicates below stay here: matching is a server concern.
+ *
+ * Reserved = the route intercepts a human's pick of exactly this option and
+ * executes it (land, land+publish, and the two answers to the parked-subtask
+ * stall) instead of resuming the agent with the text as feedback. That is how
+ * "the agent proposes, the human decides, the system executes" works without
+ * the merge riding on every approve.
  */
-export const LAND_ACTION_LABEL = "Landa su main";
-/**
- * Reserved option for "go online": land (merge to main) AND publish (push →
- * deploy CI). The agent may offer it at delivery too; picking it runs the whole
- * chain server-side. "Andare online" stays a human pick — the agent never pushes.
- */
-export const PUBLISH_ACTION_LABEL = "Landa e pubblica";
+export { LAND_ACTION_LABEL, PUBLISH_ACTION_LABEL, REQUEUE_PARKED_LABEL, ARCHIVE_PARKED_LABEL } from "../../shared/board";
 const normLabel = normalizeActionLabel;
 /** Tolerant match (ignores emoji/punctuation/spacing the model may add). */
 export function isLandActionLabel(text: string | undefined | null): boolean {
@@ -106,8 +110,6 @@ export function isPublishActionLabel(text: string | undefined | null): boolean {
  * Un padre bloccato SOLO da figli parcheggiati non è bloccato: è una DOMANDA
  * con due risposte, e nessuna delle due è «aspetta ancora».
  */
-export const REQUEUE_PARKED_LABEL = "Rimetti in coda i sottotask";
-export const ARCHIVE_PARKED_LABEL = "Archivia i sottotask";
 export function isRequeueParkedLabel(text: string | undefined | null): boolean {
   return !!text && normLabel(text) === normLabel(REQUEUE_PARKED_LABEL);
 }

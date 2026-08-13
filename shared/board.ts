@@ -462,6 +462,30 @@ export function hasPlanApproveOption(options: readonly string[]): boolean {
 }
 
 /**
+ * RESERVED QUICK-REPLY LABELS — the options the SERVER executes itself.
+ *
+ * An agent may offer any option it likes; these four arrive at
+ * `POST /tasks/:id/review` as a reject carrying the text and are intercepted
+ * before the reject happens (`routes/tasks.ts`), because they are not a message
+ * to the agent, they are an order to the system: land, land and publish, and
+ * the two answers to the parked-subtask stall.
+ *
+ * They live HERE, next to `PLAN_APPROVE_LABEL` and for the same reason, since
+ * the branch that i18n-ised the board's buttons: the client de-duplicates a
+ * quick reply against the button beside it, and it can only do that if it knows
+ * the exact string the server matches on. Under locale `en` the button reads
+ * "Land on main" while the option still says "Landa su main" — comparing the
+ * translation instead of this constant let the twin back in. They are NOT
+ * translated: the option text travels to the server and is matched by value.
+ */
+export const LAND_ACTION_LABEL = 'Landa su main';
+/** Land AND publish (push → deploy CI). Superset of the one above. */
+export const PUBLISH_ACTION_LABEL = 'Landa e pubblica';
+/** The two answers to the parked-subtask stall, executed by the system. */
+export const REQUEUE_PARKED_LABEL = 'Rimetti in coda i sottotask';
+export const ARCHIVE_PARKED_LABEL = 'Archivia i sottotask';
+
+/**
  * L'antenato al lavoro che spiega un sottotask senza agente proprio: chi lo sta
  * lavorando, e con che titolo dirlo. Risolto dal server come `BlockerRef` e per
  * lo stesso motivo — la lista della board è un progetto solo, `rootsOnly`, non
