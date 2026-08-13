@@ -330,10 +330,15 @@ describe("chiudere l'ultimo figlio rimette in moto il padre", () => {
     const padre = s.create({ projectId: PID, text: "Il padre", status: "in_progress" }).id;
     const ids = Array.from({ length: figli }, (_, i) => {
       const f = s.create({ projectId: PID, text: `Step ${i + 1}`, parentTaskId: padre }).id;
-      s.update({ taskId: f, actor: "human", by: "attilio", patch: { status: "todo" } });
+      // `in_progress`, non `todo`. Da quando uno step lasciato in TODO conta come
+      // fermo quanto uno in backlog (il tick lista `rootsOnly`, quindi nessuno lo
+      // prenderebbe mai), un figlio in todo fa CHIEDERE il padre: arriverebbe qui
+      // con `needs_input`, e questi casi parlano invece del padre che ASPETTA
+      // figli davvero in volo. Sono due situazioni diverse, e serve la seconda.
+      s.update({ taskId: f, actor: "human", by: "attilio", patch: { status: "in_progress" } });
       return f;
     });
-    // Il turno finisce coi figli aperti: `todo` + chip `waiting` + finestra.
+    // Il turno finisce coi figli aperti: in volo + chip `waiting` + finestra.
     s.deliverToReviewBySystem({ taskId: padre, reason: "turno finito" });
     return { padre, figli: ids };
   }
