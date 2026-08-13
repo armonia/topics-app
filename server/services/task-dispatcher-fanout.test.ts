@@ -142,9 +142,9 @@ const flush = async (n = 12) => {
 
 /**
  * Board con fan-out acceso. `cap` è il tetto di concorrenza GLOBALE (riga '*'),
- * non `maxAgents` della board: è quello che conta per il dispatcher, e senza
- * scriverlo resterebbe al default 2 — cioè ogni fan-out da 3 arriverebbe a 2 e
- * il test misurerebbe il default invece della logica.
+ * l'unico che esista: è quello che conta per il dispatcher, e senza scriverlo
+ * resterebbe al default 2 — cioè ogni fan-out da 3 arriverebbe a 2 e il test
+ * misurerebbe il default invece della logica.
  */
 function boardWithFanOut(h: ReturnType<typeof harness>, fanOut: number, o: { cap?: number; useWorktree?: boolean } = {}) {
   h.svc.updateBoardSettings(PID, {
