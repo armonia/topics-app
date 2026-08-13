@@ -399,6 +399,14 @@ export interface ListTasksInput {
    * la colonna. Vuoto/assente = nessun filtro.
    */
   labels?: readonly string[];
+  /**
+   * `true` = SOLO gli archiviati, `false`/assente = solo i vivi. Stesso modello
+   * dei progetti (`project-store.list({ archived })`), non un terzo verbo: la
+   * lista di default resta quella di prima, e chi vuole rivedere ciò che ha
+   * archiviato lo chiede. Prima non esisteva alcun modo di chiederlo, quindi
+   * archiviare un task era una porta a senso unico.
+   */
+  archived?: boolean;
 }
 
 
@@ -616,6 +624,14 @@ export interface TaskService {
   }): Neighbour[];
 
   archive(args: { taskId: string; projectId?: string }): Task;
+  /**
+   * Il ritorno dall'archivio: `archived = 0` sul task, sul suo sottoalbero e
+   * sulla catena dei genitori. Speculare ad `archive`, che scende; risalire
+   * serve perché una card riportata sotto un genitore ancora archiviato
+   * resterebbe invisibile quanto prima, e il ripristino non avrebbe ripristinato
+   * niente. `null` = quell'id non esiste.
+   */
+  restore(args: { taskId: string; projectId?: string }): Task | null;
   /**
    * Nearest self-or-ancestor bound to an agent topic — the dispatch root of the
    * subtree. Lets the route answer "which agent owns this step?" when a human
@@ -1926,7 +1942,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     },
 
     list(input: ListTasksInput): Task[] {
-      const clauses: string[] = ["archived = 0"];
+      const clauses: string[] = [input.archived === true ? "archived = 1" : "archived = 0"];
       const params: any[] = [];
       if (input.scope === "project") {
         if (!input.projectId) throw new TaskServiceError("invalid_input", "scope=project requires projectId");
@@ -1934,7 +1950,19 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         params.push(input.projectId);
       }
       if (input.status) { clauses.push("status = ?"); params.push(input.status); }
-      if (input.rootsOnly) clauses.push("parent_task_id IS NULL");
+      // «Radici», nell'archivio, vuol dire un'altra cosa. Un task senza padre è
+      // una radice; ma anche uno step archiviato da solo, sotto un genitore
+      // ancora vivo, è la radice di ciò che è stato archiviato — e con il
+      // filtro letterale `parent_task_id IS NULL` sarebbe l'unica riga che
+      // nessuna lista mostra più, né la board né l'archivio. I figli di un
+      // archiviato restano fuori: li riporta indietro il ripristino del padre.
+      if (input.rootsOnly) {
+        clauses.push(
+          input.archived === true
+            ? "(parent_task_id IS NULL OR parent_task_id IN (SELECT id FROM tasks WHERE archived = 0))"
+            : "parent_task_id IS NULL",
+        );
+      }
       // Etichette in AND. Un JOIN sull'indice `idx_task_labels_label`, non una
       // `LIKE '%bugfix%'` su una stringa: `bugfix-ui` non matcha `bugfix`, ed è
       // esattamente il motivo per cui le etichette sono righe e non una colonna.
@@ -2622,6 +2650,32 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // e' la risposta «archivia» ai due bottoni, ed e' anche il modo in cui si
       // sgombera una checklist a mano. Il padre va guardato in entrambi i casi.
       if (row.parent_task_id) childLeftFlight(row.parent_task_id as string, "system", this);
+      return rowToTask(getTaskRow(taskId));
+    },
+
+    restore({ taskId, projectId }): Task | null {
+      const row = getTaskRow(taskId);
+      if (!row || (projectId && row.project_id !== projectId)) return null;
+      const ts = now();
+      // Due direzioni, e servono entrambe. GIÙ perché `archive` ha marcato tutto
+      // il sottoalbero: un ripristino che lascia gli step archiviati riporta una
+      // card senza la sua checklist. SU perché un task figlio di un genitore
+      // ancora archiviato non lo vede nessuno, e il ripristino sarebbe stato
+      // solo una scrittura.
+      db.prepare(
+        `WITH RECURSIVE subtree(id) AS (
+           SELECT id FROM tasks WHERE id = ?
+           UNION ALL
+           SELECT t.id FROM tasks t JOIN subtree s ON t.parent_task_id = s.id
+         ),
+         chain(id, parent) AS (
+           SELECT id, parent_task_id FROM tasks WHERE id = ?
+           UNION ALL
+           SELECT t.id, t.parent_task_id FROM tasks t JOIN chain c ON t.id = c.parent
+         )
+         UPDATE tasks SET archived = 0, updated_at = ?
+          WHERE id IN (SELECT id FROM subtree) OR id IN (SELECT id FROM chain)`,
+      ).run(taskId, taskId, ts);
       return rowToTask(getTaskRow(taskId));
     },
 

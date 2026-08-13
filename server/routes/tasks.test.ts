@@ -409,6 +409,34 @@ describe("board router (human, project-scoped)", () => {
     expect(broadcasts.some(b => b.type === "task:deleted")).toBe(true);
   });
 
+  // La porta di ritorno, dal lato in cui la usa la board: `?archived=1` per
+  // rivedere, `POST .../restore` per riportare indietro. Il broadcast è
+  // `task:created` perché per chi guarda la board quella card non c'era.
+  test("?archived=1 elenca l'archivio, POST /restore riporta la card in colonna", async () => {
+    const t = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "da recuperare" }))!.json();
+    await call(router, "DELETE", `/api/boards/pX/tasks/${t.id}`);
+
+    const viva = await (await call(router, "GET", "/api/boards/pX/tasks"))!.json();
+    expect(viva.tasks.length).toBe(0);
+    const archivio = await (await call(router, "GET", "/api/boards/pX/tasks?archived=1"))!.json();
+    expect(archivio.tasks.map((x: any) => x.id)).toEqual([t.id]);
+
+    broadcasts.length = 0;
+    const resp = (await call(router, "POST", `/api/boards/pX/tasks/${t.id}/restore`))!;
+    expect(resp.status).toBe(200);
+    expect(broadcasts.some(b => b.type === "task:created" && b.task?.id === t.id)).toBe(true);
+    const tornata = await (await call(router, "GET", "/api/boards/pX/tasks"))!.json();
+    expect(tornata.tasks.map((x: any) => x.id)).toEqual([t.id]);
+    expect((await (await call(router, "GET", "/api/boards/pX/tasks?archived=1"))!.json()).tasks.length).toBe(0);
+  });
+
+  test("POST /restore su un id di un'altra board risponde 404", async () => {
+    const t = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "non tua" }))!.json();
+    await call(router, "DELETE", `/api/boards/pX/tasks/${t.id}`);
+    expect((await call(router, "POST", `/api/boards/pY/tasks/${t.id}/restore`))!.status).toBe(404);
+    expect((await (await call(router, "GET", "/api/boards/pX/tasks?archived=1"))!.json()).tasks.length).toBe(1);
+  });
+
   // Le tab del task archiviato: la rotta chiama il teardown e mette gli id
   // toccati nel frame, perché il client deve DIMENTICARE quelle chiavi — non
   // ri-PUTtarle dal suo debounce (services/task-tab-teardown.ts).
