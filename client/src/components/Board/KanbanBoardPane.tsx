@@ -13,7 +13,7 @@ import { createPortal } from 'react-dom';
 import { DndContext, DragOverlay, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
 import { KeyboardSensorGentile, MouseSensorGentile, TouchSensorGentile } from './dndSensors';
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
-import { AlertTriangle, Bot, Check, ChevronDown, ChevronRight, Loader2, Search, Settings, Tag, Target, UploadCloud, X } from 'lucide-react';
+import { AlertTriangle, Archive, Bot, Check, ChevronDown, ChevronRight, Loader2, Search, Settings, Tag, Target, UploadCloud, X } from 'lucide-react';
 import type { WSMessage } from '../../types';
 import { Menu } from '../Shared/Menu';
 import { ExternalSessionsBadge } from './ExternalSessionsBadge';
@@ -1000,16 +1000,25 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
     return () => { alive = false; };
   }, [hasProject, projectId]);
 
+  // L'ARCHIVIO È UNA VISTA, non una colonna: stessa board, stesse colonne, ma
+  // popolate da `?archived=1`. Sta nello stato della pane e non nei `filters`
+  // perché non è un filtro sull'insieme già scaricato — è un'altra fetch, ed è
+  // l'unico modo di rivedere una card archiviata (prima non ce n'era nessuno).
+  // Solo su una board di progetto: il feed globale è `listAll`, che di archivio
+  // non parla.
+  const [showArchived, setShowArchived] = useState(false);
   const refetch = useCallback(async () => {
     try {
-      setTasks(mode === 'all' ? await boardApi.listAll() : await boardApi.list(projectId));
+      setTasks(mode === 'all'
+        ? await boardApi.listAll()
+        : await boardApi.list(projectId, undefined, undefined, { archived: showArchived }));
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'failed to load board');
     } finally {
       setLoading(false);
     }
-  }, [projectId, mode]);
+  }, [projectId, mode, showArchived]);
 
   useEffect(() => { setLoading(true); refetch(); }, [refetch]);
 
@@ -1754,6 +1763,18 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
               lavoro che è su main e non è ancora uscito. */}
           <UnlandedControl tasks={unlandedTasks} onOpen={setSelectedId} />
           <PublishControl />
+          {/* L'archivio, accanto alle impostazioni: un interruttore, come la
+              lente degli archiviati in sidebar. Acceso = la board mostra ciò che
+              è stato archiviato, e da lì lo si può riportare indietro. */}
+          {hasProject && mode === 'project' && (
+            <button
+              data-testid="board-archived-toggle"
+              aria-pressed={showArchived}
+              onClick={() => setShowArchived((v) => !v)}
+              className={`rounded p-1 ${showArchived ? 'bg-white/15 text-primary' : 'text-app-text-secondary hover:bg-white/5'}`}
+              title={showArchived ? 'Torna alla board' : 'Mostra i task archiviati'}
+            ><Archive className="h-3.5 w-3.5" /></button>
+          )}
           {hasProject && (
             <button
               onClick={() => setShowSettings((s) => !s)}
@@ -1773,6 +1794,16 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
       )}
       </div>
       {error && <div className="shrink-0 bg-rose-500/10 px-3 py-1.5 text-xs text-rose-300">{error}</div>}
+      {/* La striscia dice DUE cose, e la seconda è quella che mancava: dove sta
+          il gesto. Un archivio in cui si guarda soltanto è il punto da cui
+          siamo partiti. */}
+      {showArchived && mode === 'project' && (
+        <div data-testid="board-archived-banner" className="flex shrink-0 items-center gap-2 bg-amber-400/10 px-3 py-1.5 text-xs text-amber-200">
+          <Archive className="h-3.5 w-3.5 shrink-0" />
+          <span>Archivio: {tasks.length} task, nelle loro colonne. Menu della card (tasto destro, o pressione lunga) → Ripristina.</span>
+          <button onClick={() => setShowArchived(false)} className="ml-auto rounded px-2 py-0.5 text-amber-100 hover:bg-white/10">Torna alla board</button>
+        </div>
+      )}
       {showSettings && hasProject && (
         <BoardSettingsPanel
           projectId={projectId}
@@ -1801,7 +1832,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
                   tasks={byStatus[status]}
                   onOpen={openTask}
                   onCreate={(text) => create(status, text)}
-                  canCreate={mode === 'project'}
+                  canCreate={mode === 'project' && !showArchived}
                   showProject={mode === 'all'}
                   onError={setError}
                   onRefetch={refetch}
@@ -1813,6 +1844,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
                   awaitingHuman={awaitingHuman}
                   justDone={justDone}
                   justCreated={justCreated}
+                  archived={showArchived}
                 />
               ))}
             </div>
