@@ -254,6 +254,7 @@ const TOOLS = [
         assignee: { type: "string", description: "Optional agent/person to assign." },
         idempotency_key: { type: "string", description: "Optional dedupe key for safe retries." },
         parent_task_id: { type: "string", description: "Optional parent task id — nests this task as its subtask." },
+        allow_duplicate: { type: "boolean", description: "Set true to open the card even though an existing one says the same thing (the board answers 409 with the twin's id otherwise). Only after reading that card and deciding it is a different job." },
       },
       required: ["text"],
     },
@@ -909,13 +910,23 @@ async function httpJson<T>(
   });
 
   const text = await resp.text().catch(() => "");
-  let parsed: (T & { error?: unknown; available?: unknown }) | undefined;
+  let parsed: (T & { error?: unknown; available?: unknown; duplicates?: unknown }) | undefined;
   try { parsed = text ? JSON.parse(text) : undefined; } catch { parsed = undefined; }
 
   if (!resp.ok) {
     const msg = parsed?.error || text || resp.statusText;
     const extra = Array.isArray(parsed?.available) ? ` (available: ${parsed.available.join(", ")})` : "";
-    throw new Error(`HTTP ${resp.status}: ${msg}${extra}`);
+    // `error` è l'unica cosa che l'agente legge: tutto il resto del corpo
+    // finisce nel cestino. Un 409 sui doppioni che dice «commenta quella card»
+    // senza dire QUALE lascia una sola mossa praticabile, riscrivere il titolo
+    // finché passa. Gli id vanno nella stringa, come già si fa con `available`.
+    const dupes = Array.isArray(parsed?.duplicates)
+      ? (parsed.duplicates as Array<{ id?: unknown; text?: unknown }>)
+          .map((d) => (typeof d?.id === "string" ? `${d.id}${typeof d?.text === "string" ? ` «${d.text}»` : ""}` : null))
+          .filter((s): s is string => !!s)
+      : [];
+    const twins = dupes.length ? `. Card già aperte: ${dupes.join("; ")}` : "";
+    throw new Error(`HTTP ${resp.status}: ${msg}${extra}${twins}`);
   }
   if (parsed?.error) throw new Error(String(parsed.error));
   return parsed;
@@ -1365,7 +1376,7 @@ export async function callUpdateTask(
 
 export async function callCreateTask(
   args: ParsedArgs,
-  toolArgs: { text?: unknown; description?: unknown; priority?: unknown; assignee?: unknown; idempotency_key?: unknown; parent_task_id?: unknown },
+  toolArgs: { text?: unknown; description?: unknown; priority?: unknown; assignee?: unknown; idempotency_key?: unknown; parent_task_id?: unknown; allow_duplicate?: unknown },
   fetchImpl: typeof fetch = fetch,
 ): Promise<string> {
   if (typeof toolArgs?.text !== "string" || !toolArgs.text.trim()) {
@@ -1377,6 +1388,11 @@ export async function callCreateTask(
   if (typeof toolArgs.assignee === "string") reqBody.assignee = toolArgs.assignee;
   if (typeof toolArgs.idempotency_key === "string") reqBody.idempotency_key = toolArgs.idempotency_key;
   if (typeof toolArgs.parent_task_id === "string" && toolArgs.parent_task_id) reqBody.parent_task_id = toolArgs.parent_task_id;
+  // La scappatoia del cancello sui doppioni deve passare da QUI: questa è la
+  // porta da cui gli agenti aprono le card, e senza inoltro l'unico modo di
+  // scavalcare un falso positivo è riscrivere il titolo storto finché passa,
+  // cioè esattamente il guasto che il cancello doveva impedire.
+  if (toolArgs.allow_duplicate === true) reqBody.allow_duplicate = true;
   const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/tasks`;
   const res = await httpJson<CreateTaskResp>(args, "POST", path, reqBody, fetchImpl);
   const nested = typeof toolArgs.parent_task_id === "string" && toolArgs.parent_task_id
