@@ -4,9 +4,16 @@
  * The board is how a human (and the master agent) judges a project's state, and
  * it only knows the sessions Topics started. A repo with three bare `claude`
  * sessions in a terminal and zero tasks therefore reads as idle while it's the
- * busiest thing on the machine. This chip is the missing half: a READ-ONLY
- * count of the sessions running outside the kanban, with a popover naming the
- * directory, the branch and the last activity of each.
+ * busiest thing on the machine. This chip is the missing half: a count of the
+ * sessions running outside the kanban, with a popover naming the directory, the
+ * branch and the last activity of each — and, on each row, the one thing you
+ * can actually DO with them: «Continua qui», che le adotta in una topic.
+ *
+ * L'etichetta dice DOVE stanno, non dove non stanno. Diceva «fuori kanban», e
+ * per definizione ciò che è fuori dalla kanban è tutto il resto del mondo: non
+ * si capiva né cosa fossero né perché fossero in quella barra («non ne capisco
+ * l'utilità», Attilio 13/08). «In terminale» dice la cosa vera, e il popover
+ * apre con quello che il chip serve a fare invece che con la sua definizione.
  *
  * Renders nothing when there's nothing outside — zero chrome for the common case.
  */
@@ -57,18 +64,21 @@ export function ExternalSessionsBadge({ sessions, showProject, onOpenTopic }: {
         ref={btnRef}
         data-testid="external-sessions-badge"
         onClick={() => setOpen((o) => !o)}
-        title={`${sessions.length} sessioni Claude fuori dalla kanban${active ? ` · ${active} attive ora` : ''}`}
+        title={`${sessions.length} sessioni Claude avviate a mano in un terminale${active ? ` · ${active} attive ora` : ''}. Aprile per riprenderne una dentro una topic.`}
         className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] ${tone}`}
       >
         <TerminalSquare className="h-3.5 w-3.5" />
         <span>{active > 0 ? active : sessions.length}</span>
-        <span className="hidden sm:inline">fuori kanban</span>
+        <span className="hidden sm:inline">in terminale</span>
       </button>
       <Menu open={open} anchorRef={btnRef} onClose={() => setOpen(false)} minWidth={300}>
         <div className="px-3 py-2.5 text-xs text-app-text-heading">
           <p className="text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">Sessioni fuori dalla kanban</p>
+          {/* Prima qui c'era la definizione («Topics le vede, non le governa»),
+              cioè un fatto che non chiede niente a chi legge. Adesso c'è quello
+              che il pannello serve a fare: la riga sotto ognuna è un bottone. */}
           <p className="mt-1 text-[11px] leading-snug text-app-text-muted">
-            Claude avviato a mano (terminale, altro tool). Topics le vede, non le governa.
+            Claude avviato a mano in un terminale. «Continua qui» ne riprende una dentro una topic: la stessa conversazione, non una nuova.
           </p>
           <ul className="mt-2 space-y-1.5">
             {sessions.slice(0, 12).map((s) => (
