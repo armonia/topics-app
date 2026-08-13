@@ -33,13 +33,21 @@
  * che alimenta `tasks.agent_tokens`: dedup per `message.id`, cache-read tenuti
  * separati dal lavoro. Non c'è una seconda aritmetica.
  *
+ * ── STATO: VERDE, con numeri veri ───────────────────────────────────────────
+ * Corsa del 13/08/2026, dopo il secondo dei due guasti di percorso (vedi
+ * `transcriptDir`):
+ *
+ *   braccio       thread(work tok)   thread(cacheRead)   lavoro delegato
+ *   worker                  59.046             226.573                 0
+ *   coordinator             21.020             214.199            20.467
+ *
+ * Il thread del coordinatore pesa 0,36 di quello del worker: si assottiglia, e
+ * non di poco. Da segnare perche' smentisce l'attesa scritta qui sopra: in
+ * questa corsa il TOTALE del coordinatore (41.487) e' sceso sotto quello del
+ * worker (59.046), invece di salire per il secondo prefisso. E' una corsa sola
+ * su un corpus solo, quindi vale come misura, non ancora come legge.
+ *
  * ── Uso ─────────────────────────────────────────────────────────────────────
- * ── STATO: l'instradamento e' provato, il VERDETTO no ───────────────────────
- * La prima corsa (12/08/2026) ha visto entrambi i bracci lavorare e consegnare
- * `report.json`, ma la lettura dei transcript e' tornata zero per il percorso
- * non risolto (vedi `transcriptDir`). Corretto, MAI RIESEGUITO: finche' questo
- * script non stampa VERDE con due numeri diversi da zero, la promessa «il
- * thread si assottiglia» resta una promessa.
  *
  *   bun run measure:thread                 # entrambi i bracci, poi il verdetto
  *   bun run measure:thread --out out.json  # e scrive il bundle
@@ -95,6 +103,15 @@ const repoRoot = resolve(import.meta.dir, "..");
  * mentre i due agenti hanno lavorato e consegnato davvero. Uno zero non e' un
  * numero basso, e' l'assenza di misura: il cancello lo dice rosso, ed e' giusto
  * cosi'. (`board-arms.ts` risolve da sempre, per la stessa ragione.)
+ *
+ * E la stessa cartella aveva un SECONDO modo di non esistere, che ha mangiato
+ * la corsa successiva: `claudeProjectDirName()` sostituiva solo `/` e `.`,
+ * mentre `claude` sostituisce OGNI carattere non alfanumerico. La temp dir di
+ * macOS e' `/var/folders/d8/<venti>_<altri>/T/`, e quell'underscore bastava a
+ * mandare la lettura su un percorso vuoto. Risolvere il symlink era necessario
+ * e non sufficiente: due guasti diversi, lo stesso identico 0 vs 0. Quando la
+ * misura torna zero da entrambe le parti, il sospettato non e' il reader, e' il
+ * percorso.
  */
 function transcriptDir(cwd: string): string {
   let real = cwd;
