@@ -1251,8 +1251,22 @@ export interface DispatchCapacity {
   recommended: number;
   cores: number;
   totalMemGB: number;
-  /** Load average a 1 minuto (vivo). */
+  /**
+   * Load average a 1 minuto (vivo). NON è più il freno del tetto: è la coda di
+   * esecuzione della macchina INTERA, quindi parla soprattutto delle app di chi
+   * sta al computer. Resta perché la modalità notturna lo legge per un'altra
+   * domanda («c'è movimento qui sopra?») e perché è il ripiego dove la sonda
+   * della flotta non c'è.
+   */
   load1: number;
+  /**
+   * Core-unità che la NOSTRA flotta sta bruciando adesso (1 = un core saturo),
+   * e le core-unità che le sono concesse in tutto. `oursCores` a `null` vuol
+   * dire NON MISURATO, che non è zero: senza sonda il freno vivo torna al load
+   * average. Vedi `server/services/dispatch-capacity.ts`.
+   */
+  oursCores: number | null;
+  budgetCores: number;
   /** Spiegazione in una riga di come `recommended` è stato derivato. */
   reason: string;
   /**
