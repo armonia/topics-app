@@ -43,6 +43,8 @@ import { PushEnrollPrompt } from './components/Notifications/PushEnrollPrompt';
 import { consumeTabLinkFromUrl, currentTabTarget, openTabInApp, openTabInAppWhenHydrated, tabAckReleasesIntent } from './lib/tabLink';
 import { TAB_PATH_PREFIX, type TabTarget } from '../../shared/tab-link';
 import { useDismissable } from './hooks/useDismissable';
+import { useSheetDrag } from './hooks/useSheetDrag';
+import { SheetGrabber } from './components/Shared/SheetGrabber';
 import { POPOVER_SURFACE, POPOVER_MARGIN, POPOVER_SHEET, Z_POPOVER, Z_POPOVER_SCRIM } from './lib/popoverStyles';
 import { SidebarSystemMenu } from './components/Sidebar/SidebarSystemMenu';
 import { ChangelogModal } from './components/ChangelogModal';
@@ -415,7 +417,17 @@ function App() {
   // una chat in corso.
   const topicsMenuRef = useRef<HTMLDivElement>(null);
   const topicsDropdownRef = useRef<HTMLDivElement>(null);
+  const topicsScrimRef = useRef<HTMLDivElement>(null);
   const [topicsMenuPos, setTopicsMenuPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+
+  // Sotto i 768px questo menu è un foglio dal basso, e un foglio si spinge giù
+  // col dito (hooks/useSheetDrag). Sul cartellino del desktop non si applica.
+  useSheetDrag({
+    enabled: showTopicsMenu && isMobile,
+    sheetRef: topicsDropdownRef,
+    scrimRef: topicsScrimRef,
+    onClose: () => { setShowTopicsMenu(false); },
+  });
 
   // Close topics menu on outside click or Escape (canonical useDismissable
   // contract: capture-phase pointer/touch + Escape). Trigger wrapper + dropdown
@@ -1722,10 +1734,11 @@ function App() {
             foglio senza velo resta in piedi sul solo bordo (misurato altrove:
             1,04:1 in tema chiaro). */}
         {isMobile && (
-          <div className="fixed inset-0 bg-black/40" style={{ zIndex: Z_POPOVER_SCRIM }} onClick={() => setShowTopicsMenu(false)} />
+          <div ref={topicsScrimRef} className="fixed inset-0 bg-black/40" style={{ zIndex: Z_POPOVER_SCRIM }} onClick={() => setShowTopicsMenu(false)} />
         )}
         <div
           ref={topicsDropdownRef}
+          data-testid="sidebar-topics-menu-panel"
           // Height cap + scroll, and a left clamp. This menu opened at
           // `trigger.bottom + 4` with NO bound of any kind: it has ~12 rows and
           // simply ran off the bottom on a short window, with the overflowing
@@ -1759,6 +1772,7 @@ function App() {
                 }
           }
         >
+          {isMobile && <SheetGrabber />}
           {/* CHI SEI, COME VA, CHE VERSIONE È — solo sul telefono, dove la
               barra in fondo alla colonna non c'è più. Sta in TESTA al menu:
               l'account è la porta che prima non esisteva da nessuna parte, e

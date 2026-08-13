@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { registerOpenPopover, subSurfaceNodes } from '../lib/popoverRegistry';
+import { swallowNextClick } from '../lib/outsidePress';
 
 /**
  * useDismissable — ONE dismissal contract for every custom menu / dropdown /
@@ -15,7 +16,10 @@ import { registerOpenPopover, subSurfaceNodes } from '../lib/popoverRegistry';
  *     their place on close.
  *
  * Contract:
- *   - pointerdown (capture) OR touchstart outside every ref in `refs` → onClose.
+ *   - pointerdown (capture) OR touchstart outside every ref in `refs` → onClose,
+ *     e il `click` che segue quella pressione viene MANGIATO: chiudere è tutto
+ *     ciò che quel gesto fa. Prima azionava anche l'elemento sotto il puntatore
+ *     (`lib/outsidePress`).
  *   - keydown Escape (capture, stopPropagation) → onClose.
  *   - **uno alla volta**: aprendosi, questo popover chiude ogni altro popover
  *     aperto che non lo contenga (`lib/popoverRegistry`). Prima esisteva solo
@@ -90,6 +94,10 @@ export function useDismissable({ open, onClose, refs, restoreFocus = true, exclu
       // chiudersi qui vorrebbe dire smontarlo prima che il click arrivi alla
       // voce scelta. Vedi `lib/popoverRegistry.subSurfaceNodes`.
       if (t && subSurfaceNodes().some((n) => !!n && n.contains(t))) return;
+      // Il gesto che chiude non fa anche l'altra cosa: il `click` che segue
+      // questa pressione trova sotto il puntatore la pagina — che senza il
+      // guardiano si aziona. Vedi `lib/outsidePress`.
+      swallowNextClick();
       onCloseRef.current();
     };
     const onKey = (e: KeyboardEvent) => {
