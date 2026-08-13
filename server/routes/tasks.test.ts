@@ -122,7 +122,13 @@ describe("tasks router (session-scoped)", () => {
     expect(broadcasts.some(b => b.type === "task:updated")).toBe(true);
     const got = await (await call(router, "GET", `/api/sessions/s1/tasks/${t.id}`))!.json();
     expect(got.comments[0].content).toBe("note");
-    expect(got.comments[0].author).toBe("topic-one"); // signed server-side from session
+    // Signed server-side from the session, and the signature is an IDENTITY.
+    // It used to be the topic NAME, which for a dispatched agent is the task
+    // title cut at 60 chars: every card in review showed half a word where the
+    // speaker's name belongs. Now it is the same shape the status row already
+    // writes, so one reader resolves both.
+    expect(got.comments[0].author).toBe("agent:top-s1");
+    expect(got.comments[0].author).not.toBe("topic-one");
   });
 
   test("POST comment with options → server-composed question block", async () => {

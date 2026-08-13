@@ -28,6 +28,7 @@ import {
   type McpToolAnnotations,
 } from "../browser-tool-spec";
 import { PARKED_WAITED_OUT, PREVIEW_RULE } from "../../shared/board";
+import { commentAuthorLabel } from "../../shared/comment-author";
 
 interface JsonRpcRequest {
   jsonrpc: "2.0";
@@ -1423,7 +1424,10 @@ export async function callGetTask(
   const comments = Array.isArray(res?.comments) ? res.comments : [];
   if (!comments.length) { parts.push("(no comments)"); return parts.join("\n"); }
   parts.push("comments:");
-  for (const c of comments) parts.push(`  ${c.author ?? "?"}: ${c.content ?? ""}`);
+  // Same derived label the board prints. Reading the raw author here handed the
+  // model a truncated task title as the name of the speaker, on every thread
+  // written before 13/08/2026.
+  for (const c of comments) parts.push(`  ${commentAuthorLabel(c.author).label}: ${c.content ?? ""}`);
   return parts.join("\n");
 }
 

@@ -65,6 +65,10 @@ export const PINNED_TILE_CONTAINER = '@container/tile';
  * tessera è una riga o un quadrato: sotto, la tessera è larga quanto il
  * bottone e riservargli uno slot vorrebbe dire non lasciare niente al nome.
  *
+ * È la larghezza MASSIMA, non una prenotazione: a riposo, quando il «+» non è
+ * visibile, lo slot cede al nome che non ci sta e si chiude fino a zero. Il
+ * come sta in `PinnedTile`, dove ci sono i fattori di contrazione.
+ *
  * È la LARGHEZZA di `ROW_ACTION_BOX` (`w-9 md:w-7`), che è la misura del
  * trigger — scritta per esteso perché Tailwind legge il sorgente e una
  * composizione a runtime non genererebbe nessuna regola. Che i due numeri

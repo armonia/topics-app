@@ -6,12 +6,14 @@ import { AlertTriangle, ClipboardList, Copy, Hourglass, Lock, MessageSquare, Plu
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
-import { STATUS_LABEL, SYSTEM_DELIVERY_CHIP, blockedByChip, boardApi, isAgentWorking, isProjectlessId, parseQuestionBlock, reopenedChip, subtaskWorkChip, systemDeliveryNote, waitingOnThisChip, whoCloses, type BoardTask, type TaskComment, type TaskStatus } from '../../lib/board';
+import { STATUS_LABEL, SYSTEM_DELIVERY_CHIP, blockedByChip, boardApi, commentAuthorLabel, isAgentWorking, isProjectlessId, parseQuestionBlock, reopenedChip, subtaskWorkChip, systemDeliveryNote, waitingOnThisChip, whoCloses, type BoardTask, type TaskStatus } from '../../lib/board';
+import { selectCardComments, type CardComments } from './cardComments';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useLongPress, openContextMenuAt } from '../../hooks/useLongPress';
 import { useMobile } from '../../hooks/useMobile';
 import { PreviewMedia } from './PreviewMedia';
 import { TaskChoiceRow } from './TaskChoiceRow';
+import { usableQuestionOptions } from './taskChoices';
 import { taskChoiceState } from './taskChoices';
 import { stripMarkdown } from '../../lib/stripMarkdown';
 import { PRIORITY_DOT, PRIORITY_LABEL, DISPATCH_CHIP, COMPACT_MD_CLS, mediaPaneIdFor, type LiveUsage, type OpenTask } from './constants';
@@ -77,9 +79,24 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
   // a telefono: la review è la superficie su cui si decide, e da mobile è UNA
   // slide intera. Il tetto (`max-w`) resta il limite di leggibilità.
   // Da `sm` in su non cambia niente: 22rem, e 32rem da `lg`.
+  //
+  // …E IL PAVIMENTO NON BASTA SENZA `min-w-0`. Un flex item nasce con
+  // `min-width: auto`, cioè «mai più stretto del tuo contenuto», e quel minimo
+  // batte sia il `basis` sia il `max-w`. Misurato: con in colonna una card il
+  // cui titolo è un path assoluto senza spazi, Review stava a 405px SIA a 390
+  // che a 360 di finestra — larghezza identica, quindi non seguiva lo schermo
+  // affatto: seguiva la parola più lunga. Fuori dalla riga di 31px sul primo
+  // telefono e di 61 sul secondo.
+  // `break-words` sul titolo (Card, più sotto) NON salva: `overflow-wrap:
+  // break-word` spezza la parola quando la larghezza è già decisa, ma non
+  // abbassa la dimensione min-content che quella decisione usa. Il pavimento
+  // lo toglie solo `min-w-0`, e da lì in poi `break-words` fa il suo lavoro
+  // dentro la colonna stretta.
+  // Vale per TUTTE le colonne, non solo Review: la stessa card in Todo avrebbe
+  // sfondato allo stesso modo il suo `max-w`.
   const widthCls = isReview
-    ? 'grow basis-full sm:basis-[22rem] max-w-[34rem] lg:basis-[32rem] lg:max-w-[44rem]'
-    : 'grow basis-72 max-w-[26rem]';
+    ? 'min-w-0 grow basis-full sm:basis-[22rem] max-w-[34rem] lg:basis-[32rem] lg:max-w-[44rem]'
+    : 'min-w-0 grow basis-72 max-w-[26rem]';
   const borderCls = isOver ? 'border-emerald-400/60' : 'border-app-border';
   const bgCls = isOver ? 'bg-emerald-400/5' : 'bg-white/5';
 
@@ -181,12 +198,14 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
   const { attributes, listeners, setNodeRef, isDragging, transform, transition } = useSortable({ id: task.id });
 
   // Review context, lazily loaded from the task detail (one GET, two uses):
-  // for an agent-driven task the LAST comment — a quick-reply with option
-  // buttons when it's a question block, plain text otherwise (the human must
-  // never be asked Approva/Rifiuta blind); for ANY review card with steps the
-  // direct CHILDREN, expanded on the card as the delivery checklist. Subtasks
-  // never ride the board feed (rootsOnly), so the card fetches them itself.
-  const [lastComment, setLastComment] = useState<TaskComment | null>(null);
+  // for an agent-driven task the comment PAIR (`selectCardComments`) — the
+  // thread's last word as a quick-reply with option buttons when it's a
+  // question block and plain text otherwise, plus the human request it answers
+  // (the human must never be asked Approva/Rifiuta blind, nor read an answer
+  // whose question is off the card); for ANY review card with steps the direct
+  // CHILDREN, expanded on the card as the delivery checklist. Subtasks never
+  // ride the board feed (rootsOnly), so the card fetches them itself.
+  const [thread, setThread] = useState<CardComments | null>(null);
   const [children, setChildren] = useState<BoardTask[]>([]);
   const [freeText, setFreeText] = useState('');
   const [busy, setBusy] = useState(false);
@@ -215,27 +234,36 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
   const showsQuestion = isAgentReview || isSystemQuestion;
   const wantDetail = showsQuestion || (task.status === 'review' && task.subtaskCount > 0);
   useEffect(() => {
-    if (!wantDetail) { setLastComment(null); setChildren([]); return; }
+    if (!wantDetail) { setThread(null); setChildren([]); return; }
     let alive = true;
     boardApi.get(task.projectId, task.id)
       .then(({ comments, children: kids }) => {
         if (!alive) return;
-        // Status events are history rows, not the agent's word — skip them.
-        const speech = comments.filter((c) => c.kind !== 'status');
-        setLastComment(showsQuestion ? speech[speech.length - 1] ?? null : null);
+        setThread(showsQuestion ? selectCardComments(comments) : null);
         setChildren(kids ?? []);
       })
-      .catch(() => { if (alive) { setLastComment(null); setChildren([]); } });
+      .catch(() => { if (alive) { setThread(null); setChildren([]); } });
     return () => { alive = false; };
     // Re-check when the task changes (a re-kick bumps updatedAt).
   }, [wantDetail, showsQuestion, task.projectId, task.id, task.updatedAt]);
+  const lastComment = thread?.latest ?? null;
+  // Plain text: the context row is a single clamped line, so markdown blocks
+  // would only leak their syntax into it.
+  const humanContextText = thread?.humanContext ? stripMarkdown(thread.humanContext.content) : '';
   const pending = lastComment ? parseQuestionBlock(lastComment.content) : null;
+  // A quick reply whose text IS one of the card's real choices is a trap: the
+  // reply rejects the card and restarts the agent with those words, while the
+  // button one row below performs the action. Same label, opposite effect.
+  const replyOptions = useMemo(
+    () => (pending ? usableQuestionOptions(task, pending.options) : []),
+    [pending, task],
+  );
 
   // Route mutations by the task's own projectId (works in the global board too).
   const review = async (decision: 'approve' | 'reject', comment?: string) => {
     if (busy) return;
     setBusy(true);
-    try { await boardApi.review(task.projectId, task.id, decision, comment); setLastComment(null); setFreeText(''); onRefetch(); }
+    try { await boardApi.review(task.projectId, task.id, decision, comment); setThread(null); setFreeText(''); onRefetch(); }
     catch (e) { onError(e instanceof Error ? e.message : 'review failed'); }
     finally { setBusy(false); }
   };
@@ -666,6 +694,19 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
           esattamente il difetto che `taskChoices` ha chiuso. */}
       {task.status === 'review' && (
         <div className="mt-2 space-y-1.5" onClick={(e) => e.stopPropagation()}>
+          {/* The human request the answer below is answering, kept to ONE line.
+              On a card that bounced back through review it is the rework note,
+              and without it the answer arrives with its question missing. It is
+              context, not content: muted, clamped, and quoted only when a real
+              reply followed it (`selectCardComments`). No human word, no row:
+              nothing empty is ever reserved here. */}
+          {showsQuestion && humanContextText && (
+            <p
+              data-testid="card-human-context"
+              className="truncate border-l-2 border-sky-400/40 pl-1.5 text-xs md:text-[11px] leading-relaxed text-app-text-muted"
+              title={`La tua richiesta: ${humanContextText}`}
+            >{humanContextText}</p>
+          )}
           {/* The agent's last word, ALWAYS on the card — a formatted question
               with quick-reply buttons when it's a question block, plain text
               otherwise. Approving/rejecting blind was the bug. */}
@@ -675,9 +716,14 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
             // Render the agent's last word as REAL markdown (bold/headings/lists
             // format instead of showing raw `**`/`#`). Shown in full — no clamp,
             // no fade. Tooltip = plain text.
+            //
+            // The name in front of the colon is DERIVED, never the stored
+            // author. Rows written before 13/08/2026 carry the topic name there,
+            // which for a dispatched agent is the task title cut at 60
+            // characters, so this tooltip used to open with half a word.
             <div
               className={`text-xs leading-relaxed text-app-text-heading ${COMPACT_MD_CLS}`}
-              title={`${lastComment.author}: ${stripMarkdown(lastComment.content)}`}
+              title={`${commentAuthorLabel(lastComment.author).label}: ${stripMarkdown(lastComment.content)}`}
             >
               <ChatMarkdown components={{}}>{lastComment.content}</ChatMarkdown>
             </div>
@@ -687,9 +733,9 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
             className="text-xs md:text-[10px] text-app-text-muted"
             title={`Ultimo aggiornamento: ${new Date(task.updatedAt).toLocaleString('it-IT')}`}
           >{fmtUpdatedAt(task.updatedAt)}</div>
-          {pending && pending.options.length > 0 && (
+          {replyOptions.length > 0 && (
             <div className="flex flex-wrap gap-1">
-              {pending.options.map((opt, i) => (
+              {replyOptions.map((opt, i) => (
                 <button
                   key={i} disabled={busy}
                   onClick={() => answer(opt)}
