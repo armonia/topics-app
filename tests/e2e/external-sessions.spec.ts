@@ -17,6 +17,7 @@ import { createTopic, deleteTopic, resetPaneStore, seedProjectPane } from "./hel
 import { mkdirSync, rmSync, writeFileSync } from "fs";
 import { E2E_BASE, E2E_HOME } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
+import { claudeProjectDirName } from "../../server/lib/claude-transcript-path";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
@@ -25,8 +26,8 @@ hermetic(test);
 const BASE = E2E_BASE;
 const TEST_HOME = E2E_HOME;
 const PROJECT_PATH = `/tmp/e2e-extsess-${Date.now()}`;
-/** Claude Code encodes the cwd by replacing every `/` and `.` with `-`. */
-const encodedDir = PROJECT_PATH.replace(/[/.]/g, "-");
+/** Il server usa questa, e la usa anche il fixture: una regola sola. */
+const encodedDir = claudeProjectDirName(PROJECT_PATH);
 const TRANSCRIPT_DIR = `${TEST_HOME}/.claude/projects/${encodedDir}`;
 const SESSION_ID = "e2e11111-2222-3333-4444-555555555555";
 
