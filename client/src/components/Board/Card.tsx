@@ -6,7 +6,7 @@ import { AlertTriangle, ClipboardList, Copy, Hourglass, Lock, MessageSquare, Plu
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
-import { STATUS_LABEL, SYSTEM_DELIVERY_CHIP, blockedByChip, boardApi, commentAuthorLabel, isAgentWorking, isProjectlessId, parseQuestionBlock, reopenedChip, subtaskWorkChip, systemDeliveryNote, waitingOnThisChip, whoCloses, type BoardTask, type TaskStatus } from '../../lib/board';
+import { STATUS_LABEL, SYSTEM_DELIVERY_CHIP, blockedByChip, boardApi, commentAuthorLabel, isAgentWorking, isProjectlessId, parseQuestionBlock, reopenedChip, showsLandingDebt, subtaskWorkChip, systemDeliveryNote, waitingOnThisChip, whoCloses, type BoardTask, type TaskStatus } from '../../lib/board';
 import { selectCardComments, type CardComments } from './cardComments';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useLongPress, openContextMenuAt } from '../../hooks/useLongPress';
@@ -354,9 +354,10 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
   const showPriority = !task.priorityAuto && task.priority !== 2;
   // Review expands the subtask checklist on the card; elsewhere the count chip suffices.
   const checklist = task.status === 'review' ? children : [];
-  // "done" that never reached main — the 19/07 loss, made visible. Only on done:
-  // a task in review is legitimately not landed yet, flagging it would be noise.
-  const notLanded = task.status === 'done' && task.landingState === 'unlanded';
+  // "done" that never reached main — the 19/07 loss, made visible. Il predicato
+  // sta in `shared/board`: la stessa pastiglia la disegnano la banda del drawer e
+  // il contatore accanto a «Pubblica», e le tre copie divergevano.
+  const notLanded = showsLandingDebt(task);
   // Il ramo come si legge su una card: senza il prefisso `topics/`, che ce
   // l'hanno tutti e occupa sette caratteri dei pochi che il chip ha. Con il
   // prefisso il troncamento mangiava proprio la parte che distingue un ramo
