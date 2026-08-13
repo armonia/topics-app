@@ -36,7 +36,7 @@ import { liveAgentCount } from "./agent-census";
 // chi la vuole la prende da `shared/board`.
 export type { TaskStatus, TaskComment, BoardSettings, BoardSettingsPatch, BlockerRef, SubtaskWork, QueueReason } from "../../shared/board";
 import {
-  ARCHIVE_PARKED_LABEL, DISPATCH_CHIP_QUEUED,
+  ARCHIVE_PARKED_LABEL, DISPATCH_CHIP_QUEUED, GLOBAL_CAP_MAX, GLOBAL_CAP_MIN,
   MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PREVIEW_CARD_MAX_RATIO, QUEUE_REASON_UNKNOWN,
   REQUEUE_PARKED_LABEL, TASK_STATUSES, WAIT_SERIES_MAX_MS, WAIT_STREAK_CAP,
   deriveQueueReason, deriveSubtaskWork, formatStatusEvent, hasPlanApproveOption, isAgentWorking,
@@ -2987,7 +2987,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         db.prepare("UPDATE board_settings SET max_agents_auto = ? WHERE project_id = ?").run(patch.auto ? 1 : 0, GLOBAL_SETTINGS_KEY);
       }
       if (patch.max !== undefined) {
-        db.prepare("UPDATE board_settings SET max_agents = ? WHERE project_id = ?").run(clampInt(patch.max, 1, 20), GLOBAL_SETTINGS_KEY);
+        db.prepare("UPDATE board_settings SET max_agents = ? WHERE project_id = ?").run(clampInt(patch.max, GLOBAL_CAP_MIN, GLOBAL_CAP_MAX), GLOBAL_SETTINGS_KEY);
       }
       return this.getGlobalCap();
     },
