@@ -1,6 +1,5 @@
 import { test, expect, describe } from "bun:test";
 import { Database } from "bun:sqlite";
-import os from "node:os";
 import {
   computeDispatchCapacity,
   effectiveDispatchCap,
@@ -112,11 +111,12 @@ describe("fleetSlotBudget — il freno vivo è un credito, non una divisione", (
   });
 
   test("il carico ALTRUI non entra nel conto: la sonda misura solo noi", () => {
-    // La macchina può essere satura: se non è carico nostro, gli slot non
-    // cambiano. È tutto il punto del cambio (12/08: load 13 su 12 core, la
-    // nostra flotta a 0,75 core, il tetto sceso a 1 con cinque card in coda).
-    expect(su12(0.75, 0).slots).toBe(su12(0.75, 0).slots);
-    expect(su12(0.75, 0).slots).toBeGreaterThanOrEqual(5);
+    // Il caso del 12/08, numeri veri: load 13 su 12 core, ma la NOSTRA flotta a
+    // 0,75 core. Il vecchio conto dava 1 slot. Qui la quota è quasi intatta,
+    // perché il load della macchina non è un ingresso di questa funzione: gli
+    // unici due sono quanto teniamo NOI e quanti siamo.
+    expect(su12(0.75, 0).slots).toBe(5);
+    expect(su12(0.75, 0).freeCores).toBeCloseTo(5.25, 5);
   });
 
   test("agenti che compilano: il tetto scende sotto lo strutturale", () => {
@@ -144,7 +144,15 @@ describe("fleetSlotBudget — il freno vivo è un credito, non una divisione", (
 });
 
 describe("computeDispatchCapacity — quale sonda comanda", () => {
-  const cores = Math.max(1, os.cpus().length);
+  // I core li chiediamo AL MODULO, non a `os.cpus()`.
+  //
+  // Non è pignoleria: con `os.cpus().length` questo blocco è caduto una volta
+  // nella suite intera e mai da solo, perché sotto carico quella lettura sa
+  // tornare vuota (vedi `server/lib/machine-cores.ts`). Un test che chiede la
+  // stessa cosa da una porta diversa può rispondersi «un core» mentre il codice
+  // sotto misura ne vede dodici, e allora il rosso non parla del codice: parla
+  // di quanto era occupata la macchina che lo eseguiva.
+  const cores = computeDispatchCapacity(0, () => null).cores;
 
   test("macchina satura ma carico NON nostro: il tetto resta quello strutturale", () => {
     // La sonda della flotta dice «noi teniamo un decimo di core». Qualunque
@@ -156,11 +164,16 @@ describe("computeDispatchCapacity — quale sonda comanda", () => {
   });
 
   test("carico NOSTRO oltre la quota: il tetto scende e la riga dice da cosa", () => {
-    const cap = computeDispatchCapacity(1, () => ({ coreUnits: cores, cores }));
-    expect(cap.recommended).toBeLessThanOrEqual(2);
-    expect(cap.recommended).toBeLessThanOrEqual(structuralDispatchCapacity());
-    expect(cap.reason).toContain("ridotto a");
+    const strutturale = structuralDispatchCapacity();
+    // La flotta si mangia quattro volte la sua quota: il residuo va a zero e
+    // resta solo il pavimento, che è 2 e non 1 apposta.
+    const cap = computeDispatchCapacity(1, () => ({ coreUnits: cores * 4, cores }));
+    expect(cap.recommended).toBe(Math.min(strutturale, 2));
     expect(cap.reason).toContain("di quota");
+    // «Ridotto» si può dire solo se c'era qualcosa da ridurre. Su una macchina
+    // così piccola che il tetto strutturale è già il pavimento (due o meno) il
+    // freno non ha spazio per mordere, e la riga giustamente non lo dice.
+    if (strutturale > 2) expect(cap.reason).toContain("ridotto a");
   });
 
   test("senza sonda (Windows, cache fredda) resta il conto storico sul load", () => {
