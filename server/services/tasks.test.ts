@@ -3,7 +3,7 @@ import { Database } from "bun:sqlite";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createTaskService, isLandActionLabel, isPublishActionLabel, LAND_ACTION_LABEL, PUBLISH_ACTION_LABEL, projectIdForPath, TaskServiceError, type TaskService } from "./tasks";
+import { ARCHIVE_PARKED_LABEL, commentAsksHuman, createTaskService, isBoardActionLabel, isLandActionLabel, isPublishActionLabel, LAND_ACTION_LABEL, PUBLISH_ACTION_LABEL, projectIdForPath, REQUEUE_PARKED_LABEL, TaskServiceError, type TaskService } from "./tasks";
 import { PARKED_WAITED_OUT, WAIT_SERIES_MAX_MS, WAIT_STREAK_CAP } from "../../shared/board";
 import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL } from "../db/test-schema";
 
@@ -21,6 +21,63 @@ describe("reserved action labels", () => {
     expect(isPublishActionLabel("🚀 Landa e pubblica")).toBe(true);
     expect(isPublishActionLabel(LAND_ACTION_LABEL)).toBe(false); // land only, no push
     expect(isPublishActionLabel("")).toBe(false);
+  });
+  test("isBoardActionLabel covers the four the server runs, and nothing else", () => {
+    for (const l of [LAND_ACTION_LABEL, PUBLISH_ACTION_LABEL, REQUEUE_PARKED_LABEL, ARCHIVE_PARKED_LABEL]) {
+      expect(isBoardActionLabel(l)).toBe(true);
+    }
+    // A plan verdict resumes the AGENT with the human's words: it is an answer,
+    // not an order the board executes.
+    expect(isBoardActionLabel("Approva il piano")).toBe(false);
+    expect(isBoardActionLabel("Aspetta, ho un dubbio")).toBe(false);
+    expect(isBoardActionLabel(null)).toBe(false);
+  });
+});
+
+/**
+ * A DELIVERY THAT WEARS A QUESTION'S CLOTHES IS STILL A DELIVERY.
+ *
+ * The kickoff envelope orders a landable delivery to attach
+ * `options=["Landa su main"]`, and `addComment` wraps any options in a
+ * ```question fence. So every reader that asked "does this contain a question
+ * block" answered yes on finished work: on 13/08, 10 of the 13 cards holding
+ * the `needs_input` chip were deliveries, and 13 of 17 committed deliveries
+ * reached review with both structural gates skipped.
+ */
+describe("commentAsksHuman", () => {
+  /** Same shape addComment composes, so the test reads what production writes. */
+  const block = (question: string, ...options: string[]) =>
+    ["```question", question, ...options.map((o) => `- ${o}`), "```"].join("\n");
+
+  test("a delivery whose only option is a board action is NOT a question", () => {
+    expect(commentAsksHuman(block("Fatto: sei cancelli verdi.", LAND_ACTION_LABEL))).toBe(false);
+    // Tolerant on the label, like the predicates it delegates to.
+    expect(commentAsksHuman(block("Fatto.", "🚀  landa su  main."))).toBe(false);
+    // The two answers to the parked-subtask stall come out the same way: the
+    // board runs both. That block is written by `author: 'system'`, and both
+    // readers of this predicate look at the AGENT's last word only, so the
+    // verdict never reaches a card. Pinned here so a future reader who wires
+    // this predicate to a system-authored surface sees what it says first.
+    expect(commentAsksHuman(block("Fermo su 2 sottotask.", REQUEUE_PARKED_LABEL, ARCHIVE_PARKED_LABEL))).toBe(false);
+  });
+
+  test("MIXED stays a question: one option the board cannot run needs a person", () => {
+    expect(commentAsksHuman(block("Ho finito, ma il nome del flag non mi convince.", LAND_ACTION_LABEL, "Aspetta, ho un dubbio"))).toBe(true);
+    expect(commentAsksHuman(block("Che approccio uso?", "JWT in cookie", "Bearer token"))).toBe(true);
+    // A plan waiting for its verdict is the case this must never swallow.
+    expect(commentAsksHuman(block("Ecco il piano.", "Approva il piano", "Da rivedere"))).toBe(true);
+  });
+
+  test("no options at all is still a question, and no block at all is not", () => {
+    expect(commentAsksHuman(block("E adesso?"))).toBe(true);
+    expect(commentAsksHuman("Fatto, guarda demo/. Niente da decidere.")).toBe(false);
+    expect(commentAsksHuman("")).toBe(false);
+    expect(commentAsksHuman(null)).toBe(false);
+  });
+
+  test("prose around the block does not change the verdict", () => {
+    const testo = `Consegna: rifatto il gate.\n\n${block("Landa?", LAND_ACTION_LABEL)}`;
+    expect(commentAsksHuman(testo)).toBe(false);
   });
 });
 
