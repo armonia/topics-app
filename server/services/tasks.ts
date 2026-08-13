@@ -40,8 +40,8 @@ import {
   MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PREVIEW_CARD_MAX_RATIO, QUEUE_REASON_UNKNOWN,
   TASK_STATUSES, WAIT_SERIES_MAX_MS, WAIT_STREAK_CAP,
   deriveQueueReason, deriveSubtaskWork, formatStatusEvent, hasPlanApproveOption, isAgentWorking,
-  isUnattributedSubtask, normalizeActionLabel, readTaskWeight, statusEventEnters,
-  waitReasonKey,
+  isUnattributedSubtask, normalizeActionLabel, noteParkedChildrenResolved, readTaskWeight,
+  statusEventEnters, waitReasonKey,
 } from "../../shared/board";
 import { EFFORT_TIERS } from "../../shared/effort";
 // Il vocabolario delle etichette e la regola che le deriva: una sola
@@ -2613,9 +2613,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           children.push(this.archive({ taskId: c.id }));
         }
       }
-      const nota = decision === "requeue"
-        ? `Sbloccato: ${parked.length} sottotask rimessi in coda. Torno in coda anch'io e riparto quando hanno finito.`
-        : `Sbloccato: ${parked.length} sottotask archiviati. Torno in coda: non c'è più niente ad aspettarmi.`;
+      // The copy lives in `shared/board.ts`, next to the predicate that has to
+      // recognise it: this note is signed `user` (a person picked the option),
+      // and the review card must not quote it back as the human's request.
+      const nota = noteParkedChildrenResolved(decision, parked.length);
       // Il mandato è NUOVO — l'ha appena dato una persona — quindi il budget dei
       // tentativi riparte da zero, esattamente come per un trascinamento in Todo.
       // Senza, il padre tornerebbe in coda già esaurito e non lo reclamerebbe più
