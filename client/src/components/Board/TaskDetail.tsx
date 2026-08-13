@@ -2,6 +2,11 @@ import { useState, useEffect, useMemo, useRef, useCallback, type TouchEvent as R
 import { useT, useLocale } from '../../hooks/useT';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { NightModeCard } from './NightModeCard';
+import {
+  GlobalSettingsSection,
+  SettingsPanelHead,
+  SETTINGS_PANEL_SHELL,
+} from './BoardSettingsSections';
 import { AlertTriangle, ArrowUpRight, Bot, Camera, Check, ChevronDown, ChevronRight, Clock, Copy, Download, ExternalLink, Footprints, GitMerge, Globe, Hourglass, Link2, Lock, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Paperclip, Plus, Send, ShieldCheck, ShieldX, Sparkles, Square, Tag, UserRound, X } from 'lucide-react';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ReasoningRow } from '../Chat/ReasoningRow';
@@ -2855,31 +2860,17 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
   };
   if (!s) return null;
   return (
-    <div className="shrink-0 space-y-2 border-b border-app-border bg-app-inset px-3 py-2.5 text-xs text-app-text-heading" data-testid="board-settings-panel">
-      <div className="flex items-center justify-between">
-        {/* Il pannello non è «Auto-dispatch»: contiene effort, modello, lingua,
-            worktree, fan-out, notturna, auto-merge, MCP. Chiamarlo col nome
-            della prima riga faceva sembrare che quel nome fosse un titolo E un
-            interruttore. */}
-        <span className="font-semibold text-app-text">{tr('board.settings.title')}</span>
-        <button aria-label={tr('board.settings.close')} onClick={onClose} className="rounded p-0.5 text-app-text-secondary hover:bg-white/10"><X className="h-3.5 w-3.5" /></button>
-      </div>
+    <div className={SETTINGS_PANEL_SHELL} data-testid="board-settings-panel">
+      <SettingsPanelHead onClose={onClose} />
 
-      {/* PRIMA sezione, e la sola che NON è di questa board: l'interruttore è
-          quello globale, lo stesso del ▾ in testata. Senza il titolo sopra, la
-          prima riga di una lista piatta si leggeva come «auto-dispatch di
-          questo progetto» — cioè come un'impostazione che qui non esiste. */}
+      {/* PRIMA sezione, e la sola che NON è di questa board: l'interruttore e il
+          tetto sono quelli globali, gli stessi del ▾ in testata. Senza il titolo
+          sopra, la prima riga di una lista piatta si leggeva come «auto-dispatch
+          di questo progetto» — cioè come un'impostazione che qui non esiste.
+          Le righe stanno in `BoardSettingsSections.tsx` perché il pannello della
+          board generale monta le STESSE: un blocco, due pannelli. */}
       <SettingsSection label={tr('board.settings.sec.global')} first>
-        <label
-          className="flex cursor-pointer items-center justify-between gap-3"
-          title={tr('board.settings.dispatchOnTitle')}
-        >
-          {/* STESSA etichetta del ▾ in testata: è lo stesso interruttore globale,
-              e due nomi diversi per un valore solo fanno sembrare che siano due
-              impostazioni. Il cosa-fa sta nel `title`, non nel nome. */}
-          <span className="flex items-center gap-1.5"><Bot className="h-3.5 w-3.5 text-app-text-secondary" /> {tr('board.settings.autoDispatch')}</span>
-          <input type="checkbox" checked={!!dispatchOn} onChange={onToggleDispatch} className="h-3.5 w-3.5 shrink-0 accent-emerald-500" />
-        </label>
+        <GlobalSettingsSection dispatchOn={dispatchOn} onToggleDispatch={onToggleDispatch} />
         {dispatchOn && (
           <p className="text-[11px] text-amber-300/80">{tr('board.settings.dispatchOnActive')}</p>
         )}

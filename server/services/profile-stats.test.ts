@@ -124,13 +124,32 @@ describe("computeProfileStats", () => {
     expect(s.sessions).toEqual({ total: 3, open: 2 });
   });
 
-  test("i token sommano chat E board, cache inclusa", () => {
-    messaggio({ id: "m1", prompt: 100, completion: 50, cacheRead: 1000 });
+  test("i token sommano chat E board, e la cache si conta UNA volta sola", () => {
+    // La riga di chat è coerente col contratto: `usage_prompt_tokens` è il
+    // TOTALE letto e comprende già la rilettura (1.000 dei 1.100). Prima questo
+    // test la scriveva come `prompt: 100, cacheRead: 1000` — una forma che il
+    // server non produce, perché il prompt non può essere più piccolo della
+    // cache che contiene — e in cambio del numero giusto benediceva la somma
+    // sbagliata. Sul DB di produzione valeva 18,03 miliardi contro 9,89 veri.
+    messaggio({ id: "m1", prompt: 1100, completion: 50, cacheRead: 1000 });
+    // Per i TASK invece la somma ci vuole: `agent_tokens` nasce da
+    // `billableTokens`, che la rilettura la esclude per costruzione
+    // (`services/dispatch-usage.ts`). Due tabelle, due convenzioni.
     task({ id: "t1", tokens: 300, cache: 2000, completedAgeMs: GIORNO });
     const s = computeProfileStats(db, ORA);
-    expect(s.tokens.chat).toBe(1150);
-    expect(s.tokens.agents).toBe(2300);
+    expect(s.tokens.chat).toBe(1150);   // 1.100 letti + 50 prodotti
+    expect(s.tokens.agents).toBe(2300); // 300 fatturabili + 2.000 riletti
     expect(s.tokens.total).toBe(3450);
+  });
+
+  test("un turno quasi tutto rilettura non vale il doppio di se stesso", () => {
+    // La forma vera di un turno agentico: il 99,9% del letto è rilettura.
+    // Se la cache si sommasse di nuovo, questo numero raddoppierebbe — ed è
+    // esattamente quello che il pannello mostrava.
+    messaggio({ id: "agentico", prompt: 1_000_000, completion: 0, cacheRead: 999_000 });
+    const s = computeProfileStats(db, ORA);
+    expect(s.tokens.chat).toBe(1_000_000);
+    expect(s.tokens.chat).not.toBe(1_999_000);
   });
 
   test("il costo somma solo le righe attendibili, e CONTA quelle che ha escluso", () => {

@@ -74,13 +74,23 @@ export function accumulateTurnUsage(prev: TurnUsage, call: CallUsage): TurnUsage
 }
 
 /**
- * Le quote da passare al calcolo del prezzo, scorporate dal totale accumulato.
+ * Le quote DISGIUNTE del turno, scorporate dal totale accumulato.
  *
  * `fresh` è il resto e non scende sotto zero; `write1h` non supera le scritture
  * totali (il provider può riportare un 1h maggiore per arrotondamenti fra
  * chiamate, e un negativo qui farebbe pagare una tariffa a un numero inventato).
+ *
+ * SERVE A DUE COSE, ed è il motivo per cui non si chiama più `…CostParts`: al
+ * prezzo e alla RIGA SALVATA. Finché il nome diceva «prezzo», il call site
+ * scriveva su `messages` i campi grezzi di `TurnUsage` — che sono ANNIDATI —
+ * dentro colonne il cui contratto è disgiunto (migration 070). Il risultato
+ * erano 351 righe in produzione con `cache_creation_tokens =
+ * cache_creation_1h_tokens`, cioè la stessa scrittura contata due volte, e un
+ * «fresco» clampato a zero che nascondeva l'impossibile invece di dirlo. Chi
+ * persiste o manda sul filo le quote di un turno passa DA QUI: è l'unico punto
+ * che traduce l'annidato dell'API nel disgiunto del nostro schema.
  */
-export function turnUsageCostParts(u: TurnUsage): {
+export function turnUsageParts(u: TurnUsage): {
   fresh: number;
   cacheRead: number;
   cacheCreation5m: number;
@@ -94,5 +104,40 @@ export function turnUsageCostParts(u: TurnUsage): {
     cacheCreation5m: u.cacheCreation - write1h,
     cacheCreation1h: write1h,
     output: u.completion,
+  };
+}
+
+/**
+ * Le quote di un turno in corso NELLA FORMA in cui si salvano e si mandano sul
+ * filo: `messages` (migration 070) e il frame `stream:usage`
+ * (`shared/ws-outbound.ts`) usano gli stessi nomi e lo stesso contratto.
+ *
+ * PERCHÉ UNA FUNZIONE E NON CINQUE CAMPI SCRITTI A MANO. Perché scritti a mano
+ * erano sbagliati. Il call site copiava `live.cacheCreation` — il totale
+ * ANNIDATO — dentro `cacheCreationTokens`, che è disgiunto, e la stessa
+ * scrittura finiva contata due volte: in produzione 351 righe con
+ * `cache_creation_tokens = cache_creation_1h_tokens`, ~60M token di eccesso, e
+ * una striscia che mostrava «X da cache · Y nuovi» con X+Y diverso dal totale.
+ * La traduzione esisteva già venti righe sopra, ma si chiamava «per il prezzo»
+ * e nessuno pensò che servisse anche alla riga. Adesso è una porta sola: chi
+ * persiste o trasmette passa di qui, e `chat.ts` non nomina più i campi grezzi
+ * (`tests/unit/no-raw-turn-usage.test.ts` lo tiene fermo).
+ */
+export interface TurnUsageWire {
+  promptTokens: number;
+  completionTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  cacheCreation1hTokens: number;
+}
+
+export function turnUsageWire(u: TurnUsage): TurnUsageWire {
+  const p = turnUsageParts(u);
+  return {
+    promptTokens: u.prompt,
+    completionTokens: u.completion,
+    cacheReadTokens: p.cacheRead,
+    cacheCreationTokens: p.cacheCreation5m,
+    cacheCreation1hTokens: p.cacheCreation1h,
   };
 }
