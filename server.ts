@@ -999,7 +999,7 @@ const taskDispatcher = createTaskDispatcher({
     }
   },
   // Auto concurrency cap: live machine capacity for boards on `maxAgentsAuto`.
-  recommendedCap: () => computeDispatchCapacity().recommended,
+  recommendedCap: (running) => computeDispatchCapacity(running).recommended,
   // Don't drop an agent into a repo somebody is already working by hand.
   externalSessionsAt: (path) =>
     externalSessions.activeAt(path).map((s) => ({ cwd: s.cwd, branch: s.branch })),
