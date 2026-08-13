@@ -912,6 +912,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   // task pesante / è troppo carica". Stessa disciplina dell'insieme qui sopra:
   // una nota per EPISODIO, non una per poll — si svuota appena l'attesa finisce.
   const heavyHeldNoted = new Set<string>();
+  // Task a cui si è già detto "aspetti perché il tetto di concorrenza è pieno".
+  // Stessa disciplina: una nota per EPISODIO. Si svuota nel giro in cui il tetto
+  // torna a lasciar passare quella card, così la prossima pienezza lo ridice.
+  const capHeldNoted = new Set<string>();
   // Da QUANDO un task pesante è trattenuto dal carico (ms). Serve al tetto
   // dell'attesa (`HEAVY_HOLD_MAX_MS`): senza un istante di inizio «trattenuto da
   // troppo» non è una condizione misurabile, è un'impressione. Si azzera appena
@@ -994,14 +998,30 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * — la nota si ripete solo dopo che l'attesa è finita davvero, altrimenti un
    * poll ogni 10s riempirebbe il thread della stessa frase.
    */
-  function noteHeavyHold(task: Task, why: string): void {
+  function noteHold(noted: Set<string>, task: Task, why: string): void {
     if (inFlight.has(task.id) || graceTimers.has(task.id)) return;
-    if (heavyHeldNoted.has(task.id)) return;
-    heavyHeldNoted.add(task.id);
+    if (noted.has(task.id)) return;
+    noted.add(task.id);
     try {
       emit(deps.svc.setDispatchState({ taskId: task.id, state: CHIP_QUEUED }));
       deps.svc.addComment({ taskId: task.id, author: "system", content: why, kind: "service" });
     } catch { /* il task può essersi mosso sotto i piedi */ }
+  }
+
+  function noteHeavyHold(task: Task, why: string): void {
+    noteHold(heavyHeldNoted, task, why);
+  }
+
+  /**
+   * «Aspetti perché non c'è un posto libero», con i numeri che lo rendono
+   * verificabile. Il `break` sul tetto pieno fermava la coda in silenzio: la
+   * card restava `queued` e l'unico modo di sapere da cosa era leggere il sort
+   * del dispatcher. Il tetto e quanti agenti sono in volo dicono se il freno è
+   * la macchina o l'impostazione; quante card sono ferme dice quanto è lunga
+   * la fila dietro quella decisione.
+   */
+  function noteCapHold(task: Task, why: string): void {
+    noteHold(capHeldNoted, task, why);
   }
 
   /**
@@ -2861,6 +2881,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       }
       void launch(t.id, { useWorktree: settings.dispatchUseWorktree, ...launchSettings }, resolved);
     }
+    for (const t of todos) { if (!capHeld.includes(t.id)) capHeldNoted.delete(t.id); }
   }
 
   function onEnterTodo(projectId: string, taskId: string): void {
