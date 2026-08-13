@@ -23,6 +23,7 @@ function freshDb(): Database {
     only_lead_can_change_status INTEGER DEFAULT 0, max_agents INTEGER DEFAULT 5, auto_expire_hours INTEGER DEFAULT 24,
     auto_dispatch INTEGER NOT NULL DEFAULT 0, dispatch_effort TEXT NOT NULL DEFAULT 'medium',
     dispatch_use_worktree INTEGER NOT NULL DEFAULT 1, dispatch_timeout_min INTEGER NOT NULL DEFAULT 20,
+    dispatch_auto_merge INTEGER NOT NULL DEFAULT 0,
     max_agents_auto INTEGER, review_checks TEXT
   )`);
   db.run(`CREATE TABLE task_comments (
@@ -915,11 +916,15 @@ describe("approve decoupled from landing", () => {
     return t.id;
   }
 
+  /** Accende l'interruttore della board: senza, l'ingresso in Done non fonde. */
+  const autoMergeOn = () => call(router, "PATCH", "/api/boards/pX/settings", { dispatchAutoMerge: true });
+
   test("trascinare una card in Done LANDA: `done` deve voler dire atterrato", async () => {
     // Il land era un'azione a parte, e il gesto piu' naturale — trascinare la
     // card in Done — chiudeva il lavoro lasciandolo sul suo ramo, in silenzio.
     // Misurato il 10/08: 17 card chiuse in otto ore col contenuto NON su main.
     const id = await reviewTask();
+    await autoMergeOn();
     db.prepare("UPDATE tasks SET delivery_branch = 'topics/x' WHERE id = ?").run(id);
     await call(router, "PATCH", `/api/boards/pX/tasks/${id}`, { status: "done" });
     await new Promise((r) => setTimeout(r, 0)); // il land e' fire-and-forget
@@ -930,9 +935,49 @@ describe("approve decoupled from landing", () => {
     // Il controllo del test qui sopra: una nota chiusa a mano non deve svegliare
     // git, o ogni gesto sulla board diventerebbe un'operazione sul repo.
     const id = await reviewTask();
+    await autoMergeOn();
     await call(router, "PATCH", `/api/boards/pX/tasks/${id}`, { status: "done" });
     await new Promise((r) => setTimeout(r, 0));
     expect(merges).not.toContain(id);
+  });
+
+  // ── L'INTERRUTTORE DELLA BOARD, che su questa strada non leggeva nessuno ──
+  //
+  // Ogni ingresso in Done di una card con un ramo accodava un merge: non solo
+  // l'approvazione, anche il trascinamento e il menu «Sposta in». Il commento
+  // accanto diceva che la board l'aveva già deciso con `dispatchAutoMerge`, ma
+  // il campo non veniva letto: quattro board su otto lo hanno spento e fondevano
+  // lo stesso, per 125 «Mergiato su main» e 45 conflitti.
+
+  test("merge automatico SPENTO: Done non fonde, e la card dice perché", async () => {
+    const id = await reviewTask();   // board pX senza riga: default spento
+    db.prepare("UPDATE tasks SET delivery_branch = 'topics/x' WHERE id = ?").run(id);
+    await call(router, "PATCH", `/api/boards/pX/tasks/${id}`, { status: "done" });
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(merges).toEqual([]);
+    // Una chiusura MUTA col codice ancora sul ramo è il guasto del 10/08 in
+    // versione silenziosa: la nota deve nominare il ramo e la via d'uscita.
+    const nota = createTaskService(db).get(id)!.comments.filter((c) => c.author === "system").map((c) => c.content).join("\n");
+    expect(nota).toContain("SENZA fondere");
+    expect(nota).toContain("topics/x");
+    expect(nota).toContain("Landa su main");
+  });
+
+  test("il bottone «Landa su main» fonde con l'interruttore spento: è una scelta umana", async () => {
+    const id = await reviewTask();
+    db.prepare("UPDATE tasks SET delivery_branch = 'topics/x' WHERE id = ?").run(id);
+    await call(router, "POST", `/api/boards/pX/tasks/${id}/land`, {});
+    await new Promise((r) => setTimeout(r, 0));
+    expect(merges).toEqual([id]);
+  });
+
+  test("…e la quick-reply «Landa su main» pure, spenta o accesa", async () => {
+    const id = await reviewTask();
+    db.prepare("UPDATE tasks SET delivery_branch = 'topics/x' WHERE id = ?").run(id);
+    await call(router, "POST", `/api/boards/pX/tasks/${id}/review`, { decision: "reject", comment: LAND_ACTION_LABEL });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(merges).toEqual([id]);
   });
 
   test("approve accepts the task WITHOUT merging (no azioni da sotto)", async () => {
