@@ -221,7 +221,15 @@ export function maybeSendPush(message: Record<string, any>): void {
     // realtà ti stanno CHIEDENDO una cosa è la stessa notifica per due eventi
     // diversi — e quello che chiede è l'unico che non può aspettare.
     const question = readQuestion(message.question);
-    const title = question ? "❓ L'agent ti sta chiedendo una cosa" : "📋 Task pronto per la review";
+    // Il titolo NON guarda `question`: quel campo porta anche le opzioni di
+    // una consegna landabile (l'envelope ordina "Landa su main" a ogni
+    // consegna), quindi ogni delivery finita avrebbe il titolo della
+    // domanda. `isAsk` è il predicato giusto (`commentAsksHuman` a monte, in
+    // routes/tasks.ts) — assente su un server vecchio, e li' il titolo
+    // resta quello di domanda: meglio un falso "ti chiede" che un falso
+    // "pronto" su un thread che aspetta davvero una risposta.
+    const isAsk = message.isAsk ?? !!question;
+    const title = isAsk ? "❓ L'agent ti sta chiedendo una cosa" : "📋 Task pronto per la review";
     const body = question?.text || message.taskTitle || "Un task è pronto per la review";
     firePush(withActions({
       title,
