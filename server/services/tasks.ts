@@ -36,11 +36,11 @@ import { liveAgentCount } from "./agent-census";
 // chi la vuole la prende da `shared/board`.
 export type { TaskStatus, TaskComment, BoardSettings, BoardSettingsPatch, BlockerRef, SubtaskWork, QueueReason } from "../../shared/board";
 import {
-  DISPATCH_CHIP_QUEUED,
+  ARCHIVE_PARKED_LABEL, DISPATCH_CHIP_QUEUED,
   MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PREVIEW_CARD_MAX_RATIO, QUEUE_REASON_UNKNOWN,
-  TASK_STATUSES, WAIT_SERIES_MAX_MS, WAIT_STREAK_CAP,
+  REQUEUE_PARKED_LABEL, TASK_STATUSES, WAIT_SERIES_MAX_MS, WAIT_STREAK_CAP,
   deriveQueueReason, deriveSubtaskWork, formatStatusEvent, hasPlanApproveOption, isAgentWorking,
-  isUnattributedSubtask, normalizeActionLabel, noteParkedChildrenResolved, parseQuestionBlock,
+  isUnattributedSubtask, noteParkedChildrenResolved, parseQuestionBlock, questionAsksHuman,
   readTaskWeight, statusEventEnters, waitReasonKey,
 } from "../../shared/board";
 import { EFFORT_TIERS } from "../../shared/effort";
@@ -71,95 +71,52 @@ export const UNASSIGNED_PROJECT_ID = "_none";
 export const AUTO_PROJECT_ID = "_auto";
 
 /**
- * Reserved quick-reply label the AGENT is prompted to offer at delivery when its
- * work is landable. The board route matches a human's pick of exactly this option
- * and runs the land (approve + merge to main) instead of resuming the agent —
- * that's how "the agent proposes the next step, the human decides, the system
- * executes" works without the merge riding on every approve. Keep in sync with
- * the prompt in task-dispatcher.ts (both import this constant).
- */
-export const LAND_ACTION_LABEL = "Landa su main";
-/**
- * Reserved option for "go online": land (merge to main) AND publish (push →
- * deploy CI). The agent may offer it at delivery too; picking it runs the whole
- * chain server-side. "Andare online" stays a human pick — the agent never pushes.
- */
-export const PUBLISH_ACTION_LABEL = "Landa e pubblica";
-const normLabel = normalizeActionLabel;
-/** Tolerant match (ignores emoji/punctuation/spacing the model may add). */
-export function isLandActionLabel(text: string | undefined | null): boolean {
-  return !!text && normLabel(text) === normLabel(LAND_ACTION_LABEL);
-}
-export function isPublishActionLabel(text: string | undefined | null): boolean {
-  return !!text && normLabel(text) === normLabel(PUBLISH_ACTION_LABEL);
-}
-
-/**
- * Le due risposte allo STALLO DEI SOTTOTASK PARCHEGGIATI, e sono riservate come
- * «Landa su main»: la board le mostra come bottoni, il server le esegue.
+ * The reserved quick-reply vocabulary now lives in `shared/board.ts`, because
+ * the same verdict has to be reached in the CLIENT too (the in-app review
+ * banner picks its title from it) and the client cannot import from `server/`.
+ * Re-exported here so the ~20 call sites that read it from the task service
+ * keep one import, and so there is still exactly one definition.
  *
- * Il giro che chiudono, misurato il 12/08 su cinque card: il figlio in backlog
- * non lo dispaccia nessuno (voluto, `hasChildrenInFlight`), il padre che lo
- * aspetta viene fermato per non girare a vuoto (voluto anche questo), e finiva
- * parcheggiato in backlog — dove «fermo» è l'aspetto NORMALE di una card. Lo
- * stallo era indistinguibile dal riposo, e si apriva solo a mano.
- *
- * Un padre bloccato SOLO da figli parcheggiati non è bloccato: è una DOMANDA
- * con due risposte, e nessuna delle due è «aspetta ancora».
+ * - LAND_ACTION_LABEL: the agent is prompted to offer it at delivery when its
+ *   work is landable; the review route matches a human's pick and runs the land
+ *   instead of resuming the agent. Keep in sync with task-dispatcher.ts (both
+ *   import this constant).
+ * - PUBLISH_ACTION_LABEL: land AND publish (push → deploy CI). "Going online"
+ *   stays a human pick; the agent never pushes.
+ * - REQUEUE/ARCHIVE_PARKED_LABEL: the two answers to the PARKED SUBTASK STALL.
+ *   Measured on 12/08 across five cards: a child in backlog is dispatched by
+ *   nobody (deliberate, `hasChildrenInFlight`), the parent waiting on it gets
+ *   stopped so it does not spin (deliberate too), and it ended up parked in
+ *   backlog — where "still" is a card's NORMAL look. The stall was
+ *   indistinguishable from rest, and only a human could unstick it.
  */
-export const REQUEUE_PARKED_LABEL = "Rimetti in coda i sottotask";
-export const ARCHIVE_PARKED_LABEL = "Archivia i sottotask";
-export function isRequeueParkedLabel(text: string | undefined | null): boolean {
-  return !!text && normLabel(text) === normLabel(REQUEUE_PARKED_LABEL);
-}
-export function isArchiveParkedLabel(text: string | undefined | null): boolean {
-  return !!text && normLabel(text) === normLabel(ARCHIVE_PARKED_LABEL);
-}
-
-/**
- * A quick-reply label the BOARD executes by itself, as opposed to an answer
- * that steers the agent.
- *
- * The four of them are exactly the labels `POST …/tasks/:id/review` runs
- * server-side (routes/tasks.ts: publish, requeue/archive parked children,
- * land): picking one is an ORDER to the system, and nothing about the work is
- * still undecided. Every other option (a plan's "Approva il piano", a free
- * "Aspetta, ho un dubbio") resumes the AGENT with the human's words, which is
- * what "the card is waiting for a person" means.
- */
-export function isBoardActionLabel(text: string | undefined | null): boolean {
-  return isLandActionLabel(text) || isPublishActionLabel(text)
-    || isRequeueParkedLabel(text) || isArchiveParkedLabel(text);
-}
+export {
+  ARCHIVE_PARKED_LABEL, LAND_ACTION_LABEL, PUBLISH_ACTION_LABEL, REQUEUE_PARKED_LABEL,
+  isArchiveParkedLabel, isLandActionLabel, isPublishActionLabel, isRequeueParkedLabel,
+} from "../../shared/board";
 
 /**
  * Does this comment ASK the human something, or is it a DELIVERY that merely
  * offers the next board action as a button?
  *
- * The presence of the fence answered neither question. The kickoff envelope
- * tells a delivering agent to attach `options=["Landa su main"]`, and the
- * server wraps any `options` in a ```question block, so EVERY landable
- * delivery came out shaped like a question. Measured on 13/08: 10 of the 13
- * cards sitting on the `needs_input` chip were finished deliveries, and 13 of
- * 17 committed deliveries skipped the worktree-dirt and the checks gate
- * because the delivery route read the same fence and exempted them.
+ * The rule itself is `questionAsksHuman` in shared/board.ts — read it there.
+ * This is its text-level entry point, and it adds the one thing a parsed block
+ * cannot express: a fence that DID NOT PARSE.
  *
- * So read the OPTIONS instead. All of them board actions ⇒ delivery. A mixed
- * block ("Landa su main" + "Aspetta, ho un dubbio") is still a QUESTION: one
- * option the system cannot execute means a person has to choose.
- *
- * No options at all stays a question too, which is the codebase's own reading
- * (`pendingQuestion`): a question with no buttons has nothing to click but is
- * still waiting for an answer. One legacy shape falls on that side and should
- * not: a delivery whose ONLY option was "Landa e pubblica", which
- * `parseQuestionBlock` filters out of the rendered list. The dispatcher has
- * not prompted for that option since 09/08, so those cards are historical.
+ * `parseQuestionBlock` returns null for a hand-written block whose body is all
+ * bullets and no question line (```question / - Sì / - No). The old rule was
+ * `content.includes("```question")`, so that shape counted as a question and
+ * was exempt from the two review gates; reading the parsed options alone
+ * silently reclassified it as a DELIVERY — a `delivered` chip and two 409s on a
+ * legitimate mid-work question. An unreadable fence is not evidence of a
+ * delivery: it is a fence we failed to read, and the safe reading of that is
+ * the one that stops and asks.
  */
 export function commentAsksHuman(content: string | null | undefined): boolean {
-  const parsed = parseQuestionBlock(content ?? "");
-  if (!parsed) return false;
-  if (parsed.options.length === 0) return true;
-  return !parsed.options.every(isBoardActionLabel);
+  const text = content ?? "";
+  const parsed = parseQuestionBlock(text);
+  if (!parsed) return text.includes("```question");
+  return questionAsksHuman(parsed);
 }
 
 export interface Task {
