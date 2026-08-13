@@ -3,7 +3,7 @@
  *
  * Claude Code stores each session's JSONL transcript under
  * `~/.claude/projects/<encoded-cwd>/<sessionId>.jsonl`, where the cwd is
- * encoded by replacing every `/` and `.` with `-`.
+ * encoded by replacing every NON-ALPHANUMERIC character with `-`.
  *
  * The transcript is the DURABLE record of a session: it survives server
  * restarts and outlives the `terminal_sessions` row. So "is this dormant
@@ -14,9 +14,30 @@
 import { homedir } from "os";
 import { join } from "path";
 
-/** Encode a cwd the way Claude Code names its projects directory. */
+/**
+ * Encode a cwd the way Claude Code names its projects directory: EVERY
+ * character that is not a letter or a digit becomes `-`.
+ *
+ * Non e' `/` e `.`, ed e' costato due corse di `measure:thread`. La regola vera
+ * prende anche `_`, lo spazio, `+`, `@`, `~`. Sonda: una sessione aperta in
+ * `/private/var/folders/.../T/enc_probe.l9VFnH/a_b.c d+e@f~g` si registra sotto
+ * `-private-var-folders-...-T-enc-probe-l9VFnH-a-b-c-d-e-f-g`; e nessuna delle
+ * 556 cartelle vere di `~/.claude/projects` contiene un carattere fuori da
+ * `[-0-9A-Za-z]`.
+ *
+ * L'underscore non e' un caso di scuola: la temp dir di macOS e'
+ * `/var/folders/<due>/<venti-caratteri>_<altri>/T/`, quindi ogni misura che
+ * lavora in sandbox lo incontra sempre. E un progetto chiamato `my_project`
+ * cadeva nello stesso buco: percorso inesistente, transcript «mancante»,
+ * quindi zero token sulla card, `read_agent` cieco e la sessione dichiarata
+ * orfana invece che ripresa.
+ *
+ * La codifica e' A SENSO UNICO (`/`, `.` e `_` finiscono tutti su `-`): da un
+ * nome di cartella non si torna alla cwd. Chi deve risalire alla cwd la legge
+ * dentro il JSONL, non dal nome della cartella.
+ */
 export function claudeProjectDirName(cwd: string): string {
-  return cwd.replace(/[/.]/g, "-");
+  return cwd.replace(/[^A-Za-z0-9]/g, "-");
 }
 
 /** Absolute path to a session's transcript JSONL (may or may not exist). */

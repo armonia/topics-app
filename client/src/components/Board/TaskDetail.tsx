@@ -29,6 +29,7 @@ import { PreviewMedia } from './PreviewMedia';
 import { UnifiedDiff } from './UnifiedDiff';
 import { collectTaskMediaPaths } from './taskMedia';
 import { TaskChoiceRow } from './TaskChoiceRow';
+import { usableQuestionOptions } from './taskChoices';
 import { formatReviewNotes } from './reviewNotes';
 import { COMPACT_MD_CLS, PLAN_MD_CLS, PRIORITY_DOT, PRIORITY_LABEL, PRIORITY_ORDER, DISPATCH_CHIP, EFFORTS, FANOUT_CHOICES, mediaPaneIdFor, type TaskSurface } from './constants';
 import { friendlyModelLabel, fmtModel, commentTime, fmtMs, fmtLive, fmtTok, fmtUpdatedAt, autoGrow, attemptStat, taskCopyText, descSummary, fmtCount } from './format';
@@ -732,6 +733,15 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   const speech = comments.filter(isThreadSpeech);
   const lastThreadComment = speech[speech.length - 1] ?? null;
   const pending = isAgentReview && lastThreadComment ? parseQuestionBlock(lastThreadComment.content) : null;
+  // Same trap as on the card, one size bigger: the drawer draws its own Approva
+  // / Rifiuta / Landa su main, so a quick reply carrying one of those labels sits
+  // beside a button that does something else entirely. No `exclude` here on
+  // purpose: the drawer hides `land` from its choice row precisely BECAUSE it
+  // renders it itself, so the collision is real.
+  const replyOptions = useMemo(
+    () => (pending && task ? usableQuestionOptions(task, pending.options) : []),
+    [pending, task],
+  );
   // QUALE commento è il piano. Il task lo PUNTA (`planCommentId`, scritto dal
   // server quando il piano arriva secondo protocollo): non è più «l'ultimo
   // commento non-utente», euristica che su 13 task piano-prima sbagliava 13
@@ -2216,9 +2226,9 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 up above the body, out of this composer area.) */}
             {task.status === 'review' && (
               <div className="mb-2 space-y-1.5">
-                {pending && pending.options.length > 0 && (
+                {replyOptions.length > 0 && (
                   <div className="flex flex-wrap gap-1">
-                    {pending.options.map((opt, i) => (
+                    {replyOptions.map((opt, i) => (
                       <button
                         key={i} disabled={sending}
                         onClick={() => answerOption(opt)}
