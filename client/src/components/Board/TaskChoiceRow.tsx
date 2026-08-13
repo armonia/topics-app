@@ -1,17 +1,36 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
+import { MoreHorizontal, PackageCheck, Square } from 'lucide-react';
 import { boardApi, isAgentWorking, type BoardTask } from '../../lib/board';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useT } from '../../hooks/useT';
+import { Menu } from '../Shared/Menu';
 import { Spinner } from '../Shared/Spinner';
+// Import RELATIVO e non `@/lib/...`: l'alias lo risolve Vite, `bun test` no, e
+// questo file è già nel mirino di una spec unitaria (`taskChoices.test.ts`).
+import { POPOVER_ITEM, POPOVER_ITEM_DANGER } from '../../lib/popoverStyles';
 import { taskChoices, type TaskChoice, type TaskChoiceId } from './taskChoices';
 
 /**
- * La riga di SCELTE di una card che non è chiusa — card e drawer, un componente
- * solo.
+ * Le SCELTE di una card che non è chiusa, in due forme.
  *
  * Cosa mostrare lo decide `taskChoices` (puro, testato); qui c'è solo
  * l'esecuzione, e ogni voce è una chiamata che la board fa già da un'altra
  * parte: land, review, stop, PATCH, archive. Nessuna azione nuova sul server.
+ *
+ * ── Due forme, e a sceglierle è il PESO della decisione ──────────────────────
+ * · `TaskChoiceRow` — bottoni in fila. È la superficie su cui si DECIDE: una
+ *   card in review chiede «e adesso?», e la risposta va letta senza aprire
+ *   niente. Vale anche per una card bloccata, dove le scelte sono le uniche
+ *   uscite dall'attesa.
+ * · `TaskChoiceMenu` — un solo tasto compatto che apre le stesse voci. È per la
+ *   card che sta soltanto LAVORANDO: «Fermati» e «Consegna quello che hai» sono
+ *   azioni rare, e disegnate come due bottoni pieni pesavano su ogni card in
+ *   corso della board come se ci fosse qualcosa da decidere. Nel drawer restano
+ *   bottoni: lì la card la stai già guardando apposta.
+ *
+ * Le due forme condividono l'esecuzione (`useTaskChoiceRunner`), non una copia:
+ * la conferma prima di archiviare un turno vivo, l'ordine delle voci e le
+ * parole sono gli stessi da qualunque parte si clicchi.
  *
  * Il commento libero NON sta qui: resta sotto, come ultima opzione.
  */
@@ -22,23 +41,27 @@ const TONE_CLS: Record<TaskChoice['tone'], string> = {
   danger: 'bg-white/10 text-rose-300 hover:bg-rose-500/20',
 };
 
-export function TaskChoiceRow({ task, exclude, disabled, onDone, onError, onNeedText, className }: {
-  task: BoardTask;
-  /** Voci che il chiamante ha già come bottoni suoi (il drawer). */
+/** Il glifo di una voce nel menu. Una riga di menu senza icona sta storta
+ *  accanto a quelle che ce l'hanno, e queste sono le stesse del menu al tasto
+ *  destro della card (`Square` per fermare). */
+const CHOICE_ICON: Partial<Record<TaskChoiceId, React.ReactNode>> = {
+  'stop': <Square className="h-3.5 w-3.5 fill-current text-rose-400" />,
+  'deliver-now': <PackageCheck className="h-3.5 w-3.5 text-emerald-400" />,
+};
+
+interface RunnerOpts {
   exclude?: TaskChoiceId[];
-  disabled?: boolean;
-  /** Ricarica dopo un'azione andata a buon fine. */
   onDone: () => void;
   onError: (message: string) => void;
-  /** «Rifai così…»: porta il cursore nel commento libero invece di agire. */
   onNeedText?: () => void;
-  className?: string;
-}) {
+}
+
+/** Le scelte di questa card e come si eseguono. Una sola copia per le due forme. */
+function useTaskChoiceRunner(task: BoardTask, { exclude, onDone, onError, onNeedText }: RunnerOpts) {
   const confirm = useConfirm();
   const tr = useT();
   const [running, setRunning] = useState<TaskChoiceId | null>(null);
   const choices = taskChoices(task, { exclude, t: tr });
-  if (choices.length === 0) return null;
 
   const run = async (choice: TaskChoice) => {
     if (running) return;
@@ -84,6 +107,24 @@ export function TaskChoiceRow({ task, exclude, disabled, onDone, onError, onNeed
     }
   };
 
+  return { choices, running, run };
+}
+
+export function TaskChoiceRow({ task, exclude, disabled, onDone, onError, onNeedText, className }: {
+  task: BoardTask;
+  /** Voci che il chiamante ha già come bottoni suoi (il drawer). */
+  exclude?: TaskChoiceId[];
+  disabled?: boolean;
+  /** Ricarica dopo un'azione andata a buon fine. */
+  onDone: () => void;
+  onError: (message: string) => void;
+  /** «Rifai così…»: porta il cursore nel commento libero invece di agire. */
+  onNeedText?: () => void;
+  className?: string;
+}) {
+  const { choices, running, run } = useTaskChoiceRunner(task, { exclude, onDone, onError, onNeedText });
+  if (choices.length === 0) return null;
+
   return (
     <div className={`flex flex-wrap gap-1 ${className ?? ''}`} data-testid="task-choices">
       {choices.map((c) => (
@@ -100,5 +141,59 @@ export function TaskChoiceRow({ task, exclude, disabled, onDone, onError, onNeed
         </button>
       ))}
     </div>
+  );
+}
+
+/**
+ * Le stesse scelte, dietro un tasto solo.
+ *
+ * Il menu si CHIUDE al click e poi l'azione parte, come il menu al tasto destro
+ * della card: tenerlo aperto con una rotella dentro vorrebbe dire che una
+ * risposta lenta del server lascia sullo schermo un pannello a cui non si può
+ * più chiedere niente.
+ */
+export function TaskChoiceMenu({ task, disabled, onDone, onError, ariaLabel, className }: {
+  task: BoardTask;
+  disabled?: boolean;
+  onDone: () => void;
+  onError: (message: string) => void;
+  /** Cosa apre questo tasto, detto a chi non vede l'icona. */
+  ariaLabel: string;
+  className?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const anchorRef = useRef<HTMLButtonElement>(null);
+  const { choices, run } = useTaskChoiceRunner(task, { onDone, onError });
+  if (choices.length === 0) return null;
+
+  return (
+    <>
+      <button
+        ref={anchorRef}
+        data-testid="task-choices-menu"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={ariaLabel}
+        title={ariaLabel}
+        disabled={disabled}
+        onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
+        className={`flex shrink-0 items-center rounded-md px-1.5 py-1.5 text-app-text-secondary hover:bg-white/10 hover:text-app-text disabled:opacity-50 ${className ?? ''}`}
+      ><MoreHorizontal className="h-3.5 w-3.5" /></button>
+      {/* `task-choices-panel`, non `task-choices`: quello è la RIGA di bottoni,
+          e sulla stessa board c'è (una card bloccata la disegna). Due superfici
+          diverse non possono rispondere allo stesso locator. */}
+      <Menu open={open} anchorRef={anchorRef} onClose={() => setOpen(false)} align="right" ariaLabel={ariaLabel} testId="task-choices-panel">
+        {choices.map((c) => (
+          <button
+            key={c.id}
+            role="menuitem"
+            data-testid={`task-choice-${c.id}`}
+            title={c.title}
+            onClick={(e) => { e.stopPropagation(); setOpen(false); void run(c); }}
+            className={c.tone === 'danger' ? POPOVER_ITEM_DANGER : POPOVER_ITEM}
+          >{CHOICE_ICON[c.id] ?? <span className="h-3.5 w-3.5" />} {c.label}</button>
+        ))}
+      </Menu>
+    </>
   );
 }
