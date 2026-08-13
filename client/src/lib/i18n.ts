@@ -259,11 +259,11 @@ const IT: Dict = {
   'board.settings.fanoutTitle': 'Quanti agent lavorano LO STESSO task in parallelo, ognuno nel suo worktree. A fine giro il task entra in review con il confronto dei tentativi e scegli tu quale tenere: gli altri (worktree, branch e chat) vengono buttati. Costa N volte: N agent veri, N slot del tetto di concorrenza. Richiede il worktree attivo.',
   'board.settings.fanoutWarn': 'Ogni task in Todo parte {n} volte e occupa {n} slot del tetto: il conto dei token si moltiplica per {n}.',
   'board.settings.notRepoWarn': 'Questo progetto non è un repo git: con «worktree isolato» acceso ogni task verrà bloccato. Spegnilo per eseguire in-place, oppure inizializza un repo nella cartella del progetto.',
-  // NON dice più «su Approva»: Approva non fonde, e non deve. La fusione è
-  // sganciata dall'accettazione (server/routes/tasks.ts, «approve decoupled
-  // from landing»), quindi l'interruttore ha un solo effetto automatico, ed è
-  // l'ingresso in Done. Il testo lo nomina per quello che fa: la stessa frase
-  // la cita la nota che la card riceve quando il merge viene saltato.
+  // No longer "su Approva": Approve does not merge, and must not. The merge is
+  // decoupled from acceptance (server/routes/tasks.ts, "approve decoupled from
+  // landing"), so this switch has exactly one automatic effect left, entering
+  // Done. The label names it for what it does, and the note a card receives
+  // when the merge is skipped quotes this same sentence.
   'board.settings.autoMerge': 'Fondi su main quando la card arriva in Done',
   'board.settings.autoMergeTitle': "Quando una card con un branch di consegna entra in Done (trascinata, spostata dal menu, o chiusa dal sistema), mergia il suo branch in main nel checkout principale. Merge pulito → landa in locale (niente push); conflitto → rimanda all'agent del task; checkout sporco o non su main → salta con un commento. Spento: la card si chiude e una nota nel thread dice dov'è rimasto il lavoro. Approva non fonde in nessuno dei due casi: per quello c'è il bottone «Landa su main». Richiede il worktree attivo.",
   'board.settings.fullMcp': 'Fleet MCP completa per gli agent',
