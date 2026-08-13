@@ -1,7 +1,7 @@
 /**
  * Il menu del tasto destro DENTRO la pane browser nativa.
  *
- * Il gesto lo raccoglie la pagina (`paneContextMenu.ts`), il menu lo disegna
+ * Il gesto lo raccoglie la pagina (`paneContextModel.ts`), il menu lo disegna
  * l'app. Passa da `ContextMenuPortal` e non da un `div` scritto qui, e la ragione
  * non è il riuso: quel portal porta `role="menu"` e `.glass-surface`, cioè i due
  * marcatori di `OVERLAY_SELECTOR` (lib/shell/browserOcclusion). Sono loro a far
@@ -32,7 +32,7 @@ import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { POPOVER_ITEM, POPOVER_DIVIDER } from '../../lib/popoverStyles';
 import { useToast } from '../Shared/Toast';
 import { copyText, copyImagePng } from '../../lib/clipboard';
-import { paneContextItems, type PaneMenuItemKey } from './paneContextMenu';
+import { paneContextItems, type PaneMenuItemKey } from './paneContextModel';
 import type { NativeBrowserHandle } from './browserDevTypes';
 
 export interface PaneContextMenuProps {

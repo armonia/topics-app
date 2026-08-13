@@ -15,6 +15,7 @@ import { siteHostOf } from '../../lib/browserForgetSite';
 import { BrowserPaneChip, ChipDot, type ChipTone } from './BrowserPaneChip';
 import { useBrowserDownloads } from '../../hooks/useBrowserDownloads';
 import type { DownloadsMenuProps } from './DownloadsMenu';
+import { PaneContextMenu } from './PaneContextMenu';
 import { formatSize } from './downloadsModel';
 import { stepMatchIndex, formatMatchCounter } from './findInPageModel';
 import { useBrowserSpawner } from '../../state/browserSpawner';
@@ -567,6 +568,22 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
       ) : (
         <NativeBrowserPlaceholder browser={browser} isVisible={isVisible} />
       )}
+      {/* Il menu del tasto destro DENTRO la pagina. Sta qui per la stessa
+          ragione del dialogo qui sotto: la WKWebView composita sopra il DOM, e
+          l'unica cosa che lo rende visibile è il `role="menu"` che
+          `ContextMenuPortal` gli mette addosso, cioè il selettore con cui
+          browserOcclusion congela la pane nella regione coperta.
+
+          «Apri in una nuova scheda» passa da `window.open` invece che da un
+          handler calato dal livello del layout: nel guscio è il WKUIDelegate a
+          raccoglierlo (`on_new_window` in lib.rs), che è lo stesso percorso di
+          un `target="_blank"` cliccato nella pagina, e nel client web è una
+          scheda del browser. Una prop lungo tutta la catena direbbe la stessa
+          cosa con più anelli che possono staccarsi. */}
+      <PaneContextMenu
+        browser={browser}
+        onOpenInNewTab={(url: string) => { window.open(url, '_blank', 'noopener,noreferrer'); }}
+      />
       {/* «Dimentica questo sito»: il dialogo sta QUI e non nel menu della
           toolbar, che si chiude al clic e si porterebbe dietro il figlio. Copre
           la WKWebView da sé: `MODAL_PANEL` porta `.native-occlude`. */}
