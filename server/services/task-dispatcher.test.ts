@@ -2298,7 +2298,10 @@ describe("la coda deve dire il vero", () => {
     // tetto — invisibile, senza chip, mai più reclamabile.
     const h = harness();
     seedTask(h.db, { id: "padre", status: "in_progress", attempts: 2, assignedTopicId: "topic-padre" });
-    seedTask(h.db, { id: "figlio", status: "todo", parentTaskId: "padre" });
+    // Il figlio è DAVVERO in volo. Uno step in `todo` non lo è: non lo dispaccia
+    // nessuno, quindi il padre non lo starebbe aspettando — lo chiederebbe, ed è
+    // il test qui sotto.
+    seedTask(h.db, { id: "figlio", status: "in_progress", parentTaskId: "padre" });
     h.svc.deliverToReviewBySystem({ taskId: "padre", reason: "turno finito" });
     const p = h.task("padre")!;
     expect(p.status).toBe("todo");
