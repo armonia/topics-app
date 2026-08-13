@@ -899,6 +899,8 @@ describe("approve decoupled from landing", () => {
   let db: Database; let broadcasts: any[];
   let merges: string[]; let resumed: Array<[string, string]>; let router: any;
   let stamped: Array<[string, string]>;
+  /** Same router over the same db, with a different landing stamp. */
+  let withStamp: (fn: (taskId: string, verdict: string) => Promise<void>) => any;
 
   beforeEach(() => {
     db = freshDb(); broadcasts = []; merges = []; resumed = []; stamped = [];
@@ -910,10 +912,8 @@ describe("approve decoupled from landing", () => {
       onEnterTodo() {}, onLeaveTodo() {}, onBlockerDone() {},
       resume: async (id: string, msg: string) => { resumed.push([id, msg]); },
     } as any;
-    router = createTasksRouter(makeCtx(db, broadcasts), dispatcher, {
-      autoMerge,
-      stampLanding: async (taskId: string, verdict: string) => { stamped.push([taskId, verdict]); },
-    });
+    withStamp = (stampLanding) => createTasksRouter(makeCtx(db, broadcasts), dispatcher, { autoMerge, stampLanding });
+    router = withStamp(async (taskId, verdict) => { stamped.push([taskId, verdict]); });
   });
 
   async function reviewTask(): Promise<string> {
@@ -984,24 +984,36 @@ describe("approve decoupled from landing", () => {
     expect(note).toContain(label("board.task.landOnMain", "it"));
   });
 
-  test("the skipped-merge note reaches the LIVE card, not just the db", async () => {
+  test("the skipped-merge note reaches the LIVE card without waiting for git", async () => {
     // The PATCH broadcasts `task:updated` with the task as it was BEFORE the
     // note, and `addComment` bumps `updated_at` precisely so a live client
     // refetches the thread (Card.tsx keys its comment effect on
-    // `task.updatedAt`). Without a second broadcast the note exists only in the
-    // db: a closure as mute on screen as the one this code exists to stop.
+    // `task.updatedAt`). Without a broadcast of its own the note exists only in
+    // the db: a closure as mute on screen as the one this code exists to stop.
+    //
+    // The stamp here NEVER RESOLVES, which is what makes this test able to
+    // fail. The landing verdict shells out to git, so the broadcast that
+    // carries the note cannot be the one sitting behind it: a slow repo would
+    // hold the note back for as long as git takes. Wire the note's broadcast
+    // after the await and this goes red.
+    const r = withStamp(() => new Promise<void>(() => { /* git, still thinking */ }));
     const id = await reviewTask();
     db.prepare("UPDATE tasks SET delivery_branch = 'topics/x' WHERE id = ?").run(id);
     const before = broadcasts.length;
-    await call(router, "PATCH", `/api/boards/pX/tasks/${id}`, { status: "done" });
+    await call(r, "PATCH", `/api/boards/pX/tasks/${id}`, { status: "done" });
     await flushLand();
 
+    // Exactly two: the PATCH's own (the task as it was BEFORE the note) and
+    // this one. Drop the note's broadcast and it is one — the hung stamp means
+    // the deferred broadcast behind it never fires, so nothing else can cover.
     const updates = broadcasts.slice(before).filter((b) => b.type === "task:updated" && b.task?.id === id);
-    expect(updates.length).toBeGreaterThan(1);
-    // The LAST one must carry an updatedAt at or past the note's timestamp,
-    // which is the change signal the card refetches on.
-    const noteAt = createTaskService(db).get(id)!.comments.filter((c) => c.author === "system").at(-1)!.createdAt;
-    expect(updates.at(-1)!.task.updatedAt >= noteAt).toBe(true);
+    expect(updates.length).toBe(2);
+    // And the second is a FRESH read, not a stale copy of the first: its
+    // updatedAt is the one `addComment` just wrote, which is the change signal
+    // the card refetches its thread on.
+    const got = createTaskService(db).get(id)!;
+    expect(updates[1].task.updatedAt).toBe(got.task.updatedAt);
+    expect(got.comments.filter((c) => c.author === "system").at(-1)!.createdAt).toBe(got.task.updatedAt);
   });
 
   test("the way out the note names is REACHABLE: the landing verdict is asked for", async () => {
