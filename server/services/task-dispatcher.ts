@@ -2630,14 +2630,27 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
      * ferme senza una riga sembrano un sistema rotto, non un sistema che sta
      * aspettando (misurato il 12/08).
      */
-    const noteCapFull = (t: Task, vivi: number | null): void => {
+    const noteCapFull = (t: Task, vivi: number | null, fanOutServe?: { serve: number; posti: number }): void => {
       const conto = vivi != null
         ? `ci sono ${vivi} agent al lavoro su un tetto di ${effectiveCap}`
         : `il tetto di ${effectiveCap} agent insieme è pieno`;
       const perche = perchePieno();
+      // QUANTE aspettano dietro. È il terzo numero, e l'unico che dice quanto
+      // dura l'attesa invece di perché è cominciata: «il tetto è pieno» con una
+      // card in fila e con dodici è la stessa frase per due situazioni diverse.
+      // Si contano i todo di questo giro che non sono partiti, questo compreso.
+      const fermi = todos.filter((x) => !inFlight.has(x.id) && !graceTimers.has(x.id)).length;
+      const fila = fermi > 1 ? ` ${fermi} card sono ferme su questo tetto.` : "";
+      // Il caso del fan-out: la card non aspetta UN posto, ne aspetta N insieme,
+      // e senza dirlo la riga sembra sbagliata («ci sono 2 posti liberi, perché
+      // non parte?»). Il numero di posti liberi e quanti gliene servono sono le
+      // due meta' della stessa risposta.
+      const perFanOut = fanOutServe && fanOutServe.serve > 1
+        ? ` Questa ne vuole ${fanOutServe.serve} insieme e ${fanOutServe.posti === 1 ? "c'è 1 posto libero" : `ci sono ${fanOutServe.posti} posti liberi`}.`
+        : "";
       noteCapHold(
         t,
-        `In coda: ${conto}${perche ? ` (${perche})` : ""}. ` +
+        `In coda: ${conto}${perche ? ` (${perche})` : ""}.${perFanOut}${fila} ` +
           "Parte da sé appena si libera un posto. Non devi fare nulla.",
       );
     };
@@ -2732,9 +2745,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         // ciascuno prima di uscire. Il `break` senza una riga era il difetto:
         // la coda restava ferma e le card non lo raccontavano.
         const vivi = agentiVivi();
+        const posti = Math.max(0, effectiveCap - reservedSlots);
         for (const rest of todos.slice(idx)) {
           if (inFlight.has(rest.id) || graceTimers.has(rest.id)) continue;
-          noteCapFull(rest, vivi);
+          noteCapFull(rest, vivi, { serve: taskFanOut, posti });
         }
         break;
       }
