@@ -1543,16 +1543,32 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
   }
 
   /**
-   * Segna che una card è USCITA da `done`, per le porte che scrivono lo status
-   * a SQL grezzo (release, deferForWait, deliverToReviewBySystem). `update()`
-   * scrive le stesse colonne dentro la sua unica UPDATE — qui non passa.
-   * No-op quando non si stava uscendo da `done`.
+   * Segna che una card è USCITA da `done` o da `review`, per le porte che
+   * scrivono lo status a SQL grezzo (release, deferForWait,
+   * deliverToReviewBySystem, il rifiuto in review). `update()` scrive le stesse
+   * colonne dentro la sua unica UPDATE — qui non passa.
+   *
+   * Le due partenze valgono uguale: chi tira una card fuori dalla consegna sta
+   * chiedendo un SEGUITO, e il segno non può dipendere da quale colonna ha
+   * attraversato. No-op su tutto il resto, sull'arrivo in `done` (lì il ciclo si
+   * chiude e il segno cade, non si accende) e sulla transizione che non muove
+   * niente — una consegna forzata su una card GIÀ in review non è un'uscita.
    */
   function markReopened(taskId: string, from: string, to: string, actor: "human" | "agent" | "system", by: string): void {
-    if (from !== "done" || to === "done") return;
+    if (from !== "done" && from !== "review") return;
+    if (to === "done" || to === from) return;
     try {
+      // `done_actor` si spegne solo uscendo da `done`: una card in review non ne
+      // ha uno, e cancellarlo da qui riscriverebbe una decisione che questo
+      // salto non tocca.
+      const spegniDone = from === "done" ? "done_actor = NULL, " : "";
+      // Il marchio dell'umano non lo cancella la macchina passandoci sopra: una
+      // card già segnata «riaperta da Attilio» può riconsegnare e poi rientrare
+      // in coda da una porta di sistema, e riscriverla `system` spegnerebbe il
+      // cancello che protegge la sua richiesta.
+      const nonScavalcare = actor === "human" ? "" : " AND (reopened_actor IS NULL OR reopened_actor <> 'human')";
       db.prepare(
-        "UPDATE tasks SET done_actor = NULL, reopened_at = ?, reopened_by = ?, reopened_actor = ? WHERE id = ?",
+        `UPDATE tasks SET ${spegniDone}reopened_at = ?, reopened_by = ?, reopened_actor = ? WHERE id = ?${nonScavalcare}`,
       ).run(now(), by || "system", actor, taskId);
     } catch { /* la traccia è best-effort — non fa fallire la transizione */ }
   }
@@ -1907,8 +1923,22 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           put("done_actor", actor);
           // Ciclo chiuso: la card è di nuovo fatta, non è più «riaperta».
           put("reopened_at", null); put("reopened_by", null); put("reopened_actor", null);
-        } else if (current === "done") {
-          put("done_actor", null);
+        } else if (current === "done" || (current === "review" && patch.status !== "review")) {
+          // USCIRE DA REVIEW È UNA RIAPERTURA QUANTO USCIRE DA DONE.
+          //
+          // Questo ramo si accendeva solo su `done`, e la chiusura automatica del
+          // dispatcher legge proprio il campo che scrive qui («chi riapre una card
+          // atterrata sta chiedendo un SEGUITO»). Il 12/08 alle 18:26 Attilio ha
+          // chiesto un cambio di rotta nel thread e ha trascinato `d6baaf5e` da
+          // `review` a `in corso`: per il campo nessuno aveva riaperto niente, e
+          // il mattino dopo la card è stata chiusa sopra la consegna di cinque
+          // giorni prima. Il segnale non può dipendere da quale casella ha
+          // attraversato il dito.
+          //
+          // `done_actor` invece si spegne solo uscendo da `done`: una card in
+          // review non ne ha uno, e azzerarlo qui vorrebbe dire cancellare la
+          // decisione di chi l'aveva chiusa in un salto che non la tocca.
+          if (current === "done") put("done_actor", null);
           // `actor` è l'asse dei PERMESSI, non quello dell'attribuzione: il land
           // andato in conflitto ritira la card da `done` con `actor: "human"`
           // proprio per poterlo fare (routes/tasks.ts, ramo "conflict"), ma la
@@ -1917,7 +1947,14 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           // stessa bugia che questa card esiste per togliere, un livello più giù.
           const signature = by || "system";
           const reopenedActor = signature === "system" || signature === "dispatcher" ? "system" : actor;
-          put("reopened_at", now()); put("reopened_by", signature); put("reopened_actor", reopenedActor);
+          // Il marchio dell'umano non lo cancella la macchina passandoci sopra.
+          // Da quando anche `review` è una partenza, una card già segnata «riaperta
+          // da Attilio» può riconsegnare e poi rientrare in coda per mano del
+          // sistema: sovrascrivere qui vorrebbe dire spegnere il cancello che
+          // protegge la sua richiesta, con un UPDATE che nessuno ha deciso.
+          if (reopenedActor === "human" || row.reopened_actor !== "human") {
+            put("reopened_at", now()); put("reopened_by", signature); put("reopened_actor", reopenedActor);
+          }
         }
         // Una card che RIENTRA in coda non porta con sé la consegna di prima.
         //
@@ -2139,8 +2176,19 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // turn-end skips the nudge — the system force-delivers instead of letting
       // the agent reach review on its own.
       if (decision === "reject") {
-        db.prepare("UPDATE tasks SET status = ?, completed_at = NULL, dispatch_state = NULL, dispatch_attempts = 0, updated_at = ? WHERE id = ?")
-          .run(target, ts, taskId);
+        // Il rifiuto è la quarta uscita umana da review, e per due volte diceva
+        // il contrario di quel che era successo: nessun marchio di riapertura, e
+        // lo scatto della consegna lasciato sulla card. Cioè esattamente lo
+        // stato che il 13/08 ha fatto chiudere `d6baaf5e` sopra un commit di
+        // cinque giorni prima — qui in attesa che la card rientrasse in coda.
+        // Le stesse due colonne che `update()` scrive per lo stesso salto: qui
+        // non ci passa, perché questa porta scrive lo status a SQL grezzo.
+        db.prepare(
+          "UPDATE tasks SET status = ?, completed_at = NULL, dispatch_state = NULL, dispatch_attempts = 0, " +
+            "delivery_branch = NULL, delivery_commit = NULL, landing_state = NULL, " +
+            "landing_checked_at = NULL, landing_witnessed = 0, updated_at = ? WHERE id = ?",
+        ).run(target, ts, taskId);
+        markReopened(taskId, "review", target, "human", by);
       } else {
         // `done_actor = 'human'`: è LA decisione di Attilio, ed è ciò che il
         // cancello di riapertura legge (un agente non la ribalta). Il segno di
