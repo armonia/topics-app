@@ -6,8 +6,9 @@
  *  · si cancella ESATTAMENTE quello che il dialogo ha mostrato (i nomi che
  *    tornano al nativo sono i nomi elencati, non un secondo filtro fatto dopo).
  *
- * Il nativo non c'è, e non serve: `planForgetSite`/`forgetSite` prendono
- * l'`invoke` come parametro, come `tauriBrowserOps`.
+ * Né il nativo né il server ci sono, e non servono: `planForgetSite` e
+ * `forgetSite` prendono il `SiteDataBackend` come parametro, ed è la stessa
+ * interfaccia che alimenta il dialogo sulla pane nativa e su quella condivisa.
  */
 import { test, expect } from 'bun:test';
 import {
@@ -17,6 +18,8 @@ import {
   siteRecordNames,
   planForgetSite,
   forgetSite,
+  nativeSiteData,
+  sharedSiteData,
   type SiteDataRecord,
 } from './browserForgetSite';
 
@@ -38,7 +41,28 @@ function invokeWith(records: SiteDataRecord[]) {
     }
     return undefined as unknown as T;
   };
-  return { invoke, calls };
+  return { backend: nativeSiteData(invoke), calls };
+}
+
+/** Un `fetch` finto per il backend condiviso: registra le chiamate e risponde
+ *  con quello che risponderebbe il server. */
+function fetchWith(body: unknown, opts: { ok?: boolean } = {}) {
+  const calls: Array<[string, string, unknown]> = [];
+  const fake = async (input: unknown, init?: { method?: string; body?: string }) => {
+    calls.push([String(input), init?.method ?? 'GET', init?.body ? JSON.parse(init.body) : undefined]);
+    return {
+      ok: opts.ok !== false,
+      status: opts.ok === false ? 500 : 200,
+      json: async () => body,
+    } as Response;
+  };
+  return { fake: fake as unknown as typeof fetch, calls };
+}
+
+function withFetch<T>(fake: typeof fetch, fn: () => Promise<T>): Promise<T> {
+  const real = globalThis.fetch;
+  globalThis.fetch = fake;
+  return fn().finally(() => { globalThis.fetch = real; });
 }
 
 test('siteHostOf: solo pagine vere, senza www', () => {
@@ -100,37 +124,103 @@ test('i nomi mostrati sono unici e ordinati', () => {
 });
 
 test('il piano legge lo store e non lo tocca', async () => {
-  const { invoke, calls } = invokeWith(STORE);
-  const plan = await planForgetSite('ctx', 'https://mail.google.com/inbox', invoke);
+  const { backend, calls } = invokeWith(STORE);
+  const plan = await planForgetSite('ctx', 'https://mail.google.com/inbox', backend);
   expect(plan?.host).toBe('mail.google.com');
   expect(plan?.displayNames).toEqual(['google.com']);
   expect(calls.map((c) => c[0])).toEqual(['browser_site_data_records']);
 });
 
 test('IL PATTO: si cancellano esattamente i record elencati nel piano', async () => {
-  const { invoke, calls } = invokeWith(STORE);
-  const plan = await planForgetSite('ctx', 'https://github.com/armonia', invoke);
-  const removed = await forgetSite('ctx', plan!.displayNames, invoke);
+  const { backend, calls } = invokeWith(STORE);
+  const plan = await planForgetSite('ctx', 'https://github.com/armonia', backend);
+  const removed = await forgetSite('ctx', plan!.displayNames, backend);
   expect(removed).toBe(2);
   expect(calls[1]).toEqual(['browser_forget_site', { id: 'ctx', displayNames: plan!.displayNames }]);
 });
 
 test('pane vuota: nessun piano, quindi nessun tasto da premere', async () => {
-  const { invoke, calls } = invokeWith(STORE);
-  expect(await planForgetSite('ctx', 'about:blank', invoke)).toBeNull();
+  const { backend, calls } = invokeWith(STORE);
+  expect(await planForgetSite('ctx', 'about:blank', backend)).toBeNull();
   expect(calls).toEqual([]);
 });
 
 test('store illeggibile: piano vuoto, non una promessa a vuoto', async () => {
-  const invoke = async <T,>(): Promise<T> => {
+  const backend = nativeSiteData(async <T,>(): Promise<T> => {
     throw new Error('no such browser pane');
-  };
-  const plan = await planForgetSite('ctx', 'https://github.com/', invoke);
-  expect(plan).toEqual({ host: 'github.com', displayNames: [], items: [] });
+  });
+  const plan = await planForgetSite('ctx', 'https://github.com/', backend);
+  expect(plan).toEqual({ host: 'github.com', displayNames: [], items: [], supported: true });
 });
 
 test('lista vuota: non si chiama il nativo per cancellare niente', async () => {
-  const { invoke, calls } = invokeWith(STORE);
-  expect(await forgetSite('ctx', [], invoke)).toBe(0);
+  const { backend, calls } = invokeWith(STORE);
+  expect(await forgetSite('ctx', [], backend)).toBe(0);
   expect(calls).toEqual([]);
+});
+
+// ── La pane CONDIVISA ────────────────────────────────────────────────────────
+// Stesso piano, stesso patto, altro magazzino: i silo arrivano dallo
+// storageState del contesto Playwright, con i nomi PRECISI invece che per
+// dominio registrabile.
+
+const SHARED_STORE: SiteDataRecord[] = [
+  { displayName: 'google.com', types: ['cookies'] },
+  { displayName: 'mail.google.com', types: ['localStorage', 'indexedDB'] },
+  { displayName: 'altro.dev', types: ['cookies'] },
+];
+
+test('condivisa: il piano prende il sito e i suoi sottodomini, non i vicini', async () => {
+  const { fake, calls } = fetchWith({ supported: true, records: SHARED_STORE });
+  const plan = await withFetch(fake, () =>
+    planForgetSite('ctx-1', 'https://mail.google.com/inbox', sharedSiteData()),
+  );
+  // Qui `mail.google.com` è un silo SUO e si vede: sul nativo sarebbe finito
+  // dentro `google.com` senza comparire nell'elenco.
+  expect(plan?.displayNames).toEqual(['google.com', 'mail.google.com']);
+  expect(plan?.items.map((i) => i.group)).toEqual(['session', 'storage']);
+  expect(calls).toEqual([['/api/browsers/ctx-1/site-data', 'GET', undefined]]);
+});
+
+test('condivisa: nessuna riga «Cache», perché non è per-sito e non si promette', async () => {
+  const { fake } = fetchWith({ supported: true, records: SHARED_STORE });
+  const plan = await withFetch(fake, () =>
+    planForgetSite('ctx-1', 'https://altro.dev/', sharedSiteData()),
+  );
+  expect(plan?.items.map((i) => i.group)).toEqual(['session']);
+});
+
+test('condivisa: si POSTano i NOMI elencati, non l\'host', async () => {
+  const { fake, calls } = fetchWith({ supported: true, records: SHARED_STORE, removed: 2 });
+  const removed = await withFetch(fake, () =>
+    forgetSite('ctx-1', ['google.com', 'mail.google.com'], sharedSiteData()),
+  );
+  expect(removed).toBe(2);
+  expect(calls[0]).toEqual([
+    '/api/browsers/ctx-1/forget-site',
+    'POST',
+    { displayNames: ['google.com', 'mail.google.com'] },
+  ]);
+});
+
+test('condivisa: motore esterno = «non li teniamo noi», non «non c\'è niente»', async () => {
+  const { fake } = fetchWith({ supported: false, records: [] });
+  const plan = await withFetch(fake, () =>
+    planForgetSite('ctx-1', 'https://altro.dev/', sharedSiteData()),
+  );
+  expect(plan).toEqual({ host: 'altro.dev', displayNames: [], items: [], supported: false });
+});
+
+test('condivisa: server in errore = piano vuoto, non un tasto che promette', async () => {
+  const { fake } = fetchWith({}, { ok: false });
+  const plan = await withFetch(fake, () =>
+    planForgetSite('ctx-1', 'https://altro.dev/', sharedSiteData()),
+  );
+  expect(plan).toEqual({ host: 'altro.dev', displayNames: [], items: [], supported: true });
+});
+
+test('condivisa: il ctx finisce nella URL scappato, non concatenato a mano', async () => {
+  const { fake, calls } = fetchWith({ supported: true, records: [] });
+  await withFetch(fake, () => planForgetSite('a/b c', 'https://altro.dev/', sharedSiteData()));
+  expect(calls[0][0]).toBe('/api/browsers/a%2Fb%20c/site-data');
 });

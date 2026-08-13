@@ -78,7 +78,7 @@
     "test:evidence": "E2E_EVIDENCE=1 npx playwright test",
     "test:report": "npx playwright show-report test-results/html-report",
     "test:unit": "bun test --timeout ${TOPICS_TEST_TIMEOUT_MS:-30000} ./client/src ./server/ ./shared ./relay ./tests/unit ./tests/integration ./scripts",
-    "test:heavy": "TOPICS_HEAVY_TESTS=1 bun test --timeout ${TOPICS_TEST_TIMEOUT_MS:-30000} ./server/browser-dom-cobrowse.test.ts ./server/browser-focused-field.test.ts ./server/browser-session-handoff.heavy.test.ts",
+    "test:heavy": "TOPICS_HEAVY_TESTS=1 bun test --timeout ${TOPICS_TEST_TIMEOUT_MS:-30000} ./server/browser-dom-cobrowse.test.ts ./server/browser-focused-field.test.ts ./server/browser-session-handoff.heavy.test.ts ./server/browser-site-data.heavy.test.ts",
     "evidence:handoff": "bun run scripts/handoff-evidence.ts",
     "lint": "cd client && bun run lint",
     "lint:gherkin": "test -d spec-flow || { echo \"lint:gherkin: manca spec-flow/ — è in .gitignore:129, quindi assente da OGNI checkout pulito (clone: armonia/spec-flow). Per questo NON può stare in un workflow.\" >&2; exit 1; }; find tests/features -name '*.feature' -type f 2>/dev/null | grep -q . || { echo \"lint:gherkin: zero .feature sotto tests/features/, non c'è niente da controllare — un verde a vuoto è peggio di nessun cancello (b8092abe). I 5 .feature sono morti con Master (dd1c3f28) e claude-event (9e5516d1); la cartella resta pronta, vedi tests/features/.gitkeep.\" >&2; exit 1; }; bun --bun spec-flow/scripts/lint-gherkin.ts",

@@ -11,7 +11,7 @@ import { NativeBrowserPlaceholder } from './NativeBrowserPlaceholder';
 import { ParkedPane } from './ParkedPane';
 import { BrowserNoticeStrip } from './BrowserNoticeStrip';
 import { ForgetSiteDialog } from './ForgetSiteDialog';
-import { siteHostOf } from '../../lib/browserForgetSite';
+import { siteHostOf, nativeSiteData, sharedSiteData } from '../../lib/browserForgetSite';
 import { BrowserPaneChip, ChipDot, type ChipTone } from './BrowserPaneChip';
 import { useBrowserDownloads } from '../../hooks/useBrowserDownloads';
 import type { DownloadsMenuProps } from './DownloadsMenu';
@@ -85,6 +85,15 @@ interface RemoteBrowserPanelProps {
   shareMode?: ShareMode;
   onToggleShare?: () => void;
 }
+
+/**
+ * I due magazzini di «Dimentica questo sito», creati una volta sola: il dialogo
+ * li tiene in una dipendenza di effetto, e un oggetto nuovo a ogni render
+ * rileggerebbe l'elenco a ciclo continuo. Sono senza stato, quindi condividerli
+ * fra tutte le pane non è una scorciatoia: il `contextId` è un argomento.
+ */
+const NATIVE_SITE_DATA = nativeSiteData();
+const SHARED_SITE_DATA = sharedSiteData();
 
 /** localStorage key for a pane's shared-session preference. It's a per-DEVICE
  *  choice ("this Mac, join the shared server session for ctx X") — the phone/web
@@ -532,6 +541,7 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
         <ForgetSiteDialog
           contextId={contextId}
           url={browser.url}
+          backend={NATIVE_SITE_DATA}
           onClose={() => setForgetOpen(false)}
           onForgotten={() => { void browser.reload(); }}
         />
@@ -553,6 +563,7 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
   usePaneHold(browser.agentActive);
   const { history, push: pushHistory } = useBrowserHistory(contextId);
   const backToSpawner = useBackToSpawner(contextId, onFocusPanel, topics);
+  const [forgetOpen, setForgetOpen] = useState(false);
 
   // I download della pane CONDIVISA finiscono sul server, non su questo
   // computer: la voce porta un link alla nostra origine (lo scarica il browser
@@ -928,6 +939,7 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
         shared={shared}
         shareMode={shareMode}
         onToggleShare={onToggleShare}
+        onForgetSite={siteHostOf(browser.url) ? () => setForgetOpen(true) : undefined}
       />
 
       {/* Content — screenshot viewer. containerRef wires a debounced
@@ -1194,6 +1206,21 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
           onCancel={() => browser.exitSelectMode()}
         />
       </div>
+
+      {/* «Dimentica questo sito», gemello del ramo nativo. Qui il magazzino è
+          l'altro: il contesto Playwright vivo sul server e il suo
+          `storage.json`. Stesso dialogo, stesso patto (si elenca, poi si
+          cancella quello elencato), e la pagina si ricarica dopo, o resterebbe
+          a mostrare un login che sul disco non esiste più. */}
+      {forgetOpen && (
+        <ForgetSiteDialog
+          contextId={contextId}
+          url={browser.url}
+          backend={SHARED_SITE_DATA}
+          onClose={() => setForgetOpen(false)}
+          onForgotten={() => { void browser.reload(); }}
+        />
+      )}
 
       {/* I download NON stanno più qui sotto: sono nel menu Download della
           toolbar (DownloadsMenu), che è chiudibile, non fa scadere le voci e
