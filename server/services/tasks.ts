@@ -767,6 +767,18 @@ export interface TaskService {
     runs?: CheckRun[] | null;
   }): Task;
   /**
+   * Spegne le spie «running» rimaste accese, e si chiama UNA VOLTA all'avvio.
+   *
+   * Una corsa di check vive nel processo (`services/checks-gate.ts`): se il
+   * server muore mentre gira, nessuno scriverà mai il suo verdetto e la card
+   * resta a filare per sempre. `running` non è uno stato che si eredita da un
+   * processo morto, quindi al boot torna a «mai misurato»: chi riconsegna fa
+   * ripartire i comandi, e nel frattempo la card non mente.
+   *
+   * Ritorna quante ne ha spente (la riga di log al boot, e i test).
+   */
+  clearStaleChecksRuns(): number;
+  /**
    * Tasks worth auditing: alive, delivered (review/done), carrying a commit —
    * e SENZA un esito testimoniato. Un verdetto scritto dal land stesso è un
    * fatto osservato mentre il ramo esisteva ancora: la passata periodica non ha
@@ -3118,6 +3130,16 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         taskId,
       );
       return rowToTask(getTaskRow(taskId));
+    },
+
+    clearStaleChecksRuns(): number {
+      // `checks_at` resta com'era (una corsa senza verdetto non ha un "quando"),
+      // e `checks_commit`/`checks_json` pure: sono la traccia dell'ultima misura
+      // vera, e cancellarli qui butterebbe via un esito valido.
+      const res = db.prepare(
+        "UPDATE tasks SET checks_state = NULL, updated_at = ? WHERE checks_state = 'running'",
+      ).run(now());
+      return Number(res.changes ?? 0);
     },
 
     setLabels({ taskId, labels, actor, source, projectId }): Task {
