@@ -18,6 +18,7 @@
  */
 
 import type { BranchStatus } from "./branch-status";
+import type { LandingEsito } from "./landing-verdict";
 
 /** 'landed' = content is on main · 'unlanded' = provably not · 'unverifiable' = can't tell. */
 export type LandingState = "landed" | "unlanded" | "unverifiable";
@@ -40,6 +41,26 @@ export function classifyLanding(status: BranchStatus): LandingState {
   return "unverifiable";
 }
 
+/**
+ * IL VERDETTO RICCO, tradotto nel vocabolario di tre stati.
+ *
+ * `unmerged` è una risposta a una domanda sola («la punta è dentro?»), e la
+ * board ne fa un'accusa: «non su main, landalo». Ma fra il lavoro che manca e il
+ * lavoro che manca PERCHÉ QUALCUN ALTRO L'HA RIFATTO MEGLIO c'è la differenza fra
+ * un debito e un fossile, e sulle 14 card misurate il 13/08 i fossili erano tre.
+ * Un elenco dove il debito sta in mezzo ai fossili è un elenco che si smette di
+ * leggere, ed è esattamente com'era finito (`landing-verdict.ts`).
+ *
+ * Quindi solo `fuori` accusa. `superato` e `non-decidibile` diventano «non lo
+ * so»: non sono un'assoluzione, sono l'assenza di un'accusa — e la pastiglia
+ * rossa, che vive su `unlanded`, tace (`shared/board.showsLandingDebt`).
+ */
+export function classifyLandingEsito(esito: LandingEsito): LandingState {
+  if (esito === "dentro") return "landed";
+  if (esito === "fuori") return "unlanded";
+  return "unverifiable";
+}
+
 export interface LandingAuditDeps {
   /**
    * Tasks worth auditing: not archived, terminal-or-delivered (`review`/`done`)
@@ -50,6 +71,19 @@ export interface LandingAuditDeps {
   repoPath: (projectId: string) => string | null;
   /** Content-aware status of a commit relative to main (commitStatusFromRepo). */
   commitStatus: (repoPath: string, commit: string) => Promise<BranchStatus>;
+  /**
+   * LA SECONDA DOMANDA, e si paga solo su chi ha già risposto «fuori».
+   *
+   * `commitStatus` costa tre comandi git e chiude il caso su quasi tutte le
+   * card. Quando dice `unmerged` non ha ancora finito di chiedere: restano la
+   * patch inversa sul ramo vivo e la supersessione, che costano un indice delle
+   * righe di main e vanno pagate solo qui — su una board di 234 consegne
+   * riguardano dieci righe.
+   *
+   * Assente ⇒ ci si ferma alla prima risposta: l'audit resta quello di prima,
+   * più severo, mai più permissivo.
+   */
+  debtVerdict?: (task: AuditTask, repoPath: string) => Promise<LandingState>;
   /** Persist the verdict (landing_state + landing_checked_at). */
   record: (taskId: string, state: LandingState, checkedAt: string) => void;
   /** Called once per task that flipped INTO `unlanded` — the human must see it. */
@@ -79,9 +113,16 @@ export async function auditLandings(deps: LandingAuditDeps): Promise<LandingAudi
     if (!task.deliveryCommit) continue;
     try {
       const repo = deps.repoPath(task.projectId);
-      const state: LandingState = repo
+      let state: LandingState = repo
         ? classifyLanding(await deps.commitStatus(repo, task.deliveryCommit))
         : "unverifiable";
+      // Un `unlanded` è un'ACCUSA, e prima di scriverla si chiede la seconda
+      // volta: il contenuto potrebbe essere di là comunque (la patch inversa),
+      // oppure quel lavoro potrebbe averlo rifatto qualcun altro, e allora non
+      // c'è niente da landare.
+      if (state === "unlanded" && repo && deps.debtVerdict) {
+        state = await deps.debtVerdict(task, repo);
+      }
 
       const before = deps.previousState(task.id);
       deps.record(task.id, state, checkedAt);

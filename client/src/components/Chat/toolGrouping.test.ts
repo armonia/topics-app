@@ -8,6 +8,7 @@ import {
   formatToolCounts,
   isActiveTool,
   isSoloTool,
+  isWhollyFailed,
   partitionToolGroup,
   summarizeToolGroup,
 } from './toolGrouping';
@@ -122,6 +123,45 @@ describe('summarizeToolGroup', () => {
     const s = summarizeToolGroup([tc({ name: 'Read' }), tc({ name: 'Edit' })]);
     expect(s.costCents).toBeUndefined();
     expect(s.tokens).toBeUndefined();
+  });
+});
+
+describe('isWhollyFailed', () => {
+  test('una corsa senza errori non è rossa', () => {
+    expect(isWhollyFailed({ errors: 0, total: 5 })).toBe(false);
+  });
+
+  test('UNA fallita su cinque non tinge la corsa intera', () => {
+    expect(isWhollyFailed({ errors: 1, total: 5 })).toBe(false);
+  });
+
+  test('il confine: quattro su cinque no, cinque su cinque sì', () => {
+    expect(isWhollyFailed({ errors: 4, total: 5 })).toBe(false);
+    expect(isWhollyFailed({ errors: 5, total: 5 })).toBe(true);
+  });
+
+  test('un gruppo vuoto non è una corsa fallita', () => {
+    expect(isWhollyFailed({ errors: 0, total: 0 })).toBe(false);
+  });
+
+  test('sul riepilogo vero: 1 su 5 neutra, 3 su 3 rossa', () => {
+    const parziale = summarizeToolGroup([
+      tc({ name: 'Read', status: 'error' }),
+      tc({ name: 'Read' }),
+      tc({ name: 'Edit' }),
+      tc({ name: 'Bash' }),
+      tc({ name: 'Read' }),
+    ]);
+    expect(parziale.errors).toBe(1);
+    expect(isWhollyFailed(parziale)).toBe(false);
+
+    const tutta = summarizeToolGroup([
+      tc({ name: 'Read', status: 'error' }),
+      tc({ name: 'Edit', status: 'error' }),
+      tc({ name: 'Bash', status: 'error' }),
+    ]);
+    expect(tutta.errors).toBe(3);
+    expect(isWhollyFailed(tutta)).toBe(true);
   });
 });
 

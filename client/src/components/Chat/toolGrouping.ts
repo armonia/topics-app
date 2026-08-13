@@ -116,6 +116,22 @@ export function summarizeToolGroup(tools: ToolCall[]): ToolGroupSummary {
   };
 }
 
+/**
+ * La corsa è fallita per INTERO: nessuna azione si è salvata.
+ *
+ * È l'unica condizione che autorizza il rosso sul titolo del gruppo. Prima
+ * bastava `errors > 0`: una `Read` andata male su cinque tingeva di rosso la
+ * riga intera, e il colore diceva «qui non è successo niente di buono» dove
+ * quattro azioni su cinque erano invece riuscite. Quanti fallimenti ci sono
+ * stati lo dice già il badge accanto al titolo, con il numero; il colore è
+ * l'ultimo gradino, e si accende solo quando non c'è più niente da salvare.
+ *
+ * Un gruppo vuoto non è «tutto fallito»: senza azioni non c'è esito.
+ */
+export function isWhollyFailed(summary: Pick<ToolGroupSummary, 'errors' | 'total'>): boolean {
+  return summary.total > 0 && summary.errors === summary.total;
+}
+
 /** Costo in centesimi → stringa breve per la riga del tool: `$0.0012` sotto un
  *  dollaro (quattro decimali, un'azione costa poco), `$1.20` sopra. Torna ''
  *  per zero/non-finito così il chiamante può ometterlo. */
