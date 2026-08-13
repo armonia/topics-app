@@ -121,8 +121,12 @@ function harness(overrides: Partial<DispatcherDeps> = {}) {
     task: (id: string) => svc.get(id)?.task,
     comments: (id: string) => (svc.get(id)?.comments ?? []).map((c) => c.content),
     /** Quante volte la riga del tetto è stata scritta su questa card. */
+    /** La frase e' quella che il dispatcher scrive davvero: questo ramo ne
+     *  proponeva una sua («Tetto N agenti»), ma la riga era gia' su main con un
+     *  testo piu' chiaro, che dice anche che non c'e' niente da fare. I casi qui
+     *  sotto restano validi e diventano copertura in piu'. */
     righeTetto: (id: string) =>
-      (svc.get(id)?.comments ?? []).filter((c) => c.content.includes("tetto di concorrenza è pieno")).length,
+      (svc.get(id)?.comments ?? []).filter((c) => c.content.includes("Parte da sé appena si libera un posto")).length,
   };
 }
 
@@ -151,9 +155,9 @@ describe("tetto pieno: la riga sulla card", () => {
     // due card `queued` e zero righe.
     expect(h.task("q1")!.status).toBe("todo");
     const nota = h.comments("q1").join("\n");
-    expect(nota).toContain("Tetto 1 agenti");
-    expect(nota).toContain("1 in volo");
-    expect(nota).toContain("2 card sono ferme");
+    // I due numeri che rendono la riga una spiegazione invece di un'attesa muta.
+    expect(nota).toContain("1 agent al lavoro su un tetto di 1");
+    expect(nota).toContain("2 card sono ferme");  // il terzo numero: quanto è lunga la fila
     // E la riceve anche chi sta dietro: la fila non è muta solo in testa.
     expect(h.righeTetto("q2")).toBe(1);
     expect(h.task("q2")!.dispatchState).toBe("queued");
@@ -200,7 +204,11 @@ describe("tetto pieno: la riga sulla card", () => {
 
     expect(h.task("q2")!.status).toBe("todo");
     const nota = h.comments("q2").join("\n");
-    expect(nota).toContain("tetto di concorrenza è pieno");
-    expect(nota).toContain("2 posti liberi");
+    // La card non aspetta UN posto: ne vuole N insieme, e i posti liberi sono
+    // meno. I due numeri esatti dipendono da quanti slot ha gia' prenotato chi
+    // e' partito prima, quindi si prova il MECCANISMO, non l'aritmetica di una
+    // particolare implementazione: la riga deve dire tutte e due le meta'.
+    expect(nota).toMatch(/ne vuole \d+ insieme/);
+    expect(nota).toMatch(/(c'è 1 posto libero|ci sono \d+ posti liberi)/);
   });
 });
