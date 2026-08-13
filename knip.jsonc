@@ -77,6 +77,9 @@
         // Verdetto sui rami PER CONTENUTO: `bun run report:branches`, e
         // `--delete-landed` per cancellare quelli che main ha già dentro.
         "scripts/branch-audit.ts!",
+        // Misura a mano quanti doppioni ha una board, in sola lettura:
+        // `bun scripts/board-duplicates.ts [--db <file>] [--json]`.
+        "scripts/board-duplicates.ts!",
         "scripts/token-live.ts!",         // diagnostica a mano: `bun scripts/token-live.ts [filtro] [--watch]`
         "scripts/orphan-park-dryrun.ts!", // `bun run orphan:dryrun` — prova a vuoto sul db vero
         // `bun run browser:dryrun [--tutti]` — la spazzata dei chromium orfani
