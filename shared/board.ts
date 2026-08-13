@@ -1137,6 +1137,42 @@ export interface DispatchCapacity {
   running: number;
 }
 
+/** Il tetto globale come sta scritto: `auto` (dimensionato dalla macchina) o il
+ *  numero fisso. Gemello della riga riservata `board_settings['*']`. */
+export interface GlobalDispatchCap {
+  auto: boolean;
+  max: number;
+}
+
+/** Estremi del numero fisso. Gli stessi con cui `readGlobalCap` stringe ciò che
+ *  legge dal DB: un campo che accetta 40 e ne salva 20 mente a chi lo compila. */
+export const GLOBAL_CAP_MIN = 1;
+export const GLOBAL_CAP_MAX = 20;
+
+/** Il numero fisso dentro gli estremi, e intero. NaN vale il minimo: un campo
+ *  numerico svuotato non deve poter scrivere «nessun agente». */
+export function clampGlobalCap(n: number): number {
+  if (!Number.isFinite(n)) return GLOBAL_CAP_MIN;
+  return Math.max(GLOBAL_CAP_MIN, Math.min(GLOBAL_CAP_MAX, Math.round(n)));
+}
+
+/**
+ * Quanti agenti insieme, davvero, adesso: `auto` prende la raccomandazione
+ * viva della macchina, il resto prende il numero fisso. Mai sotto 1 (un tetto
+ * di zero non è una board prudente, è una board ferma).
+ *
+ * `recommended` a `null` significa «nessuna sonda»: si ricade sul numero fisso
+ * anche in auto, che è il comportamento dei test e degli host degradati.
+ *
+ * STA QUI e non solo nel server perché ora ha due lettori: il dispatcher, che
+ * lo applica, e il pannello impostazioni della board, che scrive «3 di 8» sotto
+ * gli occhi di una persona. Due copie della stessa formula sono il modo in cui
+ * il numero mostrato e il numero applicato iniziano a divergere.
+ */
+export function effectiveDispatchCap(cap: GlobalDispatchCap, recommended: number | null): number {
+  return cap.auto && recommended != null ? Math.max(1, recommended) : Math.max(1, cap.max);
+}
+
 /** Le due primitive di collegamento dell'intake. */
 export type LinkKind = "subtask" | "chain";
 
