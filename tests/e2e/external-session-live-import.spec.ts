@@ -13,7 +13,7 @@
  */
 import { test } from "./fixtures/layout.fixture";
 import { expect, type Page } from "@playwright/test";
-import { createTopic, deleteTopic, resetPaneStore, seedProjectPane } from "./helpers/api-fixtures";
+import { createTopic, deleteTopic, resetPaneStore, seedProjectPane, seedProjectInnerChats } from "./helpers/api-fixtures";
 import { mkdirSync, rmSync, writeFileSync, appendFileSync, utimesSync } from "fs";
 import { E2E_BASE, E2E_HOME } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
@@ -69,32 +69,34 @@ async function waitForCensus(request: import("@playwright/test").APIRequestConte
   }, { timeout: 45_000, intervals: [1000] }).not.toBeNull();
 }
 
-async function openTestProject(page: Page, projectMatch: RegExp) {
-  const projectsSection = page.getByRole("button", { name: /sezione Progetti/ });
-  if ((await projectsSection.count()) > 0) {
-    const expanded = await projectsSection.getAttribute("aria-expanded");
-    if (expanded === "false") await projectsSection.click();
-  }
-  const btn = page.locator('[aria-label="Topics sidebar"] button').filter({ hasText: projectMatch }).first();
-  await expect(btn).toBeVisible({ timeout: 10000 });
-  await btn.click();
-  await expect(page.locator('[data-testid="panel-tab-bar"]').first()).toBeVisible({ timeout: 10000 });
-}
-
-async function openProjectBoard(page: Page, projectMatch: RegExp) {
-  await openTestProject(page, projectMatch);
-  const triggers = page.getByTestId("pane-add-menu-trigger");
-  const count = await triggers.count();
-  const item = page.getByTestId("pane-add-menu-kanban");
-  for (let i = count - 1; i >= 0; i--) {
-    await triggers.nth(i).click();
-    const found = await item.waitFor({ state: "visible", timeout: 2000 }).then(() => true, () => false);
-    if (found) break;
-    await page.keyboard.press("Escape");
-    if (i === 0) throw new Error("no + menu with a Board (kanban) entry found");
-  }
-  await item.click();
-  await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 10000 });
+/**
+ * ADOTTA E APRI — quello che prima era un gesto in barra.
+ *
+ * Il chip delle sessioni in terminale (col suo «Continua qui») è stato tolto il
+ * 13/08: l'adozione non ha più una superficie, ma ha ancora il suo endpoint, ed
+ * è il COMPORTAMENTO DOPO l'adozione che questa spec esiste per provare (i turni
+ * dal terminale che continuano ad arrivare nella chat aperta). Quindi il gesto
+ * si fa dall'endpoint e la topic si apre come pane: da lì in poi il test è
+ * identico a prima, perché la chat è la stessa.
+ */
+async function adoptAndOpen(
+  page: Page,
+  request: import("@playwright/test").APIRequestContext,
+  cwd: string,
+  sessionId: string,
+): Promise<string> {
+  const res = await request.post(`${BASE}/api/topics/adopt-claude`, { data: { sessionId } });
+  expect(res.ok(), "adozione della sessione via endpoint").toBe(true);
+  const topic = (await res.json()) as { id: string };
+  // La topic adottata è LEGATA al progetto (il cwd della sessione), quindi non
+  // vive nella barra principale ma dentro la finestra di quel progetto: il suo
+  // layout interno sta server-side (`topics-project-panes-<hash>`) e va seminato
+  // prima del caricamento, altrimenti la chat non ha nessuna tab da cui aprirsi.
+  await seedProjectInnerChats(request, cwd, [topic.id]);
+  await seedProjectPane(request, cwd).catch(() => {});
+  await page.goto("/");
+  await expect(page.getByTestId("project-window")).toBeVisible({ timeout: 20000 });
+  return topic.id;
 }
 
 /** Il fork: `--resume` riapre un file NUOVO e ci ricopia la storia (stessi uuid),
@@ -137,22 +139,12 @@ test.describe("Sessione adottata: i turni dal terminale continuano ad arrivare",
 
   test.beforeEach(async ({ page }) => {
     await resetPaneStore(page.request, []);
-    await seedProjectPane(page.request, CWD).catch(() => {});
   });
 
   test("a terminal turn appears in the adopted chat within one sweep", async ({ page, request }) => {
     await waitForCensus(request, SID);
 
-    await page.goto("/");
-    await openProjectBoard(page, /e2e-live-import/);
-
-    // Adopt from the board — the chat opens with the imported history.
-    const badge = page.getByTestId("external-sessions-badge");
-    await expect(badge).toBeVisible({ timeout: 45_000 });
-    await badge.click();
-    const adoptBtn = page.getByTestId("adopt-external-session").first();
-    await expect(adoptBtn).toBeVisible();
-    await adoptBtn.click();
+    const topicId = await adoptAndOpen(page, request, CWD, SID);
 
     await expect(page.getByTestId("message-content-user").filter({ hasText: HIST_USER })).toBeVisible({ timeout: 20000 });
     await expect(page.getByTestId("message-content-assistant").filter({ hasText: HIST_ASSISTANT })).toBeVisible({ timeout: 20000 });
@@ -166,12 +158,7 @@ test.describe("Sessione adottata: i turni dal terminale continuano ad arrivare",
     await expect(page.getByTestId("message-content-user").filter({ hasText: LIVE_USER })).toBeVisible({ timeout: 20000 });
     await expect(page.getByTestId("message-content-assistant").filter({ hasText: LIVE_ASSISTANT })).toBeVisible({ timeout: 20000 });
 
-    // Clean up the topic the UI created.
-    const list = await request.get(`${BASE}/api/topics`);
-    const body = (await list.json()) as { topics: Record<string, { id: string; name: string }> };
-    for (const t of Object.values(body.topics ?? {})) {
-      if (/e2e-live-import \(ripresa\)/.test(t.name)) await deleteTopic(request, t.id).catch(() => {});
-    }
+    await deleteTopic(request, topicId).catch(() => {});
   });
 });
 
@@ -198,21 +185,12 @@ test.describe("Sessione adottata: la chat SEGUE il fork del transcript", () => {
 
   test.beforeEach(async ({ page }) => {
     await resetPaneStore(page.request, []);
-    await seedProjectPane(page.request, CWD).catch(() => {});
   });
 
   test("il resume riparte da un NUOVO file: la chat non si ricongela", async ({ page, request }) => {
     await waitForCensus(request, SID);
 
-    await page.goto("/");
-    await openProjectBoard(page, /e2e-fork-import/);
-
-    const badge = page.getByTestId("external-sessions-badge");
-    await expect(badge).toBeVisible({ timeout: 45_000 });
-    await badge.click();
-    const adoptBtn = page.getByTestId("adopt-external-session").first();
-    await expect(adoptBtn).toBeVisible();
-    await adoptBtn.click();
+    const topicId = await adoptAndOpen(page, request, CWD, SID);
 
     // Stato 1 — la chat adottata mostra la storia.
     await expect(page.getByTestId("message-content-user").filter({ hasText: HIST_USER })).toBeVisible({ timeout: 20000 });
@@ -236,10 +214,6 @@ test.describe("Sessione adottata: la chat SEGUE il fork del transcript", () => {
     // La storia ricopiata NON è stata reimportata: un solo esemplare a testa.
     await expect(page.getByTestId("message-content-user").filter({ hasText: HIST_USER })).toHaveCount(1);
 
-    const list = await request.get(`${BASE}/api/topics`);
-    const body = (await list.json()) as { topics: Record<string, { id: string; name: string }> };
-    for (const t of Object.values(body.topics ?? {})) {
-      if (/e2e-fork-import \(ripresa\)/.test(t.name)) await deleteTopic(request, t.id).catch(() => {});
-    }
+    await deleteTopic(request, topicId).catch(() => {});
   });
 });

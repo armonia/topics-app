@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { Check, Hash, Pencil, Sigma } from 'lucide-react';
+import { Check, Hash, MoreHorizontal, Pencil, Sigma } from 'lucide-react';
 import type { TaskStatus, TaskLabel, QueueReason, QueueTone } from '../../lib/board';
+import type { ProjectCounts } from '../../lib/projectTaskCounts';
 import type { LabelSource } from '../../../../shared/task-labels';
 import { STATUS_ICON_COLOR, DISPATCH_CHIP } from './constants';
 import { memorableId } from '../../lib/memorableId';
@@ -264,6 +265,38 @@ export function LabelChip({ label, source }: { label: TaskLabel; source: LabelSo
     >
       {closer && (source === 'derived' ? <Sigma className="h-3 w-3" aria-hidden /> : <Pencil className="h-3 w-3" aria-hidden />)}
       {label}
+    </span>
+  );
+}
+
+/**
+ * QUANTI TASK HA UN PROGETTO, detto come lo dice già la sidebar.
+ *
+ * Il filtro «Progetto» elencava dei nomi e basta: su una board generale con
+ * dodici progetti, per sapere quale stesse aspettando qualcosa bisognava
+ * accenderli uno alla volta. Qui accanto al nome ci sono i numeri, e sono gli
+ * STESSI due glifi che la riga «Board» della sidebar e la tab della board
+ * disegnano da sempre (`StatusIcon`): review, cioè aspetta te, e in corso, cioè
+ * un agente ci sta lavorando. Nessun secondo codice da imparare.
+ *
+ * Il resto aperto (backlog + todo) è una coda, e una coda non cambia una
+ * decisione: sta sotto i puntini, come nella sidebar quando lo spazio finisce.
+ * Gli zeri non si disegnano — «review 0» occupa il posto del numero che conta.
+ * Il dettaglio completo, chiusi inclusi, sta nel `title` di chi ci passa sopra.
+ */
+export function ProjectTaskCounts({ counts }: { counts: ProjectCounts }) {
+  if (counts.open === 0) return null;
+  return (
+    <span data-testid="project-task-counts" className="flex shrink-0 items-center gap-1 tabular-nums text-[10px] leading-none text-app-text-secondary">
+      {counts.review > 0 && (
+        <span className="flex items-center gap-0.5"><StatusIcon status="review" className="h-3 w-3" />{counts.review}</span>
+      )}
+      {counts.inProgress > 0 && (
+        <span className="flex items-center gap-0.5"><StatusIcon status="in_progress" className="h-3 w-3" />{counts.inProgress}</span>
+      )}
+      {counts.queued > 0 && (
+        <span className="flex items-center gap-0.5 text-app-text-muted"><MoreHorizontal className="h-3 w-3 shrink-0" aria-hidden />{counts.queued}</span>
+      )}
     </span>
   );
 }
