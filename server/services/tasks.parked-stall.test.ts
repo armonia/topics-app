@@ -119,11 +119,45 @@ describe("un padre fermo solo su figli parcheggiati fa una DOMANDA", () => {
   test("un figlio IN VOLO non è uno stallo: il padre torna in coda ad aspettare", () => {
     const padre = s.create({ projectId: PID, text: "Il padre", status: "in_progress" }).id;
     const figlio = s.create({ projectId: PID, text: "Un figlio vivo", parentTaskId: padre }).id;
-    s.update({ taskId: figlio, actor: "human", by: "attilio", patch: { status: "todo" } });
+    s.update({ taskId: figlio, actor: "human", by: "attilio", patch: { status: "in_progress" } });
 
     const t = s.deliverToReviewBySystem({ taskId: padre, reason: "tentativi esauriti" });
     expect(t.status).toBe("todo");
     expect(t.dispatchState).toBe("waiting");
+    expect(t.deliveredReason).not.toBe("parked_children");
+  });
+
+  // IL GUASTO DEL 13/08, nella riga in cui è nato. Sette padri e ventuno card
+  // ferme sotto la soglia: il figlio stava in `todo`, cioè nella colonna che si
+  // legge «in coda», e il padre lo aspettava come se qualcuno dovesse
+  // prenderlo. Nessuno lo prende — il tick lista `rootsOnly` — e il padre
+  // rientrava in coda ogni dieci minuti per sempre, senza dirlo a nessuno.
+  test("un figlio fermo in TODO è fermo quanto uno in backlog: il padre CHIEDE", () => {
+    const padre = s.create({ projectId: PID, text: "Il padre", status: "in_progress" }).id;
+    const figlio = s.create({ projectId: PID, text: "Uno step lasciato in todo", parentTaskId: padre }).id;
+    // Il turno del padre è ancora vivo, quindi lo step lasciato in todo per ora
+    // è solo una riga nel thread: qui si prova la FINE del turno.
+    s.update({ taskId: figlio, actor: "agent", by: "agent", patch: { status: "todo" } });
+    expect(s.get(padre)!.task.status).toBe("in_progress");
+
+    const t = s.deliverToReviewBySystem({ taskId: padre, reason: "tentativi esauriti" });
+    expect(t.status).toBe("review");
+    expect(t.dispatchState).toBe("needs_input");
+    expect(t.deliveredReason).toBe("parked_children");
+    expect(ultimoCommento(s, padre)).toContain("Uno step lasciato in todo");
+  });
+
+  // Lo specchio del precedente: un figlio in `todo` col PROPRIO chip addosso si
+  // muove da sé, e il padre non deve chiedere niente. È la riga che impedisce a
+  // «todo = fermo» di diventare «todo = sempre uno stallo».
+  test("un figlio in todo col chip di dispatch addosso è in volo, e il padre tace", () => {
+    const padre = s.create({ projectId: PID, text: "Il padre", status: "in_progress" }).id;
+    const figlio = s.create({ projectId: PID, text: "Uno step reclamato", parentTaskId: padre }).id;
+    s.update({ taskId: figlio, actor: "agent", by: "agent", patch: { status: "todo" } });
+    s.setDispatchState({ taskId: figlio, state: "queued" });
+
+    const t = s.deliverToReviewBySystem({ taskId: padre, reason: "tentativi esauriti" });
+    expect(t.status).toBe("todo");
     expect(t.deliveredReason).not.toBe("parked_children");
   });
 
@@ -139,7 +173,7 @@ describe("un padre fermo solo su figli parcheggiati fa una DOMANDA", () => {
     // Il caso misurato: padre già fermo in backlog, figlio che ci finisce dopo.
     const padre = s.create({ projectId: PID, text: "Il padre fermo" }).id;
     const figlio = s.create({ projectId: PID, text: "Un figlio", parentTaskId: padre }).id;
-    s.update({ taskId: figlio, actor: "human", by: "attilio", patch: { status: "todo" } });
+    s.update({ taskId: figlio, actor: "human", by: "attilio", patch: { status: "in_progress" } });
     expect(s.get(padre)!.task.status).toBe("backlog");
 
     s.update({ taskId: figlio, actor: "human", by: "attilio", patch: { status: "backlog" } });
@@ -153,12 +187,75 @@ describe("un padre fermo solo su figli parcheggiati fa una DOMANDA", () => {
   test("se il padre STA LAVORANDO l'avviso è una riga nel thread, non un turno tagliato", () => {
     const padre = s.create({ projectId: PID, text: "Il padre al lavoro", status: "in_progress" }).id;
     const figlio = s.create({ projectId: PID, text: "Uno step", parentTaskId: padre }).id;
-    s.update({ taskId: figlio, actor: "human", by: "attilio", patch: { status: "todo" } });
+    s.update({ taskId: figlio, actor: "human", by: "attilio", patch: { status: "in_progress" } });
 
     s.update({ taskId: figlio, actor: "agent", by: "agent", patch: { status: "backlog" } });
 
     expect(s.get(padre)!.task.status).toBe("in_progress");
-    expect(ultimoCommento(s, padre)).toContain("Sottotask parcheggiato in backlog");
+    expect(ultimoCommento(s, padre)).toContain("Sottotask fermo");
+  });
+});
+
+/**
+ * IL RASTRELLO. La domanda si arma su due EVENTI, e una card che si era fermata
+ * prima non ne vedrà mai un altro: nessun turno tornerà lì a scoprirlo. È la
+ * ragione per cui il 13/08 sette padri erano fermi da ore con la domanda mai
+ * fatta — il codice per farla c'era già, non passava più nessuno a chiamarlo.
+ */
+describe("il rastrello arriva anche sulle card già ferme", () => {
+  let db: Database; let s: TaskService;
+  beforeEach(() => { clock = 0; db = freshDb(); s = svc(db); });
+
+  test("un padre fermo da ieri, con lo step in todo, riceve la domanda al primo giro", () => {
+    const padre = s.create({ projectId: PID, text: "Il padre di ieri" }).id;
+    const figlio = s.create({ projectId: PID, text: "Lo step di ieri", parentTaskId: padre }).id;
+    // Lo stallo com'è sul DB, senza passare dagli eventi: è esattamente la
+    // situazione in cui nessuna porta del servizio verrà più attraversata.
+    db.run("UPDATE tasks SET status = 'todo' WHERE id = ?", [figlio]);
+    db.run("UPDATE tasks SET status = 'backlog', dispatch_state = 'stopped' WHERE id = ?", [padre]);
+
+    const chiesti = s.sweepParkedChildren({ by: "dispatcher" });
+
+    expect(chiesti.map((t) => t.id)).toEqual([padre]);
+    const t = s.get(padre)!.task;
+    expect(t.status).toBe("review");
+    expect(t.deliveredReason).toBe("parked_children");
+    expect(ultimoCommento(s, padre)).toContain("Lo step di ieri");
+  });
+
+  test("il secondo giro non ripete niente: la domanda è già sulla card", () => {
+    const padre = s.create({ projectId: PID, text: "Il padre di ieri" }).id;
+    s.create({ projectId: PID, text: "Lo step di ieri", parentTaskId: padre });
+
+    expect(s.sweepParkedChildren()).toHaveLength(1);
+    expect(s.sweepParkedChildren()).toHaveLength(0);
+  });
+
+  test("non rastrella chi ha un turno addosso, chi è in review e chi è dentro la finestra di rinvio", () => {
+    const alLavoro = s.create({ projectId: PID, text: "Ha un turno", status: "in_progress" }).id;
+    s.create({ projectId: PID, text: "Step 1", parentTaskId: alLavoro });
+    const inArrivo = s.create({ projectId: PID, text: "Il turno parte al tick" }).id;
+    s.create({ projectId: PID, text: "Step 2", parentTaskId: inArrivo });
+    s.setDispatchState({ taskId: inArrivo, state: "queued" });
+    const rinviato = s.create({ projectId: PID, text: "Riprende più tardi" }).id;
+    s.create({ projectId: PID, text: "Step 3", parentTaskId: rinviato });
+    db.run("UPDATE tasks SET dispatch_deferred_until = '2099-01-01T00:00:00.000Z' WHERE id = ?", [rinviato]);
+    const inReview = s.create({ projectId: PID, text: "Consegnato", status: "review" }).id;
+    s.create({ projectId: PID, text: "Step 4", parentTaskId: inReview });
+
+    expect(s.sweepParkedChildren()).toEqual([]);
+  });
+
+  // Una board SPENTA non si tocca da sola: nessuna coda scorre, quindi «rimetti
+  // in coda» non farebbe partire niente, e una card che si muove dove qualcuno
+  // ha spento la macchina è la sorpresa che toglie fiducia al chip.
+  test("la board spenta resta com'è", () => {
+    const padre = s.create({ projectId: PID, text: "Su una board spenta" }).id;
+    s.create({ projectId: PID, text: "Uno step", parentTaskId: padre });
+
+    expect(s.sweepParkedChildren({ eligible: () => false })).toEqual([]);
+    expect(s.get(padre)!.task.status).toBe("backlog");
+    expect(s.sweepParkedChildren({ eligible: (pid) => pid === PID })).toHaveLength(1);
   });
 });
 

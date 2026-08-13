@@ -639,6 +639,7 @@ export type QueueReasonKind =
   | 'parent_idle'    // è uno step e il padre non è al lavoro: non lo lavora nessuno
   | 'heavy_hold'     // è PESANTE, aspetta margine, e intanto tiene ferma la coda
   | 'checklist_frozen' // in review senza domande aperte, ma con la checklist aperta: approvarla non la chiude
+  | 'children_parked' // sta CHIEDENDO cosa fare dei suoi step fermi: il chip ne porta il numero
   | 'unknown';       // il server non è riuscito a calcolarla: il buco, dichiarato
 
 /**
@@ -786,6 +787,13 @@ export function deriveQueueReason(
     dispatchAttempts: number;
     dispatchDeferredUntil: string | null | undefined;
     dispatchError?: string | null;
+    /**
+     * CHI ha portato la card in review, quando non è stato l'agente. Serve a un
+     * ramo solo — distinguere la domanda di sistema sui figli fermi da tutte le
+     * altre — ma è la differenza fra un chip che dice «serve te» e uno che dice
+     * anche quanto lavoro c'è sotto.
+     */
+    deliveredReason?: string | null;
     blockedByTaskId: string | null | undefined;
     blockedBy: BlockerRef | null | undefined;
   },
@@ -821,7 +829,25 @@ export function deriveQueueReason(
     // `delivered` invece perde il suo chip verde, ed è voluto: quello non chiede
     // niente, dice che si può chiudere — e con un sottotask aperto approvare
     // viene rifiutato (`open_subtasks`). È esattamente la bugia da togliere.
-    if (task.dispatchState === 'needs_input') return null;
+    // ...con UNA eccezione: la domanda di sistema sui figli fermi. Lì il chip
+    // rosa dice la mossa («serve te») ma non dice QUANTO — e il numero è la sola
+    // parte che si legge dalla colonna senza aprire il drawer. Il 13/08 sette
+    // padri tenevano ferme ventuno card, e da fuori non si vedeva né quali né
+    // quante: le colonne Backlog e Todo si disegnavano vuote perché la board
+    // fetcha `rootsOnly`, e gli step non ci stanno dentro.
+    //
+    // Il conto è quello dei figli aperti, ed è esatto per costruzione:
+    // `askParkedChildren` firma `parked_children` solo quando NESSUN figlio è in
+    // volo, quindi in questo ramo «aperto» e «fermo» sono lo stesso insieme.
+    if (task.dispatchState === 'needs_input') {
+      if (task.deliveredReason !== 'parked_children') return null;
+      const n = ctx.openSubtasks;
+      return {
+        kind: 'children_parked', tone: 'stalled', head: 'serve te',
+        detail: n === 1 ? '1 step fermo' : `${n} step fermi`,
+        title: `Questa card sta chiedendo cosa fare di ${n === 1 ? 'uno step fermo' : `${n} step fermi`}: non li prende nessun dispatcher, li lavora solo l'agente di questa card dentro il proprio turno, e finché sono aperti approvarla non la chiude. Rispondi sulla card: rimettili in coda, oppure archivia quelli che non servono più.`,
+      };
+    }
     const n = ctx.openSubtasks;
     return {
       kind: 'checklist_frozen', tone: 'stalled', head: 'ferma',

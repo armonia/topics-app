@@ -2989,6 +2989,31 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         if (!autoOn) emit(deps.svc.setDispatchState({ taskId: t.id, state: null }));
       } catch (err) { log(`reconcile release failed for ${t.id}`, err); }
     }
+    // 1-bis) LE CHECKLIST FERME CHE NESSUNO STA GUARDANDO. La domanda sui figli
+    //    fermi si arma su due EVENTI (un figlio che si ferma, il turno del padre
+    //    che finisce), e una card che si era fermata prima non ne vedrà mai un
+    //    altro: nessun turno tornerà lì a scoprirlo. Il 13/08 erano sette padri
+    //    e ventuno card, ferme sotto la soglia mentre le colonne si disegnavano
+    //    vuote — la board fetcha `rootsOnly`, e gli step non ci stanno dentro.
+    //
+    //    Sta QUI, prima del giro delle board, per due ragioni: il posto dove si
+    //    guarda l'intera macchina è questo (il `tick` è per board, e un padre
+    //    fermo non è un problema di una board), e i padri che passano in review
+    //    escono dalla lista dei todo che il passo 2 sta per leggere.
+    //
+    //    Solo sulle board ACCESE, come il `tick`. Su una board spenta nessuna
+    //    coda scorre: le due risposte («rimetti in coda» / «archivia») non
+    //    farebbero partire niente, e una card mossa da sola dove qualcuno ha
+    //    spento la macchina è la sorpresa che spegne la fiducia nel chip.
+    try {
+      const acceso = (projectId: string): boolean => {
+        try { return deps.svc.getBoardSettings(projectId).autoDispatch; } catch { return false; }
+      };
+      for (const t of deps.svc.sweepParkedChildren({ by: "dispatcher", eligible: acceso })) {
+        log(`checklist ferma: alzata la domanda su ${t.id}`);
+        emit(t);
+      }
+    } catch (err) { log("sweep delle checklist ferme fallito", err); }
     // 2) Opportunistically fill free slots on every board that has queued todos.
     const boards = new Set<string>();
     try { for (const t of deps.svc.list({ scope: "all", status: "todo", rootsOnly: true })) boards.add(t.projectId); }
