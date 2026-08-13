@@ -30,7 +30,7 @@ import { UnifiedDiff } from './UnifiedDiff';
 import { collectTaskMediaPaths } from './taskMedia';
 import { TaskChoiceRow } from './TaskChoiceRow';
 import { usableQuestionOptions } from './taskChoices';
-import { acceptWord, drawerSurfaceLabels, sendBackWord as sendBackWordFor, taskActionWord } from './taskActionWords';
+import { drawerSurfaceLabels, reviewDecisionButtons, taskActionWord } from './taskActionWords';
 import { manualStatusTarget } from '../../lib/boardOrder';
 import { formatReviewNotes } from './reviewNotes';
 import { COMPACT_MD_CLS, PLAN_MD_CLS, PRIORITY_DOT, PRIORITY_LABEL, PRIORITY_ORDER, DISPATCH_CHIP, EFFORTS, FANOUT_CHOICES, mediaPaneIdFor, type TaskSurface } from './constants';
@@ -80,6 +80,85 @@ function SystemDeliveryNotice({ task }: { task: BoardTask }) {
         {systemDeliveryNote(task.deliveredReason)}
       </span>
     </div>
+  );
+}
+
+/**
+ * La ZONA DI DECISIONE del drawer: Approva, Rimanda indietro, Landa.
+ *
+ * Il verde è una raccomandazione, e su una card che nessuno ha consegnato era
+ * la raccomandazione sbagliata: «Approva» chiudeva un task senza guardare che
+ * sotto non c'era niente (misurato il 13/08 su c0849d9d). Lì il verde passa a
+ * «Rimandalo avanti», che è la sola uscita che fa avanzare il lavoro, e le
+ * altre due restano dove sono, neutre e col nome dell'eccezione che sono.
+ *
+ * Chi è il verde e come si chiamano NON si decide qui: viene da
+ * `reviewDecisionButtons`, la stessa funzione che alimenta il de-duplicatore
+ * delle risposte rapide. Scritte due volte, le due liste divergono, e il
+ * gemello che RIGETTA torna accanto al bottone vero (commento 2eff6a44).
+ */
+function ReviewDecisionRow({ task, busy, onAccept, onSendBack, onLand }: {
+  task: BoardTask;
+  busy: boolean;
+  onAccept: () => void;
+  onSendBack: () => void;
+  onLand: () => void;
+}) {
+  const tr = useT();
+  const d = reviewDecisionButtons(task, tr);
+  // Un solo verde, e il rosso dei checks lo tinge d'ambra solo quando il verde
+  // È «Approva»: su «Rimandalo avanti» l'ambra prometterebbe un'eccezione che
+  // quel bottone non fa.
+  const primaryCls = task.checksState === 'fail' && d.primary === 'accept'
+    ? 'bg-amber-600/80 hover:bg-amber-600 text-white'
+    : 'bg-emerald-500/80 hover:bg-emerald-500 text-white';
+  const neutralCls = 'bg-white/10 text-app-text hover:bg-white/20';
+  const buttons = [
+    {
+      id: 'accept' as const, word: d.accept, testId: 'task-approve',
+      icon: <ShieldCheck className="h-3.5 w-3.5" />, onClick: onAccept,
+    },
+    {
+      id: 'send-back' as const, word: d.sendBack, testId: 'task-send-back',
+      icon: <ShieldX className="h-3.5 w-3.5" />, onClick: onSendBack,
+    },
+  ];
+  // Il verde va per primo: è il posto dove il pollice arriva da solo, ed è
+  // proprio quel posto che sulla card non consegnata portava ad approvare.
+  const ordered = d.primary === 'send-back' ? [buttons[1], buttons[0]] : buttons;
+  return (
+    <>
+      <div className="flex items-center gap-1.5">
+        {ordered.map((b) => {
+          const isPrimary = b.id === d.primary;
+          return (
+            <button
+              key={b.id}
+              data-testid={b.testId}
+              disabled={busy} onClick={b.onClick}
+              title={b.word.title}
+              className={`flex items-center justify-center gap-1.5 rounded px-2.5 py-1.5 text-xs disabled:opacity-50 ${
+                isPrimary ? `flex-1 font-medium ${primaryCls}` : neutralCls
+              }`}
+            >{busy && isPrimary ? <Spinner size="sm" tone="current" /> : b.icon} {b.word.label}</button>
+          );
+        })}
+      </div>
+      {/* Explicit landing — accept + merge the branch on main (local, no push,
+          build server-side). Separate from Approva by design: the merge no
+          longer rides "da sotto" on an approve. Azzurro finché è una consegna:
+          su una card che nessuno ha consegnato scende a neutro come Approva. */}
+      {d.land && (
+        <button
+          disabled={busy} onClick={onLand}
+          data-testid="task-land"
+          title={d.land.title}
+          className={`flex w-full items-center justify-center gap-1.5 rounded px-2.5 py-1.5 text-xs disabled:opacity-50 ${
+            d.primary === 'accept' ? 'bg-sky-500/80 font-medium text-white hover:bg-sky-500' : neutralCls
+          }`}
+        ><GitMerge className="h-3.5 w-3.5" /> {d.land.label}</button>
+      )}
+    </>
   );
 }
 
@@ -535,15 +614,12 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
 }) {
   const tr = useT();
   const locale = useLocale();
-  // The three actions the drawer draws with buttons of ITS OWN, bigger, instead
-  // of leaving them to the choice row. The words are the card's, from the same
-  // table: one action, one word, wherever you press it.
-  //
-  // `approveWord` and `sendBackWord` are computed further down, where the task
-  // is loaded: both change with the card's state (red checks rename Approva,
-  // a review with no agent has no agent to send anything back to) and a word
-  // that changes on screen has to change in the table, or the de-duplicator
-  // subtracts the wrong one.
+  // La parola di «Landa su main» per la BANDA del lavoro non landato, che è
+  // un'altra superficie: parla di una card già chiusa, dove non c'è nessuna
+  // eccezione da segnalare. I tre bottoni della zona di decisione prendono le
+  // loro parole da `reviewDecisionButtons` (in `ReviewDecisionRow`), perché lì
+  // cambiano con lo stato della card e devono restare uguali a quelle che il
+  // de-duplicatore delle risposte rapide sottrae.
   const landWord = taskActionWord('land', tr);
   // The drawer has its own «Ferma» too, next to the working agent's dots: same
   // action as the card's context menu and the choice row, therefore the same
@@ -744,13 +820,11 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
     [comments, task],
   );
   const isAgentReview = !!task && task.status === 'review' && !!task.assignedTopicId;
-  // The two words that depend on the card. `acceptWord` renames itself when the
-  // pre-review checks are red; `sendBackWord` keeps the word and swaps the
-  // tooltip when there is no agent to go back TO — a review a human filed by
-  // hand has no tab that "restarts", and the tooltip that promised one was
-  // naming a destination that does not exist.
-  const approveWord = acceptWord(task?.checksState === 'fail', tr);
-  const sendBackWord = sendBackWordFor(isAgentReview, tr);
+  // Le parole dei tre bottoni di decisione stanno in `ReviewDecisionRow`, che le
+  // chiede a `reviewDecisionButtons`: cambiano tutte con lo stato della card (i
+  // checks rossi rinominano Approva, una card che nessuno ha consegnato
+  // rinomina anche Landa e sposta il verde), e una parola che cambia sullo
+  // schermo deve cambiare nella stessa funzione che la sottrae qui sotto.
   // Pending question = the agent's last word is a question block: its options
   // render as quick-reply buttons right above the composer (same zone as the
   // review actions), mirroring the card.
@@ -2311,35 +2385,15 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                     sarebbe farsi spiegare da un errore quello che si poteva vedere. */}
                 <SystemDeliveryNotice task={task} />
                 <ChecksSection task={task} />
-                <div className="flex items-center gap-1.5">
-                  {/* Word AND tooltip come from `acceptWord`, which already
-                      knows about the red checks: the button cannot say one
-                      thing while the de-duplicator subtracts another. */}
-                  <button
-                    disabled={busy} onClick={() => decide('approve', { force: task.checksState === 'fail' })}
-                    title={approveWord.title}
-                    className={`flex flex-1 items-center justify-center gap-1.5 rounded px-2.5 py-1.5 text-xs font-medium text-white disabled:opacity-50 ${
-                      task.checksState === 'fail'
-                        ? 'bg-amber-600/80 hover:bg-amber-600'
-                        : 'bg-emerald-500/80 hover:bg-emerald-500'
-                    }`}
-                  >{busy ? <Spinner size="sm" tone="current" /> : <ShieldCheck className="h-3.5 w-3.5" />} {approveWord.label}</button>
-                  <button
-                    disabled={busy} onClick={() => decide('reject')}
-                    title={sendBackWord.title}
-                    className="flex items-center gap-1.5 rounded bg-white/10 px-2.5 py-1.5 text-xs text-app-text hover:bg-white/20 disabled:opacity-50"
-                  ><ShieldX className="h-3.5 w-3.5" /> {sendBackWord.label}</button>
-                </div>
-                {/* Explicit landing — accept + merge the branch on main (local, no
-                    push, build server-side). Separate from Approva by design: the
-                    merge no longer rides "da sotto" on an approve. */}
-                {isAgentReview && (
-                  <button
-                    disabled={busy} onClick={doLand}
-                    title={landWord.title}
-                    className="flex w-full items-center justify-center gap-1.5 rounded bg-sky-500/80 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-sky-500 disabled:opacity-50"
-                  ><GitMerge className="h-3.5 w-3.5" /> {landWord.label}</button>
-                )}
+                {/* Le parole e QUALE dei tre è il verde: dalla card, non da
+                    qui. Su una review che nessuno ha consegnato il verde è
+                    «Rimandalo avanti» e le altre due scendono a neutro. */}
+                <ReviewDecisionRow
+                  task={task} busy={busy}
+                  onAccept={() => decide('approve', { force: task.checksState === 'fail' })}
+                  onSendBack={() => decide('reject')}
+                  onLand={doLand}
+                />
                 {/* Le uscite che i tre bottoni qui sopra NON hanno: prendersi il
                     task («Serve a me») o archiviarlo. Approva/Rimanda indietro/Landa sono
                     già lì sopra per esteso, quindi si escludono — un doppione
