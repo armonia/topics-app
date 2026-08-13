@@ -23,6 +23,8 @@
 // anche il client per renderizzare il gate. Qui resta l'esecuzione.
 export type { ReviewCheck, CheckRun } from "../../shared/board";
 import type { ReviewCheck, CheckRun } from "../../shared/board";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 
 /**
  * Quanti check al massimo: oltre, la "verifica" diventa una pipeline CI travestita.
@@ -112,6 +114,71 @@ interface RunOpts {
   /** Chiamato dopo ogni comando: serve a mostrare l'avanzamento senza aspettare la fine. */
   onProgress?: (run: CheckRun, index: number, total: number) => void;
   signal?: AbortSignal;
+  /**
+   * Which install roots still need `bun install`, injected by the tests so they
+   * never touch a real filesystem. Defaults to the real probe below.
+   */
+  missingInstallRoots?: (cwd: string) => string[];
+}
+
+/**
+ * Workspace roots that must carry a `node_modules` before any gate can run.
+ *
+ * "" is the repo root; the others are relative to it. Both matter here:
+ * `bun run typecheck` shells straight into `client/node_modules/.bin/tsc`, so a
+ * root-only install still leaves the first gate unable to start.
+ */
+const INSTALL_ROOTS = ["", "client"] as const;
+
+/**
+ * The install roots that a worktree is missing right now.
+ *
+ * `git worktree add` materialises TRACKED files only, and `node_modules` is not
+ * tracked: a fresh task worktree has none until somebody installs. A root is
+ * "missing" when it declares a package.json and has no node_modules next to it.
+ */
+function missingInstallRootsOnDisk(cwd: string): string[] {
+  const out: string[] = [];
+  for (const rel of INSTALL_ROOTS) {
+    const dir = rel ? join(cwd, rel) : cwd;
+    if (!existsSync(join(dir, "package.json"))) continue;
+    if (existsSync(join(dir, "node_modules"))) continue;
+    out.push(rel);
+  }
+  return out;
+}
+
+/**
+ * Install dependencies before measuring anything.
+ *
+ * Without this the declared gates die on exit 127 ("command not found") long
+ * before they can type-check a single line, and the board writes that up as
+ * "Checks pre-review ROSSI" — a verdict indistinguishable from a real failure.
+ * Measured on 2026-08-13: eight tasks carried that false red, and one of them
+ * (`487ddf94`) was told to "fix it and re-commit" for a defect that never
+ * existed in its code.
+ *
+ * A failed install is reported as a failed run rather than swallowed: an
+ * environment that cannot be built is a real reason to stop, and naming it beats
+ * six identical 127s.
+ */
+async function installMissingDeps(
+  roots: string[],
+  opts: { cwd: string; timeoutMs: number; signal?: AbortSignal },
+  exec: typeof runOne,
+): Promise<CheckRun[]> {
+  const runs: CheckRun[] = [];
+  for (const rel of roots) {
+    if (opts.signal?.aborted) break;
+    const where = rel ? `${rel}/` : "./";
+    const run = await exec(
+      { name: `bun install (${where})`, cmd: rel ? `cd ${rel} && bun install` : "bun install" },
+      opts,
+    );
+    runs.push(run);
+    if (!run.ok) break;
+  }
+  return runs;
 }
 
 /**
@@ -125,6 +192,18 @@ export async function runReviewChecks(checks: ReviewCheck[], opts: RunOpts): Pro
   const exec = opts.spawn ?? runOne;
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const runs: CheckRun[] = [];
+  // Dependencies FIRST: a gate that cannot start measures the worktree, not the
+  // delivery. Only the roots that are actually missing are installed, so a
+  // warm worktree pays nothing.
+  const probe = opts.missingInstallRoots ?? missingInstallRootsOnDisk;
+  const missing = checks.length ? probe(opts.cwd) : [];
+  if (missing.length && !opts.signal?.aborted) {
+    const prep = await installMissingDeps(missing, { cwd: opts.cwd, timeoutMs, signal: opts.signal }, exec);
+    // A green install is plumbing, not a verdict: it stays out of the report so
+    // the reviewer keeps reading the gates they declared. A red one is the whole
+    // story, and stops the round.
+    if (prep.some((r) => !r.ok)) return prep;
+  }
   for (const [i, check] of checks.entries()) {
     if (opts.signal?.aborted) break;
     const run = await exec(check, { cwd: opts.cwd, timeoutMs, signal: opts.signal });

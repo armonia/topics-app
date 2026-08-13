@@ -138,6 +138,71 @@ describe("runReviewChecks", () => {
     });
     expect(seen).toEqual(["a", "b"]);
   });
+
+  // `git worktree add` materialises tracked files only, so a fresh task worktree
+  // has no node_modules and every declared gate dies on exit 127 before it can
+  // compile anything. Measured 2026-08-13: eight tasks carried that false red.
+  // The commands are stubbed here — a real `bun install` in a unit test would be
+  // minutes of network, and what is under test is the ORDER, not bun itself.
+  const spia = () => {
+    const visti: string[] = [];
+    const spawn = async (check: { name: string; cmd: string }): Promise<CheckRun> => {
+      visti.push(check.cmd);
+      return { name: check.name, cmd: check.cmd, ok: true, code: 0, ms: 1, timedOut: false, tail: "" };
+    };
+    return { visti, spawn };
+  };
+
+  test("worktree senza dipendenze: installa PRIMA di misurare, radice e client", async () => {
+    const { visti, spawn } = spia();
+    const runs = await runReviewChecks([{ name: "tipi", cmd: "bun run typecheck" }], {
+      cwd,
+      spawn,
+      missingInstallRoots: () => ["", "client"],
+    });
+    expect(visti).toEqual(["bun install", "cd client && bun install", "bun run typecheck"]);
+    // Un'installazione verde è impianto, non un verdetto: il rapporto resta
+    // quello dei cancelli dichiarati.
+    expect(runs.map((r) => r.name)).toEqual(["tipi"]);
+  });
+
+  test("worktree calda: non installa niente", async () => {
+    const { visti, spawn } = spia();
+    await runReviewChecks([{ name: "tipi", cmd: "bun run typecheck" }], {
+      cwd,
+      spawn,
+      missingInstallRoots: () => [],
+    });
+    expect(visti).toEqual(["bun run typecheck"]);
+  });
+
+  test("installazione rossa: lo dice, e i cancelli non partono nemmeno", async () => {
+    const visti: string[] = [];
+    const spawn = async (check: { name: string; cmd: string }): Promise<CheckRun> => {
+      visti.push(check.cmd);
+      const rotto = check.cmd.includes("bun install");
+      return {
+        name: check.name, cmd: check.cmd, ok: !rotto, code: rotto ? 1 : 0,
+        ms: 1, timedOut: false, tail: rotto ? "lockfile incompatibile" : "",
+      };
+    };
+    const runs = await runReviewChecks([{ name: "tipi", cmd: "bun run typecheck" }], {
+      cwd,
+      spawn,
+      missingInstallRoots: () => ["", "client"],
+    });
+    expect(visti).toEqual(["bun install"]);
+    expect(runs).toHaveLength(1);
+    expect(runs[0].ok).toBe(false);
+    expect(runs[0].name).toContain("bun install");
+    expect(runs[0].tail).toContain("lockfile incompatibile");
+  });
+
+  test("nessun cancello dichiarato: non si installa per niente", async () => {
+    const { visti, spawn } = spia();
+    expect(await runReviewChecks([], { cwd, spawn, missingInstallRoots: () => ["", "client"] })).toEqual([]);
+    expect(visti).toEqual([]);
+  });
 });
 
 describe("formatChecksComment", () => {
