@@ -34,9 +34,14 @@
  * la pane del progetto ancora da aprire quella mutazione è il click stesso sul
  * progetto: la finestra del progetto si registra e resta `hidden`, con la board
  * davanti. Per questo il controllo sta in `apriProgettoDaSidebar` e nomina la
- * causa. FOCUS-05 è il caso in cui il rimbalzo si sposta davvero sul «New
- * Chat»: lì la pane è già nello store, `ensurePaneRegistered` esce subito e il
- * click non dispatcha niente.
+ * causa. Vale per tutti e quattro i casi a intento armato, FOCUS-05 compreso:
+ * anche con la pane del progetto già nello store handleProjectClick dispatcha
+ * `FOCUS_PANE`, quindi il bump c'è lo stesso. Il «New Chat» resta nel gesto
+ * perché è il passo che l'utente ha riportato, e perché col fix è lì che si
+ * verifica che la scena RESTI dov'è.
+ *
+ * MISURA (bundle a confronto, via TOPICS_E2E_BUNDLE_DIR). Senza il fix:
+ * FOCUS-03/04/05/06 rossi, FOCUS-01/02 verdi. Col fix: 6 su 6 verdi.
  *
  * SEMINA (il punto in cui questa spec è già stata rotta una volta). La sidebar
  * è tab-driven: un progetto compare solo se la sua pane è aperta OPPURE se un
@@ -220,9 +225,12 @@ test.describe.serial("FOCUS-BOUNCE — il fuoco che torna sulla board", () => {
   });
 
   test("FOCUS-05: intento ARMATO — progetto GIÀ APERTO in secondo piano", async ({ page, request }) => {
-    // La differenza non è cosmetica: con la pane già nello store
-    // `ensurePaneRegistered` esce subito e handleProjectClick non dispatcha
-    // niente, quindi il primo bump di `lastSeq` arriva solo con «New Chat».
+    // La pane del progetto è già nello store, quindi `ensurePaneRegistered`
+    // esce subito: qui il click non deve CREARE niente, solo portare la scena.
+    // Si potrebbe pensare che senza registrazione non ci sia bump di `lastSeq`
+    // e che il rimbalzo slitti al «New Chat»: misurato, non è così, perché
+    // handleProjectClick dispatcha `FOCUS_PANE` comunque. Anche questo caso
+    // casca al click, come gli altri tre.
     await scena(page, request, { progettoGiaAperto: true });
     await armaIntento(page);
     await apriProgettoDaSidebar(page);
