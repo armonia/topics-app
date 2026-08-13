@@ -719,39 +719,75 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
   }
 
   /**
-   * ARRIVARE IN DONE NON È PREMERE «LANDA»: la board ha un interruttore, e va
-   * letto.
+   * REACHING DONE IS NOT PRESSING "LANDA": the board has a switch, and it has
+   * to be read.
    *
-   * Ogni ingresso in Done di una card con un branch di consegna accodava un
-   * merge su main. Non solo l'approvazione: anche il trascinamento e il menu
-   * «Sposta in», cioè due gesti che nessuno compie per fondere. Il commento
-   * accanto diceva che la board l'aveva già deciso con `dispatchAutoMerge`, ma
-   * su questa strada quel campo non lo leggeva nessuno: quattro board su otto lo
-   * hanno spento e fondevano lo stesso, per 125 «Mergiato su main» e 45
-   * conflitti.
+   * Every entry into Done of a card carrying a delivery branch queued a merge
+   * into main. Not just approval: the drag and the "Sposta in" menu too, two
+   * gestures nobody performs in order to merge. The comment next to it claimed
+   * the board had already decided this via `dispatchAutoMerge`, but on this
+   * path nobody read that field. Measured on 13/08 against the live board db:
+   * of the 137 "Mergiato su main" notes, 8 sit on boards whose switch is off
+   * today (cifra, armonia-site, quadra, and one board with no settings row at
+   * all, which defaults to off). Historical rows cannot prove what the switch
+   * said at the time, which is why the count is stated as what it is and no
+   * more; the structural fact needs no count, and a grep gives it: outside this
+   * function `dispatchAutoMerge` had exactly one production reader, the
+   * worktree GC.
    *
-   * Spento ⇒ non si fonde, e la card lo DICE: una chiusura muta col codice
-   * ancora sul branch è esattamente il guasto del 10/08 in versione silenziosa.
-   * Il bottone esplicito «Landa su main» continua a passare da `enqueueLand`
-   * diretto: quella è la scelta di una persona, non un effetto collaterale.
+   * Off ⇒ no merge, and the card SAYS SO: a mute closure with the code still on
+   * the branch is exactly the 10/08 fault in its silent form. The explicit
+   * "Landa su main" button still goes through `enqueueLand` directly: that one
+   * is a person's choice, not a side effect.
    */
   function enqueueLandOnDone(projectId: string, taskId: string, branch: string): LandingTicket | null {
     let autoMergeOn = true;
-    // Un errore leggendo le impostazioni non deve fondere «per non saperlo»: il
-    // verso prudente è NON toccare main.
+    // Failing to read the settings must not merge "because we did not know":
+    // the careful direction is to NOT touch main.
     try { autoMergeOn = svc.getBoardSettings(projectId).dispatchAutoMerge; }
-    catch (err) { console.warn("[land] impostazioni della board illeggibili per", projectId, err); autoMergeOn = false; }
+    catch (err) { console.warn("[land] board settings unreadable for", projectId, err); autoMergeOn = false; }
     if (autoMergeOn) return enqueueLand(projectId, taskId);
     try {
       svc.addComment({
         taskId, author: "system",
         content:
+          // The note quotes the switch by the words printed next to it
+          // (`board.settings.autoMerge` in client/src/lib/i18n.ts) and the
+          // button by the words printed on it (`board.task.landOnMain`): a note
+          // that names a control the reader cannot find is a note that gets
+          // ignored. Both are pinned by a test in server/routes/tasks.test.ts.
           "Chiusa SENZA fondere: il merge automatico è spento per questa board " +
-          `(impostazioni della board, «Auto-merge su Approva»). Il lavoro resta sul branch \`${branch}\`. ` +
+          `(impostazioni della board, «Fondi su main quando la card arriva in Done»). Il lavoro resta sul branch \`${branch}\`. ` +
           "Per portarlo su main premi «Landa su main» sulla card, oppure fondilo a mano: " +
           `\`git merge --no-ff ${branch}\`.`,
       });
-    } catch (err) { console.warn("[land] nota di merge saltato non scritta per", taskId, err); }
+    } catch (err) { console.warn("[land] skipped-merge note not written for", taskId, err); }
+    // THE NOTE HAS TO REACH THE CARD THAT IS OPEN RIGHT NOW. The PATCH handler
+    // that called us already broadcast `task:updated` with the task as it was
+    // BEFORE this comment, and `addComment` bumps `updated_at` precisely so a
+    // live client refetches the thread (Card.tsx keys its comment effect on
+    // `task.updatedAt`). Without a second broadcast the note exists only in the
+    // db: a closure that looks exactly as mute as the one this whole function
+    // exists to stop. Every other `addComment` in this file re-emits.
+    const noted = svc.get(taskId, { projectId })?.task;
+    if (noted) broadcastToAll({ type: "task:updated", projectId, task: noted });
+    // AND THE WAY OUT THE NOTE NAMES HAS TO EXIST. "Landa su main" on a `done`
+    // card is drawn by ONE surface: the "chiuso ma non su main" banner, behind
+    // `landingState === 'unlanded'` — and `recordDelivery` blanks that column,
+    // so it sits at NULL until the periodic audit runs, up to 30 minutes later
+    // (LANDING_AUDIT_INTERVAL_MS). A note that names a button which is not
+    // there for half an hour hands out a chore instead of a way out, which is
+    // the exact defect the banner was built to close.
+    //
+    // So ASK, don't assert: "ask" makes the audit compute the verdict from the
+    // repo now. Claiming `unlanded` outright would be a guess (the branch may
+    // already be in main by someone else's hand), and a guess written as a
+    // witnessed fact is how `landing_state` lied before.
+    void (async () => {
+      try { await opts?.stampLanding?.(taskId, "ask"); } catch { /* the verdict is best-effort: it must not break the close */ }
+      const stamped = svc.get(taskId, { projectId })?.task;
+      if (stamped) broadcastToAll({ type: "task:updated", projectId, task: stamped });
+    })();
     return null;
   }
 
@@ -2204,13 +2240,13 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             // il 10/08: 17 card chiuse in otto ore col contenuto NON su main,
             // verificato applicando i loro commit e guardando se restava qualcosa.
             //
-            // …ma la decisione è della BOARD, e passa da `enqueueLandOnDone`:
-            // questa riga la dava per presa leggendo un `dispatchAutoMerge` che
-            // su questa strada non consultava nessuno. Se il land parte e non
-            // riesce (conflitto, pezzo mancante) `landTask` lo scrive sulla card
-            // e la rimanda all'agente, che è meglio di una chiusura muta.
-            // Fire-and-forget: la PATCH non aspetta git, o trascinare una card
-            // bloccherebbe l'interfaccia.
+            // …but the decision belongs to the BOARD, and it goes through
+            // `enqueueLandOnDone`: this line took it as already made, citing a
+            // `dispatchAutoMerge` that nobody consulted on this path. If the
+            // land does start and fails (conflict, missing piece) `landTask`
+            // writes that on the card and hands it back to the agent, which
+            // beats a mute closure. Fire-and-forget: the PATCH does not wait on
+            // git, or dragging a card would block the interface.
             if (prevStatus !== "done" && task.status === "done" && task.deliveryBranch) {
               enqueueLandOnDone(projectId, taskId, task.deliveryBranch);
             }
@@ -2446,8 +2482,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         // ```question fence: the kickoff envelope orders a landable delivery to
         // attach `options=["Landa su main"]`, and the server wraps options in
         // that fence, so the exemption swallowed the deliveries it exists to
-        // check. Measured on 13/08: 13 of 17 committed deliveries reached review
-        // without either gate running.
+        // check. Measured on 13/08 against the live board db: of the 437 agent
+        // comments carrying that fence, 331 are deliveries, not questions —
+        // three exemptions out of four went to the very shape being gated.
         if (body?.status === "review") {
           let isDelivery = false;
           try {
