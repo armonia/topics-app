@@ -358,6 +358,23 @@ export interface WorktreeGcDeps {
    */
   noteOnTask?: (taskId: string, message: string) => void;
   /**
+   * TIMBRA IL RAMO SULLA CARD prima che la cartella sparisca.
+   *
+   * Senza questo, `free-checkout` produceva una card che NON si può più landare,
+   * ed è così che si è perso il fix `_close` (card 714c2fc5, due volte). La
+   * catena: liberata la cartella, `topics.worktree_id` resta vuoto, quindi
+   * `worktreeOfTask` non risolve, quindi `taskDeliveryRef` risponde `null`,
+   * quindi `captureDelivery` non scrive `delivery_branch` — e
+   * `chooseMergeTarget(null, {branch: null})` risponde `no-branch`, l'unico
+   * codice che lascia la card chiusa senza aver fuso niente.
+   *
+   * Qui il ramo è ancora noto (`wt.branchName`): è l'ultimo istante in cui si
+   * può dire alla card dove vive il suo lavoro. Il ripiego di
+   * `chooseMergeTarget` sul `delivery_branch` esiste già da sempre; mancava solo
+   * qualcuno che lo alimentasse.
+   */
+  stampDeliveryBranch?: (taskId: string, branch: string) => void;
+  /**
    * Butta gli artefatti rigenerabili (dipendenze, cache di build) da un worktree
    * che RESTA in piedi, e restituisce i byte liberati. Vedi `worktree-slim`.
    *
@@ -464,6 +481,14 @@ export async function sweepWorktrees(deps: WorktreeGcDeps): Promise<WorktreeGcSu
    */
   async function freeCheckout(wt: GcWorktree, taskId: string | null, reason: string): Promise<boolean> {
     if (!deps.freeCheckout) return false;
+    // PRIMA di liberare, non dopo: dopo, il ramo non è più nominabile da nessuno
+    // (la riga `worktrees` sparisce e con lei l'unico modo che la card ha di
+    // risalirci). Il timbro è ciò che tiene la card LANDABILE, ed è il motivo
+    // per cui questa funzione ha bisogno di sapere il task.
+    if (taskId && wt.branchName) {
+      try { deps.stampDeliveryBranch?.(taskId, wt.branchName); }
+      catch (err) { deps.log(`[worktree-gc] timbro del ramo fallito per ${taskId}: ${String(err)}`); }
+    }
     const ok = await deps.freeCheckout(wt.id);
     if (!ok) return false;
     summary.freed += 1;
