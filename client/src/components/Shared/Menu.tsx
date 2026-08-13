@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom';
 import { useMobile } from '../../hooks/useMobile';
 import { useDismissable } from '../../hooks/useDismissable';
 import { useMenuKeyboard } from '../../hooks/useMenuKeyboard';
+import { useSheetDrag } from '../../hooks/useSheetDrag';
+import { SheetGrabber } from './SheetGrabber';
 // Import RELATIVI e non `@/lib/...`: l'alias lo risolve Vite, `bun test` no. Da
 // quando `Shared/Select` (che passa di qui) è usato dalle Impostazioni e dai
 // modali, questo file entra nel grafo che i test unitari importano davvero —
@@ -80,7 +82,12 @@ export function Menu({
 }: MenuProps) {
   const { isMobile } = useMobile();
   const panelRef = useRef<HTMLDivElement>(null);
+  const scrimRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+
+  // Il foglio dal basso si spinge giù col dito (hooks/useSheetDrag). Sul
+  // cartellino ancorato del desktop non c'è niente da trascinare.
+  useSheetDrag({ enabled: open && isMobile, sheetRef: panelRef, scrimRef, onClose });
 
   // Dismissal: trigger + panel (+ any caller sub-panels) are "inside".
   useDismissable({
@@ -139,7 +146,7 @@ export function Menu({
           chiaro; in scuro l'ombra è nero su quasi-nero e non aiuta). Il gemello
           in `ChatInput` usa `bg-black/40` da sempre: qui mancava e basta. */}
       {isMobile && (
-        <div className="fixed inset-0 bg-black/40" style={{ zIndex: Z_POPOVER_SCRIM }} onClick={onClose} />
+        <div ref={scrimRef} className="fixed inset-0 bg-black/40" style={{ zIndex: Z_POPOVER_SCRIM }} onClick={onClose} />
       )}
       <div
         ref={panelRef}
@@ -202,6 +209,7 @@ export function Menu({
               }
         }
       >
+        {isMobile && <SheetGrabber />}
         {children}
       </div>
     </>,
