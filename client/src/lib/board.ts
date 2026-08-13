@@ -16,7 +16,7 @@ export { MAX_FANOUT, TASK_STATUSES, ACTIVE_DISPATCH_STATES, PARKED_STOPPED, PARK
 // EFFETTIVO. Stessa cartella condivisa e stesso motivo del resto: il dispatcher
 // applica questo calcolo, il pannello impostazioni della board lo scrive sotto
 // gli occhi di una persona, e due copie inizierebbero a dire numeri diversi.
-export { GLOBAL_CAP_MIN, GLOBAL_CAP_MAX, clampGlobalCap, effectiveDispatchCap } from '../../../shared/board';
+export { GLOBAL_CAP_MIN, GLOBAL_CAP_MAX, GLOBAL_CAP_OFF, clampGlobalCap, effectiveDispatchCap } from '../../../shared/board';
 export type { GlobalDispatchCap } from '../../../shared/board';
 // The comparison the SERVER matches a picked option with, and the one reserved
 // label the client has to recognise by name. The board de-duplicates an agent's

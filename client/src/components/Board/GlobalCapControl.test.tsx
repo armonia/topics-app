@@ -112,6 +112,46 @@ describe('what the control draws', () => {
     expect(html).not.toContain('Tetto pieno');
   });
 
+  // "No ceiling" is a fixed cap of zero. Every line that prints the limit has to
+  // survive an infinite one, and the first one that would not is this: a bare
+  // interpolation puts the word "Infinity" in front of the person.
+  test('with no ceiling it says so, and never prints Infinity', () => {
+    adoptGlobalCap({ maxAgentsAuto: false, maxAgents: 0 });
+    adoptDispatchCapacity(machine({ running: 8 }));
+    const html = words(renderToStaticMarkup(<GlobalCapControl />));
+    expect(html).toContain('8 al lavoro, nessun tetto');
+    expect(html).not.toContain('Infinity');
+  });
+
+  test('with no ceiling nothing is full: there is nothing to be full of', () => {
+    adoptGlobalCap({ maxAgentsAuto: false, maxAgents: 0 });
+    adoptDispatchCapacity(machine({ running: 40 }));
+    const html = words(renderToStaticMarkup(<GlobalCapControl />));
+    expect(html).not.toContain('Tetto pieno');
+    expect(html).not.toContain('Sopra il tetto');
+  });
+
+  test('the three modes are three, and exactly one is chosen', () => {
+    adoptGlobalCap({ maxAgentsAuto: false, maxAgents: 0 });
+    const off = renderToStaticMarkup(<GlobalCapControl />);
+    expect(off.match(/aria-checked="true"/g) ?? []).toHaveLength(1);
+    expect(words(off)).toContain('Nessun limite');
+    // And the fixed-number box is not shown in a mode that has no number.
+    expect(off).not.toContain('data-testid="global-cap-max"');
+
+    adoptGlobalCap({ maxAgentsAuto: false, maxAgents: 6 });
+    const fixed = renderToStaticMarkup(<GlobalCapControl />);
+    expect(fixed.match(/aria-checked="true"/g) ?? []).toHaveLength(1);
+    expect(fixed).toContain('value="6"');
+  });
+
+  test('the zero of "no ceiling" never leaks into the number box', () => {
+    // 0 is a sentinel, not a quantity: showing it would offer "zero agents",
+    // which is the one setting nobody can want.
+    adoptGlobalCap({ maxAgentsAuto: false, maxAgents: 0 });
+    expect(renderToStaticMarkup(<GlobalCapControl />)).not.toContain('value="0"');
+  });
+
   test('exactly at the cap is full, not over', () => {
     adoptGlobalCap({ maxAgentsAuto: false, maxAgents: 3 });
     adoptDispatchCapacity(machine({ running: 3 }));
