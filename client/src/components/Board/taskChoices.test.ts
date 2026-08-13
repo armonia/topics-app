@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'bun:test';
 import { taskChoices, taskChoiceState, usableQuestionOptions, type TaskChoiceId } from './taskChoices';
-import { acceptWord, drawerSurfaceLabels, redoWord, sendBackWord, taskActionWord, unblockWord } from './taskActionWords';
+import { acceptWord, drawerSurfaceLabels, landWord, redoWord, reviewDecisionButtons, sendBackWord, taskActionWord, unblockWord } from './taskActionWords';
 import { LAND_ACTION_LABEL } from '../../lib/board';
 import { t as translate } from '../../lib/i18n';
 import { buildNotifyActions } from '../../../../shared/notify-actions';
@@ -20,6 +20,22 @@ function task(over: Partial<ChoiceInput> = {}): ChoiceInput {
     dispatchState: null,
     blockedByTaskId: null,
     blockedBy: null,
+    // Nessuno l'ha ancora portata in review: è la card «normale» da cui partono
+    // quasi tutti i casi qui sotto.
+    deliveredBy: null,
+    deliveredReason: null,
+    ...over,
+  };
+}
+
+/** I campi che servono ai bottoni GRANDI del drawer (un Pick diverso). */
+function drawerTask(over: Partial<Parameters<typeof reviewDecisionButtons>[0]> = {}): Parameters<typeof reviewDecisionButtons>[0] {
+  return {
+    status: 'review' as BoardTask['status'],
+    assignedTopicId: 'top-1',
+    checksState: null,
+    deliveredBy: 'agent',
+    deliveredReason: null,
     ...over,
   };
 }
@@ -208,40 +224,40 @@ describe('one action, one word', () => {
     // reject tooltips and always drew «Torna all'agente, che riparte sullo
     // stesso tab» — on a review a human filed by hand, naming a tab that does
     // not exist. Same word, and a destination that is true.
-    for (const w of [sendBackWord(false), redoWord(false)]) {
+    for (const w of [sendBackWord('human'), redoWord(false)]) {
       expect(w.title).not.toContain('agente, che riparte');
       expect(w.title).toContain('In Progress');
     }
-    expect(sendBackWord(false).label).toBe(sendBackWord(true).label);
+    expect(sendBackWord('human').label).toBe(sendBackWord('agent').label);
     expect(redoWord(false).label).toBe(redoWord(true).label);
-    expect(sendBackWord(true).title).toContain('agente');
+    expect(sendBackWord('agent').title).toContain('agente');
   });
 
   it('the choice row picks the no-agent tooltip from the CARD, not from a flag', () => {
     const aMano = task({ status: 'review', assignedTopicId: null });
     const daAgente = task({ status: 'review', assignedTopicId: 't', deliveryBranch: 'task/abc' });
     expect(taskChoices(aMano).find((c) => c.id === 'redo')!.title).toBe(redoWord(false).title);
-    expect(taskChoices(daAgente).find((c) => c.id === 'send-back')!.title).toBe(sendBackWord(true).title);
+    expect(taskChoices(daAgente).find((c) => c.id === 'send-back')!.title).toBe(sendBackWord('agent').title);
   });
 
   it('«Approva comunque» is in the table, not loose next to it', () => {
     // It is the SAME action with the pre-review checks red, and the word on the
     // button changes. Outside the table the de-duplicator did not know it, and
     // left a quick reply reading «Approva comunque» beside the real one.
-    expect(acceptWord(true).label).not.toBe(acceptWord(false).label);
-    expect(acceptWord(false).label).toBe(taskActionWord('accept').label);
-    expect(acceptWord(true).title).toContain(taskActionWord('send-back').label);
+    expect(acceptWord('checks-red').label).not.toBe(acceptWord(null).label);
+    expect(acceptWord(null).label).toBe(taskActionWord('accept').label);
+    expect(acceptWord('checks-red').title).toContain(taskActionWord('send-back').label);
   });
 
   it('drawerSurfaceLabels carries the word the button ACTUALLY draws', () => {
     // The function the drawer calls, not a list retyped beside it: with red
     // checks the button says «Approva comunque», so that is what the
     // de-duplicator must be told is on the screen.
-    const rosso = { status: 'review' as const, assignedTopicId: 't', checksState: 'fail' as const };
-    const verde = { ...rosso, checksState: 'pass' as const };
-    expect(drawerSurfaceLabels(rosso)).toContain(acceptWord(true).label);
-    expect(drawerSurfaceLabels(verde)).toContain(acceptWord(false).label);
-    expect(drawerSurfaceLabels(verde)).not.toContain(acceptWord(true).label);
+    const rosso = drawerTask({ checksState: 'fail' });
+    const verde = drawerTask({ checksState: 'pass' });
+    expect(drawerSurfaceLabels(rosso)).toContain(acceptWord('checks-red').label);
+    expect(drawerSurfaceLabels(verde)).toContain(acceptWord(null).label);
+    expect(drawerSurfaceLabels(verde)).not.toContain(acceptWord('checks-red').label);
     // Land is drawn only on an agent review.
     expect(drawerSurfaceLabels(verde)).toContain(taskActionWord('land').label);
     expect(drawerSurfaceLabels({ ...verde, assignedTopicId: null })).not.toContain(taskActionWord('land').label);
@@ -269,6 +285,121 @@ describe('one action, one word', () => {
   });
 });
 
+/**
+ * UNA REVIEW PORTATA DAL SISTEMA NON È UNA CONSEGNA.
+ *
+ * Il difetto, misurato il 13/08 su due card vere: 5472e584 aveva consegnato,
+ * c0849d9d era finita in review col turno esaurito, e sulla board erano
+ * indistinguibili. Non solo nell'aspetto: nelle SCELTE. Entrambe portavano
+ * «Landa su main» verde sulla card e «Approva» verde nel drawer, cioè le due
+ * azioni che chiudono, offerte come consigliate su una card sotto cui non c'era
+ * niente. Il chip «non consegnato» esisteva dal 29/07 e diceva la cosa giusta,
+ * ma viveva accanto a dei bottoni che dicevano il contrario.
+ *
+ * Questo blocco tiene la distinzione dove conta: nello STATO, nelle PAROLE e nel
+ * TONO. Togliere `isUnfinishedReview` da `taskChoiceState` lo fa diventare rosso.
+ */
+describe('review portata dal sistema: le scelte non sono quelle di una consegna', () => {
+  const consegnata = task({ status: 'review', assignedTopicId: 't', deliveryBranch: 'topics/x', deliveredBy: 'agent' });
+  const reaper = task({ ...consegnata, deliveredBy: 'system', deliveredReason: 'retries_exhausted' });
+  const byId = (t: ChoiceInput) => new Map(taskChoices(t).map((c) => [c.id, c]));
+
+  it('a parità di ramo e di agente, lo stato è un altro', () => {
+    expect(taskChoiceState(consegnata)).toBe('review-branch');
+    expect(taskChoiceState(reaper)).toBe('review-unfinished');
+    // Il modello che si rifiuta, e la consegna di sistema senza causa scritta.
+    expect(taskChoiceState(task({ ...reaper, deliveredReason: 'model_refused' }))).toBe('review-unfinished');
+    expect(taskChoiceState(task({ ...reaper, deliveredReason: null }))).toBe('review-unfinished');
+  });
+
+  it('fan-out e sottotask parcheggiati restano fuori: hanno già la loro superficie', () => {
+    // Non è timidezza: lì la scelta giusta non è nessuna di queste. Il fan-out
+    // si decide dal pannello Tentativi (quale tenere), i figli parcheggiati
+    // sono una domanda con le sue due risposte rapide.
+    expect(taskChoiceState(task({ ...reaper, deliveredReason: 'fanout' }))).toBe('review-branch');
+    expect(taskChoiceState(task({ ...reaper, deliveredReason: 'parked_children' }))).toBe('review-branch');
+  });
+
+  it('il verde non è più «Landa su main»: è la sola uscita che fa avanzare il lavoro', () => {
+    expect(taskChoices(consegnata)[0]).toMatchObject({ id: 'land', tone: 'primary' });
+    expect(taskChoices(reaper)[0]).toMatchObject({ id: 'send-back', tone: 'primary' });
+    expect(taskChoices(reaper).filter((c) => c.tone === 'primary')).toHaveLength(1);
+  });
+
+  it('land e accept restano, neutri: a chi decide non si toglie un\'uscita', () => {
+    const scelte = byId(reaper);
+    expect(scelte.get('land')).toMatchObject({ tone: 'neutral' });
+    expect(scelte.get('accept')).toMatchObject({ tone: 'neutral' });
+    expect(scelte.get('take-over')).toMatchObject({ tone: 'neutral' });
+  });
+
+  it('e non portano le stesse parole: «comunque» dice che è un\'eccezione', () => {
+    const scelte = byId(reaper);
+    expect(taskChoices(reaper).map((c) => c.label)).not.toEqual(taskChoices(consegnata).map((c) => c.label));
+    expect(scelte.get('land')!.label).toBe(landWord(true).label);
+    expect(scelte.get('land')!.label).not.toBe(taskActionWord('land').label);
+    expect(scelte.get('accept')!.label).toBe(acceptWord('unfinished').label);
+    expect(scelte.get('accept')!.label).not.toBe(taskActionWord('accept').label);
+    expect(taskChoices(reaper)[0].label).toBe(sendBackWord('unfinished').label);
+    expect(taskChoices(reaper)[0].label).not.toBe(taskActionWord('send-back').label);
+  });
+
+  it('senza un tab da riprendere la parola torna quella vera', () => {
+    // «Rimandalo avanti» prometterebbe una ripresa che non può avvenire: senza
+    // agente il task torna In Progress in mano a una persona, e lo dice.
+    const orfana = task({ status: 'review', assignedTopicId: null, deliveredBy: 'system', deliveredReason: 'retries_exhausted' });
+    expect(taskChoices(orfana)[0].label).toBe(taskActionWord('send-back').label);
+    expect(taskChoices(orfana)[0].title).toBe(sendBackWord('human').title);
+    // Nessun ramo, nessun merge da offrire.
+    expect(ids(orfana)).not.toContain('land');
+  });
+
+  it('il tooltip di «Approva comunque» nomina la strada giusta, che qui è un\'altra', () => {
+    // Stessa parola sul bottone, due ragioni diverse: coi checks rossi la strada
+    // normale è rimandare indietro l'output, qui è farlo continuare. Nominare
+    // l'altra manderebbe il reviewer a cercare un bottone che non c'è.
+    expect(acceptWord('unfinished').label).toBe(acceptWord('checks-red').label);
+    expect(acceptWord('unfinished').title).not.toBe(acceptWord('checks-red').title);
+    expect(acceptWord('unfinished').title).toContain(sendBackWord('unfinished').label);
+    expect(acceptWord('checks-red').title).toContain(taskActionWord('send-back').label);
+  });
+
+  it('nel drawer il verde si sposta, e le tre uscite restano tutte', () => {
+    const drawerReaper = drawerTask({ deliveredBy: 'system', deliveredReason: 'retries_exhausted' });
+    expect(reviewDecisionButtons(drawerTask()).primary).toBe('accept');
+    expect(reviewDecisionButtons(drawerReaper).primary).toBe('send-back');
+    const d = reviewDecisionButtons(drawerReaper);
+    expect(d.accept.label).toBe(acceptWord('unfinished').label);
+    expect(d.sendBack.label).toBe(sendBackWord('unfinished').label);
+    expect(d.land!.label).toBe(landWord(true).label);
+  });
+
+  it('il de-duplicatore vede le parole DISEGNATE, anche quando cambiano', () => {
+    // È la trappola già pagata due volte: il bottone si rinomina e la lista che
+    // sottrae i gemelli resta a ieri, quindi la risposta rapida che RIGETTA
+    // torna accanto al bottone vero.
+    const drawerReaper = drawerTask({ deliveredBy: 'system', deliveredReason: 'retries_exhausted' });
+    expect(drawerSurfaceLabels(drawerReaper)).toContain(landWord(true).label);
+    expect(drawerSurfaceLabels(drawerReaper)).toContain(sendBackWord('unfinished').label);
+    expect(drawerSurfaceLabels(drawerReaper)).not.toContain(taskActionWord('land').label);
+    expect(usableQuestionOptions(reaper, ['Landa comunque', 'Sì'], { surfaceLabels: drawerSurfaceLabels(drawerReaper) }))
+      .toEqual(['Sì']);
+  });
+
+  it('sulla card il chip sta PRIMO nella riga: cambia la decisione, non è una relazione', () => {
+    // Fatto di JSX, quindi controllato come gli altri fatti di JSX qui dentro
+    // (vedi «no board surface reads an action key behind the table»): il chip
+    // «non consegnato» va letto PRIMA di guardare i bottoni, quindi precede i
+    // chip di relazione (aspetta, riaperta, il padre).
+    const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'Card.tsx'), 'utf8');
+    const chip = src.indexOf('data-testid="card-system-delivered"');
+    expect(chip).toBeGreaterThan(-1);
+    for (const dopo of ['data-testid="card-blocked-by"', 'data-testid="card-reopened"', 'data-testid="card-waiting-on-this"']) {
+      expect(chip, `il chip di sistema deve precedere ${dopo}`).toBeLessThan(src.indexOf(dopo));
+    }
+  });
+});
+
 describe('usableQuestionOptions', () => {
   // A delivered card with a branch: its real choices are
   // "Landa su main" / "Rimanda indietro" / "Serve a me".
@@ -279,6 +410,9 @@ describe('usableQuestionOptions', () => {
     dispatchState: null,
     blockedByTaskId: null,
     blockedBy: null,
+    // Consegnata DALL'AGENTE: è ciò che rende le sue scelte land/send-back/take-over.
+    deliveredBy: 'agent' as const,
+    deliveredReason: null,
   };
 
   it('drops an option that collides with a real choice', () => {
@@ -347,6 +481,9 @@ describe('usableQuestionOptions, locale en', () => {
     dispatchState: null,
     blockedByTaskId: null,
     blockedBy: null,
+    // Consegnata DALL'AGENTE: è ciò che rende le sue scelte land/send-back/take-over.
+    deliveredBy: 'agent' as const,
+    deliveredReason: null,
   };
 
   it('the fallback word for land IS the string the server executes', () => {
@@ -369,7 +506,7 @@ describe('usableQuestionOptions, locale en', () => {
   });
 
   it('the drawer\'s own buttons carry both names', () => {
-    const labels = drawerSurfaceLabels({ status: 'review', assignedTopicId: 't', checksState: null }, en);
+    const labels = drawerSurfaceLabels(drawerTask(), en);
     expect(labels).toContain('Approve');
     expect(labels).toContain('Approva');
     expect(usableQuestionOptions(consegnata, ['Approva', 'Rimanda indietro', 'Qualcos\'altro'], { t: en, surfaceLabels: labels }))

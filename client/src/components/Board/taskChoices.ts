@@ -15,9 +15,9 @@
  * L'esecuzione sta in `TaskChoices.tsx`, uno solo per card e drawer.
  */
 
-import { isAgentWorking, normalizeActionLabel, type BoardTask } from '../../lib/board';
+import { isAgentWorking, isUnfinishedReview, normalizeActionLabel, type BoardTask } from '../../lib/board';
 import {
-  fallbackTranslate, redoWord, sendBackWord, taskActionWord, unblockWord,
+  acceptWord, fallbackTranslate, landWord, redoWord, sendBackDest, sendBackWord, taskActionWord, unblockWord,
   type TaskActionId, type Translate,
 } from './taskActionWords';
 
@@ -44,21 +44,30 @@ export interface TaskChoice {
   needsText?: boolean;
 }
 
+/** I campi della card da cui nascono le scelte: il resto non c'entra. */
+type ChoiceTask = Pick<BoardTask,
+  'status' | 'assignedTopicId' | 'deliveryBranch' | 'dispatchState' | 'blockedByTaskId' | 'blockedBy'
+  | 'deliveredBy' | 'deliveredReason'>;
+
 /** Lo stato da cui nascono le scelte — uno solo per card, in quest'ordine. */
-export type TaskChoiceState = 'review-branch' | 'review-plain' | 'working' | 'blocked' | null;
+export type TaskChoiceState = 'review-unfinished' | 'review-branch' | 'review-plain' | 'working' | 'blocked' | null;
 
 /**
- * In quale dei quattro casi siamo. La precedenza NON è arbitraria:
+ * In quale dei cinque casi siamo. La precedenza NON è arbitraria:
  * - `review` vince su tutto (è la superficie di decisione, e un
  *   `dispatch_state` stantio non deve farci comparire «Ferma»);
+ * - dentro `review`, CHI ce l'ha portata viene prima di cosa ha lasciato: un
+ *   ramo esiste anche quando il turno è finito a metà, quindi finché la domanda
+ *   era solo «c'è un ramo?» una card che nessuno ha consegnato offriva le tre
+ *   scelte identiche a una consegna vera, «Landa su main» verde in testa;
  * - «in corso» vale solo con un turno DAVVERO vivo (`isAgentWorking`): un task
  *   in_progress preso in mano da una persona non ha un agente da fermare;
  * - «bloccata» è l'ultima, perché un task che aspetta non sta né in review né
  *   sotto un agente.
  */
-export function taskChoiceState(task: Pick<BoardTask,
-  'status' | 'assignedTopicId' | 'deliveryBranch' | 'dispatchState' | 'blockedByTaskId' | 'blockedBy'>): TaskChoiceState {
+export function taskChoiceState(task: ChoiceTask): TaskChoiceState {
   if (task.status === 'review') {
+    if (isUnfinishedReview(task)) return 'review-unfinished';
     return task.assignedTopicId && task.deliveryBranch ? 'review-branch' : 'review-plain';
   }
   if (task.status === 'done') return null;
@@ -82,8 +91,7 @@ function blockerLabel(task: Pick<BoardTask, 'blockedBy'>): string | null {
  * bottoni suoi e non le vuole doppie.
  */
 export function taskChoices(
-  task: Pick<BoardTask,
-    'status' | 'assignedTopicId' | 'deliveryBranch' | 'dispatchState' | 'blockedByTaskId' | 'blockedBy'>,
+  task: ChoiceTask,
   opts?: { exclude?: TaskChoiceId[]; t?: Translate },
 ): TaskChoice[] {
   const state = taskChoiceState(task);
@@ -98,8 +106,23 @@ export function taskChoices(
     case 'review-branch':
       out = [
         say('land', 'primary'),
-        { id: 'send-back', tone: 'neutral', ...sendBackWord(toAgent, tr) },
+        { id: 'send-back', tone: 'neutral', ...sendBackWord(sendBackDest(task), tr) },
         say('take-over', 'neutral'),
+      ];
+      break;
+    // Nessuno ha consegnato: le uscite sono le stesse, l'ordine e il tono no.
+    // Il verde va su «Rimandalo avanti» perché è la sola che fa avanzare il
+    // lavoro; land e accept scendono in fondo, neutri, con la parola che dice
+    // che si sta approvando un'eccezione («comunque»). Restano tutte e due:
+    // togliere un'uscita a chi decide sarebbe l'errore opposto.
+    case 'review-unfinished':
+      out = [
+        { id: 'send-back', tone: 'primary', ...sendBackWord(sendBackDest(task), tr) },
+        say('take-over', 'neutral'),
+        { id: 'accept', tone: 'neutral', ...acceptWord('unfinished', tr) },
+        ...(toAgent && task.deliveryBranch
+          ? [{ id: 'land' as const, tone: 'neutral' as const, ...landWord(true, tr) }]
+          : []),
       ];
       break;
     case 'review-plain':
@@ -185,8 +208,7 @@ function sameLabel(a: string, b: string): boolean {
  * literals.
  */
 export function usableQuestionOptions(
-  task: Pick<BoardTask,
-    'status' | 'assignedTopicId' | 'deliveryBranch' | 'dispatchState' | 'blockedByTaskId' | 'blockedBy'>,
+  task: ChoiceTask,
   options: readonly string[],
   opts?: { exclude?: TaskChoiceId[]; surfaceLabels?: readonly string[]; t?: Translate },
 ): string[] {
