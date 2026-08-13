@@ -33,7 +33,10 @@ function fullDb(): Database {
   db.run(`CREATE TABLE board_settings (
     project_id TEXT PRIMARY KEY, require_approval_for_done INTEGER DEFAULT 0,
     require_review_before_done INTEGER DEFAULT 0, block_status_with_pending INTEGER DEFAULT 0,
-    only_lead_can_change_status INTEGER DEFAULT 0, max_agents INTEGER DEFAULT 5, auto_expire_hours INTEGER DEFAULT 24,
+    only_lead_can_change_status INTEGER DEFAULT 0, max_agents INTEGER DEFAULT 5,
+    -- See tasks.queue-reason.test.ts: readGlobalCap SELECTs max_agents_auto
+    -- (migration 053), so a DDL without it throws instead of reading the cap.
+    max_agents_auto INTEGER, auto_expire_hours INTEGER DEFAULT 24,
     auto_dispatch INTEGER NOT NULL DEFAULT 0, dispatch_effort TEXT NOT NULL DEFAULT 'medium',
     dispatch_use_worktree INTEGER NOT NULL DEFAULT 1, dispatch_timeout_min INTEGER NOT NULL DEFAULT 20,
     dispatch_mcp TEXT, dispatch_retry_cap INTEGER, dispatch_retry_backoff_s INTEGER, review_checks TEXT,

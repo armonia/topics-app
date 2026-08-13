@@ -259,11 +259,12 @@ test.describe("Il chip della coda porta la sua ragione", () => {
    *
    * A destra la card che quella domanda la sta GIÀ facendo, coi due bottoni:
    * ci arriva dal percorso vero (`parkedChildRaisedStall` → `askParkedChildren`,
-   * scatenato spostando un figlio in backlog sotto un padre fermo). Lì il chip
-   * nuovo deve TACERE: «serve te» dice l'unica mossa che c'è, «ferma» la
-   * cancellerebbe per consigliare cose già sullo schermo. Sono due funzioni
-   * diverse — `deriveQueueReason` e la sonda `probe:stalls` — e su questa riga
-   * davano risposta opposta.
+   * scatenato spostando un figlio in backlog sotto un padre fermo). Lì «ferma»
+   * non deve comparire — cancellerebbe la mossa per consigliare cose già sullo
+   * schermo — ma il NUMERO degli step fermi sì: gli step non stanno in nessuna
+   * colonna (la board fetcha `rootsOnly`), quindi senza quel numero il lavoro
+   * fermo è invisibile. Sono due funzioni diverse — `deriveQueueReason` e la
+   * sonda `probe:stalls` — e su questa riga davano risposta opposta.
    */
   test("in review: «ferma» sulla checklist congelata, «serve te» su chi già chiede", async ({ page, request }) => {
     // A) il vicolo cieco muto: padre in review, un passo ancora aperto.
@@ -290,16 +291,20 @@ test.describe("Il chip della coda porta la sua ragione", () => {
     await expect(chipOf(page, congelato.id)).toHaveAttribute("data-tone", "stalled");
     await expect(chipOf(page, congelato.id)).toHaveText("ferma · 1 sottotask aperto");
 
-    // B) la card che chiede tiene il SUO chip e i suoi due bottoni: il chip
-    // nuovo non deve comparire, o la mossa da fare sparisce dallo schermo.
+    // B) la card che chiede tiene la sua mossa E dice quanti step ha sotto: i
+    // sottotask non compaiono in nessuna colonna (la board fetcha `rootsOnly`),
+    // quindi «serve te» da solo lasciava invisibile TUTTO il lavoro fermo —
+    // sette padri e ventuno card il 13/08. Il numero è la parte che si legge
+    // dalla colonna senza aprire il drawer; «ferma» resta fuori, perché la
+    // mossa da fare è sullo schermo e cancellarla sarebbe la bugia di prima.
     const cardChiede = page.locator(`[data-task-card="${chiede.id}"]`);
     await expect(cardChiede).toBeVisible({ timeout: 10000 });
-    await expect(cardChiede.getByText("serve te", { exact: true })).toBeVisible({ timeout: 10000 });
-    await expect(cardChiede.getByTestId("queue-reason-chip")).toHaveCount(0);
+    await expect(chipOf(page, chiede.id)).toHaveAttribute("data-kind", "children_parked", { timeout: 10000 });
+    await expect(chipOf(page, chiede.id)).toHaveText("serve te · 1 step fermo");
     await expect(cardChiede.getByRole("button", { name: "Rimetti in coda i sottotask" })).toBeVisible();
     await expect(cardChiede.getByRole("button", { name: "Archivia i sottotask" })).toBeVisible();
 
-    await didascalia(page, "«ferma · 1 sottotask aperto» ≠ «serve te» — la domanda non si zittisce");
+    await didascalia(page, "«ferma · 1 sottotask aperto» ≠ «serve te · 1 step fermo» — la domanda porta il suo numero");
     await beat(page, 2600);
 
     // Lo scatto delle due card insieme: è la prova che si legge senza il video.
