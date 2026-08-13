@@ -4489,6 +4489,52 @@ fn data_store_uuid_for(context_id: &str) -> [u8; 16] {
     out
 }
 
+/// Il nome con cui lo store di un contextId si chiama SU DISCO, uguale su tutte
+/// e tre le piattaforme.
+///
+/// Su macOS e' il nome che WebKit da' da solo alla cartella dello store per
+/// identifier; su Windows e Linux e' il nome che gli diamo noi (vedi
+/// [`pane_store_dir`]). Averne uno solo e' cio' che permette al reaper di
+/// riconoscere le sue cartelle ovunque con lo stesso codice.
+fn pane_store_dir_name(context_id: &str) -> String {
+    uuid_str_from_bytes(&data_store_uuid_for(context_id))
+}
+
+/// La cartella `browser-stores/` sotto i dati locali dell'app: la radice di
+/// tutti gli store delle pane isolate fuori da macOS.
+///
+/// La radice la chiede all'app e non a un `env::var` indovinato, perche' e'
+/// l'app a sapere se sta girando impacchettata o da `cargo run`: indovinandola
+/// il reaper spazzerebbe la cartella dell'altra.
+#[cfg(not(target_os = "macos"))]
+fn pane_store_root(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
+    use tauri::Manager;
+    Some(app.path().app_local_data_dir().ok()?.join("browser-stores"))
+}
+
+/// La cartella dello store di UNA pane isolata, fuori da macOS. Unico punto in
+/// cui quel path si calcola: creazione, purge e reaper passano tutti da qui,
+/// perche' due derivazioni un giorno divergono e il purge cancella la cartella
+/// di un'altra pane.
+///
+/// Windows e Linux non hanno niente che assomigli a `dataStoreForIdentifier:`:
+/// wry implementa `data_store_identifier` solo su WKWebView. L'unica leva che i
+/// due motori condividono e' la CARTELLA, cioe' `WebviewBuilder::data_directory`:
+/// tauri-runtime-wry la usa come chiave dello store dei `WebContext`, e da li'
+/// nasce la user-data folder di WebView2 su Windows e il `WebsiteDataManager`
+/// (dati, cache e barattolo dei cookie) su WebKitGTK.
+///
+/// IL PREZZO, che va detto e non nascosto: una user-data folder per pane
+/// significa un environment WebView2 per pane, cioe' un processo browser a
+/// testa; e su WebKitGTK un `WebContext` per pane, cioe' una rete di processi a
+/// testa. Non e' una scelta nostra, e' come i due motori separano i profili.
+/// L'isolamento per-topic che su macOS costa zero (un solo processo di rete,
+/// tanti data store) qui si paga in processi.
+#[cfg(not(target_os = "macos"))]
+fn pane_store_dir(app: &tauri::AppHandle, context_id: &str) -> Option<std::path::PathBuf> {
+    Some(pane_store_root(app)?.join(pane_store_dir_name(context_id)))
+}
+
 /// Panic firewall for webview-dispatcher-touching SYNC commands.
 ///
 /// tauri-runtime-wry's `WryWebviewDispatcher` methods all do
@@ -4680,8 +4726,38 @@ fn browser_open_inner(
             }
             tauri::webview::NewWindowResponse::Deny
         });
+    // L'isolamento si chiede con due leve diverse, e non e' una ridondanza:
+    // `data_store_identifier` e' documentato da tauri come «macOS/iOS», e wry lo
+    // implementa solo su WKWebView. Fuori da li' quella riga scriveva un attributo
+    // che non leggeva nessuno, quindi ogni pane di Windows e Linux nasceva nel
+    // profilo condiviso: `isolate: true` diceva il falso. La leva che i due motori
+    // hanno davvero e' la cartella. Vedi `pane_store_dir` per il prezzo in processi.
+    #[cfg(target_os = "macos")]
     if isolate.unwrap_or(false) {
         builder = builder.data_store_identifier(data_store_uuid_for(&id));
+    }
+    #[cfg(not(target_os = "macos"))]
+    if isolate.unwrap_or(false) {
+        // Nessuna cartella risolvibile = nessun isolamento, e la pane nasce nel
+        // profilo condiviso. E' lo stesso degrado silenzioso che macOS ha sui
+        // sistemi vecchi di 14: si perde la separazione, non la pane.
+        match pane_store_dir(&app, &id) {
+            Some(dir) => {
+                // La cartella si crea qui e non la si lascia al motore. WebView2
+                // la sua user-data folder se la fa da solo, ma su WebKitGTK il
+                // barattolo dei cookie e' un file che wry indica per path
+                // (`<dir>/cookies`) prima che qualcuno abbia creato `<dir>`: la
+                // sessione non si salverebbe, e nessuno lo direbbe. Se la
+                // creazione fallisce si prosegue lo stesso, con una riga di log:
+                // il motore ha ancora la sua occasione di crearla, e rinunciare
+                // all'isolamento in silenzio sarebbe il guasto peggiore.
+                if let Err(e) = std::fs::create_dir_all(&dir) {
+                    eprintln!("[browser_open] {id}: {} non creata: {e}", dir.display());
+                }
+                builder = builder.data_directory(dir);
+            }
+            None => eprintln!("[browser_open] {id}: nessuna cartella dati, la pane non sara' isolata"),
+        }
     }
     // Cloned for the (move) download closure below — `id` itself is still needed
     // after add_child() returns (see apply_browser_corner_mask below).
@@ -5074,6 +5150,18 @@ fn browser_close(app: tauri::AppHandle, id: String) -> Result<(), String> {
 fn browser_evict_pane(app: &tauri::AppHandle, id: &str, close: bool, purge_cache: bool) {
     use tauri::Manager;
     let label = browser_label(id);
+    // LA CACHE SI SVUOTA PRIMA DELLA CHIUSURA, non dopo. Su macOS l'ordine e'
+    // indifferente, perche' li' lo store si riapre per identifier anche a pane
+    // morta; fuori da macOS l'unica strada per lo store passa dalla vista (vedi
+    // `browser_purge_cache`), quindi dopo la `close()` non c'e' piu' nessuno a
+    // cui chiederlo e il comando e' un no-op muto.
+    //
+    // Non e' un'ipotesi: il reclamo di `browser_claim` chiude le pane orfane
+    // proprio con `close` e `purge_cache` insieme, ed e' la strada che recupera
+    // lo spazio delle pane che nessuna interfaccia disegna piu'.
+    if purge_cache {
+        let _ = browser_purge_cache(app.clone(), id.to_string());
+    }
     if let Some(wv) = app.get_webview(&label) {
         // SVUOTA PRIMA DI CHIUDERE. `close()` non libera il processo WebContent:
         // wry non dealloca mai la WKWebView — `impl Drop for InnerWebView`
@@ -5106,9 +5194,6 @@ fn browser_evict_pane(app: &tauri::AppHandle, id: &str, close: bool, purge_cache
                 wv.close().map_err(|e| e.to_string())
             });
         }
-    }
-    if purge_cache {
-        let _ = browser_purge_cache(app.clone(), id.to_string());
     }
     // Drop the cache entries so a re-opened pane on the same id re-applies move + mask.
     if let Ok(mut g) = browser_bounds_cache().lock() {
@@ -5449,10 +5534,10 @@ fn browser_claim(app: tauri::AppHandle, window: String, ids: Vec<String>) -> Res
 #[tauri::command]
 fn browser_purge_data_store(app: tauri::AppHandle, id: String) -> Result<(), String> {
     no_abort("browser_purge_data_store", move || {
-        // Close first (idempotent) so the store has the best chance of being free.
-        let _ = browser_close_inner(app.clone(), id.clone());
         #[cfg(target_os = "macos")]
         {
+            // Close first (idempotent) so the store has the best chance of being free.
+            let _ = browser_close_inner(app.clone(), id.clone());
             use crate::mac::*;
             let bytes = data_store_uuid_for(&id);
             let id_for_log = id.clone();
@@ -5485,7 +5570,47 @@ fn browser_purge_data_store(app: tauri::AppHandle, id: String) -> Result<(), Str
             });
         }
         #[cfg(not(target_os = "macos"))]
-        let _ = id;
+        {
+            let label = browser_label(&id);
+            let dir = pane_store_dir(&app, &id);
+            // Il motore non si tocca dal thread principale, e questo comando e'
+            // sincrono: il lavoro va su un worker. Fire-and-forget come il ramo
+            // macOS, che nemmeno lui aspetta la completion di WebKit.
+            tauri::async_runtime::spawn_blocking(move || {
+                use tauri::Manager;
+                // L'ORDINE CONTA, ED E' L'OPPOSTO DI MACOS. Prima si cancella
+                // dal motore MENTRE la vista e' viva, poi si chiude, e la
+                // cartella e' solo l'ultimo giro. Fidarsi della sola
+                // `remove_dir_all` non cancellerebbe NIENTE su Windows: la
+                // user-data folder resta aperta dall'environment WebView2
+                // finche' quello vive, e su file in uso la rimozione fallisce
+                // e basta. Su macOS il problema non si pone, perche' li' a
+                // cancellare e' WebKit e non il filesystem.
+                if let Some(wv) = app.get_webview(&label) {
+                    #[cfg(target_os = "windows")]
+                    let done = crate::browser_win::purge_all_blocking(&wv);
+                    #[cfg(not(target_os = "windows"))]
+                    let done = crate::browser_linux::purge_all_blocking(&wv);
+                    if let Err(e) = done {
+                        eprintln!("[browser_purge_data_store] {id}: {e}");
+                    }
+                }
+                let _ = browser_close_inner(app.clone(), id.clone());
+                // Quel che resta sono i file che l'environment teneva aperti:
+                // se ne va al prossimo avvio, per mano del reaper, che quello
+                // store lo trovera' orfano e fermo.
+                if let Some(dir) = dir {
+                    match std::fs::remove_dir_all(&dir) {
+                        Ok(()) => {}
+                        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                        Err(e) => eprintln!(
+                            "[browser_purge_data_store] {id}: {} non rimossa: {e}",
+                            dir.display()
+                        ),
+                    }
+                }
+            });
+        }
         Ok(())
     })
 }
@@ -5549,7 +5674,38 @@ fn browser_purge_cache(app: tauri::AppHandle, id: String) -> Result<(), String> 
             });
         }
         #[cfg(not(target_os = "macos"))]
-        let _ = (&app, &id);
+        {
+            // FUORI DA MACOS LO STORE NON HA UN NOME: CE L'HA LA VISTA. E quello
+            // decide sia da dove passa il comando sia QUANDO si puo' chiamare.
+            //
+            // Su macOS lo store si riapre per identifier, quindi la cache si
+            // svuota anche a pane gia' morta, ed e' per questo che il client
+            // chiamava questo comando DOPO `browser_close`. Qui l'unica strada
+            // per il profilo WebView2 e per il `WebsiteDataManager` passa dalla
+            // webview: a vista chiusa `get_webview` non trova piu' niente e
+            // questo comando sarebbe un no-op muto, cioe' esattamente il guasto
+            // che la card e' venuta a chiudere. Per questo `usePaneLifecycle`
+            // ora svuota PRIMA di chiudere.
+            //
+            // E per lo stesso motivo non si passa da un worker: il comando e'
+            // sincrono, cioe' gira gia' sul thread della UI, dove `with_webview`
+            // esegue subito e in linea (tauri-runtime-wry, `send_user_message`).
+            // Cosi' l'ordine fra questo comando e il `browser_close` che segue
+            // resta quello in cui il client li ha mandati. Uno `spawn_blocking`
+            // lo perderebbe: il worker si sveglierebbe a vista gia' chiusa. Non
+            // si aspetta la fine della cancellazione, come su macOS.
+            use tauri::Manager;
+            let Some(wv) = app.get_webview(&browser_label(&id)) else {
+                return Ok(());
+            };
+            #[cfg(target_os = "windows")]
+            let done = crate::browser_win::purge_cache_detached(&wv);
+            #[cfg(not(target_os = "windows"))]
+            let done = crate::browser_linux::purge_cache_detached(&wv);
+            if let Err(e) = done {
+                eprintln!("[browser_purge_cache] {id}: {e}");
+            }
+        }
         Ok(())
     })
 }
@@ -5584,12 +5740,65 @@ unsafe fn cache_only_data_types() -> crate::mac::id {
 /// registrabile (su `mail.google.com` il record si chiama `google.com` e copre
 /// tutti i sottodomini). È il nome vero della cosa che si cancella, quindi è
 /// quello che il dialogo mostra e quello che la rimozione riceve indietro.
-#[cfg(target_os = "macos")]
+///
+/// La forma è la stessa su tutte e tre le piattaforme, perché è il contratto che
+/// legge `browserForgetSite.ts`. Cambia solo da dove i record arrivano: su
+/// macOS e Linux dal motore, su Windows dai cookie (vedi
+/// [`cookie_domain_records`], che spiega perché non c'è di meglio).
 #[derive(Serialize)]
 struct SiteDataRecordJson {
     #[serde(rename = "displayName")]
     display_name: String,
     types: Vec<String>,
+}
+
+/// Il nome di record che si dà a un dominio di cookie: minuscolo e senza il
+/// punto iniziale.
+///
+/// Il punto davanti (`.github.com`) è la notazione del barattolo per «e i suoi
+/// sottodomini», non un nome di sito: lasciandolo, il dialogo elencherebbe
+/// `github.com` e `.github.com` come due cose diverse, e la rimozione ne
+/// troverebbe una sola.
+//
+// Serve solo al ramo WebView2, ma NON è cfg-gated: è una decisione pura, e le
+// decisioni pure si provano con `cargo test`, che su questa macchina compila il
+// ramo macOS. Il gate qui la renderebbe non collaudabile proprio dove la si
+// scrive.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn cookie_record_name(domain: &str) -> String {
+    domain.trim().trim_start_matches('.').to_ascii_lowercase()
+}
+
+/// I record «per sito» ricavabili da una lista di domini di cookie: uno per
+/// dominio, con `cookies` come unico tipo.
+///
+/// È la forma che WebView2 permette, e non è una scorciatoia: l'SDK non ha
+/// NESSUNA API per-origine. `ClearBrowsingData` prende dei kind e li applica al
+/// profilo intero, e l'unica cosa enumerabile per sito è il barattolo dei
+/// cookie. Quindi su Windows «dimentica questo sito» toglie la SESSIONE e non
+/// il localStorage, e il record lo dice: elenca `cookies` e nient'altro, perché
+/// la regola è che si cancella esattamente ciò che si è detto.
+///
+/// Niente eTLD+1: il dominio grezzo del cookie basta, perché `matchSiteRecords`
+/// nel client confronta host e nome del record in tutte e due le direzioni della
+/// parentela. Ricavare il dominio registrabile vorrebbe dire portarsi dentro la
+/// Public Suffix List per un guadagno che il client fa già.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn cookie_domain_records(domains: &[String]) -> Vec<SiteDataRecordJson> {
+    let mut names: Vec<String> = domains
+        .iter()
+        .map(|d| cookie_record_name(d))
+        .filter(|d| !d.is_empty())
+        .collect();
+    names.sort();
+    names.dedup();
+    names
+        .into_iter()
+        .map(|display_name| SiteDataRecordJson {
+            display_name,
+            types: vec!["cookies".to_string()],
+        })
+        .collect()
 }
 
 /// La chiave stabile di un `WKWebsiteDataType`, per il client.
@@ -5766,6 +5975,11 @@ fn forget_site_blocking(wv: &tauri::Webview, names: Vec<String>) -> Result<usize
 /// lista il dialogo direbbe soltanto «cancello i dati», che è la frase per cui
 /// un comando distruttivo si preme una volta e non si preme mai più.
 ///
+/// Parità piena su Linux (`WebsiteDataManager::fetch`). Su Windows l'elenco è
+/// più corto e non per svista: WebView2 non ha nessuna API per-origine, quindi
+/// i record si ricavano dai cookie e portano solo `cookies`. Vedi
+/// `cookie_domain_records`.
+///
 /// Async + spawn_blocking per lo stesso motivo di `browser_pane_get_cookies`
 /// (completion handler sul main; un comando sincrono bloccherebbe il main).
 #[tauri::command]
@@ -5780,10 +5994,13 @@ async fn browser_site_data_records(app: tauri::AppHandle, id: String) -> Result<
         {
             return site_data_records_blocking(&wv);
         }
-        #[allow(unreachable_code)]
+        #[cfg(target_os = "windows")]
         {
-            let _ = wv;
-            Err("browser_site_data_records: macOS only".to_string())
+            return crate::browser_win::site_data_records_blocking(&wv);
+        }
+        #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+        {
+            return crate::browser_linux::site_data_records_blocking(&wv);
         }
     })
     .await
@@ -5796,6 +6013,11 @@ async fn browser_site_data_records(app: tauri::AppHandle, id: String) -> Result<
 /// ⚠️ DISTRUTTIVO E IRREVERSIBILE, ma per-SITO: lo store della pane resta, con
 /// dentro tutti gli altri siti. Il fratello che butta lo store intero è
 /// `browser_purge_data_store`, e ha un solo chiamante rimasto (il reaper).
+///
+/// SU WINDOWS DIMENTICA MENO, e il dialogo lo dice perché l'elenco che gli
+/// arriva porta solo `cookies`: WebView2 non ha nessuna API per-origine, quindi
+/// si cancella la sessione e NON il localStorage. macOS e Linux tolgono tutto
+/// (`WKWebsiteDataStore` / `WebsiteDataManager` sanno lavorare per record).
 #[tauri::command]
 async fn browser_forget_site(
     app: tauri::AppHandle,
@@ -5815,10 +6037,13 @@ async fn browser_forget_site(
         {
             return forget_site_blocking(&wv, display_names);
         }
-        #[allow(unreachable_code)]
+        #[cfg(target_os = "windows")]
         {
-            let _ = (wv, display_names);
-            Err("browser_forget_site: macOS only".to_string())
+            return crate::browser_win::forget_site_blocking(&wv, display_names);
+        }
+        #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+        {
+            return crate::browser_linux::forget_site_blocking(&wv, display_names);
         }
     })
     .await
@@ -5896,14 +6121,36 @@ fn browser_reap_data_stores(
         }
         #[cfg(not(target_os = "macos"))]
         {
-            let _ = (&app, &keep_ids, &max_age_days);
-            Ok(0)
+            // Fuori da macOS lo store È una cartella (vedi `pane_store_dir`),
+            // quindi qui il reaper è filesystem puro: stessa decisione, stessi
+            // due permessi, e al posto della chiamata a WebKit una
+            // `remove_dir_all`.
+            let dir = match pane_store_root(&app) {
+                Some(d) => d,
+                None => return Ok(0),
+            };
+            let victims =
+                stale_store_uuids(&dir, &keep_ids, max_age_days, std::time::SystemTime::now());
+            let n = victims.len();
+            // La rimozione va su un worker perché questo comando è sincrono,
+            // cioè gira sul thread principale, e una `remove_dir_all` su store
+            // da centinaia di megabyte lì sopra si vede. Il numero restituito è
+            // quanti store sono stati CONDANNATI, esattamente come sul ramo
+            // macOS: anche lì a cancellare è qualcun altro, e nessuno aspetta.
+            tauri::async_runtime::spawn_blocking(move || {
+                for uuid_str in victims {
+                    let path = dir.join(&uuid_str);
+                    if let Err(e) = std::fs::remove_dir_all(&path) {
+                        eprintln!("[browser_reap_data_stores] {uuid_str}: {e}");
+                    }
+                }
+            });
+            Ok(n)
         }
     })
 }
 
 /// Pavimento sull'età del reaper — vedi `browser_reap_data_stores`.
-#[cfg(target_os = "macos")]
 const MIN_REAP_AGE_DAYS: u64 = 7;
 
 /// La cartella dove WebKit tiene gli store per identifier.
@@ -5941,10 +6188,13 @@ fn website_data_store_dir() -> Option<std::path::PathBuf> {
     )
 }
 
-/// Quali store sono da rimuovere: orfani E fermi. Separata dal guscio ObjC per
-/// poterla provare su una cartella finta — la decisione È il pezzo rischioso,
-/// la chiamata a WebKit no.
-#[cfg(target_os = "macos")]
+/// Quali store sono da rimuovere: orfani E fermi. Separata dal guscio che
+/// cancella per poterla provare su una cartella finta — la decisione È il pezzo
+/// rischioso, la chiamata al motore no.
+///
+/// Vale su tutte le piattaforme: qui dentro non c'è una riga di ObjC, e le
+/// cartelle si chiamano allo stesso modo ovunque (`pane_store_dir_name`).
+/// Cambia solo la radice, e la passa il chiamante.
 fn stale_store_uuids(
     dir: &std::path::Path,
     keep_ids: &[String],
@@ -5952,10 +6202,8 @@ fn stale_store_uuids(
     now: std::time::SystemTime,
 ) -> Vec<String> {
     let age = std::time::Duration::from_secs(max_age_days.max(MIN_REAP_AGE_DAYS) * 86_400);
-    let keep: std::collections::HashSet<String> = keep_ids
-        .iter()
-        .map(|id| uuid_str_from_bytes(&data_store_uuid_for(id)))
-        .collect();
+    let keep: std::collections::HashSet<String> =
+        keep_ids.iter().map(|id| pane_store_dir_name(id)).collect();
     let entries = match std::fs::read_dir(dir) {
         Ok(e) => e,
         Err(_) => return Vec::new(),
@@ -5988,7 +6236,6 @@ fn stale_store_uuids(
 }
 
 /// L'mtime più recente tra una cartella e i suoi figli diretti.
-#[cfg(target_os = "macos")]
 fn newest_mtime_shallow(path: &std::path::Path) -> std::time::SystemTime {
     let mut newest = std::fs::metadata(path)
         .and_then(|m| m.modified())
@@ -6006,7 +6253,6 @@ fn newest_mtime_shallow(path: &std::path::Path) -> std::time::SystemTime {
 }
 
 /// I 16 byte di un UUID scritto `8-4-4-4-12`, o `None` se non lo è.
-#[cfg(target_os = "macos")]
 fn uuid_bytes_from_str(s: &str) -> Option<[u8; 16]> {
     let hex: String = s.chars().filter(|c| *c != '-').collect();
     if hex.len() != 32 || s.len() != 36 || !hex.chars().all(|c| c.is_ascii_hexdigit()) {
@@ -6021,7 +6267,6 @@ fn uuid_bytes_from_str(s: &str) -> Option<[u8; 16]> {
 
 /// L'inverso: i 16 byte nella forma minuscola `8-4-4-4-12` con cui WebKit
 /// nomina la cartella dello store.
-#[cfg(target_os = "macos")]
 fn uuid_str_from_bytes(b: &[u8; 16]) -> String {
     let h: Vec<String> = b.iter().map(|x| format!("{x:02x}")).collect();
     format!(
