@@ -28,7 +28,7 @@ import {
 import { useGlobalDispatchCap } from '../../state/globalDispatchCap';
 import { GlobalCapControl } from './GlobalCapControl';
 import { groupByStatus, manualStatusTarget, planDrop, type DropPlan, type OrderScope } from '../../lib/boardOrder';
-import { DONE_FLASH_MS, landedInDone, statusSnapshot } from '../../lib/justDone';
+import { COLUMN_FLASH_MS, landedInColumn, statusSnapshot } from '../../lib/columnFlash';
 import { scrollDelta } from '../../lib/scrollDelta';
 import { resolveProjectRefs, useBoardProjects } from '../../lib/boardProjectsStore';
 import { ProjectPickerBody } from './ProjectPicker';
@@ -1301,38 +1301,43 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
     return groupByStatus(visible, orderScope);
   }, [tasks, filters, orderScope]);
 
-  // Le card appena CHIUSE, per il lampo verde. Si guarda `tasks` (la lista
-  // grezza), non `byStatus`: un filtro attivo può nascondere la card, e il lampo
-  // non deve dipendere da cosa si sta guardando — quando riappare l'ha già
-  // consumato, che è giusto, ma la transizione resta registrata una volta sola.
+  // Le card che hanno appena cambiato COLONNA, e in quale sono arrivate: il
+  // lampo prende il colore di quella colonna, quindi qui serve la destinazione,
+  // non solo l'elenco. Si guarda `tasks` (la lista grezza), non `byStatus`: un
+  // filtro attivo può nascondere la card, e il lampo non deve dipendere da cosa
+  // si sta guardando — quando riappare l'ha già consumato, che è giusto, ma la
+  // transizione resta registrata una volta sola.
   //
-  // Vale per OGNI via di chiusura, perché nessuna passa di qui direttamente: il
-  // trascinamento, l'approvazione dal drawer e un altro device finiscono tutti e
-  // tre nello stesso refetch. Il confronto è con lo stato precedente (vedi
-  // `lib/justDone`), non con la freschezza di `completedAt`.
-  const [justDone, setJustDone] = useState<Set<string>>(() => new Set());
+  // Vale per OGNI via di spostamento, perché nessuna passa di qui direttamente:
+  // il trascinamento, l'approvazione dal drawer, un agente che consegna e un
+  // altro device finiscono tutti nello stesso refetch. Il confronto è con lo
+  // stato precedente (vedi `lib/columnFlash`), non con la freschezza di una data.
+  const [justMoved, setJustMoved] = useState<Map<string, TaskStatus>>(() => new Map());
   const prevStatusRef = useRef<Map<string, TaskStatus> | null>(null);
   const flashTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   useEffect(() => {
-    const landed = landedInDone(prevStatusRef.current, tasks);
+    const landed = landedInColumn(prevStatusRef.current, tasks);
     prevStatusRef.current = statusSnapshot(tasks);
-    if (landed.length === 0) return;
-    setJustDone((prev) => {
-      const next = new Set(prev);
-      for (const id of landed) next.add(id);
+    if (landed.size === 0) return;
+    setJustMoved((prev) => {
+      const next = new Map(prev);
+      // Due passaggi in meno di 2,4 s (todo → in corso → review, un agente
+      // veloce): vince l'ULTIMO, ed è giusto — il colore che si vede è quello
+      // della colonna dove la card è adesso, non di quella da cui è ripartita.
+      for (const [id, status] of landed) next.set(id, status);
       return next;
     });
-    for (const id of landed) {
+    for (const [id] of landed) {
       clearTimeout(flashTimers.current.get(id));
       flashTimers.current.set(id, setTimeout(() => {
         flashTimers.current.delete(id);
-        setJustDone((prev) => {
+        setJustMoved((prev) => {
           if (!prev.has(id)) return prev;
-          const next = new Set(prev);
+          const next = new Map(prev);
           next.delete(id);
           return next;
         });
-      }, DONE_FLASH_MS));
+      }, COLUMN_FLASH_MS));
     }
   }, [tasks]);
   // Smontando la pane a lampo acceso i timer resterebbero appesi a chiamare un
@@ -1352,8 +1357,15 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
   // `element.scrollIntoView()`: la sua risalita automatica degli antenati può
   // uscire da questa preoccupazione (orizzontale) e portarsi dietro un antenato
   // verticale — vedi la nota sull'effetto della selezione qui sopra.
+  //
+  // Solo per DONE, anche adesso che il lampo vale per ogni colonna: gli altri
+  // passaggi li fa quasi sempre la mano di chi guarda (un drag finisce dove
+  // l'occhio è già), mentre chiudere si fa da un bottone e la colonna in cui la
+  // card atterra è dall'altra parte della board. Inseguire ogni transizione
+  // vorrebbe dire strappare via la colonna che si sta leggendo a ogni evento di
+  // un agente.
   useEffect(() => {
-    if (justDone.size === 0) return;
+    if (![...justMoved.values()].includes('done')) return;
     // rAF: l'effetto parte nello stesso commit in cui la card entra in colonna,
     // e il rettangolo di Done va misurato a layout fatto.
     const raf = requestAnimationFrame(() => {
@@ -1366,7 +1378,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
       container.scrollBy({ left: dRect.right - cRect.right, behavior: 'smooth' });
     });
     return () => cancelAnimationFrame(raf);
-  }, [justDone]);
+  }, [justMoved]);
 
   // …e lo stesso all'altro capo: la card appena creata va PORTATA A SCHERMO.
   // Il lampo da solo non basta per la nascita ancora meno che per la chiusura —
@@ -1908,7 +1920,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
                   projectPathById={projectPathById}
                   liveById={liveUsage}
                   awaitingHuman={awaitingHuman}
-                  justDone={justDone}
+                  justMoved={justMoved}
                   justCreated={justCreated}
                   archived={showArchived}
                 />
