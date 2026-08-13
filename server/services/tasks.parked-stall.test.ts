@@ -312,3 +312,131 @@ describe("le due risposte, e cosa fanno davvero", () => {
     expect(r.status).toBe("expired");
   });
 });
+
+/**
+ * IL VERSO OPPOSTO. Fin qui si guardava il padre quando un figlio ENTRA in
+ * backlog. Nessuno lo guardava quando un figlio ne ESCE per sempre, e il 13/08
+ * `probe:stalls` ha misurato il conto: tre padri fermi, due dei quali consegne
+ * vere dell'agente dell'11/08 che portavano ancora addosso il chip «in attesa»
+ * dei figli e una finestra di rinvio scaduta da due giorni. Chiudere l'ultimo
+ * figlio non ridava un turno a nessuno.
+ */
+describe("chiudere l'ultimo figlio rimette in moto il padre", () => {
+  let db: Database; let s: TaskService;
+  beforeEach(() => { clock = 0; db = freshDb(); s = svc(db); });
+
+  /** Il padre parcheggiato ad aspettare i figli, come lo lascia il turno finito. */
+  function padreInAttesa(figli: number): { padre: string; figli: string[] } {
+    const padre = s.create({ projectId: PID, text: "Il padre", status: "in_progress" }).id;
+    const ids = Array.from({ length: figli }, (_, i) => {
+      const f = s.create({ projectId: PID, text: `Step ${i + 1}`, parentTaskId: padre }).id;
+      s.update({ taskId: f, actor: "human", by: "attilio", patch: { status: "todo" } });
+      return f;
+    });
+    // Il turno finisce coi figli aperti: `todo` + chip `waiting` + finestra.
+    s.deliverToReviewBySystem({ taskId: padre, reason: "turno finito" });
+    return { padre, figli: ids };
+  }
+
+  const riga = (id: string) => db.prepare(
+    "SELECT status, dispatch_state, dispatch_deferred_until FROM tasks WHERE id = ?",
+  ).get(id) as { status: string; dispatch_state: string | null; dispatch_deferred_until: string | null };
+
+  test("checklist finita: la finestra di rinvio sparisce e il tick lo riprende subito", () => {
+    const { padre, figli } = padreInAttesa(1);
+    expect(riga(padre).dispatch_state).toBe("waiting");
+    expect(riga(padre).dispatch_deferred_until).not.toBeNull();
+
+    s.update({ taskId: figli[0]!, actor: "human", by: "attilio", patch: { status: "done" } });
+
+    const p = riga(padre);
+    expect(p.status).toBe("todo");
+    expect(p.dispatch_state).toBeNull();
+    expect(p.dispatch_deferred_until).toBeNull();
+  });
+
+  test("finché UN figlio è ancora in volo non si tocca niente", () => {
+    const { padre, figli } = padreInAttesa(2);
+    s.update({ taskId: figli[0]!, actor: "human", by: "attilio", patch: { status: "done" } });
+    expect(riga(padre).dispatch_state).toBe("waiting");
+    expect(riga(padre).dispatch_deferred_until).not.toBeNull();
+  });
+
+  test("il padre in review non si muove, ma perde il chip che parla di figli che non ci sono più", () => {
+    // La forma esatta di f9250521 ed e285d5d8: consegna vera dell'agente, chip
+    // `waiting` stantio addosso, figli in review.
+    const { padre, figli } = padreInAttesa(1);
+    db.run("UPDATE tasks SET status = 'review', delivered_by = 'agent' WHERE id = ?", [padre]);
+    s.update({ taskId: figli[0]!, actor: "human", by: "attilio", patch: { status: "review" } });
+    s.update({ taskId: figli[0]!, actor: "human", by: "attilio", patch: { status: "done" } });
+
+    const p = riga(padre);
+    expect(p.status).toBe("review");
+    expect(p.dispatch_state).toBeNull();
+    // La consegna resta dell'agente: non è diventata una consegna di sistema.
+    expect(s.get(padre)!.task.deliveredBy).toBe("agent");
+    // Ed è finalmente approvabile, che era l'unica cosa che serviva.
+    expect(s.reviewDecision({ taskId: padre, by: "attilio", decision: "approve" }).status).toBe("done");
+  });
+
+  test("restano solo parcheggiati e il padre è libero: parte la domanda coi due bottoni", () => {
+    const padre = s.create({ projectId: PID, text: "Il padre", status: "in_progress" }).id;
+    const vivo = s.create({ projectId: PID, text: "Lo step vivo", parentTaskId: padre }).id;
+    s.create({ projectId: PID, text: "Lo step rimandato", parentTaskId: padre });
+    s.update({ taskId: vivo, actor: "human", by: "attilio", patch: { status: "todo" } });
+    s.deliverToReviewBySystem({ taskId: padre, reason: "turno finito" });
+
+    s.update({ taskId: vivo, actor: "human", by: "attilio", patch: { status: "done" } });
+
+    const t = s.get(padre)!.task;
+    expect(t.status).toBe("review");
+    expect(t.deliveredReason).toBe("parked_children");
+    expect(ultimoCommento(s, padre)).toContain("- Rimetti in coda i sottotask");
+  });
+
+  test("padre GIÀ in review con una consegna vera: la domanda si posa nel thread e la consegna resta sua", () => {
+    const padre = s.create({ projectId: PID, text: "Il padre", status: "in_progress" }).id;
+    const vivo = s.create({ projectId: PID, text: "Lo step vivo", parentTaskId: padre }).id;
+    s.create({ projectId: PID, text: "Lo step rimandato", parentTaskId: padre });
+    s.update({ taskId: vivo, actor: "human", by: "attilio", patch: { status: "todo" } });
+    db.run("UPDATE tasks SET status = 'review', delivered_by = 'agent' WHERE id = ?", [padre]);
+
+    s.update({ taskId: vivo, actor: "human", by: "attilio", patch: { status: "done" } });
+
+    const t = s.get(padre)!.task;
+    expect(t.status).toBe("review");
+    expect(t.deliveredBy).toBe("agent");
+    expect(t.deliveredReason).toBeNull();
+    expect(ultimoCommento(s, padre)).toContain("- Archivia i sottotask");
+  });
+
+  test("la domanda nel thread non si ripete a ogni figlio che chiude", () => {
+    const padre = s.create({ projectId: PID, text: "Il padre", status: "in_progress" }).id;
+    const a = s.create({ projectId: PID, text: "Step A", parentTaskId: padre }).id;
+    const b = s.create({ projectId: PID, text: "Step B", parentTaskId: padre }).id;
+    s.create({ projectId: PID, text: "Lo step rimandato", parentTaskId: padre });
+    for (const f of [a, b]) s.update({ taskId: f, actor: "human", by: "attilio", patch: { status: "todo" } });
+    db.run("UPDATE tasks SET status = 'review', delivered_by = 'agent' WHERE id = ?", [padre]);
+
+    s.update({ taskId: a, actor: "human", by: "attilio", patch: { status: "done" } });
+    s.update({ taskId: b, actor: "human", by: "attilio", patch: { status: "done" } });
+
+    const domande = s.get(padre)!.comments.filter((c) => c.content.includes("```question"));
+    expect(domande).toHaveLength(1);
+  });
+
+  test("archiviare l'ultimo figlio conta quanto chiuderlo", () => {
+    const { padre, figli } = padreInAttesa(1);
+    s.archive({ taskId: figli[0]! });
+    const p = riga(padre);
+    expect(p.dispatch_state).toBeNull();
+    expect(p.dispatch_deferred_until).toBeNull();
+  });
+
+  test("un padre archiviato o chiuso non si tocca", () => {
+    const { padre, figli } = padreInAttesa(1);
+    db.run("UPDATE tasks SET archived = 1 WHERE id = ?", [padre]);
+    s.update({ taskId: figli[0]!, actor: "human", by: "attilio", patch: { status: "done" } });
+    expect(riga(padre).dispatch_state).toBe("waiting");
+  });
+});

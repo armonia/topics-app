@@ -36,6 +36,7 @@
  */
 import { Database } from "bun:sqlite";
 import { join } from "node:path";
+import { REQUEUE_PARKED_LABEL } from "../shared/board";
 
 export interface Stall {
   parent: { id: string; text: string; status: string; dispatchState: string | null };
@@ -93,6 +94,21 @@ const PARENTS_SQL = `
      -- approvare porta a \`done\`, e \`done\` con un sottotask aperto è rifiutato
      -- (\`open_subtasks\`).
      AND NOT (p.status = 'review' AND COALESCE(p.delivered_reason, '') = 'parked_children')
+     -- L'ALTRA CARD CHE STA CHIEDENDO, e non poteva firmarsi. Su un padre già
+     -- in review con una consegna VERA la domanda sui parcheggiati si posa nel
+     -- thread e basta: muoverlo scriverebbe \`delivered_by = 'system'\` sopra la
+     -- riga che dice al reviewer se sotto c'è un deliverable, quindi il marchio
+     -- di sopra lì non c'è. Il marchio è la domanda stessa, e vale finché è più
+     -- recente dell'ultimo movimento dei figli parcheggiati: risponderle muove
+     -- i figli, e una domanda più vecchia del parcheggio parla di una
+     -- configurazione che non c'è più.
+     AND NOT EXISTS (
+           SELECT 1 FROM task_comments tc
+            WHERE tc.task_id = p.id AND tc.author = 'system'
+              AND tc.content LIKE '%' || ? || '%'
+              AND tc.created_at >= COALESCE(
+                    (SELECT MAX(updated_at) FROM tasks
+                      WHERE parent_task_id = p.id AND archived = 0 AND status = 'backlog'), ''))
      AND EXISTS (SELECT 1 FROM tasks c
                   WHERE c.parent_task_id = p.id AND c.archived = 0 AND c.status != 'done')
      -- Un figlio col PROPRIO agente addosso si muove per conto suo: finché ce
@@ -126,7 +142,7 @@ const PARKED_SQL = `
 
 /** `now` è iniettabile perché la finestra di rinvio si misura da lì, e un test non deve dipendere dall'orologio. */
 export function findStalls(db: Database, now: string = new Date().toISOString()): StallReport {
-  const rows = db.prepare(PARENTS_SQL).all(now) as Array<{
+  const rows = db.prepare(PARENTS_SQL).all(now, REQUEUE_PARKED_LABEL) as Array<{
     id: string; text: string; status: string; dispatch_state: string | null;
   }>;
   const stalls: Stall[] = rows.map((r) => ({
