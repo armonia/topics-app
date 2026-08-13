@@ -51,7 +51,7 @@ import { resolveWorktreeBaseRef } from "./server/services/worktree-base-ref";
 import { createExternalSessionsRouter } from "./server/routes/external-sessions";
 import { createTaskDispatcher } from "./server/services/task-dispatcher";
 import { refreshLiveJobQuotas } from "./server/services/agent-job-quota";
-import { computeDispatchCapacity } from "./server/services/dispatch-capacity";
+import { computeDispatchCapacity, dispatchResourceBlock } from "./server/services/dispatch-capacity";
 import { fleetLoadSync } from "./server/lib/fleet-usage";
 import { buildBranchInventory, summarizeInventory } from "./server/services/branch-inventory";
 import { createTaskAutoMerge, worktreeRealDirt } from "./server/services/task-automerge";
@@ -1070,6 +1070,11 @@ const taskDispatcher = createTaskDispatcher({
   // dispacciato lasciava dietro un badge di non letti su una conversazione non
   // più apribile e un id fantasma in `ui_state` che risuscitava al reload.
   archiveTopic: retirementConsequences.archiveTopic,
+  // Il pavimento sulle risorse, misurato sul volume che ospita davvero le
+  // worktree. Serve da quando il tetto sugli agenti si può togliere: senza,
+  // «nessun limite» vuol dire che la coda si ferma a disco pieno, cioè quando
+  // le scritture del DB cominciano a fallire.
+  resourceBlock: () => dispatchResourceBlock(ctx.worktreeManager.worktreesDir()),
   createWorktree: async (projectStoreId) => {
     // Il ramo di una card nasce da MAIN, non dall'HEAD del checkout condiviso:
     // con `HEAD` il worktree ereditava il ramo di chi stava lavorando qui, e da
