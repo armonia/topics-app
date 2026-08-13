@@ -21,6 +21,8 @@ import { useContextInspector } from '../../hooks/useContextInspector';
 import { useRealContext, formatTokens } from '../../hooks/useRealContext';
 import { POPOVER_PANEL, POPOVER_SHEET, Z_POPOVER, Z_POPOVER_SCRIM } from '@/lib/popoverStyles';
 import { useDismissable } from '@/hooks/useDismissable';
+import { useSheetDrag } from '@/hooks/useSheetDrag';
+import { SheetGrabber } from '@/components/Shared/SheetGrabber';
 import { chatFocus } from '../../state/chatFocus';
 import { Menu } from '../Shared/Menu';
 import { SpinnerFallback } from '../Shared/Spinner';
@@ -675,10 +677,19 @@ export function ChatInput({
   const [showContextPopover, setShowContextPopover] = useState(false);
   const contextBtnRef = useRef<HTMLButtonElement>(null);
   const contextPopoverRef = useRef<HTMLDivElement>(null);
+  const contextScrimRef = useRef<HTMLDivElement>(null);
   useDismissable({
     open: showContextPopover,
     onClose: () => setShowContextPopover(false),
     refs: [contextBtnRef, contextPopoverRef],
+  });
+  // Sul telefono l'ispettore è un foglio dal basso, e un foglio si spinge giù
+  // col dito (hooks/useSheetDrag).
+  useSheetDrag({
+    enabled: showContextPopover && isMobile,
+    sheetRef: contextPopoverRef,
+    scrimRef: contextScrimRef,
+    onClose: () => setShowContextPopover(false),
   });
   const handleContextRingClick = useCallback(() => {
     if (isDraftTopic) return;
@@ -1804,6 +1815,7 @@ export function ChatInput({
       {showContextPopover && onUpdateTopic && isMobile && createPortal(
         <>
           <div
+            ref={contextScrimRef}
             className="fixed inset-0 bg-black/40"
             style={{ zIndex: Z_POPOVER_SCRIM }}
             onClick={() => setShowContextPopover(false)}
@@ -1814,6 +1826,7 @@ export function ChatInput({
             className={`fixed left-0 right-0 bottom-0 ${POPOVER_SHEET} flex flex-col overflow-hidden`}
             style={{ zIndex: Z_POPOVER, height: '70vh' }}
           >
+            <SheetGrabber />
             <Suspense fallback={<SpinnerFallback fill />}>
               <ContextInspector
                 topic={topic}
