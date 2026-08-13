@@ -27,7 +27,7 @@ import { probeBinaryPath } from "../utils/executable";
 import { getDatabase } from "../db";
 import { SidechainTracker } from "./claude/sidechain-tracker";
 import { parseCompactBoundary } from "./claude/compaction";
-import { buildClaudeArgs, buildClaudeOneshotArgs } from "./claude/args";
+import { buildClaudeArgs, buildClaudeOneshotArgs, resolveToolTrim } from "./claude/args";
 import { checkClaudeCliCompat, type ClaudeCliCompat } from "./claude/cli-compat";
 import { applyJobQuota } from "../services/agent-job-quota";
 // La decodifica degli eventi `stream-json` — campi INTERNI della CLI, non
@@ -1947,15 +1947,22 @@ export class ClaudeCodeProvider implements AIProvider {
       // schemi MCP. Il perché sta accanto all'opzione, in `claude/args.ts`.
       // `TOPICS_SKILL_LISTING=full` lo rimette intero senza toccare il codice.
       slimSkillListing: overrides.dispatched && process.env.TOPICS_SKILL_LISTING !== "full",
-      // Sempre solo gli agenti del board, e per lo stesso motivo del catalogo
-      // skill: gli schemi di `Workflow`, `Artifact`, `ReportFindings` e
-      // `ListAgents` stanno inline in testa a OGNI richiesta (il deferral non
-      // li tocca) e valgono 13.176 token, di cui 7.856 il solo `Workflow` — un
-      // tool che la sua stessa descrizione vieta senza un consenso esplicito
-      // dell'umano, che a un agente dispacciato non può arrivare. Una chat li
-      // tiene tutti: lì l'umano c'è, e può darlo.
-      // `TOPICS_TOOL_TRIM=off` lo spegne senza toccare il codice.
-      trimUnusedTools: overrides.dispatched && process.env.TOPICS_TOOL_TRIM !== "off",
+      // Gli schemi di `Workflow`, `Artifact`, `ReportFindings` e `ListAgents`
+      // stanno inline in testa a OGNI richiesta (il deferral non li tocca) e
+      // valgono 17.457 token su opus, di cui 7.856 il solo `Workflow`.
+      //
+      // Il taglio ora è a DUE livelli, perché il criterio («questa sessione non
+      // lo può usare comunque») dà due risposte diverse. Tre voci sono
+      // irraggiungibili ovunque: Topics non rende artefatti, non ospita la UI
+      // di code review, `SendMessage` è differito. Quelle si tolgono anche alle
+      // chat, e valgono ~9.600 token per richiesta che prima si pagavano per
+      // niente. `Workflow` invece resta alle chat: la sua descrizione lo vieta
+      // senza un consenso esplicito dell'umano, e in una chat l'umano c'è e può
+      // darlo — a un agente dispacciato quel consenso non può arrivare.
+      // `TOPICS_TOOL_TRIM=off` lo spegne senza toccare il codice. La scelta sta
+      // in `claude/args.ts` accanto alle due liste, così è sotto test: qui
+      // dentro sarebbe una ternaria in un metodo privato, cioè irraggiungibile.
+      toolTrim: resolveToolTrim({ dispatched: !!overrides.dispatched }),
       // Il tetto per singolo risultato di tool MCP. Vale per OGNI sessione, non
       // solo per gli agenti del board: la chat che ha fatto nascere la misura
       // (29,5M token di prompt, $23,86) era una chat guidata da una persona, e

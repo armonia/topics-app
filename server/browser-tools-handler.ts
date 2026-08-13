@@ -24,6 +24,7 @@ import type {
 import { pointObject, describeImage } from "./integrations/moondream-client";
 import { playwrightOps, type BrowserOps } from "./browser-ops-adapter";
 import { listChromeCookieHosts } from "./integrations/chrome-cookies";
+import { toServableUrl, isMediaRef, getLocalFileServing } from "./browser-local-file-url";
 import {
   serialize,
   diff,
@@ -108,6 +109,51 @@ function assertAgentNavAllowed(url: string): void {
   }
 }
 
+/**
+ * L'URL su cui la pane va DAVVERO, dato quello che l'agente ha chiesto.
+ *
+ * Un file locale non diventa una navigazione `file://` — quella resta vietata
+ * per l'agente, oggi come prima. Diventa l'URL http di `/api/media`, che è il
+ * modo standard di mostrare un file a un contesto non fidato (vedi
+ * browser-local-file-url.ts). Tutto il resto passa di qui intatto e incontra la
+ * guardia di sempre.
+ *
+ * Il rifiuto porta il motivo VERO: «questo percorso non lo posso servire», non
+ * «lo schema file: non è permesso». Era quella risposta a mandare l'agente a
+ * sbattere e a lasciare la pane bianca senza dire niente.
+ */
+export function resolveAgentNavUrl(
+  url: string,
+  tool: string,
+  /**
+   * `"relative"` per chi ha un'origine propria e la sa risolvere da sé: la pane
+   * nativa (che parla col proxy in chiaro dell'app), il telefono, un client in
+   * LAN. `"absolute"` per chi naviga DA QUI, cioè il pane headless, che di
+   * origine ha solo quella del server.
+   */
+  form: "absolute" | "relative" = "absolute",
+): string {
+  // Un riferimento già servito da noi ripassa di qui: la rotta open-pane
+  // riscrive per poter annunciare alla finestra, il dispatcher riscrive perché
+  // è lì che la regola vale per tutti i rami. Non è una navigazione da
+  // giudicare una seconda volta — è la NOSTRA, e va solo messa nella forma che
+  // chi naviga sa risolvere. Senza questo ramo finiva sulla guardia, che su un
+  // relativo dice «invalid URL» e lascia di nuovo una pane bianca.
+  if (isMediaRef(url)) {
+    if (form === "relative") return url;
+    const origin = getLocalFileServing()?.origin;
+    return origin ? `${origin.replace(/\/$/, "")}${url}` : url;
+  }
+  const servable = toServableUrl(url);
+  if (servable.kind === "rewritten") {
+    console.log(`[BrowserTools] ${tool}: local file served over http — ${servable.path}`);
+    return form === "relative" ? servable.ref : servable.url;
+  }
+  if (servable.kind === "refused") throw new Error(`${tool}: ${servable.reason}`);
+  assertAgentNavAllowed(url);
+  return url;
+}
+
 export async function handleBrowserOpen(
   service: BrowserService,
   contextId: string,
@@ -116,11 +162,11 @@ export async function handleBrowserOpen(
   if (typeof args.url !== "string" || !args.url) {
     throw new Error("browser_open: 'url' (string) is required");
   }
-  assertAgentNavAllowed(args.url);
-  console.log(`[BrowserTools] browser_open(${contextId}, ${args.url})`);
+  const target = resolveAgentNavUrl(args.url, "browser_open");
+  console.log(`[BrowserTools] browser_open(${contextId}, ${target})`);
   const ops = await resolveOps(service, contextId);
   return withLock(service, contextId, async () => {
-    const result = await ops.navigate(args.url);
+    const result = await ops.navigate(target);
     // Page navigated -> any cached element refs/bboxes are stale.
     clearBrowserCaches(contextId);
     // navigate() resolves at domcontentloaded; give an SPA a bounded moment to

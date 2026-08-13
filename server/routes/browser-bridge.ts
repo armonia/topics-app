@@ -44,6 +44,7 @@ import type { AppContext, RouteHandler, Topic } from "../types";
 import type { BrowserService } from "../browser-service";
 import { dispatchBrowserToolCallByContext, resolveContextIdForTopic } from "../browser-tool-dispatcher";
 import { BRIDGED_BROWSER_ENDPOINTS } from "../browser-tool-spec";
+import { resolveAgentNavUrl } from "../browser-tools-handler";
 import { nativeDelegateRegistry } from "../browser-native-delegate";
 import { collectLiveContextIds, listBrowserTabs, type TabInventoryDeps } from "../browser-tab-inventory";
 import { timingSafeEqualStr } from "../utils";
@@ -332,8 +333,22 @@ export function createBrowserBridgeRouter(
         if (!topic) return json({ error: "Topic not found" }, 404);
 
         const body = (await readJSON(req)) as { url?: unknown; name?: unknown } | null;
-        const url = typeof body?.url === "string" ? body.url : "";
-        if (!url) return json({ error: "url (string) is required" }, 400);
+        const requestedUrl = typeof body?.url === "string" ? body.url : "";
+        if (!requestedUrl) return json({ error: "url (string) is required" }, 400);
+        // Un file locale diventa il RIFERIMENTO che lo serve, PRIMA di essere
+        // annunciato alla finestra. Il broadcast qui sotto parte prima del
+        // dispatch, quindi con l'URL grezzo la pane riceveva `file://` — cioè
+        // esattamente il bianco — e lo correggeva solo dopo, se il dispatch
+        // andava a buon fine. Riscritto qui, alla pane arriva subito l'unico
+        // indirizzo che sa aprire. Relativo: l'origine ce l'ha lei.
+        let url: string;
+        try {
+          url = resolveAgentNavUrl(requestedUrl, "open_browser_pane", "relative");
+        } catch (err) {
+          // 400 col motivo, non un 500 muto: è il messaggio che l'agente legge
+          // e che decide se riprova o si ferma.
+          return json({ error: err instanceof Error ? err.message : String(err) }, 400);
+        }
         // Il NOME della tab, quando l'agente lo prescrive. Fuori da un task non
         // significa niente (il pane-store globale etichetta dal titolo pagina):
         // lì viene semplicemente ignorato. Un nome fatto di soli simboli non
