@@ -118,9 +118,12 @@ export function useBrowserDownloads(contextId: string): BrowserDownloads {
   }, []);
 
   const active = countActive(current.entries);
-  // Il ref segue il render, cosi' l'intervallo legge sempre l'ultimo valore
-  // senza essere ricreato quando un download parte o finisce.
-  activeRef.current = active > 0;
+  // Il ref insegue il conteggio da un effetto e non dal render: scrivere un ref
+  // mentre React sta renderizzando e' proprio cio' che `react-hooks/refs` vieta,
+  // perche' con il render concorrente quella scrittura puo' avvenire per un
+  // tentativo che verra' buttato via. Qui l'unico lettore e' un timer, quindi
+  // arrivarci un tick dopo non cambia niente.
+  useEffect(() => { activeRef.current = active > 0; }, [active]);
 
   return {
     downloads: current.entries,
