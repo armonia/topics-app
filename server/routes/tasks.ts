@@ -24,7 +24,7 @@ import type { AppContext, RouteHandler } from "../types";
 import { grantedResourceIds } from "../lib/grants-query";
 import { resolvePrincipals } from "../lib/principals";
 import type { OutboundMessage } from "../../shared/ws-outbound";
-import { isAgentWorking, NOTE_ARCHIVED_BY_HUMAN, NOTE_STOPPED_BY_HUMAN, PARKED_STOPPED, PARKED_WAITED_OUT, pendingQuestion, type PendingQuestionComment } from "../../shared/board";
+import { isAgentWorking, isThreadSpeech, NOTE_ARCHIVED_BY_HUMAN, NOTE_STOPPED_BY_HUMAN, PARKED_STOPPED, PARKED_WAITED_OUT, pendingQuestion, type PendingQuestionComment } from "../../shared/board";
 import { AGENT_AUTHOR, AGENT_AUTHOR_PREFIX } from "../../shared/comment-author";
 import { isPreviewablePath } from "../../shared/media-kind";
 import { parseTaskPatch, unapplicableFieldsBody, type FieldRead } from "./task-patch";
@@ -98,7 +98,21 @@ export function emitReviewReadyEdge(
     let question: { text: string; options: string[] } | null = null;
     // Best-effort: una lettura del thread che fallisce non deve mangiarsi il
     // fronte (il banner senza tasti resta molto meglio di nessun banner).
-    try { question = pendingQuestion(resolveComments?.()); } catch { question = null; }
+    let isAsk = false;
+    try {
+      const comments = resolveComments?.();
+      question = pendingQuestion(comments);
+      // `question` porta anche le opzioni di una CONSEGNA (l'envelope ordina
+      // di allegare `options=["Landa su main"]` a ogni consegna, e il server
+      // le avvolge nella stessa fence ```question): non basta a dire se
+      // l'ultima parola dell'agente sta chiedendo qualcosa. `isAsk` guarda lo
+      // stesso ultimo commento con `commentAsksHuman` (legge le OPZIONI, non
+      // la fence), cosi il banner puo' scegliere il titolo giusto senza
+      // perdere il tasto "Landa su main" che vive in `question.options`.
+      const speech = (comments ?? []).filter(isThreadSpeech);
+      const last = speech[speech.length - 1];
+      isAsk = commentAsksHuman(last?.content);
+    } catch { question = null; isAsk = false; }
     broadcast({
       type: "task:review-ready",
       projectId,
@@ -115,6 +129,7 @@ export function emitReviewReadyEdge(
       // risposto. `null` esplicito rende distinguibile «non c'è» da «questo
       // server non lo sa dire».
       question,
+      isAsk,
     });
   }
 }
