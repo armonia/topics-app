@@ -12,7 +12,7 @@ import { useConfirm } from '../../hooks/useConfirm';
 import { useLongPress, openContextMenuAt } from '../../hooks/useLongPress';
 import { useMobile } from '../../hooks/useMobile';
 import { PreviewMedia } from './PreviewMedia';
-import { TaskChoiceRow } from './TaskChoiceRow';
+import { TaskChoiceMenu, TaskChoiceRow } from './TaskChoiceRow';
 import { taskActionErrorMessage } from './taskActionError';
 import { usableQuestionOptions } from './taskChoices';
 import { taskChoiceState } from './taskChoices';
@@ -27,7 +27,7 @@ import { StatusIcon, DispatchChip, QueueReasonChip, TaskIdChip, LabelChip } from
 import { POPOVER_DIVIDER, POPOVER_ITEM, POPOVER_ITEM_DANGER } from '@/lib/popoverStyles';
 
 // ── Column ────────────────────────────────────────────────────────────────
-export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject, cardError, onCardError, onRefetch, onOpenTopic, resolveSession, tasksById, projectPathById, liveById, awaitingHuman, justDone, justCreated, archived = false }: {
+export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject, cardError, onCardError, onRefetch, onOpenTopic, resolveSession, tasksById, projectPathById, liveById, awaitingHuman, justMoved, justCreated, archived = false }: {
   status: TaskStatus; tasks: BoardTask[]; onOpen: OpenTask; onCreate: (text: string) => void;
   canCreate: boolean; showProject: boolean; onRefetch: () => void;
   /** L'errore dell'ULTIMA azione fallita, con la card a cui appartiene: la
@@ -45,8 +45,9 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
   liveById: Map<string, LiveUsage>;
   /** Task che in questo momento aspettano una persona (evento transitorio). */
   awaitingHuman: Set<string>;
-  /** Card appena arrivate in Done: lampeggiano per un paio di secondi. */
-  justDone: Set<string>;
+  /** Card appena arrivate in una colonna → quale: lampeggiano per un paio di
+   *  secondi, col colore della colonna d'arrivo. */
+  justMoved: Map<string, TaskStatus>;
   /** Card appena NATE: stesso lampo all'altro capo della vita del task, in azzurro. */
   justCreated: Set<string>;
   /** La colonna sta mostrando l'ARCHIVIO: le sue card si ripristinano, non si
@@ -136,7 +137,13 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
       {/* scrollbar-standard keeps the app's standard thin hover scrollbar as the
           single indicator and zeroes the legacy ::-webkit-scrollbar, so the
           native bar no longer renders ON TOP of it (the "double bar" on hover). */}
-      <div data-testid={`kanban-column-body-${status}`} className="flex-1 space-y-2 overflow-y-auto px-2 pb-36 scrollbar-standard">
+      {/* `pt-1.5` = i 6px che il LAMPO di una card dipinge fuori dal suo bordo
+          (vedi `.task-flash` in index.css). Un corpo colonna con
+          `overflow-y-auto` è un contenitore di scorrimento e taglia al suo
+          padding box: ai lati gli 8px di `px-2` bastano, in cima la stanza non
+          c'era proprio e alla prima card della colonna l'alone si vedeva mozzato
+          di netto. Sei pixel, non uno spazio scelto a occhio. */}
+      <div data-testid={`kanban-column-body-${status}`} className="flex-1 space-y-2 overflow-y-auto px-2 pt-1.5 pb-36 scrollbar-standard">
         <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
           {tasks.map((t) => (
             <Card
@@ -148,7 +155,7 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
               projectPath={projectPathById.get(t.projectId)}
               live={liveById.get(t.id)}
               awaiting={awaitingHuman.has(t.id)}
-              justDone={justDone.has(t.id)}
+              justMovedTo={justMoved.get(t.id)}
               justCreated={justCreated.has(t.id)}
               archived={archived}
             />
@@ -183,7 +190,7 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
 // props from the parent (onOpen/onError/onRefetch/onOpenTopic) are stable
 // (useCallback / state setters), and task/parentTitle come from tasks-keyed
 // memos, so the shallow prop compare holds for idle cards.
-export const Card = memo(function Card({ task, onOpen, showProject, error, onError, onRefetch, onOpenTopic, sessionState = 'unknown', parentTitle, projectPath, live, awaiting, justDone, justCreated, archived = false }: {
+export const Card = memo(function Card({ task, onOpen, showProject, error, onError, onRefetch, onOpenTopic, sessionState = 'unknown', parentTitle, projectPath, live, awaiting, justMovedTo, justCreated, archived = false }: {
   task: BoardTask; onOpen: OpenTask; showProject: boolean;
   /** Il perché l'ultimo click non ha fatto niente, disegnato SULLA card (in coda,
    *  sotto le sue scelte): la barra in cima al board sta a colonne di distanza,
@@ -206,8 +213,9 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   awaiting?: boolean;
   /** Live per-turn usage while this task's agent works (ticking chip). */
   live?: LiveUsage;
-  /** La card è appena arrivata in Done: lampo verde, si spegne da solo. */
-  justDone?: boolean;
+  /** La card è appena arrivata in QUESTA colonna: lampo del colore della
+   *  colonna, si spegne da solo. */
+  justMovedTo?: TaskStatus;
   /** La card è appena stata CREATA: lampo azzurro, si spegne da solo. */
   justCreated?: boolean;
   /** La card viene dall'ARCHIVIO (vista `?archived=1`): il gesto in coda al
@@ -450,14 +458,19 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
       // nativo che bolla fino all'`onContextMenu` qui accanto, quindi non
       // esiste un secondo menu da tenere allineato — e' lo stesso.
       onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ x: e.clientX, y: e.clientY }); }}
-      data-just-done={justDone || undefined}
+      // Gli attributi sono il gancio dei test (e del debug a occhio): dicono
+      // COSA è successo, la classe dice come si dipinge. `data-just-done` resta
+      // il caso che le spec guardano da sempre, ed è ora un caso particolare di
+      // `data-just-moved`, non un meccanismo a parte.
+      data-just-moved={justMovedTo}
+      data-just-done={justMovedTo === 'done' || undefined}
       data-just-created={justCreated || undefined}
       // I due lampi sono UNA scelta, non due classi che si sommano: `animation`
       // è una proprietà sola, quindi la seconda vincerebbe per ordine di
       // dichiarazione in index.css invece che per quello che è successo alla
-      // card. Done batte creato — nascere è l'evento più debole dei due, e
-      // comunque non si nasce in Done.
-      className={`group cursor-grab rounded-md border border-app-border bg-surface p-2.5 text-sm text-app-text shadow-sm hover:border-app-border-light ${isDragging ? 'opacity-40' : ''} ${justDone ? 'task-done-flash' : justCreated ? 'task-created-flash' : ''}`}
+      // card. Lo spostamento batte la nascita — nascere è l'evento più debole
+      // dei due, e una card che nasce non ha attraversato nessun confine.
+      className={`group cursor-grab rounded-md border border-app-border bg-surface p-2.5 text-sm text-app-text shadow-sm hover:border-app-border-light ${isDragging ? 'opacity-40' : ''} ${justMovedTo ? `task-flash task-flash-${justMovedTo}` : justCreated ? 'task-flash task-flash-created' : ''}`}
     >
       {/* Top row: project eyebrow (cross-project) on the LEFT; the AGENT
           cluster in the top-right SLOT — dispatch state, model/effort, "apri
@@ -727,8 +740,16 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
       {/* Steer a WORKING agent right from the card ("anche da kanban"): the
           message is buffered and handed to the agent at the next turn. */}
       {agentBusy && (
-        <div className="mt-2 space-y-1.5" onClick={(e) => e.stopPropagation()}>
-          <TaskChoiceRow task={task} disabled={busy} onDone={choiceDone} onError={choiceFailed} />
+        <div className="mt-2" onClick={(e) => e.stopPropagation()}>
+          {/* UNA riga sola. «Ferma» e «Consegna quello che hai» stavano qui
+              sopra come due bottoni pieni: azioni rare, disegnate col peso di
+              una decisione, su una card che non chiede niente — sta solo
+              lavorando, o aspetta il suo turno. Sono passate nel `⋯`, che è
+              l'ultima cosa della riga proprio perché è l'ultima che serve; il
+              campo e il suo invio restano attaccati, che è il gesto vero di una
+              card in corso.
+              Nel drawer restano bottoni (vedi TaskChoiceRow): lì la card la
+              stai già guardando apposta. */}
           <div className="flex items-center gap-1">
             <input
               ref={freeTextRef}
@@ -743,6 +764,10 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
               title="Invia all'agent. Lo riceve al prossimo turno, come Claude Code."
               className="flex shrink-0 items-center gap-1 rounded-md bg-sky-500/80 px-2.5 py-1.5 text-xs text-white hover:bg-sky-500 disabled:opacity-50"
             ><Send className="h-3.5 w-3.5" /></button>
+            <TaskChoiceMenu
+              task={task} disabled={busy} onDone={choiceDone} onError={choiceFailed}
+              ariaLabel="Azioni su questo turno"
+            />
           </div>
         </div>
       )}
