@@ -79,9 +79,24 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
   // a telefono: la review è la superficie su cui si decide, e da mobile è UNA
   // slide intera. Il tetto (`max-w`) resta il limite di leggibilità.
   // Da `sm` in su non cambia niente: 22rem, e 32rem da `lg`.
+  //
+  // …E IL PAVIMENTO NON BASTA SENZA `min-w-0`. Un flex item nasce con
+  // `min-width: auto`, cioè «mai più stretto del tuo contenuto», e quel minimo
+  // batte sia il `basis` sia il `max-w`. Misurato: con in colonna una card il
+  // cui titolo è un path assoluto senza spazi, Review stava a 405px SIA a 390
+  // che a 360 di finestra — larghezza identica, quindi non seguiva lo schermo
+  // affatto: seguiva la parola più lunga. Fuori dalla riga di 31px sul primo
+  // telefono e di 61 sul secondo.
+  // `break-words` sul titolo (Card, più sotto) NON salva: `overflow-wrap:
+  // break-word` spezza la parola quando la larghezza è già decisa, ma non
+  // abbassa la dimensione min-content che quella decisione usa. Il pavimento
+  // lo toglie solo `min-w-0`, e da lì in poi `break-words` fa il suo lavoro
+  // dentro la colonna stretta.
+  // Vale per TUTTE le colonne, non solo Review: la stessa card in Todo avrebbe
+  // sfondato allo stesso modo il suo `max-w`.
   const widthCls = isReview
-    ? 'grow basis-full sm:basis-[22rem] max-w-[34rem] lg:basis-[32rem] lg:max-w-[44rem]'
-    : 'grow basis-72 max-w-[26rem]';
+    ? 'min-w-0 grow basis-full sm:basis-[22rem] max-w-[34rem] lg:basis-[32rem] lg:max-w-[44rem]'
+    : 'min-w-0 grow basis-72 max-w-[26rem]';
   const borderCls = isOver ? 'border-emerald-400/60' : 'border-app-border';
   const bgCls = isOver ? 'bg-emerald-400/5' : 'bg-white/5';
 
