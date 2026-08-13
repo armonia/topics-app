@@ -2,7 +2,7 @@ import { memo, useState, useEffect, useMemo, useRef } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { AlertTriangle, ClipboardList, Copy, Hourglass, Lock, MessageSquare, Plus, RotateCcw, Send, ShieldCheck, Square, Trash2, UserRound } from 'lucide-react';
+import { AlertTriangle, ArchiveRestore, ClipboardList, Copy, Hourglass, Lock, MessageSquare, Plus, RotateCcw, Send, ShieldCheck, Square, Trash2, UserRound, X } from 'lucide-react';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
@@ -13,6 +13,7 @@ import { useLongPress, openContextMenuAt } from '../../hooks/useLongPress';
 import { useMobile } from '../../hooks/useMobile';
 import { PreviewMedia } from './PreviewMedia';
 import { TaskChoiceRow } from './TaskChoiceRow';
+import { taskActionErrorMessage } from './taskActionError';
 import { usableQuestionOptions } from './taskChoices';
 import { taskChoiceState } from './taskChoices';
 import { taskActionWord } from './taskActionWords';
@@ -26,9 +27,13 @@ import { StatusIcon, DispatchChip, QueueReasonChip, TaskIdChip, LabelChip } from
 import { POPOVER_DIVIDER, POPOVER_ITEM, POPOVER_ITEM_DANGER } from '@/lib/popoverStyles';
 
 // ── Column ────────────────────────────────────────────────────────────────
-export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject, onError, onRefetch, onOpenTopic, resolveSession, tasksById, projectPathById, liveById, awaitingHuman, justDone, justCreated }: {
+export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject, cardError, onCardError, onRefetch, onOpenTopic, resolveSession, tasksById, projectPathById, liveById, awaitingHuman, justDone, justCreated, archived = false }: {
   status: TaskStatus; tasks: BoardTask[]; onOpen: OpenTask; onCreate: (text: string) => void;
-  canCreate: boolean; showProject: boolean; onError: (e: string) => void; onRefetch: () => void;
+  canCreate: boolean; showProject: boolean; onRefetch: () => void;
+  /** L'errore dell'ULTIMA azione fallita, con la card a cui appartiene: la
+   *  colonna lo consegna solo a quella, il resto riceve `null`. */
+  cardError: { taskId: string; message: string } | null;
+  onCardError: (taskId: string, message: string | null) => void;
   onOpenTopic?: (topicId: string) => void;
   /** La sessione dell'agente esiste ancora? Risolta QUI e passata alla card come
    *  stringa, non come funzione: una card memoizzata confronta le props in modo
@@ -44,6 +49,9 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
   justDone: Set<string>;
   /** Card appena NATE: stesso lampo all'altro capo della vita del task, in azzurro. */
   justCreated: Set<string>;
+  /** La colonna sta mostrando l'ARCHIVIO: le sue card si ripristinano, non si
+   *  archiviano di nuovo. */
+  archived?: boolean;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: status });
   const [adding, setAdding] = useState(false);
@@ -132,7 +140,9 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
         <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
           {tasks.map((t) => (
             <Card
-              key={t.id} task={t} onOpen={onOpen} showProject={showProject} onError={onError} onRefetch={onRefetch} onOpenTopic={onOpenTopic}
+              key={t.id} task={t} onOpen={onOpen} showProject={showProject} onRefetch={onRefetch} onOpenTopic={onOpenTopic}
+              error={cardError?.taskId === t.id ? cardError.message : null}
+              onError={onCardError}
               sessionState={resolveSession?.(t.assignedTopicId) ?? 'unknown'}
               parentTitle={t.parentTaskId ? tasksById.get(t.parentTaskId)?.text : undefined}
               projectPath={projectPathById.get(t.projectId)}
@@ -140,6 +150,7 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
               awaiting={awaitingHuman.has(t.id)}
               justDone={justDone.has(t.id)}
               justCreated={justCreated.has(t.id)}
+              archived={archived}
             />
           ))}
         </SortableContext>
@@ -172,9 +183,18 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
 // props from the parent (onOpen/onError/onRefetch/onOpenTopic) are stable
 // (useCallback / state setters), and task/parentTitle come from tasks-keyed
 // memos, so the shallow prop compare holds for idle cards.
-export const Card = memo(function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, sessionState = 'unknown', parentTitle, projectPath, live, awaiting, justDone, justCreated }: {
+export const Card = memo(function Card({ task, onOpen, showProject, error, onError, onRefetch, onOpenTopic, sessionState = 'unknown', parentTitle, projectPath, live, awaiting, justDone, justCreated, archived = false }: {
   task: BoardTask; onOpen: OpenTask; showProject: boolean;
-  onError: (e: string) => void; onRefetch: () => void; onOpenTopic?: (topicId: string) => void;
+  /** Il perché l'ultimo click non ha fatto niente, disegnato SULLA card (in coda,
+   *  sotto le sue scelte): la barra in cima al board sta a colonne di distanza,
+   *  spesso fuori dal viewport, e da lassù un `approve` rifiutato sembrava un
+   *  bottone morto. `null` = nessun errore su questa card. */
+  error?: string | null;
+  /** Riporta l'esito di un'azione della card: un messaggio la mostra, `null` la
+   *  pulisce. L'id viaggia nella chiamata perché l'handler sia lo STESSO per
+   *  tutte le card (identità stabile, memo intatto). */
+  onError: (taskId: string, message: string | null) => void;
+  onRefetch: () => void; onOpenTopic?: (topicId: string) => void;
   /** Stato della SESSIONE dell'agente (non della scheda): vedi `lib/taskSession.ts`. */
   sessionState?: TaskSessionState;
   /** Text of the parent task when this card is a subtask (context chip). */
@@ -190,6 +210,9 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
   justDone?: boolean;
   /** La card è appena stata CREATA: lampo azzurro, si spegne da solo. */
   justCreated?: boolean;
+  /** La card viene dall'ARCHIVIO (vista `?archived=1`): il gesto in coda al
+   *  menu non è più archiviare — è già archiviata — ma riportarla indietro. */
+  archived?: boolean;
 }) {
   // Sortable: the source card is dimmed (the DragOverlay carries the visual)
   // but its NEIGHBOURS get the reflow transform — the list opens a gap under
@@ -233,6 +256,9 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
   // calling them two different things depending on where you press.
   const stopWord = taskActionWord('stop', tr);
   const dropWord = taskActionWord('drop', tr);
+  // Stessa tavola dell'«Archivia» che sostituisce: una porta e il suo ritorno
+  // non possono chiamarsi in due sistemi diversi.
+  const restoreWord = taskActionWord('restore', tr);
   const isAgentReview = task.status === 'review' && !!task.assignedTopicId;
   // Lo stallo dei sottotask parcheggiati È una domanda, e la fa il SISTEMA: la
   // card può non avere nessun topic legato (il padre era stato rilasciato prima
@@ -270,12 +296,27 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
     [pending, task, tr],
   );
 
+  // L'esito di un'azione della card torna SULLA card: si pulisce l'errore
+  // precedente quando se ne tenta una nuova, altrimenti il messaggio del click
+  // di prima resterebbe lì a raccontare un fallimento già superato.
+  const fail = (e: unknown, fallback: string) => onError(task.id, taskActionErrorMessage(e, fallback));
+  // Il ripiego, quando il server non manda una frase, nomina l'azione con la
+  // PAROLA della tabella condivisa: dire «Approva non è riuscito» sotto un
+  // bottone che si chiama «Va bene» rimetterebbe due nomi sulla stessa porta.
+  const failedWord = (id: Parameters<typeof taskActionWord>[0]) => `${taskActionWord(id, tr).label}: non è riuscito`;
+  const clearError = () => onError(task.id, null);
+  // Le scelte (`TaskChoiceRow`) passano di qui per la stessa ragione: il loro
+  // messaggio arriva già con l'etichetta della voce premuta, e va tradotto e
+  // appoggiato su QUESTA card. Un esito buono la ripulisce.
+  const choiceFailed = (message: string) => onError(task.id, taskActionErrorMessage(message));
+  const choiceDone = () => { clearError(); onRefetch(); };
+
   // Route mutations by the task's own projectId (works in the global board too).
   const review = async (decision: 'approve' | 'reject', comment?: string) => {
     if (busy) return;
-    setBusy(true);
+    setBusy(true); clearError();
     try { await boardApi.review(task.projectId, task.id, decision, comment); setThread(null); setFreeText(''); onRefetch(); }
-    catch (e) { onError(e instanceof Error ? e.message : 'review failed'); }
+    catch (e) { fail(e, failedWord(decision === 'approve' ? 'accept' : 'send-back')); }
     finally { setBusy(false); }
   };
   // Answering a question re-kicks the same agent tab (server routes reject →
@@ -302,8 +343,15 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
       });
       if (!ok) return;
     }
+    clearError();
     try { await boardApi.archive(task.projectId, task.id); onRefetch(); }
-    catch (e) { onError(e instanceof Error ? e.message : 'archive failed'); }
+    catch (e) { fail(e, failedWord('drop')); }
+  };
+  // Il ritorno dall'archivio. Niente conferma: è il gesto che RIMETTE una card
+  // dove stava, e chi si pente riarchivia con lo stesso menu.
+  const restore = async () => {
+    try { await boardApi.restore(task.projectId, task.id); onRefetch(); }
+    catch (e) { fail(e, failedWord('restore')); }
   };
   // «Aspetta» senza buttare via: interrompe il turno e basta. Prima l'unica
   // voce del menu era «Archivia», che su un task vivo chiede «Archivia e
@@ -314,9 +362,9 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
   // dove stava andando, non farlo ripartire mentre guarda.
   const stop = async () => {
     if (busy) return;
-    setBusy(true);
+    setBusy(true); clearError();
     try { await boardApi.stop(task.projectId, task.id); onRefetch(); }
-    catch (e) { onError(e instanceof Error ? e.message : 'stop failed'); }
+    catch (e) { fail(e, failedWord('stop')); }
     finally { setBusy(false); }
   };
   // Steer a WORKING agent: a comment on an in_progress task is buffered by the
@@ -325,9 +373,9 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
   const steer = async (text: string) => {
     const v = text.trim();
     if (busy || !v) return;
-    setBusy(true);
+    setBusy(true); clearError();
     try { await boardApi.comment(task.projectId, task.id, v); setFreeText(''); onRefetch(); }
-    catch (e) { onError(e instanceof Error ? e.message : 'steer failed'); }
+    catch (e) { fail(e, 'Il messaggio non è partito'); }
     finally { setBusy(false); }
   };
   // Human-readable project label = the dirName prefix before the id hash.
@@ -672,7 +720,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
           message is buffered and handed to the agent at the next turn. */}
       {agentBusy && (
         <div className="mt-2 space-y-1.5" onClick={(e) => e.stopPropagation()}>
-          <TaskChoiceRow task={task} disabled={busy} onDone={onRefetch} onError={onError} />
+          <TaskChoiceRow task={task} disabled={busy} onDone={choiceDone} onError={choiceFailed} />
           <div className="flex items-center gap-1">
             <input
               ref={freeTextRef}
@@ -695,7 +743,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
           l'unico modo per muoverla è aprire il drawer e cercare il picker. */}
       {choiceState === 'blocked' && (
         <div className="mt-2" onClick={(e) => e.stopPropagation()}>
-          <TaskChoiceRow task={task} disabled={busy} onDone={onRefetch} onError={onError} />
+          <TaskChoiceRow task={task} disabled={busy} onDone={choiceDone} onError={choiceFailed} />
         </div>
       )}
       {/* OGNI card in review, non solo quelle di un agente. `showsQuestion`
@@ -762,7 +810,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
               invece che come due icone ✓/✗. Il campo libero resta sotto. */}
           <TaskChoiceRow
             task={task} disabled={busy}
-            onDone={onRefetch} onError={onError}
+            onDone={choiceDone} onError={choiceFailed}
             onNeedText={() => freeTextRef.current?.focus()}
           />
           <div className="flex items-center gap-1">
@@ -780,6 +828,28 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
               className="flex items-center gap-1 rounded-md bg-sky-500/80 px-2.5 py-1.5 text-xs text-white hover:bg-sky-500 disabled:opacity-50"
             ><Send className="h-3.5 w-3.5" /></button>
           </div>
+        </div>
+      )}
+      {/* Il perché il click non ha fatto niente, ATTACCATO al bottone che l'ha
+          preso: ultima riga della card, subito sotto le sue scelte. Prima
+          l'unico posto dove finiva era la barra rossa in cima al board, che con
+          la colonna scrollata è fuori dallo schermo: il caso vero è «Approva»
+          su un padre con sottotask aperti, e da lassù sembrava un bottone
+          morto. La checklist dei figli è già disegnata sopra, quindi qui basta
+          la frase: il rimedio si vede senza aprire niente. */}
+      {error && (
+        <div
+          data-testid="card-action-error"
+          onClick={(e) => e.stopPropagation()}
+          className="mt-2 flex items-start gap-1.5 rounded-md border border-rose-500/30 bg-rose-500/10 px-2 py-1.5 text-xs leading-snug text-rose-300"
+        >
+          <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+          <span className="min-w-0 flex-1 break-words">{error}</span>
+          <button
+            aria-label="Chiudi l'errore"
+            onClick={clearError}
+            className="shrink-0 rounded p-0.5 hover:bg-white/10"
+          ><X className="h-3 w-3" /></button>
         </div>
       )}
       {ctxMenu && (
@@ -832,12 +902,21 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
             </>
           )}
           <div className={POPOVER_DIVIDER} />
-          <button
-            role="menuitem"
-            onClick={(e) => { e.stopPropagation(); setCtxMenu(null); archive(); }}
-            title={dropWord.title}
-            className={POPOVER_ITEM_DANGER}
-          ><Trash2 className="h-3.5 w-3.5" /> {dropWord.label}</button>
+          {archived ? (
+            <button
+              role="menuitem"
+              onClick={(e) => { e.stopPropagation(); setCtxMenu(null); restore(); }}
+              title={restoreWord.title}
+              className={POPOVER_ITEM}
+            ><ArchiveRestore className="h-3.5 w-3.5 text-app-text-secondary" /> {restoreWord.label}</button>
+          ) : (
+            <button
+              role="menuitem"
+              onClick={(e) => { e.stopPropagation(); setCtxMenu(null); archive(); }}
+              title={dropWord.title}
+              className={POPOVER_ITEM_DANGER}
+            ><Trash2 className="h-3.5 w-3.5" /> {dropWord.label}</button>
+          )}
         </ContextMenuPortal>
       )}
     </div>
