@@ -9,7 +9,6 @@
 import { describe, test, expect } from 'bun:test';
 import {
   commentAuthorLabel,
-  isAgentAuthor,
   AGENT_AUTHOR,
   AGENT_AUTHOR_PREFIX,
   AUTHOR_NAME_MAX_CHARS,
@@ -172,14 +171,16 @@ describe('commentAuthorLabel — the 404 stored topic names', () => {
   });
 });
 
-describe('isAgentAuthor', () => {
-  test('separates the machine roles from anything that speaks for an agent', () => {
-    expect(isAgentAuthor('user')).toBe(false);
-    expect(isAgentAuthor('system')).toBe(false);
-    expect(isAgentAuthor('dispatcher')).toBe(false);
-    expect(isAgentAuthor('verifier')).toBe(false);
-    expect(isAgentAuthor(CUT_TITLE)).toBe(true);
-    expect(isAgentAuthor(`${AGENT_AUTHOR_PREFIX}f2847a1c`)).toBe(true);
-    expect(isAgentAuthor('claude')).toBe(true);
+describe('commentAuthorLabel — kind', () => {
+  test('separates the board roles from anything that speaks for an agent', () => {
+    expect(commentAuthorLabel('user').kind).toBe('user');
+    expect(commentAuthorLabel('system').kind).toBe('system');
+    expect(commentAuthorLabel('dispatcher').kind).toBe('dispatcher');
+    expect(commentAuthorLabel('verifier').kind).toBe('verifier');
+    // Everything else speaks for an agent, whatever the stored string looks like.
+    expect(commentAuthorLabel(CUT_TITLE).kind).toBe('agent');
+    expect(commentAuthorLabel(`${AGENT_AUTHOR_PREFIX}f2847a1c`).kind).toBe('agent');
+    expect(commentAuthorLabel('claude').kind).toBe('agent');
+    expect(commentAuthorLabel('').kind).toBe('agent');
   });
 });
