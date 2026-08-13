@@ -30,7 +30,8 @@ import { UnifiedDiff } from './UnifiedDiff';
 import { collectTaskMediaPaths } from './taskMedia';
 import { TaskChoiceRow } from './TaskChoiceRow';
 import { usableQuestionOptions } from './taskChoices';
-import { taskActionWord } from './taskActionWords';
+import { acceptWord, drawerSurfaceLabels, sendBackWord as sendBackWordFor, taskActionWord } from './taskActionWords';
+import { manualStatusTarget } from '../../lib/boardOrder';
 import { formatReviewNotes } from './reviewNotes';
 import { COMPACT_MD_CLS, PLAN_MD_CLS, PRIORITY_DOT, PRIORITY_LABEL, PRIORITY_ORDER, DISPATCH_CHIP, EFFORTS, FANOUT_CHOICES, mediaPaneIdFor, type TaskSurface } from './constants';
 import { friendlyModelLabel, fmtModel, commentTime, fmtMs, fmtLive, fmtTok, fmtUpdatedAt, autoGrow, attemptStat, taskCopyText, descSummary, fmtCount } from './format';
@@ -534,15 +535,19 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
 }) {
   const tr = useT();
   const locale = useLocale();
-  // Le tre azioni che il drawer disegna con bottoni SUOI, più grandi, invece di
-  // lasciarle alla riga di scelte. Le parole sono quelle della card, dalla
-  // stessa tabella: un'azione, una parola, ovunque la si prema.
-  const approveWord = taskActionWord('accept', tr);
-  const sendBackWord = taskActionWord('send-back', tr);
+  // The three actions the drawer draws with buttons of ITS OWN, bigger, instead
+  // of leaving them to the choice row. The words are the card's, from the same
+  // table: one action, one word, wherever you press it.
+  //
+  // `approveWord` and `sendBackWord` are computed further down, where the task
+  // is loaded: both change with the card's state (red checks rename Approva,
+  // a review with no agent has no agent to send anything back to) and a word
+  // that changes on screen has to change in the table, or the de-duplicator
+  // subtracts the wrong one.
   const landWord = taskActionWord('land', tr);
-  // Il drawer ha anche il suo «Ferma», accanto ai puntini dell'agente al
-  // lavoro: stessa azione del menu della card e della riga di scelte, quindi
-  // stessa parola e stesso tooltip (che nomina Backlog, dove il task finisce).
+  // The drawer has its own «Ferma» too, next to the working agent's dots: same
+  // action as the card's context menu and the choice row, therefore the same
+  // word and the same tooltip (which names Backlog, where the task ends up).
   const stopWord = taskActionWord('stop', tr);
   // Le tab del task, lette QUI e non dalla `browser` più in basso: il manifesto
   // serve a callback definiti molto prima di quel hook.
@@ -590,6 +595,12 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   // behind the drawer. The 409 open_subtasks on Approva is the load-bearing
   // case: swallowing it made the click look dead.
   const [error, setError] = useState<string | null>(null);
+  /**
+   * A move that did NOT land where it was aimed. The board's own band, one
+   * level in: nothing failed, so it is not an error, and the sentence is the
+   * same one the column drag shows, from the same key.
+   */
+  const [notice, setNotice] = useState<string | null>(null);
   /** La ricevuta del land chiesto da QUESTO client, finché non si chiude. */
   const [landing, setLanding] = useState<LandingTicket | null>(null);
   const showError = (e: unknown) => {
@@ -733,6 +744,13 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
     [comments, task],
   );
   const isAgentReview = !!task && task.status === 'review' && !!task.assignedTopicId;
+  // The two words that depend on the card. `acceptWord` renames itself when the
+  // pre-review checks are red; `sendBackWord` keeps the word and swaps the
+  // tooltip when there is no agent to go back TO — a review a human filed by
+  // hand has no tab that "restarts", and the tooltip that promised one was
+  // naming a destination that does not exist.
+  const approveWord = acceptWord(task?.checksState === 'fail', tr);
+  const sendBackWord = sendBackWordFor(isAgentReview, tr);
   // Pending question = the agent's last word is a question block: its options
   // render as quick-reply buttons right above the composer (same zone as the
   // review actions), mirroring the card.
@@ -754,18 +772,17 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   // ON ITS OWN, which is what `surfaceLabels` carries. Without it a question
   // block offering «Approva» drew a twin of the real Approva that REJECTED the
   // card (comment 2eff6a44).
+  //
+  // The list is not written out here: `drawerSurfaceLabels` computes it from
+  // the same table and the same card state the buttons below render from. Spelt
+  // out by hand it went stale the moment a button changed word — with red
+  // checks the button says «Approva comunque» while this list still said
+  // «Approva», so the twin came back.
   const replyOptions = useMemo(
     () => (pending && task
-      ? usableQuestionOptions(task, pending.options, {
-        t: tr,
-        surfaceLabels: [
-          approveWord.label,
-          sendBackWord.label,
-          ...(isAgentReview ? [landWord.label] : []),
-        ],
-      })
+      ? usableQuestionOptions(task, pending.options, { t: tr, surfaceLabels: drawerSurfaceLabels(task, tr) })
       : []),
-    [pending, task, tr, isAgentReview, approveWord.label, sendBackWord.label, landWord.label],
+    [pending, task, tr],
   );
   // QUALE commento è il piano. Il task lo PUNTA (`planCommentId`, scritto dal
   // server quando il piano arriva secondo protocollo): non è più «l'ultimo
@@ -947,16 +964,34 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
     if (e.key === 'Escape') { editCancelled.current = true; (e.target as HTMLElement).blur(); }
   };
 
-  // Status selector (header chip): the drawer can move the task directly —
-  // same PATCH the column drag uses, same server guards (open_subtasks…).
+  // Status selector (header chip): the drawer can move the task directly, with
+  // the same server guards as the drag (open_subtasks…) AND the same client
+  // rule about In Progress (`manualStatusTarget`).
+  //
+  // The rule was not here before, and this menu lists every status, so it was
+  // the widest of the three doors into the black hole: one click from the
+  // drawer put a card with no agent into a column nothing collects. The drag
+  // was fixed alone, which is how the comment that used to sit here ("same
+  // PATCH the column drag uses") became false without anything failing.
   const statusBtnRef = useRef<HTMLButtonElement>(null);
   const [statusMenuOpen, setStatusMenuOpen] = useState(false);
   const changeStatus = async (s: TaskStatus) => {
     setStatusMenuOpen(false);
     if (!task || s === task.status || busy) return;
+    const aim = manualStatusTarget(s, task);
+    if (aim.status === task.status) {
+      // Already there: nothing to write, and the human still asked for
+      // something that did not happen the way they asked.
+      setNotice(aim.redirectedFrom ? tr('board.drop.inProgressRedirected') : null);
+      return;
+    }
     setBusy(true);
-    try { await boardApi.update(projectId, taskId, { status: s }); setError(null); await load(); onChanged(); }
-    catch (e) { showError(e); }
+    try {
+      await boardApi.update(projectId, taskId, { status: aim.status });
+      setNotice(aim.redirectedFrom ? tr('board.drop.inProgressRedirected') : null);
+      setError(null); await load(); onChanged();
+    }
+    catch (e) { setNotice(null); showError(e); }
     finally { setBusy(false); }
   };
 
@@ -1621,6 +1656,15 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
           <button aria-label={tr('board.task.closeError')} onClick={() => setError(null)} className="shrink-0 rounded p-0.5 hover:bg-white/10"><X className="h-3 w-3" /></button>
         </div>
       )}
+      {notice && (
+        <div
+          data-testid="task-detail-notice"
+          className="flex shrink-0 items-start justify-between gap-2 border-b border-sky-500/20 bg-sky-500/10 px-3 py-1.5 text-[11px] text-sky-300"
+        >
+          <span>{notice}</span>
+          <button aria-label={tr('board.task.closeError')} onClick={() => setNotice(null)} className="shrink-0 rounded p-0.5 hover:bg-white/10"><X className="h-3 w-3" /></button>
+        </div>
+      )}
       {/* Land ACCODATO, non ancora avvenuto. Sta sopra la banda «non su main»
           perché in questa finestra quella banda dice il vero ma non dice tutto:
           il codice non è su main E qualcuno ci sta già lavorando. */}
@@ -2268,17 +2312,18 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 <SystemDeliveryNotice task={task} />
                 <ChecksSection task={task} />
                 <div className="flex items-center gap-1.5">
+                  {/* Word AND tooltip come from `acceptWord`, which already
+                      knows about the red checks: the button cannot say one
+                      thing while the de-duplicator subtracts another. */}
                   <button
                     disabled={busy} onClick={() => decide('approve', { force: task.checksState === 'fail' })}
-                    title={task.checksState === 'fail'
-                      ? tr('board.task.approveFailTitle', { sendBack: sendBackWord.label })
-                      : approveWord.title}
+                    title={approveWord.title}
                     className={`flex flex-1 items-center justify-center gap-1.5 rounded px-2.5 py-1.5 text-xs font-medium text-white disabled:opacity-50 ${
                       task.checksState === 'fail'
                         ? 'bg-amber-600/80 hover:bg-amber-600'
                         : 'bg-emerald-500/80 hover:bg-emerald-500'
                     }`}
-                  >{busy ? <Spinner size="sm" tone="current" /> : <ShieldCheck className="h-3.5 w-3.5" />} {task.checksState === 'fail' ? tr('board.task.approveAnyway') : approveWord.label}</button>
+                  >{busy ? <Spinner size="sm" tone="current" /> : <ShieldCheck className="h-3.5 w-3.5" />} {approveWord.label}</button>
                   <button
                     disabled={busy} onClick={() => decide('reject')}
                     title={sendBackWord.title}

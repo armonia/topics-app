@@ -29,6 +29,7 @@
  */
 
 import { t as translate, FALLBACK_LOCALE } from '../../lib/i18n';
+import type { BoardTask } from '../../lib/board';
 
 /**
  * Everything a task surface can offer. Same id space as `TaskChoiceId` in
@@ -99,4 +100,80 @@ export function unblockWord(blockerName: string | null, tr: Translate = fallback
     label: tr('board.action.unblock.named', { name: blockerName }),
     title: tr('board.action.unblock.namedTitle', { name: blockerName }),
   };
+}
+
+/**
+ * `accept` with the pre-review checks RED. The button changes word there
+ * («Approva comunque»), and that word used to live outside this table as a
+ * loose `board.task.approveAnyway` key.
+ *
+ * Being outside had a measured cost: the de-duplicator was handed the plain
+ * «Approva» as the word on screen, so a quick reply reading «Approva comunque»
+ * was left sitting next to the identical real button. Pressing the reply does
+ * the OPPOSITE (it rejects, and restarts the agent with those words). A word
+ * this table does not know is a word the de-duplicator cannot subtract.
+ */
+export function acceptWord(checksFailed: boolean, tr: Translate = fallbackTranslate): TaskActionWord {
+  if (!checksFailed) return taskActionWord('accept', tr);
+  return {
+    label: tr('board.action.accept.anyway'),
+    title: tr('board.action.accept.anyway.title', { sendBack: tr(KEYS['send-back'].label) }),
+  };
+}
+
+/**
+ * `send-back` and `redo` both promise a destination, and on a review card with
+ * NO agent that destination does not exist: nothing "restarts on the same tab",
+ * because there is no tab. The card goes back to In Progress with the human
+ * holding it, which is a different sentence and the one the tooltip must say.
+ *
+ * Same LABEL either way: one word per action is the whole point, and the word
+ * is not what was lying. Only the tooltip splits.
+ */
+export function sendBackWord(toAgent: boolean, tr: Translate = fallbackTranslate): TaskActionWord {
+  if (toAgent) return taskActionWord('send-back', tr);
+  return { label: tr(KEYS['send-back'].label), title: tr('board.action.sendBack.noAgent.title') };
+}
+
+export function redoWord(toAgent: boolean, tr: Translate = fallbackTranslate): TaskActionWord {
+  if (toAgent) return taskActionWord('redo', tr);
+  return { label: tr(KEYS.redo.label), title: tr('board.action.redo.noAgent.title') };
+}
+
+/**
+ * Every word one action answers to on this screen: the translated one the human
+ * reads, plus the fallback-locale one.
+ *
+ * The second is not redundancy. A quick reply is written by the AGENT, in the
+ * fallback locale by construction — the server matches `LAND_ACTION_LABEL`
+ * ("Landa su main") by value, untranslated, and the envelope is written in that
+ * language too. Under locale `en` the button reads "Land on main", so comparing
+ * only the surface word let the twin back onto the screen: the de-duplicator
+ * has to know both names of the same door.
+ */
+export function taskActionAliases(word: TaskActionWord, fallback: TaskActionWord): string[] {
+  return word.label === fallback.label ? [word.label] : [word.label, fallback.label];
+}
+
+/**
+ * The words the DRAWER draws with buttons of ITS OWN, above the choice row.
+ *
+ * It exists so the de-duplicator and the JSX cannot disagree: both call this,
+ * so a button whose word depends on the card's state (red checks turn Approva
+ * into «Approva comunque») cannot be renamed on screen while the de-duplicator
+ * still subtracts the old word. That exact gap left a twin «Approva comunque»
+ * next to the real one.
+ */
+export function drawerSurfaceLabels(
+  task: Pick<BoardTask, 'status' | 'assignedTopicId' | 'checksState'>,
+  tr: Translate = fallbackTranslate,
+): string[] {
+  const isAgentReview = task.status === 'review' && !!task.assignedTopicId;
+  const failed = task.checksState === 'fail';
+  const out = [
+    ...taskActionAliases(acceptWord(failed, tr), acceptWord(failed)),
+    ...taskActionAliases(sendBackWord(isAgentReview, tr), sendBackWord(isAgentReview)),
+    ...(isAgentReview ? taskActionAliases(taskActionWord('land', tr), taskActionWord('land')) : []),
+  ];
+  return [...new Set(out)];
 }
