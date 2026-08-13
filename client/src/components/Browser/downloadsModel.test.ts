@@ -5,6 +5,9 @@ import {
   capDownloads,
   displayName,
   formatSize,
+  formatProgress,
+  downloadPercent,
+  applyDownloadProgress,
   MAX_DOWNLOAD_ENTRIES,
   type DownloadEntry,
   type DownloadEventIn,
@@ -112,5 +115,67 @@ describe('activeCount / formatSize', () => {
     expect(formatSize(0)).toBe('0 B');
     expect(formatSize(4096)).toBe('4 KB');
     expect(formatSize(1_572_864)).toBe('1.5 MB');
+  });
+});
+
+describe('avanzamento', () => {
+  const progressing: DownloadEntry = { id: '1', url: 'u', filename: 'a.zip', state: 'progressing' };
+
+  test('la misura entra nella voce in corso', () => {
+    const out = applyDownloadProgress([progressing], [{ id: '1', received: 500, total: 1000 }]);
+    expect(out[0].received).toBe(500);
+    expect(out[0].total).toBe(1000);
+  });
+
+  test('una voce FINITA non si tocca: i byte sul disco non sono piu\' un avanzamento', () => {
+    const list: DownloadEntry[] = [{ ...progressing, state: 'completed' }];
+    const out = applyDownloadProgress(list, [{ id: '1', received: 999, total: 1000 }]);
+    expect(out[0].received).toBeUndefined();
+    expect(out).toBe(list);
+  });
+
+  test('misura di un id sconosciuto: scartata, non diventa una riga', () => {
+    const list = [progressing];
+    const out = applyDownloadProgress(list, [{ id: 'altro', received: 10, total: 20 }]);
+    expect(out).toHaveLength(1);
+    expect(out[0].received).toBeUndefined();
+    expect(out).toBe(list);
+  });
+
+  test('niente di nuovo ⇒ STESSA lista, cosi\' il menu non si ridisegna', () => {
+    const list = [{ ...progressing, received: 500, total: 1000 }];
+    expect(applyDownloadProgress(list, [{ id: '1', received: 500, total: 1000 }])).toBe(list);
+    expect(applyDownloadProgress(list, [])).toBe(list);
+  });
+
+  test('i valori negativi del Rust valgono «non lo so»: si tiene il vecchio', () => {
+    const list = [{ ...progressing, received: 500, total: 1000 }];
+    const out = applyDownloadProgress(list, [{ id: '1', received: -1, total: -1 }]);
+    expect(out[0].received).toBe(500);
+    expect(out[0].total).toBe(1000);
+  });
+
+  test('la percentuale esiste solo con un totale vero', () => {
+    expect(downloadPercent({ received: 500, total: 1000 })).toBe(50);
+    expect(downloadPercent({ received: 0, total: 1000 })).toBe(0);
+    expect(downloadPercent({ received: 500, total: undefined })).toBeUndefined();
+    expect(downloadPercent({ received: undefined, total: 1000 })).toBeUndefined();
+    expect(downloadPercent({ received: 500, total: 0 })).toBeUndefined();
+    expect(downloadPercent({ received: 500, total: -1 })).toBeUndefined();
+  });
+
+  test('arrotonda per DIFETTO e non esce mai da 0..100', () => {
+    // 999/1000 e' 99,9%: mostrarlo come 100% farebbe sembrare fermo un download
+    // che sta ancora scrivendo.
+    expect(downloadPercent({ received: 999, total: 1000 })).toBe(99);
+    // Il file sul disco puo' superare il totale STIMATO dall'xattr: la barra si
+    // ferma a 100 invece di sfondare.
+    expect(downloadPercent({ received: 1200, total: 1000 })).toBe(100);
+  });
+
+  test('il dettaglio dice i byte, e il totale solo quando c\'e\'', () => {
+    expect(formatProgress({ received: 1_572_864, total: 3_145_728 })).toBe('1.5 MB di 3 MB');
+    expect(formatProgress({ received: 1_572_864, total: undefined })).toBe('1.5 MB');
+    expect(formatProgress({ received: undefined, total: 1000 })).toBeUndefined();
   });
 });

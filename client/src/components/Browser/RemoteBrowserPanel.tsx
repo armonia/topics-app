@@ -16,7 +16,7 @@ import { BrowserPaneChip, ChipDot, type ChipTone } from './BrowserPaneChip';
 import { useBrowserDownloads } from '../../hooks/useBrowserDownloads';
 import type { DownloadsMenuProps } from './DownloadsMenu';
 import { PaneContextMenu } from './PaneContextMenu';
-import { formatSize } from './downloadsModel';
+import { formatSize, formatProgress, downloadPercent } from './downloadsModel';
 import { stepMatchIndex, formatMatchCounter } from './findInPageModel';
 import { useBrowserSpawner } from '../../state/browserSpawner';
 import { signalsActions } from '../../state/signals';
@@ -296,13 +296,18 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
   // Le voci native portano un path su QUESTO computer: si aprono e si mostrano
   // nel Finder. `detail` è il path stesso — «dov'è finito» è la domanda che la
   // vecchia striscia non rispondeva.
+  //
+  // MENTRE scarica quella domanda però non è ancora la sua: il path esiste ma il
+  // file è a metà, e ciò che si vuole sapere è quanto manca. Il dettaglio diventa
+  // «3,2 MB di 10 MB» finché è in corso, e torna a essere il path appena finisce.
   const downloads = useMemo<DownloadsMenuProps>(() => ({
     items: dl.downloads.map((d) => ({
       id: d.id,
       filename: d.filename,
       state: d.state,
-      detail: d.savedPath,
+      detail: (d.state === 'progressing' ? formatProgress(d) : undefined) ?? d.savedPath,
       savedPath: d.savedPath,
+      percent: d.state === 'progressing' ? downloadPercent(d) : undefined,
     })),
     activeCount: dl.activeCount,
     startedCount: dl.startedCount,
