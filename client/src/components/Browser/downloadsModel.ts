@@ -26,6 +26,21 @@ export interface DownloadEntry {
   filename: string;
   state: DownloadState;
   savedPath?: string;
+  /** Byte gia' sul disco. Il Rust li legge dalla dimensione del file che
+   *  WKDownload sta scrivendo, quindi non c'e' nessuna seconda richiesta al
+   *  server. Assente = non ancora misurati. */
+  received?: number;
+  /** Byte totali attesi, quando il sistema li dice. Assente di proposito quando
+   *  non si sanno: e' cio' che distingue una barra vera da una inventata. */
+  total?: number;
+}
+
+/** Una misura come arriva da `browser_download_progress`. `total` vale -1 quando
+ *  il totale non e' conoscibile senza richiedere di nuovo il file. */
+export interface DownloadProgressIn {
+  id: string;
+  received: number;
+  total: number;
 }
 
 /** Un evento come arriva da `browser_take_download_events`. */
@@ -129,6 +144,66 @@ export function formatSize(bytes?: number): string | undefined {
   let i = 0;
   while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
   return `${v >= 10 || Number.isInteger(v) ? Math.round(v) : v.toFixed(1)} ${units[i]}`;
+}
+
+/**
+ * Le misure di avanzamento entrano nell'elenco.
+ *
+ * Tocca SOLO le voci ancora in corso. Una voce finita ha gia' la sua risposta
+ * («Completato» e il path), e il file sul disco continuerebbe a rispondere alla
+ * domanda sbagliata: dopo la fine i byte letti sono la dimensione finale, non un
+ * avanzamento. Una misura senza voce viene scartata invece di creare una riga:
+ * l'elenco nasce dagli eventi, e un id che non conosciamo e' un download di una
+ * pane che non e' piu' questa.
+ *
+ * Ritorna la STESSA lista quando niente e' cambiato. Questo poll gira ogni
+ * secondo e la sua risposta e' quasi sempre identica alla precedente: un array
+ * nuovo a ogni giro farebbe ridisegnare il menu per nulla.
+ */
+export function applyDownloadProgress(list: DownloadEntry[], msgs: DownloadProgressIn[]): DownloadEntry[] {
+  if (!msgs.length) return list;
+  let changed = false;
+  const out = list.map((d) => {
+    if (d.state !== 'progressing') return d;
+    const m = msgs.find((x) => x.id === d.id);
+    if (!m) return d;
+    // Sotto zero e' il modo con cui il Rust dice «non lo so»: il file non c'e'
+    // ancora, oppure il totale non e' ricavabile. Si tiene il valore di prima.
+    const received = Number.isFinite(m.received) && m.received >= 0 ? m.received : d.received;
+    const total = Number.isFinite(m.total) && m.total > 0 ? m.total : d.total;
+    if (received === d.received && total === d.total) return d;
+    changed = true;
+    return { ...d, received, total };
+  });
+  return changed ? out : list;
+}
+
+/**
+ * La percentuale da mostrare, 0..100 intera, oppure `undefined`.
+ *
+ * `undefined` non e' un caso di errore, e' meta' della funzione: senza totale la
+ * barra non si puo' disegnare, e il menu mostra i byte trasferiti. Il Rust
+ * rinuncia al totale ogni volta che dovrebbe indovinarlo, e questa regola tiene
+ * quella scelta fino allo schermo. Si arrotonda per DIFETTO: un «100%» su un
+ * download ancora in corso e' il modo piu' rapido di far sembrare bloccata una
+ * cosa che sta funzionando.
+ */
+export function downloadPercent(d: Pick<DownloadEntry, 'received' | 'total'>): number | undefined {
+  const total = d.total;
+  const received = d.received;
+  if (!total || !Number.isFinite(total) || total <= 0) return undefined;
+  if (received === undefined || !Number.isFinite(received) || received < 0) return undefined;
+  return Math.max(0, Math.min(100, Math.floor((received / total) * 100)));
+}
+
+/** «3,2 MB di 10 MB», oppure i soli byte trasferiti quando il totale non si sa,
+ *  oppure `undefined` quando non c'e' ancora niente da dire. E' la riga di
+ *  dettaglio di una voce in corso. */
+export function formatProgress(d: Pick<DownloadEntry, 'received' | 'total'>): string | undefined {
+  const got = formatSize(d.received);
+  if (got === undefined) return undefined;
+  const all = d.total !== undefined && d.total > 0 ? formatSize(d.total) : undefined;
+  return all ? `${got} di ${all}` : got;
 }
 
 /** Quanti sono ancora in corso — è il numero che va sul bottone della toolbar. */
