@@ -1,10 +1,10 @@
 {
-  "at": "2026-08-11T17:51:42.720Z",
+  "at": "2026-08-11T00:00:00.000Z",
   "project": "topics-app",
   "cards": [
     {
-      "id": "d6baaf5e-3af1-453f-9495-515c344c44f6",
-      "text": "Piano (rev. 2): amicizia fra installazioni, scrittura per-sessione, presenza per persona, incognito",
+      "id": "0a1b2c01-4d5e-4f60-8a90-b1c2d3e4f501",
+      "text": "Piano: sincronizzazione dello stato fra piu installazioni",
       "basis": "own-commits",
       "files": [
         "docs/PIANO-amicizia-sessioni.md"
@@ -12,8 +12,8 @@
       "expected": "decisione"
     },
     {
-      "id": "54601eeb-dd73-4fe2-b0f6-f17ecb328b64",
-      "text": "Browser pane → browser completo: wiring engine-switch (estensioni Chrome) + findInPage nativo",
+      "id": "0a1b2c02-4d5e-4f60-8a90-b1c2d3e4f502",
+      "text": "Barra del browser: cambio motore e ricerca dentro la pagina",
       "basis": "own-commits",
       "files": [
         "client/src/components/Browser/BrowserToolbar.tsx",
@@ -26,15 +26,15 @@
       "expected": "visibile"
     },
     {
-      "id": "3bde1ab0-1e5c-4253-ab3c-757c7d37b1f0",
-      "text": "Voice loop board: annuncio vocale task→review + risposta vocale (approva/feedback/chiudi)",
+      "id": "0a1b2c03-4d5e-4f60-8a90-b1c2d3e4f503",
+      "text": "Comandi vocali sulla board: annuncio del task e risposta parlata",
       "basis": "own-commits-empty",
       "files": [],
       "expected": "decisione"
     },
     {
-      "id": "c8ea8173-2b84-4582-b947-773c300a0c4d",
-      "text": "Generative UI in chat (Fase 1): ricerca competitor + proposta approccio",
+      "id": "0a1b2c04-4d5e-4f60-8a90-b1c2d3e4f504",
+      "text": "Ricerca: componenti generativi in chat, confronto fra approcci",
       "basis": "own-commits",
       "files": [
         "docs/generative-ui-in-chat-research.md"
@@ -42,8 +42,8 @@
       "expected": "decisione"
     },
     {
-      "id": "08541fae-4c0f-4fa5-a1b6-6c01f970bd9c",
-      "text": "Orchestratore: una sessione con la board in contesto, non un pannello",
+      "id": "0a1b2c05-4d5e-4f60-8a90-b1c2d3e4f505",
+      "text": "Orchestratore: una sessione con la board nel contesto, non un pannello",
       "basis": "merge-commit",
       "files": [
         "client/src/components/Board/FloatingTaskComposer.tsx",
@@ -64,15 +64,15 @@
       "expected": "visibile"
     },
     {
-      "id": "5472e584-2539-4d77-8775-85cbd81950e5",
-      "text": "Ricostruire e installare Topics.app alla 2.2.99 (installata: 2.2.11)",
+      "id": "0a1b2c06-4d5e-4f60-8a90-b1c2d3e4f506",
+      "text": "Ricostruire e installare il pacchetto desktop alla versione corrente",
       "basis": "own-commits-empty",
       "files": [],
       "expected": "decisione"
     },
     {
-      "id": "4ec47331-75f0-43b2-89c7-e869092f81cd",
-      "text": "Il click mangiato all'angolo del tab bar era mezzo pixel di inset, non il movimento ridotto",
+      "id": "0a1b2c07-4d5e-4f60-8a90-b1c2d3e4f507",
+      "text": "Il click perso all'angolo della barra tab era mezzo pixel di inset",
       "basis": "merge-commit",
       "files": [
         "client/src/components/Layout/PaneTabBar.tsx",
@@ -84,8 +84,8 @@
       "expected": "visibile"
     },
     {
-      "id": "4b60cd83-af44-4456-aeb3-0f183823c912",
-      "text": "Banner di message:new: una porta sola, con mute/Focus e una consegna per messaggio",
+      "id": "0a1b2c08-4d5e-4f60-8a90-b1c2d3e4f508",
+      "text": "Banner dei messaggi nuovi: una porta sola e una consegna per messaggio",
       "basis": "merge-commit",
       "files": [
         "client/src/App.tsx",
@@ -100,8 +100,8 @@
       "expected": "visibile"
     },
     {
-      "id": "ff5c935e-9fa0-4433-ac14-0b7f4a4ed9cc",
-      "text": "Iscrizione Apple Developer Program come [azienda] (atto di Attilio) + procedura scritta",
+      "id": "0a1b2c09-4d5e-4f60-8a90-b1c2d3e4f509",
+      "text": "Firma del binario macOS: documentare la procedura di rilascio",
       "basis": "own-commits",
       "files": [
         "desktop-tauri/SIGNING.md"
@@ -109,8 +109,8 @@
       "expected": "decisione"
     },
     {
-      "id": "f3fe84b4-8da9-4b11-8023-c945b7db9fd3",
-      "text": "Pannello permessi: «Passa a libero» — consente ORA e libera la sessione, senza uscire dal turno",
+      "id": "0a1b2c10-4d5e-4f60-8a90-b1c2d3e4f510",
+      "text": "Pannello permessi: consentire adesso e liberare la sessione",
       "basis": "merge-commit",
       "files": [
         "client/src/components/Chat/ToolCallRow.tsx",
@@ -131,8 +131,8 @@
       "expected": "visibile"
     },
     {
-      "id": "e54a9be6-0df6-4b5d-bb70-3f434443fa9a",
-      "text": "Archiviare un task porta via le sue tab: purge di task-browser-tabs/layout + rilascio dei contesti",
+      "id": "0a1b2c11-4d5e-4f60-8a90-b1c2d3e4f511",
+      "text": "Archiviare un task porta via le sue tab: purge del layout e rilascio",
       "basis": "own-commits",
       "files": [
         "client/src/hooks/useTaskBrowserTabsSync.ts",
@@ -155,8 +155,8 @@
       "expected": "visibile"
     },
     {
-      "id": "2e6964cb-32bc-425b-9548-bef583d5ab94",
-      "text": "Browser dell'agent inline in chat: tool box invece di una pane vera",
+      "id": "0a1b2c12-4d5e-4f60-8a90-b1c2d3e4f512",
+      "text": "Browser dell'agent dentro la chat: riquadro tool invece di una pane",
       "basis": "own-commits",
       "files": [
         "openspec/changes/agent-inline-browser/design.md",
@@ -169,8 +169,8 @@
       "expected": "decisione"
     },
     {
-      "id": "7fb737a9-ad4c-4f05-9bce-332e7cf6b159",
-      "text": "Browser: cookie e flip fra WKWebView nativa e sessione condivisa — 3 guasti",
+      "id": "0a1b2c13-4d5e-4f60-8a90-b1c2d3e4f513",
+      "text": "Browser: cookie e passaggio fra webview nativa e sessione condivisa",
       "basis": "merge-commit",
       "files": [
         "client/src/components/Browser/RemoteBrowserPanel.tsx",
@@ -196,8 +196,8 @@
       "expected": "visibile"
     },
     {
-      "id": "d0777424-d78b-403c-9803-58137a5a41be",
-      "text": "Il drawer del task: la superficie su cui l'umano DECIDE",
+      "id": "0a1b2c14-4d5e-4f60-8a90-b1c2d3e4f514",
+      "text": "Il drawer del task: la superficie su cui una persona decide",
       "basis": "merge-commit",
       "files": [
         "client/src/components/Board/PreviewMedia.tsx",
@@ -216,8 +216,8 @@
       "expected": "visibile"
     },
     {
-      "id": "6495167f-71bb-46f6-92d7-cb3271f41b53",
-      "text": "Profilo: statistiche d'uso reali + Rich Presence Discord gestita da Topics",
+      "id": "0a1b2c15-4d5e-4f60-8a90-b1c2d3e4f515",
+      "text": "Profilo: statistiche d'uso reali e presenza sull'integrazione chat",
       "basis": "own-commits",
       "files": [
         "client/src/components/Settings/DiscordSection.tsx",
@@ -247,8 +247,8 @@
       "expected": "visibile"
     },
     {
-      "id": "4ad176f8-8b99-485f-b755-6f61debe8e79",
-      "text": "Il task appena creato si accende sulla board — e la board lo porta a schermo",
+      "id": "0a1b2c16-4d5e-4f60-8a90-b1c2d3e4f516",
+      "text": "Il task appena creato si accende sulla board e viene portato a schermo",
       "basis": "merge-commit",
       "files": [
         "client/src/components/Board/Card.tsx",
@@ -263,8 +263,8 @@
       "expected": "visibile"
     },
     {
-      "id": "c0479b3d-364d-4388-adad-45aa79c7a34c",
-      "text": "Dettatura e note vocali: STT su modelli SOTA con fallback",
+      "id": "0a1b2c17-4d5e-4f60-8a90-b1c2d3e4f517",
+      "text": "Dettatura e note vocali: trascrizione con motore di riserva",
       "basis": "merge-commit",
       "files": [
         ".env.example",
@@ -284,8 +284,8 @@
       "expected": "visibile"
     },
     {
-      "id": "0841a6b6-6bb9-49e7-b093-0b5b4a44e9f9",
-      "text": "Colonna Done: ordinata per chiusura (ultimo in cima) + flash sulla card appena chiusa",
+      "id": "0a1b2c18-4d5e-4f60-8a90-b1c2d3e4f518",
+      "text": "Colonna Done ordinata per chiusura, con flash sulla card appena chiusa",
       "basis": "merge-commit",
       "files": [
         "client/src/components/Board/Card.tsx",
@@ -300,8 +300,8 @@
       "expected": "visibile"
     },
     {
-      "id": "215a3449-afb5-4573-818f-64ee3e0842ea",
-      "text": "Il contatore «N in attesa» lo risolve il server (waitingOnCount), non la lista fetchata",
+      "id": "0a1b2c19-4d5e-4f60-8a90-b1c2d3e4f519",
+      "text": "Il contatore «N in attesa» lo risolve il server, non la lista sul client",
       "basis": "merge-commit",
       "files": [
         "client/src/components/Board/Card.tsx",
@@ -314,8 +314,8 @@
       "expected": "visibile"
     },
     {
-      "id": "799f5496-75b1-4713-9872-a0c51f2d37c4",
-      "text": "Una card che esce da Done lo dice (chip «riaperta»), e un agent non riapre ciò che hai chiuso tu",
+      "id": "0a1b2c20-4d5e-4f60-8a90-b1c2d3e4f520",
+      "text": "Una card che esce da Done lo dichiara con un chip «riaperta»",
       "basis": "merge-commit",
       "files": [
         "client/src/components/Board/Card.tsx",
@@ -339,8 +339,8 @@
       "expected": "visibile"
     },
     {
-      "id": "f42f66f4-29f4-4f59-b310-e5024823ca23",
-      "text": "Dettatura: prova end-to-end col microfono vero + clip video",
+      "id": "0a1b2c21-4d5e-4f60-8a90-b1c2d3e4f521",
+      "text": "Dettatura: prova end-to-end con un microfono finto e clip audio",
       "basis": "merge-commit",
       "files": [
         "scripts/probe-fake-mic.mjs",
@@ -350,8 +350,8 @@
       "expected": "invisibile"
     },
     {
-      "id": "5bfd7356-4c0a-4922-9695-0c37729fbba6",
-      "text": "L'orchestratore esce dalla board: sessione laterale opzionale, solo in dev, con missioni a preset",
+      "id": "0a1b2c22-4d5e-4f60-8a90-b1c2d3e4f522",
+      "text": "L'orchestratore esce dalla board: sessione laterale opzionale, solo in dev",
       "basis": "own-commits (congelato 2026-08-11)",
       "files": [
         "client/src/components/Board/FloatingTaskComposer.tsx",
@@ -378,8 +378,8 @@
       "expected": "visibile"
     },
     {
-      "id": "7943386d-9c13-478b-8757-e639e1d822a6",
-      "text": "Una card che non è chiusa deve offrire SCELTE, non solo un commento libero",
+      "id": "0a1b2c23-4d5e-4f60-8a90-b1c2d3e4f523",
+      "text": "Una card non chiusa offre SCELTE, non solo un commento libero",
       "basis": "own-commits",
       "files": [
         "client/src/components/Board/Card.tsx",
@@ -393,8 +393,8 @@
       "expected": "visibile"
     },
     {
-      "id": "e84dd070-8092-452d-9298-8dda5fec83f4",
-      "text": "La sonda del costo: contesto × chiamate, visibile mentre il turno lavora",
+      "id": "0a1b2c24-4d5e-4f60-8a90-b1c2d3e4f524",
+      "text": "La sonda del costo: contesto per chiamate, visibile mentre il turno lavora",
       "basis": "merge-commit",
       "files": [
         "client/src/components/Chat/ChatInput.tsx",
@@ -419,8 +419,8 @@
       "expected": "visibile"
     },
     {
-      "id": "aa3ec62b-b4db-4c33-9785-565f006eded2",
-      "text": "Dalla sidebar il drop ignorava la finestra su cui cadeva",
+      "id": "0a1b2c25-4d5e-4f60-8a90-b1c2d3e4f525",
+      "text": "Il drop dalla sidebar ignorava la finestra su cui cadeva",
       "basis": "merge-commit",
       "files": [
         "client/src/components/Layout/PanelGrid.tsx",
@@ -429,8 +429,8 @@
       "expected": "visibile"
     },
     {
-      "id": "000500e1-ccd2-4007-a630-ad946ad1c63c",
-      "text": "Bottone «Copia task» nell'anteprima del drawer Kanban",
+      "id": "0a1b2c26-4d5e-4f60-8a90-b1c2d3e4f526",
+      "text": "Bottone «Copia task» nell'anteprima del drawer della board",
       "basis": "merge-commit",
       "files": [
         "client/src/components/Board/Card.tsx",
@@ -443,7 +443,7 @@
       "expected": "visibile"
     },
     {
-      "id": "ad595633-a0f3-472b-a676-e5ac3cf6695d",
+      "id": "0a1b2c27-4d5e-4f60-8a90-b1c2d3e4f527",
       "text": "Download del browser: farli funzionare e spostarli in un menu dell'header",
       "basis": "merge-commit",
       "files": [
@@ -462,8 +462,8 @@
       "expected": "visibile"
     },
     {
-      "id": "7a1e147b-4a2e-4cd8-b46a-f43ab7349770",
-      "text": "Il 65% che il tetto non tocca è prefisso all'88% — e i due bracci del banco non erano confrontabili",
+      "id": "0a1b2c28-4d5e-4f60-8a90-b1c2d3e4f528",
+      "text": "Banco di misura del prefisso MCP: decomporre il costo per capability",
       "basis": "merge-commit",
       "files": [
         "knip.jsonc",
@@ -474,7 +474,7 @@
       "expected": "invisibile"
     },
     {
-      "id": "b8706bdc-4e02-423e-af0c-45ea857e2b5e",
+      "id": "0a1b2c29-4d5e-4f60-8a90-b1c2d3e4f529",
       "text": "open_browser_pane apriva un contesto vivo senza montare nessun pannello",
       "basis": "merge-commit",
       "files": [
