@@ -69,6 +69,28 @@ export interface BrowserConsoleEntry {
   source?: string;
 }
 
+/**
+ * Il bersaglio di un tasto destro DENTRO la pane nativa.
+ *
+ * Le coordinate sono quelle della FINESTRA dell'app, non della pagina: il menu è
+ * un nodo del DOM dell'app, e la conversione (origine dello slot, zoom,
+ * letterbox dell'emulazione) è già stata fatta da `paneToHostPoint`. Chi disegna
+ * il menu non deve saperne niente.
+ */
+export interface PaneContextTarget {
+  x: number;
+  y: number;
+  /** Primi 200 caratteri della selezione: dice SE mostrare «Copia», non cosa
+   *  copiare. Il testo intero lo rilegge `readSelection()` al click. */
+  selection: string;
+  /** href assoluto quando il click è caduto dentro un <a>, '' altrimenti. */
+  linkUrl: string;
+  /** src assoluto quando il click è caduto su un'immagine, '' altrimenti. */
+  imageUrl: string;
+  /** Cresce a ogni click destro: due click sullo stesso punto sono due menu. */
+  seq: number;
+}
+
 /** One entry of the page's back/forward navigation history. */
 export interface NavHistoryEntry {
   url: string;
@@ -154,9 +176,11 @@ export interface NativeBrowserHandle {
   /** Find in page (Cmd+F). Pass empty string + findNext=false to clear. */
   findInPage(text: string, options?: { forward?: boolean; matchCase?: boolean; findNext?: boolean }): Promise<void>;
   stopFind(): Promise<void>;
-  /** Optional — count case-insensitive matches of `text` in the page (Tauri pane,
-   *  where window.find gives no count). */
-  countMatches?(text: string): Promise<number>;
+  /** Optional — count matches of `text` in the page (Tauri pane, where
+   *  window.find gives no count). `matchCase` deve essere lo STESSO passato a
+   *  `findInPage`: il totale e la ricerca che ci cammina sopra sono due letture
+   *  della stessa cosa, e se non concordano il contatore «n/m» cicla in anticipo. */
+  countMatches?(text: string, options?: { matchCase?: boolean }): Promise<number>;
   /** Optional — inspect the element at page CSS coords (Tauri select-element). */
   inspectAt?(x: number, y: number): Promise<{
     cssPath: string;
@@ -164,6 +188,20 @@ export interface NativeBrowserHandle {
     bbox: { x: number; y: number; w: number; h: number };
     text: string;
   } | null>;
+  /** Optional — Tauri only. Un tasto destro raccolto DENTRO la pagina (il click
+   *  non raggiunge React: la vista nativa composita sopra il DOM), già mappato
+   *  nelle coordinate della finestra. Null quando non c'è nessun menu da aprire. */
+  paneContext?: PaneContextTarget | null;
+  /** Optional — la richiesta è stata consumata (menu chiuso o voce scelta). */
+  clearPaneContext?(): void;
+  /** Optional — la selezione INTERA della pagina, per la voce «Copia». Il campo
+   *  `selection` di `paneContext` è tagliato: serve a decidere, non a copiare. */
+  readSelection?(): Promise<string>;
+  /** Optional — i byte di un'immagine della pagina come data URL PNG, per la voce
+   *  «Copia immagine». Null quando il server dell'immagine non manda CORS (il
+   *  canvas resta contaminato) o l'estrazione non arriva in tempo: il chiamante
+   *  deve dirlo, non far finta di aver copiato. */
+  readImageDataUrl?(src: string): Promise<string | null>;
   /** Optional — Cmd+Shift+E select-element. On the Tauri pane the picking runs
    *  IN-PAGE (the native view sits above the DOM, so a React overlay can't catch
    *  the click); the hook dispatches `chat:insert-text` with the picked node. */
