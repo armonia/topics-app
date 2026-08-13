@@ -2,11 +2,11 @@ import { memo, useState, useEffect, useMemo, useRef } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { AlertTriangle, ArchiveRestore, ClipboardList, Copy, Hourglass, Lock, MessageSquare, Plus, RotateCcw, Send, ShieldCheck, Square, Trash2, UserRound, X } from 'lucide-react';
+import { AlertTriangle, ArchiveRestore, CircleSlash, ClipboardList, Copy, Hourglass, Lock, MessageSquare, Plus, RotateCcw, Send, ShieldCheck, Square, Trash2, UserRound, X } from 'lucide-react';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
-import { STATUS_LABEL, SYSTEM_DELIVERY_CHIP, blockedByChip, boardApi, commentAuthorLabel, isAgentWorking, isProjectlessId, parseQuestionBlock, reopenedChip, showsLandingDebt, subtaskWorkChip, systemDeliveryNote, waitingOnThisChip, whoCloses, type BoardTask, type TaskStatus } from '../../lib/board';
+import { STATUS_LABEL, SYSTEM_DELIVERY_CHIP, blockedByChip, boardApi, commentAuthorLabel, isAgentWorking, isProjectlessId, parseQuestionBlock, reopenedChip, showsLandingDebt, subtaskWorkChip, systemDeliveryChip, systemDeliveryNote, waitingOnThisChip, whoCloses, type BoardTask, type TaskStatus } from '../../lib/board';
 import { selectCardComments, type CardComments } from './cardComments';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useLongPress, openContextMenuAt } from '../../hooks/useLongPress';
@@ -417,8 +417,9 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   const checksRed = task.checksState === 'fail';
   // Solo in Review: lì la domanda è "cosa guardo?", e la risposta cambia se
   // nessun agent ha detto "fatto". Su una card done sarebbe archeologia (il
-  // drawer la conserva comunque).
-  const systemDelivered = task.status === 'review' && task.deliveredBy === 'system';
+  // drawer la conserva comunque). La regola sta in `lib/board.ts` come le altre
+  // due qui sotto: dentro il JSX nessun test unitario la raggiungeva.
+  const systemDelivered = systemDeliveryChip(task);
   // Il legame, non la lista: il chip nasce da `blockedByTaskId` + il bloccante
   // risolto dal server, così vale anche quando il bloccante non è fra i task
   // fetchati (sottotask, altro progetto, archiviato).
@@ -635,6 +636,19 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
           row renders only when at least one is present. */}
       {hasMetaRow && (
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+          {/* PRIMO della riga, e non per gravità: è l'unico chip che cambia la
+              DECISIONE. Gli altri dicono in che rapporti sta la card (aspetta,
+              la aspettano, ha un padre); questo dice che sotto può non esserci
+              niente da approvare, e va letto prima di guardare i bottoni.
+              L'icona non è la clessidra di «N la aspettano»: due fatti diversi
+              con lo stesso glifo si leggono come lo stesso fatto. */}
+          {systemDelivered && (
+            <span
+              data-testid="card-system-delivered"
+              title={systemDelivered.title}
+              className="flex items-center gap-1 rounded bg-amber-500/20 px-1.5 py-0.5 text-xs md:text-[11px] text-amber-300"
+            ><CircleSlash className="h-3 w-3 shrink-0" /> {systemDelivered.label}</span>
+          )}
           {blockedChip && (
             <span
               data-testid="card-blocked-by"
@@ -668,12 +682,6 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
               title={`${task.userCommentCount} ${task.userCommentCount === 1 ? 'tuo messaggio' : 'tuoi messaggi'} nel thread (esclusa l'AI)`}
               className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-xs md:text-[11px] text-app-text-heading"
             ><MessageSquare className="h-3 w-3 shrink-0" /> {task.userCommentCount}</span>
-          )}
-          {systemDelivered && (
-            <span
-              title={systemDeliveryNote(task.deliveredReason)}
-              className="flex items-center gap-1 rounded bg-amber-500/20 px-1.5 py-0.5 text-xs md:text-[11px] text-amber-300"
-            ><Hourglass className="h-3 w-3 shrink-0" /> {task.deliveredReason ? SYSTEM_DELIVERY_CHIP[task.deliveredReason] : 'non consegnato'}</span>
           )}
           {notLanded && (
             <span
