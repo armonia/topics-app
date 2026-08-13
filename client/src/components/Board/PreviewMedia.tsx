@@ -143,7 +143,12 @@ export function PreviewMedia({ path, variant, onOpenTab }: {
     ? 'block w-full max-h-[70cqw] rounded border border-app-border object-cover object-top'
     : video
       ? 'block w-full max-h-[min(280px,32vh)] rounded border border-app-border bg-black/20 object-contain'
-      : 'block w-full max-h-[min(70cqw,32vh)] rounded border border-app-border bg-black/20 object-cover object-top';
+      // 25vh, not 32: the drawer is a full-height side panel, measured at ~85% of
+      // the viewport (609px of 720 in DRAWER-01). At 32vh the preview took 37.6%
+      // of the drawer, so the "a SLICE of the drawer, not the drawer" guarantee
+      // above was false exactly where it was supposed to hold. 25vh keeps it
+      // under 30% with margin, and the px cap still governs tall windows.
+      : 'block w-full max-h-[min(70cqw,25vh)] rounded border border-app-border bg-black/20 object-cover object-top';
 
   // Terzo caso: un file che NESSUN elemento sa mostrare (un `.pdf`, un `.zip`
   // — roba fuori dai tre rami di `PREVIEW_RULE`). Prima finiva nel ramo `<img>`
