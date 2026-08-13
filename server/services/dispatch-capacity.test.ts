@@ -1,6 +1,6 @@
 import { test, expect, describe } from "bun:test";
 import { Database } from "bun:sqlite";
-import { computeDispatchCapacity, effectiveDispatchCap, readGlobalCap, sizingDispatchCap, structuralDispatchCapacity } from "./dispatch-capacity";
+import { DISPATCH_DISK_FLOOR_GB, computeDispatchCapacity, dispatchResourceBlock, effectiveDispatchCap, freeDiskGB, readGlobalCap, sizingDispatchCap, structuralDispatchCapacity } from "./dispatch-capacity";
 import { GLOBAL_CAP_MAX, GLOBAL_CAP_MIN, GLOBAL_CAP_OFF, clampGlobalCap, isGlobalCapOff } from "../../shared/board";
 
 function dbConImpostazioni(): Database {
@@ -140,5 +140,53 @@ describe("il tetto disattivato", () => {
     expect(isGlobalCapOff(off)).toBe(true);
     expect(isGlobalCapOff({ auto: true, max: 0 })).toBe(false);
     expect(isGlobalCapOff({ auto: false, max: 1 })).toBe(false);
+  });
+});
+
+/**
+ * IL PAVIMENTO. Esiste perché il tetto ora si può togliere: senza, «nessun
+ * limite» significa che la coda si ferma quando il disco è pieno, e un disco
+ * pieno non rallenta — fa fallire le scritture SQLite del server.
+ *
+ * Il verso di ogni caso è lo stesso: **non sapere non è un motivo per bloccare**.
+ * Una guardia che si chiude su una lettura fallita fermerebbe la board per un
+ * path sbagliato, cioè causerebbe un guasto peggiore di quello che previene.
+ */
+describe("il pavimento sulle risorse", () => {
+  test("con spazio non blocca", () => {
+    expect(dispatchResourceBlock("/")).toBeNull();
+  });
+
+  test("un path che non si legge NON blocca: non sapere non è sapere di no", () => {
+    expect(dispatchResourceBlock("/percorso/che/non/esiste/davvero")).toBeNull();
+    expect(freeDiskGB("/percorso/che/non/esiste/davvero")).toBeNull();
+  });
+
+  test("misura GB veri, non blocchi", () => {
+    const gb = freeDiskGB("/");
+    expect(gb).not.toBeNull();
+    // Un errore di unità qui (blocchi al posto di byte) darebbe un numero enorme
+    // e il pavimento non morderebbe mai — il modo silenzioso in cui una guardia
+    // diventa decorazione.
+    expect(gb!).toBeLessThan(100_000);
+    expect(gb!).toBeGreaterThan(0);
+  });
+
+  test("sotto il pavimento BLOCCA, e la frase porta il numero", () => {
+    // Misura iniettata: il caso che conta è il disco quasi pieno, e aspettarlo
+    // sul serio vorrebbe dire non provarlo mai.
+    const msg = dispatchResourceBlock("/qualunque", () => 3.5);
+    expect(msg).not.toBeNull();
+    expect(msg!).toContain("3.5 GB liberi");
+    expect(msg!).toContain(String(DISPATCH_DISK_FLOOR_GB));
+    // Una coda senza il perché è la coda invisibile: la frase deve dire anche
+    // che non si è perso niente, o chi legge pensa che la card sia morta.
+    expect(msg!).toContain("Riprendo");
+  });
+
+  test("un solo GB sopra il pavimento non blocca: la soglia è una soglia", () => {
+    expect(dispatchResourceBlock("/qualunque", () => DISPATCH_DISK_FLOOR_GB + 1)).toBeNull();
+    expect(dispatchResourceBlock("/qualunque", () => DISPATCH_DISK_FLOOR_GB)).toBeNull();
+    expect(dispatchResourceBlock("/qualunque", () => DISPATCH_DISK_FLOOR_GB - 0.1)).not.toBeNull();
   });
 });
