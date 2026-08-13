@@ -87,10 +87,7 @@ import { SERVER_VERSION, SERVER_PROTOCOL_VERSION, SERVER_CAPABILITIES } from "./
 import { createActivityRouter } from "./server/routes/activity";
 import { createDashboardRouter } from "./server/routes/dashboard";
 import { createAuthRouter, noteDeviceConnected, noteDeviceDisconnected } from "./server/routes/auth";
-import {
-  evaluateIdentity, isIdentityExemptPath, readSessionCookie, hashToken,
-  type DeviceRecord,
-} from "./server/lib/device-auth";
+import { evaluateIdentity, isIdentityExemptPath, readSessionCookie } from "./server/lib/device-auth";
 import { isGuestAllowedPath, isGuestAllowedMethod, isGuestSafeFrameType, isGuestHandshakeFrame, isGuestSocketData, frameResource } from "./server/lib/grants";
 import { hasGrant, holdsGrantOnTaskPreview, deviceP } from "./server/lib/grants-query";
 import { resolvePrincipals, principalsRev } from "./server/lib/principals";
@@ -4252,7 +4249,7 @@ function landingAuditDeps(listCandidates: () => AuditTask[], announce: boolean) 
     repoPath: (projectId: string) => resolveProjectPath(projectId, candidates)?.path ?? null,
     commitStatus: (repoPath: string, commit: string) => commitStatusFromRepo(repoPath, commit),
     // La seconda domanda, solo su chi la prima ha già dato per fuori: è lo
-    // STESSO conto di `check:landed`, che è il modo in cui la misura a mano e la
+    // STESSO conto di `report:landed`, che è il modo in cui la misura a mano e la
     // pastiglia sulla card non possono più dire due cose diverse.
     debtVerdict: async (task: AuditTask, repoPath: string): Promise<LandingState> => {
       const indiceMain = await indiceDi(repoPath);
