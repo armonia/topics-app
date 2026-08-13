@@ -3,8 +3,8 @@ import { Database } from "bun:sqlite";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { commentAsksHuman, createTaskService, isLandActionLabel, isPublishActionLabel, LAND_ACTION_LABEL, PUBLISH_ACTION_LABEL, projectIdForPath, TaskServiceError, type TaskService } from "./tasks";
-import { PARKED_WAITED_OUT, WAIT_SERIES_MAX_MS, WAIT_STREAK_CAP } from "../../shared/board";
+import { ARCHIVE_PARKED_LABEL, commentAsksHuman, createTaskService, isLandActionLabel, isPublishActionLabel, LAND_ACTION_LABEL, PUBLISH_ACTION_LABEL, projectIdForPath, REQUEUE_PARKED_LABEL, TaskServiceError, type TaskService } from "./tasks";
+import { PARKED_WAITED_OUT, WAIT_SERIES_MAX_MS, WAIT_STREAK_CAP, parseQuestionBlock } from "../../shared/board";
 import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL } from "../db/test-schema";
 
 describe("reserved action labels", () => {
@@ -22,26 +22,77 @@ describe("reserved action labels", () => {
     expect(isPublishActionLabel(LAND_ACTION_LABEL)).toBe(false); // land only, no push
     expect(isPublishActionLabel("")).toBe(false);
   });
+  // `isBoardActionLabel` and the option-level rule now live in shared/board.ts,
+  // because the client needs the same verdict for the review banner's title;
+  // they are pinned in shared/board.test.ts. What stays here is the TEXT-level
+  // entry point, which owns one rule of its own: the unparseable fence.
 });
 
+/**
+ * A DELIVERY THAT WEARS A QUESTION'S CLOTHES IS STILL A DELIVERY.
+ *
+ * The kickoff envelope orders a landable delivery to attach
+ * `options=["Landa su main"]`, and `addComment` wraps any options in a
+ * ```question fence. So every reader that asked "does this contain a question
+ * block" answered yes on finished work. Measured on 13/08 against the live
+ * board db: of the 437 agent comments carrying that fence, 331 are deliveries.
+ */
 describe("commentAsksHuman", () => {
-  const fence = (question: string, options: string[]) =>
+  /** Same shape addComment composes, so the test reads what production writes. */
+  const block = (question: string, ...options: string[]) =>
     ["```question", question, ...options.map((o) => `- ${o}`), "```"].join("\n");
 
-  test("una consegna con la sola azione di land NON è una domanda", () => {
-    expect(commentAsksHuman(fence("Fatto: pronto per la review.", [LAND_ACTION_LABEL]))).toBe(false);
-    expect(commentAsksHuman(fence("Consegna.", [LAND_ACTION_LABEL, PUBLISH_ACTION_LABEL]))).toBe(false);
+  test("a delivery whose only option is a board action is NOT a question", () => {
+    expect(commentAsksHuman(block("Fatto: sei cancelli verdi.", LAND_ACTION_LABEL))).toBe(false);
+    // Tolerant on the label, like the predicates it delegates to.
+    expect(commentAsksHuman(block("Fatto.", "🚀  landa su  main."))).toBe(false);
+    // The two answers to the parked-subtask stall come out the same way: the
+    // board runs both. That block is written by `author: 'system'`, and both
+    // readers of this predicate look at the AGENT's last word only, so the
+    // verdict never reaches a card. Pinned here so a future reader who wires
+    // this predicate to a system-authored surface sees what it says first.
+    expect(commentAsksHuman(block("Fermo su 2 sottotask.", REQUEUE_PARKED_LABEL, ARCHIVE_PARKED_LABEL))).toBe(false);
   });
 
-  test("basta un'opzione che non sia un'azione di consegna", () => {
-    expect(commentAsksHuman(fence("Lando su main?", [LAND_ACTION_LABEL, "Aspetta"]))).toBe(true);
-    expect(commentAsksHuman(fence("Quale dei due?", ["Uno", "Due"]))).toBe(true);
+  test("MIXED stays a question: one option the board cannot run needs a person", () => {
+    expect(commentAsksHuman(block("Ho finito, ma il nome del flag non mi convince.", LAND_ACTION_LABEL, "Aspetta, ho un dubbio"))).toBe(true);
+    expect(commentAsksHuman(block("Che approccio uso?", "JWT in cookie", "Bearer token"))).toBe(true);
+    // A plan waiting for its verdict is the case this must never swallow.
+    expect(commentAsksHuman(block("Ecco il piano.", "Approva il piano", "Da rivedere"))).toBe(true);
   });
 
-  test("una fence senza opzioni resta una domanda aperta; senza fence non si chiede niente", () => {
-    expect(commentAsksHuman(fence("Che faccio?", []))).toBe(true);
-    expect(commentAsksHuman("Ho finito, guarda il diff.")).toBe(false);
+  test("no options at all is still a question, and no block at all is not", () => {
+    expect(commentAsksHuman(block("E adesso?"))).toBe(true);
+    expect(commentAsksHuman("Fatto, guarda demo/. Niente da decidere.")).toBe(false);
+    expect(commentAsksHuman("")).toBe(false);
     expect(commentAsksHuman(null)).toBe(false);
+  });
+
+  test("prose around the block does not change the verdict", () => {
+    const testo = `Consegna: rifatto il gate.\n\n${block("Landa?", LAND_ACTION_LABEL)}`;
+    expect(commentAsksHuman(testo)).toBe(false);
+  });
+
+  /**
+   * AN UNREADABLE FENCE IS A QUESTION, and this is the regression that reading
+   * the parsed options alone would have introduced.
+   *
+   * `parseQuestionBlock` returns null for a body that is all bullets and no
+   * question line — a shape only a hand-written `comment_task` produces, since
+   * `addComment` composes the canonical block whenever `options` is non-empty.
+   * The rule this replaced was `content.includes("```question")`, so that shape
+   * counted as a question and was exempt from the two review gates. Falling
+   * through to "no block ⇒ delivery" would have given a legitimate mid-work
+   * question a `delivered` chip and two 409s.
+   */
+  test("a question fence that does not parse stays a question", () => {
+    const malformed = "```question\n- Sì\n- No\n```";
+    expect(parseQuestionBlock(malformed)).toBeNull(); // the shape, pinned
+    expect(commentAsksHuman(malformed)).toBe(true);
+    // An empty fence is the same story: there IS a fence, we just cannot read it.
+    expect(commentAsksHuman("Ho un dubbio.\n```question\n```")).toBe(true);
+    // And a fence that is not a question fence must not be swept in.
+    expect(commentAsksHuman("```ts\nconst x = 1;\n```")).toBe(false);
   });
 });
 
@@ -65,7 +116,10 @@ function freshDb(): Database {
     dispatch_use_worktree INTEGER NOT NULL DEFAULT 1, dispatch_timeout_min INTEGER NOT NULL DEFAULT 20,
     dispatch_mcp TEXT,
     dispatch_retry_cap INTEGER, dispatch_retry_backoff_s INTEGER, review_checks TEXT,
-    dispatch_fanout INTEGER
+    dispatch_fanout INTEGER,
+    -- migration 053: mancava qui, e senza di lei ogni lettura del tetto VERO
+    -- (riga '*', readGlobalCap) esplode invece di misurare.
+    max_agents_auto INTEGER
   )`);
   db.run(`CREATE TABLE task_comments (
     id TEXT PRIMARY KEY, task_id TEXT NOT NULL, author TEXT NOT NULL DEFAULT 'user',
@@ -982,19 +1036,33 @@ describe("board settings", () => {
   let db: Database; let s: TaskService;
   beforeEach(() => { db = freshDb(); s = svc(db); });
 
-  test("defaults when no row exists (auto off, cap 2, worktree on)", () => {
+  test("defaults when no row exists (auto off, worktree on)", () => {
     const bs = s.getBoardSettings(PID);
     expect(bs.autoDispatch).toBe(false);
-    expect(bs.maxAgents).toBe(2);
     expect(bs.dispatchEffort).toBe("medium");
     expect(bs.dispatchUseWorktree).toBe(true);
   });
 
+  // Il tetto NON è per board: la board non ne espone uno, e il default di
+  // un'installazione nuova è quello della riga '*' — auto, che è come la
+  // macchina si protegge da sé finché nessuno sceglie un numero.
+  test("il tetto di default è quello GLOBALE, non un campo della board", () => {
+    expect(s.getGlobalCap()).toEqual({ auto: true, max: 3 });
+  });
+
   test("upsert persists + clamps + reads back", () => {
-    const bs = s.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 99, dispatchTimeoutMin: 20 });
+    const bs = s.updateBoardSettings(PID, { autoDispatch: true, dispatchTimeoutMin: 999 });
     expect(bs.autoDispatch).toBe(true);
-    expect(bs.maxAgents).toBe(10); // clamped 1..10
+    expect(bs.dispatchTimeoutMin).toBe(120); // clamped 1..120
     expect(s.getBoardSettings(PID).autoDispatch).toBe(true);
+  });
+
+  // Il clamp del tetto viveva su un campo per board che non limitava niente:
+  // qui misura la leva che comanda davvero (riga '*'), e il suo intervallo è
+  // 1..20, non l'1..10 di quel campo morto.
+  test("il tetto si clampa dove vive DAVVERO: riga '*', 1..20", () => {
+    expect(s.setGlobalCap({ auto: false, max: 99 })).toEqual({ auto: false, max: 20 });
+    expect(s.getGlobalCap()).toEqual({ auto: false, max: 20 });
   });
 
   test("rejects an invalid effort", () => {
@@ -1024,10 +1092,22 @@ describe("board settings", () => {
     expect(s.getBoardSettings(PID).dispatchEffort).toBe("auto");
   });
 
-  test("enabling auto-dispatch alone keeps the cap at 2 (not the legacy column default 5)", () => {
-    const bs = s.updateBoardSettings(PID, { autoDispatch: true });
-    expect(bs.maxAgents).toBe(2);
-    expect(s.getBoardSettings(PID).maxAgents).toBe(2);
+  // Accendere l'interruttore MATERIALIZZA la riga '*', che è dove sta il tetto
+  // vero: se nascesse sul default 5 della colonna legacy, un semplice ON
+  // alzerebbe il tetto della macchina senza che nessuno lo abbia chiesto.
+  test("enabling auto-dispatch alone keeps the GLOBAL cap at 2 (not the legacy column default 5)", () => {
+    s.updateBoardSettings(PID, { autoDispatch: true });
+    expect(s.getGlobalCap()).toEqual({ auto: true, max: 2 });
+  });
+
+  // The OTHER way the reserved row gets created: `INSERT OR IGNORE ... VALUES
+  // (?, 2)`, which runs for any patch at all, not just the auto-dispatch one.
+  // It carries the same explicit 2 and had lost its only guard — the test that
+  // pinned it was rewritten onto the upsert above, so mutating this literal to 5
+  // went unnoticed by the whole suite. Two seeds, two guards.
+  test("ANY patch on the reserved row seeds the cap at 2, never the column default", () => {
+    s.updateBoardSettings("*", { dispatchEffort: "high" });
+    expect(s.getGlobalCap()).toEqual({ auto: true, max: 2 });
   });
 
   test("auto-dispatch is GLOBAL: flipping it from one board flips every board", () => {
@@ -1042,10 +1122,10 @@ describe("board settings", () => {
   });
 
   test("global switch does not leak per-board config across boards", () => {
-    s.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 7, dispatchEffort: "max" });
+    s.updateBoardSettings(PID, { autoDispatch: true, dispatchTimeoutMin: 45, dispatchEffort: "max" });
     const other = s.getBoardSettings("other-board-zzz999");
     expect(other.autoDispatch).toBe(true); // global
-    expect(other.maxAgents).toBe(2); // per-board default, untouched
+    expect(other.dispatchTimeoutMin).toBe(20); // per-board default, untouched
     expect(other.dispatchEffort).toBe("medium");
   });
 

@@ -26,9 +26,22 @@
  * (`uncertainRows`), e il profilo porta quel numero accanto al totale. Un dato
  * mancante dichiarato è informazione; sommato di nascosto è una bugia.
  *
- * ── I TOKEN SI SOMMANO, INVECE, E LA CACHE DENTRO ───────────────────────────
+ * ── I TOKEN SI SOMMANO, E LA CACHE È GIÀ DENTRO ─────────────────────────────
  * Il consumo vero di un turno agentico è per la maggior parte rilettura di
  * contesto (~60% misurato). Un totale che la esclude descrive un'altra app.
+ * Ma per i MESSAGGI non va aggiunta: `usage_prompt_tokens` la CONTIENE già —
+ * `readResultUsage` e `readAssistantCallUsage` (`providers/claude/events.ts`)
+ * costruiscono l'input come `input_tokens + cache_creation + cache_read`, ed è
+ * il contratto scritto anche in `lib/cacheBreakdown.ts` (`prompt = fresco +
+ * read + creation`). Sommarla di nuovo la conta due volte: misurato sul DB di
+ * produzione, 18,03 miliardi mostrati contro 9,89 veri, cioè 1,82×.
+ * Verificato che il contratto vale su ogni riga: `usage_prompt_tokens >=
+ * cache_read_tokens` su 1.061 righe su 1.061.
+ *
+ * Per i TASK invece la somma ci vuole, e non è una svista: `tasks.agent_tokens`
+ * nasce da `billableTokens`, che è «input+output+cacheWrite» e la rilettura la
+ * ESCLUDE per costruzione (`services/dispatch-usage.ts`). Due tabelle, due
+ * convenzioni, e la differenza è nel modulo che le riempie.
  */
 
 import type { Database } from "bun:sqlite";
@@ -109,7 +122,6 @@ export function computeProfileStats(db: Database, now: number = Date.now()): Pro
       db,
       `SELECT COALESCE(SUM(
            COALESCE(usage_prompt_tokens, 0) + COALESCE(usage_completion_tokens, 0)
-         + COALESCE(cache_read_tokens, 0)  + COALESCE(cache_creation_tokens, 0)
        ), 0) AS v FROM messages`,
     );
     const tokensAgents = scalar(
@@ -145,8 +157,7 @@ export function computeProfileStats(db: Database, now: number = Date.now()): Pro
     try {
       giorni = db.query(
         `SELECT date(timestamp) AS date,
-                SUM(COALESCE(usage_prompt_tokens, 0) + COALESCE(usage_completion_tokens, 0)
-                  + COALESCE(cache_read_tokens, 0)  + COALESCE(cache_creation_tokens, 0)) AS tokens
+                SUM(COALESCE(usage_prompt_tokens, 0) + COALESCE(usage_completion_tokens, 0)) AS tokens
            FROM messages
           WHERE timestamp IS NOT NULL
           GROUP BY date(timestamp)`,

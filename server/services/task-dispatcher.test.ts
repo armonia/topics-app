@@ -8,7 +8,7 @@ import { commitStatusFromRepo } from "./branch-status";
 import { classifyLanding } from "./landing-audit";
 import { PARKED_WAITED_OUT, PREVIEW_CARD_MAX_RATIO, PREVIEW_RULE, WAIT_STREAK_CAP, extractPreviewRule, formatStatusEvent } from "../../shared/board";
 import { toolsForProfile } from "../mcp/topics-mcp-server";
-import { createTaskService, type TaskService } from "./tasks";
+import { createTaskService, LAND_ACTION_LABEL, type TaskService } from "./tasks";
 import { createTaskDispatcher, rotateFrom, type DispatcherDeps } from "./task-dispatcher";
 import { cancelled, type TurnEndInfo } from "../providers/stop-reason";
 import { beginAsk, endAsk } from "../lib/ask-user-bridge";
@@ -136,7 +136,8 @@ describe("task-dispatcher", () => {
 
   it("claims + launches a todo: worktree → topic → working chip → turn", async () => {
     const h = harness();
-    h.svc.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 2 });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    h.svc.setGlobalCap({ auto: false, max: 2 });
     seedTask(h.db, { id: "t1", status: "todo" });
 
     await h.dispatcher.tick(PID);
@@ -160,7 +161,8 @@ describe("task-dispatcher", () => {
     // aperta mentre il turno e' vivo lasciava la card su `working`. La board
     // diceva «sto lavorando» sopra una sessione ferma su una persona.
     const h = harness();
-    h.svc.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 2 });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    h.svc.setGlobalCap({ auto: false, max: 2 });
     seedTask(h.db, { id: "t1", status: "todo" });
     await h.dispatcher.tick(PID);
     await flush();
@@ -185,7 +187,8 @@ describe("task-dispatcher", () => {
     // Per chi guarda la board «domanda» e «permesso» sono lo stesso fatto:
     // il turno aspetta una persona. Un secondo vocabolario sarebbe rumore.
     const h = harness();
-    h.svc.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 2 });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    h.svc.setGlobalCap({ auto: false, max: 2 });
     seedTask(h.db, { id: "t1", status: "todo" });
     await h.dispatcher.tick(PID);
     await flush();
@@ -210,7 +213,8 @@ describe("task-dispatcher", () => {
     // che l'effetto sparisca. Pinna anche l'unsubscribe di shutdown(), senza il
     // quale un dispatcher spento continuerebbe a scrivere su un DB non suo.
     const h = harness();
-    h.svc.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 2 });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    h.svc.setGlobalCap({ auto: false, max: 2 });
     seedTask(h.db, { id: "t1", status: "todo" });
     await h.dispatcher.tick(PID);
     await flush();
@@ -230,7 +234,8 @@ describe("task-dispatcher", () => {
     // reagisse a tutte, una domanda in una chat qualunque muoverebbe la card
     // di un task che non c'entra niente.
     const h = harness();
-    h.svc.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 2 });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    h.svc.setGlobalCap({ auto: false, max: 2 });
     seedTask(h.db, { id: "t1", status: "todo" });
     await h.dispatcher.tick(PID);
     await flush();
@@ -250,7 +255,8 @@ describe("task-dispatcher", () => {
     const h = harness({
       pickAutoModel: async () => ({ model: "claude-opus-5[1m]", effort: "xhigh" }),
     });
-    h.svc.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 2, dispatchEffort: "auto" });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchEffort: "auto" });
+    h.svc.setGlobalCap({ auto: false, max: 2 });
     seedTask(h.db, { id: "t1", status: "todo" });
     await h.dispatcher.tick(PID);
     await flush();
@@ -265,7 +271,8 @@ describe("task-dispatcher", () => {
     const h = harness({
       pickAutoModel: async () => ({ model: "claude-opus-5[1m]", effort: "xhigh" }),
     });
-    h.svc.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 2, dispatchEffort: "high" });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchEffort: "high" });
+    h.svc.setGlobalCap({ auto: false, max: 2 });
     seedTask(h.db, { id: "t1", status: "todo" });
     await h.dispatcher.tick(PID);
     await flush();
@@ -279,7 +286,8 @@ describe("task-dispatcher", () => {
     const h = harness({
       pickAutoModel: async () => ({ model: "claude-opus-5[1m]", effort: null }),
     });
-    h.svc.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 2, dispatchEffort: "auto" });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchEffort: "auto" });
+    h.svc.setGlobalCap({ auto: false, max: 2 });
     seedTask(h.db, { id: "t1", status: "todo" });
     await h.dispatcher.tick(PID);
     await flush();
@@ -293,7 +301,8 @@ describe("task-dispatcher", () => {
     // Without the heal it would be skipped forever by the `!assignedTopicId`
     // eligibility filter and sit in todo with no chip.
     const h = harness({ topicExists: (id) => id !== "reaped-topic" });
-    h.svc.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 2 });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    h.svc.setGlobalCap({ auto: false, max: 2 });
     seedTask(h.db, { id: "t1", status: "todo", assignedTopicId: "reaped-topic" });
     // Reap the topic row the way prod does — via a path that bypasses the FK
     // (the topics(id) FK on assigned_topic_id has no ON DELETE SET NULL, so a
@@ -316,7 +325,8 @@ describe("task-dispatcher", () => {
     // A live binding means a dispatch is already in flight for it — the heal
     // must not release it. topicExists returns true, so it stays as-is.
     const h = harness({ topicExists: () => true });
-    h.svc.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 2 });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    h.svc.setGlobalCap({ auto: false, max: 2 });
     seedTask(h.db, { id: "t1", status: "todo", assignedTopicId: "live-topic", dispatchState: "working" });
 
     await h.dispatcher.tick(PID);
@@ -352,7 +362,8 @@ describe("task-dispatcher", () => {
     // return to the queue with a note within its window — NOT hang holding a
     // slot, NOT arrive in review as if delivered.
     const h = harness();
-    h.svc.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 2 });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    h.svc.setGlobalCap({ auto: false, max: 2 });
     seedTask(h.db, { id: "t1", status: "todo" });
 
     await h.dispatcher.tick(PID);
@@ -383,7 +394,8 @@ describe("task-dispatcher", () => {
 
   it("a deferred waiting task is NOT re-claimed until its window elapses, then re-dispatches", async () => {
     const h = harness();
-    h.svc.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 2 });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    h.svc.setGlobalCap({ auto: false, max: 2 });
     seedTask(h.db, { id: "t1", status: "todo" });
     await h.dispatcher.tick(PID);
     await flush();
@@ -418,7 +430,8 @@ describe("task-dispatcher", () => {
     // dei tentativi esauriti lo parcheggiava `failed` con «guarda cosa lo fa
     // fallire». Per un'attesa dichiarata bene (card e285d5d8, board quadra).
     const h = harness();
-    h.svc.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 2, dispatchRetryCap: 2 });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchRetryCap: 2 });
+    h.svc.setGlobalCap({ auto: false, max: 2 });
     seedTask(h.db, { id: "t1", status: "todo" });
 
     for (let giro = 1; giro <= 3; giro++) {
@@ -450,7 +463,8 @@ describe("task-dispatcher", () => {
     // coda di `onTurnEnd` rimette il chip a null e la card torna muta in
     // Backlog, indistinguibile da una fermata a mano.
     const h = harness();
-    h.svc.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 2 });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    h.svc.setGlobalCap({ auto: false, max: 2 });
     seedTask(h.db, { id: "t1", status: "todo" });
     await h.dispatcher.tick(PID);
     await flush();
@@ -480,7 +494,8 @@ describe("task-dispatcher", () => {
     // `releaseAndEmit` come gli altri nove siti che rilasciano. Il chip
     // compariva sulla board in tempo reale e nessuno veniva avvisato.
     const h = harness();
-    h.svc.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 2 });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    h.svc.setGlobalCap({ auto: false, max: 2 });
     seedTask(h.db, { id: "t1", status: "todo", text: "Aspetta che la CI torni su" });
     await h.dispatcher.tick(PID);
     await flush();
@@ -928,9 +943,11 @@ describe("task-dispatcher", () => {
   it("respects the concurrency cap", async () => {
     const h = harness();
     h.svc.updateBoardSettings(PID, { autoDispatch: true });
-    // The concurrency cap is now a single MACHINE-WIDE budget (getGlobalCap),
-    // not a per-board maxAgents — pin it to 1 explicitly (auto off) so the
-    // harness's default (auto, max 3) doesn't let both tasks through.
+    // The concurrency cap is a single MACHINE-WIDE budget (getGlobalCap) and
+    // there IS no per-board one — pin it to 1 explicitly (auto off) so the
+    // harness's default doesn't let both tasks through. That default is
+    // (auto, max 2): turning autoDispatch on seeds the reserved '*' row at
+    // max_agents 2, and with no `recommendedCap` dep the effective cap is 2.
     h.svc.setGlobalCap({ auto: false, max: 1 });
     seedTask(h.db, { id: "t1", status: "todo", createdAt: "2020-01-01T00:00:00.000Z" });
     seedTask(h.db, { id: "t2", status: "todo", createdAt: "2020-01-02T00:00:00.000Z" });
@@ -1076,7 +1093,8 @@ describe("task-dispatcher", () => {
       catchAllTaskDir: taskDir,
       resolveProject: () => ({ path: catchAll, projectStoreId: null }),
     });
-    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchUseWorktree: false, maxAgents: 5 });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchUseWorktree: false });
+    h.svc.setGlobalCap({ auto: false, max: 5 }); // tetto fuori strada: i due task devono partire entrambi
     seedTask(h.db, { id: "aaaaaaaa-1", status: "todo" });
     seedTask(h.db, { id: "bbbbbbbb-2", status: "todo" });
     await h.dispatcher.tick(PID);
@@ -1209,7 +1227,8 @@ describe("task-dispatcher", () => {
     // orphan" qui sopra, che parte esattamente da dispatchState: "working".
     const RECUPERABILI = ["working", "starting"];
     const h = harness();
-    h.svc.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 2 });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    h.svc.setGlobalCap({ auto: false, max: 2 });
     seedTask(h.db, { id: "t1", status: "todo" });
     await h.dispatcher.tick(PID);
     await flush();
@@ -1813,7 +1832,8 @@ describe("priority", () => {
 
   it("kickoff asks the agent to set the priority ONLY when nobody chose one", async () => {
     const h = harness();
-    h.svc.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 2 });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    h.svc.setGlobalCap({ auto: false, max: 2 });
     const auto = h.svc.create({ projectId: PID, status: "todo", text: "senza priorità" });
     await h.dispatcher.tick(PID);
     await flush();
@@ -2359,7 +2379,8 @@ describe("cancello: non si ridispaccia lavoro già su main", () => {
         return risposta;
       },
     });
-    h.svc.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 2 });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    h.svc.setGlobalCap({ auto: false, max: 2 });
     return { h, chieste };
   }
 
@@ -2487,7 +2508,8 @@ describe("cancello: non si ridispaccia lavoro già su main", () => {
           return state === "unverifiable" ? null : state === "landed";
         },
       });
-      h.svc.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 2 });
+      h.svc.updateBoardSettings(PID, { autoDispatch: true });
+      h.svc.setGlobalCap({ auto: false, max: 2 });
       seedTask(h.db, { id: "t1", status: "todo", deliveryBranch: "topics/consegna", deliveryCommit: consegna });
 
       await h.dispatcher.tick(PID);
@@ -2638,6 +2660,91 @@ describe("cancello: non si ridispaccia lavoro già su main", () => {
     expect(chieste).toEqual([]);
     expect(h.task("t1")!.status).toBe("in_progress");
     expect(h.turns.length).toBe(1);
+    h.dispatcher.shutdown();
+  });
+
+  it("REJECTED in review: the delivery drops, the mark stays, and the gate lets it restart", async () => {
+    // The fifth door, and the only one writing the status as raw SQL:
+    // `reviewDecision(reject)`. A rejection left the delivery stamp on the card
+    // and did not mark the reopen, so the gate saw a card still delivered and
+    // still landed. Measured on 13/08 on `d6baaf5e`: the human moved it back to
+    // the queue at 09:05:44.156Z and the system closed it again at
+    // 09:05:50.325Z, six seconds later.
+    //
+    // The other four exits from review go through `update()` and have their
+    // test in tasks.test.ts; this one closes the loop all the way to the gate,
+    // which is where the damage showed.
+    const { h, chieste } = conSonda(true);
+    seedTask(h.db, { id: "t1", status: "review", deliveryBranch: "topics/x", deliveryCommit: "cccc7777".repeat(5) });
+
+    const rejected = h.svc.reviewDecision({ taskId: "t1", by: "attilio", decision: "reject", comment: "cambia rotta" });
+    expect(rejected.status).toBe("in_progress");
+    expect(rejected.deliveryCommit).toBeNull();
+    expect(rejected.deliveryBranch).toBeNull();
+    expect(rejected.reopenedActor).toBe("human");
+    expect(rejected.reopenedBy).toBe("attilio");
+
+    // The dispatcher only claims from `todo`: that is where the card meets the
+    // gate, exactly as it did that day.
+    h.svc.update({ taskId: "t1", actor: "human", by: "attilio", patch: { status: "todo" } });
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    expect(h.task("t1")!.status).toBe("in_progress");
+    expect(h.turns.length).toBe(1);
+    // Git is not even asked: two independent guards (no delivery, human
+    // reopen), and neither of them needs the answer.
+    expect(chieste).toEqual([]);
+    h.dispatcher.shutdown();
+  });
+});
+
+/**
+ * THE DELIVERY CHIP, and why it almost always said "serve te".
+ *
+ * The envelope orders the agent to attach `options=["Landa su main"]` to a
+ * landable delivery, and the service wraps EVERY `options` in a ```question
+ * block. The chip was decided by looking for that fence, so every finished
+ * delivery introduced itself as a question. Measured on 13/08 against the live
+ * board db: 4 of the 8 cards holding the `needs_input` chip were deliveries,
+ * and across the whole thread history 331 of the 437 agent comments carrying
+ * the fence are deliveries, not questions. Whoever looked at the board had no
+ * way to tell the real questions from the rest.
+ */
+describe("chip at delivery: delivery versus question", () => {
+  /** Drives a card to end-of-turn in review, with the agent's last word set. */
+  async function consegna(h: ReturnType<typeof harness>, content: string, options?: string[]) {
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    h.svc.addComment({ taskId: "t1", author: "claude", content, questionOptions: options });
+    h.svc.update({ taskId: "t1", actor: "agent", by: "claude", patch: { status: "review" } });
+    h.finishTurn();
+    await flush();
+  }
+
+  it("«Landa su main» as the only option: a DELIVERY, chip `delivered`", async () => {
+    const h = harness();
+    await consegna(h, "Fatto: sei cancelli verdi, commit sul branch.", [LAND_ACTION_LABEL]);
+    expect(h.task("t1")!.status).toBe("review");
+    expect(h.task("t1")!.dispatchState).toBe("delivered");
+    h.dispatcher.shutdown();
+  });
+
+  it("MIXED question: one option the system cannot run and the chip stays `needs_input`", async () => {
+    // The case the fix must not run over: "Landa su main" next to an option
+    // that asks for a choice is still a question, and the card says so.
+    const h = harness();
+    await consegna(h, "Ho finito, ma il nome del flag non mi convince.", [LAND_ACTION_LABEL, "Aspetta, ho un dubbio"]);
+    expect(h.task("t1")!.dispatchState).toBe("needs_input");
+    h.dispatcher.shutdown();
+  });
+
+  it("a real question with no action labels stays `needs_input`", async () => {
+    const h = harness();
+    await consegna(h, "Quale approccio uso?", ["JWT in cookie", "Bearer token"]);
+    expect(h.task("t1")!.dispatchState).toBe("needs_input");
     h.dispatcher.shutdown();
   });
 });
