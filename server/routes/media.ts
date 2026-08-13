@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, writeFileSync } from "fs";
 import { join, resolve } from "path";
 import type { AppContext, RouteHandler } from "../types";
+import { wantsHtml, mediaErrorHtml } from "../media-error-page";
 
 /**
  * Media + file/upload I/O endpoints — serving project media and handling
@@ -25,8 +26,34 @@ export function createMediaRouter(ctx: AppContext): RouteHandler {
       // resolveProjectPath so sibling images of any openable MD file load.
       // Symmetric with /api/files/content which also uses resolveProjectPath.
       let resolved = isPathAllowed(resolve(filePath)) ? resolve(filePath) : resolveProjectPath(filePath);
-      if (!resolved) return json({ error: "forbidden: invalid path" }, 403);
-      if (!existsSync(resolved)) return new Response("Not Found", { status: 404 });
+      // Da quando un file locale si APRE nel pannello passando di qui, un
+      // rifiuto finisce a schermo intero davanti a una persona: in JSON è
+      // indistinguibile dalla pagina bianca. Stesso codice HTTP, lingua umana —
+      // e solo per le navigazioni (vedi media-error-page.ts).
+      const asHtml = wantsHtml(req.headers.get("accept"));
+      if (!resolved) {
+        if (!asHtml) return json({ error: "forbidden: invalid path" }, 403);
+        return new Response(
+          mediaErrorHtml({
+            path: filePath,
+            title: "Questo file non posso servirlo",
+            detail:
+              "È fuori dalle cartelle che questo server può leggere. Spostalo in una cartella consentita, oppure apri il progetto a cui appartiene.",
+          }),
+          { status: 403, headers: { "Content-Type": "text/html; charset=utf-8" } },
+        );
+      }
+      if (!existsSync(resolved)) {
+        if (!asHtml) return new Response("Not Found", { status: 404 });
+        return new Response(
+          mediaErrorHtml({
+            path: resolved,
+            title: "Questo file non c'è",
+            detail: "Il percorso è consentito, ma sul disco non esiste (o è stato spostato).",
+          }),
+          { status: 404, headers: { "Content-Type": "text/html; charset=utf-8" } },
+        );
+      }
       const file = Bun.file(resolved);
       const contentType = getMimeType(resolved);
       // Range support — required for <video> seeking (review clips). Bun does

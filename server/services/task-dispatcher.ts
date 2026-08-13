@@ -22,7 +22,7 @@
  *  - wall-clock timeout per turn; turn-end reconciliation requeues (bounded by
  *    the retry cap) or parks a task that ended without reaching `review`.
  */
-import { LAND_ACTION_LABEL, UNASSIGNED_PROJECT_ID, type Task, type TaskService } from "./tasks";
+import { LAND_ACTION_LABEL, UNASSIGNED_PROJECT_ID, commentAsksHuman, type Task, type TaskService } from "./tasks";
 import { ZERO_USAGE, type SessionUsage } from "./transcript-usage";
 import { onHumanHoldChange } from "../lib/human-hold-events";
 import type { TaskAttemptStore } from "./task-attempts";
@@ -73,6 +73,13 @@ export interface DispatcherDeps {
    * provide worktrees at all (tests / degraded mode).
    */
   createWorktree?: (projectStoreId: string) => Promise<string>;
+  /**
+   * IL PAVIMENTO: perché la MACCHINA non regge un altro agente adesso, o `null`
+   * se lo regge. Non è il tetto — il tetto è una preferenza e può valere
+   * «nessun limite», questo no. Assente (test, host degradato) = non blocca
+   * mai: una guardia che non si sa misurare non deve poter fermare la board.
+   */
+  resourceBlock?: () => string | null;
   /** Delete a worktree we created (called when its attempt is discarded — requeue/park/setup-fail). */
   deleteWorktree?: (worktreeId: string) => Promise<void>;
   /**
@@ -142,8 +149,10 @@ export interface DispatcherDeps {
    *  l'agente nasca. `effort: null` = non deciso, e la board decide; `weight`
    *  assente/null = leggero, cioè niente cambia (vedi `TASK_WEIGHTS`). */
   pickAutoModel?: (task: Task) => Promise<{ model: string | null; effort?: string | null; weight?: string | null }>;
-  /** Auto concurrency cap for a board on `maxAgentsAuto`: live machine capacity
-   *  (CPU/load). Absent ⇒ auto falls back to the board's manual `maxAgents`. */
+  /** Live machine capacity (CPU/load) for the ONE machine-wide cap, used when
+   *  the reserved `board_settings['*']` row says `auto`. Absent ⇒ auto falls
+   *  back to that row's fixed number. There is no per-board cap: the field that
+   *  suggested one was written by nobody's reader and has been removed. */
   recommendedCap?: () => number;
   /** Drive ONE headless turn to completion; resolves when the turn ends. */
   /**
@@ -691,6 +700,16 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     let gcap = { auto: true, max: 3 };
     try { gcap = deps.svc.getGlobalCap(); } catch { /* defaults */ }
     return effectiveDispatchCap(gcap, deps.recommendedCap ? deps.recommendedCap() : null);
+  }
+  /**
+   * Il PAVIMENTO, letto ADESSO. Vive accanto al tetto e non dentro, perché sono
+   * due risposte diverse: il tetto dice quanti se ne vogliono (e può dire
+   * «quanti ne capitano»), questo dice quando la macchina non ne regge un altro
+   * comunque. Da quando il tetto si può togliere, senza questo la coda si
+   * fermerebbe solo a disco pieno — cioè quando il DB non scrive più.
+   */
+  function admissionBlock(): string | null {
+    try { return deps.resourceBlock?.() ?? null; } catch { return null; }
   }
   /**
    * Errori del PROVIDER di fila su un task, per non fargli pagare i tentativi.
@@ -1908,20 +1927,24 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // the tick will re-dispatch once the window passes. NOT a delivery, NOT a fail.
     if (cur.status === "todo" && cur.dispatchState === CHIP_WAITING) return;
     if (cur.status === "review") {
-      // It's the human's now — but distinguish WHY: a question block as the
-      // agent's last word = "serve te" (decision required); anything else =
-      // "delivered" (the agent believes it's done, ready to approve). Binding
-      // stays for the deep-link and the resume-on-answer path either way.
+      // It's the human's now — but distinguish WHY: a question as the agent's
+      // last word = "serve te" (decision required); anything else = "delivered"
+      // (the agent believes it's done, ready to approve). Binding stays for the
+      // deep-link and the resume-on-answer path either way.
       // (The agent already summarised THIS turn: the review_needs_summary gate
       // rejects a self-delivery without a fresh comment, so the thread is never
       // mute here and the chip detection below reads real, current words.)
+      //
+      // The test is `commentAsksHuman`, not the presence of the fence: this very
+      // envelope orders a landable delivery to attach `options=["Landa su main"]`,
+      // so reading the fence chipped every finished delivery "serve te".
       let chip = CHIP_NEEDS_INPUT;
       try {
         const comments = deps.svc.get(taskId)?.comments ?? [];
         // kind='status' rows are transition events, not the agent speaking —
         // "the agent's last word" must be an actual comment.
         const lastAgent = [...comments].reverse().find((c) => c.author !== "user" && c.author !== "system" && c.kind === "comment");
-        if (lastAgent && !lastAgent.content.includes("```question")) chip = CHIP_DELIVERED;
+        if (lastAgent && !commentAsksHuman(lastAgent.content)) chip = CHIP_DELIVERED;
       } catch { /* default to needs_input */ }
       try { emit(deps.svc.setDispatchState({ taskId, state: chip })); } catch { /* best-effort */ }
       // Review-ready preview: boot a live server from the worktree, set output_url
@@ -2144,7 +2167,11 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // posto si libera, invece di aprire un agente in più — che è come si finisce
     // con 12 turni vivi su un tetto di 6 solo perché qualcuno ha rifiutato in
     // fila cinque card.
-    if (inFlight.size >= currentCap()) {
+    // Il pavimento prima del tetto: se la macchina non regge un altro agente,
+    // il messaggio aspetta esattamente come aspetterebbe per uno slot pieno —
+    // stessa coda, stesso chip, stessa promessa che niente si perde.
+    const floorBlock = admissionBlock();
+    if (floorBlock || inFlight.size >= currentCap()) {
       // Il chip dice DOV'E': senza, la card resta `in_progress` con nessun turno
       // vivo — il tempo non scorre e sembra piantata, che è esattamente come si
       // vede dal di fuori una coda invisibile. `queued` è già lo stato «aspetta
@@ -2155,7 +2182,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         try {
           deps.svc.addComment({
             taskId, author: "system", kind: "service",
-            content: `In attesa di uno slot: il tetto di concorrenza (${currentCap()}) è pieno. Riprendo appena si libera. Niente è andato perso.`,
+            content: floorBlock
+              ?? `In attesa di uno slot: il tetto di concorrenza (${currentCap()}) è pieno. Riprendo appena si libera. Niente è andato perso.`,
           });
         } catch { /* best-effort */ }
       }
@@ -2527,9 +2555,21 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // lanciarne meno in silenzio.
     const freeSlots = Math.max(1, effectiveCap - reservedSlots);
     const fanOut = fanOutBlocked ? 1 : Math.min(wantFanOut, freeSlots);
+    // Il pavimento vale anche — soprattutto — per i dispatch NUOVI: è un agente
+    // nuovo ad aprire una worktree, cioè a consumare esattamente la risorsa che
+    // sta finendo. Letto una volta per tick: la domanda è sulla macchina, non
+    // sulla card, e chiederlo per ogni todo sarebbe una statfs per riga.
+    const floorBlock = admissionBlock();
 
     for (const [idx, t] of todos.entries()) {
       if (inFlight.has(t.id)) continue;
+      if (floorBlock) {
+        // Il chip, non un commento: qui si passa a ogni tick, e un commento per
+        // tick trasformerebbe un disco pieno in mille righe nel thread. La card
+        // dice «in coda», che è vero, e il perché sta nel log del server.
+        try { emit(deps.svc.setDispatchState({ taskId: t.id, state: CHIP_QUEUED })); } catch { /* best-effort */ }
+        continue;
+      }
       // Respect the grace debounce: a task still inside its window is claimed by
       // its OWN scheduled tick (which deletes the timer first), never by a poll
       // firing mid-grace — otherwise a quick drag-through could still spawn.
