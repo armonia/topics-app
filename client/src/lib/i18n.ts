@@ -273,6 +273,8 @@ const IT: Dict = {
   'board.publish.diffTitle': 'Diff che verrà pubblicato',
   'board.publish.loadingDiff': 'Carico il diff…',
   'board.publish.diffError': 'Errore nel caricare il diff.',
+  // Un drop che non atterra dove la mano lo ha lasciato: vedi `planDrop`.
+  'board.drop.inProgressRedirected': 'In Progress non ha una coda: la card è andata in Todo, che è da dove il dispatcher la prende.',
   'board.dispatch.allBoards': 'Dispatch di tutte le board',
   'board.dispatch.parallelAuto': 'Numero automatico',
   'board.dispatch.oneMachine': 'Vale su TUTTE le board (una sola macchina, un solo limite).',
@@ -805,6 +807,7 @@ const EN: Dict = {
   'board.publish.diffTitle': 'Diff that will be published',
   'board.publish.loadingDiff': 'Loading the diff…',
   'board.publish.diffError': 'Could not load the diff.',
+  'board.drop.inProgressRedirected': 'In Progress has no queue: the card went to Todo, which is where the dispatcher picks it up.',
   'board.dispatch.allBoards': 'Dispatch for every board',
   'board.dispatch.parallelAuto': 'Automatic count',
   'board.dispatch.oneMachine': 'Applies to EVERY board (one machine, one limit).',
