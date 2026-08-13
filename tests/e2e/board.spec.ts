@@ -6,7 +6,7 @@
  *  - inline create in a column → card appears (and dispatch feedback exists)
  *  - live WS update when a task is created via API (no manual refresh)
  *  - agent-surface create (`/api/sessions/:key/tasks`) lands in Backlog (intake)
- *  - review gate: Approva moves review → done
+ *  - review gate: "Va bene" moves review → done
  *  - auto-dispatch pill: "agent: off" by default, IS the global toggle (click flips)
  *  - global board ("Board generale") opens from the standalone "+" menu and
  *    aggregates tasks across projects with project badges
@@ -230,7 +230,7 @@ test.describe("Kanban board", () => {
     await expect(page.getByTestId("kanban-column-backlog").getByText(text)).toBeVisible({ timeout: 10000 });
   });
 
-  test("BOARD-05: review gate — Approva moves review → done", async ({ page }) => {
+  test("BOARD-05: review gate — \"Va bene\" moves review → done", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "KANBAN-05" });
     const text = `Review task ${Date.now()}`;
     const task = await apiCreateTask(page.request, { text, status: "in_progress" });
@@ -246,8 +246,8 @@ test.describe("Kanban board", () => {
     await expect(reviewCol.getByText(text)).toBeVisible({ timeout: 10000 });
     // Only this test's task sits in review, so the column-scoped button is it.
     // exact:true — the dnd-kit card is itself role=button and its accessible
-    // name (whole card text) also contains "Approva".
-    await reviewCol.getByRole("button", { name: "Approva", exact: true }).click();
+    // name (whole card text) also contains the label.
+    await reviewCol.getByRole("button", { name: "Va bene", exact: true }).click();
     await expect(page.getByTestId("kanban-column-done").getByText(text)).toBeVisible({ timeout: 10000 });
     await expect(reviewCol.getByText(text)).not.toBeVisible();
   });
