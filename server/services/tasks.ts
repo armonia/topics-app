@@ -1581,6 +1581,104 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     } catch { /* un avviso non fa mai fallire lo spostamento di una card */ }
   }
 
+  /**
+   * La domanda sui parcheggiati è GIÀ sulla card, e ancora senza risposta?
+   *
+   * Serve solo al padre che sta in review, dove la domanda si posa nel thread
+   * senza muovere la card: lì non c'è nessun `delivered_reason` a fare da
+   * marchio, e senza questo controllo la stessa domanda tornerebbe a ogni
+   * figlio che chiude.
+   *
+   * Il confronto è con l'ultimo movimento dei figli parcheggiati, non con
+   * l'orologio: una domanda più vecchia del parcheggio più recente parla di
+   * una configurazione che non c'è più, e va rifatta. Rispondere ai due
+   * bottoni muove i figli, quindi la risposta si vede da qui senza bisogno di
+   * registrarla altrove.
+   */
+  function parkedQuestionStillStanding(parentId: string): boolean {
+    const r = db.prepare(
+      `SELECT 1 FROM task_comments
+        WHERE task_id = ? AND author = 'system' AND content LIKE ?
+          AND created_at >= COALESCE(
+            (SELECT MAX(updated_at) FROM tasks
+              WHERE parent_task_id = ? AND archived = 0 AND status = 'backlog'), '')
+        LIMIT 1`,
+    ).get(parentId, `%${REQUEUE_PARKED_LABEL}%`, parentId);
+    return !!r;
+  }
+
+  /**
+   * IL VERSO OPPOSTO, che mancava. `parkedChildRaisedStall` guarda il padre
+   * quando un figlio ENTRA in backlog; qui lo si guarda quando un figlio ne
+   * ESCE per sempre, chiuso o archiviato. Nessuna porta lo faceva, e la
+   * conseguenza si misura: il 13/08 tre padri fermi con `probe:stalls`, due
+   * dei quali erano consegne vere dell'agente dell'11/08 che portavano ancora
+   * addosso il chip «in attesa» dei figli, e una finestra di rinvio scaduta da
+   * due giorni. Chiudere l'ultimo figlio non ridava un turno a nessuno.
+   *
+   * Si fa qualcosa solo quando al padre non resta NIENTE in volo: finché un
+   * figlio si muove, il padre non è fermo e non è affar nostro.
+   *
+   * Quattro esiti, e la differenza è cosa resta e dove sta il padre:
+   *  - checklist finita, padre fermo in `todo` con la finestra dei sottotask:
+   *    la finestra si azzera e il tick lo riprende al giro dopo invece che
+   *    dieci minuti più tardi. È il turno restituito.
+   *  - checklist finita, padre in `review`: lo stato NON si tocca, perché lì
+   *    c'è una decisione umana in attesa e adesso approvare funziona davvero.
+   *    Si toglie solo il chip stantio, che dice di aspettare figli che non
+   *    esistono più.
+   *  - restano solo parcheggiati e il padre non è in review: `askParkedChildren`,
+   *    che fa già tutto (domanda, review, due bottoni).
+   *  - restano solo parcheggiati e il padre è GIÀ in review: la domanda si posa
+   *    nel thread e basta. Muoverlo scriverebbe `delivered_by = 'system'` sopra
+   *    una consegna vera, e sulla card quella è la riga che dice al reviewer se
+   *    sotto c'è un deliverable.
+   */
+  function childLeftFlight(parentId: string, by: string, svc: TaskService): void {
+    try {
+      const parent = getTaskRow(parentId);
+      if (!parent || parent.archived === 1 || parent.status === "done") return;
+      if (hasChildrenInFlight(parentId)) return;
+      const ts = now();
+      // Il chip «in attesa» va tolto solo se non sta aspettando qualcos'ALTRO.
+      // `wait_reason` è l'attesa dichiarata dall'agente (`deferForWait`): quella
+      // resta. La finestra invece si azzera anche se è ancora aperta, ed è tutto
+      // il punto: erano dieci minuti presi per aspettare i figli, i figli non ci
+      // sono più, e aspettarli ancora sono turni pagati per niente.
+      const staleWaitChip = parent.dispatch_state === "waiting" && !parent.wait_reason;
+      const clearWaitChip = () => {
+        db.prepare(
+          `UPDATE tasks SET dispatch_state = NULL, dispatch_error = NULL,
+              dispatch_deferred_until = NULL, updated_at = ? WHERE id = ?`,
+        ).run(ts, parentId);
+      };
+
+      if (!hasActiveChildren(parentId)) {
+        if (staleWaitChip) clearWaitChip();
+        return;
+      }
+
+      if (parent.status !== "review") { svc.askParkedChildren({ taskId: parentId, by }); return; }
+      // Una card che porta già una domanda viva non ne riceve una seconda: due
+      // domande sulla stessa card non sono più informazione, sono rumore, e il
+      // reviewer non sa a quale delle due sta rispondendo.
+      if (parent.dispatch_state === "needs_input") return;
+      if (parkedQuestionStillStanding(parentId)) return;
+      const parked = parkedChildren(parentId);
+      if (parked.length === 0) return;
+      const elenco = parked.map((c) => `«${c.text.length > 60 ? `${c.text.slice(0, 59)}…` : c.text}»`).join(", ");
+      svc.addComment({
+        taskId: parentId, author: "system",
+        content:
+          `Chiuso l'ultimo sottotask in lavorazione, e restano ${parked.length} passi parcheggiati in backlog (${elenco}): ` +
+          `nessun dispatcher li prende da solo, e con un sottotask aperto questa card non si può approvare. ` +
+          `Li rimetto in coda, o archivio ciò che non serve più?`,
+        questionOptions: [REQUEUE_PARKED_LABEL, ARCHIVE_PARKED_LABEL],
+      });
+      if (staleWaitChip) clearWaitChip();
+    } catch { /* un avviso non fa mai fallire la chiusura di una card */ }
+  }
+
   function rowToComment(r: any): TaskComment {
     let mentions: string[] = [];
     if (r.mentions) { try { mentions = JSON.parse(r.mentions); } catch { mentions = []; } }
@@ -2204,6 +2302,11 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if ((patch.status === "backlog" || patch.status === "todo") && current !== patch.status && row.parent_task_id) {
         parkedChildRaisedStall(row.parent_task_id as string, taskId, by, this);
       }
+      // E il verso opposto: un figlio che si chiude esce dagli aperti, e il
+      // padre può essere rimasto senza niente in volo.
+      if (patch.status === "done" && current !== "done" && row.parent_task_id) {
+        childLeftFlight(row.parent_task_id as string, by, this);
+      }
       return rowToTask(getTaskRow(taskId));
     },
 
@@ -2339,6 +2442,12 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         ).run(target, ts, ts, taskId);
       }
       logStatus(taskId, "review", target, by);
+      // L'approvazione è la porta per cui uno step passa a `done` più spesso di
+      // ogni altra, e scrive lo stato a SQL grezzo: senza questa riga il padre
+      // non se ne accorgerebbe proprio nel caso più comune.
+      if (target === "done" && row.parent_task_id) {
+        childLeftFlight(row.parent_task_id as string, by, this);
+      }
       return rowToTask(getTaskRow(taskId));
     },
 
@@ -2505,7 +2614,14 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         throw new TaskServiceError("not_found", `task ${taskId} not found`);
       }
       const ts = now();
+      // `archiveSubtree` fa la stessa discesa ricorsiva che valiant-hill aveva
+      // scritta inline: il ramo l'aveva estratta, e tenere due copie della stessa
+      // query e' il modo in cui una delle due smette di essere aggiornata.
       archiveSubtree(taskId, ts);
+      // Archiviare uno step lo toglie dagli aperti esattamente come chiuderlo:
+      // e' la risposta «archivia» ai due bottoni, ed e' anche il modo in cui si
+      // sgombera una checklist a mano. Il padre va guardato in entrambi i casi.
+      if (row.parent_task_id) childLeftFlight(row.parent_task_id as string, "system", this);
       return rowToTask(getTaskRow(taskId));
     },
 
