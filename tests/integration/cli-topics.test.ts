@@ -4,12 +4,13 @@
  * The full CLI run requires a live daemon; this test exercises the
  * command surface against a synthesised state file and a missing one.
  */
-import { describe, expect, test, beforeEach, afterEach } from "bun:test";
+import { describe, expect, test, beforeEach, afterEach, afterAll } from "bun:test";
 import * as fs from "node:fs";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
+import { testTmpDir } from "./helpers";
 
-const TEST_HOME = "/tmp/topics-phase-h-test";
+const TEST_HOME = testTmpDir("phase-h-home");
 const CLI = join(import.meta.dir, "..", "..", "cli", "topics.ts");
 
 function runCli(args: string[], extraEnv: Record<string, string> = {}) {
@@ -29,6 +30,9 @@ beforeEach(() => {
   fs.mkdirSync(TEST_HOME, { recursive: true });
 });
 afterEach(() => {
+  fs.rmSync(TEST_HOME, { recursive: true, force: true });
+});
+afterAll(() => {
   fs.rmSync(TEST_HOME, { recursive: true, force: true });
 });
 

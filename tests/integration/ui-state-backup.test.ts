@@ -3,13 +3,14 @@
  * Verifies the snapshot+retention contract that protects pane-store-v2
  * from being wiped by buggy client PUTs.
  */
-import { describe, expect, test, beforeAll, afterEach } from "bun:test";
+import { describe, expect, test, beforeAll, afterEach, afterAll } from "bun:test";
 import * as fs from "node:fs";
 import { join } from "node:path";
-import { PROJECT_ROOT } from "./helpers";
+import { PROJECT_ROOT, testTmpDir, cleanupTestDataDir } from "./helpers";
 
-const TEST_HOME = "/tmp/topics-ui-backup-test";
-const TEST_DATA = "/tmp/topics-ui-backup-data";
+const ROOT = testTmpDir("ui-backup");
+const TEST_HOME = join(ROOT, "home");
+const TEST_DATA = join(ROOT, "data");
 
 beforeAll(() => {
   fs.rmSync(TEST_HOME, { recursive: true, force: true });
@@ -17,6 +18,8 @@ beforeAll(() => {
   process.env.TOPICS_HOME = TEST_HOME;
   process.env.DATA_DIR = TEST_DATA;
 });
+
+afterAll(() => cleanupTestDataDir(ROOT));
 
 afterEach(() => {
   // Clear backups dir between tests so retention logic stays predictable.

@@ -13,11 +13,13 @@
  */
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import * as fs from "node:fs";
-import { setupTestDataDir, createTestAppContext } from "./helpers";
+import { join } from "node:path";
+import { setupTestDataDir, createTestAppContext, testTmpDir } from "./helpers";
 import type { AppContext } from "../../server/types";
 import { teardownArchivedTaskBrowserState } from "../../server/services/task-tab-teardown";
 
-const TEST_DATA = "/tmp/topics-task-tab-teardown/data";
+const ROOT = testTmpDir("task-tab-teardown");
+const TEST_DATA = join(ROOT, "data");
 const PROJ = "proj-task-teardown";
 
 let ctx: AppContext;
@@ -75,7 +77,7 @@ function seedLayout(taskId: string, paneId: string): void {
 }
 
 beforeAll(async () => {
-  fs.rmSync("/tmp/topics-task-tab-teardown", { recursive: true, force: true });
+  fs.rmSync(ROOT, { recursive: true, force: true });
   setupTestDataDir(TEST_DATA);
   process.env.TOPICS_DISABLE_PTY_BRIDGE = "1";
 
@@ -102,6 +104,7 @@ beforeAll(async () => {
 afterAll(async () => {
   const { closeDatabase } = await import("../../server/db");
   closeDatabase();
+  fs.rmSync(ROOT, { recursive: true, force: true });
 });
 
 describe("DELETE di un task: le sue tab se ne vanno con lui", () => {

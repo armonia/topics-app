@@ -17,13 +17,14 @@
  * il chiamante (`legMs`), quindi il test percorre la stessa strada del vivo a
  * velocità di test.
  */
-import { describe, expect, test, beforeAll } from "bun:test";
-import { setupTestDataDir, createTestAppContext } from "./helpers";
+import { describe, expect, test, beforeAll, afterAll } from "bun:test";
+import { setupTestDataDir, createTestAppContext, testTmpDir, cleanupTestDataDir } from "./helpers";
 
-const TEST_DATA = "/tmp/topics-ask-poll-data";
+const TEST_DATA = testTmpDir("ask-poll-data");
 const LEG_MS = 150;
 
 beforeAll(() => setupTestDataDir(TEST_DATA));
+afterAll(() => cleanupTestDataDir(TEST_DATA));
 
 /**
  * Un `fetch` che invece di uscire in rete entra nel router vero. Così il bridge

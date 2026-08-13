@@ -6,13 +6,14 @@
  * current chat pipeline (SQLite `messages` table) were unfindable — the
  * palette's "Messaggi" section stayed empty for any fresh conversation.
  */
-import { describe, expect, test, beforeAll } from "bun:test";
-import { setupTestDataDir, createTestAppContext } from "./helpers";
+import { describe, expect, test, beforeAll, afterAll } from "bun:test";
+import { setupTestDataDir, createTestAppContext, testTmpDir, cleanupTestDataDir } from "./helpers";
 import type { StoredMessage } from "../../server/types";
 
-const TEST_DATA = "/tmp/topics-search-data";
+const TEST_DATA = testTmpDir("search-data");
 
 beforeAll(() => setupTestDataDir(TEST_DATA));
+afterAll(() => cleanupTestDataDir(TEST_DATA));
 
 function msg(partial: Partial<StoredMessage> & Pick<StoredMessage, "id" | "role" | "content">): StoredMessage {
   return { timestamp: new Date().toISOString(), ...partial };
