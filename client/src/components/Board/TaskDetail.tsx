@@ -7,7 +7,7 @@ import {
   SettingsPanelHead,
   SETTINGS_PANEL_SHELL,
 } from './BoardSettingsSections';
-import { AlertTriangle, ArrowUpRight, Bot, Camera, Check, ChevronDown, ChevronRight, Clock, Copy, Download, ExternalLink, Footprints, GitMerge, Globe, Hourglass, Link2, Lock, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Paperclip, Plus, Send, ShieldCheck, ShieldX, Sparkles, Square, Tag, UserRound, X } from 'lucide-react';
+import { AlertTriangle, ArrowUpRight, Bot, Camera, Check, ChevronDown, ChevronRight, Clock, Copy, Download, ExternalLink, Footprints, GitMerge, Globe, Hourglass, Link2, Lock, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Paperclip, Plus, Send, ShieldCheck, ShieldX, Sparkles, Square, StickyNote, Tag, UserRound, X } from 'lucide-react';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ReasoningRow } from '../Chat/ReasoningRow';
 import { Menu } from '../Shared/Menu';
@@ -886,30 +886,40 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   }, [comments, task?.planFirst, task?.planCommentId]);
 
 
-  const deliverAnswer = async (v: string, media?: string[]): Promise<boolean> => {
+  /**
+   * `quiet` = la nota RESTA QUI. Il gesto rumoroso rimanda il task all'agent
+   * (reject + resume, la card torna In Progress) ed è quello che il composer
+   * faceva sempre, senza dirlo; quello quieto salva e basta.
+   *
+   * Gli ALLEGATI passano dallo stesso `quiet`: la via con i media è sempre
+   * `boardApi.comment`, che di suo sveglia l'agent. Senza propagare il flag,
+   * «Nota» con una foto attaccata avrebbe rimandato indietro la card.
+   */
+  const deliverAnswer = async (v: string, media?: string[], opts?: { quiet?: boolean }): Promise<boolean> => {
+    const quiet = opts?.quiet === true;
     try {
       if (media && media.length > 0) {
         // Attachments ride the comments endpoint (media isn't a review-decision
         // field); when the task is in agent review the server auto-resumes the
         // agent with the text AND the file paths (boundRootOf path).
-        await boardApi.comment(projectId, taskId, v || '(allegato)', { media });
-      } else if (isAgentReview) {
+        await boardApi.comment(projectId, taskId, v || '(allegato)', { media, quiet });
+      } else if (isAgentReview && !quiet) {
         // Race fallback: if the task left review meanwhile, still save the text
         // as a plain comment instead of losing it.
         try { await boardApi.review(projectId, taskId, 'reject', v); }
         catch { await boardApi.comment(projectId, taskId, v); }
       } else {
-        await boardApi.comment(projectId, taskId, v);
+        await boardApi.comment(projectId, taskId, v, { quiet });
       }
       setError(null);
       await load(); onChanged();
       return true;
     } catch (e) { showError(e); return false; }
   };
-  const send = async () => {
+  const send = async (opts?: { quiet?: boolean }) => {
     const v = draft.trim(); if ((!v && attachments.length === 0) || sending) return;
     setSending(true);
-    const ok = await deliverAnswer(v, attachments.map((a) => a.path));
+    const ok = await deliverAnswer(v, attachments.map((a) => a.path), opts);
     if (ok) { setDraft(''); setAttachments([]); } // cleared on success only
     setSending(false);
   };
@@ -2475,7 +2485,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 onSelect={saveCommentCursor} onKeyUp={saveCommentCursor} onClick={saveCommentCursor}
                 onFocus={() => markActiveComposer(commentCursorKey)}
                 placeholder={isAgentReview ? tr('board.task.replyPlaceholder') : agentBusy ? tr('board.task.steerPlaceholder') : tr('board.task.commentPlaceholder')}
-                onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
+                onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); } }}
                 onPaste={(e) => {
                   const imgs = Array.from(e.clipboardData?.items ?? [])
                     .filter((i) => i.kind === 'file' && i.type.startsWith('image/'))
@@ -2484,11 +2494,33 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 }}
                 className="flex-1 resize-none rounded bg-white/5 px-2 py-1.5 text-sm text-app-text outline-none"
               />
-              <button
-                onClick={send} disabled={sending || (!draft.trim() && attachments.length === 0)}
-                title={isAgentReview ? "Rispondi (l'agent riparte con la tua risposta)" : agentBusy ? "Invia all'agent. Lo riceve al prossimo turno (come Claude Code)" : 'Commenta'}
-                className={`rounded p-1.5 text-white disabled:opacity-50 ${isAgentReview || agentBusy ? 'bg-sky-500/80 hover:bg-sky-500' : 'bg-emerald-500/80 hover:bg-emerald-500'}`}
-              >{sending ? <Spinner size="md" tone="current" /> : <Send className="h-4 w-4" />}</button>
+              {/* IN REVIEW I GESTI SONO DUE, E SI CHIAMANO COME IL LORO EFFETTO.
+                  Un'icona con tooltip non basta: il bottone unico diceva
+                  «Commenta» e RIMANDAVA la card all'agent. Etichetta testuale
+                  su entrambi, quindi, e i title dicono dove finisce la card.
+                  Fuori dalla review il composer resta quello di sempre. */}
+              {isAgentReview ? (
+                <>
+                  <button
+                    onClick={() => void send()} disabled={sending || (!draft.trim() && attachments.length === 0)}
+                    title={tr('board.task.sendBackReplyTitle')}
+                    data-testid="task-reply-send-back"
+                    className="flex items-center gap-1.5 rounded bg-sky-500/80 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-sky-500 disabled:opacity-50"
+                  >{sending ? <Spinner size="md" tone="current" /> : <Send className="h-3.5 w-3.5" />} {tr('board.task.sendBackReply')}</button>
+                  <button
+                    onClick={() => void send({ quiet: true })} disabled={sending || (!draft.trim() && attachments.length === 0)}
+                    title={tr('board.task.quietNoteTitle')}
+                    data-testid="task-reply-quiet-note"
+                    className="flex items-center gap-1.5 rounded bg-white/10 px-2.5 py-1.5 text-xs text-app-text hover:bg-white/20 disabled:opacity-50"
+                  ><StickyNote className="h-3.5 w-3.5" /> {tr('board.task.quietNote')}</button>
+                </>
+              ) : (
+                <button
+                  onClick={() => void send()} disabled={sending || (!draft.trim() && attachments.length === 0)}
+                  title={agentBusy ? "Invia all'agent. Lo riceve al prossimo turno (come Claude Code)" : 'Commenta'}
+                  className={`rounded p-1.5 text-white disabled:opacity-50 ${agentBusy ? 'bg-sky-500/80 hover:bg-sky-500' : 'bg-emerald-500/80 hover:bg-emerald-500'}`}
+                >{sending ? <Spinner size="md" tone="current" /> : <Send className="h-4 w-4" />}</button>
+              )}
             </div>
           </div>
         </div>
