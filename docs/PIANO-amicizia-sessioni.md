@@ -6,7 +6,7 @@
 > Questa revisione riparte dal codice di oggi, non dalla stesura precedente.
 > `git log docs/PIANO-amicizia-sessioni.md` per le versioni vecchie.
 >
-> **Decisione presa (Attilio, 12/08): opzione B, il piano di controllo va in cloud.**
+> **Decisione presa (12/08): opzione B, il piano di controllo va in cloud.**
 > Un'organizzazione non è un gruppo di persone che si collegano a questa macchina. È un
 > gruppo di **installazioni diverse**, ognuna con le sue sessioni. Il consiglio in bozza
 > era A (tutto locale). È stato scartato, e §1 spiega perché B costa meno di quanto
@@ -54,22 +54,23 @@
 ### Manca, e il primo è un buco
 
 **L'incognito nasconde il progetto, ma non impedisce di condividerlo.** Non è
-un'impressione, è una misura: la parola `incognito` non compare in
-`server/routes/auth.ts`, né in `server/lib/grants.ts`, né in `grants-query.ts`. E
-`project-visibility.ts` è importato da tre file soli (`utils.ts`, `types.ts`,
-`projects.ts`): non arriva mai alla porta della condivisione. In concreto, due punti:
+un'impressione, è una misura: il modulo che decide la visibilità di un progetto
+(`server/lib/project-visibility.ts`) non è raggiungibile dal percorso della
+condivisione, e la condizione «incognito» da quel lato non viene mai valutata.
 
-- `POST /api/auth/shares` (`auth.ts:1288-1326`) valida il tipo di risorsa, il tipo di
-  soggetto e il **confinamento** del soggetto (`subjectRejection`, :1315). Non chiede mai
-  a quale progetto appartenga la risorsa. `putGrant` a :1318 passa.
-- `POST /api/auth/share-links` (`auth.ts:1191-1227`) fa lo stesso, e produce un link
-  pubblico.
+In concreto, ed è tutto ciò che serve sapere per correggerlo: **le rotte che creano
+una condivisione validano il tipo di risorsa e il soggetto, ma non chiedono mai a
+quale progetto appartenga la risorsa.** Manca il controllo di appartenenza al
+progetto, e va aggiunto. Vale su entrambe le porte, la concessione diretta a un
+soggetto e il link pubblico, e il rifiuto deve stare in tutte e due: chiuderne una
+sola sposta il problema, non lo risolve.
 
-Con una differenza che decide l'urgenza. I link pubblici oggi sono spenti: la POST è
-sbarrata da `ctx.relayConfig()?.baseUrl` e risponde `409 public_sharing_off` (:1201),
-perché `TOPICS_RELAY_URL` è commentata dall'08/08. I **grant** no: quel ramo non ha
-nessun cancello del relay. Quindi il buco non è dormiente, è vivo adesso. La spunta
-promette più di quello che fa, ed è la promessa a essere il difetto.
+Non è un difetto teorico. La spunta esiste in interfaccia e non fa ciò che promette,
+ed è la promessa a essere il difetto: per questo F1 è la prima fase e non una
+rifinitura. Finché F1 non atterra, «incognito» va letta come «non compare in
+elenco», non come «non esce di qui». Questo documento è pubblico e si ferma qui di
+proposito: il dettaglio di dove e come sta nel codice e nella card del task, non in
+una pagina che chiunque legge prima che la correzione sia spedita.
 
 Restano poi scoperti, e sono lavoro e non difetti:
 
@@ -144,10 +145,10 @@ Lì la federazione era ultima e facoltativa. Con B «chi è online nella mia org
 e la scrittura scivola in fondo: è la più cara e la meno chiesta.
 
 **F1. L'incognito impedisce davvero.** Non un filtro in più, un rifiuto alla sorgente:
-`POST /api/auth/shares` e `POST /api/auth/share-links` risolvono il progetto della
-risorsa e rifiutano se è incognito. E non è retroattivo di suo: marcare incognito un
-progetto già condiviso deve **revocare** i grant esistenti, altrimenti la spunta mente
-sul passato invece che sul futuro.
+entrambe le porte della condivisione risolvono il progetto della risorsa e rifiutano se
+è incognito. E non è retroattivo di suo: marcare incognito un progetto già condiviso
+deve **revocare** i grant esistenti, altrimenti la spunta mente sul passato invece che
+sul futuro.
 *Barra:* un test prova che condividere un topic di un progetto incognito **fallisce**
 (sia grant sia link), che marcare incognito un progetto già condiviso revoca i suoi
 grant, e che nessun frame di quel progetto esce verso un socket ospite.

@@ -43,18 +43,30 @@ function benFormato(xml: string): string[] {
   return errori;
 }
 
+/**
+ * Numeri SINTETICI, scelti a mano: tondi dove non serve altro, con i decimali
+ * dove il test deve provare una formattazione (il costo). NON rigenerarli dal
+ * DB vivo — questo file finisce in un repo pubblico, e le statistiche d'uso di
+ * un'installazione reale non ci devono entrare. Servono solo a coprire i casi
+ * di `compact` (miliardi, migliaia, arrotondamento) e la larghezza della card.
+ */
 const STATS: ProfileStats = {
-  sessions: { total: 737, open: 10 },
-  messages: { total: 14_697, assistant: 10_535 },
-  tokens: { total: 9_629_422_233, chat: 9_552_704_812, agents: 76_717_421 },
-  cost: { measuredUsd: 3287.04, uncertainRows: 12 },
-  tasks: { total: 1272, done: 1146, inProgress: 7 },
-  projects: 8,
-  agentHours: 78.1,
+  sessions: { total: 500, open: 10 },
+  // Tondi anche qui, e LONTANI da qualunque misura vera: un numero sintetico
+  // che sfiora quello reale si legge come reale, e in un repo pubblico e' la
+  // stessa fuga con un decimale di differenza.
+  messages: { total: 20_000, assistant: 12_000 },
+  // Non tondissimo di proposito: `5_000_000_000` si abbrevia in «5B» e smette
+  // di provare il ramo col decimale, che e' meta' del lavoro di `compact`.
+  tokens: { total: 5_400_000_000, chat: 5_300_000_000, agents: 100_000_000 },
+  cost: { measuredUsd: 1234.56, uncertainRows: 12 },
+  tasks: { total: 1500, done: 1100, inProgress: 5 },
+  projects: 6,
+  agentHours: 60,
   activity: {
-    firstSeen: "2026-02-05T13:15:00.406Z",
-    activeDays: 101,
-    streakDays: 5,
+    firstSeen: "2026-01-01T00:00:00.000Z",
+    activeDays: 120,
+    streakDays: 7,
     last30: Array.from({ length: 30 }, (_, i) => ({
       date: `2026-07-${String(i + 1).padStart(2, "0")}`,
       tokens: i * 1000,
@@ -64,9 +76,9 @@ const STATS: ProfileStats = {
 
 describe("compact", () => {
   test("abbrevia in su e scrive per intero in giù", () => {
-    expect(compact(9_629_422_233)).toBe("9.6B");
-    expect(compact(1_146)).toBe("1.1K");
-    expect(compact(14_697)).toBe("15K");
+    expect(compact(8_500_000_000)).toBe("8.5B");
+    expect(compact(1_100)).toBe("1.1K");
+    expect(compact(14_500)).toBe("15K"); // sopra 10K si arrotonda al migliaio
     expect(compact(912)).toBe("912");
     expect(compact(0)).toBe("0");
   });
@@ -118,17 +130,20 @@ describe("renderBanner", () => {
     expect(svg).toContain("Rossi &amp; Figli");
   });
 
-  test("mostra i numeri VERI delle statistiche", () => {
+  test("i numeri delle statistiche arrivano sul disegno, abbreviati", () => {
+    // Si chiamava «i numeri VERI»: erano davvero quelli di un'installazione
+    // reale, ed e' il motivo per cui sono stati sostituiti. Cio' che il test
+    // prova non cambia — che ogni cifra esca dal calcolo e passi da `compact`.
     const svg = renderBanner(STATS);
-    expect(svg).toContain("737");   // sessioni
-    expect(svg).toContain("1.1K");  // task chiusi
-    expect(svg).toContain("9.6B");  // token
-    expect(svg).toContain("101");   // giorni attivi
-    expect(svg).toContain("5d streak");
+    expect(svg).toContain("500 sessions");    // sessioni
+    expect(svg).toContain("1.1K");            // task chiusi
+    expect(svg).toContain("5.4B");            // token, col ramo decimale
+    expect(svg).toContain("120 active days"); // giorni attivi
+    expect(svg).toContain("7d streak");
   });
 
   test("il costo misurato è per esteso, e il `+` dichiara le righe escluse", () => {
-    expect(renderBanner(STATS)).toContain("$3287.04+ measured spend");
+    expect(renderBanner(STATS)).toContain("$1234.56+ measured spend");
     const senzaIncerte = renderBanner({ ...STATS, cost: { measuredUsd: 12, uncertainRows: 0 } });
     expect(senzaIncerte).toContain("$12.00 measured spend");
     expect(senzaIncerte).not.toContain("$12.00+");

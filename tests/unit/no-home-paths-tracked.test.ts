@@ -27,8 +27,12 @@ import { resolve, join } from "path";
  * assente», nota nel referto). Anonimizzare non costa la prova.
  *
  * PERCHÉ IL NOME NON È SCRITTO QUI. Il test cerca `homedir()` di CHI ESEGUE, non
- * una stringa costante: scrivere `/Users/zorahrel` dentro un test del repo
- * pubblico sarebbe la stessa fuga che il test vuole impedire, in un file in più.
+ * una stringa costante: scriverla dentro un test del repo pubblico sarebbe la
+ * stessa fuga che il test vuole impedire, in un file in più. Nemmeno come
+ * ESEMPIO in un commento — questa riga lo faceva, ed è stata l'unica occorrenza
+ * del nome utente in tutto l'albero tracciato quando il cancello gemello
+ * (`no-personal-data-tracked.test.ts`) è andato a cercarla. Un cancello che
+ * viola la propria regola per spiegarla insegna a violarla.
  * Come effetto secondario il cancello vale per chiunque: protegge la home di chi
  * committa, quella che sia.
  */

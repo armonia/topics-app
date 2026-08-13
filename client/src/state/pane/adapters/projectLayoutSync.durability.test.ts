@@ -49,7 +49,7 @@ const {
   __resetProjectSyncForTests: () => void;
 };
 
-const PROJECT = "/work/[cliente]";
+const PROJECT = "/work/demoapp";
 const KEY = projectPanesLocalKey(PROJECT);
 
 interface FetchCall { url: string; body: string; keepalive: boolean }

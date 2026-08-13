@@ -79,7 +79,7 @@ describe("deriveCloser — le tre classi", () => {
   });
   test("l'ordine è la regola: client/src vince anche se è il 10% del diff", () => {
     // Il peso non c'entra: una superficie che si vede è una superficie che si
-    // guarda. `08541fae` toccava 3 file di client su 14 ed è visibile.
+    // guarda. `0a1b2c05` toccava 3 file di client su 14 ed è visibile.
     const files = [...Array(13).keys()].map((i) => `server/f${i}.ts`);
     expect(deriveCloser([...files, "client/src/App.tsx"])).toBe("visibile");
   });
@@ -156,11 +156,12 @@ describe("normalizeLabels", () => {
 });
 
 /**
- * LA BARRA. La regola è nata da uno smistamento a mano sulla coda di review
- * dell'11/08/2026: 29 card, aperte una per una, guardando il diff. Qui la stessa
- * coda è congelata in `tests/fixtures/review-queue-2026-08-11.json` — le 29 card
- * vere, con i file dei loro commit PROPRI ricostruiti da git — e la derivazione
- * ci ripassa sopra.
+ * LA BARRA. La regola è nata da uno smistamento a mano su una coda di review di
+ * 29 card, aperte una per una, guardando il diff. Quella coda è congelata in
+ * `tests/fixtures/review-queue-2026-08-11.json`: la forma è quella misurata (29
+ * card, i file dei loro commit PROPRI, il verdetto dato a mano), mentre id e
+ * titoli sono SINTETICI: il file sta in un repo pubblico e non deve raccontare
+ * la roadmap di nessuno. La derivazione ci ripassa sopra.
  *
  * Il verdetto atteso è DATO, non ricalcolato: se qualcuno allarga la regola a
  * `client/**`, si dimentica l'esclusione dei `*.test.*`, o rimette i documenti
@@ -189,15 +190,15 @@ describe("BARRA — la coda di review dell'11/08/2026", () => {
     // La barra originale diceva 19/10 e la prima implementazione dava 23/6:
     // NESSUNO dei due era il numero giusto, perché entrambi contavano con DUE
     // classi una coda che ne ha tre. Con le tre classi il conto è 21/6/2, e i
-    // due numeri che decidono qualcosa coincidono con lo smistamento a mano di
-    // Attilio (21 visibili, 2 invisibili su ~30 card; la sua terza classe ne
-    // contava 7 perché la sua istantanea, presa più tardi, aveva una card in
-    // più della coda congelata qui).
+    // due numeri che decidono qualcosa coincidono con lo smistamento a mano
+    // (21 visibili, 2 invisibili su ~30 card; a mano la terza classe ne contava
+    // 7 perché quell'istantanea, presa più tardi, aveva una card in più della
+    // coda congelata qui).
     //
     // Il numero che cambia il lavoro è l'ULTIMO: la scorciatoia vale 2 card su
-    // 29, non 10. Con la regola a due classi le 6 decisioni — un piano, due
-    // ricerche, un'iscrizione, una proposta openspec, un'installazione —
-    // sarebbero finite in «invisibile», cioè le avrebbe chiuse il conduttore.
+    // 29, non 10. Con la regola a due classi le 6 decisioni (un piano, una
+    // ricerca, una proposta openspec, un documento di rilascio e due card senza
+    // file) sarebbero finite in «invisibile», cioè le avrebbe chiuse il conduttore.
     // Sono esattamente le card su cui deve decidere una persona.
     const by = (k: string) => fixture.cards.filter((c) => deriveCloser(c.files) === k);
     expect(by("visibile")).toHaveLength(21);
