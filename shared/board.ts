@@ -462,6 +462,51 @@ export function hasPlanApproveOption(options: readonly string[]): boolean {
 }
 
 /**
+ * THE RESERVED QUICK-REPLY LABELS — the ones the BOARD executes by itself.
+ *
+ * They live in `shared/` and not in the task service because FOUR surfaces have
+ * to agree on them, and two of them are in the client: the dispatch chip and
+ * the two review gates (server), the push notification (server) and the
+ * in-app banner (client). The last two were left reading a different rule and
+ * kept announcing finished work as a question — one vocabulary, or the split
+ * comes back.
+ */
+export const LAND_ACTION_LABEL = 'Landa su main';
+export const PUBLISH_ACTION_LABEL = 'Landa e pubblica';
+export const REQUEUE_PARKED_LABEL = 'Rimetti in coda i sottotask';
+export const ARCHIVE_PARKED_LABEL = 'Archivia i sottotask';
+
+/** Tolerant match (ignores emoji/punctuation/spacing the model may add). */
+export function isLandActionLabel(text: string | undefined | null): boolean {
+  return !!text && normalizeActionLabel(text) === normalizeActionLabel(LAND_ACTION_LABEL);
+}
+export function isPublishActionLabel(text: string | undefined | null): boolean {
+  return !!text && normalizeActionLabel(text) === normalizeActionLabel(PUBLISH_ACTION_LABEL);
+}
+export function isRequeueParkedLabel(text: string | undefined | null): boolean {
+  return !!text && normalizeActionLabel(text) === normalizeActionLabel(REQUEUE_PARKED_LABEL);
+}
+export function isArchiveParkedLabel(text: string | undefined | null): boolean {
+  return !!text && normalizeActionLabel(text) === normalizeActionLabel(ARCHIVE_PARKED_LABEL);
+}
+
+/**
+ * A quick-reply label the BOARD executes by itself, as opposed to an answer
+ * that steers the agent.
+ *
+ * These four are exactly the labels `POST …/tasks/:id/review` runs server-side
+ * (publish, requeue/archive parked children, land): picking one is an ORDER to
+ * the system, and nothing about the work is still undecided. Every other option
+ * (a plan's "Approva il piano", a free "Aspetta, ho un dubbio") resumes the
+ * AGENT with the human's words, which is what "the card is waiting for a
+ * person" means.
+ */
+export function isBoardActionLabel(text: string | undefined | null): boolean {
+  return isLandActionLabel(text) || isPublishActionLabel(text)
+    || isRequeueParkedLabel(text) || isArchiveParkedLabel(text);
+}
+
+/**
  * L'antenato al lavoro che spiega un sottotask senza agente proprio: chi lo sta
  * lavorando, e con che titolo dirlo. Risolto dal server come `BlockerRef` e per
  * lo stesso motivo — la lista della board è un progetto solo, `rootsOnly`, non
@@ -1173,6 +1218,34 @@ export function parseQuestionBlock(text: string): { question: string; options: s
   const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
   const filtered = options.filter((o) => norm(o) !== 'landa e pubblica');
   return { question, options: filtered };
+}
+
+/**
+ * Does this parsed block ASK the human something, or is it a DELIVERY that
+ * merely offers the next board action as a button?
+ *
+ * The presence of the fence answered neither question. The kickoff envelope
+ * tells a delivering agent to attach `options=["Landa su main"]`, and the
+ * server wraps any `options` in a ```question block, so EVERY landable delivery
+ * came out shaped like a question. Measured on 13/08 against the live board db:
+ * of the 437 agent comments carrying a question fence, 331 are deliveries, not
+ * questions — three out of four.
+ *
+ * So read the OPTIONS instead. All of them board actions ⇒ delivery. A mixed
+ * block ("Landa su main" + "Aspetta, ho un dubbio") is still a QUESTION: one
+ * option the system cannot execute means a person has to choose.
+ *
+ * No options at all stays a question, which is this module's own reading
+ * (`pendingQuestion`): a question with no buttons has nothing to click but is
+ * still waiting for an answer. One legacy shape falls on that side and should
+ * not — a delivery whose ONLY option was "Landa e pubblica", which
+ * `parseQuestionBlock` filters out of the rendered list. The envelope no longer
+ * prompts for that option, so that shape only survives on old cards.
+ */
+export function questionAsksHuman(q: { options: readonly string[] } | null | undefined): boolean {
+  if (!q) return false;
+  if (q.options.length === 0) return true;
+  return !q.options.every(isBoardActionLabel);
 }
 
 /** Il minimo che serve per riconoscere una domanda in coda al thread. */
