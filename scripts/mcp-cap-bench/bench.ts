@@ -34,7 +34,7 @@ import { spawn } from "node:child_process";
 import { mkdirSync, writeFileSync, existsSync, copyFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir, tmpdir } from "node:os";
-import { buildClaudeArgs, TRIMMED_TOOLS } from "../../server/providers/claude/args";
+import { buildClaudeArgs, TRIMMED_TOOLS_DISPATCHED } from "../../server/providers/claude/args";
 import { PAGES, BENCH_DIR, RESULTS_PATH, markerFor, MANIFEST_PATH } from "./pages";
 
 const argv = process.argv.slice(2);
@@ -61,7 +61,7 @@ const CAP = Number(flag("--cap", "4000"));
  * Con `prefix` i due bracci NON hanno lo stesso registro di tool, e non devono
  * averlo: la differenza È il trattamento. Il cancello quindi non chiede
  * l'uguaglianza, chiede che lo scarto sia ESATTAMENTE i tool dichiarati in
- * `TRIMMED_TOOLS` — che è la stessa domanda, fatta bene.
+ * `TRIMMED_TOOLS_DISPATCHED` — che è la stessa domanda, fatta bene.
  */
 const LEVER = (flag("--lever", "cap") as "cap" | "prefix");
 /**
@@ -311,7 +311,7 @@ async function runArm(arm: "off" | "on", home: string, cfg: string): Promise<Arm
     isNewSession: true,
     toolSearch: "1",
     mcpOutputTokens: cap,
-    trimUnusedTools: trim,
+    toolTrim: trim ? "dispatched" : null,
     slimSkillListing: slim,
   });
 
@@ -450,9 +450,9 @@ if (off && on) {
   // Con la leva `prefix` lo scarto è VOLUTO, e l'uguaglianza sarebbe il guasto:
   // significherebbe che `--disallowed-tools` non ha morso e il braccio ON sta
   // vincendo per un'altra ragione. Quindi il registro atteso a destra è quello
-  // di sinistra meno ESATTAMENTE `TRIMMED_TOOLS` — niente di più, niente di meno.
+  // di sinistra meno ESATTAMENTE `TRIMMED_TOOLS_DISPATCHED` — niente di più, niente di meno.
   const atteso = LEVER === "prefix"
-    ? off.toolsAtBoot.filter((t) => !TRIMMED_TOOLS.includes(t as never))
+    ? off.toolsAtBoot.filter((t) => !TRIMMED_TOOLS_DISPATCHED.includes(t as never))
     : off.toolsAtBoot;
   const sameTools =
     off.toolsAtBoot.length > 0 &&
@@ -492,7 +492,7 @@ if (off && on) {
     console.log(`  costo: ${(costDrop * 100).toFixed(1)}% in meno`);
     console.log(`  la previsione della scala regge (≥80%): ${dentro ? "sì" : "NO"}`);
     console.log(`  marcatori esatti a taglio acceso: ${on.markersCorrect ? "sì" : "NO"}`);
-    console.log(`  registro atteso nel braccio ON (OFF meno ${TRIMMED_TOOLS.join(", ")}): ${sameTools ? "sì" : "NO"}`);
+    console.log(`  registro atteso nel braccio ON (OFF meno ${TRIMMED_TOOLS_DISPATCHED.join(", ")}): ${sameTools ? "sì" : "NO"}`);
     pass = sameTools && dentro && on.markersCorrect;
   } else {
     pass = sameTools && drop >= TOKEN_BAR && costDrop >= COST_BAR && on.markersCorrect;

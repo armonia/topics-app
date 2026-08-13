@@ -1008,21 +1008,21 @@ export interface CheckRun {
 export interface BoardSettings {
   projectId: string;
   /**
-   * Interruttore GLOBALE (riga riservata `project_id='*'`), esposto qui perché
-   * ogni lettura per-board continui a gattare il dispatch senza sapere della
-   * riga globale. Scriverlo via updateBoardSettings lo ribalta per TUTTE le board.
+   * The GLOBAL switch (reserved row `project_id='*'`), surfaced here so every
+   * per-board read keeps gating dispatch without having to know about the global
+   * row. Writing it through updateBoardSettings flips it for EVERY board.
    */
   autoDispatch: boolean;
   //
-  // NIENTE tetto di concorrenza per board. Il tetto è UNO, macchina-wide, e vive
-  // sulla riga riservata `project_id='*'` (`readGlobalCap` → `getGlobalCap`):
-  // è quello che il dispatcher legge in `currentCap()` e quello che la quota di
-  // core dello spawn divide. Un `maxAgents` per board è esistito qui fino al
-  // 13/08: si scriveva dalla rotta, si rileggeva nel pannello, e non decideva
-  // NIENTE. Sul DB vivo quel giorno diceva 9 per la board topics-app mentre il
-  // tetto vero (riga '*') era 8 — e una persona ha dispacciato credendo al 9.
-  // La colonna `max_agents` resta nel DB per le board (togliere una colonna
-  // vuole una migration): resta, e nessuno la scrive né la legge più.
+  // NO per-board concurrency cap. There is ONE cap, machine-wide, living on the
+  // reserved row `project_id='*'` (`readGlobalCap` -> `getGlobalCap`): the one
+  // the dispatcher reads in `currentCap()` and the one the spawn core quota
+  // divides. A per-board `maxAgents` existed here until 2026-08-13: the route
+  // wrote it, the panel read it back, and it decided NOTHING. Measured on the
+  // live DB that day: the topics-app row said 9 while the real cap (row '*') was
+  // 8, so the panel showed a limit one higher than the one being enforced.
+  // The `max_agents` column stays in the DB for boards (dropping a column needs
+  // a migration): it stays, and nothing writes or reads it any more.
   //
   dispatchEffort: string;
   dispatchUseWorktree: boolean;
@@ -1135,6 +1135,102 @@ export interface DispatchCapacity {
    * router montato senza, i test): un conteggio assente vale «nessuno».
    */
   running: number;
+}
+
+/** Il tetto globale come sta scritto: `auto` (dimensionato dalla macchina) o il
+ *  numero fisso. Gemello della riga riservata `board_settings['*']`. */
+export interface GlobalDispatchCap {
+  auto: boolean;
+  max: number;
+}
+
+/** Bounds of the fixed number. The same ones `readGlobalCap` clamps what it
+ *  reads from the DB with: a field that accepts 40 and saves 20 lies to whoever
+ *  fills it in. */
+export const GLOBAL_CAP_MIN = 1;
+export const GLOBAL_CAP_MAX = 20;
+
+/**
+ * NO CEILING AT ALL, written as a fixed cap of zero.
+ *
+ * Zero rather than a new column because a column costs a migration, and because
+ * "zero agents allowed" is a setting nobody can want — the value was free.
+ *
+ * It is admissible only because the expensive thing is fenced elsewhere.
+ * Measured with 8 agents in flight: the agents summed to 5.7% CPU (they wait on
+ * the API), while their gates — seven concurrent full test suites, eslint, three
+ * tsc — took the machine to a load of 38 on 12 cores. Capping agents was
+ * throttling the cheap side. `scripts/slot.ts` now bounds the expensive side,
+ * machine-wide and across worktrees, so the number of agents can stop standing
+ * in for it.
+ */
+export const GLOBAL_CAP_OFF = 0;
+
+/** True when the human asked for no ceiling (a FIXED zero — `auto` is a
+ *  different answer, and means "you decide"). */
+export function isGlobalCapOff(cap: GlobalDispatchCap): boolean {
+  return !cap.auto && cap.max === GLOBAL_CAP_OFF;
+}
+
+/**
+ * The fixed number, inside the bounds and integral. NaN means the minimum: an
+ * emptied number field must never be able to write "no agents at all".
+ *
+ * TRUNCATION, not rounding, and that is not a detail. Three places turn this
+ * value into an integer and they have to agree: here (the optimistic value the
+ * client shows), `clampInt` on the way into the DB (`server/services/tasks.ts`,
+ * `Math.trunc`) and `Math.floor` on the way back out
+ * (`server/services/dispatch-capacity.ts`). `<input type="number">` happily
+ * hands over 3.6; rounding here showed 4 while the server stored 3, so the
+ * field disagreed with itself until a reload. All three floor now, and for
+ * values >= 1 trunc and floor are the same function.
+ */
+export function clampGlobalCap(n: number): number {
+  if (!Number.isFinite(n)) return GLOBAL_CAP_MIN;
+  // Zero passes through untouched: it is the "no ceiling" sentinel, not a small
+  // number to be pulled up to the minimum. Clamping it to 1 would silently turn
+  // "run as many as you like" into "run one", which is the opposite setting.
+  if (Math.trunc(n) === GLOBAL_CAP_OFF) return GLOBAL_CAP_OFF;
+  return Math.max(GLOBAL_CAP_MIN, Math.min(GLOBAL_CAP_MAX, Math.trunc(n)));
+}
+
+/**
+ * Quanti agenti insieme, davvero, adesso: `auto` prende la raccomandazione
+ * viva della macchina, il resto prende il numero fisso. Mai sotto 1 (un tetto
+ * di zero non è una board prudente, è una board ferma).
+ *
+ * `recommended` a `null` significa «nessuna sonda»: si ricade sul numero fisso
+ * anche in auto, che è il comportamento dei test e degli host degradati.
+ *
+ * STA QUI e non solo nel server perché ora ha due lettori: il dispatcher, che
+ * lo applica, e il pannello impostazioni della board, che scrive «3 di 8» sotto
+ * gli occhi di una persona. Due copie della stessa formula sono il modo in cui
+ * il numero mostrato e il numero applicato iniziano a divergere.
+ */
+export function effectiveDispatchCap(cap: GlobalDispatchCap, recommended: number | null): number {
+  if (isGlobalCapOff(cap)) return Infinity;
+  return cap.auto && recommended != null ? Math.max(1, recommended) : Math.max(1, cap.max);
+}
+
+/**
+ * THE OTHER QUESTION, and it is not the same one.
+ *
+ * `effectiveDispatchCap` answers "may one more agent start", so "no ceiling" is
+ * a real answer there. This one answers "how much of the machine does each agent
+ * get" — it is the DIVISOR of the core quota — and infinity is not an answer to
+ * that: it would hand every agent a slice of zero. Nor is the raw zero, which
+ * `Math.max(1, 0)` would turn into 1 and give each of them the whole machine,
+ * which is the same inversion the reactive recommendation already caused once
+ * (measured: `-j11` per agent under load 45).
+ *
+ * With no ceiling the sizing question falls back to the STRUCTURAL number: how
+ * many this machine sustains in regime, which is exactly what the divisor wants
+ * to know and the one number that does not move with the load the agents are
+ * themselves making.
+ */
+export function sizingDispatchCap(cap: GlobalDispatchCap, structural: number | null): number {
+  if (isGlobalCapOff(cap) || cap.auto) return Math.max(1, structural ?? 3);
+  return Math.max(1, cap.max);
 }
 
 /** Le due primitive di collegamento dell'intake. */
