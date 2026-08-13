@@ -955,7 +955,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     heavyHeldNoted.add(task.id);
     try {
       emit(deps.svc.setDispatchState({ taskId: task.id, state: CHIP_QUEUED }));
-      deps.svc.addComment({ taskId: task.id, author: "system", content: why });
+      deps.svc.addComment({ taskId: task.id, author: "system", content: why, kind: "service" });
     } catch { /* il task può essersi mosso sotto i piedi */ }
   }
 
@@ -1762,7 +1762,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       emit(deps.svc.setDispatchState({ taskId, state: CHIP_WORKING }));
       try {
         deps.svc.addComment({
-          taskId, author: "system",
+          taskId, author: "system", kind: "service",
           content:
             `Fan-out: ${n} agenti partono in parallelo su questo task, ognuno nel proprio worktree e nella propria chat. ` +
             "A fine giro li trovi qui a confronto: ne scegli uno e gli altri vengono buttati.",
@@ -1986,7 +1986,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
             : `tentativo ${bumped.dispatchAttempts}/${cap}`;
           try {
             deps.svc.addComment({
-              taskId, author: "system",
+              taskId, author: "system", kind: "service",
               content: outage
                 ? `${describeTurnEnd(end)}: riprovo tra ${Math.round(backoff / 1000)}s sulla stessa sessione (${attempt}).`
                 : `${describeTurnEnd(end)}: l'agent continua sulla stessa sessione (${attempt}).`,
@@ -2154,7 +2154,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         waitingForSlot.add(taskId);
         try {
           deps.svc.addComment({
-            taskId, author: "system",
+            taskId, author: "system", kind: "service",
             content: `In attesa di uno slot: il tetto di concorrenza (${currentCap()}) è pieno. Riprendo appena si libera. Niente è andato perso.`,
           });
         } catch { /* best-effort */ }
@@ -2419,7 +2419,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         try {
           emit(deps.svc.setDispatchState({ taskId: t.id, state: CHIP_QUEUED }));
           deps.svc.addComment({
-            taskId: t.id, author: "system",
+            taskId: t.id, author: "system", kind: "service",
             content: `Dispatch in attesa: ${describeIntruders(intruders)} e questa board lavora IN-PLACE (isolamento worktree off). ` +
               "Il task riparte da solo appena il repo torna libero. Non devi fare nulla.",
           });
@@ -2655,7 +2655,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         heavyHeldNoted.delete(t.id);
         try {
           deps.svc.addComment({
-            taskId: t.id, author: "system",
+            taskId: t.id, author: "system", kind: "service",
             content:
               `Parte comunque dopo ${atteso} min di attesa: è un task PESANTE e la macchina non si è liberata, ` +
               "ma un'attesa senza fine tiene ferma tutta la coda dietro di lui. " +
@@ -2670,7 +2670,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       if (intruders.length > 0) {
         try {
           deps.svc.addComment({
-            taskId: t.id, author: "system",
+            taskId: t.id, author: "system", kind: "service",
             content: `Attenzione: ${describeIntruders(intruders)} mentre parte questo agent. ` +
               "L'agent lavora in un worktree isolato, ma il landing su main può incrociare quel lavoro. Controlla il diff prima di approvare.",
           });
@@ -2689,7 +2689,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           // fan-out che "non funziona".
           try {
             deps.svc.addComment({
-              taskId: t.id, author: "system",
+              taskId: t.id, author: "system", kind: "service",
               content: `Fan-out ${wantFanOut}→${taskFanOut}: tetto di concorrenza ${effectiveCap}.`,
             });
           } catch { /* best-effort */ }
@@ -2701,7 +2701,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         fanOutBlockedNoted.add(projectId);
         try {
           deps.svc.addComment({
-            taskId: t.id, author: "system",
+            taskId: t.id, author: "system", kind: "service",
             content: `Fan-out ${wantFanOut} ignorato: board IN-PLACE (worktree off), ${wantFanOut} agenti nella stessa cartella si pesterebbero. Parte un agente solo.`,
           });
         } catch { /* best-effort */ }
@@ -2816,7 +2816,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     log(`liveness: sessione ${slot.sessionKey} morta con il turno ancora aperto → recupero il task ${taskId}`);
     try {
       deps.svc.addComment({
-        taskId, author: "system",
+        taskId, author: "system", kind: "service",
         content:
           "La sessione dell'agent è morta mentre il turno era ancora aperto (il processo non c'è più): " +
           "riprendo il task invece di lasciarlo fermo su 'lavora'.",
@@ -2907,7 +2907,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       if (orphanAttempts > 0) {
         try {
           deps.svc.addComment({
-            taskId: t.id, author: "system",
+            taskId: t.id, author: "system", kind: "service",
             content:
               `Il server è ripartito mentre ${orphanAttempts} ${orphanAttempts === 1 ? "tentativo del fan-out lavorava" : "tentativi del fan-out lavoravano"}: ` +
               "i turni sono morti col processo, ma i worktree no. Chiudo il giro con quello che avevano committato.",
@@ -2945,7 +2945,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           if (live) {
             try {
               deps.svc.addComment({
-                taskId: t.id, author: "system",
+                taskId: t.id, author: "system", kind: "service",
                 content: "Riavvio del server: ripreso in diretta, nessun tentativo consumato.",
               });
             } catch { /* dedupe/best-effort */ }
@@ -2954,7 +2954,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           }
           try {
             deps.svc.addComment({
-              taskId: t.id, author: "system",
+              taskId: t.id, author: "system", kind: "service",
               content: "Server ripartito a metà turno: riprendo la stessa sessione, nessun tentativo consumato.",
             });
           } catch { /* dedupe/best-effort */ }
