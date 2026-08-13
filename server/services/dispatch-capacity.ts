@@ -12,24 +12,47 @@
 // (the OS keeps reclaimable pages as cache), so it would peg the cap at 1 on a
 // perfectly healthy 32 GB machine.
 //
-// IL FRENO VIVO NON È PIÙ IL LOAD AVERAGE. Lo era, e il conto era
-// `byLoad = ceil((core - load1) / 2)`. Su questo host, load 13 su 12 core, dava
-// 1: cinque card in coda dietro a un agente solo, per ore. Ma il load average è
-// della MACCHINA INTERA, e in quel momento i nostri agenti tenevano 0,75 core su
-// 12. Il carico era di WindowServer, Dia, Beeper. Ci si ritirava per far posto a
-// un carico non nostro, che non sarebbe sceso perché non dipendeva da noi. E il
-// freno si autoavverava: ogni agente che partiva alzava il load di 2-3 punti e
-// chiudeva la porta al successivo.
+// IL FRENO VIVO NON È PIÙ IL LOAD AVERAGE (cambiato il 12/08/2026).
+//
+// Lo era, e il conto era `byLoad = ceil((core - load1) / 2)`. Il load average è
+// della MACCHINA INTERA: il 12/08 su questo host valeva 13 su 12 core mentre i
+// nostri agenti tenevano 0,75 core: il carico erano WindowServer, il browser,
+// ActivityWatch, un player video. Il tetto è sceso a 1 con cinque card in coda,
+// per far posto a un carico che non era nostro e che non sarebbe sceso perché
+// non dipendeva da noi.
+//
+// E si autoavverava, che è il difetto peggiore: ogni agente che partiva alzava
+// il load di due o tre punti e chiudeva la porta al successivo. Un freno che
+// misura sé stesso si stabilizza a un agente, sempre.
 //
 // La domanda giusta non è «quanto è carica la macchina» ma «quanto di questo
-// carico è MIO»: il carico altrui non riduce il tetto (la CPU non si prenota, e
-// un agente aspetta la rete quasi sempre), il carico nostro sì. La misura è
-// `fleetLoadSync()` in `server/lib/fleet-usage.ts`; qui c'è solo l'aritmetica.
+// carico è MIO»:
+//  · il carico ALTRUI non riduce il tetto. Un agente aspetta la rete quasi
+//    sempre, e la CPU non è una risorsa che si prenota: se il Mac è occupato al
+//    100% da qualcun altro, gli agenti si spartiscono comunque il tempo che
+//    serve loro. Ritirarsi da un carico che non controlliamo è solo una coda
+//    ferma.
+//  · il carico NOSTRO sì, e a credito: la flotta ha un budget di core-unità
+//    (metà macchina), quello che gli agenti vivi stanno già bruciando è speso,
+//    e ogni slot NUOVO costa una core-unità di quel che resta.
+//
+// A credito e non a divisione, ed è la differenza che conta: dividere il budget
+// per il costo MEDIO osservato di un agente è ancora un freno che misura sé
+// stesso (una macchina carica → raccomandazione bassa → vedi
+// `structuralDispatchCapacity`, dove lo stesso errore è già costato). Qui un
+// agente che costa una core-unità alza `running` di 1 e abbassa il residuo di
+// 1: il tetto non si muove, e la porta resta aperta a quello dopo. Si stringe
+// solo quando gli agenti vivi costano davvero più di così.
+//
+// La misura è quella della flotta (`server/lib/fleet-usage.ts`), la stessa che
+// usa il gate del task pesante: due freni che leggono due sonde diverse sono
+// due freni che prima o poi si contraddicono.
 
 import os from "node:os";
 import { statfsSync } from "node:fs";
 import type { Database } from "bun:sqlite";
 import { fleetLoadSync } from "../lib/fleet-usage";
+import { machineCores } from "../lib/machine-cores";
 
 // La forma sta in `shared/board.ts` (la legge la UI delle impostazioni board).
 export type { DispatchCapacity } from "../../shared/board";
@@ -153,7 +176,7 @@ export function dispatchResourceBlock(
  * il caso «da solo» resta riservato a chi ha scelto un tetto fisso di 1 a mano.
  */
 export function structuralDispatchCapacity(): number {
-  const cores = Math.max(1, os.cpus().length);
+  const cores = machineCores();
   const totalMemGB = os.totalmem() / 1e9;
   // I/O-bound agents → ~cores/3 as the CPU budget (2–6 band).
   const byCores = clamp(Math.round(cores / 3), 2, 6);
@@ -163,99 +186,128 @@ export function structuralDispatchCapacity(): number {
 }
 
 /**
- * La quota di macchina che la flotta può occupare: metà dei core.
+ * La fetta di macchina che la flotta può occupare: metà dei core.
  *
- * È la linea che decide quando il freno morde. Con gli agenti che aspettano la
- * rete (0,75 core su 12, il caso rotto) qualunque quota lascia intatto il tetto
- * strutturale: non è lì che si gioca. Con agenti che compilano davvero (1-2 core
- * l'uno) la metà della macchina ne fa stare pochi, e il tetto scende. L'altra
- * metà resta all'umano che sta usando il suo computer.
+ * È la linea che decide quando il freno morde, e si sceglie guardando i due
+ * estremi misurati. Con gli agenti che aspettano la rete (0,75 core su 12, il
+ * caso del 12/08) qualunque quota lascia intatto il tetto strutturale: non è lì
+ * che si gioca. Con quattro o cinque agenti che compilano davvero (fra 1 e 2
+ * core l'uno) la metà della macchina si esaurisce, e il tetto smette di
+ * ammetterne altri: che è esattamente ciò che deve succedere. L'altra metà
+ * resta a chi sta usando il computer, che di solito è una persona.
  */
 const FLEET_CPU_SHARE = 0.5;
 
 /**
- * Quanto costa uno slot NUOVO, in unità di core. Uno: un agente che lavora tiene
- * grosso modo un core, e quello si prenota prima di ammetterlo.
+ * Quanto costa uno slot NUOVO, in core-unità di budget.
  *
- * È un costo FISSO e non l'appetito medio osservato, di proposito. Un divisore
- * vivo si inverte: sotto carico l'appetito medio cresce, la quota per agente si
- * allarga e il freno si allenta proprio quando dovrebbe stringere.
+ * Un costo FISSO, non l'appetito medio osservato. Il costo medio come divisore
+ * è il freno che misura sé stesso in un'altra veste: gli agenti vivi costano
+ * tanto → il divisore cresce → il tetto crolla → resta un agente solo, che
+ * essendo l'unico a costare tanto tiene il divisore alto per sempre. Una
+ * core-unità è la stima onesta del prezzo di ammissione: un agente in regime
+ * sta molto sotto (aspetta la rete), un agente che compila sta sopra, e la
+ * differenza la paga il residuo di budget al giro successivo.
  */
-const NEW_SLOT_CORE_COST = 1;
+const CORES_PER_NEW_SLOT = 1;
 
 /**
  * Il pavimento del termine vivo: due slot.
  *
- * Un agente solo non deve poter chiudere la porta al secondo, qualunque cosa
- * stia facendo. È la protezione contro l'autoavveramento vecchio in una riga:
- * il primo che parte consuma, quello che consuma alza il numero, e il numero
- * alzato vieta il secondo. Sotto due la coda si stabilizza a un agente e la
- * board sembra ferma per una decisione umana che non esiste.
+ * Perché due e non uno: un agente da solo non deve poter chiudere la porta al
+ * secondo. Se il primo si mette a compilare e si mangia l'intera quota, il
+ * residuo va a zero e il conto darebbe «uno», cioè lui: la flotta si
+ * congelerebbe sul primo che è partito, con la coda ferma dietro. Il pavimento
+ * garantisce che ci sia sempre un secondo posto, e il tetto strutturale (che
+ * non scende mai sotto 2) resta comunque il limite superiore.
  */
-const FLEET_SLOT_FLOOR = 2;
+const FLEET_MIN_SLOTS = 2;
 
 /**
- * Quanti agenti stanno nella quota di CPU della flotta: quelli che GIÀ girano,
- * più quelli che ci stanno ancora dentro a `NEW_SLOT_CORE_COST` l'uno. Pura, la
- * misura la passa chi chiama.
+ * Quanti agenti insieme può reggere la quota di CPU della flotta, dato quanto
+ * ne stanno già bruciando quelli vivi. Pura: la misura la passa il chiamante.
  *
- * `fleetCores` è la CPU della NOSTRA flotta in unità di core (1 = un core
- * saturo), la stessa scala del load average ma con dentro solo i processi
- * nostri. `null` significa NON MISURATO, che non è «zero»: chi chiama ripiega
- * sul conto storico invece di trattare un numero assente come via libera.
+ * `running` sono gli agenti già in volo, e vanno SOMMATI: il loro costo è già
+ * dentro `ourCoreUnits`, quindi il residuo di budget risponde alla domanda
+ * «quanti ne ammetto ANCORA», non «quanti in tutto». Ometterlo era il modo
+ * elegante di ricreare il difetto: il carico dei nostri agenti avrebbe
+ * abbassato il tetto TOTALE invece dei posti residui, e il primo che compila
+ * avrebbe di nuovo chiuso la porta.
  */
-export function fleetCapacityLimit(input: { cores: number; fleetCores: number; running: number }): number {
+export function fleetSlotBudget(input: { cores: number; ourCoreUnits: number; running: number }): {
+  slots: number;
+  /** Core-unità che la flotta può occupare in tutto. */
+  budgetCores: number;
+  /** Core-unità di budget ancora libere. */
+  freeCores: number;
+} {
   const budgetCores = Math.max(1, input.cores * FLEET_CPU_SHARE);
-  const freeCores = Math.max(0, budgetCores - input.fleetCores);
-  const newSlots = Math.floor(freeCores / NEW_SLOT_CORE_COST);
-  return Math.max(FLEET_SLOT_FLOOR, input.running + newSlots);
+  const freeCores = clamp(budgetCores - Math.max(0, input.ourCoreUnits), 0, budgetCores);
+  const nuovi = Math.floor(freeCores / CORES_PER_NEW_SLOT);
+  return { slots: Math.max(FLEET_MIN_SLOTS, Math.max(0, input.running) + nuovi), budgetCores, freeCores };
 }
 
 /**
- * @param running quanti turni sono in volo ADESSO (`dispatcher.busyCount()`).
- *   Entra nel conto: il termine vivo è «i vivi più quelli che ci stanno ancora»,
- *   e senza sapere quanti sono già partiti la CPU che stanno consumando non dice
- *   quanto spazio resta. Chi lo omette ottiene solo gli slot liberi.
- * @param readFleet la sonda, iniettabile. I casi che contano sono «la macchina è
- *   carica ma non per colpa nostra» e «la flotta si mangia tutto», e senza
- *   questa cucitura si potrebbero provare solo caricando davvero la macchina che
- *   fa girare i test, cioè non si proverebbero.
+ * IL CONTO STORICO, per gli host senza sonda della flotta (Windows, e i primi
+ * secondi dopo l'avvio finché la cache è fredda). Sbaglia esattamente come
+ * sbagliava prima, ma sbagliare come prima su un host che non sa misurare è
+ * meglio che non avere nessuna guardia.
+ */
+function loadAverageSlots(cores: number, load1: number): number {
+  const loadFree = clamp(cores - load1, 0, cores);
+  return Math.max(1, Math.ceil(loadFree / 2));
+}
+
+/**
+ * @param running quanti turni sono in volo ADESSO (`dispatcher.busyCount()`, o
+ *   il conteggio degli agenti vivi che il CAS del claim fa valere). Entra nel
+ *   conto: è il termine che rende il freno un credito invece di una divisione
+ *   (vedi `fleetSlotBudget`). Chi lo omette ottiene un tetto più prudente, mai
+ *   uno più largo.
+ * @param probe la sonda della flotta. Iniettabile per i test, che devono poter
+ *   fissare la misura: leggerla dalla macchina vera renderebbe l'asserzione
+ *   dipendente da cosa sta girando mentre la suite passa.
  */
 export function computeDispatchCapacity(
   running = 0,
-  readFleet: () => { coreUnits: number; cores: number } | null = fleetLoadSync,
+  probe: () => { coreUnits: number; cores: number } | null = fleetLoadSync,
 ): DispatchCapacity {
-  const cores = Math.max(1, os.cpus().length);
+  const cores = machineCores();
   const totalMemGB = os.totalmem() / 1e9;
   const load1 = os.loadavg()[0] ?? 0;
-  let fleetCores: number | null = null;
-  try { fleetCores = readFleet()?.coreUnits ?? null; } catch { fleetCores = null; }
+  // Una sonda che esplode vale «non lo so», mai «via libera» e mai un tick
+  // caduto: si ripiega sul conto storico, come su un host senza sonda.
+  const fleet = (() => { try { return probe(); } catch { return null; } })();
 
   // I/O-bound agents → ~cores/3 as the CPU budget (2–6 band).
   const byCores = clamp(Math.round(cores / 3), 2, 6);
   // ~3 GB/agent incl. OS headroom — only binding on small-RAM machines.
   const byMem = Math.max(1, Math.floor(totalMemGB / 3));
   const structural = Math.min(byCores, byMem);
+  // Il freno vivo: la CPU che la flotta si sta già mangiando, non quella della
+  // macchina intera (vedi la nota in testa al file).
+  const budget = fleet ? fleetSlotBudget({ cores, ourCoreUnits: fleet.coreUnits, running }) : null;
+  const live = budget ? budget.slots : loadAverageSlots(cores, load1);
 
-  // Il freno vivo. Con la sonda si misura la flotta; senza (Windows, o la cache
-  // ancora fredda al primo tick) resta il conto storico sul load average, che è
-  // impreciso ma è l'unico numero disponibile: meglio del nulla, e la sonda
-  // arriva al giro dopo.
-  const byFleet =
-    fleetCores != null
-      ? fleetCapacityLimit({ cores, fleetCores, running })
-      : Math.max(1, Math.ceil(clamp(cores - load1, 0, cores) / 2));
-
-  const recommended = clamp(Math.min(structural, byFleet), 1, MAX_AUTO_CAP);
+  const recommended = clamp(Math.min(structural, live), 1, MAX_AUTO_CAP);
   const reason =
     `${cores} core → base ${byCores}` +
     (byMem < byCores ? `, limitato dalla RAM (${totalMemGB.toFixed(0)}GB → ${byMem})` : "") +
-    (byFleet >= structural
-      ? fleetCores != null
-        ? `; la flotta usa ${fleetCores.toFixed(1)} core su ${(cores * FLEET_CPU_SHARE).toFixed(0)} di quota`
-        : ""
-      : fleetCores != null
-        ? `, ridotto a ${byFleet}: la flotta usa ${fleetCores.toFixed(1)} core su ${(cores * FLEET_CPU_SHARE).toFixed(0)} di quota`
-        : `, ridotto per carico (load ${load1.toFixed(1)})`);
-  return { recommended, cores, totalMemGB: Math.round(totalMemGB * 10) / 10, load1: Math.round(load1 * 100) / 100, reason, running };
+    (budget
+      ? live < structural
+        ? `, ridotto a ${live}: gli agent tengono ${fleet!.coreUnits.toFixed(1)} core sui ${budget.budgetCores.toFixed(0)} di quota`
+        : `; gli agent tengono ${fleet!.coreUnits.toFixed(1)} core sui ${budget.budgetCores.toFixed(0)} di quota (il resto del carico non è nostro)`
+      : live < structural
+        ? `, ridotto per carico (load ${load1.toFixed(1)})`
+        : "");
+  return {
+    recommended,
+    cores,
+    totalMemGB: Math.round(totalMemGB * 10) / 10,
+    load1: Math.round(load1 * 100) / 100,
+    oursCores: fleet ? Math.round(fleet.coreUnits * 10) / 10 : null,
+    budgetCores: Math.round(cores * FLEET_CPU_SHARE * 10) / 10,
+    reason,
+    running,
+  };
 }

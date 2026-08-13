@@ -1,7 +1,9 @@
 import { useState, useMemo, useRef } from 'react';
 import { Check, Loader2, Plus, Sparkles } from 'lucide-react';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
+import { ProjectTaskCounts } from './atoms';
 import type { BoardProjectRef } from '../../lib/board';
+import type { ProjectCounts } from '../../lib/projectTaskCounts';
 import { POPOVER_DIVIDER, POPOVER_ITEM } from '@/lib/popoverStyles';
 
 /**
@@ -47,8 +49,11 @@ export function ProjectPickerBody({
    *  unresolved/ambiguous = the task stays project-less (human assigns). */
   onPickAuto?: () => void;
   autoSelected?: boolean;
-  /** Conteggio per progetto mostrato in coda alla riga (quanti task ha). */
-  counts?: Record<string, number>;
+  /** Quanti task ha ogni progetto, per stato: mostrati in coda alla riga con i
+   *  glifi della kanban (vedi `ProjectTaskCounts`). Assente = nessun conteggio,
+   *  che è il caso delle superfici dove si SCEGLIE un progetto (comporre un
+   *  task, spostarlo): lì il carico di lavoro altrui non c'entra niente. */
+  counts?: Record<string, ProjectCounts>;
   /** Testo quando la lista è vuota e non si sta cercando. */
   emptyLabel?: string;
   /** La cartella in cui nascerà un progetto creato per nome, mostrata sulla
@@ -134,9 +139,7 @@ export function ProjectPickerBody({
             >
               <ProjectFavicon path={p.path} size={13} />
               <span className="min-w-0 flex-1 truncate">{p.name}</span>
-              {counts?.[p.projectId] !== undefined && (
-                <span className="shrink-0 tabular-nums text-[10px] text-app-text-muted">{counts[p.projectId]}</span>
-              )}
+              {counts?.[p.projectId] && <ProjectTaskCounts counts={counts[p.projectId]!} />}
               {isSelected(p) && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
             </button>
           );

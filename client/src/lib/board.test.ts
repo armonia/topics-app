@@ -1,5 +1,5 @@
 import { test, expect, describe } from 'bun:test';
-import { blockedByChip, reopenedChip, boardIdForPath, diffTotals, hasCodeQuestion, TASK_STATUSES, parseQuestionBlock, waitingOnThisChip, type BoardTask } from './board';
+import { blockedByChip, reopenedChip, boardIdForPath, diffTotals, hasCodeQuestion, isUnfinishedReview, systemDeliveryChip, TASK_STATUSES, parseQuestionBlock, waitingOnThisChip, type BoardTask } from './board';
 
 describe('boardIdForPath', () => {
   // Parity lock with the server (services/tasks.ts:projectIdForPath). Must stay
@@ -106,6 +106,69 @@ describe('blockedByChip', () => {
 
   test('bloccante archiviato: muto', () => {
     expect(chip({ blockedBy: { id: 'blk', text: 'Archiviato', status: 'todo', archived: true } })).toBeNull();
+  });
+});
+
+/**
+ * IL CHIP CHE DICE «questo non l'ha consegnato l'agent».
+ *
+ * Esisteva dal 29/07 dentro il JSX della card, dove nessun test unitario lo
+ * raggiungeva e nessun'altra superficie poteva riusarlo. Qui è una funzione pura
+ * come `blockedByChip` e `reopenedChip`, e la stessa regola alimenta le SCELTE
+ * (`isUnfinishedReview`): il chip e i bottoni non possono più dire due cose
+ * diverse sulla stessa card, che è esattamente cosa succedeva il 13/08.
+ */
+describe('systemDeliveryChip', () => {
+  const chip = (over: Partial<BoardTask> = {}) =>
+    systemDeliveryChip({ status: 'review', deliveredBy: 'system', deliveredReason: null, ...over } as BoardTask);
+
+  test('consegna dell\'agent: nessun chip', () => {
+    expect(chip({ deliveredBy: 'agent' })).toBeNull();
+    expect(chip({ deliveredBy: 'human' })).toBeNull();
+    expect(chip({ deliveredBy: null })).toBeNull();
+  });
+
+  test('portata dal sistema: etichetta corta, ragione per esteso nel titolo', () => {
+    const c = chip({ deliveredReason: 'retries_exhausted' });
+    expect(c?.label).toBe('non consegnato');
+    expect(c?.title).toContain('finito i tentativi');
+  });
+
+  test('ogni causa ha la sua parola: non un generico «chiuso dal sistema»', () => {
+    const parole = (['retries_exhausted', 'model_refused', 'fanout', 'parked_children'] as const)
+      .map((r) => chip({ deliveredReason: r })!.label);
+    expect(new Set(parole).size).toBe(parole.length);
+  });
+
+  test('causa non registrata: il chip resta, degradato', () => {
+    expect(chip({ deliveredReason: null })?.label).toBe('non consegnato');
+  });
+
+  test('fuori da review tace: su una card chiusa sarebbe archeologia', () => {
+    expect(chip({ status: 'done' })).toBeNull();
+    expect(chip({ status: 'in_progress' })).toBeNull();
+  });
+});
+
+describe('isUnfinishedReview', () => {
+  const su = (over: Partial<BoardTask> = {}) =>
+    isUnfinishedReview({ status: 'review', deliveredBy: 'system', deliveredReason: 'retries_exhausted', ...over } as BoardTask);
+
+  test('turno esaurito o modello che si rifiuta: nessuno ha consegnato', () => {
+    expect(su()).toBe(true);
+    expect(su({ deliveredReason: 'model_refused' })).toBe(true);
+    expect(su({ deliveredReason: null })).toBe(true);
+  });
+
+  test('fan-out e figli parcheggiati no: hanno già la loro superficie', () => {
+    expect(su({ deliveredReason: 'fanout' })).toBe(false);
+    expect(su({ deliveredReason: 'parked_children' })).toBe(false);
+  });
+
+  test('una consegna vera non lo è mai, e fuori da review nemmeno', () => {
+    expect(su({ deliveredBy: 'agent' })).toBe(false);
+    expect(su({ deliveredBy: 'human' })).toBe(false);
+    expect(su({ status: 'in_progress' })).toBe(false);
   });
 });
 
