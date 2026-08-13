@@ -11,10 +11,10 @@
  * (same session id on both surfaces).
  */
 import { describe, expect, test, beforeAll } from "bun:test";
-import { setupTestDataDir, createTestAppContext } from "./helpers";
+import { setupTestDataDir, createTestAppContext, testTmpDir } from "./helpers";
 import { moveTerminalPaneToProject } from "../../server/lib/relocate-pane";
 
-const TEST_DATA = "/tmp/topics-relocate-data";
+const TEST_DATA = testTmpDir("relocate-data");
 
 beforeAll(() => setupTestDataDir(TEST_DATA));
 

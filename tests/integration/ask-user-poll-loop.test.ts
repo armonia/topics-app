@@ -18,9 +18,9 @@
  * velocità di test.
  */
 import { describe, expect, test, beforeAll } from "bun:test";
-import { setupTestDataDir, createTestAppContext } from "./helpers";
+import { setupTestDataDir, createTestAppContext, testTmpDir } from "./helpers";
 
-const TEST_DATA = "/tmp/topics-ask-poll-data";
+const TEST_DATA = testTmpDir("ask-poll-data");
 const LEG_MS = 150;
 
 beforeAll(() => setupTestDataDir(TEST_DATA));
