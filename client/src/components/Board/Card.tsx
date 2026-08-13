@@ -13,6 +13,7 @@ import { useLongPress, openContextMenuAt } from '../../hooks/useLongPress';
 import { useMobile } from '../../hooks/useMobile';
 import { PreviewMedia } from './PreviewMedia';
 import { TaskChoiceRow } from './TaskChoiceRow';
+import { usableQuestionOptions } from './taskChoices';
 import { taskChoiceState } from './taskChoices';
 import { stripMarkdown } from '../../lib/stripMarkdown';
 import { PRIORITY_DOT, PRIORITY_LABEL, DISPATCH_CHIP, COMPACT_MD_CLS, mediaPaneIdFor, type LiveUsage, type OpenTask } from './constants';
@@ -235,6 +236,13 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
   // would only leak their syntax into it.
   const humanContextText = thread?.humanContext ? stripMarkdown(thread.humanContext.content) : '';
   const pending = lastComment ? parseQuestionBlock(lastComment.content) : null;
+  // A quick reply whose text IS one of the card's real choices is a trap: the
+  // reply rejects the card and restarts the agent with those words, while the
+  // button one row below performs the action. Same label, opposite effect.
+  const replyOptions = useMemo(
+    () => (pending ? usableQuestionOptions(task, pending.options) : []),
+    [pending, task],
+  );
 
   // Route mutations by the task's own projectId (works in the global board too).
   const review = async (decision: 'approve' | 'reject', comment?: string) => {
@@ -710,9 +718,9 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
             className="text-xs md:text-[10px] text-app-text-muted"
             title={`Ultimo aggiornamento: ${new Date(task.updatedAt).toLocaleString('it-IT')}`}
           >{fmtUpdatedAt(task.updatedAt)}</div>
-          {pending && pending.options.length > 0 && (
+          {replyOptions.length > 0 && (
             <div className="flex flex-wrap gap-1">
-              {pending.options.map((opt, i) => (
+              {replyOptions.map((opt, i) => (
                 <button
                   key={i} disabled={busy}
                   onClick={() => answer(opt)}
