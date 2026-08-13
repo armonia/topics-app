@@ -198,8 +198,13 @@ describe("la ragione della coda arriva dal server, con la card", () => {
    *
    * `askParkedChildren` è il codice che porta il padre in review coi due
    * bottoni («rimettili in coda» / «archiviali»). La card lì sta GIÀ chiedendo,
-   * e il chip rosa «serve te» dice l'unica mossa che esiste: sostituirlo con
-   * «ferma» la toglie di mezzo e consiglia cose che sono già sullo schermo.
+   * e «serve te» dice l'unica mossa che esiste: sostituirlo con «ferma» la
+   * toglie di mezzo e consiglia cose che sono già sullo schermo.
+   *
+   * Ciò che il chip guadagna è il NUMERO, e non è decorazione: gli step non
+   * stanno in nessuna colonna (la board fetcha `rootsOnly`), quindi «serve te»
+   * da solo lasciava invisibile quanto lavoro è fermo sotto — sette padri e
+   * ventuno card il 13/08, con Backlog e Todo che si disegnavano vuote.
    *
    * È anche la riga su cui la sonda `scripts/stalled-parents.ts` e
    * `deriveQueueReason` si davano risposta OPPOSTA: la sonda esclude
@@ -215,11 +220,11 @@ describe("la ragione della coda arriva dal server, con la card", () => {
     // La firma della domanda, letta sul payload: è il predicato della sonda.
     expect(chiesto.status).toBe("review");
     expect(chiesto.deliveredReason).toBe("parked_children");
-    // …e il chip che l'umano deve vedere resta il suo.
+    // …e il chip che l'umano deve vedere resta il suo, col numero attaccato.
     expect(chiesto.dispatchState).toBe("needs_input");
-    expect(chiesto.queueReason).toBeNull();
+    expect(chiesto.queueReason).toMatchObject({ kind: "children_parked", head: "serve te", detail: "1 step fermo" });
     // Anche riletta da `get`, non solo sul payload della scrittura.
-    expect(s.get(padre.id)!.task.queueReason).toBeNull();
+    expect(s.get(padre.id)!.task.queueReason!.kind).toBe("children_parked");
   });
 
   /**
@@ -242,7 +247,10 @@ describe("la ragione della coda arriva dal server, con la card", () => {
     const escluseDallaSonda = r.status === "review" && r.delivered_reason === "parked_children";
     expect(escluseDallaSonda).toBe(true);
     expect(r.dispatch_state).toBe("needs_input");
-    expect(s.get(padre.id)!.task.queueReason).toBeNull();
+    // «Non dice mai ferma» è la promessa, e regge anche ora che il chip porta il
+    // numero: la testa resta la mossa, e `checklist_frozen` non compare.
+    expect(s.get(padre.id)!.task.queueReason!.head).toBe("serve te");
+    expect(s.get(padre.id)!.task.queueReason!.kind).not.toBe("checklist_frozen");
   });
 
   /**
