@@ -1372,6 +1372,28 @@ describe("recordChecks (evidenza dei checks pre-review)", () => {
   test("task inesistente → not_found, non una UPDATE a vuoto", () => {
     expect(() => s.recordChecks({ taskId: "nope", state: "pass", commit: null, runs: null })).toThrow(TaskServiceError);
   });
+
+  /**
+   * «running» è una promessa che qualcuno scriverà l'esito, e chi la mantiene è
+   * una corsa che vive nel processo. Un riavvio la porta via: senza questa
+   * pulizia la card fila per sempre, che è il guasto misurato il 13/08.
+   */
+  test("al boot le spie 'running' si spengono, e SOLO quelle", () => {
+    const gira = s.create({ projectId: PID, text: "sta girando" });
+    const verde = s.create({ projectId: PID, text: "verde" });
+    const rosso = s.create({ projectId: PID, text: "rosso" });
+    s.recordChecks({ taskId: gira.id, state: "running", commit: "abc", runs: null });
+    s.recordChecks({ taskId: verde.id, state: "pass", commit: "abc", runs: [{ name: "t", cmd: "true", ok: true, code: 0, ms: 5, timedOut: false, tail: "" }] });
+    s.recordChecks({ taskId: rosso.id, state: "fail", commit: "abc", runs: [{ name: "t", cmd: "false", ok: false, code: 1, ms: 5, timedOut: false, tail: "boom" }] });
+
+    expect(s.clearStaleChecksRuns()).toBe(1);
+    expect(read(gira.id).checksState).toBeNull();
+    expect(read(verde.id).checksState).toBe("pass");
+    expect(read(rosso.id).checksState).toBe("fail");
+    // L'ultima misura vera resta: si spegne la spia, non l'evidenza.
+    expect(read(rosso.id).checks).toHaveLength(1);
+    expect(s.clearStaleChecksRuns()).toBe(0);
+  });
 });
 
 describe("blocked-by dependency", () => {

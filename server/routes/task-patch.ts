@@ -18,7 +18,28 @@
  * nomina. Il rifiuto è TOTALE: mezza patch applicata sarebbe di nuovo un esito
  * che nessuno ha chiesto.
  */
+import { TASK_STATUSES } from "../../shared/board";
 import type { UpdateTaskPatch } from "../services/tasks";
+
+/**
+ * I DOMINI CHIUSI, detti a parole, in un posto solo.
+ *
+ * Misurato il 13/08/2026: `PATCH {"priority": 9}` rispondeva
+ *   500 {"error":"CHECK constraint failed: priority BETWEEN 0 AND 4"}
+ * Due guasti in una riga. Il codice: un valore fuori dominio è colpa di chi
+ * chiama, quindi 400 — un 500 dice «il server è rotto» e manda a cercare nel
+ * posto sbagliato. E il messaggio: era il testo grezzo di SQLite che affiorava
+ * fino al client, leggibile solo da chi sa che esiste un CHECK.
+ *
+ * Queste righe le leggono in DUE: il lettore alla porta, che ferma il valore
+ * prima del DB, e `checkConstraintBody`, che traduce una violazione arrivata
+ * comunque al DB (una scrittura da un'altra porta). Una regola sola, due usi:
+ * se il dominio cambia, cambia qui e le due risposte restano d'accordo.
+ */
+const PRIORITY_MIN = 0;
+const PRIORITY_MAX = 4;
+const PRIORITY_RULE = `priority ammette un intero da ${PRIORITY_MIN} a ${PRIORITY_MAX}`;
+const STATUS_RULE = `status ammette uno di: ${TASK_STATUSES.join(", ")}`;
 
 /** Il valore da scrivere, o il motivo per cui questo campo non si sa applicare. */
 export type FieldRead = { ok: true; value: unknown } | { ok: false; reason: string };
@@ -56,6 +77,23 @@ const asNumber = (raw: unknown): FieldRead =>
 const asBoolean = (raw: unknown): FieldRead =>
   typeof raw === "boolean" ? ok(raw) : no(`atteso boolean, ricevuto ${kindOf(raw)}`);
 
+/** Priorità: intero dentro il dominio. Fuori dominio è un 400 che dice il range. */
+const asPriority = (raw: unknown): FieldRead => {
+  const read = asNumber(raw);
+  if (!read.ok) return read;
+  const n = read.value as number;
+  if (!Number.isInteger(n)) return no(`${PRIORITY_RULE}, ricevuto ${n}`);
+  return n >= PRIORITY_MIN && n <= PRIORITY_MAX ? ok(n) : no(`${PRIORITY_RULE}, ricevuto ${n}`);
+};
+
+/** Stato: uno dei cinque della board. */
+const asStatus = (raw: unknown): FieldRead => {
+  const read = asString(raw);
+  if (!read.ok) return read;
+  const s = read.value as string;
+  return (TASK_STATUSES as readonly string[]).includes(s) ? ok(s) : no(`${STATUS_RULE}, ricevuto "${s}"`);
+};
+
 interface FieldSpec {
   /** Dove finisce nel patch del service. */
   to: keyof UpdateTaskPatch;
@@ -69,8 +107,8 @@ interface FieldSpec {
  * `previewImage` si era già perso una volta.
  */
 const HUMAN_FIELDS: Record<string, FieldSpec> = {
-  status: { to: "status", read: asString },
-  priority: { to: "priority", read: asNumber },
+  status: { to: "status", read: asStatus },
+  priority: { to: "priority", read: asPriority },
   assignee: { to: "assignedTo", read: asStringOrNull },
   text: { to: "text", read: asTitle },
   description: { to: "description", read: asStringOrNull },
@@ -93,8 +131,8 @@ const HUMAN_FIELDS: Record<string, FieldSpec> = {
  * di non esserlo.
  */
 const AGENT_FIELDS: Record<string, FieldSpec> = {
-  status: { to: "status", read: asString },
-  priority: { to: "priority", read: asNumber },
+  status: { to: "status", read: asStatus },
+  priority: { to: "priority", read: asPriority },
   assignee: { to: "assignedTo", read: asStringOrNull },
   text: { to: "text", read: asTitle },
   description: { to: "description", read: asStringOrNull },
@@ -117,8 +155,8 @@ export type ParsedTaskPatch =
  * dove si fa davvero quel gesto, invece di un generico "chiave sconosciuta".
  */
 const REDIRECTED: Record<string, string> = {
-  archived: "la PATCH non archivia. Per archiviare usa DELETE sulla stessa risorsa",
-  archivedAt: "la PATCH non archivia. Per archiviare usa DELETE sulla stessa risorsa",
+  archived: "la PATCH non archivia. DELETE sulla stessa risorsa archivia, POST .../restore riporta indietro",
+  archivedAt: "la PATCH non archivia. DELETE sulla stessa risorsa archivia, POST .../restore riporta indietro",
   id: "l'id di un task non si cambia",
   projectId: "il progetto di un task non si cambia da qui",
   project_id: "il progetto di un task non si cambia da qui",
@@ -181,5 +219,43 @@ export function unapplicableFieldsBody(errors: PatchFieldError[]): {
     error: errors.map((e) => `${e.field}: ${e.reason}`).join("; "),
     code: "unapplicable_field",
     fields: errors.map((e) => e.field),
+  };
+}
+
+/**
+ * La SECONDA rete, per una violazione che il lettore alla porta non ha visto:
+ * una scrittura che entra da un'altra rotta, o un dominio che qualcuno stringe
+ * nella migration senza toccare questo file.
+ *
+ * Vale la stessa lettura: il valore lo ha scelto chi chiama, quindi 400. E il
+ * testo di SQLite non esce di qui: contiene l'espressione del vincolo, cioè
+ * una riga di schema che il client non ha e non può interpretare. Al suo posto
+ * va la regola detta a parole.
+ */
+const CHECK_RULES: { field: string; expr: RegExp; rule: string }[] = [
+  { field: "priority", expr: /\bpriority\b/, rule: PRIORITY_RULE },
+  { field: "status", expr: /\bstatus\b\s+IN\b[^)]*'todo'/i, rule: STATUS_RULE },
+];
+
+/** Il messaggio di SQLite per un CHECK: `CHECK constraint failed: <espressione>`. */
+const CHECK_FAILED_RE = /CHECK constraint failed:\s*(.*)/i;
+
+/**
+ * Traduce una violazione di CHECK nel corpo di un 400, o `null` se l'errore è
+ * un altro (e allora resta un 500: quello sì che è il server rotto).
+ */
+export function checkConstraintBody(e: unknown): { error: string; code: string; fields: string[] } | null {
+  const message = e instanceof Error ? e.message : typeof e === "string" ? e : "";
+  const code = (e as { code?: unknown } | null)?.code;
+  const matched = CHECK_FAILED_RE.exec(message);
+  if (!matched && code !== "SQLITE_CONSTRAINT_CHECK") return null;
+  const expr = matched?.[1] ?? "";
+  const known = CHECK_RULES.find((r) => r.expr.test(expr));
+  return {
+    // Senza una regola nota resta comunque un valore fuori da un insieme
+    // chiuso: si dice quello, non l'SQL che lo ha rifiutato.
+    error: known ? known.rule : "valore fuori dal dominio ammesso per questo campo",
+    code: "invalid_input",
+    fields: known ? [known.field] : [],
   };
 }

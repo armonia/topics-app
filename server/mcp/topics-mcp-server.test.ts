@@ -46,6 +46,7 @@ import {
   ASK_LEG_MS,
   ASK_MAX_LEGS,
 } from "./topics-mcp-server";
+import { CHECKS_LEG_MS } from "../services/checks-gate";
 import { ASK_TTL_MS } from "../lib/ask-user-bridge";
 
 // ---------------------------------------------------------------------------
@@ -1090,6 +1091,9 @@ describe("callUpdateTask", () => {
     expect(JSON.parse(String(seen.init?.body))).toEqual({
       status: "review",
       previewImage: "/Users/x/.topics/media/prova.webm",
+      // La gamba viaggia con la consegna: e' quanto questa richiesta e' disposta
+      // ad aspettare i check prima di rimettersi in fila.
+      legMs: CHECKS_LEG_MS,
     });
   });
 
@@ -1123,6 +1127,84 @@ describe("callUpdateTask", () => {
       fetchImpl,
     );
     expect(JSON.parse(String(seen.init?.body))).toEqual({ previewImage: "/Users/x/.topics/media/p.png" });
+  });
+
+  /**
+   * I CHECK PRE-REVIEW DURANO MINUTI, la richiesta no: il server risponde 202
+   * «stanno girando» e chi ricicla è questo ciclo. Prima il gate girava dentro
+   * la PATCH e il socket moriva a 255s (tetto di Bun), lasciando la card a
+   * «running» per sempre.
+   */
+  test("202 pending: richiama finche' c'e' un esito, e lo dice a ogni gamba", async () => {
+    let chiamate = 0;
+    const fetchImpl = stubFetch(async () => {
+      chiamate += 1;
+      return chiamate < 3
+        ? new Response(JSON.stringify({ pending: true, code: "review_checks_running" }), { status: 202 })
+        : new Response(JSON.stringify({ id: "t1", status: "review" }), { status: 200 });
+    });
+    const gambe: number[] = [];
+    const text = await callUpdateTask(
+      { baseUrl: "http://x", sessionKey: "s" },
+      { task_id: "t1", status: "review" },
+      fetchImpl,
+      { onProgress: (leg) => gambe.push(leg) },
+    );
+    expect(text).toBe("task t1 → review");
+    expect(chiamate).toBe(3);
+    expect(gambe).toEqual([1, 2]); // silenzio = chiamata piantata, per il client MCP
+  });
+
+  test("un rosso non si ricicla: il 409 con l'output esce subito", async () => {
+    let chiamate = 0;
+    const fetchImpl = stubFetch(async () => {
+      chiamate += 1;
+      return chiamate === 1
+        ? new Response(JSON.stringify({ pending: true }), { status: 202 })
+        : new Response(JSON.stringify({ error: "✗ `test:unit` (2m 1s)\nassertion failed", code: "review_needs_green_checks" }), { status: 409 });
+    });
+    await expect(
+      callUpdateTask({ baseUrl: "http://x", sessionKey: "s" }, { task_id: "t1", status: "review" }, fetchImpl),
+    ).rejects.toThrow(/assertion failed/);
+    expect(chiamate).toBe(2);
+  });
+
+  test("un server che dice 'pending' per sempre non fa girare a vuoto per sempre", async () => {
+    let chiamate = 0;
+    const fetchImpl = stubFetch(async () => {
+      chiamate += 1;
+      return new Response(JSON.stringify({ pending: true }), { status: 202 });
+    });
+    await expect(
+      callUpdateTask({ baseUrl: "http://x", sessionKey: "s" }, { task_id: "t1", status: "review" }, fetchImpl, { maxLegs: 4, legMs: 1 }),
+    ).rejects.toThrow(/check pre-review/i);
+    expect(chiamate).toBe(4);
+  });
+
+  test("un buco di rete DENTRO l'attesa non butta via dieci minuti di check", async () => {
+    // Un hot-reload del server mentre i comandi girano: la gamba muore, la
+    // successiva riaggancia. Alla PRIMA chiamata, invece, un guasto resta un
+    // guasto: e' il comportamento di sempre e non si tocca.
+    let chiamate = 0;
+    const fetchImpl = stubFetch(async () => {
+      chiamate += 1;
+      if (chiamate === 1) return new Response(JSON.stringify({ pending: true }), { status: 202 });
+      if (chiamate === 2) throw new Error("fetch failed");
+      return new Response(JSON.stringify({ id: "t1", status: "review" }), { status: 200 });
+    });
+    const text = await callUpdateTask(
+      { baseUrl: "http://x", sessionKey: "s" },
+      { task_id: "t1", status: "review" },
+      fetchImpl,
+      { backoffMs: [1] },
+    );
+    expect(text).toBe("task t1 → review");
+    expect(chiamate).toBe(3);
+
+    const subito = stubFetch(async () => { throw new Error("fetch failed"); });
+    await expect(
+      callUpdateTask({ baseUrl: "http://x", sessionKey: "s" }, { task_id: "t1", status: "review" }, subito, { backoffMs: [1] }),
+    ).rejects.toThrow(/fetch failed/);
   });
 
   test("sends only the provided patch fields", async () => {

@@ -118,6 +118,10 @@ const IT: Dict = {
   //    only subtract words the table knows.
   'board.action.land': 'Landa su main',
   'board.action.land.title': "Accetta il task e fondi il suo ramo su main (locale, nessun push). L'esito arriva nel thread.",
+  // Stessa azione su una card che NESSUN agent ha consegnato: il ramo c'è, ma
+  // nessuno ha detto che è finito. La parola cambia perché la promessa cambia.
+  'board.action.land.anyway': 'Landa comunque',
+  'board.action.land.anyway.title': "Nessun agent ha consegnato questo ramo: fondendolo porti su main lavoro che nessuno ha dichiarato finito. Guarda prima il diff. Locale, nessun push.",
   'board.action.accept': 'Approva',
   // `{land}` is the `land` label taken from this same table: naming the other
   // button by copying its text by hand is how two words drift apart again.
@@ -128,11 +132,20 @@ const IT: Dict = {
   // comunque» stand next to the identical real button (which instead rejects).
   'board.action.accept.anyway': 'Approva comunque',
   'board.action.accept.anyway.title': "I checks pre-review sono rossi: approvando lo accetti comunque. La strada normale è «{sendBack}», che rimanda l'output all'agent.",
+  // Stessa parola, altra ragione: qui non c'è nessun output da giudicare, il
+  // turno è finito e basta. Il tooltip nomina la strada normale, che in questo
+  // caso è farlo continuare, non rimandargli indietro qualcosa.
+  'board.action.accept.unfinished.title': "Nessuno ha consegnato: approvando chiudi il task com'è, e sotto può non esserci niente. La strada normale è «{sendBack}», che lo fa continuare.",
   'board.action.sendBack': 'Rimanda indietro',
   'board.action.sendBack.title': "Torna all'agente, che riparte sullo stesso tab. Scrivi nel campo qui sotto per dargli un'indicazione.",
   // Same word, different destination: with no agent bound there is no tab to
   // restart, and the task goes back to In Progress in the human's hands.
   'board.action.sendBack.noAgent.title': 'Nessun agente da riprendere: il task torna In Progress, in mano a te. Scrivi nel campo qui sotto per lasciare una nota.',
+  // Terzo verso della stessa azione: l'agent non ha MAI consegnato, quindi non
+  // gli si rimanda indietro niente. Lo si fa proseguire, ed è la scelta
+  // consigliata al posto di un'approvazione che chiuderebbe il vuoto.
+  'board.action.sendBack.unfinished': 'Rimandalo avanti',
+  'board.action.sendBack.unfinished.title': "L'agent non ha finito il turno: riparte sullo stesso tab e continua da dov'era. Scrivi nel campo qui sotto per dirgli dove guardare.",
   'board.action.redo': 'Rifai così…',
   'board.action.redo.title': "Rimanda all'agente con un'indicazione: porta il cursore nel commento qui sotto.",
   'board.action.redo.noAgent.title': "Nessun agente da riprendere: il task torna In Progress con la tua indicazione. Porta il cursore nel commento qui sotto.",
@@ -144,7 +157,12 @@ const IT: Dict = {
   'board.action.deliverNow': 'Consegna quello che hai',
   'board.action.deliverNow.title': "Chiede all'agente di chiudere adesso con quello che ha già fatto e mandare il task in review.",
   'board.action.drop': 'Archivia',
-  'board.action.drop.title': 'Archivia il task: esce dalla board e resta fra gli archiviati.',
+  'board.action.drop.title': 'Archivia il task: esce dalla board e resta fra gli archiviati, da dove si ripristina.',
+  'board.action.restore': 'Ripristina',
+  'board.action.restore.title': 'Riporta il task sulla board, nella sua colonna, coi suoi sottotask.',
+  'board.archive.show': 'Mostra i task archiviati',
+  'board.archive.hide': 'Torna alla board',
+  'board.archive.banner': 'Archivio: {count} task, nelle loro colonne. Menu della card (tasto destro, o pressione lunga) → «{restore}».',
   'board.action.unblock': 'Sblocca',
   'board.action.unblock.title': 'Togli il legame e manda il task in Todo, così può partire.',
   'board.action.unblock.named': 'Sblocca: {name}',
@@ -212,7 +230,19 @@ const IT: Dict = {
   'board.task.streamPreviewTitle': 'Anteprima live di ciò che sta streammando ora',
   'board.task.recapturePreview': 'Ricattura evidenza',
   'board.task.recapturePreviewTitle': "Rifà l'anteprima di questa card: riavvia il server dal suo worktree e la rifotografa. NON sveglia l'agent e non consuma un tentativo. Se non è possibile, il motivo arriva nel thread.",
-  'board.task.replyPlaceholder': "Rispondi all'agent…",
+  // I DUE GESTI DELLA CARD IN REVIEW, detti prima che uno scriva.
+  //
+  // Un commento su una card in review la RIMANDA all'agent (reject + resume):
+  // giusto per «rispondi», ma il bottone diceva solo «Commenta» e chi voleva
+  // annotare una consegna la rigettava senza saperlo. Ora i due gesti si
+  // chiamano come il loro effetto, e il placeholder li nomina entrambi.
+  'board.task.replyPlaceholder': "Scrivi una nota. «Rimanda» risveglia l'agent, «Nota» la lascia sulla card.",
+  /** Stessa frase per il campo stretto della card, dove la lunga non ci sta. */
+  'board.task.replyPlaceholderShort': '…nota: «Rimanda» risveglia, «Nota» no',
+  'board.task.sendBackReply': 'Rimanda',
+  'board.task.sendBackReplyTitle': "Rimanda il task all'agent con questa nota. Riparte e la card torna In Progress.",
+  'board.task.quietNote': 'Nota',
+  'board.task.quietNoteTitle': "Salva la nota sulla card. L'agent non riparte e il task resta in Review.",
   'board.task.steerPlaceholder': "Scrivi all'agent mentre lavora. Lo riceve al prossimo turno.",
   'board.task.commentPlaceholder': 'Commenta…',
   'board.task.workspaceLabel': 'Spazio di lavoro',
@@ -313,7 +343,14 @@ const IT: Dict = {
   'board.settings.checksTitle': "Eseguiti dal server nel worktree del task quando l'agent consegna. Uno rosso = review rifiutata, con l'output rimandato all'agent. Vuoto = nessun controllo. Tienili veloci: un gate da venti minuti lo spegni il primo giorno.",
   'board.settings.autoDispatch': 'Auto-dispatch',
   'board.settings.title': 'Impostazioni della board',
-  'board.publish.toPublish': 'Da pubblicare',
+  // I titoli delle sezioni: dieci righe di seguito erano un elenco senza
+  // gerarchia, e la prima (l'interruttore GLOBALE) sembrava di questa board.
+  'board.settings.sec.global': 'Vale per tutte le board',
+  'board.settings.sec.agent': "Come lavora l'agente",
+  'board.settings.sec.where': 'Dove lavora',
+  'board.settings.sec.when': 'Quando parte',
+  'board.settings.sec.delivery': 'Alla consegna',
+  'board.publish.toPublish': 'Su main, non ancora pubblicato',
   'board.publish.nothing': 'Niente da pubblicare. Tutto è già sul remoto.',
   'board.publish.diffTitle': 'Diff che verrà pubblicato',
   'board.publish.loadingDiff': 'Carico il diff…',
@@ -730,13 +767,18 @@ const EN: Dict = {
   'board.task.openInBrowser': 'Open in the browser',
   'board.action.land': 'Land on main',
   'board.action.land.title': 'Accept the task and merge its branch into main (local, no push). The result shows up in the thread.',
+  'board.action.land.anyway': 'Land it anyway',
+  'board.action.land.anyway.title': 'No agent delivered this branch: merging it puts work nobody called finished onto main. Look at the diff first. Local, no push.',
   'board.action.accept': 'Approve',
   'board.action.accept.title': 'Accept the delivery and close the task. It does NOT merge: to bring the branch onto main use «{land}».',
   'board.action.accept.anyway': 'Approve anyway',
   'board.action.accept.anyway.title': 'The pre-review checks are red: approving accepts it anyway. The normal path is «{sendBack}», which sends the output back to the agent.',
+  'board.action.accept.unfinished.title': 'Nobody delivered: approving closes the task as it stands, and there may be nothing under it. The normal path is «{sendBack}», which lets it carry on.',
   'board.action.sendBack': 'Send it back',
   'board.action.sendBack.title': 'Back to the agent, which restarts on the same tab. Write in the field below to give it a direction.',
   'board.action.sendBack.noAgent.title': 'No agent to resume: the task goes back to In Progress, in your hands. Write in the field below to leave a note.',
+  'board.action.sendBack.unfinished': 'Send it onward',
+  'board.action.sendBack.unfinished.title': 'The agent did not finish its turn: it restarts on the same tab and carries on from where it stopped. Write in the field below to tell it where to look.',
   'board.action.redo': 'Redo it like this…',
   'board.action.redo.title': 'Back to the agent with a direction: puts the cursor in the comment below.',
   'board.action.redo.noAgent.title': 'No agent to resume: the task goes back to In Progress with your direction. Puts the cursor in the comment below.',
@@ -748,7 +790,12 @@ const EN: Dict = {
   'board.action.deliverNow': 'Deliver what you have',
   'board.action.deliverNow.title': 'Asks the agent to close now with what it already did and move the task to review.',
   'board.action.drop': 'Archive',
-  'board.action.drop.title': 'Archives the task: it leaves the board and stays among the archived ones.',
+  'board.action.drop.title': 'Archives the task: it leaves the board and stays among the archived ones, where it can be restored.',
+  'board.action.restore': 'Restore',
+  'board.action.restore.title': 'Puts the task back on the board, in its column, with its subtasks.',
+  'board.archive.show': 'Show archived tasks',
+  'board.archive.hide': 'Back to the board',
+  'board.archive.banner': 'Archive: {count} tasks, in their columns. Card menu (right click, or long press) → «{restore}».',
   'board.action.unblock': 'Unblock',
   'board.action.unblock.title': 'Remove the link and send the task to Todo, so it can start.',
   'board.action.unblock.named': 'Unblock: {name}',
@@ -810,7 +857,12 @@ const EN: Dict = {
   'board.task.streamPreviewTitle': 'Live preview of what it is streaming now',
   'board.task.recapturePreview': 'Recapture evidence',
   'board.task.recapturePreviewTitle': "Rebuild this card's preview: reboot the server from its worktree and shoot it again. It does NOT wake the agent and burns no attempt. If it can't be done, the reason lands in the thread.",
-  'board.task.replyPlaceholder': 'Reply to the agent…',
+  'board.task.replyPlaceholder': 'Write a note. «Send back» wakes the agent up, «Note» leaves it on the card.',
+  'board.task.replyPlaceholderShort': '…note: «Send back» wakes it up, «Note» does not',
+  'board.task.sendBackReply': 'Send back',
+  'board.task.sendBackReplyTitle': 'Send the task back to the agent with this note. It restarts and the card returns to In Progress.',
+  'board.task.quietNote': 'Note',
+  'board.task.quietNoteTitle': 'Save the note on the card. The agent does not restart and the task stays in Review.',
   'board.task.steerPlaceholder': 'Write to the agent while it works. It gets it on the next turn.',
   'board.task.commentPlaceholder': 'Comment…',
   'board.task.workspaceLabel': 'Workspace',
@@ -882,7 +934,12 @@ const EN: Dict = {
   'board.settings.checksTitle': "Run by the server in the task's worktree when the agent delivers. One red = review rejected, with the output sent back to the agent. Empty = no checks. Keep them fast: a twenty-minute gate gets turned off on day one.",
   'board.settings.autoDispatch': 'Auto-dispatch',
   'board.settings.title': 'Board settings',
-  'board.publish.toPublish': 'To publish',
+  'board.settings.sec.global': 'Applies to every board',
+  'board.settings.sec.agent': 'How the agent works',
+  'board.settings.sec.where': 'Where it works',
+  'board.settings.sec.when': 'When it starts',
+  'board.settings.sec.delivery': 'On delivery',
+  'board.publish.toPublish': 'On main, not published yet',
   'board.publish.nothing': 'Nothing to publish. Everything is already on the remote.',
   'board.publish.diffTitle': 'Diff that will be published',
   'board.publish.loadingDiff': 'Loading the diff…',
