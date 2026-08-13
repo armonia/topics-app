@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'bun:test';
 import type { BoardTask } from './board';
-import { between, compareTasks, groupByStatus, planDrop } from './boardOrder';
+import { between, compareTasks, groupByStatus, manualStatusTarget, planDrop } from './boardOrder';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 /** Un BoardTask con solo i campi che l'ordinamento guarda. */
 function task(over: Partial<BoardTask> & { id: string }): BoardTask {
@@ -225,67 +228,155 @@ describe('planDrop', () => {
     expect(planDrop({ task: d1, overId: 'd2', byStatus: g, scope: 'board' })).toBeNull();
   });
 
-  describe('In Progress non è una coda: il drop viene reindirizzato in Todo', () => {
-    // Il dispatcher lista SOLO `status: "todo"`, quindi una card lasciata a mano
-    // in In Progress non la raccoglie nessuno — e uscire da Todo annulla pure il
-    // dispatch già in coda. Il drop finisce dove il gesto voleva andare, cioè in
-    // coda, e chi trascina lo sa perché il piano lo dichiara.
+  describe('In Progress is not a queue: the drop is redirected to Todo', () => {
+    // The dispatcher only ever lists `status: "todo"`, so a card left in In
+    // Progress by hand is collected by nobody, and leaving Todo also cancels the
+    // dispatch already queued for it. The drop ends up where the gesture meant
+    // to go, and whoever dragged it knows, because the plan says so.
     const wip = task({ id: 'w', status: 'in_progress', kanbanOrder: 7 });
 
-    test('senza agente: la card va in Todo, in fondo, e il piano lo DICE', () => {
+    test('no live turn: the card goes to Todo, at the end, and the plan SAYS so', () => {
       const arretrata = task({ id: 'arretrata', status: 'backlog', kanbanOrder: 9 });
       const g = col([a, b, c, wip, arretrata]);
       expect(planDrop({ task: arretrata, overId: 'in_progress', byStatus: g, scope: 'board' }))
         .toEqual({ patch: { status: 'todo', kanbanOrder: 4 }, redirectedFrom: 'in_progress' });
     });
 
-    test('rilasciata SOPRA una card di In Progress: stessa deviazione, e la posizione di quella card non conta', () => {
-      // `w` sta in un'altra colonna: il suo posto non dice niente su dove questa
-      // card vada in Todo. Si accoda, dopo c(3).
+    test('THE DELIVERED CARD: a review still bound to its agent is redirected too', () => {
+      // The one that mattered and the one the first fix missed. Handing a task
+      // to the human KEEPS `assigned_topic_id` (`deliverToReviewBySystem`: «Hand
+      // to the human: keep assigned_topic_id»), so guarding on that field left
+      // the most common card on the board — one delivered, that the human drags
+      // back into work by hand — in the black hole, silently. The field that
+      // says whether a turn is RUNNING is `dispatchState`.
+      const consegnata = task({
+        id: 'consegnata', status: 'review', kanbanOrder: 9,
+        assignedTopicId: 'topic-1', dispatchState: 'needs_input',
+      });
+      const g = col([a, b, c, wip, consegnata]);
+      expect(planDrop({ task: consegnata, overId: 'in_progress', byStatus: g, scope: 'board' }))
+        .toEqual({ patch: { status: 'todo', kanbanOrder: 4 }, redirectedFrom: 'in_progress' });
+    });
+
+    test('a settled dispatch chip is not a live turn either', () => {
+      // 'failed' / 'delivered' / null all mean nobody is working: the card is
+      // idle whatever the chip remembers about the last attempt.
+      for (const chip of [null, 'failed', 'delivered', 'stopped', 'waiting'] as const) {
+        const ferma = task({ id: 'ferma', status: 'backlog', kanbanOrder: 9, assignedTopicId: 'topic-1', dispatchState: chip });
+        const g = col([a, b, c, wip, ferma]);
+        const plan = planDrop({ task: ferma, overId: 'in_progress', byStatus: g, scope: 'board' })!;
+        expect(plan.redirectedFrom, `chip ${chip}`).toBe('in_progress');
+        expect(plan.patch.status, `chip ${chip}`).toBe('todo');
+      }
+    });
+
+    test('released ON a card of In Progress: same redirect, and that card\'s position does not count', () => {
+      // `w` lives in another column: its place says nothing about where this
+      // card belongs in Todo. It queues at the end, after c(3).
       const arretrata = task({ id: 'arretrata', status: 'backlog', kanbanOrder: 9 });
       const g = col([a, b, c, wip, arretrata]);
       expect(planDrop({ task: arretrata, overId: 'w', byStatus: g, scope: 'board' }))
         .toEqual({ patch: { status: 'todo', kanbanOrder: 4 }, redirectedFrom: 'in_progress' });
     });
 
-    test('CON un agente vivo la card resta dov\'è: quella è una presa in carico legittima', () => {
-      const presa = task({ id: 'presa', status: 'backlog', kanbanOrder: 9, assignedTopicId: 'topic-1' });
-      const g = col([a, b, c, wip, presa]);
-      const plan = planDrop({ task: presa, overId: 'in_progress', byStatus: g, scope: 'board' })!;
-      expect(plan.patch.status).toBe('in_progress');
-      expect(plan.redirectedFrom).toBeUndefined();
+    test('WITH a live turn the card stays put: that is a legitimate hand-over', () => {
+      for (const chip of ['working', 'starting', 'queued'] as const) {
+        const presa = task({ id: 'presa', status: 'backlog', kanbanOrder: 9, assignedTopicId: 'topic-1', dispatchState: chip });
+        const g = col([a, b, c, wip, presa]);
+        const plan = planDrop({ task: presa, overId: 'in_progress', byStatus: g, scope: 'board' })!;
+        expect(plan.patch.status, `chip ${chip}`).toBe('in_progress');
+        expect(plan.redirectedFrom, `chip ${chip}`).toBeUndefined();
+      }
     });
 
-    test('già in Todo: niente da scrivere, ma la deviazione si dice lo stesso', () => {
-      // c è già l'ultima di Todo: la patch sarebbe vuota. Il piano esiste solo
-      // per portare il motivo, e `dropTo` non spedisce niente.
+    test('already in Todo: NOTHING moves, and the redirect is said anyway', () => {
+      // Aiming a queued card at another column is not a request to demote it:
+      // the plan exists only to carry the reason, and `dropTo` sends nothing.
+      // `a` is FIRST in Todo — before the fix it was pushed to the back.
       const g = col([a, b, c, wip]);
-      expect(planDrop({ task: c, overId: 'in_progress', byStatus: g, scope: 'board' }))
-        .toEqual({ patch: {}, redirectedFrom: 'in_progress' });
+      for (const t of [a, b, c]) {
+        expect(planDrop({ task: t, overId: 'in_progress', byStatus: g, scope: 'board' }), t.id)
+          .toEqual({ patch: {}, redirectedFrom: 'in_progress' });
+      }
     });
 
-    test('vale anche nella board generale, dove la posizione non si scrive', () => {
+    test('holds in the global board too, where the position is not written', () => {
       const altro = task({ id: 'altro', projectId: 'pY', status: 'backlog', kanbanOrder: 300 });
       const g = col([a, b, c, altro], 'cross-project');
       expect(planDrop({ task: altro, overId: 'in_progress', byStatus: g, scope: 'cross-project' }))
         .toEqual({ patch: { status: 'todo' }, redirectedFrom: 'in_progress' });
     });
 
-    test('board generale, card già in Todo: nessuna patch, ma il motivo c\'è', () => {
+    test('global board, card already in Todo: no patch, and the reason is there', () => {
       const g = col([a, b, c], 'cross-project');
       expect(planDrop({ task: a, overId: 'in_progress', byStatus: g, scope: 'cross-project' }))
         .toEqual({ patch: {}, redirectedFrom: 'in_progress' });
     });
 
-    test('riordinare DENTRO In Progress non è una deviazione', () => {
-      // Due card già lì: nessuna delle due sta chiedendo di entrare, quindi il
-      // drop resta un riordino normale.
-      const w1 = task({ id: 'w1', status: 'in_progress', kanbanOrder: 1, assignedTopicId: 't1' });
-      const w2 = task({ id: 'w2', status: 'in_progress', kanbanOrder: 2, assignedTopicId: 't2' });
-      const g = col([w1, w2]);
-      const plan = planDrop({ task: w2, overId: 'w1', byStatus: g, scope: 'board' })!;
-      expect(plan.redirectedFrom).toBeUndefined();
-      expect(plan.patch).toEqual({ kanbanOrder: 0 });
+    test('reordering INSIDE In Progress is a reorder, agent or no agent', () => {
+      // The regression the redirect introduced: two cards already there, NEITHER
+      // asking to enter, and the drop threw them both out into Todo. Giving both
+      // an agent (which the first version of this test did) measures only the
+      // branch that was already right.
+      for (const topic of [null, 't1']) {
+        const w1 = task({ id: 'w1', status: 'in_progress', kanbanOrder: 1, assignedTopicId: topic });
+        const w2 = task({ id: 'w2', status: 'in_progress', kanbanOrder: 2, assignedTopicId: topic });
+        const g = col([w1, w2]);
+        const plan = planDrop({ task: w2, overId: 'w1', byStatus: g, scope: 'board' })!;
+        expect(plan.redirectedFrom, `topic ${topic}`).toBeUndefined();
+        expect(plan.patch, `topic ${topic}`).toEqual({ kanbanOrder: 0 });
+      }
+    });
+
+    test('leaving In Progress is never a redirect: the rule is about ENTERING', () => {
+      const w1 = task({ id: 'w1', status: 'in_progress', kanbanOrder: 1 });
+      const g = col([a, b, c, w1]);
+      expect(planDrop({ task: w1, overId: 'review', byStatus: g, scope: 'board' }))
+        .toEqual({ patch: { status: 'review' } });
+    });
+  });
+
+  describe('manualStatusTarget: the same rule for the drawer menu and the composer', () => {
+    // Three doors lead into In Progress (the drag, the drawer's "move to", the
+    // inline composer) and only the drag obeyed the rule. A rule one door obeys
+    // is a rule with two ways around it.
+    test('In Progress without a live turn becomes Todo, and says it', () => {
+      expect(manualStatusTarget('in_progress', { dispatchState: null }))
+        .toEqual({ status: 'todo', redirectedFrom: 'in_progress' });
+      expect(manualStatusTarget('in_progress', { dispatchState: 'needs_input' }))
+        .toEqual({ status: 'todo', redirectedFrom: 'in_progress' });
+    });
+
+    test('In Progress WITH a live turn is left alone', () => {
+      expect(manualStatusTarget('in_progress', { dispatchState: 'working' })).toEqual({ status: 'in_progress' });
+    });
+
+    test('a task being CREATED has no agent by definition', () => {
+      // The composer at the foot of the In Progress column: no task exists yet,
+      // so there is nothing that could be running on it.
+      expect(manualStatusTarget('in_progress', null))
+        .toEqual({ status: 'todo', redirectedFrom: 'in_progress' });
+    });
+
+    test('every other column passes through untouched', () => {
+      for (const s of ['backlog', 'todo', 'review', 'done'] as const) {
+        expect(manualStatusTarget(s, { dispatchState: null }), s).toEqual({ status: s });
+      }
+    });
+
+    test('all three doors go through it, and none writes the column by hand', () => {
+      // The rule lived in `planDrop` alone, so the two other ways of putting a
+      // card into In Progress — the drawer's "move to" menu and the composer at
+      // the foot of the column — walked straight past it. Those are React
+      // surfaces this file cannot render, so what it checks is the wiring: they
+      // call the rule, and no board file writes that column as a literal.
+      const surfaces = ['../components/Board/KanbanBoardPane.tsx', '../components/Board/TaskDetail.tsx'];
+      const dir = dirname(fileURLToPath(import.meta.url));
+      for (const f of surfaces) {
+        const src = readFileSync(join(dir, f), 'utf8');
+        expect(src.includes('manualStatusTarget('), `${f} no longer asks the rule`).toBe(true);
+        expect(src.match(/status: ['"]in_progress['"]/g) ?? [], `${f} writes the column by hand`).toEqual([]);
+      }
     });
   });
 

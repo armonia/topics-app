@@ -4,8 +4,9 @@
  * Stava dentro `KanbanBoardPane` (1164 righe): la logica più delicata del lato
  * client — inserimento frazionario, correzione dell'indice per lo spostamento
  * verso il basso, scelta della colonna di destinazione — viveva dentro un
- * `useCallback` e non era coperta da NESSUN test (le spec della board non
- * trascinano mai una card). Qui è pura: entra lo stato, esce la patch.
+ * `useCallback` e l'unica spec che la sfiorava era BOARD-17, che trascina una
+ * card fra due colonne: nessun caso limite, nessuno scope. Qui è pura: entra lo
+ * stato, esce la patch.
  *
  * Due cose che non erano vere prima e ora lo sono:
  *
@@ -30,7 +31,7 @@
  */
 
 import type { BoardTask, TaskStatus } from './board';
-import { TASK_STATUSES } from './board';
+import { isAgentWorking, TASK_STATUSES } from './board';
 
 /**
  * Come si legge l'ordine di una colonna.
@@ -114,12 +115,50 @@ export function between(prev: number | undefined, next: number | undefined): num
   return (prev + next) / 2;
 }
 
+/**
+ * IN PROGRESS IS NOT A QUEUE, and putting a card there by hand used to be a
+ * one-way trip. The dispatcher only ever picks up `status: "todo"`
+ * (`server/services/task-dispatcher.ts`), so nothing collects In Progress: the
+ * card sat there forever. Worse, leaving Todo cancels the dispatch already
+ * queued for it (`onLeaveTodo`), so the gesture did not just fail to start the
+ * work, it stopped work that was about to start (seen on 7b803a72).
+ *
+ * A human aiming a card at In Progress means "work on this", which is what Todo
+ * does, so that is where the card goes, and the surface says so: a gesture that
+ * silently lands somewhere else is the same black hole with a different shape.
+ *
+ * The predicate is `isAgentWorking`, NOT `assignedTopicId`. A card handed to a
+ * human keeps its topic binding — `deliverToReviewBySystem` says so in as many
+ * words, «Hand to the human: keep assigned_topic_id (a rejection resumes this
+ * agent)» — so `assignedTopicId` is still set on the single most common card
+ * there is, a delivered one. Guarding on it left exactly that card in the black
+ * hole, silently. `dispatch_state` is the field that says whether a turn is
+ * RUNNING, which is the only case where In Progress is the truth: that drop is
+ * a hand-over of work already in flight, and Todo would be a lie about it.
+ *
+ * There are three doors into In Progress and this is the rule for all of them:
+ * the column drag (`planDrop`), the drawer's "move to" menu, and the inline
+ * composer at the foot of the column. A rule that only one door obeys is not a
+ * rule, it is a fourth way to get the same card stuck.
+ */
+export function manualStatusTarget(
+  wanted: TaskStatus,
+  task: Pick<BoardTask, 'dispatchState'> | null,
+): { status: TaskStatus; redirectedFrom?: TaskStatus } {
+  // No task at all = a card being CREATED: nothing is running on it by
+  // definition, so it always redirects.
+  if (wanted === 'in_progress' && !isAgentWorking(task?.dispatchState)) {
+    return { status: 'todo', redirectedFrom: 'in_progress' };
+  }
+  return { status: wanted };
+}
+
 /** Cosa scrivere dopo un drop, o null se il drop non cambia niente. */
 export interface DropPlan {
   /**
-   * La patch per la card trascinata. Può essere VUOTA: un drop reindirizzato
-   * (vedi `redirectedFrom`) su una card che è già dove il reindirizzamento la
-   * manda non ha niente da scrivere, ma ha comunque qualcosa da dire.
+   * The patch for the dragged card. It can be EMPTY: a redirected drop (see
+   * `redirectedFrom`) on a card already where the redirect sends it has nothing
+   * to write, and still has something to say.
    */
   patch: { status?: TaskStatus; kanbanOrder?: number };
   /**
@@ -146,9 +185,9 @@ export interface DropPlan {
  * In `cross-project` la posizione non si tocca mai: si restituisce al più il
  * cambio di stato. Vedi la nota in testa al file.
  *
- * Un drop su In Progress viene REINDIRIZZATO in Todo quando nessun agente sta
- * già lavorando la card, e il piano lo dichiara con `redirectedFrom`. Il perché
- * sta nel corpo.
+ * A drop on In Progress is REDIRECTED to Todo unless an agent is actually
+ * working the card, and the plan declares it with `redirectedFrom`. The rule and
+ * the reason live in `manualStatusTarget`.
  */
 export function planDrop(args: {
   task: BoardTask;
@@ -167,36 +206,35 @@ export function planDrop(args: {
   // sotto le dita): non si inventa una posizione.
   if (!isColumn && !overTask) return null;
 
-  // IN PROGRESS IS NOT A QUEUE — and dropping a card there used to be a one-way
-  // trip. The dispatcher only ever picks up `status: "todo"`
-  // (`server/services/task-dispatcher.ts`), so nothing collects In Progress:
-  // the card sat there forever. Worse, leaving Todo cancels the dispatch that
-  // was already queued for it (`onLeaveTodo`), so the drag did not just fail to
-  // start the work, it stopped work that was about to start (seen on 7b803a72).
+  // In Progress is not a queue: `manualStatusTarget` carries the whole rule and
+  // the reason, and the drawer's "move to" menu and the inline composer obey
+  // the same one.
   //
-  // A human dragging a card into In Progress means "work on this", which is
-  // exactly what Todo does, so that is where the card goes — and the surface
-  // says so, because a gesture that silently lands somewhere else is the same
-  // black hole with a different shape.
-  //
-  // A card with an agent bound to it (`assignedTopicId`) is NOT redirected:
-  // that drop is a legitimate hand-over of work already in flight, and Todo
-  // would be a lie about it.
-  const redirected = dropStatus === 'in_progress' && !task.assignedTopicId;
-  const status: TaskStatus = redirected ? 'todo' : dropStatus;
-  const redirectedFrom = redirected ? dropStatus : undefined;
-  // A redirected drop lands at the END of Todo, i.e. last in the queue: the
-  // card it was released on lives in another column, so its position says
-  // nothing about where this one belongs.
-  const anchor = redirected ? undefined : overTask;
+  // A card ALREADY in In Progress is exempt, whatever its dispatch state: it is
+  // not asking to enter, it is being reordered, and answering a reorder with a
+  // change of column turns a gesture that meant nothing into one that means a
+  // lot. That is a regression this guard exists to hold, not a detail.
+  const reorderInside = task.status === 'in_progress' && dropStatus === 'in_progress';
+  const aim = reorderInside ? { status: dropStatus } : manualStatusTarget(dropStatus, task);
+  const status: TaskStatus = aim.status;
+  const redirectedFrom = aim.redirectedFrom;
+  // A redirected drop is not a position: the card it was released on lives in
+  // another column, so its place says nothing about where this one belongs. It
+  // accodes at the end of Todo, and a card already in Todo does not move at all
+  // (see below) — being aimed at another column is not a demotion.
+  const anchor = redirectedFrom ? undefined : overTask;
 
   const sameColumn = task.status === status;
 
+  // Redirected onto the column it is ALREADY in: nothing to write. The gesture
+  // still owes an explanation, so the plan travels with an empty patch.
+  if (redirectedFrom && sameColumn) return { patch: {}, redirectedFrom };
+
   // Board generale: la posizione non è scrivibile (kanbanOrder è per-progetto).
+  // (A redirect that changes nothing already returned above, so here a same
+  // column drop is a plain no-op.)
   if (scope === 'cross-project') {
-    if (!sameColumn) return { patch: { status }, ...(redirectedFrom ? { redirectedFrom } : {}) };
-    // Nothing to write, but a redirect still owes the human an explanation.
-    return redirectedFrom ? { patch: {}, redirectedFrom } : null;
+    return sameColumn ? null : { patch: { status }, ...(redirectedFrom ? { redirectedFrom } : {}) };
   }
 
   // Review e Done si ordinano per data (vedi `compareReview` / `compareDone`):
@@ -234,9 +272,9 @@ export function planDrop(args: {
     };
   }
 
-  if (sameColumn && kanbanOrder === task.kanbanOrder) {
-    return redirectedFrom ? { patch: {}, redirectedFrom } : null;
-  }
+  // Same column, same slot: nothing happened. (A redirect can never reach here,
+  // it returned above.)
+  if (sameColumn && kanbanOrder === task.kanbanOrder) return null;
   return {
     patch: sameColumn ? { kanbanOrder } : { status, kanbanOrder },
     ...(redirectedFrom ? { redirectedFrom } : {}),
