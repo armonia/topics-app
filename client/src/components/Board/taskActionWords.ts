@@ -43,6 +43,7 @@ export type TaskActionId =
   | 'accept'
   | 'redo'
   | 'drop'
+  | 'restore'
   | 'stop'
   | 'deliver-now'
   | 'unblock'
@@ -69,6 +70,7 @@ const KEYS: Record<TaskActionId, { label: string; title: string }> = {
   'accept': { label: 'board.action.accept', title: 'board.action.accept.title' },
   'redo': { label: 'board.action.redo', title: 'board.action.redo.title' },
   'drop': { label: 'board.action.drop', title: 'board.action.drop.title' },
+  'restore': { label: 'board.action.restore', title: 'board.action.restore.title' },
   'stop': { label: 'board.action.stop', title: 'board.action.stop.title' },
   'deliver-now': { label: 'board.action.deliverNow', title: 'board.action.deliverNow.title' },
   'unblock': { label: 'board.action.unblock', title: 'board.action.unblock.title' },
