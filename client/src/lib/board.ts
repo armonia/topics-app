@@ -743,8 +743,11 @@ export const boardApi = {
    *  quindi non disarchivia. */
   restore: (projectId: string, taskId: string) =>
     req<BoardTask>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/restore`, { method: 'POST' }),
-  comment: (projectId: string, taskId: string, content: string, opts?: { mentions?: string[]; media?: string[] }) =>
-    req<TaskComment>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/comments`, { method: 'POST', body: JSON.stringify({ content, mentions: opts?.mentions, media: opts?.media }) }),
+  /** `quiet` = ANNOTAZIONE, non consegna: il commento si salva e si vede, ma il
+   *  server si ferma lì. Nessun reject, nessun resume, la card non si muove.
+   *  Senza, un commento su una card in review RIMANDA il task all'agent. */
+  comment: (projectId: string, taskId: string, content: string, opts?: { mentions?: string[]; media?: string[]; quiet?: boolean }) =>
+    req<TaskComment>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/comments`, { method: 'POST', body: JSON.stringify({ content, mentions: opts?.mentions, media: opts?.media, quiet: opts?.quiet }) }),
   /** `force` scavalca il gate sui checks rossi: è una scelta esplicita dell'umano,
    *  mai il default (il server risponde 409 `checks_failed` senza). */
   review: (projectId: string, taskId: string, decision: 'approve' | 'reject', comment?: string, opts?: { force?: boolean }) =>
