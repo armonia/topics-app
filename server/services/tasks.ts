@@ -683,6 +683,17 @@ export interface TaskService {
    */
   hasHeavyInFlight(): boolean;
   /**
+   * Quanti agenti VIVI sta contando il tetto adesso (`null` = tutta la
+   * macchina, come lo scope 'global' del claim).
+   *
+   * È lo stesso numero che il CAS di `claim` confronta col tetto, esposto per
+   * poterlo DIRE sulla card: un claim rifiutato dal tetto torna `null` e basta,
+   * e senza il conteggio la spiegazione sarebbe una stima. Contarlo a parte
+   * (per esempio dalla mappa in volo del dispatcher) darebbe un secondo numero
+   * che diverge da quello che decide, cioè una riga che mente.
+   */
+  liveAgents(projectId?: string | null): number;
+  /**
    * Bump the attempt counter of a LIVE claim (in_progress + bound topic) —
    * the dispatcher's resume-continuation after a timed-out turn. Returns the
    * updated Task, or null when the cap is hit or the claim is gone (caller
@@ -2587,6 +2598,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
 
     hasHeavyInFlight(): boolean {
       return heavyInFlight();
+    },
+
+    liveAgents(projectId): number {
+      return liveAgentCount(db, projectId ?? null);
     },
 
     claim({ taskId, cap, maxAttempts, agentId, scope, machineIdle }): Task | null {
