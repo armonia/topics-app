@@ -103,6 +103,31 @@ describe("maybeSendPush — i tasti di azione", () => {
     });
   });
 
+  // L'envelope ordina agli agenti di allegare `options=["Landa su main"]` a
+  // OGNI consegna landabile, e il server la avvolge nella stessa fence
+  // ```question di una vera domanda. Se il titolo guardasse solo la presenza
+  // di `question` (come faceva prima), questa consegna finita si annuncerebbe
+  // come "l'agent ti sta chiedendo una cosa" — il guasto di questo task.
+  test("consegna con la sola opzione Landa → titolo di review, e il tasto Landa resta", () => {
+    maybeSendPush({ ...REVIEW, isAsk: false, question: { text: "", options: ["Landa su main"] } });
+    const p = pushCalls[0] as any;
+    expect(p.title).toContain("review");
+    expect(p.title).not.toContain("chiedendo");
+    expect(p.actions.map((a: any) => a.title)).toEqual(["Landa su main"]);
+    expect(p.requests[p.actions[0].id]).toEqual({
+      method: "POST",
+      path: "/api/boards/proj-x/tasks/t9/review",
+      body: { decision: "reject", comment: "Landa su main" },
+    });
+  });
+
+  test("domanda mista (un'opzione che il sistema non esegue) → titolo di domanda", () => {
+    maybeSendPush({ ...REVIEW, isAsk: true, question: { text: "Lando su main?", options: ["Landa su main", "Aspetta"] } });
+    const p = pushCalls[0] as any;
+    expect(p.title).toContain("chiedendo");
+    expect(p.title).not.toContain("review");
+  });
+
   test("consegna senza domanda → un solo tasto: Approva", () => {
     maybeSendPush(REVIEW);
     const p = pushCalls[0] as any;
@@ -127,6 +152,30 @@ describe("maybeSendPush — i tasti di azione", () => {
     // tasto "Approva" su un task che sta aspettando una risposta.
     maybeSendPush({ ...REVIEW, question: { text: 42, options: "non un array" } });
     expect((pushCalls[0] as any).actions).toBeUndefined();
+  });
+
+  // ── WHICH OF THE TWO VOICES, and why the fence could not tell ─────────────
+  //
+  // The kickoff envelope orders a landable delivery to attach
+  // `options=["Landa su main"]`, and the service wraps any options in a
+  // ```question fence, so `pendingQuestion` hands this trigger a non-null
+  // `question` for finished work. Choosing the title on "is question non-null"
+  // woke you at 3am with "the agent is asking you something" over a delivery
+  // that asked nothing. The rule is `questionAsksHuman`, the same one behind
+  // the dispatch chip and the two review gates.
+  test("a delivery offering only «Landa su main»: review title, button untouched", () => {
+    maybeSendPush({ ...REVIEW, question: { text: "Fatto: sei cancelli verdi.", options: ["Landa su main"] } });
+    const p = pushCalls[0] as any;
+    expect(p.title).not.toContain("chiedendo");
+    expect(p.title).toContain("review");
+    // The OPTIONS stay: a button that lands in one tap is exactly what a
+    // delivery wants, and it is why the rule touches the title and not them.
+    expect(p.actions.map((a: any) => a.title)).toEqual(["Landa su main"]);
+  });
+
+  test("MIXED question: one option the board cannot run and the voice is «chiedendo» again", () => {
+    maybeSendPush({ ...REVIEW, question: { text: "Fatto, ma il nome del flag non mi convince.", options: ["Landa su main", "Aspetta, ho un dubbio"] } });
+    expect((pushCalls[0] as any).title).toContain("chiedendo");
   });
 
   test("parcheggiato → «Rimetti in coda», che è la PATCH dello stato", () => {

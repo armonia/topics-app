@@ -2,7 +2,7 @@
  * board-drawer-scroll.spec.ts — il guscio del drawer del task.
  *
  * L'INVARIANTE, in una riga: dalla topbar al composer esiste ESATTAMENTE un
- * contenitore di scroll verticale, e Approva / Rifiuta / Landa non escono mai
+ * contenitore di scroll verticale, e Approva / Rimanda indietro / Landa non escono mai
  * dallo schermo.
  *
  * Perché serviva un test e non un'occhiata: il drawer era una pila di sezioni
@@ -135,7 +135,7 @@ async function seedWorstCaseTask(request: import("@playwright/test").APIRequestC
   // anteprima e passerebbe dicendo il contrario.
   const seeded = (await (await request.get(`${BASE}/api/boards/${PROJECT_ID}/tasks/${task.id}`)).json()) as { task?: { previewImage?: string | null } };
   expect(seeded.task?.previewImage, "previewImage scartata dall'allowlist").toBe(previewPath);
-  // In review PER ULTIMO: è lo stato che fa comparire Approva/Rifiuta, cioè i
+  // In review PER ULTIMO: è lo stato che fa comparire Approva/Rimanda indietro, cioè i
   // bottoni che questo file esiste per tenere dentro lo schermo.
   await api(request, "patch", `/api/boards/${PROJECT_ID}/tasks/${task.id}`, { status: "review" });
   return { id: task.id, text };
