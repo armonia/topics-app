@@ -904,8 +904,15 @@ export interface TaskComment {
    * dell'agente e — cosa che conta — non passa mai dal path umano POST
    * /comments, quindi non innesca reject+resume: informa il reviewer senza
    * svegliare l'agente.
+   *
+   * 'service' = the dispatcher's own bookkeeping (a retry, a server restart, a
+   * queue hold). Set AT THE SOURCE by the writer, which already knows it is not
+   * speaking for the agent, so the thread can fold a run of it into one line
+   * without matching on wording. Like 'status' it is never the agent's last
+   * word. See `shared/task-comment-service.ts` for how the fold reads it, and
+   * why rows written before the mark are classified separately.
    */
-  kind: 'comment' | 'status' | 'review-note';
+  kind: 'comment' | 'status' | 'review-note' | 'service';
 }
 
 /**
@@ -1172,6 +1179,25 @@ export function parseQuestionBlock(text: string): { question: string; options: s
 export type PendingQuestionComment = { content: string; kind?: string | null };
 
 /**
+ * Is this row somebody's WORD, as opposed to the thread's plumbing?
+ *
+ * Two kinds are not: 'status' (transition history, written on every move, never
+ * anybody's word) and 'service' (the dispatcher's own bookkeeping, marked at the
+ * source). Both can land AFTER the agent has spoken, and every surface that asks
+ * "what did the thread say last" has to skip them or it reads the plumbing as
+ * the answer: the quick-reply buttons vanish because a queue-hold note took the
+ * question's place, the card quotes "In attesa di uno slot" as the delivery.
+ *
+ * ONE predicate, because there are three readers of that question -
+ * `pendingQuestion` here, the card's `selectCardComments`, the drawer's own
+ * last-word - and a card whose buttons and whose text disagree is worse than
+ * either being wrong: it looks answerable and answers something else.
+ */
+export function isThreadSpeech(comment: { kind?: string | null } | null | undefined): boolean {
+  return !!comment && comment.kind !== 'status' && comment.kind !== 'service';
+}
+
+/**
  * La domanda pendente di un task: l'ULTIMA parola dell'agente, se è un blocco
  * ```question.
  *
@@ -1189,7 +1215,7 @@ export function pendingQuestion(
   comments: readonly PendingQuestionComment[] | null | undefined,
 ): { text: string; options: string[] } | null {
   if (!comments || comments.length === 0) return null;
-  const speech = comments.filter((c) => c && c.kind !== 'status');
+  const speech = comments.filter(isThreadSpeech);
   const last = speech[speech.length - 1];
   if (!last) return null;
   const parsed = parseQuestionBlock(last.content ?? '');
