@@ -15,10 +15,10 @@
  * la bolla sparisce anche in pagina sta nell'E2E `empty-turn-on-stop.spec.ts`.
  */
 import { describe, expect, test, beforeAll } from "bun:test";
-import { setupTestDataDir, createTestAppContext } from "./helpers";
+import { setupTestDataDir, createTestAppContext, testTmpDir } from "./helpers";
 import type { AppContext, StoredMessage } from "../../server/types";
 
-const TEST_DATA = "/tmp/topics-empty-turn-data";
+const TEST_DATA = testTmpDir("empty-turn-data");
 
 beforeAll(() => setupTestDataDir(TEST_DATA));
 
