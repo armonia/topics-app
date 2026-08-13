@@ -18,7 +18,7 @@ import type { Database } from "bun:sqlite";
 // La forma sta in `shared/board.ts` (la legge la UI delle impostazioni board).
 export type { DispatchCapacity } from "../../shared/board";
 import type { DispatchCapacity } from "../../shared/board";
-import { GLOBAL_CAP_MIN, GLOBAL_CAP_MAX } from "../../shared/board";
+import { clampGlobalCap } from "../../shared/board";
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 
@@ -42,7 +42,10 @@ export function readGlobalCap(db: Database): { auto: boolean; max: number } {
   // Auto è il default finché non si sceglie un numero a mano (NULL = mai
   // impostato → auto), così un'installazione nuova protegge la macchina da sé.
   const auto = r?.max_agents_auto == null ? true : !!r.max_agents_auto;
-  return { auto, max: clamp(Math.floor(r?.max_agents ?? 3), GLOBAL_CAP_MIN, GLOBAL_CAP_MAX) };
+  // `clampGlobalCap`, non il clamp locale: quello stringeva a 1..20 e avrebbe
+  // riletto lo zero di «nessun tetto» come 1, cioè come il tetto più stretto
+  // possibile. Il sentinella deve sopravvivere al giro attraverso il DB.
+  return { auto, max: clampGlobalCap(Math.floor(r?.max_agents ?? 3)) };
 }
 
 /**
@@ -51,7 +54,7 @@ export function readGlobalCap(db: Database): { auto: boolean; max: number } {
  * impostazioni della board. Qui resta il nome da cui la importano il dispatcher
  * e la quota di core.
  */
-export { effectiveDispatchCap } from "../../shared/board";
+export { effectiveDispatchCap, sizingDispatchCap } from "../../shared/board";
 
 /** Absolute ceiling — never auto-recommend more than this regardless of the box. */
 const MAX_AUTO_CAP = 8;
