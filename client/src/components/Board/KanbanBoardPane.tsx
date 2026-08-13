@@ -39,6 +39,7 @@ import { CREATED_FLASH_MS, PRIORITY_DOT, PRIORITY_ORDER, PRIORITY_LABEL, type Li
 import { boardCollision } from './format';
 import { FloatingTaskComposer } from './FloatingTaskComposer';
 import { Column } from './Card';
+import { taskActionErrorMessage } from './taskActionError';
 import { TaskDetail, BoardSettingsPanel } from './TaskDetail';
 import { POPOVER_ITEM } from '@/lib/popoverStyles';
 import { MISSIONS, type Mission } from '../../lib/missions';
@@ -878,6 +879,15 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
   const externalSessions = useExternalSessions(onMessage, mode === 'project' ? projectId : undefined);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // L'errore di UNA card sta sulla card, non nella barra qui sopra: quella vive
+  // in cima al pannello, mentre la card che ha rifiutato il click può essere
+  // dieci righe più giù in una colonna scrollata. Ne teniamo uno solo, l'ultimo:
+  // due card non falliscono nello stesso istante, e un errore per card che non
+  // scade mai diventerebbe arredamento.
+  const [cardError, setCardError] = useState<{ taskId: string; message: string } | null>(null);
+  const onCardError = useCallback((taskId: string, message: string | null) => {
+    setCardError((prev) => (message ? { taskId, message } : prev?.taskId === taskId ? null : prev));
+  }, []);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // Quale tab del task mettere davanti all'apertura, quando ad aprirlo è stato
   // un gesto mirato (il bottone «apri in una tab» sull'anteprima della card).
@@ -1513,8 +1523,15 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
         await boardApi.update(task.projectId, r.id, { kanbanOrder: r.kanbanOrder });
       }
       await boardApi.update(task.projectId, task.id, plan.patch);
-    } catch (e) { setError(e instanceof Error ? e.message : 'update failed'); refetch(); }
-  }, [patchLocal, refetch]);
+      onCardError(task.id, null);
+    } catch (e) {
+      // Trascinare in Done un padre con figli aperti è lo STESSO rifiuto del
+      // bottone Approva: il refetch riporta la card al suo posto, e il perché
+      // la aspetta lì sopra invece che in cima al pannello.
+      onCardError(task.id, taskActionErrorMessage(e, 'spostamento non riuscito'));
+      refetch();
+    }
+  }, [patchLocal, refetch, onCardError]);
 
   const [activeId, setActiveId] = useState<string | null>(null);
   // Hide the floating "Descrivi un task" composer while the human is typing in
@@ -1817,7 +1834,8 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
                   onCreate={(text) => create(status, text)}
                   canCreate={mode === 'project'}
                   showProject={mode === 'all'}
-                  onError={setError}
+                  cardError={cardError}
+                  onCardError={onCardError}
                   onRefetch={refetch}
                   onOpenTopic={onOpenTopic}
                   resolveSession={resolveSession}

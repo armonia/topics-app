@@ -40,7 +40,7 @@ import {
   MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PREVIEW_CARD_MAX_RATIO, QUEUE_REASON_UNKNOWN,
   TASK_STATUSES, WAIT_SERIES_MAX_MS, WAIT_STREAK_CAP,
   deriveQueueReason, deriveSubtaskWork, formatStatusEvent, hasPlanApproveOption, isAgentWorking,
-  isUnattributedSubtask, normalizeActionLabel, noteParkedChildrenResolved, readTaskWeight,
+  isUnattributedSubtask, normalizeActionLabel, noteParkedChildrenResolved, parseQuestionBlock, readTaskWeight,
   statusEventEnters, waitReasonKey,
 } from "../../shared/board";
 import { EFFORT_TIERS } from "../../shared/effort";
@@ -108,6 +108,27 @@ export function isPublishActionLabel(text: string | undefined | null): boolean {
  */
 export const REQUEUE_PARKED_LABEL = "Rimetti in coda i sottotask";
 export const ARCHIVE_PARKED_LABEL = "Archivia i sottotask";
+/**
+ * L'ultima parola dell'agente sta CHIEDENDO qualcosa a una persona?
+ *
+ * Legge le OPZIONI, non la fence. Il blocco ```question avvolge anche le
+ * consegne, perché l'envelope ordina di allegare "Landa su main" a ogni
+ * consegna landabile: guardare solo la fence faceva presentare ogni delivery
+ * finita come una domanda (titolo del banner "L'agent ti sta chiedendo una
+ * cosa" su un task che non chiede niente).
+ *
+ * Quindi: c'è una domanda se resta ALMENO un'opzione che non sia una delle due
+ * azioni di consegna. Una fence senza opzioni è una domanda aperta e conta come
+ * tale. Le due risposte allo stallo dei sottotask parcheggiati sono domande a
+ * tutti gli effetti, e passano.
+ */
+export function commentAsksHuman(content: string | undefined | null): boolean {
+  const parsed = parseQuestionBlock(content ?? "");
+  if (!parsed) return false;
+  if (parsed.options.length === 0) return true;
+  return parsed.options.some((o) => !isLandActionLabel(o) && !isPublishActionLabel(o));
+}
+
 export function isRequeueParkedLabel(text: string | undefined | null): boolean {
   return !!text && normLabel(text) === normLabel(REQUEUE_PARKED_LABEL);
 }
