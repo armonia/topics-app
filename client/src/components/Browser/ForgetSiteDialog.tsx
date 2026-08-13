@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Cookie, Database, HardDrive } from 'lucide-react';
 import { ConfirmDialog } from '../Shared/ConfirmDialog';
-import { planForgetSite, forgetSite, type ForgetSitePlan, type SiteDataGroup } from '../../lib/browserForgetSite';
+import { planForgetSite, forgetSite, type ForgetSitePlan, type SiteDataBackend, type SiteDataGroup } from '../../lib/browserForgetSite';
 
 /**
  * Il dialogo di «Dimentica questo sito»: prima l'elenco, poi il tasto.
@@ -18,11 +18,18 @@ import { planForgetSite, forgetSite, type ForgetSitePlan, type SiteDataGroup } f
  *
  * Vive nella pane e non nel menu: il popover si chiude al clic, e un dialogo
  * figlio di un popover si chiuderebbe con lui.
+ *
+ * Lo stesso componente serve la pane NATIVA e quella CONDIVISA: cambia solo il
+ * `backend` che gli passa i silo. La differenza si vede da sé nell'elenco (sul
+ * condiviso la riga «Cache» non compare mai, perché lì la cache non è per-sito
+ * e non la si cancella), e non va scritta due volte in due dialoghi gemelli.
  */
 export interface ForgetSiteDialogProps {
   contextId: string;
   /** L'url aperto. Da qui esce l'host, e senza host non c'è niente da fare. */
   url: string;
+  /** Chi tiene i dati di QUESTA pane: `nativeSiteData()` o `sharedSiteData()`. */
+  backend: SiteDataBackend;
   onClose: () => void;
   /** Dopo la cancellazione: la pagina va ricaricata, o mostra uno stato che
    *  sul disco non esiste più (loggato in una tab che non ha più cookie). */
@@ -35,13 +42,13 @@ const GROUP_ICON: Record<SiteDataGroup, typeof Cookie> = {
   cache: HardDrive,
 };
 
-export function ForgetSiteDialog({ contextId, url, onClose, onForgotten }: ForgetSiteDialogProps) {
+export function ForgetSiteDialog({ contextId, url, backend, onClose, onForgotten }: ForgetSiteDialogProps) {
   const [plan, setPlan] = useState<ForgetSitePlan | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     let alive = true;
-    void planForgetSite(contextId, url).then((p) => {
+    void planForgetSite(contextId, url, backend).then((p) => {
       if (!alive) return;
       // Niente host = niente sito da dimenticare: si chiude invece di aprire un
       // dialogo su nulla.
@@ -49,14 +56,16 @@ export function ForgetSiteDialog({ contextId, url, onClose, onForgotten }: Forge
       else setPlan(p);
     });
     return () => { alive = false; };
-  }, [contextId, url, onClose]);
+  }, [contextId, url, backend, onClose]);
 
-  const nothing = !!plan && plan.displayNames.length === 0;
+  const unsupported = !!plan && !plan.supported;
+  const nothing = !!plan && plan.supported && plan.displayNames.length === 0;
+  const blocked = !plan || nothing || unsupported || busy;
 
   const confirm = () => {
-    if (!plan || nothing || busy) return;
+    if (blocked || !plan) return;
     setBusy(true);
-    void forgetSite(contextId, plan.displayNames)
+    void forgetSite(contextId, plan.displayNames, backend)
       .catch(() => 0)
       .then(() => { onForgotten(); onClose(); });
   };
@@ -65,15 +74,24 @@ export function ForgetSiteDialog({ contextId, url, onClose, onForgotten }: Forge
     <ConfirmDialog
       title={plan ? `Dimentica ${plan.host}?` : 'Dimentica questo sito?'}
       confirmLabel={busy ? 'Cancello…' : 'Dimentica'}
-      cancelLabel={nothing ? 'Chiudi' : 'Annulla'}
-      confirmDisabled={!plan || nothing || busy}
+      cancelLabel={nothing || unsupported ? 'Chiudi' : 'Annulla'}
+      confirmDisabled={blocked}
       onConfirm={confirm}
       onCancel={busy ? () => {} : onClose}
     >
       <div data-testid="forget-site-dialog">
         {!plan && <p>Leggo cosa c'è salvato per questo sito…</p>}
+        {/* Motore esterno: i dati stanno nel profilo di quel Chromium, e da qui
+            non si toccano. Dirlo è l'unica risposta onesta; elencare zero
+            record farebbe credere che il sito non abbia salvato niente. */}
+        {unsupported && (
+          <p data-testid="forget-site-unsupported">
+            Questa scheda gira su un Chromium esterno: i dati del sito stanno nel profilo di quel
+            browser, e da qui non si cancellano.
+          </p>
+        )}
         {nothing && <p>Per questo sito non c'è niente di salvato in questa tab.</p>}
-        {plan && !nothing && (
+        {plan && !nothing && !unsupported && (
           <>
             <p className="mb-2">Da questa tab del browser vengono cancellati:</p>
             <ul className="space-y-1.5 mb-3">
