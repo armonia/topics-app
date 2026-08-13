@@ -9,8 +9,9 @@
 import { describe, expect, test, beforeAll, afterEach } from "bun:test";
 import * as fs from "node:fs";
 import { join } from "node:path";
+import { testTmpDir } from "./helpers";
 
-const TEST_HOME = "/tmp/topics-phase-b-daemon-test";
+const TEST_HOME = testTmpDir("phase-b-daemon");
 
 beforeAll(() => {
   process.env.TOPICS_HOME = TEST_HOME;

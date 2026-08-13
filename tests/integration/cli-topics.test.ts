@@ -8,8 +8,9 @@ import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import * as fs from "node:fs";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
+import { testTmpDir } from "./helpers";
 
-const TEST_HOME = "/tmp/topics-phase-h-test";
+const TEST_HOME = testTmpDir("phase-h-cli");
 const CLI = join(import.meta.dir, "..", "..", "cli", "topics.ts");
 
 function runCli(args: string[], extraEnv: Record<string, string> = {}) {
