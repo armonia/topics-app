@@ -103,6 +103,31 @@ describe("maybeSendPush — i tasti di azione", () => {
     });
   });
 
+  // L'envelope ordina agli agenti di allegare `options=["Landa su main"]` a
+  // OGNI consegna landabile, e il server la avvolge nella stessa fence
+  // ```question di una vera domanda. Se il titolo guardasse solo la presenza
+  // di `question` (come faceva prima), questa consegna finita si annuncerebbe
+  // come "l'agent ti sta chiedendo una cosa" — il guasto di questo task.
+  test("consegna con la sola opzione Landa → titolo di review, e il tasto Landa resta", () => {
+    maybeSendPush({ ...REVIEW, isAsk: false, question: { text: "", options: ["Landa su main"] } });
+    const p = pushCalls[0] as any;
+    expect(p.title).toContain("review");
+    expect(p.title).not.toContain("chiedendo");
+    expect(p.actions.map((a: any) => a.title)).toEqual(["Landa su main"]);
+    expect(p.requests[p.actions[0].id]).toEqual({
+      method: "POST",
+      path: "/api/boards/proj-x/tasks/t9/review",
+      body: { decision: "reject", comment: "Landa su main" },
+    });
+  });
+
+  test("domanda mista (un'opzione che il sistema non esegue) → titolo di domanda", () => {
+    maybeSendPush({ ...REVIEW, isAsk: true, question: { text: "Lando su main?", options: ["Landa su main", "Aspetta"] } });
+    const p = pushCalls[0] as any;
+    expect(p.title).toContain("chiedendo");
+    expect(p.title).not.toContain("review");
+  });
+
   test("consegna senza domanda → un solo tasto: Approva", () => {
     maybeSendPush(REVIEW);
     const p = pushCalls[0] as any;
