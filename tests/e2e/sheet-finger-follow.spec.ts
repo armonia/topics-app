@@ -8,7 +8,7 @@ import { beat } from "./helpers/evidence";
 /**
  * I FOGLI DAL BASSO, MISURATI COL DITO.
  *
- * Attilio, dal telefono, due difetti nella stessa frase:
+ * Segnalati dal telefono, due difetti nella stessa frase:
  *
  *  1. «se ho un overlay e clicco fuori per chiuderlo, mi conta l'azione sugli
  *     elementi sottostanti, ma se ho il coso avanti dovrei prima chiudere il
