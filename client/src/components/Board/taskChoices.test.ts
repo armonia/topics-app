@@ -1,6 +1,12 @@
 import { describe, it, expect } from 'bun:test';
 import { taskChoices, taskChoiceState, usableQuestionOptions, type TaskChoiceId } from './taskChoices';
-import { taskActionWord, unblockWord } from './taskActionWords';
+import { acceptWord, drawerSurfaceLabels, redoWord, sendBackWord, taskActionWord, unblockWord } from './taskActionWords';
+import { LAND_ACTION_LABEL } from '../../lib/board';
+import { t as translate } from '../../lib/i18n';
+import { buildNotifyActions } from '../../../../shared/notify-actions';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { BoardTask } from '../../lib/board';
 
 type ChoiceInput = Parameters<typeof taskChoices>[0];
@@ -52,11 +58,16 @@ describe('taskChoiceState', () => {
 });
 
 describe('taskChoices', () => {
-  it('nessuna scelta si inventa le parole: vengono dalla tabella delle azioni', () => {
-    // La parità fra le superfici si regge su questo: card, menu contestuale e
-    // drawer chiedono la parola alla stessa tabella. Se una di loro tornasse a
-    // scrivere un letterale, la card e il drawer ricomincerebbero a chiamare la
-    // stessa azione in due modi (era «Va bene» qui e «Approva» là).
+  it('no choice invents its own word: they come from the action table', () => {
+    // Surface parity rests on this: card, context menu and drawer ask the same
+    // table for the word. If one of them went back to a literal, card and drawer
+    // would start calling the same action two things again («Va bene» here and
+    // «Approva» there).
+    //
+    // The LABEL is the invariant, not the tooltip. Two of them legitimately
+    // change with the card — «Rimanda indietro» and «Rifai così…» name a
+    // different destination when there is no agent to go back to — which is the
+    // point: one word, and a sentence that is true.
     const states: ChoiceInput[] = [
       task({ status: 'review', assignedTopicId: 't', deliveryBranch: 'task/abc' }),
       task({ status: 'review' }),
@@ -64,8 +75,8 @@ describe('taskChoices', () => {
     ];
     for (const t of states) {
       for (const c of taskChoices(t)) {
-        expect({ id: c.id, label: c.label, title: c.title })
-          .toEqual({ id: c.id, ...taskActionWord(c.id) });
+        expect({ id: c.id, label: c.label }).toEqual({ id: c.id, label: taskActionWord(c.id).label });
+        expect(c.title.trim().length).toBeGreaterThan(10);
       }
     }
   });
@@ -143,21 +154,24 @@ describe('taskChoices', () => {
 });
 
 /**
- * PARITÀ FRA LE SUPERFICI — una azione, una parola.
+ * ONE ACTION, ONE WORD — and this block only claims what it measures.
  *
- * Il guasto misurato: sulla stessa card il menu contestuale diceva
- * «Ferma»/«Archivia» e la riga di bottoni «Fermati»/«Non serve più», per due
- * endpoint diversi; fra card e drawer approvare era «Va bene» di qua e
- * «Approva» di là, e rifiutare «Rimanda indietro» contro «Rifiuta».
+ * The defect: on the same card the context menu said «Ferma»/«Archivia» while
+ * the button row said «Fermati»/«Non serve più», for two different endpoints;
+ * between card and drawer approving was «Va bene» here and «Approva» there, and
+ * rejecting «Rimanda indietro» against «Rifiuta».
  *
- * Le superfici sono JSX e questo test non le renderizza: quello che può fare è
- * tenere UNA sorgente. Il menu contestuale della card, i bottoni propri del
- * drawer e la riga di scelte leggono tutti `taskActionWord`, quindi qui si
- * verifica che la riga di scelte non se ne stacchi, che due azioni non
- * condividano una parola, e che il tooltip dica dove il task finisce.
+ * The surfaces are JSX and this file does not render them, so it does NOT check
+ * "the card and the drawer agree" — an earlier version of this block said it
+ * did, comparing `taskChoices` against `taskActionWord`, which is the table
+ * against itself, and two real defects walked past it green. What it can hold is
+ * the layer below: every word comes from ONE table, the words the drawer decides
+ * per card are computed by the function the drawer itself calls
+ * (`drawerSurfaceLabels`), and no surface file reads a `board.action.*` key
+ * behind the table's back.
  */
-describe('parità delle parole fra card, menu e drawer', () => {
-  /** In quale stato la riga di scelte produce quell'azione. */
+describe('one action, one word', () => {
+  /** Which state makes the choice row produce that action. */
   const dove: Record<'accept' | 'send-back' | 'stop' | 'drop', ChoiceInput> = {
     'accept': task({ status: 'review' }),
     'send-back': task({ status: 'review', assignedTopicId: 't', deliveryBranch: 'task/abc' }),
@@ -166,33 +180,92 @@ describe('parità delle parole fra card, menu e drawer', () => {
   };
 
   for (const [id, stato] of Object.entries(dove) as [TaskChoiceId, ChoiceInput][]) {
-    it(`«${id}»: la riga di scelte e le altre superfici dicono la stessa cosa`, () => {
-      const dallaRiga = taskChoices(stato).find((c) => c.id === id)!;
-      expect(dallaRiga).toBeDefined();
-      // `taskActionWord` è ciò che disegnano il menu contestuale della card
-      // (stop, drop) e i bottoni propri del drawer (accept, send-back).
-      const dallaTabella = taskActionWord(id);
-      expect(dallaRiga.label).toBe(dallaTabella.label);
-      expect(dallaRiga.title).toBe(dallaTabella.title);
+    it(`«${id}»: the choice row does not invent its own word`, () => {
+      const fromRow = taskChoices(stato).find((c) => c.id === id)!;
+      expect(fromRow).toBeDefined();
+      expect(fromRow.label).toBe(taskActionWord(id).label);
     });
   }
 
-  it('due azioni non condividono una parola: la parola distingue il gesto', () => {
+  it('two actions never share a word: the word is what tells the gestures apart', () => {
     const ids: TaskChoiceId[] = ['land', 'accept', 'send-back', 'redo', 'take-over', 'stop', 'deliver-now', 'drop', 'unblock', 'unlink'];
     const labels = ids.map((id) => taskActionWord(id).label);
     expect(new Set(labels).size).toBe(ids.length);
   });
 
-  it('il tooltip di «Ferma» nomina la colonna in cui il task finisce', () => {
-    // Erano tre tooltip diversi per lo stesso bottone, e uno solo nominava
-    // Backlog: gli altri due promettevano un destino che non c'era.
+  it('the stop tooltip names the column the task ends up in', () => {
+    // There were three different tooltips for the same button, and only one
+    // named Backlog: the other two promised a fate that did not exist.
     expect(taskActionWord('stop').title).toContain('Backlog');
   });
 
-  it('il tooltip di «Approva» nomina il bottone che invece fonde, senza copiarne il testo', () => {
-    // Il testo del bottone land arriva dalla stessa tabella, interpolato: una
-    // copia a mano è il modo in cui due parole tornano a divergere.
+  it('the accept tooltip names the button that DOES merge, without copying its text', () => {
     expect(taskActionWord('accept').title).toContain(taskActionWord('land').label);
+  });
+
+  it('no tooltip promises an agent that is not there', () => {
+    // Reintroduced once already: the drawer stopped choosing between the two
+    // reject tooltips and always drew «Torna all'agente, che riparte sullo
+    // stesso tab» — on a review a human filed by hand, naming a tab that does
+    // not exist. Same word, and a destination that is true.
+    for (const w of [sendBackWord(false), redoWord(false)]) {
+      expect(w.title).not.toContain('agente, che riparte');
+      expect(w.title).toContain('In Progress');
+    }
+    expect(sendBackWord(false).label).toBe(sendBackWord(true).label);
+    expect(redoWord(false).label).toBe(redoWord(true).label);
+    expect(sendBackWord(true).title).toContain('agente');
+  });
+
+  it('the choice row picks the no-agent tooltip from the CARD, not from a flag', () => {
+    const aMano = task({ status: 'review', assignedTopicId: null });
+    const daAgente = task({ status: 'review', assignedTopicId: 't', deliveryBranch: 'task/abc' });
+    expect(taskChoices(aMano).find((c) => c.id === 'redo')!.title).toBe(redoWord(false).title);
+    expect(taskChoices(daAgente).find((c) => c.id === 'send-back')!.title).toBe(sendBackWord(true).title);
+  });
+
+  it('«Approva comunque» is in the table, not loose next to it', () => {
+    // It is the SAME action with the pre-review checks red, and the word on the
+    // button changes. Outside the table the de-duplicator did not know it, and
+    // left a quick reply reading «Approva comunque» beside the real one.
+    expect(acceptWord(true).label).not.toBe(acceptWord(false).label);
+    expect(acceptWord(false).label).toBe(taskActionWord('accept').label);
+    expect(acceptWord(true).title).toContain(taskActionWord('send-back').label);
+  });
+
+  it('drawerSurfaceLabels carries the word the button ACTUALLY draws', () => {
+    // The function the drawer calls, not a list retyped beside it: with red
+    // checks the button says «Approva comunque», so that is what the
+    // de-duplicator must be told is on the screen.
+    const rosso = { status: 'review' as const, assignedTopicId: 't', checksState: 'fail' as const };
+    const verde = { ...rosso, checksState: 'pass' as const };
+    expect(drawerSurfaceLabels(rosso)).toContain(acceptWord(true).label);
+    expect(drawerSurfaceLabels(verde)).toContain(acceptWord(false).label);
+    expect(drawerSurfaceLabels(verde)).not.toContain(acceptWord(true).label);
+    // Land is drawn only on an agent review.
+    expect(drawerSurfaceLabels(verde)).toContain(taskActionWord('land').label);
+    expect(drawerSurfaceLabels({ ...verde, assignedTopicId: null })).not.toContain(taskActionWord('land').label);
+  });
+
+  it('no board surface reads an action key behind the table', () => {
+    // The guard the earlier "parity" tests promised and did not give. Points 4
+    // and 5 both took the shape of a surface deciding a word on its own, and a
+    // file-level check is what a unit test can honestly do about JSX: every
+    // `board.action.*` key is read through `taskActionWords.ts`.
+    const dir = dirname(fileURLToPath(import.meta.url));
+    for (const f of ['Card.tsx', 'TaskDetail.tsx', 'TaskChoiceRow.tsx', 'taskChoices.ts']) {
+      const src = readFileSync(join(dir, f), 'utf8');
+      const hits = src.match(/tr\(\s*'board\.action\./g) ?? [];
+      expect(hits, `${f} reads a board.action.* key directly`).toEqual([]);
+    }
+  });
+
+  it('the OS notification says the same word as the button it mirrors', () => {
+    // The fourth surface (`shared/notify-actions.ts`), which cannot import the
+    // client dictionary and so spells the word by hand. It is always in the
+    // fallback locale, which is exactly what the table's fallback gives.
+    const approve = buildNotifyActions({ kind: 'review-ready', question: null });
+    expect(approve.map((a) => a.title)).toEqual([taskActionWord('accept').label]);
   });
 });
 
@@ -235,17 +308,17 @@ describe('usableQuestionOptions', () => {
     })).toEqual([]);
   });
 
-  it('«Approva» sparisce perché il drawer lo disegna, «Approva il piano» resta', () => {
-    // Il caso vero (commento 2eff6a44): la card è review CON ramo, quindi le sue
-    // scelte sono land / send-back / take-over e «Approva» non è fra loro. Il
-    // drawer però lo disegna comunque, in grande: senza `surfaceLabels` la
-    // risposta rapida omonima passava, e premerla RIFIUTAVA il task.
+  it('«Approva» goes because the drawer draws it, «Approva il piano» stays', () => {
+    // The real case (comment 2eff6a44): the card is a review WITH a branch, so
+    // its choices are land / send-back / take-over and «Approva» is not among
+    // them. The drawer draws it anyway, big: without `surfaceLabels` the
+    // identical quick reply survived, and pressing it REJECTED the task.
     const disegnate = [taskActionWord('accept').label, taskActionWord('send-back').label, taskActionWord('land').label];
     expect(usableQuestionOptions(consegnata, ['Approva'])).toEqual(['Approva']);
     expect(usableQuestionOptions(consegnata, ['Approva'], { surfaceLabels: disegnate })).toEqual([]);
-    // «Approva il piano» è un'ALTRA cosa: è una risposta all'agente, non il
-    // bottone della decisione. Un de-duplicatore che tagliasse anche questa
-    // toglierebbe l'unico modo di rispondere.
+    // «Approva il piano» is ANOTHER thing: an answer to the agent, not the
+    // decision button. A de-duplicator that cut this one too would remove the
+    // only way to reply.
     expect(usableQuestionOptions(consegnata, ['Approva il piano'], { surfaceLabels: disegnate }))
       .toEqual(['Approva il piano']);
   });
@@ -253,5 +326,59 @@ describe('usableQuestionOptions', () => {
   it('leaves everything alone when the task has no choices', () => {
     const chiusa = { ...consegnata, status: 'done' as const };
     expect(usableQuestionOptions(chiusa, ['Landa su main'])).toEqual(['Landa su main']);
+  });
+});
+
+/**
+ * THE DE-DUPLICATOR IN ANOTHER LANGUAGE.
+ *
+ * It used to work in every locale by accident: the labels here were Italian
+ * literals, and the agent's options are Italian by construction. Translating the
+ * buttons turned that accident into a hole — under `en` the button reads "Land
+ * on main", the option still reads «Landa su main», nothing matched, and the
+ * twin came back next to the real button.
+ */
+describe('usableQuestionOptions, locale en', () => {
+  const en = (k: string, vars?: Record<string, string | number>) => translate(k, 'en', vars);
+  const consegnata = {
+    status: 'review' as const,
+    assignedTopicId: 'topic-1',
+    deliveryBranch: 'topics/x',
+    dispatchState: null,
+    blockedByTaskId: null,
+    blockedBy: null,
+  };
+
+  it('the fallback word for land IS the string the server executes', () => {
+    // The anchor for all of this: the server matches the picked option against
+    // `LAND_ACTION_LABEL` by value, untranslated. Retranslate the Italian side
+    // of `board.action.land` and the button stops naming the action the server
+    // would run — this test is what says so out loud.
+    expect(taskActionWord('land').label).toBe(LAND_ACTION_LABEL);
+  });
+
+  it('subtracts the agent\'s word even when the button is in English', () => {
+    expect(en('board.action.land')).toBe('Land on main');
+    expect(usableQuestionOptions(consegnata, [LAND_ACTION_LABEL, 'Do something else'], { t: en }))
+      .toEqual(['Do something else']);
+  });
+
+  it('and it subtracts the ENGLISH word too, for an agent that answers in English', () => {
+    expect(usableQuestionOptions(consegnata, ['Land on main', 'Do something else'], { t: en }))
+      .toEqual(['Do something else']);
+  });
+
+  it('the drawer\'s own buttons carry both names', () => {
+    const labels = drawerSurfaceLabels({ status: 'review', assignedTopicId: 't', checksState: null }, en);
+    expect(labels).toContain('Approve');
+    expect(labels).toContain('Approva');
+    expect(usableQuestionOptions(consegnata, ['Approva', 'Rimanda indietro', 'Qualcos\'altro'], { t: en, surfaceLabels: labels }))
+      .toEqual(['Qualcos\'altro']);
+  });
+
+  it('a decorated option is the same door: the server thinks so too', () => {
+    // `normalizeActionLabel` is the server's own comparison, so the board
+    // subtracts exactly what the route would treat as the reserved action.
+    expect(usableQuestionOptions(consegnata, ['🚀 Landa su main!'], { t: en })).toEqual([]);
   });
 });

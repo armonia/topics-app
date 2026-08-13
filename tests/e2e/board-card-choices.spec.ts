@@ -200,8 +200,8 @@ test.describe("Scelte sempre presenti sulla card", () => {
     await beat(page);
 
     // ── 2. Review SENZA ramo: approva / rifai così… / archivia ────────────────
-    // Le parole sono quelle della tabella unica (`taskActionWords`): le stesse
-    // che dicono il menu contestuale della card e i bottoni propri del drawer.
+    // The words come from the one table (`taskActionWords`): the same ones the
+    // card's context menu and the drawer's own buttons say.
     const piano = card(taskIds.piano);
     await expect(choice(taskIds.piano, "accept")).toHaveText("Approva");
     await expect(choice(taskIds.piano, "redo")).toHaveText("Rifai così…");
