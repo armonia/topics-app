@@ -1192,6 +1192,55 @@ describe("callCreateTask", () => {
       callCreateTask({ baseUrl: "http://x", sessionKey: "s" }, { text: "   " }, fetchImpl),
     ).rejects.toThrow(/text.*required/i);
   });
+
+  // Il cancello sui doppioni (409) vive sulla rotta /api/sessions/:key/tasks,
+  // che è ESATTAMENTE la porta di questo tool. Se la scappatoia non passa di
+  // qui, l'agente che incappa nel falso positivo noto non ha modo di
+  // scavalcare: riscrive il titolo finché passa, cioè il guasto che il
+  // cancello doveva impedire.
+  test("allow_duplicate arriva fino al corpo della richiesta", async () => {
+    const seen: { init?: RequestInit } = {};
+    const fetchImpl = stubFetch(async (_url, init) => {
+      seen.init = init;
+      return new Response(JSON.stringify({ id: "t9", status: "backlog" }), { status: 201 });
+    });
+    await callCreateTask(
+      { baseUrl: "http://x", sessionKey: "s" },
+      { text: "store: UserMemoryStore.update() + unit test", allow_duplicate: true },
+      fetchImpl,
+    );
+    expect(JSON.parse(String(seen.init?.body)).allow_duplicate).toBe(true);
+  });
+
+  test("senza allow_duplicate il corpo resta pulito", async () => {
+    const seen: { init?: RequestInit } = {};
+    const fetchImpl = stubFetch(async (_url, init) => {
+      seen.init = init;
+      return new Response(JSON.stringify({ id: "t9", status: "backlog" }), { status: 201 });
+    });
+    await callCreateTask({ baseUrl: "http://x", sessionKey: "s" }, { text: "una card nuova" }, fetchImpl);
+    expect(JSON.parse(String(seen.init?.body))).toEqual({ text: "una card nuova" });
+  });
+
+  test("il 409 dice all'agente QUALE card esiste già, con l'id", async () => {
+    // Corpo esattamente com'è oggi sulla rotta: l'id sta SOLO in `duplicates[]`,
+    // mai dentro `error`. Il messaggio è l'unica cosa che l'agente vede, quindi
+    // se `duplicates[]` si perde per strada gli si sta dicendo «commenta quella
+    // card» senza dargli di quale card si tratti.
+    const fetchImpl = stubFetch(async () => new Response(JSON.stringify({
+      error: "una card lo dice già: «store: UserMemoryStore.update() + test». Commenta quella, oppure rimanda con allow_duplicate: true.",
+      code: "duplicate",
+      duplicates: [{ id: "t0abc123", text: "store: UserMemoryStore.update() + test", score: 0.91 }],
+    }), { status: 409 }));
+    const err = await callCreateTask(
+      { baseUrl: "http://x", sessionKey: "s" },
+      { text: "store: UserMemoryStore.update() + unit test" },
+      fetchImpl,
+    ).then(() => null, (e: Error) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect(err!.message).toContain("t0abc123");
+    expect(err!.message).toContain("allow_duplicate");
+  });
 });
 
 describe("callGetTask", () => {
