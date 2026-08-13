@@ -28,8 +28,9 @@ import { E2E_BASE as BASE } from "./helpers/test-server";
 
 hermetic(test);
 
-/** `ROW_PX` risolto in pixel (lib/selectionStyles.ts) — l'incasso destro che
- *  `.row-actions` promette in `index.css`. */
+/** `ROW_PX` risolto in pixel (lib/selectionStyles.ts) — l'incasso destro del
+ *  GLIFO che `.row-actions` promette in `index.css` (`ROW_ACTIONS_INSET_PX`).
+ *  La sua SCATOLA sta più a destra apposta: vedi `comandoDi`. */
 const ROW_PX = 8;
 /** `COLUMN_GAP` (lib/selectionStyles.ts): mezzo passo per card, sei fra due. */
 const COLUMN_GAP = 6;
@@ -63,6 +64,21 @@ async function rett(l: Locator, nome: string): Promise<Rett> {
   const b = await l.boundingBox();
   if (!b) throw new Error(`nessun rettangolo per ${nome}`);
   return { x: b.x, y: b.y, w: b.width, h: b.height };
+}
+
+/**
+ * IL COMANDO SI MISURA SUL CERCHIO, NON SULLA SUA SCATOLA.
+ *
+ * `.row-actions` è la scatola del bersaglio (28px col mouse, 36 col dito) e il
+ * cerchio disegnato dentro ne fa 16. Dal 10/08 il CSS incassa la SCATOLA di
+ * `8px − (scatola − 16) / 2` proprio perché sia il CERCHIO a fermarsi a
+ * `ROW_PX`, allineato ai segnali quieti che copre. Misurare `.row-actions`
+ * significa quindi leggere 2px col mouse e chiamarlo difetto: il rettangolo
+ * giusto è quello del glifo, cioè lo `<span>` dentro il bottone di
+ * `PendingActionRing`, che porta larghezza e altezza inline.
+ */
+function comandoDi(card: Locator): Locator {
+  return card.locator(".row-actions button > span").first();
 }
 
 /** La riga della colonna per un topic, cioè la card che porta `.row-card`. */
@@ -102,7 +118,7 @@ test("CODA-1: il comando finisce a ROW_PX dal bordo della card, su riga E tab", 
 
   for (const [dove, card] of [["riga", riga], ["tab", tab]] as const) {
     await card.hover();
-    const cmd = card.locator(".row-actions").first();
+    const cmd = comandoDi(card);
     await expect(cmd).toBeVisible();
     const rc = await rett(card, `card ${dove}`);
     const rk = await rett(cmd, `comando ${dove}`);
@@ -151,7 +167,7 @@ test("CODA-3: il comando è l'ULTIMO — nessun segnale gli sta a destra", async
   await openTopic(page, nomi[0]);
   const riga = rigaDi(page, nomi[0]);
   await riga.hover();
-  const cmd = riga.locator(".row-actions").first();
+  const cmd = comandoDi(riga);
   await expect(cmd).toBeVisible();
   const rk = await rett(cmd, "comando");
 
