@@ -118,6 +118,10 @@ const IT: Dict = {
   //    only subtract words the table knows.
   'board.action.land': 'Landa su main',
   'board.action.land.title': "Accetta il task e fondi il suo ramo su main (locale, nessun push). L'esito arriva nel thread.",
+  // Stessa azione su una card che NESSUN agent ha consegnato: il ramo c'è, ma
+  // nessuno ha detto che è finito. La parola cambia perché la promessa cambia.
+  'board.action.land.anyway': 'Landa comunque',
+  'board.action.land.anyway.title': "Nessun agent ha consegnato questo ramo: fondendolo porti su main lavoro che nessuno ha dichiarato finito. Guarda prima il diff. Locale, nessun push.",
   'board.action.accept': 'Approva',
   // `{land}` is the `land` label taken from this same table: naming the other
   // button by copying its text by hand is how two words drift apart again.
@@ -128,11 +132,20 @@ const IT: Dict = {
   // comunque» stand next to the identical real button (which instead rejects).
   'board.action.accept.anyway': 'Approva comunque',
   'board.action.accept.anyway.title': "I checks pre-review sono rossi: approvando lo accetti comunque. La strada normale è «{sendBack}», che rimanda l'output all'agent.",
+  // Stessa parola, altra ragione: qui non c'è nessun output da giudicare, il
+  // turno è finito e basta. Il tooltip nomina la strada normale, che in questo
+  // caso è farlo continuare, non rimandargli indietro qualcosa.
+  'board.action.accept.unfinished.title': "Nessuno ha consegnato: approvando chiudi il task com'è, e sotto può non esserci niente. La strada normale è «{sendBack}», che lo fa continuare.",
   'board.action.sendBack': 'Rimanda indietro',
   'board.action.sendBack.title': "Torna all'agente, che riparte sullo stesso tab. Scrivi nel campo qui sotto per dargli un'indicazione.",
   // Same word, different destination: with no agent bound there is no tab to
   // restart, and the task goes back to In Progress in the human's hands.
   'board.action.sendBack.noAgent.title': 'Nessun agente da riprendere: il task torna In Progress, in mano a te. Scrivi nel campo qui sotto per lasciare una nota.',
+  // Terzo verso della stessa azione: l'agent non ha MAI consegnato, quindi non
+  // gli si rimanda indietro niente. Lo si fa proseguire, ed è la scelta
+  // consigliata al posto di un'approvazione che chiuderebbe il vuoto.
+  'board.action.sendBack.unfinished': 'Rimandalo avanti',
+  'board.action.sendBack.unfinished.title': "L'agent non ha finito il turno: riparte sullo stesso tab e continua da dov'era. Scrivi nel campo qui sotto per dirgli dove guardare.",
   'board.action.redo': 'Rifai così…',
   'board.action.redo.title': "Rimanda all'agente con un'indicazione: porta il cursore nel commento qui sotto.",
   'board.action.redo.noAgent.title': "Nessun agente da riprendere: il task torna In Progress con la tua indicazione. Porta il cursore nel commento qui sotto.",
@@ -735,13 +748,18 @@ const EN: Dict = {
   'board.task.openInBrowser': 'Open in the browser',
   'board.action.land': 'Land on main',
   'board.action.land.title': 'Accept the task and merge its branch into main (local, no push). The result shows up in the thread.',
+  'board.action.land.anyway': 'Land it anyway',
+  'board.action.land.anyway.title': 'No agent delivered this branch: merging it puts work nobody called finished onto main. Look at the diff first. Local, no push.',
   'board.action.accept': 'Approve',
   'board.action.accept.title': 'Accept the delivery and close the task. It does NOT merge: to bring the branch onto main use «{land}».',
   'board.action.accept.anyway': 'Approve anyway',
   'board.action.accept.anyway.title': 'The pre-review checks are red: approving accepts it anyway. The normal path is «{sendBack}», which sends the output back to the agent.',
+  'board.action.accept.unfinished.title': 'Nobody delivered: approving closes the task as it stands, and there may be nothing under it. The normal path is «{sendBack}», which lets it carry on.',
   'board.action.sendBack': 'Send it back',
   'board.action.sendBack.title': 'Back to the agent, which restarts on the same tab. Write in the field below to give it a direction.',
   'board.action.sendBack.noAgent.title': 'No agent to resume: the task goes back to In Progress, in your hands. Write in the field below to leave a note.',
+  'board.action.sendBack.unfinished': 'Send it onward',
+  'board.action.sendBack.unfinished.title': 'The agent did not finish its turn: it restarts on the same tab and carries on from where it stopped. Write in the field below to tell it where to look.',
   'board.action.redo': 'Redo it like this…',
   'board.action.redo.title': 'Back to the agent with a direction: puts the cursor in the comment below.',
   'board.action.redo.noAgent.title': 'No agent to resume: the task goes back to In Progress with your direction. Puts the cursor in the comment below.',
