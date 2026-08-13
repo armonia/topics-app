@@ -28,7 +28,7 @@ import type { ClaudeSessionTracker } from "../lib/claude-session-tracker";
 import { writeMcpConfigForSession, cleanupMcpConfigForSession } from "../providers/claude-code";
 import { claudeTranscriptPath } from "../lib/claude-transcript-path";
 import { discoverClaudeSubAgentSessionId, normalizePromptSnippet } from "../lib/claude-subagent-transcript";
-import { boardSpawnRefusal } from "../services/agent-census";
+import { boardSpawnRefusal, liveAgentCount } from "../services/agent-census";
 import { effectiveDispatchCap, readGlobalCap, computeDispatchCapacity } from "../services/dispatch-capacity";
 import { deriveClaudeSessionTitle } from "../lib/claude-transcript-title";
 import { parseJsonlLine, splitJsonlChunk } from "../lib/claude-session-state";
@@ -1760,7 +1760,13 @@ function spawnedAgentDepth(sessionKey: string): number {
  */
 function boardAgentCap(): number {
   try {
-    return effectiveDispatchCap(readGlobalCap(getDatabase()), computeDispatchCapacity().recommended);
+    // Gli agenti VIVI vanno passati: il freno vivo del tetto è un credito sul
+    // budget di CPU della flotta, e senza sapere quanti ne stanno già girando
+    // il loro costo verrebbe scontato dal tetto totale invece che dai posti
+    // residui. È lo stesso conteggio che `boardSpawnRefusal` confronta col
+    // tetto due righe più in là, quindi le due letture non possono divergere.
+    const db = getDatabase();
+    return effectiveDispatchCap(readGlobalCap(db), computeDispatchCapacity(liveAgentCount(db, null)).recommended);
   } catch {
     // Nessuna lettura possibile: si torna al default del menu (3). Un tetto
     // sconosciuto non autorizza a non averne uno.

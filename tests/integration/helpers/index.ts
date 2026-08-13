@@ -17,6 +17,7 @@
  */
 
 import * as fs from "node:fs";
+import * as os from "node:os";
 import path from "node:path";
 import type { AppContext } from "../../../server/types";
 
@@ -26,15 +27,93 @@ import type { AppContext } from "../../../server/types";
  */
 export const PROJECT_ROOT = path.resolve(import.meta.dirname, "../../..");
 
+/** Radici di scratch create da `testTmpDir` in questo processo. */
+const tmpRoots: string[] = [];
+let cleanupArmed = false;
+
+/**
+ * Cartella di scratch UNICA per questo processo, sotto `os.tmpdir()`.
+ *
+ * Serve a tenere la suite ermetica quando gira in PARALLELO. Con un path
+ * costante (`/tmp/topics-phase-c-data`) due `bun test` avviati insieme in
+ * worktree diversi scrivono e cancellano la STESSA cartella: il 2026-08-13
+ * questo ha prodotto 15 file rossi, tutti sotto `tests/integration/`, con zero
+ * rossi fuori. Il rosso non era del codice in prova.
+ *
+ * `mkdtempSync` crea la cartella subito con un suffisso casuale, quindi due
+ * processi non possono collidere. La cartella viene rimossa all'uscita del
+ * processo.
+ *
+ * Usala per la RADICE dello scratch di un test e derivane i sottopath:
+ *
+ *   const ROOT = testTmpDir("live-phase-gate");
+ *   const TEST_DATA = path.join(ROOT, "data");
+ */
+export function testTmpDir(label: string): string {
+  // Radice CORTA, non `os.tmpdir()`: su macOS quella e' `/var/folders/…/T/`, e
+  // un socket unix creato li' dentro sfonda il limite di 104 caratteri del path
+  // con un ENAMETOOLONG che non parla di niente. Esempio di risultato:
+  // `/tmp/topics-test/live-phase-gate-a3Xk9Z`.
+  const radice = "/tmp/topics-test";
+  fs.mkdirSync(radice, { recursive: true });
+  const dir = fs.mkdtempSync(path.join(radice, `${label}-`));
+  tmpRoots.push(dir);
+  if (!cleanupArmed) {
+    cleanupArmed = true;
+    process.on("exit", () => {
+      for (const root of tmpRoots) fs.rmSync(root, { recursive: true, force: true });
+    });
+  }
+  return dir;
+}
+
+/** True se `p` sta dentro (o è) una radice creata da `testTmpDir`. */
+function isUnderTestTmp(p: string): boolean {
+  const abs = path.resolve(p);
+  return tmpRoots.some((root) => abs === root || abs.startsWith(root + path.sep));
+}
+
+
 /**
  * Wipe `testDataDir` and point `process.env.DATA_DIR` at it. Call from
- * `beforeAll`. The cleanup is intentionally only the directory wipe —
- * letting each test owning DATA_DIR keeps the global env mutation
+ * `beforeAll`. The cleanup is intentionally only the directory wipe:
+ * letting each test own DATA_DIR keeps the global env mutation
  * visible at the test-file level.
+ *
+ * Il path DEVE venire da `testTmpDir` (vedi sopra). Un path costante passa
+ * i test da solo e li fa fallire a caso quando la suite gira due volte in
+ * parallelo, quindi qui è un errore rumoroso invece che un rosso misterioso
+ * fra tre settimane.
  */
 export function setupTestDataDir(testDataDir: string): void {
+  if (!isUnderTestTmp(testDataDir)) {
+    throw new Error(
+      `setupTestDataDir: "${testDataDir}" non viene da testTmpDir(). ` +
+        `Un path fisso non è ermetico: due suite in parallelo si cancellano i dati a vicenda. ` +
+        `Usa: const ROOT = testTmpDir("<label>")`,
+    );
+  }
   fs.rmSync(testDataDir, { recursive: true, force: true });
   process.env.DATA_DIR = testDataDir;
+}
+
+/**
+ * Il gemello di `setupTestDataDir`: chiude il DB e porta via la cartella.
+ * Chiamalo da `afterAll`, passando la RADICE che il file ha creato con
+ * `testTmpDir` (non la sola `data/`, se ne ha derivate altre).
+ *
+ * L'ordine non e' un dettaglio, e' tutto il punto. `server/db.ts` tiene un
+ * singleton `_db` di PROCESSO, e `bun test` fa girare ogni file nello stesso
+ * processo: cancellare la cartella lasciando la maniglia aperta consegna al file
+ * successivo un DB che punta a un albero che non esiste piu', e il primo
+ * `.all()` esce con `SQLITE_IOERR_VNODE`. Misurato: 35 test rossi, tutti verdi
+ * presi da soli. `closeDatabase` e' idempotente, quindi chiamarlo qui va bene
+ * anche se un test lo aveva gia' chiuso per conto suo.
+ */
+export async function cleanupTestDataDir(dir: string): Promise<void> {
+  const { closeDatabase } = await import("../../../server/db");
+  closeDatabase();
+  fs.rmSync(dir, { recursive: true, force: true });
 }
 
 /**

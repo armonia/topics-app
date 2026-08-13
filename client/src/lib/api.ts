@@ -127,18 +127,12 @@ export const topicsApi = {
     });
   },
 
-  /**
-   * Adopt a Claude Code session running OUTSIDE Topics (bare `claude` in a
-   * terminal, a resume from another client) into a first-class topic: binds the
-   * topic's chat to the existing claude_session_id (next turn `--resume`s it)
-   * and imports the transcript history into the chat. Idempotent server-side.
-   */
-  async adoptClaudeSession(sessionId: string, name?: string): Promise<Topic> {
-    return request<Topic>('/topics/adopt-claude', {
-      method: 'POST',
-      body: JSON.stringify({ sessionId, name }),
-    });
-  },
+  /* (Qui stava `adoptClaudeSession`, che adottava in una topic una sessione
+     Claude avviata a mano in un terminale. L'unico gesto che la chiamava era il
+     «Continua qui» del chip in barra della kanban, tolto il 13/08. L'endpoint
+     `POST /topics/adopt-claude` esiste ancora ed è provato da ADOPT-01: il
+     giorno in cui l'adozione torna ad avere una superficie, il client la
+     richiama da lì. Un metodo senza chiamanti, invece, marcisce.) */
 
   async update(id: string, data: UpdateTopicRequest): Promise<Topic> {
     return request<Topic>(`/topics/${id}`, {

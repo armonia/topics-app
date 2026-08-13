@@ -23,11 +23,11 @@ import * as fs from "node:fs";
 import type { Database } from "bun:sqlite";
 import type { AppContext, RouteHandler } from "../../server/types";
 import { isGuestSafeFrameType, frameResource } from "../../server/lib/grants";
-import { PROJECT_ROOT, setupTestDataDir } from "./helpers";
+import { PROJECT_ROOT, setupTestDataDir, testTmpDir } from "./helpers";
 
-const TEST_DATA = "/tmp/topics-project-broadcast-data";
-const DIR_CONDIVISO = "/tmp/topics-project-broadcast-condiviso";
-const DIR_SEGRETO = "/tmp/topics-project-broadcast-segreto";
+const TEST_DATA = testTmpDir("project-broadcast-data");
+const DIR_CONDIVISO = testTmpDir("project-broadcast-condiviso");
+const DIR_SEGRETO = testTmpDir("project-broadcast-segreto");
 
 // ── Socket finte ───────────────────────────────────────────────────────────
 
