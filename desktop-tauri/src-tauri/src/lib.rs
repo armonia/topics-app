@@ -8116,6 +8116,12 @@ async fn window_detach(
     // Sta fuori dal `cfg(macos)` qui sotto perché non è chrome: è heap, e
     // l'heap lo tiene in ostaggio ogni piattaforma. `on_window_event` accoda
     // (non sostituisce), quindi il registratore macOS più sotto resta valido.
+    // Verificato nel runtime che usiamo, non dedotto dalla documentazione: ogni
+    // registrazione chiede un id nuovo e finisce in una MAPPA di ascoltatori
+    // (`tauri-runtime-wry` 2.11.3, `WindowMessage::AddEventListener` →
+    // `window_event_listeners.insert(id, listener)`), e all'arrivo dell'evento
+    // il runtime li chiama tutti. Se un giorno diventasse un rimpiazzo, a
+    // sparire sarebbero le luci del semaforo di questa finestra.
     {
         let app_for_evict = app.clone();
         let label_for_evict = label.clone();
