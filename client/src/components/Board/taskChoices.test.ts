@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'bun:test';
 import { taskChoices, taskChoiceState, usableQuestionOptions, type TaskChoiceId } from './taskChoices';
-import { acceptWord, drawerSurfaceLabels, redoWord, sendBackWord, taskActionWord, unblockWord } from './taskActionWords';
+import { acceptWord, drawerSurfaceLabels, redoWord, sendBackWord, stopWord, taskActionWord, unblockWord } from './taskActionWords';
 import { LAND_ACTION_LABEL } from '../../lib/board';
 import { t as translate } from '../../lib/i18n';
 import { buildNotifyActions } from '../../../../shared/notify-actions';
@@ -42,6 +42,21 @@ describe('taskChoiceState', () => {
     expect(taskChoiceState(task({ status: 'in_progress', dispatchState: 'starting' }))).toBe('working');
     // Presa in mano da una persona: non c'è nessun agente da fermare.
     expect(taskChoiceState(task({ status: 'in_progress', dispatchState: null }))).toBe(null);
+  });
+
+  /**
+   * IN CODA NON È IN CORSO — e la differenza è un bottone che non fa niente.
+   *
+   * `isAgentWorking` include `queued` perché per il tetto di concorrenza quella
+   * riga è già impegnata. Le scelte però parlano a un AGENTE, e in `queued`
+   * l'agente non è ancora nato: «Consegna quello che hai» scrive un commento
+   * che il gate di `server/routes/tasks.ts` consegna solo a un task con un topic
+   * legato e in review o in corso. Su una card in coda quel commento resta una
+   * nota che nessuno leggerà mai — misurate 12 card così sulla board del 13/08.
+   */
+  it('in coda non è «in corso»: nessun agente da interrogare', () => {
+    expect(taskChoiceState(task({ status: 'todo', dispatchState: 'queued' }))).toBe('queued');
+    expect(taskChoiceState(task({ status: 'in_progress', dispatchState: 'queued' }))).toBe('queued');
   });
 
   it('bloccata solo finché il bloccante è davvero aperto', () => {
@@ -92,6 +107,29 @@ describe('taskChoices', () => {
 
   it('in corso: fermarsi o consegnare quello che c\'è', () => {
     expect(ids(task({ status: 'in_progress', dispatchState: 'working' }))).toEqual(['stop', 'deliver-now']);
+  });
+
+  it('in coda: «Consegna quello che hai» non c\'è — non c\'è nessuno a cui chiederlo', () => {
+    const inCoda = task({ status: 'todo', dispatchState: 'queued' });
+    expect(ids(inCoda)).toEqual(['stop']);
+    // Il bottone che resta funziona per davvero: il taglio del turno accetta
+    // `queued` e sgancia il timer di grazia, quindi la card esce dalla coda.
+    // La PAROLA resta quella dell'azione (una sola per azione, `taskActionWords`);
+    // a cambiare è il tooltip, perché in coda non c'è nessun turno da interrompere.
+    const [solo] = taskChoices(inCoda);
+    const [fermati] = taskChoices(task({ status: 'in_progress', dispatchState: 'working' }));
+    expect(solo!.label).toBe(fermati!.label);
+    expect(solo!.title).not.toBe(fermati!.title);
+    expect(solo!.title).toBe(stopWord(false).title);
+  });
+
+  it('un\'opzione dell\'agente non collide più con un bottone che la card non ha', () => {
+    // La quick-reply e la scelta si somigliano e fanno l'OPPOSTO: se la card non
+    // disegna «Consegna quello che hai», l'opzione dell'agente deve sopravvivere.
+    expect(usableQuestionOptions(task({ status: 'todo', dispatchState: 'queued' }), ['Consegna quello che hai']))
+      .toEqual(['Consegna quello che hai']);
+    expect(usableQuestionOptions(task({ status: 'in_progress', dispatchState: 'working' }), ['Consegna quello che hai']))
+      .toEqual([]);
   });
 
   it('bloccata: sblocca col nome del bloccante, togli il legame, archivia', () => {

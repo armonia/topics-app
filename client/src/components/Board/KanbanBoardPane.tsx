@@ -22,7 +22,7 @@ import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib
 import { currentTaskTarget, reflectTaskOpen, reflectTaskClose, subscribePopstateTask } from '../../lib/openTaskLink';
 import { useTaskSessionResolver } from '../../hooks/useTaskSession';
 import {
-  boardApi, boardIdForPath, isProjectlessId, TASK_STATUSES, UNASSIGNED_PROJECT_ID,
+  boardApi, boardIdForPath, isProjectlessId, showsLandingDebt, TASK_STATUSES, UNASSIGNED_PROJECT_ID,
   CLOSER_LABELS, KIND_LABELS,
   type BoardProjectRef, type BoardTask, type TaskStatus, type BoardSettings, type TaskLabel,
   type PublishProject, type DiffBundle,
@@ -1126,7 +1126,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
   // periodico). Deliberatamente NON filtrato dai filtri di header: è un allarme
   // sull'integrità della board, non una vista.
   const unlandedTasks = useMemo(
-    () => tasks.filter((t) => t.status === 'done' && t.landingState === 'unlanded'),
+    () => tasks.filter(showsLandingDebt),
     [tasks],
   );
 
