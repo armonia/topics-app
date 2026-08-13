@@ -16,28 +16,16 @@
  */
 
 import { isAgentWorking, type BoardTask } from '../../lib/board';
+import { taskActionWord, unblockWord, type TaskActionId, type Translate } from './taskActionWords';
 
-export type TaskChoiceId =
-  /** review con ramo: accetta e fondi il ramo su main (locale, niente push). */
-  | 'land'
-  /** review: torna all'agente, che riparte sullo stesso tab. */
-  | 'send-back'
-  /** review: esce dal giro dell'agente, il task passa in mano all'umano. */
-  | 'take-over'
-  /** review senza ramo: accetta e chiudi. */
-  | 'accept'
-  /** review: rifiuta, ma serve una riga di indicazioni → apre il commento. */
-  | 'redo'
-  /** non serve più: archivia. */
-  | 'drop'
-  /** in corso: ferma il turno. */
-  | 'stop'
-  /** in corso: chiudi con quello che c'è. */
-  | 'deliver-now'
-  /** bloccata: togli il legame e mandala in Todo (riparte). */
-  | 'unblock'
-  /** bloccata: togli il legame, lasciandola dov'è. */
-  | 'unlink';
+export type { Translate };
+
+/**
+ * Le parole NON stanno qui: stanno in `taskActionWords.ts`, una sola volta,
+ * perché le stesse azioni le disegnano anche il menu contestuale della card e i
+ * bottoni propri del drawer. Qui si decide COSA si può fare, non come si chiama.
+ */
+export type TaskChoiceId = TaskActionId;
 
 export interface TaskChoice {
   id: TaskChoiceId;
@@ -59,7 +47,7 @@ export type TaskChoiceState = 'review-branch' | 'review-plain' | 'working' | 'bl
 /**
  * In quale dei quattro casi siamo. La precedenza NON è arbitraria:
  * - `review` vince su tutto (è la superficie di decisione, e un
- *   `dispatch_state` stantio non deve farci comparire «Fermati»);
+ *   `dispatch_state` stantio non deve farci comparire «Ferma»);
  * - «in corso» vale solo con un turno DAVVERO vivo (`isAgentWorking`): un task
  *   in_progress preso in mano da una persona non ha un agente da fermare;
  * - «bloccata» è l'ultima, perché un task che aspetta non sta né in review né
@@ -93,51 +81,33 @@ function blockerLabel(task: Pick<BoardTask, 'blockedBy'>): string | null {
 export function taskChoices(
   task: Pick<BoardTask,
     'status' | 'assignedTopicId' | 'deliveryBranch' | 'dispatchState' | 'blockedByTaskId' | 'blockedBy'>,
-  opts?: { exclude?: TaskChoiceId[] },
+  opts?: { exclude?: TaskChoiceId[]; t?: Translate },
 ): TaskChoice[] {
   const state = taskChoiceState(task);
+  const tr = opts?.t;
+  /** Words from the one table; only the tone and `needsText` belong to this file. */
+  const say = (id: TaskChoiceId, tone: TaskChoice['tone'], needsText?: true): TaskChoice =>
+    ({ id, tone, ...(needsText ? { needsText } : {}), ...taskActionWord(id, tr) });
   let out: TaskChoice[] = [];
   switch (state) {
     case 'review-branch':
-      out = [
-        { id: 'land', label: 'Landa su main', tone: 'primary', title: 'Accetta il task e fondi il suo ramo su main (locale, nessun push).' },
-        { id: 'send-back', label: 'Rimanda indietro', tone: 'neutral', title: "Torna all'agente, che riparte sullo stesso tab. Scrivi nel campo qui sotto per dargli un'indicazione." },
-        { id: 'take-over', label: 'Serve a me', tone: 'neutral', title: "Esce dal giro dell'agente: il task torna in corso, assegnato a te." },
-      ];
+      out = [say('land', 'primary'), say('send-back', 'neutral'), say('take-over', 'neutral')];
       break;
     case 'review-plain':
-      out = [
-        { id: 'accept', label: 'Va bene', tone: 'primary', title: 'Accetta la consegna e chiudi il task.' },
-        { id: 'redo', label: 'Rifai così…', tone: 'neutral', needsText: true, title: "Rimanda all'agente con un'indicazione: porta il cursore nel commento qui sotto." },
-        { id: 'drop', label: 'Non serve più', tone: 'danger', title: 'Archivia il task: esce dalla board.' },
-      ];
+      out = [say('accept', 'primary'), say('redo', 'neutral', true), say('drop', 'danger')];
       break;
     case 'working':
-      out = [
-        { id: 'stop', label: 'Fermati', tone: 'neutral', title: "Interrompe il turno dell'agente e parcheggia il task." },
-        { id: 'deliver-now', label: 'Consegna quello che hai', tone: 'primary', title: "Chiede all'agente di chiudere adesso con quello che ha già fatto e mandare il task in review." },
-      ];
+      out = [say('stop', 'neutral'), say('deliver-now', 'primary')];
       break;
-    case 'blocked': {
-      const name = blockerLabel(task);
+    case 'blocked':
       out = [
-        {
-          id: 'unblock',
-          label: name ? `Sblocca: ${name}` : 'Sblocca',
-          tone: 'primary',
-          title: name
-            ? `Non aspetta più «${name}»: togli il legame e manda il task in Todo, così può partire.`
-            : 'Togli il legame e manda il task in Todo, così può partire.',
-        },
+        { id: 'unblock', tone: 'primary', ...unblockWord(blockerLabel(task), tr) },
         // Quando è GIA' in Todo le due voci scriverebbero la stessa cosa
         // («Sblocca» lo lascerebbe dov'è): un doppione non è una scelta.
-        ...(task.status === 'todo'
-          ? []
-          : [{ id: 'unlink' as const, label: 'Togli il legame', tone: 'neutral' as const, title: "Toglie l'attesa lasciando il task dov'è (resta fermo finché non lo muovi)." }]),
-        { id: 'drop', label: 'Non serve più', tone: 'danger', title: 'Archivia il task: esce dalla board.' },
+        ...(task.status === 'todo' ? [] : [say('unlink', 'neutral')]),
+        say('drop', 'danger'),
       ];
       break;
-    }
     default:
       return [];
   }
@@ -167,17 +137,27 @@ function sameLabel(a: string, b: string): boolean {
  * Dropping the collision is safe by construction: the real button is already
  * there, one row below, doing what its label says.
  *
- * `exclude` means "this surface does not render that action AT ALL", which is
- * rarer than it looks: the drawer excludes `land` from its choice row only
- * because it draws its own bigger Landa button, so it must pass NOTHING here or
- * the collision it actually has would survive.
+ * `exclude` means "this surface does not render that action from the choice
+ * row". It is NOT the same as "the surface does not draw it": the drawer
+ * excludes `land`, `accept` and `send-back` from the row precisely BECAUSE it
+ * draws them itself, bigger, right above. Reading `exclude` alone therefore
+ * looked at the wrong screen — the drawer offered a quick reply that said
+ * «Approva» next to the real Approva, and pressing the wrong one rejected the
+ * card (still in the DB, comment 2eff6a44).
+ *
+ * So a surface also passes `surfaceLabels`: the words IT draws on its own. The
+ * de-duplicator can only be right about what is on the screen if it is told
+ * everything that is on the screen.
  */
 export function usableQuestionOptions(
   task: Pick<BoardTask,
     'status' | 'assignedTopicId' | 'deliveryBranch' | 'dispatchState' | 'blockedByTaskId' | 'blockedBy'>,
   options: readonly string[],
-  opts?: { exclude?: TaskChoiceId[] },
+  opts?: { exclude?: TaskChoiceId[]; surfaceLabels?: readonly string[]; t?: Translate },
 ): string[] {
-  const labels = taskChoices(task, opts).map((c) => c.label);
+  const labels = [
+    ...taskChoices(task, opts).map((c) => c.label),
+    ...(opts?.surfaceLabels ?? []),
+  ];
   return options.filter((o) => !labels.some((l) => sameLabel(o, l)));
 }
