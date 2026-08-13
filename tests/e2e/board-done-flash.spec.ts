@@ -7,7 +7,7 @@
  *     era ordinata per `kanbanOrder`, che a un task chiuso non dice niente:
  *     approvare dalla review non ne scrive nessuno, quindi la card conservava la
  *     posizione della colonna da cui veniva e atterrava in un punto qualsiasi.
- *  2. **La card che ci arriva lampeggia.** Approvare chiudeva il drawer e non
+ *  2. **La card che ci arriva lampeggia.** Accettare chiudeva il drawer e non
  *     succedeva nient'altro di visibile: nessun segnale che il click avesse
  *     fatto qualcosa.
  *
@@ -199,7 +199,7 @@ test.describe("Done: ordine e lampo", () => {
     // chiusa non lampeggia solo perché la board si è appena caricata.
     await expect(doneCol.locator("[data-just-done]")).toHaveCount(0);
 
-    await reviewCol.getByRole("button", { name: "Approva", exact: true }).click();
+    await reviewCol.getByRole("button", { name: "Va bene", exact: true }).click();
 
     // Si vede arrivare. PRIMA di ogni altra asserzione: il lampo dura 2,4 s per
     // costruzione, quindi va guardato subito dopo il click — le verifiche
