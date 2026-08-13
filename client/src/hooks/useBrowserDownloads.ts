@@ -10,14 +10,16 @@
  * Fuori da Tauri non fa niente: la pane condivisa (server) scarica sul server,
  * non su questo computer, e non ha nessuna coda da drenare.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { isTauri } from '../lib/shell';
 import { tauriInvoke } from '../lib/shell/tauri';
 import {
   applyDownloadEvent,
+  applyDownloadProgress,
   activeCount as countActive,
   type DownloadEntry,
   type DownloadEventIn,
+  type DownloadProgressIn,
 } from '../components/Browser/downloadsModel';
 
 const POLL_MS = 1000;
@@ -47,6 +49,10 @@ const EMPTY = (ctx: string): DownloadsState => ({ ctx, entries: [], started: 0 }
 
 export function useBrowserDownloads(contextId: string): BrowserDownloads {
   const [state, setState] = useState<DownloadsState>(() => EMPTY(contextId));
+  /** «C'e' almeno un download in corso», letto dentro l'intervallo. Un ref e non
+   *  una dipendenza: metterlo fra le dipendenze dell'effetto rifarebbe il timer
+   *  a ogni download che parte o finisce. */
+  const activeRef = useRef(false);
 
   // Pane diversa = elenco diverso: senza questo, cambiando contextId le voci
   // della pane precedente restavano appese a quella nuova. L'azzeramento avviene
@@ -76,6 +82,23 @@ export function useBrowserDownloads(contextId: string): BrowserDownloads {
           }));
         })
         .catch(() => {});
+      // L'avanzamento si chiede SOLO con qualcosa in corso: ogni giro costa al
+      // Rust uno stat per download pendente, e a elenco fermo non direbbe niente
+      // di nuovo. La risposta sta in un ref e non fra le dipendenze, altrimenti
+      // il timer si rifarebbe a ogni download che parte o finisce.
+      if (!activeRef.current) return;
+      void tauriInvoke<DownloadProgressIn[]>('browser_download_progress', { id: contextId })
+        .then((msgs) => {
+          if (stop || !msgs || !msgs.length) return;
+          setState((prev) => {
+            if (prev.ctx !== contextId) return prev;
+            const entries = applyDownloadProgress(prev.entries, msgs);
+            // `applyDownloadProgress` torna la stessa lista quando nulla cambia:
+            // qui quell'identita' diventa «nessun render».
+            return entries === prev.entries ? prev : { ...prev, entries };
+          });
+        })
+        .catch(() => {});
     }, POLL_MS);
     return () => { stop = true; window.clearInterval(iv); };
   }, [contextId]);
@@ -94,9 +117,17 @@ export function useBrowserDownloads(contextId: string): BrowserDownloads {
     void tauriInvoke('plugin:opener|open_path', { path }).catch(() => {});
   }, []);
 
+  const active = countActive(current.entries);
+  // Il ref insegue il conteggio da un effetto e non dal render: scrivere un ref
+  // mentre React sta renderizzando e' proprio cio' che `react-hooks/refs` vieta,
+  // perche' con il render concorrente quella scrittura puo' avvenire per un
+  // tentativo che verra' buttato via. Qui l'unico lettore e' un timer, quindi
+  // arrivarci un tick dopo non cambia niente.
+  useEffect(() => { activeRef.current = active > 0; }, [active]);
+
   return {
     downloads: current.entries,
-    activeCount: countActive(current.entries),
+    activeCount: active,
     startedCount: current.started,
     dismiss,
     clear,
