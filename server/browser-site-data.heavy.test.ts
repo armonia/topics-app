@@ -49,9 +49,19 @@ let siteDataRecords!: (typeof import("./browser-site-data"))["siteDataRecords"];
 if (HEAVY) {
   DATA = mkdtempSync(join(tmpdir(), "site-data-heavy-"));
   process.env.DATA_DIR = join(DATA, "data");
-  ({ createBrowserService } = await import("./browser-service"));
-  ({ loadStorageState } = await import("./browser-state-store"));
-  ({ siteDataRecords } = await import("./browser-site-data"));
+  // `const { x } = await import(…)`, non `({ x } = await import(…))`. La seconda
+  // forma è un'ASSEGNAZIONE, e knip sa leggere solo la dichiarazione
+  // (`handleVariableDeclarator`, typescript/visitors/imports.js:5): tutto il
+  // resto cade nel ramo generico che marca l'import OPACO, e un import opaco
+  // rende «usato» ogni export di quel modulo — per sempre, senza un avviso.
+  // Erano tre moduli ciechi in un colpo solo. Il ponte con le `let` di sopra
+  // costa tre righe e le ricompra.
+  const { createBrowserService: createService } = await import("./browser-service");
+  const { loadStorageState: loadState } = await import("./browser-state-store");
+  const { siteDataRecords: records } = await import("./browser-site-data");
+  createBrowserService = createService;
+  loadStorageState = loadState;
+  siteDataRecords = records;
 }
 
 /** Un sito che dice se ti riconosce, e che al `/login` ti dà il cookie. */

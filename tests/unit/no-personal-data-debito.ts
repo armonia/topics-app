@@ -114,7 +114,6 @@ export const DEBITO_NOME_PROPRIETARIO: readonly string[] = [
   "server/services/tasks.test.ts",
   "server/services/tasks.ts",
   "shared/board.ts",
-  "shared/task-labels.ts",
   "spike/rrweb-cobrowse/EVALUATION.md",
   "spike/rrweb-cobrowse/README.md",
   "tests/e2e/board-drawer-truth.spec.ts",

@@ -414,7 +414,7 @@
         "server/usage/cost-probe.ts",
         "shared/types.ts",
         "tests/e2e/turn-cost-multiplier.spec.ts",
-        "tests/fixtures/cost-probe-topic-4c8de758.json"
+        "tests/fixtures/cost-probe-46-messages.json"
       ],
       "expected": "visibile"
     },

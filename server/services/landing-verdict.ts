@@ -1,7 +1,7 @@
 /**
  * Il ramo di una card chiusa: `dentro`, `superato`, `fuori` — o «non lo so».
  *
- * `check:landed` chiedeva una domanda sola («la punta è dentro il contenuto di
+ * `report:landed` chiedeva una domanda sola («la punta è dentro il contenuto di
  * main?») e da una risposta binaria tirava fuori un elenco unico: «landa il ramo
  * prima che il GC lo poti». Misurato il 12/08 sui 6 rami vivi fuori da
  * topics-app, quell'elenco conteneva 2 rami il cui lavoro è su main, 2 rami che
@@ -100,7 +100,7 @@ export interface LandingVerdictOptions {
   runGit?: GitRunner;
   /**
    * L'indice delle righe di main, se chi chiama lo ha già costruito. Serve a
-   * pagarlo UNA volta per repo invece che una volta per ramo: `check:landed`
+   * pagarlo UNA volta per repo invece che una volta per ramo: `report:landed`
    * classifica fino a nove rami e sei stanno nello stesso checkout.
    */
   indiceMain?: ReadonlySet<string>;
