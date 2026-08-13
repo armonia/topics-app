@@ -1,7 +1,7 @@
 /**
  * IL GESTO CHE CHIUDE NON FA ANCHE L'ALTRA COSA.
  *
- * Attilio, dal telefono: «se ho un overlay e clicco fuori per chiuderlo, mi
+ * Segnalato dal telefono: «se ho un overlay e clicco fuori per chiuderlo, mi
  * conta l'azione sugli elementi sottostanti, ma se ho il coso avanti dovrei
  * prima chiudere il coso perché magari non si vede manco dove sto cliccando».
  *
