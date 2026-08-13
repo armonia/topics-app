@@ -28,7 +28,7 @@ import { isAgentWorking, isThreadSpeech, NOTE_ARCHIVED_BY_HUMAN, NOTE_STOPPED_BY
 import { AGENT_AUTHOR, AGENT_AUTHOR_PREFIX } from "../../shared/comment-author";
 import { findDuplicateGroups } from "../../shared/task-similarity";
 import { isPreviewablePath } from "../../shared/media-kind";
-import { parseTaskPatch, unapplicableFieldsBody, type FieldRead } from "./task-patch";
+import { parseTaskPatch, unapplicableFieldsBody, checkConstraintBody, type FieldRead } from "./task-patch";
 import { getTerminalSessionById } from "./terminal";
 import { deliverAnswer } from "../lib/ask-user-bridge";
 import { answerRoutedAsk, pendingRoutedAsk } from "../services/board-ask-routing";
@@ -1171,6 +1171,13 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
 
   function fail(e: unknown): Response {
     if (e instanceof TaskServiceError) return json({ error: e.message, code: e.code }, ERROR_STATUS[e.code] ?? 400);
+    // Un valore fuori da un dominio chiuso è colpa di chi chiama, non del
+    // server: 400, e con la regola detta a parole. Prima usciva 500 col testo
+    // grezzo di SQLite (`CHECK constraint failed: priority BETWEEN 0 AND 4`),
+    // che manda a cercare un guasto dove non c'è e si legge solo sapendo che
+    // esiste un CHECK. Vedi `checkConstraintBody` in task-patch.ts.
+    const violated = checkConstraintBody(e);
+    if (violated) return json(violated, 400);
     return json({ error: e instanceof Error ? e.message : String(e) }, 500);
   }
 

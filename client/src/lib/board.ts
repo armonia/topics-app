@@ -139,12 +139,56 @@ export function systemDeliveryNote(reason: BoardTask['deliveredReason']): string
 }
 
 /** Etichetta corta per la chip sulla card (la prosa lunga è nel title). */
-export const SYSTEM_DELIVERY_CHIP: Record<'retries_exhausted' | 'model_refused' | 'fanout' | 'parked_children', string> = {
+const SYSTEM_DELIVERY_CHIP: Record<'retries_exhausted' | 'model_refused' | 'fanout' | 'parked_children', string> = {
   retries_exhausted: 'non consegnato',
   model_refused: 'agent bloccato',
   fanout: 'scegli il tentativo',
   parked_children: 'sottotask parcheggiati',
 };
+
+/**
+ * «Questo non l'ha consegnato l'agent»: cosa scriverci sulla card, o `null` se
+ * la consegna è vera.
+ *
+ * Funzione pura come `blockedByChip` e `reopenedChip`, e per lo stesso motivo:
+ * il chip esisteva dal 29/07 ma viveva dentro il JSX della card, dove un test
+ * unitario non lo raggiunge e il drawer non lo riusa.
+ *
+ * Vale solo in `review`, dove la domanda è «cosa guardo?». Su una card chiusa
+ * sarebbe archeologia, e il drawer conserva comunque il fatto per esteso.
+ */
+export function systemDeliveryChip(
+  task: Pick<BoardTask, 'status' | 'deliveredBy' | 'deliveredReason'>,
+): { label: string; title: string } | null {
+  if (task.status !== 'review' || task.deliveredBy !== 'system') return null;
+  return {
+    label: task.deliveredReason ? SYSTEM_DELIVERY_CHIP[task.deliveredReason] : 'non consegnato',
+    title: systemDeliveryNote(task.deliveredReason),
+  };
+}
+
+/**
+ * La card è in review SENZA che nessuno abbia consegnato niente.
+ *
+ * Misurato il 13/08 su due card vere: 5472e584 aveva consegnato, c0849d9d era
+ * finita lì col turno esaurito, e sulla board erano indistinguibili. Le SCELTE
+ * erano le stesse («Landa su main» verde sulla card, «Approva» verde nel
+ * drawer), quindi la differenza si scopriva solo aprendo un diff vuoto.
+ *
+ * Due delle quattro ragioni di sistema restano fuori, e non per prudenza: hanno
+ * già una superficie loro, e la scelta giusta lì non è nessuna di queste.
+ * `fanout` si decide dal pannello Tentativi (quale tentativo tenere), e
+ * `parked_children` è una domanda con le sue due risposte rapide. Riscrivere
+ * anche i loro bottoni sarebbe una decisione diversa da questa.
+ */
+export function isUnfinishedReview(
+  task: Pick<BoardTask, 'status' | 'deliveredBy' | 'deliveredReason'>,
+): boolean {
+  if (task.status !== 'review' || task.deliveredBy !== 'system') return false;
+  return task.deliveredReason === null
+    || task.deliveredReason === 'retries_exhausted'
+    || task.deliveredReason === 'model_refused';
+}
 
 /*
  * ─────────────────────────────────────────────────────────────────────────────
