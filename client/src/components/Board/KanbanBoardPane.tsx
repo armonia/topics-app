@@ -13,17 +13,15 @@ import { createPortal } from 'react-dom';
 import { DndContext, DragOverlay, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
 import { KeyboardSensorGentile, MouseSensorGentile, TouchSensorGentile } from './dndSensors';
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
-import { AlertTriangle, Bot, Check, ChevronDown, ChevronRight, Loader2, Search, Settings, Tag, Target, UploadCloud, X } from 'lucide-react';
+import { AlertTriangle, Archive, Bot, Check, ChevronDown, ChevronRight, Loader2, Search, Settings, Tag, Target, UploadCloud, X } from 'lucide-react';
 import type { WSMessage } from '../../types';
 import { Menu } from '../Shared/Menu';
-import { ExternalSessionsBadge } from './ExternalSessionsBadge';
-import { useExternalSessions } from '../../hooks/useExternalSessions';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
 import { currentTaskTarget, reflectTaskOpen, reflectTaskClose, subscribePopstateTask } from '../../lib/openTaskLink';
 import { useTaskSessionResolver } from '../../hooks/useTaskSession';
 import {
   boardApi, boardIdForPath, isProjectlessId, showsLandingDebt, TASK_STATUSES, UNASSIGNED_PROJECT_ID,
-  CLOSER_LABELS, KIND_LABELS,
+  CLOSER_LABELS, KIND_LABELS, STATUS_LABEL,
   type BoardProjectRef, type BoardTask, type TaskStatus, type BoardSettings, type TaskLabel,
   type PublishProject, type DiffBundle,
 } from '../../lib/board';
@@ -34,6 +32,8 @@ import { DONE_FLASH_MS, landedInDone, statusSnapshot } from '../../lib/justDone'
 import { scrollDelta } from '../../lib/scrollDelta';
 import { resolveProjectRefs, useBoardProjects } from '../../lib/boardProjectsStore';
 import { ProjectPickerBody } from './ProjectPicker';
+import { ProjectTaskCounts } from './atoms';
+import { countsSummary, projectTaskCounts } from '../../lib/projectTaskCounts';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { UnifiedDiff } from './UnifiedDiff';
 import { useConfirm } from '../../hooks/useConfirm';
@@ -41,6 +41,8 @@ import { CREATED_FLASH_MS, PRIORITY_DOT, PRIORITY_ORDER, PRIORITY_LABEL, type Li
 import { boardCollision } from './format';
 import { FloatingTaskComposer } from './FloatingTaskComposer';
 import { Column } from './Card';
+import { taskActionErrorMessage } from './taskActionError';
+import { taskActionWord } from './taskActionWords';
 import { TaskDetail, BoardSettingsPanel } from './TaskDetail';
 import { GlobalOnlySettingsPanel } from './BoardSettingsSections';
 import { POPOVER_ITEM } from '@/lib/popoverStyles';
@@ -66,10 +68,31 @@ interface Props {
   onStartMission?: (mission: Mission) => string | null;
 }
 
-/** Publish control: lists projects with unpushed commits on their current branch
- *  and pushes on demand (→ deploy CI where configured). Lives in the header so it
- *  works from the GLOBAL board too, where every project shows up together. */
-function PublishControl() {
+/**
+ * LA CONSEGNA, IN UN CONTROLLO SOLO.
+ *
+ * Prima erano due bottoni adiacenti: «N non su main» (rosso) e «Pubblica M»
+ * (ambra). Due numeri grandi, due colori d'allarme, la stessa frase implicita
+ * — «c'è del lavoro che non è ancora arrivato dove deve» — e nessuno dei due
+ * che dicesse in cosa differisce dall'altro. «14 non su main mi sembra uguale a
+ * Pubblica» (Attilio, 13/08): letti da fuori erano lo stesso allarme scritto
+ * due volte.
+ *
+ * Sono invece i DUE GRADINI della stessa scala, e adesso stanno nello stesso
+ * pannello, in quest'ordine:
+ *
+ *   1. NON SU MAIN — task chiusi la cui consegna non risulta unita. Il lavoro
+ *      esiste su un ramo e nessuno lo sta guardando. Si apre il task per
+ *      landarlo, o per scoprire perché quel lavoro non c'è.
+ *   2. SU MAIN, NON PUBBLICATO — commit che main ha e `origin` no. Qui il
+ *      lavoro c'è, manca solo il push (e il deploy dove è configurato).
+ *
+ * Il bottone porta i due numeri con due glifi diversi, non due pastiglie nude:
+ * il triangolo è un problema da guardare, la nuvola è un'azione da fare. E resta
+ * SEMPRE in barra, anche a zero, perché «Pubblica» è anche il posto dove si va a
+ * verificare che non ci sia niente da pubblicare.
+ */
+function DeliveryControl({ unlanded, onOpen }: { unlanded: BoardTask[]; onOpen: (id: string) => void }) {
   const tr = useT();
   const [projects, setProjects] = useState<PublishProject[] | null>(null);
   const [open, setOpen] = useState(false);
@@ -77,6 +100,7 @@ function PublishControl() {
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [diffs, setDiffs] = useState<Record<string, DiffBundle | 'loading' | 'error'>>({});
+  const btnRef = useRef<HTMLButtonElement>(null);
   const confirm = useConfirm();
   const refresh = useCallback(() => {
     boardApi.publishStatus().then(setProjects).catch(() => setProjects([]));
@@ -124,20 +148,69 @@ function PublishControl() {
     } catch (e) { setMsg(`${p.name}: ${(e as Error).message}`); }
     finally { setBusy(null); }
   };
+  // Il tono del bottone segue il gradino più grave che ha qualcosa da dire: un
+  // lavoro che non è su main è un problema (rosa), un commit da pubblicare è
+  // un'azione pronta (ambra), niente dei due è riposo (neutro).
+  const tone = unlanded.length > 0
+    ? 'bg-rose-500/15 text-rose-300 hover:bg-rose-500/25'
+    : total > 0
+      ? 'bg-amber-500/15 text-amber-300 hover:bg-amber-500/25'
+      : 'bg-white/10 text-app-text-secondary hover:bg-white/15';
+  const title = [
+    unlanded.length > 0 ? `${unlanded.length} task chiusi con lavoro non su main` : null,
+    total > 0 ? `${total} commit su main da pubblicare` : 'Niente da pubblicare',
+  ].filter(Boolean).join(' · ');
   return (
-    <div className="relative">
+    <>
       <button
+        ref={btnRef}
+        data-testid="delivery-badge"
         onClick={() => { setOpen((s) => !s); refresh(); }}
-        title={pending.length ? `${total} commit da pubblicare` : 'Niente da pubblicare'}
-        className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] transition-colors ${pending.length ? 'bg-amber-500/15 text-amber-300 hover:bg-amber-500/25' : 'bg-white/10 text-app-text-secondary hover:bg-white/15'}`}
+        title={title}
+        /* h-6 come i chip dei filtri: 24px è il minimo WCAG 2.2 AA per un
+           bersaglio, ed è quanto una riga di 36px può dare. */
+        className={`flex h-6 items-center gap-1.5 rounded px-2 text-[11px] transition-colors ${tone}`}
       >
-        <UploadCloud className="h-3 w-3" /> Pubblica{total > 0 && <span className="ml-0.5 rounded bg-amber-500/30 px-1 tabular-nums">{total}</span>}
+        <span>Consegna</span>
+        {unlanded.length > 0 && (
+          <span data-testid="delivery-unlanded-count" className="flex items-center gap-0.5 rounded bg-rose-500/25 px-1 font-medium tabular-nums text-rose-200">
+            <AlertTriangle className="h-3 w-3 shrink-0" />{unlanded.length}
+          </span>
+        )}
+        {total > 0 && (
+          <span data-testid="delivery-publish-count" className="flex items-center gap-0.5 rounded bg-amber-500/25 px-1 font-medium tabular-nums text-amber-200">
+            <UploadCloud className="h-3 w-3 shrink-0" />{total}
+          </span>
+        )}
       </button>
-      {open && (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-full z-50 mt-1 max-h-[70vh] w-96 overflow-y-auto rounded-lg border border-app-border bg-surface p-1 shadow-xl">
-            <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-app-text-muted">{tr('board.publish.toPublish')}</div>
+      <Menu open={open} anchorRef={btnRef} onClose={() => setOpen(false)} align="right" minWidth={384} className="max-h-[70vh] w-96 overflow-y-auto" unmanagedFocus>
+          {/* GRADINO 1 — il lavoro che non è nemmeno arrivato su main. Sta in
+              cima perché è l'unico dei due che segnala un GUASTO: un task
+              chiuso il cui lavoro non risulta da nessuna parte. */}
+          {unlanded.length > 0 && (
+            <div className="border-b border-app-border pb-1">
+              <div className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-rose-300/90">
+                Non su main
+              </div>
+              {unlanded.map((t) => (
+                <button
+                  key={t.id}
+                  data-testid="unlanded-item"
+                  onClick={() => { setOpen(false); onOpen(t.id); }}
+                  className={`${POPOVER_ITEM} !items-start`}
+                >
+                  <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${PRIORITY_DOT[t.priority] ?? PRIORITY_DOT[2]}`} />
+                  <span className="min-w-0 flex-1 truncate text-left">{t.text}</span>
+                </button>
+              ))}
+              <p className="px-3 pb-1 pt-1 text-[11px] leading-snug text-app-text-muted">
+                Task chiusi la cui consegna non risulta su main. Aprine uno per landarlo, o per scoprire perché quel lavoro non c'è.
+              </p>
+            </div>
+          )}
+          {/* GRADINO 2 — su main, ma non ancora fuori. */}
+          <div className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.publish.toPublish')}</div>
+          <div className="p-1 pt-0">
             {pending.length === 0 ? (
               <div className="px-2 py-1.5 text-[11px] text-app-text-muted">{tr('board.publish.nothing')}</div>
             ) : pending.map((p) => {
@@ -182,59 +255,6 @@ function PublishControl() {
             })}
             {msg && <div className="mt-0.5 border-t border-app-border px-2 py-1.5 text-[11px] text-app-text-secondary">{msg}</div>}
           </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-/**
- * «NON SU MAIN» — accanto a Pubblica, perché parla della stessa cosa.
- *
- * Due cambi rispetto a prima, e sono lo stesso ragionamento:
- *
- * 1. **Sta accanto a «Pubblica».** Pubblica ha già il suo contatore ambra e
- *    dice «lavoro che non è ancora uscito»; questo dice «lavoro che non è
- *    nemmeno arrivato su main». Sono i due gradini della stessa scala, e
- *    tenerli a due estremi opposti della barra li faceva leggere come due
- *    allarmi scollegati.
- * 2. **Il click apre l'ELENCO, non il primo della lista.** Saltare al primo
- *    task è un gesto strano quando ce ne sono sei: non c'è modo di vederli come
- *    INSIEME, che è esattamente la domanda che si fa chi legge il numero
- *    («quali?»). L'elenco risponde, e da lì si apre quello che si vuole.
- */
-function UnlandedControl({ tasks, onOpen }: { tasks: BoardTask[]; onOpen: (id: string) => void }) {
-  const btnRef = useRef<HTMLButtonElement>(null);
-  const [open, setOpen] = useState(false);
-  if (tasks.length === 0) return null;
-  return (
-    <>
-      <button
-        ref={btnRef}
-        onClick={() => setOpen((o) => !o)}
-        data-testid="unlanded-badge"
-        /* h-6 come i chip dei filtri: 24px è il minimo WCAG 2.2 AA per un
-           bersaglio, ed è quanto una riga di 36px può dare. */
-        className="flex h-6 items-center gap-1 rounded bg-rose-500/20 px-2 text-[11px] font-medium text-rose-300 hover:bg-rose-500/30"
-      ><AlertTriangle className="h-3 w-3 shrink-0" /> {tasks.length} non su main</button>
-      <Menu open={open} anchorRef={btnRef} onClose={() => setOpen(false)} minWidth={320}>
-        <div className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">
-          Task chiusi, lavoro non su main
-        </div>
-        {tasks.map((t) => (
-          <button
-            key={t.id}
-            data-testid="unlanded-item"
-            onClick={() => { setOpen(false); onOpen(t.id); }}
-            className={`${POPOVER_ITEM} !items-start`}
-          >
-            <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${PRIORITY_DOT[t.priority] ?? PRIORITY_DOT[2]}`} />
-            <span className="min-w-0 flex-1 truncate text-left">{t.text}</span>
-          </button>
-        ))}
-        <p className="border-t border-app-border px-3 py-1.5 text-[11px] leading-snug text-app-text-muted">
-          Chiusi, ma la loro consegna non risulta su main. Aprine uno per landarlo, o per scoprire perché quel lavoro non c'è.
-        </p>
       </Menu>
     </>
   );
@@ -330,10 +350,13 @@ function WorktreeControl({ count, branches, gcRunning, gcResult, onGc }: {
  *    con la macchina in ginocchio: se non c'è niente da fermare, un allarme è
  *    solo rumore. È anche il motivo per cui `running` è stato aggiunto alla
  *    capacità: senza, «max N» non poteva sapere se c'era uno scarto.
- * 2. **Quello che si vede è già l'azione.** «Meglio fermare N agent», non un
- *    aggettivo. Il dettaglio (load, core, perché) sta nel popover, che è
- *    apribile col dito — e dice a chiare lettere che è un consiglio e non un
- *    tetto.
+ * 2. **Quello che si vede è già l'azione, in due parole.** «Fermane 2», non un
+ *    aggettivo e non una frase. La barra è una fila di controlli, non un posto
+ *    dove si legge: «Macchina carica: meglio fermare 2 agent» erano trentotto
+ *    caratteri che spingevano fuori i filtri dei progetti, e la parte che
+ *    contava era il numero. Il verbo resta perché un numero da solo non dice
+ *    cosa farne. Il dettaglio (CPU, core, perché) sta nel popover, apribile col
+ *    dito, che dice anche che è un consiglio e non un tetto.
  *
  * La sonda (ogni 15s) è quella dello store del tetto globale, non una seconda
  * per chip: la stessa lettura serve il chip, il menu del titolo e il pannello
@@ -346,9 +369,11 @@ function LoadAdviceChip() {
   if (!cap) return null;
   const over = (cap.running ?? 0) - cap.recommended;
   if (over <= 0) return null; // niente da fermare → niente chip
-  // load1 vs cores is the honest live saturation signal (see dispatch-capacity.ts).
-  const ratio = cap.cores > 0 ? cap.load1 / cap.cores : 0;
-  const severe = ratio >= 1.3 || over >= 2;
+  // La CPU che la FLOTTA sta bruciando è il segnale onesto (dispatch-capacity.ts):
+  // il load average della macchina intera parla soprattutto delle app di chi sta
+  // al computer, e usarlo qui coloravamo di rosso un Mac che sta benissimo.
+  const oltreQuota = cap.oursCores != null && cap.budgetCores > 0 && cap.oursCores >= cap.budgetCores;
+  const severe = oltreQuota || over >= 2 || (cap.oursCores == null && cap.cores > 0 && cap.load1 / cap.cores >= 1.3);
   const cls = severe
     ? 'bg-rose-500/15 text-rose-300 ring-1 ring-rose-500/30 hover:bg-rose-500/25'
     : 'bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/30 hover:bg-amber-500/25';
@@ -361,14 +386,21 @@ function LoadAdviceChip() {
         className={`flex h-6 items-center gap-1 rounded px-2 text-[11px] font-medium ${cls}`}
       >
         <AlertTriangle className="h-3 w-3 shrink-0" />
-        Macchina carica: meglio fermare {over} agent
+        Fermane {over}
       </button>
       <Menu open={open} anchorRef={btnRef} onClose={() => setOpen(false)} minWidth={288}>
         <div className="space-y-1.5 px-3 py-2.5 text-[11px] leading-snug text-app-text-secondary">
           <p className="text-[12px] font-medium text-app-text-heading">
             {cap.running} agent al lavoro, ne reggo {cap.recommended}
           </p>
-          <p>Load {cap.load1.toFixed(1)} su {cap.cores} core: la macchina è satura, e ogni agent in più rallenta anche gli altri.</p>
+          {cap.oursCores != null ? (
+            <p>
+              Gli agent tengono {cap.oursCores.toFixed(1)} core sui {cap.budgetCores.toFixed(0)} che
+              spettano loro, su {cap.cores}. Ogni agent in più si prende una fetta di quella quota.
+            </p>
+          ) : (
+            <p>Load {cap.load1.toFixed(1)} su {cap.cores} core: la macchina è carica, e ogni agent in più rallenta anche gli altri.</p>
+          )}
           <p className="text-app-text-muted">{cap.reason}</p>
           <p>È un <span className="text-app-text-heading">consiglio</span>, non un tetto: puoi lasciarli girare tutti. Il tetto vero sta nelle impostazioni della board, con quanti ne stanno girando.</p>
         </div>
@@ -546,14 +578,17 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
   // `generale-<hash>`), ma per chi filtra sono una cosa sola: una riga, che
   // accende e spegne entrambi gli id.
   const projectlessIds = useMemo(() => taskProjectIds.filter(isProjectlessId), [taskProjectIds]);
-  const projectCounts = useMemo(() => {
-    const out: Record<string, number> = {};
-    for (const t of tasks) {
-      const key = isProjectlessId(t.projectId) ? UNASSIGNED_PROJECT_ID : t.projectId;
-      out[key] = (out[key] ?? 0) + 1;
-    }
-    return out;
-  }, [tasks]);
+  // Quanti task, e in che stato. Il nome da solo non dice se quel progetto stia
+  // aspettando qualcuno o non abbia niente di aperto, ed è la domanda che si fa
+  // chi guarda una board generale con dodici progetti.
+  const projectCounts = useMemo(
+    () => projectTaskCounts(tasks, (t) => (isProjectlessId(t.projectId) ? UNASSIGNED_PROJECT_ID : t.projectId)),
+    [tasks],
+  );
+  const countsTitle = (p: BoardProjectRef) => {
+    const c = projectCounts[p.projectId];
+    return c ? `${p.name}. ${countsSummary(c, STATUS_LABEL)}` : `Filtra per ${p.name}`;
+  };
   const projectOptions = useMemo(() => {
     const refs = resolveProjectRefs(taskProjectIds.filter((id) => !isProjectlessId(id)), projectIndex);
     return projectlessIds.length
@@ -788,11 +823,12 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
                   aria-hidden={!shown}
                   tabIndex={shown ? 0 : -1}
                   data-testid={`project-filter-chip-${p.projectId}`}
-                  title={`Filtra per ${p.name}`}
-                  className={`${chip(on)} max-w-[10rem] ${shown ? '' : 'invisible'}`}
+                  title={countsTitle(p)}
+                  className={`${chip(on)} max-w-[13rem] ${shown ? '' : 'invisible'}`}
                 >
                   {p.path ? <ProjectFavicon path={p.path} size={12} /> : <span className="h-1.5 w-1.5 shrink-0 rounded-full border border-app-text-faint" />}
                   <span className="min-w-0 truncate">{p.name}</span>
+                  {projectCounts[p.projectId] && <ProjectTaskCounts counts={projectCounts[p.projectId]!} />}
                   {on && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
                 </button>
               );
@@ -825,11 +861,17 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
   // 'project' = this project only · 'all' = the global cross-project board.
   const [mode, setMode] = useState<'project' | 'all'>(canToggle ? 'project' : 'all');
   const [tasks, setTasks] = useState<BoardTask[]>([]);
-  // Sessions running outside the kanban. Scoped to this board in project mode,
-  // machine-wide on the global board — same scoping rule as the task list.
-  const externalSessions = useExternalSessions(onMessage, mode === 'project' ? projectId : undefined);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // L'errore di UNA card sta sulla card, non nella barra qui sopra: quella vive
+  // in cima al pannello, mentre la card che ha rifiutato il click può essere
+  // dieci righe più giù in una colonna scrollata. Ne teniamo uno solo, l'ultimo:
+  // due card non falliscono nello stesso istante, e un errore per card che non
+  // scade mai diventerebbe arredamento.
+  const [cardError, setCardError] = useState<{ taskId: string; message: string } | null>(null);
+  const onCardError = useCallback((taskId: string, message: string | null) => {
+    setCardError((prev) => (message ? { taskId, message } : prev?.taskId === taskId ? null : prev));
+  }, []);
   // A move that did NOT land where it was aimed says so here. Not an error
   // (nothing failed) and not a toast (it belongs to the board it happened on):
   // one line under the toolbar.
@@ -963,16 +1005,25 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
     return () => { alive = false; };
   }, [hasProject, projectId]);
 
+  // L'ARCHIVIO È UNA VISTA, non una colonna: stessa board, stesse colonne, ma
+  // popolate da `?archived=1`. Sta nello stato della pane e non nei `filters`
+  // perché non è un filtro sull'insieme già scaricato — è un'altra fetch, ed è
+  // l'unico modo di rivedere una card archiviata (prima non ce n'era nessuno).
+  // Solo su una board di progetto: il feed globale è `listAll`, che di archivio
+  // non parla.
+  const [showArchived, setShowArchived] = useState(false);
   const refetch = useCallback(async () => {
     try {
-      setTasks(mode === 'all' ? await boardApi.listAll() : await boardApi.list(projectId));
+      setTasks(mode === 'all'
+        ? await boardApi.listAll()
+        : await boardApi.list(projectId, undefined, undefined, { archived: showArchived }));
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'failed to load board');
     } finally {
       setLoading(false);
     }
-  }, [projectId, mode]);
+  }, [projectId, mode, showArchived]);
 
   useEffect(() => { setLoading(true); refetch(); }, [refetch]);
 
@@ -1479,16 +1530,21 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
         await boardApi.update(task.projectId, r.id, { kanbanOrder: r.kanbanOrder });
       }
       await boardApi.update(task.projectId, task.id, plan.patch);
+      onCardError(task.id, null);
     } catch (e) {
       // The notice was written before the PATCH (it explains the GESTURE, and
       // waiting for the round trip would make it arrive late). If the write
       // failed the card is where it was, so the notice is now false: it goes,
       // and the error speaks alone.
       setDropNotice(null);
-      setError(e instanceof Error ? e.message : 'update failed');
+      // E parla SULLA CARD. Trascinare in Done un padre con figli aperti è lo
+      // stesso rifiuto del bottone Approva: il refetch riporta la card al suo
+      // posto, e il perché la aspetta lì invece che in cima al pannello, dove
+      // con la colonna scrollata non lo leggeva nessuno.
+      onCardError(task.id, taskActionErrorMessage(e, 'spostamento non riuscito'));
       refetch();
     }
-  }, [patchLocal, refetch]);
+  }, [patchLocal, refetch, onCardError]);
 
   const [activeId, setActiveId] = useState<string | null>(null);
   // Hide the floating "Descrivi un task" composer while the human is typing in
@@ -1746,18 +1802,33 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
         </div>
         <div className="ml-auto flex items-center gap-2">
           {mode === 'all' && <span className="hidden text-[11px] text-app-text-muted sm:inline">{tasks.length} task · tutti i progetti</span>}
-          {/* The work the kanban does NOT govern — otherwise a repo with three
-              bare `claude` sessions and no cards reads as "fermo". */}
-          <ExternalSessionsBadge sessions={externalSessions} showProject={mode === 'all'} onOpenTopic={onOpenTopic} />
+          {/* (Qui stava il chip delle sessioni Claude avviate a mano in un
+              terminale, col suo «Continua qui» che le adottava in una topic.
+              Tolto su richiesta di Attilio il 13/08: in barra era un numero che
+              non chiedeva niente a chi lo leggeva, e il gesto che valeva era
+              nascosto dentro il popover. Il censimento resta lato server: lo
+              legge il dispatcher per avvertire quando si sta per landare su un
+              repo dove qualcun altro sta lavorando.) */}
           {/* Auto-dispatch on/off lives in GlobalSettingsMenu now — no duplicate pill. */}
           {canRunMissions && (
             <MissionsMenu onStart={(m) => setError(onStartMission!(m))} />
           )}
-          {/* Accanto a Pubblica, e prima: «non su main» è il gradino sotto —
-              lavoro che non è nemmeno arrivato a main, mentre Pubblica parla di
-              lavoro che è su main e non è ancora uscito. */}
-          <UnlandedControl tasks={unlandedTasks} onOpen={setSelectedId} />
-          <PublishControl />
+          {/* UN controllo per i due gradini della consegna: «non su main» e «su
+              main ma non pubblicato». Erano due bottoni adiacenti, e da fuori si
+              leggevano come lo stesso allarme scritto due volte. */}
+          <DeliveryControl unlanded={unlandedTasks} onOpen={setSelectedId} />
+          {/* L'archivio, accanto alle impostazioni: un interruttore, come la
+              lente degli archiviati in sidebar. Acceso = la board mostra ciò che
+              è stato archiviato, e da lì lo si può riportare indietro. */}
+          {hasProject && mode === 'project' && (
+            <button
+              data-testid="board-archived-toggle"
+              aria-pressed={showArchived}
+              onClick={() => setShowArchived((v) => !v)}
+              className={`rounded p-1 ${showArchived ? 'bg-white/15 text-primary' : 'text-app-text-secondary hover:bg-white/5'}`}
+              title={showArchived ? tr('board.archive.hide') : tr('board.archive.show')}
+            ><Archive className="h-3.5 w-3.5" /></button>
+          )}
           {/* On EVERY board, project or not. Without a project there are no
               per-board rows, but the machine-wide cap still applies here — and
               gating this button on `hasProject` is what left the general board
@@ -1781,6 +1852,16 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
       {error && <div className="shrink-0 bg-rose-500/10 px-3 py-1.5 text-xs text-rose-300">{error}</div>}
       {dropNotice && (
         <div data-testid="board-drop-notice" className="shrink-0 bg-sky-500/10 px-3 py-1.5 text-xs text-sky-300">{dropNotice}</div>
+      )}
+      {/* La striscia dice DUE cose, e la seconda è quella che mancava: dove sta
+          il gesto. Un archivio in cui si guarda soltanto è il punto da cui
+          siamo partiti. */}
+      {showArchived && mode === 'project' && (
+        <div data-testid="board-archived-banner" className="flex shrink-0 items-center gap-2 bg-amber-400/10 px-3 py-1.5 text-xs text-amber-200">
+          <Archive className="h-3.5 w-3.5 shrink-0" />
+          <span>{tr('board.archive.banner', { count: tasks.length, restore: taskActionWord('restore', tr).label })}</span>
+          <button onClick={() => setShowArchived(false)} className="ml-auto rounded px-2 py-0.5 text-amber-100 hover:bg-white/10">{tr('board.archive.hide')}</button>
+        </div>
       )}
       {showSettings && (hasProject ? (
         <BoardSettingsPanel
@@ -1816,9 +1897,10 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
                   tasks={byStatus[status]}
                   onOpen={openTask}
                   onCreate={(text) => create(status, text)}
-                  canCreate={mode === 'project'}
+                  canCreate={mode === 'project' && !showArchived}
                   showProject={mode === 'all'}
-                  onError={setError}
+                  cardError={cardError}
+                  onCardError={onCardError}
                   onRefetch={refetch}
                   onOpenTopic={onOpenTopic}
                   resolveSession={resolveSession}
@@ -1828,6 +1910,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
                   awaitingHuman={awaitingHuman}
                   justDone={justDone}
                   justCreated={justCreated}
+                  archived={showArchived}
                 />
               ))}
             </div>

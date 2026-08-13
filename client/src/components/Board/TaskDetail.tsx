@@ -7,7 +7,7 @@ import {
   SettingsPanelHead,
   SETTINGS_PANEL_SHELL,
 } from './BoardSettingsSections';
-import { AlertTriangle, ArrowUpRight, Bot, Camera, Check, ChevronDown, ChevronRight, Clock, Copy, Download, ExternalLink, Footprints, GitMerge, Globe, Hourglass, Link2, Lock, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Paperclip, Plus, Send, ShieldCheck, ShieldX, Sparkles, Square, Tag, UserRound, X } from 'lucide-react';
+import { AlertTriangle, ArrowUpRight, Bot, Camera, Check, ChevronDown, ChevronRight, Clock, Copy, Download, ExternalLink, Footprints, GitMerge, Globe, Hourglass, Link2, Lock, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Paperclip, Plus, Send, ShieldCheck, ShieldX, Sparkles, Square, StickyNote, Tag, UserRound, X } from 'lucide-react';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ReasoningRow } from '../Chat/ReasoningRow';
 import { Menu } from '../Shared/Menu';
@@ -34,8 +34,9 @@ import { PreviewMedia } from './PreviewMedia';
 import { UnifiedDiff } from './UnifiedDiff';
 import { collectTaskMediaPaths } from './taskMedia';
 import { TaskChoiceRow } from './TaskChoiceRow';
+import { taskActionErrorMessage } from './taskActionError';
 import { usableQuestionOptions } from './taskChoices';
-import { acceptWord, drawerSurfaceLabels, sendBackWord as sendBackWordFor, taskActionWord } from './taskActionWords';
+import { drawerSurfaceLabels, reviewDecisionButtons, taskActionWord } from './taskActionWords';
 import { manualStatusTarget } from '../../lib/boardOrder';
 import { formatReviewNotes } from './reviewNotes';
 import { COMPACT_MD_CLS, PLAN_MD_CLS, PRIORITY_DOT, PRIORITY_LABEL, PRIORITY_ORDER, DISPATCH_CHIP, EFFORTS, FANOUT_CHOICES, mediaPaneIdFor, type TaskSurface } from './constants';
@@ -85,6 +86,85 @@ function SystemDeliveryNotice({ task }: { task: BoardTask }) {
         {systemDeliveryNote(task.deliveredReason)}
       </span>
     </div>
+  );
+}
+
+/**
+ * La ZONA DI DECISIONE del drawer: Approva, Rimanda indietro, Landa.
+ *
+ * Il verde è una raccomandazione, e su una card che nessuno ha consegnato era
+ * la raccomandazione sbagliata: «Approva» chiudeva un task senza guardare che
+ * sotto non c'era niente (misurato il 13/08 su c0849d9d). Lì il verde passa a
+ * «Rimandalo avanti», che è la sola uscita che fa avanzare il lavoro, e le
+ * altre due restano dove sono, neutre e col nome dell'eccezione che sono.
+ *
+ * Chi è il verde e come si chiamano NON si decide qui: viene da
+ * `reviewDecisionButtons`, la stessa funzione che alimenta il de-duplicatore
+ * delle risposte rapide. Scritte due volte, le due liste divergono, e il
+ * gemello che RIGETTA torna accanto al bottone vero (commento 2eff6a44).
+ */
+function ReviewDecisionRow({ task, busy, onAccept, onSendBack, onLand }: {
+  task: BoardTask;
+  busy: boolean;
+  onAccept: () => void;
+  onSendBack: () => void;
+  onLand: () => void;
+}) {
+  const tr = useT();
+  const d = reviewDecisionButtons(task, tr);
+  // Un solo verde, e il rosso dei checks lo tinge d'ambra solo quando il verde
+  // È «Approva»: su «Rimandalo avanti» l'ambra prometterebbe un'eccezione che
+  // quel bottone non fa.
+  const primaryCls = task.checksState === 'fail' && d.primary === 'accept'
+    ? 'bg-amber-600/80 hover:bg-amber-600 text-white'
+    : 'bg-emerald-500/80 hover:bg-emerald-500 text-white';
+  const neutralCls = 'bg-white/10 text-app-text hover:bg-white/20';
+  const buttons = [
+    {
+      id: 'accept' as const, word: d.accept, testId: 'task-approve',
+      icon: <ShieldCheck className="h-3.5 w-3.5" />, onClick: onAccept,
+    },
+    {
+      id: 'send-back' as const, word: d.sendBack, testId: 'task-send-back',
+      icon: <ShieldX className="h-3.5 w-3.5" />, onClick: onSendBack,
+    },
+  ];
+  // Il verde va per primo: è il posto dove il pollice arriva da solo, ed è
+  // proprio quel posto che sulla card non consegnata portava ad approvare.
+  const ordered = d.primary === 'send-back' ? [buttons[1], buttons[0]] : buttons;
+  return (
+    <>
+      <div className="flex items-center gap-1.5">
+        {ordered.map((b) => {
+          const isPrimary = b.id === d.primary;
+          return (
+            <button
+              key={b.id}
+              data-testid={b.testId}
+              disabled={busy} onClick={b.onClick}
+              title={b.word.title}
+              className={`flex items-center justify-center gap-1.5 rounded px-2.5 py-1.5 text-xs disabled:opacity-50 ${
+                isPrimary ? `flex-1 font-medium ${primaryCls}` : neutralCls
+              }`}
+            >{busy && isPrimary ? <Spinner size="sm" tone="current" /> : b.icon} {b.word.label}</button>
+          );
+        })}
+      </div>
+      {/* Explicit landing — accept + merge the branch on main (local, no push,
+          build server-side). Separate from Approva by design: the merge no
+          longer rides "da sotto" on an approve. Azzurro finché è una consegna:
+          su una card che nessuno ha consegnato scende a neutro come Approva. */}
+      {d.land && (
+        <button
+          disabled={busy} onClick={onLand}
+          data-testid="task-land"
+          title={d.land.title}
+          className={`flex w-full items-center justify-center gap-1.5 rounded px-2.5 py-1.5 text-xs disabled:opacity-50 ${
+            d.primary === 'accept' ? 'bg-sky-500/80 font-medium text-white hover:bg-sky-500' : neutralCls
+          }`}
+        ><GitMerge className="h-3.5 w-3.5" /> {d.land.label}</button>
+      )}
+    </>
   );
 }
 
@@ -540,15 +620,12 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
 }) {
   const tr = useT();
   const locale = useLocale();
-  // The three actions the drawer draws with buttons of ITS OWN, bigger, instead
-  // of leaving them to the choice row. The words are the card's, from the same
-  // table: one action, one word, wherever you press it.
-  //
-  // `approveWord` and `sendBackWord` are computed further down, where the task
-  // is loaded: both change with the card's state (red checks rename Approva,
-  // a review with no agent has no agent to send anything back to) and a word
-  // that changes on screen has to change in the table, or the de-duplicator
-  // subtracts the wrong one.
+  // La parola di «Landa su main» per la BANDA del lavoro non landato, che è
+  // un'altra superficie: parla di una card già chiusa, dove non c'è nessuna
+  // eccezione da segnalare. I tre bottoni della zona di decisione prendono le
+  // loro parole da `reviewDecisionButtons` (in `ReviewDecisionRow`), perché lì
+  // cambiano con lo stato della card e devono restare uguali a quelle che il
+  // de-duplicatore delle risposte rapide sottrae.
   const landWord = taskActionWord('land', tr);
   // The drawer has its own «Ferma» too, next to the working agent's dots: same
   // action as the card's context menu and the choice row, therefore the same
@@ -599,6 +676,10 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   // Action errors surfaced HERE, in the detail — the board's error bar sits
   // behind the drawer. The 409 open_subtasks on Approva is the load-bearing
   // case: swallowing it made the click look dead.
+  //
+  // E si disegnano in fondo, nella zona di DECISIONE, non in testa al drawer:
+  // Approva sta là sotto, fuori dallo scroll, e con un thread lungo una banda
+  // in cima al drawer è a schermate di distanza da chi l'ha appena premuto.
   const [error, setError] = useState<string | null>(null);
   /**
    * A move that did NOT land where it was aimed. The board's own band, one
@@ -608,12 +689,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   const [notice, setNotice] = useState<string | null>(null);
   /** La ricevuta del land chiesto da QUESTO client, finché non si chiude. */
   const [landing, setLanding] = useState<LandingTicket | null>(null);
-  const showError = (e: unknown) => {
-    const raw = e instanceof Error ? e.message : String(e);
-    setError(/open subtasks/i.test(raw)
-      ? 'Ci sono sottotask aperti: completali o archiviali prima di chiudere il task.'
-      : raw);
-  };
+  const showError = (e: unknown) => setError(taskActionErrorMessage(e));
   // Narrow (default) keeps the board visible behind the drawer; wide grows the
   // drawer so the task's tab group can live in a side panel (Thread on the left,
   // the selected surface on the right) instead of folding inline into the body.
@@ -749,13 +825,11 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
     [comments, task],
   );
   const isAgentReview = !!task && task.status === 'review' && !!task.assignedTopicId;
-  // The two words that depend on the card. `acceptWord` renames itself when the
-  // pre-review checks are red; `sendBackWord` keeps the word and swaps the
-  // tooltip when there is no agent to go back TO — a review a human filed by
-  // hand has no tab that "restarts", and the tooltip that promised one was
-  // naming a destination that does not exist.
-  const approveWord = acceptWord(task?.checksState === 'fail', tr);
-  const sendBackWord = sendBackWordFor(isAgentReview, tr);
+  // Le parole dei tre bottoni di decisione stanno in `ReviewDecisionRow`, che le
+  // chiede a `reviewDecisionButtons`: cambiano tutte con lo stato della card (i
+  // checks rossi rinominano Approva, una card che nessuno ha consegnato
+  // rinomina anche Landa e sposta il verde), e una parola che cambia sullo
+  // schermo deve cambiare nella stessa funzione che la sottrae qui sotto.
   // Pending question = the agent's last word is a question block: its options
   // render as quick-reply buttons right above the composer (same zone as the
   // review actions), mirroring the card.
@@ -812,30 +886,40 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   }, [comments, task?.planFirst, task?.planCommentId]);
 
 
-  const deliverAnswer = async (v: string, media?: string[]): Promise<boolean> => {
+  /**
+   * `quiet` = la nota RESTA QUI. Il gesto rumoroso rimanda il task all'agent
+   * (reject + resume, la card torna In Progress) ed è quello che il composer
+   * faceva sempre, senza dirlo; quello quieto salva e basta.
+   *
+   * Gli ALLEGATI passano dallo stesso `quiet`: la via con i media è sempre
+   * `boardApi.comment`, che di suo sveglia l'agent. Senza propagare il flag,
+   * «Nota» con una foto attaccata avrebbe rimandato indietro la card.
+   */
+  const deliverAnswer = async (v: string, media?: string[], opts?: { quiet?: boolean }): Promise<boolean> => {
+    const quiet = opts?.quiet === true;
     try {
       if (media && media.length > 0) {
         // Attachments ride the comments endpoint (media isn't a review-decision
         // field); when the task is in agent review the server auto-resumes the
         // agent with the text AND the file paths (boundRootOf path).
-        await boardApi.comment(projectId, taskId, v || '(allegato)', { media });
-      } else if (isAgentReview) {
+        await boardApi.comment(projectId, taskId, v || '(allegato)', { media, quiet });
+      } else if (isAgentReview && !quiet) {
         // Race fallback: if the task left review meanwhile, still save the text
         // as a plain comment instead of losing it.
         try { await boardApi.review(projectId, taskId, 'reject', v); }
         catch { await boardApi.comment(projectId, taskId, v); }
       } else {
-        await boardApi.comment(projectId, taskId, v);
+        await boardApi.comment(projectId, taskId, v, { quiet });
       }
       setError(null);
       await load(); onChanged();
       return true;
     } catch (e) { showError(e); return false; }
   };
-  const send = async () => {
+  const send = async (opts?: { quiet?: boolean }) => {
     const v = draft.trim(); if ((!v && attachments.length === 0) || sending) return;
     setSending(true);
-    const ok = await deliverAnswer(v, attachments.map((a) => a.path));
+    const ok = await deliverAnswer(v, attachments.map((a) => a.path), opts);
     if (ok) { setDraft(''); setAttachments([]); } // cleared on success only
     setSending(false);
   };
@@ -877,9 +961,15 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
     finally { setBusy(false); }
   };
 
-  // Land = accept + merge the branch on main (local, no push). Explicit, separate
-  // from Approva (which only accepts the task). The merge/build runs server-side
-  // and surfaces its outcome as system comments in the thread.
+  // Land = merge the branch on main (local, no push) AND THEN accept the card,
+  // in quest'ordine. Explicit, separate from Approva (which only accepts the
+  // task). The merge/build runs server-side and surfaces its outcome as system
+  // comments in the thread.
+  //
+  // La card resta in review finché il merge non è confermato su main: se il land
+  // fallisce (o non parte) la si ritrova qui, col motivo nel thread e questo
+  // stesso bottone per riprovare. Chiuderla prima era il difetto del 13/08 —
+  // tre card in `done` coi rami mai atterrati.
   //
   // Il server risponde `202`: il land è ACCODATO. La ricevuta va TENUTA e
   // seguita, perché è la sola cosa che distingue «sta per succedere» da «è
@@ -1655,12 +1745,9 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
           <button aria-label={tr('board.task.closeDetail')} onClick={onClose} className="rounded p-1.5 text-app-text-secondary hover:bg-white/10"><X className="h-4 w-4" /></button>
         </div>
       </div>
-      {error && (
-        <div className="flex shrink-0 items-start justify-between gap-2 border-b border-rose-500/20 bg-rose-500/10 px-3 py-1.5 text-[11px] text-rose-300">
-          <span>{error}</span>
-          <button aria-label={tr('board.task.closeError')} onClick={() => setError(null)} className="shrink-0 rounded p-0.5 hover:bg-white/10"><X className="h-3 w-3" /></button>
-        </div>
-      )}
+      {/* L'errore NON sta qui: vive in fondo, nella zona di decisione, appiccicato
+          ai bottoni che lo producono. Questa banda resta al `notice`, che è un
+          avviso sul task e non il verdetto di un click. */}
       {notice && (
         <div
           data-testid="task-detail-notice"
@@ -2284,6 +2371,19 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               Approva/Rimanda indietro/Landa dentro il viewport a qualunque altezza di
               finestra e con qualunque combinazione di sezioni aperte. */}
           <div className="shrink-0 border-t border-app-border p-2">
+            {/* L'errore dell'ultima azione, PRIMA riga della zona di decisione:
+                sta appiccicato ai bottoni che l'hanno prodotto (Approva, Landa,
+                le scelte, il composer) e resta nel viewport quanto loro. In
+                testa al drawer era vero e invisibile. */}
+            {error && (
+              <div
+                data-testid="task-action-error"
+                className="mb-2 flex items-start gap-2 rounded border border-rose-500/30 bg-rose-500/10 px-2 py-1.5 text-[11px] text-rose-300"
+              >
+                <span className="min-w-0 flex-1 break-words">{error}</span>
+                <button aria-label={tr('board.task.closeError')} onClick={() => setError(null)} className="shrink-0 rounded p-0.5 hover:bg-white/10"><X className="h-3 w-3" /></button>
+              </div>
+            )}
             {/* Fuori dalla review le scelte della card ci sono lo stesso — è la
                 stessa riga della kanban (`taskChoices`), qui sopra il composer:
                 un task in corso si ferma o si fa consegnare, uno bloccato esce
@@ -2316,35 +2416,15 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                     sarebbe farsi spiegare da un errore quello che si poteva vedere. */}
                 <SystemDeliveryNotice task={task} />
                 <ChecksSection task={task} />
-                <div className="flex items-center gap-1.5">
-                  {/* Word AND tooltip come from `acceptWord`, which already
-                      knows about the red checks: the button cannot say one
-                      thing while the de-duplicator subtracts another. */}
-                  <button
-                    disabled={busy} onClick={() => decide('approve', { force: task.checksState === 'fail' })}
-                    title={approveWord.title}
-                    className={`flex flex-1 items-center justify-center gap-1.5 rounded px-2.5 py-1.5 text-xs font-medium text-white disabled:opacity-50 ${
-                      task.checksState === 'fail'
-                        ? 'bg-amber-600/80 hover:bg-amber-600'
-                        : 'bg-emerald-500/80 hover:bg-emerald-500'
-                    }`}
-                  >{busy ? <Spinner size="sm" tone="current" /> : <ShieldCheck className="h-3.5 w-3.5" />} {approveWord.label}</button>
-                  <button
-                    disabled={busy} onClick={() => decide('reject')}
-                    title={sendBackWord.title}
-                    className="flex items-center gap-1.5 rounded bg-white/10 px-2.5 py-1.5 text-xs text-app-text hover:bg-white/20 disabled:opacity-50"
-                  ><ShieldX className="h-3.5 w-3.5" /> {sendBackWord.label}</button>
-                </div>
-                {/* Explicit landing — accept + merge the branch on main (local, no
-                    push, build server-side). Separate from Approva by design: the
-                    merge no longer rides "da sotto" on an approve. */}
-                {isAgentReview && (
-                  <button
-                    disabled={busy} onClick={doLand}
-                    title={landWord.title}
-                    className="flex w-full items-center justify-center gap-1.5 rounded bg-sky-500/80 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-sky-500 disabled:opacity-50"
-                  ><GitMerge className="h-3.5 w-3.5" /> {landWord.label}</button>
-                )}
+                {/* Le parole e QUALE dei tre è il verde: dalla card, non da
+                    qui. Su una review che nessuno ha consegnato il verde è
+                    «Rimandalo avanti» e le altre due scendono a neutro. */}
+                <ReviewDecisionRow
+                  task={task} busy={busy}
+                  onAccept={() => decide('approve', { force: task.checksState === 'fail' })}
+                  onSendBack={() => decide('reject')}
+                  onLand={doLand}
+                />
                 {/* Le uscite che i tre bottoni qui sopra NON hanno: prendersi il
                     task («Serve a me») o archiviarlo. Approva/Rimanda indietro/Landa sono
                     già lì sopra per esteso, quindi si escludono — un doppione
@@ -2405,7 +2485,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 onSelect={saveCommentCursor} onKeyUp={saveCommentCursor} onClick={saveCommentCursor}
                 onFocus={() => markActiveComposer(commentCursorKey)}
                 placeholder={isAgentReview ? tr('board.task.replyPlaceholder') : agentBusy ? tr('board.task.steerPlaceholder') : tr('board.task.commentPlaceholder')}
-                onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
+                onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); } }}
                 onPaste={(e) => {
                   const imgs = Array.from(e.clipboardData?.items ?? [])
                     .filter((i) => i.kind === 'file' && i.type.startsWith('image/'))
@@ -2414,11 +2494,33 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 }}
                 className="flex-1 resize-none rounded bg-white/5 px-2 py-1.5 text-sm text-app-text outline-none"
               />
-              <button
-                onClick={send} disabled={sending || (!draft.trim() && attachments.length === 0)}
-                title={isAgentReview ? "Rispondi (l'agent riparte con la tua risposta)" : agentBusy ? "Invia all'agent. Lo riceve al prossimo turno (come Claude Code)" : 'Commenta'}
-                className={`rounded p-1.5 text-white disabled:opacity-50 ${isAgentReview || agentBusy ? 'bg-sky-500/80 hover:bg-sky-500' : 'bg-emerald-500/80 hover:bg-emerald-500'}`}
-              >{sending ? <Spinner size="md" tone="current" /> : <Send className="h-4 w-4" />}</button>
+              {/* IN REVIEW I GESTI SONO DUE, E SI CHIAMANO COME IL LORO EFFETTO.
+                  Un'icona con tooltip non basta: il bottone unico diceva
+                  «Commenta» e RIMANDAVA la card all'agent. Etichetta testuale
+                  su entrambi, quindi, e i title dicono dove finisce la card.
+                  Fuori dalla review il composer resta quello di sempre. */}
+              {isAgentReview ? (
+                <>
+                  <button
+                    onClick={() => void send()} disabled={sending || (!draft.trim() && attachments.length === 0)}
+                    title={tr('board.task.sendBackReplyTitle')}
+                    data-testid="task-reply-send-back"
+                    className="flex items-center gap-1.5 rounded bg-sky-500/80 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-sky-500 disabled:opacity-50"
+                  >{sending ? <Spinner size="md" tone="current" /> : <Send className="h-3.5 w-3.5" />} {tr('board.task.sendBackReply')}</button>
+                  <button
+                    onClick={() => void send({ quiet: true })} disabled={sending || (!draft.trim() && attachments.length === 0)}
+                    title={tr('board.task.quietNoteTitle')}
+                    data-testid="task-reply-quiet-note"
+                    className="flex items-center gap-1.5 rounded bg-white/10 px-2.5 py-1.5 text-xs text-app-text hover:bg-white/20 disabled:opacity-50"
+                  ><StickyNote className="h-3.5 w-3.5" /> {tr('board.task.quietNote')}</button>
+                </>
+              ) : (
+                <button
+                  onClick={() => void send()} disabled={sending || (!draft.trim() && attachments.length === 0)}
+                  title={agentBusy ? "Invia all'agent. Lo riceve al prossimo turno (come Claude Code)" : 'Commenta'}
+                  className={`rounded p-1.5 text-white disabled:opacity-50 ${agentBusy ? 'bg-sky-500/80 hover:bg-sky-500' : 'bg-emerald-500/80 hover:bg-emerald-500'}`}
+                >{sending ? <Spinner size="md" tone="current" /> : <Send className="h-4 w-4" />}</button>
+              )}
             </div>
           </div>
         </div>
@@ -2860,10 +2962,23 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
   };
   if (!s) return null;
   return (
-    <div className={SETTINGS_PANEL_SHELL}>
+    <div className={SETTINGS_PANEL_SHELL} data-testid="board-settings-panel">
       <SettingsPanelHead onClose={onClose} />
-      <GlobalSettingsSection dispatchOn={dispatchOn} onToggleDispatch={onToggleDispatch} />
 
+      {/* PRIMA sezione, e la sola che NON è di questa board: l'interruttore e il
+          tetto sono quelli globali, gli stessi del ▾ in testata. Senza il titolo
+          sopra, la prima riga di una lista piatta si leggeva come «auto-dispatch
+          di questo progetto» — cioè come un'impostazione che qui non esiste.
+          Le righe stanno in `BoardSettingsSections.tsx` perché il pannello della
+          board generale monta le STESSE: un blocco, due pannelli. */}
+      <SettingsSection label={tr('board.settings.sec.global')} first>
+        <GlobalSettingsSection dispatchOn={dispatchOn} onToggleDispatch={onToggleDispatch} />
+        {dispatchOn && (
+          <p className="text-[11px] text-amber-300/80">{tr('board.settings.dispatchOnActive')}</p>
+        )}
+      </SettingsSection>
+
+      <SettingsSection label={tr('board.settings.sec.agent')}>
       <div className="flex items-center justify-between gap-2">
         <span>{tr('board.settings.effort')}</span>
         <div className="flex gap-0.5">
@@ -2920,6 +3035,13 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
         />
       </div>
 
+      <label className="flex cursor-pointer items-center justify-between" title={tr('board.settings.fullMcpTitle')}>
+        <span>{tr('board.settings.fullMcp')}</span>
+        <input type="checkbox" checked={s.dispatchMcp === 'inherit'} onChange={(e) => patch({ dispatchMcp: e.target.checked ? 'inherit' : 'bridge-only' })} className="h-3.5 w-3.5 accent-emerald-500" />
+      </label>
+      </SettingsSection>
+
+      <SettingsSection label={tr('board.settings.sec.where')}>
       <label className="flex cursor-pointer items-center justify-between">
         <span>{tr('board.settings.isolateWorktree')}</span>
         <input type="checkbox" checked={s.dispatchUseWorktree} onChange={(e) => patch({ dispatchUseWorktree: e.target.checked })} className="h-3.5 w-3.5 accent-emerald-500" />
@@ -2958,33 +3080,56 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
           {tr('board.settings.notRepoWarn')}
         </p>
       )}
+      </SettingsSection>
 
       {/* La modalità notturna ha una CARD sua, non una casella in mezzo alle
           altre: l'interruttore è la parte piccola, la parte utile è lo stato —
           sta dispacciando o è in attesa, e per quale motivo. Vedi
           `NightModeCard.tsx`. */}
-      <NightModeCard
-        projectId={projectId}
-        enabled={!!s.nightMode}
-        until={s.nightModeUntil || '10:00'}
-        onChange={patch}
-      />
+      <SettingsSection label={tr('board.settings.sec.when')}>
+        <NightModeCard
+          projectId={projectId}
+          enabled={!!s.nightMode}
+          until={s.nightModeUntil || '10:00'}
+          onChange={patch}
+        />
+      </SettingsSection>
 
-      <label className="flex cursor-pointer items-center justify-between" title={tr('board.settings.autoMergeTitle')}>
-        <span>{tr('board.settings.autoMerge')}</span>
-        <input type="checkbox" checked={s.dispatchAutoMerge} disabled={!s.dispatchUseWorktree} onChange={(e) => patch({ dispatchAutoMerge: e.target.checked })} className="h-3.5 w-3.5 accent-emerald-500 disabled:opacity-40" />
-      </label>
+      {/* Auto-merge e checks stanno insieme perché parlano dello stesso momento:
+          l'agent ha consegnato. Uno decide se quel lavoro entra in main da solo,
+          l'altro cosa deve passare prima che entri in review. Erano separati da
+          una riga sulla MCP, che è di un altro discorso. */}
+      <SettingsSection label={tr('board.settings.sec.delivery')}>
+        <label className="flex cursor-pointer items-center justify-between" title={tr('board.settings.autoMergeTitle')}>
+          <span>{tr('board.settings.autoMerge')}</span>
+          <input type="checkbox" checked={s.dispatchAutoMerge} disabled={!s.dispatchUseWorktree} onChange={(e) => patch({ dispatchAutoMerge: e.target.checked })} className="h-3.5 w-3.5 accent-emerald-500 disabled:opacity-40" />
+        </label>
+        <ReviewChecksField checks={s.reviewChecks} onSave={(reviewChecks) => patch({ reviewChecks })} />
+      </SettingsSection>
+    </div>
+  );
+}
 
-      <label className="flex cursor-pointer items-center justify-between" title={tr('board.settings.fullMcpTitle')}>
-        <span>{tr('board.settings.fullMcp')}</span>
-        <input type="checkbox" checked={s.dispatchMcp === 'inherit'} onChange={(e) => patch({ dispatchMcp: e.target.checked ? 'inherit' : 'bridge-only' })} className="h-3.5 w-3.5 accent-emerald-500" />
-      </label>
-
-      <ReviewChecksField checks={s.reviewChecks} onSave={(reviewChecks) => patch({ reviewChecks })} />
-
-      {dispatchOn && (
-        <p className="text-[11px] text-amber-300/80">{tr('board.settings.dispatchOnActive')}</p>
-      )}
+/**
+ * UNA SEZIONE DEL PANNELLO — un titolo e le sue righe.
+ *
+ * Il pannello era dieci righe di seguito, tutte con lo stesso peso: effort,
+ * modello, lingua, worktree, fan-out, notturna, auto-merge, MCP, checks. Senza
+ * gerarchia non si legge, si scandisce — e soprattutto la prima riga era
+ * l'interruttore GLOBALE, che in cima a una lista piatta si legge come
+ * un'impostazione di questa board («le impostazioni della board non mi sembrano
+ * ben fatte», Attilio 13/08).
+ *
+ * Il titolo non è decorazione: è la risposta alla domanda che ogni riga
+ * poneva da sola — «questo vale per chi?». Il filetto sopra separa i gruppi
+ * SENZA aggiungere una seconda scatola: il pannello è già dentro un bordo, e un
+ * riquadro dentro un riquadro renderebbe ogni gruppo un oggetto a sé.
+ */
+function SettingsSection({ label, first, children }: { label: string; first?: boolean; children: React.ReactNode }) {
+  return (
+    <div className={first ? 'space-y-2' : 'space-y-2 border-t border-app-border-subtle pt-2'}>
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">{label}</p>
+      {children}
     </div>
   );
 }

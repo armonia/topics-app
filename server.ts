@@ -59,7 +59,7 @@ import { createPreviewManager, type PreviewManager, type PreviewProcess } from "
 import { registerPreviewProcess, unregisterPreviewProcess } from "./server/routes/processes";
 import { sweepWorktrees, type TaskStatus as GcTaskStatus } from "./server/services/worktree-gc";
 import { formatMb, parseSlimSkip, slimWorktree } from "./server/services/worktree-slim";
-import { branchExistsInRepo, branchStatusFromRepo, commitStatusFromRepo, resolveCommit, worktreeDiffStat } from "./server/services/branch-status";
+import { branchExistsInRepo, branchStatusFromRepo, commitIsAncestor, commitStatusFromRepo, resolveCommit, worktreeDiffStat } from "./server/services/branch-status";
 import { deliveryPointer } from "./server/services/own-commits";
 import { abandonNoticeFromRepo } from "./server/services/worktree-abandon-notice";
 import { createTaskAttemptStore } from "./server/services/task-attempts";
@@ -916,6 +916,15 @@ const retirementConsequences: ReconcileDeps = {
 };
 
 /**
+ * Turni in volo adesso, per chi deve leggerli DENTRO le dipendenze del
+ * dispatcher (che a quel punto non esiste ancora). Zero finché non esiste: un
+ * conteggio assente vale «nessuno», mai un'eccezione dentro un tick.
+ */
+const turniInVolo = (): number => {
+  try { return taskDispatcher.busyCount(); } catch { return 0; }
+};
+
+/**
  * Il lavoro consegnato da una card è già dentro main?
  *
  * Si guarda per CONTENUTO (`commitStatusFromRepo` + `classifyLanding`, gli stessi
@@ -999,7 +1008,13 @@ const taskDispatcher = createTaskDispatcher({
     }
   },
   // Auto concurrency cap: live machine capacity for boards on `maxAgentsAuto`.
-  recommendedCap: (running) => computeDispatchCapacity(running).recommended,
+  //
+  // I turni in volo vanno passati: il freno vivo è un credito (budget di CPU
+  // della flotta meno quello che gli agenti vivi già bruciano), e senza sapere
+  // quanti sono si sottrarrebbe il loro costo dal tetto TOTALE invece che dai
+  // posti residui. Letto dentro la closure, non alla costruzione: il dispatcher
+  // esiste solo dopo questa chiamata.
+  recommendedCap: () => computeDispatchCapacity(turniInVolo()).recommended,
   // Don't drop an agent into a repo somebody is already working by hand.
   externalSessionsAt: (path) =>
     externalSessions.activeAt(path).map((s) => ({ cwd: s.cwd, branch: s.branch })),
@@ -1104,8 +1119,8 @@ const taskDispatcher = createTaskDispatcher({
   // Carico vivo per la modalità notturna. Stessa fonte del tetto "Auto", così
   // le due decisioni non possono divergere leggendo due misure diverse.
   capacity: () => {
-    const c = computeDispatchCapacity();
-    return { load1: c.load1, cores: c.cores };
+    const c = computeDispatchCapacity(turniInVolo());
+    return { load1: c.load1, cores: c.cores, reason: c.reason };
   },
   // Il carico che è NOSTRO, per il freno dei task pesanti. Non è un'altra
   // lettura di `capacity()`: quello è il load average della macchina intera, e
@@ -1481,6 +1496,11 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
   // codice sul loro ramo, in silenzio. `witnessed: false` di proposito: è il
   // vero di ADESSO, e la passata periodica resta libera di correggerlo se il
   // land è morto a metà dopo aver mergiato davvero.
+  // La PROVA che il land è avvenuto: il commit di fusione dev'essere dentro
+  // `main` di quel checkout, riletto da git dopo il merge. `defaultBranch` è
+  // "main" ovunque qui (vedi `resolveTaskMerge` sopra), quindi la domanda è
+  // esattamente quella che il land ha provato a rendere vera.
+  confirmLandedOnMain: (repoPath, commit) => commitIsAncestor(repoPath, commit, "main"),
   markLandPending: (taskId) => {
     try {
       dispatcherSvc.recordLandingState({

@@ -1,6 +1,6 @@
 import { test, expect, describe, beforeAll, beforeEach, afterAll } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AppContext } from "../types";
@@ -409,6 +409,34 @@ describe("board router (human, project-scoped)", () => {
     expect(broadcasts.some(b => b.type === "task:deleted")).toBe(true);
   });
 
+  // La porta di ritorno, dal lato in cui la usa la board: `?archived=1` per
+  // rivedere, `POST .../restore` per riportare indietro. Il broadcast è
+  // `task:created` perché per chi guarda la board quella card non c'era.
+  test("?archived=1 elenca l'archivio, POST /restore riporta la card in colonna", async () => {
+    const t = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "da recuperare" }))!.json();
+    await call(router, "DELETE", `/api/boards/pX/tasks/${t.id}`);
+
+    const viva = await (await call(router, "GET", "/api/boards/pX/tasks"))!.json();
+    expect(viva.tasks.length).toBe(0);
+    const archivio = await (await call(router, "GET", "/api/boards/pX/tasks?archived=1"))!.json();
+    expect(archivio.tasks.map((x: any) => x.id)).toEqual([t.id]);
+
+    broadcasts.length = 0;
+    const resp = (await call(router, "POST", `/api/boards/pX/tasks/${t.id}/restore`))!;
+    expect(resp.status).toBe(200);
+    expect(broadcasts.some(b => b.type === "task:created" && b.task?.id === t.id)).toBe(true);
+    const tornata = await (await call(router, "GET", "/api/boards/pX/tasks"))!.json();
+    expect(tornata.tasks.map((x: any) => x.id)).toEqual([t.id]);
+    expect((await (await call(router, "GET", "/api/boards/pX/tasks?archived=1"))!.json()).tasks.length).toBe(0);
+  });
+
+  test("POST /restore su un id di un'altra board risponde 404", async () => {
+    const t = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "non tua" }))!.json();
+    await call(router, "DELETE", `/api/boards/pX/tasks/${t.id}`);
+    expect((await call(router, "POST", `/api/boards/pY/tasks/${t.id}/restore`))!.status).toBe(404);
+    expect((await (await call(router, "GET", "/api/boards/pX/tasks?archived=1"))!.json()).tasks.length).toBe(1);
+  });
+
   // Le tab del task archiviato: la rotta chiama il teardown e mette gli id
   // toccati nel frame, perché il client deve DIMENTICARE quelle chiavi — non
   // ri-PUTtarle dal suo debounce (services/task-tab-teardown.ts).
@@ -497,6 +525,66 @@ describe("board router (human, project-scoped)", () => {
     expect(resumed.length).toBe(2);
     expect(resumed[1][0]).toBe(root.id);
     expect(resumed[1][1]).toContain("nota a margine");
+  });
+
+  test("quiet comment on a root in review ANNOTATES it: no reject, no resume, the card does not move", async () => {
+    db.run("INSERT INTO topics (id) VALUES ('top-q')");
+    const resumed: Array<[string, string]> = [];
+    const fake = {
+      onEnterTodo() {}, onLeaveTodo() {},
+      resume: async (id: string, msg: string) => { resumed.push([id, msg]); },
+    } as any;
+    const r = createTasksRouter(makeCtx(db, broadcasts), fake);
+
+    const root = await (await call(r, "POST", "/api/boards/pX/tasks", { text: "deliverable", status: "in_progress" }))!.json();
+    db.prepare("UPDATE tasks SET assigned_topic_id = 'top-q' WHERE id = ?").run(root.id);
+    await call(r, "PATCH", `/api/boards/pX/tasks/${root.id}`, { status: "review" });
+
+    const resp = (await call(r, "POST", `/api/boards/pX/tasks/${root.id}/comments`, {
+      content: "verificata, il video mostra il caso B", quiet: true,
+    }))!;
+    expect(resp.status).toBe(201);
+    // La nota c'è, e si legge sul thread come qualunque altro commento.
+    const got = await (await call(r, "GET", `/api/boards/pX/tasks/${root.id}`))!.json();
+    expect(got.comments.at(-1).content).toBe("verificata, il video mostra il caso B");
+    // Ma la card NON si è mossa e l'agent NON è ripartito: è tutto il punto del
+    // gesto quieto. Senza, scrivere qui rigettava la consegna senza dirlo.
+    expect(got.task.status).toBe("review");
+    expect(resumed).toEqual([]);
+    // Nessuna uscita review→in_progress nello storico: il rigetto non c'è stato,
+    // non è stato fatto e disfatto. La timeline vive nei commenti `kind='status'`.
+    const back = db.prepare(
+      "SELECT COUNT(*) AS n FROM task_comments WHERE task_id = ? AND kind = 'status' AND content LIKE 'review→in_progress%'",
+    ).get(root.id) as { n: number };
+    expect(back.n).toBe(0);
+
+    // E lo stesso campo, SENZA il flag, rimanda ancora indietro: il default non
+    // cambia, il silenzio va chiesto.
+    await call(r, "POST", `/api/boards/pX/tasks/${root.id}/comments`, { content: "rifallo" });
+    expect(resumed.length).toBe(1);
+    const after = await (await call(r, "GET", `/api/boards/pX/tasks/${root.id}`))!.json();
+    expect(after.task.status).toBe("in_progress");
+  });
+
+  test("quiet comment with media stays quiet too (attachments do not wake the agent)", async () => {
+    db.run("INSERT INTO topics (id) VALUES ('top-qm')");
+    const resumed: string[] = [];
+    const fake = {
+      onEnterTodo() {}, onLeaveTodo() {},
+      resume: async (id: string) => { resumed.push(id); },
+    } as any;
+    const r = createTasksRouter(makeCtx(db, broadcasts), fake);
+    const root = await (await call(r, "POST", "/api/boards/pX/tasks", { text: "deliverable", status: "in_progress" }))!.json();
+    db.prepare("UPDATE tasks SET assigned_topic_id = 'top-qm' WHERE id = ?").run(root.id);
+    await call(r, "PATCH", `/api/boards/pX/tasks/${root.id}`, { status: "review" });
+
+    const resp = (await call(r, "POST", `/api/boards/pX/tasks/${root.id}/comments`, {
+      content: "screenshot della verifica", media: ["/tmp/prova.png"], quiet: true,
+    }))!;
+    expect((await resp.json()).media).toEqual(["/tmp/prova.png"]);
+    expect(resumed).toEqual([]);
+    const got = await (await call(r, "GET", `/api/boards/pX/tasks/${root.id}`))!.json();
+    expect(got.task.status).toBe("review");
   });
 
   test("comment with media reaches the thread AND the resumed agent (paths in the message)", async () => {
@@ -1102,18 +1190,20 @@ describe("approve decoupled from landing", () => {
     expect(merges).toEqual([]); // approve no longer merges
   });
 
-  test("picking the 'Landa su main' option approves + merges (not a reject/resume)", async () => {
+  test("picking the 'Landa su main' option lands, non è un reject, e NON chiude la card in anticipo", async () => {
     const id = await reviewTask();
     const t = await (await call(router, "POST", `/api/boards/pX/tasks/${id}/review`, { decision: "reject", comment: LAND_ACTION_LABEL }))!.json();
-    expect(t.status).toBe("done"); // accepted, not sent back
-    expect(merges).toEqual([id]);  // and landed
+    // `review`, non `done`: la scelta è «landa», e la card la chiude il land
+    // quando main lo conferma. Non è nemmeno un rifiuto (nessun resume).
+    expect(t.status).toBe("review");
+    expect(merges).toEqual([id]);  // e il land parte
     expect(resumed).toEqual([]);   // NOT resumed as a rejection
   });
 
-  test("POST /land approves + merges on demand", async () => {
+  test("POST /land merges on demand e lascia la card in review finché non è atterrata", async () => {
     const id = await reviewTask();
     const t = await (await call(router, "POST", `/api/boards/pX/tasks/${id}/land`, {}))!.json();
-    expect(t.status).toBe("done");
+    expect(t.status).toBe("review");
     expect(merges).toEqual([id]);
   });
 
@@ -1139,11 +1229,13 @@ describe("approve decoupled from landing", () => {
 
     const svc = createTaskService(db);
     const t = svc.get(id)!;
-    expect(t.task.status).toBe("in_progress");     // ritirata da done
+    expect(t.task.status).toBe("in_progress");     // mai chiusa: mandata a riconciliare
     const ev = t.comments.filter((c) => c.kind === "status").at(-1)!;
     expect(ev.author).toBe("system");              // non «user»: non l'ha mossa l'umano
+    // `from: "review"` e non più `from: "done"`: il land non approva prima di
+    // atterrare, quindi la card il `done` non lo tocca proprio.
     expect(parseStatusEvent(ev.content)).toEqual({
-      from: "done", to: "in_progress", reason: "il land ha fatto conflitto con main",
+      from: "review", to: "in_progress", reason: "il land ha fatto conflitto con main",
     });
     // E l'agent riparte con l'istruzione, come prima.
     expect(resumed.length).toBe(1);
@@ -1192,7 +1284,7 @@ describe("approve decoupled from landing", () => {
     // La ragione sta nella riga di storico, non solo nel thread: il thread lo si
     // legge aprendo la card, lo stato si vede dalla board.
     expect(parseStatusEvent(ev.content)).toEqual({
-      from: "done", to: "in_progress", reason: "il land non ha saputo isolare i commit della card",
+      from: "review", to: "in_progress", reason: "il land non ha saputo isolare i commit della card",
     });
     // E l'agente riparte con il gesto che ripara il ramo.
     expect(r.length).toBe(1);
@@ -1218,11 +1310,16 @@ describe("approve decoupled from landing", () => {
     expect(r).toEqual([]);
   });
 
-  test("«non c'era niente da atterrare» lascia la card chiusa: è l'unico skip innocuo", async () => {
-    // Il controllo dei due test qui sopra. Se il ritiro scattasse su ogni skip,
-    // una nota chiusa a mano rimbalzerebbe fuori da Done a ogni gesto.
+  test("«non c'era niente da atterrare» NON chiude la card: lo dice e la lascia in review", async () => {
+    // Il controllo dei due test qui sopra: nessun rimbalzo all'agente, perché
+    // non c'è niente da riparare. Ma nemmeno una chiusura: un land che non ha
+    // portato niente da nessuna parte non è una prova che il lavoro sia su
+    // main, e solo un merge confermato toglie una card da review. Se il lavoro è
+    // già di là per mano di qualcun altro, a dirlo è l'umano che approva.
     const { id, db: d } = await landSkipping("no-branch");
-    expect(createTaskService(d).get(id)!.task.status).toBe("done");
+    const t = createTaskService(d).get(id)!;
+    expect(t.task.status).toBe("review");
+    expect(t.comments.some((c) => c.content.includes("Niente da atterrare"))).toBe(true);
   });
 
   /** Un merge andato a buon fine, nella forma che `tryMerge` restituisce. */
@@ -1418,12 +1515,16 @@ describe("approve decoupled from landing", () => {
    * (provato a mano su 108 card: 20 falsi allarmi con la patch inversa, 5 con
    * la riga distintiva). Il land che ha visto il merge non chiede a nessuno.
    */
-  async function landStamping(merge: any): Promise<Array<[string, string]>> {
+  async function landStamping(
+    merge: any,
+    confirm?: (repoPath: string, commit: string) => Promise<boolean | null>,
+  ): Promise<Array<[string, string]>> {
     const stamped: Array<[string, string]> = [];
     const d = freshDb(); const b: any[] = [];
     const rt = createTasksRouter(makeCtx(d, b), undefined, {
       autoMerge: { tryMerge: async () => merge, buildClient: async () => ({ code: 0, stderr: "" }) } as any,
       stampLanding: async (taskId: string, verdict: string) => { stamped.push([taskId, verdict]); },
+      ...(confirm ? { confirmLandedOnMain: confirm } : {}),
     });
     d.run("INSERT INTO topics (id) VALUES ('top-a')");
     const t = await (await call(rt, "POST", "/api/boards/pX/tasks", { text: "feature" }))!.json();
@@ -1435,9 +1536,70 @@ describe("approve decoupled from landing", () => {
     return stamped.map(([, v]) => [t.id, v] as [string, string]);
   }
 
-  test("merge riuscito → l'esito si REGISTRA come 'landed', senza chiedere al repo", async () => {
-    const [[, v]] = await landStamping(MERGED) as any;
+  test("merge riuscito E CONFERMATO su main → l'esito si REGISTRA come 'landed'", async () => {
+    const [[, v]] = await landStamping(MERGED, async () => true) as any;
     expect(v).toBe("landed");
+  });
+
+  /**
+   * LA BARRA DEL 13/08, secondo sintomo: `landing_state` diceva `landed` su
+   * card che su main non c'erano (viste quel giorno: `2d3d6051`, `8f1f1b95`).
+   * Il campo non era una misura — copiava il resoconto di `git merge`, che dice
+   * che una fusione è riuscita e NON su quale ramo.
+   *
+   * Qui il merge dice di sì e main dice di no: `landed` non si può scrivere.
+   * Rimettendo l'ordine vecchio (verdetto dedotto dallo stato di `tryMerge`)
+   * questo test è rosso.
+   */
+  test("il merge dice sì ma main dice di no: non si scrive MAI 'landed'", async () => {
+    const [[, v]] = await landStamping(MERGED, async () => false) as any;
+    expect(v).toBe("unlanded");
+  });
+
+  /**
+   * LA BARRA DEL 13/08, primo sintomo, nella sua forma peggiore: il land CREDE
+   * di essere riuscito. `git merge` è uscito zero, il thread scrive «Mergiato su
+   * main», la card si chiude — e su main non c'è niente (checkout parcheggiato
+   * su un altro ramo, worktree usa-e-getta mai ricucito). Il 13/08 sono andate
+   * così `92d61427`, `274d5425` e `95a6794f`: `done` coi rami mai atterrati, e
+   * la potatura delle worktree pronta a portarli via.
+   *
+   * Tre cose insieme, e servono tutte e tre: la card non si chiude, il worktree
+   * (unica copia del lavoro) non si pota, e il thread dice perché.
+   */
+  test("merge non confermato da main: la card NON si chiude e il worktree resta", async () => {
+    const d = freshDb(); const b: any[] = []; const reaped: string[] = [];
+    const rt = createTasksRouter(makeCtx(d, b), undefined, {
+      autoMerge: { tryMerge: async () => MERGED, buildClient: async () => ({ code: 0, stderr: "" }) } as any,
+      confirmLandedOnMain: async () => false,
+      deleteTaskWorktree: async (taskId: string) => { reaped.push(taskId); return true; },
+      taskBranchStatus: async () => "unmerged" as const,
+      taskWorktreeDirt: async () => [],
+    });
+    d.run("INSERT INTO topics (id) VALUES ('top-nc')");
+    const t = await (await call(rt, "POST", "/api/boards/pX/tasks", { text: "feature" }))!.json();
+    d.prepare("UPDATE tasks SET assigned_topic_id='top-nc', status='review' WHERE id = ?").run(t.id);
+
+    const res = await call(rt, "POST", `/api/boards/pX/tasks/${t.id}/land`, {});
+    expect(res!.status).toBe(202);
+    await new Promise((r) => setTimeout(r, 20));
+
+    const after = createTaskService(d).get(t.id)!;
+    expect(after.task.status).toBe("review");     // NON done: il land non è avvenuto
+    expect(reaped).toEqual([]);                   // e il ramo resta: è l'unica copia
+    expect(after.comments.some((c) => c.content.includes("Land NON confermato"))).toBe(true);
+  });
+
+  test("main non risponde: il verdetto è «non verificabile», mai 'landed'", async () => {
+    // Il no e il non-lo-so restano due cose diverse: `null` non accusa nessuno,
+    // ma nemmeno assolve — e `landed` è un'assoluzione.
+    const [[, v]] = await landStamping(MERGED, async () => null) as any;
+    expect(v).toBe("unverifiable");
+    // Stesso esito quando la verifica non esiste proprio su questo host: una
+    // capacità non cablata è assenza di prova, non prova d'assenza di problemi
+    // (il cablaggio mancante è precisamente come nascono questi guasti).
+    const [[, v2]] = await landStamping(MERGED) as any;
+    expect(v2).toBe("unverifiable");
   });
 
   test("land fallito → si registra 'unlanded': anche il no è un fatto osservato", async () => {
@@ -1456,13 +1618,15 @@ describe("approve decoupled from landing", () => {
     expect(v2).toBe("ask");
   });
 
-  test("picking 'Landa e pubblica' approves + lands (routes to land+publish, not a reject)", async () => {
+  test("picking 'Landa e pubblica' lands (routes to land+publish, not a reject)", async () => {
     const id = await reviewTask();
     const t = await (await call(router, "POST", `/api/boards/pX/tasks/${id}/review`, { decision: "reject", comment: PUBLISH_ACTION_LABEL }))!.json();
-    // Deterministic routing: the publish label is accepted + landed, and does NOT
-    // resume the agent (the publish PUSH itself runs in the fire-and-forget chain
-    // — no git in this harness — but the interception routes correctly).
-    expect(t.status).toBe("done"); // accepted
+    // Deterministic routing: the publish label lands, and does NOT resume the
+    // agent (the publish PUSH itself runs in the fire-and-forget chain — no git
+    // in this harness — but the interception routes correctly).
+    // `review`: pubblicare è landare + spingere, e chiudere la card resta
+    // compito del land, quando main lo conferma.
+    expect(t.status).toBe("review");
     expect(merges).toEqual([id]);  // land ran first (merges.push is synchronous)
     expect(resumed).toEqual([]);   // NOT resumed as a rejection
   });
@@ -1583,6 +1747,53 @@ describe("checks pre-review (gate review_needs_green_checks)", () => {
     const states = broadcasts.filter((b) => b.type === "task:updated" && b.task?.id === t.id).map((b) => b.task.checksState);
     expect(states).toContain("running");
     expect(states.indexOf("running")).toBeLessThan(states.lastIndexOf("pass"));
+  });
+
+  /**
+   * IL TETTO DI BUN. La richiesta non può durare quanto i comandi: `idleTimeout`
+   * si ferma a 255s e sotto quel muro morivano le consegne con `test:unit` da
+   * dieci minuti, lasciando `checks_state` a «running» per sempre. La corsa vive
+   * ora fuori dalla richiesta, che aspetta al massimo una gamba.
+   */
+  test("gamba scaduta: 202 'sta girando', e il task NON si muove", async () => {
+    const r = mk();
+    const t = await delivered(r);
+    await declare(r, t.projectId, ["sleep 1"]);
+    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review", legMs: 100 }))!;
+    expect(resp.status).toBe(202);
+    const body = await resp.json();
+    expect(body.pending).toBe(true);
+    expect(body.code).toBe("review_checks_running");
+    const got = await (await call(r, "GET", `/api/sessions/s1/tasks/${t.id}`))!.json();
+    expect(got.task.status).not.toBe("review");
+    expect(got.task.checksState).toBe("running");
+
+    // La gamba dopo raccoglie l'esito della STESSA corsa e la consegna passa.
+    const dopo = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review", legMs: 5_000 }))!;
+    expect(dopo.status).toBe(200);
+    expect((await dopo.json()).status).toBe("review");
+  });
+
+  test("una corsa sola: dieci gambe non fanno dieci giri di comandi", async () => {
+    const r = mk();
+    const t = await delivered(r);
+    const traccia = join(cwd, "giri.txt");
+    await declare(r, t.projectId, [`sleep 1; echo giro >> ${traccia}`]);
+    const gambe = await Promise.all(
+      Array.from({ length: 10 }, () => call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review", legMs: 100 })),
+    );
+    expect(gambe.every((g) => g!.status === 202)).toBe(true);
+    const esito = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review", legMs: 5_000 }))!;
+    expect(esito.status).toBe(200);
+    expect(readFileSync(traccia, "utf8").trim().split("\n")).toHaveLength(1);
+  });
+
+  test("`legMs` è trasporto: non finisce fra i campi del task e non fa 400", async () => {
+    const r = mk();
+    const t = await delivered(r);
+    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { text: "titolo nuovo", legMs: 200 }))!;
+    expect(resp.status).toBe(200);
+    expect((await resp.json()).text).toBe("titolo nuovo");
   });
 
   test("task in-place (nessun worktree di branch): gate saltato, non 'verde'", async () => {
@@ -2039,22 +2250,23 @@ describe("land in raffica: N chiamate ⇒ N esiti", () => {
     expect(b.maxLive).toBe(1);                 // e mai due insieme sullo stesso checkout
   });
 
-  test("una card in `done` non resta mai senza `landing_state`: il timbro precede la fusione", async () => {
-    // La finestra che ci è costata le 16 card: fra il `done` (immediato) e la
-    // fusione (dopo) la card era chiusa e nessuno poteva dire se il codice fosse
-    // su main. Adesso il timbro parte all'ACCODAMENTO, quindi esiste anche se il
-    // processo muore prima che il suo turno arrivi.
+  test("fra la richiesta e la fusione la card NON è chiusa, ed è già timbrata", async () => {
+    // La finestra che ci è costata le 16 card dell'11/08 e le tre del 13/08: la
+    // card diventava `done` subito e la fusione arrivava dopo — o non arrivava.
+    // Adesso in quella finestra la card sta ancora in review (la chiude il land,
+    // a merge confermato) e il timbro parte già all'ACCODAMENTO, quindi c'è
+    // anche se il processo muore prima che il suo turno arrivi.
     const b = bench();
     const ids = await b.seed(20);
     await Promise.all(ids.map((id) => call(b.router, "POST", `/api/boards/pX/tasks/${id}/land`, {})));
-    // Subito, prima che la coda abbia finito: tutte chiuse, tutte timbrate.
+    // Subito, prima che la coda abbia finito: nessuna chiusa, tutte timbrate.
     const svc = createTaskService(b.db);
-    for (const id of ids) expect(svc.get(id)!.task.status).toBe("done");
+    for (const id of ids) expect(svc.get(id)!.task.status).toBe("review");
     expect(new Set(b.pending)).toEqual(new Set(ids));
     await b.settle(ids);
   });
 
-  test("un land che esplode non ingoia l'errore, non ferma la fila, e ritira la card da done", async () => {
+  test("un land che esplode non ingoia l'errore, non ferma la fila, e NON chiude la card", async () => {
     // Il vecchio `catch { console.error }` produceva esattamente «zero commenti,
     // zero ragione»: una card in Done col codice sul suo ramo e un thread muto.
     const boom = new Set<string>();
@@ -2075,13 +2287,19 @@ describe("land in raffica: N chiamate ⇒ N esiti", () => {
 
     const svc = createTaskService(b.db);
     const t = svc.get(ids[1]!)!;
-    expect(t.task.status).toBe("in_progress"); // NON resta chiusa su lavoro non atterrato
+    // LA BARRA DEL 13/08, primo sintomo: un land che fallisce non deve poter
+    // lasciare la card in `done`. Adesso non ce la porta proprio — resta dove
+    // stava, in review, col motivo nel thread. Rimettendo l'ordine vecchio
+    // (approva e POI accoda) questo test è rosso: la card è `done`.
+    expect(t.task.status).toBe("review");
     expect(t.comments.some((c) => c.content.includes("Land NON riuscito (errore interno)"))).toBe(true);
     expect(b.stamped).toContainEqual([ids[1]!, "unlanded"]);
-    const ev = t.comments.filter((c) => c.kind === "status").at(-1)!;
-    expect(parseStatusEvent(ev.content)).toEqual({
-      from: "done", to: "in_progress", reason: "il land è fallito con un errore interno",
-    });
+    // E le vicine hanno girato davvero (qui il banco risponde «niente da
+    // portare»): il loro esito è nel thread e nemmeno loro si chiudono, perché
+    // nessuna ha visto un merge.
+    const vicina = svc.get(ids[0]!)!;
+    expect(vicina.task.status).toBe("review");
+    expect(vicina.comments.some((c) => c.content.includes("Niente da atterrare"))).toBe(true);
   });
 
   test("due click su «Landa» sulla stessa card = UN land", async () => {
@@ -2092,6 +2310,13 @@ describe("land in raffica: N chiamate ⇒ N esiti", () => {
     expect(second.landing.queuedAt).toBe(first.landing.queuedAt);
     await b.settle([id!]);
     expect(b.merges).toEqual([id!]);
+    // LA SECONDA STRADA PER CHIUDERE UNA CARD SENZA ATTERRARE NIENTE. Il dedup è
+    // giusto — la coda restituisce lo snapshot del ticket già aperto e NON fa
+    // partire un secondo run — ma finché la rotta approvava prima di accodare,
+    // quel click chiudeva la card comunque, senza che niente girasse. Adesso non
+    // c'è approvazione da nessuna delle due parti: la card sta dov'è.
+    expect(second.status).toBe("review");
+    expect(createTaskService(b.db).get(id!)!.task.status).toBe("review");
   });
 
   test("GET …/land su una card mai landata è 404, non un falso «tutto a posto»", async () => {
@@ -2195,6 +2420,102 @@ describe("PATCH task: campo non applicabile = 400, non un 200 muto", () => {
       description: "d", previewImage: "",
     }))!;
     expect(agent.status).toBe(200);
+  });
+});
+
+// Misurato il 13/08/2026, con una priorità sbagliata a mano:
+//   PATCH {"priority": 9} → 500 {"error":"CHECK constraint failed: priority BETWEEN 0 AND 4"}
+// Il codice mandava a cercare un guasto nel server, che era intero, e il
+// messaggio era la riga di schema di SQLite: si legge solo sapendo che esiste
+// un CHECK, e chi chiama lo schema non ce l'ha.
+describe("valore fuori dominio: 400 con la regola, non 500 con l'SQL", () => {
+  let db: Database; let broadcasts: any[]; let router: any;
+  beforeEach(() => {
+    db = freshDb(); broadcasts = [];
+    router = createTasksRouter(makeCtx(db, broadcasts));
+  });
+
+  /** Nessun pezzo di SQL deve affiorare fino al client. */
+  const senzaSql = (body: any) => {
+    const testo = JSON.stringify(body);
+    expect(testo).not.toContain("CHECK");
+    expect(testo).not.toContain("constraint");
+    expect(testo).not.toContain("BETWEEN");
+  };
+
+  const nuovo = async (patch: Record<string, unknown> = {}) =>
+    await (await call(router, "POST", "/api/boards/pX/tasks", { text: "x", ...patch }))!.json();
+
+  test("priority fuori range sulla board: 400, il range a parole, riga intatta", async () => {
+    const t = await nuovo({ priority: 1 });
+    const resp = (await call(router, "PATCH", `/api/boards/pX/tasks/${t.id}`, { priority: 9 }))!;
+    expect(resp.status).toBe(400);
+    const body = await resp.json();
+    expect(body.fields).toEqual(["priority"]);
+    expect(body.error).toContain("da 0 a 4");
+    senzaSql(body);
+    const got = await (await call(router, "GET", `/api/boards/pX/tasks/${t.id}`))!.json();
+    expect(got.task.priority).toBe(1);
+  });
+
+  test("priority fuori range sulla rotta agente: stesso 400", async () => {
+    const t = await (await call(router, "POST", "/api/sessions/s1/tasks", { text: "x" }))!.json();
+    const resp = (await call(router, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { priority: -1 }))!;
+    expect(resp.status).toBe(400);
+    const body = await resp.json();
+    expect(body.fields).toEqual(["priority"]);
+    expect(body.error).toContain("da 0 a 4");
+    senzaSql(body);
+  });
+
+  test("priority con la virgola: 400 (il DB la troncherebbe in silenzio)", async () => {
+    const t = await nuovo();
+    const resp = (await call(router, "PATCH", `/api/boards/pX/tasks/${t.id}`, { priority: 2.5 }))!;
+    expect(resp.status).toBe(400);
+    expect((await resp.json()).error).toContain("intero");
+  });
+
+  test("gli estremi del dominio restano validi: 0 e 4 sono 200", async () => {
+    const t = await nuovo();
+    for (const p of [0, 4]) {
+      const resp = (await call(router, "PATCH", `/api/boards/pX/tasks/${t.id}`, { priority: p }))!;
+      expect(resp.status).toBe(200);
+      expect((await resp.json()).priority).toBe(p);
+    }
+  });
+
+  test("status fuori dominio: 400 che elenca i cinque valori", async () => {
+    const t = await nuovo();
+    const resp = (await call(router, "PATCH", `/api/boards/pX/tasks/${t.id}`, { status: "quasi_fatto" }))!;
+    expect(resp.status).toBe(400);
+    const body = await resp.json();
+    expect(body.fields).toEqual(["status"]);
+    expect(body.error).toContain("in_progress");
+    expect(body.error).toContain("backlog");
+    senzaSql(body);
+    const got = await (await call(router, "GET", `/api/boards/pX/tasks/${t.id}`))!.json();
+    expect(got.task.status).toBe(t.status);
+  });
+
+  test("status fuori dominio sulla rotta agente: stesso 400", async () => {
+    const t = await (await call(router, "POST", "/api/sessions/s1/tasks", { text: "x" }))!.json();
+    const resp = (await call(router, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "quasi_fatto" }))!;
+    expect(resp.status).toBe(400);
+    const body = await resp.json();
+    expect(body.fields).toEqual(["status"]);
+    expect(body.error).toContain("review");
+    senzaSql(body);
+  });
+
+  // La CREAZIONE non passa dalla tabella dei campi della PATCH: qui il valore
+  // arriva davvero al DB, ed è la seconda rete a tradurre il CHECK.
+  test("creazione con priority fuori range: il CHECK diventa 400, non 500", async () => {
+    const resp = (await call(router, "POST", "/api/boards/pX/tasks", { text: "x", priority: 9 }))!;
+    expect(resp.status).toBe(400);
+    const body = await resp.json();
+    expect(body.code).toBe("invalid_input");
+    expect(body.error).toContain("da 0 a 4");
+    senzaSql(body);
   });
 });
 

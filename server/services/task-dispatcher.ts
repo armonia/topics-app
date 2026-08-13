@@ -101,8 +101,12 @@ export interface DispatcherDeps {
    */
   worktreeHasWork?: (worktreeId: string) => Promise<boolean>;
   /** Capacità viva della macchina (`computeDispatchCapacity`). Serve alla
-   *  modalità notturna per sapere se il carico è sceso. */
-  capacity?: () => { load1: number; cores: number };
+   *  modalità notturna per sapere se il carico è sceso.
+   *
+   *  `reason` è la stessa riga che la board mostra sotto il tetto automatico
+   *  (core, RAM, quanta CPU si sta mangiando la flotta). Finisce sulla card di
+   *  chi aspetta il tetto pieno, così il numero non arriva mai nudo. */
+  capacity?: () => { load1: number; cores: number; reason?: string };
   /**
    * Il carico attribuibile a NOI: quanti core stanno bruciando i processi della
    * nostra flotta (agenti, pty-bridge, sidecar), da `getFleetUsage`.
@@ -152,12 +156,8 @@ export interface DispatcherDeps {
   /** Live machine capacity (CPU/load) for the ONE machine-wide cap, used when
    *  the reserved `board_settings['*']` row says `auto`. Absent ⇒ auto falls
    *  back to that row's fixed number. There is no per-board cap: the field that
-   *  suggested one was written by nobody's reader and has been removed.
-   *
-   *  Prende quanti turni sono in volo ADESSO perché il freno vivo misura la CPU
-   *  della flotta: «gli agenti tengono 4 core» non dice se sono due che
-   *  compilano o otto che aspettano la rete (`dispatch-capacity.ts`). */
-  recommendedCap?: (running: number) => number;
+   *  suggested one was written by nobody's reader and has been removed. */
+  recommendedCap?: () => number;
   /** Drive ONE headless turn to completion; resolves when the turn ends. */
   /**
    * Drive ONE headless turn to completion; resolves when the turn ends.
@@ -447,6 +447,20 @@ const HEAVY_MAX_LOAD_PER_CORE = 1.0;
  * (12 core) sono 6 core-unità, cioè 600% nella scala di `ps`, contro le 0,75
  * misurate la notte del 12/08 con la board ferma: due ordini di grandezza di
  * margine, che è quanto serviva e non c'era.
+ *
+ * PERCHÉ FINO AL 13/08 QUESTO RAMO NON POTEVA MORDERE, e non è colpa del conto.
+ * La soglia è tarata su metà dei core della macchina, ma la flotta quei core
+ * non li poteva prendere: il job launchd del server non dichiarava
+ * `ProcessType`, e senza quella chiave launchd applica limiti di risorsa
+ * ridotti al job e a tutto il suo albero, fino a ogni `claude`. Misurato quel
+ * giorno con lo stesso banco eseguito dentro e fuori il clamp, a parità di
+ * carico: la flotta si fermava fra 3,6 e 4,4 core-unità mentre un processo non
+ * clampato ne prendeva 10, e un `tsc` costava 4,63 s contro 2,65. Sotto la
+ * soglia di 6 non ci si arrivava mai, quindi il ramo `ownLoad` restava aperto
+ * per costruzione. La chiave la scrive ora
+ * `scripts/apply-topics-host-plist.sh`, e questo numero torna raggiungibile
+ * solo dopo che il server è ripartito con quel plist. Se un giorno il freno
+ * ricominciasse a non frenare, si guarda prima il plist e poi questa soglia.
  */
 const HEAVY_MAX_OWN_LOAD_PER_CORE = 0.5;
 
@@ -703,7 +717,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   function currentCap(): number {
     let gcap = { auto: true, max: 3 };
     try { gcap = deps.svc.getGlobalCap(); } catch { /* defaults */ }
-    return effectiveDispatchCap(gcap, deps.recommendedCap ? deps.recommendedCap(inFlight.size) : null);
+    return effectiveDispatchCap(gcap, deps.recommendedCap ? deps.recommendedCap() : null);
   }
   /**
    * Il PAVIMENTO, letto ADESSO. Vive accanto al tetto e non dentro, perché sono
@@ -898,6 +912,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   // task pesante / è troppo carica". Stessa disciplina dell'insieme qui sopra:
   // una nota per EPISODIO, non una per poll — si svuota appena l'attesa finisce.
   const heavyHeldNoted = new Set<string>();
+  // Task a cui si è già detto "aspetti perché il tetto di concorrenza è pieno".
+  // Stessa disciplina: una nota per EPISODIO. Si svuota nel giro in cui il tetto
+  // torna a lasciar passare quella card, così la prossima pienezza lo ridice.
+  const capHeldNoted = new Set<string>();
   // Da QUANDO un task pesante è trattenuto dal carico (ms). Serve al tetto
   // dell'attesa (`HEAVY_HOLD_MAX_MS`): senza un istante di inizio «trattenuto da
   // troppo» non è una condizione misurabile, è un'impressione. Si azzera appena
@@ -972,15 +990,32 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * — la nota si ripete solo dopo che l'attesa è finita davvero, altrimenti un
    * poll ogni 10s riempirebbe il thread della stessa frase.
    */
-  function noteHeavyHold(task: Task, why: string): void {
+  function noteHold(noted: Set<string>, task: Task, why: string): void {
     if (inFlight.has(task.id) || graceTimers.has(task.id)) return;
-    if (heavyHeldNoted.has(task.id)) return;
-    heavyHeldNoted.add(task.id);
+    if (noted.has(task.id)) return;
+    noted.add(task.id);
     try {
       emit(deps.svc.setDispatchState({ taskId: task.id, state: CHIP_QUEUED }));
       deps.svc.addComment({ taskId: task.id, author: "system", content: why, kind: "service" });
     } catch { /* il task può essersi mosso sotto i piedi */ }
   }
+
+  function noteHeavyHold(task: Task, why: string): void {
+    noteHold(heavyHeldNoted, task, why);
+  }
+
+  /**
+   * «Aspetti perché non c'è un posto libero», con i numeri che lo rendono
+   * verificabile. Il `break` sul tetto pieno fermava la coda in silenzio: la
+   * card restava `queued` e l'unico modo di sapere da cosa era leggere il sort
+   * del dispatcher. Il tetto e quanti agenti sono in volo dicono se il freno è
+   * la macchina o l'impostazione; quante card sono ferme dice quanto è lunga
+   * la fila dietro quella decisione.
+   */
+  function noteCapHold(task: Task, why: string): void {
+    noteHold(capHeldNoted, task, why);
+  }
+
 
   /**
    * Il peso appena letto dal classificatore, applicato al task — e la decisione
@@ -2565,6 +2600,61 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // sulla card, e chiederlo per ogni todo sarebbe una statfs per riga.
     const floorBlock = admissionBlock();
 
+    // Chi NON è più trattenuto dal tetto dimentica l'episodio, così una prossima
+    // attesa lo dice di nuovo invece di restare muta. Si guarda chi è PARTITO
+    // (in volo o dentro la grazia): un task ancora in coda sta ancora aspettando
+    // lo stesso tetto, e ripetergli la stessa riga a ogni poll sarebbe rumore.
+    for (const t of todos) { if (inFlight.has(t.id) || graceTimers.has(t.id)) capHeldNoted.delete(t.id); }
+    // Agenti vivi ADESSO, e SOLO per spiegare: la decisione resta del CAS dentro
+    // `claim`, che è l'unico punto atomico. Non si memoizza per tick — dentro il
+    // ciclo i claim che riescono cambiano il numero, e una nota che cita un
+    // conteggio di dieci righe fa è peggio di una che non lo cita affatto.
+    // `null` = non si sa, e la riga lo dice senza numeri invece di inventarne.
+    const agentiVivi = (): number | null => {
+      try { return deps.svc.liveAgents({ projectId: capScope === "global" ? null : projectId }); }
+      catch { return null; }
+    };
+    // Da dove esce il tetto (core, RAM, quanta CPU tiene la flotta): una volta
+    // per tick, perché la stessa riga va su tutte le card trattenute.
+    let motivoTetto: string | null | undefined;
+    const perchePieno = (): string | null => {
+      if (motivoTetto === undefined) {
+        try { motivoTetto = deps.capacity?.().reason ?? null; } catch { motivoTetto = null; }
+      }
+      return motivoTetto;
+    };
+    /**
+     * «Non c'è posto», scritto sulla card con i numeri che lo producono.
+     *
+     * Il tetto pieno era l'unica delle tre attese a restare muta: cinque card
+     * ferme senza una riga sembrano un sistema rotto, non un sistema che sta
+     * aspettando (misurato il 12/08).
+     */
+    const noteCapFull = (t: Task, vivi: number | null, fanOutServe?: { serve: number; posti: number }): void => {
+      const conto = vivi != null
+        ? `ci sono ${vivi} agent al lavoro su un tetto di ${effectiveCap}`
+        : `il tetto di ${effectiveCap} agent insieme è pieno`;
+      const perche = perchePieno();
+      // QUANTE aspettano dietro. È il terzo numero, e l'unico che dice quanto
+      // dura l'attesa invece di perché è cominciata: «il tetto è pieno» con una
+      // card in fila e con dodici è la stessa frase per due situazioni diverse.
+      // Si contano i todo di questo giro che non sono partiti, questo compreso.
+      const fermi = todos.filter((x) => !inFlight.has(x.id) && !graceTimers.has(x.id)).length;
+      const fila = fermi > 1 ? ` ${fermi} card sono ferme su questo tetto.` : "";
+      // Il caso del fan-out: la card non aspetta UN posto, ne aspetta N insieme,
+      // e senza dirlo la riga sembra sbagliata («ci sono 2 posti liberi, perché
+      // non parte?»). Il numero di posti liberi e quanti gliene servono sono le
+      // due meta' della stessa risposta.
+      const perFanOut = fanOutServe && fanOutServe.serve > 1
+        ? ` Questa ne vuole ${fanOutServe.serve} insieme e ${fanOutServe.posti === 1 ? "c'è 1 posto libero" : `ci sono ${fanOutServe.posti} posti liberi`}.`
+        : "";
+      noteCapHold(
+        t,
+        `In coda: ${conto}${perche ? ` (${perche})` : ""}.${perFanOut}${fila} ` +
+          "Parte da sé appena si libera un posto. Non devi fare nulla.",
+      );
+    };
+
     for (const [idx, t] of todos.entries()) {
       if (inFlight.has(t.id)) continue;
       if (floorBlock) {
@@ -2650,7 +2740,18 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // fan-out), quindi la prenotazione va fatta qui: il claim passa solo se
       // restano almeno N posti liberi.
       const claimCap = effectiveCap - reservedSlots - (taskFanOut - 1);
-      if (claimCap < 1) break; // macchina piena: gli altri todo aspettano il prossimo tick
+      if (claimCap < 1) {
+        // Macchina piena: da qui in poi aspettano tutti, e lo si dice a
+        // ciascuno prima di uscire. Il `break` senza una riga era il difetto:
+        // la coda restava ferma e le card non lo raccontavano.
+        const vivi = agentiVivi();
+        const posti = Math.max(0, effectiveCap - reservedSlots);
+        for (const rest of todos.slice(idx)) {
+          if (inFlight.has(rest.id) || graceTimers.has(rest.id)) continue;
+          noteCapFull(rest, vivi, { serve: taskFanOut, posti });
+        }
+        break;
+      }
       // Un pesante a macchina carica aspetta — e TIENE la testa della coda. Se
       // cedesse il posto ai task leggeri dietro di lui, quelli partirebbero,
       // alzerebbero il carico, e il momento in cui la macchina è scarica non
@@ -2691,8 +2792,24 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         scope: capScope,
         machineIdle: forced ? true : loadGate?.ok,
       });
-      if (!claimed) continue; // cap hit or lost the race
+      if (!claimed) {
+        // Il CAS ha detto di no. Due ragioni possibili, e solo una va raccontata:
+        // il tetto pieno (che dura, e la card deve dirlo) oppure una corsa persa
+        // con un altro claim nello stesso istante (che si risolve da sé al tick
+        // dopo, e commentarla sarebbe rumore). Si distinguono ri-contando gli
+        // agenti vivi: se sono già almeno quanti il tetto ne ammette, è il tetto.
+        const vivi = agentiVivi();
+        if (vivi == null || vivi >= claimCap) noteCapFull(t, vivi);
+        continue;
+      }
       clearGrace(t.id);
+      // Il claim è riuscito: l'episodio «tetto pieno» di questa card è chiuso, e
+      // va dimenticato QUI. La ripulitura in cima al ciclo guarda solo chi è
+      // ancora fra i `todos`, e un task appena partito non lo è più: senza
+      // questa riga il suo id resterebbe nell'insieme per sempre, e la prossima
+      // volta che quella card aspetta un posto tornerebbe a restare muta, che è
+      // esattamente il difetto che si sta chiudendo.
+      capHeldNoted.delete(t.id);
       if (forced) {
         const atteso = Math.round(heldForMs(t) / 60_000);
         heavyHoldSince.delete(t.id);
