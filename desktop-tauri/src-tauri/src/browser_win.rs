@@ -16,12 +16,16 @@ use crate::CookieJson;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 use webview2_com::Microsoft::Web::WebView2::Win32::{
-    ICoreWebView2, ICoreWebView2Cookie, ICoreWebView2Settings2, ICoreWebView2_2,
+    ICoreWebView2, ICoreWebView2Cookie, ICoreWebView2CookieManager, ICoreWebView2Profile2,
+    ICoreWebView2Settings2, ICoreWebView2_13, ICoreWebView2_2, COREWEBVIEW2_BROWSING_DATA_KINDS,
+    COREWEBVIEW2_BROWSING_DATA_KINDS_ALL_PROFILE, COREWEBVIEW2_BROWSING_DATA_KINDS_CACHE_STORAGE,
+    COREWEBVIEW2_BROWSING_DATA_KINDS_DISK_CACHE, COREWEBVIEW2_BROWSING_DATA_KINDS_SERVICE_WORKERS,
     COREWEBVIEW2_COOKIE_SAME_SITE_KIND, COREWEBVIEW2_COOKIE_SAME_SITE_KIND_LAX,
     COREWEBVIEW2_COOKIE_SAME_SITE_KIND_NONE, COREWEBVIEW2_COOKIE_SAME_SITE_KIND_STRICT,
 };
 use webview2_com::{
-    CapturePreviewCompletedHandler, ExecuteScriptCompletedHandler, GetCookiesCompletedHandler,
+    CapturePreviewCompletedHandler, ClearBrowsingDataCompletedHandler,
+    ExecuteScriptCompletedHandler, GetCookiesCompletedHandler,
 };
 use windows::core::{Interface, BOOL, HSTRING, PWSTR};
 use windows::Win32::Foundation::HGLOBAL;
@@ -34,6 +38,11 @@ const OP_TIMEOUT: Duration = Duration::from_secs(8);
 
 /// Ogni quanto si ripassa a ritirare una promise parcheggiata.
 const POLL_INTERVAL: Duration = Duration::from_millis(25);
+
+/// «Dimentica questo sito» ha piu tempo delle altre op, come su macOS: enumera
+/// il barattolo intero e poi cancella, e con qualche migliaio di cookie otto
+/// secondi sono stretti.
+const FORGET_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// Prende l'`ICoreWebView2` dal controller che Tauri espone.
 fn core(platform: &tauri::webview::PlatformWebview) -> Result<ICoreWebView2, String> {
@@ -371,6 +380,245 @@ pub fn cookies_set_blocking(
         .recv_timeout(OP_TIMEOUT)
         .map_err(|_| "set cookies timeout".to_string())??;
     Ok(format!("{{\"set\":{set},\"skipped\":{skipped}}}"))
+}
+
+/// Il profilo della pane: e l'oggetto da cui si cancellano i dati, e non
+/// coincide con la webview.
+///
+/// Due cast in fila, ed entrambi possono mancare su un runtime WebView2
+/// vecchio: `ICoreWebView2_13` porta il profilo (runtime 1.0.1108+),
+/// `ICoreWebView2Profile2` porta `ClearBrowsingData` (1.0.1245+). Quando il
+/// cast fallisce lo si dice, invece di restituire un successo che non ha
+/// cancellato niente: e' la stessa scelta del ramo macOS, che sui sistemi senza
+/// `dataStoreForIdentifier:` esce senza fingere.
+fn profile2(core: &ICoreWebView2) -> Result<ICoreWebView2Profile2, String> {
+    let v13: ICoreWebView2_13 = core
+        .cast()
+        .map_err(|e| format!("ICoreWebView2_13 (runtime WebView2 troppo vecchio): {e}"))?;
+    let profile = unsafe { v13.Profile() }.map_err(|e| format!("Profile: {e}"))?;
+    profile
+        .cast::<ICoreWebView2Profile2>()
+        .map_err(|e| format!("ICoreWebView2Profile2 (runtime WebView2 troppo vecchio): {e}"))
+}
+
+/// I soli kind che WebView2 considera CACHE: quella su disco, la CacheStorage
+/// delle API dei service worker e le registrazioni dei worker stessi.
+///
+/// Sono gli stessi quattro cassetti del ramo macOS meno la memory cache, che
+/// WebView2 non espone come kind separato perche' se ne va da sola. NON c'e'
+/// dentro nulla di identita': niente `COOKIES`, niente `LOCAL_STORAGE`, niente
+/// `INDEXED_DB`. Costruito a mano dai bit perche' `BitOr` qui non e' const.
+fn cache_kinds() -> COREWEBVIEW2_BROWSING_DATA_KINDS {
+    COREWEBVIEW2_BROWSING_DATA_KINDS(
+        COREWEBVIEW2_BROWSING_DATA_KINDS_DISK_CACHE.0
+            | COREWEBVIEW2_BROWSING_DATA_KINDS_CACHE_STORAGE.0
+            | COREWEBVIEW2_BROWSING_DATA_KINDS_SERVICE_WORKERS.0,
+    )
+}
+
+/// Manda `ClearBrowsingData` sul profilo e NON aspetta: la callback lascia una
+/// riga nel log se il motore si lamenta, e nient'altro.
+///
+/// E' la forma che serve alla chiusura di una pane, ed e' la stessa politica del
+/// ramo macOS («fire-and-forget: non aspettiamo la completion asincrona»).
+/// Aspettare qui sarebbe peggio che inutile: chi chiama e' il thread della UI,
+/// cioe' proprio quello che deve far girare la callback, e il blocco durerebbe
+/// fino al timeout.
+pub fn purge_cache_detached(wv: &tauri::Webview) -> Result<(), String> {
+    wv.with_webview(|platform| {
+        let profile = match core(&platform).and_then(|c| profile2(&c)) {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("[browser_purge_cache] {e}");
+                return;
+            }
+        };
+        let handler = ClearBrowsingDataCompletedHandler::create(Box::new(|hr| {
+            if let Err(e) = hr {
+                eprintln!("[browser_purge_cache] ClearBrowsingData(cache): {e}");
+            }
+            Ok(())
+        }));
+        if let Err(e) = unsafe { profile.ClearBrowsingData(cache_kinds(), &handler) } {
+            eprintln!("[browser_purge_cache] ClearBrowsingData(cache): {e}");
+        }
+    })
+    .map_err(|e| e.to_string())
+}
+
+/// Manda `ClearBrowsingData` sul profilo e aspetta la sua callback.
+///
+/// Qui si aspetta, al contrario di [`purge_cache_detached`], e la differenza non
+/// e' di gusto: chi chiama e' gia' su un worker, e soprattutto dopo questa
+/// cancellazione c'e' una `remove_dir_all` che non puo' partire prima che il
+/// motore abbia finito di scrivere.
+fn clear_browsing_data(
+    wv: &tauri::Webview,
+    kinds: COREWEBVIEW2_BROWSING_DATA_KINDS,
+    what: &'static str,
+) -> Result<(), String> {
+    let (tx, rx) = mpsc::channel::<Result<(), String>>();
+    wv.with_webview(move |platform| {
+        let profile = match core(&platform).and_then(|c| profile2(&c)) {
+            Ok(p) => p,
+            Err(e) => {
+                let _ = tx.send(Err(e));
+                return;
+            }
+        };
+        let tx_cb = tx.clone();
+        let handler = ClearBrowsingDataCompletedHandler::create(Box::new(move |hr| {
+            let _ = tx_cb.send(hr.map_err(|e| format!("{what}: {e}")));
+            Ok(())
+        }));
+        if let Err(e) = unsafe { profile.ClearBrowsingData(kinds, &handler) } {
+            let _ = tx.send(Err(format!("{what}: {e}")));
+        }
+    })
+    .map_err(|e| e.to_string())?;
+    rx.recv_timeout(OP_TIMEOUT)
+        .map_err(|_| format!("{what} timeout"))?
+}
+
+/// Svuota TUTTO il profilo della pane: cookie, storage, cache, autofill.
+///
+/// Va chiamata con la vista ancora viva, e il motivo sta nel commento di
+/// `browser_purge_data_store`: la user-data folder resta aperta
+/// dall'environment WebView2, quindi cancellarla da fuori non funzionerebbe.
+/// L'unico che può svuotarla è il motore, finché è lì.
+pub fn purge_all_blocking(wv: &tauri::Webview) -> Result<(), String> {
+    clear_browsing_data(
+        wv,
+        COREWEBVIEW2_BROWSING_DATA_KINDS_ALL_PROFILE,
+        "ClearBrowsingData(profilo)",
+    )
+}
+
+/// Il gestore dei cookie della pane.
+fn cookie_manager(core: &ICoreWebView2) -> Result<ICoreWebView2CookieManager, String> {
+    core.cast::<ICoreWebView2_2>()
+        .and_then(|c2| unsafe { c2.CookieManager() })
+        .map_err(|e| format!("CookieManager: {e}"))
+}
+
+/// I record «per sito» dello store, ricavati dai COOKIE.
+///
+/// **Portata ridotta rispetto a macOS e Linux, e non e' una svista.** WebView2
+/// non ha nessuna API per-origine: `ClearBrowsingData` prende dei kind e li
+/// applica al profilo intero, e non esiste un equivalente di
+/// `fetchDataRecordsOfTypes:` o di `webkit_website_data_manager_fetch`. L'unica
+/// cosa enumerabile per sito e' il barattolo dei cookie, quindi i record dicono
+/// `cookies` e nient'altro. Il dialogo «dimentica questo sito» legge quella
+/// lista, e cosi promette esattamente cio' che [`forget_site_blocking`]
+/// mantiene: sloggarti, non svuotarti il localStorage.
+///
+/// La normalizzazione dei domini sta in lib.rs (`cookie_domain_records`) e non
+/// qui: e' una decisione, e le decisioni si provano con `cargo test`, che gira
+/// su Mac e questo file non lo compila nemmeno.
+pub fn site_data_records_blocking(wv: &tauri::Webview) -> Result<String, String> {
+    let (tx, rx) = mpsc::channel::<Result<String, String>>();
+    wv.with_webview(move |platform| {
+        let manager = match core(&platform).and_then(|c| cookie_manager(&c)) {
+            Ok(m) => m,
+            Err(e) => {
+                let _ = tx.send(Err(e));
+                return;
+            }
+        };
+        let tx_cb = tx.clone();
+        let handler = GetCookiesCompletedHandler::create(Box::new(move |hr, list| {
+            let out = (|| -> Result<String, String> {
+                let domains = unsafe { cookie_domains(hr, list) }?;
+                serde_json::to_string(&crate::cookie_domain_records(&domains))
+                    .map_err(|e| e.to_string())
+            })();
+            let _ = tx_cb.send(out);
+            Ok(())
+        }));
+        // `GetCookies(None, ...)` = tutti i cookie del profilo, come l'export di
+        // sessione. Con un URI si vedrebbe solo il sito corrente, cioe l'unico
+        // che il dialogo non ha bisogno di scoprire.
+        if let Err(e) = unsafe { manager.GetCookies(None, &handler) } {
+            let _ = tx.send(Err(format!("GetCookies: {e}")));
+        }
+    })
+    .map_err(|e| e.to_string())?;
+    rx.recv_timeout(OP_TIMEOUT)
+        .map_err(|_| "site data records timeout".to_string())?
+}
+
+/// I domini di tutti i cookie di una `ICoreWebView2CookieList`.
+unsafe fn cookie_domains(
+    hr: windows::core::Result<()>,
+    list: Option<
+        webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2CookieList,
+    >,
+) -> Result<Vec<String>, String> {
+    hr.map_err(|e| format!("GetCookies: {e}"))?;
+    let list = list.ok_or_else(|| "GetCookies: lista assente".to_string())?;
+    let mut count = 0u32;
+    unsafe { list.Count(&mut count) }.map_err(|e| format!("Count: {e}"))?;
+    let mut out = Vec::with_capacity(count as usize);
+    for i in 0..count {
+        let c = unsafe { list.GetValueAtIndex(i) }.map_err(|e| format!("GetValueAtIndex: {e}"))?;
+        out.push(unsafe { com_text(|p| c.Domain(p), "Domain") }?);
+    }
+    Ok(out)
+}
+
+/// Cancella i cookie dei domini nominati in `names`. Ritorna quanti dei nomi
+/// ricevuti hanno prodotto almeno una cancellazione.
+///
+/// Si cancella cookie per cookie, sugli oggetti appena enumerati, e non con
+/// `DeleteCookiesWithDomainAndPath`: quello vorrebbe un path, che il dialogo non
+/// ha e che dovremmo indovinare. Cosi invece si tocca ESATTAMENTE cio che si e
+/// letto, che e il patto delle due chiamate.
+///
+/// Il confronto usa lo stesso nome normalizzato che [`site_data_records_blocking`]
+/// ha mostrato, quindi «ha detto» e «ha fatto» non possono divergere.
+pub fn forget_site_blocking(wv: &tauri::Webview, names: Vec<String>) -> Result<usize, String> {
+    let (tx, rx) = mpsc::channel::<Result<usize, String>>();
+    wv.with_webview(move |platform| {
+        let manager = match core(&platform).and_then(|c| cookie_manager(&c)) {
+            Ok(m) => m,
+            Err(e) => {
+                let _ = tx.send(Err(e));
+                return;
+            }
+        };
+        let tx_cb = tx.clone();
+        let manager_cb = manager.clone();
+        let handler = GetCookiesCompletedHandler::create(Box::new(move |hr, list| {
+            let out = (|| -> Result<usize, String> {
+                hr.map_err(|e| format!("GetCookies: {e}"))?;
+                let list = list.ok_or_else(|| "GetCookies: lista assente".to_string())?;
+                let mut count = 0u32;
+                unsafe { list.Count(&mut count) }.map_err(|e| format!("Count: {e}"))?;
+                let mut hit: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+                for i in 0..count {
+                    let c = unsafe { list.GetValueAtIndex(i) }
+                        .map_err(|e| format!("GetValueAtIndex: {e}"))?;
+                    let domain = unsafe { com_text(|p| c.Domain(p), "Domain") }?;
+                    let name = crate::cookie_record_name(&domain);
+                    if !names.contains(&name) {
+                        continue;
+                    }
+                    if unsafe { manager_cb.DeleteCookie(&c) }.is_ok() {
+                        hit.insert(name);
+                    }
+                }
+                Ok(hit.len())
+            })();
+            let _ = tx_cb.send(out);
+            Ok(())
+        }));
+        if let Err(e) = unsafe { manager.GetCookies(None, &handler) } {
+            let _ = tx.send(Err(format!("GetCookies: {e}")));
+        }
+    })
+    .map_err(|e| e.to_string())?;
+    rx.recv_timeout(FORGET_TIMEOUT)
+        .map_err(|_| "forget site timeout".to_string())?
 }
 
 /// Le navigazioni semplici, che WebView2 espone direttamente sull'interfaccia
