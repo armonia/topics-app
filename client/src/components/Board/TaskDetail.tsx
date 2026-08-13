@@ -2924,10 +2924,23 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
   };
   if (!s) return null;
   return (
-    <div className={SETTINGS_PANEL_SHELL}>
+    <div className={SETTINGS_PANEL_SHELL} data-testid="board-settings-panel">
       <SettingsPanelHead onClose={onClose} />
-      <GlobalSettingsSection dispatchOn={dispatchOn} onToggleDispatch={onToggleDispatch} />
 
+      {/* PRIMA sezione, e la sola che NON è di questa board: l'interruttore e il
+          tetto sono quelli globali, gli stessi del ▾ in testata. Senza il titolo
+          sopra, la prima riga di una lista piatta si leggeva come «auto-dispatch
+          di questo progetto» — cioè come un'impostazione che qui non esiste.
+          Le righe stanno in `BoardSettingsSections.tsx` perché il pannello della
+          board generale monta le STESSE: un blocco, due pannelli. */}
+      <SettingsSection label={tr('board.settings.sec.global')} first>
+        <GlobalSettingsSection dispatchOn={dispatchOn} onToggleDispatch={onToggleDispatch} />
+        {dispatchOn && (
+          <p className="text-[11px] text-amber-300/80">{tr('board.settings.dispatchOnActive')}</p>
+        )}
+      </SettingsSection>
+
+      <SettingsSection label={tr('board.settings.sec.agent')}>
       <div className="flex items-center justify-between gap-2">
         <span>{tr('board.settings.effort')}</span>
         <div className="flex gap-0.5">
@@ -2984,6 +2997,13 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
         />
       </div>
 
+      <label className="flex cursor-pointer items-center justify-between" title={tr('board.settings.fullMcpTitle')}>
+        <span>{tr('board.settings.fullMcp')}</span>
+        <input type="checkbox" checked={s.dispatchMcp === 'inherit'} onChange={(e) => patch({ dispatchMcp: e.target.checked ? 'inherit' : 'bridge-only' })} className="h-3.5 w-3.5 accent-emerald-500" />
+      </label>
+      </SettingsSection>
+
+      <SettingsSection label={tr('board.settings.sec.where')}>
       <label className="flex cursor-pointer items-center justify-between">
         <span>{tr('board.settings.isolateWorktree')}</span>
         <input type="checkbox" checked={s.dispatchUseWorktree} onChange={(e) => patch({ dispatchUseWorktree: e.target.checked })} className="h-3.5 w-3.5 accent-emerald-500" />
@@ -3022,33 +3042,56 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
           {tr('board.settings.notRepoWarn')}
         </p>
       )}
+      </SettingsSection>
 
       {/* La modalità notturna ha una CARD sua, non una casella in mezzo alle
           altre: l'interruttore è la parte piccola, la parte utile è lo stato —
           sta dispacciando o è in attesa, e per quale motivo. Vedi
           `NightModeCard.tsx`. */}
-      <NightModeCard
-        projectId={projectId}
-        enabled={!!s.nightMode}
-        until={s.nightModeUntil || '10:00'}
-        onChange={patch}
-      />
+      <SettingsSection label={tr('board.settings.sec.when')}>
+        <NightModeCard
+          projectId={projectId}
+          enabled={!!s.nightMode}
+          until={s.nightModeUntil || '10:00'}
+          onChange={patch}
+        />
+      </SettingsSection>
 
-      <label className="flex cursor-pointer items-center justify-between" title={tr('board.settings.autoMergeTitle')}>
-        <span>{tr('board.settings.autoMerge')}</span>
-        <input type="checkbox" checked={s.dispatchAutoMerge} disabled={!s.dispatchUseWorktree} onChange={(e) => patch({ dispatchAutoMerge: e.target.checked })} className="h-3.5 w-3.5 accent-emerald-500 disabled:opacity-40" />
-      </label>
+      {/* Auto-merge e checks stanno insieme perché parlano dello stesso momento:
+          l'agent ha consegnato. Uno decide se quel lavoro entra in main da solo,
+          l'altro cosa deve passare prima che entri in review. Erano separati da
+          una riga sulla MCP, che è di un altro discorso. */}
+      <SettingsSection label={tr('board.settings.sec.delivery')}>
+        <label className="flex cursor-pointer items-center justify-between" title={tr('board.settings.autoMergeTitle')}>
+          <span>{tr('board.settings.autoMerge')}</span>
+          <input type="checkbox" checked={s.dispatchAutoMerge} disabled={!s.dispatchUseWorktree} onChange={(e) => patch({ dispatchAutoMerge: e.target.checked })} className="h-3.5 w-3.5 accent-emerald-500 disabled:opacity-40" />
+        </label>
+        <ReviewChecksField checks={s.reviewChecks} onSave={(reviewChecks) => patch({ reviewChecks })} />
+      </SettingsSection>
+    </div>
+  );
+}
 
-      <label className="flex cursor-pointer items-center justify-between" title={tr('board.settings.fullMcpTitle')}>
-        <span>{tr('board.settings.fullMcp')}</span>
-        <input type="checkbox" checked={s.dispatchMcp === 'inherit'} onChange={(e) => patch({ dispatchMcp: e.target.checked ? 'inherit' : 'bridge-only' })} className="h-3.5 w-3.5 accent-emerald-500" />
-      </label>
-
-      <ReviewChecksField checks={s.reviewChecks} onSave={(reviewChecks) => patch({ reviewChecks })} />
-
-      {dispatchOn && (
-        <p className="text-[11px] text-amber-300/80">{tr('board.settings.dispatchOnActive')}</p>
-      )}
+/**
+ * UNA SEZIONE DEL PANNELLO — un titolo e le sue righe.
+ *
+ * Il pannello era dieci righe di seguito, tutte con lo stesso peso: effort,
+ * modello, lingua, worktree, fan-out, notturna, auto-merge, MCP, checks. Senza
+ * gerarchia non si legge, si scandisce — e soprattutto la prima riga era
+ * l'interruttore GLOBALE, che in cima a una lista piatta si legge come
+ * un'impostazione di questa board («le impostazioni della board non mi sembrano
+ * ben fatte», Attilio 13/08).
+ *
+ * Il titolo non è decorazione: è la risposta alla domanda che ogni riga
+ * poneva da sola — «questo vale per chi?». Il filetto sopra separa i gruppi
+ * SENZA aggiungere una seconda scatola: il pannello è già dentro un bordo, e un
+ * riquadro dentro un riquadro renderebbe ogni gruppo un oggetto a sé.
+ */
+function SettingsSection({ label, first, children }: { label: string; first?: boolean; children: React.ReactNode }) {
+  return (
+    <div className={first ? 'space-y-2' : 'space-y-2 border-t border-app-border-subtle pt-2'}>
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">{label}</p>
+      {children}
     </div>
   );
 }
