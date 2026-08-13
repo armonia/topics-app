@@ -152,7 +152,7 @@ describe("free-checkout su git vero", () => {
     const wt = mountWorktree("chiuso");
     statuses.set("chiuso", "done");
     await sweepWorktrees(deps());
-    expect(timbri).toEqual([["task-chiuso", wt.branchName]]);
+    expect(timbri).toEqual([["task-chiuso", wt.branchName!]]);
   });
 
   test("il timbro arriva PRIMA della liberazione, non dopo", async () => {
