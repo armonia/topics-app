@@ -1,11 +1,11 @@
 /**
  * La BARRA della sonda: ricostruire una misura presa A MANO su una chat vera.
  *
- * L'11/08/2026 il conto di `topic:4c8de758` è stato fatto a mano, guardando la
- * UI: 46 messaggi, 104 chiamate a tool, ~320k di contesto, ~20,5M di prompt
- * spediti, $14,67, e un singolo turno da 3,07M. Se la sonda non ricostruisce
- * quei numeri sta misurando un'altra cosa, e il fatto che il suo output sia
- * plausibile non conta niente.
+ * Il conto di una sessione reale è stato fatto a mano, guardando la UI: 46
+ * messaggi, 104 chiamate a tool, ~320k di contesto, ~20,5M di prompt spediti,
+ * $14,67, e un singolo turno da 3,07M. Se la sonda non ricostruisce quei numeri
+ * sta misurando un'altra cosa, e il fatto che il suo output sia plausibile non
+ * conta niente.
  *
  * PERCHÉ UNA FIXTURE E NON IL DATABASE VIVO. Due motivi, e il secondo è quello
  * che decide. Primo: quella chat è andata avanti — nel giro di un'ora era già a
@@ -14,6 +14,20 @@
  * chat non è un cancello, è un aneddoto. La fixture è il PREFISSO di 46
  * messaggi congelato (`scripts/extract-cost-probe-fixture.ts`), ridotto ai soli
  * numeri: nessun contenuto della conversazione entra in repo.
+ *
+ * ANONIMIZZATA, E I NUMERI RESTANO. Dalla fixture sono spariti l'id reale della
+ * sessione (anche dal nome del file) e il titolo della chat: quelli sono ciò
+ * che identifica, e in un repo pubblico non hanno niente da fare. I token e i
+ * costi invece restano, e non è una svista. Scalarli tutti per un fattore
+ * terrebbe in piedi l'aritmetica — è stato provato, e le otto asserzioni della
+ * BARRA passano, perché sono tutte rapporti — ma costerebbe al test la sua
+ * unica ancora: `misuraAMano` oggi è una lettura INDIPENDENTE da `rows`, e
+ * scosta del 5,8% sulle chiamate, 3,3% sul contesto, 6,1% sui prompt. Scalare
+ * vorrebbe dire ricavare `misuraAMano` DA `rows`, cioè far collassare quelle
+ * distanze a zero: la tolleranza del 10% smetterebbe di misurare l'accordo fra
+ * due fonti e misurerebbe una moltiplicazione contro sé stessa. Senza id e
+ * senza titolo, quello che resta è una curva di costo che non si attacca a
+ * nessuno — ed è esattamente la cosa che questa sonda esiste per calcolare.
  *
  * LA TOLLERANZA È 10%, e serve tutta: la misura a mano è stata letta da schermi
  * che arrotondano («104 chiamate» comprendeva anche i due blocchi finali senza
@@ -24,15 +38,17 @@
 
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
+import { readFileSync } from "fs";
+import { basename, resolve } from "path";
 import { computeCostProbe, probeSessionCost, readCostProbeRows, type CostProbeRow } from "./cost-probe";
-import fixture from "../../tests/fixtures/cost-probe-topic-4c8de758.json";
+import fixture from "../../tests/fixtures/cost-probe-46-messages.json";
 
 /** Scarto relativo fra ciò che dice la sonda e ciò che è stato misurato a mano. */
 function scarto(sonda: number, aMano: number): number {
   return Math.abs(sonda - aMano) / aMano;
 }
 
-describe("BARRA — la sonda ricostruisce la misura a mano di topic:4c8de758", () => {
+describe("BARRA — la sonda ricostruisce la misura presa a mano su una chat reale", () => {
   const rows = fixture.rows as CostProbeRow[];
   const atteso = fixture.misuraAMano;
   const probe = computeCostProbe(rows);
@@ -241,5 +257,57 @@ describe("probeSessionCost — dal database", () => {
     expect(probe.messages).toBe(0);
     expect(probe.toolCalls).toBe(0);
     expect(probe.contextTokens).toBe(0);
+  });
+});
+
+/**
+ * La fixture resta ANONIMA — il cancello che rende esecutivo l'avviso scritto
+ * in cima a `scripts/extract-cost-probe-fixture.ts`.
+ *
+ * PERCHÉ NON BASTA L'AVVISO. Quello script rigenera la fixture dal database
+ * VIVO, e ciò che ne esce porta l'id reale della sessione. Fino a qui l'unica
+ * difesa era prosa: un commento che dice «non committarlo così». La prosa non
+ * esce non-zero. Questo sì.
+ *
+ * PERCHÉ NON LO PRENDE `no-personal-data-tracked.test.ts`. Quel cancello cerca
+ * NOMI (li deriva da `id -F`, da git, da `.personal-terms`), e qui il dato non
+ * è un nome: è un id, un titolo di chat e una cifra. Due cancelli, due
+ * domande diverse — vedi il commento sull'esenzione lì.
+ *
+ * L'ID NON È SCRITTO QUI, per la stessa ragione per cui non ci sono i nomi
+ * nell'altro cancello: incollarlo dentro il test sarebbe la fuga che il test
+ * vuole impedire, in un file in più. Si cerca la FORMA di un id, non il valore.
+ */
+describe("la fixture resta anonima", () => {
+  const percorso = resolve(import.meta.dir, "..", "..", "tests/fixtures/cost-probe-46-messages.json");
+  const testo = readFileSync(percorso, "utf8");
+
+  /** La forma di un id di sessione vero: `topic:` + una corsa di esadecimale. */
+  const ID_VIVO = /topic:[0-9a-f]{8}/i;
+
+  test("nessun id di sessione reale, né nel file né nel suo nome", () => {
+    // `topic:fixture-barra` passa: «fixture» non è tutto esadecimale. Un
+    // `topic:` seguito da otto cifre esadecimali no — ed è esattamente la forma
+    // che uscirebbe da una rigenerazione contro il database vivo.
+    expect(ID_VIVO.test(testo)).toBe(false);
+    expect(ID_VIVO.test(percorso.replace(/[/\\]/g, ":"))).toBe(false);
+    expect(/[0-9a-f]{8}/i.test(basename(percorso))).toBe(false);
+  });
+
+  test("la `note` non rimanda al database vivo né a un titolo di chat", () => {
+    // «database vivo» lega la misura alla macchina di chi l'ha estratta; le
+    // virgolette caporali sono la forma in cui il titolo della chat era citato.
+    const note = String((JSON.parse(testo) as { note?: unknown }).note ?? "");
+    expect(note.length).toBeGreaterThan(40);
+    expect(note.toLowerCase()).not.toContain("database vivo");
+    expect(note).not.toMatch(/«[^»]+»/);
+  });
+
+  test("il cancello sta guardando davvero il file, non una stringa vuota", () => {
+    // Se il percorso cambiasse e la lettura tornasse vuota, i test sopra
+    // passerebbero misurando niente: il modo più comune in cui un cancello
+    // smette di guardare senza che nessuno se ne accorga.
+    expect(testo.length).toBeGreaterThan(1000);
+    expect(JSON.parse(testo).rows).toHaveLength(46);
   });
 });
