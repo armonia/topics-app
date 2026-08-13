@@ -10,6 +10,7 @@ import {
   formatTokensCompact,
   formatToolCounts,
   isActiveTool,
+  isWhollyFailed,
   partitionToolGroup,
   summarizeToolGroup,
 } from './toolGrouping';
@@ -30,6 +31,7 @@ function ToolGroupRow({ tools, sessionKey, onPlanDecision }: { tools: ToolCall[]
   const [open, setOpen] = useState(false);
   const summary = useMemo(() => summarizeToolGroup(tools), [tools]);
   const live = summary.running > 0;
+  const whollyFailed = isWhollyFailed(summary);
   const settledCount = summary.total - summary.running;
   // Costo del gruppo: prezzo se noto, altrimenti i token sommati.
   const groupCost = typeof summary.costCents === 'number'
@@ -66,7 +68,16 @@ function ToolGroupRow({ tools, sessionKey, onPlanDecision }: { tools: ToolCall[]
               solo — velocità — ed è del Fast Mode, che sta nel composer sotto
               questa stessa colonna. */}
           <Workflow size={13} className={`flex-shrink-0 ${live ? 'text-primary' : 'text-app-text-muted'}`} />
-          <span className={`flex-shrink-0 font-medium ${live ? 'text-primary' : summary.errors > 0 ? 'text-red-500' : 'text-app-text'}`}>
+          {/* Il titolo conta le azioni, e il suo colore dice l'esito della
+              CORSA, non l'esistenza di un incidente: rosso solo se non se ne
+              è salvata nemmeno una (`isWhollyFailed`). Con `errors > 0` una
+              fallita su cinque tingeva tutto, e il colore mentiva sulle
+              quattro riuscite. Quante ne sono cadute lo dice il badge qui
+              accanto, con il numero. */}
+          <span
+            data-testid="tool-group-title"
+            className={`flex-shrink-0 font-medium ${live ? 'text-primary' : whollyFailed ? 'text-red-500' : 'text-app-text'}`}
+          >
             {live
               ? `${settledCount}/${summary.total} azioni`
               : `${summary.total} azioni`}

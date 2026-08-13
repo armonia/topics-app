@@ -5,6 +5,7 @@ import { dirname, join } from "path";
 import {
   classifyBranchLanding,
   classifyCommitLanding,
+  contenutoGiaNellAlbero,
   indiceRigheMain,
   isRigaDiSostanza,
   isRigaDistintiva,
@@ -99,6 +100,76 @@ describe("indiceRigheMain", () => {
   }, TEMPO_GIT);
 });
 
+/**
+ * IL TEST CHE REGGE, e quello che sembra fatto apposta e non regge.
+ *
+ * `git cherry` confronta i PATCH-ID: è la domanda «questa patch, così com'è, è
+ * già passata di là?». Il land però RICOPIA i commit e li adatta al main del
+ * momento — o li schiaccia in uno solo — quindi il patch-id cambia e `cherry`
+ * continua a dire «da portare» su lavoro che è dentro. Il patch-id è l'identità
+ * di una patch, non del suo contenuto.
+ *
+ * La patch inversa chiede invece del CONTENUTO: se il diff del ramo si toglie
+ * dall'albero di main, quelle righe di là ci sono.
+ */
+describe("contenutoGiaNellAlbero", () => {
+  /** Il ramo in due commit, atterrato su main schiacciato in uno. */
+  function repoSquashLandato(): string {
+    const repo = nuovoRepo("squash");
+    scrivi(repo, "src/a.ts", "let base = 0;\n");
+    commit(repo, "prima", "2026-07-02T10:00:00+02:00");
+    git(repo, ["checkout", "-q", "-b", "topics/ramo"]);
+    scrivi(repo, "src/a.ts", "let base = 0;\n" + impronte("uno", 3));
+    commit(repo, "primo pezzo", "2026-07-03T10:00:00+02:00");
+    scrivi(repo, "src/a.ts", "let base = 0;\n" + impronte("uno", 3) + impronte("due", 2));
+    commit(repo, "secondo pezzo", "2026-07-03T12:00:00+02:00");
+    git(repo, ["checkout", "-q", "main"]);
+    scrivi(repo, "src/a.ts", "let base = 0;\n" + impronte("uno", 3) + impronte("due", 2));
+    commit(repo, "atterrato in squash", "2026-07-04T10:00:00+02:00");
+    return repo;
+  }
+
+  test("dentro anche quando la discendenza e `git cherry` dicono di no", async () => {
+    const repo = repoSquashLandato();
+    // Le due risposte SBAGLIATE, misurate qui invece che raccontate: la punta
+    // non è antenata di main, e `cherry` elenca tutti e due i commit come
+    // ancora da portare (una riga `+ <sha>` per ciascuno).
+    expect(git(repo, ["merge-base", "--is-ancestor", "topics/ramo", "main"])).toBe("");
+    const cherry = git(repo, ["cherry", "main", "topics/ramo"]).split("\n").filter(Boolean);
+    expect(cherry.length).toBe(2);
+    expect(cherry.every((r) => r.startsWith("+"))).toBe(true);
+
+    expect(await contenutoGiaNellAlbero(repo, "main...topics/ramo")).toBe(true);
+  }, TEMPO_GIT);
+
+  test("un ramo che ha ancora del suo NON è dentro", async () => {
+    const repo = nuovoRepo("debito");
+    git(repo, ["checkout", "-q", "-b", "topics/ramo"]);
+    scrivi(repo, "src/b.ts", impronte("solo-sua", 4));
+    commit(repo, "lavoro mai atterrato", "2026-07-03T10:00:00+02:00");
+    git(repo, ["checkout", "-q", "main"]);
+    expect(await contenutoGiaNellAlbero(repo, "main...topics/ramo")).toBe(false);
+  }, TEMPO_GIT);
+
+  test("la risposta non dipende da com'è messo il checkout: indice a parte", async () => {
+    const repo = repoSquashLandato();
+    // Il checkout sta su un ALTRO branch ed è sporco: `git apply --check` senza
+    // indice a parte guarderebbe questo, e risponderebbe su un albero che non è
+    // quello di main.
+    git(repo, ["checkout", "-q", "-b", "altro"]);
+    scrivi(repo, "src/a.ts", "tutt'altro contenuto\n");
+    scrivi(repo, "src/nuovo.ts", "roba non committata\n");
+    expect(await contenutoGiaNellAlbero(repo, "main...topics/ramo")).toBe(true);
+    // E non ha toccato niente: il file sporco è ancora lì com'era.
+    expect(git(repo, ["status", "--porcelain"])).toContain("src/a.ts");
+  }, TEMPO_GIT);
+
+  test("una gamma che git non sa leggere è «non lo so», non «non c'è»", async () => {
+    const repo = nuovoRepo("ignoto");
+    expect(await contenutoGiaNellAlbero(repo, "main...topics/mai-esistito")).toBeNull();
+  }, TEMPO_GIT);
+});
+
 describe("classifyBranchLanding", () => {
   test("DENTRO quando ogni file toccato è identico su main (squash-land)", async () => {
     const repo = nuovoRepo("identico");
@@ -114,7 +185,10 @@ describe("classifyBranchLanding", () => {
 
     const v = await classifyBranchLanding(repo, "topics/ramo");
     expect(v.esito).toBe("dentro");
-    expect(v.motivo).toContain("identico su main");
+    // A rispondere è la patch inversa, che viene prima: delle tre prove di
+    // contenuto è l'unica CERTA (le altre due sono soglie), e su un ramo
+    // rimesso a mano riga per riga esce 0.
+    expect(v.motivo).toContain("si riapplica al contrario");
   }, TEMPO_GIT);
 
   test("DENTRO per contenuto quando le righe del ramo sono su main dentro un file EVOLUTO", async () => {

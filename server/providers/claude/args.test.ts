@@ -11,7 +11,7 @@
  * la domanda giusta al momento giusto.
  */
 import { describe, expect, test } from "bun:test";
-import { buildClaudeArgs, buildClaudeOneshotArgs, TRIMMED_TOOLS_CHAT, TRIMMED_TOOLS_DISPATCHED } from "./args";
+import { buildClaudeArgs, buildClaudeOneshotArgs, resolveToolTrim, TRIMMED_TOOLS_CHAT, TRIMMED_TOOLS_DISPATCHED } from "./args";
 import { buildCodexArgs, buildCodexOneshotArgs } from "../codex/args";
 
 const BASE = {
@@ -140,6 +140,33 @@ describe("buildClaudeArgs — gli schemi dei tool che il differimento non tocca"
   test("spento: nessuna deny, il registro resta intero", () => {
     expect(buildClaudeArgs({ ...BASE })).not.toContain("--disallowed-tools");
     expect(buildClaudeArgs({ ...BASE, toolTrim: null } as never)).not.toContain("--disallowed-tools");
+  });
+
+  test("chi decide il taglio: dispacciato → quattro, chat → tre, `off` → nessuno", () => {
+    // La scelta stava inline nello spawn, dentro un metodo privato che prende
+    // solo un `sessionKey`: il braccio «dispacciato» si poteva controllare
+    // guardando l'argv di un agente vivo, quello della CHAT solo se una chat
+    // stava girando in quel momento. Provato per venti minuti, non ne è partita
+    // nessuna. Qui la decisione è raggiungibile, quindi verificata.
+    expect(resolveToolTrim({ dispatched: true, env: {} })).toBe("dispatched");
+    expect(resolveToolTrim({ dispatched: false, env: {} })).toBe("chat");
+    // La via d'uscita vale per tutti e due i bracci: un cancello che spegne solo
+    // meta' dei casi e' peggio di nessun cancello, perche' sembra spento.
+    expect(resolveToolTrim({ dispatched: true, env: { TOPICS_TOOL_TRIM: "off" } })).toBeNull();
+    expect(resolveToolTrim({ dispatched: false, env: { TOPICS_TOOL_TRIM: "off" } })).toBeNull();
+    // Un valore qualsiasi NON spegne: solo la parola `off`.
+    expect(resolveToolTrim({ dispatched: false, env: { TOPICS_TOOL_TRIM: "0" } })).toBe("chat");
+  });
+
+  test("dalla decisione all'argv, senza anelli scoperti: una chat vede tre nomi", () => {
+    // L'assertion che chiude il giro: la stessa funzione che lo spawn chiama,
+    // infilata nella stessa funzione che costruisce l'argv.
+    const chat = buildClaudeArgs({ ...BASE, toolTrim: resolveToolTrim({ dispatched: false, env: {} }) } as never);
+    expect(chat[chat.indexOf("--disallowed-tools") + 1]).toBe("Artifact,ReportFindings,ListAgents");
+    const agente = buildClaudeArgs({ ...BASE, toolTrim: resolveToolTrim({ dispatched: true, env: {} }) } as never);
+    expect(agente[agente.indexOf("--disallowed-tools") + 1]).toBe("Workflow,Artifact,ReportFindings,ListAgents");
+    const spento = buildClaudeArgs({ ...BASE, toolTrim: resolveToolTrim({ dispatched: true, env: { TOPICS_TOOL_TRIM: "off" } }) } as never);
+    expect(spento).not.toContain("--disallowed-tools");
   });
 
   test("`Task` e `Read` NON sono in nessuna delle due liste: sono ciò che rende capace l'agente", () => {

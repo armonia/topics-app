@@ -27,7 +27,7 @@ import { probeBinaryPath } from "../utils/executable";
 import { getDatabase } from "../db";
 import { SidechainTracker } from "./claude/sidechain-tracker";
 import { parseCompactBoundary } from "./claude/compaction";
-import { buildClaudeArgs, buildClaudeOneshotArgs } from "./claude/args";
+import { buildClaudeArgs, buildClaudeOneshotArgs, resolveToolTrim } from "./claude/args";
 import { checkClaudeCliCompat, type ClaudeCliCompat } from "./claude/cli-compat";
 import { applyJobQuota } from "../services/agent-job-quota";
 // La decodifica degli eventi `stream-json` — campi INTERNI della CLI, non
@@ -1959,10 +1959,10 @@ export class ClaudeCodeProvider implements AIProvider {
       // niente. `Workflow` invece resta alle chat: la sua descrizione lo vieta
       // senza un consenso esplicito dell'umano, e in una chat l'umano c'è e può
       // darlo — a un agente dispacciato quel consenso non può arrivare.
-      // `TOPICS_TOOL_TRIM=off` lo spegne senza toccare il codice.
-      toolTrim: process.env.TOPICS_TOOL_TRIM === "off"
-        ? null
-        : overrides.dispatched ? "dispatched" : "chat",
+      // `TOPICS_TOOL_TRIM=off` lo spegne senza toccare il codice. La scelta sta
+      // in `claude/args.ts` accanto alle due liste, così è sotto test: qui
+      // dentro sarebbe una ternaria in un metodo privato, cioè irraggiungibile.
+      toolTrim: resolveToolTrim({ dispatched: !!overrides.dispatched }),
       // Il tetto per singolo risultato di tool MCP. Vale per OGNI sessione, non
       // solo per gli agenti del board: la chat che ha fatto nascere la misura
       // (29,5M token di prompt, $23,86) era una chat guidata da una persona, e
