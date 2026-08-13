@@ -933,86 +933,110 @@ html, body {
   border-radius: 8px;
 }
 
-/* Una card che ATTRAVERSA il confine verso Done. Chiudere un task — trascinandolo
-   o approvandolo dal drawer — non lasciava nessun segno visivo: la card riappariva
-   in una colonna che di norma sta fuori dal campo visivo, e non si sapeva se il
-   click avesse fatto qualcosa. Il lampo dura quanto serve a seguirla con l'occhio,
-   poi sparisce da solo.
-   Solo box-shadow: nessun transform (i vicini di un drag in corso non si devono
-   spostare) e nessun background-color, che sostituirebbe `bg-surface` e farebbe
-   sfarfallare la card sul finale. La tinta è un'ombra INSET a raggio enorme:
-   copre la card e si compone sopra il suo fondo invece di rimpiazzarlo. */
-/* TIENE, poi svanisce. Con una sola sfumata da 0% a 100% e `ease-out` quasi
-   tutto il calo avviene nei primi decimi: misurato sul video della spec, il
-   verde restava sopra soglia per ~0,2 s su 2,4 — un guizzo che si perde se
-   guardavi l'altra metà dello schermo. I due fotogrammi identici in testa sono
-   una pausa: 45% del tempo acceso e fermo, il resto per spegnersi. */
-@keyframes taskDoneFlash {
-  0%, 45% {
-    box-shadow: 0 0 0 2px rgb(52 211 153 / 0.9), 0 0 18px 2px rgb(52 211 153 / 0.45),
-                inset 0 0 0 999px rgb(52 211 153 / 0.16);
+/* ── IL LAMPO DI UNA CARD ────────────────────────────────────────────────────
+   Una card che si muove sulla board lo dice. Spostare un task (trascinandolo,
+   approvandolo dal drawer, o lasciandolo muovere a un agente) lo faceva sparire
+   dalla colonna che stavi guardando per farlo riapparire in una che spesso è
+   fuori dal campo visivo: nessun segno che il click avesse fatto qualcosa. Il
+   lampo dura quanto serve a seguirla con l'occhio, poi sparisce da solo.
+
+   UN'ANIMAZIONE SOLA, IL COLORE È UNA VARIABILE. Prima erano due keyframe
+   copiati che si distinguevano per la tinta, e l'evento era uno solo per capo
+   della vita del task: nata (azzurro) e chiusa (verde). Ogni altro passaggio di
+   colonna era muto. Il colore arriva da `--task-flash` (un terzetto rgb), che
+   lo mette la classe `.task-flash-<colonna>` qui sotto: aggiungere una colonna
+   è una riga, non un keyframe.
+
+   SOLO box-shadow, e non è un vezzo: nessun transform, perché i vicini di un
+   drag in corso non si devono spostare; nessun background-color, che
+   rimpiazzerebbe `bg-surface` invece di comporsi col suo fondo. La tinta è
+   un'ombra INSET a raggio enorme, che copre la card e ci si stende sopra.
+
+   ── E STA DENTRO LA COLONNA ──────────────────────────────────────────────────
+   Il corpo di una colonna è `overflow-y-auto`, quindi un contenitore di
+   scorrimento: taglia al suo padding box su ENTRAMBI gli assi (in orizzontale
+   `overflow-x` calcola `auto` da solo, e nessun `overflow-clip-margin`
+   riguarda l'asse su cui si scorre). Con `0 0 18px 2px` l'alone arrivava a 11px
+   fuori dal bordo della card — 2 di spread più metà della sfumata — contro gli
+   8px di padding della colonna: gli ultimi 3 li tagliava, e il taglio è una
+   riga verticale netta proprio dove la luce dovrebbe spegnersi.
+   La correzione non è dare più stanza all'alone: è farlo STARE nella stanza che
+   c'è. La sfumata esterna arriva ora a 6px (`0 0 12px 0`), dentro gli 8 del
+   padding con un margine; il resto della luce è passato DENTRO la card, dove
+   nessun contenitore può tagliarlo. In verticale la stanza il corpo colonna non
+   ce l'aveva affatto (padding-top zero), e gliela dà il `pt-1.5` in Card.tsx:
+   6px, esattamente la sfumata. */
+/* SALE, TIENE, SFUMA — tre gesti, non due fotogrammi.
+   La curva di prima («0%, 45%» acceso e fermo, poi `ease-out` fino a zero) era
+   accesa dal primo fotogramma e scendeva quasi tutta nei primi decimi: il
+   colore restava sopra soglia per ~0,2 s su 2,4, un guizzo che si perde se
+   guardavi l'altra metà dello schermo.
+   Adesso: 8% per accendersi (`cubic-bezier(0, 0, 0.2, 1)`, cioè quasi subito ma
+   senza scatto), tenuta fino al 45%, e il resto — più della metà del tempo — per
+   spegnersi con una `ease-in-out`, che arriva a zero con pendenza zero. È la
+   discesa a non avere uno spigolo: `ease-out` cade subito, `ease-in` casca alla
+   fine. */
+@keyframes taskFlash {
+  0% {
+    animation-timing-function: cubic-bezier(0, 0, 0.2, 1);
+    box-shadow: 0 0 0 0 rgb(var(--task-flash) / 0), 0 0 0 0 rgb(var(--task-flash) / 0),
+                inset 0 0 0 0 rgb(var(--task-flash) / 0),
+                inset 0 0 0 999px rgb(var(--task-flash) / 0);
   }
-  75% {
-    box-shadow: 0 0 0 2px rgb(52 211 153 / 0.5), 0 0 12px 1px rgb(52 211 153 / 0.2),
-                inset 0 0 0 999px rgb(52 211 153 / 0.08);
+  /* Un `animation-timing-function` in un keyframe vale per il tratto che PARTE
+     da lì: qui accende la discesa (45 → 100). Il tratto 8 → 45 è una tenuta —
+     due valori identici — quindi la sua curva non ha niente da curvare. */
+  8%, 45% {
+    animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 0 0 2px rgb(var(--task-flash) / 0.9), 0 0 12px 0 rgb(var(--task-flash) / 0.5),
+                inset 0 0 14px 0 rgb(var(--task-flash) / 0.3),
+                inset 0 0 0 999px rgb(var(--task-flash) / 0.14);
   }
   100% {
-    box-shadow: 0 0 0 0 rgb(52 211 153 / 0), 0 0 0 0 rgb(52 211 153 / 0),
-                inset 0 0 0 999px rgb(52 211 153 / 0);
+    box-shadow: 0 0 0 0 rgb(var(--task-flash) / 0), 0 0 0 0 rgb(var(--task-flash) / 0),
+                inset 0 0 0 0 rgb(var(--task-flash) / 0),
+                inset 0 0 0 999px rgb(var(--task-flash) / 0);
   }
 }
 
-.task-done-flash {
-  animation: taskDoneFlash 2.4s ease-out;
+.task-flash {
+  animation: taskFlash 2.4s linear;
 }
+
+/* Il colore della colonna d'ARRIVO, uno per colonna, in due temi.
+   Sono gli stessi della kanban — il glifo di colonna li dichiara in TS
+   (`STATUS_ICON_COLOR`, Board/constants.ts) e la ragione dei due toni è scritta
+   lì: i `-400` di Tailwind nascono su fondo scuro e sul chrome chiaro scendono
+   sotto 2:1. Qui servono in terzetti rgb, che una classe Tailwind non sa dare a
+   una custom property dentro un keyframe. */
+.task-flash-backlog { --task-flash: 100 116 139; }      /* slate-500 */
+.task-flash-todo { --task-flash: 71 85 105; }           /* slate-600 */
+.task-flash-in_progress { --task-flash: 2 132 199; }    /* sky-600 */
+.task-flash-review { --task-flash: 244 63 94; }         /* rose-500 */
+.task-flash-done { --task-flash: 5 150 105; }           /* emerald-600 */
+.dark .task-flash-backlog { --task-flash: 148 163 184; }  /* slate-400 */
+.dark .task-flash-todo { --task-flash: 226 232 240; }     /* slate-200 */
+.dark .task-flash-in_progress { --task-flash: 56 189 248; } /* sky-400 */
+.dark .task-flash-review { --task-flash: 251 113 133; }   /* rose-400 */
+.dark .task-flash-done { --task-flash: 52 211 153; }      /* emerald-400 */
+
+/* Una card appena NATA non arriva da nessuna colonna, quindi il suo lampo non
+   può prendere il colore dell'arrivo: ha il suo. Scrivi un task nel composer,
+   quello sparisce, e la card atterra in fondo a una colonna che spesso non stai
+   guardando. Il lampo dice QUALE card è nata; a portarla sotto gli occhi ci
+   pensa lo scorrimento (vedi KanbanBoardPane), ma solo per chi l'ha scritta.
+   Azzurro: il verde su questa board significa già «chiuso», e nascere non è
+   chiudersi. È il `sky-400` che l'app usa già come accento. Coincide col colore
+   di «in corso», e va bene: una card non nasce mai lì. */
+.task-flash-created { --task-flash: 2 132 199; }
+.dark .task-flash-created { --task-flash: 56 189 248; }
 
 @media (prefers-reduced-motion: reduce) {
   /* Il segnale resta, il movimento no: l'anello si accende e si spegne quando il
      timer toglie la classe, senza sfumare. */
-  .task-done-flash {
+  .task-flash {
     animation: none;
-    box-shadow: 0 0 0 2px rgb(52 211 153 / 0.6), inset 0 0 0 999px rgb(52 211 153 / 0.12);
-  }
-}
-
-/* Una card appena NATA. Stesso problema del lampo verde all'altro capo della
-   board: scrivi un task nel composer, quello sparisce, e la card atterra in
-   fondo a una colonna che spesso non stai guardando — quindi "ho premuto invio
-   e non è successo niente". Il lampo dice QUALE card è nata; a portarla sotto
-   gli occhi ci pensa lo scorrimento (vedi KanbanBoardPane), ma solo per chi
-   l'ha scritta.
-   Azzurro, non verde: il verde su questa board significa già "chiuso", e due
-   eventi opposti non possono avere lo stesso colore. È il `sky-400` che l'app
-   usa già come accento (link, chip attivi).
-   Stessa forma tecnica del verde e per le stesse ragioni: solo box-shadow —
-   nessun transform (i vicini di un drag in corso non si devono spostare) e
-   nessun background-color, che rimpiazzerebbe `bg-surface` invece di comporsi
-   col fondo. La tinta è un'ombra INSET a raggio enorme. E stessa curva: 45% del
-   tempo acceso e fermo, il resto per spegnersi — con una sfumata lineare quasi
-   tutto il calo cade nei primi decimi e il lampo si perde. */
-@keyframes taskCreatedFlash {
-  0%, 45% {
-    box-shadow: 0 0 0 2px rgb(56 189 248 / 0.9), 0 0 18px 2px rgb(56 189 248 / 0.45),
-                inset 0 0 0 999px rgb(56 189 248 / 0.16);
-  }
-  75% {
-    box-shadow: 0 0 0 2px rgb(56 189 248 / 0.5), 0 0 12px 1px rgb(56 189 248 / 0.2),
-                inset 0 0 0 999px rgb(56 189 248 / 0.08);
-  }
-  100% {
-    box-shadow: 0 0 0 0 rgb(56 189 248 / 0), 0 0 0 0 rgb(56 189 248 / 0),
-                inset 0 0 0 999px rgb(56 189 248 / 0);
-  }
-}
-
-.task-created-flash {
-  animation: taskCreatedFlash 2.4s ease-out;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .task-created-flash {
-    animation: none;
-    box-shadow: 0 0 0 2px rgb(56 189 248 / 0.6), inset 0 0 0 999px rgb(56 189 248 / 0.12);
+    box-shadow: 0 0 0 2px rgb(var(--task-flash) / 0.6), inset 0 0 0 999px rgb(var(--task-flash) / 0.12);
   }
 }
 
