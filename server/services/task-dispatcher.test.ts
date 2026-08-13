@@ -1901,7 +1901,12 @@ describe("priority", () => {
       // dedupe (same author+content) can't mask the second note.
       sessions = [{ cwd: "/Users/x/Projects/alpha", branch: "feature" }];
       await h.dispatcher.tick(PID); await flush();  // hold #2 → t2 noted a SECOND time
-      expect(h.svc.get("t2")!.comments.filter((c) => c.author === "system").length).toBe(2);
+      // Si contano le note DI QUESTA guardia, non tutte quelle di sistema: sul
+      // giro libero t1 prende l'unico posto e t2 riceve (giustamente) anche la
+      // riga del tetto pieno, che è un'altra attesa e un altro annuncio.
+      const guardia = h.svc.get("t2")!.comments
+        .filter((c) => c.author === "system" && c.content.includes("Dispatch in attesa"));
+      expect(guardia.length).toBe(2);
     });
 
     it("in-place dispatch on a FREE repo is untouched by the guard", async () => {
