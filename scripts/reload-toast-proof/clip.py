@@ -68,6 +68,28 @@ def activate() -> None:
     sys.exit("ERRORE: davanti c'e' %r, non Topics. Nessuna misura." % frontmost())
 
 
+def schermo_pronto() -> None:
+    """Il banco misura PIXEL: senza uno schermo sbloccato non misura niente.
+
+    A Mac bloccato `screencapture` restituisce un rettangolo tutto nero e
+    System Events non vede nessuna finestra: il banco allora diceva «nessuna
+    finestra di Topics», che manda a cercare il guasto nella app invece che
+    nella sedia vuota davanti al computer. Successo il 13/08/2026, con anche il
+    display esterno staccato.
+
+    Si controlla PRIMA di ogni cosa, e si dice quale delle due manca.
+    """
+    ioreg = subprocess.run(["ioreg", "-n", "Root", "-d1", "-a"],
+                           capture_output=True, text=True, errors="replace").stdout
+    if "CGSSessionScreenIsLocked" in ioreg:
+        i = ioreg.index("CGSSessionScreenIsLocked")
+        if "true" in ioreg[i:i + 120]:
+            sys.exit("FERMO: lo schermo del Mac e' BLOCCATO. Un banco che legge "
+                     "pixel non puo' misurare niente finche' non lo sblocchi: "
+                     "screencapture restituisce solo nero. Non e' un guasto "
+                     "della app.")
+
+
 def rect() -> tuple[int, int, int, int]:
     """La finestra GRANDE, non `window 1`.
 
@@ -82,7 +104,9 @@ def rect() -> tuple[int, int, int, int]:
               'to get {position, size} of every window')
     n = [int(v) for v in re.findall(r"-?\d+", out)]
     if len(n) < 4:
-        sys.exit("ERRORE: nessuna finestra di Topics.")
+        sys.exit("FERMO: Topics e' vivo ma non ha nessuna finestra (zero processi "
+                 "WebContent). Succede quando la finestra stava su un display poi "
+                 "staccato: riaprila prima di misurare.")
     meta = len(n) // 2
     pos, size = n[:meta], n[meta:]
     best, area = None, -1
@@ -138,6 +162,7 @@ def words(path: str) -> list[tuple[int, int, str, float]]:
 
 def tabs(path: str | None = None) -> list[tuple[int, int, str, float]]:
     """La striscia delle tab: i primi ~34px della finestra."""
+    schermo_pronto()
     p = path or os.path.join(HERE, "out", "_tabs.png")
     os.makedirs(os.path.dirname(p), exist_ok=True)
     activate()
@@ -160,6 +185,7 @@ def toast_visible(png: str, r: tuple[int, int, int, int]) -> str:
 
 
 def fire(args) -> int:
+    schermo_pronto()
     out = os.path.join(HERE, "out", args.nome)
     os.makedirs(out, exist_ok=True)
     for old in os.listdir(out):
