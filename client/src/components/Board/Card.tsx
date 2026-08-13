@@ -15,6 +15,8 @@ import { PreviewMedia } from './PreviewMedia';
 import { TaskChoiceRow } from './TaskChoiceRow';
 import { usableQuestionOptions } from './taskChoices';
 import { taskChoiceState } from './taskChoices';
+import { taskActionWord } from './taskActionWords';
+import { useT } from '../../hooks/useT';
 import { stripMarkdown } from '../../lib/stripMarkdown';
 import { PRIORITY_DOT, PRIORITY_LABEL, DISPATCH_CHIP, COMPACT_MD_CLS, mediaPaneIdFor, type LiveUsage, type OpenTask } from './constants';
 import { copyText } from '../../lib/clipboard';
@@ -208,7 +210,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
   // for an agent-driven task the comment PAIR (`selectCardComments`) — the
   // thread's last word as a quick-reply with option buttons when it's a
   // question block and plain text otherwise, plus the human request it answers
-  // (the human must never be asked Approva/Rifiuta blind, nor read an answer
+  // (the human must never be asked Approva/Rimanda indietro blind, nor read an answer
   // whose question is off the card); for ANY review card with steps the direct
   // CHILDREN, expanded on the card as the delivery checklist. Subtasks never
   // ride the board feed (rootsOnly), so the card fetches them itself.
@@ -232,6 +234,15 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
   const { isTouch } = useMobile();
   const cardLongPress = useLongPress(openContextMenuAt, { enabled: isTouch });
   const confirm = useConfirm();
+  const tr = useT();
+  // The context menu offers two of the same actions as the button row (stop,
+  // archive): the words come from the same table, or the card goes back to
+  // calling them two different things depending on where you press.
+  const stopWord = taskActionWord('stop', tr);
+  const dropWord = taskActionWord('drop', tr);
+  // Stessa tavola dell'«Archivia» che sostituisce: una porta e il suo ritorno
+  // non possono chiamarsi in due sistemi diversi.
+  const restoreWord = taskActionWord('restore', tr);
   const isAgentReview = task.status === 'review' && !!task.assignedTopicId;
   // Lo stallo dei sottotask parcheggiati È una domanda, e la fa il SISTEMA: la
   // card può non avere nessun topic legato (il padre era stato rilasciato prima
@@ -261,9 +272,12 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
   // A quick reply whose text IS one of the card's real choices is a trap: the
   // reply rejects the card and restarts the agent with those words, while the
   // button one row below performs the action. Same label, opposite effect.
+  // No `surfaceLabels`: in review the card draws no buttons of its own, only
+  // `TaskChoiceRow`, which `taskChoices` already knows about. The context menu
+  // does not count, it is shut until you open it.
   const replyOptions = useMemo(
-    () => (pending ? usableQuestionOptions(task, pending.options) : []),
-    [pending, task],
+    () => (pending ? usableQuestionOptions(task, pending.options, { t: tr }) : []),
+    [pending, task, tr],
   );
 
   // Route mutations by the task's own projectId (works in the global board too).
@@ -827,9 +841,9 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
                 role="menuitem"
                 disabled={busy}
                 onClick={(e) => { e.stopPropagation(); setCtxMenu(null); stop(); }}
-                title="Interrompe il turno dell'agent. Il task resta sulla board, parcheggiato: riparte solo se lo rimetti in Todo."
+                title={stopWord.title}
                 className={POPOVER_ITEM}
-              ><Square className="h-3.5 w-3.5 fill-current text-rose-400" /> Ferma</button>
+              ><Square className="h-3.5 w-3.5 fill-current text-rose-400" /> {stopWord.label}</button>
             </>
           )}
           <div className={POPOVER_DIVIDER} />
@@ -837,15 +851,16 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
             <button
               role="menuitem"
               onClick={(e) => { e.stopPropagation(); setCtxMenu(null); restore(); }}
-              title="Riporta il task sulla board, nella sua colonna, coi suoi sottotask."
+              title={restoreWord.title}
               className={POPOVER_ITEM}
-            ><ArchiveRestore className="h-3.5 w-3.5 text-app-text-secondary" /> Ripristina</button>
+            ><ArchiveRestore className="h-3.5 w-3.5 text-app-text-secondary" /> {restoreWord.label}</button>
           ) : (
             <button
               role="menuitem"
               onClick={(e) => { e.stopPropagation(); setCtxMenu(null); archive(); }}
+              title={dropWord.title}
               className={POPOVER_ITEM_DANGER}
-            ><Trash2 className="h-3.5 w-3.5" /> Archivia</button>
+            ><Trash2 className="h-3.5 w-3.5" /> {dropWord.label}</button>
           )}
         </ContextMenuPortal>
       )}

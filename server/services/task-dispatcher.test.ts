@@ -8,7 +8,7 @@ import { commitStatusFromRepo } from "./branch-status";
 import { classifyLanding } from "./landing-audit";
 import { PARKED_WAITED_OUT, PREVIEW_CARD_MAX_RATIO, PREVIEW_RULE, WAIT_STREAK_CAP, extractPreviewRule, formatStatusEvent } from "../../shared/board";
 import { toolsForProfile } from "../mcp/topics-mcp-server";
-import { createTaskService, type TaskService } from "./tasks";
+import { createTaskService, LAND_ACTION_LABEL, type TaskService } from "./tasks";
 import { createTaskDispatcher, rotateFrom, type DispatcherDeps } from "./task-dispatcher";
 import { cancelled, type TurnEndInfo } from "../providers/stop-reason";
 import { beginAsk, endAsk } from "../lib/ask-user-bridge";
@@ -2638,6 +2638,91 @@ describe("cancello: non si ridispaccia lavoro già su main", () => {
     expect(chieste).toEqual([]);
     expect(h.task("t1")!.status).toBe("in_progress");
     expect(h.turns.length).toBe(1);
+    h.dispatcher.shutdown();
+  });
+
+  it("REJECTED in review: the delivery drops, the mark stays, and the gate lets it restart", async () => {
+    // The fifth door, and the only one writing the status as raw SQL:
+    // `reviewDecision(reject)`. A rejection left the delivery stamp on the card
+    // and did not mark the reopen, so the gate saw a card still delivered and
+    // still landed. Measured on 13/08 on `d6baaf5e`: the human moved it back to
+    // the queue at 09:05:44.156Z and the system closed it again at
+    // 09:05:50.325Z, six seconds later.
+    //
+    // The other four exits from review go through `update()` and have their
+    // test in tasks.test.ts; this one closes the loop all the way to the gate,
+    // which is where the damage showed.
+    const { h, chieste } = conSonda(true);
+    seedTask(h.db, { id: "t1", status: "review", deliveryBranch: "topics/x", deliveryCommit: "cccc7777".repeat(5) });
+
+    const rejected = h.svc.reviewDecision({ taskId: "t1", by: "attilio", decision: "reject", comment: "cambia rotta" });
+    expect(rejected.status).toBe("in_progress");
+    expect(rejected.deliveryCommit).toBeNull();
+    expect(rejected.deliveryBranch).toBeNull();
+    expect(rejected.reopenedActor).toBe("human");
+    expect(rejected.reopenedBy).toBe("attilio");
+
+    // The dispatcher only claims from `todo`: that is where the card meets the
+    // gate, exactly as it did that day.
+    h.svc.update({ taskId: "t1", actor: "human", by: "attilio", patch: { status: "todo" } });
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    expect(h.task("t1")!.status).toBe("in_progress");
+    expect(h.turns.length).toBe(1);
+    // Git is not even asked: two independent guards (no delivery, human
+    // reopen), and neither of them needs the answer.
+    expect(chieste).toEqual([]);
+    h.dispatcher.shutdown();
+  });
+});
+
+/**
+ * THE DELIVERY CHIP, and why it almost always said "serve te".
+ *
+ * The envelope orders the agent to attach `options=["Landa su main"]` to a
+ * landable delivery, and the service wraps EVERY `options` in a ```question
+ * block. The chip was decided by looking for that fence, so every finished
+ * delivery introduced itself as a question. Measured on 13/08 against the live
+ * board db: 4 of the 8 cards holding the `needs_input` chip were deliveries,
+ * and across the whole thread history 331 of the 437 agent comments carrying
+ * the fence are deliveries, not questions. Whoever looked at the board had no
+ * way to tell the real questions from the rest.
+ */
+describe("chip at delivery: delivery versus question", () => {
+  /** Drives a card to end-of-turn in review, with the agent's last word set. */
+  async function consegna(h: ReturnType<typeof harness>, content: string, options?: string[]) {
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    h.svc.addComment({ taskId: "t1", author: "claude", content, questionOptions: options });
+    h.svc.update({ taskId: "t1", actor: "agent", by: "claude", patch: { status: "review" } });
+    h.finishTurn();
+    await flush();
+  }
+
+  it("«Landa su main» as the only option: a DELIVERY, chip `delivered`", async () => {
+    const h = harness();
+    await consegna(h, "Fatto: sei cancelli verdi, commit sul branch.", [LAND_ACTION_LABEL]);
+    expect(h.task("t1")!.status).toBe("review");
+    expect(h.task("t1")!.dispatchState).toBe("delivered");
+    h.dispatcher.shutdown();
+  });
+
+  it("MIXED question: one option the system cannot run and the chip stays `needs_input`", async () => {
+    // The case the fix must not run over: "Landa su main" next to an option
+    // that asks for a choice is still a question, and the card says so.
+    const h = harness();
+    await consegna(h, "Ho finito, ma il nome del flag non mi convince.", [LAND_ACTION_LABEL, "Aspetta, ho un dubbio"]);
+    expect(h.task("t1")!.dispatchState).toBe("needs_input");
+    h.dispatcher.shutdown();
+  });
+
+  it("a real question with no action labels stays `needs_input`", async () => {
+    const h = harness();
+    await consegna(h, "Quale approccio uso?", ["JWT in cookie", "Bearer token"]);
+    expect(h.task("t1")!.dispatchState).toBe("needs_input");
     h.dispatcher.shutdown();
   });
 });

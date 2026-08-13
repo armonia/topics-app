@@ -22,7 +22,7 @@
  *  - wall-clock timeout per turn; turn-end reconciliation requeues (bounded by
  *    the retry cap) or parks a task that ended without reaching `review`.
  */
-import { LAND_ACTION_LABEL, UNASSIGNED_PROJECT_ID, type Task, type TaskService } from "./tasks";
+import { LAND_ACTION_LABEL, UNASSIGNED_PROJECT_ID, commentAsksHuman, type Task, type TaskService } from "./tasks";
 import { ZERO_USAGE, type SessionUsage } from "./transcript-usage";
 import { onHumanHoldChange } from "../lib/human-hold-events";
 import type { TaskAttemptStore } from "./task-attempts";
@@ -1908,20 +1908,24 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // the tick will re-dispatch once the window passes. NOT a delivery, NOT a fail.
     if (cur.status === "todo" && cur.dispatchState === CHIP_WAITING) return;
     if (cur.status === "review") {
-      // It's the human's now — but distinguish WHY: a question block as the
-      // agent's last word = "serve te" (decision required); anything else =
-      // "delivered" (the agent believes it's done, ready to approve). Binding
-      // stays for the deep-link and the resume-on-answer path either way.
+      // It's the human's now — but distinguish WHY: a question as the agent's
+      // last word = "serve te" (decision required); anything else = "delivered"
+      // (the agent believes it's done, ready to approve). Binding stays for the
+      // deep-link and the resume-on-answer path either way.
       // (The agent already summarised THIS turn: the review_needs_summary gate
       // rejects a self-delivery without a fresh comment, so the thread is never
       // mute here and the chip detection below reads real, current words.)
+      //
+      // The test is `commentAsksHuman`, not the presence of the fence: this very
+      // envelope orders a landable delivery to attach `options=["Landa su main"]`,
+      // so reading the fence chipped every finished delivery "serve te".
       let chip = CHIP_NEEDS_INPUT;
       try {
         const comments = deps.svc.get(taskId)?.comments ?? [];
         // kind='status' rows are transition events, not the agent speaking —
         // "the agent's last word" must be an actual comment.
         const lastAgent = [...comments].reverse().find((c) => c.author !== "user" && c.author !== "system" && c.kind === "comment");
-        if (lastAgent && !lastAgent.content.includes("```question")) chip = CHIP_DELIVERED;
+        if (lastAgent && !commentAsksHuman(lastAgent.content)) chip = CHIP_DELIVERED;
       } catch { /* default to needs_input */ }
       try { emit(deps.svc.setDispatchState({ taskId, state: chip })); } catch { /* best-effort */ }
       // Review-ready preview: boot a live server from the worktree, set output_url

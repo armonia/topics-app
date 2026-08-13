@@ -70,7 +70,6 @@ const IT: Dict = {
   'tab.menu.pin': 'Fissa',
   'tab.menu.unpin': 'Rimuovi dai Fissati',
   'board.task.movedToReviewBySystem': 'Portato in review dal sistema.',
-  'board.task.reject': 'Rifiuta',
   // ── SCHEDA contro SESSIONE. Sono due superfici diverse e da qui in poi si
   //    chiamano diversamente, ovunque. La SCHEDA del task è dove si decide
   //    (descrizione, checklist, consegna, thread) ed esiste sempre; la SESSIONE
@@ -103,16 +102,63 @@ const IT: Dict = {
   'common.none': 'Nessuno',
   'board.task.noOtherTasks': 'Nessun altro task su questa board.',
   'board.task.deliveredFiles': 'File consegnati',
-  'board.task.landOnMain': 'Landa su main',
   'board.task.proposedPlan': 'Piano proposto',
   'board.task.noPreviewForType': 'Nessuna anteprima per questo tipo di file.',
   'board.task.openInBrowser': 'Apri nel browser',
+  // ── ONE WORD PER ACTION. These keys ARE the table in
+  //    `Board/taskActionWords.ts`, read by EVERY surface that offers the action:
+  //    the card's button row, the card's context menu and the drawer. Each
+  //    surface used to have its own — on the same card the menu said
+  //    «Ferma»/«Archivia» while the row said «Fermati»/«Non serve più», and
+  //    approving was «Va bene» on the card and «Approva» in the drawer.
+  //    Rule for whoever adds one: one action, one label key, one tooltip key,
+  //    and the tooltip names the column the task ends up in.
+  //    A variant that changes the WORD on screen (red checks, a missing agent)
+  //    belongs in this table too, as a second key pair: the de-duplicator can
+  //    only subtract words the table knows.
+  'board.action.land': 'Landa su main',
+  'board.action.land.title': "Accetta il task e fondi il suo ramo su main (locale, nessun push). L'esito arriva nel thread.",
+  'board.action.accept': 'Approva',
+  // `{land}` is the `land` label taken from this same table: naming the other
+  // button by copying its text by hand is how two words drift apart again.
+  'board.action.accept.title': 'Accetta la consegna e chiudi il task. NON fa il merge: per portare il ramo su main usa «{land}».',
+  // Same action with the pre-review checks RED: the word on the button changes,
+  // so the word belongs in the table like the others. Outside it the
+  // de-duplicator did not know it, and let a quick reply reading «Approva
+  // comunque» stand next to the identical real button (which instead rejects).
+  'board.action.accept.anyway': 'Approva comunque',
+  'board.action.accept.anyway.title': "I checks pre-review sono rossi: approvando lo accetti comunque. La strada normale è «{sendBack}», che rimanda l'output all'agent.",
+  'board.action.sendBack': 'Rimanda indietro',
+  'board.action.sendBack.title': "Torna all'agente, che riparte sullo stesso tab. Scrivi nel campo qui sotto per dargli un'indicazione.",
+  // Same word, different destination: with no agent bound there is no tab to
+  // restart, and the task goes back to In Progress in the human's hands.
+  'board.action.sendBack.noAgent.title': 'Nessun agente da riprendere: il task torna In Progress, in mano a te. Scrivi nel campo qui sotto per lasciare una nota.',
+  'board.action.redo': 'Rifai così…',
+  'board.action.redo.title': "Rimanda all'agente con un'indicazione: porta il cursore nel commento qui sotto.",
+  'board.action.redo.noAgent.title': "Nessun agente da riprendere: il task torna In Progress con la tua indicazione. Porta il cursore nel commento qui sotto.",
+  'board.action.takeOver': 'Serve a me',
+  'board.action.takeOver.title': "Esce dal giro dell'agente: il task torna in corso, assegnato a te.",
+  'board.action.stop': 'Ferma',
+  'board.action.stop.title': "Interrompe il turno dell'agente e parcheggia il task in Backlog: non riparte finché non lo rimetti in Todo.",
+  'board.action.deliverNow': 'Consegna quello che hai',
+  'board.action.deliverNow.title': "Chiede all'agente di chiudere adesso con quello che ha già fatto e mandare il task in review.",
+  'board.action.drop': 'Archivia',
+  'board.action.drop.title': 'Archivia il task: esce dalla board e resta fra gli archiviati, da dove si ripristina.',
+  'board.action.restore': 'Ripristina',
+  'board.action.restore.title': 'Riporta il task sulla board, nella sua colonna, coi suoi sottotask.',
+  'board.archive.show': 'Mostra i task archiviati',
+  'board.archive.hide': 'Torna alla board',
+  'board.archive.banner': 'Archivio: {count} task, nelle loro colonne. Menu della card (tasto destro, o pressione lunga) → «{restore}».',
+  'board.action.unblock': 'Sblocca',
+  'board.action.unblock.title': 'Togli il legame e manda il task in Todo, così può partire.',
+  'board.action.unblock.named': 'Sblocca: {name}',
+  'board.action.unblock.namedTitle': 'Non aspetta più «{name}»: togli il legame e manda il task in Todo, così può partire.',
+  'board.action.unlink': 'Togli il legame',
+  'board.action.unlink.title': "Toglie l'attesa lasciando il task dov'è (resta fermo finché non lo muovi).",
   // ── TaskDetail (drawer): azioni, chip, sottotask, pannello impostazioni board.
   //    I valori IT sono IDENTICI ai letterali di prima, così l'app in italiano
   //    non cambia una virgola e le spec e2e che ancorano quel testo restano
   //    verdi; l'inglese è il nuovo. Chi arriva dopo aggiunge chiavi, non riscrive.
-  'board.task.stopAgent': 'Ferma',
-  'board.task.stopAgentTitle': "Ferma l'agent (il task torna in Backlog con il motivo)",
   'board.task.dispatch.queued': 'in coda…',
   'board.task.dispatch.starting': 'avvio agent…',
   'board.task.dispatch.working': 'agent al lavoro…',
@@ -154,8 +200,6 @@ const IT: Dict = {
   'board.task.removeTabTitle': 'Rimuovi la scheda',
   'board.task.subtasksLabel': 'Sottotask',
   'board.task.addSubtaskPlaceholder': '+ sottotask…',
-  'board.task.approve': 'Approva',
-  'board.task.approveAnyway': 'Approva comunque',
   'board.task.removeAttachmentTitle': 'Rimuovi allegato',
   'board.task.attachFileTitle': "Allega file (o incolla un'immagine nel campo)",
   // La riga di ritorno in cima alla chat di una sessione di board: da dove si
@@ -170,10 +214,6 @@ const IT: Dict = {
   'board.task.serviceNotes': 'righe di servizio',
   'board.task.serviceNotesTitle': 'Contabilità del dispatcher (riavvii, attese in coda, tentativi). Apri per leggerle tutte, in ordine.',
   'board.task.streamPreviewTitle': 'Anteprima live di ciò che sta streammando ora',
-  'board.task.approveTitle': "Accetta e completa il task. NON fa il merge. Per landare il branch su main usa 'Landa su main'.",
-  'board.task.approveFailTitle': "I checks pre-review sono rossi: approvando lo accetti comunque. La strada normale è Rifiuta, che rimanda l'output all'agent.",
-  'board.task.rejectTitle': "Rifiuta (l'agent riparte senza indicazioni)",
-  'board.task.landTitle': "Accetta e fai il merge del branch su main (locale, nessun push online). La build gira lato server; l'esito appare nel thread.",
   'board.task.recapturePreview': 'Ricattura evidenza',
   'board.task.recapturePreviewTitle': "Rifà l'anteprima di questa card: riavvia il server dal suo worktree e la rifotografa. NON sveglia l'agent e non consuma un tentativo. Se non è possibile, il motivo arriva nel thread.",
   'board.task.replyPlaceholder': "Rispondi all'agent…",
@@ -203,9 +243,10 @@ const IT: Dict = {
   'board.task.checks.at': 'alle {t}',
   'board.task.checks.notStarted': 'non è partito',
   'board.task.checks.timedOut': 'oltre il tempo massimo',
-  // Il consiglio è spezzato in due perché in mezzo c'è <b>Rifiuta</b>, che è la
-  // STESSA etichetta del bottone (`board.task.reject`): ripeterla dentro una
-  // frase intera vorrebbe dire poterla tradurre in due modi diversi.
+  // The hint is split in two because the send-back word goes in the middle, in
+  // bold. It is the SAME word as the button (`board.action.sendBack`, read
+  // through `taskActionWord`): spelling it inside a whole sentence would mean
+  // being able to translate it two different ways.
   'board.task.checks.hintLead': 'La strada normale è',
   'board.task.checks.hintTail': ": l'agent riparte con questo output. Approvare qui significa accettarlo rosso.",
   'board.task.changes': 'Modifiche',
@@ -259,8 +300,13 @@ const IT: Dict = {
   'board.settings.fanoutTitle': 'Quanti agent lavorano LO STESSO task in parallelo, ognuno nel suo worktree. A fine giro il task entra in review con il confronto dei tentativi e scegli tu quale tenere: gli altri (worktree, branch e chat) vengono buttati. Costa N volte: N agent veri, N slot del tetto di concorrenza. Richiede il worktree attivo.',
   'board.settings.fanoutWarn': 'Ogni task in Todo parte {n} volte e occupa {n} slot del tetto: il conto dei token si moltiplica per {n}.',
   'board.settings.notRepoWarn': 'Questo progetto non è un repo git: con «worktree isolato» acceso ogni task verrà bloccato. Spegnilo per eseguire in-place, oppure inizializza un repo nella cartella del progetto.',
-  'board.settings.autoMerge': 'Auto-merge su Approva',
-  'board.settings.autoMergeTitle': "Su Approva, mergia il branch del task in main nel checkout principale. Merge pulito → landa in locale (niente push); conflitto → rimanda all'agent del task; checkout sporco o non su main → salta con un commento. Richiede il worktree attivo.",
+  // No longer "su Approva": Approve does not merge, and must not. The merge is
+  // decoupled from acceptance (server/routes/tasks.ts, "approve decoupled from
+  // landing"), so this switch has exactly one automatic effect left, entering
+  // Done. The label names it for what it does, and the note a card receives
+  // when the merge is skipped quotes this same sentence.
+  'board.settings.autoMerge': 'Fondi su main quando la card arriva in Done',
+  'board.settings.autoMergeTitle': "Quando una card con un branch di consegna entra in Done (trascinata, spostata dal menu, o chiusa dal sistema), mergia il suo branch in main nel checkout principale. Merge pulito → landa in locale (niente push); conflitto → rimanda all'agent del task; checkout sporco o non su main → salta con un commento. Spento: la card si chiude e una nota nel thread dice dov'è rimasto il lavoro. Approva non fonde in nessuno dei due casi: per quello c'è il bottone «Landa su main». Richiede il worktree attivo.",
   'board.settings.fullMcp': 'Fleet MCP completa per gli agent',
   'board.settings.fullMcpTitle': "Bridge only: l'agent ha solo i tool di Topics (task + browser), quindi meno token per turno. Fleet completa: eredita tutti gli MCP dell'utente (exa, gateway e gli altri), utile solo se i task usano quei tool.",
   'board.settings.dispatchOnActive': 'Attivo: spostare un task in Todo avvierà un agent con permessi pieni.',
@@ -273,6 +319,10 @@ const IT: Dict = {
   'board.publish.diffTitle': 'Diff che verrà pubblicato',
   'board.publish.loadingDiff': 'Carico il diff…',
   'board.publish.diffError': 'Errore nel caricare il diff.',
+  // A move that does not land where the hand aimed it: see `manualStatusTarget`.
+  // Same sentence for all three doors (drag, the drawer's "move to", the inline
+  // composer), because it is the same rule.
+  'board.drop.inProgressRedirected': 'In Progress non ha una coda: il task lavora da Todo, che è da dove il dispatcher lo prende.',
   'board.dispatch.allBoards': 'Dispatch di tutte le board',
   'board.dispatch.parallelAuto': 'Numero automatico',
   'board.dispatch.oneMachine': 'Vale su TUTTE le board (una sola macchina, un solo limite).',
@@ -632,7 +682,6 @@ const EN: Dict = {
   'tab.menu.pin': 'Pin',
   'tab.menu.unpin': 'Unpin',
   'board.task.movedToReviewBySystem': 'Moved to review by the system.',
-  'board.task.reject': 'Reject',
   // CARD vs SESSION — see the Italian block for the rule. The card is where you
   // decide and always exists; the session is the agent's live chat, where the
   // work happens, and it can be gone.
@@ -661,12 +710,40 @@ const EN: Dict = {
   'common.none': 'None',
   'board.task.noOtherTasks': 'No other task on this board.',
   'board.task.deliveredFiles': 'Delivered files',
-  'board.task.landOnMain': 'Land on main',
   'board.task.proposedPlan': 'Proposed plan',
   'board.task.noPreviewForType': 'No preview for this file type.',
   'board.task.openInBrowser': 'Open in the browser',
-  'board.task.stopAgent': 'Stop',
-  'board.task.stopAgentTitle': 'Stop the agent (the task goes back to Backlog with the reason)',
+  'board.action.land': 'Land on main',
+  'board.action.land.title': 'Accept the task and merge its branch into main (local, no push). The result shows up in the thread.',
+  'board.action.accept': 'Approve',
+  'board.action.accept.title': 'Accept the delivery and close the task. It does NOT merge: to bring the branch onto main use «{land}».',
+  'board.action.accept.anyway': 'Approve anyway',
+  'board.action.accept.anyway.title': 'The pre-review checks are red: approving accepts it anyway. The normal path is «{sendBack}», which sends the output back to the agent.',
+  'board.action.sendBack': 'Send it back',
+  'board.action.sendBack.title': 'Back to the agent, which restarts on the same tab. Write in the field below to give it a direction.',
+  'board.action.sendBack.noAgent.title': 'No agent to resume: the task goes back to In Progress, in your hands. Write in the field below to leave a note.',
+  'board.action.redo': 'Redo it like this…',
+  'board.action.redo.title': 'Back to the agent with a direction: puts the cursor in the comment below.',
+  'board.action.redo.noAgent.title': 'No agent to resume: the task goes back to In Progress with your direction. Puts the cursor in the comment below.',
+  'board.action.takeOver': 'I take it',
+  'board.action.takeOver.title': 'Leaves the agent loop: the task goes back in progress, assigned to you.',
+  'board.action.stop': 'Stop',
+  'board.action.stop.title': 'Interrupts the agent turn and parks the task in Backlog: it does not restart until you put it back in Todo.',
+  'board.action.deliverNow': 'Deliver what you have',
+  'board.action.deliverNow.title': 'Asks the agent to close now with what it already did and move the task to review.',
+  'board.action.drop': 'Archive',
+  'board.action.drop.title': 'Archives the task: it leaves the board and stays among the archived ones, where it can be restored.',
+  'board.action.restore': 'Restore',
+  'board.action.restore.title': 'Puts the task back on the board, in its column, with its subtasks.',
+  'board.archive.show': 'Show archived tasks',
+  'board.archive.hide': 'Back to the board',
+  'board.archive.banner': 'Archive: {count} tasks, in their columns. Card menu (right click, or long press) → «{restore}».',
+  'board.action.unblock': 'Unblock',
+  'board.action.unblock.title': 'Remove the link and send the task to Todo, so it can start.',
+  'board.action.unblock.named': 'Unblock: {name}',
+  'board.action.unblock.namedTitle': 'It no longer waits for «{name}»: remove the link and send the task to Todo, so it can start.',
+  'board.action.unlink': 'Remove the link',
+  'board.action.unlink.title': 'Removes the wait, leaving the task where it is (it stays put until you move it).',
   'board.task.dispatch.queued': 'queued…',
   'board.task.dispatch.starting': 'starting agent…',
   'board.task.dispatch.working': 'agent working…',
@@ -708,8 +785,6 @@ const EN: Dict = {
   'board.task.removeTabTitle': 'Remove the tab',
   'board.task.subtasksLabel': 'Subtasks',
   'board.task.addSubtaskPlaceholder': '+ subtask…',
-  'board.task.approve': 'Approve',
-  'board.task.approveAnyway': 'Approve anyway',
   'board.task.removeAttachmentTitle': 'Remove attachment',
   'board.task.attachFileTitle': 'Attach a file (or paste an image into the field)',
   'chat.session.taskLabel': 'Task',
@@ -722,10 +797,6 @@ const EN: Dict = {
   'board.task.serviceNotes': 'service notes',
   'board.task.serviceNotesTitle': 'Dispatcher bookkeeping (restarts, queue holds, retries). Open to read them all, in order.',
   'board.task.streamPreviewTitle': 'Live preview of what it is streaming now',
-  'board.task.approveTitle': "Accept and complete the task. It does NOT merge. To land the branch on main use 'Land on main'.",
-  'board.task.approveFailTitle': "The pre-review checks are red: approving accepts it anyway. The normal path is Reject, which sends the output back to the agent.",
-  'board.task.rejectTitle': 'Reject (the agent restarts with no guidance)',
-  'board.task.landTitle': 'Accept and merge the branch into main (local, no online push). The build runs server-side; the result shows up in the thread.',
   'board.task.recapturePreview': 'Recapture evidence',
   'board.task.recapturePreviewTitle': "Rebuild this card's preview: reboot the server from its worktree and shoot it again. It does NOT wake the agent and burns no attempt. If it can't be done, the reason lands in the thread.",
   'board.task.replyPlaceholder': 'Reply to the agent…',
@@ -791,8 +862,8 @@ const EN: Dict = {
   'board.settings.fanoutTitle': 'How many agents work the SAME task in parallel, each in its own worktree. At the end the task enters review with the attempts side by side and you pick which to keep: the others (worktree, branch and chat) are thrown away. It costs N times over: N real agents, N slots of the concurrency cap. Requires the worktree active.',
   'board.settings.fanoutWarn': 'Each task in Todo starts {n} times and takes {n} slots of the cap: the token bill multiplies by {n}.',
   'board.settings.notRepoWarn': 'This project is not a git repo: with «isolated worktree» on, every task will be blocked. Turn it off to run in-place, or initialize a repo in the project folder.',
-  'board.settings.autoMerge': 'Auto-merge on Approve',
-  'board.settings.autoMergeTitle': "On Approve, merges the task's branch into main in the primary checkout. Clean merge → lands locally (no push); conflict → sends it back to the task's agent; dirty checkout or not on main → skips with a comment. Requires the worktree active.",
+  'board.settings.autoMerge': 'Merge into main when a card reaches Done',
+  'board.settings.autoMergeTitle': "When a card carrying a delivery branch enters Done (dragged, moved from the menu, or closed by the system), merges its branch into main in the primary checkout. Clean merge → lands locally (no push); conflict → sends it back to the task's agent; dirty checkout or not on main → skips with a comment. Off: the card closes and a note in the thread says where the work stayed. Approve never merges either way: the \"Landa su main\" button is what does that. Requires the worktree active.",
   'board.settings.fullMcp': 'Full Fleet MCP for the agents',
   'board.settings.fullMcpTitle': "Bridge only: the agent has only Topics' tools (task + browser), so fewer tokens per turn. Full fleet: inherits all of the user's MCPs (exa, gateway and the rest), useful only if the tasks use those tools.",
   'board.settings.dispatchOnActive': 'Active: moving a task to Todo will start an agent with full permissions.',
@@ -805,6 +876,7 @@ const EN: Dict = {
   'board.publish.diffTitle': 'Diff that will be published',
   'board.publish.loadingDiff': 'Loading the diff…',
   'board.publish.diffError': 'Could not load the diff.',
+  'board.drop.inProgressRedirected': 'In Progress has no queue: the task works from Todo, which is where the dispatcher picks it up.',
   'board.dispatch.allBoards': 'Dispatch for every board',
   'board.dispatch.parallelAuto': 'Automatic count',
   'board.dispatch.oneMachine': 'Applies to EVERY board (one machine, one limit).',
