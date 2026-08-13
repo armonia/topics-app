@@ -27,6 +27,7 @@ import { computeCascade } from "./server/services/pane-retirement-cascade";
 import { createOpenRouter } from "./server/routes/open";
 import { configureSessionParkingForTracker, parkTopicSession } from "./server/lib/session-parking";
 import { setUploadRootsProvider } from "./server/browser-tool-dispatcher";
+import { setLocalFileServing } from "./server/browser-local-file-url";
 import { uploadAllowedRoots, parseExtraRoots } from "./server/lib/upload-allowlist";
 import { createVoiceRouter } from "./server/routes/voice";
 import { createMediaRouter } from "./server/routes/media";
@@ -50,7 +51,7 @@ import { resolveWorktreeBaseRef } from "./server/services/worktree-base-ref";
 import { createExternalSessionsRouter } from "./server/routes/external-sessions";
 import { createTaskDispatcher } from "./server/services/task-dispatcher";
 import { refreshLiveJobQuotas } from "./server/services/agent-job-quota";
-import { computeDispatchCapacity } from "./server/services/dispatch-capacity";
+import { computeDispatchCapacity, dispatchResourceBlock } from "./server/services/dispatch-capacity";
 import { fleetLoadSync } from "./server/lib/fleet-usage";
 import { buildBranchInventory, summarizeInventory } from "./server/services/branch-inventory";
 import { createTaskAutoMerge, worktreeRealDirt } from "./server/services/task-automerge";
@@ -1069,6 +1070,11 @@ const taskDispatcher = createTaskDispatcher({
   // dispacciato lasciava dietro un badge di non letti su una conversazione non
   // più apribile e un id fantasma in `ui_state` che risuscitava al reload.
   archiveTopic: retirementConsequences.archiveTopic,
+  // Il pavimento sulle risorse, misurato sul volume che ospita davvero le
+  // worktree. Serve da quando il tetto sugli agenti si può togliere: senza,
+  // «nessun limite» vuol dire che la coda si ferma a disco pieno, cioè quando
+  // le scritture del DB cominciano a fallire.
+  resourceBlock: () => dispatchResourceBlock(ctx.worktreeManager.worktreesDir()),
   createWorktree: async (projectStoreId) => {
     // Il ramo di una card nasce da MAIN, non dall'HEAD del checkout condiviso:
     // con `HEAD` il worktree ereditava il ramo di chi stava lavorando qui, e da
@@ -3205,6 +3211,25 @@ const opzioniServer = {
 } satisfies Parameters<typeof Bun.serve<WSData>>[0];
 
 const server = Bun.serve<WSData>(opzioniServer);
+
+// Da qui in poi un file locale si può MOSTRARE senza che nessuno navighi su
+// `file://`: l'agente chiede il file, la pane va su `/api/media` di questo
+// server (browser-local-file-url.ts). Cablato DOPO Bun.serve perché la porta va
+// chiesta al server — con `PORT=0` quella in configurazione non esiste, e un
+// URL con la porta sbagliata sarebbe di nuovo una pane bianca, solo più
+// difficile da capire. Il permesso non è nuovo: è quello di `/api/media`.
+// Senza una porta vera non si cabla niente: meglio il rifiuto di prima che un
+// URL con la porta sbagliata, che sarebbe di nuovo una pane bianca.
+if (typeof server.port === "number") {
+  setLocalFileServing({
+    isPathAllowed: (p: string) => ctx.isPathAllowed(p),
+    resolveProjectPath: (p: string) => ctx.resolveProjectPath(p),
+    exists: (p: string) => existsSync(p),
+    // Lo schema segue `useTls`: qui il server è in TLS, e un `http://` verso
+    // 3333 non risponde affatto (ERR_EMPTY_RESPONSE, cioè pane bianca).
+    origin: `${useTls ? "https" : "http"}://127.0.0.1:${server.port}`,
+  });
+}
 
 /**
  * L'ascoltatore del TUNNEL, se configurato.
