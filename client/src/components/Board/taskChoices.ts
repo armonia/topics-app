@@ -15,15 +15,18 @@
  * L'esecuzione sta in `TaskChoices.tsx`, uno solo per card e drawer.
  */
 
-import { isAgentWorking, type BoardTask } from '../../lib/board';
-import { taskActionWord, unblockWord, type TaskActionId, type Translate } from './taskActionWords';
+import { isAgentWorking, normalizeActionLabel, type BoardTask } from '../../lib/board';
+import {
+  fallbackTranslate, redoWord, sendBackWord, taskActionWord, unblockWord,
+  type TaskActionId, type Translate,
+} from './taskActionWords';
 
 export type { Translate };
 
 /**
- * Le parole NON stanno qui: stanno in `taskActionWords.ts`, una sola volta,
- * perché le stesse azioni le disegnano anche il menu contestuale della card e i
- * bottoni propri del drawer. Qui si decide COSA si può fare, non come si chiama.
+ * The words are NOT here: they live in `taskActionWords.ts`, once, because the
+ * card's context menu and the drawer's own buttons draw the same actions. This
+ * file decides WHAT can be done, not what it is called.
  */
 export type TaskChoiceId = TaskActionId;
 
@@ -88,13 +91,26 @@ export function taskChoices(
   /** Words from the one table; only the tone and `needsText` belong to this file. */
   const say = (id: TaskChoiceId, tone: TaskChoice['tone'], needsText?: true): TaskChoice =>
     ({ id, tone, ...(needsText ? { needsText } : {}), ...taskActionWord(id, tr) });
+  /** Same, for the two whose TOOLTIP depends on there being an agent to go back to. */
+  const toAgent = !!task.assignedTopicId;
   let out: TaskChoice[] = [];
   switch (state) {
     case 'review-branch':
-      out = [say('land', 'primary'), say('send-back', 'neutral'), say('take-over', 'neutral')];
+      out = [
+        say('land', 'primary'),
+        { id: 'send-back', tone: 'neutral', ...sendBackWord(toAgent, tr) },
+        say('take-over', 'neutral'),
+      ];
       break;
     case 'review-plain':
-      out = [say('accept', 'primary'), say('redo', 'neutral', true), say('drop', 'danger')];
+      out = [
+        say('accept', 'primary'),
+        // «Rifai così…» on a review a human filed by hand has no agent to hand
+        // anything to: same word, and a tooltip that names where the task
+        // really goes instead of an agent that is not there.
+        { id: 'redo', tone: 'neutral', needsText: true, ...redoWord(toAgent, tr) },
+        say('drop', 'danger'),
+      ];
       break;
     case 'working':
       out = [say('stop', 'neutral'), say('deliver-now', 'primary')];
@@ -115,27 +131,35 @@ export function taskChoices(
   return excluded && excluded.length ? out.filter((c) => !excluded.includes(c.id)) : out;
 }
 
-/** Normalised form used to compare a quick-reply option with a choice label. */
+/**
+ * Two labels are the same door.
+ *
+ * `normalizeActionLabel` is the SERVER's own comparison (`shared/board.ts`): it
+ * is what decides whether a picked option is the reserved «Landa su main», so
+ * the board subtracts exactly the options the server would treat as that
+ * action, decoration and all — the model likes to prepend a 🚀, and a de-dup
+ * that a rocket defeats is not a de-dup.
+ */
 function sameLabel(a: string, b: string): boolean {
-  const norm = (s: string) =>
-    s.trim().toLowerCase().replace(/[.!…]+$/u, '').replace(/\s+/gu, ' ');
-  return norm(a) === norm(b);
+  return normalizeActionLabel(a) === normalizeActionLabel(b);
 }
 
 /**
  * The agent's quick-reply options, minus the ones that collide with a real
  * choice for this task.
  *
- * A quick reply and a choice look identical and do OPPOSITE things: the reply is
- * a reject carrying that text, so the agent restarts; the choice performs the
- * action. Measured on card c57e1aa4 (2026-08-13): the agent's question block
- * offered "Landa su main" as its only option, and the card drew it right above
- * the green "Landa su main" that actually merges the branch. Pressing the top
- * one did not land anything, it bounced the card back to the agent with the
- * words "Landa su main" as an instruction.
+ * A quick reply and a choice look identical, and what the reply does depends on
+ * a list the human cannot see. Picking one sends a REJECT carrying its text
+ * (`POST …/review`), and the route intercepts exactly four reserved strings
+ * before the reject happens (`LAND_ACTION_LABEL` and friends, `shared/board.ts`)
+ * and executes them instead. So a «Landa su main» twin is a redundant second
+ * copy of the button below it, while a twin of any word OUTSIDE that list does
+ * the OPPOSITE of the button it is impersonating: «Approva» next to the real
+ * Approva rejects the card and restarts the agent with the word "Approva" as
+ * its instruction (still in the DB, comment 2eff6a44).
  *
- * Dropping the collision is safe by construction: the real button is already
- * there, one row below, doing what its label says.
+ * Dropping the collision is safe either way: the real button is already there,
+ * one row below, doing what its label says.
  *
  * `exclude` means "this surface does not render that action from the choice
  * row". It is NOT the same as "the surface does not draw it": the drawer
@@ -148,6 +172,17 @@ function sameLabel(a: string, b: string): boolean {
  * So a surface also passes `surfaceLabels`: the words IT draws on its own. The
  * de-duplicator can only be right about what is on the screen if it is told
  * everything that is on the screen.
+ *
+ * ── And it compares in TWO languages, on purpose ─────────────────────────────
+ * The options are written by the AGENT, in the fallback locale by construction:
+ * the server matches «Landa su main» by value, untranslated (`LAND_ACTION_LABEL`
+ * in `shared/board.ts`), and the envelope is written in that language too. The
+ * buttons, since they became translatable, are not. So under locale `en` the
+ * button read "Land on main", the option still read «Landa su main», the
+ * comparison found nothing, and the twin was back on the screen next to the
+ * real button. Comparing the surface word ALONE only ever worked in one locale
+ * — it worked before by accident, because the labels here were Italian
+ * literals.
  */
 export function usableQuestionOptions(
   task: Pick<BoardTask,
@@ -157,6 +192,9 @@ export function usableQuestionOptions(
 ): string[] {
   const labels = [
     ...taskChoices(task, opts).map((c) => c.label),
+    // The same choices said the way the agent says them. `surfaceLabels` is
+    // expected to carry both names already (see `drawerSurfaceLabels`).
+    ...taskChoices(task, { ...opts, t: fallbackTranslate }).map((c) => c.label),
     ...(opts?.surfaceLabels ?? []),
   ];
   return options.filter((o) => !labels.some((l) => sameLabel(o, l)));
