@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { taskChoices, taskChoiceState, type TaskChoiceId } from './taskChoices';
+import { taskChoices, taskChoiceState, usableQuestionOptions, type TaskChoiceId } from './taskChoices';
 import type { BoardTask } from '../../lib/board';
 
 type ChoiceInput = Parameters<typeof taskChoices>[0];
@@ -119,5 +119,45 @@ describe('taskChoices', () => {
         expect(c.title.trim().length).toBeGreaterThan(10);
       }
     }
+  });
+});
+
+describe('usableQuestionOptions', () => {
+  // A delivered card with a branch: its real choices are
+  // "Landa su main" / "Rimanda indietro" / "Serve a me".
+  const consegnata = {
+    status: 'review' as const,
+    assignedTopicId: 'topic-1',
+    deliveryBranch: 'topics/x',
+    dispatchState: null,
+    blockedByTaskId: null,
+    blockedBy: null,
+  };
+
+  it('drops an option that collides with a real choice', () => {
+    // The measured case (card c57e1aa4): the agent offered "Landa su main" as
+    // its only option, drawn right above the button that actually merges.
+    expect(usableQuestionOptions(consegnata, ['Landa su main'])).toEqual([]);
+  });
+
+  it('keeps options that are genuinely answers', () => {
+    expect(usableQuestionOptions(consegnata, ['Sì', 'No, rifai il ritaglio']))
+      .toEqual(['Sì', 'No, rifai il ritaglio']);
+  });
+
+  it('matches ignoring case, spacing and trailing punctuation', () => {
+    expect(usableQuestionOptions(consegnata, ['  landa   su MAIN.  ', 'Altro'])).toEqual(['Altro']);
+  });
+
+  it('honours the same exclude the surface uses', () => {
+    // The drawer hides `land` from the choice row because it draws its own
+    // button; the option must still be dropped, or the drawer shows the pair.
+    expect(usableQuestionOptions(consegnata, ['Landa su main'], { exclude: ['land'] }))
+      .toEqual(['Landa su main']);
+  });
+
+  it('leaves everything alone when the task has no choices', () => {
+    const chiusa = { ...consegnata, status: 'done' as const };
+    expect(usableQuestionOptions(chiusa, ['Landa su main'])).toEqual(['Landa su main']);
   });
 });
