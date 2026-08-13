@@ -259,8 +259,13 @@ const IT: Dict = {
   'board.settings.fanoutTitle': 'Quanti agent lavorano LO STESSO task in parallelo, ognuno nel suo worktree. A fine giro il task entra in review con il confronto dei tentativi e scegli tu quale tenere: gli altri (worktree, branch e chat) vengono buttati. Costa N volte: N agent veri, N slot del tetto di concorrenza. Richiede il worktree attivo.',
   'board.settings.fanoutWarn': 'Ogni task in Todo parte {n} volte e occupa {n} slot del tetto: il conto dei token si moltiplica per {n}.',
   'board.settings.notRepoWarn': 'Questo progetto non è un repo git: con «worktree isolato» acceso ogni task verrà bloccato. Spegnilo per eseguire in-place, oppure inizializza un repo nella cartella del progetto.',
-  'board.settings.autoMerge': 'Auto-merge su Approva',
-  'board.settings.autoMergeTitle': "Su Approva, mergia il branch del task in main nel checkout principale. Merge pulito → landa in locale (niente push); conflitto → rimanda all'agent del task; checkout sporco o non su main → salta con un commento. Richiede il worktree attivo.",
+  // NON dice più «su Approva»: Approva non fonde, e non deve. La fusione è
+  // sganciata dall'accettazione (server/routes/tasks.ts, «approve decoupled
+  // from landing»), quindi l'interruttore ha un solo effetto automatico, ed è
+  // l'ingresso in Done. Il testo lo nomina per quello che fa: la stessa frase
+  // la cita la nota che la card riceve quando il merge viene saltato.
+  'board.settings.autoMerge': 'Fondi su main quando la card arriva in Done',
+  'board.settings.autoMergeTitle': "Quando una card con un branch di consegna entra in Done (trascinata, spostata dal menu, o chiusa dal sistema), mergia il suo branch in main nel checkout principale. Merge pulito → landa in locale (niente push); conflitto → rimanda all'agent del task; checkout sporco o non su main → salta con un commento. Spento: la card si chiude e una nota nel thread dice dov'è rimasto il lavoro. Approva non fonde in nessuno dei due casi: per quello c'è il bottone «Landa su main». Richiede il worktree attivo.",
   'board.settings.fullMcp': 'Fleet MCP completa per gli agent',
   'board.settings.fullMcpTitle': "Bridge only: l'agent ha solo i tool di Topics (task + browser), quindi meno token per turno. Fleet completa: eredita tutti gli MCP dell'utente (exa, gateway e gli altri), utile solo se i task usano quei tool.",
   'board.settings.dispatchOnActive': 'Attivo: spostare un task in Todo avvierà un agent con permessi pieni.',
@@ -791,8 +796,8 @@ const EN: Dict = {
   'board.settings.fanoutTitle': 'How many agents work the SAME task in parallel, each in its own worktree. At the end the task enters review with the attempts side by side and you pick which to keep: the others (worktree, branch and chat) are thrown away. It costs N times over: N real agents, N slots of the concurrency cap. Requires the worktree active.',
   'board.settings.fanoutWarn': 'Each task in Todo starts {n} times and takes {n} slots of the cap: the token bill multiplies by {n}.',
   'board.settings.notRepoWarn': 'This project is not a git repo: with «isolated worktree» on, every task will be blocked. Turn it off to run in-place, or initialize a repo in the project folder.',
-  'board.settings.autoMerge': 'Auto-merge on Approve',
-  'board.settings.autoMergeTitle': "On Approve, merges the task's branch into main in the primary checkout. Clean merge → lands locally (no push); conflict → sends it back to the task's agent; dirty checkout or not on main → skips with a comment. Requires the worktree active.",
+  'board.settings.autoMerge': 'Merge into main when a card reaches Done',
+  'board.settings.autoMergeTitle': "When a card carrying a delivery branch enters Done (dragged, moved from the menu, or closed by the system), merges its branch into main in the primary checkout. Clean merge → lands locally (no push); conflict → sends it back to the task's agent; dirty checkout or not on main → skips with a comment. Off: the card closes and a note in the thread says where the work stayed. Approve never merges either way: the \"Landa su main\" button is what does that. Requires the worktree active.",
   'board.settings.fullMcp': 'Full Fleet MCP for the agents',
   'board.settings.fullMcpTitle': "Bridge only: the agent has only Topics' tools (task + browser), so fewer tokens per turn. Full fleet: inherits all of the user's MCPs (exa, gateway and the rest), useful only if the tasks use those tools.",
   'board.settings.dispatchOnActive': 'Active: moving a task to Todo will start an agent with full permissions.',
