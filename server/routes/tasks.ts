@@ -234,6 +234,26 @@ export interface TasksRouterOpts {
    */
   markLandPending?: (taskId: string) => void;
   /**
+   * LA PROVA CHE IL LAND È AVVENUTO, chiesta al repo e non al resoconto del
+   * merge: il commit di fusione è dentro l'integrazione (`main`) di QUEL
+   * checkout?
+   *
+   * `git merge --no-ff` uscito zero dice che una fusione è riuscita, non su
+   * quale ramo: il land può atterrare su un checkout parcheggiato altrove, o su
+   * un worktree usa-e-getta che poi non si è ricucito. Il 13/08 tre card sono
+   * passate a `done` col ramo mai arrivato su main, e `landing_state` diceva
+   * `landed` — cioè il campo raccontava un resoconto, non un fatto.
+   *
+   * `true` = il commit è antenato dell'integrazione · `false` = provatamente no
+   * (e allora la card NON si chiude e il worktree NON si pota) · `null` = git
+   * non ha risposto, quindi non lo si sa e non si scrive `landed`.
+   *
+   * Assente ⇒ nessuna prova disponibile su questo host, che vale `null`: si
+   * chiude la card (il merge è uscito zero) ma il verdetto resta
+   * `unverifiable`. Un verdetto `landed` lo scrive SOLO questa prova.
+   */
+  confirmLandedOnMain?: (repoPath: string, commit: string) => Promise<boolean | null>;
+  /**
    * Delete the task's worktree + branch + store row (the worktree-manager
    * path). Called after a landing: once merged, the worktree has no value and
    * keeping it is how 30+ stale worktrees accumulated.
@@ -728,9 +748,22 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
    * «Landa», la quick-reply dell'agente, e il trascinamento in Done.
    */
   function enqueueLand(projectId: string, taskId: string): LandingTicket {
-    // PRIMA di accodare, non dopo: fra l'accodamento e la fusione la card è già
-    // `done`, e in quella finestra deve dire di non essere su main.
+    // PRIMA di accodare, non dopo: fra l'accodamento e la fusione la card non è
+    // su main, e in quella finestra deve dirlo.
     try { opts?.markLandPending?.(taskId); } catch (err) { console.warn("[land] timbro di attesa fallito per", taskId, err); }
+    // LA RICHIESTA LASCIA UNA TRACCIA, e non è un lusso: il 13/08 tre card sono
+    // passate a `done` col ramo mai arrivato su main e nel thread — come nel log
+    // del server — non c'era una riga sul tentativo. La coda vive in memoria,
+    // quindi un riavvio fra l'accodamento e la fusione se la porta via: quella
+    // riga è tutto ciò che resta a dire che un land era stato chiesto.
+    try {
+      svc.addComment({
+        taskId, author: "system",
+        content: "Land accodato: la card si chiude solo quando il merge è CONFERMATO su main.",
+      });
+      const t = svc.get(taskId, { projectId })?.task;
+      if (t) broadcastToAll({ type: "task:updated", projectId, task: t });
+    } catch (err) { console.warn("[land] traccia della richiesta non scritta per", taskId, err); }
     return landings.enqueue(projectId, taskId, () => landTask(projectId, taskId));
   }
 
@@ -809,6 +842,41 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     return null;
   }
 
+  /**
+   * «Il commit di fusione è su main?» — con la prova che manca trattata come un
+   * no, mai come un sì. Una verifica che esplode (`throw`) o che non esiste su
+   * questo host non è un'assoluzione: vale `null`, cioè «non lo so», e da lì il
+   * verdetto non può diventare `landed`.
+   */
+  async function landProof(repoPath: string, commit: string): Promise<boolean | null> {
+    if (!opts?.confirmLandedOnMain) return null;
+    try { return await opts.confirmLandedOnMain(repoPath, commit); }
+    catch (err) { console.warn("[land] verifica su main fallita per", commit, err); return null; }
+  }
+
+  /**
+   * IL SOLO MODO DI USCIRE DA REVIEW SENZA UN MERGE, e vale perché è una prova
+   * anche lui: non c'è NIENTE da atterrare (nessun ramo, o un ramo che non porta
+   * commit che main non abbia). Un land che non trova lavoro non è un land
+   * fallito, e lasciare la card in review a vita farebbe pagare a ogni task
+   * in-place il prezzo del difetto che si sta chiudendo.
+   *
+   * Su una card già chiusa non fa niente: `reviewDecision` vale solo dall'edge
+   * di review, ed è l'unico stato da cui il land poteva partire con la card
+   * ancora aperta.
+   */
+  function acceptNothingToLand(projectId: string, taskId: string, reason: string): void {
+    const cur = svc.get(taskId, { projectId })?.task;
+    if (!cur || cur.status !== "review") return;
+    try {
+      const task = svc.reviewDecision({ taskId, by: "system", decision: "approve", projectId });
+      svc.addComment({ taskId, author: "system", content: `Card accettata senza fondere: ${reason}.` });
+      const fresh = svc.get(taskId, { projectId })?.task ?? task;
+      broadcastToAll({ type: "task:updated", projectId, task: fresh });
+      if (dispatcher && fresh.status === "done") dispatcher.onBlockerDone(taskId);
+    } catch (err) { console.warn(`[land] accettazione senza merge fallita per ${taskId}:`, err); }
+  }
+
   async function landTask(projectId: string, taskId: string): Promise<void> {
     const autoMerge = opts?.autoMerge;
     if (!autoMerge) {
@@ -842,7 +910,36 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       if (drift) {
         svc.addComment({ taskId, author: "system", content: `⚠️ Land ≠ consegna: ${drift}.` });
       }
+      // ── SI CHIEDE A MAIN, non al merge ─────────────────────────────────────
+      //
+      // `git merge` uscito zero è un resoconto: dice che una fusione è riuscita,
+      // non DOVE. Da qui in giù «merged» vale solo insieme alla prova, e la
+      // prova è che il commit di fusione sia dentro l'integrazione.
+      const proof = res.status === "merged" ? await landProof(res.repoPath, res.commit) : null;
+      if (res.status === "merged" && proof === false) {
+        // Il caso che chiude questo difetto: la macchina crede di aver landato,
+        // main dice di no. La card NON si chiude, il worktree NON si pota (è
+        // l'unica copia del lavoro) e il verdetto dice il vero.
+        svc.addComment({
+          taskId, author: "system",
+          content:
+            `⚠️ Land NON confermato: il merge è uscito zero ma il commit \`${res.commit}\` NON risulta su main in \`${res.repoPath}\`. ` +
+            "La card resta dov'è e il branch è stato conservato. Controlla su quale ramo è il checkout, poi rilancia «Landa su main».",
+        });
+        try { await opts?.stampLanding?.(taskId, "unlanded"); } catch { /* la spia non fa fallire il resto */ }
+        const t = svc.get(taskId, { projectId })?.task;
+        if (t) broadcastToAll({ type: "task:updated", projectId, task: t });
+        return;
+      }
       if (res.status === "merged") {
+        if (proof === null) {
+          svc.addComment({
+            taskId, author: "system",
+            content:
+              "⚠️ Il merge è uscito zero ma non ho potuto RILEGGERE main per confermarlo: la card è chiusa, " +
+              "il verdetto di atterraggio resta «non verificabile». Controlla a mano se il lavoro è su main.",
+          });
+        }
         svc.addComment({ taskId, author: "system", content: `Mergiato su main (commit ${res.commit}).` });
         // L'ALTRO verso dello stesso difetto. Il land promuoveva a `done` solo
         // passando da `review` (`POST …/land` lo fa prima di chiamare qui): da
@@ -854,6 +951,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         // card già chiuse e ferme (il caso normale), quindi non aggiunge righe
         // di storico al percorso che funzionava.
         const closed = svc.settleLanded({ taskId, by: "system", reason: `il land è riuscito: il codice è su main (${res.commit})` });
+        // Chi ASPETTAVA questa card lo scopre qui, non più all'approvazione:
+        // adesso è questa la porta da cui una card landata arriva in `done`.
+        if (closed && closed.status === "done") dispatcher?.onBlockerDone(taskId);
         // …e se un agente stava LAVORANDO su quella card, lo si ferma. Chiudere
         // la card lo toglie dalla coda ma non taglia il turno già partito, ed è
         // lì che vanno i soldi: misurato l'11/08 su due land di fila, $5,64
@@ -905,6 +1005,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         // the exact claim that cost us the `watching` phase — verify it against
         // the repo (content, not ancestry) before destroying anything.
         await reapAfterLand(taskId, "nothing");
+        acceptNothingToLand(projectId, taskId, "non c'era niente da atterrare: il ramo non porta commit che main non abbia");
       } else if (res.status === "conflict") {
         // La card ESCE da `done`, e la riga di storico deve dire perché. Prima
         // diceva "user → In corso": la stessa riga che scrive un umano quando
@@ -951,7 +1052,14 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         // «non c'era niente da atterrare».
         const fall = landFallout(res.code);
         const cur = svc.get(taskId, { projectId })?.task;
-        if (fall.status && cur && cur.status === "done") {
+        // Da `done` la card si RITIRA; da `review` non si è mai mossa (il land
+        // non approva più prima di atterrare) e ci resta — tranne dove il
+        // fallout la manda dall'agente, che è l'unico posto in cui c'è qualcosa
+        // da fare. `no-branch` (`fall.status === null`) non è un fallimento:
+        // non c'era niente da atterrare, e la card si accetta.
+        if (!fall.status) {
+          acceptNothingToLand(projectId, taskId, "non c'era nessun ramo da atterrare");
+        } else if (cur && (cur.status === "done" || cur.status === "review") && cur.status !== fall.status) {
           try {
             // `actor: "human"` è l'asse dei PERMESSI (nessun agente riporta
             // indietro un task chiuso); `by: "system"` è la firma vera, perché
@@ -961,7 +1069,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               patch: { status: fall.status },
               statusReason: fall.reason,
             });
-          } catch (err) { console.warn(`[land] impossibile ritirare ${taskId} da done:`, err); }
+          } catch (err) { console.warn(`[land] impossibile spostare ${taskId} dopo il land fallito:`, err); }
           if (fall.resume) {
             dispatcher?.resume(taskId, fall.resume)
               .catch((err) => console.warn(`[Tasks] resume after failed land for ${taskId}:`, err));
@@ -985,7 +1093,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       // dove il land non sa (nessun ramo da guardare, o «non c'era niente da
       // portare») si chiede al repo.
       const verdict: LandingState | "ask" =
-        res.status === "merged" ? "landed"
+        res.status === "merged" ? (proof === true ? "landed" : "unverifiable")
         : res.status === "conflict" ? "unlanded"
         : res.status === "skipped" && res.code !== "no-branch" ? "unlanded"
         : "ask";
@@ -2042,16 +2150,31 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           // Publishing is a human PICK (this click), executed server-side — the agent
           // never pushes. Check BEFORE the land label (this is the superset action).
           if (isPublishActionLabel(comment)) {
-            const approved = svc.reviewDecision({ taskId: bReview.taskId, by: HUMAN, decision: "approve", projectId: bReview.projectId });
-            broadcastToAll({ type: "task:updated", projectId: bReview.projectId, task: approved });
-            if (dispatcher && approved.status === "done") dispatcher.onBlockerDone(bReview.taskId);
             const { projectId, taskId } = bReview;
+            // NIENTE approvazione qui: pubblicare è landare + spingere, e la
+            // card la chiude il land quando main lo conferma (`settleLanded`).
+            // Approvare adesso sarebbe di nuovo dire l'esito prima dei fatti.
+            const before = svc.get(taskId, { projectId })?.task;
+            if (!before) return json({ error: "task not found", code: "not_found" }, 404);
             // Land + push nello STESSO turno di coda: la pubblicazione spinge il
             // ramo corrente del checkout, quindi non deve mai partire mentre un
             // altro land ci sta mergiando sopra.
             const ticket = enqueueLand(projectId, taskId);
             void landings.whenSettled(taskId)?.then(async (t) => {
               if (t.phase !== "settled") return; // il land è fallito: ha già parlato lui
+              // …e «settled» vuol dire che il turno di coda è finito senza
+              // eccezioni, non che il lavoro sia atterrato: un land `skipped`
+              // arriva qui identico. Si spinge solo ciò che main ha confermato.
+              const landedNow = svc.get(taskId, { projectId })?.task;
+              if (landedNow?.landingState !== "landed") {
+                svc.addComment({
+                  taskId, author: "system",
+                  content: "Pubblicazione NON eseguita: il land non è arrivato su main, quindi non c'è niente di nuovo da spingere.",
+                });
+                const cur0 = svc.get(taskId, { projectId })?.task;
+                if (cur0) broadcastToAll({ type: "task:updated", projectId, task: cur0 });
+                return;
+              }
               const pub = await publishProject(projectId);
               svc.addComment({
                 taskId, author: "system",
@@ -2062,13 +2185,14 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               const cur = svc.get(taskId, { projectId })?.task;
               if (cur) broadcastToAll({ type: "task:updated", projectId, task: cur });
             });
-            return json({ ...approved, landing: ticket }, 202);
+            const queued = svc.get(taskId, { projectId })?.task ?? before;
+            return json({ ...queued, landing: ticket }, 202);
           }
           // The agent offers "Landa su main" as a quick-reply at delivery; picking
-          // it arrives here as a reject-with-that-text. LANDING = accept + merge, so
-          // approve the task and run the land — never a reject. This is the ONLY
-          // place approve is coupled to a merge, and it happens because YOU chose
-          // the land option; a plain approve below is task-only, no "azioni da sotto".
+          // it arrives here as a reject-with-that-text. LANDING = merge THEN accept:
+          // la card resta in review e la chiude il land, quando main lo conferma —
+          // mai un reject. È il difetto del 13/08 al contrario: l'approvazione
+          // raccontava l'intenzione, e il lavoro poteva non arrivare mai.
           // LE DUE RISPOSTE ALLO STALLO DEI SOTTOTASK PARCHEGGIATI. Arrivano
           // qui come un rifiuto che porta l'etichetta, esattamente come «Landa
           // su main» — ma non sono né un rifiuto né un'approvazione: sono la
@@ -2094,11 +2218,11 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             return json(esito.task);
           }
           if (isLandActionLabel(comment)) {
-            const approved = svc.reviewDecision({ taskId: bReview.taskId, by: HUMAN, decision: "approve", projectId: bReview.projectId });
-            broadcastToAll({ type: "task:updated", projectId: bReview.projectId, task: approved });
-            if (dispatcher && approved.status === "done") dispatcher.onBlockerDone(bReview.taskId);
+            const before = svc.get(bReview.taskId, { projectId: bReview.projectId })?.task;
+            if (!before) return json({ error: "task not found", code: "not_found" }, 404);
             const ticket = enqueueLand(bReview.projectId, bReview.taskId);
-            return json({ ...approved, landing: ticket }, 202);
+            const queued = svc.get(bReview.taskId, { projectId: bReview.projectId })?.task ?? before;
+            return json({ ...queued, landing: ticket }, 202);
           }
           const task = svc.reviewDecision({
             taskId: bReview.taskId, by: HUMAN, decision, comment,
@@ -2138,13 +2262,22 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       const bLand = matchRoute(pathname, "/api/boards/:projectId/tasks/:taskId/land");
       if (bLand && method === "POST") {
         try {
-          let task = svc.get(bLand.taskId, { projectId: bLand.projectId })?.task;
+          const task = svc.get(bLand.taskId, { projectId: bLand.projectId })?.task;
           if (!task) return json({ error: "task not found", code: "not_found" }, 404);
-          if (task.status === "review") {
-            task = svc.reviewDecision({ taskId: bLand.taskId, by: HUMAN, decision: "approve", projectId: bLand.projectId });
-            broadcastToAll({ type: "task:updated", projectId: bLand.projectId, task });
-            if (dispatcher && task.status === "done") dispatcher.onBlockerDone(bLand.taskId);
-          }
+          // ── L'ORDINE È IL DIFETTO ──────────────────────────────────────────
+          //
+          // Qui una card in `review` veniva APPROVATA — cioè portata a `done`,
+          // subito e per sempre — e solo dopo si accodava il land, che è
+          // asincrono e può non avvenire mai. Lo stato raccontava l'INTENZIONE.
+          // Il 13/08 tre card (`92d61427`, `274d5425`, `95a6794f`) sono finite
+          // in `done` coi rami mai arrivati su main, senza una riga di errore da
+          // nessuna parte: sparite da review, nessuno le riguarda, e la potatura
+          // delle worktree può portarsi via il ramo.
+          //
+          // Adesso la card NON si muove: resta dove sta finché il merge non è
+          // confermato su main, e a quel punto la chiude `settleLanded` dentro
+          // `landTask`. Un land che fallisce, o che non parte affatto, lascia la
+          // card in review col motivo scritto nel thread.
           const ticket = enqueueLand(bLand.projectId, bLand.taskId);
           const fresh = svc.get(bLand.taskId, { projectId: bLand.projectId })?.task ?? task;
           return json({ ...fresh, landing: ticket }, 202);

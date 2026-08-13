@@ -877,9 +877,15 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
     finally { setBusy(false); }
   };
 
-  // Land = accept + merge the branch on main (local, no push). Explicit, separate
-  // from Approva (which only accepts the task). The merge/build runs server-side
-  // and surfaces its outcome as system comments in the thread.
+  // Land = merge the branch on main (local, no push) AND THEN accept the card,
+  // in quest'ordine. Explicit, separate from Approva (which only accepts the
+  // task). The merge/build runs server-side and surfaces its outcome as system
+  // comments in the thread.
+  //
+  // La card resta in review finché il merge non è confermato su main: se il land
+  // fallisce (o non parte) la si ritrova qui, col motivo nel thread e questo
+  // stesso bottone per riprovare. Chiuderla prima era il difetto del 13/08 —
+  // tre card in `done` coi rami mai atterrati.
   //
   // Il server risponde `202`: il land è ACCODATO. La ricevuta va TENUTA e
   // seguita, perché è la sola cosa che distingue «sta per succedere» da «è
@@ -2335,9 +2341,10 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                     className="flex items-center gap-1.5 rounded bg-white/10 px-2.5 py-1.5 text-xs text-app-text hover:bg-white/20 disabled:opacity-50"
                   ><ShieldX className="h-3.5 w-3.5" /> {sendBackWord.label}</button>
                 </div>
-                {/* Explicit landing — accept + merge the branch on main (local, no
-                    push, build server-side). Separate from Approva by design: the
-                    merge no longer rides "da sotto" on an approve. */}
+                {/* Explicit landing — merge the branch on main (local, no push,
+                    build server-side) and only then close the card. Separate from
+                    Approva by design: the merge no longer rides "da sotto" on an
+                    approve, e l'accettazione non precede più la fusione. */}
                 {isAgentReview && (
                   <button
                     disabled={busy} onClick={doLand}
