@@ -25,8 +25,10 @@ import {
   boardApi, boardIdForPath, isProjectlessId, TASK_STATUSES, UNASSIGNED_PROJECT_ID,
   CLOSER_LABELS, KIND_LABELS,
   type BoardProjectRef, type BoardTask, type TaskStatus, type BoardSettings, type TaskLabel,
-  type PublishProject, type DiffBundle, type DispatchCapacity, type GlobalSettings,
+  type PublishProject, type DiffBundle,
 } from '../../lib/board';
+import { useGlobalDispatchCap } from '../../state/globalDispatchCap';
+import { GlobalCapControl } from './GlobalCapControl';
 import { groupByStatus, manualStatusTarget, planDrop, type DropPlan, type OrderScope } from '../../lib/boardOrder';
 import { DONE_FLASH_MS, landedInDone, statusSnapshot } from '../../lib/justDone';
 import { scrollDelta } from '../../lib/scrollDelta';
@@ -41,6 +43,7 @@ import { FloatingTaskComposer } from './FloatingTaskComposer';
 import { Column } from './Card';
 import { taskActionWord } from './taskActionWords';
 import { TaskDetail, BoardSettingsPanel } from './TaskDetail';
+import { GlobalOnlySettingsPanel } from './BoardSettingsSections';
 import { POPOVER_ITEM } from '@/lib/popoverStyles';
 import { MISSIONS, type Mission } from '../../lib/missions';
 import { useDevInstall } from '../../hooks/useDevInstall';
@@ -333,19 +336,14 @@ function WorktreeControl({ count, branches, gcRunning, gcResult, onGc }: {
  *    apribile col dito — e dice a chiare lettere che è un consiglio e non un
  *    tetto.
  *
- * Sonda ogni 15s (probe da poco).
+ * La sonda (ogni 15s) è quella dello store del tetto globale, non una seconda
+ * per chip: la stessa lettura serve il chip, il menu del titolo e il pannello
+ * delle impostazioni.
  */
 function LoadAdviceChip() {
-  const [cap, setCap] = useState<DispatchCapacity | null>(null);
+  const cap = useGlobalDispatchCap().capacity;
   const btnRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
-  useEffect(() => {
-    let alive = true;
-    const tick = () => boardApi.dispatchCapacity().then((c) => { if (alive) setCap(c); }).catch(() => { /* optional */ });
-    tick();
-    const id = setInterval(tick, 15000);
-    return () => { alive = false; clearInterval(id); };
-  }, []);
   if (!cap) return null;
   const over = (cap.running ?? 0) - cap.recommended;
   if (over <= 0) return null; // niente da fermare → niente chip
@@ -373,7 +371,7 @@ function LoadAdviceChip() {
           </p>
           <p>Load {cap.load1.toFixed(1)} su {cap.cores} core: la macchina è satura, e ogni agent in più rallenta anche gli altri.</p>
           <p className="text-app-text-muted">{cap.reason}</p>
-          <p>È un <span className="text-app-text-heading">consiglio</span>, non un tetto: puoi lasciarli girare tutti. Il tetto vero è quello del menu qui accanto.</p>
+          <p>È un <span className="text-app-text-heading">consiglio</span>, non un tetto: puoi lasciarli girare tutti. Il tetto vero sta nelle impostazioni della board, con quanti ne stanno girando.</p>
         </div>
       </Menu>
     </>
@@ -431,51 +429,22 @@ function MissionsMenu({ onStart }: { onStart: (m: Mission) => void }) {
 }
 
 /** Machine-wide dispatch settings, reachable from EVERY board header (incl. the
- *  general board): the global auto-dispatch switch + the auto concurrency cap
- *  that is sized from live capacity and enforced across ALL boards. Per-board
- *  overrides still live in the project board's ⚙ inline panel. */
-function GlobalSettingsMenu({ onMessage }: { onMessage?: (handler: (msg: WSMessage) => void) => () => void }) {
+ *  general board): the global auto-dispatch switch + the ONE concurrency cap
+ *  enforced across ALL boards. The cap block is `GlobalCapControl`, the same
+ *  component the board settings panel mounts: one store, one writer, and a
+ *  change made here shows up there without a reload. Per-board overrides still
+ *  live in the project board's ⚙ inline panel. */
+function GlobalSettingsMenu() {
   const tr = useT();
   const btnRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
-  const [g, setG] = useState<GlobalSettings | null>(null);
-  const [cap, setCap] = useState<DispatchCapacity | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [autoDispatch, setAutoDispatch] = useState<boolean | null>(null);
   const load = () => {
-    boardApi.getGlobalSettings().then(setG).catch(() => { /* keep last */ });
-    boardApi.dispatchCapacity().then(setCap).catch(() => { /* optional */ });
+    boardApi.getGlobalDispatch().then(setAutoDispatch).catch(() => { /* keep last */ });
   };
-  // Il cap globale vale per TUTTE le board, quindi cambiarlo in una finestra
-  // riguarda anche le altre — ed e' per questo che il server manda
-  // `board:global-cap` (`server/routes/tasks.ts`). Nessuno lo ascoltava: la
-  // finestra che lo cambiava si aggiornava dalla propria risposta, le altre
-  // restavano sul valore vecchio finche' non riaprivano il menu.
-  useEffect(() => {
-    if (!onMessage) return;
-    return onMessage((msg: WSMessage) => {
-      const m = msg as { type?: string; maxAgentsAuto?: boolean; maxAgents?: number };
-      if (m.type !== 'board:global-cap') return;
-      setG((p) => (p ? {
-        ...p,
-        ...(typeof m.maxAgentsAuto === 'boolean' ? { maxAgentsAuto: m.maxAgentsAuto } : {}),
-        ...(typeof m.maxAgents === 'number' ? { maxAgents: m.maxAgents } : {}),
-      } : p));
-    });
-  }, [onMessage]);
-
   const toggleAuto = async (v: boolean) => {
-    setG((p) => (p ? { ...p, autoDispatch: v } : p));
+    setAutoDispatch(v);
     try { await boardApi.setGlobalDispatch(v); } catch { load(); }
-  };
-  const toggleCap = async (v: boolean) => {
-    setBusy(true);
-    setG((p) => (p ? { ...p, maxAgentsAuto: v } : p));
-    try { setG(await boardApi.setGlobalCap({ auto: v })); } catch { load(); } finally { setBusy(false); }
-  };
-  const setManual = async (n: number) => {
-    const max = Math.max(1, Math.min(20, Math.round(n)));
-    setG((p) => (p ? { ...p, maxAgents: max } : p));
-    try { setG(await boardApi.setGlobalCap({ max })); } catch { load(); }
   };
   return (
     <>
@@ -490,28 +459,10 @@ function GlobalSettingsMenu({ onMessage }: { onMessage?: (handler: (msg: WSMessa
           <p className="text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.dispatch.allBoards')}</p>
           <label className="flex cursor-pointer items-center justify-between gap-3">
             <span className="flex items-center gap-1.5"><Bot className="h-3.5 w-3.5 text-app-text-secondary" /> {tr('board.settings.autoDispatch')}</span>
-            <input type="checkbox" checked={!!g?.autoDispatch} onChange={(e) => toggleAuto(e.target.checked)} className="h-3.5 w-3.5 accent-emerald-500" />
+            <input type="checkbox" checked={!!autoDispatch} onChange={(e) => toggleAuto(e.target.checked)} className="h-3.5 w-3.5 accent-emerald-500" />
           </label>
-          <div className="space-y-1 border-t border-app-border-subtle pt-2">
-            <label className="flex cursor-pointer items-center justify-between gap-3">
-              <span>{tr('board.dispatch.parallelAuto')}</span>
-              <input type="checkbox" checked={!!g?.maxAgentsAuto} disabled={busy} onChange={(e) => toggleCap(e.target.checked)} className="h-3.5 w-3.5 accent-emerald-500" />
-            </label>
-            {g?.maxAgentsAuto ? (
-              <p className="text-[11px] leading-snug text-app-text-muted">
-                <b className="text-emerald-300">{cap ? cap.recommended : '…'}</b> agent in parallelo su tutta la macchina{cap && <span className="text-app-text-faint"> · {cap.reason}</span>}
-              </p>
-            ) : (
-              <label className="flex items-center justify-between gap-3">
-                <span className="text-[11px] text-app-text-muted">Numero fisso{cap && <span className="text-app-text-faint"> (consigliato {cap.recommended})</span>}</span>
-                <input
-                  type="number" min={1} max={20} value={g?.maxAgents ?? 3}
-                  onChange={(e) => setManual(Number(e.target.value))}
-                  className="w-14 rounded bg-white/5 px-1.5 py-0.5 text-right text-app-text outline-none"
-                />
-              </label>
-            )}
-            <p className="text-[10px] leading-snug text-app-text-faint">{tr('board.dispatch.oneMachine')}</p>
+          <div className="border-t border-app-border-subtle pt-2">
+            <GlobalCapControl />
           </div>
         </div>
       </Menu>
@@ -1787,7 +1738,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
         ) : (
           <span className="text-xs font-semibold text-app-text">Board<span className="hidden sm:inline"> generale</span></span>
         )}
-        <GlobalSettingsMenu onMessage={onMessage} />
+        <GlobalSettingsMenu />
         <LoadAdviceChip />
         <WorktreeControl
           count={worktreeCount}
@@ -1829,13 +1780,15 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
               title={showArchived ? tr('board.archive.hide') : tr('board.archive.show')}
             ><Archive className="h-3.5 w-3.5" /></button>
           )}
-          {hasProject && (
-            <button
-              onClick={() => setShowSettings((s) => !s)}
-              className={`rounded p-1 ${showSettings ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/5'}`}
-              title="Impostazioni auto-dispatch"
-            ><Settings className="h-3.5 w-3.5" /></button>
-          )}
+          {/* On EVERY board, project or not. Without a project there are no
+              per-board rows, but the machine-wide cap still applies here — and
+              gating this button on `hasProject` is what left the general board
+              with the ▾ as its only way to see the limit. */}
+          <button
+            onClick={() => setShowSettings((s) => !s)}
+            className={`rounded p-1 ${showSettings ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/5'}`}
+            title="Impostazioni auto-dispatch"
+          ><Settings className="h-3.5 w-3.5" /></button>
         </div>
       </div>
       {toolbarOverflowRight && (
@@ -1861,7 +1814,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
           <button onClick={() => setShowArchived(false)} className="ml-auto rounded px-2 py-0.5 text-amber-100 hover:bg-white/10">{tr('board.archive.hide')}</button>
         </div>
       )}
-      {showSettings && hasProject && (
+      {showSettings && (hasProject ? (
         <BoardSettingsPanel
           projectId={projectId}
           settings={settings}
@@ -1872,7 +1825,13 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
           onClose={() => setShowSettings(false)}
           onError={setError}
         />
-      )}
+      ) : (
+        <GlobalOnlySettingsPanel
+          dispatchOn={dispatchOn}
+          onToggleDispatch={toggleDispatch}
+          onClose={() => setShowSettings(false)}
+        />
+      ))}
       {/* Board area + drawer share a flex row: an open (narrow) drawer SHRINKS
           the columns viewport instead of covering it, so every column stays
           reachable through the row's own horizontal scroll — nothing is ever

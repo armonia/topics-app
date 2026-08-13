@@ -287,7 +287,10 @@ const IT: Dict = {
   'board.task.attempt.stat.files.one': '{n} file · +{ins} −{del}',
   'board.task.attempt.stat.files.many': '{n} file · +{ins} −{del}',
   'board.settings.close': 'Chiudi le impostazioni della board',
-  'board.settings.dispatchOnTitle': 'Interruttore globale, vale per tutte le board. Il cap di agent in parallelo si imposta dal ▾ accanto al titolo della board.',
+  // Il rinvio al «▾ accanto al titolo» è sparito da qui: era un tooltip, e un
+  // tooltip su un telefono non esiste. Il tetto di agent in parallelo ora si
+  // vede e si cambia in questo stesso pannello.
+  'board.settings.dispatchOnTitle': 'Interruttore globale, vale per tutte le board.',
   'board.settings.effort': 'Effort',
   'board.settings.model': 'Modello',
   'board.settings.modelTitle': 'Auto: un classificatore sceglie il modello per ogni task. Un modello fisso forza OGNI dispatch di questa board su quel modello (un task con modello esplicito vince comunque).',
@@ -324,8 +327,24 @@ const IT: Dict = {
   // composer), because it is the same rule.
   'board.drop.inProgressRedirected': 'In Progress non ha una coda: il task lavora da Todo, che è da dove il dispatcher lo prende.',
   'board.dispatch.allBoards': 'Dispatch di tutte le board',
+  'board.dispatch.parallel': 'Agent in parallelo',
   'board.dispatch.parallelAuto': 'Numero automatico',
-  'board.dispatch.oneMachine': 'Vale su TUTTE le board (una sola macchina, un solo limite).',
+  'board.dispatch.fixed': 'Numero fisso',
+  'board.dispatch.recommended': 'consigliato {n}',
+  // La riga che risponde alla domanda vera, che non è «qual è il tetto» ma
+  // «perché la coda non si muove». Il tetto da solo non lo dice: servono
+  // entrambi i numeri, e vanno letti in un colpo d'occhio.
+  'board.dispatch.running': '{running} di {cap} agent al lavoro adesso',
+  'board.dispatch.runningOver': '{running} al lavoro, tetto {cap}',
+  'board.dispatch.runningNoLimit': '{running} al lavoro, nessun tetto',
+  'board.dispatch.noLimit': 'Nessun limite',
+  'board.dispatch.noLimitHint': 'Parte tutto quello che c’è in coda. Il peso vero non sono gli agent (aspettano l’API): sono i cancelli, e quelli restano frenati a parte.',
+  'board.dispatch.runningLoading': 'Leggo il limite…',
+  'board.dispatch.capFull': 'Tetto pieno: i task in Todo aspettano uno slot.',
+  'board.dispatch.capOver': 'Sopra il tetto: nessun turno viene tagliato a metà, rientra da solo appena finiscono.',
+  // Detto per esteso e non in una nota a piè di pagina: il numero qui sopra non
+  // è «di questa board», è quello di tutta la macchina.
+  'board.dispatch.oneMachine': 'Un tetto solo, per tutta la macchina: vale su ogni board.',
   'board.filter.assignee': 'Assegnatario',
   'common.project': 'Progetto',
   'chat.turnStopped': 'Turno interrotto',
@@ -849,7 +868,7 @@ const EN: Dict = {
   'board.task.attempt.stat.files.one': '{n} file · +{ins} −{del}',
   'board.task.attempt.stat.files.many': '{n} files · +{ins} −{del}',
   'board.settings.close': 'Close the board settings',
-  'board.settings.dispatchOnTitle': 'Global switch, applies to every board. The parallel-agents cap is set from the ▾ next to the board title.',
+  'board.settings.dispatchOnTitle': 'Global switch, applies to every board.',
   'board.settings.effort': 'Effort',
   'board.settings.model': 'Model',
   'board.settings.modelTitle': 'Auto: a classifier picks the model for each task. A fixed model forces EVERY dispatch on this board onto that model (a task with an explicit model still wins).',
@@ -878,8 +897,19 @@ const EN: Dict = {
   'board.publish.diffError': 'Could not load the diff.',
   'board.drop.inProgressRedirected': 'In Progress has no queue: the task works from Todo, which is where the dispatcher picks it up.',
   'board.dispatch.allBoards': 'Dispatch for every board',
+  'board.dispatch.parallel': 'Agents in parallel',
   'board.dispatch.parallelAuto': 'Automatic count',
-  'board.dispatch.oneMachine': 'Applies to EVERY board (one machine, one limit).',
+  'board.dispatch.fixed': 'Fixed number',
+  'board.dispatch.recommended': 'recommended {n}',
+  'board.dispatch.running': '{running} of {cap} agents working right now',
+  'board.dispatch.runningOver': '{running} working, cap {cap}',
+  'board.dispatch.runningNoLimit': '{running} working, no ceiling',
+  'board.dispatch.noLimit': 'No limit',
+  'board.dispatch.noLimitHint': 'Everything queued starts. The real weight is not the agents (they wait on the API): it is their gates, and those stay throttled separately.',
+  'board.dispatch.runningLoading': 'Reading the limit…',
+  'board.dispatch.capFull': 'Cap is full: tasks in Todo are waiting for a slot.',
+  'board.dispatch.capOver': 'Over the cap: no turn is cut short, it comes back down as the running ones finish.',
+  'board.dispatch.oneMachine': 'One cap for the whole machine: it applies to every board.',
   'board.filter.assignee': 'Assignee',
   'common.project': 'Project',
   'chat.turnStopped': 'Turn stopped',

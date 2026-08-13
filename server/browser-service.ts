@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, writeFileSync, readFileSync, statSync } from "fs
 import { join } from "path";
 import { loadStorageState, saveStorageState, debouncedSaver, saveLastUrl, loadLastUrl, readLastUrlEntry, type BrowserStorageState } from "./browser-state-store";
 import { seedSharedFromNative } from "./browser-session-handoff";
+import { toServableUrl } from "./browser-local-file-url";
 import {
   siteDataRecords as recordsFromState,
   forgetSilosInState,
@@ -1393,6 +1394,14 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       // here with untrusted input. Choke-point here covers them all. http/https/
       // about/data only; escape hatch BROWSER_ALLOW_ALL_SCHEMES=1 (mirrors the
       // agent guard's override). about:/data: stay allowed (blank pane, data URLs).
+      // Un file locale non passa di qui come `file://` — diventa l'URL http che
+      // lo serve (browser-local-file-url.ts), come sul percorso agente. Senza
+      // questo ramo la stessa richiesta aveva due esiti a seconda della porta da
+      // cui entrava: aperta dal tool, rifiutata dalla REST e dal co-browse.
+      // Assoluto: qui si naviga DAL server, che di origine ha solo la propria.
+      const local = toServableUrl(url);
+      if (local.kind === "refused") throw new Error(`navigate: ${local.reason}`);
+      if (local.kind === "rewritten") url = local.url;
       if (process.env.BROWSER_ALLOW_ALL_SCHEMES !== "1") {
         let scheme = "";
         try { scheme = new URL(url).protocol.toLowerCase(); }
