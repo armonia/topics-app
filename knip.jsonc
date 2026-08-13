@@ -73,6 +73,12 @@
         // (o da un cron) e non la importa nessuno tranne il suo test.
         "scripts/stalled-parents.ts!",
         "scripts/effort-variance.ts!",
+        // Il banco del freno del dispatch: `bun run scripts/dispatch-brake-bench.ts
+        // [--warmup=60] [--json=<path>]`. Carica la macchina due volte (carico
+        // altrui fuori dal nostro albero di processi, carico nostro dentro) e
+        // guarda cosa risponde il tetto automatico. Si lancia a mano, occupa la
+        // macchina un paio di minuti, e nessuno lo importa.
+        "scripts/dispatch-brake-bench.ts!",
     "scripts/disk-report.ts!",        // `bun run report:disk`
         // Verdetto sui rami PER CONTENUTO: `bun run report:branches`, e
         // `--delete-landed` per cancellare quelli che main ha già dentro.

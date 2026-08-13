@@ -958,6 +958,47 @@ describe("task-dispatcher", () => {
     expect(h.turns.length).toBe(1);
   });
 
+  it("chi resta in coda per il tetto lo DICE, e dice i numeri", async () => {
+    // Il tetto pieno era l'unica delle tre attese a restare muta: il pesante lo
+    // diceva, la sessione esterna lo diceva, questa lasciava la card su `queued`
+    // e basta. Cinque card ferme senza una riga sembrano un sistema rotto, non
+    // un sistema che sta aspettando (misurato il 12/08).
+    const h = harness({ capacity: () => ({ load1: 13, cores: 12, reason: "12 core → base 4" }) });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    h.svc.setGlobalCap({ auto: false, max: 1 });
+    seedTask(h.db, { id: "t1", status: "todo", createdAt: "2020-01-01T00:00:00.000Z" });
+    seedTask(h.db, { id: "t2", status: "todo", createdAt: "2020-01-02T00:00:00.000Z" });
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    const nota = h.svc.get("t2")!.comments.find((c) => c.author === "system" && c.content.includes("In coda"));
+    expect(nota).toBeTruthy();
+    expect(nota!.content).toContain("1 agent al lavoro su un tetto di 1"); // il numero
+    expect(nota!.content).toContain("12 core → base 4");                   // e da dove esce
+    expect(h.task("t2")!.dispatchState).toBe("queued");
+
+    // Una nota per EPISODIO: il poll ogni 10s non deve riempire il thread.
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.svc.get("t2")!.comments.filter((c) => c.content.includes("In coda")).length).toBe(1);
+  });
+
+  it("la nota del tetto non parla quando il posto c'è", async () => {
+    // La guardia opposta: una riga «sei in coda» su una card che sta partendo
+    // è peggio del silenzio, perché insegna a non leggere le note di servizio.
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    h.svc.setGlobalCap({ auto: false, max: 3 });
+    seedTask(h.db, { id: "t1", status: "todo", createdAt: "2020-01-01T00:00:00.000Z" });
+    seedTask(h.db, { id: "t2", status: "todo", createdAt: "2020-01-02T00:00:00.000Z" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.turns.length).toBe(2);
+    for (const id of ["t1", "t2"]) {
+      expect(h.svc.get(id)!.comments.some((c) => c.content.includes("In coda"))).toBe(false);
+    }
+  });
+
   it("il tetto vale anche sul RESUME: un rifiuto non apre un agente in più", async () => {
     // Il tetto viveva dentro tick(), quindi governava solo i dispatch: ogni
     // rifiuto in review faceva ripartire un agente FUORI dal tetto. Misurato il
@@ -1901,7 +1942,11 @@ describe("priority", () => {
       // dedupe (same author+content) can't mask the second note.
       sessions = [{ cwd: "/Users/x/Projects/alpha", branch: "feature" }];
       await h.dispatcher.tick(PID); await flush();  // hold #2 → t2 noted a SECOND time
-      expect(h.svc.get("t2")!.comments.filter((c) => c.author === "system").length).toBe(2);
+      // Si contano le note DELLA sessione esterna, non tutte quelle di servizio:
+      // sul tick libero t1 si è preso l'unico posto, quindi t2 ha incassato
+      // anche la riga del tetto pieno, che è un'altra attesa e la dice da sé.
+      const esterne = h.svc.get("t2")!.comments.filter((c) => c.author === "system" && c.content.includes("sessione Claude esterna viva"));
+      expect(esterne.length).toBe(2);
     });
 
     it("in-place dispatch on a FREE repo is untouched by the guard", async () => {
