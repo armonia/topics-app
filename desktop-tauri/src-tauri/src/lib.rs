@@ -290,6 +290,88 @@ unsafe fn web_process_identifier(view: *mut crate::mac::Object) -> i32 {
     msg_send![view, _webProcessIdentifier]
 }
 
+/// Dimentica il pid del WebContent di una webview che non c'e' piu'.
+///
+/// PERCHE' NON BASTA IL FILTRO A VALLE. La mappa non veniva ripulita da
+/// nessuno: gli unici scrittori sono `on_page_load` e
+/// `refresh_webview_content_pids`, e il secondo itera `app.webviews()`, cioe'
+/// solo le vive. Un'etichetta chiusa non veniva quindi piu' visitata e restava
+/// nella mappa per sempre. `collect_webview_usage` scarta le voci morte
+/// guardando se il pid e' ancora vivo, ma col `retain` di wry quel pid resta
+/// vivo per sempre: il filtro non scartava niente e la lista mescolava pane
+/// aperte e pane chiuse. Qualunque misura ne uscisse era falsa.
+#[cfg(target_os = "macos")]
+fn forget_webview_content_pid(label: &str) {
+    if let Ok(mut m) = webview_content_pid_map().lock() {
+        m.remove(label);
+    }
+}
+
+/// `-[WKWebView _close]` esiste su questo sistema? Domanda di CLASSE, non di
+/// istanza.
+///
+/// Si chiede alla classe perche' la risposta serve PRIMA di decidere come
+/// chiudere, e l'istanza si raggiunge solo dentro `with_webview`, che esegue
+/// sul main thread e risponde troppo tardi per scegliere il ripiego. La tabella
+/// dei metodi di `WKWebView` non cambia a processo avviato, quindi la risposta
+/// si calcola una volta sola. Classe assente (impossibile: l'app intera gira su
+/// WKWebView) o selettore assente valgono entrambi "no", e il ripiego resta la
+/// navigazione ad `about:blank`.
+#[cfg(target_os = "macos")]
+fn wkwebview_can_close() -> bool {
+    static CAN: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *CAN.get_or_init(|| unsafe {
+        use crate::mac::{msg_send, sel, Class};
+        match Class::get(c"WKWebView") {
+            Some(cls) => {
+                let responds: bool = msg_send![cls, instancesRespondToSelector: sel!(_close)];
+                responds
+            }
+            None => false,
+        }
+    })
+}
+
+/// `-[WKWebView _close]`: il teardown definitivo di una WKWebView. `false` se il
+/// selettore non c'e' e non e' stato chiamato niente.
+///
+/// PERCHE' SERVE. wry non dealloca mai le sue webview: `impl Drop for
+/// InnerWebView` chiama `self.webview.retain()` per aggirare un use-after-free.
+/// Il processo WebContent di una pane chiusa resta quindi vivo per sempre, e
+/// sono 15 WebView per 9,7 GB di footprint misurati.
+///
+/// Falsificata su un banco Swift separato prima di scriverla qui: il processo
+/// WebContent muore in ~1,25 s dalla chiamata, `_isClosed` diventa 1, chiamarla
+/// due volte non crasha, e non crasha nemmeno il `removeFromSuperview()` +
+/// `retain()` che wry fa subito dopo nel suo `Drop`. Anche letture (`url`,
+/// `title`), `setFrameSize`, `isHidden`, `reload` ed `evaluateJavaScript` su una
+/// vista chiusa restano innocui: il JS torna solo errore.
+///
+/// NON si usano `_killWebContentProcess` e `_killWebContentProcessAndResetState`:
+/// quelli simulano un crash del renderer, e WebKit RILANCIA il processo al primo
+/// load. E' l'opposto di quello che serve qui.
+///
+/// SPI come `_webProcessIdentifier`, quindi stesso cancello: la
+/// `respondsToSelector:` sull'istanza e' la seconda rete dopo quella di classe,
+/// e costa una chiamata a chiusura.
+///
+/// # Safety
+/// `view` deve essere il `WKWebView` restituito da `PlatformWebview::inner()`.
+#[cfg(target_os = "macos")]
+unsafe fn close_web_view(view: *mut crate::mac::Object) -> bool {
+    use crate::mac::{msg_send, sel};
+    if view.is_null() {
+        return false;
+    }
+    let sel = sel!(_close);
+    let responds: bool = msg_send![view, respondsToSelector: sel];
+    if !responds {
+        return false;
+    }
+    let _: () = msg_send![view, _close];
+    true
+}
+
 /// Whole-app footprint, mirroring (a subset of) the Electron `perf.getMetrics`
 /// shape so the status-bar dropdown can show the real desktop RAM/CPU.
 ///
@@ -5124,6 +5206,53 @@ fn browser_close(app: tauri::AppHandle, id: String) -> Result<(), String> {
     no_abort("browser_close", move || browser_close_inner(app, id))
 }
 
+/// Chiede alla WKWebView di una pane di smontarsi per davvero. `false` = qui non
+/// si puo', tocca al ripiego.
+///
+/// IL PID SI LEGGE PRIMA. Dopo `_close` il WebContent muore, e con lui la
+/// possibilita' di sapere quale processo era: il numero nel log e' quello da
+/// guardare per vedere sparire il processo (~1,25 s), altrimenti la riga direbbe
+/// soltanto che ci abbiamo provato.
+///
+/// IL THREAD. `with_webview` esegue la closure sul MAIN THREAD. Un comando
+/// `#[tauri::command]` sincrono e' gia' sul main thread, quindi la closure gira
+/// inline; da qualunque altro thread il messaggio va in coda, e la coda conserva
+/// l'ordine. In tutti e due i casi il `close()` che segue arriva dopo, che e'
+/// l'ordine che vogliamo.
+///
+/// Il giro passa dal dispatcher di wry come ogni altro passo della chiusura,
+/// quindi ha il suo `no_abort`: col mutex avvelenato panica qui e non dentro
+/// l'FFI. Se il dispatch non atterra si risponde `false` e il chiamante prova il
+/// ripiego (che passa dallo stesso dispatcher, quindi probabilmente fallira'
+/// anche lui: nessuno dei due passi si porta via l'altro).
+#[cfg(target_os = "macos")]
+fn free_native_webview(wv: &tauri::Webview, label: &str) -> bool {
+    if !wkwebview_can_close() {
+        return false;
+    }
+    let label = label.to_string();
+    no_abort("browser_close/_close", || {
+        wv.with_webview(move |platform| {
+            let view = platform.inner() as *mut crate::mac::Object;
+            let pid = unsafe { web_process_identifier(view) };
+            if unsafe { close_web_view(view) } {
+                eprintln!("[browser_close] {label}: _close chiamata, WebContent pid {pid}");
+            } else {
+                eprintln!("[browser_close] {label}: _close assente sull'istanza, resta il ripiego");
+            }
+        })
+        .map_err(|e| e.to_string())
+    })
+    .is_ok()
+}
+
+/// Su Windows e Linux la webview non e' una WKWebView e il `retain` di wry non
+/// c'e': la chiusura resta quella di prima, ripiego compreso.
+#[cfg(not(target_os = "macos"))]
+fn free_native_webview(_wv: &tauri::Webview, _label: &str) -> bool {
+    false
+}
+
 /// Svuota una pane browser e dimentica tutto quello che la riguardava.
 ///
 /// È il corpo comune di tre percorsi che vogliono la stessa cosa e per ragioni
@@ -5170,32 +5299,55 @@ fn browser_evict_pane(app: &tauri::AppHandle, id: &str, close: bool, purge_cache
         let _ = browser_purge_cache(app.clone(), id.to_string());
     }
     if let Some(wv) = app.get_webview(&label) {
-        // SVUOTA PRIMA DI CHIUDERE. `close()` non libera il processo WebContent:
-        // wry non dealloca mai la WKWebView — `impl Drop for InnerWebView`
-        // (wry 0.55.1, `src/wkwebview/mod.rs:1413`) chiama `self.webview.retain()`
-        // per aggirare un use-after-free, quindi l'oggetto ObjC sopravvive alla
-        // chiusura per sempre e con lui il suo processo. Verificato: 0.55.1 e'
-        // l'ultima pubblicata, il `retain` c'e' ancora, non c'e' fix a monte da
-        // prendere.
+        // SMONTA PRIMA DI CHIUDERE. `close()` da solo non libera il processo
+        // WebContent: wry non dealloca mai la WKWebView. `impl Drop for
+        // InnerWebView` (wry 0.55.1, `src/wkwebview/mod.rs:1413`) chiama
+        // `self.webview.retain()` per aggirare un use-after-free, quindi
+        // l'oggetto ObjC sopravvive alla chiusura per sempre e con lui il suo
+        // processo. Il `retain` c'e' ancora in 0.56.0 e su dev: alzare wry non
+        // serve, e infatti non lo alziamo.
         //
-        // Il GUSCIO non si puo' liberare, il CONTENUTO si': una navigazione ad
-        // `about:blank` smonta documento, DOM e heap JS. Misurato il 2026-07-29
-        // sull'app viva: 4 pane chiuse tenevano 2,1 GB di footprint, di cui 1,6 in
-        // un solo processo — con una pane sola davvero aperta, e lo swap della
-        // macchina al 95%.
+        // Qui c'era scritto che il guscio non si puo' liberare e che non c'e'
+        // fix a monte da prendere. La seconda meta' resta vera, la prima no:
+        // `-[WKWebView _close]` libera anche il guscio senza toccare wry. Il
+        // processo WebContent muore in ~1,25 s dalla chiamata, chiamarla due
+        // volte non crasha, e non crasha nemmeno il `removeFromSuperview()` +
+        // `retain()` che wry fa subito dopo nel suo `Drop`. Falsificata su un
+        // banco Swift separato prima di metterla qui (vedi `close_web_view`).
+        // La misura da cui si parte: 15 WebView vive per 9,7 GB di footprint.
         //
-        // La navigazione parte prima della chiusura perche' i due messaggi vanno
-        // in coda sul main thread nell'ordine in cui li mandiamo, e WebKit porta a
-        // termine un caricamento anche su una view staccata dalla sua superview
-        // (e' la stessa proprieta' su cui contavano le pane nascoste).
-        if let Ok(blank) = "about:blank".parse::<tauri::Url>() {
-            let _ = no_abort("browser_evict_pane/navigate", || {
-                wv.navigate(blank).map_err(|e| e.to_string())
-            });
+        // IL RIPIEGO E' IL COMPORTAMENTO DI PRIMA, non un'aggiunta. `_close` e'
+        // SPI: se un aggiornamento di WebKit la togliesse, si torna alla
+        // navigazione ad `about:blank`, che smonta documento, DOM e heap JS ma
+        // lascia in piedi il processo. Misurato il 2026-07-29 sull'app viva:
+        // 4 pane chiuse tenevano 2,1 GB di footprint, di cui 1,6 in un solo
+        // processo, con una pane sola davvero aperta e lo swap al 95%.
+        //
+        // In un caso o nell'altro il messaggio parte prima della chiusura,
+        // perche' vanno in coda sul main thread nell'ordine in cui li mandiamo,
+        // e WebKit porta a termine il lavoro anche su una view staccata dalla
+        // sua superview (e' la stessa proprieta' su cui contavano le pane
+        // nascoste).
+        if !free_native_webview(&wv, &label) {
+            if let Ok(blank) = "about:blank".parse::<tauri::Url>() {
+                let _ = no_abort("browser_evict_pane/navigate", || {
+                    wv.navigate(blank).map_err(|e| e.to_string())
+                });
+            }
         }
         // La pane non esiste più: l'appunto sulla sua URL nemmeno, o una pane
         // nuova con lo stesso id erediterebbe la posizione della vecchia.
         forget_pane_url(&label);
+        // Stessa ragione, sull'altro registro: il pid del suo WebContent non
+        // descrive piu' niente di aperto. Lasciarlo dentro faceva comparire la
+        // pane chiusa accanto alle vive nella lista per-scheda, perche' il
+        // filtro a valle guarda solo se il pid e' vivo e col `retain` lo e'
+        // sempre. La voce si toglie qui e non nella closure di `with_webview`:
+        // quella e' best effort e puo' non atterrare, questa riga atterra
+        // sempre. Riscriverla non puo': `refresh_webview_content_pids` visita
+        // solo `app.webviews()`, dove questa etichetta sta per non esserci piu'.
+        #[cfg(target_os = "macos")]
+        forget_webview_content_pid(&label);
         if close {
             let _ = no_abort("browser_evict_pane/close", || {
                 wv.close().map_err(|e| e.to_string())
@@ -5231,15 +5383,17 @@ fn browser_evict_pane(app: &tauri::AppHandle, id: &str, close: bool, purge_cache
 ///
 /// Il momento è tutto. Su `Destroyed` le figlie non sono più raggiungibili:
 /// l'evento arriva quando lo smontaggio è già finito, `app.webviews()` non le
-/// elenca più e non c'è più nessuno a cui dire `about:blank`. Su
-/// `CloseRequested` la finestra è ancora intera, quindi c'è ancora la webview a
-/// cui togliere il documento. Dopo, il guscio ObjC resta comunque in giro (wry
-/// non lo dealloca mai, vedi `browser_evict_pane`), ma resta VUOTO: è la
-/// differenza fra una webview morta da qualche centinaio di kB e una che tiene
-/// in ostaggio l'heap JS di una pagina intera.
+/// elenca più e non c'è più nessuno a cui chiedere niente. Su `CloseRequested`
+/// la finestra è ancora intera, quindi la webview c'è ancora ed è ancora
+/// nominabile.
+///
+/// Qui c'era scritto che dopo resta comunque un guscio ObjC vuoto, perché wry
+/// non lo dealloca mai. Non è più così: `browser_evict_pane` passa da
+/// `-[WKWebView _close]`, quindi anche questa strada congeda il processo
+/// WebContent invece di lasciarne uno vivo per finestra chiusa.
 ///
 /// Non chiediamo la `close()`: la view la distrugge la finestra un istante
-/// dopo, ed è il contenuto la cosa che nessun altro libererebbe.
+/// dopo, e quel messaggio in più al dispatcher non libererebbe un byte.
 fn evict_panes_of_window(app: &tauri::AppHandle, window_label: &str) {
     use tauri::Manager;
     let _ = no_abort("evict_panes_of_window", || {
@@ -5271,7 +5425,24 @@ fn browser_close_inner(app: tauri::AppHandle, id: String) -> Result<(), String> 
     // chiama `browser_purge_cache` per conto suo alla morte della pane.
     browser_evict_pane(&app, &id, true, false);
     // La vista è ancora registrata? Allora non è morta.
-    close_verdict(&id, app.get_webview(&browser_label(&id)).is_some())
+    let label = browser_label(&id);
+    let survivor = app.get_webview(&label);
+    if let Some(dead) = &survivor {
+        // ULTIMA CHIAMATA PRIMA DI PERDERE L'INDIRIZZO. `close_verdict` sta per
+        // bruciare l'etichetta, e da quel momento `browser_label(id)` ne indica
+        // un'altra: questa vista resta appesa al manager senza che nessuno possa
+        // piu' nominarla. Era una perdita permanente per costruzione, non un
+        // caso sfortunato. Il suo WebContent lo si puo' ancora congedare, ed e'
+        // adesso o mai piu'.
+        //
+        // Che sia il secondo `_close` sulla stessa vista non e' un problema: la
+        // chiamata e' idempotente, provata due volte di fila sul banco. Nel caso
+        // tipico (mutex avvelenato) fallira' come il primo, perche' passa dallo
+        // stesso dispatcher; se invece a fallire era stato solo `close()`, qui
+        // si recupera un processo intero.
+        let _ = free_native_webview(dead, &label);
+    }
+    close_verdict(&id, survivor.is_some())
 }
 
 /// Il verdetto della chiusura, separato dal guscio per poterlo provare.
