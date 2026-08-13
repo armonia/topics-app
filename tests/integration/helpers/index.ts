@@ -50,7 +50,13 @@ let cleanupArmed = false;
  *   const TEST_DATA = path.join(ROOT, "data");
  */
 export function testTmpDir(label: string): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), `topics-${label}-`));
+  // Radice CORTA, non `os.tmpdir()`: su macOS quella e' `/var/folders/…/T/`, e
+  // un socket unix creato li' dentro sfonda il limite di 104 caratteri del path
+  // con un ENAMETOOLONG che non parla di niente. Esempio di risultato:
+  // `/tmp/topics-test/live-phase-gate-a3Xk9Z`.
+  const radice = "/tmp/topics-test";
+  fs.mkdirSync(radice, { recursive: true });
+  const dir = fs.mkdtempSync(path.join(radice, `${label}-`));
   tmpRoots.push(dir);
   if (!cleanupArmed) {
     cleanupArmed = true;
@@ -67,35 +73,6 @@ function isUnderTestTmp(p: string): boolean {
   return tmpRoots.some((root) => abs === root || abs.startsWith(root + path.sep));
 }
 
-/**
- * Una cartella temporanea UNICA per processo, sotto `/tmp/topics-test/`.
- *
- * PERCHE' ESISTE. Un path fisso non isola niente: isola dagli ALTRI programmi,
- * non da un'altra copia di questa suite. Due run in parallelo aprono lo stesso
- * file SQLite, lo stesso HOME finto e lo stesso repo git, e la prima `rmSync` di
- * un `beforeAll` porta via i dati dell'altra mentre sta lavorando. Misurato: 3
- * run concorrenti, circa 65 test rossi fra `SQLITE_IOERR_VNODE` e lock contesi,
- * tutti verdi presi da soli. Il caso peggiore e' il broker ai-bridge, il cui
- * socket unix deriva da un hash di `DATA_DIR`: un `DATA_DIR` fisso mette due run
- * sullo stesso socket, cioe' a parlare con lo stesso demone.
- *
- * PERCHE' `/tmp` E NON `os.tmpdir()`. Su macOS `tmpdir()` e' un
- * `/var/folders/xx/…/T/` da una cinquantina di caratteri. Un socket unix ha un
- * tetto duro di 104 caratteri di path (`sun_path`), e i test che ne creano uno
- * lo mettono dentro la cartella che ricevono da qui: con una radice corta il
- * socket resta legale, con quella di sistema si rischia un ENAMETOOLONG che non
- * parla di niente.
- *
- * Esempio di risultato: `/tmp/topics-test/live-phase-gate-a3Xk9Z`.
- *
- * Chi la chiede la cancella: `afterAll(() => rmSync(dir, { recursive: true,
- * force: true }))`, o `/tmp/topics-test` cresce a ogni run.
- */
-export function testTmpDir(label: string): string {
-  const root = "/tmp/topics-test";
-  fs.mkdirSync(root, { recursive: true });
-  return fs.mkdtempSync(path.join(root, `${label}-`));
-}
 
 /**
  * Wipe `testDataDir` and point `process.env.DATA_DIR` at it. Call from
