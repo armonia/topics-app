@@ -151,8 +151,9 @@ export function isBoardActionLabel(text: string | undefined | null): boolean {
  * (`pendingQuestion`): a question with no buttons has nothing to click but is
  * still waiting for an answer. One legacy shape falls on that side and should
  * not: a delivery whose ONLY option was "Landa e pubblica", which
- * `parseQuestionBlock` filters out of the rendered list. The dispatcher has
- * not prompted for that option since 09/08, so those cards are historical.
+ * `parseQuestionBlock` filters out of the rendered list. The envelope no longer
+ * prompts for that option (it tells the agent NOT to offer publishing at all),
+ * so that shape only survives on old cards.
  */
 export function commentAsksHuman(content: string | null | undefined): boolean {
   const parsed = parseQuestionBlock(content ?? "");
