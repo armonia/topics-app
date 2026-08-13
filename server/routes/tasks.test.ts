@@ -2167,6 +2167,102 @@ describe("PATCH task: campo non applicabile = 400, non un 200 muto", () => {
   });
 });
 
+// Misurato il 13/08/2026, con una priorità sbagliata a mano:
+//   PATCH {"priority": 9} → 500 {"error":"CHECK constraint failed: priority BETWEEN 0 AND 4"}
+// Il codice mandava a cercare un guasto nel server, che era intero, e il
+// messaggio era la riga di schema di SQLite: si legge solo sapendo che esiste
+// un CHECK, e chi chiama lo schema non ce l'ha.
+describe("valore fuori dominio: 400 con la regola, non 500 con l'SQL", () => {
+  let db: Database; let broadcasts: any[]; let router: any;
+  beforeEach(() => {
+    db = freshDb(); broadcasts = [];
+    router = createTasksRouter(makeCtx(db, broadcasts));
+  });
+
+  /** Nessun pezzo di SQL deve affiorare fino al client. */
+  const senzaSql = (body: any) => {
+    const testo = JSON.stringify(body);
+    expect(testo).not.toContain("CHECK");
+    expect(testo).not.toContain("constraint");
+    expect(testo).not.toContain("BETWEEN");
+  };
+
+  const nuovo = async (patch: Record<string, unknown> = {}) =>
+    await (await call(router, "POST", "/api/boards/pX/tasks", { text: "x", ...patch }))!.json();
+
+  test("priority fuori range sulla board: 400, il range a parole, riga intatta", async () => {
+    const t = await nuovo({ priority: 1 });
+    const resp = (await call(router, "PATCH", `/api/boards/pX/tasks/${t.id}`, { priority: 9 }))!;
+    expect(resp.status).toBe(400);
+    const body = await resp.json();
+    expect(body.fields).toEqual(["priority"]);
+    expect(body.error).toContain("da 0 a 4");
+    senzaSql(body);
+    const got = await (await call(router, "GET", `/api/boards/pX/tasks/${t.id}`))!.json();
+    expect(got.task.priority).toBe(1);
+  });
+
+  test("priority fuori range sulla rotta agente: stesso 400", async () => {
+    const t = await (await call(router, "POST", "/api/sessions/s1/tasks", { text: "x" }))!.json();
+    const resp = (await call(router, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { priority: -1 }))!;
+    expect(resp.status).toBe(400);
+    const body = await resp.json();
+    expect(body.fields).toEqual(["priority"]);
+    expect(body.error).toContain("da 0 a 4");
+    senzaSql(body);
+  });
+
+  test("priority con la virgola: 400 (il DB la troncherebbe in silenzio)", async () => {
+    const t = await nuovo();
+    const resp = (await call(router, "PATCH", `/api/boards/pX/tasks/${t.id}`, { priority: 2.5 }))!;
+    expect(resp.status).toBe(400);
+    expect((await resp.json()).error).toContain("intero");
+  });
+
+  test("gli estremi del dominio restano validi: 0 e 4 sono 200", async () => {
+    const t = await nuovo();
+    for (const p of [0, 4]) {
+      const resp = (await call(router, "PATCH", `/api/boards/pX/tasks/${t.id}`, { priority: p }))!;
+      expect(resp.status).toBe(200);
+      expect((await resp.json()).priority).toBe(p);
+    }
+  });
+
+  test("status fuori dominio: 400 che elenca i cinque valori", async () => {
+    const t = await nuovo();
+    const resp = (await call(router, "PATCH", `/api/boards/pX/tasks/${t.id}`, { status: "quasi_fatto" }))!;
+    expect(resp.status).toBe(400);
+    const body = await resp.json();
+    expect(body.fields).toEqual(["status"]);
+    expect(body.error).toContain("in_progress");
+    expect(body.error).toContain("backlog");
+    senzaSql(body);
+    const got = await (await call(router, "GET", `/api/boards/pX/tasks/${t.id}`))!.json();
+    expect(got.task.status).toBe(t.status);
+  });
+
+  test("status fuori dominio sulla rotta agente: stesso 400", async () => {
+    const t = await (await call(router, "POST", "/api/sessions/s1/tasks", { text: "x" }))!.json();
+    const resp = (await call(router, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "quasi_fatto" }))!;
+    expect(resp.status).toBe(400);
+    const body = await resp.json();
+    expect(body.fields).toEqual(["status"]);
+    expect(body.error).toContain("review");
+    senzaSql(body);
+  });
+
+  // La CREAZIONE non passa dalla tabella dei campi della PATCH: qui il valore
+  // arriva davvero al DB, ed è la seconda rete a tradurre il CHECK.
+  test("creazione con priority fuori range: il CHECK diventa 400, non 500", async () => {
+    const resp = (await call(router, "POST", "/api/boards/pX/tasks", { text: "x", priority: 9 }))!;
+    expect(resp.status).toBe(400);
+    const body = await resp.json();
+    expect(body.code).toBe("invalid_input");
+    expect(body.error).toContain("da 0 a 4");
+    senzaSql(body);
+  });
+});
+
 describe("le due risposte allo stallo dei sottotask parcheggiati", () => {
   // La domanda la fa il sistema, e la risposta la ESEGUE il sistema. Prima
   // queste due etichette sarebbero cadute nel ramo `reject`: un turno d'agente
