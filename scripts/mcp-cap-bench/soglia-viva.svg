@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 620" width="900" height="620" font-family="Helvetica, Arial, sans-serif">
+  <rect width="900" height="620" fill="#0f1115"/>
+
+  <text x="40" y="62" fill="#f2f4f8" font-size="38" font-weight="700">I token scendono sempre. I dollari no.</text>
+  <text x="40" y="98" fill="#98a2b3" font-size="21">Banco vivo, stessa sequenza nei due bracci, soglia 60k contro nessuna soglia.</text>
+
+  <!-- divisorio fra i due regimi -->
+  <line x1="452" y1="140" x2="452" y2="540" stroke="#2a3040" stroke-width="2"/>
+
+  <!-- intestazioni dei due regimi -->
+  <text x="60" y="152" fill="#f2f4f8" font-size="24" font-weight="700">15 fetch, picco 122k</text>
+  <text x="60" y="180" fill="#8b94a3" font-size="19">sotto i 150k</text>
+  <text x="492" y="152" fill="#f2f4f8" font-size="24" font-weight="700">30 fetch, picco 215k</text>
+  <text x="492" y="180" fill="#8b94a3" font-size="19">sopra i 150k</text>
+
+  <!-- linea del pari -->
+  <line x1="40" y1="360" x2="860" y2="360" stroke="#5b6472" stroke-width="2"/>
+  <text x="40" y="352" fill="#8b94a3" font-size="17">pari</text>
+
+  <!-- REGIME A: 15 fetch. token -17,9% (giu'), dollari +25,5% (su) -->
+  <rect x="120" y="360" width="110" height="54" fill="#3f8f5f"/>
+  <text x="175" y="440" fill="#cfd6e2" font-size="22" text-anchor="middle">token</text>
+  <text x="175" y="478" fill="#7fbf95" font-size="42" font-weight="700" text-anchor="middle">-17,9%</text>
+
+  <rect x="290" y="284" width="110" height="76" fill="#c2453f"/>
+  <text x="345" y="440" fill="#cfd6e2" font-size="22" text-anchor="middle">dollari</text>
+  <text x="345" y="478" fill="#f08a84" font-size="42" font-weight="700" text-anchor="middle">+25,5%</text>
+  <text x="345" y="268" fill="#f08a84" font-size="21" font-weight="700" text-anchor="middle">costa di piu'</text>
+
+  <!-- REGIME B: 30 fetch. token -47,1%, dollari -10,9% -->
+  <rect x="552" y="360" width="110" height="141" fill="#3f8f5f"/>
+  <text x="607" y="527" fill="#cfd6e2" font-size="22" text-anchor="middle">token</text>
+  <text x="607" y="565" fill="#7fbf95" font-size="42" font-weight="700" text-anchor="middle">-47,1%</text>
+
+  <rect x="722" y="360" width="110" height="33" fill="#3f8f5f"/>
+  <text x="777" y="527" fill="#cfd6e2" font-size="22" text-anchor="middle">dollari</text>
+  <text x="777" y="565" fill="#7fbf95" font-size="42" font-weight="700" text-anchor="middle">-10,9%</text>
+
+  <text x="40" y="596" fill="#8b94a3" font-size="18">claude-opus-5[1m] · 5 fetch per turno · tetto MCP 25.000 · marcatori esatti in tutti e quattro i bracci</text>
+</svg>
