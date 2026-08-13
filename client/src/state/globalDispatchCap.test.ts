@@ -30,6 +30,10 @@ const machine = (over: Partial<DispatchCapacity> = {}): DispatchCapacity => ({
   cores: 12,
   totalMemGB: 32,
   load1: 2.5,
+  // Vedi `GlobalCapControl.test.tsx`: il freno vivo è la CPU della flotta sulla
+  // quota che le spetta, non più il load average della macchina intera.
+  oursCores: 0,
+  budgetCores: 6,
   reason: '12 core, base 4',
   running: 0,
   ...over,

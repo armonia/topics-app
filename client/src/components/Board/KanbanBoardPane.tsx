@@ -331,10 +331,13 @@ function WorktreeControl({ count, branches, gcRunning, gcResult, onGc }: {
  *    con la macchina in ginocchio: se non c'è niente da fermare, un allarme è
  *    solo rumore. È anche il motivo per cui `running` è stato aggiunto alla
  *    capacità: senza, «max N» non poteva sapere se c'era uno scarto.
- * 2. **Quello che si vede è già l'azione.** «Meglio fermare N agent», non un
- *    aggettivo. Il dettaglio (load, core, perché) sta nel popover, che è
- *    apribile col dito — e dice a chiare lettere che è un consiglio e non un
- *    tetto.
+ * 2. **Quello che si vede è già l'azione, in due parole.** «Fermane 2», non un
+ *    aggettivo e non una frase. La barra è una fila di controlli, non un posto
+ *    dove si legge: «Macchina carica: meglio fermare 2 agent» erano trentotto
+ *    caratteri che spingevano fuori i filtri dei progetti, e la parte che
+ *    contava era il numero. Il verbo resta perché un numero da solo non dice
+ *    cosa farne. Il dettaglio (CPU, core, perché) sta nel popover, apribile col
+ *    dito, che dice anche che è un consiglio e non un tetto.
  *
  * La sonda (ogni 15s) è quella dello store del tetto globale, non una seconda
  * per chip: la stessa lettura serve il chip, il menu del titolo e il pannello
@@ -347,9 +350,11 @@ function LoadAdviceChip() {
   if (!cap) return null;
   const over = (cap.running ?? 0) - cap.recommended;
   if (over <= 0) return null; // niente da fermare → niente chip
-  // load1 vs cores is the honest live saturation signal (see dispatch-capacity.ts).
-  const ratio = cap.cores > 0 ? cap.load1 / cap.cores : 0;
-  const severe = ratio >= 1.3 || over >= 2;
+  // La CPU che la FLOTTA sta bruciando è il segnale onesto (dispatch-capacity.ts):
+  // il load average della macchina intera parla soprattutto delle app di chi sta
+  // al computer, e usarlo qui coloravamo di rosso un Mac che sta benissimo.
+  const oltreQuota = cap.oursCores != null && cap.budgetCores > 0 && cap.oursCores >= cap.budgetCores;
+  const severe = oltreQuota || over >= 2 || (cap.oursCores == null && cap.cores > 0 && cap.load1 / cap.cores >= 1.3);
   const cls = severe
     ? 'bg-rose-500/15 text-rose-300 ring-1 ring-rose-500/30 hover:bg-rose-500/25'
     : 'bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/30 hover:bg-amber-500/25';
@@ -362,14 +367,21 @@ function LoadAdviceChip() {
         className={`flex h-6 items-center gap-1 rounded px-2 text-[11px] font-medium ${cls}`}
       >
         <AlertTriangle className="h-3 w-3 shrink-0" />
-        Macchina carica: meglio fermare {over} agent
+        Fermane {over}
       </button>
       <Menu open={open} anchorRef={btnRef} onClose={() => setOpen(false)} minWidth={288}>
         <div className="space-y-1.5 px-3 py-2.5 text-[11px] leading-snug text-app-text-secondary">
           <p className="text-[12px] font-medium text-app-text-heading">
             {cap.running} agent al lavoro, ne reggo {cap.recommended}
           </p>
-          <p>Load {cap.load1.toFixed(1)} su {cap.cores} core: la macchina è satura, e ogni agent in più rallenta anche gli altri.</p>
+          {cap.oursCores != null ? (
+            <p>
+              Gli agent tengono {cap.oursCores.toFixed(1)} core sui {cap.budgetCores.toFixed(0)} che
+              spettano loro, su {cap.cores}. Ogni agent in più si prende una fetta di quella quota.
+            </p>
+          ) : (
+            <p>Load {cap.load1.toFixed(1)} su {cap.cores} core: la macchina è carica, e ogni agent in più rallenta anche gli altri.</p>
+          )}
           <p className="text-app-text-muted">{cap.reason}</p>
           <p>È un <span className="text-app-text-heading">consiglio</span>, non un tetto: puoi lasciarli girare tutti. Il tetto vero sta nelle impostazioni della board, con quanti ne stanno girando.</p>
         </div>
