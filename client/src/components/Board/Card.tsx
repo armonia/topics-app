@@ -2,7 +2,7 @@ import { memo, useState, useEffect, useMemo, useRef } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { AlertTriangle, ClipboardList, Copy, Hourglass, Lock, MessageSquare, Plus, RotateCcw, Send, ShieldCheck, Square, Trash2, UserRound, X } from 'lucide-react';
+import { AlertTriangle, ArchiveRestore, ClipboardList, Copy, Hourglass, Lock, MessageSquare, Plus, RotateCcw, Send, ShieldCheck, Square, Trash2, UserRound, X } from 'lucide-react';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
@@ -27,7 +27,7 @@ import { StatusIcon, DispatchChip, QueueReasonChip, TaskIdChip, LabelChip } from
 import { POPOVER_DIVIDER, POPOVER_ITEM, POPOVER_ITEM_DANGER } from '@/lib/popoverStyles';
 
 // ── Column ────────────────────────────────────────────────────────────────
-export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject, cardError, onCardError, onRefetch, onOpenTopic, resolveSession, tasksById, projectPathById, liveById, awaitingHuman, justDone, justCreated }: {
+export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject, cardError, onCardError, onRefetch, onOpenTopic, resolveSession, tasksById, projectPathById, liveById, awaitingHuman, justDone, justCreated, archived = false }: {
   status: TaskStatus; tasks: BoardTask[]; onOpen: OpenTask; onCreate: (text: string) => void;
   canCreate: boolean; showProject: boolean; onRefetch: () => void;
   /** L'errore dell'ULTIMA azione fallita, con la card a cui appartiene: la
@@ -49,6 +49,9 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
   justDone: Set<string>;
   /** Card appena NATE: stesso lampo all'altro capo della vita del task, in azzurro. */
   justCreated: Set<string>;
+  /** La colonna sta mostrando l'ARCHIVIO: le sue card si ripristinano, non si
+   *  archiviano di nuovo. */
+  archived?: boolean;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: status });
   const [adding, setAdding] = useState(false);
@@ -147,6 +150,7 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
               awaiting={awaitingHuman.has(t.id)}
               justDone={justDone.has(t.id)}
               justCreated={justCreated.has(t.id)}
+              archived={archived}
             />
           ))}
         </SortableContext>
@@ -179,7 +183,7 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
 // props from the parent (onOpen/onError/onRefetch/onOpenTopic) are stable
 // (useCallback / state setters), and task/parentTitle come from tasks-keyed
 // memos, so the shallow prop compare holds for idle cards.
-export const Card = memo(function Card({ task, onOpen, showProject, error, onError, onRefetch, onOpenTopic, sessionState = 'unknown', parentTitle, projectPath, live, awaiting, justDone, justCreated }: {
+export const Card = memo(function Card({ task, onOpen, showProject, error, onError, onRefetch, onOpenTopic, sessionState = 'unknown', parentTitle, projectPath, live, awaiting, justDone, justCreated, archived = false }: {
   task: BoardTask; onOpen: OpenTask; showProject: boolean;
   /** Il perché l'ultimo click non ha fatto niente, disegnato SULLA card (in coda,
    *  sotto le sue scelte): la barra in cima al board sta a colonne di distanza,
@@ -206,6 +210,9 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   justDone?: boolean;
   /** La card è appena stata CREATA: lampo azzurro, si spegne da solo. */
   justCreated?: boolean;
+  /** La card viene dall'ARCHIVIO (vista `?archived=1`): il gesto in coda al
+   *  menu non è più archiviare — è già archiviata — ma riportarla indietro. */
+  archived?: boolean;
 }) {
   // Sortable: the source card is dimmed (the DragOverlay carries the visual)
   // but its NEIGHBOURS get the reflow transform — the list opens a gap under
@@ -249,6 +256,9 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   // calling them two different things depending on where you press.
   const stopWord = taskActionWord('stop', tr);
   const dropWord = taskActionWord('drop', tr);
+  // Stessa tavola dell'«Archivia» che sostituisce: una porta e il suo ritorno
+  // non possono chiamarsi in due sistemi diversi.
+  const restoreWord = taskActionWord('restore', tr);
   const isAgentReview = task.status === 'review' && !!task.assignedTopicId;
   // Lo stallo dei sottotask parcheggiati È una domanda, e la fa il SISTEMA: la
   // card può non avere nessun topic legato (il padre era stato rilasciato prima
@@ -336,6 +346,12 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
     clearError();
     try { await boardApi.archive(task.projectId, task.id); onRefetch(); }
     catch (e) { fail(e, failedWord('drop')); }
+  };
+  // Il ritorno dall'archivio. Niente conferma: è il gesto che RIMETTE una card
+  // dove stava, e chi si pente riarchivia con lo stesso menu.
+  const restore = async () => {
+    try { await boardApi.restore(task.projectId, task.id); onRefetch(); }
+    catch (e) { onError(e instanceof Error ? e.message : 'restore failed'); }
   };
   // «Aspetta» senza buttare via: interrompe il turno e basta. Prima l'unica
   // voce del menu era «Archivia», che su un task vivo chiede «Archivia e
@@ -886,12 +902,21 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
             </>
           )}
           <div className={POPOVER_DIVIDER} />
-          <button
-            role="menuitem"
-            onClick={(e) => { e.stopPropagation(); setCtxMenu(null); archive(); }}
-            title={dropWord.title}
-            className={POPOVER_ITEM_DANGER}
-          ><Trash2 className="h-3.5 w-3.5" /> {dropWord.label}</button>
+          {archived ? (
+            <button
+              role="menuitem"
+              onClick={(e) => { e.stopPropagation(); setCtxMenu(null); restore(); }}
+              title={restoreWord.title}
+              className={POPOVER_ITEM}
+            ><ArchiveRestore className="h-3.5 w-3.5 text-app-text-secondary" /> {restoreWord.label}</button>
+          ) : (
+            <button
+              role="menuitem"
+              onClick={(e) => { e.stopPropagation(); setCtxMenu(null); archive(); }}
+              title={dropWord.title}
+              className={POPOVER_ITEM_DANGER}
+            ><Trash2 className="h-3.5 w-3.5" /> {dropWord.label}</button>
+          )}
         </ContextMenuPortal>
       )}
     </div>
