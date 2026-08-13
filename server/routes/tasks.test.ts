@@ -527,6 +527,66 @@ describe("board router (human, project-scoped)", () => {
     expect(resumed[1][1]).toContain("nota a margine");
   });
 
+  test("quiet comment on a root in review ANNOTATES it: no reject, no resume, the card does not move", async () => {
+    db.run("INSERT INTO topics (id) VALUES ('top-q')");
+    const resumed: Array<[string, string]> = [];
+    const fake = {
+      onEnterTodo() {}, onLeaveTodo() {},
+      resume: async (id: string, msg: string) => { resumed.push([id, msg]); },
+    } as any;
+    const r = createTasksRouter(makeCtx(db, broadcasts), fake);
+
+    const root = await (await call(r, "POST", "/api/boards/pX/tasks", { text: "deliverable", status: "in_progress" }))!.json();
+    db.prepare("UPDATE tasks SET assigned_topic_id = 'top-q' WHERE id = ?").run(root.id);
+    await call(r, "PATCH", `/api/boards/pX/tasks/${root.id}`, { status: "review" });
+
+    const resp = (await call(r, "POST", `/api/boards/pX/tasks/${root.id}/comments`, {
+      content: "verificata, il video mostra il caso B", quiet: true,
+    }))!;
+    expect(resp.status).toBe(201);
+    // La nota c'è, e si legge sul thread come qualunque altro commento.
+    const got = await (await call(r, "GET", `/api/boards/pX/tasks/${root.id}`))!.json();
+    expect(got.comments.at(-1).content).toBe("verificata, il video mostra il caso B");
+    // Ma la card NON si è mossa e l'agent NON è ripartito: è tutto il punto del
+    // gesto quieto. Senza, scrivere qui rigettava la consegna senza dirlo.
+    expect(got.task.status).toBe("review");
+    expect(resumed).toEqual([]);
+    // Nessuna uscita review→in_progress nello storico: il rigetto non c'è stato,
+    // non è stato fatto e disfatto. La timeline vive nei commenti `kind='status'`.
+    const back = db.prepare(
+      "SELECT COUNT(*) AS n FROM task_comments WHERE task_id = ? AND kind = 'status' AND content LIKE 'review→in_progress%'",
+    ).get(root.id) as { n: number };
+    expect(back.n).toBe(0);
+
+    // E lo stesso campo, SENZA il flag, rimanda ancora indietro: il default non
+    // cambia, il silenzio va chiesto.
+    await call(r, "POST", `/api/boards/pX/tasks/${root.id}/comments`, { content: "rifallo" });
+    expect(resumed.length).toBe(1);
+    const after = await (await call(r, "GET", `/api/boards/pX/tasks/${root.id}`))!.json();
+    expect(after.task.status).toBe("in_progress");
+  });
+
+  test("quiet comment with media stays quiet too (attachments do not wake the agent)", async () => {
+    db.run("INSERT INTO topics (id) VALUES ('top-qm')");
+    const resumed: string[] = [];
+    const fake = {
+      onEnterTodo() {}, onLeaveTodo() {},
+      resume: async (id: string) => { resumed.push(id); },
+    } as any;
+    const r = createTasksRouter(makeCtx(db, broadcasts), fake);
+    const root = await (await call(r, "POST", "/api/boards/pX/tasks", { text: "deliverable", status: "in_progress" }))!.json();
+    db.prepare("UPDATE tasks SET assigned_topic_id = 'top-qm' WHERE id = ?").run(root.id);
+    await call(r, "PATCH", `/api/boards/pX/tasks/${root.id}`, { status: "review" });
+
+    const resp = (await call(r, "POST", `/api/boards/pX/tasks/${root.id}/comments`, {
+      content: "screenshot della verifica", media: ["/tmp/prova.png"], quiet: true,
+    }))!;
+    expect((await resp.json()).media).toEqual(["/tmp/prova.png"]);
+    expect(resumed).toEqual([]);
+    const got = await (await call(r, "GET", `/api/boards/pX/tasks/${root.id}`))!.json();
+    expect(got.task.status).toBe("review");
+  });
+
   test("comment with media reaches the thread AND the resumed agent (paths in the message)", async () => {
     db.run("INSERT INTO topics (id) VALUES ('top-m')");
     const resumed: Array<[string, string]> = [];

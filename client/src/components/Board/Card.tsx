@@ -2,7 +2,7 @@ import { memo, useState, useEffect, useMemo, useRef } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { AlertTriangle, ArchiveRestore, CircleSlash, ClipboardList, Copy, Hourglass, Lock, MessageSquare, Plus, RotateCcw, Send, ShieldCheck, Square, Trash2, UserRound, X } from 'lucide-react';
+import { AlertTriangle, ArchiveRestore, CircleSlash, ClipboardList, Copy, Hourglass, Lock, MessageSquare, Plus, RotateCcw, Send, ShieldCheck, Square, StickyNote, Trash2, UserRound, X } from 'lucide-react';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
@@ -323,12 +323,18 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   // dispatcher.resume), so the answer is a reject carrying the human's choice.
   const answer = (text: string) => review('reject', text);
   // Il campo libero della card in review: con un agente dietro è una RISPOSTA
-  // (riparte lui); senza, è un commento e basta — un `reject` chiuderebbe una
-  // revisione umana che nessuno ha chiesto di rifiutare.
-  const replyFree = () => {
+  // (riparte lui); senza, è un commento e basta.
+  // Un `reject` chiuderebbe una revisione umana che nessuno ha chiesto di
+  // rifiutare.
+  //
+  // `quiet` è il secondo gesto: la nota si salva sulla card e basta, l'agent
+  // non riparte e il task resta in Review. Serve perché finora scrivere qui
+  // RIMANDAVA indietro la consegna senza dirlo, e chi voleva solo annotare
+  // "verificata" risvegliava un agente su un lavoro finito.
+  const replyFree = (opts?: { quiet?: boolean }) => {
     const v = freeText.trim();
     if (!v) return;
-    if (isAgentReview) void answer(v); else void steer(v);
+    if (isAgentReview && opts?.quiet !== true) void answer(v); else void steer(v, opts);
   };
   const archive = async () => {
     // Archiviare un task con l'agent al lavoro gli taglia il turno (il server lo
@@ -370,11 +376,11 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   // Steer a WORKING agent: a comment on an in_progress task is buffered by the
   // dispatcher and handed over at the next turn (Claude-Code style). Same
   // /comments endpoint as the drawer composer — the server routes it to resume().
-  const steer = async (text: string) => {
+  const steer = async (text: string, opts?: { quiet?: boolean }) => {
     const v = text.trim();
     if (busy || !v) return;
     setBusy(true); clearError();
-    try { await boardApi.comment(task.projectId, task.id, v); setFreeText(''); onRefetch(); }
+    try { await boardApi.comment(task.projectId, task.id, v, { quiet: opts?.quiet }); setFreeText(''); onRefetch(); }
     catch (e) { fail(e, 'Il messaggio non è partito'); }
     finally { setBusy(false); }
   };
@@ -827,14 +833,27 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
               value={freeText} disabled={busy}
               onChange={(e) => setFreeText(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter' && freeText.trim()) { e.preventDefault(); replyFree(); } }}
-              placeholder={isAgentReview ? '…oppure rispondi a parole' : '…oppure commenta'}
+              placeholder={isAgentReview ? tr('board.task.replyPlaceholderShort') : '…oppure commenta'}
               className="min-w-0 flex-1 rounded-md bg-black/30 px-2.5 py-1.5 text-xs text-app-text outline-none placeholder:text-app-placeholder"
             />
+            {/* DUE GESTI, DUE BOTTONI, e ognuno si chiama come il suo effetto.
+                Qui lo spazio è quello che è, quindi le etichette sono corte:
+                ma restano PAROLE, perché il bottone unico diceva «Commenta» e
+                RIMANDAVA la consegna all'agent, e nessuna icona lo diceva. */}
             <button
-              disabled={busy || !freeText.trim()} onClick={replyFree}
-              title={isAgentReview ? "Rispondi (l'agent riparte con la tua risposta)" : 'Commenta'}
+              disabled={busy || !freeText.trim()} onClick={() => replyFree()}
+              title={isAgentReview ? tr('board.task.sendBackReplyTitle') : 'Commenta'}
+              data-testid="card-reply-send-back"
               className="flex items-center gap-1 rounded-md bg-sky-500/80 px-2.5 py-1.5 text-xs text-white hover:bg-sky-500 disabled:opacity-50"
-            ><Send className="h-3.5 w-3.5" /></button>
+            ><Send className="h-3.5 w-3.5" />{isAgentReview && <span>{tr('board.task.sendBackReply')}</span>}</button>
+            {isAgentReview && (
+              <button
+                disabled={busy || !freeText.trim()} onClick={() => replyFree({ quiet: true })}
+                title={tr('board.task.quietNoteTitle')}
+                data-testid="card-reply-quiet-note"
+                className="flex items-center gap-1 rounded-md bg-white/10 px-2.5 py-1.5 text-xs text-app-text hover:bg-white/20 disabled:opacity-50"
+              ><StickyNote className="h-3.5 w-3.5" /><span>{tr('board.task.quietNote')}</span></button>
+            )}
           </div>
         </div>
       )}
