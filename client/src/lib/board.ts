@@ -27,6 +27,12 @@ import type {
   TaskStatus, TaskComment, CheckRun, BoardSettings, BoardSettingsPatch, DispatchCapacity, BlockerRef, LandingTicket, SubtaskWork,
   QueueReason,
 } from '../../../shared/board';
+// Who spoke on a comment. The stored `author` is an identity, so the label a
+// person reads is derived from it, on the same rule the server uses. Keeping a
+// second rule in the client is how the card and the thread would start
+// disagreeing about who said something.
+export { commentAuthorLabel, isAgentAuthor, AGENT_AUTHOR } from '../../../shared/comment-author';
+export type { CommentAuthorLabel, CommentAuthorKind } from '../../../shared/comment-author';
 // Il tentativo di un fan-out: stesso contratto del server, stessa cartella condivisa.
 // Passa solo `attemptHasWork`, che è un predicato e non ha lingua. Il diffstat
 // (`formatAttemptStat`) NON passa più di qui: la UI lo vuole tradotto, e la sua
