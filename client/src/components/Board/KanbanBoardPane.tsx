@@ -16,14 +16,12 @@ import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { AlertTriangle, Archive, Bot, Check, ChevronDown, ChevronRight, Loader2, Search, Settings, Tag, Target, UploadCloud, X } from 'lucide-react';
 import type { WSMessage } from '../../types';
 import { Menu } from '../Shared/Menu';
-import { ExternalSessionsBadge } from './ExternalSessionsBadge';
-import { useExternalSessions } from '../../hooks/useExternalSessions';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
 import { currentTaskTarget, reflectTaskOpen, reflectTaskClose, subscribePopstateTask } from '../../lib/openTaskLink';
 import { useTaskSessionResolver } from '../../hooks/useTaskSession';
 import {
   boardApi, boardIdForPath, isProjectlessId, showsLandingDebt, TASK_STATUSES, UNASSIGNED_PROJECT_ID,
-  CLOSER_LABELS, KIND_LABELS,
+  CLOSER_LABELS, KIND_LABELS, STATUS_LABEL,
   type BoardProjectRef, type BoardTask, type TaskStatus, type BoardSettings, type TaskLabel,
   type PublishProject, type DiffBundle,
 } from '../../lib/board';
@@ -34,6 +32,8 @@ import { DONE_FLASH_MS, landedInDone, statusSnapshot } from '../../lib/justDone'
 import { scrollDelta } from '../../lib/scrollDelta';
 import { resolveProjectRefs, useBoardProjects } from '../../lib/boardProjectsStore';
 import { ProjectPickerBody } from './ProjectPicker';
+import { ProjectTaskCounts } from './atoms';
+import { countsSummary, projectTaskCounts } from '../../lib/projectTaskCounts';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { UnifiedDiff } from './UnifiedDiff';
 import { useConfirm } from '../../hooks/useConfirm';
@@ -68,10 +68,31 @@ interface Props {
   onStartMission?: (mission: Mission) => string | null;
 }
 
-/** Publish control: lists projects with unpushed commits on their current branch
- *  and pushes on demand (→ deploy CI where configured). Lives in the header so it
- *  works from the GLOBAL board too, where every project shows up together. */
-function PublishControl() {
+/**
+ * LA CONSEGNA, IN UN CONTROLLO SOLO.
+ *
+ * Prima erano due bottoni adiacenti: «N non su main» (rosso) e «Pubblica M»
+ * (ambra). Due numeri grandi, due colori d'allarme, la stessa frase implicita
+ * — «c'è del lavoro che non è ancora arrivato dove deve» — e nessuno dei due
+ * che dicesse in cosa differisce dall'altro. «14 non su main mi sembra uguale a
+ * Pubblica» (Attilio, 13/08): letti da fuori erano lo stesso allarme scritto
+ * due volte.
+ *
+ * Sono invece i DUE GRADINI della stessa scala, e adesso stanno nello stesso
+ * pannello, in quest'ordine:
+ *
+ *   1. NON SU MAIN — task chiusi la cui consegna non risulta unita. Il lavoro
+ *      esiste su un ramo e nessuno lo sta guardando. Si apre il task per
+ *      landarlo, o per scoprire perché quel lavoro non c'è.
+ *   2. SU MAIN, NON PUBBLICATO — commit che main ha e `origin` no. Qui il
+ *      lavoro c'è, manca solo il push (e il deploy dove è configurato).
+ *
+ * Il bottone porta i due numeri con due glifi diversi, non due pastiglie nude:
+ * il triangolo è un problema da guardare, la nuvola è un'azione da fare. E resta
+ * SEMPRE in barra, anche a zero, perché «Pubblica» è anche il posto dove si va a
+ * verificare che non ci sia niente da pubblicare.
+ */
+function DeliveryControl({ unlanded, onOpen }: { unlanded: BoardTask[]; onOpen: (id: string) => void }) {
   const tr = useT();
   const [projects, setProjects] = useState<PublishProject[] | null>(null);
   const [open, setOpen] = useState(false);
@@ -79,6 +100,7 @@ function PublishControl() {
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [diffs, setDiffs] = useState<Record<string, DiffBundle | 'loading' | 'error'>>({});
+  const btnRef = useRef<HTMLButtonElement>(null);
   const confirm = useConfirm();
   const refresh = useCallback(() => {
     boardApi.publishStatus().then(setProjects).catch(() => setProjects([]));
@@ -126,20 +148,69 @@ function PublishControl() {
     } catch (e) { setMsg(`${p.name}: ${(e as Error).message}`); }
     finally { setBusy(null); }
   };
+  // Il tono del bottone segue il gradino più grave che ha qualcosa da dire: un
+  // lavoro che non è su main è un problema (rosa), un commit da pubblicare è
+  // un'azione pronta (ambra), niente dei due è riposo (neutro).
+  const tone = unlanded.length > 0
+    ? 'bg-rose-500/15 text-rose-300 hover:bg-rose-500/25'
+    : total > 0
+      ? 'bg-amber-500/15 text-amber-300 hover:bg-amber-500/25'
+      : 'bg-white/10 text-app-text-secondary hover:bg-white/15';
+  const title = [
+    unlanded.length > 0 ? `${unlanded.length} task chiusi con lavoro non su main` : null,
+    total > 0 ? `${total} commit su main da pubblicare` : 'Niente da pubblicare',
+  ].filter(Boolean).join(' · ');
   return (
-    <div className="relative">
+    <>
       <button
+        ref={btnRef}
+        data-testid="delivery-badge"
         onClick={() => { setOpen((s) => !s); refresh(); }}
-        title={pending.length ? `${total} commit da pubblicare` : 'Niente da pubblicare'}
-        className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] transition-colors ${pending.length ? 'bg-amber-500/15 text-amber-300 hover:bg-amber-500/25' : 'bg-white/10 text-app-text-secondary hover:bg-white/15'}`}
+        title={title}
+        /* h-6 come i chip dei filtri: 24px è il minimo WCAG 2.2 AA per un
+           bersaglio, ed è quanto una riga di 36px può dare. */
+        className={`flex h-6 items-center gap-1.5 rounded px-2 text-[11px] transition-colors ${tone}`}
       >
-        <UploadCloud className="h-3 w-3" /> Pubblica{total > 0 && <span className="ml-0.5 rounded bg-amber-500/30 px-1 tabular-nums">{total}</span>}
+        <span>Consegna</span>
+        {unlanded.length > 0 && (
+          <span data-testid="delivery-unlanded-count" className="flex items-center gap-0.5 rounded bg-rose-500/25 px-1 font-medium tabular-nums text-rose-200">
+            <AlertTriangle className="h-3 w-3 shrink-0" />{unlanded.length}
+          </span>
+        )}
+        {total > 0 && (
+          <span data-testid="delivery-publish-count" className="flex items-center gap-0.5 rounded bg-amber-500/25 px-1 font-medium tabular-nums text-amber-200">
+            <UploadCloud className="h-3 w-3 shrink-0" />{total}
+          </span>
+        )}
       </button>
-      {open && (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-full z-50 mt-1 max-h-[70vh] w-96 overflow-y-auto rounded-lg border border-app-border bg-surface p-1 shadow-xl">
-            <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-app-text-muted">{tr('board.publish.toPublish')}</div>
+      <Menu open={open} anchorRef={btnRef} onClose={() => setOpen(false)} align="right" minWidth={384} className="max-h-[70vh] w-96 overflow-y-auto" unmanagedFocus>
+          {/* GRADINO 1 — il lavoro che non è nemmeno arrivato su main. Sta in
+              cima perché è l'unico dei due che segnala un GUASTO: un task
+              chiuso il cui lavoro non risulta da nessuna parte. */}
+          {unlanded.length > 0 && (
+            <div className="border-b border-app-border pb-1">
+              <div className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-rose-300/90">
+                Non su main
+              </div>
+              {unlanded.map((t) => (
+                <button
+                  key={t.id}
+                  data-testid="unlanded-item"
+                  onClick={() => { setOpen(false); onOpen(t.id); }}
+                  className={`${POPOVER_ITEM} !items-start`}
+                >
+                  <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${PRIORITY_DOT[t.priority] ?? PRIORITY_DOT[2]}`} />
+                  <span className="min-w-0 flex-1 truncate text-left">{t.text}</span>
+                </button>
+              ))}
+              <p className="px-3 pb-1 pt-1 text-[11px] leading-snug text-app-text-muted">
+                Task chiusi la cui consegna non risulta su main. Aprine uno per landarlo, o per scoprire perché quel lavoro non c'è.
+              </p>
+            </div>
+          )}
+          {/* GRADINO 2 — su main, ma non ancora fuori. */}
+          <div className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.publish.toPublish')}</div>
+          <div className="p-1 pt-0">
             {pending.length === 0 ? (
               <div className="px-2 py-1.5 text-[11px] text-app-text-muted">{tr('board.publish.nothing')}</div>
             ) : pending.map((p) => {
@@ -184,59 +255,6 @@ function PublishControl() {
             })}
             {msg && <div className="mt-0.5 border-t border-app-border px-2 py-1.5 text-[11px] text-app-text-secondary">{msg}</div>}
           </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-/**
- * «NON SU MAIN» — accanto a Pubblica, perché parla della stessa cosa.
- *
- * Due cambi rispetto a prima, e sono lo stesso ragionamento:
- *
- * 1. **Sta accanto a «Pubblica».** Pubblica ha già il suo contatore ambra e
- *    dice «lavoro che non è ancora uscito»; questo dice «lavoro che non è
- *    nemmeno arrivato su main». Sono i due gradini della stessa scala, e
- *    tenerli a due estremi opposti della barra li faceva leggere come due
- *    allarmi scollegati.
- * 2. **Il click apre l'ELENCO, non il primo della lista.** Saltare al primo
- *    task è un gesto strano quando ce ne sono sei: non c'è modo di vederli come
- *    INSIEME, che è esattamente la domanda che si fa chi legge il numero
- *    («quali?»). L'elenco risponde, e da lì si apre quello che si vuole.
- */
-function UnlandedControl({ tasks, onOpen }: { tasks: BoardTask[]; onOpen: (id: string) => void }) {
-  const btnRef = useRef<HTMLButtonElement>(null);
-  const [open, setOpen] = useState(false);
-  if (tasks.length === 0) return null;
-  return (
-    <>
-      <button
-        ref={btnRef}
-        onClick={() => setOpen((o) => !o)}
-        data-testid="unlanded-badge"
-        /* h-6 come i chip dei filtri: 24px è il minimo WCAG 2.2 AA per un
-           bersaglio, ed è quanto una riga di 36px può dare. */
-        className="flex h-6 items-center gap-1 rounded bg-rose-500/20 px-2 text-[11px] font-medium text-rose-300 hover:bg-rose-500/30"
-      ><AlertTriangle className="h-3 w-3 shrink-0" /> {tasks.length} non su main</button>
-      <Menu open={open} anchorRef={btnRef} onClose={() => setOpen(false)} minWidth={320}>
-        <div className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">
-          Task chiusi, lavoro non su main
-        </div>
-        {tasks.map((t) => (
-          <button
-            key={t.id}
-            data-testid="unlanded-item"
-            onClick={() => { setOpen(false); onOpen(t.id); }}
-            className={`${POPOVER_ITEM} !items-start`}
-          >
-            <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${PRIORITY_DOT[t.priority] ?? PRIORITY_DOT[2]}`} />
-            <span className="min-w-0 flex-1 truncate text-left">{t.text}</span>
-          </button>
-        ))}
-        <p className="border-t border-app-border px-3 py-1.5 text-[11px] leading-snug text-app-text-muted">
-          Chiusi, ma la loro consegna non risulta su main. Aprine uno per landarlo, o per scoprire perché quel lavoro non c'è.
-        </p>
       </Menu>
     </>
   );
@@ -560,14 +578,17 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
   // `generale-<hash>`), ma per chi filtra sono una cosa sola: una riga, che
   // accende e spegne entrambi gli id.
   const projectlessIds = useMemo(() => taskProjectIds.filter(isProjectlessId), [taskProjectIds]);
-  const projectCounts = useMemo(() => {
-    const out: Record<string, number> = {};
-    for (const t of tasks) {
-      const key = isProjectlessId(t.projectId) ? UNASSIGNED_PROJECT_ID : t.projectId;
-      out[key] = (out[key] ?? 0) + 1;
-    }
-    return out;
-  }, [tasks]);
+  // Quanti task, e in che stato. Il nome da solo non dice se quel progetto stia
+  // aspettando qualcuno o non abbia niente di aperto, ed è la domanda che si fa
+  // chi guarda una board generale con dodici progetti.
+  const projectCounts = useMemo(
+    () => projectTaskCounts(tasks, (t) => (isProjectlessId(t.projectId) ? UNASSIGNED_PROJECT_ID : t.projectId)),
+    [tasks],
+  );
+  const countsTitle = (p: BoardProjectRef) => {
+    const c = projectCounts[p.projectId];
+    return c ? `${p.name}. ${countsSummary(c, STATUS_LABEL)}` : `Filtra per ${p.name}`;
+  };
   const projectOptions = useMemo(() => {
     const refs = resolveProjectRefs(taskProjectIds.filter((id) => !isProjectlessId(id)), projectIndex);
     return projectlessIds.length
@@ -802,11 +823,12 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
                   aria-hidden={!shown}
                   tabIndex={shown ? 0 : -1}
                   data-testid={`project-filter-chip-${p.projectId}`}
-                  title={`Filtra per ${p.name}`}
-                  className={`${chip(on)} max-w-[10rem] ${shown ? '' : 'invisible'}`}
+                  title={countsTitle(p)}
+                  className={`${chip(on)} max-w-[13rem] ${shown ? '' : 'invisible'}`}
                 >
                   {p.path ? <ProjectFavicon path={p.path} size={12} /> : <span className="h-1.5 w-1.5 shrink-0 rounded-full border border-app-text-faint" />}
                   <span className="min-w-0 truncate">{p.name}</span>
+                  {projectCounts[p.projectId] && <ProjectTaskCounts counts={projectCounts[p.projectId]!} />}
                   {on && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
                 </button>
               );
@@ -839,9 +861,6 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
   // 'project' = this project only · 'all' = the global cross-project board.
   const [mode, setMode] = useState<'project' | 'all'>(canToggle ? 'project' : 'all');
   const [tasks, setTasks] = useState<BoardTask[]>([]);
-  // Sessions running outside the kanban. Scoped to this board in project mode,
-  // machine-wide on the global board — same scoping rule as the task list.
-  const externalSessions = useExternalSessions(onMessage, mode === 'project' ? projectId : undefined);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   // L'errore di UNA card sta sulla card, non nella barra qui sopra: quella vive
@@ -1783,18 +1802,21 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
         </div>
         <div className="ml-auto flex items-center gap-2">
           {mode === 'all' && <span className="hidden text-[11px] text-app-text-muted sm:inline">{tasks.length} task · tutti i progetti</span>}
-          {/* The work the kanban does NOT govern — otherwise a repo with three
-              bare `claude` sessions and no cards reads as "fermo". */}
-          <ExternalSessionsBadge sessions={externalSessions} showProject={mode === 'all'} onOpenTopic={onOpenTopic} />
+          {/* (Qui stava il chip delle sessioni Claude avviate a mano in un
+              terminale, col suo «Continua qui» che le adottava in una topic.
+              Tolto su richiesta di Attilio il 13/08: in barra era un numero che
+              non chiedeva niente a chi lo leggeva, e il gesto che valeva era
+              nascosto dentro il popover. Il censimento resta lato server: lo
+              legge il dispatcher per avvertire quando si sta per landare su un
+              repo dove qualcun altro sta lavorando.) */}
           {/* Auto-dispatch on/off lives in GlobalSettingsMenu now — no duplicate pill. */}
           {canRunMissions && (
             <MissionsMenu onStart={(m) => setError(onStartMission!(m))} />
           )}
-          {/* Accanto a Pubblica, e prima: «non su main» è il gradino sotto —
-              lavoro che non è nemmeno arrivato a main, mentre Pubblica parla di
-              lavoro che è su main e non è ancora uscito. */}
-          <UnlandedControl tasks={unlandedTasks} onOpen={setSelectedId} />
-          <PublishControl />
+          {/* UN controllo per i due gradini della consegna: «non su main» e «su
+              main ma non pubblicato». Erano due bottoni adiacenti, e da fuori si
+              leggevano come lo stesso allarme scritto due volte. */}
+          <DeliveryControl unlanded={unlandedTasks} onOpen={setSelectedId} />
           {/* L'archivio, accanto alle impostazioni: un interruttore, come la
               lente degli archiviati in sidebar. Acceso = la board mostra ciò che
               è stato archiviato, e da lì lo si può riportare indietro. */}
