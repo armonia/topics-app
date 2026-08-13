@@ -53,7 +53,7 @@ import {
   imageCopyStartJs,
   parsePaneContextRequest,
   paneToHostPoint,
-} from '@/components/Browser/paneContextMenu';
+} from '@/components/Browser/paneContextModel';
 import {
   buildReadJs,
   META_JS,
