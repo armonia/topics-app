@@ -2855,7 +2855,7 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
   };
   if (!s) return null;
   return (
-    <div className="shrink-0 space-y-2 border-b border-app-border bg-app-inset px-3 py-2.5 text-xs text-app-text-heading">
+    <div className="shrink-0 space-y-2 border-b border-app-border bg-app-inset px-3 py-2.5 text-xs text-app-text-heading" data-testid="board-settings-panel">
       <div className="flex items-center justify-between">
         {/* Il pannello non è «Auto-dispatch»: contiene effort, modello, lingua,
             worktree, fan-out, notturna, auto-merge, MCP. Chiamarlo col nome
@@ -2865,17 +2865,27 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
         <button aria-label={tr('board.settings.close')} onClick={onClose} className="rounded p-0.5 text-app-text-secondary hover:bg-white/10"><X className="h-3.5 w-3.5" /></button>
       </div>
 
-      <label
-        className="flex cursor-pointer items-center justify-between gap-3"
-        title={tr('board.settings.dispatchOnTitle')}
-      >
-        {/* STESSA etichetta del ▾ in testata: è lo stesso interruttore globale,
-            e due nomi diversi per un valore solo fanno sembrare che siano due
-            impostazioni. Il cosa-fa sta nel `title`, non nel nome. */}
-        <span className="flex items-center gap-1.5"><Bot className="h-3.5 w-3.5 text-app-text-secondary" /> {tr('board.settings.autoDispatch')}</span>
-        <input type="checkbox" checked={!!dispatchOn} onChange={onToggleDispatch} className="h-3.5 w-3.5 shrink-0 accent-emerald-500" />
-      </label>
+      {/* PRIMA sezione, e la sola che NON è di questa board: l'interruttore è
+          quello globale, lo stesso del ▾ in testata. Senza il titolo sopra, la
+          prima riga di una lista piatta si leggeva come «auto-dispatch di
+          questo progetto» — cioè come un'impostazione che qui non esiste. */}
+      <SettingsSection label={tr('board.settings.sec.global')} first>
+        <label
+          className="flex cursor-pointer items-center justify-between gap-3"
+          title={tr('board.settings.dispatchOnTitle')}
+        >
+          {/* STESSA etichetta del ▾ in testata: è lo stesso interruttore globale,
+              e due nomi diversi per un valore solo fanno sembrare che siano due
+              impostazioni. Il cosa-fa sta nel `title`, non nel nome. */}
+          <span className="flex items-center gap-1.5"><Bot className="h-3.5 w-3.5 text-app-text-secondary" /> {tr('board.settings.autoDispatch')}</span>
+          <input type="checkbox" checked={!!dispatchOn} onChange={onToggleDispatch} className="h-3.5 w-3.5 shrink-0 accent-emerald-500" />
+        </label>
+        {dispatchOn && (
+          <p className="text-[11px] text-amber-300/80">{tr('board.settings.dispatchOnActive')}</p>
+        )}
+      </SettingsSection>
 
+      <SettingsSection label={tr('board.settings.sec.agent')}>
       <div className="flex items-center justify-between gap-2">
         <span>{tr('board.settings.effort')}</span>
         <div className="flex gap-0.5">
@@ -2932,6 +2942,13 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
         />
       </div>
 
+      <label className="flex cursor-pointer items-center justify-between" title={tr('board.settings.fullMcpTitle')}>
+        <span>{tr('board.settings.fullMcp')}</span>
+        <input type="checkbox" checked={s.dispatchMcp === 'inherit'} onChange={(e) => patch({ dispatchMcp: e.target.checked ? 'inherit' : 'bridge-only' })} className="h-3.5 w-3.5 accent-emerald-500" />
+      </label>
+      </SettingsSection>
+
+      <SettingsSection label={tr('board.settings.sec.where')}>
       <label className="flex cursor-pointer items-center justify-between">
         <span>{tr('board.settings.isolateWorktree')}</span>
         <input type="checkbox" checked={s.dispatchUseWorktree} onChange={(e) => patch({ dispatchUseWorktree: e.target.checked })} className="h-3.5 w-3.5 accent-emerald-500" />
@@ -2970,33 +2987,56 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
           {tr('board.settings.notRepoWarn')}
         </p>
       )}
+      </SettingsSection>
 
       {/* La modalità notturna ha una CARD sua, non una casella in mezzo alle
           altre: l'interruttore è la parte piccola, la parte utile è lo stato —
           sta dispacciando o è in attesa, e per quale motivo. Vedi
           `NightModeCard.tsx`. */}
-      <NightModeCard
-        projectId={projectId}
-        enabled={!!s.nightMode}
-        until={s.nightModeUntil || '10:00'}
-        onChange={patch}
-      />
+      <SettingsSection label={tr('board.settings.sec.when')}>
+        <NightModeCard
+          projectId={projectId}
+          enabled={!!s.nightMode}
+          until={s.nightModeUntil || '10:00'}
+          onChange={patch}
+        />
+      </SettingsSection>
 
-      <label className="flex cursor-pointer items-center justify-between" title={tr('board.settings.autoMergeTitle')}>
-        <span>{tr('board.settings.autoMerge')}</span>
-        <input type="checkbox" checked={s.dispatchAutoMerge} disabled={!s.dispatchUseWorktree} onChange={(e) => patch({ dispatchAutoMerge: e.target.checked })} className="h-3.5 w-3.5 accent-emerald-500 disabled:opacity-40" />
-      </label>
+      {/* Auto-merge e checks stanno insieme perché parlano dello stesso momento:
+          l'agent ha consegnato. Uno decide se quel lavoro entra in main da solo,
+          l'altro cosa deve passare prima che entri in review. Erano separati da
+          una riga sulla MCP, che è di un altro discorso. */}
+      <SettingsSection label={tr('board.settings.sec.delivery')}>
+        <label className="flex cursor-pointer items-center justify-between" title={tr('board.settings.autoMergeTitle')}>
+          <span>{tr('board.settings.autoMerge')}</span>
+          <input type="checkbox" checked={s.dispatchAutoMerge} disabled={!s.dispatchUseWorktree} onChange={(e) => patch({ dispatchAutoMerge: e.target.checked })} className="h-3.5 w-3.5 accent-emerald-500 disabled:opacity-40" />
+        </label>
+        <ReviewChecksField checks={s.reviewChecks} onSave={(reviewChecks) => patch({ reviewChecks })} />
+      </SettingsSection>
+    </div>
+  );
+}
 
-      <label className="flex cursor-pointer items-center justify-between" title={tr('board.settings.fullMcpTitle')}>
-        <span>{tr('board.settings.fullMcp')}</span>
-        <input type="checkbox" checked={s.dispatchMcp === 'inherit'} onChange={(e) => patch({ dispatchMcp: e.target.checked ? 'inherit' : 'bridge-only' })} className="h-3.5 w-3.5 accent-emerald-500" />
-      </label>
-
-      <ReviewChecksField checks={s.reviewChecks} onSave={(reviewChecks) => patch({ reviewChecks })} />
-
-      {dispatchOn && (
-        <p className="text-[11px] text-amber-300/80">{tr('board.settings.dispatchOnActive')}</p>
-      )}
+/**
+ * UNA SEZIONE DEL PANNELLO — un titolo e le sue righe.
+ *
+ * Il pannello era dieci righe di seguito, tutte con lo stesso peso: effort,
+ * modello, lingua, worktree, fan-out, notturna, auto-merge, MCP, checks. Senza
+ * gerarchia non si legge, si scandisce — e soprattutto la prima riga era
+ * l'interruttore GLOBALE, che in cima a una lista piatta si legge come
+ * un'impostazione di questa board («le impostazioni della board non mi sembrano
+ * ben fatte», Attilio 13/08).
+ *
+ * Il titolo non è decorazione: è la risposta alla domanda che ogni riga
+ * poneva da sola — «questo vale per chi?». Il filetto sopra separa i gruppi
+ * SENZA aggiungere una seconda scatola: il pannello è già dentro un bordo, e un
+ * riquadro dentro un riquadro renderebbe ogni gruppo un oggetto a sé.
+ */
+function SettingsSection({ label, first, children }: { label: string; first?: boolean; children: React.ReactNode }) {
+  return (
+    <div className={first ? 'space-y-2' : 'space-y-2 border-t border-app-border-subtle pt-2'}>
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">{label}</p>
+      {children}
     </div>
   );
 }
