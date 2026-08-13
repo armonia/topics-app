@@ -3984,6 +3984,13 @@ struct NavErrorMsg {
 
 static NAV_ERROR_EVENTS: std::sync::Mutex<Vec<NavErrorMsg>> = std::sync::Mutex::new(Vec::new());
 
+/// Codice nostro per «la navigazione l'abbiamo rifiutata noi», che non esiste
+/// fra quelli di Cocoa: NSURLErrorDomain vive fra -998 e -1200, WebKitErrorDomain
+/// fra 100 e 204, quindi questo non collide con nessuno dei due e il client può
+/// riconoscerlo senza leggere stringhe. Il gemello lato client sta in
+/// `client/src/components/Browser/navErrorMessage.ts`.
+const NAV_ERR_SCHEME_REFUSED: i64 = -7001;
+
 /// WKWebView pointer → pane id. The navigation delegate CLASS is shared by every
 /// wry webview (main UI included), so the failure IMP must scope events to the
 /// browser panes it knows; unmapped pointers are silently ignored.
@@ -9053,10 +9060,36 @@ pub fn run() {
                         // setting window.location='file:///etc/passwd'). Mirrors
                         // Electron's guardNav / AGENT_NAV_SCHEMES — closes the LFI.
                         if label.starts_with("browserpane-") {
-                            return matches!(
+                            let allowed = matches!(
                                 url.scheme(),
                                 "http" | "https" | "about" | "blob" | "data"
                             );
+                            if !allowed {
+                                // Negare in SILENZIO è il difetto che ha
+                                // prodotto «è tutto bianco»: la navigazione non
+                                // parte, WKWebView non fallisce (non è mai
+                                // cominciata), nessun did-fail, quindi la strip
+                                // non ha niente da dire e la pane resta com'era
+                                // — vuota, se era appena nata. L'evento va messo
+                                // nella STESSA coda dei fallimenti veri
+                                // (NAV_ERROR_EVENTS → browser_take_nav_errors →
+                                // navErrorMessage): un canale solo, e il rifiuto
+                                // si legge come si legge un host irraggiungibile.
+                                if let Some(pane) = pane_id_from_label(label) {
+                                    if let Ok(mut v) = NAV_ERROR_EVENTS.lock() {
+                                        v.push(NavErrorMsg {
+                                            url: url.to_string(),
+                                            description: format!(
+                                                "scheme \"{}\" is not allowed in a browser pane",
+                                                url.scheme()
+                                            ),
+                                            code: NAV_ERR_SCHEME_REFUSED,
+                                            pane_id: pane.to_string(),
+                                        });
+                                    }
+                                }
+                            }
+                            return allowed;
                         }
                         return true;
                     }
