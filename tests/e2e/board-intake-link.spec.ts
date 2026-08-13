@@ -169,7 +169,12 @@ test.describe("Intake che collega", () => {
     // attribuzione muta, il motivo è leggibile dove si decide.
     await nuova.click();
     await expect(page.getByTestId("task-detail-drawer")).toBeVisible({ timeout: 10000 });
-    await expect(page.getByTestId("task-detail-drawer")).toContainText(/non parte finché/);
+    // Maiuscola O minuscola: la frase è a inizio periodo da quando il gate sul
+    // trattino lungo (c3cfd89e, 12/08) ha spezzato «accettata da te — non parte
+    // finché» in due frasi. Il regex era rimasto minuscolo e la spec era rossa
+    // da allora, per una lettera: quello che deve reggere è la PROMESSA, non
+    // come inizia il periodo che la contiene.
+    await expect(page.getByTestId("task-detail-drawer")).toContainText(/[Nn]on parte finché/);
     await beat(page, 2600);
   });
 });
