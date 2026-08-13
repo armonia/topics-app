@@ -3,17 +3,22 @@
  * on the board.
  *
  * Topics only knows the sessions it spawned, so a repo worked by hand from a
- * terminal reads as "fermo" on the kanban. The server now takes a census of
- * `~/.claude/projects/*.jsonl` (see server/lib/external-claude-sessions.ts) and
- * the board header carries a read-only badge for it.
+ * terminal reads as "fermo" on the kanban. The server takes a census of
+ * `~/.claude/projects/*.jsonl` (see server/lib/external-claude-sessions.ts).
+ *
+ * Il censimento non ha piu' una superficie: il chip in barra alla kanban e'
+ * stato tolto il 13/08 (era un numero che non chiedeva niente a chi lo
+ * leggeva). Il lettore che resta e' il dispatcher, che di qui sa quando un
+ * repo e' gia' lavorato a mano da qualcun altro. Quindi la prova e' sul DATO,
+ * non su un pixel.
  *
  * The test server runs with HOME=<DATA_DIR>/.home (see
  * scripts/start-test-server.sh), so seeding a transcript under THAT home is
  * exactly what a bare `claude` would write — no mocks, the real scan path.
  */
 import { test } from "./fixtures/layout.fixture";
-import { expect, type Page } from "@playwright/test";
-import { createTopic, deleteTopic, resetPaneStore, seedProjectPane } from "./helpers/api-fixtures";
+import { expect } from "@playwright/test";
+import { createTopic, deleteTopic } from "./helpers/api-fixtures";
 import { mkdirSync, rmSync, writeFileSync } from "fs";
 import { E2E_BASE, E2E_HOME } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
@@ -49,39 +54,6 @@ function seedExternalSession(cwd = PROJECT_PATH, branch = "main"): void {
   writeFileSync(`${TRANSCRIPT_DIR}/${SESSION_ID}.jsonl`, JSON.stringify(entry) + "\n");
 }
 
-/** Open the e2e project window by clicking its sidebar row. */
-async function openTestProject(page: Page) {
-  const projectsSection = page.getByRole("button", { name: /sezione Progetti/ });
-  if ((await projectsSection.count()) > 0) {
-    const expanded = await projectsSection.getAttribute("aria-expanded");
-    if (expanded === "false") await projectsSection.click();
-  }
-  const btn = page
-    .locator('[aria-label="Topics sidebar"] button')
-    .filter({ hasText: /e2e-extsess/ })
-    .first();
-  await expect(btn).toBeVisible({ timeout: 10000 });
-  await btn.click();
-  await expect(page.locator('[data-testid="panel-tab-bar"]').first()).toBeVisible({ timeout: 10000 });
-}
-
-/** Open the project board pane via the project window's "+" menu. */
-async function openProjectBoard(page: Page) {
-  await openTestProject(page);
-  const triggers = page.getByTestId("pane-add-menu-trigger");
-  const count = await triggers.count();
-  const item = page.getByTestId("pane-add-menu-kanban");
-  for (let i = count - 1; i >= 0; i--) {
-    await triggers.nth(i).click();
-    const found = await item.waitFor({ state: "visible", timeout: 2000 }).then(() => true, () => false);
-    if (found) break;
-    await page.keyboard.press("Escape");
-    if (i === 0) throw new Error("no + menu with a Board (kanban) entry found");
-  }
-  await item.click();
-  await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 10000 });
-}
-
 test.describe("Sessioni Claude fuori dalla kanban", () => {
   test.describe.configure({ timeout: 90_000 });
 
@@ -101,10 +73,6 @@ test.describe("Sessioni Claude fuori dalla kanban", () => {
     rmSync(PROJECT_PATH, { recursive: true, force: true });
   });
 
-  test.beforeEach(async ({ page }) => {
-    await resetPaneStore(page.request, []);
-    await seedProjectPane(page.request, PROJECT_PATH).catch(() => {});
-  });
 
   test("EXTSESS-01: /api/external-sessions reports the bare session with project, branch and last activity", async ({ request }) => {
     // The census is TTL-cached server-side; poll until the seeded transcript
@@ -129,19 +97,4 @@ test.describe("Sessioni Claude fuori dalla kanban", () => {
     expect(body.projects.some((p) => p.projectPath === PROJECT_PATH && p.active >= 1)).toBe(true);
   });
 
-  test("EXTSESS-02: the board header badge names the session Topics doesn't govern", async ({ page }) => {
-    await page.goto("/");
-    await openProjectBoard(page);
-
-    const badge = page.getByTestId("external-sessions-badge");
-    await expect(badge).toBeVisible({ timeout: 45_000 });
-    await badge.click();
-
-    // The popover names the directory and the branch — enough for the human to
-    // recognise their own terminal.
-    await expect(page.getByText("Sessioni fuori dalla kanban")).toBeVisible();
-    const row = page.locator("li").filter({ hasText: PROJECT_PATH.split("/").pop()! }).first();
-    await expect(row).toBeVisible();
-    await expect(row).toContainText("main");
-  });
 });

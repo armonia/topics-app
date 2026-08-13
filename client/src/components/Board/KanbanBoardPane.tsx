@@ -16,8 +16,6 @@ import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { AlertTriangle, Bot, Check, ChevronDown, ChevronRight, Loader2, Search, Settings, Tag, Target, UploadCloud, X } from 'lucide-react';
 import type { WSMessage } from '../../types';
 import { Menu } from '../Shared/Menu';
-import { ExternalSessionsBadge } from './ExternalSessionsBadge';
-import { useExternalSessions } from '../../hooks/useExternalSessions';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
 import { currentTaskTarget, reflectTaskOpen, reflectTaskClose, subscribePopstateTask } from '../../lib/openTaskLink';
 import { useTaskSessionResolver } from '../../hooks/useTaskSession';
@@ -898,9 +896,6 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
   // 'project' = this project only · 'all' = the global cross-project board.
   const [mode, setMode] = useState<'project' | 'all'>(canToggle ? 'project' : 'all');
   const [tasks, setTasks] = useState<BoardTask[]>([]);
-  // Sessions running outside the kanban. Scoped to this board in project mode,
-  // machine-wide on the global board — same scoping rule as the task list.
-  const externalSessions = useExternalSessions(onMessage, mode === 'project' ? projectId : undefined);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   // A move that did NOT land where it was aimed says so here. Not an error
@@ -1819,9 +1814,13 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
         </div>
         <div className="ml-auto flex items-center gap-2">
           {mode === 'all' && <span className="hidden text-[11px] text-app-text-muted sm:inline">{tasks.length} task · tutti i progetti</span>}
-          {/* The work the kanban does NOT govern — otherwise a repo with three
-              bare `claude` sessions and no cards reads as "fermo". */}
-          <ExternalSessionsBadge sessions={externalSessions} showProject={mode === 'all'} onOpenTopic={onOpenTopic} />
+          {/* (Qui stava il chip delle sessioni Claude avviate a mano in un
+              terminale, col suo «Continua qui» che le adottava in una topic.
+              Tolto su richiesta di Attilio il 13/08: in barra era un numero che
+              non chiedeva niente a chi lo leggeva, e il gesto che valeva era
+              nascosto dentro il popover. Il censimento resta lato server: lo
+              legge il dispatcher per avvertire quando si sta per landare su un
+              repo dove qualcun altro sta lavorando.) */}
           {/* Auto-dispatch on/off lives in GlobalSettingsMenu now — no duplicate pill. */}
           {canRunMissions && (
             <MissionsMenu onStart={(m) => setError(onStartMission!(m))} />

@@ -10,16 +10,17 @@
  * The test seeds the transcript a bare `claude` would leave under the server's
  * isolated HOME (real scan path, no mocks), then:
  *   ADOPT-01 drives the endpoint directly — bind + import + idempotency.
- *   ADOPT-02 drives the UI — badge → popover → "Continua qui" → chat with history.
- * Each test owns its OWN session id and project so adopting in one never shadows
- * the census the other reads (an adopted session is "governed" and drops out of
- * the "outside the kanban" list). The actual `--resume` spawn that makes the
- * next turn continue the SAME conversation is covered by the provider unit tests;
- * here we prove the binding + the imported history the human sees.
+ *
+ * C'era anche un ADOPT-02 che guidava la UI (chip in barra → popover →
+ * «Continua qui»). Quel gesto non esiste piu': il chip delle sessioni in
+ * terminale e' stato tolto il 13/08, e con lui l'unica superficie da cui si
+ * adottava. L'endpoint resta, ed e' quello che questa spec prova. Il `--resume`
+ * che fa continuare la STESSA conversazione al turno dopo e' coperto dagli unit
+ * test del provider; qui si prova il binding e la storia importata.
  */
 import { test } from "./fixtures/layout.fixture";
-import { expect, type Page } from "@playwright/test";
-import { createTopic, deleteTopic, resetPaneStore, seedProjectPane } from "./helpers/api-fixtures";
+import { expect } from "@playwright/test";
+import { createTopic, deleteTopic } from "./helpers/api-fixtures";
 import { mkdirSync, rmSync, writeFileSync } from "fs";
 import { E2E_BASE, E2E_HOME } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
@@ -69,65 +70,24 @@ async function waitForCensus(request: import("@playwright/test").APIRequestConte
   }, { timeout: 45_000, intervals: [1000] }).not.toBeNull();
 }
 
-async function openTestProject(page: Page, projectMatch: RegExp) {
-  const projectsSection = page.getByRole("button", { name: /sezione Progetti/ });
-  if ((await projectsSection.count()) > 0) {
-    const expanded = await projectsSection.getAttribute("aria-expanded");
-    if (expanded === "false") await projectsSection.click();
-  }
-  const btn = page.locator('[aria-label="Topics sidebar"] button').filter({ hasText: projectMatch }).first();
-  await expect(btn).toBeVisible({ timeout: 10000 });
-  await btn.click();
-  await expect(page.locator('[data-testid="panel-tab-bar"]').first()).toBeVisible({ timeout: 10000 });
-}
-
-async function openProjectBoard(page: Page, projectMatch: RegExp) {
-  await openTestProject(page, projectMatch);
-  const triggers = page.getByTestId("pane-add-menu-trigger");
-  const count = await triggers.count();
-  const item = page.getByTestId("pane-add-menu-kanban");
-  for (let i = count - 1; i >= 0; i--) {
-    await triggers.nth(i).click();
-    const found = await item.waitFor({ state: "visible", timeout: 2000 }).then(() => true, () => false);
-    if (found) break;
-    await page.keyboard.press("Escape");
-    if (i === 0) throw new Error("no + menu with a Board (kanban) entry found");
-  }
-  await item.click();
-  await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 10000 });
-}
-
 test.describe("Handoff: adottare una sessione Claude Code viva", () => {
   test.describe.configure({ timeout: 90_000 });
 
-  // Independent fixtures per test — adopting one must not shadow the other.
   const API_PATH = `/tmp/e2e-adopt-api-${Date.now()}`;
   const API_SID = "ad0d7000-1111-2222-3333-444444444444";
-  const UI_PATH = `/tmp/e2e-adopt-ui-${Date.now()}`;
-  const UI_SID = "ad0d7000-aaaa-bbbb-cccc-555555555555";
 
   test.beforeAll(async ({ request }) => {
-    for (const [p, name] of [[API_PATH, "e2e-adopt-api"], [UI_PATH, "e2e-adopt-ui"]] as const) {
-      mkdirSync(p, { recursive: true });
-      writeFileSync(`${p}/package.json`, JSON.stringify({ name }, null, 2));
-      await createTopic(request, name, { projectPath: p });
-    }
+    mkdirSync(API_PATH, { recursive: true });
+    writeFileSync(`${API_PATH}/package.json`, JSON.stringify({ name: "e2e-adopt-api" }, null, 2));
+    await createTopic(request, "e2e-adopt-api", { projectPath: API_PATH });
     seedSession(API_PATH, API_SID);
-    seedSession(UI_PATH, UI_SID);
   });
 
   test.afterAll(async () => {
-    for (const p of [API_PATH, UI_PATH]) {
-      rmSync(`${TEST_HOME}/.claude/projects/${encode(p)}`, { recursive: true, force: true });
-      rmSync(p, { recursive: true, force: true });
-    }
+    rmSync(`${TEST_HOME}/.claude/projects/${encode(API_PATH)}`, { recursive: true, force: true });
+    rmSync(API_PATH, { recursive: true, force: true });
   });
 
-  test.beforeEach(async ({ page }) => {
-    await resetPaneStore(page.request, []);
-    await seedProjectPane(page.request, API_PATH).catch(() => {});
-    await seedProjectPane(page.request, UI_PATH).catch(() => {});
-  });
 
   test("ADOPT-01: the endpoint binds the session and imports its history", async ({ request }) => {
     await waitForCensus(request, API_SID);
@@ -158,29 +118,4 @@ test.describe("Handoff: adottare una sessione Claude Code viva", () => {
     await deleteTopic(request, topic.id);
   });
 
-  test("ADOPT-02: 'Continua qui' from the board opens the topic with its history", async ({ page, request }) => {
-    await waitForCensus(request, UI_SID);
-
-    await page.goto("/");
-    await openProjectBoard(page, /e2e-adopt-ui/);
-
-    const badge = page.getByTestId("external-sessions-badge");
-    await expect(badge).toBeVisible({ timeout: 45_000 });
-    await badge.click();
-
-    const adoptBtn = page.getByTestId("adopt-external-session").first();
-    await expect(adoptBtn).toBeVisible();
-    await adoptBtn.click();
-
-    // The adopted topic opens as a chat and the imported history renders.
-    await expect(page.getByTestId("message-content-user").filter({ hasText: USER_MSG })).toBeVisible({ timeout: 20000 });
-    await expect(page.getByTestId("message-content-assistant").filter({ hasText: ASSISTANT_MSG })).toBeVisible({ timeout: 20000 });
-
-    // Clean up the topic the UI just created (GET /api/topics returns a map).
-    const list = await request.get(`${BASE}/api/topics`);
-    const body = (await list.json()) as { topics: Record<string, { id: string; name: string }> };
-    for (const t of Object.values(body.topics ?? {})) {
-      if (/e2e-adopt-ui/.test(t.name)) await deleteTopic(request, t.id).catch(() => {});
-    }
-  });
 });
