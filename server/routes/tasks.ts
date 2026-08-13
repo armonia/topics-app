@@ -41,6 +41,7 @@ import type { LandingState } from "../services/landing-audit";
 import { createLandingQueue, type LandingTicket } from "../services/landing-queue";
 import { decidePostLandReap, type BranchStatus, type LandOutcome } from "../services/worktree-gc";
 import { MAX_CHECKS, formatChecksComment, parseReviewChecks, runReviewChecks, type ReviewCheck } from "../services/review-checks";
+import { clampLegMs, createChecksGate, type ChecksLeg } from "../services/checks-gate";
 import { createTaskAttemptStore, type TaskAttempt } from "../services/task-attempts";
 import { linkNotes, proposeLink, type LinkKind } from "../services/task-intake";
 import { recordRetirement } from "../services/retirement";
@@ -633,6 +634,22 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
   }
 
   /**
+   * Le corse dei check, una per task, VIVE oltre la richiesta che le ha chieste.
+   * Sta nella chiusura della rotta (non è un singleton di modulo) perché muore
+   * con l'istanza: due server nello stesso processo, due registri, come per la
+   * fila dei land qui sotto.
+   */
+  const checksGate = createChecksGate();
+
+  // Qui, e non nel poll del dispatcher: questo è l'unico istante in cui il
+  // registro è VUOTO per costruzione, quindi ogni «running» rimasto nel db è di
+  // un processo morto. Nel poll la stessa riga spegnerebbe corse vive.
+  try {
+    const spente = svc.clearStaleChecksRuns();
+    if (spente) console.warn(`[checks] ${spente} spie 'running' spente: erano di un processo morto`);
+  } catch { /* una spia non deve poter impedire al server di partire */ }
+
+  /**
    * Terzo gate strutturale sulla review, dopo il commit (`review_needs_commit`) e
    * il riassunto (`review_needs_summary`): i comandi dichiarati sulla board devono
    * essere VERDI. Non si chiede all'agente se ha fatto girare i test — si fanno
@@ -641,15 +658,24 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
    * Ritorna `null` quando il gate non si applica (board senza comandi, task senza
    * worktree di branch): "nessun check" non è un verde e non deve scriverne uno.
    *
-   * Sincrono di proposito: se girasse in background il task entrerebbe in review
-   * SUBITO e il reviewer vedrebbe una consegna guardabile mentre i check ancora
-   * girano — cioè esattamente la cosa che il gate esiste per impedire. L'agente
-   * aspetta, e in cambio riceve l'output del comando rosso senza doverlo cercare.
+   * L'AGENTE ASPETTA, LA RICHIESTA NO. Il gate girava dentro questa richiesta, e
+   * la richiesta durava quanto i comandi: misurato il 13/08, `test:unit` da solo
+   * ci mette ~10 minuti su macchina carica, ma il socket muore a 255,6s netti
+   * perché `idleTimeout` di Bun non sale oltre 255. Esito: transizione persa e
+   * `checks_state` fermo su «running» per sempre. Adesso la corsa vive nel
+   * registro (`services/checks-gate.ts`) e questa funzione aspetta al massimo UNA
+   * GAMBA: `{ pending: true }` significa "sta ancora girando, richiama" ed è il
+   * client MCP a rimettersi in fila, esattamente come fa per `ask_user_question`.
+   *
+   * Il resto della semantica è quello di prima, e volutamente: il task NON entra
+   * in review mentre i comandi girano (il reviewer vedrebbe una consegna
+   * guardabile a verdetto ignoto), e un rosso torna all'agente con l'output.
    */
   async function runChecksGate(
     taskId: string,
     projectId: string,
-  ): Promise<{ ok: boolean; comment: string } | null> {
+    legMs: number,
+  ): Promise<ChecksLeg> {
     if (!opts?.taskCheckoutRef) return null;
     let checks: ReviewCheck[] = [];
     try { checks = svc.getBoardSettings(projectId).reviewChecks; } catch { return null; }
@@ -657,23 +683,29 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     const ref = await opts.taskCheckoutRef(taskId).catch(() => null);
     if (!ref) return null;
 
-    // 'running' subito e in broadcast: i comandi possono durare minuti e una board
-    // ferma senza spiegazioni si legge come "si è impiantato".
-    try {
-      const t = svc.recordChecks({ taskId, state: "running", commit: ref.commit, runs: null });
-      broadcastToAll({ type: "task:updated", projectId, task: t });
-    } catch { /* il gate vale anche senza la spia */ }
+    return checksGate.leg(taskId, {
+      commit: ref.commit ?? null,
+      legMs,
+      run: async () => {
+        // 'running' subito e in broadcast: i comandi possono durare minuti e una
+        // board ferma senza spiegazioni si legge come "si è impiantato".
+        try {
+          const t = svc.recordChecks({ taskId, state: "running", commit: ref.commit, runs: null });
+          broadcastToAll({ type: "task:updated", projectId, task: t });
+        } catch { /* il gate vale anche senza la spia */ }
 
-    const runs = await runReviewChecks(checks, { cwd: ref.cwd });
-    const ok = runs.length === checks.length && runs.every((r) => r.ok);
-    const comment = formatChecksComment(runs, { commit: ref.commit });
-    try {
-      svc.recordChecks({ taskId, state: ok ? "pass" : "fail", commit: ref.commit, runs });
-      svc.addComment({ taskId, author: "system", content: comment });
-      const t = svc.get(taskId, { projectId })?.task;
-      if (t) broadcastToAll({ type: "task:updated", projectId, task: t });
-    } catch { /* l'esito conta più della sua registrazione */ }
-    return { ok, comment };
+        const runs = await runReviewChecks(checks, { cwd: ref.cwd });
+        const ok = runs.length === checks.length && runs.every((r) => r.ok);
+        const comment = formatChecksComment(runs, { commit: ref.commit });
+        try {
+          svc.recordChecks({ taskId, state: ok ? "pass" : "fail", commit: ref.commit, runs });
+          svc.addComment({ taskId, author: "system", content: comment });
+          const t = svc.get(taskId, { projectId })?.task;
+          if (t) broadcastToAll({ type: "task:updated", projectId, task: t });
+        } catch { /* l'esito conta più della sua registrazione */ }
+        return { ok, comment };
+      },
+    });
   }
 
   /**
@@ -2579,6 +2611,11 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         const body = (await readJSON(req)) as any;
         const noDelivery = rejectDeliveryPatch(body);
         if (noDelivery) return noDelivery;
+        // `legMs` è trasporto, non un campo del task: dice quanto questa gamba è
+        // disposta ad aspettare i check. Si toglie dal corpo PRIMA di
+        // `parseTaskPatch`, che risponde 400 a ogni campo che non conosce.
+        const legMs = clampLegMs(body?.legMs);
+        if (body && typeof body === "object") delete body.legMs;
         // Structural review gate: a DELIVERY with work still uncommitted in the
         // task's worktree is not reviewable — approve would find nothing to
         // merge and the work would strand ("implementato, NON committato").
@@ -2623,8 +2660,23 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           // committato, quindi ha senso solo una volta che c'è. Un rosso torna
           // all'agente con l'output del comando — non "consegna rifiutata", il
           // motivo vero, così la riparazione parte da lì e non da un'indagine.
+          //
+          // A GAMBE, non in un fiato: la corsa vive nel registro e questa
+          // richiesta aspetta al massimo `legMs`. Il 202 non è un esito, è
+          // "richiama": lo stato del task non si muove finché non c'è un
+          // verdetto, e chi ricicla è il client MCP (callUpdateTask).
           if (isDelivery) {
-            const outcome = await runChecksGate(item.taskId, sess.projectId).catch(() => null);
+            const outcome = await runChecksGate(item.taskId, sess.projectId, legMs).catch(() => null);
+            if (outcome && "pending" in outcome) {
+              const t = svc.get(item.taskId, { projectId: sess.projectId })?.task;
+              return json({
+                pending: true,
+                code: "review_checks_running",
+                legMs,
+                status: t?.status ?? null,
+                checksState: t?.checksState ?? "running",
+              }, 202);
+            }
             if (outcome && !outcome.ok) {
               return json({ error: outcome.comment, code: "review_needs_green_checks" }, 409);
             }
