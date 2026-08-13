@@ -90,19 +90,27 @@ export function topicsAgentSystemPrompt(lang: OutputLanguage = resolveOutputLang
  * Effort tier for Topics-launched Claude sessions — the "ultracode" tier in the
  * TUI is just the top effort (`xhigh`) plus dynamic workflows.
  *
- * `claude` resolves effort from `--effort` flag → `CLAUDE_EFFORT` env →
- * settings.json `effortLevel`. Topics spawns `claude` directly: under launchd
- * the server's env carries no `CLAUDE_EFFORT`, and the user's global
- * `effortLevel` defaults to "low", so without help every Topics session starts
- * at low effort — unlike a Warp shell, which exports `CLAUDE_EFFORT=xhigh` and
- * therefore "starts in ultracode". We pass `--effort` explicitly so the tier is
- * deterministic and independent of the spawn environment.
+ * `claude` resolves its own effort from `--effort` → `CLAUDE_CODE_EFFORT_LEVEL`
+ * → settings.json `effortLevel`, and falls back to "high" when none is set.
+ * `CLAUDE_EFFORT` is NOT in that chain: measured on the wire 2026-08-13 against
+ * a logging proxy, a session started with `CLAUDE_EFFORT=max` still sends
+ * `output_config: {"effort": "high"}`. It goes the other way — the CLI EXPORTS
+ * `CLAUDE_EFFORT` to its subprocesses, carrying the effort of the session that
+ * spawned them (`--effort low` → `CLAUDE_EFFORT=low`). So it is a readout of the
+ * parent session, never a lever on the child. It is not a Warp convention: it is
+ * absent from every shell profile and launchd plist on this machine, and appears
+ * only under a running `claude`.
  *
- * Resolution order: `TOPICS_CLAUDE_EFFORT` (Topics override; "off"/"none"/
- * "default" disables and lets the CLI's own settings win) → `CLAUDE_EFFORT`
- * (mirror the shell when present) → `"xhigh"` (the Warp default). Returns null
- * when disabled or the value is not a recognised tier, in which case no flag is
- * passed.
+ * That is why passing `--effort` explicitly still matters, and matters more than
+ * the old comment claimed: under launchd nothing exports `CLAUDE_EFFORT` at all,
+ * so the tier has to come from us to be deterministic.
+ *
+ * Resolution order: per-topic override → global Setting → `TOPICS_CLAUDE_EFFORT`
+ * ("off"/"none"/"default" disables and lets the CLI's own settings win) →
+ * `CLAUDE_EFFORT` (deprecated: inherits the effort of the Claude session that
+ * launched this server, which is only meaningful when a session did) → `"xhigh"`.
+ * Returns null when disabled or the value is not a recognised tier, in which case
+ * no flag is passed.
  */
 const VALID_CLAUDE_EFFORTS = new Set<string>(EFFORT_TIERS);
 
@@ -150,8 +158,10 @@ export function resolveClaudeEffort(topicOverride?: string | null): string | nul
 
   const override = (process.env.TOPICS_CLAUDE_EFFORT ?? '').trim().toLowerCase();
   if (override === 'off' || override === 'none' || override === 'default') return null;
-  // `CLAUDE_EFFORT` is a deprecated alias (the Warp shell convention we used to
-  // mirror). Still honoured as a fallback, but `TOPICS_CLAUDE_EFFORT` is canonical.
+  // `CLAUDE_EFFORT` is a deprecated alias. It is not a shell convention: the
+  // Claude Code CLI exports it to its subprocesses, so reading it here means
+  // "inherit the effort of the session that launched this server". Still
+  // honoured as a fallback, but `TOPICS_CLAUDE_EFFORT` is canonical.
   let legacy = '';
   if (!override) {
     legacy = (process.env.CLAUDE_EFFORT ?? '').trim().toLowerCase();

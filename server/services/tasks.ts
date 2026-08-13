@@ -36,7 +36,7 @@ import { liveAgentCount } from "./agent-census";
 // chi la vuole la prende da `shared/board`.
 export type { TaskStatus, TaskComment, BoardSettings, BoardSettingsPatch, BlockerRef, SubtaskWork, QueueReason } from "../../shared/board";
 import {
-  ARCHIVE_PARKED_LABEL, DISPATCH_CHIP_QUEUED,
+  ACTIVE_DISPATCH_STATES, ARCHIVE_PARKED_LABEL, DISPATCH_CHIP_QUEUED, clampGlobalCap,
   MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PREVIEW_CARD_MAX_RATIO, QUEUE_REASON_UNKNOWN,
   REQUEUE_PARKED_LABEL, TASK_STATUSES, WAIT_SERIES_MAX_MS, WAIT_STREAK_CAP,
   deriveQueueReason, deriveSubtaskWork, formatStatusEvent, hasPlanApproveOption, isAgentWorking,
@@ -530,13 +530,31 @@ export interface TaskService {
    */
   askParkedChildren(args: { taskId: string; by?: string }): Task | null;
   /**
+   * LO STESSO GIRO, SULLE CARD GIÀ FERME. `askParkedChildren` si arma su due
+   * eventi — un figlio che si ferma, il turno del padre che finisce — e chi si
+   * era fermato PRIMA non li vedrà mai più: nessun turno tornerà su quella card
+   * a scoprirlo. Sono le sette misurate il 13/08, ferme da ore senza dirlo.
+   *
+   * Passa i padri fermi e alza la domanda su ognuno. Ritorna i task che ha
+   * portato in review — vuoto quando non c'è niente da chiedere, che è il caso
+   * normale. Idempotente: al giro dopo quei padri sono in review e la guardia
+   * di `askParkedChildren` li salta.
+   *
+   * `eligible` decide board per board se il rastrello ci passa. Sta fuori di
+   * qui perché l'interruttore di dispatch è roba del dispatcher: il servizio non
+   * deve sapere che esiste, e chi chiama non deve poter dimenticare che una
+   * board spenta non si tocca da sola.
+   */
+  sweepParkedChildren(args?: { by?: string; eligible?: (projectId: string) => boolean }): Task[];
+  /**
    * Esegue la risposta umana allo stallo. `requeue` manda i figli parcheggiati
    * in `todo`; `archive` li archivia. In entrambi i casi il padre torna in coda
    * col chip `queued` e col budget dei tentativi azzerato — la risposta è un
    * mandato nuovo, come il trascinamento in Todo.
    *
-   * Ritorna `null` quando non c'è nessun figlio parcheggiato (la domanda è già
-   * stata risolta da qualcun altro): il chiamante non deve inventarsi un esito.
+   * Ritorna `null` quando la domanda non è più sulla card — è uscita da review,
+   * o non ha più figli fermi — cioè quando qualcun altro ha già risposto: il
+   * chiamante non deve inventarsi un esito.
    */
   resolveParkedChildren(args: {
     taskId: string;
@@ -1121,6 +1139,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           dispatchAttempts: r.dispatch_attempts ?? 0,
           dispatchDeferredUntil: r.dispatch_deferred_until ?? null,
           dispatchError: r.dispatch_error ?? null,
+          deliveredReason: r.delivered_reason ?? null,
           blockedByTaskId: r.blocked_by_task_id ?? null,
           blockedBy: resolveBlocker(r.blocked_by_task_id),
         },
@@ -1426,33 +1445,60 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
   }
 
   /**
-   * Figli che qualcuno sta davvero lavorando o sta per lavorare. Un figlio in
-   * **backlog** è parcheggiato: nessun dispatcher lo prenderà, quindi il padre
-   * che lo aspetta aspetta a vuoto — e col rinvio a finestra girerebbe ogni 10
-   * minuti per sempre. Misurati l'11/08 venti padri i cui unici figli aperti
-   * erano parcheggiati.
+   * I tre chip che dicono «un agente è qui o sta arrivando». Dentro una stringa
+   * SQL la lista canonica di `shared/board` non ci entra: si compone da lì, così
+   * non può andare in deriva.
+   */
+  const CHILD_AGENT_COMING = ACTIVE_DISPATCH_STATES.map((s) => `'${s}'`).join(", ");
+
+  /**
+   * Figli che qualcuno sta davvero lavorando o sta per lavorare.
+   *
+   * LA DOMANDA È «ARRIVA UN TURNO CHE MUOVA QUESTO FIGLIO?», e la risposta non è
+   * la colonna in cui sta. Uno step non lo dispaccia MAI nessuno da solo (il
+   * tick lista `rootsOnly`): la checklist la muove soltanto l'agente del padre
+   * dentro il proprio turno. Quindi un figlio in **todo** sotto un padre senza
+   * turno è fermo esattamente quanto uno in **backlog** — e contarlo «in volo»
+   * mandava il padre ad aspettarlo per sempre, dieci minuti alla volta.
+   * Misurato il 13/08: sette padri, ventuno card ferme sotto la soglia, e
+   * nessuna colonna che lo dicesse.
+   *
+   * In volo restano `in_progress` e `review` (lì una mossa c'è, ed è visibile) e
+   * qualunque figlio col PROPRIO chip di dispatch attivo, che si muove da sé.
    *
    * NON è la definizione dei cancelli su `done` e sull'approvazione: là un
-   * sottotask parcheggiato blocca eccome, ed è voluto (un epic non è finito
-   * perché un pezzo è stato rimandato). Serve solo a distinguere «aspetta» da
-   * «non aspetterà mai nessuno».
+   * sottotask fermo blocca eccome, ed è voluto (un epic non è finito perché un
+   * pezzo è stato rimandato). Serve solo a distinguere «aspetta» da «non
+   * aspetterà mai nessuno».
    */
   function hasChildrenInFlight(taskId: string): boolean {
     const r = db.prepare(
-      "SELECT COUNT(*) AS c FROM tasks WHERE parent_task_id = ? AND archived = 0 AND status IN ('todo','in_progress','review')",
+      "SELECT COUNT(*) AS c FROM tasks WHERE parent_task_id = ? AND archived = 0 AND status != 'done'" +
+        `   AND (status IN ('in_progress','review') OR COALESCE(dispatch_state, '') IN (${CHILD_AGENT_COMING}))`,
     ).get(taskId) as any;
     return (r?.c ?? 0) > 0;
   }
 
-  /** I sottotask parcheggiati in backlog: non li aspetta nessuno, vanno DETTI. */
-  function parkedChildren(taskId: string): Array<{ id: string; text: string }> {
+  /**
+   * I sottotask fermi: non li aspetta nessuno, vanno DETTI.
+   *
+   * Lo specchio esatto di `hasChildrenInFlight` — `backlog` e `todo` senza un
+   * chip attivo addosso — perché sono la stessa domanda e due predicati che
+   * possono divergere darebbero un padre che chiede «ho 0 sottotask fermi».
+   * Lo `status` viaggia perché la riga lo scrive: la domanda dice DOVE sono
+   * fermi, e «in backlog» su un figlio in todo era una bugia.
+   */
+  function parkedChildren(taskId: string): Array<{ id: string; text: string; status: string }> {
     return db.prepare(
-      "SELECT id, text FROM tasks WHERE parent_task_id = ? AND archived = 0 AND status = 'backlog' ORDER BY created_at",
+      "SELECT id, text, status FROM tasks WHERE parent_task_id = ? AND archived = 0" +
+        `   AND status IN ('backlog','todo') AND COALESCE(dispatch_state, '') NOT IN (${CHILD_AGENT_COMING})` +
+        "  ORDER BY created_at",
     ).all(taskId) as any;
   }
 
   /**
-   * Il figlio `childId` è appena entrato in backlog: se il padre resta senza
+   * Il figlio `childId` si è appena fermato — in `backlog` o in `todo`, che
+   * sotto un padre senza turno sono la stessa cosa: se il padre resta senza
    * nessun figlio IN VOLO, da adesso è fermo su qualcosa che non arriverà.
    *
    * Due strade, e la differenza è se c'è un turno vivo:
@@ -1473,10 +1519,13 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (!live) { svc.askParkedChildren({ taskId: parentId, by }); return; }
       const child = getTaskRow(childId);
       const titolo = child?.text ? `«${child.text}»` : "un sottotask";
+      // La COLONNA non si nomina: un figlio in `todo` è fermo quanto uno in
+      // `backlog`, e dire «parcheggiato in backlog» su uno step che sta in todo
+      // manda a cercarlo dove non è.
       svc.addComment({
         taskId: parentId, author: "system",
         content:
-          `Sottotask parcheggiato in backlog: ${titolo}. Da qui in avanti non lo prende nessun dispatcher, ` +
+          `Sottotask fermo: ${titolo}. Da qui in avanti non lo prende nessun dispatcher, ` +
           `e questo task non si può chiudere con un sottotask aperto: a fine turno ti chiedo se rimetterlo in coda o archiviarlo.`,
       });
     } catch { /* un avviso non fa mai fallire lo spostamento di una card */ }
@@ -2064,7 +2113,12 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // prenderà più quel sottotask, e il padre che lo aspetta aspetta il nulla.
       // Prima lo scopriva solo il turno successivo del padre, e solo se ne aveva
       // uno.
-      if (patch.status === "backlog" && current !== "backlog" && row.parent_task_id) {
+      //
+      // E VALE ANCHE PER `todo`, che è la porta da cui è entrato il guasto del
+      // 13/08: uno step lasciato in todo SEMBRA in coda, ma la coda non lo
+      // servirà mai (il tick lista `rootsOnly`). È fermo come uno in backlog, e
+      // il momento in cui diventa fermo è questo.
+      if ((patch.status === "backlog" || patch.status === "todo") && current !== patch.status && row.parent_task_id) {
         parkedChildRaisedStall(row.parent_task_id as string, taskId, by, this);
       }
       return rowToTask(getTaskRow(taskId));
@@ -2627,9 +2681,13 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // La domanda sta su UNA riga: il blocco `question` appiattisce gli a capo
       // (contratto del parser delle risposte rapide), quindi l'elenco dei figli
       // viaggia in linea e non come lista.
+      // «fermi», non «parcheggiati in backlog»: da quando il predicato conta
+      // anche i figli in `todo`, la colonna non è più la notizia — lo è il fatto
+      // che nessun turno li muoverà. Nominare una colonna sbagliata manderebbe a
+      // cercarli dove non sono.
       const question =
-        `Fermo su ${parked.length} sottotask parcheggiati in backlog (${elenco}): nessun dispatcher li prenderà da solo, ` +
-        `e con un sottotask aperto questo task non si può chiudere. Li rimetto in coda, o archivio ciò che non serve più?`;
+        `Fermo su ${parked.length} sottotask che non lavorerà nessuno (${elenco}): uno step lo muove solo l'agente di questa card ` +
+        `dentro il proprio turno, e con un sottotask aperto questo task non si può chiudere. Li rimetto in coda, o archivio ciò che non serve più?`;
       try {
         this.addComment({
           taskId, author: "system", content: question,
@@ -2657,9 +2715,59 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return rowToTask(getTaskRow(taskId));
     },
 
+    sweepParkedChildren({ by, eligible } = {}): Task[] {
+      const ts = now();
+      // I CANDIDATI, non la decisione: questa query stringe il campo, poi
+      // `askParkedChildren` applica le sue guardie una per una. Due predicati
+      // che decidono la stessa cosa in due punti divergono, e il modo in cui
+      // divergerebbero è il peggiore possibile — una domanda alzata su una card
+      // che non l'aveva, o taciuta su una che l'aveva.
+      //
+      // Fuori dal campo, e sono le stesse esclusioni della sonda
+      // (`scripts/stalled-parents.ts`): un padre con un turno addosso o in
+      // arrivo (se ne accorgerà a fine corsa), uno dentro la propria finestra di
+      // rinvio (un turno è previsto, solo più tardi), e uno in review — lì la
+      // guardia di `askParkedChildren` esce comunque, ma chiederlo al DB
+      // risparmia il giro su ogni card consegnata della board.
+      let candidati: Array<{ id: string; project_id: string }> = [];
+      try {
+        candidati = db.prepare(
+          `SELECT p.id, p.project_id FROM tasks p
+            WHERE p.archived = 0
+              AND p.status NOT IN ('done', 'review', 'in_progress')
+              AND COALESCE(p.dispatch_state, '') NOT IN (${CHILD_AGENT_COMING})
+              AND COALESCE(p.dispatch_deferred_until, '') <= ?
+              AND EXISTS (SELECT 1 FROM tasks c
+                           WHERE c.parent_task_id = p.id AND c.archived = 0 AND c.status != 'done')
+            ORDER BY p.updated_at`,
+        ).all(ts) as Array<{ id: string; project_id: string }>;
+      } catch { return []; }
+      const chiesti: Task[] = [];
+      const ammessa = new Map<string, boolean>();
+      for (const c of candidati) {
+        if (eligible) {
+          let ok = ammessa.get(c.project_id);
+          if (ok === undefined) { try { ok = eligible(c.project_id); } catch { ok = false; } ammessa.set(c.project_id, ok); }
+          if (!ok) continue;
+        }
+        try {
+          const t = this.askParkedChildren({ taskId: c.id, by: by ?? "dispatcher" });
+          if (t) chiesti.push(t);
+        } catch { /* una card può essersi mossa sotto: il giro dopo la ripesca */ }
+      }
+      return chiesti;
+    },
+
     resolveParkedChildren({ taskId, decision, by }): { task: Task; children: Task[] } | null {
       const row = getTaskRow(taskId);
       if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
+      // SI RISPONDE A UNA DOMANDA CHE È ANCORA SULLA CARD. Prima bastava trovare
+      // dei figli in backlog, e con i figli fermi in `todo` dentro il predicato
+      // quella prova si è girata contro: «rimetti in coda» li porta proprio in
+      // `todo`, quindi la seconda risposta li ritrovava tutti e li rimetteva in
+      // coda una seconda volta, inventando un esito. La domanda vive in review e
+      // muore quando la card ne esce: è lì che si legge se c'è ancora.
+      if (row.status !== "review") return null;
       const parked = parkedChildren(taskId);
       if (parked.length === 0) return null;
       const firma = by || "system";
@@ -2674,7 +2782,11 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
             "UPDATE tasks SET status = 'todo', dispatch_state = NULL, dispatch_error = NULL, " +
               "dispatch_attempts = 0, dispatch_deferred_until = NULL, updated_at = ? WHERE id = ?",
           ).run(ts, c.id);
-          logStatus(c.id, "backlog", "todo", firma);
+          // Da DOVE viene lo dice la riga, non una costante: un figlio fermo in
+          // `todo` (fermo lo era comunque, nessun turno lo muoveva) non ha
+          // cambiato colonna, e scrivere «backlog → todo» avrebbe messo nella
+          // sua storia un passaggio che non è mai avvenuto.
+          if (c.status !== "todo") logStatus(c.id, c.status, "todo", firma);
           const t = getTaskRow(c.id);
           if (t) children.push(rowToTask(t));
         } else {
@@ -2987,7 +3099,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         db.prepare("UPDATE board_settings SET max_agents_auto = ? WHERE project_id = ?").run(patch.auto ? 1 : 0, GLOBAL_SETTINGS_KEY);
       }
       if (patch.max !== undefined) {
-        db.prepare("UPDATE board_settings SET max_agents = ? WHERE project_id = ?").run(clampInt(patch.max, 1, 20), GLOBAL_SETTINGS_KEY);
+        // `clampGlobalCap`, non `clampInt(…, 1, 20)`: lo zero di «nessun tetto»
+        // deve arrivare al DB com'è. Il clamp a 1 lo trasformava nel tetto più
+        // stretto possibile, cioè nell'impostazione opposta a quella chiesta.
+        db.prepare("UPDATE board_settings SET max_agents = ? WHERE project_id = ?").run(clampGlobalCap(patch.max), GLOBAL_SETTINGS_KEY);
       }
       return this.getGlobalCap();
     },
@@ -2997,8 +3112,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return {
         projectId,
         autoDispatch: readGlobalDispatch(),
-        maxAgents: r ? (r.max_agents ?? 2) : 2,
-        maxAgentsAuto: r ? !!r.max_agents_auto : false,
+        // Nessun tetto per board: quello vero è UNO solo e si legge con
+        // `getGlobalCap()` (riga '*'). Vedi `BoardSettings` in shared/board.ts.
         dispatchEffort: r?.dispatch_effort ?? "medium",
         dispatchUseWorktree: r ? !!r.dispatch_use_worktree : true,
         dispatchAutoMerge: r ? !!r.dispatch_auto_merge : false,
@@ -3028,10 +3143,11 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (patch.dispatchMcp !== undefined && !VALID_DISPATCH_MCP.has(patch.dispatchMcp)) {
         throw new TaskServiceError("invalid_input", `invalid dispatchMcp "${patch.dispatchMcp}"`);
       }
-      // Ensure a row exists. Seed max_agents at the dispatch default (2), NOT the
-      // legacy board_settings column default (5) — otherwise merely toggling
-      // auto_dispatch would materialise the row at cap 5 and silently over-run the
-      // "2" shown in the panel. INSERT OR IGNORE only sets it on first creation.
+      // Ensure a row exists. `max_agents` is seeded, never patched: on a project
+      // row the column is DEAD (no reader — the one cap lives on the '*' row),
+      // and the explicit 2 only matters when `projectId` IS the reserved '*'
+      // key, where it must land on the same global default as
+      // `setGlobalAutoDispatch` instead of the legacy column default of 5.
       db.prepare("INSERT OR IGNORE INTO board_settings (project_id, max_agents) VALUES (?, 2)").run(projectId);
       // autoDispatch is the GLOBAL switch: route it to the '*' row so flipping
       // it from any board (or the global board) flips it everywhere.
@@ -3043,8 +3159,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       }
       const sets: string[] = [];
       const params: any[] = [];
-      if (patch.maxAgents !== undefined) { sets.push("max_agents = ?"); params.push(clampInt(patch.maxAgents, 1, 10)); }
-      if (patch.maxAgentsAuto !== undefined) { sets.push("max_agents_auto = ?"); params.push(patch.maxAgentsAuto ? 1 : 0); }
+      // Nessun `max_agents` / `max_agents_auto` qui: il tetto si scrive con
+      // `setGlobalCap` sulla riga '*', ed è l'unico che decide qualcosa.
       if (patch.dispatchEffort !== undefined) { sets.push("dispatch_effort = ?"); params.push(patch.dispatchEffort); }
       if (patch.dispatchUseWorktree !== undefined) { sets.push("dispatch_use_worktree = ?"); params.push(patch.dispatchUseWorktree ? 1 : 0); }
       if (patch.dispatchAutoMerge !== undefined) { sets.push("dispatch_auto_merge = ?"); params.push(patch.dispatchAutoMerge ? 1 : 0); }

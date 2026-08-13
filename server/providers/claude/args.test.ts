@@ -11,7 +11,7 @@
  * la domanda giusta al momento giusto.
  */
 import { describe, expect, test } from "bun:test";
-import { buildClaudeArgs, buildClaudeOneshotArgs, TRIMMED_TOOLS } from "./args";
+import { buildClaudeArgs, buildClaudeOneshotArgs, resolveToolTrim, TRIMMED_TOOLS_CHAT, TRIMMED_TOOLS_DISPATCHED } from "./args";
 import { buildCodexArgs, buildCodexOneshotArgs } from "../codex/args";
 
 const BASE = {
@@ -102,8 +102,8 @@ describe("buildClaudeArgs — gli schemi dei tool che il differimento non tocca"
   // catalogo skill messi insieme — ed è un tool che la sua stessa descrizione
   // vieta senza un consenso umano esplicito, che a un agente dispacciato non
   // arriva. I quattro insieme: −13.176 a ogni richiesta.
-  test("acceso: UN argomento a virgole, non un variadico", () => {
-    const args = buildClaudeArgs({ ...BASE, trimUnusedTools: true } as never);
+  test("dispacciato: UN argomento a virgole, non un variadico", () => {
+    const args = buildClaudeArgs({ ...BASE, toolTrim: "dispatched" } as never);
     const i = args.indexOf("--disallowed-tools");
     expect(i).toBeGreaterThan(-1);
     // Il valore è UNA stringa sola. `--disallowed-tools A B C` è variadico e in
@@ -112,24 +112,71 @@ describe("buildClaudeArgs — gli schemi dei tool che il differimento non tocca"
     expect(args[i + 2]).toStartWith("--");
   });
 
-  test("i quattro nomi sono esportati: il banco confronta il registro dei bracci con QUESTA lista", () => {
+  test("chat: le tre voci irraggiungibili, e `Workflow` NO", () => {
+    // Il criterio è lo stesso dei bracci del board — «questa sessione non lo
+    // può usare comunque» — ma su `Workflow` dà l'esito opposto: la sua
+    // descrizione lo vieta senza un consenso esplicito dell'umano, e in una
+    // chat l'umano c'è. Toglierlo non risparmierebbe, toglierebbe una leva.
+    const args = buildClaudeArgs({ ...BASE, toolTrim: "chat" } as never);
+    const i = args.indexOf("--disallowed-tools");
+    expect(i).toBeGreaterThan(-1);
+    expect(args[i + 1]).toBe("Artifact,ReportFindings,ListAgents");
+    expect(args[i + 1]).not.toContain("Workflow");
+    expect(args[i + 2]).toStartWith("--");
+  });
+
+  test("i nomi sono esportati: il banco confronta il registro dei bracci con QUESTE liste", () => {
     // Se qualcuno aggiunge un nome qui senza che il banco lo sappia, il
     // cancello «stesso registro nei due bracci» diventa rosso — che è il modo
     // giusto di accorgersene.
-    expect([...TRIMMED_TOOLS]).toEqual(["Workflow", "Artifact", "ReportFindings", "ListAgents"]);
+    expect([...TRIMMED_TOOLS_CHAT]).toEqual(["Artifact", "ReportFindings", "ListAgents"]);
+    expect([...TRIMMED_TOOLS_DISPATCHED]).toEqual(["Workflow", "Artifact", "ReportFindings", "ListAgents"]);
+    // La chat è un SOTTOINSIEME PROPRIO: due liste che divergessero su altro
+    // sarebbero due criteri, non due livelli dello stesso criterio.
+    for (const t of TRIMMED_TOOLS_CHAT) expect(TRIMMED_TOOLS_DISPATCHED).toContain(t);
+    expect(TRIMMED_TOOLS_CHAT).not.toContain("Workflow" as never);
   });
 
-  test("spento (default): nessuna deny, il registro resta intero", () => {
+  test("spento: nessuna deny, il registro resta intero", () => {
     expect(buildClaudeArgs({ ...BASE })).not.toContain("--disallowed-tools");
-    expect(buildClaudeArgs({ ...BASE, trimUnusedTools: false } as never)).not.toContain("--disallowed-tools");
+    expect(buildClaudeArgs({ ...BASE, toolTrim: null } as never)).not.toContain("--disallowed-tools");
   });
 
-  test("`Task` e `Read` NON sono nella lista: sono ciò che rende capace l'agente", () => {
+  test("chi decide il taglio: dispacciato → quattro, chat → tre, `off` → nessuno", () => {
+    // La scelta stava inline nello spawn, dentro un metodo privato che prende
+    // solo un `sessionKey`: il braccio «dispacciato» si poteva controllare
+    // guardando l'argv di un agente vivo, quello della CHAT solo se una chat
+    // stava girando in quel momento. Provato per venti minuti, non ne è partita
+    // nessuna. Qui la decisione è raggiungibile, quindi verificata.
+    expect(resolveToolTrim({ dispatched: true, env: {} })).toBe("dispatched");
+    expect(resolveToolTrim({ dispatched: false, env: {} })).toBe("chat");
+    // La via d'uscita vale per tutti e due i bracci: un cancello che spegne solo
+    // meta' dei casi e' peggio di nessun cancello, perche' sembra spento.
+    expect(resolveToolTrim({ dispatched: true, env: { TOPICS_TOOL_TRIM: "off" } })).toBeNull();
+    expect(resolveToolTrim({ dispatched: false, env: { TOPICS_TOOL_TRIM: "off" } })).toBeNull();
+    // Un valore qualsiasi NON spegne: solo la parola `off`.
+    expect(resolveToolTrim({ dispatched: false, env: { TOPICS_TOOL_TRIM: "0" } })).toBe("chat");
+  });
+
+  test("dalla decisione all'argv, senza anelli scoperti: una chat vede tre nomi", () => {
+    // L'assertion che chiude il giro: la stessa funzione che lo spawn chiama,
+    // infilata nella stessa funzione che costruisce l'argv.
+    const chat = buildClaudeArgs({ ...BASE, toolTrim: resolveToolTrim({ dispatched: false, env: {} }) } as never);
+    expect(chat[chat.indexOf("--disallowed-tools") + 1]).toBe("Artifact,ReportFindings,ListAgents");
+    const agente = buildClaudeArgs({ ...BASE, toolTrim: resolveToolTrim({ dispatched: true, env: {} }) } as never);
+    expect(agente[agente.indexOf("--disallowed-tools") + 1]).toBe("Workflow,Artifact,ReportFindings,ListAgents");
+    const spento = buildClaudeArgs({ ...BASE, toolTrim: resolveToolTrim({ dispatched: true, env: { TOPICS_TOOL_TRIM: "off" } }) } as never);
+    expect(spento).not.toContain("--disallowed-tools");
+  });
+
+  test("`Task` e `Read` NON sono in nessuna delle due liste: sono ciò che rende capace l'agente", () => {
     // Il criterio del taglio non è «pesa tanto» — `Task` vale quanto
     // `Artifact` — è «l'agente non lo può usare comunque». Un agente del board
     // i sotto-agenti li usa per le ricerche larghe.
-    expect(TRIMMED_TOOLS).not.toContain("Task" as never);
-    expect(TRIMMED_TOOLS).not.toContain("Read" as never);
+    for (const lista of [TRIMMED_TOOLS_CHAT, TRIMMED_TOOLS_DISPATCHED]) {
+      expect(lista).not.toContain("Task" as never);
+      expect(lista).not.toContain("Read" as never);
+    }
   });
 });
 
