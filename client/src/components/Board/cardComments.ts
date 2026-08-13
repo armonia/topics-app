@@ -17,7 +17,7 @@
  * be wrong in silence: any pair renders as a perfectly plausible card.
  */
 
-import { HUMAN_AUTHOR, isMachineNote } from '../../../../shared/board';
+import { HUMAN_AUTHOR, isMachineNote, isThreadSpeech } from '../../../../shared/board';
 import type { TaskComment } from '../../lib/board';
 
 export interface CardComments {
@@ -77,10 +77,15 @@ function isReply(comment: TaskComment): boolean {
  * Pick the card's comments, or null when the thread has nothing to say.
  *
  * `kind: 'status'` rows are transition history written on every status change,
- * never anybody's word, so they are dropped before anything is decided.
+ * and `kind: 'service'` rows are the dispatcher's bookkeeping: neither is
+ * anybody's word, so both are dropped before anything is decided
+ * (`isThreadSpeech`, the same predicate the quick-reply buttons use). Without
+ * the second one a queue hold or a restart note written after the agent's answer
+ * became the card's `latest`: the card printed "In attesa di uno slot" as the
+ * delivery while the buttons underneath still offered the agent's question.
  */
 export function selectCardComments(comments: readonly TaskComment[]): CardComments | null {
-  const speech = comments.filter((c) => c.kind !== 'status');
+  const speech = comments.filter(isThreadSpeech);
   const latest = speech[speech.length - 1];
   if (!latest) return null;
   // The human spoke last: there is no answer yet, he IS the protagonist, and

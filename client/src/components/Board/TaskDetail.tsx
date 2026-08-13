@@ -13,6 +13,7 @@ import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { getMediaUrl } from '../../lib/api';
 import { isImagePath, isPdfPath, isVideoPath } from '../../lib/mediaKind';
 import { isSupersededPreviewNote } from '../../../../shared/preview-retirement';
+import { ThreadRuns } from './ThreadRuns';
 import { copyText } from '../../lib/clipboard';
 import { openExternalOnce } from '../../lib/openExternal';
 import { buildTaskLink } from '../../lib/openTaskLink';
@@ -23,7 +24,7 @@ import { useTaskBrowserTabs, liveTabs, workspaceTwinContextId } from '../../stat
 import { noteAutoOpenedPreview, releaseAutoOpenedPreview } from '../../state/taskWorkspacePreviews';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
 import { writeCursor, markActiveComposer, restoreCursor } from '../../lib/composerCursor';
-import { boardApi, commentAuthorLabel, diffTotals, hasCodeQuestion, STATUS_LABEL, TASK_STATUSES, isAgentWorking, parseQuestionBlock, parseStatusEvent, hasPlanApproveOption, isProjectlessId, boardDrafts, systemDeliveryNote, blockedByChip, subtaskWorkChip, reopenedChip, attemptHasWork, CLOSER_LABELS, KIND_LABELS, type TaskLabel, type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch, type BoardProjectRef, type DiffBundle, type DiffNote, type ReviewCheck, type CheckRun, type TaskAttempt, type LandingTicket } from '../../lib/board';
+import { boardApi, commentAuthorLabel, diffTotals, hasCodeQuestion, STATUS_LABEL, TASK_STATUSES, isAgentWorking, isThreadSpeech, parseQuestionBlock, parseStatusEvent, hasPlanApproveOption, isProjectlessId, boardDrafts, systemDeliveryNote, blockedByChip, subtaskWorkChip, reopenedChip, attemptHasWork, CLOSER_LABELS, KIND_LABELS, type TaskLabel, type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch, type BoardProjectRef, type DiffBundle, type DiffNote, type ReviewCheck, type CheckRun, type TaskAttempt, type LandingTicket } from '../../lib/board';
 import { PreviewMedia } from './PreviewMedia';
 import { UnifiedDiff } from './UnifiedDiff';
 import { collectTaskMediaPaths } from './taskMedia';
@@ -723,8 +724,12 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   // Pending question = the agent's last word is a question block: its options
   // render as quick-reply buttons right above the composer (same zone as the
   // review actions), mirroring the card.
-  // kind='status' rows are transition history, never "the agent's last word".
-  const speech = comments.filter((c) => c.kind !== 'status');
+  // `isThreadSpeech` drops the two kinds that are never "the agent's last word":
+  // 'status' (transition history) and 'service' (the dispatcher's bookkeeping).
+  // Same predicate as the card and as `pendingQuestion`, deliberately - the
+  // drawer showing no buttons while the card shows two is the shape this bug
+  // takes when the three drift.
+  const speech = comments.filter(isThreadSpeech);
   const lastThreadComment = speech[speech.length - 1] ?? null;
   const pending = isAgentReview && lastThreadComment ? parseQuestionBlock(lastThreadComment.content) : null;
   // QUALE commento è il piano. Il task lo PUNTA (`planCommentId`, scritto dal
@@ -1294,6 +1299,16 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
       m.timestamp && (!from || m.timestamp > from) && (!to || m.timestamp <= to));
   }, [sessionMsgs]);
 
+  /**
+   * A run of dispatcher bookkeeping is CUT wherever the agent spoke in the gap
+   * before a row. Session steps render between comments (`SessionSlice`), and a
+   * fold that swallowed those would hide the very speech the fold exists to
+   * surface, so the wall breaks there and the words stay outside it.
+   */
+  const threadBreaksRun = useCallback((c: TaskComment, i: number) => (
+    sliceBetween(threadComments[i - 1]?.createdAt ?? null, c.createdAt).some((m) => m.role !== 'user')
+  ), [threadComments, sliceBetween]);
+
   // ── Drawer body = ONE task-scoped GroupLayout ─────────────────────────────
   // Thread, live browser tabs, Piano and each media attachment are all PANES of
   // the app's REAL PaneTabBar (a single tab bar; native split/resize/drag). The
@@ -1303,17 +1318,20 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   const browserRef = useRef<TaskBrowserGroupLayout | null>(null);
   const renderThread = useCallback((): React.ReactNode => {
     if (!task) return null;
+    // One row, at its index in `threadComments` (the index is what finds the
+    // session steps that belong in the gap above it). Same markup folded or not.
+    const row = (c: TaskComment, i: number) => (
+      <div key={c.id} className="space-y-2">
+        {task.assignedTopicId && (
+          <SessionSlice msgs={sliceBetween(threadComments[i - 1]?.createdAt ?? null, c.createdAt)} />
+        )}
+        {c.kind === 'status' ? <StatusEventRow comment={c} /> : <CommentBubble comment={c} onPreview={(p) => browserRef.current?.focusPane(`media:${p}`)} />}
+      </div>
+    );
     return (
       <div className="flex-1 space-y-2 overflow-y-auto px-3 py-3">
         {threadComments.length === 0 && !task.assignedTopicId && <p className="text-xs text-app-text-muted">{tr('board.task.noComments')}</p>}
-        {threadComments.map((c, i) => (
-          <div key={c.id} className="space-y-2">
-            {task.assignedTopicId && (
-              <SessionSlice msgs={sliceBetween(threadComments[i - 1]?.createdAt ?? null, c.createdAt)} />
-            )}
-            {c.kind === 'status' ? <StatusEventRow comment={c} /> : <CommentBubble comment={c} onPreview={(p) => browserRef.current?.focusPane(`media:${p}`)} />}
-          </div>
-        ))}
+        <ThreadRuns comments={threadComments} breaksRun={threadBreaksRun} renderRow={row} />
         {task.assignedTopicId && (
           <SessionSlice
             msgs={sliceBetween(threadComments[threadComments.length - 1]?.createdAt ?? null, null)}
@@ -1347,7 +1365,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
       </div>
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps -- stopAgent/bottomRef are stable enough; the meaningful inputs are listed
-  }, [task, threadComments, sliceBetween, agentBusy, streamPreview, busy]);
+  }, [task, threadComments, threadBreaksRun, sliceBetween, agentBusy, streamPreview, busy]);
 
   const renderSurface = useCallback<RenderSurface>((pane, _isVisible) => {
     if (pane.id.startsWith('thread:')) return renderThread();

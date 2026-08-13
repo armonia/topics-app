@@ -153,6 +153,33 @@ describe('selectCardComments', () => {
     const got = selectCardComments([request, stopped, agent]);
     expect(got?.humanContext).toBe(request);
   });
+
+  /**
+   * The dispatcher's bookkeeping is not the delivery.
+   *
+   * A queue hold or a restart note (kind 'service') lands whenever the
+   * dispatcher feels like saying something, which on a card in review is often
+   * AFTER the agent has answered. Reading it as the thread's last word makes
+   * the card quote "In attesa di uno slot" as the delivery - and worse, the
+   * quick-reply buttons underneath come from `pendingQuestion`, which already
+   * skips those rows: the card would offer two answers to a question whose text
+   * it is not showing. Same predicate on both, or the card contradicts itself.
+   */
+  test('a service note after the answer is not the delivery', () => {
+    const request = comment('user', 'aggiusta il bottone');
+    const agent = comment('claude', 'fatto, ora si allinea');
+    const hold = comment('system', 'In attesa di uno slot: il tetto di concorrenza e\' pieno.', 'service');
+    const got = selectCardComments([request, agent, hold]);
+    expect(got?.latest).toBe(agent);
+    expect(got?.humanContext).toBe(request);
+  });
+
+  test('a service note does not hide the human request behind it either', () => {
+    const request = comment('user', 'rifai la testata');
+    const hold = comment('system', 'In coda: questo task e\' PESANTE.', 'service');
+    const agent = comment('claude', 'rifatta');
+    expect(selectCardComments([request, hold, agent])?.humanContext).toBe(request);
+  });
 });
 
 describe('isHumanComment', () => {
