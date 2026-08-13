@@ -17,7 +17,7 @@
 
 import { isAgentWorking, normalizeActionLabel, type BoardTask } from '../../lib/board';
 import {
-  fallbackTranslate, redoWord, sendBackWord, taskActionWord, unblockWord,
+  fallbackTranslate, redoWord, sendBackWord, stopWord, taskActionWord, unblockWord,
   type TaskActionId, type Translate,
 } from './taskActionWords';
 
@@ -45,14 +45,21 @@ export interface TaskChoice {
 }
 
 /** Lo stato da cui nascono le scelte — uno solo per card, in quest'ordine. */
-export type TaskChoiceState = 'review-branch' | 'review-plain' | 'working' | 'blocked' | null;
+export type TaskChoiceState = 'review-branch' | 'review-plain' | 'queued' | 'working' | 'blocked' | null;
 
 /**
- * In quale dei quattro casi siamo. La precedenza NON è arbitraria:
+ * In quale dei cinque casi siamo. La precedenza NON è arbitraria:
  * - `review` vince su tutto (è la superficie di decisione, e un
  *   `dispatch_state` stantio non deve farci comparire «Ferma»);
- * - «in corso» vale solo con un turno DAVVERO vivo (`isAgentWorking`): un task
- *   in_progress preso in mano da una persona non ha un agente da fermare;
+ * - «in corso» vale solo con un turno DAVVERO vivo (`starting`/`working`): un
+ *   task in_progress preso in mano da una persona non ha un agente da fermare;
+ * - «in coda» è il terzo stato, e non è un dettaglio: `isAgentWorking` include
+ *   `queued`, quindi una card che aspetta il suo turno offriva «Consegna quello
+ *   che hai» — un bottone che scrive un commento all'agente. Ma l'agente non
+ *   esiste ancora: il commento passa dal gate di `routes/tasks.ts`, che consegna
+ *   solo a un task con un topic legato e in review o in corso, quindi resta una
+ *   nota che nessuno legge. Chiedere una consegna a chi non è ancora nato è la
+ *   promessa più vuota della card;
  * - «bloccata» è l'ultima, perché un task che aspetta non sta né in review né
  *   sotto un agente.
  */
@@ -62,7 +69,11 @@ export function taskChoiceState(task: Pick<BoardTask,
     return task.assignedTopicId && task.deliveryBranch ? 'review-branch' : 'review-plain';
   }
   if (task.status === 'done') return null;
-  if (isAgentWorking(task.dispatchState)) return 'working';
+  // `isAgentWorking` risponde alla domanda «il dispatcher ha questa riga in
+  // mano», che è la domanda giusta per il tetto di concorrenza e quella
+  // sbagliata qui: le scelte parlano a un AGENTE, e in `queued` non c'è.
+  if (task.dispatchState === 'starting' || task.dispatchState === 'working') return 'working';
+  if (isAgentWorking(task.dispatchState)) return 'queued';
   // Stesso predicato del chip «in attesa di» (e del gate di dispatch): un
   // bloccante chiuso o archiviato non blocca più, quindi non offre scelte.
   if (task.blockedByTaskId && !(task.blockedBy && (task.blockedBy.status === 'done' || task.blockedBy.archived))) return 'blocked';
@@ -113,7 +124,14 @@ export function taskChoices(
       ];
       break;
     case 'working':
-      out = [say('stop', 'neutral'), say('deliver-now', 'primary')];
+      out = [{ id: 'stop', tone: 'neutral', ...stopWord(true, tr) }, say('deliver-now', 'primary')];
+      break;
+    case 'queued':
+      // Una voce sola, ed è quella che funziona davvero: il taglio del turno
+      // accetta `queued` e sgancia il timer di grazia, quindi la card esce
+      // dalla coda. «Consegna quello che hai» invece non ha nessuno a cui
+      // chiederlo — vedi `taskChoiceState`. Stessa parola, tooltip suo.
+      out = [{ id: 'stop', tone: 'neutral', ...stopWord(false, tr) }];
       break;
     case 'blocked':
       out = [
