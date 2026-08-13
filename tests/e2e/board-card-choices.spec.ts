@@ -215,20 +215,31 @@ test.describe("Scelte sempre presenti sulla card", () => {
     await beat(page);
 
     // ── 3. In corso: fermarsi o farsi consegnare quello che c'è ───────────────
+    // Qui le due scelte NON sono bottoni sulla card: stanno dietro il `⋯` della
+    // riga. Sono azioni rare su una card che non chiede niente (sta lavorando),
+    // e due bottoni pieni pesavano su ogni card in corso della board. Il menu è
+    // in un portal su `<body>`, quindi il pannello si cerca dalla pagina e non
+    // dentro la card.
+    //
     // Il chip `working` senza un turno vivo dietro è, per il server, un orfano da
     // recuperare: il giro di `reconcile` (10s) se lo riprende e rimette la card
-    // in coda. Lo si rimette finché la card non mostra le sue scelte — poi le
+    // in coda. Lo si rimette finché la card non mostra il suo menu — poi le
     // asserzioni e il click stanno dentro la finestra.
+    const menuBtn = card(taskIds.corso).getByTestId("task-choices-menu");
     await expect.poll(async () => {
       await page.request.post(`${API}/test/tasks/${taskIds.corso}/dispatch-state`, { data: { state: "working" } });
       // La board si aggiorna sui broadcast, e la route di test non ne emette:
       // una PATCH innocua sullo stesso task ne emette uno col chip fresco.
       await page.request.patch(`${API}/boards/${PROJECT_ID}/tasks/${taskIds.corso}`, { data: { priority: 2 } });
-      return await choice(taskIds.corso, "stop").count();
+      return await menuBtn.count();
     }, { timeout: 30_000, intervals: [400, 800, 1500] }).toBeGreaterThan(0);
-    await expect(choice(taskIds.corso, "stop")).toHaveText("Ferma");
-    await expect(choice(taskIds.corso, "deliver-now")).toHaveText("Consegna quello che hai");
-    await choice(taskIds.corso, "stop").click();
+    // E la card in corso NON porta più la riga di bottoni: è il punto del menu.
+    await expect(card(taskIds.corso).getByTestId("task-choices")).toHaveCount(0);
+    await menuBtn.click();
+    const menu = page.getByTestId("task-choices-panel");
+    await expect(menu.getByTestId("task-choice-stop")).toHaveText("Ferma");
+    await expect(menu.getByTestId("task-choice-deliver-now")).toHaveText("Consegna quello che hai");
+    await menu.getByTestId("task-choice-stop").click();
     // Fermare stacca l'agente e PARCHEGGIA il task: esce da In Progress.
     await expect(page.getByTestId("kanban-column-body-in_progress").locator(`[data-task-card="${taskIds.corso}"]`))
       .toHaveCount(0, { timeout: 10000 });

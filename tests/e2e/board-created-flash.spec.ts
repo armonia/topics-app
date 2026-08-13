@@ -242,12 +242,24 @@ test.describe("Task appena creato: lampo e scorrimento", () => {
     // E il lampo è DIPINTO, non solo dichiarato: la classe da sola passerebbe
     // anche con un keyframe scritto male o con un nome che in index.css non
     // esiste. `box-shadow` calcolato durante l'animazione è il valore
-    // interpolato vero, e l'azzurro (56 189 248) è quello del keyframe —
-    // DIVERSO dal verde di Done, che su questa board significa già altro.
-    const shadow = await flashing.evaluate((el) => getComputedStyle(el).boxShadow);
-    expect(shadow).toContain("56, 189, 248");
-    await expect(flashing).toHaveClass(/task-created-flash/);
-    expect(shadow).not.toContain("52, 211, 153");
+    // interpolato vero, e ci deve stare dentro l'azzurro — DIVERSO dal verde di
+    // Done, che su questa board significa già altro.
+    //
+    // La tinta si legge dalla custom property invece di scriverla qui a mano:
+    // da quando il lampo ha un colore per colonna, `--task-flash` ha DUE valori
+    // per tinta (uno per tema, come i glifi di colonna) e un letterale solo
+    // sarebbe rosso nell'altro tema senza che niente sia rotto. Il patto che
+    // conta resta esatto: la variabile è uno dei due azzurri, e l'ombra
+    // dipinta è quella variabile.
+    const painted = await flashing.evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return { shadow: cs.boxShadow, rgb: cs.getPropertyValue("--task-flash").trim().split(/\s+/).join(", ") };
+    });
+    expect(["56, 189, 248", "2, 132, 199"]).toContain(painted.rgb); // sky-400 / sky-600
+    expect(painted.shadow).toContain(painted.rgb);
+    await expect(flashing).toHaveClass(/task-flash-created/);
+    expect(painted.shadow).not.toContain("52, 211, 153");
+    expect(painted.shadow).not.toContain("5, 150, 105");
 
     // E la board è rimasta dov'era. L'attesa è la scadenza del lampo stesso —
     // condition-based, e più lunga di qualsiasi scorrimento morbido: se la board
