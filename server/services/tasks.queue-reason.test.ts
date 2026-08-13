@@ -161,10 +161,12 @@ describe("la ragione della coda arriva dal server, con la card", () => {
     expect(toni).toEqual({ Idonea: "queued", Esaurita: "stalled" });
   });
 
-  test("fuori da todo il campo è `null`: la domanda non si pone", () => {
+  test("in corso senza agente: la ragione arriva dal server, non dal silenzio", () => {
     const t = s.create({ projectId: PID, text: "In corso" });
     mv(s, t.id, "in_progress");
-    expect(s.get(t.id)!.task.queueReason).toBeNull();
+    // Il tick reclama solo `todo`: una card qui senza chip non la prende
+    // nessuno, e prima non lo diceva niente.
+    expect(s.get(t.id)!.task.queueReason).toMatchObject({ kind: "no_agent", tone: "stalled" });
     mv(s, t.id, "review");
     // In review SENZA sottotask aperti resta null: la review è una consegna
     // normale, e il chip di stato dice già tutto.

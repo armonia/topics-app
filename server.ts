@@ -59,11 +59,12 @@ import { createPreviewManager, type PreviewManager, type PreviewProcess } from "
 import { registerPreviewProcess, unregisterPreviewProcess } from "./server/routes/processes";
 import { sweepWorktrees, type TaskStatus as GcTaskStatus } from "./server/services/worktree-gc";
 import { formatMb, parseSlimSkip, slimWorktree } from "./server/services/worktree-slim";
-import { branchStatusFromRepo, commitStatusFromRepo, resolveCommit, worktreeDiffStat } from "./server/services/branch-status";
+import { branchExistsInRepo, branchStatusFromRepo, commitStatusFromRepo, resolveCommit, worktreeDiffStat } from "./server/services/branch-status";
 import { deliveryPointer } from "./server/services/own-commits";
 import { abandonNoticeFromRepo } from "./server/services/worktree-abandon-notice";
 import { createTaskAttemptStore } from "./server/services/task-attempts";
-import { auditLandings, classifyLanding, type AuditTask, type LandingState } from "./server/services/landing-audit";
+import { auditLandings, classifyLanding, classifyLandingEsito, type AuditTask, type LandingState } from "./server/services/landing-audit";
+import { classifyBranchLanding, classifyCommitLanding, indiceRigheMain } from "./server/services/landing-verdict";
 import { createTranscriptUsageReader } from "./server/services/transcript-usage";
 import { createDispatchUsageReader } from "./server/services/dispatch-usage";
 import { orphanBoardChildSessions } from "./server/services/agent-census";
@@ -4215,10 +4216,33 @@ function landingAuditDeps(listCandidates: () => AuditTask[], announce: boolean) 
     workspaceDir: DISPATCH_WORKSPACE_DIR,
     extraPaths: dispatchExtraPaths,
   });
+  // L'indice delle righe di main costa una `git grep` dell'intero albero, e la
+  // paga UNA volta per repo per passata: le card di una board stanno tutte nello
+  // stesso checkout, e senza cache l'avrebbero pagata una a testa.
+  const indici = new Map<string, ReadonlySet<string>>();
+  const indiceDi = async (repoPath: string): Promise<ReadonlySet<string>> => {
+    const gia = indici.get(repoPath);
+    if (gia) return gia;
+    const nuovo = await indiceRigheMain(repoPath);
+    indici.set(repoPath, nuovo);
+    return nuovo;
+  };
   return {
     listCandidates,
     repoPath: (projectId: string) => resolveProjectPath(projectId, candidates)?.path ?? null,
     commitStatus: (repoPath: string, commit: string) => commitStatusFromRepo(repoPath, commit),
+    // La seconda domanda, solo su chi la prima ha già dato per fuori: è lo
+    // STESSO conto di `check:landed`, che è il modo in cui la misura a mano e la
+    // pastiglia sulla card non possono più dire due cose diverse.
+    debtVerdict: async (task: AuditTask, repoPath: string): Promise<LandingState> => {
+      const indiceMain = await indiceDi(repoPath);
+      // Col ramo ancora vivo si può chiedere tutto (patch inversa, conflitto,
+      // supersessione); potato il ramo resta la sola domanda sul contenuto.
+      const verdetto = task.deliveryBranch && (await branchExistsInRepo(repoPath, task.deliveryBranch))
+        ? await classifyBranchLanding(repoPath, task.deliveryBranch, { indiceMain })
+        : await classifyCommitLanding(repoPath, task.deliveryCommit ?? "", { indiceMain });
+      return classifyLandingEsito(verdetto.esito);
+    },
     record: (taskId: string, state: LandingState, checkedAt: string) =>
       dispatcherSvc.recordLandingState({ taskId, state, checkedAt }),
     previousState: (taskId: string) => dispatcherSvc.get(taskId)?.task.landingState ?? null,
