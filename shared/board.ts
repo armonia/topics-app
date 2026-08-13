@@ -646,6 +646,8 @@ export type QueueReasonKind =
   | 'heavy_hold'     // è PESANTE, aspetta margine, e intanto tiene ferma la coda
   | 'checklist_frozen' // in review senza domande aperte, ma con la checklist aperta: approvarla non la chiude
   | 'children_parked' // sta CHIEDENDO cosa fare dei suoi step fermi: il chip ne porta il numero
+  | 'parked'         // in backlog: il dispatcher non guarda questa colonna
+  | 'no_agent'       // in corso, ma nessun agente dentro e nessuno che la reclami
   | 'unknown';       // il server non è riuscito a calcolarla: il buco, dichiarato
 
 /**
@@ -761,6 +763,51 @@ function shortId(id: string): string {
   return id.slice(0, 8);
 }
 
+/** Le colonne in cui una promessa di ritorno in coda è una bugia, dette a parole. */
+const FUORI_DALLA_CODA: Record<'backlog' | 'review', { dove: string; cosa: string }> = {
+  backlog: {
+    dove: 'in Backlog',
+    cosa: 'Trascinala in Todo per farla ripartire.',
+  },
+  review: {
+    dove: 'in Review',
+    cosa: 'Decidi tu: approvala, rimandala indietro, oppure rimettila in Todo se il lavoro non è finito.',
+  },
+};
+
+/**
+ * LA PROMESSA CHE NESSUNO MANTIENE, in una colonna che non è una coda.
+ *
+ * `dispatch_state = 'waiting'` disegna «rinviata: aspetta una condizione
+ * esterna, lo slot è libero, riparte da sola», e lo disegna in QUALUNQUE
+ * colonna: è una mappa da uno stato a una frase, e la colonna non la guarda
+ * nessuno (`DISPATCH_CHIP` in `components/Board/constants.ts`). Ma il rinvio lo
+ * onora il tick, e il tick reclama `status = 'todo'`: da ogni altra colonna
+ * quella finestra scade senza che nessuno la stia guardando.
+ *
+ * Misurato il 13/08 sul database vivo, quattro card col chip addosso e tre che
+ * mentivano: una in Backlog con la finestra scaduta il 3 agosto, due in Review
+ * con rinvii dell'11, e una sola in Todo che diceva il vero.
+ *
+ * Si parla SOLO sopra la promessa: senza `waiting` e senza una finestra, una
+ * card in Backlog è semplicemente parcheggiata e la colonna lo dice già da sé —
+ * ripeterlo su ognuna sarebbe rumore. `null` significa esattamente questo.
+ */
+function promessaFuoriDallaCoda(
+  task: { dispatchState: string | null | undefined; dispatchDeferredUntil: string | null | undefined; dispatchError?: string | null },
+  colonna: 'backlog' | 'review',
+): QueueReason | null {
+  if (task.dispatchState !== 'waiting' && !task.dispatchDeferredUntil) return null;
+  const { dove, cosa } = FUORI_DALLA_CODA[colonna];
+  return {
+    kind: 'parked', tone: 'stalled', head: 'ferma',
+    detail: `${dove.toLowerCase()}, fuori dalla coda`,
+    title:
+      `Il chip dice che torna in coda da sé, ma è ${dove} e il dispatcher reclama solo la colonna Todo: ` +
+      `quella finestra non scade più per nessuno${task.dispatchError ? `. Aspettava: ${task.dispatchError}` : ''}. ${cosa}`,
+  };
+}
+
 /**
  * PERCHÉ questa card è ferma, in una frase.
  *
@@ -769,10 +816,21 @@ function shortId(id: string): string {
  * decisione di non dispacciare; il client riceve `head`/`detail`/`title` già
  * scritti e li disegna.
  *
- * Torna `null` quando la domanda non si pone: la card non è né in `todo` né in
- * `review` con la checklist aperta, oppure un agente ci sta già girando sopra
- * (lì il chip di dispatch dice già tutto), oppure la card sta già CHIEDENDO
- * qualcosa a chi guarda (`needs_input`) e quella domanda è la mossa da fare.
+ * Torna `null` quando la domanda non si pone: la card è chiusa, oppure un agente
+ * ci sta già girando sopra (lì il chip di dispatch dice già tutto), oppure la
+ * card sta già CHIEDENDO qualcosa a chi guarda (`needs_input`) e quella domanda
+ * è la mossa da fare, oppure la colonna in cui sta è già la risposta (una card
+ * in Backlog che non promette niente è parcheggiata, e si vede da sola).
+ *
+ * FUORI DA TODO LA COLONNA NON È UNA CODA, e il chip di dispatch non lo sa. Il
+ * tick reclama solo `todo`: `waiting` — «rinviata: riparte da sola» — è una
+ * promessa che nessuno mantiene in Backlog e in Review (misurate il 13/08 sul
+ * database vivo quattro card col chip addosso e tre che mentivano: una in
+ * Backlog con la finestra scaduta il 3 agosto, due in Review con rinvii
+ * dell'11), e una card `in_progress` senza chip non diceva niente mentre nessuno
+ * la lavorava (quattro così, sulla stessa board). Le altre colonne entrano qui
+ * per questo: la ragione vince sul chip di dispatch (`Card.tsx`), quindi è
+ * l'unico posto da cui quella promessa si può correggere.
  *
  * L'ORDINE È QUELLO DEL DISPATCHER, e non è cosmetico:
  *  1. uno step non viene mai reclamato (il tick lista `rootsOnly`): la sua
@@ -802,6 +860,13 @@ export function deriveQueueReason(
     deliveredReason?: string | null;
     blockedByTaskId: string | null | undefined;
     blockedBy: BlockerRef | null | undefined;
+    /**
+     * A chi è assegnata, se a una persona. Serve a UNA riga sola: una card
+     * `in_progress` senza agente è ferma, tranne quando è una persona ad averla
+     * presa in mano («Serve a me» scrive qui). Lì «in corso» è vero, e il chip
+     * sarebbe un allarme su qualcuno che sta lavorando.
+     */
+    assignedTo?: string | null;
   },
   ctx: QueueContext,
 ): QueueReason | null {
@@ -814,7 +879,7 @@ export function deriveQueueReason(
   // card così nella notte del 12/08, e il motivo viveva solo nel log di una
   // sonda che nessuno lancia.
   if (task.status === 'review') {
-    if (ctx.openSubtasks <= 0) return null;
+    if (ctx.openSubtasks <= 0) return promessaFuoriDallaCoda(task, 'review');
     // LA CARD CHE STA GIÀ CHIEDENDO NON SI ZITTISCE. `needs_input` è l'unico
     // stato in cui la card porta addosso una DOMANDA con una risposta possibile:
     // quella di sistema sui figli parcheggiati, che arriva coi due bottoni
@@ -862,10 +927,47 @@ export function deriveQueueReason(
     };
   }
 
-  if (task.status !== 'todo') return null;
+  // Una card chiusa non aspetta niente: la domanda non si pone.
+  if (task.status === 'done') return null;
+
   // Un agente già in volo su questa riga: il chip del ciclo di vita
   // («avvio…», «al lavoro») dice più di qualunque ragione di coda.
   if (task.dispatchState === 'starting' || task.dispatchState === 'working') return null;
+
+  // ── LE ALTRE COLONNE CHE NON SONO UNA CODA ─────────────────────────────────
+  // Il tick reclama `status = 'todo'` e basta. Da qui non riparte niente da
+  // solo, quindi ogni frase che promette un ritorno è falsa e va sostituita.
+  //
+  // Il bloccante NON entra: ha una riga sua sulla card (`blockedByChip`), e la
+  // sua frase — «quando quello chiude questa torna in coda da sé» — sarebbe
+  // proprio la promessa che qui non vale. Meglio il chip che c'è già.
+  if (task.status === 'backlog' || task.status === 'in_progress') {
+    // `queued` compreso: fuori da `todo` quel chip non è la parola vaga che
+    // questa funzione sostituisce, è un agente che sta per nascere.
+    if (isAgentWorking(task.dispatchState)) return null;
+    // Uno step in corso ha già la sua frase, e non è una ragione di coda: chi lo
+    // lavora lo dice `deriveSubtaskWork` («la lavora il padre», «nessun antenato
+    // al lavoro»), che sa risalire l'albero. Due frasi sulla stessa card
+    // finirebbero per contraddirsi.
+    if (task.parentTaskId) return null;
+
+    if (task.status === 'in_progress') {
+      // Presa da una persona: «in corso» è vero, e non c'è niente da dire.
+      if (task.assignedTo) return null;
+      return {
+        kind: 'no_agent', tone: 'stalled', head: 'ferma', detail: 'nessun agente',
+        title: "È in corso, ma non c'è nessun agente al lavoro: il turno è finito senza consegnare, o la card è stata mossa qui a mano. Il dispatcher reclama solo la colonna Todo, quindi da qui non riparte da sola: rimettila in Todo, oppure prendila tu.",
+      };
+    }
+
+    // In Backlog si TACE, di regola: quella colonna è il parcheggio, e dirlo
+    // su ogni card sarebbe ripetere l'ovvio dove sta scritto. Si parla solo
+    // sopra una PROMESSA — il chip `waiting` o una finestra di rinvio — perché
+    // quella promessa è l'unica cosa che la colonna non smentisce da sé.
+    return promessaFuoriDallaCoda(task, 'backlog');
+  }
+
+  if (task.status !== 'todo') return null;
 
   if (task.parentTaskId) {
     if (ctx.parentStatus === 'review') {
@@ -1427,6 +1529,40 @@ export function pendingQuestion(
   // si dichiara comunque, così chi legge sa che il task ASPETTA una risposta e
   // non è una consegna da approvare.
   return parsed ? { text: parsed.question, options: parsed.options } : null;
+}
+
+/**
+ * LA PASTIGLIA «NON SU MAIN» PARLA SOLO DI CIÒ CHE È STATO MISURATO.
+ *
+ * Diceva `status === 'done' && landingState === 'unlanded'`, cioè metà colonna e
+ * metà verdetto. Misurate il 13/08 le 14 card che la portavano: 2 erano debito
+ * vero, 2 avevano il contenuto su main (un verdetto scritto da un land fallito e
+ * mai più riguardato), 3 erano state SUPERATE da lavoro atterrato dopo, e 4 non
+ * hanno mai avuto uno sha di consegna — su quelle non è stato verificato niente,
+ * mai, e il rosso era la parola di nessuno.
+ *
+ * Le prime tre righe le raddrizza il verdetto (l'audit periodico, che adesso
+ * ricontrolla anche un `unlanded` testimoniato e non chiama debito ciò che
+ * qualcuno ha rifatto). Questa funzione chiude l'ultima, ed è la regola che vale
+ * per tutte: senza la FOTOGRAFIA della consegna — il commit registrato quando il
+ * task è entrato in review — non c'è niente su cui una domanda sia stata posta,
+ * quindi non c'è nessuna risposta da mostrare. Si tace.
+ *
+ * Vive in `shared/` perché la stessa pastiglia la disegnano in tre (la card, la
+ * banda del drawer, il contatore accanto a «Pubblica»), e tre predicati copiati
+ * sono tre momenti diversi in cui uno dei tre smette di essere vero.
+ */
+export function showsLandingDebt(task: {
+  status: TaskStatus | string;
+  landingState: string | null | undefined;
+  deliveryCommit: string | null | undefined;
+}): boolean {
+  // Solo `done`: una card in review non è ancora atterrata per definizione, e
+  // segnalarlo lì sarebbe rumore su ogni consegna.
+  if (task.status !== 'done') return false;
+  // `unverifiable` non è un'accusa più debole: è l'assenza di un verdetto.
+  if (task.landingState !== 'unlanded') return false;
+  return !!task.deliveryCommit;
 }
 
 /**

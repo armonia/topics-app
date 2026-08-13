@@ -1925,7 +1925,7 @@ describe("settleLanded / verdetto testimoniato", () => {
     expect(dopo.doneActor).toBe("human");
   });
 
-  test("un verdetto TESTIMONIATO esce dai candidati della passata: non lo si rideduce", () => {
+  test("un ATTERRAGGIO testimoniato esce dai candidati della passata: non lo si rideduce", () => {
     const dedotto = nuovo();
     const visto = nuovo();
     for (const id of [dedotto, visto]) {
@@ -1938,6 +1938,28 @@ describe("settleLanded / verdetto testimoniato", () => {
     const candidati = svc.listLandingAuditCandidates().map((c) => c.id);
     expect(candidati).toContain(dedotto);   // dedotto: si può riprovare
     expect(candidati).not.toContain(visto); // visto: non c'è niente da aggiungere
+  });
+
+  /**
+   * L'ALTRA METÀ DELLA TESTIMONIANZA, e non è simmetrica.
+   *
+   * «È atterrato» è un fatto che non scade: quel contenuto su main ci resta.
+   * «NON è atterrato» è un fatto su un ISTANTE — il land che non è riuscito — e
+   * il giorno dopo qualcuno può aver cherry-piccato quel lavoro a mano. Tenendo
+   * fuori dall'audit anche questo verdetto, l'accusa si congelava: misurate il
+   * 13/08 due card in Done che dicevano «non su main» con il commit di consegna
+   * ANTENATO di main.
+   */
+  test("un MANCATO atterraggio testimoniato torna fra i candidati: il mondo va avanti", () => {
+    const id = nuovo();
+    svc.recordDelivery({ taskId: id, branch: "topics/x", commit: "d".repeat(40) });
+    db.prepare("UPDATE tasks SET status = 'done' WHERE id = ?").run(id);
+    svc.recordLandingState({ taskId: id, state: "unlanded", checkedAt: "2026-08-11T00:00:00Z", witnessed: true });
+
+    expect(svc.listLandingAuditCandidates().map((c) => c.id)).toContain(id);
+    // La testimonianza resta, ed è giusto: dice ancora CHI ha risposto. A
+    // cadere è solo l'esenzione dal ricontrollo.
+    expect(atterraggio(id).w).toBe(1);
   });
 
   test("una CONSEGNA nuova fa cadere la testimonianza: era su un'altra consegna", () => {
