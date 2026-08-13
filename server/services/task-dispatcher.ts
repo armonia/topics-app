@@ -152,8 +152,12 @@ export interface DispatcherDeps {
   /** Live machine capacity (CPU/load) for the ONE machine-wide cap, used when
    *  the reserved `board_settings['*']` row says `auto`. Absent ⇒ auto falls
    *  back to that row's fixed number. There is no per-board cap: the field that
-   *  suggested one was written by nobody's reader and has been removed. */
-  recommendedCap?: () => number;
+   *  suggested one was written by nobody's reader and has been removed.
+   *
+   *  Prende quanti turni sono in volo ADESSO perché il freno vivo misura la CPU
+   *  della flotta: «gli agenti tengono 4 core» non dice se sono due che
+   *  compilano o otto che aspettano la rete (`dispatch-capacity.ts`). */
+  recommendedCap?: (running: number) => number;
   /** Drive ONE headless turn to completion; resolves when the turn ends. */
   /**
    * Drive ONE headless turn to completion; resolves when the turn ends.
@@ -699,7 +703,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   function currentCap(): number {
     let gcap = { auto: true, max: 3 };
     try { gcap = deps.svc.getGlobalCap(); } catch { /* defaults */ }
-    return effectiveDispatchCap(gcap, deps.recommendedCap ? deps.recommendedCap() : null);
+    return effectiveDispatchCap(gcap, deps.recommendedCap ? deps.recommendedCap(inFlight.size) : null);
   }
   /**
    * Il PAVIMENTO, letto ADESSO. Vive accanto al tetto e non dentro, perché sono
