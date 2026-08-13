@@ -29,6 +29,15 @@
  * livello app (`data-active="true"`, PaneTabBar.tsx:1104-1105) dopo il gesto,
  * campionata per 5 secondi — un rimbalzo differito di un tick non deve sfuggire.
  *
+ * DOVE CASCA, DAVVERO. Misurato sul bundle senza fix: il rimbalzo non aspetta
+ * il «New Chat». Arriva alla PRIMA mutazione dello store dopo l'intento, e con
+ * la pane del progetto ancora da aprire quella mutazione è il click stesso sul
+ * progetto: la finestra del progetto si registra e resta `hidden`, con la board
+ * davanti. Per questo il controllo sta in `apriProgettoDaSidebar` e nomina la
+ * causa. FOCUS-05 è il caso in cui il rimbalzo si sposta davvero sul «New
+ * Chat»: lì la pane è già nello store, `ensurePaneRegistered` esce subito e il
+ * click non dispatcha niente.
+ *
  * SEMINA (il punto in cui questa spec è già stata rotta una volta). La sidebar
  * è tab-driven: un progetto compare solo se la sua pane è aperta OPPURE se un
  * suo figlio ha una tab aperta (`lib/buildSidebarItems.ts`, «Build project
@@ -103,6 +112,20 @@ async function apriProgettoDaSidebar(page: Page) {
   const riga = projectRow(page, new RegExp(`e2e-focus-bounce-${STAMP}`));
   await expect(riga, "la riga del progetto deve essere in sidebar").toBeVisible({ timeout: 15000 });
   await riga.click();
+  // La pane del progetto si REGISTRA comunque, anche col guasto: il suo nodo
+  // c'è ed è `hidden`, perché l'intento rimasto armato ha già ripreso la scena.
+  // Aspettare qui solo `toBeVisible` dava un rosso che diceva «elemento
+  // nascosto» e mandava a cercare un difetto di layout. La prima cosa da dire è
+  // CHI è davanti, quindi si misura la pane attiva e la si nomina.
+  await expect(page.getByTestId("project-window")).toBeAttached({ timeout: 10000 });
+  await expect
+    .poll(() => activeTopLevelPanes(page), {
+      timeout: 10000,
+      message:
+        "il click sul progetto deve portare la scena sulla sua finestra: se davanti " +
+        "c'è __board__, un intento di fuoco è rimasto armato e se l'è ripresa",
+    })
+    .toContain(PROJECT_PANE);
   await expect(page.getByTestId("project-window")).toBeVisible({ timeout: 10000 });
 }
 
@@ -161,8 +184,6 @@ test.describe.serial("FOCUS-BOUNCE — il fuoco che torna sulla board", () => {
   test("FOCUS-01: senza intento armato — «+ New Chat» della finestra progetto", async ({ page, request }) => {
     await scena(page, request);
     await apriProgettoDaSidebar(page);
-    expect(await activeTopLevelPanes(page), "il click sul progetto deve portare il fuoco sulla sua finestra")
-      .toContain(PROJECT_PANE);
 
     await newChatDalProgetto(page);
     const { boardTornata, visti } = await watchFocus(page, 5000);
@@ -172,7 +193,6 @@ test.describe.serial("FOCUS-BOUNCE — il fuoco che torna sulla board", () => {
   test("FOCUS-02: senza intento armato — «New Chat» globale della sidebar", async ({ page, request }) => {
     await scena(page, request);
     await apriProgettoDaSidebar(page);
-    expect(await activeTopLevelPanes(page)).toContain(PROJECT_PANE);
 
     await newChatGlobale(page);
     const { boardTornata, visti } = await watchFocus(page, 5000);
@@ -183,8 +203,6 @@ test.describe.serial("FOCUS-BOUNCE — il fuoco che torna sulla board", () => {
     await scena(page, request);
     await armaIntento(page);
     await apriProgettoDaSidebar(page);
-    expect(await activeTopLevelPanes(page), "il click sul progetto deve portare il fuoco sulla sua finestra")
-      .toContain(PROJECT_PANE);
 
     await newChatDalProgetto(page);
     const { boardTornata, visti } = await watchFocus(page, 5000);
@@ -195,7 +213,6 @@ test.describe.serial("FOCUS-BOUNCE — il fuoco che torna sulla board", () => {
     await scena(page, request);
     await armaIntento(page);
     await apriProgettoDaSidebar(page);
-    expect(await activeTopLevelPanes(page)).toContain(PROJECT_PANE);
 
     await newChatGlobale(page);
     const { boardTornata, visti } = await watchFocus(page, 5000);
@@ -209,7 +226,6 @@ test.describe.serial("FOCUS-BOUNCE — il fuoco che torna sulla board", () => {
     await scena(page, request, { progettoGiaAperto: true });
     await armaIntento(page);
     await apriProgettoDaSidebar(page);
-    expect(await activeTopLevelPanes(page)).toContain(PROJECT_PANE);
 
     await newChatDalProgetto(page);
     const { boardTornata, visti } = await watchFocus(page, 5000);
@@ -226,8 +242,6 @@ test.describe.serial("FOCUS-BOUNCE — il fuoco che torna sulla board", () => {
       .toHaveAttribute("data-active", "true", { timeout: 15000 });
 
     await apriProgettoDaSidebar(page);
-    expect(await activeTopLevelPanes(page), "il click sul progetto deve portare il fuoco sulla sua finestra")
-      .toContain(PROJECT_PANE);
 
     await newChatDalProgetto(page);
     const { boardTornata, visti } = await watchFocus(page, 5000);
