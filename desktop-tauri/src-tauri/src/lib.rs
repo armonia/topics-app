@@ -1165,6 +1165,21 @@ fn sidecar_data_dir(app: &tauri::AppHandle) -> std::path::PathBuf {
     dir
 }
 
+/// Marker recording that THIS machine has a real external server on :3333.
+///
+/// Written the first time we successfully defer to it, and never removed. It is
+/// what tells a later boot "you have a real universe here" so a slow start can
+/// never be mistaken for a virgin machine.
+fn external_server_marker(app: &tauri::AppHandle) -> std::path::PathBuf {
+    use tauri::Manager;
+    let base = app
+        .path()
+        .app_data_dir()
+        .unwrap_or_else(|_| std::env::temp_dir().join("io.armonia.topics.tauri"));
+    let _ = std::fs::create_dir_all(&base);
+    base.join("external-server-seen")
+}
+
 /// Resolve the bundled **Rust PTY bridge** sidecar (`binaries/pty-bridge-<triple>` →
 /// bundled beside the app binary in `Contents/MacOS/pty-bridge`). It's a ~0.5 MB
 /// self-contained, wire-compatible port of pty-bridge.mjs that the compiled Bun
@@ -1253,20 +1268,51 @@ async fn decide_upstream_and_spawn(app: tauri::AppHandle) {
     // sidecar universe and every real topic/terminal "disappeared". A machine that
     // has an external server usually gets it back within seconds; a truly virgin
     // machine only pays this wait ONCE on first launch (then the sidecar spawns).
-    for attempt in 0..8u32 {
+    // A machine that has ALREADY had a real server here is never a virgin
+    // machine, so it gets a much longer wait and, past it, no sidecar at all.
+    //
+    // The 2026-08-13 incident: a fork bomb in the ai-bridge daemon took the box
+    // to load 644 and 36 GB of swap. The launchd server was alive but far too
+    // slow to answer inside the 5.6s window, so the shell concluded "virgin
+    // machine", forked its own EMPTY universe, and the user lost every task,
+    // every pinned tab and even the version number. It then survived a reboot,
+    // because at login the real server needs longer than 5.6s to open an 893
+    // topic database while the app is already probing. Time alone cannot tell
+    // "no server here" from "server busy": only this marker can.
+    let marker = external_server_marker(&app);
+    let seen_before = marker.exists();
+    let attempts: u32 = if seen_before { 60 } else { 8 };
+    for attempt in 0..attempts {
         if probe_topics_server(DEFAULT_UPSTREAM_PORT, true).await {
             eprintln!("[sidecar] external TLS server on :{DEFAULT_UPSTREAM_PORT} — deferring, no sidecar");
+            let _ = std::fs::write(&marker, "1");
             let _ = UPSTREAM.set(Upstream { port: DEFAULT_UPSTREAM_PORT, tls: true });
             return;
         }
         if probe_topics_server(DEFAULT_UPSTREAM_PORT, false).await {
             eprintln!("[sidecar] external plain-HTTP server on :{DEFAULT_UPSTREAM_PORT} — deferring, no sidecar");
+            let _ = std::fs::write(&marker, "1");
             let _ = UPSTREAM.set(Upstream { port: DEFAULT_UPSTREAM_PORT, tls: false });
             return;
         }
-        if attempt < 7 {
+        if attempt + 1 < attempts {
             tokio::time::sleep(std::time::Duration::from_millis(700)).await;
         }
+    }
+
+    // Still nothing, but this machine is KNOWN to own a real server: point at it
+    // and let the client show "connecting" until it comes back. Forking an empty
+    // standalone universe here would silently hide every real topic, which is
+    // strictly worse than waiting.
+    if seen_before {
+        eprintln!(
+            "[sidecar] no answer on :{DEFAULT_UPSTREAM_PORT} after {}s, but this machine has a real server \
+             (marker {}) — NOT spawning a sidecar; degrading to \"connecting\"",
+            (attempts as u64 * 700) / 1000,
+            marker.display(),
+        );
+        let _ = UPSTREAM.set(Upstream { port: DEFAULT_UPSTREAM_PORT, tls: true });
+        return;
     }
 
     // 2) Nothing external — spawn the bundled sidecar (plain HTTP, isolated data).
