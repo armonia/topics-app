@@ -2272,3 +2272,122 @@ describe("le due risposte allo stallo dei sottotask parcheggiati", () => {
     expect(resumed).toEqual([padre]);
   });
 });
+
+/**
+ * La board non deve crescere da sola. In 24h gli agenti hanno aperto 320 card
+ * contro le 45 dell'umano: il difetto non e' che qualcuno chiuda male, e' che
+ * nessuno CERCA prima di aprire. Qui si controlla il cancello sulla porta degli
+ * agenti e la fusione, che e' l'unico modo di togliere una card senza buttarla.
+ */
+describe("doppioni: il cancello alla creazione e la fusione", () => {
+  let db: Database; let broadcasts: any[]; let router: any;
+  beforeEach(() => {
+    db = freshDb(); broadcasts = [];
+    router = createTasksRouter(makeCtx(db, broadcasts));
+  });
+
+  const CARD = "store: UserMemoryStore.update() + test";
+
+  test("l'agente che riapre la stessa card riceve 409 e l'id di quella che esiste", async () => {
+    const first = await (await call(router, "POST", "/api/sessions/s1/tasks", { text: CARD }))!.json();
+    const resp = (await call(router, "POST", "/api/sessions/s1/tasks", {
+      text: "store: UserMemoryStore.update() + unit test",
+    }))!;
+    expect(resp.status).toBe(409);
+    const err = await resp.json();
+    expect(err.code).toBe("duplicate");
+    expect(err.duplicates[0].id).toBe(first.id);
+    expect(err.duplicates[0].score).toBeGreaterThanOrEqual(0.72);
+    // Le due mosse praticabili, scritte con i nomi esatti dei tool: senza
+    // questi l'unica mossa che resta all'agente e' riscrivere il titolo storto
+    // finche' passa, cioe' il guasto che il cancello doveva impedire.
+    expect(err.error).toContain("add_comment");
+    expect(err.error).toContain("allow_duplicate: true");
+  });
+
+  test("il cancello si scavalca, ma dicendolo", async () => {
+    await call(router, "POST", "/api/sessions/s1/tasks", { text: CARD });
+    const resp = (await call(router, "POST", "/api/sessions/s1/tasks", {
+      text: "store: UserMemoryStore.update() + unit test",
+      allow_duplicate: true,
+    }))!;
+    expect(resp.status).toBe(201);
+  });
+
+  test("una card nuova passa senza attriti", async () => {
+    await call(router, "POST", "/api/sessions/s1/tasks", { text: CARD });
+    const resp = (await call(router, "POST", "/api/sessions/s1/tasks", { text: "Sonda della CPU vera sotto carico" }))!;
+    expect(resp.status).toBe(201);
+  });
+
+  test("il cancello guarda la PROPRIA board: due progetti non si intralciano", async () => {
+    await call(router, "POST", "/api/sessions/s1/tasks", { text: CARD });
+    const resp = (await call(router, "POST", "/api/sessions/s2/tasks", {
+      text: "store: UserMemoryStore.update() + unit test",
+    }))!;
+    expect(resp.status).toBe(201);
+  });
+
+  /**
+   * Il cancello guarda solo il primo livello. I passi di un lavoro si chiamano
+   * uguali sotto padri diversi ("cancelli", "prova video") e non sono doppioni.
+   * E c'e' un secondo motivo, trovato da un test che era gia' verde: un
+   * `parent_task_id` di un'altra board deve rispondere 404, e un cancello che
+   * parlava per primo lo trasformava in 409.
+   */
+  test("un sottotask non passa dal cancello: i passi si ripetono per mestiere", async () => {
+    const parent = await (await call(router, "POST", "/api/sessions/s1/tasks", { text: "Il lavoro grosso" }))!.json();
+    const uno = (await call(router, "POST", "/api/sessions/s1/tasks", { text: "cancelli e prova", parent_task_id: parent.id }))!;
+    expect(uno.status).toBe(201);
+    const due = (await call(router, "POST", "/api/sessions/s1/tasks", { text: "cancelli e prova", parent_task_id: parent.id }))!;
+    expect(due.status).toBe(201);
+  });
+
+  test("la fusione toglie la card dalla board e ridisegna la superstite", async () => {
+    const a = await (await call(router, "POST", "/api/boards/pX/tasks", { text: CARD }))!.json();
+    const b = await (await call(router, "POST", "/api/boards/pX/tasks", {
+      text: "store: UserMemoryStore.update() + unit test",
+    }))!.json();
+    broadcasts.length = 0;
+
+    const resp = (await call(router, "POST", `/api/boards/pX/tasks/${b.id}/merge`, { intoTaskId: a.id }))!;
+    expect(resp.status).toBe(200);
+    const esito = await resp.json();
+    expect(esito.survivor.id).toBe(a.id);
+    // Il client deve TOGLIERE la card fusa: senza questo evento resterebbe
+    // disegnata fino al prossimo reload, e sembrerebbe che la fusione non abbia
+    // fatto niente.
+    expect(broadcasts.some((x) => x.type === "task:deleted" && x.taskId === b.id)).toBe(true);
+    expect(broadcasts.some((x) => x.type === "task:updated" && x.task?.id === a.id)).toBe(true);
+  });
+
+  test("senza intoTaskId la fusione e' un 400, non una card archiviata per sbaglio", async () => {
+    const a = await (await call(router, "POST", "/api/boards/pX/tasks", { text: CARD }))!.json();
+    const resp = (await call(router, "POST", `/api/boards/pX/tasks/${a.id}/merge`, {}))!;
+    expect(resp.status).toBe(400);
+    const dopo = await (await call(router, "GET", "/api/boards/pX/tasks"))!.json();
+    expect(dopo.tasks.length).toBe(1);
+  });
+
+  test("i gruppi si leggono senza fondere niente, e di default solo fra le card aperte", async () => {
+    const a = await (await call(router, "POST", "/api/boards/pX/tasks", { text: CARD }))!.json();
+    const b = await (await call(router, "POST", "/api/boards/pX/tasks", {
+      text: "store: UserMemoryStore.update() + unit test",
+    }))!.json();
+    const resp = (await call(router, "GET", "/api/boards/pX/duplicates"))!;
+    expect(resp.status).toBe(200);
+    const body = await resp.json();
+    expect(body.groups.length).toBe(1);
+    // Chi delle due sopravvive NON si asserisce qui: il router usa l'orologio
+    // vero, le due card nascono nello stesso istante e a parità di `createdAt`
+    // il pareggio lo rompe l'id, che è un uuid casuale. Questa riga asseriva
+    // `survivor === a.id` e passava una volta su due: verde per fortuna, non
+    // per costruzione. La scelta della superstite è coperta dove l'orologio è
+    // iniettato (`task-merge.test.ts`).
+    const nelGruppo = [body.groups[0].survivor.id, ...body.groups[0].duplicates.map((d: any) => d.id)].sort();
+    expect(nelGruppo).toEqual([a.id, b.id].sort());
+    // Lettura: le due card sono ancora tutte e due sulla board.
+    const dopo = await (await call(router, "GET", "/api/boards/pX/tasks"))!.json();
+    expect(dopo.tasks.length).toBe(2);
+  });
+});
