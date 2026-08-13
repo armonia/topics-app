@@ -1,6 +1,7 @@
 import { test, expect, describe, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import { createTaskService, TaskServiceError, type TaskService } from "./tasks";
+import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL } from "../db/test-schema";
 
 /**
  * La fusione di due card, e la promessa che la regge: non si perde niente.
@@ -12,24 +13,12 @@ import { createTaskService, TaskServiceError, type TaskService } from "./tasks";
  * cose, e nessuno controlla l'estetica del risultato.
  */
 
+// La DDL di `tasks` NON si ricopia qui. Una copia a mano è verde il giorno che
+// la scrivi e rossa alla prima colonna aggiunta da qualcun altro: questo file è
+// nato con una copia e si è ritrovato 22 test rossi su `created_by_topic_id`,
+// una colonna arrivata su main mentre il ramo aspettava. La sorgente unica è
+// `server/db/test-schema.ts`, tenuta identica alle migration dal test accanto.
 const DDL = {
-  tasks: `CREATE TABLE tasks (
-    id TEXT PRIMARY KEY, project_id TEXT NOT NULL, text TEXT NOT NULL, description TEXT,
-    status TEXT NOT NULL DEFAULT 'todo', priority INTEGER NOT NULL DEFAULT 2,
-    kanban_order INTEGER NOT NULL DEFAULT 0, assigned_to TEXT, fingerprint TEXT, due_date TEXT,
-    chat_id TEXT, created_at TEXT NOT NULL, completed_at TEXT, updated_at TEXT NOT NULL,
-    claude_task_id TEXT, assigned_topic_id TEXT REFERENCES topics(id), archived INTEGER NOT NULL DEFAULT 0,
-    assigned_agent_id TEXT, in_progress_at TEXT,
-    dispatch_attempts INTEGER NOT NULL DEFAULT 0, dispatch_state TEXT, dispatch_error TEXT,
-    dispatch_deferred_until TEXT,
-    parent_task_id TEXT REFERENCES tasks(id), output_url TEXT, plan_first INTEGER NOT NULL DEFAULT 0,
-    agent_ms INTEGER NOT NULL DEFAULT 0, agent_tokens INTEGER NOT NULL DEFAULT 0,
-    agent_cache_read_tokens INTEGER NOT NULL DEFAULT 0,
-    model TEXT, blocked_by_task_id TEXT REFERENCES tasks(id), reuse_blocker_context INTEGER NOT NULL DEFAULT 0,
-    priority_auto INTEGER NOT NULL DEFAULT 1, preview_image TEXT,
-    checks_state TEXT, checks_at TEXT, checks_commit TEXT, checks_json TEXT,
-    delivered_by TEXT, delivered_reason TEXT
-  )`,
   comments: `CREATE TABLE task_comments (
     id TEXT PRIMARY KEY, task_id TEXT NOT NULL, author TEXT NOT NULL DEFAULT 'user',
     content TEXT NOT NULL, mentions TEXT, media TEXT, created_at TEXT NOT NULL,
@@ -49,8 +38,9 @@ const DDL = {
 function freshDb(): Database {
   const db = new Database(":memory:");
   db.run("PRAGMA foreign_keys = ON");
-  db.run(`CREATE TABLE topics (id TEXT PRIMARY KEY)`);
-  db.run(DDL.tasks);
+  db.run(TASKS_DDL);
+  db.run(TASKS_FK_STUBS_DDL);
+  db.run(TASK_LABELS_DDL);
   db.run(DDL.comments);
   db.run(DDL.settings);
   return db;
