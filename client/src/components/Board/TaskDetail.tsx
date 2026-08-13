@@ -29,6 +29,7 @@ import { PreviewMedia } from './PreviewMedia';
 import { UnifiedDiff } from './UnifiedDiff';
 import { collectTaskMediaPaths } from './taskMedia';
 import { TaskChoiceRow } from './TaskChoiceRow';
+import { taskActionErrorMessage } from './taskActionError';
 import { usableQuestionOptions } from './taskChoices';
 import { formatReviewNotes } from './reviewNotes';
 import { COMPACT_MD_CLS, PLAN_MD_CLS, PRIORITY_DOT, PRIORITY_LABEL, PRIORITY_ORDER, DISPATCH_CHIP, EFFORTS, FANOUT_CHOICES, mediaPaneIdFor, type TaskSurface } from './constants';
@@ -578,15 +579,14 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   // Action errors surfaced HERE, in the detail — the board's error bar sits
   // behind the drawer. The 409 open_subtasks on Approva is the load-bearing
   // case: swallowing it made the click look dead.
+  //
+  // E si disegnano in fondo, nella zona di DECISIONE, non in testa al drawer:
+  // Approva sta là sotto, fuori dallo scroll, e con un thread lungo una banda
+  // in cima al drawer è a schermate di distanza da chi l'ha appena premuto.
   const [error, setError] = useState<string | null>(null);
   /** La ricevuta del land chiesto da QUESTO client, finché non si chiude. */
   const [landing, setLanding] = useState<LandingTicket | null>(null);
-  const showError = (e: unknown) => {
-    const raw = e instanceof Error ? e.message : String(e);
-    setError(/open subtasks/i.test(raw)
-      ? 'Ci sono sottotask aperti: completali o archiviali prima di chiudere il task.'
-      : raw);
-  };
+  const showError = (e: unknown) => setError(taskActionErrorMessage(e));
   // Narrow (default) keeps the board visible behind the drawer; wide grows the
   // drawer so the task's tab group can live in a side panel (Thread on the left,
   // the selected surface on the right) instead of folding inline into the body.
@@ -1590,12 +1590,6 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
           <button aria-label={tr('board.task.closeDetail')} onClick={onClose} className="rounded p-1.5 text-app-text-secondary hover:bg-white/10"><X className="h-4 w-4" /></button>
         </div>
       </div>
-      {error && (
-        <div className="flex shrink-0 items-start justify-between gap-2 border-b border-rose-500/20 bg-rose-500/10 px-3 py-1.5 text-[11px] text-rose-300">
-          <span>{error}</span>
-          <button aria-label={tr('board.task.closeError')} onClick={() => setError(null)} className="shrink-0 rounded p-0.5 hover:bg-white/10"><X className="h-3 w-3" /></button>
-        </div>
-      )}
       {/* Land ACCODATO, non ancora avvenuto. Sta sopra la banda «non su main»
           perché in questa finestra quella banda dice il vero ma non dice tutto:
           il codice non è su main E qualcuno ci sta già lavorando. */}
@@ -2210,6 +2204,19 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               Approva/Rifiuta/Landa dentro il viewport a qualunque altezza di
               finestra e con qualunque combinazione di sezioni aperte. */}
           <div className="shrink-0 border-t border-app-border p-2">
+            {/* L'errore dell'ultima azione, PRIMA riga della zona di decisione:
+                sta appiccicato ai bottoni che l'hanno prodotto (Approva, Landa,
+                le scelte, il composer) e resta nel viewport quanto loro. In
+                testa al drawer era vero e invisibile. */}
+            {error && (
+              <div
+                data-testid="task-action-error"
+                className="mb-2 flex items-start gap-2 rounded border border-rose-500/30 bg-rose-500/10 px-2 py-1.5 text-[11px] text-rose-300"
+              >
+                <span className="min-w-0 flex-1 break-words">{error}</span>
+                <button aria-label={tr('board.task.closeError')} onClick={() => setError(null)} className="shrink-0 rounded p-0.5 hover:bg-white/10"><X className="h-3 w-3" /></button>
+              </div>
+            )}
             {/* Fuori dalla review le scelte della card ci sono lo stesso — è la
                 stessa riga della kanban (`taskChoices`), qui sopra il composer:
                 un task in corso si ferma o si fa consegnare, uno bloccato esce
