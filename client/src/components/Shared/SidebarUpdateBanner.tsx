@@ -37,27 +37,18 @@
  *     server di sviluppo). Non è una release: è il lavoro di oggi.
  *   · `kind="release"` → una versione firmata, con un numero.
  * Il `kind` sceglie l'occhiello, che è UNA parola sopra il titolo.
- *
- * ── E POI UNO CHE NON PARLA DI VERSIONI ─────────────────────────────────────
- * `kind="memory"` (vedi `WebviewMemoryToast`) è il terzo, ed è qui perché
- * questa è la superficie degli avvisi persistenti della colonna, non perché sia
- * un aggiornamento. Non riusa uno degli altri due proprio per questo: con
- * l'occhiello sbagliato l'avviso direbbe «Aggiornamento automatico» sopra una
- * frase che parla di memoria, e un occhiello che mente vale meno di nessun
- * occhiello.
  */
 import { createPortal } from 'react-dom';
 import { ROW_INSET } from '@/lib/selectionStyles';
 
 const SLOT_SELECTOR = '[data-update-slot]';
 
-export type UpdateBannerKind = 'build' | 'release' | 'memory';
+export type UpdateBannerKind = 'build' | 'release';
 
-/** L'occhiello: la parola che dice in quale mondo siamo. */
+/** L'occhiello: la parola che dice in quale dei due mondi siamo. */
 const EYEBROW: Record<UpdateBannerKind, string> = {
   build: 'Aggiornamento automatico',
   release: 'Nuova versione',
-  memory: 'Memoria',
 };
 
 export function SidebarUpdateBanner({
