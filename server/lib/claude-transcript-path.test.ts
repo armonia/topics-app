@@ -9,6 +9,35 @@ describe("claudeProjectDirName", () => {
     expect(claudeProjectDirName("/Users/test/Sites/Example/example-site")).toBe("-Users-test-Sites-Example-example-site");
     expect(claudeProjectDirName("/Users/test/Projects/sampleapp")).toBe("-Users-test-Projects-sampleapp");
   });
+
+  /**
+   * Il carattere che sfuggiva. `/` e `.` erano i due che si vedevano a occhio in
+   * un percorso di casa; `_` sta dove nessuno guarda, cioe' dentro la temp dir di
+   * macOS, e ci mandava a leggere una cartella che non esiste.
+   */
+  it("encodes _ as - too: the macOS temp dir carries one, and it read zero", () => {
+    expect(claudeProjectDirName("/Users/test/Projects/my_project")).toBe("-Users-test-Projects-my-project");
+    expect(
+      claudeProjectDirName("/private/var/folders/d8/0rlg1q2x64gbx_cn5y2qjf8w0000gn/T/thread-vs-work-KN4yvY/worker"),
+    ).toBe("-private-var-folders-d8-0rlg1q2x64gbx-cn5y2qjf8w0000gn-T-thread-vs-work-KN4yvY-worker");
+  });
+
+  /**
+   * La regola vera, verificata con una sonda: si apre una sessione in una
+   * cartella con dentro ogni carattere sospetto e si guarda come `claude` la
+   * chiama. Ogni non-alfanumerico diventa `-`, uno per uno, senza collassare le
+   * ripetizioni.
+   */
+  it("encodes EVERY non-alphanumeric as -, one dash per character", () => {
+    expect(claudeProjectDirName("/tmp/a_b.c d+e@f~g")).toBe("-tmp-a-b-c-d-e-f-g");
+    expect(claudeProjectDirName("/tmp/(x)[y]{z}")).toBe("-tmp--x--y--z-");
+    expect(claudeProjectDirName("/tmp/a__b")).toBe("-tmp-a--b");
+    expect(claudeProjectDirName("/tmp/ciao-mondo")).toBe("-tmp-ciao-mondo");
+  });
+
+  it("digits and case survive untouched", () => {
+    expect(claudeProjectDirName("/Users/Test42/Projects/App2000")).toBe("-Users-Test42-Projects-App2000");
+  });
 });
 
 describe("claudeTranscriptPath", () => {
