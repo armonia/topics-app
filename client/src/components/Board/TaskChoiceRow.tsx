@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { boardApi, isAgentWorking, type BoardTask } from '../../lib/board';
 import { useConfirm } from '../../hooks/useConfirm';
+import { useT } from '../../hooks/useT';
 import { Spinner } from '../Shared/Spinner';
 import { taskChoices, type TaskChoice, type TaskChoiceId } from './taskChoices';
 
@@ -34,8 +35,9 @@ export function TaskChoiceRow({ task, exclude, disabled, onDone, onError, onNeed
   className?: string;
 }) {
   const confirm = useConfirm();
+  const tr = useT();
   const [running, setRunning] = useState<TaskChoiceId | null>(null);
-  const choices = taskChoices(task, { exclude });
+  const choices = taskChoices(task, { exclude, t: tr });
   if (choices.length === 0) return null;
 
   const run = async (choice: TaskChoice) => {

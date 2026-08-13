@@ -6,7 +6,7 @@
  *  - inline create in a column → card appears (and dispatch feedback exists)
  *  - live WS update when a task is created via API (no manual refresh)
  *  - agent-surface create (`/api/sessions/:key/tasks`) lands in Backlog (intake)
- *  - review gate: "Va bene" moves review → done
+ *  - review gate: "Approva" moves review → done
  *  - auto-dispatch pill: "agent: off" by default, IS the global toggle (click flips)
  *  - global board ("Board generale") opens from the standalone "+" menu and
  *    aggregates tasks across projects with project badges
@@ -230,7 +230,7 @@ test.describe("Kanban board", () => {
     await expect(page.getByTestId("kanban-column-backlog").getByText(text)).toBeVisible({ timeout: 10000 });
   });
 
-  test("BOARD-05: review gate — \"Va bene\" moves review → done", async ({ page }) => {
+  test("BOARD-05: review gate — \"Approva\" moves review → done", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "KANBAN-05" });
     const text = `Review task ${Date.now()}`;
     const task = await apiCreateTask(page.request, { text, status: "in_progress" });
@@ -247,7 +247,7 @@ test.describe("Kanban board", () => {
     // Only this test's task sits in review, so the column-scoped button is it.
     // exact:true — the dnd-kit card is itself role=button and its accessible
     // name (whole card text) also contains the label.
-    await reviewCol.getByRole("button", { name: "Va bene", exact: true }).click();
+    await reviewCol.getByRole("button", { name: "Approva", exact: true }).click();
     await expect(page.getByTestId("kanban-column-done").getByText(text)).toBeVisible({ timeout: 10000 });
     await expect(reviewCol.getByText(text)).not.toBeVisible();
   });
@@ -662,7 +662,11 @@ test.describe("Kanban board", () => {
     await expect(colonne.getByText("otherproj", { exact: true })).toBeVisible();
   });
 
-  test("BOARD-14: trascinare una card cambia colonna e riordina, e resta dopo un reload", async ({ page }) => {
+  // BOARD-17, not BOARD-14: that number was already taken by the project-row
+  // test further up in this file, cited from the CHANGELOG and from
+  // `boardProjectChips`. Two tests with the same id is an id that no longer
+  // selects anything.
+  test("BOARD-17: trascinare una card cambia colonna e riordina, e resta dopo un reload", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "KANBAN-03" });
     // Il drag era l'unica parte della board senza rete: nessuna spec trascinava
     // una card, quindi l'inserimento frazionario e la correzione dell'indice per
@@ -682,18 +686,7 @@ test.describe("Kanban board", () => {
     await expect(todo.getByText(primo)).toBeVisible({ timeout: 10000 });
     await expect(todo.getByText(secondo)).toBeVisible();
 
-    /** dnd-kit parte dopo 4px: serve un drag vero, a passi. */
-    const drag = async (from: string, to: string) => {
-      const src = page.locator(`[data-task-card="${from}"]`);
-      const dst = page.locator(to);
-      const a = (await src.boundingBox())!;
-      const b = (await dst.boundingBox())!;
-      await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
-      await page.mouse.down();
-      await page.mouse.move(a.x + a.width / 2 + 8, a.y + a.height / 2 + 8, { steps: 4 });
-      await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 12 });
-      await page.mouse.up();
-    };
+    const drag = (from: string, to: string) => dragCard(page, from, to);
 
     // 1) Ordine dentro la colonna: il primo scende sotto il secondo.
     const cardsNow = async () =>
@@ -726,7 +719,66 @@ test.describe("Kanban board", () => {
       return (await r.json()).task.status;
     }, { timeout: 10000 }).toBe("backlog");
   });
+
+  test("BOARD-18: In Progress is not a queue, and the drop says so", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "KANBAN-03" });
+    // The black hole: the dispatcher lists ONLY `status: "todo"`, so a card left
+    // in In Progress by hand is picked up by nobody, and leaving Todo also
+    // cancels the dispatch already queued for it. The drop ends up where the
+    // gesture meant to go, and the blue line under the toolbar says so.
+    //
+    // This proves the WIRE (dnd-kit -> redirect -> PATCH -> notice on screen) on
+    // a card with no agent. WHICH cards get redirected and which do not is the
+    // case table in `client/src/lib/boardOrder.test.ts` (bun:test), which covers
+    // the delivered one too: that card lives in review, a column the carousel
+    // keeps off screen, so dragging from there would measure the scroll instead
+    // of the rule.
+    const stamp = Date.now();
+    const testo = `Lavoraci ora ${stamp}`;
+    const task = await apiCreateTask(page.request, { text: testo, status: "backlog" });
+
+    await page.goto("/");
+    await openProjectBoard(page);
+    const backlog = page.getByTestId("kanban-column-body-backlog");
+    await expect(backlog.getByText(testo)).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("board-drop-notice")).toHaveCount(0);
+
+    await dragCard(page, task.id, '[data-testid="kanban-column-body-in_progress"]');
+
+    // 1) The card is in Todo, not in In Progress. The server is the source.
+    await expect.poll(async () => {
+      const r = await page.request.get(`${BASE}/api/boards/${PROJECT_ID}/tasks/${task.id}`);
+      return (await r.json()).task.status;
+    }, { timeout: 10000 }).toBe("todo");
+    await expect(page.getByTestId("kanban-column-body-todo").getByText(testo)).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("kanban-column-body-in_progress").getByText(testo)).toHaveCount(0);
+
+    // 2) And you SEE it: a gesture that silently lands elsewhere is the same
+    //    black hole with a different shape.
+    await expect(page.getByTestId("board-drop-notice")).toContainText("Todo");
+  });
 });
+
+/**
+ * dnd-kit starts after 4px: it takes a real drag, in steps.
+ *
+ * Grabbed at the TOP, not at the centre. The sensors are deaf to fields and
+ * commands (`dndSensors.ts`), and the centre of a card that offers choices
+ * falls on a button: from there the drag never starts at all, and the spec
+ * fails saying the drop did nothing. The card's first row is its title, which
+ * is a handle in every state.
+ */
+async function dragCard(page: Page, from: string, to: string) {
+  const src = page.locator(`[data-task-card="${from}"]`);
+  const dst = page.locator(to);
+  const a = (await src.boundingBox())!;
+  const b = (await dst.boundingBox())!;
+  await page.mouse.move(a.x + a.width / 2, a.y + 12);
+  await page.mouse.down();
+  await page.mouse.move(a.x + a.width / 2 + 8, a.y + 20, { steps: 4 });
+  await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 12 });
+  await page.mouse.up();
+}
 
 /** L'id del task con questo testo, letto dall'API (le card lo espongono come attributo). */
 async function apiFindTask(page: Page, text: string): Promise<string> {

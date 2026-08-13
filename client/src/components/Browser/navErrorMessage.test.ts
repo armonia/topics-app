@@ -86,3 +86,39 @@ describe('isLoopbackUrl', () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// Il rifiuto del guscio
+//
+// Questo caso non arriva da WebKit: la navigazione non parte proprio, quindi
+// non c'è nessun did-fail e prima non c'era NIENTE da mostrare — la pane
+// restava vuota e muta. È la pagina bianca che ha aperto tutta la storia.
+// ---------------------------------------------------------------------------
+
+describe('navigazione rifiutata dal guscio (-7001)', () => {
+  test('un file locale: dice che si può avere lo stesso, e come', () => {
+    const t = navErrorMessage({
+      url: 'file:///Users/x/Documents/contratto.pdf',
+      description: 'scheme "file" is not allowed in a browser pane',
+      code: -7001,
+    });
+    expect(t.message).toContain('file sul disco');
+    expect(t.hint).toContain('serviti');
+  });
+
+  test('uno schema qualunque: dice cosa apre il pannello', () => {
+    const t = navErrorMessage({
+      url: 'chrome://settings',
+      description: 'scheme "chrome" is not allowed in a browser pane',
+      code: -7001,
+    });
+    expect(t.message).toContain('non si apre');
+    expect(t.hint).toContain('http');
+    expect(t.hint).toContain('chrome://settings');
+  });
+
+  test('non si confonde con un errore di rete vero', () => {
+    const rete = navErrorMessage({ url: 'http://localhost:3210/', description: 'Could not connect to the server.', code: -1004 });
+    expect(rete.message).not.toContain('pannello');
+  });
+});

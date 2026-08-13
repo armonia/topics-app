@@ -199,7 +199,7 @@ test.describe("Done: ordine e lampo", () => {
     // chiusa non lampeggia solo perché la board si è appena caricata.
     await expect(doneCol.locator("[data-just-done]")).toHaveCount(0);
 
-    await reviewCol.getByRole("button", { name: "Va bene", exact: true }).click();
+    await reviewCol.getByRole("button", { name: "Approva", exact: true }).click();
 
     // Si vede arrivare. PRIMA di ogni altra asserzione: il lampo dura 2,4 s per
     // costruzione, quindi va guardato subito dopo il click — le verifiche
