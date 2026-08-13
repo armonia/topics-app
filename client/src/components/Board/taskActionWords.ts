@@ -141,6 +141,19 @@ export function redoWord(toAgent: boolean, tr: Translate = fallbackTranslate): T
 }
 
 /**
+ * `stop` su una card ancora IN CODA. Stessa divisione di `sendBackWord`: la
+ * parola non cambia — una sola parola per azione è tutto il punto di questo
+ * modulo — cambia il tooltip, perché la promessa «interrompe il turno
+ * dell'agente» su una card `queued` nomina un turno che non è mai cominciato.
+ * L'azione fa comunque quello che serve: il taglio accetta `queued`, sgancia il
+ * timer di grazia e parcheggia la card.
+ */
+export function stopWord(hasAgent: boolean, tr: Translate = fallbackTranslate): TaskActionWord {
+  if (hasAgent) return taskActionWord('stop', tr);
+  return { label: tr(KEYS.stop.label), title: tr('board.action.stop.queued.title') };
+}
+
+/**
  * Every word one action answers to on this screen: the translated one the human
  * reads, plus the fallback-locale one.
  *

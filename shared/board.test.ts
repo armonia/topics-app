@@ -2,6 +2,7 @@ import { test, expect, describe } from "bun:test";
 import {
   ARCHIVE_PARKED_LABEL,
   LAND_ACTION_LABEL,
+  PARKED_STOPPED,
   PUBLISH_ACTION_LABEL,
   QUEUE_REASON_UNKNOWN,
   REQUEUE_PARKED_LABEL,
@@ -16,6 +17,7 @@ import {
   parseStatusEvent,
   pendingQuestion,
   questionAsksHuman,
+  showsLandingDebt,
   statusEventEnters,
   type BlockerRef,
   type QueueReason,
@@ -207,6 +209,30 @@ describe("perché questa card è ferma", () => {
     expect(deriveQueueReason({ ...base, status: "review" }, { ...ctx, openSubtasks: 0 })).toBeNull();
   });
 
+  /**
+   * …TRANNE QUANDO LA CARD PROMETTE DI RIPARTIRE. Il chip `waiting` dice
+   * «rinviata: lo slot è libero, riparte da sola» in qualunque colonna — è una
+   * mappa da `dispatch_state` a una frase — ma il rinvio lo onora il tick, e il
+   * tick reclama solo `todo`. Una card in Review non la dispaccia nessuno:
+   * misurate il 13/08 due card lì con rinvii dell'11 agosto e quel chip addosso.
+   */
+  test("in review «rinviata» è una bugia: nessuno dispaccia questa colonna", () => {
+    const r = reason(
+      { status: "review", dispatchState: "waiting", dispatchDeferredUntil: "2026-08-11T13:30:00.000Z" },
+      { openSubtasks: 0 },
+    );
+    expect(r).toMatchObject({ kind: "parked", tone: "stalled", head: "ferma" });
+    expect(r.detail).toContain("review");
+    expect(r.tone).not.toBe("waiting");
+    // Il tooltip nomina le mosse VERE di chi guarda una review, non «aspetta».
+    expect(r.title).toContain("approvala");
+  });
+
+  test("la checklist aperta batte la promessa: è la mossa più utile delle due", () => {
+    expect(reason({ status: "review", dispatchState: "waiting" }, { openSubtasks: 2 }))
+      .toMatchObject({ kind: "checklist_frozen", detail: "2 sottotask aperti" });
+  });
+
   test("il singolare non dice «1 sottotask aperti»", () => {
     expect(reason({ status: "review" }, { openSubtasks: 1 }).detail).toBe("1 sottotask aperto");
   });
@@ -288,9 +314,76 @@ describe("perché questa card è ferma", () => {
       .toMatchObject({ kind: "checklist_frozen", detail: "3 sottotask aperti" });
   });
 
-  test("fuori da todo e review la domanda resta senza risposta", () => {
-    for (const status of ["backlog", "in_progress", "done"]) {
-      expect(deriveQueueReason({ ...base, status }, { ...ctx, openSubtasks: 3 })).toBeNull();
+  test("su una card chiusa la domanda non si pone", () => {
+    expect(deriveQueueReason({ ...base, status: "done" }, { ...ctx, openSubtasks: 3 })).toBeNull();
+  });
+
+  /**
+   * LA PROMESSA CHE NESSUNO MANTIENE — misurata il 13/08 sul database vivo.
+   *
+   * Il chip `waiting` dice «rinviata: aspetta una condizione esterna, lo slot è
+   * libero, riparte da sola», e lo dice in QUALUNQUE colonna: è una mappa da
+   * `dispatch_state` a una frase, e la colonna non la guarda nessuno. Ma il tick
+   * reclama `status = 'todo'` e basta, quindi in Backlog quella finestra non
+   * scade per nessuno: sulla board c'era una card con la finestra scaduta il 3
+   * agosto, ferma da dieci giorni, che continuava a dire che sarebbe ripartita.
+   *
+   * La ragione vince sul chip di dispatch (`Card.tsx`), quindi coprire `backlog`
+   * qui è l'unico modo di correggerla.
+   */
+  test("in backlog «rinviata» diventa «ferma»: da lì non riparte niente", () => {
+    const r = reason(
+      { status: "backlog", dispatchState: "waiting", dispatchDeferredUntil: "2026-08-12T10:12:00.000Z" },
+    );
+    expect(r).toMatchObject({ kind: "parked", tone: "stalled", head: "ferma" });
+    // Il tono è la parte che si legge a un metro: `waiting` significa «riparte
+    // da sola», ed è esattamente ciò che qui non succede.
+    expect(r.tone).not.toBe("waiting");
+    expect(`${r.head} ${r.detail}`).not.toContain("rinviata");
+    expect(r.title).toContain("Todo");
+  });
+
+  test("una finestra di rinvio scaduta in Backlog resta una bugia (la colonna, non l'orologio)", () => {
+    // `dispatchDeferredUntil` è nel passato: in `todo` non fermerebbe più
+    // niente, qui la card è ferma lo stesso — e per un altro motivo.
+    expect(reason({ status: "backlog", dispatchDeferredUntil: "2026-08-01T10:00:00.000Z" }).kind)
+      .toBe("parked");
+  });
+
+  test("in backlog senza nessuna promessa si TACE: il parcheggio si vede dalla colonna", () => {
+    expect(deriveQueueReason({ ...base, status: "backlog" }, ctx)).toBeNull();
+    // Un park dichiarato ha già il suo chip, e non promette nessun ritorno.
+    expect(deriveQueueReason({ ...base, status: "backlog", dispatchState: PARKED_STOPPED }, ctx)).toBeNull();
+  });
+
+  /**
+   * IN CORSO SENZA NESSUNO DENTRO — quattro card così, sulla stessa board.
+   *
+   * `in_progress` senza `dispatch_state` non aveva alcun chip: la colonna diceva
+   * «in corso» e non c'era nessun agente, nessun turno, e nessun dispatcher che
+   * l'avrebbe reclamata (il tick guarda solo `todo`). Il silenzio, lì, si legge
+   * come «sta andando».
+   */
+  test("in corso senza agente: la card lo dice, invece di sembrare in movimento", () => {
+    const r = reason({ status: "in_progress" });
+    expect(r).toMatchObject({ kind: "no_agent", tone: "stalled", head: "ferma", detail: "nessun agente" });
+    expect(r.title).toContain("Todo");
+  });
+
+  test("in corso con un agente dentro (o una persona sopra) non c'è niente da dire", () => {
+    const q = (t: Partial<typeof base>) => deriveQueueReason({ ...base, status: "in_progress", ...t }, ctx);
+    for (const dispatchState of ["queued", "starting", "working"]) expect(q({ dispatchState })).toBeNull();
+    // «Serve a me» scrive l'assegnatario: lì «in corso» è vero, e un chip
+    // «ferma» sarebbe un allarme addosso a chi sta lavorando.
+    expect(deriveQueueReason({ ...base, status: "in_progress", assignedTo: "io" }, ctx)).toBeNull();
+  });
+
+  test("uno step fuori da todo tace: chi lo lavora lo dice `deriveSubtaskWork`", () => {
+    for (const status of ["backlog", "in_progress"]) {
+      expect(deriveQueueReason(
+        { ...base, status, parentTaskId: "p1", dispatchState: "waiting" },
+        { ...ctx, parentStatus: "in_progress" },
+      )).toBeNull();
     }
   });
 
@@ -415,10 +508,9 @@ describe("perché questa card è ferma", () => {
       .toBe("parent_turn");
   });
 
-  test("`null` quando la domanda non si pone: fuori da todo, o con un agente già in volo", () => {
+  test("`null` quando la domanda non si pone: card chiusa, o agente già in volo", () => {
     const q = (t: Partial<typeof base>) => deriveQueueReason({ ...base, ...t }, ctx);
-    expect(q({ status: "in_progress" })).toBeNull();
-    expect(q({ status: "backlog" })).toBeNull();
+    expect(q({ status: "done" })).toBeNull();
     expect(q({ status: "review" })).toBeNull();
     // 'queued' invece È la parola che questa funzione sostituisce: non è un'uscita.
     expect(q({ dispatchState: "queued" })!.kind).toBe("slot");
@@ -448,6 +540,8 @@ describe("perché questa card è ferma", () => {
       ["parent_review", { parentTaskId: "p" }, { parentStatus: "review" }],
       ["parent_turn", { parentTaskId: "p" }, { parentStatus: "in_progress" }],
       ["parent_idle", { parentTaskId: "p" }, { parentStatus: "done" }],
+      ["parked", { status: "backlog", dispatchState: "waiting" }, {}],
+      ["no_agent", { status: "in_progress" }, {}],
     ] as const) {
       const r = reason(t, c);
       expect(`${r.head} ${r.detail}`, `${kind} usa la parola ambigua`).not.toContain("in attesa");
@@ -467,6 +561,8 @@ describe("perché questa card è ferma", () => {
       reason({ parentTaskId: "p" }, { parentStatus: "review" }),
       reason({ parentTaskId: "p" }, { parentStatus: "in_progress" }),
       reason({ parentTaskId: "p" }, { parentStatus: "done" }),
+      reason({ status: "backlog", dispatchState: "waiting" }),
+      reason({ status: "in_progress" }),
     ];
     expect(new Set(tutti.map((r) => r.kind)).size).toBe(tutti.length);
     for (const r of tutti) {
@@ -487,6 +583,42 @@ describe("perché questa card è ferma", () => {
  * the dispatcher says anything at all. 'service' joins 'status' as history
  * rather than speech.
  */
+/**
+ * LA PASTIGLIA CHE CONTAVA LA COLONNA — misurata il 13/08 sulle 14 card che la
+ * portavano: 2 debiti veri, 2 col contenuto già su main, 3 superate da lavoro
+ * atterrato dopo, e 4 senza uno sha di consegna, cioè senza niente che sia mai
+ * stato verificato. Undici rossi su quattordici erano falsi, ed è il modo in cui
+ * un allarme smette di essere letto.
+ *
+ * Questa metà è la quarta riga: senza la fotografia della consegna nessuno ha
+ * MAI posto la domanda, quindi non c'è nessuna risposta da mostrare. Le altre
+ * tre le raddrizza il verdetto, dove si guarda il repo.
+ */
+describe("«non su main» dice il vero, oppure tace", () => {
+  const done = { status: "done", landingState: "unlanded", deliveryCommit: "a".repeat(40) };
+
+  test("debito vero: consegna registrata, verdetto misurato, contenuto fuori", () => {
+    expect(showsLandingDebt(done)).toBe(true);
+  });
+
+  test("senza sha di consegna non è stato verificato NIENTE: si tace", () => {
+    expect(showsLandingDebt({ ...done, deliveryCommit: null })).toBe(false);
+    expect(showsLandingDebt({ ...done, deliveryCommit: "" })).toBe(false);
+  });
+
+  test("«non lo so» non è un'accusa più debole: solo `unlanded` accusa", () => {
+    for (const landingState of ["landed", "unverifiable", null, undefined]) {
+      expect(showsLandingDebt({ ...done, landingState })).toBe(false);
+    }
+  });
+
+  test("solo su una card chiusa: in review non essere su main è la norma", () => {
+    for (const status of ["review", "in_progress", "todo", "backlog"]) {
+      expect(showsLandingDebt({ ...done, status })).toBe(false);
+    }
+  });
+});
+
 describe("pendingQuestion, la contabilita' non e' l'ultima parola", () => {
   const question = ["```question", "Procedo?", "- Si'", "- No", "```"].join("\n");
 
