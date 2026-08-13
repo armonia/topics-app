@@ -1158,8 +1158,8 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   const workChip = task ? subtaskWorkChip(task) : null;
   const workAncestorId = task?.subtaskWork?.kind === 'parent-turn' ? task.subtaskWork.ancestor.id : null;
 
-  // Era in Done e non c'è più: stessa lettura del chip sulla card, qui in forma
-  // di banda (chi e quando). Vive finché la card non torna `done`.
+  // Aveva consegnato e non è più lì: stessa lettura del chip sulla card, qui in
+  // forma di banda (chi e quando). Vive finché la card non torna a consegnare.
   const reopened = task ? reopenedChip(task) : null;
 
   // Overflow "⋯" menu (header): the less-frequent task config lives here instead
@@ -1631,15 +1631,15 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
           ><GitMerge className="h-3 w-3" /> {tr('board.task.landOnMain')}</button>
         </div>
       )}
-      {/* Era in Done e non c'è più: la banda lo dice appena apri la card, con
-          chi e quando. Il MOTIVO sta sotto, nel thread — ma il fatto non deve
+      {/* Aveva consegnato e non è più lì: la banda lo dice appena apri la card,
+          con chi e quando. Il MOTIVO sta sotto, nel thread, ma il fatto non deve
           più dipendere dal fatto che qualcuno scorra i commenti. */}
       {reopened && (
         <div
           data-testid="task-reopened-notice"
           className="shrink-0 border-b border-amber-500/20 bg-amber-500/10 px-3 py-1.5 text-[11px] text-amber-200"
         >
-          ↩︎ <strong>Riaperta</strong> {reopened.detail}. Era in Done, e il motivo è nel thread qui sotto.
+          ↩︎ <strong>Riaperta</strong> {reopened.detail}. Aveva consegnato, e il motivo è nel thread qui sotto.
         </div>
       )}
       {/* IL GUSCIO — chi possiede l'altezza, e dove sta il solo scroll.
