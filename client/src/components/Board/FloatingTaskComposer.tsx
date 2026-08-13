@@ -2,22 +2,51 @@ import { useState, useEffect, useRef } from 'react';
 import { Check, ChevronDown, ClipboardList, CornerDownRight, Link2, Loader2, Lock, Send, Sparkles, X } from 'lucide-react';
 import { Menu } from '../Shared/Menu';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
-import { boardApi, boardDrafts, AUTO_PROJECT_ID, STATUS_LABEL, UNASSIGNED_PROJECT_ID, type BoardProjectRef, type LinkProposal } from '../../lib/board';
+import { boardApi, boardDrafts, AUTO_PROJECT_ID, STATUS_LABEL, UNASSIGNED_PROJECT_ID, type BoardProjectRef, type LinkProposal, type TaskStatus } from '../../lib/board';
 import { addBoardProject, projectNameFromId, useBoardProjects, useNewProjectDir } from '../../lib/boardProjectsStore';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
 import { writeCursor, markActiveComposer, restoreCursor } from '../../lib/composerCursor';
 import { CHIP_LABEL, COMPOSER_CURSOR_KEY, PRIORITY_DOT, PRIORITY_LABEL, PRIORITY_ORDER } from './constants';
 import { autoGrow, friendlyModelLabel } from './format';
+import { StatusIcon } from './atoms';
 import { ProjectPickerBody } from './ProjectPicker';
 import { POPOVER_ITEM } from '@/lib/popoverStyles';
+
+/** Le due colonne in cui un task può NASCERE, nell'ordine in cui il menu le
+ *  offre, ognuna con la riga che dice cosa succede scegliendola. Le colonne più
+ *  avanti (in corso, review, done) non sono un'origine: ci si arriva. */
+const START_CHOICES: readonly (readonly [BirthStatus, string])[] = [
+  ['todo', "Parte subito: un agent la prende dalla coda."],
+  ['backlog', 'Resta ferma finché non la promuovi tu.'],
+];
+
+/** Le sole due colonne che sono un'ORIGINE (le altre si raggiungono). */
+type BirthStatus = Extract<TaskStatus, 'todo' | 'backlog'>;
 
 /**
  * The "dai questo all'agent" entry point: a floating input at the bottom of
  * the board. Collapsed it's a slim pill; on focus it RISES slightly and
- * expands (plan-first toggle, project select in the global board, submit) —
- * and eases back on blur. The task is born in Todo (the dispatch signal);
- * title = first line, full text goes to the description, and the dispatched
- * agent polishes the wording (kickoff rule) — no model to pick, ever.
+ * expands (the chip row, project select in the global board, submit) — and
+ * eases back on blur. Title = first line, full text goes to the description,
+ * and the dispatched agent polishes the wording (kickoff rule).
+ *
+ * ── DOVE NASCE IL TASK, E COME PARTE ────────────────────────────────────────
+ * Il chip «Avvio» risponde alla sola domanda che l'invio pone davvero: cosa
+ * succede appena premo Invio. Todo è il segnale di dispatch (un agent la
+ * prende dalla coda), Backlog è la cassetta delle idee (nasce ferma, la
+ * promuovi tu quando è il momento). Prima era una scelta che non esisteva: il
+ * composer scriveva `status: 'todo'` fisso, quindi ogni pensiero buttato lì
+ * dentro faceva partire un agent, e l'unico modo di parcheggiarlo era crearlo
+ * e poi trascinarlo indietro.
+ *
+ * «Piano prima» sta nello STESSO menu perché è la seconda metà della stessa
+ * domanda (come parte), non un quinto chip: era un toggle nudo, l'unico
+ * comando della riga senza etichetta di stato né spiegazione — acceso o spento
+ * si capiva solo dal colore. Dentro il menu ha un nome, una riga che dice cosa
+ * fa e una spunta, come Modello e Priorità; sul chip resta visibile come
+ * glifo viola, così lo stato si legge anche a menu chiuso. Le due scelte
+ * restano indipendenti: un task può nascere in Backlog E chiedere il piano,
+ * che è quello che serve quando lo promuoverai fra una settimana.
  *
  * Non si smonta MAI mentre la board è viva: il testo a metà, il cursore, i chip
  * scelti e l'altezza del textarea vivono in questo componente, e la bozza dal
@@ -50,6 +79,11 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
   const [focused, setFocused] = useState(false);
   const [planFirst, setPlanFirst] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  // Avvio: dove nasce il task (Todo = parte, Backlog = resta ferma) e se prima
+  // dell'implementazione vuoi il piano. Un chip solo, due domande vicine.
+  const [startOpen, setStartOpen] = useState(false);
+  const [birthStatus, setBirthStatus] = useState<BirthStatus>('todo');
+  const startBtnRef = useRef<HTMLButtonElement>(null);
   // L'indice dei progetti arriva dallo store CONDIVISO e parte al mount, non al
   // primo focus. Il chip mostra il `path` del progetto scelto — e senza `path`
   // non c'è icona: caricandolo pigramente, una bozza ripristinata (che espande
@@ -107,6 +141,9 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
         setModel((cur) => cur ?? d.model ?? null);
         setPrio((cur) => cur ?? d.prio ?? null);
         if (d.planFirst) setPlanFirst(true);
+        // Le bozze scritte prima che l'avvio esistesse non hanno il campo:
+        // l'assenza vale Todo, cioè come si comportava il composer allora.
+        if (d.status === 'backlog') setBirthStatus('backlog');
       }
       draftLoaded.current = true;
       // Restore the caret one frame after the draft text commits into the
@@ -117,8 +154,8 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
   }, []); // restore-once on mount
   useEffect(() => {
     if (!draftLoaded.current) return; // never clobber the server draft pre-restore
-    boardDrafts.putComposer({ text, model, prio, planFirst });
-  }, [text, model, prio, planFirst]);
+    boardDrafts.putComposer({ text, model, prio, planFirst, status: birthStatus });
+  }, [text, model, prio, planFirst, birthStatus]);
   const [claudeModels, setClaudeModels] = useState<string[]>(
     () => getProvidersSnapshotState().snapshot?.providers.find((p) => p.name === 'claude-code')?.models ?? [],
   );
@@ -155,7 +192,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
   }, []);
   // The Menu portals to <body>, so focus leaves the wrapper while it's open —
   // keep the composer expanded anyway.
-  const expanded = focused || projOpen || modelOpen || prioOpen || text.trim().length > 0;
+  const expanded = focused || projOpen || modelOpen || prioOpen || startOpen || text.trim().length > 0;
 
   const onFocus = () => {
     setFocused(true);
@@ -164,7 +201,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
   // Collapse only when focus truly LEFT the composer (not moving between its
   // own controls) — otherwise clicking "Plan first" would blur-shrink it.
   const onBlurCapture = (e: React.FocusEvent) => {
-    if (projOpen || modelOpen) return;
+    if (projOpen || modelOpen || startOpen) return;
     if (wrapRef.current && e.relatedTarget instanceof Node && wrapRef.current.contains(e.relatedTarget)) return;
     setFocused(false);
   };
@@ -179,6 +216,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
   };
 
   const target = global ? targetProject : projectId;
+  const todo = birthStatus === 'todo';
 
   // Interroga la board mentre scrivi, ma solo quando c'è abbastanza testo da
   // giudicare (sotto una manciata di caratteri qualunque somiglianza è un caso)
@@ -267,7 +305,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
       // nessuno l'abbia scelto). `intakeLink` dice al server di scrivere il
       // perché nei thread di entrambe le card.
       const created = await boardApi.create(target, {
-        text: title, description, status: 'todo', planFirst,
+        text: title, description, status: birthStatus, planFirst,
         model: model ?? undefined, priority: prio ?? undefined,
         ...(link?.kind === 'subtask' ? { parentTaskId: link.proposal.targetTaskId } : {}),
         ...(link?.kind === 'chain' ? { blockedByTaskId: link.proposal.targetTaskId, reuseBlockerContext: true } : {}),
@@ -275,6 +313,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
       });
       setText('');
       setPlanFirst(false);
+      setBirthStatus('todo');
       setModel(null);
       setPrio(null);
       setLink(null);
@@ -504,16 +543,60 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
               ))}
             </Menu>
             <button
-              onClick={() => setPlanFirst((v) => !v)}
-              title="L'agent consegna prima un piano da approvare, implementa dopo il tuo ok"
-              className={`flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[11px] transition-colors ${
-                planFirst ? 'bg-violet-500/25 text-violet-200' : 'bg-black/5 text-app-text-secondary hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10'
+              ref={startBtnRef}
+              onClick={() => setStartOpen(true)}
+              data-testid="composer-start-chip"
+              title={`${todo ? 'Nasce in Todo: un agent la prende dalla coda' : 'Nasce in Backlog: resta ferma finché non la promuovi'}${
+                planFirst ? " · piano prima: l'agent consegna un piano da approvare" : ''
               }`}
-            ><ClipboardList className="h-3 w-3 shrink-0" /><span className={CHIP_LABEL}>Plan first</span></button>
+              className="flex shrink-0 items-center gap-1.5 rounded-md bg-black/5 px-2 py-1 text-[11px] text-app-text-heading hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10"
+            >
+              <StatusIcon status={birthStatus} className="h-3 w-3" />
+              <span className={CHIP_LABEL}>{STATUS_LABEL[birthStatus]}</span>
+              {/* Lo stato del piano si legge a menu CHIUSO: dentro il menu ha
+                  nome e spiegazione, qui basta il glifo acceso. */}
+              {planFirst && <ClipboardList className="h-3 w-3 shrink-0 text-violet-300" />}
+              <ChevronDown className="h-3 w-3 shrink-0 text-app-text-muted" />
+            </button>
+            <Menu open={startOpen} anchorRef={startBtnRef} onClose={() => setStartOpen(false)} minWidth={240} role="menu">
+              <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">Avvio</p>
+              {START_CHOICES.map(([s, hint]) => (
+                <button
+                  key={s} role="menuitemradio" aria-checked={birthStatus === s}
+                  onClick={() => { setBirthStatus(s); setStartOpen(false); }}
+                  data-testid={`composer-start-${s}`}
+                  className={POPOVER_ITEM}
+                >
+                  <StatusIcon status={s} className="h-3 w-3" />
+                  <span className="flex min-w-0 flex-1 flex-col">
+                    <span>{STATUS_LABEL[s]}</span>
+                    <span className="text-[11px] leading-tight text-app-text-muted">{hint}</span>
+                  </span>
+                  {birthStatus === s && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
+                </button>
+              ))}
+              {/* Il piano è una scelta INDIPENDENTE dalla colonna, non una terza
+                  voce dell'elenco: il filo lo dice, e il menu resta aperto al
+                  click perché una spunta che si accende vuole essere vista. */}
+              <div className="my-1 h-px bg-app-border" />
+              <button
+                role="menuitemcheckbox" aria-checked={planFirst}
+                onClick={() => setPlanFirst((v) => !v)}
+                data-testid="composer-plan-first"
+                className={POPOVER_ITEM}
+              >
+                <ClipboardList className={`h-3 w-3 shrink-0 ${planFirst ? 'text-violet-300' : 'text-app-text-muted'}`} />
+                <span className="flex min-w-0 flex-1 flex-col">
+                  <span>Piano prima</span>
+                  <span className="text-[11px] leading-tight text-app-text-muted">Consegna un piano da approvare. Implementa dopo il tuo ok.</span>
+                </span>
+                {planFirst && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
+              </button>
+            </Menu>
           </div>
           <button
             onClick={submit} disabled={!text.trim() || submitting}
-            title="Crea il task (l'agent parte da Todo)"
+            title={todo ? "Crea il task in Todo (l'agent parte da lì)" : 'Crea il task in Backlog (non parte nessun agent)'}
             data-testid="composer-send"
             className="shrink-0 rounded-lg bg-emerald-500/80 p-1.5 text-white hover:bg-emerald-500 disabled:opacity-40"
           >{submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}</button>
