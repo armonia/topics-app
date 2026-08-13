@@ -100,7 +100,11 @@ async function stubProbes(page: Page, opts?: { running?: number }) {
     route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ recommended: 2, cores: 12, totalMemGB: 32, load1: 15.4, reason: "12 core → base 4, ridotto per carico (load 15.4)", running }),
+      body: JSON.stringify({
+        recommended: 2, cores: 12, totalMemGB: 32, load1: 15.4, running,
+        oursCores: 6.2, budgetCores: 6,
+        reason: "12 core → base 4, ridotto a 2: gli agent tengono 6.2 core sui 6 di quota",
+      }),
     }));
   await page.route((url) => url.pathname === "/api/worktrees", (route) =>
     route.fulfill({
@@ -325,10 +329,14 @@ test.describe("Top bar della kanban — si legge da sola", () => {
 
     const chip = page.getByTestId("load-advice-chip");
     await expect(chip).toBeVisible({ timeout: 20000 });
-    // Il testo VISIBILE — non il `title` — deve dire cosa conviene fare.
-    await expect(chip).toHaveText(/Macchina carica: meglio fermare 2 agent/);
+    // Il testo VISIBILE — non il `title` — deve dire cosa conviene fare, e
+    // dirlo in due parole: la barra è una fila di controlli, non un posto dove
+    // si legge una frase. Il resto sta nel popover, qui sotto.
+    await expect(chip).toHaveText(/^Fermane 2$/);
     await chip.click();
     await expect(page.getByText("4 agent al lavoro, ne reggo 2")).toBeVisible();
+    // Il popover porta la misura VERA (la CPU della flotta), non il load average.
+    await expect(page.getByText(/6\.2 core sui 6 che spettano loro/)).toBeVisible();
     await expect(page.getByText(/consiglio/)).toBeVisible();
     await page.screenshot({ path: join(SHOTS, "popover-carico.png"), clip: { x: 0, y: 0, width: 1440, height: 320 } });
     await page.keyboard.press("Escape");
