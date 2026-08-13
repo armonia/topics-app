@@ -12,6 +12,7 @@ import { isTopicMuted as isTopicMutedPure } from '../lib/notify/muteGate';
 import { bannerClaimKey, bannerClaimant, claimMessageBanner } from '../lib/notify/messageBannerClaim';
 import { decideMessageBanner } from '../lib/notify/messageBanner';
 import { buildNotifyActions, type NotifyAction } from '../../../shared/notify-actions';
+import { questionAsksHuman } from '../../../shared/board';
 import { resolveReviewQuestion } from '../lib/notify/reviewQuestion';
 import { boardApi, isAgentWorking } from '../lib/board';
 import { inPageBannerAllowed, type NotifyEventKind } from '../lib/notify/pushVoice';
@@ -343,12 +344,19 @@ export function useCompletionNotifier({
       }).then((resolved) => {
         // 'unknown' = non si è potuto sapere: banner senza tasti, come prima.
         const question = resolved === 'unknown' ? null : resolved;
+        // Quale delle due voci, lo decide `questionAsksHuman` — la stessa regola
+        // del chip, dei due cancelli di review e della push gemella, e NON «c'è
+        // un blocco question». L'envelope ordina alla consegna landabile di
+        // allegare `options=["Landa su main"]`, che il servizio avvolge in
+        // quella fence: leggendo la fence, ogni consegna finita si annunciava
+        // «serve una tua risposta». Le OPZIONI restano intere in entrambi i
+        // casi, perché sono i tasti del banner.
         const actions = resolved === 'unknown'
           ? []
           : buildNotifyActions({ kind: 'review-ready', question });
         fire(
           'task:review-ready',
-          question ? 'Serve una tua risposta' : 'Task pronto per la review',
+          questionAsksHuman(question) ? 'Serve una tua risposta' : 'Task pronto per la review',
           question?.text ? `${title} · ${question.text}`.slice(0, 220) : title,
           cfg.notificationsSound,
           // Stessa chiave della push gemella (server/push-triggers.ts): la
