@@ -24,7 +24,8 @@ import type { AppContext, RouteHandler } from "../types";
 import { grantedResourceIds } from "../lib/grants-query";
 import { resolvePrincipals } from "../lib/principals";
 import type { OutboundMessage } from "../../shared/ws-outbound";
-import { isAgentWorking, PARKED_STOPPED, PARKED_WAITED_OUT, pendingQuestion, type PendingQuestionComment } from "../../shared/board";
+import { isAgentWorking, NOTE_ARCHIVED_BY_HUMAN, NOTE_STOPPED_BY_HUMAN, PARKED_STOPPED, PARKED_WAITED_OUT, pendingQuestion, type PendingQuestionComment } from "../../shared/board";
+import { AGENT_AUTHOR, AGENT_AUTHOR_PREFIX } from "../../shared/comment-author";
 import { isPreviewablePath } from "../../shared/media-kind";
 import { parseTaskPatch, unapplicableFieldsBody, type FieldRead } from "./task-patch";
 import { getTerminalSessionById } from "./terminal";
@@ -1035,13 +1036,21 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
   }
 
   /**
-   * Resolve the board project id + a display author from a session key. Works
-   * for BOTH a chat topic bound to a project and a Claude terminal tab (which
-   * has a cwd but no chat topic). Returns null when the session is unbound.
+   * Resolve the board project id + the ACTOR behind a session key. Works for
+   * BOTH a chat topic bound to a project and a Claude terminal tab (which has a
+   * cwd but no chat topic). Returns null when the session is unbound.
    * `topicId` (chat sessions only) feeds the "own steps" carve-out: it lets the
    * service recognise subtasks of the task dispatched to THIS agent.
+   *
+   * ONE field, not two. This used to hand out a separate `author`, the topic
+   * NAME, on the theory that a name is what reads well above a comment. For a
+   * dispatched agent the topic name is the task title cut at 60 characters
+   * (`task-dispatcher.ts`: `name: task.text.slice(0, 60)`), so what landed in
+   * `task_comments.author` was half a sentence, and the card tooltip printed it
+   * where a speaker's name belongs. The identity is the durable thing to store;
+   * the label is derived when it is read (`shared/comment-author.ts`).
    */
-  function resolveSession(sessionKey: string): { projectId: string; author: string; actor: string; topicId: string | null } | null {
+  function resolveSession(sessionKey: string): { projectId: string; actor: string; topicId: string | null } | null {
     const topic = getTopicBySessionKey(sessionKey);
     if (topic?.projectPath) {
       // A dispatched agent's board is the board of the task bound to its topic,
@@ -1051,26 +1060,18 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       // ops. When the topic carries a bound task, scope to THAT board.
       const boundProject = topic.id ? svc.boardProjectForTopic(topic.id) : null;
       const projectId = boundProject ?? projectIdForPath(topic.projectPath);
-      // `author` e `actor` sono due cose diverse e finivano nello stesso campo.
-      // `author` è un NOME DA MOSTRARE nel thread — e per un topic di agente è
-      // il titolo del task, il che va benissimo sopra un commento. `actor` è
-      // CHI ha fatto la transizione, e finisce nello storico di stato: lì il
-      // titolo del task rendeva la timeline illeggibile, perché non distingueva
-      // umano, agente e dispatcher (erano tutti "il nome del task").
       return {
         projectId,
-        author: topic.name?.trim() || "claude",
-        actor: topic.id ? `agent:${topic.id}` : "agent",
+        actor: topic.id ? `${AGENT_AUTHOR_PREFIX}${topic.id}` : AGENT_AUTHOR,
         topicId: topic.id ?? null,
       };
     }
     const term = getTerminalSessionById(sessionKey);
     if (term?.cwd) {
-      // Tab di terminale: nessun topic, quindi l'attore è la sessione stessa.
+      // A terminal tab has no topic, so the actor is the session itself.
       return {
         projectId: projectIdForPath(term.cwd),
-        author: (term.name || "").trim() || "claude",
-        actor: `agent:${sessionKey.slice(0, 16)}`,
+        actor: `${AGENT_AUTHOR_PREFIX}${sessionKey.slice(0, 16)}`,
         topicId: null,
       };
     }
@@ -1837,10 +1838,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         try {
           const got = svc.get(bStop.taskId, { projectId: bStop.projectId });
           if (!got) return json({ error: "task not found", code: "not_found" }, 404);
-          const parked = detachLiveAgent(
-            got.task,
-            "Fermato da te: agent interrotto. Rimetti il task in Todo per ripartire.",
-          );
+          const parked = detachLiveAgent(got.task, NOTE_STOPPED_BY_HUMAN);
           if (!parked) return json({ error: "no active agent on this task", code: "invalid_transition" }, 409);
           broadcastToAll({ type: "task:updated", projectId: bStop.projectId, task: parked });
           return json(parked);
@@ -2187,10 +2185,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             // nessuno (vedi `detachLiveAgent`). Prima di archiviare, quindi.
             const got = svc.get(taskId, { projectId });
             if (got) {
-              detachLiveAgent(
-                got.task,
-                "Archiviato da te mentre l'agent lavorava: turno interrotto.",
-              );
+              detachLiveAgent(got.task, NOTE_ARCHIVED_BY_HUMAN);
             }
             const task = svc.archive({ taskId, projectId });
             void opts?.teardownPreview?.(taskId).catch(() => {}); // reap preview on close
@@ -2287,7 +2282,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       try {
         const comment = svc.addComment({
           taskId: commentsRoute.taskId,
-          author: sess.author,
+          // The same identity the status row carries. What a person reads on
+          // the card is derived from it (`shared/comment-author.ts`).
+          author: sess.actor,
           content: body?.content,
           mentions: Array.isArray(body?.mentions) ? body.mentions : undefined,
           // The agent can attach files too (screenshots/artifacts it produced).

@@ -4,169 +4,157 @@ import { mkdtempSync, rmSync, existsSync, writeFileSync, readFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-// Chi possiede il socket del broker, e chi ha il diritto di prenderglielo.
+// Who owns the broker socket, and who is allowed to take it away.
 //
-// Il 13/08/2026 questo contratto e' costato la macchina, due volte nella stessa
-// ora e una anche dopo un riavvio: 1.612 daemon sullo stesso socket in dodici
-// minuti, 3.653 processi, swap a 36 GB su 32 di RAM, load 644, e il server su
-// :3333 irraggiungibile. La causa era una sola riga di giudizio: `probeBridge`
-// restituisce `timeout` sia quando il proprietario e' morto sia quando la
-// macchina e' talmente carica da non farlo rispondere entro 1,5 s, e
-// `checkExistingBridge` trattava i due casi allo stesso modo. Ogni daemon nuovo
-// sfrattava il precedente; `listen()` su un path appena scollegato non da'
-// EADDRINUSE ma crea un file nuovo, quindi restavano tutti vivi e nessuno
-// raggiungibile.
+// On 2026-08-13 this contract cost the machine twice in one hour, once even
+// across a reboot: 1612 daemons on a single socket in twelve minutes, 3653
+// processes, 36 GB of swap on a 32 GB box, load 644, and the server on :3333
+// unreachable. The cause was one line of judgement: `probeBridge` returns
+// `timeout` both when the owner is dead and when the machine is too loaded for
+// it to answer within 1.5s, and `checkExistingBridge` treated the two the same.
+// Every new daemon evicted the previous one; `listen()` on a just-unlinked path
+// does not fail with EADDRINUSE but creates a new file, so all of them stayed
+// alive and none was reachable.
 //
-// I test qui sotto sono la recinzione di quel giudizio. Il primo e' quello che
-// conta: va visto ROSSO sul codice di prima.
+// These tests fence that judgement. The first one is the one that matters: it
+// must be seen RED against the pre-fix daemon.
 
 const BRIDGE = join(import.meta.dir, "ai-bridge.mjs");
-const PROBE_MS = 1_500; // il timeout dentro probeBridge()
+const PROBE_MS = 1_500; // the timeout inside probeBridge()
 
-type Pulizia = () => void;
-const daPulire: Pulizia[] = [];
-afterEach(() => { while (daPulire.length) daPulire.pop()?.(); });
+type Cleanup = () => void;
+const cleanups: Cleanup[] = [];
+afterEach(() => { while (cleanups.length) cleanups.pop()?.(); });
 
-function cartellaStore(): string {
+function storeDir(): string {
   const dir = mkdtempSync(join(tmpdir(), "ai-bridge-singleton-"));
-  daPulire.push(() => { try { rmSync(dir, { recursive: true, force: true }); } catch { /* gia' via */ } });
+  cleanups.push(() => { try { rmSync(dir, { recursive: true, force: true }); } catch { /* already gone */ } });
   return dir;
 }
 
-function percorsoSocket(nome: string): string {
-  // Corto: un socket unix oltre i 104 byte non si lega (EINVAL).
-  const sock = join(tmpdir(), `abs-${nome}-${process.pid}.sock`);
-  daPulire.push(() => {
-    for (const p of [sock, `${sock}.lock`, sock.replace(/\.sock$/, ".pid")]) {
-      try { rmSync(p, { force: true }); } catch { /* gia' via */ }
+function socketPath(name: string): string {
+  // Keep it short: a unix socket path over 104 bytes fails to bind (EINVAL).
+  const sock = join(tmpdir(), `abs-${name}-${process.pid}.sock`);
+  cleanups.push(() => {
+    for (const p of [sock, `${sock}.lock`, pidPathFor(sock)]) {
+      try { rmSync(p, { force: true }); } catch { /* already gone */ }
     }
   });
   return sock;
 }
 
-/** Il pid file che il daemon scrive accanto al socket. */
-function percorsoPid(sock: string): string {
+/** The pid file the daemon writes next to its socket. */
+function pidPathFor(sock: string): string {
   return sock.replace(/\.sock$/, ".pid");
 }
 
 /**
- * Un proprietario che ACCETTA la connessione e non risponde mai: e' la macchina
- * in ginocchio, non un daemon morto. Gira in un processo suo, perche' il punto
- * del test e' che quel processo sopravviva.
+ * An owner that ACCEPTS the connection and never answers: this is the loaded
+ * machine, not a dead daemon. It runs in its own process, because the whole
+ * point of the test is that this process survives.
  */
-async function proprietarioMuto(sock: string): Promise<{ pid: number; vivo: () => boolean }> {
-  const codice = `
+async function muteOwner(sock: string): Promise<{ pid: number; alive: () => boolean }> {
+  const code = `
     const net = require("net"), fs = require("fs");
-    const srv = net.createServer(() => { /* accetta e tace */ });
+    const srv = net.createServer(() => { /* accept and stay silent */ });
     srv.listen(${JSON.stringify(sock)}, () => {
-      fs.writeFileSync(${JSON.stringify(percorsoPid(sock))}, String(process.pid));
-      console.log("pronto");
+      fs.writeFileSync(${JSON.stringify(pidPathFor(sock))}, String(process.pid));
+      console.log("ready");
     });
     setTimeout(() => process.exit(0), 30000);
   `;
-  const proc = Bun.spawn([process.execPath, "-e", codice], { stdout: "pipe", stderr: "pipe" });
-  daPulire.push(() => { try { proc.kill(9); } catch { /* gia' morto */ } });
-  const atteso = Date.now() + 5_000;
-  while (Date.now() < atteso && !existsSync(percorsoPid(sock))) {
+  const proc = Bun.spawn([process.execPath, "-e", code], { stdout: "pipe", stderr: "pipe" });
+  cleanups.push(() => { try { proc.kill(9); } catch { /* already dead */ } });
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline && !existsSync(pidPathFor(sock))) {
     await Bun.sleep(50);
   }
   return {
     pid: proc.pid,
-    vivo: () => { try { process.kill(proc.pid, 0); return true; } catch { return false; } },
+    alive: () => { try { process.kill(proc.pid, 0); return true; } catch { return false; } },
   };
 }
 
-/** Lancia il daemon vero e restituisce codice di uscita e stderr. */
-async function lanciaDaemon(sock: string, store: string): Promise<{ codice: number; testo: string }> {
+function spawnDaemon(sock: string, store: string) {
   const proc = Bun.spawn(
     [process.execPath, BRIDGE, "--socket", sock, "--store-dir", store, "--parent-pid", String(process.pid)],
     { stdout: "pipe", stderr: "pipe" },
   );
-  daPulire.push(() => { try { proc.kill(9); } catch { /* gia' morto */ } });
-  const codice = await proc.exited;
-  const testo = await new Response(proc.stderr).text();
-  return { codice, testo };
+  cleanups.push(() => { try { proc.kill(9); } catch { /* already dead */ } });
+  return proc;
 }
 
-function ascoltaQualcuno(sock: string, timeoutMs = 1_000): Promise<boolean> {
+function someoneListening(sock: string, timeoutMs = 1_000): Promise<boolean> {
   return new Promise((res) => {
     if (!existsSync(sock)) { res(false); return; }
     const c = net.connect(sock);
-    let fatto = false;
-    const fine = (v: boolean) => { if (fatto) return; fatto = true; try { c.destroy(); } catch { /* gia' chiuso */ } res(v); };
-    c.on("connect", () => fine(true));
-    c.on("error", () => fine(false));
-    setTimeout(() => fine(false), timeoutMs);
+    let done = false;
+    const finish = (v: boolean) => { if (done) return; done = true; try { c.destroy(); } catch { /* already closed */ } res(v); };
+    c.on("connect", () => finish(true));
+    c.on("error", () => finish(false));
+    setTimeout(() => finish(false), timeoutMs);
   });
 }
 
-describe("ai-bridge · chi possiede il socket", () => {
-  test("un proprietario VIVO che non fa in tempo a rispondere non viene sfrattato", async () => {
-    const sock = percorsoSocket("muto");
-    const store = cartellaStore();
-    const padrone = await proprietarioMuto(sock);
-    expect(padrone.vivo()).toBe(true);
+describe("ai-bridge · socket ownership", () => {
+  test("a LIVE owner that is merely too slow to answer is not evicted", async () => {
+    const sock = socketPath("mute");
+    const store = storeDir();
+    const owner = await muteOwner(sock);
+    expect(owner.alive()).toBe(true);
 
-    const { codice, testo } = await lanciaDaemon(sock, store);
+    const proc = spawnDaemon(sock, store);
+    const exitCode = await proc.exited;
+    const stderr = await new Response(proc.stderr).text();
 
-    // Il daemon nuovo si tira indietro...
-    expect(codice).not.toBe(0);
-    expect(testo).toContain("NON lo sfratto");
-    // ...e soprattutto NON tocca chi c'era. E' questa riga che, mancando,
-    // trasformava una macchina carica in 1.612 processi.
-    expect(padrone.vivo()).toBe(true);
-    // Il pid file resta del proprietario: nessuno gli ha rubato il posto.
-    expect(readFileSync(percorsoPid(sock), "utf8").trim()).toBe(String(padrone.pid));
+    // The newcomer backs off...
+    expect(exitCode).not.toBe(0);
+    expect(stderr).toContain("NOT evicting it");
+    // ...and above all it does not touch the incumbent. This is the assertion
+    // whose absence turned a loaded machine into 1612 processes.
+    expect(owner.alive()).toBe(true);
+    // The pid file still names the owner: nobody stole its place.
+    expect(readFileSync(pidPathFor(sock), "utf8").trim()).toBe(String(owner.pid));
   }, 20_000);
 
-  test("un socket stantio, senza nessuno in ascolto, viene preso", async () => {
-    const sock = percorsoSocket("stantio");
-    const store = cartellaStore();
-    // Il file c'e' ma non e' un socket vivo, e il pid registrato non esiste:
-    // e' il caso in cui sfrattare e' giusto, e il daemon DEVE prenderlo.
+  test("a stale socket with nobody listening is taken over", async () => {
+    const sock = socketPath("stale");
+    const store = storeDir();
+    // The file exists but is not a live socket, and the recorded pid does not
+    // exist: this is the case where evicting is right, and the daemon MUST take
+    // the socket rather than back off.
     writeFileSync(sock, "");
-    writeFileSync(percorsoPid(sock), "999999");
+    writeFileSync(pidPathFor(sock), "999999");
 
-    const proc = Bun.spawn(
-      [process.execPath, BRIDGE, "--socket", sock, "--store-dir", store, "--parent-pid", String(process.pid)],
-      { stdout: "pipe", stderr: "pipe" },
-    );
-    daPulire.push(() => { try { proc.kill(9); } catch { /* gia' morto */ } });
+    const proc = spawnDaemon(sock, store);
 
-    const atteso = Date.now() + 8_000;
-    let preso = false;
-    while (Date.now() < atteso && !preso) {
-      preso = await ascoltaQualcuno(sock);
-      if (!preso) await Bun.sleep(100);
+    const deadline = Date.now() + 8_000;
+    let taken = false;
+    while (Date.now() < deadline && !taken) {
+      taken = await someoneListening(sock);
+      if (!taken) await Bun.sleep(100);
     }
-    expect(preso).toBe(true);
-    expect(readFileSync(percorsoPid(sock), "utf8").trim()).toBe(String(proc.pid));
+    expect(taken).toBe(true);
+    expect(readFileSync(pidPathFor(sock), "utf8").trim()).toBe(String(proc.pid));
   }, 20_000);
 
-  test("cinque daemon lanciati insieme su un socket libero: ne resta in ascolto UNO", async () => {
-    const sock = percorsoSocket("rissa");
-    const store = cartellaStore();
+  test("five daemons racing for a free socket leave exactly ONE listening", async () => {
+    const sock = socketPath("race");
+    const store = storeDir();
 
-    const nati = Array.from({ length: 5 }, () => {
-      const proc = Bun.spawn(
-        [process.execPath, BRIDGE, "--socket", sock, "--store-dir", store, "--parent-pid", String(process.pid)],
-        { stdout: "pipe", stderr: "pipe" },
-      );
-      daPulire.push(() => { try { proc.kill(9); } catch { /* gia' morto */ } });
-      return proc;
-    });
+    const racers = Array.from({ length: 5 }, () => spawnDaemon(sock, store));
 
-    // Si aspetta che la rissa si esaurisca: chi perde ESCE, e questo e' il
-    // punto. Prima uscivano tutti in ascolto e restavano vivi per sempre.
-    const atteso = Date.now() + PROBE_MS * 4 + 6_000;
-    let vivi = nati.length;
-    while (Date.now() < atteso) {
-      vivi = nati.filter((p) => p.exitCode === null && p.signalCode === null).length;
-      if (vivi <= 1) break;
+    // Wait for the race to settle: the losers EXIT, which is the whole point.
+    // Before the fix they all ended up listening and stayed alive forever.
+    const deadline = Date.now() + PROBE_MS * 4 + 6_000;
+    let alive = racers.length;
+    while (Date.now() < deadline) {
+      alive = racers.filter((p) => p.exitCode === null && p.signalCode === null).length;
+      if (alive <= 1) break;
       await Bun.sleep(200);
     }
 
-    expect(vivi).toBe(1);
-    expect(await ascoltaQualcuno(sock)).toBe(true);
+    expect(alive).toBe(1);
+    expect(await someoneListening(sock)).toBe(true);
   }, 30_000);
 });
