@@ -225,6 +225,70 @@ describe('planDrop', () => {
     expect(planDrop({ task: d1, overId: 'd2', byStatus: g, scope: 'board' })).toBeNull();
   });
 
+  describe('In Progress non è una coda: il drop viene reindirizzato in Todo', () => {
+    // Il dispatcher lista SOLO `status: "todo"`, quindi una card lasciata a mano
+    // in In Progress non la raccoglie nessuno — e uscire da Todo annulla pure il
+    // dispatch già in coda. Il drop finisce dove il gesto voleva andare, cioè in
+    // coda, e chi trascina lo sa perché il piano lo dichiara.
+    const wip = task({ id: 'w', status: 'in_progress', kanbanOrder: 7 });
+
+    test('senza agente: la card va in Todo, in fondo, e il piano lo DICE', () => {
+      const arretrata = task({ id: 'arretrata', status: 'backlog', kanbanOrder: 9 });
+      const g = col([a, b, c, wip, arretrata]);
+      expect(planDrop({ task: arretrata, overId: 'in_progress', byStatus: g, scope: 'board' }))
+        .toEqual({ patch: { status: 'todo', kanbanOrder: 4 }, redirectedFrom: 'in_progress' });
+    });
+
+    test('rilasciata SOPRA una card di In Progress: stessa deviazione, e la posizione di quella card non conta', () => {
+      // `w` sta in un'altra colonna: il suo posto non dice niente su dove questa
+      // card vada in Todo. Si accoda, dopo c(3).
+      const arretrata = task({ id: 'arretrata', status: 'backlog', kanbanOrder: 9 });
+      const g = col([a, b, c, wip, arretrata]);
+      expect(planDrop({ task: arretrata, overId: 'w', byStatus: g, scope: 'board' }))
+        .toEqual({ patch: { status: 'todo', kanbanOrder: 4 }, redirectedFrom: 'in_progress' });
+    });
+
+    test('CON un agente vivo la card resta dov\'è: quella è una presa in carico legittima', () => {
+      const presa = task({ id: 'presa', status: 'backlog', kanbanOrder: 9, assignedTopicId: 'topic-1' });
+      const g = col([a, b, c, wip, presa]);
+      const plan = planDrop({ task: presa, overId: 'in_progress', byStatus: g, scope: 'board' })!;
+      expect(plan.patch.status).toBe('in_progress');
+      expect(plan.redirectedFrom).toBeUndefined();
+    });
+
+    test('già in Todo: niente da scrivere, ma la deviazione si dice lo stesso', () => {
+      // c è già l'ultima di Todo: la patch sarebbe vuota. Il piano esiste solo
+      // per portare il motivo, e `dropTo` non spedisce niente.
+      const g = col([a, b, c, wip]);
+      expect(planDrop({ task: c, overId: 'in_progress', byStatus: g, scope: 'board' }))
+        .toEqual({ patch: {}, redirectedFrom: 'in_progress' });
+    });
+
+    test('vale anche nella board generale, dove la posizione non si scrive', () => {
+      const altro = task({ id: 'altro', projectId: 'pY', status: 'backlog', kanbanOrder: 300 });
+      const g = col([a, b, c, altro], 'cross-project');
+      expect(planDrop({ task: altro, overId: 'in_progress', byStatus: g, scope: 'cross-project' }))
+        .toEqual({ patch: { status: 'todo' }, redirectedFrom: 'in_progress' });
+    });
+
+    test('board generale, card già in Todo: nessuna patch, ma il motivo c\'è', () => {
+      const g = col([a, b, c], 'cross-project');
+      expect(planDrop({ task: a, overId: 'in_progress', byStatus: g, scope: 'cross-project' }))
+        .toEqual({ patch: {}, redirectedFrom: 'in_progress' });
+    });
+
+    test('riordinare DENTRO In Progress non è una deviazione', () => {
+      // Due card già lì: nessuna delle due sta chiedendo di entrare, quindi il
+      // drop resta un riordino normale.
+      const w1 = task({ id: 'w1', status: 'in_progress', kanbanOrder: 1, assignedTopicId: 't1' });
+      const w2 = task({ id: 'w2', status: 'in_progress', kanbanOrder: 2, assignedTopicId: 't2' });
+      const g = col([w1, w2]);
+      const plan = planDrop({ task: w2, overId: 'w1', byStatus: g, scope: 'board' })!;
+      expect(plan.redirectedFrom).toBeUndefined();
+      expect(plan.patch).toEqual({ kanbanOrder: 0 });
+    });
+  });
+
   test('cross-project: si cambia stato, MAI la posizione', () => {
     // Riordinare nella board generale scriveva un kanbanOrder calcolato sui
     // vicini di ALTRI progetti, e quel numero spostava poi la card in un punto a
