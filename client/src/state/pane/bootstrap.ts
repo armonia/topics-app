@@ -15,6 +15,7 @@
  */
 import { hydrateFromLegacyStorage } from './migration/importLegacy';
 import { scheduleBrowserDataStoreReap } from '../../lib/browserDataStoreReaper';
+import { scheduleBrowserClaimHeartbeat } from '../../lib/browserClaimHeartbeat';
 import {
   initLocalPersistence,
   initServerSync,
@@ -164,6 +165,14 @@ export function bootstrapPaneStore(): void {
   // è il gesto meno reversibile che ci sia — due finestre che grattano lo
   // stesso disco insieme, poi, non aggiungono niente.
   if (!isDetached) scheduleBrowserDataStoreReap();
+
+  // Il battito che rivendica le pane browser di questa finestra. Senza il
+  // guard `isDetached`, e non per svista: una finestra staccata OSPITA pane
+  // browser, e il suo reclamo è esattamente ciò che le tiene aperte. Zittirla
+  // qui vorrebbe dire far chiudere al Rust le webview che sta mostrando.
+  // Non è una scrittura sullo stato condiviso, quindi il read-only del
+  // pop-out resta intatto: dice solo cosa vive dentro questa pagina.
+  scheduleBrowserClaimHeartbeat();
 }
 
 /**
