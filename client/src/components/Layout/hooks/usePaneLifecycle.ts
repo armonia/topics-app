@@ -25,6 +25,7 @@ import { canSplitPane, standaloneSplitSurface } from '../splitRules';
 import { clearBrowserSpawner } from '../../../state/browserSpawner';
 import { isTauri } from '../../../lib/shell';
 import { tauriInvoke } from '../../../lib/shell/tauri';
+import { teardownNativeBrowserPane } from '../../../lib/nativeBrowserTeardown';
 import { normalizeTerminalAgent } from '../../../lib/terminalAgents';
 import type { UsePaneLifecycleArgs, UsePaneLifecycleReturn } from './standaloneTypes';
 import { popOutTopic, popOutTopics } from '../../../lib/popOutTopic';
@@ -96,9 +97,7 @@ const PANE_KIND_HANDLERS: PaneKindHandler[] = [
         // nativeBrowserRoster.ts spiega perché è stato tolto — chiudeva alla
         // cieca anche le view che sarebbero state riusate.
         if (isTauri) {
-          void tauriInvoke('browser_close', { id: ctx }).catch(() => {});
-          // TRUE close (tombstone path, mai il re-key transitorio dell'auto-split):
-          // recupera lo SPAZIO dello store su disco, non l'identità.
+          // TRUE close (tombstone path, mai il re-key transitorio dell'auto-split).
           //
           // Qui ci stava `browser_purge_data_store`, che cancella lo store INTERO:
           // scelto dall'audit del 2026-08-02 per recuperare ~1,1 GB, e col contextId
@@ -107,13 +106,10 @@ const PANE_KIND_HANDLERS: PaneKindHandler[] = [
           // dice che quel baratto non esisteva: NetworkCache 1,65 GB (70%), cookie
           // 44 KB IN TUTTO. Si buttava un chilobyte per liberarne cinquantamila.
           //
-          // `browser_purge_cache` prende gli stessi byte — cache disco/fetch/memoria
-          // e registrazioni dei service worker — e lascia cookie, localStorage e
-          // IndexedDB. Chiudere una tab non disconnette più.
-          //
-          // Lo spazio della coda lunga (store che NESSUNA pane rivendica più) lo
-          // tiene corto il reaper a scadenza, vedi reapBrowserDataStores.
-          void tauriInvoke('browser_purge_cache', { id: ctx }).catch(() => {});
+          // I due comandi, e soprattutto il loro ORDINE, stanno in
+          // `teardownNativeBrowserPane`: fuori da macOS svuotare dopo aver chiuso
+          // non svuota niente, e il modulo spiega perché.
+          teardownNativeBrowserPane(ctx, tauriInvoke);
         }
       }
     },
