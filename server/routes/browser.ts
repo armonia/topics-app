@@ -98,6 +98,31 @@ export function createBrowserRouter(
       return json({ count: getViewerCount(viewersMatch.id) });
     }
 
+    // --- «Dimentica questo sito», sulla pane CONDIVISA ---
+    //
+    // Il gemello del comando nativo (`browser_site_data_records` /
+    // `browser_forget_site` sul WKWebsiteDataStore di Tauri), per la pane che
+    // gira sul browser del server. Stesso patto, ed è il patto a essere il
+    // punto: si ELENCA prima, e si cancella ESATTAMENTE quello che il dialogo
+    // ha mostrato. Per questo la POST prende i NOMI e non l'host: fra il «cosa
+    // cancello» letto e il «cancella» premuto non si infila un'altra regola.
+    //
+    // La cache HTTP non è in ballo, né qui né nella risposta: nel condiviso è
+    // del browser headless intero, non del sito, e prometterla sarebbe falso.
+    const siteDataMatch = matchRoute(pathname, "/api/browsers/:id/site-data");
+    if (method === "GET" && siteDataMatch) {
+      return json(await browserService.siteDataRecords(siteDataMatch.id));
+    }
+
+    const forgetSiteMatch = matchRoute(pathname, "/api/browsers/:id/forget-site");
+    if (method === "POST" && forgetSiteMatch) {
+      const body = await readJSON(req);
+      const raw = (body as { displayNames?: unknown } | null)?.displayNames;
+      if (!Array.isArray(raw)) return errorResponse(400, "displayNames required");
+      const displayNames = raw.filter((n): n is string => typeof n === "string" && n.trim() !== "");
+      return json(await browserService.forgetSite(forgetSiteMatch.id, displayNames));
+    }
+
     // --- «Questa tab aveva un login salvato? allora rimettilo» ---
     //
     // Metà finale del "login auto": l'agente che consegna una pagina protetta ci
