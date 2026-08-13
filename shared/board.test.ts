@@ -169,6 +169,9 @@ describe("perché questa card è ferma", () => {
     dispatchState: null as string | null,
     dispatchAttempts: 0,
     dispatchDeferredUntil: null as string | null,
+    // Chi ha portato la card in review quando non è stato l'agente: apre il ramo
+    // del chip coi figli fermi, e solo quello.
+    deliveredReason: null as string | null,
     blockedByTaskId: null as string | null,
     blockedBy: null as BlockerRef | null,
   };
@@ -228,6 +231,43 @@ describe("perché questa card è ferma", () => {
   test("in review con una domanda aperta la ragione TACE: «serve te» è la mossa", () => {
     expect(deriveQueueReason(
       { ...base, status: "review", dispatchState: "needs_input" },
+      { ...ctx, openSubtasks: 2 },
+    )).toBeNull();
+  });
+
+  /**
+   * CON UNA ECCEZIONE: LA DOMANDA DI SISTEMA SUI FIGLI FERMI PORTA IL NUMERO.
+   *
+   * «Serve te» dice la mossa ma non dice quanto lavoro c'è sotto, e il numero è
+   * la sola parte che si legge dalla colonna senza aprire il drawer: la board
+   * fetcha `rootsOnly`, quindi gli step non compaiono in nessuna colonna e da
+   * fuori una checklist ferma è indistinguibile da una card qualunque in
+   * review. Il 13/08 erano sette padri e ventuno card, con Backlog e Todo che
+   * si disegnavano vuote.
+   */
+  test("la domanda sui figli fermi porta il NUMERO nel chip", () => {
+    const r = reason(
+      { status: "review", dispatchState: "needs_input", deliveredReason: "parked_children" },
+      { openSubtasks: 3 },
+    );
+    expect(r).toMatchObject({ kind: "children_parked", tone: "stalled", head: "serve te" });
+    expect(r.detail).toBe("3 step fermi");
+    expect(r.title.toLowerCase()).toContain("archivia");
+  });
+
+  test("il singolare non dice «1 step fermi»", () => {
+    expect(reason(
+      { status: "review", dispatchState: "needs_input", deliveredReason: "parked_children" },
+      { openSubtasks: 1 },
+    ).detail).toBe("1 step fermo");
+  });
+
+  // La domanda dell'AGENTE resta muta: quella si risponde nella sessione, e il
+  // conto dei figli non c'entra con la mossa da fare. Solo la firma di sistema
+  // apre il ramo nuovo.
+  test("una domanda dell'agente non eredita il chip dei figli fermi", () => {
+    expect(deriveQueueReason(
+      { ...base, status: "review", dispatchState: "needs_input", deliveredReason: "retries_exhausted" },
       { ...ctx, openSubtasks: 2 },
     )).toBeNull();
   });
