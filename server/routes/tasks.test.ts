@@ -8,6 +8,11 @@ import { createTasksRouter } from "./tasks";
 import { ARCHIVE_PARKED_LABEL, createTaskService, LAND_ACTION_LABEL, PUBLISH_ACTION_LABEL, REQUEUE_PARKED_LABEL } from "../services/tasks";
 import { parseStatusEvent } from "../../shared/board";
 import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL } from "../db/test-schema";
+// The skipped-merge note quotes two controls by the words printed on them. It
+// reads those words from the dictionary the interface reads, so renaming a
+// label cannot leave the note pointing at something the user cannot find.
+// Aliased: `t` is already a local name for a task in half this file.
+import { t as label } from "../../client/src/lib/i18n";
 
 function freshDb(): Database {
   const db = new Database(":memory:");
@@ -893,9 +898,10 @@ describe("board settings route", () => {
 describe("approve decoupled from landing", () => {
   let db: Database; let broadcasts: any[];
   let merges: string[]; let resumed: Array<[string, string]>; let router: any;
+  let stamped: Array<[string, string]>;
 
   beforeEach(() => {
-    db = freshDb(); broadcasts = []; merges = []; resumed = [];
+    db = freshDb(); broadcasts = []; merges = []; resumed = []; stamped = [];
     const autoMerge = {
       tryMerge: async (taskId: string) => { merges.push(taskId); return { status: "nothing" }; },
       buildClient: async () => ({ code: 0, stderr: "" }),
@@ -904,7 +910,10 @@ describe("approve decoupled from landing", () => {
       onEnterTodo() {}, onLeaveTodo() {}, onBlockerDone() {},
       resume: async (id: string, msg: string) => { resumed.push([id, msg]); },
     } as any;
-    router = createTasksRouter(makeCtx(db, broadcasts), dispatcher, { autoMerge });
+    router = createTasksRouter(makeCtx(db, broadcasts), dispatcher, {
+      autoMerge,
+      stampLanding: async (taskId: string, verdict: string) => { stamped.push([taskId, verdict]); },
+    });
   });
 
   async function reviewTask(): Promise<string> {
@@ -916,7 +925,13 @@ describe("approve decoupled from landing", () => {
     return t.id;
   }
 
-  /** Accende l'interruttore della board: senza, l'ingresso in Done non fonde. */
+  /** The land (and the landing verdict behind it) is fire-and-forget: let the
+   *  microtasks drain before reading what it left behind. */
+  const flushLand = () => new Promise((r) => setTimeout(r, 0));
+  const systemNote = (id: string) => createTaskService(db).get(id)!.comments
+    .filter((c) => c.author === "system").map((c) => c.content).join("\n");
+
+  /** Turns the board switch on: without it, reaching Done does not merge. */
   const autoMergeOn = () => call(router, "PATCH", "/api/boards/pX/settings", { dispatchAutoMerge: true });
 
   test("trascinare una card in Done LANDA: `done` deve voler dire atterrato", async () => {
@@ -941,42 +956,94 @@ describe("approve decoupled from landing", () => {
     expect(merges).not.toContain(id);
   });
 
-  // ── L'INTERRUTTORE DELLA BOARD, che su questa strada non leggeva nessuno ──
+  // ── THE BOARD SWITCH, which nobody read on this path ──────────────────────
   //
-  // Ogni ingresso in Done di una card con un ramo accodava un merge: non solo
-  // l'approvazione, anche il trascinamento e il menu «Sposta in». Il commento
-  // accanto diceva che la board l'aveva già deciso con `dispatchAutoMerge`, ma
-  // il campo non veniva letto: quattro board su otto lo hanno spento e fondevano
-  // lo stesso, per 125 «Mergiato su main» e 45 conflitti.
+  // Every entry into Done of a card carrying a branch queued a merge: not just
+  // approval, the drag and the "Sposta in" menu too. The comment next to it
+  // claimed the board had already decided via `dispatchAutoMerge`, but the
+  // field was never read. Measured on 13/08 against the live board db: of the
+  // 137 "Mergiato su main" notes, 8 sit on boards whose switch is off today.
 
-  test("merge automatico SPENTO: Done non fonde, e la card dice perché", async () => {
-    const id = await reviewTask();   // board pX senza riga: default spento
+  test("auto-merge OFF: Done does not merge, and the card says why", async () => {
+    const id = await reviewTask();   // board pX has no settings row: off by default
     db.prepare("UPDATE tasks SET delivery_branch = 'topics/x' WHERE id = ?").run(id);
     await call(router, "PATCH", `/api/boards/pX/tasks/${id}`, { status: "done" });
-    await new Promise((r) => setTimeout(r, 0));
+    await flushLand();
 
     expect(merges).toEqual([]);
-    // Una chiusura MUTA col codice ancora sul ramo è il guasto del 10/08 in
-    // versione silenziosa: la nota deve nominare il ramo e la via d'uscita.
-    const nota = createTaskService(db).get(id)!.comments.filter((c) => c.author === "system").map((c) => c.content).join("\n");
-    expect(nota).toContain("SENZA fondere");
-    expect(nota).toContain("topics/x");
-    expect(nota).toContain("Landa su main");
+    // A MUTE closure with the code still on the branch is the 10/08 fault in
+    // its silent form: the note has to name the branch and the way out.
+    const note = systemNote(id);
+    expect(note).toContain("SENZA fondere");
+    expect(note).toContain("topics/x");
+    // Both quoted controls are pinned against the words actually printed next
+    // to them: a note naming a control the reader cannot find gets ignored, and
+    // that is the whole reason this note exists. Rename either label in i18n.ts
+    // and this test falls.
+    expect(note).toContain(label("board.settings.autoMerge", "it"));
+    expect(note).toContain(label("board.task.landOnMain", "it"));
   });
 
-  test("il bottone «Landa su main» fonde con l'interruttore spento: è una scelta umana", async () => {
+  test("the skipped-merge note reaches the LIVE card, not just the db", async () => {
+    // The PATCH broadcasts `task:updated` with the task as it was BEFORE the
+    // note, and `addComment` bumps `updated_at` precisely so a live client
+    // refetches the thread (Card.tsx keys its comment effect on
+    // `task.updatedAt`). Without a second broadcast the note exists only in the
+    // db: a closure as mute on screen as the one this code exists to stop.
+    const id = await reviewTask();
+    db.prepare("UPDATE tasks SET delivery_branch = 'topics/x' WHERE id = ?").run(id);
+    const before = broadcasts.length;
+    await call(router, "PATCH", `/api/boards/pX/tasks/${id}`, { status: "done" });
+    await flushLand();
+
+    const updates = broadcasts.slice(before).filter((b) => b.type === "task:updated" && b.task?.id === id);
+    expect(updates.length).toBeGreaterThan(1);
+    // The LAST one must carry an updatedAt at or past the note's timestamp,
+    // which is the change signal the card refetches on.
+    const noteAt = createTaskService(db).get(id)!.comments.filter((c) => c.author === "system").at(-1)!.createdAt;
+    expect(updates.at(-1)!.task.updatedAt >= noteAt).toBe(true);
+  });
+
+  test("the way out the note names is REACHABLE: the landing verdict is asked for", async () => {
+    // "Landa su main" on a `done` card is drawn by exactly one surface, the
+    // "chiuso ma non su main" banner, behind `landingState === 'unlanded'` —
+    // and `recordDelivery` blanks that column, so it sits at NULL until the
+    // periodic audit runs (LANDING_AUDIT_INTERVAL_MS, 30 min). "ask" is the
+    // house verb for "compute the verdict from the repo now": asserting
+    // `unlanded` outright would be a guess, since the branch may already be in
+    // main by somebody else's hand.
+    const id = await reviewTask();
+    db.prepare("UPDATE tasks SET delivery_branch = 'topics/x' WHERE id = ?").run(id);
+    await call(router, "PATCH", `/api/boards/pX/tasks/${id}`, { status: "done" });
+    await flushLand();
+    expect(stamped).toEqual([[id, "ask"]]);
+  });
+
+  test("with the switch ON nothing is skipped: no note, no verdict to ask for", async () => {
+    // The control for the three above: the note and the stamp belong to the
+    // SKIPPED path only. On the merging path `landTask` writes its own outcome.
+    const id = await reviewTask();
+    await autoMergeOn();
+    db.prepare("UPDATE tasks SET delivery_branch = 'topics/x' WHERE id = ?").run(id);
+    await call(router, "PATCH", `/api/boards/pX/tasks/${id}`, { status: "done" });
+    await flushLand();
+    expect(merges).toContain(id);
+    expect(systemNote(id)).not.toContain("SENZA fondere");
+  });
+
+  test("the «Landa su main» button merges with the switch off: it is a human's choice", async () => {
     const id = await reviewTask();
     db.prepare("UPDATE tasks SET delivery_branch = 'topics/x' WHERE id = ?").run(id);
     await call(router, "POST", `/api/boards/pX/tasks/${id}/land`, {});
-    await new Promise((r) => setTimeout(r, 0));
+    await flushLand();
     expect(merges).toEqual([id]);
   });
 
-  test("…e la quick-reply «Landa su main» pure, spenta o accesa", async () => {
+  test("…and so does the «Landa su main» quick reply, switch on or off", async () => {
     const id = await reviewTask();
     db.prepare("UPDATE tasks SET delivery_branch = 'topics/x' WHERE id = ?").run(id);
     await call(router, "POST", `/api/boards/pX/tasks/${id}/review`, { decision: "reject", comment: LAND_ACTION_LABEL });
-    await new Promise((r) => setTimeout(r, 0));
+    await flushLand();
     expect(merges).toEqual([id]);
   });
 
@@ -1489,12 +1556,13 @@ describe("checks pre-review (gate review_needs_green_checks)", () => {
     expect((await resp.json()).checksState).toBeNull();
   });
 
-  // Il buco che l'esenzione «è una domanda» apriva su sé stessa: l'envelope
-  // ORDINA alla consegna landabile di allegare `options=["Landa su main"]`, e il
-  // server avvolge ogni `options` nella stessa fence che qui valeva come
-  // esenzione. Misurate il 13/08: 13 consegne committate su 17 sono entrate in
-  // review senza che girasse nessuno dei comandi dichiarati.
-  test("consegna che offre solo «Landa su main»: i checks girano lo stesso", async () => {
+  // The hole the "it is a question" exemption opened onto itself: the envelope
+  // ORDERS a landable delivery to attach `options=["Landa su main"]`, and the
+  // server wraps every `options` in the very fence that counted as the
+  // exemption here. Measured on 13/08 against the live board db: of the 437
+  // agent comments carrying that fence, 331 are deliveries, so three
+  // exemptions out of four went to the shape this gate exists to check.
+  test("a delivery offering only «Landa su main»: the checks run anyway", async () => {
     const r = mk();
     const t = await (await call(r, "POST", "/api/sessions/s1/tasks", { text: "x" }))!.json();
     await declare(r, t.projectId, ["echo rosso-della-consegna >&2; exit 3"]);
@@ -1510,7 +1578,7 @@ describe("checks pre-review (gate review_needs_green_checks)", () => {
     expect(got.task.status).not.toBe("review");
   });
 
-  test("domanda MISTA: basta un'opzione che il sistema non esegue e i checks restano fermi", async () => {
+  test("MIXED question: one option the system cannot run and the checks stay put", async () => {
     const r = mk();
     const t = await (await call(r, "POST", "/api/sessions/s1/tasks", { text: "x" }))!.json();
     await declare(r, t.projectId, ["exit 1"]);
@@ -1523,11 +1591,11 @@ describe("checks pre-review (gate review_needs_green_checks)", () => {
     expect((await resp.json()).checksState).toBeNull();
   });
 
-  // L'ALTRO cancello che leggeva la stessa fence: `review_needs_commit`. Una
-  // consegna col lavoro ancora nel worktree non è rivedibile (approvare non
-  // troverebbe niente da fondere), ma «è una domanda» la esentava — e la sola
-  // opzione «Landa su main» bastava a farla sembrare tale.
-  test("consegna sporca che offre «Landa su main»: 409 review_needs_commit", async () => {
+  // The OTHER gate reading the same fence: `review_needs_commit`. A delivery
+  // with the work still in the worktree is not reviewable (approving would find
+  // nothing to merge), but "it is a question" exempted it, and the single
+  // option "Landa su main" was enough to make it look like one.
+  test("a dirty delivery offering «Landa su main»: 409 review_needs_commit", async () => {
     const r = mk({ taskWorktreeDirt: async () => ["server/routes/tasks.ts", "server/services/tasks.ts"] });
     const t = await (await call(r, "POST", "/api/sessions/s1/tasks", { text: "x" }))!.json();
     await call(r, "POST", `/api/sessions/s1/tasks/${t.id}/comments`, {
@@ -1540,7 +1608,7 @@ describe("checks pre-review (gate review_needs_green_checks)", () => {
     expect(err.error).toContain("2 uncommitted changes");
   });
 
-  test("domanda MISTA col worktree sporco: legittimo, nessun 409", async () => {
+  test("MIXED question with a dirty worktree: legitimate, no 409", async () => {
     const r = mk({ taskWorktreeDirt: async () => ["server/routes/tasks.ts"] });
     const t = await (await call(r, "POST", "/api/sessions/s1/tasks", { text: "x" }))!.json();
     await call(r, "POST", `/api/sessions/s1/tasks/${t.id}/comments`, {
