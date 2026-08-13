@@ -109,6 +109,20 @@ jobs:
       #    `check:copy` — girano su `landing/dist`, cioè su un sito GIÀ
       #    costruito che nessun workflow costruisce: vivono nel deploy manuale
       #    del sito, non nella CI dell'app.
+      #
+      # Un settimo si chiamava `check:*` e non lo era: `check:landed`, ora
+      # `report:landed` (scripts/check-done-landed.ts). Non misura il codice ma
+      # lo STATO DELLA BOARD — legge `tasks`/`task_comments`/`messages` da
+      # `data/topics.db`, che è in .gitignore:174. Su un checkout di CI quel
+      # file non esiste e lo script esce **2** senza guardare niente, quindi
+      # come passo sarebbe rosso per sempre; e i checkout che ispeziona
+      # arrivano anche da altri progetti (`~/.openclaw/workspace`), quindi il
+      # suo rosso può venire da un ramo di un repo che non è questo — il 13/08,
+      # 2 dei 4 debiti stavano in altri due repo della postazione, e si vedono
+      # con `bun run report:landed --json`. Il prefisso `check:`
+      # era l'unica cosa che lo faceva sembrare una barra da tenere verde: sta
+      # con `report:disk` e `report:branches`, che è quello che è. Non
+      # aggiungerlo qui.
       - name: Static guard rails (any / NUL / dead code / eslint-disable / test skip / long dash)
         run: |
           bun run check:any

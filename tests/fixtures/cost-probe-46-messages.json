@@ -1,6 +1,6 @@
 {
- "note": "Prefisso dei primi 46 messaggi della chat reale topic:4c8de758 («Reference siti scene motion»), estratto l'11/08/2026 dal database vivo. Solo i fatti che parlano di costo: nessun contenuto. `misuraAMano` è il conto preso a mano su QUELLA chat a quel momento — la sonda deve ricostruirlo.",
- "sessionKey": "topic:4c8de758",
+ "note": "Prefisso dei primi 46 messaggi di una sessione REALE, anonimizzata: l'id della sessione e il titolo della chat sono stati tolti, e restano i soli fatti che parlano di costo (ruolo, token, costo, token per chiamata). Nessun contenuto della conversazione. `misuraAMano` è il conto preso A MANO su quella chat guardando la UI, ed è INDIPENDENTE da `rows`: scostano del 5,8% sulle chiamate e del 6,1% sui prompt proprio perché vengono da due letture diverse, ed è quella distanza a rendere il confronto una verifica invece che una tautologia. La sonda deve ricostruirlo entro il 10%. `sessionKey` è sintetico. Vedi scripts/extract-cost-probe-fixture.ts: NON rigenerare e committare come esce.",
+ "sessionKey": "topic:fixture-barra",
  "misuraAMano": {
   "messaggi": 46,
   "toolCalls": 104,

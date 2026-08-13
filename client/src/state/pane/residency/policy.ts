@@ -109,6 +109,22 @@ export const RESIDENCY_BUDGET: Readonly<Record<ResidencyClass, number>> = {
   // numero finito e il tetto ricomincia a valere anche qui. Il segnale da
   // guardare e' il retain in quel `Drop`, non il changelog: la 0.56.0 non lo
   // menziona ne' in un senso ne' nell'altro.
+  //
+  // RIVERIFICATO IL 2026-08-13: il segnale e' arrivato, ma non qui. `_close`
+  // (commit f65c0d28, branch `topics/plucky-banner`) e' il teardown definitivo
+  // che rende reale lo sfratto, ma quel commit non e' mai atterrato su `main`:
+  // `git show main:desktop-tauri/src-tauri/src/lib.rs | grep -n
+  // "close_web_view\|free_native_webview"` non trova niente su questo branch,
+  // riverificato quattro volte in quattro turni distinti sulla stessa card. Due
+  // sottotask del board (6ab16dc3, 0e4c1c9b) segnano "done" un porting di quel
+  // fix e una rimisura, ma senza un commit dietro: lo stato della card non e'
+  // prova, lo e' solo il grep sul codice.
+  //
+  // Finche' resta cosi', lo sfratto QUI perde ancora il processo per sempre:
+  // il numero non cambia, e il motivo scritto sopra e' ancora quello vero PER
+  // QUESTO CODICE. La ritaratura (un numero misurato sul costo del reload
+  // della pagina, non piu' sulla perdita del processo) va rifatta solo dopo
+  // che `_close` e' davvero su `main` e c'e' un'app viva su cui misurarlo.
   native: Infinity,
   heavy: 3,
   light: 12,

@@ -84,7 +84,7 @@ function turno(db: Database, personId: string | null, input: number, output: num
 }
 
 const RISPOSTA_GITHUB = {
-  login: "octocat", name: "Attilio Cianci", avatar_url: "https://avatars.example/octocat.png",
+  login: "octocat", name: "Mona Octocat", avatar_url: "https://avatars.example/octocat.png",
   html_url: "https://github.com/octocat", bio: "CTO", company: "Armonia", location: "Salerno",
   public_repos: 42, followers: 7,
 };
@@ -176,7 +176,7 @@ describe("i profili degli amici", () => {
     const r1 = await chiama(router(db, null, finto), `/api/people/${ioPersonId}`);
     const p1 = (await r1!.json()) as { github: { name: string; avatarUrl: string; followers: number } };
     expect(chiamate).toBe(1);
-    expect(p1.github.name).toBe("Attilio Cianci");
+    expect(p1.github.name).toBe("Mona Octocat");
     expect(p1.github.avatarUrl).toBe(RISPOSTA_GITHUB.avatar_url);
     expect(p1.github.followers).toBe(7);
 
@@ -186,7 +186,7 @@ describe("i profili degli amici", () => {
     // E ora la lista ce l'ha, senza uscire.
     const rl = await chiama(router(db, null, finto), "/api/people");
     const { people } = (await rl!.json()) as { people: Array<{ id: string; github: { name: string } | null }> };
-    expect(people.find((p) => p.id === ioPersonId)!.github!.name).toBe("Attilio Cianci");
+    expect(people.find((p) => p.id === ioPersonId)!.github!.name).toBe("Mona Octocat");
     expect(chiamate).toBe(1);
   });
 

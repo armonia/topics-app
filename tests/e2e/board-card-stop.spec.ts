@@ -197,7 +197,7 @@ test.describe("Fermare un task senza archiviarlo", () => {
   };
 
   test("tasto destro → «Ferma»: il turno si interrompe e la card resta sulla board", async ({ page, request, isMobile }) => {
-    test.skip(!!isMobile, "il tasto destro è la popolazione col mouse");
+    test.skip(!!isMobile, "serve il mouse: col dito non esiste un tasto destro (gira nel progetto chromium)");
     await stopFlow(page, request, async (sel) => { await page.locator(sel).click({ button: "right" }); });
   });
 
