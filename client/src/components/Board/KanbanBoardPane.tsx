@@ -1648,10 +1648,24 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
         }
         // Quell'id non esiste: chiudere è l'unica risposta onesta — restare
         // appesi in attesa di un task che non arriverà è il guasto di prima.
-        if (deepLink) setPendingSelect(null);
+        // E il vicolo cieco va DETTO: `topics:task-opened` non significa «il
+        // drawer si è aperto», significa «la corsa del deep-link è finita».
+        // Senza questa riga l'intento di fuoco restava armato e riportava la
+        // finestra sulla board a ogni mutazione dello store, per tutta la
+        // sessione.
+        if (deepLink) {
+          setPendingSelect(null);
+          window.dispatchEvent(new CustomEvent('topics:task-opened'));
+        }
         setSelectedId((s) => (s === wantId ? null : s));
       })
-      .catch(() => { resolvedRef.current = null; /* trasporto caduto: il prossimo refetch riprova */ });
+      .catch(() => {
+        resolvedRef.current = null; /* trasporto caduto: il prossimo refetch riprova */
+        // Il refetch riproverà ad aprire il drawer, ma l'intento di fuoco no:
+        // quello si rilascia comunque, perché una rete caduta non è una buona
+        // ragione per tenere l'utente inchiodato alla board.
+        if (deepLink) window.dispatchEvent(new CustomEvent('topics:task-opened'));
+      });
     return () => { alive = false; };
     // `outsider` fuori dalle dipendenze di proposito: lo SCRIVE questo effetto.
   }, [wantId, inFeed, tasks, pendingSelect]);
