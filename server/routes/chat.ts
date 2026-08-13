@@ -2257,10 +2257,24 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                   // `overrideModel` è vuoto. Senza questo anello il consuntivo
                   // risolveva "unknown", `calculateCostWithCache` tornava 0, il
                   // `if (usd > 0)` non scattava e il COALESCE della UPDATE
-                  // teneva il costo VIVO — calcolato su un contatore di output
-                  // che durante lo stream è un segnaposto. Misurato sulla riga
-                  // b26bd2e2: 111 centesimi mostrati contro 132 veri, cioè
-                  // l'intera bolletta dell'output mancante.
+                  // lasciava in piedi qualunque costo ci fosse già.
+                  //
+                  // Misurato sulla riga b26bd2e2 (topic ec3137d0, 13/08): 111
+                  // centesimi salvati contro 132 calcolati sulle sue quote
+                  // vere. La differenza è 21 centesimi, cioè ESATTAMENTE gli
+                  // 8.216 token di risposta a 25$/M: il numero salvato era il
+                  // costo del solo input. Quale scrittura l'abbia lasciato lì
+                  // non è ricostruibile a posteriori e non serve saperlo: con
+                  // il modello risolto il consuntivo ricalcola e sovrascrive,
+                  // che è la proprietà che mancava.
+                  //
+                  // Da non ripetere: il contatore di output VIVO non è un
+                  // segnaposto, contrariamente a quanto sembrava leggendo una
+                  // riga `partial=1` a metà turno. Ricostruito dal transcript
+                  // (eventi `assistant` deduplicati per `message.id`) l'accumulo
+                  // per chiamata di quella sessione fa 32.195 token di risposta,
+                  // e la somma dei `usage_completion_tokens` finalizzati nel DB
+                  // fa 32.195: combacia al token.
                   const modelOfTurn = message.model || liveModel || overrideModel || undefined;
                   if (typeof modelOfTurn === "string" && modelOfTurn) usageModel = modelOfTurn;
                   // ── IL COSTO DELLA CLI: TROVATO, E LASCIATO DOV'È ─────────
