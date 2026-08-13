@@ -7,10 +7,10 @@
  * palette's "Messaggi" section stayed empty for any fresh conversation.
  */
 import { describe, expect, test, beforeAll } from "bun:test";
-import { setupTestDataDir, createTestAppContext } from "./helpers";
+import { setupTestDataDir, createTestAppContext, testTmpDir } from "./helpers";
 import type { StoredMessage } from "../../server/types";
 
-const TEST_DATA = "/tmp/topics-search-data";
+const TEST_DATA = testTmpDir("search-data");
 
 beforeAll(() => setupTestDataDir(TEST_DATA));
 

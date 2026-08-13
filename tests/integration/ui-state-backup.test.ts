@@ -6,10 +6,10 @@
 import { describe, expect, test, beforeAll, afterEach } from "bun:test";
 import * as fs from "node:fs";
 import { join } from "node:path";
-import { PROJECT_ROOT } from "./helpers";
+import { PROJECT_ROOT, testTmpDir } from "./helpers";
 
-const TEST_HOME = "/tmp/topics-ui-backup-test";
-const TEST_DATA = "/tmp/topics-ui-backup-data";
+const TEST_HOME = testTmpDir("ui-backup-home");
+const TEST_DATA = testTmpDir("ui-backup-data");
 
 beforeAll(() => {
   fs.rmSync(TEST_HOME, { recursive: true, force: true });
