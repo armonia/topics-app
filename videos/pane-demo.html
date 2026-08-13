@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8" />
+<title>Prova della pane nativa</title>
+<style>
+  body { font: 15px/1.7 -apple-system, system-ui, sans-serif; margin: 0; padding: 32px 40px; color: #16181d; background: #fbfbfd; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  p.sub { color: #6b7280; margin: 0 0 24px; font-size: 13px; }
+  .card { background: #fff; border: 1px solid #e6e7eb; border-radius: 10px; padding: 18px 20px; margin-bottom: 14px; }
+  mark { background: #ffe9a8; padding: 0 2px; border-radius: 2px; }
+  a { color: #1f6feb; }
+  img { border-radius: 8px; border: 1px solid #e6e7eb; }
+  code { background: #f2f3f5; padding: 1px 5px; border-radius: 4px; font-size: 13px; }
+</style>
+</head>
+<body>
+  <h1>Prova della pane nativa</h1>
+  <p class="sub">Tasto destro qui dentro per il menu. La parola <code>topics</code> compare dodici volte.</p>
+
+  <div class="card">
+    <p>La pane e' una WKWebView che composita sopra il DOM di <mark>topics</mark>, quindi un menu
+    disegnato in HTML finirebbe sotto la vista nativa. Il menu di <mark>topics</mark> porta
+    <code>role="menu"</code>, e questo fa congelare la pane nella regione coperta.</p>
+    <p>Un link su cui provare le voci del menu:
+      <a href="https://example.com/pagina">example.com/pagina</a>.
+      Copia il suo indirizzo dal tasto destro.</p>
+  </div>
+
+  <div class="card">
+    <p>Una immagine, per le voci «copia immagine» e «copia indirizzo immagine» di <mark>topics</mark>:</p>
+    <img width="220" height="120" alt="riquadro di prova"
+      src="data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='120'%3E%3Crect width='220' height='120' fill='%23dbeafe'/%3E%3Ccircle cx='60' cy='60' r='34' fill='%233b82f6'/%3E%3Crect x='110' y='42' width='86' height='12' rx='6' fill='%2360a5fa'/%3E%3Crect x='110' y='66' width='60' height='12' rx='6' fill='%2393c5fd'/%3E%3C/svg%3E" />
+  </div>
+
+  <div class="card">
+    <p>Trova nella pagina dice a QUALE corrispondenza sei, non solo quante: <mark>topics</mark>,
+    <mark>topics</mark>, <mark>topics</mark>. Ogni invio sposta l'indice, e dopo l'ultima si
+    ricomincia da uno, come fa WebKit.</p>
+    <p>Ancora <mark>topics</mark>, <mark>topics</mark>, <mark>topics</mark>, e per finire
+    <mark>topics</mark> e <mark>topics</mark>.</p>
+  </div>
+</body>
+</html>
