@@ -73,6 +73,13 @@ export interface DispatcherDeps {
    * provide worktrees at all (tests / degraded mode).
    */
   createWorktree?: (projectStoreId: string) => Promise<string>;
+  /**
+   * IL PAVIMENTO: perché la MACCHINA non regge un altro agente adesso, o `null`
+   * se lo regge. Non è il tetto — il tetto è una preferenza e può valere
+   * «nessun limite», questo no. Assente (test, host degradato) = non blocca
+   * mai: una guardia che non si sa misurare non deve poter fermare la board.
+   */
+  resourceBlock?: () => string | null;
   /** Delete a worktree we created (called when its attempt is discarded — requeue/park/setup-fail). */
   deleteWorktree?: (worktreeId: string) => Promise<void>;
   /**
@@ -693,6 +700,16 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     let gcap = { auto: true, max: 3 };
     try { gcap = deps.svc.getGlobalCap(); } catch { /* defaults */ }
     return effectiveDispatchCap(gcap, deps.recommendedCap ? deps.recommendedCap() : null);
+  }
+  /**
+   * Il PAVIMENTO, letto ADESSO. Vive accanto al tetto e non dentro, perché sono
+   * due risposte diverse: il tetto dice quanti se ne vogliono (e può dire
+   * «quanti ne capitano»), questo dice quando la macchina non ne regge un altro
+   * comunque. Da quando il tetto si può togliere, senza questo la coda si
+   * fermerebbe solo a disco pieno — cioè quando il DB non scrive più.
+   */
+  function admissionBlock(): string | null {
+    try { return deps.resourceBlock?.() ?? null; } catch { return null; }
   }
   /**
    * Errori del PROVIDER di fila su un task, per non fargli pagare i tentativi.
@@ -2150,7 +2167,11 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // posto si libera, invece di aprire un agente in più — che è come si finisce
     // con 12 turni vivi su un tetto di 6 solo perché qualcuno ha rifiutato in
     // fila cinque card.
-    if (inFlight.size >= currentCap()) {
+    // Il pavimento prima del tetto: se la macchina non regge un altro agente,
+    // il messaggio aspetta esattamente come aspetterebbe per uno slot pieno —
+    // stessa coda, stesso chip, stessa promessa che niente si perde.
+    const floorBlock = admissionBlock();
+    if (floorBlock || inFlight.size >= currentCap()) {
       // Il chip dice DOV'E': senza, la card resta `in_progress` con nessun turno
       // vivo — il tempo non scorre e sembra piantata, che è esattamente come si
       // vede dal di fuori una coda invisibile. `queued` è già lo stato «aspetta
@@ -2161,7 +2182,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         try {
           deps.svc.addComment({
             taskId, author: "system", kind: "service",
-            content: `In attesa di uno slot: il tetto di concorrenza (${currentCap()}) è pieno. Riprendo appena si libera. Niente è andato perso.`,
+            content: floorBlock
+              ?? `In attesa di uno slot: il tetto di concorrenza (${currentCap()}) è pieno. Riprendo appena si libera. Niente è andato perso.`,
           });
         } catch { /* best-effort */ }
       }
@@ -2533,9 +2555,21 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // lanciarne meno in silenzio.
     const freeSlots = Math.max(1, effectiveCap - reservedSlots);
     const fanOut = fanOutBlocked ? 1 : Math.min(wantFanOut, freeSlots);
+    // Il pavimento vale anche — soprattutto — per i dispatch NUOVI: è un agente
+    // nuovo ad aprire una worktree, cioè a consumare esattamente la risorsa che
+    // sta finendo. Letto una volta per tick: la domanda è sulla macchina, non
+    // sulla card, e chiederlo per ogni todo sarebbe una statfs per riga.
+    const floorBlock = admissionBlock();
 
     for (const [idx, t] of todos.entries()) {
       if (inFlight.has(t.id)) continue;
+      if (floorBlock) {
+        // Il chip, non un commento: qui si passa a ogni tick, e un commento per
+        // tick trasformerebbe un disco pieno in mille righe nel thread. La card
+        // dice «in coda», che è vero, e il perché sta nel log del server.
+        try { emit(deps.svc.setDispatchState({ taskId: t.id, state: CHIP_QUEUED })); } catch { /* best-effort */ }
+        continue;
+      }
       // Respect the grace debounce: a task still inside its window is claimed by
       // its OWN scheduled tick (which deletes the timer first), never by a poll
       // firing mid-grace — otherwise a quick drag-through could still spawn.
