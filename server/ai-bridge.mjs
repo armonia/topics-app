@@ -344,20 +344,20 @@ function probeBridge(timeoutMs = 1500) {
 const lockPath = `${socketPath}.lock`;
 
 /**
- * Lucchetto sulla PRESA DI POSSESSO del socket.
+ * Exclusive lock on TAKING OVER the socket.
  *
- * Serve perche' `listen()` su un path appena scollegato non da' EADDRINUSE: crea
- * un file nuovo. Quindi N demoni partiti nello stesso secondo possono trovare
- * tutti il socket libero, cancellarlo tutti e mettersi tutti in ascolto, ognuno
- * su un file che il successivo scollega subito dopo. Il risultato non e' un
- * conflitto rumoroso: sono N processi VIVI e nessuno raggiungibile.
+ * Needed because `listen()` on a path that was just unlinked does NOT fail with
+ * EADDRINUSE: it creates a brand new file. So N daemons started in the same
+ * second can each find the socket free, each unlink it, and each start
+ * listening on a file the next one unlinks right after. The result is not a
+ * noisy conflict — it is N LIVE processes and none of them reachable.
  *
- * `wx` e' O_CREAT|O_EXCL: lo prende uno solo. Un lucchetto lasciato da un demone
- * morto viene rilevato dal pid che contiene e rimosso, o il primo incidente lo
- * bloccherebbe per sempre.
+ * `wx` is O_CREAT|O_EXCL, so exactly one wins. A lock left behind by a dead
+ * daemon is detected through the pid it holds and removed, or the first crash
+ * would wedge the socket forever.
  */
 function acquireTakeoverLock() {
-  for (let tentativo = 0; tentativo < 2; tentativo++) {
+  for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const fd = fs.openSync(lockPath, 'wx');
       try { fs.writeSync(fd, String(process.pid)); } finally { fs.closeSync(fd); }
@@ -381,19 +381,18 @@ function releaseTakeoverLock() {
 }
 
 /**
- * Verdetto su chi possiede gia' il socket. TRE esiti, non due.
+ * Verdict on whoever already owns the socket. THREE outcomes, not two.
  *
- * La distinzione che mancava e' fra «non risponde perche' e' morto» e «non
- * risponde perche' la macchina e' in ginocchio». `probeBridge` da' `timeout`
- * in entrambi i casi, e questa funzione li trattava uguale: ammazzava il
- * proprietario registrato, scollegava il socket e si metteva in ascolto al suo
- * posto. Con la macchina carica ogni demone nuovo lo faceva al precedente.
+ * The missing distinction was between "silent because it is dead" and "silent
+ * because the machine is on its knees". `probeBridge` reports `timeout` in both
+ * cases, and this function treated them the same: it killed the recorded owner,
+ * unlinked the socket and listened in its place. Under load every new daemon
+ * did that to the previous one.
  *
- * Misurato il 13/08/2026: 1.612 demoni sullo stesso socket, tutti vivi, nessuno
- * raggiungibile, swap a 36 GB su 32 di RAM e la macchina inutilizzabile. Un
- * timeout di 1,5 s su una macchina a load 400 non e' una diagnosi di morte:
- * il proprietario aveva ACCETTATO la connessione, non aveva fatto in tempo a
- * rispondere.
+ * Measured 2026-08-13: 1612 daemons on one socket, all alive, none reachable,
+ * 36 GB of swap on a 32 GB machine, load 644. A 1.5s probe timeout on a machine
+ * at load 400 is not a death certificate — the owner had ACCEPTED the
+ * connection, it just had no CPU left to answer.
  */
 async function checkExistingBridge() {
   let recordedPid = null;
@@ -403,10 +402,9 @@ async function checkExistingBridge() {
 
   const ownerAlive = !!recordedPid && recordedPid !== process.pid && pidAlive(recordedPid);
 
-  // Il proprietario e' vivo e ha accettato la connessione: e' lento, non morto.
-  // Si cede il passo. Chi ci ha lanciati ritentera' la connessione a LUI, che e'
-  // esattamente cio' che vogliamo, invece di sfrattarlo e diventare il prossimo
-  // a essere sfrattato.
+  // The owner is alive and accepted our connection: slow, not dead. Step aside.
+  // Whoever spawned us will retry connecting to IT, which is what we want,
+  // instead of evicting it and becoming the next one to be evicted.
   if (probe.reason === 'timeout' && ownerAlive) return 'busy';
 
   if (ownerAlive) {
@@ -434,23 +432,23 @@ function sweepStore() {
 }
 
 async function start() {
-  // Il lucchetto si prende PRIMA di guardare chi c'e', perche' e' proprio quel
-  // controllo a scollegare il socket: due demoni che lo attraversano insieme
-  // finiscono entrambi in ascolto su file diversi con lo stesso nome.
+  // Take the lock BEFORE inspecting the incumbent, because that inspection is
+  // exactly what unlinks the socket: two daemons walking through it together
+  // both end up listening on different files with the same name.
   if (!acquireTakeoverLock()) {
-    console.error(`[AI Bridge] Un altro demone sta gia' prendendo ${socketPath}. Esco.`);
+    console.error(`[AI Bridge] Another daemon is already taking over ${socketPath} — exiting.`);
     process.exit(1);
   }
 
-  const verdetto = await checkExistingBridge();
-  if (verdetto === 'healthy') {
+  const verdict = await checkExistingBridge();
+  if (verdict === 'healthy') {
     releaseTakeoverLock();
     console.error(`[AI Bridge] Another healthy bridge already on ${socketPath}`);
     process.exit(1);
   }
-  if (verdetto === 'busy') {
+  if (verdict === 'busy') {
     releaseTakeoverLock();
-    console.error(`[AI Bridge] Il proprietario di ${socketPath} e' vivo ma lento a rispondere. NON lo sfratto: esco e lascio che ci si riconnetta a lui.`);
+    console.error(`[AI Bridge] Owner of ${socketPath} is alive but slow to answer. NOT evicting it — exiting so callers reconnect to it.`);
     process.exit(1);
   }
 
@@ -474,8 +472,8 @@ async function start() {
   });
 
   server.listen(socketPath, () => {
-    // Il pid PRIMA del rilascio: chi prende il lucchetto subito dopo deve poter
-    // leggere un proprietario valido, o ricadrebbe nel ramo che sfratta.
+    // Pid file BEFORE releasing the lock: whoever grabs the lock next must be
+    // able to read a valid owner, or it falls into the eviction branch.
     fs.writeFileSync(pidPath, String(process.pid));
     releaseTakeoverLock();
     console.error(`[AI Bridge] Listening on ${socketPath} (PID ${process.pid}), store ${storeDir}`);
