@@ -116,7 +116,11 @@ export function between(prev: number | undefined, next: number | undefined): num
 
 /** Cosa scrivere dopo un drop, o null se il drop non cambia niente. */
 export interface DropPlan {
-  /** La patch per la card trascinata. */
+  /**
+   * La patch per la card trascinata. Può essere VUOTA: un drop reindirizzato
+   * (vedi `redirectedFrom`) su una card che è già dove il reindirizzamento la
+   * manda non ha niente da scrivere, ma ha comunque qualcosa da dire.
+   */
   patch: { status?: TaskStatus; kanbanOrder?: number };
   /**
    * Le ALTRE card della colonna da riscrivere, quando l'interstizio frazionario
@@ -124,6 +128,13 @@ export interface DropPlan {
    * normale, una PATCH e basta.
    */
   renumber?: { id: string; kanbanOrder: number }[];
+  /**
+   * The column the card was actually dropped on, when it did NOT end up there.
+   * Present only for the In Progress redirect below. It is a FACT, not a
+   * sentence: the words belong to the surface that draws the notice
+   * (`KanbanBoardPane`), so this module stays pure ordering logic.
+   */
+  redirectedFrom?: TaskStatus;
 }
 
 /**
@@ -134,6 +145,10 @@ export interface DropPlan {
  *
  * In `cross-project` la posizione non si tocca mai: si restituisce al più il
  * cambio di stato. Vedi la nota in testa al file.
+ *
+ * Un drop su In Progress viene REINDIRIZZATO in Todo quando nessun agente sta
+ * già lavorando la card, e il piano lo dichiara con `redirectedFrom`. Il perché
+ * sta nel corpo.
  */
 export function planDrop(args: {
   task: BoardTask;
@@ -146,16 +161,43 @@ export function planDrop(args: {
 
   const isColumn = (TASK_STATUSES as readonly string[]).includes(overId);
   const overTask = isColumn ? undefined : findById(byStatus, overId);
-  const status = (overTask ? overTask.status : overId) as TaskStatus;
-  if (!(TASK_STATUSES as readonly string[]).includes(status)) return null;
+  const dropStatus = (overTask ? overTask.status : overId) as TaskStatus;
+  if (!(TASK_STATUSES as readonly string[]).includes(dropStatus)) return null;
   // Rilasciata su una card che non è in nessuna colonna nota (lista già cambiata
   // sotto le dita): non si inventa una posizione.
   if (!isColumn && !overTask) return null;
 
+  // IN PROGRESS IS NOT A QUEUE — and dropping a card there used to be a one-way
+  // trip. The dispatcher only ever picks up `status: "todo"`
+  // (`server/services/task-dispatcher.ts`), so nothing collects In Progress:
+  // the card sat there forever. Worse, leaving Todo cancels the dispatch that
+  // was already queued for it (`onLeaveTodo`), so the drag did not just fail to
+  // start the work, it stopped work that was about to start (seen on 7b803a72).
+  //
+  // A human dragging a card into In Progress means "work on this", which is
+  // exactly what Todo does, so that is where the card goes — and the surface
+  // says so, because a gesture that silently lands somewhere else is the same
+  // black hole with a different shape.
+  //
+  // A card with an agent bound to it (`assignedTopicId`) is NOT redirected:
+  // that drop is a legitimate hand-over of work already in flight, and Todo
+  // would be a lie about it.
+  const redirected = dropStatus === 'in_progress' && !task.assignedTopicId;
+  const status: TaskStatus = redirected ? 'todo' : dropStatus;
+  const redirectedFrom = redirected ? dropStatus : undefined;
+  // A redirected drop lands at the END of Todo, i.e. last in the queue: the
+  // card it was released on lives in another column, so its position says
+  // nothing about where this one belongs.
+  const anchor = redirected ? undefined : overTask;
+
   const sameColumn = task.status === status;
 
   // Board generale: la posizione non è scrivibile (kanbanOrder è per-progetto).
-  if (scope === 'cross-project') return sameColumn ? null : { patch: { status } };
+  if (scope === 'cross-project') {
+    if (!sameColumn) return { patch: { status }, ...(redirectedFrom ? { redirectedFrom } : {}) };
+    // Nothing to write, but a redirect still owes the human an explanation.
+    return redirectedFrom ? { patch: {}, redirectedFrom } : null;
+  }
 
   // Review e Done si ordinano per data (vedi `compareReview` / `compareDone`):
   // una posizione scritta lì non si vedrebbe, e resterebbe appesa al task come
@@ -165,11 +207,11 @@ export function planDrop(args: {
   if (status === 'review' || status === 'done') return sameColumn ? null : { patch: { status } };
 
   const col = byStatus[status].filter((t) => t.id !== task.id); // già ordinata
-  let idx = overTask ? col.findIndex((t) => t.id === overTask.id) : col.length;
+  let idx = anchor ? col.findIndex((t) => t.id === anchor.id) : col.length;
   if (idx < 0) idx = col.length;
   // Spostamento verso il BASSO nella stessa colonna: rilasciare "sopra" una card
   // che stava sotto di noi significa finire DOPO di lei, nel posto che occupava.
-  if (overTask && sameColumn && task.kanbanOrder < overTask.kanbanOrder) idx += 1;
+  if (anchor && sameColumn && task.kanbanOrder < anchor.kanbanOrder) idx += 1;
   const prev = col[idx - 1]?.kanbanOrder;
   const next = col[idx]?.kanbanOrder;
   const kanbanOrder = between(prev, next);
@@ -188,11 +230,17 @@ export function planDrop(args: {
     return {
       patch: { ...(sameColumn ? {} : { status }), kanbanOrder: idx + 1 },
       renumber,
+      ...(redirectedFrom ? { redirectedFrom } : {}),
     };
   }
 
-  if (sameColumn && kanbanOrder === task.kanbanOrder) return null;
-  return { patch: sameColumn ? { kanbanOrder } : { status, kanbanOrder } };
+  if (sameColumn && kanbanOrder === task.kanbanOrder) {
+    return redirectedFrom ? { patch: {}, redirectedFrom } : null;
+  }
+  return {
+    patch: sameColumn ? { kanbanOrder } : { status, kanbanOrder },
+    ...(redirectedFrom ? { redirectedFrom } : {}),
+  };
 }
 
 function findById(byStatus: Record<TaskStatus, BoardTask[]>, id: string): BoardTask | undefined {

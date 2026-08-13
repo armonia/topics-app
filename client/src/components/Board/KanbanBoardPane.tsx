@@ -854,6 +854,7 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
 }
 
 export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpenTopic, onStartMission }: Props) {
+  const tr = useT();
   const projectId = useMemo(() => (projectPath ? boardIdForPath(projectPath) : ''), [projectPath]);
   // The project/all toggle only makes sense inside a project window. The global
   // pane has no project, so it locks to 'all'.
@@ -878,6 +879,10 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
   const externalSessions = useExternalSessions(onMessage, mode === 'project' ? projectId : undefined);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // A drop that did NOT land where it was released says so here. Not an error
+  // (nothing failed) and not a toast (it belongs to the board it happened on):
+  // one line under the toolbar, cleared by the next drop.
+  const [dropNotice, setDropNotice] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // Quale tab del task mettere davanti all'apertura, quando ad aprirlo è stato
   // un gesto mirato (il bottone «apri in una tab» sull'anteprima della card).
@@ -1503,6 +1508,9 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
    * rifetcha e la verità torna dal server.
    */
   const dropTo = useCallback(async (task: BoardTask, plan: DropPlan) => {
+    // A redirected drop onto a card that is already where the redirect sends it
+    // has nothing to write: the plan exists only to carry the notice.
+    if (Object.keys(plan.patch).length === 0 && !plan.renumber?.length) return;
     for (const r of plan.renumber ?? []) patchLocal(r.id, { kanbanOrder: r.kanbanOrder });
     patchLocal(task.id, plan.patch); // optimistic
     try {
@@ -1575,8 +1583,12 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
       byStatus,
       scope: orderScope,
     });
+    // The card did not land where the hand let it go: say it, or the gesture
+    // reads as a bug. Cleared on any other drop, so it always describes the
+    // last one.
+    setDropNotice(plan?.redirectedFrom === 'in_progress' ? tr('board.drop.inProgressRedirected') : null);
     if (plan) dropTo(task, plan);
-  }, [tasks, byStatus, dropTo, flushDrag, orderScope]);
+  }, [tasks, byStatus, dropTo, flushDrag, orderScope, tr]);
   const activeTask = activeId ? tasks.find((t) => t.id === activeId) ?? null : null;
 
   const create = useCallback(async (status: TaskStatus, text: string) => {
@@ -1773,6 +1785,9 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
       )}
       </div>
       {error && <div className="shrink-0 bg-rose-500/10 px-3 py-1.5 text-xs text-rose-300">{error}</div>}
+      {dropNotice && (
+        <div data-testid="board-drop-notice" className="shrink-0 bg-sky-500/10 px-3 py-1.5 text-xs text-sky-300">{dropNotice}</div>
+      )}
       {showSettings && hasProject && (
         <BoardSettingsPanel
           projectId={projectId}
