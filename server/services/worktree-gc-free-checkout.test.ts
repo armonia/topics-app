@@ -58,6 +58,9 @@ describe("free-checkout su git vero", () => {
     return wt;
   }
 
+  /** Le card timbrate col loro ramo prima che la cartella sparisse. */
+  const timbri: Array<[string, string]> = [];
+
   function deps(over: Partial<WorktreeGcDeps> = {}): WorktreeGcDeps {
     return {
       listWorktrees: () => [...trees.values()],
@@ -85,12 +88,14 @@ describe("free-checkout su git vero", () => {
         return true;
       },
       noteOnTask: (taskId, msg) => notes.push([taskId, msg]),
+      stampDeliveryBranch: (taskId, branch) => timbri.push([taskId, branch]),
       log: (m) => logs.push(m),
       ...over,
     };
   }
 
   beforeEach(() => {
+    timbri.length = 0;
     root = mkdtempSync(join(tmpdir(), "wt-gc-"));
     repo = join(root, "repo");
     git(root, "init", "--quiet", "repo");
@@ -131,6 +136,42 @@ describe("free-checkout su git vero", () => {
     expect(s.freed).toBe(1);
     expect(s.reaped).toBe(0);
     expect(s.kept).toBe(0);
+  });
+
+  test("la card resta LANDABILE: il ramo le viene timbrato prima che la cartella sparisca", async () => {
+    // IL GUASTO, misurato su 714c2fc5 (il fix `_close`), che ha perso il land DUE
+    // volte per questa causa. Liberata la cartella, `topics.worktree_id` resta
+    // vuoto: `worktreeOfTask` non risolve piu', `taskDeliveryRef` risponde
+    // `null`, `captureDelivery` non scrive `delivery_branch`, e
+    // `chooseMergeTarget(null, {branch: null})` risponde `no-branch` — l'unico
+    // codice che lascia la card chiusa senza aver fuso niente. Il bottone «Landa
+    // su main» su quella card non poteva funzionare.
+    //
+    // Qui il ramo e' ancora noto: e' l'ultimo istante in cui si puo' dire alla
+    // card dove vive il suo lavoro.
+    const wt = mountWorktree("chiuso");
+    statuses.set("chiuso", "done");
+    await sweepWorktrees(deps());
+    expect(timbri).toEqual([["task-chiuso", wt.branchName]]);
+  });
+
+  test("il timbro arriva PRIMA della liberazione, non dopo", async () => {
+    // Dopo, il ramo non e' piu' nominabile: la riga `worktrees` non c'e' piu' e
+    // con lei l'unico modo che la card ha di risalirci. L'ordine E' il fix.
+    mountWorktree("chiuso");
+    statuses.set("chiuso", "done");
+    const ordine: string[] = [];
+    await sweepWorktrees(deps({
+      stampDeliveryBranch: () => { ordine.push("timbro"); },
+      freeCheckout: async (id) => {
+        ordine.push("libera");
+        const wt = trees.get(id)!;
+        if (git(repo, "worktree", "remove", "--force", wt.absPath).code !== 0) return false;
+        trees.delete(id);
+        return true;
+      },
+    }));
+    expect(ordine).toEqual(["timbro", "libera"]);
   });
 
   test("il task viene avvisato di DOVE è finito il suo lavoro", async () => {
