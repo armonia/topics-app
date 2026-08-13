@@ -951,9 +951,15 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
     finally { setBusy(false); }
   };
 
-  // Land = accept + merge the branch on main (local, no push). Explicit, separate
-  // from Approva (which only accepts the task). The merge/build runs server-side
-  // and surfaces its outcome as system comments in the thread.
+  // Land = merge the branch on main (local, no push) AND THEN accept the card,
+  // in quest'ordine. Explicit, separate from Approva (which only accepts the
+  // task). The merge/build runs server-side and surfaces its outcome as system
+  // comments in the thread.
+  //
+  // La card resta in review finché il merge non è confermato su main: se il land
+  // fallisce (o non parte) la si ritrova qui, col motivo nel thread e questo
+  // stesso bottone per riprovare. Chiuderla prima era il difetto del 13/08 —
+  // tre card in `done` coi rami mai atterrati.
   //
   // Il server risponde `202`: il land è ACCODATO. La ricevuta va TENUTA e
   // seguita, perché è la sola cosa che distingue «sta per succedere» da «è
