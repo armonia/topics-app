@@ -354,6 +354,36 @@ export function createE2eRouter(ctx: AppContext): RouteHandler {
       }
     }
 
+    // POST /api/test/tasks/:taskId/system-delivery {cause?, reason?} — la card
+    // che arriva in review SENZA che nessuno l'abbia consegnata.
+    //
+    // Stessa ragione di `bind-topic` e `landing`: `delivered_by = 'system'` lo
+    // scrive solo il dispatcher, e solo dopo aver bruciato i tentativi di un
+    // agente vero o essersi preso un rifiuto dal modello. Senza questo verbo la
+    // superficie che il 13/08 ha fatto approvare una card vuota (5472e584 aveva
+    // consegnato, c0849d9d no, e sulla board erano identiche) non è
+    // raggiungibile da nessun test end-to-end. Passa dal servizio VERO, quindi
+    // la spec vede quello che vedrebbe dopo un turno finito male: la nota di
+    // sistema nel thread, il chip, e le scelte che ne derivano.
+    const seedSystemDelivery = /^\/api\/test\/tasks\/([^/]+)\/system-delivery$/.exec(pathname);
+    if (method === "POST" && seedSystemDelivery) {
+      const body = (await req.json().catch(() => null)) as
+        | { cause?: string | null; reason?: string | null }
+        | null;
+      const cause = body?.cause ?? "retries_exhausted";
+      if (cause !== "retries_exhausted" && cause !== "model_refused" && cause !== "fanout") {
+        return json({ error: "cause must be retries_exhausted | model_refused | fanout" }, 400);
+      }
+      const taskId = decodeURIComponent(seedSystemDelivery[1]);
+      try {
+        const svc = createTaskService(db);
+        const task = svc.deliverToReviewBySystem({ taskId, reason: body?.reason ?? "", cause });
+        return json({ ok: true, task });
+      } catch (e) {
+        return json({ error: (e as Error).message }, 400);
+      }
+    }
+
     // POST /api/test/tasks/:taskId/attempts {attempts:[…]} — semina i tentativi
     // di un fan-out. Stessa ragione di `bind-topic`: queste righe le scrive solo
     // il dispatcher lanciando N agenti veri, e senza di esse il pannello
