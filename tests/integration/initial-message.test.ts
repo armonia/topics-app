@@ -2,12 +2,13 @@
  * Phase C · Initial Message round-trip via REST.
  * Pure integration: no UI, no WS roundtrip needed.
  */
-import { describe, expect, test, beforeAll } from "bun:test";
-import { setupTestDataDir, createTestAppContext } from "./helpers";
+import { describe, expect, test, beforeAll, afterAll } from "bun:test";
+import { setupTestDataDir, createTestAppContext, testTmpDir, cleanupTestDataDir } from "./helpers";
 
-const TEST_DATA = "/tmp/topics-phase-c-data";
+const TEST_DATA = testTmpDir("phase-c-data");
 
 beforeAll(() => setupTestDataDir(TEST_DATA));
+afterAll(() => cleanupTestDataDir(TEST_DATA));
 
 describe("Phase C · TOPIC-IM-01 — initial message", () => {
 
