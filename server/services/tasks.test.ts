@@ -3,7 +3,7 @@ import { Database } from "bun:sqlite";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createTaskService, isLandActionLabel, isPublishActionLabel, LAND_ACTION_LABEL, PUBLISH_ACTION_LABEL, projectIdForPath, TaskServiceError, type TaskService } from "./tasks";
+import { commentAsksHuman, createTaskService, isLandActionLabel, isPublishActionLabel, LAND_ACTION_LABEL, PUBLISH_ACTION_LABEL, projectIdForPath, TaskServiceError, type TaskService } from "./tasks";
 import { PARKED_WAITED_OUT, WAIT_SERIES_MAX_MS, WAIT_STREAK_CAP } from "../../shared/board";
 import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL } from "../db/test-schema";
 
@@ -21,6 +21,27 @@ describe("reserved action labels", () => {
     expect(isPublishActionLabel("🚀 Landa e pubblica")).toBe(true);
     expect(isPublishActionLabel(LAND_ACTION_LABEL)).toBe(false); // land only, no push
     expect(isPublishActionLabel("")).toBe(false);
+  });
+});
+
+describe("commentAsksHuman", () => {
+  const fence = (question: string, options: string[]) =>
+    ["```question", question, ...options.map((o) => `- ${o}`), "```"].join("\n");
+
+  test("una consegna con la sola azione di land NON è una domanda", () => {
+    expect(commentAsksHuman(fence("Fatto: pronto per la review.", [LAND_ACTION_LABEL]))).toBe(false);
+    expect(commentAsksHuman(fence("Consegna.", [LAND_ACTION_LABEL, PUBLISH_ACTION_LABEL]))).toBe(false);
+  });
+
+  test("basta un'opzione che non sia un'azione di consegna", () => {
+    expect(commentAsksHuman(fence("Lando su main?", [LAND_ACTION_LABEL, "Aspetta"]))).toBe(true);
+    expect(commentAsksHuman(fence("Quale dei due?", ["Uno", "Due"]))).toBe(true);
+  });
+
+  test("una fence senza opzioni resta una domanda aperta; senza fence non si chiede niente", () => {
+    expect(commentAsksHuman(fence("Che faccio?", []))).toBe(true);
+    expect(commentAsksHuman("Ho finito, guarda il diff.")).toBe(false);
+    expect(commentAsksHuman(null)).toBe(false);
   });
 });
 
