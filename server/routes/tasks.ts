@@ -1767,7 +1767,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           try {
             const settings = svc.updateBoardSettings(projectId, {
               autoDispatch: typeof body?.autoDispatch === "boolean" ? body.autoDispatch : undefined,
-              maxAgents: typeof body?.maxAgents === "number" ? body.maxAgents : undefined,
+              // NIENTE `maxAgents` per board: il tetto è uno solo e si scrive su
+              // PATCH /api/all-boards/settings (riga '*'). Qui era accettato,
+              // salvato, rimostrato — e non limitava niente.
               dispatchEffort: typeof body?.dispatchEffort === "string" ? body.dispatchEffort : undefined,
               dispatchUseWorktree: typeof body?.dispatchUseWorktree === "boolean" ? body.dispatchUseWorktree : undefined,
               dispatchAutoMerge: typeof body?.dispatchAutoMerge === "boolean" ? body.dispatchAutoMerge : undefined,

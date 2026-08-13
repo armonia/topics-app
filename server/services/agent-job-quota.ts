@@ -68,7 +68,7 @@ import { accessSync, constants, mkdirSync, readFileSync, renameSync, writeFileSy
 import { delimiter, join } from "node:path";
 import type { Database } from "bun:sqlite";
 import { readTaskWeight, type TaskWeight } from "../../shared/board";
-import { effectiveDispatchCap, readGlobalCap, structuralDispatchCapacity } from "./dispatch-capacity";
+import { readGlobalCap, sizingDispatchCap, structuralDispatchCapacity } from "./dispatch-capacity";
 
 /** Cosa sa lo spawn del topic che sta per far partire. */
 export type DispatchBinding = {
@@ -227,8 +227,11 @@ function legatura(db: Database, da: string, dove: string, topicId: string): Disp
  */
 function capDiConcorrenza(db: Database): number {
   try {
-    const globale = readGlobalCap(db);
-    return effectiveDispatchCap(globale, globale.auto ? structuralDispatchCapacity() : null);
+    // `sizingDispatchCap`, non `effectiveDispatchCap`: la seconda risponde
+    // «ne ammetto un altro?» e con il tetto disattivato dice Infinity, che come
+    // divisore darebbe a ogni agente una fetta di zero. Questa risponde alla
+    // domanda del divisore, e senza tetto ricade sul numero STRUTTURALE.
+    return sizingDispatchCap(readGlobalCap(db), structuralDispatchCapacity());
   } catch {
     return 3; // impostazioni illeggibili: il default della board
   }
