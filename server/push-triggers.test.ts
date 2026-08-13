@@ -138,18 +138,17 @@ describe("maybeSendPush — i tasti di azione", () => {
   // woke you at 3am with "the agent is asking you something" over a delivery
   // that asked nothing. The rule is `questionAsksHuman`, the same one behind
   // the dispatch chip and the two review gates.
-  test("consegna che offre solo «Landa su main»: titolo di review, tasto intatto", () => {
+  test("a delivery offering only «Landa su main»: review title, button untouched", () => {
     maybeSendPush({ ...REVIEW, question: { text: "Fatto: sei cancelli verdi.", options: ["Landa su main"] } });
     const p = pushCalls[0] as any;
     expect(p.title).not.toContain("chiedendo");
     expect(p.title).toContain("review");
-    // Le OPZIONI restano: il tasto che landa con un tocco è esattamente ciò che
-    // serve su una consegna, ed è il motivo per cui la regola guarda il titolo
-    // e non tocca i tasti.
+    // The OPTIONS stay: a button that lands in one tap is exactly what a
+    // delivery wants, and it is why the rule touches the title and not them.
     expect(p.actions.map((a: any) => a.title)).toEqual(["Landa su main"]);
   });
 
-  test("domanda MISTA: basta un'opzione che la board non esegue e la voce torna «chiedendo»", () => {
+  test("MIXED question: one option the board cannot run and the voice is «chiedendo» again", () => {
     maybeSendPush({ ...REVIEW, question: { text: "Fatto, ma il nome del flag non mi convince.", options: ["Landa su main", "Aspetta, ho un dubbio"] } });
     expect((pushCalls[0] as any).title).toContain("chiedendo");
   });

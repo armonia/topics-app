@@ -344,13 +344,13 @@ export function useCompletionNotifier({
       }).then((resolved) => {
         // 'unknown' = non si è potuto sapere: banner senza tasti, come prima.
         const question = resolved === 'unknown' ? null : resolved;
-        // Quale delle due voci, lo decide `questionAsksHuman` — la stessa regola
-        // del chip, dei due cancelli di review e della push gemella, e NON «c'è
-        // un blocco question». L'envelope ordina alla consegna landabile di
-        // allegare `options=["Landa su main"]`, che il servizio avvolge in
-        // quella fence: leggendo la fence, ogni consegna finita si annunciava
-        // «serve una tua risposta». Le OPZIONI restano intere in entrambi i
-        // casi, perché sono i tasti del banner.
+        // WHICH of the two voices is `questionAsksHuman`, the same rule behind
+        // the dispatch chip, the two review gates and the twin push, and NOT
+        // "is there a question block". The kickoff envelope orders a landable
+        // delivery to attach `options=["Landa su main"]`, which the service
+        // wraps in that very fence: reading the fence, every finished delivery
+        // announced itself as "serve una tua risposta". The OPTIONS stay whole
+        // either way, because they are the banner's buttons.
         const actions = resolved === 'unknown'
           ? []
           : buildNotifyActions({ kind: 'review-ready', question });
