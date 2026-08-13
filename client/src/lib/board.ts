@@ -237,13 +237,18 @@ export function subtaskWorkChip(
 }
 
 /**
- * Il chip «riaperta»: una card che ERA fatta e non lo è più lo dice sulla card,
- * dove si guarda — non solo nel thread.
+ * Il chip «riaperta»: una card che ERA consegnata e non lo è più lo dice sulla
+ * card, dove si guarda — non solo nel thread.
  *
  * Misurato l'11/08: undici card uscite da `done` in sei ore. Non se n'era persa
  * nessuna, ma dalla colonna si vedeva solo un buco al posto di una cosa fatta, e
  * il motivo (che c'era sempre) viveva nel commento. `null` = la card non è mai
- * uscita da done, o ci è tornata (allora il ciclo è chiuso e il segno cade).
+ * uscita dalla consegna, o ci è tornata (allora il ciclo è chiuso e il segno
+ * cade).
+ *
+ * Il tooltip non nomina più la colonna di partenza: adesso il segno si accende
+ * anche uscendo da `review`, e «Era in Done» sarebbe stato falso su tre uscite
+ * su quattro.
  */
 export function reopenedChip(
   task: Pick<BoardTask, 'reopenedAt' | 'reopenedBy' | 'reopenedActor'>,
@@ -261,7 +266,7 @@ export function reopenedChip(
   return {
     label: 'riaperta',
     detail: `${chi} il ${quando}`,
-    title: `Era in Done: riaperta ${chi} il ${quando}. Il motivo è nel thread della card.`,
+    title: `Aveva consegnato: riaperta ${chi} il ${quando}. Il motivo è nel thread della card.`,
   };
 }
 

@@ -175,11 +175,10 @@ test.describe("Board mobile — la colonna Review sta nello schermo", () => {
     await apiCreateTask(request, {
       // Un token che il browser NON può spezzare: è esattamente il contenuto che
       // alza il min-content di un flex item senza `min-w-0`.
-      // La home di chi esegue NON entra in un file tracciato: il repo è
-      // pubblico, e il gate `tests/unit/no-home-paths-tracked.test.ts` lo dice
-      // in rosso. Qui conta la FORMA del token (lungo, senza spazi, non
-      // spezzabile), non di chi sia quella home.
-      text: "/home/utente/.topics/worktrees/topics-app/slender-shell/client/src/components/Board/KanbanBoardPane.tsx",
+      // The prefix is deliberately NOT a real home path: this repo is public and
+      // `tests/unit/no-home-paths-tracked.test.ts` fails on `/Users/<name>`. Only
+      // the length and the absence of break opportunities matter here.
+      text: "/opt/agents/.topics/worktrees/topics-app/slender-shell/client/src/components/Board/KanbanBoardPane.tsx",
       status: "review",
       priority: 3,
       description: "8f3c1d9a7b25e6f04c8d1e2a3b4c5d6e7f8091a2 — riga di consegna con un hash lungo e un path assoluto senza spazi.",
