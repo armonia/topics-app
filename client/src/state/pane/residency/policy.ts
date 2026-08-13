@@ -97,8 +97,18 @@ export const RESIDENCY_BUDGET: Readonly<Record<ResidencyClass, number>> = {
   // (`setNativeVisible(false)`), quindi smette di comporre e di ridisegnare.
   // Resta la sua memoria — che sfrattandola non recupereremmo comunque.
   //
+  // VERIFICATO IL 2026-08-12, e la strada e' ancora chiusa. `retain()` sta
+  // ancora nel `Drop` sia in wry 0.56.0 (l'ultima release, 2026-07-30) sia sul
+  // branch `dev`: src/wkwebview/mod.rs, `impl Drop for InnerWebView`. A monte
+  // wry#1733 e' aperta, e la PR wry#1734 che toglierebbe l'use-after-free
+  // aggirato dal retain non tocca il retain. Alzare la versione di tauri/wry
+  // oggi non recupera un byte: non e' una dipendenza da aggiornare, e' un
+  // difetto da aspettare.
+  //
   // Da rivedere SOLO quando wry deallochera' davvero: allora questo torna un
-  // numero finito e il tetto ricomincia a valere anche qui.
+  // numero finito e il tetto ricomincia a valere anche qui. Il segnale da
+  // guardare e' il retain in quel `Drop`, non il changelog: la 0.56.0 non lo
+  // menziona ne' in un senso ne' nell'altro.
   native: Infinity,
   heavy: 3,
   light: 12,
