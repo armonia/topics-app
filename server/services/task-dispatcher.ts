@@ -912,20 +912,16 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   // task pesante / è troppo carica". Stessa disciplina dell'insieme qui sopra:
   // una nota per EPISODIO, non una per poll — si svuota appena l'attesa finisce.
   const heavyHeldNoted = new Set<string>();
+  // Task a cui si è già detto "aspetti perché il tetto di concorrenza è pieno".
+  // Stessa disciplina: una nota per EPISODIO. Si svuota nel giro in cui il tetto
+  // torna a lasciar passare quella card, così la prossima pienezza lo ridice.
+  const capHeldNoted = new Set<string>();
   // Da QUANDO un task pesante è trattenuto dal carico (ms). Serve al tetto
   // dell'attesa (`HEAVY_HOLD_MAX_MS`): senza un istante di inizio «trattenuto da
   // troppo» non è una condizione misurabile, è un'impressione. Si azzera appena
   // il task parte o smette di essere trattenuto, così una prossima attesa
   // riparte dal suo inizio invece di ereditare quella di ieri.
   const heavyHoldSince = new Map<string, number>();
-  // Task a cui si è già detto «il tetto è pieno, e questi sono i numeri».
-  //
-  // Era l'attesa MUTA: delle tre ragioni per cui una card resta ferma, il
-  // pesante lo diceva e la sessione esterna lo diceva, il tetto pieno no. Da
-  // fuori restavano card su `queued` senza una riga, e l'unico modo di sapere
-  // perché era leggere il tick. Stessa disciplina degli altri due insiemi: una
-  // nota per EPISODIO, si svuota appena la card smette di essere trattenuta.
-  const capHeldNoted = new Set<string>();
   /** L'orologio del freno, iniettabile per i test (vedi `DispatcherDeps.now`). */
   const clock = (): number => deps.now?.() ?? Date.now();
   // Board a cui si è già detto "il fan-out qui non si applica" (worktree off).
@@ -994,34 +990,32 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * — la nota si ripete solo dopo che l'attesa è finita davvero, altrimenti un
    * poll ogni 10s riempirebbe il thread della stessa frase.
    */
-  function noteHeavyHold(task: Task, why: string): void {
+  function noteHold(noted: Set<string>, task: Task, why: string): void {
     if (inFlight.has(task.id) || graceTimers.has(task.id)) return;
-    if (heavyHeldNoted.has(task.id)) return;
-    heavyHeldNoted.add(task.id);
+    if (noted.has(task.id)) return;
+    noted.add(task.id);
     try {
       emit(deps.svc.setDispatchState({ taskId: task.id, state: CHIP_QUEUED }));
       deps.svc.addComment({ taskId: task.id, author: "system", content: why, kind: "service" });
     } catch { /* il task può essersi mosso sotto i piedi */ }
   }
 
+  function noteHeavyHold(task: Task, why: string): void {
+    noteHold(heavyHeldNoted, task, why);
+  }
+
   /**
-   * «Aspetti perché non c'è posto», con i numeri che lo producono.
-   *
-   * Stessa disciplina di `noteHeavyHold`: una nota per episodio, e l'episodio
-   * finisce quando la card smette di essere trattenuta. La riga dice sempre TRE
-   * cose: quanti agenti stanno girando, qual è il tetto, e da dove esce quel
-   * tetto (core, RAM, quanta CPU si sta mangiando la flotta). Senza il perché,
-   * «tetto pieno» è solo un altro modo di scrivere «fermo».
+   * «Aspetti perché non c'è un posto libero», con i numeri che lo rendono
+   * verificabile. Il `break` sul tetto pieno fermava la coda in silenzio: la
+   * card restava `queued` e l'unico modo di sapere da cosa era leggere il sort
+   * del dispatcher. Il tetto e quanti agenti sono in volo dicono se il freno è
+   * la macchina o l'impostazione; quante card sono ferme dice quanto è lunga
+   * la fila dietro quella decisione.
    */
   function noteCapHold(task: Task, why: string): void {
-    if (inFlight.has(task.id) || graceTimers.has(task.id)) return;
-    if (capHeldNoted.has(task.id)) return;
-    capHeldNoted.add(task.id);
-    try {
-      emit(deps.svc.setDispatchState({ taskId: task.id, state: CHIP_QUEUED }));
-      deps.svc.addComment({ taskId: task.id, author: "system", content: why, kind: "service" });
-    } catch { /* il task può essersi mosso sotto i piedi */ }
+    noteHold(capHeldNoted, task, why);
   }
+
 
   /**
    * Il peso appena letto dal classificatore, applicato al task — e la decisione
@@ -2636,14 +2630,27 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
      * ferme senza una riga sembrano un sistema rotto, non un sistema che sta
      * aspettando (misurato il 12/08).
      */
-    const noteCapFull = (t: Task, vivi: number | null): void => {
+    const noteCapFull = (t: Task, vivi: number | null, fanOutServe?: { serve: number; posti: number }): void => {
       const conto = vivi != null
         ? `ci sono ${vivi} agent al lavoro su un tetto di ${effectiveCap}`
         : `il tetto di ${effectiveCap} agent insieme è pieno`;
       const perche = perchePieno();
+      // QUANTE aspettano dietro. È il terzo numero, e l'unico che dice quanto
+      // dura l'attesa invece di perché è cominciata: «il tetto è pieno» con una
+      // card in fila e con dodici è la stessa frase per due situazioni diverse.
+      // Si contano i todo di questo giro che non sono partiti, questo compreso.
+      const fermi = todos.filter((x) => !inFlight.has(x.id) && !graceTimers.has(x.id)).length;
+      const fila = fermi > 1 ? ` ${fermi} card sono ferme su questo tetto.` : "";
+      // Il caso del fan-out: la card non aspetta UN posto, ne aspetta N insieme,
+      // e senza dirlo la riga sembra sbagliata («ci sono 2 posti liberi, perché
+      // non parte?»). Il numero di posti liberi e quanti gliene servono sono le
+      // due meta' della stessa risposta.
+      const perFanOut = fanOutServe && fanOutServe.serve > 1
+        ? ` Questa ne vuole ${fanOutServe.serve} insieme e ${fanOutServe.posti === 1 ? "c'è 1 posto libero" : `ci sono ${fanOutServe.posti} posti liberi`}.`
+        : "";
       noteCapHold(
         t,
-        `In coda: ${conto}${perche ? ` (${perche})` : ""}. ` +
+        `In coda: ${conto}${perche ? ` (${perche})` : ""}.${perFanOut}${fila} ` +
           "Parte da sé appena si libera un posto. Non devi fare nulla.",
       );
     };
@@ -2738,9 +2745,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         // ciascuno prima di uscire. Il `break` senza una riga era il difetto:
         // la coda restava ferma e le card non lo raccontavano.
         const vivi = agentiVivi();
+        const posti = Math.max(0, effectiveCap - reservedSlots);
         for (const rest of todos.slice(idx)) {
           if (inFlight.has(rest.id) || graceTimers.has(rest.id)) continue;
-          noteCapFull(rest, vivi);
+          noteCapFull(rest, vivi, { serve: taskFanOut, posti });
         }
         break;
       }
