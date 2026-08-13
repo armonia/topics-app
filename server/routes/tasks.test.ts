@@ -823,18 +823,49 @@ describe("board settings route", () => {
   let db: Database; let broadcasts: any[]; let router: any;
   beforeEach(() => { db = freshDb(); broadcasts = []; router = createTasksRouter(makeCtx(db, broadcasts)); });
 
-  test("GET returns defaults (auto off, cap 2)", async () => {
+  test("GET returns defaults (auto off) and NO per-board cap", async () => {
     const s = await (await call(router, "GET", "/api/boards/pX/settings"))!.json();
     expect(s.autoDispatch).toBe(false);
-    expect(s.maxAgents).toBe(2);
+    // A per-board cap no longer exists: showing one here is what made this
+    // endpoint report 9 on 2026-08-13 while the enforced cap (row '*') was 8.
+    expect(s.maxAgents).toBeUndefined();
+  });
+
+  // La rotta ACCETTAVA `maxAgents`, lo salvava e lo rimostrava: un numero che
+  // si scriveva e non limitava niente. Ora lo ignora, e soprattutto non lo
+  // restituisce — e il tetto vero (riga '*') non si muove di un'unità.
+  test("PATCH ignora un maxAgents per board e non tocca il tetto globale", async () => {
+    const prima = await (await call(router, "GET", "/api/all-boards/settings"))!.json();
+    expect(prima.maxAgents).toBe(3); // default della riga '*': mai impostata
+    const resp = (await call(router, "PATCH", "/api/boards/pX/settings", { maxAgents: 9 }))!;
+    expect(resp.status).toBe(200);
+    expect((await resp.json()).maxAgents).toBeUndefined();
+    const dopo = await (await call(router, "GET", "/api/all-boards/settings"))!.json();
+    expect(dopo.maxAgents).toBe(3);
+    expect(dopo.maxAgentsAuto).toBe(true);
+  });
+
+  // The half above ("and does not touch the global cap") could not have failed
+  // on its own: the old code wrote `max_agents` on row pX, never on '*'. THIS is
+  // the address that could: the per-board route takes its projectId from the
+  // path with a plain decodeURIComponent and no guard, so `/api/boards/*/…` aims
+  // straight at the reserved row. If a per-board cap ever came back, that would
+  // be a second writer of the machine cap — and one that skips the
+  // board:global-cap broadcast, so other windows would never hear about it.
+  test("nemmeno indirizzata alla riga riservata la rotta per board muove il tetto", async () => {
+    expect((await (await call(router, "PATCH", "/api/all-boards/settings", { maxAgentsAuto: false, maxAgents: 8 }))!.json()).maxAgents).toBe(8);
+    const resp = (await call(router, "PATCH", "/api/boards/*/settings", { maxAgents: 15 }))!;
+    expect(resp.status).toBe(200);
+    const dopo = await (await call(router, "GET", "/api/all-boards/settings"))!.json();
+    expect(dopo).toMatchObject({ maxAgents: 8, maxAgentsAuto: false });
   });
 
   test("PATCH upserts + broadcasts board:settings", async () => {
-    const resp = (await call(router, "PATCH", "/api/boards/pX/settings", { autoDispatch: true, maxAgents: 3 }))!;
+    const resp = (await call(router, "PATCH", "/api/boards/pX/settings", { autoDispatch: true, dispatchTimeoutMin: 30 }))!;
     expect(resp.status).toBe(200);
     const s = await resp.json();
     expect(s.autoDispatch).toBe(true);
-    expect(s.maxAgents).toBe(3);
+    expect(s.dispatchTimeoutMin).toBe(30);
     expect(broadcasts.some((b) => b.type === "board:settings" && b.projectId === "pX")).toBe(true);
     // autoDispatch is global → the pill on EVERY board must hear about it.
     expect(broadcasts.some((b) => b.type === "board:dispatch" && b.autoDispatch === true)).toBe(true);

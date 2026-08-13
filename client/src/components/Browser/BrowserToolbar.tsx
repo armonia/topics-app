@@ -5,7 +5,7 @@ import { ZoomControl, DeviceSwitcher, ConsoleBadge } from './BrowserDevControls'
 import { DownloadsMenu, type DownloadsMenuProps } from './DownloadsMenu';
 import type { DeviceMode, BrowserConsoleEntry, NavHistoryEntry } from './browserDevTypes';
 import { POPOVER_ITEM, POPOVER_ITEM_DANGER, POPOVER_DIVIDER } from '../../lib/popoverStyles';
-import { normalizeUrl } from '../../lib/browserNavUrl';
+import { toNavigableUrl, displayUrl } from '../../lib/browserNavUrl';
 import type { ShareMode } from '../../lib/sharedAuto';
 import { DropdownPortal } from '../Shared/DropdownPortal';
 import { Menu } from '../Shared/Menu';
@@ -247,7 +247,10 @@ export function BrowserToolbar({
     // http. normalizeUrl is the single source of truth, shared with the hook's
     // navigate() so the two never disagree.
     if (!editUrl.trim()) return;
-    onUrlChange(normalizeUrl(editUrl));
+    // `toNavigableUrl` prima di `normalizeUrl` (che chiama dentro): la barra
+    // mostra `file:///Users/…` per un file locale, e premere Invio su quella
+    // riga deve riportare allo stesso documento — servito, non aperto dal disco.
+    onUrlChange(toNavigableUrl(editUrl));
     setEditing(false);
   }, [editUrl, onUrlChange]);
 
@@ -405,9 +408,9 @@ export function BrowserToolbar({
                 <input
                   ref={urlInputRef}
                   type="text"
-                  value={editing ? editUrl : url}
+                  value={editing ? editUrl : displayUrl(url)}
                   onChange={(e) => { setEditUrl(e.target.value); setEditing(true); }}
-                  onFocus={() => { setEditUrl(url); setEditing(true); }}
+                  onFocus={() => { setEditUrl(displayUrl(url)); setEditing(true); }}
                   onBlur={() => { setTimeout(() => setEditing(false), 200); }}
                   placeholder="Cerca o inserisci un indirizzo"
                   spellCheck={false}
