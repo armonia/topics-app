@@ -126,11 +126,3 @@ export function commentAuthorLabel(author: string | null | undefined): CommentAu
   }
   return { kind: 'agent', label: AGENT_AUTHOR, agentId: null, derived: true };
 }
-
-/**
- * Did an agent write this, as opposed to the board itself or a person? The one
- * predicate several call sites were spelling out inline as a chain of `!==`.
- */
-export function isAgentAuthor(author: string | null | undefined): boolean {
-  return commentAuthorLabel(author).kind === 'agent';
-}
