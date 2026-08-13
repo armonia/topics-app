@@ -174,6 +174,23 @@ function caricoAltrui(): { pids: number[]; spegni: () => void } {
  * tutta, e su una macchina occupata non la peggiorano. Se non arrivano alla
  * quota, la risposta giusta non è accenderne altri: è dire che qui e adesso lo
  * scenario non si costruisce.
+ *
+ * IL SOFFITTO VERO, e non è la contesa. Misurato su questo host (8 core
+ * performance + 4 efficiency): 1 bruciatore tiene 0,86 core-unità, 4 ne tengono
+ * 3,60, 8 ne tengono 3,48. Non è una curva che sale e si piega: è un tetto
+ * piatto a circa quattro, cioè esattamente i quattro core efficiency. L'albero
+ * dei processi di un agente dispacciato gira a QoS bassa e macOS lo confina sul
+ * cluster efficiency. Provato a toglierlo in due modi, nessuno funziona:
+ * `taskpolicy -B -p <pid>` sui bruciatori già avviati, e lanciarli con
+ * `launchctl asuser` invece che come figli. La QoS si eredita allo spawn e non
+ * si restituisce.
+ *
+ * Da dentro un agente, quindi, la flotta finta non può superare ~4 core-unità
+ * su una macchina da 12. È la ragione per cui questa gamba, con DUE agenti
+ * finti, non si costruiva: due agenti hanno bisogno di superare 4 core-unità
+ * per stringere il tetto, e 4 è il muro. Con UNO il conto chiede di superarne 3,
+ * che il cluster efficiency concede, e lo scenario è lo stesso e altrettanto
+ * vero: un agente che compila. Vedi `AGENTI` più sotto.
  */
 const BRUCIATORI = CORES;
 
@@ -276,10 +293,19 @@ async function main(): Promise<number> {
 
   // ── Gamba 2: il carico è NOSTRO, e il freno deve mordere ──────────────────
   //
-  // Due «agenti», perché `running` è 2 e il conto deve avere qualcuno a cui
-  // attribuire i posti già occupati. Quanti bruciatori dentro, e perché non di
-  // più, sta in `BRUCIATORI`.
-  const AGENTI = 2;
+  // UN agente, e il numero non è arbitrario: è il solo che questa macchina
+  // permetta di misurare, ed è comunque lo scenario che conta.
+  //
+  // Il conto: uno slot nuovo costa una core-unità, quindi il tetto vivo vale
+  // `max(2, agenti + floor(quota - nostri))`. Perché stringa sotto il tetto
+  // strutturale (4 qui) servono, con DUE agenti, più di 4 core-unità nostre;
+  // con UNO, più di 3. E più di 4 core-unità, da dentro un agente dispacciato,
+  // non si prendono: il cluster efficiency è il muro (vedi `BRUCIATORI`).
+  //
+  // Un agente con dodici processi che macinano è un `cargo build -j12`, cioè
+  // esattamente «un agente che compila». Non è una versione annacquata della
+  // barra: è la barra, sullo scenario che questa macchina sa costruire.
+  const AGENTI = 1;
   const quota = CORES / 2;
   let gamba2: Misura | null = null;
   let bruciatori = 0;
@@ -301,13 +327,18 @@ async function main(): Promise<number> {
     console.log(riga(gamba2));
   }
 
-  // Se il nostro albero non è riuscito a prendersi più della sua quota, la
-  // seconda gamba non ha una premessa: il freno non deve mordere, perché
-  // davvero stiamo sotto quota. Non è un rosso della barra, è un banco che non
-  // ha potuto costruire lo scenario. Distinguerlo conta: un rosso che vuol dire
-  // «macchina troppo contesa» insegna a ignorare i rossi.
+  // La premessa della seconda gamba, in aritmetica e non con un numero magico.
+  //
+  // Il freno deve mordere solo se la flotta ha davvero speso abbastanza quota:
+  // il tetto vivo è `max(pavimento, agenti + floor(quota - nostri))`, e lo
+  // scenario esiste quando quel numero sta sotto il tetto strutturale. Se non ci
+  // sta, il freno NON deve mordere e un «rotto» parlerebbe della macchina, non
+  // del codice: un rosso che vuol dire «rilancia più tardi» insegna a ignorare i
+  // rossi.
+  const PAVIMENTO = 2;
   const nostriCore = gamba2?.nostriCore ?? 0;
-  const premessaGamba2 = gamba2 != null && nostriCore > 4;
+  const tettoVivoPrevisto = Math.max(PAVIMENTO, AGENTI + Math.floor(quota - nostriCore));
+  const premessaGamba2 = gamba2 != null && tettoVivoPrevisto < strutturale;
 
   // ── La barra ──────────────────────────────────────────────────────────────
   const esiti = [
@@ -340,8 +371,9 @@ async function main(): Promise<number> {
   if (fai2 && !premessaGamba2) {
     console.log(
       `\n  Seconda gamba NON MISURABILE: la flotta finta ha tenuto ${nostriCore.toFixed(2)} core ` +
-      `sui ${quota} di quota, con ${gamba2?.load1.toFixed(1) ?? "n/d"} di carico sulla macchina e ` +
-      `${bruciatori} bruciatori. Sotto quota il freno non deve mordere. ` +
+      `sui ${quota} di quota con ${bruciatori} bruciatori, quindi il tetto vivo resta ` +
+      `${tettoVivoPrevisto} e non stringe sotto lo strutturale ${strutturale}. ` +
+      "Sotto quota il freno non deve mordere: non è un rosso della barra. " +
       "Rilancia quando la macchina è più libera.",
     );
     return 2;
