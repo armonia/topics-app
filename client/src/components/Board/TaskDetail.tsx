@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef, useCallback, type TouchEvent as R
 import { useT, useLocale } from '../../hooks/useT';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { NightModeCard } from './NightModeCard';
+import { GlobalCapControl } from './GlobalCapControl';
 import { AlertTriangle, ArrowUpRight, Bot, Camera, Check, ChevronDown, ChevronRight, Clock, Copy, Download, ExternalLink, Footprints, GitMerge, Globe, Hourglass, Link2, Lock, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Paperclip, Plus, Send, ShieldCheck, ShieldX, Sparkles, Square, Tag, UserRound, X } from 'lucide-react';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ReasoningRow } from '../Chat/ReasoningRow';
@@ -2875,6 +2876,15 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
         <span className="flex items-center gap-1.5"><Bot className="h-3.5 w-3.5 text-app-text-secondary" /> {tr('board.settings.autoDispatch')}</span>
         <input type="checkbox" checked={!!dispatchOn} onChange={onToggleDispatch} className="h-3.5 w-3.5 shrink-0 accent-emerald-500" />
       </label>
+
+      {/* IL TETTO, QUI DENTRO. Stava solo nel menu ▾ accanto al titolo, e questo
+          pannello lo nominava in un `title`: un tooltip, che su un telefono non
+          esiste. Chi apriva le impostazioni non vedeva nessun limite. È lo
+          STESSO componente del menu, sullo stesso store: quello che si cambia
+          qui si vede là senza ricaricare, e viceversa. */}
+      <div className="border-y border-app-border-subtle py-2">
+        <GlobalCapControl />
+      </div>
 
       <div className="flex items-center justify-between gap-2">
         <span>{tr('board.settings.effort')}</span>

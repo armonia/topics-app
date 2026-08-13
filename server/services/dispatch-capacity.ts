@@ -18,6 +18,7 @@ import type { Database } from "bun:sqlite";
 // La forma sta in `shared/board.ts` (la legge la UI delle impostazioni board).
 export type { DispatchCapacity } from "../../shared/board";
 import type { DispatchCapacity } from "../../shared/board";
+import { GLOBAL_CAP_MIN, GLOBAL_CAP_MAX } from "../../shared/board";
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 
@@ -41,20 +42,16 @@ export function readGlobalCap(db: Database): { auto: boolean; max: number } {
   // Auto è il default finché non si sceglie un numero a mano (NULL = mai
   // impostato → auto), così un'installazione nuova protegge la macchina da sé.
   const auto = r?.max_agents_auto == null ? true : !!r.max_agents_auto;
-  return { auto, max: clamp(Math.floor(r?.max_agents ?? 3), 1, 20) };
+  return { auto, max: clamp(Math.floor(r?.max_agents ?? 3), GLOBAL_CAP_MIN, GLOBAL_CAP_MAX) };
 }
 
 /**
- * Quanti agenti insieme, davvero, adesso: `auto` prende la raccomandazione
- * viva della macchina, il resto prende il numero fisso. Mai sotto 1 — un tetto
- * di zero non è una board prudente, è una board ferma.
- *
- * `recommended` a `null` significa «nessuna sonda»: si ricade sul numero fisso
- * anche in auto, che è il comportamento dei test e degli host degradati.
+ * Quanti agenti insieme, davvero, adesso. La formula sta in `shared/board.ts`:
+ * la legge anche il client, che con essa scrive «3 di 8» nel pannello
+ * impostazioni della board. Qui resta il nome da cui la importano il dispatcher
+ * e la quota di core.
  */
-export function effectiveDispatchCap(cap: { auto: boolean; max: number }, recommended: number | null): number {
-  return cap.auto && recommended != null ? Math.max(1, recommended) : Math.max(1, cap.max);
-}
+export { effectiveDispatchCap } from "../../shared/board";
 
 /** Absolute ceiling — never auto-recommend more than this regardless of the box. */
 const MAX_AUTO_CAP = 8;
