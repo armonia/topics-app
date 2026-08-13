@@ -4165,6 +4165,12 @@ function runWorktreeGc() {
       try { dispatcherSvc.addComment({ taskId, author: "system", content: message }); }
       catch (err) { console.warn("[worktree-gc] noteOnTask failed", err); }
     },
+    // Il ramo scritto sulla card mentre e' ancora noto: e' cio' che la tiene
+    // landabile dopo che la cartella se n'e' andata (vedi `stampDeliveryBranch`).
+    stampDeliveryBranch: (taskId, branch) => {
+      try { dispatcherSvc.recordDelivery({ taskId, branch, commit: null }); }
+      catch (err) { console.warn("[worktree-gc] stampDeliveryBranch failed", err); }
+    },
     log: (msg) => console.log(msg),
   }).catch((err) => { console.error("[worktree-gc] sweep failed", err); return null; });
 }
