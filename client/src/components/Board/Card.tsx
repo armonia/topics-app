@@ -6,7 +6,7 @@ import { AlertTriangle, ClipboardList, Copy, Hourglass, Lock, MessageSquare, Plu
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
-import { STATUS_LABEL, SYSTEM_DELIVERY_CHIP, blockedByChip, boardApi, isAgentWorking, isProjectlessId, parseQuestionBlock, reopenedChip, subtaskWorkChip, systemDeliveryNote, waitingOnThisChip, whoCloses, type BoardTask, type TaskStatus } from '../../lib/board';
+import { STATUS_LABEL, SYSTEM_DELIVERY_CHIP, blockedByChip, boardApi, commentAuthorLabel, isAgentWorking, isProjectlessId, parseQuestionBlock, reopenedChip, subtaskWorkChip, systemDeliveryNote, waitingOnThisChip, whoCloses, type BoardTask, type TaskComment, type TaskStatus } from '../../lib/board';
 import { selectCardComments, type CardComments } from './cardComments';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useLongPress, openContextMenuAt } from '../../hooks/useLongPress';
@@ -693,9 +693,14 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
             // Render the agent's last word as REAL markdown (bold/headings/lists
             // format instead of showing raw `**`/`#`). Shown in full — no clamp,
             // no fade. Tooltip = plain text.
+            //
+            // The name in front of the colon is DERIVED, never the stored
+            // author. Rows written before 13/08/2026 carry the topic name there,
+            // which for a dispatched agent is the task title cut at 60
+            // characters, so this tooltip used to open with half a word.
             <div
               className={`text-xs leading-relaxed text-app-text-heading ${COMPACT_MD_CLS}`}
-              title={`${lastComment.author}: ${stripMarkdown(lastComment.content)}`}
+              title={`${commentAuthorLabel(lastComment.author).label}: ${stripMarkdown(lastComment.content)}`}
             >
               <ChatMarkdown components={{}}>{lastComment.content}</ChatMarkdown>
             </div>
