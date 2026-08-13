@@ -2997,8 +2997,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return {
         projectId,
         autoDispatch: readGlobalDispatch(),
-        maxAgents: r ? (r.max_agents ?? 2) : 2,
-        maxAgentsAuto: r ? !!r.max_agents_auto : false,
+        // Nessun tetto per board: quello vero è UNO solo e si legge con
+        // `getGlobalCap()` (riga '*'). Vedi `BoardSettings` in shared/board.ts.
         dispatchEffort: r?.dispatch_effort ?? "medium",
         dispatchUseWorktree: r ? !!r.dispatch_use_worktree : true,
         dispatchAutoMerge: r ? !!r.dispatch_auto_merge : false,
@@ -3028,10 +3028,11 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (patch.dispatchMcp !== undefined && !VALID_DISPATCH_MCP.has(patch.dispatchMcp)) {
         throw new TaskServiceError("invalid_input", `invalid dispatchMcp "${patch.dispatchMcp}"`);
       }
-      // Ensure a row exists. Seed max_agents at the dispatch default (2), NOT the
-      // legacy board_settings column default (5) — otherwise merely toggling
-      // auto_dispatch would materialise the row at cap 5 and silently over-run the
-      // "2" shown in the panel. INSERT OR IGNORE only sets it on first creation.
+      // Ensure a row exists. `max_agents` is seeded, never patched: on a project
+      // row the column is DEAD (no reader — the one cap lives on the '*' row),
+      // and the explicit 2 only matters when `projectId` IS the reserved '*'
+      // key, where it must land on the same global default as
+      // `setGlobalAutoDispatch` instead of the legacy column default of 5.
       db.prepare("INSERT OR IGNORE INTO board_settings (project_id, max_agents) VALUES (?, 2)").run(projectId);
       // autoDispatch is the GLOBAL switch: route it to the '*' row so flipping
       // it from any board (or the global board) flips it everywhere.
@@ -3043,8 +3044,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       }
       const sets: string[] = [];
       const params: any[] = [];
-      if (patch.maxAgents !== undefined) { sets.push("max_agents = ?"); params.push(clampInt(patch.maxAgents, 1, 10)); }
-      if (patch.maxAgentsAuto !== undefined) { sets.push("max_agents_auto = ?"); params.push(patch.maxAgentsAuto ? 1 : 0); }
+      // Nessun `max_agents` / `max_agents_auto` qui: il tetto si scrive con
+      // `setGlobalCap` sulla riga '*', ed è l'unico che decide qualcosa.
       if (patch.dispatchEffort !== undefined) { sets.push("dispatch_effort = ?"); params.push(patch.dispatchEffort); }
       if (patch.dispatchUseWorktree !== undefined) { sets.push("dispatch_use_worktree = ?"); params.push(patch.dispatchUseWorktree ? 1 : 0); }
       if (patch.dispatchAutoMerge !== undefined) { sets.push("dispatch_auto_merge = ?"); params.push(patch.dispatchAutoMerge ? 1 : 0); }
