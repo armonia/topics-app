@@ -37,6 +37,10 @@ export interface DownloadRow {
   savedPath?: string;
   /** Pane condivisa: link scaricabile sulla nostra origine. */
   href?: string;
+  /** 0..100 mentre scarica, e SOLO quando il totale si conosce davvero. Assente
+   *  = avanzamento indeterminato, che qui vuol dire spinner e byte trasferiti al
+   *  posto della barra. Vedi downloadPercent in downloadsModel.ts. */
+  percent?: number;
 }
 
 export interface DownloadsMenuProps {
@@ -178,9 +182,36 @@ export function DownloadsMenu({ items, activeCount, startedCount, onDismiss, onC
                       {d.filename}
                     </div>
                   )}
-                  <div className="text-[10px] text-app-text-faint truncate">
-                    {failed ? 'Non riuscito' : d.detail || (done ? 'Completato' : 'In corso…')}
+                  <div className="text-[10px] text-app-text-faint truncate flex items-center gap-1.5">
+                    <span className="truncate">
+                      {failed ? 'Non riuscito' : d.detail || (done ? 'Completato' : 'In corso…')}
+                    </span>
+                    {/* La percentuale sta accanto al dettaglio e non al posto suo:
+                        «3,2 MB di 10 MB» dice quanto manca in byte, il numero dice
+                        quanto manca in tempo, e servono due domande diverse.
+                        Compare solo mentre scarica e solo con un totale vero. */}
+                    {!failed && !done && d.percent !== undefined && (
+                      <span className="tabular-nums shrink-0 text-app-text-muted" data-testid="browser-download-percent">
+                        {d.percent}%
+                      </span>
+                    )}
                   </div>
+                  {/* La barra e' l'unica cosa che si legge senza leggere: sta sotto
+                      la riga di dettaglio e occupa 2px. Senza totale non si disegna
+                      affatto, invece di disegnarne una che si muove a caso. */}
+                  {!failed && !done && d.percent !== undefined && (
+                    <div
+                      className="mt-1 h-[2px] rounded-full bg-app-border overflow-hidden"
+                      role="progressbar"
+                      aria-valuenow={d.percent}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-label={`Avanzamento di ${d.filename}`}
+                      data-testid="browser-download-bar"
+                    >
+                      <div className="h-full bg-primary transition-[width] duration-300" style={{ width: `${d.percent}%` }} />
+                    </div>
+                  )}
                 </div>
                 {done && d.savedPath && onReveal && (
                   <button
