@@ -1840,12 +1840,17 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         if (method === "GET") {
           const params = new URL(req.url).searchParams;
           const status = params.get("status") || undefined;
+          // `?archived=1` = l'archivio di questa board, e SOLO quello: la lista
+          // di default resta i vivi. Stessa lettura dei progetti — un filtro,
+          // non una colonna in più.
+          const archived = params.get("archived") === "1" || params.get("archived") === "true";
           // Root tasks only: a step never renders as its own card (drawer tree).
           try {
             return json({
               tasks: svc.list({
                 scope: "project", projectId, status: status as any, rootsOnly: true,
                 labels: parseLabelsParam(params.get("labels")),
+                archived,
               }),
             });
           }
@@ -1919,6 +1924,21 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           } catch (e) { return fail(e); }
         }
         return null;
+      }
+
+      // POST /api/boards/:projectId/tasks/:taskId/restore — il ritorno dalla
+      // DELETE, che qui archivia. Stessa forma di `POST /api/projects/:id/restore`:
+      // una rotta dedicata, non un campo della PATCH. Il broadcast è
+      // `task:created` perché per chi guarda la board quella card NON c'era:
+      // un `task:updated` su un id sconosciuto non fa comparire niente.
+      const bRestore = matchRoute(pathname, "/api/boards/:projectId/tasks/:taskId/restore");
+      if (bRestore && method === "POST") {
+        try {
+          const task = svc.restore({ taskId: bRestore.taskId, projectId: bRestore.projectId });
+          if (!task) return json({ error: "task not found", code: "not_found" }, 404);
+          broadcastToAll({ type: "task:created", projectId: bRestore.projectId, task });
+          return json(task);
+        } catch (e) { return fail(e); }
       }
 
       // POST /api/boards/:projectId/tasks/:taskId/stop — the human pulls the

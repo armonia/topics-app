@@ -1,6 +1,6 @@
 import { test, expect, describe } from "bun:test";
 import { Database } from "bun:sqlite";
-import { DISPATCH_DISK_FLOOR_GB, computeDispatchCapacity, dispatchResourceBlock, effectiveDispatchCap, freeDiskGB, readGlobalCap, sizingDispatchCap, structuralDispatchCapacity } from "./dispatch-capacity";
+import { DISPATCH_DISK_FLOOR_GB, computeDispatchCapacity, dispatchResourceBlock, effectiveDispatchCap, fleetSlotBudget, freeDiskGB, readGlobalCap, sizingDispatchCap, structuralDispatchCapacity } from "./dispatch-capacity";
 import { GLOBAL_CAP_MAX, GLOBAL_CAP_MIN, GLOBAL_CAP_OFF, clampGlobalCap, isGlobalCapOff } from "../../shared/board";
 
 function dbConImpostazioni(): Database {
@@ -188,5 +188,115 @@ describe("il pavimento sulle risorse", () => {
     expect(dispatchResourceBlock("/qualunque", () => DISPATCH_DISK_FLOOR_GB + 1)).toBeNull();
     expect(dispatchResourceBlock("/qualunque", () => DISPATCH_DISK_FLOOR_GB)).toBeNull();
     expect(dispatchResourceBlock("/qualunque", () => DISPATCH_DISK_FLOOR_GB - 0.1)).not.toBeNull();
+  });
+});
+
+
+describe("fleetSlotBudget — il freno vivo è un credito, non una divisione", () => {
+  // 12 core = il Mac su cui il difetto è stato misurato: quota 6 core-unità.
+  const su12 = (ourCoreUnits: number, running: number) => fleetSlotBudget({ cores: 12, ourCoreUnits, running });
+
+  test("la quota è metà macchina, e a flotta ferma è tutta libera", () => {
+    const b = su12(0, 0);
+    expect(b.budgetCores).toBe(6);
+    expect(b.freeCores).toBe(6);
+    expect(b.slots).toBe(6);
+  });
+
+  test("IL DIFETTO CHE CHIUDE: un agente che costa una core-unità non abbassa il tetto", () => {
+    // È l'invariante per cui il freno smette di misurare sé stesso. Col vecchio
+    // conto (`cores - load1`) ogni agente che partiva alzava il load di due o
+    // tre punti e chiudeva la porta al successivo, quindi la flotta si
+    // stabilizzava a UN agente qualunque fosse la coda. Qui l'agente che parte
+    // alza `running` di 1 e consuma 1 di budget: la somma non si muove.
+    expect(su12(0, 0).slots).toBe(6);
+    expect(su12(1, 1).slots).toBe(6);
+    expect(su12(2, 2).slots).toBe(6);
+    expect(su12(3, 3).slots).toBe(6);
+  });
+
+  test("il carico ALTRUI non entra nel conto: la sonda misura solo noi", () => {
+    // Il caso del 12/08, numeri veri: load 13 su 12 core, ma la NOSTRA flotta a
+    // 0,75 core. Il vecchio conto dava 1 slot. Qui la quota è quasi intatta,
+    // perché il load della macchina non è un ingresso di questa funzione: gli
+    // unici due sono quanto teniamo NOI e quanti siamo.
+    expect(su12(0.75, 0).slots).toBe(5);
+    expect(su12(0.75, 0).freeCores).toBeCloseTo(5.25, 5);
+  });
+
+  test("agenti che compilano: il tetto scende sotto lo strutturale", () => {
+    // Due agenti a 2,5 core l'uno: 5 di quota spesi, ne resta 1, quindi un
+    // posto solo in più. Questo è il freno che morde.
+    expect(su12(5, 2).slots).toBe(3);
+    // Tre a 2 core l'uno: quota esaurita, nessun posto nuovo.
+    expect(su12(6, 3).slots).toBe(3);
+  });
+
+  test("un agente da solo non può chiudere la porta al secondo", () => {
+    // Il primo si mette a compilare e si mangia l'intera quota. Senza pavimento
+    // il conto darebbe «uno», cioè lui: la flotta si congelerebbe sul primo che
+    // è partito, con la coda ferma dietro.
+    expect(su12(12, 1).slots).toBe(2);
+    expect(su12(6, 1).slots).toBe(2);
+    // E nemmeno la flotta a zero agenti resta senza posti.
+    expect(su12(99, 0).slots).toBe(2);
+  });
+
+  test("una misura assurda non sfonda in negativo", () => {
+    expect(su12(-5, 0).freeCores).toBe(6);
+    expect(su12(1e6, -3).slots).toBe(2);
+  });
+});
+
+
+describe("computeDispatchCapacity — quale sonda comanda", () => {
+  // I core li chiediamo AL MODULO, non a `os.cpus()`.
+  //
+  // Non è pignoleria: con `os.cpus().length` questo blocco è caduto una volta
+  // nella suite intera e mai da solo, perché sotto carico quella lettura sa
+  // tornare vuota (vedi `server/lib/machine-cores.ts`). Un test che chiede la
+  // stessa cosa da una porta diversa può rispondersi «un core» mentre il codice
+  // sotto misura ne vede dodici, e allora il rosso non parla del codice: parla
+  // di quanto era occupata la macchina che lo eseguiva.
+  const cores = computeDispatchCapacity(0, () => null).cores;
+
+  test("macchina satura ma carico NON nostro: il tetto resta quello strutturale", () => {
+    // La sonda della flotta dice «noi teniamo un decimo di core». Qualunque
+    // cosa stia facendo il resto della macchina, il tetto non si ritira.
+    const cap = computeDispatchCapacity(0, () => ({ coreUnits: 0.1, cores }));
+    expect(cap.recommended).toBe(structuralDispatchCapacity());
+    expect(cap.oursCores).toBe(0.1);
+    expect(cap.reason).toContain("di quota");
+  });
+
+  test("carico NOSTRO oltre la quota: il tetto scende e la riga dice da cosa", () => {
+    const strutturale = structuralDispatchCapacity();
+    // La flotta si mangia quattro volte la sua quota: il residuo va a zero e
+    // resta solo il pavimento, che è 2 e non 1 apposta.
+    const cap = computeDispatchCapacity(1, () => ({ coreUnits: cores * 4, cores }));
+    expect(cap.recommended).toBe(Math.min(strutturale, 2));
+    expect(cap.reason).toContain("di quota");
+    // «Ridotto» si può dire solo se c'era qualcosa da ridurre. Su una macchina
+    // così piccola che il tetto strutturale è già il pavimento (due o meno) il
+    // freno non ha spazio per mordere, e la riga giustamente non lo dice.
+    if (strutturale > 2) expect(cap.reason).toContain("ridotto a");
+  });
+
+  test("senza sonda (Windows, cache fredda) resta il conto storico sul load", () => {
+    const cap = computeDispatchCapacity(0, () => null);
+    expect(cap.oursCores).toBeNull();
+    expect(cap.recommended).toBeGreaterThanOrEqual(1);
+    expect(cap.reason).not.toContain("di quota");
+  });
+
+  test("una sonda che esplode vale «non lo so», non un tick caduto", () => {
+    const cap = computeDispatchCapacity(0, () => { throw new Error("ps morto"); });
+    expect(cap.oursCores).toBeNull();
+    expect(cap.recommended).toBeGreaterThanOrEqual(1);
+  });
+
+  test("`running` non gonfia mai il tetto oltre lo strutturale", () => {
+    const cap = computeDispatchCapacity(99, () => ({ coreUnits: 0, cores }));
+    expect(cap.recommended).toBe(structuralDispatchCapacity());
   });
 });
