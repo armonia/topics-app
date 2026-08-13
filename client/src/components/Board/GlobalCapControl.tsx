@@ -1,21 +1,27 @@
 /**
- * QUANTI AGENT POSSONO GIRARE INSIEME, detto per intero e in un posto solo.
+ * HOW MANY AGENTS MAY RUN TOGETHER, spelled out, in one place.
  *
- * Prima questo controllo esisteva unicamente nel menu ▾ accanto al titolo della
- * board, e il pannello delle impostazioni lo nominava in un `title` (un tooltip:
- * su un telefono, niente). Il risultato, con le parole di chi usa la app: «ma io
- * non vedo i limiti».
+ * This control used to exist only in the ▾ menu next to the board title, and the
+ * settings panel merely named it in a `title` attribute — a tooltip, which on a
+ * phone is nothing at all. The result, in the words of the person using the app:
+ * "but I can't see the limits".
  *
- * DUE COSE, NON UNA. Il tetto da solo non risponde alla domanda per cui lo si va
- * a cercare, che è «perché la coda non si muove». Serve accanto il numero di
- * agent al lavoro ADESSO: «3 di 8» si legge in un colpo d'occhio, e quando i due
- * numeri coincidono la riga lo dice a parole invece di lasciarlo dedurre.
+ * TWO NUMBERS, NOT ONE. The cap alone does not answer the question people open
+ * it for, which is "why isn't the queue moving". It needs the count of agents
+ * working RIGHT NOW beside it: "3 of 8" reads at a glance, and when the two
+ * numbers meet the line says so in words instead of leaving it to be inferred.
  *
- * UN COMPONENTE PER DUE SUPERFICI. Il menu del titolo e il pannello montano
- * QUESTO, non due copie: lo stato sta in `state/globalDispatchCap.ts` e le
- * scritture passano tutte da `saveGlobalCap`. Ecco perché un cambio fatto in uno
- * dei due si vede nell'altro senza ricaricare, e perché il broadcast
- * `board:global-cap` di un'altra finestra entra da un punto solo.
+ * THE COUNT CAN EXCEED THE CAP, and the wording has to survive that. In `auto`
+ * the denominator is the live machine recommendation, which moves with load
+ * every 15s; lowering a fixed cap does the same thing instantly. Running turns
+ * are never killed to fit, so "4 of 2" is a reachable state — and it reads as a
+ * bug. Above the cap the line switches phrasing and says why it will settle.
+ *
+ * ONE COMPONENT, EVERY SURFACE. The title menu and the settings panel mount
+ * THIS, not two copies: state lives in `state/globalDispatchCap.ts` and every
+ * write goes through `saveGlobalCap`. That is why a change made in one shows up
+ * in the other without a reload, and why another window's `board:global-cap`
+ * broadcast enters through a single door.
  */
 import { useT } from '../../hooks/useT';
 import { GLOBAL_CAP_MAX, GLOBAL_CAP_MIN } from '../../lib/board';
@@ -25,14 +31,15 @@ import {
   useGlobalDispatchCap,
 } from '../../state/globalDispatchCap';
 
-/** Senza parametri di proposito: le due superfici montano LA STESSA cosa, e una
- *  variante per superficie è il primo passo verso due controlli che divergono. */
+/** Deliberately propless: every surface mounts THE SAME thing, and a per-surface
+ *  variant is the first step towards two controls that drift apart. */
 export function GlobalCapControl() {
   const tr = useT();
   const s = useGlobalDispatchCap();
   const limit = currentCapLimit(s);
   const running = s.capacity?.running ?? 0;
   const full = limit !== null && running >= limit;
+  const over = limit !== null && running > limit;
 
   return (
     <div className="space-y-1" data-testid="global-cap-control">
@@ -40,20 +47,24 @@ export function GlobalCapControl() {
         {tr('board.dispatch.parallel')}
       </p>
 
-      {/* La riga viva, prima dei comandi: è quella che si va a leggere. Subito
-          sotto, a grandezza leggibile e non da nota a piè di pagina, la portata:
-          quel numero non è «di questa board». */}
+      {/* The live line comes before the controls: it is the one people come to
+          read. Right under it, at a readable size and not as a footnote, the
+          scope: that number is not "this board's". */}
       <p
         data-testid="global-cap-running"
         className={`text-[12px] font-medium ${full ? 'text-amber-300' : 'text-app-text-heading'}`}
       >
         {limit === null
           ? tr('board.dispatch.runningLoading')
-          : tr('board.dispatch.running', { running, cap: limit })}
+          : over
+            ? tr('board.dispatch.runningOver', { running, cap: limit })
+            : tr('board.dispatch.running', { running, cap: limit })}
       </p>
       <p className="text-[11px] leading-snug text-app-text-secondary">{tr('board.dispatch.oneMachine')}</p>
       {full && (
-        <p className="text-[11px] leading-snug text-amber-300/80">{tr('board.dispatch.capFull')}</p>
+        <p className="text-[11px] leading-snug text-amber-300/80">
+          {tr(over ? 'board.dispatch.capOver' : 'board.dispatch.capFull')}
+        </p>
       )}
 
       <label className="flex cursor-pointer items-center justify-between gap-3">

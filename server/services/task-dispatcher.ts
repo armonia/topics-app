@@ -142,8 +142,10 @@ export interface DispatcherDeps {
    *  l'agente nasca. `effort: null` = non deciso, e la board decide; `weight`
    *  assente/null = leggero, cioè niente cambia (vedi `TASK_WEIGHTS`). */
   pickAutoModel?: (task: Task) => Promise<{ model: string | null; effort?: string | null; weight?: string | null }>;
-  /** Auto concurrency cap for a board on `maxAgentsAuto`: live machine capacity
-   *  (CPU/load). Absent ⇒ auto falls back to the board's manual `maxAgents`. */
+  /** Live machine capacity (CPU/load) for the ONE machine-wide cap, used when
+   *  the reserved `board_settings['*']` row says `auto`. Absent ⇒ auto falls
+   *  back to that row's fixed number. There is no per-board cap: the field that
+   *  suggested one was written by nobody's reader and has been removed. */
   recommendedCap?: () => number;
   /** Drive ONE headless turn to completion; resolves when the turn ends. */
   /**
