@@ -466,7 +466,7 @@ interface TaskRow {
  * La cartella di un task. `tasks.project_id` NON è `projects.id`: è l'id di
  * BOARD, cioè `projectIdForPath(path)` = `<basename>-<djb2 a 6 cifre>`
  * (server/services/tasks.ts). Un join ingenuo su `projects.id` non trova mai
- * nulla — sul DB vivo il task del board GuidoAI porta `[cliente]-v1skoz`, che in
+ * nulla — sul DB vivo il task del board DemoApp porta `demoapp-v1skoz`, che in
  * `projects` non esiste.
  *
  * Anche qui vale «verifica il path, non fidarti della chiave»: si RICALCOLA

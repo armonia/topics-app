@@ -239,7 +239,7 @@ Da «ho pagato» a «la CI firma e notarizza».
   $0 verifica [app]         dice se Gatekeeper la accetta e se la ricevuta c'è
 
 Prima di tutto questo, a mano e solo tu: creare l'Apple Account, iscrivere
-[azienda] (D-U-N-S [identificativo]), pagare.
+l'organizzazione (serve il suo D-U-N-S, che Apple verifica), pagare.
 USO
     ;;
 esac

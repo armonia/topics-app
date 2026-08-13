@@ -1,8 +1,30 @@
 /**
- * Estrae la fixture della BARRA: il prefisso di 46 messaggi della chat reale
- * `topic:4c8de758`, ridotto ai soli fatti che parlano di costo (ruolo, token,
- * costo, e i token per singola chiamata a tool). Nessun contenuto: la fixture
- * non deve portare in repo una conversazione.
+ * ⚠️  QUELLO CHE ESCE DA QUI NON SI COMMITTA COM'È.
+ *
+ * Questo script legge il DATABASE VIVO, e quindi scrive nella fixture tre cose
+ * che in un repo PUBBLICO non devono entrare:
+ *   • `sessionKey`, cioè l'id reale della sessione — che finisce anche nel NOME
+ *     del file, se lo si passa da riga di comando;
+ *   • il titolo della chat, se lo si rimette nella `note` (la versione
+ *     precedente di questo script ce lo scriveva dentro);
+ *   • il riferimento a «estratto dal database vivo», che lega la misura alla
+ *     macchina di chi l'ha eseguito.
+ * I token e i costi invece vanno bene: senza id e senza titolo sono una curva
+ * di costo che non si attacca a nessuno, ed è ciò che rende il test una
+ * verifica invece che un aneddoto (il perché è scritto per esteso nel docblock
+ * di `server/usage/cost-probe.test.ts`).
+ *
+ * Quindi, dopo aver rigenerato: riscrivi `sessionKey` con un valore sintetico e
+ * la `note` senza titolo né id, oppure il cancello in fondo a
+ * `server/usage/cost-probe.test.ts` («la fixture resta anonima») diventa rosso
+ * — che è esattamente il suo mestiere. Il nome del file di destinazione qui
+ * sotto è già anonimo apposta: non rimetterci dentro l'id.
+ *
+ * ── COSA FA ─────────────────────────────────────────────────────────────────
+ * Estrae la fixture della BARRA: il prefisso di 46 messaggi di una chat reale,
+ * ridotto ai soli fatti che parlano di costo (ruolo, token, costo, e i token
+ * per singola chiamata a tool). Nessun contenuto: la fixture non deve portare
+ * in repo una conversazione.
  *
  * Si esegue a mano contro il database vivo, in sola lettura:
  *   bun scripts/extract-cost-probe-fixture.ts [dbPath] [sessionKey] [nMessaggi]
@@ -11,7 +33,13 @@ import { Database } from "bun:sqlite";
 import { writeFileSync } from "fs";
 
 const dbPath = process.argv[2] || `${process.env.HOME}/Projects/topics-app/data/topics.db`;
-const sessionKey = process.argv[3] || "topic:4c8de758";
+// Nessun default: l'id di una sessione reale non si scrive in un repo pubblico,
+// e un default sbagliato produrrebbe in silenzio una fixture vuota.
+const sessionKey = process.argv[3];
+if (!sessionKey) {
+  console.error("uso: bun scripts/extract-cost-probe-fixture.ts [dbPath] <sessionKey> [nMessaggi]");
+  process.exit(2);
+}
 const limit = Number(process.argv[4] || 46);
 
 const db = new Database(dbPath, { readonly: true });
@@ -50,10 +78,13 @@ const rows = raw.map((r) => {
 
 const out = {
   note:
-    "Prefisso dei primi 46 messaggi della chat reale topic:4c8de758 («Reference siti scene motion»), " +
-    "estratto l'11/08/2026 dal database vivo. Solo i fatti che parlano di costo: nessun contenuto. " +
-    "`misuraAMano` è il conto preso a mano su QUELLA chat a quel momento — la sonda deve ricostruirlo.",
-  sessionKey,
+    "APPENA RIGENERATA: da anonimizzare prima di committare — vedi l'intestazione di " +
+    "scripts/extract-cost-probe-fixture.ts. Prefisso dei primi 46 messaggi di una chat reale, " +
+    "ridotto ai soli fatti che parlano di costo: nessun contenuto. `misuraAMano` è il conto preso " +
+    "a mano su quella chat a quel momento, ed è INDIPENDENTE da `rows` — la sonda deve ricostruirlo.",
+  // Sintetico di proposito: l'id vero della sessione resta fuori dal file, e chi
+  // rigenera deve scegliere di rimetterlo, non ritrovarselo scritto.
+  sessionKey: "topic:fixture-barra",
   misuraAMano: {
     messaggi: 46,
     toolCalls: 104,
@@ -65,7 +96,7 @@ const out = {
   rows,
 };
 
-const dest = "tests/fixtures/cost-probe-topic-4c8de758.json";
+const dest = "tests/fixtures/cost-probe-46-messages.json";
 writeFileSync(dest, JSON.stringify(out, null, 1));
 console.log(
   `${dest}: ${rows.length} messaggi · ${rows.reduce((s, r) => s + r.callTokens.length, 0)} chiamate · ` +

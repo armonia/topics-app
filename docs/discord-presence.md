@@ -1,12 +1,13 @@
-# Discord Rich Presence — la pubblica Topics, non un daemon che indovina
+# Discord Rich Presence — la pubblica Topics, con i conteggi veri del server
 
 Topics scrive da sé la tua Rich Presence su Discord: apre il socket IPC locale
 del client Discord (`discord-ipc-0…9`), fa l'handshake e manda `SET_ACTIVITY`.
 Nessuna dipendenza npm, nessun processo in più, nessuna chiamata di rete.
 
 **Parte spenta.** Pubblicare cosa stai facendo non è una cosa che si accende per
-conto di qualcuno: la colonna nasce `NULL` (migration `102-discord-presence.sql`)
-e finché non la accendi tu il servizio non apre nessun filo.
+conto di qualcuno: la colonna nasce `NULL` (migration
+`server/db/migrations/20260812093221-discord-presence.sql`) e finché non la
+accendi tu il servizio non apre nessun filo.
 
 ## Dov'è l'interruttore
 
@@ -31,6 +32,11 @@ e finché non la accendi tu il servizio non apre nessun filo.
 
 Non serve riavviare: il servizio rilegge le impostazioni a ogni giro.
 
+**Uno scrittore alla volta.** Discord tiene una presence sola per applicazione.
+Se sulla stessa macchina un altro programma pubblica la presence, l'ultimo che
+scrive vince e la card sfarfalla fra due verità. Prima di accendere
+l'interruttore di Topics, ferma l'altro.
+
 ## Da dove vengono i numeri
 
 Conteggi esatti del server, non stime:
@@ -41,32 +47,6 @@ Conteggi esatti del server, non stime:
 | al lavoro adesso | turni in streaming + agenti della board con un task in mano |
 | task in corso | i task che la board sta eseguendo |
 | il cronometro | da quando è in piedi il **server** |
-
-## Migrazione dal vecchio daemon esterno
-
-Prima di questo codice la presence la scriveva un daemon separato
-(`~/Projects/claude-discord-presence`, job launchd `com.jarvis.discord-presence`).
-Contava i processi `claude` con `ps` e campionava la CPU per indovinare quali
-stessero lavorando, e sbagliava da entrambi i lati: contava processi che non
-erano sessioni di lavoro, e non vedeva le chat via API, che non lanciano nessun
-processo.
-
-**I due non possono convivere.** Discord tiene una presence sola per
-applicazione: se girano entrambi, l'ultimo che scrive vince e la card sfarfalla
-fra due verità.
-
-I comandi per fermare il vecchio job — **da eseguire a mano, quando decidi tu**:
-
-```sh
-# ferma il daemon (il plist resta al suo posto)
-launchctl bootout gui/$(id -u)/com.jarvis.discord-presence
-
-# ci ripensi:
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.jarvis.discord-presence.plist
-```
-
-Finché non lo fai, tieni l'interruttore di Topics **spento**: è lo stato in cui
-nasce, e le due presence non si contendono la card.
 
 ## Il banner per il README del profilo GitHub
 
