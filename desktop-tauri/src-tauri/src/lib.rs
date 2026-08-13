@@ -5041,23 +5041,39 @@ fn browser_close(app: tauri::AppHandle, id: String) -> Result<(), String> {
     no_abort("browser_close", move || browser_close_inner(app, id))
 }
 
-/// Chiude la vista di una pane e dice la VERITÀ su com'è andata.
+/// Svuota una pane browser e dimentica tutto quello che la riguardava.
 ///
-/// Ogni passo che tocca il dispatcher di wry ha il suo `no_abort`, non uno
-/// solo attorno a tutto: col mutex avvelenato panicava già `navigate()` — la
-/// prima riga — e il `?` che seguiva portava fuori dalla funzione prima della
-/// chiusura E prima della pulizia delle cache. Isolati, un passo morto non si
-/// porta via i successivi.
+/// È il corpo comune di tre percorsi che vogliono la stessa cosa e per ragioni
+/// diverse: la chiusura esplicita (`browser_close_inner`), la finestra che se ne
+/// va portandosi via le figlie (`evict_panes_of_window`) e il reclamo che non
+/// trova più nessuno a rivendicare la pane (`browser_claim`). Averlo scritto in
+/// un posto solo è ciò che impedisce a uno dei tre di dimenticare un pezzo:
+/// finché era copiato, «svuotare» voleva dire cose diverse a seconda di chi
+/// chiedeva.
 ///
-/// L'esito è `Err` quando l'etichetta è ancora registrata alla fine, cioè
-/// quando la vista NON è morta: `Webview::close()` toglie l'etichetta dal
-/// manager in modo sincrono (è la distruzione dell'NSView a essere asincrona),
-/// quindi trovarla ancora lì significa che la chiusura non è mai atterrata. In
-/// quel caso l'etichetta si brucia, così la prossima `browser_open` sullo stesso
-/// id crea una vista nuova invece di riusare quella morta.
-fn browser_close_inner(app: tauri::AppHandle, id: String) -> Result<(), String> {
+/// Ogni passo che tocca il dispatcher di wry ha il suo `no_abort`, non uno solo
+/// attorno a tutto: col mutex avvelenato panicava già `navigate()`, la prima
+/// riga, e il `?` che seguiva portava fuori dalla funzione prima della chiusura
+/// E prima della pulizia delle cache. Isolati, un passo morto non si porta via i
+/// successivi.
+///
+/// I due interruttori dicono quanto lontano spingersi, e nessuno dei due è
+/// gratis:
+///
+/// * `close` = distruggere anche il guscio. Lo vuole chi chiude una pane per
+///   davvero. NON lo vuole chi sta reagendo alla chiusura della finestra ospite:
+///   lì la view la smonta comunque la finestra, e chiedere la `close()` mentre
+///   il runtime sta già smontando aggiunge un messaggio al dispatcher senza
+///   liberare un byte in più.
+/// * `purge_cache` = restituire al disco la NetworkCache dello store. Di norma
+///   lo chiede il client alla morte della pane
+///   (`client/src/components/Layout/hooks/usePaneLifecycle.ts`), quindi la
+///   chiusura esplicita lo lascia a lui e non lo rifà. Lo accendono i percorsi
+///   dove il client non arriva: una finestra chiusa non ha più una UI che possa
+///   chiamare niente, e una pane orfana per definizione non ha più nessuno.
+fn browser_evict_pane(app: &tauri::AppHandle, id: &str, close: bool, purge_cache: bool) {
     use tauri::Manager;
-    let label = browser_label(&id);
+    let label = browser_label(id);
     if let Some(wv) = app.get_webview(&label) {
         // SVUOTA PRIMA DI CHIUDERE. `close()` non libera il processo WebContent:
         // wry non dealloca mai la WKWebView — `impl Drop for InnerWebView`
@@ -5078,28 +5094,35 @@ fn browser_close_inner(app: tauri::AppHandle, id: String) -> Result<(), String> 
         // termine un caricamento anche su una view staccata dalla sua superview
         // (e' la stessa proprieta' su cui contavano le pane nascoste).
         if let Ok(blank) = "about:blank".parse::<tauri::Url>() {
-            let _ = no_abort("browser_close/navigate", || {
+            let _ = no_abort("browser_evict_pane/navigate", || {
                 wv.navigate(blank).map_err(|e| e.to_string())
             });
         }
         // La pane non esiste più: l'appunto sulla sua URL nemmeno, o una pane
         // nuova con lo stesso id erediterebbe la posizione della vecchia.
         forget_pane_url(&label);
-        let _ = no_abort("browser_close/close", || wv.close().map_err(|e| e.to_string()));
+        if close {
+            let _ = no_abort("browser_evict_pane/close", || {
+                wv.close().map_err(|e| e.to_string())
+            });
+        }
+    }
+    if purge_cache {
+        let _ = browser_purge_cache(app.clone(), id.to_string());
     }
     // Drop the cache entries so a re-opened pane on the same id re-applies move + mask.
     if let Ok(mut g) = browser_bounds_cache().lock() {
-        g.remove(&id);
+        g.remove(id);
     }
     #[cfg(target_os = "macos")]
     if let Ok(mut g) = browser_corner_cache().lock() {
-        g.remove(&id);
+        g.remove(id);
     }
     // Unmap the dead WKWebView pointer (by pane value — the pointer itself is
     // gone with the close) and drop any queued failures nobody will drain.
     #[cfg(target_os = "macos")]
     if let Ok(mut g) = nav_pane_by_webview().lock() {
-        g.retain(|_, v| v != &id);
+        g.retain(|_, v| v != id);
     }
     if let Ok(mut v) = NAV_ERROR_EVENTS.lock() {
         v.retain(|e| e.pane_id != id);
@@ -5109,8 +5132,54 @@ fn browser_close_inner(app: tauri::AppHandle, id: String) -> Result<(), String> 
     if let Ok(mut v) = DOWNLOAD_EVENTS.lock() {
         v.retain(|e| e.pane_id != id);
     }
+}
+
+/// Svuota le pane browser ospitate da `window_label`, PRIMA che la finestra se
+/// ne vada.
+///
+/// Il momento è tutto. Su `Destroyed` le figlie non sono più raggiungibili:
+/// l'evento arriva quando lo smontaggio è già finito, `app.webviews()` non le
+/// elenca più e non c'è più nessuno a cui dire `about:blank`. Su
+/// `CloseRequested` la finestra è ancora intera, quindi c'è ancora la webview a
+/// cui togliere il documento. Dopo, il guscio ObjC resta comunque in giro (wry
+/// non lo dealloca mai, vedi `browser_evict_pane`), ma resta VUOTO: è la
+/// differenza fra una webview morta da qualche centinaio di kB e una che tiene
+/// in ostaggio l'heap JS di una pagina intera.
+///
+/// Non chiediamo la `close()`: la view la distrugge la finestra un istante
+/// dopo, ed è il contenuto la cosa che nessun altro libererebbe.
+fn evict_panes_of_window(app: &tauri::AppHandle, window_label: &str) {
+    use tauri::Manager;
+    let _ = no_abort("evict_panes_of_window", || {
+        let ids: Vec<String> = app
+            .webviews()
+            .into_iter()
+            .filter(|(_, wv)| wv.window().label() == window_label)
+            .filter_map(|(label, _)| pane_id_from_label(&label).map(str::to_string))
+            .collect();
+        for id in ids {
+            eprintln!("[browser] finestra {window_label} in chiusura: svuoto la pane {id}");
+            browser_evict_pane(app, &id, false, true);
+        }
+        Ok(())
+    });
+}
+
+/// Chiude la vista di una pane e dice la VERITÀ su com'è andata.
+///
+/// L'esito è `Err` quando l'etichetta è ancora registrata alla fine, cioè
+/// quando la vista NON è morta: `Webview::close()` toglie l'etichetta dal
+/// manager in modo sincrono (è la distruzione dell'NSView a essere asincrona),
+/// quindi trovarla ancora lì significa che la chiusura non è mai atterrata. In
+/// quel caso l'etichetta si brucia, così la prossima `browser_open` sullo stesso
+/// id crea una vista nuova invece di riusare quella morta.
+fn browser_close_inner(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    use tauri::Manager;
+    // `purge_cache: false` di proposito: qui la cache la svuota il client, che
+    // chiama `browser_purge_cache` per conto suo alla morte della pane.
+    browser_evict_pane(&app, &id, true, false);
     // La vista è ancora registrata? Allora non è morta.
-    close_verdict(&id, app.get_webview(&label).is_some())
+    close_verdict(&id, app.get_webview(&browser_label(&id)).is_some())
 }
 
 /// Il verdetto della chiusura, separato dal guscio per poterlo provare.
@@ -5127,6 +5196,226 @@ fn close_verdict(id: &str, still_registered: bool) -> Result<(), String> {
     let gen = burn_pane_label(id);
     eprintln!("[browser_close] {id}: la vista ha rifiutato di chiudersi, etichetta bruciata (gen {gen})");
     Err(format!("browser_close: pane {id} refused to close"))
+}
+
+// ── Reclamo delle pane browser ───────────────────────────────────────────────
+//
+// Chiudere le pane quando la finestra se ne va copre il caso pulito. Non copre
+// quello sporco, che è il solo che conta per il footprint: una UI ricaricata,
+// una griglia rifatta, un crash del documento a metà smontaggio lasciano
+// webview che nessuna interfaccia disegna più. Sono invisibili per definizione,
+// quindi nessun bottone potrà mai chiuderle.
+//
+// L'inversione è questa: invece di chiedere a noi chi è morto, chiediamo ai vivi
+// chi è loro. Ogni UI viva manda periodicamente l'elenco dei contextId che sta
+// disegnando; una vista che nessun elenco fresco nomina, e che nessuno ha
+// nominato per tutta la grazia, non ha più un padrone.
+//
+// L'orologio è il battito del client, non un timer in Rust. Un timer nostro
+// girerebbe anche a UI morta o congelata, cioè proprio quando ogni pane sembra
+// non reclamata: batterebbe più forte esattamente nel momento in cui sbaglia di
+// più. Il battito, invece, non arriva quando non c'è nessuno a battere, e allora
+// non si chiude niente.
+
+/// Quello che una finestra ha detto di suo, e quando.
+#[derive(Clone)]
+struct WindowClaim {
+    seen_ms: u64,
+    ids: std::collections::HashSet<String>,
+}
+
+/// Una vista browser viva ADESSO, come la vede il verdetto.
+///
+/// `host` è la finestra che la ospita e `host_alive` dice se quella finestra
+/// esiste ancora: sono due cose diverse, e la seconda è il caso in cui un
+/// pop-out se n'è andato lasciandosi dietro la figlia.
+struct LiveView {
+    id: String,
+    host: String,
+    host_alive: bool,
+}
+
+/// label della finestra → il suo ultimo reclamo. Le finestre morte si tolgono a
+/// ogni battito: un reclamo fossile terrebbe in vita per sempre le pane che
+/// nominava.
+static BROWSER_CLAIMS: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::HashMap<String, WindowClaim>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+
+/// id della pane → l'ultimo istante in cui qualcuno l'ha rivendicata, o il primo
+/// avvistamento se non è mai successo.
+///
+/// Serve a dare una grazia a chi nasce, e nasce sempre non reclamato: fra la
+/// `browser_open` e il battito che la nomina passa un giro, e senza questa
+/// mappa il primo battito utile chiuderebbe la pane appena aperta.
+static BROWSER_UNCLAIMED_SINCE: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::HashMap<String, u64>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+
+/// Quanto vale un reclamo prima di diventare carta straccia. Il client batte
+/// molto più spesso: un reclamo stantio non è «una UI in ritardo», è una UI che
+/// non c'è più.
+const CLAIM_FRESH_MS: u64 = 45_000;
+
+/// Quanto tempo una pane può restare non reclamata prima di essere considerata
+/// orfana. Copre il giro fra l'apertura e il primo battito che la nomina, e i
+/// rimontaggi in cui la griglia si rifà da capo.
+const CLAIM_GRACE_MS: u64 = 60_000;
+
+/// Quali viste non ha più nessuno. Separata dal guscio Tauri per poterla
+/// provare: la DECISIONE è il pezzo che può fare danno, la chiamata a WebKit no.
+///
+/// Le regole, in quest'ordine, e ognuna esiste per un caso che è già successo:
+///
+/// 1. Nominata da un reclamo FRESCO di una finestra QUALSIASI: intoccabile. Non
+///    si guarda quale, perché `browser_open` ricade su `main` quando l'etichetta
+///    della finestra è sconosciuta: una pane disegnata da un pop-out può essere
+///    ospitata da `main`, e chiedere che a rivendicarla sia proprio l'ospite la
+///    condannerebbe.
+/// 2. Ospite sparito: orfana. Nessuna UI potrà mai più nominarla, e non c'è
+///    finestra da cui chiuderla.
+/// 3. Ospite vivo ma SENZA un reclamo fresco: intoccabile. È il caso del boot,
+///    ed è la regressione da non fare: una finestra che si sta ancora aprendo ha
+///    già le sue pane e non ha ancora una UI che possa battere. Silenzio non
+///    vuol dire abbandono, vuol dire «non lo so ancora».
+/// 4. Ospite con un reclamo fresco che NON la nomina: è il solo caso in cui il
+///    silenzio è una risposta, perché quella UI ha parlato e non l'ha detta sua.
+///    Anche qui però si aspetta la grazia, e un id mai visto prima resta
+///    intoccabile: senza un istante da cui contare non c'è niente da scadere.
+///
+/// Corollario che vale la pena dire: se NESSUN reclamo è fresco, le uniche viste
+/// che escono sono quelle senza ospite (regola 2), perché la 3 ferma tutte le
+/// altre. E nel comando quel caso non si dà comunque, visto che chi chiama
+/// registra il proprio reclamo prima di far girare le regole.
+fn orphan_views(
+    live: &[LiveView],
+    claims: &std::collections::HashMap<String, WindowClaim>,
+    unclaimed_since: &std::collections::HashMap<String, u64>,
+    now_ms: u64,
+    fresh_ms: u64,
+    grace_ms: u64,
+) -> Vec<String> {
+    let is_fresh = |c: &WindowClaim| now_ms.saturating_sub(c.seen_ms) <= fresh_ms;
+    let mut out: Vec<String> = Vec::new();
+    // Due etichette possono risalire allo stesso id (una generazione bruciata
+    // più la viva): `browser_evict_pane` ne indirizza una sola, quindi contarlo
+    // due volte gonfierebbe soltanto il risultato.
+    let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    for v in live {
+        if claims.values().any(|c| is_fresh(c) && c.ids.contains(&v.id)) {
+            continue;
+        }
+        let orphan = if !v.host_alive {
+            true
+        } else {
+            match claims.get(&v.host) {
+                Some(c) if is_fresh(c) => match unclaimed_since.get(&v.id) {
+                    Some(&since) => now_ms.saturating_sub(since) > grace_ms,
+                    None => false,
+                },
+                _ => false,
+            }
+        };
+        if orphan && seen.insert(v.id.as_str()) {
+            out.push(v.id.clone());
+        }
+    }
+    out
+}
+
+/// Il battito di una UI viva: «queste pane browser sono mie».
+///
+/// Registra il reclamo di `window`, poi passa in rassegna le viste vive e chiude
+/// quelle che non ha più nessuno (vedi `orphan_views` per le regole). Ritorna
+/// quante ne ha chiuse, che è anche il solo modo che il client ha di accorgersi
+/// che sta perdendo pane senza volerlo.
+///
+/// La chiusura qui è quella piena: guscio incluso e cache restituita al disco.
+/// A differenza della chiusura esplicita, non c'è un client a valle che possa
+/// fare il resto per conto suo. Se ci fosse, la pane non sarebbe orfana.
+#[tauri::command]
+fn browser_claim(app: tauri::AppHandle, window: String, ids: Vec<String>) -> Result<usize, String> {
+    no_abort("browser_claim", move || {
+        use tauri::Manager;
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        let windows: std::collections::HashSet<String> = app.windows().into_keys().collect();
+
+        let claims = {
+            let mut g = BROWSER_CLAIMS.lock().unwrap_or_else(|e| e.into_inner());
+            g.insert(
+                window.clone(),
+                WindowClaim { seen_ms: now_ms, ids: ids.into_iter().collect() },
+            );
+            // Le finestre morte non rivendicano più niente. L'eccezione è chi ha
+            // appena chiamato: un'etichetta che non risulta fra le finestre è
+            // strana, ma buttarne via il reclamo significherebbe orfanare le pane
+            // di chi sta parlando proprio ADESSO, ed è il danno peggiore fra i
+            // due.
+            g.retain(|label, _| windows.contains(label) || label == &window);
+            g.clone()
+        };
+
+        // La verità su chi è vivo è `Manager::webviews()`, non un registro
+        // nostro: stessa ragione di `browser_list`, un registro può divergere e
+        // il runtime no.
+        let live: Vec<LiveView> = app
+            .webviews()
+            .into_iter()
+            .filter_map(|(label, wv)| {
+                let id = pane_id_from_label(&label)?.to_string();
+                let host = wv.window().label().to_string();
+                let host_alive = windows.contains(&host);
+                Some(LiveView { id, host, host_alive })
+            })
+            .collect();
+
+        let unclaimed_since = {
+            let mut g = BROWSER_UNCLAIMED_SINCE.lock().unwrap_or_else(|e| e.into_inner());
+            let live_ids: std::collections::HashSet<&str> =
+                live.iter().map(|v| v.id.as_str()).collect();
+            // Le pane che non ci sono più non hanno una scadenza da tenere: se
+            // un id tornasse, tornerebbe con la sua grazia intera invece che con
+            // quella consumata da una vita precedente.
+            g.retain(|id, _| live_ids.contains(id.as_str()));
+            for v in &live {
+                let claimed = claims
+                    .values()
+                    .any(|c| now_ms.saturating_sub(c.seen_ms) <= CLAIM_FRESH_MS && c.ids.contains(&v.id));
+                if claimed {
+                    g.insert(v.id.clone(), now_ms);
+                } else {
+                    g.entry(v.id.clone()).or_insert(now_ms);
+                }
+            }
+            g.clone()
+        };
+
+        let orphans = orphan_views(
+            &live,
+            &claims,
+            &unclaimed_since,
+            now_ms,
+            CLAIM_FRESH_MS,
+            CLAIM_GRACE_MS,
+        );
+        for id in &orphans {
+            let host = live
+                .iter()
+                .find(|v| &v.id == id)
+                .map(|v| v.host.as_str())
+                .unwrap_or("?");
+            eprintln!("[browser_claim] pane {id} (ospite {host}) non la rivendica nessuno: chiusa");
+            browser_evict_pane(&app, id, true, true);
+            BROWSER_UNCLAIMED_SINCE
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(id);
+        }
+        Ok(orphans.len())
+    })
 }
 
 /// Purge a browser pane's PERSISTENT on-disk `WKWebsiteDataStore` — the cookie/
@@ -7821,6 +8110,28 @@ async fn window_detach(
 
     let win = build.build().map_err(|e| format!("build detach window: {e}"))?;
 
+    // Le pane browser che questa finestra ospita vanno svuotate PRIMA che se ne
+    // vada, e `CloseRequested` è l'ultimo momento in cui esistono ancora: su
+    // `Destroyed` non sono più raggiungibili (vedi `evict_panes_of_window`).
+    // Sta fuori dal `cfg(macos)` qui sotto perché non è chrome: è heap, e
+    // l'heap lo tiene in ostaggio ogni piattaforma. `on_window_event` accoda
+    // (non sostituisce), quindi il registratore macOS più sotto resta valido.
+    // Verificato nel runtime che usiamo, non dedotto dalla documentazione: ogni
+    // registrazione chiede un id nuovo e finisce in una MAPPA di ascoltatori
+    // (`tauri-runtime-wry` 2.11.3, `WindowMessage::AddEventListener` →
+    // `window_event_listeners.insert(id, listener)`), e all'arrivo dell'evento
+    // il runtime li chiama tutti. Se un giorno diventasse un rimpiazzo, a
+    // sparire sarebbero le luci del semaforo di questa finestra.
+    {
+        let app_for_evict = app.clone();
+        let label_for_evict = label.clone();
+        win.on_window_event(move |event| {
+            if matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
+                evict_panes_of_window(&app_for_evict, &label_for_evict);
+            }
+        });
+    }
+
     #[cfg(target_os = "macos")]
     {
         // Traffic lights hidden by default (revealed with the Topics menu, same
@@ -7945,6 +8256,20 @@ async fn window_detach_space(
                 .hidden_title(true);
 
             let win = build.build().map_err(|e| format!("build space window: {e}"))?;
+
+            // Stessa ragione di `window_detach`: le pane browser di questa
+            // finestra vanno svuotate mentre è ancora intera, e vale su ogni
+            // piattaforma. Qui pesa di più: una finestra-gruppo apre e chiude
+            // tab come la principale, quindi è quella che ne accumula di più.
+            {
+                let app_for_evict = app_for_main.clone();
+                let label_for_evict = label.clone();
+                win.on_window_event(move |event| {
+                    if matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
+                        evict_panes_of_window(&app_for_evict, &label_for_evict);
+                    }
+                });
+            }
 
             #[cfg(target_os = "macos")]
             {
@@ -9652,6 +9977,7 @@ pub fn run() {
             browser_site_data_records,
             browser_forget_site,
             browser_reap_data_stores,
+            browser_claim,
             browser_list,
             browser_eval_js,
             browser_screenshot,
@@ -10649,5 +10975,132 @@ mod reaper_degli_store {
         assert_eq!(s.len(), 36);
         assert_eq!(uuid_bytes_from_str(&s), Some(bytes));
         assert_eq!(uuid_bytes_from_str("non-un-uuid"), None);
+    }
+}
+
+/// Chi tiene in vita una pane browser, e chi la lascia andare.
+///
+/// La catena che questi test chiudono: una UI ricaricata o rimontata lascia
+/// dietro di sé webview che nessuno disegna più, invisibili per definizione e
+/// quindi impossibili da chiudere a mano. Il reclamo le trova. Ma il verdetto ha
+/// una regola in più delle altre, ed è quella che protegge il caso opposto: una
+/// finestra che si sta ancora aprendo ha già le sue pane e non ha ancora una UI
+/// che possa battere, e chiuderle lì sarebbe peggio del problema.
+#[cfg(test)]
+mod browser_claim_tests {
+    use super::{orphan_views, LiveView, WindowClaim, CLAIM_FRESH_MS, CLAIM_GRACE_MS};
+    use std::collections::{HashMap, HashSet};
+
+    /// Un istante «adesso» lontano da zero, così `now - x` non satura per caso e
+    /// una regola rotta si vede invece di sembrare giusta.
+    const NOW: u64 = 10_000_000;
+
+    fn claim(seen_ms: u64, ids: &[&str]) -> WindowClaim {
+        WindowClaim {
+            seen_ms,
+            ids: ids.iter().map(|s| (*s).to_string()).collect::<HashSet<String>>(),
+        }
+    }
+
+    fn view(id: &str, host: &str, host_alive: bool) -> LiveView {
+        LiveView { id: id.to_string(), host: host.to_string(), host_alive }
+    }
+
+    fn claims(entries: &[(&str, WindowClaim)]) -> HashMap<String, WindowClaim> {
+        entries
+            .iter()
+            .map(|(k, v)| ((*k).to_string(), claim(v.seen_ms, &v.ids.iter().map(String::as_str).collect::<Vec<_>>())))
+            .collect()
+    }
+
+    fn since(entries: &[(&str, u64)]) -> HashMap<String, u64> {
+        entries.iter().map(|(k, v)| ((*k).to_string(), *v)).collect()
+    }
+
+    fn run(
+        live: &[LiveView],
+        c: &HashMap<String, WindowClaim>,
+        s: &HashMap<String, u64>,
+    ) -> Vec<String> {
+        orphan_views(live, c, s, NOW, CLAIM_FRESH_MS, CLAIM_GRACE_MS)
+    }
+
+    /// Il caso normale: la UI dice che la pane è sua, e la pane resta. Se questo
+    /// cedesse, il battito chiuderebbe le schede che l'utente sta guardando.
+    #[test]
+    fn una_pane_reclamata_non_si_tocca() {
+        let live = [view("pane-a", "main", true)];
+        let c = claims(&[("main", claim(NOW, &["pane-a"]))]);
+        let s = since(&[("pane-a", NOW - CLAIM_GRACE_MS * 10)]);
+        assert!(run(&live, &c, &s).is_empty(), "chi è reclamato non è orfano");
+    }
+
+    /// Il boot, ed è la regressione da non fare: la finestra c'è, le sue pane
+    /// pure, ma la sua UI non ha ancora battuto. Silenzio vecchio non è
+    /// abbandono, è «non lo so ancora».
+    #[test]
+    fn un_reclamo_stantio_dell_ospite_non_autorizza_niente() {
+        let live = [view("pane-a", "space-1", true)];
+        let c = claims(&[("space-1", claim(NOW - CLAIM_FRESH_MS - 1, &[]))]);
+        let s = since(&[("pane-a", NOW - CLAIM_GRACE_MS - 1)]);
+        assert!(
+            run(&live, &c, &s).is_empty(),
+            "un ospite che non parla da troppo non può condannare le sue pane"
+        );
+    }
+
+    /// Il caso per cui esiste tutto il meccanismo: l'ospite è vivo, ha appena
+    /// parlato, e nel suo elenco quella pane non c'è. Passata la grazia, non ha
+    /// più nessuno.
+    #[test]
+    fn non_reclamata_da_un_ospite_fresco_e_fuori_grazia_e_orfana() {
+        let live = [view("pane-a", "space-1", true)];
+        let c = claims(&[("space-1", claim(NOW, &["pane-b"]))]);
+        let s = since(&[("pane-a", NOW - CLAIM_GRACE_MS - 1)]);
+        assert_eq!(run(&live, &c, &s), vec!["pane-a".to_string()]);
+    }
+
+    /// Stessa scena, un millisecondo prima: la grazia serve a coprire il giro
+    /// fra l'apertura di una pane e il primo battito che la nomina. Senza,
+    /// ogni pane nuova morirebbe appena nata.
+    #[test]
+    fn dentro_la_grazia_non_si_chiude_ancora() {
+        let live = [view("pane-a", "space-1", true)];
+        let c = claims(&[("space-1", claim(NOW, &["pane-b"]))]);
+        let s = since(&[("pane-a", NOW - CLAIM_GRACE_MS)]);
+        assert!(run(&live, &c, &s).is_empty(), "la grazia non è ancora scaduta");
+        // E una pane mai vista prima non ha nemmeno un istante da cui contare.
+        assert!(run(&live, &c, &since(&[])).is_empty(), "senza scadenza non si scade");
+    }
+
+    /// L'orfana vera: la finestra che la ospitava non c'è più. Nessuna UI potrà
+    /// mai più nominarla e non c'è una finestra da cui chiuderla, quindi la
+    /// grazia qui non serve a niente.
+    #[test]
+    fn una_vista_senza_finestra_ospite_e_orfana_subito() {
+        let live = [view("pane-a", "detach-morto", false)];
+        let c = claims(&[("main", claim(NOW, &["pane-b"]))]);
+        let s = since(&[("pane-a", NOW)]);
+        assert_eq!(run(&live, &c, &s), vec!["pane-a".to_string()]);
+    }
+
+    /// Succede davvero: `browser_open` ricade su `main` quando l'etichetta della
+    /// finestra è sconosciuta, quindi una pane disegnata da un pop-out può
+    /// essere ospitata da `main`. Chiedere che a rivendicarla sia proprio
+    /// l'ospite la condannerebbe. Basta che UNA finestra fresca la nomini.
+    #[test]
+    fn reclamata_da_un_altra_finestra_resta_viva_anche_ospitata_da_main() {
+        let live = [view("pane-a", "main", true)];
+        let c = claims(&[
+            // main ha parlato e non l'ha detta sua...
+            ("main", claim(NOW, &["pane-b"])),
+            // ...ma il pop-out che la disegna sì.
+            ("detach-99", claim(NOW, &["pane-a"])),
+        ]);
+        let s = since(&[("pane-a", NOW - CLAIM_GRACE_MS * 10)]);
+        assert!(
+            run(&live, &c, &s).is_empty(),
+            "il reclamo vale da qualsiasi finestra, non solo dall'ospite"
+        );
     }
 }

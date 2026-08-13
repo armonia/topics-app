@@ -139,7 +139,13 @@ giorno che si riaccende, e non si accorge di essere stato dimenticato.
   per distinguere «non legge le credenziali dell'utente» da «non ha una propria
   autenticazione di trasporto».
 
-- [ ] 6.4 **Nessuno esegue MAI `relay-do.ts`.** `relay-contract.test.ts:13-15`
+- [x] 6.4 **RISOLTO.** `relay/relay-do.run.test.ts` istanzia `SessioneRelay` e lo
+  guida come lo guida il runtime dei Worker: `fetch()` per l'aggancio, poi i
+  METODI `webSocketMessage` e `webSocketClose`, che è l'unica forma ammessa
+  quando si ibernà. Finto è solo il contorno (socket, tag, storage); il codice
+  del relay è quello vero. Resta corretto ciò che il contract test presidia
+  testualmente: l'ibernazione non ha sintomi osservabili a runtime.
+  *Il rilievo originale, per memoria:* `relay-contract.test.ts:13-15`
   lo legge con `readFileSync` come STRINGA; non c'è miniflare, né
   `vitest-pool-workers`, né `unstable_dev` in tutto il repo, e nessun test
   collega `relay-client.ts` a `relay-do.ts`. Instradamento, sfratto,
