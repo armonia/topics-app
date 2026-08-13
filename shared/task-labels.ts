@@ -10,18 +10,19 @@
  * tocca `client/src`, `invisibile` per tutto il resto) e sbagliava il caso più
  * importante. Rifatto il conto sulla coda vera:
  *
- *     VISIBILI    (client/src, non-test)          21   ← le guarda Attilio
- *     DECISIONI   (piani, ricerche, documenti)     7   ← le decide Attilio, sempre
+ *     VISIBILI    (client/src, non-test)          21   ← le guarda una persona
+ *     DECISIONI   (piani, ricerche, documenti)     7   ← le decide una persona, sempre
  *     INVISIBILI  (server / shared / script / test) 2   ← le chiude il conduttore
  *
  * Con due classi, i sette piani finivano in «invisibile» e l'agente se li sarebbe
  * chiusi da solo: il piano dell'amicizia fra installazioni, la ricerca sulla
- * generative UI, l'iscrizione all'Apple Developer Program, la proposta openspec
- * del browser inline. Sono esattamente le card su cui un umano deve decidere. Un
- * piano non è invisibile: è invisibile il suo EFFETTO, non la sua importanza.
+ * generative UI, la documentazione della procedura di firma del binario macOS,
+ * la proposta openspec del browser inline. Sono esattamente le card su cui un
+ * umano deve decidere. Un piano non è invisibile: è invisibile il suo EFFETTO,
+ * non la sua importanza.
  *
  * E il numero onesto che ne esce: la scorciatoia vale **2 card su ~30**, non 10.
- * Il grosso della coda è roba visiva e resta di Attilio. L'etichetta serve
+ * Il grosso della coda è roba visiva e resta a un umano. L'etichetta serve
  * comunque — 2 card al giorno diventano tante in un mese, e soprattutto il
  * FILTRO «solo le visibili in review» è la lista che gli serve davvero.
  *
@@ -68,7 +69,7 @@ export function isKindLabel(value: unknown): value is KindLabel {
  *
  *  · `derived` — l'ha calcolata la macchina dal diff alla consegna. Un giro
  *    successivo la può riscrivere: è una misura, non un'opinione.
- *  · `human`   — l'ha corretta Attilio. La derivazione NON la tocca più, o la
+ *  · `human`   — l'ha corretta una persona. La derivazione NON la tocca più, o la
  *    correzione a mano durerebbe fino alla prossima consegna.
  *  · `agent`   — l'ha chiesta l'agente. Vale solo per ciò che un agente può
  *    scrivere (vedi `isAgentWritableLabel`): alzare la mano, mai abbassarla.
@@ -102,7 +103,7 @@ export interface TaskFile {
  * `decisione` pure: sono due modi di ALZARE LA MANO («guardala tu», «decidi
  * tu»), e passare il lavoro a un umano è sempre permesso. `invisibile` no: è
  * l'unica che toglie la revisione umana, e non è una cosa che si concede a chi
- * ha scritto il codice. Quella la scrive solo la derivazione, o Attilio a mano.
+ * ha scritto il codice. Quella la scrive solo la derivazione, o una persona a mano.
  */
 export function isAgentWritableLabel(label: string): boolean {
   return isTaskLabel(label) && label !== 'invisibile';

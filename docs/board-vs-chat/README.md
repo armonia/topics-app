@@ -81,11 +81,19 @@ Nove corse, tre terne, stesso albero (`baseTreeSha` nel bundle), stesso modello,
 stesso effort, in sequenza. **Tutte e nove hanno consegnato** (test dell'agente
 verde + sonda `--json` che produce JSON parsabile).
 
-| braccio | work (min/mediana/max) | cacheRead (min/mediana/max) | $ mediana |
+| braccio | work (min/mediana/max) | cacheRead (min/mediana/max) | costo (indice) |
 |---|---|---|---|
-| cli (`claude -p`) | 50,5k / 51,0k / 58,8k | 1,91M / 1,96M / 2,47M | 1,75 |
-| chat Topics | 60,2k / 61,1k / 135,6k | 1,85M / 2,11M / 2,71M | 2,18 |
-| board (dispatch **simulato**) | 75,0k / 89,9k / 115,6k | 2,33M / 3,04M / 3,13M | 2,85 |
+| cli (`claude -p`) | 50,5k / 51,0k / 58,8k | 1,91M / 1,96M / 2,47M | 1,00 |
+| chat Topics | 60,2k / 61,1k / 135,6k | 1,85M / 2,11M / 2,71M | 1,24 |
+| board (dispatch **simulato**) | 75,0k / 89,9k / 115,6k | 2,33M / 3,04M / 3,13M | 1,62 |
+
+**La colonna del costo è un indice, non una cifra.** Il braccio più magro (cli)
+vale `1,00`, e ogni altro braccio è il **rapporto fra il suo costo mediano e
+quello del cli** — mediana dei costi per replica, non costo dei token mediani,
+quindi l'indice non è ricavabile dalle due colonne di token qui accanto. Quello
+che serve a chi legge è l'ordine dei bracci e la distanza fra loro, non quanto è
+costata la campagna: le cifre assolute la barra le calcola dal DB quando gira. La
+stessa base vale per tutte le tabelle di questa pagina.
 
 Mediana board vs mediana chat: **+47,0% di lavoro** e **+44,0% di rilettura
 cache**. La board è più economica in 1 replica su 3 su ciascun asse — cioè i
@@ -97,8 +105,8 @@ singoli assi ballano — ma l'ordine per **costo** dentro la terna è
 Tutte a `medium`, «per correttezza». Ma le due superfici non girano allo stesso
 effort, e non è un dettaglio:
 
-- **board** → `board_settings.dispatch_effort` per `topics-app-ar3jt5` è
-  `medium`. Quel braccio era già giusto.
+- **board** → il `board_settings.dispatch_effort` della board su cui giravano le
+  corse è `medium`. Quel braccio era già giusto.
 - **chat** → senza override per-topic, `resolveClaudeEffort`
   (`server/lib/topics-agent-prompt.ts`) cade sul default **`xhigh`**.
 
@@ -117,9 +125,9 @@ braccio `chat` a medium resta come controllo a effort pari.
 
 Tre corse `chat-xhigh` dallo stesso albero `d760d733`, tutte e tre consegnate:
 
-| braccio | work (min/mediana/max) | cacheRead (min/mediana/max) | $ mediana |
+| braccio | work (min/mediana/max) | cacheRead (min/mediana/max) | costo (indice) |
 |---|---|---|---|
-| chat a **xhigh** | 104,6k / 108,8k / 148,3k | 3,37M / 4,25M / 8,34M | 3,63 |
+| chat a **xhigh** | 104,6k / 108,8k / 148,3k | 3,37M / 4,25M / 8,34M | 2,07 |
 
 Contro la board: **−17,4% di lavoro** e **−28,6% di rilettura cache**, e la board
 è più economica in **3 repliche su 3 su entrambi gli assi**. L'ordine per costo è
@@ -131,8 +139,8 @@ motivo è che l'effort pesa più dell'envelope. Il primo numero misura il guscio
 secondo risponde alla domanda.
 
 Due avvertenze che restano: il braccio board è **simulato** (envelope reale,
-dispatch no — i numeri del dispatch vero vengono dalle card `c9f60cbc` e
-`7b201e93`), e la forbice di `chat-xhigh` è larga (2,47× sulla rilettura cache),
+dispatch no — i numeri del dispatch vero vengono da due card lavorate davvero
+sulla board), e la forbice di `chat-xhigh` è larga (2,47× sulla rilettura cache),
 quindi è il **3/3** a reggere l'affermazione, non la distanza fra le mediane.
 
 Quindi `bun scripts/board-vs-chat.ts` **esce 0**: contro `chat-xhigh` il cancello

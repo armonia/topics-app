@@ -239,13 +239,13 @@ describe("resolveTabRef — browser", () => {
 
   test("tab di un TASK: superficie task:<id>, titolo dall'inventario del task", () => {
     putUi("task-browser-tabs:k-1", {
-      tabs: [{ contextId: "task-k1-0", url: "http://localhost:3200/login", title: "GuidoAI" }],
+      tabs: [{ contextId: "task-k1-0", url: "http://localhost:3200/login", title: "DemoApp" }],
       activeContextId: null,
     });
     const r = resolveTabRef("/tab/browser/task-k1-0", deps())!;
     expect(r.state).toBe("open");
     expect(r.surface).toBe("task:k-1");
-    expect(r.title).toBe("GuidoAI");
+    expect(r.title).toBe("DemoApp");
     expect(r.pointers).toEqual({ contextId: "task-k1-0", taskId: "k-1" });
   });
 
@@ -368,7 +368,7 @@ describe("resolveTabRef — panel", () => {
 describe("resolveTabRef — task", () => {
   test("`tasks.project_id` è l'id di BOARD, non `projects.id`", () => {
     // Il join ingenuo su projects.id non trova NULLA: sul DB vivo il task del
-    // board GuidoAI porta `[cliente]-v1skoz`. Si ricalcola l'id sui path noti.
+    // board DemoApp porta `demoapp-v1skoz`. Si ricalcola l'id sui path noti.
     const boardId = projectIdForPath(PROJ);
     expect(boardId).not.toBe("p1");
     db.run("INSERT INTO tasks (id, text, status, project_id, created_at, updated_at) VALUES ('k-1', 'Permalink alle tab', 'review', ?, '2026-01-01', '2026-01-01')", [boardId]);

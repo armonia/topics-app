@@ -135,14 +135,12 @@ docs/*
 !docs/effort-variance/
 !docs/effort-variance/*
 !docs/board-vs-chat/README.md
-# discord-presence.md è la nota di MIGRAZIONE dal daemon esterno che questa
-# funzione sostituisce, e i due non possono girare insieme: Discord tiene una
-# presence sola per applicazione, quindi finché il vecchio launchd è vivo le
-# due si sovrascrivono e la card sfarfalla. I comandi per fermarlo stanno lì e
-# non altrove. Ignorato, il file era già andato perso una volta: il commit che
-# lo annunciava non lo conteneva, perché `docs/*` lo aveva scartato in
-# silenzio — e la nota che spiega come non rompersi i piedi viveva sulla
-# macchina di chi l'aveva scritta.
+# discord-presence.md è la documentazione della Rich Presence: dove sta
+# l'interruttore, cosa esce a ogni livello di dettaglio (è un controllo di
+# privacy) e da dove vengono i conteggi. Ignorato, il file era già andato perso
+# una volta: il commit che lo annunciava non lo conteneva, perché `docs/*` lo
+# aveva scartato in silenzio, e la pagina restava sul disco di chi l'aveva
+# scritta.
 !docs/discord-presence.md
 # board-protocol.md è la copia CANONICA dello standard di consegna sul board, ed
 # è il documento che chi tocca `buildKickoff` deve tenere allineato all'envelope.
@@ -256,3 +254,7 @@ relay-secret
 # Uscita del banco WebRTC (`bun scripts/webrtc-probe.ts`): filmati del viewer e
 # referti. Si rigenerano lanciandolo, e pesano megabyte: fuori dalla storia.
 artifacts/
+
+# I termini personali che il cancello `no-personal-data-tracked` cerca. Non
+# tracciato: committarlo pubblicherebbe proprio cio che deve restare fuori.
+.personal-terms

@@ -37,10 +37,37 @@
  *   non decidibile   nessuna riga distintiva da cercare. Detto in fondo e a
  *             parte: un forse in mezzo alle certezze le annacqua tutte.
  *
- *   bun run check:landed              # esce ≠0 solo se c'è del DEBITO vero
- *   bun run check:landed --json       # una riga JSON, per chi la vuole leggere a macchina
- *   bun run check:landed --strict     # fallisce anche sullo storico e sui commit SPARITI
- *   bun run check:landed --db <path>  # un altro database
+ *   bun run report:landed              # esce ≠0 solo se c'è del DEBITO vero
+ *   bun run report:landed --json       # una riga JSON, per chi la vuole leggere a macchina
+ *   bun run report:landed --strict     # fallisce anche sullo storico e sui commit SPARITI
+ *   bun run report:landed --db <path>  # un altro database
+ *
+ * REFERTO, NON CANCELLO — e per costruzione, non per scelta. Si chiamava
+ * `check:landed`, cioè come i sei `check:*` che la CI esegue, e quel nome era
+ * l'unica cosa che si leggeva prima di trattarlo come una barra da tenere
+ * verde. Non può esserlo:
+ *
+ *   · misura lo STATO DELLA BOARD, non il codice. Le righe 147-152 leggono
+ *     `tasks WHERE status = 'done'`, le 196-217 leggono `task_comments` e i
+ *     costi in `messages` — dati del database vivo, che cambiano quando qualcuno
+ *     chiude una card, non quando cambia una riga di sorgente;
+ *   · quel database è `data/topics.db`, che è in `.gitignore:174` e non è
+ *     tracciato. Su un clone pulito, e quindi in CI, non esiste: la riga 105
+ *     esce **2** prima di guardare qualsiasi cosa. Un passo di workflow che lo
+ *     invocasse sarebbe rosso per sempre, e rosso per l'assenza di un file che
+ *     nel repo non ci sarà mai;
+ *   · guarda anche ALTRI repo. I checkout arrivano da `projects`, dai topic e
+ *     da `scanWorkspaceProjects` (riga 128), quindi il debito che stampa può
+ *     stare in un repo che non è questo — misurato il 13/08: dei 4 debiti, 2
+ *     stavano in altri due repo della postazione (si leggono con `--json`, in
+ *     `recoverable[].id`). Un cancello di *questo* repo che diventa rosso per
+ *     un ramo di un altro non è un cancello di questo repo.
+ *
+ * Il suo codice d'uscita serve a chi legge il referto, non al deploy: dice
+ * «c'è del lavoro consegnato che nessuno ha». Va guardato quando si tira una
+ * riga sulla board, non prima di un push. Chi cerca la barra del deploy: è
+ * `.github/workflows/ci.yml`, e questo file non c'è (né deve entrarci — il
+ * perché è scritto lì, nell'elenco dei `check:*` che restano fuori).
  *
  * Sola lettura: apre il DB `{ readonly: true }` e gira solo comandi git di
  * lettura. Non ripara niente — landare è una decisione umana.

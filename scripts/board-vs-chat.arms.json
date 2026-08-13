@@ -60,7 +60,7 @@
         "jsonProbeCommand": "DATA_DIR=~/Projects/topics-app/data bun scripts/token-live.ts --json",
         "jsonProbeExitCode": 0,
         "jsonProbeParsed": true,
-        "jsonProbeTail": "{\"chats\":[{\"sessionKey\":\"topic:dec44329\",\"name\":\"Volo Salerno-Milano post Ferragosto\",\"phase\":\"completed\",\"model\":\"claude-opus-5\",\"contextTokens\":309386,\"contextWindowTokens\":200000,\"contextWindowKnown\":true,\"contextPercent\":154.7,\"readTokens\":925774,\"deltaReadTokens\":0,\"costUsd\":3.6631,\"preambles\":1,\"previousPreambles\":null,\"calls\":4},{\"sessionKey\":\"topic:8d37839c\",\"name\":\"L\",\"phase\":\"completed\","
+        "jsonProbeTail": "{\"chats\":[{\"sessionKey\":\"topic:aaaa0001\",\"name\":\"Chat di prova 1\",\"phase\":\"completed\",\"model\":\"claude-opus-5\",\"contextTokens\":300000,\"contextWindowTokens\":200000,\"contextWindowKnown\":true,\"contextPercent\":150.0,\"readTokens\":900000,\"deltaReadTokens\":0,\"costUsd\":3.5,\"preambles\":1,\"previousPreambles\":null,\"calls\":4},{\"sessionKey\":\"topic:aaaa0002\",\"name\":\"Chat di prova 2\",\"phase\":\"completed\",\"model\":\""
       },
       "transcriptPath": "~/.claude/projects/-private-tmp-board-arms-run2-cli/76561519-ae85-449a-b030-84ab448fef1d.jsonl",
       "sandboxDir": "/private/tmp/board-arms-run2/cli",
@@ -112,7 +112,7 @@
         "jsonProbeCommand": "DATA_DIR=~/Projects/topics-app/data bun scripts/token-live.ts --json",
         "jsonProbeExitCode": 0,
         "jsonProbeParsed": true,
-        "jsonProbeTail": "{\"chats\":[{\"name\":\"Volo Salerno-Milano post Ferragosto\",\"phase\":\"completed\",\"contextTokens\":309386,\"contextWindow\":200000,\"contextWindowKnown\":true,\"readTokens\":925774,\"costUsd\":3.6631165,\"preambles\":1,\"calls\":4,\"deltaReadTokens\":0},{\"name\":\"L\",\"phase\":\"completed\",\"contextTokens\":576211,\"contextWindow\":200000,\"contextWindowKnown\":true,\"readTokens\":553429146,\"costUsd\":358.0575975,\"preambles\":9,\"cal"
+        "jsonProbeTail": "{\"chats\":[{\"name\":\"Chat di prova 1\",\"phase\":\"completed\",\"contextTokens\":300000,\"contextWindow\":200000,\"contextWindowKnown\":true,\"readTokens\":900000,\"costUsd\":3.5,\"preambles\":1,\"calls\":4,\"deltaReadTokens\":0},{\"name\":\"Chat di prova 2\",\"phase\":\"completed\",\"contextTokens\":500000,\"contextWindow\":200000,\"contextWindowKnown\":true,\"readTokens\":5000000,\"costUsd\":8.25,\"preambles\":9,\"calls\":1400,\"deltaReadTo"
       },
       "transcriptPath": "~/.claude/projects/-private-tmp-board-arms-run2-chat/0f066283-ba94-4ed8-a768-12cb2e4b80bc.jsonl",
       "sandboxDir": "/private/tmp/board-arms-run2/chat",
@@ -165,7 +165,7 @@
         "jsonProbeCommand": "DATA_DIR=~/Projects/topics-app/data bun scripts/token-live.ts --json",
         "jsonProbeExitCode": 0,
         "jsonProbeParsed": true,
-        "jsonProbeTail": "{\"chats\":[{\"name\":\"Volo Salerno-Milano post Ferragosto\",\"phase\":\"completed\",\"contextTokens\":309386,\"windowTokens\":200000,\"windowKnown\":true,\"readTokens\":925774,\"costUsd\":3.663117,\"preambles\":1,\"calls\":4},{\"name\":\"L\",\"phase\":\"completed\",\"contextTokens\":576211,\"windowTokens\":200000,\"windowKnown\":true,\"readTokens\":553429146,\"costUsd\":358.057597,\"preambles\":9,\"calls\":1407},{\"name\":\"Ricerca su github l"
+        "jsonProbeTail": "{\"chats\":[{\"name\":\"Chat di prova 1\",\"phase\":\"completed\",\"contextTokens\":300000,\"windowTokens\":200000,\"windowKnown\":true,\"readTokens\":900000,\"costUsd\":3.5,\"preambles\":1,\"calls\":4},{\"name\":\"Chat di prova 2\",\"phase\":\"completed\",\"contextTokens\":500000,\"windowTokens\":200000,\"windowKnown\":true,\"readTokens\":5000000,\"costUsd\":8.25,\"preambles\":9,\"calls\":1400},{\"name\":\"Chat di prova 3\",\"phase\":\"idle\",\"conte"
       },
       "transcriptPath": "~/.claude/projects/-private-tmp-board-arms-run2-chat-xhigh/8814354d-e938-4126-b770-b0eec359210f.jsonl",
       "sandboxDir": "/private/tmp/board-arms-run2/chat-xhigh",
@@ -220,7 +220,7 @@
         "jsonProbeCommand": "DATA_DIR=~/Projects/topics-app/data bun scripts/token-live.ts --json",
         "jsonProbeExitCode": 0,
         "jsonProbeParsed": true,
-        "jsonProbeTail": "{\"filter\":null,\"count\":7,\"chats\":[{\"id\":\"dec44329-b901-4956-abbe-7ff2c1a44fad\",\"name\":\"Volo Salerno-Milano post Ferragosto\",\"sessionKey\":\"topic:dec44329\",\"phase\":\"completed\",\"model\":\"claude-opus-5\",\"lastContextTokens\":309386,\"contextWindowTokens\":200000,\"contextWindowKnown\":true,\"contextPct\":154.69299999999998,\"readTokens\":925774,\"costUsd\":3.6631165,\"preambles\":1,\"calls\":4},{\"id\":\"8d37839c-c4a7-4e"
+        "jsonProbeTail": "{\"filter\":null,\"count\":7,\"chats\":[{\"id\":\"aaaa0001-1111-4222-8333-444444444401\",\"name\":\"Chat di prova 1\",\"sessionKey\":\"topic:aaaa0001\",\"phase\":\"completed\",\"model\":\"claude-opus-5\",\"lastContextTokens\":300000,\"contextWindowTokens\":200000,\"contextWindowKnown\":true,\"contextPct\":150.0,\"readTokens\":900000,\"costUsd\":3.5,\"preambles\":1,\"calls\":4},{\"id\":\"aaaa0002-1111-4222-8333-444444444402\",\"name\":\"Chat di p"
       },
       "transcriptPath": "~/.claude/projects/-private-tmp-board-arms-run2-board-sim/0997c3a5-4c44-4370-94b5-fe5738ec41eb.jsonl",
       "sandboxDir": "/private/tmp/board-arms-run2/board-sim",
@@ -270,7 +270,7 @@
         "jsonProbeCommand": "DATA_DIR=~/Projects/topics-app/data bun scripts/token-live.ts --json",
         "jsonProbeExitCode": 0,
         "jsonProbeParsed": true,
-        "jsonProbeTail": "{\"chats\":[{\"name\":\"Volo Salerno-Milano post Ferragosto\",\"phase\":\"completed\",\"lastContextTokens\":309386,\"contextWindowTokens\":200000,\"readTokens\":925774,\"costUsd\":3.6631165,\"preambles\":1,\"calls\":4},{\"name\":\"L\",\"phase\":\"completed\",\"lastContextTokens\":576211,\"contextWindowTokens\":200000,\"readTokens\":553429146,\"costUsd\":358.0575975,\"preambles\":9,\"calls\":1407},{\"name\":\"Ricerca su github librerie per\",\""
+        "jsonProbeTail": "{\"chats\":[{\"name\":\"Chat di prova 1\",\"phase\":\"completed\",\"lastContextTokens\":300000,\"contextWindowTokens\":200000,\"readTokens\":900000,\"costUsd\":3.5,\"preambles\":1,\"calls\":4},{\"name\":\"Chat di prova 2\",\"phase\":\"completed\",\"lastContextTokens\":500000,\"contextWindowTokens\":200000,\"readTokens\":5000000,\"costUsd\":8.25,\"preambles\":9,\"calls\":1400},{\"name\":\"Chat di prova 3\",\"phase\":\"idle\",\"lastContextTokens\":12"
       },
       "transcriptPath": "~/.claude/projects/-private-tmp-board-arms-run3-cli/93c70854-2bf5-4974-8078-f21e7eb0df39.jsonl",
       "sandboxDir": "/private/tmp/board-arms-run3/cli",
@@ -322,7 +322,7 @@
         "jsonProbeCommand": "DATA_DIR=~/Projects/topics-app/data bun scripts/token-live.ts --json",
         "jsonProbeExitCode": 0,
         "jsonProbeParsed": true,
-        "jsonProbeTail": "{\"chats\":[{\"id\":\"dec44329-b901-4956-abbe-7ff2c1a44fad\",\"name\":\"Volo Salerno-Milano post Ferragosto\",\"sessionKey\":\"topic:dec44329\",\"phase\":\"completed\",\"model\":\"claude-opus-5\",\"contextTokens\":309386,\"windowTokens\":200000,\"windowKnown\":true,\"contextPercent\":154.7,\"readTokens\":925774,\"deltaTokens\":0,\"costUsd\":3.6631,\"preambles\":1,\"preamblesGrew\":false,\"calls\":4},{\"id\":\"8d37839c-c4a7-4e52-aa28-ff2317b7"
+        "jsonProbeTail": "{\"chats\":[{\"id\":\"aaaa0001-1111-4222-8333-444444444401\",\"name\":\"Chat di prova 1\",\"sessionKey\":\"topic:aaaa0001\",\"phase\":\"completed\",\"model\":\"claude-opus-5\",\"contextTokens\":300000,\"windowTokens\":200000,\"windowKnown\":true,\"contextPercent\":150.0,\"readTokens\":900000,\"deltaTokens\":0,\"costUsd\":3.5,\"preambles\":1,\"preamblesGrew\":false,\"calls\":4},{\"id\":\"aaaa0002-1111-4222-8333-444444444402\",\"name\":\"Chat di p"
       },
       "transcriptPath": "~/.claude/projects/-private-tmp-board-arms-run3-chat/ac5b6ae7-7947-4553-a051-a64e72131f2d.jsonl",
       "sandboxDir": "/private/tmp/board-arms-run3/chat",
@@ -375,7 +375,7 @@
         "jsonProbeCommand": "DATA_DIR=~/Projects/topics-app/data bun scripts/token-live.ts --json",
         "jsonProbeExitCode": 0,
         "jsonProbeParsed": true,
-        "jsonProbeTail": "{\"chats\":[{\"name\":\"Volo Salerno-Milano post Ferragosto\",\"phase\":\"completed\",\"lastContextTokens\":309386,\"contextWindowTokens\":200000,\"readTokens\":925774,\"costUsd\":3.663117,\"preambles\":1,\"calls\":4},{\"name\":\"L\",\"phase\":\"completed\",\"lastContextTokens\":576211,\"contextWindowTokens\":200000,\"readTokens\":553429146,\"costUsd\":358.057598,\"preambles\":9,\"calls\":1407},{\"name\":\"Ricerca su github librerie per\",\"ph"
+        "jsonProbeTail": "{\"chats\":[{\"name\":\"Chat di prova 1\",\"phase\":\"completed\",\"lastContextTokens\":300000,\"contextWindowTokens\":200000,\"readTokens\":900000,\"costUsd\":3.5,\"preambles\":1,\"calls\":4},{\"name\":\"Chat di prova 2\",\"phase\":\"completed\",\"lastContextTokens\":500000,\"contextWindowTokens\":200000,\"readTokens\":5000000,\"costUsd\":8.25,\"preambles\":9,\"calls\":1400},{\"name\":\"Chat di prova 3\",\"phase\":\"idle\",\"lastContextTokens\":12"
       },
       "transcriptPath": "~/.claude/projects/-private-tmp-board-arms-run3-chat-xhigh/cd755432-1cc1-498d-8302-bc4ba0389113.jsonl",
       "sandboxDir": "/private/tmp/board-arms-run3/chat-xhigh",
@@ -430,7 +430,7 @@
         "jsonProbeCommand": "DATA_DIR=~/Projects/topics-app/data bun scripts/token-live.ts --json",
         "jsonProbeExitCode": 0,
         "jsonProbeParsed": true,
-        "jsonProbeTail": "{\"chats\":[{\"name\":\"Volo Salerno-Milano post Ferragosto\",\"phase\":\"completed\",\"lastContextTokens\":309386,\"contextWindowTokens\":200000,\"contextWindowKnown\":true,\"readTokens\":925774,\"costUsd\":3.6631165,\"preambles\":1,\"calls\":4},{\"name\":\"L\",\"phase\":\"completed\",\"lastContextTokens\":576211,\"contextWindowTokens\":200000,\"contextWindowKnown\":true,\"readTokens\":553429146,\"costUsd\":358.0575975,\"preambles\":9,\"cal"
+        "jsonProbeTail": "{\"chats\":[{\"name\":\"Chat di prova 1\",\"phase\":\"completed\",\"lastContextTokens\":300000,\"contextWindowTokens\":200000,\"contextWindowKnown\":true,\"readTokens\":900000,\"costUsd\":3.5,\"preambles\":1,\"calls\":4},{\"name\":\"Chat di prova 2\",\"phase\":\"completed\",\"lastContextTokens\":500000,\"contextWindowTokens\":200000,\"contextWindowKnown\":true,\"readTokens\":5000000,\"costUsd\":8.25,\"preambles\":9,\"calls\":1400},{\"name\":\"Ch"
       },
       "transcriptPath": "~/.claude/projects/-private-tmp-board-arms-run3-board-sim/ccacff38-12c8-454d-bf61-92821e675c22.jsonl",
       "sandboxDir": "/private/tmp/board-arms-run3/board-sim",
@@ -478,7 +478,7 @@
         "jsonProbeCommand": "DATA_DIR=~/Projects/topics-app/data bun scripts/token-live.ts --json",
         "jsonProbeExitCode": 0,
         "jsonProbeParsed": true,
-        "jsonProbeTail": "{\"chats\":[{\"sessionKey\":\"topic:dec44329\",\"name\":\"Volo Salerno-Milano post Ferragosto\",\"phase\":\"completed\",\"model\":\"claude-opus-5\",\"contextTokens\":309386,\"contextWindow\":200000,\"contextWindowKnown\":true,\"contextPct\":154.69299999999998,\"readTokens\":925774,\"costUsd\":3.6631165,\"preambles\":1,\"calls\":4},{\"sessionKey\":\"topic:8d37839c\",\"name\":\"L\",\"phase\":\"completed\",\"model\":\"claude-opus-5\",\"contextTokens\""
+        "jsonProbeTail": "{\"chats\":[{\"sessionKey\":\"topic:aaaa0001\",\"name\":\"Chat di prova 1\",\"phase\":\"completed\",\"model\":\"claude-opus-5\",\"contextTokens\":300000,\"contextWindow\":200000,\"contextWindowKnown\":true,\"contextPct\":150.0,\"readTokens\":900000,\"costUsd\":3.5,\"preambles\":1,\"calls\":4},{\"sessionKey\":\"topic:aaaa0002\",\"name\":\"Chat di prova 2\",\"phase\":\"completed\",\"model\":\"claude-opus-5\",\"contextTokens\":500000,\"contextWindow\":2"
       },
       "transcriptPath": "~/.claude/projects/-private-tmp-board-arms-run4-cli/3bfa9129-369f-4189-965c-405166bbd654.jsonl",
       "sandboxDir": "/private/tmp/board-arms-run4/cli",
@@ -530,7 +530,7 @@
         "jsonProbeCommand": "DATA_DIR=~/Projects/topics-app/data bun scripts/token-live.ts --json",
         "jsonProbeExitCode": 0,
         "jsonProbeParsed": true,
-        "jsonProbeTail": "{\"generatedAt\":\"2026-08-09T19:13:27.161Z\",\"filter\":null,\"chats\":[{\"name\":\"Volo Salerno-Milano post Ferragosto\",\"phase\":\"completed\",\"contextTokens\":309386,\"contextWindow\":200000,\"contextWindowKnown\":true,\"readTokens\":925774,\"costUsd\":3.6631165,\"preambles\":1,\"calls\":4},{\"name\":\"L\",\"phase\":\"completed\",\"contextTokens\":576211,\"contextWindow\":200000,\"contextWindowKnown\":true,\"readTokens\":553429146,\"cost"
+        "jsonProbeTail": "{\"generatedAt\":\"2026-08-09T19:13:27.161Z\",\"filter\":null,\"chats\":[{\"name\":\"Chat di prova 1\",\"phase\":\"completed\",\"contextTokens\":300000,\"contextWindow\":200000,\"contextWindowKnown\":true,\"readTokens\":900000,\"costUsd\":3.5,\"preambles\":1,\"calls\":4},{\"name\":\"Chat di prova 2\",\"phase\":\"completed\",\"contextTokens\":500000,\"contextWindow\":200000,\"contextWindowKnown\":true,\"readTokens\":5000000,\"costUsd\":8.25,\"pre"
       },
       "transcriptPath": "~/.claude/projects/-private-tmp-board-arms-run4-chat/a1bbb923-514b-475f-ac54-9cf5997712ec.jsonl",
       "sandboxDir": "/private/tmp/board-arms-run4/chat",
@@ -583,7 +583,7 @@
         "jsonProbeCommand": "DATA_DIR=~/Projects/topics-app/data bun scripts/token-live.ts --json",
         "jsonProbeExitCode": 0,
         "jsonProbeParsed": true,
-        "jsonProbeTail": "{\"chats\":[{\"name\":\"Volo Salerno-Milano post Ferragosto\",\"phase\":\"completed\",\"contextTokens\":309386,\"windowTokens\":200000,\"windowEstimated\":false,\"readTokens\":925774,\"costUsd\":3.663117,\"preambles\":1,\"calls\":4},{\"name\":\"L\",\"phase\":\"completed\",\"contextTokens\":576211,\"windowTokens\":200000,\"windowEstimated\":false,\"readTokens\":553429146,\"costUsd\":358.057598,\"preambles\":9,\"calls\":1407},{\"name\":\"Ricerca s"
+        "jsonProbeTail": "{\"chats\":[{\"name\":\"Chat di prova 1\",\"phase\":\"completed\",\"contextTokens\":300000,\"windowTokens\":200000,\"windowEstimated\":false,\"readTokens\":900000,\"costUsd\":3.5,\"preambles\":1,\"calls\":4},{\"name\":\"Chat di prova 2\",\"phase\":\"completed\",\"contextTokens\":500000,\"windowTokens\":200000,\"windowEstimated\":false,\"readTokens\":5000000,\"costUsd\":8.25,\"preambles\":9,\"calls\":1400},{\"name\":\"Chat di prova 3\",\"phase\":\"id"
       },
       "transcriptPath": "~/.claude/projects/-private-tmp-board-arms-run4-chat-xhigh/aea9d047-6811-4cdb-bac9-2c2d21d04ab3.jsonl",
       "sandboxDir": "/private/tmp/board-arms-run4/chat-xhigh",
@@ -638,7 +638,7 @@
         "jsonProbeCommand": "DATA_DIR=~/Projects/topics-app/data bun scripts/token-live.ts --json",
         "jsonProbeExitCode": 0,
         "jsonProbeParsed": true,
-        "jsonProbeTail": "{\"generatedAt\":\"2026-08-09T19:19:12.007Z\",\"chats\":[{\"id\":\"dec44329-b901-4956-abbe-7ff2c1a44fad\",\"name\":\"Volo Salerno-Milano post Ferragosto\",\"phase\":\"completed\",\"model\":\"claude-opus-5\",\"lastContext\":309386,\"contextWindow\":200000,\"contextWindowEstimated\":false,\"contextPercent\":154.69299999999998,\"tokensRead\":925774,\"deltaRead\":0,\"costUsd\":3.6631165,\"preambles\":1,\"deltaPreambles\":0,\"calls\":4},{\"id\":"
+        "jsonProbeTail": "{\"generatedAt\":\"2026-08-09T19:19:12.007Z\",\"chats\":[{\"id\":\"aaaa0001-1111-4222-8333-444444444401\",\"name\":\"Chat di prova 1\",\"phase\":\"completed\",\"model\":\"claude-opus-5\",\"lastContext\":300000,\"contextWindow\":200000,\"contextWindowEstimated\":false,\"contextPercent\":150.0,\"tokensRead\":900000,\"deltaRead\":0,\"costUsd\":3.5,\"preambles\":1,\"deltaPreambles\":0,\"calls\":4},{\"id\":\"aaaa0002-1111-4222-8333-444444444402\","
       },
       "transcriptPath": "~/.claude/projects/-private-tmp-board-arms-run4-board-sim/b763dff2-bd6f-49cb-97e6-acfa7961d4ce.jsonl",
       "sandboxDir": "/private/tmp/board-arms-run4/board-sim",

@@ -72,7 +72,7 @@ function seminaProfiloInCache(): void {
     `INSERT OR REPLACE INTO github_profiles
        (login, name, avatar_url, html_url, bio, company, location, public_repos, followers,
         fetched_at, failed_at, status)
-     VALUES ('octocat', 'Attilio Cianci', '${AVATAR}', 'https://github.com/octocat',
+     VALUES ('octocat', 'Mona Octocat', '${AVATAR}', 'https://github.com/octocat',
              'CTO di Armonia. Scrive cose che non devono cadere.', 'Armonia', 'Salerno',
              31, 12, ${Date.now()}, NULL, 200);`,
   ]);
@@ -120,7 +120,7 @@ test.describe("Profili degli amici", () => {
     await riga.getByPlaceholder("login GitHub").fill("octocat");
     await riga.getByRole("button", { name: "Salva" }).click();
 
-    await expect(riga).toContainText("Attilio Cianci");
+    await expect(riga).toContainText("Mona Octocat");
     await expect(riga).toContainText("@octocat");
     await expect(riga).toContainText("CTO di Armonia");
     await expect(riga).toContainText("Armonia · Salerno");
