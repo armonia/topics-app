@@ -19,6 +19,44 @@
  * effetto collaterale che un helper puro non deve avere. Se il browser non
  * concede la clipboard, `false` è la risposta onesta.
  */
+/**
+ * «Copia immagine»: i BYTE nella clipboard, non l'indirizzo.
+ *
+ * Prende una PROMESSA e non i byte gia' pronti, ed e' il punto delicato di
+ * questa funzione. In WebKit la scrittura in clipboard e' concessa solo dentro
+ * il gesto dell'utente, e i byte dell'immagine arrivano da uno script che gira
+ * dentro la pagina della pane nativa: aspettarli prima di chiamare `write`
+ * consumerebbe il gesto e la copia verrebbe negata. `ClipboardItem` accetta una
+ * promessa proprio per questo, quindi il permesso si prende subito e i byte
+ * arrivano dopo.
+ *
+ * `false` copre tutto cio' che puo' andare storto senza che sia un guasto:
+ * clipboard assente fuori dai secure context, `ClipboardItem` non implementato,
+ * canvas contaminato perche' il sito non manda CORS. Chi chiama offre allora
+ * l'unica cosa che riesce sempre, cioe' copiare l'indirizzo.
+ */
+export async function copyImagePng(png: Promise<string | null>): Promise<boolean> {
+  try {
+    const write = typeof navigator !== 'undefined' ? navigator.clipboard?.write : undefined;
+    if (!write || typeof ClipboardItem === 'undefined') {
+      // Nessuno consumera' la promessa: senza questo `catch` un fallimento
+      // dell'estrazione diventerebbe una rejection non gestita.
+      void png.catch(() => null);
+      return false;
+    }
+    const blob = png.then(async (dataUrl) => {
+      if (!dataUrl) throw new Error('immagine non leggibile');
+      // `fetch` su una data: URL non tocca la rete: e' il modo piu' corto di
+      // trasformare base64 in Blob senza scrivere un decoder a mano.
+      return await (await fetch(dataUrl)).blob();
+    });
+    await write.call(navigator.clipboard, [new ClipboardItem({ 'image/png': blob })]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function copyText(text: string): Promise<boolean> {
   try {
     // `navigator` può mancare del tutto (test senza DOM, SSR); `clipboard` manca
