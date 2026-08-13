@@ -208,13 +208,22 @@ test.describe("Done: ordine e lampo", () => {
     // si asserisce su un nome di classe di Tailwind.
     const card = doneCol.locator(`[data-task-card][data-just-done]`);
     await expect(card).toContainText(approvato);
-    await expect(card).toHaveClass(/task-done-flash/);
+    await expect(card).toHaveClass(/task-flash-done/);
     // E il lampo è DIPINTO, non solo dichiarato: la classe da sola passerebbe
     // anche con un keyframe scritto male o con un nome che non esiste in
     // index.css. `box-shadow` calcolato durante l'animazione è il valore
-    // interpolato vero, e il verde (52 211 153) è quello del keyframe.
-    const shadow = await card.evaluate((el) => getComputedStyle(el).boxShadow);
-    expect(shadow).toContain("52, 211, 153");
+    // interpolato vero, e ci deve stare dentro il verde di Done.
+    //
+    // La tinta si legge dalla custom property invece di scriverla qui a mano:
+    // da quando il lampo ha un colore per colonna, `--task-flash` ha DUE valori
+    // per tinta (uno per tema, come i glifi di colonna) e un letterale solo
+    // sarebbe rosso nell'altro tema senza che niente sia rotto.
+    const painted = await card.evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return { shadow: cs.boxShadow, rgb: cs.getPropertyValue("--task-flash").trim().split(/\s+/).join(", ") };
+    });
+    expect(["52, 211, 153", "5, 150, 105"]).toContain(painted.rgb); // emerald-400 / emerald-600
+    expect(painted.shadow).toContain(painted.rgb);
     // La card vecchia resta ferma e spenta: lampeggia solo chi ha attraversato.
     await expect(doneCol.locator("[data-just-done]")).toHaveCount(1);
 
