@@ -23,6 +23,7 @@ import {
   subscribeGlobalDispatchCap,
 } from './globalDispatchCap';
 import { clampGlobalCap, type DispatchCapacity } from '../lib/board';
+import { dispatchFrame } from '../lib/wsFrameBus';
 
 const machine = (over: Partial<DispatchCapacity> = {}): DispatchCapacity => ({
   recommended: 4,
@@ -185,5 +186,45 @@ describe('adoptGlobalCap', () => {
     adoptGlobalCap({ maxAgentsAuto: false, maxAgents: 5 });
     adoptGlobalCap({ maxAgents: 8 });
     expect(getGlobalDispatchCapState().cap).toEqual({ auto: false, max: 8 });
+  });
+});
+
+/**
+ * THE WIRE ITSELF, not the adopter behind it.
+ *
+ * Everything above calls `adoptGlobalCap` by hand, which exercises the function
+ * a frame would reach — and leaves the part that makes a frame reach it
+ * completely uncovered. Measured: deleting the whole `subscribeFrames(...)` call
+ * in `start()` left this suite green. That subscription is the entire reason
+ * this store exists: the original defect was a cap in a `useState` that nobody
+ * broadcast to, so one window moved and the others did not.
+ *
+ * These go through `dispatchFrame`, the same door the socket pushes through.
+ */
+describe('the broadcast actually arrives', () => {
+  test('a board:global-cap frame from another window lands in the store', () => {
+    const off = subscribeGlobalDispatchCap(() => {});
+    try {
+      adoptGlobalCap({ maxAgentsAuto: false, maxAgents: 3 });
+      dispatchFrame({ type: 'board:global-cap', maxAgentsAuto: false, maxAgents: 13 });
+      expect(getGlobalDispatchCapState().cap).toEqual({ auto: false, max: 13 });
+    } finally { off(); }
+  });
+
+  test('someone else’s frame type does not move the cap', () => {
+    const off = subscribeGlobalDispatchCap(() => {});
+    try {
+      adoptGlobalCap({ maxAgentsAuto: false, maxAgents: 3 });
+      dispatchFrame({ type: 'board:dispatch', maxAgents: 99 });
+      expect(getGlobalDispatchCapState().cap).toEqual({ auto: false, max: 3 });
+    } finally { off(); }
+  });
+
+  test('with nobody watching, the subscription is gone (no leak, no ghost writes)', () => {
+    const off = subscribeGlobalDispatchCap(() => {});
+    off();
+    adoptGlobalCap({ maxAgentsAuto: false, maxAgents: 3 });
+    dispatchFrame({ type: 'board:global-cap', maxAgentsAuto: true, maxAgents: 13 });
+    expect(getGlobalDispatchCapState().cap).toEqual({ auto: false, max: 3 });
   });
 });
