@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="560" viewBox="0 0 900 560" font-family="Helvetica, Arial, sans-serif">
+  <rect width="900" height="560" fill="#0f1115"/>
+  <text x="40" y="56" fill="#e8eaed" font-size="30" font-weight="bold">Tetto pieno: due silenzi, ora una riga</text>
+
+  <rect x="40" y="96" width="380" height="60" rx="10" fill="#1b1f27" stroke="#3a4150"/>
+  <text x="60" y="133" fill="#e8eaed" font-size="20">tick: card idonea in coda</text>
+
+  <line x1="230" y1="156" x2="230" y2="196" stroke="#5a6473" stroke-width="3"/>
+  <polygon points="230,206 224,192 236,192" fill="#5a6473"/>
+
+  <rect x="40" y="206" width="380" height="96" rx="10" fill="#2a1c1c" stroke="#7a3b3b"/>
+  <text x="60" y="238" fill="#ffb4a9" font-size="19" font-weight="bold">1. claimCap &lt; 1  →  break</text>
+  <text x="60" y="266" fill="#c9cdd4" font-size="16">posti prenotati da un fan-out:</text>
+  <text x="60" y="288" fill="#c9cdd4" font-size="16">la coda si fermava muta</text>
+
+  <rect x="40" y="326" width="380" height="96" rx="10" fill="#2a1c1c" stroke="#7a3b3b"/>
+  <text x="60" y="358" fill="#ffb4a9" font-size="19" font-weight="bold">2. claim() → null</text>
+  <text x="60" y="386" fill="#c9cdd4" font-size="16">agenti vivi ≥ tetto:</text>
+  <text x="60" y="408" fill="#c9cdd4" font-size="16">continue, card queued senza riga</text>
+
+  <line x1="420" y1="254" x2="490" y2="300" stroke="#5a6473" stroke-width="3"/>
+  <line x1="420" y1="374" x2="490" y2="330" stroke="#5a6473" stroke-width="3"/>
+  <polygon points="500,314 486,308 486,322" fill="#5a6473"/>
+
+  <rect x="500" y="206" width="360" height="216" rx="10" fill="#132419" stroke="#3f7a52"/>
+  <text x="522" y="240" fill="#9be7b4" font-size="19" font-weight="bold">noteCapHold → thread</text>
+  <text x="522" y="276" fill="#e8eaed" font-size="16">«Tetto N agenti, M in volo,</text>
+  <text x="522" y="300" fill="#e8eaed" font-size="16">K card ferme»</text>
+  <text x="522" y="336" fill="#9aa3b0" font-size="15">M = svc.liveAgents(), lo stesso</text>
+  <text x="522" y="358" fill="#9aa3b0" font-size="15">numero che il claim confronta</text>
+  <text x="522" y="392" fill="#9aa3b0" font-size="15">chip queued + una nota per episodio</text>
+
+  <rect x="40" y="452" width="820" height="70" rx="10" fill="#1b1f27" stroke="#3a4150"/>
+  <text x="60" y="482" fill="#c9cdd4" font-size="16">Fine tick: chi è tornato a passare esce dal set → la prossima pienezza lo ridice.</text>
+  <text x="60" y="508" fill="#9aa3b0" font-size="15">Chi parte non riceve nessuna riga. 4 test nuovi, cinque cancelli verdi.</text>
+</svg>
