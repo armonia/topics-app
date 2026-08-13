@@ -83,6 +83,50 @@ describe('cacheBreakdown — le quattro quote sommano al prompt', () => {
       cacheCreation1hTokens: 20,
     });
     expect(bd.fresh).toBe(0);
+    // MA il clamp non ripara: rende solo mostrabile un dato impossibile. Le due
+    // voci in chiaro continuano a non tornare, ed è giusto che il test lo dica
+    // invece di fermarsi a `fresh === 0`. Per anni questa asserzione mancava, e
+    // il caso «quote che superano il prompt» sembrava coperto proprio perché
+    // c'era un test col suo nome sopra: 351 righe in produzione lo violavano.
+    // La riparazione sta A MONTE (il server non scrive più quote annidate,
+    // `tests/unit/no-raw-turn-usage.test.ts`); qui si registra il limite.
+    expect(bd.read + bd.newTokens).not.toBe(100);
+  });
+});
+
+describe('cacheBreakdown — la forma vera che il server salva', () => {
+  // I numeri sono presi da una riga di produzione (messaggio b26bd2e2, topic
+  // ec3137d0, 13/08/2026): un turno da 13 chiamate su opus dove la CLI ha
+  // scritto in cache TUTTO a un'ora, quindi la quota a cinque minuti è zero.
+  // È la forma che il footer mostra come «895k tokens · 816k da cache · 70k
+  // nuovi», ed è quella che deve tornare al token.
+  const RIGA_VERA = {
+    promptTokens: 886_404,
+    completionTokens: 8_216,
+    cacheReadTokens: 816_213,
+    cacheCreationTokens: 0,
+    cacheCreation1hTokens: 70_161,
+  };
+
+  test('le due voci mostrate sommano ESATTAMENTE al prompt', () => {
+    const bd = cacheBreakdown(RIGA_VERA);
+    expect(bd.read).toBe(816_213);
+    expect(bd.newTokens).toBe(70_191);
+    expect(bd.read + bd.newTokens).toBe(RIGA_VERA.promptTokens);
+    expect(bd.fresh).toBe(30);
+  });
+
+  test('la forma ANNIDATA che il server scriveva rompe la somma', () => {
+    // Lo stesso turno com'era salvato prima del fix: il totale di scrittura
+    // copiato pari pari anche nella quota a un'ora.
+    const bd = cacheBreakdown({ ...RIGA_VERA, cacheCreationTokens: 70_161 });
+    // Lo sforo è 70.131, non 70.161: la scrittura contata due volte vale
+    // 70.161, ma 30 di quelli il clamp li recupera mangiandosi il fresco vero
+    // (`fresh` va da 30 a 0). Cioè l'errore mostrato è la somma di DUE bugie
+    // che si accorciano a vicenda, ed è il motivo per cui a occhio non si
+    // vedeva: nessuna delle due voci sembrava assurda.
+    expect(bd.fresh).toBe(0);
+    expect(bd.read + bd.newTokens - RIGA_VERA.promptTokens).toBe(70_131);
   });
 });
 
