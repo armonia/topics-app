@@ -1013,14 +1013,17 @@ export interface BoardSettings {
    * riga globale. Scriverlo via updateBoardSettings lo ribalta per TUTTE le board.
    */
   autoDispatch: boolean;
-  /** Tetto di concorrenza = quanti task possono avere un agente vivo su questa board. */
-  maxAgents: number;
-  /**
-   * Se true il tetto è auto-dimensionato dalla capacità viva della macchina
-   * (dispatch-capacity.ts) e `maxAgents` è ignorato dal dispatch (resta come
-   * valore manuale di ripiego).
-   */
-  maxAgentsAuto: boolean;
+  //
+  // NIENTE tetto di concorrenza per board. Il tetto è UNO, macchina-wide, e vive
+  // sulla riga riservata `project_id='*'` (`readGlobalCap` → `getGlobalCap`):
+  // è quello che il dispatcher legge in `currentCap()` e quello che la quota di
+  // core dello spawn divide. Un `maxAgents` per board è esistito qui fino al
+  // 13/08: si scriveva dalla rotta, si rileggeva nel pannello, e non decideva
+  // NIENTE. Sul DB vivo quel giorno diceva 9 per la board topics-app mentre il
+  // tetto vero (riga '*') era 8 — e una persona ha dispacciato credendo al 9.
+  // La colonna `max_agents` resta nel DB per le board (togliere una colonna
+  // vuole una migration): resta, e nessuno la scrive né la legge più.
+  //
   dispatchEffort: string;
   dispatchUseWorktree: boolean;
   /**
