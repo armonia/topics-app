@@ -341,12 +341,73 @@ function probeBridge(timeoutMs = 1500) {
   });
 }
 
+const lockPath = `${socketPath}.lock`;
+
+/**
+ * Exclusive lock on TAKING OVER the socket.
+ *
+ * Needed because `listen()` on a path that was just unlinked does NOT fail with
+ * EADDRINUSE: it creates a brand new file. So N daemons started in the same
+ * second can each find the socket free, each unlink it, and each start
+ * listening on a file the next one unlinks right after. The result is not a
+ * noisy conflict — it is N LIVE processes and none of them reachable.
+ *
+ * `wx` is O_CREAT|O_EXCL, so exactly one wins. A lock left behind by a dead
+ * daemon is detected through the pid it holds and removed, or the first crash
+ * would wedge the socket forever.
+ */
+function acquireTakeoverLock() {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const fd = fs.openSync(lockPath, 'wx');
+      try { fs.writeSync(fd, String(process.pid)); } finally { fs.closeSync(fd); }
+      return true;
+    } catch (err) {
+      if (err?.code !== 'EEXIST') return false;
+      let holder = null;
+      try { holder = Number(fs.readFileSync(lockPath, 'utf8').trim()); } catch {}
+      if (holder && holder !== process.pid && pidAlive(holder)) return false;
+      try { fs.unlinkSync(lockPath); } catch { return false; }
+    }
+  }
+  return false;
+}
+
+function releaseTakeoverLock() {
+  let holder = null;
+  try { holder = Number(fs.readFileSync(lockPath, 'utf8').trim()); } catch { return; }
+  if (holder !== process.pid) return;
+  try { fs.unlinkSync(lockPath); } catch {}
+}
+
+/**
+ * Verdict on whoever already owns the socket. THREE outcomes, not two.
+ *
+ * The missing distinction was between "silent because it is dead" and "silent
+ * because the machine is on its knees". `probeBridge` reports `timeout` in both
+ * cases, and this function treated them the same: it killed the recorded owner,
+ * unlinked the socket and listened in its place. Under load every new daemon
+ * did that to the previous one.
+ *
+ * Measured 2026-08-13: 1612 daemons on one socket, all alive, none reachable,
+ * 36 GB of swap on a 32 GB machine, load 644. A 1.5s probe timeout on a machine
+ * at load 400 is not a death certificate — the owner had ACCEPTED the
+ * connection, it just had no CPU left to answer.
+ */
 async function checkExistingBridge() {
   let recordedPid = null;
   try { if (fs.existsSync(pidPath)) recordedPid = Number(fs.readFileSync(pidPath, 'utf8').trim()); } catch {}
   const probe = await probeBridge();
-  if (probe.ok) return true;
-  if (recordedPid && pidAlive(recordedPid) && recordedPid !== process.pid) {
+  if (probe.ok) return 'healthy';
+
+  const ownerAlive = !!recordedPid && recordedPid !== process.pid && pidAlive(recordedPid);
+
+  // The owner is alive and accepted our connection: slow, not dead. Step aside.
+  // Whoever spawned us will retry connecting to IT, which is what we want,
+  // instead of evicting it and becoming the next one to be evicted.
+  if (probe.reason === 'timeout' && ownerAlive) return 'busy';
+
+  if (ownerAlive) {
     console.error(`[AI Bridge] Recorded owner ${recordedPid} unreachable (${probe.reason}). SIGTERM.`);
     try { process.kill(recordedPid, 'SIGTERM'); } catch {}
     await new Promise((r) => setTimeout(r, 1000));
@@ -354,7 +415,7 @@ async function checkExistingBridge() {
   }
   try { fs.unlinkSync(socketPath); } catch {}
   try { fs.unlinkSync(pidPath); } catch {}
-  return false;
+  return 'free';
 }
 
 // Reap store files whose session is gone and whose file is older than retention.
@@ -371,8 +432,23 @@ function sweepStore() {
 }
 
 async function start() {
-  if (await checkExistingBridge()) {
+  // Take the lock BEFORE inspecting the incumbent, because that inspection is
+  // exactly what unlinks the socket: two daemons walking through it together
+  // both end up listening on different files with the same name.
+  if (!acquireTakeoverLock()) {
+    console.error(`[AI Bridge] Another daemon is already taking over ${socketPath} — exiting.`);
+    process.exit(1);
+  }
+
+  const verdict = await checkExistingBridge();
+  if (verdict === 'healthy') {
+    releaseTakeoverLock();
     console.error(`[AI Bridge] Another healthy bridge already on ${socketPath}`);
+    process.exit(1);
+  }
+  if (verdict === 'busy') {
+    releaseTakeoverLock();
+    console.error(`[AI Bridge] Owner of ${socketPath} is alive but slow to answer. NOT evicting it — exiting so callers reconnect to it.`);
     process.exit(1);
   }
 
@@ -396,10 +472,13 @@ async function start() {
   });
 
   server.listen(socketPath, () => {
+    // Pid file BEFORE releasing the lock: whoever grabs the lock next must be
+    // able to read a valid owner, or it falls into the eviction branch.
     fs.writeFileSync(pidPath, String(process.pid));
+    releaseTakeoverLock();
     console.error(`[AI Bridge] Listening on ${socketPath} (PID ${process.pid}), store ${storeDir}`);
   });
-  server.on('error', (err) => { console.error(`[AI Bridge] Server error: ${err.message}`); process.exit(1); });
+  server.on('error', (err) => { console.error(`[AI Bridge] Server error: ${err.message}`); releaseTakeoverLock(); process.exit(1); });
 
   setInterval(sweepStore, SWEEP_EVERY_MS).unref();
 
@@ -410,6 +489,7 @@ async function start() {
     server.close();
     try { fs.unlinkSync(socketPath); } catch {}
     try { fs.unlinkSync(pidPath); } catch {}
+    releaseTakeoverLock();
     process.exit(0);
   }
   process.on('SIGTERM', () => shutdown('SIGTERM'));
