@@ -1,6 +1,6 @@
 import { test, expect, describe, beforeAll, beforeEach, afterAll } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AppContext } from "../types";
@@ -1583,6 +1583,53 @@ describe("checks pre-review (gate review_needs_green_checks)", () => {
     const states = broadcasts.filter((b) => b.type === "task:updated" && b.task?.id === t.id).map((b) => b.task.checksState);
     expect(states).toContain("running");
     expect(states.indexOf("running")).toBeLessThan(states.lastIndexOf("pass"));
+  });
+
+  /**
+   * IL TETTO DI BUN. La richiesta non può durare quanto i comandi: `idleTimeout`
+   * si ferma a 255s e sotto quel muro morivano le consegne con `test:unit` da
+   * dieci minuti, lasciando `checks_state` a «running» per sempre. La corsa vive
+   * ora fuori dalla richiesta, che aspetta al massimo una gamba.
+   */
+  test("gamba scaduta: 202 'sta girando', e il task NON si muove", async () => {
+    const r = mk();
+    const t = await delivered(r);
+    await declare(r, t.projectId, ["sleep 1"]);
+    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review", legMs: 100 }))!;
+    expect(resp.status).toBe(202);
+    const body = await resp.json();
+    expect(body.pending).toBe(true);
+    expect(body.code).toBe("review_checks_running");
+    const got = await (await call(r, "GET", `/api/sessions/s1/tasks/${t.id}`))!.json();
+    expect(got.task.status).not.toBe("review");
+    expect(got.task.checksState).toBe("running");
+
+    // La gamba dopo raccoglie l'esito della STESSA corsa e la consegna passa.
+    const dopo = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review", legMs: 5_000 }))!;
+    expect(dopo.status).toBe(200);
+    expect((await dopo.json()).status).toBe("review");
+  });
+
+  test("una corsa sola: dieci gambe non fanno dieci giri di comandi", async () => {
+    const r = mk();
+    const t = await delivered(r);
+    const traccia = join(cwd, "giri.txt");
+    await declare(r, t.projectId, [`sleep 1; echo giro >> ${traccia}`]);
+    const gambe = await Promise.all(
+      Array.from({ length: 10 }, () => call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review", legMs: 100 })),
+    );
+    expect(gambe.every((g) => g!.status === 202)).toBe(true);
+    const esito = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review", legMs: 5_000 }))!;
+    expect(esito.status).toBe(200);
+    expect(readFileSync(traccia, "utf8").trim().split("\n")).toHaveLength(1);
+  });
+
+  test("`legMs` è trasporto: non finisce fra i campi del task e non fa 400", async () => {
+    const r = mk();
+    const t = await delivered(r);
+    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { text: "titolo nuovo", legMs: 200 }))!;
+    expect(resp.status).toBe(200);
+    expect((await resp.json()).text).toBe("titolo nuovo");
   });
 
   test("task in-place (nessun worktree di branch): gate saltato, non 'verde'", async () => {
