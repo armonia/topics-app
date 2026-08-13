@@ -87,25 +87,67 @@ function totalAssetsRaw(): number {
 }
 
 /**
- * `public/` contiene PIÙ DI UNA build sovrapposta?
+ * Quali file di `public/assets` NON appartengono alla build che `index.html`
+ * indirizza — cioè gli avanzi di una build precedente.
  *
- * Vite emette un solo `index-<hash>.js` per build e svuota `outDir`, ma sulla
- * macchina di sviluppo gira anche `bun run build:watch` (`vite build --watch`),
- * che ricostruisce a ogni salvataggio: una build a mano che parte mentre il
- * watcher sta scrivendo lascia in giro i chunk della build precedente. Misurato
- * il 2026-07-29: **248 file in `public/assets` invece di 168**, e `total_assets`
- * a 12,6 MB contro una baseline di 7,9.
+ * Perché serve: sulla macchina di sviluppo gira `bun run build:watch`
+ * (`vite build --watch`), che NON svuota `outDir` (client/vite.config.ts:
+ * `emptyOutDir: process.env.TOPICS_BUILD_WATCH !== '1'`), quindi una build a
+ * mano lanciata mentre il watcher sta scrivendo lascia in giro i chunk della
+ * build prima. Misurato il 2026-07-29: **248 file invece di 168**, e
+ * `total_assets` a 12,6 MB contro una baseline di 7,9. Il punto non è il numero
+ * sbagliato, è COSA dice il numero sbagliato: il gate annunciava "il bundle è
+ * cresciuto del 58%" a chi non aveva toccato una riga di codice, e un cancello a
+ * cui non si crede è peggio di nessun cancello. Meglio dire la verità — "qui ci
+ * sono due build una sopra l'altra, questa misura non vuol dire niente" — e
+ * continuare a far valere gli altri due budget, che sono indirizzati per hash da
+ * `index.html` e quindi restano corretti anche in mezzo agli orfani.
  *
- * Il punto non è il numero sbagliato, è COSA dice il numero sbagliato. Il gate
- * annunciava "il bundle è cresciuto del 58%" a chi non aveva toccato una riga di
- * codice: alla seconda volta uno smette di crederci, e un cancello a cui non si
- * crede è peggio di nessun cancello. Meglio dire la verità — "qui ci sono due
- * build una sopra l'altra, questa misura non vuol dire niente" — e continuare a
- * far valere gli altri due budget, che sono indirizzati per hash da `index.html`
- * e quindi restano corretti anche in mezzo agli orfani.
+ * Come lo si riconosce: si parte dagli asset che `index.html` cita e si seguono
+ * i riferimenti dentro ai file (gli `import()` pigri, i `modulepreload`, i font
+ * citati dal CSS). Ciò che nessuno raggiunge è un avanzo.
+ *
+ * Il criterio di prima — «più di un `index-*.js` = più di una build» — era un
+ * FALSO POSITIVO, e lo smentiva questo stesso file tre righe più sotto
+ * (`entryEagerFile`: «Vite emits several `index-*` chunks»). Una build sola e
+ * pulita di HEAD ne emette **5**: `index-*` è il nome che Rollup dà al chunk di
+ * ogni modulo che si chiama `index.ts(x)`, non un marchio dell'entry. Risultato:
+ * il ramo "NON MISURABILE" scattava SEMPRE, e il budget `total_assets` non è mai
+ * stato verificato da quando esiste — l'unico dei tre che becca una dipendenza
+ * pesante aggiunta come chunk PIGRO. Un controllo che non può fallire non è un
+ * controllo (misurato il 2026-08-13, ricostruendo la baseline in una copia
+ * pulita: 168 file, 0 orfani).
  */
-function overlaidBuilds(): number {
-  return readdirSync(ASSETS_DIR).filter((f) => /^index-[^/]+\.js$/.test(f)).length;
+function orphanAssets(critical: string[]): string[] {
+  const all = new Set(readdirSync(ASSETS_DIR).filter((f) => statSync(join(ASSETS_DIR, f)).isFile()));
+  const reachable = new Set<string>();
+  const queue: string[] = [];
+  for (const f of critical) {
+    const name = f.replace(/^assets\//, "");
+    if (all.has(name) && !reachable.has(name)) {
+      reachable.add(name);
+      queue.push(name);
+    }
+  }
+  // Un nome di file emesso da Vite è sempre `<base>-<hash>.<ext>`; cercarlo come
+  // testo copre sia `import("./chunk-x.js")` sia `url(/assets/font-x.woff2)`,
+  // senza dover interpretare il JS minificato.
+  const token = /[\w.@-]+\.(?:js|mjs|css|woff2?|ttf|otf|eot|png|svg|jpe?g|gif|webp|avif|json|wasm|map)/g;
+  while (queue.length > 0) {
+    const file = queue.pop()!;
+    // Solo i file di TESTO possono citarne altri: un .woff2 o un .png letto come
+    // utf8 darebbe solo rumore da scandire.
+    if (!/\.(?:js|mjs|css|json|map|svg)$/.test(file)) continue;
+    const text = readFileSync(join(ASSETS_DIR, file), "utf8");
+    for (const m of text.matchAll(token)) {
+      const name = m[0];
+      if (all.has(name) && !reachable.has(name)) {
+        reachable.add(name);
+        queue.push(name);
+      }
+    }
+  }
+  return [...all].filter((f) => !reachable.has(f)).sort();
 }
 
 /** The eager entry: the largest `assets/index-*.js` on the critical path.
@@ -144,13 +186,15 @@ const measured = {
 console.log(`entry eager    ${entry}`);
 console.log(`               raw ${fmt(measured.entry_eager.raw)}  gz ${fmt(measured.entry_eager.gz)}   (baseline raw ${fmt(baseline.entry_eager.raw)}  gz ${fmt(baseline.entry_eager.gz)})`);
 console.log(`critical path  ${measured.critical_path.files} files  raw ${fmt(measured.critical_path.raw)}  gz ${fmt(measured.critical_path.gz)}   (baseline raw ${fmt(baseline.critical_path.raw)}  gz ${fmt(baseline.critical_path.gz)})`);
-const overlaid = overlaidBuilds();
-if (overlaid > 1) {
+const orphans = orphanAssets(critical);
+if (orphans.length > 0) {
   console.log(
-    `total assets   NON MISURABILE — ${ASSETS_DIR} contiene ${overlaid} build sovrapposte\n` +
-      `               (è il watcher \`build:watch\` che scrive in parallelo). Gli altri due\n` +
-      `               budget valgono comunque: sono indirizzati per hash da index.html.\n` +
-      `               Per misurare anche questo: ferma il watcher, svuota public/assets, ribuilda.`,
+    `total assets   NON MISURABILE — ${orphans.length} file di ${ASSETS_DIR} non ${orphans.length === 1 ? "è raggiungibile" : "sono raggiungibili"}\n` +
+      `               da index.html: sono gli avanzi di una build precedente\n` +
+      `               (è il watcher \`build:watch\` che scrive senza svuotare outDir). Gli altri\n` +
+      `               due budget valgono comunque: sono indirizzati per hash da index.html.\n` +
+      `               Per misurare anche questo: ferma il watcher, svuota public/assets, ribuilda.\n` +
+      `               Primi orfani: ${orphans.slice(0, 3).join(", ")}${orphans.length > 3 ? ", …" : ""}`,
   );
 } else {
   console.log(`total assets   raw ${fmt(measured.total_assets.raw)}   (baseline ${fmt(baseline.total_assets.raw)})`);
@@ -167,7 +211,7 @@ check("entry_eager.raw", measured.entry_eager.raw, baseline.entry_eager.raw);
 check("entry_eager.gz", measured.entry_eager.gz, baseline.entry_eager.gz);
 check("critical_path.raw", measured.critical_path.raw, baseline.critical_path.raw);
 check("critical_path.gz", measured.critical_path.gz, baseline.critical_path.gz);
-if (overlaid <= 1) check("total_assets.raw", measured.total_assets.raw, baseline.total_assets.raw);
+if (orphans.length === 0) check("total_assets.raw", measured.total_assets.raw, baseline.total_assets.raw);
 
 // Structural, not just numeric: a 7th eager asset in index.html is a real
 // regression even when the bytes happen to fit — one more blocking request.

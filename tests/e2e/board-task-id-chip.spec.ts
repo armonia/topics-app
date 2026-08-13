@@ -252,7 +252,7 @@ test.describe("Board card — il riferimento al task è un segno, non una parola
   });
 
   test("IDCHIP-04: schermata della riga per la consegna", async ({ page }, testInfo) => {
-    test.skip(process.env.CHIP_SHOT !== "1", "solo su richiesta: produce l'artefatto di consegna");
+    test.skip(process.env.CHIP_SHOT !== "1", "manca CHIP_SHOT=1: non è un AC, produce su richiesta lo scatto di consegna");
     const card = page.locator(`[data-task-card="${createdTasks[0]}"]`).first();
     await expect(card).toBeVisible();
     await card.screenshot({ path: `${testInfo.project.outputDir}/../chip-${process.env.CHIP_SHOT_NAME || "shot"}.png` });
