@@ -21,9 +21,20 @@ describe('resolveLocale', () => {
     expect(resolveLocale('it', 'en-US')).toBe('it');
   });
 
-  test('auto segue il browser', () => {
-    expect(resolveLocale('auto', 'en-GB')).toBe('en');
+  test('auto NON segue piu\' il browser: un Mac inglese non sceglie per te', () => {
+    // Il caso misurato: preferenza `auto`, sistema in inglese, e sulla stessa
+    // card «consegnato» accanto a «Land on main». L'inglese qui non puo' essere
+    // completo — i chip del server, il testo degli agenti e le card sono
+    // italiani comunque — quindi inferirlo dal sistema impone una schermata
+    // META' tradotta a chi non ha scelto niente.
+    expect(resolveLocale('auto', 'en-GB')).toBe('it');
+    expect(resolveLocale('auto', 'en-US')).toBe('it');
     expect(resolveLocale('auto', 'it-IT')).toBe('it');
+  });
+
+  test('l\'inglese resta raggiungibile, ma va CHIESTO', () => {
+    // Una scelta esplicita accetta il misto; un'inferenza lo impone.
+    expect(resolveLocale('en', 'it-IT')).toBe('en');
   });
 
   test('senza preferenza e senza browser: italiano', () => {
