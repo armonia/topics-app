@@ -768,9 +768,11 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         content:
           // The note quotes the switch by the words printed next to it
           // (`board.settings.autoMerge` in client/src/lib/i18n.ts) and the
-          // button by the words printed on it (`board.task.landOnMain`): a note
-          // that names a control the reader cannot find is a note that gets
-          // ignored. Both are pinned by a test in server/routes/tasks.test.ts.
+          // button by the words printed on it (`board.action.land`, the single
+          // action table): a note that names a control the reader cannot find is
+          // a note that gets ignored. Both are pinned by a test in
+          // server/routes/tasks.test.ts, so renaming either label there fails
+          // here rather than quietly drifting.
           "Chiusa SENZA fondere: il merge automatico è spento per questa board " +
           `(impostazioni della board, «Fondi su main quando la card arriva in Done»). Il lavoro resta sul branch \`${branch}\`. ` +
           "Per portarlo su main premi «Landa su main» sulla card, oppure fondilo a mano: " +
@@ -1765,7 +1767,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           try {
             const settings = svc.updateBoardSettings(projectId, {
               autoDispatch: typeof body?.autoDispatch === "boolean" ? body.autoDispatch : undefined,
-              maxAgents: typeof body?.maxAgents === "number" ? body.maxAgents : undefined,
+              // NIENTE `maxAgents` per board: il tetto è uno solo e si scrive su
+              // PATCH /api/all-boards/settings (riga '*'). Qui era accettato,
+              // salvato, rimostrato — e non limitava niente.
               dispatchEffort: typeof body?.dispatchEffort === "string" ? body.dispatchEffort : undefined,
               dispatchUseWorktree: typeof body?.dispatchUseWorktree === "boolean" ? body.dispatchUseWorktree : undefined,
               dispatchAutoMerge: typeof body?.dispatchAutoMerge === "boolean" ? body.dispatchAutoMerge : undefined,

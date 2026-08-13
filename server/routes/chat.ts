@@ -36,7 +36,7 @@ import { cancelled, classifyTurnError, isAcpStopReason, type TurnEndInfo } from 
 import { recordTurnEnd } from "../providers/turn-end-registry";
 import { appendUsageRecord } from "../usage/store";
 import { autoreDaIdentita } from "../lib/message-author";
-import { accumulateTurnUsage, emptyTurnUsage, turnUsageCostParts } from "../usage/turn-usage";
+import { accumulateTurnUsage, emptyTurnUsage, turnUsageParts, turnUsageWire } from "../usage/turn-usage";
 import { calculateCost, calculateCostWithCache, splitPromptTokens } from "../usage/pricing";
 import type { BrowserService } from "../browser-service";
 import type { Tool } from "@anthropic-ai/sdk/resources/messages";
@@ -1977,7 +1977,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               const tokens = (u.inputTokens || 0) + (u.outputTokens || 0);
               let costCents: number | undefined;
               try {
-                const parts = turnUsageCostParts(accumulateTurnUsage(emptyTurnUsage(), u));
+                const parts = turnUsageParts(accumulateTurnUsage(emptyTurnUsage(), u));
                 const usd = calculateCostWithCache({
                   model: u.model || liveModel || overrideModel || "unknown",
                   freshInputTokens: parts.fresh,
@@ -2066,11 +2066,25 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               live = accumulateTurnUsage(live, u);
               if (u.model) liveModel = u.model;
               if (!matchedTopic) return;
+              // Lo SCORPORO, una volta sola e FUORI dal try.
+              //
+              // `live` porta le quote come le manda l'API: annidate, cioè
+              // `cacheCreation` è il TOTALE e `cacheCreation1h` una sua parte.
+              // Le colonne di `messages` e i campi del filo vogliono l'opposto
+              // (quote disgiunte, migration 070). Prima questa traduzione stava
+              // dentro il `try` del prezzo e serviva solo a lui: la riga salvata
+              // e il frame WS prendevano i grezzi, cioè sommavano due volte la
+              // scrittura in cache. Sta fuori perché è pura e non può lanciare,
+              // e perché un fallimento del PREZZO non deve poter rimettere in
+              // giro i numeri annidati.
+              const parts = turnUsageParts(live);
+              // La stessa cosa nella forma di `messages` e del frame WS: una
+              // porta sola per la riga salvata e per il filo.
+              const wire = turnUsageWire(live);
               // Costo corrente, con le stesse tariffe del consuntivo: il fresco è
               // il RESTO (mai negativo), le due durate di cache pagano la loro.
               let liveCost: number | undefined;
               try {
-                const parts = turnUsageCostParts(live);
                 const usd = calculateCostWithCache({
                   model: liveModel || overrideModel || "unknown",
                   freshInputTokens: parts.fresh,
@@ -2091,11 +2105,11 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // sovrascrive coi totali definitivi del provider.
               try {
                 updateLastMessage(sessionKey, {
-                  usagePromptTokens: live.prompt,
-                  usageCompletionTokens: live.completion,
-                  cacheReadTokens: live.cacheRead,
-                  cacheCreationTokens: live.cacheCreation,
-                  cacheCreation1hTokens: live.cacheCreation1h,
+                  usagePromptTokens: wire.promptTokens,
+                  usageCompletionTokens: wire.completionTokens,
+                  cacheReadTokens: wire.cacheReadTokens,
+                  cacheCreationTokens: wire.cacheCreationTokens,
+                  cacheCreation1hTokens: wire.cacheCreation1hTokens,
                   ...(liveCost != null ? { costCents: liveCost } : {}),
                   ...(liveModel ? { model: liveModel } : {}),
                 });
@@ -2105,11 +2119,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 sessionKey,
                 topicId: matchedTopic.id,
                 calls: live.calls,
-                promptTokens: live.prompt,
-                completionTokens: live.completion,
-                cacheReadTokens: live.cacheRead,
-                cacheCreationTokens: live.cacheCreation,
-                cacheCreation1hTokens: live.cacheCreation1h,
+                ...wire,
                 ...(liveCost != null ? { costCents: liveCost } : {}),
                 ...(liveModel ? { model: liveModel } : {}),
               });
@@ -2240,8 +2250,78 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                   // Il modello vale a prescindere da CHI ha calcolato il costo:
                   // serve tanto per attribuire la spesa quanto per sapere, se un
                   // domani la tariffa cambia, quale riga rifare.
-                  const modelOfTurn = message.model || overrideModel || undefined;
+                  //
+                  // `liveModel` in mezzo NON è un ornamento: l'evento `result`
+                  // della CLI non porta il modello (vedi `RESULT_OK` in
+                  // events.fixture.ts), e su un topic che non ne fissa uno
+                  // `overrideModel` è vuoto. Senza questo anello il consuntivo
+                  // risolveva "unknown", `calculateCostWithCache` tornava 0, il
+                  // `if (usd > 0)` non scattava e il COALESCE della UPDATE
+                  // lasciava in piedi qualunque costo ci fosse già.
+                  //
+                  // Misurato sulla riga b26bd2e2 (topic ec3137d0, 13/08): 111
+                  // centesimi salvati contro 132 calcolati sulle sue quote
+                  // vere. La differenza è 21 centesimi, cioè ESATTAMENTE gli
+                  // 8.216 token di risposta a 25$/M: il numero salvato era il
+                  // costo del solo input. Quale scrittura l'abbia lasciato lì
+                  // non è ricostruibile a posteriori e non serve saperlo: con
+                  // il modello risolto il consuntivo ricalcola e sovrascrive,
+                  // che è la proprietà che mancava.
+                  //
+                  // Da non ripetere: il contatore di output VIVO non è un
+                  // segnaposto, contrariamente a quanto sembrava leggendo una
+                  // riga `partial=1` a metà turno. Ricostruito dal transcript
+                  // (eventi `assistant` deduplicati per `message.id`) l'accumulo
+                  // per chiamata di quella sessione fa 32.195 token di risposta,
+                  // e la somma dei `usage_completion_tokens` finalizzati nel DB
+                  // fa 32.195: combacia al token.
+                  const modelOfTurn = message.model || liveModel || overrideModel || undefined;
                   if (typeof modelOfTurn === "string" && modelOfTurn) usageModel = modelOfTurn;
+                  // ── IL COSTO DELLA CLI: TROVATO, E LASCIATO DOV'È ─────────
+                  // `usage.costUsd` non esiste per claude-code: il provider
+                  // consegna il costo come FRATELLO di `usage`
+                  // (`claude-code.ts` passa `costUsd: event.total_cost_usd`
+                  // accanto a `usage: readResultUsage(event)`). Questo ramo
+                  // quindi non è mai scattato in produzione, e ogni prezzo
+                  // che l'app ha mai mostrato lo ha calcolato la nostra
+                  // tabella. Non è un bug che valga la pena "riparare" al
+                  // buio: leggere il livello giusto significherebbe sostituire
+                  // il numero mostrato ovunque con uno mai messo alla prova.
+                  //
+                  // ── COSA DICE LA MISURA (probe controllate, 13/08/2026) ────
+                  // Due `claude --print` su haiku, sessione nuova poi ripresa:
+                  //     chiamata 1 ....  $0,080838   (cc 40.015, cr 0)
+                  //     chiamata 2 ....  $0,0042665  (cr 40.015, cc 60)
+                  // Il secondo è VENTI VOLTE più piccolo del primo, quindi
+                  // `total_cost_usd` è PER TURNO, non cumulativo di sessione.
+                  // Su quella coppia combacia con la nostra tabella a cinque
+                  // decimali ($0,00427 calcolati contro $0,0042665 riportati).
+                  //
+                  // Ma su un turno che DELEGA non si riconcilia più, e in un
+                  // modo che non sappiamo ancora leggere: una sola invocazione
+                  // col tool `Task` ha emesso DUE eventi `result` (entrambi
+                  // `subtype: success`, nessun evento con `parentToolUseId`), e
+                  // il costo di ognuno stava fra 1,3× e 7,8× sopra il prezzo
+                  // dei token che quel `result` dichiara. Cioè il numero del
+                  // provider comprende lavoro che il suo stesso `usage` non
+                  // mostra — probabilmente le sotto-sessioni, che è la stessa
+                  // cosa che ha fatto nascere `services/dispatch-usage.ts`.
+                  //
+                  // Il nostro numero invece riconcilia sempre: combacia al
+                  // centesimo con la nostra tabella su 5 turni veri su 5 del
+                  // 13/08 (`usage/pricing.ts`, sotto test). Quindi resta il
+                  // nostro, con un limite DICHIARATO: su un turno che delega,
+                  // il costo mostrato è un PAVIMENTO, non il totale. Adottare
+                  // `total_cost_usd` va fatto quando si sa spiegare il doppio
+                  // `result` — non prima, perché significherebbe sostituire
+                  // ovunque un numero verificabile con uno che non lo è.
+                  //
+                  // (Il secondo `result` non ci fa doppio conteggio: `onDone`
+                  // azzera `pp.streamHandler`, quindi l'evento dopo trova un
+                  // handler nullo e cade — `claude-code.ts:2773`.)
+                  //
+                  // Resta letto per gli altri provider, che il costo lo
+                  // mettono davvero dentro `usage`.
                   const usdFromProvider = typeof usage.costUsd === "number" ? usage.costUsd : undefined;
                   if (usdFromProvider != null) {
                     costCents = Math.round(usdFromProvider * 100);
@@ -2259,7 +2339,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                       // cinque minuti) e vanno pagate ognuna la sua.
                       const fresh = inTok - (cacheReadTokens ?? 0) - (cacheCreationTokens ?? 0) - (cacheCreation1hTokens ?? 0);
                       const usd = calculateCostWithCache({
-                        model: message.model || overrideModel || "unknown",
+                        model: modelOfTurn || "unknown",
                         freshInputTokens: Math.max(0, fresh),
                         outputTokens: outTok,
                         cacheReadTokens: cacheReadTokens ?? 0,

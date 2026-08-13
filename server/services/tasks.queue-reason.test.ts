@@ -24,9 +24,13 @@ function freshDb(): Database {
   db.run(`CREATE TABLE topics (id TEXT PRIMARY KEY, effort TEXT)`);
   db.run(TASKS_DDL);
   db.run(TASKS_FK_STUBS_DDL);
+  // `max_agents_auto` (migration 053) is not optional decoration: `readGlobalCap`
+  // SELECTs it, so a DDL without it makes every read of the machine-wide cap
+  // throw "no such column" instead of returning a number. Harmless while nothing
+  // in this file reads the cap, and a trap for whoever adds the first line that does.
   db.run(`CREATE TABLE board_settings (
     project_id TEXT PRIMARY KEY, auto_dispatch INTEGER NOT NULL DEFAULT 0,
-    max_agents INTEGER DEFAULT 3, dispatch_retry_cap INTEGER
+    max_agents INTEGER DEFAULT 3, max_agents_auto INTEGER, dispatch_retry_cap INTEGER
   )`);
   db.run(`CREATE TABLE task_comments (
     id TEXT PRIMARY KEY, task_id TEXT NOT NULL, author TEXT NOT NULL DEFAULT 'user',
