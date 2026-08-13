@@ -855,26 +855,30 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
   }
 
   /**
-   * IL SOLO MODO DI USCIRE DA REVIEW SENZA UN MERGE, e vale perché è una prova
-   * anche lui: non c'è NIENTE da atterrare (nessun ramo, o un ramo che non porta
-   * commit che main non abbia). Un land che non trova lavoro non è un land
-   * fallito, e lasciare la card in review a vita farebbe pagare a ogni task
-   * in-place il prezzo del difetto che si sta chiudendo.
+   * «NON C'ERA NIENTE DA ATTERRARE» NON È UNA CHIUSURA, ed è la sola regola che
+   * tiene: solo un merge CONFERMATO su main toglie una card da review. Un land
+   * senza ramo, o su un ramo che non porta commit che main non abbia, non ha
+   * portato niente da nessuna parte — magari il lavoro è già di là per mano di
+   * qualcun altro, magari non è mai esistito. Le due cose si distinguono
+   * guardando, e a guardare è l'umano: la card resta dov'è con scritto perché.
    *
-   * Su una card già chiusa non fa niente: `reviewDecision` vale solo dall'edge
-   * di review, ed è l'unico stato da cui il land poteva partire con la card
-   * ancora aperta.
+   * Chiuderla qui sarebbe di nuovo far dire allo stato una cosa che nessuno ha
+   * visto — il difetto del 13/08 con un'altra maschera. Su una card già chiusa
+   * (il land partito dal trascinamento in Done) non c'è niente da spiegare.
    */
-  function acceptNothingToLand(projectId: string, taskId: string, reason: string): void {
+  function explainNothingToLand(projectId: string, taskId: string, reason: string): void {
     const cur = svc.get(taskId, { projectId })?.task;
     if (!cur || cur.status !== "review") return;
     try {
-      const task = svc.reviewDecision({ taskId, by: "system", decision: "approve", projectId });
-      svc.addComment({ taskId, author: "system", content: `Card accettata senza fondere: ${reason}.` });
-      const fresh = svc.get(taskId, { projectId })?.task ?? task;
-      broadcastToAll({ type: "task:updated", projectId, task: fresh });
-      if (dispatcher && fresh.status === "done") dispatcher.onBlockerDone(taskId);
-    } catch (err) { console.warn(`[land] accettazione senza merge fallita per ${taskId}:`, err); }
+      svc.addComment({
+        taskId, author: "system",
+        content:
+          `Niente da atterrare: ${reason}. Non è stato fuso niente, quindi la card resta in review. ` +
+          "Se il lavoro è già su main (o non ce n'era), approvala tu; altrimenti guarda il ramo e rilancia «Landa su main».",
+      });
+      const fresh = svc.get(taskId, { projectId })?.task;
+      if (fresh) broadcastToAll({ type: "task:updated", projectId, task: fresh });
+    } catch (err) { console.warn(`[land] nota «niente da atterrare» non scritta per ${taskId}:`, err); }
   }
 
   async function landTask(projectId: string, taskId: string): Promise<void> {
@@ -890,8 +894,6 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     // di board). Non è un esito da nascondere: `throw` lo porta sul ticket, che è
     // l'unico posto dove chi ha chiesto il land può ancora leggerlo.
     if (!task) throw new Error(`task ${taskId} non trovato su questa board: land annullato`);
-    // Landing ends the task's review life — reap its preview server (idempotent).
-    try { await opts?.teardownPreview?.(taskId); } catch { /* best-effort */ }
     try {
       const res = await autoMerge.tryMerge(taskId, task.text, {
         branch: task.deliveryBranch ?? null,
@@ -941,6 +943,11 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           });
         }
         svc.addComment({ taskId, author: "system", content: `Mergiato su main (commit ${res.commit}).` });
+        // È QUI che finisce la vita di review della card, non all'inizio del
+        // land: l'anteprima si smonta quando il merge è confermato. Smontarla
+        // prima di provare a fondere toglieva al reviewer la pagina viva anche
+        // quando il land poi falliva e la card gli tornava in mano (idempotente).
+        try { await opts?.teardownPreview?.(taskId); } catch { /* best-effort */ }
         // L'ALTRO verso dello stesso difetto. Il land promuoveva a `done` solo
         // passando da `review` (`POST …/land` lo fa prima di chiamare qui): da
         // ogni altro stato mergiava e lasciava la card dov'era. Misurato l'11/08
@@ -1005,7 +1012,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         // the exact claim that cost us the `watching` phase — verify it against
         // the repo (content, not ancestry) before destroying anything.
         await reapAfterLand(taskId, "nothing");
-        acceptNothingToLand(projectId, taskId, "non c'era niente da atterrare: il ramo non porta commit che main non abbia");
+        explainNothingToLand(projectId, taskId, "il ramo non porta commit che main non abbia");
       } else if (res.status === "conflict") {
         // La card ESCE da `done`, e la riga di storico deve dire perché. Prima
         // diceva "user → In corso": la stessa riga che scrive un umano quando
@@ -1058,7 +1065,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         // da fare. `no-branch` (`fall.status === null`) non è un fallimento:
         // non c'era niente da atterrare, e la card si accetta.
         if (!fall.status) {
-          acceptNothingToLand(projectId, taskId, "non c'era nessun ramo da atterrare");
+          explainNothingToLand(projectId, taskId, "non c'era nessun ramo da atterrare");
         } else if (cur && (cur.status === "done" || cur.status === "review") && cur.status !== fall.status) {
           try {
             // `actor: "human"` è l'asse dei PERMESSI (nessun agente riporta

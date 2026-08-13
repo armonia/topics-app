@@ -1222,11 +1222,16 @@ describe("approve decoupled from landing", () => {
     expect(r).toEqual([]);
   });
 
-  test("«non c'era niente da atterrare» lascia la card chiusa: è l'unico skip innocuo", async () => {
-    // Il controllo dei due test qui sopra. Se il ritiro scattasse su ogni skip,
-    // una nota chiusa a mano rimbalzerebbe fuori da Done a ogni gesto.
+  test("«non c'era niente da atterrare» NON chiude la card: lo dice e la lascia in review", async () => {
+    // Il controllo dei due test qui sopra: nessun rimbalzo all'agente, perché
+    // non c'è niente da riparare. Ma nemmeno una chiusura: un land che non ha
+    // portato niente da nessuna parte non è una prova che il lavoro sia su
+    // main, e solo un merge confermato toglie una card da review. Se il lavoro è
+    // già di là per mano di qualcun altro, a dirlo è l'umano che approva.
     const { id, db: d } = await landSkipping("no-branch");
-    expect(createTaskService(d).get(id)!.task.status).toBe("done");
+    const t = createTaskService(d).get(id)!;
+    expect(t.task.status).toBe("review");
+    expect(t.comments.some((c) => c.content.includes("Niente da atterrare"))).toBe(true);
   });
 
   /** Un merge andato a buon fine, nella forma che `tryMerge` restituisce. */
@@ -2154,9 +2159,12 @@ describe("land in raffica: N chiamate ⇒ N esiti", () => {
     expect(t.task.status).toBe("review");
     expect(t.comments.some((c) => c.content.includes("Land NON riuscito (errore interno)"))).toBe(true);
     expect(b.stamped).toContainEqual([ids[1]!, "unlanded"]);
-    // E le vicine, che sono andate bene, sì che si chiudono: il land che
-    // funziona chiude la card come prima.
-    expect(svc.get(ids[0]!)!.task.status).toBe("done");
+    // E le vicine hanno girato davvero (qui il banco risponde «niente da
+    // portare»): il loro esito è nel thread e nemmeno loro si chiudono, perché
+    // nessuna ha visto un merge.
+    const vicina = svc.get(ids[0]!)!;
+    expect(vicina.task.status).toBe("review");
+    expect(vicina.comments.some((c) => c.content.includes("Niente da atterrare"))).toBe(true);
   });
 
   test("due click su «Landa» sulla stessa card = UN land", async () => {
@@ -2167,6 +2175,13 @@ describe("land in raffica: N chiamate ⇒ N esiti", () => {
     expect(second.landing.queuedAt).toBe(first.landing.queuedAt);
     await b.settle([id!]);
     expect(b.merges).toEqual([id!]);
+    // LA SECONDA STRADA PER CHIUDERE UNA CARD SENZA ATTERRARE NIENTE. Il dedup è
+    // giusto — la coda restituisce lo snapshot del ticket già aperto e NON fa
+    // partire un secondo run — ma finché la rotta approvava prima di accodare,
+    // quel click chiudeva la card comunque, senza che niente girasse. Adesso non
+    // c'è approvazione da nessuna delle due parti: la card sta dov'è.
+    expect(second.status).toBe("review");
+    expect(createTaskService(b.db).get(id!)!.task.status).toBe("review");
   });
 
   test("GET …/land su una card mai landata è 404, non un falso «tutto a posto»", async () => {
