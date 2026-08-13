@@ -4,9 +4,9 @@
  * SET NULL on `topics.machine_id` when a machine is deleted.
  */
 import { describe, expect, test, beforeAll, beforeEach } from "bun:test";
-import { setupTestDataDir, createTestAppContext } from "./helpers";
+import { setupTestDataDir, createTestAppContext, testTmpDir } from "./helpers";
 
-const TEST_DATA = "/tmp/topics-phase-d-data";
+const TEST_DATA = testTmpDir("phase-d-data");
 
 beforeAll(async () => {
   setupTestDataDir(TEST_DATA);
