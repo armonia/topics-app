@@ -21,10 +21,13 @@
 import { describe, expect, test, beforeAll } from "bun:test";
 import * as fs from "node:fs";
 import path from "node:path";
-import { setupTestDataDir, createTestAppContext, PROJECT_ROOT } from "./helpers";
+import { setupTestDataDir, createTestAppContext, testTmpDir, PROJECT_ROOT } from "./helpers";
 import type { AppContext } from "../../server/types";
 
-const TEST_DATA = "/tmp/topics-migration-disjoint-cache-data";
+// `testTmpDir`, non un path fisso: due suite in parallelo sullo stesso path si
+// cancellano i dati a vicenda, ed e' il cancello di `setupTestDataDir` a
+// pretenderlo (questo file lo faceva cadere).
+const TEST_DATA = testTmpDir("migration-disjoint-cache-data");
 
 const MIGRATION_SQL = fs.readFileSync(
   path.join(PROJECT_ROOT, "server/db/migrations/20260813135636-disjoint-cache-creation.sql"),
