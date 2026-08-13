@@ -30,6 +30,7 @@ import { UnifiedDiff } from './UnifiedDiff';
 import { collectTaskMediaPaths } from './taskMedia';
 import { TaskChoiceRow } from './TaskChoiceRow';
 import { usableQuestionOptions } from './taskChoices';
+import { taskActionWord } from './taskActionWords';
 import { formatReviewNotes } from './reviewNotes';
 import { COMPACT_MD_CLS, PLAN_MD_CLS, PRIORITY_DOT, PRIORITY_LABEL, PRIORITY_ORDER, DISPATCH_CHIP, EFFORTS, FANOUT_CHOICES, mediaPaneIdFor, type TaskSurface } from './constants';
 import { friendlyModelLabel, fmtModel, commentTime, fmtMs, fmtLive, fmtTok, fmtUpdatedAt, autoGrow, attemptStat, taskCopyText, descSummary, fmtCount } from './format';
@@ -145,7 +146,7 @@ function ChecksSection({ task }: { task: BoardTask }) {
             </div>
           ))}
           <p className="text-app-text-secondary">
-            {tr('board.task.checks.hintLead')} <b>{tr('board.task.reject')}</b>{tr('board.task.checks.hintTail')}
+            {tr('board.task.checks.hintLead')} <b>{taskActionWord('send-back', tr).label}</b>{tr('board.task.checks.hintTail')}
           </p>
         </div>
       )}
@@ -533,6 +534,16 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
 }) {
   const tr = useT();
   const locale = useLocale();
+  // Le tre azioni che il drawer disegna con bottoni SUOI, più grandi, invece di
+  // lasciarle alla riga di scelte. Le parole sono quelle della card, dalla
+  // stessa tabella: un'azione, una parola, ovunque la si prema.
+  const approveWord = taskActionWord('accept', tr);
+  const sendBackWord = taskActionWord('send-back', tr);
+  const landWord = taskActionWord('land', tr);
+  // Il drawer ha anche il suo «Ferma», accanto ai puntini dell'agente al
+  // lavoro: stessa azione del menu della card e della riga di scelte, quindi
+  // stessa parola e stesso tooltip (che nomina Backlog, dove il task finisce).
+  const stopWord = taskActionWord('stop', tr);
   // Le tab del task, lette QUI e non dalla `browser` più in basso: il manifesto
   // serve a callback definiti molto prima di quel hook.
   const taskTabsState = useTaskBrowserTabs(taskId);
@@ -733,14 +744,28 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   const speech = comments.filter(isThreadSpeech);
   const lastThreadComment = speech[speech.length - 1] ?? null;
   const pending = isAgentReview && lastThreadComment ? parseQuestionBlock(lastThreadComment.content) : null;
-  // Same trap as on the card, one size bigger: the drawer draws its own Approva
-  // / Rifiuta / Landa su main, so a quick reply carrying one of those labels sits
-  // beside a button that does something else entirely. No `exclude` here on
-  // purpose: the drawer hides `land` from its choice row precisely BECAUSE it
-  // renders it itself, so the collision is real.
+  // Same trap as on the card, one size bigger: the drawer draws its own approve
+  // / send-back / land buttons, so a quick reply carrying one of those labels
+  // sits beside a button that does something else entirely.
+  //
+  // The choice row hides those actions precisely BECAUSE the drawer renders
+  // them itself, so `exclude` would hide the collision instead of catching it.
+  // What the de-duplicator needs is the opposite: the words this surface draws
+  // ON ITS OWN, which is what `surfaceLabels` carries. Without it a question
+  // block offering «Approva» drew a twin of the real Approva that REJECTED the
+  // card (comment 2eff6a44).
   const replyOptions = useMemo(
-    () => (pending && task ? usableQuestionOptions(task, pending.options) : []),
-    [pending, task],
+    () => (pending && task
+      ? usableQuestionOptions(task, pending.options, {
+        t: tr,
+        surfaceLabels: [
+          approveWord.label,
+          sendBackWord.label,
+          ...(isAgentReview ? [landWord.label] : []),
+        ],
+      })
+      : []),
+    [pending, task, tr, isAgentReview, approveWord.label, sendBackWord.label, landWord.label],
   );
   // QUALE commento è il piano. Il task lo PUNTA (`planCommentId`, scritto dal
   // server quando il piano arriva secondo protocollo): non è più «l'ultimo
@@ -877,7 +902,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   // Ricattura evidenza: rifà l'anteprima di QUESTA card senza svegliare l'agent
   // (il server risponde sul canale review-note, non su quello dei commenti) e
   // senza muoverla dalla colonna. Ha il suo `busy` perché è lenta — boot del
-  // server + screenshot — e non deve disabilitare Approva/Rifiuta nel frattempo.
+  // server + screenshot — e non deve disabilitare Approva/Rimanda indietro nel frattempo.
   const [recapturing, setRecapturing] = useState(false);
   const recapturePreview = async () => {
     if (recapturing) return;
@@ -1365,9 +1390,9 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               </div>
               <button
                 disabled={busy} onClick={stopAgent}
-                title={tr('board.task.stopAgentTitle')}
+                title={stopWord.title}
                 className="flex items-center gap-1 rounded bg-rose-500/15 px-2 py-1.5 text-[11px] text-rose-300 hover:bg-rose-500/25 disabled:opacity-50"
-              >{busy ? <Spinner size="sm" tone="current" /> : <Square className="h-3 w-3 fill-current" />} {tr('board.task.stopAgent')}</button>
+              >{busy ? <Spinner size="sm" tone="current" /> : <Square className="h-3 w-3 fill-current" />} {stopWord.label}</button>
             </div>
           </div>
         )}
@@ -1375,7 +1400,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
       </div>
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps -- stopAgent/bottomRef are stable enough; the meaningful inputs are listed
-  }, [task, threadComments, threadBreaksRun, sliceBetween, agentBusy, streamPreview, busy]);
+  }, [task, threadComments, threadBreaksRun, sliceBetween, agentBusy, streamPreview, busy, tr, stopWord.label, stopWord.title]);
 
   const renderSurface = useCallback<RenderSurface>((pane, _isVisible) => {
     if (pane.id.startsWith('thread:')) return renderThread();
@@ -1631,14 +1656,14 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
           <button
             data-testid="task-not-landed-land"
             disabled={busy} onClick={doLand}
-            title="Fa il merge del branch su main (locale, nessun push). L'esito arriva nel thread: se il worktree è già stato potato il land non riesce e te lo dice, così resta il commit da recuperare a mano."
+            title={landWord.title}
             // Nessun colore di testo proprio: eredita il `text-rose-300` della
             // banda, che è la coppia già provata su questo velo nei due temi.
             // Con un `text-rose-100` il bottone spariva sul tema chiaro, biancore
             // su rosa: l'affordance la fanno il bordo e il fondo, non un testo
             // più chiaro del fondo su cui sta.
             className="flex shrink-0 items-center gap-1 rounded border border-rose-400/40 bg-rose-500/20 px-2 py-0.5 font-medium hover:bg-rose-500/30 disabled:opacity-50"
-          ><GitMerge className="h-3 w-3" /> {tr('board.task.landOnMain')}</button>
+          ><GitMerge className="h-3 w-3" /> {landWord.label}</button>
         </div>
       )}
       {/* Aveva consegnato e non è più lì: la banda lo dice appena apri la card,
@@ -1660,7 +1685,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
           `[42vh]` su Modifiche, `[50vh]` sull'anteprima) come surrogato dello
           scroll che mancava. Quando i tetti non bastavano la colonna debordava e
           l'`overflow-hidden` della board tagliava — e il primo pezzo tagliato è
-          l'ULTIMO figlio: Approva / Rifiuta / Landa. I bottoni della decisione
+          l'ULTIMO figlio: Approva / Rimanda indietro / Landa. I bottoni della decisione
           uscivano dallo schermo.
 
           Adesso: UN contenitore di scroll (il brief), e fuori da lui solo cose
@@ -2207,7 +2232,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
           )}
           {/* La zona di DECISIONE: `shrink-0`, fuori dallo scroll, ultima della
               colonna. È l'invariante che il guscio esiste per garantire —
-              Approva/Rifiuta/Landa dentro il viewport a qualunque altezza di
+              Approva/Rimanda indietro/Landa dentro il viewport a qualunque altezza di
               finestra e con qualunque combinazione di sezioni aperte. */}
           <div className="shrink-0 border-t border-app-border p-2">
             {/* Fuori dalla review le scelte della card ci sono lo stesso — è la
@@ -2246,19 +2271,19 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                   <button
                     disabled={busy} onClick={() => decide('approve', { force: task.checksState === 'fail' })}
                     title={task.checksState === 'fail'
-                      ? tr('board.task.approveFailTitle')
-                      : tr('board.task.approveTitle')}
+                      ? tr('board.task.approveFailTitle', { sendBack: sendBackWord.label })
+                      : approveWord.title}
                     className={`flex flex-1 items-center justify-center gap-1.5 rounded px-2.5 py-1.5 text-xs font-medium text-white disabled:opacity-50 ${
                       task.checksState === 'fail'
                         ? 'bg-amber-600/80 hover:bg-amber-600'
                         : 'bg-emerald-500/80 hover:bg-emerald-500'
                     }`}
-                  >{busy ? <Spinner size="sm" tone="current" /> : <ShieldCheck className="h-3.5 w-3.5" />} {task.checksState === 'fail' ? tr('board.task.approveAnyway') : tr('board.task.approve')}</button>
+                  >{busy ? <Spinner size="sm" tone="current" /> : <ShieldCheck className="h-3.5 w-3.5" />} {task.checksState === 'fail' ? tr('board.task.approveAnyway') : approveWord.label}</button>
                   <button
                     disabled={busy} onClick={() => decide('reject')}
-                    title={isAgentReview ? tr('board.task.rejectTitle') : tr('board.task.reject')}
+                    title={sendBackWord.title}
                     className="flex items-center gap-1.5 rounded bg-white/10 px-2.5 py-1.5 text-xs text-app-text hover:bg-white/20 disabled:opacity-50"
-                  ><ShieldX className="h-3.5 w-3.5" /> {tr('board.task.reject')}</button>
+                  ><ShieldX className="h-3.5 w-3.5" /> {sendBackWord.label}</button>
                 </div>
                 {/* Explicit landing — accept + merge the branch on main (local, no
                     push, build server-side). Separate from Approva by design: the
@@ -2266,12 +2291,12 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 {isAgentReview && (
                   <button
                     disabled={busy} onClick={doLand}
-                    title={tr('board.task.landTitle')}
+                    title={landWord.title}
                     className="flex w-full items-center justify-center gap-1.5 rounded bg-sky-500/80 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-sky-500 disabled:opacity-50"
-                  ><GitMerge className="h-3.5 w-3.5" /> {tr('board.task.landOnMain')}</button>
+                  ><GitMerge className="h-3.5 w-3.5" /> {landWord.label}</button>
                 )}
                 {/* Le uscite che i tre bottoni qui sopra NON hanno: prendersi il
-                    task («Serve a me») o archiviarlo. Approva/Rifiuta/Landa sono
+                    task («Serve a me») o archiviarlo. Approva/Rimanda indietro/Landa sono
                     già lì sopra per esteso, quindi si escludono — un doppione
                     non è una scelta in più. */}
                 <TaskChoiceRow
