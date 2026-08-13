@@ -718,6 +718,43 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     return landings.enqueue(projectId, taskId, () => landTask(projectId, taskId));
   }
 
+  /**
+   * ARRIVARE IN DONE NON È PREMERE «LANDA»: la board ha un interruttore, e va
+   * letto.
+   *
+   * Ogni ingresso in Done di una card con un branch di consegna accodava un
+   * merge su main. Non solo l'approvazione: anche il trascinamento e il menu
+   * «Sposta in», cioè due gesti che nessuno compie per fondere. Il commento
+   * accanto diceva che la board l'aveva già deciso con `dispatchAutoMerge`, ma
+   * su questa strada quel campo non lo leggeva nessuno: quattro board su otto lo
+   * hanno spento e fondevano lo stesso, per 125 «Mergiato su main» e 45
+   * conflitti.
+   *
+   * Spento ⇒ non si fonde, e la card lo DICE: una chiusura muta col codice
+   * ancora sul branch è esattamente il guasto del 10/08 in versione silenziosa.
+   * Il bottone esplicito «Landa su main» continua a passare da `enqueueLand`
+   * diretto: quella è la scelta di una persona, non un effetto collaterale.
+   */
+  function enqueueLandOnDone(projectId: string, taskId: string, branch: string): LandingTicket | null {
+    let autoMergeOn = true;
+    // Un errore leggendo le impostazioni non deve fondere «per non saperlo»: il
+    // verso prudente è NON toccare main.
+    try { autoMergeOn = svc.getBoardSettings(projectId).dispatchAutoMerge; }
+    catch (err) { console.warn("[land] impostazioni della board illeggibili per", projectId, err); autoMergeOn = false; }
+    if (autoMergeOn) return enqueueLand(projectId, taskId);
+    try {
+      svc.addComment({
+        taskId, author: "system",
+        content:
+          "Chiusa SENZA fondere: il merge automatico è spento per questa board " +
+          `(Impostazioni della board, «Merge automatico alla chiusura»). Il lavoro resta sul branch \`${branch}\`. ` +
+          "Per portarlo su main premi «Landa su main» sulla card, oppure fondilo a mano: " +
+          `\`git merge --no-ff ${branch}\`.`,
+      });
+    } catch (err) { console.warn("[land] nota di merge saltato non scritta per", taskId, err); }
+    return null;
+  }
+
   async function landTask(projectId: string, taskId: string): Promise<void> {
     const autoMerge = opts?.autoMerge;
     if (!autoMerge) {
@@ -2167,13 +2204,15 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             // il 10/08: 17 card chiuse in otto ore col contenuto NON su main,
             // verificato applicando i loro commit e guardando se restava qualcosa.
             //
-            // Nessuna decisione nuova: la board ha già detto `dispatchAutoMerge`,
-            // ed è esattamente questa. Se il land non riesce (conflitto, pezzo
-            // mancante) `landTask` lo scrive sulla card e la rimanda all'agente,
-            // che è meglio di una chiusura muta. Fire-and-forget: la PATCH non
-            // aspetta git, o trascinare una card bloccherebbe l'interfaccia.
+            // …ma la decisione è della BOARD, e passa da `enqueueLandOnDone`:
+            // questa riga la dava per presa leggendo un `dispatchAutoMerge` che
+            // su questa strada non consultava nessuno. Se il land parte e non
+            // riesce (conflitto, pezzo mancante) `landTask` lo scrive sulla card
+            // e la rimanda all'agente, che è meglio di una chiusura muta.
+            // Fire-and-forget: la PATCH non aspetta git, o trascinare una card
+            // bloccherebbe l'interfaccia.
             if (prevStatus !== "done" && task.status === "done" && task.deliveryBranch) {
-              enqueueLand(projectId, taskId);
+              enqueueLandOnDone(projectId, taskId, task.deliveryBranch);
             }
             return json(task);
           } catch (e) { return fail(e); }
