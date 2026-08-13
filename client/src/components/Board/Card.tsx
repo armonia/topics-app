@@ -351,7 +351,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   // dove stava, e chi si pente riarchivia con lo stesso menu.
   const restore = async () => {
     try { await boardApi.restore(task.projectId, task.id); onRefetch(); }
-    catch (e) { onError(e instanceof Error ? e.message : 'restore failed'); }
+    catch (e) { fail(e, failedWord('restore')); }
   };
   // «Aspetta» senza buttare via: interrompe il turno e basta. Prima l'unica
   // voce del menu era «Archivia», che su un task vivo chiede «Archivia e

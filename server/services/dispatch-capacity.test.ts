@@ -188,6 +188,10 @@ describe("il pavimento sulle risorse", () => {
     expect(dispatchResourceBlock("/qualunque", () => DISPATCH_DISK_FLOOR_GB + 1)).toBeNull();
     expect(dispatchResourceBlock("/qualunque", () => DISPATCH_DISK_FLOOR_GB)).toBeNull();
     expect(dispatchResourceBlock("/qualunque", () => DISPATCH_DISK_FLOOR_GB - 0.1)).not.toBeNull();
+  });
+});
+
+
 describe("fleetSlotBudget — il freno vivo è un credito, non una divisione", () => {
   // 12 core = il Mac su cui il difetto è stato misurato: quota 6 core-unità.
   const su12 = (ourCoreUnits: number, running: number) => fleetSlotBudget({ cores: 12, ourCoreUnits, running });
@@ -243,6 +247,7 @@ describe("fleetSlotBudget — il freno vivo è un credito, non una divisione", (
     expect(su12(1e6, -3).slots).toBe(2);
   });
 });
+
 
 describe("computeDispatchCapacity — quale sonda comanda", () => {
   // I core li chiediamo AL MODULO, non a `os.cpus()`.
