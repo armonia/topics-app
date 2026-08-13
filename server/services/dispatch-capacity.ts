@@ -13,6 +13,7 @@
 // perfectly healthy 32 GB machine. Load average is the honest live signal.
 
 import os from "node:os";
+import { statfsSync } from "node:fs";
 import type { Database } from "bun:sqlite";
 
 // La forma sta in `shared/board.ts` (la legge la UI delle impostazioni board).
@@ -58,6 +59,63 @@ export { effectiveDispatchCap, sizingDispatchCap } from "../../shared/board";
 
 /** Absolute ceiling — never auto-recommend more than this regardless of the box. */
 const MAX_AUTO_CAP = 8;
+
+/**
+ * IL PAVIMENTO, che è una cosa diversa dal tetto.
+ *
+ * Il tetto dice quanti agenti si vogliono insieme, e da quando esiste
+ * `GLOBAL_CAP_OFF` la risposta può essere «nessun limite». Questo dice quando la
+ * macchina non ne regge un altro comunque, e non è negoziabile dalle
+ * impostazioni: senza, «nessun limite» significa che la coda si ferma soltanto
+ * quando il disco è pieno.
+ *
+ * PERCHÉ IL DISCO E NON LA CPU. Misurato il 13/08 su questo host: gli agenti
+ * costavano il 5,7% di CPU in otto e 0,24-0,43 GB di RSS ciascuno — non è lì che
+ * si muore. Ogni agente dispatchato però apre una WORKTREE, e le 33 presenti
+ * pesavano 30 GB, cioè **0,91 GB l'una**, contro 56 GB liberi su un disco al
+ * 94%: sessantuno worktree e il disco è finito. E un disco pieno non rallenta,
+ * rompe — le scritture SQLite del server di produzione (DB + WAL) falliscono, e
+ * quello è un guasto che non si riassorbe da solo quando il carico cala.
+ *
+ * La CPU si è già presa il suo freno altrove, e più mirato: `scripts/slot.ts`
+ * recinta i CANCELLI, che sono ciò che la consuma davvero.
+ */
+export const DISPATCH_DISK_FLOOR_GB = 12;
+
+/**
+ * Spazio libero sul volume che ospita le worktree, in GB. `null` quando non si
+ * riesce a misurare — e chi chiama deve trattarlo come «non lo so», non come
+ * «zero»: un errore di lettura che blocca ogni dispatch sarebbe un guasto peggio
+ * di quello che previene.
+ */
+export function freeDiskGB(path: string): number | null {
+  try {
+    const s = statfsSync(path);
+    return (Number(s.bsize) * Number(s.bavail)) / 1e9;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Perché NON si può ammettere un altro agente adesso, o `null` se si può.
+ * La frase finisce sulla card, quindi dice il numero: «non c'è posto» senza il
+ * dato è esattamente la coda invisibile che il chip `queued` esiste per evitare.
+ */
+export function dispatchResourceBlock(
+  worktreesPath: string,
+  /** La misura, iniettabile: il caso che conta è «disco quasi pieno», e senza
+   *  questa cucitura si potrebbe provare solo riempiendo il disco per davvero —
+   *  cioè non si proverebbe, e la frase che finisce sulla card non l'avrebbe mai
+   *  letta nessuno prima di un incidente. */
+  readFreeGB: (p: string) => number | null = freeDiskGB,
+): string | null {
+  const free = readFreeGB(worktreesPath);
+  if (free == null || free >= DISPATCH_DISK_FLOOR_GB) return null;
+  return `Disco quasi pieno: ${free.toFixed(1)} GB liberi, sotto il pavimento di ${DISPATCH_DISK_FLOOR_GB} GB. ` +
+    `Ogni agente apre una worktree (~0,9 GB), e un disco pieno fa fallire le scritture del DB. ` +
+    `Riprendo appena si libera spazio: niente è andato perso.`;
+}
 
 /**
  * La parte STRUTTURALE della capacità: quanti agenti questa macchina regge in
