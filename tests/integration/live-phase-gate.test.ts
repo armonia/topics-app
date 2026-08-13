@@ -31,13 +31,15 @@ import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import * as fs from "node:fs";
 import * as net from "node:net";
 import { createInterface } from "node:readline";
-import { setupTestDataDir, createTestAppContext } from "./helpers";
+import { setupTestDataDir, createTestAppContext, testTmpDir } from "./helpers";
 import type { AppContext } from "../../server/types";
 import type { ClaudeSessionTracker } from "../../server/lib/claude-session-tracker";
 
-const TEST_DATA = "/tmp/topics-live-phase-gate/data";
-const FAKE_HOME = "/tmp/topics-live-phase-gate/home";
-const SOCKET_PATH = "/tmp/topics-live-phase-gate.sock";
+const TEST_ROOT = testTmpDir("live-phase-gate");
+const TEST_DATA = `${TEST_ROOT}/data`;
+const FAKE_HOME = `${TEST_ROOT}/home`;
+// Corto di proposito: un socket unix non supera i 104 caratteri di path.
+const SOCKET_PATH = `${TEST_ROOT}/b.sock`;
 
 // Il terminale dichiara `finished` dopo TERMINAL_IDLE_MS (1500) di silenzio.
 const IDLE_MS = 1500;
@@ -45,7 +47,7 @@ const AFTER_IDLE_MS = IDLE_MS + 400;
 
 const TERM_ID = "term-reattached-1";
 const CSID = "11111111-2222-4333-8444-555555555555";
-const CWD = "/tmp/topics-live-phase-gate/wt";
+const CWD = `${TEST_ROOT}/wt`;
 
 /** Il transcript canonico che `deriveTranscriptPath` cerca per (home, cwd, csid). */
 function transcriptPath(): string {
@@ -150,7 +152,6 @@ async function seedTopicWithLivePhase(name: string, projectPath: string, csid: s
 }
 
 beforeAll(async () => {
-  fs.rmSync("/tmp/topics-live-phase-gate", { recursive: true, force: true });
   setupTestDataDir(TEST_DATA);
   fs.mkdirSync(CWD, { recursive: true });
   // Il bridge del test è SUO: mai quello del server vero. L'env non basta —

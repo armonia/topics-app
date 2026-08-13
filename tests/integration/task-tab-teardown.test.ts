@@ -13,11 +13,13 @@
  */
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import * as fs from "node:fs";
-import { setupTestDataDir, createTestAppContext } from "./helpers";
+import path from "node:path";
+import { setupTestDataDir, createTestAppContext, testTmpDir } from "./helpers";
 import type { AppContext } from "../../server/types";
 import { teardownArchivedTaskBrowserState } from "../../server/services/task-tab-teardown";
 
-const TEST_DATA = "/tmp/topics-task-tab-teardown/data";
+const TEST_ROOT = testTmpDir("task-tab-teardown");
+const TEST_DATA = path.join(TEST_ROOT, "data");
 const PROJ = "proj-task-teardown";
 
 let ctx: AppContext;
@@ -75,7 +77,6 @@ function seedLayout(taskId: string, paneId: string): void {
 }
 
 beforeAll(async () => {
-  fs.rmSync("/tmp/topics-task-tab-teardown", { recursive: true, force: true });
   setupTestDataDir(TEST_DATA);
   process.env.TOPICS_DISABLE_PTY_BRIDGE = "1";
 

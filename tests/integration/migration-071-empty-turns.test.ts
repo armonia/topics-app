@@ -14,10 +14,10 @@
 import { describe, expect, test, beforeAll } from "bun:test";
 import * as fs from "node:fs";
 import path from "node:path";
-import { setupTestDataDir, createTestAppContext, PROJECT_ROOT } from "./helpers";
+import { setupTestDataDir, createTestAppContext, PROJECT_ROOT, testTmpDir } from "./helpers";
 import type { AppContext } from "../../server/types";
 
-const TEST_DATA = "/tmp/topics-migration-071-data";
+const TEST_DATA = testTmpDir("migration-071-data");
 
 const MIGRATION_SQL = fs.readFileSync(
   path.join(PROJECT_ROOT, "server/db/migrations/071-drop-empty-assistant-turns.sql"),

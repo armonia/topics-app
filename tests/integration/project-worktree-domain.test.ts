@@ -21,12 +21,12 @@
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import * as fs from "node:fs";
 import { execFileSync } from "node:child_process";
-import { PROJECT_ROOT } from "./helpers";
+import { PROJECT_ROOT, testTmpDir } from "./helpers";
 
 // Isolation: must set env before the first import that calls initDatabase.
-const TEST_REPO = "/tmp/topics-phase-a-test-repo";
-const TEST_DATA = "/tmp/topics-phase-a-test-data";
-const TEST_WT = "/tmp/topics-phase-a-test-wt";
+const TEST_REPO = testTmpDir("phase-a-repo");
+const TEST_DATA = testTmpDir("phase-a-data");
+const TEST_WT = testTmpDir("phase-a-wt");
 
 function rmAll() {
   fs.rmSync(TEST_REPO, { recursive: true, force: true });
