@@ -52,10 +52,9 @@ describe('resolveStoreFocus', () => {
   });
 
   test('rilasciato l\'intento, il fuoco resta dove l\'utente l\'ha messo', () => {
-    // IL GUASTO: prima, l\'intento della board non scadeva e il click sul
-    // progetto in sidebar non lo rilasciava. Ogni dispatch successivo — la
-    // creazione di una chat nuova, per dirne una — ripassava di qui e
-    // rispondeva `__board__`.
+    // IL GUASTO: prima, l'intento della board non scadeva e il click sul
+    // progetto in sidebar non lo rilasciava. Ogni dispatch successivo ripassava
+    // di qui e rispondeva `__board__`. La creazione di una chat nuova bastava.
     expect(resolveStoreFocus(afterOpeningTheProject(null))).toBe(PROJECT);
   });
 
