@@ -35,6 +35,11 @@ const machine = (over: Partial<DispatchCapacity> = {}): DispatchCapacity => ({
   cores: 12,
   totalMemGB: 32,
   load1: 2.5,
+  // La misura che comanda il tetto: quanta CPU tiene la NOSTRA flotta, e quanta
+  // gliene spetta (metà dei 12 core). Il `load1` qui sopra è rimasto per la
+  // modalità notturna e per gli host senza sonda, non è più il freno.
+  oursCores: 0,
+  budgetCores: 6,
   reason: '12 core, base 4',
   running: 0,
   ...over,

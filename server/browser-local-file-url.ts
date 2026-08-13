@@ -140,8 +140,8 @@ export function toServableUrl(raw: string, deps: LocalFileServing | null = servi
       kind: "refused",
       reason:
         `"${path}" is outside the paths this server may serve. ` +
-        `Local files are shown over http (/api/media), never as file:// — ` +
-        `move it under an allowed media folder or open the project it belongs to.`,
+        `Local files are shown over http (/api/media), never as file://. ` +
+        `Move it under an allowed media folder, or open the project it belongs to.`,
     };
   }
   if (deps.exists && !deps.exists(allowed)) {

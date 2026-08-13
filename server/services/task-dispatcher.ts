@@ -2747,6 +2747,13 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         continue;
       }
       clearGrace(t.id);
+      // Il claim è riuscito: l'episodio «tetto pieno» di questa card è chiuso, e
+      // va dimenticato QUI. La ripulitura in cima al ciclo guarda solo chi è
+      // ancora fra i `todos`, e un task appena partito non lo è più: senza
+      // questa riga il suo id resterebbe nell'insieme per sempre, e la prossima
+      // volta che quella card aspetta un posto tornerebbe a restare muta, che è
+      // esattamente il difetto che si sta chiudendo.
+      capHeldNoted.delete(t.id);
       if (forced) {
         const atteso = Math.round(heldForMs(t) / 60_000);
         heavyHoldSince.delete(t.id);
