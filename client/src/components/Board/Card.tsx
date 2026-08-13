@@ -228,9 +228,9 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
   const cardLongPress = useLongPress(openContextMenuAt, { enabled: isTouch });
   const confirm = useConfirm();
   const tr = useT();
-  // Il menu contestuale offre due delle stesse azioni della riga di bottoni
-  // («Ferma», «Archivia»): le parole vengono dalla stessa tabella, o la card
-  // torna a chiamarle in due modi a seconda di dove le premi.
+  // The context menu offers two of the same actions as the button row (stop,
+  // archive): the words come from the same table, or the card goes back to
+  // calling them two different things depending on where you press.
   const stopWord = taskActionWord('stop', tr);
   const dropWord = taskActionWord('drop', tr);
   const isAgentReview = task.status === 'review' && !!task.assignedTopicId;
@@ -262,9 +262,9 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
   // A quick reply whose text IS one of the card's real choices is a trap: the
   // reply rejects the card and restarts the agent with those words, while the
   // button one row below performs the action. Same label, opposite effect.
-  // Niente `surfaceLabels`: in review la card non disegna bottoni suoi, offre
-  // solo `TaskChoiceRow`, che `taskChoices` già conosce. Il menu contestuale non
-  // conta, è chiuso finché non lo si apre.
+  // No `surfaceLabels`: in review the card draws no buttons of its own, only
+  // `TaskChoiceRow`, which `taskChoices` already knows about. The context menu
+  // does not count, it is shut until you open it.
   const replyOptions = useMemo(
     () => (pending ? usableQuestionOptions(task, pending.options, { t: tr }) : []),
     [pending, task, tr],
