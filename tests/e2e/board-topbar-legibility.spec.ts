@@ -122,11 +122,19 @@ async function stubProbes(page: Page, opts?: { running?: number }) {
   // `landing_state` non ha una porta HTTP che lo scriva (lo timbra l'audit
   // periodico dopo un land): i due task chiusi si marcano nella RISPOSTA, che è
   // esattamente l'ingresso da cui la barra li legge.
+  //
+  // Serve ANCHE il commit di consegna: `showsLandingDebt` (shared/board.ts) tace
+  // su un `unlanded` senza fotografia della consegna, perché senza quel commit
+  // non c'è nessuna domanda a cui il verdetto stia rispondendo. Un task chiuso
+  // via API non ce l'ha, quindi il debito va costruito per intero qui.
   await page.route((url) => /\/api\/(all-boards|boards\/[^/]+)\/tasks$/.test(url.pathname), async (route) => {
     const res = await route.fetch();
-    const body = (await res.json()) as { tasks?: Array<{ text?: string; status?: string; landingState?: string | null }> };
+    const body = (await res.json()) as { tasks?: Array<{ text?: string; status?: string; landingState?: string | null; deliveryCommit?: string | null }> };
     for (const t of body.tasks ?? []) {
-      if (t.status === "done" && unlandedTitles.includes(t.text ?? "")) t.landingState = "unlanded";
+      if (t.status === "done" && unlandedTitles.includes(t.text ?? "")) {
+        t.landingState = "unlanded";
+        t.deliveryCommit = "0ff1ce5";
+      }
     }
     await route.fulfill({ response: res, body: JSON.stringify(body) });
   });
