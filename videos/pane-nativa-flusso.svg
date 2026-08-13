@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="760" viewBox="0 0 1120 760" font-family="-apple-system, system-ui, Helvetica, sans-serif">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="#5b6472"/>
+    </marker>
+  </defs>
+  <rect width="1120" height="760" fill="#ffffff"/>
+
+  <text x="40" y="60" font-size="42" font-weight="700" fill="#16181d">Pane nativa: da dove viene ogni numero</text>
+  <text x="40" y="96" font-size="22" fill="#6b7280">Quattro percorsi, tutti verificati dai cancelli. Il quarto e' nuovo di questo turno.</text>
+
+  <!-- 1 stato nav -->
+  <rect x="40" y="122" width="1040" height="140" rx="14" fill="#f6f8fc" stroke="#dbe2ea" stroke-width="2"/>
+  <text x="62" y="158" font-size="28" font-weight="700" fill="#1f2937">1. Stato di navigazione</text>
+  <rect x="62" y="176" width="230" height="66" rx="10" fill="#dbeafe" stroke="#93c5fd" stroke-width="2"/>
+  <text x="177" y="203" font-size="19" font-weight="600" text-anchor="middle" fill="#1e3a5f">WKWebView</text>
+  <text x="177" y="226" font-size="17" text-anchor="middle" fill="#1e3a5f">KVO url, title, loading</text>
+  <line x1="300" y1="209" x2="352" y2="209" stroke="#5b6472" stroke-width="2.5" marker-end="url(#a)"/>
+  <rect x="360" y="176" width="210" height="66" rx="10" fill="#fff" stroke="#c9d2dd" stroke-width="2"/>
+  <text x="465" y="203" font-size="19" font-weight="600" text-anchor="middle" fill="#1f2937">coda per pane</text>
+  <text x="465" y="226" font-size="17" text-anchor="middle" fill="#6b7280">Rust</text>
+  <line x1="578" y1="209" x2="630" y2="209" stroke="#5b6472" stroke-width="2.5" marker-end="url(#a)"/>
+  <rect x="638" y="176" width="210" height="66" rx="10" fill="#fff" stroke="#c9d2dd" stroke-width="2"/>
+  <text x="743" y="203" font-size="19" font-weight="600" text-anchor="middle" fill="#1f2937">drain 250 ms</text>
+  <text x="743" y="226" font-size="17" text-anchor="middle" fill="#6b7280">scoped per pane</text>
+  <line x1="856" y1="209" x2="908" y2="209" stroke="#5b6472" stroke-width="2.5" marker-end="url(#a)"/>
+  <rect x="916" y="176" width="144" height="66" rx="10" fill="#dcfce7" stroke="#86efac" stroke-width="2"/>
+  <text x="988" y="215" font-size="19" font-weight="600" text-anchor="middle" fill="#14532d">barra url</text>
+
+  <!-- 2 trova -->
+  <rect x="40" y="278" width="510" height="216" rx="14" fill="#f6f8fc" stroke="#dbe2ea" stroke-width="2"/>
+  <text x="62" y="314" font-size="28" font-weight="700" fill="#1f2937">2. Trova nella pagina</text>
+  <rect x="62" y="332" width="200" height="62" rx="10" fill="#dbeafe" stroke="#93c5fd" stroke-width="2"/>
+  <text x="162" y="357" font-size="18" font-weight="600" text-anchor="middle" fill="#1e3a5f">window.find</text>
+  <text x="162" y="379" font-size="16" text-anchor="middle" fill="#1e3a5f">dice solo si o no</text>
+  <line x1="270" y1="363" x2="316" y2="363" stroke="#5b6472" stroke-width="2.5" marker-end="url(#a)"/>
+  <rect x="324" y="332" width="204" height="62" rx="10" fill="#fff" stroke="#c9d2dd" stroke-width="2"/>
+  <text x="426" y="357" font-size="18" font-weight="600" text-anchor="middle" fill="#1f2937">indice dal client</text>
+  <text x="426" y="379" font-size="16" text-anchor="middle" fill="#6b7280">ciclico nei due versi</text>
+  <rect x="62" y="410" width="466" height="62" rx="10" fill="#dcfce7" stroke="#86efac" stroke-width="2"/>
+  <text x="295" y="440" font-size="19" font-weight="600" text-anchor="middle" fill="#14532d">3/12 invece di 12</text>
+  <text x="295" y="461" font-size="16" text-anchor="middle" fill="#14532d">14 test sul modello puro</text>
+
+  <!-- 3 menu -->
+  <rect x="570" y="278" width="510" height="216" rx="14" fill="#f6f8fc" stroke="#dbe2ea" stroke-width="2"/>
+  <text x="592" y="314" font-size="28" font-weight="700" fill="#1f2937">3. Menu del tasto destro</text>
+  <rect x="592" y="332" width="200" height="62" rx="10" fill="#dbeafe" stroke="#93c5fd" stroke-width="2"/>
+  <text x="692" y="357" font-size="18" font-weight="600" text-anchor="middle" fill="#1e3a5f">gesto nella pagina</text>
+  <text x="692" y="379" font-size="16" text-anchor="middle" fill="#1e3a5f">link, immagine, testo</text>
+  <line x1="800" y1="363" x2="846" y2="363" stroke="#5b6472" stroke-width="2.5" marker-end="url(#a)"/>
+  <rect x="854" y="332" width="204" height="62" rx="10" fill="#fff" stroke="#c9d2dd" stroke-width="2"/>
+  <text x="956" y="357" font-size="18" font-weight="600" text-anchor="middle" fill="#1f2937">menu role=menu</text>
+  <text x="956" y="379" font-size="16" text-anchor="middle" fill="#6b7280">voci solo se applicabili</text>
+  <rect x="592" y="410" width="466" height="62" rx="10" fill="#dcfce7" stroke="#86efac" stroke-width="2"/>
+  <text x="825" y="440" font-size="19" font-weight="600" text-anchor="middle" fill="#14532d">l'occlusione congela la pane</text>
+  <text x="825" y="461" font-size="16" text-anchor="middle" fill="#14532d">senza quello il menu resta sotto</text>
+
+  <!-- 4 download -->
+  <rect x="40" y="510" width="1040" height="150" rx="14" fill="#fffbeb" stroke="#fcd34d" stroke-width="2.5"/>
+  <text x="62" y="546" font-size="28" font-weight="700" fill="#78350f">4. Percentuale dei download</text>
+  <rect x="62" y="564" width="248" height="74" rx="10" fill="#fef3c7" stroke="#fbbf24" stroke-width="2"/>
+  <text x="186" y="591" font-size="18" font-weight="600" text-anchor="middle" fill="#78350f">byte sul disco</text>
+  <text x="186" y="614" font-size="16" text-anchor="middle" fill="#78350f">piu' xattr del Finder</text>
+  <line x1="318" y1="601" x2="366" y2="601" stroke="#5b6472" stroke-width="2.5" marker-end="url(#a)"/>
+  <rect x="374" y="564" width="248" height="74" rx="10" fill="#fff" stroke="#c9d2dd" stroke-width="2"/>
+  <text x="498" y="591" font-size="18" font-weight="600" text-anchor="middle" fill="#1f2937">poll solo se attivo</text>
+  <text x="498" y="614" font-size="16" text-anchor="middle" fill="#6b7280">stessa lista, nessun render</text>
+  <line x1="630" y1="601" x2="678" y2="601" stroke="#5b6472" stroke-width="2.5" marker-end="url(#a)"/>
+  <rect x="686" y="564" width="374" height="74" rx="10" fill="#dcfce7" stroke="#86efac" stroke-width="2"/>
+  <text x="873" y="591" font-size="19" font-weight="600" text-anchor="middle" fill="#14532d">32 per cento, e la barra</text>
+  <text x="873" y="614" font-size="16" text-anchor="middle" fill="#14532d">senza totale vero: nessuna delle due</text>
+
+  <text x="40" y="706" font-size="18" fill="#6b7280">Il totale non si indovina mai. Quando manca, il menu mostra i byte trasferiti e nessuna barra.</text>
+  <text x="40" y="734" font-size="18" fill="#6b7280">Prova sulla pane viva: bloccata, la app installata tiene la porta 13333 e il secondo lancio le passa il fuoco.</text>
+</svg>
