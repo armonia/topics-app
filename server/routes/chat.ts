@@ -2274,16 +2274,37 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                   // buio: leggere il livello giusto significherebbe sostituire
                   // il numero mostrato ovunque con uno mai messo alla prova.
                   //
-                  // Provato sul campo il 13/08: `total_cost_usd` non è
-                  // verificabile per TURNO da qui — su una sessione ripresa il
-                  // valore osservato stava 8,6× sopra il costo dei token del
-                  // turno, e non c'era modo di distinguere «include i
-                  // sotto-agenti» da «è cumulativo di sessione» senza gli
-                  // eventi `result`, che nel transcript non ci sono. La nostra
-                  // tabella invece combacia al centesimo con i turni misurati
-                  // (100 su 100 su un turno opus del 13/08, `usage/pricing.ts`
-                  // sotto test). Finché quella distinzione non è misurata, il
-                  // numero tarato è il nostro.
+                  // ── COSA DICE LA MISURA (probe controllate, 13/08/2026) ────
+                  // Due `claude --print` su haiku, sessione nuova poi ripresa:
+                  //     chiamata 1 ....  $0,080838   (cc 40.015, cr 0)
+                  //     chiamata 2 ....  $0,0042665  (cr 40.015, cc 60)
+                  // Il secondo è VENTI VOLTE più piccolo del primo, quindi
+                  // `total_cost_usd` è PER TURNO, non cumulativo di sessione.
+                  // Su quella coppia combacia con la nostra tabella a cinque
+                  // decimali ($0,00427 calcolati contro $0,0042665 riportati).
+                  //
+                  // Ma su un turno che DELEGA non si riconcilia più, e in un
+                  // modo che non sappiamo ancora leggere: una sola invocazione
+                  // col tool `Task` ha emesso DUE eventi `result` (entrambi
+                  // `subtype: success`, nessun evento con `parentToolUseId`), e
+                  // il costo di ognuno stava fra 1,3× e 7,8× sopra il prezzo
+                  // dei token che quel `result` dichiara. Cioè il numero del
+                  // provider comprende lavoro che il suo stesso `usage` non
+                  // mostra — probabilmente le sotto-sessioni, che è la stessa
+                  // cosa che ha fatto nascere `services/dispatch-usage.ts`.
+                  //
+                  // Il nostro numero invece riconcilia sempre: combacia al
+                  // centesimo con la nostra tabella su 5 turni veri su 5 del
+                  // 13/08 (`usage/pricing.ts`, sotto test). Quindi resta il
+                  // nostro, con un limite DICHIARATO: su un turno che delega,
+                  // il costo mostrato è un PAVIMENTO, non il totale. Adottare
+                  // `total_cost_usd` va fatto quando si sa spiegare il doppio
+                  // `result` — non prima, perché significherebbe sostituire
+                  // ovunque un numero verificabile con uno che non lo è.
+                  //
+                  // (Il secondo `result` non ci fa doppio conteggio: `onDone`
+                  // azzera `pp.streamHandler`, quindi l'evento dopo trova un
+                  // handler nullo e cade — `claude-code.ts:2773`.)
                   //
                   // Resta letto per gli altri provider, che il costo lo
                   // mettono davvero dentro `usage`.
