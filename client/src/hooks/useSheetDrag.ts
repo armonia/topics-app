@@ -3,7 +3,7 @@ import { useEffect, useRef, type RefObject } from 'react';
 /**
  * IL FOGLIO STA SOTTO IL DITO, per tutta la corsa.
  *
- * Attilio, dal telefono: «per le cose che escono da sotto dovrei poter fare
+ * Segnalato dal telefono: «per le cose che escono da sotto dovrei poter fare
  * drag naturale che segue per richiuderlo».
  *
  * I fogli dal basso (il `Menu` mobile, il menu Topics, l'ispettore del
