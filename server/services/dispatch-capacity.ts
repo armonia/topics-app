@@ -51,6 +51,7 @@
 import os from "node:os";
 import type { Database } from "bun:sqlite";
 import { fleetLoadSync } from "../lib/fleet-usage";
+import { machineCores } from "../lib/machine-cores";
 
 // La forma sta in `shared/board.ts` (la legge la UI delle impostazioni board).
 export type { DispatchCapacity } from "../../shared/board";
@@ -114,7 +115,7 @@ const MAX_AUTO_CAP = 8;
  * il caso «da solo» resta riservato a chi ha scelto un tetto fisso di 1 a mano.
  */
 export function structuralDispatchCapacity(): number {
-  const cores = Math.max(1, os.cpus().length);
+  const cores = machineCores();
   const totalMemGB = os.totalmem() / 1e9;
   // I/O-bound agents → ~cores/3 as the CPU budget (2–6 band).
   const byCores = clamp(Math.round(cores / 3), 2, 6);
@@ -210,7 +211,7 @@ export function computeDispatchCapacity(
   running = 0,
   probe: () => { coreUnits: number; cores: number } | null = fleetLoadSync,
 ): DispatchCapacity {
-  const cores = Math.max(1, os.cpus().length);
+  const cores = machineCores();
   const totalMemGB = os.totalmem() / 1e9;
   const load1 = os.loadavg()[0] ?? 0;
   // Una sonda che esplode vale «non lo so», mai «via libera» e mai un tick
