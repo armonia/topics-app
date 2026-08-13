@@ -826,8 +826,8 @@ describe("board settings route", () => {
   test("GET returns defaults (auto off) and NO per-board cap", async () => {
     const s = await (await call(router, "GET", "/api/boards/pX/settings"))!.json();
     expect(s.autoDispatch).toBe(false);
-    // Un tetto per board non esiste più: mostrarne uno qui è ciò che il 13/08
-    // ha fatto dispacciare una persona su "max 9" mentre il tetto vero era 8.
+    // A per-board cap no longer exists: showing one here is what made this
+    // endpoint report 9 on 2026-08-13 while the enforced cap (row '*') was 8.
     expect(s.maxAgents).toBeUndefined();
   });
 
@@ -843,6 +843,21 @@ describe("board settings route", () => {
     const dopo = await (await call(router, "GET", "/api/all-boards/settings"))!.json();
     expect(dopo.maxAgents).toBe(3);
     expect(dopo.maxAgentsAuto).toBe(true);
+  });
+
+  // The half above ("and does not touch the global cap") could not have failed
+  // on its own: the old code wrote `max_agents` on row pX, never on '*'. THIS is
+  // the address that could: the per-board route takes its projectId from the
+  // path with a plain decodeURIComponent and no guard, so `/api/boards/*/…` aims
+  // straight at the reserved row. If a per-board cap ever came back, that would
+  // be a second writer of the machine cap — and one that skips the
+  // board:global-cap broadcast, so other windows would never hear about it.
+  test("nemmeno indirizzata alla riga riservata la rotta per board muove il tetto", async () => {
+    expect((await (await call(router, "PATCH", "/api/all-boards/settings", { maxAgentsAuto: false, maxAgents: 8 }))!.json()).maxAgents).toBe(8);
+    const resp = (await call(router, "PATCH", "/api/boards/*/settings", { maxAgents: 15 }))!;
+    expect(resp.status).toBe(200);
+    const dopo = await (await call(router, "GET", "/api/all-boards/settings"))!.json();
+    expect(dopo).toMatchObject({ maxAgents: 8, maxAgentsAuto: false });
   });
 
   test("PATCH upserts + broadcasts board:settings", async () => {
