@@ -35,7 +35,6 @@ import { initDevHeapProbe, registerHeapOwner, roughBytes } from './lib/devHeapPr
 import { residencyHeapReport } from './state/pane/residency/registry';
 import { initChunkReloadGuard } from './lib/chunkReloadGuard';
 import { DevBundleToast } from './components/DevBundleToast';
-import { WebviewMemoryToast } from './components/WebviewMemoryToast';
 import { ReloadedFlash } from './components/ReloadedFlash';
 import { openTaskFromUrl, currentTaskTarget, subscribeServiceWorkerTaskOpen } from './lib/openTaskLink';
 import { subscribeServiceWorkerBanner } from './lib/push/swBridge';
@@ -2017,10 +2016,6 @@ function App() {
       {/* In-page bundle refresh prompt (dev rebuilds + stale-chunk 404s) —
           the manual-reload replacement for the old silent auto-reload. */}
       <DevBundleToast />
-      {/* Le WKWebView delle pane browser non muoiono mai (wry non le dealloca,
-          vedi WebviewMemoryToast): senza questo avviso l'unico sintomo è un Mac
-          lento, e la reazione istintiva (chiudere le pane) non recupera niente. */}
-      <WebviewMemoryToast />
       {/* ACK «Ricaricata» dopo un reload chiesto dall'utente: un ricarico che
           rifà lo stesso schermo, senza una parola, si legge come «non va». */}
       <ReloadedFlash />
