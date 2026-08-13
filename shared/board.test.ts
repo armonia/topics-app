@@ -8,6 +8,7 @@ import {
   isAncestorAtWork,
   isUnattributedSubtask,
   parseStatusEvent,
+  pendingQuestion,
   statusEventEnters,
   type BlockerRef,
   type QueueReason,
@@ -426,5 +427,38 @@ describe("perché questa card è ferma", () => {
       expect(r.title.length, `${r.kind}: il tooltip deve dire cosa succede dopo`).toBeGreaterThan(60);
       expect(r.title).not.toBe(r.detail);
     }
+  });
+});
+
+/**
+ * Bookkeeping must not take the question's place at the end of the thread.
+ *
+ * The dispatcher writes its own notes (a queue hold, a server restart) under
+ * author 'system' while the agent is parked on a question. Those rows land
+ * AFTER the question, and `pendingQuestion` reads the last word: without a
+ * gate, the quick-reply buttons vanish from the card and the drawer the moment
+ * the dispatcher says anything at all. 'service' joins 'status' as history
+ * rather than speech.
+ */
+describe("pendingQuestion, la contabilita' non e' l'ultima parola", () => {
+  const question = ["```question", "Procedo?", "- Si'", "- No", "```"].join("\n");
+
+  test("una nota di servizio dopo la domanda non se la mangia", () => {
+    const q = pendingQuestion([
+      { content: question, kind: "comment" },
+      { content: "In coda: questo task e' PESANTE", kind: "service" },
+    ]);
+    expect(q).not.toBeNull();
+    expect(q?.text).toBe("Procedo?");
+    expect(q?.options).toEqual(["Si'", "No"]);
+  });
+
+  test("una parola vera dopo la domanda la chiude comunque", () => {
+    // Il gate esclude la contabilita', non il thread: se l'agente o l'umano
+    // parlano dopo, la domanda non e' piu' in coda e i tasti devono sparire.
+    expect(pendingQuestion([
+      { content: question, kind: "comment" },
+      { content: "ok, fatto", kind: "comment" },
+    ])).toBeNull();
   });
 });

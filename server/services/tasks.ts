@@ -493,7 +493,7 @@ export interface TaskService {
    * well-formed block — an LLM caller passes structured options and never
    * reproduces markdown syntax by hand.
    */
-  addComment(args: { taskId: string; author: string; content: string; mentions?: string[]; media?: string[]; projectId?: string; questionOptions?: string[]; kind?: "comment" | "review-note" }): TaskComment;
+  addComment(args: { taskId: string; author: string; content: string; mentions?: string[]; media?: string[]; projectId?: string; questionOptions?: string[]; kind?: "comment" | "review-note" | "service" }): TaskComment;
   /** Human-only review decision on a task sitting in `review`. */
   reviewDecision(args: { taskId: string; by: string; decision: "approve" | "reject"; comment?: string; projectId?: string }): Task;
   /**
@@ -1484,7 +1484,19 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     if (r.mentions) { try { mentions = JSON.parse(r.mentions); } catch { mentions = []; } }
     let media: string[] = [];
     if (r.media) { try { media = JSON.parse(r.media); } catch { media = []; } }
-    const kind: TaskComment["kind"] = r.kind === "status" ? "status" : r.kind === "review-note" ? "review-note" : "comment";
+    // Every kind the client can act on has to survive the round-trip. A kind
+    // missing from this list is written to disk and read back as a plain
+    // comment, which is silent: the row still renders, just without whatever
+    // the mark was for. That is exactly how 'service' - the dispatcher's own
+    // bookkeeping, marked at the source so the thread can fold it - came back
+    // unmarked from both `addComment` and `get()`, leaving the fold with
+    // nothing to fold. Unknown values still fall back to 'comment', so a typo
+    // at a call site costs a visible row rather than a hidden one.
+    const kind: TaskComment["kind"] =
+      r.kind === "status" ? "status"
+        : r.kind === "review-note" ? "review-note"
+          : r.kind === "service" ? "service"
+            : "comment";
     return { id: r.id, taskId: r.task_id, author: r.author, content: r.content, mentions, media, createdAt: r.created_at, kind };
   }
 
@@ -2019,7 +2031,12 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     },
 
     addComment({ taskId, author, content, mentions, media, projectId, questionOptions, kind }): TaskComment {
-      const commentKind: "comment" | "review-note" = kind === "review-note" ? "review-note" : "comment";
+      // The kind is whitelisted, never passed through: an unknown value reads
+      // as a plain comment, so a typo at a call site costs a visible row rather
+      // than a hidden one. 'service' = the dispatcher's own bookkeeping, marked
+      // at the source so the thread can fold it without matching on wording.
+      const commentKind: "comment" | "review-note" | "service" =
+        kind === "review-note" ? "review-note" : kind === "service" ? "service" : "comment";
       let body = (content ?? "").trim();
       // Attachments-only comments are legal (a screenshot IS the message).
       if (!body && (!media || media.length === 0)) throw new TaskServiceError("invalid_input", "comment content is required");
