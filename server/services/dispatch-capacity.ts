@@ -6,15 +6,30 @@
 // turn streams. We size the cap from stable signals:
 //   - CPU cores: the primary budget (I/O-bound → modest oversubscription).
 //   - Total RAM: a floor guard for small machines (a ~3 GB/agent budget).
-//   - 1-min load average: a LIVE throttle — back off when the box is already busy.
+//   - La CPU che la NOSTRA flotta sta consumando: il freno vivo (vedi sotto).
 //
 // We deliberately IGNORE os.freemem(): on macOS it reports almost nothing "free"
 // (the OS keeps reclaimable pages as cache), so it would peg the cap at 1 on a
-// perfectly healthy 32 GB machine. Load average is the honest live signal.
+// perfectly healthy 32 GB machine.
+//
+// IL FRENO VIVO NON È PIÙ IL LOAD AVERAGE. Lo era, e il conto era
+// `byLoad = ceil((core - load1) / 2)`. Su questo host, load 13 su 12 core, dava
+// 1: cinque card in coda dietro a un agente solo, per ore. Ma il load average è
+// della MACCHINA INTERA, e in quel momento i nostri agenti tenevano 0,75 core su
+// 12. Il carico era di WindowServer, Dia, Beeper. Ci si ritirava per far posto a
+// un carico non nostro, che non sarebbe sceso perché non dipendeva da noi. E il
+// freno si autoavverava: ogni agente che partiva alzava il load di 2-3 punti e
+// chiudeva la porta al successivo.
+//
+// La domanda giusta non è «quanto è carica la macchina» ma «quanto di questo
+// carico è MIO»: il carico altrui non riduce il tetto (la CPU non si prenota, e
+// un agente aspetta la rete quasi sempre), il carico nostro sì. La misura è
+// `fleetLoadSync()` in `server/lib/fleet-usage.ts`; qui c'è solo l'aritmetica.
 
 import os from "node:os";
 import { statfsSync } from "node:fs";
 import type { Database } from "bun:sqlite";
+import { fleetLoadSync } from "../lib/fleet-usage";
 
 // La forma sta in `shared/board.ts` (la legge la UI delle impostazioni board).
 export type { DispatchCapacity } from "../../shared/board";
@@ -148,28 +163,99 @@ export function structuralDispatchCapacity(): number {
 }
 
 /**
- * @param running quanti turni sono in volo ADESSO (`dispatcher.busyCount()`).
- *   Non entra nel calcolo del tetto — la raccomandazione è una proprietà della
- *   macchina, non di chi la sta usando: serve a chi legge, per sapere se fra
- *   «consigliati N» e la realtà c'è uno scarto su cui agire.
+ * La quota di macchina che la flotta può occupare: metà dei core.
+ *
+ * È la linea che decide quando il freno morde. Con gli agenti che aspettano la
+ * rete (0,75 core su 12, il caso rotto) qualunque quota lascia intatto il tetto
+ * strutturale: non è lì che si gioca. Con agenti che compilano davvero (1-2 core
+ * l'uno) la metà della macchina ne fa stare pochi, e il tetto scende. L'altra
+ * metà resta all'umano che sta usando il suo computer.
  */
-export function computeDispatchCapacity(running = 0): DispatchCapacity {
+const FLEET_CPU_SHARE = 0.5;
+
+/**
+ * Quanto costa uno slot NUOVO, in unità di core. Uno: un agente che lavora tiene
+ * grosso modo un core, e quello si prenota prima di ammetterlo.
+ *
+ * È un costo FISSO e non l'appetito medio osservato, di proposito. Un divisore
+ * vivo si inverte: sotto carico l'appetito medio cresce, la quota per agente si
+ * allarga e il freno si allenta proprio quando dovrebbe stringere.
+ */
+const NEW_SLOT_CORE_COST = 1;
+
+/**
+ * Il pavimento del termine vivo: due slot.
+ *
+ * Un agente solo non deve poter chiudere la porta al secondo, qualunque cosa
+ * stia facendo. È la protezione contro l'autoavveramento vecchio in una riga:
+ * il primo che parte consuma, quello che consuma alza il numero, e il numero
+ * alzato vieta il secondo. Sotto due la coda si stabilizza a un agente e la
+ * board sembra ferma per una decisione umana che non esiste.
+ */
+const FLEET_SLOT_FLOOR = 2;
+
+/**
+ * Quanti agenti stanno nella quota di CPU della flotta: quelli che GIÀ girano,
+ * più quelli che ci stanno ancora dentro a `NEW_SLOT_CORE_COST` l'uno. Pura, la
+ * misura la passa chi chiama.
+ *
+ * `fleetCores` è la CPU della NOSTRA flotta in unità di core (1 = un core
+ * saturo), la stessa scala del load average ma con dentro solo i processi
+ * nostri. `null` significa NON MISURATO, che non è «zero»: chi chiama ripiega
+ * sul conto storico invece di trattare un numero assente come via libera.
+ */
+export function fleetCapacityLimit(input: { cores: number; fleetCores: number; running: number }): number {
+  const budgetCores = Math.max(1, input.cores * FLEET_CPU_SHARE);
+  const freeCores = Math.max(0, budgetCores - input.fleetCores);
+  const newSlots = Math.floor(freeCores / NEW_SLOT_CORE_COST);
+  return Math.max(FLEET_SLOT_FLOOR, input.running + newSlots);
+}
+
+/**
+ * @param running quanti turni sono in volo ADESSO (`dispatcher.busyCount()`).
+ *   Entra nel conto: il termine vivo è «i vivi più quelli che ci stanno ancora»,
+ *   e senza sapere quanti sono già partiti la CPU che stanno consumando non dice
+ *   quanto spazio resta. Chi lo omette ottiene solo gli slot liberi.
+ * @param readFleet la sonda, iniettabile. I casi che contano sono «la macchina è
+ *   carica ma non per colpa nostra» e «la flotta si mangia tutto», e senza
+ *   questa cucitura si potrebbero provare solo caricando davvero la macchina che
+ *   fa girare i test, cioè non si proverebbero.
+ */
+export function computeDispatchCapacity(
+  running = 0,
+  readFleet: () => { coreUnits: number; cores: number } | null = fleetLoadSync,
+): DispatchCapacity {
   const cores = Math.max(1, os.cpus().length);
   const totalMemGB = os.totalmem() / 1e9;
   const load1 = os.loadavg()[0] ?? 0;
+  let fleetCores: number | null = null;
+  try { fleetCores = readFleet()?.coreUnits ?? null; } catch { fleetCores = null; }
 
   // I/O-bound agents → ~cores/3 as the CPU budget (2–6 band).
   const byCores = clamp(Math.round(cores / 3), 2, 6);
   // ~3 GB/agent incl. OS headroom — only binding on small-RAM machines.
   const byMem = Math.max(1, Math.floor(totalMemGB / 3));
-  // Spare core-units right now (idle → ~cores, saturated → 0); halve into slots.
-  const loadFree = clamp(cores - load1, 0, cores);
-  const byLoad = Math.max(1, Math.ceil(loadFree / 2));
+  const structural = Math.min(byCores, byMem);
 
-  const recommended = clamp(Math.min(byCores, byMem, byLoad), 1, MAX_AUTO_CAP);
+  // Il freno vivo. Con la sonda si misura la flotta; senza (Windows, o la cache
+  // ancora fredda al primo tick) resta il conto storico sul load average, che è
+  // impreciso ma è l'unico numero disponibile: meglio del nulla, e la sonda
+  // arriva al giro dopo.
+  const byFleet =
+    fleetCores != null
+      ? fleetCapacityLimit({ cores, fleetCores, running })
+      : Math.max(1, Math.ceil(clamp(cores - load1, 0, cores) / 2));
+
+  const recommended = clamp(Math.min(structural, byFleet), 1, MAX_AUTO_CAP);
   const reason =
     `${cores} core → base ${byCores}` +
     (byMem < byCores ? `, limitato dalla RAM (${totalMemGB.toFixed(0)}GB → ${byMem})` : "") +
-    (byLoad < Math.min(byCores, byMem) ? `, ridotto per carico (load ${load1.toFixed(1)})` : "");
+    (byFleet >= structural
+      ? fleetCores != null
+        ? `; la flotta usa ${fleetCores.toFixed(1)} core su ${(cores * FLEET_CPU_SHARE).toFixed(0)} di quota`
+        : ""
+      : fleetCores != null
+        ? `, ridotto a ${byFleet}: la flotta usa ${fleetCores.toFixed(1)} core su ${(cores * FLEET_CPU_SHARE).toFixed(0)} di quota`
+        : `, ridotto per carico (load ${load1.toFixed(1)})`);
   return { recommended, cores, totalMemGB: Math.round(totalMemGB * 10) / 10, load1: Math.round(load1 * 100) / 100, reason, running };
 }
