@@ -26,6 +26,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { GlobalCapControl } from './GlobalCapControl';
+import { GlobalOnlySettingsPanel, GlobalSettingsSection } from './BoardSettingsSections';
 import { adoptDispatchCapacity, adoptGlobalCap } from '../../state/globalDispatchCap';
 import type { DispatchCapacity } from '../../lib/board';
 
@@ -90,22 +91,90 @@ describe('what the control draws', () => {
     adoptDispatchCapacity(machine({ running: 1 }));
     expect(words(renderToStaticMarkup(<GlobalCapControl />))).not.toContain('Tetto pieno');
   });
+
+  // Running CAN exceed the cap, and every case above is running <= cap, so the
+  // wording was only ever asserted on one side. In `auto` the denominator is the
+  // live machine recommendation and it drops with load; a fixed cap can be typed
+  // lower than the number of turns already going. Nothing is killed to fit.
+  test('above the cap it does not read "4 di 2"', () => {
+    adoptGlobalCap({ maxAgentsAuto: true, maxAgents: 5 });
+    adoptDispatchCapacity(machine({ recommended: 2, running: 4 }));
+    const html = words(renderToStaticMarkup(<GlobalCapControl />));
+    expect(html).not.toContain('4 di 2');
+    expect(html).toContain('4 al lavoro, tetto 2');
+  });
+
+  test('above the cap it says why it will settle, not that it is merely full', () => {
+    adoptGlobalCap({ maxAgentsAuto: false, maxAgents: 2 });
+    adoptDispatchCapacity(machine({ running: 5 }));
+    const html = words(renderToStaticMarkup(<GlobalCapControl />));
+    expect(html).toContain('Sopra il tetto');
+    expect(html).not.toContain('Tetto pieno');
+  });
+
+  test('exactly at the cap is full, not over', () => {
+    adoptGlobalCap({ maxAgentsAuto: false, maxAgents: 3 });
+    adoptDispatchCapacity(machine({ running: 3 }));
+    const html = words(renderToStaticMarkup(<GlobalCapControl />));
+    expect(html).toContain('3 di 3');
+    expect(html).toContain('Tetto pieno');
+    expect(html).not.toContain('Sopra il tetto');
+  });
 });
 
 describe('both surfaces mount it, and neither writes on its own', () => {
   const src = (file: string) => readFileSync(join(import.meta.dir, file), 'utf8');
 
-  test('the board settings panel draws the cap through this component', () => {
+  // PAINTED, not merely present. The cap block moved into its own light module
+  // exactly so this could be a render: a regex over the source cannot tell
+  // `<GlobalCapControl />` from `{false && <GlobalCapControl />}`, and the
+  // falsification "I removed the tag and the test went red" then only proves the
+  // string is gone, not that anything is drawn.
+  test('the settings panel of a board WITHOUT a project draws the cap', () => {
+    adoptGlobalCap({ maxAgentsAuto: false, maxAgents: 7 });
+    adoptDispatchCapacity(machine({ running: 2 }));
+    const html = words(renderToStaticMarkup(
+      <GlobalOnlySettingsPanel dispatchOn onToggleDispatch={() => {}} onClose={() => {}} />,
+    ));
+    // This is the case that regressed in the first place: on the general board
+    // the panel was behind `hasProject`, so there was no panel and the cap was
+    // back to living only in the ▾.
+    expect(html).toContain('2 di 7');
+    expect(html).toContain('Agent in parallelo');
+  });
+
+  test('the machine-wide section carries the cap wherever a panel mounts it', () => {
+    adoptGlobalCap({ maxAgentsAuto: false, maxAgents: 4 });
+    adoptDispatchCapacity(machine({ running: 1 }));
+    const html = words(renderToStaticMarkup(
+      <GlobalSettingsSection dispatchOn={false} onToggleDispatch={() => {}} />,
+    ));
+    expect(html).toContain('1 di 4');
+  });
+
+  // The two heavy surfaces stay on a source check, and the header says why:
+  // `TaskDetail.tsx` and `KanbanBoardPane.tsx` cannot be mounted here. What is
+  // asserted is narrower than before, though — that each one renders the shared
+  // section/control, which is the single thing that would have to be deleted for
+  // the cap to vanish from that surface.
+  test('the board settings panel goes through the shared machine-wide section', () => {
     const s = src('TaskDetail.tsx');
-    // Il confine conta: `<GlobalCapControlQualcosaltro` non deve passare.
-    expect(/<GlobalCapControl[\s/>]/.test(s)).toBe(true);
-    expect(/from '\.\/GlobalCapControl'/.test(s)).toBe(true);
+    expect(/<GlobalSettingsSection[\s/>]/.test(s)).toBe(true);
+    expect(/from '\.\/BoardSettingsSections'/.test(s)).toBe(true);
   });
 
   test('the header ▾ menu draws the cap through this component', () => {
     const s = src('KanbanBoardPane.tsx');
     expect(/<GlobalCapControl[\s/>]/.test(s)).toBe(true);
     expect(/from '\.\/GlobalCapControl'/.test(s)).toBe(true);
+  });
+
+  test('the ⚙ is not gated on having a project, or the general board loses it', () => {
+    // The button and the panel are one gesture: gating either on `hasProject`
+    // is what made the cap unreachable from settings on the general board.
+    const s = src('KanbanBoardPane.tsx');
+    expect(/showSettings && hasProject/.test(s)).toBe(false);
+    expect(/<GlobalOnlySettingsPanel[\s/>]/.test(s)).toBe(true);
   });
 
   test('ONE writer: no surface calls setGlobalCap behind the store', () => {

@@ -1008,21 +1008,21 @@ export interface CheckRun {
 export interface BoardSettings {
   projectId: string;
   /**
-   * Interruttore GLOBALE (riga riservata `project_id='*'`), esposto qui perché
-   * ogni lettura per-board continui a gattare il dispatch senza sapere della
-   * riga globale. Scriverlo via updateBoardSettings lo ribalta per TUTTE le board.
+   * The GLOBAL switch (reserved row `project_id='*'`), surfaced here so every
+   * per-board read keeps gating dispatch without having to know about the global
+   * row. Writing it through updateBoardSettings flips it for EVERY board.
    */
   autoDispatch: boolean;
   //
-  // NIENTE tetto di concorrenza per board. Il tetto è UNO, macchina-wide, e vive
-  // sulla riga riservata `project_id='*'` (`readGlobalCap` → `getGlobalCap`):
-  // è quello che il dispatcher legge in `currentCap()` e quello che la quota di
-  // core dello spawn divide. Un `maxAgents` per board è esistito qui fino al
-  // 13/08: si scriveva dalla rotta, si rileggeva nel pannello, e non decideva
-  // NIENTE. Sul DB vivo quel giorno diceva 9 per la board topics-app mentre il
-  // tetto vero (riga '*') era 8 — e una persona ha dispacciato credendo al 9.
-  // La colonna `max_agents` resta nel DB per le board (togliere una colonna
-  // vuole una migration): resta, e nessuno la scrive né la legge più.
+  // NO per-board concurrency cap. There is ONE cap, machine-wide, living on the
+  // reserved row `project_id='*'` (`readGlobalCap` -> `getGlobalCap`): the one
+  // the dispatcher reads in `currentCap()` and the one the spawn core quota
+  // divides. A per-board `maxAgents` existed here until 2026-08-13: the route
+  // wrote it, the panel read it back, and it decided NOTHING. Measured on the
+  // live DB that day: the topics-app row said 9 while the real cap (row '*') was
+  // 8, so the panel showed a limit one higher than the one being enforced.
+  // The `max_agents` column stays in the DB for boards (dropping a column needs
+  // a migration): it stays, and nothing writes or reads it any more.
   //
   dispatchEffort: string;
   dispatchUseWorktree: boolean;
@@ -1149,11 +1149,22 @@ export interface GlobalDispatchCap {
 export const GLOBAL_CAP_MIN = 1;
 export const GLOBAL_CAP_MAX = 20;
 
-/** Il numero fisso dentro gli estremi, e intero. NaN vale il minimo: un campo
- *  numerico svuotato non deve poter scrivere «nessun agente». */
+/**
+ * The fixed number, inside the bounds and integral. NaN means the minimum: an
+ * emptied number field must never be able to write "no agents at all".
+ *
+ * TRUNCATION, not rounding, and that is not a detail. Three places turn this
+ * value into an integer and they have to agree: here (the optimistic value the
+ * client shows), `clampInt` on the way into the DB (`server/services/tasks.ts`,
+ * `Math.trunc`) and `Math.floor` on the way back out
+ * (`server/services/dispatch-capacity.ts`). `<input type="number">` happily
+ * hands over 3.6; rounding here showed 4 while the server stored 3, so the
+ * field disagreed with itself until a reload. All three floor now, and for
+ * values >= 1 trunc and floor are the same function.
+ */
 export function clampGlobalCap(n: number): number {
   if (!Number.isFinite(n)) return GLOBAL_CAP_MIN;
-  return Math.max(GLOBAL_CAP_MIN, Math.min(GLOBAL_CAP_MAX, Math.round(n)));
+  return Math.max(GLOBAL_CAP_MIN, Math.min(GLOBAL_CAP_MAX, Math.trunc(n)));
 }
 
 /**
