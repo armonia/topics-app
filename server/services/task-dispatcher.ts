@@ -443,6 +443,20 @@ const HEAVY_MAX_LOAD_PER_CORE = 1.0;
  * (12 core) sono 6 core-unità, cioè 600% nella scala di `ps`, contro le 0,75
  * misurate la notte del 12/08 con la board ferma: due ordini di grandezza di
  * margine, che è quanto serviva e non c'era.
+ *
+ * PERCHÉ FINO AL 13/08 QUESTO RAMO NON POTEVA MORDERE, e non è colpa del conto.
+ * La soglia è tarata su metà dei core della macchina, ma la flotta quei core
+ * non li poteva prendere: il job launchd del server non dichiarava
+ * `ProcessType`, e senza quella chiave launchd applica limiti di risorsa
+ * ridotti al job e a tutto il suo albero, fino a ogni `claude`. Misurato quel
+ * giorno con lo stesso banco eseguito dentro e fuori il clamp, a parità di
+ * carico: la flotta si fermava fra 3,6 e 4,4 core-unità mentre un processo non
+ * clampato ne prendeva 10, e un `tsc` costava 4,63 s contro 2,65. Sotto la
+ * soglia di 6 non ci si arrivava mai, quindi il ramo `ownLoad` restava aperto
+ * per costruzione. La chiave la scrive ora
+ * `scripts/apply-topics-host-plist.sh`, e questo numero torna raggiungibile
+ * solo dopo che il server è ripartito con quel plist. Se un giorno il freno
+ * ricominciasse a non frenare, si guarda prima il plist e poi questa soglia.
  */
 const HEAVY_MAX_OWN_LOAD_PER_CORE = 0.5;
 
