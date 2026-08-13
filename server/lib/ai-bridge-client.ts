@@ -98,20 +98,19 @@ const REQUEST_ATTEMPTS = 3;
 const RETRY_BACKOFF_MS = 250;
 
 /**
- * Quanti daemon si possono lanciare, e in quanto tempo, prima di dichiarare
- * guasto invece di continuare a lanciarne. Vedi il punto d'uso in
- * `ensureConnected`: senza tetto quel ramo e' una bomba a fork.
+ * How many daemons may be spawned, and in what window, before we declare a
+ * failure instead of spawning more. See the use site in `ensureConnected`:
+ * without a cap that branch is a fork bomb.
  *
- * Il conto e' PER SOCKET, non per processo. La rissa che ha affondato la
- * macchina il 13/08/2026 era fra daemon che si contendevano lo stesso socket, e
- * un tetto globale punirebbe un secondo client che parla a un socket del tutto
- * diverso (cwd diversa, quindi hash diverso) solo perche' vive nello stesso
- * processo. E' anche cio' che rende il tetto invisibile ai test, che aprono
- * molti bridge isolati di fila.
+ * The budget is PER SOCKET, not per process. The brawl that sank the machine on
+ * 2026-08-13 was between daemons fighting over one socket, and a global cap
+ * would punish a second client talking to a completely different socket (other
+ * cwd, so other hash) just for living in the same process. It is also what
+ * keeps the cap invisible to tests, which open many isolated bridges in a row.
  */
 const SPAWN_WINDOW_MS = 60_000;
 const SPAWN_MAX = 3;
-const spawnRecenti = new Map<string, number[]>();
+const recentSpawns = new Map<string, number[]>();
 
 /**
  * Il guasto è la CONNESSIONE, non il daemon.
@@ -234,23 +233,23 @@ export class AiBridgeClient {
     this.connecting = true;
     try {
       if (await this.tryConnect()) return;
-      // TETTO AGLI SPAWN, e non e' teorico. Se la connessione non riesce mai,
-      // questo ramo lancia un daemon detached ogni ~3 secondi, per sempre.
-      // Moltiplicato per i processi che eseguono lo stesso giro, il 13/08/2026
-      // ha prodotto 1.612 daemon sullo stesso socket in dodici minuti: swap a
-      // 36 GB e macchina inutilizzabile. Oltre il tetto si fallisce FORTE, che
-      // e' rumoroso in chat ma non affonda la macchina, e la guardia scade da
-      // sola cosi' un guasto passeggero non ci lascia muti per sempre.
-      const ora = Date.now();
-      const recenti = (spawnRecenti.get(this.socketPath) ?? []).filter((t) => ora - t < SPAWN_WINDOW_MS);
-      if (recenti.length >= SPAWN_MAX) {
-        spawnRecenti.set(this.socketPath, recenti);
+      // SPAWN CAP, and it is not theoretical. If the connection never succeeds,
+      // this branch spawns a detached daemon every ~3 seconds, forever.
+      // Multiplied by the processes running the same loop, on 2026-08-13 it
+      // produced 1612 daemons on one socket in twelve minutes: 36 GB of swap and
+      // an unusable machine. Past the cap we fail LOUDLY, which is noisy in chat
+      // but does not sink the box, and the window expires on its own so a
+      // transient fault does not mute us forever.
+      const now = Date.now();
+      const recent = (recentSpawns.get(this.socketPath) ?? []).filter((t) => now - t < SPAWN_WINDOW_MS);
+      if (recent.length >= SPAWN_MAX) {
+        recentSpawns.set(this.socketPath, recent);
         throw new Error(
-          `ai-bridge: gia' ${recenti.length} daemon lanciati su ${this.socketPath} negli ultimi ${SPAWN_WINDOW_MS / 1000}s senza riuscire a connettersi. Non ne lancio altri.`,
+          `ai-bridge: already spawned ${recent.length} daemons on ${this.socketPath} in the last ${SPAWN_WINDOW_MS / 1000}s without connecting. Refusing to spawn more.`,
         );
       }
-      recenti.push(ora);
-      spawnRecenti.set(this.socketPath, recenti);
+      recent.push(now);
+      recentSpawns.set(this.socketPath, recent);
       // No daemon — spawn one (detached, survives our restart). Bun-native:
       // process.execPath is the same bun the server runs under. augmentPath so a
       // launchd-minimal PATH still resolves `claude` for the children later.
