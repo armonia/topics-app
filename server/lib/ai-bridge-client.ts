@@ -98,6 +98,22 @@ const REQUEST_ATTEMPTS = 3;
 const RETRY_BACKOFF_MS = 250;
 
 /**
+ * Quanti daemon si possono lanciare, e in quanto tempo, prima di dichiarare
+ * guasto invece di continuare a lanciarne. Vedi il punto d'uso in
+ * `ensureConnected`: senza tetto quel ramo e' una bomba a fork.
+ *
+ * Il conto e' PER SOCKET, non per processo. La rissa che ha affondato la
+ * macchina il 13/08/2026 era fra daemon che si contendevano lo stesso socket, e
+ * un tetto globale punirebbe un secondo client che parla a un socket del tutto
+ * diverso (cwd diversa, quindi hash diverso) solo perche' vive nello stesso
+ * processo. E' anche cio' che rende il tetto invisibile ai test, che aprono
+ * molti bridge isolati di fila.
+ */
+const SPAWN_WINDOW_MS = 60_000;
+const SPAWN_MAX = 3;
+const spawnRecenti = new Map<string, number[]>();
+
+/**
  * Il guasto è la CONNESSIONE, non il daemon.
  *
  * Distinguerli è ciò che rende sensato un secondo tentativo: se il frame non è
@@ -218,6 +234,23 @@ export class AiBridgeClient {
     this.connecting = true;
     try {
       if (await this.tryConnect()) return;
+      // TETTO AGLI SPAWN, e non e' teorico. Se la connessione non riesce mai,
+      // questo ramo lancia un daemon detached ogni ~3 secondi, per sempre.
+      // Moltiplicato per i processi che eseguono lo stesso giro, il 13/08/2026
+      // ha prodotto 1.612 daemon sullo stesso socket in dodici minuti: swap a
+      // 36 GB e macchina inutilizzabile. Oltre il tetto si fallisce FORTE, che
+      // e' rumoroso in chat ma non affonda la macchina, e la guardia scade da
+      // sola cosi' un guasto passeggero non ci lascia muti per sempre.
+      const ora = Date.now();
+      const recenti = (spawnRecenti.get(this.socketPath) ?? []).filter((t) => ora - t < SPAWN_WINDOW_MS);
+      if (recenti.length >= SPAWN_MAX) {
+        spawnRecenti.set(this.socketPath, recenti);
+        throw new Error(
+          `ai-bridge: gia' ${recenti.length} daemon lanciati su ${this.socketPath} negli ultimi ${SPAWN_WINDOW_MS / 1000}s senza riuscire a connettersi. Non ne lancio altri.`,
+        );
+      }
+      recenti.push(ora);
+      spawnRecenti.set(this.socketPath, recenti);
       // No daemon — spawn one (detached, survives our restart). Bun-native:
       // process.execPath is the same bun the server runs under. augmentPath so a
       // launchd-minimal PATH still resolves `claude` for the children later.
