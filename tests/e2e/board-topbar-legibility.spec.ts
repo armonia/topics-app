@@ -15,11 +15,16 @@
  *    board), mai un chip tagliato a metà. Tre larghezze: 1440 · 1000 · 390.
  *  - TOPBAR-04  il chip del carico compare SOLO quando c'è qualcosa da fare
  *    (agent in volo > consigliati) e dice l'azione, non l'aggettivo.
- *  - TOPBAR-05  «non su main» sta accanto a Pubblica, e il click apre l'ELENCO
- *    dei task (prima saltava al primo, e con sei non c'era modo di vederli
- *    come insieme).
+ *  - TOPBAR-05  la consegna è UN controllo solo: «non su main» e «su main, non
+ *    pubblicato» sono due sezioni dello stesso pannello (erano due badge
+ *    adiacenti, letti come lo stesso allarme scritto due volte), e il click
+ *    apre l'ELENCO dei task, non il primo della lista.
  *  - TOPBAR-06  il contatore delle cartelle di lavoro dice di che cosa è, e al
  *    click spiega che cosa sono e come si liberano (il GC sta lì dentro).
+ *  - TOPBAR-08  i chip dei filtri progetto portano il conteggio PER STATO, con
+ *    gli stessi glifi della riga «Board» in sidebar.
+ *  - TOPBAR-09  il pannello impostazioni ha sezioni con un titolo invece di
+ *    dieci righe tutte uguali, e la prima dice che quell'interruttore è globale.
  *  - TOPBAR-07  audit di layout (`helpers/ui-audit.js`) alle tre larghezze:
  *    nessun overflow orizzontale, nessuna sovrapposizione, niente fuori
  *    schermo, riga a 40px (il contratto `h-10` della chrome).
@@ -121,11 +126,19 @@ async function stubProbes(page: Page, opts?: { running?: number }) {
   // `landing_state` non ha una porta HTTP che lo scriva (lo timbra l'audit
   // periodico dopo un land): i due task chiusi si marcano nella RISPOSTA, che è
   // esattamente l'ingresso da cui la barra li legge.
+  //
+  // Serve ANCHE il commit di consegna: `showsLandingDebt` (shared/board.ts) tace
+  // su un `unlanded` senza fotografia della consegna, perché senza quel commit
+  // non c'è nessuna domanda a cui il verdetto stia rispondendo. Un task chiuso
+  // via API non ce l'ha, quindi il debito va costruito per intero qui.
   await page.route((url) => /\/api\/(all-boards|boards\/[^/]+)\/tasks$/.test(url.pathname), async (route) => {
     const res = await route.fetch();
-    const body = (await res.json()) as { tasks?: Array<{ text?: string; status?: string; landingState?: string | null }> };
+    const body = (await res.json()) as { tasks?: Array<{ text?: string; status?: string; landingState?: string | null; deliveryCommit?: string | null }> };
     for (const t of body.tasks ?? []) {
-      if (t.status === "done" && unlandedTitles.includes(t.text ?? "")) t.landingState = "unlanded";
+      if (t.status === "done" && unlandedTitles.includes(t.text ?? "")) {
+        t.landingState = "unlanded";
+        t.deliveryCommit = "0ff1ce5";
+      }
     }
     await route.fulfill({ response: res, body: JSON.stringify(body) });
   });
@@ -350,31 +363,31 @@ test.describe("Top bar della kanban — si legge da sola", () => {
     await expect(chip, "senza scarto il chip non deve comparire").toHaveCount(0);
   });
 
-  test("TOPBAR-05: «non su main» sta accanto a Pubblica e il click apre l'elenco", async ({ page }) => {
+  test("TOPBAR-05: la consegna è UN controllo con due gradini, e il click apre l'elenco", async ({ page }) => {
     await stubProbes(page);
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto("/");
     await openProjectBoard(page);
 
-    const badge = page.getByTestId("unlanded-badge");
+    // UN bottone solo: «N non su main» e «Pubblica M» erano due badge adiacenti
+    // che si leggevano come lo stesso allarme scritto due volte.
+    const badge = page.getByTestId("delivery-badge");
     await expect(badge).toBeVisible({ timeout: 20000 });
-    await expect(badge).toHaveText(/2 non su main/);
+    await expect(badge).toContainText("Consegna");
+    await expect(page.getByTestId("delivery-unlanded-count")).toHaveText("2");
+    await expect(
+      page.locator('[data-testid="delivery-badge"], button:has-text("Pubblica")'),
+      "in barra non resta un secondo bottone di consegna",
+    ).toHaveCount(1);
 
-    // Vicinanza MISURATA: fra il badge e «Pubblica» non c'è nient'altro sulla
-    // riga, e distano meno di una manciata di pixel.
-    const gap = await page.evaluate(() => {
-      const b = document.querySelector('[data-testid="unlanded-badge"]')!.getBoundingClientRect();
-      const pub = Array.from(document.querySelectorAll("button")).find((el) => el.textContent?.trim().startsWith("Pubblica"))!.getBoundingClientRect();
-      return { gap: pub.left - b.right, sameRow: Math.abs(pub.top - b.top) < 4 };
-    });
-    expect(gap.sameRow, "stessa riga di Pubblica").toBe(true);
-    expect(gap.gap, "adiacenti: nessun altro controllo in mezzo").toBeLessThan(24);
-
-    // Il click apre l'INSIEME, non il primo task.
+    // Il click apre l'INSIEME, non il primo task. E i due gradini hanno due
+    // titoli che dicono in che cosa differiscono.
     await badge.click();
     const voci = page.getByTestId("unlanded-item");
     await expect(voci).toHaveCount(2);
-    await page.screenshot({ path: join(SHOTS, "popover-non-su-main.png"), clip: { x: 0, y: 0, width: 1440, height: 320 } });
+    await expect(page.getByText("Non su main", { exact: true })).toBeVisible();
+    await expect(page.getByText(/non ancora pubblicato/i)).toBeVisible();
+    await page.screenshot({ path: join(SHOTS, "popover-consegna.png"), clip: { x: 0, y: 0, width: 1440, height: 460 } });
     await expect(page.getByTestId("task-detail-drawer"), "l'elenco non apre nessun task da solo").toHaveCount(0);
     await voci.first().click();
     await expect(page.getByTestId("task-detail-drawer")).toBeVisible({ timeout: 10000 });
@@ -396,6 +409,68 @@ test.describe("Top bar della kanban — si legge da sola", () => {
     await expect(page.getByTestId("worktree-branches-line")).toContainText("5 rami");
     await expect(page.getByTestId("worktree-gc-button"), "l'azione sta dove sta la spiegazione").toBeVisible();
     await page.screenshot({ path: join(SHOTS, "popover-cartelle.png"), clip: { x: 0, y: 0, width: 1440, height: 400 } });
+  });
+
+  test("TOPBAR-08: i filtri progetto dicono quanto lavoro c'è, e le impostazioni hanno sezioni", async ({ page, request }) => {
+    // Il progetto capofila prende un task per stato: senza, «conteggio per
+    // stato» sarebbe provato su un solo numero, cioè non provato.
+    const alfa = boardIdForPath(dirOf(PROJECTS[0]));
+    await apiCreateTask(request, alfa, `Da guardare ${STAMP}`, "review");
+    await apiCreateTask(request, alfa, `In corso ${STAMP}`, "in_progress");
+
+    await stubProbes(page, { running: 1 });
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("/");
+    // La BOARD GENERALE, per la stessa ragione di TOPBAR-01: è la superficie in
+    // cui i chip progetto stanno davvero in barra. Sulla board DI progetto in
+    // modalità «tutti» i ~400px di comandi in più lasciano zero spazio libero, e
+    // i chip restano dietro il menu (che è il ripiego voluto, misurato lì).
+    await openGlobalBoard(page);
+
+    // 1. Il conteggio è SUL chip, non solo dentro il menu: il nome da solo non
+    //    dice se quel progetto stia aspettando qualcuno.
+    const chipAlfa = page.getByTestId(`project-filter-chip-${alfa}`);
+    await expect(chipAlfa).toBeVisible({ timeout: 15000 });
+    const conteggi = chipAlfa.getByTestId("project-task-counts");
+    await expect(conteggi).toBeVisible();
+    // review 1 · in corso 1 · in coda 1 (il «todo» seminato nel beforeAll).
+    await expect(conteggi).toHaveText("111");
+    // I due chiusi non sono fra gli aperti, ma il dettaglio c'è nel tooltip.
+    await expect(chipAlfa).toHaveAttribute("title", /Review: 1/);
+    await expect(chipAlfa).toHaveAttribute("title", /Done: 2/);
+
+    // 2. Lo stesso conteggio, con la stessa forma, dentro il menu «Progetto».
+    await page.getByTestId("filter-project-chip").click();
+    await expect(page.getByTestId("project-task-counts").first()).toBeVisible();
+    await page.keyboard.press("Escape");
+
+    await page.screenshot({ path: join(SHOTS, "chip-conteggi.png"), clip: { x: 0, y: 0, width: 1440, height: 200 } });
+
+    // 3. E il controllo di consegna: due gradini, un pannello. Anche di qui —
+    //    la board generale li vede tutti insieme, che è il caso in cui i due
+    //    numeri separati si somigliavano di più.
+    await page.getByTestId("delivery-badge").click();
+    await expect(page.getByTestId("unlanded-item").first()).toBeVisible();
+    await expect(page.getByText(/non ancora pubblicato/i)).toBeVisible();
+    await page.screenshot({ path: join(SHOTS, "barra-e-consegna.png"), clip: { x: 0, y: 0, width: 1440, height: 560 } });
+  });
+
+  test("TOPBAR-09: le impostazioni della board sono sezioni con un titolo", async ({ page }) => {
+    await stubProbes(page, { running: 1 });
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("/");
+    await openProjectBoard(page);
+
+    // Sezioni con un titolo, non dieci righe di seguito. La prima dice che
+    // l'interruttore lì sotto è GLOBALE: in cima a una lista piatta si leggeva
+    // come un'impostazione di questa board, che è l'opposto di ciò che fa.
+    await page.getByTitle("Impostazioni auto-dispatch").click();
+    const pannello = page.getByTestId("board-settings-panel");
+    await expect(pannello).toBeVisible();
+    for (const titolo of ["Vale per tutte le board", "Come lavora l'agente", "Dove lavora", "Quando parte", "Alla consegna"]) {
+      await expect(pannello.getByText(titolo, { exact: true })).toBeVisible();
+    }
+    await page.screenshot({ path: join(SHOTS, "impostazioni-sezioni.png"), clip: { x: 0, y: 0, width: 1440, height: 620 } });
   });
 
   test("TOPBAR-07: audit di layout alle tre larghezze (niente overflow, niente sovrapposizioni)", async ({ page }) => {
@@ -422,7 +497,7 @@ test.describe("Top bar della kanban — si legge da sola", () => {
       // un filtro per testid su quelle stringhe non matcherebbe MAI — sarebbe
       // un'asserzione che non può fallire.
       const piccoli = await page.evaluate(() => {
-        const sel = '[data-testid="load-advice-chip"],[data-testid="unlanded-badge"],[data-testid="worktree-count-badge"],[data-testid^="project-filter-chip-"]';
+        const sel = '[data-testid="load-advice-chip"],[data-testid="delivery-badge"],[data-testid="worktree-count-badge"],[data-testid^="project-filter-chip-"]';
         return Array.from(document.querySelectorAll(sel))
           .filter((el) => getComputedStyle(el).visibility !== "hidden")
           .map((el) => ({ id: el.getAttribute("data-testid"), w: Math.round(el.getBoundingClientRect().width), h: Math.round(el.getBoundingClientRect().height) }))
