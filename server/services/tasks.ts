@@ -1046,8 +1046,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
    * il tetto dei tentativi della board, lo stato del padre e quanti task sono
    * davanti in coda.
    *
-   * Costa zero fuori da `todo`: la guardia è la prima riga, e su una board
-   * normale i todo sono decine, non migliaia.
+   * Costa zero su una card chiusa (la guardia è la prima riga) e quasi zero
+   * fuori da `todo`: `backlog` e `in_progress` entrano — lì il chip di dispatch
+   * prometteva un ritorno in coda che nessuno mantiene — ma non pagano i due
+   * conti della fila, che per loro non vogliono dire niente.
    */
   function countAhead(r: any, nowIso: string): number {
     // La STESSA disciplina di coda del tick — priorità prima, anzianità a
@@ -1106,8 +1108,13 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     // congelata. Non è una ragione di coda ed è giusto che stia nella stessa
     // funzione — è la stessa domanda, «perché questa card non si muove», e
     // averla in due posti significherebbe due risposte che possono divergere.
-    if (r.status !== "todo" && r.status !== "review") return null;
+    if (r.status === "done") return null;
     const nowIso = new Date().toISOString();
+    // La fila si conta solo per chi la sta davvero facendo. Fuori da `todo`
+    // «3 davanti» non è un'attesa più corta o più lunga: è un numero su una
+    // coda di cui questa card non fa parte, e pagarlo sarebbe due COUNT per
+    // riga su ogni lista della board.
+    const inCoda = r.status === "todo" && !r.parent_task_id;
     try {
       const parentStatus = r.parent_task_id
         ? ((db.prepare("SELECT status FROM tasks WHERE id = ?").get(r.parent_task_id) as any)?.status ?? null)
@@ -1123,6 +1130,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           dispatchError: r.dispatch_error ?? null,
           blockedByTaskId: r.blocked_by_task_id ?? null,
           blockedBy: resolveBlocker(r.blocked_by_task_id),
+          assignedTo: r.assigned_to ?? null,
         },
         {
           now: nowIso,
@@ -1130,7 +1138,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           retryCap: bs?.dispatch_retry_cap ?? 2,
           // Il conto della fila si paga solo per chi la fila la sta davvero
           // facendo: uno step non ci entra mai, e la sua ragione è un'altra.
-          ahead: r.parent_task_id ? 0 : countAhead(r, nowIso),
+          ahead: inCoda ? countAhead(r, nowIso) : 0,
           // Un pesante trattenuto DAL CARICO è il tappo della coda, e la card
           // lo dichiara. Il chip `queued` da solo non basta a riconoscerlo:
           // `noteHeavyHold` lo scrive in DUE rami del tick, e i due non hanno
@@ -1156,11 +1164,11 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           //
           // Ultimo nell'`&&` per non pagarlo: su una riga normale la lettura
           // non parte nemmeno.
-          heavyHeld: !r.parent_task_id
+          heavyHeld: inCoda
             && readTaskWeight(r.dispatch_weight) === "heavy"
             && r.dispatch_state === DISPATCH_CHIP_QUEUED
             && !heavyInFlight(),
-          behind: r.parent_task_id ? 0 : countBehind(r, nowIso),
+          behind: inCoda ? countBehind(r, nowIso) : 0,
           parentStatus,
           projectless: r.project_id === UNASSIGNED_PROJECT_ID,
           // Il conto si paga SOLO in review, ed è la stessa disciplina di
@@ -2898,12 +2906,19 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     },
 
     listLandingAuditCandidates() {
+      // La TESTIMONIANZA vale per «è atterrato», e solo per quello: il contenuto
+      // che è su main ci resta, quindi ricontrollarlo sarebbe rimettere una
+      // deduzione sopra un fatto. «NON è atterrato» invece è un fatto su un
+      // ISTANTE — il land che non è riuscito — e nulla dice del giorno dopo, in
+      // cui una persona può aver cherry-piccato quel lavoro a mano. Escluderlo
+      // per sempre dall'audit congela l'accusa: misurate il 13/08 due card che
+      // dicevano «non su main» col commit ANTENATO di main, e in Done da giorni.
       return db.prepare(
         `SELECT id, project_id, delivery_branch, delivery_commit
            FROM tasks
           WHERE archived = 0 AND delivery_commit IS NOT NULL
             AND status IN ('review', 'done')
-            AND COALESCE(landing_witnessed, 0) = 0`,
+            AND NOT (COALESCE(landing_witnessed, 0) = 1 AND landing_state = 'landed')`,
       ).all().map((r: any) => ({
         id: r.id,
         projectId: r.project_id,
