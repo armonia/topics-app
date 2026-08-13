@@ -98,6 +98,21 @@ const REQUEST_ATTEMPTS = 3;
 const RETRY_BACKOFF_MS = 250;
 
 /**
+ * How many daemons may be spawned, and in what window, before we declare a
+ * failure instead of spawning more. See the use site in `ensureConnected`:
+ * without a cap that branch is a fork bomb.
+ *
+ * The budget is PER SOCKET, not per process. The brawl that sank the machine on
+ * 2026-08-13 was between daemons fighting over one socket, and a global cap
+ * would punish a second client talking to a completely different socket (other
+ * cwd, so other hash) just for living in the same process. It is also what
+ * keeps the cap invisible to tests, which open many isolated bridges in a row.
+ */
+const SPAWN_WINDOW_MS = 60_000;
+const SPAWN_MAX = 3;
+const recentSpawns = new Map<string, number[]>();
+
+/**
  * Il guasto è la CONNESSIONE, non il daemon.
  *
  * Distinguerli è ciò che rende sensato un secondo tentativo: se il frame non è
@@ -218,6 +233,23 @@ export class AiBridgeClient {
     this.connecting = true;
     try {
       if (await this.tryConnect()) return;
+      // SPAWN CAP, and it is not theoretical. If the connection never succeeds,
+      // this branch spawns a detached daemon every ~3 seconds, forever.
+      // Multiplied by the processes running the same loop, on 2026-08-13 it
+      // produced 1612 daemons on one socket in twelve minutes: 36 GB of swap and
+      // an unusable machine. Past the cap we fail LOUDLY, which is noisy in chat
+      // but does not sink the box, and the window expires on its own so a
+      // transient fault does not mute us forever.
+      const now = Date.now();
+      const recent = (recentSpawns.get(this.socketPath) ?? []).filter((t) => now - t < SPAWN_WINDOW_MS);
+      if (recent.length >= SPAWN_MAX) {
+        recentSpawns.set(this.socketPath, recent);
+        throw new Error(
+          `ai-bridge: already spawned ${recent.length} daemons on ${this.socketPath} in the last ${SPAWN_WINDOW_MS / 1000}s without connecting. Refusing to spawn more.`,
+        );
+      }
+      recent.push(now);
+      recentSpawns.set(this.socketPath, recent);
       // No daemon — spawn one (detached, survives our restart). Bun-native:
       // process.execPath is the same bun the server runs under. augmentPath so a
       // launchd-minimal PATH still resolves `claude` for the children later.
