@@ -2641,53 +2641,56 @@ describe("cancello: non si ridispaccia lavoro già su main", () => {
     h.dispatcher.shutdown();
   });
 
-  it("RIFIUTATA in review: la consegna cade, il marchio resta, e il cancello la lascia ripartire", async () => {
-    // La quinta porta, e l'unica che scriveva lo status a SQL grezzo:
-    // `reviewDecision(reject)`. Il rifiuto lasciava addosso lo scatto della
-    // consegna e non marcava la riapertura, quindi il cancello vedeva una card
-    // ancora consegnata e atterrata. Misurato il 13/08 su `d6baaf5e`: richiusa
-    // dal sistema SEI SECONDI dopo che l'umano l'aveva rimessa in coda.
+  it("REJECTED in review: the delivery drops, the mark stays, and the gate lets it restart", async () => {
+    // The fifth door, and the only one writing the status as raw SQL:
+    // `reviewDecision(reject)`. A rejection left the delivery stamp on the card
+    // and did not mark the reopen, so the gate saw a card still delivered and
+    // still landed. Measured on 13/08 on `d6baaf5e`: the human moved it back to
+    // the queue at 09:05:44.156Z and the system closed it again at
+    // 09:05:50.325Z, six seconds later.
     //
-    // Le altre quattro uscite da review passano da `update()` e hanno il loro
-    // test in tasks.test.ts; qui si chiude il giro fino al cancello, che è il
-    // punto in cui il danno si vedeva.
+    // The other four exits from review go through `update()` and have their
+    // test in tasks.test.ts; this one closes the loop all the way to the gate,
+    // which is where the damage showed.
     const { h, chieste } = conSonda(true);
     seedTask(h.db, { id: "t1", status: "review", deliveryBranch: "topics/x", deliveryCommit: "cccc7777".repeat(5) });
 
-    const rifiutata = h.svc.reviewDecision({ taskId: "t1", by: "attilio", decision: "reject", comment: "cambia rotta" });
-    expect(rifiutata.status).toBe("in_progress");
-    expect(rifiutata.deliveryCommit).toBeNull();
-    expect(rifiutata.deliveryBranch).toBeNull();
-    expect(rifiutata.reopenedActor).toBe("human");
-    expect(rifiutata.reopenedBy).toBe("attilio");
+    const rejected = h.svc.reviewDecision({ taskId: "t1", by: "attilio", decision: "reject", comment: "cambia rotta" });
+    expect(rejected.status).toBe("in_progress");
+    expect(rejected.deliveryCommit).toBeNull();
+    expect(rejected.deliveryBranch).toBeNull();
+    expect(rejected.reopenedActor).toBe("human");
+    expect(rejected.reopenedBy).toBe("attilio");
 
-    // Il dispatcher reclama solo dai `todo`: è lì che la card incontra il
-    // cancello, come quel giorno.
+    // The dispatcher only claims from `todo`: that is where the card meets the
+    // gate, exactly as it did that day.
     h.svc.update({ taskId: "t1", actor: "human", by: "attilio", patch: { status: "todo" } });
     await h.dispatcher.tick(PID);
     await flush();
 
     expect(h.task("t1")!.status).toBe("in_progress");
     expect(h.turns.length).toBe(1);
-    // A git non si chiede nemmeno: due guardie indipendenti (niente consegna,
-    // riapertura umana) e nessuna delle due ha bisogno della risposta.
+    // Git is not even asked: two independent guards (no delivery, human
+    // reopen), and neither of them needs the answer.
     expect(chieste).toEqual([]);
     h.dispatcher.shutdown();
   });
 });
 
 /**
- * IL CHIP DELLA CONSEGNA — e la ragione per cui diceva quasi sempre «serve te».
+ * THE DELIVERY CHIP, and why it almost always said "serve te".
  *
- * L'envelope ordina all'agente di allegare alla consegna landabile
- * `options=["Landa su main"]`, e il servizio avvolge OGNI `options` in un blocco
- * ```question. Il chip si decideva cercando quella fence, quindi ogni consegna
- * finita si presentava come una domanda: misurate il 13/08, 10 delle 13 card
- * ferme su `needs_input` erano consegne complete, e chi guardava la board non
- * aveva modo di distinguere le tre vere dalle dieci finte.
+ * The envelope orders the agent to attach `options=["Landa su main"]` to a
+ * landable delivery, and the service wraps EVERY `options` in a ```question
+ * block. The chip was decided by looking for that fence, so every finished
+ * delivery introduced itself as a question. Measured on 13/08 against the live
+ * board db: 4 of the 8 cards holding the `needs_input` chip were deliveries,
+ * and across the whole thread history 331 of the 437 agent comments carrying
+ * the fence are deliveries, not questions. Whoever looked at the board had no
+ * way to tell the real questions from the rest.
  */
-describe("chip alla consegna: consegna contro domanda", () => {
-  /** Porta una card fino a fine turno in review, con l'ultima parola dell'agente. */
+describe("chip at delivery: delivery versus question", () => {
+  /** Drives a card to end-of-turn in review, with the agent's last word set. */
   async function consegna(h: ReturnType<typeof harness>, content: string, options?: string[]) {
     h.svc.updateBoardSettings(PID, { autoDispatch: true });
     seedTask(h.db, { id: "t1", status: "todo" });
@@ -2699,7 +2702,7 @@ describe("chip alla consegna: consegna contro domanda", () => {
     await flush();
   }
 
-  it("la sola opzione «Landa su main»: è una CONSEGNA, chip `delivered`", async () => {
+  it("«Landa su main» as the only option: a DELIVERY, chip `delivered`", async () => {
     const h = harness();
     await consegna(h, "Fatto: sei cancelli verdi, commit sul branch.", [LAND_ACTION_LABEL]);
     expect(h.task("t1")!.status).toBe("review");
@@ -2707,16 +2710,16 @@ describe("chip alla consegna: consegna contro domanda", () => {
     h.dispatcher.shutdown();
   });
 
-  it("domanda MISTA: un'opzione che il sistema non esegue e il chip resta `needs_input`", async () => {
-    // Il caso che il rimedio non deve travolgere: «Landa su main» insieme a
-    // un'opzione che chiede una scelta resta una domanda, e la card lo dice.
+  it("MIXED question: one option the system cannot run and the chip stays `needs_input`", async () => {
+    // The case the fix must not run over: "Landa su main" next to an option
+    // that asks for a choice is still a question, and the card says so.
     const h = harness();
     await consegna(h, "Ho finito, ma il nome del flag non mi convince.", [LAND_ACTION_LABEL, "Aspetta, ho un dubbio"]);
     expect(h.task("t1")!.dispatchState).toBe("needs_input");
     h.dispatcher.shutdown();
   });
 
-  it("una domanda vera senza etichette d'azione resta `needs_input`", async () => {
+  it("a real question with no action labels stays `needs_input`", async () => {
     const h = harness();
     await consegna(h, "Quale approccio uso?", ["JWT in cookie", "Bearer token"]);
     expect(h.task("t1")!.dispatchState).toBe("needs_input");
