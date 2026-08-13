@@ -24,7 +24,7 @@
  * broadcast enters through a single door.
  */
 import { useT } from '../../hooks/useT';
-import { GLOBAL_CAP_MAX, GLOBAL_CAP_MIN } from '../../lib/board';
+import { GLOBAL_CAP_MAX, GLOBAL_CAP_MIN, GLOBAL_CAP_OFF } from '../../lib/board';
 import {
   currentCapLimit,
   saveGlobalCap,
@@ -38,8 +38,17 @@ export function GlobalCapControl() {
   const s = useGlobalDispatchCap();
   const limit = currentCapLimit(s);
   const running = s.capacity?.running ?? 0;
-  const full = limit !== null && running >= limit;
-  const over = limit !== null && running > limit;
+  // `Infinity` is the "no ceiling" answer, and nothing below is full or over
+  // against it — a bare `running >= limit` would be false anyway, but saying so
+  // once here keeps the three lines below from having to know about it.
+  const bounded = limit !== null && Number.isFinite(limit);
+  const full = bounded && running >= limit;
+  const over = bounded && running > limit;
+  const mode: 'auto' | 'fixed' | 'off' =
+    !s.cap ? 'auto' : s.cap.auto ? 'auto' : s.cap.max === GLOBAL_CAP_OFF ? 'off' : 'fixed';
+  /** The number the box shows and "Numero fisso" goes back to. Zero is the OFF
+   *  sentinel, never a number to display, so it falls back to the default. */
+  const lastFixed = s.cap && !s.cap.auto && s.cap.max > 0 ? s.cap.max : 3;
 
   return (
     <div className="space-y-1" data-testid="global-cap-control">
@@ -56,9 +65,12 @@ export function GlobalCapControl() {
       >
         {limit === null
           ? tr('board.dispatch.runningLoading')
-          : over
-            ? tr('board.dispatch.runningOver', { running, cap: limit })
-            : tr('board.dispatch.running', { running, cap: limit })}
+          : !bounded
+            // "8 di Infinity" is what a bare interpolation would print here.
+            ? tr('board.dispatch.runningNoLimit', { running })
+            : over
+              ? tr('board.dispatch.runningOver', { running, cap: limit })
+              : tr('board.dispatch.running', { running, cap: limit })}
       </p>
       <p className="text-[11px] leading-snug text-app-text-secondary">{tr('board.dispatch.oneMachine')}</p>
       {full && (
@@ -67,23 +79,43 @@ export function GlobalCapControl() {
         </p>
       )}
 
-      <label className="flex cursor-pointer items-center justify-between gap-3">
-        <span>{tr('board.dispatch.parallelAuto')}</span>
-        <input
-          type="checkbox"
-          data-testid="global-cap-auto"
-          checked={!!s.cap?.auto}
-          disabled={s.saving || !s.cap}
-          onChange={(e) => { void saveGlobalCap({ auto: e.target.checked }); }}
-          className="h-3.5 w-3.5 shrink-0 accent-emerald-500"
-        />
-      </label>
+      {/* THREE states that exclude one another, drawn as three. Two interacting
+          checkboxes ("automatic" plus "no limit") would leave a fourth reading
+          — both ticked — that means nothing, and someone would have to decide
+          silently which one wins. */}
+      <div className="flex gap-0.5" role="radiogroup" aria-label={tr('board.dispatch.parallel')}>
+        {(['auto', 'fixed', 'off'] as const).map((m) => {
+          const active = mode === m;
+          const label = m === 'auto' ? 'board.dispatch.parallelAuto'
+            : m === 'fixed' ? 'board.dispatch.fixed'
+            : 'board.dispatch.noLimit';
+          return (
+            <button
+              key={m}
+              role="radio"
+              aria-checked={active}
+              data-testid={`global-cap-mode-${m}`}
+              disabled={s.saving || !s.cap}
+              onClick={() => {
+                if (m === 'auto') { void saveGlobalCap({ auto: true }); return; }
+                // Leaving `auto` needs BOTH halves in one write: the mode and the
+                // number it means. Sending only `auto:false` would land on
+                // whatever stale number the row still carried.
+                void saveGlobalCap({ auto: false, max: m === 'off' ? GLOBAL_CAP_OFF : lastFixed });
+              }}
+              className={`rounded px-1.5 py-0.5 text-[11px] ${active ? 'bg-emerald-500/80 text-white' : 'bg-white/5 text-app-text-secondary hover:bg-white/10'}`}
+            >{tr(label)}</button>
+          );
+        })}
+      </div>
 
-      {s.cap?.auto ? (
-        s.capacity && (
-          <p className="text-[11px] leading-snug text-app-text-faint">{s.capacity.reason}</p>
-        )
-      ) : (
+      {mode === 'auto' && s.capacity && (
+        <p className="text-[11px] leading-snug text-app-text-faint">{s.capacity.reason}</p>
+      )}
+      {mode === 'off' && (
+        <p className="text-[11px] leading-snug text-app-text-faint">{tr('board.dispatch.noLimitHint')}</p>
+      )}
+      {mode === 'fixed' && (
         <label className="flex items-center justify-between gap-3">
           <span className="text-[11px] text-app-text-muted">
             {tr('board.dispatch.fixed')}
@@ -98,7 +130,7 @@ export function GlobalCapControl() {
             data-testid="global-cap-max"
             min={GLOBAL_CAP_MIN}
             max={GLOBAL_CAP_MAX}
-            value={s.cap?.max ?? 3}
+            value={lastFixed}
             onChange={(e) => { void saveGlobalCap({ max: Number(e.target.value) }); }}
             className="w-14 shrink-0 rounded bg-white/5 px-1.5 py-0.5 text-right text-app-text outline-none"
           />
