@@ -1,0 +1,39 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Banco &#8984;R &mdash; pane browser</title>
+<!--
+  La pagina che sta dentro la pane browser (WKWebView figlia) durante la clip.
+
+  Non e' decorazione: e' il testimone del FUOCO. Una clip che mostra il toast
+  senza mostrare dove stava il cursore non prova niente, perche' chi guarda non
+  puo' escludere che il fuoco fosse rimasto nel chrome. Qui si batte a macchina
+  dentro il campo prima di premere il tasto, e i caratteri che compaiono sono la
+  prova che il keydown arrivava alla webview figlia.
+
+  Tutto e' enorme e ad altissimo contrasto per un motivo solo: l'anteprima della
+  board viene guardata a 268px di larghezza, dove un carattere da 14px e' un
+  pixel e mezzo.
+-->
+<style>
+  html, body { margin: 0; height: 100%; background: #0b1020; color: #e8ecff;
+               font: 600 16px/1.4 -apple-system, system-ui, sans-serif; }
+  body { display: flex; flex-direction: column; align-items: center;
+         justify-content: center; gap: 4vh; }
+  .targa { font-size: 5.5vw; font-weight: 800; letter-spacing: .02em;
+           color: #7fd1ff; text-transform: uppercase; }
+  input { width: 78%; font: 800 7vw/1.1 ui-monospace, Menlo, monospace;
+          text-align: center; color: #0b1020; background: #ffe066;
+          border: .6vw solid #ffb300; border-radius: 2vw; padding: 2vh 1vw;
+          caret-color: #d00; }
+  input:focus { outline: none; box-shadow: 0 0 0 1.2vw #ff2d55; }
+  .nota { font-size: 2.2vw; color: #8fa0c8; }
+</style>
+<div class="targa">Pane browser &middot; webview figlia</div>
+<input id="campo" placeholder="qui dentro il fuoco" autofocus>
+<div class="nota">i caratteri qui sotto arrivano dalla tastiera: se compaiono, il fuoco e' in questa webview</div>
+<script>
+  // Il campo si riprende il fuoco quando la pane torna in primo piano: fra un
+  // ricarico e l'altro la finestra ospite cambia chiave, e senza questo il
+  // click andrebbe rifatto a mano a ogni giro.
+  addEventListener('focus', () => document.getElementById('campo').focus());
+</script>
