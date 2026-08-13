@@ -7,6 +7,7 @@ import {
   taskReviewNotificationKey,
   type NotificationRecordInput,
 } from "../shared/notification-log";
+import { questionAsksHuman } from "../shared/board";
 
 // Il modulo è puro (nessuna dipendenza dal DB), ma la push di fine chat vuole il
 // NOME del topic, non il suo id: senza, la notifica ti sveglia senza dirti DI
@@ -220,8 +221,29 @@ export function maybeSendPush(message: Record<string, any>): void {
     // sono le sue opzioni. Svegliarti con «pronto per la review» quando in
     // realtà ti stanno CHIEDENDO una cosa è la stessa notifica per due eventi
     // diversi — e quello che chiede è l'unico che non può aspettare.
+    //
+    // WHICH of the two it is comes from `questionAsksHuman`, not from "is there
+    // a question block": the kickoff envelope orders a landable delivery to
+    // attach `options=["Landa su main"]`, which the service wraps in that very
+    // fence, so a plain delivery woke you up as a question. The OPTIONS stay
+    // whole either way — they are the notification's buttons, and a delivery
+    // offering one-click "Landa su main" is exactly what should be tappable.
     const question = readQuestion(message.question);
-    const title = question ? "❓ L'agent ti sta chiedendo una cosa" : "📋 Task pronto per la review";
+    // Two verdicts, in order of how much each one saw.
+    //
+    // `message.isAsk` is decided upstream in routes/tasks.ts by
+    // `commentAsksHuman`, which reads the RAW comment: strictly more than what
+    // survives into the parsed question, so it wins when it is there.
+    //
+    // When it is absent (an older server, a frame built elsewhere) the fallback
+    // is `questionAsksHuman`, which derives the same answer from the options we
+    // do have. What the fallback must NEVER be is `!!question`: that is the
+    // original defect, since the kickoff envelope orders every landable delivery
+    // to attach `options=["Landa su main"]`, which the service wraps in this very
+    // fence. Falling back to it would restore the bug on exactly the servers that
+    // cannot fix it.
+    const asksHuman = message.isAsk ?? questionAsksHuman(question);
+    const title = asksHuman ? "❓ L'agent ti sta chiedendo una cosa" : "📋 Task pronto per la review";
     const body = question?.text || message.taskTitle || "Un task è pronto per la review";
     firePush(withActions({
       title,

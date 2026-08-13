@@ -1,14 +1,21 @@
 import { test, expect, describe } from "bun:test";
 import {
+  ARCHIVE_PARKED_LABEL,
+  LAND_ACTION_LABEL,
+  PUBLISH_ACTION_LABEL,
   QUEUE_REASON_UNKNOWN,
+  REQUEUE_PARKED_LABEL,
   STATUS_EVENT_REASON_MAX,
   deriveQueueReason,
   deriveSubtaskWork,
   formatStatusEvent,
   isAncestorAtWork,
+  isBoardActionLabel,
   isUnattributedSubtask,
+  parseQuestionBlock,
   parseStatusEvent,
   pendingQuestion,
+  questionAsksHuman,
   statusEventEnters,
   type BlockerRef,
   type QueueReason,
@@ -460,5 +467,68 @@ describe("pendingQuestion, la contabilita' non e' l'ultima parola", () => {
       { content: question, kind: "comment" },
       { content: "ok, fatto", kind: "comment" },
     ])).toBeNull();
+  });
+});
+
+/**
+ * A DELIVERY THAT WEARS A QUESTION'S CLOTHES IS STILL A DELIVERY.
+ *
+ * The kickoff envelope orders a landable delivery to attach
+ * `options=["Landa su main"]`, and `addComment` wraps any options in a
+ * ```question fence. So every reader that asked "does this contain a question
+ * block" answered yes on finished work. Measured on 13/08 against the live
+ * board db: of the 437 agent comments carrying that fence, 331 are deliveries.
+ *
+ * Four surfaces depend on this verdict and two of them live in the client (the
+ * push title, the in-app banner title), which is why the rule sits in `shared/`
+ * and not in the task service.
+ */
+describe("questionAsksHuman", () => {
+  test("all options are board actions: a DELIVERY, not a question", () => {
+    expect(questionAsksHuman({ options: [LAND_ACTION_LABEL] })).toBe(false);
+    expect(questionAsksHuman({ options: [REQUEUE_PARKED_LABEL, ARCHIVE_PARKED_LABEL] })).toBe(false);
+    // Tolerant on the label, like the predicates it delegates to: the model
+    // decorates its options, and a 🚀 must not turn a delivery into a question.
+    expect(questionAsksHuman({ options: ["🚀  landa su  main."] })).toBe(false);
+  });
+
+  /**
+   * PUBLISH IS NOT DEAD CODE INSIDE `isBoardActionLabel`, and this is the shape
+   * that proves it. `parseQuestionBlock` drops "Landa e pubblica" from the
+   * rendered options, but its filter is an exact compare after lowercase +
+   * whitespace collapse, while `isPublishActionLabel` normalises away emoji and
+   * punctuation too. A decorated publish label therefore SURVIVES the filter,
+   * reaches the options, and is a board action: the card draws it as a button
+   * and `POST …/review` executes it. Drop `isPublishActionLabel` from
+   * `isBoardActionLabel` and this flips to `true`.
+   */
+  test("a decorated «Landa e pubblica» survives the parser filter and is still a board action", () => {
+    const parsed = parseQuestionBlock("```question\nFatto.\n- 🚀 Landa e pubblica!\n```");
+    expect(parsed?.options).toEqual(["🚀 Landa e pubblica!"]);
+    expect(questionAsksHuman(parsed)).toBe(false);
+  });
+
+  test("MIXED stays a question: one option the board cannot run needs a person", () => {
+    expect(questionAsksHuman({ options: [LAND_ACTION_LABEL, "Aspetta, ho un dubbio"] })).toBe(true);
+    expect(questionAsksHuman({ options: ["JWT in cookie", "Bearer token"] })).toBe(true);
+    // A plan waiting for its verdict is the case this must never swallow.
+    expect(questionAsksHuman({ options: ["Approva il piano", "Da rivedere"] })).toBe(true);
+  });
+
+  test("no options is still a question; no block at all is not", () => {
+    expect(questionAsksHuman({ options: [] })).toBe(true);
+    expect(questionAsksHuman(null)).toBe(false);
+    expect(questionAsksHuman(undefined)).toBe(false);
+  });
+
+  test("isBoardActionLabel covers the four the server runs, and nothing else", () => {
+    for (const l of [LAND_ACTION_LABEL, PUBLISH_ACTION_LABEL, REQUEUE_PARKED_LABEL, ARCHIVE_PARKED_LABEL]) {
+      expect(isBoardActionLabel(l)).toBe(true);
+    }
+    // A plan verdict resumes the AGENT with the human's words: an answer, not
+    // an order the board executes.
+    expect(isBoardActionLabel("Approva il piano")).toBe(false);
+    expect(isBoardActionLabel("Aspetta, ho un dubbio")).toBe(false);
+    expect(isBoardActionLabel(null)).toBe(false);
   });
 });
