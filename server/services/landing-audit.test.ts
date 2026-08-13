@@ -6,7 +6,7 @@
  *     repo, a git error) — a false alarm burns the signal as fast as a miss.
  */
 import { describe, it, expect } from "bun:test";
-import { auditLandings, classifyLanding, type AuditTask, type LandingAuditDeps, type LandingState } from "./landing-audit";
+import { auditLandings, classifyLanding, classifyLandingEsito, type AuditTask, type LandingAuditDeps, type LandingState } from "./landing-audit";
 import type { BranchStatus } from "./branch-status";
 
 const task = (id: string, over: Partial<AuditTask> = {}): AuditTask => ({
@@ -18,6 +18,7 @@ function harness(opts: {
   status?: (commit: string) => BranchStatus | Promise<BranchStatus>;
   repo?: (projectId: string) => string | null;
   previous?: Record<string, LandingState>;
+  debt?: (task: AuditTask) => LandingState | Promise<LandingState>;
 }) {
   const recorded: Array<{ id: string; state: LandingState; at: string }> = [];
   const alerts: AuditTask[] = [];
@@ -26,6 +27,7 @@ function harness(opts: {
     listCandidates: () => opts.tasks,
     repoPath: opts.repo ?? (() => "/repo"),
     commitStatus: async (_repo, commit) => (opts.status ? opts.status(commit) : "merged"),
+    ...(opts.debt ? { debtVerdict: async (t: AuditTask) => opts.debt!(t) } : {}),
     record: (id, state, at) => { recorded.push({ id, state, at }); },
     previousState: (id) => opts.previous?.[id] ?? null,
     onNewlyUnlanded: (t) => { alerts.push(t); },
@@ -45,7 +47,49 @@ describe("classifyLanding", () => {
   });
 });
 
+/**
+ * ACCUSARE È L'ULTIMA COSA CHE SI FA. Sulle 14 card che portavano la pastiglia
+ * rossa il 13/08, tre erano state SUPERATE — quei file su main li aveva rifatti
+ * qualcun altro, dopo — e per loro «landa il ramo» non è un'azione: non c'è
+ * niente da recuperare, e il rosso costava solo la fiducia negli altri rossi.
+ */
+describe("classifyLandingEsito", () => {
+  it("solo `fuori` è un debito: gli altri esiti non accusano", () => {
+    expect(classifyLandingEsito("dentro")).toBe("landed");
+    expect(classifyLandingEsito("fuori")).toBe("unlanded");
+    expect(classifyLandingEsito("superato")).toBe("unverifiable");
+    expect(classifyLandingEsito("non-decidibile")).toBe("unverifiable");
+  });
+});
+
 describe("auditLandings", () => {
+  it("la seconda domanda si paga solo su chi la prima dà per fuori", async () => {
+    const chiesti: string[] = [];
+    const h = harness({
+      tasks: [task("dentro"), task("fuori")],
+      status: (commit) => (commit.startsWith("dentro") ? "merged" : "unmerged"),
+      debt: (t) => { chiesti.push(t.id); return "unverifiable"; },
+    });
+    const s = await auditLandings(h.deps);
+    // Il verdetto ricco costa un indice delle righe di main: su una card già
+    // dentro non si chiede, e non lo si paga.
+    expect(chiesti).toEqual(["fuori"]);
+    expect(s).toEqual({ checked: 2, landed: 1, unlanded: 0, unverifiable: 1 });
+  });
+
+  it("un `unmerged` che la seconda domanda assolve non fa scattare l'allarme", async () => {
+    const h = harness({ tasks: [task("a")], status: () => "unmerged", debt: () => "landed" });
+    await auditLandings(h.deps);
+    expect(h.recorded[0]!.state).toBe("landed");
+    expect(h.alerts).toHaveLength(0);
+  });
+
+  it("senza la seconda domanda l'audit resta quello di prima: più severo, mai più permissivo", async () => {
+    const h = harness({ tasks: [task("a")], status: () => "unmerged" });
+    await auditLandings(h.deps);
+    expect(h.recorded[0]!.state).toBe("unlanded");
+  });
+
   it("stamps a verdict on every candidate with the same timestamp", async () => {
     const h = harness({ tasks: [task("a"), task("b")], status: () => "merged" });
     const s = await auditLandings(h.deps);

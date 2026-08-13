@@ -38,6 +38,9 @@
  * verdetto.
  */
 
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { filterUniqueSourceFiles } from "./branch-status";
 import { defaultRunGit, listOwnCommits, type GitRunner } from "./own-commits";
 
@@ -368,6 +371,61 @@ function dentroPerContenuto(
   return passa(tutte) || passa(sostanza);
 }
 
+/**
+ * LA PROVA CHE REGGE: quel contenuto è GIÀ nell'albero di main?
+ *
+ * `git diff main...<ramo>` è ciò che il ramo ha aggiunto dal punto in cui ha
+ * forkato. Riapplicato AL CONTRARIO sull'albero di main, esce 0 solo se ogni
+ * riga che vorrebbe togliere è di là esattamente com'è: cioè se il lavoro è
+ * dentro, comunque ci sia arrivato.
+ *
+ * Non `git cherry`, che è la strada che sembra fatta apposta e non lo è: il
+ * land RICOPIA i commit (`cherry-pick`), e il pick ADATTA la patch al main del
+ * momento — il patch-id cambia, e `cherry` dichiara «da portare» del lavoro che
+ * è già arrivato. Il patch-id è l'identità di una patch, non del suo contenuto.
+ *
+ * L'indice è TEMPORANEO, e questo è il punto pratico: `git apply --check` senza
+ * `--cached` guarda il working tree, quindi la risposta dipenderebbe da quale
+ * branch è checkoutato in quel momento e da quanto è sporco. `read-tree` in un
+ * `GIT_INDEX_FILE` a parte fissa la domanda sull'albero di `mainRef` e non tocca
+ * niente: nessun file scritto nel repo, nessun indice vero modificato.
+ *
+ * `null` = non contabile (git in errore, patch binaria che `apply` rifiuta senza
+ * `--binary`). Mai `false`, che vorrebbe dire «verificato: non c'è» — chi chiama
+ * ha altre prove da tentare, e un «non lo so» travestito da «no» le salterebbe.
+ */
+export async function contenutoGiaNellAlbero(
+  repoPath: string,
+  range: string,
+  opts: LandingVerdictOptions = {},
+): Promise<boolean | null> {
+  const git = opts.runGit ?? defaultRunGit;
+  const mainRef = opts.mainRef ?? "main";
+  const diff = await git(repoPath, ["diff", "--no-color", range]);
+  if (diff.code !== 0) return null;
+  // Niente da riapplicare: non c'è nessun contenuto che possa mancare.
+  if (!diff.stdout.trim()) return true;
+
+  let dir: string | null = null;
+  try {
+    dir = await mkdtemp(join(tmpdir(), "landing-verdict-"));
+    const patch = join(dir, "range.patch");
+    const index = join(dir, "index");
+    await writeFile(patch, diff.stdout);
+    const env = { GIT_INDEX_FILE: index };
+    if ((await git(repoPath, ["read-tree", mainRef], { env })).code !== 0) return null;
+    const check = await git(repoPath, ["apply", "--cached", "--reverse", "--check", patch], { env });
+    if (check.code === 0) return true;
+    // `apply` esce ≠0 sia per «non c'è» sia per «non so leggere questa patch»
+    // (binari senza `--binary`): il secondo caso non è una risposta.
+    return /without full index line|binary patch/i.test(check.stderr ?? "") ? null : false;
+  } catch {
+    return null;
+  } finally {
+    if (dir) await rm(dir, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
 /** Il ramo lascia ogni file che tocca identico a main? */
 async function tuttiIFileIdentici(
   repoPath: string,
@@ -426,6 +484,15 @@ export async function classifyBranchLanding(
   const sostanza = contaSostanza(aggiunte, indice);
   const base = { righe, file, assentiSuMain };
 
+  // La patch inversa per prima: è l'unica prova CERTA delle tre, e le altre due
+  // sono soglie. Un `false` non è un verdetto (il ramo può essere atterrato e poi
+  // essere stato ritoccato di là), quindi si prosegue: qui si raccoglie solo il sì.
+  if ((await contenutoGiaNellAlbero(repoPath, `${mainRef}...${branch}`, { mainRef, runGit: git })) === true) {
+    return {
+      ...base, esito: "dentro", superatoDa: null, commitDopo: 0,
+      motivo: `il suo diff si riapplica al contrario sull'albero di ${mainRef}: quel contenuto è già di là`,
+    };
+  }
   if (await tuttiIFileIdentici(repoPath, mainRef, branch, file, git)) {
     const quanti = file.length === 1 ? "l'unico file toccato è identico" : `tutti e ${file.length} i file toccati sono identici`;
     return { ...base, esito: "dentro", superatoDa: null, commitDopo: 0, motivo: `${quanti} su main` };
@@ -509,6 +576,15 @@ export async function classifyCommitLanding(
   const sostanza = contaSostanza(aggiunte, indice);
   const base = { righe, file, assentiSuMain: [], superatoDa: null, commitDopo: 0 };
 
+  // Lo stesso test, sulla gamma che una consegna senza ramo ancora consente: il
+  // cambiamento del solo commit. `^!` è `commit^..commit` e regge anche su una
+  // radice, dove `^` da solo non esiste.
+  if ((await contenutoGiaNellAlbero(repoPath, `${commit}^!`, { mainRef, runGit: git })) === true) {
+    return {
+      ...base, esito: "dentro",
+      motivo: `il suo diff si riapplica al contrario sull'albero di ${mainRef}: quel contenuto è già di là`,
+    };
+  }
   if (dentroPerContenuto(righe, sostanza)) {
     return {
       ...base, esito: "dentro",
