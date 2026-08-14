@@ -151,6 +151,13 @@ docs/*
 # controllo sui parametri documentati. Stessa malattia di board-vs-chat/. Gli
 # agenti dispatchati continuano a riceverlo dall'envelope, non da qui.
 !docs/board-protocol.md
+# perf-map.md dice quali superfici hanno un cancello sulle prestazioni e quali
+# no, con i numeri e la data in cui sono stati presi. Serve a chi sta per
+# ottimizzare qualcosa, cioè a decidere DOVE guardare invece di andare a naso —
+# e serve soprattutto a chi arriva dopo, quando i numeri di oggi saranno il
+# riferimento con cui confrontare i suoi. Su un disco solo sarebbe la memoria di
+# una persona; qui è la memoria del repo.
+!docs/perf-map.md
 
 # Reference repos (local only)
 .reference/
