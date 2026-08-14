@@ -265,9 +265,12 @@ export function assembleTopicContext(ctx: AppContext, args: AssembleArgs): Conte
   // il troncamento non è esprimibile leggendo la tabella. Assente ⇒ si legge il
   // thread attivo, che è il caso di tutti gli altri chiamanti.
   // I consumatori del thread — buildHistoryWithDiagnostics, resolveUserMessage,
-  // pushPinnedMessagesBlock — leggono solo role/content/partial/id: mai `blocks`.
-  // Caricalo magro per non pagare il parse della timeline sulla coda agentica.
-  const stored = historyOverride ?? ctx.loadLocalMessages(sessionKey, { withBlocks: false });
+  // pushPinnedMessagesBlock — leggono solo role/content/partial/id: mai `blocks`
+  // e mai `toolCalls`. Dicendolo per ENTRAMBE, le due colonne grasse non
+  // vengono nemmeno chieste a SQLite. Misurato sul topic più pesante di questa
+  // macchina (118 righe, 4,11 MB di `tool_calls` e 7,17 di `blocks`): 14,5 ms
+  // → 0,5. È un costo che si paga a ogni turno di ogni agente.
+  const stored = historyOverride ?? ctx.loadLocalMessages(sessionKey, { withBlocks: false, withToolCalls: false });
   const { history, historyEntries, droppedHistoryTurns } = buildHistoryWithDiagnostics(
     stored,
     { historyLimit, includeLastUserInHistory },

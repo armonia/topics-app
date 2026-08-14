@@ -8,7 +8,7 @@ import { clientReceivesTopicDelta } from "./lib/ws-topic-routing";
 import { warnThrottled } from "./lib/warn-throttled";
 import type {
   WSData, GuestBroadcastFilter, StoredMessage, ReattachedPartial, ToolCall, Topic, TopicsData, UnreadData,
-  ActiveStream, ErrorResponseOptions, AppContext, Project,
+  ActiveStream, ErrorResponseOptions, AppContext, Project, ThreadLoadOpts,
 } from "./types";
 import { initDatabase } from "./db";
 import { isGuestSocketData } from "./lib/grants";
@@ -221,6 +221,35 @@ export function createAppContext(baseDir: string): AppContext {
 
     // Messages
     getMessages: db.prepare(`SELECT * FROM messages WHERE session_key = ? ORDER BY sort_order ASC`),
+    /**
+     * Come `getMessages`, ma senza le DUE colonne grasse — `blocks` e
+     * `tool_calls`.
+     *
+     * Serve all'assemblaggio del contesto, che gira a OGNI turno di ogni agente
+     * e del thread legge solo role/content/partial/id (lo dice il commento in
+     * `server/context/assemble.ts`, sopra la chiamata). Quelle due colonne sono
+     * il 98% della tabella: 353 MB e 220 MB contro 13 MB di testo dei messaggi,
+     * sul DB di questa macchina al 2026-08-14.
+     *
+     * Misurato su una copia di quel DB, topic 6b99e9cf, 118 righe (4,11 MB di
+     * `tool_calls` e 7,17 di `blocks`), mediana di 7 corse:
+     *
+     *   SELECT *                                    6,1 ms
+     *   SELECT * + JSON.parse dei tool_calls       14,5 ms   ← quello che si pagava
+     *   SELECT senza blocks/tool_calls              0,5 ms
+     *
+     * `withBlocks: false` da solo saltava il parse di `blocks` ma non quello di
+     * `tool_calls`, cioe' la meta' del costo — e comunque i byte di entrambe
+     * arrivavano da SQLite. Qui non arrivano proprio.
+     */
+    getMessagesLean: db.prepare(
+      `SELECT id, session_key, role, content, thinking, media, partial, streamed_at,
+              plan_status, timestamp, sort_order, parent_id, branch_index, latency_ms,
+              usage_prompt_tokens, usage_completion_tokens, cost_cents, cache_read_tokens,
+              cache_creation_tokens, cache_creation_1h_tokens, model, author_person_id,
+              author_device_id
+       FROM messages WHERE session_key = ? ORDER BY sort_order ASC`,
+    ),
     getLastMessage: db.prepare(`SELECT * FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 1`),
     /**
      * Come `getLastMessage`, ma SENZA la colonna `blocks`.
@@ -960,9 +989,12 @@ export function createAppContext(baseDir: string): AppContext {
    * Walk the message tree following active branch selections.
    * Returns a linear thread representing the currently active conversation path.
    */
-  function loadActiveThread(sessionKey: string, opts?: { withBlocks?: boolean }): StoredMessage[] {
-    // Get all messages for this session
-    const allRows = stmts.getMessages.all(sessionKey) as any[];
+  function loadActiveThread(sessionKey: string, opts?: ThreadLoadOpts): StoredMessage[] {
+    // Get all messages for this session. Chi ha detto di non volere ne' i
+    // blocchi ne' le tool call legge la versione magra: quelle due colonne non
+    // vengono proprio chieste a SQLite, invece di arrivare per essere buttate.
+    const magro = opts?.withBlocks === false && opts?.withToolCalls === false;
+    const allRows = (magro ? stmts.getMessagesLean : stmts.getMessages).all(sessionKey) as any[];
     if (allRows.length === 0) return [];
 
     // Build parent→children map
@@ -1044,8 +1076,15 @@ export function createAppContext(baseDir: string): AppContext {
    * dai consumatori che leggono solo role/content/partial/id (assemblaggio del
    * contesto, ultima frase dell'agente). Default `true`: chi renderizza la chat
    * ha bisogno dei blocchi.
+   *
+   * `opts.withToolCalls: false` fa lo stesso per `tool_calls`, ed e' la meta'
+   * che mancava: chi non legge i blocchi quasi mai legge le tool call, ma le
+   * pagava lo stesso — sul topic piu' pesante di questa macchina sono 4,11 MB
+   * di JSON parsato e buttato a ogni turno. Con ENTRAMBE a `false` le due
+   * colonne non vengono nemmeno chieste a SQLite (`getMessagesLean`): 14,5 ms
+   * diventano 0,5.
    */
-  function loadLocalMessages(sessionKey: string, opts?: { withBlocks?: boolean }): StoredMessage[] {
+  function loadLocalMessages(sessionKey: string, opts?: ThreadLoadOpts): StoredMessage[] {
     return loadActiveThread(sessionKey, opts);
   }
 
