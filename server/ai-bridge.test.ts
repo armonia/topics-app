@@ -316,6 +316,53 @@ describe("ai-bridge orphan monitor", () => {
     }
   }, 40_000);
 
+  test("a probe that connects and closes does NOT renew the orphan's lease", async () => {
+    // How the immortal daemons survived. Every bridge that tries to be born runs
+    // checkExistingBridge(), which connects here and closes within milliseconds.
+    // The monitor counted any connection as "the server reattached" and cleared
+    // the deadline, so ai-bridge/daemon.log on 2026-08-14 alternated "Parent died
+    // … exit in 90s" and "Server reconnected" forever, with pid 41214 still alive
+    // 12 minutes in — dead parent, zero peers on its socket.
+    const sock = join(tmpdir(), `ai-bridge-probe-${process.pid}.sock`);
+    const store = mkdtempSync(join(tmpdir(), "ai-bridge-probe-store-"));
+    const corpse = Bun.spawn(["/usr/bin/true"], { stdout: "ignore", stderr: "ignore" });
+    await corpse.exited;
+
+    const orphan = Bun.spawn(
+      [process.execPath, join(import.meta.dir, "ai-bridge.mjs"),
+        "--socket", sock, "--store-dir", store, "--parent-pid", String(corpse.pid)],
+      { stdout: "ignore", stderr: "ignore", env: {
+        ...process.env,
+        TOPICS_AI_BRIDGE_ORPHAN_GRACE_MS: "1000",
+        // A real probe lasts ~1s (connect → ping → pong → close); the threshold
+        // sits above it, so the probes below never count as a server.
+        TOPICS_AI_BRIDGE_REAL_CLIENT_MS: "3000",
+      } },
+    );
+    let probing: ReturnType<typeof setInterval> | null = null;
+    const open = new Set<ReturnType<typeof net.connect>>();
+    try {
+      expect(await until(() => existsSync(sock), 10_000)).toBe(true);
+      let exited = false;
+      void orphan.exited.then(() => { exited = true; });
+      // OVERLAPPING probes: each holds for a second, a new one every 800ms. The
+      // socket is never free — the buggy version never even armed its deadline —
+      // yet no single connection reaches 3s, so none of them is a server.
+      probing = setInterval(() => {
+        const probe = net.connect(sock);
+        open.add(probe);
+        probe.on("error", () => { /* il ponte se n'è andato: è il caso di successo */ });
+        setTimeout(() => { open.delete(probe); probe.destroy(); }, 1_000).unref();
+      }, 800);
+      expect(await until(() => exited, 35_000)).toBe(true);
+    } finally {
+      if (probing) clearInterval(probing);
+      for (const p of open) { try { p.destroy(); } catch { /* già chiuso */ } }
+      try { orphan.kill(); } catch { /* already gone — that's the pass case */ }
+      try { rmSync(store, { recursive: true, force: true }); } catch { /* best effort */ }
+    }
+  }, 60_000);
+
   test("a daemon with a LIVE parent stays up", async () => {
     const sock = join(tmpdir(), `ai-bridge-live-${process.pid}.sock`);
     const store = mkdtempSync(join(tmpdir(), "ai-bridge-live-store-"));
