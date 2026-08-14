@@ -4,6 +4,7 @@ import { spawn } from "child_process";
 import { resolve, basename, dirname, join } from "path";
 import { createInterface } from "readline";
 import { getDatabase } from "../db";
+import { shouldCompressFrame } from "../lib/ws-compression";
 import { createHash } from "crypto";
 import net from "net";
 import fs from "fs";
@@ -864,11 +865,20 @@ function handleBridgeMessage(msg: any) {
           _tracker?.notePtyActivity(session.claudeSessionId);
         }
       }
-      // Forward to connected WebSocket clients (buffer is in bridge)
+      // Forward to connected WebSocket clients (buffer is in bridge).
+      //
+      // The compress flag is decided per write, and for PTY output the size rule
+      // is what does the work: a keystroke echo is 1 B, a cursor move 7 B, a
+      // line of output 73 B, so nothing latency critical ever reaches the
+      // compressor. What DOES cross one MTU here is a full screen redraw or a
+      // scrollback flush, and that is the most compressible traffic on this
+      // server: 1,927 B of redraw gzip to 41 B. See server/lib/ws-compression.ts.
       const sockets = sessionSockets.get(msg.id);
       if (sockets) {
+        const bytes = typeof msg.data === "string" ? msg.data.length : msg.data.byteLength;
         for (const ws of sockets) {
-          try { ws.send(msg.data); } catch { sockets.delete(ws); }
+          const compress = shouldCompressFrame({ type: null, bytes, remote: ws.data.remote === true });
+          try { ws.send(msg.data, compress); } catch { sockets.delete(ws); }
         }
       }
       break;
@@ -2777,7 +2787,12 @@ export function handleTerminalWebSocket(ws: any, sessionId: string) {
   // Claude Code session, just from the backlog being flushed.
   requestBuffer(sessionId).then((buffered) => {
     try {
-      if (buffered.byteLength > 0) ws.send(buffered);
+      // The scrollback is the single most compressible frame this server sends:
+      // it is a screen of repeated escape sequences, and it goes out once per
+      // focus of a terminal tab.
+      if (buffered.byteLength > 0) {
+        ws.send(buffered, shouldCompressFrame({ type: null, bytes: buffered.byteLength, remote: ws.data.remote === true }));
+      }
       // Always send the marker, even on empty backlog — the client uses
       // it as the gate to start broadcasting `terminal:activity` pulses.
       ws.send(JSON.stringify({ type: "replay-end" }));

@@ -146,10 +146,17 @@ Proven on the wire with a throwaway server wired exactly like `server.ts`: a
 36,503 B bootstrap frame goes out as **2,620 B toward a LAN peer** and stays at
 36,507 B toward loopback.
 
-Still not wired: the terminal and browser sockets have their own send paths and
-do not pass the flag, so they stay raw. The measurement says a PTY redraw would
-gain the most of anything on this server (1,927 B of full screen redraw gzips to
-41 B, 47x), so that is the next thread to pull.
+The terminal socket is wired too, and it is where the biggest single ratio on
+this server lives: 1,927 B of full screen redraw gzip to 41 B (47x). Its two
+sends that matter are the live PTY stream and the scrollback flush on focus; the
+size rule is what keeps every keystroke off the compressor, with no per socket
+exception.
+
+Still not wired: the browser socket. Its screencast frames must stay raw
+whatever happens (the rule already says so), and its other messages
+(`dom_event`, `console`, `nav`) are JSON that would follow the size rule. Left
+alone for now because the live view path is the one place where a wrong call
+costs frames rather than bytes.
 
 ## The gate that existed but never ran, and the red that was not a defect
 
