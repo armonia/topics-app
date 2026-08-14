@@ -1386,19 +1386,37 @@ function App() {
                 <ChevronDown size={14} className={`text-app-text-secondary transition-transform ${showTopicsMenu ? 'rotate-180' : ''}`} />
               </button>
             </div>
-            {/* ACCANTO A TOPICS, e non in coda alla riga con Cerca e «+»: quei
-                due sono comandi che CREANO o CERCANO, questo è uno stato — dice
-                quante cose sono successe mentre non guardavi. Sta a fianco
-                dell'identità della colonna perché è la prima cosa che si guarda
-                tornando all'app, prima di decidere cosa aprire. */}
+            {/* COL MOUSE STA ACCANTO A TOPICS, e non in coda alla riga con
+                Cerca e «+»: quei due sono comandi che CREANO o CERCANO, questo
+                è uno stato — dice quante cose sono successe mentre non
+                guardavi. Sta a fianco dell'identità della colonna perché è la
+                prima cosa che si guarda tornando all'app.
+                COL DITO NO: sul telefono la riga in alto ha «Topics» a sinistra
+                e la campanella a DESTRA (Attilio, 14/08), che è il lato dove il
+                telefono tiene lo stato in ogni app che si apre — e dove Cerca e
+                «+» non sono più, essendo scesi nella fila in fondo. Lo stesso
+                bottone, montato dall'altra parte: il pannello si àncora al
+                rettangolo del trigger e si tiene dentro lo schermo da sé. */}
+            {!isMobile && (
+              <div className="app-no-drag flex-shrink-0" {...NO_DRAG_REGION}>
+                <NotificationHistoryButton
+                  onWSMessage={onWSMessage}
+                  isMobile={isMobile}
+                  onOpenSettings={() => { setSettingsSection('notifications'); setShowSettings(true); }}
+                />
+              </div>
+            )}
+          </div>
+
+          {isMobile && (
             <div className="app-no-drag flex-shrink-0" {...NO_DRAG_REGION}>
               <NotificationHistoryButton
                 onWSMessage={onWSMessage}
-                isMobile={isMobile}
+                isMobile
                 onOpenSettings={() => { setSettingsSection('notifications'); setShowSettings(true); }}
               />
             </div>
-          </div>
+          )}
           {/* CERCA E «+», in coda alla riga del titolo.
               Hanno girato: erano qui, sono finiti in una barra in fondo alla
               colonna sul telefono (geometria giusta per il pollice, prezzo
@@ -1555,7 +1573,7 @@ function App() {
         )}
       </div>
 
-      {/* LE TRE PORTE DEL TELEFONO — cerca · aggiungi · board.
+      {/* LE QUATTRO PORTE DEL TELEFONO — cerca · aggiungi · task · profilo.
           Sta FUORI dalla colonna, non dentro: la fila deve restare sotto le
           dita anche col cassetto chiuso, altrimenti l'interruttore della board
           sarebbe di sola andata (aperta la board, il tasto per tornare alla
@@ -1577,6 +1595,10 @@ function App() {
         }
         boardInFront={boardInFront}
         onToggleBoard={handleMobileBoardToggle}
+        // La stessa stanza a cui portava la voce «account» del menu «Topics»,
+        // che adesso non c'è più: Impostazioni → Account e dispositivi. Il
+        // cassetto si chiude, come per ogni cosa che si apre da qui.
+        onOpenProfile={() => { setSettingsSection('devices'); setShowSettings(true); setShowTopicsMenu(false); }}
       />
 
       {/* Sidebar resize handle. The sidebar is position:fixed (FLIP push), so a
@@ -1785,7 +1807,6 @@ function App() {
           {isMobile && (
             <>
               <SidebarSystemMenu
-                onOpenAccount={() => { setSettingsSection('devices'); setShowSettings(true); setShowTopicsMenu(false); }}
                 onOpenChangelog={(versione) => { setShowTopicsMenu(false); setShowChangelogFromMenu(versione); }}
               />
               <div className="my-1 border-t border-app-border" />
