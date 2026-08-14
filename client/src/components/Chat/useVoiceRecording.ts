@@ -89,6 +89,15 @@ export function useVoiceRecording(
         // uploading it and sending a `[Voice message: …]` bubble for it.
         if (audioChunksRef.current.length === 0 || blob.size < MIN_VOICE_BLOB_BYTES) {
           console.warn(`[voice] discarded empty recording (${blob.size}B) — nothing sent`);
+          // E lo DICE. Questo ramo era muto, e su un telefono non c'è nessuna
+          // console dove leggere il `console.warn`: premevi, parlavi, mollavi, e
+          // non compariva niente. Indistinguibile da una app rotta, che è il
+          // motivo per cui la nota vocale "non funziona" senza una diagnosi.
+          // Il numero serve: dice se il microfono non ha aperto affatto (0
+          // spezzoni) o se ha prodotto solo l'intestazione del contenitore.
+          onErrorRef.current?.(
+            `Nota vocale vuota: ${audioChunksRef.current.length} spezzoni, ${blob.size} byte in ${mimeType}. Niente da inviare.`,
+          );
           audioChunksRef.current = [];
           recordingSessionKeyRef.current = null;
           resolve();
@@ -106,11 +115,17 @@ export function useVoiceRecording(
           // provava a leggerlo come testo. Il messaggio è quello che hai DETTO; il
           // marcatore col file resta in coda perché la bolla mantenga il suo
           // lettore audio (MessageContent lo riconosce e lo stacca dal testo).
+          // Il MOTIVO per cui la trascrizione è saltata non deve restare nella
+          // console: è l'unica riga che distingue "chiave scaduta" da "il file
+          // che ho registrato non si decodifica", e su un telefono nessuno la
+          // legge. Viene raccolto qui e mostrato insieme all'avviso.
+          let failure = '';
           const [upload, transcription] = await Promise.all([
             uploadApi.uploadFile(file),
             (await fetchSttCapabilities()).available
               ? transcribeAudio(blob, { filename: file.name }).catch((err: unknown) => {
                   console.error('[voice] transcription failed:', err);
+                  failure = err instanceof Error ? err.message : String(err);
                   return null;
                 })
               : Promise.resolve(null),
@@ -119,7 +134,7 @@ export function useVoiceRecording(
           const marker = `[Voice message: ${upload.path}]`;
           if (!spoken) {
             onErrorRef.current?.(
-              'Nota vocale inviata senza trascrizione: l\'agente riceve solo il file audio, che non può ascoltare.',
+              `Nota vocale inviata senza trascrizione: l'agente riceve solo il file audio, che non può ascoltare.${failure ? ` Motivo: ${failure}` : ''}`,
             );
           }
           // Deliver to the session the recording STARTED on, not whatever
