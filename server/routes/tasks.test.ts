@@ -891,6 +891,23 @@ describe("board router (human, project-scoped)", () => {
     }
   });
 
+  test("i due feed della board rimettono dentro lo step ORFANO, e solo quello", async () => {
+    // Padre vivo: la sua checklist NON è arretrato, e la colonna conta uno.
+    const vivo = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "padre vivo", status: "todo" }))!.json();
+    await (await call(router, "POST", "/api/boards/pX/tasks", { text: "step suo", parentTaskId: vivo.id, status: "todo" }))!.json();
+    // Padre chiuso con uno step rimasto aperto: il cancello `open_subtasks`
+    // impedisce di arrivarci dalla porta, ma lo stato esiste già sulle righe.
+    const chiuso = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "padre chiuso" }))!.json();
+    const orfano = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "step orfano", parentTaskId: chiuso.id, status: "todo" }))!.json();
+    db.run("UPDATE tasks SET status = 'done' WHERE id = ?", [chiuso.id]);
+
+    const board = await (await call(router, "GET", "/api/boards/pX/tasks?status=todo"))!.json();
+    expect(board.tasks.map((t: any) => t.id).sort()).toEqual([vivo.id, orfano.id].sort());
+
+    const globale = await (await call(router, "GET", "/api/all-boards/tasks?status=todo"))!.json();
+    expect(globale.tasks.map((t: any) => t.id).sort()).toEqual([vivo.id, orfano.id].sort());
+  });
+
   test("GET /api/all-boards/tasks/:taskId — un id ignoto è 200 + task:null, non un errore", async () => {
     const resp = (await call(router, "GET", "/api/all-boards/tasks/non-esiste"))!;
     expect(resp.status).toBe(200);

@@ -657,6 +657,7 @@ export type QueueReasonKind =
   | 'parent_turn'    // è uno step e l'agente del padre lo lavora nel suo turno
   | 'parent_idle'    // è uno step e il padre non è al lavoro: non lo lavora nessuno
   | 'heavy_hold'     // è PESANTE, aspetta margine, e intanto tiene ferma la coda
+  | 'heavy_busy'     // un ALTRO task pesante è al lavoro e si prende la macchina da solo
   | 'checklist_frozen' // in review senza domande aperte, ma con la checklist aperta: approvarla non la chiude
   | 'children_parked' // sta CHIEDENDO cosa fare dei suoi step fermi: il chip ne porta il numero
   | 'parked'         // in backlog: il dispatcher non guarda questa colonna
@@ -718,6 +719,21 @@ export interface QueueContext {
    * `in_progress` col tetto a 9, tutte con lo stesso chip «in coda» addosso.
    */
   heavyHeld?: boolean;
+  /**
+   * C'è un task PESANTE con un agente vivo ADESSO — su qualunque board.
+   *
+   * È l'ALTRO ramo del peso, e non è una sfumatura di `heavyHeld`: il tick esce
+   * prima del ciclo (`if (heavyBusy) { … return; }`) mettendo il chip `queued`
+   * su OGNI todo. Quindi vale anche per le card leggere, l'ordine della fila non
+   * lo legge nessuno, l'attesa non ha tetto (dura quanto quel turno) e la
+   * priorità non sblocca niente.
+   *
+   * Serve perché senza, quelle card cadevano sulla frase della fila — «in coda,
+   * 3 davanti» — che è la parola vaga da togliere: la sera del 12/08 tre card
+   * ferme per questo motivo, il motivo scritto nel THREAD di ognuna, e sulla
+   * card solo il chip generico.
+   */
+  heavyInFlight?: boolean;
   /** Quanti task idonei stanno DIETRO: quelli che il `break` sta fermando. */
   behind?: number;
   /** Lo stato del padre, per uno step. `null` = non è uno step, o padre sparito. */
@@ -1064,6 +1080,27 @@ export function deriveQueueReason(
         ? 'È un task PESANTE: parte da solo, quindi aspetta che la macchina abbia margine. Riparte da sé, non devi fare niente.'
         : `È un task PESANTE e tiene la testa della coda: ${dietro} task dietro di lui non partono finché non parte questo. ` +
           "Aspetta che la macchina abbia margine, e comunque parte entro il tetto d'attesa. Se ti serve prima la coda dietro, abbassagli la priorità.",
+    };
+  }
+
+  // L'ALTRO ramo del peso: non è questa card a tenere la coda, è un turno
+  // pesante altrui che si prende la macchina da solo. Viene dopo `heavyHeld`
+  // (i due si escludono: quello porta `&& !heavyInFlight()`) e prima della
+  // fila, perché la fila qui non la legge nessuno — il tick esce prima del
+  // ciclo, quindi «3 davanti» descriverebbe un ordine che nessuno applica.
+  //
+  // Le quattro cose che NON si possono dire, e che la frase del carico dice
+  // tutte: che questa card tiene la testa della coda (l'ordine è irrilevante),
+  // che aspetta margine (aspetta un turno, non il carico), che parte entro il
+  // tetto d'attesa (quel tetto conta il carico, non il turno altrui), che
+  // abbassarle la priorità sblocca qualcosa (non sblocca niente). Restano il
+  // fatto e la mossa: non c'è mossa, riparte da sé.
+  if (ctx.heavyInFlight) {
+    return {
+      kind: 'heavy_busy', tone: 'waiting', head: 'ferma',
+      detail: 'un pesante ha la macchina',
+      title: "C'è un task PESANTE al lavoro, e un pesante si prende la macchina da solo: finché non finisce quel turno non parte nessuno, "
+        + 'nemmeno le card leggere. Riparte da sé appena ha finito: non devi fare niente.',
     };
   }
 
