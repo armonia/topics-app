@@ -7,6 +7,17 @@
        cleartext by default, so allow local networking. This is loopback-only;
        no arbitrary cleartext is enabled. Merged into the bundle Info.plist by
        `tauri build`. -->
+  <!-- IL MICROFONO. Senza questa chiave macOS NEGA la richiesta e non mostra
+       nemmeno il pannello del permesso: `getUserMedia({audio:true})` fallisce
+       subito dentro la WKWebView, e chi ha premuto vede solo che «non va».
+       Misurato il 14/08 sull'app installata: nessuna chiave `Usage` nel suo
+       Info.plist, quindi la dettatura e la nota vocale non potevano funzionare
+       nel guscio desktop, in nessuna versione.
+       Il testo non e' burocrazia: e' la frase che macOS mostra nel pannello, e
+       una frase generica la' dentro e' il motivo per cui si nega un permesso. -->
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Per dettare un messaggio o registrare una nota vocale al posto di scriverla. L'audio viene trascritto e non viene conservato.</string>
+
   <key>NSAppTransportSecurity</key>
   <dict>
     <key>NSAllowsLocalNetworking</key>
