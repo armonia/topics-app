@@ -1,50 +1,52 @@
 /**
- * Il risultato di un tool viaggia DUE VOLTE nella stessa riga.
+ * A tool result travels TWICE inside the same row.
  *
- * `ToolCall.result` è il testo grezzo; `ToolCall.detail` è la versione tipata
- * costruita al confine del provider, e per i tool che restituiscono testo quel
- * testo ci finisce dentro tale e quale — `detail.output` per una shell,
- * `detail.content` per un Read, `detail.result` per un MCP. Il renderer legge
- * `detail` quando c'è ed è valido (`resolveToolDetail`,
- * client/src/components/Chat/toolDetail.ts:277) e `result` resta una copia che
- * nessuno guarda.
+ * `ToolCall.result` is the raw text; `ToolCall.detail` is the typed version
+ * built at the provider boundary, and for the tools that return text that text
+ * lands in there verbatim: `detail.output` for a shell, `detail.content` for a
+ * Read, `detail.result` for an MCP. The renderer reads `detail` when it is
+ * there and valid (`resolveToolDetail`,
+ * client/src/components/Chat/toolDetail.ts:277) and `result` stays a copy that
+ * nobody looks at.
  *
- * Misurato sul DB di questa macchina, topic:6b99e9cf: 8,20 MB di payload per
- * 118 messaggi, di cui 2,48 MB sono questo duplicato — il 30%. Su 891 tool call
- * con `detail` e `result` entrambi presenti (612 shell, 247 read, 30 mcp, 2
- * monitor) la copia è IDENTICA byte a byte in tutti i casi; le uniche divergenze
- * sono i `write`, dove `result` è la conferma della scrittura e non il file, e
- * infatti restano intatti.
+ * Measured on the DB of this machine, topic:6b99e9cf: 8.20 MB of payload for
+ * 118 messages, of which 2.48 MB is this duplicate, that is 30%. Across 891
+ * tool calls with both `detail` and `result` present (612 shell, 247 read, 30
+ * mcp, 2 monitor) the copy is IDENTICAL byte for byte in every case; the only
+ * divergences are the `write` calls, where `result` is the write confirmation
+ * and not the file, and those indeed stay intact.
  *
- * È lo stesso difetto già tolto un livello più su — `blocks` e `tool_calls` che
- * portavano la stessa cosa (server/routes/history.ts) — solo dentro alla
- * toolCall invece che accanto.
+ * It is the same defect already removed one level up, `blocks` and `tool_calls`
+ * carrying the same thing (server/routes/history.ts), only inside the toolCall
+ * instead of next to it.
  *
- * ## Perché è senza perdita
+ * ## Why it is lossless
  *
- * Non c'è una tabella «per il tipo X togli il campo Y»: si toglie `result` solo
- * quando dentro `detail` esiste una stringa UGUALE, byte per byte. Se l'uguale
- * non c'è, `result` resta. Quindi il testo non sparisce mai dal payload: o è
- * ancora lì, o è già nel campo che il renderer legge davvero.
+ * There is no table saying "for type X drop field Y": `result` is dropped only
+ * when a string EQUAL to it, byte for byte, exists inside `detail`. If the
+ * equal one is not there, `result` stays. So the text never disappears from the
+ * payload: either it is still there, or it is already in the field the renderer
+ * really reads.
  *
- * L'altra metà della garanzia è a monte: il server valida `detail` con lo stesso
- * schema Zod del client (`sanitizeToolCallDetail`, server/utils.ts:67) e lo
- * SCARTA se non passa. Un `detail` che arriva al client è quindi un `detail` che
- * il client accetterà — il ripiego `deriveToolDetail(name, args, result)` si
- * attiva solo quando `detail` manca, e in quel caso qui non si tocca niente.
+ * The other half of the guarantee is upstream: the server validates `detail`
+ * with the same Zod schema as the client (`sanitizeToolCallDetail`,
+ * server/utils.ts:67) and DISCARDS it if it does not pass. A `detail` that
+ * reaches the client is therefore a `detail` the client will accept. The
+ * fallback `deriveToolDetail(name, args, result)` only kicks in when `detail`
+ * is missing, and in that case nothing here is touched.
  */
 
-/** Quanto in profondità cerchiamo la copia dentro `detail`. */
+/** How deep we look for the copy inside `detail`. */
 const MAX_DEPTH = 2;
 
 /**
- * C'è, dentro `value`, una stringa identica a `needle`?
+ * Is there, inside `value`, a string identical to `needle`?
  *
- * Profondità limitata: le forme di `ToolCallDetail` mettono il testo o in un
- * campo di primo livello (`output`, `content`, `result`, `text`) o dentro `raw`
- * (il tipo `unknown`), cioè mai sotto il secondo livello. Il confronto fra
- * stringhe si ferma sulla lunghezza prima di leggere i byte, quindi scorrere i
- * campi costa quanto leggere le loro lunghezze.
+ * Bounded depth: the shapes of `ToolCallDetail` put the text either in a
+ * top-level field (`output`, `content`, `result`, `text`) or inside `raw` (the
+ * `unknown` one), that is, never below the second level. Comparing two strings
+ * stops at the length before reading any byte, so walking the fields costs as
+ * much as reading their lengths.
  */
 function containsSameString(value: unknown, needle: string, depth = 0): boolean {
   if (typeof value === 'string') return value === needle;
@@ -55,16 +57,16 @@ function containsSameString(value: unknown, needle: string, depth = 0): boolean 
   return false;
 }
 
-/** La forma minima che serve qui: non importiamo `ToolCall` per non legare shared/ a un tipo che cambia spesso. */
+/** The minimum shape needed here: we do not import `ToolCall`, so shared/ is not tied to a type that changes often. */
 type LeanableToolCall = { detail?: unknown; result?: unknown };
 
 /**
- * La stessa toolCall senza il `result` duplicato, o l'originale identico
- * (stesso riferimento) quando non c'è niente da togliere.
+ * The same toolCall without the duplicated `result`, or the identical original
+ * (same reference) when there is nothing to drop.
  *
- * Tornare lo stesso oggetto quando non si tocca niente non è un dettaglio: chi
- * chiama può copiare il messaggio solo se qualcosa è cambiato davvero, e le
- * sessioni senza tool non pagano una riallocazione per riga.
+ * Returning the same object when nothing is touched is not a detail: the caller
+ * can copy the message only if something really changed, and sessions with no
+ * tools do not pay a reallocation per row.
  */
 export function leanToolCall<T extends LeanableToolCall>(tc: T): T {
   if (!tc || typeof tc !== 'object') return tc;
@@ -72,13 +74,13 @@ export function leanToolCall<T extends LeanableToolCall>(tc: T): T {
   if (typeof result !== 'string' || result.length === 0) return tc;
   if (detail === null || typeof detail !== 'object') return tc;
   if (!containsSameString(detail, result)) return tc;
-  const { result: _duplicato, ...rest } = tc;
+  const { result: _dropped, ...rest } = tc;
   return rest as T;
 }
 
 /**
- * `leanToolCall` su ogni elemento, preservando il riferimento all'array quando
- * nessun elemento è cambiato.
+ * `leanToolCall` on every element, preserving the array reference when no
+ * element changed.
  */
 export function leanToolCalls<T extends LeanableToolCall>(calls: readonly T[]): readonly T[] {
   let changed = false;
@@ -90,10 +92,10 @@ export function leanToolCalls<T extends LeanableToolCall>(calls: readonly T[]): 
   return changed ? out : calls;
 }
 
-/** Un blocco della timeline che potrebbe portare una toolCall. */
+/** A timeline block that may carry a toolCall. */
 type LeanableBlock = { toolCall?: LeanableToolCall } & Record<string, unknown>;
 
-/** Il minimo di un messaggio che serve qui. */
+/** The minimum of a message needed here. */
 type LeanableMessage = {
   partial?: boolean;
   blocks?: readonly LeanableBlock[];
@@ -101,22 +103,22 @@ type LeanableMessage = {
 };
 
 /**
- * Un messaggio pronto per il filo: senza le DUE copie che il client non legge.
+ * A message ready for the wire: without the TWO copies the client does not read.
  *
- * 1. `toolCalls` accanto a `blocks`. Portano la stessa cosa e il renderer usa i
- *    blocchi — «When present and non-empty, [blocks] takes precedence over the
- *    legacy thinking/toolCalls/content bucket rendering»
+ * 1. `toolCalls` next to `blocks`. They carry the same thing and the renderer
+ *    uses the blocks: "When present and non-empty, [blocks] takes precedence
+ *    over the legacy thinking/toolCalls/content bucket rendering"
  *    (client/src/components/MessageContent.tsx).
- * 2. `result` dentro ogni `toolCall`, quando `detail` porta già quel testo.
+ * 2. `result` inside every `toolCall`, when `detail` already carries that text.
  *
- * Un messaggio PARZIALE esce intatto: è quello su cui lo streaming continua ad
- * applicare gli eventi dei tool (client/src/hooks/useChat.ts), e lì `toolCalls`
- * è ancora la lista che cresce e `result` il campo che si sta riempiendo.
+ * A PARTIAL message comes out intact: it is the one streaming keeps applying
+ * the tool events to (client/src/hooks/useChat.ts), and there `toolCalls` is
+ * still the list that grows and `result` the field being filled in.
  *
- * Vive qui, e non nel gestore di una rotta, perché le rotte che spediscono
- * messaggi sono più d'una: `/api/history/:key` la usa per la chat, e
- * `/api/topics/:id/messages` per gli agenti via MCP. Quando la sfoltita stava
- * dentro alla prima, la seconda spediva 12,5 MB dove la prima ne spediva 5,4.
+ * This lives here, and not in a route handler, because more than one route
+ * ships messages: `/api/history/:key` uses it for the chat, and
+ * `/api/topics/:id/messages` for the agents over MCP. When the trimming lived
+ * inside the first one, the second shipped 12.5 MB where the first shipped 5.4.
  */
 export function leanMessageForWire<T extends LeanableMessage>(m: T): T {
   if (!m || typeof m !== 'object' || m.partial) return m;
@@ -126,7 +128,7 @@ export function leanMessageForWire<T extends LeanableMessage>(m: T): T {
   return { ...m, blocks, ...(dropToolCalls ? { toolCalls: undefined } : {}) };
 }
 
-/** `leanMessageForWire` su una lista, preservando il riferimento se nulla cambia. */
+/** `leanMessageForWire` over a list, preserving the reference if nothing changes. */
 export function leanMessagesForWire<T extends LeanableMessage>(msgs: readonly T[]): readonly T[] {
   let changed = false;
   const out = msgs.map((m) => {
@@ -138,8 +140,8 @@ export function leanMessagesForWire<T extends LeanableMessage>(msgs: readonly T[
 }
 
 /**
- * `leanToolCall` sulle toolCall annidate nei blocchi di un messaggio.
- * Stessa regola sul riferimento: array e blocchi intatti se non c'è niente da togliere.
+ * `leanToolCall` on the toolCalls nested in the blocks of a message.
+ * Same rule about the reference: array and blocks left intact if there is nothing to drop.
  */
 export function leanBlocks<T extends LeanableBlock>(blocks: readonly T[]): readonly T[] {
   let changed = false;

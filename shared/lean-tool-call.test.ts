@@ -2,67 +2,67 @@ import { describe, expect, test } from 'bun:test';
 import { leanBlocks, leanToolCall, leanToolCalls } from './lean-tool-call';
 
 describe('leanToolCall', () => {
-  test('toglie result quando detail porta la stessa stringa (shell)', () => {
-    const tc = { id: 'a', name: 'Bash', result: 'ciao\nmondo', detail: { type: 'shell', command: 'echo', output: 'ciao\nmondo' } };
+  test('drops result when detail carries the same string (shell)', () => {
+    const tc = { id: 'a', name: 'Bash', result: 'hello\nworld', detail: { type: 'shell', command: 'echo', output: 'hello\nworld' } };
     const lean = leanToolCall(tc) as Record<string, unknown>;
     expect('result' in lean).toBe(false);
     expect(lean.detail).toEqual(tc.detail);
   });
 
-  test('toglie result anche quando la copia è in detail.content (read)', () => {
+  test('drops result when the copy sits in detail.content too (read)', () => {
     const tc = { id: 'a', name: 'Read', result: 'file body', detail: { type: 'read', filePath: '/x', content: 'file body' } };
     expect('result' in (leanToolCall(tc) as object)).toBe(false);
   });
 
-  test('trova la copia annidata un livello sotto (unknown.raw.result)', () => {
+  test('finds the copy nested one level down (unknown.raw.result)', () => {
     const tc = { id: 'a', name: 'X', result: 'out', detail: { type: 'unknown', raw: { result: 'out' } } };
     expect('result' in (leanToolCall(tc) as object)).toBe(false);
   });
 
-  test('TIENE result quando detail dice un altra cosa (write: conferma vs contenuto)', () => {
-    const tc = { id: 'a', name: 'Write', result: 'File created successfully at: /x', detail: { type: 'write', filePath: '/x', content: '# titolo' } };
+  test('KEEPS result when detail says something else (write: confirmation vs content)', () => {
+    const tc = { id: 'a', name: 'Write', result: 'File created successfully at: /x', detail: { type: 'write', filePath: '/x', content: '# title' } };
     expect(leanToolCall(tc)).toBe(tc);
   });
 
-  test('TIENE result quando la copia è solo un pezzo, non tutto', () => {
-    const tc = { id: 'a', name: 'Bash', result: 'riga1\nriga2', detail: { type: 'shell', command: 'x', output: 'riga1' } };
+  test('KEEPS result when the copy is only a piece, not the whole thing', () => {
+    const tc = { id: 'a', name: 'Bash', result: 'line1\nline2', detail: { type: 'shell', command: 'x', output: 'line1' } };
     expect(leanToolCall(tc)).toBe(tc);
   });
 
-  test('TIENE result quando detail manca — è il ripiego del renderer', () => {
+  test('KEEPS result when detail is missing: it is the fallback of the renderer', () => {
     const tc = { id: 'a', name: 'Bash', result: 'out' };
     expect(leanToolCall(tc)).toBe(tc);
   });
 
-  test('non cerca oltre il secondo livello: una copia troppo in fondo non autorizza il taglio', () => {
+  test('does not look past the second level: a copy too far down does not authorise the cut', () => {
     const tc = { id: 'a', name: 'X', result: 'out', detail: { type: 'unknown', raw: { nested: { deep: 'out' } } } };
     expect(leanToolCall(tc)).toBe(tc);
   });
 
-  test('result vuoto o non stringa non si tocca', () => {
-    const vuoto = { result: '', detail: { type: 'shell', output: '' } };
-    expect(leanToolCall(vuoto)).toBe(vuoto);
-    const nonStringa = { result: 42 as unknown as string, detail: { type: 'shell', output: 42 } };
-    expect(leanToolCall(nonStringa)).toBe(nonStringa);
+  test('an empty or non-string result is left alone', () => {
+    const empty = { result: '', detail: { type: 'shell', output: '' } };
+    expect(leanToolCall(empty)).toBe(empty);
+    const notAString = { result: 42 as unknown as string, detail: { type: 'shell', output: 42 } };
+    expect(leanToolCall(notAString)).toBe(notAString);
   });
 
-  test('stesso riferimento quando non c è niente da togliere', () => {
+  test('same reference when there is nothing to drop', () => {
     const tc = { id: 'a', name: 'Edit', result: 'ok', detail: { type: 'edit', filePath: '/x', unifiedDiff: '@@' } };
     expect(leanToolCall(tc)).toBe(tc);
   });
 });
 
 describe('leanToolCalls / leanBlocks', () => {
-  test('array intatto per riferimento quando nessun elemento cambia', () => {
+  test('array left intact by reference when no element changes', () => {
     const calls = [{ id: 'a', result: 'x' }, { id: 'b', detail: { type: 'todo', items: [] } }];
     expect(leanToolCalls(calls)).toBe(calls);
-    const blocks = [{ kind: 'text', text: 'ciao' }];
+    const blocks = [{ kind: 'text', text: 'hello' }];
     expect(leanBlocks(blocks)).toBe(blocks);
   });
 
-  test('blocchi: la toolCall annidata si alleggerisce, il resto del blocco resta', () => {
+  test('blocks: the nested toolCall gets trimmed, the rest of the block stays', () => {
     const blocks = [
-      { kind: 'text', text: 'ciao' },
+      { kind: 'text', text: 'hello' },
       { kind: 'tool', toolCall: { id: 'a', name: 'Bash', result: 'out', detail: { type: 'shell', command: 'c', output: 'out' } } },
     ];
     const lean = leanBlocks(blocks);
@@ -73,7 +73,7 @@ describe('leanToolCalls / leanBlocks', () => {
     expect((lean[1].toolCall as { detail: unknown }).detail).toEqual({ type: 'shell', command: 'c', output: 'out' });
   });
 
-  test('non muta l originale', () => {
+  test('does not mutate the original', () => {
     const tc = { id: 'a', name: 'Bash', result: 'out', detail: { type: 'shell', command: 'c', output: 'out' } };
     const blocks = [{ kind: 'tool', toolCall: tc }];
     leanBlocks(blocks);
