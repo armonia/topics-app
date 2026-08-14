@@ -28,8 +28,25 @@ import { describe, test, expect, beforeAll, beforeEach, afterEach, afterAll, moc
  * Il modulo VERO, fotografato PRIMA di sostituirlo: è l'unico modo di rimetterlo
  * a posto (vedi `afterAll`). La copia dev'essere PIATTA — la namespace ESM è
  * viva, e tenerne il riferimento vorrebbe dire rileggere i valori finti.
+ *
+ * I quattro nomi sono scritti a mano, non presi con uno spread della namespace, e
+ * NON è pignoleria: `{ ...(await import('./index')) }` rende quel modulo OPACO
+ * per knip, che da lì in poi conta ogni suo export come usato. Lo dice il
+ * cancello apposito (`bun run check:deadcode-blindspots`), che è diventato rosso
+ * la prima volta che l'ho scritto con lo spread. Destrutturare tiene il modulo
+ * visibile.
+ *
+ * Sono anche TUTTI: `shell/index.ts` esporta esattamente questi quattro valori a
+ * runtime (più il tipo `ShellKind`, che a runtime non esiste). Se un giorno ne
+ * spunta un quinto va aggiunto qui, altrimenti il ripristino lo lascerebbe
+ * `undefined` per i file che girano dopo.
  */
-let realIndex: Record<string, unknown>;
+let realIndex: {
+  isTauri: boolean;
+  isDesktop: boolean;
+  shellKind: 'tauri' | 'web';
+  detectShell: () => 'tauri' | 'web';
+};
 
 const PROXY = 'http://127.0.0.1:13333';
 
@@ -76,7 +93,8 @@ beforeAll(async () => {
   // import ESM sono binding vivi, quindi `serverHttpBase()` legge il valore
   // nuovo). Senza questo il ramo Tauri è irraggiungibile sotto `bun test`, dove
   // i global di Tauri non esistono e `shellKind` si fissa a 'web'.
-  realIndex = { ...(await import('./index')) };
+  const { isTauri, isDesktop, shellKind, detectShell } = await import('./index');
+  realIndex = { isTauri, isDesktop, shellKind, detectShell };
   mock.module('./index', () => ({
     ...realIndex,
     isTauri: true,
