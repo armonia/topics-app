@@ -23,6 +23,11 @@ import { projectRow } from "./helpers/project-row";
 import { expect, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, resetPaneStore, resetProjectPanes, seedProjectPane } from "./helpers/api-fixtures";
 import { mkdirSync, rmSync, writeFileSync } from "fs";
+// Il presidio della suite pretende che ogni spec si DICHIARI ermetica: senza
+// questa riga il file gira su dati che un'altra spec puo' cancellargli sotto.
+import { hermetic } from "./fixtures/hermetic";
+
+hermetic(test);
 
 const PROJECT_PATH = `/tmp/e2e-composer-dictation-${Date.now()}`;
 
