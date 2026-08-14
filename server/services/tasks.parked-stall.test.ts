@@ -99,6 +99,46 @@ const ultimoCommento = (s: TaskService, id: string) => {
   return c[c.length - 1]!.content;
 };
 
+describe("l'anello: rimettere in coda una seconda volta non si offre piu'", () => {
+  let db: Database; let s: TaskService;
+  beforeEach(() => { clock = 0; db = freshDb(); s = svc(db); });
+
+  /** La domanda con le sue due risposte, come la legge il client. */
+  const opzioni = (id: string) => {
+    const c = s.get(id)!.comments.filter((x) => x.kind !== "status");
+    const testo = c[c.length - 1]!.content;
+    return testo.split("\n").filter((r) => r.startsWith("- ")).map((r) => r.slice(2).trim());
+  };
+
+  test("la PRIMA volta offre di rimettere in coda", () => {
+    const { padre } = padreConFiglioParcheggiato(s);
+    s.deliverToReviewBySystem({ taskId: padre, reason: "turno finito" });
+    expect(opzioni(padre)).toEqual(["Rimetti in coda i sottotask", "Archivia i sottotask"]);
+  });
+
+  test("la SECONDA volta no: quella strada si e' gia' dimostrata circolare", () => {
+    // L'anello misurato: «rimetti in coda» porta i figli in `todo`, ma un figlio
+    // in `todo` conta fermo lo stesso (il tick lista `rootsOnly`), quindi la
+    // domanda torna identica e chi risponde ripreme lo stesso bottone. Offrire
+    // due volte un'uscita circolare non e' dare una scelta.
+    const { padre } = padreConFiglioParcheggiato(s);
+    s.deliverToReviewBySystem({ taskId: padre, reason: "turno finito" });
+    s.resolveParkedChildren({ taskId: padre, decision: "requeue", by: "attilio" });
+    s.addComment({ taskId: padre, author: "user", content: "Rimetti in coda i sottotask" });
+    // Il turno riparte e finisce di nuovo senza toccare gli step.
+    s.update({ taskId: padre, actor: "human", by: "attilio", patch: { status: "in_progress" } });
+    s.deliverToReviewBySystem({ taskId: padre, reason: "turno finito" });
+
+    const o = opzioni(padre);
+    expect(o).not.toContain("Rimetti in coda i sottotask");
+    expect(o).toContain("Archivia i sottotask");
+    expect(o).toContain("La prendo in mano io");
+    // E lo DICE, invece di ripetere la stessa frase come se fosse la prima volta.
+    const testo = s.get(padre)!.comments.filter((x) => x.kind !== "status").at(-1)!.content;
+    expect(testo).toContain("l'ha gia' fatto");
+  });
+});
+
 describe("un padre fermo solo su figli parcheggiati fa una DOMANDA", () => {
   let db: Database; let s: TaskService;
   beforeEach(() => { clock = 0; db = freshDb(); s = svc(db); });
