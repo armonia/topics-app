@@ -16,23 +16,23 @@
     "aggregation": "mediana delle 5 passate"
   },
   "measured": {
-    "_": "Misurato il 2026-08-14, macOS arm64, chromium headless di Playwright, banco e2e su porta dedicata. Quattro run pulite consecutive hanno dato lo stesso quadro: 0% di frame persi in tutte e quattro, buco peggiore fra 9,3 e 10,1 ms, zero long task. La cadenza a riposo di questo banco e' 8,3 ms (120 Hz), quindi c'e' molto margine prima dei 16,67 ms con cui si contano i frame persi: e' il motivo per cui il buco peggiore e i long task sono gate a se' e non un contorno.",
-    "dropped_pct": 0,
-    "worst_gap_ms": 9.8,
+    "_": "Misurato il 2026-08-14 su macOS arm64, chromium headless di Playwright, con il metro preso dalla CADENZA della macchina invece che dal numero 60 scritto a mano. Cinque corse consecutive, con load average fra 4,4 e 6,9: 20,7 / 23,4 / 24,4 / 23,4 / 23,4 per cento di frame persi. Il numero NON segue il carico, ed e' questo che dice che parla dell'app e non del portatile: su un display a 127 Hz lo scorrimento consegna circa un frame su quattro in ritardo, cioe' gira attorno ai 95-100 fps invece che a 127.",
+    "dropped_pct": 20,
+    "worst_gap_ms": 18,
     "longtask_ms": 0,
-    "median_gap_ms": 8.3,
+    "median_gap_ms": 8.8,
     "calibration_gap_ms": 8.3
   },
   "budget": {
     "_": "La soglia che fa uscire non-zero. Ogni numero ha accanto il perche' in `budget_why`, e sotto c'e' la misura con la lentezza INIETTATA che l'ha vista diventare rossa: una soglia mai vista fallire non e' una soglia.",
-    "dropped_pct": 2,
-    "worst_gap_ms": 33.4,
+    "dropped_pct": 30,
+    "worst_gap_ms": 30,
     "longtask_ms": 50
   },
   "budget_why": {
-    "dropped_pct": "2% di 180 frame sono ~4 frame in un secondo e mezzo di scorrimento: sotto quella quota lo scatto non si vede. Misurato oggi: 0%. Con 40 ms di blocco sintetico ogni 100 ms nel main thread la misura sale a 10%, e il cancello e' rosso.",
-    "worst_gap_ms": "Due frame a 60 Hz (33,4 ms). Un singolo buco piu' lungo di due frame e' uno strappo che si vede, e in percentuale su una passata lunga peserebbe pochissimo: va guardato da solo. Misurato oggi: fra 9,3 e 10,1 ms su quattro run, cioe' tre volte sotto la soglia. Con 40 ms iniettati: 34,2 ms; con 70 ms: 67,7 ms.",
-    "longtask_ms": "Un long task dura per definizione piu' di 50 ms, quindi questo budget lascia passare UNO al limite nella passata mediana e ne rifiuta due. Misurato oggi: 0 ms, zero long task su cinque passate, in tutte e quattro le run. Con 70 ms iniettati: 2380 ms."
+    "dropped_pct": "30, e non il 60 che il ricalcolo automatico proponeva. Il numero sta fra due misure vere, non fra due opinioni: il sano oggi e' 20,7-24,4 su cinque corse, e un rallentamento che RADDOPPIA il costo per frame (16 ms bruciati dentro ogni rAF) porta la misura a 53,3. Con 60 quel raddoppio sarebbe passato verde, cioe' il cancello sarebbe stato cieco proprio alla famiglia di difetti per cui esiste. Con 30 lo prende, e lascia fuori lo scarto fra corsa e corsa.",
+    "worst_gap_ms": "30. Il sano sta fra 18,2 e 19,5 ms; a +16 ms per frame sale a 25,9 e a +32 ms a 42,3. Trenta sta sopra il rumore e sotto il raddoppio.",
+    "longtask_ms": "50. Un long task e' per definizione un blocco sopra i 50 ms: qui il sano e' ZERO in tutte le corse, quindi il primo che compare e' gia' un fatto nuovo."
   },
   "guards": {
     "_": "Non sono soglie di qualita': sono le condizioni perche' la misura VOGLIA DIRE qualcosa. Fuori da qui il cancello esce 2 (non misurabile) invece di dare un rosso che parla della macchina e non del prodotto.",
@@ -57,15 +57,15 @@
       "multiplier": 2
     }
   },
-  "da_tarare": {
-    "perche": "Il metro dei frame persi era FISSO a 60 Hz mentre questa macchina consegna a 120: con quel metro un gap uniforme fino a 24,9 ms contava zero frame persi, quindi il budget del 2% era stato misurato su un contatore che per un rallentamento uniforme vale 0% o 50% e niente in mezzo. Adesso il metro e' la cadenza MISURATA, e il numero vero su questa superficie e' un altro.",
-    "misurato_col_metro_nuovo": {
-      "dropped_pct": "20,7 - 24,4 su tre corse",
-      "worst_gap_ms": "18,2 - 25,0",
-      "longtask_ms": 0,
-      "calibration_gap_ms": "8,30 - 8,35"
+  "sensibilita_misurata": {
+    "_": "Dove questo banco vede e dove NON vede, misurato iniettando lentezza UNIFORME dentro il rAF (ogni frame piu' caro, nessun buco: e' la firma di un layout sincrono per frame).",
+    "curva": {
+      "sano": "23,4%",
+      "+4ms": "23,7%",
+      "+8ms": "24,1%",
+      "+16ms": "53,3%",
+      "+32ms": "75,4%"
     },
-    "perche_non_l_ho_scritto": "Le tre corse sono state prese con load average fra 4,7 e 6,9 su questo Mac. La calibrazione a riposo passa (8,3 ms su pagina vuota), ma una pagina vuota non compete con quindici processi come fa uno scorrimento vero: con quel carico non posso separare «l'app scorre a 95 fps» da «la macchina era occupata», e un budget scritto adesso sarebbe un tetto gonfiato che disarma il cancello.",
-    "come_si_chiude": "A macchina ferma (load per core sotto 0,5): `bun run check:fluido -- --update-baseline`, e nel commit si scrive quale dei due numeri e' risultato vero. Solo dopo questo il cancello va agganciato a ci.yml: prima sarebbe rosso al primo giro e verrebbe disattivato."
+    "limite": "Sotto gli 8 ms di costo aggiunto per frame la misura non si muove: il frame budget e' 8,3 ms e c'e' abbastanza margine perche' quel costo ci stia dentro. Questo cancello prende il RADDOPPIO, non il rincaro del dieci per cento. Chi cerca il secondo ha bisogno di un'altra sonda, non di una soglia piu' stretta."
   }
 }

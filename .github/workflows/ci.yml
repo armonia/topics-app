@@ -233,6 +233,15 @@ jobs:
       - name: Route latency budget
         run: bun run check:rotte || test $? -eq 2
 
+      # I FRAME PERSI scorrendo il trascritto di una chat. Vuole il bundle e il
+      # banco e2e, come `check:rotte`, e come lui tollera l'uscita 2: quella
+      # dice «misura non utilizzabile» (la macchina non consegna frame nemmeno
+      # su una pagina vuota, o il banco non ha scorso niente), e un rosso preso
+      # su una misura che non vale e' il modo piu' rapido per far disattivare un
+      # cancello.
+      - name: Scroll fluidity budget
+        run: bun run check:fluido || test $? -eq 2
+
   # Runs the real E2E suite against the isolated server that globalSetup spawns
   # on :13334 (own SQLite DB under /tmp/topics-test-data) — no external
   # services or repo secrets needed: NO_TLS=1 and dummy GATEWAY_TOKEN/URL
