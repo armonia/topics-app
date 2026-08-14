@@ -118,14 +118,25 @@ at one state. A burst now costs two reads
 None of these numbers is a defect: they are the starting point for whoever wants
 to touch startup, and they exist so that nobody has to do it by feel.
 
-**`/api/topics` carries 977 topics, 967 of them ARCHIVED.** "Open" means
-not archived, so the sidebar draws ten of them and receives nine hundred and
-seventy more. Inside, the heaviest field is `systemPrompt`: **150 KB out of
-712**, populated on 663 topics, and only two surfaces read it, the chat's empty
-state and the settings window, always and only for the OPEN topic. Removing it
-from the list means giving those two a per-topic read: that is a behaviour
-change, not a slimming, which is why this page carries the number and not the
-patch.
+**`/api/topics` carries 977 topics, 967 of them ARCHIVED.** "Open" means not
+archived, so the sidebar draws ten of them and receives nine hundred and seventy
+more. Two things were checked before writing this down, and both raise the price
+of the obvious fix:
+
+· The route takes **no filter at all**: `GET /api/topics` returns the whole map
+  (server/routes/topics.ts:913). And the archived ones are not dead weight to
+  the client either, because the sidebar has a `showArchived` toggle that renders
+  them (`TopicTree.tsx:297`). Dropping them from the boot response means
+  building the on-demand fetch that toggle would then need.
+· The heaviest field is `systemPrompt`: **150 KB out of 712**, populated on 663
+  topics, and only two surfaces read it, the chat's empty state
+  (`ChatEmptyState.tsx:73`) and the settings window (`TopicSettingsModal.tsx`),
+  always and only for the OPEN topic. But there is **no `GET /api/topics/:id`**
+  to fall back on: the only per-topic verb is PATCH
+  (server/routes/topics.ts:1309). So that fix is not "stop sending a field", it
+  is "add a route and two call sites".
+
+Which is why this page carries the numbers and not the patch.
 
 **The WebSocket bootstrap carried 176.7 KB uncompressed** until 2026-08-14.
 `Bun.serve` has `perMessageDeflate` off by default, and turning it on is not
