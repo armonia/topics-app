@@ -18,7 +18,7 @@ import { RAISED_CONTROL, SIDEBAR_ACTIVE } from '@/lib/selectionStyles';
  * Premuto porta alla Kanban; premuto di nuovo torna alla LISTA — cioè alla
  * colonna dei topic, che sul telefono è a schermo intero ed è dove stanno le
  * tab aperte. Serve anche a una cosa che prima non si poteva fare affatto: «non
- * vedo la possibilità di aprire la Kanban, non vedo il tasto» (Attilio, da
+ * vedo la possibilità di aprire la Kanban, non vedo il tasto» (chi usa la app, da
  * PWA). Un link solo-andata avrebbe risposto a metà della frase.
  *
  * ── LA FILA SEGUE LA CURVA DELLO SCHERMO ───────────────────────────────────
@@ -221,7 +221,7 @@ export function MobileChromeBar({ onSearch, addSlot, boardInFront, onToggleBoard
  * `raised-control` + `edge-lit`, cioè la pelle che porta ogni comando
  * dell'app: campitura di un gradino sopra il fondo e il filo di luce in cima.
  * Nascevano piatti — colore solo sotto il dito — e un comando che si vede solo
- * mentre lo premi è un comando che non si trova (Attilio: «i tasti devono
+ * mentre lo premi è un comando che non si trova (chi usa la app: «i tasti devono
  * avere il design classico dei tasti, come il + che c'era»).
  *
  * ── E L'ANGOLO ESTERNO SEGUE L'ARCO DELLO SCHERMO ──────────────────────────

@@ -244,7 +244,7 @@ export interface PaneAddMenuProps extends Omit<PaneAddMenuItemsProps, 'onClose'>
  * Il «+» — quello della barra delle tab, della riga di progetto e della tessera
  * fissata. Un componente, un aspetto.
  *
- * DUE correzioni, entrambe segnalate da Attilio il 07/08 («il tasto di aggiunta
+ * DUE correzioni, entrambe segnalate da chi usa la app il 07/08 («il tasto di aggiunta
  * di una nuova tab sulla tab bar forse è un po' piccolo e, fra l'altro, potrebbe
  * essere uniformato in termini di colori a quello che abbiamo sulla sidebar»):
  *
@@ -254,7 +254,7 @@ export interface PaneAddMenuProps extends Omit<PaneAddMenuItemsProps, 'onClose'>
  *    su `--chrome-bg` (vedi index.css) e il bottone spariva del tutto nel fondo.
  *    Il primo tentativo è stato `RESTING_SURFACE`, un rialzo in alpha: giusto
  *    per una superficie, sbagliato per un COMANDO — «non dovrebbe essere
- *    trasparente il +» (Attilio, subito dopo). Ora è `RAISED_CONTROL`, opaco,
+ *    trasparente il +» (chi usa la app, subito dopo). Ora è `RAISED_CONTROL`, opaco,
  *    lo stesso del cerca e del tasto che riapre la colonna: tre gemelli, un
  *    trattamento.
  *  · LA MISURA. 24px in un binario dove ogni altro comando ora sta a
@@ -264,7 +264,7 @@ export interface PaneAddMenuProps extends Omit<PaneAddMenuItemsProps, 'onClose'>
 const TRIGGER_CLASS_PILL =
   // TESTO PIENO, in due giri. Era `-muted` (`#8a9099` in scuro), l'ho portato al
   // secondario (`#aab0ba`) e non bastava: «ancora il + della sidebar e ricerca
-  // li vedo grigi» (Attilio, 08/08). Ha ragione, e il motivo è che questi due
+  // li vedo grigi» (chi usa la app, 08/08). Ha ragione, e il motivo è che questi due
   // NON sono un gradino di gerarchia: sono i due comandi principali della
   // colonna, l'unica cosa che si preme lassù. Un gradino sotto il testo pieno
   // ha senso per una didascalia, non per il comando che apre tutto.
@@ -347,7 +347,7 @@ export function PaneAddMenu({
   // pill adesso è 36px sotto i 768px (ROW_ACTION_BOX), e un «+» da 14 al centro
   // di 36 sembra un errore di misura. L'esclusione della pill era corretta
   // finché la pill era 24 e un glifo da 18 l'avrebbe riempita fino al bordo.
-  // 16 e non 14, e il metro l'ha dato Attilio: «il +, confrontandolo con
+  // 16 e non 14, e il metro l'ha dato chi usa la app: «il +, confrontandolo con
   // quello di WhatsApp, mi sembra più piccolo». In una scatola da 28 un glifo
   // da 14 occupa metà larghezza e legge come mezzo comando; 16 la riempie
   // senza toccarne i bordi. Col dito la scatola è 36, quindi il glifo sale a 20.
