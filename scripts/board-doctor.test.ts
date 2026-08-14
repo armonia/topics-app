@@ -288,6 +288,7 @@ describe("land-drags-foreign-commits", () => {
     ownCount: 7,
     foreignHead: "cafe123",
     ownShas: ["aaa1111", "bbb2222", "ccc3333", "ddd4444", "eee5555", "fff6666", "9997777"],
+    deliveryInHistory: null,
     otherBranches: ["topics/gruppi-spazi-pulizia"],
   };
 
@@ -526,7 +527,8 @@ describe("documented-parameter-not-declared", () => {
 describe("delivery-commit-not-own", () => {
   const facts = (over: Partial<BranchFacts> = {}): BranchFacts => ({
     taskId: "t-1", branch: "topics/x", defaultBranch: "main", headSha: "head99",
-    aheadTotal: 8, ownCount: 0, foreignHead: "altrui1", ownShas: [], otherBranches: ["topics/y"], ...over,
+    aheadTotal: 8, ownCount: 0, foreignHead: "altrui1", ownShas: [], deliveryInHistory: false,
+    otherBranches: ["topics/y"], ...over,
   });
   const t = task({ id: "t-1", deliveryCommit: "altrui1abcdef" });
 
@@ -624,8 +626,8 @@ function everythingWrong(): DoctorInput {
       task({ id: "g", deliveryBranch: "topics/g", deliveryCommit: "nonmio1" }),
     ],
     branches: [
-      { taskId: "c", branch: "topics/x", defaultBranch: "main", headSha: "abc", aheadTotal: 5, ownCount: 1, foreignHead: "f00d", ownShas: ["own1"], otherBranches: ["topics/y"] },
-      { taskId: "g", branch: "topics/g", defaultBranch: "main", headSha: "ggg", aheadTotal: 3, ownCount: 0, foreignHead: "alt1", ownShas: [], otherBranches: ["topics/y"] },
+      { taskId: "c", branch: "topics/x", defaultBranch: "main", headSha: "abc", aheadTotal: 5, ownCount: 1, foreignHead: "f00d", ownShas: ["own1"], deliveryInHistory: null, otherBranches: ["topics/y"] },
+      { taskId: "g", branch: "topics/g", defaultBranch: "main", headSha: "ggg", aheadTotal: 3, ownCount: 0, foreignHead: "alt1", ownShas: [], deliveryInHistory: false, otherBranches: ["topics/y"] },
     ],
     documentedParams: [{ doc: "docs/board-protocol.md", tool: "update_task", param: "previewImage", declared: ["task_id", "preview_image"] }],
     missingProtocolDocs: ["docs/altro-protocollo.md"],
@@ -695,7 +697,7 @@ describe("disciplina", () => {
     // registro resta per card — sono dieci fatti — ma la STAMPA ne fa una.
     const facts = (id: string, foreignHead: string): BranchFacts => ({
       taskId: id, branch: `topics/${id}`, defaultBranch: "main", headSha: `h-${id}`,
-      aheadTotal: 9, ownCount: 1, foreignHead, ownShas: ["own1"], otherBranches: ["topics/altro"],
+      aheadTotal: 9, ownCount: 1, foreignHead, ownShas: ["own1"], deliveryInHistory: null, otherBranches: ["topics/altro"],
     });
     const same = runChecks(input({
       tasks: [task({ id: "a" }), task({ id: "b" }), task({ id: "c" })],
@@ -829,6 +831,36 @@ describe("branchFacts — la stessa domanda del land, su git vero", () => {
     const f = runChecks(input({ tasks: [t], branches: [facts!] }), only("delivery-commit-not-own"));
     expect(f).toHaveLength(1);
     expect(f[0]?.what).toContain("non e' fra i 1 commit");
+  });
+
+  it("la consegna ATTERRATA resta sua: dopo il merge il controllo tace", async () => {
+    // Il guasto del 2026-08-14: la card 8642c5df aveva committato, il commit
+    // era su main, e il doctor diceva «questa card non ha committato niente:
+    // il commit e' di qualcun altro». Il motivo e' che `ownShas` risponde a
+    // «cosa main non ha», e dopo il land la risposta e' «niente» — cioe' il
+    // controllo accusava di furto proprio le consegne riuscite. Senza il fatto
+    // `deliveryInHistory` questo test e' rosso.
+    const ptr = await deliveryPointer(repo, "topics/card");
+    g("checkout", "-q", "main");
+    g("merge", "-q", "--no-ff", "-m", "land della card", "topics/card");
+    try {
+      const facts = await branchFacts(repo, "t-1", "topics/card", "main", undefined, ptr!.commit);
+      expect(facts!.ownShas).toEqual([]);          // main ce l'ha: l'insieme si e' svuotato
+      expect(facts!.deliveryInHistory).toBe(true); // ma il commit e' nella storia del ramo
+      const t = task({ id: "t-1", status: "review", deliveryBranch: "topics/card", deliveryCommit: ptr!.commit });
+      expect(runChecks(input({ tasks: [t], branches: [facts!] }), only("delivery-commit-not-own"))).toHaveLength(0);
+    } finally {
+      g("reset", "-q", "--hard", "HEAD~1");
+    }
+  });
+
+  it("un commit di un'ALTRA linea non diventa suo per il fatto di stare su main", async () => {
+    // La negazione del caso sopra: `deliveryInHistory` dipende dalla storia DEL
+    // RAMO, non dall'essere raggiungibile da qualche parte.
+    const facts = await branchFacts(repo, "t-1", "topics/vuota", "main", undefined, shaM);
+    expect(facts!.deliveryInHistory).toBe(false);
+    const t = task({ id: "t-1", status: "review", deliveryBranch: "topics/vuota", deliveryCommit: shaM });
+    expect(runChecks(input({ tasks: [t], branches: [facts!] }), only("delivery-commit-not-own"))).toHaveLength(1);
   });
 
   it("un branch che si chiama come un file resta confrontabile (la grafia corta lo rendeva ambiguo)", async () => {
