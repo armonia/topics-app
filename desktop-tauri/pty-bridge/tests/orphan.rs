@@ -124,6 +124,50 @@ fn ponte_con_padre_morto_si_ritira_e_si_porta_via_il_socket() {
 }
 
 #[test]
+fn una_sonda_non_rinnova_la_licenza_dellorfano() {
+    // Come sopravvivevano davvero: ogni ponte che prova a nascere esegue
+    // check_existing_bridge(), che si connette qui e chiude in millisecondi. Il
+    // monitor contava QUALSIASI connessione come «il server si e riagganciato» e
+    // azzerava la scadenza, cosi bastava che qualcuno continuasse a spawnare per
+    // rendere l'orfano immortale (misurato sul gemello ai-bridge, 2026-08-14).
+    let sock = socket_path("probe");
+    let _ = std::fs::remove_file(&sock);
+    let mut bridge = Bridge::spawn(
+        &sock,
+        dead_pid(),
+        &[
+            ("TOPICS_PTY_BRIDGE_ORPHAN_GRACE_MS", "1000"),
+            // Una sonda vera dura ~1s (connect → ping → pong → close): la soglia
+            // sta sopra, cosi le sonde qui sotto non contano mai come server.
+            ("TOPICS_PTY_BRIDGE_REAL_CLIENT_MS", "3000"),
+        ],
+    );
+
+    wait_for_socket(&sock);
+    let probe_target = sock.clone();
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let stop_probe = stop.clone();
+    // Sonde SOVRAPPOSTE: ognuna tiene aperto un secondo, una nuova ogni 800ms. Il
+    // socket non e mai libero — la versione col buco non si armava nemmeno — ma
+    // nessuna connessione raggiunge i 3s, quindi nessuna e un server.
+    let prober = std::thread::spawn(move || {
+        let mut open: Vec<(UnixStream, Instant)> = Vec::new();
+        while !stop_probe.load(std::sync::atomic::Ordering::Relaxed) {
+            if let Ok(st) = UnixStream::connect(&probe_target) {
+                open.push((st, Instant::now()));
+            }
+            open.retain(|(_, since)| since.elapsed() < Duration::from_secs(1));
+            std::thread::sleep(Duration::from_millis(800));
+        }
+    });
+
+    let gone = until(Duration::from_secs(45), || bridge.exited());
+    stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    let _ = prober.join();
+    assert!(gone, "sonde transitorie non devono tenere in vita un orfano");
+}
+
+#[test]
 fn ponte_con_padre_vivo_resta_su() {
     let sock = socket_path("live");
     let _ = std::fs::remove_file(&sock);
