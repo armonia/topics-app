@@ -332,8 +332,12 @@ export function PaneAddMenu({
     // vicine. Non è una quarta pelle per gusto: quel bottone DEVE essere questo
     // componente — è lo stesso elenco di cose creabili del desktop — e deve
     // sembrare i suoi due fratelli, che non sono menu.
+    // La pelle è quella di sempre (`raised-control` + `edge-lit`): la fila
+    // nasceva piatta, e un comando che prende colore solo sotto il dito non si
+    // trova. Il raggio resta standard su tutti e quattro gli angoli perché
+    // questo tasto sta in MEZZO, dove l'arco dello schermo non arriva.
     triggerVariant === 'bar'
-      ? 'flex min-w-[64px] h-11 flex-col items-center justify-center gap-0.5 rounded-xl px-3 text-app-text transition-colors hover:bg-black/[0.05] dark:hover:bg-white/[0.05]'
+      ? `edge-lit flex min-w-[64px] h-11 flex-col items-center justify-center gap-0.5 rounded-xl px-3 ${RAISED_CONTROL} text-app-text transition-colors`
       : triggerVariant === 'header'
       ? `edge-lit ${isMobile ? 'h-11 w-11 justify-center' : 'h-7'} flex items-center gap-1.5 rounded-lg ${RAISED_CONTROL} text-app-text transition-colors flex-shrink-0`
       : triggerVariant === 'ghost'
