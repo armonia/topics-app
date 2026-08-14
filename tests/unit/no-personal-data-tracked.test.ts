@@ -232,6 +232,14 @@ describe("nessun dato personale in un file tracciato", () => {
     // Un elenco di debito che tiene dentro file già puliti smette di misurare
     // il debito e diventa un'allowlist permanente. Ogni voce deve essere ancora
     // colpevole; quando smette di esserlo, si toglie da lì.
+    //
+    // SENZA TERMINI non si misura niente, e «niente» qui vorrebbe dire «tutte
+    // le voci sono stantie»: su un runner, dove `filtraTermini` giustamente
+    // svuota la lista perché nessuna identità va protetta, questo test dichiarava
+    // stantie tutte e 127. È lo stesso motivo della guardia più su, applicato
+    // all'altro verso: senza un termine da cercare, «ancora colpevole» non è una
+    // domanda a cui si possa rispondere.
+    if (termini.length === 0) return;
     const ancoraColpevoli = new Set(colpevoli(files, termini));
     const stantie = DEBITO_NOME_PROPRIETARIO.filter((f) => !ancoraColpevoli.has(f));
     expect(stantie).toEqual([]);
