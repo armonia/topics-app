@@ -7,6 +7,7 @@ import { getProvider, getDefaultProvider, getDefaultProviderName, type AIProvide
 import { routesThroughGateway } from "./commandRouting";
 import { createAutoNameRouter } from "./autoname";
 import { createHistoryRouter } from "./history";
+import { leanMessagesForWire } from "../../shared/lean-tool-call";
 import { createEditRouter } from "./edit";
 import { createChatRouter } from "./chat";
 import { createPermissionRouter } from "./permission";
@@ -1890,7 +1891,13 @@ export function createTopicsRouter(
         const completeMsgs = localMsgs.filter(m => !m.partial || (m.content && m.content.trim()));
         const total = completeMsgs.length;
         const sliced = offset > 0 ? completeMsgs.slice(0, Math.max(0, total - offset)) : completeMsgs;
-        const result = sliced.slice(-limit);
+        // Stessa sfoltita di `/api/history/:key`: senza, questa rotta spediva
+        // 12,54 MB dove l'altra ne spediva 5,42 sulla stessa topic, perché qui
+        // viaggiavano ANCHE `toolCalls` accanto a `blocks` e il `result`
+        // duplicato dentro ognuna. La chiama `read_chat` degli agenti via MCP —
+        // che poi tiene 4.000 caratteri per messaggio e butta tutto il resto
+        // (server/mcp/topics-mcp-server.ts:1219). Vedi shared/lean-tool-call.ts.
+        const result = leanMessagesForWire(sliced.slice(-limit));
 
         return json({ messages: result, total, topicName: topic.name });
       }
