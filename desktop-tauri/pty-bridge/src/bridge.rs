@@ -32,7 +32,13 @@ use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, Pt
 use serde_json::{json, Value};
 
 const MAX_BUFFER_SIZE: usize = 100 * 1024; // 100 KB ring buffer per session
-const ORPHAN_GRACE: Duration = Duration::from_secs(90);
+const DEFAULT_ORPHAN_GRACE: Duration = Duration::from_secs(90);
+// Backstop for the bridges no parent check can retire: recycled pid, worktree
+// reaped from under us, a spawner that never comes back. Their signature is
+// always "no clients, no sessions, indefinitely". Much longer than ORPHAN_GRACE
+// because it fires on a LIVE parent too, and must never race a server that is
+// merely idle between turns.
+const DEFAULT_IDLE_EXIT: Duration = Duration::from_secs(30 * 60);
 
 // A trivially-exiting program used by the self-test and single-instance spawn-probe.
 // `/bin/sh -c :` is the most portable choice on unix — /bin/sh is guaranteed on
@@ -618,14 +624,26 @@ fn install_signal_handler(_shared: Arc<Shared>) {}
 // server reconnects within seconds. So once orphaned we only exit if NO server is
 // connected for a grace window (i.e. the app really quit). A connected client == a
 // server actively using us, so we stay alive and it reattaches to surviving PTYs.
+//
+// Orphanhood is decided on `--parent-pid` when the spawner passed one: it needs no
+// lucky timing and no cooperation from the runtime. The ppid heuristic below is the
+// fallback for a hand-started daemon, and `initial_ppid` is sampled by run() BEFORE
+// check_existing_bridge()/self_test() — a spawner that died during those seconds used
+// to make it read 1, which left the guard `initial_ppid != 1` false forever and the
+// monitor unable to ever arm. That is how the Node bridge accumulated 20 immortal
+// daemons (2026-08-14); the port carried the same hole.
 #[cfg(unix)]
-fn spawn_orphan_monitor(shared: Arc<Shared>) {
-    let initial_ppid = unsafe { libc::getppid() };
+fn spawn_orphan_monitor(shared: Arc<Shared>, initial_ppid: i32, parent_pid: Option<i32>) {
     thread::spawn(move || {
+        let grace = window_from_env("TOPICS_PTY_BRIDGE_ORPHAN_GRACE_MS", DEFAULT_ORPHAN_GRACE);
+        let tick = (grace / 2).clamp(Duration::from_millis(200), Duration::from_secs(5));
         let mut deadline: Option<Instant> = None;
         loop {
-            thread::sleep(Duration::from_secs(5));
-            let orphaned = unsafe { libc::getppid() } == 1 && initial_ppid != 1;
+            thread::sleep(tick);
+            let orphaned = match parent_pid {
+                Some(pid) => !pid_alive(pid),
+                None => (unsafe { libc::getppid() }) == 1 && initial_ppid != 1,
+            };
             if !orphaned {
                 deadline = None;
                 continue;
@@ -638,10 +656,11 @@ fn spawn_orphan_monitor(shared: Arc<Shared>) {
             }
             match deadline {
                 None => {
-                    deadline = Some(Instant::now() + ORPHAN_GRACE);
+                    deadline = Some(Instant::now() + grace);
+                    let was = parent_pid.unwrap_or(initial_ppid);
                     eprintln!(
-                        "[PTY Bridge] Parent died (was {initial_ppid}) and no server connected — will exit in {}s unless one reconnects.",
-                        ORPHAN_GRACE.as_secs()
+                        "[PTY Bridge] Parent died (was {was}) and no server connected — will exit in {}s unless one reconnects.",
+                        grace.as_secs()
                     );
                 }
                 Some(d) => {
@@ -655,7 +674,33 @@ fn spawn_orphan_monitor(shared: Arc<Shared>) {
     });
 }
 #[cfg(not(unix))]
-fn spawn_orphan_monitor(_shared: Arc<Shared>) {}
+fn spawn_orphan_monitor(_shared: Arc<Shared>, _initial_ppid: i32, _parent_pid: Option<i32>) {}
+
+// The rope under the parent check: no clients AND no sessions for IDLE_EXIT means
+// nobody is coming back for us. A single live PTY holds us up regardless — that is
+// the whole reason this daemon is detached.
+fn spawn_idle_monitor(shared: Arc<Shared>) {
+    thread::spawn(move || {
+        let idle_exit = window_from_env("TOPICS_PTY_BRIDGE_IDLE_EXIT_MS", DEFAULT_IDLE_EXIT);
+        let tick = (idle_exit / 2).clamp(Duration::from_millis(500), Duration::from_secs(60));
+        let mut idle_since = Instant::now();
+        loop {
+            thread::sleep(tick);
+            let busy = !shared.clients.lock_ok().is_empty() || !shared.sessions.lock_ok().is_empty();
+            if busy {
+                idle_since = Instant::now();
+                continue;
+            }
+            if idle_since.elapsed() >= idle_exit {
+                eprintln!(
+                    "[PTY Bridge] Idle {}s with no clients and no sessions — shutting down.",
+                    idle_exit.as_secs()
+                );
+                shutdown(&shared);
+            }
+        }
+    });
+}
 
 fn socket_from_args() -> PathBuf {
     let args: Vec<String> = std::env::args().collect();
@@ -668,7 +713,36 @@ fn socket_from_args() -> PathBuf {
     PathBuf::from("/tmp/topics-pty-bridge.sock")
 }
 
+/// Env seam for the two retirement windows, so they can be exercised without sitting
+/// through 90s / 30min. Production never sets these; the same names work on the Node
+/// bridge, and a check written against one reads the same on the other.
+fn window_from_env(key: &str, default: Duration) -> Duration {
+    std::env::var(key)
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .filter(|ms| *ms > 0)
+        .map(Duration::from_millis)
+        .unwrap_or(default)
+}
+
+/// Who spawned us, as told by the spawner (server/routes/terminal.ts). Absent for a
+/// hand-started daemon, and then the orphan monitor falls back to the ppid heuristic.
+fn parent_pid_from_args() -> Option<i32> {
+    let args: Vec<String> = std::env::args().collect();
+    let i = args.iter().position(|a| a == "--parent-pid")?;
+    args.get(i + 1)?.parse::<i32>().ok().filter(|p| *p > 0)
+}
+
 pub fn run() {
+    // BEFORE check_existing_bridge()/self_test(): both can take seconds, and a
+    // spawner that dies inside that window would otherwise make this read 1 and
+    // permanently disarm the orphan monitor's fallback heuristic.
+    #[cfg(unix)]
+    let initial_ppid = unsafe { libc::getppid() };
+    #[cfg(not(unix))]
+    let initial_ppid = 0;
+    let parent_pid = parent_pid_from_args();
+
     let socket_path = socket_from_args();
     let pid_path = socket_path.with_extension("pid");
 
@@ -704,7 +778,8 @@ pub fn run() {
     });
 
     install_signal_handler(shared.clone());
-    spawn_orphan_monitor(shared.clone());
+    spawn_orphan_monitor(shared.clone(), initial_ppid, parent_pid);
+    spawn_idle_monitor(shared.clone());
 
     let mut next_cid: u64 = 0;
     for stream in listener.incoming() {

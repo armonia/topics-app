@@ -633,7 +633,11 @@ export async function ensureBridge(): Promise<void> {
     // never sees EOF and hangs until killed. A file fd is ours to close the
     // moment the child has it.
     const logFd = openBridgeLog();
-    const child = spawn(cmd, [...baseArgs, "--socket", SOCKET_PATH], {
+    // `--parent-pid` is how the bridge decides it has been abandoned. Without it
+    // it can only guess from its own ppid, and a server that dies while the
+    // bridge is still booting used to leave it immortal (see the orphan monitor
+    // in pty-bridge.mjs). An older bundled bridge ignores the extra flag.
+    const child = spawn(cmd, [...baseArgs, "--socket", SOCKET_PATH, "--parent-pid", String(process.pid)], {
       detached: true,
       stdio: ['ignore', 'ignore', logFd ?? 'ignore'],
       env: { ...process.env, PATH: augmentPath() },
