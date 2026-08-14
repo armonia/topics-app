@@ -184,6 +184,26 @@ export function taskChoices(
 }
 
 /**
+ * IL COMMENTO CHE «RIMANDA INDIETRO» PORTA CON SÉ.
+ *
+ * La regola sta qui, pura e provata, perché il posto dove si sbaglia è il call
+ * site: `boardApi.review(projectId, id, 'reject')` e `review(projectId, id,
+ * 'reject', testo)` sono la stessa riga a meno di un argomento, e per mesi la
+ * prima è stata quella dei bottoni grandi. Chi scriveva l'indicazione e poi
+ * premeva «Rimanda indietro» la vedeva restare nella casella mentre l'agente
+ * ripartiva senza.
+ *
+ * Due casi, e il secondo non è pedanteria: una casella con dentro solo spazi
+ * NON è un'indicazione, e mandarla come commento scriverebbe nel thread una
+ * riga vuota firmata dall'umano. Vuoto (o soli spazi) = reject nudo, che è la
+ * stessa decisione detta senza aggiungere niente.
+ */
+export function sendBackComment(pending?: string | null): string | undefined {
+  const text = pending?.trim();
+  return text ? text : undefined;
+}
+
+/**
  * Two labels are the same door.
  *
  * `normalizeActionLabel` is the SERVER's own comparison (`shared/board.ts`): it
