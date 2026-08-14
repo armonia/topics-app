@@ -53,6 +53,7 @@
     "probe:stalls": "bun run scripts/stalled-parents.ts",
     "check:occlusion": "node scripts/check-occlusion.mjs",
     "check:bundle": "bun run scripts/check-bundle-size.ts",
+    "check:ink": "bun run scripts/check-ink-latency.ts",
     "check:lockfile": "bun install --frozen-lockfile && cd client && bun install --frozen-lockfile && cd ../landing && bun install --frozen-lockfile",
     "report:disk": "bun run scripts/disk-report.ts",
     "report:branches": "bun run scripts/branch-audit.ts",

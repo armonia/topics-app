@@ -12,6 +12,12 @@ import { E2E_BASE } from "./tests/e2e/helpers/test-server";
 const IS_PR = process.env.E2E_TIER === "pr";
 const NIGHTLY_ONLY_SPECS = [
   "performance",
+  // Misura click → inchiostro sui tre gesti più frequenti e scrive il JSON che
+  // `scripts/check-ink-latency.ts` giudica. Il CANCELLO è quello script, non
+  // questa spec (che non asserisce nessuna soglia): sul gate PR pagherebbe ~40s
+  // per riprovare tre flussi che altre spec già coprono. Nel notturno gira, così
+  // l'attrezzo resta vivo e i numeri del giorno restano registrati.
+  "ink-latency",
   "browser-ws-streaming",
   "chat-scroll",
   "browser-agent-control",
