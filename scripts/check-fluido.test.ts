@@ -66,7 +66,11 @@ describe("giudica", () => {
   // Le tre metriche una per volta: nessuna deve poter essere coperta da un'altra.
   // Se una di queste passasse in verde, quella metrica sarebbe decorazione.
   it("va rossa sui frame persi", () => {
-    const e = giudica(con({ median: { dropped_pct: 10 } }), BASELINE);
+    // Il valore si DERIVA dal budget invece di essere cablato: una taratura
+    // nuova non deve rompere un test che parla di un'altra cosa. E' successo il
+    // 14/08, quando il budget e' passato da 2 a 30 e questi due sono diventati
+    // rossi senza che nessuna regressione fosse entrata.
+    const e = giudica(con({ median: { dropped_pct: BASELINE.budget.dropped_pct + 1 } }), BASELINE);
     expect(e.uscita).toBe(1);
     expect(e.sforati).toHaveLength(1);
     expect(e.sforati[0]).toContain("dropped_pct");
@@ -87,8 +91,9 @@ describe("giudica", () => {
   });
 
   it("il valore esattamente uguale al budget passa, quello appena sopra no", () => {
-    expect(giudica(con({ median: { worst_gap_ms: 33.4 } }), BASELINE).uscita).toBe(0);
-    expect(giudica(con({ median: { worst_gap_ms: 33.5 } }), BASELINE).uscita).toBe(1);
+    const tetto = BASELINE.budget.worst_gap_ms;
+    expect(giudica(con({ median: { worst_gap_ms: tetto } }), BASELINE).uscita).toBe(0);
+    expect(giudica(con({ median: { worst_gap_ms: tetto + 0.1 } }), BASELINE).uscita).toBe(1);
   });
 
   describe("misura non utilizzabile (uscita 2, non 1)", () => {
