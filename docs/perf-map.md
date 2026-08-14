@@ -11,7 +11,8 @@ there is none.
 > `board-reopened-chip`, `chat-fast-mode`. Verified on a clean worktree at
 > `71c52934`, same list, same failures, so they were already there. Three are
 > copy text that no longer matches, one is geometric, three wait for an element
-> that never appears.
+> that never appears. Re-run after every change on this page: the same 234
+> passed and the same 7 failed, so nothing here added a red.
 
 The rule that governs everything else: **an adjective cannot fail.** "Fluid",
 "fast", "light" never finish, because there is nothing that can say no to them.
