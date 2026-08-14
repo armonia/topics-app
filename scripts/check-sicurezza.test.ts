@@ -3,6 +3,7 @@ import { spawnSync } from "child_process";
 import { mkdtempSync, mkdirSync, writeFileSync, appendFileSync, readFileSync, copyFileSync, existsSync, rmSync } from "fs";
 import { tmpdir, homedir, userInfo } from "os";
 import { join, resolve } from "path";
+import { filtraTermini } from "../tests/unit/no-personal-data-tracked.test";
 
 /**
  * Il banco che falsifica `check:sicurezza`, un pezzo alla volta.
@@ -242,6 +243,26 @@ describe("check:sicurezza - i pezzi che vogliono l'albero vero", () => {
       // Su una macchina senza identita' il caso non e' costruibile: lo dice
       // invece di passare in silenzio, che sarebbe un verde non guadagnato.
       throw new Error("nessuna fonte da' un termine personale di almeno 4 caratteri: il caso non e' costruibile");
+    }
+    // Il termine c'e', ma il cancello lo IGNORA: e' un account di servizio.
+    //
+    // Le tre fonti qui sopra sono quelle del cancello, ma non passavano dal suo
+    // filtro, e su un runner GitHub le due cose divergono: `userInfo().username`
+    // da' «runner», che ha sei caratteri e supera la soglia, mentre
+    // `filtraTermini` lo toglie perche' non e' il nome di nessuno. Il test
+    // piantava quindi nel README un termine che il cancello ha l'ordine di non
+    // cercare, e pretendeva che diventasse rosso: rosso in CI, per costruzione.
+    //
+    // Qui non si esce in silenzio e non si throwa: si distinguono i due casi.
+    // Nessun termine affatto = la derivazione e' rotta, ed e' un guasto (sopra).
+    // Termine presente ma di servizio = su questa macchina non c'e' nessuna
+    // identita' da proteggere, quindi il caso da falsificare non ESISTE. Il
+    // pezzo `dati` e' locale per natura — in ci.yml gira `--only=segreti,
+    // dipendenze` per questa identica ragione — e la sua falsificazione vive
+    // dove vive lui.
+    if (filtraTermini([termine]).length === 0) {
+      console.log(`[check-sicurezza.test] PEZZO dati: saltato, «${termine}» e' un account di servizio e il cancello lo ignora per progetto.`);
+      return;
     }
     appendFileSync(join(copia, "README.md"), `\n<!-- deciso da ${termine} -->\n`);
     const { code, out } = esegui(copia, "--only=dati");
