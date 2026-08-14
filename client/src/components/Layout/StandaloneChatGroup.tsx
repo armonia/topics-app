@@ -83,7 +83,7 @@ interface StandaloneChatGroupProps {
    * delle superfici aperte: chat, terminali, browser, board, progetti. Una
    * seconda copia di quell'elenco in cima allo schermo non aggiunge una
    * destinazione, ripete quelle che ci sono già e si porta via 46px di altezza
-   * su un'area di lettura alta 844 (Attilio, dalla PWA: «da mobile la barra
+   * su un'area di lettura alta 844 (chi usa la app, dalla PWA: «da mobile la barra
    * delle tab in alto non serve, c'è già la lista delle tab»).
    *
    * Resta la RIGA, non la striscia: il nome della superficie che hai davanti
