@@ -3,6 +3,7 @@ import { join } from "path";
 import type { AppContext, RouteHandler, StoredMessage } from "../types";
 import type { AIProvider } from "../providers";
 import { getCompactionMarkersBySession } from "../db/compaction-markers";
+import { leanMessagesForWire } from "../../shared/lean-tool-call";
 import { isTurnStillLive, shouldConsultBroker, type BrokerTurnState } from "./historyCleanupPolicy";
 
 export interface HistoryDeps {
@@ -136,21 +137,15 @@ export function createHistoryRouter(ctx: AppContext, deps: HistoryDeps): RouteHa
 
       const lastMsg = completeMsgs[completeMsgs.length - 1];
       const hasOrphanedMessage = lastMsg?.role === 'user';
-      // `blocks` e `tool_calls` portano la STESSA cosa, e il client renderizza solo
-      // i blocchi: «When present and non-empty, [blocks] takes precedence over the
-      // legacy thinking/toolCalls/content bucket rendering» (MessageContent.tsx:967).
-      // Spedirli entrambi significa mandare in chiaro un duplicato che verrà
-      // scartato: su una topic di lavoro lunga sono 11,86 MB di cui il 55% inutile,
-      // più il tempo di `stringify` per produrlo. Su una PWA in LAN sono secondi di
-      // schermo vuoto.
-      //
-      // Solo dai messaggi COMPLETI: il parziale è quello su cui il percorso di
-      // streaming continua ad applicare i tool event (useChat.ts:726), e lì
-      // `toolCalls` è ancora la lista che cresce. Il fallback per i messaggi
-      // legacy senza `blocks` resta intatto.
-      const lean = result.map((m) =>
-        m.partial || !m.blocks?.length || !m.toolCalls?.length ? m : { ...m, toolCalls: undefined },
-      );
+      // Via le copie che il client non legge: `toolCalls` accanto a `blocks`, e
+      // `result` dentro una toolCall che ha già quel testo in `detail`. Su una
+      // topic di lavoro lunga (118 messaggi, misurata il 2026-08-14) sono
+      // 8,20 MB → 5,42 MB, e su una PWA in LAN quella differenza è schermo
+      // vuoto. La regola sta in `shared/lean-tool-call.ts` — con il perché di
+      // ognuna delle due, e la ragione per cui i parziali si lasciano stare —
+      // perché anche `/api/topics/:id/messages` deve applicarla.
+      // Cancello: tests/integration/history-payload-weight.test.ts.
+      const lean = leanMessagesForWire(result);
       // Compaction dividers (CHAT-COMPACT-01) — display-only, folded into the
       // timeline client-side by `afterMessageId`. Cheap query; empty for the
       // vast majority of sessions.
