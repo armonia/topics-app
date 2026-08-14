@@ -224,6 +224,15 @@ jobs:
       - name: Bundle size budget
         run: bun run check:bundle
 
+      # Le LATENZE delle rotte calde, contro una baseline dichiarata: stesso
+      # mestiere di `check:bundle`, altro asse. Gira dopo la suite perche' vuole
+      # un server suo (banda 15200-15299, DB in /tmp buttato via alla fine) e
+      # perche' su una macchina occupata la misura non vale: se il runner e'
+      # carico il banco esce 2 («non misurabile») invece di inventare un rosso,
+      # e un 2 qui non ferma la pipeline.
+      - name: Route latency budget
+        run: bun run check:rotte || test $? -eq 2
+
   # Runs the real E2E suite against the isolated server that globalSetup spawns
   # on :13334 (own SQLite DB under /tmp/topics-test-data) — no external
   # services or repo secrets needed: NO_TLS=1 and dummy GATEWAY_TOKEN/URL
