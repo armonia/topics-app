@@ -222,25 +222,24 @@ export function createAppContext(baseDir: string): AppContext {
     // Messages
     getMessages: db.prepare(`SELECT * FROM messages WHERE session_key = ? ORDER BY sort_order ASC`),
     /**
-     * Come `getMessages`, ma senza le DUE colonne grasse — `blocks` e
-     * `tool_calls`.
+     * Like `getMessages`, minus the TWO fat columns: `blocks` and `tool_calls`.
      *
-     * Serve all'assemblaggio del contesto, che gira a OGNI turno di ogni agente
-     * e del thread legge solo role/content/partial/id (lo dice il commento in
-     * `server/context/assemble.ts`, sopra la chiamata). Quelle due colonne sono
-     * il 98% della tabella: 353 MB e 220 MB contro 13 MB di testo dei messaggi,
-     * sul DB di questa macchina al 2026-08-14.
+     * It exists for context assembly, which runs on EVERY turn of every agent
+     * and reads only role/content/partial/id off the thread (the comment above
+     * the call in `server/context/assemble.ts` says so). Those two columns are
+     * 98% of the table: 353 MB and 220 MB against 13 MB of message text, on this
+     * machine's database as of 2026-08-14.
      *
-     * Misurato su una copia di quel DB, topic 6b99e9cf, 118 righe (4,11 MB di
-     * `tool_calls` e 7,17 di `blocks`), mediana di 7 corse:
+     * Measured on a copy of that database, topic 6b99e9cf, 118 rows (4.11 MB of
+     * `tool_calls` and 7.17 MB of `blocks`), median of 7 runs:
      *
-     *   SELECT *                                    6,1 ms
-     *   SELECT * + JSON.parse dei tool_calls       14,5 ms   ← quello che si pagava
-     *   SELECT senza blocks/tool_calls              0,5 ms
+     *   SELECT *                                 6.1 ms
+     *   SELECT * plus JSON.parse of tool_calls  14.5 ms   <- what was being paid
+     *   SELECT without blocks/tool_calls         0.5 ms
      *
-     * `withBlocks: false` da solo saltava il parse di `blocks` ma non quello di
-     * `tool_calls`, cioe' la meta' del costo — e comunque i byte di entrambe
-     * arrivavano da SQLite. Qui non arrivano proprio.
+     * `withBlocks: false` on its own skipped the parse of `blocks` but not the
+     * one of `tool_calls`, so half the cost stayed, and the bytes of both came
+     * over from SQLite regardless. Here they never leave the table.
      */
     getMessagesLean: db.prepare(
       `SELECT id, session_key, role, content, thinking, media, partial, streamed_at,
@@ -990,9 +989,9 @@ export function createAppContext(baseDir: string): AppContext {
    * Returns a linear thread representing the currently active conversation path.
    */
   function loadActiveThread(sessionKey: string, opts?: ThreadLoadOpts): StoredMessage[] {
-    // Get all messages for this session. Chi ha detto di non volere ne' i
-    // blocchi ne' le tool call legge la versione magra: quelle due colonne non
-    // vengono proprio chieste a SQLite, invece di arrivare per essere buttate.
+    // Get all messages for this session. A caller that wants neither the blocks
+    // nor the tool calls gets the lean read: those two columns are never asked
+    // of SQLite at all, instead of arriving only to be thrown away.
     const magro = opts?.withBlocks === false && opts?.withToolCalls === false;
     const allRows = (magro ? stmts.getMessagesLean : stmts.getMessages).all(sessionKey) as any[];
     if (allRows.length === 0) return [];
@@ -1071,18 +1070,18 @@ export function createAppContext(baseDir: string): AppContext {
   }
 
   /**
-   * `opts.withBlocks: false` carica il ramo attivo SENZA idratare la timeline
-   * `blocks` — un `JSON.parse` di ~1,3 MB per messaggio agentico, buttato via
-   * dai consumatori che leggono solo role/content/partial/id (assemblaggio del
-   * contesto, ultima frase dell'agente). Default `true`: chi renderizza la chat
-   * ha bisogno dei blocchi.
+   * `opts.withBlocks: false` loads the active branch WITHOUT hydrating the
+   * `blocks` timeline: a `JSON.parse` of roughly 1.3 MB per agentic message,
+   * thrown away by consumers that read only role/content/partial/id (context
+   * assembly, the agent's last sentence). Defaults to `true`, because whoever
+   * renders the chat does need the blocks.
    *
-   * `opts.withToolCalls: false` fa lo stesso per `tool_calls`, ed e' la meta'
-   * che mancava: chi non legge i blocchi quasi mai legge le tool call, ma le
-   * pagava lo stesso — sul topic piu' pesante di questa macchina sono 4,11 MB
-   * di JSON parsato e buttato a ogni turno. Con ENTRAMBE a `false` le due
-   * colonne non vengono nemmeno chieste a SQLite (`getMessagesLean`): 14,5 ms
-   * diventano 0,5.
+   * `opts.withToolCalls: false` does the same for `tool_calls`, and it is the
+   * half that was missing: a caller that skips the blocks almost never reads the
+   * tool calls, yet paid for them anyway. On the heaviest topic of this machine
+   * that is 4.11 MB of JSON parsed and discarded on every turn. With BOTH set to
+   * `false` the two columns are not even requested from SQLite
+   * (`getMessagesLean`), and 14.5 ms become 0.5.
    */
   function loadLocalMessages(sessionKey: string, opts?: ThreadLoadOpts): StoredMessage[] {
     return loadActiveThread(sessionKey, opts);

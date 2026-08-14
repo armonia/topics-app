@@ -1891,12 +1891,12 @@ export function createTopicsRouter(
         const completeMsgs = localMsgs.filter(m => !m.partial || (m.content && m.content.trim()));
         const total = completeMsgs.length;
         const sliced = offset > 0 ? completeMsgs.slice(0, Math.max(0, total - offset)) : completeMsgs;
-        // Stessa sfoltita di `/api/history/:key`: senza, questa rotta spediva
-        // 12,54 MB dove l'altra ne spediva 5,42 sulla stessa topic, perché qui
-        // viaggiavano ANCHE `toolCalls` accanto a `blocks` e il `result`
-        // duplicato dentro ognuna. La chiama `read_chat` degli agenti via MCP —
-        // che poi tiene 4.000 caratteri per messaggio e butta tutto il resto
-        // (server/mcp/topics-mcp-server.ts:1219). Vedi shared/lean-tool-call.ts.
+        // Same slimming as `/api/history/:key`. Without it this route shipped
+        // 12.54 MB where the other shipped 5.42 for the same topic, because here
+        // `toolCalls` still travelled alongside `blocks` AND each one carried a
+        // duplicated `result`. The caller is the agents' `read_chat` over MCP,
+        // which then keeps 4,000 characters per message and throws the rest away
+        // (server/mcp/topics-mcp-server.ts:1219). See shared/lean-tool-call.ts.
         const result = leanMessagesForWire(sliced.slice(-limit));
 
         return json({ messages: result, total, topicName: topic.name });
