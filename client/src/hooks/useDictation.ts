@@ -6,6 +6,7 @@ import {
   extForMime,
   micErrorMessage,
   MIN_VOICE_BLOB_BYTES,
+  messaggioNotaVuota,
   SPEECH_AUDIO_CONSTRAINTS,
   SPEECH_BITS_PER_SECOND,
   type SttCapabilities,
@@ -102,10 +103,27 @@ export function useDictation(opts: {
       recorder.onstop = async () => {
         releaseMic();
         const type = recorder.mimeType || mimeType || 'audio/webm';
+        const spezzoni = chunksRef.current.length;
         const blob = new Blob(chunksRef.current, { type });
         chunksRef.current = [];
         setIsListening(false);
-        if (discardRef.current || blob.size < MIN_VOICE_BLOB_BYTES) return;
+        // ANNULLATO A MANO: nessun messaggio, e' una scelta di chi usa la app.
+        if (discardRef.current) return;
+        // VUOTA: e questo ramo era MUTO, come lo era il gemello della chat prima
+        // di `fe635287` che pero' ha fatto parlare solo quello. Qui premevi il
+        // microfono nel campo task, parlavi, mollavi, e non compariva niente:
+        // indistinguibile da una app rotta, ed e' il motivo per cui la dettatura
+        // «non funziona» sul telefono senza che nessuno sappia perche'.
+        //
+        // I due numeri sono la diagnosi, non un ornamento: ZERO spezzoni vuol
+        // dire che il microfono non ha aperto affatto (permesso negato in
+        // silenzio, traccia muta), mentre pochi byte in uno spezzone solo vuol
+        // dire che ha aperto e ha prodotto la sola intestazione del contenitore.
+        // Sono due guasti diversi e si riparano in due posti diversi.
+        if (blob.size < MIN_VOICE_BLOB_BYTES) {
+          onErrorRef.current?.(messaggioNotaVuota(spezzoni, blob.size, type));
+          return;
+        }
         setIsTranscribing(true);
         try {
           const result = await transcribeAudio(blob, { filename: `dictation.${extForMime(type)}`, language });
