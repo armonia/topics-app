@@ -153,7 +153,7 @@ fn build_env(over: &[(String, Option<String>)]) -> Vec<(String, String)> {
     // Ensure a UTF-8 locale so accented output doesn't mojibake (à → √†). Under
     // launchd LANG is unset. Only fill in if the caller didn't pass a UTF-8 locale.
     let has_utf8 = ["LC_ALL", "LC_CTYPE", "LANG"].iter().any(|k| {
-        m.get(*k).map_or(false, |v| {
+        m.get(*k).is_some_and(|v| {
             let l = v.to_lowercase();
             l.contains("utf8") || l.contains("utf-8")
         })
