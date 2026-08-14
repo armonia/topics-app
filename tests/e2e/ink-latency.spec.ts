@@ -149,10 +149,27 @@ test.describe("INK — click → ink on the three most frequent gestures", () =>
     // ----------------------------------------------------------------- tab --
     const panelOf = (name: string) => `[data-testid="chat-panel"][aria-label="${name} panel"]`;
     const contentOf = (name: string) => `${panelOf(name)} [data-message-id]`;
-    // Untimed warm-up: land on A so the first measured switch is A → B, the same
-    // shape as every other sample.
-    await page.locator(`[data-pane-id="${topicA.id}"]`).first().click();
-    await expect(page.locator(contentOf(topicA.name)).first()).toBeVisible({ timeout: 20_000 });
+    // Untimed warm-up over BOTH chats, and that is a measurement decision.
+    //
+    // Landing on A alone left the first measured sample as the first time B was
+    // ever opened, and opening a chat for the first time is a DIFFERENT and much
+    // more expensive thing than switching between two open ones. It costs ~355ms
+    // against ~13ms, and the cost is deliberate: `MessageList.tsx` holds the list
+    // at `visibility:hidden` behind a skeleton for at least
+    // `LIST_REVEAL_FLOOR_MS` (320ms) so nobody watches react-virtuoso measure and
+    // re-anchor — a reflow worth a CLS of 0.296 on its own (`refresh-cls.spec.ts`).
+    // Probed 2026-08-14: the message is in the DOM at +39ms and painted at
+    // +357ms, with ZERO long tasks and every request answered inside 8ms. Nothing
+    // is slow; the curtain is closed on purpose.
+    //
+    // Averaging that in is the mistake this file already refuses to make for
+    // `send` (see the note in `beforeAll`): one outlier that never changes would
+    // sit inside the max forever and hide a real 15x regression behind it. So
+    // both panes are opened untimed, and "tab" measures tab switching.
+    for (const t of [topicA, topicB, topicA]) {
+      await page.locator(`[data-pane-id="${t.id}"]`).first().click();
+      await expect(page.locator(contentOf(t.name)).first()).toBeVisible({ timeout: 20_000 });
+    }
 
     const tabSamples: InkSample[] = [];
     for (let i = 0; i < SAMPLES; i++) {

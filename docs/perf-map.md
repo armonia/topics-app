@@ -17,7 +17,7 @@ intenzioni.
 | Scorrimento del trascritto | frame persi, buco peggiore, long task | `bun run check:fluido` | sì (`\|\| test $? -eq 2`) |
 | Latenza di 4 rotte calde | mediana ms su corpus fisso, ratchet | `bun run check:rotte` | sì (`\|\| test $? -eq 2`) |
 | Peso del bundle | byte entry/critical path/asset totali | `bun run check:bundle` | sì |
-| Click → inchiostro | ms dal gesto al primo frame dipinto | `bun run check:ink` | **NO** |
+| Click → inchiostro | ms dal gesto al primo frame dipinto | `bun run check:ink` | sì (dal 2026-08-14) |
 | Peso del payload di una chat | invariante anti-duplicato + byte/messaggio | `bun test tests/integration/history-payload-weight.test.ts` | sì (`bun test:unit`) |
 | Frame a riposo | quanti frame si chiedono quando non succede niente | `tests/e2e/idle-frame-budget.spec.ts` | sì (shard E2E) |
 | Spostamento al refresh (CLS) | layout shift dopo un ⌘R | `tests/e2e/refresh-cls.spec.ts` | sì (shard E2E) |
@@ -99,21 +99,34 @@ uno stato. Ora una raffica costa due letture (`client/src/lib/burstCoalescer.ts`
 | `/api/projects` | 3.666 | 4 |
 | `/api/system/dispatch-capacity` | 212 | 4 |
 
-## Il cancello che c'è ma non gira
+## Il cancello che c'era ma non girava — e il rosso che non era un difetto
 
-`bun run check:ink` non è invocato da nessun workflow. La spec che misura gira
-negli shard E2E, ma **non giudica**: il confronto con `tests/e2e/ink-budget.json`
-lo fa solo `scripts/check-ink-latency.ts`, e quello script in CI non compare.
+`bun run check:ink` non era invocato da nessun workflow. La spec girava negli
+shard E2E e **misurava**, ma il confronto con `tests/e2e/ink-budget.json` lo fa
+solo `scripts/check-ink-latency.ts`, che in CI non compariva. Un budget che
+nessuno esegue non è un cancello.
 
-Eseguito a mano il 2026-08-14 su un bundle costruito da `main`, **è rosso**:
+Eseguito a mano il 2026-08-14 usciva rosso, e il rosso reggeva su quattro corse
+indipendenti: «switch tab» con un campione a **353,6 / 355,4 / 356,8 / 359,7 ms**
+contro un tetto di 250, mentre gli altri quattro campioni della stessa corsa
+stavano fra 6 e 15 ms. Sei millisecondi di scarto su quattro corse non sono
+rumore di scheduling: è una costante.
 
-```
-  open a card       23.2 ms     max 23.4 ms     ok
-  switch tab        15.1 ms     max 356.8 ms    FAIL   (soglia 250)
-  send a message     9.2 ms     max 10.3 ms     ok
-```
+Sondato invece di ipotizzato. Il messaggio è **nel DOM a +39 ms** e **dipinto a
++357 ms**, con **zero long task** e ogni richiesta di rete risposta entro 8 ms.
+In mezzo non calcola niente: è `MessageList.tsx` che tiene la lista a
+`visibility: hidden` dietro uno scheletro per almeno `LIST_REVEAL_FLOOR_MS`
+(320 ms), perché nessuno guardi react-virtuoso misurare le altezze e ri-ancorare
+— un riassestamento che da solo vale un CLS di 0,296 (`refresh-cls.spec.ts`).
 
-I campioni di «switch tab» sono 356,8 / 15,1 / 7,7 / 15,2 / 14,8: è il PRIMO
-cambio di pane a costare, e la baseline del budget lo dava a ~40 ms. Da
-confermare su una macchina scarica prima di chiamarlo difetto — quella corsa
-aveva una suite E2E appena finita alle spalle.
+Quindi non era un difetto: era **un gesto diverso dentro la misura di un altro**.
+«Aprire una chat mai aperta» costa 355 ms per scelta dichiarata; «passare fra due
+chat aperte» ne costa 13. Il primo campione di `tab` era il primo, tutti gli
+altri il secondo. La spec ora scalda ENTRAMBE le pane prima di misurare — la
+stessa decisione che questo file aveva già preso per `send` — e il costo escluso
+è scritto in `ink-budget.json` sotto `excluded`, col perché e con la costante che
+lo governa.
+
+Dopo la correzione: `switch tab` mediana 13 ms, massimo 14,3. Il cancello non è
+diventato cieco — con `bun run check:ink --stall 300` tutti e tre i gesti
+falliscono — ed è entrato in CI.

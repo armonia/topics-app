@@ -242,6 +242,25 @@ jobs:
       - name: Scroll fluidity budget
         run: bun run check:fluido || test $? -eq 2
 
+      # CLICK -> INCHIOSTRO: i millisecondi fra il gesto e il primo fotogramma
+      # che ha DIPINTO la risposta, sui tre gesti piu' frequenti. Il budget e la
+      # sonda esistevano dal 2026-08-14 ma non li invocava NESSUN workflow: la
+      # spec girava negli shard E2E e misurava, mentre il confronto con
+      # `tests/e2e/ink-budget.json` lo fa solo questo script — che non era in
+      # pipeline. Un budget che nessuno esegue non e' un cancello.
+      #
+      # Non tollera l'uscita 2 come i due qui sopra perche' non ne ha una: o
+      # misura o fallisce. Il margine regge il divario fra questo runner e un
+      # portatile Apple: budget 100 ms di mediana contro 13-23 ms misurati, cioe'
+      # da 4 a 8 volte; il tetto sul singolo campione e' 250 contro ~23. Se un
+      # giorno diventasse rumoroso, la risposta giusta e' dargli l'uscita 2 dei
+      # fratelli («non misurabile su questa macchina»), non alzare la soglia:
+      # alzarla spegnerebbe il cancello lasciandolo verde.
+      #
+      # Riusa il bundle costruito da `verify:phase30-strip`, come check:bundle.
+      - name: Click-to-ink budget
+        run: bun run check:ink
+
   # Runs the real E2E suite against the isolated server that globalSetup spawns
   # on :13334 (own SQLite DB under /tmp/topics-test-data) — no external
   # services or repo secrets needed: NO_TLS=1 and dummy GATEWAY_TOKEN/URL
