@@ -1293,6 +1293,15 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         // stesso — il 25% del loro contesto erano immagini. Resta scritto perché
         // un rifiuto spiegato PRIMA costa una riga, scoperto dopo costa un giro.
         "- MAI aprire immagini o video con Read (il tuo Read li rifiuta): pesano ~mezzo mega e restano nel PREFISSO, che ogni turno successivo rilegge. Per consegnare la prova basta il path — update_task(preview_image=<path>) o comment_task(media=[<path>]) — non serve averla aperta. Per ispezionare lo schermo del browser usa browser_read_screen, che risponde in testo.",
+        // IL REPO E' PUBBLICO, e questa riga sta qui perche' il sintomo e' gia'
+        // ricomparso due volte in una notte. Gli agenti scrivono «Attilio ha
+        // chiesto…» nei commenti perche' e' VERO e perche' e' tracciabilita'
+        // onesta; il cancello `no-personal-data` li ferma, qualcuno toglie il
+        // nome a mano, e il turno dopo un altro agente lo riscrive. Toglierlo
+        // ogni volta e' curare il sintomo: l'origine e' che nessuno gliel'ha
+        // detto PRIMA, e l'unica cosa che un agente legge davvero e' questo
+        // envelope (CLAUDE.md non esiste nelle worktree).
+        "- IL REPO E' PUBBLICO: MAI scrivere in un file tracciato il nome, il cognome, l'email o lo username di una persona vera — nemmeno nei commenti, nemmeno per dire chi ha chiesto una cosa. Si nomina il RUOLO («chi usa la app», «il reviewer») e si cita l'id della card, che e' privata. C'e' un cancello che lo verifica (`tests/unit/no-personal-data-tracked.test.ts`) e ferma la consegna. Vale anche per i path: nessun `/Users/<nome>/...` in un file tracciato.",
         "- PIANO VISIBILE: se il lavoro ha più di un passo, crea subito i tuoi step come sottotask — " +
           `create_task(text=<step>, parent_task_id="${task.id}") per ognuno — e marca OGNI step done appena lo completi: update_task(task_id=<step id>, status="done") (permesso sui TUOI step). Sono la tua checklist sulla board: l'umano vede i progressi in tempo reale.`,
         "- Prima di consegnare in review TUTTI i tuoi step devono essere done (un task con sottotask aperti non è approvabile). Lavoro futuro fuori scope → task top-level SENZA parent (resta in backlog per l'umano).",
