@@ -61,6 +61,7 @@ function getDefaultSocketPath() {
 // --- State ---
 const sessions = new Map();        // id -> { pty, buffer: { chunks: Buffer[], totalSize: number } }
 const clients = new Set();         // connected server sockets
+const connectedAt = new Map();     // socket -> quando si è attaccato (monitor anti-orfano)
 
 // --- Socket Server ---
 function broadcast(msg) {
@@ -296,6 +297,9 @@ async function start() {
 
   const server = net.createServer((socket) => {
     clients.add(socket);
+    // Quando si è attaccato. Serve al monitor anti-orfano per distinguere un
+    // server da una sonda: vedi `REAL_CLIENT_MS`.
+    connectedAt.set(socket, Date.now());
     console.error(`[PTY Bridge] Client connected (${clients.size} total)`);
 
     let lineBuffer = '';
@@ -322,11 +326,13 @@ async function start() {
 
     socket.on('close', () => {
       clients.delete(socket);
+      connectedAt.delete(socket);
       console.error(`[PTY Bridge] Client disconnected (${clients.size} remaining)`);
     });
 
     socket.on('error', () => {
       clients.delete(socket);
+      connectedAt.delete(socket);
     });
   });
 
@@ -378,29 +384,54 @@ async function start() {
   // Env override so the test can exercise the real monitor without sitting
   // through 90s; production never sets it.
   const ORPHAN_GRACE_MS = Number(process.env.TOPICS_PTY_BRIDGE_ORPHAN_GRACE_MS) || 90_000;
+  // UNA SONDA NON È UN SERVER. `checkExistingBridge()` di ogni ponte che prova a
+  // nascere si connette qui, aspetta un pong e chiude: circa un secondo. Il
+  // monitor azzerava la scadenza a QUALSIASI connessione, quindi bastava che
+  // qualcuno continuasse a provare a spawnare per rendere l'orfano immortale.
+  // Misurato il 2026-08-14 in ai-bridge/daemon.log: «Parent died … exit in 90s» e
+  // «Server reconnected» alternate all'infinito, pid 41214 ancora vivo dopo 12
+  // minuti con il padre morto e zero peer sul socket. Solo un client attaccato da
+  // almeno REAL_CLIENT_MS è un server che si è riagganciato — e va misurato sul
+  // singolo collegamento, non contando i tick: due sonde diverse a due tick
+  // consecutivi non sono un server che è rimasto.
+  const REAL_CLIENT_MS = Number(process.env.TOPICS_PTY_BRIDGE_REAL_CLIENT_MS) || 5_000;
   let orphanDeadline = null;
+  let orphanExtended = false;
   setInterval(() => {
     const orphaned = parentPid !== null
       ? !pidAlive(parentPid)
       : (process.ppid === 1 && initialPpid !== 1);
-    if (!orphaned) { orphanDeadline = null; return; }
-    if (clients.size > 0) {
-      // A server is connected (we were restarted and it reattached). Not abandoned.
+    if (!orphaned) { orphanDeadline = null; orphanExtended = false; return; }
+    const now = Date.now();
+    // Un server riagganciato resta attaccato: se qualcuno è qui da REAL_CLIENT_MS
+    // non siamo abbandonati, e la scadenza si azzera davvero.
+    const settled = [...clients].some((c) => now - (connectedAt.get(c) ?? now) >= REAL_CLIENT_MS);
+    if (settled) {
       if (orphanDeadline !== null) {
         console.error('[PTY Bridge] Server reconnected after parent death — staying alive, PTYs preserved.');
         orphanDeadline = null;
+        orphanExtended = false;
       }
       return;
     }
     // Orphaned AND no server connected — start/await the grace countdown.
-    const now = Date.now();
     if (orphanDeadline === null) {
       orphanDeadline = now + ORPHAN_GRACE_MS;
       console.error(`[PTY Bridge] Parent died (was ${parentPid ?? initialPpid}) and no server connected — will exit in ${ORPHAN_GRACE_MS / 1000}s unless one reconnects (PTYs preserved across server restarts).`);
-    } else if (now >= orphanDeadline) {
-      console.error('[PTY Bridge] No server reconnected within grace window — app likely quit, shutting down.');
-      shutdown('ORPHAN_ABANDONED');
+      return;
     }
+    if (now < orphanDeadline) return;
+    if (clients.size > 0 && !orphanExtended) {
+      // Scaduta con qualcuno attaccato da poco: potrebbe essere un server che si
+      // sta appena riagganciando. Gli si regala UNA proroga, lunga abbastanza da
+      // farlo diventare `settled` — poi si chiude comunque, altrimenti bastano
+      // sonde che si sovrappongono per tenere in vita l'orfano per sempre.
+      orphanExtended = true;
+      orphanDeadline = now + REAL_CLIENT_MS * 2;
+      return;
+    }
+    console.error('[PTY Bridge] No server reconnected within grace window — app likely quit, shutting down.');
+    shutdown('ORPHAN_ABANDONED');
   }, 5000).unref();
 
   // Backstop for the bridges no parent check can ever retire — a spawner whose
