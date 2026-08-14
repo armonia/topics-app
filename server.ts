@@ -132,6 +132,7 @@ import { createTabsRouter } from "./server/routes/tabs";
 import { createClaudeSessionTracker } from "./server/lib/claude-session-tracker";
 import { evaluateAuth, isLoopbackAddress, isOriginGatedPath, resolveAllowedOrigins } from "./server/lib/auth-gate";
 import { markViaTunnel, isLocalTransport, clientIpOf, tunnelPort } from "./server/lib/tunnel";
+import { comprimiJson } from "./server/lib/compress-json";
 import { ROUTE_FAULT, applyRouteFault } from "./server/lib/route-fault";
 import { BUSY_SPINNER_PHASES } from "./server/lib/claude-session-state";
 import { claudeTranscriptPath, isTranscriptOrphaned } from "./server/lib/claude-transcript-path";
@@ -3262,7 +3263,40 @@ const opzioniServer = {
   // intatto per lo spread nell'ascoltatore del tunnel.
 } satisfies Parameters<typeof Bun.serve<WSData>>[0];
 
-const server = Bun.serve<WSData>(opzioniServer);
+/**
+ * Le risposte JSON escono compresse verso chi NON è locale.
+ *
+ * Il gestore vero non si tocca: si avvolge una volta sola, qui, dove passa
+ * ogni risposta di entrambi gli ascoltatori. Il perché della regola — e perché
+ * loopback resta crudo — sta in `server/lib/compress-json.ts`. In due parole:
+ * `/api/history` di una topic di lavoro pesa 5,17 MB e ne pesa 1,39 compressa,
+ * ma i 60 ms di CPU che costa comprarli comprano un secondo e mezzo solo se in
+ * mezzo c'è una rete.
+ */
+function conCompressione(
+  handler: typeof opzioniServer.fetch,
+): typeof opzioniServer.fetch {
+  return async function (this: unknown, req, srv) {
+    const res = await handler.call(this as never, req, srv);
+    // `undefined` = upgrade a WebSocket riuscito: non c'è nessuna risposta HTTP.
+    if (!res) return res;
+    // Loopback nudo, NON `isLocalTransport`. Le due domande si somigliano ma
+    // rispondono a cose diverse: `isLocalTransport` chiede «di chi mi fido», e
+    // per quella il tunnel è remoto anche se il peer è 127.0.0.1. Qui la domanda
+    // è «c'è una rete in mezzo», e sul tunnel non c'è: dall'altra parte del
+    // socket sta `relay-client.ts` su questa stessa macchina, che rigioca la
+    // richiesta con `fetch` e la SCOMPATTA subito (misurato: Bun scompatta da
+    // sé, e `intestazioniRisposta` toglie `content-encoding` proprio perché il
+    // corpo che riparte è già testo). Comprimere lì sarebbe pagare due volte
+    // per consegnare gli stessi byte.
+    const remoto = !isLoopbackAddress(srv.requestIP(req)?.address ?? null);
+    return comprimiJson(req, res, remoto);
+  } as typeof opzioniServer.fetch;
+}
+
+const fetchCompresso = conCompressione(opzioniServer.fetch);
+
+const server = Bun.serve<WSData>({ ...opzioniServer, fetch: fetchCompresso });
 
 // Da qui in poi un file locale si può MOSTRARE senza che nessuno navighi su
 // `file://`: l'agente chiede il file, la pane va su `/api/media` di questo
@@ -3304,7 +3338,9 @@ const serverTunnel = portaTunnel
         markViaTunnel(req);
         // `.call(srv, …)`: il gestore dichiara `this: Server`, e chiamarlo come
         // metodo dell'oggetto opzioni glielo legherebbe all'oggetto sbagliato.
-        return opzioniServer.fetch.call(srv, req, srv);
+        // Il gestore avvolto, non quello nudo: chi entra da qui è remoto per
+        // definizione, ed è proprio chi la compressione la deve avere.
+        return fetchCompresso.call(srv, req, srv);
       },
     })
   : null;
