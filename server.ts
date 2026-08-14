@@ -136,6 +136,7 @@ import { ROUTE_FAULT, applyRouteFault } from "./server/lib/route-fault";
 import { BUSY_SPINNER_PHASES } from "./server/lib/claude-session-state";
 import { claudeTranscriptPath, isTranscriptOrphaned } from "./server/lib/claude-transcript-path";
 import { createProjectsRouter } from "./server/routes/projects";
+import { createWorktreeGcRunner } from "./server/services/worktree-gc-runner";
 import { createWorktreesRouter } from "./server/routes/worktrees";
 import { createMachinesRouter } from "./server/routes/machines";
 import { initVapid } from "./server/push-service";
@@ -1206,7 +1207,7 @@ const taskDispatcher = createTaskDispatcher({
   // `node_modules` e le cache di build, restano cartella, branch e commit. È il
   // momento giusto perché la maggior parte delle card NON landa subito, e sono
   // proprio i giorni di attesa in review a costare ~260 MB l'una.
-  slimWorktree: (taskId) => slimWorktreeOfTask(taskId),
+  slimWorktree: (taskId) => worktreeGc.slimWorktreeOfTask(taskId),
   broadcast: ctx.broadcastToAll,
 });
 
@@ -1410,6 +1411,31 @@ const taskAutoMerge = createTaskAutoMerge({
   },
   log: (msg, err) => console.error(msg, err ?? ""),
 });
+
+// ── La potatura dei worktree: il cablaggio ─────────────────────────────────
+// Costruita QUI, cioe' dopo `taskAutoMerge` e prima che qualcuno la chiami: e'
+// il punto in cui tutte le sue dipendenze esistono davvero. I tre chiamatori
+// stanno piu' in alto e la leggono dentro una closure, quindi la risolvono al
+// momento della chiamata: e' la stessa proprieta' che prima veniva
+// dall'hoisting di una `function` dichiarata in fondo al file, ottenuta senza
+// dipendere dall'ordine di valutazione.
+const worktreeGc = createWorktreeGcRunner({
+  db: ctx.db,
+  worktreeStore: ctx.worktreeStore,
+  worktreeManager: ctx.worktreeManager,
+  projectStore: ctx.projectStore,
+  getTopicBySessionKey: (sessionKey) => ctx.getTopicBySessionKey(sessionKey),
+  resolveTopicCwd: (topic) => ctx.resolveTopicCwd(topic),
+  svc: dispatcherSvc,
+  isInFlight: (taskId) => taskDispatcher.isInFlight(taskId),
+  worktreeOfTask: (taskId) => worktreeOfTask(taskId),
+  projectIdForPath: (path) => projectIdForPath(path),
+  deliveryIsOnMain: (repoPath, commit) => deliveryIsOnMain(repoPath, commit),
+  tryMerge: (taskId, text, delivery) => taskAutoMerge.tryMerge(taskId, text, delivery),
+  previewList: () => previewManager?.list() ?? [],
+  previewTeardown: (taskId) => previewManager?.teardown(taskId) ?? Promise.resolve(),
+});
+
 
 const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
   workspaceDir: DISPATCH_WORKSPACE_DIR,
@@ -1667,9 +1693,9 @@ const worktreesRouter = createWorktreesRouter(ctx, {
     const entries = buildBranchInventory(branches, rows);
     return { entries, summary: summarizeInventory(entries) };
   },
-  // `runWorktreeGc` è una function declaration definita più sotto: hoisted,
+  // `worktreeGc` è costruito più sotto (dopo `taskAutoMerge`): questa closure
   // quindi la closure è valida anche se il router nasce prima.
-  runGc: () => runWorktreeGc(),
+  runGc: () => worktreeGc.runWorktreeGc(),
 });
 const machinesRouter = createMachinesRouter(ctx);
 
@@ -2080,7 +2106,7 @@ const opzioniServer = {
         // Run the worktree GC sweep on demand (the periodic one runs every 30m).
         // Reaps only what's provably safe; lands a closed task's clean unmerged
         // commits first. Returns the summary.
-        const summary = await runWorktreeGc();
+        const summary = await worktreeGc.runWorktreeGc();
         return new Response(JSON.stringify({ ok: true, summary }), {
           status: 200, headers: { "content-type": "application/json" },
         });
@@ -3901,290 +3927,13 @@ reattachSurvivingChatTurns()
   .catch((err) => console.error("[chat-reattach] boot sweep failed", err));
 
 // ── Worktree GC — origin fix for worktree pile-up ──────────────────────────
-// Dispatch worktrees were only reaped on a successful approve→automerge; every
-// other terminal path (reject+abandon, delete, an approve the old dirty-main
-// bug skipped, an orphan) leaked one forever. This periodic sweep applies the
-// SAME safety contract to the whole population — reaping only when there is
-// provably nothing to lose, landing a closed task's unmerged-but-clean commits
-// first. See server/services/worktree-gc.ts.
-const WORKTREE_GC_INTERVAL_MS = 30 * 60_000;
-// After how many days without a single sign of life an `in_progress` task counts
-// as abandoned and gives its checkout back (branch kept — see worktree-gc.ts).
-// A week: dispatch turns are capped at minutes, so seven days of total silence
-// on a task that claims an agent is working can only mean nobody is.
-const WORKTREE_ABANDON_DAYS = Number(process.env.TOPICS_WORKTREE_ABANDON_DAYS ?? 7);
-
-/**
- * Days since the LAST SIGN OF LIFE on a task, or null if we can't tell.
- *
- * "Life" is deliberately the union of every trace an agent or a human leaves,
- * because each one alone has a blind spot: the task row misses work that only
- * talked (a long turn commenting nothing), comments miss a chat-only session,
- * and both miss a CLI session whose only trace is the transcript growing on
- * disk. The maximum of the four is the honest answer; a query that blows up
- * returns null, which the GC reads as "don't touch".
- */
-function taskIdleDays(taskId: string): number | null {
-  try {
-    const row = ctx.db
-      .prepare(
-        `SELECT t.updated_at AS taskAt,
-                (SELECT MAX(created_at) FROM task_comments WHERE task_id = t.id) AS commentAt,
-                (SELECT MAX(m.timestamp) FROM messages m
-                   JOIN topics tp ON tp.session_key = m.session_key
-                  WHERE tp.id = t.assigned_topic_id) AS messageAt,
-                t.assigned_topic_id AS topicId
-           FROM tasks t WHERE t.id = ?`,
-      )
-      .get(taskId) as { taskAt?: string; commentAt?: string; messageAt?: string; topicId?: string } | undefined;
-    if (!row) return null;
-
-    let last = 0;
-    for (const ts of [row.taskAt, row.commentAt, row.messageAt]) {
-      const ms = ts ? Date.parse(ts) : NaN;
-      if (Number.isFinite(ms)) last = Math.max(last, ms);
-    }
-
-    // The transcript: the only trace of a session that writes without ever
-    // reaching our tables. Best-effort — a missing file just doesn't vote.
-    if (row.topicId) {
-      try {
-        const sk = (ctx.db.prepare("SELECT session_key AS sk FROM topics WHERE id = ?")
-          .get(row.topicId) as { sk?: string } | undefined)?.sk;
-        const topic = sk ? ctx.getTopicBySessionKey(sk) : null;
-        const csid = sk
-          ? (ctx.db.prepare("SELECT claude_session_id AS id FROM claude_code_sessions WHERE session_key = ?")
-              .get(sk) as { id?: string } | undefined)?.id
-          : undefined;
-        const cwd = topic ? ctx.resolveTopicCwd(topic) : null;
-        if (cwd && csid) {
-          const p = claudeTranscriptPath(cwd, csid);
-          if (existsSync(p)) last = Math.max(last, statSync(p).mtimeMs);
-        }
-      } catch { /* il transcript è un voto in più, mai un blocco */ }
-    }
-
-    if (!last) return null;
-    return (Date.now() - last) / 86_400_000;
-  } catch (err) {
-    console.warn("[worktree-gc] idleDays failed", err);
-    return null;
-  }
-}
-
-/**
- * Un preview server non può sopravvivere alla cartella da cui serve: sia il
- * `reap` sia il `free-checkout` la portano via, quindi entrambi lo spengono
- * prima. Best-effort — un preview ostinato non deve impedire di liberare spazio.
- */
-/**
- * Butta gli artefatti rigenerabili dal worktree di un task, tenendo la cartella.
- *
- * Tre condizioni prima di toccare qualsiasi cosa, e sono tutte «c'è ancora
- * qualcuno lì dentro?»: la cartella esiste, nessun turno sta girando su quel
- * task, nessuna anteprima viva ci sta servendo un `bun run dev`. La sicurezza
- * di COSA si cancella sta invece tutta in `worktree-slim` (lista chiusa di nomi
- * + doppio cancello letto da git), non qui.
- *
- * Un'anteprima viva è un rinvio, non un no: la passata del GC ripassa ogni 30
- * minuti e la troverà spenta appena l'umano avrà approvato o chiuso.
- */
-// Chi risparmiare, se l'umano non è d'accordo su un nome (di solito `target`:
-// vedi `parseSlimSkip`). Letto una volta sola: cambiarlo vuole un riavvio, come
-// ogni altra soglia di questo file.
-const WORKTREE_SLIM_SKIP = parseSlimSkip(process.env.TOPICS_WORKTREE_SLIM_SKIP);
-
-async function slimWorktreeOfTask(taskId: string): Promise<void> {
-  try {
-    const wt = worktreeOfTask(taskId);
-    if (!wt || !existsSync(wt.absPath)) return;
-    if (taskDispatcher.isInFlight(taskId)) return;
-    if (previewManager?.list().some((p) => p.taskId === taskId)) return;
-    const res = await slimWorktree(wt.absPath, WORKTREE_SLIM_SKIP);
-    if (res.removed.length > 0) {
-      console.log(
-        `[worktree-slim] ${wt.name}: ${formatMb(res.bytes)} liberati — ` +
-        res.removed.map((r) => `${r.relPath} (${formatMb(r.bytes)})`).join(", "),
-      );
-    }
-    for (const e of res.errors) console.warn(`[worktree-slim] ${wt.name}: ${e.relPath} non rimosso — ${e.message}`);
-  } catch (err) {
-    console.warn("[worktree-slim] fallito", err);
-  }
-}
-
-async function teardownPreviewOfWorktree(worktreeId: string): Promise<void> {
-  try {
-    const topic = ctx.db.prepare("SELECT id FROM topics WHERE worktree_id = ? LIMIT 1").get(worktreeId) as { id?: string } | undefined;
-    if (!topic?.id) return;
-    const t = ctx.db.prepare("SELECT id FROM tasks WHERE assigned_topic_id = ? LIMIT 1").get(topic.id) as { id?: string } | undefined;
-    if (t?.id) await previewManager?.teardown(t.id);
-  } catch { /* best-effort */ }
-}
-
-function runWorktreeGc() {
-  return sweepWorktrees({
-    listWorktrees: () => ctx.worktreeStore.list({ status: "ready" }).map((w) => ({
-      id: w.id, projectId: w.projectId, absPath: w.absPath, branchName: w.branchName, mode: w.mode,
-    })),
-    resolveTask: (worktreeId) => {
-      const topic = ctx.db.prepare("SELECT id FROM topics WHERE worktree_id = ? LIMIT 1").get(worktreeId) as { id?: string } | undefined;
-      if (!topic?.id) return { taskId: null };
-      const t = ctx.db.prepare("SELECT id, status, archived FROM tasks WHERE assigned_topic_id = ? LIMIT 1").get(topic.id) as { id?: string; status?: string; archived?: number } | undefined;
-      if (!t?.id) return { taskId: null };
-      return { taskId: t.id, status: (t.status ?? "todo") as GcTaskStatus, archived: !!t.archived };
-    },
-    isBusy: (taskId) => taskDispatcher.isInFlight(taskId),
-    diskPresent: (absPath) => existsSync(absPath),
-    realDirt: (absPath) => worktreeRealDirt(absPath),
-    branchStatus: (w) => {
-      const repoPath = ctx.projectStore.get(w.projectId)?.path;
-      if (!repoPath) return Promise.resolve("gone" as const);
-      return branchStatusFromRepo(repoPath, w.branchName);
-    },
-    // DUE NAMESPACE, UNO SOLO GIUSTO. `wt.projectId` è l'uuid del projectStore
-    // (`75e5098a-…`); `board_settings` è chiavata sull'id di BOARD, cioè
-    // `projectIdForPath(path)` (`topics-app-ar3jt5`). Passare il primo dove va il
-    // secondo non solleva niente: `getBoardSettings` non trova la riga e
-    // restituisce i default, dove `dispatchAutoMerge` è `false`.
-    //
-    // Effetto misurato l'11/08: `dispatch_auto_merge = 1` su entrambe le board, e
-    // il GC che stampava «77× commit non mergiati, AUTOMERGE NON DISPONIBILE».
-    // Il ramo `land-then-reap` — quello che porta su main il lavoro di un task
-    // chiuso prima di liberarne la cartella — non è mai partito, nemmeno una
-    // volta, da quando esiste. Un id sbagliato non fallisce: mente in silenzio.
-    autoMergeEnabled: (projectId) => {
-      try {
-        const path = ctx.projectStore.get(projectId)?.path;
-        if (!path) return false;
-        return !!dispatcherSvc.getBoardSettings(projectIdForPath(path)).dispatchAutoMerge;
-      } catch { return false; }
-    },
-    abandonAfterDays: WORKTREE_ABANDON_DAYS,
-    idleDays: (taskId) => taskIdleDays(taskId),
-    // «Il ramo non c'è più» va letto insieme a QUESTO, o dice il contrario del
-    // vero. Il commit di consegna si guarda per CONTENUTO (`commitStatusFromRepo`
-    // + `classifyLanding`, gli stessi dell'audit dei land): un land squashato non
-    // lascia un'ancestry, ma è atterrato lo stesso. `unverifiable` esce `null`,
-    // che non è `false`: non aver potuto guardare non è una prova di fallimento.
-    deliveryLanded: async (taskId, wt) => {
-      const commit = dispatcherSvc.get(taskId)?.task?.deliveryCommit;
-      if (!commit) return null;
-      const repoPath = ctx.projectStore.get(wt.projectId)?.path;
-      if (!repoPath) return null;
-      return deliveryIsOnMain(repoPath, commit);
-    },
-    // Lo scioglimento che NON declassa: il legame col worktree morto se ne va, il
-    // checkout pure (il branch è già sparito, non c'è niente da conservare), ma
-    // la card resta nella sua colonna. `release` con `requeue: false` su una card
-    // in review la lascia in review apposta — vedi il commento in `tasks.ts`.
-    unbind: async (taskId, wt, reason, deliveryLanded) => {
-      const t = dispatcherSvc.get(taskId)?.task;
-      const notice = await abandonNoticeFromRepo({
-        reason,
-        repoPath: ctx.projectStore.get(wt.projectId)?.path ?? null,
-        branchName: wt.branchName,
-        deliveryCommit: t?.deliveryCommit ?? null,
-        deliveryLanded,
-        taskFate: "stays",
-      });
-      try {
-        dispatcherSvc.release({ taskId, requeue: false, keepStatus: true, by: "system", reason: notice });
-      } catch (err) {
-        console.warn("[worktree-gc] scioglimento del legame fallito", err);
-        return false;
-      }
-      try { await previewManager?.teardown(taskId); } catch { /* best-effort */ }
-      return ctx.worktreeManager.delete(wt.id, { deleteBranch: false });
-    },
-    abandon: async (taskId, wt, reason) => {
-      // PRIMA SI GUARDA, POI SI SCRIVE. Questa riga è quella che l'umano legge
-      // per decidere se ha perso lavoro: fino al 04/08 era una formula fissa che
-      // giurava «il branch è INTATTO (nessun commit perso)» senza aver mai
-      // risolto il ref — e la scriveva anche sul ramo «branch sparito», negando e
-      // rassicurando nella stessa riga (task `5770b9de`, visto sul task
-      // `8f635484`: `topics/vibrant-creek` non esisteva). Verifica + composizione
-      // stanno in `worktree-abandon-notice`, dove sono collaudate su un repo vero.
-      const notice = await abandonNoticeFromRepo({
-        reason,
-        repoPath: ctx.projectStore.get(wt.projectId)?.path ?? null,
-        branchName: wt.branchName,
-      });
-      // Order matters: park FIRST. `release` clears the topic binding, so from
-      // here on nothing can resume this task into a checkout that's about to
-      // disappear (a resume falls back to the base project dir — the human's own
-      // repo). If the removal below fails, the task is at least already safe.
-      try {
-        dispatcherSvc.release({
-          taskId,
-          requeue: false,
-          parkState: "failed",
-          by: "system",
-          reason: notice,
-        });
-      } catch (err) {
-        console.warn("[worktree-gc] park del task abbandonato fallito", err);
-        return false;
-      }
-      try { await previewManager?.teardown(taskId); } catch { /* best-effort */ }
-      // `deleteBranch: false` is the whole point of this path.
-      return ctx.worktreeManager.delete(wt.id, { deleteBranch: false });
-    },
-    tryLand: async (taskId) => {
-      const t = dispatcherSvc.get(taskId)?.task;
-      const text = t?.text ?? "";
-      const res = await taskAutoMerge.tryMerge(taskId, text, {
-        branch: t?.deliveryBranch ?? null,
-        commit: t?.deliveryCommit ?? null,
-      });
-      return res.status === "merged" ? "landed" : res.status === "nothing" ? "nothing" : res.status === "conflict" ? "conflict" : "skipped";
-    },
-    // Solo la cartella. `deleteBranch: false` è tutta la differenza con `reap`
-    // qui sotto: i commit restano raggiungibili dal ref, e il worktree smette di
-    // occupare ~400 MB per una copia di lavoro che nessuno riaprirà.
-    freeCheckout: async (worktreeId) => {
-      await teardownPreviewOfWorktree(worktreeId);
-      return ctx.worktreeManager.delete(worktreeId, { deleteBranch: false });
-    },
-    reap: async (worktreeId) => {
-      await teardownPreviewOfWorktree(worktreeId);
-      return ctx.worktreeManager.delete(worktreeId);
-    },
-    // Il recupero dell'arretrato: le card consegnate PRIMA che esistesse lo
-    // snellimento alla consegna, e quelle la cui anteprima era ancora viva
-    // quando ci abbiamo provato. Stesse tre condizioni di `slimWorktreeOfTask`
-    // — che è la funzione stessa, raggiunta via il task del worktree.
-    slim: async (wt) => {
-      // Un'anteprima viva è un `bun run dev` che gira LÌ DENTRO: rimandare.
-      if (previewManager?.list().some((p) => worktreeOfTask(p.taskId)?.id === wt.id)) return 0;
-      const res = await slimWorktree(wt.absPath, WORKTREE_SLIM_SKIP);
-      if (res.removed.length > 0) {
-        console.log(
-          `[worktree-slim] ${wt.branchName ?? wt.id}: ${formatMb(res.bytes)} liberati — ` +
-          res.removed.map((r) => r.relPath).join(", "),
-        );
-      }
-      return res.bytes;
-    },
-    // A reap refused because the work isn't provably on main must be VISIBLE:
-    // the same class of loss went unnoticed for 8 days precisely because the
-    // sweep only ever spoke to the server log.
-    noteOnTask: (taskId, message) => {
-      try { dispatcherSvc.addComment({ taskId, author: "system", content: message }); }
-      catch (err) { console.warn("[worktree-gc] noteOnTask failed", err); }
-    },
-    // Il ramo scritto sulla card mentre e' ancora noto: e' cio' che la tiene
-    // landabile dopo che la cartella se n'e' andata (vedi `stampDeliveryBranch`).
-    stampDeliveryBranch: (taskId, branch) => {
-      try { dispatcherSvc.recordDelivery({ taskId, branch, commit: null }); }
-      catch (err) { console.warn("[worktree-gc] stampDeliveryBranch failed", err); }
-    },
-    log: (msg) => console.log(msg),
-  }).catch((err) => { console.error("[worktree-gc] sweep failed", err); return null; });
-}
-// First pass 2 min after boot (let dispatch settle), then every 30 min.
-const worktreeGcBoot = setTimeout(runWorktreeGc, 120_000);
-const worktreeGcTimer = setInterval(runWorktreeGc, WORKTREE_GC_INTERVAL_MS);
+// La decisione sta in `server/services/worktree-gc.ts` (`sweepWorktrees`), il
+// cablaggio in `server/services/worktree-gc-runner.ts`. Qui resta solo l'AVVIO:
+// il primo giro dopo il boot e la scopa periodica. Il runner si costruisce piu'
+// in alto, prima dei tre punti che lo usano, cosi' non si regge piu'
+// sull'hoisting di una `function` dichiarata in fondo al file.
+const worktreeGcBoot = setTimeout(() => { void worktreeGc.runWorktreeGc(); }, worktreeGc.bootDelayMs);
+const worktreeGcTimer = setInterval(() => { void worktreeGc.runWorktreeGc(); }, worktreeGc.intervalMs);
 
 // ── Landing audit: "done" must mean "è nel prodotto" ───────────────────────
 // The GC above decides what is safe to DESTROY; this decides what has actually
