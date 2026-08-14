@@ -106,6 +106,32 @@ function expectNoHardDefects(report: UiAuditReport) {
   expect(report.findings.offscreen).toEqual([]);
 }
 
+/**
+ * LE TRE CATEGORIE CHE VENIVANO MISURATE E MAI GIUDICATE.
+ *
+ * `ui-audit.js` raccoglie cinque famiglie, ma questa spec ne asseriva due:
+ * `misalign`, `spacing` e `overlap` finivano nel JSON e non toccavano nessun
+ * `expect`. Misurato sul codice landato: le superfici di ricerca stanno a ZERO
+ * ESATTO su tutte e cinque, su tutte e tre le viewport — cioe' erano gia'
+ * pulite e completamente scoperte, dove una regressione di allineamento
+ * sarebbe passata senza che nessuno la vedesse.
+ *
+ * La gemella `chat-layout-audit.spec.ts` le asserisce tutte e tre da sempre:
+ * due audit dello stesso repo che giudicano cose diverse sono due numeri che
+ * nessuno confronta.
+ *
+ * NON si applica alla superficie generale della app: li' ci sono uno `spacing`
+ * (la gerarchia dello stato vuoto) e tre `tapTargets` (skip-link e maniglie di
+ * riordino) che sono scelte, non difetti — il triage del 14/08 li ha guardati
+ * uno per uno. Pretendere zero anche li' vorrebbe dire o mentire o cambiare il
+ * prodotto per far tacere un test.
+ */
+function expectPulitaComeOggi(report: UiAuditReport) {
+  expect(report.findings.misalign).toEqual([]);
+  expect(report.findings.spacing).toEqual([]);
+  expect(report.findings.overlap).toEqual([]);
+}
+
 /*
  * NON `describe.serial`, e la ragione e' il mestiere di questo file. In serial
  * il primo rosso salta tutti i test successivi, quindi una regressione su
@@ -166,11 +192,13 @@ test.describe("MRA — responsiveness mobile misurata", () => {
       await expect(palette).toHaveAttribute("data-page", "true");
 
       expectNoHardDefects(vuota);
+      expectPulitaComeOggi(vuota);
       expect(vuota.findings.tapTargets).toEqual([]);
       // Senza questa riga un contenitore vuoto renderebbe verde tutto il resto.
       expect(vuota.counts.analyzed).toBeGreaterThan(10);
 
       expectNoHardDefects(conQuery);
+      expectPulitaComeOggi(conQuery);
       expect(conQuery.findings.tapTargets).toEqual([]);
     });
 
@@ -191,6 +219,7 @@ test.describe("MRA — responsiveness mobile misurata", () => {
 
       await expect(panel).toHaveAttribute("data-page", "true");
       expectNoHardDefects(perNome);
+      expectPulitaComeOggi(perNome);
       expect(perNome.findings.tapTargets).toEqual([]);
       expect(perNome.counts.analyzed).toBeGreaterThan(5);
 
@@ -205,6 +234,13 @@ test.describe("MRA — responsiveness mobile misurata", () => {
       persist(`mobile-filesearch-contenuto-${vp.name}`, perContenuto);
       expectNoHardDefects(perContenuto);
       expect(perContenuto.findings.tapTargets).toEqual([]);
+      expect(perContenuto.findings.overlap).toEqual([]);
+      expect(perContenuto.findings.spacing).toEqual([]);
+      // UN misalign da 2px fra due span della stessa riga (`text-[11px]` contro
+      // `text-xs`): e' la differenza di baseline fra due misure di carattere,
+      // non un difetto di layout. Si DICHIARA invece di pretendere zero — cosi'
+      // il secondo, se arriva, e' rosso.
+      expect(perContenuto.findings.misalign.length).toBeLessThanOrEqual(1);
     });
 
     /* ── Il resto della app ─────────────────────────────────────────────── */
