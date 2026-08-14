@@ -2,8 +2,8 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNo
 import { Kanban, LayoutGrid, List, Search, type LucideIcon } from 'lucide-react';
 import { getPaneConfig } from '@/state/pane/adapters/paneConfig';
 import { useMobile } from '@/hooks/useMobile';
-import { alzateFila, pavimentoFila, raggioSchermo } from '@/lib/safeAreaArc';
-import { SIDEBAR_ACTIVE, SIDEBAR_HOVER } from '@/lib/selectionStyles';
+import { formaFila, pavimentoFila, raggioSchermo, type FormaScatola } from '@/lib/safeAreaArc';
+import { RAISED_CONTROL, SIDEBAR_ACTIVE } from '@/lib/selectionStyles';
 
 /**
  * LE TRE PORTE, IN FONDO ALLO SCHERMO — cerca · aggiungi · board.
@@ -49,6 +49,11 @@ export const MOBILE_CHROME_H_VAR = '--mobile-chrome-h';
 const RIENTRO = 8;
 /** Aria sopra le scatole, dentro la barra. */
 const SOPRA = 6;
+/** Altezza di un bottone della fila (h-11). Serve al calcolo della curvatura:
+ *  mezza altezza è il massimo raggio che quel bottone può portare. */
+const ALTEZZA = 44;
+/** Il raggio che ha un tasto quando l'arco non lo tocca — `rounded-xl`. */
+const RAGGIO_STANDARD = 12;
 
 const GLIFI: Record<string, LucideIcon> = { Kanban, LayoutGrid, List };
 /** Il glifo della board arriva da `PANE_CONFIG`, come per la riga della
@@ -73,7 +78,7 @@ export function MobileChromeBar({ onSearch, addSlot, boardInFront, onToggleBoard
   const { isMobile, keyboardVisible, safeAreaInsets } = useMobile();
   const barraRef = useRef<HTMLDivElement>(null);
   const slotRefs = useRef<Array<HTMLDivElement | null>>([]);
-  const [alzate, setAlzate] = useState<number[]>([]);
+  const [forme, setForme] = useState<FormaScatola[]>([]);
 
   const attivo = isMobile && !keyboardVisible;
 
@@ -94,25 +99,36 @@ export function MobileChromeBar({ onSearch, addSlot, boardInFront, onToggleBoard
       safeAreaInsets.bottom,
       parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--screen-corner-radius')),
     );
-    const prossime = alzateFila({
+    const prossime = formaFila({
       larghezza: largo,
       scatole,
       raggio,
       pavimento: pavimentoFila(safeAreaInsets.bottom),
+      altezza: ALTEZZA,
+      standard: RAGGIO_STANDARD,
     });
-    setAlzate((prec) => (
-      prec.length === prossime.length && prec.every((v, i) => v === prossime[i]) ? prec : prossime
+    setForme((prec) => (
+      prec.length === prossime.length
+        && prec.every((v, i) => v.alzata === prossime[i].alzata && v.curvatura === prossime[i].curvatura && v.lato === prossime[i].lato)
+        ? prec
+        : prossime
     ));
   }, [safeAreaInsets.bottom]);
 
   useLayoutEffect(() => {
     if (!attivo) return;
     misura();
+    // `resize` E l'osservatore, non uno solo. L'osservatore vede cambiare la
+    // SCATOLA della barra; il raggio dello schermo invece arriva da una
+    // variabile CSS (`--screen-corner-radius`), e cambiarla non muove nessuna
+    // scatola — senza l'ascolto diretto, una shell che dichiara il raggio dopo
+    // il montaggio non farebbe ricalcolare niente.
+    window.addEventListener('resize', misura);
     const barra = barraRef.current;
-    if (!barra || typeof ResizeObserver === 'undefined') return;
+    if (!barra || typeof ResizeObserver === 'undefined') return () => window.removeEventListener('resize', misura);
     const ro = new ResizeObserver(() => misura());
     ro.observe(barra);
-    return () => ro.disconnect();
+    return () => { ro.disconnect(); window.removeEventListener('resize', misura); };
   }, [attivo, misura]);
 
   // L'altezza pubblicata. Zero quando la barra non c'è — così la banda
@@ -126,11 +142,16 @@ export function MobileChromeBar({ onSearch, addSlot, boardInFront, onToggleBoard
     const h = barraRef.current?.getBoundingClientRect().height ?? 0;
     radice.style.setProperty(MOBILE_CHROME_H_VAR, `${Math.round(h)}px`);
     return () => radice.style.setProperty(MOBILE_CHROME_H_VAR, '0px');
-  }, [attivo, alzate]);
+  }, [attivo, forme]);
 
   if (!attivo) return null;
 
-  const massima = alzate.length ? Math.max(...alzate) : pavimentoFila(safeAreaInsets.bottom);
+  const massima = forme.length
+    ? Math.max(...forme.map((f) => f.alzata))
+    : pavimentoFila(safeAreaInsets.bottom);
+  // Prima della prima misura non si inventa una curva: raggio standard e
+  // pavimento minimo, cioè la fila dritta di uno schermo squadrato.
+  const forma = (i: number): FormaScatola => forme[i] ?? { alzata: 10, curvatura: RAGGIO_STANDARD, lato: null };
 
   return (
     <div
@@ -157,22 +178,25 @@ export function MobileChromeBar({ onSearch, addSlot, boardInFront, onToggleBoard
           come prop è la mutazione di un argomento, e il cancello del lint la
           ferma — giustamente, perché renderebbe la misura di questa fila una
           cosa che un altro componente può rompere da fuori. */}
-      <div ref={(n) => { slotRefs.current[0] = n; }} className="flex" style={{ marginBottom: alzate[0] ?? 10 }}>
-        <BottoneFila etichetta="Cerca" onClick={onSearch} testId="mobile-chrome-search">
+      <div ref={(n) => { slotRefs.current[0] = n; }} className="flex" style={{ marginBottom: forma(0).alzata }}>
+        <BottoneFila etichetta="Cerca" onClick={onSearch} testId="mobile-chrome-search" forma={forma(0)}>
           <Search size={22} aria-hidden="true" />
         </BottoneFila>
       </div>
 
-      <div ref={(n) => { slotRefs.current[1] = n; }} className="flex" style={{ marginBottom: alzate[1] ?? 10 }}>
+      {/* Il «+» sta in mezzo, dove nessun bordo arriva: il suo raggio è quello
+          standard di `triggerVariant="bar"` e non c'è niente da passargli. */}
+      <div ref={(n) => { slotRefs.current[1] = n; }} className="flex" style={{ marginBottom: forma(1).alzata }}>
         {addSlot}
       </div>
 
-      <div ref={(n) => { slotRefs.current[2] = n; }} className="flex" style={{ marginBottom: alzate[2] ?? 10 }}>
+      <div ref={(n) => { slotRefs.current[2] = n; }} className="flex" style={{ marginBottom: forma(2).alzata }}>
         <BottoneFila
           etichetta={boardInFront ? 'Tab' : 'Board'}
           onClick={onToggleBoard}
           attivo={boardInFront}
           testId="mobile-chrome-board"
+          forma={forma(2)}
           // Il tasto dice DOVE PORTA, e lo dice anche a chi non vede: con la
           // board davanti porta indietro alla lista, altrimenti alla board.
           titolo={boardInFront ? 'Torna alla lista delle tab' : 'Apri la Kanban'}
@@ -192,14 +216,29 @@ export function MobileChromeBar({ onSearch, addSlot, boardInFront, onToggleBoard
  * sono un indovinello — è la ragione per cui `PaneAddMenu` ha `triggerLabel` —
  * e qui le stanze sono tre, di cui una cambia faccia: senza la parola,
  * «Board»/«Tab» sarebbero due glifi che si alternano senza dire perché.
+ *
+ * ── HANNO LA FACCIA DI UN TASTO, NON DI UN LINK ────────────────────────────
+ * `raised-control` + `edge-lit`, cioè la pelle che porta ogni comando
+ * dell'app: campitura di un gradino sopra il fondo e il filo di luce in cima.
+ * Nascevano piatti — colore solo sotto il dito — e un comando che si vede solo
+ * mentre lo premi è un comando che non si trova (Attilio: «i tasti devono
+ * avere il design classico dei tasti, come il + che c'era»).
+ *
+ * ── E L'ANGOLO ESTERNO SEGUE L'ARCO DELLO SCHERMO ──────────────────────────
+ * `forma.lato` dice quale dei due angoli bassi guarda il bordo tondo e
+ * `forma.curvatura` con che raggio, concentrico a quello del vetro. Va scritto
+ * INLINE e non come classe: è un numero che cambia col dispositivo e con la
+ * rotazione, e Tailwind compila le classi che vede nel sorgente. Il filo di
+ * `edge-lit` lo segue da sé — quel bordo eredita il raggio (`inherit`).
  */
-function BottoneFila({ etichetta, onClick, children, attivo, testId, titolo }: {
+function BottoneFila({ etichetta, onClick, children, attivo, testId, titolo, forma }: {
   etichetta: string;
   onClick: () => void;
   children: ReactNode;
   attivo?: boolean;
   testId?: string;
   titolo?: string;
+  forma: FormaScatola;
 }) {
   return (
     <button
@@ -209,12 +248,29 @@ function BottoneFila({ etichetta, onClick, children, attivo, testId, titolo }: {
       title={titolo ?? etichetta}
       aria-label={titolo ?? etichetta}
       aria-pressed={attivo}
-      className={`flex min-w-[64px] h-11 flex-col items-center justify-center gap-0.5 rounded-xl px-3 transition-colors ${
-        attivo ? `${SIDEBAR_ACTIVE} text-primary` : `${SIDEBAR_HOVER} text-app-text`
+      className={`edge-lit flex min-w-[64px] h-11 flex-col items-center justify-center gap-0.5 px-3 transition-colors ${
+        attivo ? `${SIDEBAR_ACTIVE} text-primary` : `${RAISED_CONTROL} text-app-text`
       }`}
+      style={angoliFila(forma)}
     >
       {children}
       <span className="text-[10px] font-medium leading-none">{etichetta}</span>
     </button>
   );
+}
+
+/**
+ * I quattro raggi di un tasto della fila.
+ *
+ * Solo l'angolo BASSO esterno cambia: è l'unico che incontra il vetro tondo.
+ * Alzare anche quello in alto farebbe una goccia, e in cima non c'è nessun
+ * arco da seguire.
+ */
+function angoliFila({ curvatura, lato }: FormaScatola): { borderRadius: string } {
+  const s = `${RAGGIO_STANDARD}px`;
+  const c = `${curvatura}px`;
+  // Ordine CSS: alto-sinistra, alto-destra, basso-destra, basso-sinistra.
+  if (lato === 'sinistra') return { borderRadius: `${s} ${s} ${s} ${c}` };
+  if (lato === 'destra') return { borderRadius: `${s} ${s} ${c} ${s}` };
+  return { borderRadius: s };
 }
