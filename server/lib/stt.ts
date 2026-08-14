@@ -547,7 +547,18 @@ export async function transcribe(audio: SttAudio, deps: SttDeps): Promise<SttRes
         durationMs: now() - started,
       };
     } catch (err) {
-      attempts.push({ provider: provider.id, error: err instanceof Error ? err.message : String(err) });
+      const motivo = err instanceof Error ? err.message : String(err);
+      attempts.push({ provider: provider.id, error: motivo });
+      // UN PROVIDER CHE CADE SI DICE, anche quando il successivo salva il giro.
+      //
+      // Questo `catch` teneva l'errore dentro `attempts`, che viene mostrato
+      // SOLO se falliscono tutti. Con una cascata che funziona, il primo
+      // provider poteva essere rotto per giorni senza che nessuno lo sapesse:
+      // misurato il 14/08, `capabilities` annunciava `elevenlabs/scribe_v2` e
+      // ogni trascrizione veniva servita da whisper locale, cioe' 4,6 secondi
+      // al posto di uno. Il fallback aveva nascosto il guasto invece di
+      // segnalarlo, ed e' il modo in cui una app diventa lenta senza una causa.
+      console.warn(`[stt] provider ${provider.id} caduto, passo al successivo: ${motivo.slice(0, 200)}`);
     }
   }
   throw new SttError(
