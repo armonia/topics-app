@@ -14,6 +14,7 @@ import { cancelled, type TurnEndInfo } from "../providers/stop-reason";
 import { beginAsk, endAsk } from "../lib/ask-user-bridge";
 import { beginPermission, endPermission } from "../lib/permission-bridge";
 import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL } from "../db/test-schema";
+import { createTaskAttemptStore } from "./task-attempts";
 
 // Lo schema di `tasks` arriva da TASKS_DDL: è la catena delle migration, e una
 // colonna nuova non fa più rosso QUI alla fusione. PRAGMA foreign_keys e la FK
@@ -35,7 +36,18 @@ function freshDb(): Database {
     dispatch_use_worktree INTEGER NOT NULL DEFAULT 1, dispatch_timeout_min INTEGER NOT NULL DEFAULT 20,
     dispatch_mcp TEXT,
     dispatch_retry_cap INTEGER, dispatch_retry_backoff_s INTEGER,
-    max_agents_auto INTEGER
+    max_agents_auto INTEGER, dispatch_fanout INTEGER
+  )`);
+  // I tentativi in parallelo: servono al fan-out, che è l'unico posto in cui
+  // DUE sessioni vive convivono sullo stesso task.
+  db.run(`CREATE TABLE task_attempts (
+    id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    idx INTEGER NOT NULL, topic_id TEXT, worktree_id TEXT, branch TEXT, model TEXT,
+    state TEXT NOT NULL DEFAULT 'running', commit_sha TEXT, files_changed INTEGER,
+    insertions INTEGER, deletions INTEGER, summary TEXT, error TEXT,
+    agent_ms INTEGER NOT NULL DEFAULT 0, agent_tokens INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL, ended_at TEXT, selected_at TEXT,
+    UNIQUE (task_id, idx)
   )`);
   db.run(`CREATE TABLE task_comments (
     id TEXT PRIMARY KEY, task_id TEXT NOT NULL, author TEXT NOT NULL DEFAULT 'user',
@@ -83,6 +95,10 @@ function harness(overrides: Partial<DispatcherDeps> = {}) {
 
   const deps: DispatcherDeps = {
     svc,
+    // Lo store dei tentativi c'è sempre: senza, il fan-out non è nemmeno
+    // raggiungibile da un test, ed è l'unico posto in cui due sessioni vive
+    // convivono su un task.
+    attempts: createTaskAttemptStore(db),
     resolveProject: () => ({ path: "/Users/x/Projects/alpha", projectStoreId: "store-1" }),
     createTopic: (opts) => {
       topicsCreated.push({ name: opts.name, projectPath: opts.projectPath, worktreeId: opts.worktreeId, effort: opts.effort, model: opts.model, standalone: opts.standalone });
@@ -543,6 +559,155 @@ describe("task-dispatcher", () => {
     expect(t.agentMs).toBeGreaterThanOrEqual(0);
     // The metric update is broadcast so the open drawer refreshes live.
     expect(h.events.some((e) => e.type === "task:updated" && e.task?.agentTokens === 1234)).toBe(true);
+  });
+
+  // ── Il conto dei token: assoluto, monotono, per sessione ──────────────────
+  //
+  // I tre casi qui sotto sono quelli che un avversario ha MISURATO sul primo
+  // tentativo di correzione, e che l'hanno mandato indietro. Sono scritti come
+  // comportamento (che numero deve avere la card) e non come meccanismo, così
+  // restano validi se il meccanismo cambia ancora.
+
+  /** Una lettura di transcript, con i soli campi che il conto guarda. */
+  const reading = (billable: number, cacheRead = 0) => ({
+    inputTokens: 0, outputTokens: 0, cacheWriteTokens: 0, cacheWrite1hTokens: 0,
+    cacheReadTokens: cacheRead, billableTokens: billable,
+  });
+
+  it("un turno SEPOLTO a metà non porta via i suoi token: li recupera il turno dopo", async () => {
+    // Il guasto misurato: 884 token in tabella contro 188.936 nel transcript.
+    // Un run che la rete di liveness seppellisce esce PRIMA di contabilizzare,
+    // e il turno dopo si ri-ancora su una lettura più avanti — quindi quei
+    // token non li scrive più nessuno. Col totale assoluto il buco si richiude
+    // da solo: il secondo turno porta un totale che li contiene già.
+    let usage = reading(0);
+    const h = harness({ livenessGraceMs: 0, isTurnAlive: () => false, getSessionUsage: () => usage });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchRetryCap: 3 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    usage = reading(40_000);            // il primo turno ha bruciato 40k…
+    await h.dispatcher.reconcile();     // …e la rete lo seppellisce (due sweep)
+    await flush();
+    await h.dispatcher.reconcile();
+    await flush();
+    expect(h.task("t1")!.agentTokens).toBe(40_000);
+
+    usage = reading(90_000);            // il turno di recupero ne brucia altri 50k
+    h.finishTurn();
+    await flush();
+    // 90k, non 50k: il totale è quello della sessione, non la somma dei delta
+    // che qualcuno è riuscito a scrivere.
+    expect(h.task("t1")!.agentTokens).toBe(90_000);
+  });
+
+  it("una lettura che CROLLA a zero non azzera il conto e non lo raddoppia", async () => {
+    // `getSessionUsage` che non riesce a leggere (transcript ruotato, riga
+    // assente) rispondeva zero, indistinguibile da «non ha consumato niente».
+    // Col delta e il clamp, il crollo valeva 0 e la risalita valeva TUTTO da
+    // capo: 40k + 90k = 130k su 90k davvero bruciati.
+    let usage: ReturnType<typeof reading> | undefined = reading(0);
+    const h = harness({ livenessGraceMs: 0, isTurnAlive: () => false, getSessionUsage: () => usage as never });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchRetryCap: 5 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    // La rete chiude un turno ogni due sweep, sempre sulla STESSA sessione.
+    const chiudiUnTurno = async () => {
+      await h.dispatcher.reconcile(); await flush();
+      await h.dispatcher.reconcile(); await flush();
+    };
+
+    usage = reading(40_000);
+    await chiudiUnTurno();
+    expect(h.task("t1")!.agentTokens).toBe(40_000);
+
+    usage = undefined;                 // la lettura non c'è: non si sa
+    await chiudiUnTurno();
+    expect(h.task("t1")!.agentTokens).toBe(40_000);   // non azzerato
+
+    usage = reading(90_000);           // e quando torna, il totale è quello vero
+    await chiudiUnTurno();
+    expect(h.task("t1")!.agentTokens).toBe(90_000);   // non 130.000
+  });
+
+  it("DUE sessioni vive sullo stesso task si SOMMANO (il fan-out), non si sovrascrivono", async () => {
+    // Il caso che ha demolito il primo tentativo: con UNA sola ancora per task,
+    // la seconda sessione riusa l'ancoraggio della prima e il totale collassa
+    // sul massimo invece di essere la somma — 40.000 bruciati che spariscono.
+    // Il fan-out è il posto in cui la situazione è NORMALE e non un incidente:
+    // N agenti, N sessioni, un task solo.
+    const usage = new Map<string, ReturnType<typeof reading>>([
+      ["topic:sk1", reading(0)], ["topic:sk2", reading(0)],
+    ]);
+    const finiti: (() => void)[] = [];
+    const h = harness({
+      getSessionUsage: (k) => usage.get(k) as never,
+      runTurn: (sessionKey) => new Promise<void>((res) => {
+        finiti.push(() => res());
+        // Ogni tentativo brucia sulla SUA sessione, e i due numeri sono diversi
+        // apposta: se uno soppiantasse l'altro, il totale sarebbe 50.000.
+        usage.set(sessionKey, reading(sessionKey.endsWith("1") ? 40_000 : 50_000));
+      }),
+    });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchFanOut: 2 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(finiti.length).toBe(2);          // due sessioni vive insieme
+    for (const f of finiti) f();
+    await flush(20);
+
+    expect(h.task("t1")!.agentTokens).toBe(90_000);
+  });
+
+  it("un ancoraggio non si prende su una lettura FALLITA: sarebbe un doppio conteggio", async () => {
+    // 80.000 al posto di 40.000, misurato dall'avversario sul primo tentativo.
+    // La card porta già 40.000 (turni di prima, in tabella). Se l'ancoraggio si
+    // prende mentre il transcript non si legge — e la lettura fallita valeva
+    // ZERO, indistinguibile da «non ha consumato niente» — l'offset resta 0 su
+    // una base che quei token li contiene già, e alla lettura buona il conto li
+    // somma una seconda volta. Il pavimento MAX non protegge: il numero gonfio
+    // è il più grande, quindi vince.
+    let usage: ReturnType<typeof reading> | undefined;   // il transcript non si legge
+    const h = harness({ livenessGraceMs: 0, isTurnAlive: () => false, getSessionUsage: () => usage as never });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchRetryCap: 5 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    h.svc.recordAgentUsage({ taskId: "t1", addMs: 0, addTokens: 40_000, addCacheReadTokens: 0 });
+
+    await h.dispatcher.tick(PID);      // il turno parte SENZA poter leggere
+    await flush();
+    usage = reading(40_000);           // la lettura torna: è il totale di sempre
+    await h.dispatcher.reconcile(); await flush();
+    await h.dispatcher.reconcile(); await flush();
+
+    expect(h.task("t1")!.agentTokens).toBe(40_000);   // non 80.000
+  });
+
+  it("anche un turno ADOTTATO dal broker scrive i suoi token", async () => {
+    // Il reattach è uno dei tre posti in cui si contabilizza, ed era quello
+    // senza nessun test: toglierne la scrittura lasciava la suite verde.
+    let usage = reading(0);
+    let closeReattach: (() => void) | null = null;
+    const h = harness({
+      topicExists: () => true,
+      hasLiveSession: async () => true,
+      getSessionUsage: () => usage,
+      reattach: () => new Promise<void>((res) => { closeReattach = () => res(); }),
+    });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "in_progress", assignedTopicId: "topic-live", attempts: 1, dispatchState: "working" });
+
+    await h.dispatcher.reconcile();
+    await flush();
+    usage = reading(12_345, 6_000);
+    closeReattach!();
+    await flush();
+
+    expect(h.task("t1")!.agentTokens).toBe(12_345);
+    expect(h.task("t1")!.agentCacheReadTokens).toBe(6_000);
   });
 
   it("leaves a task alone when the turn ends in review", async () => {
