@@ -39,6 +39,9 @@ const DEFAULT_ORPHAN_GRACE: Duration = Duration::from_secs(90);
 // because it fires on a LIVE parent too, and must never race a server that is
 // merely idle between turns.
 const DEFAULT_IDLE_EXIT: Duration = Duration::from_secs(30 * 60);
+// How long a connection must persist before it counts as "the server came back"
+// rather than a single-instance probe. See spawn_orphan_monitor().
+const DEFAULT_REAL_CLIENT: Duration = Duration::from_secs(5);
 
 // A trivially-exiting program used by the self-test and single-instance spawn-probe.
 // `/bin/sh -c :` is the most portable choice on unix — /bin/sh is guaranteed on
@@ -91,6 +94,7 @@ fn real_home() -> String {
 
 struct Shared {
     clients: Mutex<HashMap<u64, UnixStream>>, // write-capable clones, keyed by client id
+    connected_at: Mutex<HashMap<u64, Instant>>, // when each client attached: a probe is not a server
     sessions: Mutex<HashMap<String, Session>>,
     socket_path: PathBuf,
     pid_path: PathBuf,
@@ -637,7 +641,18 @@ fn spawn_orphan_monitor(shared: Arc<Shared>, initial_ppid: i32, parent_pid: Opti
     thread::spawn(move || {
         let grace = window_from_env("TOPICS_PTY_BRIDGE_ORPHAN_GRACE_MS", DEFAULT_ORPHAN_GRACE);
         let tick = (grace / 2).clamp(Duration::from_millis(200), Duration::from_secs(5));
+        // A PROBE IS NOT A SERVER. check_existing_bridge() of every bridge that tries
+        // to be born connects here, waits for a pong and closes: about a second. The
+        // monitor used to clear the deadline on ANY connection, so anything that kept
+        // trying to spawn kept an orphan immortal. Measured 2026-08-14 on the ai-bridge
+        // twin, which alternated "Parent died … exit in 90s" and "Server reconnected"
+        // forever with a dead parent and zero peers on the socket. Only a client
+        // attached for at least REAL_CLIENT is a reattached server — and it is measured
+        // per connection: two different probes on two consecutive ticks are not one
+        // server that stayed.
+        let real_client = window_from_env("TOPICS_PTY_BRIDGE_REAL_CLIENT_MS", DEFAULT_REAL_CLIENT);
         let mut deadline: Option<Instant> = None;
+        let mut extended = false;
         loop {
             thread::sleep(tick);
             let orphaned = match parent_pid {
@@ -646,30 +661,50 @@ fn spawn_orphan_monitor(shared: Arc<Shared>, initial_ppid: i32, parent_pid: Opti
             };
             if !orphaned {
                 deadline = None;
+                extended = false;
                 continue;
             }
-            if !shared.clients.lock_ok().is_empty() {
+            let now = Instant::now();
+            // A reattached server stays connected: someone here for REAL_CLIENT means
+            // we are not abandoned, and only that clears the deadline.
+            let settled = shared
+                .connected_at
+                .lock_ok()
+                .values()
+                .any(|since| now.duration_since(*since) >= real_client);
+            if settled {
                 if deadline.take().is_some() {
                     eprintln!("[PTY Bridge] Server reconnected after parent death — staying alive, PTYs preserved.");
+                    extended = false;
                 }
                 continue;
             }
-            match deadline {
+            let expired = match deadline {
                 None => {
-                    deadline = Some(Instant::now() + grace);
+                    deadline = Some(now + grace);
                     let was = parent_pid.unwrap_or(initial_ppid);
                     eprintln!(
                         "[PTY Bridge] Parent died (was {was}) and no server connected — will exit in {}s unless one reconnects.",
                         grace.as_secs()
                     );
+                    continue;
                 }
-                Some(d) => {
-                    if Instant::now() >= d {
-                        eprintln!("[PTY Bridge] No server reconnected within grace window — app likely quit, shutting down.");
-                        shutdown(&shared);
-                    }
-                }
+                Some(d) => now >= d,
+            };
+            if !expired {
+                continue;
             }
+            if !shared.clients.lock_ok().is_empty() && !extended {
+                // Expired with someone freshly attached: it may be a server in the
+                // middle of reattaching, so grant ONE extension — long enough for it
+                // to become `settled`. After that we leave anyway, otherwise
+                // overlapping probes would buy an orphan immortality.
+                extended = true;
+                deadline = Some(now + real_client * 2);
+                continue;
+            }
+            eprintln!("[PTY Bridge] No server reconnected within grace window — app likely quit, shutting down.");
+            shutdown(&shared);
         }
     });
 }
@@ -772,6 +807,7 @@ pub fn run() {
 
     let shared = Arc::new(Shared {
         clients: Mutex::new(HashMap::new()),
+        connected_at: Mutex::new(HashMap::new()),
         sessions: Mutex::new(HashMap::new()),
         socket_path,
         pid_path,
@@ -802,6 +838,7 @@ pub fn run() {
         // one, which then just loses output instead of taking the app down.
         let _ = write_half.set_write_timeout(Some(Duration::from_secs(2)));
         shared.clients.lock_ok().insert(cid, write_half);
+        shared.connected_at.lock_ok().insert(cid, Instant::now());
         eprintln!(
             "[PTY Bridge] Client connected ({} total)",
             shared.clients.lock_ok().len()
@@ -810,6 +847,7 @@ pub fn run() {
         thread::spawn(move || {
             handle_client(cid, stream, &sh);
             sh.clients.lock_ok().remove(&cid);
+            sh.connected_at.lock_ok().remove(&cid);
             eprintln!(
                 "[PTY Bridge] Client disconnected ({} remaining)",
                 sh.clients.lock_ok().len()
