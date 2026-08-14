@@ -45,6 +45,14 @@ describe("vaCompressa", () => {
     expect(vaCompressa({ ...base, contentEncoding: "gzip" })).toBe(false);
   });
 
+  test("NO sugli stati senza corpo: ricostruirli sarebbe un 500", () => {
+    for (const stato of [101, 204, 205, 304]) {
+      expect(vaCompressa({ ...base, stato })).toBe(false);
+    }
+    expect(vaCompressa({ ...base, stato: 200 })).toBe(true);
+    expect(vaCompressa({ ...base, stato: 500 })).toBe(true);
+  });
+
   test("NO sotto un MTU: non si risparmia nemmeno un viaggio", () => {
     expect(vaCompressa({ ...base, byte: SOGLIA_BYTE - 1 })).toBe(false);
     expect(vaCompressa({ ...base, byte: SOGLIA_BYTE })).toBe(true);
@@ -108,6 +116,15 @@ describe("comprimiJson", () => {
     const out = await comprimiJson(reqJson(), resJson(piccola), true);
     expect(out.headers.get("Content-Encoding")).toBeNull();
     expect(await out.json()).toEqual(piccola);
+  });
+
+  test("un 304 esce intatto: nessuna intestazione che parli di un corpo che non c e", async () => {
+    const notModified = new Response(null, { status: 304, headers: { "Content-Type": "application/json" } });
+    const out = await comprimiJson(reqJson(), notModified, true);
+    expect(out).toBe(notModified);
+    expect(out.status).toBe(304);
+    expect(out.headers.get("Content-Encoding")).toBeNull();
+    expect(out.headers.get("Content-Length")).toBeNull();
   });
 
   test("lo streaming passa senza essere toccato", async () => {

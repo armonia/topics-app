@@ -52,6 +52,9 @@ export const SOGLIA_BYTE = 1400;
  */
 type Byte = Uint8Array<ArrayBuffer>;
 
+/** Gli stati che per specifica non possono avere un corpo. */
+const SENZA_CORPO = new Set([101, 204, 205, 304]);
+
 /**
  * Questa risposta va compressa?
  *
@@ -61,6 +64,7 @@ type Byte = Uint8Array<ArrayBuffer>;
  */
 export function vaCompressa(args: {
   metodo: string;
+  stato?: number;
   acceptEncoding: string | null;
   contentType: string | null;
   contentEncoding: string | null;
@@ -73,6 +77,12 @@ export function vaCompressa(args: {
   const soglia = args.soglia ?? SOGLIA_BYTE;
   if (!args.remoto) return false;
   if (args.metodo === "HEAD") return false;
+  // Gli stati che per specifica NON hanno corpo. Su Bun ricostruirli non lancia
+  // (verificato: `new Response(new Uint8Array(0), {status: 304})` passa), quindi
+  // oggi il ramo sarebbe innocuo — ma un 304 riscritto con `Content-Length: 20`
+  // e `Content-Encoding: gzip` racconterebbe di un corpo che non c'è, e questa
+  // funzione gira su OGNI risposta del server. Si esce prima e non se ne parla.
+  if (args.stato !== undefined && SENZA_CORPO.has(args.stato)) return false;
   if (args.contentEncoding) return false;
   if (!(args.contentType ?? "").toLowerCase().startsWith("application/json")) return false;
   // `gzip` come token, non come sottostringa: `Accept-Encoding: gzipx` non è gzip,
@@ -98,6 +108,7 @@ export async function comprimiJson(
 ): Promise<Response> {
   const primoVaglio = vaCompressa({
     metodo: req.method,
+    stato: res.status,
     acceptEncoding: req.headers.get("accept-encoding"),
     contentType: res.headers.get("content-type"),
     contentEncoding: res.headers.get("content-encoding"),
