@@ -105,6 +105,12 @@ const ENV_ALLOWLIST = new Set([
   "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME",
   "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY",
   "http_proxy", "https_proxy", "no_proxy", "all_proxy",
+  // Credenziali degli agenti ACP noti. Senza queste il child parte e muore al
+  // primo turno con un errore di autenticazione: `gemini` legge la chiave da
+  // `GEMINI_API_KEY` (o dalle credenziali Google se si è fatto il login
+  // interattivo, che invece stanno in ~/.gemini e passano già da HOME).
+  "GEMINI_API_KEY", "GOOGLE_API_KEY",
+  "GOOGLE_APPLICATION_CREDENTIALS", "GOOGLE_CLOUD_PROJECT",
 ]);
 
 // ============ Stato per sessione ============

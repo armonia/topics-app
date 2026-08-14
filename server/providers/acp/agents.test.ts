@@ -12,7 +12,7 @@ import { KNOWN_ACP_AGENTS, mergeAcpAgents, parseAcpAgentsEnv } from "./agents";
 describe("KNOWN_ACP_AGENTS", () => {
   test("contiene solo agenti di cui conosciamo davvero la riga di comando", () => {
     expect(KNOWN_ACP_AGENTS.map((a) => a.name)).toEqual(["gemini"]);
-    expect(KNOWN_ACP_AGENTS[0]).toEqual({ name: "gemini", command: "gemini", args: ["--experimental-acp"] });
+    expect(KNOWN_ACP_AGENTS[0]).toEqual({ name: "gemini", command: "gemini", args: ["--acp"] });
   });
 });
 
