@@ -1,0 +1,16 @@
+{
+  "$schema": "ink-budget-v1",
+  "why": "Click -> ink: the milliseconds between the gesture and the first frame that has PAINTED the answer. One threshold, written once, for the three most frequent gestures. Measured by tests/e2e/ink-latency.spec.ts, judged by scripts/check-ink-latency.ts. Nothing else may hold a copy of these numbers.",
+  "budget": {
+    "medianMs": 100,
+    "maxMs": 250,
+    "rationale": "100ms is the ceiling under which a response to a direct gesture is read as instantaneous rather than as a delay; past it the app stops feeling like a surface being manipulated. It is one number for all three gestures on purpose: a per-gesture budget fitted to today's measurement would have to be re-fitted on every machine, and would turn ordinary scheduling noise into red. The median says 'how long it usually takes'; the max says 'and no single one of them stalled', which is the half a median cannot see - the defect this budget was written after was one sample at 196ms among four at 13ms."
+  },
+  "baseline": {
+    "measuredOn": "2026-08-14",
+    "how": "5 samples per gesture, headless Chromium 1280x800, isolated test server, Apple Silicon. Four consecutive runs.",
+    "card": { "medianMs": 23.5, "spreadMs": "23.3-23.9", "what": "click a board card -> its title is readable in the task drawer" },
+    "tab": { "medianMs": 14.6, "spreadMs": "13.7-14.9", "what": "click another pane tab -> that chat's own message is readable", "note": "the first switch to a pane costs ~40ms; every later one is ~14ms" },
+    "send": { "medianMs": 12.4, "spreadMs": "10.2-15.7", "what": "press Enter in the composer -> the sent message is readable in the list" }
+  }
+}
