@@ -39,6 +39,17 @@ jobs:
       - name: Rebuild node-pty (Linux)
         run: npm rebuild node-pty
 
+      # `--ignore-scripts` qui sopra non salta solo i postinstall delle
+      # dipendenze: salta anche quello della RADICE, che e'
+      # `bun run scripts/fix-node-pty-exec-bit.ts`. E quel bit serve davvero: il
+      # tarball di node-pty spedisce gli `spawn-helper` a 644 (verificato con
+      # `npm pack`), nessuno script del pacchetto li chmoda, e `npm rebuild`
+      # ricostruisce `build/Release` senza toccare i `prebuilds/`. Su questa
+      # macchina sono 755 solo perche' il postinstall gira; sul runner no, e il
+      # test «ogni spawn-helper di node-pty e' eseguibile» diventava rosso.
+      - name: Rimetti il bit +x sugli spawn-helper (il postinstall e' stato saltato)
+        run: bun run scripts/fix-node-pty-exec-bit.ts
+
       - name: Install client deps
         run: bun install --frozen-lockfile
         working-directory: client

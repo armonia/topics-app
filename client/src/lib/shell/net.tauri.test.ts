@@ -24,17 +24,12 @@
  */
 import { describe, test, expect, beforeAll, beforeEach, afterEach, afterAll, mock } from 'bun:test';
 
-// DEVE stare prima di qualunque `import('./net')`: sostituisce il modulo che
-// espone `isTauri` nel registry, e Bun ricollega i dipendenti già caricati (le
-// import ESM sono binding vivi, quindi `serverHttpBase()` legge il valore nuovo).
-// Senza questo il ramo Tauri è irraggiungibile sotto `bun test`, dove i global di
-// Tauri non esistono e `shellKind` si fissa a 'web' al caricamento.
-mock.module('./index', () => ({
-  isTauri: true,
-  isDesktop: true,
-  shellKind: 'tauri' as const,
-  detectShell: () => 'tauri' as const,
-}));
+/**
+ * Il modulo VERO, fotografato PRIMA di sostituirlo: è l'unico modo di rimetterlo
+ * a posto (vedi `afterAll`). La copia dev'essere PIATTA — la namespace ESM è
+ * viva, e tenerne il riferimento vorrebbe dire rileggere i valori finti.
+ */
+let realIndex: Record<string, unknown>;
 
 const PROXY = 'http://127.0.0.1:13333';
 
@@ -76,6 +71,20 @@ beforeAll(async () => {
   w.window = { fetch: makeSpy(), EventSource: undefined };
   w.fetch = (w.window as { fetch: unknown }).fetch;
 
+  // DEVE stare prima di qualunque `import('./net')`: sostituisce nel registry il
+  // modulo che espone `isTauri`, e Bun ricollega i dipendenti già caricati (le
+  // import ESM sono binding vivi, quindi `serverHttpBase()` legge il valore
+  // nuovo). Senza questo il ramo Tauri è irraggiungibile sotto `bun test`, dove
+  // i global di Tauri non esistono e `shellKind` si fissa a 'web'.
+  realIndex = { ...(await import('./index')) };
+  mock.module('./index', () => ({
+    ...realIndex,
+    isTauri: true,
+    isDesktop: true,
+    shellKind: 'tauri' as const,
+    detectShell: () => 'tauri' as const,
+  }));
+
   net = await loadNet();
   // Se questo fallisce il mock non ha preso, e ogni test sotto sarebbe verde per
   // il motivo sbagliato: starebbe esercitando il ramo web.
@@ -105,6 +114,18 @@ afterEach(() => {
 // finiva nella spia di QUESTO file. Da soli i due file erano verdi: il rosso
 // nasceva solo dall'ordine. Rimettere i global veri è il fix strutturale.
 afterAll(() => {
+  // `mock.restore()` NON ritira un `mock.module` — misurato su bun 1.3.8, e il
+  // commento qui sopra credeva il contrario. È il motivo per cui la sostituzione
+  // sopravviveva a questo file: l'unico modo di rimettere il modulo vero è
+  // ri-mockare con la fotografia presa prima.
+  //
+  // Costava due rossi che si vedevano SOLO su Linux, e non perché Linux c'entri:
+  // `bun test` esegue tutti i file in UN processo e l'ordine di scoperta dipende
+  // da come il filesystem enumera la cartella. Su APFS `focus.test.ts` girava
+  // prima e vedeva il modulo vero; sul runner girava dopo, leggeva
+  // `shellKind === 'tauri'` e `focusGateState()` rispondeva «pending» invece di
+  // «unavailable». Riprodotto qui invertendo l'ordine a mano.
+  mock.module('./index', () => realIndex);
   mock.restore();
   const w = globalThis as unknown as { window?: unknown; fetch?: unknown };
   w.fetch = realFetch;
