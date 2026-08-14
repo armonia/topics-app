@@ -88,6 +88,34 @@ function prova(cmd: string, args: string[]): string {
 }
 
 /**
+ * Gli account che NON sono il nome di nessuno.
+ *
+ * Su un runner di CI l'utente della macchina di build si chiama `runner`
+ * (ubuntu-latest), e nessuna delle altre fonti risponde: `id -F` è un'opzione
+ * BSD e su Linux fallisce, e `git config user.name` non lo imposta
+ * `actions/checkout`. Resta quindi «runner» come unico termine — sei caratteri,
+ * sopra la soglia — e la parola compare in 74 file tracciati (ci.yml,
+ * CONTRIBUTING.md, CHANGELOG.md…). Il cancello sarebbe diventato rosso per come
+ * si chiama l'utente della macchina di build, non per una fuga: il modo più
+ * rapido in cui un cancello proattivo viene disattivato da chi lo subisce.
+ *
+ * Non sono esenzioni sul CONTENUTO — nessun file viene perdonato. È il
+ * riconoscimento che questi nomi non appartengono a una persona, quindi non
+ * c'è niente da proteggere.
+ */
+const ACCOUNT_DI_SERVIZIO = new Set([
+  "runner", "ubuntu", "root", "admin", "build", "builder", "jenkins",
+  "circleci", "travis", "vsts", "vagrant", "docker", "codespace", "gitpod",
+  "github-actions", "actions", "nobody", "user", "test",
+]);
+
+/** Soglia, minuscolo, dedup e account di servizio: la regola in un posto solo. */
+export function filtraTermini(grezzi: string[]): string[] {
+  return [...new Set(grezzi.map((t) => t.trim().toLowerCase()))]
+    .filter((t) => t.length >= 4 && !ACCOUNT_DI_SERVIZIO.has(t));
+}
+
+/**
  * I termini da cercare, derivati a runtime. Mai scritti nel repo.
  *
  * Il nome completo si spezza anche nelle sue parti: «Nome Cognome» compare
@@ -124,7 +152,7 @@ export function terminiPersonali(): string[] {
   // Dedup, soglia, minuscolo: il confronto è insensibile alle maiuscole perché
   // il nome rientra tanto in prosa («Nome ha chiesto») quanto come valore di
   // test (`by: "nome"`).
-  return [...new Set(grezzi.map((t) => t.trim().toLowerCase()).filter((t) => t.length >= 4))];
+  return filtraTermini(grezzi);
 }
 
 function tracciati(): string[] {
@@ -159,7 +187,28 @@ describe("nessun dato personale in un file tracciato", () => {
     // Un cancello che non sa cosa cercare passa sempre. Questa è la guardia che
     // lo impedisce: su una macchina senza `id -F` e senza `.personal-terms` il
     // test diventa rosso qui, non verde a vuoto altrove.
+    //
+    // L'ECCEZIONE è una macchina di build, e non è un'attenuante: su un runner
+    // non c'è NESSUNA persona la cui identità vada protetta, quindi «zero
+    // termini» è la risposta giusta e non un guasto della derivazione. Il
+    // cancello sull'identità è locale per natura — vive dove il commit nasce —
+    // e lì la guardia resta durissima.
+    if (process.env.CI && termini.length === 0) {
+      expect(ACCOUNT_DI_SERVIZIO.has(userInfo().username.toLowerCase())).toBe(true);
+      return;
+    }
     expect(termini.length).toBeGreaterThan(0);
+  });
+
+  test("l'utente di una macchina di build non è il nome di nessuno", () => {
+    // Senza questo filtro `runner` sarebbe un termine personale e i 74 file
+    // tracciati che contengono la parola renderebbero rosso `bun test:unit` in
+    // ci.yml. Non se ne era accorto nessuno perché ci.yml non gira da settimane.
+    expect(filtraTermini(["runner"])).toEqual([]);
+    expect(filtraTermini(["Runner", "UBUNTU", "jenkins"])).toEqual([]);
+    // E il filtro non deve mangiarsi una persona che si chiama davvero così:
+    // resta una lista di account, non un elenco di parole vietate.
+    expect(filtraTermini(["runnerson"])).toEqual(["runnerson"]);
   });
 
   test("l'elenco dei file tracciati non è vuoto (guardia contro un verde a vuoto)", () => {
