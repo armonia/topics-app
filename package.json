@@ -52,6 +52,7 @@
     "check:deadcode": "bun run scripts/slot.ts check:deadcode -- './node_modules/.bin/knip-bun'",
     "check:deadcode-blindspots": "bun run scripts/check-deadcode-blindspots.ts",
     "check:previews": "bun run scripts/check-preview-evidence.ts",
+    "check:rotte": "bun run scripts/check-rotte.ts",
     "probe:stalls": "bun run scripts/stalled-parents.ts",
     "check:occlusion": "node scripts/check-occlusion.mjs",
     "check:bundle": "bun run scripts/check-bundle-size.ts",
