@@ -33,7 +33,7 @@
   "max_lines": 800,
   "min_clone_lines": 20,
   "files": {
-    "desktop-tauri/src-tauri/src/lib.rs": 11917,
+    "desktop-tauri/src-tauri/src/lib.rs": 11289,
     "server.ts": 4592,
     "server/services/tasks.ts": 3829,
     "server/providers/claude-code.ts": 3626,
