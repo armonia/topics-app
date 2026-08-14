@@ -1126,6 +1126,25 @@ function App() {
     handleOpenAsPage('board');
   }, [paneSpaceById, goToSpace, handleOpenAsPage]);
 
+  // La sezione «Board» della tray: una riga di stato apre QUEL task (stesso
+  // deep-link del click su una notifica, quindi stesso atterraggio), la testa
+  // della sezione apre la board dalla PORTA UNICA qui sopra — che è anche
+  // l'unica che porta la finestra nel gruppo dove la board vive. Il mestiere
+  // resta di qua: la tray dice COSA, il client sa COME.
+  useEffect(() => {
+    const onTask = (e: Event) => {
+      const taskId = (e as CustomEvent<{ taskId?: string }>).detail?.taskId;
+      if (taskId) openTaskInApp({ taskId });
+    };
+    const onBoard = () => { handleOpenBoard(); };
+    window.addEventListener('topics:tray-open-task', onTask as EventListener);
+    window.addEventListener('topics:tray-open-board', onBoard);
+    return () => {
+      window.removeEventListener('topics:tray-open-task', onTask as EventListener);
+      window.removeEventListener('topics:tray-open-board', onBoard);
+    };
+  }, [handleOpenBoard]);
+
   // L'INTERRUTTORE DELLA FILA IN BASSO — board ⇄ lista.
   //
   // «Davanti» vuol dire due cose insieme: la board è la pane a fuoco E il
