@@ -23,7 +23,7 @@
  *    the retry cap) or parks a task that ended without reaching `review`.
  */
 import { LAND_ACTION_LABEL, UNASSIGNED_PROJECT_ID, commentAsksHuman, type Task, type TaskService } from "./tasks";
-import { ZERO_USAGE, type SessionUsage } from "./transcript-usage";
+import { type SessionUsage } from "./transcript-usage";
 import { onHumanHoldChange } from "../lib/human-hold-events";
 import type { TaskAttemptStore } from "./task-attempts";
 import { attemptHasWork, formatFanoutComment } from "../../shared/task-attempt";
@@ -1097,6 +1097,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // saprebbe più quale topic ritirare.
     const boundTopicId = deps.svc.get(args.taskId)?.task?.assignedTopicId ?? null;
     const task = deps.svc.release(args);
+    // Il registro dei token vale finché il task è in mano al dispatcher: al
+    // rilascio le sue sessioni sono chiuse, e la base del prossimo giro va
+    // riletta dalla tabella (che nel frattempo le contiene tutte).
+    forgetUsage(args.taskId);
     if (boundTopicId) {
       // Best-effort: un topic che non si archivia non deve impedire il rilascio
       // del task — il task è la cosa che qualcun altro sta aspettando.
@@ -1116,21 +1120,117 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     if (t) { clearTimeout(t); graceTimers.delete(taskId); }
   }
 
-  /** Usage the session has consumed so far (best-effort, zeros when unknowable). */
-  function sessionUsage(sessionKey: string): SessionUsage {
-    try { return deps.getSessionUsage?.(sessionKey) ?? ZERO_USAGE; } catch { return ZERO_USAGE; }
+  /**
+   * Quanto la sessione ha consumato finora, oppure `null` se non si è potuto
+   * LEGGERE.
+   *
+   * La distinzione è l'origine di due guasti, non una raffinatezza: prima
+   * questa funzione rispondeva `ZERO_USAGE` sia quando la sessione non aveva
+   * consumato niente sia quando il transcript era irraggiungibile (ruotato,
+   * riga assente, eccezione), e da lì in poi nessuno dei due casi era più
+   * distinguibile. Un ancoraggio preso su uno zero FINTO manda l'offset a 0 su
+   * una base che quei token li contiene già — 80.000 al posto di 40.000,
+   * misurato dall'avversario. `null` è la sola risposta onesta, e chi la riceve
+   * fa l'unica cosa giusta: non muove il numero.
+   */
+  function sessionUsage(sessionKey: string): SessionUsage | null {
+    try {
+      const u = deps.getSessionUsage?.(sessionKey);
+      return u ?? null;
+    } catch { return null; }
   }
 
-  /** Book the turn's effort (wall-clock + usage delta) on the task and emit. */
-  function recordUsage(taskId: string, t0: number, usage0: SessionUsage, sessionKey: string): void {
+  // ── Il registro dei token: assoluto, monotono, per SESSIONE ────────────────
+  //
+  // Un task può bruciare token su più sessioni (il fan-out ne apre N, un
+  // retry ne apre un'altra) e ogni sessione ha il suo contatore, che parte da
+  // dove era quando questo task se l'è presa. Il registro tiene UNA riga per
+  // sessione: l'ancoraggio (la lettura al primo aggancio) e il massimo consumo
+  // visto da allora. Il totale del task è la somma delle righe più la base,
+  // cioè quello che il task aveva in tabella prima che il registro esistesse.
+  //
+  // Perché per sessione e non per task: con un solo slot, cambiare sessione
+  // RICREA l'ancoraggio, e uno zombie della sessione vecchia che si chiude
+  // durante un turno vivo lo sposta sotto i piedi di chi sta lavorando —
+  // 40.000 al posto di 90.000, misurato. Con una riga per sessione, ogni
+  // contatore si muove solo per conto proprio e solo verso l'alto.
+  interface SessionLedger { offset: SessionUsage; tokens: number; cacheRead: number; }
+  interface TaskLedger { base: number; baseCacheRead: number; sessions: Map<string, SessionLedger>; }
+  const usageLedgers = new Map<string, TaskLedger>();
+
+  /** Il registro non serve più quando il task esce dalle mani del dispatcher. */
+  function forgetUsage(taskId: string): void { usageLedgers.delete(taskId); }
+
+  /**
+   * La riga della sessione, creandola se manca. L'ancoraggio nasce QUI e solo
+   * qui, da una lettura RIUSCITA: è il punto che rende impossibile ri-ancorare
+   * su uno zero finto.
+   */
+  function usageRow(taskId: string, sessionKey: string, reading: SessionUsage): SessionLedger | null {
+    let ledger = usageLedgers.get(taskId);
+    if (!ledger) {
+      const t = deps.svc.get(taskId)?.task;
+      if (!t) return null;
+      ledger = { base: t.agentTokens ?? 0, baseCacheRead: t.agentCacheReadTokens ?? 0, sessions: new Map() };
+      usageLedgers.set(taskId, ledger);
+    }
+    let s = ledger.sessions.get(sessionKey);
+    if (!s) { s = { offset: reading, tokens: 0, cacheRead: 0 }; ledger.sessions.set(sessionKey, s); }
+    return s;
+  }
+
+  /**
+   * Aggancia la sessione all'INIZIO del turno e torna la lettura di partenza.
+   *
+   * L'ancoraggio va preso qui e non alla prima scrittura: se nascesse a fine
+   * turno, l'offset sarebbe la lettura di adesso e il turno appena consumato
+   * varrebbe zero — il conto resterebbe fermo per sempre. È lo stesso momento
+   * in cui il vecchio codice prendeva `usage0`, e la sola differenza è che
+   * adesso quel punto SOPRAVVIVE al turno.
+   */
+  function anchorUsage(taskId: string, sessionKey: string): SessionUsage | null {
+    if (!sessionKey) return null;
     try {
-      const u = sessionUsage(sessionKey);
-      emit(deps.svc.recordAgentUsage({
-        taskId,
-        addMs: Date.now() - t0,
-        addTokens: Math.max(0, u.billableTokens - usage0.billableTokens),
-        addCacheReadTokens: Math.max(0, u.cacheReadTokens - usage0.cacheReadTokens),
-      }));
+      const reading = sessionUsage(sessionKey);
+      if (!reading) return null;
+      usageRow(taskId, sessionKey, reading);
+      return reading;
+    } catch { return null; }
+  }
+
+  /**
+   * Porta il conto del task al totale che si sa calcolare adesso. Non somma un
+   * delta: ricalcola l'assoluto e lo passa al pavimento `MAX`, quindi chiamarla
+   * due volte non conta due volte, e non chiamarla affatto per un turno non
+   * perde quel turno — lo recupera la chiamata dopo.
+   */
+  function bookUsageFloor(taskId: string, sessionKey: string): void {
+    if (!sessionKey) return;
+    try {
+      const reading = sessionUsage(sessionKey);
+      if (!reading) return;                       // non si sa: non si muove niente
+      const s = usageRow(taskId, sessionKey, reading);
+      if (!s) return;
+      s.tokens = Math.max(s.tokens, reading.billableTokens - s.offset.billableTokens);
+      s.cacheRead = Math.max(s.cacheRead, reading.cacheReadTokens - s.offset.cacheReadTokens);
+      const ledger = usageLedgers.get(taskId)!;
+      let tokens = ledger.base;
+      let cacheRead = ledger.baseCacheRead;
+      for (const row of ledger.sessions.values()) { tokens += row.tokens; cacheRead += row.cacheRead; }
+      emit(deps.svc.raiseAgentUsage({ taskId, tokens, cacheReadTokens: cacheRead }));
+    } catch { /* metrics never break the loop */ }
+  }
+
+  /**
+   * Il tempo del turno, che è l'unica metà additiva.
+   *
+   * Il wall-clock è di CHI HA POSSEDUTO il turno e non si ricava da nessuna
+   * lettura di sessione: un run zombie porta i token (li ha bruciati), non
+   * l'attesa.
+   */
+  function recordTurnMs(taskId: string, t0: number): void {
+    try {
+      emit(deps.svc.recordAgentUsage({ taskId, addMs: Date.now() - t0, addTokens: 0, addCacheReadTokens: 0 }));
     } catch { /* metrics never break the loop */ }
   }
 
@@ -1143,14 +1243,19 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   // turn — the gaps between turns (queued / parked / asleep) are never counted.
   // `task:usage-live` is transient (never persisted); the card falls back to the
   // static agent_ms/agent_tokens chip the moment the turn ends.
-  interface LiveTurn { projectId: string; sessionKey: string; turnStartedAt: number; baseMs: number; baseTokens: number; usage0: SessionUsage; model: string | null; }
+  interface LiveTurn { projectId: string; sessionKey: string; turnStartedAt: number; baseMs: number; baseTokens: number; usage0: SessionUsage | null; model: string | null; }
   const liveTurns = new Map<string, LiveTurn>();
   let usageTicker: ReturnType<typeof setInterval> | null = null;
 
   function broadcastLiveUsage(): void {
     for (const [taskId, lt] of liveTurns) {
       let liveTokens = lt.baseTokens;
-      try { liveTokens = lt.baseTokens + Math.max(0, sessionUsage(lt.sessionKey).billableTokens - lt.usage0.billableTokens); } catch { /* keep base */ }
+      // Senza l'ancoraggio del turno o senza lettura, l'anteprima resta al
+      // valore di partenza: un numero inventato dal vivo si vede.
+      try {
+        const now = sessionUsage(lt.sessionKey);
+        if (now && lt.usage0) liveTokens = lt.baseTokens + Math.max(0, now.billableTokens - lt.usage0.billableTokens);
+      } catch { /* keep base */ }
       try {
         deps.broadcast({
           type: "task:usage-live", projectId: lt.projectId, taskId,
@@ -1160,7 +1265,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     }
   }
 
-  function startLiveTurn(task: Task, sessionKey: string, t0: number, usage0: SessionUsage, model: string | null): void {
+  function startLiveTurn(task: Task, sessionKey: string, t0: number, usage0: SessionUsage | null, model: string | null): void {
     liveTurns.set(task.id, {
       projectId: task.projectId, sessionKey, turnStartedAt: t0,
       baseMs: task.agentMs ?? 0, baseTokens: task.agentTokens ?? 0, usage0, model,
@@ -1479,7 +1584,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
 
       const timeoutMs = Math.max(1, settings.timeoutMin) * 60_000;
       const t0 = Date.now();
-      const usage0 = sessionUsage(sessionKey);
+      const usage0 = anchorUsage(taskId, sessionKey);
       startLiveTurn(task, sessionKey, t0, usage0, chosenModel ?? null);
       let turnEnd: TurnEndInfo | undefined;
       try {
@@ -1491,14 +1596,20 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         log(`turn failed for task ${taskId}`, err);
         turnEnd = classifyTurnError(err);
       }
+      // I TOKEN si scrivono PRIMA della guardia di proprietà: sono stati
+      // bruciati comunque, e chi li ha bruciati è questa sessione. Il pavimento
+      // è assoluto e monotono, quindi scriverli qui e riscriverli dopo non è un
+      // doppio conteggio — mentre non scriverli affatto era la perdita
+      // definitiva (il turno dopo si ri-ancorava più avanti).
+      bookUsageFloor(taskId, sessionKey);
       // Buried by the liveness net while this promise hung on a dead child: the
       // net already closed the turn (accounting + recovery) and a fresh run may
-      // own the task by now. A zombie books nothing and touches no worktree —
+      // own the task by now. A zombie books no TIME and touches no worktree —
       // the replacement run is working in it. (An abandoned worktree, if the
       // recovery ends up parking the task, is the worktree GC's job.)
       if (!ownsRun(taskId, runId)) return;
       endLiveTurn(taskId);
-      recordUsage(taskId, t0, usage0, sessionKey);
+      recordTurnMs(taskId, t0);
       onTurnEnd(taskId, Date.now() - t0, turnEnd);
       // The worktree holds the agent's work: keep it when the task advanced to
       // review/done (it's the deliverable), delete it when the attempt was
@@ -1608,7 +1719,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     let worktreeId: string | null = null;
     let sessionKey = "";
     const t0 = Date.now();
-    let usage0 = ZERO_USAGE;
+    let usage0: SessionUsage | null = null;
     let failure: string | null = null;
     try {
       worktreeId = await deps.createWorktree!(resolved.projectStoreId);
@@ -1631,7 +1742,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       if (idx === 1) {
         try { deps.svc.bindTopic({ taskId: task.id, topicId: topic.topicId }); } catch { /* il fan-out vive lo stesso */ }
       }
-      usage0 = sessionUsage(sessionKey);
+      usage0 = anchorUsage(task.id, sessionKey);
       const turnEnd = (await deps.runTurn(sessionKey, buildFanoutKickoff(task, idx, total), {
         timeoutMs: opts.timeoutMs,
         contextMode: "full",
@@ -1649,7 +1760,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       try { stats = await deps.attemptStats(worktreeId); }
       catch (err) { log(`fan-out: diffstat del tentativo ${idx} non leggibile`, err); }
     }
-    const usage = sessionKey ? sessionUsage(sessionKey) : ZERO_USAGE;
+    const usage = sessionKey ? sessionUsage(sessionKey) : null;
     try {
       store.finish(attempt.id, {
         state: failure ? "failed" : "delivered",
@@ -1660,12 +1771,18 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         summary: lastAgentWords(sessionKey),
         error: failure,
         agentMs: Date.now() - t0,
-        agentTokens: Math.max(0, usage.billableTokens - usage0.billableTokens),
+        // Senza una delle due letture il tentativo non ha un consumo: si scrive
+        // 0, che e' «non misurato», non «gratis» — il totale del task lo porta
+        // comunque il registro qui sotto.
+        agentTokens: usage && usage0 ? Math.max(0, usage.billableTokens - usage0.billableTokens) : 0,
       });
     } catch (err) { log(`fan-out: esito del tentativo ${idx} non salvato`, err); }
     // Il costo va anche sul task: un fan-out è costato la SOMMA dei tentativi,
-    // ed è quel numero — non un terzo — che deve comparire sulla card.
-    if (sessionKey) recordUsage(task.id, t0, usage0, sessionKey);
+    // ed è quel numero — non un terzo — che deve comparire sulla card. Il
+    // registro tiene una riga per SESSIONE e le somma, quindi N tentativi su N
+    // sessioni si sommano da soli: è l'unico posto in cui la somma è la
+    // risposta giusta, e qui la dà la stessa funzione degli altri.
+    if (sessionKey) { bookUsageFloor(task.id, sessionKey); recordTurnMs(task.id, t0); }
   }
 
   /** Pota worktree e chat dei tentativi di un task (il vincitore, se c'è, resta). */
@@ -2313,7 +2430,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       let timeoutMin = 20;
       try { timeoutMin = deps.svc.getBoardSettings(t.projectId).dispatchTimeoutMin; } catch { /* default */ }
       const t0 = Date.now();
-      const usage0 = sessionUsage(sessionKey);
+      const usage0 = anchorUsage(taskId, sessionKey);
       startLiveTurn(t, sessionKey, t0, usage0, t.model ?? null);
       const content = opts?.continuation ? buildContinueNudge(t, retryCap(t.projectId)) : buildResume(t, humanMessage);
       // Resume (human answer) or continuation (post-timeout nudge): the session
@@ -2322,9 +2439,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       let turnEnd: TurnEndInfo | undefined;
       try { turnEnd = (await deps.runTurn(sessionKey, content, { timeoutMs: Math.max(1, timeoutMin) * 60_000, contextMode: "lean" })) || undefined; }
       catch (err) { log(`resume turn failed for ${taskId}`, err); turnEnd = classifyTurnError(err); }
+      bookUsageFloor(taskId, sessionKey);   // prima della guardia: vedi launch
       if (!ownsRun(taskId, runId)) return; // buried mid-turn (see launch)
       endLiveTurn(taskId);
-      recordUsage(taskId, t0, usage0, sessionKey);
+      recordTurnMs(taskId, t0);
       onTurnEnd(taskId, Date.now() - t0, turnEnd);
     } finally {
       endRun(taskId, runId);
@@ -2350,14 +2468,15 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       let timeoutMin = 20;
       try { timeoutMin = deps.svc.getBoardSettings(t.projectId).dispatchTimeoutMin; } catch { /* default */ }
       const t0 = Date.now();
-      const usage0 = sessionUsage(sessionKey);
+      const usage0 = anchorUsage(taskId, sessionKey);
       startLiveTurn(t, sessionKey, t0, usage0, t.model ?? null);
       let turnEnd: TurnEndInfo | undefined;
       try { turnEnd = (await deps.reattach!(sessionKey, { timeoutMs: Math.max(1, timeoutMin) * 60_000 })) || undefined; }
       catch (err) { log(`reattach turn failed for ${taskId}`, err); turnEnd = classifyTurnError(err); }
+      bookUsageFloor(taskId, sessionKey);   // prima della guardia: vedi launch
       if (!ownsRun(taskId, runId)) return; // buried mid-turn (see launch)
       endLiveTurn(taskId);
-      recordUsage(taskId, t0, usage0, sessionKey);
+      recordTurnMs(taskId, t0);
       onTurnEnd(taskId, Date.now() - t0, turnEnd);
     } finally {
       endRun(taskId, runId);
@@ -3025,8 +3144,12 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     inFlight.delete(taskId);
     const lt = liveTurns.get(taskId);
     endLiveTurn(taskId);
-    const t0 = lt?.turnStartedAt ?? Date.now();
-    if (lt) recordUsage(taskId, t0, lt.usage0, slot.sessionKey);
+    // I token si scrivono SEMPRE, anche senza un turno vivo in mano: quel ramo
+    // `else` era il terzo posto in cui un turno spariva. Il tempo no — senza
+    // `turnStartedAt` non c'è un inizio da cui misurarlo, e un'attesa inventata
+    // è peggio di un'attesa mancante.
+    bookUsageFloor(taskId, slot.sessionKey);
+    if (lt) recordTurnMs(taskId, lt.turnStartedAt);
     log(`liveness: sessione ${slot.sessionKey} morta con il turno ancora aperto → recupero il task ${taskId}`);
     try {
       deps.svc.addComment({
@@ -3038,7 +3161,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     } catch { /* dedupe/best-effort */ }
     // Qui la ragione la sappiamo per costruzione: il processo dell'agent non
     // c'è più. Non è un `cancelled` — nessuno l'ha fermato, è morto.
-    onTurnEnd(taskId, Date.now() - t0, { end: "error", cause: "process-died" });
+    // Senza turno vivo non c'è un inizio: la durata è 0, che è «non misurata».
+    onTurnEnd(taskId, lt ? Date.now() - lt.turnStartedAt : 0, { end: "error", cause: "process-died" });
   }
 
   /**
