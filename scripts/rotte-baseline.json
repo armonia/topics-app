@@ -1,0 +1,64 @@
+{
+  "$schema": "rotte-baseline-v1",
+  "_comment": [
+    "Mediane misurate da `bun run check:rotte -- --update-baseline`, che avvia un",
+    "server di prova tutto suo, semina il corpus qui sotto e cronometra. Non si",
+    "scrivono a mano e non si copiano da una run di produzione. Alzare un numero",
+    "SOLO nello stesso commit del cambiamento che l'ha fatto crescere, cosi' il",
+    "diff dice cosa e' stato comprato.",
+    "",
+    "`corpus` non e' documentazione: e' parte del contratto. Le rotte costano in",
+    "proporzione a quanto trovano nel database, e il cancello si rifiuta di",
+    "confrontare se il corpus del codice non e' questo. Prima taratura del",
+    "2026-08-14 con 24 topic / 300 messaggi / 40 task: tutte e quattro le rotte",
+    "sotto 0,7 ms, cioe' dentro il rumore, con il pavimento assoluto che da solo",
+    "concedeva dieci volte il valore misurato. Rifatta con quantita' da utente",
+    "vero: `topic_messages` e' passata da 0,64 a 3,38 ms ed e' l'unica rotta dove",
+    "il costo del gestore supera davvero quello del tubo.",
+    "",
+    "tolerance_pct e' largo (60%) perche' questa macchina fa girare agenti mentre",
+    "il banco misura: fra due run consecutive `all_boards_tasks` si e' spostata",
+    "da 0,78 a 1,28 ms senza che nessuno toccasse una riga. Un cancello che",
+    "suona per quello viene spento entro un mese, e allora non protegge piu'",
+    "niente. Questo prende il salto, non la deriva. Le regressioni che deve",
+    "prendere (query N+1, lettura di file dentro un ciclo) valgono multipli, non",
+    "percentuali.",
+    "",
+    "floor_ms tiene a galla le tre rotte sotto il millisecondo: senza, il 60% di",
+    "0,18 ms sarebbe 0,29 ms e lo scheduler basterebbe a farlo fallire.",
+    "",
+    "noise_guard_pct e' la distanza massima ammessa fra le due passate della",
+    "STESSA run. Oltre quella il banco esce 2 (non confrontabile) invece di 1:",
+    "una macchina che si muove sotto la misura non e' una regressione, e dirlo",
+    "e' l'unico modo perche' un rosso di questo cancello resti credibile."
+  ],
+  "updated": "2026-08-14",
+  "samples": 25,
+  "tolerance_pct": 60,
+  "floor_ms": 1.5,
+  "noise_guard_pct": 60,
+  "corpus": {
+    "topics": 150,
+    "messages": 3000,
+    "tasks": 150
+  },
+  "routes": {
+    "topics": {
+      "median_ms": 0.36
+    },
+    "topic_messages": {
+      "median_ms": 3.38
+    },
+    "all_boards_tasks": {
+      "median_ms": 0.75
+    },
+    "dispatch_capacity": {
+      "median_ms": 0.18
+    }
+  },
+  "limiti_dichiarati": {
+    "noise_ms_assente": "Questa baseline e' stata scritta prima che il pavimento diventasse per-rotta: nessuna rotta porta `noise_ms`, quindi tutte ricadono sul pavimento generale (`floor_ms`) e i tetti restano larghi. Alla prima riscrittura a macchina ferma il pavimento si stringe da solo, rotta per rotta.",
+    "dispatch_capacity_prima_chiamata": "Misurato cinque volte il 14/08: la passata 1 sta fra 2,0 e 2,5 ms e la passata 2 fra 0,4 e 0,6, SEMPRE in quest'ordine. Il rumore di una macchina e' simmetrico, questo no: e' un costo che quella rotta paga alla prima chiamata e che il riscaldamento per-passata non assorbe. Finche' resta cosi', su una macchina occupata il banco esce 2 (non confrontabile) invece di dare un numero, ed e' il comportamento giusto: non e' una regressione.",
+    "cosa_non_copre": "Solo letture, seriali, un client alla volta, corpus fisso a 150/3000/150. Fuori restano le scritture, la concorrenza, il WebSocket e le regressioni superlineari, che a 150 righe non si manifestano."
+  }
+}
