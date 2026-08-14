@@ -180,6 +180,30 @@ describe("task-dispatcher fan-out", () => {
     expect(rows.map((r) => r.branch)).toEqual(["task/wt-1", "task/wt-2", "task/wt-3"]);
   });
 
+  it("il kickoff dice che il repo e' PUBBLICO, prima che l'agente scriva un nome", async () => {
+    // ALL'ORIGINE, non al sintomo. Il nome vero di una persona e' finito nei
+    // commenti di file tracciati due volte in una notte: il cancello
+    // `no-personal-data` li ha fermati, qualcuno l'ha tolto a mano, e il turno
+    // dopo un altro agente l'ha riscritto. Toglierlo ogni volta cura il
+    // sintomo; la causa e' che nessuno gliel'aveva detto PRIMA, e l'unica cosa
+    // che un agente legge davvero e' questo envelope — CLAUDE.md nelle worktree
+    // non esiste.
+    const h = harness();
+    boardWithFanOut(h, 1);
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    const k = h.turns[0].content;
+    expect(k).toContain("IL REPO E' PUBBLICO");
+    // Le due meta' che servono: cosa non scrivere, e cosa scrivere al posto.
+    expect(k).toContain("nemmeno nei commenti");
+    expect(k).toContain("RUOLO");
+    // E il cancello nominato, perche' un divieto senza il suo controllo si
+    // legge come un consiglio.
+    expect(k).toContain("no-personal-data-tracked");
+  });
+
   it("il kickoff del tentativo dice che è uno di N e VIETA di muovere il task", async () => {
     const h = harness();
     boardWithFanOut(h, 2);
