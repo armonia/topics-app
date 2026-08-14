@@ -1218,6 +1218,84 @@ describe("task-dispatcher", () => {
     expect(h.dispatcher.isInFlight("t1")).toBe(false);
   });
 
+  it("il feedback scritto a turno VIVO arriva anche se quel turno finisce in review", async () => {
+    // Scrivere all'agent mentre lavora è il gesto che la card promette («lo
+    // riceve al prossimo turno»): il messaggio si imbuca in `pendingResume` e
+    // `onTurnEnd` lo consegna. Ma la consegna era condizionata alla card ancora
+    // `in_progress`, e il modo NORMALE in cui un turno finisce è portarla in
+    // review: lì il buffer veniva cancellato e il feedback spariva in silenzio.
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "in_progress", assignedTopicId: "topic-42", attempts: 1 });
+
+    const p = h.dispatcher.resume("t1", "primo giro");
+    await flush();
+    expect(h.turns.length).toBe(1);
+
+    void h.dispatcher.resume("t1", "aspetta: il caso B è sbagliato");
+    await flush();
+    expect(h.turns.length).toBe(1);            // turno vivo: imbucato, non un secondo agente
+
+    h.svc.addComment({ taskId: "t1", author: "claude", content: "consegnato" });
+    h.svc.update({ taskId: "t1", actor: "agent", by: "claude", patch: { status: "review" } });
+    h.finishTurn();
+    await p;
+    await flush();
+
+    expect(h.turns.length).toBe(2);
+    expect(h.turns[1].content).toContain("caso B");
+    expect(h.task("t1")!.status).toBe("in_progress");  // il feedback la riapre, come un reject
+  });
+
+  it("il feedback imbucato si ANNUNCIA sulla card, una volta sola", async () => {
+    // Senza la nota, scrivere a un agent che lavora non produce niente di
+    // visibile: il messaggio entra in una Map e ricompare solo a turno finito.
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "in_progress", assignedTopicId: "topic-42", attempts: 1 });
+    const p = h.dispatcher.resume("t1", "primo giro");
+    await flush();
+
+    void h.dispatcher.resume("t1", "primo feedback");
+    void h.dispatcher.resume("t1", "secondo feedback");
+    await flush();
+    const notes = () => h.svc.get("t1")!.comments.filter((c) => c.kind === "service" && c.content.includes("mentre l'agent sta lavorando"));
+    expect(notes().length).toBe(1);
+    expect(h.events.some((e) => e.type === "task:updated" && e.task?.id === "t1")).toBe(true);
+
+    h.svc.addComment({ taskId: "t1", author: "claude", content: "consegnato" });
+    h.finishTurn();
+    await p;
+    await flush();
+    // Consegnati ENTRAMBI, nell'ordine in cui sono stati scritti.
+    expect(h.turns.at(-1)!.content).toContain("primo feedback");
+    expect(h.turns.at(-1)!.content).toContain("secondo feedback");
+  });
+
+  it("se la card è tornata in coda il feedback non si perde: resta nel thread e lo dice", async () => {
+    // `wait_for_condition` a metà turno riporta la card a todo col chip
+    // `waiting`: non c'è nessun turno da riprendere adesso, e il ramo del
+    // resume qui sopra non scatta. Il messaggio è comunque nel thread.
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "in_progress", assignedTopicId: "topic-42", attempts: 1 });
+    const p = h.dispatcher.resume("t1", "primo giro");
+    await flush();
+
+    void h.dispatcher.resume("t1", "guarda anche il caso C");
+    await flush();
+    h.svc.update({ taskId: "t1", actor: "agent", by: "claude", patch: { status: "todo" } });
+    h.svc.setDispatchState({ taskId: "t1", state: "waiting" });
+    h.finishTurn();
+    await p;
+    await flush();
+
+    expect(h.turns.length).toBe(1);                       // nessun agente svegliato
+    expect(h.task("t1")!.dispatchState).toBe("waiting");  // l'attesa dichiarata resta
+    const notes = h.svc.get("t1")!.comments.filter((c) => c.kind === "service" && c.content.includes("resta nel thread"));
+    expect(notes.length).toBe(1);
+  });
+
   it("resume is a no-op when the task has no bound topic", async () => {
     const h = harness();
     seedTask(h.db, { id: "t1", status: "in_progress", assignedTopicId: null });
