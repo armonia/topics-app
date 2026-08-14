@@ -7,6 +7,7 @@ import {
   micErrorMessage,
   MIN_VOICE_BLOB_BYTES,
   messaggioNotaVuota,
+  segnalaNotaVuota,
   SPEECH_AUDIO_CONSTRAINTS,
   SPEECH_BITS_PER_SECOND,
   fetchSttCapabilities,
@@ -97,6 +98,7 @@ export function useVoiceRecording(
           // Il numero serve: dice se il microfono non ha aperto affatto (0
           // spezzoni) o se ha prodotto solo l'intestazione del contenitore.
           onErrorRef.current?.(messaggioNotaVuota(audioChunksRef.current.length, blob.size, mimeType));
+          segnalaNotaVuota(audioChunksRef.current.length, blob.size, mimeType, 'nota-vocale');
           audioChunksRef.current = [];
           recordingSessionKeyRef.current = null;
           resolve();

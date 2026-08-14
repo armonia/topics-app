@@ -7,6 +7,7 @@ import {
   micErrorMessage,
   MIN_VOICE_BLOB_BYTES,
   messaggioNotaVuota,
+  segnalaNotaVuota,
   SPEECH_AUDIO_CONSTRAINTS,
   SPEECH_BITS_PER_SECOND,
   type SttCapabilities,
@@ -122,6 +123,7 @@ export function useDictation(opts: {
         // Sono due guasti diversi e si riparano in due posti diversi.
         if (blob.size < MIN_VOICE_BLOB_BYTES) {
           onErrorRef.current?.(messaggioNotaVuota(spezzoni, blob.size, type));
+          segnalaNotaVuota(spezzoni, blob.size, type, 'dettatura');
           return;
         }
         setIsTranscribing(true);
