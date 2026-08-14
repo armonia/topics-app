@@ -203,9 +203,30 @@ jobs:
       # `fetch-depth` di default è 1, quindi `main` NON esiste in questo
       # checkout: senza il fetch mirato il cancello non avrebbe con cosa
       # confrontarsi (e uscirebbe 1 dicendolo, invece di passare a vuoto).
+      #
+      # IL `+` NON È DECORATIVO. `actions/checkout` punta già
+      # `refs/remotes/origin/main` al commit in prova; se fra il checkout e
+      # questa riga qualcun altro pusha, `main` è avanzato e un fetch NON forzato
+      # viene RIFIUTATO — `! [rejected] main -> origin/main (non-fast-forward)`,
+      # uscita 1. La shell di default è `bash -e`, quindi il passo muore lì e
+      # tutti quelli dopo (test unitari, bundle, rotte, fluido, inchiostro)
+      # vengono SALTATI. Con `--depth=1` il rifiuto è garantito: il commit
+      # innestato non ha storia, quindi git non può dimostrare la discendenza.
+      # Su un repo dove pushano dodici agenti quella finestra si becca di
+      # continuo: rosso il 2026-08-14 su due push di fila, e non per una
+      # migration sbagliata. Riprodotto in un repo usa-e-getta, non dedotto.
+      #
+      # LIMITE NOTO, scritto perché nessuno lo scopra di nuovo da capo: su un
+      # evento `push` questo passo non misura niente. La base che `checkout`
+      # lascia È il commit in prova, quindi il cancello confronta HEAD con sé
+      # stesso e non può che passare. Il lavoro vero lo fa sulle pull request,
+      # dove la base è un altro commit. Per renderlo reale anche sui push serve
+      # `github.event.before` come base (e la guardia per il caso in cui sia
+      # tutto zeri, cioè force-push o ramo nuovo): è un cambio più grosso di
+      # questa riga e va fatto guardando, non di corsa.
       - name: Le migration nuove usano il timestamp, e nessun numero è doppio
         run: |
-          git fetch --no-tags --depth=1 origin main:refs/remotes/origin/main
+          git fetch --no-tags --depth=1 origin +main:refs/remotes/origin/main
           MIGRATION_BASE_REF=refs/remotes/origin/main bun run check:migrations
 
       - name: Unit + integration tests
