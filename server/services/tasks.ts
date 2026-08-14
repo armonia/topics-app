@@ -38,7 +38,7 @@ export type { TaskStatus, TaskComment, BoardSettings, BoardSettingsPatch, Blocke
 import {
   ACTIVE_DISPATCH_STATES, ARCHIVE_PARKED_LABEL, DISPATCH_CHIP_QUEUED, clampGlobalCap,
   MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PREVIEW_CARD_MAX_RATIO, QUEUE_REASON_UNKNOWN,
-  REQUEUE_PARKED_LABEL, TASK_STATUSES, WAIT_SERIES_MAX_MS, WAIT_STREAK_CAP,
+  REQUEUE_PARKED_LABEL, TAKE_OVER_PARKED_LABEL, TASK_STATUSES, WAIT_SERIES_MAX_MS, WAIT_STREAK_CAP,
   deriveQueueReason, deriveSubtaskWork, formatStatusEvent, hasPlanApproveOption, isAgentWorking,
   isUnattributedSubtask, noteParkedChildrenResolved, parseQuestionBlock, questionAsksHuman,
   readTaskWeight, statusEventEnters, waitReasonKey,
@@ -92,7 +92,7 @@ export const AUTO_PROJECT_ID = "_auto";
  */
 export {
   ARCHIVE_PARKED_LABEL, LAND_ACTION_LABEL, PUBLISH_ACTION_LABEL, REQUEUE_PARKED_LABEL,
-  isArchiveParkedLabel, isLandActionLabel, isPublishActionLabel, isRequeueParkedLabel,
+  isArchiveParkedLabel, isLandActionLabel, isPublishActionLabel, isRequeueParkedLabel, isTakeOverParkedLabel,
 } from "../../shared/board";
 
 /**
@@ -392,6 +392,27 @@ export interface ListTasksInput {
    * dispatcher must never claim a step as an independent task.
    */
   rootsOnly?: boolean;
+  /**
+   * Con `rootsOnly`: rimetti nel taglio gli step ORFANI — quelli il cui padre è
+   * chiuso, archiviato o sparito.
+   *
+   * `rootsOnly` ha due consumatori con due bisogni diversi, e sotto un solo nome
+   * ne serviva uno solo. Per il DISPATCHER è una regola di sicurezza («Steps are
+   * never dispatch-eligible»): allargarla vuol dire un agente lanciato su uno
+   * step. Per il FEED della board è una regola di lettura: uno step non è
+   * arretrato, è la checklist di qualcuno — e quel «di qualcuno» smette di
+   * essere vero appena il padre chiude.
+   *
+   * Uno step orfano non lo prende nessun dispatcher, il suo padre è in Done
+   * quindi nessuno ne apre più l'albero, e `parkedChildRaisedStall` esce subito
+   * su un padre chiuso. Tenerlo fuori dalle colonne non lo rimanda: lo perde.
+   *
+   * Default `false` — cioè `rootsOnly` puro, il comportamento di prima — e non
+   * è prudenza cosmetica: sbagliare in questa direzione lascia un orfano
+   * nascosto (lo stato di oggi), sbagliare nell'altra fa partire un agente su
+   * uno step. Lo accende chi disegna colonne, mai chi dispaccia.
+   */
+  includeOrphanSubtasks?: boolean;
   /**
    * Filtro per etichetta, in AND: un task passa solo se le ha TUTTE. Il caso
    * d'uso che l'ha chiesto è «mostrami solo le visibili in review» — cioè la
@@ -1257,6 +1278,21 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
             && readTaskWeight(r.dispatch_weight) === "heavy"
             && r.dispatch_state === DISPATCH_CHIP_QUEUED
             && !heavyInFlight(),
+          // L'altra metà della stessa distinzione. Il ramo `heavyBusy` del tick
+          // esce prima del ciclo e chipa OGNI todo, non solo i pesanti: qui non
+          // si guarda quindi né il peso di questa riga né l'ordine della fila,
+          // si guarda se c'è un turno pesante in volo. Toglierlo dal ramo del
+          // carico ha tolto la bugia; senza questo lasciava la card muta, cioè
+          // di nuovo su «in coda, N davanti».
+          //
+          // Stessa lettura del predicato del tick, dal DB e non da uno stato
+          // vivo del dispatcher: `rowToTask` gira anche in un processo che non
+          // dispaccia, e una ragione che dipendesse da quella memoria sparirebbe
+          // aprendo la card da un'altra finestra. Ultimo nell'`&&`, come sopra,
+          // per non pagarlo su una riga che non è nemmeno in coda.
+          heavyInFlight: inCoda
+            && r.dispatch_state === DISPATCH_CHIP_QUEUED
+            && heavyInFlight(),
           behind: inCoda ? countBehind(r, nowIso) : 0,
           parentStatus,
           projectless: r.project_id === UNASSIGNED_PROJECT_ID,
@@ -1840,6 +1876,21 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     }
   }
 
+  /**
+   * Un padre può ancora ADOTTARE?
+   *
+   * Archiviato no, e questo si guardava già. CHIUSO nemmeno, e questo mancava:
+   * annidare uno step sotto una card in Done costruisce un vicolo cieco con una
+   * chiamata perfettamente legittima. Nessun dispatcher prende gli step, il
+   * padre è chiuso quindi nessuno ne apre più l'albero, e la sonda dei figli
+   * parcheggiati esce subito su un padre `done`. Il cancello su `done` impedisce
+   * di CHIUDERE un padre con figli aperti; senza questo, la stessa coppia si
+   * otteneva dall'altro verso — prima chiudi, poi attacca.
+   */
+  function isParentAlive(parent: any): boolean {
+    return !parent.archived && parent.status !== "done";
+  }
+
   // Re-parenting. At creation the walk is unnecessary (a fresh id can never be
   // an ancestor of an existing row); MOVING an existing task can close a loop —
   // nest A under its own child and the pair disappears from the board, because
@@ -1848,7 +1899,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     const self = getTaskRow(taskId);
     const parent = getTaskRow(parentId);
     if (!self) throw new TaskServiceError("not_found", `task ${taskId} not found`);
-    if (!parent || parent.project_id !== self.project_id || parent.archived) {
+    if (!parent || parent.project_id !== self.project_id || !isParentAlive(parent)) {
       // Same not_found shape as the create-side guard: no cross-board probing.
       throw new TaskServiceError("not_found", `parent task ${parentId} not found`);
     }
@@ -1913,7 +1964,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // not_found shape as the projectId guard elsewhere (no cross-board probing).
       if (input.parentTaskId) {
         const parent = getTaskRow(input.parentTaskId);
-        if (!parent || parent.project_id !== input.projectId || parent.archived) {
+        if (!parent || parent.project_id !== input.projectId || !isParentAlive(parent)) {
           throw new TaskServiceError("not_found", `parent task ${input.parentTaskId} not found`);
         }
       }
@@ -1962,16 +2013,34 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         params.push(input.projectId);
       }
       if (input.status) { clauses.push("status = ?"); params.push(input.status); }
-      // «Radici», nell'archivio, vuol dire un'altra cosa. Un task senza padre è
-      // una radice; ma anche uno step archiviato da solo, sotto un genitore
-      // ancora vivo, è la radice di ciò che è stato archiviato — e con il
-      // filtro letterale `parent_task_id IS NULL` sarebbe l'unica riga che
-      // nessuna lista mostra più, né la board né l'archivio. I figli di un
-      // archiviato restano fuori: li riporta indietro il ripristino del padre.
+      // «Radici» vuol dire tre cose diverse a seconda di chi chiede, e le tre
+      // convivono qui perché il taglio è uno solo.
+      //
+      //  - ARCHIVIO: un task senza padre è una radice; ma anche uno step
+      //    archiviato da solo, sotto un genitore ancora vivo, è la radice di ciò
+      //    che è stato archiviato — e con il filtro letterale
+      //    `parent_task_id IS NULL` sarebbe l'unica riga che nessuna lista
+      //    mostra più, né la board né l'archivio. I figli di un archiviato
+      //    restano fuori: li riporta indietro il ripristino del padre.
+      //  - FEED della board (`includeOrphanSubtasks`): le radici PIÙ gli step
+      //    che non sono più la checklist di nessuno. «Nessuno» è una sola
+      //    condizione, letta sul padre diretto: chiuso, archiviato, o la riga
+      //    non c'è più. Lo step già `done` resta fuori — un passo finito non è
+      //    un vicolo cieco, è cronaca.
+      //  - DISPATCHER: il filtro letterale, e resta letterale. Lì `rootsOnly` è
+      //    una regola di sicurezza, non di lettura.
+      //
+      // L'archivio per primo perché è una VISTA diversa, non il feed: quando si
+      // guardano le righe archiviate, un padre chiuso non è un orfano da
+      // ripescare, è il contesto di ciò che si sta guardando.
       if (input.rootsOnly) {
         clauses.push(
           input.archived === true
             ? "(parent_task_id IS NULL OR parent_task_id IN (SELECT id FROM tasks WHERE archived = 0))"
+            : input.includeOrphanSubtasks
+            ? `(parent_task_id IS NULL OR (status != 'done' AND NOT EXISTS (
+                 SELECT 1 FROM tasks p
+                  WHERE p.id = tasks.parent_task_id AND p.archived = 0 AND p.status != 'done')))`
             : "parent_task_id IS NULL",
         );
       }
@@ -3101,13 +3170,32 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // anche i figli in `todo`, la colonna non è più la notizia — lo è il fatto
       // che nessun turno li muoverà. Nominare una colonna sbagliata manderebbe a
       // cercarli dove non sono.
-      const question =
-        `Fermo su ${parked.length} sottotask che non lavorerà nessuno (${elenco}): uno step lo muove solo l'agente di questa card ` +
-        `dentro il proprio turno, e con un sottotask aperto questo task non si può chiudere. Li rimetto in coda, o archivio ciò che non serve più?`;
+      // GIA' RIMESSI IN CODA UNA VOLTA? Allora quel bottone non si offre piu'.
+      //
+      // L'ANELLO, visto tre volte in una notte sulle stesse card: «rimetti in
+      // coda» porta i figli in `todo`, ma un figlio in `todo` conta come fermo
+      // (nessun tick lo prende: il dispatcher lista `rootsOnly`), quindi alla
+      // fine del turno successivo la domanda riparte identica. Chi risponde
+      // ripremeva lo stesso bottone e tornava esattamente qui.
+      //
+      // Offrire due volte un'uscita che si e' gia' dimostrata circolare non e'
+      // dare una scelta: e' far girare a vuoto chi decide. Alla seconda volta la
+      // domanda lo DICE, e lascia le uscite che portano fuori davvero.
+      const giaRimessi = (db.prepare(
+        "SELECT COUNT(*) AS n FROM task_comments WHERE task_id = ? AND content = ?",
+      ).get(taskId, REQUEUE_PARKED_LABEL) as { n: number } | undefined)?.n ?? 0;
+      const question = giaRimessi > 0
+        ? `Fermo di nuovo sugli stessi ${parked.length} sottotask (${elenco}), e rimetterli in coda l'ha gia' fatto: ` +
+          `non basta, perche' uno step lo muove solo l'agente di questa card dentro il proprio turno e quel turno non li ha toccati. ` +
+          `Archivio cio' che non serve piu', oppure la prendi in mano tu?`
+        : `Fermo su ${parked.length} sottotask che non lavorerà nessuno (${elenco}): uno step lo muove solo l'agente di questa card ` +
+          `dentro il proprio turno, e con un sottotask aperto questo task non si può chiudere. Li rimetto in coda, o archivio ciò che non serve più?`;
       try {
         this.addComment({
           taskId, author: "system", content: question,
-          questionOptions: [REQUEUE_PARKED_LABEL, ARCHIVE_PARKED_LABEL],
+          questionOptions: giaRimessi > 0
+            ? [ARCHIVE_PARKED_LABEL, TAKE_OVER_PARKED_LABEL]
+            : [REQUEUE_PARKED_LABEL, ARCHIVE_PARKED_LABEL],
         });
       } catch { /* dedupe/best-effort: la domanda resta comunque nello stato */ }
       // Stessa forma di una consegna di sistema — review + `needs_input` + firma
