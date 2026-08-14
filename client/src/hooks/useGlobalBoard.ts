@@ -1,28 +1,28 @@
 /**
- * useGlobalBoard — la board di TUTTI i progetti, dal vivo: quanti task attivi
- * ci sono e quali, divisi per stato.
+ * useGlobalBoard: the board of EVERY project, live. How many active tasks there
+ * are and which ones, split by status.
  *
- * Sorgente unica: il feed globale (`boardApi.listAll`) una volta al mount, poi
- * a ogni evento `task:*` sul WebSocket. "Attivo" = non ancora `done` (gli
- * archiviati li esclude già il server). Il conteggio fa anche da gate di
- * visibilità: la riga «Board generale» compare solo quando è > 0.
+ * Single source: the global feed (`boardApi.listAll`) once on mount, then on
+ * every `task:*` event over the WebSocket. "Active" means not yet `done` (the
+ * server already excludes the archived ones). The count doubles as a visibility
+ * gate: the "general board" row only appears while it is above zero.
  *
- * Prima questo hook faceva `.filter(...).length` e BUTTAVA le righe appena
- * lette — poi la fascia della tessera fissata avrebbe dovuto richiedere al
- * server esattamente le stesse righe per mostrarle. Una fetch, due consumatori.
+ * This hook used to do `.filter(...).length` and THROW AWAY the rows it had just
+ * read, which meant the pinned tile's strip would have had to ask the server for
+ * exactly those same rows to show them. One fetch, two consumers.
  *
- * Oggi i consumatori sono di più — le tab «Board» riassumono gli stessi stati —
- * e non stanno tutti sotto questo hook: le righe finiscono in
- * `boardTasksStore`, che è il posto da cui LEGGONO gli altri. La fetch e il
- * WebSocket restano qui, cioè uno solo (vedi la nota in `boardTasksStore.ts`).
+ * Today there are more consumers (the "Board" tabs summarise the same statuses)
+ * and they do not all live under this hook: the rows land in `boardTasksStore`,
+ * which is where everyone else READS them from. The fetch and the WebSocket stay
+ * here, so there is exactly one of each (see the note in `boardTasksStore.ts`).
  *
- * Una fetch sola per EVENTO, però, non è una fetch sola: gli eventi arrivano a
- * raffica perché sono gli agenti a muovere le card. Il feed pesa 1,44 MB e costa
- * 175 ms al server (misurato il 2026-08-14), e il minuto più affollato degli
- * ultimi tre giorni conta 24 aggiornamenti: 34,6 MB e 24 ridisegni della board
- * per arrivare a UNO stato. Le riletture passano da `createBurstCoalescer`, che
- * lascia partire subito la prima e fonde il resto della raffica in una sola
- * (client/src/lib/burstCoalescer.ts).
+ * One fetch per EVENT, though, is not one fetch: the events arrive in bursts,
+ * because it is agents that move the cards. The feed weighs 1.44 MB and costs
+ * the server 175 ms (measured 2026-08-14), and the busiest minute of the last
+ * three days holds 24 task updates: 34.6 MB downloaded and 24 repaints of the
+ * board to arrive at ONE state. Refetches now go through `createBurstCoalescer`,
+ * which lets the first one leave immediately and folds the rest of the burst
+ * into a single follow-up (client/src/lib/burstCoalescer.ts).
  */
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import type { WSMessage } from '../types';
@@ -32,17 +32,17 @@ import { setBoardTasks, useBoardTasks } from '../lib/boardTasksStore';
 import { createBurstCoalescer, latestWins } from '../lib/burstCoalescer';
 
 /**
- * Quanto dura la finestra in cui gli eventi si fondono. 400 ms: sopra il tempo
- * della lettura stessa (175 ms), così due corse non si sovrappongono nel caso
- * normale, e sotto la soglia in cui un aggiornamento remoto si legge come «lo
- * schermo è rimasto indietro». Il primo evento non aspetta comunque.
+ * How long the window is in which events fold into one. 400 ms: above the read
+ * itself (175 ms), so two runs do not overlap in the normal case, and below the
+ * point where a remote update starts reading as "the screen fell behind". The
+ * first event of a burst does not wait either way.
  */
-const FINESTRA_MS = 400;
+const COALESCE_WINDOW_MS = 400;
 
 export interface GlobalBoard {
-  /** Task non ancora `done`, su tutti i progetti. */
+  /** Tasks not yet `done`, across every project. */
   activeCount: number;
-  /** Le righe per colonna kanban, ordinate come le mostra la board. */
+  /** The rows per kanban column, ordered the way the board shows them. */
   byStatus: Record<TaskStatus, BoardTask[]>;
 }
 
@@ -51,27 +51,27 @@ export function useGlobalBoard(
 ): GlobalBoard {
   const tasks = useBoardTasks();
 
-  // Un solo coalescer per montaggio: `useRef` e non `useMemo`, perché React può
-  // buttare via il valore di un `useMemo` quando vuole, e qui dentro c'è un
-  // timer da spegnere allo smontaggio. Si ricrea su richiesta perché lo
-  // smontaggio lo azzera, e in StrictMode montaggio e smontaggio si alternano.
+  // One coalescer per mount: `useRef` and not `useMemo`, because React is free
+  // to discard a `useMemo` value whenever it likes and this one owns a timer
+  // that has to be cleared on unmount. It is recreated on demand because unmount
+  // nulls it out, and under StrictMode mount and unmount alternate.
   const coalescer = useRef<ReturnType<typeof createBurstCoalescer> | null>(null);
   const ensure = useCallback(() => {
     if (coalescer.current === null) {
-      // `latestWins`: due letture sovrapposte possono tornare invertite, e chi
-      // scrive per ultimo vince — lo store resterebbe indietro senza nessun
-      // evento successivo che lo corregga.
-      const scrivi = latestWins<readonly BoardTask[]>(setBoardTasks);
+      // `latestWins`: two overlapping reads can come back in the wrong order and
+      // the last writer wins, which would leave the store behind with no later
+      // event to correct it.
+      const write = latestWins<readonly BoardTask[]>(setBoardTasks);
       coalescer.current = createBurstCoalescer({
-        windowMs: FINESTRA_MS,
-        run: () => scrivi(() => boardApi.listAll()),
+        windowMs: COALESCE_WINDOW_MS,
+        run: () => write(() => boardApi.listAll()),
       });
     }
     return coalescer.current;
   }, []);
 
   useEffect(() => {
-    // La prima lettura del feed globale.
+    // The first read of the global feed.
     ensure().trigger();
     return () => { coalescer.current?.dispose(); coalescer.current = null; };
   }, [ensure]);

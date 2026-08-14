@@ -264,12 +264,12 @@ export function assembleTopicContext(ctx: AppContext, args: AssembleArgs): Conte
   // TRONCATO (il modello non deve vedere la risposta che sta rimpiazzando), e
   // il troncamento non è esprimibile leggendo la tabella. Assente ⇒ si legge il
   // thread attivo, che è il caso di tutti gli altri chiamanti.
-  // I consumatori del thread — buildHistoryWithDiagnostics, resolveUserMessage,
-  // pushPinnedMessagesBlock — leggono solo role/content/partial/id: mai `blocks`
-  // e mai `toolCalls`. Dicendolo per ENTRAMBE, le due colonne grasse non
-  // vengono nemmeno chieste a SQLite. Misurato sul topic più pesante di questa
-  // macchina (118 righe, 4,11 MB di `tool_calls` e 7,17 di `blocks`): 14,5 ms
-  // → 0,5. È un costo che si paga a ogni turno di ogni agente.
+  // The thread's consumers (buildHistoryWithDiagnostics, resolveUserMessage,
+  // pushPinnedMessagesBlock) read only role/content/partial/id: never `blocks`
+  // and never `toolCalls`. Saying so for BOTH means the two fat columns are not
+  // even requested from SQLite. Measured on the heaviest topic of this machine
+  // (118 rows, 4.11 MB of `tool_calls` and 7.17 MB of `blocks`): 14.5 ms down to
+  // 0.5. It is a cost paid on every turn of every agent.
   const stored = historyOverride ?? ctx.loadLocalMessages(sessionKey, { withBlocks: false, withToolCalls: false });
   const { history, historyEntries, droppedHistoryTurns } = buildHistoryWithDiagnostics(
     stored,

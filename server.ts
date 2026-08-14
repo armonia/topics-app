@@ -3264,37 +3264,39 @@ const opzioniServer = {
 } satisfies Parameters<typeof Bun.serve<WSData>>[0];
 
 /**
- * Le risposte JSON escono compresse verso chi NON è locale.
+ * JSON responses leave compressed toward whoever is NOT local.
  *
- * Il gestore vero non si tocca: si avvolge una volta sola, qui, dove passa
- * ogni risposta di entrambi gli ascoltatori. Il perché della regola — e perché
- * loopback resta crudo — sta in `server/lib/compress-json.ts`. In due parole:
- * `/api/history` di una topic di lavoro pesa 5,17 MB e ne pesa 1,39 compressa,
- * ma i 60 ms di CPU che costa comprarli comprano un secondo e mezzo solo se in
- * mezzo c'è una rete.
+ * The real handler is left alone: it is wrapped once, here, where every response
+ * of both listeners goes through. The reasoning for the rule, and for why
+ * loopback stays raw, lives in `server/lib/compress-json.ts`. In short:
+ * `/api/history` for a working topic weighs 5.17 MB and 1.39 MB compressed, but
+ * the 60 ms of CPU that buys only buys a second and a half when there is a
+ * network in between.
  */
-function conCompressione(
+function withJsonCompression(
   handler: typeof opzioniServer.fetch,
 ): typeof opzioniServer.fetch {
   return async function (this: unknown, req, srv) {
     const res = await handler.call(this as never, req, srv);
-    // `undefined` = upgrade a WebSocket riuscito: non c'è nessuna risposta HTTP.
+    // `undefined` means the WebSocket upgrade succeeded: there is no HTTP
+    // response to compress.
     if (!res) return res;
-    // Loopback nudo, NON `isLocalTransport`. Le due domande si somigliano ma
-    // rispondono a cose diverse: `isLocalTransport` chiede «di chi mi fido», e
-    // per quella il tunnel è remoto anche se il peer è 127.0.0.1. Qui la domanda
-    // è «c'è una rete in mezzo», e sul tunnel non c'è: dall'altra parte del
-    // socket sta `relay-client.ts` su questa stessa macchina, che rigioca la
-    // richiesta con `fetch` e la SCOMPATTA subito (misurato: Bun scompatta da
-    // sé, e `intestazioniRisposta` toglie `content-encoding` proprio perché il
-    // corpo che riparte è già testo). Comprimere lì sarebbe pagare due volte
-    // per consegnare gli stessi byte.
-    const remoto = !isLoopbackAddress(srv.requestIP(req)?.address ?? null);
-    return comprimiJson(req, res, remoto);
+    // Bare loopback, NOT `isLocalTransport`. The two questions look alike and
+    // answer different things: `isLocalTransport` asks "whom do I trust", and
+    // for that one the tunnel counts as remote even when the peer is 127.0.0.1.
+    // Here the question is "is there a network in between", and on the tunnel
+    // there is not: the other end of that socket is `relay-client.ts` on this
+    // very machine, which replays the request with `fetch` and DECOMPRESSES it
+    // right away (measured: Bun decompresses on its own, and
+    // `intestazioniRisposta` strips `content-encoding` precisely because the
+    // body leaving again is text once more). Compressing there would mean paying
+    // twice to deliver the same bytes.
+    const remote = !isLoopbackAddress(srv.requestIP(req)?.address ?? null);
+    return comprimiJson(req, res, remote);
   } as typeof opzioniServer.fetch;
 }
 
-const fetchCompresso = conCompressione(opzioniServer.fetch);
+const fetchCompresso = withJsonCompression(opzioniServer.fetch);
 
 const server = Bun.serve<WSData>({ ...opzioniServer, fetch: fetchCompresso });
 
