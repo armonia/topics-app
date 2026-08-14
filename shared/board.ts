@@ -481,6 +481,16 @@ export const LAND_ACTION_LABEL = 'Landa su main';
 export const PUBLISH_ACTION_LABEL = 'Landa e pubblica';
 export const REQUEUE_PARKED_LABEL = 'Rimetti in coda i sottotask';
 export const ARCHIVE_PARKED_LABEL = 'Archivia i sottotask';
+/**
+ * La terza uscita, e nasce da un ANELLO misurato: «rimetti in coda» porta i
+ * figli in `todo`, ma un figlio in `todo` conta fermo lo stesso (il tick lista
+ * `rootsOnly`), quindi la domanda tornava identica al turno dopo e chi
+ * rispondeva ripremeva lo stesso bottone. Alla seconda volta la board smette di
+ * offrire quella strada e offre QUESTA: la card torna in mano a una persona,
+ * che e' l'unica cosa che la sblocca davvero quando l'agente non tocca i suoi
+ * step.
+ */
+export const TAKE_OVER_PARKED_LABEL = 'La prendo in mano io';
 
 /** Tolerant match (ignores emoji/punctuation/spacing the model may add). */
 export function isLandActionLabel(text: string | undefined | null): boolean {
@@ -494,6 +504,9 @@ export function isRequeueParkedLabel(text: string | undefined | null): boolean {
 }
 export function isArchiveParkedLabel(text: string | undefined | null): boolean {
   return !!text && normalizeActionLabel(text) === normalizeActionLabel(ARCHIVE_PARKED_LABEL);
+}
+export function isTakeOverParkedLabel(text: string | undefined | null): boolean {
+  return !!text && normalizeActionLabel(text) === normalizeActionLabel(TAKE_OVER_PARKED_LABEL);
 }
 
 /**
@@ -509,7 +522,7 @@ export function isArchiveParkedLabel(text: string | undefined | null): boolean {
  */
 export function isBoardActionLabel(text: string | undefined | null): boolean {
   return isLandActionLabel(text) || isPublishActionLabel(text)
-    || isRequeueParkedLabel(text) || isArchiveParkedLabel(text);
+    || isRequeueParkedLabel(text) || isArchiveParkedLabel(text) || isTakeOverParkedLabel(text);
 }
 
 /**
