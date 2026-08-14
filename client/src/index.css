@@ -703,6 +703,12 @@ html:not(.dark) [data-testid="project-sidebar"] .text-primary {
    si vede da nessun'altra parte. */
 html, body, #root {
   overscroll-behavior-y: contain;
+  /* IL BORDO E' DEL MENU. `contain` fermerebbe solo la catena verso l'antenato;
+     serve `none`, che spegne anche il gesto di NAVIGAZIONE che il browser tira
+     fuori quando un trascinamento orizzontale sfonda il contenuto. Senza questa
+     riga, trascinare dal margine dello schermo torna indietro nella cronologia
+     invece di aprire il cassetto. */
+  overscroll-behavior-x: none;
   max-width: 100vw;
   width: 100%;
   height: 100%;
