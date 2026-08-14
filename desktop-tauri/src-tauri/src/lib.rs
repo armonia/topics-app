@@ -3022,6 +3022,101 @@ fn set_clipboard_image(bytes: Vec<u8>) -> Result<(), String> {
 struct StatusItem {
     id: String,
     title: String,
+    /// Board the row comes from. Empty for a chat row (topics have no board);
+    /// on a task row it is what tells two same-named cards apart.
+    #[serde(default, rename = "projectId")]
+    project_id: String,
+}
+
+/// One board column in the tray menu: a status, how many tasks it holds and the
+/// first rows, which become a submenu. WHAT goes in — which statuses, in what
+/// order, how many rows, how a long title is cut — is decided and unit-tested in
+/// `shared/tray-board.ts`; this side only draws it. `count` is the WHOLE column,
+/// `rows` the ones that fit: the difference is what the submenu declares as
+/// "altri N", instead of letting them vanish.
+#[derive(Deserialize)]
+struct StatusGroup {
+    /// Kanban status id: picks the label and builds the row id that reopens the board.
+    status: String,
+    count: u32,
+    rows: Vec<StatusItem>,
+}
+
+/// Come si chiama una colonna nel menu. Le stesse parole delle colonne della
+/// kanban (`STATUS_LABEL`): la tray non introduce un secondo vocabolario per le
+/// stesse cose. Uno stato che il guscio non conosce si scrive com'è arrivato,
+/// che è meglio di una riga muta se un giorno ne nasce un altro.
+#[cfg(target_os = "macos")]
+fn tray_status_label(status: &str) -> &str {
+    match status {
+        "review" => "Review",
+        "in_progress" => "In Progress",
+        "todo" => "Todo",
+        "backlog" => "Backlog",
+        "done" => "Done",
+        other => other,
+    }
+}
+
+/// UNA riga di tray, UNA porta: mostra la finestra e consegna l'intenzione al
+/// client come DOM CustomEvent. Una tray che facesse le cose da sola (aprire una
+/// pane, cambiare stato) avrebbe una seconda copia delle regole della app in
+/// Rust; qui la tray dice solo COSA, il client sa COME — ed è la stessa via che
+/// il menu nativo e il forwarder delle scorciatoie usano già.
+///
+/// Ogni riga porta prima la finestra a galla: la tray si usa proprio quando la
+/// app è nascosta, e un evento consegnato a una finestra invisibile aprirebbe
+/// una cosa che nessuno vede.
+fn tray_dispatch(app: &tauri::AppHandle, event: &str, detail: Option<(&str, &str)>) {
+    use tauri::Manager;
+    let Some(w) = app.get_webview_window("main") else { return };
+    ensure_window_visible(&w);
+    // Il valore passa da `serde_json` e non da un `format!`: un titolo o un id
+    // con un apice romperebbe (o peggio: allargherebbe) il JS che valutiamo.
+    let body = match detail {
+        Some((key, value)) => format!(
+            "{{detail:{{{key}:{}}}}}",
+            serde_json::to_string(value).unwrap_or_else(|_| "\"\"".to_string())
+        ),
+        None => String::new(),
+    };
+    let js = format!("window.dispatchEvent(new CustomEvent('{event}'{}))",
+        if body.is_empty() { String::new() } else { format!(",{body}") });
+    let _ = w.eval(&js);
+}
+
+/// Il nome leggibile dentro l'id di un progetto: gli id nascono `<nome>-<hash>`
+/// e in un menu la coda esadecimale è rumore. Si toglie SOLO se ha la forma di
+/// un suffisso generato (corto e alfanumerico), così un progetto che si chiama
+/// davvero "topics-2" non perde un pezzo di nome.
+#[cfg(target_os = "macos")]
+fn project_slug(project_id: &str) -> &str {
+    match project_id.rsplit_once('-') {
+        Some((name, tail))
+            if !name.is_empty()
+                && (4..=8).contains(&tail.len())
+                && tail.chars().all(|c| c.is_ascii_alphanumeric())
+                && tail.chars().any(|c| c.is_ascii_digit()) =>
+        {
+            name
+        }
+        _ => project_id,
+    }
+}
+
+/// Trim a menu label so the tray stays a menu and not an inventory. An empty
+/// title still gets a row: a task with no text is a task, and a blank line in a
+/// menu is unclickable-looking. Solo macOS: è il menu dinamico che la usa, e
+/// altrove sarebbe una funzione senza chiamanti (cioè un warning).
+#[cfg(target_os = "macos")]
+fn tray_label(title: &str) -> String {
+    if title.chars().count() > 48 {
+        format!("{}…", title.chars().take(47).collect::<String>())
+    } else if title.is_empty() {
+        "(senza titolo)".to_string()
+    } else {
+        title.to_string()
+    }
 }
 
 /// Reflect the app-wide attention total on the dock-icon badge, the macOS
@@ -3032,17 +3127,24 @@ struct StatusItem {
 /// attention chats (id + title) rendered as clickable menu rows. Both are computed
 /// centrally by the client from the SAME signals the in-app tab badges read (see
 /// `useTabNotifications`), so the OS chrome can never drift from what's on screen.
-/// 0/empty clears the badge/glyph and leaves just Show/Quit. No-op off macOS (no
-/// dock; a Win/Linux taskbar badge can follow later).
+/// `groups` = the board's open work per status (`shared/tray-board.ts`), rendered as
+/// one submenu per column. 0/empty clears the badge/glyph and leaves the static rows.
+/// No-op off macOS (no dock; a Win/Linux taskbar badge can follow later).
 #[tauri::command]
-fn set_app_status(app: tauri::AppHandle, count: u32, items: Vec<StatusItem>) {
+fn set_app_status(
+    app: tauri::AppHandle,
+    count: u32,
+    items: Vec<StatusItem>,
+    groups: Option<Vec<StatusGroup>>,
+) {
     #[cfg(target_os = "macos")]
     // no_abort: run_on_main_thread + tray/menu mutations go through the
     // window dispatcher — same poisoned-mutex SIGABRT class (see no_abort
     // doc). Fires on every attention-status change.
     let _ = no_abort("set_app_status", || {
-        use tauri::menu::MenuBuilder;
+        use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
         use tauri::Manager;
+        let groups = groups.unwrap_or_default();
         // The dock-tile badge is an AppKit UI mutation — must run on the main thread.
         if let Some(win) = app.get_webview_window("main") {
             let _ = win.run_on_main_thread(move || set_dock_badge(count));
@@ -3056,20 +3158,73 @@ fn set_app_status(app: tauri::AppHandle, count: u32, items: Vec<StatusItem>) {
             // menu is currently set, so dynamically-swapped rows still navigate.
             let mut mb = MenuBuilder::new(&app);
             for it in &items {
-                // Trim over-long chat titles so the menu stays tidy.
-                let label = if it.title.chars().count() > 48 {
-                    format!("{}…", it.title.chars().take(47).collect::<String>())
-                } else if it.title.is_empty() {
-                    "(senza titolo)".to_string()
-                } else {
-                    it.title.clone()
-                };
-                mb = mb.text(format!("nav:{}", it.id), label);
+                mb = mb.text(format!("nav:{}", it.id), tray_label(&it.title));
             }
             if !items.is_empty() {
                 mb = mb.separator();
             }
+            // IL LAVORO, non solo le chat. Un sottomenu per stato («Review (3)»)
+            // con le prime righe di quella colonna: da app nascosta la tray è
+            // l'unica superficie che resta, e finora sapeva dire soltanto chi
+            // aspetta una risposta in chat — della board, niente. Le righe
+            // aprono il task (`task:`), la testa della sezione apre la board.
+            if !groups.is_empty() {
+                let open: u32 = groups.iter().map(|g| g.count).sum();
+                mb = mb.text("board:open", format!("Board ({open} aperti)"));
+                for g in &groups {
+                    let mut sb = SubmenuBuilder::new(
+                        &app,
+                        format!("{} ({})", tray_status_label(&g.status), g.count),
+                    );
+                    for it in &g.rows {
+                        // DUE CARD OMONIME su board diverse capitano ("Fix build"
+                        // esiste ovunque), ed è la ragione per cui la riga porta
+                        // anche il progetto. In un menu due righe identiche non
+                        // sono due righe: sono una che sembra disegnata due volte.
+                        // Il progetto compare quindi SOLO quando serve a
+                        // distinguere, non su ogni riga: un menu in cui ogni voce
+                        // ripete la stessa parentesi si legge peggio.
+                        let ambigua = g.rows.iter().filter(|o| o.title == it.title).count() > 1;
+                        let label = if ambigua && !it.project_id.is_empty() {
+                            format!("{} ({})", tray_label(&it.title), project_slug(&it.project_id))
+                        } else {
+                            tray_label(&it.title)
+                        };
+                        sb = sb.text(format!("task:{}", it.id), label);
+                    }
+                    // Il resto si DICHIARA invece di sparire: una riga spenta,
+                    // che non promette un click che non c'è. `count` è la colonna
+                    // intera, `rows` quelle che ci stanno: la differenza è ciò che
+                    // il menu non sta elencando.
+                    let more = g.count.saturating_sub(g.rows.len() as u32);
+                    if more > 0 {
+                        if let Ok(rest) = MenuItemBuilder::with_id(
+                            format!("board-more:{}", g.status),
+                            format!("altri {more}…"),
+                        )
+                        .enabled(false)
+                        .build(&app)
+                        {
+                            sb = sb.item(&rest);
+                        }
+                    }
+                    sb = sb
+                        .separator()
+                        .text(format!("board:{}", g.status), "Apri la board");
+                    if let Ok(sub) = sb.build() {
+                        mb = mb.item(&sub);
+                    }
+                }
+                mb = mb.separator();
+            }
+            // Le azioni che il menu si era perso per strada: la app è cresciuta
+            // (chat, board, aggiornatore) e la tray era rimasta a Mostra/Esci,
+            // cioè non sapeva far FARE niente. Sono le stesse porte del menu
+            // nativo e della sidebar, non gesti nuovi.
             mb = mb
+                .text("tray-new-chat", "Nuova chat")
+                .text("tray-check-updates", "Controlla aggiornamenti")
+                .separator()
                 .text("tray-show", "Mostra Topics")
                 .text("tray-quit", "Esci");
             if let Ok(menu) = mb.build() {
@@ -3088,7 +3243,7 @@ fn set_app_status(app: tauri::AppHandle, count: u32, items: Vec<StatusItem>) {
         Ok(())
     });
     #[cfg(not(target_os = "macos"))]
-    let _ = (app, count, items);
+    let _ = (app, count, items, groups);
 }
 
 /// Set (or clear, when 0) the macOS dock-icon badge label via the shared
@@ -10724,6 +10879,26 @@ pub fn run() {
                         } else if id == "tray-quit" {
                             QUITTING.store(true, Ordering::Relaxed);
                             app.exit(0);
+                        } else if id == "tray-new-chat" {
+                            // Stesso bus del composer: la riga della tray non è un
+                            // gesto nuovo, è la stessa porta vista da fuori.
+                            tray_dispatch(app, "topics:new-chat", None);
+                        } else if id == "tray-check-updates" {
+                            // Identico alla voce del menu nativo (updater_check +
+                            // UpdaterToast lato client).
+                            tray_dispatch(app, "topics:check-for-updates", None);
+                        } else if id.starts_with("board:") {
+                            // La testa della sezione e il piede di ogni sottomenu:
+                            // portano alla board, che è dove il lavoro si guarda per
+                            // intero. Lo stato dopo i due punti non seleziona niente
+                            // (la board mostra tutte le colonne), serve solo a dare
+                            // un id distinto a ogni riga.
+                            tray_dispatch(app, "topics:tray-open-board", None);
+                        } else if let Some(task_id) = id.strip_prefix("task:") {
+                            // Una riga di un sottomenu di stato: apre QUEL task, cioè
+                            // il deep-link `/task/<id>` che già apre il cassetto dalla
+                            // cronologia delle notifiche.
+                            tray_dispatch(app, "topics:tray-open-task", Some(("taskId", task_id)));
                         } else if let Some(topic_id) = id.strip_prefix("nav:") {
                             // A dynamic attention row (set by `set_app_status`): surface
                             // the window and hand the topic id to the renderer, which
@@ -10731,15 +10906,7 @@ pub fn run() {
                             // CustomEvent (not a Tauri event) keeps the client free of
                             // the @tauri-apps/event dependency — same bridge the native
                             // shortcut forwarder uses.
-                            if let Some(w) = app.get_webview_window("main") {
-                                ensure_window_visible(&w);
-                                let arg = serde_json::to_string(topic_id)
-                                    .unwrap_or_else(|_| "\"\"".to_string());
-                                let js = format!(
-                                    "window.dispatchEvent(new CustomEvent('topics:tray-navigate',{{detail:{{topicId:{arg}}}}}))"
-                                );
-                                let _ = w.eval(&js);
-                            }
+                            tray_dispatch(app, "topics:tray-navigate", Some(("topicId", topic_id)));
                         }
                     });
                 if let Some(icon) = app.default_window_icon() {
