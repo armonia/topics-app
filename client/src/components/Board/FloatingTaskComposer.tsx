@@ -1,6 +1,10 @@
-import { useState, useEffect, useRef } from 'react';
-import { Check, ChevronDown, ClipboardList, CornerDownRight, Link2, Loader2, Lock, Send, Sparkles, X } from 'lucide-react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { Check, ChevronDown, ClipboardList, CornerDownRight, Link2, Loader2, Lock, Mic, Send, Sparkles, X } from 'lucide-react';
 import { Menu } from '../Shared/Menu';
+import { useToast } from '../Shared/Toast';
+import { useDictation } from '../../hooks/useDictation';
+import { useTalkGesture } from '../../hooks/useTalkGesture';
+import { insertAtCaret } from '../../lib/insertAtCaret';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { boardApi, boardDrafts, AUTO_PROJECT_ID, STATUS_LABEL, UNASSIGNED_PROJECT_ID, type BoardProjectRef, type LinkProposal, type TaskStatus } from '../../lib/board';
 import { addBoardProject, projectNameFromId, useBoardProjects, useNewProjectDir } from '../../lib/boardProjectsStore';
@@ -181,6 +185,39 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
   const taRef = useRef<HTMLTextAreaElement | null>(null);
   const saveCursor = () => { const ta = taRef.current; if (ta) writeCursor(COMPOSER_CURSOR_KEY, ta.selectionStart, ta.selectionEnd); };
   const wrapRef = useRef<HTMLDivElement>(null);
+
+  /* Dettatura. Un task si descrive a voce meglio di come si scrive, e fin qui
+     la voce esisteva solo in chat: chi apriva la board per buttare dentro un
+     lavoro doveva scriverlo a mano, o dettarlo altrove e copiarlo qui.
+     Il testo entra AL CURSORE (`insertAtCaret`) e non in coda, così una
+     dettatura in due riprese resta nell'ordine in cui l'hai detta. */
+  const toast = useToast();
+  const insertDictated = useCallback((spoken: string) => {
+    const ta = taRef.current;
+    const at = ta ? ta.selectionStart : Number.MAX_SAFE_INTEGER;
+    setText(prev => {
+      const { next, caret } = insertAtCaret(prev, at, spoken);
+      // Il cursore si rimette DOPO che React ha scritto il valore nuovo:
+      // assegnarlo adesso lo sposterebbe su un testo che non c'è ancora.
+      requestAnimationFrame(() => {
+        const el = taRef.current;
+        if (!el) return;
+        el.focus();
+        el.setSelectionRange(caret, caret);
+        writeCursor(COMPOSER_CURSOR_KEY, caret, caret);
+        autoGrow(el);
+      });
+      return next;
+    });
+  }, []);
+  const dictationError = useCallback((m: string) => toast.error(m), [toast]);
+  const dictation = useDictation({ onText: insertDictated, onError: dictationError });
+  const talk = useTalkGesture({
+    start: dictation.start,
+    stop: dictation.stop,
+    enabled: dictation.isSupported && !dictation.isTranscribing,
+  });
+
   // Task composer hotkey listener (Cmd+Shift+;)
   useEffect(() => {
     const handleTaskComposerFocus = () => {
@@ -594,6 +631,36 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
               </button>
             </Menu>
           </div>
+          {/* Il microfono sta ATTACCATO all'invio, non fra i chip: i chip
+              scelgono come nascerà il task, questi due riempiono il campo e lo
+              chiudono. Nascosto del tutto se non c'è un motore di trascrizione,
+              perché un tasto che non può funzionare è peggio di uno assente. */}
+          {dictation.isSupported && (
+            <button
+              type="button"
+              {...talk.handlers}
+              data-testid="task-composer-dictation"
+              data-listening={dictation.isListening ? 'true' : 'false'}
+              disabled={dictation.isTranscribing}
+              title={dictation.isTranscribing
+                ? 'Trascrivo…'
+                : dictation.isListening
+                  ? 'Ferma la dettatura'
+                  : `Detta il task. Tocca per accendere, tieni premuto per parlare e mollare${dictation.modelLabel ? ` · ${dictation.modelLabel}` : ''}`}
+              aria-label={dictation.isListening ? 'Ferma la dettatura' : 'Detta il task'}
+              // `touch-none` toglie il gesto al browser: senza, tenere premuto
+              // su un telefono fa partire lo scroll e il gesto muore a metà.
+              className={`shrink-0 touch-none select-none rounded-lg p-1.5 transition-colors disabled:opacity-40 ${
+                dictation.isListening
+                  ? 'bg-red-500 text-white animate-pulse'
+                  : talk.pressing
+                    ? 'bg-app-hover text-app-text'
+                    : 'text-app-text-tertiary hover:bg-app-hover hover:text-app-text'
+              }`}
+            >
+              {dictation.isTranscribing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mic className="h-4 w-4" />}
+            </button>
+          )}
           <button
             onClick={submit} disabled={!text.trim() || submitting}
             title={todo ? "Crea il task in Todo (l'agent parte da lì)" : 'Crea il task in Backlog (non parte nessun agent)'}
