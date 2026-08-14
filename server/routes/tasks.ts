@@ -32,7 +32,7 @@ import { parseTaskPatch, unapplicableFieldsBody, checkConstraintBody, type Field
 import { getTerminalSessionById } from "./terminal";
 import { deliverAnswer } from "../lib/ask-user-bridge";
 import { answerRoutedAsk, pendingRoutedAsk } from "../services/board-ask-routing";
-import { AUTO_PROJECT_ID, commentAsksHuman, createTaskService, isArchiveParkedLabel, isLandActionLabel, isPublishActionLabel, isRequeueParkedLabel, projectIdForPath, TaskServiceError, UNASSIGNED_PROJECT_ID, type Task } from "../services/tasks";
+import { AUTO_PROJECT_ID, commentAsksHuman, createTaskService, isArchiveParkedLabel, isLandActionLabel, isPublishActionLabel, isRequeueParkedLabel, isTakeOverParkedLabel, projectIdForPath, TaskServiceError, UNASSIGNED_PROJECT_ID, type Task } from "../services/tasks";
 import { computeDispatchCapacity } from "../services/dispatch-capacity";
 import { newProjectParentDir } from "../services/project-path-resolver";
 import { parkedEdgeEvent, type TaskDispatcher } from "../services/task-dispatcher";
@@ -1420,7 +1420,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     if (pathname === "/api/all-boards/tasks" && method === "GET") {
       const status = new URL(req.url).searchParams.get("status") || undefined;
       // Columns show ROOT tasks only — steps live in the parent's detail tree.
-      try { return json({ tasks: svc.list({ scope: "all", status: status as any, rootsOnly: true }) }); }
+      // Tranne gli ORFANI (padre chiuso, archiviato o sparito): quello non è
+      // l'albero di nessuno, e fuori dalle colonne non lo guarda più niente.
+      try { return json({ tasks: svc.list({ scope: "all", status: status as any, rootsOnly: true, includeOrphanSubtasks: true }) }); }
       catch (e) { return fail(e); }
     }
 
@@ -1999,10 +2001,15 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           // non una colonna in più.
           const archived = params.get("archived") === "1" || params.get("archived") === "true";
           // Root tasks only: a step never renders as its own card (drawer tree).
+          // PIÙ gli step orfani: un padre chiuso non ha più una checklist, e
+          // quello che ci era rimasto dentro non lo dispaccia nessuno e non lo
+          // apre più nessuno. Tenerlo fuori dalla colonna non lo rimanda, lo
+          // perde — è la metà opposta dello stesso difetto.
           try {
             return json({
               tasks: svc.list({
                 scope: "project", projectId, status: status as any, rootsOnly: true,
+                includeOrphanSubtasks: true,
                 labels: parseLabelsParam(params.get("labels")),
                 archived,
               }),
@@ -2266,6 +2273,19 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           // sistema. Rimandarle all'agent (il ramo `reject` sotto) avrebbe fatto
           // ripartire un turno per spostare due card, cioè avrebbe pagato un
           // agente per fare un UPDATE.
+          // La TERZA uscita, che esiste perche' le prime due potevano girare a
+          // vuoto: la card torna in mano a una persona, i figli restano dove
+          // sono. Non passa da `resolveParkedChildren` — non risolve i figli,
+          // toglie il task dal giro dell'agente, che e' cio' che serve quando
+          // rimetterli in coda si e' gia' dimostrato circolare.
+          if (isTakeOverParkedLabel(comment)) {
+            const preso = svc.update({
+              taskId: bReview.taskId, actor: "human", by: HUMAN,
+              patch: { status: "in_progress", assignedTo: HUMAN },
+            });
+            broadcastToAll({ type: "task:updated", projectId: bReview.projectId, task: preso });
+            return json(preso);
+          }
           if (isRequeueParkedLabel(comment) || isArchiveParkedLabel(comment)) {
             const decision = isRequeueParkedLabel(comment) ? "requeue" as const : "archive" as const;
             const esito = svc.resolveParkedChildren({ taskId: bReview.taskId, decision, by: HUMAN });
