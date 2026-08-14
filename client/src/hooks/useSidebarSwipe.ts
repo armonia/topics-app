@@ -3,7 +3,7 @@ import { useEffect, useRef, type RefObject } from 'react';
 /**
  * IL CASSETTO STA SOTTO IL DITO, per tutta la corsa.
  *
- * Attilio, 12/08, dal telefono: «dovremo lavorare sulla fluidità della sidebar,
+ * chi usa la app, 12/08, dal telefono: «dovremo lavorare sulla fluidità della sidebar,
  * anche perché non segue bene lo scroll del dito quando faccio lo swipe per
  * aprirla o per chiuderla».
  *
