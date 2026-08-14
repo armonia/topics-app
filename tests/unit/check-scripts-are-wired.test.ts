@@ -69,6 +69,16 @@ const MOTIVI: Record<string, string> = {
     "(`bun run check:ink`), e ha la sua leva di falsificazione: `--stall 300` rende l'app " +
     "davvero lenta e il cancello DEVE diventare rosso. Il posto dove cablarlo, quando ci sara' " +
     "un lavoro e2e in CI, e' li' — non qui.",
+  "check:fluido":
+    "e' un cancello VERO del codice — conta i frame persi scorrendo il trascritto di una chat — " +
+    "ma il suo budget NON e' ancora tarato, e cablarlo adesso lo farebbe nascere rosso. Il metro " +
+    "dei frame era fisso a 60 Hz mentre la macchina consegna a 120, quindi il 2% scritto nella " +
+    "baseline e' stato misurato su un contatore che per un rallentamento uniforme vale 0% o 50% " +
+    "e niente in mezzo. Col metro nuovo la misura vera e' 20-24%, ma presa sotto carico: finche' " +
+    "nessuno la rifa' a macchina ferma non si sa se e' l'app o il portatile. Il perche', il " +
+    "numero e il comando stanno in `da_tarare` dentro scripts/fluido-baseline.json; il posto " +
+    "dove cablarlo e' ci.yml accanto a check:rotte, e va fatto NELLO STESSO commit che scrive " +
+    "il budget vero.",
   "check:occlusion":
     "e' un cancello VERO del codice, ma vuole un WebKit di Playwright e un bundle costruito: " +
     "gira a mano, ed e' anche l'attrezzo che registra la clip di consegna (--video).",
