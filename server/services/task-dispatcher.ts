@@ -1954,11 +1954,38 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // Human input buffered mid-turn → continue on the same tab instead of the
     // requeue path (which would discard the conversation). Deferred a tick:
     // the caller's finally still holds the inFlight slot at this point.
+    //
+    // LA CONSEGNA NON DIPENDE DA DOVE È FINITA LA CARD. Il messaggio si imbuca
+    // mentre il turno è vivo, e il modo NORMALE in cui quel turno finisce è
+    // portare la card in review: la condizione «ancora in_progress» buttava via
+    // proprio il caso più frequente, cioè il feedback scritto mentre l'agent
+    // stava consegnando. Da review si passa dal rifiuto — la stessa strada che
+    // fa un commento umano su una card in review, e per la stessa ragione: quel
+    // feedback è la risposta a una consegna che non l'aveva ancora visto.
     const queued = pendingResume.get(taskId);
     pendingResume.delete(taskId);
-    if (queued && queued.length && cur.status === "in_progress" && cur.assignedTopicId) {
-      setTimeout(() => { void resume(taskId, queued.join("\n")); }, 0);
-      return;
+    if (queued && queued.length && cur.assignedTopicId) {
+      let open = cur.status === "in_progress" ? cur : null;
+      if (cur.status === "review") {
+        try {
+          open = deps.svc.reviewDecision({ taskId, by: "user", decision: "reject" });
+          emit(open);
+        } catch { open = null; }
+      }
+      if (open) {
+        setTimeout(() => { void resume(taskId, queued.join("\n")); }, 0);
+        return;
+      }
+      // Nessun turno da riprendere: la card è tornata in coda (attesa dichiarata,
+      // requeue) e riparte quando tocca a lei. Il feedback NON è perso — è un
+      // commento nel thread e l'agent lo rilegge con `get_task` — ma il silenzio
+      // qui sembrava una consegna riuscita, quindi lo si dice.
+      try {
+        deps.svc.addComment({
+          taskId, author: "system", kind: "service",
+          content: "Il tuo feedback è arrivato a turno finito: resta nel thread e l'agent lo legge quando questa card riprende.",
+        });
+      } catch { /* best-effort */ }
     }
     // The agent declared a wait mid-turn (wait_for_condition → deferForWait moved
     // it back to todo + chip `waiting`). The slot is already freed by the finally;
@@ -2199,7 +2226,24 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     if (!t || !t.assignedTopicId || t.status !== "in_progress") { clearSlotWait(taskId, false); return; }
     if (inFlight.has(taskId)) {
       // Turn still live (winding down): buffer, onTurnEnd delivers it.
+      //
+      // E LO DICE. Scrivere a un agent che lavora non produceva NIENTE sulla
+      // card: nessuna nota, nessun chip, il messaggio spariva dentro una Map e
+      // ricompariva solo quando il turno finiva. Da fuori è indistinguibile da
+      // un feedback ignorato, e chi guarda lo riscrive. La nota è una sola per
+      // coda (il secondo messaggio si accoda a un'attesa già annunciata): dire
+      // due volte la stessa cosa è rumore, non conferma.
+      const already = (pendingResume.get(taskId)?.length ?? 0) > 0;
       pendingResume.set(taskId, [...(pendingResume.get(taskId) ?? []), humanMessage]);
+      if (!already && humanMessage) {
+        try {
+          deps.svc.addComment({
+            taskId, author: "system", kind: "service",
+            content: "Feedback ricevuto mentre l'agent sta lavorando: glielo consegno appena chiude il turno in corso. Non serve riscriverlo.",
+          });
+          emit(deps.svc.get(taskId)!.task);
+        } catch { /* best-effort */ }
+      }
       return;
     }
     // Il tetto vale anche qui. Il messaggio NON si perde: si riprova quando un
