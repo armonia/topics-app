@@ -1,4 +1,5 @@
 import type { AppContext, RouteHandler } from "../types";
+import { costFromMessage, costFromTask } from "../usage/token-sql";
 
 /**
  * KPI e serie della Dashboard.
@@ -120,18 +121,23 @@ export function createDashboardRouter(ctx: AppContext): RouteHandler {
     // I token vengono da DUE posti, e sommarli e' il punto: le chat
     // (`messages`) e gli agenti dispatchati sul board (`tasks`, migration
     // 040/048). Guardarne solo uno faceva sembrare scarico proprio il giorno in
-    // cui la board aveva lavorato di piu'. La rilettura di cache e' compresa —
-    // e' la quota dominante del consumo reale, ~60% misurato.
+    // cui la board aveva lavorato di piu'.
+    //
+    // Il NUMERO e' quanto e' costato, non quanti token sono passati: le due
+    // tabelle scompongono le stesse quantita' in modo diverso, e la traduzione
+    // sta in `server/usage/token-sql.ts` accanto alla regola condivisa. Prima
+    // qui la rilettura di cache valeva un token fresco, mentre la card la
+    // buttava via del tutto: due numeri per la stessa domanda.
     tokensSeries: db.prepare(`
       SELECT date, SUM(value) as value FROM (
         SELECT date(timestamp) as date,
-               SUM(COALESCE(usage_prompt_tokens, 0) + COALESCE(usage_completion_tokens, 0)) as value
+               SUM(${costFromMessage}) as value
         FROM messages
         WHERE timestamp >= date('now', ? || ' days')
         GROUP BY date(timestamp)
         UNION ALL
         SELECT date(completed_at) as date,
-               SUM(agent_tokens + agent_cache_read_tokens) as value
+               SUM(${costFromTask}) as value
         FROM tasks
         WHERE completed_at IS NOT NULL AND completed_at >= date('now', ? || ' days')
         GROUP BY date(completed_at)
