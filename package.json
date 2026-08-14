@@ -28,6 +28,7 @@
     "og": "bun scripts/og-image.mjs",
     "check:contrast": "node scripts/landing-contrast.mjs",
     "check:field": "node scripts/landing-field.mjs",
+    "check:fluido": "bun run scripts/check-fluido.ts",
     "check:painted": "node scripts/landing-painted.mjs",
     "check:landing": "node scripts/landing-verify.mjs",
     "check:copy": "node scripts/landing-copy.mjs",
