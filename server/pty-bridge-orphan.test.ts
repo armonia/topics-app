@@ -92,6 +92,40 @@ describe("pty-bridge · monitor anti-orfano", () => {
     expect(existsSync(sock)).toBe(false);
   }, 40_000);
 
+  test("una sonda che si connette e chiude NON rinnova la licenza dell'orfano", async () => {
+    // Come sopravvivevano davvero. Ogni ponte che prova a nascere esegue
+    // `checkExistingBridge()`, che si connette qui e chiude in millisecondi. Il
+    // monitor contava QUALSIASI connessione come «il server si è riagganciato» e
+    // azzerava la scadenza: in ai-bridge/daemon.log, il 2026-08-14, «Parent died
+    // … exit in 90s» e «Server reconnected» si alternavano all'infinito, e il pid
+    // 41214 era ancora vivo dopo 12 minuti — padre morto e zero peer sul socket.
+    const sock = socketPath("probe");
+    const bridge = spawnBridge(sock, await deadPid(), {
+      TOPICS_PTY_BRIDGE_ORPHAN_GRACE_MS: "1000",
+      // Una sonda vera dura ~1s (connect → ping → pong → close): la soglia sta
+      // sopra, così le sonde qui sotto non contano mai come server.
+      TOPICS_PTY_BRIDGE_REAL_CLIENT_MS: "3000",
+    });
+
+    expect(await until(() => existsSync(sock), 15_000)).toBe(true);
+    let exited = false;
+    void bridge.exited.then(() => { exited = true; });
+
+    // Sonde SOVRAPPOSTE: ognuna tiene aperto un secondo, una nuova ogni 800ms.
+    // Il socket non è mai libero — la versione col buco non si armava nemmeno —
+    // ma nessuna connessione raggiunge i 3s, quindi nessuna è un server.
+    const open = new Set<ReturnType<typeof net.connect>>();
+    const probing = setInterval(() => {
+      const probe = net.connect(sock);
+      open.add(probe);
+      probe.on("error", () => { /* il ponte se n'è andato: è il caso di successo */ });
+      setTimeout(() => { open.delete(probe); probe.destroy(); }, 1_000).unref();
+    }, 800);
+    cleanups.push(() => { clearInterval(probing); for (const p of open) p.destroy(); });
+
+    expect(await until(() => exited, MONITOR_TICK_MS * 6 + 5_000)).toBe(true);
+  }, 60_000);
+
   test("un ponte con il padre VIVO resta su", async () => {
     const sock = socketPath("live");
     const bridge = spawnBridge(sock, process.pid, { TOPICS_PTY_BRIDGE_ORPHAN_GRACE_MS: "1000" });
