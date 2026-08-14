@@ -10,6 +10,8 @@ import {
   regressions,
   unstableRoutes,
   troppoCarico,
+  calibrationOutOfScale,
+  CALIBRATION_KEY,
   type Baseline,
   type RouteKey,
 } from "./check-rotte";
@@ -131,6 +133,45 @@ describe("regressions", () => {
     const detto = regressions(at({ topics: 900 }), stringata);
     expect(detto).toHaveLength(1);
     expect(detto[0]).toContain("non puo' giudicare");
+  });
+});
+
+describe("il tubo e' il metro: quando salta lui, non si misura niente", () => {
+  // Il quarto modo di mentire, quello che mancava: la macchina e' lenta per
+  // TUTTA la corsa, quindi le due passate si somigliano benissimo e il cancello
+  // chiama regressione un numero che parla del portatile. Successo davvero il
+  // 2026-08-14: `all_boards_tasks` a 8 ms contro 0,75 di baseline, identico su
+  // un albero PRECEDENTE a ogni modifica di quel giorno.
+
+  test("tubo a posto: non scatta, e una rotta peggiorata resta ROSSA", () => {
+    // La meta' che conta: il guardiano non deve diventare una scusa. Con il tubo
+    // dove deve stare, il giudizio sulle altre rotte e' quello di prima.
+    expect(calibrationOutOfScale(at({}), baseline)).toBeNull();
+    expect(calibrationOutOfScale(at({ topics: 43 }), baseline)).toBeNull();
+    expect(regressions(at({ topics: 43 }), baseline)).toHaveLength(1);
+  });
+
+  test("tubo fuori scala: scatta, e riporta misura, tetto e baseline", () => {
+    // baseline 1 ms, tolleranza 40%, pavimento 1,5 ms -> tetto 2,5 ms.
+    const fuori = calibrationOutOfScale(at({ [CALIBRATION_KEY]: 9 }), baseline);
+    expect(fuori).not.toBeNull();
+    expect(fuori!.measuredMs).toBe(9);
+    expect(fuori!.baselineMs).toBe(1);
+    expect(fuori!.capMs).toBe(budgetMs(1, baseline.tolerance_pct, baseline.floor_ms));
+  });
+
+  test("il tubo dentro il tetto NON scatta, nemmeno al pelo", () => {
+    const cap = budgetMs(1, baseline.tolerance_pct, baseline.floor_ms);
+    expect(calibrationOutOfScale(at({ [CALIBRATION_KEY]: cap }), baseline)).toBeNull();
+    expect(calibrationOutOfScale(at({ [CALIBRATION_KEY]: cap + 0.01 }), baseline)).not.toBeNull();
+  });
+
+  test("una macchina lenta alza TUTTO, e la risposta e' 2 e non 1", () => {
+    // La forma vera del guasto: ogni rotta gonfiata, tubo compreso. Prima
+    // usciva 1 («regressione») su tre rotte; ora il tubo dice che non si misura.
+    const carica = at({ topics: 9, topic_messages: 30, all_boards_tasks: 12, dispatch_capacity: 6 });
+    expect(regressions(carica, baseline).length).toBeGreaterThan(0); // il vecchio verdetto
+    expect(calibrationOutOfScale(carica, baseline)).not.toBeNull(); // ma il metro e' saltato
   });
 });
 
