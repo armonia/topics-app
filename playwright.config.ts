@@ -173,6 +173,7 @@ export default defineConfig({
         "**/hover-reveal-touch-audit.spec.ts",
         "**/browser-mobile-keyboard.spec.ts",
         "**/mobile-chrome-bar.spec.ts",
+        "**/mobile-edge-swipe-no-history.spec.ts",
         ...(IS_PR ? NIGHTLY_ONLY_SPECS : []),
       ],
     },
@@ -242,7 +243,10 @@ export default defineConfig({
      */
     {
       name: "chromium-phone",
-      testMatch: "**/mobile-chrome-bar.spec.ts",
+      // Due spec, stesso telefono: la prima misura la CHROME (cosa c'è in alto e
+      // in basso), la seconda il BORDO (chi si prende il trascinamento che parte
+      // dal margine dello schermo, il cassetto o la cronologia).
+      testMatch: ["**/mobile-chrome-bar.spec.ts", "**/mobile-edge-swipe-no-history.spec.ts"],
       use: {
         browserName: "chromium",
         hasTouch: true,
