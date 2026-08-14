@@ -38,7 +38,7 @@ export type { TaskStatus, TaskComment, BoardSettings, BoardSettingsPatch, Blocke
 import {
   ACTIVE_DISPATCH_STATES, ARCHIVE_PARKED_LABEL, DISPATCH_CHIP_QUEUED, clampGlobalCap,
   MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PREVIEW_CARD_MAX_RATIO, QUEUE_REASON_UNKNOWN,
-  REQUEUE_PARKED_LABEL, TASK_STATUSES, WAIT_SERIES_MAX_MS, WAIT_STREAK_CAP,
+  REQUEUE_PARKED_LABEL, TAKE_OVER_PARKED_LABEL, TASK_STATUSES, WAIT_SERIES_MAX_MS, WAIT_STREAK_CAP,
   deriveQueueReason, deriveSubtaskWork, formatStatusEvent, hasPlanApproveOption, isAgentWorking,
   isUnattributedSubtask, noteParkedChildrenResolved, parseQuestionBlock, questionAsksHuman,
   readTaskWeight, statusEventEnters, waitReasonKey,
@@ -92,7 +92,7 @@ export const AUTO_PROJECT_ID = "_auto";
  */
 export {
   ARCHIVE_PARKED_LABEL, LAND_ACTION_LABEL, PUBLISH_ACTION_LABEL, REQUEUE_PARKED_LABEL,
-  isArchiveParkedLabel, isLandActionLabel, isPublishActionLabel, isRequeueParkedLabel,
+  isArchiveParkedLabel, isLandActionLabel, isPublishActionLabel, isRequeueParkedLabel, isTakeOverParkedLabel,
 } from "../../shared/board";
 
 /**
@@ -3101,13 +3101,32 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // anche i figli in `todo`, la colonna non è più la notizia — lo è il fatto
       // che nessun turno li muoverà. Nominare una colonna sbagliata manderebbe a
       // cercarli dove non sono.
-      const question =
-        `Fermo su ${parked.length} sottotask che non lavorerà nessuno (${elenco}): uno step lo muove solo l'agente di questa card ` +
-        `dentro il proprio turno, e con un sottotask aperto questo task non si può chiudere. Li rimetto in coda, o archivio ciò che non serve più?`;
+      // GIA' RIMESSI IN CODA UNA VOLTA? Allora quel bottone non si offre piu'.
+      //
+      // L'ANELLO, visto tre volte in una notte sulle stesse card: «rimetti in
+      // coda» porta i figli in `todo`, ma un figlio in `todo` conta come fermo
+      // (nessun tick lo prende: il dispatcher lista `rootsOnly`), quindi alla
+      // fine del turno successivo la domanda riparte identica. Chi risponde
+      // ripremeva lo stesso bottone e tornava esattamente qui.
+      //
+      // Offrire due volte un'uscita che si e' gia' dimostrata circolare non e'
+      // dare una scelta: e' far girare a vuoto chi decide. Alla seconda volta la
+      // domanda lo DICE, e lascia le uscite che portano fuori davvero.
+      const giaRimessi = (db.prepare(
+        "SELECT COUNT(*) AS n FROM task_comments WHERE task_id = ? AND content = ?",
+      ).get(taskId, REQUEUE_PARKED_LABEL) as { n: number } | undefined)?.n ?? 0;
+      const question = giaRimessi > 0
+        ? `Fermo di nuovo sugli stessi ${parked.length} sottotask (${elenco}), e rimetterli in coda l'ha gia' fatto: ` +
+          `non basta, perche' uno step lo muove solo l'agente di questa card dentro il proprio turno e quel turno non li ha toccati. ` +
+          `Archivio cio' che non serve piu', oppure la prendi in mano tu?`
+        : `Fermo su ${parked.length} sottotask che non lavorerà nessuno (${elenco}): uno step lo muove solo l'agente di questa card ` +
+          `dentro il proprio turno, e con un sottotask aperto questo task non si può chiudere. Li rimetto in coda, o archivio ciò che non serve più?`;
       try {
         this.addComment({
           taskId, author: "system", content: question,
-          questionOptions: [REQUEUE_PARKED_LABEL, ARCHIVE_PARKED_LABEL],
+          questionOptions: giaRimessi > 0
+            ? [ARCHIVE_PARKED_LABEL, TAKE_OVER_PARKED_LABEL]
+            : [REQUEUE_PARKED_LABEL, ARCHIVE_PARKED_LABEL],
         });
       } catch { /* dedupe/best-effort: la domanda resta comunque nello stato */ }
       // Stessa forma di una consegna di sistema — review + `needs_input` + firma
