@@ -110,7 +110,8 @@ jobs:
       #    costruito che nessun workflow costruisce: vivono nel deploy manuale
       #    del sito, non nella CI dell'app.
       #
-      # Un settimo si chiamava `check:*` e non lo era: `check:landed`, ora
+      # Un altro si chiamava `check:*` e non lo era (l'ordinale stava qui e si è
+      # scollato al primo cancello aggiunto, quindi ora non c'è): `check:landed`, ora
       # `report:landed` (scripts/check-done-landed.ts). Non misura il codice ma
       # lo STATO DELLA BOARD — legge `tasks`/`task_comments`/`messages` da
       # `data/topics.db`, che è in .gitignore:174. Su un checkout di CI quel
@@ -123,7 +124,7 @@ jobs:
       # era l'unica cosa che lo faceva sembrare una barra da tenere verde: sta
       # con `report:disk` e `report:branches`, che è quello che è. Non
       # aggiungerlo qui.
-      - name: Static guard rails (any / NUL / dead code / eslint-disable / test skip / long dash)
+      - name: Static guard rails (any / NUL / dead code / eslint-disable / test skip / long dash / bloat)
         run: |
           bun run check:any
           bun run check:nul
@@ -131,6 +132,20 @@ jobs:
           bun run check:eslint-disable
           bun run check:test-skips
           bun run check:emdash
+          bun run check:bloat
+
+      # `check:bloat` è il settimo di questa fila ed è il rovescio di
+      # `check:deadcode`: knip copre il codice che NESSUNO chiama, questo copre
+      # il codice che chiamano tutti e che sta tutto nello stesso file. Misura
+      # due cose e le confronta con `scripts/bloat-baseline.json`: righe per file
+      # e blocchi duplicati. È un RATCHET, non una barra assoluta. Su questo
+      # albero 93 file sono già oltre le 800 righe, quindi una barra assoluta
+      # nascerebbe rossa e verrebbe spenta in una settimana. Diventa rosso quando
+      # un file NUOVO passa la soglia, quando uno già censito cresce oltre il
+      # suo tetto, o quando la duplicazione totale sale.
+      #
+      # Sta qui e non fra i referti perché non guarda né il database né la
+      # macchina: legge `git ls-files` e i file, come gli altri sette.
 
       # `check:deadcode` dice «zero export morti». Non dice su quanti file
       # l'ha guardato, e la differenza non era teorica: su `client/src/lib/api.ts`
