@@ -132,7 +132,7 @@ import { createTabsRouter } from "./server/routes/tabs";
 import { createClaudeSessionTracker } from "./server/lib/claude-session-tracker";
 import { evaluateAuth, isLoopbackAddress, isOriginGatedPath, resolveAllowedOrigins } from "./server/lib/auth-gate";
 import { markViaTunnel, isLocalTransport, clientIpOf, tunnelPort } from "./server/lib/tunnel";
-import { comprimiJson } from "./server/lib/compress-json";
+import { compressJson } from "./server/lib/compress-json";
 import { ROUTE_FAULT, applyRouteFault } from "./server/lib/route-fault";
 import { BUSY_SPINNER_PHASES } from "./server/lib/claude-session-state";
 import { claudeTranscriptPath, isTranscriptOrphaned } from "./server/lib/claude-transcript-path";
@@ -1998,6 +1998,20 @@ function timingSafeEqualStr(presented: string, expected: string | null | undefin
  * `undefined` al posto dell'istanza e `server.upgrade` esplode. In un'app che
  * vive sul WebSocket sarebbe stato metà prodotto.
  */
+/**
+ * Is there a network between us and whoever is asking?
+ *
+ * The one question both compression paths ask, HTTP and WebSocket alike, so it
+ * is written once. Deliberately NOT `isLocalTransport`: that one asks who we
+ * trust, and for it the tunnel is remote even with the peer at 127.0.0.1. Here
+ * the tunnel is local, because the socket on its other end belongs to
+ * `relay-client.ts` on this very machine, which inflates whatever we compress
+ * before passing it on. See `server/lib/compress-json.ts`.
+ */
+function isRemotePeer(req: Request, srv: { requestIP(req: Request): { address: string } | null }): boolean {
+  return !isLoopbackAddress(srv.requestIP(req)?.address ?? null);
+}
+
 const opzioniServer = {
   port: PORT,
   // Bind host. Default "::" dual-stack: with net.inet6.ip6.v6only=0 (macOS
@@ -2265,7 +2279,7 @@ const opzioniServer = {
     // WebSocket upgrade - terminal
     if (pathname.startsWith("/ws/terminal/")) {
       const termId = pathname.split("/ws/terminal/")[1];
-      const upgraded = server.upgrade(req, { data: { id: crypto.randomUUID(), focusedTopicId: null, lastPong: Date.now(), terminalId: termId } });
+      const upgraded = server.upgrade(req, { data: { id: crypto.randomUUID(), focusedTopicId: null, lastPong: Date.now(), terminalId: termId, remote: isRemotePeer(req, server) } });
       if (upgraded) return undefined;
       return new Response("WebSocket upgrade failed", { status: 400 });
     }
@@ -2288,6 +2302,7 @@ const opzioniServer = {
           focusedTopicId: null,
           lastPong: Date.now(),
           browserContextId,
+          remote: isRemotePeer(req, server),
         },
       });
       if (upgraded) return undefined;
@@ -2315,7 +2330,7 @@ const opzioniServer = {
         if (!io.device || io.device.revokedAt !== null) return { id: null, role: null };
         return { id: io.device.id, role: io.confined ? "guest" as const : "owner" as const };
       })();
-      const upgraded = server.upgrade(req, { data: { id: crypto.randomUUID(), focusedTopicId: null, lastPong: Date.now(), deviceId: wsDevice.id, deviceRole: wsDevice.role } });
+      const upgraded = server.upgrade(req, { data: { id: crypto.randomUUID(), focusedTopicId: null, lastPong: Date.now(), deviceId: wsDevice.id, deviceRole: wsDevice.role, remote: isRemotePeer(req, server) } });
       if (upgraded) return undefined;
       return new Response("WebSocket upgrade failed", { status: 400 });
     }
@@ -2588,6 +2603,19 @@ const opzioniServer = {
 
   websocket: {
     maxPayloadLength: 1024 * 1024,
+    /**
+     * Negotiates permessage-deflate. It does NOT compress anything on its own:
+     * measured on Bun 1.3.8 with a byte counting proxy, `ws.send(x)` still went
+     * out at 44,667 B for a 44,395 B payload, and only `ws.send(x, true)`
+     * brought it to 5,423 B. The option opens the door, the per send flag walks
+     * through it, and who decides is `shouldCompressFrame`
+     * (`server/lib/ws-compression.ts`).
+     *
+     * Worth opening because the first screen comes off this socket:
+     * `ui-state:init` is 86,222 B and gzips to 20,872 (4.13x), `unread:init` is
+     * 81,713 and gzips to 24,936 (3.28x), for about 1.5 ms of CPU in total.
+     */
+    perMessageDeflate: true,
     open(ws) {
       ws.data.lastPong = Date.now();
       if (ws.data.deviceId) noteDeviceConnected(ws.data.deviceId);
@@ -3281,18 +3309,7 @@ function withJsonCompression(
     // `undefined` means the WebSocket upgrade succeeded: there is no HTTP
     // response to compress.
     if (!res) return res;
-    // Bare loopback, NOT `isLocalTransport`. The two questions look alike and
-    // answer different things: `isLocalTransport` asks "whom do I trust", and
-    // for that one the tunnel counts as remote even when the peer is 127.0.0.1.
-    // Here the question is "is there a network in between", and on the tunnel
-    // there is not: the other end of that socket is `relay-client.ts` on this
-    // very machine, which replays the request with `fetch` and DECOMPRESSES it
-    // right away (measured: Bun decompresses on its own, and
-    // `intestazioniRisposta` strips `content-encoding` precisely because the
-    // body leaving again is text once more). Compressing there would mean paying
-    // twice to deliver the same bytes.
-    const remote = !isLoopbackAddress(srv.requestIP(req)?.address ?? null);
-    return comprimiJson(req, res, remote);
+    return compressJson(req, res, isRemotePeer(req, srv));
   } as typeof opzioniServer.fetch;
 }
 

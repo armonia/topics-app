@@ -46,6 +46,23 @@ export interface WSData {
    * il motivo sbagliato: `deviceId` nullo, non ruolo.
    */
   deviceRole?: 'owner' | 'guest' | null;
+  /**
+   * Is there a network between this socket and its peer? Stamped at upgrade,
+   * the only moment the peer address is still available: after that a WebSocket
+   * is just a pipe.
+   *
+   * It exists to decide whether a frame goes out compressed
+   * (`server/lib/ws-compression.ts`). It is NOT `deviceId == null`, which would
+   * look like the same question and is not: the terminal and browser upgrades
+   * never stamp a device, so that field is null for a LAN peer too. And it is
+   * not `isLocalTransport` either, which asks who we trust and counts the
+   * tunnel as remote: here the tunnel is local, because the socket on the other
+   * end belongs to `relay-client.ts` on this very machine.
+   *
+   * Absent means "not stamped", which is read as local: a socket nobody has
+   * classified pays nothing.
+   */
+  remote?: boolean;
   focusedTopicId: string | null;
   /** P6: topics this connection currently has open; streaming deltas are routed
    *  only to clients that include the streaming topic. `undefined` until the
