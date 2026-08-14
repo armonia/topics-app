@@ -1294,8 +1294,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         // un rifiuto spiegato PRIMA costa una riga, scoperto dopo costa un giro.
         "- MAI aprire immagini o video con Read (il tuo Read li rifiuta): pesano ~mezzo mega e restano nel PREFISSO, che ogni turno successivo rilegge. Per consegnare la prova basta il path — update_task(preview_image=<path>) o comment_task(media=[<path>]) — non serve averla aperta. Per ispezionare lo schermo del browser usa browser_read_screen, che risponde in testo.",
         // IL REPO E' PUBBLICO, e questa riga sta qui perche' il sintomo e' gia'
-        // ricomparso due volte in una notte. Gli agenti scrivono «Attilio ha
-        // chiesto…» nei commenti perche' e' VERO e perche' e' tracciabilita'
+        // ricomparso due volte in una notte. Gli agenti scrivono «<il nome della
+        // persona> ha chiesto…» nei commenti perche' e' VERO e perche' e' tracciabilita'
         // onesta; il cancello `no-personal-data` li ferma, qualcuno toglie il
         // nome a mano, e il turno dopo un altro agente lo riscrive. Toglierlo
         // ogni volta e' curare il sintomo: l'origine e' che nessuno gliel'ha
