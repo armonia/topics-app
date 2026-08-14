@@ -1008,6 +1008,31 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           return;
         }
       }
+      // NESSUN CANDIDATO, PROPRIO NESSUNO: la card entra in review cieca e
+      // finora lo faceva IN SILENZIO.
+      //
+      // Misurato il 14/08 sulla board di topics: 186 card su 393 senza
+      // anteprima, e di quelle 0 scartate per forma. Cioè il ramo qui sotto —
+      // l'unico che parlava — non era mai scattato: chi arrivava senza allegare
+      // niente non riceveva nessun segnale, e chi apriva la card per decidere
+      // trovava un riquadro vuoto senza sapere se l'evidenza mancava, era
+      // fallita o non serviva.
+      //
+      // Non è un blocco (il protocollo dice che l'anteprima NON è un cancello
+      // di review, e trasformarla in tale fermerebbe consegne buone): è la
+      // stessa scelta di `noteDuplicatePreview` — si scrive il fatto e decide
+      // chi legge.
+      if (!rejected.length && !rows.some((r) => (r.media ?? "").trim())) {
+        reviewNote(
+          taskId,
+          "Consegna SENZA anteprima: nel thread non c'è nessun allegato da promuovere, quindi la card resta cieca. " +
+            "Non è un blocco. Se questa consegna non ha una superficie da mostrare va bene così. " +
+            "Se ne ha una, l'evidenza durevole è ciò che resta quando la sessione è finita: `.png` per una schermata, " +
+            "`.webm` ≤20s per un comportamento a più stati, `.svg` per una struttura senza superficie. " +
+            "Poi `update_task(preview_image=…)`.",
+        );
+        return;
+      }
       // Nessun candidato promosso ma qualcuno scartato per forma: la card
       // resterebbe cieca senza che nessuno sappia perché.
       if (rejected.length) {
