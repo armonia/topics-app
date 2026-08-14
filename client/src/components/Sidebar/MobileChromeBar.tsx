@@ -1,18 +1,27 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import { Kanban, LayoutGrid, List, Search, type LucideIcon } from 'lucide-react';
+import { Kanban, LayoutGrid, List, Search, User, type LucideIcon } from 'lucide-react';
 import { getPaneConfig } from '@/state/pane/adapters/paneConfig';
 import { useMobile } from '@/hooks/useMobile';
 import { formaFila, pavimentoFila, raggioSchermo, type FormaScatola } from '@/lib/safeAreaArc';
 import { RAISED_CONTROL, SIDEBAR_ACTIVE } from '@/lib/selectionStyles';
+import { iniziali, useProfileIdentity } from './useProfileIdentity';
 
 /**
- * LE TRE PORTE, IN FONDO ALLO SCHERMO — cerca · aggiungi · board.
+ * LE QUATTRO PORTE, IN FONDO ALLO SCHERMO — cerca · aggiungi · board · profilo.
  *
- * ── PERCHÉ IN BASSO, E PERCHÉ SOLO TRE ─────────────────────────────────────
+ * ── PERCHÉ IN BASSO, E PERCHÉ COSÌ POCHE ───────────────────────────────────
  * In alto ci sta poco e ci arriva peggio il pollice: la chrome del telefono
- * tiene lassù una cosa sola (il menu «Topics») e porta quaggiù i gesti che si
- * ripetono. Tre, non cinque: la fila non è un cassetto di scorciatoie, è
+ * tiene lassù il menu «Topics» e la campanella, e porta quaggiù i gesti che si
+ * ripetono. Quattro, non otto: la fila non è un cassetto di scorciatoie, è
  * l'elenco delle stanze da cui si riparte.
+ *
+ * ── LA QUARTA PORTA È IL PROFILO, E PRIMA NON ERA UNA PORTA ────────────────
+ * Stava dentro il menu «Topics», cioè dietro un gesto che nessuno fa per
+ * cercare il proprio account (chi usa la app, 14/08: «il tasto del profilo, togliendolo
+ * dal menu di Topics»). Qui è una faccia, che è il modo in cui un account si
+ * riconosce a colpo d'occhio, e porta dove portava prima: Impostazioni →
+ * Account e dispositivi. Non è una copia della voce del menu: quella voce non
+ * c'è più, altrimenti sarebbero due porte per la stessa stanza.
  *
  * ── IL «BOARD» È UN INTERRUTTORE, NON UN LINK ──────────────────────────────
  * Premuto porta alla Kanban; premuto di nuovo torna alla LISTA — cioè alla
@@ -23,7 +32,7 @@ import { RAISED_CONTROL, SIDEBAR_ACTIVE } from '@/lib/selectionStyles';
  *
  * ── LA FILA SEGUE LA CURVA DELLO SCHERMO ───────────────────────────────────
  * Gli estremi salgono di quanto l'arco dell'angolo mangia alla loro ascissa, e
- * quello in mezzo non sale affatto: così la fila può stare a 8px dai bordi
+ * quelli in mezzo non salgono affatto: così la fila può stare a 8px dai bordi
  * invece dei 32 con cui la barra di stato si tiene larga, e nessuno finisce
  * dentro il vetro tondo. Il calcolo — e il perché del raggio stimato dalla
  * fascia — sta tutto in `lib/safeAreaArc.ts`. Su uno schermo squadrato il
@@ -38,7 +47,7 @@ import { RAISED_CONTROL, SIDEBAR_ACTIVE } from '@/lib/selectionStyles';
  * ── CON LA TASTIERA APERTA NON C'È ─────────────────────────────────────────
  * Sparisce, e con lei la banda riservata: una fila di comandi sopra la tastiera
  * ruba righe al testo che si sta scrivendo, ed è il momento in cui nessuna
- * delle tre porte serve.
+ * delle quattro porte serve.
  */
 
 /** L'altezza pubblicata: la leggono la radice dell'app e il cassetto. */
@@ -72,9 +81,11 @@ export interface MobileChromeBarProps {
   boardInFront: boolean;
   /** L'interruttore: board ⇄ lista. */
   onToggleBoard: () => void;
+  /** Apre Impostazioni → Account e dispositivi: la stanza del profilo. */
+  onOpenProfile: () => void;
 }
 
-export function MobileChromeBar({ onSearch, addSlot, boardInFront, onToggleBoard }: MobileChromeBarProps) {
+export function MobileChromeBar({ onSearch, addSlot, boardInFront, onToggleBoard, onOpenProfile }: MobileChromeBarProps) {
   const { isMobile, keyboardVisible, safeAreaInsets } = useMobile();
   const barraRef = useRef<HTMLDivElement>(null);
   const slotRefs = useRef<Array<HTMLDivElement | null>>([]);
@@ -173,7 +184,7 @@ export function MobileChromeBar({ onSearch, addSlot, boardInFront, onToggleBoard
         height: `${Math.round(SOPRA + 44 + massima)}px`,
       }}
     >
-      {/* Le tre caselle. Il `ref` che le misura sta DENTRO questo componente e
+      {/* Le quattro caselle. Il `ref` che le misura sta DENTRO questo componente e
           non in un figlio: scrivere nel ref di qualcun altro passandoglielo
           come prop è la mutazione di un argomento, e il cancello del lint la
           ferma — giustamente, perché renderebbe la misura di questa fila una
@@ -192,19 +203,66 @@ export function MobileChromeBar({ onSearch, addSlot, boardInFront, onToggleBoard
 
       <div ref={(n) => { slotRefs.current[2] = n; }} className="flex" style={{ marginBottom: forma(2).alzata }}>
         <BottoneFila
-          etichetta={boardInFront ? 'Tab' : 'Board'}
+          etichetta={boardInFront ? 'Tab' : 'Task'}
           onClick={onToggleBoard}
           attivo={boardInFront}
           testId="mobile-chrome-board"
           forma={forma(2)}
           // Il tasto dice DOVE PORTA, e lo dice anche a chi non vede: con la
           // board davanti porta indietro alla lista, altrimenti alla board.
-          titolo={boardInFront ? 'Torna alla lista delle tab' : 'Apri la Kanban'}
+          titolo={boardInFront ? 'Torna alla lista delle tab' : 'Apri la lista dei task'}
         >
           {boardInFront ? <List size={22} aria-hidden="true" /> : <BoardGlyph size={22} aria-hidden="true" />}
         </BottoneFila>
       </div>
+
+      {/* La quarta porta è l'ULTIMA, quindi è lei a prendere la curva dell'angolo
+          destro: prima ce l'aveva il tasto della board, che adesso sta in mezzo
+          e torna standard. Il verso non è scritto qui — lo decide `formaFila`
+          guardando da che bordo dista meno — e per questo aggiungere una porta
+          non ha richiesto di toccare l'arco. */}
+      <div ref={(n) => { slotRefs.current[3] = n; }} className="flex" style={{ marginBottom: forma(3).alzata }}>
+        <PortaProfilo onClick={onOpenProfile} forma={forma(3)} />
+      </div>
     </div>
+  );
+}
+
+/**
+ * LA PORTA DEL PROFILO — la faccia, e dietro l'account.
+ *
+ * È un componente a parte, e non due righe dentro la barra, per una ragione che
+ * si paga: chiedere «chi sei» è una chiamata di rete, e un hook scritto nel
+ * corpo della barra girerebbe anche sul desktop, dove la barra non si disegna
+ * affatto (`return null` arriva DOPO gli hook). Montato solo qui, la domanda si
+ * fa solo dove la risposta si vede.
+ */
+function PortaProfilo({ onClick, forma }: { onClick: () => void; forma: FormaScatola }) {
+  const { nome, avatarUrl } = useProfileIdentity();
+  const sigla = nome ? iniziali(nome) : '';
+
+  return (
+    <BottoneFila
+      etichetta="Profilo"
+      onClick={onClick}
+      testId="mobile-chrome-profile"
+      forma={forma}
+      titolo={nome ? `${nome}. Account e dispositivi` : 'Account e dispositivi'}
+    >
+      {avatarUrl ? (
+        <img src={avatarUrl} alt="" className="h-[22px] w-[22px] flex-shrink-0 rounded-full object-cover" />
+      ) : sigla ? (
+        // Le iniziali stanno nella STESSA scatola da 22 del glifo: se il cerchio
+        // cambiasse misura con la lunghezza del nome, la fila si muoverebbe da
+        // sola al primo login — e le alzate dell'arco si rimisurano su quella
+        // larghezza.
+        <span className="flex h-[22px] w-[22px] flex-shrink-0 items-center justify-center rounded-full bg-primary text-[9px] font-semibold text-white">
+          {sigla}
+        </span>
+      ) : (
+        <User size={22} aria-hidden="true" />
+      )}
+    </BottoneFila>
   );
 }
 
@@ -214,8 +272,8 @@ export function MobileChromeBar({ onSearch, addSlot, boardInFront, onToggleBoard
  *
  * L'etichetta non è decorazione. Due icone sole in mezzo a una fascia larga
  * sono un indovinello — è la ragione per cui `PaneAddMenu` ha `triggerLabel` —
- * e qui le stanze sono tre, di cui una cambia faccia: senza la parola,
- * «Board»/«Tab» sarebbero due glifi che si alternano senza dire perché.
+ * e qui le stanze sono quattro, di cui una cambia faccia: senza la parola,
+ * «Task»/«Tab» sarebbero due glifi che si alternano senza dire perché.
  *
  * ── HANNO LA FACCIA DI UN TASTO, NON DI UN LINK ────────────────────────────
  * `raised-control` + `edge-lit`, cioè la pelle che porta ogni comando
