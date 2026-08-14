@@ -1,0 +1,71 @@
+{
+  "$schema": "fluido-baseline-v1",
+  "surface": "chat-thread-virtuoso",
+  "updated": "2026-08-14",
+  "why": [
+    "«Fluido» stava in una card e in nessun numero: nessun cancello di questo repo guardava cosa succede al main thread MENTRE si scorre. Il budget di frame a riposo (tests/e2e/idle-frame-budget.spec.ts) misura l'opposto, cioe' quanti frame si chiedono quando non succede niente, e per costruzione tace proprio dove l'utente sente lo scatto.",
+    "La superficie e' il trascritto di una chat: l'unica lista virtualizzata dell'app, e il posto dove un difetto di questa famiglia e' gia' stato misurato (la catena ResizeObserver -> rAF -> offsetParent di react-virtuoso, che costava un layout sincrono per frame).",
+    "I numeri di `measured` sono la misura vera del 2026-08-14 su questo banco, non una stima. Il protocollo che li ha prodotti sta in `protocol` e in tests/e2e/scroll-fluidity.spec.ts: 80 messaggi seminati, 5 passate da 180 frame ciascuna (andata e ritorno sull'intero trascritto), piu' una passata di riscaldamento scartata, e per ogni metrica la MEDIANA delle 5."
+  ],
+  "protocol": {
+    "frames_per_pass": 180,
+    "passes": 5,
+    "warmup_passes": 1,
+    "frame_budget_ms": 16.667,
+    "seeded_messages": 80,
+    "aggregation": "mediana delle 5 passate"
+  },
+  "measured": {
+    "_": "Misurato il 2026-08-14, macOS arm64, chromium headless di Playwright, banco e2e su porta dedicata. Quattro run pulite consecutive hanno dato lo stesso quadro: 0% di frame persi in tutte e quattro, buco peggiore fra 9,3 e 10,1 ms, zero long task. La cadenza a riposo di questo banco e' 8,3 ms (120 Hz), quindi c'e' molto margine prima dei 16,67 ms con cui si contano i frame persi: e' il motivo per cui il buco peggiore e i long task sono gate a se' e non un contorno.",
+    "dropped_pct": 0,
+    "worst_gap_ms": 9.8,
+    "longtask_ms": 0,
+    "median_gap_ms": 8.3,
+    "calibration_gap_ms": 8.3
+  },
+  "budget": {
+    "_": "La soglia che fa uscire non-zero. Ogni numero ha accanto il perche' in `budget_why`, e sotto c'e' la misura con la lentezza INIETTATA che l'ha vista diventare rossa: una soglia mai vista fallire non e' una soglia.",
+    "dropped_pct": 2,
+    "worst_gap_ms": 33.4,
+    "longtask_ms": 50
+  },
+  "budget_why": {
+    "dropped_pct": "2% di 180 frame sono ~4 frame in un secondo e mezzo di scorrimento: sotto quella quota lo scatto non si vede. Misurato oggi: 0%. Con 40 ms di blocco sintetico ogni 100 ms nel main thread la misura sale a 10%, e il cancello e' rosso.",
+    "worst_gap_ms": "Due frame a 60 Hz (33,4 ms). Un singolo buco piu' lungo di due frame e' uno strappo che si vede, e in percentuale su una passata lunga peserebbe pochissimo: va guardato da solo. Misurato oggi: fra 9,3 e 10,1 ms su quattro run, cioe' tre volte sotto la soglia. Con 40 ms iniettati: 34,2 ms; con 70 ms: 67,7 ms.",
+    "longtask_ms": "Un long task dura per definizione piu' di 50 ms, quindi questo budget lascia passare UNO al limite nella passata mediana e ne rifiuta due. Misurato oggi: 0 ms, zero long task su cinque passate, in tutte e quattro le run. Con 70 ms iniettati: 2380 ms."
+  },
+  "guards": {
+    "_": "Non sono soglie di qualita': sono le condizioni perche' la misura VOGLIA DIRE qualcosa. Fuori da qui il cancello esce 2 (non misurabile) invece di dare un rosso che parla della macchina e non del prodotto.",
+    "calibration_gap_ms_ceiling": 20,
+    "calibration_why": "Cadenza a riposo misurata su una pagina VUOTA, cioe' su cio' che la macchina riesce a consegnare in questo momento. 20 ms = 50 Hz: sotto quella soglia non e' l'app che scatta. Misurato oggi: 8,3 ms. Va misurata fuori dalla pagina dell'app, altrimenti la lentezza dell'app allargherebbe la soglia proprio quando il difetto peggiora.",
+    "scroll_span_px_floor": 2000,
+    "render_churn_floor": 10,
+    "witness_why": "I due testimoni che il banco stava davvero lavorando: quanti pixel ha percorso e quante volte e' cambiato il primo item montato dalla virtualizzazione. Un banco che scorre a vuoto riporterebbe zero frame persi su zero lavoro e sarebbe verde per sempre. Misurato oggi: 4841 px e 116 cambi."
+  },
+  "update_rule": {
+    "_": "Come `--update-baseline` ricalcola i budget dai numeri appena misurati. Sta scritto qui e non nel codice cosi' il diff di un aggiornamento mostra anche la regola con cui e' stato fatto. Il PAVIMENTO impedisce che una misura di zero produca un budget di zero, che nessuno potrebbe rispettare.",
+    "dropped_pct": {
+      "floor": 2,
+      "multiplier": 3
+    },
+    "worst_gap_ms": {
+      "floor": 33.4,
+      "multiplier": 2
+    },
+    "longtask_ms": {
+      "floor": 50,
+      "multiplier": 2
+    }
+  },
+  "da_tarare": {
+    "perche": "Il metro dei frame persi era FISSO a 60 Hz mentre questa macchina consegna a 120: con quel metro un gap uniforme fino a 24,9 ms contava zero frame persi, quindi il budget del 2% era stato misurato su un contatore che per un rallentamento uniforme vale 0% o 50% e niente in mezzo. Adesso il metro e' la cadenza MISURATA, e il numero vero su questa superficie e' un altro.",
+    "misurato_col_metro_nuovo": {
+      "dropped_pct": "20,7 - 24,4 su tre corse",
+      "worst_gap_ms": "18,2 - 25,0",
+      "longtask_ms": 0,
+      "calibration_gap_ms": "8,30 - 8,35"
+    },
+    "perche_non_l_ho_scritto": "Le tre corse sono state prese con load average fra 4,7 e 6,9 su questo Mac. La calibrazione a riposo passa (8,3 ms su pagina vuota), ma una pagina vuota non compete con quindici processi come fa uno scorrimento vero: con quel carico non posso separare «l'app scorre a 95 fps» da «la macchina era occupata», e un budget scritto adesso sarebbe un tetto gonfiato che disarma il cancello.",
+    "come_si_chiude": "A macchina ferma (load per core sotto 0,5): `bun run check:fluido -- --update-baseline`, e nel commit si scrive quale dei due numeri e' risultato vero. Solo dopo questo il cancello va agganciato a ci.yml: prima sarebbe rosso al primo giro e verrebbe disattivato."
+  }
+}
