@@ -28,7 +28,6 @@ export const DEBITO_NOME_PROPRIETARIO: readonly string[] = [
   "client/src/components/Board/Card.tsx",
   "client/src/components/Board/KanbanBoardPane.tsx",
   "client/src/components/Board/PreviewMedia.tsx",
-  "client/src/components/Board/TaskDetail.tsx",
   "client/src/components/Board/atoms.tsx",
   "client/src/components/Board/constants.ts",
   "client/src/components/Board/dndSensors.ts",
