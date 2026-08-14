@@ -132,6 +132,7 @@ import { createTabsRouter } from "./server/routes/tabs";
 import { createClaudeSessionTracker } from "./server/lib/claude-session-tracker";
 import { evaluateAuth, isLoopbackAddress, isOriginGatedPath, resolveAllowedOrigins } from "./server/lib/auth-gate";
 import { markViaTunnel, isLocalTransport, clientIpOf, tunnelPort } from "./server/lib/tunnel";
+import { ROUTE_FAULT, applyRouteFault } from "./server/lib/route-fault";
 import { BUSY_SPINNER_PHASES } from "./server/lib/claude-session-state";
 import { claudeTranscriptPath, isTranscriptOrphaned } from "./server/lib/claude-transcript-path";
 import { createProjectsRouter } from "./server/routes/projects";
@@ -2009,6 +2010,13 @@ const opzioniServer = {
     const startTime = Date.now();
     const isApiRequest = pathname.startsWith("/api/");
     if (isApiRequest) console.log(`[HTTP] → ${method} ${pathname}`);
+
+    // Guasto SINTETICO su una rotta: e' cio' che permette di vedere ROSSO il
+    // cancello sulle latenze (`bun run check:rotte`) senza barare sulla soglia.
+    // Spento ovunque tranne che nel server di prova, e solo se glielo si chiede
+    // (vedi `server/lib/route-fault.ts`: vuole TOPICS_E2E=1 *e* un ritardo).
+    // Qui, da spento, e' il confronto con `null` di una costante di modulo.
+    if (ROUTE_FAULT && isApiRequest) await applyRouteFault(pathname);
 
     // Phase B · DAEMON-02: token-authed LOOPBACK control endpoints.
     // We read the state file fresh on every call so a state-file rewrite
