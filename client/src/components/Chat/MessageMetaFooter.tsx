@@ -1,3 +1,4 @@
+import { contextTokens, costTokens, partsFromMessage } from '../../../../shared/token-cost';
 import { formatDurationMs, formatCostCents } from './toolGrouping';
 import { safeNum, cacheBreakdown, costBreakdown } from '../../lib/cacheBreakdown';
 import { formatTokens } from '../../lib/formatTokens';
@@ -86,6 +87,14 @@ export function MessageMetaFooter({ latencyMs, latencyTitle, latencyPrefix, prom
   const write1h = bd.write1h;
   const fresh = bd.fresh;
 
+  // Quanto è COSTATO (il numero in chiaro) e quanto CONTESTO è passato (la
+  // prima riga del title): due domande, una regola sola, in `token-cost.ts`.
+  const parti = partsFromMessage({
+    usagePromptTokens: prompt, usageCompletionTokens: completion, cacheReadTokens: cacheRead,
+  });
+  const costo = costTokens(parti);
+  const contesto = contextTokens(parti);
+
   const tokensTitle =
     total === 0
       ? undefined
@@ -94,6 +103,7 @@ export function MessageMetaFooter({ latencyMs, latencyTitle, latencyPrefix, prom
           // le quattro voci sommano a `prompt`, così il numero grande smette di
           // sembrare rotto e si capisce da dove viene.
           [
+            `${costo.toLocaleString()} di costo · ${contesto.toLocaleString()} di contesto passato`,
             `${prompt.toLocaleString()} letti, di cui:`,
             `  ${cacheRead.toLocaleString()} riletti dalla cache`,
             ...(write5m > 0 ? [`  ${write5m.toLocaleString()} scritti in cache (5 min)`] : []),
@@ -111,9 +121,18 @@ export function MessageMetaFooter({ latencyMs, latencyTitle, latencyPrefix, prom
     parts.push({ text: latencyPrefix ? `${latencyPrefix} ${shown}` : shown, ...(latencyTitle ? { title: latencyTitle } : {}), testId: 'message-duration' });
   }
   if (total > 0) {
-    // Compatto: `4.5M`, non `4.531.312`. Il numero esatto resta nel title —
-    // la striscia si legge di sfuggita, la contabilità si legge apposta.
-    parts.push({ text: `${formatTokens(total)} tokens`, title: tokensTitle });
+    // IL NUMERO IN CHIARO E' QUANTO E' COSTATO, come sulla card e sul grafico.
+    //
+    // Qui c'era `prompt + completion`, cioè la rilettura di cache contata a
+    // prezzo PIENO: la stessa formula della vecchia query della dashboard, e
+    // 34,7× il numero che la card mostrava per lo stesso turno. Tre superfici,
+    // tre risposte alla stessa domanda: nessuna delle tre veniva creduta.
+    //
+    // La regola sta in `shared/token-cost.ts` e la usano tutte e tre. «Quanto
+    // contesto è passato» non sparisce: è la prima riga del title, dove la
+    // contabilità si legge apposta invece che di sfuggita.
+    // Compatto: `4.5M`, non `4.531.312`.
+    parts.push({ text: `${formatTokens(costo)} tokens`, title: tokensTitle });
   }
   // Quanti di quei token erano rilettura e quanti roba nuova — IN CHIARO.
   //

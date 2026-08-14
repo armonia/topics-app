@@ -1,3 +1,4 @@
+import { contextTokens, costTokens, partsFromTask } from '../../../../shared/token-cost';
 import { memo, useState, useEffect, useMemo, useRef } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
@@ -412,6 +413,11 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   // scheda), quindi qui si offre solo ciò che esiste davvero: la sessione viva
   // si apre, la sessione finita si DICE e non si apre. Vedi `lib/taskSession.ts`.
   const canOpenSession = !!onOpenTopic && canOpenTaskSession(sessionState);
+  // Le due domande, una volta sola: quanto e' COSTATO (il chip) e quanto
+  // CONTESTO e' passato (il tooltip). La regola sta in `shared/token-cost.ts`.
+  const parti = partsFromTask(task);
+  const costo = costTokens(parti);
+  const contesto = contextTokens(parti);
   const sessionEnded = shouldExplainMissingSession(sessionState);
   // Always shown: the eyebrow row carries the click-to-copy task id on every card
   // (plus project/state/model/tab when present).
@@ -530,11 +536,19 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
             // show just the model; once it runs we prepend it to the ⏱ effort,
             // matching the live chip (`Opus · ⏱ 2m · 1.2k tok`).
             <span
-              title={(task.agentMs > 0 || task.agentTokens > 0)
-                ? `Effort dell'agent: ${fmtMs(task.agentMs)} di lavoro${task.agentTokens ? `, ${task.agentTokens.toLocaleString('it-IT')} token` : ''}${task.agentCacheReadTokens > 0 ? ` (+${fmtTok(task.agentCacheReadTokens)} cache read)` : ''} · modello ${fmtModel(task.model)}`
+              // IL NUMERO E' QUANTO E' COSTATO, non quanti token sono passati.
+              // `agentTokens` da solo lascia fuori la RILETTURA di cache, che e'
+              // la quota dominante del consumo: il chip mostrava circa il 2,8%
+              // del vero. La rilettura non vale nemmeno uno, pero': costa un
+              // decimo, e sommarla intera farebbe sembrare enorme un turno che
+              // e' stato economico. La regola sta in `shared/token-cost.ts`, e
+              // la stessa la usano la dashboard e il piede di un messaggio.
+              // «Quanto contesto e' passato» resta qui sotto, nel tooltip.
+              title={(task.agentMs > 0 || costo > 0)
+                ? `Effort dell'agent: ${fmtMs(task.agentMs)} di lavoro${costo ? `, ${costo.toLocaleString('it-IT')} token di costo` : ''}${task.agentCacheReadTokens > 0 ? ` (${fmtTok(contesto)} di contesto passato, di cui ${fmtTok(task.agentCacheReadTokens)} riletti dalla cache: contano un decimo)` : ''} · modello ${fmtModel(task.model)}`
                 : `Modello: ${fmtModel(task.model)}`}
               className="shrink-0 whitespace-nowrap rounded bg-white/10 px-1.5 py-0.5 text-xs md:text-[11px] text-app-text-secondary"
-            >{fmtModel(task.model)}{(task.agentMs > 0 || task.agentTokens > 0) && ` · ⏱ ${fmtMs(task.agentMs)}${task.agentTokens > 0 ? ` · ${fmtTok(task.agentTokens)}` : ''}`}</span>
+            >{fmtModel(task.model)}{(task.agentMs > 0 || costo > 0) && ` · ⏱ ${fmtMs(task.agentMs)}${costo > 0 ? ` · ${fmtTok(costo)}` : ''}`}</span>
           ) : null}
           {canOpenSession && (
             <button
