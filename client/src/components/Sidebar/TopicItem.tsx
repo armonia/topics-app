@@ -20,6 +20,7 @@ import { SplitMiniMap } from '@/components/Shared/SplitMiniMap';
 import { useSplitPosition } from '@/contexts/SplitPositionContext';
 import { useMobile } from '@/hooks/useMobile';
 import { useLongPress, openContextMenuAt } from '@/hooks/useLongPress';
+import { useTouchDrag } from '@/hooks/useTouchDrag';
 
 /* L'altezza della riga NON è più dichiarata qui: è {@link ROW_H} in
  * `lib/selectionStyles`, importata sopra. Stava in questo file come costante di
@@ -63,6 +64,22 @@ interface TopicItemProps {
    *  the trailing AppWindow glyph; the row click focuses that window. */
   detachedWindowLabel?: string;
   sortable?: boolean;
+  /** IL TRASPORTO DEL DITO. Col mouse la riga si trascina da sé (`draggable` +
+   *  `dragstart`), e chi la riceve la fissa. Su iOS quegli eventi da un tocco
+   *  non arrivano mai, quindi il gesto va costruito: chi disegna la riga dice
+   *  dove finisce il punto, e la riga si limita a portarglielo. Assente ⇒ la
+   *  riga non si trascina col dito, e tiene il long-press di sempre.
+   *
+   *  Le funzioni ricevono l'id della pane invece di chiuderci sopra, così
+   *  l'oggetto è UNO per tutta la sidebar e resta identico fra due render: la
+   *  riga è `memo`, e una closure nuova per riga la sveglierebbe tutte a ogni
+   *  battito. */
+  touchDrag?: {
+    onLift?: (paneId: string) => void;
+    onMove?: (paneId: string, x: number, y: number) => void;
+    onDrop?: (paneId: string, x: number, y: number) => void;
+    onCancel?: () => void;
+  };
   /* `hideIcon` non c'è più: il suo unico compito era spegnere il glifo
      `Archive` sulle sotto-righe di un progetto, e quel glifo non esiste più
      (vedi ARCHIVED_ROW). Una prop che governa una cosa sparita è zavorra in due
@@ -93,6 +110,7 @@ export const TopicItem = memo(function TopicItem({
   pinned,
   detachedWindowLabel,
   sortable,
+  touchDrag,
 }: TopicItemProps) {
   // Depth indent lives on the LEFT MARGIN, not padding — so a sub-tab's CARD
   // shifts right (leaving an empty gutter) instead of just indenting its text
@@ -144,7 +162,23 @@ export const TopicItem = memo(function TopicItem({
   // colore, Copia link, Apri in nuova finestra). `openContextMenuAt` sintetizza
   // l'evento `contextmenu` che l'`onContextMenu` qui sotto già ascolta: un menu
   // solo, per costruzione, che non può più divergere.
-  const lp = useLongPress(openContextMenuAt, { enabled: isTouch });
+  // ...e MUOVENDO il dito la riga si trascina, dove chi la disegna ha un
+  // trasporto da offrire (oggi: la griglia dei fissati). È lo stesso gesto in
+  // due esiti, quello della schermata Home: `useTouchDrag` serve il menu al
+  // rilascio senza spostamento, e il trascinamento se il dito si muove. Senza
+  // un `touchDrag` la riga non ha dove andare, e resta il long-press di prima:
+  // lì il menu si apre al timer, col dito ancora giù, ed è il gesto che ogni
+  // altra superficie della sidebar ha oggi.
+  const lpMenu = useLongPress(openContextMenuAt, { enabled: isTouch && !touchDrag });
+  const lpDrag = useTouchDrag({
+    enabled: isTouch && !!touchDrag,
+    onPress: openContextMenuAt,
+    onLift: touchDrag ? () => touchDrag.onLift?.(topic.id) : undefined,
+    onMove: touchDrag ? (x, y) => touchDrag.onMove?.(topic.id, x, y) : undefined,
+    onDrop: touchDrag ? (x, y) => touchDrag.onDrop?.(topic.id, x, y) : undefined,
+    onCancel: touchDrag ? () => touchDrag.onCancel?.() : undefined,
+  });
+  const lp = touchDrag ? lpDrag : lpMenu;
 
   // UN PREDICATO SOLO PER «ARCHIVIATA», e prima erano due.
   //
