@@ -43,11 +43,13 @@ non-zero when it gets worse.
 2. **Memory.** Neither the server nor the shell has an RSS ceiling. The server
    measured today sat at roughly 200 MB; that is a number, not a budget, because
    nobody compares it against anything.
-3. **The WebSocket bootstrap.** 176.7 KB on connect, measured today:
-   `ui-state:init` 84.5 KB (of which the `pane-store-v2` key alone is 65.8 KB)
-   and `unread:init` 79.8 KB across 843 topics, 517 of them just to say "zero
-   unread". It arrives before the app can do anything, nobody watches it, and
-   HTTP compression does not reach it (see below).
+3. **The WebSocket bootstrap.** Compressed toward remote peers as of
+   2026-08-14, but still ungated: nothing fails when it grows. 176.7 KB on
+   connect before the fix, of which `ui-state:init` 84.5 KB (the `pane-store-v2`
+   key alone is 65.8 KB) and `unread:init` 79.8 KB across 843 topics, 517 of
+   them just to say "zero unread". Those 517 rows and the `lastReadAt` field
+   that no client ever reads are still on the wire; compression now hides most
+   of their cost, it does not remove them.
 4. **The terminals.** No measurement of what a line arriving from the PTY costs,
    nor of how much redraw an idle pane burns.
 5. **Search and dashboard.** No latency declared.
@@ -124,13 +126,30 @@ from the list means giving those two a per-topic read: that is a behaviour
 change, not a slimming, which is why this page carries the number and not the
 patch.
 
-**The WebSocket bootstrap carries 176.7 KB** and nothing compresses it: HTTP
-compression does not touch it, and `Bun.serve` has `perMessageDeflate` off by
-default (it is not set in the code). Compressing the WebSocket is a separate
-decision from the HTTP one, because the same socket also carries a terminal's
-keystrokes and a browser pane's frames: there, a deflate per message is pure
-cost. If it is done, it has to be done per message (`ws.send(data, compress)`)
-and per peer, with the same question as HTTP: "is there a network in between".
+**The WebSocket bootstrap carried 176.7 KB uncompressed** until 2026-08-14.
+`Bun.serve` has `perMessageDeflate` off by default, and turning it on is not
+enough on its own: measured with a byte counting proxy on Bun 1.3.8,
+`ws.send(x)` still went out at 44,667 B for a 44,395 B payload, and only
+`ws.send(x, true)` brought it to 5,423 B. The option negotiates the extension,
+the per send flag decides one frame at a time.
+
+Now the flag comes from `shouldCompressFrame`
+(`server/lib/ws-compression.ts`), which answers the same question as the HTTP
+side, "is there a network in between", plus two rules that keep the other two
+sockets safe: nothing under one MTU is compressed, which is what keeps every
+keystroke of a terminal off the compressor (a keystroke echo is 1 B, a cursor
+move 7 B, a line of output 73 B), and a screencast frame is never compressed at
+any size, because it is base64 of an already compressed JPEG (measured: 1.41x for
+1.49 ms per frame per viewer, which at 20 fps is 30 ms of CPU per second).
+
+Proven on the wire with a throwaway server wired exactly like `server.ts`: a
+36,503 B bootstrap frame goes out as **2,620 B toward a LAN peer** and stays at
+36,507 B toward loopback.
+
+Still not wired: the terminal and browser sockets have their own send paths and
+do not pass the flag, so they stay raw. The measurement says a PTY redraw would
+gain the most of anything on this server (1,927 B of full screen redraw gzips to
+41 B, 47x), so that is the next thread to pull.
 
 ## The gate that existed but never ran, and the red that was not a defect
 
