@@ -102,9 +102,19 @@ export function useSidebarSwipe({ enabled, sidebarRef, collapsed, setCollapsed }
     const velo = (): HTMLElement | null => document.querySelector<HTMLElement>('[data-sidebar-scrim]');
     const larghezza = (): number => window.innerWidth || 1;
 
-    /** `null` = nessun gesto in ballo. */
-    let modo: 'apri' | 'chiudi' | null = null;
+    /**
+     * `null` = nessun gesto in ballo.
+     *
+     * `sopprimi` non muove niente: e' il BORDO DESTRO, dove non c'e' nessun
+     * cassetto da tirare. Serve lo stesso, perche' li' il browser tiene il suo
+     * gesto per andare AVANTI nella cronologia, e l'unico modo di dirgli che il
+     * tocco e' della pagina e' prenderselo.
+     */
+    let modo: 'apri' | 'chiudi' | 'sopprimi' | null = null;
     let preso = false;
+    /** Il dito e' partito da una delle due strisce di bordo. Cambia QUANDO si
+     *  decide l'asse: da li' si decide al primo movimento, non dopo 8px. */
+    let daBordo = false;
     let x0 = 0;
     let y0 = 0;
     let avanzamento = 0;
@@ -194,6 +204,7 @@ export function useSidebarSwipe({ enabled, sidebarRef, collapsed, setCollapsed }
     const azzera = () => {
       modo = null;
       preso = false;
+      daBordo = false;
       campioni = [];
       if (frame) { cancelAnimationFrame(frame); frame = 0; }
     };
@@ -239,13 +250,17 @@ export function useSidebarSwipe({ enabled, sidebarRef, collapsed, setCollapsed }
       if (e.touches.length !== 1) { azzera(); return; }
       const t = e.touches[0];
       const dentro = sidebarRef.current?.contains(t.target as Node) ?? false;
+      const aDestra = t.clientX >= larghezza() - BORDO_PX;
+      const aSinistra = t.clientX <= BORDO_PX;
       if (chiuso.current) {
-        if (t.clientX > BORDO_PX) return;
-        modo = 'apri';
+        if (aSinistra) modo = 'apri';
+        else if (aDestra) modo = 'sopprimi';
+        else return;
       } else {
         if (!dentro) return;
         modo = 'chiudi';
       }
+      daBordo = aSinistra || aDestra;
       preso = false;
       x0 = t.clientX;
       y0 = t.clientY;
@@ -265,10 +280,31 @@ export function useSidebarSwipe({ enabled, sidebarRef, collapsed, setCollapsed }
         // L'asse si decide una volta sola. Verticale = è uno scorrimento, e la
         // lista se lo tiene: rinunciare qui è ciò che rende il gesto invisibile
         // quando non lo vuoi.
-        if (Math.abs(dy) >= ASSE_PX && Math.abs(dy) > Math.abs(dx)) { azzera(); return; }
-        if (Math.abs(dx) < ASSE_PX || Math.abs(dx) <= Math.abs(dy)) return;
-        if (modo === 'apri' ? dx <= 0 : dx >= 0) { azzera(); return; }
+        //
+        // DAL BORDO SI DECIDE SUBITO, e non è un dettaglio di reattività.
+        // Aspettare 8px va bene solo dove l'unico contendente è la lista sotto,
+        // che aspetta anche lei. Sul margine dello schermo il contendente è il
+        // BROWSER, e lui decide sui primissimi eventi: se a 2px la pagina non ha
+        // ancora rivendicato il tocco, il trascinamento diventa suo e da lì in
+        // poi `preventDefault` non serve più a niente. È così che il gesto del
+        // menu finiva per tornare indietro nella cronologia.
+        //
+        // Il prezzo è misurato e piccolo: dal bordo l'asse si decide sul primo
+        // movimento invece che sull'ottavo pixel, quindi uno scorrimento
+        // verticale che parte nei 28px di margine è ancora della lista (vince
+        // `dy`), mentre un movimento orizzontale è del cassetto un attimo prima.
+        const soglia = daBordo ? 1 : ASSE_PX;
+        if (Math.abs(dy) >= soglia && Math.abs(dy) > Math.abs(dx)) { azzera(); return; }
+        if (Math.abs(dx) < soglia || Math.abs(dx) <= Math.abs(dy)) return;
+        if (modo === 'sopprimi' ? dx >= 0 : modo === 'apri' ? dx <= 0 : dx >= 0) { azzera(); return; }
         preso = true;
+      }
+
+      // Il bordo destro non ha niente da muovere: il tocco è preso, e basta.
+      // Prenderlo È il lavoro, perché è ciò che toglie il gesto al browser.
+      if (modo === 'sopprimi') {
+        e.preventDefault();
+        return;
       }
 
       // Da qui il tocco è del cassetto: niente scorrimento sotto, niente gesto
@@ -285,6 +321,9 @@ export function useSidebarSwipe({ enabled, sidebarRef, collapsed, setCollapsed }
     const onEnd = (e: TouchEvent) => {
       if (!modo) return;
       if (!preso) { azzera(); return; }
+      // Il bordo destro non ha una posa: non c'era niente in movimento, e
+      // chiamare `posa()` qui animerebbe un cassetto che nessuno ha toccato.
+      if (modo === 'sopprimi') { azzera(); return; }
       // Il punto di stacco è un campione come gli altri: se il dito si è fermato
       // un istante prima di alzarsi, è quella la sua velocità — zero.
       const t = e.changedTouches[0];
