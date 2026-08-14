@@ -1,5 +1,13 @@
 # La mappa delle prestazioni: cosa ha un numero e cosa no
 
+> **Nota di stato, 2026-08-14.** Lo shard 1/4 della suite E2E ha 7 rossi su
+> `main` che NON riguardano le prestazioni: `board-diff-review`,
+> `board-land-conflict`, `board-preview-cap`, `board-recapture-preview` (×2),
+> `board-reopened-chip`, `chat-fast-mode`. Verificati su una worktree pulita a
+> `71c52934` — stessa lista, stesso modo — quindi erano già lì. Tre sono testo di
+> copy che non combacia più, uno è geometrico, tre aspettano un elemento che non
+> compare.
+
 Aggiornata il **2026-08-14**. Serve a una cosa sola: sapere DOVE una regressione
 di prestazioni verrebbe vista e dove passerebbe muta. Non è un elenco di
 buoni propositi — ogni riga dice il comando che esce non-zero, o dice che non
