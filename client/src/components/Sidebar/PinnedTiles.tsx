@@ -1,5 +1,5 @@
 import { COLUMN_GAP } from '../../lib/selectionStyles';
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode, useImperativeHandle } from 'react';
 import { createPortal } from 'react-dom';
 import type { SidebarItem } from '../../lib/buildSidebarItems';
 import type { AttentionTier } from '../../types';
@@ -273,7 +273,15 @@ export function PinnedTiles({
   // STABILE: sta nelle dipendenze di un effetto che aggancia listener a
   // `window`, e una identità nuova a ogni render li rimonterebbe a ogni render.
   const fuoriRef = useRef({ punto: onTouchDragPoint, drop: onTouchDropOutside });
-  fuoriRef.current = { punto: onTouchDragPoint, drop: onTouchDropOutside };
+  // L'aggiornamento sta in un effetto SENZA dipendenze, non nel corpo del
+  // render: scrivere in un ref durante il render e' vietato dal compilatore
+  // React («Cannot access refs during render») perche' rende il render non
+  // ripetibile. Un effetto senza dipendenze gira dopo OGNI render, quindi il
+  // contenuto resta fresco quanto prima; il valore iniziale copre il primo
+  // giro, ed e' gia' quello giusto.
+  useEffect(() => {
+    fuoriRef.current = { punto: onTouchDragPoint, drop: onTouchDropOutside };
+  });
 
   const clearDrag = useCallback(() => {
     // Il gesto è finito: chi disegnava l'anteprima di sfissaggio la spegne. Va
@@ -563,13 +571,16 @@ export function PinnedTiles({
     cancel: () => clearDrag(),
   };
   // Ogni render, senza dipendenze: le tre funzioni chiudono su `rows` e
-  // `byId`, che cambiano a ogni fissaggio. Un ref aggiornato una volta sola
+  // `byId`, che cambiano a ogni fissaggio. Un handle pubblicato una volta sola
   // risponderebbe sulla griglia di ieri.
-  useEffect(() => {
-    if (!externalTouch) return;
-    externalTouch.current = esternoDalDito;
-    return () => { externalTouch.current = null; };
-  });
+  //
+  // `useImperativeHandle` e non `ref.current = …`: scrivere dentro una prop e'
+  // vietato dal compilatore React (`This value cannot be modified`), e la
+  // regola ha ragione — chi possiede il ref e' il genitore, e una scrittura
+  // diretta durante l'effetto e' invisibile a chi legge il componente. Questa
+  // e' la forma sanzionata per pubblicare un'API imperativa verso l'alto, e
+  // fa esattamente la stessa cosa, compreso l'azzeramento allo smontaggio.
+  useImperativeHandle(externalTouch, () => esternoDalDito);
 
   const toggle = (item: SidebarItem) => {
     const willExpand = !aperta(item.id);
