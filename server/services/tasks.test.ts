@@ -1789,6 +1789,32 @@ describe("anteprima: ramo diagramma, gate di forma, duplicati", () => {
     expect(s.get(t.id)!.task.previewImage).toBe(diagram); // e arriva fino al client
   });
 
+  test("una consegna SENZA nessun allegato lo dice: la card cieca non resta muta", () => {
+    // Misurato il 14/08 sulla board di topics: 186 card su 393 senza anteprima,
+    // e ZERO scartate per forma — cioè l'unico ramo che parlava non era mai
+    // scattato, e chi apriva la card non sapeva se l'evidenza mancasse, fosse
+    // fallita o non servisse.
+    const s = mk();
+    const t = s.create({ projectId: PID, text: "consegna a parole" });
+    s.addComment({ taskId: t.id, author: "claude", content: "fatto, cinque cancelli verdi" });
+    const after = s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+
+    expect(after.status).toBe("review");          // resta un SEGNALE, non un blocco
+    expect(preview(t.id)).toBeNull();
+    expect(notes(t.id)[0]).toContain("SENZA anteprima");
+    expect(notes(t.id)[0]).toContain(".webm");    // porta con sé i tre rami
+  });
+
+  test("con un allegato promosso non si scrive nessuna nota di card cieca", () => {
+    // La negazione: il segnale deve dipendere dall'ASSENZA, non essere un
+    // rumore che accompagna ogni consegna.
+    const s = mk();
+    const t = s.create({ projectId: PID, text: "consegna con schema" });
+    s.addComment({ taskId: t.id, author: "claude", content: "consegna", media: [svg("schema.svg", 900, 420)] });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    expect(notes(t.id).some((n) => n.includes("SENZA anteprima"))).toBe(false);
+  });
+
   test("un'immagine più alta che larga (h/w > 0.7) non viene promossa e lascia una nota", () => {
     const s = mk();
     const t = s.create({ projectId: PID, text: "piano fotografato" });
