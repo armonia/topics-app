@@ -352,7 +352,9 @@ jobs:
       - name: Rust build cache
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: desktop-tauri/src-tauri
+          workspaces: |
+            desktop-tauri/src-tauri
+            desktop-tauri/pty-bridge
           key: ${{ matrix.os }}
 
       # tauri-build validates that every externalBin resource EXISTS for the
@@ -379,3 +381,13 @@ jobs:
       - name: Cargo check (Tauri crate)
         run: cargo check
         working-directory: desktop-tauri/src-tauri
+
+      # Il sidecar PTY e un crate SEPARATO: il `cargo check` qui sopra non lo
+      # sfiora, e finora niente lo compilava fuori dai tag `tauri-v*` — cioe si
+      # scopriva rotto alla release. `cargo test` compila e misura: tests/orphan.rs
+      # verifica che un ponte abbandonato si ritiri (era il difetto del 2026-08-14:
+      # 20 demoni immortali con zero client). Su Windows quei test sono
+      # `#![cfg(unix)]`, quindi resta una compilazione — che e il punto.
+      - name: Cargo test (PTY bridge sidecar)
+        run: cargo test
+        working-directory: desktop-tauri/pty-bridge

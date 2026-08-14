@@ -23,9 +23,35 @@ function realHome() {
 }
 
 // --- Configuration ---
-const socketPath = process.argv.find((a, i) => process.argv[i - 1] === '--socket') || getDefaultSocketPath();
+function argOf(flag) {
+  const i = process.argv.indexOf(flag);
+  return i >= 0 ? process.argv[i + 1] : undefined;
+}
+
+const socketPath = argOf('--socket') || getDefaultSocketPath();
 const pidPath = socketPath.replace(/\.sock$/, '.pid');
 const MAX_BUFFER_SIZE = 100 * 1024; // 100KB ring buffer per session
+
+/**
+ * Who spawned us, as told by the spawner — see the orphan monitor at the bottom.
+ * The server passes it (server/routes/terminal.ts); a hand-started daemon doesn't,
+ * and then the ppid heuristic below is all we have.
+ */
+const parentPid = Number(argOf('--parent-pid')) || null;
+
+/**
+ * Read HERE, at module load, and NOT inside the monitor.
+ *
+ * The monitor's fallback heuristic is `process.ppid === 1 && initialPpid !== 1`,
+ * and it used to sample `initialPpid` after `start()` had awaited
+ * checkExistingBridge() + selfTest() — up to ~3s. A spawner that died inside that
+ * window made this read 1, so the guard was false forever and the monitor could
+ * never arm: the bridge became immortal. Measured 2026-08-14 on this machine —
+ * 20 bridges with zero clients and zero sessions, alive up to 37h, none of which
+ * had ever logged "Parent died". Sampling before any await closes the window;
+ * `--parent-pid` removes the guesswork altogether.
+ */
+const initialPpid = process.ppid;
 
 function getDefaultSocketPath() {
   const hash = createHash('md5').update(process.cwd()).digest('hex').slice(0, 8);
@@ -344,11 +370,19 @@ async function start() {
   // Trade-off: while orphaned (PPID=1) a child PTY's `open <url>` may fail to
   // resolve the default browser (lost Aqua session) — a rare, acceptable cost
   // versus losing every running session on every restart.
-  const initialPpid = process.ppid;
-  const ORPHAN_GRACE_MS = 90_000;
+  //
+  // Orphanhood is decided on `--parent-pid` when we have one: it needs no
+  // cooperation from the runtime and no lucky timing. The ppid heuristic stays
+  // for hand-started daemons, now sampled at module load (see `initialPpid`) so
+  // a spawner that dies during startup can no longer disarm it.
+  // Env override so the test can exercise the real monitor without sitting
+  // through 90s; production never sets it.
+  const ORPHAN_GRACE_MS = Number(process.env.TOPICS_PTY_BRIDGE_ORPHAN_GRACE_MS) || 90_000;
   let orphanDeadline = null;
   setInterval(() => {
-    const orphaned = process.ppid === 1 && initialPpid !== 1;
+    const orphaned = parentPid !== null
+      ? !pidAlive(parentPid)
+      : (process.ppid === 1 && initialPpid !== 1);
     if (!orphaned) { orphanDeadline = null; return; }
     if (clients.size > 0) {
       // A server is connected (we were restarted and it reattached). Not abandoned.
@@ -362,12 +396,35 @@ async function start() {
     const now = Date.now();
     if (orphanDeadline === null) {
       orphanDeadline = now + ORPHAN_GRACE_MS;
-      console.error(`[PTY Bridge] Parent died (was ${initialPpid}) and no server connected — will exit in ${ORPHAN_GRACE_MS / 1000}s unless one reconnects (PTYs preserved across server restarts).`);
+      console.error(`[PTY Bridge] Parent died (was ${parentPid ?? initialPpid}) and no server connected — will exit in ${ORPHAN_GRACE_MS / 1000}s unless one reconnects (PTYs preserved across server restarts).`);
     } else if (now >= orphanDeadline) {
       console.error('[PTY Bridge] No server reconnected within grace window — app likely quit, shutting down.');
       shutdown('ORPHAN_ABANDONED');
     }
   }, 5000).unref();
+
+  // Backstop for the bridges no parent check can ever retire — a spawner whose
+  // pid got recycled, a `bun test` that died without its afterAll, a worktree
+  // reaped from under us (the socket path hashes the cwd, so nothing will ever
+  // reconnect to it). Their signature is always the same: no clients, no
+  // sessions, indefinitely. ai-bridge.mjs already had this; the PTY bridge did
+  // not, which is why the strays could pile up unnoticed for days.
+  //
+  // Deliberately much longer than ORPHAN_GRACE_MS: it fires on a LIVE parent
+  // too, so it must never race a server that is merely idle between turns. A
+  // single live PTY (sessions.size > 0) keeps us up regardless — that is the
+  // whole point of surviving detached.
+  const IDLE_EXIT_MS = Number(process.env.TOPICS_PTY_BRIDGE_IDLE_EXIT_MS) || 30 * 60_000;
+  // Tick at a minute in production; a test that shortens the window must not
+  // have to sit through a minute to see the effect of a 2s one.
+  const IDLE_TICK_MS = Math.max(500, Math.min(60_000, Math.floor(IDLE_EXIT_MS / 2)));
+  let idleSince = Date.now();
+  setInterval(() => {
+    if (clients.size > 0 || sessions.size > 0) { idleSince = Date.now(); return; }
+    if (Date.now() - idleSince < IDLE_EXIT_MS) return;
+    console.error(`[PTY Bridge] Idle ${Math.round(IDLE_EXIT_MS / 60_000)}min with no clients and no sessions — shutting down.`);
+    shutdown('IDLE');
+  }, IDLE_TICK_MS).unref();
 }
 
 start();
