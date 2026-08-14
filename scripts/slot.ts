@@ -27,9 +27,22 @@
  * past the deadline it gives up waiting and runs, rather than holding a caller
  * forever behind a slot that never frees.
  *
+ * IT ALSO BOUNDS THE RUN. Misurato il 2026-08-14 su questa macchina: tre alberi
+ * `bun test` vivi da 12, 18 e 22 ore, con 4, 7 e 9 minuti di CPU in tutto — cioè
+ * fermi, non lenti, ognuno con il suo stdout su un socket senza più nessuno
+ * dall'altra parte. Un cancello appeso non fallisce e non finisce: non dà mai un
+ * verde né un rosso, tiene il suo slot finché non lo si reap-a a mano, e ha
+ * tenuto ~700 MB per un giorno. Il limite di wall-clock lo trasforma in quello
+ * che è, un rosso: SIGTERM all'intero gruppo di processi, grazia, poi SIGKILL, e
+ * uscita 124 come `timeout(1)`. Non fallisce mai APERTO come il resto del file —
+ * qui aprire vorrebbe dire lasciar passare esattamente il caso che si sta
+ * misurando.
+ *
  * Usage:  bun run scripts/slot.ts <label> -- <command...>
  * Env:    TOPICS_GATE_SLOTS  how many may run at once (default: cores/4, min 2)
  *         TOPICS_GATE_SLOTS=0 or CI  disables the throttle entirely
+ *         TOPICS_GATE_MAX_RUN_MS  wall-clock cap (default 60 min; 0 disables)
+ *         TOPICS_GATE_KILL_GRACE_MS  SIGTERM → SIGKILL window (default 10s)
  */
 import { spawn } from "node:child_process";
 import { cpus } from "node:os";
@@ -43,6 +56,21 @@ const SLOT_DIR = process.env.TOPICS_GATE_SLOT_DIR || "/tmp/topics-gate-slots";
 /** Past this, waiting has cost more than the contention it was avoiding. */
 const MAX_WAIT_MS = 10 * 60_000;
 const POLL_MS = 700;
+/** L'orologio parte DOPO lo slot: l'attesa in coda non è tempo del comando.
+ *  Un'ora è molte volte la suite intera sotto contesa, e una frazione delle 12
+ *  ore del più giovane degli alberi appesi che hanno motivato il limite. */
+const MAX_RUN_MS = envMs("TOPICS_GATE_MAX_RUN_MS", 60 * 60_000);
+/** Quanto si concede a un comando per morire di sua volontà (flush, cleanup). */
+const KILL_GRACE_MS = envMs("TOPICS_GATE_KILL_GRACE_MS", 10_000);
+/** La convenzione di `timeout(1)`, così chi legge il codice lo riconosce. */
+const TIMEOUT_EXIT_CODE = 124;
+
+function envMs(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw == null || raw === "") return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? Math.trunc(n) : fallback;
+}
 
 function slotCount(): number {
   const raw = process.env.TOPICS_GATE_SLOTS;
@@ -132,17 +160,50 @@ if (slots > 0) {
 // ("--disable-warning= is not allowed"). The wrapped command must run in the
 // same bare environment `bun run` would have given it, or wrapping a gate
 // changes its result — which is the one thing a throttle must never do.
-const child = spawn("/bin/sh", ["-c", cmd], { stdio: "inherit" });
+// `detached` per avere un GRUPPO di processi tutto suo. Un `bun test` appeso non
+// è mai un processo solo: è la shell, il runner e ciò che il runner ha spawnato.
+// Uccidere il solo pid della shell lascia in piedi proprio i figli che tengono
+// la memoria — e quelli erano il difetto. Con il gruppo, `kill(-pid)` li prende
+// tutti in un colpo.
+const child = spawn("/bin/sh", ["-c", cmd], { stdio: "inherit", detached: true });
 let done = false;
+let timer: ReturnType<typeof setTimeout> | null = null;
+let timedOut = false;
+
+/** Il gruppo intero, con il singolo processo come ripiego se il pid non c'è. */
+function signalTree(sig: NodeJS.Signals): void {
+  const pid = child.pid;
+  if (pid == null) return;
+  try { process.kill(-pid, sig); } catch { try { child.kill(sig); } catch { /* già morto */ } }
+}
+
 const finish = (code: number): never => {
-  if (!done) { done = true; release?.(); }
+  if (!done) { done = true; if (timer) clearTimeout(timer); release?.(); }
   process.exit(code);
 };
 // The slot has to come back on a Ctrl-C or a reaper kill too, not only on a
 // clean exit — otherwise one interrupted run leaks a slot until the next reap.
+// `detached` mette il comando fuori dal process group del terminale, quindi il
+// Ctrl-C arriva solo qui: inoltrarlo al gruppo non è cortesia, è l'unico modo
+// che ha di ricevere il segnale.
 for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
-  process.on(sig, () => { child.kill(sig); release?.(); });
+  process.on(sig, () => { signalTree(sig); release?.(); });
 }
 process.on("exit", () => release?.());
+
+if (MAX_RUN_MS > 0) {
+  timer = setTimeout(() => {
+    timedOut = true;
+    console.error(
+      `[slot] ${label}: ${Math.round(MAX_RUN_MS / 60_000)} min di wall-clock senza finire — abbatto il comando (uscita ${TIMEOUT_EXIT_CODE}).`,
+    );
+    signalTree("SIGTERM");
+    // Chi ignora SIGTERM è esattamente chi è appeso: la seconda mossa non è
+    // negoziabile, e non deve tenere sveglio il processo se il comando cede prima.
+    setTimeout(() => signalTree("SIGKILL"), KILL_GRACE_MS).unref();
+  }, MAX_RUN_MS);
+  timer.unref();
+}
+
 child.on("error", (e) => { console.error(`[slot] ${label}: ${e.message}`); finish(1); });
-child.on("exit", (code, signal) => finish(signal ? 1 : (code ?? 0)));
+child.on("exit", (code, signal) => finish(timedOut ? TIMEOUT_EXIT_CODE : signal ? 1 : (code ?? 0)));

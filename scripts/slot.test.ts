@@ -12,7 +12,7 @@
  * which is holding a real slot while it runs.
  */
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync, readdirSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -23,12 +23,16 @@ beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "slot-test-")); });
 afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
 
 /** Runs the wrapper the way package.json does, and hands back exit code + output. */
-async function slot(cmd: string, opts: { slots?: number; ms?: number } = {}) {
+async function slot(cmd: string, opts: { slots?: number; ms?: number; graceMs?: number } = {}) {
   const p = Bun.spawn(["bun", "run", SLOT, "t", "--", cmd], {
     env: {
       ...process.env,
       TOPICS_GATE_SLOT_DIR: dir,
       TOPICS_GATE_SLOTS: String(opts.slots ?? 1),
+      // Di default il tetto è un'ora: nessun test può aspettarlo, e lasciarlo al
+      // valore vero significherebbe non misurarlo mai.
+      ...(opts.ms != null ? { TOPICS_GATE_MAX_RUN_MS: String(opts.ms) } : {}),
+      ...(opts.graceMs != null ? { TOPICS_GATE_KILL_GRACE_MS: String(opts.graceMs) } : {}),
     },
     stdout: "pipe",
     stderr: "pipe",
@@ -66,6 +70,55 @@ describe("the command always runs", () => {
     expect(r.out).toContain("passato");
     expect(Date.now() - started).toBeLessThan(10_000);
   });
+});
+
+describe("un comando appeso viene abbattuto", () => {
+  // Il 2026-08-14 c'erano tre alberi `bun test` vivi da 12, 18 e 22 ore con
+  // pochi minuti di CPU in tutto: fermi, non lenti. Non davano né verde né
+  // rosso e tenevano il loro slot. Questi test misurano che ora danno rosso.
+  test("oltre il tetto di wall-clock esce 124, non resta appeso", async () => {
+    const started = Date.now();
+    const r = await slot("sleep 30", { ms: 1_000, graceMs: 500 });
+    expect(r.code).toBe(124);
+    expect(r.err).toContain("wall-clock");
+    expect(Date.now() - started).toBeLessThan(15_000);
+  }, 30_000);
+
+  test("si porta via l'albero, non solo la shell", async () => {
+    // Il difetto vero non era la shell appesa ma i suoi figli: uccidere il solo
+    // pid del wrapper lascia in piedi proprio i processi che tengono la memoria.
+    const pidFile = join(dir, "nipote.pid");
+    const r = await slot(`sleep 30 & echo $! > ${pidFile}; wait`, { ms: 1_000, graceMs: 500 });
+    expect(r.code).toBe(124);
+    const grandchild = Number(readFileSync(pidFile, "utf8").trim());
+    expect(Number.isFinite(grandchild)).toBe(true);
+    // Il kill al gruppo è asincrono: si concede qualche giro prima di giudicare.
+    let alive = true;
+    for (let i = 0; i < 40 && alive; i++) {
+      try { process.kill(grandchild, 0); await Bun.sleep(100); } catch { alive = false; }
+    }
+    expect(alive).toBe(false);
+  }, 30_000);
+
+  test("un comando che finisce in tempo non viene toccato", async () => {
+    // La misura opposta: senza questa, un tetto sempre-scattante passerebbe
+    // il test qui sopra e ucciderebbe ogni gate della macchina.
+    const r = await slot("echo in-tempo", { ms: 30_000 });
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("in-tempo");
+    expect(r.err).not.toContain("wall-clock");
+  }, 30_000);
+
+  test("il tetto si può spegnere con 0", async () => {
+    const r = await slot("sleep 1; echo senza-tetto", { ms: 0 });
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("senza-tetto");
+  }, 30_000);
+
+  test("lo slot torna libero anche quando il comando viene abbattuto", async () => {
+    await slot("sleep 30", { ms: 1_000, graceMs: 500 });
+    expect(readdirSync(dir).filter((f) => f.endsWith(".pid"))).toEqual([]);
+  }, 30_000);
 });
 
 describe("it actually excludes", () => {
