@@ -8,7 +8,7 @@ import { Spinner } from '../Shared/Spinner';
 // Import RELATIVO e non `@/lib/...`: l'alias lo risolve Vite, `bun test` no, e
 // questo file è già nel mirino di una spec unitaria (`taskChoices.test.ts`).
 import { POPOVER_ITEM, POPOVER_ITEM_DANGER } from '../../lib/popoverStyles';
-import { taskChoices, type TaskChoice, type TaskChoiceId } from './taskChoices';
+import { sendBackComment, taskChoices, type TaskChoice, type TaskChoiceId } from './taskChoices';
 
 /**
  * Le SCELTE di una card che non è chiusa, in due forme.
@@ -54,10 +54,24 @@ interface RunnerOpts {
   onDone: () => void;
   onError: (message: string) => void;
   onNeedText?: () => void;
+  /**
+   * IL TESTO GIÀ SCRITTO NEL CAMPO LIBERO DELLA SUPERFICIE, se ce n'è uno.
+   *
+   * «Rimanda indietro» e il bottone d'invio del campo libero chiamano lo STESSO
+   * `POST …/review` con la stessa decisione: la sola differenza era che il
+   * primo mandava `comment: undefined`. Quindi chi scriveva l'indicazione e poi
+   * premeva il bottone grande — che è quello che il pollice trova per primo, e
+   * il cui tooltip dice proprio «scrivi nel campo qui sotto» — rimandava la
+   * card all'agente MUTA, con la sua frase ancora nella casella.
+   *
+   * È una funzione e non una stringa perché la riga si ridisegna a ogni tasto
+   * premuto nel campo: leggerlo al click costa un render in meno per carattere.
+   */
+  pendingText?: () => string;
 }
 
 /** Le scelte di questa card e come si eseguono. Una sola copia per le due forme. */
-function useTaskChoiceRunner(task: BoardTask, { exclude, onDone, onError, onNeedText }: RunnerOpts) {
+function useTaskChoiceRunner(task: BoardTask, { exclude, onDone, onError, onNeedText, pendingText }: RunnerOpts) {
   const confirm = useConfirm();
   const tr = useT();
   const [running, setRunning] = useState<TaskChoiceId | null>(null);
@@ -82,8 +96,11 @@ function useTaskChoiceRunner(task: BoardTask, { exclude, onDone, onError, onNeed
       switch (choice.id) {
         case 'land': await boardApi.land(projectId, id); break;
         // Rispondere a un task in review = `reject`: il server rimette il task
-        // in corso e fa ripartire LO STESSO tab dell'agente.
-        case 'send-back': await boardApi.review(projectId, id, 'reject'); break;
+        // in corso e fa ripartire LO STESSO tab dell'agente. E se nel campo
+        // libero c'è già un'indicazione, PARTE CON QUELLA: è la stessa chiamata
+        // che faceva il bottone d'invio del campo, quindi lasciarla indietro
+        // non era una scelta di disegno, era perderla.
+        case 'send-back': await boardApi.review(projectId, id, 'reject', sendBackComment(pendingText?.())); break;
         case 'accept': await boardApi.review(projectId, id, 'approve'); break;
         // Esce dal giro dell'agente: in corso, con un nome sopra. `in_progress`
         // non è auto-dispatchabile (parte da `todo`) e `dispatch_state` resta di
@@ -110,7 +127,7 @@ function useTaskChoiceRunner(task: BoardTask, { exclude, onDone, onError, onNeed
   return { choices, running, run };
 }
 
-export function TaskChoiceRow({ task, exclude, disabled, onDone, onError, onNeedText, className }: {
+export function TaskChoiceRow({ task, exclude, disabled, onDone, onError, onNeedText, pendingText, className }: {
   task: BoardTask;
   /** Voci che il chiamante ha già come bottoni suoi (il drawer). */
   exclude?: TaskChoiceId[];
@@ -120,9 +137,11 @@ export function TaskChoiceRow({ task, exclude, disabled, onDone, onError, onNeed
   onError: (message: string) => void;
   /** «Rifai così…»: porta il cursore nel commento libero invece di agire. */
   onNeedText?: () => void;
+  /** Il testo già battuto nel campo libero: «Rimanda indietro» lo porta con sé. */
+  pendingText?: () => string;
   className?: string;
 }) {
-  const { choices, running, run } = useTaskChoiceRunner(task, { exclude, onDone, onError, onNeedText });
+  const { choices, running, run } = useTaskChoiceRunner(task, { exclude, onDone, onError, onNeedText, pendingText });
   if (choices.length === 0) return null;
 
   return (
