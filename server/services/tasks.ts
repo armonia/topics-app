@@ -835,6 +835,22 @@ export interface TaskService {
   /** Accumulate agent effort on the task (dispatcher, at each turn end). */
   recordAgentUsage(args: { taskId: string; addMs: number; addTokens: number; addCacheReadTokens?: number }): Task;
   /**
+   * Alza il conto dei token a un totale ASSOLUTO, senza mai abbassarlo.
+   *
+   * `recordAgentUsage` somma un delta per turno, e un delta si perde: il turno
+   * che nessuno ha scritto — perché il run è stato sepolto a metà — non lo
+   * scrive più nessuno, e il turno dopo riparte da una lettura più avanti.
+   * Misurato su un task vero: 884 token in tabella contro 188.936 nel
+   * transcript.
+   *
+   * Qui il chiamante porta il TOTALE che sa calcolare, e il pavimento `MAX`
+   * fa il resto: un turno saltato lo recupera il turno dopo (il totale lo
+   * contiene già), e una lettura che regredisce non può sottrarre. Il tempo
+   * resta additivo e resta su `recordAgentUsage`: il wall-clock è per-turno e
+   * non si ricava da una lettura di sessione.
+   */
+  raiseAgentUsage(args: { taskId: string; tokens: number; cacheReadTokens: number }): Task;
+  /**
    * Snapshot what the agent delivered, at the moment it delivers it (→ review).
    * The branch is reaped once it lands, so the COMMIT is the only durable handle
    * the landing audit can hold onto. Re-recorded on every new delivery (a
@@ -3392,6 +3408,21 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       db.prepare(
         "UPDATE tasks SET agent_ms = agent_ms + ?, agent_tokens = agent_tokens + ?, agent_cache_read_tokens = agent_cache_read_tokens + ?, updated_at = ? WHERE id = ?",
       ).run(ms, tok, cr, now(), taskId);
+      return rowToTask(getTaskRow(taskId));
+    },
+
+    raiseAgentUsage({ taskId, tokens, cacheReadTokens }): Task {
+      const row = getTaskRow(taskId);
+      if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
+      const tok = Math.max(0, Math.trunc(tokens || 0));
+      const cr = Math.max(0, Math.trunc(cacheReadTokens || 0));
+      // `COALESCE` prima di `MAX`, e non è una cintura: lo `max()` scalare di
+      // SQLite torna NULL se UNO degli argomenti è NULL, quindi su una card che
+      // non ha mai contato niente (`agent_tokens` NULL) il pavimento avrebbe
+      // CANCELLATO il numero invece di alzarlo. Visto in un test, non letto.
+      db.prepare(
+        "UPDATE tasks SET agent_tokens = MAX(COALESCE(agent_tokens, 0), ?), agent_cache_read_tokens = MAX(COALESCE(agent_cache_read_tokens, 0), ?), updated_at = ? WHERE id = ?",
+      ).run(tok, cr, now(), taskId);
       return rowToTask(getTaskRow(taskId));
     },
 
