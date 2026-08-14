@@ -1,6 +1,6 @@
 {
   "name": "topics-app",
-  "version": "2.2.124",
+  "version": "2.2.125",
   "description": "Companion app for OpenClaw — organize AI conversations into focused topics with project context",
   "author": "Armonia",
   "license": "MIT",
@@ -46,6 +46,7 @@
     "check:eslint-disable": "bun run scripts/check-eslint-disable.ts",
     "check:test-skips": "bun run scripts/check-test-skips.ts",
     "check:bloat": "bun run scripts/check-bloat.ts",
+    "check:sicurezza": "bun run scripts/check-sicurezza.ts",
     "check:migrations": "bun run scripts/check-migration-numbers.ts",
     "migration:new": "bun run scripts/new-migration.ts",
     "check:deadcode": "bun run scripts/slot.ts check:deadcode -- './node_modules/.bin/knip-bun'",
