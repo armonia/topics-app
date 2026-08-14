@@ -825,6 +825,17 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
     [comments, task],
   );
   const isAgentReview = !!task && task.status === 'review' && !!task.assignedTopicId;
+  /**
+   * Come si chiama, ADESSO, il bottone che raccoglie il testo del composer.
+   *
+   * Il placeholder deve nominarlo, perché da quando il gemello «Rimanda» non è
+   * più accanto alla casella la destinazione di quel testo non è più a un
+   * centimetro di distanza. E non può essere una parola scritta a mano qui: su
+   * una card che nessuno ha consegnato quel bottone si chiama «Rimandalo
+   * avanti», e un placeholder che continuasse a dire «Rimanda indietro»
+   * manderebbe a cercare un bottone che sullo schermo non c'è.
+   */
+  const sendBackLabel = task ? reviewDecisionButtons(task, tr).sendBack.label : '';
   // Le parole dei tre bottoni di decisione stanno in `ReviewDecisionRow`, che le
   // chiede a `reviewDecisionButtons`: cambiano tutte con lo stato della card (i
   // checks rossi rinominano Approva, una card che nessuno ha consegnato
@@ -959,6 +970,31 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
     try { await boardApi.review(projectId, taskId, decision, undefined, opts); setError(null); await load(); onChanged(); }
     catch (e) { showError(e); }
     finally { setBusy(false); }
+  };
+
+  /**
+   * «Rimanda indietro»: LA DECISIONE E IL TESTO SONO UN GESTO SOLO.
+   *
+   * ── Il difetto ───────────────────────────────────────────────────────────────
+   * Il bottone grande chiamava `decide('reject')`, cioè `review(reject,
+   * undefined)`. Il bottone «Rimanda» del composer chiamava `review(reject,
+   * draft)`. Stesso endpoint, stessa decisione, stessa colonna d'arrivo: erano
+   * due nomi per una porta sola. E il grande, quello che il pollice trova per
+   * primo, BUTTAVA VIA l'indicazione appena scritta — mentre il suo stesso
+   * tooltip dice «scrivi nel campo qui sotto per dargli un'indicazione». Il
+   * testo restava nella casella, l'agente ripartiva senza sapere niente, e
+   * niente lo diceva.
+   *
+   * Adesso la strada è una. Con del testo (o un allegato) passa da
+   * `deliverAnswer`, che conosce anche la via dei media e ripulisce la casella
+   * solo se è andata a buon fine; a mani vuote resta il reject nudo, che è la
+   * stessa decisione senza indicazione. Il gemello nel composer è sparito: non
+   * era una scelta in più, era la stessa detta due volte.
+   */
+  const sendBack = async () => {
+    if (busy || sending) return;
+    if (draft.trim() || attachments.length > 0) { await send(); return; }
+    await decide('reject');
   };
 
   // Land = merge the branch on main (local, no push) AND THEN accept the card,
@@ -1848,40 +1884,74 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               drawer si apre. Sezione sua, maniglia sua — prima viveva appesa
               alla descrizione ma fuori dal suo ramo aperto/chiuso, quindi
               nessun gesto la nascondeva. */}
-          {task?.previewImage && (
+          {/* ── CONSEGNA: l'evidenza, e il gesto che la rifà, nello stesso posto ──
+              Lo slot esiste in tre stati, e prima ne aveva solo due: c'è
+              l'immagine, l'immagine è stata ritirata con un motivo, oppure — il
+              terzo, quello nuovo — non c'è NIENTE. Il terzo era il buco: una
+              card in review consegnata senza anteprima non diceva niente di sé
+              in cima al drawer, e chi la apriva non aveva modo di sapere se
+              l'evidenza mancava o se semplicemente non era ancora arrivata.
+              Sono le card «con l'anteprima vuota».
+              «Ricattura evidenza» sta sulla riga del titolo in tutti e tre,
+              perché è un'azione di SERVIZIO sull'anteprima: viveva in fondo,
+              larga quanto una decisione e in mezzo alle decisioni, dove faceva
+              quantità con loro senza esserne una. E il posto dove serve di più
+              è proprio il terzo stato, dove prima non c'era niente da guardare
+              e niente da premere. */}
+          {task && (task.previewImage || task.previewRetiredAt || isAgentReview) && (
             <div className="border-b border-app-border px-3 py-2" data-testid="task-detail-preview">
-              <button
-                onClick={togglePreviewOpen}
-                className="flex w-full items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-app-text-muted hover:text-app-text-heading"
-              >
-                {previewOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />} {tr('board.task.deliveryLabel')}
-              </button>
-              {previewOpen && (
+              <div className="flex items-center gap-2">
+                {task.previewImage ? (
+                  <button
+                    onClick={togglePreviewOpen}
+                    className="flex min-w-0 flex-1 items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-app-text-muted hover:text-app-text-heading"
+                  >
+                    {previewOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />} {tr('board.task.deliveryLabel')}
+                  </button>
+                ) : (
+                  <span className="min-w-0 flex-1 text-[11px] font-semibold uppercase tracking-wide text-app-text-muted">
+                    {tr('board.task.deliveryLabel')}
+                  </span>
+                )}
+                {isAgentReview && (
+                  <button
+                    disabled={recapturing} onClick={recapturePreview}
+                    title={tr('board.task.recapturePreviewTitle')}
+                    data-testid="task-recapture-preview"
+                    className="flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-app-text-secondary hover:bg-white/10 hover:text-app-text disabled:opacity-40"
+                  >{recapturing ? <Spinner size="sm" tone="current" /> : <Camera className="h-3 w-3" />} {tr('board.task.recapturePreview')}</button>
+                )}
+              </div>
+              {task.previewImage && previewOpen && (
                 <PreviewMedia
                   path={task.previewImage}
                   variant="drawer"
                   onOpenTab={() => browser.focusPane(mediaPaneIdFor(task.previewImage!))}
                 />
               )}
-            </div>
-          )}
-          {/* L'anteprima MANCA, e c'è un motivo: lo slot della consegna lo dice
-              qui, dove si guarderebbe l'immagine. È uno STATO letto dalla card
-              (`previewRetiredAt`), non una nota nel thread — quindi sparisce da
-              solo appena qualcuno allega un'anteprima nuova, invece di restare
-              a dire il contrario come faceva la nota della bonifica. */}
-          {!task?.previewImage && task?.previewRetiredAt && (
-            <div className="border-b border-app-border px-3 py-2" data-testid="task-preview-retired">
-              <div className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-app-text-muted">
-                {tr('board.task.deliveryLabel')}
-              </div>
-              <div className="mt-1.5 flex items-start gap-2 rounded-md bg-amber-500/10 px-2 py-1.5 text-xs text-amber-200/90">
-                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                <p className="min-w-0">
-                  <span className="font-medium">{tr('board.task.previewRetired')}</span>
-                  {task.previewRetiredReason && <span className="text-amber-200/70">: {task.previewRetiredReason}</span>}
+              {/* L'anteprima MANCA, e c'è un motivo: lo slot della consegna lo
+                  dice qui, dove si guarderebbe l'immagine. È uno STATO letto
+                  dalla card (`previewRetiredAt`), non una nota nel thread —
+                  quindi sparisce da solo appena qualcuno allega un'anteprima
+                  nuova, invece di restare a dire il contrario come faceva la
+                  nota della bonifica. */}
+              {!task.previewImage && task.previewRetiredAt && (
+                <div data-testid="task-preview-retired" className="mt-1.5 flex items-start gap-2 rounded-md bg-amber-500/10 px-2 py-1.5 text-xs text-amber-200/90">
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  <p className="min-w-0">
+                    <span className="font-medium">{tr('board.task.previewRetired')}</span>
+                    {task.previewRetiredReason && <span className="text-amber-200/70">: {task.previewRetiredReason}</span>}
+                  </p>
+                </div>
+              )}
+              {/* Nessuna evidenza e nessun motivo: si dice, invece di lasciare
+                  uno slot muto. La frase nomina il bottone accanto, così il
+                  vuoto porta con sé la sua uscita. */}
+              {!task.previewImage && !task.previewRetiredAt && (
+                <p data-testid="task-preview-missing" className="mt-1.5 text-xs text-app-text-muted">
+                  {tr('board.task.previewMissing', { recapture: tr('board.task.recapturePreview') })}
                 </p>
-              </div>
+              )}
             </div>
           )}
           <div className="border-b border-app-border px-3 py-3">
@@ -2419,10 +2489,14 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 {/* Le parole e QUALE dei tre è il verde: dalla card, non da
                     qui. Su una review che nessuno ha consegnato il verde è
                     «Rimandalo avanti» e le altre due scendono a neutro. */}
+                {/* `busy || sending`: da quando «Rimanda indietro» porta con sé
+                    il testo, la sua strada lunga alza `sending` e non `busy`.
+                    Senza il secondo, i tre bottoni restavano premibili mentre la
+                    consegna era già partita. */}
                 <ReviewDecisionRow
-                  task={task} busy={busy}
+                  task={task} busy={busy || sending}
                   onAccept={() => decide('approve', { force: task.checksState === 'fail' })}
-                  onSendBack={() => decide('reject')}
+                  onSendBack={() => void sendBack()}
                   onLand={doLand}
                 />
                 {/* Le uscite che i tre bottoni qui sopra NON hanno: prendersi il
@@ -2434,19 +2508,12 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                   onDone={() => { void load(); onChanged(); }}
                   onError={setError} onNeedText={() => commentRef.current?.focus()}
                 />
-                {/* Ricattura evidenza: rifà l'anteprima di una card che è GIÀ
-                    qui. Prima l'unico modo era rimandarla all'agent e farla
-                    rientrare in review — un turno d'agente per una foto. Sta
-                    sotto le decisioni, in tono neutro: è un'azione di SERVIZIO
-                    sull'evidenza, non una terza decisione. */}
-                {isAgentReview && (
-                  <button
-                    disabled={recapturing} onClick={recapturePreview}
-                    title={tr('board.task.recapturePreviewTitle')}
-                    data-testid="task-recapture-preview"
-                    className="flex w-full items-center justify-center gap-1.5 rounded bg-white/10 px-2.5 py-1.5 text-xs text-app-text hover:bg-white/20 disabled:opacity-50"
-                  >{recapturing ? <Spinner size="sm" tone="current" /> : <Camera className="h-3.5 w-3.5" />} {tr('board.task.recapturePreview')}</button>
-                )}
+                {/* «Ricattura evidenza» NON è più qui: era un'azione di
+                    servizio sull'anteprima disegnata larga quanto una
+                    decisione, in mezzo alle decisioni, e a occhio faceva
+                    quantità con loro. Adesso sta attaccata all'anteprima che
+                    rifà, in cima al brief — anche quando l'anteprima non c'è,
+                    che è il momento in cui serve davvero. */}
               </div>
             )}
             {attachments.length > 0 && (
@@ -2484,7 +2551,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 value={draft} onChange={(e) => { setDraft(e.target.value); saveCommentCursor(); }} rows={1}
                 onSelect={saveCommentCursor} onKeyUp={saveCommentCursor} onClick={saveCommentCursor}
                 onFocus={() => markActiveComposer(commentCursorKey)}
-                placeholder={isAgentReview ? tr('board.task.replyPlaceholder') : agentBusy ? tr('board.task.steerPlaceholder') : tr('board.task.commentPlaceholder')}
+                placeholder={isAgentReview ? tr('board.task.replyPlaceholder', { sendBack: sendBackLabel }) : agentBusy ? tr('board.task.steerPlaceholder') : tr('board.task.commentPlaceholder')}
                 onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); } }}
                 onPaste={(e) => {
                   const imgs = Array.from(e.clipboardData?.items ?? [])
@@ -2494,26 +2561,25 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 }}
                 className="flex-1 resize-none rounded bg-white/5 px-2 py-1.5 text-sm text-app-text outline-none"
               />
-              {/* IN REVIEW I GESTI SONO DUE, E SI CHIAMANO COME IL LORO EFFETTO.
-                  Un'icona con tooltip non basta: il bottone unico diceva
-                  «Commenta» e RIMANDAVA la card all'agent. Etichetta testuale
-                  su entrambi, quindi, e i title dicono dove finisce la card.
+              {/* IN REVIEW IL COMPOSER HA UN GESTO SOLO, ED È QUELLO CHE NON
+                  DECIDE NIENTE.
+                  Qui ce n'erano due: «Rimanda» (azzurro) e «Nota». Il primo era
+                  il gemello del «Rimanda indietro» grande qui sopra — stesso
+                  `POST …/review`, stessa decisione, stessa colonna d'arrivo — e
+                  due parole per una porta sola non sono due uscite: sono un
+                  dubbio davanti a entrambe. La decisione vive con le decisioni;
+                  qui resta «Nota», che è l'unica cosa che il composer sa fare e
+                  che i bottoni sopra non fanno: scrivere senza svegliare
+                  nessuno. Il testo che scrivi qui lo raccoglie «Rimanda
+                  indietro» — lo dice il placeholder, che lo chiama per nome.
                   Fuori dalla review il composer resta quello di sempre. */}
               {isAgentReview ? (
-                <>
-                  <button
-                    onClick={() => void send()} disabled={sending || (!draft.trim() && attachments.length === 0)}
-                    title={tr('board.task.sendBackReplyTitle')}
-                    data-testid="task-reply-send-back"
-                    className="flex items-center gap-1.5 rounded bg-sky-500/80 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-sky-500 disabled:opacity-50"
-                  >{sending ? <Spinner size="md" tone="current" /> : <Send className="h-3.5 w-3.5" />} {tr('board.task.sendBackReply')}</button>
-                  <button
-                    onClick={() => void send({ quiet: true })} disabled={sending || (!draft.trim() && attachments.length === 0)}
-                    title={tr('board.task.quietNoteTitle')}
-                    data-testid="task-reply-quiet-note"
-                    className="flex items-center gap-1.5 rounded bg-white/10 px-2.5 py-1.5 text-xs text-app-text hover:bg-white/20 disabled:opacity-50"
-                  ><StickyNote className="h-3.5 w-3.5" /> {tr('board.task.quietNote')}</button>
-                </>
+                <button
+                  onClick={() => void send({ quiet: true })} disabled={sending || (!draft.trim() && attachments.length === 0)}
+                  title={tr('board.task.quietNoteTitle')}
+                  data-testid="task-reply-quiet-note"
+                  className="flex items-center gap-1.5 rounded bg-white/10 px-2.5 py-1.5 text-xs text-app-text hover:bg-white/20 disabled:opacity-50"
+                >{sending ? <Spinner size="md" tone="current" /> : <StickyNote className="h-3.5 w-3.5" />} {tr('board.task.quietNote')}</button>
               ) : (
                 <button
                   onClick={() => void send()} disabled={sending || (!draft.trim() && attachments.length === 0)}

@@ -206,6 +206,9 @@ const IT: Dict = {
   'board.task.descChars': '{n} caratteri',
   'board.task.descExpandTitle': 'Apri la descrizione',
   'board.task.previewRetired': 'Anteprima ritirata',
+  /** Consegna senza evidenza e senza un motivo scritto: lo slot lo dice invece
+   *  di restare muto, e nomina il bottone che gliela può dare. */
+  'board.task.previewMissing': 'Nessuna evidenza su questa consegna. «{recapture}» la rifà dal worktree del task.',
   'board.task.openAsTabTitle': 'Apri come tab nel workspace del task',
   'board.task.downloadFileTitle': 'Scarica il file',
   'board.task.newTab': 'Nuova scheda',
@@ -236,8 +239,16 @@ const IT: Dict = {
   // giusto per «rispondi», ma il bottone diceva solo «Commenta» e chi voleva
   // annotare una consegna la rigettava senza saperlo. Ora i due gesti si
   // chiamano come il loro effetto, e il placeholder li nomina entrambi.
-  'board.task.replyPlaceholder': "Scrivi una nota. «Rimanda» risveglia l'agent, «Nota» la lascia sulla card.",
-  /** Stessa frase per il campo stretto della card, dove la lunga non ci sta. */
+  /**
+   * Nel DRAWER il gesto che risveglia non è più accanto alla casella: era il
+   * gemello di «Rimanda indietro» qui sopra (stesso `POST …/review`, stessa
+   * decisione) e se n'è andato. Quindi il placeholder nomina il bottone vero, e
+   * lo nomina per interpolazione: su una card che nessuno ha consegnato quel
+   * bottone si chiama «Rimandalo avanti».
+   */
+  'board.task.replyPlaceholder': "Scrivi un'indicazione: «{sendBack}» la porta all'agent, «Nota» la lascia sulla card.",
+  /** La CARD ha ancora i suoi due bottoni accanto al campo, quindi qui la frase
+   *  resta quella: i nomi che cita sono a un centimetro di distanza. */
   'board.task.replyPlaceholderShort': '…nota: «Rimanda» risveglia, «Nota» no',
   'board.task.sendBackReply': 'Rimanda',
   'board.task.sendBackReplyTitle': "Rimanda il task all'agent con questa nota. Riparte e la card torna In Progress.",
@@ -835,6 +846,7 @@ const EN: Dict = {
   'board.task.descChars': '{n} characters',
   'board.task.descExpandTitle': 'Open the description',
   'board.task.previewRetired': 'Preview withdrawn',
+  'board.task.previewMissing': 'No evidence on this delivery. «{recapture}» shoots it again from the task worktree.',
   'board.task.openAsTabTitle': 'Open as a tab in the task workspace',
   'board.task.downloadFileTitle': 'Download the file',
   'board.task.newTab': 'New tab',
@@ -857,7 +869,7 @@ const EN: Dict = {
   'board.task.streamPreviewTitle': 'Live preview of what it is streaming now',
   'board.task.recapturePreview': 'Recapture evidence',
   'board.task.recapturePreviewTitle': "Rebuild this card's preview: reboot the server from its worktree and shoot it again. It does NOT wake the agent and burns no attempt. If it can't be done, the reason lands in the thread.",
-  'board.task.replyPlaceholder': 'Write a note. «Send back» wakes the agent up, «Note» leaves it on the card.',
+  'board.task.replyPlaceholder': 'Write a direction: «{sendBack}» takes it to the agent, «Note» leaves it on the card.',
   'board.task.replyPlaceholderShort': '…note: «Send back» wakes it up, «Note» does not',
   'board.task.sendBackReply': 'Send back',
   'board.task.sendBackReplyTitle': 'Send the task back to the agent with this note. It restarts and the card returns to In Progress.',
