@@ -1537,9 +1537,13 @@ function App() {
             dire «Questo computer» a chi il computer ce l'ha in mano. Le stesse
             cose — chi sei, come va, che versione è — stanno nel menu «Topics»
             (`SidebarSystemMenu`), che è dove si va a cercarle: «è qualcosa che
-            l'utente raramente utilizzerà». Sul desktop, dove i pixel verticali
-            abbondano e il colpo d'occhio sullo stato serve, la barra resta
-            esattamente com'era. */}
+            l'utente raramente utilizzerà».
+            AGGIORNAMENTO (card b8ca85e8): quel «Questo computer» non c'è più
+            nemmeno sul desktop. La riga dice la PERSONA — nome e faccia, da
+            `etichettaIdentita` — e il ferro le sta accanto come dettaglio. Il
+            taglio sul telefono RESTA valido lo stesso, e per la seconda metà
+            dell'argomento: là le stesse informazioni sono nel menu, quindi non
+            si toglie niente, si sposta. Sul desktop la barra resta dov'era. */}
         {!isMobile && (
         <ErrorBoundary fallbackMessage="Status bar error">
         <SidebarStatusBar
