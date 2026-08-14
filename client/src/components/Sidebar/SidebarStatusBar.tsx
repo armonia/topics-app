@@ -3,6 +3,8 @@ import { Wifi, RefreshCw, RotateCcw, Bot, Hourglass, Smartphone, Monitor, Server
 import { createPortal } from 'react-dom';
 import { reloadAllWindows } from '@/lib/shell/app';
 import { subscribeSession, type SessionState } from '@/lib/auth/session';
+import { usePersonaCorrente } from '@/hooks/usePersonaCorrente';
+import { etichettaIdentita } from './identityLabel';
 import { useSystemStatus } from '@/hooks/useSystemStatus';
 import { useServiceWorkerUpdate } from '@/hooks/useServiceWorkerUpdate';
 import { useOpenClawAvailable } from '@/hooks/useOpenClawAvailable';
@@ -828,13 +830,24 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
  * un'informazione» — sbagliato in pratica: chi ha appena appaiato un telefono
  * apre l'app sul Mac per controllare che sia andata, e non trova niente. Una
  * riga che compare solo altrove non e' minimalismo, e' un buco dove ci si
- * aspetta una conferma. Sul computer dice «Questo computer», che e' anche il
- * modo di dire che qui dentro si e' per trasporto e non per sessione.
+ * aspetta una conferma.
+ *
+ * IL SOGGETTO E' LA PERSONA, e prima era il ferro. La riga diceva «Questo
+ * computer» perche' nasce come conferma di appaiamento, e per quella domanda il
+ * ferro e' la risposta giusta. Ma chi guarda la propria sidebar non si chiede su
+ * cosa sta: si chiede chi e', e «Questo computer» detto a chi il computer ce
+ * l'ha in mano non aggiunge niente. Cambiato su richiesta di Attilio (card
+ * b8ca85e8). Il ferro non sparisce: scende a seconda riga, perche' il caso «ho
+ * appena appaiato il telefono, e' andata?» resta vero e questa e' l'unica riga
+ * che lo conferma. La scelta di cosa mostrare sta in `etichettaIdentita`, che e'
+ * anche quella del menu del telefono: erano due copie ed erano gia' divergenti.
  */
 function DeviceIdentityRow({ onOpenDevices }: { onOpenDevices?: () => void }) {
   const [session, setSession] = useState<SessionState>({ status: 'loading' });
   const [altri, setAltri] = useState<{ connessi: number; totali: number } | null>(null);
   useEffect(() => subscribeSession(setSession), []);
+  const io = usePersonaCorrente();
+  const chi = etichettaIdentita(io, session);
 
   // Quanti dispositivi ci sono, e quanti sono vivi adesso. È l'informazione che
   // rende la riga una RISPOSTA e non un'etichetta: «Questo computer» da solo non
@@ -893,12 +906,32 @@ function DeviceIdentityRow({ onOpenDevices }: { onOpenDevices?: () => void }) {
       // scurisce (è il caso descritto per esteso su SIDEBAR_HOVER).
       className={`flex w-full items-center gap-1.5 border-t border-app-border text-left text-[11px] text-app-text-secondary min-h-6 max-md:min-h-9 ${SIDEBAR_HOVER} disabled:hover:bg-transparent`}
       style={{ paddingInline: ROW_INSET }}
-      title="Apri l\u2019elenco dei dispositivi autorizzati"
+      // Il tooltip dice ENTRAMBE le cose, sempre: chi e su cosa. La riga puo'
+      // troncare il dettaglio quando la colonna e' stretta, il tooltip no.
+      title={`${chi.nome}${chi.dettaglio ? ` \u00b7 ${chi.dettaglio}` : ''}\nApri l\u2019elenco dei dispositivi autorizzati`}
     >
-      {locale
-        ? <Monitor size={10} className="flex-shrink-0 text-app-text-secondary" />
-        : <Smartphone size={10} className="flex-shrink-0 text-app-text-secondary" />}
-      <span className="truncate">{session.name}</span>
+      {/* LA FACCIA, e solo quando c'e' una persona. Senza, resta il glifo del
+          ferro esattamente com'era: un tondino con dentro l'iniziale di
+          \u00abQuesto computer\u00bb sarebbe un avatar finto. */}
+      {chi.personale
+        ? (chi.avatarUrl
+            ? <img src={chi.avatarUrl} alt="" className="h-4 w-4 flex-shrink-0 rounded-full object-cover" />
+            : <span className="flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full bg-primary text-[8px] font-semibold leading-none text-white">{chi.iniziali}</span>)
+        : locale
+          ? <Monitor size={10} className="flex-shrink-0 text-app-text-secondary" />
+          : <Smartphone size={10} className="flex-shrink-0 text-app-text-secondary" />}
+      <span className="truncate text-app-text">{chi.nome}</span>
+      {/* IL FERRO, sceso a dettaglio. Cede lo spazio per primo (`min-w-0` senza
+          `flex-shrink-0`): se la colonna e' stretta si tronca questo, mai il
+          nome della persona. */}
+      {chi.dettaglio && (
+        <span className="flex min-w-0 items-center gap-1 text-app-text-muted">
+          {locale
+            ? <Monitor size={10} className="flex-shrink-0" />
+            : <Smartphone size={10} className="flex-shrink-0" />}
+          <span className="truncate">{chi.dettaglio}</span>
+        </span>
+      )}
       {altri && altri.totali > 0 && (
         <span className="ml-auto flex flex-shrink-0 items-center gap-1 text-app-text-muted">
           {altri.connessi > 0 && <span className={`h-1.5 w-1.5 rounded-full ${PALLINO_OK}`} />}
