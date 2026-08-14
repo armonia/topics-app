@@ -1,0 +1,15 @@
+-- Una interruzione, una riga: il campo di rivendicazione.
+--
+-- Il riavvio del server lo raccontano PIÙ scrittori (il recupero del fan-out,
+-- il riattacco in diretta, il resume sulla stessa sessione), e ognuno scriveva
+-- la sua nota. Il 13/08 il task ae61fb5a ne ha raccolte quattro in tre minuti
+-- per una interruzione sola: 10:25:30, 10:25:45 e 10:25:58 «Server ripartito a
+-- metà turno», poi 10:27:38 «Riavvio del server: ripreso in diretta». La
+-- dedupe dei commenti guarda testo IDENTICO entro dieci secondi, quindi quelle
+-- righe le passava tutte.
+--
+-- La rivendicazione sta QUI e non in memoria perché il terzo che arriva è
+-- spesso un processo NUOVO (è appena ripartito, è il motivo per cui scrive):
+-- un insieme in RAM non gli direbbe niente, e riscriverebbe la sua versione
+-- dei fatti come se fosse la prima.
+ALTER TABLE tasks ADD COLUMN interrupt_claimed_at TEXT;

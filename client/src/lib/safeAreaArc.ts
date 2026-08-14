@@ -31,6 +31,13 @@
  * l'angolo dentro il vetro tondo, che è esattamente il difetto che si sente e
  * non si vede.
  *
+ * ── E POI L'ANGOLO SI ARROTONDA, NON SOLO SI ALZA ───────────────────────────
+ * Alzare non basta: una scatola squadrata dentro una cornice tonda resta un
+ * angolo dritto accanto a una curva, e si vede. Chi tocca l'arco prende anche
+ * la CURVATURA di quell'angolo, concentrica a quella dello schermo — il tasto
+ * di sinistra sul suo angolo sinistro, quello di destra sul destro, quello in
+ * mezzo su nessuno perché nessun bordo lo raggiunge. Vedi `curvaturaEsterna`.
+ *
  * ── E IL RAGGIO DA DOVE ARRIVA ──────────────────────────────────────────────
  * Il web NON espone il raggio dello schermo: non c'è media query né API. L'unico
  * segnale che il sistema dà è `env(safe-area-inset-bottom)` — la fascia
@@ -99,21 +106,75 @@ export interface OpzioniFila {
    * dentro la fascia e sopra l'home indicator (ultimi ~10px).
    */
   pavimento: number;
+  /** Altezza delle scatole: è il tetto della curvatura (metà altezza = capsula). */
+  altezza: number;
+  /** Il raggio che una scatola ha quando l'arco non la tocca. */
+  standard: number;
+}
+
+/** Da che parte della scatola sta l'angolo che incontra l'arco dello schermo. */
+export type LatoCurvo = 'sinistra' | 'destra' | null;
+
+/** Come si posa e come si arrotonda una scatola della fila. */
+export interface FormaScatola {
+  /** Di quanto sta sopra il bordo inferiore. */
+  alzata: number;
+  /** Il raggio dell'angolo basso ESTERNO. Pari a `standard` se l'arco non arriva. */
+  curvatura: number;
+  /** Dove va applicata `curvatura`. `null` ⇒ raggio standard su tutti e quattro. */
+  lato: LatoCurvo;
 }
 
 /**
- * Di quanto sta sopra il bordo inferiore ciascuna scatola.
+ * IL RAGGIO DELL'ANGOLO ESTERNO, CONCENTRICO A QUELLO DELLO SCHERMO.
  *
- * `max()` e non una somma: il pavimento c'è già, e l'arco lo ALLARGA solo dove
- * arriva. Sommarli alzerebbe anche chi non ne ha bisogno, cioè rifarebbe a mano
- * lo spreco che questo modulo esiste per togliere.
+ * Due scatole tonde annidate si somigliano solo se i loro archi hanno lo STESSO
+ * centro: il raggio di quella dentro è quello di fuori meno il gioco fra le
+ * due. Con l'angolo dello schermo a R e la scatola rientrata di `distanza`, il
+ * raggio concentrico è `R − distanza`. Un raggio più piccolo lascia un angolo
+ * appuntito dentro una cornice tonda, uno più grande lo scava.
+ *
+ * Due limiti, e sono entrambi reali:
+ *  · SOTTO — mai meno del raggio standard: un angolo esterno più squadrato
+ *    degli altri tre è un difetto, non una curva;
+ *  · SOPRA — mai più di mezza altezza, che è il massimo che una scatola alta
+ *    così può portare (oltre, il browser lo taglia comunque). Su una fila da 44
+ *    e un iPhone da 54 di raggio il tetto morde: l'angolo esterno diventa una
+ *    capsula, ed è la curva più vicina all'arco che quel bottone può avere.
+ *
+ * Fuori dall'arco (`distanza ≥ raggio`) non c'è nessun angolo da seguire e si
+ * torna allo standard: è ciò che tiene squadrato il tasto in mezzo senza un
+ * ramo dedicato a lui.
  */
-export function alzateFila({ larghezza, scatole, raggio, pavimento }: OpzioniFila): number[] {
+export function curvaturaEsterna(distanza: number, raggio: number, altezza: number, standard: number): number {
+  if (raggio <= 0 || !Number.isFinite(distanza) || distanza >= raggio) return standard;
+  const concentrico = raggio - Math.max(0, distanza);
+  return Math.max(standard, Math.min(concentrico, altezza / 2));
+}
+
+/**
+ * Di quanto sta sopra il bordo inferiore ciascuna scatola, e come si arrotonda.
+ *
+ * ALZATA — `max()` e non una somma: il pavimento c'è già, e l'arco lo ALLARGA
+ * solo dove arriva. Sommarli alzerebbe anche chi non ne ha bisogno, cioè
+ * rifarebbe a mano lo spreco che questo modulo esiste per togliere.
+ *
+ * CURVATURA — la decide il bordo PIÙ VICINO, che è l'unico che possa toccare la
+ * scatola: chi sta a sinistra curva a sinistra, chi sta a destra curva a
+ * destra, e chi sta in mezzo non è toccato da nessuno dei due e resta standard.
+ */
+export function formaFila({ larghezza, scatole, raggio, pavimento, altezza, standard }: OpzioniFila): FormaScatola[] {
   return scatole.map((s) => {
     const daSinistra = s.x;
     const daDestra = larghezza - (s.x + s.larghezza);
     const arco = Math.max(alzataArco(daSinistra, raggio), alzataArco(daDestra, raggio));
-    return Math.round(Math.max(pavimento, arco) * 100) / 100;
+    const vicino = Math.min(daSinistra, daDestra);
+    const curvatura = curvaturaEsterna(vicino, raggio, altezza, standard);
+    return {
+      alzata: Math.round(Math.max(pavimento, arco) * 100) / 100,
+      curvatura: Math.round(curvatura * 100) / 100,
+      lato: curvatura === standard ? null : daSinistra <= daDestra ? 'sinistra' : 'destra',
+    };
   });
 }
 

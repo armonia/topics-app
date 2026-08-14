@@ -90,7 +90,8 @@ export const TASKS_DDL = `CREATE TABLE IF NOT EXISTS tasks (
   wait_reason TEXT,
   wait_since TEXT,
   preview_retired_at TEXT,
-  preview_retired_reason TEXT
+  preview_retired_reason TEXT,
+  interrupt_claimed_at TEXT
 )`;
 
 /**
