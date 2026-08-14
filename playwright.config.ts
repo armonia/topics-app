@@ -269,7 +269,14 @@ export default defineConfig({
       // menu aperto da due gesti, e i suoi due test si escludono a vicenda con
       // `test.skip(isMobile)`. A 390px la board è appiattita e la card non c'è —
       // serve il dito su schermo largo, che è esattamente questo progetto.
-      testMatch: ["**/hover-reveal-touch-audit.spec.ts", "**/browser-mobile-keyboard.spec.ts", "**/board-card-stop.spec.ts"],
+      testMatch: [
+        "**/hover-reveal-touch-audit.spec.ts",
+        "**/browser-mobile-keyboard.spec.ts",
+        "**/board-card-stop.spec.ts",
+        // La spunta della tab: il contratto e' «col dito», non «sul telefono»,
+        // e a 390px la striscia non si disegna piu'. Qui c'e' e il dito e' vero.
+        "**/tab-close-ring-touch.spec.ts",
+      ],
       use: {
         browserName: "chromium",
         hasTouch: true,

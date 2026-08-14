@@ -74,6 +74,14 @@ function collectAllPresentKeys(rows: PanelGridRow[]): Set<string> {
   return out;
 }
 
+/** La riga contiene questa cella di primo livello? (Le celle IMPILATE dentro
+ *  un'altra non contano: le disegna la loro ospite, che è quella con la chiave
+ *  in `itemKeys`.) Serve al ramo telefono, che nasconde le righe senza il
+ *  riquadro a fuoco — vedi `mobileVisibleKey`. */
+function rowHoldsKey(row: PanelGridRow, key: string): boolean {
+  return row.itemKeys.includes(key);
+}
+
 /**
  * Remove a top-level cell `key` from a row, preserving the OTHER cells'
  * sub-stacks (a bare `{ itemKeys, widths }` rebuild is the exact data loss
@@ -437,6 +445,34 @@ export function PanelGrid({
     if (missing.length === 0) return gridRows;
     return [...gridRows, { itemKeys: missing, widths: missing.map(() => 1 / missing.length) }];
   }, [gridRows, naturalGridItems]);
+
+  // ── UNA SUPERFICIE ALLA VOLTA, SUL TELEFONO ─────────────────────────────
+  // Il ramo mobile impila i riquadri in colonna (`flex-col`, in fondo al file):
+  // con la striscia delle tab tolta da ogni gruppo, una pila di due o piu'
+  // riquadri sarebbe una pila ANONIMA. E la pila non nasce da un gesto fatto
+  // sul telefono, la eredita dal layout del desktop, che si sincronizza.
+  // Quindi qui si disegna il riquadro che ha il fuoco e gli altri restano
+  // montati ma `display:none` (stessa tecnica di `PaneKeepAlive`: lo stato,
+  // scroll della chat, buffer del terminale, form a meta', non muore quando
+  // cambi superficie, cosa che smontarli farebbe).
+  //
+  // Il fuoco puo' stare in un riquadro IMPILATO dentro una cella
+  // (`cellStacks`): in quel caso si mostra la cella che lo ospita, perche' e'
+  // lei a disegnarlo.
+  const mobileVisibleKey = useMemo<string | null>(() => {
+    if (!isMobile) return null;
+    const firstKey = effectiveGridRows[0]?.itemKeys[0] ?? null;
+    if (!focusedPanelId) return firstKey;
+    for (const row of effectiveGridRows) {
+      for (const key of row.itemKeys) {
+        if (itemMap.get(key)?.panelIds.includes(focusedPanelId)) return key;
+        for (const stacked of row.cellStacks?.[key]?.items ?? []) {
+          if (itemMap.get(stacked)?.panelIds.includes(focusedPanelId)) return key;
+        }
+      }
+    }
+    return firstKey;
+  }, [isMobile, effectiveGridRows, itemMap, focusedPanelId]);
 
   // Weighted "equalize": a cell that hosts a PROJECT with internal splits should
   // claim more of the row/column than a single-pane cell, so that double-clicking
@@ -2365,7 +2401,17 @@ export function PanelGrid({
         sendWS={sendWS}
         onWSMessage={onWSMessage}
         onUpdateTopic={onUpdateTopic}
-        onToggleSidebar={rowIdx === 0 && colIdx === 0 ? onToggleSidebar : undefined}
+        mobile={isMobile}
+        // Il comando che riapre la colonna sta sul riquadro in alto a sinistra,
+        // che è quello che l'occhio guarda per primo. Sul telefono i riquadri
+        // non sono affiancati e se ne vede UNO: se restasse legato alla cella
+        // (0,0) il comando starebbe su quella nascosta, e la lista — con la
+        // striscia delle tab tolta — non avrebbe più un tasto per riaprirsi.
+        onToggleSidebar={
+          (isMobile ? key === mobileVisibleKey : rowIdx === 0 && colIdx === 0)
+            ? onToggleSidebar
+            : undefined
+        }
         panelInitialTab={panelInitialTab}
         onPanelInitialTabConsumed={onPanelInitialTabConsumed}
         onNewChat={onNewChat}
@@ -2419,6 +2465,7 @@ export function PanelGrid({
       canFlattenGrid, handleResetGridLayout,
       handleMergeIntoCell, handlePersistPoolReorder, handlePersistCellOrder,
       onClosePanelImmediate, onToggleFissato, isFissato,
+      isMobile, mobileVisibleKey,
     ],
   );
 
@@ -2694,7 +2741,15 @@ export function PanelGrid({
         <Fragment key={rowIdx}>
           <div
             className={`flex ${isMobile ? 'flex-col' : 'flex-row'} min-h-0 min-w-0 overflow-hidden`}
-            style={{ flex: `${gridRowHeights[rowIdx] ?? 1 / effectiveGridRows.length} 1 0%` }}
+            style={{
+              flex: `${gridRowHeights[rowIdx] ?? 1 / effectiveGridRows.length} 1 0%`,
+              // Sul telefono si vede una superficie sola: la riga che non
+              // ospita il riquadro a fuoco esce dal layout senza smontarsi
+              // (vedi `mobileVisibleKey`).
+              ...(isMobile && mobileVisibleKey && !rowHoldsKey(row, mobileVisibleKey)
+                ? { display: 'none' }
+                : null),
+            }}
             data-panel-row={rowIdx}
           >
             {row.itemKeys.map((key, colIdx) => {
@@ -2721,6 +2776,11 @@ export function PanelGrid({
                     className={`flex min-h-0 min-w-0 overflow-hidden relative transition-all ${isDraggingThis ? 'opacity-40' : ''}`}
                     style={{
                       flex: isMobile ? '1 1 0%' : `${width} 1 0%`,
+                      // Vedi `mobileVisibleKey`: gli altri riquadri restano
+                      // montati (lo stato vive) ma fuori dal layout.
+                      ...(isMobile && mobileVisibleKey && key !== mobileVisibleKey
+                        ? { display: 'none' }
+                        : null),
                       // Center inset = "reorder within / merge as tab" cue. Only
                       // for GRID_ITEM drags: a PANE_TAB over center no-ops on drop
                       // (the bar owns add-as-tab), so painting it would over-promise.
