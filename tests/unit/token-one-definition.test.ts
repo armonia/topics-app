@@ -90,8 +90,8 @@ describe("token: i due percorsi collassano su una definizione sola", () => {
     for (const c of CHIAMATE) {
       const u = readResultUsage(eventoResult(c));
       turno = accumulateTurnUsage(turno, {
-        inputTokens: u.inputTokens,
-        outputTokens: u.outputTokens,
+        inputTokens: u.inputTokens ?? 0,
+        outputTokens: u.outputTokens ?? 0,
         cacheRead: u.cacheRead ?? 0,
         cacheCreation: u.cacheCreation ?? 0,
         cacheCreation1h: u.cacheCreation1h ?? 0,
