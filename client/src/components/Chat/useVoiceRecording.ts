@@ -6,6 +6,7 @@ import {
   extForMime,
   micErrorMessage,
   MIN_VOICE_BLOB_BYTES,
+  messaggioNotaVuota,
   SPEECH_AUDIO_CONSTRAINTS,
   SPEECH_BITS_PER_SECOND,
   fetchSttCapabilities,
@@ -95,9 +96,7 @@ export function useVoiceRecording(
           // motivo per cui la nota vocale "non funziona" senza una diagnosi.
           // Il numero serve: dice se il microfono non ha aperto affatto (0
           // spezzoni) o se ha prodotto solo l'intestazione del contenitore.
-          onErrorRef.current?.(
-            `Nota vocale vuota: ${audioChunksRef.current.length} spezzoni, ${blob.size} byte in ${mimeType}. Niente da inviare.`,
-          );
+          onErrorRef.current?.(messaggioNotaVuota(audioChunksRef.current.length, blob.size, mimeType));
           audioChunksRef.current = [];
           recordingSessionKeyRef.current = null;
           resolve();
