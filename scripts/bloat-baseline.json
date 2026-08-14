@@ -34,7 +34,7 @@
   "min_clone_lines": 20,
   "files": {
     "desktop-tauri/src-tauri/src/lib.rs": 11289,
-    "server.ts": 4592,
+    "server.ts": 4600,
     "server/services/tasks.ts": 3829,
     "server/providers/claude-code.ts": 3626,
     "server/services/task-dispatcher.ts": 3426,
