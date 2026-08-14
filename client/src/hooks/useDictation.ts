@@ -12,6 +12,7 @@ import {
   SPEECH_BITS_PER_SECOND,
   type SttCapabilities,
 } from '../lib/stt';
+import { ascoltaLivello, messaggioTrascrittoVuoto, type SondaLivello } from '../lib/livello-audio';
 import { useSpeechToText } from './useSpeech';
 
 export type DictationEngine = 'server' | 'webspeech' | null;
@@ -49,6 +50,8 @@ export function useDictation(opts: {
   /** Un annullo (Escape, smontaggio) non deve pagare una trascrizione né incollare niente. */
   const discardRef = useRef(false);
   const maxDurationRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Misura il segnale mentre si registra: serve solo se il trascritto torna vuoto. */
+  const sondaRef = useRef<SondaLivello | null>(null);
 
   // I callback arrivano dal componente e cambiano a ogni render: tenerli in un
   // ref evita che `stop`/`start` cambino identità (e con loro le dipendenze
@@ -81,6 +84,9 @@ export function useDictation(opts: {
 
   const releaseMic = useCallback(() => {
     if (maxDurationRef.current) { clearTimeout(maxDurationRef.current); maxDurationRef.current = null; }
+    // La sonda si chiude col microfono, non con la trascrizione: il picco che
+    // ha gia' raccolto resta leggibile anche dopo, ed e' quello che serve.
+    sondaRef.current?.chiudi();
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(t => t.stop());
       streamRef.current = null;
@@ -91,6 +97,7 @@ export function useDictation(opts: {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: SPEECH_AUDIO_CONSTRAINTS });
       streamRef.current = stream;
+      sondaRef.current = ascoltaLivello(stream);
       const mimeType = pickRecorderMimeType();
       const recorder = new MediaRecorder(stream, {
         ...(mimeType ? { mimeType } : {}),
@@ -142,13 +149,16 @@ export function useDictation(opts: {
           // messaggio. Chi aveva premuto e parlato vedeva la stessa cosa di
           // una app rotta, ed e' il sintomo con cui questa caccia e' iniziata.
           //
-          // Il provider e la durata stanno nel messaggio perche' distinguono i
-          // due casi che si somigliano: «non ho sentito» (microfono aperto
+          // I due casi che si somigliano — «non ho sentito» (microfono aperto
           // sul nulla) e «non ho capito» (audio c'era, il modello non ha
-          // riconosciuto parole).
-          else onErrorRef.current?.(
-            `Non ho sentito parole nella nota (${result.provider}, ${Math.round(result.durationMs / 100) / 10}s). Riprova parlando piu' vicino al microfono.`,
-          );
+          // riconosciuto parole) — li separa la SONDA, non un'ipotesi: ha
+          // misurato il segnale prima che venisse codificato, quindi sa dire
+          // se dal microfono e' passato qualcosa.
+          else onErrorRef.current?.(messaggioTrascrittoVuoto({
+            sonda: sondaRef.current,
+            provider: result.provider,
+            durataMs: result.durationMs,
+          }));
         } catch (err) {
           onErrorRef.current?.(`Dettatura non trascritta: ${err instanceof Error ? err.message : 'errore sconosciuto'}`);
         } finally {
@@ -222,6 +232,7 @@ export function useDictation(opts: {
       discardRef.current = true;
       if (maxDurationRef.current) clearTimeout(maxDurationRef.current);
       if (recorderRef.current && recorderRef.current.state !== 'inactive') recorderRef.current.stop();
+      sondaRef.current?.chiudi();
       if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop());
     };
   }, []);
