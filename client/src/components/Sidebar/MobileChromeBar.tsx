@@ -17,7 +17,7 @@ import { iniziali, useProfileIdentity } from './useProfileIdentity';
  *
  * ── LA QUARTA PORTA È IL PROFILO, E PRIMA NON ERA UNA PORTA ────────────────
  * Stava dentro il menu «Topics», cioè dietro un gesto che nessuno fa per
- * cercare il proprio account (Attilio, 14/08: «il tasto del profilo, togliendolo
+ * cercare il proprio account (chi usa la app, 14/08: «il tasto del profilo, togliendolo
  * dal menu di Topics»). Qui è una faccia, che è il modo in cui un account si
  * riconosce a colpo d'occhio, e porta dove portava prima: Impostazioni →
  * Account e dispositivi. Non è una copia della voce del menu: quella voce non

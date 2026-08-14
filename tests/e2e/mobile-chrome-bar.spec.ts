@@ -185,7 +185,7 @@ test.describe.serial("La chrome del telefono", () => {
     expect(titolo).toBeTruthy();
     expect(campanella).toBeTruthy();
 
-    // «Da un lato topics, dall'altro le notifiche» (Attilio, 14/08): non basta
+    // «Da un lato topics, dall'altro le notifiche» (chi usa la app, 14/08): non basta
     // che esistano entrambe, devono stare da parti OPPOSTE della riga. Prima la
     // campanella era attaccata al titolo, cioè entrambe nella metà sinistra —
     // ed è esattamente la misura che quel difetto passava.
@@ -272,7 +272,7 @@ test.describe.serial("La chrome del telefono", () => {
 
     // La porta si chiama come la cosa che apre. «Board» era il nome del
     // contenitore, e chi cercava i propri task cercava la parola «task»
-    // (Attilio, 14/08: «il tasto per accedere velocemente alla lista dei task»).
+    // (chi usa la app, 14/08: «il tasto per accedere velocemente alla lista dei task»).
     const tasto = page.locator(BOARD);
     await expect(tasto).toContainText("Task");
 
