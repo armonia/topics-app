@@ -133,13 +133,13 @@ export interface ReattachedPartial extends StoredMessage {
 }
 
 /**
- * Quanto di un messaggio serve davvero a chi carica un thread.
+ * How much of a message the caller loading a thread actually needs.
  *
- * Le due colonne grasse della tabella `messages` sono `blocks` e `tool_calls`:
- * il 98% dei byte (353 MB e 220 MB contro 13 MB di testo, su questa macchina al
- * 2026-08-14). Chi ne legge solo role/content/partial/id — l'assemblaggio del
- * contesto, che gira a OGNI turno — dice `false` a entrambe, e allora quelle
- * colonne non vengono nemmeno chieste a SQLite. Default: si caricano.
+ * The two fat columns of the `messages` table are `blocks` and `tool_calls`:
+ * 98% of the bytes (353 MB and 220 MB against 13 MB of text, on this machine as
+ * of 2026-08-14). A caller that reads only role/content/partial/id, such as
+ * context assembly which runs on EVERY turn, says `false` to both, and then
+ * those columns are never even requested from SQLite. Both default to loaded.
  */
 export interface ThreadLoadOpts {
   withBlocks?: boolean;
