@@ -23,11 +23,13 @@ export interface AcpAgentSpec {
 }
 
 /**
- * Gemini CLI espone ACP dietro `--experimental-acp` — è la stessa strada che
- * usa Zed per parlarci.
+ * Gemini CLI espone ACP dietro `--acp` — è la stessa strada che usa Zed per
+ * parlarci. Fino alla 0.5x il flag si chiamava `--experimental-acp`, che ora è
+ * deprecato ma ancora accettato: se qui gira una CLI più vecchia del rename,
+ * la riga si corregge da `ACP_AGENTS` senza toccare il codice.
  */
 export const KNOWN_ACP_AGENTS: readonly AcpAgentSpec[] = [
-  { name: "gemini", command: "gemini", args: ["--experimental-acp"] },
+  { name: "gemini", command: "gemini", args: ["--acp"] },
 ];
 
 /**
