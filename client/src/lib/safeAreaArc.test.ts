@@ -1,5 +1,9 @@
 import { describe, expect, test } from 'bun:test';
-import { alzataArco, alzateFila, pavimentoFila, raggioSchermo } from './safeAreaArc';
+import { alzataArco, curvaturaEsterna, formaFila, pavimentoFila, raggioSchermo } from './safeAreaArc';
+
+/** La fila vera: 44 di altezza, angoli standard da 12. */
+const ALTEZZA = 44;
+const STANDARD = 12;
 
 describe('raggioSchermo', () => {
   test('fascia assente ⇒ raggio zero (schermo squadrato)', () => {
@@ -65,7 +69,34 @@ describe('pavimentoFila', () => {
   });
 });
 
-describe('alzateFila', () => {
+describe('curvaturaEsterna', () => {
+  test('schermo squadrato ⇒ raggio standard, nessuna curva da seguire', () => {
+    expect(curvaturaEsterna(8, 0, ALTEZZA, STANDARD)).toBe(STANDARD);
+  });
+
+  test('fuori dall’arco ⇒ standard: è ciò che tiene squadrato quello in mezzo', () => {
+    expect(curvaturaEsterna(54, 54, ALTEZZA, STANDARD)).toBe(STANDARD);
+    expect(curvaturaEsterna(160, 54, ALTEZZA, STANDARD)).toBe(STANDARD);
+  });
+
+  test('dentro l’arco il raggio è CONCENTRICO: quello dello schermo meno il gioco', () => {
+    // Con una scatola alta abbastanza da portarlo, R−d e non un numero scelto.
+    expect(curvaturaEsterna(8, 54, 200, STANDARD)).toBe(46);
+    expect(curvaturaEsterna(20, 54, 200, STANDARD)).toBe(34);
+  });
+
+  test('mezza altezza è il tetto: un tasto da 44 non porta 46 di raggio', () => {
+    expect(curvaturaEsterna(8, 54, ALTEZZA, STANDARD)).toBe(22);
+  });
+
+  test('non scende MAI sotto lo standard, nemmeno con un raggio minuscolo', () => {
+    // Uno schermo appena stondato non deve squadrare l'angolo esterno più
+    // degli altri tre: sarebbe un difetto, non una curva.
+    expect(curvaturaEsterna(8, 14, ALTEZZA, STANDARD)).toBe(STANDARD);
+  });
+});
+
+describe('formaFila', () => {
   /** La fila vera: tre scatole spinte ai bordi, 8px di rientro per lato. È lo
    *  scopo del modulo — se si sta larghi 32 come la barra di stato, l'arco non
    *  tocca nessuno e non c'era niente da calcolare. */
@@ -74,53 +105,66 @@ describe('alzateFila', () => {
     return [0, 1, 2].map((i) => ({ x: rientro + i * passo, larghezza: l }));
   };
 
-  test('schermo squadrato: la fila è DRITTA, senza rami dedicati', () => {
-    const alzate = alzateFila({
-      larghezza: 390,
-      scatole: treScatole(390),
-      raggio: raggioSchermo(0),
-      pavimento: pavimentoFila(0),
+  const fila = (larghezza: number, fascia: number, extra?: { raggio?: number; pavimento?: number }) =>
+    formaFila({
+      larghezza,
+      scatole: treScatole(larghezza),
+      raggio: extra?.raggio ?? raggioSchermo(fascia),
+      pavimento: extra?.pavimento ?? pavimentoFila(fascia),
+      altezza: ALTEZZA,
+      standard: STANDARD,
     });
-    expect(alzate).toEqual([10, 10, 10]);
+
+  test('schermo squadrato: la fila è DRITTA e tutta standard, senza rami dedicati', () => {
+    const forme = fila(390, 0);
+    expect(forme.map((f) => f.alzata)).toEqual([10, 10, 10]);
+    expect(forme.map((f) => f.curvatura)).toEqual([STANDARD, STANDARD, STANDARD]);
+    expect(forme.map((f) => f.lato)).toEqual([null, null, null]);
   });
 
   test('iPhone: gli estremi salgono, quello in mezzo resta sul pavimento', () => {
-    const alzate = alzateFila({
-      larghezza: 390,
-      scatole: treScatole(390),
-      raggio: raggioSchermo(34),
-      pavimento: pavimentoFila(34),
-    });
-    expect(alzate[1]).toBe(22);           // il centro non lo tocca l'arco
-    expect(alzate[0]).toBeGreaterThan(22); // i lati sì
-    expect(alzate[0]).toBe(alzate[2]);     // ed è simmetrica
+    const forme = fila(390, 34);
+    expect(forme[1].alzata).toBe(22);            // il centro non lo tocca l'arco
+    expect(forme[0].alzata).toBeGreaterThan(22); // i lati sì
+    expect(forme[0].alzata).toBe(forme[2].alzata); // ed è simmetrica
+  });
+
+  test('iPhone: sinistra curva a SINISTRA, destra a DESTRA, il centro resta standard', () => {
+    const forme = fila(390, 34);
+    expect(forme.map((f) => f.lato)).toEqual(['sinistra', null, 'destra']);
+    // Il raggio degli estremi è quello che l'arco impone (qui il tetto di
+    // mezza altezza), MAI un numero scelto a mano.
+    expect(forme[0].curvatura).toBe(curvaturaEsterna(8, raggioSchermo(34), ALTEZZA, STANDARD));
+    expect(forme[0].curvatura).toBe(forme[2].curvatura);
+    expect(forme[1].curvatura).toBe(STANDARD);
   });
 
   test('l’alzata si misura sull’angolo ESTERNO, non sul centro della scatola', () => {
     // Una scatola larga il doppio, ancorata allo stesso x: il suo angolo basso
     // sinistro non si è mosso, quindi nemmeno l'alzata.
-    const stretta = alzateFila({ larghezza: 390, scatole: [{ x: 8, larghezza: 44 }], raggio: 54, pavimento: 22 });
-    const larga = alzateFila({ larghezza: 390, scatole: [{ x: 8, larghezza: 120 }], raggio: 54, pavimento: 22 });
-    expect(larga[0]).toBe(stretta[0]);
+    const comune = { larghezza: 390, raggio: 54, pavimento: 22, altezza: ALTEZZA, standard: STANDARD };
+    const stretta = formaFila({ ...comune, scatole: [{ x: 8, larghezza: 44 }] });
+    const larga = formaFila({ ...comune, scatole: [{ x: 8, larghezza: 120 }] });
+    expect(larga[0].alzata).toBe(stretta[0].alzata);
     // e vale l'arco a 8px dal bordo, non il pavimento
-    expect(stretta[0]).toBeCloseTo(54 - Math.sqrt(54 * 54 - 46 * 46), 2);
+    expect(stretta[0].alzata).toBeCloseTo(54 - Math.sqrt(54 * 54 - 46 * 46), 2);
   });
 
   test('il pavimento è un minimo, non un addendo', () => {
-    // Con un pavimento alto quanto il raggio, l'arco non aggiunge niente.
-    const alzate = alzateFila({ larghezza: 390, scatole: treScatole(390), raggio: 54, pavimento: 54 });
-    expect(alzate).toEqual([54, 54, 54]);
+    const forme = fila(390, 34, { raggio: 54, pavimento: 54 });
+    expect(forme.map((f) => f.alzata)).toEqual([54, 54, 54]);
   });
 
   test('nessuna scatola finisce sotto il pavimento, su nessuna larghezza', () => {
     for (const larghezza of [320, 375, 390, 414, 430, 768]) {
-      const alzate = alzateFila({
-        larghezza,
-        scatole: treScatole(larghezza),
-        raggio: raggioSchermo(34),
-        pavimento: pavimentoFila(34),
-      });
-      for (const a of alzate) expect(a).toBeGreaterThanOrEqual(22);
+      for (const f of fila(larghezza, 34)) expect(f.alzata).toBeGreaterThanOrEqual(22);
+    }
+  });
+
+  test('su ogni larghezza la curva sta agli estremi e mai in mezzo', () => {
+    for (const larghezza of [320, 375, 390, 414, 430]) {
+      const forme = fila(larghezza, 34);
+      expect(forme.map((f) => f.lato)).toEqual(['sinistra', null, 'destra']);
     }
   });
 });
