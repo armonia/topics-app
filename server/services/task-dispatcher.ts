@@ -1954,11 +1954,38 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // Human input buffered mid-turn → continue on the same tab instead of the
     // requeue path (which would discard the conversation). Deferred a tick:
     // the caller's finally still holds the inFlight slot at this point.
+    //
+    // LA CONSEGNA NON DIPENDE DA DOVE È FINITA LA CARD. Il messaggio si imbuca
+    // mentre il turno è vivo, e il modo NORMALE in cui quel turno finisce è
+    // portare la card in review: la condizione «ancora in_progress» buttava via
+    // proprio il caso più frequente, cioè il feedback scritto mentre l'agent
+    // stava consegnando. Da review si passa dal rifiuto — la stessa strada che
+    // fa un commento umano su una card in review, e per la stessa ragione: quel
+    // feedback è la risposta a una consegna che non l'aveva ancora visto.
     const queued = pendingResume.get(taskId);
     pendingResume.delete(taskId);
-    if (queued && queued.length && cur.status === "in_progress" && cur.assignedTopicId) {
-      setTimeout(() => { void resume(taskId, queued.join("\n")); }, 0);
-      return;
+    if (queued && queued.length && cur.assignedTopicId) {
+      let open = cur.status === "in_progress" ? cur : null;
+      if (cur.status === "review") {
+        try {
+          open = deps.svc.reviewDecision({ taskId, by: "user", decision: "reject" });
+          emit(open);
+        } catch { open = null; }
+      }
+      if (open) {
+        setTimeout(() => { void resume(taskId, queued.join("\n")); }, 0);
+        return;
+      }
+      // Nessun turno da riprendere: la card è tornata in coda (attesa dichiarata,
+      // requeue) e riparte quando tocca a lei. Il feedback NON è perso — è un
+      // commento nel thread e l'agent lo rilegge con `get_task` — ma il silenzio
+      // qui sembrava una consegna riuscita, quindi lo si dice.
+      try {
+        deps.svc.addComment({
+          taskId, author: "system", kind: "service",
+          content: "Il tuo feedback è arrivato a turno finito: resta nel thread e l'agent lo legge quando questa card riprende.",
+        });
+      } catch { /* best-effort */ }
     }
     // The agent declared a wait mid-turn (wait_for_condition → deferForWait moved
     // it back to todo + chip `waiting`). The slot is already freed by the finally;
@@ -2199,7 +2226,24 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     if (!t || !t.assignedTopicId || t.status !== "in_progress") { clearSlotWait(taskId, false); return; }
     if (inFlight.has(taskId)) {
       // Turn still live (winding down): buffer, onTurnEnd delivers it.
+      //
+      // E LO DICE. Scrivere a un agent che lavora non produceva NIENTE sulla
+      // card: nessuna nota, nessun chip, il messaggio spariva dentro una Map e
+      // ricompariva solo quando il turno finiva. Da fuori è indistinguibile da
+      // un feedback ignorato, e chi guarda lo riscrive. La nota è una sola per
+      // coda (il secondo messaggio si accoda a un'attesa già annunciata): dire
+      // due volte la stessa cosa è rumore, non conferma.
+      const already = (pendingResume.get(taskId)?.length ?? 0) > 0;
       pendingResume.set(taskId, [...(pendingResume.get(taskId) ?? []), humanMessage]);
+      if (!already && humanMessage) {
+        try {
+          deps.svc.addComment({
+            taskId, author: "system", kind: "service",
+            content: "Feedback ricevuto mentre l'agent sta lavorando: glielo consegno appena chiude il turno in corso. Non serve riscriverlo.",
+          });
+          emit(deps.svc.get(taskId)!.task);
+        } catch { /* best-effort */ }
+      }
       return;
     }
     // Il tetto vale anche qui. Il messaggio NON si perde: si riprova quando un
@@ -3067,9 +3111,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       try { orphanAttempts = deps.attempts?.runningCount(t.id) ?? 0; } catch { orphanAttempts = 0; }
       if (orphanAttempts > 0) {
         try {
-          deps.svc.addComment({
-            taskId: t.id, author: "system", kind: "service",
-            content:
+          deps.svc.claimInterruption({
+            taskId: t.id,
+            note:
               `Il server è ripartito mentre ${orphanAttempts} ${orphanAttempts === 1 ? "tentativo del fan-out lavorava" : "tentativi del fan-out lavoravano"}: ` +
               "i turni sono morti col processo, ma i worktree no. Chiudo il giro con quello che avevano committato.",
           });
@@ -3105,18 +3149,18 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           }
           if (live) {
             try {
-              deps.svc.addComment({
-                taskId: t.id, author: "system", kind: "service",
-                content: "Riavvio del server: ripreso in diretta, nessun tentativo consumato.",
+              deps.svc.claimInterruption({
+                taskId: t.id,
+                note: "Riavvio del server: ripreso in diretta, nessun tentativo consumato.",
               });
             } catch { /* dedupe/best-effort */ }
             void reattachTask(t.id);
             continue;
           }
           try {
-            deps.svc.addComment({
-              taskId: t.id, author: "system", kind: "service",
-              content: "Server ripartito a metà turno: riprendo la stessa sessione, nessun tentativo consumato.",
+            deps.svc.claimInterruption({
+              taskId: t.id,
+              note: "Server ripartito a metà turno: riprendo la stessa sessione, nessun tentativo consumato.",
             });
           } catch { /* dedupe/best-effort */ }
           // Sets inFlight synchronously → the 10s poll can never double-fire.
@@ -3130,16 +3174,22 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // park a healthy task in backlog "per errore". Genuine failures still
       // park via onTurnEnd.
       try {
+        // Un fantasma `queued` non stava lavorando: stava aspettando un posto,
+        // e l'attesa è morta col processo. Dirgli "mentre l'agent lavorava"
+        // manderebbe l'umano a cercare un lavoro che non c'è mai stato.
+        const nota = t.dispatchState === CHIP_QUEUED
+          ? "Il server è ripartito mentre il task aspettava uno slot libero: l'attesa viveva in memoria, quindi lo rimetto in coda (il riavvio non consuma un tentativo)."
+          : "Il server è ripartito mentre l'agent lavorava: task rimesso in coda (il riavvio non consuma un tentativo).";
+        // La nota passa dal cancello, la release no: il task torna in coda
+        // comunque, ma se questa interruzione è già stata raccontata (un
+        // riavvio prima, un altro scrittore) qui non si aggiunge una quarta
+        // versione della stessa cosa. Il `reason` non serve altrove: con
+        // `requeue: true` non c'è evento di park che lo porti.
+        deps.svc.claimInterruption({ taskId: t.id, note: nota });
         releaseAndEmit({
           taskId: t.id,
           requeue: true,
           rollbackAttempt: true,
-          // Un fantasma `queued` non stava lavorando: stava aspettando un posto,
-          // e l'attesa è morta col processo. Dirgli "mentre l'agent lavorava"
-          // manderebbe l'umano a cercare un lavoro che non c'è mai stato.
-          reason: t.dispatchState === CHIP_QUEUED
-            ? "Il server è ripartito mentre il task aspettava uno slot libero: l'attesa viveva in memoria, quindi lo rimetto in coda (il riavvio non consuma un tentativo)."
-            : "Il server è ripartito mentre l'agent lavorava: task rimesso in coda (il riavvio non consuma un tentativo).",
         });
         // On a board that never dispatches the requeue's `queued` chip would
         // strand forever (tick no-ops with the switch off) — clear it.
