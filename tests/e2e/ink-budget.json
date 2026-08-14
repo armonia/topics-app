@@ -10,7 +10,16 @@
     "measuredOn": "2026-08-14",
     "how": "5 samples per gesture, headless Chromium 1280x800, isolated test server, Apple Silicon. Four consecutive runs.",
     "card": { "medianMs": 23.5, "spreadMs": "23.3-23.9", "what": "click a board card -> its title is readable in the task drawer" },
-    "tab": { "medianMs": 14.6, "spreadMs": "13.7-14.9", "what": "click another pane tab -> that chat's own message is readable", "note": "the first switch to a pane costs ~40ms; every later one is ~14ms" },
+    "tab": { "medianMs": 14.6, "spreadMs": "13.7-14.9", "what": "click another pane tab -> that chat's own message is readable" },
     "send": { "medianMs": 12.4, "spreadMs": "10.2-15.7", "what": "press Enter in the composer -> the sent message is readable in the list" }
+  },
+  "excluded": {
+    "firstOpenOfAChat": {
+      "measuredMs": [353.6, 355.4, 356.8, 359.7],
+      "measuredOn": "2026-08-14",
+      "what": "clicking a chat that has never been opened in this session, until its transcript is painted",
+      "whyNotGatedHere": "It is not the same gesture as switching between two open chats, and it is not slow by accident. Probed on 2026-08-14: the message is in the DOM at +39ms and painted at +357ms, with ZERO long tasks and every request answered inside 8ms. Nothing computes during that gap - MessageList.tsx holds the list at `visibility:hidden` behind a skeleton for at least LIST_REVEAL_FLOOR_MS (320ms) so nobody watches react-virtuoso measure heights and re-anchor, a reflow worth a CLS of 0.296 on its own (refresh-cls.spec.ts). The four runs land within 6ms of each other: it is a constant, not noise.",
+      "howItWouldBeGated": "By the constant that causes it, not by a stopwatch: if LIST_REVEAL_FLOOR_MS changes, this number changes with it by construction. Folding it into `tab` would park a permanent 355ms sample inside a 250ms ceiling and hide every real regression behind it - the same mistake this budget already refuses to make for `send`."
+    }
   }
 }
