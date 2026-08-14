@@ -1,3 +1,4 @@
+import { pickPlanComment } from './planPanel';
 import { useState, useEffect, useMemo, useRef, useCallback, type TouchEvent as ReactTouchEvent } from 'react';
 import { useT, useLocale } from '../../hooks/useT';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
@@ -29,7 +30,7 @@ import { useTaskBrowserTabs, liveTabs, workspaceTwinContextId } from '../../stat
 import { noteAutoOpenedPreview, releaseAutoOpenedPreview } from '../../state/taskWorkspacePreviews';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
 import { writeCursor, markActiveComposer, restoreCursor } from '../../lib/composerCursor';
-import { boardApi, commentAuthorLabel, diffTotals, hasCodeQuestion, showsLandingDebt, STATUS_LABEL, TASK_STATUSES, isAgentWorking, isThreadSpeech, parseQuestionBlock, parseStatusEvent, hasPlanApproveOption, isProjectlessId, boardDrafts, systemDeliveryNote, blockedByChip, subtaskWorkChip, reopenedChip, attemptHasWork, CLOSER_LABELS, KIND_LABELS, type TaskLabel, type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch, type BoardProjectRef, type DiffBundle, type DiffNote, type ReviewCheck, type CheckRun, type TaskAttempt, type LandingTicket } from '../../lib/board';
+import { boardApi, commentAuthorLabel, diffTotals, hasCodeQuestion, showsLandingDebt, STATUS_LABEL, TASK_STATUSES, isAgentWorking, isThreadSpeech, parseQuestionBlock, parseStatusEvent, isProjectlessId, boardDrafts, systemDeliveryNote, blockedByChip, subtaskWorkChip, reopenedChip, attemptHasWork, CLOSER_LABELS, KIND_LABELS, type TaskLabel, type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch, type BoardProjectRef, type DiffBundle, type DiffNote, type ReviewCheck, type CheckRun, type TaskAttempt, type LandingTicket } from '../../lib/board';
 import { PreviewMedia } from './PreviewMedia';
 import { UnifiedDiff } from './UnifiedDiff';
 import { collectTaskMediaPaths } from './taskMedia';
@@ -874,27 +875,13 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
       : []),
     [pending, task, tr],
   );
-  // QUALE commento è il piano. Il task lo PUNTA (`planCommentId`, scritto dal
-  // server quando il piano arriva secondo protocollo): non è più «l'ultimo
-  // commento non-utente», euristica che su 13 task piano-prima sbagliava 13
-  // volte su 13 — bastava una rettifica dopo il piano per prenderne il posto.
-  //
-  // La ricaduta serve ai task nati PRIMA del puntatore: stessa regola, applicata
-  // a posteriori — l'ultimo commento dell'agente le cui opzioni offrono
-  // l'approvazione del piano. Se nessuno la offre, non c'è nessun piano da
-  // mostrare (meglio nessuna tab che la tab sbagliata).
-  const planComment = useMemo(() => {
-    if (!task?.planFirst) return null;
-    if (task.planCommentId) {
-      const byId = speech.find((c) => c.id === task.planCommentId);
-      if (byId) return byId;
-    }
-    return [...speech].reverse().find((c) => (
-      c.author !== 'user' && c.author !== 'system'
-      && hasPlanApproveOption(parseQuestionBlock(c.content)?.options ?? [])
-    )) ?? null;
+  // Quale commento è il piano, e quando NON c'è nessun piano: la regola sta in
+  // `planPanel.ts`, che è puro e ha i suoi test — qui resta solo il legame.
+  const planComment = useMemo(
+    () => pickPlanComment(task, speech),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `speech` is derived from `comments` each render
-  }, [comments, task?.planFirst, task?.planCommentId]);
+    [comments, task?.planFirst, task?.planCommentId, task?.status],
+  );
 
 
   /**
