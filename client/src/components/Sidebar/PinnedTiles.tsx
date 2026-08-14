@@ -94,6 +94,26 @@ export interface PinnedTileMeta {
 }
 
 /**
+ * L'INGRESSO DEL DITO PER CHI VIENE DA FUORI.
+ *
+ * Col mouse una riga della sidebar trascinata quassù arriva da sé: il browser
+ * consegna `dragover` e `drop` al bersaglio sotto il cursore, e la griglia non
+ * deve sapere chi l'ha trascinata. Col dito il gesto appartiene a chi l'ha
+ * cominciato — la riga — e la griglia non riceve niente: l'unico modo di darle
+ * il punto è chiamarla. Queste tre funzioni sono quella chiamata, e dentro
+ * fanno esattamente ciò che fanno i gestori del mouse.
+ */
+export interface PinnedExternalTouch {
+  /** Il dito si muove con qualcosa che non è ancora fissato: accende
+   *  l'anteprima del posto in cui cadrebbe. */
+  move: (key: string, x: number, y: number) => void;
+  /** Il dito rilascia: fissa, se il punto è un bersaglio. */
+  drop: (key: string, x: number, y: number) => void;
+  /** Il gesto è morto senza un rilascio: si spegne tutto. */
+  cancel: () => void;
+}
+
+/**
  * Il blocco dei Fissati: una griglia di tessere, senza intestazione.
  *
  * ── Perché non c'è più un'etichetta ─────────────────────────────────────────
@@ -125,6 +145,9 @@ export function PinnedTiles({
   onToggleItem,
   onContextMenu,
   onPinItem,
+  onTouchDragPoint,
+  onTouchDropOutside,
+  externalTouch,
   resolveItem,
   renderActions,
   renderExpanded,
@@ -148,6 +171,23 @@ export function PinnedTiles({
    *  sottoinsieme e non su tutto il layout salvato, quindi da soli mentirebbero
    *  di una riga. Chi riceve la fonde con quello che ha (`mergePinnedLayout`). */
   onPinItem?: (key: string, at?: PinnedDropTarget, griglia?: PinnedRow[]) => void;
+  /**
+   * DOV'È IL DITO, a ogni movimento e anche quando esce dalla griglia.
+   *
+   * Col mouse il gesto inverso (una tessera lasciata sulla lista torna una riga)
+   * lo serve chi disegna la lista, che riceve i suoi `dragover`. Col dito quegli
+   * eventi non esistono: il trascinamento è nostro dal primo pixel all'ultimo,
+   * quindi il punto glielo dobbiamo passare noi. `null` vuol dire gesto finito,
+   * comunque sia finito: chi disegna l'anteprima di sfissaggio la spegne lì.
+   */
+  onTouchDragPoint?: (key: string, p: { x: number; y: number } | null) => void;
+  /** Il dito ha rilasciato dove la griglia non ha bersagli. Se quel punto valga
+   *  uno sfissaggio non lo decidiamo noi: fuori di qui c'è la lista, e lo sa
+   *  solo chi la disegna. */
+  onTouchDropOutside?: (key: string, x: number, y: number) => void;
+  /** Il ref in cui la griglia depone il proprio ingresso per il dito (vedi
+   *  `PinnedExternalTouch`). Chi disegna le righe lo passa loro. */
+  externalTouch?: React.MutableRefObject<PinnedExternalTouch | null>;
   /** La riga della sidebar per una chiave, anche se NON è fra i fissati: serve
    *  a disegnare l'anteprima come la tessera vera invece che come un rettangolo
    *  colorato. `null` quando la chiave non ha una riga qui (drag da un'altra
@@ -229,7 +269,19 @@ export function PinnedTiles({
   // Il riordino è un movimento, e si deve vedere muovere.
   useCellFlip(radice);
 
+  // I due callback del dito vivono in un ref perché `clearDrag` deve restare
+  // STABILE: sta nelle dipendenze di un effetto che aggancia listener a
+  // `window`, e una identità nuova a ogni render li rimonterebbe a ogni render.
+  const fuoriRef = useRef({ punto: onTouchDragPoint, drop: onTouchDropOutside });
+  fuoriRef.current = { punto: onTouchDragPoint, drop: onTouchDropOutside };
+
   const clearDrag = useCallback(() => {
+    // Il gesto è finito: chi disegnava l'anteprima di sfissaggio la spegne. Va
+    // detto QUI e non solo nel rilascio, perché un gesto annullato dal sistema
+    // (una chiamata, il dito che esce dallo schermo) non passa da nessun drop e
+    // lascerebbe in lista una riga fantasma che non torna più indietro.
+    const inVolo = dragKeyRef.current;
+    if (inVolo) fuoriRef.current.punto?.(inVolo, null);
     dragKeyRef.current = null;
     setDragKey(null);
     setDropAt(null);
@@ -399,6 +451,10 @@ export function PinnedTiles({
 
   const onTouchDragMove = (key: string) => (x: number, y: number) => {
     setGhost(g => (g && g.key === key ? { ...g, x, y } : g));
+    // Il punto esce SEMPRE, dentro o fuori dalla griglia: è l'equivalente del
+    // `dragover` che col mouse arriva alla lista, ed è l'unico evento che sa
+    // dove sei davvero. Spegnere l'anteprima altrove è la ricetta del tremolio.
+    onTouchDragPoint?.(key, { x, y });
     const target = touchTargetAt(x, y);
     // Fuori dalla griglia l'anteprima si spegne, ma il gesto resta vivo: il
     // dito può rientrare. Spegnerlo qui vorrebbe dire che sbordare di un pixel
@@ -432,10 +488,88 @@ export function PinnedTiles({
 
   const onTouchDragDrop = (key: string) => (x: number, y: number) => {
     const target = touchTargetAt(x, y);
-    if (!target || !pinnedDropAllowed(rows, key, target)) { clearDrag(); return; }
+    // FUORI DALLA GRIGLIA IL GESTO NON È FINITO, È UN ALTRO GESTO: col mouse una
+    // tessera lasciata sulla lista perde il pin, e col dito finiva qui a fare
+    // `clearDrag` e basta. Chi riceve il punto decide se vale uno sfissaggio: il
+    // rifiuto (dito sul vuoto, o dentro il blocco dei fissati ma non su una
+    // cella) resta un annullamento, come prima.
+    if (!target || !pinnedDropAllowed(rows, key, target)) {
+      clearDrag();
+      onTouchDropOutside?.(key, x, y);
+      return;
+    }
     if (target.kind === 'newRow') commit(insertPinnedRow(rows, key, target.atRowIdx));
     else commit(movePinnedTile(rows, key, { rowIdx: target.rowIdx, insertAt: target.insertAt }));
   };
+
+  /** Il dito è dentro il blocco dei fissati, anche se non su una cella. Col
+   *  mouse è il `dragover` della sezione: lì il drop fissa e ACCODA. */
+  const dentroSezione = (x: number, y: number): boolean => {
+    const r = radice.current?.getBoundingClientRect();
+    return !!r && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+  };
+
+  /**
+   * FISSARE COL DITO: la stessa griglia, chiamata invece che ascoltata.
+   *
+   * Ogni riga qui sotto ha il suo gemello fra i gestori del mouse, e la
+   * differenza è solo da dove arriva il punto. `movingKey` resta `null` per
+   * costruzione: chi arriva da fuori non sta muovendo nessuna tessera, ed è la
+   * stessa cosa che `pinnedDropAllowed` riceve dal ramo `isForeignPane`.
+   */
+  const esternoDalDito: PinnedExternalTouch = {
+    move: (key, x, y) => {
+      // Già fissata: non c'è niente da fissare, e disegnare una cella in arrivo
+      // prometterebbe un drop che poi è un no-op.
+      if (byId.has(key)) return;
+      const target = touchTargetAt(x, y);
+      if (!target || !pinnedDropAllowed(rows, null, target)) {
+        setDropAt(null);
+        setNewRowAt(null);
+        setIncomingRow(null);
+        setAdopting(dentroSezione(x, y));
+        return;
+      }
+      setAdopting(false);
+      const riga = resolveItem?.(key) ?? null;
+      if (target.kind === 'newRow') {
+        setDropAt(null);
+        setNewRowAt(target.atRowIdx);
+        setIncomingRow(riga);
+        return;
+      }
+      setNewRowAt(null);
+      setDropAt({
+        rowIdx: target.rowIdx,
+        insertAt: target.insertAt,
+        fromThisRow: false,
+        movingKey: null,
+        incoming: riga,
+      });
+    },
+    drop: (key, x, y) => {
+      const target = touchTargetAt(x, y);
+      const dentro = dentroSezione(x, y);
+      clearDrag();
+      if (byId.has(key) || !onPinItem) return;
+      if (target && pinnedDropAllowed(rows, null, target)) {
+        onPinItem(key, target, placePinnedTile([...flattenPinnedLayout(rows), key], rows, key, target));
+        return;
+      }
+      // Dentro il blocco ma non su una cella: si accoda, come il drop della
+      // sezione. Fuori dal blocco non è successo niente.
+      if (dentro) onPinItem(key);
+    },
+    cancel: () => clearDrag(),
+  };
+  // Ogni render, senza dipendenze: le tre funzioni chiudono su `rows` e
+  // `byId`, che cambiano a ogni fissaggio. Un ref aggiornato una volta sola
+  // risponderebbe sulla griglia di ieri.
+  useEffect(() => {
+    if (!externalTouch) return;
+    externalTouch.current = esternoDalDito;
+    return () => { externalTouch.current = null; };
+  });
 
   const toggle = (item: SidebarItem) => {
     const willExpand = !aperta(item.id);

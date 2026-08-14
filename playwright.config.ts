@@ -202,6 +202,9 @@ export default defineConfig({
         "**/sidebar-touch-audit.spec.ts",
         "**/sidebar-finger-follow.spec.ts",
         "**/sheet-finger-follow.spec.ts",
+        // La quarta: i due gesti che ATTRAVERSANO il bordo della griglia dei
+        // Fissati (fissare trascinando dentro, sfissare trascinando fuori).
+        "**/sidebar-pin-drag-touch.spec.ts",
       ],
       use: {
         browserName: "chromium",
