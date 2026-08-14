@@ -101,6 +101,28 @@ export function extForMime(mimeType: string): string {
  */
 export const MIN_VOICE_BLOB_BYTES = 512;
 
+/**
+ * Cosa si dice a chi ha appena parlato e non ha ottenuto niente.
+ *
+ * Una frase sola, in un posto solo, perche' i due microfoni della app (la chat
+ * e il campo task della board) hanno lo stesso guasto e devono dare la stessa
+ * risposta. Erano due rami separati e ne parlava UNO: `fe635287` ha fatto
+ * parlare la chat e ha lasciato muta la board, quindi dallo stesso difetto
+ * uscivano due esperienze diverse.
+ *
+ * I DUE NUMERI SONO LA DIAGNOSI, e per questo stanno nel messaggio invece che in
+ * un `console.warn` che su un telefono non legge nessuno:
+ *  · ZERO spezzoni = il microfono non ha aperto affatto (permesso negato senza
+ *    dirlo, traccia muta, registratore mai partito);
+ *  · pochi byte in uno spezzone = ha aperto e ha prodotto la sola intestazione
+ *    del contenitore, cioe' ha registrato silenzio.
+ * Sono due guasti diversi e si riparano in due posti diversi: senza i numeri,
+ * chi legge «non funziona» non puo' saperlo.
+ */
+export function messaggioNotaVuota(spezzoni: number, byte: number, mimeType: string): string {
+  return `Nota vocale vuota: ${spezzoni} spezzoni, ${byte} byte in ${mimeType || 'formato ignoto'}. Niente da trascrivere.`;
+}
+
 /** Vincoli del microfono buoni per il parlato: mono, con la catena di pulizia del browser accesa. */
 export const SPEECH_AUDIO_CONSTRAINTS: MediaTrackConstraints = {
   echoCancellation: true,
