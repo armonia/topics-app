@@ -1,74 +1,74 @@
 import { describe, expect, test } from "bun:test";
-import { comprimiJson, vaCompressa, SOGLIA_BYTE } from "./compress-json";
+import { compressJson, shouldCompress, MIN_COMPRESS_BYTES } from "./compress-json";
 
 const base = {
-  metodo: "GET",
+  method: "GET",
   acceptEncoding: "gzip, deflate, br",
   contentType: "application/json",
   contentEncoding: null,
-  remoto: true,
-  byte: 100_000,
+  remote: true,
+  bytes: 100_000,
 };
 
-describe("vaCompressa", () => {
-  test("sì per una risposta JSON grande verso un peer remoto che sa scompattare", () => {
-    expect(vaCompressa(base)).toBe(true);
+describe("shouldCompress", () => {
+  test("yes for a large JSON response towards a remote peer that can inflate", () => {
+    expect(shouldCompress(base)).toBe(true);
   });
 
-  test("NO verso loopback: 60 ms di CPU per un trasferimento che è già gratis", () => {
-    expect(vaCompressa({ ...base, remoto: false })).toBe(false);
+  test("NO towards loopback: 60 ms of CPU for a transfer that is already free", () => {
+    expect(shouldCompress({ ...base, remote: false })).toBe(false);
   });
 
-  test("NO per lo streaming della chat", () => {
-    expect(vaCompressa({ ...base, contentType: "text/event-stream" })).toBe(false);
+  test("NO for the streaming of the chat", () => {
+    expect(shouldCompress({ ...base, contentType: "text/event-stream" })).toBe(false);
   });
 
-  test("NO se il client non ha chiesto gzip", () => {
-    expect(vaCompressa({ ...base, acceptEncoding: null })).toBe(false);
-    expect(vaCompressa({ ...base, acceptEncoding: "br" })).toBe(false);
-    expect(vaCompressa({ ...base, acceptEncoding: "deflate" })).toBe(false);
+  test("NO if the client did not ask for gzip", () => {
+    expect(shouldCompress({ ...base, acceptEncoding: null })).toBe(false);
+    expect(shouldCompress({ ...base, acceptEncoding: "br" })).toBe(false);
+    expect(shouldCompress({ ...base, acceptEncoding: "deflate" })).toBe(false);
   });
 
-  test("`gzip` è un token, non una sottostringa", () => {
-    expect(vaCompressa({ ...base, acceptEncoding: "gzipx" })).toBe(false);
-    expect(vaCompressa({ ...base, acceptEncoding: "x-gzip" })).toBe(false);
-    expect(vaCompressa({ ...base, acceptEncoding: "gzip" })).toBe(true);
-    expect(vaCompressa({ ...base, acceptEncoding: "br, gzip;q=0.9" })).toBe(true);
-    expect(vaCompressa({ ...base, acceptEncoding: "gzip;q=1.0, deflate" })).toBe(true);
+  test("`gzip` is a token, not a substring", () => {
+    expect(shouldCompress({ ...base, acceptEncoding: "gzipx" })).toBe(false);
+    expect(shouldCompress({ ...base, acceptEncoding: "x-gzip" })).toBe(false);
+    expect(shouldCompress({ ...base, acceptEncoding: "gzip" })).toBe(true);
+    expect(shouldCompress({ ...base, acceptEncoding: "br, gzip;q=0.9" })).toBe(true);
+    expect(shouldCompress({ ...base, acceptEncoding: "gzip;q=1.0, deflate" })).toBe(true);
   });
 
-  test("NO su HEAD: il corpo lo svuota Bun, la lunghezza sarebbe una bugia", () => {
-    expect(vaCompressa({ ...base, metodo: "HEAD" })).toBe(false);
+  test("NO on HEAD: Bun empties the body, the length would be a lie", () => {
+    expect(shouldCompress({ ...base, method: "HEAD" })).toBe(false);
   });
 
-  test("NO se qualcuno l ha già codificata", () => {
-    expect(vaCompressa({ ...base, contentEncoding: "gzip" })).toBe(false);
+  test("NO if somebody already encoded it", () => {
+    expect(shouldCompress({ ...base, contentEncoding: "gzip" })).toBe(false);
   });
 
-  test("NO sugli stati senza corpo: ricostruirli sarebbe un 500", () => {
-    for (const stato of [101, 204, 205, 304]) {
-      expect(vaCompressa({ ...base, stato })).toBe(false);
+  test("NO on the statuses without a body: they would advertise bytes they do not have", () => {
+    for (const status of [101, 204, 205, 304]) {
+      expect(shouldCompress({ ...base, status })).toBe(false);
     }
-    expect(vaCompressa({ ...base, stato: 200 })).toBe(true);
-    expect(vaCompressa({ ...base, stato: 500 })).toBe(true);
+    expect(shouldCompress({ ...base, status: 200 })).toBe(true);
+    expect(shouldCompress({ ...base, status: 500 })).toBe(true);
   });
 
-  test("NO sotto un MTU: non si risparmia nemmeno un viaggio", () => {
-    expect(vaCompressa({ ...base, byte: SOGLIA_BYTE - 1 })).toBe(false);
-    expect(vaCompressa({ ...base, byte: SOGLIA_BYTE })).toBe(true);
+  test("NO under one MTU: not even one round trip is saved", () => {
+    expect(shouldCompress({ ...base, bytes: MIN_COMPRESS_BYTES - 1 })).toBe(false);
+    expect(shouldCompress({ ...base, bytes: MIN_COMPRESS_BYTES })).toBe(true);
   });
 
-  test("byte ancora ignoti: si decide sul resto e si ricontrolla dopo", () => {
-    expect(vaCompressa({ ...base, byte: null })).toBe(true);
+  test("bytes still unknown: decide on the rest and check again afterwards", () => {
+    expect(shouldCompress({ ...base, bytes: null })).toBe(true);
   });
 
-  test("content-type con charset resta JSON", () => {
-    expect(vaCompressa({ ...base, contentType: "application/json; charset=utf-8" })).toBe(true);
+  test("a content-type with a charset is still JSON", () => {
+    expect(shouldCompress({ ...base, contentType: "application/json; charset=utf-8" })).toBe(true);
   });
 });
 
-function reqJson(headers: Record<string, string> = { "accept-encoding": "gzip" }, metodo = "GET"): Request {
-  return new Request("http://h/api/x", { method: metodo, headers });
+function reqJson(headers: Record<string, string> = { "accept-encoding": "gzip" }, method = "GET"): Request {
+  return new Request("http://h/api/x", { method, headers });
 }
 function resJson(body: unknown, headers: Record<string, string> = {}): Response {
   return new Response(JSON.stringify(body), {
@@ -76,65 +76,65 @@ function resJson(body: unknown, headers: Record<string, string> = {}): Response 
   });
 }
 
-/** Un corpo che comprime bene, come il JSON vero di questa app. */
-const grosso = { messages: Array.from({ length: 500 }, (_, i) => ({ id: `m${i}`, role: "assistant", content: "una riga di testo che si ripete" })) };
+/** A body that compresses well, like the real JSON of this app. */
+const big = { messages: Array.from({ length: 500 }, (_, i) => ({ id: `m${i}`, role: "assistant", content: "a line of text that repeats" })) };
 
-describe("comprimiJson", () => {
-  test("comprime e il client rilegge ESATTAMENTE lo stesso JSON", async () => {
-    const originale = JSON.stringify(grosso);
-    const out = await comprimiJson(reqJson(), resJson(grosso), true);
+describe("compressJson", () => {
+  test("compresses, and the client reads back EXACTLY the same JSON", async () => {
+    const original = JSON.stringify(big);
+    const out = await compressJson(reqJson(), resJson(big), true);
     expect(out.headers.get("Content-Encoding")).toBe("gzip");
-    expect(Number(out.headers.get("Content-Length"))).toBeLessThan(originale.length);
-    const rigonfiato = Bun.gunzipSync(new Uint8Array(await out.arrayBuffer()));
-    expect(new TextDecoder().decode(rigonfiato)).toBe(originale);
+    expect(Number(out.headers.get("Content-Length"))).toBeLessThan(original.length);
+    const inflated = Bun.gunzipSync(new Uint8Array(await out.arrayBuffer()));
+    expect(new TextDecoder().decode(inflated)).toBe(original);
   });
 
-  test("dichiara Vary, o una cache servirebbe i byte compressi a chi non li sa leggere", async () => {
-    const out = await comprimiJson(reqJson(), resJson(grosso), true);
+  test("declares Vary, or a cache would serve the compressed bytes to someone who cannot read them", async () => {
+    const out = await compressJson(reqJson(), resJson(big), true);
     expect(out.headers.get("Vary")).toBe("Accept-Encoding");
-    const conVary = await comprimiJson(reqJson(), resJson(grosso, { Vary: "Origin" }), true);
-    expect(conVary.headers.get("Vary")).toBe("Origin, Accept-Encoding");
+    const withVary = await compressJson(reqJson(), resJson(big, { Vary: "Origin" }), true);
+    expect(withVary.headers.get("Vary")).toBe("Origin, Accept-Encoding");
   });
 
-  test("tiene le altre intestazioni e lo stato", async () => {
-    const res = new Response(JSON.stringify(grosso), {
-      status: 201, headers: { "Content-Type": "application/json", "Cache-Control": "no-store", "X-Mio": "1" },
+  test("keeps the other headers and the status", async () => {
+    const res = new Response(JSON.stringify(big), {
+      status: 201, headers: { "Content-Type": "application/json", "Cache-Control": "no-store", "X-Mine": "1" },
     });
-    const out = await comprimiJson(reqJson(), res, true);
+    const out = await compressJson(reqJson(), res, true);
     expect(out.status).toBe(201);
     expect(out.headers.get("Cache-Control")).toBe("no-store");
-    expect(out.headers.get("X-Mio")).toBe("1");
+    expect(out.headers.get("X-Mine")).toBe("1");
   });
 
-  test("verso loopback torna la risposta INTATTA, stesso oggetto", async () => {
-    const res = resJson(grosso);
-    expect(await comprimiJson(reqJson(), res, false)).toBe(res);
+  test("towards loopback it returns the response INTACT, same object", async () => {
+    const res = resJson(big);
+    expect(await compressJson(reqJson(), res, false)).toBe(res);
   });
 
-  test("una risposta piccola torna leggibile anche se il corpo è stato consumato per misurarla", async () => {
-    const piccola = { ok: true };
-    const out = await comprimiJson(reqJson(), resJson(piccola), true);
+  test("a small response comes back readable even though the body was consumed to measure it", async () => {
+    const small = { ok: true };
+    const out = await compressJson(reqJson(), resJson(small), true);
     expect(out.headers.get("Content-Encoding")).toBeNull();
-    expect(await out.json()).toEqual(piccola);
+    expect(await out.json()).toEqual(small);
   });
 
-  test("un 304 esce intatto: nessuna intestazione che parli di un corpo che non c e", async () => {
+  test("a 304 comes out intact: no header talking about a body that is not there", async () => {
     const notModified = new Response(null, { status: 304, headers: { "Content-Type": "application/json" } });
-    const out = await comprimiJson(reqJson(), notModified, true);
+    const out = await compressJson(reqJson(), notModified, true);
     expect(out).toBe(notModified);
     expect(out.status).toBe(304);
     expect(out.headers.get("Content-Encoding")).toBeNull();
     expect(out.headers.get("Content-Length")).toBeNull();
   });
 
-  test("lo streaming passa senza essere toccato", async () => {
-    const sse = new Response("data: ciao\n\n", { headers: { "Content-Type": "text/event-stream" } });
-    expect(await comprimiJson(reqJson(), sse, true)).toBe(sse);
+  test("streaming passes through untouched", async () => {
+    const sse = new Response("data: hello\n\n", { headers: { "Content-Type": "text/event-stream" } });
+    expect(await compressJson(reqJson(), sse, true)).toBe(sse);
   });
 
-  test("un 500 con corpo JSON grande si comprime come gli altri", async () => {
-    const res = new Response(JSON.stringify(grosso), { status: 500, headers: { "Content-Type": "application/json" } });
-    const out = await comprimiJson(reqJson(), res, true);
+  test("a 500 with a large JSON body compresses like the others", async () => {
+    const res = new Response(JSON.stringify(big), { status: 500, headers: { "Content-Type": "application/json" } });
+    const out = await compressJson(reqJson(), res, true);
     expect(out.status).toBe(500);
     expect(out.headers.get("Content-Encoding")).toBe("gzip");
   });
