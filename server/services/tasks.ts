@@ -472,11 +472,26 @@ export function projectIdForPath(projectPath: string): string {
   return dirName + "-" + Math.abs(hash).toString(36).slice(0, 6);
 }
 
+/**
+ * Per quanto una rivendicazione di interruzione tiene il campo.
+ *
+ * Tre minuti, e la misura viene dal disco: le quattro righe che hanno motivato
+ * questo cancello stavano dentro tre minuti (tre «Server ripartito a metà
+ * turno» a quindici secondi l'una dall'altra, poi «ripreso in diretta»), mentre
+ * due interruzioni DAVVERO distinte sullo stesso task distano quanto il tetto a
+ * orologio del turno — molto di più. La finestra separa le due cose senza
+ * doverle distinguere, ed è il motivo per cui non è un lock permanente: un
+ * secondo riavvio vero, un'ora dopo, ha ancora la sua riga.
+ */
+const INTERRUPT_CLAIM_MS = 3 * 60_000;
+
 interface ServiceOpts {
   now?: () => string;
   uuid?: () => string;
   /** Window within which an identical comment (same task+author+content) is deduped. */
   commentDedupeMs?: number;
+  /** Window within which a second interruption note on the same task stays silent. */
+  interruptClaimMs?: number;
   /** Injectable for tests: whether a media path exists on disk (default node:fs existsSync). */
   fileExists?: (p: string) => boolean;
 }
@@ -517,6 +532,26 @@ export interface TaskService {
    * reproduces markdown syntax by hand.
    */
   addComment(args: { taskId: string; author: string; content: string; mentions?: string[]; media?: string[]; projectId?: string; questionOptions?: string[]; kind?: "comment" | "review-note" | "service" }): TaskComment;
+  /**
+   * Una interruzione, una riga.
+   *
+   * Un riavvio del server ha PIÙ scrittori che lo raccontano — il recupero del
+   * fan-out, il riattacco in diretta, il resume sulla stessa sessione — e
+   * ognuno scriveva la sua nota: il 13/08 il task ae61fb5a ne ha collezionate
+   * quattro in tre minuti per una interruzione sola. La dedupe di `addComment`
+   * non le vedeva perché guarda testo IDENTICO entro dieci secondi, e queste
+   * dicono la stessa cosa con parole diverse.
+   *
+   * Vince il PRIMO che rivendica, perché è quello più vicino alla causa; gli
+   * altri tacciono per la durata della finestra. La nota vinta è un normale
+   * commento `kind: 'service'`, così cade nel raggruppamento che il thread già
+   * fa (`groupServiceRuns`) invece di restare fuori dal fold.
+   *
+   * Ritorna la nota scritta, oppure `null` se il campo era già preso (o se il
+   * task non esiste): chi chiama non deve distinguere i due casi, in entrambi
+   * l'interruzione è già raccontata.
+   */
+  claimInterruption(args: { taskId: string; note: string; by?: string }): TaskComment | null;
   /** Human-only review decision on a task sitting in `review`. */
   reviewDecision(args: { taskId: string; by: string; decision: "approve" | "reject"; comment?: string; projectId?: string }): Task;
   /**
@@ -858,6 +893,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
   const now = opts.now ?? (() => new Date().toISOString());
   const uuid = opts.uuid ?? (() => crypto.randomUUID());
   const commentDedupeMs = opts.commentDedupeMs ?? 10_000;
+  const interruptClaimMs = opts.interruptClaimMs ?? INTERRUPT_CLAIM_MS;
   const fileExists = opts.fileExists ?? existsSync;
 
   // ── Review-evidence promotion ──
@@ -2421,6 +2457,24 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // order): fill the still-empty card preview from this attachment.
       if (files.length) promoteReviewPreview(taskId);
       return rowToComment(db.prepare("SELECT * FROM task_comments WHERE id = ?").get(id));
+    },
+
+    claimInterruption({ taskId, note, by }): TaskComment | null {
+      const body = (note ?? "").trim();
+      if (!body) return null;
+      const row = getTaskRow(taskId);
+      if (!row) return null;
+      // Il campo si legge sul TASK, non su un insieme in memoria: chi arriva
+      // terzo è quasi sempre un processo NUOVO — è appena ripartito, ed è il
+      // motivo per cui sta scrivendo. La RAM gli direbbe che il campo è libero.
+      const since = new Date(new Date(now()).getTime() - interruptClaimMs).toISOString();
+      const held = typeof row.interrupt_claimed_at === "string" ? row.interrupt_claimed_at : null;
+      if (held && held >= since) return null;
+      // La nota PRIMA del campo: se la scrittura fallisce, il campo resta
+      // libero per chi viene dopo invece di zittirlo su una riga mai apparsa.
+      const written = this.addComment({ taskId, author: by ?? "system", content: body, kind: "service" });
+      db.prepare("UPDATE tasks SET interrupt_claimed_at = ? WHERE id = ?").run(now(), taskId);
+      return written;
     },
 
     reviewDecision({ taskId, by, decision, comment, projectId }): Task {
