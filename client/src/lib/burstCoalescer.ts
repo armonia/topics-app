@@ -1,57 +1,57 @@
 /**
- * Una raffica di eventi, una lettura sola.
+ * A burst of events, a single read.
  *
- * Il feed globale della board (`GET /api/all-boards/tasks`) si rilegge a ogni
- * evento `task:created|updated|deleted` del WebSocket, e finora uno a uno: N
- * eventi, N riletture. Misurato il 2026-08-14 su questa macchina: il feed pesa
- * 1,44 MB e costa 175 ms al server, e il minuto più affollato degli ultimi tre
- * giorni ha 24 aggiornamenti di task — cioè 34,6 MB scaricati e 4,2 s di server
- * per mostrare uno stato che alla fine è UNO. Ogni risposta riscrive anche lo
- * store, quindi ogni superficie della board si ridisegna 24 volte.
+ * The global feed of the board (`GET /api/all-boards/tasks`) is re-read on
+ * every `task:created|updated|deleted` event of the WebSocket, and until now
+ * one by one: N events, N re-reads. Measured on 2026-08-14 on this machine: the
+ * feed weighs 1.44 MB and costs the server 175 ms, and the busiest minute of
+ * the last three days holds 24 task updates, that is 34.6 MB downloaded and
+ * 4.2 s of server to show a state that in the end is ONE. Every response also
+ * rewrites the store, so every surface of the board repaints 24 times.
  *
- * La raffica non è un caso raro: è la forma normale del lavoro di questa app,
- * dove sono gli agenti a muovere le card.
+ * The burst is not a rare case: it is the normal shape of the work in this app,
+ * where it is the agents that move the cards.
  *
- * ## Come coalesce, e perché così
+ * ## How it coalesces, and why this way
  *
- * Fronte di SALITA più coda: il primo evento parte subito, quelli che arrivano
- * entro la finestra diventano UNA sola rilettura dopo. Un debounce puro
- * (aspetta-e-poi-leggi) sarebbe più semplice e sbagliato: ritarderebbe anche
- * l'evento singolo, che è il caso in cui l'umano ha appena mosso una card e
- * guarda lo schermo. Così il singolo resta immediato e la raffica costa due
- * letture invece di ventiquattro.
+ * RISING edge plus a tail: the first event fires right away, the ones that
+ * arrive within the window become ONE single re-read afterwards. A pure
+ * debounce (wait-then-read) would be simpler and wrong: it would delay the
+ * single event too, which is the case where the human has just moved a card and
+ * is watching the screen. This way the single one stays immediate and the burst
+ * costs two reads instead of twenty-four.
  *
- * L'ultimo stato non si perde mai: se durante la finestra è arrivato anche un
- * solo evento, la coda riparte. Il tetto è una lettura per finestra, il
- * pavimento è che l'ultima lettura è sempre POSTERIORE all'ultimo evento.
+ * The last state is never lost: if even one single event arrived during the
+ * window, the tail starts again. The ceiling is one read per window, the floor
+ * is that the last read is always LATER than the last event.
  *
- * ## Fuori ordine
+ * ## Out of order
  *
- * Due letture sovrapposte possono tornare invertite (la prima più lenta della
- * seconda), e chi scrive per ultimo vince: lo schermo resterebbe indietro senza
- * che nessun evento successivo lo corregga. Il coalescer numera le corse e
- * scarta il risultato di una corsa già superata.
+ * Two overlapping reads can come back inverted (the first slower than the
+ * second), and whoever writes last wins: the screen would stay behind with no
+ * later event to correct it. The coalescer numbers the runs and discards the
+ * result of a run that has already been superseded.
  *
- * `now`/`schedule` sono iniettabili perché il test possa guidare il tempo senza
- * dormire: un test che aspetta davvero 400 ms per verificare una finestra da
- * 400 ms è un test che si spegne il giorno che la macchina è carica.
+ * `now`/`schedule` are injectable so that the test can drive time without
+ * sleeping: a test that really waits 400 ms to check a 400 ms window is a test
+ * that dies the day the machine is busy.
  */
 
 export interface CoalescerOptions {
-  /** Millisecondi in cui gli eventi successivi al primo si fondono in uno. */
+  /** Milliseconds during which the events after the first one merge into one. */
   windowMs: number;
-  /** Il lavoro da fare. Se lancia, l'errore è del chiamante: qui si ignora. */
+  /** The work to do. If it throws, the error belongs to the caller: here it is ignored. */
   run: () => Promise<void>;
-  /** Iniettabile per i test. Default: `setTimeout` del documento. */
+  /** Injectable for the tests. Defaults to the global `setTimeout`. */
   schedule?: (fn: () => void, ms: number) => unknown;
-  /** Iniettabile per i test. Default: `clearTimeout`. */
+  /** Injectable for the tests. Default: `clearTimeout`. */
   cancel?: (handle: unknown) => void;
 }
 
 export interface Coalescer {
-  /** Segnala che c'è qualcosa di nuovo da leggere. */
+  /** Signals that there is something new to read. */
   trigger: () => void;
-  /** Spegne la coda in sospeso (da chiamare allo smontaggio). */
+  /** Shuts down the pending tail (to be called on unmount). */
   dispose: () => void;
 }
 
@@ -65,7 +65,7 @@ export function createBurstCoalescer(opts: CoalescerOptions): Coalescer {
 
   const fire = (): void => {
     if (disposed) return;
-    void opts.run().catch(() => { /* il chiamante decide cosa fare di un errore */ });
+    void opts.run().catch(() => { /* the caller decides what to do with an error */ });
     handle = schedule(() => {
       handle = null;
       if (!pending || disposed) return;
@@ -77,7 +77,7 @@ export function createBurstCoalescer(opts: CoalescerOptions): Coalescer {
   return {
     trigger(): void {
       if (disposed) return;
-      // Finestra aperta: questo evento si fonde con gli altri e riparte dopo.
+      // Window open: this event merges with the others and starts again later.
       if (handle !== null) { pending = true; return; }
       fire();
     },
@@ -90,20 +90,20 @@ export function createBurstCoalescer(opts: CoalescerOptions): Coalescer {
 }
 
 /**
- * Il guardiano dell'ordine: avvolge una lettura asincrona in modo che il
- * risultato di una corsa SUPERATA non scriva mai sopra a uno più recente.
+ * The guardian of the order: it wraps an async read so that the result of a
+ * SUPERSEDED run never writes over a more recent one.
  *
- * Serve perché `fetch` non promette l'ordine di arrivo: con una lettura da
- * 175 ms e una finestra da 400 ms la sovrapposizione è rara, ma sotto carico
- * (o su una rete lenta) succede — ed è esattamente la condizione in cui lo
- * schermo resta indietro senza più nessun evento che lo corregga.
+ * It is needed because `fetch` does not promise the order of arrival: with a
+ * read of 175 ms and a window of 400 ms the overlap is rare, but under load (or
+ * on a slow network) it happens, and it is exactly the condition in which the
+ * screen stays behind with no further event to correct it.
  */
 export function latestWins<T>(apply: (value: T) => void): (load: () => Promise<T>) => Promise<void> {
-  let ultima = 0;
+  let latest = 0;
   return async (load) => {
-    const mia = ++ultima;
+    const mine = ++latest;
     const value = await load();
-    if (mia !== ultima) return;
+    if (mine !== latest) return;
     apply(value);
   };
 }

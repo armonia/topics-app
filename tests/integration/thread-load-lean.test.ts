@@ -1,24 +1,24 @@
 /**
- * Caricare un thread SENZA le due colonne grasse.
+ * Loading a thread WITHOUT the two fat columns.
  *
- * `messages` è il 97% di questo database, e dentro `messages` il 98% dei byte
- * sta in `blocks` e `tool_calls` (353 MB e 220 MB contro 13 MB di testo, su
- * questa macchina al 2026-08-14). L'assemblaggio del contesto — che gira a OGNI
- * turno di ogni agente — di quelle due colonne non legge niente, e fino al
- * 2026-08-14 le pagava comunque: `withBlocks: false` saltava il parse di
- * `blocks` ma non quello di `tool_calls`, e i byte di entrambe arrivavano da
- * SQLite per essere buttati.
+ * `messages` is 97% of this database, and inside `messages` 98% of the bytes
+ * sit in `blocks` and `tool_calls` (353 MB and 220 MB against 13 MB of text, on
+ * this machine as of 2026-08-14). Context assembly, which runs on EVERY turn of
+ * every agent, reads nothing out of those two columns, and until 2026-08-14 it
+ * paid for them anyway: `withBlocks: false` skipped the parse of `blocks` but
+ * not the one of `tool_calls`, and the bytes of both came out of SQLite only to
+ * be thrown away.
  *
- * Misurato su una copia del DB vero, topic 6b99e9cf, 118 righe, mediana di 7:
+ * Measured on a copy of the real DB, topic 6b99e9cf, 118 rows, median of 7:
  *
- *   SELECT *                                 6,1 ms
- *   SELECT * + JSON.parse dei tool_calls    14,5 ms
- *   SELECT senza blocks/tool_calls           0,5 ms
+ *   SELECT *                                  6.1 ms
+ *   SELECT * + JSON.parse of the tool_calls  14.5 ms
+ *   SELECT without blocks/tool_calls          0.5 ms
  *
- * Qui si prova la sola cosa che un cancello può provare senza un cronometro:
- * che la versione magra dice ESATTAMENTE le stesse cose di quella piena, tolto
- * ciò che il chiamante ha detto di non volere. Il tempo è misurato, non gateato:
- * una soglia in millisecondi su una macchina condivisa sarebbe rumore.
+ * What is tested here is the only thing a gate can test without a stopwatch:
+ * that the lean version says EXACTLY the same things as the full one, minus
+ * what the caller said it did not want. Time is measured, not gated: a
+ * threshold in milliseconds on a shared machine would be noise.
  */
 import { describe, expect, test, beforeAll } from "bun:test";
 import { setupTestDataDir, createTestAppContext, testTmpDir } from "./helpers";
@@ -31,35 +31,35 @@ beforeAll(() => setupTestDataDir(TEST_DATA));
 
 function seed(ctx: AppContext, sessionKey: string, p: string): void {
   const tc: ToolCall = {
-    id: `${p}-tc1`, name: "Bash", args: { command: "echo ciao" }, status: "success",
-    result: "ciao", detail: { type: "shell", command: "echo ciao", output: "ciao" },
+    id: `${p}-tc1`, name: "Bash", args: { command: "echo hello" }, status: "success",
+    result: "hello", detail: { type: "shell", command: "echo hello", output: "hello" },
     startedAt: 1, endedAt: 2,
   };
   const blocks: ContentBlock[] = [
-    { kind: "text", text: "ecco" } as ContentBlock,
+    { kind: "text", text: "here" } as ContentBlock,
     { kind: "tool", toolCall: tc } as ContentBlock,
   ];
   ctx.saveLocalMessages(sessionKey, [
-    { id: `${p}-u1`, role: "user", content: "domanda", timestamp: new Date(1).toISOString() },
+    { id: `${p}-u1`, role: "user", content: "question", timestamp: new Date(1).toISOString() },
     {
-      id: `${p}-a1`, role: "assistant", content: "risposta", timestamp: new Date(2).toISOString(),
-      parentId: `${p}-u1`, blocks, toolCalls: [tc], thinking: "ragiono",
+      id: `${p}-a1`, role: "assistant", content: "answer", timestamp: new Date(2).toISOString(),
+      parentId: `${p}-u1`, blocks, toolCalls: [tc], thinking: "reasoning",
       media: ["/tmp/x.png"], latencyMs: 42, usagePromptTokens: 7, usageCompletionTokens: 9,
       costCents: 3, model: "claude-opus-5", cacheReadTokens: 5,
     },
   ]);
 }
 
-describe("loadLocalMessages — quanto di un messaggio si carica", () => {
-  test("di default arrivano sia i blocchi sia le tool call", async () => {
+describe("loadLocalMessages: how much of a message gets loaded", () => {
+  test("by default both the blocks and the tool calls arrive", async () => {
     const ctx = await createTestAppContext();
-    seed(ctx, "topic:lean-pieno", "lp");
-    const [, a] = ctx.loadLocalMessages("topic:lean-pieno");
+    seed(ctx, "topic:lean-full", "lf");
+    const [, a] = ctx.loadLocalMessages("topic:lean-full");
     expect(a.blocks?.length).toBe(2);
     expect(a.toolCalls?.length).toBe(1);
   });
 
-  test("withBlocks:false toglie i blocchi e LASCIA le tool call (comportamento invariato)", async () => {
+  test("withBlocks:false drops the blocks and LEAVES the tool calls (unchanged behaviour)", async () => {
     const ctx = await createTestAppContext();
     seed(ctx, "topic:lean-noblocks", "lb");
     const [, a] = ctx.loadLocalMessages("topic:lean-noblocks", { withBlocks: false });
@@ -67,39 +67,39 @@ describe("loadLocalMessages — quanto di un messaggio si carica", () => {
     expect(a.toolCalls?.length).toBe(1);
   });
 
-  test("con ENTRAMBE a false spariscono tutte e due, e nient altro cambia", async () => {
+  test("with BOTH set to false they both disappear, and nothing else changes", async () => {
     const ctx = await createTestAppContext();
-    seed(ctx, "topic:lean-magro", "lm");
-    const pieno = ctx.loadLocalMessages("topic:lean-magro");
-    const magro = ctx.loadLocalMessages("topic:lean-magro", { withBlocks: false, withToolCalls: false });
+    seed(ctx, "topic:lean-both", "lbo");
+    const full = ctx.loadLocalMessages("topic:lean-both");
+    const lean = ctx.loadLocalMessages("topic:lean-both", { withBlocks: false, withToolCalls: false });
 
-    expect(magro.length).toBe(pieno.length);
-    for (let i = 0; i < magro.length; i++) {
-      expect(magro[i].blocks).toBeUndefined();
-      expect(magro[i].toolCalls).toBeUndefined();
-      // Tutto il RESTO deve essere identico: è la sola cosa che rende la
-      // versione magra sostituibile a quella piena per chi non legge le due
-      // colonne. Un campo perso qui sarebbe un turno assemblato monco.
-      const senzaGrasse = (x: StoredMessage) => {
-        const { blocks: _b, toolCalls: _t, ...resto } = x;
-        return resto;
+    expect(lean.length).toBe(full.length);
+    for (let i = 0; i < lean.length; i++) {
+      expect(lean[i].blocks).toBeUndefined();
+      expect(lean[i].toolCalls).toBeUndefined();
+      // Everything ELSE must be identical: it is the only thing that makes the
+      // lean version substitutable for the full one for whoever does not read
+      // the two columns. A field lost here would be a maimed assembled turn.
+      const withoutFat = (x: StoredMessage) => {
+        const { blocks: _b, toolCalls: _t, ...rest } = x;
+        return rest;
       };
-      expect(senzaGrasse(magro[i])).toEqual(senzaGrasse(pieno[i]));
+      expect(withoutFat(lean[i])).toEqual(withoutFat(full[i]));
     }
   });
 
-  test("il ramo attivo è lo STESSO: la versione magra non cambia quali messaggi tornano", async () => {
+  test("the active branch is the SAME: the lean version does not change which messages come back", async () => {
     const ctx = await createTestAppContext();
-    seed(ctx, "topic:lean-ramo", "lr");
-    const pieno = ctx.loadLocalMessages("topic:lean-ramo").map((m) => m.id);
-    const magro = ctx.loadLocalMessages("topic:lean-ramo", { withBlocks: false, withToolCalls: false }).map((m) => m.id);
-    expect(magro).toEqual(pieno);
+    seed(ctx, "topic:lean-branch", "lbr");
+    const full = ctx.loadLocalMessages("topic:lean-branch").map((m) => m.id);
+    const lean = ctx.loadLocalMessages("topic:lean-branch", { withBlocks: false, withToolCalls: false }).map((m) => m.id);
+    expect(lean).toEqual(full);
   });
 
-  test("withToolCalls:false da solo NON attiva la lettura magra — i blocchi restano", async () => {
+  test("withToolCalls:false on its own does NOT enable the lean read: the blocks stay", async () => {
     const ctx = await createTestAppContext();
-    seed(ctx, "topic:lean-solotc", "ls");
-    const [, a] = ctx.loadLocalMessages("topic:lean-solotc", { withToolCalls: false });
+    seed(ctx, "topic:lean-onlytc", "lo");
+    const [, a] = ctx.loadLocalMessages("topic:lean-onlytc", { withToolCalls: false });
     expect(a.blocks?.length).toBe(2);
   });
 });

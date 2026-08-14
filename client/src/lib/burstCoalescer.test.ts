@@ -1,132 +1,132 @@
 import { describe, expect, test } from 'bun:test';
 import { createBurstCoalescer, latestWins } from './burstCoalescer';
 
-/** Un orologio guidato a mano: il test decide quando scade una finestra. */
+/** A hand-driven clock: the test decides when a window expires. */
 function fakeClock() {
   let seq = 0;
   const timers = new Map<number, () => void>();
   return {
     schedule: (fn: () => void) => { timers.set(++seq, fn); return seq; },
     cancel: (h: unknown) => { timers.delete(h as number); },
-    /** Fa scadere ogni timer armato adesso (non quelli armati durante lo scatto). */
+    /** Expires every timer armed right now (not the ones armed during the firing). */
     tick: () => {
-      const scaduti = [...timers.entries()];
+      const due = [...timers.entries()];
       timers.clear();
-      for (const [, fn] of scaduti) fn();
+      for (const [, fn] of due) fn();
     },
-    get armati() { return timers.size; },
+    get armed() { return timers.size; },
   };
 }
 
 function counter() {
-  const state = { corse: 0 };
-  return { state, run: async () => { state.corse++; } };
+  const state = { runs: 0 };
+  return { state, run: async () => { state.runs++; } };
 }
 
 describe('createBurstCoalescer', () => {
-  test('il primo evento parte SUBITO: chi ha appena mosso una card non aspetta', () => {
+  test('the first event fires RIGHT AWAY: whoever just moved a card does not wait', () => {
     const clock = fakeClock();
     const { state, run } = counter();
     const c = createBurstCoalescer({ windowMs: 400, run, schedule: clock.schedule, cancel: clock.cancel });
     c.trigger();
-    expect(state.corse).toBe(1);
+    expect(state.runs).toBe(1);
   });
 
-  test('24 eventi nella stessa finestra costano DUE letture, non 24', () => {
+  test('24 events in the same window cost TWO reads, not 24', () => {
     const clock = fakeClock();
     const { state, run } = counter();
     const c = createBurstCoalescer({ windowMs: 400, run, schedule: clock.schedule, cancel: clock.cancel });
     for (let i = 0; i < 24; i++) c.trigger();
-    expect(state.corse).toBe(1); // solo il primo, gli altri 23 sono in coda
+    expect(state.runs).toBe(1); // only the first one, the other 23 are queued
     clock.tick();
-    expect(state.corse).toBe(2); // la coda: uno stato solo, quello finale
+    expect(state.runs).toBe(2); // the tail: a single state, the final one
     clock.tick();
-    expect(state.corse).toBe(2); // e nessuna lettura a vuoto dopo
+    expect(state.runs).toBe(2); // and no empty read after that
   });
 
-  test('nessun evento durante la finestra: nessuna lettura in coda', () => {
+  test('no event during the window: no read in the tail', () => {
     const clock = fakeClock();
     const { state, run } = counter();
     const c = createBurstCoalescer({ windowMs: 400, run, schedule: clock.schedule, cancel: clock.cancel });
     c.trigger();
     clock.tick();
-    expect(state.corse).toBe(1);
+    expect(state.runs).toBe(1);
   });
 
-  test('la lettura finale è sempre DOPO l ultimo evento', () => {
+  test('the final read is always AFTER the last event', () => {
     const clock = fakeClock();
-    const eventi: string[] = [];
+    const events: string[] = [];
     const c = createBurstCoalescer({
       windowMs: 400,
-      run: async () => { eventi.push('lettura'); },
+      run: async () => { events.push('read'); },
       schedule: clock.schedule, cancel: clock.cancel,
     });
-    c.trigger(); eventi.push('evento1');
-    c.trigger(); eventi.push('evento2');
+    c.trigger(); events.push('event1');
+    c.trigger(); events.push('event2');
     clock.tick();
-    expect(eventi).toEqual(['lettura', 'evento1', 'evento2', 'lettura']);
+    expect(events).toEqual(['read', 'event1', 'event2', 'read']);
   });
 
-  test('finestra chiusa: un evento nuovo riparte subito', () => {
+  test('window closed: a new event fires again right away', () => {
     const clock = fakeClock();
     const { state, run } = counter();
     const c = createBurstCoalescer({ windowMs: 400, run, schedule: clock.schedule, cancel: clock.cancel });
     c.trigger();
-    clock.tick();          // finestra chiusa senza coda
+    clock.tick();          // window closed with no tail
     c.trigger();
-    expect(state.corse).toBe(2);
+    expect(state.runs).toBe(2);
   });
 
-  test('dispose spegne la coda e ogni evento successivo', () => {
+  test('dispose shuts down the tail and every later event', () => {
     const clock = fakeClock();
     const { state, run } = counter();
     const c = createBurstCoalescer({ windowMs: 400, run, schedule: clock.schedule, cancel: clock.cancel });
     c.trigger();
-    c.trigger();           // mette in coda
+    c.trigger();           // queues one
     c.dispose();
-    expect(clock.armati).toBe(0);
+    expect(clock.armed).toBe(0);
     clock.tick();
     c.trigger();
-    expect(state.corse).toBe(1);
+    expect(state.runs).toBe(1);
   });
 
-  test('un errore nella lettura non blocca le successive', async () => {
+  test('an error in a read does not block the later ones', async () => {
     const clock = fakeClock();
-    let corse = 0;
+    let runs = 0;
     const c = createBurstCoalescer({
       windowMs: 400,
-      run: async () => { corse++; throw new Error('rete giù'); },
+      run: async () => { runs++; throw new Error('network down'); },
       schedule: clock.schedule, cancel: clock.cancel,
     });
     c.trigger();
     c.trigger();
     await Promise.resolve();
     clock.tick();
-    expect(corse).toBe(2);
+    expect(runs).toBe(2);
   });
 });
 
 describe('latestWins', () => {
-  test('una risposta SUPERATA non scrive sopra a una più recente', async () => {
-    const scritte: string[] = [];
-    const guarded = latestWins<string>((v) => scritte.push(v));
-    let sbloccaLenta: (v: string) => void = () => {};
-    const lenta = new Promise<string>((res) => { sbloccaLenta = res; });
+  test('a SUPERSEDED response does not write over a more recent one', async () => {
+    const written: string[] = [];
+    const guarded = latestWins<string>((v) => written.push(v));
+    let unblockSlow: (v: string) => void = () => {};
+    const slow = new Promise<string>((res) => { unblockSlow = res; });
 
-    const p1 = guarded(() => lenta);                  // parte per prima, torna per ultima
-    const p2 = guarded(() => Promise.resolve('nuova'));
+    const p1 = guarded(() => slow);                   // starts first, comes back last
+    const p2 = guarded(() => Promise.resolve('new'));
     await p2;
-    sbloccaLenta('vecchia');
+    unblockSlow('old');
     await p1;
 
-    expect(scritte).toEqual(['nuova']);
+    expect(written).toEqual(['new']);
   });
 
-  test('in sequenza scrivono tutte', async () => {
-    const scritte: string[] = [];
-    const guarded = latestWins<string>((v) => scritte.push(v));
+  test('in sequence they all write', async () => {
+    const written: string[] = [];
+    const guarded = latestWins<string>((v) => written.push(v));
     await guarded(() => Promise.resolve('a'));
     await guarded(() => Promise.resolve('b'));
-    expect(scritte).toEqual(['a', 'b']);
+    expect(written).toEqual(['a', 'b']);
   });
 });
