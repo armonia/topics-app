@@ -3067,9 +3067,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       try { orphanAttempts = deps.attempts?.runningCount(t.id) ?? 0; } catch { orphanAttempts = 0; }
       if (orphanAttempts > 0) {
         try {
-          deps.svc.addComment({
-            taskId: t.id, author: "system", kind: "service",
-            content:
+          deps.svc.claimInterruption({
+            taskId: t.id,
+            note:
               `Il server è ripartito mentre ${orphanAttempts} ${orphanAttempts === 1 ? "tentativo del fan-out lavorava" : "tentativi del fan-out lavoravano"}: ` +
               "i turni sono morti col processo, ma i worktree no. Chiudo il giro con quello che avevano committato.",
           });
@@ -3105,18 +3105,18 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           }
           if (live) {
             try {
-              deps.svc.addComment({
-                taskId: t.id, author: "system", kind: "service",
-                content: "Riavvio del server: ripreso in diretta, nessun tentativo consumato.",
+              deps.svc.claimInterruption({
+                taskId: t.id,
+                note: "Riavvio del server: ripreso in diretta, nessun tentativo consumato.",
               });
             } catch { /* dedupe/best-effort */ }
             void reattachTask(t.id);
             continue;
           }
           try {
-            deps.svc.addComment({
-              taskId: t.id, author: "system", kind: "service",
-              content: "Server ripartito a metà turno: riprendo la stessa sessione, nessun tentativo consumato.",
+            deps.svc.claimInterruption({
+              taskId: t.id,
+              note: "Server ripartito a metà turno: riprendo la stessa sessione, nessun tentativo consumato.",
             });
           } catch { /* dedupe/best-effort */ }
           // Sets inFlight synchronously → the 10s poll can never double-fire.
@@ -3130,16 +3130,22 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // park a healthy task in backlog "per errore". Genuine failures still
       // park via onTurnEnd.
       try {
+        // Un fantasma `queued` non stava lavorando: stava aspettando un posto,
+        // e l'attesa è morta col processo. Dirgli "mentre l'agent lavorava"
+        // manderebbe l'umano a cercare un lavoro che non c'è mai stato.
+        const nota = t.dispatchState === CHIP_QUEUED
+          ? "Il server è ripartito mentre il task aspettava uno slot libero: l'attesa viveva in memoria, quindi lo rimetto in coda (il riavvio non consuma un tentativo)."
+          : "Il server è ripartito mentre l'agent lavorava: task rimesso in coda (il riavvio non consuma un tentativo).";
+        // La nota passa dal cancello, la release no: il task torna in coda
+        // comunque, ma se questa interruzione è già stata raccontata (un
+        // riavvio prima, un altro scrittore) qui non si aggiunge una quarta
+        // versione della stessa cosa. Il `reason` non serve altrove: con
+        // `requeue: true` non c'è evento di park che lo porti.
+        deps.svc.claimInterruption({ taskId: t.id, note: nota });
         releaseAndEmit({
           taskId: t.id,
           requeue: true,
           rollbackAttempt: true,
-          // Un fantasma `queued` non stava lavorando: stava aspettando un posto,
-          // e l'attesa è morta col processo. Dirgli "mentre l'agent lavorava"
-          // manderebbe l'umano a cercare un lavoro che non c'è mai stato.
-          reason: t.dispatchState === CHIP_QUEUED
-            ? "Il server è ripartito mentre il task aspettava uno slot libero: l'attesa viveva in memoria, quindi lo rimetto in coda (il riavvio non consuma un tentativo)."
-            : "Il server è ripartito mentre l'agent lavorava: task rimesso in coda (il riavvio non consuma un tentativo).",
         });
         // On a board that never dispatches the requeue's `queued` chip would
         // strand forever (tick no-ops with the switch off) — clear it.
