@@ -1,6 +1,7 @@
-import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { ChevronRight, Gauge, Tag, User } from 'lucide-react';
-import { peopleApi, type PersonaConProfilo } from '@/lib/api';
+import { usePersonaCorrente } from '@/hooks/usePersonaCorrente';
+import { etichettaIdentita } from './identityLabel';
 import { subscribeSession, type SessionState } from '@/lib/auth/session';
 import { getVersion } from '@/lib/shell/app';
 import { PerfSection } from './PerfSection';
@@ -28,6 +29,11 @@ declare const __APP_VERSION__: string;
  * che un giorno mostra un'altra persona. Se il profilo GitHub non c'è, restano
  * le iniziali — mai un buco: una superficie che non dice chi sei è
  * indistinguibile da una che non sa che ci sei.
+ *
+ * Quel «secondo posto» ESISTEVA, ed era la riga in fondo alla sidebar sul
+ * desktop: questa voce mostrava la persona, quella il nome del ferro. Adesso la
+ * fetch è una sola (`usePersonaCorrente`) e la scelta di cosa scrivere è una
+ * sola (`etichettaIdentita`), così le due superfici non possono più divergere.
  */
 
 const importSystemStatusPanel = async () => {
@@ -37,15 +43,6 @@ const importSystemStatusPanel = async () => {
 const SystemStatusPanel = lazy(importSystemStatusPanel);
 
 const VOCE = 'w-full flex items-center gap-2.5 px-3 py-3 text-[14px] text-app-text hover:bg-app-hover transition-colors';
-
-function iniziali(nome: string): string {
-  return nome
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((p) => p[0]?.toUpperCase() ?? '')
-    .join('');
-}
 
 export interface SidebarSystemMenuProps {
   /** Apre Impostazioni → Account e dispositivi (dove vivono account, persone e
@@ -59,31 +56,16 @@ export interface SidebarSystemMenuProps {
 }
 
 export function SidebarSystemMenu({ onOpenAccount, onOpenChangelog }: SidebarSystemMenuProps) {
-  const [io, setIo] = useState<PersonaConProfilo | null>(null);
   const [sessione, setSessione] = useState<SessionState>({ status: 'loading' });
   const [mostraStato, setMostraStato] = useState(false);
   const [versione, setVersione] = useState<string>(typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '');
 
   useEffect(() => subscribeSession(setSessione), []);
 
-  const caricaIo = useCallback(async () => {
-    try {
-      const { people } = await peopleApi.list();
-      setIo(people.find((p) => p.isMe) ?? null);
-    } catch {
-      // Transitorio: resta il nome del dispositivo, che arriva dalla sessione e
-      // non dalla rete.
-    }
-  }, []);
-  // La rubrica si chiede DOPO il primo paint, non durante: è la stessa forma
-  // (e la stessa ragione) della riga identità in fondo alla colonna — una
-  // scrittura di stato sincrona in montaggio è ciò che `set-state-in-effect`
-  // marca, e ha ragione. Un rinvio a zero millisecondi la toglie dal percorso
-  // critico davvero, non la nasconde.
-  useEffect(() => {
-    const primo = setTimeout(() => { void caricaIo(); }, 0);
-    return () => clearTimeout(primo);
-  }, [caricaIo]);
+  // La rubrica la chiede il hook, che è anche quello della riga in fondo alla
+  // colonna sul desktop: due fetch della stessa persona erano due avatar che un
+  // giorno mostrano due persone diverse.
+  const io = usePersonaCorrente();
 
   // Nell'app desktop la versione la sa la shell, e un auto-update può averla
   // cambiata dopo la build di questo bundle: si chiede, e si ripiega su quella
@@ -94,18 +76,16 @@ export function SidebarSystemMenu({ onOpenAccount, onOpenChangelog }: SidebarSys
     return () => { vivo = false; };
   }, []);
 
-  const nome = io?.displayName
-    ?? (sessione.status === 'paired' ? sessione.name : '')
-    ?? '';
+  const chi = etichettaIdentita(io, sessione);
 
   return (
     <div data-testid="sidebar-system-menu">
       <button type="button" onClick={onOpenAccount} className={VOCE} data-testid="menu-account">
-        {io?.github?.avatarUrl ? (
-          <img src={io.github.avatarUrl} alt="" className="h-9 w-9 flex-shrink-0 rounded-full object-cover" />
-        ) : nome ? (
+        {chi.avatarUrl ? (
+          <img src={chi.avatarUrl} alt="" className="h-9 w-9 flex-shrink-0 rounded-full object-cover" />
+        ) : chi.iniziali ? (
           <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-primary text-[13px] font-semibold text-white">
-            {iniziali(nome)}
+            {chi.iniziali}
           </div>
         ) : (
           <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-app-hover">
@@ -115,9 +95,9 @@ export function SidebarSystemMenu({ onOpenAccount, onOpenChangelog }: SidebarSys
         <span className="flex min-w-0 flex-1 flex-col text-left">
           {/* Senza nome NON si scrive un nome finto: si dice cosa c'è dietro la
               porta, che è la sola cosa vera che si sa. */}
-          <span className="truncate font-medium">{nome || 'Il tuo account'}</span>
+          <span className="truncate font-medium">{chi.nome || 'Il tuo account'}</span>
           <span className="truncate text-[11px] text-app-text-secondary">
-            {sessione.status === 'paired' ? sessione.name : 'Account e dispositivi'}
+            {chi.dettaglio || 'Account e dispositivi'}
           </span>
         </span>
         <ChevronRight size={16} className="flex-shrink-0 text-app-text-tertiary" />
