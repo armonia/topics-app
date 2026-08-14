@@ -8,7 +8,7 @@
  * Ma la domanda che si fa chi guarda una sidebar non è «su cosa sono», è «chi
  * sono»: «Questo computer» detto a chi il computer ce l'ha in mano non aggiunge
  * niente, e con due telefoni appaiati il nome del ferro non dice nemmeno che
- * sono miei. Attilio l'ha chiesto esplicitamente (card b8ca85e8).
+ * sono miei. chi usa la app l'ha chiesto esplicitamente (card b8ca85e8).
  *
  * Quindi il soggetto diventa la PERSONA, e il ferro scende a dettaglio: resta
  * detto, perché il caso «ho appena appaiato il telefono, è andata?» è ancora
@@ -45,7 +45,7 @@ export interface EtichettaIdentita {
   personale: boolean;
 }
 
-/** Una o due iniziali maiuscole. «Attilio Cianci» dà AC, «Mac» dà M. */
+/** Una o due iniziali maiuscole. «Nome Cognome» dà AC, «Mac» dà M. */
 export function iniziali(nome: string): string {
   return nome
     .split(/\s+/)

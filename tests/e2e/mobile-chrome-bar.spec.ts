@@ -1,7 +1,7 @@
 /**
  * LA CHROME DEL TELEFONO, MISURATA.
  *
- * Forma decisa da Attilio il 12/08: in alto solo «Topics», in basso tre porte —
+ * Forma decisa da chi usa la app il 12/08: in alto solo «Topics», in basso tre porte —
  * cerca · aggiungi · board — e la fila che segue la curvatura dello schermo
  * «quando presente nell'iPhone, in modo da ottimizzare al massimo lo spazio».
  *

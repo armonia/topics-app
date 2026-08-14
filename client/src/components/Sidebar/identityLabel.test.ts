@@ -14,21 +14,21 @@ const loopback: SessionState = {
   status: 'paired', as: 'loopback', name: 'Questo computer', role: 'owner',
 };
 const telefono: SessionState = {
-  status: 'paired', as: 'device', name: 'iPhone di Attilio', role: 'owner', deviceId: 'd1',
+  status: 'paired', as: 'device', name: 'iPhone di Nome', role: 'owner', deviceId: 'd1',
 };
-const attilio = { displayName: 'Attilio Cianci', github: null };
+const persona = { displayName: 'Nome Cognome', github: null };
 
 describe('etichettaIdentita', () => {
   it('sul computer mostra la PERSONA, non «Questo computer»', () => {
-    const e = etichettaIdentita(attilio, loopback);
-    expect(e.nome).toBe('Attilio Cianci');
+    const e = etichettaIdentita(persona, loopback);
+    expect(e.nome).toBe('Nome Cognome');
     expect(e.nome).not.toBe('Questo computer');
     expect(e.personale).toBe(true);
   });
 
   it('il ferro non sparisce: scende a dettaglio', () => {
-    expect(etichettaIdentita(attilio, loopback).dettaglio).toBe('Questo computer');
-    expect(etichettaIdentita(attilio, telefono).dettaglio).toBe('iPhone di Attilio');
+    expect(etichettaIdentita(persona, loopback).dettaglio).toBe('Questo computer');
+    expect(etichettaIdentita(persona, telefono).dettaglio).toBe('iPhone di Nome');
   });
 
   it('senza persona resta il ferro, e nessun nome inventato', () => {
@@ -51,17 +51,17 @@ describe('etichettaIdentita', () => {
 
   it('la faccia di GitHub vince sulle iniziali quando c’è', () => {
     const e = etichettaIdentita(
-      { displayName: 'Attilio Cianci', github: { avatarUrl: 'https://x/a.png' } as never },
+      { displayName: 'Nome Cognome', github: { avatarUrl: 'https://x/a.png' } as never },
       loopback,
     );
     expect(e.avatarUrl).toBe('https://x/a.png');
-    expect(e.iniziali).toBe('AC');
+    expect(e.iniziali).toBe('NC');
   });
 });
 
 describe('iniziali', () => {
   it('due parole danno due lettere, una parola ne dà una', () => {
-    expect(iniziali('Attilio Cianci')).toBe('AC');
+    expect(iniziali('Nome Cognome')).toBe('NC');
     expect(iniziali('Mac')).toBe('M');
   });
   it('si ferma a due anche con tre parole', () => {
