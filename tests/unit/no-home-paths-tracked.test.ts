@@ -3,6 +3,7 @@ import { execFileSync } from "child_process";
 import { readFileSync, statSync } from "fs";
 import { homedir } from "os";
 import { resolve, join } from "path";
+import { filtraTermini } from "./no-personal-data-tracked.test";
 
 /**
  * Nessun file tracciato contiene il percorso della home di chi lo committa.
@@ -83,7 +84,22 @@ describe("nessun percorso di home in un file tracciato", () => {
   const utente = HOME.split("/").filter(Boolean).pop() ?? "";
 
   test("il nome utente non compare in nessun file tracciato, in nessuna grafia", () => {
-    if (utente.length < 4) return; // guardia sui nomi generici, vedi sopra
+    // La soglia dei 4 caratteri E gli account di servizio, con la stessa regola
+    // del cancello gemello invece che con una copia: `filtraTermini` restituisce
+    // vuoto quando il nome non appartiene a nessuno.
+    //
+    // Senza questa riga il test era ROSSO su ogni runner GitHub, e per un motivo
+    // che non ha niente a che vedere con una fuga: là `homedir()` è
+    // `/home/runner`, quindi il nome cercato è «runner», e «runner» compare in
+    // 78 file tracciati (i workflow per primi, che dicono `runs-on`). Il rosso
+    // è rimasto invisibile finché il job `check` falliva a un passo precedente:
+    // si è visto il 2026-08-14, quando quel passo ha ripreso a passare.
+    //
+    // Non è un'esenzione sul contenuto: nessun file viene perdonato. È che su
+    // una macchina di build non c'è nessuna persona la cui identità vada
+    // protetta. Dove il commit NASCE la guardia resta durissima, ed è lì che
+    // serve.
+    if (filtraTermini([utente]).length === 0) return;
     const colpevoli: string[] = [];
     for (const rel of files) {
       const abs = join(ROOT, rel);
