@@ -110,6 +110,7 @@ import m20260812093221_discord_presence from "./migrations/20260812093221-discor
 import m20260812094300_notification_log from "./migrations/20260812094300-notification-log.sql" with { type: "text" };
 import m20260812120000_preview_retired from "./migrations/20260812120000-preview-retired.sql" with { type: "text" };
 import m20260813135636_disjoint_cache_creation from "./migrations/20260813135636-disjoint-cache-creation.sql" with { type: "text" };
+import m20260814101500_task_interrupt_claim from "./migrations/20260814101500-task-interrupt-claim.sql" with { type: "text" };
 
 export interface EmbeddedMigration {
   version: number;
@@ -224,4 +225,5 @@ export const EMBEDDED_MIGRATIONS: EmbeddedMigration[] = [
   { version: 20260812094300, name: "20260812094300-notification-log.sql", sql: m20260812094300_notification_log },
   { version: 20260812120000, name: "20260812120000-preview-retired.sql", sql: m20260812120000_preview_retired },
   { version: 20260813135636, name: "20260813135636-disjoint-cache-creation.sql", sql: m20260813135636_disjoint_cache_creation },
+  { version: 20260814101500, name: "20260814101500-task-interrupt-claim.sql", sql: m20260814101500_task_interrupt_claim },
 ];

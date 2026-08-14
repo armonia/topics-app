@@ -13,7 +13,7 @@ import { PaneAddMenu, PaneAddMenuItems } from '../Shared/PaneAddMenu';
 import { TopicItem } from './TopicItem';
 import { topicsApi, projectsApi } from '@/lib/api';
 import { createPaneId, getTerminalSessionFromPaneId, pinKeyFromPaneId, resolvePinnedBrowserOrigin, useClosedTabs, type BrowserOrigin } from '@/state/pane/adapters';
-import { PinnedTiles, type PinnedTileMeta } from './PinnedTiles';
+import { PinnedTiles, type PinnedExternalTouch, type PinnedTileMeta } from './PinnedTiles';
 import type { PinnedRow } from './pinnedLayout';
 import { draggedPaneId, rememberDraggedPane } from '@/lib/dragPayload';
 import { DND_TYPES } from '@/lib/dndTypes';
@@ -591,6 +591,52 @@ export function TopicTree({
   /** La chiave della tessera trascinata FUORI dai fissati, mentre il cursore è
    *  sulla lista. È solo l'anteprima: lo sfissaggio avviene al drop. */
   const [unpinPreview, setUnpinPreview] = useState<string | null>(null);
+  /** La colonna che scorre: col dito serve il suo RETTANGOLO, perché il gesto
+   *  non le manda nessun evento (vedi `sfissaDalDito`). */
+  const colonna = useRef<HTMLDivElement>(null);
+
+  /**
+   * IL DITO È QUI SOPRA LA LISTA? — la stessa domanda che col mouse è implicita.
+   *
+   * Col mouse il bersaglio lo sceglie il browser: `dragover` arriva alla colonna
+   * solo quando ci sei sopra, e il ramo «sono sui fissati» è un `closest`. Col
+   * dito il trascinamento è catturato da `useTouchDrag` e alla colonna non
+   * arriva niente: restano due numeri, e la stessa decisione va presa per
+   * rettangoli. Le due condizioni sono le stesse, nello stesso ordine: dentro la
+   * colonna, e non dentro il blocco dei fissati (lì il rilascio è un riordino, e
+   * servirlo due volte vorrebbe dire riordinare e sfissare nello stesso gesto).
+   */
+  /** L'ingresso della griglia dei fissati per un dito che arriva da fuori: lo
+   *  depone lei stessa, e le righe lo chiamano. Vedi `PinnedExternalTouch`. */
+  const versoIFissati = useRef<PinnedExternalTouch | null>(null);
+
+  /**
+   * IL TRASPORTO DEL DITO PER LE RIGHE — uno per tutta la sidebar.
+   *
+   * Col mouse questo pezzo non esiste: la riga è `draggable`, il browser porta
+   * il gesto fino alla griglia e la griglia lo serve. Col dito il gesto resta
+   * dov'è nato, quindi qui si fa a mano l'unica cosa che il browser faceva, cioè
+   * consegnare il punto al bersaglio. Il bersaglio poi si comporta come sempre.
+   */
+  const ditoVersoIFissati = useMemo(() => ({
+    onMove: (paneId: string, x: number, y: number) =>
+      versoIFissati.current?.move(pinKeyFromPaneId(paneId), x, y),
+    onDrop: (paneId: string, x: number, y: number) =>
+      versoIFissati.current?.drop(pinKeyFromPaneId(paneId), x, y),
+    onCancel: () => versoIFissati.current?.cancel(),
+  }), []);
+
+  const sfissaDalDito = useCallback((x: number, y: number): boolean => {
+    const col = colonna.current;
+    if (!col) return false;
+    const dentro = (el: Element) => {
+      const r = el.getBoundingClientRect();
+      return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+    };
+    if (!dentro(col)) return false;
+    const fissati = col.querySelector('[data-testid="sidebar-pinned-section"]');
+    return !(fissati && dentro(fissati));
+  }, []);
   useEffect(() => {
     // Il gesto è finito, comunque sia finito: rilasciato, annullato con Escape,
     // uscito dalla finestra. `dragend` bolla fino a window in tutti e tre i
@@ -835,6 +881,10 @@ export function TopicTree({
         onDoubleClick={(e) => onTopicDoubleClick(topic.id, e)}
         onContextMenu={(e) => onTopicContextMenu(e, topic)}
         onArchive={handleArchive}
+        // Col dito la riga si fissa trascinandola in cima, come col mouse. Solo
+        // se non è GIÀ fissata: la sua tessera c'è, e il gesto sarebbe un
+        // bersaglio che si accende senza rispondere.
+        touchDrag={item.pinned ? undefined : ditoVersoIFissati}
         onStopStreaming={stopSession ? () => {
           // Si archivia solo se il server ha davvero buttato via la chat: qui
           // lo Stop non ferma soltanto, fa SPARIRE il topic dalla sidebar, ed è
@@ -1377,6 +1427,21 @@ export function TopicTree({
         if (at) onPinAt?.(key, at, griglia);
         else onTogglePin?.(key);
       }}
+      // IL GESTO INVERSO, COL DITO. Gli stessi due stati del mouse — l'anteprima
+      // in lista mentre trascini, lo sfissaggio al rilascio — accesi dal punto
+      // invece che dagli eventi di trascinamento. Da qui in poi non c'è un
+      // secondo percorso: è `sfissaConRete`, la stessa di tutte le altre porte.
+      onTouchDragPoint={(key, p) => {
+        if (!p) { setUnpinPreview(null); return; }
+        setUnpinPreview(sfissaDalDito(p.x, p.y) ? key : null);
+      }}
+      externalTouch={versoIFissati}
+      onTouchDropOutside={(key, x, y) => {
+        setUnpinPreview(null);
+        const sfissa = onUnpinToList ?? onTogglePin;
+        if (!sfissa || !sfissaDalDito(x, y) || !pinnedIds.has(key)) return;
+        sfissaConRete(key, sfissa);
+      }}
       // Il «+» della tessera: la STESSA `PaneAddMenu` della riga del progetto,
       // con gli stessi callback. Solo per i progetti — sono l'unica cosa
       // fissabile che contiene tab: un «+» su una chat fissata non avrebbe
@@ -1610,6 +1675,7 @@ export function TopicTree({
           figlia diretta di questo contenitore, quindi 3px dalla vicina mentre
           ogni riga dentro `SidebarRowList` (che è già flex) ne aveva 6. */}
       <div
+        ref={colonna}
         className="flex flex-col flex-1 min-h-0 overflow-y-auto sidebar-scroll sidebar-column"
         style={{ paddingTop: 0, paddingBottom: COLUMN_GAP / 2 }}
         // IL GESTO INVERSO: una tessera lasciata sulla LISTA torna una riga.
