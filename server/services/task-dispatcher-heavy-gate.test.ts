@@ -376,7 +376,14 @@ describe("freno del peso — l'attesa ha una fine", () => {
     expect(r.kind).not.toBe("heavy_hold");
     expect(r.title).not.toContain("tetto");
     expect(r.title).not.toContain("priorità");
-    // I leggeri dietro non cambiano: la loro ragione era ed è la fila.
-    expect(h.task("l1")!.queueReason!.kind).toBe("slot");
+    // La riparazione si fermava qui: tolta la bugia, la card restava MUTA —
+    // ricadeva su «in coda, N davanti», cioè la parola vaga da cui si era
+    // partiti. Ed era vaga anche per i leggeri dietro: uno slot agente c'è
+    // eccome (macchina libera, tetto lontano), quello che manca è la fine di un
+    // turno altrui. Adesso i due casi hanno due parole, e quella dei leggeri
+    // dice il fatto giusto.
+    expect(r.kind).toBe("heavy_busy");
+    expect(h.task("l1")!.queueReason!.kind).toBe("heavy_busy");
+    expect(h.task("l1")!.queueReason!.detail).not.toContain("davanti");
   });
 });
