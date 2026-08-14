@@ -131,7 +131,24 @@ export function useDictation(opts: {
           const result = await transcribeAudio(blob, { filename: `dictation.${extForMime(type)}`, language });
           // Silenzio (o l'artefatto che Whisper produce sul silenzio, che il
           // server filtra): niente da incollare, e niente errore da mostrare.
-          if (result.transcript.trim()) onTextRef.current(result.transcript.trim());
+          const testo = result.transcript.trim();
+          if (testo) onTextRef.current(testo);
+          // SILENZIO NON E' NIENTE DA DIRE: e' una notizia.
+          //
+          // Questo era l'ultimo ramo muto della dettatura. Il giro andava a
+          // buon fine, il server rispondeva 200 con un trascritto vuoto (o
+          // l'artefatto che Whisper produce sul silenzio, che il server
+          // filtra), e il client non faceva NULLA: nessun testo, nessun
+          // messaggio. Chi aveva premuto e parlato vedeva la stessa cosa di
+          // una app rotta, ed e' il sintomo con cui questa caccia e' iniziata.
+          //
+          // Il provider e la durata stanno nel messaggio perche' distinguono i
+          // due casi che si somigliano: «non ho sentito» (microfono aperto
+          // sul nulla) e «non ho capito» (audio c'era, il modello non ha
+          // riconosciuto parole).
+          else onErrorRef.current?.(
+            `Non ho sentito parole nella nota (${result.provider}, ${Math.round(result.durationMs / 100) / 10}s). Riprova parlando piu' vicino al microfono.`,
+          );
         } catch (err) {
           onErrorRef.current?.(`Dettatura non trascritta: ${err instanceof Error ? err.message : 'errore sconosciuto'}`);
         } finally {
