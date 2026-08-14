@@ -202,7 +202,7 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
  * gerarchia non si legge, si scandisce — e soprattutto la prima riga era
  * l'interruttore GLOBALE, che in cima a una lista piatta si legge come
  * un'impostazione di questa board («le impostazioni della board non mi sembrano
- * ben fatte», Attilio 13/08).
+ * ben fatte», chi usa la app, 13/08).
  *
  * Il titolo non è decorazione: è la risposta alla domanda che ogni riga
  * poneva da sola — «questo vale per chi?». Il filetto sopra separa i gruppi
