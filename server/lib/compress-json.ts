@@ -1,136 +1,138 @@
 /**
- * Le risposte JSON escono da questo server NON compresse. Su loopback non si
- * nota; dal telefono sono secondi di schermo vuoto.
+ * JSON responses leave this server UNCOMPRESSED. On loopback nobody notices;
+ * from a phone they are seconds of empty screen.
  *
- * Misurato il 2026-08-14 su questa macchina, con `curl --compressed`: nessuna
- * risposta porta `Content-Encoding`, cioè il server ignora `Accept-Encoding` e
- * spedisce i byte com'erano. E il JSON di questa app comprime bene, perché è
- * fatto di chiavi che si ripetono a ogni riga:
+ * Measured on 2026-08-14 on this machine, with `curl --compressed`: no response
+ * carries `Content-Encoding`, that is, the server ignores `Accept-Encoding` and
+ * ships the bytes as they were. And the JSON of this app compresses well,
+ * because it is made of keys that repeat on every row:
  *
- *   GET /api/history/:key?limit=0   5,17 MB → 1,39 MB   (3,8×)   60 ms
- *   GET /api/all-boards/tasks       1,37 MB →  339 KB   (4,1×)   13 ms
+ *   GET /api/history/:key?limit=0   5.17 MB → 1.39 MB   (3.8×)   60 ms
+ *   GET /api/all-boards/tasks       1.37 MB →  339 KB   (4.1×)   13 ms
  *
- * Su una LAN da ~20 Mbit effettivi quei 3,8 MB in meno sono circa un secondo e
- * mezzo in cui la chat non c'è.
+ * On a LAN of ~20 effective Mbit those 3.8 MB less are about a second and a
+ * half in which the chat is not there.
  *
- * ## Perché solo per chi NON è locale
+ * ## Why only for peers that are NOT local
  *
- * Comprimere costa 60 ms di CPU sul payload più grosso. Verso un peer di
- * loopback — il guscio Tauri sulla stessa macchina, la CLI, il banco di prova —
- * quei 60 ms sono un ritardo che compra ZERO: il trasferimento su loopback è già
- * gratis. Verso un telefono in LAN comprano un secondo e mezzo.
+ * Compressing costs 60 ms of CPU on the biggest payload. Towards a loopback
+ * peer (the Tauri shell on the same machine, the CLI, the test harness) those
+ * 60 ms are a delay that buys ZERO: the transfer over loopback is already free.
+ * Towards a phone on the LAN they buy a second and a half.
  *
- * La domanda è quindi «c'è una rete in mezzo», e si risponde con l'indirizzo del
- * peer: loopback = crudo, tutto il resto = compresso. NON è la stessa domanda di
- * `isLocalTransport` (server/lib/tunnel.ts), che chiede «di chi mi fido» e per
- * cui il tunnel è remoto anche col peer a 127.0.0.1. Sul tunnel una rete non c'è:
- * dall'altro capo del socket sta `relay-client.ts`, su questa stessa macchina,
- * che rigioca la richiesta con `fetch` e la scompatta subito — misurato, Bun
- * scompatta da sé — e infatti `intestazioniRisposta` toglie `content-encoding`
- * perché il corpo che riparte verso l'ospite è di nuovo testo. Comprimere lì
- * vuol dire pagare due volte per consegnare gli stessi byte.
+ * The question is therefore "is there a network in between", and it is answered
+ * with the address of the peer: loopback = raw, everything else = compressed.
+ * It is NOT the same question as `isLocalTransport` (server/lib/tunnel.ts),
+ * which asks "who do I trust" and for which the tunnel is remote even with the
+ * peer at 127.0.0.1. On the tunnel there is no network: at the other end of the
+ * socket sits `relay-client.ts`, on this very machine, which replays the
+ * request with `fetch` and inflates it right away (measured: Bun inflates by
+ * itself), and indeed `intestazioniRisposta` strips `content-encoding` because
+ * the body that leaves again towards the guest is text once more. Compressing
+ * there means paying twice to deliver the same bytes.
  *
- * ## Cosa NON si tocca
+ * ## What is NOT touched
  *
- * · `text/event-stream` — è lo streaming della chat. Comprimerlo vorrebbe dire
- *   bufferarlo, cioè trasformare un flusso in un blocco: la ragione per cui
- *   esiste. Qui si guarda solo `application/json`, e lo streaming non lo è.
- * · Le risposte già codificate (`Content-Encoding` presente).
- * · `HEAD` — il corpo lo svuota `Bun.serve` da sé, e una lunghezza compressa su
- *   un corpo vuoto sarebbe una bugia.
- * · Tutto ciò che sta sotto la soglia: un MTU. Sotto un pacchetto non si
- *   risparmia un viaggio, si spende solo CPU.
+ * · `text/event-stream`: it is the streaming of the chat. Compressing it would
+ *   mean buffering it, that is, turning a stream into a block: the reason why
+ *   it exists. Here we only look at `application/json`, and streaming is not.
+ * · The responses already encoded (`Content-Encoding` present).
+ * · `HEAD`: the body is emptied by `Bun.serve` itself, and a compressed length
+ *   on an empty body would be a lie.
+ * · Everything that sits under the threshold: one MTU. Below one packet you do
+ *   not save a round trip, you only spend CPU.
  */
 
-/** Un pacchetto. Sotto, comprimere non toglie nemmeno un viaggio di rete. */
-export const SOGLIA_BYTE = 1400;
+/** One packet. Below it, compressing does not remove even one network round trip. */
+export const MIN_COMPRESS_BYTES = 1400;
 
 /**
- * Byte su un buffer NON condiviso: `Bun.gzipSync` e il corpo di una `Response`
- * rifiutano entrambi un `SharedArrayBuffer`, e `Uint8Array` da solo li
- * ammetterebbe entrambi.
+ * Bytes over a NON shared buffer: `Bun.gzipSync` and the body of a `Response`
+ * both reject a `SharedArrayBuffer`, and `Uint8Array` on its own would admit
+ * both.
  */
-type Byte = Uint8Array<ArrayBuffer>;
+type Bytes = Uint8Array<ArrayBuffer>;
 
-/** Gli stati che per specifica non possono avere un corpo. */
-const SENZA_CORPO = new Set([101, 204, 205, 304]);
+/** The statuses that by spec cannot have a body. */
+const BODYLESS_STATUSES = new Set([101, 204, 205, 304]);
 
 /**
- * Questa risposta va compressa?
+ * Should this response be compressed?
  *
- * Funzione pura, separata dall'applicazione, perché è QUI che stanno le
- * decisioni da provare una per una — e provarle richiederebbe altrimenti un
- * server vero.
+ * A pure function, kept apart from the application, because it is HERE that the
+ * decisions to be tested one by one live, and testing them would otherwise
+ * require a real server.
  */
-export function vaCompressa(args: {
-  metodo: string;
-  stato?: number;
+export function shouldCompress(args: {
+  method: string;
+  status?: number;
   acceptEncoding: string | null;
   contentType: string | null;
   contentEncoding: string | null;
-  /** `false` per loopback: vedi la nota in testa al file. */
-  remoto: boolean;
-  /** Byte del corpo, quando già noti. `null` = ancora da leggere. */
-  byte: number | null;
-  soglia?: number;
+  /** `false` for loopback: see the note at the top of the file. */
+  remote: boolean;
+  /** Bytes of the body, when already known. `null` = still to be read. */
+  bytes: number | null;
+  threshold?: number;
 }): boolean {
-  const soglia = args.soglia ?? SOGLIA_BYTE;
-  if (!args.remoto) return false;
-  if (args.metodo === "HEAD") return false;
-  // Gli stati che per specifica NON hanno corpo. Su Bun ricostruirli non lancia
-  // (verificato: `new Response(new Uint8Array(0), {status: 304})` passa), quindi
-  // oggi il ramo sarebbe innocuo — ma un 304 riscritto con `Content-Length: 20`
-  // e `Content-Encoding: gzip` racconterebbe di un corpo che non c'è, e questa
-  // funzione gira su OGNI risposta del server. Si esce prima e non se ne parla.
-  if (args.stato !== undefined && SENZA_CORPO.has(args.stato)) return false;
+  const threshold = args.threshold ?? MIN_COMPRESS_BYTES;
+  if (!args.remote) return false;
+  if (args.method === "HEAD") return false;
+  // The statuses that by spec have NO body. On Bun rebuilding them does not
+  // throw (verified: `new Response(new Uint8Array(0), {status: 304})` passes),
+  // so today the branch would be harmless, but a 304 rewritten with
+  // `Content-Length: 20` and `Content-Encoding: gzip` would tell of a body that
+  // is not there, and this function runs on EVERY response of the server. We
+  // bail out earlier and that is the end of it.
+  if (args.status !== undefined && BODYLESS_STATUSES.has(args.status)) return false;
   if (args.contentEncoding) return false;
   if (!(args.contentType ?? "").toLowerCase().startsWith("application/json")) return false;
-  // `gzip` come token, non come sottostringa: `Accept-Encoding: gzipx` non è gzip,
-  // e `x-gzip` è un altro nome dello stesso schema che qui non promettiamo.
+  // `gzip` as a token, not as a substring: `Accept-Encoding: gzipx` is not gzip,
+  // and `x-gzip` is another name for the same scheme that we do not promise here.
   if (!/(^|[\s,])gzip\s*(;|,|$)/i.test(args.acceptEncoding ?? "")) return false;
-  if (args.byte !== null && args.byte < soglia) return false;
+  if (args.bytes !== null && args.bytes < threshold) return false;
   return true;
 }
 
 /**
- * La stessa risposta, compressa quando conviene.
+ * The same response, compressed when it is worth it.
  *
- * Il corpo si legge una volta sola: una `Response` letta è consumata, quindi
- * anche il ramo «troppo piccola, lascia stare» deve ricostruirla dai byte già
- * letti. Leggerlo tutto va bene solo perché qui si arriva unicamente per
- * `application/json`, che è già una stringa intera in memoria.
+ * The body is read exactly once: a `Response` that has been read is consumed,
+ * so even the "too small, leave it alone" branch has to rebuild it from the
+ * bytes already read. Reading it whole is fine only because we get here solely
+ * for `application/json`, which is already a whole string in memory.
  */
-export async function comprimiJson(
+export async function compressJson(
   req: Request,
   res: Response,
-  remoto: boolean,
-  opts?: { soglia?: number; gzip?: (b: Byte) => Byte },
+  remote: boolean,
+  opts?: { threshold?: number; gzip?: (b: Bytes) => Bytes },
 ): Promise<Response> {
-  const primoVaglio = vaCompressa({
-    metodo: req.method,
-    stato: res.status,
+  const firstPass = shouldCompress({
+    method: req.method,
+    status: res.status,
     acceptEncoding: req.headers.get("accept-encoding"),
     contentType: res.headers.get("content-type"),
     contentEncoding: res.headers.get("content-encoding"),
-    remoto,
-    byte: null,
-    soglia: opts?.soglia,
+    remote,
+    bytes: null,
+    threshold: opts?.threshold,
   });
-  if (!primoVaglio) return res;
+  if (!firstPass) return res;
 
-  const crudo = new Uint8Array(await res.arrayBuffer()) as Byte;
-  if (crudo.byteLength < (opts?.soglia ?? SOGLIA_BYTE)) {
-    return new Response(crudo, { status: res.status, statusText: res.statusText, headers: res.headers });
+  const raw = new Uint8Array(await res.arrayBuffer()) as Bytes;
+  if (raw.byteLength < (opts?.threshold ?? MIN_COMPRESS_BYTES)) {
+    return new Response(raw, { status: res.status, statusText: res.statusText, headers: res.headers });
   }
-  const gzip = opts?.gzip ?? ((b: Byte) => Bun.gzipSync(b) as Byte);
-  const compresso = gzip(crudo);
+  const gzip = opts?.gzip ?? ((b: Bytes) => Bun.gzipSync(b) as Bytes);
+  const compressed = gzip(raw);
   const headers = new Headers(res.headers);
   headers.set("Content-Encoding", "gzip");
-  headers.set("Content-Length", String(compresso.byteLength));
-  // Senza `Vary`, una cache intermedia servirebbe la risposta compressa a un
-  // client che non sa scompattarla.
+  headers.set("Content-Length", String(compressed.byteLength));
+  // Without `Vary`, an intermediate cache would serve the compressed response
+  // to a client that cannot inflate it.
   const vary = headers.get("Vary");
   if (!vary) headers.set("Vary", "Accept-Encoding");
   else if (!/\baccept-encoding\b/i.test(vary)) headers.set("Vary", `${vary}, Accept-Encoding`);
-  return new Response(compresso, { status: res.status, statusText: res.statusText, headers });
+  return new Response(compressed, { status: res.status, statusText: res.statusText, headers });
 }

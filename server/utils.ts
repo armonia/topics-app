@@ -26,6 +26,7 @@ import { createWorktreeStore } from "./services/worktree-store";
 import { createWorktreeManager } from "./services/worktree-manager";
 import { createMachineStore } from "./services/machine-store";
 import { parseToolCallDetail } from "../shared/tool-call-detail";
+import { shouldCompressFrame } from "./lib/ws-compression";
 import { isEmptyAssistantTurn } from "../shared/empty-turn";
 import { validateOutbound } from "../shared/ws-outbound";
 import { releaseHumanHold } from "./lib/human-hold";
@@ -601,6 +602,29 @@ export function createAppContext(baseDir: string): AppContext {
   }
 
   // --- Broadcast helpers ---
+  /**
+   * One frame out on one socket, compressed only when it is worth it.
+   *
+   * Every fan-out below used to call `ws.send(payload)` inside its own
+   * try/catch, six copies of the same three lines. They are one function now
+   * because the compression decision has to be made in ONE place: six copies of
+   * a rule are five chances for it to drift, and the one that drifts is always
+   * the least used path.
+   *
+   * The decision itself lives in `server/lib/ws-compression.ts`, with the
+   * measurements behind it. In short: compress toward a peer with a network in
+   * between, leave everything under one MTU alone (which is what keeps every
+   * keystroke of a terminal off the compressor), and never touch a screencast
+   * frame, which is base64 of an already compressed JPEG.
+   */
+  function sendFrame(ws: ServerWebSocket<WSData>, payload: string, type: string): void {
+    try {
+      ws.send(payload, shouldCompressFrame({ type, bytes: payload.length, remote: ws.data.remote === true }));
+    } catch (err) {
+      console.error(`[WS] Send error to ${ws.data.id}:`, err);
+    }
+  }
+
   function broadcast(message: OutboundMessage, exclude?: ServerWebSocket<WSData>) {
     devValidateOutbound(message);
     const payload = JSON.stringify(message);
@@ -619,9 +643,7 @@ export function createAppContext(baseDir: string): AppContext {
     for (const ws of wsClients) {
       if (ws !== exclude && ws.readyState === 1) {
         if (guests && isGuestSocket(ws) && !guests.mayReceiveFrame(ws.data.deviceId!, message)) continue;
-        try { ws.send(payload); } catch (err) {
-          console.error(`[WS] Send error to ${ws.data.id}:`, err);
-        }
+        sendFrame(ws, payload, message.type);
       }
     }
   }
@@ -655,9 +677,7 @@ export function createAppContext(baseDir: string): AppContext {
     for (const ws of wsClients) {
       if (ws.readyState !== 1) continue;
       if (guests && isGuestSocket(ws) && !guests.mayReceiveFrame(ws.data.deviceId!, message)) continue;
-      try { ws.send(payload); } catch (err) {
-        console.error(`[WS] Send error to ${ws.data.id}:`, err);
-      }
+      sendFrame(ws, payload, message.type);
     }
     // Trigger push notifications for meaningful events
     try { maybeSendPush(message as Record<string, any>); } catch (err) {
@@ -723,9 +743,7 @@ export function createAppContext(baseDir: string): AppContext {
         payload = JSON.stringify(message);
         serializzati.set(message.type, payload);
       }
-      try { ws.send(payload); } catch (err) {
-        console.error(`[WS] Send error to ${ws.data.id}:`, err);
-      }
+      sendFrame(ws, payload, message.type);
     }
   }
 
@@ -743,9 +761,7 @@ export function createAppContext(baseDir: string): AppContext {
     const payload = JSON.stringify(message);
     for (const ws of wsClients) {
       if (ws.readyState !== 1 || ws.data.deviceId !== deviceId) continue;
-      try { ws.send(payload); } catch (err) {
-        console.error(`[WS] Send error to ${ws.data.id}:`, err);
-      }
+      sendFrame(ws, payload, message.type);
     }
   }
 
@@ -778,9 +794,7 @@ export function createAppContext(baseDir: string): AppContext {
         // Qui l'entità è l'argomento, non un campo del frame: si chiede il
         // permesso sul TOPIC, che è la cosa che si sta per consegnare.
         if (guests && isGuestSocket(ws) && !guests.mayReadTopic(ws.data.deviceId!, topicId)) continue;
-        try { ws.send(payload); } catch (err) {
-          console.error(`[WS] Send error to ${ws.data.id}:`, err);
-        }
+        sendFrame(ws, payload, message.type);
       }
     }
   }
@@ -806,9 +820,7 @@ export function createAppContext(baseDir: string): AppContext {
       // gli scorreva addosso mentre l'allowlist dei frame guardava altrove.
       if (guests && isGuestSocket(ws) && !guests.mayReadTopic(ws.data.deviceId!, topicId)) continue;
       if (!clientReceivesTopicDelta(ws.data, topicId)) continue;
-      try { ws.send(payload); } catch (err) {
-        console.error(`[WS] Send error to ${ws.data.id}:`, err);
-      }
+      sendFrame(ws, payload, message.type);
     }
   }
 
@@ -992,8 +1004,8 @@ export function createAppContext(baseDir: string): AppContext {
     // Get all messages for this session. A caller that wants neither the blocks
     // nor the tool calls gets the lean read: those two columns are never asked
     // of SQLite at all, instead of arriving only to be thrown away.
-    const magro = opts?.withBlocks === false && opts?.withToolCalls === false;
-    const allRows = (magro ? stmts.getMessagesLean : stmts.getMessages).all(sessionKey) as any[];
+    const lean = opts?.withBlocks === false && opts?.withToolCalls === false;
+    const allRows = (lean ? stmts.getMessagesLean : stmts.getMessages).all(sessionKey) as any[];
     if (allRows.length === 0) return [];
 
     // Build parent→children map
