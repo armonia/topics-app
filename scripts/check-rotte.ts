@@ -94,6 +94,38 @@ export const ROUTE_KEYS = [
 ] as const;
 export type RouteKey = (typeof ROUTE_KEYS)[number];
 
+/**
+ * La rotta che fa da METRO alla macchina, non al prodotto.
+ *
+ * `dispatch_capacity` legge core, RAM e load e basta: il suo numero e' il costo
+ * di una richiesta PRIMA di arrivare al gestore. Quando lei e' fuori scala,
+ * ogni altra cifra della stessa corsa se lo porta dentro, e non c'e' modo di
+ * distinguere una macchina lenta da una regressione a monte. Vedi il controllo
+ * in fondo a `main()`.
+ */
+export const CALIBRATION_KEY: RouteKey = "dispatch_capacity";
+
+/**
+ * Il tubo e' fuori scala? Se si', questa corsa non misura il prodotto.
+ *
+ * Pura e a parte perche' e' la decisione che va provata nei DUE versi: che scatti
+ * quando il metro e' saltato, e che NON scatti quando il metro sta a posto, cosi'
+ * una rotta che peggiora da sola continua a uscire rossa. Provarla dal banco vero
+ * richiederebbe una macchina lenta a comando.
+ *
+ * Torna `null` quando si puo' misurare, altrimenti il numero misurato e il suo
+ * tetto, cioe' quello che serve per scrivere il messaggio.
+ */
+export function calibrationOutOfScale(
+  measured: Record<RouteKey, number>,
+  baseline: Baseline,
+): { measuredMs: number; capMs: number; baselineMs: number } | null {
+  const baselineMs = baseline.routes[CALIBRATION_KEY].median_ms;
+  const capMs = budgetMs(baselineMs, baseline.tolerance_pct, baseline.floor_ms);
+  const measuredMs = measured[CALIBRATION_KEY];
+  return measuredMs > capMs ? { measuredMs, capMs, baselineMs } : null;
+}
+
 export interface Corpus {
   topics: number;
   messages: number;
@@ -662,6 +694,45 @@ async function main(): Promise<void> {
           `Questa macchina si sta muovendo sotto la misura (agenti che girano, una build,\n` +
           `un'altra suite). Non e' una regressione e non viene chiamata tale: rilancia a\n` +
           `macchina ferma, o alza --samples.`,
+      );
+      exitCode = 2;
+      return;
+    }
+
+    // ── IL TUBO E' IL METRO ──────────────────────────────────────────────────
+    //
+    // `dispatch_capacity` non e' una rotta come le altre: non fa quasi niente
+    // (legge core, RAM e load), quindi il suo numero e' il costo di una
+    // RICHIESTA prima di arrivare al gestore. Il commento in testa a questo file
+    // lo dice gia': «se peggiora lei, e' peggiorato qualcosa a monte che le altre
+    // tre pagano tutte». Fin qui pero' quel numero si stampava e basta.
+    //
+    // Serve perche' il controllo delle due passate non vede una macchina
+    // UNIFORMEMENTE lenta: se il carico c'e' per tutta la corsa, le due passate
+    // si somigliano benissimo e sono d'accordo su un numero che parla del
+    // portatile. Misurato il 2026-08-14 su questa macchina, con Spotify, un
+    // decoder video e due browser addosso: `all_boards_tasks` 8 ms contro una
+    // baseline di 0,75, e lo stesso identico numero su un albero PRECEDENTE a
+    // ogni modifica di quel giorno (8,68 ms). Non era una regressione, e il
+    // cancello la chiamava cosi'.
+    //
+    // Quando il tubo sfonda il suo tetto nessun numero di quella corsa separa
+    // «macchina lenta» da «regressione a monte»: sono la stessa curva. L'unica
+    // risposta onesta e' 2, cioe' NON MISURABILE, che e' la stessa scelta di
+    // `check:fluido` con la sua calibrazione a riposo. Una rotta singola che
+    // peggiora mentre il tubo sta a posto continua a uscire 1, ed e' provato dal
+    // guasto sintetico (`TOPICS_ROTTE_FAULT_MS=40`).
+    const tubo = calibrationOutOfScale(measured, baseline);
+    if (tubo) {
+      console.error(
+        `\n⚠ NON MISURABILE: il tubo e' fuori scala.\n` +
+          `  - ${CALIBRATION_KEY}: ${round2(tubo.measuredMs)} ms > ${round2(tubo.capMs)} ms ` +
+          `(baseline ${round2(tubo.baselineMs)} ms)\n\n` +
+          `Quella rotta non fa quasi niente: il suo numero e' il costo di una richiesta PRIMA\n` +
+          `del gestore. Se e' fuori scala, ogni altra cifra di questa corsa la porta dentro, e\n` +
+          `«macchina lenta» e «regressione a monte» diventano la stessa curva. Non si sceglie a\n` +
+          `caso fra le due: si rimisura a macchina ferma. Se il tubo resta fuori scala anche li',\n` +
+          `QUELLA e' la scoperta, e riguarda tutte e quattro le rotte insieme.`,
       );
       exitCode = 2;
       return;
