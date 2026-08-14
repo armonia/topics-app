@@ -6,6 +6,8 @@ import { getTerminalSessionFromPaneId } from '../state/pane/adapters';
 import { useRefMirror } from './useRefMirror';
 import { isTauri } from '../lib/shell';
 import { tauriInvoke } from '../lib/shell/tauri';
+import { useBoardTasks } from '../lib/boardTasksStore';
+import { trayBoardGroups, trayBoardAttention } from '../../../shared/tray-board';
 
 interface TabNotificationContextValue {
   /** Get badge count for a pane. Chat panes use unreadData[topicId], others use extraCounts. */
@@ -173,10 +175,29 @@ export function TabNotificationProvider({
       .slice(0, 8)
       .map(({ id, title }) => ({ id, title }));
   }, [topics, unreadData, claudeAttentionTopics]);
+  // IL LAVORO DELLA BOARD, nella stessa chiamata. La tray è l'unica superficie
+  // che resta quando la finestra è nascosta, e diceva soltanto chi aspetta una
+  // risposta in chat: dei task aperti, niente. Le righe arrivano dallo STESSO
+  // store che alimenta la riga «Board» in sidebar (`boardTasksStore`), così le
+  // due superfici non possono raccontare due board diverse; COSA entra nel menu
+  // (ordine, esclusi, taglio dei titoli) lo decide `shared/tray-board`, dove è
+  // provato — qui si legge e si spedisce, non si ridecide.
+  const boardTasks = useBoardTasks();
+  const boardGroups = useMemo(() => trayBoardGroups(boardTasks), [boardTasks]);
+  // Il glifo conta anche le card che aspettano una DECISIONE. È lo stesso
+  // criterio delle chat («chi sta chiedendo qualcosa a un umano»), quindi
+  // finisce nello stesso numero: due contatori diversi su dock e barra dei menu
+  // sarebbero la deriva che questo punto esiste per impedire. Il lavoro che
+  // gira da solo non entra: non chiede niente a nessuno.
+  const chromeCount = totalAttention + trayBoardAttention(boardGroups);
   useEffect(() => {
     if (!isTauri) return;
-    void tauriInvoke('set_app_status', { count: totalAttention, items: attentionItems }).catch(() => {});
-  }, [totalAttention, attentionItems]);
+    void tauriInvoke('set_app_status', {
+      count: chromeCount,
+      items: attentionItems,
+      groups: boardGroups,
+    }).catch(() => {});
+  }, [chromeCount, attentionItems, boardGroups]);
 
   // PWA / browser app badge (the Badging API — navigator.setAppBadge). This is
   // the SILENT channel: a muted topic emits no banner (useCompletionNotifier
@@ -188,6 +209,13 @@ export function TabNotificationProvider({
   // drops). Feature-detected: no-op where the API is absent (Firefox, older
   // Safari). Runs on EVERY shell — the Badging API also lights the Tauri app
   // icon on platforms that support it, complementing the native tray glyph.
+  //
+  // STESSO NUMERO del glifo nativo (`chromeCount`), non `totalAttention`: sono
+  // due strade che dipingono LA STESSA icona (su macOS il dock la riceve da
+  // entrambe), e da quando le card in review contano, tenerle su due conti
+  // diversi voleva dire un badge che cambia valore a seconda di chi l'ha
+  // scritto per ultimo. Il criterio è uno: quante cose stanno chiedendo
+  // qualcosa a un umano.
   useEffect(() => {
     const nav = typeof navigator !== 'undefined'
       ? (navigator as Navigator & {
@@ -197,10 +225,10 @@ export function TabNotificationProvider({
       : null;
     if (!nav?.setAppBadge) return;
     try {
-      if (totalAttention > 0) void nav.setAppBadge(totalAttention).catch(() => {});
+      if (chromeCount > 0) void nav.setAppBadge(chromeCount).catch(() => {});
       else void nav.clearAppBadge?.().catch(() => {});
     } catch { /* Badging API can throw synchronously in locked-down webviews */ }
-  }, [totalAttention]);
+  }, [chromeCount]);
 
   const value = useMemo((): TabNotificationContextValue => ({
     getBadgeCount,
