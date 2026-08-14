@@ -317,7 +317,10 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   // messaggio arriva già con l'etichetta della voce premuta, e va tradotto e
   // appoggiato su QUESTA card. Un esito buono la ripulisce.
   const choiceFailed = (message: string) => onError(task.id, taskActionErrorMessage(message));
-  const choiceDone = () => { clearError(); onRefetch(); };
+  // Il campo si svuota anche qui: da quando «Rimanda indietro» porta con sé il
+  // testo, lasciarlo nella casella dopo un esito buono lo farebbe sembrare mai
+  // partito — e al secondo click ripartirebbe due volte.
+  const choiceDone = () => { clearError(); setFreeText(''); onRefetch(); };
 
   // Route mutations by the task's own projectId (works in the global board too).
   const review = async (decision: 'approve' | 'reject', comment?: string) => {
@@ -847,10 +850,15 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
               proposto niente. Nascono dallo stato (ramo consegnato o no), e sono
               le stesse azioni dei bottoni che stavano qui — dette per nome
               invece che come due icone ✓/✗. Il campo libero resta sotto. */}
+          {/* `pendingText`: quello che hai già battuto qui sotto viaggia con
+              «Rimanda indietro». Prima restava nella casella e l'agente
+              ripartiva senza indicazione — stesso difetto del drawer, stessa
+              riga di codice che lo causava (`review(reject)` senza commento). */}
           <TaskChoiceRow
             task={task} disabled={busy}
             onDone={choiceDone} onError={choiceFailed}
             onNeedText={() => freeTextRef.current?.focus()}
+            pendingText={() => freeText}
           />
           <div className="flex items-center gap-1">
             <input
