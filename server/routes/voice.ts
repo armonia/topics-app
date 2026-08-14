@@ -35,6 +35,37 @@ export function createVoiceRouter(ctx: AppContext, deps: Partial<SttDeps> = {}):
       return json(sttCapabilities(env));
     }
 
+    // --- La nota vocale VUOTA si registra da sola ---
+    //
+    // Perche' esiste. Il difetto «il vocale non parte sul telefono» e' rimasto
+    // senza diagnosi per giorni per un motivo strutturale: il guasto succede
+    // PRIMA della richiesta, quindi il server non ne sapeva niente. Misurato sul
+    // log di 300 avvii: 27 `GET /api/stt/capabilities` e ZERO `POST /api/stt`.
+    // Il client chiedeva «la trascrizione c'e'?» e non mandava mai audio, e
+    // quell'assenza non lascia traccia da nessuna parte.
+    //
+    // Il messaggio a schermo (`messaggioNotaVuota`) dice la causa a chi sta
+    // guardando in quel momento. Su un telefono non c'e' una console, il toast
+    // sparisce, e chi lo legge non e' chi ripara. Qui la stessa frase diventa
+    // una riga di log sul server, con i due numeri che distinguono i due
+    // guasti: il prossimo tentativo, da qualunque dispositivo, lascia la sua
+    // causa dove qualcuno la ritrova.
+    //
+    // NON porta audio e non risponde niente: e' una segnalazione, non un
+    // caricamento. Percio' e' innocua anche se qualcuno la chiama a mano.
+    if (method === "POST" && pathname === "/api/stt/vuota") {
+      let corpo: { spezzoni?: unknown; byte?: unknown; mimeType?: unknown; superficie?: unknown } = {};
+      try { corpo = (await req.json()) as typeof corpo; } catch { /* corpo storto: si registra lo stesso */ }
+      const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : -1);
+      const testo = (v: unknown) => (typeof v === "string" && v.length <= 80 ? v : "?");
+      const ua = req.headers.get("user-agent") ?? "?";
+      console.warn(
+        `[stt] nota vocale VUOTA: ${n(corpo.spezzoni)} spezzoni, ${n(corpo.byte)} byte, ` +
+          `mime ${testo(corpo.mimeType)}, superficie ${testo(corpo.superficie)} · ${ua.slice(0, 120)}`,
+      );
+      return json({ ok: true });
+    }
+
     // --- STT ---
     if (method === "POST" && pathname === "/api/stt") {
       try {

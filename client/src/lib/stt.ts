@@ -119,6 +119,30 @@ export const MIN_VOICE_BLOB_BYTES = 512;
  * Sono due guasti diversi e si riparano in due posti diversi: senza i numeri,
  * chi legge «non funziona» non puo' saperlo.
  */
+/**
+ * La stessa notizia, ma al SERVER.
+ *
+ * Il messaggio a schermo lo legge chi sta guardando in quel momento; su un
+ * telefono il toast sparisce e chi lo legge non e' chi ripara. Questa riga
+ * invece resta nel log del server, ed e' il motivo per cui il difetto «il
+ * vocale non parte» e' rimasto senza diagnosi: il guasto succede PRIMA della
+ * richiesta di trascrizione, quindi il server non ne sapeva niente. Misurato
+ * su 300 avvii: 27 richieste di capabilities e zero caricamenti di audio.
+ *
+ * Non aspetta la risposta e non rompe niente se fallisce: e' una segnalazione,
+ * e una segnalazione che fa danno e' peggio del silenzio che voleva togliere.
+ */
+export function segnalaNotaVuota(spezzoni: number, byte: number, mimeType: string, superficie: string): void {
+  try {
+    void fetch('/api/stt/vuota', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ spezzoni, byte, mimeType, superficie }),
+      keepalive: true,
+    }).catch(() => { /* il log e' un di piu': non deve poter rompere la app */ });
+  } catch { /* idem */ }
+}
+
 export function messaggioNotaVuota(spezzoni: number, byte: number, mimeType: string): string {
   return `Nota vocale vuota: ${spezzoni} spezzoni, ${byte} byte in ${mimeType || 'formato ignoto'}. Niente da trascrivere.`;
 }
