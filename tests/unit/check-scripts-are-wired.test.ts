@@ -61,6 +61,14 @@ const MOTIVI: Record<string, string> = {
   "check:painted": "gira su landing/dist, un sito gia' costruito che nessun workflow costruisce.",
   "check:landing": "gira su landing/dist, un sito gia' costruito che nessun workflow costruisce.",
   "check:copy": "gira su landing/dist, un sito gia' costruito che nessun workflow costruisce.",
+  "check:ink":
+    "e' un cancello VERO del codice — misura i millisecondi dal click all'inchiostro sulle tre " +
+    "azioni piu' frequenti — ma vuole un bundle del client COSTRUITO e il server di test in " +
+    "piedi, cioe' la stessa attrezzatura degli e2e, non quella dei controlli statici. Metterlo " +
+    "fra i guard rails li farebbe passare da secondi a minuti su ogni push. Gira a mano " +
+    "(`bun run check:ink`), e ha la sua leva di falsificazione: `--stall 300` rende l'app " +
+    "davvero lenta e il cancello DEVE diventare rosso. Il posto dove cablarlo, quando ci sara' " +
+    "un lavoro e2e in CI, e' li' — non qui.",
   "check:occlusion":
     "e' un cancello VERO del codice, ma vuole un WebKit di Playwright e un bundle costruito: " +
     "gira a mano, ed e' anche l'attrezzo che registra la clip di consegna (--video).",
