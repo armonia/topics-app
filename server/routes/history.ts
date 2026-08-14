@@ -137,14 +137,14 @@ export function createHistoryRouter(ctx: AppContext, deps: HistoryDeps): RouteHa
 
       const lastMsg = completeMsgs[completeMsgs.length - 1];
       const hasOrphanedMessage = lastMsg?.role === 'user';
-      // Via le copie che il client non legge: `toolCalls` accanto a `blocks`, e
-      // `result` dentro una toolCall che ha già quel testo in `detail`. Su una
-      // topic di lavoro lunga (118 messaggi, misurata il 2026-08-14) sono
-      // 8,20 MB → 5,42 MB, e su una PWA in LAN quella differenza è schermo
-      // vuoto. La regola sta in `shared/lean-tool-call.ts` — con il perché di
-      // ognuna delle due, e la ragione per cui i parziali si lasciano stare —
-      // perché anche `/api/topics/:id/messages` deve applicarla.
-      // Cancello: tests/integration/history-payload-weight.test.ts.
+      // Drop the copies the client never reads: `toolCalls` alongside `blocks`,
+      // and `result` inside a toolCall whose `detail` already carries that same
+      // text. On a long working topic (118 messages, measured 2026-08-14) that
+      // is 8.20 MB down to 5.42 MB, and on a PWA over the LAN the difference is
+      // seconds of empty screen. The rule lives in `shared/lean-tool-call.ts`,
+      // together with the reason for each half and the reason partial messages
+      // are left alone, because `/api/topics/:id/messages` has to apply it too.
+      // Gate: tests/integration/history-payload-weight.test.ts.
       const lean = leanMessagesForWire(result);
       // Compaction dividers (CHAT-COMPACT-01) — display-only, folded into the
       // timeline client-side by `afterMessageId`. Cheap query; empty for the
