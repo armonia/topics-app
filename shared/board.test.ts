@@ -179,7 +179,7 @@ describe("perché questa card è ferma", () => {
   };
   const ctx = {
     now: NOW, autoDispatch: true, retryCap: 2, ahead: 0,
-    heavyHeld: false, behind: 0,
+    heavyHeld: false, heavyInFlight: false, behind: 0,
     parentStatus: null as string | null, projectless: false, openSubtasks: 0,
     formatTime: () => "06:40",
   };
@@ -407,6 +407,66 @@ describe("perché questa card è ferma", () => {
     // E soprattutto NON è la frase di prima, che a fila ferma diceva pure il vero.
     expect(reason({}, { ahead: 0 }).detail).toBe("la prossima");
     expect(tappo.detail).not.toBe("la prossima");
+  });
+
+  /**
+   * IL MOTIVO DELL'ATTESA, SCRITTO DOVE NESSUNO GUARDAVA.
+   *
+   * Misurato sul DB vivo il 12/08 in tarda serata, mentre l'utente chiedeva
+   * «ci sono 4 task in coda e non capisco se è per il carico, perché non vedo
+   * il limite abilitato». Non era il carico e non era il tetto: c'era una card
+   * PESANTE in volo, e «un pesante in volo blocca OGNI claim»
+   * (`task-dispatcher.ts`, ramo `heavyBusy`). Il sistema lo sapeva e l'aveva
+   * già scritto — nel THREAD di ognuna delle tre card. Sulla card c'era solo il
+   * chip generico «in coda».
+   *
+   * `heavyHeld` non copre quel ramo, e non deve: porta `&& !heavyInFlight()`
+   * apposta, perché senza direbbe quattro cose false («tiene la testa della
+   * coda», «aspetta che la macchina abbia margine», «parte entro il tetto
+   * d'attesa», «abbassagli la priorità») — nel ramo `heavyBusy` l'ordine della
+   * fila non lo legge nessuno, l'attesa non ha tetto e la priorità non sblocca
+   * niente. Tolta la bugia, però, la card restava MUTA: ricadeva su «in coda, N
+   * davanti», che è la parola vaga da cui si era partiti.
+   */
+  test("un PESANTE IN VOLO ha una frase sua, e non è quella del carico", () => {
+    const busy = reason({ dispatchState: "queued" }, { heavyInFlight: true, ahead: 3 });
+    expect(busy.kind).toBe("heavy_busy");
+    // Riparte da sé quando finisce quel turno: attesa, non stallo.
+    expect(busy.tone).toBe("waiting");
+
+    // LE QUATTRO BUGIE, nominate una per una: nessuna può ricomparire.
+    const tutto = `${busy.head} ${busy.detail} ${busy.title}`;
+    expect(tutto).not.toContain("testa della coda");
+    expect(tutto).not.toContain("margine");
+    expect(tutto).not.toContain("tetto");
+    expect(tutto).not.toContain("priorità");
+    // E nemmeno la fila, che qui non la legge nessuno.
+    expect(tutto).not.toContain("3 davanti");
+
+    // La frase del CARICO è un'altra cosa, e resta l'altra cosa.
+    const carico = reason({ dispatchState: "queued" }, { heavyHeld: true, behind: 4 });
+    expect(carico.kind).toBe("heavy_hold");
+    expect(busy.detail).not.toBe(carico.detail);
+    expect(busy.title).not.toBe(carico.title);
+  });
+
+  test("il pesante in volo ferma OGNI card, non solo le pesanti", () => {
+    // È il ramo `heavyBusy` del tick: mette il chip `queued` su ogni todo della
+    // board, non solo sui pesanti. La ragione deve valere altrettanto, o le
+    // leggere ricadrebbero su «in coda» proprio mentre non parte nessuno.
+    const leggera = reason({}, { heavyInFlight: true, ahead: 0 });
+    expect(leggera.kind).toBe("heavy_busy");
+    expect(leggera.detail).not.toBe("la prossima");
+  });
+
+  test("il pesante in volo non copre le ragioni della card né l'interruttore", () => {
+    // Stessa precedenza del tappo da carico: quello che è fermo per conto suo
+    // resta fermo per conto suo, e a dispatch spento non c'è coda da bloccare.
+    const busy = { heavyInFlight: true };
+    expect(reason({ dispatchAttempts: 2 }, busy).kind).toBe("attempts");
+    expect(reason({}, { ...busy, autoDispatch: false }).kind).toBe("dispatch_off");
+    expect(reason({ blockedByTaskId: "x" }, busy).kind).toBe("blocked");
+    expect(reason({ parentTaskId: "p" }, { ...busy, parentStatus: "in_progress" }).kind).toBe("parent_turn");
   });
 
   test("il tappo non copre le ragioni della card, né l'interruttore spento", () => {
