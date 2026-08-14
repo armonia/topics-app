@@ -38,7 +38,8 @@ non-zero quando peggiora.
 3. **Il bootstrap del WebSocket.** 176,7 KB alla connessione, misurati oggi:
    `ui-state:init` 84,5 KB (di cui `pane-store-v2` da solo 65,8 KB) e
    `unread:init` 79,8 KB su 843 topic, 517 dei quali per dire «zero non letti».
-   Arriva prima che l'app possa fare qualunque cosa, e non lo guarda nessuno.
+   Arriva prima che l'app possa fare qualunque cosa, non lo guarda nessuno, e
+   sul WebSocket la compressione HTTP non arriva (vedi sotto).
 4. **I terminali.** Nessuna misura di quanto costa una riga che arriva dal PTY,
    né di quanto redraw brucia una pane ferma.
 5. **Ricerca e dashboard.** Nessuna latenza dichiarata.
@@ -92,12 +93,34 @@ uno stato. Ora una raffica costa due letture (`client/src/lib/burstCoalescer.ts`
 
 ### Altre rotte, per confronto
 
-| rotta | byte | ms |
-|---|---|---|
-| `/api/topics` | 693.182 | 16 |
-| `/api/notifications` | 22.289 | 4 |
-| `/api/projects` | 3.666 | 4 |
-| `/api/system/dispatch-capacity` | 212 | 4 |
+| rotta | byte | ms | verso la LAN (gzip) |
+|---|---|---|---|
+| `/api/topics` | 693.182 | 16 | 103.947 (6,7×) |
+| `/api/notifications` | 22.289 | 4 | |
+| `/api/projects` | 3.666 | 4 | |
+| `/api/system/dispatch-capacity` | 212 | 4 | |
+
+### L'avvio, per com'è fatto oggi
+
+Nessuno di questi numeri è un difetto: sono il punto di partenza per chi vorrà
+toccare l'avvio, e servono a non farlo a naso.
+
+**`/api/topics` porta 977 topic, di cui 967 ARCHIVIATI.** «Aperto» vuol dire
+non-archiviato, quindi la sidebar ne disegna dieci e ne riceve novecentosettanta
+in più. Dentro, il campo più pesante è `systemPrompt`: **150 KB su 712**,
+valorizzato su 663 topic, e lo leggono solo due superfici — lo stato vuoto della
+chat e la finestra delle impostazioni — sempre e solo del topic APERTO. Toglierlo
+dalla lista vuol dire dare a quelle due una lettura per singolo topic: è una
+modifica di comportamento, non una sfoltita, e per questo qui c'è il numero e non
+la patch.
+
+**Il bootstrap del WebSocket porta 176,7 KB** e non è compresso da niente: la
+compressione HTTP non lo tocca, e `Bun.serve` ha `perMessageDeflate` spento di
+default (nel codice non è impostato). Comprimere il WebSocket è una decisione a
+parte da quella dell'HTTP, perché sullo stesso socket passano anche i tasti di un
+terminale e i frame di una pane browser: là un deflate per messaggio è costo puro.
+Se si farà, va fatto per messaggio (`ws.send(data, compress)`) e per peer, con la
+stessa domanda dell'HTTP — «c'è una rete in mezzo».
 
 ## Il cancello che c'era ma non girava — e il rosso che non era un difetto
 
