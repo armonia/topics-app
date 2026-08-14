@@ -45,6 +45,7 @@
     "check:emdash": "bun run scripts/check-emdash.ts",
     "check:eslint-disable": "bun run scripts/check-eslint-disable.ts",
     "check:test-skips": "bun run scripts/check-test-skips.ts",
+    "check:bloat": "bun run scripts/check-bloat.ts",
     "check:migrations": "bun run scripts/check-migration-numbers.ts",
     "migration:new": "bun run scripts/new-migration.ts",
     "check:deadcode": "bun run scripts/slot.ts check:deadcode -- './node_modules/.bin/knip-bun'",
