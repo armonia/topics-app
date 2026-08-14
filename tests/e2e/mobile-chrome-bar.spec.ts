@@ -1,26 +1,30 @@
 /**
  * LA CHROME DEL TELEFONO, MISURATA.
  *
- * Forma decisa da chi usa la app il 12/08: in alto solo «Topics», in basso tre porte —
- * cerca · aggiungi · board — e la fila che segue la curvatura dello schermo
- * «quando presente nell'iPhone, in modo da ottimizzare al massimo lo spazio».
+ * Forma decisa da chi usa la app il 12/08 e allargata il 14/08: in alto «Topics» a
+ * sinistra e la campanella a DESTRA, in basso quattro porte — cerca · aggiungi ·
+ * task · profilo — e la fila che segue la curvatura dello schermo «quando
+ * presente nell'iPhone, in modo da ottimizzare al massimo lo spazio».
  *
  * Ognuna di quelle frasi qui è un numero letto dal DOM, non un'impressione:
  *
- *  MOBILE-CHROME-01  in alto non c'è nient'altro che «Topics»
- *  MOBILE-CHROME-02  le tre porte esistono, e il dito ci arriva (≥44px)
+ *  MOBILE-CHROME-01  in alto non sono risaliti cerca e «+», e la campanella
+ *                    sta a destra mentre «Topics» sta a sinistra
+ *  MOBILE-CHROME-02  le quattro porte esistono, e il dito ci arriva (≥44px)
  *  MOBILE-CHROME-03  la fila è DRITTA su uno schermo squadrato e CURVA su uno
  *                    con gli angoli tondi — stesso codice, due misure
- *  MOBILE-CHROME-04  «board» è un interruttore: board ⇄ lista, andata e
+ *  MOBILE-CHROME-04  «task» è un interruttore: lista dei task ⇄ tab, andata e
  *                    ritorno, senza chiudere la board
- *  MOBILE-CHROME-05  la barra di stato non c'è più, e le sue cose (account,
- *                    prestazioni, versione) sono nel menu «Topics»
- *  MOBILE-CHROME-06  i tre tasti hanno la faccia di un tasto (campitura a
- *                    riposo, non solo sotto il dito)
- *  MOBILE-CHROME-07  l'angolo esterno segue la curva dello schermo — sinistra
- *                    a sinistra, destra a destra, il centro standard — e il
- *                    raggio applicato è quello CONCENTRICO a quello dichiarato,
- *                    non un numero scelto a mano
+ *  MOBILE-CHROME-05  la barra di stato non c'è più; prestazioni e versione sono
+ *                    nel menu «Topics», e l'account NON ci è più
+ *  MOBILE-CHROME-06  i tasti hanno la faccia di un tasto (campitura a riposo,
+ *                    non solo sotto il dito)
+ *  MOBILE-CHROME-07  l'angolo esterno segue la curva dello schermo — il primo
+ *                    a sinistra, l'ultimo a destra, quelli in mezzo standard —
+ *                    e il raggio applicato è quello CONCENTRICO a quello
+ *                    dichiarato, non un numero scelto a mano
+ *  MOBILE-CHROME-08  la porta del profilo apre Impostazioni sulla scheda
+ *                    «Profile», senza passare da nessun menu
  *
  * La fascia inferiore si FORZA (`--sab`), non si aspetta un iPhone vero: è
  * esattamente il motivo per cui quell'inset vive in una variabile CSS invece
@@ -40,6 +44,7 @@ const BARRA = '[data-testid="mobile-chrome-bar"]';
 const CERCA = '[data-testid="mobile-chrome-search"]';
 const AGGIUNGI = '[data-testid="pane-add-menu-trigger"]';
 const BOARD = '[data-testid="mobile-chrome-board"]';
+const PROFILO = '[data-testid="mobile-chrome-profile"]';
 
 /** La fascia dell'home indicator di un iPhone in verticale. */
 const FASCIA_IPHONE = 34;
@@ -131,51 +136,81 @@ function haCampitura(colore: string): boolean {
 }
 
 test.describe.serial("La chrome del telefono", () => {
-  test("MOBILE-CHROME-01 — in alto c'è «Topics», e nient'altro", async ({ page }) => {
+  test("MOBILE-CHROME-01 — in alto «Topics» a sinistra, la campanella a destra", async ({ page }) => {
     await apri(page);
 
     const topics = page.locator('[data-testid="sidebar-topics-menu"]');
     await expect(topics).toBeVisible();
 
     // Cerca e «+» non sono più lassù: sono scesi nella fila. La prova che NON
-    // sono spariti la dà MOBILE-CHROME-02, qui si prova solo che l'alto è
-    // sgombro — l'header della colonna è il primo figlio, e ci si guarda dentro
-    // invece di cercare in tutta la pagina (in fondo quei due bottoni CI SONO).
-    const comandiInAlto = await page.evaluate(() => {
+    // sono spariti la dà MOBILE-CHROME-02, qui si prova che lassù restano due
+    // comandi soli e da che parte stanno — l'header della colonna è il primo
+    // figlio, e ci si guarda dentro invece di cercare in tutta la pagina (in
+    // fondo quei due bottoni CI SONO).
+    const alto = await page.evaluate(() => {
       const colonna = document.querySelector('[aria-label="Topics sidebar"]');
       const header = colonna?.firstElementChild as HTMLElement | null;
       if (!header) return null;
-      return Array.from(header.querySelectorAll("button")).map((b) =>
-        (b.getAttribute("aria-label") || b.textContent || "").trim(),
-      );
+      const riga = header.getBoundingClientRect();
+      return {
+        meta: riga.left + riga.width / 2,
+        destra: riga.right,
+        comandi: Array.from(header.querySelectorAll("button")).map((b) => {
+          const r = b.getBoundingClientRect();
+          return {
+            nome: (b.getAttribute("aria-label") || b.textContent || "").trim(),
+            testid: b.getAttribute("data-testid") ?? "",
+            centro: r.left + r.width / 2,
+            fine: r.right,
+            altezza: r.height,
+            larghezza: r.width,
+          };
+        }),
+      };
     });
-    expect(comandiInAlto).not.toBeNull();
-    expect(comandiInAlto!.join(" | ")).toContain("Topics");
+    expect(alto).not.toBeNull();
     // Il contratto è QUALI comandi non stanno più lassù, non quanti sono: la
     // riga contava i bottoni (`length === 1`) ed è diventata rossa il giorno
     // in cui la campanella delle notifiche è salita nell'header (8705c0b2, il
     // 12/08, poche ore dopo questa fila) — un rosso che non descriveva nessun
     // difetto. Una lista chiusa avrebbe rifiutato anche la prossima aggiunta
-    // legittima; l'elenco dei PROSCRITTI no.
+    // legittima; l'elenco dei PROSCRITTI no. Vale anche per il conteggio che
+    // avevo scritto qui («due, non tre»): sarebbe caduto alla porta successiva.
     for (const sceso of ["Cerca", "Search", "Aggiungi"]) {
-      expect(comandiInAlto!.some((c) => c.includes(sceso))).toBe(false);
+      expect(alto!.comandi.some((c) => c.nome.includes(sceso))).toBe(false);
     }
 
-    // E il bersaglio del menu resta quello del dito.
-    const box = await topics.boundingBox();
-    expect(box!.height).toBeGreaterThanOrEqual(44);
+    const titolo = alto!.comandi.find((c) => c.testid === "sidebar-topics-menu");
+    const campanella = alto!.comandi.find((c) => c.testid === "notification-history-button");
+    expect(titolo).toBeTruthy();
+    expect(campanella).toBeTruthy();
+
+    // «Da un lato topics, dall'altro le notifiche» (chi usa la app, 14/08): non basta
+    // che esistano entrambe, devono stare da parti OPPOSTE della riga. Prima la
+    // campanella era attaccata al titolo, cioè entrambe nella metà sinistra —
+    // ed è esattamente la misura che quel difetto passava.
+    expect(titolo!.centro).toBeLessThan(alto!.meta);
+    expect(campanella!.centro).toBeGreaterThan(alto!.meta);
+    // E ci sta DAVVERO in coda: a filo del bordo destro, non a mezza strada.
+    expect(alto!.destra - campanella!.fine).toBeLessThanOrEqual(12);
+
+    // I bersagli restano quelli del dito.
+    for (const c of alto!.comandi) {
+      expect(c.altezza).toBeGreaterThanOrEqual(44);
+      expect(c.larghezza).toBeGreaterThanOrEqual(44);
+    }
   });
 
-  test("MOBILE-CHROME-02 — tre porte, e il dito ci arriva", async ({ page }) => {
+  test("MOBILE-CHROME-02 — quattro porte, e il dito ci arriva", async ({ page }) => {
     await apri(page);
     await fascia(page, 0);
 
-    for (const sel of [CERCA, AGGIUNGI, BOARD]) {
+    for (const sel of [CERCA, AGGIUNGI, BOARD, PROFILO]) {
       await expect(page.locator(BARRA).locator(sel)).toBeVisible();
     }
 
     const misure = await porte(page);
-    expect(misure.length).toBe(3);
+    expect(misure.length).toBe(4);
     for (const p of misure) {
       expect(p.altezza).toBeGreaterThanOrEqual(44);
       expect(p.larghezza).toBeGreaterThanOrEqual(44);
@@ -202,17 +237,22 @@ test.describe.serial("La chrome del telefono", () => {
     expect(new Set(quote).size).toBe(1);
     for (const p of dritta) expect(p.daFondo).toBeGreaterThanOrEqual(PAVIMENTO_ASSOLUTO);
 
-    // ── Angoli tondi: gli estremi SALGONO, quello in mezzo no.
+    // ── Angoli tondi: gli estremi SALGONO, quelli in mezzo no.
+    // Con quattro scatole i «centri» sono due, e la legge non cambia: sale chi
+    // sta entro il raggio dal bordo laterale, e nessun altro. È il motivo per
+    // cui la quarta porta non ha richiesto un ramo nuovo in `alzateFila`.
     await fascia(page, FASCIA_IPHONE);
     const curva = await porte(page);
-    expect(curva.length).toBe(3);
-    const [sx, centro, dx] = curva;
+    expect(curva.length).toBe(4);
+    const [sx, centroSx, centroDx, dx] = curva;
 
-    // Il centro sta sul pavimento: dentro la fascia, sopra l'home indicator.
-    expect(Math.round(centro.daFondo)).toBe(FASCIA_IPHONE - 12);
-    // I due estremi stanno più in alto del centro, e fra loro sono simmetrici.
-    expect(sx.daFondo).toBeGreaterThan(centro.daFondo);
-    expect(dx.daFondo).toBeGreaterThan(centro.daFondo);
+    // I due in mezzo stanno sul pavimento: dentro la fascia, sopra l'home
+    // indicator, e l'arco lì non arriva.
+    expect(Math.round(centroSx.daFondo)).toBe(FASCIA_IPHONE - 12);
+    expect(Math.round(centroDx.daFondo)).toBe(FASCIA_IPHONE - 12);
+    // I due estremi stanno più in alto, e fra loro sono simmetrici.
+    expect(sx.daFondo).toBeGreaterThan(centroSx.daFondo);
+    expect(dx.daFondo).toBeGreaterThan(centroDx.daFondo);
     expect(Math.abs(sx.daFondo - dx.daFondo)).toBeLessThanOrEqual(1);
 
     // E nessuna porta finisce sotto la quota dell'home indicator.
@@ -226,12 +266,15 @@ test.describe.serial("La chrome del telefono", () => {
     }
   });
 
-  test("MOBILE-CHROME-04 — «board» è un interruttore: board ⇄ lista", async ({ page }) => {
+  test("MOBILE-CHROME-04 — «task» è un interruttore: lista dei task ⇄ tab", async ({ page }) => {
     await apri(page);
     await fascia(page, FASCIA_IPHONE);
 
+    // La porta si chiama come la cosa che apre. «Board» era il nome del
+    // contenitore, e chi cercava i propri task cercava la parola «task»
+    // (chi usa la app, 14/08: «il tasto per accedere velocemente alla lista dei task»).
     const tasto = page.locator(BOARD);
-    await expect(tasto).toContainText("Board");
+    await expect(tasto).toContainText("Task");
 
     // Andata: la Kanban compare e il cassetto si toglie di mezzo.
     await tasto.tap();
@@ -242,27 +285,33 @@ test.describe.serial("La chrome del telefono", () => {
     // questo un interruttore e non due gesti distinti.
     await tasto.tap();
     await expect(page.locator('[data-testid="sidebar-topic-list"]')).toBeVisible();
-    await expect(tasto).toContainText("Board");
+    await expect(tasto).toContainText("Task");
     const boardAncoraAperta = await page.evaluate(() =>
       !!document.querySelector('[data-pane-id="__board__"], [data-testid="board-pane"]'),
     );
     expect(boardAncoraAperta).toBe(true);
   });
 
-  test("MOBILE-CHROME-05 — niente barra di stato: account, prestazioni e versione sono nel menu", async ({ page }) => {
+  test("MOBILE-CHROME-05 — nel menu restano prestazioni e versione, l'account no", async ({ page }) => {
     await apri(page);
 
     // La fascia «Questo computer» non c'è più sotto i 768px.
     await expect(page.locator('[data-testid="sidebar-status-bar"]')).toHaveCount(0);
     await expect(page.locator('[data-testid="device-identity"]')).toHaveCount(0);
 
-    // Le sue tre cose vivono nel menu, che sul telefono è un foglio dal basso.
+    // Quel che resta vive nel menu, che sul telefono è un foglio dal basso.
     await page.locator('[data-testid="sidebar-topics-menu"]').tap();
     const menu = page.locator('[data-testid="sidebar-system-menu"]');
     await expect(menu).toBeVisible();
-    await expect(menu.locator('[data-testid="menu-account"]')).toBeVisible();
     await expect(menu.locator('[data-testid="menu-system-status"]')).toBeVisible();
     await expect(menu.locator('[data-testid="menu-version"]')).toBeVisible();
+
+    // L'ACCOUNT NON C'È PIÙ QUI, ed è la metà che conta della richiesta del
+    // 14/08: «il tasto del profilo, togliendolo dal menu di Topics». Lasciarlo
+    // anche qui avrebbe soddisfatto la prima metà e disatteso la seconda, e da
+    // fuori sarebbe sembrato fatto. La porta adesso è in fondo allo schermo, e
+    // che ci PORTI davvero lo prova MOBILE-CHROME-06.
+    await expect(menu.locator('[data-testid="menu-account"]')).toHaveCount(0);
 
     // Il foglio arriva col pollice: sta in fondo allo schermo, non appeso al
     // titolo in cima.
@@ -294,7 +343,9 @@ test.describe.serial("La chrome del telefono", () => {
         h: b.getBoundingClientRect().height,
       }));
     });
-    expect(righe.length).toBeGreaterThanOrEqual(6);
+    // Cinque e non sei: la voce dell'account se n'è andata, e questa soglia è
+    // scesa con lei invece di restare indietro a coprire il buco.
+    expect(righe.length).toBeGreaterThanOrEqual(5);
     for (const r of righe) expect(r.h).toBeGreaterThanOrEqual(44);
   });
 
@@ -305,9 +356,9 @@ test.describe.serial("La chrome del telefono", () => {
     // La prima stesura le lasciava piatte: colore SOLO sotto il dito. Un
     // comando che si vede solo mentre lo premi è un comando che non si trova
     // («devono avere il design classico dei tasti, come il + che c'era»).
-    // A riposo, quindi: campitura vera su tutte e tre.
+    // A riposo, quindi: campitura vera su tutte e quattro.
     const misure = await porte(page);
-    expect(misure.length).toBe(3);
+    expect(misure.length).toBe(4);
     for (const p of misure) {
       expect(haCampitura(p.fondo)).toBe(true);
     }
@@ -359,7 +410,13 @@ test.describe.serial("La chrome del telefono", () => {
     await fascia(page, FASCIA_IPHONE);
     for (const R of [28, 40, 54]) {
       await raggioSchermoDichiarato(page, R);
-      const [sx, centro, dx] = await porte(page);
+      // Le porte sono quattro, quindi i «centri» sono due: quello che conta è
+      // il PRIMO e l'ULTIMO, cioè chi tocca i bordi. Aggiungere una porta non
+      // ha cambiato la legge, ha cambiato quante scatole non la incontrano.
+      const misure = await porte(page);
+      const sx = misure[0];
+      const dx = misure[misure.length - 1];
+      const centrali = misure.slice(1, -1);
 
       const atteso = (gioco: number) => Math.min(Math.max(R - gioco, STANDARD), TETTO);
 
@@ -374,10 +431,12 @@ test.describe.serial("La chrome del telefono", () => {
       expect(dx.raggi.bassoSx).toBeCloseTo(STANDARD, 1);
       expect(dx.raggi.altoDx).toBeCloseTo(STANDARD, 1);
 
-      // Il centro ha la curva STANDARD: nessuno dei due bordi lo raggiunge.
-      expect(centro.daBordo).toBeGreaterThan(R);
-      expect(centro.raggi.bassoSx).toBeCloseTo(STANDARD, 1);
-      expect(centro.raggi.bassoDx).toBeCloseTo(STANDARD, 1);
+      // I centrali hanno la curva STANDARD: nessuno dei due bordi li raggiunge.
+      for (const centro of centrali) {
+        expect(centro.daBordo).toBeGreaterThan(R);
+        expect(centro.raggi.bassoSx).toBeCloseTo(STANDARD, 1);
+        expect(centro.raggi.bassoDx).toBeCloseTo(STANDARD, 1);
+      }
     }
 
     // E i tre R non danno la stessa risposta: R=28 a 8px dal bordo dà 20, i
@@ -412,5 +471,30 @@ test.describe.serial("La chrome del telefono", () => {
       clip: { x: 0, y: 844 - 200, width: 390, height: 200 },
     });
     await page.evaluate(() => document.getElementById("righello-arco")?.remove());
+  });
+
+  test("MOBILE-CHROME-08 — la porta del profilo apre Impostazioni sulla scheda «Profile»", async ({ page }) => {
+    await apri(page);
+    await fascia(page, FASCIA_IPHONE);
+
+    // Si arriva dalla FILA, non dal menu: il menu qui non si apre mai, ed è il
+    // punto di tutto il cambio. La faccia è il bersaglio.
+    const profilo = page.locator(PROFILO);
+    await expect(profilo).toBeVisible();
+    await expect(profilo).toContainText("Profilo");
+    await profilo.tap();
+
+    const pannello = page.locator('[data-testid="settings-panel"]');
+    await expect(pannello).toBeVisible();
+
+    // Non basta che si apra: deve atterrare sulla scheda giusta. Il pannello
+    // resta montato fra un'apertura e l'altra e riparte da «Appearance» se
+    // nessuno gli dice dove andare, quindi una modale aperta e basta sarebbe
+    // una porta che si apre su un'altra stanza.
+    const scheda = pannello.locator('nav button[aria-current="page"]');
+    await expect(scheda).toHaveText("Profile");
+
+    // E il menu «Topics» è rimasto chiuso per tutto il tragitto.
+    await expect(page.locator('[data-testid="sidebar-system-menu"]')).toHaveCount(0);
   });
 });
