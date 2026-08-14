@@ -6,7 +6,7 @@ import { hermetic } from "./fixtures/hermetic";
 /**
  * FISSARE E SFISSARE COL DITO.
  *
- * Attilio, dal telefono: «non si riesce a spinnare una tab col drag and drop»,
+ * chi usa la app, dal telefono: «non si riesce a spinnare una tab col drag and drop»,
  * e il drag&drop per togliere il pin non funziona. Non era un difetto solo: su
  * iOS `dragstart`/`dragover`/`drop` non vengono MAI emessi da un tocco, quindi
  * i due gesti che attraversano il confine della griglia dei Fissati erano

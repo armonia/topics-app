@@ -4,7 +4,7 @@ import { hermetic } from "./fixtures/hermetic";
 /**
  * IL BORDO E' DEL MENU, NON DELLA CRONOLOGIA.
  *
- * Attilio, dal telefono: trascinando dal bordo sinistro la pagina torna
+ * chi usa la app, dal telefono: trascinando dal bordo sinistro la pagina torna
  * indietro nella cronologia invece di aprire il cassetto. Vale anche in avanti,
  * dal bordo destro.
  *
