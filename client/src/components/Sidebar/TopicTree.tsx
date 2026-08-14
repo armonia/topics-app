@@ -13,7 +13,7 @@ import { PaneAddMenu, PaneAddMenuItems } from '../Shared/PaneAddMenu';
 import { TopicItem } from './TopicItem';
 import { topicsApi, projectsApi } from '@/lib/api';
 import { createPaneId, getTerminalSessionFromPaneId, pinKeyFromPaneId, resolvePinnedBrowserOrigin, useClosedTabs, type BrowserOrigin } from '@/state/pane/adapters';
-import { PinnedTiles, type PinnedTileMeta } from './PinnedTiles';
+import { PinnedTiles, type PinnedExternalTouch, type PinnedTileMeta } from './PinnedTiles';
 import type { PinnedRow } from './pinnedLayout';
 import { draggedPaneId, rememberDraggedPane } from '@/lib/dragPayload';
 import { DND_TYPES } from '@/lib/dndTypes';
@@ -606,6 +606,26 @@ export function TopicTree({
    * colonna, e non dentro il blocco dei fissati (lì il rilascio è un riordino, e
    * servirlo due volte vorrebbe dire riordinare e sfissare nello stesso gesto).
    */
+  /** L'ingresso della griglia dei fissati per un dito che arriva da fuori: lo
+   *  depone lei stessa, e le righe lo chiamano. Vedi `PinnedExternalTouch`. */
+  const versoIFissati = useRef<PinnedExternalTouch | null>(null);
+
+  /**
+   * IL TRASPORTO DEL DITO PER LE RIGHE — uno per tutta la sidebar.
+   *
+   * Col mouse questo pezzo non esiste: la riga è `draggable`, il browser porta
+   * il gesto fino alla griglia e la griglia lo serve. Col dito il gesto resta
+   * dov'è nato, quindi qui si fa a mano l'unica cosa che il browser faceva, cioè
+   * consegnare il punto al bersaglio. Il bersaglio poi si comporta come sempre.
+   */
+  const ditoVersoIFissati = useMemo(() => ({
+    onMove: (paneId: string, x: number, y: number) =>
+      versoIFissati.current?.move(pinKeyFromPaneId(paneId), x, y),
+    onDrop: (paneId: string, x: number, y: number) =>
+      versoIFissati.current?.drop(pinKeyFromPaneId(paneId), x, y),
+    onCancel: () => versoIFissati.current?.cancel(),
+  }), []);
+
   const sfissaDalDito = useCallback((x: number, y: number): boolean => {
     const col = colonna.current;
     if (!col) return false;
@@ -861,6 +881,10 @@ export function TopicTree({
         onDoubleClick={(e) => onTopicDoubleClick(topic.id, e)}
         onContextMenu={(e) => onTopicContextMenu(e, topic)}
         onArchive={handleArchive}
+        // Col dito la riga si fissa trascinandola in cima, come col mouse. Solo
+        // se non è GIÀ fissata: la sua tessera c'è, e il gesto sarebbe un
+        // bersaglio che si accende senza rispondere.
+        touchDrag={item.pinned ? undefined : ditoVersoIFissati}
         onStopStreaming={stopSession ? () => {
           // Si archivia solo se il server ha davvero buttato via la chat: qui
           // lo Stop non ferma soltanto, fa SPARIRE il topic dalla sidebar, ed è
@@ -1411,6 +1435,7 @@ export function TopicTree({
         if (!p) { setUnpinPreview(null); return; }
         setUnpinPreview(sfissaDalDito(p.x, p.y) ? key : null);
       }}
+      externalTouch={versoIFissati}
       onTouchDropOutside={(key, x, y) => {
         setUnpinPreview(null);
         const sfissa = onUnpinToList ?? onTogglePin;
