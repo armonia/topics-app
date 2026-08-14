@@ -1349,6 +1349,37 @@ describe("task-dispatcher", () => {
     expect(comments.some((c) => c.author === "system" && c.content.includes("ripreso in diretta"))).toBe(true);
   });
 
+  it("due riavvii ravvicinati sullo stesso task lasciano UNA riga di interruzione", async () => {
+    // Il 13/08, sul database vivo, il task ae61fb5a portava quattro note per un
+    // riavvio solo: tre «Server ripartito a metà turno» a quindici secondi
+    // l'una dall'altra, poi «ripreso in diretta». Ogni scrittore raccontava la
+    // sua versione, e la dedupe dei commenti non le vedeva: guarda testo
+    // IDENTICO entro dieci secondi, e queste dicono la stessa cosa con parole
+    // diverse. Qui le parole cambiano apposta fra i due giri (il broker c'è,
+    // poi non c'è più): è il caso che solo la rivendicazione a finestra copre.
+    let live = true;
+    const h = harness({
+      topicExists: () => true,
+      hasLiveSession: async () => live,
+      reattach: () => new Promise<void>(() => {}),
+    });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "in_progress", assignedTopicId: "topic-live", attempts: 1, dispatchState: "working" });
+
+    await h.dispatcher.reconcile();
+    await flush();
+    // Secondo riavvio: processo NUOVO, memoria vuota, stesso DB. È il caso che
+    // un insieme in RAM non coprirebbe — chi scrive terzo è appena nato.
+    live = false;
+    const dopo = h.restart();
+    await dopo.reconcile();
+    await flush();
+
+    const righe = h.svc.get("t1")!.comments.filter((c) => /ripartit|Riavvio del server/.test(c.content));
+    expect(righe.map((c) => c.content)).toEqual(["Riavvio del server: ripreso in diretta, nessun tentativo consumato."]);
+    expect(righe[0]!.kind).toBe("service"); // si piega nel fold del thread
+  });
+
   it("reconcile is idempotent under the poll: a resumed turn is never doubled", async () => {
     const h = harness({ topicExists: () => true });
     h.svc.updateBoardSettings(PID, { autoDispatch: true });
