@@ -1,9 +1,13 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Search, X, FileText, Type } from 'lucide-react';
+import { Search, X, FileText, Type, ArrowLeft } from 'lucide-react';
 import { filesApi } from '../../lib/api';
 import { basename } from '../../lib/path-utils';
 import { rankPaths } from '../../lib/fuzzyScore';
-import { MODAL_PANEL, MODAL_LAYER } from '@/lib/modalStyles';
+import {
+  MODAL_PANEL, MODAL_LAYER,
+  MODAL_PAGE_CONTAINER, MODAL_PAGE_PANEL, MODAL_PAGE_INSET,
+} from '@/lib/modalStyles';
+import { useMobile } from '@/hooks/useMobile';
 import { useModalDialog } from '@/hooks/useModalDialog';
 import { SELECTED_SURFACE } from '@/lib/selectionStyles';
 import { Spinner } from '../Shared/Spinner';
@@ -231,19 +235,103 @@ export function FileSearch({ projectPaths, mode, onModeChange, onOpenFile, onClo
     ? `${projects.length} progetti`
     : basename(projects[0] ?? '') || 'files';
 
+  const { isMobile } = useMobile();
+
+  /* Gli interruttori sono gli STESSI nei due posti: cambia dove atterrano e
+     quanto sono alti. Un dito vuole 44px, un puntatore no, e scrivere due volte
+     gli stessi bottoni li farebbe divergere alla prima modifica. */
+  const btn = isMobile ? 'px-3 h-11 text-[13px]' : 'px-1.5 py-0.5 text-[11px]';
+  /* Una riga di risultato e' un bersaglio: `py-1` la teneva a ~22px, cioe' meta'
+     dei 44 sotto i quali un dito non centra piu' quello che vede. */
+  const rowPad = isMobile ? 'py-3 min-h-11' : 'py-1';
+  const modeControls = (
+    <>
+      {/* Il modo è un interruttore, non due superfici: chi ha premuto ⌘P e
+          voleva ⌘F non deve chiudere e riaprire. */}
+      <div
+        className={`flex items-center rounded border border-app-spinner overflow-hidden flex-shrink-0 ${isMobile ? 'flex-1' : ''}`}
+        role="group"
+        aria-label="Modo di ricerca"
+      >
+        <button
+          data-testid="file-search-mode-name"
+          onClick={() => onModeChange('name')}
+          aria-pressed={mode === 'name'}
+          className={`${btn} ${isMobile ? 'flex-1 justify-center' : ''} flex items-center gap-1 ${mode === 'name' ? 'text-primary bg-primary/10' : 'text-app-text-muted'}`}
+          title="Per nome (⌘P)"
+        >
+          <FileText size={isMobile ? 14 : 11} aria-hidden="true" /> nome
+        </button>
+        <button
+          data-testid="file-search-mode-content"
+          onClick={() => onModeChange('content')}
+          aria-pressed={mode === 'content'}
+          className={`${btn} ${isMobile ? 'flex-1 justify-center' : ''} flex items-center gap-1 ${mode === 'content' ? 'text-primary bg-primary/10' : 'text-app-text-muted'}`}
+          title="Nel contenuto (⌘F)"
+        >
+          <Type size={isMobile ? 14 : 11} aria-hidden="true" /> contenuto
+        </button>
+      </div>
+      {/* Regex e case valgono solo per il grep: in modo NOME sarebbero due
+          interruttori che non fanno niente. */}
+      {mode === 'content' && (
+        <>
+          <button
+            onClick={() => setCaseSensitive(v => !v)}
+            className={`${btn} ${isMobile ? 'w-11 justify-center flex items-center' : ''} font-mono rounded border flex-shrink-0 ${caseSensitive ? 'border-primary text-primary bg-primary/10' : 'border-app-spinner text-app-text-muted'}`}
+            title="Case sensitive"
+          >
+            Aa
+          </button>
+          <button
+            onClick={() => setUseRegex(v => !v)}
+            className={`${btn} ${isMobile ? 'w-11 justify-center flex items-center' : ''} font-mono rounded border flex-shrink-0 ${useRegex ? 'border-primary text-primary bg-primary/10' : 'border-app-spinner text-app-text-muted'}`}
+            title="Use regex"
+          >
+            .*
+          </button>
+        </>
+      )}
+    </>
+  );
+
   return (
-    <div data-testid="file-search" className={`fixed inset-0 ${MODAL_LAYER} flex items-start justify-center pt-[10vh] bg-black/30 dark:bg-black/50 backdrop-blur-sm`} onClick={onClose}>
+    <div
+      data-testid="file-search"
+      data-page={isMobile ? 'true' : undefined}
+      className={isMobile
+        ? MODAL_PAGE_CONTAINER
+        : `fixed inset-0 ${MODAL_LAYER} flex items-start justify-center pt-[10vh] bg-black/30 dark:bg-black/50 backdrop-blur-sm`}
+      onClick={isMobile ? undefined : onClose}
+    >
       <div
         ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-label={mode === 'name' ? 'Apri un file' : 'Cerca nei file'}
-        className={`w-[600px] max-w-[92vw] max-h-[70vh] ${MODAL_PANEL} flex flex-col`}
+        className={isMobile
+          ? MODAL_PAGE_PANEL
+          : `w-[600px] max-w-[92vw] max-h-[70vh] ${MODAL_PANEL} flex flex-col`}
         onClick={e => e.stopPropagation()}
+        style={isMobile ? MODAL_PAGE_INSET : undefined}
       >
-        {/* Search input */}
+        {/* Search input.
+            Su mobile questa riga porta SOLO indietro + campo. Gli interruttori
+            scendono sotto: a 320px la riga sola dovrebbe reggere icona, campo,
+            due bottoni di modo, «Aa», «.*» e la X, e il campo si schiacciava a
+            una manciata di pixel. */}
         <div className="flex items-center gap-2 px-3 py-2 border-b border-app-border">
-          <Search size={16} className="text-app-text-muted flex-shrink-0" />
+          {isMobile ? (
+            <button
+              onClick={onClose}
+              aria-label="Chiudi"
+              className="w-11 h-11 -ml-2 flex items-center justify-center flex-shrink-0 text-app-text-muted"
+            >
+              <ArrowLeft size={20} />
+            </button>
+          ) : (
+            <Search size={16} className="text-app-text-muted flex-shrink-0" />
+          )}
           <input
             ref={inputRef}
             // Ancora stabile per chi guarda da fuori. Il `placeholder` non lo è:
@@ -257,54 +345,26 @@ export function FileSearch({ projectPaths, mode, onModeChange, onOpenFile, onClo
             onChange={e => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={mode === 'name' ? `Apri un file in ${scopeLabel}…` : `Cerca in ${scopeLabel}…`}
-            className="flex-1 bg-transparent text-sm outline-none text-app-text-heading placeholder-app-text-faint"
+            /* Vedi CommandPalette: 44px di bersaglio, e 16px di testo perche'
+               sotto quella misura iOS zooma la pagina al primo tocco. */
+            className={`flex-1 bg-transparent outline-none text-app-text-heading placeholder-app-text-faint ${
+              isMobile ? 'h-11 text-[16px]' : 'text-sm'
+            }`}
           />
-          {/* Il modo è un interruttore, non due superfici: chi ha premuto ⌘P e
-              voleva ⌘F non deve chiudere e riaprire. */}
-          <div className="flex items-center rounded border border-app-spinner overflow-hidden flex-shrink-0" role="group" aria-label="Modo di ricerca">
-            <button
-              data-testid="file-search-mode-name"
-              onClick={() => onModeChange('name')}
-              aria-pressed={mode === 'name'}
-              className={`px-1.5 py-0.5 text-[11px] flex items-center gap-1 ${mode === 'name' ? 'text-primary bg-primary/10' : 'text-app-text-muted'}`}
-              title="Per nome (⌘P)"
-            >
-              <FileText size={11} aria-hidden="true" /> nome
+          {!isMobile && modeControls}
+          {!isMobile && (
+            <button onClick={onClose} className="text-app-text-muted hover:text-app-text-hover" aria-label="Chiudi">
+              <X size={16} />
             </button>
-            <button
-              data-testid="file-search-mode-content"
-              onClick={() => onModeChange('content')}
-              aria-pressed={mode === 'content'}
-              className={`px-1.5 py-0.5 text-[11px] flex items-center gap-1 ${mode === 'content' ? 'text-primary bg-primary/10' : 'text-app-text-muted'}`}
-              title="Nel contenuto (⌘F)"
-            >
-              <Type size={11} aria-hidden="true" /> contenuto
-            </button>
-          </div>
-          {/* Regex e case valgono solo per il grep: in modo NOME sarebbero due
-              interruttori che non fanno niente. */}
-          {mode === 'content' && (
-            <>
-              <button
-                onClick={() => setCaseSensitive(v => !v)}
-                className={`px-1.5 py-0.5 text-[11px] font-mono rounded border ${caseSensitive ? 'border-primary text-primary bg-primary/10' : 'border-app-spinner text-app-text-muted'}`}
-                title="Case sensitive"
-              >
-                Aa
-              </button>
-              <button
-                onClick={() => setUseRegex(v => !v)}
-                className={`px-1.5 py-0.5 text-[11px] font-mono rounded border ${useRegex ? 'border-primary text-primary bg-primary/10' : 'border-app-spinner text-app-text-muted'}`}
-                title="Use regex"
-              >
-                .*
-              </button>
-            </>
           )}
-          <button onClick={onClose} className="text-app-text-muted hover:text-app-text-hover" aria-label="Chiudi">
-            <X size={16} />
-          </button>
         </div>
+        {/* La seconda riga esiste solo a schermo stretto: e' lo spazio che la
+            riga del campo non aveva. */}
+        {isMobile && (
+          <div className="flex items-center gap-2 px-3 py-2 border-b border-app-border flex-shrink-0">
+            {modeControls}
+          </div>
+        )}
 
         {/* Results */}
         <div className="flex-1 overflow-y-auto">
@@ -343,7 +403,7 @@ export function FileSearch({ projectPaths, mode, onModeChange, onOpenFile, onClo
                     <button
                       ref={el => { resultRefs.current[idx] = el; }}
                       onClick={() => openResult(g.rows[0])}
-                      className={`w-full text-left px-3 py-1 flex items-center gap-2 transition-colors ${
+                      className={`w-full text-left px-3 ${rowPad} flex items-center gap-2 transition-colors ${
                         idx === selectedIdx ? SELECTED_SURFACE : 'hover:bg-app-hover'
                       }`}
                     >
@@ -357,7 +417,7 @@ export function FileSearch({ projectPaths, mode, onModeChange, onOpenFile, onClo
                       key={`${r.lineNumber}-${i}`}
                       ref={el => { resultRefs.current[idx] = el; }}
                       onClick={() => openResult(r)}
-                      className={`w-full text-left px-3 py-1 flex items-start gap-2 transition-colors ${
+                      className={`w-full text-left px-3 ${rowPad} flex items-start gap-2 transition-colors ${
                         idx === selectedIdx ? SELECTED_SURFACE : 'hover:bg-app-hover'
                       }`}
                     >

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
   Search, Settings, Moon, Sun, File,
-  Loader2, TerminalSquare, RotateCcw, Grid2x2, Link2,
+  Loader2, TerminalSquare, RotateCcw, Grid2x2, Link2, ArrowLeft,
 } from 'lucide-react';
 import { EmptyState } from './EmptyState';
 import { ClaudeIcon } from './ClaudeIcon';
@@ -17,7 +17,11 @@ import { PANE_CONFIG, tabTargetForPane } from '../../state/pane/adapters';
 import { usePaneStore } from '../../state/pane/store';
 import { useCopyTabLink } from '../../hooks/useCopyTabLink';
 import { describeTabTarget } from '../../../../shared/tab-link';
-import { MODAL_BACKDROP, MODAL_PANEL, MODAL_LAYER } from '../../lib/modalStyles';
+import {
+  MODAL_BACKDROP, MODAL_PANEL, MODAL_LAYER,
+  MODAL_PAGE_CONTAINER, MODAL_PAGE_PANEL, MODAL_PAGE_INSET,
+} from '../../lib/modalStyles';
+import { useMobile } from '../../hooks/useMobile';
 import { useModalDialog } from '../../hooks/useModalDialog';
 import { isDesktop } from '../../lib/shell';
 import { rankPaths } from '../../lib/fuzzyScore';
@@ -151,6 +155,9 @@ export function CommandPalette({
   const inputRef = useRef<HTMLInputElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  /* «Quante colonne» e' la domanda di `isMobile`, non di `isTouch`: qui decide
+     se la palette e' una scheda che galleggia o una pagina. Vedi useMobile. */
+  const { isMobile } = useMobile();
   const [fileList, setFileList] = useState<string[]>([]);
   const [searchResults, setSearchResults] = useState<CommandAction[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
@@ -535,17 +542,39 @@ export function CommandPalette({
   };
 
   return (
-    <div data-testid="command-palette" className={`fixed inset-0 ${MODAL_LAYER} flex items-start justify-center pt-[12vh]`} onClick={onClose} role="dialog" aria-modal="true" aria-label="Command palette">
-      <div className={MODAL_BACKDROP} />
+    <div
+      data-testid="command-palette"
+      data-page={isMobile ? 'true' : undefined}
+      className={isMobile
+        ? MODAL_PAGE_CONTAINER
+        : `fixed inset-0 ${MODAL_LAYER} flex items-start justify-center pt-[12vh]`}
+      onClick={isMobile ? undefined : onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Command palette"
+    >
+      {!isMobile && <div className={MODAL_BACKDROP} />}
       <div
         ref={panelRef}
-        className={`relative w-full max-w-4xl mx-4 flex flex-col ${MODAL_PANEL}`}
+        className={isMobile
+          ? MODAL_PAGE_PANEL
+          : `relative w-full max-w-4xl mx-4 flex flex-col ${MODAL_PANEL}`}
         onClick={e => e.stopPropagation()}
-        style={{ maxHeight: '76vh' }}
+        style={isMobile ? MODAL_PAGE_INSET : { maxHeight: '76vh' }}
       >
         {/* Search input */}
         <div className="flex items-center gap-3 px-4 py-3 border-b border-app-border flex-shrink-0">
-          <Search size={16} className="text-app-text-secondary flex-shrink-0" />
+          {isMobile ? (
+            <button
+              onClick={onClose}
+              aria-label="Chiudi"
+              className="w-11 h-11 -ml-3 flex items-center justify-center flex-shrink-0 text-app-text-secondary"
+            >
+              <ArrowLeft size={20} />
+            </button>
+          ) : (
+            <Search size={16} className="text-app-text-secondary flex-shrink-0" />
+          )}
           <input
             ref={inputRef}
             type="text"
@@ -553,9 +582,17 @@ export function CommandPalette({
             onChange={e => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={scope === 'projects' ? 'Search projects…' : projectPath ? "Cerca file, topic, messaggi…" : "Cerca topic, messaggi…"}
-            className="flex-1 bg-transparent text-[14px] text-app-text placeholder-app-placeholder outline-none"
+            /* Il campo misurava 24px di altezza: e' il bersaglio piu' importante
+               della superficie e stava sotto misura come tutti gli altri. Su
+               mobile anche `text-[16px]`, perche' sotto i 16 iOS ingrandisce la
+               pagina al primo tocco e la pagina di ricerca parte storta. */
+            className={`flex-1 bg-transparent text-app-text placeholder-app-placeholder outline-none ${
+              isMobile ? 'h-11 text-[16px]' : 'text-[14px]'
+            }`}
           />
-          <kbd className="kbd">ESC</kbd>
+          {/* Il suggerimento del tasto vale per chi ha un tasto. Su un telefono
+              e' inchiostro che dice come uscire da una porta che non c'e'. */}
+          {!isMobile && <kbd className="kbd">ESC</kbd>}
         </div>
 
         {/* Body. Empty (no query) = two side-by-side columns:
@@ -576,15 +613,18 @@ export function CommandPalette({
               )}
             </div>
           ) : !query.trim() ? (
-            <div ref={listRef} className="flex-1 min-h-0 flex">
+            <div ref={listRef} className={`flex-1 min-h-0 flex ${isMobile ? 'flex-col overflow-y-auto' : ''}`}>
               {/* Ultimi progetti */}
-              <section className="flex-1 min-w-0 overflow-y-auto py-1 border-r border-app-border">
+              {/* Impilate, le sezioni prendono l'altezza che serve loro e scorre
+                  il contenitore: `flex-1` le spartirebbe a meta' lo schermo,
+                  lasciando un vuoto sotto la lista corta. */}
+              <section className={`min-w-0 py-1 ${isMobile ? 'flex-none border-b border-app-border' : 'flex-1 overflow-y-auto border-r border-app-border'}`}>
                 <div className="px-3 py-1.5 text-[10px] font-semibold text-app-text-muted uppercase tracking-wider flex items-center gap-1.5">
                   Ultimi progetti
                   {filteredProjects.length > 0 && <span className="text-app-text-tertiary font-normal">{filteredProjects.length}</span>}
                 </div>
                 {filteredProjects.length > 0 ? (
-                  filteredProjects.map(item => renderRow(item, { compact: true }))
+                  filteredProjects.map(item => renderRow(item, { compact: !isMobile }))
                 ) : (
                   <EmptyState variant="section" title="Nessun progetto" />
                 )}
@@ -592,26 +632,30 @@ export function CommandPalette({
               {/* Crea + Chiuse di recente. «Crea» sta in cima perche' a palette
                   vuota e' la colonna delle cose che si FANNO, mentre a sinistra
                   ci sono quelle che si ritrovano. */}
-              <section className="flex-1 min-w-0 overflow-y-auto py-1">
+              <section className={`min-w-0 py-1 ${isMobile ? 'flex-none' : 'flex-1 overflow-y-auto'}`}>
                 <div className="px-3 py-1.5 text-[10px] font-semibold text-app-text-muted uppercase tracking-wider flex items-center gap-1.5">
                   Crea
                 </div>
-                {filteredCreate.map(item => renderRow(item, { compact: true }))}
+                {filteredCreate.map(item => renderRow(item, { compact: !isMobile }))}
                 <div className="px-3 pt-2 pb-1.5 text-[10px] font-semibold text-app-text-muted uppercase tracking-wider flex items-center gap-1.5 border-t border-app-border mt-1">
                   Chiuse di recente
                   {filteredRecenti.length > 0 && <span className="text-app-text-tertiary font-normal">{filteredRecenti.length}</span>}
                 </div>
                 {filteredRecenti.length > 0 ? (
-                  filteredRecenti.map(item => renderRow(item, { compact: true }))
+                  filteredRecenti.map(item => renderRow(item, { compact: !isMobile }))
                 ) : (
                   <EmptyState variant="section" title="Nessuna tab chiusa" />
                 )}
               </section>
             </div>
           ) : (
-            <div ref={listRef} className="flex-1 min-h-0 grid grid-cols-2 gap-0">
-              {/* Left: Projects (always visible) */}
-              <section className="min-w-0 overflow-y-auto py-1 border-r border-app-border">
+            <div ref={listRef} className={isMobile
+              ? 'flex-1 min-h-0 flex flex-col overflow-y-auto'
+              : 'flex-1 min-h-0 grid grid-cols-2 gap-0'}>
+              {/* Left: Projects (always visible). Su mobile «a sinistra» non
+                  esiste: due colonne da 150px troncano ogni riga a nulla, quindi
+                  le due sezioni si impilano e scorre il contenitore. */}
+              <section className={`min-w-0 py-1 ${isMobile ? 'flex-none border-b border-app-border' : 'overflow-y-auto border-r border-app-border'}`}>
                 <div className="px-3 py-1.5 text-[10px] font-semibold text-app-text-muted uppercase tracking-wider flex items-center gap-1.5">
                   Progetti
                   {filteredProjects.length > 0 && <span className="text-app-text-tertiary font-normal">{filteredProjects.length}</span>}
@@ -623,7 +667,7 @@ export function CommandPalette({
                 )}
               </section>
               {/* Right: other results (Actions, Topics, Files, Messages) */}
-              <section className="min-w-0 overflow-y-auto py-1" role="listbox" aria-label="Risultati">
+              <section className={`min-w-0 py-1 ${isMobile ? 'flex-none' : 'overflow-y-auto'}`} role="listbox" aria-label="Risultati">
                 {allItems.length === 0 && !searchLoading ? (
                   <EmptyState variant="panel" title="Nessun risultato" />
                 ) : (
@@ -683,20 +727,25 @@ export function CommandPalette({
               ⌘N è legato senza condizioni (useKeyboardShortcuts) ma ci ARRIVA
               solo nel guscio desktop: in una scheda del browser il tasto se lo
               tiene il browser. Per questo l'hint è gated su `isDesktop`. */}
-          <ActionPill icon={<Settings size={12} />} label="Settings" shortcut="⌘," onClick={() => { onOpenSettings(); onClose(); }} />
+          <ActionPill isMobile={isMobile} icon={<Settings size={12} />} label="Settings" shortcut="⌘," onClick={() => { onOpenSettings(); onClose(); }} />
           <ActionPill
+            isMobile={isMobile}
             icon={themeMode === 'dark' ? <Sun size={12} /> : <Moon size={12} />}
             label="Theme"
             onClick={() => { onToggleTheme(); onClose(); }}
           />
         </div>
 
-        {/* Footer hints */}
-        <div className="px-4 py-1.5 border-t border-app-border flex items-center gap-4 text-[11px] text-app-text-muted flex-shrink-0">
-          <span className="flex items-center gap-1"><kbd className="kbd">↑↓</kbd> naviga</span>
-          <span className="flex items-center gap-1"><kbd className="kbd">↵</kbd> apri</span>
-          <span className="flex items-center gap-1"><kbd className="kbd">esc</kbd> chiudi</span>
-        </div>
+        {/* Footer hints. Tre frecce, un invio e un escape: e' il vocabolario di
+            una tastiera. Su un telefono non c'e' nessuno dei tre, e la riga
+            toglie spazio proprio alla lista che deve leggersi. */}
+        {!isMobile && (
+          <div className="px-4 py-1.5 border-t border-app-border flex items-center gap-4 text-[11px] text-app-text-muted flex-shrink-0">
+            <span className="flex items-center gap-1"><kbd className="kbd">↑↓</kbd> naviga</span>
+            <span className="flex items-center gap-1"><kbd className="kbd">↵</kbd> apri</span>
+            <span className="flex items-center gap-1"><kbd className="kbd">esc</kbd> chiudi</span>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -768,23 +817,31 @@ function PaletteRow({ item, idx, selected, onHover, compact, highlightTerm }: Pa
   );
 }
 
-function ActionPill({ icon, label, shortcut, onClick, testId }: {
+/**
+ * `py-1` la teneva a 24,5px misurati: meno di un dito. Su mobile diventa alta
+ * 44 e il suggerimento del tasto sparisce, perche' su un telefono annuncia una
+ * scorciatoia che non si puo' premere.
+ */
+function ActionPill({ icon, label, shortcut, onClick, testId, isMobile }: {
   icon: React.ReactNode;
   label: string;
   shortcut?: string;
   onClick: () => void;
   testId?: string;
+  isMobile?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
       data-testid={testId}
-      className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium text-app-text-muted hover:text-app-text hover:bg-app-hover rounded-md transition-colors flex-shrink-0 whitespace-nowrap"
+      className={`inline-flex items-center gap-1.5 px-2.5 font-medium text-app-text-muted hover:text-app-text hover:bg-app-hover rounded-md transition-colors flex-shrink-0 whitespace-nowrap ${
+        isMobile ? 'h-11 text-[13px]' : 'py-1 text-[11px]'
+      }`}
       title={shortcut ? `${label} (${shortcut})` : label}
     >
       {icon} {label}
-      {shortcut && <kbd className="kbd ml-1 opacity-60">{shortcut}</kbd>}
+      {shortcut && !isMobile && <kbd className="kbd ml-1 opacity-60">{shortcut}</kbd>}
     </button>
   );
 }
