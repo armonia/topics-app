@@ -1713,7 +1713,38 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       // first, capped. Everything else still restores LAZILY on first use —
       // createContext loads storageState + last-url exactly the same way — so no
       // login or URL is lost, it's just paid for on demand instead of at boot.
-      const RESTORE_MAX = 8;
+      // ZERO, e il numero prima era 8. Misurato sul server vivo il 2026-08-15,
+      // e le tre righe del log raccontano tutto da sole:
+      //
+      //   restoreAllContexts: 8 restored ............ 254 volte
+      //   Auto-closing inactive context ............. 89 volte
+      //   Reaping idle Chromium ..................... 0 volte
+      //
+      // Mai una. Il reap dell'INTERO Chromium (browser + GPU + rete + utility,
+      // «~hundreds of MB» dice il commento del reaper stesso) pretende
+      // `contexts.size === 0` per cinque minuti, e questo giro di riscaldamento
+      // ne rimette otto a ogni avvio: la condizione non si verifica MAI, per
+      // costruzione. Il riscaldamento affamava il proprio riscossore, e il
+      // processo restava su per l'intera vita del server esattamente come quel
+      // commento temeva.
+      //
+      // Il prezzo che pagava, misurato a riposo con l'app non toccata (finestra
+      // di 15 s, tempo CPU cumulativo a delta e non `%cpu` di ps): 13 processi,
+      // 957 MB, 8,8% di un core in perpetuo. Per pagine che nessuno sta
+      // guardando: la scelta di CHI scaldare non guardava le pane aperte, ma la
+      // data di ultima scrittura su disco, che con 29 pane browser sparse su 46
+      // finestre di progetto non ha alcun rapporto con cosa hai davanti.
+      //
+      // E non si perde niente, perche' lo dice il commento qui sopra: tutto
+      // ripristina comunque PIGRO al primo uso, con `createContext` che carica
+      // storageState e last-url allo stesso identico modo. Il riscaldamento
+      // comprava solo la latenza del primo clic, ed era gia' cosi' per la nona
+      // pane in poi.
+      //
+      // Resta una manopola perche' la scelta sia rifiutabile con una misura e
+      // non con un'opinione: `TOPICS_BROWSER_RESTORE_MAX=8` rimette il vecchio
+      // comportamento senza ricompilare.
+      const RESTORE_MAX = Math.max(0, Number(process.env.TOPICS_BROWSER_RESTORE_MAX ?? 0) || 0);
       const RESTORE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
       const now = Date.now();
 
