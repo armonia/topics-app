@@ -40,9 +40,3 @@ function subscribe(l: () => void): () => void {
 export function useOwnerName(): string | null {
   return useSyncExternalStore(subscribe, () => nome, () => null);
 }
-
-/** Solo per i test: svuota la cache di modulo. */
-export function resetOwnerNameCache(): void {
-  nome = null;
-  inVolo = null;
-}
