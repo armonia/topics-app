@@ -221,6 +221,16 @@ test.describe("Board · il land in conflitto dice perché la card torna indietro
     // dal tooltip, che porta il nome E il ruolo grezzo scritto sul disco.
     await expect(evento).toHaveAttribute("title", /Topics \(system\)/);
     await expect(evento).not.toContainText("Topics");
+
+    // E la nota che il land fallito lascia nel thread è UNA riga, quindi è un
+    // chip: prima erano tre — il nome di chi ha parlato, il testo, l'ora — e su
+    // una card che ha lavorato sono dieci righe così. Il nome e l'ora restano
+    // sotto il mouse, dove servono a chi cerca l'istante e non a chi scorre.
+    // (È il ramo `conflict` del land, non `skipped`: il testo è quello che
+    //  `server/routes/tasks.ts` scrive lì, e la frase finale è sua sola.)
+    const nota = drawer.getByTestId("task-app-note").filter({ hasText: "Rimando all'agent per riconciliare" });
+    await expect(nota).toBeVisible({ timeout: 20000 });
+    await expect(nota).toHaveAttribute("title", /Topics \(system\)/);
     await beat(page, 2200);
 
     // E sul dato: l'evento è una transizione verso `in_progress` con la ragione

@@ -3181,8 +3181,35 @@ export function CommentBubble({ comment, ownerName = null, onPreview }: {
     );
   }
   const who = authorDisplay(commentAuthorLabel(comment.author), tr, ownerName);
+  const app = who.kind === 'system' || who.kind === 'dispatcher';
+  /**
+   * UNA RIGA DELL'APP È UN CHIP, non un paragrafo con un'intestazione sopra.
+   *
+   * «Mergiato su main (commit 4f1a2b).» è un fatto lungo una riga, e occupava
+   * tre: il nome di chi ha parlato, il testo, l'ora. Su una card che ha
+   * lavorato sono dieci righe così, ed è metà del «pienissimo di messaggi
+   * situazionali». Il criterio è UNA RIGA, non una lunghezza a occhio: lo stesso
+   * confine che `task-comment-service.ts` usa già per la nota di consegna, e per
+   * la stessa ragione — quando l'app riporta le parole recuperate dell'agent le
+   * mette dopo una riga vuota, e quelle parole sono spesso l'unica cosa che
+   * l'agent ha detto. Multi-riga resta prosa, sempre.
+   */
+  // (`review-note` è già uscito sopra, con la sua intestazione verde.)
+  const oneLiner = app && !/[\n\r]/.test(comment.content.trim());
+  if (oneLiner) {
+    return (
+      <div
+        className="flex max-w-full items-center gap-1.5 rounded bg-white/5 px-1.5 py-0.5 text-[11px] text-app-text-muted"
+        data-testid="task-app-note"
+        title={`${who.name} (${who.detail}) · ${comment.content} · ${new Date(comment.createdAt).toLocaleString('it-IT')}`}
+      >
+        <Bot className="h-3 w-3 shrink-0" />
+        <span className="min-w-0 truncate">{comment.content}</span>
+        <span className="ml-auto shrink-0 text-app-text-faint">{commentTime(comment.createdAt)}</span>
+      </div>
+    );
+  }
   if (!who.self) {
-    const app = who.kind === 'system' || who.kind === 'dispatcher';
     // CHI HA PARLATO STA SCRITTO, non appeso a un tooltip. Prima l'unico posto
     // dove il nome compariva era il `title`, quindi una riga dell'agent e una
     // dell'app si leggevano identiche e la differenza si scopriva col mouse —
