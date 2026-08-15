@@ -54,6 +54,12 @@
         // entrypoints and let everything else in `scripts/` be checked.
         "scripts/check-*.ts!",            // wired to package.json / CI
         "scripts/typecheck-*.ts!",
+        // I banchi: uno per asse, si lanciano a mano (`bun run bench` li chiama
+        // tutti, ma ognuno vive anche da solo) e nessuno li importa, quindi per
+        // knip sarebbero file morti. Stessa forma delle due famiglie qui sopra e
+        // altrettanto stretta: `scripts/bench/*.ts` e non `scripts/**`, così un
+        // file morto dentro bench/ resta visibile.
+        "scripts/bench/*.ts!",
         // `bun scripts/webrtc-probe.ts` — la sonda del percorso WebRTC: si lancia a
         // mano quando si vuole vedere encode/trasporto dal vivo, nessuno la importa.
         "scripts/webrtc-probe.ts!",
@@ -199,6 +205,21 @@
         "relay/**/*.ts",
         "server.ts"
       ],
+      // `ws` e `@types/ws` sono USATE, da `tests/e2e/helpers/node-websocket.ts`,
+      // che da' alle spec un WebSocket anche su Node 20 (dove non e' globale: la
+      // CI gira su 20, le macchine che scrivono le spec su 25). Knip non arriva a
+      // vederlo: gli `entry` includono `tests/**/*.{test,spec}.ts`, ma il suo
+      // risolutore attribuisce le dipendenze solo ai file di `project`, e provate
+      // tutte e tre le forme — `tests/**/*.ts`, `tests/e2e/helpers/**/*.ts`,
+      // quest'ultima piu' `tests/e2e/*.spec.ts` — la riga «Unused devDependencies»
+      // non si e' mossa, mentre le prime due aggiungevano falsi positivi
+      // (`global-setup.ts` e `global-teardown.ts` li monta playwright.config.ts,
+      // non un import, quindi risultavano «file morti»).
+      // Quindi qui: non e' una dipendenza morta nascosta, e' un limite del tool
+      // scritto con la prova. Se un giorno knip la vede, questa riga va tolta e
+      // il cancello resta verde da solo.
+      "ignoreDependencies": ["ws", "@types/ws"],
+
       // Niente `ignore`. C'era `tests/e2e/**`, ed era il motivo per cui questo
       // check dava falsi positivi a raffica: un export usato SOLO da uno spec
       // e2e risultava morto, e chi leggeva il report doveva verificarli a mano
