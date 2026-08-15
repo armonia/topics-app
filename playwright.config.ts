@@ -109,6 +109,35 @@ export default defineConfig({
     ["list"],
   ],
   use: {
+    /**
+     * Un'azione ha un limite, e prima non ce l'aveva.
+     *
+     * Il default di Playwright per `actionTimeout` è **0, cioè nessun limite**: un
+     * `click()` su un elemento che non diventerà mai cliccabile non fallisce, resta
+     * lì finché scade il TEST. Il rosso che ne esce si intesta al test
+     * (`locator.click: Test timeout of 30000ms exceeded`) invece che all'azione:
+     * il call log col locator c'è ancora, ma il tempo se l'è preso tutto l'ultima
+     * azione e ogni assert successivo non viene mai eseguito, quindi il test
+     * racconta un solo sintomo invece dei suoi.
+     *
+     * E dove il test si alza il proprio timeout non resta nemmeno quello. Il
+     * 2026-08-15 `long-session-growth.spec.ts` è stato fermo VENTICINQUE MINUTI
+     * senza scrivere un artefatto, perché si dà 1.500.000 ms e il limite
+     * dell'azione era, di nuovo, nessuno: tagliare i cicli non cambiava niente,
+     * il limite non era mai stato il lavoro. Nella nightly dello stesso giorno
+     * tutti e sedici i rossi di `layout-edge-cases.spec.ts` sono quella riga,
+     * identica, in otto test diversi.
+     *
+     * 15 s e non 30: dentro un test da 30 s l'azione deve fallire abbastanza presto
+     * da lasciare a Playwright il tempo di attribuire l'errore e allegare traccia e
+     * video. E non 10 s, che è il limite di `expect`, per non trasformare in rosso
+     * un'azione lenta ma legittima su un runner sotto carico. Una spec che ha
+     * davvero bisogno di più lo chiede sulla singola chiamata, dove si legge il
+     * perché — che è esattamente il contrario di un default infinito che non si
+     * legge da nessuna parte.
+     */
+    actionTimeout: 15_000,
+
     baseURL: E2E_BASE,
     video: EVIDENCE ? "on" : "retain-on-failure",
     screenshot: "only-on-failure",
