@@ -26,7 +26,24 @@
     "",
     "RAISING A NUMBER HERE is allowed, in the same commit as the change that grew",
     "it, so the diff shows what the lines bought. Lowering one is free and the",
-    "gate asks for it out loud when a file gets cured."
+    "gate asks for it out loud when a file gets cured.",
+    "",
+    "2026-08-15: duplication was raised 368 -> 413 in the commit that added the",
+    "two new performance gates, and the two groups that did it are named here so",
+    "the number is not anonymous:",
+    "  - scripts/check-drag-frames.ts <-> scripts/check-session-growth.ts (23 lines):",
+    "    the CLI tail both gates share, differing only in the payload each writes",
+    "    into its own baseline. Two callers is where extracting starts to pay, not",
+    "    where it has already paid; the third gate of this shape is the one that",
+    "    should force it.",
+    "  - scripts/check-emdash.ts <-> scripts/check-ui-language.ts (22 lines): the",
+    "    quote/comment/regex lexer, COPIED. This one is real debt and it is the",
+    "    kind this repo has been bitten by: the copy's own comment cites a false",
+    "    positive the original already had to fix, which is drift arriving before",
+    "    the ink is dry. The two outputs differ today (emdash wants comments",
+    "    blanked with strings kept, ui-language wants codeOnly plus a literal",
+    "    table with offsets), so unifying them is a real refactor with both gates'",
+    "    tests as the net, not a five-minute extraction. Named, not hidden."
   ],
   "updated": "2026-08-15",
   "tolerance_pct": 5,
@@ -128,6 +145,6 @@
     "client/src/state/pane/reducers/panes.ts": 812,
     "client/src/hooks/useCompletionNotifier.tsx": 809
   },
-  "duplicated_lines": 368,
-  "clone_groups": 14
+  "duplicated_lines": 413,
+  "clone_groups": 16
 }
