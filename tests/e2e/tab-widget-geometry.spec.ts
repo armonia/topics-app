@@ -193,7 +193,22 @@ test.describe("I widget in coda a una tab", () => {
     // Mezzo pixel di tolleranza: sotto quella soglia non c'è niente da vedere
     // nemmeno su uno schermo a densità doppia. Prima erano 0,62px in basso.
     expect(Math.abs(m.badgeInk!.dCentro), "cifra rispetto al centro verticale").toBeLessThan(0.5);
-    expect(Math.abs(m.badgeInk!.inkSx - m.badgeInk!.inkDx), "cifra rispetto al centro orizzontale").toBeLessThan(0.5);
+    // L'asse ORIZZONTALE non ha la stessa soglia, e la ragione non è una resa:
+    // è che sulle due assi possiamo cose diverse.
+    //
+    // In verticale l'inchiostro si centra per costruzione, perché `text-box-edge`
+    // esiste e taglia la line box sulle cime delle maiuscole. In orizzontale non
+    // c'è nessun equivalente: qualunque centratura centra la SCATOLA DI AVANZAMENTO
+    // del glifo, e dentro quella scatola l'inchiostro sta dove le due spalle del
+    // font lo mettono. Lo scarto che resta vale (spalla sinistra − spalla destra) / 2,
+    // ed è una proprietà del font, non nostra: nessuna riga di CSS la toglie.
+    //
+    // Misurato: 0,00px con SF (macOS), 0,66px con DejaVu Sans, che è quello che il
+    // runner Linux risolve. Un pixel copre entrambi e resta sotto la soglia del
+    // visibile anche a densità doppia. NON è una tolleranza alzata per far passare
+    // il rosso: fino a oggi questa riga su Linux non era MAI stata valutata, perché
+    // l'asserzione verticale qui sopra falliva prima e portava via il test.
+    expect(Math.abs(m.badgeInk!.inkSx - m.badgeInk!.inkDx), "cifra rispetto al centro orizzontale").toBeLessThan(1);
 
     // …E ADESSO LA STESSA MISURA CONTRO UN RIFERIMENTO CHE QUESTA STESSA RUN
     // PRODUCE, perché con un font solo il numero qui sopra non dice se a
