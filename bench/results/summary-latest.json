@@ -1,0 +1,606 @@
+{
+  "collected_at": "2026-08-15T15:24:08.425Z",
+  "host": "Apple M2 Max, 12 cores, 32 GB, darwin arm64",
+  "sections": [
+    {
+      "title": "THE COST OF THE Nth UNIT",
+      "blurb": "The claim: a workspace pays for its shell once and then per unit, where N terminal tabs pay for everything N times. The slope is the architecture; the total flatters whoever ships the smaller shell.",
+      "rows": [
+        {
+          "axis": "the shell, before any topic",
+          "value": 208.6,
+          "unit": "MB",
+          "kind": "measured",
+          "source": "memory",
+          "machine": "Mac14,6, 12 cores, 32 GB",
+          "date": "2026-08-15",
+          "note": "phys_footprint summed over server + pty bridge + the renderer, at their idle prompt."
+        },
+        {
+          "axis": "the FIRST topic",
+          "value": 39.8,
+          "unit": "MB",
+          "kind": "measured",
+          "source": "memory",
+          "machine": "Mac14,6, 12 cores, 32 GB",
+          "date": "2026-08-15",
+          "note": "the chat machinery, paid once."
+        },
+        {
+          "axis": "the Nth topic after that",
+          "value": 0.3,
+          "unit": "MB",
+          "kind": "measured",
+          "source": "memory",
+          "machine": "Mac14,6, 12 cores, 32 GB",
+          "date": "2026-08-15",
+          "note": "r2 0.091: not resolvable above this box's own jitter. Steps 1->5: 5.1 MB, 5->10: -5 MB, 10->25: 1.3 MB. The lever that makes it resolvable: --ballast-mb 20 moved it to 20.4 MB at r2 0.999."
+        },
+        {
+          "axis": "the Nth agent, inside Topics",
+          "value": 219.2,
+          "unit": "MB",
+          "kind": "measured",
+          "source": "memory",
+          "machine": "Mac14,6, 12 cores, 32 GB",
+          "date": "2026-08-15",
+          "note": "a `claude` at its prompt plus the server-side session that owns it."
+        },
+        {
+          "axis": "the same agent, bare CLI, no Topics",
+          "value": 204.2,
+          "unit": "MB",
+          "kind": "measured",
+          "source": "memory",
+          "machine": "Mac14,6, 12 cores, 32 GB",
+          "date": "2026-08-15",
+          "note": "the control arm: the same binary in a bare PTY, same metric, same tree walk."
+        },
+        {
+          "axis": "what Topics adds per agent",
+          "value": 15,
+          "unit": "MB",
+          "kind": "measured",
+          "source": "memory",
+          "machine": "Mac14,6, 12 cores, 32 GB",
+          "date": "2026-08-15",
+          "note": "the difference of the two rows above, and it sits inside the CLI's own run-to-run spread."
+        },
+        {
+          "axis": "the Nth board card, painted",
+          "value": 0.11,
+          "unit": "ms",
+          "kind": "derived",
+          "source": "latency",
+          "machine": "Apple M2 Max, 12 cores, 32 GB",
+          "date": "2026-08-15",
+          "note": "from the 50-card and 500-card board paints below: 450 more cards cost 51.6 ms on top of a fixed ~435 ms."
+        },
+        {
+          "axis": "a text chunk, long thread over short",
+          "value": 1.11,
+          "unit": "x",
+          "kind": "measured",
+          "source": "streaming",
+          "machine": "Apple M2 Max, 12 cores",
+          "date": "2026-08-15",
+          "note": "1.0 would mean the cost of a chunk does not know how long the conversation is. 2000 messages against 6."
+        },
+        {
+          "axis": "a tool chunk, long thread over short",
+          "value": 1.09,
+          "unit": "x",
+          "kind": "measured",
+          "source": "streaming",
+          "machine": "Apple M2 Max, 12 cores",
+          "date": "2026-08-15",
+          "note": "same burst, cumulative tool output instead of text deltas."
+        }
+      ]
+    },
+    {
+      "title": "MEMORY, resident",
+      "metric": "MB of phys_footprint (macOS), summed over the whole process tree",
+      "blurb": "Never RSS: shared pages would be counted once per process. On Linux the same harness reads Pss from smaps_rollup, which is what jcode sums.",
+      "rows": [
+        {
+          "axis": "Topics idle (server + shell, zero topics)",
+          "value": 208.6,
+          "unit": "MB",
+          "kind": "measured",
+          "source": "memory",
+          "machine": "Mac14,6, 12 cores, 32 GB",
+          "date": "2026-08-15",
+          "note": "8 processes in the tree"
+        },
+        {
+          "axis": "Topics with 1 topic open",
+          "value": 248.4,
+          "unit": "MB",
+          "kind": "measured",
+          "source": "memory",
+          "machine": "Mac14,6, 12 cores, 32 GB",
+          "date": "2026-08-15",
+          "note": "8 processes in the tree"
+        },
+        {
+          "axis": "Topics with 5 topics open",
+          "value": 268.6,
+          "unit": "MB",
+          "kind": "measured",
+          "source": "memory",
+          "machine": "Mac14,6, 12 cores, 32 GB",
+          "date": "2026-08-15",
+          "note": "8 processes in the tree"
+        },
+        {
+          "axis": "Topics with 10 topics open",
+          "value": 243.8,
+          "unit": "MB",
+          "kind": "measured",
+          "source": "memory",
+          "machine": "Mac14,6, 12 cores, 32 GB",
+          "date": "2026-08-15",
+          "note": "8 processes in the tree"
+        },
+        {
+          "axis": "Topics with 25 topics open",
+          "value": 263.1,
+          "unit": "MB",
+          "kind": "measured",
+          "source": "memory",
+          "machine": "Mac14,6, 12 cores, 32 GB",
+          "date": "2026-08-15",
+          "note": "8 processes in the tree"
+        },
+        {
+          "axis": "Topics with 1 agent at their prompt",
+          "value": 494.6,
+          "unit": "MB",
+          "kind": "measured",
+          "source": "memory",
+          "machine": "Mac14,6, 12 cores, 32 GB",
+          "date": "2026-08-15",
+          "note": "11 processes in the tree"
+        },
+        {
+          "axis": "Topics with 4 agents at their prompt",
+          "value": 1152.3,
+          "unit": "MB",
+          "kind": "measured",
+          "source": "memory",
+          "machine": "Mac14,6, 12 cores, 32 GB",
+          "date": "2026-08-15",
+          "note": "17 processes in the tree"
+        },
+        {
+          "axis": "1 bare `claude` at their prompt, no Topics",
+          "value": 215.4,
+          "unit": "MB",
+          "kind": "measured",
+          "source": "memory",
+          "machine": "Mac14,6, 12 cores, 32 GB",
+          "date": "2026-08-15",
+          "note": "1 process in the tree"
+        },
+        {
+          "axis": "4 bare `claude` at their prompt, no Topics",
+          "value": 828.1,
+          "unit": "MB",
+          "kind": "measured",
+          "source": "memory",
+          "machine": "Mac14,6, 12 cores, 32 GB",
+          "date": "2026-08-15",
+          "note": "4 processes in the tree"
+        }
+      ]
+    },
+    {
+      "title": "LATENCY, gesture to ink",
+      "metric": "ms, median of the samples in the artefact",
+      "blurb": "The milliseconds between the gesture and the frame that PAINTED the answer, not the frame that received the data. Shell: chromium 147.0.7727.15, 1600x900, headless.",
+      "rows": [
+        {
+          "axis": "app boot, first frame",
+          "value": 92,
+          "unit": "ms",
+          "kind": "measured",
+          "source": "latency",
+          "machine": "Apple M2 Max, 12 cores, 32 GB",
+          "date": "2026-08-15",
+          "note": "range 88-96 ms · first-contentful-paint from navigation start"
+        },
+        {
+          "axis": "app boot, sidebar usable",
+          "value": 126.3,
+          "unit": "ms",
+          "kind": "measured",
+          "source": "latency",
+          "machine": "Apple M2 Max, 12 cores, 32 GB",
+          "date": "2026-08-15",
+          "note": "range 119.1-131.9 ms"
+        },
+        {
+          "axis": "open a topic, COLD",
+          "value": 398.6,
+          "unit": "ms",
+          "kind": "measured",
+          "source": "latency",
+          "machine": "Apple M2 Max, 12 cores, 32 GB",
+          "date": "2026-08-15",
+          "note": "320 ms of it is LIST_REVEAL_FLOOR_MS, a CONSTANT in MessageList.tsx: the list is held hidden so nobody watches the virtualiser re-anchor. The app's own work is 78.6 ms. Reported, never gated."
+        },
+        {
+          "axis": "open a topic, WARM",
+          "value": 14.6,
+          "unit": "ms",
+          "kind": "measured",
+          "source": "ink",
+          "machine": "Apple Silicon, model not recorded",
+          "date": "2026-08-14",
+          "note": "the same click as switching between two open topics: one measurement, printed once."
+        },
+        {
+          "axis": "open a task card, drawer readable",
+          "value": 23.5,
+          "unit": "ms",
+          "kind": "measured",
+          "source": "ink",
+          "machine": "Apple Silicon, model not recorded",
+          "date": "2026-08-14",
+          "note": "23.3-23.9"
+        },
+        {
+          "axis": "send a message, readable in the list",
+          "value": 12.4,
+          "unit": "ms",
+          "kind": "measured",
+          "source": "ink",
+          "machine": "Apple Silicon, model not recorded",
+          "date": "2026-08-14",
+          "note": "10.2-15.7"
+        },
+        {
+          "axis": "board painted, 50 cards",
+          "value": 435.5,
+          "unit": "ms",
+          "kind": "measured",
+          "source": "latency",
+          "machine": "Apple M2 Max, 12 cores, 32 GB",
+          "date": "2026-08-15",
+          "note": "from navigation start, so the shell boot above is inside this number."
+        },
+        {
+          "axis": "board painted, 200 cards",
+          "value": 453.9,
+          "unit": "ms",
+          "kind": "measured",
+          "source": "latency",
+          "machine": "Apple M2 Max, 12 cores, 32 GB",
+          "date": "2026-08-15"
+        },
+        {
+          "axis": "board painted, 500 cards",
+          "value": 487.1,
+          "unit": "ms",
+          "kind": "measured",
+          "source": "latency",
+          "machine": "Apple M2 Max, 12 cores, 32 GB",
+          "date": "2026-08-15",
+          "note": "500 cards really in the DOM: the todo column is never paged, and the spec asserts the count."
+        }
+      ]
+    },
+    {
+      "title": "STREAMING, what one chunk costs",
+      "metric": "us per chunk, page clock, median of 3 bursts of 1500 chunks",
+      "blurb": "Frames are injected into a real WebSocket route; progress is counted off the PAINTED page, not off the driver.",
+      "rows": [
+        {
+          "axis": "text delta, 6-message thread",
+          "value": 373.4,
+          "unit": "us",
+          "kind": "measured",
+          "source": "streaming",
+          "machine": "Apple M2 Max, 12 cores",
+          "date": "2026-08-15"
+        },
+        {
+          "axis": "text delta, 2000-message thread",
+          "value": 416,
+          "unit": "us",
+          "kind": "measured",
+          "source": "streaming",
+          "machine": "Apple M2 Max, 12 cores",
+          "date": "2026-08-15"
+        },
+        {
+          "axis": "tool output, 6-message thread",
+          "value": 666.6,
+          "unit": "us",
+          "kind": "measured",
+          "source": "streaming",
+          "machine": "Apple M2 Max, 12 cores",
+          "date": "2026-08-15"
+        },
+        {
+          "axis": "tool output, 2000-message thread",
+          "value": 724.5,
+          "unit": "us",
+          "kind": "measured",
+          "source": "streaming",
+          "machine": "Apple M2 Max, 12 cores",
+          "date": "2026-08-15"
+        },
+        {
+          "axis": "text chunks absorbed, long thread",
+          "value": 2404,
+          "unit": "chunks/s",
+          "kind": "measured",
+          "source": "streaming",
+          "machine": "Apple M2 Max, 12 cores",
+          "date": "2026-08-15",
+          "note": "a FLOOR, not a ceiling: the client was caught up milliseconds after the driver stopped handing off."
+        },
+        {
+          "axis": "long tasks during a burst",
+          "value": 0,
+          "unit": "count",
+          "kind": "measured",
+          "source": "streaming",
+          "machine": "Apple M2 Max, 12 cores",
+          "date": "2026-08-15",
+          "note": "0 in every scenario. A long task is 50 ms of blocked main thread."
+        },
+        {
+          "axis": "layout shift outside the message list",
+          "value": 0,
+          "unit": "CLS",
+          "kind": "measured",
+          "source": "streaming",
+          "machine": "Apple M2 Max, 12 cores",
+          "date": "2026-08-15",
+          "note": "the product invariant: a streaming answer must not move the rest of the app."
+        }
+      ]
+    },
+    {
+      "title": "THE TURN, the legs this repo owns",
+      "metric": "ms, median",
+      "blurb": "Never summed: two of these overlap in wall clock, because the client is already painting its bubble while the server is still writing the row.",
+      "rows": [
+        {
+          "axis": "Enter, to the request leaving the client",
+          "value": 0.3,
+          "unit": "ms",
+          "kind": "measured",
+          "source": "turn",
+          "machine": "Apple M2 Max, 12 cores, darwin 25.2.0",
+          "date": "2026-08-15"
+        },
+        {
+          "axis": "request, to the turn existing",
+          "value": 10.6,
+          "unit": "ms",
+          "kind": "measured",
+          "source": "turn",
+          "machine": "Apple M2 Max, 12 cores, darwin 25.2.0",
+          "date": "2026-08-15",
+          "note": "in-flight gate, the SQLite write of the user row, the broadcast and one WebSocket hop back."
+        },
+        {
+          "axis": "first provider event, to first token readable",
+          "value": 17.2,
+          "unit": "ms",
+          "kind": "measured",
+          "source": "turn",
+          "machine": "Apple M2 Max, 12 cores, darwin 25.2.0",
+          "date": "2026-08-15"
+        },
+        {
+          "axis": "mid-stream event, to that token readable",
+          "value": 23.1,
+          "unit": "ms",
+          "kind": "measured",
+          "source": "turn",
+          "machine": "Apple M2 Max, 12 cores, darwin 25.2.0",
+          "date": "2026-08-15",
+          "note": "the one that runs hundreds of times a turn."
+        },
+        {
+          "axis": "accepted, to the first provider event",
+          "value": null,
+          "unit": "ms",
+          "kind": "not-measured",
+          "source": "turn",
+          "machine": "-",
+          "date": "",
+          "reason": "not measured by construction: the default mode never calls a model, so this leg is absent rather than fast. Re-run with BENCH_AI_REAL=1 against a logged-in provider to measure it. It belongs to the provider and the network and moves for reasons this repo does not control."
+        }
+      ]
+    },
+    {
+      "title": "FRAMES AND BYTES, from the gates that already measure them",
+      "blurb": "These are baselines a check compares against. This command reads them; it never re-measures them, and it never re-judges them.",
+      "rows": [
+        {
+          "axis": "board drag, 95th percentile frame",
+          "value": 9.5,
+          "unit": "ms",
+          "kind": "measured",
+          "source": "drag",
+          "machine": "not recorded",
+          "date": "2026-08-15",
+          "note": "budget 16.7 ms, which is 60 FPS. Long tasks during the drag: 0."
+        },
+        {
+          "axis": "chat scroll, frames delivered late",
+          "value": 20,
+          "unit": "%",
+          "kind": "measured",
+          "source": "scroll",
+          "machine": "macOS arm64, model not recorded",
+          "date": "2026-08-14",
+          "note": "worst gap 18 ms against a machine cadence of 8.3 ms."
+        },
+        {
+          "axis": "GET a topic's messages",
+          "value": 3.38,
+          "unit": "ms",
+          "kind": "measured",
+          "source": "route",
+          "machine": "not recorded",
+          "date": "2026-08-14",
+          "note": "on a seeded corpus of 150 topics / 3000 messages / 150 tasks."
+        },
+        {
+          "axis": "GET every board's tasks",
+          "value": 0.75,
+          "unit": "ms",
+          "kind": "measured",
+          "source": "route",
+          "machine": "not recorded",
+          "date": "2026-08-14"
+        },
+        {
+          "axis": "entry bundle, gzipped",
+          "value": 363223,
+          "unit": "bytes",
+          "kind": "measured",
+          "source": "bundle",
+          "machine": "not recorded",
+          "date": "2026-08-13",
+          "note": "raw 1169907 bytes. What the browser must have before the app can paint."
+        },
+        {
+          "axis": "critical path, gzipped",
+          "value": 533227,
+          "unit": "bytes",
+          "kind": "measured",
+          "source": "bundle",
+          "machine": "not recorded",
+          "date": "2026-08-13",
+          "note": "6 eager assets in index.html."
+        }
+      ]
+    },
+    {
+      "title": "DECLARED, NOT MEASURED HERE",
+      "blurb": "Axes this suite names on purpose and does not have a number for. A gap that is written down can be closed; a gap nobody printed cannot.",
+      "rows": [
+        {
+          "axis": "memory on Linux (Pss) and on Windows",
+          "value": null,
+          "unit": "MB",
+          "kind": "not-measured",
+          "source": "memory",
+          "machine": "-",
+          "date": "",
+          "reason": "the Linux path reads Pss from /proc/<pid>/smaps_rollup and is unit-tested, but it has never run: this box is macOS. A Pss number and a phys_footprint number are not the same measurement and are never printed in one column."
+        },
+        {
+          "axis": "memory of the shipped Tauri shell",
+          "value": null,
+          "unit": "MB",
+          "kind": "not-measured",
+          "source": "memory",
+          "machine": "-",
+          "date": "",
+          "reason": "the memory rows are taken with Chromium (Playwright) as the renderer, because the WKWebView shell's children are XPC services reparented to pid 1 and the window cannot be driven from a script on a private port. The totals are Chromium totals; the slope is the product's."
+        },
+        {
+          "axis": "the board feed, bytes per task",
+          "value": null,
+          "unit": "bytes",
+          "kind": "not-measured",
+          "source": "board-feed",
+          "machine": "-",
+          "date": "",
+          "reason": "measured, but as a GATE with no artefact: tests/integration/board-payload-weight.test.ts asserts the invariants and a per-task ceiling on a 300-task fixture and never writes a number out. Its header records the live-database figures (467 real roots) and this suite cannot re-run those, so it does not republish them."
+        },
+        {
+          "axis": "other vendors' CLIs, side by side",
+          "value": null,
+          "unit": "MB",
+          "kind": "not-measured",
+          "source": "memory",
+          "machine": "-",
+          "date": "",
+          "reason": "the only control arm is `claude`, because it is the binary this machine has. A row for a CLI this repo cannot launch would be a number copied from someone else's README."
+        }
+      ]
+    }
+  ],
+  "sources": [
+    {
+      "tag": "memory",
+      "file": "bench/results/memory-latest.json",
+      "kind": "report",
+      "rerun": "bun run scripts/bench/memory.ts --port 13500 --bundle <bundle> --topics 1,5,10,25 --agents 1,4",
+      "present": true
+    },
+    {
+      "tag": "latency",
+      "file": "test-results/bench-latency.json",
+      "kind": "report",
+      "rerun": "E2E_PORT=13510 TOPICS_E2E_BUNDLE_DIR=<bundle> bun run scripts/bench/latency.ts",
+      "present": true
+    },
+    {
+      "tag": "streaming",
+      "file": "test-results/bench-streaming.json",
+      "kind": "report",
+      "rerun": "E2E_PORT=13520 TOPICS_E2E_BUNDLE_DIR=<bundle> bun run scripts/bench/streaming.ts",
+      "present": true
+    },
+    {
+      "tag": "turn",
+      "file": "bench/results/ai-latency-latest.json",
+      "kind": "report",
+      "rerun": "E2E_PORT=13540 TOPICS_E2E_BUNDLE_DIR=<bundle> bun run scripts/bench/ai-latency.ts",
+      "present": true
+    },
+    {
+      "tag": "ink",
+      "file": "tests/e2e/ink-budget.json",
+      "kind": "gate",
+      "rerun": "bun run check:ink",
+      "present": true
+    },
+    {
+      "tag": "drag",
+      "file": "scripts/drag-frames-baseline.json",
+      "kind": "gate",
+      "rerun": "bun run check:drag",
+      "present": true
+    },
+    {
+      "tag": "scroll",
+      "file": "scripts/scroll-fluidity-baseline.json",
+      "kind": "gate",
+      "rerun": "bun run check:scroll-fluidity",
+      "present": true
+    },
+    {
+      "tag": "route",
+      "file": "scripts/route-latency-baseline.json",
+      "kind": "gate",
+      "rerun": "bun run check:route-latency",
+      "present": true
+    },
+    {
+      "tag": "bundle",
+      "file": "scripts/bundle-baseline.json",
+      "kind": "gate",
+      "rerun": "bun run check:bundle",
+      "present": true
+    },
+    {
+      "tag": "board-feed",
+      "file": "tests/integration/board-payload-weight.test.ts",
+      "kind": "gate",
+      "rerun": "bun test tests/integration/board-payload-weight.test.ts",
+      "present": true
+    }
+  ]
+}

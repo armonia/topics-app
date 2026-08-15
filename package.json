@@ -72,6 +72,7 @@
     "measure:task-tabs": "bun run scripts/measure-task-tab-teardown.ts",
     "measure:thread": "bun run scripts/thread-vs-work.ts",
     "measure:ui-state-init": "bun run scripts/measure-ui-state-init.ts",
+    "bench": "bun run scripts/bench/run.ts",
     "bench:ai-bridge": "bun run scripts/ai-bridge-replay-bench.ts",
     "orphan:dryrun": "bun run scripts/orphan-park-dryrun.ts",
     "browser:dryrun": "bun run scripts/browser-orphan-dryrun.ts",
