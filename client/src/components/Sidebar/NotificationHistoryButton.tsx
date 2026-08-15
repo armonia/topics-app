@@ -53,7 +53,7 @@ export function NotificationHistoryButton({
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
-  const { rows, unseen, loading, refresh, markAllSeen, openRow } = useNotificationHistory(onWSMessage);
+  const { rows, unseen, loading, openAndMarkSeen, openRow } = useNotificationHistory(onWSMessage);
 
   useDismissable({ open, onClose: () => setOpen(false), refs: [triggerRef, panelRef] });
 
@@ -63,10 +63,13 @@ export function NotificationHistoryButton({
     // Aprendo si rilegge (il fronte può essersi perso una riconnessione) e si
     // segna visto: guardare la lista È l'atto che azzera il contatore, e quello
     // che si segna sono le righe che si stanno guardando.
-    refresh();
-    markAllSeen();
+    //
+    // UNA chiamata, non due: la rilettura e il «visto» sono in sequenza dentro
+    // l'hook. Lanciarli da qui come due cose parallele è ciò che lasciava il
+    // contatore acceso per sempre — il perché è scritto su `openAndMarkSeen`.
+    openAndMarkSeen();
     setOpen(true);
-  }, [open, refresh, markAllSeen]);
+  }, [open, openAndMarkSeen]);
 
   const rect = anchor;
   const left = rect

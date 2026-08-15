@@ -26,6 +26,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { createHash } from "crypto";
 import { commitIsIn, countOwnCommits, otherLocalBranches } from "./own-commits";
+import { gitEnvFor } from "../lib/git-identity";
 import { MIGRATIONS_DIR, findNumberCollisions } from "../../shared/migration-numbers";
 
 export type AutoMergeResult =
@@ -284,7 +285,11 @@ export interface AutoMergeDeps {
 
 async function defaultRunGit(cwd: string, args: string[]): Promise<GitRunResult> {
   try {
-    const proc = Bun.spawn(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
+    // L'identità di chi firma, e solo dove manca: il land CREA commit (i due
+    // merge e i cherry-pick), e git senza identità esce 128 prima di toccare
+    // l'albero. Il perché e la regola del ripiego stanno in `git-identity.ts`.
+    const env = await gitEnvFor(cwd);
+    const proc = Bun.spawn(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe", env });
     const [stdout, stderr] = await Promise.all([
       new Response(proc.stdout).text(),
       new Response(proc.stderr).text(),
