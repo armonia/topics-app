@@ -150,7 +150,7 @@ let topicId = "";
 let topicName = "";
 let sessionKey = "";
 
-test.describe("BENCH - AI response time, our overhead separated from the model's", () => {
+test.describe("@nightly BENCH - AI response time, our overhead separated from the model's", () => {
   test.describe.configure({ timeout: 300_000 });
 
   test.beforeAll(async ({ request }) => {
@@ -183,7 +183,7 @@ test.describe("BENCH - AI response time, our overhead separated from the model's
     if (topicId) await deleteTopic(request, topicId).catch(() => {});
   });
 
-  test("measures send overhead, delivery overhead, and the model's share", async ({ page, request }, testInfo) => {
+  test("measures send overhead, delivery overhead, and the model's share @nightly", async ({ page, request }, testInfo) => {
     // EXACTLY one pane. Anything an earlier spec left open is one more resident
     // chat competing for the same main thread, and every number here is a
     // main-thread number.

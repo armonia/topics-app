@@ -487,7 +487,7 @@ async function measureTranscript(
 
 /* ─────────────────────────────────────────────────────────────── the run ── */
 
-test.describe.serial("BENCH — what a streamed chunk costs", () => {
+test.describe.serial("@nightly BENCH — what a streamed chunk costs", () => {
   test.describe.configure({ timeout: 900_000 });
 
   const stamp = Date.now();
@@ -525,7 +525,7 @@ test.describe.serial("BENCH — what a streamed chunk costs", () => {
     }
   });
 
-  test("absorbs a burst into a long transcript", async ({ page, request }) => {
+  test("absorbs a burst into a long transcript @nightly", async ({ page, request }) => {
     await measureTranscript(page, request, {
       topicId: longTopic.id,
       topicName: longTopic.name,
@@ -535,7 +535,7 @@ test.describe.serial("BENCH — what a streamed chunk costs", () => {
     });
   });
 
-  test("absorbs the same burst into a short one", async ({ page, request }) => {
+  test("absorbs the same burst into a short one @nightly", async ({ page, request }) => {
     await measureTranscript(page, request, {
       topicId: shortTopic.id,
       topicName: shortTopic.name,
@@ -545,7 +545,7 @@ test.describe.serial("BENCH — what a streamed chunk costs", () => {
     });
   });
 
-  test("writes the report", async () => {
+  test("writes the report @nightly", async () => {
     const payload = buildStreamingReport({
       on2UsPerMessage: ON2_US_PER_MESSAGE,
       machine: {

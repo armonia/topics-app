@@ -239,16 +239,38 @@ test.describe("I widget in coda a una tab", () => {
     // fosse più questo test lo dice invece di passare a vuoto.
     const supporta = await page.evaluate(() => CSS.supports("text-box-edge", "cap alphabetic"));
     expect(supporta, "il motore del banco deve avere text-box-edge, o `cap-box` non fa nulla").toBe(true);
-    await page.addStyleTag({ content: `[data-notification-count] { font-family: sans-serif !important; }` });
-    await expect
-      .poll(async () => page.evaluate(() => {
-        const d = document.querySelector("[data-notification-count]");
-        return d ? getComputedStyle(d).fontFamily : "";
-      }), { timeout: 5000 })
-      .toBe("sans-serif");
 
-    const rif = await misura(page, a.id);
-    const senzaTrim = await page.evaluate((id) => {
+    /**
+     * Il font di riferimento si CERCA, non si nomina.
+     *
+     * La prima stesura fissava `sans-serif` e pretendeva che fosse ostile. Su
+     * macOS lo è (Helvetica, previsione -0,67px) e la guardia funzionava; sul
+     * runner Linux la stessa riga ha misurato **0** ed è caduta, perché quale
+     * font concreto stia dietro una famiglia generica lo decide la macchina, e
+     * una macchina può benissimo risolverla in qualcosa di simmetrico o non
+     * averla affatto. Una guardia contro il verde a vuoto che diventa lei stessa
+     * un rosso dipendente dalla macchina non ha guadagnato niente: ha spostato
+     * il problema.
+     *
+     * Quindi si prova un elenco e si tiene la PIÙ ostile. La guardia cade solo
+     * se NESSUNA famiglia disponibile sposta la cifra, che è il vero caso in cui
+     * il controllo qui sotto non controllerebbe niente e va saputo.
+     */
+    /**
+     * Solo famiglie a CIFRE ALLINEATE, e l'esclusione è tecnica, non estetica.
+     *
+     * `text-box-edge: cap alphabetic` taglia la line box fra l'altezza delle
+     * maiuscole e la linea di base, e centra l'inchiostro **a patto che le cifre
+     * stiano lì dentro**. Georgia (e le altre con cifre di stile antico) disegna
+     * i numeri come minuscole: il 3 e il 9 scendono sotto la linea di base, il 6
+     * e l'8 salgono sopra l'altezza delle maiuscole. Con quelle il riferimento
+     * misura 1,83px e non è un difetto nostro: è una famiglia che rompe l'assunto
+     * che la regola CSS codifica, e nessun prodotto la centra senza cambiare
+     * regola. Metterla qui vorrebbe dire pretendere dall'app una cosa che non le
+     * si chiede, visto che il suo stack tipografico non la contiene.
+     */
+    const CANDIDATI = ["sans-serif", "serif", "monospace", "DejaVu Sans", "Liberation Sans", "Arial", "Verdana"];
+    const previsione = async (): Promise<number> => page.evaluate((id) => {
       const el = document.querySelector(`[data-pane-id="${CSS.escape(id)}"]`)!
         .querySelector("span.rounded-full.bg-primary") as HTMLElement;
       const cs = getComputedStyle(el);
@@ -261,8 +283,54 @@ test.describe("I widget in coda a una tab", () => {
         + (mm.actualBoundingBoxDescent - mm.actualBoundingBoxAscent) / 2) * 100) / 100;
     }, a.id);
 
-    expect(Math.abs(senzaTrim), `il font di riferimento deve essere ostile, o questo controllo non controlla niente (previsto senza cap-box: ${senzaTrim})`).toBeGreaterThan(0.5);
-    expect(Math.abs(rif.badgeInk!.dCentro), `cifra centrata anche con un font dalle metriche diverse (senza cap-box cadrebbe a ${senzaTrim})`).toBeLessThan(0.5);
+    // Lo stack VERO dell'app entra in gara per primo, e senza di lui questa
+    // guardia non regge sui due sistemi. Su macOS il default è SF e non è ostile
+    // (+0,12px), quindi serve una famiglia imposta; sul runner Linux il default
+    // È il font ostile — DejaVu Sans, -1,00px, esattamente quello che ha fatto
+    // scoprire il difetto — mentre `sans-serif` lì ha misurato 0 e ha fatto
+    // cadere la guardia su un fatto che riguardava l'inventario di font della
+    // macchina e non il prodotto. Con il default in gara, su ogni macchina esiste
+    // almeno un candidato ostile per costruzione.
+    let ostile = { famiglia: "", scarto: await previsione() };
+    const provati: string[] = [`(stack dell'app)=${ostile.scarto}`];
+    for (const famiglia of CANDIDATI) {
+      await page.addStyleTag({ content: `[data-notification-count] { font-family: ${famiglia} !important; }` });
+      await expect
+        .poll(async () => page.evaluate(() => {
+          const d = document.querySelector("[data-notification-count]");
+          return d ? getComputedStyle(d).fontFamily : "";
+        }), { timeout: 5000 })
+        .toContain(famiglia.split(",")[0]!);
+      const s = await previsione();
+      provati.push(`${famiglia}=${s}`);
+      if (Math.abs(s) > Math.abs(ostile.scarto)) ostile = { famiglia, scarto: s };
+    }
+
+    expect(
+      Math.abs(ostile.scarto),
+      `nessuna famiglia disponibile sposta la cifra, quindi il controllo qui sotto non controllerebbe niente. Provate: ${provati.join(", ")}`,
+    ).toBeGreaterThan(0.5);
+
+    // …e ADESSO si misura con la più ostile addosso. `famiglia` vuota vuol dire
+    // che ha vinto lo stack dell'app: si toglie l'override e si misura quello.
+    await page.addStyleTag({
+      content: ostile.famiglia
+        ? `[data-notification-count] { font-family: ${ostile.famiglia} !important; }`
+        : `[data-notification-count] { font-family: revert !important; }`,
+    });
+    if (ostile.famiglia) {
+      await expect
+        .poll(async () => page.evaluate(() => {
+          const d = document.querySelector("[data-notification-count]");
+          return d ? getComputedStyle(d).fontFamily : "";
+        }), { timeout: 5000 })
+        .toContain(ostile.famiglia.split(",")[0]!);
+    }
+    const rif = await misura(page, a.id);
+    expect(
+      Math.abs(rif.badgeInk!.dCentro),
+      `cifra centrata anche con ${ostile.famiglia || "lo stack dell'app"}, che senza cap-box cadrebbe a ${ostile.scarto}. Provate: ${provati.join(", ")}`,
+    ).toBeLessThan(0.5);
   });
 
   test("GEO-4: il glifo del loader nasce su coordinate intere", async ({ page, request }) => {
