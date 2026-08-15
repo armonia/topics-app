@@ -297,6 +297,39 @@ describe("il rastrello arriva anche sulle card già ferme", () => {
     expect(s.sweepParkedChildren()).toEqual([]);
   });
 
+  // L'ANELLO, misurato il 15/08 su `5505c6fa` — una card che di suo si intitola
+  // «review che non rientra in coda». Rimessa in coda alle 20:32, di nuovo in
+  // review alle 20:49, senza che nessun agente l'avesse toccata: chi rispondeva
+  // vedeva la card tornare indietro da sola e la stessa domanda ricomparire.
+  test("un padre appena rimesso in coda NON si rastrella: il suo turno deve ancora partire", () => {
+    const padre = s.create({ projectId: PID, text: "Rimesso in coda ora" }).id;
+    s.create({ projectId: PID, text: "Uno step fermo", parentTaskId: padre });
+    // Esattamente cio' che scrive `update` quando un umano lo porta in Todo:
+    // stato di dispatch azzerato, tentativi a zero.
+    db.run(
+      "UPDATE tasks SET status = 'todo', dispatch_state = NULL, dispatch_attempts = 0 WHERE id = ?",
+      [padre],
+    );
+
+    expect(s.sweepParkedChildren()).toEqual([]);
+    expect(s.get(padre)!.task.status).toBe("todo");
+  });
+
+  // …e il verso opposto, che e' quello che il rastrello esiste per prendere: un
+  // turno l'ha gia' avuto, i figli non li ha toccati, e in `todo` non ci sta
+  // aspettando niente.
+  test("un padre in todo che un turno l'ha gia' speso viene rastrellato lo stesso", () => {
+    const padre = s.create({ projectId: PID, text: "Un turno l'ha avuto" }).id;
+    s.create({ projectId: PID, text: "Uno step fermo", parentTaskId: padre });
+    db.run(
+      "UPDATE tasks SET status = 'todo', dispatch_state = NULL, dispatch_attempts = 2 WHERE id = ?",
+      [padre],
+    );
+
+    expect(s.sweepParkedChildren().map((t) => t.id)).toEqual([padre]);
+    expect(s.get(padre)!.task.status).toBe("review");
+  });
+
   // Una board SPENTA non si tocca da sola: nessuna coda scorre, quindi «rimetti
   // in coda» non farebbe partire niente, e una card che si muove dove qualcuno
   // ha spento la macchina è la sorpresa che toglie fiducia al chip.
