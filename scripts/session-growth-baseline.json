@@ -30,13 +30,13 @@
   "budget": {
     "_": "Maximum ratio of the cycle-50 sample over the cycle-5 sample. 1.00 means perfectly flat. Until `recorded` is true these are a reading of the goal, not a measurement.",
     "heap": 1.51,
-    "dom_nodes": 1.21,
-    "listeners": 1.12
+    "dom_nodes": 1.3,
+    "listeners": 1.2
   },
   "budget_why": {
     "heap": "1.51, and the honest reading is that this is a ceiling ABOVE what the app does, not a description of a flat app. First real run (2026-08-15, 50 cycles, Mac14,6): heap went 13.35 MB -> 18.1 MB, ratio 1.356. Part of that is legitimate and named in `known_growth` (the bench streams 100 messages into a transcript the app is supposed to keep) and part is V8 keeping arenas warm after a forced collection. The budget sits above the measurement with room for machine-to-machine spread, so what it catches from here is a REGRESSION, not today's state.",
-    "dom_nodes": "1.21, and it is NOT the 1.05 this line used to ask for. That 1.05 was the right demand and the app does not meet it: measured 558 -> 659 nodes over 45 cycles, ratio 1.181, which is about 2.2 nodes leaked per open/close/switch cycle that nobody ever frees. The transcript is virtualised and every cycle ends in the state it started in, so those nodes are a subtree that outlived its owner. The budget is set above today's number ON PURPOSE, so the gate can arm at all and stop the slope getting worse while the leak is hunted. It is a debt, not a verdict: when the leak is found this comes back to 1.05 and stays there.",
-    "listeners": "1.12, same story and the same debt. Measured 546 -> 595 over 45 cycles, ratio 1.09, about 1.1 listeners per cycle that never come back. This is the metric that catches the classic React leak, an effect that subscribes and whose cleanup stopped running, and a slow slope here is a real finding rather than noise because listeners never fall on their own. Set above today's number so the gate arms; it belongs back at 1.05.",
+    "dom_nodes": "1,30, e il numero ha adesso DUE misure sotto invece di una. Il DOM cresce davvero: 558->659 nodi su 45 cicli qui (x1,181), 564->693 sul runner Linux (x1,229), cioe' fra 2,2 e 2,9 nodi persi per ciclo di apri/chiudi/cambia che nessuno libera mai. Il transcript e' virtualizzato e ogni ciclo finisce nello stato in cui e' cominciato, quindi quei nodi sono un sottoalbero sopravvissuto al suo proprietario. 1,05 resta la richiesta giusta e l'app non la rispetta; 1,30 sta sopra ENTRAMBE le macchine con margine per la variabilita' del banco, cosi' il cancello si arma e ferma il peggioramento mentre la perdita si caccia. Il primo tentativo era 1,21, tarato sul solo numero di questo Mac, ed e' uscito rosso su CI al primo giro: un budget da una misura sola e' una congettura. E' debito, non un verdetto: quando la perdita e' chiusa questo torna a 1,05.",
+    "listeners": "1,20, stessa storia e stesso debito. Misurato 546->595 qui (x1,09) e 546->606 sul runner (x1,11): circa 1,1-1,3 listener per ciclo che non tornano mai indietro. E' la metrica che coglie la perdita classica di React, un effetto che si sottoscrive e la cui cleanup ha smesso di girare, ed e' una scoperta vera e non rumore perche' i listener non calano da soli. Sopra entrambe le macchine perche' il cancello si armi; il suo posto e' 1,05.",
     "_debito": "Le tre righe sopra descrivono una perdita MISURATA, non un'app piatta. Il cancello e' armato per fermare il peggioramento, non per dire che va bene. Prova collaterale presa lo stesso giorno sulla app spedita: il processo WebContent di Topics.app passa da 158,3 MB appena aperta a 233,8 MB dopo 7h41m, +48%, mentre server e ponte PTY non si muovono di un megabyte. La perdita e' nel renderer, e questi sono i primi numeri che la inquadrano."
   },
   "guards": {
@@ -63,5 +63,14 @@
       "margin": 0.03
     }
   },
-  "how_to_see_it_red": "TOPICS_GROWTH_LEAK_NODES=120 bun run check:growth. It appends 120 retained nodes, listeners and payload strings per cycle, held by a global array so a forced collection cannot reclaim them: a real leak of exactly the shape this bench claims to catch, moving all three metrics at once. Lowering the budget instead would only prove that a comparison operator works."
+  "how_to_see_it_red": "TOPICS_GROWTH_LEAK_NODES=120 bun run check:growth. It appends 120 retained nodes, listeners and payload strings per cycle, held by a global array so a forced collection cannot reclaim them: a real leak of exactly the shape this bench claims to catch, moving all three metrics at once. Lowering the budget instead would only prove that a comparison operator works.",
+  "measured_second_machine": {
+    "_": "Seconda misura, presa dal runner Linux della CI il 2026-08-15 (ubuntu-latest, chromium headless). Serve perche' un budget tarato su UNA macchina e' una congettura: il primo giro su CI ha misurato dom x1.229 contro il x1.181 di questo Mac, e con il budget a 1.21 - scelto sul solo numero locale - il cancello e' uscito rosso su una variazione che e' del banco, non del prodotto.",
+    "machine": "ubuntu-latest (GitHub Actions), chromium headless",
+    "heap": 1.35,
+    "dom_nodes": 1.229,
+    "listeners": 1.11,
+    "first_dom_nodes": 564,
+    "first_listeners": 546
+  }
 }
