@@ -206,8 +206,25 @@ test.describe("@nightly Long session - heap, DOM and listener growth", () => {
     const panelOf = (name: string) => `[data-testid="chat-panel"][aria-label="${name} panel"]`;
     const contentOf = (name: string) => `${panelOf(name)} [data-message-id]`;
 
+    /**
+     * The text that proves chat A is on screen RIGHT NOW.
+     *
+     * It has to move, and that is not a detail: `streamBurst` appends two
+     * messages to A per cycle, the transcript is virtualised and stays pinned to
+     * the bottom, so the SEEDED message - the oldest one - leaves the DOM as soon
+     * as the conversation outgrows the window. Anchoring on it made the bench die
+     * mid-run at `showPane(topicA, seededA)` with «element(s) not found» after a
+     * handful of cycles, while two cycles passed happily: five messages all fit,
+     * forty do not. The bench was measuring nothing and blaming the app.
+     *
+     * So the anchor follows the conversation: the seed until the first burst, the
+     * last message streamed after that. B never grows, so B keeps its seed.
+     */
+    let ancoraA = seededA;
+
     const showPane = async (t: { id: string; name: string }, text: string): Promise<void> => {
-      await tabOf(t.id).first().click();
+      // Bounded on purpose, like every action in this file: see closeAndReopenB.
+      await tabOf(t.id).first().click({ timeout: 10_000 });
       await expect(
         page.locator(contentOf(t.name), { hasText: text }).first(),
       ).toBeVisible({ timeout: 20_000 });
@@ -230,22 +247,46 @@ test.describe("@nightly Long session - heap, DOM and listener growth", () => {
      * is a real trap: closing a standalone chat archives its topic, and the
      * unified sidebar hard-skips archived standalone chats. The row is simply
      * gone, so a sidebar click would fail on cycle 1 for a reason that has
-     * nothing to do with leaks. The recently-closed list is the surface that
-     * still knows about it.
+     * nothing to do with leaks.
+     *
+     * The palette must be SEARCHED and not just opened, and that distinction is
+     * what kept this bench from ever recording a baseline. On an empty query the
+     * palette draws three sections and none of them is a topic list: recent
+     * projects on the left, «create» and «recently closed» on the right
+     * (CommandPalette.tsx, the `!query.trim()` branch). The recently-closed row
+     * is labelled `record.pane.title || config?.label || paneType`, so a chat
+     * pane that never got a title reads «Chat» and the topic's NAME appears
+     * nowhere. Typing switches to the search branch, and that one includes
+     * archived topics on purpose - the comment above `topicItems` says so.
+     *
+     * Every action below carries an explicit timeout, and that is the other half
+     * of the fix. `playwright.config.ts` sets no `actionTimeout`, so Playwright's
+     * default of 0 applies: an unbounded click. Combined with the 1_500_000 ms
+     * this describe gives itself, a locator that can never resolve does not fail,
+     * it STOPS - for twenty-five minutes, with no artefact and no name. That is
+     * exactly what happened on 2026-08-15: 41 minutes, no sample written, and
+     * cutting the run to six cycles changed nothing because the bound was never
+     * the cycle count. A bench that cannot say which locator it is stuck on is a
+     * bench nobody can fix.
      */
     const closeAndReopenB = async (): Promise<void> => {
       const tab = tabOf(topicB.id).first();
-      await tab.hover();
+      await tab.hover({ timeout: 10_000 });
       // `force`: this click is not verifying reachability, it is operating a
       // control the hover just revealed. The close is a 3 s soft confirm, so the
       // wait below is generous on purpose.
-      await tab.locator("button").last().click({ force: true });
+      await tab.locator("button").last().click({ force: true, timeout: 10_000 });
       await expect(tabOf(topicB.id)).toHaveCount(0, { timeout: 15_000 });
 
       await page.keyboard.press("Meta+k");
       const palette = page.locator('[data-testid="command-palette"]');
       await expect(palette).toBeVisible({ timeout: 10_000 });
-      await palette.getByRole("option").filter({ hasText: topicB.name }).first().click();
+      // The name goes in the box: see the docstring. Without it the option this
+      // click wants does not exist and the click waits forever.
+      await palette.getByRole("textbox").first().fill(topicB.name, { timeout: 10_000 });
+      const riga = palette.getByRole("option").filter({ hasText: topicB.name }).first();
+      await expect(riga).toBeVisible({ timeout: 10_000 });
+      await riga.click({ timeout: 10_000 });
       // The palette must be GONE before the cycle moves on: it is an overlay, and
       // the next action in the loop is a click on a tab underneath it.
       await expect(palette).toBeHidden({ timeout: 10_000 });
@@ -269,6 +310,9 @@ test.describe("@nightly Long session - heap, DOM and listener growth", () => {
       await expect(
         page.locator(contentOf(topicA.name), { hasText: last }).first(),
       ).toBeVisible({ timeout: 30_000 });
+      // …and from here on it is also the only text of A guaranteed to still be
+      // in the DOM: see `ancoraA`.
+      ancoraA = last;
     };
 
     const samples: Sample[] = [];
@@ -277,9 +321,9 @@ test.describe("@nightly Long session - heap, DOM and listener growth", () => {
 
     for (let cycle = 1; cycle <= CYCLES; cycle++) {
       await showPane(topicB, seededB);
-      await showPane(topicA, seededA);
+      await showPane(topicA, ancoraA);
       await closeAndReopenB();
-      await showPane(topicA, seededA);
+      await showPane(topicA, ancoraA);
       await streamBurst(cycle);
       await injectLeak(page, LEAK_NODES);
       cyclesCompleted++;
