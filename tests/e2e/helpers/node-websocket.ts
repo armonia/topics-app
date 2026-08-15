@@ -58,3 +58,39 @@ export function openSocket(url: string): NodeSocket {
   // listener bodies in the specs are unchanged.
   return new WsFallback(url) as unknown as NodeSocket;
 }
+
+/**
+ * The same choice, for a handshake that has to carry HEADERS.
+ *
+ * A spec that mounts server code in this Node process inherits that code's
+ * runtime assumptions. `server/services/relay-client.ts` opens the socket
+ * towards the tunnel listener with a bare `new WebSocket(url, { headers })`,
+ * which is right where it runs — the server is Bun, and Bun's `WebSocket` is
+ * the only one that takes headers, i.e. the only way the guest's cookie reaches
+ * the handshake instead of being rewritten. Under Node 20 that same line throws
+ * `ReferenceError`, the client catches it and answers the guest `502`, and a
+ * relay spec fails saying "the upgrade must open" with no hint that the missing
+ * piece is a global. That is what happened on 2026-08-15 to RELAY-E2E-03/08/09.
+ *
+ * So the seam the client already exposes (`apriSocketLocale`) gets an opener
+ * that works on either Node: the platform's own where it exists — the same
+ * object, built the same way, so a laptop keeps measuring the production path —
+ * and `ws` where it does not, which is the one client on this side that takes
+ * headers without a global.
+ *
+ * Returned as `unknown` on purpose: the caller casts it to whatever its own
+ * seam declares, and neither implementation's type leaks in here.
+ */
+export function openSocketWithHeaders(
+  url: string,
+  o: { headers: Record<string, string>; protocols: string[] },
+): unknown {
+  if (usesPlatformWebSocket) {
+    const opzioni: Record<string, unknown> = { headers: o.headers };
+    if (o.protocols.length > 0) opzioni.protocols = o.protocols;
+    // Same cast as the production opener, and for the same reason: the DOM type
+    // wants subprotocols as the second argument, Bun/undici take an options bag.
+    return new globalThis.WebSocket(url, opzioni as unknown as string[]);
+  }
+  return new WsFallback(url, o.protocols, { headers: o.headers });
+}

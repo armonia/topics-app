@@ -1069,9 +1069,11 @@ const IT: Dict = {
   'version.installRestart': 'Riavvia e installa',
   'version.checkFailed': 'Controllo fallito',
   'version.check': 'Controlla aggiornamenti',
-  // ── Cronologia notifiche. Le due etichette che finiscono in «non viste»
-  //    tengono il valore IT alla lettera: `notification-history.spec.ts` cerca
-  //    `[aria-label$='non viste']`.
+  // ── Cronologia notifiche. Queste due etichette NON sono più congelate: il
+  //    locator che le teneva ferme (`[aria-label$='non viste']`, in
+  //    `notification-history.spec.ts`) ora legge `data-notification-count` sul
+  //    badge. Si possono riscrivere — restano solo ciò che dice uno screen
+  //    reader.
   'notifications.historyTitle': 'Cronologia notifiche',
   'notifications.historyUnseen': 'Cronologia notifiche. {n} non viste',
   'notifications.badgeUnseen': '{n} notifiche non viste',

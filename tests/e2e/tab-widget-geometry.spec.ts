@@ -111,6 +111,12 @@ async function misura(page: Page, paneId: string): Promise<Misura> {
     // L'INCHIOSTRO di un testo, non la sua scatola: baseline dedotta dal box del
     // testo più le metriche del font, poi centro ottico dei glifi EFFETTIVI.
     // È l'unico modo di vedere il difetto — la scatola era centrata benissimo.
+    //
+    // La baseline dedotta è esatta, non una stima: verificata contro una sonda
+    // inline alta 0 su `vertical-align: baseline` su nove font (SF, Helvetica,
+    // Arial, Verdana, Georgia, Courier New, Times, Impact, Menlo) — scarto 0,000
+    // in tutti e nove. Vale perché Blink arrotonda ascent/descent agli interi in
+    // un posto solo, e canvas e layout leggono quel posto.
     const ink = (el: Element | null) => {
       if (!el) return null;
       const node = Array.from(el.childNodes).find((n) => n.nodeType === 3 && n.textContent?.trim());
@@ -132,14 +138,15 @@ async function misura(page: Page, paneId: string): Promise<Misura> {
       };
     };
     const loader = tab.querySelector("[data-loader-state]");
+    const badge = tab.querySelector("span.rounded-full.bg-primary");
     return {
       tab: { w: r2(rt.width), h: r2(rt.height) },
       label: box(tab.querySelector('[data-testid="pane-tab-label"]')),
       labelInk: ink(tab.querySelector('[data-testid="pane-tab-label"]')),
       loader: box(loader),
       loaderGlifo: box(loader?.querySelector("span") ?? null),
-      badge: box(tab.querySelector("span.rounded-full.bg-primary")),
-      badgeInk: ink(tab.querySelector("span.rounded-full.bg-primary")),
+      badge: box(badge),
+      badgeInk: ink(badge),
       comando: box(tab.querySelector(".row-actions")),
     };
   }, paneId);
@@ -187,6 +194,60 @@ test.describe("I widget in coda a una tab", () => {
     // nemmeno su uno schermo a densità doppia. Prima erano 0,62px in basso.
     expect(Math.abs(m.badgeInk!.dCentro), "cifra rispetto al centro verticale").toBeLessThan(0.5);
     expect(Math.abs(m.badgeInk!.inkSx - m.badgeInk!.inkDx), "cifra rispetto al centro orizzontale").toBeLessThan(0.5);
+
+    // …E ADESSO LA STESSA MISURA CONTRO UN RIFERIMENTO CHE QUESTA STESSA RUN
+    // PRODUCE, perché con un font solo il numero qui sopra non dice se a
+    // centrare siamo noi o se ci va bene.
+    //
+    // Storia, per non ripeterla. Questo test è stato verde su macOS e rosso sul
+    // runner Linux per tre tentativi identici (−1,00px), e la lettura comoda era
+    // «è il rasterizzatore, alza la tolleranza». Non lo era, e non era nemmeno
+    // rasterizzazione. Qualunque centratura verticale centra la LINE BOX, e
+    // dentro la line box il testo si posa per BASELINE: l'inchiostro di una
+    // cifra — che sta tutto sopra la baseline — cade fuori asse di
+    //     floor((altezzaPastiglia − ascent − descent)/2) + ascent
+    //     − altezzaPastiglia/2 + (inkDescent − inkAscent)/2
+    // cioè di un numero che decide il FONT. Stessa identica CSS, Chromium 147,
+    // dieci font: da +2,01 (Georgia) a −1,00. Il −1,00 è DejaVu Sans (ascent 10,
+    // descent 3, cifra alta 8,16 a 11px), cioè proprio il font che il runner
+    // Linux risolve dalla pila UI: caricato via @font-face su questa macchina dà
+    // −1,004, che è al centesimo il rosso di CI. Con `cap-box` lo stesso font dà
+    // +0,043.
+    //
+    // Quella formula è calcolabile QUI, dalle metriche del font che la pagina
+    // sta usando: è «dove cadrebbe la cifra senza `cap-box`». Verificata contro
+    // la misura vera con la trim spenta su otto famiglie: coincide al
+    // millesimo. Serve a due cose: dà al controllo un riferimento deterministico
+    // invece di una seconda tolleranza a occhio, e dice se il controllo sta
+    // controllando qualcosa — con `sans-serif` (Helvetica su macOS, DejaVu su
+    // Linux) il riferimento è ostile di quasi un pixel, e se un giorno non lo
+    // fosse più questo test lo dice invece di passare a vuoto.
+    const supporta = await page.evaluate(() => CSS.supports("text-box-edge", "cap alphabetic"));
+    expect(supporta, "il motore del banco deve avere text-box-edge, o `cap-box` non fa nulla").toBe(true);
+    await page.addStyleTag({ content: `[data-notification-count] { font-family: sans-serif !important; }` });
+    await expect
+      .poll(async () => page.evaluate(() => {
+        const d = document.querySelector("[data-notification-count]");
+        return d ? getComputedStyle(d).fontFamily : "";
+      }), { timeout: 5000 })
+      .toBe("sans-serif");
+
+    const rif = await misura(page, a.id);
+    const senzaTrim = await page.evaluate((id) => {
+      const el = document.querySelector(`[data-pane-id="${CSS.escape(id)}"]`)!
+        .querySelector("span.rounded-full.bg-primary") as HTMLElement;
+      const cs = getComputedStyle(el);
+      const ctx = document.createElement("canvas").getContext("2d")!;
+      ctx.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize}/${cs.lineHeight} ${cs.fontFamily}`;
+      const mm = ctx.measureText(el.textContent!.trim());
+      const h = el.getBoundingClientRect().height;
+      const A = mm.fontBoundingBoxAscent, D = mm.fontBoundingBoxDescent;
+      return Math.round((Math.floor((h - A - D) / 2) + A - h / 2
+        + (mm.actualBoundingBoxDescent - mm.actualBoundingBoxAscent) / 2) * 100) / 100;
+    }, a.id);
+
+    expect(Math.abs(senzaTrim), `il font di riferimento deve essere ostile, o questo controllo non controlla niente (previsto senza cap-box: ${senzaTrim})`).toBeGreaterThan(0.5);
+    expect(Math.abs(rif.badgeInk!.dCentro), `cifra centrata anche con un font dalle metriche diverse (senza cap-box cadrebbe a ${senzaTrim})`).toBeLessThan(0.5);
   });
 
   test("GEO-4: il glifo del loader nasce su coordinate intere", async ({ page, request }) => {
