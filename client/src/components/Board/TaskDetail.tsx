@@ -14,6 +14,7 @@ import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { getMediaUrl } from '../../lib/api';
 import { isImagePath, isPdfPath, isVideoPath } from '../../lib/mediaKind';
 import { isSupersededPreviewNote } from '../../../../shared/preview-retirement';
+import { isResolvedParkedQuestion } from '../../../../shared/parked-question';
 import { ThreadRuns } from './ThreadRuns';
 import { copyText } from '../../lib/clipboard';
 import { openExternalOnce } from '../../lib/openExternal';
@@ -902,7 +903,13 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   // Same predicate as the card and as `pendingQuestion`, deliberately - the
   // drawer showing no buttons while the card shows two is the shape this bug
   // takes when the three drift.
-  const speech = comments.filter(isThreadSpeech);
+  // …e la terza cosa che non e' mai «l'ultima parola»: una domanda sui sottotask
+  // fermi a cui i sottotask hanno gia' risposto muovendosi. Restava in coda al
+  // thread e la scheda ne disegnava le risposte rapide — due bottoni che
+  // rimettevano in coda o archiviavano un insieme vuoto. Vedi
+  // `shared/parked-question.ts`: la domanda resta nella storia, smette di
+  // presentarsi come una decisione da prendere.
+  const speech = comments.filter((c) => isThreadSpeech(c) && !isResolvedParkedQuestion(c, children));
   const lastThreadComment = speech[speech.length - 1] ?? null;
   const pending = isAgentReview && lastThreadComment ? parseQuestionBlock(lastThreadComment.content) : null;
   // Same trap as on the card, one size bigger: the drawer draws its own approve
@@ -1615,7 +1622,12 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
         {task.assignedTopicId && (
           <SessionSlice msgs={sliceFor(c.id)} />
         )}
-        <CommentBubble comment={c} ownerName={ownerName} onPreview={(p) => browserRef.current?.focusPane(`media:${p}`)} />
+        <CommentBubble
+          comment={c}
+          ownerName={ownerName}
+          resolvedParked={isResolvedParkedQuestion(c, children)}
+          onPreview={(p) => browserRef.current?.focusPane(`media:${p}`)}
+        />
       </div>
     );
     // I passaggi di stato adiacenti sono UNA striscia di chip. La fetta di
@@ -3153,10 +3165,17 @@ export function SessionSlice({ msgs, label, preview }: {
   );
 }
 
-export function CommentBubble({ comment, ownerName = null, onPreview }: {
+export function CommentBubble({ comment, ownerName = null, resolvedParked = false, onPreview }: {
   comment: TaskComment;
   /** Come si chiama chi usa l'app: le TUE righe si firmano col tuo nome. */
   ownerName?: string | null;
+  /**
+   * Questa riga è la domanda sui sottotask fermi, e i sottotask si sono mossi.
+   * Resta nella storia — è successo — ma smette di occupare lo spazio di una
+   * decisione: niente cornice, niente elenco di uscite, un chip come le altre
+   * righe di servizio. Lo decide chi chiama, che ha i figli sotto mano.
+   */
+  resolvedParked?: boolean;
   onPreview?: (path: string) => void;
 }) {
   const tr = useT();
@@ -3195,7 +3214,11 @@ export function CommentBubble({ comment, ownerName = null, onPreview }: {
    * l'agent ha detto. Multi-riga resta prosa, sempre.
    */
   // (`review-note` è già uscito sopra, con la sua intestazione verde.)
-  const oneLiner = app && !/[\n\r]/.test(comment.content.trim());
+  // Una domanda gia' risolta scende allo stesso rango: e' un fatto avvenuto,
+  // non una cosa da decidere. Il blocco `question` e' multi-riga per via delle
+  // recinzioni, quindi non passerebbe dal test qui sopra — ma quello che resta
+  // da leggere e' una frase sola, ed e' quella che il chip mostra.
+  const oneLiner = app && (resolvedParked || !/[\n\r]/.test(comment.content.trim()));
   if (oneLiner) {
     return (
       <div
@@ -3204,7 +3227,7 @@ export function CommentBubble({ comment, ownerName = null, onPreview }: {
         title={`${who.name} (${who.detail}) · ${comment.content} · ${new Date(comment.createdAt).toLocaleString('it-IT')}`}
       >
         <Bot className="h-3 w-3 shrink-0" />
-        <span className="min-w-0 truncate">{comment.content}</span>
+        <span className="min-w-0 truncate">{parseQuestionBlock(comment.content)?.question ?? comment.content}</span>
         <span className="ml-auto shrink-0 text-app-text-faint">{commentTime(comment.createdAt)}</span>
       </div>
     );

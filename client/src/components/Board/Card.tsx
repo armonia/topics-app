@@ -7,6 +7,7 @@ import { AlertTriangle, ArchiveRestore, CircleSlash, ClipboardList, Copy, Hourgl
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
+import { isSettledParkedQuestion } from '../../../../shared/parked-question';
 import { STATUS_LABEL, blockedByChip, boardApi, commentAuthorLabel, isAgentWorking, isProjectlessId, parseQuestionBlock, reopenedChip, showsLandingDebt, subtaskWorkChip, systemDeliveryChip, waitingOnThisChip, whoCloses, type BoardTask, type TaskStatus } from '../../lib/board';
 import { columnSlice, COLUMN_PAGE } from '../../lib/boardOrder';
 import { cardCommentsFromRow, cardDetailNeed, selectCardComments, showsCardThread, type CardComments } from './cardComments';
@@ -363,7 +364,14 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   // Plain text: the context row is a single clamped line, so markdown blocks
   // would only leak their syntax into it.
   const humanContextText = humanContext ? stripMarkdown(humanContext.content) : '';
-  const pending = lastComment ? parseQuestionBlock(lastComment.content) : null;
+  // …e una domanda a cui i sottotask hanno gia' risposto muovendosi non e' piu'
+  // una domanda: le sue risposte rapide rimetterebbero in coda o archivierebbero
+  // un insieme vuoto. La card ha solo due numeri, quindi usa il predicato piu'
+  // stretto — puo' lasciarne viva una risolta, mai spegnerne una viva. Vedi
+  // `shared/parked-question.ts`.
+  const pending = lastComment && !isSettledParkedQuestion(lastComment, task)
+    ? parseQuestionBlock(lastComment.content)
+    : null;
   // A quick reply whose text IS one of the card's real choices is a trap: the
   // reply rejects the card and restarts the agent with those words, while the
   // button one row below performs the action. Same label, opposite effect.
