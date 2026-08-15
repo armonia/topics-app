@@ -31,8 +31,13 @@ describe('authorDisplay', () => {
   });
 
   test('le TUE righe portano il tuo nome, non «user»', () => {
-    const r = show('user', 'Attilio Cianci');
-    expect(r.name).toBe('Attilio Cianci');
+    // Un nome INVENTATO, e non è pignoleria: questo repo è pubblico e
+    // `tests/unit/no-personal-data-tracked.test.ts` fa cadere il build quando un
+    // file tracciato guadagna un termine personale. Ci era caduto il nome vero
+    // del proprietario, che è esattamente ciò che quel cancello esiste per
+    // fermare — e il valore di prova qui è identico con qualunque stringa.
+    const r = show('user', 'Nome Cognome');
+    expect(r.name).toBe('Nome Cognome');
     expect(r.self).toBe(true);
     // L'identità sul disco non si perde: resta per il tooltip.
     expect(r.detail).toBe('user');

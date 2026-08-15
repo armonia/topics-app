@@ -177,6 +177,36 @@ export function MessageList({
    * si rilega nell'istante in cui l'elemento esiste.
    */
   const [scrollerEl, setScrollerEl] = useState<HTMLElement | null>(null);
+  /**
+   * La callback ref per Virtuoso, STABILE, e la stabilità è tutto il punto.
+   *
+   * Era una freccia scritta inline dentro il JSX. Una freccia inline è una
+   * funzione NUOVA a ogni render, e React tratta un cambio di identità della
+   * callback ref come uno scollegamento: chiama la vecchia con `null` e la nuova
+   * con l'elemento. Ogni render ne faceva quindi partire DUE, con il valore che
+   * alternava `null` e lo scroller — per cui la guardia `prev === el` qui sotto
+   * non poteva scattare mai, e ognuna delle due chiamate faceva un render.
+   *
+   * Fuori da una raffica non si vede: i render sono radi e il ciclo si spegne da
+   * solo. Dentro una raffica no. MISURATO il 2026-08-16: 120 messaggi da 4 KB
+   * versati in una chat a schermo uccidono la pane fra il messaggio 40 e il 70
+   * con React #185 «Maximum update depth exceeded», zero messaggi disegnati e la
+   * schermata «Questa pane si è rotta». Lo stack nomina `scrollerRef`. Ed è il
+   * caso d'uso centrale del prodotto: un agente che scarica output di tool in
+   * fretta fa esattamente questo.
+   *
+   * Con `useCallback` a dipendenze vuote l'identità non cambia più, quindi React
+   * la invoca solo quando il NODO cambia davvero. `scrollerElRef` è un oggetto
+   * ref e `setScrollerEl` un setter di stato: entrambi stabili per contratto,
+   * quindi le dipendenze vuote sono corrette e non catturano niente di stantio.
+   */
+  const scrollerRef = useCallback((ref: HTMLElement | Window | null) => {
+    const el = (ref as HTMLElement | null) ?? null;
+    scrollerElRef.current = el;
+    // Anche come stato: è l'unica via perché l'effetto dei listener si accorga
+    // che lo scroller è arrivato (vedi `scrollerEl` qui sopra).
+    setScrollerEl((prev) => (prev === el ? prev : el));
+  }, []);
   // UNA sola autorità sull'ancoraggio (1b.3). Prima erano tre ref che si
   // riparavano a vicenda — `isScrolledUpRef`, `userIntentUpRef`,
   // `scrollGuardRef` — e otto punti che pinnavano il fondo, ognuno con un
@@ -1575,13 +1605,7 @@ export function MessageList({
           data-testid="chat-message-list"
           key={topic.id}
           ref={virtuosoRef}
-          scrollerRef={(ref) => {
-            const el = (ref as HTMLElement | null) ?? null;
-            scrollerElRef.current = el;
-            // Anche come stato: è l'unica via perché l'effetto dei listener si
-            // accorga che lo scroller è arrivato (vedi `scrollerEl`).
-            setScrollerEl((prev) => (prev === el ? prev : el));
-          }}
+          scrollerRef={scrollerRef}
           data={filteredMessages}
           // CONGELATO al montaggio, e non è un dettaglio: questa prop dice a
           // Virtuoso da quale item partire, e ricalcolarla a ogni messaggio la
