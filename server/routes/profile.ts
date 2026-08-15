@@ -62,6 +62,15 @@ export function createProfileRouter(ctx: AppContext): RouteHandler {
   ): Promise<Response | null> {
     if (!pathname.startsWith("/api/profile")) return null;
 
+    // ── Solo il NOME, senza il conto di tutta l'installazione ─────────────
+    // `stats` scandisce sessioni, messaggi e token: 992 sessioni e 15.980
+    // messaggi solo su questa macchina. Chi vuole sapere come si chiama chi usa
+    // l'app (il thread di una scheda, per non firmare un commento «user») non
+    // puo' pagare quel conto a ogni apertura, quindi il nome ha la sua porta.
+    if (method === "GET" && pathname === "/api/profile/owner") {
+      return json({ name: nomeProprietario() });
+    }
+
     // ── Le statistiche ────────────────────────────────────────────────────
     if (method === "GET" && pathname === "/api/profile/stats") {
       try {

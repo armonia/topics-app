@@ -2,7 +2,9 @@ import { pickPlanComment } from './planPanel';
 import { useState, useEffect, useMemo, useRef, useCallback, type TouchEvent as ReactTouchEvent } from 'react';
 import { useT, useLocale } from '../../hooks/useT';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
-import { AlertTriangle, ArrowUpRight, Bot, Camera, Check, ChevronDown, ChevronRight, Clock, Copy, Download, ExternalLink, Footprints, GitMerge, Globe, Hourglass, Link2, Lock, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Paperclip, Plus, Send, ShieldCheck, ShieldX, Sparkles, Square, StickyNote, Tag, UserRound, X } from 'lucide-react';
+import { useOwnerName } from '../../hooks/useOwnerName';
+import { authorDisplay } from '../../lib/authorDisplay';
+import { AlertTriangle, ArrowUpRight, Bot, Camera, Check, ChevronDown, ChevronRight, Clock, Copy, Download, ExternalLink, Footprints, GitMerge, Globe, Hourglass, Lock, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Paperclip, Plus, Send, ShieldCheck, ShieldX, Sparkles, Square, StickyNote, Tag, UserRound, X } from 'lucide-react';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ReasoningRow } from '../Chat/ReasoningRow';
 import { Menu } from '../Shared/Menu';
@@ -616,6 +618,9 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
 }) {
   const tr = useT();
   const locale = useLocale();
+  // Come si chiama chi usa l'app. Il thread firmava le TUE righe «user» pur
+  // sapendolo: qui il nome entra una volta e scende a chi disegna chi ha parlato.
+  const ownerName = useOwnerName();
   // La parola di «Landa su main» per la BANDA del lavoro non landato, che è
   // un'altra superficie: parla di una card già chiusa, dove non c'è nessuna
   // eccezione da segnalare. I tre bottoni della zona di decisione prendono le
@@ -1398,13 +1403,10 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
     copyTimer.current = setTimeout(() => setCopied(null), 1400);
   };
   useEffect(() => () => { if (copyTimer.current) clearTimeout(copyTimer.current); }, []);
-  const copyLink = async () => {
-    if (!task) return;
-    if (await copyText(buildTaskLink(task.id))) flashCopied('link');
-  };
   /** Il CONTENUTO del task (titolo + descrizione) negli appunti: quello che
-   *  serve per incollarlo in una chat o in un'altra board. Il link, accanto,
-   *  copre il caso opposto — ritrovare il task, non leggerlo. */
+   *  serve per incollarlo in una chat o in un'altra board. Il LINK — ritrovare
+   *  il task invece di leggerlo — non è più un gemello qui accanto: vive dentro
+   *  il pannello di condivisione, che è l'unico posto dove si chiede un link. */
   const copyTask = async () => {
     if (!task) return;
     if (await copyText(taskCopyText(task))) flashCopied('task');
@@ -1556,13 +1558,23 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
         {task.assignedTopicId && (
           <SessionSlice msgs={sliceFor(c.id)} />
         )}
-        {c.kind === 'status' ? <StatusEventRow comment={c} /> : <CommentBubble comment={c} onPreview={(p) => browserRef.current?.focusPane(`media:${p}`)} />}
+        <CommentBubble comment={c} ownerName={ownerName} onPreview={(p) => browserRef.current?.focusPane(`media:${p}`)} />
+      </div>
+    );
+    // I passaggi di stato adiacenti sono UNA striscia di chip. La fetta di
+    // sessione che sta nel buco sopra il primo resta dov'è: il taglio della
+    // striscia usa lo stesso `breaksRun` del muro di servizio, quindi una
+    // striscia non scavalca mai una parola dell'agent.
+    const statusRun = (cs: TaskComment[]) => (
+      <div className="space-y-2">
+        {task.assignedTopicId && <SessionSlice msgs={sliceFor(cs[0]!.id)} />}
+        <StatusTrail comments={cs} ownerName={ownerName} />
       </div>
     );
     return (
       <div className="flex-1 space-y-2 overflow-y-auto px-3 py-3">
         {threadComments.length === 0 && !task.assignedTopicId && <p className="text-xs text-app-text-muted">{tr('board.task.noComments')}</p>}
-        <ThreadRuns comments={threadComments} breaksRun={threadBreaksRun} renderRow={row} />
+        <ThreadRuns comments={threadComments} breaksRun={threadBreaksRun} renderRow={row} renderStatusRun={statusRun} />
         {task.assignedTopicId && (
           <SessionSlice
             msgs={sessionBuckets.tail}
@@ -1596,7 +1608,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
       </div>
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps -- stopAgent/bottomRef are stable enough; the meaningful inputs are listed
-  }, [task, threadComments, threadBreaksRun, sliceFor, sessionBuckets.tail, agentBusy, streamPreview, busy, tr, stopWord.label, stopWord.title]);
+  }, [task, threadComments, threadBreaksRun, sliceFor, sessionBuckets.tail, agentBusy, streamPreview, busy, tr, ownerName, stopWord.label, stopWord.title]);
 
   const renderSurface = useCallback<RenderSurface>((pane, _isVisible) => {
     if (pane.id.startsWith('thread:')) return renderThread();
@@ -1676,7 +1688,9 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             proprietà della scheda come lo stato, e nasconderla in un
             sottomenù avrebbe reso invisibile l'unica cosa che rende utile
             l'identità costruita sotto. */}
-        {task && <ShareControl resourceType="task" resourceId={task.id} />}
+        {/* Un solo posto per «il link»: l'icona a catena accanto non c'è più,
+            la copia vive dentro il pannello di condivisione. */}
+        {task && <ShareControl resourceType="task" resourceId={task.id} deepLink={buildTaskLink(task.id)} />}
         <Menu open={statusMenuOpen} anchorRef={statusBtnRef} onClose={() => setStatusMenuOpen(false)} minWidth={170} role="listbox">
           <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.task.moveTo')}</p>
           {TASK_STATUSES.map((s) => (
@@ -1743,28 +1757,45 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 role="menuitem" onClick={() => { setOptionsMenuOpen(false); setSubtasksOpen(true); setSubtaskComposerOpen(true); }}
                 className={POPOVER_ITEM}
               ><Plus className="h-3.5 w-3.5 shrink-0 text-app-text-secondary" /> {tr('board.task.addSubtask')}</button>
+              <div className={POPOVER_DIVIDER} />
+              {/* COPIA IL TASK e APRI NEL PROGETTO stanno QUI, non in riga.
+                  Erano due icone fra le sette della testata, e sette icone senza
+                  parole sono un rebus: nessuna di queste due si usa mentre si
+                  decide su una scheda, quindi nessuna delle due si merita un
+                  posto permanente accanto a «chiudi». Nel menù hanno anche la
+                  cosa che a un'icona mancava — il proprio nome scritto. */}
+              <button
+                role="menuitem" onClick={() => { setOptionsMenuOpen(false); void copyTask(); }}
+                data-testid="task-copy-text"
+                title={tr('board.task.copyTextTitle')}
+                className={POPOVER_ITEM}
+              >
+                {copied === 'task'
+                  ? <Check className="h-3.5 w-3.5 shrink-0 text-emerald-400" />
+                  : <Copy className="h-3.5 w-3.5 shrink-0 text-app-text-secondary" />}
+                <span className="min-w-0 flex-1">{copied === 'task' ? tr('board.task.copyTextDone') : tr('board.task.copyText')}</span>
+              </button>
+              {/* Le TAB vincono su `outputUrl`: su un task DISPATCHATO il
+                  risultato sono le tab che l'agente ha aperto con
+                  open_browser_pane — anche più d'una, col suo nome — e
+                  `outputUrl` (quando c'è) è solo il seme della prima. Senza tab
+                  vive resta il seme, così il flusso manuale non perde nulla.
+                  Si chiama «apri il TASK» e non «apri il risultato»: i risultati
+                  sono tanti e cambiano mentre l'agent lavora, quindi il gesto
+                  promuove il task con quello che ha in quel momento. */}
+              {workspaceManifest.length > 0 && (
+                <button
+                  role="menuitem" onClick={() => { setOptionsMenuOpen(false); openInWorkspace(); }}
+                  data-testid="task-open-in-workspace"
+                  title={tr('board.task.openInProjectTitle', { n: workspaceManifest.length })}
+                  className={POPOVER_ITEM}
+                >
+                  <Globe className="h-3.5 w-3.5 shrink-0 text-app-text-secondary" />
+                  <span className="min-w-0 flex-1">{tr('board.task.openInProject')}</span>
+                  <span className="shrink-0 text-[10px] text-app-text-faint">{workspaceManifest.length}</span>
+                </button>
+              )}
             </Menu>
-          )}
-          {/* Due copie diverse, una accanto all'altra: il TESTO del task (per
-              incollarlo altrove) e il LINK (per ritrovarlo). Stanno in riga e
-              non nel menù ⋯ perché sono gesti di un click, non impostazioni. */}
-          {task && (
-            <button
-              onClick={copyTask}
-              data-testid="task-copy-text"
-              title={copied === 'task' ? tr('board.task.copyTextDone') : tr('board.task.copyTextTitle')}
-              aria-label={tr('board.task.copyText')}
-              className="rounded p-1.5 text-app-text-secondary hover:bg-white/10"
-            >{copied === 'task' ? <Check className="h-4 w-4 text-emerald-400" /> : <Copy className="h-4 w-4" />}</button>
-          )}
-          {task && (
-            <button
-              onClick={copyLink}
-              data-testid="task-copy-link"
-              title={copied === 'link' ? tr('board.task.copyLinkDone') : tr('board.task.copyLinkTitle')}
-              aria-label={tr('board.task.copyLink')}
-              className="rounded p-1.5 text-app-text-secondary hover:bg-white/10"
-            >{copied === 'link' ? <Check className="h-4 w-4 text-emerald-400" /> : <Link2 className="h-4 w-4" />}</button>
           )}
           {/* Dalla SCHEDA alla SESSIONE. Il drawer non è la chat dell'agente: è
               la superficie dove si decide, e questo è l'unico gesto che porta
@@ -1787,19 +1818,6 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               aria-label={tr('board.task.sessionGone')}
               className="rounded p-1.5 text-app-text-faint"
             ><MessageSquare className="h-4 w-4" /></span>
-          )}
-          {/* Le TAB vincono su `outputUrl`: su un task DISPATCHATO il risultato
-              sono le tab che l'agente ha aperto con open_browser_pane — anche
-              più d'una, col suo nome — e `outputUrl` (quando c'è) è solo il seme
-              della prima. Senza tab vive resta il seme, così il flusso manuale
-              non perde nulla. Il bottone le promuove TUTTE. */}
-          {workspaceManifest.length > 0 && (
-            <button
-              onClick={openInWorkspace}
-              data-testid="task-open-in-workspace"
-              title={tr('board.task.openResultWorkspaceTitle')}
-              className="rounded p-1.5 text-app-text-secondary hover:bg-white/10"
-            ><Globe className="h-4 w-4" /></button>
           )}
           {/* Espandi/riduci ha senso solo sul side-panel desktop: su mobile il
               drawer è già full-screen, quindi il toggle è nascosto (<lg). */}
@@ -2857,11 +2875,24 @@ export function MediaStrip({ media, onPreview }: { media?: string[]; onPreview?:
 // the messages between the comments.
 
 /**
- * A status transition in the timeline: "chi l'ha spostato e quando", rendered
- * as a thin event row between the speech bubbles (content = "from→to",
- * author = the actor — user, agent id, or dispatcher).
+ * Un passaggio di stato: un CHIP, non un paragrafo.
+ *
+ * Era una riga larga quanto il thread per dire che una scheda ha cambiato
+ * colonna, e sulla base viva sono 4406 righe su 9973 — metà del muro che rende
+ * illeggibile una card aperta per decidere. Il fatto resta (la storia di una
+ * scheda riaperta è l'unica cosa che nessuno può ricostruire), ma occupa quanto
+ * vale: un chip che si legge di sfuggita, con il resto sotto il mouse.
+ *
+ * COSA STA SULLO SCHERMO E COSA NEL TOOLTIP, e non è una preferenza:
+ *  · la DESTINAZIONE sempre — è il fatto;
+ *  · la RAGIONE sempre quando c'è — è il perché, e senza il fatto è muto;
+ *  · CHI ha mosso la scheda **solo quando non è stata l'app**. Un thread in cui
+ *    ogni riga si firma «Topics» ha smesso di dire qualcosa: il nome torna a
+ *    pesare proprio perché compare solo quando c'è una persona dietro;
+ *  · ora, identità per esteso e testo grezzo della transizione: nel `title`.
  */
-export function StatusEventRow({ comment }: { comment: TaskComment }) {
+function StatusChip({ comment, ownerName }: { comment: TaskComment; ownerName: string | null }) {
+  const tr = useT();
   // Lo stesso parser del server: la destinazione si legge fino al separatore,
   // altrimenti una transizione con la sua ragione (`done→in_progress · il land
   // ha fatto conflitto`) perde l'icona e si stampa cruda.
@@ -2869,22 +2900,49 @@ export function StatusEventRow({ comment }: { comment: TaskComment }) {
   const to = ev?.to as TaskStatus | undefined;
   const valid = !!to && TASK_STATUSES.includes(to);
   const at = new Date(comment.createdAt);
-  // The actor is an id, not a label. Printed raw it was 42 characters of uuid
-  // in a row that truncates, so the timestamp on the right won every time.
-  const who = commentAuthorLabel(comment.author);
+  const who = authorDisplay(commentAuthorLabel(comment.author), tr, ownerName);
+  // L'app che sposta una card da sé non è una notizia: il nome resta solo per
+  // chi lo è (tu, un agent, la verifica).
+  const mover = who.kind === 'system' || who.kind === 'dispatcher' ? null : who.name;
   return (
-    <div
-      className="flex items-center gap-1.5 px-1 text-[11px] text-app-text-muted"
-      title={`${who.agentId ?? who.label} · ${comment.content} · ${at.toLocaleString('it-IT')}`}
+    <span
+      className="flex min-w-0 max-w-full items-center gap-1 rounded bg-white/5 px-1.5 py-0.5 text-[11px] text-app-text-muted"
+      title={`${who.name} (${who.detail}) · ${comment.content} · ${at.toLocaleString('it-IT')}`}
       data-testid="task-status-event"
     >
       {valid ? <StatusIcon status={to} /> : <span className="h-1 w-1 shrink-0 rounded-full bg-app-text-faint" />}
-      <span className="min-w-0 truncate">
-        <span className="text-app-text-secondary">{who.label}</span> → {valid ? STATUS_LABEL[to] : comment.content}
-        {/* La ragione: perché la card si è mossa, sulla riga che la muove. */}
-        {valid && ev?.reason && <span className="text-app-text-faint"> · {ev.reason}</span>}
+      {mover && <span className="shrink-0 text-app-text-secondary">{mover} →</span>}
+      <span className="shrink-0">{valid ? STATUS_LABEL[to] : comment.content}</span>
+      {/* La ragione: perché la card si è mossa, sul chip che la muove. Tagliata
+          a vista, MAI dal testo — il tooltip la porta intera e il DOM pure, che
+          è quello su cui una spec la cerca. */}
+      {valid && ev?.reason && <span className="min-w-0 truncate text-app-text-faint">· {ev.reason}</span>}
+    </span>
+  );
+}
+
+/**
+ * I passaggi di stato ADIACENTI, in una striscia sola.
+ *
+ * `todo → in_progress → review` sono tre fatti consecutivi che dicono una cosa
+ * sola, e in verticale erano tre righe. In orizzontale sono la traccia che
+ * sono, e l'ora dell'ultimo chiude la striscia: le altre stanno nei tooltip,
+ * dove servono a chi cerca un istante preciso e non a chi scorre.
+ */
+export function StatusTrail({ comments, ownerName }: { comments: TaskComment[]; ownerName: string | null }) {
+  const tr = useT();
+  const last = comments[comments.length - 1];
+  if (!last) return null;
+  return (
+    <div
+      className="flex flex-wrap items-center gap-1 px-1"
+      data-testid="task-status-trail"
+      aria-label={tr('board.task.statusTrail')}
+    >
+      {comments.map((c) => <StatusChip key={c.id} comment={c} ownerName={ownerName} />)}
+      <span className="shrink-0 text-[11px] text-app-text-faint">
+        {new Date(last.createdAt).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}
       </span>
-      <span className="ml-auto shrink-0 text-app-text-faint">{at.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}</span>
     </div>
   );
 }
@@ -2965,45 +3023,64 @@ export function SessionSlice({ msgs, label, preview }: {
   );
 }
 
-export function CommentBubble({ comment, onPreview }: { comment: TaskComment; onPreview?: (path: string) => void }) {
+export function CommentBubble({ comment, ownerName = null, onPreview }: {
+  comment: TaskComment;
+  /** Come si chiama chi usa l'app: le TUE righe si firmano col tuo nome. */
+  ownerName?: string | null;
+  onPreview?: (path: string) => void;
+}) {
   const tr = useT();
   // Machine-authored review evidence (live-preview screenshot from the verifier).
   // Distinct from human/agent speech: it never woke the agent, it just informs.
+  //
+  // NIENTE SCATOLA. Era una card verde bordata dentro un thread di paragrafi
+  // nudi, e la scatola prometteva un contenuto a sé stante che non c'è: è una
+  // riga come le altre, scritta da un'altra mano. Resta l'unica cosa che la
+  // distingue davvero — CHI l'ha scritta — sulla stessa riga d'intestazione di
+  // ogni altro messaggio, in verde.
   if (comment.kind === 'review-note') {
     return (
       <div className="pr-8">
-        <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-2.5 py-1.5">
-          <p className="mb-0.5 flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-emerald-400/80">
-            <Camera size={11} /> {tr('board.task.reviewPreview')}
-          </p>
-          <div className="text-sm text-app-text"><CommentBody content={comment.content} /></div>
-          <MediaStrip media={comment.media} onPreview={onPreview} />
-          <p className="mt-0.5 text-[9px] text-app-text-faint">{commentTime(comment.createdAt)}</p>
-        </div>
+        <p className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-emerald-400/80">
+          <Camera size={11} /> {tr('board.task.reviewPreview')}
+          <span className="ml-auto normal-case tracking-normal text-app-text-faint">{commentTime(comment.createdAt)}</span>
+        </p>
+        <div className="text-sm text-app-text"><CommentBody content={comment.content} /></div>
+        <MediaStrip media={comment.media} onPreview={onPreview} />
       </div>
     );
   }
-  const who = commentAuthorLabel(comment.author);
-  if (who.kind !== 'user') {
-    const system = who.kind === 'system';
-    // The tooltip is the only place the speaker appears in this bubble, so it
-    // gets the derived label, not the stored author.
+  const who = authorDisplay(commentAuthorLabel(comment.author), tr, ownerName);
+  if (!who.self) {
+    const app = who.kind === 'system' || who.kind === 'dispatcher';
+    // CHI HA PARLATO STA SCRITTO, non appeso a un tooltip. Prima l'unico posto
+    // dove il nome compariva era il `title`, quindi una riga dell'agent e una
+    // dell'app si leggevano identiche e la differenza si scopriva col mouse —
+    // su un thread che mescola quattro voci è la differenza che serve per prima.
     return (
-      <div className="pr-8" title={who.label}>
-        <div className={`text-sm ${system ? 'text-app-text-muted' : 'text-app-text'}`}>
+      <div className="pr-8">
+        <p className="flex items-baseline gap-1.5 text-[10px]" title={who.detail}>
+          <span className={`font-medium uppercase tracking-wide ${app ? 'text-app-text-faint' : 'text-app-text-secondary'}`}>{who.name}</span>
+          <span className="ml-auto text-app-text-faint">{commentTime(comment.createdAt)}</span>
+        </p>
+        <div className={`text-sm ${app ? 'text-app-text-muted' : 'text-app-text'}`}>
           <CommentBody content={comment.content} />
         </div>
         <MediaStrip media={comment.media} onPreview={onPreview} />
-        <p className="mt-0.5 text-[9px] text-app-text-faint">{commentTime(comment.createdAt)}</p>
       </div>
     );
   }
+  // La bolla di ciò che scrivi TU: lo stesso grigio della chat
+  // (`bg-app-user-bubble` + la classe `user-bubble` che riveste codice e link),
+  // non l'azzurro di prima. In quest'app il blu è l'accento delle AZIONI, e un
+  // messaggio non è un'azione: due superfici che dicono la stessa cosa con due
+  // colori diversi erano il motivo per cui il drawer «non sembrava l'app».
   return (
     <div className="flex justify-end">
-      <div className="max-w-[88%] rounded-lg bg-sky-500/15 px-2.5 py-1.5 text-sm">
+      <div className="user-bubble max-w-[88%] rounded-lg bg-app-user-bubble px-2.5 py-1.5 text-sm text-app-text">
         <CommentBody content={comment.content} />
         <MediaStrip media={comment.media} onPreview={onPreview} />
-        <p className="mt-0.5 text-right text-[9px] text-app-text-muted">{commentTime(comment.createdAt)}</p>
+        <p className="mt-0.5 text-right text-[9px] text-app-text-muted" title={who.name}>{commentTime(comment.createdAt)}</p>
       </div>
     </div>
   );
@@ -3022,13 +3099,20 @@ export function CommentBody({ content }: { content: string }) {
   return (
     <div className="mt-0.5 space-y-1">
       {outside && <div className={`text-app-text ${COMPACT_MD_CLS}`}><ChatMarkdown components={{}}>{outside}</ChatMarkdown></div>}
+      {/* La domanda e le sue opzioni passano dallo STESSO renderer markdown del
+          resto del thread. Erano le uniche due stringhe stampate crude, e
+          l'agent le scrive come scrive tutto il resto: `**Opus**`, `` `--flag` ``
+          e i backtick attorno a un path arrivavano qui come caratteri. */}
       <div className="rounded border border-rose-500/25 bg-rose-500/5 px-2 py-1.5">
-        <p className="text-[13px] leading-snug text-app-text">{q.question}</p>
+        <div className={`text-[13px] leading-snug text-app-text ${COMPACT_MD_CLS}`}>
+          <ChatMarkdown components={{}}>{q.question}</ChatMarkdown>
+        </div>
         {q.options.length > 0 && (
           <ul className="mt-1 space-y-0.5">
             {q.options.map((opt, i) => (
               <li key={i} className="flex items-start gap-1.5 text-[12px] text-app-text">
-                <span className="mt-1 h-1 w-1 shrink-0 rounded-full bg-rose-300/70" />{opt}
+                <span className="mt-1 h-1 w-1 shrink-0 rounded-full bg-rose-300/70" />
+                <span className={`min-w-0 flex-1 ${COMPACT_MD_CLS}`}><ChatMarkdown components={{}}>{opt}</ChatMarkdown></span>
               </li>
             ))}
           </ul>
