@@ -68,13 +68,12 @@ catalogue and `FALLBACK_LOCALE` is `it` (deliberately: read the docstring above
 `resolveLocale` before touching it). When the UI strings moved into that layer on
 2026-08-15, eight `it` values had to be kept BYTE-IDENTICAL to their old literal
 because a spec asserts on them. They are debt, and this is the list, so whoever
-picks one up knows what to change:
+picks one up knows what to change — seven left, one paid off:
 
 | frozen `it` value | key | spec holding it |
 |---|---|---|
 | `Metti in stage questo blocco` | `git.hunk.stageTitle` | `git-hunk-staging.spec.ts:86` |
 | `Nessun manifest di script in questa cartella.` | `scripts.noManifest` | `project-scripts.spec.ts:117` |
-| `Cronologia notifiche. {n} non viste` / `{n} notifiche non viste` | `notifications.historyUnseen`, `notifications.badgeUnseen` | `notification-history.spec.ts:71` |
 | `· {n} in attesa di una tua risposta` | `statusBar.agents.awaitingInput` | `turn-awaiting-input.spec.ts:300` |
 | `Sessione cloud (OpenClaw)` | `topic.cloudSession` | `cloud-session-project-open.spec.ts:90` |
 | `Chiudi {name}` / `Apri {name}` | `space.collapse`, `space.expand` | `sidebar-group-lifecycle.spec.ts:127` |
@@ -88,6 +87,12 @@ the placeholder entered the catalogue and took `search-shortcuts.spec.ts` down
 with it; it now carries `data-scope`, and the spec reads that. A `data-` attribute,
 a `data-testid`, or a state class all qualify. Asserting the KEY is not a cure:
 that only moves the freeze one level down.
+
+The second one paid off is the notification badge. `notification-history.spec.ts`
+read the unseen counter off `[aria-label$='non viste']`, one suffix away from
+`{n} notifiche non viste`; `NotificationBadge.tsx` now carries
+`data-notification-count` and the spec reads that. The `aria-label` stays — it is
+what a screen reader says, and it was never the test's business.
 
 Copy still gets covered — by the specs that exist to check copy, which assert
 through the same catalogue rather than on a literal (`board-kanban-i18n.spec.ts`

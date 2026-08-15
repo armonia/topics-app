@@ -122,6 +122,84 @@
   margin-block: -0.15em;
 }
 
+/* ── CENTRARE UNA CIFRA SULLA SUA MAIUSCOLA, NON SULLA SCATOLA DEL FONT ─────
+ *
+ * `items-center` centra la LINE BOX, e dentro la line box il motore posa il
+ * testo per BASELINE: la baseline cade a `ascent` dal bordo alto della scatola
+ * del font, e ascent/descent sono numeri che decide il font — non noi, e
+ * nemmeno in modo simmetrico. Quindi l'inchiostro di una cifra (che sta tutto
+ * sopra la baseline) finisce fuori asse di
+ *
+ *   floor((h − ascent − descent)/2) + ascent − h/2 + (inkDescent − inkAscent)/2
+ *
+ * con h l'altezza della pastiglia. Dentro non c'è niente di nostro: sono le
+ * metriche del font, arrotondate agli interi da Blink, più l'arrotondamento
+ * all'ingiù della mezza interlinea (che è il mezzo pixel guadagnato passando da
+ * `leading-none` a `leading-4`, e l'unico pezzo su cui la CSS pesasse). La
+ * formula è verificata contro la misura vera su otto famiglie: coincide al
+ * millesimo, e la spec `tab-widget-geometry` la ricalcola in pagina per avere un
+ * riferimento invece di una tolleranza a occhio.
+ *
+ * Misurato in Chromium 147, stessa identica CSS, pastiglia da 16 e cifra da
+ * 11px/600, scarto dell'inchiostro dal centro del pallino:
+ *   SF (macOS) +0,12 · Arial +0,11 · Verdana 0,00 · Impact −0,35 ·
+ *   Helvetica −0,82 · Menlo −1,00 · DejaVu Sans −1,00 · Georgia +2,01
+ * DejaVu Sans (ascent 10, descent 3, cifra alta 8,16 a 11px) è quello che
+ * risolve il runner Linux — caricato via @font-face e misurato qui: −1,004, che
+ * è al centesimo il rosso che si vedeva SOLO in CI. Su macOS il difetto non
+ * c'era per fortuna, non per costruzione.
+ *
+ * `text-box-edge: cap alphabetic` toglie di mezzo la mezza-interlinea e la
+ * dissimmetria ascent/descent: la scatola del testo diventa ESATTAMENTE
+ * cap-height → baseline, cioè il rettangolo che l'occhio chiama «la cifra».
+ * Centrare QUELLA in un cerchio è centrare la cifra. Stessi font di sopra,
+ * dopo: SF 0,00 · Arial +0,05 · Verdana 0,00 · Impact +0,04 · Helvetica +0,14 ·
+ * Menlo +0,01 · DejaVu Sans +0,04 · Courier New −0,23. Resta fuori solo Georgia
+ * (+1,79), che ha le cifre minuscole con le code sotto la baseline: nessun trim
+ * le può centrare, e nella pila UI non c'è.
+ *
+ * Il residuo è (capHeight − inkAscent + inkDescent)/2, cioè il solo sbordo della
+ * cifra rispetto alla propria maiuscola: centesimi, per qualunque font con le
+ * cifre allineate.
+ *
+ * PERCHÉ LA UTILITY PORTA ANCHE IL `display`, invece di lasciare `flex
+ * items-center justify-center` accanto: `text-box-*` agisce sulle line box del
+ * PROPRIO blocco, e in un contenitore flex il testo nudo sta in un item ANONIMO
+ * che nessuna regola può raggiungere — con `flex` la trim non sposta un
+ * centesimo (verificato su tutti e nove i font). Serve quindi un blocco:
+ * `align-content` centra il contenuto di un blocco esattamente come
+ * `align-items` centra gli item di un flex, e la larghezza si risolve identica
+ * (in tutti e due i casi è una scatola di livello blocco). L'alternativa — un
+ * figlio che porta la trim — funziona uguale, ma il pallino è agganciato da
+ * sette spec con `locator("span").filter({ hasText: /^N$/ })` e uno span
+ * annidato le manda tutte in strict-mode violation.
+ *
+ * E LE DUE CENTRATURE STANNO NELLA STESSA REGOLA, non una qui e una in una
+ * classe accanto: fra due utility a pari specificità deciderebbe l'ordine dentro
+ * `@layer utilities`, cioè nulla su cui si possa contare (stessa ragione per cui
+ * `pinned-tile-lead`, più sotto, tiene dentro anche il `position`). Qui il ramo
+ * `@supports` viene dopo nella stessa regola, quindi vince dove è sostenuto e
+ * sparisce dove non lo è.
+ *
+ * IL FALLBACK È LA CENTRATURA DI PRIMA, non l'assenza di centratura. `align-
+ * content` sui blocchi è Chrome 123 / Safari 17.6, `text-box-*` è Chrome 133 /
+ * Safari 18.2: su un WKWebView di macOS 14 il blocco si centrerebbe e la cifra
+ * finirebbe in CIMA alla pastiglia — un difetto peggiore di quello che stiamo
+ * togliendo. Con il `@supports` sulla trim (che è la più recente delle due) quei
+ * motori restano sul flex di prima: mai peggio, solo non meglio. */
+@utility cap-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  @supports (text-box-edge: cap alphabetic) {
+    display: block;
+    align-content: center;
+    text-align: center;
+    text-box-trim: trim-both;
+    text-box-edge: cap alphabetic;
+  }
+}
+
 /* ── La tessera fissata quadrata centra l'ICONA, non il GRUPPO ──────────────
  *
  * Sotto i 72px (la stessa soglia che manda via il titolo, vedi `PinnedTile`)
