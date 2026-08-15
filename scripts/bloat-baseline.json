@@ -43,7 +43,15 @@
     "    the ink is dry. The two outputs differ today (emdash wants comments",
     "    blanked with strings kept, ui-language wants codeOnly plus a literal",
     "    table with offsets), so unifying them is a real refactor with both gates'",
-    "    tests as the net, not a five-minute extraction. Named, not hidden."
+    "    tests as the net, not a five-minute extraction. Named, not hidden.",
+    "",
+    "2026-08-15, later: `client/src/lib/i18n-en.ts` (906) is the English half of the",
+    "translation catalogue, split out of `i18n.ts` so it stops riding in the eager",
+    "bundle (that split is what put `check:bundle` back inside its budget without",
+    "moving the budget). It is DATA: 900 lines of key-value pairs, and cutting a",
+    "dictionary at an arbitrary line number to satisfy a threshold meant for logic",
+    "would make it harder to read, not easier. Its sibling `i18n.ts` drops 2096 ->",
+    "1210 in the same move, which is the half of this edit that is free."
   ],
   "updated": "2026-08-15",
   "tolerance_pct": 5,
@@ -72,7 +80,7 @@
     "tests/e2e/sidebar-pinned-tiles.spec.ts": 2268,
     "server/browser-service.ts": 2185,
     "client/src/components/Layout/PaneTabBar.tsx": 2096,
-    "client/src/lib/i18n.ts": 2096,
+    "client/src/lib/i18n.ts": 1210,
     "server/mcp/topics-mcp-server.ts": 2076,
     "client/src/components/Board/KanbanBoardPane.tsx": 2056,
     "client/src/components/Project/GitChanges.tsx": 1976,
@@ -143,7 +151,8 @@
     "relay/src/ponte.ts": 821,
     "tests/e2e/global-setup.ts": 814,
     "client/src/state/pane/reducers/panes.ts": 812,
-    "client/src/hooks/useCompletionNotifier.tsx": 809
+    "client/src/hooks/useCompletionNotifier.tsx": 809,
+    "client/src/lib/i18n-en.ts": 906
   },
   "duplicated_lines": 413,
   "clone_groups": 16
