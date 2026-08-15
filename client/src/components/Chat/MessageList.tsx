@@ -789,15 +789,42 @@ export function MessageList({
   /**
    * Prima di tanto non si alza MAI, anche a geometria ferma.
    *
-   * Il primo dei tre controlli a scoppio ritardato dell'apertura
-   * (`OPEN_VERIFY_MS[0]`, 250ms) è l'ultima cosa che può ancora spostare la
-   * vista, e lo fa per davvero: misurato dopo il sipario a due frame, la lista
-   * stava ferma, si scopriva, e a 250ms dal montaggio quel controllo la portava
-   * al fondo vero — 190px di salto, in scena. Il pavimento sta appena oltre quel
-   * controllo, così il salto avviene dietro lo scheletro. È il prezzo dichiarato
-   * di questa card: la chat compare un terzo di secondo dopo, e compare FERMA.
+   * ERA 320, e il perché era questo: il primo dei tre controlli a scoppio
+   * ritardato dell'apertura (`OPEN_VERIFY_MS[0]`, 250ms) era l'ultima cosa che
+   * poteva ancora spostare la vista, e lo faceva — misurato dopo il sipario a due
+   * frame, la lista stava ferma, si scopriva, e a 250ms dal montaggio quel
+   * controllo la portava al fondo vero, 190px di salto in scena. Il pavimento
+   * stava appena oltre quel controllo così il salto avveniva dietro lo scheletro.
+   *
+   * QUEL SALTO NON SUCCEDE PIÙ, misurato il 2026-08-15 su un'apertura FREDDA vera
+   * (pane non montata prima: la stessa sonda con la pane già in DOM misurava un
+   * ritorno e diceva «nessun salto» per il motivo sbagliato). Traccia dello
+   * scroller a ogni frame, due scene, e in entrambe lo scroll si posa ESATTAMENTE
+   * al fondo — `scrollTop == scrollHeight - viewport` — entro 82-98ms e non si
+   * muove più:
+   *
+   *   scena                         pavimento   sipario a    CLS        salti dopo il reveal
+   *   60 messaggi, alcuni alti        320ms      t+329ms     0.00115    0 · 0px
+   *   60 messaggi, alcuni alti         80ms      t+125ms     0.00115    0 · 0px
+   *   + coda da 120 righe             320ms      t+329ms     0.00115    0 · 0px
+   *   + coda da 120 righe              80ms      t+105ms     0.00115    0 · 0px
+   *
+   * La seconda scena è quella che questa card temeva: la docstring di
+   * `OPEN_SETTLE_FRAMES` la nomina, «un ultimo messaggio lungo (120 righe, un
+   * turno pieno di blocchi tool) continua a crescere per parecchi frame». Non
+   * cambia niente. Il CLS è identico alla quinta cifra, quindi il sipario lungo
+   * non stava comprando stabilità: stava solo aspettando.
+   *
+   * 80 e non 0: il sipario si alza comunque solo a geometria FERMA per due frame
+   * (`LIST_REVEAL_STABLE_FRAMES`), e questo pavimento resta per non farlo alzare
+   * dentro il primo assestamento su una macchina molto più veloce di questa.
+   * Guadagno misurato: ~204-224ms su ogni apertura a freddo, che è il gesto più
+   * ripetuto dell'app.
+   *
+   * Se un giorno il salto torna, torna anche questo numero — ma con la misura
+   * accanto, non per prudenza.
    */
-  const LIST_REVEAL_FLOOR_MS = 320;
+  const LIST_REVEAL_FLOOR_MS = 80;
   /** Oltre questo, si alza comunque. Copre il caso in cui la geometria non stia
    *  ferma per un motivo legittimo (uno stream che scrive mentre apri): lì
    *  l'attesa non finirebbe mai, e vedere la lista muoversi è meglio che non

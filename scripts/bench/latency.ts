@@ -20,11 +20,16 @@
  *   app boot → first frame          nobody measured it
  *   app boot → sidebar usable       nobody measured it
  *   open a topic COLD               deliberately EXCLUDED from the ink budget,
- *                                   because ~320 ms of it is a curtain held on
- *                                   purpose (LIST_REVEAL_FLOOR_MS). Reported
- *                                   here with that composition written next to
- *                                   the number, which is the only honest way to
- *                                   publish it.
+ *                                   because part of it is a curtain held on
+ *                                   purpose (LIST_REVEAL_FLOOR_MS). The runner
+ *                                   READS that constant out of MessageList.tsx
+ *                                   at collection time (see `curtainMs`) so this
+ *                                   file cannot go stale about it: it was 320 ms
+ *                                   until 2026-08-15 and is 80 ms since, when the
+ *                                   late scroll jump it covered was measured and
+ *                                   found gone. Reported with that composition
+ *                                   next to the number, which is the only honest
+ *                                   way to publish it.
  *   board paint at 50/200/500       nobody measured it, and it is the shape of
  *                                   the claim: what the N-th unit costs.
  *
