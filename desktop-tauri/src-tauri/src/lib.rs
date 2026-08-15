@@ -9331,7 +9331,48 @@ pub fn run() {
         // In dev mode it disk-serves /public with embedded fallback; otherwise it's
         // byte-identical to the built-in. Registered before the window builds.
         .register_uri_scheme_protocol("tauri", move |ctx, request| {
-            serve_tauri_asset(&ctx, &request, dev_serve_for_proto.as_ref())
+            // FIREWALL SUI PANICI, e qui non e' facoltativo.
+            //
+            // Questa chiusura gira sul callback SINCRONO di WKURLSchemeHandler,
+            // lo stesso confine FFI non-unwind che `no_abort` protegge dodici
+            // volte altrove: un panic qui non risale, chiama `abort()` e porta
+            // via l'intera app. `serve_tauri_asset` lo sa e lo scrive nel suo
+            // commento («a panic here abort()s the WHOLE app, and this is the
+            // highest-traffic path in the file»), e degrada a mano i propri
+            // `.unwrap()` con `unwrap_or_else(asset_fallback)`. Ma quella e' una
+            // garanzia per ISPEZIONE, non per costruzione: copre le righe che
+            // qualcuno ha guardato, non `asset_request_path`, non
+            // `disk_asset_response`, non il risolutore incorporato, non un
+            // indice fuori range, e soprattutto non un mutex gia' avvelenato da
+            // un panic avvenuto altrove — che e' esattamente il meccanismo
+            // descritto sopra `no_abort`.
+            //
+            // Il 2026-08-15 alle 19:30 la 2.2.138 e' morta di SIGABRT proprio
+            // qui: `WebURLSchemeHandlerCocoa::platformStartTask` -> tredici
+            // frame dell'app -> `abort() called`. Il binario di quel crash e'
+            // stato sostituito da un aggiornamento prima che potessi
+            // simbolicarlo, quindi la riga esatta NON la so. Ma la difesa non
+            // dipende dal saperla, e la sua assenza si paga sempre allo stesso
+            // modo: un asset che non si carica deve restare un asset che non si
+            // carica, non la finestra che sparisce.
+            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                serve_tauri_asset(&ctx, &request, dev_serve_for_proto.as_ref())
+            })) {
+                Ok(resp) => resp,
+                Err(payload) => {
+                    let msg = payload
+                        .downcast_ref::<&str>()
+                        .map(|s| (*s).to_string())
+                        .or_else(|| payload.downcast_ref::<String>().cloned())
+                        .unwrap_or_else(|| "non-string panic payload".to_string());
+                    eprintln!("[no-abort] uri-scheme tauri://{}: {msg}", request.uri());
+                    let mut resp = tauri::http::Response::new(std::borrow::Cow::Borrowed(
+                        &b"asset handler panicked"[..],
+                    ));
+                    *resp.status_mut() = tauri::http::StatusCode::INTERNAL_SERVER_ERROR;
+                    resp
+                }
+            }
         })
         // Single-instance FIRST (plugin requirement): a duplicate launch focuses
         // the running window instead of spawning a process that can't bind :13333.
