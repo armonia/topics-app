@@ -384,26 +384,38 @@ define_class!(
             let app2 = app.clone();
             let _ = app.run_on_main_thread(move || {
                 use tauri::Manager;
-                if let Some(w) = app2.get_webview_window("main") {
-                    match (&task_id, &action_id) {
-                        // Tasto premuto su un banner legato a un task: si
-                        // esegue e basta. Niente `ensure_window_visible`:
-                        // portare in faccia la finestra vanificherebbe il
-                        // senso del tasto, che è NON dover aprire l'app.
-                        (Some(tid), Some(aid)) => {
-                            let _ = w.eval(&format!(
+                // DUE lookup, e non e' pignoleria: `get_webview_window("main")`
+                // passa dal filtro di `webview_windows()` e torna None appena la
+                // finestra principale ospita una pane browser (vedi
+                // `reload_all_ui_windows` in lib.rs). Con una pane aperta questo
+                // intero blocco veniva saltato, quindi CLICCARE UNA NOTIFICA non
+                // apriva niente e il tasto di un banner non eseguiva niente — in
+                // silenzio, perche' qui non c'e' nessun ramo `else`. Il JS va
+                // alla WEBVIEW, l'alzata di finestra alla FINESTRA, e nessuna
+                // delle due ricerche e' filtrata.
+                let wv = app2.get_webview("main");
+                match (&task_id, &action_id) {
+                    // Tasto premuto su un banner legato a un task: si
+                    // esegue e basta. Niente `ensure_window_visible`:
+                    // portare in faccia la finestra vanificherebbe il
+                    // senso del tasto, che è NON dover aprire l'app.
+                    (Some(tid), Some(aid)) => {
+                        if let Some(wv) = &wv {
+                            let _ = wv.eval(&format!(
                                 "window.__topicsNotificationAction && window.__topicsNotificationAction({}, {});",
                                 js_string(tid),
                                 js_string(aid),
                             ));
                         }
-                        _ => {
+                    }
+                    _ => {
+                        if let Some(w) = app2.get_window("main") {
                             super::ensure_window_visible(&w);
-                            if let Some(tid) = &task_id {
-                                let _ = w.eval(&format!(
-                                    "window.__topicsOpenTask && window.__topicsOpenTask('{tid}');"
-                                ));
-                            }
+                        }
+                        if let (Some(wv), Some(tid)) = (&wv, &task_id) {
+                            let _ = wv.eval(&format!(
+                                "window.__topicsOpenTask && window.__topicsOpenTask('{tid}');"
+                            ));
                         }
                     }
                 }

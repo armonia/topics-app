@@ -1591,7 +1591,7 @@ fn eval_in_main_webview(app: &tauri::AppHandle, js: &str) -> bool {
     if let Some(wv) = app.get_webview("main") {
         return wv.eval(js).is_ok();
     }
-    if let Some(w) = app.get_webview_window("main") {
+    if let Some(w) = app.get_webview("main") {
         return w.eval(js).is_ok();
     }
     false
@@ -2183,7 +2183,7 @@ fn spawn_focus_watcher(app: tauri::AppHandle) {
                     let (supported, active, reason) = current;
                     let app = app.clone();
                     let _ = app.clone().run_on_main_thread(move || {
-                        if let Some(w) = app.get_webview_window("main") {
+                        if let Some(w) = app.get_webview("main") {
                             // `reason` è una costante nostra (`ok`/`denied`/
                             // `absent`), mai un dato di fuori: inlinarla fra
                             // apici non apre nessuna superficie d'iniezione.
@@ -2452,7 +2452,11 @@ fn tray_status_label(status: &str) -> &str {
 /// una cosa che nessuno vede.
 fn tray_dispatch(app: &tauri::AppHandle, event: &str, detail: Option<(&str, &str)>) {
     use tauri::Manager;
-    let Some(w) = app.get_webview_window("main") else { return };
+    // Due lookup e non uno: alzare la finestra e' un'operazione di FINESTRA,
+    // valutare il JS e' della WEBVIEW, e `get_webview_window` — che le univa —
+    // torna None appena la main ospita una pane browser. Con una pane aperta la
+    // tray smetteva di consegnare i suoi eventi, in silenzio.
+    let Some(w) = app.get_window("main") else { return };
     ensure_window_visible(&w);
     // Il valore passa da `serde_json` e non da un `format!`: un titolo o un id
     // con un apice romperebbe (o peggio: allargherebbe) il JS che valutiamo.
@@ -2465,7 +2469,7 @@ fn tray_dispatch(app: &tauri::AppHandle, event: &str, detail: Option<(&str, &str
     };
     let js = format!("window.dispatchEvent(new CustomEvent('{event}'{}))",
         if body.is_empty() { String::new() } else { format!(",{body}") });
-    let _ = w.eval(&js);
+    if let Some(wv) = app.get_webview("main") { let _ = wv.eval(&js); }
 }
 
 /// Il nome leggibile dentro l'id di un progetto: gli id nascono `<nome>-<hash>`
@@ -2529,7 +2533,7 @@ fn set_app_status(
         use tauri::Manager;
         let groups = groups.unwrap_or_default();
         // The dock-tile badge is an AppKit UI mutation — must run on the main thread.
-        if let Some(win) = app.get_webview_window("main") {
+        if let Some(win) = app.get_window("main") {
             let _ = win.run_on_main_thread(move || set_dock_badge(count));
         }
         // Menu-bar tray: glyph + tooltip + the clickable attention rows.
@@ -2700,7 +2704,7 @@ async fn updater_install(app: tauri::AppHandle) -> Result<(), String> {
 fn toggle_always_on_top(app: &tauri::AppHandle) {
     use tauri::Manager;
     let next = !ALWAYS_ON_TOP.fetch_xor(true, Ordering::Relaxed);
-    if let Some(win) = app.get_webview_window("main") {
+    if let Some(win) = app.get_window("main") {
         let _ = win.set_always_on_top(next);
     }
     // Persist so the floating state survives relaunch (Electron parity — it was an
@@ -7567,7 +7571,7 @@ fn read_win_position_logical(path: &std::path::Path) -> Option<(i32, i32)> {
 /// units, the one coherent global space on macOS. tao's `Monitor::position()/
 /// size()` return "physical" values scaled by each monitor's OWN backing
 /// factor, so they must be unscaled per-monitor before any cross-monitor math.
-fn logical_monitors(win: &tauri::WebviewWindow) -> Vec<(i32, i32, u32, u32)> {
+fn logical_monitors(win: &tauri::Window) -> Vec<(i32, i32, u32, u32)> {
     win.available_monitors()
         .unwrap_or_default()
         .iter()
@@ -7619,7 +7623,7 @@ fn logical_monitors(win: &tauri::WebviewWindow) -> Vec<(i32, i32, u32, u32)> {
 /// facendo girare il guscio su QUESTA disposizione di monitor, cioè
 /// ricostruendo e sostituendo la app in uso. Le due misure qui sopra sono il
 /// punto di partenza: chi ci mette mano le rilegga dopo, non prima.
-fn window_logical_geometry(win: &tauri::WebviewWindow) -> Option<((i32, i32), (u32, u32))> {
+fn window_logical_geometry(win: &tauri::Window) -> Option<((i32, i32), (u32, u32))> {
     let sf = win.scale_factor().ok()?;
     let pos = win.outer_position().ok()?.to_logical::<f64>(sf);
     let size = win.outer_size().ok()?.to_logical::<f64>(sf);
@@ -7745,7 +7749,7 @@ fn clamp_position_to_monitors(
 /// LIVE monitor when the current rect is off every attached display (reusing the
 /// exact clamp as the restore path — a valid position on any connected display,
 /// including a second one, is honored verbatim), then focus.
-fn ensure_window_visible(win: &tauri::WebviewWindow) {
+fn ensure_window_visible(win: &tauri::Window) {
     let _ = win.show();
     let _ = win.unminimize();
     // LOGICAL points throughout (see clamp_position_to_monitors): tao physical
@@ -8030,6 +8034,13 @@ fn install_shortcut_forwarder(app: &tauri::AppHandle) {
     // (detach windows register themselves as they're built). The monitor
     // resolves the target window PER EVENT from this map — never a cached single
     // pointer, which mis-forwarded ⌘W from a detached window into main.
+    // Qui `get_webview_window` va bene, ed è per il momento in cui gira: siamo in
+    // `setup()`, prima che il frontend possa aver chiesto una pane browser, quindi
+    // la mappa filtrata e quella completa coincidono ancora. Serve una
+    // `WebviewWindow` vera perché il registro vuole DUE puntatori, la NSWindow e
+    // la NSView della sua webview di UI. Se un giorno questa riga si spostasse
+    // dopo l'avvio dell'event loop tornerebbe `None` con una pane aperta — e
+    // senza registro il monitor NSEvent esce prima di guardare ⌘R.
     if let Some(win) = app.get_webview_window("main") {
         register_ui_webview(&win, "main");
     }
@@ -8286,7 +8297,7 @@ fn focus_task_composer_from_background(app: &tauri::AppHandle) {
     let app = app.clone();
     let _ = app.clone().run_on_main_thread(move || {
         use crate::mac::*;
-        if let Some(win) = app.get_webview_window("main") {
+        if let Some(win) = app.get_window("main") {
             unsafe {
                 let nsapp: id = msg_send![class!(NSApplication), sharedApplication];
                 let _: () = msg_send![nsapp, activateIgnoringOtherApps: YES];
@@ -8550,7 +8561,7 @@ async fn window_detach_space(
     {
         use tauri::Manager;
         let existing = app
-            .webview_windows()
+            .windows()
             .into_iter()
             .find(|(label, _)| label.starts_with("space-") && window_space_of(label) == Some(space.clone()));
         if let Some((label, win)) = existing {
@@ -8744,7 +8755,10 @@ fn window_focus_label(app: tauri::AppHandle, label: String) -> bool {
     // (show/unminimize/outer_position/set_focus…) — same poisoned-mutex
     // SIGABRT class as the browser_* commands (see no_abort doc).
     no_abort("window_focus_label", || {
-        if let Some(w) = app.get_webview_window(&label) {
+        // `get_window`, non `get_webview_window`: la seconda passa dallo stesso
+        // filtro di `webview_windows()` e torna None appena la finestra ospita
+        // una pane browser (lo dice gia' il commento su `set_traffic_lights`).
+        if let Some(w) = app.get_window(&label) {
             ensure_window_visible(&w);
             Ok(true)
         } else {
@@ -8833,7 +8847,11 @@ fn window_close_label(app: tauri::AppHandle, label: String) -> bool {
     // no_abort: `close()` passa dal dispatcher della finestra — stessa classe di
     // SIGABRT dei comandi `browser_*` (vedi la doc di no_abort).
     no_abort("window_close_label", || {
-        match app.get_webview_window(&label) {
+        // `get_window`: `window_close_self` qui sotto porta gia' scritto il perche'
+        // — l'estrattore rifiuta in silenzio una `WebviewWindow` appena la finestra
+        // ha piu' di una webview. Chiudere una finestra-gruppo con una pane aperta
+        // tornava `false` senza chiudere niente.
+        match app.get_window(&label) {
             Some(w) => { w.close().map_err(|e| e.to_string())?; Ok(true) }
             None => Ok(false),
         }
@@ -9455,7 +9473,7 @@ pub fn run() {
         // the running window instead of spawning a process that can't bind :13333.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             use tauri::Manager;
-            if let Some(w) = app.get_webview_window("main") {
+            if let Some(w) = app.get_window("main") {
                 // A second launch forwards here and exits; if this window can't be
                 // shown ON-SCREEN the user just sees "opens then closes, no window".
                 ensure_window_visible(&w);
@@ -9698,8 +9716,8 @@ pub fn run() {
                         .map(|w| w.label().to_string())
                         .unwrap_or_else(|| "main".to_string());
                     let win = app
-                        .get_webview_window(&label)
-                        .or_else(|| app.get_webview_window("main"));
+                        .get_webview(&label)
+                        .or_else(|| app.get_webview("main"));
                     if let Some(win) = win {
                         let _ = win
                             .eval("window.dispatchEvent(new CustomEvent('topics:reset-split-layout'))");
@@ -9723,7 +9741,7 @@ pub fn run() {
                         _ => 100,
                     };
                     ZOOM_PERCENT.store(next, Ordering::Relaxed);
-                    if let Some(win) = app.get_webview_window("main") {
+                    if let Some(win) = app.get_webview("main") {
                         let _ = win.set_zoom(next as f64 / 100.0);
                     }
                 }
@@ -9736,9 +9754,9 @@ pub fn run() {
                     // Hand off to the client's updater flow (reuses updater_check +
                     // UpdaterToast). A DOM CustomEvent keeps the shell free of the
                     // @tauri-apps/event dependency — same bridge the tray uses.
-                    if let Some(w) = app.get_webview_window("main") {
-                        ensure_window_visible(&w);
-                        let _ = w.eval(
+                    if let Some(w) = app.get_window("main") { ensure_window_visible(&w); }
+                    if let Some(wv) = app.get_webview("main") {
+                        let _ = wv.eval(
                             "window.dispatchEvent(new CustomEvent('topics:check-for-updates'))",
                         );
                     }
@@ -9971,7 +9989,7 @@ pub fn run() {
                     let _ = handle.run_on_main_thread(move || {
                         use tauri::Manager;
                         // Un-occlude (always_on_top) so rAF runs — see the FPS probe note above.
-                        if let Some(win) = h.get_webview_window("main") {
+                        if let Some(win) = h.get_window("main") {
                             let _ = win.unminimize();
                             let _ = win.show();
                             let _ = win.set_always_on_top(true);
@@ -10252,7 +10270,7 @@ pub fn run() {
                             let win_size = saved_size
                                 .map(|(w, h)| (w.round() as u32, h.round() as u32))
                                 .unwrap_or((1200, 800));
-                            let monitors = logical_monitors(&win);
+                            let monitors = logical_monitors(&win.as_ref().window());
                             if let Some((nx, ny)) =
                                 clamp_position_to_monitors(saved, win_size, &monitors)
                             {
@@ -10305,7 +10323,7 @@ pub fn run() {
                         std::time::Instant::now() - std::time::Duration::from_secs(2),
                     ));
                     let size_file = win_size_file(app.handle());
-                    let save_state_throttled = move |w: &tauri::WebviewWindow| {
+                    let save_state_throttled = move |w: &tauri::Window| {
                         let mut g = match save_gate.lock() { Ok(g) => g, Err(_) => return };
                         if g.elapsed() >= std::time::Duration::from_millis(500) {
                             *g = std::time::Instant::now();
@@ -10329,14 +10347,14 @@ pub fn run() {
                             // cover is sized here. (Interactive drags are handled by the
                             // notification + autoresizing mask above.)
                             vibrancy_resize_cover(&w);
-                            save_state_throttled(&w);
+                            save_state_throttled(&w.as_ref().window());
                             // Same titlebar re-pin as a focus change.
                             let visible = TRAFFIC_LIGHTS_VISIBLE.load(Ordering::Relaxed)
                                 || w.is_fullscreen().unwrap_or(false);
                             apply_traffic_lights(&w, visible);
                         }
                         tauri::WindowEvent::Moved(_) => {
-                            save_state_throttled(&w);
+                            save_state_throttled(&w.as_ref().window());
                         }
                         tauri::WindowEvent::Focused(_) => {
                             // In fullscreen the titlebar is gone, so FORCE the
@@ -10379,7 +10397,7 @@ pub fn run() {
                     .on_menu_event(|app, event| {
                         let id = event.id().0.as_str();
                         if id == "tray-show" {
-                            if let Some(w) = app.get_webview_window("main") {
+                            if let Some(w) = app.get_window("main") {
                                 ensure_window_visible(&w);
                             }
                         } else if id == "tray-quit" {
@@ -10428,7 +10446,7 @@ pub fn run() {
                 let on = read_aot(app.handle());
                 ALWAYS_ON_TOP.store(on, Ordering::Relaxed);
                 if on {
-                    if let Some(w) = app.get_webview_window("main") {
+                    if let Some(w) = app.get_window("main") {
                         let _ = w.set_always_on_top(true);
                     }
                 }
@@ -10509,7 +10527,7 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Reopen { .. } = event {
                 use tauri::Manager;
-                if let Some(w) = app_handle.get_webview_window("main") {
+                if let Some(w) = app_handle.get_window("main") {
                     ensure_window_visible(&w);
                 }
             }
