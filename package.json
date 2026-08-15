@@ -1,6 +1,6 @@
 {
   "name": "topics-app",
-  "version": "2.2.147",
+  "version": "2.2.148",
   "description": "Desktop workspace for Claude Code and other CLI coding agents. Organize sessions into topics, each with its own project context, terminal and browser.",
   "author": "Armonia",
   "license": "MIT",
