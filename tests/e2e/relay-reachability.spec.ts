@@ -7,6 +7,7 @@ import { ospite, daOspite } from "./helpers/ospite";
 import { alzaRelayE2E, type RelayE2E } from "./helpers/relay-e2e";
 import { WS_PONTE_GIU } from "../../relay/src/ponte";
 import { SESSION_COOKIE } from "../../server/lib/device-auth";
+import { openSocket } from "./helpers/node-websocket";
 
 hermetic(test);
 
@@ -46,7 +47,7 @@ function osservatorePadrone(): {
   attendi(p: (f: string) => boolean, ms?: number): Promise<boolean>;
 } {
   const frame: string[] = [];
-  const ws = new WebSocket(`${E2E_WS_BASE}/ws`);
+  const ws = openSocket(`${E2E_WS_BASE}/ws`);
   const pronto = new Promise<void>((res) => {
     ws.addEventListener("open", () => res());
     ws.addEventListener("error", () => res());
