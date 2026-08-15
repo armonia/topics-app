@@ -3717,12 +3717,30 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // rinvio (un turno è previsto, solo più tardi), e uno in review — lì la
       // guardia di `askParkedChildren` esce comunque, ma chiederlo al DB
       // risparmia il giro su ogni card consegnata della board.
+      //
+      // …E UN PADRE APPENA RIMESSO IN CODA, che è l'anello che questa riga
+      // rompe. «Rimetti in coda» (o un umano che trascina la card in Todo)
+      // azzera `dispatch_attempts` insieme al resto dello stato di dispatch
+      // (vedi `update`, ramo `status === "todo" && actor === "human"`), e da quel
+      // momento la card è un candidato pieno: il rastrello passa PRIMA che il
+      // dispatcher le dia il turno e la riporta in review con la stessa domanda.
+      // Misurato il 15/08 su `5505c6fa`, che di suo si intitola «review che non
+      // rientra in coda»: rimessa in coda alle 20:32, di nuovo in review alle
+      // 20:49, senza che nessun agente l'avesse toccata. Chi rispondeva vedeva
+      // la card tornare indietro da sola e la domanda ricomparire identica.
+      //
+      // `todo` + zero tentativi vuol dire «in coda, turno mai partito»: quel
+      // padre non è fermo, sta aspettando il suo giro, e la domanda giusta gliela
+      // farà `deliverToReviewBySystem` alla FINE di quel turno se davvero non
+      // avrà toccato i figli. Con un tentativo già speso invece è fermo per
+      // davvero, e il rastrello lo prende come prima.
       let candidati: Array<{ id: string; project_id: string }> = [];
       try {
         candidati = db.prepare(
           `SELECT p.id, p.project_id FROM tasks p
             WHERE p.archived = 0
               AND p.status NOT IN ('done', 'review', 'in_progress')
+              AND NOT (p.status = 'todo' AND p.dispatch_attempts = 0)
               AND COALESCE(p.dispatch_state, '') NOT IN (${CHILD_AGENT_COMING})
               AND COALESCE(p.dispatch_deferred_until, '') <= ?
               AND EXISTS (SELECT 1 FROM tasks c
