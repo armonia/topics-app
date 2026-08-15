@@ -170,6 +170,38 @@ whatever happens (the rule already says so), and its other messages
 alone for now because the live view path is the one place where a wrong call
 costs frames rather than bytes.
 
+## The route ratchet measures the disk, and its baseline knows only one disk
+
+Measured on the GitHub runner, 2026-08-14, with the pipe healthy (so the numbers
+are comparable by the gate's own rule):
+
+| route | measured | ceiling | verdict | bound by |
+|---|---|---|---|---|
+| `topics` | 0.85 ms | 1.86 | inside | CPU |
+| `dispatch_capacity` | 0.86 ms | 1.68 | inside | CPU |
+| `topic_messages` | 7.92 ms | 5.41 | **outside** | SQLite, 3,000 messages |
+| `all_boards_tasks` | 11.24 ms | 2.25 | **outside** | SQLite, 150 tasks |
+
+The two CPU-bound routes are inside, the two disk-bound ones are out by 1.5x and
+5x. That is the signature of slower storage, not of a regression: nothing in
+`server/routes/tasks.ts`, `server/services/tasks.ts` or `shared/board.ts` changed
+in the 40 commits since the baseline was recorded, and the same overrun
+reproduces on a tree from BEFORE any of that day's work.
+
+`scripts/rotte-baseline.json` was recorded on an Apple Silicon SSD, and it is the
+only baseline there is. So the ratchet currently answers "is this machine as fast
+as the one that recorded the baseline", which on any other machine is not the
+question anyone wanted asked.
+
+The calibration guard added the same day catches a slow machine only when the
+CPU is the slow part: its witness is `dispatch_capacity`, which does no I/O. A
+fast CPU with a slow disk walks straight past it. Two honest ways out, neither
+taken yet:
+
+1. a second baseline recorded on the runner, chosen by environment;
+2. an I/O witness next to the CPU one, so the gate can say "this disk is N times
+   slower than the baseline's" and exit 2 instead of blaming a route.
+
 ## The gate that existed but never ran, and the red that was not a defect
 
 `bun run check:ink` was invoked by no workflow. The spec ran inside the E2E
