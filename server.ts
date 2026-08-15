@@ -102,7 +102,7 @@ import { createBillingRouter, isBillingWebhookPath } from "./server/routes/billi
 import { createAccountRouter } from "./server/routes/account";
 import { createPeopleRouter } from "./server/routes/people";
 import { getGatewayWS } from "./server/gateway-ws";
-import { initProvider, recomputeDefault, getDefaultProviderName, stopAllProviders, getProvider } from "./server/providers";
+import { initProvider, recomputeDefault, getDefaultProviderName, stopAllProviders, getProvider, tryGetProvider } from "./server/providers";
 import { aiBridgeEnabled } from "./server/providers/claude-code";
 import { cancelled, describeTurnEnd, type TurnEndInfo } from "./server/providers/stop-reason";
 import { recordTurnEnd, takeTurnEnd } from "./server/providers/turn-end-registry";
@@ -505,7 +505,7 @@ const claudeSessionTracker = createClaudeSessionTracker({
   // the chat provider streams + persists those turns itself.
   isSessionLocallyDriven: (sk) => {
     try {
-      const p = getProvider("claude-code") as unknown as { isTurnProcessAlive?: (s: string) => boolean };
+      const p = tryGetProvider("claude-code") as unknown as { isTurnProcessAlive?: (s: string) => boolean } | undefined;
       return !!p?.isTurnProcessAlive?.(sk);
     } catch { return false; }
   },
@@ -1163,7 +1163,7 @@ const taskDispatcher = createTaskDispatcher({
   // the broker (returns false when the flag is off / provider lacks it), and
   // runHeadlessReattach drives the adopted turn. Both are safe no-ops off-broker.
   hasLiveSession: (sessionKey) => {
-    const p = getProvider("claude-code") as unknown as { hasLiveSession?: (sk: string) => Promise<boolean> };
+    const p = tryGetProvider("claude-code") as unknown as { hasLiveSession?: (sk: string) => Promise<boolean> } | undefined;
     return typeof p?.hasLiveSession === "function" ? p.hasLiveSession(sessionKey) : Promise.resolve(false);
   },
   reattach: (sessionKey, opts) => runHeadlessReattach(sessionKey, opts),
@@ -1173,7 +1173,7 @@ const taskDispatcher = createTaskDispatcher({
   // A provider without the probe answers null = "can't tell", and the dispatcher
   // never buries a turn on ignorance.
   isTurnAlive: (sessionKey) => {
-    const p = getProvider("claude-code") as unknown as { isTurnProcessAlive?: (sk: string) => boolean };
+    const p = tryGetProvider("claude-code") as unknown as { isTurnProcessAlive?: (sk: string) => boolean } | undefined;
     if (typeof p?.isTurnProcessAlive !== "function") return null;
     try { return p.isTurnProcessAlive(sessionKey); } catch { return null; }
   },
@@ -3551,7 +3551,7 @@ const staleStreamTimer = setInterval(() => {
   // tutto nel cablaggio, e un test ci arrivava solo aspettando sette minuti
   // contro un server vero. Con le dipendenze iniettate due tick costano un
   // millisecondo.
-  const prov = getProvider("claude-code") as {
+  const prov = tryGetProvider("claude-code") as {
     isTurnProcessAlive?: (sk: string) => boolean;
     resyncStream?: (sk: string) => Promise<boolean>;
   } | undefined;
@@ -3666,7 +3666,7 @@ async function reattachSurvivingChatTurns(): Promise<void> {
     let brokerSays: "open" | "idle" | "unknown" = "unknown";
     if (adoptable && !midTurnAtBoot.has(s.id)) {
       try {
-        const prov = getProvider("claude-code") as { brokerTurnState?: (sk: string, opts?: { park?: boolean }) => Promise<"open" | "idle" | "unknown"> } | undefined;
+        const prov = tryGetProvider("claude-code") as { brokerTurnState?: (sk: string, opts?: { park?: boolean }) => Promise<"open" | "idle" | "unknown"> } | undefined;
         // `park: true` è la promessa che qui sotto manteniamo davvero: se la
         // risposta è «open» si riadotta, nella riga dopo. Senza, ogni sessione
         // si faceva spedire l'intero store DUE volte al boot — una per questa
@@ -3708,7 +3708,7 @@ async function reattachSurvivingChatTurns(): Promise<void> {
           // Quindi si richiede al broker: se il turno è ancora aperto la riga
           // resta com'è, ed è la stessa che il prossimo riattacco riprende.
           try {
-            const prov = getProvider("claude-code") as { brokerTurnState?: (sk: string) => Promise<"open" | "idle" | "unknown"> } | undefined;
+            const prov = tryGetProvider("claude-code") as { brokerTurnState?: (sk: string) => Promise<"open" | "idle" | "unknown"> } | undefined;
             const state = await prov?.brokerTurnState?.(s.id).catch(() => "unknown" as const);
             if (state === "open") {
               console.log(`[chat-reattach] ${s.id}: la gamba è finita ma il turno è ancora aperto (domanda a schermo) — la riga resta viva`);
@@ -3725,7 +3725,7 @@ async function reattachSurvivingChatTurns(): Promise<void> {
     // Idle / archived / deleted-topic session: reap. Guard against a send
     // that raced in during boot and already owns the child.
     try {
-      const prov = getProvider("claude-code") as { isTurnProcessAlive?: (sk: string) => boolean } | undefined;
+      const prov = tryGetProvider("claude-code") as { isTurnProcessAlive?: (sk: string) => boolean } | undefined;
       if (prov?.isTurnProcessAlive?.(s.id)) continue; // adopted by a live turn — hands off
     } catch { /* provider not up yet — reap anyway, a turn can't be running */ }
     // Il motivo va scritto con le PROVE che l'hanno deciso: quando questo reap

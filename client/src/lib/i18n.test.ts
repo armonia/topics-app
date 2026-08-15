@@ -70,11 +70,11 @@ describe('t', () => {
 });
 
 describe('allineamento fra le lingue', () => {
-  test("nessuna delle due lingue ha buchi rispetto all'altra", () => {
+  test("nessuna delle due lingue ha buchi rispetto all'altra", async () => {
     // Se questo test diventa rosso, qualcuno ha aggiunto una chiave a una lingua
     // sola — ed è esattamente il momento in cui va saputo.
-    expect(missingKeys('it')).toEqual([]);
-    expect(missingKeys('en')).toEqual([]);
+    expect(await missingKeys('it')).toEqual([]);
+    expect(await missingKeys('en')).toEqual([]);
   });
 });
 
