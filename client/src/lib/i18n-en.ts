@@ -220,6 +220,7 @@ const EN = {
   'board.task.checks.hintLead': 'The normal path is',
   'board.task.checks.hintTail': ': the agent restarts with this output. Approving here means accepting it red.',
   'board.task.changes': 'Changes',
+  'board.task.changes.openTitle': "Open this card's diff (it opens above, it doesn't push the decision off-screen)",
   'board.task.changes.files.one': '{n} file',
   'board.task.changes.files.many': '{n} files',
   'board.task.changes.pending': '{n} pending',
