@@ -109,6 +109,33 @@ export function getProvider(name?: string): AIProvider {
   return p;
 }
 
+/**
+ * The provider if it is registered, `undefined` if it is not.
+ *
+ * `getProvider` THROWS on an unknown name, and seven call sites in `server.ts`
+ * believed otherwise: they were written as
+ * `getProvider("claude-code") as { ... } | undefined`, a cast that describes a
+ * return value this function has never had. On this machine the lie was
+ * invisible, because the claude-code CLI is installed and therefore registered.
+ *
+ * It stopped being invisible on 2026-08-15: on a CI runner the only registered
+ * provider is `openclaw`, the stale-stream sweeper called it from inside a
+ * `setInterval`, and an uncaught throw in a timer callback takes the whole
+ * process down. The test server died with `Provider "claude-code" not found.
+ * Available: openclaw` and every test after it failed at 0 ms with
+ * ECONNREFUSED. The same thing would happen to any USER without that CLI, once
+ * a stream went quiet for three minutes.
+ *
+ * So: one accessor for "ask, and cope with no", next to the one that means
+ * "this must exist". The optional-method casts at those call sites are then
+ * honest, because the object really can be absent.
+ */
+export function tryGetProvider(name?: string): AIProvider | undefined {
+  const key = name ?? _defaultName;
+  if (!key) return undefined;
+  return _providers.get(key);
+}
+
 /** Get the default provider */
 export function getDefaultProvider(): AIProvider {
   return getProvider(_defaultName);

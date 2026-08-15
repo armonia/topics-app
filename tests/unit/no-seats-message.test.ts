@@ -30,7 +30,15 @@ const ROTTE = readFileSync(join(RADICE, "server", "routes", "auth.ts"), "utf8");
 const SEZIONE = readFileSync(
   join(RADICE, "client", "src", "components", "Settings", "IdentitySection.tsx"), "utf8",
 );
-const I18N = readFileSync(join(RADICE, "client", "src", "lib", "i18n.ts"), "utf8");
+// I due cataloghi vivono in due file da quando l'inglese si carica su richiesta
+// (client/src/lib/i18n-en.ts, uscito dal bundle iniziale il 2026-08-15). Questo
+// test conta le occorrenze di una chiave e si aspetta di trovarne DUE: leggere
+// un file solo lo faceva cadere sul catalogo dimezzato, dicendo «manca
+// l'inglese» quando l'inglese c'era, un file più in là.
+const I18N = [
+  readFileSync(join(RADICE, "client", "src", "lib", "i18n.ts"), "utf8"),
+  readFileSync(join(RADICE, "client", "src", "lib", "i18n-en.ts"), "utf8"),
+].join("\n");
 
 describe("posti esauriti · il rifiuto arriva a chi guarda", () => {
   it("l'aggiunta LEGGE la risposta invece di ignorarla", () => {
