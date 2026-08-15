@@ -156,6 +156,41 @@ export function judge(m: Measurement, b: Baseline, notBefore?: Date): Verdict {
         `qualunque numero raccolto sotto scorrimento parla di lei e non dell'app`,
     );
   }
+  /**
+   * …e la cadenza va confrontata anche con QUELLA DELLA BASELINE.
+   *
+   * I budget di questo cancello sono millisecondi assoluti, ma un «buco» si misura
+   * in frame: 30 ms su una macchina che ne disegna uno ogni 8,3 ms sono 3,6 frame,
+   * sulla stessa soglia una macchina a 16,7 ms ne concede 1,8. Stesso numero, meta'
+   * del permesso, e non c'entra l'app.
+   *
+   * 2026-08-15, prima volta che questo cancello e' arrivato a girare su CI (prima
+   * il job si fermava, con `bash -e`, su `check:deadcode` e poi su
+   * `check:route-latency`): il runner ha misurato una cadenza di **16,7 ms**, cioe'
+   * 60 Hz, contro gli **8,3 ms** con cui la baseline e' stata presa — un display a
+   * 120 Hz. Il tetto assoluto non se n'e' accorto, perche' 16,7 < 20. Poi ha
+   * bocciato `worst_gap 50ms > 30ms`, che su quella cadenza sono tre frame: sul Mac
+   * i 18 ms della baseline erano 2,2 frame. Il cancello stava confrontando due
+   * macchine, non due versioni del prodotto.
+   *
+   * 1,5x e non 1,1x: una differenza modesta di cadenza la si assorbe e si continua
+   * a giudicare, altrimenti il cancello si spegne da solo alla prima macchina un po'
+   * diversa. Sopra, i millisecondi non trasferiscono e la risposta onesta e' 2.
+   */
+  const CADENZA_MAX = 1.5;
+  const cadenzaBase = b.measured?.calibration_gap_ms;
+  if (typeof cadenzaBase === "number" && cadenzaBase > 0) {
+    const rapporto = m.calibration_gap_ms / cadenzaBase;
+    if (rapporto > CADENZA_MAX) {
+      blockers.push(
+        `cadenza ${m.calibration_gap_ms}ms contro i ${cadenzaBase}ms con cui la baseline ` +
+          `e' stata registrata (${rapporto.toFixed(1)}x): i budget qui sono millisecondi ` +
+          `assoluti ma un buco si conta in FRAME, e su una macchina che ne disegna la meta' ` +
+          `lo stesso numero vale la meta' del permesso. Non e' l'app che e' peggiorata: ` +
+          `e' un'altra macchina. Serve una baseline registrata su questa.`,
+      );
+    }
+  }
   const span = numberOrNull(m.witness?.scroll_span_px, "scroll_span_px");
   if (span !== null && span < g.scroll_span_px_floor) {
     blockers.push(
