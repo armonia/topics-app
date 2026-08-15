@@ -168,6 +168,35 @@ export function judge(m: DragMeasure, b: DragBaseline, notBefore?: Date): DragOu
         `during a drag speaks about the machine and not about the app`,
     );
   }
+  /**
+   * …and a budget BELOW the machine's own idle cadence cannot be met by anything.
+   *
+   * The p95 budget is a frame time, 16.7 ms, i.e. 60 FPS. That is headroom on a
+   * 120 Hz display, where the machine hands out a frame every 8.3 ms and the drag
+   * has two ticks to fit in — which is where this baseline was recorded. On a
+   * 60 Hz machine the at-rest cadence IS 16.7 ms, so the gate is asking the drag
+   * to deliver frames faster than the machine draws them when nothing is
+   * happening. There is no code that passes that.
+   *
+   * Measured 2026-08-15, the first CI run that ever reached this gate (`bash -e`
+   * had been stopping the job earlier, first on `check:deadcode`, then on
+   * `check:route-latency`, then on `check:scroll-fluidity`): calibration 16.7 ms,
+   * p95 16.8 ms, red by 0.1 ms — one cadence tick. The absolute ceiling did not
+   * notice, because 16.7 is not > 20.
+   *
+   * So: when the machine's own floor leaves less than one tick of room under the
+   * budget, this run cannot tell a heavy drag from a 60 Hz screen, and the honest
+   * answer is 2 (not measurable) rather than an accusation.
+   */
+  if (m.calibration_gap_ms >= b.budget.p95_frame_ms) {
+    blockers.push(
+      `calibration ${m.calibration_gap_ms}ms >= the p95 budget of ${b.budget.p95_frame_ms}ms: ` +
+        `this machine's own at-rest cadence is already at (or past) the budget, so no drag ` +
+        `on it can come in under — the number would measure the display, not the gesture. ` +
+        `The baseline was taken where the cadence left room; judging here needs a baseline ` +
+        `taken here.`,
+    );
+  }
   const frames = numberOrNothing(m.witness?.frames, "frames");
   if (frames !== null && frames < g.frames_floor) {
     blockers.push(
