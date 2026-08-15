@@ -4,12 +4,13 @@
  * lingua incompleta è un fatto da scoprire qui, non guardando l'interfaccia a
  * caso.
  */
-import { describe, test, expect, afterEach } from 'bun:test';
+import { describe, test, expect, afterEach, beforeAll } from 'bun:test';
 import {
   t,
   resolveLocale,
   interpolate,
   missingKeys,
+  ensureLocaleLoaded,
   FALLBACK_LOCALE,
   fetchOutputLanguage,
   pushOutputLanguage,
@@ -49,6 +50,14 @@ describe('resolveLocale', () => {
 });
 
 describe('t', () => {
+  // L'inglese vive nel suo chunk (`i18n-en.ts`) e arriva su richiesta, quindi
+  // `t(k, 'en')` prima del caricamento ripiega LEGITTIMAMENTE sull'italiano.
+  // Senza questa riga i due test qui sotto passavano solo se qualche altro file
+  // della suite aveva gia' chiesto l'inglese per conto suo: verdi tutti insieme,
+  // rossi da soli. Una dipendenza dall'ordine e' un verde che non significa
+  // niente, e questa e' la sua cura.
+  beforeAll(async () => { await ensureLocaleLoaded('en'); });
+
   test('traduce nelle due lingue', () => {
     expect(t('board.night.title', 'it')).toBe('Modalità notturna');
     expect(t('board.night.title', 'en')).toBe('Night mode');

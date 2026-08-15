@@ -1130,15 +1130,23 @@ export function subscribeCatalogues(cb: () => void): () => void {
 export function ensureLocaleLoaded(locale: Locale): Promise<void> {
   if (locale !== 'en' || DICTS.en) return Promise.resolve();
   if (!enPending) {
-    enPending = import('./i18n-en')
-      .then((m) => {
-        DICTS.en = m.default;
+    // `const { default: … } = await import(…)` e non `import(…).then((m) => m.default)`.
+    // Non è stile: è la differenza fra un modulo che knip sa leggere e uno che
+    // diventa un punto cieco. Con la forma `.then((m) => …)` il risolutore perde
+    // il legame fra il modulo e i nomi che ne escono, e da lì dentro `i18n-en.ts`
+    // un export morto non lo vedrebbe più nessuno — `check:deadcode-blindspots`
+    // l'ha colto come REGRESSIONE il giorno stesso in cui il catalogo inglese è
+    // stato spostato nel suo chunk. La destrutturazione ridà la vista.
+    enPending = (async () => {
+      try {
+        const { default: EN } = await import('./i18n-en');
+        DICTS.en = EN;
         catalogueListeners.forEach((cb) => cb());
-      })
-      .catch((err) => {
+      } catch (err) {
         enPending = null;
         console.warn('[i18n] English catalogue failed to load, staying in Italian:', err);
-      });
+      }
+    })();
   }
   return enPending;
 }
