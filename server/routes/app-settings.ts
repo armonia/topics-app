@@ -3,7 +3,7 @@ import { getAppSettings, updateAppSettings, type AppSettings } from "../services
 import { recomputeDefault, getDefaultProviderName, listProviders } from "../providers";
 import { reconcileDiscordPresence } from "../services/discord-presence";
 import { EFFORT_TIERS, CODEX_REASONING_EFFORTS } from "../../shared/effort";
-import { OUTPUT_LANGUAGES, DISCORD_DETAIL_LEVELS } from "../../shared/types";
+import { OUTPUT_LANGUAGES, DISCORD_DETAIL_LEVELS, AGENT_RUNTIMES } from "../../shared/types";
 
 /**
  * GET/PUT /api/app-settings — the promoted behaviour toggles (env-var audit,
@@ -32,6 +32,9 @@ const LANGUAGES = new Set<string>(OUTPUT_LANGUAGES);
 /** Idem per i gradini di privacy della presence: l'insieme sta in
  *  `shared/types.ts`, qui si valida contro quello. */
 const DISCORD_LEVELS = new Set<string>(DISCORD_DETAIL_LEVELS);
+/** Le due meccaniche di esecuzione, dallo stesso array che disegna il
+ *  selettore: `cli` | `jcode`. */
+const RUNTIMES = new Set<string>(AGENT_RUNTIMES);
 
 /**
  * I nomi ammessi per `aiProvider`: quelli REGISTRATI adesso, non una lista
@@ -89,6 +92,9 @@ const FIELD_RULES: Record<keyof AppSettings, FieldRule> = {
   // commento in cima a questo file racconta già per `aiProvider`.
   discordPresenceEnabled: { kind: "bool" },
   discordDetailLevel: { kind: "string", allow: DISCORD_LEVELS },
+  // La meccanica di esecuzione. `null` rimette il default del codice (`cli`),
+  // che è anche ciò che manda chi azzera la scelta.
+  agentRuntime: { kind: "string", allow: RUNTIMES },
 };
 
 /** Coerce+validate an incoming patch. Returns the clean patch or errors. */

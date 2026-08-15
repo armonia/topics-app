@@ -1,0 +1,29 @@
+-- `agent_runtime` — su QUALE runtime gira un agente dispatchato.
+--
+-- Il fatto misurato, su questa macchina il 2026-08-15, che rende necessaria la
+-- colonna: `claude` e `codex` sono un processo Node PER SESSIONE. Il bench di
+-- casa (bench/results/memory-latest.json) prezza l'agente dispatchato a ~206 MB
+-- marginali, e due `claude` vivi qui pesavano 1.580 MB in due. Otto agenti sono
+-- ~1,7 GB di sole CLI, su una macchina che stava gia' facendo pageout.
+--
+-- `jcode acp` no: l'adattatore e' sottile e la sessione vive dentro un DEMONE
+-- Rust condiviso. Ventiquattro sessioni concorrenti su un solo peer sono
+-- costate +11,5 MB di demone e +2,4 MB di adattatore, cioe' 0,58 MB per
+-- sessione. Non e' una CLI piu' leggera, e' un'altra forma: il costo del
+-- processo si paga UNA volta invece che N.
+--
+-- Perche' una colonna e non semplicemente `ai_provider`: sono due domande
+-- diverse. `ai_provider` dice CHI risponde (claude-code, codex, gemini, jcode)
+-- ed e' gia' scelto per topic e per task. Questa dice con QUALE MECCANICA lo
+-- si esegue, ed e' una preferenza di macchina: chi ha 16 GB la vuole su
+-- 'jcode', chi deve riprodurre un comportamento della CLI vera la rimette su
+-- 'cli' e ritrova esattamente il sistema di prima.
+--
+-- Valori: 'cli' | 'jcode'. NULL = mai toccato ⇒ il default del codice, che e'
+-- 'cli': cambiare da sotto i piedi il runtime a chi aggiorna sarebbe un cambio
+-- di comportamento non richiesto, e il ramo CLI resta quello piu' battuto.
+--
+-- Niente CHECK, per la ragione gia' scritta nella 087 e nella 102: l'insieme
+-- ammesso vive nell'union TypeScript e nella validazione della rotta, e un
+-- CHECK qui sarebbe una terza copia da allineare a mano.
+ALTER TABLE app_settings ADD COLUMN agent_runtime TEXT;

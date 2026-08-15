@@ -30,6 +30,14 @@ export interface AcpAgentSpec {
  */
 export const KNOWN_ACP_AGENTS: readonly AcpAgentSpec[] = [
   { name: "gemini", command: "gemini", args: ["--acp"] },
+  // jcode parla ACP dal suo sottocomando `acp`, ed è l'agente per cui questa
+  // tabella vale di più: a differenza di `claude` e `codex`, che sono un
+  // processo Node PER SESSIONE (~790 MB l'uno, misurati), `jcode acp` è un
+  // adattatore sottile davanti a un DEMONE Rust condiviso. Misura del
+  // 2026-08-15 su questa macchina, 24 sessioni concorrenti su un solo peer:
+  // +11,5 MB sul demone e +2,4 MB sull'adattatore, cioè 0,58 MB per sessione.
+  // È il motivo per cui esiste `agentRuntime` in Impostazioni.
+  { name: "jcode", command: "jcode", args: ["acp"] },
 ];
 
 /**

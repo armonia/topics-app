@@ -11,8 +11,9 @@ import { KNOWN_ACP_AGENTS, mergeAcpAgents, parseAcpAgentsEnv } from "./agents";
 
 describe("KNOWN_ACP_AGENTS", () => {
   test("contiene solo agenti di cui conosciamo davvero la riga di comando", () => {
-    expect(KNOWN_ACP_AGENTS.map((a) => a.name)).toEqual(["gemini"]);
+    expect(KNOWN_ACP_AGENTS.map((a) => a.name)).toEqual(["gemini", "jcode"]);
     expect(KNOWN_ACP_AGENTS[0]).toEqual({ name: "gemini", command: "gemini", args: ["--acp"] });
+    expect(KNOWN_ACP_AGENTS[1]).toEqual({ name: "jcode", command: "jcode", args: ["acp"] });
   });
 });
 
@@ -77,13 +78,13 @@ describe("mergeAcpAgents", () => {
     const merged = mergeAcpAgents(KNOWN_ACP_AGENTS, [
       { name: "gemini", command: "/usr/local/bin/gemini", args: ["--experimental-acp", "--yolo"] },
     ]);
-    expect(merged).toHaveLength(1);
-    expect(merged[0]!.command).toBe("/usr/local/bin/gemini");
+    expect(merged).toHaveLength(KNOWN_ACP_AGENTS.length);
+    expect(merged.find((a) => a.name === "gemini")!.command).toBe("/usr/local/bin/gemini");
   });
 
   test("i nomi nuovi si aggiungono in coda", () => {
     const merged = mergeAcpAgents(KNOWN_ACP_AGENTS, [{ name: "goose", command: "goose", args: [] }]);
-    expect(merged.map((a) => a.name)).toEqual(["gemini", "goose"]);
+    expect(merged.map((a) => a.name)).toEqual([...KNOWN_ACP_AGENTS.map((a) => a.name), "goose"]);
   });
 
   test("senza dichiarati resta la tabella nota, copiata (non l'originale readonly)", () => {

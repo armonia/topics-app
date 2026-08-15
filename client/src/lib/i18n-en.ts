@@ -567,6 +567,16 @@ const EN = {
   'account.linkedTo': 'Attached to {nome}, the person who was already here.',
   'account.offline': 'The account service is not answering right now. The link still holds and nothing changes here.',
   'account.footnote': 'Linking an account does not create a second person: it attaches your remote identity to the one this installation already has. It is not needed to install, to start up the first time, to use the app, or to reach it from your own network.',
+  // ── The agent runtime: with which MECHANICS an agent runs, which is a
+  //    different question from WHO answers. The number is in the copy because
+  //    it is the whole reason for the choice, and it is measured, not guessed.
+  'runtime.label': 'Agent runtime',
+  'runtime.hint': 'Applies from the next server start.',
+  'runtime.cliDefault': 'CLI (default)',
+  'runtime.cli': 'CLI (one process per session)',
+  'runtime.jcode': 'jcode (shared daemon)',
+  'runtime.blurb': 'One CLI per session costs about 200 MB per agent: eight agents are nearly 2 GB of processes alone. With jcode the sessions live inside a shared daemon and cost less than one megabyte each, measured across 24 sessions at once. The CLI system stays the default and picks up exactly as before.',
+  'runtime.missing': 'Chosen, but not among the providers yet: the server needs a restart, and the jcode executable must be on the PATH.',
   // ── The profile: your usage stats, counted from what actually happened here.
   'profile.stats.title': 'Your stats',
   'profile.stats.blurb': 'Counted from what actually happened here: sessions, messages, board tasks. They stay on this machine.',
