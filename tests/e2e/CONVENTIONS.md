@@ -57,6 +57,42 @@ The one exception in the tree is flag-gated: `E2E_EVIDENCE=1` pauses between
 captions of a delivery video. Nothing is being waited for there — the page is
 already still, a human is being given time to read.
 
+## Never anchor on translated copy
+
+A locator that matches a sentence a user reads is a locator that breaks when
+somebody rewords the sentence, and it FREEZES that wording: the string can no
+longer be improved without a red, so it stops being improved.
+
+This is not hypothetical here. `client/src/lib/i18n.ts` holds an `it` and an `en`
+catalogue and `FALLBACK_LOCALE` is `it` (deliberately: read the docstring above
+`resolveLocale` before touching it). When the UI strings moved into that layer on
+2026-08-15, eight `it` values had to be kept BYTE-IDENTICAL to their old literal
+because a spec asserts on them. They are debt, and this is the list, so whoever
+picks one up knows what to change:
+
+| frozen `it` value | key | spec holding it |
+|---|---|---|
+| `Metti in stage questo blocco` | `git.hunk.stageTitle` | `git-hunk-staging.spec.ts:86` |
+| `Nessun manifest di script in questa cartella.` | `scripts.noManifest` | `project-scripts.spec.ts:117` |
+| `Cronologia notifiche. {n} non viste` / `{n} notifiche non viste` | `notifications.historyUnseen`, `notifications.badgeUnseen` | `notification-history.spec.ts:71` |
+| `· {n} in attesa di una tua risposta` | `statusBar.agents.awaitingInput` | `turn-awaiting-input.spec.ts:300` |
+| `Sessione cloud (OpenClaw)` | `topic.cloudSession` | `cloud-session-project-open.spec.ts:90` |
+| `Chiudi {name}` / `Apri {name}` | `space.collapse`, `space.expand` | `sidebar-group-lifecycle.spec.ts:127` |
+| `Riavvia la sessione in-place (…)` | `terminal.reloadTitle` | `terminal-tab-reload.spec.ts:115,157` |
+| `Aperto in un'altra finestra` | `topic.openElsewhere` | `sidebar.spec.ts:807` |
+
+The cure, one spec at a time: give the element a signal that does not speak a
+language and assert on THAT. `CommandPalette.tsx` is the worked example. Its
+scope used to be read off the input's placeholder, which turned Italian the day
+the placeholder entered the catalogue and took `search-shortcuts.spec.ts` down
+with it; it now carries `data-scope`, and the spec reads that. A `data-` attribute,
+a `data-testid`, or a state class all qualify. Asserting the KEY is not a cure:
+that only moves the freeze one level down.
+
+Copy still gets covered — by the specs that exist to check copy, which assert
+through the same catalogue rather than on a literal (`board-kanban-i18n.spec.ts`
+is one).
+
 ## Helpers
 - Domain helpers: `tests/e2e/helpers/` (dnd, scroll, ws, api-fixtures)
 - Page objects: `tests/e2e/fixtures/` (import `test` from `test-fixtures.ts`)

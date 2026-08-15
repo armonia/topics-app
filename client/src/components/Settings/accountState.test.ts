@@ -30,14 +30,14 @@ describe('quando la sezione Account si mostra', () => {
 });
 
 describe('dal codice del server alla frase', () => {
-  test('ogni codice ha una frase VERA nel dizionario, in entrambe le lingue', () => {
+  test('ogni codice ha una frase VERA nel dizionario, in entrambe le lingue', async () => {
     // `missingKeys` e non `t()`: `t()` ripiega sull'ALTRA lingua prima che sulla
     // chiave nuda, quindi «la stringa inglese esiste» è una domanda a cui `t()`
     // non può rispondere di no finché quella italiana c'è — misurato togliendo
     // una chiave da EN e vedendo il test restare verde. Un'asserzione che non
     // può fallire è peggio della sua assenza.
-    const buchiIt = new Set(missingKeys('it'));
-    const buchiEn = new Set(missingKeys('en'));
+    const buchiIt = new Set(await missingKeys('it'));
+    const buchiEn = new Set(await missingKeys('en'));
     for (const c of CODICI_ACCOUNT) {
       const chiave = chiaveErrore(c);
       expect(chiave).toBe(`account.err.${c}`);
