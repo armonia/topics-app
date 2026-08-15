@@ -7,14 +7,115 @@ import { wantsHtml, mediaErrorHtml } from "../media-error-page";
  * Media + file/upload I/O endpoints — serving project media and handling
  * file/base64/context uploads. Split out of the topics.ts chat god-file: pure
  * filesystem I/O, fully self-contained on ctx members (json/readJSON, the
- * UPLOADS_DIR/CONTEXT_DIR/ALLOWED_UPLOAD_MIMES config, the path allowlist
- * helpers, getTopicById/saveSingleTopic) + stdlib. No chat/provider coupling.
+ * UPLOADS_DIR/CONTEXT_DIR config, the path allowlist helpers,
+ * getTopicById/saveSingleTopic) + stdlib. No chat/provider coupling.
+ *
+ * `ctx.ALLOWED_UPLOAD_MIMES` non si usa più da qui: la politica sul tipo è la
+ * DENY list qui sotto, e l'allowlist rifiutava allegati legittimi. Resta un
+ * membro del contesto senza lettori — se nessuno la rivendica, va tolta da
+ * `server/utils.ts` e da `server/types.ts` invece che lasciata a suggerire una
+ * regola che non c'è.
  */
+/** Il tetto per ogni upload, una volta sola. Era scritto tre volte in tre
+ *  blocchi diversi — e in uno dei tre non era scritto affatto. */
+const MAX_UPLOAD_SIZE = 10 * 1024 * 1024;
+
+/**
+ * Quanto può pesare l'INVOLUCRO multipart oltre al file: il confine, le
+ * intestazioni di parte, il nome del file. Serve perché il pre-controllo su
+ * `content-length` misura la busta e non il contenuto, e senza margine
+ * rifiuterebbe un file esattamente al limite.
+ */
+const MULTIPART_SLACK = 64 * 1024;
+
+/**
+ * LA POLITICA: si NEGA il contenuto attivo, non si AMMETTE tutto il resto.
+ *
+ * Un'allowlist di MIME su un allegato risponde alla domanda sbagliata. Chi
+ * attacca un file a un commento passa da un `<input type="file">` senza filtri
+ * (`client/src/components/Board/TaskDetail.tsx`), quindi ogni estensione che
+ * l'allowlist non prevedeva diventava un 400 in faccia a una persona: misurati
+ * `.txt` (`text/plain;charset=utf-8`, respinto dal PARAMETRO), `.log`, `.json`,
+ * `.zip`, `.m4a` e qualunque file senza estensione. Un tipo ignoto non è
+ * pericoloso: pericoloso è un tipo che il browser ESEGUE se glielo
+ * restituiamo, e quelli sono pochi e nominabili.
+ *
+ * `UPLOADS_DIR` è servita sulla NOSTRA origine (`/uploads/…` in server.ts) e i
+ * file di contesto tornano da `/api/media` con il `Content-Type` dedotto
+ * dall'ESTENSIONE: un `.html` caricato lì torna indietro come `text/html` ed è
+ * XSS persistente, col cookie di sessione e tutta l'API in mano. Vale per
+ * l'SVG, che è un documento con script dentro.
+ */
+export const ACTIVE_CONTENT_MIMES = new Set([
+  "text/html", "application/xhtml+xml", "image/svg+xml",
+  "text/javascript", "application/javascript", "application/x-javascript",
+  "application/x-httpd-php",
+]);
+
+/**
+ * Le stesse cose viste dall'ESTENSIONE, che è ciò che decide davvero il
+ * `Content-Type` con cui il file torna indietro.
+ *
+ * Non è una ridondanza: la tabella `getMimeType` del server non conosce
+ * `.xhtml`, `.mjs`, `.svgz` né `.phtml`, quindi per quei nomi restituisce
+ * `application/octet-stream` e il solo confronto sui MIME li lascerebbe
+ * passare — per poi farli servire da un proxy o da un browser meno prudente
+ * come ciò che l'estensione dice. `.xml` resta FUORI di proposito: è inerte
+ * quando lo si serve, e negarlo rifiuterebbe allegati legittimi (l'unico modo
+ * di renderlo attivo è un XSLT same-origin, e `/uploads/` scende comunque come
+ * `attachment`).
+ */
+export const ACTIVE_CONTENT_EXTENSIONS = new Set([
+  "html", "htm", "xhtml", "shtml", "svg", "svgz",
+  "js", "mjs", "cjs", "php", "phtml", "xsl", "xslt", "htaccess",
+]);
+
+/**
+ * Il MIME ridotto alla forma su cui si confronta: senza parametri, senza spazi,
+ * minuscolo. `text/plain;charset=utf-8` è il valore che Bun produce davvero da
+ * un `.txt`, e confrontarlo intero contro un elenco di tipi nudi lo faceva
+ * cadere fuori da OGNI insieme — sia da quello che ammette sia da quello che
+ * nega. Un tipo che non combacia con niente è il caso peggiore: sembra
+ * rifiutato per policy e invece è rifiutato per punteggiatura.
+ */
+export function normalizeMime(raw: string | null | undefined): string {
+  if (!raw) return "";
+  return (raw.split(";")[0] ?? "").trim().toLowerCase();
+}
+
+/** L'estensione in minuscolo, senza punto. `""` se non ce n'è. */
+function extensionOf(name: string): string {
+  const dot = name.lastIndexOf(".");
+  if (dot <= 0 || dot === name.length - 1) return "";
+  return name.slice(dot + 1).toLowerCase();
+}
+
+/**
+ * L'UNICA decisione sul tipo di un upload, e la esporta questo modulo perché il
+ * test importi QUESTA e non una copia (la copia locale nel test è il motivo per
+ * cui il 400 su `.txt` non l'aveva visto nessuno).
+ *
+ * Tre domande, perché tre sono le strade con cui il file può tornare indietro
+ * attivo: il tipo DICHIARATO, il tipo che l'estensione produrrà quando lo
+ * serviremo, e l'estensione nuda per i nomi che la tabella del server non
+ * conosce. Il dichiarato conta meno di quanto sembri — sotto Bun
+ * `req.formData()` IGNORA il `Content-Type` della parte e lo ri-deriva dal nome
+ * del file — ma resta il valore che arriva da altri client HTTP, quindi si
+ * guarda comunque.
+ */
+export function isActiveContentUpload(fileName: string, declaredType: string, servedType: string): boolean {
+  return (
+    ACTIVE_CONTENT_MIMES.has(normalizeMime(declaredType)) ||
+    ACTIVE_CONTENT_MIMES.has(normalizeMime(servedType)) ||
+    ACTIVE_CONTENT_EXTENSIONS.has(extensionOf(fileName))
+  );
+}
+
 export function createMediaRouter(ctx: AppContext): RouteHandler {
   const {
     json, readJSON, getTopicById, saveSingleTopic,
     isPathAllowed, resolveProjectPath, getMimeType,
-    UPLOADS_DIR, CONTEXT_DIR, ALLOWED_UPLOAD_MIMES,
+    UPLOADS_DIR, CONTEXT_DIR,
   } = ctx;
 
   return async function mediaRouter(req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {
@@ -56,6 +157,19 @@ export function createMediaRouter(ctx: AppContext): RouteHandler {
       }
       const file = Bun.file(resolved);
       const contentType = getMimeType(resolved);
+      // Questa rotta restituisce file di cui NON conosciamo la provenienza —
+      // i file di contesto caricati da un client, i media di un progetto — con
+      // il `Content-Type` dedotto dall'estensione, sulla nostra origine.
+      // `nosniff` da solo non basta contro un `.svg`: lì il tipo dichiarato È
+      // il tipo attivo, quindi non c'è niente da indovinare. La `sandbox`
+      // mette il DOCUMENTO in un'origine opaca, così lo script dentro l'SVG (o
+      // dentro un `.html`) non vede più né il cookie né l'API. Un `<img>` non
+      // crea nessun documento, quindi le immagini SVG legittime continuano a
+      // disegnarsi: è per questo che si sandboxa invece di forzare
+      // `attachment`, che trasformerebbe «apri questo file nel pannello» in un
+      // download.
+      const guardie: Record<string, string> = { "X-Content-Type-Options": "nosniff" };
+      if (ACTIVE_CONTENT_MIMES.has(normalizeMime(contentType))) guardie["Content-Security-Policy"] = "sandbox";
       // Range support — required for <video> seeking (review clips). Bun does
       // NOT auto-slice a manually-built Response (verified: a Range request got
       // a full 200), so serve 206 ourselves when a Range header is present; a
@@ -73,6 +187,7 @@ export function createMediaRouter(ctx: AppContext): RouteHandler {
         return new Response(file.slice(start, end + 1), {
           status: 206,
           headers: {
+            ...guardie,
             "Content-Type": contentType,
             "Content-Range": `bytes ${start}-${end}/${size}`,
             "Content-Length": String(end - start + 1),
@@ -81,7 +196,7 @@ export function createMediaRouter(ctx: AppContext): RouteHandler {
           },
         });
       }
-      return new Response(file, { headers: { "Content-Type": contentType, "Accept-Ranges": "bytes", "Cache-Control": "public, max-age=3600" } });
+      return new Response(file, { headers: { ...guardie, "Content-Type": contentType, "Accept-Ranges": "bytes", "Cache-Control": "public, max-age=3600" } });
     }
 
     // --- Base64 image upload ---
@@ -96,10 +211,15 @@ export function createMediaRouter(ctx: AppContext): RouteHandler {
         mkdirSync(UPLOADS_DIR, { recursive: true });
         const filename = `${Date.now()}-paste.${ext}`;
         const filepath = join(UPLOADS_DIR, filename);
-        // Cap the payload like /api/upload and /api/context-upload do (10MB) —
-        // this base64 path had no size limit, so a huge dataUrl was decoded into
-        // memory and written straight to disk (asymmetric memory/disk-fill).
-        const MAX_UPLOAD_SIZE = 10 * 1024 * 1024;
+        // Cap the payload like /api/context-upload does (10MB) — this base64
+        // path had no size limit, so a huge dataUrl was decoded into memory and
+        // written straight to disk (asymmetric memory/disk-fill).
+        //
+        // `/api/upload` was named here too, and it was NOT true: that route had
+        // neither a cap nor a MIME check, and this comment is why nobody went
+        // to look. A comment that promises a control the code does not have is
+        // worse than no comment — both routes now have both, and the shared
+        // `MAX_UPLOAD_SIZE` at the top of the file is what keeps the claim honest.
         const b64 = match[2];
         // base64 inflates ~4:3 — cheap pre-decode guard before buffering.
         if (b64.length > MAX_UPLOAD_SIZE * 1.4) return json({ error: "Image too large. Maximum size is 10MB." }, 413);
@@ -111,13 +231,46 @@ export function createMediaRouter(ctx: AppContext): RouteHandler {
     }
 
     // --- File upload ---
+    //
+    // Il tetto e il controllo sul tipo ci sono per davvero, e per molto tempo
+    // non c'erano: il corpo finiva intero in `arrayBuffer()` e da lì su disco,
+    // senza limite di dimensione e senza guardare niente. Il commento di
+    // `/api/upload-image` lo dava per scontato anche di questa: era la
+    // rassicurazione più pericolosa possibile, perché diceva che il controllo
+    // c'era e faceva smettere di cercarlo.
+    //
+    // Il controllo NEGA il contenuto attivo e ammette il resto. La prima
+    // versione faceva il contrario, e un'allowlist di MIME su un allegato
+    // rifiutava `.txt`, `.log`, `.json`, `.zip`, `.m4a` e ogni file senza
+    // estensione: una recinzione che tiene fuori l'uso legittimo non protegge
+    // niente, si aggira col menu «apri con».
     if (method === "POST" && pathname === "/api/upload") {
       try {
+        // PRIMA di leggere il corpo. `formData()` bufferizza tutto, quindi un
+        // controllo fatto dopo avrebbe già pagato la memoria che vuole negare.
+        // È la busta, non il file: da qui il margine per l'involucro multipart.
+        const declaredLength = Number(req.headers.get("content-length") ?? "");
+        if (Number.isFinite(declaredLength) && declaredLength > MAX_UPLOAD_SIZE + MULTIPART_SLACK) {
+          return json({ error: "File too large. Maximum size is 10MB." }, 413);
+        }
         const formData = await req.formData();
         const file = formData.get("file");
         if (!file || typeof file === "string") return json({ error: "file required" }, 400);
-        mkdirSync(UPLOADS_DIR, { recursive: true });
+        // …e poi sul FILE, che è la misura che conta: `content-length` può
+        // mancare (chunked) e comunque descrive la busta.
+        if ((file as File).size > MAX_UPLOAD_SIZE) {
+          return json({ error: "File too large. Maximum size is 10MB." }, 413);
+        }
         const safeName = (file as File).name.replace(/[^a-zA-Z0-9._-]/g, "_");
+        // DENY, non ALLOW: un'estensione sconosciuta si archivia, non si
+        // rifiuta. Vedi `isActiveContentUpload` — e il tipo mostrato all'utente
+        // è quello NORMALIZZATO, perché «File type not allowed:
+        // text/plain;charset=utf-8» dava la colpa a un parametro.
+        const declaredType = normalizeMime((file as File).type) || normalizeMime(getMimeType(safeName));
+        if (isActiveContentUpload(safeName, declaredType, getMimeType(safeName))) {
+          return json({ error: `File type not allowed: ${declaredType || "unknown"}. Active content (HTML, SVG, scripts) cannot be stored here.` }, 400);
+        }
+        mkdirSync(UPLOADS_DIR, { recursive: true });
         const filename = `${Date.now()}-${safeName}`;
         const filepath = join(UPLOADS_DIR, filename);
         const buffer = await (file as File).arrayBuffer();
@@ -146,13 +299,22 @@ export function createMediaRouter(ctx: AppContext): RouteHandler {
         const topicId = formData.get("topicId") as string;
         if (!file || typeof file === "string") return json({ error: "file required" }, 400);
         if (!topicId) return json({ error: "topicId required" }, 400);
-        const fileType = (file as File).type;
-        if (!ALLOWED_UPLOAD_MIMES.has(fileType)) return json({ error: `File type not allowed: ${fileType}. Allowed types: text, documents, images, audio.` }, 400);
-        const MAX_UPLOAD_SIZE = 10 * 1024 * 1024;
+        const safeName = (file as File).name.replace(/[^a-zA-Z0-9._-]/g, "_");
+        // La STESSA porta, la stessa regola. L'allowlist che stava qui ammetteva
+        // `text/html` e `image/svg+xml` (misurato: `l.svg` → 200, scritto in
+        // CONTEXT_DIR) e quella cartella torna indietro da `/api/media` con il
+        // `Content-Type` dedotto dall'estensione: era la seconda porta sullo
+        // stesso XSS memorizzato, aperta mentre la prima veniva chiusa.
+        const fileType = normalizeMime((file as File).type) || normalizeMime(getMimeType(safeName));
+        if (isActiveContentUpload(safeName, fileType, getMimeType(safeName))) {
+          return json({ error: `File type not allowed: ${fileType || "unknown"}. Active content (HTML, SVG, scripts) cannot be stored here.` }, 400);
+        }
+        // 400 e non 413, com'era: questa rotta ha già dei clienti che leggono
+        // il codice, e allinearla sarebbe un cambio di contratto travestito da
+        // pulizia. Il tetto invece è lo stesso numero, dichiarato una volta.
         if ((file as File).size > MAX_UPLOAD_SIZE) return json({ error: "File too large. Maximum size is 10MB." }, 400);
         const topicDir = join(CONTEXT_DIR, topicId);
         mkdirSync(topicDir, { recursive: true });
-        const safeName = (file as File).name.replace(/[^a-zA-Z0-9._-]/g, "_");
         const filename = `${Date.now()}-${safeName}`;
         const filepath = join(topicDir, filename);
         const buffer = await (file as File).arrayBuffer();

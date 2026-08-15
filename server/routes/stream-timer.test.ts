@@ -30,10 +30,17 @@
  *      nel silenzio.
  *   9. Un abort deciso da fuori la route (sweeper StaleStream) finalizza e
  *      spegne ogni timer: è il segnale che chiude la risposta SSE.
+ *  10. L'insieme dei tool in corso si aggiorna PRIMA di riarmare il timer, a
+ *      tutte e due le estremità. `armSoftTimer` non riceve un conteggio: legge
+ *      l'insieme com'è nell'istante della chiamata. Le prime due prove di
+ *      questo file lo assumevano da sempre; la route faceva il contrario, e i
+ *      due difetti erano speculari — watchdog spento dopo l'ultimo risultato di
+ *      tool, «sta rallentando» spurio al primo tool del turno.
  *
  * The replica below is kept in one-to-one structural correspondence with
  * the route code; if either drifts, this file should fail and the
- * topics.ts code should be re-aligned, NOT the test.
+ * chat.ts code should be re-aligned, NOT the test. (Il codice vero sta in
+ * `routes/chat.ts`: `armSoftTimer`, `resetStreamTimer`, `settleTrackedTool`.)
  */
 
 import { describe, expect, test } from "bun:test";
@@ -126,15 +133,28 @@ function build() {
     armSoft();
   };
 
+  // L'ORDINE è la cosa in prova, non un dettaglio di scrittura: `armSoft` legge
+  // `trackedToolCallIds` com'è in questo istante, quindi ogni callback deve aver
+  // già applicato l'evento a cui reagisce. Mirror di `onToolStart` e
+  // `settleTrackedTool` in routes/chat.ts.
   const onToolStart = (id: string) => {
     h.trackedToolCallIds.push(id);
     onEvent();
   };
-  const onToolResult = (id: string) => {
+  /** Mirror di `settleTrackedTool`: PRIMA lo splice, POI il riarmo. */
+  const settleTool = (id: string) => {
     const i = h.trackedToolCallIds.indexOf(id);
     if (i >= 0) h.trackedToolCallIds.splice(i, 1);
     onEvent();
   };
+  const onToolResult = settleTool;
+  /**
+   * Mirror dei quattro esiti della dispatch in-process (`browser_*` e control
+   * tool): il tool lo esegue la route, e la sua promise si risolve fuori dal
+   * flusso degli eventi del provider. Passano dallo STESSO `settleTrackedTool`
+   * — prima non passavano da niente: toglievano l'id a mano e non riarmavano.
+   */
+  const onDispatchedToolDone = settleTool;
 
   // Mirror of handleHardTimeout: the hard cap is now symmetric with the grace
   // window — a live child is NEVER killed (CLI parity: no wall-clock session
@@ -178,7 +198,7 @@ function build() {
     h.events.push("sse-closed");
   };
 
-  return { h, onEvent, onToolStart, onToolResult, finalize, externalAbort };
+  return { h, onEvent, onToolStart, onToolResult, onDispatchedToolDone, finalize, externalAbort };
 }
 
 // We use bun's fake timers via setTimeout monkey-patching: bun:test's
@@ -440,6 +460,78 @@ describe("turno che non parte / finalizzato da fuori", () => {
       externalAbort();
       expect(h.events).not.toContain("sse-closed");
       expect(h.events.filter((e) => e.startsWith("finalize:"))).toEqual(["finalize:done"]);
+    });
+  });
+});
+
+/**
+ * L'ORDINE fra la mutazione dell'insieme dei tool e il riarmo del timer.
+ *
+ * `armSoftTimer` non riceve niente: legge `trackedToolCallIds` com'è nell'istante
+ * in cui lo chiami. Chi riarma PRIMA di aver applicato il proprio evento gli fa
+ * leggere lo stato di un attimo fa, e il risultato è un watchdog che si comporta
+ * al contrario alle due estremità del turno.
+ */
+describe("l'insieme dei tool si aggiorna PRIMA di riarmare il timer", () => {
+  test("ultimo risultato di tool, poi silenzio: il soft timeout scatta e la grace parte", () => {
+    withFakeTimers((advance) => {
+      const { h, onToolStart, onToolResult } = build();
+      onToolStart("solo-tool");
+      advance(5 * 60_000); // il tool lavora: nessun timer, per contratto
+      expect(h.events).toEqual([]);
+
+      onToolResult("solo-tool");
+      // Da qui in poi non c'è più niente in corso: il silenzio è silenzio.
+      // Riarmando PRIMA dello splice, `armSoftTimer` vedeva ancora un tool
+      // «in corso», metteva `softTimer = null` e nessuno lo rimetteva: il
+      // watchdog restava spento per tutto il resto del turno.
+      advance(STREAM_TIMEOUT_MS + 1);
+      expect(h.state).toBe("soft-timed-out");
+      expect(h.events).toContain("soft-timeout");
+
+      // E la grace è davvero partita: senza eventi, il turno si chiude.
+      advance(STREAM_GRACE_MS + 1);
+      expect(h.state).toBe("finalized");
+      expect(h.events).toContain("grace-expired");
+    });
+  });
+
+  test("primo tool di un turno: il timer resta sospeso, nessun cartello «sta rallentando»", () => {
+    withFakeTimers((advance) => {
+      const { h, onToolStart } = build();
+      // Un tool che ci mette due minuti (un `bun test`, uno spawn MCP) è la
+      // norma. Con la push DOPO il riarmo, `armSoftTimer` vedeva l'insieme
+      // vuoto, armava un minuto contro un turno che stava aspettando per
+      // costruzione, e a 60 s partiva `stream:slow` su un turno sanissimo.
+      onToolStart("primo-tool");
+      advance(STREAM_TIMEOUT_MS * 3);
+      expect(h.state).toBe("streaming");
+      expect(h.events).not.toContain("soft-timeout");
+    });
+  });
+
+  test("un tool eseguito dalla route (browser_*/control): alla sua fine il timer torna armato", () => {
+    withFakeTimers((advance) => {
+      const { h, onToolStart, onToolResult, onDispatchedToolDone } = build();
+      // Due tool in volo, e a chiudere è quello che esegue la ROUTE: così
+      // l'ultimo evento del provider (`onToolResult`) cade mentre c'è ancora
+      // qualcosa in corso, e l'unica cosa che può riarmare il timer è la
+      // chiusura della dispatch. Con un tool solo il test sarebbe passato per
+      // il motivo sbagliato — sul codice vecchio lo armava `onToolStart`.
+      onToolStart("Read-1");
+      onToolStart("browser_open-1");
+      advance(30_000);
+      onToolResult("Read-1");
+      advance(STREAM_TIMEOUT_MS + 1);
+      expect(h.state).toBe("streaming"); // il browser tool sta ancora lavorando
+
+      // Questi quattro esiti toglievano l'id a mano e basta: nessun riarmo, e
+      // il turno restava senza watchdog fino al prossimo evento del provider —
+      // che su un turno wedged non arriva mai.
+      onDispatchedToolDone("browser_open-1");
+      advance(STREAM_TIMEOUT_MS + 1);
+      expect(h.state).toBe("soft-timed-out");
+      expect(h.events).toContain("soft-timeout");
     });
   });
 });

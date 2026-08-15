@@ -1,5 +1,5 @@
 {
-  "$schema": "fluido-baseline-v1",
+  "$schema": "scroll-fluidity-baseline-v1",
   "surface": "chat-thread-virtuoso",
   "updated": "2026-08-14",
   "why": [
@@ -57,15 +57,15 @@
       "multiplier": 2
     }
   },
-  "sensibilita_misurata": {
+  "measured_sensitivity": {
     "_": "Dove questo banco vede e dove NON vede, misurato iniettando lentezza UNIFORME dentro il rAF (ogni frame piu' caro, nessun buco: e' la firma di un layout sincrono per frame).",
-    "curva": {
-      "sano": "23,4%",
+    "curve": {
+      "healthy": "23,4%",
       "+4ms": "23,7%",
       "+8ms": "24,1%",
       "+16ms": "53,3%",
       "+32ms": "75,4%"
     },
-    "limite": "Sotto gli 8 ms di costo aggiunto per frame la misura non si muove: il frame budget e' 8,3 ms e c'e' abbastanza margine perche' quel costo ci stia dentro. Questo cancello prende il RADDOPPIO, non il rincaro del dieci per cento. Chi cerca il secondo ha bisogno di un'altra sonda, non di una soglia piu' stretta."
+    "limit": "Sotto gli 8 ms di costo aggiunto per frame la misura non si muove: il frame budget e' 8,3 ms e c'e' abbastanza margine perche' quel costo ci stia dentro. Questo cancello prende il RADDOPPIO, non il rincaro del dieci per cento. Chi cerca il secondo ha bisogno di un'altra sonda, non di una soglia piu' stretta."
   }
 }

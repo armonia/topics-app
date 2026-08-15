@@ -254,18 +254,64 @@ export function createAppContext(baseDir: string): AppContext {
     /**
      * Come `getLastMessage`, ma SENZA la colonna `blocks`.
      *
-     * I mutatori dei tool call leggono e riscrivono solo `tool_calls`: con
+     * I due mutatori caldi dei tool call — `addToolCallToLastMessage` e
+     * `updateToolCallResult` — leggono e riscrivono solo `tool_calls`: con
      * `SELECT *` il messaggio in corso viaggia dal DB con la timeline intera
      * appresso — su un turno lungo è ~1,3 MB per evento di tool, letti e
-     * immediatamente scartati. Le colonne qui sono esattamente quelle che quei tre
+     * immediatamente scartati. Le colonne qui sono esattamente quelle che quei due
      * mutatori leggono o riscrivono.
      */
-    // `blocks` c'è perché `updateToolCallFields` deve patchare ANCHE quelli:
-    // quando un messaggio ha blocchi, chi disegna legge quelli e ignora
-    // `tool_calls`. Senza questa colonna nella SELECT la patch ai blocchi
-    // sarebbe partita su un `undefined` e non avrebbe scritto niente — un
-    // aggiornamento che gira, non fallisce, e non si vede.
-    getLastMessageForToolUpdate: db.prepare(`SELECT id, session_key, role, content, thinking, tool_calls, blocks, media, partial, streamed_at, plan_status, timestamp FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 1`),
+    getLastMessageForToolUpdate: db.prepare(`SELECT id, session_key, role, content, thinking, tool_calls, media, partial, streamed_at, plan_status, timestamp FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 1`),
+    /**
+     * La variante CON `blocks`, per il solo `updateToolCallFields`.
+     *
+     * `blocks` serve lì e solo lì: quando un messaggio ha blocchi, chi disegna
+     * legge quelli e ignora `tool_calls`, quindi la patch deve toccare entrambe
+     * le colonne. Senza questa SELECT la patch ai blocchi partirebbe su un
+     * `undefined` e non scriverebbe niente — un aggiornamento che gira, non
+     * fallisce, e non si vede (visto il 7 agosto: tre chiamate ferme in attesa
+     * di un permesso, il piede della chat che lo diceva, e NESSUN pannello).
+     *
+     * È separata dalla statement qui sopra perché le frequenze non c'entrano
+     * niente l'una con l'altra: `updateToolCallFields` gira quando un tool si
+     * ferma a chiedere qualcosa a una persona (unità per turno, se va bene),
+     * gli altri due a ogni start e a ogni risultato (decine). Far pagare a
+     * questi ultimi la timeline intera era il grosso del costo per evento.
+     */
+    getLastMessageForToolFields: db.prepare(`SELECT id, session_key, role, content, thinking, tool_calls, blocks, media, partial, streamed_at, plan_status, timestamp FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 1`),
+    /**
+     * Per `updateLastMessage`: SOLO ciò che quella funzione riscrive.
+     *
+     * Né `blocks` né `tool_calls`. `updateLastMessage` non li legge mai — scrive
+     * `tool_calls` unicamente quando il chiamante glielo passa, e `blocks` passa
+     * per `metaParams(updates)`, cioè dal chiamante e basta — eppure con
+     * `SELECT *` si portava dal DB le due colonne più pesanti della tabella a
+     * ogni scrittura del corpo del turno.
+     *
+     * Al posto loro due sonde: la riga ha tool call? ha blocchi? Servono a
+     * `discardIfEmptyTurn`, che deve poter distinguere un segnaposto vuoto da un
+     * turno che ha prodotto SOLO tool o SOLO blocchi — cancellare quello sarebbe
+     * perdita di dati. La domanda è booleana, e si risponde in SQL invece di
+     * trascinare megabyte fin qui per farne un `length > 0`.
+     *
+     * `'[]'` e `'null'` contano come vuote, come in `hasItems`
+     * (shared/empty-turn.ts). Una colonna con dentro qualcos'altro conta come
+     * piena: nel dubbio si tiene la riga, non si cancella.
+     */
+    getLastMessageForBodyUpdate: db.prepare(
+      `SELECT id, session_key, role, content, thinking, media, partial, streamed_at,
+              plan_status, timestamp, parent_id, branch_index, latency_ms,
+              usage_prompt_tokens, usage_completion_tokens, cost_cents, cache_read_tokens,
+              cache_creation_tokens, cache_creation_1h_tokens, model, author_person_id,
+              author_device_id
+       FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 1`,
+    ),
+    /** Le due sonde di `getLastMessageForBodyUpdate`, per id. Vedi `discardIfEmptyTurn`. */
+    messageBodyPresence: db.prepare(
+      `SELECT CASE WHEN tool_calls IS NULL OR tool_calls IN ('', '[]', 'null') THEN 0 ELSE 1 END AS has_tool_calls,
+              CASE WHEN blocks     IS NULL OR blocks     IN ('', '[]', 'null') THEN 0 ELSE 1 END AS has_blocks
+       FROM messages WHERE id = ?`,
+    ),
     getLastAssistantMessage: db.prepare(`SELECT id, content FROM messages WHERE session_key = ? AND role = 'assistant' ORDER BY sort_order DESC LIMIT 1`),
     appendMessageContent: db.prepare(`UPDATE messages SET content = ? WHERE id = ?`),
     getMaxSortOrder: db.prepare(`SELECT COALESCE(MAX(sort_order), -1) as max_order FROM messages WHERE session_key = ?`),
@@ -504,9 +550,16 @@ export function createAppContext(baseDir: string): AppContext {
    * turno, sul thread unico di Bun — e la chat si impunta a scatti proprio quando
    * l'agente sta lavorando di più.
    *
-   * Default `true`: nessun altro chiamante cambia comportamento.
+   * `withToolCalls: false` fa lo stesso per `tool_calls`. Finora quel parse era
+   * INCONDIZIONATO: chi passava `withBlocks: false` — cioè chi ha dichiarato di
+   * non voler nemmeno il grosso — si ritrovava comunque il secondo parse addosso,
+   * e sui turni agentici `tool_calls` è la seconda colonna più pesante della
+   * tabella. Ora la scelta è simmetrica, e chi legge dalle statement magre (che
+   * la colonna non la chiedono nemmeno) non paga niente in ogni caso.
+   *
+   * Default `true` per entrambe: nessun altro chiamante cambia comportamento.
    */
-  function rowToMessage(row: any, opts?: { withBlocks?: boolean }): StoredMessage {
+  function rowToMessage(row: any, opts?: { withBlocks?: boolean; withToolCalls?: boolean }): StoredMessage {
     const msg: StoredMessage = {
       id: row.id,
       role: row.role,
@@ -514,7 +567,7 @@ export function createAppContext(baseDir: string): AppContext {
       timestamp: row.timestamp,
     };
     if (row.thinking) msg.thinking = row.thinking;
-    if (row.tool_calls) {
+    if (row.tool_calls && opts?.withToolCalls !== false) {
       try {
         const parsed = JSON.parse(row.tool_calls);
         msg.toolCalls = Array.isArray(parsed)
@@ -1161,8 +1214,12 @@ export function createAppContext(baseDir: string): AppContext {
     autore?: { authorPersonId?: string | null; authorDeviceId?: string | null },
   ): StoredMessage {
     const maxOrder = (stmts.getMaxSortOrder.get(sessionKey) as any).max_order;
-    // Find the last message in the active thread to set as parent
-    const activeThread = loadActiveThread(sessionKey);
+    // Find the last message in the active thread to set as parent.
+    // Serve UN id, quindi si legge magro: senza queste due opzioni la chiamata
+    // idratava tutto il ramo attivo con `blocks` e `tool_calls` riparsati da
+    // JSON — e la paga OGNI riga scritta, cioè ogni prompt umano e ogni
+    // segnaposto assistente aperto a inizio turno.
+    const activeThread = loadActiveThread(sessionKey, { withBlocks: false, withToolCalls: false });
     const lastMsg = activeThread.length > 0 ? activeThread[activeThread.length - 1] : null;
     const parentId = lastMsg?.id || null;
     const stored: StoredMessage = {
@@ -1230,8 +1287,12 @@ export function createAppContext(baseDir: string): AppContext {
 
   function createPartialMessage(sessionKey: string, role: "user" | "assistant"): StoredMessage {
     const maxOrder = (stmts.getMaxSortOrder.get(sessionKey) as any).max_order;
-    // Find the last message in the active thread to set as parent
-    const activeThread = loadActiveThread(sessionKey);
+    // Find the last message in the active thread to set as parent.
+    // Serve UN id, quindi si legge magro: senza queste due opzioni la chiamata
+    // idratava tutto il ramo attivo con `blocks` e `tool_calls` riparsati da
+    // JSON — e la paga OGNI riga scritta, cioè ogni prompt umano e ogni
+    // segnaposto assistente aperto a inizio turno.
+    const activeThread = loadActiveThread(sessionKey, { withBlocks: false, withToolCalls: false });
     const lastMsg = activeThread.length > 0 ? activeThread[activeThread.length - 1] : null;
     const parentId = lastMsg?.id || null;
     const stored: StoredMessage = {
@@ -1296,28 +1357,22 @@ export function createAppContext(baseDir: string): AppContext {
     return { ...createPartialMessage(sessionKey, "assistant"), reusedBody: false };
   }
 
-  /** Get the last message in the active thread (or by sort_order as fallback for streaming). */
-  function getLastActiveMessage(sessionKey: string): any | null {
-    // During streaming, the last message by sort_order is the partial assistant message
-    // which is always the correct one to update.
-    return stmts.getLastMessage.get(sessionKey) as any;
-  }
-
   function updateLastMessage(sessionKey: string, updates: Partial<StoredMessage>): StoredMessage | null {
-    const row = getLastActiveMessage(sessionKey);
+    // Lettura magra: `blocks` e `tool_calls` non arrivano nemmeno da SQLite.
+    // Questa funzione non li legge — riscrive `tool_calls` solo se glielo passa
+    // il chiamante, e `blocks` passa da `metaParams(updates)`, cioè sempre dal
+    // chiamante — ma con `SELECT *` se li portava dietro comunque, a ogni
+    // salvataggio periodico e a ogni finalizzazione. Sul DB vero sono decine di
+    // KB per riga, e su un turno agentico lungo arrivano ai megabyte.
+    //
+    // Il valore di ritorno finisce in `discardIfEmptyTurn`, che senza quelle due
+    // colonne prenderebbe per vuoto un turno fatto di SOLI tool o SOLI blocchi e
+    // lo cancellerebbe. Le colonne non gli servono: gli serve sapere se ci sono,
+    // e quello se lo chiede lui con `messageBodyPresence`.
+    const row = stmts.getLastMessageForBodyUpdate.get(sessionKey) as any;
     if (!row) return null;
-    // Salta il parse di `blocks` (il grosso del costo — ~1,3 MB di JSON sul
-    // turno peggiore, letto e buttato via a ogni evento di tool). Il valore di
-    // ritorno finisce in `discardIfEmptyTurn`, che cancella la riga se il turno
-    // è vuoto e — via `isEmptyAssistantTurn` — guarda anche `blocks`. Per non
-    // far passare per vuoto un turno di SOLI blocchi (perdita di dati)
-    // portiamo la STRINGA grezza della colonna: `AssistantTurnShape` accetta
-    // `blocks` come stringa JSON e la valuta senza che noi la si parsi.
-    const msg = rowToMessage(row, { withBlocks: false });
+    const msg = rowToMessage(row, { withBlocks: false, withToolCalls: false });
     Object.assign(msg, updates);
-    if (!('blocks' in updates) && row.blocks) {
-      (msg as { blocks?: unknown }).blocks = row.blocks;
-    }
     // Only overwrite the body fields the caller actually passed. Fields absent
     // from `updates` go in as null so the COALESCE in updateMessage keeps the
     // existing column — a partial update (e.g. flipping `partial` on timeout)
@@ -1457,7 +1512,10 @@ export function createAppContext(baseDir: string): AppContext {
    * SQLite row so a reload renders the pending form correctly.
    */
   function updateToolCallFields(sessionKey: string, toolCallId: string, patch: Partial<ToolCall>): StoredMessage | null {
-    const row = stmts.getLastMessageForToolUpdate.get(sessionKey) as any;
+    // L'UNICA statement che porta `blocks`: qui servono davvero (vedi sotto), e
+    // questa via si percorre quando un tool si ferma a chiedere qualcosa a una
+    // persona, non a ogni evento di tool.
+    const row = stmts.getLastMessageForToolFields.get(sessionKey) as any;
     if (!row) return null;
     const msg = rowToMessage(row, { withBlocks: true });
     const tc = msg.toolCalls?.find(t => t.id === toolCallId);
@@ -2167,6 +2225,17 @@ export function createAppContext(baseDir: string): AppContext {
    */
   function discardIfEmptyTurn(sessionKey: string, msg: StoredMessage | null): string | null {
     if (!msg || !isEmptyAssistantTurn(msg)) return null;
+    // Il predicato ha detto «vuoto» su ciò che il chiamante gli ha messo in mano,
+    // e chi arriva da `updateLastMessage` legge magro: `blocks` e `tool_calls`
+    // NON sono su `msg`, quindi «assenti» qui vuol dire «non li ho guardati»,
+    // non «non ci sono». Prima di cancellare una riga si guardano — è una
+    // domanda booleana, e la risponde SQLite senza portare qui le due colonne
+    // più pesanti della tabella. Senza questo controllo un turno fatto di soli
+    // tool, o di soli blocchi, verrebbe scartato come segnaposto vuoto: lavoro
+    // fatto, cancellato in silenzio.
+    const presence = stmts.messageBodyPresence.get(msg.id) as
+      { has_tool_calls?: number; has_blocks?: number } | undefined;
+    if (presence && (presence.has_tool_calls || presence.has_blocks)) return null;
     return deleteMessageSubtree(sessionKey, msg.id) ? msg.id : null;
   }
 

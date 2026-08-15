@@ -1798,7 +1798,7 @@ export function TopicTree({
                 >
                   {rows.length > 0
                     ? <SidebarRowList>{rows.map(item => renderItem(item))}</SidebarRowList>
-                    : <div className="px-3 py-1 text-[11px] text-app-text-muted">Nessuna tab</div>}
+                    : <div className="px-3 py-1 text-[11px] text-app-text-muted">{tr('sidebar.noTabs')}</div>}
                 </SpaceGroupCard>
               );
             })}
@@ -2658,7 +2658,7 @@ function BrowserSidebarItem({ bc, itemName, depth, isFocused, isOpen, pinned, on
               className={POPOVER_ITEM}
             >
               <X size={14} className="text-app-text-tertiary" />
-              Chiudi browser
+              {tr('sidebar.closeBrowser')}
             </button>
           )}
         </ContextMenuPortal>

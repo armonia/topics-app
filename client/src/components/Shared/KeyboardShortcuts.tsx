@@ -3,6 +3,7 @@ import { X } from 'lucide-react';
 import { MODAL_BACKDROP, MODAL_PANEL, MODAL_LAYER } from '../../lib/modalStyles';
 import { isDesktop } from '../../lib/shell';
 import { useModalDialog } from '../../hooks/useModalDialog';
+import { useT } from '../../hooks/useT';
 // The ONE source of truth. The same registry generates the native shell's
 // chord-forwarding allowlist (shortcuts_generated.rs) — add a chord once and
 // both the window below and the desktop forwarder pick it up. See the file.
@@ -14,6 +15,7 @@ interface KeyboardShortcutsProps {
 }
 
 export function KeyboardShortcuts({ isOpen, onClose }: KeyboardShortcutsProps) {
+  const t = useT();
   const panelRef = useRef<HTMLDivElement>(null);
   // Escape lo chiudeva già (useKeyboardShortcuts lo conosce per nome); qui si
   // aggiungono la trappola del focus e il ritorno del focus a chi l'ha aperto.
@@ -31,7 +33,7 @@ export function KeyboardShortcuts({ isOpen, onClose }: KeyboardShortcutsProps) {
       >
         <div className="flex items-center justify-between px-4 py-3 border-b border-app-border">
           <h3 className="text-[14px] font-semibold text-app-text">Keyboard Shortcuts</h3>
-          <button aria-label="Chiudi le scorciatoie da tastiera" onClick={onClose} className="text-app-text-muted hover:text-app-text-secondary">
+          <button aria-label={t('shortcuts.close')} onClick={onClose} className="text-app-text-muted hover:text-app-text-secondary">
             <X size={16} />
           </button>
         </div>

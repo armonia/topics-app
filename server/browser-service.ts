@@ -425,6 +425,36 @@ export interface BrowserService {
   ): Promise<ElementDescription | null>;
 }
 
+/**
+ * The CDP port the headless Chromium listens on, derived from the server port.
+ *
+ * 19222 is the production number and stays the production number: it is what the
+ * OpenClaw `topics` browser profile answers on, and the probe at
+ * `/json/list` below reaches an already-running browser through it.
+ *
+ * A TEST server must not take it. The number used to be a hard-coded constant
+ * shared by every server on the machine, so a spec that launched a server-side
+ * Chromium while the production one held 19222 died with
+ * `bind() failed: Address already in use (48)` and Playwright SIGKILLed the
+ * launch. Observed on 2026-08-15 during a four-shard run, on a spec that has
+ * nothing to do with browsers. The DB directory, the PTY socket and the
+ * ai-bridge socket all already derive from `BUN_PORT`
+ * (scripts/start-test-server.sh); this was the fourth of that family and the
+ * only one still shared.
+ *
+ * Mapping: 13334 -> 19334, 13400 -> 19400. One CDP port per server port, inside
+ * a band nothing else on this machine claims. Production (3333) and any server
+ * that does not declare a port keep 19222, so nothing about the shipped app
+ * changes.
+ */
+export function defaultCdpPort(env: Record<string, string | undefined> = process.env): number {
+  const explicit = Number(env.TOPICS_CDP_PORT);
+  if (Number.isInteger(explicit) && explicit > 0) return explicit;
+  const serverPort = Number(env.BUN_PORT || env.PORT || 0);
+  if (!Number.isInteger(serverPort) || serverPort <= 0 || serverPort === 3333) return 19222;
+  return 19000 + (serverPort % 1000);
+}
+
 export async function createBrowserService(opts: BrowserServiceOptions = {}): Promise<BrowserService> {
   const {
     maxContexts = 20,
@@ -433,7 +463,7 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
     browserIdleTimeoutMs = 5 * 60 * 1000,
     defaultViewport = { width: 1280, height: 720 },
     screenshotQuality = 70,
-    cdpPort = 19222,
+    cdpPort = defaultCdpPort(),
   } = opts;
 
   const cookieDir = join(process.env.HOME || "/tmp", ".openclaw", "workspace", "topics-app", ".browser-cookies");

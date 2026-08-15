@@ -481,6 +481,14 @@ export function StandaloneChatGroup({
     window.dispatchEvent(new CustomEvent('chat-input:toggle-context', { detail: { topicId: activeTopic.id } }));
   }, [activeTopic]);
 
+  // Stabile e non un arrow inline sulla board: quella prop scende su OGNI card,
+  // e un'identità nuova a ogni render del gruppo (una tab che cambia, un titolo
+  // che arriva) manda a vuoto il memo di tutte quante. La board di progetto
+  // passa già una callback stabile (`ProjectWindow`), questa no.
+  const openTopicFromBoard = useCallback((topicId: string) => {
+    window.dispatchEvent(new CustomEvent('topics:open-topic', { detail: { topicId } }));
+  }, []);
+
   if (validatedOrderedIds.length === 0) return null;
   // NOTE: we deliberately do NOT bail the whole group when the ACTIVE pane is
   // unrenderable (e.g. a chat whose topic no longer resolves). That old bail —
@@ -710,7 +718,7 @@ export function StandaloneChatGroup({
         <LazyPane>
           {utilityType === 'dashboard' && <DashboardPane onMessage={onWSMessage} />}
           {utilityType === 'cron' && <CronJobsPanel />}
-          {utilityType === 'board' && <KanbanBoardPane global onMessage={onWSMessage} onOpenTopic={(topicId) => window.dispatchEvent(new CustomEvent('topics:open-topic', { detail: { topicId } }))} />}
+          {utilityType === 'board' && <KanbanBoardPane global onMessage={onWSMessage} onOpenTopic={openTopicFromBoard} />}
         </LazyPane>
       );
     }

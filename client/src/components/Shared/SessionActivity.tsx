@@ -11,12 +11,15 @@
  * Two consumers: the sidebar rows (desktop + the full-screen mobile sidebar) and
  * the mobile chat header, so "what it's doing" reads the same everywhere.
  */
+// Import RELATIVI e non `@/`: `bun test` non risolve l'alias (lo dice anche
+// l'intestazione di `Board/GlobalCapControl.test.tsx`), e questo modulo ha un
+// test unitario che lo monta — `SessionActivity.test.ts`.
 import { useEffect, useState } from 'react';
-import { useSessionActivity, useSubjectLastActivity } from '@/state/signals';
-import { useSharedNow } from '@/state/useSharedNow';
-import { deriveSubjectTime, formatElapsedShort, formatElapsedCompact, WORK_ELAPSED_AFTER_MS } from '@/state/workLongevity';
-import { useTopicPreview } from '@/state/topicPreviews';
-import { ON_FILL_TEXT, ON_FILL_TEXT_SOFT, TIER_DONE_BG, TIER_INPUT_BG } from '@/lib/selectionStyles';
+import { useSessionActivity, useSubjectLastActivity } from '../../state/signals';
+import { useSharedNow } from '../../state/useSharedNow';
+import { deriveSubjectTime, formatElapsedShort, formatElapsedCompact, WORK_ELAPSED_AFTER_MS } from '../../state/workLongevity';
+import { useTopicPreview } from '../../state/topicPreviews';
+import { ON_FILL_TEXT, ON_FILL_TEXT_SOFT, TIER_DONE_BG, TIER_INPUT_BG } from '../../lib/selectionStyles';
 
 /** Map a Claude Code tool name to a short human verb. Unknown tools fall back to
  *  the raw name (MCP tools like `mcp__foo__bar` are trimmed to their last leg). */
@@ -73,13 +76,33 @@ function SessionActivityText({ subjectId, onFill, className = '' }: SessionActiv
   // motivo per cui questa riga non ne apre uno suo.
   const [tick, setTick] = useState(() => Date.now());
   const sharedNow = useSharedNow();
+  // LA DIPENDENZA È IL BOOLEANO, non l'oggetto. `useSessionActivity` passa da
+  // `useShallow`: il descrittore è ri-identificato a ogni cambio di campo, e il
+  // campo che cambia più spesso è `tool`. Con `[activity]` l'effetto si
+  // smontava e rimontava a ogni cambio di strumento, quindi l'intervallo da 1s
+  // veniva azzerato PRIMA di scattare: un agente che cambia tool più di una
+  // volta al secondo — cioè il caso normale — lasciava il contatore inchiodato
+  // sul valore iniziale. Il gemello a fondo file (`SessionElapsedTicking`) non
+  // ne soffriva perché legge il tick condiviso.
+  const working = activity?.working ?? false;
   useEffect(() => {
-    if (!activity?.working) return;
+    if (!working) return;
     const t = setInterval(() => setTick(Date.now()), 1000);
     return () => clearInterval(t);
-  }, [activity]);
+  }, [working]);
 
-  const now = activity?.working ? tick : sharedNow;
+  // Il PIÙ RECENTE dei due campioni, non il locale e basta. Sono due letture
+  // dello stesso orologio, quindi il massimo è sempre quello buono — e serve
+  // perché `tick` nasce col `Date.now()` del MOUNT: una riga rimasta ferma
+  // mezz'ora prima di mettersi a lavorare lo avrebbe vecchio di mezz'ora, e per
+  // un secondo (fino al primo scatto dell'intervallo) mostrerebbe il numero
+  // sbagliato. `sharedNow` si ri-basa a ogni nuovo iscritto e batte ogni 10s,
+  // quindi lo scarto scende da «illimitato» a «al più un tick condiviso». Non
+  // si può ri-basare `tick` all'armo dell'effetto: `Date.now()` nel corpo di un
+  // render è impuro e un `setState` sincrono in un effetto innesca render a
+  // cascata — entrambi sono errori del linter, ed entrambe le regole hanno
+  // ragione.
+  const now = activity?.working ? Math.max(tick, sharedNow) : sharedNow;
   const time = deriveSubjectTime(activity, lastActivityAt, now);
 
   if (!activity) return null;

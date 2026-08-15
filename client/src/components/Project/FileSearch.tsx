@@ -11,6 +11,7 @@ import { useMobile } from '@/hooks/useMobile';
 import { useModalDialog } from '@/hooks/useModalDialog';
 import { SELECTED_SURFACE } from '@/lib/selectionStyles';
 import { Spinner } from '../Shared/Spinner';
+import { useT } from '@/hooks/useT';
 
 /**
  * FileSearch — «cerca nei progetti», UNA superficie con due modi.
@@ -62,6 +63,7 @@ interface FileSearchProps {
 const NAME_LIMIT = 40;
 
 export function FileSearch({ projectPaths, mode, onModeChange, onOpenFile, onClose }: FileSearchProps) {
+  const tr = useT();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
@@ -251,25 +253,25 @@ export function FileSearch({ projectPaths, mode, onModeChange, onOpenFile, onClo
       <div
         className={`flex items-center rounded border border-app-spinner overflow-hidden flex-shrink-0 ${isMobile ? 'flex-1' : ''}`}
         role="group"
-        aria-label="Modo di ricerca"
+        aria-label={tr('fileSearch.modeGroup')}
       >
         <button
           data-testid="file-search-mode-name"
           onClick={() => onModeChange('name')}
           aria-pressed={mode === 'name'}
           className={`${btn} ${isMobile ? 'flex-1 justify-center' : ''} flex items-center gap-1 ${mode === 'name' ? 'text-primary bg-primary/10' : 'text-app-text-muted'}`}
-          title="Per nome (⌘P)"
+          title={tr('fileSearch.byNameTitle')}
         >
-          <FileText size={isMobile ? 14 : 11} aria-hidden="true" /> nome
+          <FileText size={isMobile ? 14 : 11} aria-hidden="true" /> {tr('fileSearch.byName')}
         </button>
         <button
           data-testid="file-search-mode-content"
           onClick={() => onModeChange('content')}
           aria-pressed={mode === 'content'}
           className={`${btn} ${isMobile ? 'flex-1 justify-center' : ''} flex items-center gap-1 ${mode === 'content' ? 'text-primary bg-primary/10' : 'text-app-text-muted'}`}
-          title="Nel contenuto (⌘F)"
+          title={tr('fileSearch.inContentTitle')}
         >
-          <Type size={isMobile ? 14 : 11} aria-hidden="true" /> contenuto
+          <Type size={isMobile ? 14 : 11} aria-hidden="true" /> {tr('fileSearch.inContent')}
         </button>
       </div>
       {/* Regex e case valgono solo per il grep: in modo NOME sarebbero due
@@ -308,7 +310,7 @@ export function FileSearch({ projectPaths, mode, onModeChange, onOpenFile, onClo
         ref={panelRef}
         role="dialog"
         aria-modal="true"
-        aria-label={mode === 'name' ? 'Apri un file' : 'Cerca nei file'}
+        aria-label={mode === 'name' ? tr('fileSearch.dialogOpen') : tr('fileSearch.dialogSearch')}
         className={isMobile
           ? MODAL_PAGE_PANEL
           : `w-[600px] max-w-[92vw] max-h-[70vh] ${MODAL_PANEL} flex flex-col`}
@@ -324,7 +326,7 @@ export function FileSearch({ projectPaths, mode, onModeChange, onOpenFile, onClo
           {isMobile ? (
             <button
               onClick={onClose}
-              aria-label="Chiudi"
+              aria-label={tr('common.close')}
               className="w-11 h-11 -ml-2 flex items-center justify-center flex-shrink-0 text-app-text-muted"
             >
               <ArrowLeft size={20} />
@@ -344,7 +346,7 @@ export function FileSearch({ projectPaths, mode, onModeChange, onOpenFile, onClo
             value={query}
             onChange={e => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={mode === 'name' ? `Apri un file in ${scopeLabel}…` : `Cerca in ${scopeLabel}…`}
+            placeholder={mode === 'name' ? tr('fileSearch.placeholderOpen', { scope: scopeLabel }) : tr('fileSearch.placeholderSearch', { scope: scopeLabel })}
             /* Vedi CommandPalette: 44px di bersaglio, e 16px di testo perche'
                sotto quella misura iOS zooma la pagina al primo tocco. */
             className={`flex-1 bg-transparent outline-none text-app-text-heading placeholder-app-text-faint ${
@@ -353,7 +355,7 @@ export function FileSearch({ projectPaths, mode, onModeChange, onOpenFile, onClo
           />
           {!isMobile && modeControls}
           {!isMobile && (
-            <button onClick={onClose} className="text-app-text-muted hover:text-app-text-hover" aria-label="Chiudi">
+            <button onClick={onClose} className="text-app-text-muted hover:text-app-text-hover" aria-label={tr('common.close')}>
               <X size={16} />
             </button>
           )}
@@ -381,11 +383,11 @@ export function FileSearch({ projectPaths, mode, onModeChange, onOpenFile, onClo
               ricerca. */}
           {failed && !loading && !regexError && (
             <div data-testid="file-search-error" className="text-center text-red-400 text-xs py-6 px-3">
-              Ricerca non riuscita. Il progetto è ancora raggiungibile?
+              {tr('fileSearch.failed')}
             </div>
           )}
           {!loading && !regexError && !failed && query && results.length === 0 && (
-            <div className="text-center text-app-text-muted text-xs py-6">Nessun risultato</div>
+            <div className="text-center text-app-text-muted text-xs py-6">{tr('fileSearch.noResults')}</div>
           )}
           {!loading && (() => {
             let flatIdx = 0;
@@ -437,11 +439,11 @@ export function FileSearch({ projectPaths, mode, onModeChange, onOpenFile, onClo
               cose diverse e vanno dette diverse. */}
           {!loading && truncated && (
             <div className="text-center text-amber-500 text-[11px] py-2">
-              Ricerca interrotta al tempo massimo, i risultati sono parziali
+              {tr('fileSearch.truncated')}
             </div>
           )}
           {!loading && !truncated && mode === 'content' && results.length >= 100 && (
-            <div className="text-center text-app-text-muted text-[11px] py-2">Primi 100 risultati</div>
+            <div className="text-center text-app-text-muted text-[11px] py-2">{tr('fileSearch.first100')}</div>
           )}
         </div>
       </div>

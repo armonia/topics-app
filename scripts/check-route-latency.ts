@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * check-rotte.ts: RATCHET sulle latenze delle rotte calde.
+ * check-route-latency.ts: RATCHET sulle latenze delle rotte calde.
  *
  * Lo stesso mestiere di `scripts/check-bundle-size.ts`, su un'altra grandezza:
  * quello mette un pavimento sotto i byte del bundle, questo sotto i
@@ -68,10 +68,10 @@
  *   mentre la rotta non esiste piu'.
  *
  * Uso:
- *   bun run check:rotte
- *   bun run check:rotte -- --update-baseline     registra i numeri nuovi
- *   bun run check:rotte -- --samples=25          piu' campioni, meno rumore
- *   TOPICS_ROTTE_FAULT_MS=40 bun run check:rotte    prova che sa diventare rosso
+ *   bun run check:route-latency
+ *   bun run check:route-latency -- --update-baseline     registra i numeri nuovi
+ *   bun run check:route-latency -- --samples=25          piu' campioni, meno rumore
+ *   TOPICS_ROTTE_FAULT_MS=40 bun run check:route-latency    prova che sa diventare rosso
  *
  * Uscite:  0 = dentro il budget · 1 = regressione · 2 = non misurabile
  */
@@ -83,7 +83,7 @@ import { cpus, loadavg } from "node:os";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Parte PURA: nessuna rete, nessun processo. E' quella che prova
-// scripts/check-rotte.test.ts, compreso il caso in cui deve dire rosso.
+// scripts/check-route-latency.test.ts, compreso il caso in cui deve dire rosso.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const ROUTE_KEYS = [
@@ -274,8 +274,8 @@ export function regressions(
  * banda 15200-15299 sta fuori sia dalla 13334 e dalla finestra 13500-13899
  * degli shard, sia dai loro tunnel (+1000), sia dalla 3333 di produzione.
  */
-export const ROTTE_PORT_BASE = 15200;
-export const ROTTE_PORT_SPAN = 100;
+export const ROUTE_BENCH_PORT_BASE = 15200;
+export const ROUTE_BENCH_PORT_SPAN = 100;
 
 export function benchPortFor(checkoutRoot: string): number {
   let h = 0x811c9dc5;
@@ -284,7 +284,7 @@ export function benchPortFor(checkoutRoot: string): number {
     h ^= key.charCodeAt(i);
     h = Math.imul(h, 0x01000193) >>> 0;
   }
-  return ROTTE_PORT_BASE + ((h >>> 0) % ROTTE_PORT_SPAN);
+  return ROUTE_BENCH_PORT_BASE + ((h >>> 0) % ROUTE_BENCH_PORT_SPAN);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -292,7 +292,7 @@ export function benchPortFor(checkoutRoot: string): number {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const REPO_ROOT = resolve(import.meta.dir, "..");
-const BASELINE_PATH = resolve(REPO_ROOT, "scripts/rotte-baseline.json");
+const BASELINE_PATH = resolve(REPO_ROOT, "scripts/route-latency-baseline.json");
 
 /**
  * Quanto materiale c'e' nel database mentre si misura. Cambiarlo INVALIDA la
@@ -332,7 +332,7 @@ const MAX_LOAD_PER_CORE = 0.5;
  * si prova senza dover davvero caricare un Mac: e' l'unico modo di vedere
  * questa guardia diventare rossa in un test.
  */
-export function troppoCarico(load1: number, cores: number): boolean {
+export function machineTooLoaded(load1: number, cores: number): boolean {
   const perCore = load1 / Math.max(1, cores);
   return Number.isFinite(perCore) && perCore > MAX_LOAD_PER_CORE;
 }
@@ -395,7 +395,7 @@ async function seed(base: string): Promise<{ topicId: string }> {
   // (riga '*' di board_settings, ci si arriva da qualunque board). Senza questo
   // il banco creerebbe 40 task che il server prova a dispacciare come agenti
   // veri: il "carico" misurato sarebbe il suo.
-  await api(base, "/api/boards/bench-rotte/settings", {
+  await api(base, "/api/boards/bench-route-latency/settings", {
     method: "PATCH",
     body: JSON.stringify({ autoDispatch: false, maxAgents: 1 }),
   });
@@ -407,7 +407,7 @@ async function seed(base: string): Promise<{ topicId: string }> {
     async (i) => {
       const t = await api(base, "/api/topics", {
         method: "POST",
-        body: JSON.stringify({ name: `Banco rotte ${String(i).padStart(3, "0")}` }),
+        body: JSON.stringify({ name: `Route bench ${String(i).padStart(3, "0")}` }),
       });
       topicIds.push(t.id);
     },
@@ -443,7 +443,7 @@ async function seed(base: string): Promise<{ topicId: string }> {
     Array.from({ length: CORPUS.tasks }, (_, i) => i),
     8,
     async (i) =>
-      void (await api(base, "/api/boards/bench-rotte/tasks", {
+      void (await api(base, "/api/boards/bench-route-latency/tasks", {
         method: "POST",
         body: JSON.stringify({
           text: `Task del banco numero ${i}`,
@@ -510,6 +510,12 @@ async function main(): Promise<void> {
   const update = args.includes("--update-baseline");
   const samples = Number(args.find((a) => a.startsWith("--samples="))?.split("=")[1]) || DEFAULT_SAMPLES;
   const portArg = Number(args.find((a) => a.startsWith("--port="))?.split("=")[1]);
+  // LE `TOPICS_ROTTE_*` RESTANO COL NOME VECCHIO, ed e' una scelta.
+  // `TOPICS_ROTTE_FAULT_MS` e `TOPICS_ROTTE_FAULT_PATH` non le legge questo file:
+  // le legge `server/lib/route-fault.ts`, cioe' il server sotto misura. Sono un
+  // contratto fra due processi, e rinominarle a meta' significa un guasto
+  // sintetico che si arma qui e non si arma la'. Vanno rinominate tutte e tre
+  // insieme, nello stesso edit che tocca `server/lib/route-fault.ts`.
   const port = portArg || Number(process.env.TOPICS_ROTTE_PORT) || benchPortFor(REPO_ROOT);
 
   // Nessun banco tocchera' mai il server vero: la 3333 e' il suo, e la sua
@@ -530,10 +536,10 @@ async function main(): Promise<void> {
   }
 
   if (!existsSync(BASELINE_PATH) && !update) {
-    die(`✗ Manca ${BASELINE_PATH}. Registralo con: bun run check:rotte -- --update-baseline`, 2);
+    die(`✗ Manca ${BASELINE_PATH}. Registralo con: bun run check:route-latency -- --update-baseline`, 2);
   }
 
-  const dataDir = `/tmp/topics-rotte-bench-${port}`;
+  const dataDir = `/tmp/topics-route-latency-bench-${port}`;
   rmSync(dataDir, { recursive: true, force: true }); // DB nuovo: il corpus dev'essere solo il nostro
 
   log(`Banco rotte · porta ${port} · DATA_DIR ${dataDir} · ${samples} campioni x 2 passate`);
@@ -551,8 +557,8 @@ async function main(): Promise<void> {
       // Socket dedicati: senza, il server del banco li deriverebbe dalla cwd,
       // che condivide con quello di sviluppo, e il suo riconcilio vedrebbe le
       // PTY vive dello sviluppo come orfane, ammazzandole.
-      TOPICS_PTY_SOCKET: `/tmp/topics-pty-bridge-rotte-${port}.sock`,
-      TOPICS_AI_BRIDGE_SOCKET: `/tmp/topics-ai-bridge-rotte-${port}.sock`,
+      TOPICS_PTY_SOCKET: `/tmp/topics-pty-bridge-route-latency-${port}.sock`,
+      TOPICS_AI_BRIDGE_SOCKET: `/tmp/topics-ai-bridge-route-latency-${port}.sock`,
       NO_TLS: "1",
       TOPICS_E2E: "1",
     },
@@ -631,7 +637,7 @@ async function main(): Promise<void> {
       // disarma per sempre.
       const cores = Math.max(1, cpus().length);
       const load1 = loadavg()[0] ?? 0;
-      if (troppoCarico(load1, cores)) {
+      if (machineTooLoaded(load1, cores)) {
         log(`\n✗ Non registro una baseline con la macchina sotto carico:`);
         log(`  load average ${round2(load1)} su ${cores} core = ${round2(load1 / cores)} per core (tetto ${MAX_LOAD_PER_CORE}).`);
         log(`\n  A macchina carica i numeri escono gonfiati e concordi, quindi nessuna`);
@@ -644,7 +650,7 @@ async function main(): Promise<void> {
         /** Sotto che carico e' stato preso questo numero: senza, «0,75 ms» non
          *  si sa se e' la rotta o la macchina. */
         taken_under: { load1: round2(load1), cores },
-        $schema: "rotte-baseline-v1",
+        $schema: "route-latency-baseline-v1",
         updated: new Date().toISOString().slice(0, 10),
         samples,
         tolerance_pct: prev.tolerance_pct ?? 60,
@@ -719,15 +725,15 @@ async function main(): Promise<void> {
     // Quando il tubo sfonda il suo tetto nessun numero di quella corsa separa
     // «macchina lenta» da «regressione a monte»: sono la stessa curva. L'unica
     // risposta onesta e' 2, cioe' NON MISURABILE, che e' la stessa scelta di
-    // `check:fluido` con la sua calibrazione a riposo. Una rotta singola che
+    // `check:scroll-fluidity` con la sua calibrazione a riposo. Una rotta singola che
     // peggiora mentre il tubo sta a posto continua a uscire 1, ed e' provato dal
     // guasto sintetico (`TOPICS_ROTTE_FAULT_MS=40`).
-    const tubo = calibrationOutOfScale(measured, baseline);
-    if (tubo) {
+    const pipe = calibrationOutOfScale(measured, baseline);
+    if (pipe) {
       console.error(
         `\n⚠ NON MISURABILE: il tubo e' fuori scala.\n` +
-          `  - ${CALIBRATION_KEY}: ${round2(tubo.measuredMs)} ms > ${round2(tubo.capMs)} ms ` +
-          `(baseline ${round2(tubo.baselineMs)} ms)\n\n` +
+          `  - ${CALIBRATION_KEY}: ${round2(pipe.measuredMs)} ms > ${round2(pipe.capMs)} ms ` +
+          `(baseline ${round2(pipe.baselineMs)} ms)\n\n` +
           `Quella rotta non fa quasi niente: il suo numero e' il costo di una richiesta PRIMA\n` +
           `del gestore. Se e' fuori scala, ogni altra cifra di questa corsa la porta dentro, e\n` +
           `«macchina lenta» e «regressione a monte» diventano la stessa curva. Non si sceglie a\n` +

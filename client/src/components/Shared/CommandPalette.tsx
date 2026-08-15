@@ -23,6 +23,7 @@ import {
 } from '../../lib/modalStyles';
 import { useMobile } from '../../hooks/useMobile';
 import { useModalDialog } from '../../hooks/useModalDialog';
+import { useT } from '../../hooks/useT';
 import { isDesktop } from '../../lib/shell';
 import { rankPaths } from '../../lib/fuzzyScore';
 import { buildAddMenuItems } from './addMenuItems';
@@ -121,6 +122,7 @@ export function CommandPalette({
   closedTabs,
   onReopenClosedTab,
 }: CommandPaletteProps) {
+  const t = useT();
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
 
@@ -544,6 +546,12 @@ export function CommandPalette({
   return (
     <div
       data-testid="command-palette"
+      // Which scope the palette was opened in, stated in the DOM. The only
+      // other outward sign is the input placeholder, and that one is
+      // translated: reading the scope off it makes a gate that turns red the
+      // day the UI speaks another language, while saying nothing about the
+      // scope itself.
+      data-scope={scope}
       data-page={isMobile ? 'true' : undefined}
       className={isMobile
         ? MODAL_PAGE_CONTAINER
@@ -567,7 +575,7 @@ export function CommandPalette({
           {isMobile ? (
             <button
               onClick={onClose}
-              aria-label="Chiudi"
+              aria-label={t('common.close')}
               className="w-11 h-11 -ml-3 flex items-center justify-center flex-shrink-0 text-app-text-secondary"
             >
               <ArrowLeft size={20} />
@@ -581,7 +589,7 @@ export function CommandPalette({
             value={query}
             onChange={e => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={scope === 'projects' ? 'Search projects…' : projectPath ? "Cerca file, topic, messaggi…" : "Cerca topic, messaggi…"}
+            placeholder={scope === 'projects' ? t('palette.searchProjects') : projectPath ? t('palette.searchWithFiles') : t('palette.search')}
             /* Il campo misurava 24px di altezza: e' il bersaglio piu' importante
                della superficie e stava sotto misura come tutti gli altri. Su
                mobile anche `text-[16px]`, perche' sotto i 16 iOS ingrandisce la
@@ -620,13 +628,13 @@ export function CommandPalette({
                   lasciando un vuoto sotto la lista corta. */}
               <section className={`min-w-0 py-1 ${isMobile ? 'flex-none border-b border-app-border' : 'flex-1 overflow-y-auto border-r border-app-border'}`}>
                 <div className="px-3 py-1.5 text-[10px] font-semibold text-app-text-muted uppercase tracking-wider flex items-center gap-1.5">
-                  Ultimi progetti
+                  {t('palette.recentProjects')}
                   {filteredProjects.length > 0 && <span className="text-app-text-tertiary font-normal">{filteredProjects.length}</span>}
                 </div>
                 {filteredProjects.length > 0 ? (
                   filteredProjects.map(item => renderRow(item, { compact: !isMobile }))
                 ) : (
-                  <EmptyState variant="section" title="Nessun progetto" />
+                  <EmptyState variant="section" title={t('palette.noProject')} />
                 )}
               </section>
               {/* Crea + Chiuse di recente. «Crea» sta in cima perche' a palette
@@ -634,17 +642,17 @@ export function CommandPalette({
                   ci sono quelle che si ritrovano. */}
               <section className={`min-w-0 py-1 ${isMobile ? 'flex-none' : 'flex-1 overflow-y-auto'}`}>
                 <div className="px-3 py-1.5 text-[10px] font-semibold text-app-text-muted uppercase tracking-wider flex items-center gap-1.5">
-                  Crea
+                  {t('palette.create')}
                 </div>
                 {filteredCreate.map(item => renderRow(item, { compact: !isMobile }))}
                 <div className="px-3 pt-2 pb-1.5 text-[10px] font-semibold text-app-text-muted uppercase tracking-wider flex items-center gap-1.5 border-t border-app-border mt-1">
-                  Chiuse di recente
+                  {t('palette.recentlyClosed')}
                   {filteredRecenti.length > 0 && <span className="text-app-text-tertiary font-normal">{filteredRecenti.length}</span>}
                 </div>
                 {filteredRecenti.length > 0 ? (
                   filteredRecenti.map(item => renderRow(item, { compact: !isMobile }))
                 ) : (
-                  <EmptyState variant="section" title="Nessuna tab chiusa" />
+                  <EmptyState variant="section" title={t('palette.noClosedTab')} />
                 )}
               </section>
             </div>
@@ -657,24 +665,24 @@ export function CommandPalette({
                   le due sezioni si impilano e scorre il contenitore. */}
               <section className={`min-w-0 py-1 ${isMobile ? 'flex-none border-b border-app-border' : 'overflow-y-auto border-r border-app-border'}`}>
                 <div className="px-3 py-1.5 text-[10px] font-semibold text-app-text-muted uppercase tracking-wider flex items-center gap-1.5">
-                  Progetti
+                  {t('palette.projects')}
                   {filteredProjects.length > 0 && <span className="text-app-text-tertiary font-normal">{filteredProjects.length}</span>}
                 </div>
                 {filteredProjects.length > 0 ? (
                   filteredProjects.map(item => renderRow(item, { highlight: !!query.trim() }))
                 ) : (
-                  <EmptyState variant="section" title="Nessun risultato" />
+                  <EmptyState variant="section" title={t('palette.noResults')} />
                 )}
               </section>
               {/* Right: other results (Actions, Topics, Files, Messages) */}
-              <section className={`min-w-0 py-1 ${isMobile ? 'flex-none' : 'overflow-y-auto'}`} role="listbox" aria-label="Risultati">
+              <section className={`min-w-0 py-1 ${isMobile ? 'flex-none' : 'overflow-y-auto'}`} role="listbox" aria-label={t('palette.results')}>
                 {allItems.length === 0 && !searchLoading ? (
-                  <EmptyState variant="panel" title="Nessun risultato" />
+                  <EmptyState variant="panel" title={t('palette.noResults')} />
                 ) : (
                   <>
                     {filteredCreate.length > 0 && (
                       <>
-                        <SectionHeader label="Crea" />
+                        <SectionHeader label={t('palette.create')} />
                         {filteredCreate.map(item => renderRow(item, { highlight: true }))}
                       </>
                     )}

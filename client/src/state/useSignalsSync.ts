@@ -71,9 +71,11 @@ export function useSignalsSync({ topics, claudeSessions, terminalSessions, isSes
     signalsActions.setAwaitingInputTopics(input);
   }, [topics, claudeSessions, askWaitingTopics]);
 
-  // Claude "watching" phases (Monitor armed) → muted aura by topic.
-  useEffect(() => {
-  }, [topics, claudeSessions]);
+  // L'aura smorzata per la fase `watching` (Monitor armato) non ha piu' un
+  // segnale suo: `watching` e' una fase ATTIVA e passa da
+  // `derivePhaseTerminals` (signals.ts, `active`) come running/tool-running.
+  // Qui restava un `useEffect` col corpo VUOTO, che a ogni cambio di `topics` o
+  // `claudeSessions` faceva girare React per non fare niente.
 
   // "What is each session doing" → the activity map (keyed by topicId/terminalId).
   // Drives the SessionActivity label on sidebar rows + the mobile activity view.

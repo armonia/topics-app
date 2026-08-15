@@ -14,6 +14,21 @@ Chi lo riceve davvero, e quando:
   le copie erano due e libere di divergere che quella canonica sta ora in un
   posto solo.
 
+**DUE LINGUE, e non e' una svista.** Dal 2026-08-15 l'ENVELOPE e' in inglese —
+`buildKickoff`, il kickoff di fan-out, il resume, il sollecito, e le tre costanti
+che ci finiscono dentro (`PREVIEW_RULE`, `CODE_GATES_RULE`, `VERSION_BUMP_RULE`
+in `shared/board.ts`). E' un contratto di RUNTIME letto da un modello, sta nel
+codice, e in questo repo il codice e' in inglese. QUESTA copia resta in italiano
+perche' il suo lettore e' una persona, e lo dice la prima riga. Cio' che deve
+restare allineato sono le REGOLE, non le parole: se cambi una regola in un posto,
+cambiala anche nell'altro.
+
+La lingua della RISPOSTA dell'agente non e' cambiata: `languageLine` mette sempre
+una riga nell'envelope, e sull'impostazione `auto` dice esplicitamente di
+scrivere all'umano nella lingua del TESTO DEL TASK. Prima quella lingua era
+implicita — l'agente imitava l'italiano dell'envelope — e una traduzione senza
+quella riga avrebbe cambiato in silenzio la lingua di tutta la board.
+
 Standard di consegna per gli agenti dispatchati sul board Kanban (worktree isolato
 per task, un agente = un task, fino allo stato `review`). Vale sia per chi lavora
 un task sia per chi tocca il codice del dispatcher/envelope: il testo dell'envelope
@@ -35,7 +50,8 @@ queste regole.
    funzionare") non è una consegna: è una consegna solo ciò che è verificato.
 
 4. **Anteprima = evidenza DUREVOLE, e il ramo si sceglie con un criterio
-   misurabile.** Il testo della regola **non sta più scritto qui**: è la costante
+   misurabile.** Il testo della regola **non sta più scritto qui** (ed è in
+   inglese, come tutto l'envelope): è la costante
    `PREVIEW_RULE` in `shared/board.ts`, ed è la STESSA STRINGA che leggono
    l'envelope di kickoff, quello di resume, la descrizione di `preview_image`
    nello schema del tool MCP e il braccio `board-sim` del benchmark. Riscriverla

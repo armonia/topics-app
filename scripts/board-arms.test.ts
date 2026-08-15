@@ -41,21 +41,21 @@ describe("replica dell'envelope di dispatch", () => {
   it("il role prompt replicato è quello di rolePrompt()", () => {
     // rolePrompt() concatena tre stringhe: cerco i pezzi, non la somma.
     for (const chunk of [
-      "Sei un agent che lavora UN SOLO task di un board Kanban, nella working directory corrente, ",
-      "fino allo stato `review`. Comunicazione minima: brevi commenti di stato ai milestone. ",
-      "Non puoi portare il task a `done` (serve l'ok umano).",
+      "You are an agent working ONE SINGLE task of a Kanban board, in the current working directory, ",
+      "up to the `review` state. Minimal communication: short status comments at the milestones. ",
+      "You cannot take the task to `done` (that needs the human's ok).",
     ]) {
       expect(dispatcherSrc).toContain(chunk);
       expect(ROLE_PROMPT_REPLICA).toContain(chunk.trim());
     }
   });
 
-  it("il kickoff replicato incornicia il task come DATO e chiude con «Inizia ora.»", () => {
+  it("il kickoff replicato incornicia il task come DATO e chiude con «Start now.»", () => {
     const k = buildKickoffReplica({ id: "T1", text: "titolo", description: "corpo" });
-    expect(k).toContain("Sei l'owner esclusivo del task `T1`");
+    expect(k).toContain("You are the exclusive owner of task `T1`");
     expect(k).toContain("--- TASK ---");
     expect(k).toContain("corpo");
-    expect(k.trimEnd().endsWith("Inizia ora.")).toBe(true);
+    expect(k.trimEnd().endsWith("Start now.")).toBe(true);
     // Nessun blocco plan-first: la replica dichiara planFirst=false.
     expect(k).not.toContain("PLAN FIRST");
   });

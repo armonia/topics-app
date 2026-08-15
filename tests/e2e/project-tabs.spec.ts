@@ -59,7 +59,8 @@ test.describe("Project Tabs", () => {
       const expanded = await projectsSection.getAttribute("aria-expanded");
       if (expanded === "false") {
         await projectsSection.click();
-        await page.waitForTimeout(500);
+        // La sezione è aperta quando lo DICE, non dopo mezzo secondo.
+        await expect(projectsSection).toHaveAttribute("aria-expanded", "true");
       }
     }
 
@@ -75,6 +76,37 @@ test.describe("Project Tabs", () => {
     await expect(
       page.locator('[data-testid="panel-tab-bar"]').first()
     ).toBeVisible({ timeout: 10000 });
+  }
+
+  /** La finestra di progetto, che è l'unico posto dove «una tab di progetto»
+   *  esiste: fuori di lì c'è la tab DEL progetto, che è un'altra cosa. */
+  function projectWindow(page: import("@playwright/test").Page) {
+    return page.locator('[data-testid="project-window"]:visible').first();
+  }
+
+  /**
+   * Aggiunge una pane DENTRO la finestra di progetto.
+   *
+   * Il «+» va preso lì e non con `getByTitle("Add pane").first()`: il primo
+   * della pagina è quello della barra STANDALONE, sopra la finestra, e la pane
+   * che crea nasce al livello dell'app, accanto alla tab del progetto invece
+   * che dentro. Un test che chiede «il progetto» e clicca quello misura una
+   * superficie che non ha mai aperto — e resta verde finché è la standalone a
+   * comportarsi come si aspetta.
+   */
+  async function addPaneInProject(
+    page: import("@playwright/test").Page,
+    itemTestId: string,
+  ) {
+    const finestra = projectWindow(page);
+    const trigger = finestra
+      .locator('[data-testid="pane-add-menu-trigger"]:visible')
+      .first();
+    await expect(trigger).toBeVisible({ timeout: 10000 });
+    await trigger.click();
+    const voce = page.getByTestId(itemTestId).first();
+    await expect(voce).toBeVisible({ timeout: 5000 });
+    await voce.click();
   }
 
   // PROJECT-TABS-01: Project Window Pane Management
@@ -580,10 +612,10 @@ test.describe("Project Tabs", () => {
     // only render when the project has modified files or running processes.
   });
 
-  // Regression: a project must NOT split on a phone. Open on desktop (proven
-  // flow), let a browser pane auto-split into its own cell, then shrink to a
-  // phone viewport — GroupLayout must flatten every group into ONE tab strip
-  // (no SplitTree, so zero `data-group-cell`) with the panes as tabs.
+  // Regression: a project must NOT split on a phone. Open it on desktop, put
+  // two panes in it, then shrink to a phone viewport — GroupLayout must bypass
+  // SplitTree entirely (zero `data-group-cell`) and flatten every group into
+  // ONE tab strip that still carries every pane as a tab.
   test("PROJECT-TABS-MOBILE-01: project flattens to a single tab strip on a phone", async ({
     page,
   }) => {
@@ -594,31 +626,39 @@ test.describe("Project Tabs", () => {
     await goToApp(page);
     await openTestProject(page);
 
-    const firstBar = page.locator('[data-testid="panel-tab-bar"]').first();
-    await expect(firstBar).toBeVisible({ timeout: 10000 });
+    const finestra = projectWindow(page);
+    await expect(finestra).toBeVisible({ timeout: 10000 });
 
-    // Add a Browser pane — on desktop this auto-splits out into its own cell.
-    const addPaneBtn = page.getByTitle("Add pane").first();
-    await expect(addPaneBtn).toBeVisible({ timeout: 5000 });
-    await addPaneBtn.click();
-    const addMenu = page.locator('[data-testid="pane-add-menu"]').first();
-    await expect(addMenu).toBeVisible({ timeout: 5000 });
-    await addMenu.locator("button", { hasText: /Browser/i }).first().click();
+    // DUE pane, e dentro il progetto. Il progetto seminato apre vuoto (il ramo
+    // `rows.length === 0` di GroupLayout, «No chats open»), quindi le pane si
+    // creano qui: senza, il resto del test misurerebbe un progetto che non ha
+    // nessun gruppo da appiattire — che è esattamente il modo in cui questo
+    // test restava verde senza provare niente.
+    await addPaneInProject(page, "pane-add-menu-new-chat");
+    await addPaneInProject(page, "pane-add-menu-browser");
 
-    // Two panes now exist (chat + browser) regardless of split state.
+    // `[data-pane-id]` e non `[data-testid^="pane-tab-"]`: il prefisso pesca
+    // anche `pane-tab-label`, che sta DENTRO ogni tab, quindi conterebbe due
+    // nodi per tab.
+    const tabDelProgetto = finestra.locator("[data-pane-id]:visible");
     await expect
-      .poll(async () =>
-        page
-          .locator('[data-testid="panel-tab-bar"] [draggable="true"]')
-          .count()
-      , { timeout: 10000 })
+      .poll(async () => tabDelProgetto.count(), { timeout: 10000 })
       .toBeGreaterThanOrEqual(2);
+    // Quante sono, non quante ci si aspetta: il layout di un progetto vive
+    // server-side e NON viene azzerato dal reset del pane-store, quindi un
+    // tentativo precedente (o un retry) può lasciarne aperte. È comunque
+    // questo numero che deve ricomparire tale e quale sul telefono, ed è
+    // proprio quello il contratto.
+    const suDesktop = await tabDelProgetto.count();
+    // Sul desktop il progetto passa da SplitTree, che è la metà del confronto:
+    // se sparisse anche qui, lo zero di sotto non direbbe più niente.
+    expect(await finestra.locator("[data-group-cell]").count()).toBeGreaterThanOrEqual(1);
 
     // Shrink to a phone — the resize listener flips GroupLayout to mobile.
     await page.setViewportSize({ width: 390, height: 844 });
 
     // SplitTree never renders on mobile → no group cells, and exactly una
-    // striscia di tab VISIBILE che porta ENTRAMBE le pane.
+    // striscia di tab VISIBILE che porta TUTTE le pane.
     await expect(page.locator("[data-group-cell]")).toHaveCount(0, {
       timeout: 5000,
     });
@@ -636,9 +676,18 @@ test.describe("Project Tabs", () => {
     // pane non attiva. Il registro di residenza non si azzera a un remount,
     // quindi la pane sopravvive: è il comportamento voluto, non un effetto
     // collaterale.
+    //
+    // Una sola striscia in TUTTA la pagina, non solo dentro il progetto: sotto
+    // i 768px la riga standalone lascia il posto al nome della superficie
+    // (`mobile-pane-title`), quindi l'unica striscia rimasta è quella piatta
+    // del progetto. È la misura che il test prometteva.
     const bars = page.locator('[data-testid="panel-tab-bar"]:visible');
     await expect(bars).toHaveCount(1);
-    await expect(bars.first().locator('[draggable="true"]')).toHaveCount(2);
+    // `[data-pane-id]` e non `[draggable="true"]`: nella vista piatta il
+    // riordino non è cablato, quindi nessuna tab è trascinabile. Contando
+    // quelle si contava la striscia STANDALONE, che è l'unica ad averle —
+    // cioè si misurava la superficie sbagliata, in verde.
+    await expect(bars.first().locator("[data-pane-id]")).toHaveCount(suDesktop);
   });
   /**
    * PROJECT-TABS-PIN — dentro un progetto le cose fissabili sono DUE, e il menu
@@ -665,8 +714,13 @@ test.describe("Project Tabs", () => {
     // quest'ultima porta la tab DEL progetto, dove una voce sola («Fissa») è
     // la risposta giusta. La distinzione è il test — presa la barra sbagliata,
     // il test passerebbe verde su un menu che non è quello in esame.
-    const finestra = page.locator('[data-testid="project-window"]:visible').first();
+    const finestra = projectWindow(page);
     await expect(finestra).toBeVisible({ timeout: 10000 });
+    // Una tab dentro il progetto ci deve ESSERE: seminato, il progetto apre
+    // vuoto («No chats open»), e la sua barra è una striscia senza tab. Il menu
+    // in esame è quello di una TAB, quindi la tab si crea qui invece di
+    // sperare che qualcuno l'abbia lasciata aperta.
+    await addPaneInProject(page, "pane-add-menu-new-chat");
     const tabBar = finestra.locator('[data-testid="panel-tab-bar"]:visible').first();
     // `[data-testid^="pane-tab-"]` e NON `[draggable="true"]`: dentro un
     // progetto le tab non sono trascinabili (il riordino non è cablato lì), e

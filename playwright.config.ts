@@ -180,6 +180,15 @@ export default defineConfig({
         "**/browser-mobile-keyboard.spec.ts",
         "**/mobile-chrome-bar.spec.ts",
         "**/mobile-edge-swipe-no-history.spec.ts",
+        // Le due che mancavano. `sidebar-pin-drag-touch` è nel `testMatch` di
+        // `chromium-touch` e `tab-close-ring-touch` in quello di
+        // `chromium-touch-wide`, ma un `testMatch` altrove non ESCLUDE nulla
+        // qui: senza queste due righe ognuna girava una SECONDA volta a
+        // 1280×800 con `hasTouch: false`, dove `.tap()` non esiste e le misure
+        // da dito non possono reggere. Ogni spec di questa famiglia va nominata
+        // in DUE posti: il `testMatch` del suo progetto e questa lista.
+        "**/sidebar-pin-drag-touch.spec.ts",
+        "**/tab-close-ring-touch.spec.ts",
         ...(IS_PR ? NIGHTLY_ONLY_SPECS : []),
       ],
     },

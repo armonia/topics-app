@@ -15,13 +15,15 @@
  * behaviour as mermaid's code-block placeholder; once loaded, the modules are
  * cached and every subsequent mount renders math synchronously.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { PluggableList } from 'unified';
 import { openExternalOnce } from '../lib/openExternal';
 import { openTaskInApp } from '../lib/openTaskLink';
 import { deepLinkClickRoute, openTabInApp } from '../lib/tabLink';
+import { openDeepLinkFromClick } from '../lib/deepLinkClick';
+import { useToast } from './Shared/Toast';
 
 /**
  * Il renderer `a` di DEFAULT, per OGNI superficie markdown.
@@ -55,25 +57,24 @@ import { deepLinkClickRoute, openTabInApp } from '../lib/tabLink';
  * dell'intercettazione quello stesso link apriva il browser di sistema e il
  * contenuto si vedeva: nelle staccate si torna esattamente lì.
  *
- * Niente toast sul fallimento: il valore del context dei toast NON è memoizzato
- * (ToastProvider ricrea l'oggetto a ogni render di App), quindi bastava un
- * `useToast()` qui dentro per rendere OGNI link di OGNI messaggio un consumatore
- * che si ri-renderizza a ogni giro — proprio ciò che il `useMemo` di questo file
- * esiste per evitare.
+ * L'esito del vicolo cieco sta in `lib/deepLinkClick`, insieme al perché delle
+ * sue due facce (aprire fuori quando in casa non è partito niente, DIRLO quando
+ * è partito a metà) e al test che le esegue entrambe. Qui resta l'ancora.
  *
- * Ma un click che non fa e non dice NULLA è il peggiore dei tre esiti, e per un
- * anno è stato quello che succedeva: nessun call-site passava `notify`, quindi
- * ogni rifiuto era un no-op silenzioso. Qui il canale giusto non è il toast, è
- * il RIPIEGO: se non riusciamo ad aprirlo in casa, `openExternalOnce` lo apre
- * fuori — cioè esattamente ciò che questo link faceva PRIMA che i self-origin
- * venissero intercettati. L'utente vede il contenuto, che è il punto; e se
- * davvero quel target non esiste più, glielo dirà la copia web.
+ * Il toast non c'era, ed era motivato: il valore del context dei toast si
+ * ricostruiva a ogni render di App, quindi bastava un `useToast()` qui dentro
+ * per rendere OGNI link di OGNI messaggio un consumatore che si ri-renderizza a
+ * ogni giro. Quella premessa è caduta — l'API dei toast vive in
+ * `ToastApiContext`, che dopo il mount non cambia MAI identità (Toast.tsx, più
+ * il test che lo tiene) — e con lei l'ultima ragione per cui un click poteva non
+ * fare e non dire niente.
  *
  * Chi passa un proprio `a` nei `components` lo sovrascrive comunque (lo spread
  * più sotto mette i components del chiamante DOPO).
  */
-const DEFAULT_COMPONENTS: Components = {
-  a: ({ href, children }) => (
+function DeepLinkAnchor({ href, children }: { href?: string; children?: ReactNode }) {
+  const toast = useToast();
+  return (
     <a
       href={href}
       target="_blank"
@@ -82,31 +83,20 @@ const DEFAULT_COMPONENTS: Components = {
       onClick={(e) => {
         if (!href) return;
         e.preventDefault();
-        const route = deepLinkClickRoute(href);
-        if (route.via === 'task') { openTaskInApp(route.target); return; }
-        if (route.via === 'tab') {
-          // `notify` = il ripiego, non un messaggio: `openTabInApp` lo chiama
-          // UNA volta sola e solo su vicolo cieco (vedi `deadEnd`), e
-          // `openExternalOnce` dedupa comunque il doppio click.
-          //
-          // Ma il ripiego vale SOLO se in casa non si è aperto niente. Un
-          // `/tab/file/…` apre prima la finestra di progetto e poi insegue il
-          // file: se quel secondo hop si arrende, il vicolo cieco arriva a cose
-          // già aperte, e ripiegare lì significherebbe lasciare l'utente con la
-          // finestra di progetto in-app PIÙ una seconda copia completa di Topics
-          // nel browser di sistema. `onRouted` disarma il ripiego appena
-          // qualcosa è partito davvero.
-          let openedInApp = false;
-          openTabInApp(route.target, {
-            onRouted: () => { openedInApp = true; },
-            notify: () => { if (!openedInApp) openExternalOnce(href); },
-          });
-          return;
-        }
-        openExternalOnce(href);
+        openDeepLinkFromClick(href, {
+          route: deepLinkClickRoute,
+          openTask: openTaskInApp,
+          openTab: openTabInApp,
+          openExternal: openExternalOnce,
+          warn: (message) => toast.warning(message),
+        });
       }}
     >{children}</a>
-  ),
+  );
+}
+
+const DEFAULT_COMPONENTS: Components = {
+  a: ({ href, children }) => <DeepLinkAnchor href={href}>{children}</DeepLinkAnchor>,
 };
 
 interface MathMods {

@@ -8,6 +8,7 @@
  */
 
 import type { ChatMessage } from "./providers/types";
+import { nextTextDelta } from "./providers/text-delta";
 
 // --- Types ---
 
@@ -350,6 +351,7 @@ export class GatewayWS {
 // --- Per-session event routing ---
 
 export interface ChatStreamHandler {
+  /** Same contract as `StreamHandler.onTextDelta`: `(newPart, cumulative)`. */
   onTextDelta: (text: string, fullText: string) => void;
   onThinkingDelta?: (text: string) => void;
   onToolStart: (toolCallId: string, name: string, args?: Record<string, unknown>) => void;
@@ -364,7 +366,20 @@ export interface ChatStreamHandler {
  * Maps sessionKey → active stream handler.
  * When a chat.send is in progress, events for that session are routed here.
  */
-const sessionHandlers = new Map<string, { runId?: string; handler: ChatStreamHandler }>();
+const sessionHandlers = new Map<string, {
+  runId?: string;
+  handler: ChatStreamHandler;
+  /**
+   * Ultimo testo CUMULATIVO ricevuto dal gateway su questa sessione.
+   *
+   * Il gateway è l'unico dei cinque provider a mandare il messaggio intero a
+   * ogni evento `delta`; il contratto di `onTextDelta` vuole il pezzo nuovo.
+   * La differenza si fa qui, dove il cumulato è un dato del mittente, invece
+   * che nella route, dove era un'ipotesi applicata a tutti (e costava un token
+   * ripetuto ai quattro provider che i delta li mandano veri).
+   */
+  lastCumulativeText?: string;
+}>();
 
 /** Normalize gateway session key (agent:main:topic:xxx → topic:xxx) */
 function normalizeSessionKey(key: string | undefined): string | undefined {
@@ -375,7 +390,17 @@ function normalizeSessionKey(key: string | undefined): string | undefined {
 }
 
 export function registerSessionHandler(sessionKey: string, runId: string | undefined, handler: ChatStreamHandler): void {
-  sessionHandlers.set(sessionKey, { runId, handler });
+  // Il cumulato sopravvive alla RI-registrazione dello stesso turno, non a un
+  // turno nuovo. La route registra due volte di fila — prima senza runId (per
+  // non perdere gli eventi che arrivano durante la `sendChat`), poi con quello
+  // vero — e in mezzo passano dei delta: azzerarlo lì rimanderebbe alla route
+  // tutto il testo già visto come se fosse nuovo, cioè la risposta due volte.
+  // Un runId diverso da uno già noto è invece un altro turno: si riparte da zero.
+  const prior = sessionHandlers.get(sessionKey);
+  const carry = prior && (prior.runId === undefined || prior.runId === runId)
+    ? prior.lastCumulativeText
+    : undefined;
+  sessionHandlers.set(sessionKey, { runId, handler, lastCumulativeText: carry });
 }
 
 export function unregisterSessionHandler(sessionKey: string): void {
@@ -414,7 +439,11 @@ export function routeGatewayEvent(event: GatewayEvent): boolean {
       case "delta": {
         const text = extractText(payload.message);
         if (typeof text === "string") {
-          handler.onTextDelta(text, text);
+          const step = nextTextDelta(entry.lastCumulativeText ?? "", text);
+          entry.lastCumulativeText = step.cumulative;
+          // Un cumulato identico al precedente non porta niente: qui, e solo
+          // qui, «uguale a prima» vuole davvero dire «nessun testo nuovo».
+          if (step.delta) handler.onTextDelta(step.delta, step.cumulative);
         }
         break;
       }

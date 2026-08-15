@@ -111,6 +111,8 @@ import m20260812094300_notification_log from "./migrations/20260812094300-notifi
 import m20260812120000_preview_retired from "./migrations/20260812120000-preview-retired.sql" with { type: "text" };
 import m20260813135636_disjoint_cache_creation from "./migrations/20260813135636-disjoint-cache-creation.sql" with { type: "text" };
 import m20260814101500_task_interrupt_claim from "./migrations/20260814101500-task-interrupt-claim.sql" with { type: "text" };
+import m20260815012042_push_subscription_auth_device from "./migrations/20260815012042-push-subscription-auth-device.sql" with { type: "text" };
+import m20260815013610_task_comments_author_kind_index from "./migrations/20260815013610-task-comments-author-kind-index.sql" with { type: "text" };
 
 export interface EmbeddedMigration {
   version: number;
@@ -226,4 +228,6 @@ export const EMBEDDED_MIGRATIONS: EmbeddedMigration[] = [
   { version: 20260812120000, name: "20260812120000-preview-retired.sql", sql: m20260812120000_preview_retired },
   { version: 20260813135636, name: "20260813135636-disjoint-cache-creation.sql", sql: m20260813135636_disjoint_cache_creation },
   { version: 20260814101500, name: "20260814101500-task-interrupt-claim.sql", sql: m20260814101500_task_interrupt_claim },
+  { version: 20260815012042, name: "20260815012042-push-subscription-auth-device.sql", sql: m20260815012042_push_subscription_auth_device },
+  { version: 20260815013610, name: "20260815013610-task-comments-author-kind-index.sql", sql: m20260815013610_task_comments_author_kind_index },
 ];

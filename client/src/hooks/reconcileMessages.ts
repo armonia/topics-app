@@ -54,6 +54,38 @@ export function sameChatMessage(a: ChatMessage, b: ChatMessage): boolean {
 }
 
 /**
+ * La storia autorevole PIÙ ciò che è arrivato via WS mentre la si scaricava.
+ *
+ * IL DIFETTO CHE CHIUDE. `loadHistory` teneva additivamente ogni messaggio
+ * locale il cui id non era nella risposta. Ma a metà turno il server RESTITUISCE
+ * la riga parziale (`routes/history.ts`: con uno stream attivo i parziali non si
+ * filtrano, e il contenuto vivo ci viene sovrapposto) sotto il suo id di DB,
+ * mentre la finestra che sta solo guardando il turno tiene un segnaposto con un
+ * id coniato in locale. Due id per lo stesso turno: il filtro non poteva
+ * accorgersene, li teneva entrambi, e la risposta in volo compariva DUE VOLTE
+ * — una piena e una che continuava a crescere sotto.
+ *
+ * La regola: se la coda della storia è già un assistant parziale, quel turno il
+ * server ce l'ha, e un parziale locale che non è nella risposta è lo stesso
+ * turno visto con un nome provvisorio. Si butta il nome provvisorio. Tutto il
+ * resto (un messaggio utente appena inviato, un `message:new` arrivato durante
+ * il fetch) continua a passare come prima.
+ */
+export function mergeFetchedHistory(existing: ChatMessage[], fetched: ChatMessage[]): ChatMessage[] {
+  if (existing.length === 0) return fetched;
+  const fetchedIds = new Set<string>();
+  for (const m of fetched) if (m.id) fetchedIds.add(m.id);
+  const coda = fetched[fetched.length - 1];
+  const codaInVolo = coda?.role === 'assistant' && coda.partial === true;
+  const localOnly = existing.filter((m) => {
+    if (!m.id || fetchedIds.has(m.id)) return false;
+    if (codaInVolo && m.role === 'assistant' && m.partial === true) return false;
+    return true;
+  });
+  return localOnly.length > 0 ? [...fetched, ...localOnly] : fetched;
+}
+
+/**
  * `prev` se non è cambiato NIENTE (stessa lunghezza, ogni messaggio uguale),
  * altrimenti `next` con l'identità dei messaggi invariati presa da `prev`.
  */

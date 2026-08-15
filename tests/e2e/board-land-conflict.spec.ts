@@ -1,12 +1,16 @@
 /**
  * board-land-conflict.spec.ts — un land che va in CONFLITTO dice perché.
  *
- * La card approvata esce da `done` e torna in lavorazione: è giusto (il merge
- * non è avvenuto, il lavoro non è finito), ma la riga di storico diceva
- * «user → In Progress» — identica a quella che scrive un umano quando ritira
- * una consegna a mano. Chi rivedeva vedeva un dietrofront senza causa e col
- * firmatario sbagliato: l'umano aveva cliccato «Landa su main», il ritiro è
- * della macchina.
+ * La card torna in lavorazione: è giusto (il merge non è avvenuto, il lavoro
+ * non è finito), ma la riga di storico diceva «user → In Progress» — identica a
+ * quella che scrive un umano quando ritira una consegna a mano. Chi rivedeva
+ * vedeva un dietrofront senza causa e col firmatario sbagliato: l'umano aveva
+ * cliccato «Landa su main», il ritiro è della macchina.
+ *
+ * La colonna di partenza è `review`, non `done`: dal 13/08 il land non promuove
+ * più la card prima di fondere, perché tre card erano finite in `done` coi rami
+ * mai arrivati su main. Il fatto sotto esame non cambia — il ritiro porta la
+ * ragione ed è firmato dal sistema — ma la riga lo dice a partire da review.
  *
  * Il conflitto qui è VERO: repo git in /tmp, worktree vero via
  * `POST /api/worktrees`, la stessa riga cambiata in due modi diversi sul branch
@@ -187,7 +191,7 @@ test.describe("Board · il land in conflitto dice perché la card torna indietro
     await seedProjectPane(page.request, REPO);
   });
 
-  test("BOARD-LAND-01: la transizione fuori da done porta la ragione, e la firma è del sistema", async ({ page, request }) => {
+  test("BOARD-LAND-01: la transizione che ritira la consegna porta la ragione, e la firma è del sistema", async ({ page, request }) => {
     await page.goto("/");
     await openProjectBoard(page);
 
@@ -200,20 +204,30 @@ test.describe("Board · il land in conflitto dice perché la card torna indietro
     await drawer.getByRole("button", { name: "Landa su main" }).click();
 
     // La riga di storico che prima non c'era: il PERCHÉ accanto al dove.
+    //
+    // Il land prova PRIMA a riportare main dentro il ramo (`realignOnMain`), e
+    // qui è lì che si rompe: il ramo è indietro di un commit su main, e quel
+    // commit tocca la stessa riga. È il conflitto di riallineamento, non quello
+    // della fusione finale — e all'agente servono due istruzioni diverse
+    // (server/routes/tasks.ts, ramo `res.status === "conflict"`), quindi le due
+    // ragioni sono due frasi diverse e questa spec ancora la sua.
     const evento = drawer.getByTestId("task-status-event")
-      .filter({ hasText: "il land ha fatto conflitto con main" });
+      .filter({ hasText: "ha fatto conflitto" });
     await expect(evento).toBeVisible({ timeout: 20000 });
     await expect(evento).toContainText("system");     // non «user»: non l'ha mossa l'umano
     await expect(evento).toContainText("In Progress"); // la destinazione resta leggibile
     await beat(page, 2200);
 
-    // E sul dato: l'evento è una transizione `done→in_progress` con la ragione
-    // attaccata, non un commento qualsiasi.
+    // E sul dato: l'evento è una transizione verso `in_progress` con la ragione
+    // attaccata, non un commento qualsiasi. La colonna di PARTENZA è `review`:
+    // dal 13/08 il land non promuove più a `done` prima di fondere (tre card
+    // erano finite chiuse coi rami mai arrivati su main), quindi la card che
+    // torna indietro parte da dove il reviewer l'ha lasciata.
     const res = await request.get(`${API}/boards/${PROJECT_ID}/tasks/${taskId}`);
     expect(res.ok()).toBe(true);
     const got = (await res.json()) as { comments: { author: string; content: string; kind: string }[] };
     const riga = got.comments.filter((c) => c.kind === "status").at(-1)!;
     expect(riga.author).toBe("system");
-    expect(riga.content).toBe("done→in_progress · il land ha fatto conflitto con main");
+    expect(riga.content).toBe("review→in_progress · riportare main nel ramo (indietro di 1) ha fatto conflitto");
   });
 });

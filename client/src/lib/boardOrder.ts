@@ -90,6 +90,60 @@ const compareDone = (a: OrderableTask, b: OrderableTask): number => {
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 };
 
+/**
+ * Quante card di una colonna si DISEGNANO, e quante restano dietro un «mostra
+ * altri».
+ *
+ * Misurato sulla macchina viva il 15/08/2026: 449 dei 467 task radice sono
+ * `done`. Ogni card è un sottoalbero React vivo — memo, chip, anteprima, il
+ * nodo sortable che dnd-kit registra — quindi la colonna che nessuno guarda
+ * costava quanto tutte le altre messe insieme, a ogni render della board.
+ *
+ * Il tetto vale SOLO su Review e Done, e la ragione è la stessa che le fa
+ * ordinare per data (`compareReview` / `compareDone`): lì non si riordina a
+ * mano, si entra e basta. Nelle tre colonne di lavoro il tetto toglierebbe una
+ * card dal registro di dnd-kit — cioè un bersaglio di drop — e quello è un
+ * gesto che si rompe in silenzio: backlog, todo e in_progress si disegnano
+ * INTERE, sempre.
+ */
+export const COLUMN_PAGE = 25;
+
+/** Le colonne a data, che si sfogliano. Le altre si disegnano intere (vedi `COLUMN_PAGE`). */
+export function isPagedColumn(status: TaskStatus): boolean {
+  return status === 'review' || status === 'done';
+}
+
+/** La fetta disegnata di una colonna e quante card restano fuori (0 = tutte dentro). */
+export function columnSlice<T>(
+  status: TaskStatus,
+  tasks: readonly T[],
+  shown: number,
+): { rows: readonly T[]; hidden: number } {
+  if (!isPagedColumn(status) || tasks.length <= shown) return { rows: tasks, hidden: 0 };
+  return { rows: tasks.slice(0, shown), hidden: tasks.length - shown };
+}
+
+/**
+ * Le scritture ottimistiche ANCORA IN VOLO, riappoggiate sopra le righe appena
+ * atterrate.
+ *
+ * Una lettura partita PRIMA che la PATCH del drop finisse risponde con lo stato
+ * vecchio: è una risposta giusta a una domanda vecchia, e nessun ordine di
+ * arrivo la rende sbagliata — quindi non basta ordinare le letture, bisogna
+ * ricordare cosa si sta scrivendo. Finché la PATCH non ha risposto la card
+ * resta dove l'hai lasciata, qualunque lista atterri sotto.
+ */
+export function applyPendingWrites<T extends { id: string }>(
+  rows: readonly T[],
+  pending: ReadonlyMap<string, Partial<T>>,
+): readonly T[] {
+  if (pending.size === 0) return rows;
+  return rows.map((row) => {
+    const patch = pending.get(row.id);
+    return patch ? { ...row, ...patch } : row;
+  });
+}
+
 /** Raggruppa per stato e ordina ogni colonna. Una colonna per stato, sempre presente. */
 export function groupByStatus<T extends OrderableTask & { status: TaskStatus }>(
   tasks: readonly T[],
@@ -188,14 +242,26 @@ export interface DropPlan {
  * A drop on In Progress is REDIRECTED to Todo unless an agent is actually
  * working the card, and the plan declares it with `redirectedFrom`. The rule and
  * the reason live in `manualStatusTarget`.
+ *
+ * DUE LISTE, non una. Quella che si VEDE dice su quale card hai rilasciato;
+ * quella INTERA dice fra quali numeri finisci. Con un filtro attivo erano la
+ * stessa cosa, e la rinumerazione da interstizio esaurito riscriveva 1..N sulle
+ * sole card visibili: le nascoste tenevano i vecchi numeri e la colonna si
+ * rimescolava appena il filtro cadeva. Anche `between` sbagliava, più
+ * silenziosamente — i vicini «giusti» erano quelli visibili, e la card atterrava
+ * in mezzo a card che non aveva mai visto.
  */
 export function planDrop(args: {
   task: BoardTask;
   overId: string | null;
+  /** Le colonne COME SI VEDONO: filtri applicati. Sceglie l'ancora e l'indice. */
   byStatus: Record<TaskStatus, BoardTask[]>;
+  /** Le colonne INTERE, filtri ignorati: `between` e `renumber` lavorano qui.
+   *  Assente = nessun filtro attivo, le due liste coincidono. */
+  byStatusAll?: Record<TaskStatus, BoardTask[]>;
   scope: OrderScope;
 }): DropPlan | null {
-  const { task, overId, byStatus, scope } = args;
+  const { task, overId, byStatus, byStatusAll = byStatus, scope } = args;
   if (!overId || overId === task.id) return null;
 
   const isColumn = (TASK_STATUSES as readonly string[]).includes(overId);
@@ -244,7 +310,11 @@ export function planDrop(args: {
   // riordina.
   if (status === 'review' || status === 'done') return sameColumn ? null : { patch: { status } };
 
-  const col = byStatus[status].filter((t) => t.id !== task.id); // già ordinata
+  // La colonna INTERA (vedi l'intestazione): l'ancora arriva dalla lista
+  // visibile, ma il posto si conta fra tutte le card che quel numero lo hanno
+  // davvero. Rilasciare nel vuoto significa «in fondo alla colonna», non «in
+  // fondo a quello che sto guardando».
+  const col = byStatusAll[status].filter((t) => t.id !== task.id); // già ordinata
   let idx = anchor ? col.findIndex((t) => t.id === anchor.id) : col.length;
   if (idx < 0) idx = col.length;
   // Spostamento verso il BASSO nella stessa colonna: rilasciare "sopra" una card

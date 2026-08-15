@@ -1,4 +1,5 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
+import { useT } from '../../hooks/useT';
 import { createPortal } from 'react-dom';
 import { FileText, Maximize2, PanelTop, X } from 'lucide-react';
 import { getMediaUrl } from '../../lib/api';
@@ -10,6 +11,7 @@ import { useModalDialog } from '../../hooks/useModalDialog';
  *  the evidence at large size. Close on Esc, click-outside, or the X. A video
  *  autoplays with controls + sound; an image fills the viewport. */
 function Lightbox({ url, video, onClose }: { url: string; video: boolean; onClose: () => void }) {
+  const tr = useT();
   // Escape, trappola del focus e ritorno del focus: il contratto comune dei
   // dialoghi (hooks/useModalDialog), invece di un listener scritto a mano qui.
   const panelRef = useRef<HTMLDivElement>(null);
@@ -30,11 +32,11 @@ function Lightbox({ url, video, onClose }: { url: string; video: boolean; onClos
       // perché il gestore globale è registrato prima, sempre in capture.
       role="dialog"
       aria-modal="true"
-      aria-label="Anteprima"
+      aria-label={tr('board.preview.label')}
     >
       <button
         onClick={onClose}
-        title="Chiudi (Esc)"
+        title={tr('board.preview.close')}
         className="absolute right-4 top-4 rounded-full bg-white/10 p-2 text-app-text hover:bg-white/20"
       ><X className="h-5 w-5" /></button>
       {video ? (
@@ -49,7 +51,7 @@ function Lightbox({ url, video, onClose }: { url: string; video: boolean; onClos
       ) : (
         <img
           src={url}
-          alt="Evidenza della consegna"
+          alt={tr('board.preview.evidenceAlt')}
           onClick={(e) => e.stopPropagation()}
           className="max-h-[90vh] max-w-[92vw] rounded-lg object-contain shadow-2xl"
         />
@@ -71,8 +73,8 @@ function Lightbox({ url, video, onClose }: { url: string; video: boolean; onClos
  * protocollo ne dice tre, ed è esattamente la divergenza che si è chiusa.
  *
  * `card`   — compact living thumbnail: a video plays muted + looped inline (the
- *            motion IS the evidence); an image is static. Click bubbles up to
- *            open the drawer (no lightbox here).
+ *            motion IS the evidence) MENTRE È IN VISTA, e non prima; an image is
+ *            static. Click bubbles up to open the drawer (no lightbox here).
  * `drawer` — modest thumbnail + an expand affordance that opens the evidence in
  *            a full-window LIGHTBOX (image or video), reviewed big without
  *            leaving the app.
@@ -87,9 +89,45 @@ export function PreviewMedia({ path, variant, onOpenTab }: {
   variant: 'card' | 'drawer';
   onOpenTab?: () => void;
 }) {
+  const tr = useT();
   const [lightbox, setLightbox] = useState(false);
   const url = getMediaUrl(path);
   const video = isVideoPath(path);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  /** Un video di card, cioè quello che si muove da solo: solo qui serve il gate. */
+  const cardVideo = video && variant === 'card' && isPreviewablePath(path);
+
+  // UN VIDEO CHE NESSUNO GUARDA NON DECODIFICA.
+  //
+  // La card partiva con `autoPlay loop`: N clip in loop simultanee, tutte quelle
+  // della colonna, comprese quelle mai entrate nel viewport. È il ramo `<img>`
+  // che diceva già la cosa giusta con `loading="lazy"` — un video non ha un
+  // attributo equivalente, il gate va scritto.
+  //
+  // Quindi: `preload="none"` (fuori dallo schermo non si scarica nemmeno il
+  // primo frame) e play/pause appesi a un IntersectionObserver sul wrapper.
+  // `rootMargin` generoso: la clip si avvia poco PRIMA di entrare, così quando
+  // la guardi si muove già invece di mostrare un buco nero. Uscendo si mette in
+  // pausa e non si azzera: il frame su cui si è fermata resta dipinto, che è la
+  // miniatura a riposo.
+  useEffect(() => {
+    if (!cardVideo) return;
+    const el = wrapRef.current;
+    if (!el) return;
+    const play = () => { void videoRef.current?.play().catch(() => {}); };
+    // Nessun observer (jsdom, motori vecchi): si torna al comportamento di
+    // prima invece di lasciare una miniatura ferma per sempre.
+    if (typeof IntersectionObserver === 'undefined') { play(); return; }
+    const io = new IntersectionObserver((entries) => {
+      for (const e of entries) {
+        if (e.isIntersecting) play();
+        else videoRef.current?.pause();
+      }
+    }, { rootMargin: '200px' });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [cardVideo]);
   // Il lightbox mostra `<img>` o `<video>`: offrirlo su un file che nessuno dei
   // due sa aprire riproporrebbe l'icona rotta, solo a schermo intero.
   const expandable = variant === 'drawer' && isPreviewablePath(path);
@@ -174,20 +212,25 @@ export function PreviewMedia({ path, variant, onOpenTab }: {
     </a>
   ) : video ? (
     <video
+      ref={videoRef}
       src={url}
       muted
       playsInline
-      preload="metadata"
+      // `none` sulla card: il download parte quando l'observer dice che si sta
+      // per guardare, non perché la card esiste. Nel drawer la clip è UNA e la
+      // stai già guardando.
+      preload={variant === 'card' ? 'none' : 'metadata'}
       draggable={false}
       className={mediaCls}
-      // card: autoplay + loop so the behaviour shows at a glance (muted); drawer:
+      // card: loop so the behaviour shows at a glance (muted) — ma la partenza
+      // la decide l'IntersectionObserver qui sopra, non `autoPlay`; drawer:
       // inline controls (scrub/fullscreen) + the expand button for the lightbox.
-      {...(variant === 'card' ? { autoPlay: true, loop: true } : { controls: true })}
+      {...(variant === 'card' ? { loop: true } : { controls: true })}
     />
   ) : (
     <img
       src={url}
-      alt={expandable ? 'Anteprima della consegna' : ''}
+      alt={expandable ? tr('board.preview.deliveryAlt') : ''}
       loading="lazy"
       draggable={false}
       onClick={expandable ? openLightbox : undefined}
@@ -209,6 +252,7 @@ export function PreviewMedia({ path, variant, onOpenTab }: {
     // fermarsi, altrimenti il `cqw` misurerebbe la card mentre l'immagine e'
     // piu' stretta, e i due numeri divergerebbero.
     <div
+      ref={wrapRef}
       data-testid={`preview-${variant}`}
       className={`group/preview relative @container ${variant === 'card' ? 'mb-1.5' : 'mt-2'}`}
     >
@@ -221,8 +265,8 @@ export function PreviewMedia({ path, variant, onOpenTab }: {
         {onOpenTab && (
           <button
             onClick={(e) => { e.stopPropagation(); onOpenTab(); }}
-            title="Apri l'anteprima in una tab"
-            aria-label="Apri l'anteprima in una tab"
+            title={tr('board.preview.openAsTab')}
+            aria-label={tr('board.preview.openAsTab')}
             data-testid="preview-open-tab"
             className="rounded bg-black/50 p-1 text-white opacity-0 transition-opacity hover:bg-black/70 group-hover/preview:opacity-100"
           ><PanelTop className="h-3.5 w-3.5" /></button>
@@ -230,7 +274,7 @@ export function PreviewMedia({ path, variant, onOpenTab }: {
         {expandable && (
           <button
             onClick={(e) => { e.stopPropagation(); openLightbox(); }}
-            title="Apri a grandezza piena"
+            title={tr('board.preview.openFullSize')}
             className="rounded bg-black/50 p-1 text-white opacity-0 transition-opacity hover:bg-black/70 group-hover/preview:opacity-100"
           ><Maximize2 className="h-3.5 w-3.5" /></button>
         )}

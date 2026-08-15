@@ -22,6 +22,7 @@ import { getVersion, relaunch } from '@/lib/shell/app';
 import { useAgentActivityCounts } from '@/state/signals';
 import { useMobile } from '@/hooks/useMobile';
 import { useTopics, useTerminalSessions } from '@/contexts/TopicsContext';
+import { useT } from '@/hooks/useT';
 
 declare const __BUILD_TIME__: string;
 declare const __BUILD_SHA__: string;
@@ -164,6 +165,7 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
    *  «e chi altro?», e farglielo cercare in un pannello è farlo cercare. */
   onOpenDevices?: () => void;
 } = {}) {
+  const tr = useT();
   // Subscribed HERE, in the leaf that shows the number, not up in App.
   // `useAgentActivityCounts` reads seven signal Sets through useShallow, so
   // while App held it a single `terminal:activity` frame — several a second
@@ -540,7 +542,7 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
           onMouseEnter={prefetchStatusPanel}
           onFocus={prefetchStatusPanel}
           className={`tap-expand-y flex items-center gap-1.5 text-[11px] ${SIDEBAR_HOVER} rounded px-1 py-1 transition-colors min-w-0 overflow-hidden ${showStatusDropdown ? SIDEBAR_ACTIVE : ''}`}
-          title="Performance e stato sistema · apri per FPS live"
+          title={tr('statusBar.perfTitle')}
         >
           {openclawAvailable ? (
             <>
@@ -632,14 +634,14 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
             // sulle tab. Il conteggio ne stava fuori per metà, e la frase
             // «con il turno finito» era già lì a descrivere un altro insieme.
             title={[
-              'Agenti Claude Code',
-              `· ${agentCounts.working} al lavoro`,
-              agentCounts.awaitingInput > 0 ? `· ${agentCounts.awaitingInput} in attesa di una tua risposta` : '',
+              tr('statusBar.agents.heading'),
+              tr('statusBar.agents.working', { n: agentCounts.working }),
+              agentCounts.awaitingInput > 0 ? tr('statusBar.agents.awaitingInput', { n: agentCounts.awaitingInput }) : '',
               agentCounts.awaiting - agentCounts.awaitingInput > 0
-                ? `· ${agentCounts.awaiting - agentCounts.awaitingInput} da guardare (turno finito o in pausa)`
+                ? tr('statusBar.agents.toLookAt', { n: agentCounts.awaiting - agentCounts.awaitingInput })
                 : '',
               '',
-              'Non contano le chat archiviate e le sessioni chiuse: non hanno una riga dove andarle a spegnere.',
+              tr('statusBar.agents.notCounted'),
             ].filter(Boolean).join('\n')}
           >
             {agentCounts.working > 0 && (
@@ -674,7 +676,7 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
             className={`flex items-center gap-1.5 text-[11px] min-w-0 overflow-hidden ${
               wsStatus === 'offline' ? SEGNALE_GUASTO : SEGNALE_ATTESA
             }`}
-            title="Stato connessione realtime al server Topics"
+            title={tr('statusBar.wsTitle')}
           >
             <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 animate-pulse ${
               wsStatus === 'offline' ? PALLINO_GUASTO : PALLINO_ATTESA
@@ -705,7 +707,7 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
               data-version-anchor
               onClick={(e) => { setVersionAnchor(e.currentTarget); setShowVersionPopover(v => !v); }}
               className={`tap-expand-y text-app-text-muted hover:text-app-text-secondary ${SIDEBAR_HOVER} rounded px-1 py-1 -mx-0.5 transition-colors ${showVersionPopover ? `${SIDEBAR_ACTIVE} text-app-text-secondary` : ''}`}
-              title="Info versione e aggiornamenti"
+              title={tr('statusBar.versionTitle')}
             >
               v{appVersion}
             </button>
@@ -717,7 +719,7 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
           {isDev && (
             <span
               className={`px-1 rounded bg-amber-500/15 ${SEGNALE_ATTESA} font-medium text-[10px] leading-tight`}
-              title={`Build di sviluppo (Vite dev server / hot reload). In produzione questo badge sparisce.${lastChangeTime ? ` Ultimo aggiornamento codice: ${formatBuildTime(lastChangeTime)} fa.` : ''}`}
+              title={tr('statusBar.devBuildTitle') + (lastChangeTime ? tr('statusBar.lastCodeUpdateAgo', { t: formatBuildTime(lastChangeTime) }) : '')}
             >
               dev{lastChangeTime ? ` · ${formatBuildTime(lastChangeTime)}` : ''}
             </span>
@@ -730,7 +732,7 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
           {!isDev && status?.server?.devReload && (
             <span
               className={`flex items-center gap-0.5 px-1 rounded bg-emerald-500/15 ${SEGNALE_OK} font-medium text-[10px] leading-tight`}
-              title="Auto-aggiornamento attivo: le finestre si ricaricano da sole ai nuovi build, senza popup. (Spegni rimuovendo topics-dev.json dallo STATE_DIR e riavviando il server.)"
+              title={tr('statusBar.autoUpdateTitle')}
             >
               <RefreshCw size={9} />
               auto
@@ -740,7 +742,7 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
               for a recent local build (the desktop app runs the built bundle even
               while developing). Hidden on a stale shipped release. */}
           {!isDev && buildIsRecent && lastChangeTime && (
-            <span title={`Ultimo aggiornamento codice: ${formatBuildTime(lastChangeTime)} fa`}>
+            <span title={tr('statusBar.lastCodeUpdate', { t: formatBuildTime(lastChangeTime) })}>
               {formatBuildTime(lastChangeTime)}
             </span>
           )}
@@ -758,7 +760,7 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
             // Si allarga il BOX vero su touch (28px, quanto la riga), che non ruba
             // niente a nessuno.
             className={`p-0.5 md:p-0.5 w-7 h-7 md:w-auto md:h-auto flex items-center justify-center rounded ${SIDEBAR_HOVER} transition-colors ${updateAvailable ? 'text-primary' : 'text-app-text-muted'}`}
-            title={isDesktop ? 'Riavvia l\'app' : updateAvailable ? 'Aggiornamento disponibile' : 'Ricarica'}
+            title={isDesktop ? tr('statusBar.restartApp') : updateAvailable ? tr('statusBar.updateAvailable') : tr('statusBar.reload')}
           >
             {/* Distinct glyph from the dropdown's data-refresh (RefreshCw): the
                 bar button RESTARTS the app (desktop shell) — a different, heavier
@@ -843,6 +845,7 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
  * anche quella del menu del telefono: erano due copie ed erano gia' divergenti.
  */
 function DeviceIdentityRow({ onOpenDevices }: { onOpenDevices?: () => void }) {
+  const tr = useT();
   const [session, setSession] = useState<SessionState>({ status: 'loading' });
   const [altri, setAltri] = useState<{ connessi: number; totali: number } | null>(null);
   useEffect(() => subscribeSession(setSession), []);
@@ -908,7 +911,7 @@ function DeviceIdentityRow({ onOpenDevices }: { onOpenDevices?: () => void }) {
       style={{ paddingInline: ROW_INSET }}
       // Il tooltip dice ENTRAMBE le cose, sempre: chi e su cosa. La riga puo'
       // troncare il dettaglio quando la colonna e' stretta, il tooltip no.
-      title={`${chi.nome}${chi.dettaglio ? ` \u00b7 ${chi.dettaglio}` : ''}\nApri l\u2019elenco dei dispositivi autorizzati`}
+      title={`${chi.nome}${chi.dettaglio ? ` \u00b7 ${chi.dettaglio}` : ''}\n${tr('statusBar.devicesTitle')}`}
     >
       {/* LA FACCIA, e solo quando c'e' una persona. Senza, resta il glifo del
           ferro esattamente com'era: un tondino con dentro l'iniziale di

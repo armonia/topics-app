@@ -25,29 +25,29 @@ import { KeyboardSensor, MouseSensor, TouchSensor } from '@dnd-kit/core';
  * protegge un long-press dentro un campo, che è come si porta su la lente di
  * ingrandimento di iOS.
  */
-const NON_E_UNA_MANIGLIA = 'input, textarea, select, button, a, [contenteditable="true"], [data-no-dnd]';
+const NOT_A_HANDLE = 'input, textarea, select, button, a, [contenteditable="true"], [data-no-dnd]';
 
-function suUnElementoInterattivo(event: Event): boolean {
+function onInteractiveTarget(event: Event): boolean {
   const t = event.target;
-  return t instanceof Element && t.closest(NON_E_UNA_MANIGLIA) !== null;
+  return t instanceof Element && t.closest(NOT_A_HANDLE) !== null;
 }
 
 /** Mouse: come quello di dnd-kit, ma non parte da un campo o da un comando. */
-export class MouseSensorGentile extends MouseSensor {
+export class PoliteMouseSensor extends MouseSensor {
   static activators = [
     {
       eventName: 'onMouseDown' as const,
-      handler: ({ nativeEvent }: { nativeEvent: MouseEvent }) => !suUnElementoInterattivo(nativeEvent),
+      handler: ({ nativeEvent }: { nativeEvent: MouseEvent }) => !onInteractiveTarget(nativeEvent),
     },
   ];
 }
 
 /** Dito: stessa sordità, così il long-press dentro un campo resta del campo. */
-export class TouchSensorGentile extends TouchSensor {
+export class PoliteTouchSensor extends TouchSensor {
   static activators = [
     {
       eventName: 'onTouchStart' as const,
-      handler: ({ nativeEvent }: { nativeEvent: TouchEvent }) => !suUnElementoInterattivo(nativeEvent),
+      handler: ({ nativeEvent }: { nativeEvent: TouchEvent }) => !onInteractiveTarget(nativeEvent),
     },
   ];
 }
@@ -75,16 +75,16 @@ export class TouchSensorGentile extends TouchSensor {
  * Stessa regola degli altri due: se si sta scrivendo in un campo o si sta per
  * premere un comando, il tasto è del campo, non della board.
  */
-export class KeyboardSensorGentile extends KeyboardSensor {
+export class PoliteKeyboardSensor extends KeyboardSensor {
   static activators = [
     {
       eventName: 'onKeyDown' as const,
       handler: (event: { nativeEvent: KeyboardEvent }, options: unknown, context: unknown): boolean => {
-        if (suUnElementoInterattivo(event.nativeEvent)) return false;
+        if (onInteractiveTarget(event.nativeEvent)) return false;
         // Per tutto il resto vale il comportamento della libreria: qui si toglie
         // un caso, non si riscrive il sensore.
-        const originale = (KeyboardSensor.activators[0] as { handler: (...a: unknown[]) => boolean }).handler;
-        return originale(event, options, context);
+        const original = (KeyboardSensor.activators[0] as { handler: (...a: unknown[]) => boolean }).handler;
+        return original(event, options, context);
       },
     },
   ];

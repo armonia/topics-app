@@ -38,6 +38,14 @@
         "server/ai-bridge.mjs!", // spawned as a detached daemon
         "server/pty-bridge.mjs!", // idem
         "cli/topics.ts!", // the `topics` CLI binary
+        // Il Worker del relay: è il `main` di `relay/wrangler.jsonc`, cioè
+        // codice che sta IN PRODUZIONE su Cloudflare. Knip ha un plugin
+        // `wrangler` che leggerebbe quel `main` da solo, e qui non si accende
+        // per due motivi indipendenti: si abilita solo se `wrangler` è una
+        // dipendenza dichiarata (il deploy usa `bunx wrangler@latest`, quindi
+        // non lo è) e cerca il config nella RADICE del workspace, dove sta
+        // l'altro `wrangler.jsonc` — quello del sito. Scritto a mano, allora.
+        "relay/src/worker.ts!",
         // Entrypoints are invoked as `bun <path>`, never imported, so knip
         // can't reach them — but the `!` must be NARROW. A blanket
         // `scripts/**/*.ts!` amnestied the whole folder: any dead script there
@@ -176,6 +184,7 @@
         "server/**/*.fixture.ts!",
         "server/**/*.test.ts",
         "shared/**/*.test.ts", // girati da `test:unit`, non importati da nessuno
+        "relay/*.test.ts",     // idem, via `./relay` in `test:unit`
         "tests/**/*.{test,spec}.ts"
       ],
       "project": [
@@ -183,6 +192,11 @@
         "shared/**/*.ts",
         "cli/**/*.ts",
         "scripts/**/*.ts",
+        // `relay/` è un Worker DEPLOYATO, e fino al 15/08/2026 stava fuori da
+        // qui, fuori da ogni tsconfig e fuori da eslint: 1.703 righe in
+        // produzione senza un cancello che le guardasse. Un export morto lì
+        // dentro non aveva modo di risultare morto.
+        "relay/**/*.ts",
         "server.ts"
       ],
       // Niente `ignore`. C'era `tests/e2e/**`, ed era il motivo per cui questo

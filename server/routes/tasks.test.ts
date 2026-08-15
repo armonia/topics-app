@@ -42,6 +42,15 @@ function freshDb(): Database {
     rubric_scores TEXT, justification TEXT, status TEXT NOT NULL DEFAULT 'pending',
     reviewed_by TEXT, review_comment TEXT, created_at TEXT NOT NULL, reviewed_at TEXT, expires_at TEXT
   )`);
+  // migration 065 — i tentativi del fan-out, ridotta a cio' che la rotta chiede.
+  db.run(`CREATE TABLE task_attempts (
+    id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    idx INTEGER NOT NULL, topic_id TEXT, worktree_id TEXT, branch TEXT, model TEXT,
+    state TEXT NOT NULL DEFAULT 'running', commit_sha TEXT, files_changed INTEGER,
+    insertions INTEGER, deletions INTEGER, summary TEXT, error TEXT,
+    agent_ms INTEGER NOT NULL DEFAULT 0, agent_tokens INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL, ended_at TEXT, selected_at TEXT, UNIQUE (task_id, idx)
+  )`);
   return db;
 }
 
@@ -77,6 +86,10 @@ function makeCtx(db: Database, broadcasts: any[]) {
     matchRoute,
     broadcastToAll: (m: any) => { broadcasts.push(m); },
     getTopicBySessionKey: (sk: string) => (SESSIONS[sk] ? ({ id: SESSIONS[sk].topicId, projectPath: SESSIONS[sk].projectPath, name: SESSIONS[sk].name } as any) : null),
+    // La potatura di un tentativo perdente archivia la sua chat. Qui non ci sono
+    // chat vere: lo stub dice «non c'è» invece di lasciare che il `catch` di
+    // `reapAttemptWorkspace` stampi un TypeError per ogni perdente.
+    getTopicById: () => null,
   } as unknown as AppContext;
 }
 
@@ -2727,5 +2740,77 @@ describe("doppioni: il cancello alla creazione e la fusione", () => {
     // Lettura: le due card sono ancora tutte e due sulla board.
     const dopo = await (await call(router, "GET", "/api/boards/pX/tasks"))!.json();
     expect(dopo.tasks.length).toBe(2);
+  });
+});
+
+/**
+ * LA SCELTA DEL FAN-OUT SI FA UNA VOLTA SOLA.
+ *
+ * `attempts.select` è atomico dentro di sé (una transazione, mai due
+ * `selected`), ma non aveva una PRECONDIZIONE. La potatura dei perdenti gira
+ * fuori dalla transazione, quindi una seconda scelta su un tentativo diverso
+ * ripuntava `assigned_topic_id` su un worktree che la prima aveva già buttato —
+ * e su quell'indirezione viaggiano diff, checks, land, anteprima e reap. Due
+ * schede aperte, o un doppio invio, e il lavoro scelto per primo diventava
+ * irraggiungibile senza che nessuna riga lo dicesse.
+ */
+describe("fan-out: la scelta del vincitore", () => {
+  let db: Database; let broadcasts: any[]; let router: any;
+  beforeEach(() => {
+    db = freshDb(); broadcasts = [];
+    router = createTasksRouter(makeCtx(db, broadcasts));
+  });
+
+  /** Due tentativi finiti, ciascuno con la sua chat: la forma alla chiusura del fan-out. */
+  async function conDueTentativi(): Promise<{ taskId: string; a1: string; a2: string }> {
+    const task = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "due strade" }))!.json();
+    for (const n of [1, 2]) {
+      db.run("INSERT INTO topics (id) VALUES (?)", [`top-${n}`]);
+      db.run(
+        `INSERT INTO task_attempts (id, task_id, idx, topic_id, branch, state, created_at, ended_at)
+         VALUES (?, ?, ?, ?, ?, 'delivered', '2026-08-15T10:00:00.000Z', '2026-08-15T11:00:00.000Z')`,
+        [`att-${n}`, task.id, n, `top-${n}`, `topics/strada-${n}`],
+      );
+    }
+    return { taskId: task.id, a1: "att-1", a2: "att-2" };
+  }
+
+  const pick = (taskId: string, attemptId: string) =>
+    call(router, "POST", `/api/boards/pX/tasks/${taskId}/attempts/${attemptId}/select`);
+
+  test("una seconda scelta su un ALTRO tentativo è 409 fanout_already_decided, e nomina il vincitore", async () => {
+    const { taskId, a1, a2 } = await conDueTentativi();
+
+    expect((await pick(taskId, a1))!.status).toBe(200);
+    // Il task punta al vincitore: è l'indirezione su cui viaggia tutto il resto.
+    expect(db.query("SELECT assigned_topic_id AS t FROM tasks WHERE id = ?").get(taskId)).toEqual({ t: "top-1" });
+
+    const secondo = (await pick(taskId, a2))!;
+    expect(secondo.status).toBe(409);
+    const body = await secondo.json();
+    expect(body.code).toBe("fanout_already_decided");
+    expect(body.attemptId).toBe(a1);
+    // E il ri-puntamento NON è avvenuto: il worktree del primo è ancora quello del task.
+    expect(db.query("SELECT assigned_topic_id AS t FROM tasks WHERE id = ?").get(taskId)).toEqual({ t: "top-1" });
+    expect(db.query("SELECT state FROM task_attempts WHERE id = ?").get(a2)).toEqual({ state: "discarded" });
+  });
+
+  test("ripremere sullo STESSO tentativo resta idempotente", async () => {
+    // La controprova: un cancello che rifiutasse anche questo trasformerebbe un
+    // doppio click innocuo in un errore da leggere.
+    const { taskId, a1 } = await conDueTentativi();
+    expect((await pick(taskId, a1))!.status).toBe(200);
+    expect((await pick(taskId, a1))!.status).toBe(200);
+    expect(db.query("SELECT assigned_topic_id AS t FROM tasks WHERE id = ?").get(taskId)).toEqual({ t: "top-1" });
+  });
+
+  test("un tentativo ANCORA VIVO blocca la scelta prima di tutto il resto", async () => {
+    // Il 409 che c'era già: si pinza qui perché il cancello nuovo gli sta
+    // accanto, e l'ordine dei due conta (un fan-out non chiuso non è «deciso»).
+    const { taskId, a1 } = await conDueTentativi();
+    db.run("UPDATE task_attempts SET state = 'running' WHERE id = 'att-2'");
+    const resp = (await pick(taskId, a1))!;
+    expect(resp.status).toBe(409);
+    expect((await resp.json()).code).toBe("fanout_running");
   });
 });

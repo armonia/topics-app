@@ -90,19 +90,33 @@ test.describe("Consumo del turno, live", () => {
         cacheCreation1hTokens: 0,
       });
 
+    // IL NUMERO IN STRISCIA È QUANTO È COSTATO, non quanti token sono passati:
+    // `shared/token-cost.ts` (`costTokens`) pesa la rilettura di cache 0,1, ed è
+    // la stessa definizione della card, del grafico e del piede di un messaggio.
+    // Da 12.000 letti di cui 10.800 riletti + 300 scritti:
+    // (12.000 − 10.800) + 300 + 0,1 × 10.800 = 2.580 → `3k`.
+    // I numeri grezzi non spariscono: stanno nel title, e si asseriscono qui
+    // sotto, così una regressione della formula non può nascondersi dietro un
+    // arrotondamento.
     usage(1, 12_000, 300);
     const live = page.getByTestId("turn-usage").first();
     await expect(live).toBeVisible({ timeout: 10000 });
-    // Compatto, come ovunque nella chat: `12k`, non `12.300`. Il numero esatto
-    // sta nel title, che è dove si va a guardare la contabilità.
-    await expect(live).toContainText("12k token");
+    // Compatto, come ovunque nella chat: `3k`, non `2.580`.
+    await expect(live).toContainText("3k token");
+    // Il separatore delle migliaia lo mette `toLocaleString`, cioè il locale del
+    // browser: punto, virgola o niente (parecchi locale non raggruppano a
+    // quattro cifre). Si accettano tutti e tre, le cifre no.
+    await expect(live).toHaveAttribute("title", /10[.,]?800 riletti dalla cache · 1[.,]?200 nuovi/);
 
     // Secondo frame: il server manda il TOTALE già accumulato, quindi la striscia
-    // deve mostrare 26.000, non 12.300 + 26.000. È la differenza fra "il client
-    // mostra" e "il client somma", ed è il modo più facile di sbagliare qui.
+    // deve mostrare il costo di 25.000/22.500/1.000 — (25.000 − 22.500) + 1.000 +
+    // 0,1 × 22.500 = 5.750 → `6k` — non la somma col frame di prima (8.330 → `8k`).
+    // È la differenza fra "il client mostra" e "il client somma", ed è il modo
+    // più facile di sbagliare qui.
     usage(2, 25_000, 1_000);
-    await expect(live).toContainText("26k token", { timeout: 10000 });
-    await expect(live).not.toContainText("38k");
+    await expect(live).toContainText("6k token", { timeout: 10000 });
+    await expect(live).not.toContainText("8k");
+    await expect(live).toHaveAttribute("title", /22[.,]?500 riletti dalla cache · 2[.,]?500 nuovi/);
 
     // Il numero di chiamate sta nel title: è ciò che spiega perché i token letti
     // superano la finestra di contesto.

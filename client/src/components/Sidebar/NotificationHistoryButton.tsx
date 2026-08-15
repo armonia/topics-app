@@ -27,6 +27,8 @@ import { useDismissable } from '../../hooks/useDismissable';
 import { POPOVER_MARGIN, POPOVER_PANEL, Z_POPOVER } from '../../lib/popoverStyles';
 import { RAISED_CONTROL } from '../../lib/selectionStyles';
 import { NotificationBadge } from '../Shared/NotificationBadge';
+import { NO_DRAG_REGION } from '../../lib/shell/dragRegion';
+import { useT } from '../../hooks/useT';
 
 const PANEL_W = 320;
 
@@ -42,6 +44,7 @@ export function NotificationHistoryButton({
   isMobile?: boolean;
   className?: string;
 }) {
+  const tr = useT();
   // Il rettangolo del trigger si CATTURA al click, non si legge in render: un
   // ref letto durante il render non fa ri-disegnare niente quando cambia, ed è
   // anche ciò che `react-hooks/refs` vieta. Al click il bottone è già a
@@ -79,9 +82,15 @@ export function NotificationHistoryButton({
         // col mouse. Tre elementi affiancati con tre forme diverse non sono tre
         // stili, sono un difetto.
         className={`edge-lit relative ${isMobile ? 'h-11 w-11' : 'h-7 w-7'} flex items-center justify-center rounded-lg ${RAISED_CONTROL} text-app-text transition-colors flex-shrink-0 cursor-pointer app-no-drag ${className}`}
+        // La classe da sola non basta: sotto Tauri e' l'ATTRIBUTO a rinunciare al
+        // trascinamento, e senza di lui questo tasto e' una maniglia della
+        // finestra che si apre solo per sbaglio. E' l'unico elemento del tree che
+        // aveva la classe e non l'attributo, ed e' il difetto che
+        // tests/e2e/drag-regions.spec.ts esiste per prendere.
+        {...NO_DRAG_REGION}
         style={{ pointerEvents: 'auto' }}
-        title="Cronologia notifiche"
-        aria-label={unseen > 0 ? `Cronologia notifiche. ${unseen} non viste` : 'Cronologia notifiche'}
+        title={tr('notifications.historyTitle')}
+        aria-label={unseen > 0 ? tr('notifications.historyUnseen', { n: unseen }) : tr('notifications.historyTitle')}
         aria-expanded={open}
         data-testid="notification-history-button"
       >
@@ -92,7 +101,7 @@ export function NotificationHistoryButton({
         <NotificationBadge
           count={unseen}
           className="absolute -top-1 -right-1"
-          ariaLabel={`${unseen} notifiche non viste`}
+          ariaLabel={tr('notifications.badgeUnseen', { n: unseen })}
         />
       </button>
 
@@ -100,7 +109,7 @@ export function NotificationHistoryButton({
         <div
           ref={panelRef}
           role="dialog"
-          aria-label="Cronologia notifiche"
+          aria-label={tr('notifications.historyTitle')}
           className={`${POPOVER_PANEL} flex flex-col`}
           style={{
             position: 'fixed',
@@ -113,12 +122,12 @@ export function NotificationHistoryButton({
           data-testid="notification-history-panel"
         >
           <div className="flex items-center justify-between px-3 py-2 border-b border-app-border flex-shrink-0">
-            <span className="text-[12px] font-semibold text-app-text">Notifiche</span>
+            <span className="text-[12px] font-semibold text-app-text">{tr('notifications.panelTitle')}</span>
             <button
               onClick={() => { setOpen(false); onOpenSettings(); }}
               className="w-6 h-6 flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text transition-colors cursor-pointer"
-              title="Impostazioni notifiche"
-              aria-label="Impostazioni notifiche"
+              title={tr('notifications.settings')}
+              aria-label={tr('notifications.settings')}
               data-testid="notification-settings-button"
             >
               <Settings size={13} />
@@ -130,12 +139,12 @@ export function NotificationHistoryButton({
               <div className="px-3 py-6 text-center" data-testid="notification-history-empty">
                 <Inbox size={18} className="mx-auto mb-2 text-app-text-muted" aria-hidden="true" />
                 <div className="text-[12px] text-app-text-secondary">
-                  {loading ? 'Carico…' : 'Nessuna notifica'}
+                  {loading ? tr('common.loading') : tr('notifications.empty')}
                 </div>
                 {!loading && (
                   // La verità, non un riempitivo: il registro parte da qui.
                   <div className="text-[11px] text-app-text-muted mt-1">
-                    Da qui in poi ogni notifica mandata lascia una riga.
+                    {tr('notifications.logStartsHere')}
                   </div>
                 )}
               </div>

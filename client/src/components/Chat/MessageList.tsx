@@ -283,9 +283,44 @@ export function MessageList({
     List: ChatList,
   }), [inputAreaHeight]);
 
+  /**
+   * LA CODA VIVA SI SEPARA DAL RESTO — perché è l'unica cosa che cambia.
+   *
+   * Durante un turno arriva un array nuovo a ogni frame, ma dentro c'è UN solo
+   * oggetto diverso: la bolla in streaming, che è l'ultima ed è `partial`. Tutto
+   * il resto è identico per riferimento. Passando l'array intero ai tre memo qui
+   * sotto, però, ogni frame li invalidava tutti e tre: si rifiltrava il
+   * trascritto, si rifondevano tutte le corse di tool (coniando un portante
+   * nuovo per ognuna, quindi facendo ridisegnare ogni bolla di tool visibile) e
+   * si ri-posizionavano i marker. Sessanta volte al secondo, per un messaggio.
+   *
+   * Qui il prefisso «assestato» si tiene stabile a mano: stessa lunghezza e
+   * stessi oggetti = si restituisce l'array di prima. Il confronto costa dei
+   * puntatori; quello che evita costa allocazioni e render.
+   */
+  const settledRef = useRef<ChatMessage[]>(currentMessages);
+  const liveTail = (() => {
+    const last = currentMessages[currentMessages.length - 1];
+    return last?.role === 'assistant' && last.partial === true ? last : undefined;
+  })();
+  const settledMessages = (() => {
+    const fine = liveTail ? currentMessages.length - 1 : currentMessages.length;
+    const prev = settledRef.current;
+    if (prev.length === fine) {
+      let uguale = true;
+      for (let i = 0; i < fine; i++) {
+        if (prev[i] !== currentMessages[i]) { uguale = false; break; }
+      }
+      if (uguale) return prev;
+    }
+    const next = fine === currentMessages.length ? currentMessages : currentMessages.slice(0, fine);
+    settledRef.current = next;
+    return next;
+  })();
+
   // Memoize filtered messages
   const visibleMessages = useMemo(() =>
-    currentMessages.filter(msg => {
+    settledMessages.filter(msg => {
       // Keep partial assistant messages (streaming placeholder)
       if (msg.role === 'assistant' && msg.partial) return true;
       const c = msg.content?.trim();
@@ -304,7 +339,7 @@ export function MessageList({
       if (c.startsWith('Agent-to-agent announce step')) return false;
       return true;
     }),
-    [currentMessages]
+    [settledMessages]
   );
 
   /**
@@ -319,18 +354,44 @@ export function MessageList({
    * la corsa qui, il raggruppatore vede finalmente il gruppo e il vestito si
    * paga una volta. Vedi `coalesceToolRun.ts`.
    */
-  const { items: filteredMessages, carrierById } = useMemo(
+  const { items: settledItems, carrierById } = useMemo(
     () => coalesceToolRuns(visibleMessages),
     [visibleMessages],
+  );
+
+  /**
+   * La lista da renderizzare: il prefisso fuso più, in fondo, la bolla viva.
+   *
+   * La coda non passa dal fusore per costruzione — `coalesceToolRuns` non fonde
+   * mai un `partial`, perché rimescolare l'item che sta crescendo è proprio ciò
+   * che non si deve fare — quindi tenerla fuori non cambia il risultato: cambia
+   * solo chi paga. L'unica cosa che si alloca per frame è questo array di
+   * puntatori; gli ITEM restano gli stessi oggetti, ed è quello che fa saltare
+   * il render a `MessageBubble`, che è `memo`.
+   */
+  const filteredMessages = useMemo(
+    () => (liveTail ? [...settledItems, liveTail as CoalescedMessage] : settledItems),
+    [settledItems, liveTail],
   );
 
   // Position compaction dividers within the visible transcript (CHAT-COMPACT-01).
   // Sui messaggi VISIBILI, non sugli item: un marker ancorato a un messaggio
   // assorbito dev'essere ancora trovabile (altrimenti `partitionMarkers` lo
   // butta in cima, che è la sua rete di sicurezza, non il posto giusto).
+  //
+  // La coda viva rientra nell'insieme SOLO quando dei marker esistono davvero:
+  // senza marker `partitionMarkers` esce prima di guardare i messaggi, quindi
+  // aggiungerla costerebbe una concat per frame per un risultato vuoto — e
+  // renderebbe instabile un memo che invece deve restare fermo.
+  const markerSource = useMemo(
+    () => (liveTail && compactionMarkers && compactionMarkers.length > 0
+      ? [...visibleMessages, liveTail]
+      : visibleMessages),
+    [visibleMessages, compactionMarkers, liveTail],
+  );
   const markerPartition = useMemo(
-    () => partitionMarkers(visibleMessages, compactionMarkers),
-    [visibleMessages, compactionMarkers],
+    () => partitionMarkers(markerSource, compactionMarkers),
+    [markerSource, compactionMarkers],
   );
   /** I marker di un item = i suoi, più quelli dei messaggi che ha assorbito. */
   const markersAfter = useCallback((msg: CoalescedMessage) => {

@@ -1,4 +1,4 @@
-import { expect, type Route } from "@playwright/test";
+import { expect, type Page, type Route } from "@playwright/test";
 import { test } from "./fixtures/chat.fixture";
 import { goToApp, openTopic } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
@@ -20,6 +20,63 @@ hermetic(test);
 //   5. Fast and Plan are not mutually exclusive — both can be ON at once.
 //
 // Video output lands in test-results/artifacts/chat-fast-mode-*.
+
+/**
+ * Che cosa la CLI dichiara sulla fast mode — deciso QUI, non ereditato.
+ *
+ * Il ⚡ esiste solo se lo snapshot dei provider NON porta un `reason`
+ * (`client/src/lib/fastMode.ts`: un comando che non si può usare non occupa una
+ * riga). E quel campo è stato del PROCESSO server, non del database: lo scrive
+ * `observeFastMode` alla prima riga che una `claude` vera stampa, e ci resta
+ * finché il server non muore. Basta un `POST /api/chat` in una spec qualunque
+ * — anche uno che finisce in «Not logged in», misurato — perché da lì in avanti
+ * lo snapshot dica `sdk_opt_in_required` e il bottone sparisca per tutti i file
+ * che seguono su quel server. `POST /api/test/reset` non lo tocca: ripristina
+ * il DB, e questo in DB non c'è.
+ *
+ * È esattamente com'è andata: verde da solo, rosso nello shard 2 dopo le spec
+ * della chat che una sessione vera la lanciano. Il bottone non era rotto — la
+ * sua PREMESSA era implicita. Quindi ogni test di questo file la dichiara, sui
+ * due canali insieme: lo store è last-write-wins e il frame WS, che arriva dopo
+ * la GET, ribalterebbe il mock.
+ */
+async function dichiaraFastMode(
+  page: Page,
+  fastMode: { state: string; reason: string | null; costMultiplier: number },
+): Promise<void> {
+  const snapshot = {
+    providers: [{
+      name: "claude-code",
+      label: "Claude Code",
+      status: "ready",
+      isDefault: true,
+      models: [] as unknown[],
+      requirements: [] as unknown[],
+      fastMode,
+      fetchedAt: "2026-08-07T00:00:00Z",
+    }],
+    defaultProvider: "claude-code",
+    generatedAt: "2026-08-07T00:00:00Z",
+  };
+  await page.route("**/api/providers/snapshot", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(snapshot) }),
+  );
+  await page.routeWebSocket(/\/ws/, (ws) => {
+    const server = ws.connectToServer();
+    server.onMessage((msg) => {
+      const text = typeof msg === "string" ? msg : "";
+      if (text.includes('"providers:snapshot"')) {
+        ws.send(JSON.stringify({ type: "providers:snapshot", snapshot }));
+        return;
+      }
+      ws.send(msg);
+    });
+    ws.onMessage((msg) => server.send(msg));
+  });
+}
+
+/** La fast mode è servibile: nessun motivo la blocca. */
+const FAST_SERVIBILE = { state: "off", reason: null, costMultiplier: 2 } as const;
 
 test.describe.serial("Chat — Fast Mode toggle", () => {
   let topicId: string;
@@ -46,6 +103,7 @@ test.describe.serial("Chat — Fast Mode toggle", () => {
 
   test("toggle sits between the + menu and the context ring, flips on click", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "FAST-MODE-01" });
+    await dichiaraFastMode(page, FAST_SERVIBILE);
     await goToApp(page);
     await page.keyboard.press("Escape");
     await openTopic(page, new RegExp(topicName));
@@ -95,6 +153,7 @@ test.describe.serial("Chat — Fast Mode toggle", () => {
 
   test("sending a message with Fast ON includes fastMode:true in /api/chat body", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "FAST-MODE-02" });
+    await dichiaraFastMode(page, FAST_SERVIBILE);
     await goToApp(page);
     await page.keyboard.press("Escape");
     await openTopic(page, new RegExp(topicName));
@@ -145,6 +204,7 @@ test.describe.serial("Chat — Fast Mode toggle", () => {
     // livello di autonomia passava `--permission-mode plan` alla CLI. Il flag
     // non parte più dal client: il piano lo accende il livello, server-side
     // (`planModeFor`, provato in server/lib/autonomy-mode.test.ts).
+    await dichiaraFastMode(page, FAST_SERVIBILE);
     await goToApp(page);
     await page.keyboard.press("Escape");
     await openTopic(page, new RegExp(topicName));
@@ -196,37 +256,7 @@ test.describe.serial("Chat — Fast Mode toggle", () => {
     // `fast_mode_disabled_reason: "sdk_opt_in_required"`. Prima, con lo stesso
     // clic, il server scambiava il modello con haiku: il toggle faceva una cosa
     // DIVERSA da quella che prometteva, in silenzio.
-    const snapshot = {
-      providers: [{
-        name: "claude-code",
-        label: "Claude Code",
-        status: "ready",
-        isDefault: true,
-        models: [] as unknown[],
-        requirements: [] as unknown[],
-        fastMode: { state: "off", reason: "sdk_opt_in_required", costMultiplier: 2 },
-        fetchedAt: "2026-08-07T00:00:00Z",
-      }],
-      defaultProvider: "claude-code",
-      generatedAt: "2026-08-07T00:00:00Z",
-    };
-    // Tutti e due i canali: lo store è last-write-wins e il frame vero, che
-    // arriva dopo la GET, ribalterebbe il mock.
-    await page.route("**/api/providers/snapshot", (route) =>
-      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(snapshot) }),
-    );
-    await page.routeWebSocket(/\/ws/, (ws) => {
-      const server = ws.connectToServer();
-      server.onMessage((msg) => {
-        const text = typeof msg === "string" ? msg : "";
-        if (text.includes('"providers:snapshot"')) {
-          ws.send(JSON.stringify({ type: "providers:snapshot", snapshot }));
-          return;
-        }
-        ws.send(msg);
-      });
-      ws.onMessage((msg) => server.send(msg));
-    });
+    await dichiaraFastMode(page, { state: "off", reason: "sdk_opt_in_required", costMultiplier: 2 });
 
     await goToApp(page);
     await page.keyboard.press("Escape");
@@ -244,35 +274,7 @@ test.describe.serial("Chat — Fast Mode toggle", () => {
     // 2× = 10$/50$ della fast mode contro i 5$/25$ di Opus standard, listino
     // che la CLI scrive nei suoi stessi documenti. «Più veloce» da solo non è
     // un'informazione finché non dici quanto costa.
-    const snapshot = {
-      providers: [{
-        name: "claude-code",
-        label: "Claude Code",
-        status: "ready",
-        isDefault: true,
-        models: [] as unknown[],
-        requirements: [] as unknown[],
-        fastMode: { state: "off", reason: null, costMultiplier: 2 },
-        fetchedAt: "2026-08-07T00:00:00Z",
-      }],
-      defaultProvider: "claude-code",
-      generatedAt: "2026-08-07T00:00:00Z",
-    };
-    await page.route("**/api/providers/snapshot", (route) =>
-      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(snapshot) }),
-    );
-    await page.routeWebSocket(/\/ws/, (ws) => {
-      const server = ws.connectToServer();
-      server.onMessage((msg) => {
-        const text = typeof msg === "string" ? msg : "";
-        if (text.includes('"providers:snapshot"')) {
-          ws.send(JSON.stringify({ type: "providers:snapshot", snapshot }));
-          return;
-        }
-        ws.send(msg);
-      });
-      ws.onMessage((msg) => server.send(msg));
-    });
+    await dichiaraFastMode(page, FAST_SERVIBILE);
 
     await goToApp(page);
     await page.keyboard.press("Escape");
