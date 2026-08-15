@@ -29,7 +29,7 @@ import { memorableId } from '../../lib/memorableId';
  *
  * `stopPropagation` perché copiare non deve mai aprire la card.
  */
-export function TaskIdChip({ id }: { id: string }) {
+export function TaskIdChip({ id, className = '' }: { id: string; className?: string }) {
   const [copied, setCopied] = useState(false);
   const Glyph = copied ? Check : Hash;
   return (
@@ -43,7 +43,7 @@ export function TaskIdChip({ id }: { id: string }) {
         try { void navigator.clipboard?.writeText(id); setCopied(true); setTimeout(() => setCopied(false), 1200); } catch { /* clipboard blocked */ }
       }}
       title={copied ? 'ID copiato' : `${memorableId(id)} · clicca per copiare l'ID pieno (${id})`}
-      className={`tap-expand inline-flex shrink-0 items-center justify-center rounded p-0.5 transition-colors ${copied ? 'text-emerald-400' : 'text-app-text-muted hover:text-app-text-heading'}`}
+      className={`tap-expand inline-flex shrink-0 items-center justify-center rounded p-0.5 transition-colors ${copied ? 'text-emerald-400' : 'text-app-text-muted hover:text-app-text-heading'} ${className}`}
     ><Glyph className="h-3.5 w-3.5" aria-hidden /></button>
   );
 }

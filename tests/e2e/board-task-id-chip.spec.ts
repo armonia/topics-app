@@ -104,6 +104,7 @@ async function openProjectBoard(page: Page) {
  */
 type ChipGeometry = {
   chip: { x: number; y: number; w: number; h: number; cy: number };
+  /** Il contenitore del segno (il titolo) e il centro della sua PRIMA riga. */
   row: { top: number; bottom: number; left: number; right: number; cy: number };
   /** Il rettangolo dichiarato dal `::after` di `tap-expand` (0 se non c'è). */
   pseudo: { w: number; h: number };
@@ -130,8 +131,16 @@ async function measureChip(page: Page, taskId: string): Promise<ChipGeometry> {
 
   return chip.evaluate((el, probe) => {
     const r = el.getBoundingClientRect();
-    const rowEl = el.parentElement!.parentElement!; // riga eyebrow (flex-wrap)
+    // La casa del segno e' il TITOLO: dal 16/08 sta in linea davanti al nome
+    // del task, non piu' nell'eyebrow del progetto (dove leggeva come una
+    // proprieta' del progetto, «topics-app #»). Quindi il contenitore e' il
+    // genitore diretto, e il riferimento verticale e' la PRIMA RIGA di quel
+    // titolo: un titolo lungo va a capo, e il centro del blocco scenderebbe
+    // sotto il glifo misurando l'andare a capo invece dell'allineamento.
+    const rowEl = el.parentElement!;
     const rr = rowEl.getBoundingClientRect();
+    const lh = parseFloat(getComputedStyle(rowEl).lineHeight) || rr.height;
+    const firstLineCy = rr.top + Math.min(lh, rr.height) / 2;
     const cx = r.x + r.width / 2;
     const cy = r.y + r.height / 2;
     const reaches = (dx: number, dy: number) =>
@@ -139,7 +148,7 @@ async function measureChip(page: Page, taskId: string): Promise<ChipGeometry> {
     const after = getComputedStyle(el, "::after");
     return {
       chip: { x: r.x, y: r.y, w: r.width, h: r.height, cy },
-      row: { top: rr.top, bottom: rr.bottom, left: rr.left, right: rr.right, cy: rr.y + rr.height / 2 },
+      row: { top: rr.top, bottom: rr.bottom, left: rr.left, right: rr.right, cy: firstLineCy },
       pseudo: { w: parseFloat(after.width) || 0, h: parseFloat(after.height) || 0 },
       reach: {
         left: reaches(-probe, 0),
@@ -218,8 +227,11 @@ test.describe("Board card — il riferimento al task è un segno, non una parola
     expect(g.chip.y + g.chip.h).toBeLessThanOrEqual(g.row.bottom + 0.5);
     expect(g.chip.x).toBeGreaterThanOrEqual(g.row.left - 0.5);
     expect(g.chip.x + g.chip.w).toBeLessThanOrEqual(g.row.right + 0.5);
-    // Allineamento verticale col resto della riga.
-    expect(Math.abs(g.chip.cy - g.row.cy)).toBeLessThanOrEqual(1);
+    // Allineamento verticale con la PRIMA RIGA del titolo, che e' il testo
+    // accanto a cui il segno si legge. Due pixel: `align-middle` allinea alla
+    // meta' della x-height, non al centro geometrico della riga, quindi un
+    // pixel di scarto e' il comportamento corretto e non un difetto.
+    expect(Math.abs(g.chip.cy - g.row.cy)).toBeLessThanOrEqual(2);
   });
 
   test("IDCHIP-02: col mouse l'area sensibile resta quella del glifo", async ({ page }) => {
