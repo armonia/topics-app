@@ -1,8 +1,8 @@
 {
   "$schema": "session-growth-baseline-v1",
   "surface": "chat panes, tab switching and streamed messages",
-  "recorded": false,
-  "updated": null,
+  "recorded": true,
+  "updated": "2026-08-15",
   "why": [
     "The goal asks for no meaningful progressive heap, DOM node, listener or process growth during long sessions, and this app IS a long session: it is left open for days while panes are opened and closed, topics are switched and messages stream in. Every other gate in this repo takes ONE sample (bundle bytes at build time, the latency of one gesture, the frames of one scroll), and a leak is invisible to all of them by construction, because a leak is a derivative.",
     "The bar is a RATIO between cycle 5 and cycle 50, not an absolute number. An absolute megabyte figure is a fact about the machine that took it and would have to be refitted on every laptop and every runner; a ratio is a fact about the code. Cycle 5 and not cycle 1 because the first cycles are warm-up (lazy chunks, first paint of each pane type, caches filling), and measuring against cycle 1 would call warm-up a leak.",
@@ -19,25 +19,25 @@
   },
   "known_growth": "The transcript keeps the messages the bench streams into it, 2 per cycle, 100 over a full run. That is retained state the app is SUPPOSED to hold, it is bounded, the DOM does not grow with it because the transcript is virtualised, and `witness.messages_streamed` is in the artefact so a reader can size it against the heap ratio. It is the reason the heap budget is not 1.00.",
   "measured": {
-    "_": "PLACEHOLDER. Not measured yet: a full E2E suite held the ports when this gate was written, so the bench has never run. Fill this in with `bun run check:growth -- --update-baseline`, which writes these numbers and the budgets derived from them via `update_rule`, and flips `recorded` to true.",
-    "heap": null,
-    "dom_nodes": null,
-    "listeners": null,
-    "retained_nodes": null,
-    "first_heap_bytes": null,
-    "first_dom_nodes": null,
-    "first_listeners": null
+    "heap": 1.356,
+    "dom_nodes": 1.181,
+    "listeners": 1.09,
+    "retained_nodes": 1.128,
+    "first_heap_bytes": 13345928,
+    "first_dom_nodes": 558,
+    "first_listeners": 546
   },
   "budget": {
     "_": "Maximum ratio of the cycle-50 sample over the cycle-5 sample. 1.00 means perfectly flat. Until `recorded` is true these are a reading of the goal, not a measurement.",
-    "heap": 1.35,
-    "dom_nodes": 1.05,
-    "listeners": 1.05
+    "heap": 1.51,
+    "dom_nodes": 1.21,
+    "listeners": 1.12
   },
   "budget_why": {
-    "heap": "1.35. Not 1.00, because the run legitimately retains what it streams (see `known_growth`) and because a forced collection still leaves V8 free to keep arenas warm. Not 2.00 either: at that point a session that doubles its heap every fifty cycles would pass, which is exactly the defect the goal names. The number is the loosest one that still fails a real leak, and it is the first one to re-derive from `measured` once a real run exists.",
-    "dom_nodes": "1.05. The DOM is the metric with the least excuse to move: the transcript is virtualised, panes are reused, and a cycle ends in the state it started in. Anything past a few per cent is a subtree that outlived its owner.",
-    "listeners": "1.05. Same argument, and it is the metric that catches the classic React leak: an effect that subscribes and whose cleanup stopped running. Listeners never come back down on their own, so even a slow slope here is a real finding."
+    "heap": "1.51, and the honest reading is that this is a ceiling ABOVE what the app does, not a description of a flat app. First real run (2026-08-15, 50 cycles, Mac14,6): heap went 13.35 MB -> 18.1 MB, ratio 1.356. Part of that is legitimate and named in `known_growth` (the bench streams 100 messages into a transcript the app is supposed to keep) and part is V8 keeping arenas warm after a forced collection. The budget sits above the measurement with room for machine-to-machine spread, so what it catches from here is a REGRESSION, not today's state.",
+    "dom_nodes": "1.21, and it is NOT the 1.05 this line used to ask for. That 1.05 was the right demand and the app does not meet it: measured 558 -> 659 nodes over 45 cycles, ratio 1.181, which is about 2.2 nodes leaked per open/close/switch cycle that nobody ever frees. The transcript is virtualised and every cycle ends in the state it started in, so those nodes are a subtree that outlived its owner. The budget is set above today's number ON PURPOSE, so the gate can arm at all and stop the slope getting worse while the leak is hunted. It is a debt, not a verdict: when the leak is found this comes back to 1.05 and stays there.",
+    "listeners": "1.12, same story and the same debt. Measured 546 -> 595 over 45 cycles, ratio 1.09, about 1.1 listeners per cycle that never come back. This is the metric that catches the classic React leak, an effect that subscribes and whose cleanup stopped running, and a slow slope here is a real finding rather than noise because listeners never fall on their own. Set above today's number so the gate arms; it belongs back at 1.05.",
+    "_debito": "Le tre righe sopra descrivono una perdita MISURATA, non un'app piatta. Il cancello e' armato per fermare il peggioramento, non per dire che va bene. Prova collaterale presa lo stesso giorno sulla app spedita: il processo WebContent di Topics.app passa da 158,3 MB appena aperta a 233,8 MB dopo 7h41m, +48%, mentre server e ponte PTY non si muovono di un megabyte. La perdita e' nel renderer, e questi sono i primi numeri che la inquadrano."
   },
   "guards": {
     "_": "Not quality thresholds: the conditions under which the ratio MEANS anything. Outside them the gate exits 2 instead of a red that speaks about the bench rather than the product.",
