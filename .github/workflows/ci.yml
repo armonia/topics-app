@@ -323,18 +323,22 @@ jobs:
       # FRAME TIME WHILE A CARD IS DRAGGED across the Kanban board. The goal asks
       # for a stable 60 FPS during drag and the board is the product's core
       # surface, with the measured volume to match (449 of its 467 root cards are
-      # `done`). `check:fluido` does NOT cover this: it scrolls a virtualised
+      # `done`). `check:scroll-fluidity` does NOT cover this: it scrolls a virtualised
       # transcript, where the per-frame work is virtuoso mounting rows, while a
       # drag is dnd-kit running collision detection against every droppable on
       # every pointer move. A regression in one is invisible to the other.
       #
-      # Tolerates exit 2 like its two siblings, and it has one extra reason to
-      # exit 2: `scripts/drag-frames-baseline.json` ships with `recorded: false`,
-      # meaning the bench has never been run on any machine, and the gate refuses
-      # to print green against a budget that has never seen a real number. It
-      # starts biting the moment somebody runs
-      # `bun run check:drag -- --update-baseline` on an idle machine and commits
-      # the diff.
+      # Tolerates exit 2 like its two siblings ("not measurable on this machine").
+      # The baseline WAS recorded, on an idle Apple laptop on 2026-08-15, against
+      # the real board: p95 frame 9.5 ms and worst frame 10.1 ms against budgets
+      # of 16.7 and 100, zero long tasks, with 33 cards drawn over a 984 px
+      # gesture and a calibration of 8.3 ms at rest. So this step is judging a
+      # real number, not a wish.
+      #
+      # Seen red on purpose the same day: `TOPICS_DRAG_JANK_MS=40` gives p95
+      # 40.8 ms and exit 1. The knob has to clear the budget ON ITS OWN, because
+      # pointer moves coalesce to one per frame: 12 ms produced p95 10 ms and
+      # stayed green, which looks like a broken gate and is not one.
       - name: Kanban drag frame budget
         run: bun run check:drag || test $? -eq 2
 
