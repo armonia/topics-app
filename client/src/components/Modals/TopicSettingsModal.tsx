@@ -11,6 +11,7 @@ const AUTONOMY_CHOICES: { value: AutonomyLevel; label: string; blurb: string }[]
   { value: 'yolo', label: 'Does everything', blurb: 'No questions asked. This is the long-standing behaviour.' },
 ];
 import { ShareControl } from '../Share/ShareControl';
+import { buildTabLinkForTarget } from '../../lib/tabLink';
 import { Select } from '../Shared/Select';
 import { MODAL_BACKDROP, MODAL_PANEL } from '../../lib/modalStyles';
 import { useModalDialog } from '../../hooks/useModalDialog';
@@ -59,7 +60,10 @@ interface ProviderInfo {
  */
 export function TopicShareAction({ topicId }: { topicId: string }) {
   if (topicId.startsWith('draft:')) return null;
-  return <ShareControl resourceType="topic" resourceId={topicId} />;
+  // Il link di casa sta nel pannello di condivisione anche qui, per la stessa
+  // ragione per cui ci sta sulla scheda di un task: «dammi il link» è una
+  // domanda sola, e deve avere un posto solo dove si risponde.
+  return <ShareControl resourceType="topic" resourceId={topicId} deepLink={() => buildTabLinkForTarget({ kind: 'chat', key: topicId })} />;
 }
 
 export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSettingsModalProps) {

@@ -85,8 +85,13 @@ export function ShareControl({ resourceType, resourceId, deepLink }: {
    * viveva in due posti: un'icona a catena nella testata del drawer e un
    * pannello di condivisione accanto. Chi cercava «il link» ne trovava uno dei
    * due a caso. Quando il chiamante non ne ha uno la riga non si disegna.
+   *
+   * È una FUNZIONE, non una stringa, e non è pignoleria: comporre il permalink
+   * legge `window.location`, quindi un chiamante che lo calcolasse al proprio
+   * render obbligherebbe ogni suo test a montare un DOM per una riga che si
+   * disegna comunque. Qui si chiama solo quando qualcuno preme.
    */
-  deepLink?: string;
+  deepLink?: () => string | null;
 }) {
   const t = useT();
   const [aperto, setAperto] = useState(false);
@@ -112,8 +117,9 @@ export function ShareControl({ resourceType, resourceId, deepLink }: {
   useEffect(() => () => { if (timerCopia.current) clearTimeout(timerCopia.current); }, []);
 
   const copiaDeepLink = useCallback(async () => {
-    if (!deepLink) return;
-    if (!(await copyText(deepLink))) return;
+    const url = deepLink?.();
+    if (!url) return;
+    if (!(await copyText(url))) return;
     setCopiatoDeep(true);
     if (timerCopia.current) clearTimeout(timerCopia.current);
     timerCopia.current = setTimeout(() => setCopiatoDeep(false), 1400);
