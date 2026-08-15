@@ -338,6 +338,54 @@ export function PerfSection() {
         )}
       </div>
 
+      {/* DOVE STA la memoria del lato server, scritta invece che nascosta.
+          Il payload porta `fleet.roots` da sempre e il suo commento dice
+          testualmente «so the dropdown can say WHERE the memory is», ma l'unico
+          posto che lo leggeva era un `title=`, cioe' un tooltip: per vederlo
+          bisognava gia' sospettare che ci fosse qualcosa da vedere. E la
+          differenza fra le due letture non e' cosmetica. Il 2026-08-15 questa
+          stessa cifra e' passata da ~1,2 GB a 328 MB perche' il server smetteva
+          di scaldare otto contesti Chromium all'avvio: quei ~950 MB stavano
+          sotto la radice `server`, sommati dentro un totale che non li nominava.
+          Una riga che dice «server 328 MB su 3 processi, pty-bridge 20 MB su 1»
+          rende quel salto leggibile mentre succede, invece che a posteriori con
+          `ps`.
+          Solo le radici con memoria, e solo quando ce n'e' piu' di una: una riga
+          che ripete il totale della tessella qui sopra e' rumore. */}
+      {fleet && fleet.roots.filter(r => r.memoryMB > 0).length > 1 && (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 px-0.5 text-[10px] text-app-text-muted">
+          {fleet.roots
+            .filter(r => r.memoryMB > 0)
+            .sort((a, b) => b.memoryMB - a.memoryMB)
+            .map(r => (
+              <span key={r.kind} className="tabular-nums whitespace-nowrap">
+                {r.kind} <span className="text-app-text">{r.memoryMB} MB</span>
+                <span className="opacity-60"> ×{r.processCount}</span>
+              </span>
+            ))}
+        </div>
+      )}
+
+      {/* Le sessioni piu' pesanti DENTRO il pty-bridge. `roots` sa dire «il
+          pty-bridge tiene 1,2 GB su 14 processi», che e' vero e non serve a
+          nessuno: quello che si vuole sapere e' QUALE sessione. Il payload lo
+          calcola gia' (`fleet.sessions`) e finora non lo leggeva nessuno. Tre e
+          non tutte: qui si decide se andare a chiudere qualcosa, e per quella
+          decisione contano le prime. */}
+      {fleet && fleet.sessions.length > 0 && (
+        <div className="flex flex-col gap-0.5 px-0.5 text-[10px] text-app-text-muted">
+          {[...fleet.sessions]
+            .sort((a, b) => b.memoryMB - a.memoryMB)
+            .slice(0, 3)
+            .map(s => (
+              <div key={s.sessionId} className="flex items-center justify-between gap-2">
+                <span className="truncate">{s.name || s.sessionId}</span>
+                <span className="tabular-nums whitespace-nowrap text-app-text">{s.memoryMB} MB</span>
+              </div>
+            ))}
+        </div>
+      )}
+
       {/* GPU acceleration — the single biggest hidden FPS killer */}
       {perf && (
         <div
