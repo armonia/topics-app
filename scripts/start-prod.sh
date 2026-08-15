@@ -189,6 +189,34 @@ if [ "${TOPICS_SERVER_WATCH:-0}" = "1" ]; then
           # batch's reload until the new process is fully up (init is ~2-4s),
           # so every reload stays graceful.
           sleep 10
+          # …E POI SI CONTROLLA CHE SIA MORTO DAVVERO.
+          #
+          # Prima qui c'era solo lo `sleep 10`: si mandava SIGTERM e si andava
+          # avanti, dando per scontato che fosse bastato. Se il vecchio processo
+          # NON esce — un `gracefulShutdown` che resta appeso su un turno in
+          # volo, un handler che non ritorna — nessuno se ne accorge, e quello
+          # resta su. Misurato il 2026-08-15: un `bun run server.ts` vivo da
+          # 4h18m, reparentato a pid 1, senza piu' un socket in ascolto, che
+          # teneva 89 MB per niente mentre il server nuovo lavorava accanto.
+          # Non e' solo memoria sprecata: finche' e' vivo puo' ancora avere il
+          # DB aperto e i suoi timer accesi.
+          #
+          # Dieci secondi li ha gia' avuti sopra, e sono molti piu' dei 2-4s che
+          # l'init impiega. Se e' ancora li' dopo altri cinque, non sta
+          # chiudendo con garbo: sta ignorando il segnale. Allora SIGKILL, e
+          # detto ad alta voce — un reload che deve arrivare a SIGKILL e' un
+          # fatto da leggere nel log, non da nascondere.
+          if kill -0 "$SP" 2>/dev/null; then
+            for _ in 1 2 3 4 5; do
+              sleep 1
+              kill -0 "$SP" 2>/dev/null || break
+            done
+            if kill -0 "$SP" 2>/dev/null; then
+              echo "[start-prod] ATTENZIONE: il server $SP ha ignorato SIGTERM per 15s — SIGKILL."
+              echo "[start-prod]   Un orfano lasciato vivo tiene il DB aperto e i suoi timer accesi."
+              kill -KILL "$SP" 2>/dev/null
+            fi
+          fi
         fi
       done
   ) &

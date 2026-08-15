@@ -123,7 +123,32 @@ export function calibrationOutOfScale(
   const baselineMs = baseline.routes[CALIBRATION_KEY].median_ms;
   const capMs = budgetMs(baselineMs, baseline.tolerance_pct, baseline.floor_ms);
   const measuredMs = measured[CALIBRATION_KEY];
-  return measuredMs > capMs ? { measuredMs, capMs, baselineMs } : null;
+  if (measuredMs > capMs) return { measuredMs, capMs, baselineMs };
+  /**
+   * …e il metro si legge anche in RAPPORTO, non solo contro il suo tetto.
+   *
+   * Il tetto e' `baseline +60%` OPPURE `+1,5 ms`, il piu' generoso. Su una
+   * baseline piccola vince il pavimento assoluto, enorme in rapporto: 0,18 ms di
+   * baseline con tetto 1,68 sono 9,3 volte se stessa, contro le 3,0 di una rotta
+   * da 0,75. Il metro piu' permissivo della corsa e' proprio il giudice.
+   *
+   * 2026-08-15, prima corsa su CI (prima il job si fermava su `check:deadcode`,
+   * `bash -e`): il runner ha fatto `dispatch_capacity` 0,87 ms = 4,8x senza far
+   * scattare la calibrazione (0,87 < 1,68), mentre `all_boards_tasks` a 4,1x, MENO
+   * di quanto la macchina si fosse allargata, e' uscita rossa. 2,5x e non 1,6x:
+   * sotto, una macchina un po' piu' lenta deve ancora dare un rosso.
+   *
+   * NON risolve il fondo: la baseline viene da un M2 Max e il runner e' una VM
+   * condivisa, quindi in CI uscira' quasi sempre 2. E' onesto, non e' protezione:
+   * per quella serve una baseline registrata SUL runner e scelta per macchina,
+   * come fa la sonda della memoria coi suoi `memory-<piattaforma>-<data>.json`.
+   */
+  const RAPPORTO_MAX = 2.5;
+  const rapporto = baselineMs > 0 ? measuredMs / baselineMs : 0;
+  if (rapporto > RAPPORTO_MAX) {
+    return { measuredMs, capMs: baselineMs * RAPPORTO_MAX, baselineMs };
+  }
+  return null;
 }
 
 export interface Corpus {

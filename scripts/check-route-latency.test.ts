@@ -166,6 +166,25 @@ describe("il tubo e' il metro: quando salta lui, non si misura niente", () => {
     expect(calibrationOutOfScale(at({ [CALIBRATION_KEY]: cap + 0.01 }), baseline)).not.toBeNull();
   });
 
+  test("il metro si legge anche in RAPPORTO: il caso vero della CI del 15/08", () => {
+    // I numeri sono quelli del runner, riscalati sulla baseline finta di questo
+    // file. Su CI: dispatch_capacity 0,87 contro baseline 0,18 = 4,8x, sotto il
+    // suo tetto di 1,68 perche' il pavimento assoluto di 1,5 ms su una baseline
+    // piccola concede 9,3 volte se stessa. Nella stessa corsa all_boards_tasks
+    // faceva 4,1x ed e' uscita rossa: il cancello accusava il prodotto di un
+    // rallentamento MINORE di quello che il suo stesso metro dichiarava.
+    //
+    // Qui: baseline del tubo = 1 ms, tetto = 2,5 ms. A 2,6 ms il tubo e' 2,6x e
+    // deve scattare, anche se contro il tetto ci passerebbe per un soffio.
+    const cap = budgetMs(1, baseline.tolerance_pct, baseline.floor_ms);
+    expect(cap).toBe(2.5); // se cambia, i due numeri qui sotto vanno rifatti
+    const sopra = calibrationOutOfScale(at({ [CALIBRATION_KEY]: 2.6 }), baseline);
+    expect(sopra, "2,6x la baseline e' una macchina che si e' allargata, non un prodotto peggiorato").not.toBeNull();
+    // …e NON scatta appena sotto, altrimenti una rotta che peggiora da sola
+    // smetterebbe di uscire rossa, che e' il modo in cui questo cancello mente.
+    expect(calibrationOutOfScale(at({ [CALIBRATION_KEY]: 2.4 }), baseline)).toBeNull();
+  });
+
   test("una macchina lenta alza TUTTO, e la risposta e' 2 e non 1", () => {
     // La forma vera del guasto: ogni rotta gonfiata, tubo compreso. Prima
     // usciva 1 («regressione») su tre rotte; ora il tubo dice che non si misura.
